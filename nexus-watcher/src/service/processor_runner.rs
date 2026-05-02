@@ -1,4 +1,4 @@
-use crate::events::Moderation;
+use crate::events::EventContext;
 use crate::service::processor::EventProcessor;
 use crate::service::traits::{TEventProcessor, TEventProcessorRunner};
 use nexus_common::models::homeserver::Homeserver;
@@ -14,7 +14,7 @@ pub struct EventProcessorRunner {
     /// See [WatcherConfig::monitored_homeservers_limit]
     pub monitored_homeservers_limit: usize,
     pub tracer_name: String,
-    pub moderation: Arc<Moderation>,
+    pub context: Arc<EventContext>,
     pub shutdown_rx: Receiver<bool>,
     /// See [WatcherConfig::homeserver]
     pub default_homeserver: PubkyId,
@@ -27,11 +27,7 @@ impl EventProcessorRunner {
             limit: config.events_limit,
             monitored_homeservers_limit: config.monitored_homeservers_limit,
             tracer_name: config.stack.otlp.name.clone(),
-            moderation: Arc::new(Moderation {
-                id: config.moderation_id.clone(),
-                tags: config.moderated_tags.clone(),
-                files_path: config.stack.files_path.clone(),
-            }),
+            context: Arc::new(EventContext::from_config(config)),
             shutdown_rx,
             default_homeserver: config.homeserver.clone(),
         }
@@ -79,7 +75,7 @@ impl TEventProcessorRunner for EventProcessorRunner {
             homeserver,
             limit: self.limit,
             tracer_name: self.tracer_name.clone(),
-            moderation: self.moderation.clone(),
+            context: self.context.clone(),
             shutdown_rx: self.shutdown_rx.clone(),
         }))
     }

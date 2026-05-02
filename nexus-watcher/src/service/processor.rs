@@ -1,6 +1,6 @@
 use crate::events::handle;
 use crate::events::retry::event::RetryEvent;
-use crate::events::Moderation;
+use crate::events::EventContext;
 use crate::service::traits::TEventProcessor;
 use nexus_common::db::PubkyConnector;
 use nexus_common::models::event::{Event, EventProcessorError, EventType, ParseResult};
@@ -18,7 +18,7 @@ pub struct EventProcessor {
     /// See [WatcherConfig::events_limit]
     pub limit: u32,
     pub tracer_name: String,
-    pub moderation: Arc<Moderation>,
+    pub context: Arc<EventContext>,
     pub shutdown_rx: Receiver<bool>,
 }
 
@@ -198,7 +198,7 @@ impl EventProcessor {
     )]
     async fn handle_event(&self, event: &Event) -> Result<(), EventProcessorError> {
         let span = tracing::Span::current();
-        if let Err(e) = handle(event, self.moderation.clone()).await {
+        if let Err(e) = handle(event, self.context.clone()).await {
             span.record("otel.status_code", "ERROR");
             span.record("otel.status_message", tracing::field::display(&e));
 

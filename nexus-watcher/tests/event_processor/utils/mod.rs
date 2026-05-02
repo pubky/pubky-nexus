@@ -1,5 +1,5 @@
 use nexus_common::get_files_dir_test_pathbuf;
-use nexus_watcher::events::Moderation;
+use nexus_watcher::events::{EventContext, Moderation};
 use pubky_app_specs::PubkyId;
 
 pub mod watcher;
@@ -9,9 +9,12 @@ pub fn default_moderation_tests() -> Moderation {
     let id = PubkyId::try_from("uo7jgkykft4885n8cruizwy6khw71mnu5pq3ay9i8pw1ymcn85ko")
         .expect("Hardcoded test moderation key should be valid");
     let tags = Vec::from(["label_to_moderate".to_string()]);
-    Moderation {
-        id,
-        tags,
+    Moderation { id, tags }
+}
+
+pub fn default_event_context_tests() -> EventContext {
+    EventContext {
+        moderation: default_moderation_tests(),
         files_path: get_files_dir_test_pathbuf(),
     }
 }

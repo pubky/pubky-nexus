@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::Path;
 
 use crate::events::handlers;
 use nexus_common::models::event::EventProcessorError;
@@ -11,11 +11,6 @@ pub struct Moderation {
 
     /// Tags to be moderated (tagged content is deleted)
     pub tags: Vec<String>,
-
-    /// Nexus-local directory path where certain events may store data on Nexus.
-    ///
-    /// Moderation may trigger the deletion of such data for specific events.
-    pub files_path: PathBuf,
 }
 
 impl Moderation {
@@ -27,6 +22,7 @@ impl Moderation {
     pub async fn apply_moderation(
         &self,
         moderator_tag: PubkyAppTag,
+        files_path: &Path,
     ) -> Result<(), EventProcessorError> {
         // Parse the embeded URI to extract author_id and post_id using parse_tagged_post_uri
         let parsed_uri = ParsedUri::try_from(moderator_tag.uri.as_str())
@@ -64,7 +60,7 @@ impl Moderation {
                     "Moderation tag '{}' detected. Deleting file {}:{}",
                     moderator_tag.label, user_id, file_id
                 );
-                handlers::file::del(&user_id, file_id, &self.files_path).await
+                handlers::file::del(&user_id, file_id, files_path).await
             }
             _ => Ok(()),
         }

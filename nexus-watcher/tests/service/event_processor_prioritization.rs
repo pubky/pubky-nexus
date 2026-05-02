@@ -1,4 +1,4 @@
-use crate::event_processor::utils::default_moderation_tests;
+use crate::event_processor::utils::default_event_context_tests;
 use crate::service::utils::HS_IDS;
 use crate::service::utils::{create_mock_event_processors, setup, MockEventProcessorRunner};
 use anyhow::Result;
@@ -20,7 +20,7 @@ async fn test_event_processor_runner_default_homeserver_prioritization() -> Resu
         limit: 1000,
         monitored_homeservers_limit: HS_IDS.len(),
         tracer_name: "test".to_string(),
-        moderation: Arc::new(default_moderation_tests()),
+        context: Arc::new(default_event_context_tests()),
     };
 
     // Persist the homeservers
