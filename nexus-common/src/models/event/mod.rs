@@ -3,7 +3,7 @@ mod errors;
 use crate::db::{kv::RedisResult, RedisOps};
 use pubky_app_specs::{ParsedUri, Resource};
 use serde::{Deserialize, Serialize};
-use std::{fmt, path::PathBuf};
+use std::fmt;
 use tracing::{debug, error};
 
 pub use errors::EventProcessorError;
@@ -62,9 +62,6 @@ pub struct Event {
     /// Parsed representation of [`Self::uri`].
     pub parsed_uri: ParsedUri,
 
-    /// Local files directory on Nexus used for file-backed events.
-    pub files_path: PathBuf,
-
     /// Original event line as received from the homeserver.
     event_line: String,
 }
@@ -80,11 +77,7 @@ impl AsRef<[String]> for Event {
 impl Event {
     /// Parse event based on event line returned by homeservers' /events endpoint.
     /// - line - event line string
-    /// - files_path - path to the directory where files are stored on nexus
-    pub fn parse_event(
-        line: &str,
-        files_path: PathBuf,
-    ) -> Result<ParseResult, EventProcessorError> {
+    pub fn parse_event(line: &str) -> Result<ParseResult, EventProcessorError> {
         debug!("New event: {}", line);
         let parts: Vec<&str> = line.split(' ').collect();
         if parts.len() != 2 {
@@ -131,7 +124,6 @@ impl Event {
             uri,
             event_type,
             parsed_uri,
-            files_path,
             event_line,
         }))
     }

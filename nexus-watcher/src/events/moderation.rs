@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::Path;
 
 use crate::events::handlers;
 use nexus_common::models::event::EventProcessorError;
@@ -8,19 +8,21 @@ use tracing::info;
 pub struct Moderation {
     /// Moderator trusted user id
     pub id: PubkyId,
+
     /// Tags to be moderated (tagged content is deleted)
     pub tags: Vec<String>,
 }
 
 impl Moderation {
-    pub async fn should_delete(&self, tag: &PubkyAppTag, tagger_id: PubkyId) -> bool {
-        tagger_id == self.id && self.tags.contains(&tag.label)
+    pub fn should_delete(&self, tag: &PubkyAppTag, tagger_id: &PubkyId) -> bool {
+        tagger_id == &self.id && self.tags.contains(&tag.label)
     }
 
     #[tracing::instrument(name = "moderation.apply", skip_all)]
     pub async fn apply_moderation(
+        &self,
         moderator_tag: PubkyAppTag,
-        files_path: PathBuf,
+        files_path: &Path,
     ) -> Result<(), EventProcessorError> {
         // Parse the embeded URI to extract author_id and post_id using parse_tagged_post_uri
         let parsed_uri = ParsedUri::try_from(moderator_tag.uri.as_str())

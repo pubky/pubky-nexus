@@ -4,16 +4,18 @@ use pubky_app_specs::{PubkyAppObject, Resource};
 use std::sync::Arc;
 use tracing::debug;
 
+mod context;
 pub mod handlers;
 mod moderation;
 pub mod retry;
 
+pub use context::EventContext;
 pub use moderation::Moderation;
 
-pub async fn handle(event: &Event, moderation: Arc<Moderation>) -> Result<(), EventProcessorError> {
+pub async fn handle(event: &Event, ctx: Arc<EventContext>) -> Result<(), EventProcessorError> {
     match event.event_type {
-        EventType::Put => handle_put_event(event, moderation).await,
-        EventType::Del => handle_del_event(event).await,
+        EventType::Put => handle_put_event(event, ctx).await,
+        EventType::Del => handle_del_event(event, ctx).await,
     }?;
 
     event.store_event().await?;
@@ -22,7 +24,7 @@ pub async fn handle(event: &Event, moderation: Arc<Moderation>) -> Result<(), Ev
 
 pub async fn handle_put_event(
     event: &Event,
-    moderation: Arc<Moderation>,
+    ctx: Arc<EventContext>,
 ) -> Result<(), EventProcessorError> {
     debug!("Handling PUT event for URI: {}", event.uri);
 
@@ -71,21 +73,17 @@ pub async fn handle_put_event(
             handlers::bookmark::sync_put(user_id, bookmark, bookmark_id).await?
         }
         (PubkyAppObject::Tag(tag), Resource::Tag(tag_id)) => {
-            if moderation.should_delete(&tag, user_id.clone()).await {
-                Moderation::apply_moderation(tag, event.files_path.clone()).await?
+            if ctx.moderation.should_delete(&tag, &user_id) {
+                ctx.moderation
+                    .apply_moderation(tag, &ctx.files_path)
+                    .await?
             } else {
                 handlers::tag::sync_put(tag, user_id, tag_id).await?
             }
         }
         (PubkyAppObject::File(file), Resource::File(file_id)) => {
-            handlers::file::sync_put(
-                file,
-                event.uri.clone(),
-                user_id,
-                file_id,
-                event.files_path.clone(),
-            )
-            .await?
+            let files_path = &ctx.files_path;
+            handlers::file::sync_put(file, event.uri.clone(), user_id, file_id, files_path).await?
         }
         other => debug!("Event type not handled, Resource: {other:?}"),
     }
@@ -93,7 +91,10 @@ pub async fn handle_put_event(
 }
 
 /// Handles a DEL event by dispatching to the appropriate handler.
-pub async fn handle_del_event(event: &Event) -> Result<(), EventProcessorError> {
+pub async fn handle_del_event(
+    event: &Event,
+    ctx: Arc<EventContext>,
+) -> Result<(), EventProcessorError> {
     debug!("Handling DEL event for URI: {}", event.uri);
 
     let user_id = event.parsed_uri.user_id.clone();
@@ -109,7 +110,7 @@ pub async fn handle_del_event(event: &Event) -> Result<(), EventProcessorError> 
         }
         Resource::Tag(tag_id) => handlers::tag::del(user_id, tag_id.clone()).await?,
         Resource::File(file_id) => {
-            handlers::file::del(&user_id, file_id.clone(), event.files_path.clone()).await?
+            handlers::file::del(&user_id, file_id.clone(), &ctx.files_path).await?
         }
         other => debug!("DEL event type not handled for resource: {other:?}"),
     }

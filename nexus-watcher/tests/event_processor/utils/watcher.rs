@@ -2,15 +2,13 @@ use anyhow::{anyhow, Error, Result};
 use base32::{encode, Alphabet};
 use chrono::Utc;
 use nexus_common::db::PubkyConnector;
-use nexus_common::get_files_dir_pathbuf;
-use nexus_common::get_files_dir_test_pathbuf;
 use nexus_common::models::event::{Event, EventProcessorError, ParseResult};
 use nexus_common::models::file::FileDetails;
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::traits::Collection;
 use nexus_common::{StackConfig, StackManager};
 use nexus_watcher::events::retry::event::RetryEvent;
-use nexus_watcher::events::{handle, Moderation};
+use nexus_watcher::events::{handle, EventContext};
 use nexus_watcher::service::EventProcessorRunner;
 use nexus_watcher::service::TEventProcessorRunner;
 use pubky::Keypair;
@@ -28,7 +26,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tracing::debug;
 
-use crate::event_processor::utils::default_moderation_tests;
+use crate::event_processor::utils::default_event_context_tests;
 
 static COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -76,16 +74,15 @@ impl WatcherTest {
     /// # Returns
     /// Returns a fully configured `EventProcessorRunner` ready for use in tests.
     fn create_test_event_processor_runner(default_homeserver: PubkyId) -> EventProcessorRunner {
-        let moderation = Arc::new(default_moderation_tests());
+        let context = Arc::new(default_event_context_tests());
 
         let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
 
         EventProcessorRunner {
             limit: 1000,
             monitored_homeservers_limit: 100,
-            files_path: get_files_dir_test_pathbuf(),
             tracer_name: "test".to_string(),
-            moderation,
+            context,
             shutdown_rx,
             default_homeserver,
         }
@@ -105,7 +102,7 @@ impl WatcherTest {
     /// Returns an instance of `Self` containing the configuration, homeserver,
     /// event processor, and other test setup details, including the shutdown receiver.
     pub async fn setup() -> Result<Self> {
-        if let Err(e) = StackManager::setup(&StackConfig::default()).await {
+        if let Err(e) = StackManager::setup(&StackConfig::test_default()).await {
             return Err(Error::msg(format!("could not initialise the stack, {e:?}")));
         }
 
@@ -345,10 +342,10 @@ impl WatcherTest {
 /// Throws an error if event parsing fails
 pub async fn retrieve_and_handle_event_line(
     event_line: &str,
-    moderation: Arc<Moderation>,
+    context: Arc<EventContext>,
 ) -> Result<(), EventProcessorError> {
-    match Event::parse_event(event_line, get_files_dir_pathbuf())? {
-        ParseResult::Parsed(event) => handle(&event, moderation).await,
+    match Event::parse_event(event_line)? {
+        ParseResult::Parsed(event) => handle(&event, context).await,
         ParseResult::Skipped => Ok(()),
 
         // Propagate UnrecognizedUri as error, because this test helper is only meant for standard event handling

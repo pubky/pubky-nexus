@@ -1,11 +1,10 @@
-use crate::events::Moderation;
+use crate::events::EventContext;
 use crate::service::processor::EventProcessor;
 use crate::service::traits::{TEventProcessor, TEventProcessorRunner};
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::types::DynError;
 use nexus_common::WatcherConfig;
 use pubky_app_specs::PubkyId;
-use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::watch::Receiver;
 
@@ -14,9 +13,8 @@ pub struct EventProcessorRunner {
     pub limit: u32,
     /// See [WatcherConfig::monitored_homeservers_limit]
     pub monitored_homeservers_limit: usize,
-    pub files_path: PathBuf,
     pub tracer_name: String,
-    pub moderation: Arc<Moderation>,
+    pub context: Arc<EventContext>,
     pub shutdown_rx: Receiver<bool>,
     /// See [WatcherConfig::homeserver]
     pub default_homeserver: PubkyId,
@@ -28,12 +26,8 @@ impl EventProcessorRunner {
         Self {
             limit: config.events_limit,
             monitored_homeservers_limit: config.monitored_homeservers_limit,
-            files_path: config.stack.files_path.clone(),
             tracer_name: config.stack.otlp.name.clone(),
-            moderation: Arc::new(Moderation {
-                id: config.moderation_id.clone(),
-                tags: config.moderated_tags.clone(),
-            }),
+            context: Arc::new(EventContext::from_config(config)),
             shutdown_rx,
             default_homeserver: config.homeserver.clone(),
         }
@@ -80,9 +74,8 @@ impl TEventProcessorRunner for EventProcessorRunner {
         Ok(Arc::new(EventProcessor {
             homeserver,
             limit: self.limit,
-            files_path: self.files_path.clone(),
             tracer_name: self.tracer_name.clone(),
-            moderation: self.moderation.clone(),
+            context: self.context.clone(),
             shutdown_rx: self.shutdown_rx.clone(),
         }))
     }

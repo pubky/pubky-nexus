@@ -1,4 +1,4 @@
-use crate::{db::DatabaseConfig, get_files_dir_pathbuf};
+use crate::{db::DatabaseConfig, get_files_dir_pathbuf, get_files_dir_test_pathbuf};
 use serde::{Deserialize, Deserializer, Serialize};
 use std::{fmt::Debug, path::PathBuf};
 
@@ -52,6 +52,15 @@ impl Default for StackConfig {
             files_path: get_files_dir_pathbuf(),
             otlp: OtlpConfig::default(),
             db: DatabaseConfig::default(),
+        }
+    }
+}
+
+impl StackConfig {
+    pub fn test_default() -> Self {
+        Self {
+            files_path: get_files_dir_test_pathbuf(),
+            ..Default::default()
         }
     }
 }
