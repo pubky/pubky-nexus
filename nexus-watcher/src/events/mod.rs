@@ -79,7 +79,7 @@ pub async fn handle_put_event(
             }
         }
         (PubkyAppObject::File(file), Resource::File(file_id)) => {
-            let files_path = moderation.files_path.clone();
+            let files_path = &moderation.files_path;
             handlers::file::sync_put(file, event.uri.clone(), user_id, file_id, files_path).await?
         }
         other => debug!("Event type not handled, Resource: {other:?}"),
