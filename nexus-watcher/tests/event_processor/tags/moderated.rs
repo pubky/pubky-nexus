@@ -17,7 +17,7 @@ async fn test_moderation_deletes_pubky_app_tag() -> Result<()> {
     let (_author_kp, author_id, post_id) = create_author_and_post(&mut test).await?;
     let (tagger_kp, tagger_id) = create_tagger(&mut test, "pubky-app").await?;
 
-    let label = "moderate-pubky-app-tag";
+    let label = "mod_pubky_app";
     let tag_uri = put_pubky_app_post_tag(
         &mut test, &tagger_kp, &tagger_id, &author_id, &post_id, label,
     )
@@ -43,7 +43,7 @@ async fn test_moderation_deletes_universal_tag() -> Result<()> {
     let (tagger_kp, tagger_id) = create_tagger(&mut test, "universal").await?;
 
     let target_uri = format!("https://example.com/moderate-universal/{tagger_id}");
-    let label = "moderate-universal-tag";
+    let label = "mod_universal";
     let (tag_uri, resource_id) = put_universal_resource_tag(
         &mut test,
         &tagger_kp,
@@ -76,7 +76,7 @@ async fn test_moderation_keeps_same_label_universal_tag_from_same_user() -> Resu
     let (_author_kp, author_id, post_id) = create_author_and_post(&mut test).await?;
     let (tagger_kp, tagger_id) = create_tagger(&mut test, "same-user").await?;
 
-    let label = "shared-moderation-label-same-user";
+    let label = "mod_same_user";
     let pubky_app_tag_uri = put_pubky_app_post_tag(
         &mut test, &tagger_kp, &tagger_id, &author_id, &post_id, label,
     )
@@ -116,7 +116,7 @@ async fn test_moderation_keeps_same_label_pubky_app_tag_from_different_user() ->
     let (universal_tagger_kp, universal_tagger_id) =
         create_tagger(&mut test, "different-user-universal").await?;
 
-    let label = "shared-moderation-label-different-user";
+    let label = "mod_diff_user";
     put_pubky_app_post_tag(
         &mut test,
         &pubky_tagger_kp,
@@ -156,14 +156,14 @@ async fn create_moderator(test: &mut WatcherTest) -> Result<Keypair> {
     let moderator_recovery_file =
         fs::read("./tests/event_processor/utils/moderator_key.pkarr").await?;
     let moderator_kp = recovery_file::decrypt_recovery_file(&moderator_recovery_file, "password")?;
-    let moderator = test_user("Watcher:TagModerate:Moderator", "moderator");
+    let moderator = test_user("Mod:Moderator", "moderator");
     test.create_user(&moderator_kp, &moderator).await?;
     Ok(moderator_kp)
 }
 
 async fn create_author_and_post(test: &mut WatcherTest) -> Result<(Keypair, String, String)> {
     let author_kp = Keypair::random();
-    let author = test_user("Watcher:TagModerate:Author", "author");
+    let author = test_user("Mod:Author", "author");
     let author_id = test.create_user(&author_kp, &author).await?;
     let post = PubkyAppPost {
         content: format!("Watcher:TagModerate:Post:{author_id}"),
@@ -178,7 +178,7 @@ async fn create_author_and_post(test: &mut WatcherTest) -> Result<(Keypair, Stri
 
 async fn create_tagger(test: &mut WatcherTest, suffix: &str) -> Result<(Keypair, String)> {
     let tagger_kp = Keypair::random();
-    let tagger = test_user(&format!("Watcher:TagModerate:Tagger:{suffix}"), suffix);
+    let tagger = test_user("Mod:Tagger", suffix);
     let tagger_id = test.create_user(&tagger_kp, &tagger).await?;
     Ok((tagger_kp, tagger_id))
 }
