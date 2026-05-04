@@ -22,6 +22,14 @@ impl Moderation {
         moderator_tag: PubkyAppTag,
         files_path: PathBuf,
     ) -> Result<(), EventProcessorError> {
+        if handlers::tag::is_tag_storage_uri(&moderator_tag.uri) {
+            info!(
+                "Moderation tag '{}' detected. Deleting moderated tag {}",
+                moderator_tag.label, moderator_tag.uri
+            );
+            return handlers::tag::del(&moderator_tag.uri).await;
+        }
+
         // Parse the embeded URI to extract author_id and post_id using parse_tagged_post_uri
         let parsed_uri = ParsedUri::try_from(moderator_tag.uri.as_str())
             .map_err(EventProcessorError::generic)?;
@@ -42,7 +50,7 @@ impl Moderation {
                     "Moderation tag '{}' detected. Deleting tag {}:{}",
                     moderator_tag.label, user_id, tag_id
                 );
-                handlers::tag::del(user_id, tag_id).await
+                handlers::tag::del(&moderator_tag.uri).await
             }
             Resource::User => {
                 // Delete the user profile and return the result
