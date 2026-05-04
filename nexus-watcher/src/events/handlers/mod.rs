@@ -3,6 +3,5 @@ pub mod file;
 pub mod follow;
 pub mod post;
 pub mod tag;
-pub mod universal_tag;
 pub mod user;
 pub mod utils;

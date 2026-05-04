@@ -1,7 +1,10 @@
 mod errors;
 
-use crate::db::{kv::RedisResult, RedisOps};
-use pubky_app_specs::{ParsedUri, Resource};
+use crate::{
+    db::{kv::RedisResult, RedisOps},
+    universal_tag::homeserver_parsed_uri::HomeserverParsedUri,
+};
+use pubky_app_specs::Resource;
 use serde::{Deserialize, Serialize};
 use std::{fmt, path::PathBuf};
 use tracing::{debug, error};
@@ -60,7 +63,7 @@ pub struct Event {
     pub event_type: EventType,
 
     /// Parsed representation of [`Self::uri`].
-    pub parsed_uri: ParsedUri,
+    pub parsed_uri: HomeserverParsedUri,
 
     /// Local files directory on Nexus used for file-backed events.
     pub files_path: PathBuf,
@@ -101,9 +104,11 @@ impl Event {
             ))),
         }?;
 
-        // Validate and parse the URI using pubky-app-specs
+        // Validate and parse the URI using HomeserverParsedUri
+        // This handles both standard pubky-app-specs URIs (pubky.app) and
+        // universal tag URIs from other apps (e.g., eventky.app, mapky)
         let uri = parts[1].to_string();
-        let parsed_uri = match ParsedUri::try_from(uri.as_str()) {
+        let homeserver_parsed_uri = match HomeserverParsedUri::try_from(uri.as_str()) {
             Ok(parsed) => parsed,
             Err(e) => {
                 let reason = e.to_string();
@@ -111,7 +116,9 @@ impl Event {
             }
         };
 
-        match parsed_uri.resource {
+        let resource = homeserver_parsed_uri.resource().clone();
+
+        match resource {
             // Unknown resource
             Resource::Unknown => {
                 return Err(EventProcessorError::InvalidEventLine(format!(
@@ -130,7 +137,7 @@ impl Event {
         Ok(ParseResult::Parsed(Event {
             uri,
             event_type,
-            parsed_uri,
+            parsed_uri: homeserver_parsed_uri,
             files_path,
             event_line,
         }))

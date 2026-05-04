@@ -106,6 +106,16 @@ pub fn delete_tag(user_id: &str, tag_id: &str, app: Option<&str>) -> Query {
     query
 }
 
+/// Removes the `HOSTED_BY` relationship from a user, if one exists.
+pub fn remove_user_homeserver(user_id: &str) -> Query {
+    Query::new(
+        "remove_user_homeserver",
+        "MATCH (u:User {id: $user_id})-[r:HOSTED_BY]->(:Homeserver)
+         DELETE r;",
+    )
+    .param("user_id", user_id.to_string())
+}
+
 /// Deletes a file node and all its relationships
 /// # Arguments
 /// * `owner_id` - The unique identifier of the user who owns the file

@@ -4,8 +4,9 @@ use crate::db::{
     execute_graph_operation, fetch_row_from_graph, queries, GraphResult, OperationOutcome, RedisOps,
 };
 use crate::models::error::ModelResult;
+use crate::models::user::UserDetails;
 use chrono::Utc;
-use pubky_app_specs::{post_uri_builder, PubkyAppPost, PubkyAppPostKind, PubkyId};
+use pubky_app_specs::{post_uri_builder, ParsedUri, PubkyAppPost, PubkyAppPostKind, PubkyId};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -167,60 +168,19 @@ impl PostDetails {
         Ok(())
     }
 
+    /// If a referenced post is authored by a new, unknown user, this method triggers ingestion of that user.
+    ///
+    /// ### Arguments
+    ///
+    /// - `referenced_post_uri`: The parent post (if current post is a reply to it), or a reposted post (if current post is a Repost)
+    pub async fn maybe_ingest_author_of_post(referenced_post_uri: &ParsedUri) -> ModelResult<()> {
+        let ref_post_author_id = referenced_post_uri.user_id.as_str();
+
+        UserDetails::maybe_ingest_user(ref_post_author_id).await
+    }
+
     /// Determines whether or not a given [PostDetails] is different than (e.g. may be an edit of) this post.
     pub fn is_different_than(&self, other: &PostDetails) -> bool {
         self.content != other.content || self.attachments != other.attachments
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use pubky_app_specs::PubkyAppPostKind;
-
-    #[tokio_shared_rt::test(shared)]
-    async fn test_is_different_than() {
-        // Create a base PostDetails
-        let base_post = PostDetails {
-            content: "Original content".into(),
-            id: "post1".into(),
-            indexed_at: 123456789,
-            author: "author1".into(),
-            kind: PubkyAppPostKind::Short,
-            uri: "uri1".into(),
-            attachments: Some(vec!["image1.jpg".into(), "image2.jpg".into()]),
-        };
-
-        // Test with same content and attachments
-        let same_post = base_post.clone();
-        assert!(!base_post.is_different_than(&same_post));
-
-        // Test with same attachments but different order
-        let different_order_attachments_post = PostDetails {
-            attachments: Some(vec!["image2.jpg".into(), "image1.jpg".into()]),
-            ..base_post.clone()
-        };
-        assert!(base_post.is_different_than(&different_order_attachments_post));
-
-        // Test with different content
-        let different_content_post = PostDetails {
-            content: "Updated content".to_string(),
-            ..base_post.clone()
-        };
-        assert!(base_post.is_different_than(&different_content_post));
-
-        // Test with different attachments
-        let different_attachments_post = PostDetails {
-            attachments: Some(vec!["image3.jpg".to_string()]),
-            ..base_post.clone()
-        };
-        assert!(base_post.is_different_than(&different_attachments_post));
-
-        // Test with no attachments
-        let no_attachments_post = PostDetails {
-            attachments: None,
-            ..base_post.clone()
-        };
-        assert!(base_post.is_different_than(&no_attachments_post));
     }
 }

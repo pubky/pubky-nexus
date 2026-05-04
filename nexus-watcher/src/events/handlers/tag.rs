@@ -1,22 +1,23 @@
-use crate::events::retry::event::RetryEvent;
 use crate::events::EventProcessorError;
-
 use chrono::Utc;
 use nexus_common::db::kv::{RedisResult, ScoreAction};
 use nexus_common::db::{fetch_row_from_graph, queries, OperationOutcome, RedisOps};
-use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::notification::Notification;
 use nexus_common::models::post::search::PostsByTagSearch;
+use nexus_common::models::post::PostDetails;
 use nexus_common::models::post::{PostCounts, PostStream};
 use nexus_common::models::resource::stream::ResourceStream;
 use nexus_common::models::resource::tag::TagResource;
-use nexus_common::models::resource::{classify_uri, normalize_uri, resource_id, UriCategory};
 use nexus_common::models::tag::post::TagPost;
 use nexus_common::models::tag::search::TagSearch;
 use nexus_common::models::tag::traits::{TagCollection, TaggersCollection};
 use nexus_common::models::tag::user::TagUser;
 use nexus_common::models::user::UserCounts;
+use nexus_common::models::user::UserDetails;
 use nexus_common::types::Pagination;
+use nexus_common::universal_tag::normalize::{
+    classify_uri, normalize_uri, resource_id, UriCategory,
+};
 use pubky_app_specs::{post_uri_builder, ParsedUri, PubkyAppTag, PubkyId, Resource};
 use tracing::debug;
 
@@ -61,13 +62,9 @@ pub async fn sync_put_resource(
     tag_id: String,
     app: String,
 ) -> Result<(), EventProcessorError> {
-    debug!(
-        "Indexing resource tag: {} -> {} (app={})",
-        tagger_id, tag_id, app
-    );
+    debug!("Indexing resource tag: {tagger_id} -> {tag_id} (app={app})",);
 
-    let category = classify_uri(&tag.uri);
-    match category {
+    match classify_uri(&tag.uri) {
         UriCategory::InternalKnown => {
             // The tagged URI is a known Post/User — delegate to existing flow
             sync_put(tag, tagger_id, tag_id).await
@@ -227,14 +224,15 @@ async fn put_sync_post(
             Ok(())
         }
         OperationOutcome::MissingDependency => {
-            // Ensure that dependencies follow the same format as the RetryManager keys
-            let dependency = vec![format!("{author_id}:posts:{post_id}")];
             if let Ok(referenced_post_uri) = ParsedUri::try_from(post_uri) {
-                if let Err(e) = Homeserver::maybe_ingest_for_post(&referenced_post_uri).await {
-                    tracing::error!("Failed to ingest homeserver: {e}");
+                if let Err(e) = PostDetails::maybe_ingest_author_of_post(&referenced_post_uri).await
+                {
+                    tracing::error!("Failed to ingest user: {e}");
                 }
             }
-            Err(EventProcessorError::MissingDependency { dependency })
+            Err(EventProcessorError::MissingDependency {
+                dependency: vec![post_uri.to_owned()],
+            })
         }
         OperationOutcome::CreatedOrDeleted => {
             // SAVE TO INDEXES
@@ -345,12 +343,15 @@ async fn put_sync_user(
             Ok(())
         }
         OperationOutcome::MissingDependency => {
-            if let Err(e) = Homeserver::maybe_ingest_for_user(tagged_user_id.as_str()).await {
-                tracing::error!("Failed to ingest homeserver: {e}");
+            if let Err(e) = UserDetails::maybe_ingest_user(tagged_user_id.as_str()).await {
+                tracing::error!("Failed to ingest user: {e}");
             }
 
-            let key = RetryEvent::generate_index_key_from_uri(&tagged_user_id.to_uri());
-            let dependency = vec![key];
+            let tagged_uri = tagged_user_id
+                .to_uri()
+                .try_to_uri_str()
+                .map_err(EventProcessorError::generic)?;
+            let dependency = vec![tagged_uri];
             Err(EventProcessorError::MissingDependency { dependency })
         }
         OperationOutcome::CreatedOrDeleted => {

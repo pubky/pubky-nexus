@@ -9,7 +9,7 @@ mod tags;
 mod view;
 
 pub use counts::UserCounts;
-pub use details::UserDetails;
+pub use details::{UserDetails, USER_HS_CURSOR};
 pub use influencers::Influencers;
 pub use relationship::Relationship;
 pub use search::{UserSearch, USER_NAME_KEY_PARTS};

@@ -4,25 +4,40 @@ use crate::service::utils::{create_mock_event_processors, setup, MockEventProces
 use anyhow::Result;
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::types::DynError;
-use nexus_watcher::service::EventProcessorRunner;
+use nexus_watcher::events::retry::{InitialBackoff, RedisRetryStore, RetryScheduler, RetryStore};
+use nexus_watcher::events::{DefaultEventHandler, EventHandler};
+use nexus_watcher::service::backoff::HomeserverBackoff;
+use nexus_watcher::service::KeyBasedEventProcessorRunner;
 use nexus_watcher::service::TEventProcessorRunner;
 use pubky_app_specs::PubkyId;
 use std::path::PathBuf;
 use std::sync::Arc;
+use tokio::sync::Mutex;
 
 #[tokio_shared_rt::test(shared)]
-async fn test_event_processor_runner_default_homeserver_prioritization() -> Result<(), DynError> {
+async fn test_event_processor_runner_default_homeserver_excluded() -> Result<(), DynError> {
     // Initialize the test
     setup().await?;
 
-    let runner = EventProcessorRunner {
-        default_homeserver: PubkyId::try_from(HS_IDS[3]).unwrap(),
-        shutdown_rx: tokio::sync::watch::channel(false).1,
+    let event_handler: Arc<dyn EventHandler> =
+        Arc::new(DefaultEventHandler::new(default_moderation_tests()));
+    let store: Arc<dyn RetryStore> = Arc::new(RedisRetryStore::new());
+    let retry_scheduler = Arc::new(RetryScheduler::new(
+        store,
+        InitialBackoff {
+            missing_dep_ms: 60_000,
+            transient_ms: 10_000,
+        },
+    ));
+    let runner = KeyBasedEventProcessorRunner {
         limit: 1000,
-        monitored_homeservers_limit: HS_IDS.len(),
+        monitored_hs_limit: HS_IDS.len(),
         files_path: PathBuf::from("/tmp/nexus-watcher-test"),
-        tracer_name: "test".to_string(),
-        moderation: Arc::new(default_moderation_tests()),
+        event_handler,
+        shutdown_rx: tokio::sync::watch::channel(false).1,
+        default_homeserver: PubkyId::try_from(HS_IDS[3]).unwrap(),
+        backoff: Mutex::new(HomeserverBackoff::default()),
+        retry_scheduler,
     };
 
     // Persist the homeservers
@@ -31,16 +46,18 @@ async fn test_event_processor_runner_default_homeserver_prioritization() -> Resu
         hs.put_to_graph().await.unwrap();
     }
 
-    // Prioritize the default homeserver
-    let hs_ids = runner.homeservers_by_priority().await?;
-    assert_eq!(hs_ids[0], HS_IDS[3]);
+    // The default homeserver should be excluded from the list
+    let hs_ids = runner.pre_run().await?;
+    assert!(
+        !hs_ids.contains(&HS_IDS[3].to_string()),
+        "Default homeserver should be excluded from pre_run"
+    );
 
     Ok(())
 }
 
 #[tokio_shared_rt::test(shared)]
-async fn test_mock_event_processor_runner_default_homeserver_prioritization() -> Result<(), DynError>
-{
+async fn test_mock_event_processor_runner_default_homeserver_excluded() -> Result<(), DynError> {
     // Initialize the test
     setup().await?;
 
@@ -51,7 +68,7 @@ async fn test_mock_event_processor_runner_default_homeserver_prioritization() ->
 
     let runner = MockEventProcessorRunner {
         event_processors,
-        monitored_homeservers_limit: 100,
+        monitored_hs_limit: 100,
         shutdown_rx: tokio::sync::watch::channel(false).1,
     };
 
@@ -61,9 +78,12 @@ async fn test_mock_event_processor_runner_default_homeserver_prioritization() ->
         hs.put_to_graph().await.unwrap();
     }
 
-    // Prioritize the default homeserver
-    let hs_ids = runner.homeservers_by_priority().await?;
-    assert_eq!(hs_ids[0], HS_IDS[0]);
+    // The default homeserver (HS_IDS[0]) should be excluded from the list
+    let hs_ids = runner.hs_by_priority().await?;
+    assert!(
+        !hs_ids.contains(&HS_IDS[0].to_string()),
+        "Default homeserver should be excluded from hs_by_priority"
+    );
 
     Ok(())
 }

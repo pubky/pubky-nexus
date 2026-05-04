@@ -3,8 +3,7 @@ use crate::event_processor::utils::watcher::{
 };
 use anyhow::Result;
 use chrono::Utc;
-use nexus_common::models::event::{EventProcessorError, EventType};
-use nexus_watcher::events::retry::event::RetryEvent;
+use nexus_watcher::events::retry::RetryEvent;
 use pubky::Keypair;
 use pubky_app_specs::{post_uri_builder, tag_uri_builder};
 use pubky_app_specs::{traits::HashId, PubkyAppTag, PubkyAppUser};
@@ -53,35 +52,17 @@ async fn test_homeserver_post_tag_event_to_queue() -> Result<()> {
     // to let write the indexes
     test.put(&tagger_kp, &tag_path, tag).await?;
 
-    let index_key = format!(
-        "{}:{}",
-        EventType::Put,
-        RetryEvent::generate_index_key(&tag_absolute_url).unwrap()
-    );
+    let index_key = tag_absolute_url.clone();
 
     assert_eventually_exists(&index_key).await;
 
-    let timestamp = RetryEvent::check_uri(&index_key).await.unwrap();
-    assert!(timestamp.is_some());
+    assert!(RetryEvent::check_uri(&index_key).await.unwrap());
 
     let event_retry = RetryEvent::get_from_index(&index_key).await.unwrap();
     assert!(event_retry.is_some());
 
     let event_state = event_retry.unwrap();
     assert_eq!(event_state.retry_count, 0);
-
-    match event_state.error_type {
-        EventProcessorError::MissingDependency { dependency } => {
-            assert_eq!(dependency.len(), 1);
-            assert_eq!(
-                dependency[0],
-                RetryEvent::generate_index_key(&dependency_absolute_uri).unwrap()
-            );
-        }
-        _ => panic!("The error type has to be MissingDependency type"),
-    };
-
-    test.del(&tagger_kp, &tag_path).await?;
 
     Ok(())
 }

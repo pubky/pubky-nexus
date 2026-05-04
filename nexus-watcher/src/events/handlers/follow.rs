@@ -1,12 +1,11 @@
-use crate::events::retry::event::RetryEvent;
 use crate::events::EventProcessorError;
 
 use nexus_common::db::kv::JsonAction;
 use nexus_common::db::OperationOutcome;
 use nexus_common::models::follow::{Followers, Following, Friends, UserFollows};
-use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::notification::Notification;
 use nexus_common::models::user::UserCounts;
+use nexus_common::models::user::UserDetails;
 use pubky_app_specs::PubkyId;
 use tracing::debug;
 
@@ -36,12 +35,15 @@ pub async fn sync_put(
             return Ok(());
         }
         OperationOutcome::MissingDependency => {
-            if let Err(e) = Homeserver::maybe_ingest_for_user(followee_id.as_str()).await {
-                tracing::error!("Failed to ingest homeserver: {e}");
+            if let Err(e) = UserDetails::maybe_ingest_user(followee_id.as_str()).await {
+                tracing::error!("Failed to ingest user: {e}");
             }
 
-            let key = RetryEvent::generate_index_key_from_uri(&followee_id.to_uri());
-            let dependency = vec![key];
+            let followee_uri = followee_id
+                .to_uri()
+                .try_to_uri_str()
+                .map_err(EventProcessorError::generic)?;
+            let dependency = vec![followee_uri];
             return Err(EventProcessorError::MissingDependency { dependency });
         }
         // The relationship did not exist, create all related indexes
