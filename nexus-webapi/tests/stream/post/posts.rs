@@ -342,7 +342,7 @@ async fn test_stream_posts_without_attachment_metadata() -> Result<()> {
 async fn test_stream_posts_by_ids_with_attachment_metadata() -> Result<()> {
     let post_key = format!("{CAIRO_USER}:{POST_H}");
     let request_body = json!({
-        "post_ids": post_key,
+        "post_ids": [post_key],
         "include_attachment_metadata": true
     });
 

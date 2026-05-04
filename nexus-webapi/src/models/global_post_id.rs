@@ -17,7 +17,7 @@ define_bounded_vec!(
     element_type: GlobalPostId,
     min: 1,
     max: 100,
-    serialize_as: comma_separated_string,
+    serialize_as: json_array,
 );
 
 impl fmt::Display for GlobalPostId {
