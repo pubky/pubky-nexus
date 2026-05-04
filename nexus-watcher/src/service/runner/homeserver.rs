@@ -12,7 +12,7 @@ use tokio::sync::watch::Receiver;
 
 pub struct HsEventProcessorRunner {
     /// See [WatcherConfig::events_limit]
-    pub limit: u32,
+    pub limit: u16,
     pub files_path: PathBuf,
     pub event_handler: Arc<dyn EventHandler>,
     pub shutdown_rx: Receiver<bool>,

@@ -4,7 +4,7 @@ use super::file::ConfigLoader;
 use super::{default_stack, DaemonConfig, StackConfig};
 use async_trait::async_trait;
 use pubky_app_specs::PubkyId;
-use serde::{Deserialize, Serialize};
+use serde::{de::Error, Deserialize, Deserializer, Serialize};
 use std::fmt::Debug;
 
 pub const TESTNET: bool = false;
@@ -12,7 +12,13 @@ pub const DEFAULT_TESTNET_HOST: &str = "localhost";
 // Testnet homeserver key
 pub const HOMESERVER_PUBKY: &str = "8pinxxgqs41n4aididenw5apqp1urfmzdztr8jt4abrkdn435ewo";
 /// Default for [WatcherConfig::events_limit]
-pub const DEFAULT_EVENTS_LIMIT: u32 = 1_000;
+pub const DEFAULT_EVENTS_LIMIT: u16 = 1_000;
+/// Default for [WatcherConfig::key_based_events_limit]
+pub const DEFAULT_KEY_BASED_EVENTS_LIMIT: u16 = 50;
+/// Upper bound for [WatcherConfig::events_limit]
+pub const MAX_EVENTS_LIMIT: u16 = 1_000;
+/// Upper bound for [WatcherConfig::key_based_events_limit]
+pub const MAX_KEY_BASED_EVENTS_LIMIT: u16 = 100;
 /// Default for [WatcherConfig::monitored_homeservers_limit]
 pub const DEFAULT_MONITORED_HOMESERVERS_LIMIT: usize = 50;
 /// Default for [WatcherConfig::watcher_sleep]
@@ -107,8 +113,18 @@ pub struct WatcherConfig {
     /// Default homeserver. Other homeservers may be ingested in addition, but this one is prioritized.
     pub homeserver: PubkyId,
 
-    /// Maximum number of events to fetch per run from each homeserver
-    pub events_limit: u32,
+    /// Maximum number of events to fetch per run from the default homeserver.
+    /// Must not exceed [MAX_EVENTS_LIMIT].
+    #[serde(deserialize_with = "deserialize_events_limit")]
+    pub events_limit: u16,
+
+    /// Maximum events per user per run for key-based (non-default) homeservers.
+    /// Must not exceed [MAX_KEY_BASED_EVENTS_LIMIT].
+    #[serde(
+        default = "default_key_based_events_limit",
+        deserialize_with = "deserialize_key_based_events_limit"
+    )]
+    pub key_based_events_limit: u16,
 
     /// Maximum number of monitored homeservers
     pub monitored_homeservers_limit: usize,
@@ -158,6 +174,7 @@ impl Default for WatcherConfig {
             testnet_host: DEFAULT_TESTNET_HOST.to_string(),
             homeserver,
             events_limit: DEFAULT_EVENTS_LIMIT,
+            key_based_events_limit: DEFAULT_KEY_BASED_EVENTS_LIMIT,
             monitored_homeservers_limit: DEFAULT_MONITORED_HOMESERVERS_LIMIT,
             watcher_sleep: DEFAULT_WATCHER_SLEEP,
             hs_resolver_sleep: DEFAULT_HS_RESOLVER_SLEEP,
@@ -173,6 +190,37 @@ impl Default for WatcherConfig {
 
 fn default_hs_resolver_sleep() -> u64 {
     DEFAULT_HS_RESOLVER_SLEEP
+}
+
+fn default_key_based_events_limit() -> u16 {
+    DEFAULT_KEY_BASED_EVENTS_LIMIT
+}
+
+fn deserialize_events_limit<'de, D>(deserializer: D) -> Result<u16, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let val = u16::deserialize(deserializer)?;
+    if val > MAX_EVENTS_LIMIT {
+        let err_msg = format!("events_limit ({val}) exceeds max ({MAX_EVENTS_LIMIT})");
+        Err(D::Error::custom(err_msg))
+    } else {
+        Ok(val)
+    }
+}
+
+fn deserialize_key_based_events_limit<'de, D>(deserializer: D) -> Result<u16, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let val = u16::deserialize(deserializer)?;
+    if val > MAX_KEY_BASED_EVENTS_LIMIT {
+        let err_msg =
+            format!("key_based_events_limit ({val}) exceeds max ({MAX_KEY_BASED_EVENTS_LIMIT})");
+        Err(D::Error::custom(err_msg))
+    } else {
+        Ok(val)
+    }
 }
 
 fn default_hs_resolver_ttl() -> u64 {

@@ -1,7 +1,7 @@
 use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
 use nexus_common::db::kv::RedisOps;
-use nexus_common::models::user::{UserDetails, USER_HS_CURSOR};
+use nexus_common::models::user::{user_hs_cursor_key, UserDetails};
 use pubky::PublicKey;
 
 pub async fn create_external_test_homeserver(test: &mut WatcherTest) -> Result<PublicKey> {
@@ -22,8 +22,8 @@ pub async fn assert_user_ingested(user_id: &str, hs_pk: &PublicKey) {
         "User {user_id} should be ingested in graph/cache"
     );
 
-    let cursor_key = [&USER_HS_CURSOR[..], &[user_id]].concat();
-    let cursor = UserDetails::check_sorted_set_member(None, &cursor_key, &[&hs_id])
+    let key = user_hs_cursor_key(user_id);
+    let cursor = UserDetails::check_sorted_set_member(None, &key, &[&hs_id])
         .await
         .expect("check_sorted_set_member failed");
     assert!(

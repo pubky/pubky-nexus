@@ -28,6 +28,13 @@ pub enum EventProcessorError {
     #[error("InvalidEventLine: {0}")]
     InvalidEventLine(String),
 
+    #[error("HS returned an event for different user than expected: hs_id={hs_id}, expected={expected_user_id}, received={event_user_id}")]
+    UserIdMismatch {
+        hs_id: String,
+        expected_user_id: String,
+        event_user_id: String,
+    },
+
     /// The Pubky client could not resolve the pubky
     #[error("PubkyClientError: {0}")]
     PubkyClientError(#[from] PubkyClientError),
@@ -147,6 +154,7 @@ impl EventProcessorError {
             Self::PubkyClientError(err) => err.is_retryable(),
             Self::InvalidEventLine(_) => false,
             Self::SkipIndexing => false,
+            Self::UserIdMismatch { .. } => false,
             _ => true,
         }
     }
