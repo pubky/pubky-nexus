@@ -8,6 +8,11 @@ use std::sync::Mutex;
 ///
 /// If `target_uri_substring` is set, `result` only applies to events whose URI contains
 /// the substring; all other events return `Ok(())`.
+///
+/// In principle, some retry tests could be written as integration tests using [WatcherTest],
+/// real local DHT homeservers, and real events. That would test more of the full pipeline.
+/// However, [MockEventHandler] makes it possible to retry processor tests deterministically
+/// force exact `handle()` outcomes, especially cases that are hard or flaky to create with real HSs.
 pub struct MockEventHandler {
     pub result: Result<(), EventProcessorError>,
     pub target_uri_substring: Option<String>,
