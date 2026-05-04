@@ -8,7 +8,6 @@ pub mod post_id;
 pub mod pubky_id;
 pub mod resource_id;
 pub mod tag_label;
-pub mod tag_prefix;
 pub mod user_id_prefix;
 pub mod username_prefix;
 
@@ -19,7 +18,6 @@ pub use post_id::{PostId, PostIds};
 pub use pubky_id::PubkyId;
 pub use resource_id::ResourceId;
 pub use tag_label::TagLabel;
-pub use tag_prefix::TagPrefix;
 crate::define_bounded_vec!(
     name: Tags,
     element_type: String,

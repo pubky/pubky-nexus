@@ -1,4 +1,4 @@
-use crate::models::TagPrefix;
+use crate::models::TagLabel;
 use crate::routes::v0::endpoints::SEARCH_TAGS_BY_PREFIX_ROUTE;
 use crate::Result;
 use axum::extract::Query;
@@ -21,7 +21,7 @@ pub struct SearchTagsQuery {
     description = "Search tags by prefix",
     tag = "Search",
     params(
-        ("prefix" = TagPrefix, Path, description = "Tag name prefix"),
+        ("prefix" = TagLabel, Path, description = "Tag name prefix"),
         ("skip" = Option<usize>, Query, description = "Skip N results"),
         ("limit" = Option<usize>, Query, description = "Limit the number of results")
     ),
@@ -31,7 +31,7 @@ pub struct SearchTagsQuery {
     )
 )]
 pub async fn search_tags_by_prefix_handler(
-    prefix: TagPrefix,
+    prefix: TagLabel,
     Query(query): Query<SearchTagsQuery>,
 ) -> Result<Json<Vec<TagSearch>>> {
     let mut pagination = query.pagination;
@@ -50,5 +50,5 @@ pub async fn search_tags_by_prefix_handler(
 }
 
 #[derive(OpenApi)]
-#[openapi(paths(search_tags_by_prefix_handler), components(schemas(TagPrefix)))]
+#[openapi(paths(search_tags_by_prefix_handler), components(schemas(TagLabel)))]
 pub struct SearchTagsByPrefixApiDocs;
