@@ -22,6 +22,13 @@ use tracing::debug;
 
 use super::utils::post_relationships_is_reply;
 
+#[derive(Debug)]
+struct TagStorageUri {
+    user_id: PubkyId,
+    tag_id: String,
+    app: Option<String>,
+}
+
 #[tracing::instrument(name = "tag.put", skip_all, fields(user_id = %tagger_id, tag_id = %tag_id))]
 pub async fn sync_put(
     tag: PubkyAppTag,
@@ -392,12 +399,22 @@ async fn put_sync_user(
     }
 }
 
-#[tracing::instrument(name = "tag.del", skip_all, fields(user_id = %user_id, tag_id = %tag_id))]
-pub async fn del(user_id: PubkyId, tag_id: String) -> Result<(), EventProcessorError> {
-    debug!("Deleting tag: {} -> {}", user_id, tag_id);
+#[tracing::instrument(name = "tag.del", skip_all, fields(tag_uri = %tag_uri))]
+pub async fn del(tag_uri: &str) -> Result<(), EventProcessorError> {
+    let tag_storage_uri = parse_tag_storage_uri(tag_uri)?;
+    let user_id = tag_storage_uri.user_id;
+    let tag_id = tag_storage_uri.tag_id;
+    let app = tag_storage_uri.app;
+
+    debug!("Deleting tag: {} -> {} (app={app:?})", user_id, tag_id);
 
     // 1. Read target from graph WITHOUT deleting the edge
-    let Some(row) = fetch_row_from_graph(queries::get::get_tag_target(&user_id, &tag_id)).await?
+    let Some(row) = fetch_row_from_graph(queries::get::get_tag_target(
+        &user_id,
+        &tag_id,
+        app.as_deref(),
+    ))
+    .await?
     else {
         // Edge already gone (fully completed on a prior attempt) — idempotent no-op
         return Ok(());
@@ -447,6 +464,59 @@ pub async fn del(user_id: PubkyId, tag_id: String) -> Result<(), EventProcessorE
     fetch_row_from_graph(queries::del::delete_tag(&user_id, &tag_id, app.as_deref())).await?;
 
     Ok(())
+}
+
+pub fn is_tag_storage_uri(tag_uri: &str) -> bool {
+    parse_tag_storage_uri(tag_uri).is_ok()
+}
+
+fn parse_tag_storage_uri(tag_uri: &str) -> Result<TagStorageUri, EventProcessorError> {
+    if let Ok(parsed_uri) = ParsedUri::try_from(tag_uri) {
+        return match parsed_uri.resource {
+            Resource::Tag(tag_id) => Ok(TagStorageUri {
+                user_id: parsed_uri.user_id,
+                tag_id,
+                app: None,
+            }),
+            other => Err(EventProcessorError::generic(format!(
+                "Expected tag URI, found resource: {other:?}"
+            ))),
+        };
+    }
+
+    let rest = tag_uri
+        .get(..8)
+        .filter(|prefix| prefix.eq_ignore_ascii_case("pubky://"))
+        .and_then(|_| tag_uri.get(8..))
+        .ok_or_else(|| EventProcessorError::generic(format!("Invalid tag URI: {tag_uri}")))?;
+
+    let slash_pos = rest
+        .find('/')
+        .ok_or_else(|| EventProcessorError::generic(format!("Invalid tag URI: {tag_uri}")))?;
+    let user_id_str = &rest[..slash_pos];
+    let path = rest[slash_pos..]
+        .strip_prefix("/pub/")
+        .ok_or_else(|| EventProcessorError::generic(format!("Invalid tag URI: {tag_uri}")))?;
+    let tags_pos = path
+        .find("/tags/")
+        .ok_or_else(|| EventProcessorError::generic(format!("Invalid tag URI: {tag_uri}")))?;
+    let app = &path[..tags_pos];
+    let tag_id = &path[tags_pos + 6..];
+
+    if app.is_empty() || app.contains('/') || tag_id.is_empty() || tag_id.contains('/') {
+        return Err(EventProcessorError::generic(format!(
+            "Invalid tag URI: {tag_uri}"
+        )));
+    }
+
+    let user_id = PubkyId::try_from(user_id_str).map_err(EventProcessorError::generic)?;
+    let app = (app != "pubky.app").then(|| app.to_string());
+
+    Ok(TagStorageUri {
+        user_id,
+        tag_id: tag_id.to_string(),
+        app,
+    })
 }
 
 async fn del_sync_user(
