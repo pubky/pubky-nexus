@@ -1,7 +1,7 @@
 use crate::{
     post::{CAIRO_USER, ENCRYPTION_TAG, ROOT_PATH},
     stream::post::{kind::DETROIT, POST_H, TAG_LABEL_2},
-    utils::{get_request, invalid_get_request},
+    utils::{get_request, invalid_get_request, BodyType},
 };
 use anyhow::Result;
 use axum::http::StatusCode;
@@ -46,6 +46,7 @@ async fn test_get_post_view() -> Result<()> {
     invalid_get_request(
         &format!("/v0/post/{}/{}", author_id, "2ZCA1TGR5BKG0"),
         StatusCode::NOT_FOUND,
+        BodyType::JSON,
     )
     .await?;
 

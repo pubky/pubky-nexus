@@ -3,6 +3,7 @@ use crate::routes::v0::endpoints::BOOTSTRAP_ROUTE;
 use crate::routes::v0::endpoints::PUT_HOMESERVER_ROUTE;
 use crate::routes::AppState;
 use crate::Result;
+use axum::extract::Path;
 use axum::routing::{get, put};
 use axum::Json;
 use axum::Router;
@@ -25,7 +26,7 @@ use utoipa::OpenApi;
     )
 )]
 pub async fn bootstrap_handler(
-    user_id: PubkyId,
+    Path(user_id): Path<PubkyId>,
     // TODO: Might need a param like "ViewType". There might be too much data to include in the first go, especially for mobile
     //Query(query): Query<Pub>,
 ) -> Result<Json<Bootstrap>> {
@@ -47,7 +48,7 @@ pub async fn bootstrap_handler(
         (status = 500, description = "Internal server error")
     )
 )]
-pub async fn put_homeserver_handler(user_id: PubkyId) -> Result<()> {
+pub async fn put_homeserver_handler(Path(user_id): Path<PubkyId>) -> Result<()> {
     debug!("PUT {PUT_HOMESERVER_ROUTE}, user_id:{user_id}");
     Homeserver::maybe_ingest_for_user(&user_id).await?;
     Ok(())

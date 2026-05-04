@@ -32,7 +32,7 @@ use utoipa::OpenApi;
     )
 )]
 pub async fn user_tags_handler(
-    user_id: PubkyId,
+    Path(user_id): Path<PubkyId>,
     Query(query): Query<TagsQuery>,
 ) -> Result<Json<Vec<TagDetails>>> {
     debug!(

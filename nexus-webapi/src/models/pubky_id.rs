@@ -1,5 +1,6 @@
 use std::fmt;
 use std::ops::Deref;
+use std::str::FromStr;
 
 use serde::{de, Deserialize};
 use utoipa::ToSchema;
@@ -7,7 +8,13 @@ use utoipa::ToSchema;
 #[derive(ToSchema, Debug)]
 pub struct PubkyId(pub pubky_app_specs::PubkyId);
 
-crate::path_extractor_impl!(PubkyId);
+impl FromStr for PubkyId {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(PubkyId(pubky_app_specs::PubkyId::try_from(s)?))
+    }
+}
 
 impl<'de> Deserialize<'de> for PubkyId {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>

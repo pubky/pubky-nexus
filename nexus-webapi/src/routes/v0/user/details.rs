@@ -1,6 +1,7 @@
 use crate::models::PubkyId;
 use crate::routes::v0::endpoints::USER_DETAILS_ROUTE;
 use crate::{Error, Result};
+use axum::extract::Path;
 use axum::Json;
 use nexus_common::models::user::UserDetails;
 use pubky_app_specs::PubkyAppUserLink;
@@ -21,7 +22,7 @@ use utoipa::OpenApi;
         (status = 500, description = "Internal server error")
     )
 )]
-pub async fn user_details_handler(user_id: PubkyId) -> Result<Json<UserDetails>> {
+pub async fn user_details_handler(Path(user_id): Path<PubkyId>) -> Result<Json<UserDetails>> {
     debug!("GET {USER_DETAILS_ROUTE} user_id:{}", user_id);
 
     match UserDetails::get_by_id(&user_id).await? {

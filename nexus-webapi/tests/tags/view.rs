@@ -2,7 +2,7 @@ use anyhow::Result;
 use axum::http::StatusCode;
 use pubky_app_specs::post_uri_builder;
 
-use crate::utils::{get_request, invalid_get_request};
+use crate::utils::{get_request, invalid_get_request, BodyType};
 
 const PUBKY_TAGGER_ID: &str = "78guxwtzgtgpskij51om7t66awmqxznr6p7ogonfohoags6ahc5y";
 const PUBKY_TAG_ID: &str = "2Z1N8QBQK9EG0";
@@ -13,13 +13,13 @@ const INVALID_PUBKY_TAG_ID: &str = "0000000000000";
 #[tokio_shared_rt::test(shared)]
 async fn test_tag_view() -> Result<()> {
     let path = format!("/v0/tags/{INVALID_PUBKY_TAGGER_ID}/{PUBKY_TAG_ID}");
-    invalid_get_request(&path, StatusCode::NOT_FOUND).await?;
+    invalid_get_request(&path, StatusCode::NOT_FOUND, BodyType::JSON).await?;
 
     let path = format!("/v0/tags/{PUBKY_TAGGER_ID}/{INVALID_PUBKY_TAG_ID}");
-    invalid_get_request(&path, StatusCode::NOT_FOUND).await?;
+    invalid_get_request(&path, StatusCode::NOT_FOUND, BodyType::JSON).await?;
 
     let path = format!("/v0/tags/{INVALID_PUBKY_TAGGER_ID}/{INVALID_PUBKY_TAG_ID}");
-    invalid_get_request(&path, StatusCode::NOT_FOUND).await?;
+    invalid_get_request(&path, StatusCode::NOT_FOUND, BodyType::JSON).await?;
 
     let path = format!("/v0/tags/{PUBKY_TAGGER_ID}/{PUBKY_TAG_ID}");
     let body = get_request(&path).await?;

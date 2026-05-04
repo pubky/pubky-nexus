@@ -1,7 +1,7 @@
 use crate::models::PubkyId;
 use crate::routes::v0::endpoints::NOTIFICATION_ROUTE;
 use crate::Result;
-use axum::extract::Query;
+use axum::extract::{Path, Query};
 use axum::Json;
 use nexus_common::models::notification::{Notification, NotificationBody, PostChangedSource};
 use nexus_common::types::Pagination;
@@ -26,7 +26,7 @@ use utoipa::OpenApi;
     )
 )]
 pub async fn list_notifications_handler(
-    user_id: PubkyId,
+    Path(user_id): Path<PubkyId>,
     Query(pagination): Query<Pagination>,
 ) -> Result<Json<Vec<Notification>>> {
     debug!("GET {NOTIFICATION_ROUTE} for user_id: {}", user_id);

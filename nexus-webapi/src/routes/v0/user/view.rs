@@ -1,7 +1,7 @@
 use crate::models::PubkyId;
 use crate::routes::v0::endpoints::USER_ROUTE;
 use crate::{Error, Result};
-use axum::extract::Query;
+use axum::extract::{Path, Query};
 use axum::Json;
 use nexus_common::models::tag::TagDetails;
 use nexus_common::models::user::UserView;
@@ -32,7 +32,7 @@ pub struct ProfileQuery {
     )
 )]
 pub async fn user_view_handler(
-    user_id: PubkyId,
+    Path(user_id): Path<PubkyId>,
     Query(query): Query<ProfileQuery>,
 ) -> Result<Json<UserView>> {
     debug!(

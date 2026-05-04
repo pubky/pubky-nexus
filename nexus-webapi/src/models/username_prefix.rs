@@ -1,4 +1,5 @@
 use std::fmt;
+use std::str::FromStr;
 
 use crate::Error;
 use serde::de::{self, Deserializer};
@@ -7,7 +8,15 @@ use utoipa::ToSchema;
 #[derive(Debug, ToSchema)]
 pub struct UsernamePrefix(pub String);
 
-crate::path_extractor_impl!(UsernamePrefix);
+impl FromStr for UsernamePrefix {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let trimmed = s.trim().to_owned();
+        Self::validate(&trimmed)?;
+        Ok(UsernamePrefix(trimmed))
+    }
+}
 
 impl fmt::Display for UsernamePrefix {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -33,8 +42,8 @@ impl<'de> serde::Deserialize<'de> for UsernamePrefix {
     where
         D: Deserializer<'de>,
     {
-        let s = <String as serde::Deserialize>::deserialize(deserializer)?;
-        let trimmed = s.trim().to_string();
+        let s = String::deserialize(deserializer)?;
+        let trimmed = s.trim().to_owned();
         Self::validate(&trimmed).map_err(de::Error::custom)?;
         Ok(UsernamePrefix(trimmed))
     }

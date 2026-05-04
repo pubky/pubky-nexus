@@ -2,7 +2,7 @@ use anyhow::Result;
 use axum::http::StatusCode;
 use serde_json::Value;
 
-use crate::utils::{get_request, invalid_get_request};
+use crate::utils::{get_request, invalid_get_request, BodyType};
 
 const PEER_PUBKY: &str = "o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo";
 // mocks/hot-tags.cypher users
@@ -276,7 +276,7 @@ async fn test_hot_tags_by_following_reach_with_skip_limit() -> Result<()> {
 async fn test_hot_tags_by_reach_no_user_id() -> Result<()> {
     let endpoint = "/v0/tags/hot?reach=following";
 
-    invalid_get_request(endpoint, StatusCode::BAD_REQUEST).await?;
+    invalid_get_request(endpoint, StatusCode::BAD_REQUEST, BodyType::JSON).await?;
 
     Ok(())
 }
@@ -285,7 +285,7 @@ async fn test_hot_tags_by_reach_no_user_id() -> Result<()> {
 async fn test_hot_tags_by_reach_no_reach() -> Result<()> {
     let endpoint = &format!("/v0/tags/hot?user_id={PEER_PUBKY}");
 
-    invalid_get_request(endpoint, StatusCode::BAD_REQUEST).await?;
+    invalid_get_request(endpoint, StatusCode::BAD_REQUEST, BodyType::JSON).await?;
 
     Ok(())
 }

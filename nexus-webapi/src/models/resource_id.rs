@@ -1,4 +1,5 @@
 use std::fmt;
+use std::str::FromStr;
 
 use serde::{de, Deserialize};
 use utoipa::ToSchema;
@@ -6,7 +7,14 @@ use utoipa::ToSchema;
 #[derive(Debug, Clone, PartialEq, Eq, ToSchema)]
 pub struct ResourceId(pub String);
 
-crate::path_extractor_impl!(ResourceId);
+impl FromStr for ResourceId {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::validate_id(s)?;
+        Ok(ResourceId(s.to_owned()))
+    }
+}
 
 impl<'de> Deserialize<'de> for ResourceId {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
@@ -29,7 +37,7 @@ impl ResourceId {
         &self.0
     }
 
-    fn validate_id(id: &str) -> Result<(), String> {
+    pub(crate) fn validate_id(id: &str) -> Result<(), String> {
         if id.len() != 32
             || !id
                 .chars()

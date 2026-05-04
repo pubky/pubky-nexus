@@ -1,4 +1,4 @@
-use crate::utils::{get_request, invalid_get_request};
+use crate::utils::{get_request, invalid_get_request, BodyType};
 use anyhow::Result;
 use axum::http::StatusCode;
 use serde_json::Value;
@@ -92,6 +92,6 @@ async fn test_stream_user_ids_influencers_wot_5_invalid() -> Result<()> {
     let endpoint = format!(
         "{IDS_ROOT_PATH}?source=influencers&user_id={USER_ID}&timeframe=this_month&reach=wot_5&limit=5"
     );
-    invalid_get_request(&endpoint, StatusCode::BAD_REQUEST).await?;
+    invalid_get_request(&endpoint, StatusCode::BAD_REQUEST, BodyType::JSON).await?;
     Ok(())
 }

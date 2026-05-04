@@ -7,7 +7,7 @@ use tracing::debug;
 
 use crate::{
     tags::hot::USER_1,
-    utils::{get_request, invalid_get_request},
+    utils::{get_request, invalid_get_request, BodyType},
 };
 
 #[tokio_shared_rt::test(shared)]
@@ -185,7 +185,7 @@ async fn test_influencers_by_reach_no_user_id() -> Result<()> {
     let endpoint =
         "/v0/stream/users?source=influencers&timeframe=this_month&limit=3&reach=following";
 
-    invalid_get_request(endpoint, StatusCode::BAD_REQUEST).await?;
+    invalid_get_request(endpoint, StatusCode::BAD_REQUEST, BodyType::JSON).await?;
 
     Ok(())
 }

@@ -60,7 +60,7 @@ pub struct ResourceByUriQuery {
     )
 )]
 pub async fn resource_tags_handler(
-    res_id: ResourceId,
+    Path(res_id): Path<ResourceId>,
     Query(query): Query<TagsQuery>,
 ) -> Result<Json<ResourceTagsResponse>> {
     debug!("GET {RESOURCE_TAGS_ROUTE} resource_id:{}", res_id);

@@ -2,7 +2,7 @@ use anyhow::Result;
 
 use axum::http::StatusCode;
 
-use crate::utils::{get_request, invalid_get_request};
+use crate::utils::{get_request, invalid_get_request, BodyType};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_stream_users_for_post_replies() -> Result<()> {
@@ -53,6 +53,7 @@ async fn test_stream_users_for_post_replies_no_post_id() -> Result<()> {
     invalid_get_request(
         &format!("/v0/stream/users?source=post_replies&author_id={author_id}",),
         StatusCode::BAD_REQUEST,
+        BodyType::JSON,
     )
     .await?;
 
@@ -65,6 +66,7 @@ async fn test_stream_users_for_post_replies_no_author_id() -> Result<()> {
     invalid_get_request(
         &format!("/v0/stream/users?source=post_replies&post_id={post_id}",),
         StatusCode::BAD_REQUEST,
+        BodyType::JSON,
     )
     .await?;
 

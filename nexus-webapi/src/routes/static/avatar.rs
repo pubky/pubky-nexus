@@ -5,7 +5,7 @@ use crate::models::PubkyId;
 use crate::routes::r#static::PubkyServeDir;
 use crate::routes::AppState;
 use crate::{Error, Result};
-use axum::extract::{Request, State};
+use axum::extract::{Path, Request, State};
 use axum::response::Response;
 use nexus_common::media::FileVariant;
 use nexus_common::models::file::Blob;
@@ -29,7 +29,7 @@ use utoipa::OpenApi;
     )
 )]
 pub async fn user_avatar_handler(
-    user_id: PubkyId,
+    Path(user_id): Path<PubkyId>,
     State(app_state): State<AppState>,
     request: Request,
 ) -> Result<Response<ServeFileSystemResponseBody>> {

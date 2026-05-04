@@ -49,11 +49,11 @@ pub async fn get_request(endpoint: &str) -> Result<Value, httpc_test::Error> {
 pub async fn invalid_get_request(
     endpoint: &str,
     error_code: StatusCode,
+    body_type: BodyType,
 ) -> Result<Value, httpc_test::Error> {
     let url = host_url().await;
     let full_endpoint = format!("{url}{endpoint}");
-    let body =
-        inner_make_request(&full_endpoint, None, None, Some(error_code), BodyType::JSON).await?;
+    let body = inner_make_request(&full_endpoint, None, None, Some(error_code), body_type).await?;
     Ok(body)
 }
 

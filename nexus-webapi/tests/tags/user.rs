@@ -4,7 +4,7 @@ use nexus_webapi::routes::v0::TaggersInfoResponse;
 
 use crate::{
     tags::PEER_PUBKY,
-    utils::{get_request, invalid_get_request},
+    utils::{get_request, invalid_get_request, BodyType},
 };
 
 use super::utils::{analyse_tag_details_structure, compare_tag_details, TagMockup};
@@ -219,7 +219,7 @@ async fn test_user_does_not_exist() -> Result<()> {
         "db6w58pd5h63fbhtd88y8zz7pai9rkjwqt9omg6i7dz31dynrgc4"
     );
     // TODO: Control post not found error control
-    invalid_get_request(&endpoint, StatusCode::NOT_FOUND).await?;
+    invalid_get_request(&endpoint, StatusCode::NOT_FOUND, BodyType::JSON).await?;
     Ok(())
 }
 

@@ -1,6 +1,8 @@
 use std::fmt;
+use std::str::FromStr;
 
 use crate::Error;
+use serde::{de, Deserialize};
 use utoipa::ToSchema;
 
 pub const USER_ID_SEARCH_MIN_PREFIX_LEN: usize = 3;
@@ -8,7 +10,25 @@ pub const USER_ID_SEARCH_MIN_PREFIX_LEN: usize = 3;
 #[derive(Debug, ToSchema)]
 pub struct UserIdPrefix(pub String);
 
-crate::path_extractor_impl!(UserIdPrefix);
+impl<'de> Deserialize<'de> for UserIdPrefix {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: de::Deserializer<'de>,
+    {
+        let s: String = String::deserialize(deserializer)?;
+        Self::try_from(s).map_err(de::Error::custom)
+    }
+}
+
+impl FromStr for UserIdPrefix {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let trimmed = s.trim().to_owned();
+        Self::validate(&trimmed)?;
+        Ok(UserIdPrefix(trimmed))
+    }
+}
 
 impl fmt::Display for UserIdPrefix {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -21,7 +41,7 @@ impl UserIdPrefix {
         &self.0
     }
 
-    fn validate(prefix: &str) -> Result<(), Error> {
+    pub(crate) fn validate(prefix: &str) -> Result<(), Error> {
         if prefix.trim().chars().count() < USER_ID_SEARCH_MIN_PREFIX_LEN {
             return Err(Error::invalid_input(&format!(
                 "ID prefix must be at least {USER_ID_SEARCH_MIN_PREFIX_LEN} chars"

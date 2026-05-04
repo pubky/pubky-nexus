@@ -1,5 +1,6 @@
 use std::fmt;
 use std::ops::Deref;
+use std::str::FromStr;
 
 use crate::Error;
 use pubky_app_specs::traits::Validatable;
@@ -11,7 +12,13 @@ use utoipa::ToSchema;
 #[derive(Debug, ToSchema)]
 pub struct TagLabel(pub String);
 
-crate::path_extractor_impl!(TagLabel);
+impl FromStr for TagLabel {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(TagLabel(Self::validate_and_sanitize(s.to_owned())?))
+    }
+}
 
 impl fmt::Display for TagLabel {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

@@ -1,4 +1,4 @@
-use crate::utils::{get_request, invalid_get_request, post_request};
+use crate::utils::{get_request, invalid_get_request, post_request, BodyType};
 use anyhow::Result;
 use axum::http::StatusCode;
 use nexus_common::models::post::PostStream;
@@ -274,7 +274,7 @@ async fn test_stream_combined_parameters() -> Result<()> {
 async fn test_stream_invalid_sorting() -> Result<()> {
     // Invalid sorting option should fail
     let endpoint = "/v0/stream/posts?sorting=invalid";
-    invalid_get_request(endpoint, StatusCode::BAD_REQUEST).await?;
+    invalid_get_request(endpoint, StatusCode::BAD_REQUEST, BodyType::JSON).await?;
 
     Ok(())
 }

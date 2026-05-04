@@ -1,7 +1,7 @@
 use crate::models::{PubkyId, TagLabel};
 use crate::routes::v0::endpoints::{TAGS_HOT_ROUTE, TAG_TAGGERS_ROUTE};
 use crate::{Error, Result};
-use axum::extract::Query;
+use axum::extract::{Path, Query};
 use axum::Json;
 use nexus_common::models::tag::global::Taggers;
 use nexus_common::models::tag::stream::{HotTag, HotTags};
@@ -51,7 +51,7 @@ pub struct TagTaggersQuery {
     )
 )]
 pub async fn tag_taggers_handler(
-    label: TagLabel,
+    Path(label): Path<TagLabel>,
     Query(query): Query<TagTaggersQuery>,
 ) -> Result<Json<TaggersType>> {
     debug!("GET {TAG_TAGGERS_ROUTE} label:{label}, query: {query:?}");

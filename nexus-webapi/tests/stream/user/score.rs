@@ -1,4 +1,4 @@
-use crate::utils::{get_request, invalid_get_request};
+use crate::utils::{get_request, invalid_get_request, BodyType};
 use anyhow::Result;
 use axum::http::StatusCode;
 
@@ -133,6 +133,7 @@ async fn test_stream_recommended_missing_user_id() -> Result<()> {
     let res = invalid_get_request(
         "/v0/stream/users?source=recommended&limit=5",
         StatusCode::BAD_REQUEST,
+        BodyType::JSON,
     )
     .await?;
 

@@ -1,5 +1,4 @@
 pub mod info;
-pub mod path_extractor;
 pub mod post;
 
 pub mod bounded_vec;
