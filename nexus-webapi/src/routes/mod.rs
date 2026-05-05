@@ -43,8 +43,7 @@ pub struct ValidPath<T>(pub T);
 impl<S, T> FromRequestParts<S> for ValidPath<T>
 where
     S: Send + Sync,
-    T: serde::de::DeserializeOwned + std::str::FromStr + Send,
-    <T as std::str::FromStr>::Err: std::fmt::Display,
+    T: serde::de::DeserializeOwned + Send,
 {
     type Rejection = crate::Error;
 
