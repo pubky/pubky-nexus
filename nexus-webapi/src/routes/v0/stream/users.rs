@@ -3,6 +3,7 @@ use crate::routes::v0::endpoints::{
     STREAM_USERS_BY_IDS_ROUTE, STREAM_USERS_ROUTE, STREAM_USERS_USERNAME_SEARCH_ROUTE,
     STREAM_USER_IDS_ROUTE,
 };
+use crate::routes::ValidJson;
 use crate::{Error, Result};
 use axum::extract::Query;
 use axum::Json;
@@ -197,7 +198,7 @@ pub struct UserStreamByIdsRequest {
     )
 )]
 pub async fn stream_users_by_ids_handler(
-    Json(request): Json<UserStreamByIdsRequest>,
+    ValidJson(request): ValidJson<UserStreamByIdsRequest>,
 ) -> Result<Json<UserStream>> {
     debug!(
         "POST {} user_ids: {:?}",

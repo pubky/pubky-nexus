@@ -1,8 +1,8 @@
-use crate::utils::{invalid_post_request, post_request, BodyType};
+use crate::utils::{invalid_post_request, post_request};
 use anyhow::Result;
 use axum::http::StatusCode;
+use nexus_webapi::models::ErrorResponse;
 use serde_json::json;
-use tracing::log::info;
 // ##### LIST OF USERS BY ID ######
 
 #[tokio_shared_rt::test(shared)]
@@ -64,20 +64,21 @@ async fn test_stream_users_by_ids_limit_exceeded() -> Result<()> {
     });
 
     // Send the POST request to the endpoint
-    // Expect 422 Unprocessable Entity (JSON deserialization/validation error)
     let res = invalid_post_request(
         "/v0/stream/users/by_ids",
         request_body,
-        StatusCode::UNPROCESSABLE_ENTITY,
-        BodyType::TEXT,
+        StatusCode::BAD_REQUEST,
     )
     .await?;
 
     // Verify the error message mentions the length limit (fail-fast), not element validation
-    let body = res.as_str().unwrap_or("");
+    let error_response: ErrorResponse =
+        serde_json::from_value(res).expect("Response should be a valid ErrorResponse");
     assert!(
-        body.contains("100") || body.to_lowercase().contains("maximum"),
-        "Error message should mention the maximum items limit, got: {body}"
+        error_response.error.contains("100")
+            || error_response.error.to_lowercase().contains("maximum"),
+        "Error message should mention the maximum items limit, got: {}",
+        error_response.error
     );
 
     Ok(())
@@ -139,16 +140,19 @@ async fn test_stream_users_by_ids_empty_list() -> Result<()> {
     let res = invalid_post_request(
         "/v0/stream/users/by_ids",
         request_body,
-        StatusCode::UNPROCESSABLE_ENTITY,
-        BodyType::TEXT,
+        StatusCode::BAD_REQUEST,
     )
     .await?;
 
+    // Deserialize response into ErrorResponse
+    let error_response: ErrorResponse =
+        serde_json::from_value(res).expect("Response should be a valid ErrorResponse");
     assert!(
-        res.as_str()
-            .unwrap_or("")
+        error_response
+            .error
             .contains("user_ids: At least 1 item(s) required"),
-        "Error message should mention that user_ids cannot be empty"
+        "Error field should mention that user_ids cannot be empty, got: {}",
+        error_response.error
     );
 
     Ok(())

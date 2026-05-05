@@ -4,7 +4,7 @@ use nexus_webapi::routes::v0::TaggersInfoResponse;
 
 use crate::{
     tags::user::PUBKY_PEER,
-    utils::{get_request, invalid_get_request, BodyType},
+    utils::{get_request, invalid_get_request},
 };
 
 use super::utils::{analyse_tag_details_structure, compare_tag_details, TagMockup};
@@ -181,7 +181,7 @@ async fn test_user_tags_full_filter_active() -> Result<()> {
 async fn test_post_does_not_exist() -> Result<()> {
     let endpoint = format!("/v0/post/{}/{}/tags", PEER_PUBKY, "JTDX9ZSWPQF88");
     // TODO: Control post not found error control
-    invalid_get_request(&endpoint, StatusCode::NOT_FOUND, BodyType::JSON).await?;
+    invalid_get_request(&endpoint, StatusCode::NOT_FOUND).await?;
     Ok(())
 }
 
@@ -192,7 +192,7 @@ async fn test_user_does_not_exist() -> Result<()> {
         "db6w58pd5h63fbhtd88y8zz7pai9rkjwqt9omg6i7dz31dynrgc4", POST_ID
     );
     // TODO: Control post not found error control
-    invalid_get_request(&endpoint, StatusCode::NOT_FOUND, BodyType::JSON).await?;
+    invalid_get_request(&endpoint, StatusCode::NOT_FOUND).await?;
     Ok(())
 }
 

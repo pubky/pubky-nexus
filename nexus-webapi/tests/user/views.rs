@@ -1,6 +1,6 @@
 use crate::{
     tags::user::PUBKY_PEER,
-    utils::{get_request, invalid_get_request, BodyType},
+    utils::{get_request, invalid_get_request},
 };
 use anyhow::Result;
 use axum::http::StatusCode;
@@ -62,12 +62,7 @@ async fn test_user_endpoint() -> Result<()> {
 
     // Look for a non existing pk
     let user_id = "5g3fwnue819wfdjwiwm8qr35ww6uxxgbzrigrtdgmbi19ksioeoo";
-    invalid_get_request(
-        &format!("/v0/user/{user_id}"),
-        StatusCode::NOT_FOUND,
-        BodyType::JSON,
-    )
-    .await?;
+    invalid_get_request(&format!("/v0/user/{user_id}"), StatusCode::NOT_FOUND).await?;
 
     Ok(())
 }
@@ -87,7 +82,6 @@ async fn test_get_relationship() -> Result<()> {
     invalid_get_request(
         &format!("/v0/user/{user_id}/relationship/{viewer_id}"),
         StatusCode::NOT_FOUND,
-        BodyType::JSON,
     )
     .await?;
 
@@ -134,12 +128,7 @@ async fn test_get_counts() -> Result<()> {
 
     // Test non-existing user
     let user_id = "pxnu33x7jtpx9ar1ytsi4yxbp6a5o36gwhffs8zoxmbuptici1jj";
-    invalid_get_request(
-        &format!("/v0/user/{user_id}/counts"),
-        StatusCode::NOT_FOUND,
-        BodyType::JSON,
-    )
-    .await?;
+    invalid_get_request(&format!("/v0/user/{user_id}/counts"), StatusCode::NOT_FOUND).await?;
 
     Ok(())
 }
@@ -161,7 +150,6 @@ async fn test_get_details() -> Result<()> {
     invalid_get_request(
         &format!("/v0/user/{user_id}/details"),
         StatusCode::NOT_FOUND,
-        BodyType::JSON,
     )
     .await?;
 

@@ -1,3 +1,4 @@
+pub mod error_response;
 pub mod info;
 pub mod post;
 
@@ -10,6 +11,7 @@ pub mod tag_label;
 pub mod user_id_prefix;
 pub mod username_prefix;
 
+pub use error_response::ErrorResponse;
 pub use global_post_id::{GlobalPostId, GlobalPostIds};
 pub use info::ServerInfo;
 pub use post::{PostStreamDetailed, PostViewDetailed};

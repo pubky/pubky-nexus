@@ -1,4 +1,4 @@
-use crate::utils::{get_request, invalid_get_request, BodyType};
+use crate::utils::{get_request, invalid_get_request};
 use anyhow::Result;
 use axum::http::StatusCode;
 
@@ -48,7 +48,6 @@ async fn test_get_followers() -> Result<()> {
             "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64rp"
         ),
         StatusCode::NOT_FOUND,
-        BodyType::JSON,
     )
     .await?;
 
@@ -106,7 +105,6 @@ async fn test_get_following() -> Result<()> {
             "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64rp"
         ),
         StatusCode::NOT_FOUND,
-        BodyType::JSON,
     )
     .await?;
 
@@ -157,7 +155,6 @@ async fn test_get_friends() -> Result<()> {
             "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64rp"
         ),
         StatusCode::NOT_FOUND,
-        BodyType::JSON,
     )
     .await?;
 

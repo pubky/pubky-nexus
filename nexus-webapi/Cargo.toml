@@ -41,6 +41,7 @@ httpc-test = "0.1.10"
 pubky-testnet = { workspace = true }
 tempfile = { workspace = true }
 tokio-shared-rt = { workspace = true }
+tower = { version = "0.5", features = ["util"] }
 url = "2.5.8"
 
 [[bench]]

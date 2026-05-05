@@ -1,6 +1,7 @@
-use crate::utils::{get_request, invalid_get_request, BodyType};
+use crate::utils::{get_request, invalid_get_request};
 use anyhow::Result;
 use axum::http::StatusCode;
+use nexus_webapi::models::ErrorResponse;
 use nexus_webapi::routes::v0::{
     endpoints::{SEARCH_USERS_BY_ID_ROUTE, SEARCH_USERS_BY_NAME_ROUTE},
     search::USER_ID_SEARCH_MIN_PREFIX_LEN,
@@ -51,7 +52,7 @@ async fn test_search_users_by_username() -> Result<()> {
 #[tokio_shared_rt::test(shared)]
 async fn test_search_users_by_id_empty_id() -> Result<()> {
     let url_path = format_search_users_by_id_prefix("");
-    invalid_get_request(&url_path, StatusCode::NOT_FOUND, BodyType::JSON).await?;
+    invalid_get_request(&url_path, StatusCode::NOT_FOUND).await?;
     Ok(())
 }
 
@@ -62,12 +63,14 @@ async fn test_search_users_by_id_invalid_prefix_length() -> Result<()> {
     for i in 1..USER_ID_SEARCH_MIN_PREFIX_LEN {
         let invalid_prefix = "x".repeat(i).to_string();
         let url_path = format_search_users_by_id_prefix(&invalid_prefix);
-        let res = invalid_get_request(&url_path, StatusCode::BAD_REQUEST, BodyType::TEXT).await?;
+        let res = invalid_get_request(&url_path, StatusCode::BAD_REQUEST).await?;
 
-        let error_msg = res.as_str().unwrap_or("");
+        let error_response: ErrorResponse =
+            serde_json::from_value(res).expect("Response should be a valid ErrorResponse");
         assert!(
-            error_msg.contains("ID prefix must be at least"),
-            "Error message should mention min size limit, got: {error_msg}"
+            error_response.error.contains("ID prefix must be at least"),
+            "Error message should mention min size limit, got: {}",
+            error_response.error
         );
     }
 
@@ -143,7 +146,7 @@ async fn test_search_empty_username() -> Result<()> {
     // an unknown API endpoint is called, resulting in error 404 NOT_FOUND
     // (server sees "/search/user/by_name" instead of expected "/search/user/by_name/{prefix}")
     // Since it's thrown at router level, it has no message body
-    invalid_get_request(&url_path, StatusCode::NOT_FOUND, BodyType::JSON).await?;
+    invalid_get_request(&url_path, StatusCode::NOT_FOUND).await?;
 
     Ok(())
 }

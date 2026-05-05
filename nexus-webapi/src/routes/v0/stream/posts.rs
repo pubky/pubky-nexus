@@ -2,6 +2,7 @@ use crate::models::{GlobalPostId, GlobalPostIds, PostId, PostStreamDetailed, Pub
 use crate::routes::v0::endpoints::{
     STREAM_POSTS_BY_IDS_ROUTE, STREAM_POSTS_ROUTE, STREAM_POST_KEYS_ROUTE,
 };
+use crate::routes::ValidJson;
 use crate::Result as AppResult;
 use axum::{extract::Query, Json};
 use nexus_common::db::kv::SortOrder;
@@ -188,7 +189,7 @@ pub struct PostStreamByIdsRequest {
     )
 )]
 pub async fn stream_posts_by_ids_handler(
-    Json(request): Json<PostStreamByIdsRequest>,
+    ValidJson(request): ValidJson<PostStreamByIdsRequest>,
 ) -> AppResult<Json<PostStreamDetailed>> {
     debug!(
         "POST {} post_ids size {:?}",

@@ -1,4 +1,4 @@
-use crate::utils::{get_request, invalid_get_request, BodyType};
+use crate::utils::{get_request, invalid_get_request};
 use anyhow::Result;
 use axum::http::StatusCode;
 use nexus_common::models::post::PostStream;
@@ -30,7 +30,7 @@ async fn test_post_tag_search() -> Result<()> {
 #[tokio_shared_rt::test(shared)]
 async fn test_post_wrong_tag_param() -> Result<()> {
     let path = format!("{ROOT_PATH}?tags=");
-    invalid_get_request(&path, StatusCode::BAD_REQUEST, BodyType::JSON).await?;
+    invalid_get_request(&path, StatusCode::BAD_REQUEST).await?;
     Ok(())
 }
 

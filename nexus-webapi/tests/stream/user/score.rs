@@ -1,6 +1,7 @@
-use crate::utils::{get_request, invalid_get_request, BodyType};
+use crate::utils::{get_request, invalid_get_request};
 use anyhow::Result;
 use axum::http::StatusCode;
+use nexus_webapi::models::ErrorResponse;
 
 // ##### MOST FOLLOWED USERS ######
 
@@ -133,16 +134,17 @@ async fn test_stream_recommended_missing_user_id() -> Result<()> {
     let res = invalid_get_request(
         "/v0/stream/users?source=recommended&limit=5",
         StatusCode::BAD_REQUEST,
-        BodyType::JSON,
     )
     .await?;
 
+    let error_response: ErrorResponse =
+        serde_json::from_value(res).expect("Response should be a valid ErrorResponse");
     assert!(
-        res["error"]
-            .as_str()
-            .unwrap_or("")
+        error_response
+            .error
             .contains("user_id query param must be provided"),
-        "Error message should mention that user_id is required"
+        "Error message should mention that user_id is required, got: {}",
+        error_response.error
     );
 
     Ok(())

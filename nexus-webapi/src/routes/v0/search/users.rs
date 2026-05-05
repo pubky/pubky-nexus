@@ -1,6 +1,7 @@
 use crate::models::{UserIdPrefix, UsernamePrefix};
 use crate::routes::v0::endpoints::{SEARCH_USERS_BY_ID_ROUTE, SEARCH_USERS_BY_NAME_ROUTE};
 use crate::routes::v0::search::USER_ID_SEARCH_MIN_PREFIX_LEN;
+use crate::routes::ValidPath;
 use crate::Result;
 use axum::extract::{Path, Query};
 use axum::Json;
@@ -64,7 +65,7 @@ pub async fn search_users_by_name_handler(
     )
 )]
 pub async fn search_users_by_id_handler(
-    Path(prefix): Path<UserIdPrefix>,
+    ValidPath(prefix): ValidPath<UserIdPrefix>,
     Query(query): Query<SearchQuery>,
 ) -> Result<Json<UserSearch>> {
     debug!("GET {SEARCH_USERS_BY_ID_ROUTE} ID:{}", prefix);

@@ -1,4 +1,4 @@
-use crate::utils::{get_request, invalid_get_request, BodyType};
+use crate::utils::{get_request, invalid_get_request};
 use anyhow::Result;
 use axum::http::StatusCode;
 
@@ -55,7 +55,7 @@ async fn test_resource_tags() -> Result<()> {
 async fn test_resource_tags_not_found() -> Result<()> {
     // Non-existent resource (valid hex but no data)
     let path = "/v0/resource/00000000000000000000000000000000/tags";
-    invalid_get_request(path, StatusCode::NOT_FOUND, BodyType::JSON).await?;
+    invalid_get_request(path, StatusCode::NOT_FOUND).await?;
     Ok(())
 }
 
@@ -63,7 +63,7 @@ async fn test_resource_tags_not_found() -> Result<()> {
 async fn test_resource_tags_invalid_id() -> Result<()> {
     // Invalid resource_id format (not 32-char hex)
     let path = "/v0/resource/invalid-id/tags";
-    invalid_get_request(path, StatusCode::BAD_REQUEST, BodyType::JSON).await?;
+    invalid_get_request(path, StatusCode::BAD_REQUEST).await?;
     Ok(())
 }
 
@@ -90,7 +90,7 @@ async fn test_resource_by_uri() -> Result<()> {
 async fn test_resource_by_uri_not_found() -> Result<()> {
     let uri = "https%3A%2F%2Fnonexistent.example.com%2Fnothing";
     let path = format!("/v0/resource/by-uri?uri={uri}");
-    invalid_get_request(&path, StatusCode::NOT_FOUND, BodyType::JSON).await?;
+    invalid_get_request(&path, StatusCode::NOT_FOUND).await?;
     Ok(())
 }
 
