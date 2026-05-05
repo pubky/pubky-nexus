@@ -1,7 +1,9 @@
+use crate::models::{PubkyId, TagLabel};
 use crate::routes::v0::endpoints::{USER_TAGGERS_ROUTE, USER_TAGS_ROUTE};
 use crate::routes::v0::{TaggersInfoResponse, TagsQuery};
+use crate::routes::Path;
 use crate::{Error, Result};
-use axum::extract::{Path, Query};
+use axum::extract::Query;
 use axum::Json;
 use nexus_common::models::tag::traits::{TagCollection, TaggersCollection};
 use nexus_common::models::tag::user::TagUser;
@@ -17,11 +19,11 @@ use utoipa::OpenApi;
     description = "User Tags",
     tag = "User",
     params(
-        ("user_id" = String, Path, description = "User Pubky ID"),
+        ("user_id" = PubkyId, Path, description = "User Pubky ID"),
         ("skip_tags" = Option<usize>, Query, description = "Skip N tags. **Default** value 0"),
         ("limit_tags" = Option<usize>, Query, description = "Upper limit on the number of tags for the user. **Default** value 5"),
         ("limit_taggers" = Option<usize>, Query, description = "Upper limit on the number of taggers per tag. **Default** value 5"),
-        ("viewer_id" = Option<String>, Query, description = "Viewer Pubky ID"),
+        ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID"),
         ("depth" = Option<usize>, Query, description = "User trusted network depth, user following users distance. Numbers bigger than 4, will be ignored")
     ),
     responses(
@@ -31,7 +33,7 @@ use utoipa::OpenApi;
     )
 )]
 pub async fn user_tags_handler(
-    Path(user_id): Path<String>,
+    Path(user_id): Path<PubkyId>,
     Query(query): Query<TagsQuery>,
 ) -> Result<Json<Vec<TagDetails>>> {
     debug!(
@@ -56,6 +58,12 @@ pub async fn user_tags_handler(
 }
 
 #[derive(Deserialize)]
+pub struct UserTaggersPath {
+    pub user_id: PubkyId,
+    pub label: TagLabel,
+}
+
+#[derive(Deserialize)]
 pub struct TaggersQuery {
     #[serde(flatten)]
     pub pagination: Pagination,
@@ -69,11 +77,11 @@ pub struct TaggersQuery {
     description = "User label taggers",
     tag = "User",
     params(
-        ("user_id" = String, Path, description = "User Pubky ID"),
-        ("label" = String, Path, description = "Tag name"),
+        ("user_id" = PubkyId, Path, description = "User Pubky ID"),
+        ("label" = TagLabel, Path, description = "Tag name"),
         ("skip" = Option<usize>, Query, description = "Number of taggers to skip for pagination"),
         ("limit" = Option<usize>, Query, description = "Number of taggers to return for pagination"),
-        ("viewer_id" = Option<String>, Query, description = "Viewer Pubky ID"),
+        ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID"),
         ("depth" = Option<usize>, Query, description = "User trusted network depth, user following users distance. Numbers bigger than 4, will be ignored")
     ),
     responses(
@@ -82,7 +90,7 @@ pub struct TaggersQuery {
     )
 )]
 pub async fn user_taggers_handler(
-    Path((user_id, label)): Path<(String, String)>,
+    Path(UserTaggersPath { user_id, label }): Path<UserTaggersPath>,
     Query(TaggersQuery {
         pagination,
         tags_query,
@@ -108,6 +116,6 @@ pub async fn user_taggers_handler(
 #[derive(OpenApi)]
 #[openapi(
     paths(user_tags_handler, user_taggers_handler),
-    components(schemas(TagDetails, TaggersInfoResponse))
+    components(schemas(TagDetails, TaggersInfoResponse, PubkyId, TagLabel))
 )]
 pub struct UserTagsApiDoc;

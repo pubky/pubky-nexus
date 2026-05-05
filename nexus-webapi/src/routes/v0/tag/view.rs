@@ -1,10 +1,18 @@
+use crate::models::PubkyId;
 use crate::routes::v0::endpoints::TAG_ROUTE;
+use crate::routes::Path;
 use crate::{Error, Result};
-use axum::extract::Path;
 use axum::Json;
 use nexus_common::models::tag::view::TagView;
+use serde::Deserialize;
 use tracing::debug;
 use utoipa::OpenApi;
+
+#[derive(Deserialize)]
+pub struct TagPath {
+    pub tagger_id: PubkyId,
+    pub tag_id: String,
+}
 
 #[utoipa::path(
     get,
@@ -22,7 +30,7 @@ use utoipa::OpenApi;
     )
 )]
 pub async fn tag_view_handler(
-    Path((tagger_id, tag_id)): Path<(String, String)>,
+    Path(TagPath { tagger_id, tag_id }): Path<TagPath>,
 ) -> Result<Json<TagView>> {
     debug!("GET {TAG_ROUTE} tagger_id:{}, tag_id:{}", tagger_id, tag_id);
 

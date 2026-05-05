@@ -1,8 +1,26 @@
 use axum::http::{Method, StatusCode};
+use base32::{encode, Alphabet};
 use serde_json::Value;
 use server::TestServiceServer;
 
 pub mod server;
+
+// #######################################
+// ##### Test data generators ########
+// #######################################
+
+/// Generates a valid PostId by encoding the given timestamp as Crockford Base32.
+/// The resulting ID is 13 characters long and decodes to 8 bytes, satisfying PostId validation.
+pub fn generate_post_id(timestamp: i64) -> String {
+    let id = encode(Alphabet::Crockford, &timestamp.to_be_bytes());
+    debug_assert!(
+        id.len() == 13,
+        "Generated post id '{}' has length {}, expected 13",
+        id,
+        id.len()
+    );
+    id
+}
 
 pub(crate) async fn host_url() -> String {
     let test_server = TestServiceServer::get_test_server().await;
@@ -92,4 +110,16 @@ async fn inner_make_request(
         }
     };
     Ok(body)
+}
+
+#[cfg(test)]
+mod utils {
+
+    #[test]
+    pub fn test_generate_post_id() {
+        println!(
+            "Generated new id: {:?}",
+            super::generate_post_id(chrono::Utc::now().timestamp())
+        );
+    }
 }

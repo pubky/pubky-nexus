@@ -6,7 +6,7 @@ use super::{AMSTERDAM, ROOT_PATH};
 
 // Amsterdam user from test/posts.cypher
 const AUTHOR_ID: &str = AMSTERDAM;
-const PARENT_POST_ID: &str = "1A1P4D8C9K0F";
+const PARENT_POST_ID: &str = "1A1P4D8C9K0FF";
 
 const CHILD_1_POST_ID: &str = "2B9XKZG3T4L6";
 const CHILD_2_POST_ID: &str = "3M6WQ8F5P9R2";

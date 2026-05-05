@@ -1,6 +1,7 @@
 use crate::utils::{get_request, invalid_get_request};
 use anyhow::Result;
 use axum::http::StatusCode;
+use nexus_webapi::models::ErrorResponse;
 use nexus_webapi::routes::v0::{
     endpoints::{SEARCH_USERS_BY_ID_ROUTE, SEARCH_USERS_BY_NAME_ROUTE},
     search::USER_ID_SEARCH_MIN_PREFIX_LEN,
@@ -64,13 +65,12 @@ async fn test_search_users_by_id_invalid_prefix_length() -> Result<()> {
         let url_path = format_search_users_by_id_prefix(&invalid_prefix);
         let res = invalid_get_request(&url_path, StatusCode::BAD_REQUEST).await?;
 
-        assert!(res["error"].is_string(), "Error message should be a string");
+        let error_response: ErrorResponse =
+            serde_json::from_value(res).expect("Response should be a valid ErrorResponse");
         assert!(
-            res["error"]
-                .as_str()
-                .unwrap_or("")
-                .contains("ID prefix must be at least"),
-            "Error message should mention min size limit"
+            error_response.error.contains("ID prefix must be at least"),
+            "Error message should mention min size limit, got: {}",
+            error_response.error
         );
     }
 

@@ -1,6 +1,9 @@
+use crate::models::{PostId, PubkyId};
 use crate::routes::v0::endpoints::POST_BOOKMARK_ROUTE;
+use crate::routes::v0::post::view::PostPath;
+use crate::routes::Path;
 use crate::{Error, Result};
-use axum::extract::{Path, Query};
+use axum::extract::Query;
 use axum::Json;
 use nexus_common::models::post::Bookmark;
 use serde::Deserialize;
@@ -9,7 +12,7 @@ use utoipa::OpenApi;
 
 #[derive(Deserialize)]
 pub struct PostQuery {
-    viewer_id: Option<String>,
+    viewer_id: Option<PubkyId>,
 }
 
 #[utoipa::path(
@@ -18,9 +21,9 @@ pub struct PostQuery {
     description = "Post bookmark",
     tag = "Post",
     params(
-        ("author_id" = String, Path, description = "Author Pubky ID"),
-        ("post_id" = String, Path, description = "Post Crockford32 ID"),
-        ("viewer_id" = Option<String>, Query, description = "Viewer Pubky ID")
+        ("author_id" = PubkyId, Path, description = "Author Pubky ID"),
+        ("post_id" = PostId, Path, description = "Post Crockford32 ID"),
+        ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID")
     ),
     responses(
         (status = 200, description = "Post Bookmark", body = Bookmark),
@@ -28,15 +31,14 @@ pub struct PostQuery {
         (status = 500, description = "Internal server error")
     )
 )]
+//todo: test it manually - no integration tests
 pub async fn post_bookmark_handler(
-    Path((author_id, post_id)): Path<(String, String)>,
+    Path(PostPath { author_id, post_id }): Path<PostPath>,
     Query(query): Query<PostQuery>,
 ) -> Result<Json<Bookmark>> {
     debug!(
-        "GET {POST_BOOKMARK_ROUTE} author_id:{}, post_id:{}, viewer_id:{}",
-        author_id,
-        post_id,
-        query.viewer_id.clone().unwrap_or_default()
+        "GET {POST_BOOKMARK_ROUTE} author_id:{}, post_id:{}, viewer_id:{:?}",
+        author_id, post_id, query.viewer_id,
     );
 
     match Bookmark::get_by_id(&author_id, &post_id, query.viewer_id.as_deref()).await? {
@@ -46,5 +48,8 @@ pub async fn post_bookmark_handler(
 }
 
 #[derive(OpenApi)]
-#[openapi(paths(post_bookmark_handler), components(schemas(Bookmark)))]
+#[openapi(
+    paths(post_bookmark_handler),
+    components(schemas(Bookmark, PubkyId, PostId))
+)]
 pub struct BookmarkApiDoc;

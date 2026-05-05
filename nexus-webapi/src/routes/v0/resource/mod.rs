@@ -1,10 +1,13 @@
+use crate::models::{PubkyId, ResourceId, TagLabel};
 use crate::routes::v0::endpoints::{
     RESOURCE_BY_URI_ROUTE, RESOURCE_TAGGERS_ROUTE, RESOURCE_TAGS_ROUTE,
 };
 use crate::routes::v0::user::tags::TaggersQuery;
 use crate::routes::v0::{TaggersInfoResponse, TagsQuery};
+use crate::routes::Path;
+use crate::routes::AppState;
 use crate::{Error, Result};
-use axum::extract::{Path, Query};
+use axum::extract::Query;
 use axum::routing::get;
 use axum::{Json, Router};
 use nexus_common::models::resource::tag::TagResource;
@@ -15,8 +18,6 @@ use serde::{Deserialize, Serialize};
 use tracing::debug;
 use utoipa::{OpenApi, ToSchema};
 
-use crate::routes::AppState;
-
 /// Max length for URI used in raw URI lookup
 const MAX_URI_LENGTH: usize = 2048;
 
@@ -25,20 +26,6 @@ const MAX_URI_LENGTH: usize = 2048;
 pub struct ResourceTagsResponse {
     pub resource: ResourceDetails,
     pub tags: Vec<TagDetails>,
-}
-
-/// Validates that a resource_id is a 32-char lowercase hex string.
-fn validate_resource_id(id: &str) -> std::result::Result<(), Error> {
-    if id.len() != 32
-        || !id
-            .chars()
-            .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
-    {
-        return Err(Error::InvalidInput {
-            message: format!("resource_id must be 32-char lowercase hex, got: {id}"),
-        });
-    }
-    Ok(())
 }
 
 pub fn routes() -> Router<AppState> {
@@ -61,8 +48,8 @@ pub struct ResourceByUriQuery {
     description = "Resource tags",
     tag = "Resource",
     params(
-        ("resource_id" = String, Path, description = "Resource ID (32-char hex)"),
-        ("viewer_id" = Option<String>, Query, description = "Viewer Pubky ID"),
+        ("resource_id" = ResourceId, Path, description = "Resource ID (32-char hex)"),
+        ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID"),
         ("skip_tags" = Option<usize>, Query, description = "Skip N tags"),
         ("limit_tags" = Option<usize>, Query, description = "Limit tags"),
         ("limit_taggers" = Option<usize>, Query, description = "Limit taggers per tag"),
@@ -74,14 +61,13 @@ pub struct ResourceByUriQuery {
     )
 )]
 pub async fn resource_tags_handler(
-    Path(res_id): Path<String>,
+    Path(res_id): Path<ResourceId>,
     Query(query): Query<TagsQuery>,
 ) -> Result<Json<ResourceTagsResponse>> {
-    validate_resource_id(&res_id)?;
     debug!("GET {RESOURCE_TAGS_ROUTE} resource_id:{}", res_id);
 
     let tags = TagResource::get_by_id(
-        &res_id,
+        res_id.as_str(),
         None,
         query.skip_tags,
         query.limit_tags,
@@ -90,11 +76,9 @@ pub async fn resource_tags_handler(
         query.depth,
     )
     .await?
-    .ok_or_else(|| Error::ResourceNotFound {
-        resource_id: res_id.clone(),
-    })?;
+    .ok_or_else(|| Error::resource_not_found(res_id.clone()))?;
 
-    let resource = load_resource_details(&res_id).await?;
+    let resource = load_resource_details(res_id.as_str()).await?;
 
     Ok(Json(ResourceTagsResponse { resource, tags }))
 }
@@ -106,7 +90,7 @@ pub async fn resource_tags_handler(
     tag = "Resource",
     params(
         ("uri" = String, Query, description = "Raw URI to look up"),
-        ("viewer_id" = Option<String>, Query, description = "Viewer Pubky ID"),
+        ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID"),
         ("skip_tags" = Option<usize>, Query, description = "Skip N tags"),
         ("limit_tags" = Option<usize>, Query, description = "Limit tags"),
         ("limit_taggers" = Option<usize>, Query, description = "Limit taggers per tag"),
@@ -143,13 +127,17 @@ pub async fn resource_by_uri_handler(
         query.tags_query.depth,
     )
     .await?
-    .ok_or_else(|| Error::ResourceNotFound {
-        resource_id: res_id.clone(),
-    })?;
+    .ok_or_else(|| Error::resource_not_found(ResourceId(res_id.clone())))?;
 
     let resource = load_resource_details(&res_id).await?;
 
     Ok(Json(ResourceTagsResponse { resource, tags }))
+}
+
+#[derive(Deserialize, Debug)]
+pub struct ResourceTaggersPath {
+    pub resource_id: ResourceId,
+    pub label: TagLabel,
 }
 
 #[utoipa::path(
@@ -158,9 +146,9 @@ pub async fn resource_by_uri_handler(
     description = "Resource specific label taggers",
     tag = "Resource",
     params(
-        ("resource_id" = String, Path, description = "Resource ID (32-char hex)"),
-        ("label" = String, Path, description = "Tag label"),
-        ("viewer_id" = Option<String>, Query, description = "Viewer Pubky ID"),
+        ("resource_id" = ResourceId, Path, description = "Resource ID (32-char hex)"),
+        ("label" = TagLabel, Path, description = "Tag label"),
+        ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID"),
         ("skip" = Option<usize>, Query, description = "Skip N taggers"),
         ("limit" = Option<usize>, Query, description = "Limit taggers"),
     ),
@@ -170,16 +158,15 @@ pub async fn resource_by_uri_handler(
     )
 )]
 pub async fn resource_taggers_handler(
-    Path((resource_id, label)): Path<(String, String)>,
+    Path(ResourceTaggersPath { resource_id, label }): Path<ResourceTaggersPath>,
     Query(taggers_query): Query<TaggersQuery>,
 ) -> Result<Json<TaggersInfoResponse>> {
-    validate_resource_id(&resource_id)?;
     debug!(
         "GET {RESOURCE_TAGGERS_ROUTE} resource_id:{}, label:{}",
         resource_id, label
     );
     let taggers = TagResource::get_tagger_by_id(
-        &resource_id,
+        resource_id.as_str(),
         None,
         &label,
         taggers_query.pagination,
@@ -194,9 +181,7 @@ pub async fn resource_taggers_handler(
 async fn load_resource_details(res_id: &str) -> Result<ResourceDetails> {
     ResourceDetails::get_by_id(res_id)
         .await?
-        .ok_or_else(|| Error::ResourceNotFound {
-            resource_id: res_id.to_string(),
-        })
+        .ok_or_else(|| Error::resource_not_found(ResourceId(res_id.to_string())))
 }
 
 #[derive(OpenApi)]
@@ -206,6 +191,14 @@ async fn load_resource_details(res_id: &str) -> Result<ResourceDetails> {
         resource_by_uri_handler,
         resource_taggers_handler
     ),
-    components(schemas(ResourceTagsResponse, ResourceDetails, TagDetails, TaggersInfoResponse))
+    components(schemas(
+        ResourceTagsResponse,
+        ResourceDetails,
+        TagDetails,
+        TaggersInfoResponse,
+        PubkyId,
+        ResourceId,
+        TagLabel
+    ))
 )]
 pub struct ResourceApiDoc;

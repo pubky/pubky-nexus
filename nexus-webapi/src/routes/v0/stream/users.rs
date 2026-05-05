@@ -1,7 +1,9 @@
+use crate::models::{PostId, PubkyId, UserIds, UsernamePrefix};
 use crate::routes::v0::endpoints::{
     STREAM_USERS_BY_IDS_ROUTE, STREAM_USERS_ROUTE, STREAM_USERS_USERNAME_SEARCH_ROUTE,
     STREAM_USER_IDS_ROUTE,
 };
+use crate::routes::ValidJson;
 use crate::{Error, Result};
 use axum::extract::Query;
 use axum::Json;
@@ -13,14 +15,14 @@ use utoipa::{OpenApi, ToSchema};
 
 #[derive(Deserialize)]
 pub struct UserStreamQuery {
-    user_id: Option<String>,
-    viewer_id: Option<String>,
+    user_id: Option<PubkyId>,
+    viewer_id: Option<PubkyId>,
     skip: Option<usize>,
     limit: Option<usize>,
     source: Option<UserStreamSource>,
     reach: Option<StreamReach>,
-    author_id: Option<String>,
-    post_id: Option<String>,
+    author_id: Option<PubkyId>,
+    post_id: Option<PostId>,
     depth: Option<u8>,
     timeframe: Option<Timeframe>,
     preview: Option<bool>,
@@ -32,10 +34,10 @@ pub struct UserStreamQuery {
     tag = "Stream",
     params(
         ("source" = Option<UserStreamSource>, Query, description = "Source of users for streams (followers, following, friends, most_followed, influencers, recommended, post_replies)"),
-        ("user_id" = Option<String>, Query, description = "User ID to use for streams with source 'following', 'followers', 'friends', 'influencers' and 'recommended'"),
-        ("viewer_id" = Option<String>, Query, description = "Viewer Pubky ID"),
-        ("author_id" = Option<String>, Query, description = "Author ID when source is 'post_replies'"),
-        ("post_id" = Option<String>, Query, description = "Post ID when source is 'post_replies'"),
+        ("user_id" = Option<PubkyId>, Query, description = "User ID to use for streams with source 'following', 'followers', 'friends', 'influencers' and 'recommended'"),
+        ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID"),
+        ("author_id" = Option<PubkyId>, Query, description = "Author ID when source is 'post_replies'"),
+        ("post_id" = Option<PostId>, Query, description = "Post ID when source is 'post_replies'"),
         ("reach" = Option<StreamReach>, Query, description = "The target reach of the source. Supported in 'influencers' source."),
         ("timeframe" = Option<Timeframe>, Query, description = "Timeframe for sources supporting a range"),
         ("preview" = Option<bool>, Query, description = "Provide a random selection of size 3 for sources supporting preview. Passing preview ignores skip and limit parameters."),
@@ -79,10 +81,10 @@ pub async fn stream_users_handler(
     tag = "Stream",
     params(
         ("source" = Option<UserStreamSource>, Query, description = "Source of users for streams (followers, following, friends, most_followed, influencers, recommended, post_replies)"),
-        ("user_id" = Option<String>, Query, description = "User ID to use for streams with source 'following', 'followers', 'friends', 'influencers' and 'recommended'"),
-        ("viewer_id" = Option<String>, Query, description = "Viewer Pubky ID"),
-        ("author_id" = Option<String>, Query, description = "Author ID when source is 'post_replies'"),
-        ("post_id" = Option<String>, Query, description = "Post ID when source is 'post_replies'"),
+        ("user_id" = Option<PubkyId>, Query, description = "User ID to use for streams with source 'following', 'followers', 'friends', 'influencers' and 'recommended'"),
+        ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID"),
+        ("author_id" = Option<PubkyId>, Query, description = "Author ID when source is 'post_replies'"),
+        ("post_id" = Option<PostId>, Query, description = "Post ID when source is 'post_replies'"),
         ("reach" = Option<StreamReach>, Query, description = "The target reach of the source. Supported in 'influencers' source."),
         ("timeframe" = Option<Timeframe>, Query, description = "Timeframe for sources supporting a range"),
         ("preview" = Option<bool>, Query, description = "Provide a random selection of size 3 for sources supporting preview. Passing preview ignores skip and limit parameters."),
@@ -122,8 +124,8 @@ pub async fn stream_user_ids_handler(
 
 #[derive(Deserialize)]
 pub struct UserStreamSearchQuery {
-    username: String,
-    viewer_id: Option<String>,
+    username: UsernamePrefix,
+    viewer_id: Option<PubkyId>,
     #[serde(flatten)]
     pagination: Pagination,
 }
@@ -134,8 +136,8 @@ pub struct UserStreamSearchQuery {
     tag = "Stream",
     description = "Stream of user from username search result",
     params(
-        ("username" = String, Query, description = "Username to search for"),
-        ("viewer_id" = Option<String>, Query, description = "Viewer Pubky ID"),
+        ("username" = UsernamePrefix, Query, description = "Username to search for"),
+        ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID"),
         ("skip" = Option<usize>, Query, description = "Skip N users"),
         ("limit" = Option<usize>, Query, description = "Retrieve N users")
     ),
@@ -148,18 +150,16 @@ pub struct UserStreamSearchQuery {
 pub async fn stream_username_search_handler(
     Query(query): Query<UserStreamSearchQuery>,
 ) -> Result<Json<UserStream>> {
-    let username = query.username.trim();
-    if username.is_empty() {
-        return Err(Error::invalid_input("Username cannot be empty"));
-    }
-
     let skip = query.pagination.skip.unwrap_or(0);
     let limit = query.pagination.limit.unwrap_or(20);
 
-    debug!("GET {STREAM_USERS_USERNAME_SEARCH_ROUTE}?username={username}");
+    debug!(
+        "GET {STREAM_USERS_USERNAME_SEARCH_ROUTE}?username={}",
+        query.username
+    );
 
     match UserStream::get_from_username_search(
-        username,
+        query.username.as_str(),
         query.viewer_id.as_deref(),
         Some(skip),
         Some(limit),
@@ -177,8 +177,8 @@ pub async fn stream_username_search_handler(
 // with large request payloads.
 #[derive(ToSchema, Deserialize)]
 pub struct UserStreamByIdsRequest {
-    pub user_ids: Vec<String>,
-    pub viewer_id: Option<String>,
+    pub user_ids: UserIds,
+    pub viewer_id: Option<PubkyId>,
     depth: Option<u8>,
 }
 #[utoipa::path(
@@ -188,8 +188,8 @@ pub struct UserStreamByIdsRequest {
     description = "Stream users by ID. This is a POST request because we're passing a potentially large list of user IDs in the request body.",
     request_body = UserStreamByIdsRequest,
     params(
-        ("user_ids" = Vec<String>, Path, description = "User Pubky ID array"),
-        ("viewer_id" = Option<String>, Query, description = "Viewer Pubky ID"),
+        ("user_ids" = Vec<PubkyId>, Path, description = "User Pubky ID array"),
+        ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID"),
         ("depth" = Option<u8>, Query, description = "User trusted network depth, user following users distance. Numbers bigger than 4 will be ignored")
     ),
     responses(
@@ -198,31 +198,17 @@ pub struct UserStreamByIdsRequest {
     )
 )]
 pub async fn stream_users_by_ids_handler(
-    Json(request): Json<UserStreamByIdsRequest>,
+    ValidJson(request): ValidJson<UserStreamByIdsRequest>,
 ) -> Result<Json<UserStream>> {
     debug!(
         "POST {} user_ids: {:?}",
         STREAM_USERS_BY_IDS_ROUTE, request.user_ids
     );
 
-    const MAX_USERS: usize = 100;
+    let user_ids: Vec<String> = request.user_ids.iter().map(|id| id.to_string()).collect();
 
-    if request.user_ids.len() > MAX_USERS {
-        let err_msg = format!("The maximum number of user IDs allowed is {MAX_USERS}");
-        return Err(Error::invalid_input(&err_msg));
-    }
-
-    if request.user_ids.is_empty() {
-        let err_msg = "The list of user IDs provided is empty";
-        return Err(Error::invalid_input(err_msg));
-    }
-
-    match UserStream::from_listed_user_ids(
-        &request.user_ids,
-        request.viewer_id.as_deref(),
-        request.depth,
-    )
-    .await?
+    match UserStream::from_listed_user_ids(&user_ids, request.viewer_id.as_deref(), request.depth)
+        .await?
     {
         Some(stream) => Ok(Json(stream)),
         None => Ok(Json(UserStream::default())),
@@ -284,18 +270,18 @@ fn build_user_stream_input(
     }
 
     let input = UserStreamInput {
-        user_id,
+        user_id: user_id.map(|id| id.to_string()),
         skip: Some(skip),
         limit: Some(limit),
         source: source.clone(),
         reach,
         timeframe: Some(timeframe),
         preview,
-        author_id,
-        post_id,
+        author_id: author_id.map(|id| id.to_string()),
+        post_id: post_id.map(|id| id.to_string()),
     };
 
-    Ok((input, viewer_id, depth))
+    Ok((input, viewer_id.map(|id| id.to_string()), depth))
 }
 
 /// Returns the snake_case name of the source for error messages.
@@ -324,8 +310,12 @@ fn source_name(source: &UserStreamSource) -> &'static str {
         UserStream,
         UserStreamSource,
         UserStreamByIdsRequest,
+        UserIds,
+        UsernamePrefix,
         StreamReach,
-        Timeframe
+        Timeframe,
+        PubkyId,
+        PostId,
     ))
 )]
 pub struct StreamUsersApiDocs;

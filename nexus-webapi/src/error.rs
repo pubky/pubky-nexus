@@ -1,3 +1,4 @@
+use crate::models::{PostId, PubkyId, ResourceId};
 use axum::http::header::InvalidHeaderValue;
 use axum::http::uri::InvalidUri;
 use axum::http::StatusCode;
@@ -14,13 +15,11 @@ pub type Result<T> = core::result::Result<T, Error>;
 #[derive(Error, Debug)]
 pub enum Error {
     #[error("User not found: {user_id}")]
-    UserNotFound { user_id: String },
+    UserNotFound { user_id: PubkyId },
     #[error("Post not found: {author_id} {post_id}")]
-    PostNotFound { author_id: String, post_id: String },
+    PostNotFound { author_id: PubkyId, post_id: PostId },
     #[error("Internal server error: {source}")]
     InternalServerError { source: DynError },
-    #[error("Bookmarks not found: {user_id}")]
-    BookmarksNotFound { user_id: String },
     #[error("Tags not found")]
     TagsNotFound { reach: String },
     #[error("Invalid input: {message}")]
@@ -28,9 +27,9 @@ pub enum Error {
     #[error("File not found.")]
     FileNotFound {},
     #[error("Tag {tag_id} of {tagger_id} not found")]
-    TagNotFound { tag_id: String, tagger_id: String },
+    TagNotFound { tag_id: String, tagger_id: PubkyId },
     #[error("Resource not found: {resource_id}")]
-    ResourceNotFound { resource_id: String },
+    ResourceNotFound { resource_id: ResourceId },
     // Add other custom errors here
 }
 
@@ -39,6 +38,10 @@ impl Error {
         Error::InvalidInput {
             message: message.to_string(),
         }
+    }
+
+    pub fn resource_not_found(resource_id: ResourceId) -> Self {
+        Error::ResourceNotFound { resource_id }
     }
 }
 
@@ -95,7 +98,6 @@ impl IntoResponse for Error {
             Error::UserNotFound { .. } => StatusCode::NOT_FOUND,
             Error::PostNotFound { .. } => StatusCode::NOT_FOUND,
             Error::FileNotFound { .. } => StatusCode::NOT_FOUND,
-            Error::BookmarksNotFound { .. } => StatusCode::NOT_FOUND,
             Error::TagsNotFound { .. } => StatusCode::NOT_FOUND,
             Error::InvalidInput { .. } => StatusCode::BAD_REQUEST,
             Error::InternalServerError { .. } => StatusCode::INTERNAL_SERVER_ERROR,
@@ -112,9 +114,6 @@ impl IntoResponse for Error {
             }
             Error::FileNotFound {} => {
                 error!("File not found.")
-            }
-            Error::BookmarksNotFound { user_id } => {
-                error!("Bookmarks not found: {}", user_id)
             }
             Error::TagsNotFound { reach } => {
                 error!("Tags not found: {}", reach)

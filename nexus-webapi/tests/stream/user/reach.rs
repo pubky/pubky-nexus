@@ -47,7 +47,7 @@ async fn test_stream_following() -> Result<()> {
     // Test non-existing user - should return empty stream
     let body = get_request(&format!(
         "/v0/stream/users?user_id={}&source=following",
-        "bad_user_id"
+        "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64rr"
     ))
     .await?;
 

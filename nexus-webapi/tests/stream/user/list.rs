@@ -1,8 +1,8 @@
 use crate::utils::{invalid_post_request, post_request};
 use anyhow::Result;
 use axum::http::StatusCode;
+use nexus_webapi::models::ErrorResponse;
 use serde_json::json;
-
 // ##### LIST OF USERS BY ID ######
 
 #[tokio_shared_rt::test(shared)]
@@ -53,11 +53,10 @@ async fn test_stream_users_by_ids_valid_request() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_stream_users_by_ids_limit_exceeded() -> Result<()> {
-    // Generate a list of 1001 user IDs to exceed the limit
-    let mut user_ids = Vec::with_capacity(1001);
-    for i in 0..1001 {
-        user_ids.push(format!("user_id_{i}"));
-    }
+    // Generate 101 invalid (short) user IDs to exceed the max limit of 100.
+    // The length check should fail-fast BEFORE element validation, so even though
+    // these IDs are not valid 52-char PubkyIds, the length error comes first.
+    let user_ids: Vec<String> = (0..101).map(|i| format!("user_id_{i}")).collect();
 
     let request_body = json!({
         "user_ids": user_ids,
@@ -65,22 +64,33 @@ async fn test_stream_users_by_ids_limit_exceeded() -> Result<()> {
     });
 
     // Send the POST request to the endpoint
-    invalid_post_request(
+    let res = invalid_post_request(
         "/v0/stream/users/by_ids",
         request_body,
         StatusCode::BAD_REQUEST,
     )
     .await?;
 
+    // Verify the error message mentions the length limit (fail-fast), not element validation
+    let error_response: ErrorResponse =
+        serde_json::from_value(res).expect("Response should be a valid ErrorResponse");
+    assert!(
+        error_response.error.contains("100")
+            || error_response.error.to_lowercase().contains("maximum"),
+        "Error message should mention the maximum items limit, got: {}",
+        error_response.error
+    );
+
     Ok(())
 }
 
 #[tokio_shared_rt::test(shared)]
 async fn test_stream_users_by_ids_with_invalid_ids() -> Result<()> {
-    // Valid and invalid user IDs
+    // Mix of valid and invalid user IDs - the invalid ID should cause a 400 Bad Request
+    // because PubkyId validation requires exactly 52 characters
     let user_ids = vec![
         "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro", // Valid
-        "nonexistent_user_id",                                  // Invalid
+        "nonexistent_user_id",                                  // Invalid format (not 52 chars)
         "o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo", // Valid
     ];
 
@@ -89,30 +99,24 @@ async fn test_stream_users_by_ids_with_invalid_ids() -> Result<()> {
         "viewer_id": null
     });
 
-    let res = post_request("/v0/stream/users/by_ids", request_body).await?;
+    // Expect 400 Bad Request due to invalid ID format (validation fails during deserialization)
+    let res = invalid_post_request(
+        "/v0/stream/users/by_ids",
+        request_body,
+        StatusCode::BAD_REQUEST,
+    )
+    .await?;
 
-    assert!(res.is_array(), "Response body should be an array");
+    let error_response: ErrorResponse =
+        serde_json::from_value(res).expect("Response should be a valid ErrorResponse");
 
-    let users = res.as_array().expect("User stream should be an array");
-
-    // Expected valid user IDs
-    let expected_user_ids = vec![
-        "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro",
-        "o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo",
-    ];
-
-    // Check that only valid users are returned
-    assert_eq!(
-        users.len(),
-        expected_user_ids.len(),
-        "Expected {} users in the response",
-        expected_user_ids.len()
+    // Verify the error mentions the ID validation failure
+    assert!(
+        error_response.error.to_lowercase().contains("validation")
+            || error_response.error.to_lowercase().contains("52"),
+        "Error should mention ID validation (52 chars requirement), got: {}",
+        error_response.error
     );
-
-    for id in &expected_user_ids {
-        let exists = users.iter().any(|u| u["details"]["id"] == *id);
-        assert!(exists, "Expected user ID not found: {id}");
-    }
 
     Ok(())
 }
@@ -134,9 +138,15 @@ async fn test_stream_users_by_ids_empty_list() -> Result<()> {
     )
     .await?;
 
+    // Deserialize response into ErrorResponse
+    let error_response: ErrorResponse =
+        serde_json::from_value(res).expect("Response should be a valid ErrorResponse");
     assert!(
-        res["error"].as_str().unwrap_or("").contains("empty"),
-        "Error message should mention that user_ids cannot be empty"
+        error_response
+            .error
+            .contains("user_ids: At least 1 item(s) required"),
+        "Error field should mention that user_ids cannot be empty, got: {}",
+        error_response.error
     );
 
     Ok(())

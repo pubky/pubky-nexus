@@ -10,6 +10,7 @@ build = "build.rs"
 
 [dependencies]
 axum = "0.8.9"
+base32 = { workspace = true }
 axum-server = { version = "0.8.0", features = ["tls-rustls-no-provider"] }
 chrono = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
@@ -40,6 +41,7 @@ httpc-test = "0.1.10"
 pubky-testnet = { workspace = true }
 tempfile = { workspace = true }
 tokio-shared-rt = { workspace = true }
+tower = { version = "0.5", features = ["util"] }
 url = "2.5.8"
 
 [[bench]]

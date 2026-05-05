@@ -1,3 +1,4 @@
+use crate::models::{PubkyId, Tags};
 use crate::routes::v0::endpoints::{STREAM_RESOURCES_ROUTE, STREAM_RESOURCE_IDS_ROUTE};
 use crate::Result;
 use axum::extract::Query;
@@ -11,50 +12,17 @@ use nexus_common::types::Pagination;
 use serde::Deserialize;
 use tracing::debug;
 use utoipa::{OpenApi, ToSchema};
-
-const MAX_TAGS: usize = 5;
-
-fn deserialize_comma_separated<'de, D>(
-    deserializer: D,
-) -> std::result::Result<Option<Vec<String>>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let s: Option<String> = Option::deserialize(deserializer)?;
-    match s {
-        None => Ok(None),
-        Some(s) => {
-            let tags: Vec<String> = s
-                .split(',')
-                .map(|t| t.trim().to_string())
-                .filter(|t| !t.is_empty())
-                .collect();
-            if tags.len() > MAX_TAGS {
-                return Err(serde::de::Error::custom(format!(
-                    "Too many tags (max {MAX_TAGS})"
-                )));
-            }
-            if tags.is_empty() {
-                Ok(None)
-            } else {
-                Ok(Some(tags))
-            }
-        }
-    }
-}
-
 #[derive(Deserialize, Debug, ToSchema)]
 pub struct ResourceStreamQuery {
     pub app: Option<String>,
-    #[serde(default, deserialize_with = "deserialize_comma_separated")]
-    pub tags: Option<Vec<String>>,
+    pub tags: Option<Tags>,
     #[serde(default)]
     pub sorting: ResourceSorting,
     #[serde(default)]
     pub order: Option<SortOrder>,
     #[serde(flatten)]
     pub pagination: Pagination,
-    pub viewer_id: Option<String>,
+    pub viewer_id: Option<PubkyId>,
 }
 
 #[utoipa::path(
@@ -64,7 +32,7 @@ pub struct ResourceStreamQuery {
     tag = "Stream",
     params(
         ("app" = Option<String>, Query, description = "Filter by app namespace (e.g., mapky, eventky)"),
-        ("tags" = Option<String>, Query, description = "Comma-separated tag labels (max 5, OR logic)"),
+        ("tags" = Option<Tags>, Query, description = "Comma-separated tag labels (max 5, OR logic)"),
         ("sorting" = Option<String>, Query, description = "timeline or taggers_count"),
         ("skip" = Option<usize>, Query, description = "Pagination skip"),
         ("limit" = Option<usize>, Query, description = "Pagination limit"),
@@ -94,7 +62,7 @@ pub async fn stream_resource_ids_handler(
         query.pagination,
         order,
         &query.sorting,
-        query.tags.as_deref(),
+        query.tags.as_ref().map(|t| &t.0[..]),
     )
     .await?;
 
@@ -108,11 +76,11 @@ pub async fn stream_resource_ids_handler(
     tag = "Stream",
     params(
         ("app" = Option<String>, Query, description = "Filter by app namespace"),
-        ("tags" = Option<String>, Query, description = "Comma-separated tag labels"),
+        ("tags" = Tags, Query, description = "Comma-separated tag labels"),
         ("sorting" = Option<String>, Query, description = "timeline or taggers_count"),
         ("skip" = Option<usize>, Query, description = "Pagination skip"),
         ("limit" = Option<usize>, Query, description = "Pagination limit"),
-        ("viewer_id" = Option<String>, Query, description = "Viewer Pubky ID for relationship checks"),
+        ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID for relationship checks"),
     ),
     responses(
         (status = 200, description = "Resource stream", body = Vec<ResourceView>),
@@ -139,7 +107,7 @@ pub async fn stream_resources_handler(
         query.pagination,
         order,
         &query.sorting,
-        query.tags.as_deref(),
+        query.tags.as_ref().map(|t| &t.0[..]),
     )
     .await?;
 
@@ -157,6 +125,6 @@ pub async fn stream_resources_handler(
 #[derive(OpenApi)]
 #[openapi(
     paths(stream_resource_ids_handler, stream_resources_handler),
-    components(schemas(ResourceKeyStream, ResourceStreamQuery))
+    components(schemas(ResourceKeyStream, ResourceStreamQuery, PubkyId, Tags))
 )]
 pub struct StreamResourcesApiDocs;

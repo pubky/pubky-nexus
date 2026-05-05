@@ -11,7 +11,7 @@ use super::utils::{analyse_tag_details_structure, compare_tag_details, TagMockup
 
 // Peter user from test/tags.cypher
 pub const PEER_PUBKY: &str = "db6w58pd5h63fbhtd88y8zz7pai9rkjwqt9omg6i7dz31dynrgcy";
-const POST_ID: &str = "HC3T5CEPBPHQ";
+const POST_ID: &str = "HC3T5CEPBPHQQ";
 const FREE_LABEL: &str = "free";
 const ANONYMOUS_PUBKY: &str = "mwsnc3qzej8hks6motdeyj8ag7gzaf3ft5emcjzk9wn5erxg968y";
 
@@ -179,7 +179,7 @@ async fn test_user_tags_full_filter_active() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_post_does_not_exist() -> Result<()> {
-    let endpoint = format!("/v0/post/{}/{}/tags", PEER_PUBKY, "JTDX9ZSWPQF8");
+    let endpoint = format!("/v0/post/{}/{}/tags", PEER_PUBKY, "JTDX9ZSWPQF88");
     // TODO: Control post not found error control
     invalid_get_request(&endpoint, StatusCode::NOT_FOUND).await?;
     Ok(())

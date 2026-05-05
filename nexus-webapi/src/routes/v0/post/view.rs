@@ -1,7 +1,8 @@
-use crate::models::PostViewDetailed;
+use crate::models::{PostId, PostViewDetailed, PubkyId};
 use crate::routes::v0::endpoints::POST_ROUTE;
+use crate::routes::Path;
 use crate::{Error, Result};
-use axum::extract::{Path, Query};
+use axum::extract::Query;
 use axum::Json;
 use nexus_common::models::post::PostRelationships;
 use nexus_common::models::tag::post::TagPost;
@@ -10,9 +11,15 @@ use serde::Deserialize;
 use tracing::debug;
 use utoipa::OpenApi;
 
+#[derive(Deserialize)]
+pub struct PostPath {
+    pub author_id: PubkyId,
+    pub post_id: PostId,
+}
+
 #[derive(Default, Deserialize, Debug)]
 pub struct PostViewQuery {
-    pub viewer_id: Option<String>,
+    pub viewer_id: Option<PubkyId>,
     pub limit_tags: Option<usize>,
     pub limit_taggers: Option<usize>,
     #[serde(default)]
@@ -25,9 +32,9 @@ pub struct PostViewQuery {
     description = "Post view",
     tag = "Post",
     params(
-        ("author_id" = String, Path, description = "Author Pubky ID"),
-        ("post_id" = String, Path, description = "Post Crockford32 ID"),
-        ("viewer_id" = Option<String>, Query, description = "Viewer Pubky ID"),
+        ("author_id" = PubkyId, Path, description = "Author Pubky ID"),
+        ("post_id" = PostId, Path, description = "Post Crockford32 ID"),
+        ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID"),
         ("limit_tags" = Option<usize>, Query, description = "Upper limit on the number of tags for the post"),
         ("limit_taggers" = Option<usize>, Query, description = "Upper limit on the number of taggers per tag"),
         ("include_attachment_metadata" = Option<bool>, Query, description = "Include file metadata for post attachments"),
@@ -39,14 +46,14 @@ pub struct PostViewQuery {
     )
 )]
 pub async fn post_view_handler(
-    Path((author_id, post_id)): Path<(String, String)>,
+    Path(PostPath { author_id, post_id }): Path<PostPath>,
     Query(query): Query<PostViewQuery>,
 ) -> Result<Json<PostViewDetailed>> {
     debug!(
-        "GET {POST_ROUTE} author_id:{}, post_id:{}, viewer_id:{}, limit_tags:{:?}, limit_taggers:{:?}",
+        "GET {POST_ROUTE} author_id:{}, post_id:{}, viewer_id:{:?}, limit_tags:{:?}, limit_taggers:{:?}",
         author_id,
         post_id,
-        query.viewer_id.as_deref().unwrap_or(""),
+        query.viewer_id,
         query.limit_tags,
         query.limit_taggers
     );
@@ -69,6 +76,13 @@ pub async fn post_view_handler(
 #[derive(OpenApi)]
 #[openapi(
     paths(post_view_handler),
-    components(schemas(PostViewDetailed, PostRelationships, TagPost, TagDetails))
+    components(schemas(
+        PostViewDetailed,
+        PostRelationships,
+        TagPost,
+        TagDetails,
+        PubkyId,
+        PostId
+    ))
 )]
 pub struct PostViewApiDoc;

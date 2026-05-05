@@ -3,9 +3,9 @@ use anyhow::Result;
 use nexus_common::models::post::PostView;
 use nexus_webapi::models::PostStreamDetailed;
 
-// Cairo user and post N7Q2F5W8J0L3 from posts.cypher
+// Cairo user and post 00000039YD9DP from posts.cypher
 const CAIRO_USER: &str = super::CAIRO_USER;
-const POST_ID: &str = "N7Q2F5W8J0L3";
+const POST_ID: &str = "00000039YD9DP";
 
 // File metadata from files.cypher lines 7-8
 const FILE_ID_1: &str = "2ZK3A1B2C3D40";
@@ -18,7 +18,7 @@ async fn test_from_post_views_with_attachment_metadata() -> Result<()> {
     let post_view = PostView::get_by_id(CAIRO_USER, POST_ID, None, None, None)
         .await
         .unwrap()
-        .expect("Post N7Q2F5W8J0L3 should exist in the test database");
+        .expect("Post 00000039YD9DP should exist in the test database");
 
     let result = PostStreamDetailed::from_post_views(vec![post_view], true)
         .await

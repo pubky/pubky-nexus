@@ -1,6 +1,7 @@
+use crate::models::PubkyId;
 use crate::routes::v0::endpoints::USER_COUNTS_ROUTE;
+use crate::routes::Path;
 use crate::{Error, Result};
-use axum::extract::Path;
 use axum::Json;
 use nexus_common::models::user::UserCounts;
 use tracing::debug;
@@ -12,7 +13,7 @@ use utoipa::OpenApi;
     tag = "User",
     description = "User counts",
     params(
-        ("user_id" = String, Path, description = "User Pubky ID")
+        ("user_id" = PubkyId, Path, description = "User Pubky ID")
     ),
     responses(
         (status = 200, description = "User counts", body = UserCounts),
@@ -20,7 +21,7 @@ use utoipa::OpenApi;
         (status = 500, description = "Internal server error")
     )
 )]
-pub async fn user_counts_handler(Path(user_id): Path<String>) -> Result<Json<UserCounts>> {
+pub async fn user_counts_handler(Path(user_id): Path<PubkyId>) -> Result<Json<UserCounts>> {
     debug!("GET {USER_COUNTS_ROUTE} user_id:{}", user_id);
 
     match UserCounts::get_by_id(&user_id).await? {
@@ -30,5 +31,5 @@ pub async fn user_counts_handler(Path(user_id): Path<String>) -> Result<Json<Use
 }
 
 #[derive(OpenApi)]
-#[openapi(paths(user_counts_handler), components(schemas(UserCounts)))]
+#[openapi(paths(user_counts_handler), components(schemas(UserCounts, PubkyId)))]
 pub struct UserCountsApiDoc;

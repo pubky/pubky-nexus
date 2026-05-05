@@ -1,7 +1,8 @@
-use crate::models::PostStreamDetailed;
+use crate::models::{GlobalPostId, GlobalPostIds, PostId, PostStreamDetailed, PubkyId, Tags};
 use crate::routes::v0::endpoints::{
     STREAM_POSTS_BY_IDS_ROUTE, STREAM_POSTS_ROUTE, STREAM_POST_KEYS_ROUTE,
 };
+use crate::routes::ValidJson;
 use crate::{Error, Result as AppResult};
 use axum::{extract::Query, Json};
 use nexus_common::db::kv::SortOrder;
@@ -11,23 +12,110 @@ use nexus_common::{
     types::Pagination,
 };
 use pubky_app_specs::PubkyAppPostKind;
-use serde::{de, Deserialize, Deserializer};
+use serde::Deserialize;
 use tracing::debug;
 use utoipa::{OpenApi, ToSchema};
 
-const MAX_TAGS: usize = 5;
+/// Discriminant for the source of posts in a stream.
+/// Mirrors the variant structure of StreamSource but does not carry ID payloads,
+/// since the actual IDs are validated at the API boundary via dedicated query params.
+#[derive(Deserialize, Debug, ToSchema, Clone, PartialEq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum StreamSourceKind {
+    PostReplies,
+    Following,
+    Followers,
+    Friends,
+    Bookmarks,
+    Author,
+    AuthorReplies,
+    #[default]
+    All,
+}
+
+/// Convert a validated query into the internal StreamSource used by nexus-common.
+/// Returns an error if the selected `StreamSourceKind` requires fields that are missing
+fn build_stream_source(
+    kind: &StreamSourceKind,
+    author_id: Option<&PubkyId>,
+    observer_id: Option<&PubkyId>,
+    post_id: Option<&PostId>,
+) -> AppResult<StreamSource> {
+    match kind {
+        StreamSourceKind::PostReplies => match (post_id, author_id) {
+            (Some(post_id), Some(author_id)) => Ok(StreamSource::PostReplies {
+                post_id: post_id.to_string(),
+                author_id: author_id.to_string(),
+            }),
+            _ => Err(Error::invalid_input(
+                "source 'post_replies' requires both 'post_id' and 'author_id' parameters",
+            )),
+        },
+        StreamSourceKind::Following => match observer_id {
+            Some(observer_id) => Ok(StreamSource::Following {
+                observer_id: observer_id.to_string(),
+            }),
+            None => Err(Error::invalid_input(
+                "source 'following' requires 'observer_id' parameter",
+            )),
+        },
+        StreamSourceKind::Followers => match observer_id {
+            Some(observer_id) => Ok(StreamSource::Followers {
+                observer_id: observer_id.to_string(),
+            }),
+            None => Err(Error::invalid_input(
+                "source 'followers' requires 'observer_id' parameter",
+            )),
+        },
+        StreamSourceKind::Friends => match observer_id {
+            Some(observer_id) => Ok(StreamSource::Friends {
+                observer_id: observer_id.to_string(),
+            }),
+            None => Err(Error::invalid_input(
+                "source 'friends' requires 'observer_id' parameter",
+            )),
+        },
+        StreamSourceKind::Bookmarks => match observer_id {
+            Some(observer_id) => Ok(StreamSource::Bookmarks {
+                observer_id: observer_id.to_string(),
+            }),
+            None => Err(Error::invalid_input(
+                "source 'bookmarks' requires 'observer_id' parameter",
+            )),
+        },
+        StreamSourceKind::Author => match author_id {
+            Some(author_id) => Ok(StreamSource::Author {
+                author_id: author_id.to_string(),
+            }),
+            None => Err(Error::invalid_input(
+                "source 'author' requires 'author_id' parameter",
+            )),
+        },
+        StreamSourceKind::AuthorReplies => match author_id {
+            Some(author_id) => Ok(StreamSource::AuthorReplies {
+                author_id: author_id.to_string(),
+            }),
+            None => Err(Error::invalid_input(
+                "source 'author_replies' requires 'author_id' parameter",
+            )),
+        },
+        StreamSourceKind::All => Ok(StreamSource::All),
+    }
+}
 
 #[derive(Deserialize, Debug, ToSchema)]
 pub struct PostStreamQuery {
-    #[serde(flatten, default)]
-    pub source: Option<StreamSource>,
+    #[serde(default)]
+    pub source: StreamSourceKind,
+    pub author_id: Option<PubkyId>,
+    pub observer_id: Option<PubkyId>,
+    pub post_id: Option<PostId>,
     #[serde(flatten)]
     pub pagination: Pagination,
     pub order: Option<SortOrder>,
     pub sorting: Option<StreamSorting>,
-    pub viewer_id: Option<String>,
-    #[serde(default, deserialize_with = "deserialize_comma_separated")]
-    pub tags: Option<Vec<String>>,
+    pub viewer_id: Option<PubkyId>,
+    pub tags: Option<Tags>,
     pub kind: Option<PubkyAppPostKind>,
     #[serde(default)]
     pub include_attachment_metadata: bool,
@@ -40,41 +128,32 @@ impl PostStreamQuery {
         self.sorting.get_or_insert(StreamSorting::Timeline);
     }
 
-    pub fn extract_stream_params(&self) -> (StreamSource, StreamSorting, SortOrder) {
-        (
-            self.source.as_ref().cloned().unwrap_or_default(), // StreamSource::All is default
-            self.sorting.as_ref().cloned().unwrap_or_default(), // StreamSorting::Timeline is default
-            self.order.as_ref().cloned().unwrap_or_default(),   // SortOrder::Descending is default
+    pub fn build_source(&self) -> AppResult<StreamSource> {
+        build_stream_source(
+            &self.source,
+            self.author_id.as_ref(),
+            self.observer_id.as_ref(),
+            self.post_id.as_ref(),
         )
     }
 
-    pub fn validate_tags(&self) -> AppResult<()> {
-        if let Some(ref tags) = self.tags {
-            if tags.len() > MAX_TAGS {
-                return Err(Error::invalid_input(&format!(
-                    "Too many tags provided; maximum allowed is {MAX_TAGS}"
-                )));
-            }
-        }
-        Ok(())
+    pub fn extract_stream_params(&self) -> AppResult<(StreamSource, StreamSorting, SortOrder)> {
+        Ok((
+            self.build_source()?,
+            self.sorting.as_ref().cloned().unwrap_or_default(),
+            self.order.as_ref().cloned().unwrap_or_default(),
+        ))
     }
-}
 
-// Custom deserializer for comma-separated tags
-fn deserialize_comma_separated<'de, D>(deserializer: D) -> Result<Option<Vec<String>>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let s: Option<String> = Option::deserialize(deserializer)?;
-    if let Some(s) = s {
-        if s.is_empty() {
-            return Err(de::Error::custom("Tags cannot be empty"));
-        }
-        // Split by comma and trim any excess whitespace
-        let tags: Vec<String> = s.split(',').map(|tag| tag.trim().to_string()).collect();
-        return Ok(Some(tags));
+    pub fn viewer_id_str(&self) -> Option<String> {
+        self.viewer_id.as_ref().map(|id| id.to_string())
     }
-    Ok(None)
+
+    pub fn tags_as_strings(&self) -> Option<Vec<String>> {
+        self.tags
+            .as_ref()
+            .map(|tags| tags.0.iter().map(|t| t.clone()).collect())
+    }
 }
 
 #[utoipa::path(
@@ -82,14 +161,14 @@ where
     path = STREAM_POSTS_ROUTE,
     tag = "Stream",
     params(
-        ("source" = Option<StreamSource>, Query, description = "Source of posts for streams with viewer (following, followers, friends, bookmarks, post_replies, author, author_replies, all)"),
-        ("viewer_id" = Option<String>, Query, description = "Viewer Pubky ID"),
-        ("observer_id" = Option<String>, Query, description = "Observer Pubky ID. The central point for streams with Reach"),
-        ("author_id" = Option<String>, Query, description = "Filter posts by an specific author User ID"),
-        ("post_id" = Option<String>, Query, description = "This parameter is needed when we want to retrieve the replies stream for a post"),
+        ("source" = StreamSourceKind, Query, description = "Source of posts for streams with viewer (following, followers, friends, bookmarks, post_replies, author, author_replies, all)"),
+        ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID"),
+        ("observer_id" = Option<PubkyId>, Query, description = "Observer Pubky ID. The central point for streams with Reach"),
+        ("author_id" = Option<PubkyId>, Query, description = "Filter posts by an specific author User ID"),
+        ("post_id" = Option<PostId>, Query, description = "This parameter is needed when we want to retrieve the replies stream for a post"),
         ("sorting" = Option<StreamSorting>, Query, description = "StreamSorting method"),
         ("order" = Option<SortOrder>, Query, description = "Ordering of response list. Either 'ascending' or 'descending'. Defaults to descending."),
-        ("tags" = Option<Vec<String>>, Query, description = "Filter by a list of comma-separated tags (max 5). E.g.,`&tags=dev,free,opensource`. Only posts matching at least one of the tags will be returned."),
+        ("tags" = Option<Tags>, Query, description = "Filter by a list of comma-separated tags (max 5). E.g.,`&tags=dev,free,opensource`. Only posts matching at least one of the tags will be returned."),
         ("kind" = Option<PubkyAppPostKind>, Query, description = "Specifies the type of posts to retrieve: short, long, image, video, link and file"),
         ("skip" = Option<usize>, Query, description = "Skip N posts"),
         ("limit" = Option<usize>, Query, description = "Retrieve N posts"),
@@ -110,7 +189,7 @@ The `source` parameter determines the type of stream. Depending on the `source`,
 - *author*:  Requires  **author_id** to filter posts by a specific author.
 - *author_replies*:  Requires  **author_id** to filter replies by a specific author.
 
-Ensure that you provide the necessary parameters based on the selected `source`. If the required parameter is not provided, the provided `source` will be ignored and the stream type will default to *all*"#
+Ensure that you provide the necessary parameters based on the selected `source`. If a required parameter is missing, a 400 Bad Request error will be returned."#
 )]
 pub async fn stream_posts_handler(
     Query(mut query): Query<PostStreamQuery>,
@@ -118,17 +197,18 @@ pub async fn stream_posts_handler(
     debug!("GET {STREAM_POSTS_ROUTE}");
 
     query.initialize_defaults();
-    query.validate_tags()?;
-    let (source, sorting, order) = query.extract_stream_params();
+    let (source, sorting, order) = query.extract_stream_params()?;
     let include_attachment_metadata = query.include_attachment_metadata;
+    let viewer_id = query.viewer_id_str();
+    let tags = query.tags_as_strings();
 
     match PostStream::get_posts(
         source,
         query.pagination,
         order,
         sorting,
-        query.viewer_id,
-        query.tags,
+        viewer_id,
+        tags,
         query.kind,
     )
     .await?
@@ -145,13 +225,13 @@ pub async fn stream_posts_handler(
     path = STREAM_POST_KEYS_ROUTE,
     tag = "Stream",
     params(
-        ("source" = Option<StreamSource>, Query, description = "Source of posts for streams with viewer (following, followers, friends, bookmarks, post_replies, author, author_replies, all)"),
-        ("observer_id" = Option<String>, Query, description = "Observer Pubky ID. The central point for streams with Reach"),
-        ("author_id" = Option<String>, Query, description = "Filter posts by an specific author User ID"),
-        ("post_id" = Option<String>, Query, description = "This parameter is needed when we want to retrieve the replies stream for a post"),
+        ("source" = StreamSourceKind, Query, description = "Source of posts for streams with viewer (following, followers, friends, bookmarks, post_replies, author, author_replies, all)"),
+        ("observer_id" = Option<PubkyId>, Query, description = "Observer Pubky ID. The central point for streams with Reach"),
+        ("author_id" = Option<PubkyId>, Query, description = "Filter posts by an specific author User ID"),
+        ("post_id" = Option<PostId>, Query, description = "This parameter is needed when we want to retrieve the replies stream for a post"),
         ("sorting" = Option<StreamSorting>, Query, description = "StreamSorting method"),
         ("order" = Option<SortOrder>, Query, description = "Ordering of response list. Either 'ascending' or 'descending'. Defaults to descending."),
-        ("tags" = Option<Vec<String>>, Query, description = "Filter by a list of comma-separated tags (max 5). E.g.,`&tags=dev,free,opensource`. Only posts matching at least one of the tags will be returned."),
+        ("tags" = Option<Tags>, Query, description = "Filter by a list of comma-separated tags (max 5). E.g.,`&tags=dev,free,opensource`. Only posts matching at least one of the tags will be returned."),
         ("kind" = Option<PubkyAppPostKind>, Query, description = "Specifies the type of posts to retrieve: short, long, image, video, link and file"),
         ("skip" = Option<usize>, Query, description = "Skip N posts"),
         ("limit" = Option<usize>, Query, description = "Retrieve N posts"),
@@ -170,7 +250,7 @@ The `source` parameter determines the type of stream. Depending on the `source`,
 - *author*:  Requires  **author_id** to filter posts by a specific author.
 - *author_replies*:  Requires  **author_id** to filter replies by a specific author.
 
-Ensure that you provide the necessary parameters based on the selected `source`. If the required parameter is not provided, the provided `source` will be ignored and the stream type will default to *all*"#
+Ensure that you provide the necessary parameters based on the selected `source`. If a required parameter is missing, a 400 Bad Request error will be returned."#
 )]
 pub async fn stream_post_keys_handler(
     Query(mut query): Query<PostStreamQuery>,
@@ -178,18 +258,11 @@ pub async fn stream_post_keys_handler(
     debug!("GET {STREAM_POST_KEYS_ROUTE}");
 
     query.initialize_defaults();
-    query.validate_tags()?;
-    let (source, sorting, order) = query.extract_stream_params();
+    let (source, sorting, order) = query.extract_stream_params()?;
+    let tags = query.tags_as_strings();
 
-    match PostStream::get_post_keys(
-        source,
-        query.pagination,
-        order,
-        sorting,
-        query.tags,
-        query.kind,
-    )
-    .await?
+    match PostStream::get_post_keys(source, query.pagination, order, sorting, tags, query.kind)
+        .await?
     {
         Some(stream) => Ok(Json(stream)),
         None => Ok(Json(PostKeyStream::default())),
@@ -198,8 +271,8 @@ pub async fn stream_post_keys_handler(
 
 #[derive(ToSchema, Deserialize)]
 pub struct PostStreamByIdsRequest {
-    pub post_ids: Vec<String>,
-    pub viewer_id: Option<String>,
+    pub post_ids: GlobalPostIds,
+    pub viewer_id: Option<PubkyId>,
     #[serde(default)]
     pub include_attachment_metadata: bool,
 }
@@ -215,27 +288,18 @@ pub struct PostStreamByIdsRequest {
     )
 )]
 pub async fn stream_posts_by_ids_handler(
-    Json(request): Json<PostStreamByIdsRequest>,
+    ValidJson(request): ValidJson<PostStreamByIdsRequest>,
 ) -> AppResult<Json<PostStreamDetailed>> {
     debug!(
         "POST {} post_ids size {:?}",
         STREAM_POSTS_BY_IDS_ROUTE,
-        request.post_ids.len()
+        request.post_ids.0.len()
     );
 
-    const MAX_POSTS: usize = 100;
+    let viewer_id = request.viewer_id.as_ref().map(|id| id.to_string());
+    let post_ids = request.post_ids.into_string_vec();
 
-    if request.post_ids.len() > MAX_POSTS {
-        let err_msg = format!("The maximum number of post IDs allowed is {MAX_POSTS}");
-        return Err(Error::invalid_input(&err_msg));
-    }
-
-    if request.post_ids.is_empty() {
-        let err_msg = "The list of post IDs provided is empty";
-        return Err(Error::invalid_input(err_msg));
-    }
-
-    match PostStream::from_listed_post_ids(request.viewer_id, &request.post_ids).await? {
+    match PostStream::from_listed_post_ids(viewer_id, &post_ids).await? {
         Some(stream) => Ok(Json(
             PostStreamDetailed::from_post_views(stream.0, request.include_attachment_metadata)
                 .await?,
@@ -255,8 +319,12 @@ pub async fn stream_posts_by_ids_handler(
         PostKeyStream,
         PostStreamDetailed,
         StreamSorting,
-        StreamSource,
-        SortOrder
+        StreamSourceKind,
+        SortOrder,
+        PubkyId,
+        PostId,
+        Tags,
+        GlobalPostId
     ))
 )]
 pub struct StreamPostsApiDocs;

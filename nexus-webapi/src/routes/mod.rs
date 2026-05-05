@@ -1,3 +1,8 @@
+use axum::body::Body;
+use axum::extract::{FromRequest, FromRequestParts};
+use axum::http::request::Parts;
+use axum::http::Request;
+use axum::Json as AxumJson;
 use axum::Router;
 use std::{path::PathBuf, sync::Arc};
 use tower_http::compression::CompressionLayer;
@@ -8,6 +13,47 @@ pub mod r#static;
 pub mod v0;
 
 mod middlewares;
+
+/// A wrapper around Axum's Json extractor that maps deserialization errors
+/// to Error::InvalidInput (400 Bad Request) for consistent error handling
+/// across all extraction types (Query, Path, and Json).
+pub struct ValidJson<T>(pub T);
+
+impl<S, T> FromRequest<S> for ValidJson<T>
+where
+    S: Send + Sync,
+    T: serde::de::DeserializeOwned,
+{
+    type Rejection = crate::Error;
+
+    async fn from_request(req: Request<Body>, state: &S) -> Result<Self, Self::Rejection> {
+        let json: AxumJson<T> = AxumJson::from_request(req, state)
+            .await
+            .map_err(|rejection| crate::Error::invalid_input(&rejection.to_string()))?;
+        Ok(ValidJson(json.0))
+    }
+}
+
+/// A wrapper around Axum's Path extractor that maps deserialization/validation errors
+/// to Error::InvalidInput (400 Bad Request) for consistent JSON error responses.
+/// This ensures that path parameter validation failures return a proper JSON body
+/// instead of Axum's default plain-text rejection.
+pub struct Path<T>(pub T);
+
+impl<S, T> FromRequestParts<S> for Path<T>
+where
+    S: Send + Sync,
+    T: serde::de::DeserializeOwned + Send,
+{
+    type Rejection = crate::Error;
+
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+        let path: axum::extract::Path<T> = axum::extract::Path::from_request_parts(parts, state)
+            .await
+            .map_err(|rejection| crate::Error::invalid_input(&rejection.to_string()))?;
+        Ok(Path(path.0))
+    }
+}
 
 #[derive(Clone)]
 pub struct AppState {
