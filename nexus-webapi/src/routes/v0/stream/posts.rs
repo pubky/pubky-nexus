@@ -3,7 +3,7 @@ use crate::routes::v0::endpoints::{
     STREAM_POSTS_BY_IDS_ROUTE, STREAM_POSTS_ROUTE, STREAM_POST_KEYS_ROUTE,
 };
 use crate::routes::ValidJson;
-use crate::Result as AppResult;
+use crate::{Error, Result as AppResult};
 use axum::{extract::Query, Json};
 use nexus_common::db::kv::SortOrder;
 use nexus_common::types::StreamSorting;
@@ -34,59 +34,72 @@ pub enum StreamSourceKind {
 }
 
 /// Convert a validated query into the internal StreamSource used by nexus-common.
-/// If the selected `StreamSourceKind` requires fields that are missing,
-/// falls back to `StreamSource::All`.
+/// Returns an error if the selected `StreamSourceKind` requires fields that are missing
 fn build_stream_source(
     kind: &StreamSourceKind,
     author_id: Option<&PubkyId>,
     observer_id: Option<&PubkyId>,
     post_id: Option<&PostId>,
-) -> StreamSource {
+) -> AppResult<StreamSource> {
     match kind {
         StreamSourceKind::PostReplies => match (post_id, author_id) {
-            (Some(post_id), Some(author_id)) => StreamSource::PostReplies {
+            (Some(post_id), Some(author_id)) => Ok(StreamSource::PostReplies {
                 post_id: post_id.to_string(),
                 author_id: author_id.to_string(),
-            },
-            _ => StreamSource::All,
+            }),
+            _ => Err(Error::invalid_input(
+                "source 'post_replies' requires both 'post_id' and 'author_id' parameters",
+            )),
         },
         StreamSourceKind::Following => match observer_id {
-            Some(observer_id) => StreamSource::Following {
+            Some(observer_id) => Ok(StreamSource::Following {
                 observer_id: observer_id.to_string(),
-            },
-            None => StreamSource::All,
+            }),
+            None => Err(Error::invalid_input(
+                "source 'following' requires 'observer_id' parameter",
+            )),
         },
         StreamSourceKind::Followers => match observer_id {
-            Some(observer_id) => StreamSource::Followers {
+            Some(observer_id) => Ok(StreamSource::Followers {
                 observer_id: observer_id.to_string(),
-            },
-            None => StreamSource::All,
+            }),
+            None => Err(Error::invalid_input(
+                "source 'followers' requires 'observer_id' parameter",
+            )),
         },
         StreamSourceKind::Friends => match observer_id {
-            Some(observer_id) => StreamSource::Friends {
+            Some(observer_id) => Ok(StreamSource::Friends {
                 observer_id: observer_id.to_string(),
-            },
-            None => StreamSource::All,
+            }),
+            None => Err(Error::invalid_input(
+                "source 'friends' requires 'observer_id' parameter",
+            )),
         },
         StreamSourceKind::Bookmarks => match observer_id {
-            Some(observer_id) => StreamSource::Bookmarks {
+            Some(observer_id) => Ok(StreamSource::Bookmarks {
                 observer_id: observer_id.to_string(),
-            },
-            None => StreamSource::All,
+            }),
+            None => Err(Error::invalid_input(
+                "source 'bookmarks' requires 'observer_id' parameter",
+            )),
         },
         StreamSourceKind::Author => match author_id {
-            Some(author_id) => StreamSource::Author {
+            Some(author_id) => Ok(StreamSource::Author {
                 author_id: author_id.to_string(),
-            },
-            None => StreamSource::All,
+            }),
+            None => Err(Error::invalid_input(
+                "source 'author' requires 'author_id' parameter",
+            )),
         },
         StreamSourceKind::AuthorReplies => match author_id {
-            Some(author_id) => StreamSource::AuthorReplies {
+            Some(author_id) => Ok(StreamSource::AuthorReplies {
                 author_id: author_id.to_string(),
-            },
-            None => StreamSource::All,
+            }),
+            None => Err(Error::invalid_input(
+                "source 'author_replies' requires 'author_id' parameter",
+            )),
         },
-        StreamSourceKind::All => StreamSource::All,
+        StreamSourceKind::All => Ok(StreamSource::All),
     }
 }
 
@@ -115,7 +128,7 @@ impl PostStreamQuery {
         self.sorting.get_or_insert(StreamSorting::Timeline);
     }
 
-    pub fn build_source(&self) -> StreamSource {
+    pub fn build_source(&self) -> AppResult<StreamSource> {
         build_stream_source(
             &self.source,
             self.author_id.as_ref(),
@@ -124,12 +137,12 @@ impl PostStreamQuery {
         )
     }
 
-    pub fn extract_stream_params(&self) -> (StreamSource, StreamSorting, SortOrder) {
-        (
-            self.build_source(),
+    pub fn extract_stream_params(&self) -> AppResult<(StreamSource, StreamSorting, SortOrder)> {
+        Ok((
+            self.build_source()?,
             self.sorting.as_ref().cloned().unwrap_or_default(),
             self.order.as_ref().cloned().unwrap_or_default(),
-        )
+        ))
     }
 
     pub fn viewer_id_str(&self) -> Option<String> {
@@ -176,7 +189,7 @@ The `source` parameter determines the type of stream. Depending on the `source`,
 - *author*:  Requires  **author_id** to filter posts by a specific author.
 - *author_replies*:  Requires  **author_id** to filter replies by a specific author.
 
-Ensure that you provide the necessary parameters based on the selected `source`. If the required parameter is not provided, the provided `source` will be ignored and the stream type will default to *all*"#
+Ensure that you provide the necessary parameters based on the selected `source`. If a required parameter is missing, a 400 Bad Request error will be returned."#
 )]
 pub async fn stream_posts_handler(
     Query(mut query): Query<PostStreamQuery>,
@@ -184,7 +197,7 @@ pub async fn stream_posts_handler(
     debug!("GET {STREAM_POSTS_ROUTE}");
 
     query.initialize_defaults();
-    let (source, sorting, order) = query.extract_stream_params();
+    let (source, sorting, order) = query.extract_stream_params()?;
     let include_attachment_metadata = query.include_attachment_metadata;
     let viewer_id = query.viewer_id_str();
     let tags = query.tags_as_strings();
@@ -237,7 +250,7 @@ The `source` parameter determines the type of stream. Depending on the `source`,
 - *author*:  Requires  **author_id** to filter posts by a specific author.
 - *author_replies*:  Requires  **author_id** to filter replies by a specific author.
 
-Ensure that you provide the necessary parameters based on the selected `source`. If the required parameter is not provided, the provided `source` will be ignored and the stream type will default to *all*"#
+Ensure that you provide the necessary parameters based on the selected `source`. If a required parameter is missing, a 400 Bad Request error will be returned."#
 )]
 pub async fn stream_post_keys_handler(
     Query(mut query): Query<PostStreamQuery>,
@@ -245,7 +258,7 @@ pub async fn stream_post_keys_handler(
     debug!("GET {STREAM_POST_KEYS_ROUTE}");
 
     query.initialize_defaults();
-    let (source, sorting, order) = query.extract_stream_params();
+    let (source, sorting, order) = query.extract_stream_params()?;
     let tags = query.tags_as_strings();
 
     match PostStream::get_post_keys(source, query.pagination, order, sorting, tags, query.kind)
