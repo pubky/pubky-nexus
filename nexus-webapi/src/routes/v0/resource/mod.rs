@@ -4,9 +4,10 @@ use crate::routes::v0::endpoints::{
 };
 use crate::routes::v0::user::tags::TaggersQuery;
 use crate::routes::v0::{TaggersInfoResponse, TagsQuery};
+use crate::routes::Path;
 use crate::routes::AppState;
 use crate::{Error, Result};
-use axum::extract::{Path, Query};
+use axum::extract::Query;
 use axum::routing::get;
 use axum::{Json, Router};
 use nexus_common::models::resource::tag::TagResource;

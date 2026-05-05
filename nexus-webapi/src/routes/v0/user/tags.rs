@@ -1,8 +1,9 @@
 use crate::models::{PubkyId, TagLabel};
 use crate::routes::v0::endpoints::{USER_TAGGERS_ROUTE, USER_TAGS_ROUTE};
 use crate::routes::v0::{TaggersInfoResponse, TagsQuery};
+use crate::routes::Path;
 use crate::{Error, Result};
-use axum::extract::{Path, Query};
+use axum::extract::Query;
 use axum::Json;
 use nexus_common::models::tag::traits::{TagCollection, TaggersCollection};
 use nexus_common::models::tag::user::TagUser;

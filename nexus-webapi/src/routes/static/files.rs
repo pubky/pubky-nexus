@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use axum::{
-    extract::{Path, Query, Request, State},
+    extract::{Query, Request, State},
     response::Response,
 };
 use serde::Deserialize;
@@ -11,6 +11,7 @@ use utoipa::OpenApi;
 
 use super::endpoints::STATIC_FILES_ROUTE;
 use crate::models::PubkyId;
+use crate::routes::Path;
 use crate::routes::{r#static::PubkyServeDir, AppState};
 use crate::{Error, Result};
 use nexus_common::{

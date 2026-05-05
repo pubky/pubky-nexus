@@ -1,7 +1,8 @@
 use crate::models::TagLabel;
 use crate::routes::v0::endpoints::SEARCH_TAGS_BY_PREFIX_ROUTE;
+use crate::routes::Path;
 use crate::Result;
-use axum::extract::{Path, Query};
+use axum::extract::Query;
 use axum::Json;
 use nexus_common::models::tag::search::TagSearch;
 use nexus_common::types::Pagination;

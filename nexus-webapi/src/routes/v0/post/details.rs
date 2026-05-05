@@ -1,8 +1,8 @@
 use crate::models::{PostId, PubkyId};
 use crate::routes::v0::endpoints::POST_DETAILS_ROUTE;
 use crate::routes::v0::post::view::PostPath;
+use crate::routes::Path;
 use crate::{Error, Result};
-use axum::extract::Path;
 use axum::Json;
 use nexus_common::models::post::PostDetails;
 use pubky_app_specs::PubkyAppPostKind;

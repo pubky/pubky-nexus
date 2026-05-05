@@ -38,9 +38,9 @@ where
 /// to Error::InvalidInput (400 Bad Request) for consistent JSON error responses.
 /// This ensures that path parameter validation failures return a proper JSON body
 /// instead of Axum's default plain-text rejection.
-pub struct ValidPath<T>(pub T);
+pub struct Path<T>(pub T);
 
-impl<S, T> FromRequestParts<S> for ValidPath<T>
+impl<S, T> FromRequestParts<S> for Path<T>
 where
     S: Send + Sync,
     T: serde::de::DeserializeOwned + Send,
@@ -51,7 +51,7 @@ where
         let path: axum::extract::Path<T> = axum::extract::Path::from_request_parts(parts, state)
             .await
             .map_err(|rejection| crate::Error::invalid_input(&rejection.to_string()))?;
-        Ok(ValidPath(path.0))
+        Ok(Path(path.0))
     }
 }
 

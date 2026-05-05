@@ -1,7 +1,7 @@
 use crate::models::PubkyId;
 use crate::routes::v0::endpoints::USER_DETAILS_ROUTE;
+use crate::routes::Path;
 use crate::{Error, Result};
-use axum::extract::Path;
 use axum::Json;
 use nexus_common::models::user::UserDetails;
 use pubky_app_specs::PubkyAppUserLink;

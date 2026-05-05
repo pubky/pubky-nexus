@@ -1,7 +1,8 @@
 use crate::models::{PostId, PostViewDetailed, PubkyId};
 use crate::routes::v0::endpoints::POST_ROUTE;
+use crate::routes::Path;
 use crate::{Error, Result};
-use axum::extract::{Path, Query};
+use axum::extract::Query;
 use axum::Json;
 use nexus_common::models::post::PostRelationships;
 use nexus_common::models::tag::post::TagPost;

@@ -1,7 +1,8 @@
 use crate::models::PubkyId;
 use crate::routes::v0::endpoints::NOTIFICATION_ROUTE;
+use crate::routes::Path;
 use crate::Result;
-use axum::extract::{Path, Query};
+use axum::extract::Query;
 use axum::Json;
 use nexus_common::models::notification::{Notification, NotificationBody, PostChangedSource};
 use nexus_common::types::Pagination;

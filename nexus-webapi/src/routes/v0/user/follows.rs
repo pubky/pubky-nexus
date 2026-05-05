@@ -2,8 +2,9 @@ use crate::models::PubkyId;
 use crate::routes::v0::endpoints::{
     USER_FOLLOWERS_ROUTE, USER_FOLLOWING_ROUTE, USER_FRIENDS_ROUTE,
 };
+use crate::routes::Path;
 use crate::{Error, Result};
-use axum::extract::{Path, Query};
+use axum::extract::Query;
 use axum::Json;
 use nexus_common::models::follow::{Followers, Following, Friends, UserFollows};
 use nexus_common::types::Pagination;

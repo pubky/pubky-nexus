@@ -1,9 +1,9 @@
 use crate::models::PubkyId;
 use crate::routes::v0::endpoints::BOOTSTRAP_ROUTE;
 use crate::routes::v0::endpoints::PUT_HOMESERVER_ROUTE;
+use crate::routes::Path;
 use crate::routes::AppState;
 use crate::Result;
-use axum::extract::Path;
 use axum::routing::{get, put};
 use axum::Json;
 use axum::Router;

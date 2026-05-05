@@ -1,7 +1,8 @@
 use crate::models::{PubkyId, TagLabel};
 use crate::routes::v0::endpoints::{TAGS_HOT_ROUTE, TAG_TAGGERS_ROUTE};
+use crate::routes::Path;
 use crate::{Error, Result};
-use axum::extract::{Path, Query};
+use axum::extract::Query;
 use axum::Json;
 use nexus_common::models::tag::global::Taggers;
 use nexus_common::models::tag::stream::{HotTag, HotTags};
