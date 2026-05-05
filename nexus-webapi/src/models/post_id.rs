@@ -6,16 +6,27 @@ use serde::de;
 use serde::Deserialize;
 use utoipa::ToSchema;
 
+use crate::models::bounded_vec;
+
 #[derive(Debug, ToSchema)]
 pub struct PostId(pub String);
 
-crate::define_bounded_vec!(
-    name: PostIds,
-    element_type: PostId,
-    min: 0,
-    max: 100,
-    serialize_as: comma_separated_string,
-);
+/// Comma-separated list of `PostId` values (min=0, max=100).
+#[derive(Debug, ToSchema)]
+pub struct PostIds(pub Vec<PostId>);
+
+impl Deref for PostIds {
+    type Target = Vec<PostId>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<'de> Deserialize<'de> for PostIds {
+    fn deserialize<D: serde::de::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        bounded_vec::deserialize_csv::<PostId, D, 0, 100>(d).map(Self)
+    }
+}
 
 impl fmt::Display for PostId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

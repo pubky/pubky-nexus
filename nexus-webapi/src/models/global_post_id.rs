@@ -5,20 +5,29 @@ use serde::de;
 use serde::Deserialize;
 use utoipa::ToSchema;
 
+use super::bounded_vec;
 use super::post_id::PostId;
 use super::pubky_id::PubkyId;
-use crate::define_bounded_vec;
 
 #[derive(Debug, ToSchema)]
 pub struct GlobalPostId(pub String);
 
-define_bounded_vec!(
-    name: GlobalPostIds,
-    element_type: GlobalPostId,
-    min: 1,
-    max: 100,
-    serialize_as: json_array,
-);
+/// JSON array of `GlobalPostId` values (min=1, max=100).
+#[derive(Debug, ToSchema)]
+pub struct GlobalPostIds(pub Vec<GlobalPostId>);
+
+impl Deref for GlobalPostIds {
+    type Target = Vec<GlobalPostId>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<'de> Deserialize<'de> for GlobalPostIds {
+    fn deserialize<D: serde::de::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        bounded_vec::deserialize_json_array::<GlobalPostId, D, 1, 100>(d).map(Self)
+    }
+}
 
 impl fmt::Display for GlobalPostId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
