@@ -16,10 +16,80 @@ use serde::Deserialize;
 use tracing::debug;
 use utoipa::{OpenApi, ToSchema};
 
+/// Discriminant for the source of posts in a stream.
+/// Mirrors the variant structure of StreamSource but does not carry ID payloads,
+/// since the actual IDs are validated at the API boundary via dedicated query params.
+#[derive(Deserialize, Debug, ToSchema, Clone, PartialEq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum StreamSourceKind {
+    PostReplies,
+    Following,
+    Followers,
+    Friends,
+    Bookmarks,
+    Author,
+    AuthorReplies,
+    #[default]
+    All,
+}
+
+/// Convert a validated query into the internal StreamSource used by nexus-common.
+fn build_stream_source(
+    kind: &StreamSourceKind,
+    author_id: Option<&PubkyId>,
+    observer_id: Option<&PubkyId>,
+    post_id: Option<&PostId>,
+) -> StreamSource {
+    match kind {
+        StreamSourceKind::PostReplies => StreamSource::PostReplies {
+            post_id: post_id
+                .expect("post_id required for post_replies")
+                .to_string(),
+            author_id: author_id
+                .expect("author_id required for post_replies")
+                .to_string(),
+        },
+        StreamSourceKind::Following => StreamSource::Following {
+            observer_id: observer_id
+                .expect("observer_id required for following")
+                .to_string(),
+        },
+        StreamSourceKind::Followers => StreamSource::Followers {
+            observer_id: observer_id
+                .expect("observer_id required for followers")
+                .to_string(),
+        },
+        StreamSourceKind::Friends => StreamSource::Friends {
+            observer_id: observer_id
+                .expect("observer_id required for friends")
+                .to_string(),
+        },
+        StreamSourceKind::Bookmarks => StreamSource::Bookmarks {
+            observer_id: observer_id
+                .expect("observer_id required for bookmarks")
+                .to_string(),
+        },
+        StreamSourceKind::Author => StreamSource::Author {
+            author_id: author_id
+                .expect("author_id required for author")
+                .to_string(),
+        },
+        StreamSourceKind::AuthorReplies => StreamSource::AuthorReplies {
+            author_id: author_id
+                .expect("author_id required for author_replies")
+                .to_string(),
+        },
+        StreamSourceKind::All => StreamSource::All,
+    }
+}
+
 #[derive(Deserialize, Debug, ToSchema)]
 pub struct PostStreamQuery {
-    #[serde(flatten, default)]
-    pub source: Option<StreamSource>,
+    #[serde(default)]
+    pub source: StreamSourceKind,
+    pub author_id: Option<PubkyId>,
+    pub observer_id: Option<PubkyId>,
+    pub post_id: Option<PostId>,
     #[serde(flatten)]
     pub pagination: Pagination,
     pub order: Option<SortOrder>,
@@ -38,11 +108,20 @@ impl PostStreamQuery {
         self.sorting.get_or_insert(StreamSorting::Timeline);
     }
 
+    pub fn build_source(&self) -> StreamSource {
+        build_stream_source(
+            &self.source,
+            self.author_id.as_ref(),
+            self.observer_id.as_ref(),
+            self.post_id.as_ref(),
+        )
+    }
+
     pub fn extract_stream_params(&self) -> (StreamSource, StreamSorting, SortOrder) {
         (
-            self.source.as_ref().cloned().unwrap_or_default(), // StreamSource::All is default
-            self.sorting.as_ref().cloned().unwrap_or_default(), // StreamSorting::Timeline is default
-            self.order.as_ref().cloned().unwrap_or_default(),   // SortOrder::Descending is default
+            self.build_source(),
+            self.sorting.as_ref().cloned().unwrap_or_default(),
+            self.order.as_ref().cloned().unwrap_or_default(),
         )
     }
 
@@ -62,7 +141,7 @@ impl PostStreamQuery {
     path = STREAM_POSTS_ROUTE,
     tag = "Stream",
     params(
-        ("source" = Option<StreamSource>, Query, description = "Source of posts for streams with viewer (following, followers, friends, bookmarks, post_replies, author, author_replies, all)"),
+        ("source" = StreamSourceKind, Query, description = "Source of posts for streams with viewer (following, followers, friends, bookmarks, post_replies, author, author_replies, all)"),
         ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID"),
         ("observer_id" = Option<PubkyId>, Query, description = "Observer Pubky ID. The central point for streams with Reach"),
         ("author_id" = Option<PubkyId>, Query, description = "Filter posts by an specific author User ID"),
@@ -126,7 +205,7 @@ pub async fn stream_posts_handler(
     path = STREAM_POST_KEYS_ROUTE,
     tag = "Stream",
     params(
-        ("source" = Option<StreamSource>, Query, description = "Source of posts for streams with viewer (following, followers, friends, bookmarks, post_replies, author, author_replies, all)"),
+        ("source" = StreamSourceKind, Query, description = "Source of posts for streams with viewer (following, followers, friends, bookmarks, post_replies, author, author_replies, all)"),
         ("observer_id" = Option<PubkyId>, Query, description = "Observer Pubky ID. The central point for streams with Reach"),
         ("author_id" = Option<PubkyId>, Query, description = "Filter posts by an specific author User ID"),
         ("post_id" = Option<PostId>, Query, description = "This parameter is needed when we want to retrieve the replies stream for a post"),
@@ -220,7 +299,7 @@ pub async fn stream_posts_by_ids_handler(
         PostKeyStream,
         PostStreamDetailed,
         StreamSorting,
-        StreamSource,
+        StreamSourceKind,
         SortOrder,
         PubkyId,
         PostId,
