@@ -22,7 +22,9 @@ where
         .map(|t| T::try_from(t.to_string()).map_err(de::Error::custom))
         .collect::<Result<_, _>>()?;
     if MIN > 0 && items.is_empty() {
-        return Err(de::Error::custom(format!("At least {MIN} item(s) required")));
+        return Err(de::Error::custom(format!(
+            "At least {MIN} item(s) required"
+        )));
     }
     if items.len() > MAX {
         return Err(de::Error::custom(format!("Maximum {MAX} items allowed")));
@@ -44,7 +46,9 @@ where
         _ => return Err(de::Error::custom("Expected an array")),
     };
     if MIN > 0 && arr.is_empty() {
-        return Err(de::Error::custom(format!("At least {MIN} item(s) required")));
+        return Err(de::Error::custom(format!(
+            "At least {MIN} item(s) required"
+        )));
     }
     if arr.len() > MAX {
         return Err(de::Error::custom(format!("Maximum {MAX} items allowed")));

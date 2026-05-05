@@ -34,6 +34,8 @@ pub enum StreamSourceKind {
 }
 
 /// Convert a validated query into the internal StreamSource used by nexus-common.
+/// If the selected `StreamSourceKind` requires fields that are missing,
+/// falls back to `StreamSource::All`.
 fn build_stream_source(
     kind: &StreamSourceKind,
     author_id: Option<&PubkyId>,
@@ -41,43 +43,48 @@ fn build_stream_source(
     post_id: Option<&PostId>,
 ) -> StreamSource {
     match kind {
-        StreamSourceKind::PostReplies => StreamSource::PostReplies {
-            post_id: post_id
-                .expect("post_id required for post_replies")
-                .to_string(),
-            author_id: author_id
-                .expect("author_id required for post_replies")
-                .to_string(),
+        StreamSourceKind::PostReplies => match (post_id, author_id) {
+            (Some(post_id), Some(author_id)) => StreamSource::PostReplies {
+                post_id: post_id.to_string(),
+                author_id: author_id.to_string(),
+            },
+            _ => StreamSource::All,
         },
-        StreamSourceKind::Following => StreamSource::Following {
-            observer_id: observer_id
-                .expect("observer_id required for following")
-                .to_string(),
+        StreamSourceKind::Following => match observer_id {
+            Some(observer_id) => StreamSource::Following {
+                observer_id: observer_id.to_string(),
+            },
+            None => StreamSource::All,
         },
-        StreamSourceKind::Followers => StreamSource::Followers {
-            observer_id: observer_id
-                .expect("observer_id required for followers")
-                .to_string(),
+        StreamSourceKind::Followers => match observer_id {
+            Some(observer_id) => StreamSource::Followers {
+                observer_id: observer_id.to_string(),
+            },
+            None => StreamSource::All,
         },
-        StreamSourceKind::Friends => StreamSource::Friends {
-            observer_id: observer_id
-                .expect("observer_id required for friends")
-                .to_string(),
+        StreamSourceKind::Friends => match observer_id {
+            Some(observer_id) => StreamSource::Friends {
+                observer_id: observer_id.to_string(),
+            },
+            None => StreamSource::All,
         },
-        StreamSourceKind::Bookmarks => StreamSource::Bookmarks {
-            observer_id: observer_id
-                .expect("observer_id required for bookmarks")
-                .to_string(),
+        StreamSourceKind::Bookmarks => match observer_id {
+            Some(observer_id) => StreamSource::Bookmarks {
+                observer_id: observer_id.to_string(),
+            },
+            None => StreamSource::All,
         },
-        StreamSourceKind::Author => StreamSource::Author {
-            author_id: author_id
-                .expect("author_id required for author")
-                .to_string(),
+        StreamSourceKind::Author => match author_id {
+            Some(author_id) => StreamSource::Author {
+                author_id: author_id.to_string(),
+            },
+            None => StreamSource::All,
         },
-        StreamSourceKind::AuthorReplies => StreamSource::AuthorReplies {
-            author_id: author_id
-                .expect("author_id required for author_replies")
-                .to_string(),
+        StreamSourceKind::AuthorReplies => match author_id {
+            Some(author_id) => StreamSource::AuthorReplies {
+                author_id: author_id.to_string(),
+            },
+            None => StreamSource::All,
         },
         StreamSourceKind::All => StreamSource::All,
     }
