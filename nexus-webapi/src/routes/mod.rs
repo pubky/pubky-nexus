@@ -17,9 +17,9 @@ mod middlewares;
 /// A wrapper around Axum's Json extractor that maps deserialization errors
 /// to Error::InvalidInput (400 Bad Request) for consistent error handling
 /// across all extraction types (Query, Path, and Json).
-pub struct ValidJson<T>(pub T);
+pub struct Json<T>(pub T);
 
-impl<S, T> FromRequest<S> for ValidJson<T>
+impl<S, T> FromRequest<S> for Json<T>
 where
     S: Send + Sync,
     T: serde::de::DeserializeOwned,
@@ -30,7 +30,7 @@ where
         let json: AxumJson<T> = AxumJson::from_request(req, state)
             .await
             .map_err(|rejection| crate::Error::invalid_input(&rejection.to_string()))?;
-        Ok(ValidJson(json.0))
+        Ok(Json(json.0))
     }
 }
 
