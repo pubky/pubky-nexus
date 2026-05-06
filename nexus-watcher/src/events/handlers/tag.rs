@@ -409,15 +409,35 @@ pub async fn del(tag_uri: &str) -> Result<(), EventProcessorError> {
     debug!("Deleting tag: {} -> {} (app={app:?})", user_id, tag_id);
 
     // 1. Read target from graph WITHOUT deleting the edge
-    let Some(row) = fetch_row_from_graph(queries::get::get_tag_target(
+    let row = match fetch_row_from_graph(queries::get::get_tag_target(
         &user_id,
         &tag_id,
         app.as_deref(),
     ))
     .await?
-    else {
-        // Edge already gone (fully completed on a prior attempt) — idempotent no-op
-        return Ok(());
+    {
+        Some(row) => row,
+        None if app.is_some() => {
+            // App-specific tags that target known Pubky resources are indexed
+            // through the standard Post/User tag flow, where TAGGED has no app.
+            let Some(row) =
+                fetch_row_from_graph(queries::get::get_tag_target(&user_id, &tag_id, None)).await?
+            else {
+                // Edge already gone (fully completed on a prior attempt) - idempotent no-op
+                return Ok(());
+            };
+
+            let resource_id: Option<String> = row.get("resource_id").unwrap_or(None);
+            if resource_id.is_some() {
+                return Ok(());
+            }
+
+            row
+        }
+        None => {
+            // Edge already gone (fully completed on a prior attempt) - idempotent no-op
+            return Ok(());
+        }
     };
 
     let tagged_user_id: Option<String> = row.get("user_id").unwrap_or(None);

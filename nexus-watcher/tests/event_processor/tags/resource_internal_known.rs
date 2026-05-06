@@ -72,6 +72,12 @@ async fn test_resource_tag_internal_known_delegates_to_post() -> Result<()> {
 
     // Cleanup
     test.del(&user_kp, &custom_path).await?;
+    let post_tag = find_post_tag(&user_id, &post_id, label).await?;
+    assert!(
+        post_tag.is_none(),
+        "InternalKnown app-specific tag should be deleted from Post tag indexes"
+    );
+
     test.cleanup_post(&user_kp, &post_path).await?;
     test.cleanup_user(&user_kp).await?;
 
