@@ -23,7 +23,6 @@ use utoipa::OpenApi;
         (status = 500, description = "Internal server error")
     )
 )]
-//todo: test it manually - no integration tests
 pub async fn post_counts_handler(
     Path(PostPath { author_id, post_id }): Path<PostPath>,
 ) -> Result<Json<PostCounts>> {

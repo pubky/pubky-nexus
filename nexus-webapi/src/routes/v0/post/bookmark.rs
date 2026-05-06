@@ -31,7 +31,6 @@ pub struct PostQuery {
         (status = 500, description = "Internal server error")
     )
 )]
-//todo: test it manually - no integration tests
 pub async fn post_bookmark_handler(
     Path(PostPath { author_id, post_id }): Path<PostPath>,
     Query(query): Query<PostQuery>,
