@@ -48,8 +48,8 @@ async fn test_resource_tag_internal_known_delegates_to_post() -> Result<()> {
     let tag_id = tag.create_id();
 
     // Store at /pub/mapky/tags/ instead of /pub/pubky.app/tags/
-    let custom_path: ResourcePath = format!("/pub/mapky/tags/{tag_id}").parse()?;
-    test.put(&user_kp, &custom_path, &tag).await?;
+    let universal_tag_path: ResourcePath = format!("/pub/mapky/tags/{tag_id}").parse()?;
+    test.put(&user_kp, &universal_tag_path, &tag).await?;
 
     // Verify: should be indexed as a POST tag (existing flow), not a Resource
     let post_tag = find_post_tag(&user_id, &post_id, label).await?;
@@ -70,8 +70,14 @@ async fn test_resource_tag_internal_known_delegates_to_post() -> Result<()> {
         "InternalKnown URI should NOT create a Resource node"
     );
 
-    // Cleanup
-    test.del(&user_kp, &custom_path).await?;
+    // Deleting the app-specific tag by URI should remove the tag from DB
+    test.del(&user_kp, &universal_tag_path).await?;
+    let post_tag = find_post_tag(&user_id, &post_id, label).await?;
+    assert!(
+        post_tag.is_none(),
+        "InternalKnown app-specific tag should be deleted from Post tag indexes"
+    );
+
     test.cleanup_post(&user_kp, &post_path).await?;
     test.cleanup_user(&user_kp).await?;
 

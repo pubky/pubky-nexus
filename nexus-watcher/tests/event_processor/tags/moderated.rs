@@ -70,6 +70,34 @@ async fn test_moderation_deletes_universal_tag() -> Result<()> {
 }
 
 #[tokio_shared_rt::test(shared)]
+async fn test_moderation_deletes_app_specific_known_post_tag() -> Result<()> {
+    let mut test = WatcherTest::setup().await?;
+    let moderator_kp = create_moderator(&mut test).await?;
+    let (_author_kp, author_id, post_id) = create_author_and_post(&mut test).await?;
+    let (tagger_kp, tagger_id) = create_tagger(&mut test, "known-post").await?;
+
+    let label = "mod_known_post";
+    let tag_uri = put_app_specific_post_tag(
+        &mut test, &tagger_kp, &tagger_id, "mapky", &author_id, &post_id, label,
+    )
+    .await?;
+
+    assert!(
+        find_post_tag(&author_id, &post_id, label).await?.is_some(),
+        "app-specific known post tag should exist before moderation"
+    );
+
+    moderate_tag(&mut test, &moderator_kp, &tag_uri).await?;
+
+    assert!(
+        find_post_tag(&author_id, &post_id, label).await?.is_none(),
+        "app-specific known post tag should be moderated"
+    );
+
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
 async fn test_moderation_keeps_same_label_universal_tag_from_same_user() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
     let moderator_kp = create_moderator(&mut test).await?;
@@ -199,6 +227,27 @@ async fn put_pubky_app_post_tag(
     let tag_id = tag.create_id();
     let tag_uri = tag_uri_builder(tagger_id.to_string(), tag_id);
     let tag_path = tag.hs_path();
+    test.put(tagger_kp, &tag_path, tag).await?;
+    Ok(tag_uri)
+}
+
+async fn put_app_specific_post_tag(
+    test: &mut WatcherTest,
+    tagger_kp: &Keypair,
+    tagger_id: &str,
+    app: &str,
+    author_id: &str,
+    post_id: &str,
+    label: &str,
+) -> Result<String> {
+    let tag = PubkyAppTag {
+        uri: post_uri_builder(author_id.to_string(), post_id.to_string()),
+        label: label.to_string(),
+        created_at: Utc::now().timestamp_millis(),
+    };
+    let tag_id = tag.create_id();
+    let tag_uri = format!("pubky://{tagger_id}/pub/{app}/tags/{tag_id}");
+    let tag_path: ResourcePath = format!("/pub/{app}/tags/{tag_id}").parse()?;
     test.put(tagger_kp, &tag_path, tag).await?;
     Ok(tag_uri)
 }
