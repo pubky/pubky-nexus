@@ -32,7 +32,7 @@ pub async fn list_notifications_handler(
 ) -> Result<Json<Vec<Notification>>> {
     debug!("GET {NOTIFICATION_ROUTE} for user_id: {}", user_id);
 
-    Ok(Json(Notification::get_by_id(&*user_id, pagination).await?))
+    Ok(Json(Notification::get_by_id(&user_id, pagination).await?))
 }
 
 #[derive(OpenApi)]

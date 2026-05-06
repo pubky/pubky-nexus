@@ -113,7 +113,7 @@ async fn inner_make_request(
 }
 
 #[cfg(test)]
-mod utils {
+mod tests {
 
     #[test]
     pub fn test_generate_post_id() {

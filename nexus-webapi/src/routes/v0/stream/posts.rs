@@ -150,9 +150,7 @@ impl PostStreamQuery {
     }
 
     pub fn tags_as_strings(&self) -> Option<Vec<String>> {
-        self.tags
-            .as_ref()
-            .map(|tags| tags.0.iter().map(|t| t.clone()).collect())
+        self.tags.as_ref().map(|tags| tags.0.to_vec())
     }
 }
 

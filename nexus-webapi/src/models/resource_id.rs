@@ -93,7 +93,7 @@ mod tests {
     fn test_validate_id_too_short() {
         let id = "0123456789abcdef0123456789abcde"; // 31 chars
         assert_eq!(id.len(), 31);
-        let result = ResourceId::validate_id(&id);
+        let result = ResourceId::validate_id(id);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("must be 32-char"));
     }
@@ -102,7 +102,7 @@ mod tests {
     fn test_validate_id_too_long() {
         let id = "0123456789abcdef0123456789abcdef0"; // 33 chars
         assert_eq!(id.len(), 33);
-        let result = ResourceId::validate_id(&id);
+        let result = ResourceId::validate_id(id);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("must be 32-char"));
     }
