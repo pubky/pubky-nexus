@@ -484,38 +484,13 @@ fn parse_tag_storage_uri(tag_uri: &str) -> Result<TagStorageUri, EventProcessorE
         };
     }
 
-    let rest = tag_uri
-        .get(..8)
-        .filter(|prefix| prefix.eq_ignore_ascii_case("pubky://"))
-        .and_then(|_| tag_uri.get(8..))
+    let info = super::universal_tag::try_parse_app_tag_path(tag_uri)
         .ok_or_else(|| EventProcessorError::generic(format!("Invalid tag URI: {tag_uri}")))?;
-
-    let slash_pos = rest
-        .find('/')
-        .ok_or_else(|| EventProcessorError::generic(format!("Invalid tag URI: {tag_uri}")))?;
-    let user_id_str = &rest[..slash_pos];
-    let path = rest[slash_pos..]
-        .strip_prefix("/pub/")
-        .ok_or_else(|| EventProcessorError::generic(format!("Invalid tag URI: {tag_uri}")))?;
-    let tags_pos = path
-        .find("/tags/")
-        .ok_or_else(|| EventProcessorError::generic(format!("Invalid tag URI: {tag_uri}")))?;
-    let app = &path[..tags_pos];
-    let tag_id = &path[tags_pos + 6..];
-
-    if app.is_empty() || app.contains('/') || tag_id.is_empty() || tag_id.contains('/') {
-        return Err(EventProcessorError::generic(format!(
-            "Invalid tag URI: {tag_uri}"
-        )));
-    }
-
-    let user_id = PubkyId::try_from(user_id_str).map_err(EventProcessorError::generic)?;
-    let app = (app != "pubky.app").then(|| app.to_string());
 
     Ok(TagStorageUri {
-        user_id,
-        tag_id: tag_id.to_string(),
-        app,
+        user_id: info.user_id,
+        tag_id: info.tag_id,
+        app: Some(info.app),
     })
 }
 
