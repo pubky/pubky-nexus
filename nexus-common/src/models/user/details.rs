@@ -35,7 +35,7 @@ impl Collection<&str> for UserDetails {
 }
 
 /// Represents user data with name, bio, image, links, and status.
-#[derive(Serialize, Deserialize, ToSchema, Default, Clone, Debug)]
+#[derive(Serialize, Deserialize, ToSchema, Clone, Debug)]
 pub struct UserDetails {
     pub name: String,
     pub bio: Option<String>,
