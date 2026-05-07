@@ -5,7 +5,7 @@ use crate::Error;
 use serde::de::{self, Deserializer};
 use utoipa::ToSchema;
 
-/// Username search prefix (must be non-empty after trimming).
+/// Username search prefix (must be non-empty).
 #[derive(Debug, ToSchema)]
 #[schema(value_type = String, example = "alice")]
 pub struct UsernamePrefix(pub String);
@@ -14,9 +14,9 @@ impl FromStr for UsernamePrefix {
     type Err = Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let trimmed = s.trim().to_owned();
-        Self::validate(&trimmed)?;
-        Ok(UsernamePrefix(trimmed))
+        let s = s.to_owned();
+        Self::validate(&s)?;
+        Ok(UsernamePrefix(s))
     }
 }
 
@@ -32,7 +32,7 @@ impl UsernamePrefix {
     }
 
     fn validate(prefix: &str) -> Result<(), Error> {
-        if prefix.trim().is_empty() {
+        if prefix.is_empty() {
             return Err(Error::invalid_input("Username cannot be empty"));
         }
         Ok(())
@@ -45,9 +45,8 @@ impl<'de> serde::Deserialize<'de> for UsernamePrefix {
         D: Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        let trimmed = s.trim().to_owned();
-        Self::validate(&trimmed).map_err(de::Error::custom)?;
-        Ok(UsernamePrefix(trimmed))
+        Self::validate(&s).map_err(de::Error::custom)?;
+        Ok(UsernamePrefix(s))
     }
 }
 
@@ -72,14 +71,16 @@ mod tests {
     }
 
     #[test]
-    fn validate_rejects_whitespace_only() {
-        assert!(UsernamePrefix::validate("   ").is_err());
-        assert!(UsernamePrefix::validate("\t\n").is_err());
+    fn validate_accepts_whitespace_only() {
+        // Whitespace-only strings are non-empty, so they are accepted
+        assert!(UsernamePrefix::validate("   ").is_ok());
+        assert!(UsernamePrefix::validate("\t\n").is_ok());
     }
 
     #[test]
     fn validate_accepts_non_empty_string() {
         assert!(UsernamePrefix::validate("alice").is_ok());
+        // " alice " is now accepted as-is (8 chars, not empty)
         assert!(UsernamePrefix::validate(" alice ").is_ok());
     }
 
@@ -106,9 +107,9 @@ mod tests {
     }
 
     #[test]
-    fn deserialize_trims_whitespace() {
+    fn deserialize_preserves_whitespace() {
         let prefix: UsernamePrefix = serde_json::from_str("\"  alice  \"").unwrap();
-        assert_eq!(prefix.0, "alice");
+        assert_eq!(prefix.0, "  alice  ");
     }
 
     #[test]
@@ -118,8 +119,9 @@ mod tests {
     }
 
     #[test]
-    fn deserialize_rejects_whitespace_only() {
-        let result: Result<UsernamePrefix, _> = serde_json::from_str("\"   \"");
-        assert!(result.is_err());
+    fn deserialize_accepts_whitespace_only() {
+        // Whitespace-only strings are non-empty, so they are accepted
+        let prefix: UsernamePrefix = serde_json::from_str("\"   \"").unwrap();
+        assert_eq!(prefix.0, "   ");
     }
 }

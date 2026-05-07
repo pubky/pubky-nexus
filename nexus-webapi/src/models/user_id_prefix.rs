@@ -26,9 +26,9 @@ impl FromStr for UserIdPrefix {
     type Err = Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let trimmed = s.trim().to_owned();
-        Self::validate(&trimmed)?;
-        Ok(UserIdPrefix(trimmed))
+        let s = s.to_owned();
+        Self::validate(&s)?;
+        Ok(UserIdPrefix(s))
     }
 }
 
@@ -44,7 +44,7 @@ impl UserIdPrefix {
     }
 
     pub(crate) fn validate(prefix: &str) -> Result<(), Error> {
-        if prefix.trim().chars().count() < USER_ID_SEARCH_MIN_PREFIX_LEN {
+        if prefix.chars().count() < USER_ID_SEARCH_MIN_PREFIX_LEN {
             return Err(Error::invalid_input(&format!(
                 "ID prefix must be at least {USER_ID_SEARCH_MIN_PREFIX_LEN} chars"
             )));
@@ -95,19 +95,26 @@ mod tests {
 
     #[test]
     fn test_validate_whitespace_only() {
-        assert!(UserIdPrefix::validate("   ").is_err());
+        // "   " is 3 chars (spaces count as characters), so it's valid
+        assert!(UserIdPrefix::validate("   ").is_ok());
+    }
+
+    #[test]
+    fn test_validate_whitespace_only_too_short() {
+        // "  " is only 2 chars -> invalid
+        assert!(UserIdPrefix::validate("  ").is_err());
     }
 
     #[test]
     fn test_validate_whitespace_padding() {
-        // " abc " trims to "abc" which is 3 chars -> valid
+        // " abc " is 5 chars (including spaces) -> valid
         assert!(UserIdPrefix::validate(" abc ").is_ok());
     }
 
     #[test]
     fn test_validate_whitespace_padding_too_short() {
-        // " ab " trims to "ab" which is 2 chars -> invalid
-        assert!(UserIdPrefix::validate(" ab ").is_err());
+        // " ab " is 4 chars (including spaces) -> valid
+        assert!(UserIdPrefix::validate(" ab ").is_ok());
     }
 
     #[test]
