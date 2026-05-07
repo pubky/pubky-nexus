@@ -4,6 +4,7 @@ use std::{
 };
 
 use crate::utils::host_url;
+use crate::utils::server::TestServiceServer;
 use anyhow::Result;
 use nexus_common::media::FileVariant;
 use nexus_common::models::{file::FileDetails, traits::Collection};
@@ -18,12 +19,16 @@ const USER_PUBKY: &str = "y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy";
 #[tokio_shared_rt::test(shared)]
 async fn test_static_image_serving_main() -> Result<()> {
     let client = httpc_test::new_client(host_url().await)?;
-
-    let test_image_dir_path = format!("static/files/{USER_PUBKY}/{FILE_ID}");
-    let full_image_path = format!("{}/main", test_image_dir_path.clone());
+    let test_image_dir_path = TestServiceServer::get_test_server()
+        .await
+        .temp_dir
+        .path()
+        .join(USER_PUBKY)
+        .join(FILE_ID);
+    let full_image_path = test_image_dir_path.join("main");
 
     // make sure directory exists
-    let exists = match fs::metadata(test_image_dir_path.clone()) {
+    let exists = match fs::metadata(&test_image_dir_path) {
         Err(_) => false,
         Ok(metadata) => metadata.is_dir(),
     };
@@ -64,12 +69,16 @@ async fn test_static_image_serving_main() -> Result<()> {
 #[tokio_shared_rt::test(shared)]
 async fn test_static_image_serving_feed() -> Result<()> {
     let client = httpc_test::new_client(host_url().await)?;
-
-    let test_image_dir_path = format!("static/files/{USER_PUBKY}/{FILE_ID}");
-    let full_image_path = format!("{}/main", test_image_dir_path.clone());
+    let test_image_dir_path = TestServiceServer::get_test_server()
+        .await
+        .temp_dir
+        .path()
+        .join(USER_PUBKY)
+        .join(FILE_ID);
+    let full_image_path = test_image_dir_path.join("main");
 
     // make sure directory exists
-    let exists = match fs::metadata(test_image_dir_path.clone()) {
+    let exists = match fs::metadata(&test_image_dir_path) {
         Err(_) => false,
         Ok(metadata) => metadata.is_dir(),
     };
@@ -117,12 +126,16 @@ async fn test_static_image_serving_feed() -> Result<()> {
 #[tokio_shared_rt::test(shared)]
 async fn test_static_image_serving_small() -> Result<()> {
     let client = httpc_test::new_client(host_url().await)?;
-
-    let test_image_dir_path = format!("static/files/{USER_PUBKY}/{FILE_ID}");
-    let full_image_path = format!("{}/main", test_image_dir_path.clone());
+    let test_image_dir_path = TestServiceServer::get_test_server()
+        .await
+        .temp_dir
+        .path()
+        .join(USER_PUBKY)
+        .join(FILE_ID);
+    let full_image_path = test_image_dir_path.join("main");
 
     // make sure directory exists
-    let exists = match fs::metadata(test_image_dir_path.clone()) {
+    let exists = match fs::metadata(&test_image_dir_path) {
         Err(_) => false,
         Ok(metadata) => metadata.is_dir(),
     };

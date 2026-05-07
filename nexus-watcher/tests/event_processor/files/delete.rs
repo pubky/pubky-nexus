@@ -1,7 +1,6 @@
-use crate::event_processor::utils::watcher::WatcherTest;
+use crate::event_processor::utils::watcher::{assert_file_details, WatcherTest};
 use anyhow::Result;
 use chrono::Utc;
-use nexus_common::get_files_dir_test_pathbuf;
 use nexus_common::models::event::Event;
 use nexus_common::models::{file::FileDetails, traits::Collection};
 use nexus_watcher::events::handlers;
@@ -11,7 +10,6 @@ use pubky_app_specs::{
     traits::{HasIdPath, HashId},
     PubkyAppBlob, PubkyAppFile, PubkyAppUser, PubkyId,
 };
-use std::path::Path;
 
 #[tokio_shared_rt::test(shared)]
 async fn test_delete_pubkyapp_file() -> Result<()> {
@@ -50,6 +48,14 @@ async fn test_delete_pubkyapp_file() -> Result<()> {
 
     let (file_id, file_path) = test.create_file(&user_kp, &file).await?;
 
+    let result_file = assert_file_details(&user_id, &file_id, &blob_absolute_url, &file).await;
+
+    let blob_static_path = test.temp_dir.path().join(&result_file.urls.main);
+    assert!(
+        blob_static_path.exists(),
+        "File have to exist after PUT event"
+    );
+
     // Act
     let files_before_delete = FileDetails::get_by_ids(&[&[&user_id, &file_id]])
         .await
@@ -72,9 +78,14 @@ async fn test_delete_pubkyapp_file() -> Result<()> {
     assert!(result_file.is_none());
 
     // Assert: Ensure it's deleted
-    let blob_static_path = format!("./static/files/{}/{}/main", &user_id, &file_id);
+    let blob_static_path = test
+        .temp_dir
+        .path()
+        .join(&user_id)
+        .join(&file_id)
+        .join("main");
     assert!(
-        !Path::new(&blob_static_path).exists(),
+        !blob_static_path.exists(),
         "File cannot exist after DEL event"
     );
 
@@ -122,7 +133,8 @@ async fn test_delete_pubkyapp_file_is_idempotent() -> Result<()> {
 
     // Simulate a replay: call the DEL handler again directly (e.g. crash between FS delete and store_event)
     let user_pubky_id = PubkyId::try_from(user_id.as_str()).map_err(anyhow::Error::msg)?;
-    let result = handlers::file::del(&user_pubky_id, file_id, get_files_dir_test_pathbuf()).await;
+    let result =
+        handlers::file::del(&user_pubky_id, file_id, test.temp_dir.path().to_path_buf()).await;
 
     assert!(
         result.is_ok(),

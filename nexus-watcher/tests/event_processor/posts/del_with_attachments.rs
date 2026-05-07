@@ -1,7 +1,5 @@
-use std::path::Path;
-
 use super::utils::find_post_details;
-use crate::event_processor::utils::watcher::WatcherTest;
+use crate::event_processor::utils::watcher::{assert_file_details, WatcherTest};
 use anyhow::Result;
 use chrono::Utc;
 use nexus_common::models::{file::FileDetails, traits::Collection};
@@ -50,7 +48,17 @@ async fn test_homeserver_del_post_with_attachments() -> Result<()> {
         };
         let (file_id, file_path) = test.create_file(&user_kp, &file).await?;
         file_paths.push(file_path);
-        file_ids.push(file_id);
+        file_ids.push(file_id.clone());
+
+        // Assert: Ensure file is created correctly in DB
+        let result_file = assert_file_details(&user_id, &file_id, &blob_absolute_url, &file).await;
+
+        // Assert: Ensure file exists on filesystem
+        let blob_static_path = test.temp_dir.path().join(&result_file.urls.main);
+        assert!(
+            blob_static_path.exists(),
+            "File have to exist after PUT event"
+        );
     }
 
     let post_attachments: Vec<String> = file_ids
@@ -79,18 +87,30 @@ async fn test_homeserver_del_post_with_attachments() -> Result<()> {
     test.cleanup_file(&user_kp, &file_paths[0]).await?;
     test.cleanup_file(&user_kp, &file_paths[1]).await?;
 
-    for file_id in file_ids {
-        let files = FileDetails::get_by_ids(&[&[&user_id, &file_id]])
+    // Assert: Ensure post is deleted
+    let err = find_post_details(&user_id, &post_id).await.unwrap_err();
+    assert!(
+        err.to_string().contains("Post node not found"),
+        "Post should be deleted after DEL event"
+    );
+
+    for file_id in &file_ids {
+        let files = FileDetails::get_by_ids(&[&[&user_id, file_id]])
             .await
             .expect("Failed to fetch files from Nexus");
 
         let result_file = files[0].as_ref();
         assert!(result_file.is_none());
 
-        // Assert: Ensure it's deleted
-        let blob_static_path = format!("./static/files/{}/{}/main", &user_id, &file_id);
+        // Assert: Ensure it's deleted from filesystem
+        let blob_static_path = test
+            .temp_dir
+            .path()
+            .join(&user_id)
+            .join(file_id)
+            .join("main");
         assert!(
-            !Path::new(&blob_static_path).exists(),
+            !blob_static_path.exists(),
             "File cannot exist after DEL event"
         );
     }
