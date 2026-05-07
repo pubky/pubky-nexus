@@ -1,6 +1,6 @@
 use nexus_common::db::PubkyConnector;
 use nexus_common::models::event::{EventProcessorError, EventType};
-use pubky_app_specs::{PubkyAppTag, PubkyId};
+use pubky_app_specs::{PubkyAppTag, PubkyId, APP_PATH, PROTOCOL, PUBLIC_PATH};
 use tracing::debug;
 
 use super::tag;
@@ -79,11 +79,11 @@ async fn handle_del(info: AppTagInfo) -> Result<(), EventProcessorError> {
 /// Returns None if:
 /// - Not a pubky:// URI
 /// - Not a */tags/* path
-/// - App is "pubky.app" (handled by the standard event flow)
-fn try_parse_app_tag_path(uri: &str) -> Option<AppTagInfo> {
+/// - App is `APP_PATH` (handled by the standard event flow)
+pub(super) fn try_parse_app_tag_path(uri: &str) -> Option<AppTagInfo> {
     // Case-insensitive scheme check per RFC 3986 (safe UTF-8 access)
-    let rest = match uri.get(..8) {
-        Some(prefix) if prefix.eq_ignore_ascii_case("pubky://") => &uri[8..],
+    let rest = match uri.get(..PROTOCOL.len()) {
+        Some(prefix) if prefix.eq_ignore_ascii_case(PROTOCOL) => &uri[PROTOCOL.len()..],
         _ => return None,
     };
 
@@ -93,15 +93,15 @@ fn try_parse_app_tag_path(uri: &str) -> Option<AppTagInfo> {
     let path = &rest[slash_pos..]; // starts with /
 
     // Expected: /pub/<app>/tags/<tag_id>
-    let path = path.strip_prefix("/pub/")?;
+    let path = path.strip_prefix(PUBLIC_PATH)?;
 
     // Split on /tags/
     let tags_pos = path.find("/tags/")?;
     let app = &path[..tags_pos];
     let tag_id = &path[tags_pos + 6..]; // skip "/tags/"
 
-    // Skip if app is pubky.app — those go through the standard flow
-    if app == "pubky.app" {
+    // Skip if app is APP_PATH — those go through the standard flow
+    if app == APP_PATH.trim_end_matches('/') {
         return None;
     }
 
