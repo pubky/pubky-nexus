@@ -27,13 +27,13 @@ pub use tag_label::TagLabel;
 pub use user_id_prefix::UserIdPrefix;
 pub use username_prefix::UsernamePrefix;
 
-/// Comma-separated list of tag strings (min=1, max=5).
+/// Comma-separated list of tag labels (min=1, max=5). Each label is validated and sanitized.
 #[derive(Debug, ToSchema)]
 #[schema(value_type = String, example = "dev,free,opensource")]
-pub struct Tags(pub Vec<String>);
+pub struct Tags(pub Vec<TagLabel>);
 
 impl Deref for Tags {
-    type Target = Vec<String>;
+    type Target = Vec<TagLabel>;
     fn deref(&self) -> &Self::Target {
         &self.0
     }
@@ -41,7 +41,7 @@ impl Deref for Tags {
 
 impl<'de> Deserialize<'de> for Tags {
     fn deserialize<D: serde::de::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        bounded_vec::deserialize_csv::<String, D, 1, 5>(d).map(Self)
+        bounded_vec::deserialize_csv::<TagLabel, D, 1, 5>(d).map(Self)
     }
 }
 
