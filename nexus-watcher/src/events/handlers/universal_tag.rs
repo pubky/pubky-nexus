@@ -95,10 +95,8 @@ pub(super) fn try_parse_app_tag_path(uri: &str) -> Option<AppTagInfo> {
     // Expected: /pub/<app>/tags/<tag_id>
     let path = path.strip_prefix(PUBLIC_PATH)?;
 
-    // Split on /tags/
-    let tags_pos = path.find("/tags/")?;
-    let app = &path[..tags_pos];
-    let tag_id = &path[tags_pos + 6..]; // skip "/tags/"
+    // Expected: <app>/tags/<tag_id> . Split on /tags/
+    let (app, tag_id) = path.split_once("/tags/")?;
 
     // Skip if app is APP_PATH — those go through the standard flow
     if app == APP_PATH.trim_end_matches('/') {
