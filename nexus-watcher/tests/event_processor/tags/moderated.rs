@@ -167,10 +167,7 @@ async fn create_author_and_post(test: &mut WatcherTest) -> Result<(Keypair, Stri
     let author_id = test.create_user(&author_kp, &author).await?;
     let post = PubkyAppPost {
         content: format!("Watcher:TagModerate:Post:{author_id}"),
-        kind: PubkyAppPost::default().kind,
-        parent: None,
-        embed: None,
-        attachments: None,
+        ..Default::default()
     };
     let (post_id, _) = test.create_post(&author_kp, &post).await?;
     Ok((author_kp, author_id, post_id))
@@ -241,9 +238,7 @@ async fn moderate_tag(
 fn test_user(name: &str, bio: &str) -> PubkyAppUser {
     PubkyAppUser {
         bio: Some(bio.to_string()),
-        image: None,
-        links: None,
         name: name.to_string(),
-        status: None,
+        ..Default::default()
     }
 }
