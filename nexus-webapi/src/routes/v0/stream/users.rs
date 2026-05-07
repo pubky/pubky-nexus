@@ -187,11 +187,6 @@ pub struct UserStreamByIdsRequest {
     tag = "Stream",
     description = "Stream users by ID. This is a POST request because we're passing a potentially large list of user IDs in the request body.",
     request_body = UserStreamByIdsRequest,
-    params(
-        ("user_ids" = Vec<PubkyId>, Path, description = "User Pubky ID array"),
-        ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID"),
-        ("depth" = Option<u8>, Query, description = "User trusted network depth, user following users distance. Numbers bigger than 4 will be ignored")
-    ),
     responses(
         (status = 200, description = "Users stream", body = UserStream),
         (status = 500, description = "Internal server error")

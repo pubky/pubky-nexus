@@ -8,7 +8,9 @@ use utoipa::ToSchema;
 
 use crate::models::bounded_vec;
 
+/// 13-character Crockford Base32-encoded post ID.
 #[derive(Debug, ToSchema)]
+#[schema(value_type = String, example = "00000039YD9DP")]
 pub struct PostId(pub String);
 
 /// Comma-separated list of `PostId` values (min=0, max=100).

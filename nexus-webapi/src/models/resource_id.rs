@@ -4,7 +4,9 @@ use std::str::FromStr;
 use serde::{de, Deserialize};
 use utoipa::ToSchema;
 
+/// 32-character lowercase hex resource identifier.
 #[derive(Debug, Clone, PartialEq, Eq, ToSchema)]
+#[schema(value_type = String, example = "0123456789abcdef0123456789abcdef")]
 pub struct ResourceId(pub String);
 
 impl FromStr for ResourceId {

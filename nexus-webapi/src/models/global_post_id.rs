@@ -9,7 +9,12 @@ use super::bounded_vec;
 use super::post_id::PostId;
 use super::pubky_id::PubkyId;
 
+/// Composite post identifier in the format `{PubkyId}:{PostId}`.
 #[derive(Debug, ToSchema)]
+#[schema(
+    value_type = String,
+    example = "operrr8wsbpr3ue9d4qj41ge1kcc6r7fdiy6o3ugjrrhi4y77rdo:00000039YD9DP"
+)]
 pub struct GlobalPostId(pub String);
 
 /// JSON array of `GlobalPostId` values (min=1, max=100).

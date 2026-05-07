@@ -5,7 +5,9 @@ use crate::Error;
 use serde::de::{self, Deserializer};
 use utoipa::ToSchema;
 
+/// Username search prefix (must be non-empty after trimming).
 #[derive(Debug, ToSchema)]
+#[schema(value_type = String, example = "alice")]
 pub struct UsernamePrefix(pub String);
 
 impl FromStr for UsernamePrefix {

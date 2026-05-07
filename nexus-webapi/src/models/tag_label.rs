@@ -9,7 +9,9 @@ use serde::de;
 use serde::Deserialize;
 use utoipa::ToSchema;
 
+/// Tag label (1-20 characters, lowercased and trimmed; no commas, colons, or whitespace).
 #[derive(Debug, ToSchema)]
+#[schema(value_type = String, example = "rust")]
 pub struct TagLabel(pub String);
 
 impl FromStr for TagLabel {

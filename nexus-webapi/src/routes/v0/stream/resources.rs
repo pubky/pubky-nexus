@@ -76,7 +76,7 @@ pub async fn stream_resource_ids_handler(
     tag = "Stream",
     params(
         ("app" = Option<String>, Query, description = "Filter by app namespace"),
-        ("tags" = Tags, Query, description = "Comma-separated tag labels"),
+        ("tags" = Option<Tags>, Query, description = "Comma-separated tag labels (max 5, OR logic)"),
         ("sorting" = Option<String>, Query, description = "timeline or taggers_count"),
         ("skip" = Option<usize>, Query, description = "Pagination skip"),
         ("limit" = Option<usize>, Query, description = "Pagination limit"),

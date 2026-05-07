@@ -29,6 +29,7 @@ pub use username_prefix::UsernamePrefix;
 
 /// Comma-separated list of tag strings (min=1, max=5).
 #[derive(Debug, ToSchema)]
+#[schema(value_type = String, example = "dev,free,opensource")]
 pub struct Tags(pub Vec<String>);
 
 impl Deref for Tags {

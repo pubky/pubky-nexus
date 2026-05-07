@@ -7,7 +7,9 @@ use utoipa::ToSchema;
 
 pub const USER_ID_SEARCH_MIN_PREFIX_LEN: usize = 3;
 
+/// User-ID search prefix (minimum 3 characters).
 #[derive(Debug, ToSchema)]
+#[schema(value_type = String, example = "ope")]
 pub struct UserIdPrefix(pub String);
 
 impl<'de> Deserialize<'de> for UserIdPrefix {
