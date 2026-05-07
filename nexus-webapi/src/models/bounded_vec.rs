@@ -21,7 +21,7 @@ where
         .filter(|t| !t.is_empty())
         .map(|t| T::try_from(t.to_string()).map_err(de::Error::custom))
         .collect::<Result<_, _>>()?;
-    if MIN > 0 && items.is_empty() {
+    if items.len() < MIN {
         return Err(de::Error::custom(format!(
             "At least {MIN} item(s) required"
         )));
@@ -45,7 +45,7 @@ where
         serde_json::Value::Array(arr) => arr,
         _ => return Err(de::Error::custom("Expected an array")),
     };
-    if MIN > 0 && arr.is_empty() {
+    if arr.len() < MIN {
         return Err(de::Error::custom(format!(
             "At least {MIN} item(s) required"
         )));
@@ -64,6 +64,8 @@ mod tests {
 
     struct TestCommaIds(Vec<String>);
     struct TestJsonIds(Vec<String>);
+    struct TestCommaIdsMin2(Vec<String>);
+    struct TestJsonIdsMin2(Vec<String>);
 
     impl<'de> Deserialize<'de> for TestCommaIds {
         fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
@@ -74,6 +76,18 @@ mod tests {
     impl<'de> Deserialize<'de> for TestJsonIds {
         fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
             deserialize_json_array::<String, D, 0, 5>(d).map(Self)
+        }
+    }
+
+    impl<'de> Deserialize<'de> for TestCommaIdsMin2 {
+        fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+            deserialize_csv::<String, D, 2, 5>(d).map(Self)
+        }
+    }
+
+    impl<'de> Deserialize<'de> for TestJsonIdsMin2 {
+        fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+            deserialize_json_array::<String, D, 2, 5>(d).map(Self)
         }
     }
 
@@ -111,5 +125,31 @@ mod tests {
     fn json_rejects_over_max() {
         let result: Result<TestJsonIds, _> = serde_json::from_str(r#"["a","b","c","d","e","f"]"#);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn comma_rejects_one_item_when_min_is_2() {
+        let result: Result<TestCommaIdsMin2, _> = serde_json::from_str(r#""a""#);
+        let err = result.err().unwrap();
+        assert!(err.to_string().contains("At least 2 item(s) required"));
+    }
+
+    #[test]
+    fn comma_accepts_two_items_when_min_is_2() {
+        let ids: TestCommaIdsMin2 = serde_json::from_str(r#""a, b""#).unwrap();
+        assert_eq!(ids.0, vec!["a", "b"]);
+    }
+
+    #[test]
+    fn json_rejects_one_item_when_min_is_2() {
+        let result: Result<TestJsonIdsMin2, _> = serde_json::from_str(r#"["a"]"#);
+        let err = result.err().unwrap();
+        assert!(err.to_string().contains("At least 2 item(s) required"));
+    }
+
+    #[test]
+    fn json_accepts_two_items_when_min_is_2() {
+        let ids: TestJsonIdsMin2 = serde_json::from_str(r#"["a", "b"]"#).unwrap();
+        assert_eq!(ids.0, vec!["a", "b"]);
     }
 }
