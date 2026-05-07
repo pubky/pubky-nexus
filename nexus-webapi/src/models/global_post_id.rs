@@ -61,17 +61,9 @@ impl GlobalPostId {
             "Validation Error: GlobalPostId must be in the format '{PubkyId}:{PostId}'".to_string()
         })?;
 
-        if post_part.contains(':') {
-            return Err(
-                "Validation Error: GlobalPostId must contain exactly one ':' separator".to_string(),
-            );
-        }
-
-        // Validate PubkyId part
         PubkyId::try_from(pubky_part.to_string())
             .map_err(|e| format!("Validation Error: Invalid PubkyId: {}", e))?;
 
-        // Validate PostId part
         PostId::try_from(post_part.to_string())
             .map_err(|e| format!("Validation Error: Invalid PostId: {}", e))?;
 
@@ -134,7 +126,7 @@ mod tests {
     fn test_try_from_extra_separator() {
         let result = GlobalPostId::try_from("a:b:c".to_string());
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("separator"));
+        assert!(result.unwrap_err().contains("Invalid PubkyId"));
     }
 
     #[test]
