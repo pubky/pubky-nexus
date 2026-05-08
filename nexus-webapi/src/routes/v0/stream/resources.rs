@@ -125,9 +125,11 @@ pub async fn stream_resources_handler(
         return Ok(Json(vec![]));
     }
 
-    let stream =
-        ResourceStream::from_listed_resource_ids(query.viewer_id.as_deref(), &keys.resource_ids)
-            .await?;
+    let stream = ResourceStream::from_listed_resource_ids(
+        query.viewer_id.as_ref().map(|v| v.as_ref()),
+        &keys.resource_ids,
+    )
+    .await?;
 
     Ok(Json(stream.map(|s| s.0).unwrap_or_default()))
 }

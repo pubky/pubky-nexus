@@ -40,7 +40,13 @@ pub async fn post_bookmark_handler(
         author_id, post_id, query.viewer_id,
     );
 
-    match Bookmark::get_by_id(&author_id, &post_id, query.viewer_id.as_deref()).await? {
+    match Bookmark::get_by_id(
+        &author_id,
+        &post_id,
+        query.viewer_id.as_ref().map(|v| v.as_ref()),
+    )
+    .await?
+    {
         Some(post) => Ok(Json(post)),
         None => Err(Error::post_not_found(author_id, post_id)),
     }

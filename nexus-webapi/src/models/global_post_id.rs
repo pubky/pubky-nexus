@@ -7,7 +7,7 @@ use utoipa::ToSchema;
 
 use super::bounded_vec;
 use super::post_id::PostId;
-use super::pubky_id::PubkyId;
+use pubky_app_specs::PubkyId;
 
 /// Composite post identifier in the format `{PubkyId}:{PostId}`.
 #[derive(Debug, ToSchema)]
@@ -61,7 +61,7 @@ impl GlobalPostId {
             "Validation Error: GlobalPostId must be in the format '{PubkyId}:{PostId}'".to_string()
         })?;
 
-        PubkyId::try_from(pubky_part.to_string())
+        PubkyId::try_from(pubky_part)
             .map_err(|e| format!("Validation Error: Invalid PubkyId: {}", e))?;
 
         PostId::try_from(post_part.to_string())

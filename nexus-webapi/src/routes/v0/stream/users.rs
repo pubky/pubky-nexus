@@ -160,7 +160,7 @@ pub async fn stream_username_search_handler(
 
     match UserStream::get_from_username_search(
         query.username.as_str(),
-        query.viewer_id.as_deref(),
+        query.viewer_id.as_ref().map(|v| v.as_ref()),
         Some(skip),
         Some(limit),
     )
@@ -202,8 +202,12 @@ pub async fn stream_users_by_ids_handler(
 
     let user_ids: Vec<String> = request.user_ids.iter().map(|id| id.to_string()).collect();
 
-    match UserStream::from_listed_user_ids(&user_ids, request.viewer_id.as_deref(), request.depth)
-        .await?
+    match UserStream::from_listed_user_ids(
+        &user_ids,
+        request.viewer_id.as_ref().map(|v| v.as_ref()),
+        request.depth,
+    )
+    .await?
     {
         Some(stream) => Ok(Json(stream)),
         None => Ok(Json(UserStream::default())),

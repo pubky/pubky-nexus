@@ -47,7 +47,7 @@ pub async fn user_tags_handler(
         query.skip_tags,
         query.limit_tags,
         query.limit_taggers,
-        query.viewer_id.as_deref(),
+        query.viewer_id.as_ref().map(|v| v.as_ref()),
         query.depth,
     )
     .await?
@@ -106,7 +106,7 @@ pub async fn user_taggers_handler(
         None,
         &label,
         pagination,
-        tags_query.viewer_id.as_deref(),
+        tags_query.viewer_id.as_ref().map(|v| v.as_ref()),
         tags_query.depth,
     )
     .await?;

@@ -54,7 +54,7 @@ pub async fn post_tags_handler(
         query.skip_tags,
         query.limit_tags,
         query.limit_taggers,
-        query.viewer_id.as_deref(),
+        query.viewer_id.as_ref().map(|v| v.as_ref()),
         None, // Avoid by default WoT tags in a Post
     )
     .await?
@@ -99,7 +99,11 @@ pub async fn post_taggers_handler(
         Some(&post_id),
         &label,
         taggers_query.pagination,
-        taggers_query.tags_query.viewer_id.as_deref(),
+        taggers_query
+            .tags_query
+            .viewer_id
+            .as_ref()
+            .map(|v| v.as_ref()),
         None,
     )
     .await?;
