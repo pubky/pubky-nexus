@@ -10,21 +10,18 @@ license = "MIT"
 [dependencies]
 async-trait = { workspace = true }
 chrono = { workspace = true }
-neo4rs = { workspace = true }
-nexus-common = { version = "0.4.1", path = "../nexus-common" }
+nexus-common = { path = "../nexus-common" }
 opentelemetry = { workspace = true }
 pubky = { workspace = true }
 pubky-app-specs = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-thiserror = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]
 anyhow = { workspace = true }
 base32 = "0.5"
-httpc-test = "0.1.10"
 pubky-testnet = { workspace = true }
 rand = "0.10.1"
 tokio-shared-rt = { workspace = true }

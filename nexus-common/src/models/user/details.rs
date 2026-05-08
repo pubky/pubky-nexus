@@ -38,7 +38,7 @@ impl Collection<&str> for UserDetails {
 }
 
 /// Represents user data with name, bio, image, links, and status.
-#[derive(Serialize, Deserialize, ToSchema, Default, Clone, Debug)]
+#[derive(Serialize, Deserialize, ToSchema, Clone, Debug)]
 pub struct UserDetails {
     pub name: String,
     pub bio: Option<String>,
@@ -100,7 +100,10 @@ impl UserDetails {
             name: user_id.to_string(),
             id: user_id.clone(),
             indexed_at: Utc::now().timestamp_millis(),
-            ..Default::default()
+            bio: None,
+            links: None,
+            status: None,
+            image: None,
         }
     }
 
@@ -181,7 +184,11 @@ mod tests {
     fn deserialize_from_node_without_links() {
         let mut props = BoltMap::new();
         props.put(BoltString::from("name"), BoltType::from("Dave"));
-        props.put(BoltString::from("id"), BoltType::from("rz6oe4yda9em"));
+        props.put(
+            BoltString::from("id"),
+            // Use valid PubkyId of test moderation user
+            BoltType::from("uo7jgkykft4885n8cruizwy6khw71mnu5pq3ay9i8pw1ymcn85ko"),
+        );
         props.put(
             BoltString::from("indexed_at"),
             BoltType::from(1724134095000_i64),
