@@ -43,6 +43,26 @@ impl Error {
     pub fn resource_not_found(resource_id: ResourceId) -> Self {
         Error::ResourceNotFound { resource_id }
     }
+
+    pub fn user_not_found(user_id: PubkyId) -> Self {
+        Error::UserNotFound {
+            user_id: Box::new(user_id),
+        }
+    }
+
+    pub fn post_not_found(author_id: PubkyId, post_id: PostId) -> Self {
+        Error::PostNotFound {
+            author_id: Box::new(author_id),
+            post_id,
+        }
+    }
+
+    pub fn tag_not_found(tag_id: String, tagger_id: PubkyId) -> Self {
+        Error::TagNotFound {
+            tag_id,
+            tagger_id: Box::new(tagger_id),
+        }
+    }
 }
 
 impl From<ModelError> for Error {

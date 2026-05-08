@@ -27,7 +27,7 @@ pub async fn user_details_handler(Path(user_id): Path<PubkyId>) -> Result<Json<U
 
     match UserDetails::get_by_id(&user_id).await? {
         Some(details) => Ok(Json(details)),
-        None => Err(Error::UserNotFound { user_id: Box::new(user_id) }),
+        None => Err(Error::user_not_found(user_id)),
     }
 }
 

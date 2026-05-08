@@ -43,7 +43,7 @@ pub async fn user_view_handler(
 
     match UserView::get_by_id(&user_id, query.viewer_id.as_deref(), query.depth).await? {
         Some(user) => Ok(Json(user)),
-        None => Err(Error::UserNotFound { user_id: Box::new(user_id) }),
+        None => Err(Error::user_not_found(user_id)),
     }
 }
 

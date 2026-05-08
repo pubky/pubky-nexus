@@ -36,7 +36,7 @@ pub async fn user_relationship_handler(
 
     match Relationship::get_by_id(&user_id, Some(&viewer_id)).await? {
         Some(relationship) => Ok(Json(relationship)),
-        None => Err(Error::UserNotFound { user_id: Box::new(user_id) }),
+        None => Err(Error::user_not_found(user_id)),
     }
 }
 

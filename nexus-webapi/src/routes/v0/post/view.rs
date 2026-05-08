@@ -69,7 +69,7 @@ pub async fn post_view_handler(
     .await?
     {
         Some(post) => Ok(Json(post)),
-        None => Err(Error::PostNotFound { author_id: Box::new(author_id), post_id }),
+        None => Err(Error::post_not_found(author_id, post_id)),
     }
 }
 

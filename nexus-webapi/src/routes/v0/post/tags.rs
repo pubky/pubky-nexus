@@ -60,7 +60,7 @@ pub async fn post_tags_handler(
     .await?
     {
         Some(tags) => Ok(Json(tags)),
-        None => Err(Error::PostNotFound { author_id: Box::new(author_id), post_id }),
+        None => Err(Error::post_not_found(author_id, post_id)),
     }
 }
 

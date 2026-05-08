@@ -38,7 +38,7 @@ pub async fn user_followers_handler(
 
     match Followers::get_by_id(&user_id, Some(skip), Some(limit)).await? {
         Some(followers) => Ok(Json(followers)),
-        None => Err(Error::UserNotFound { user_id: Box::new(user_id) }),
+        None => Err(Error::user_not_found(user_id)),
     }
 }
 
@@ -69,7 +69,7 @@ pub async fn user_following_handler(
 
     match Following::get_by_id(&user_id, Some(skip), Some(limit)).await? {
         Some(following) => Ok(Json(following)),
-        None => Err(Error::UserNotFound { user_id: Box::new(user_id) }),
+        None => Err(Error::user_not_found(user_id)),
     }
 }
 
@@ -100,7 +100,7 @@ pub async fn user_friends_handler(
 
     match Friends::get_by_id(&user_id, Some(skip), Some(limit)).await? {
         Some(friends) => Ok(Json(friends)),
-        None => Err(Error::UserNotFound { user_id: Box::new(user_id) }),
+        None => Err(Error::user_not_found(user_id)),
     }
 }
 

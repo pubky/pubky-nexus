@@ -40,7 +40,7 @@ pub async fn user_avatar_handler(
 
     // 1. Get user details
     let details = match UserDetails::get_by_id(&user_id).await? {
-        None => return Err(Error::UserNotFound { user_id: Box::new(user_id) }),
+        None => return Err(Error::user_not_found(user_id)),
         Some(d) => d,
     };
 
