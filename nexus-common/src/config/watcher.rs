@@ -46,8 +46,8 @@ pub const DEFAULT_INITIAL_MISSING_DEP_BACKOFF_SECS: u64 = 60;
 /// Default for [EventRetryConfig::max_missing_dep_backoff_secs]
 pub const DEFAULT_MAX_MISSING_DEP_BACKOFF_SECS: u64 = 3_600;
 
-// Moderation service key
-pub const MODERATION_ID: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+// Default moderation service key (test user key, overridden by config.toml value)
+pub const DEFAULT_MODERATION_ID: &str = "uo7jgkykft4885n8cruizwy6khw71mnu5pq3ay9i8pw1ymcn85ko";
 // Moderation service key
 pub const MODERATED_TAGS: [&str; 6] = [
     "hatespeech",
@@ -166,8 +166,8 @@ impl Default for WatcherConfig {
     fn default() -> Self {
         let homeserver = PubkyId::try_from(HOMESERVER_PUBKY)
             .expect("Hardcoded homeserver should be a valid pubky id");
-        let moderation_id = PubkyId::try_from(MODERATION_ID)
-            .expect("Hardcoded moderation should be a valid pubky id");
+        let moderation_id = PubkyId::try_from(DEFAULT_MODERATION_ID)
+            .expect("Hardcoded default moderation should be a valid pubky id");
         Self {
             stack: StackConfig::default(),
             testnet: TESTNET,

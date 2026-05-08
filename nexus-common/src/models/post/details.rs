@@ -12,6 +12,7 @@ use utoipa::ToSchema;
 
 /// Represents post data with content, bio, image, links, and status.
 #[derive(Serialize, Deserialize, ToSchema, Default, Debug, PartialEq)]
+#[cfg_attr(test, derive(Clone))]
 // NOTE: Might not be necessary the default values for serde because before PUT a PostDetails node
 // we do sanity check
 pub struct PostDetails {
@@ -176,5 +177,10 @@ impl PostDetails {
         let ref_post_author_id = referenced_post_uri.user_id.as_str();
 
         UserDetails::maybe_ingest_user(ref_post_author_id).await
+    }
+
+    /// Determines whether or not a given [PostDetails] is different than (e.g. may be an edit of) this post.
+    pub fn is_different_than(&self, other: &PostDetails) -> bool {
+        self.content != other.content || self.attachments != other.attachments
     }
 }

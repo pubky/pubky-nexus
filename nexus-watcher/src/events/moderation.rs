@@ -26,7 +26,7 @@ impl Moderation {
     ///
     /// Returns `true` if the tag was applied by the moderator and matches
     /// a moderated tag label.
-    pub async fn should_delete(&self, tag: &PubkyAppTag, tagger_id: PubkyId) -> bool {
+    pub fn should_delete(&self, tag: &PubkyAppTag, tagger_id: PubkyId) -> bool {
         tagger_id == self.id && self.tags.contains(&tag.label)
     }
 
