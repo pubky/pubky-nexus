@@ -52,7 +52,7 @@ pub async fn bootstrap_handler(
 pub async fn put_homeserver_handler(Path(user_id): Path<String>) -> Result<()> {
     debug!("PUT {PUT_HOMESERVER_ROUTE}, user_id:{user_id}");
 
-    PubkyId::try_from(&user_id)
+    let user_id = PubkyId::try_from(&user_id)
         .map_err(|e| Error::invalid_input(&format!("Invalid user PK: {e}")))?;
 
     Homeserver::maybe_ingest_for_user(&user_id).await?;

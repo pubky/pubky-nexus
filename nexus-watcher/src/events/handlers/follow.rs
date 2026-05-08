@@ -36,7 +36,7 @@ pub async fn sync_put(
             return Ok(());
         }
         OperationOutcome::MissingDependency => {
-            if let Err(e) = Homeserver::maybe_ingest_for_user(followee_id.as_str()).await {
+            if let Err(e) = Homeserver::maybe_ingest_for_user(&followee_id).await {
                 tracing::error!("Failed to ingest homeserver: {e}");
             }
 

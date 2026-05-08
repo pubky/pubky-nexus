@@ -64,7 +64,9 @@ mod tests {
 
     use pubky_app_specs::PubkyId;
 
-    use crate::{file::validate_and_expand_path, DaemonConfig, Level};
+    use crate::{
+        config::watcher::DEFAULT_MODERATION_ID, file::validate_and_expand_path, DaemonConfig, Level,
+    };
 
     #[tokio_shared_rt::test(shared)]
     async fn test_toml_parsing() {
@@ -85,7 +87,7 @@ mod tests {
         assert_eq!(c.watcher.watcher_sleep, 5_000);
         assert_eq!(
             c.watcher.moderation_id,
-            PubkyId::try_from("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").unwrap()
+            PubkyId::try_from(DEFAULT_MODERATION_ID).unwrap()
         );
         assert_eq!(
             c.watcher.moderated_tags,

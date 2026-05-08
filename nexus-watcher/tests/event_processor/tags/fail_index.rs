@@ -77,7 +77,7 @@ async fn test_homeserver_tag_cannot_add_while_index() -> Result<()> {
     // We do this because earlier, the runner's event processing has been turned off temporarily
     // but at this point we are ready to run the event processing
     test.event_processor_runner
-        .build(test.homeserver_id.clone())
+        .build(test.homeserver_id.to_string())
         .await
         .map_err(|e| anyhow!(e))?
         .run()

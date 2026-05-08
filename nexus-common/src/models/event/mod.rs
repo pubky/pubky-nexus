@@ -15,6 +15,7 @@ pub enum EventType {
 }
 
 /// Result of parsing an event line from a homeserver.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
 pub enum ParseResult {
     /// Successfully parsed into a known, actionable event.
