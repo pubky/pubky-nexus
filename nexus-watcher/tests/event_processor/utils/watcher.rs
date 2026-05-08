@@ -51,7 +51,7 @@ pub fn generate_post_id() -> String {
 pub struct WatcherTest {
     pub testnet: Testnet,
     /// The homeserver ID
-    pub homeserver_id: String,
+    pub homeserver_id: PubkyId,
     /// The event processor runner
     pub event_processor_runner: EventProcessorRunner,
     /// Whether to ensure event processing is complete
@@ -125,9 +125,8 @@ impl WatcherTest {
         testnet.create_http_relay().await?;
 
         // Create a random homeserver with a random public key
-        let homeserver_id = testnet.create_random_homeserver().await?.public_key().z32();
-        let pubky_id = PubkyId::try_from(&homeserver_id).unwrap();
-        Homeserver::persist_if_unknown(pubky_id.clone())
+        let homeserver_id = PubkyId::from(testnet.create_random_homeserver().await?.public_key());
+        Homeserver::persist_if_unknown(homeserver_id.clone())
             .await
             .unwrap();
 
@@ -140,7 +139,7 @@ impl WatcherTest {
 
         // Initialize the test-scoped EventProcessorRunner; mirrors the standard processor behavior
         let event_processor_runner =
-            Self::create_test_event_processor_runner(pubky_id, files_path.clone());
+            Self::create_test_event_processor_runner(homeserver_id.clone(), files_path.clone());
 
         Ok(Self {
             testnet,
@@ -161,7 +160,7 @@ impl WatcherTest {
     pub async fn ensure_event_processing_complete(&mut self) -> Result<()> {
         if self.ensure_event_processing {
             self.event_processor_runner
-                .build(self.homeserver_id.clone())
+                .build(self.homeserver_id.to_string())
                 .await
                 .map_err(|e| anyhow!(e))?
                 .run()
@@ -226,7 +225,7 @@ impl WatcherTest {
         let pubky = PubkyConnector::get()?;
 
         let signer = pubky.signer(user_kp.clone());
-        let hs_pk: PublicKey = self.homeserver_id.clone().try_into()?;
+        let hs_pk = self.homeserver_id.to_public_key();
         signer.signup(&hs_pk, None).await?;
 
         Ok(())
