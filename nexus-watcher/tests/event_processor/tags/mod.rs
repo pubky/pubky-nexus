@@ -1,5 +1,6 @@
 mod del_idempotent;
 mod fail_index;
+mod moderated;
 mod multi_user;
 mod post_del;
 mod post_del_notification;

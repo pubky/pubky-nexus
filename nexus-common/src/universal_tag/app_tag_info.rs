@@ -1,4 +1,4 @@
-use pubky_app_specs::PubkyId;
+use pubky_app_specs::{PubkyId, APP_PATH, PROTOCOL};
 
 /// Info extracted from a universal tag path: `pubky://<user_id>/pub/<app>/tags/<tag_id>`
 pub struct AppTagInfo {
@@ -18,7 +18,7 @@ pub struct AppTagInfo {
 /// - App or tag_id contains slashes (invalid segments)
 pub fn try_parse_app_tag_path(uri: &str) -> Option<AppTagInfo> {
     // Case-insensitive scheme check per RFC 3986 (safe UTF-8 access)
-    let rest = to_ascii_lower_prefix(uri, "pubky://")?;
+    let rest = to_ascii_lower_prefix(uri, PROTOCOL)?;
 
     // Split: <user_id>/pub/<app>/tags/<tag_id>
     let (user_id_str, rest) = rest.split_once('/')?;
@@ -27,8 +27,8 @@ pub fn try_parse_app_tag_path(uri: &str) -> Option<AppTagInfo> {
     // Split on /tags/
     let (app, tag_id) = rest.split_once("/tags/")?;
 
-    // Skip if app is pubky.app — those go through the standard flow
-    if app == "pubky.app" {
+    // Skip pubky.app; normal event parsing handles it
+    if app == APP_PATH.trim_end_matches('/') {
         return None;
     }
 
