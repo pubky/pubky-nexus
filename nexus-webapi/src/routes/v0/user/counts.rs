@@ -26,7 +26,7 @@ pub async fn user_counts_handler(Path(user_id): Path<PubkyId>) -> Result<Json<Us
 
     match UserCounts::get_by_id(&user_id).await? {
         Some(counts) => Ok(Json(counts)),
-        None => Err(Error::UserNotFound { user_id }),
+        None => Err(Error::UserNotFound { user_id: Box::new(user_id) }),
     }
 }
 

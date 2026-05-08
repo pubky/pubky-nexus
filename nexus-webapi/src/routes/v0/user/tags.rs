@@ -53,7 +53,7 @@ pub async fn user_tags_handler(
     .await?
     {
         Some(tags) => Ok(Json(tags)),
-        None => Err(Error::UserNotFound { user_id }),
+        None => Err(Error::UserNotFound { user_id: Box::new(user_id) }),
     }
 }
 

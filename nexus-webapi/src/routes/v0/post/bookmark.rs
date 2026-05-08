@@ -42,7 +42,7 @@ pub async fn post_bookmark_handler(
 
     match Bookmark::get_by_id(&author_id, &post_id, query.viewer_id.as_deref()).await? {
         Some(post) => Ok(Json(post)),
-        None => Err(Error::PostNotFound { author_id, post_id }),
+        None => Err(Error::PostNotFound { author_id: Box::new(author_id), post_id }),
     }
 }
 

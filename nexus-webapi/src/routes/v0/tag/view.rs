@@ -36,7 +36,7 @@ pub async fn tag_view_handler(
 
     match TagView::get_by_tagger_and_id(&tagger_id, &tag_id).await? {
         Some(tag) => Ok(Json(tag)),
-        None => Err(Error::TagNotFound { tag_id, tagger_id }),
+        None => Err(Error::TagNotFound { tag_id, tagger_id: Box::new(tagger_id) }),
     }
 }
 

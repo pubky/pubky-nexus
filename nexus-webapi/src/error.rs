@@ -15,9 +15,9 @@ pub type Result<T> = core::result::Result<T, Error>;
 #[derive(Error, Debug)]
 pub enum Error {
     #[error("User not found: {user_id}")]
-    UserNotFound { user_id: PubkyId },
+    UserNotFound { user_id: Box<PubkyId> },
     #[error("Post not found: {author_id} {post_id}")]
-    PostNotFound { author_id: PubkyId, post_id: PostId },
+    PostNotFound { author_id: Box<PubkyId>, post_id: PostId },
     #[error("Internal server error: {source}")]
     InternalServerError { source: DynError },
     #[error("Tags not found")]
@@ -27,7 +27,7 @@ pub enum Error {
     #[error("File not found.")]
     FileNotFound {},
     #[error("Tag {tag_id} of {tagger_id} not found")]
-    TagNotFound { tag_id: String, tagger_id: PubkyId },
+    TagNotFound { tag_id: String, tagger_id: Box<PubkyId> },
     #[error("Resource not found: {resource_id}")]
     ResourceNotFound { resource_id: ResourceId },
     // Add other custom errors here
