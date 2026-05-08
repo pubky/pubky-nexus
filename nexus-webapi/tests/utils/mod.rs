@@ -93,4 +93,3 @@ async fn inner_make_request(
     };
     Ok(body)
 }
-
