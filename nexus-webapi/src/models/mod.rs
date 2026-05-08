@@ -19,7 +19,7 @@ pub use error_response::ErrorResponse;
 pub use global_post_id::{GlobalPostId, GlobalPostIds};
 pub use info::ServerInfo;
 pub use post::{PostStreamDetailed, PostViewDetailed};
-pub use post_id::{PostId, PostIds};
+pub use post_id::PostId;
 pub use pubky_app_specs::PubkyId;
 pub use resource_id::ResourceId;
 pub use tag_label::TagLabel;
