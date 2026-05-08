@@ -19,7 +19,7 @@ pub const DEFAULT_WATCHER_SLEEP: u64 = 5_000;
 pub const DEFAULT_INITIAL_BACKOFF_SECS: u64 = 60;
 /// Default for [WatcherConfig::max_backoff_secs]
 pub const DEFAULT_MAX_BACKOFF_SECS: u64 = 3_600;
-// Default noderation service key (test user key, overridden by config.toml value)
+// Default moderation service key (test user key, overridden by config.toml value)
 pub const DEFAULT_MODERATION_ID: &str = "uo7jgkykft4885n8cruizwy6khw71mnu5pq3ay9i8pw1ymcn85ko";
 // Moderation service key
 pub const MODERATED_TAGS: [&str; 6] = [
