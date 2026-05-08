@@ -15,6 +15,7 @@ pub enum EventType {
 }
 
 /// Result of parsing an event line from a homeserver.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
 pub enum ParseResult {
     /// Successfully parsed into a known, actionable event.
@@ -53,10 +54,19 @@ impl fmt::Display for EventType {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Event {
+    /// Pubky resource URI from the homeserver event line.
     pub uri: String,
+
+    /// Operation represented by the event, used to dispatch to PUT or DEL handlers.
     pub event_type: EventType,
+
+    /// Parsed representation of [`Self::uri`].
     pub parsed_uri: ParsedUri,
+
+    /// Local files directory on Nexus used for file-backed events.
     pub files_path: PathBuf,
+
+    /// Original event line as received from the homeserver.
     event_line: String,
 }
 

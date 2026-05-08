@@ -189,7 +189,7 @@ async fn test_post_does_not_exist() -> Result<()> {
 async fn test_user_does_not_exist() -> Result<()> {
     let endpoint = format!(
         "/v0/post/{}/{}/tags",
-        "db6w58pd5h63fbhtd88y8zz7pai9rkjwqt9omg6i7dz31dynrgc4", POST_ID
+        "ftq6cxtdyx8wjowumdofb5ydxdq5of6euhjiw8h65nwcyz97smiy", POST_ID
     );
     // TODO: Control post not found error control
     invalid_get_request(&endpoint, StatusCode::NOT_FOUND).await?;

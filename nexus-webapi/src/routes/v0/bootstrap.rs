@@ -50,7 +50,7 @@ pub async fn bootstrap_handler(
 )]
 pub async fn put_homeserver_handler(Path(user_id): Path<PubkyId>) -> Result<()> {
     debug!("PUT {PUT_HOMESERVER_ROUTE}, user_id:{user_id}");
-    Homeserver::maybe_ingest_for_user(&user_id).await?;
+    Homeserver::maybe_ingest_for_user(&user_id.0).await?;
     Ok(())
 }
 
