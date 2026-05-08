@@ -10,7 +10,7 @@ use nexus_common::models::tag::traits::{TagCollection, TaggersCollection};
 use nexus_common::models::user::UserCounts;
 use nexus_watcher::events::handlers;
 use pubky::Keypair;
-use pubky_app_specs::{PubkyAppPost, PubkyAppUser, PubkyId};
+use pubky_app_specs::{tag_uri_builder, PubkyAppPost, PubkyAppUser};
 
 /// Use indexed_at far in the past so TAGGED edges don't interfere with
 /// hot-tags tests that query this_month/today timeframes.
@@ -92,8 +92,8 @@ async fn test_tag_post_del_retry_no_double_decrement() -> Result<()> {
     assert_eq!(find_post_counts(&author_id, &post_id).await.tags, 0);
 
     // Retry: call del handler directly — should delete graph without double-decrement
-    let tagger_pubky_id = PubkyId::from(tagger_kp.public_key());
-    handlers::tag::del(tagger_pubky_id, tag_id.to_string()).await?;
+    let tag_uri = tag_uri_builder(tagger_id.clone(), tag_id.to_string());
+    handlers::tag::del(&tag_uri).await?;
 
     // Verify final state: graph edge deleted, counters still 0
     let post_tag = find_post_tag(&author_id, &post_id, label).await?;
@@ -159,15 +159,15 @@ async fn test_tag_post_del_replay_after_success_skips() -> Result<()> {
     UserCounts::increment(&tagger_id, "tagged", None).await?;
 
     // First delete via handler (should succeed)
-    let tagger_pubky_id = PubkyId::from(tagger_kp.public_key());
-    handlers::tag::del(tagger_pubky_id.clone(), tag_id.to_string()).await?;
+    let tag_uri = tag_uri_builder(tagger_id.clone(), tag_id.to_string());
+    handlers::tag::del(&tag_uri).await?;
 
     // Verify fully deleted state
     let post_tag = find_post_tag(&author_id, &post_id, label).await?;
     assert!(post_tag.is_none());
 
     // Replay: call del again — should succeed as idempotent no-op
-    handlers::tag::del(tagger_pubky_id, tag_id.to_string()).await?;
+    handlers::tag::del(&tag_uri).await?;
 
     // Cleanup
     test.cleanup_post(&author_kp, &post_path).await?;
