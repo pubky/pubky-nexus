@@ -4,8 +4,8 @@ use crate::routes::v0::endpoints::{
     STREAM_USER_IDS_ROUTE,
 };
 use crate::routes::Json as RequestJson;
+use crate::routes::Query;
 use crate::{Error, Result};
-use axum::extract::Query;
 use axum::Json;
 use nexus_common::models::user::{UserIdStream, UserStream, UserStreamInput, UserStreamSource};
 use nexus_common::types::{Pagination, StreamReach, Timeframe};

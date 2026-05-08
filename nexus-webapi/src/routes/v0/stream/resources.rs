@@ -1,7 +1,7 @@
 use crate::models::{PubkyId, Tags};
 use crate::routes::v0::endpoints::{STREAM_RESOURCES_ROUTE, STREAM_RESOURCE_IDS_ROUTE};
+use crate::routes::Query;
 use crate::Result;
-use axum::extract::Query;
 use axum::Json;
 use nexus_common::db::kv::SortOrder;
 use nexus_common::models::resource::stream::{

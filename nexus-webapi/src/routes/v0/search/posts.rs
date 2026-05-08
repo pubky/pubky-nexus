@@ -1,6 +1,6 @@
 use crate::routes::v0::endpoints::SEARCH_POSTS_BY_TAG_ROUTE;
+use crate::routes::{Path, Query};
 use crate::Result;
-use axum::extract::{Path, Query};
 use axum::Json;
 use nexus_common::models::post::search::PostsByTagSearch;
 use nexus_common::types::Pagination;

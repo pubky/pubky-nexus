@@ -3,8 +3,9 @@ use crate::routes::v0::endpoints::{
     STREAM_POSTS_BY_IDS_ROUTE, STREAM_POSTS_ROUTE, STREAM_POST_KEYS_ROUTE,
 };
 use crate::routes::Json as RequestJson;
+use crate::routes::Query;
 use crate::{Error, Result as AppResult};
-use axum::{extract::Query, Json};
+use axum::Json;
 use nexus_common::db::kv::SortOrder;
 use nexus_common::types::StreamSorting;
 use nexus_common::{

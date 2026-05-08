@@ -55,6 +55,27 @@ where
     }
 }
 
+/// A wrapper around Axum's Query extractor that maps deserialization/validation errors
+/// to Error::InvalidInput (400 Bad Request) for consistent JSON error responses.
+/// This ensures that query parameter validation failures return a proper JSON body
+/// instead of Axum's default plain-text rejection.
+pub struct Query<T>(pub T);
+
+impl<S, T> FromRequestParts<S> for Query<T>
+where
+    S: Send + Sync,
+    T: serde::de::DeserializeOwned + Send,
+{
+    type Rejection = crate::Error;
+
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+        let query: axum::extract::Query<T> = axum::extract::Query::from_request_parts(parts, state)
+            .await
+            .map_err(|rejection| crate::Error::invalid_input(&rejection.to_string()))?;
+        Ok(Query(query.0))
+    }
+}
+
 #[derive(Clone)]
 pub struct AppState {
     pub files_path: Arc<PathBuf>,

@@ -1,8 +1,8 @@
 use crate::models::PubkyId;
 use crate::routes::v0::endpoints::USER_ROUTE;
 use crate::routes::Path;
+use crate::routes::Query;
 use crate::{Error, Result};
-use axum::extract::Query;
 use axum::Json;
 use nexus_common::models::tag::TagDetails;
 use nexus_common::models::user::UserView;

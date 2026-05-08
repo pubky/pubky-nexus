@@ -2,6 +2,7 @@ use crate::utils::{get_request, invalid_get_request, post_request};
 use anyhow::Result;
 use axum::http::StatusCode;
 use nexus_common::models::post::PostStream;
+use nexus_webapi::models::ErrorResponse;
 use serde_json::json;
 
 use super::utils::{search_tag_in_post, verify_post_list, verify_timeline_post_list};
@@ -275,6 +276,23 @@ async fn test_stream_invalid_sorting() -> Result<()> {
     // Invalid sorting option should fail
     let endpoint = "/v0/stream/posts?sorting=invalid";
     invalid_get_request(endpoint, StatusCode::BAD_REQUEST).await?;
+
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_stream_posts_missing_observer_id_validation() -> Result<()> {
+    // 'following' source requires observer_id - missing it should return a validation error
+    let endpoint = format!("{ROOT_PATH}?source=following");
+    let body = invalid_get_request(&endpoint, StatusCode::BAD_REQUEST).await?;
+
+    let error_response: ErrorResponse =
+        serde_json::from_value(body).expect("Response should be valid ErrorResponse JSON");
+
+    assert_eq!(
+        error_response.error,
+        "Invalid input: source 'following' requires 'observer_id' parameter",
+    );
 
     Ok(())
 }
