@@ -2,7 +2,7 @@ use crate::utils::{get_request, invalid_get_request, post_request};
 use anyhow::Result;
 use axum::http::StatusCode;
 use nexus_common::models::post::PostStream;
-use nexus_webapi::models::ErrorResponse;
+use nexus_webapi::models::ErrorResponsePayload;
 use serde_json::json;
 
 use super::utils::{search_tag_in_post, verify_post_list, verify_timeline_post_list};
@@ -286,8 +286,8 @@ async fn test_stream_posts_missing_observer_id_validation() -> Result<()> {
     let endpoint = format!("{ROOT_PATH}?source=following");
     let body = invalid_get_request(&endpoint, StatusCode::BAD_REQUEST).await?;
 
-    let error_response: ErrorResponse =
-        serde_json::from_value(body).expect("Response should be valid ErrorResponse JSON");
+    let error_response: ErrorResponsePayload =
+        serde_json::from_value(body).expect("Response should be valid ErrroResponsePayload JSON");
 
     assert_eq!(
         error_response.error,

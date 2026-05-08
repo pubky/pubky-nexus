@@ -1,7 +1,7 @@
 use crate::utils::{invalid_post_request, post_request};
 use anyhow::Result;
 use axum::http::StatusCode;
-use nexus_webapi::models::ErrorResponse;
+use nexus_webapi::models::ErrorResponsePayload;
 use serde_json::json;
 // ##### LIST OF USERS BY ID ######
 
@@ -72,8 +72,8 @@ async fn test_stream_users_by_ids_limit_exceeded() -> Result<()> {
     .await?;
 
     // Verify the error message mentions the length limit (fail-fast), not element validation
-    let error_response: ErrorResponse =
-        serde_json::from_value(res).expect("Response should be a valid ErrorResponse");
+    let error_response: ErrorResponsePayload =
+        serde_json::from_value(res).expect("Response should be a valid ErrroResponsePayload");
     assert!(
         error_response.error.contains("100")
             || error_response.error.to_lowercase().contains("maximum"),
@@ -107,8 +107,8 @@ async fn test_stream_users_by_ids_with_invalid_ids() -> Result<()> {
     )
     .await?;
 
-    let error_response: ErrorResponse =
-        serde_json::from_value(res).expect("Response should be a valid ErrorResponse");
+    let error_response: ErrorResponsePayload =
+        serde_json::from_value(res).expect("Response should be a valid ErrroResponsePayload");
 
     // Verify the error mentions the ID validation failure
     assert!(
@@ -138,9 +138,9 @@ async fn test_stream_users_by_ids_empty_list() -> Result<()> {
     )
     .await?;
 
-    // Deserialize response into ErrorResponse
-    let error_response: ErrorResponse =
-        serde_json::from_value(res).expect("Response should be a valid ErrorResponse");
+    // Deserialize response into ErrroResponsePayload
+    let error_response: ErrorResponsePayload =
+        serde_json::from_value(res).expect("Response should be a valid ErrroResponsePayload");
     assert!(
         error_response
             .error

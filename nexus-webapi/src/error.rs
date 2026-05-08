@@ -1,4 +1,4 @@
-use crate::models::{PostId, PubkyId, ResourceId};
+use crate::models::{ErrorResponsePayload, PostId, PubkyId, ResourceId};
 use axum::http::header::InvalidHeaderValue;
 use axum::http::uri::InvalidUri;
 use axum::http::StatusCode;
@@ -156,10 +156,8 @@ impl IntoResponse for Error {
             Error::InternalServerError { source } => error!("Internal server error: {:?}", source),
         };
 
-        let body = serde_json::json!({
-            "error": self.to_string()
-        });
+        let body = ErrorResponsePayload::new(self.to_string());
 
-        (status_code, axum::Json(body)).into_response()
+        (status_code, body).into_response()
     }
 }
