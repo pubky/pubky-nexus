@@ -832,9 +832,19 @@ pub fn post_stream(
         );
     }
 
-    // If post kind is provided, add the corresponding condition
-    if kind.is_some() {
-        append_condition(&mut cypher, "p.kind = $kind", &mut where_clause_applied);
+    // If post kind is provided, add the corresponding condition.
+    // When no kind filter is set, exclude collections from the default stream
+    // (defense-in-depth: the Redis writers in models/post/details.rs and the
+    // watcher's PostCounts call site already gate collections out of the index
+    // sorted sets, but the Cypher fallback path bypasses those, so we filter
+    // here too).
+    match &kind {
+        Some(_) => append_condition(&mut cypher, "p.kind = $kind", &mut where_clause_applied),
+        None => append_condition(
+            &mut cypher,
+            "p.kind <> 'collection'",
+            &mut where_clause_applied,
+        ),
     }
 
     // Filter just the parent posts: StreamSource:PostReplies and StreamSource:AuthorReplies do not reach that query

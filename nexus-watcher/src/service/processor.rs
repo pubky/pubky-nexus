@@ -232,6 +232,12 @@ fn extract_retry_event_info(
             error!("{}", message);
             return None;
         }
+        EventProcessorError::SpecValidation(ref reason) => {
+            // Spec-validation failures are deterministic: re-running the same
+            // payload produces the same error. Don't poison the retry queue.
+            error!("SpecValidation: {}", reason);
+            return None;
+        }
         _ => RetryEvent::new(error),
     };
 

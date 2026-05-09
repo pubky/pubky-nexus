@@ -4159,8 +4159,8 @@ dependencies = [
 
 [[package]]
 name = "pubky-app-specs"
-version = "0.4.4"
-source = "git+https://github.com/pubky/pubky-app-specs.git?rev=b1620fd1b98b1665abd07ba3dd208a295da528d1#b1620fd1b98b1665abd07ba3dd208a295da528d1"
+version = "0.5.0"
+source = "git+https://github.com/pubky/pubky-app-specs.git?branch=feat%2Fspec-v0.5.0-collection-variant#eb553484c2c7ce6e7062f16705c3ed097ac9f467"
 dependencies = [
  "base32",
  "blake3",
@@ -6743,7 +6743,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]

@@ -7,7 +7,7 @@ use nexus_common::db::{fetch_row_from_graph, queries, OperationOutcome, RedisOps
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::notification::Notification;
 use nexus_common::models::post::search::PostsByTagSearch;
-use nexus_common::models::post::{PostCounts, PostStream};
+use nexus_common::models::post::{PostCounts, PostDetails, PostStream};
 use nexus_common::models::resource::stream::ResourceStream;
 use nexus_common::models::resource::tag::TagResource;
 use nexus_common::models::resource::{classify_uri, normalize_uri, resource_id, UriCategory};
@@ -17,7 +17,9 @@ use nexus_common::models::tag::traits::{TagCollection, TaggersCollection};
 use nexus_common::models::tag::user::TagUser;
 use nexus_common::models::user::UserCounts;
 use nexus_common::types::Pagination;
-use pubky_app_specs::{post_uri_builder, ParsedUri, PubkyAppTag, PubkyId, Resource};
+use pubky_app_specs::{
+    post_uri_builder, ParsedUri, PubkyAppPostKind, PubkyAppTag, PubkyId, Resource,
+};
 use tracing::debug;
 
 use super::utils::post_relationships_is_reply;
@@ -209,6 +211,17 @@ async fn put_sync_post(
     post_uri: &str,
     indexed_at: i64,
 ) -> Result<(), EventProcessorError> {
+    // Look up the target post's kind so we can skip the by-tag search index for
+    // collections (collections don't appear in by-tag streams unless callers
+    // explicitly request `?kind=collection`). `get_by_id` falls back to the graph
+    // if the post isn't yet cached. If the post is missing entirely, treat as
+    // not-a-collection — the rest of the handler will surface the dependency
+    // failure through its existing paths.
+    let target_is_collection = PostDetails::get_by_id(&author_id, post_id)
+        .await?
+        .map(|d| matches!(d.kind, PubkyAppPostKind::Collection))
+        .unwrap_or(false);
+
     match TagPost::put_to_graph(
         &tagger_user_id,
         &author_id,
@@ -225,7 +238,12 @@ async fn put_sync_post(
             let idempotent_results = nexus_common::traced_join!(
                 tracing::info_span!("index.write", phase = "tag_post_retry");
                 TagPost::add_tagger_to_index(&author_id, Some(post_id), &tagger_user_id, tag_label),
-                PostsByTagSearch::put_to_index(&author_id, post_id, tag_label),
+                async {
+                    if !target_is_collection {
+                        PostsByTagSearch::put_to_index(&author_id, post_id, tag_label).await?;
+                    }
+                    Ok::<(), EventProcessorError>(())
+                },
                 TagSearch::put_to_index(tag_label_slice)
             );
             idempotent_results.0?;
@@ -291,8 +309,14 @@ async fn put_sync_post(
                     }
                     Ok::<(), EventProcessorError>(())
                 },
-                // Add post to global label timeline
-                PostsByTagSearch::put_to_index(&author_id, post_id, tag_label),
+                // Add post to global label timeline (skip for collections so they
+                // don't pollute by-tag streams; reachable only via ?kind=collection)
+                async {
+                    if !target_is_collection {
+                        PostsByTagSearch::put_to_index(&author_id, post_id, tag_label).await?;
+                    }
+                    Ok::<(), EventProcessorError>(())
+                },
                 // Save new notification
                 Notification::new_post_tag(&tagger_user_id, &author_id, tag_label, post_uri),
                 // Add tag to search index
