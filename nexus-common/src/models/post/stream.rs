@@ -730,3 +730,24 @@ impl PostStream {
         .await
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `can_use_index` short-circuits to the Cypher path whenever a kind filter
+    /// is set. The Phase 3 stream-suppression strategy relies on this so that
+    /// `kind=collection` queries never hit the Redis index (which is gated to
+    /// exclude collections at write time). This test locks the behavior in for
+    /// the new `PubkyAppPostKind::Collection` variant.
+    #[test]
+    fn test_can_use_index_returns_false_for_kind_collection() {
+        let result = PostStream::can_use_index(
+            &StreamSorting::Timeline,
+            &StreamSource::All,
+            &None,
+            &Some(PubkyAppPostKind::Collection),
+        );
+        assert!(!result, "can_use_index must return false when kind is set");
+    }
+}
