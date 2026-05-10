@@ -201,6 +201,10 @@ where
     D: Deserializer<'de>,
 {
     let val = u16::deserialize(deserializer)?;
+    if val == 0 {
+        return Err(D::Error::custom("events_limit must be at least 1"));
+    }
+
     if val > MAX_EVENTS_LIMIT {
         let err_msg = format!("events_limit ({val}) exceeds max ({MAX_EVENTS_LIMIT})");
         Err(D::Error::custom(err_msg))
@@ -214,6 +218,12 @@ where
     D: Deserializer<'de>,
 {
     let val = u16::deserialize(deserializer)?;
+    if val == 0 {
+        return Err(D::Error::custom(
+            "key_based_events_limit must be at least 1",
+        ));
+    }
+
     if val > MAX_KEY_BASED_EVENTS_LIMIT {
         let err_msg =
             format!("key_based_events_limit ({val}) exceeds max ({MAX_KEY_BASED_EVENTS_LIMIT})");
