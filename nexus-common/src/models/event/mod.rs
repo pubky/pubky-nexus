@@ -133,7 +133,11 @@ impl Event {
         let event_line = format!("{event_type} {uri}");
         match Self::parse_event_parts(event_type, uri, event_line, files_path)? {
             ParseResult::Parsed(event) => Ok(Some(event)),
-            ParseResult::Skipped | ParseResult::UnrecognizedUri { .. } => Ok(None),
+            ParseResult::Skipped => Ok(None),
+            ParseResult::UnrecognizedUri { reason, .. } => {
+                warn!("Unrecognized event URI: {reason}");
+                Ok(None)
+            }
         }
     }
 
