@@ -32,8 +32,8 @@ fn test_v045_nexus_handles_collection_event_as_unknown_no_retry() {
     }"#;
 
     // Deserialization succeeds because of `#[serde(other)] Unknown`.
-    let post: PubkyAppPost = serde_json::from_slice(blob)
-        .expect("Unknown serde catch-all must accept future kinds");
+    let post: PubkyAppPost =
+        serde_json::from_slice(blob).expect("Unknown serde catch-all must accept future kinds");
 
     // In a v0.4.5 spec, `kind` would be `Unknown`. In the current bumped spec
     // (v0.5.0), the same JSON deserializes to `Collection`. Both behaviors
@@ -47,7 +47,9 @@ fn test_v045_nexus_handles_collection_event_as_unknown_no_retry() {
 
     // Validation rejects Unknown (Phase 1 invariant).
     let id = unknown_post.create_id();
-    let validation_err = unknown_post.validate(Some(&id)).expect_err("Unknown kind must fail validation");
+    let validation_err = unknown_post
+        .validate(Some(&id))
+        .expect_err("Unknown kind must fail validation");
     assert!(
         validation_err.to_lowercase().contains("unknown"),
         "validation error must mention 'unknown', got: {}",

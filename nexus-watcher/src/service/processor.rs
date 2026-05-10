@@ -250,3 +250,59 @@ fn extract_retry_event_info(
     };
     Some((format!("{}:{}", event.event_type, index), retry_event))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nexus_common::models::event::ParseResult;
+    use std::path::PathBuf;
+
+    /// Build a syntactically-valid `Event` for classifier tests. The body of
+    /// `extract_retry_event_info` only consults `event.uri` for the retry-eligible
+    /// branch; the skip branches we test below short-circuit before reaching it.
+    fn fixture_event() -> Event {
+        let line = "PUT pubky://4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro/pub/pubky.app/posts/0034A0X7NJ52A";
+        match Event::parse_event(line, PathBuf::from("/tmp/nexus-test-files")).unwrap() {
+            ParseResult::Parsed(event) => event,
+            other => panic!("expected Parsed event, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_extract_retry_event_info_skips_invalid_event_line() {
+        // Regression guard: the pre-existing non-retryable branch must keep
+        // returning `None` so retry-queue behavior doesn't change.
+        let event = fixture_event();
+        let result = extract_retry_event_info(
+            &event,
+            EventProcessorError::InvalidEventLine("malformed".into()),
+        );
+        assert!(result.is_none(), "InvalidEventLine must skip retry");
+    }
+
+    #[test]
+    fn test_extract_retry_event_info_skips_spec_validation() {
+        // Phase 3 invariant: spec-validation failures (e.g. unknown post kind,
+        // malformed Collection envelope) are deterministic — re-running the
+        // same payload produces the same error, so they must NOT enqueue a
+        // retry. Without this, the v0.4.5 forwards-compat shim is theatre.
+        let event = fixture_event();
+        let result = extract_retry_event_info(
+            &event,
+            EventProcessorError::SpecValidation("post kind is unknown".into()),
+        );
+        assert!(result.is_none(), "SpecValidation must skip retry");
+    }
+
+    #[test]
+    fn test_extract_retry_event_info_retries_generic_errors() {
+        // Counterpart: a non-classified (transient-looking) error still
+        // enqueues a retry, so we don't accidentally drop recoverable failures.
+        let event = fixture_event();
+        let result = extract_retry_event_info(
+            &event,
+            EventProcessorError::Generic("transient failure".into()),
+        );
+        assert!(result.is_some(), "Generic errors must enqueue a retry");
+    }
+}

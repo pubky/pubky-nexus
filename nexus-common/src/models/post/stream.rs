@@ -736,18 +736,67 @@ mod tests {
     use super::*;
 
     /// `can_use_index` short-circuits to the Cypher path whenever a kind filter
-    /// is set. The Phase 3 stream-suppression strategy relies on this so that
-    /// `kind=collection` queries never hit the Redis index (which is gated to
-    /// exclude collections at write time). This test locks the behavior in for
-    /// the new `PubkyAppPostKind::Collection` variant.
+    /// is set, regardless of which kind. The Phase 3 stream-suppression
+    /// strategy relies on this so that `kind=collection` queries never hit the
+    /// Redis index (which is gated to exclude collections at write time), AND
+    /// so that any kind-filtered query (`kind=short`, `kind=long`, etc.) routes
+    /// via Cypher where the kind-specific filter actually applies.
+    ///
+    /// We parametrize across the source/sorting combinations that *would*
+    /// otherwise be index-eligible (per the match arms below the early-return)
+    /// to lock in that the kind short-circuit wins over the index path.
     #[test]
-    fn test_can_use_index_returns_false_for_kind_collection() {
-        let result = PostStream::can_use_index(
+    fn test_can_use_index_returns_false_for_any_kind_filter() {
+        let kinds_to_test = [
+            PubkyAppPostKind::Short,
+            PubkyAppPostKind::Long,
+            PubkyAppPostKind::Image,
+            PubkyAppPostKind::Video,
+            PubkyAppPostKind::Link,
+            PubkyAppPostKind::File,
+            PubkyAppPostKind::Collection,
+        ];
+
+        // Combinations that would normally return `true` when kind is None.
+        let index_eligible_combos = [
+            (StreamSorting::Timeline, StreamSource::All),
+            (StreamSorting::TotalEngagement, StreamSource::All),
+            (
+                StreamSorting::Timeline,
+                StreamSource::Author {
+                    author_id: "author".to_string(),
+                },
+            ),
+            (
+                StreamSorting::Timeline,
+                StreamSource::Bookmarks {
+                    observer_id: "observer".to_string(),
+                },
+            ),
+        ];
+
+        for kind in &kinds_to_test {
+            for (sorting, source) in &index_eligible_combos {
+                let result = PostStream::can_use_index(sorting, source, &None, &Some(kind.clone()));
+                assert!(
+                    !result,
+                    "can_use_index({:?}, {:?}, None, Some({:?})) must return false",
+                    sorting, source, kind
+                );
+            }
+        }
+    }
+
+    /// Sanity counterpart: when no kind is set, `can_use_index` returns true
+    /// for the index-eligible combinations. Locks in that the test above
+    /// isn't passing because of a different bug elsewhere in the function.
+    #[test]
+    fn test_can_use_index_returns_true_for_no_kind_filter() {
+        assert!(PostStream::can_use_index(
             &StreamSorting::Timeline,
             &StreamSource::All,
             &None,
-            &Some(PubkyAppPostKind::Collection),
-        );
-        assert!(!result, "can_use_index must return false when kind is set");
+            &None,
+        ));
     }
 }

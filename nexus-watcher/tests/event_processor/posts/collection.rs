@@ -42,7 +42,10 @@ async fn test_create_collection_post_indexes_graph_only() -> Result<()> {
     // Graph: the collection node exists with kind="collection".
     let post_details = find_post_details(&user_id, &post_id).await?;
     assert_eq!(post_details.id, post_id);
-    assert_eq!(post_details.kind, pubky_app_specs::PubkyAppPostKind::Collection);
+    assert_eq!(
+        post_details.kind,
+        pubky_app_specs::PubkyAppPostKind::Collection
+    );
     assert_eq!(post_details.attachments.as_ref().unwrap().len(), 3);
 
     // PostCounts initialized at zero.
@@ -164,11 +167,9 @@ async fn test_delete_collection_post_removes_graph_no_orphans() -> Result<()> {
     );
 
     // Sorted sets had no entries to begin with — confirm still empty.
-    assert!(
-        check_member_global_timeline_user_post(&user_id, &post_id)
-            .await?
-            .is_none()
-    );
+    assert!(check_member_global_timeline_user_post(&user_id, &post_id)
+        .await?
+        .is_none());
     assert!(
         check_member_total_engagement_user_posts(&[&user_id, &post_id])
             .await?

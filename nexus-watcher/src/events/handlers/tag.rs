@@ -211,17 +211,6 @@ async fn put_sync_post(
     post_uri: &str,
     indexed_at: i64,
 ) -> Result<(), EventProcessorError> {
-    // Look up the target post's kind so we can skip the by-tag search index for
-    // collections (collections don't appear in by-tag streams unless callers
-    // explicitly request `?kind=collection`). `get_by_id` falls back to the graph
-    // if the post isn't yet cached. If the post is missing entirely, treat as
-    // not-a-collection — the rest of the handler will surface the dependency
-    // failure through its existing paths.
-    let target_is_collection = PostDetails::get_by_id(&author_id, post_id)
-        .await?
-        .map(|d| matches!(d.kind, PubkyAppPostKind::Collection))
-        .unwrap_or(false);
-
     match TagPost::put_to_graph(
         &tagger_user_id,
         &author_id,
@@ -233,6 +222,16 @@ async fn put_sync_post(
     .await?
     {
         OperationOutcome::Updated => {
+            // Look up the target post's kind so we can skip the by-tag search
+            // index for collections (collections don't appear in by-tag streams
+            // unless callers explicitly request `?kind=collection`). Done here
+            // (not before the match) so the `MissingDependency` arm — which
+            // never reaches the index writes — doesn't pay for an extra lookup.
+            let target_is_collection = PostDetails::get_by_id(&author_id, post_id)
+                .await?
+                .map(|d| matches!(d.kind, PubkyAppPostKind::Collection))
+                .unwrap_or(false);
+
             // Re-run idempotent ops to recover from partial failure (graph wrote, Redis didn't)
             let tag_label_slice = &[tag_label.to_string()];
             let idempotent_results = nexus_common::traced_join!(
@@ -262,6 +261,13 @@ async fn put_sync_post(
             Err(EventProcessorError::MissingDependency { dependency })
         }
         OperationOutcome::CreatedOrDeleted => {
+            // Look up target kind once per CreatedOrDeleted (see the matching
+            // comment in the `Updated` arm). Skipped in `MissingDependency`.
+            let target_is_collection = PostDetails::get_by_id(&author_id, post_id)
+                .await?
+                .map(|d| matches!(d.kind, PubkyAppPostKind::Collection))
+                .unwrap_or(false);
+
             // SAVE TO INDEXES
             let post_key_slice: &[&str] = &[&author_id, post_id];
             let tag_label_slice = &[tag_label.to_string()];

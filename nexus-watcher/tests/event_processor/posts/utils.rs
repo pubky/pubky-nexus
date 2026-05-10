@@ -11,8 +11,8 @@ use nexus_common::{
     },
 };
 use pubky_app_specs::{
-    post_uri_builder, PubkyAppCollectionContent, PubkyAppPost, PubkyAppPostEmbed,
-    PubkyAppPostKind, PubkyAppUser, PubkyId,
+    post_uri_builder, PubkyAppCollectionContent, PubkyAppPost, PubkyAppPostEmbed, PubkyAppPostKind,
+    PubkyAppUser, PubkyId,
 };
 
 pub async fn find_post_counts(user_id: &str, post_id: &str) -> PostCounts {
