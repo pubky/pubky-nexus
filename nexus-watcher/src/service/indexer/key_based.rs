@@ -188,38 +188,9 @@ impl KeyBasedEventProcessor {
             .await?;
 
         let user_id = user_pk.z32();
-        let mut latest_cursor: Option<u64> = None;
-
-        let result: Result<(), EventProcessorError> = async {
-            for stream_event in stream_events {
-                if *self.shutdown_rx.borrow() {
-                    debug!(hs_id = %hs_id, user = %user_id, "Shutdown detected; exiting event loop");
-                    break;
-                }
-
-                let cursor_id = stream_event.cursor.id();
-
-                match Event::from_stream_event(&stream_event, self.files_path.clone()) {
-                    Ok(Some(event)) => {
-                        // External homeservers must not index another user's URI.
-                        Self::validate_user_id(hs_id, &event, &user_id)?;
-
-                        self.handle_event(&event).await?;
-                    }
-                    Ok(None) => { /* resource not handled by Nexus, skip */ }
-                    Err(e) => {
-                        error!(%hs_id, %user_id, %cursor_id, "Skipping unparseable stream event: {e}");
-                    }
-                }
-
-                // Always move forward after a skip or success so one bad
-                // event can't block the stream. If handle_event fails with
-                // a infrastructure error, that event will be retried next run.
-                latest_cursor = Some(cursor_id);
-            }
-            Ok(())
-        }
-        .await;
+        let (latest_cursor, result) = self
+            .process_user_events(hs_id, &user_id, stream_events)
+            .await;
 
         if let Some(cursor_val) = latest_cursor {
             if let Err(write_err) = Self::write_user_cursor(&user_id, hs_id, cursor_val).await {
@@ -236,6 +207,53 @@ impl KeyBasedEventProcessor {
         }
 
         result
+    }
+
+    /// Processes already-fetched events for a single user stream.
+    ///
+    /// Returns the latest cursor that is safe to persist, plus the processing
+    /// result. Cursor advancement is intentionally skipped for `UserIdMismatch`
+    /// and handler errors so those events are fetched again on the next run.
+    async fn process_user_events(
+        &self,
+        hs_id: &str,
+        user_id: &str,
+        stream_events: Vec<StreamEvent>,
+    ) -> (Option<u64>, Result<(), EventProcessorError>) {
+        let mut latest_cursor: Option<u64> = None;
+
+        for stream_event in stream_events {
+            if *self.shutdown_rx.borrow() {
+                debug!(hs_id = %hs_id, user = %user_id, "Shutdown detected; exiting event loop");
+                break;
+            }
+
+            let cursor_id = stream_event.cursor.id();
+
+            match Event::from_stream_event(&stream_event, self.files_path.clone()) {
+                Ok(Some(event)) => {
+                    // External homeservers must not index another user's URI.
+                    if let Err(err) = Self::validate_user_id(hs_id, &event, user_id) {
+                        return (latest_cursor, Err(err));
+                    }
+
+                    if let Err(err) = self.handle_event(&event).await {
+                        return (latest_cursor, Err(err));
+                    }
+                }
+                Ok(None) => { /* resource not handled by Nexus, skip */ }
+                Err(e) => {
+                    error!(%hs_id, %user_id, %cursor_id, "Skipping unparseable stream event: {e}");
+                }
+            }
+
+            // Advance after successful handling, unsupported resources, or
+            // logged parse errors. UserIdMismatch and handler errors return
+            // before this point, so their cursor is not persisted.
+            latest_cursor = Some(cursor_id);
+        }
+
+        (latest_cursor, Ok(()))
     }
 
     fn validate_user_id(
