@@ -8,7 +8,7 @@ use pubky::Event as StreamEvent;
 use pubky_app_specs::Resource;
 use serde::{Deserialize, Serialize};
 use std::{fmt, path::PathBuf};
-use tracing::{debug, error};
+use tracing::{debug, error, warn};
 
 pub use errors::EventProcessorError;
 
