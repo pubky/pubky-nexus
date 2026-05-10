@@ -16,8 +16,8 @@ pub const USER_HS_CURSOR: [&str; 2] = ["Users", "Homeservers"];
 
 /// Builds the Redis key path for per-user homeserver cursor storage:
 /// `["Users", "Homeservers", <user_id>]`.
-pub fn user_hs_cursor_key(user_id: &str) -> Vec<&str> {
-    [&USER_HS_CURSOR[..], &[user_id]].concat()
+pub fn user_hs_cursor_key(user_id: &str) -> [&str; 3] {
+    [USER_HS_CURSOR[0], USER_HS_CURSOR[1], user_id]
 }
 
 #[async_trait]
