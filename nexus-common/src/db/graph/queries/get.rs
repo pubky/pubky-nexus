@@ -51,7 +51,8 @@ pub fn post_counts(author_id: &str, post_id: &str) -> Query {
                 replies: COUNT { (p)<-[:REPLIED]-() },
                 reposts: COUNT { (p)<-[:REPOSTED]-() }
             } AS counts,
-            EXISTS { (p)-[:REPLIED]->(:Post) } AS is_reply
+            EXISTS { (p)-[:REPLIED]->(:Post) } AS is_reply,
+            p.kind = 'collection' AS is_collection
     ",
     )
     .param("author_id", author_id)

@@ -110,19 +110,17 @@ pub async fn sync_put(
         // TODO: Use SCARD on a set for unique tag count to avoid race conditions in parallel processing
         async {
             // Create post counts index
-            // If new post (no existing counts) save a new PostCounts.
+            // If new post (no existing counts) save a new PostCounts. The cache
+            // write happens for every kind (read paths + increment paths depend
+            // on it); the engagement-sorted-set write inside `put_to_index` is
+            // gated by `is_collection` so collections stay out of Hot streams.
             if PostCounts::get_from_index(&author_id, &post_id)
                 .await?
                 .is_none()
             {
-                // PostCounts::put_to_index unconditionally writes the engagement
-                // sorted set entry; gate the call so collections stay out of Hot
-                // / engagement-ranked streams.
-                if !is_collection {
-                    PostCounts::default()
-                        .put_to_index(&author_id, &post_id, is_reply)
-                        .await?
-                }
+                PostCounts::default()
+                    .put_to_index(&author_id, &post_id, is_reply, is_collection)
+                    .await?
             }
             Ok::<(), EventProcessorError>(())
         },

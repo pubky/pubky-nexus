@@ -27,9 +27,9 @@ impl PostCounts {
             Some(counts) => Ok(Some(counts)),
             None => {
                 let graph_response = Self::get_from_graph(author_id, post_id).await?;
-                if let Some((post_counts, is_reply)) = graph_response {
+                if let Some((post_counts, is_reply, is_collection)) = graph_response {
                     post_counts
-                        .put_to_index(author_id, post_id, !is_reply)
+                        .put_to_index(author_id, post_id, !is_reply, is_collection)
                         .await?;
                     return Ok(Some(post_counts));
                 }
@@ -46,7 +46,7 @@ impl PostCounts {
     pub async fn get_from_graph(
         author_id: &str,
         post_id: &str,
-    ) -> GraphResult<Option<(PostCounts, bool)>> {
+    ) -> GraphResult<Option<(PostCounts, bool, bool)>> {
         let query = queries::get::post_counts(author_id, post_id);
         let maybe_row = fetch_row_from_graph(query).await?;
 
@@ -55,8 +55,9 @@ impl PostCounts {
             if post_exists {
                 let counts: PostCounts = row.get("counts")?;
                 let is_reply: bool = row.get("is_reply").unwrap_or(false);
+                let is_collection: bool = row.get("is_collection").unwrap_or(false);
 
-                return Ok(Some((counts, is_reply)));
+                return Ok(Some((counts, is_reply, is_collection)));
             }
         }
         Ok(None)
@@ -67,12 +68,19 @@ impl PostCounts {
         author_id: &str,
         post_id: &str,
         is_reply: bool,
+        is_collection: bool,
     ) -> RedisResult<()> {
+        // Always cache the PostCounts JSON: read paths (/v0/post/...) and the
+        // increment paths (tag/reply/repost handlers) both depend on this row
+        // existing for every post regardless of kind.
         self.put_index_json(&[author_id, post_id], None, None)
             .await?;
 
-        // avoid indexing replies into global feeds
-        if !is_reply {
+        // Skip the global engagement sorted set for posts that should not surface
+        // in Hot / engagement-ranked streams: replies (already excluded
+        // pre-existing) and collections (added in v0.5.0 — collections appear
+        // only via explicit `?kind=collection`).
+        if !is_reply && !is_collection {
             PostStream::add_to_engagement_sorted_set(self, author_id, post_id).await?;
         }
         Ok(())
@@ -113,7 +121,11 @@ impl PostCounts {
 
     pub async fn reindex(author_id: &str, post_id: &str) -> ModelResult<()> {
         match Self::get_from_graph(author_id, post_id).await? {
-            Some((counts, is_reply)) => counts.put_to_index(author_id, post_id, is_reply).await?,
+            Some((counts, is_reply, is_collection)) => {
+                counts
+                    .put_to_index(author_id, post_id, is_reply, is_collection)
+                    .await?
+            }
             None => tracing::error!(
                 "{}:{} Could not found post counts in the graph",
                 author_id,
