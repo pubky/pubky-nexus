@@ -105,33 +105,3 @@ async fn test_homeserver_put_post_event() -> Result<()> {
 
     Ok(())
 }
-
-async fn reindex_and_ensure_cache_and_graph_unchanged(
-    test: &mut WatcherTest,
-    post_details_from_graph: &PostDetails,
-    post_detail_from_cache: &PostDetails,
-    user_id: &str,
-    post_id: &str,
-) -> Result<()> {
-    // Wait for a few ms, so that re-indexing determines a different indexed_at (epoch timestamp in ms)
-    tokio::time::sleep(Duration::from_millis(10)).await;
-
-    // Reset the cursor, to ensure the events are re-indexed
-    let homeserver = Homeserver::new(test.homeserver_id.clone());
-    homeserver.put_to_graph().await.unwrap();
-    homeserver.put_to_index().await.unwrap();
-    test.ensure_event_processing_complete().await?;
-
-    // Check that nothing changed in the graph (DB)
-    let post_details_2 = find_post_details(user_id, post_id).await.unwrap();
-    assert_eq!(post_details_from_graph, &post_details_2);
-
-    // Check that nothing changed in the index (cache)
-    let post_detail_cache_2: PostDetails = PostDetails::get_from_index(user_id, post_id)
-        .await
-        .unwrap()
-        .expect("The new post detail was not served from Nexus cache");
-    assert_eq!(post_detail_from_cache, &post_detail_cache_2);
-
-    Ok(())
-}

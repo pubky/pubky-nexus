@@ -260,7 +260,7 @@ mod tests {
 
     #[tokio_shared_rt::test(shared)]
     async fn test_cursor_forwards_accepted() -> Result<(), DynError> {
-        StackManager::setup("unit-hs-test", &StackConfig::default()).await?;
+        StackManager::setup(&StackConfig::default()).await?;
 
         let keys = Keypair::random();
         let id = PubkyId::try_from(&keys.public_key().to_z32())?;
@@ -294,7 +294,7 @@ mod tests {
 
     #[tokio_shared_rt::test(shared)]
     async fn test_cursor_backwards_rejected_by_put_to_index() -> Result<(), DynError> {
-        StackManager::setup("unit-hs-test", &StackConfig::default()).await?;
+        StackManager::setup(&StackConfig::default()).await?;
 
         let keys = Keypair::random();
         let id = PubkyId::try_from(&keys.public_key().to_z32())?;
@@ -331,7 +331,7 @@ mod tests {
 
     #[tokio_shared_rt::test(shared)]
     async fn test_cursor_backwards_rejected_by_try_from_cursor() -> Result<(), DynError> {
-        StackManager::setup("unit-hs-test", &StackConfig::default()).await?;
+        StackManager::setup(&StackConfig::default()).await?;
 
         let keys = Keypair::random();
         let id = PubkyId::try_from(&keys.public_key().to_z32())?;
@@ -365,7 +365,7 @@ mod tests {
 
     #[tokio_shared_rt::test(shared)]
     async fn test_cursor_equal_value_accepted() -> Result<(), DynError> {
-        StackManager::setup("unit-hs-test", &StackConfig::default()).await?;
+        StackManager::setup(&StackConfig::default()).await?;
 
         let keys = Keypair::random();
         let id = PubkyId::try_from(&keys.public_key().to_z32())?;
@@ -393,29 +393,32 @@ mod tests {
 
     #[test]
     fn test_deserialize_cursor_from_string() {
+        // PubkyId now validates the Ed25519 point on deserialize, so use a real key.
+        let id = Keypair::random().public_key().to_z32();
+
         // Simulates old data format where cursor was stored as a string
-        let json = r#"{"id":"o1gg96ewuojmopc9qcp6j3kk5rn1b81ks6hisk7jitpptgeo3dty","cursor":"0000000000000"}"#;
-        let hs: Homeserver = serde_json::from_str(json).expect("Failed to deserialize");
+        let json = format!(r#"{{"id":"{id}","cursor":"0000000000000"}}"#);
+        let hs: Homeserver = serde_json::from_str(&json).expect("Failed to deserialize");
         assert_eq!(hs.cursor, 0);
 
         // Also test with a non-zero string cursor
-        let json =
-            r#"{"id":"o1gg96ewuojmopc9qcp6j3kk5rn1b81ks6hisk7jitpptgeo3dty","cursor":"12345"}"#;
-        let hs: Homeserver = serde_json::from_str(json).expect("Failed to deserialize");
+        let json = format!(r#"{{"id":"{id}","cursor":"12345"}}"#);
+        let hs: Homeserver = serde_json::from_str(&json).expect("Failed to deserialize");
         assert_eq!(hs.cursor, 12345);
     }
 
     #[test]
     fn test_deserialize_cursor_from_number() {
+        let id = Keypair::random().public_key().to_z32();
+
         // Current format where cursor is stored as a number
-        let json = r#"{"id":"o1gg96ewuojmopc9qcp6j3kk5rn1b81ks6hisk7jitpptgeo3dty","cursor":0}"#;
-        let hs: Homeserver = serde_json::from_str(json).expect("Failed to deserialize");
+        let json = format!(r#"{{"id":"{id}","cursor":0}}"#);
+        let hs: Homeserver = serde_json::from_str(&json).expect("Failed to deserialize");
         assert_eq!(hs.cursor, 0);
 
         // Also test with a non-zero numeric cursor
-        let json =
-            r#"{"id":"o1gg96ewuojmopc9qcp6j3kk5rn1b81ks6hisk7jitpptgeo3dty","cursor":98765}"#;
-        let hs: Homeserver = serde_json::from_str(json).expect("Failed to deserialize");
+        let json = format!(r#"{{"id":"{id}","cursor":98765}}"#);
+        let hs: Homeserver = serde_json::from_str(&json).expect("Failed to deserialize");
         assert_eq!(hs.cursor, 98765);
     }
 }
