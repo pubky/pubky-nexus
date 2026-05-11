@@ -10,6 +10,7 @@ use pubky_app_specs::{
     traits::{HasIdPath, HashId},
     PubkyAppBlob, PubkyAppFile, PubkyAppUser, PubkyId,
 };
+use std::path::Path;
 
 #[tokio_shared_rt::test(shared)]
 async fn test_delete_pubkyapp_file() -> Result<()> {
@@ -49,10 +50,10 @@ async fn test_delete_pubkyapp_file() -> Result<()> {
     let (file_id, file_path) = test.create_file(&user_kp, &file).await?;
 
     let result_file = assert_file_details(&user_id, &file_id, &blob_absolute_url, &file).await;
+    let file_path_on_disk = result_file.urls.main.clone();
 
-    let blob_static_path = test.temp_dir.path().join(&result_file.urls.main);
     assert!(
-        blob_static_path.exists(),
+        Path::new(&file_path_on_disk).exists(),
         "File have to exist after PUT event"
     );
 
@@ -78,14 +79,8 @@ async fn test_delete_pubkyapp_file() -> Result<()> {
     assert!(result_file.is_none());
 
     // Assert: Ensure it's deleted
-    let blob_static_path = test
-        .temp_dir
-        .path()
-        .join(&user_id)
-        .join(&file_id)
-        .join("main");
     assert!(
-        !blob_static_path.exists(),
+        !Path::new(&file_path_on_disk).exists(),
         "File cannot exist after DEL event"
     );
 
