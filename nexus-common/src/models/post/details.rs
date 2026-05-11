@@ -1,8 +1,7 @@
 use super::{PostRelationships, PostStream};
 use crate::db::kv::RedisResult;
 use crate::db::{
-    exec_single_row, execute_graph_operation, fetch_row_from_graph, queries, GraphResult,
-    OperationOutcome, RedisOps,
+    execute_graph_operation, fetch_row_from_graph, queries, GraphResult, OperationOutcome, RedisOps,
 };
 use crate::models::error::ModelResult;
 use chrono::Utc;
@@ -12,6 +11,7 @@ use utoipa::ToSchema;
 
 /// Represents post data with content, bio, image, links, and status.
 #[derive(Serialize, Deserialize, ToSchema, Default, Debug, PartialEq)]
+#[cfg_attr(test, derive(Clone))]
 // NOTE: Might not be necessary the default values for serde because before PUT a PostDetails node
 // we do sanity check
 pub struct PostDetails {
@@ -137,22 +137,24 @@ impl PostDetails {
         execute_graph_operation(query).await
     }
 
-    pub async fn delete(
+    /// Removes the post details JSON entry and its sorted-set memberships from Redis.
+    /// Idempotent: every operation is a JSON.DEL or ZREM, safe to retry.
+    /// Does NOT touch the graph — callers must run `delete_post` separately to
+    /// preserve the graph-last invariant.
+    pub async fn delete_from_index(
         author_id: &str,
         post_id: &str,
-        parent_post_key_wrapper: Option<[String; 2]>,
-    ) -> ModelResult<()> {
-        // Delete user_details on Redis
+        parent_post_key_wrapper: Option<(String, String)>,
+    ) -> RedisResult<()> {
+        // Delete post details on Redis
         Self::remove_from_index_multiple_json(&[&[author_id, post_id]]).await?;
-        // Delete post graph node
-        exec_single_row(queries::del::delete_post(author_id, post_id)).await?;
         // The replies are not indexed in the global feeds
         match parent_post_key_wrapper {
             None => {
                 PostStream::remove_from_timeline_sorted_set(author_id, post_id).await?;
                 PostStream::remove_from_per_user_sorted_set(author_id, post_id).await?;
             }
-            Some([parent_author_id, parent_post_id]) => {
+            Some((parent_author_id, parent_post_id)) => {
                 PostStream::remove_from_post_reply_sorted_set(
                     &[&parent_author_id, &parent_post_id],
                     author_id,
@@ -163,5 +165,62 @@ impl PostDetails {
             }
         }
         Ok(())
+    }
+
+    /// Determines whether or not a given [PostDetails] is different than (e.g. may be an edit of) this post.
+    pub fn is_different_than(&self, other: &PostDetails) -> bool {
+        self.content != other.content || self.attachments != other.attachments
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pubky_app_specs::PubkyAppPostKind;
+
+    #[tokio_shared_rt::test(shared)]
+    async fn test_is_different_than() {
+        // Create a base PostDetails
+        let base_post = PostDetails {
+            content: "Original content".into(),
+            id: "post1".into(),
+            indexed_at: 123456789,
+            author: "author1".into(),
+            kind: PubkyAppPostKind::Short,
+            uri: "uri1".into(),
+            attachments: Some(vec!["image1.jpg".into(), "image2.jpg".into()]),
+        };
+
+        // Test with same content and attachments
+        let same_post = base_post.clone();
+        assert!(!base_post.is_different_than(&same_post));
+
+        // Test with same attachments but different order
+        let different_order_attachments_post = PostDetails {
+            attachments: Some(vec!["image2.jpg".into(), "image1.jpg".into()]),
+            ..base_post.clone()
+        };
+        assert!(base_post.is_different_than(&different_order_attachments_post));
+
+        // Test with different content
+        let different_content_post = PostDetails {
+            content: "Updated content".to_string(),
+            ..base_post.clone()
+        };
+        assert!(base_post.is_different_than(&different_content_post));
+
+        // Test with different attachments
+        let different_attachments_post = PostDetails {
+            attachments: Some(vec!["image3.jpg".to_string()]),
+            ..base_post.clone()
+        };
+        assert!(base_post.is_different_than(&different_attachments_post));
+
+        // Test with no attachments
+        let no_attachments_post = PostDetails {
+            attachments: None,
+            ..base_post.clone()
+        };
+        assert!(base_post.is_different_than(&no_attachments_post));
     }
 }

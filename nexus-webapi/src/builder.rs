@@ -48,13 +48,6 @@ impl NexusApiBuilder {
         self
     }
 
-    /// Sets the service name for observability (tracing, logging, monitoring)
-    pub fn name(mut self, name: String) -> Self {
-        self.api_context.api_config.name = name;
-
-        self
-    }
-
     /// Configures the logging level for the service, determining verbosity and log output
     pub fn log_level(mut self, log_level: Level) -> Self {
         self.api_context.api_config.stack.log_level = log_level;
@@ -71,7 +64,7 @@ impl NexusApiBuilder {
 
     /// Sets the OpenTelemetry endpoint for tracing and monitoring
     pub fn otlp_endpoint(mut self, otlp_endpoint: Option<String>) -> Self {
-        self.api_context.api_config.stack.otlp_endpoint = otlp_endpoint;
+        self.api_context.api_config.stack.otlp.endpoint = otlp_endpoint;
 
         self
     }
@@ -83,16 +76,10 @@ impl NexusApiBuilder {
         self
     }
 
-    /// Opens ddbb connections and initialises tracing layer (if provided in config)
-    pub async fn init_stack(&self) -> Result<(), DynError> {
-        StackManager::setup(
-            &self.api_context.api_config.name,
-            &self.api_context.api_config.stack,
-        )
-        .await
-    }
-
     /// Creates and starts a [NexusApi] instance.
+    ///
+    /// Calls [`StackManager::setup`] to initialize the shared infrastructure (logging, metrics, databases).
+    /// If the stack was already initialized (e.g. by another builder), verifies the config matches.
     ///
     /// This method is blocking and only returns after the shutdown signal is received and the [NexusApi] shut down.
     ///
@@ -100,11 +87,8 @@ impl NexusApiBuilder {
     ///
     /// - `shutdown_rx`: optional shutdown signal. If none is provided, a default one will be created, listening for Ctrl-C.
     pub async fn start(self, shutdown_rx: Option<Receiver<bool>>) -> Result<NexusApi, DynError> {
+        StackManager::setup(&self.api_context.api_config.stack).await?;
         let mut shutdown_rx = shutdown_rx.unwrap_or_else(create_shutdown_rx);
-
-        self.init_stack()
-            .await
-            .inspect_err(|e| error!("Failed to initialize stack: {e}"))?;
 
         let nexus_api = NexusApi::start(self.api_context, self.enable_key_republisher)
             .await

@@ -1,3 +1,4 @@
+pub mod backoff;
 mod constants;
 mod processor;
 mod processor_runner;
@@ -78,6 +79,10 @@ impl NexusWatcher {
 
         let mut interval = tokio::time::interval(Duration::from_millis(config.watcher_sleep));
         let ev_processor_runner = EventProcessorRunner::from_config(&config, shutdown_rx.clone());
+        let mut backoff = crate::service::backoff::HomeserverBackoff::new(
+            config.initial_backoff_secs,
+            config.max_backoff_secs,
+        );
 
         loop {
             tokio::select! {
@@ -88,7 +93,7 @@ impl NexusWatcher {
                 _ = interval.tick() => {
                     debug!("Indexing homeservers…");
                     _ = ev_processor_runner
-                        .run_all()
+                        .run_all(&mut backoff)
                         .await
                         .inspect_err(|e| error!("Failed to start event processors run: {e}"));
                 }

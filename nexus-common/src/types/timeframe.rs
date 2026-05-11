@@ -6,6 +6,7 @@ use utoipa::ToSchema;
 #[serde(rename_all = "snake_case")]
 pub enum Timeframe {
     Today,
+    ThisWeek,
     ThisMonth,
     AllTime,
 }
@@ -14,6 +15,7 @@ impl Display for Timeframe {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Timeframe::Today => write!(f, "Today"),
+            Timeframe::ThisWeek => write!(f, "ThisWeek"),
             Timeframe::ThisMonth => write!(f, "ThisMonth"),
             Timeframe::AllTime => write!(f, "AllTime"),
         }
@@ -25,6 +27,7 @@ impl Timeframe {
         let now = chrono::Utc::now();
         let start = match self {
             Timeframe::Today => (now - chrono::Duration::hours(24)).timestamp_millis(),
+            Timeframe::ThisWeek => (now - chrono::Duration::days(7)).timestamp_millis(),
             Timeframe::ThisMonth => (now - chrono::Duration::days(30)).timestamp_millis(),
             Timeframe::AllTime => 0,
         };
@@ -34,6 +37,7 @@ impl Timeframe {
     pub fn to_cache_period(&self) -> i64 {
         match self {
             Timeframe::Today => 60 * 60,
+            Timeframe::ThisWeek => 60 * 60 * 6,
             Timeframe::ThisMonth => 60 * 60 * 24,
             Timeframe::AllTime => 60 * 60 * 24,
         }

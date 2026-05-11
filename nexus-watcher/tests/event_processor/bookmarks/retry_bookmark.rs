@@ -8,6 +8,7 @@ use pubky::Keypair;
 use pubky_app_specs::{
     bookmark_uri_builder, post_uri_builder, traits::HashId, PubkyAppBookmark, PubkyAppUser,
 };
+use tokio::time;
 
 /// The user profile is stored in the homeserver. Missing the post to connect the bookmark
 #[tokio_shared_rt::test(shared)]
@@ -69,7 +70,7 @@ async fn test_homeserver_bookmark_cannot_index() -> Result<()> {
         _ => panic!("The error type has to be MissingDependency type"),
     };
 
-    // DEL bookmark
+    // DEL bookmark — bookmark was never indexed, so DEL returns Ok (no-op)
     test.del(&user_kp, &bookmark_path).await?;
 
     let del_index_key = format!(
@@ -78,21 +79,13 @@ async fn test_homeserver_bookmark_cannot_index() -> Result<()> {
         RetryEvent::generate_index_key(&bookmark_absolute_url).unwrap()
     );
 
-    assert_eventually_exists(&del_index_key).await;
-
-    let timestamp = RetryEvent::check_uri(&del_index_key).await.unwrap();
-    assert!(timestamp.is_some());
-
+    // DEL should succeed silently — no retry event created
+    time::sleep(std::time::Duration::from_millis(500)).await;
     let event_retry = RetryEvent::get_from_index(&del_index_key).await.unwrap();
-    assert!(event_retry.is_some());
-
-    let event_state = event_retry.unwrap();
-    assert_eq!(event_state.retry_count, 0);
-
-    match event_state.error_type {
-        EventProcessorError::SkipIndexing => (),
-        _ => panic!("The error type has to be SkipIndexing type"),
-    };
+    assert!(
+        event_retry.is_none(),
+        "DEL of non-existent bookmark should not create a retry event"
+    );
 
     Ok(())
 }

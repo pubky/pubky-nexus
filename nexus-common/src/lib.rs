@@ -15,6 +15,7 @@
 
 mod config;
 pub mod db;
+mod macros;
 pub mod media;
 pub mod models;
 mod stack;

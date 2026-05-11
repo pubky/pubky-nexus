@@ -3,6 +3,7 @@ use crate::service::utils::{
     MockEventProcessorRunner,
 };
 use anyhow::Result;
+use nexus_watcher::service::backoff::HomeserverBackoff;
 use nexus_watcher::service::TEventProcessorRunner;
 use std::time::Duration;
 
@@ -38,7 +39,11 @@ async fn test_multiple_homeserver_event_processing() -> Result<()> {
 
     let runner = MockEventProcessorRunner::new(event_processor_list, 4, shutdown_rx);
 
-    let stats = runner.run_all().await.unwrap().0;
+    let stats = runner
+        .run_all(&mut HomeserverBackoff::default())
+        .await
+        .unwrap()
+        .0;
     assert_eq!(stats.count_ok(), 3);
     assert_eq!(stats.count_error(), 1);
     assert_eq!(stats.count_panic(), 0);
@@ -69,7 +74,11 @@ async fn test_multi_hs_event_processing_with_homeserver_limit() -> Result<()> {
     assert_eq!(event_processor_list.len(), 5); // Ensure 5 HSs are available
     let hs_limit = 3; // Configure a monitored_homeservers_limit of 3
     let runner = MockEventProcessorRunner::new(event_processor_list, hs_limit, shutdown_rx);
-    let stats = runner.run_all().await.unwrap().0;
+    let stats = runner
+        .run_all(&mut HomeserverBackoff::default())
+        .await
+        .unwrap()
+        .0;
 
     assert_eq!(stats.count_ok(), 3); // 3 successful ones, due to the limit (5 HSs were available)
     assert_eq!(stats.count_timeout(), 0);
@@ -106,7 +115,11 @@ async fn test_multi_hs_event_processing_with_homeserver_limit_one() -> Result<()
     assert_eq!(hs_list.len(), 1);
     assert_eq!(hs_list.first().unwrap(), &runner_one.default_homeserver());
 
-    let stats_one = runner_one.run_all().await.unwrap().0;
+    let stats_one = runner_one
+        .run_all(&mut HomeserverBackoff::default())
+        .await
+        .unwrap()
+        .0;
     assert_eq!(stats_one.count_ok(), 1); // 1 successful, due to the limit (5 HSs were available)
     assert_eq!(stats_one.count_timeout(), 0);
     assert_eq!(stats_one.count_error(), 0);
@@ -137,7 +150,11 @@ async fn test_multi_hs_event_processing_with_timeout() -> Result<()> {
 
     let runner = MockEventProcessorRunner::new(event_processor_list, 3, shutdown_rx);
 
-    let stats = runner.run_all().await.unwrap().0;
+    let stats = runner
+        .run_all(&mut HomeserverBackoff::default())
+        .await
+        .unwrap()
+        .0;
     assert_eq!(stats.count_ok(), 1); // 1 success
     assert_eq!(stats.count_timeout(), 2); // 2 failures due to timeout
     assert_eq!(stats.count_error(), 0);
@@ -180,7 +197,11 @@ async fn test_multi_hs_event_processing_with_panic() -> Result<()> {
 
     let runner = MockEventProcessorRunner::new(event_processor_list, 5, shutdown_rx);
 
-    let stats = runner.run_all().await.unwrap().0;
+    let stats = runner
+        .run_all(&mut HomeserverBackoff::default())
+        .await
+        .unwrap()
+        .0;
     assert_eq!(stats.count_ok(), 3); // 3 expected to succeed
     assert_eq!(stats.count_timeout(), 0);
     assert_eq!(stats.count_error(), 0);

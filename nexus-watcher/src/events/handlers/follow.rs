@@ -10,6 +10,7 @@ use nexus_common::models::user::UserCounts;
 use pubky_app_specs::PubkyId;
 use tracing::debug;
 
+#[tracing::instrument(name = "follow.put", skip_all, fields(follower_id = %follower_id, followee_id = %followee_id))]
 pub async fn sync_put(
     follower_id: PubkyId,
     followee_id: PubkyId,
@@ -18,10 +19,24 @@ pub async fn sync_put(
     // SAVE TO GRAPH
     // (follower_id)-[:FOLLOWS]->(followee_id)
     match Followers::put_to_graph(&follower_id, &followee_id).await? {
-        // Do not duplicate the follow relationship
-        OperationOutcome::Updated => return Ok(()),
+        OperationOutcome::Updated => {
+            // Retry / duplicate: graph edge already exists.
+            // Re-run idempotent index writes (SADD is a no-op for existing members)
+            // to recover from partial failures where graph wrote but indexes didn't.
+            // Skip counters and notifications (prefer 0 over N).
+            let followers = Followers(vec![follower_id.to_string()]);
+            let following = Following(vec![followee_id.to_string()]);
+            let indexing_results = nexus_common::traced_join!(
+                tracing::info_span!("index.write");
+                followers.put_to_index(&followee_id),
+                following.put_to_index(&follower_id)
+            );
+            indexing_results.0?;
+            indexing_results.1?;
+            return Ok(());
+        }
         OperationOutcome::MissingDependency => {
-            if let Err(e) = Homeserver::maybe_ingest_for_user(followee_id.as_str()).await {
+            if let Err(e) = Homeserver::maybe_ingest_for_user(&followee_id).await {
                 tracing::error!("Failed to ingest homeserver: {e}");
             }
 
@@ -39,7 +54,8 @@ pub async fn sync_put(
             let following = Following(vec![followee_id.to_string()]);
 
             // SAVE TO INDEX
-            let indexing_results = tokio::join!(
+            let indexing_results = nexus_common::traced_join!(
+                tracing::info_span!("index.write");
                 // Add new follower to the followee index
                 followers.put_to_index(&followee_id),
                 // Add in the Following:follower_id index a followee user
@@ -64,6 +80,7 @@ pub async fn sync_put(
     Ok(())
 }
 
+#[tracing::instrument(name = "follow.del", skip_all, fields(follower_id = %follower_id, followee_id = %followee_id))]
 pub async fn del(follower_id: PubkyId, followee_id: PubkyId) -> Result<(), EventProcessorError> {
     debug!("Deleting follow: {} -> {}", follower_id, followee_id);
     // Maybe we could do it here but lets follow the naming convention
@@ -74,40 +91,41 @@ pub async fn sync_del(
     follower_id: PubkyId,
     followee_id: PubkyId,
 ) -> Result<(), EventProcessorError> {
-    match Followers::del_from_graph(&follower_id, &followee_id).await? {
-        // Both users exists but they do not have that relationship
-        OperationOutcome::Updated => Ok(()),
-        OperationOutcome::MissingDependency => Err(EventProcessorError::SkipIndexing),
-        OperationOutcome::CreatedOrDeleted => {
-            // Check if the users are friends. Is this a break? :(
-            let were_friends = Friends::check(&follower_id, &followee_id).await?;
+    // Check friendship while Redis follow sets are still populated
+    let were_friends = Friends::check(&follower_id, &followee_id).await?;
 
-            // REMOVE FROM INDEX
-            let followers = Followers(vec![follower_id.to_string()]);
-            let following = Following(vec![followee_id.to_string()]);
+    // Guard counters/notifications: only run if still in Redis index (first attempt).
+    // On retry (Redis already cleaned, graph edge still present), skip non-idempotent ops.
+    let still_indexed = Followers::check_in_index(&followee_id, &follower_id).await?;
 
-            let indexing_results = tokio::join!(
-                // Remove a follower to the followee index
-                followers.del_from_index(&followee_id),
-                // Remove from the Following:follower_id index a followee user
-                following.del_from_index(&follower_id),
-                update_follow_counts(
-                    &follower_id,
-                    &followee_id,
-                    JsonAction::Decrement(1),
-                    were_friends,
-                ),
-                // Notify the followee
-                Notification::lost_follow(&follower_id, &followee_id, were_friends)
-            );
-            indexing_results.0?;
-            indexing_results.1?;
-            indexing_results.2?;
-            indexing_results.3?;
+    let followers = Followers(vec![follower_id.to_string()]);
+    let following = Following(vec![followee_id.to_string()]);
 
-            Ok(())
-        }
+    // Redis cleanup first — SREM is idempotent
+    let indexing_results = nexus_common::traced_join!(
+        tracing::info_span!("index.delete");
+        followers.del_from_index(&followee_id),
+        following.del_from_index(&follower_id)
+    );
+    indexing_results.0?;
+    indexing_results.1?;
+
+    // Only after indexes are confirmed clean: non-idempotent ops
+    if still_indexed {
+        update_follow_counts(
+            &follower_id,
+            &followee_id,
+            JsonAction::Decrement(1),
+            were_friends,
+        )
+        .await?;
+        Notification::lost_follow(&follower_id, &followee_id, were_friends).await?;
     }
+
+    // Graph deletion LAST — on retry, we re-enter here with indexes already clean.
+    // MissingDependency means the resource is already gone — deletion is complete.
+    Followers::del_from_graph(&follower_id, &followee_id).await?;
+    Ok(())
 }
 
 async fn update_follow_counts(

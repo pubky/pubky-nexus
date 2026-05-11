@@ -3,6 +3,7 @@ use crate::service::utils::{
     MockEventProcessorRunner,
 };
 use anyhow::Result;
+use nexus_watcher::service::backoff::HomeserverBackoff;
 use nexus_watcher::service::TEventProcessorRunner;
 use std::time::Duration;
 use tokio::time::sleep;
@@ -37,7 +38,11 @@ async fn test_shutdown_signal() -> Result<()> {
         }
     });
 
-    let stats = runner.run_all().await.unwrap().0;
+    let stats = runner
+        .run_all(&mut HomeserverBackoff::default())
+        .await
+        .unwrap()
+        .0;
 
     // We created 3 HSs, each with different execution durations (0s, 2s, 4s)
     // We triggered the shutdown signal 1s after start

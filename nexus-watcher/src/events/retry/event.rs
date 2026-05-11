@@ -72,6 +72,7 @@ impl RetryEvent {
     /// and also stores the event details in a separate JSON index for retrieval.
     /// # Arguments
     /// * `event_line` - A `String` representing the event line to be indexed.
+    #[tracing::instrument(name = "retry.index.write", skip_all)]
     pub async fn put_to_index(&self, event_line: String) -> RedisResult<()> {
         Self::put_index_sorted_set(
             &RETRY_MANAGER_EVENTS_INDEX,

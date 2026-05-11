@@ -1,5 +1,7 @@
 use anyhow::Result;
 use nexus_common::db::graph::Query;
+use nexus_common::models::notification::Notification;
+use nexus_common::types::Pagination;
 use nexus_common::{
     db::{fetch_key_from_graph, RedisOps},
     models::post::{
@@ -8,7 +10,9 @@ use nexus_common::{
         POST_TOTAL_ENGAGEMENT_KEY_PARTS,
     },
 };
-use pubky_app_specs::post_uri_builder;
+use pubky_app_specs::{
+    post_uri_builder, PubkyAppPost, PubkyAppPostEmbed, PubkyAppPostKind, PubkyAppUser, PubkyId,
+};
 
 pub async fn find_post_counts(user_id: &str, post_id: &str) -> PostCounts {
     PostCounts::get_from_index(user_id, post_id)
@@ -142,6 +146,65 @@ pub fn post_repost_relationships(author_id: &str, post_id: &str) -> Query {
     )
     .param("author_id", author_id)
     .param("post_id", post_id)
+}
+
+// ---------------------------------------------------------------------------
+// Test fixture builders
+// ---------------------------------------------------------------------------
+
+/// Build a `Short` root post with the given content.
+pub fn short_post(content: impl Into<String>) -> PubkyAppPost {
+    PubkyAppPost {
+        content: content.into(),
+        kind: PubkyAppPostKind::Short,
+        parent: None,
+        embed: None,
+        attachments: None,
+    }
+}
+
+/// Build a `Short` reply post with the given content and parent URI.
+pub fn short_reply(content: impl Into<String>, parent_uri: String) -> PubkyAppPost {
+    PubkyAppPost {
+        parent: Some(parent_uri),
+        ..short_post(content)
+    }
+}
+
+/// Build a `Short` repost (post with an embed pointing at the parent URI).
+pub fn short_repost(content: impl Into<String>, parent_uri: String) -> PubkyAppPost {
+    PubkyAppPost {
+        embed: Some(PubkyAppPostEmbed {
+            kind: PubkyAppPostKind::Short,
+            uri: parent_uri,
+        }),
+        ..short_post(content)
+    }
+}
+
+/// Build a `PubkyAppUser` for tests with the given display name and bio.
+pub fn test_user(name: impl Into<String>, bio: impl Into<String>) -> PubkyAppUser {
+    PubkyAppUser {
+        bio: Some(bio.into()),
+        image: None,
+        links: None,
+        name: name.into(),
+        status: None,
+    }
+}
+
+/// Convert a user-id string into a `PubkyId`, surfacing the parse error
+/// through `anyhow`.
+pub fn pubky_id(id: &str) -> Result<PubkyId> {
+    PubkyId::try_from(id).map_err(anyhow::Error::msg)
+}
+
+/// Assert that `user_id` currently has exactly `expected` notifications.
+pub async fn assert_notification_count(user_id: &str, expected: usize, ctx: &str) {
+    let notifs = Notification::get_by_id(user_id, Pagination::default())
+        .await
+        .unwrap();
+    assert_eq!(notifs.len(), expected, "{ctx}");
 }
 
 // Retrieve a post by id

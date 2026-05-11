@@ -14,6 +14,34 @@ pub enum EventType {
     Del,
 }
 
+/// Result of parsing an event line from a homeserver.
+#[allow(clippy::large_enum_variant)]
+#[derive(Debug)]
+pub enum ParseResult {
+    /// Successfully parsed into a known, actionable event.
+    Parsed(Event),
+    /// Known resource type that Nexus does not handle (e.g. LastRead, Feed, Blob).
+    Skipped,
+    /// URI was not recognised by pubky-app-specs. This may be an app-specific
+    /// path (e.g. `/pub/mapky/tags/...`) or a genuinely malformed URI.
+    /// Callers should attempt fallback handling and log `reason` if no handler claims it.
+    UnrecognizedUri {
+        event_type: EventType,
+        uri: String,
+        reason: String,
+    },
+}
+
+impl ParseResult {
+    fn unrecognized_uri(event_type: EventType, uri: String, reason: String) -> Self {
+        Self::UnrecognizedUri {
+            event_type,
+            uri,
+            reason,
+        }
+    }
+}
+
 impl fmt::Display for EventType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let upper_case_str = match self {
@@ -26,10 +54,19 @@ impl fmt::Display for EventType {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Event {
+    /// Pubky resource URI from the homeserver event line.
     pub uri: String,
+
+    /// Operation represented by the event, used to dispatch to PUT or DEL handlers.
     pub event_type: EventType,
+
+    /// Parsed representation of [`Self::uri`].
     pub parsed_uri: ParsedUri,
+
+    /// Local files directory on Nexus used for file-backed events.
     pub files_path: PathBuf,
+
+    /// Original event line as received from the homeserver.
     event_line: String,
 }
 
@@ -48,7 +85,7 @@ impl Event {
     pub fn parse_event(
         line: &str,
         files_path: PathBuf,
-    ) -> Result<Option<Self>, EventProcessorError> {
+    ) -> Result<ParseResult, EventProcessorError> {
         debug!("New event: {}", line);
         let parts: Vec<&str> = line.split(' ').collect();
         if parts.len() != 2 {
@@ -67,9 +104,13 @@ impl Event {
 
         // Validate and parse the URI using pubky-app-specs
         let uri = parts[1].to_string();
-        let parsed_uri = ParsedUri::try_from(uri.as_str()).map_err(|e| {
-            EventProcessorError::InvalidEventLine(format!("Cannot parse event URI: {e}"))
-        })?;
+        let parsed_uri = match ParsedUri::try_from(uri.as_str()) {
+            Ok(parsed) => parsed,
+            Err(e) => {
+                let reason = e.to_string();
+                return Ok(ParseResult::unrecognized_uri(event_type, uri, reason));
+            }
+        };
 
         match parsed_uri.resource {
             // Unknown resource
@@ -79,13 +120,15 @@ impl Event {
                 )))
             }
             // Known resources not handled by Nexus
-            Resource::LastRead | Resource::Feed(_) | Resource::Blob(_) => return Ok(None),
+            Resource::LastRead | Resource::Feed(_) | Resource::Blob(_) => {
+                return Ok(ParseResult::Skipped)
+            }
             _ => (),
         };
 
         let event_line = line.to_string();
 
-        Ok(Some(Event {
+        Ok(ParseResult::Parsed(Event {
             uri,
             event_type,
             parsed_uri,
@@ -95,16 +138,20 @@ impl Event {
     }
 
     /// Stores event line in Redis as part of the events list.
+    #[tracing::instrument(name = "event.index.write", skip_all)]
     pub async fn store_event(&self) -> RedisResult<()> {
         self.put_index_list(&["Events"]).await
     }
 
     pub async fn get_events_from_redis(
-        cursor: Option<usize>,
+        cursor: Option<u64>,
         limit: usize,
-    ) -> RedisResult<(Vec<String>, usize)> {
+    ) -> RedisResult<(Vec<String>, u64)> {
         let start = cursor.unwrap_or(0);
-        let result = Event::try_from_index_list(&["Events"], Some(start), Some(limit)).await;
+        // Clamp to usize::MAX: on 32-bit targets u64 can exceed usize; the LRANGE
+        // would return empty results for such a large index either way.
+        let start_u = usize::try_from(start).unwrap_or(usize::MAX);
+        let result = Event::try_from_index_list(&["Events"], Some(start_u), Some(limit)).await;
 
         let events = match result {
             Ok(r) => r.unwrap_or_default(),
@@ -114,7 +161,7 @@ impl Event {
             }
         };
 
-        let next_cursor = start + events.len();
+        let next_cursor = start + events.len() as u64;
 
         Ok((events, next_cursor))
     }

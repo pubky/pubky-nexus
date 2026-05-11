@@ -1,5 +1,3 @@
-# Service name used for tracing, logging, and metrics in OpenTelemetry
-name = "nexusd.migration"
 # List migrations that are in the "backfill_ready" state and should be processed.
 # Add migration IDs here when they are ready for backfilling. Example
 #backfill_ready = ["Xakala1741101644"]
@@ -9,8 +7,12 @@ backfill_ready = []
 # Logging, options: error, warn, info, debug and trace
 log_level = "debug"
 files_path = "./static/files"
-# OTLP_ENDPOINT is set to empty by default. If you want to enable tracing, set it to the OpenTelemetry Collector endpoint
-#otlp_endpoint=""
+
+[stack.otlp]
+# Service name used for tracing, logging, and metrics in OpenTelemetry
+name = "nexusd.migration"
+# OTLP endpoint is not set by default. If you want to enable tracing, set it to the OpenTelemetry Collector endpoint
+#endpoint = "http://localhost:4317"
 
 [stack.db]
 redis = "redis://localhost:6379"
@@ -20,9 +22,7 @@ uri = "bolt://localhost:7687"
 # Not needed in the Community Edition
 #user = "neo4j"
 password = "12345678"
-# Queries taking longer than this (ms) will be logged as warnings
-slow_query_logging_threshold_ms = 100
-# Disable slow query logging for CLI migration commands
-slow_query_logging_enabled = false
+# Slow-query warnings disabled for CLI migration commands (uncomment to enable).
+#slow_query_logging_threshold_ms = 100
 # Include the Cypher query text in slow query log entries
 #slow_query_logging_include_cypher = false

@@ -387,7 +387,7 @@ where
         user_id: &str,
         tag_id: &str,
     ) -> GraphResult<Option<(Option<String>, Option<String>, Option<String>, String)>> {
-        let query = queries::del::delete_tag(user_id, tag_id);
+        let query = queries::del::delete_tag(user_id, tag_id, None);
         let maybe_row = fetch_row_from_graph(query).await?;
 
         let Some(row) = maybe_row else {

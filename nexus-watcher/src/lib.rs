@@ -2,7 +2,7 @@
 //!
 //! The `nexus-watcher` crate is responsible for monitoring a Pubky homeserver’s `/events` endpoint and processing
 //! events into the Nexus databases. It integrates with `nexus-common` to manage database connections (Neo4j and Redis),
-//! configuration, logging, metrics, and stack initialization.
+//! configuration, logging, and metrics.
 //!
 //! Key responsibilities include:
 //!

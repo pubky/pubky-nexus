@@ -1,5 +1,5 @@
 use anyhow::{Error, Result};
-use nexus_watcher::service::NexusWatcher;
+use nexus_common::{StackConfig, StackManager};
 
 use crate::service::utils::MockEventProcessor;
 
@@ -13,7 +13,7 @@ pub const HS_IDS: [&str; 5] = [
 
 pub async fn setup() -> Result<Vec<MockEventProcessor>> {
     // Initialize the test stack
-    if let Err(e) = NexusWatcher::builder().init_test_stack().await {
+    if let Err(e) = StackManager::setup(&StackConfig::default()).await {
         return Err(Error::msg(format!("could not initialise the stack, {e:?}")));
     }
 

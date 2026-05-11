@@ -284,6 +284,52 @@ pub fn create_user_tag(
     .param("indexed_at", indexed_at)
 }
 
+/// Creates a `TAGGED` relationship between a user and a generic Resource node.
+/// The Resource is created (MERGE) if it does not already exist.
+/// # Arguments
+/// * `tagger_id` - The user creating the tag.
+/// * `resource_id` - The deterministic 32-char hex Resource ID.
+/// * `uri` - The normalized URI of the resource.
+/// * `scheme` - The URI scheme (https, pubky, nostr, etc.)
+/// * `app` - The app namespace the tag was created from (e.g., "mapky", "eventky").
+/// * `tag_id` - A unique identifier for the tagging relationship.
+/// * `label` - The tag label.
+/// * `indexed_at` - Timestamp when the tag was indexed.
+#[allow(clippy::too_many_arguments)]
+pub fn create_resource_tag(
+    tagger_id: &str,
+    resource_id: &str,
+    uri: &str,
+    scheme: &str,
+    app: &str,
+    tag_id: &str,
+    label: &str,
+    indexed_at: i64,
+) -> Query {
+    Query::new(
+        "create_resource_tag",
+        "MATCH (tagger:User {id: $tagger_id})
+        MERGE (resource:Resource {id: $resource_id})
+        ON CREATE SET
+            resource.uri = $uri,
+            resource.scheme = $scheme,
+            resource.indexed_at = $indexed_at
+        WITH tagger, resource
+        OPTIONAL MATCH (tagger)-[existing:TAGGED {label: $label, app: $app}]->(resource)
+        MERGE (tagger)-[t:TAGGED {label: $label, app: $app}]->(resource)
+        ON CREATE SET t.id = $tag_id, t.indexed_at = $indexed_at
+        RETURN existing IS NOT NULL AS flag;",
+    )
+    .param("tagger_id", tagger_id)
+    .param("resource_id", resource_id)
+    .param("uri", uri)
+    .param("scheme", scheme)
+    .param("app", app)
+    .param("tag_id", tag_id)
+    .param("label", label)
+    .param("indexed_at", indexed_at)
+}
+
 /// Create a file node
 pub fn create_file(file: &FileDetails) -> GraphResult<Query> {
     let urls = serde_json::to_string(&file.urls)

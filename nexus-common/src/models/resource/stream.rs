@@ -1,0 +1,359 @@
+use crate::db::graph::error::GraphError;
+use crate::db::kv::{RedisResult, ScoreAction, SortOrder};
+use crate::db::{queries, RedisOps};
+use crate::models::error::ModelResult;
+use crate::models::resource::tag::TagResource;
+use crate::models::resource::ResourceDetails;
+use crate::models::tag::traits::TagCollection;
+use crate::types::Pagination;
+use futures::TryStreamExt;
+use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
+
+use super::view::ResourceView;
+
+// Redis sorted set key parts
+const GLOBAL_TIMELINE: [&str; 3] = ["Resources", "Global", "Timeline"];
+const GLOBAL_TAGGERS_COUNT: [&str; 3] = ["Resources", "Global", "TaggersCount"];
+
+#[derive(ToSchema, Deserialize, Debug, Clone, PartialEq, Default)]
+#[serde(tag = "source", rename_all = "snake_case")]
+pub enum ResourceStreamSource {
+    #[default]
+    All,
+    App {
+        app: String,
+    },
+}
+
+#[derive(Debug, Serialize, Deserialize, Default, Clone, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ResourceSorting {
+    #[default]
+    Timeline,
+    TaggersCount,
+}
+
+#[derive(Serialize, Deserialize, ToSchema, Debug, Default, Clone)]
+pub struct ResourceKeyStream {
+    pub resource_ids: Vec<String>,
+    /// Score of the last entry, usable as a cursor for the next page.
+    /// Set to `Some(score)` when served from Redis sorted sets (score-based pagination).
+    /// Set to `None` when served from Neo4j graph fallback (use skip/limit pagination instead).
+    pub last_score: Option<u64>,
+}
+
+impl ResourceKeyStream {
+    pub fn new(resource_ids: Vec<String>, last_score: Option<u64>) -> Self {
+        Self {
+            resource_ids,
+            last_score,
+        }
+    }
+
+    pub fn from_scored_entries(entries: Vec<(String, f64)>) -> Self {
+        let last_score = entries.last().map(|(_, score)| score.round() as u64);
+        let resource_ids = entries.into_iter().map(|(key, _)| key).collect();
+        Self::new(resource_ids, last_score)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.resource_ids.is_empty()
+    }
+}
+
+#[derive(Serialize, Deserialize, ToSchema, Debug, Default)]
+pub struct ResourceStream(pub Vec<ResourceView>);
+
+impl RedisOps for ResourceStream {}
+
+impl ResourceStream {
+    // -----------------------------------------------------------------------
+    // Index maintenance (called from put_sync_resource / del_sync_resource)
+    // -----------------------------------------------------------------------
+
+    /// Add a resource to the global timeline sorted set.
+    pub async fn put_to_global_timeline(resource_id: &str, indexed_at: i64) -> RedisResult<()> {
+        Self::put_index_sorted_set(
+            &GLOBAL_TIMELINE,
+            &[(indexed_at as f64, resource_id)],
+            None,
+            None,
+        )
+        .await
+    }
+
+    /// Update the global taggers count sorted set.
+    pub async fn update_global_taggers_count(
+        resource_id: &str,
+        action: ScoreAction,
+    ) -> RedisResult<()> {
+        Self::put_score_index_sorted_set(&GLOBAL_TAGGERS_COUNT, &[resource_id], action).await
+    }
+
+    /// Add a resource to a per-app timeline sorted set.
+    pub async fn put_to_app_timeline(
+        app: &str,
+        resource_id: &str,
+        indexed_at: i64,
+    ) -> RedisResult<()> {
+        let key_parts = vec!["Resources", "App", app, "Timeline"];
+        Self::put_index_sorted_set(&key_parts, &[(indexed_at as f64, resource_id)], None, None)
+            .await
+    }
+
+    /// Update a per-app taggers count sorted set.
+    pub async fn update_app_taggers_count(
+        app: &str,
+        resource_id: &str,
+        action: ScoreAction,
+    ) -> RedisResult<()> {
+        let key_parts = vec!["Resources", "App", app, "TaggersCount"];
+        Self::put_score_index_sorted_set(&key_parts, &[resource_id], action).await
+    }
+
+    /// Add a resource to a per-tag timeline sorted set.
+    pub async fn put_to_tag_timeline(
+        label: &str,
+        resource_id: &str,
+        indexed_at: i64,
+    ) -> RedisResult<()> {
+        let key_parts = vec!["Resources", "Tag", label, "Timeline"];
+        Self::put_index_sorted_set(&key_parts, &[(indexed_at as f64, resource_id)], None, None)
+            .await
+    }
+
+    /// Update a per-tag taggers count sorted set.
+    pub async fn update_tag_taggers_count(
+        label: &str,
+        resource_id: &str,
+        action: ScoreAction,
+    ) -> RedisResult<()> {
+        let key_parts = vec!["Resources", "Tag", label, "TaggersCount"];
+        Self::put_score_index_sorted_set(&key_parts, &[resource_id], action).await
+    }
+
+    /// Add a resource to a combined app+tag timeline sorted set.
+    pub async fn put_to_app_tag_timeline(
+        app: &str,
+        label: &str,
+        resource_id: &str,
+        indexed_at: i64,
+    ) -> RedisResult<()> {
+        let key_parts = vec!["Resources", "App", app, "Tag", label, "Timeline"];
+        Self::put_index_sorted_set(&key_parts, &[(indexed_at as f64, resource_id)], None, None)
+            .await
+    }
+
+    /// Update a combined app+tag taggers count sorted set.
+    pub async fn update_app_tag_taggers_count(
+        app: &str,
+        label: &str,
+        resource_id: &str,
+        action: ScoreAction,
+    ) -> RedisResult<()> {
+        let key_parts = vec!["Resources", "App", app, "Tag", label, "TaggersCount"];
+        Self::put_score_index_sorted_set(&key_parts, &[resource_id], action).await
+    }
+
+    // -----------------------------------------------------------------------
+    // Deletion helpers (called from del_sync_resource)
+    // -----------------------------------------------------------------------
+
+    /// Remove a resource from the global timeline sorted set.
+    pub async fn del_from_global_timeline(resource_id: &str) -> RedisResult<()> {
+        Self::remove_from_index_sorted_set(
+            None,
+            &["Resources", "Global", "Timeline"],
+            &[resource_id],
+        )
+        .await
+    }
+
+    /// Remove a resource from a per-app timeline sorted set.
+    pub async fn del_from_app_timeline(app: &str, resource_id: &str) -> RedisResult<()> {
+        Self::remove_from_index_sorted_set(
+            None,
+            &["Resources", "App", app, "Timeline"],
+            &[resource_id],
+        )
+        .await
+    }
+
+    /// Remove a resource from a per-tag timeline sorted set.
+    pub async fn del_from_tag_timeline(label: &str, resource_id: &str) -> RedisResult<()> {
+        Self::remove_from_index_sorted_set(
+            None,
+            &["Resources", "Tag", label, "Timeline"],
+            &[resource_id],
+        )
+        .await
+    }
+
+    /// Remove a resource from a combined app+tag timeline sorted set.
+    pub async fn del_from_app_tag_timeline(
+        app: &str,
+        label: &str,
+        resource_id: &str,
+    ) -> RedisResult<()> {
+        Self::remove_from_index_sorted_set(
+            None,
+            &["Resources", "App", app, "Tag", label, "Timeline"],
+            &[resource_id],
+        )
+        .await
+    }
+
+    // -----------------------------------------------------------------------
+    // Query methods
+    // -----------------------------------------------------------------------
+
+    /// Get resource IDs from the appropriate sorted set.
+    pub async fn get_resource_keys(
+        source: &ResourceStreamSource,
+        pagination: Pagination,
+        order: SortOrder,
+        sorting: &ResourceSorting,
+        tags: Option<&[String]>,
+    ) -> ModelResult<ResourceKeyStream> {
+        let app = match source {
+            ResourceStreamSource::App { app } => Some(app.as_str()),
+            ResourceStreamSource::All => None,
+        };
+
+        if can_use_index(app, tags) {
+            let key_parts = build_index_key(sorting, app, tags);
+
+            let entries = Self::try_from_index_sorted_set(
+                &key_parts,
+                pagination.start,
+                pagination.end,
+                pagination.skip,
+                pagination.limit,
+                order.clone(),
+                None,
+            )
+            .await?;
+
+            match entries {
+                Some(e) if !e.is_empty() => Ok(ResourceKeyStream::from_scored_entries(e)),
+                Some(_) => Ok(ResourceKeyStream::default()), // Key exists but range empty = end of pagination
+                None => {
+                    // Index missing — fall back to Neo4j
+                    Self::get_resource_keys_from_graph(app, sorting, tags, &pagination, order).await
+                }
+            }
+        } else {
+            // Multi-tag or complex query — use Neo4j directly
+            Self::get_resource_keys_from_graph(app, sorting, tags, &pagination, order).await
+        }
+    }
+
+    async fn get_resource_keys_from_graph(
+        app: Option<&str>,
+        sorting: &ResourceSorting,
+        tags: Option<&[String]>,
+        pagination: &Pagination,
+        order: SortOrder,
+    ) -> ModelResult<ResourceKeyStream> {
+        let query = queries::get::resource_stream(
+            app,
+            tags,
+            sorting,
+            &order,
+            pagination.skip.unwrap_or(0),
+            pagination.limit.unwrap_or(10),
+        );
+
+        let graph = crate::db::get_neo4j_graph()?;
+        let mut result = graph.execute(query).await.map_err(GraphError::from)?;
+
+        let mut resource_ids = Vec::new();
+
+        while let Some(row) = result.try_next().await.map_err(GraphError::from)? {
+            let id: String = row.get("resource_id").unwrap_or_default();
+            resource_ids.push(id);
+        }
+
+        // Graph path uses SKIP/LIMIT pagination, not score cursors.
+        // Set last_score = None to signal callers should use offset-based pagination.
+        Ok(ResourceKeyStream::new(resource_ids, None))
+    }
+
+    // -----------------------------------------------------------------------
+    // Full ResourceView loading from IDs
+    // -----------------------------------------------------------------------
+
+    /// Loads full ResourceView objects from a list of resource IDs.
+    // TODO Batch queries:`get_resource_by_id`, `TagResource::get_by_id`
+    pub async fn from_listed_resource_ids(
+        viewer_id: Option<&str>,
+        resource_ids: &[String],
+    ) -> ModelResult<Option<Self>> {
+        if resource_ids.is_empty() {
+            return Ok(None);
+        }
+
+        let mut views = Vec::with_capacity(resource_ids.len());
+
+        for resource_id in resource_ids {
+            let details = match ResourceDetails::get_by_id(resource_id).await? {
+                Some(d) => d,
+                None => continue, // Resource was deleted between query and load
+            };
+
+            // Load tags via TagResource
+            let tags =
+                TagResource::get_by_id(resource_id, None, None, Some(5), Some(3), viewer_id, None)
+                    .await?
+                    .unwrap_or_default();
+
+            let taggers_count = tags.iter().map(|t| t.taggers_count).sum();
+
+            views.push(ResourceView {
+                details,
+                tags,
+                taggers_count,
+            });
+        }
+
+        if views.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(ResourceStream(views)))
+        }
+    }
+}
+
+/// Determines whether a query can be satisfied by a pre-computed Redis sorted set.
+fn can_use_index(app: Option<&str>, tags: Option<&[String]>) -> bool {
+    let tag_count = tags.map_or(0, |t| t.len());
+    match (app, tag_count) {
+        (None, 0) => true,    // Global, no filters
+        (Some(_), 0) => true, // App filter only
+        (None, 1) => true,    // Single tag only
+        (Some(_), 1) => true, // App + single tag
+        _ => false,           // Multi-tag → Neo4j fallback
+    }
+}
+
+/// Builds the Redis sorted set key for the given filter combination.
+fn build_index_key<'a>(
+    sorting: &ResourceSorting,
+    app: Option<&'a str>,
+    tags: Option<&'a [String]>,
+) -> Vec<&'a str> {
+    let sorting_suffix = match sorting {
+        ResourceSorting::Timeline => "Timeline",
+        ResourceSorting::TaggersCount => "TaggersCount",
+    };
+
+    let tag = tags.and_then(|t| t.first());
+
+    match (app, tag) {
+        (None, None) => vec!["Resources", "Global", sorting_suffix],
+        (Some(a), None) => vec!["Resources", "App", a, sorting_suffix],
+        (None, Some(label)) => vec!["Resources", "Tag", label, sorting_suffix],
+        (Some(a), Some(label)) => vec!["Resources", "App", a, "Tag", label, sorting_suffix],
+    }
+}

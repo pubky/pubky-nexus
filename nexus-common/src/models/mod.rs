@@ -6,6 +6,7 @@ pub mod follow;
 pub mod homeserver;
 pub mod notification;
 pub mod post;
+pub mod resource;
 pub mod tag;
 pub mod traits;
 pub mod user;

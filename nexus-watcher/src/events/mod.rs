@@ -92,8 +92,7 @@ pub async fn handle_put_event(
     Ok(())
 }
 
-/// Handles a PUT event by fetching the blob from the homeserver
-/// and using the importer to convert it to a PubkyAppObject.
+/// Handles a DEL event by dispatching to the appropriate handler.
 pub async fn handle_del_event(event: &Event) -> Result<(), EventProcessorError> {
     debug!("Handling DEL event for URI: {}", event.uri);
 
@@ -108,7 +107,7 @@ pub async fn handle_del_event(event: &Event) -> Result<(), EventProcessorError> 
         Resource::Bookmark(bookmark_id) => {
             handlers::bookmark::del(user_id, bookmark_id.clone()).await?
         }
-        Resource::Tag(tag_id) => handlers::tag::del(user_id, tag_id.clone()).await?,
+        Resource::Tag(_) => handlers::tag::del(&event.uri).await?,
         Resource::File(file_id) => {
             handlers::file::del(&user_id, file_id.clone(), event.files_path.clone()).await?
         }

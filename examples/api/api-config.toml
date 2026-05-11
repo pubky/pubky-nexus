@@ -1,5 +1,3 @@
-# Service name used for tracing, logging, and metrics in OpenTelemetry
-name = "nexus.example.api"
 public_ip = "127.0.0.1"
 public_addr = "127.0.0.1:8081"
 pubky_listen_socket = "127.0.0.1:8082"
@@ -8,8 +6,11 @@ pubky_listen_socket = "127.0.0.1:8082"
 # Logging, options: error, warn, info, debug and trace
 log_level = "debug"
 files_path = "./examples/static/files"
-# OTLP_ENDPOINT is set to empty by default. If you want to enable tracing, set it to the OpenTelemetry Collector endpoint
-#otlp_endpoint="http://localhost:4317"
+[stack.otlp]
+# Service name used for tracing, logging, and metrics in OpenTelemetry
+name = "nexus.example.api"
+# OTLP endpoint is not set by default. If you want to enable tracing, set it to the OpenTelemetry Collector endpoint
+#endpoint = "http://localhost:4317"
 
 [stack.db]
 redis = "redis://127.0.0.1:6379"
@@ -19,9 +20,7 @@ uri = "bolt://localhost:7687"
 # Not needed in the Community Edition
 #user = "neo4j"
 password = "12345678"
-# Queries taking longer than this (ms) will be logged as warnings
+# Queries taking longer than this (ms) will be logged as warnings. Remove or comment out this line to disable.
 slow_query_logging_threshold_ms = 100
-# Enable or disable slow query logging
-#slow_query_logging_enabled = true
 # Include the full cypher (with interpolated params) in slow-query warnings
 #slow_query_logging_include_cypher = false

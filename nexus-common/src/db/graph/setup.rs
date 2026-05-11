@@ -1,16 +1,30 @@
 use crate::db::get_neo4j_graph;
 use crate::db::graph::error::{GraphError, GraphResult};
 use crate::db::graph::Query;
+use tokio::sync::OnceCell;
 use tracing::info;
 
-/// Ensure the Neo4j graph has the required constraints and indexes
+static GRAPH_SETUP: OnceCell<()> = OnceCell::const_new();
+
+/// Ensure the Neo4j graph has the required constraints and indexes.
+///
+/// Uses a `OnceCell` so that concurrent callers (e.g. API + watcher starting
+/// in parallel) only execute DDL once; the second caller awaits the first.
 pub async fn setup_graph() -> GraphResult<()> {
+    GRAPH_SETUP
+        .get_or_try_init(setup_graph_inner)
+        .await
+        .copied()
+}
+
+async fn setup_graph_inner() -> GraphResult<()> {
     // Define unique constraints
     let constraints = [
         "CREATE CONSTRAINT uniqueUserId IF NOT EXISTS FOR (u:User) REQUIRE u.id IS UNIQUE",
         "CREATE CONSTRAINT uniquePostId IF NOT EXISTS FOR (p:Post) REQUIRE p.id IS UNIQUE",
         "CREATE CONSTRAINT uniqueFileId IF NOT EXISTS FOR (f:File) REQUIRE (f.owner_id, f.id) IS UNIQUE",
         "CREATE CONSTRAINT uniqueHomeserverId IF NOT EXISTS FOR (hs:Homeserver) REQUIRE hs.id IS UNIQUE",
+        "CREATE CONSTRAINT uniqueResourceId IF NOT EXISTS FOR (r:Resource) REQUIRE r.id IS UNIQUE",
     ];
 
     // Create indexes
@@ -23,6 +37,8 @@ pub async fn setup_graph() -> GraphResult<()> {
         "CREATE INDEX taggedTimestampIndex IF NOT EXISTS FOR ()-[r:TAGGED]-() ON (r.indexed_at)",
         "CREATE INDEX fileIdIndex IF NOT EXISTS FOR (f:File) ON (f.owner_id, f.id)",
         "CREATE INDEX homeserverIdIndex IF NOT EXISTS FOR (hs:Homeserver) ON (hs.id)",
+        "CREATE INDEX resourceSchemeIndex IF NOT EXISTS FOR (r:Resource) ON (r.scheme)",
+        "CREATE INDEX taggedAppIndex IF NOT EXISTS FOR ()-[r:TAGGED]-() ON (r.app)",
     ];
 
     let queries = constraints.iter().chain(indexes.iter());

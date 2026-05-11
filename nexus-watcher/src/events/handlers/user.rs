@@ -1,15 +1,17 @@
 use crate::events::EventProcessorError;
 
 use nexus_common::db::queries::get::user_is_safe_to_delete;
-use nexus_common::db::{execute_graph_operation, OperationOutcome};
-use nexus_common::models::user::UserSearch;
+use nexus_common::db::{
+    exec_single_row, execute_graph_operation, queries, OperationOutcome, RedisOps,
+};
 use nexus_common::models::{
     traits::Collection,
-    user::{UserCounts, UserDetails, USER_DELETED_SENTINEL},
+    user::{UserCounts, UserDetails, UserSearch, USER_DELETED_SENTINEL},
 };
 use pubky_app_specs::{PubkyAppUser, PubkyId};
 use tracing::debug;
 
+#[tracing::instrument(name = "user.put", skip_all, fields(user_id = %user_id))]
 pub async fn sync_put(user: PubkyAppUser, user_id: PubkyId) -> Result<(), EventProcessorError> {
     debug!("Indexing new user profile: {}", user_id);
 
@@ -20,7 +22,8 @@ pub async fn sync_put(user: PubkyAppUser, user_id: PubkyId) -> Result<(), EventP
     user_details.put_to_graph().await?;
 
     // Step 3: Run in parallel the cache process: SAVE TO INDEX
-    let indexing_results = tokio::join!(
+    let indexing_results = nexus_common::traced_join!(
+        tracing::info_span!("index.write");
         async {
             UserSearch::put_to_index(&[&user_details]).await?;
             Ok::<(), EventProcessorError>(())
@@ -46,6 +49,7 @@ pub async fn sync_put(user: PubkyAppUser, user_id: PubkyId) -> Result<(), EventP
     Ok(())
 }
 
+#[tracing::instrument(name = "user.del", skip_all, fields(user_id = %user_id))]
 pub async fn del(user_id: PubkyId) -> Result<(), EventProcessorError> {
     debug!("Deleting user profile:  {}", user_id);
 
@@ -61,10 +65,25 @@ pub async fn del(user_id: PubkyId) -> Result<(), EventProcessorError> {
         .map_err(EventProcessorError::graph_query_failed)?
     {
         OperationOutcome::CreatedOrDeleted => {
-            let indexing_results =
-                tokio::join!(UserDetails::delete(&user_id), UserCounts::delete(&user_id));
+            // 1. UserSearch reads UserDetails — must run before UserDetails Redis is removed
+            UserSearch::delete(&user_id).await?;
+
+            // 2. Redis cleanup (parallel, all idempotent DEL/ZREM)
+            let user_id_str = user_id.as_str();
+            let key_parts: &[&str] = &[user_id_str];
+            let key_parts_list = [key_parts];
+            let indexing_results = nexus_common::traced_join!(
+                tracing::info_span!("index.delete");
+                UserDetails::remove_from_index_multiple_json(&key_parts_list),
+                UserCounts::delete(&user_id)
+            );
             indexing_results.0?;
             indexing_results.1?;
+
+            // 3. Graph deletion LAST
+            exec_single_row(queries::del::delete_user(&user_id))
+                .await
+                .map_err(EventProcessorError::graph_query_failed)?;
         }
         OperationOutcome::Updated => {
             let deleted_user = PubkyAppUser {

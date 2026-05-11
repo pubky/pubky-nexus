@@ -1,3 +1,3 @@
 mod notification;
 mod raw;
-mod utils;
+pub mod utils;

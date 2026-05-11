@@ -51,6 +51,15 @@ pub enum NotificationBody {
         tagged_by: String,
         tag_label: String,
     },
+    UntagPost {
+        untagged_by: String,
+        tag_label: String,
+        post_uri: String,
+    },
+    UntagProfile {
+        untagged_by: String,
+        tag_label: String,
+    },
     Reply {
         replied_by: String,
         parent_post_uri: String,
@@ -214,6 +223,40 @@ impl Notification {
         }
         let body = NotificationBody::TagProfile {
             tagged_by: tagger_user_id.to_string(),
+            tag_label: label.to_string(),
+        };
+        let notification = Notification::new(body);
+        notification.put_to_index(tagged_user_id).await
+    }
+
+    pub async fn new_post_untag(
+        user_id: &str,
+        author_id: &str,
+        label: &str,
+        post_uri: &str,
+    ) -> RedisResult<()> {
+        if user_id == author_id {
+            return Ok(());
+        }
+        let body = NotificationBody::UntagPost {
+            untagged_by: user_id.to_string(),
+            tag_label: label.to_string(),
+            post_uri: post_uri.to_string(),
+        };
+        let notification = Notification::new(body);
+        notification.put_to_index(author_id).await
+    }
+
+    pub async fn new_user_untag(
+        tagger_user_id: &str,
+        tagged_user_id: &str,
+        label: &str,
+    ) -> RedisResult<()> {
+        if tagger_user_id == tagged_user_id {
+            return Ok(());
+        }
+        let body = NotificationBody::UntagProfile {
+            untagged_by: tagger_user_id.to_string(),
             tag_label: label.to_string(),
         };
         let notification = Notification::new(body);

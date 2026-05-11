@@ -2,7 +2,7 @@ use crate::{
     event_processor::users::utils::find_user_details, event_processor::utils::watcher::WatcherTest,
 };
 use anyhow::Result;
-use nexus_common::models::user::{UserCounts, UserView};
+use nexus_common::models::user::{UserCounts, UserSearch, UserView};
 use pubky::Keypair;
 use pubky_app_specs::PubkyAppUser;
 
@@ -12,14 +12,27 @@ async fn test_delete_user_without_relationships() -> Result<()> {
 
     // Create a new user without any relationships
     let user_kp = Keypair::random();
+    let username = "Watcher:UserDel:User";
     let user = PubkyAppUser {
         bio: Some("test_delete_user_with_relationships".to_string()),
         image: None,
         links: None,
-        name: "Watcher:UserDel:User".to_string(),
+        name: username.to_string(),
         status: None,
     };
     let user_id = test.create_user(&user_kp, &user).await?;
+
+    // Sanity check: user appears in both search indexes after creation
+    let by_name_before = UserSearch::get_by_name(username, None, None).await?;
+    assert!(
+        by_name_before.is_some_and(|s| s.0.contains(&user_id)),
+        "User should be findable by name in search index before deletion"
+    );
+    let by_id_before = UserSearch::get_by_id(&user_id, None, None).await?;
+    assert!(
+        by_id_before.is_some_and(|s| !s.0.is_empty()),
+        "User should be findable by ID in search index before deletion"
+    );
 
     // Delete the user
     test.cleanup_user(&user_kp).await?;
@@ -43,6 +56,19 @@ async fn test_delete_user_without_relationships() -> Result<()> {
     assert!(
         user_view.is_none(),
         "User view should not be found after deletion"
+    );
+
+    // Search indexes should be cleared after deletion
+    let by_id_after = UserSearch::get_by_id(&user_id, None, None).await?;
+    assert!(
+        by_id_after.is_none_or(|s| s.0.is_empty()),
+        "User should NOT be findable by ID in search index after deletion"
+    );
+
+    let by_name_after = UserSearch::get_by_name(username, None, None).await?;
+    assert!(
+        by_name_after.is_none_or(|s| s.0.is_empty()),
+        "User should NOT be findable by name in search index after deletion"
     );
 
     Ok(())

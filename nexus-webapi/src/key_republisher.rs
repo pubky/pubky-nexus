@@ -40,6 +40,7 @@ impl KeyRepublisher {
         Ok(Self { join_handle })
     }
 
+    #[tracing::instrument(name = "dht.publish", skip_all)]
     async fn publish_once(
         client: &pkarr::Client,
         signed_packet: &SignedPacket,

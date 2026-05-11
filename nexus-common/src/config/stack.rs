@@ -12,12 +12,31 @@ where
     validate_and_expand_path(path).map_err(serde::de::Error::custom)
 }
 
+/// OpenTelemetry configuration for tracing, logging, and metrics export
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+pub struct OtlpConfig {
+    /// Service name used for tracing, logging, and metrics in OpenTelemetry
+    pub name: String,
+    /// OTLP endpoint. When set, enables export of traces, logs, and metrics
+    pub endpoint: Option<String>,
+}
+
+impl Default for OtlpConfig {
+    fn default() -> Self {
+        Self {
+            name: String::from("nexus"),
+            endpoint: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub struct StackConfig {
     pub log_level: Level,
     #[serde(deserialize_with = "deserialize_and_expand")]
     pub files_path: PathBuf,
-    pub otlp_endpoint: Option<String>,
+    #[serde(default)]
+    pub otlp: OtlpConfig,
     pub db: DatabaseConfig,
 }
 
@@ -31,7 +50,7 @@ impl Default for StackConfig {
         Self {
             log_level: LOG_LEVEL,
             files_path: get_files_dir_pathbuf(),
-            otlp_endpoint: None,
+            otlp: OtlpConfig::default(),
             db: DatabaseConfig::default(),
         }
     }

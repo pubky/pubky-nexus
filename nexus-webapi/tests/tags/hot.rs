@@ -92,6 +92,23 @@ async fn test_global_hot_tags_with_today_timeframe() -> Result<()> {
 }
 
 #[tokio_shared_rt::test(shared)]
+async fn test_global_hot_tags_with_this_week_timeframe() -> Result<()> {
+    let body = get_request("/v0/tags/hot?timeframe=this_week").await?;
+
+    assert!(body.is_array());
+
+    let tags = body.as_array().expect("Stream tags should be an array");
+
+    analyse_hot_tags_structure(tags);
+
+    // "today" tagged items are within 7 days, so they should appear
+    let hot_tag = StreamTagMockup::new(String::from("today"), 3, 3, 3);
+    compare_unit_hot_tag(&tags[0], hot_tag);
+
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
 async fn test_global_hot_tags_with_this_month_timeframe() -> Result<()> {
     let body = get_request("/v0/tags/hot?timeframe=this_month").await?;
 

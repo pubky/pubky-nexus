@@ -59,7 +59,7 @@ pub fn populate_cypher(cypher: &str, params: &BoltMap) -> String {
     // substitute inside the already-replaced value. A proper fix would
     // require single-pass replacement or placeholder-based substitution.
     let mut entries: Vec<_> = params.value.iter().collect();
-    entries.sort_by(|a, b| b.0.value.len().cmp(&a.0.value.len()));
+    entries.sort_by_key(|b| std::cmp::Reverse(b.0.value.len()));
     for (k, v) in entries {
         let placeholder = format!("${}", k.value);
         let literal = bolt_to_cypher_literal(v);

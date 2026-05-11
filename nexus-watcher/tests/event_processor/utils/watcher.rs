@@ -4,15 +4,14 @@ use chrono::Utc;
 use nexus_common::db::PubkyConnector;
 use nexus_common::get_files_dir_pathbuf;
 use nexus_common::get_files_dir_test_pathbuf;
-use nexus_common::models::event::Event;
-use nexus_common::models::event::EventProcessorError;
+use nexus_common::models::event::{Event, EventProcessorError, ParseResult};
 use nexus_common::models::file::FileDetails;
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::traits::Collection;
+use nexus_common::{StackConfig, StackManager};
 use nexus_watcher::events::retry::event::RetryEvent;
 use nexus_watcher::events::{handle, Moderation};
 use nexus_watcher::service::EventProcessorRunner;
-use nexus_watcher::service::NexusWatcher;
 use nexus_watcher::service::TEventProcessorRunner;
 use pubky::Keypair;
 use pubky::PublicKey;
@@ -51,7 +50,7 @@ pub fn generate_post_id() -> String {
 pub struct WatcherTest {
     pub testnet: Testnet,
     /// The homeserver ID
-    pub homeserver_id: String,
+    pub homeserver_id: PubkyId,
     /// The event processor runner
     pub event_processor_runner: EventProcessorRunner,
     /// Whether to ensure event processing is complete
@@ -85,7 +84,7 @@ impl WatcherTest {
             limit: 1000,
             monitored_homeservers_limit: 100,
             files_path: get_files_dir_test_pathbuf(),
-            tracer_name: String::from("watcher.test"),
+            tracer_name: "test".to_string(),
             moderation,
             shutdown_rx,
             default_homeserver,
@@ -106,7 +105,7 @@ impl WatcherTest {
     /// Returns an instance of `Self` containing the configuration, homeserver,
     /// event processor, and other test setup details, including the shutdown receiver.
     pub async fn setup() -> Result<Self> {
-        if let Err(e) = NexusWatcher::builder().init_test_stack().await {
+        if let Err(e) = StackManager::setup(&StackConfig::default()).await {
             return Err(Error::msg(format!("could not initialise the stack, {e:?}")));
         }
 
@@ -117,9 +116,8 @@ impl WatcherTest {
         testnet.create_http_relay().await?;
 
         // Create a random homeserver with a random public key
-        let homeserver_id = testnet.create_random_homeserver().await?.public_key().z32();
-        let pubky_id = PubkyId::try_from(&homeserver_id).unwrap();
-        Homeserver::persist_if_unknown(pubky_id.clone())
+        let homeserver_id = PubkyId::from(testnet.create_random_homeserver().await?.public_key());
+        Homeserver::persist_if_unknown(homeserver_id.clone())
             .await
             .unwrap();
 
@@ -131,7 +129,8 @@ impl WatcherTest {
         }
 
         // Initialize the test-scoped EventProcessorRunner; mirrors the standard processor behavior
-        let event_processor_runner = Self::create_test_event_processor_runner(pubky_id);
+        let event_processor_runner =
+            Self::create_test_event_processor_runner(homeserver_id.clone());
 
         Ok(Self {
             testnet,
@@ -151,7 +150,7 @@ impl WatcherTest {
     pub async fn ensure_event_processing_complete(&mut self) -> Result<()> {
         if self.ensure_event_processing {
             self.event_processor_runner
-                .build(self.homeserver_id.clone())
+                .build(self.homeserver_id.to_string())
                 .await
                 .map_err(|e| anyhow!(e))?
                 .run()
@@ -216,7 +215,7 @@ impl WatcherTest {
         let pubky = PubkyConnector::get()?;
 
         let signer = pubky.signer(user_kp.clone());
-        let hs_pk: PublicKey = self.homeserver_id.clone().try_into()?;
+        let hs_pk = self.homeserver_id.to_public_key();
         signer.signup(&hs_pk, None).await?;
 
         Ok(())
@@ -349,8 +348,13 @@ pub async fn retrieve_and_handle_event_line(
     moderation: Arc<Moderation>,
 ) -> Result<(), EventProcessorError> {
     match Event::parse_event(event_line, get_files_dir_pathbuf())? {
-        Some(event) => handle(&event, moderation).await,
-        None => Ok(()),
+        ParseResult::Parsed(event) => handle(&event, moderation).await,
+        ParseResult::Skipped => Ok(()),
+
+        // Propagate UnrecognizedUri as error, because this test helper is only meant for standard event handling
+        ParseResult::UnrecognizedUri { reason, .. } => Err(EventProcessorError::InvalidEventLine(
+            format!("Cannot parse event URI: {reason}"),
+        )),
     }
 }
 

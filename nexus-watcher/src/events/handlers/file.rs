@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 use tokio::fs::remove_dir_all;
 use tracing::debug;
 
+#[tracing::instrument(name = "file.put", skip_all, fields(user_id = %user_id, file_id = %file_id))]
 pub async fn sync_put(
     file: PubkyAppFile,
     uri: String,
@@ -44,6 +45,7 @@ pub async fn sync_put(
 }
 
 // TODO: Move it into its own process, server, etc
+#[tracing::instrument(name = "file.ingest", skip_all, fields(user_id = %user_id, file_id = %file_id))]
 async fn ingest(
     user_id: &PubkyId,
     file_id: &str,
@@ -82,6 +84,7 @@ async fn ingest(
     }
 }
 
+#[tracing::instrument(name = "file.del", skip_all, fields(user_id = %user_id, file_id = %file_id))]
 pub async fn del(
     user_id: &PubkyId,
     file_id: String,
@@ -90,18 +93,21 @@ pub async fn del(
     debug!("Deleting File resource at {}/{}", user_id, file_id);
     let result = FileDetails::get_by_ids(&[&[user_id, &file_id]]).await?;
 
-    if !result.is_empty() {
-        let file = &result[0];
-
-        if let Some(file_details) = file {
-            file_details.delete().await?;
-        }
-
-        let folder_path = Path::new(&user_id.to_string()).join(&file_id);
-        let full_path = files_path.join(folder_path);
-
-        remove_dir_all(full_path).await?;
+    if result.is_empty() {
+        return Ok(());
     }
 
-    Ok(())
+    let file = &result[0];
+    if let Some(file_details) = file {
+        file_details.delete().await?;
+    }
+
+    let folder_path = Path::new(&user_id.to_string()).join(&file_id);
+    let full_path = files_path.join(folder_path);
+
+    match remove_dir_all(full_path.as_path()).await {
+        Ok(_) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(e.into()),
+    }
 }

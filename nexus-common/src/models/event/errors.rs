@@ -101,10 +101,6 @@ impl EventProcessorError {
         Self::PubkyClientError(crate::db::PubkyClientError::ClientError(message))
     }
 
-    pub fn index_operation_failed(source: impl std::fmt::Display) -> Self {
-        Self::IndexOperationFailed(source.to_string())
-    }
-
     pub fn static_save_failed(source: impl std::fmt::Display) -> Self {
         Self::StaticSaveFailed(source.to_string())
     }
