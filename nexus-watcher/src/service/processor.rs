@@ -110,7 +110,7 @@ impl EventProcessor {
 
             if let Some(cursor) = line.strip_prefix("cursor: ") {
                 info!("Received cursor for the next request: {cursor}");
-                match Homeserver::try_from_cursor(id, cursor) {
+                match Homeserver::try_from_cursor(id, cursor).await {
                     Ok(hs) => hs.put_to_index().await?,
                     Err(e) => warn!("{e}"),
                 }
