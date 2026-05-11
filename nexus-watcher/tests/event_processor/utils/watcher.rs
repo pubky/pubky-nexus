@@ -56,7 +56,7 @@ pub struct WatcherTest {
     pub event_processor_runner: EventProcessorRunner,
     /// Whether to ensure event processing is complete
     pub ensure_event_processing: bool,
-    /// Temp directory for static files. Kept alive so the directory is not deleted.
+    /// Keeps the static files temp dir alive for the test.
     pub temp_dir: TempDir,
 }
 
@@ -115,7 +115,7 @@ impl WatcherTest {
             return Err(Error::msg(format!("could not initialise the stack, {e:?}")));
         }
 
-        let temp_dir = TempDir::new().expect("Failed to create temp directory for test files");
+        let temp_dir = TempDir::new()?;
         let files_path = temp_dir.path().to_path_buf();
 
         // WARNING: testnet initialization is time expensive, we only init one per process

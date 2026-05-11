@@ -12,7 +12,7 @@ use tokio::sync::OnceCell;
 pub struct TestServiceServer {
     pub nexus_api: NexusApi,
     pub testnet: pubky_testnet::Testnet,
-    /// Temp directory for static files. Kept alive so the directory is not deleted.
+    /// Keeps the static files temp dir alive for the test.
     pub temp_dir: TempDir,
 }
 
