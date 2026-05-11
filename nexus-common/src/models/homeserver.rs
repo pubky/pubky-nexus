@@ -83,16 +83,13 @@ impl Homeserver {
     }
 
     pub async fn get_by_id(homeserver_id: PubkyId) -> ModelResult<Option<Homeserver>> {
-        match Homeserver::get_from_index(&homeserver_id).await? {
-            Some(hs) => Ok(Some(hs)),
-            None => match Self::get_from_graph(&homeserver_id).await? {
-                Some(hs_from_graph) => {
-                    hs_from_graph.put_to_index().await?;
-                    Ok(Some(hs_from_graph))
-                }
-                None => Ok(None),
-            },
-        }
+        // No graph fallback. A cache miss (or a Redis read error silently
+        // surfaced as `Ok(None)` by `json::get`) is treated as a failure
+        // and propagated to the caller, which puts the homeserver into
+        // backoff. The previous behaviour rebuilt from the graph (which
+        // does not store the cursor) and wrote cursor=0 back to Redis,
+        // silently overwriting the real value on a transient Redis hiccup.
+        Ok(Self::get_from_index(&homeserver_id).await?)
     }
 
     /// Verifies if homeserver exists in the graph, or persists it if missing
