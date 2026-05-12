@@ -1,7 +1,4 @@
-use std::{
-    fs::{self, File},
-    io::Write,
-};
+use std::{fs::File, io::Write};
 
 use crate::utils::host_url;
 use crate::utils::server::TestServiceServer;
@@ -33,14 +30,7 @@ async fn test_static_serving() -> Result<()> {
 
     let full_file_path = test_file_dir.join(test_file_name);
 
-    let exists = match fs::metadata(&test_file_dir) {
-        Err(_) => false,
-        Ok(metadata) => metadata.is_dir(),
-    };
-
-    if !exists {
-        create_dir_all(&test_file_dir).await?;
-    }
+    create_dir_all(&test_file_dir).await?;
 
     let mut file = File::create(&full_file_path)?;
     file.write_all(b"Hello, world!")?;
@@ -86,14 +76,7 @@ async fn test_static_serving_dl_param() -> Result<()> {
 
     let full_file_path = test_file_dir.join(test_file_name);
 
-    let exists = match fs::metadata(&test_file_dir) {
-        Err(_) => false,
-        Ok(metadata) => metadata.is_dir(),
-    };
-
-    if !exists {
-        create_dir_all(&test_file_dir).await?;
-    }
+    create_dir_all(&test_file_dir).await?;
 
     let mut file = File::create(&full_file_path)?;
     file.write_all(b"Hello, world!")?;

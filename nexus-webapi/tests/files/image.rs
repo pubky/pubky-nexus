@@ -1,7 +1,4 @@
-use std::{
-    fs::{self},
-    path::PathBuf,
-};
+use std::path::PathBuf;
 
 use crate::utils::host_url;
 use crate::utils::server::TestServiceServer;
@@ -27,16 +24,9 @@ async fn test_static_image_serving_main() -> Result<()> {
         .join(FILE_ID);
     let full_image_path = test_image_dir_path.join("main");
 
-    // make sure directory exists
-    let exists = match fs::metadata(&test_image_dir_path) {
-        Err(_) => false,
-        Ok(metadata) => metadata.is_dir(),
-    };
-    if !exists {
-        create_dir_all(&test_image_dir_path).await?;
-    }
+    create_dir_all(&test_image_dir_path).await?;
     // copy the image from mocks folder to static folder
-    fs::copy(
+    std::fs::copy(
         PathBuf::from(BLOB_PATH).join(IMAGE_BLOB_NAME),
         &full_image_path,
     )?;
@@ -77,16 +67,9 @@ async fn test_static_image_serving_feed() -> Result<()> {
         .join(FILE_ID);
     let full_image_path = test_image_dir_path.join("main");
 
-    // make sure directory exists
-    let exists = match fs::metadata(&test_image_dir_path) {
-        Err(_) => false,
-        Ok(metadata) => metadata.is_dir(),
-    };
-    if !exists {
-        create_dir_all(&test_image_dir_path).await?;
-    }
+    create_dir_all(&test_image_dir_path).await?;
     // copy the image from mocks folder to static folder
-    fs::copy(
+    std::fs::copy(
         PathBuf::from(BLOB_PATH).join(IMAGE_BLOB_NAME),
         &full_image_path,
     )?;
@@ -134,16 +117,9 @@ async fn test_static_image_serving_small() -> Result<()> {
         .join(FILE_ID);
     let full_image_path = test_image_dir_path.join("main");
 
-    // make sure directory exists
-    let exists = match fs::metadata(&test_image_dir_path) {
-        Err(_) => false,
-        Ok(metadata) => metadata.is_dir(),
-    };
-    if !exists {
-        create_dir_all(&test_image_dir_path).await?;
-    }
+    create_dir_all(&test_image_dir_path).await?;
     // copy the image from mocks folder to static folder
-    fs::copy(
+    std::fs::copy(
         PathBuf::from(BLOB_PATH).join(IMAGE_BLOB_NAME),
         &full_image_path,
     )?;
