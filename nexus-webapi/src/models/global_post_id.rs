@@ -57,15 +57,13 @@ impl GlobalPostIds {
 
 impl GlobalPostId {
     fn validate(s: &str) -> Result<(), String> {
-        let (pubky_part, post_part) = s.split_once(':').ok_or_else(|| {
-            "Validation Error: GlobalPostId must be in the format '{PubkyId}:{PostId}'".to_string()
-        })?;
+        let (pubky_part, post_part) = s
+            .split_once(':')
+            .ok_or_else(|| "GlobalPostId must be in the format '{PubkyId}:{PostId}'".to_string())?;
 
-        PubkyId::try_from(pubky_part)
-            .map_err(|e| format!("Validation Error: Invalid PubkyId: {}", e))?;
+        PubkyId::try_from(pubky_part).map_err(|e| format!("Invalid PubkyId: {}", e))?;
 
-        PostId::try_from(post_part.to_string())
-            .map_err(|e| format!("Validation Error: Invalid PostId: {}", e))?;
+        PostId::try_from(post_part.to_string()).map_err(|e| format!("Invalid PostId: {}", e))?;
 
         Ok(())
     }

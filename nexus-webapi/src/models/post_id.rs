@@ -40,14 +40,14 @@ impl PostId {
     /// 13 characters long, and decodes to 8 bytes.
     fn validate_id(id: &str) -> Result<(), String> {
         if id.len() != 13 {
-            return Err("Validation Error: Invalid ID length: must be 13 characters".into());
+            return Err("Invalid ID length: must be 13 characters".into());
         }
 
-        let decoded_bytes = decode(Alphabet::Crockford, id)
-            .ok_or("Validation Error: Invalid Crockford Base32 encoding")?;
+        let decoded_bytes =
+            decode(Alphabet::Crockford, id).ok_or("Invalid Crockford Base32 encoding")?;
 
         if decoded_bytes.len() != 8 {
-            return Err("Validation Error: Invalid ID length after decoding".into());
+            return Err("Invalid ID length after decoding".into());
         }
 
         Ok(())
