@@ -5,6 +5,7 @@ use crate::models::notification::Notification;
 use crate::models::tag::stream::{HotTag, HotTags};
 use crate::types::routes::HotTagsInputDTO;
 use crate::types::{Pagination, StreamSorting, Timeframe};
+use futures::stream::{self, StreamExt};
 
 use super::error::ModelResult;
 
@@ -196,8 +197,9 @@ impl Bootstrap {
         Ok(())
     }
 
-    /// Fetches up to three replies for each post in `post_replies` and integrates their authors
-    /// into both the internal user list
+    /// Fetches up to three replies for each post in `post_replies` in parallel
+    /// (bounded concurrency via `buffer_unordered`) and integrates their authors
+    /// into the internal user list.
     ///
     /// # Parameters
     /// - `post_replies: Vec<(String, String)>`
@@ -215,17 +217,25 @@ impl Bootstrap {
         attachment_uris: &mut HashSet<String>,
         maybe_viewer_id: Option<&str>,
     ) -> ModelResult<()> {
-        // TODO: Might consider in the future to do in all the requests in parallel
-        // tokio::task::JoinSet or tokio::spawn(async move {...
-        for (author_id, post_id) in post_replies {
-            let reply_stream = Self::get_post_stream_timeline(
-                maybe_viewer_id,
-                StreamSource::PostReplies { author_id, post_id },
-                3,
-            )
-            .await?;
+        let viewer_id = maybe_viewer_id.map(|s| s.to_string());
+
+        let mut stream = stream::iter(post_replies.into_iter().map(|(author_id, post_id)| {
+            let viewer_id_clone = viewer_id.clone();
+            async move {
+                Self::get_post_stream_timeline(
+                    viewer_id_clone.as_deref(),
+                    StreamSource::PostReplies { author_id, post_id },
+                    3,
+                )
+                .await
+            }
+        }))
+        .buffer_unordered(8);
+
+        while let Some(reply_stream) = stream.next().await.transpose()? {
             self.handle_post_stream(reply_stream, user_ids, attachment_uris, ViewType::Partial);
         }
+
         Ok(())
     }
 
