@@ -37,7 +37,7 @@ async fn test_static_serving() -> Result<()> {
 
     let url_path = format!("static/files/{test_file_user}/{test_file_id}/{test_file_name}");
     let res = client
-        .do_get(format!("/{}", url_path.as_str()).as_str())
+        .do_get(&format!("/{url_path}"))
         .await?;
 
     assert_eq!(res.status(), 200);
