@@ -36,9 +36,7 @@ async fn test_static_serving() -> Result<()> {
     file.write_all(b"Hello, world!")?;
 
     let url_path = format!("static/files/{test_file_user}/{test_file_id}/{test_file_name}");
-    let res = client
-        .do_get(&format!("/{url_path}"))
-        .await?;
+    let res = client.do_get(&format!("/{url_path}")).await?;
 
     assert_eq!(res.status(), 200);
     assert_eq!(
