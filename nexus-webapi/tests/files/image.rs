@@ -5,7 +5,7 @@ use crate::utils::server::TestServiceServer;
 use anyhow::Result;
 use nexus_common::media::FileVariant;
 use nexus_common::models::{file::FileDetails, traits::Collection};
-use tokio::fs::create_dir_all;
+use tokio::fs::{copy, create_dir_all};
 
 const IMAGE_BLOB_NAME: &str = "SynonymLogo.png";
 const BLOB_PATH: &str = "tests/files/blobs";
@@ -26,10 +26,11 @@ async fn test_static_image_serving_main() -> Result<()> {
 
     create_dir_all(&test_image_dir_path).await?;
     // copy the image from mocks folder to static folder
-    std::fs::copy(
+    copy(
         PathBuf::from(BLOB_PATH).join(IMAGE_BLOB_NAME),
         &full_image_path,
-    )?;
+    )
+    .await?;
 
     let files = FileDetails::get_by_ids(vec![vec![USER_PUBKY, FILE_ID].as_slice()].as_slice())
         .await
@@ -69,10 +70,11 @@ async fn test_static_image_serving_feed() -> Result<()> {
 
     create_dir_all(&test_image_dir_path).await?;
     // copy the image from mocks folder to static folder
-    std::fs::copy(
+    copy(
         PathBuf::from(BLOB_PATH).join(IMAGE_BLOB_NAME),
         &full_image_path,
-    )?;
+    )
+    .await?;
 
     let files = FileDetails::get_by_ids(vec![vec![USER_PUBKY, FILE_ID].as_slice()].as_slice())
         .await
@@ -119,10 +121,11 @@ async fn test_static_image_serving_small() -> Result<()> {
 
     create_dir_all(&test_image_dir_path).await?;
     // copy the image from mocks folder to static folder
-    std::fs::copy(
+    copy(
         PathBuf::from(BLOB_PATH).join(IMAGE_BLOB_NAME),
         &full_image_path,
-    )?;
+    )
+    .await?;
 
     let files = FileDetails::get_by_ids(vec![vec![USER_PUBKY, FILE_ID].as_slice()].as_slice())
         .await
