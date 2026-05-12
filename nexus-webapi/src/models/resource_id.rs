@@ -1,6 +1,7 @@
 use std::fmt;
 use std::str::FromStr;
 
+use crate::Error;
 use serde::{de, Deserialize};
 use utoipa::ToSchema;
 
@@ -10,7 +11,7 @@ use utoipa::ToSchema;
 pub struct ResourceId(pub String);
 
 impl FromStr for ResourceId {
-    type Err = String;
+    type Err = Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Self::validate_id(s)?;
@@ -39,22 +40,22 @@ impl ResourceId {
         &self.0
     }
 
-    pub(crate) fn validate_id(id: &str) -> Result<(), String> {
+    pub(crate) fn validate_id(id: &str) -> Result<(), Error> {
         if id.len() != 32
             || !id
                 .chars()
                 .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
         {
-            return Err(format!(
+            return Err(Error::invalid_input(&format!(
                 "resource_id must be 32-char lowercase hex, got: {id}"
-            ));
+            )));
         }
         Ok(())
     }
 }
 
 impl TryFrom<String> for ResourceId {
-    type Error = String;
+    type Error = Error;
 
     fn try_from(s: String) -> Result<Self, Self::Error> {
         Self::validate_id(&s)?;
@@ -97,7 +98,7 @@ mod tests {
         assert_eq!(id.len(), 31);
         let result = ResourceId::validate_id(id);
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("must be 32-char"));
+        assert!(result.unwrap_err().to_string().contains("must be 32-char"));
     }
 
     #[test]
@@ -106,7 +107,7 @@ mod tests {
         assert_eq!(id.len(), 33);
         let result = ResourceId::validate_id(id);
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("must be 32-char"));
+        assert!(result.unwrap_err().to_string().contains("must be 32-char"));
     }
 
     #[test]
@@ -115,7 +116,7 @@ mod tests {
         assert_eq!(id.len(), 32);
         let result = ResourceId::validate_id(&id);
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("lowercase hex"));
+        assert!(result.unwrap_err().to_string().contains("lowercase hex"));
     }
 
     #[test]
@@ -167,6 +168,6 @@ mod tests {
         let id = "0123456789ABCDEF0123456789ABCDEF".to_string();
         let result = ResourceId::try_from(id);
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("lowercase hex"));
+        assert!(result.unwrap_err().to_string().contains("lowercase hex"));
     }
 }

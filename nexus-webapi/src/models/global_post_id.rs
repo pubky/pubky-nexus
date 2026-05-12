@@ -1,6 +1,7 @@
 use std::fmt;
 use std::ops::Deref;
 
+use crate::Error;
 use serde::de;
 use serde::Deserialize;
 use utoipa::ToSchema;
@@ -56,21 +57,22 @@ impl GlobalPostIds {
 }
 
 impl GlobalPostId {
-    fn validate(s: &str) -> Result<(), String> {
-        let (pubky_part, post_part) = s
-            .split_once(':')
-            .ok_or_else(|| "GlobalPostId must be in the format '{PubkyId}:{PostId}'".to_string())?;
+    fn validate(s: &str) -> Result<(), Error> {
+        let (pubky_part, post_part) = s.split_once(':').ok_or_else(|| {
+            Error::invalid_input("GlobalPostId must be in the format '{PubkyId}:{PostId}'")
+        })?;
 
-        PubkyId::try_from(pubky_part).map_err(|e| format!("Invalid PubkyId: {}", e))?;
+        PubkyId::try_from(pubky_part)
+            .map_err(|e| Error::invalid_input(&format!("Invalid PubkyId: {}", e)))?;
 
-        PostId::try_from(post_part.to_string()).map_err(|e| format!("Invalid PostId: {}", e))?;
+        PostId::try_from(post_part.to_string())?;
 
         Ok(())
     }
 }
 
 impl TryFrom<String> for GlobalPostId {
-    type Error = String;
+    type Error = Error;
 
     fn try_from(s: String) -> Result<Self, Self::Error> {
         Self::validate(&s)?;
@@ -117,14 +119,14 @@ mod tests {
             "operrr8wsbpr3ue9d4qj41ge1kcc6r7fdiy6o3ugjrrhi4y77rdo00000039YD9DP".to_string(),
         );
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("format"));
+        assert!(result.unwrap_err().to_string().contains("format"));
     }
 
     #[test]
     fn test_try_from_extra_separator() {
         let result = GlobalPostId::try_from("a:b:c".to_string());
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Invalid PubkyId"));
+        assert!(result.unwrap_err().to_string().contains("Invalid PubkyId"));
     }
 
     #[test]
@@ -132,7 +134,7 @@ mod tests {
         let id = "short:00000039YD9DP".to_string();
         let result = GlobalPostId::try_from(id);
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Invalid PubkyId"));
+        assert!(result.unwrap_err().to_string().contains("Invalid PubkyId"));
     }
 
     #[test]
@@ -140,7 +142,10 @@ mod tests {
         let id = format!("{}:short", valid_pubky_id());
         let result = GlobalPostId::try_from(id);
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Invalid PostId"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Invalid ID length"));
     }
 
     #[test]

@@ -1,6 +1,7 @@
 use std::fmt;
 use std::ops::Deref;
 
+use crate::Error;
 use base32::{decode, Alphabet};
 use serde::de;
 use serde::Deserialize;
@@ -38,16 +39,18 @@ impl<'de> Deserialize<'de> for PostId {
 impl PostId {
     /// Validates that the provided ID is a valid Crockford Base32-encoded timestamp,
     /// 13 characters long, and decodes to 8 bytes.
-    fn validate_id(id: &str) -> Result<(), String> {
+    fn validate_id(id: &str) -> Result<(), Error> {
         if id.len() != 13 {
-            return Err("Invalid ID length: must be 13 characters".into());
+            return Err(Error::invalid_input(
+                "Invalid ID length: must be 13 characters",
+            ));
         }
 
-        let decoded_bytes =
-            decode(Alphabet::Crockford, id).ok_or("Invalid Crockford Base32 encoding")?;
+        let decoded_bytes = decode(Alphabet::Crockford, id)
+            .ok_or_else(|| Error::invalid_input("Invalid Crockford Base32 encoding"))?;
 
         if decoded_bytes.len() != 8 {
-            return Err("Invalid ID length after decoding".into());
+            return Err(Error::invalid_input("Invalid ID length after decoding"));
         }
 
         Ok(())
@@ -55,7 +58,7 @@ impl PostId {
 }
 
 impl TryFrom<String> for PostId {
-    type Error = String;
+    type Error = Error;
 
     fn try_from(s: String) -> Result<Self, Self::Error> {
         Self::validate_id(&s)?;
@@ -83,7 +86,10 @@ mod tests {
     fn test_try_from_invalid_length_too_short() {
         let result = PostId::try_from("ABCDEFG".to_string());
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Invalid ID length"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Invalid ID length"));
     }
 
     #[test]
@@ -92,7 +98,10 @@ mod tests {
         assert_eq!(id.len(), 14);
         let result = PostId::try_from(id);
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Invalid ID length"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Invalid ID length"));
     }
 
     #[test]
@@ -101,6 +110,7 @@ mod tests {
         assert!(result.is_err());
         assert!(result
             .unwrap_err()
+            .to_string()
             .contains("Invalid Crockford Base32 encoding"));
     }
 
