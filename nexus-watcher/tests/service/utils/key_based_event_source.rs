@@ -1,5 +1,6 @@
 use std::collections::{HashMap, VecDeque};
-use std::sync::Mutex;
+
+use tokio::sync::Mutex;
 
 use nexus_common::models::event::EventProcessorError;
 use nexus_watcher::service::indexer::KeyBasedEventSource;
@@ -23,40 +24,40 @@ pub struct MockKeyBasedEventSource {
 }
 
 impl MockKeyBasedEventSource {
-    pub fn with_events(self, events: Vec<Vec<StreamEvent>>) -> Self {
-        *self.events.lock().unwrap() = events.into_iter().map(Ok).collect();
+    pub async fn with_events(self, events: Vec<Vec<StreamEvent>>) -> Self {
+        *self.events.lock().await = events.into_iter().map(Ok).collect();
         self
     }
 
-    pub fn with_results(self, results: Vec<FetchEventsResult>) -> Self {
-        *self.events.lock().unwrap() = results.into();
+    pub async fn with_results(self, results: Vec<FetchEventsResult>) -> Self {
+        *self.events.lock().await = results.into();
         self
     }
 
-    pub fn with_user_events(self, events: Vec<(String, Vec<StreamEvent>)>) -> Self {
-        *self.user_events.lock().unwrap() = events
+    pub async fn with_user_events(self, events: Vec<(String, Vec<StreamEvent>)>) -> Self {
+        *self.user_events.lock().await = events
             .into_iter()
             .map(|(user_id, events)| (user_id, Ok(events)))
             .collect();
         self
     }
 
-    pub fn with_user_results(self, results: Vec<(String, FetchEventsResult)>) -> Self {
-        *self.user_events.lock().unwrap() = results.into_iter().collect();
+    pub async fn with_user_results(self, results: Vec<(String, FetchEventsResult)>) -> Self {
+        *self.user_events.lock().await = results.into_iter().collect();
         self
     }
 
-    pub fn calls(&self) -> Vec<String> {
+    pub async fn calls(&self) -> Vec<String> {
         self.calls
             .lock()
-            .unwrap()
+            .await
             .iter()
             .map(|(user_id, _, _)| user_id.clone())
             .collect()
     }
 
-    pub fn call_details(&self) -> Vec<(String, u64, u16)> {
-        self.calls.lock().unwrap().clone()
+    pub async fn call_details(&self) -> Vec<(String, u64, u16)> {
+        self.calls.lock().await.clone()
     }
 }
 
@@ -72,16 +73,16 @@ impl KeyBasedEventSource for MockKeyBasedEventSource {
         let user_id = user_pk.z32();
         self.calls
             .lock()
-            .unwrap()
+            .await
             .push((user_id.clone(), cursor.id(), limit));
 
-        if let Some(events) = self.user_events.lock().unwrap().remove(&user_id) {
+        if let Some(events) = self.user_events.lock().await.remove(&user_id) {
             return events;
         }
 
         self.events
             .lock()
-            .unwrap()
+            .await
             .pop_front()
             .unwrap_or_else(|| Ok(Vec::new()))
     }
