@@ -146,10 +146,6 @@ impl PostStreamQuery {
         ))
     }
 
-    pub fn viewer_id_str(&self) -> Option<String> {
-        self.viewer_id.as_ref().map(|id| id.to_string())
-    }
-
     pub fn tags_as_strings(&self) -> Option<Vec<String>> {
         self.tags
             .as_ref()
@@ -200,7 +196,6 @@ pub async fn stream_posts_handler(
     query.initialize_defaults();
     let (source, sorting, order) = query.extract_stream_params()?;
     let include_attachment_metadata = query.include_attachment_metadata;
-    let viewer_id = query.viewer_id_str();
     let tags = query.tags_as_strings();
 
     match PostStream::get_posts(
@@ -208,7 +203,7 @@ pub async fn stream_posts_handler(
         query.pagination,
         order,
         sorting,
-        viewer_id,
+        query.viewer_id.as_deref(),
         tags,
         query.kind,
     )
@@ -297,10 +292,9 @@ pub async fn stream_posts_by_ids_handler(
         request.post_ids.0.len()
     );
 
-    let viewer_id = request.viewer_id.as_ref().map(|id| id.to_string());
     let post_ids = request.post_ids.into_string_vec();
 
-    match PostStream::from_listed_post_ids(viewer_id, &post_ids).await? {
+    match PostStream::from_listed_post_ids(request.viewer_id.as_deref(), &post_ids).await? {
         Some(stream) => Ok(Json(
             PostStreamDetailed::from_post_views(stream.0, request.include_attachment_metadata)
                 .await?,

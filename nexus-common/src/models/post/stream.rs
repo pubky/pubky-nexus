@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use super::{Bookmark, PostCounts, PostDetails, PostView};
 use crate::db::kv::{RedisResult, ScoreAction, SortOrder};
 use crate::db::{get_neo4j_graph, queries, GraphError, GraphResult, RedisOps};
@@ -117,7 +119,7 @@ impl PostStream {
         pagination: Pagination,
         order: SortOrder,
         sorting: StreamSorting,
-        viewer_id: Option<String>,
+        viewer_id: Option<&str>,
         tags: Option<Vec<String>>,
         kind: Option<PubkyAppPostKind>,
     ) -> ModelResult<Option<Self>> {
@@ -548,10 +550,10 @@ impl PostStream {
     }
 
     pub async fn from_listed_post_ids(
-        viewer_id: Option<String>,
+        viewer_id: Option<&str>,
         post_keys: &[String],
     ) -> ModelResult<Option<Self>> {
-        let viewer_id = viewer_id.map(|id| id.to_string());
+        let viewer_id = viewer_id.map(Arc::from);
         let mut handles = Vec::with_capacity(post_keys.len());
 
         for post_key in post_keys {
