@@ -102,7 +102,7 @@ impl Homeserver {
         Ok(())
     }
 
-    /// Returns all HS IDs with at least one active user, sorted by user count descending.  
+    /// Returns all HS IDs with at least one active user, sorted by user count descending.
     ///
     /// # Returns
     /// A list of active homeserver IDs.
@@ -128,7 +128,7 @@ mod tests {
         StackManager::setup(&StackConfig::default()).await?;
 
         let keys = Keypair::random();
-        let id = PubkyId::try_from(&keys.public_key().to_z32())?;
+        let id = PubkyId::from(keys.public_key());
 
         let hs = Homeserver::new(id.clone());
         hs.put_to_graph()
@@ -151,7 +151,7 @@ mod tests {
         StackManager::setup(&StackConfig::default()).await?;
 
         let keys = Keypair::random();
-        let id = PubkyId::try_from(&keys.public_key().to_z32())?;
+        let id = PubkyId::from(keys.public_key());
 
         let hs = Homeserver::new(id.clone());
         hs.put_to_index()

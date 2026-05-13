@@ -156,8 +156,7 @@ impl UserDetails {
             return Ok(());
         };
 
-        let pubky_id =
-            PubkyId::try_from(&user_pk.into_inner().to_z32()).map_err(ModelError::from_generic)?;
+        let pubky_id = PubkyId::from(user_pk);
         let user_details = Self::from_pubky(pubky_id);
 
         let hs_id = &hs_pk.into_inner().to_z32();
