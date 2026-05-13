@@ -107,7 +107,7 @@ pub async fn handle_del_event(event: &Event) -> Result<(), EventProcessorError> 
         Resource::Bookmark(bookmark_id) => {
             handlers::bookmark::del(user_id, bookmark_id.clone()).await?
         }
-        Resource::Tag(tag_id) => handlers::tag::del(user_id, tag_id.clone()).await?,
+        Resource::Tag(_) => handlers::tag::del(&event.uri).await?,
         Resource::File(file_id) => {
             handlers::file::del(&user_id, file_id.clone(), event.files_path.clone()).await?
         }

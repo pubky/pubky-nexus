@@ -22,6 +22,13 @@ use tracing::debug;
 
 use super::utils::post_relationships_is_reply;
 
+#[derive(Debug)]
+struct TagStorageUri {
+    user_id: PubkyId,
+    tag_id: String,
+    app: Option<String>,
+}
+
 #[tracing::instrument(name = "tag.put", skip_all, fields(user_id = %tagger_id, tag_id = %tag_id))]
 pub async fn sync_put(
     tag: PubkyAppTag,
@@ -392,15 +399,51 @@ async fn put_sync_user(
     }
 }
 
-#[tracing::instrument(name = "tag.del", skip_all, fields(user_id = %user_id, tag_id = %tag_id))]
-pub async fn del(user_id: PubkyId, tag_id: String) -> Result<(), EventProcessorError> {
-    debug!("Deleting tag: {} -> {}", user_id, tag_id);
+#[tracing::instrument(name = "tag.del", skip_all, fields(tag_uri = %tag_uri))]
+pub async fn del(tag_uri: &str) -> Result<(), EventProcessorError> {
+    let tag_storage_uri = parse_tag_storage_uri(tag_uri)?;
+    // Prefix these vars with arg_ to indicate they were extracted from the argument tag URI
+    // Similarly named vars will be used in Step 2 below, reading fields from the query result
+    let arg_user_id = tag_storage_uri.user_id;
+    let arg_tag_id = tag_storage_uri.tag_id;
+    let arg_app = tag_storage_uri.app;
+
+    debug!("Deleting tag: {arg_user_id} -> {arg_tag_id} (app={arg_app:?})");
 
     // 1. Read target from graph WITHOUT deleting the edge
-    let Some(row) = fetch_row_from_graph(queries::get::get_tag_target(&user_id, &tag_id)).await?
-    else {
-        // Edge already gone (fully completed on a prior attempt) — idempotent no-op
-        return Ok(());
+    let row = match fetch_row_from_graph(queries::get::get_tag_target(
+        &arg_user_id,
+        &arg_tag_id,
+        arg_app.as_deref(),
+    ))
+    .await?
+    {
+        Some(row) => row,
+        None if arg_app.is_some() => {
+            // App-specific tags that target known Pubky resources are indexed
+            // through the standard Post/User tag flow, where TAGGED has no app.
+            let Some(row) = fetch_row_from_graph(queries::get::get_tag_target(
+                &arg_user_id,
+                &arg_tag_id,
+                None,
+            ))
+            .await?
+            else {
+                // Edge already gone (fully completed on a prior attempt) - idempotent no-op
+                return Ok(());
+            };
+
+            let resource_id: Option<String> = row.get("resource_id").unwrap_or(None);
+            if resource_id.is_some() {
+                return Ok(());
+            }
+
+            row
+        }
+        None => {
+            // Edge already gone (fully completed on a prior attempt) - idempotent no-op
+            return Ok(());
+        }
     };
 
     let tagged_user_id: Option<String> = row.get("user_id").unwrap_or(None);
@@ -416,18 +459,18 @@ pub async fn del(user_id: PubkyId, tag_id: String) -> Result<(), EventProcessorE
     match (tagged_user_id, post_id, author_id, resource_id) {
         (Some(tagged_id), None, None, None) => {
             let tagger_in_index =
-                TagUser::check_set_member(&[&tagged_id, &label], user_id.as_ref())
+                TagUser::check_set_member(&[&tagged_id, &label], arg_user_id.as_ref())
                     .await?
                     .1;
-            del_sync_user(user_id.clone(), &tagged_id, &label, tagger_in_index).await?;
+            del_sync_user(arg_user_id.clone(), &tagged_id, &label, tagger_in_index).await?;
         }
         (None, Some(post_id), Some(author_id), None) => {
             let tagger_in_index =
-                TagPost::check_set_member(&[&author_id, &post_id, &label], user_id.as_ref())
+                TagPost::check_set_member(&[&author_id, &post_id, &label], arg_user_id.as_ref())
                     .await?
                     .1;
             del_sync_post(
-                user_id.clone(),
+                arg_user_id.clone(),
                 &post_id,
                 &author_id,
                 &label,
@@ -436,7 +479,7 @@ pub async fn del(user_id: PubkyId, tag_id: String) -> Result<(), EventProcessorE
             .await?;
         }
         (None, None, None, Some(res_id)) => {
-            del_sync_resource(user_id.clone(), &res_id, &label, app.as_deref()).await?;
+            del_sync_resource(arg_user_id.clone(), &res_id, &label, app.as_deref()).await?;
         }
         _ => {
             debug!("DEL-Tag: Unexpected combination of tag details");
@@ -444,9 +487,42 @@ pub async fn del(user_id: PubkyId, tag_id: String) -> Result<(), EventProcessorE
     }
 
     // 3. Graph deletion LAST — ensures data survives for retry if Redis ops fail
-    fetch_row_from_graph(queries::del::delete_tag(&user_id, &tag_id, app.as_deref())).await?;
+    fetch_row_from_graph(queries::del::delete_tag(
+        &arg_user_id,
+        &arg_tag_id,
+        app.as_deref(),
+    ))
+    .await?;
 
     Ok(())
+}
+
+pub fn is_tag_storage_uri(tag_uri: &str) -> bool {
+    parse_tag_storage_uri(tag_uri).is_ok()
+}
+
+fn parse_tag_storage_uri(tag_uri: &str) -> Result<TagStorageUri, EventProcessorError> {
+    if let Ok(parsed_uri) = ParsedUri::try_from(tag_uri) {
+        return match parsed_uri.resource {
+            Resource::Tag(tag_id) => Ok(TagStorageUri {
+                user_id: parsed_uri.user_id,
+                tag_id,
+                app: None,
+            }),
+            other => Err(EventProcessorError::generic(format!(
+                "Expected tag URI, found resource: {other:?}"
+            ))),
+        };
+    }
+
+    let info = super::universal_tag::try_parse_app_tag_path(tag_uri)
+        .ok_or_else(|| EventProcessorError::generic(format!("Invalid tag URI: {tag_uri}")))?;
+
+    Ok(TagStorageUri {
+        user_id: info.user_id,
+        tag_id: info.tag_id,
+        app: Some(info.app),
+    })
 }
 
 async fn del_sync_user(
