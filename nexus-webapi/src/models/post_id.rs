@@ -2,7 +2,7 @@ use std::fmt;
 use std::ops::Deref;
 
 use crate::Error;
-use base32::{decode, Alphabet};
+use pubky_app_specs::validate_crockford_id;
 use serde::de;
 use serde::Deserialize;
 use utoipa::ToSchema;
@@ -40,19 +40,7 @@ impl PostId {
     /// Validates that the provided ID is a valid Crockford Base32-encoded timestamp,
     /// 13 characters long, and decodes to 8 bytes.
     fn validate_id(id: &str) -> Result<(), Error> {
-        if id.len() != 13 {
-            return Err(Error::invalid_input(
-                "Invalid ID length: must be 13 characters",
-            ));
-        }
-
-        let decoded_bytes = decode(Alphabet::Crockford, id)
-            .ok_or_else(|| Error::invalid_input("Invalid Crockford Base32 encoding"))?;
-
-        if decoded_bytes.len() != 8 {
-            return Err(Error::invalid_input("Invalid ID length after decoding"));
-        }
-
+        validate_crockford_id(id).map_err(|e| Error::invalid_input(&e))?;
         Ok(())
     }
 }
