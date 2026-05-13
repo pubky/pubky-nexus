@@ -1,14 +1,17 @@
 use std::path::PathBuf;
 
 use axum::{
-    extract::{Path, Query, Request, State},
+    extract::{Query, Request, State},
     response::Response,
 };
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use tower_http::services::fs::ServeFileSystemResponseBody;
 use tracing::{debug, error};
 use utoipa::OpenApi;
 
+use super::endpoints::STATIC_FILES_ROUTE;
+use crate::models::PubkyId;
+use crate::routes::Path;
 use crate::routes::{r#static::PubkyServeDir, AppState};
 use crate::{Error, Result};
 use nexus_common::{
@@ -19,17 +22,15 @@ use nexus_common::{
     },
 };
 
-use super::endpoints::STATIC_FILES_ROUTE;
-
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize)]
 pub struct FileParams {
     // dl is download parameter to set the content-disposition header to attachment
     dl: Option<String>,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize)]
 pub struct FilePath {
-    owner_id: String,
+    owner_id: PubkyId,
     file_id: String,
     variant: FileVariant,
 }
@@ -45,7 +46,7 @@ pub struct FilePath {
     description = "Serves a static file by owner_id, file_id and variant",
     tag = "File",
     params(
-        ("owner_id" = String, Path, description = "File's owner id"),
+        ("owner_id" = PubkyId, Path, description = "File's owner id"),
         ("file_id" = String, Path, description = "File's id"),
         ("variant" = FileVariant, Path, description = "File's variant"),
         ("dl" = Option<String>, Query, description = "Download the file. Returns with content-disposition header set to attachment")
@@ -73,13 +74,12 @@ pub async fn static_files_handler(
 
     let file_path: &PathBuf = &app_state.files_path;
 
-    let files = FileDetails::get_by_ids(
-        vec![vec![owner_id.as_str(), file_id.as_str()].as_slice()].as_slice(),
-    )
-    .await
-    .inspect_err(|_| {
-        error!("Error while fetching file details for user: {owner_id} and file: {file_id}")
-    })?;
+    let files =
+        FileDetails::get_by_ids(vec![vec![&*owner_id, file_id.as_str()].as_slice()].as_slice())
+            .await
+            .inspect_err(|_| {
+                error!("Error while fetching file details for user: {owner_id} and file: {file_id}")
+            })?;
 
     if files.is_empty() {
         return Err(Error::FileNotFound {});
@@ -140,5 +140,5 @@ pub async fn static_files_handler(
 }
 
 #[derive(OpenApi)]
-#[openapi(paths(static_files_handler), components(schemas(FileVariant)))]
+#[openapi(paths(static_files_handler), components(schemas(FileVariant, PubkyId)))]
 pub struct StaticFileApiDoc;

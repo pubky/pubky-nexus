@@ -459,14 +459,14 @@ pub async fn del(tag_uri: &str) -> Result<(), EventProcessorError> {
     match (tagged_user_id, post_id, author_id, resource_id) {
         (Some(tagged_id), None, None, None) => {
             let tagger_in_index =
-                TagUser::check_set_member(&[&tagged_id, &label], arg_user_id.as_str())
+                TagUser::check_set_member(&[&tagged_id, &label], arg_user_id.as_ref())
                     .await?
                     .1;
             del_sync_user(arg_user_id.clone(), &tagged_id, &label, tagger_in_index).await?;
         }
         (None, Some(post_id), Some(author_id), None) => {
             let tagger_in_index =
-                TagPost::check_set_member(&[&author_id, &post_id, &label], arg_user_id.as_str())
+                TagPost::check_set_member(&[&author_id, &post_id, &label], arg_user_id.as_ref())
                     .await?
                     .1;
             del_sync_post(

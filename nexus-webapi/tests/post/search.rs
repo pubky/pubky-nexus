@@ -6,7 +6,7 @@ use crate::{stream::post::TAG_LABEL_2, utils::get_request};
 
 const POST_A: &str = "2VDW8YBDZJ02";
 const POST_B: &str = "1TDV7XBCF4M1";
-const POST_C: &str = "HC3T5CEPBPHQ";
+const POST_C: &str = "HC3T5CEPBPHQQ";
 
 pub fn format_search_posts_by_tag(tag: &str) -> String {
     SEARCH_POSTS_BY_TAG_ROUTE.replace("{tag}", tag)

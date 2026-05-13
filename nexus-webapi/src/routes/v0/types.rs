@@ -1,3 +1,4 @@
+use crate::models::PubkyId;
 use nexus_common::models::tag::Taggers;
 use serde::de::{self, Deserializer};
 use serde::{Deserialize, Serialize};
@@ -8,7 +9,7 @@ pub struct TagsQuery {
     pub limit_tags: Option<usize>,
     pub skip_tags: Option<usize>,
     pub limit_taggers: Option<usize>,
-    pub viewer_id: Option<String>,
+    pub viewer_id: Option<PubkyId>,
     #[serde(default, deserialize_with = "parse_string_to_u8")]
     pub depth: Option<u8>,
 }

@@ -3195,6 +3195,7 @@ dependencies = [
  "anyhow",
  "axum",
  "axum-server",
+ "base32",
  "chrono",
  "clap",
  "const_format",
@@ -4150,7 +4151,7 @@ dependencies = [
 [[package]]
 name = "pubky-app-specs"
 version = "0.4.4"
-source = "git+https://github.com/pubky/pubky-app-specs.git?rev=b1620fd1b98b1665abd07ba3dd208a295da528d1#b1620fd1b98b1665abd07ba3dd208a295da528d1"
+source = "git+https://github.com/pubky/pubky-app-specs.git?rev=dee19e94b84e2a689791bcac791417af62e04a58#dee19e94b84e2a689791bcac791417af62e04a58"
 dependencies = [
  "base32",
  "blake3",

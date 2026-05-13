@@ -1,3 +1,4 @@
+use crate::models::{ErrorResponsePayload, PostId, PubkyId, ResourceId};
 use axum::http::header::InvalidHeaderValue;
 use axum::http::uri::InvalidUri;
 use axum::http::StatusCode;
@@ -14,13 +15,14 @@ pub type Result<T> = core::result::Result<T, Error>;
 #[derive(Error, Debug)]
 pub enum Error {
     #[error("User not found: {user_id}")]
-    UserNotFound { user_id: String },
+    UserNotFound { user_id: Box<PubkyId> },
     #[error("Post not found: {author_id} {post_id}")]
-    PostNotFound { author_id: String, post_id: String },
+    PostNotFound {
+        author_id: Box<PubkyId>,
+        post_id: PostId,
+    },
     #[error("Internal server error: {source}")]
     InternalServerError { source: DynError },
-    #[error("Bookmarks not found: {user_id}")]
-    BookmarksNotFound { user_id: String },
     #[error("Tags not found")]
     TagsNotFound { reach: String },
     #[error("Invalid input: {message}")]
@@ -28,9 +30,12 @@ pub enum Error {
     #[error("File not found.")]
     FileNotFound {},
     #[error("Tag {tag_id} of {tagger_id} not found")]
-    TagNotFound { tag_id: String, tagger_id: String },
+    TagNotFound {
+        tag_id: String,
+        tagger_id: Box<PubkyId>,
+    },
     #[error("Resource not found: {resource_id}")]
-    ResourceNotFound { resource_id: String },
+    ResourceNotFound { resource_id: ResourceId },
     // Add other custom errors here
 }
 
@@ -38,6 +43,30 @@ impl Error {
     pub fn invalid_input(message: &str) -> Self {
         Error::InvalidInput {
             message: message.to_string(),
+        }
+    }
+
+    pub fn resource_not_found(resource_id: ResourceId) -> Self {
+        Error::ResourceNotFound { resource_id }
+    }
+
+    pub fn user_not_found(user_id: PubkyId) -> Self {
+        Error::UserNotFound {
+            user_id: Box::new(user_id),
+        }
+    }
+
+    pub fn post_not_found(author_id: PubkyId, post_id: PostId) -> Self {
+        Error::PostNotFound {
+            author_id: Box::new(author_id),
+            post_id,
+        }
+    }
+
+    pub fn tag_not_found(tag_id: String, tagger_id: PubkyId) -> Self {
+        Error::TagNotFound {
+            tag_id,
+            tagger_id: Box::new(tagger_id),
         }
     }
 }
@@ -95,7 +124,6 @@ impl IntoResponse for Error {
             Error::UserNotFound { .. } => StatusCode::NOT_FOUND,
             Error::PostNotFound { .. } => StatusCode::NOT_FOUND,
             Error::FileNotFound { .. } => StatusCode::NOT_FOUND,
-            Error::BookmarksNotFound { .. } => StatusCode::NOT_FOUND,
             Error::TagsNotFound { .. } => StatusCode::NOT_FOUND,
             Error::InvalidInput { .. } => StatusCode::BAD_REQUEST,
             Error::InternalServerError { .. } => StatusCode::INTERNAL_SERVER_ERROR,
@@ -113,9 +141,6 @@ impl IntoResponse for Error {
             Error::FileNotFound {} => {
                 error!("File not found.")
             }
-            Error::BookmarksNotFound { user_id } => {
-                error!("Bookmarks not found: {}", user_id)
-            }
             Error::TagsNotFound { reach } => {
                 error!("Tags not found: {}", reach)
             }
@@ -131,10 +156,8 @@ impl IntoResponse for Error {
             Error::InternalServerError { source } => error!("Internal server error: {:?}", source),
         };
 
-        let body = serde_json::json!({
-            "error": self.to_string()
-        });
+        let body = ErrorResponsePayload::new(self.to_string());
 
-        (status_code, axum::Json(body)).into_response()
+        (status_code, body).into_response()
     }
 }
