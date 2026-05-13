@@ -38,6 +38,9 @@ impl KeyBasedEventSource for PubkyKeyBasedEventSource {
         limit: u16,
     ) -> Result<Vec<StreamEvent>, EventProcessorError> {
         let pubky = PubkyConnector::get()?;
+
+        // We are building the stream without the live flag, so it performs an HTTP GET and closes.
+        // See rustdoc of EventStreamBuilder::live()
         let mut stream = pubky
             .event_stream_for(hs_pk)
             .add_users(vec![(user_pk, Some(cursor))])?
