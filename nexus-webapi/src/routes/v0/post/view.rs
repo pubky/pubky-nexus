@@ -61,7 +61,7 @@ pub async fn post_view_handler(
     match PostViewDetailed::get_by_id(
         &author_id,
         &post_id,
-        query.viewer_id.as_ref().map(|v| v.as_ref()),
+        query.viewer_id.as_deref(),
         query.limit_tags,
         query.limit_taggers,
         query.include_attachment_metadata,

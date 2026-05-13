@@ -54,7 +54,7 @@ pub async fn post_tags_handler(
         query.skip_tags,
         query.limit_tags,
         query.limit_taggers,
-        query.viewer_id.as_ref().map(|v| v.as_ref()),
+        query.viewer_id.as_deref(),
         None, // Avoid by default WoT tags in a Post
     )
     .await?

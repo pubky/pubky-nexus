@@ -41,13 +41,7 @@ pub async fn user_view_handler(
         user_id, query.viewer_id, query.depth
     );
 
-    match UserView::get_by_id(
-        &user_id,
-        query.viewer_id.as_ref().map(|v| v.as_ref()),
-        query.depth,
-    )
-    .await?
-    {
+    match UserView::get_by_id(&user_id, query.viewer_id.as_deref(), query.depth).await? {
         Some(user) => Ok(Json(user)),
         None => Err(Error::user_not_found(user_id)),
     }

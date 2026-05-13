@@ -72,7 +72,7 @@ pub async fn resource_tags_handler(
         query.skip_tags,
         query.limit_tags,
         query.limit_taggers,
-        query.viewer_id.as_ref().map(|v| v.as_ref()),
+        query.viewer_id.as_deref(),
         query.depth,
     )
     .await?
@@ -123,7 +123,7 @@ pub async fn resource_by_uri_handler(
         query.tags_query.skip_tags,
         query.tags_query.limit_tags,
         query.tags_query.limit_taggers,
-        query.tags_query.viewer_id.as_ref().map(|v| v.as_ref()),
+        query.tags_query.viewer_id.as_deref(),
         query.tags_query.depth,
     )
     .await?
