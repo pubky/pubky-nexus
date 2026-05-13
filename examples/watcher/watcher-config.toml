@@ -1,6 +1,7 @@
 testnet = false
 homeserver = "8um71us3fyw6h8wbcxb5ar3rwusy1a6u49956ikzojg3gcwd1dty"
 events_limit = 50
+key_based_events_limit = 50
 watcher_sleep = 5000
 hs_resolver_sleep = 10000
 # Initial backoff duration (in seconds) after the first failure of a homeserver

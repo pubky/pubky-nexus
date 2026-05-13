@@ -28,6 +28,13 @@ pub enum EventProcessorError {
     #[error("InvalidEventLine: {0}")]
     InvalidEventLine(String),
 
+    #[error("HS returned an event for different user than expected: hs_id={hs_id}, expected={expected_user_id}, received={event_user_id}")]
+    UserIdMismatch {
+        hs_id: String,
+        expected_user_id: String,
+        event_user_id: String,
+    },
+
     /// The Pubky client could not resolve the pubky
     #[error("PubkyClientError: {0}")]
     PubkyClientError(#[from] PubkyClientError),
@@ -139,14 +146,13 @@ impl EventProcessorError {
     /// Default is **retryable**: when in doubt we enqueue rather than drop, since
     /// `max_retries` bounds the waste on a misclassified deterministic error,
     /// while silently dropping a misclassified transient error loses data outright.
-    /// Only variants we know to be deterministic at conversion time
-    /// (`InvalidEventLine`, `SkipIndexing`, and the dead-letter `PubkyClientError`
-    /// kinds — `ParseFailed` / `AuthenticationFailed` / `BuildFailed` / 404) opt out.
+    /// Only variants we know to be deterministic at conversion time opt out.
     pub fn is_retryable(&self) -> bool {
         match self {
             Self::PubkyClientError(err) => err.is_retryable(),
             Self::InvalidEventLine(_) => false,
             Self::SkipIndexing => false,
+            Self::UserIdMismatch { .. } => false,
             _ => true,
         }
     }

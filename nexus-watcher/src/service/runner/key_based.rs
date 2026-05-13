@@ -2,7 +2,9 @@ use super::TEventProcessorRunner;
 use crate::events::retry::RetryScheduler;
 use crate::events::{DefaultEventHandler, EventHandler, Moderation};
 use crate::service::backoff::HomeserverBackoff;
-use crate::service::indexer::{KeyBasedEventProcessor, TEventProcessor};
+use crate::service::indexer::{
+    KeyBasedEventProcessor, KeyBasedEventSource, PubkyKeyBasedEventSource, TEventProcessor,
+};
 use crate::service::stats::{ProcessedStats, ProcessorRunStatus, RunAllProcessorsStats};
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::types::DynError;
@@ -15,17 +17,23 @@ use tracing::{debug, info, warn};
 
 /// Runner for [KeyBasedEventProcessor]
 pub struct KeyBasedEventProcessorRunner {
-    /// See [WatcherConfig::events_limit]
-    pub limit: u32,
+    /// See [WatcherConfig::key_based_events_limit]
+    pub limit: u16,
+
     /// See [WatcherConfig::monitored_homeservers_limit]
     pub monitored_hs_limit: usize,
+
     pub files_path: PathBuf,
     pub event_handler: Arc<dyn EventHandler>,
+    pub event_source: Arc<dyn KeyBasedEventSource>,
     pub shutdown_rx: Receiver<bool>,
+
     /// Default homeserver ID, excluded from the external targets list
     pub default_homeserver: PubkyId,
+
     /// Per-target exponential backoff state
     pub backoff: Mutex<HomeserverBackoff>,
+
     /// Scheduler shared with every processor this runner builds
     pub retry_scheduler: Arc<RetryScheduler>,
 }
@@ -34,10 +42,11 @@ impl KeyBasedEventProcessorRunner {
     /// Creates a new instance from the provided configuration
     pub fn from_config(config: &WatcherConfig, shutdown_rx: Receiver<bool>) -> Self {
         Self {
-            limit: config.events_limit,
+            limit: config.key_based_events_limit,
             monitored_hs_limit: config.monitored_homeservers_limit,
             files_path: config.stack.files_path.clone(),
             event_handler: Arc::new(DefaultEventHandler::new(Moderation::from_config(config))),
+            event_source: Arc::new(PubkyKeyBasedEventSource),
             shutdown_rx,
             default_homeserver: config.homeserver.clone(),
             backoff: Mutex::new(HomeserverBackoff::new(
@@ -79,9 +88,12 @@ impl TEventProcessorRunner for KeyBasedEventProcessorRunner {
 
         Ok(Arc::new(KeyBasedEventProcessor {
             homeserver,
+            limit: self.limit,
             files_path: self.files_path.clone(),
             event_handler: self.event_handler.clone(),
+            event_source: self.event_source.clone(),
             retry_scheduler: self.retry_scheduler.clone(),
+            shutdown_rx: self.shutdown_rx.clone(),
         }))
     }
 
