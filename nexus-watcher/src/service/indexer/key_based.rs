@@ -163,6 +163,7 @@ impl KeyBasedEventProcessor {
                 error!("Invalid user public key '{user_id}' on HS {hs_id}, skipping");
                 continue;
             };
+            // TODO Batch fetch cursors from Redis, when many users share a non-default homeserver.
             let cursor = Self::read_user_cursor(user_id, hs_id).await?;
             users.push((user_pk, cursor));
         }
