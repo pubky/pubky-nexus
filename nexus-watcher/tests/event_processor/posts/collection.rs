@@ -169,7 +169,7 @@ async fn test_tag_on_collection_indexes_graph_skips_by_tag_stream() -> Result<()
         "Watcher:Collection:TagOnCollection:Tagger",
         "tag_on_collection_tagger",
     );
-    let tagger_id = test.create_user(&tagger_kp, &tagger).await?;
+    let _tagger_id = test.create_user(&tagger_kp, &tagger).await?;
 
     let post = collection_post(
         "Interesting reads",
@@ -200,7 +200,9 @@ async fn test_tag_on_collection_indexes_graph_skips_by_tag_stream() -> Result<()
     test.put(&tagger_kp, &tag_path, tag).await?;
 
     // Assertion 1: the TAGGED edge exists in the graph (normal tag indexing).
-    let post_tag = find_post_tag(&tagger_id, &post_id, label).await.unwrap();
+    // `find_post_tag`'s Cypher matches the AUTHOR of the tagged post (not the
+    // tagger), so pass author_id here.
+    let post_tag = find_post_tag(&author_id, &post_id, label).await.unwrap();
     assert!(
         post_tag.is_some(),
         "TAGGED edge must exist in the graph after PUT"
