@@ -1,12 +1,15 @@
 use anyhow::Result;
+use chrono::Utc;
 use pubky::Keypair;
+use pubky_app_specs::{post_uri_builder, PubkyAppTag};
 
 use super::utils::{
     check_member_global_timeline_user_post, check_member_total_engagement_user_posts,
     check_member_user_post_timeline, collection_post, find_post_counts, find_post_details,
     test_user,
 };
-use crate::event_processor::utils::watcher::WatcherTest;
+use crate::event_processor::tags::utils::{check_member_post_tag_global_timeline, find_post_tag};
+use crate::event_processor::utils::watcher::{HomeserverHashIdPath, WatcherTest};
 
 /// PUT a `kind=collection` post and confirm:
 /// - the graph node exists with `kind="collection"`,
@@ -138,6 +141,86 @@ async fn test_edit_collection_post_keeps_streams_suppressed() -> Result<()> {
 
     test.cleanup_post(&user_kp, &post_path).await?;
     test.cleanup_user(&user_kp).await?;
+    Ok(())
+}
+
+/// Tagging a Collection — a second user adds a tag to someone else's
+/// collection. The Phase-3 invariant: the graph TAGGED edge is created
+/// normally (so the tag is discoverable via the post's tag list), but
+/// the by-tag *stream* (`PostsByTagSearch`) must NOT include the
+/// collection (collections never appear in `?tags=LABEL` results, even
+/// when tagged). This is the load-bearing assertion for the
+/// `target_post_is_collection` gate in `nexus-watcher/.../tag.rs`.
+#[tokio_shared_rt::test(shared)]
+async fn test_tag_on_collection_indexes_graph_skips_by_tag_stream() -> Result<()> {
+    let mut test = WatcherTest::setup().await?;
+
+    // Author: creates the collection.
+    let author_kp = Keypair::random();
+    let author = test_user(
+        "Watcher:Collection:TagOnCollection:Author",
+        "tag_on_collection_author",
+    );
+    let author_id = test.create_user(&author_kp, &author).await?;
+
+    // Tagger: a different user who will tag the collection.
+    let tagger_kp = Keypair::random();
+    let tagger = test_user(
+        "Watcher:Collection:TagOnCollection:Tagger",
+        "tag_on_collection_tagger",
+    );
+    let tagger_id = test.create_user(&tagger_kp, &tagger).await?;
+
+    let post = collection_post(
+        "Interesting reads",
+        Some("Worth bookmarking"),
+        vec![format!(
+            "pubky://{author_id}/pub/pubky.app/posts/0034A0X7NJ52A"
+        )],
+    );
+    let (post_id, post_path) = test.create_post(&author_kp, &post).await?;
+
+    // Pre-condition: collection is not in the by-tag stream (no tag yet).
+    let label = "interesting";
+    let post_key: &[&str] = &[&author_id, &post_id];
+    assert!(
+        check_member_post_tag_global_timeline(post_key, label)
+            .await?
+            .is_none(),
+        "pre-condition: tag should not exist yet"
+    );
+
+    // Tagger PUTs the tag.
+    let tag = PubkyAppTag {
+        uri: post_uri_builder(author_id.to_string(), post_id.clone()),
+        label: label.to_string(),
+        created_at: Utc::now().timestamp_millis(),
+    };
+    let tag_path = tag.hs_path();
+    test.put(&tagger_kp, &tag_path, tag).await?;
+
+    // Assertion 1: the TAGGED edge exists in the graph (normal tag indexing).
+    let post_tag = find_post_tag(&tagger_id, &post_id, label).await.unwrap();
+    assert!(
+        post_tag.is_some(),
+        "TAGGED edge must exist in the graph after PUT"
+    );
+
+    // Assertion 2: the collection is NOT in the by-tag stream
+    // (`PostsByTagSearch` / `TAG_GLOBAL_POST_TIMELINE` sorted set).
+    // This is the Phase-3 gate at `tag.rs`: when target_post_is_collection
+    // returns true, we skip `PostsByTagSearch::put_to_index`.
+    assert!(
+        check_member_post_tag_global_timeline(post_key, label)
+            .await?
+            .is_none(),
+        "collection MUST NOT appear in by-tag stream, even when tagged"
+    );
+
+    test.del(&tagger_kp, &tag_path).await?;
+    test.cleanup_post(&author_kp, &post_path).await?;
+    test.cleanup_user(&author_kp).await?;
+    test.cleanup_user(&tagger_kp).await?;
     Ok(())
 }
 

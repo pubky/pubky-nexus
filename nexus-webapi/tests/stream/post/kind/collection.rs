@@ -103,3 +103,63 @@ async fn test_profile_collections_tab() -> Result<()> {
 
     Ok(())
 }
+
+/// Hot stream (`?sorting=total_engagement`) is suppression invariant #4:
+/// collections must never appear in the engagement-ordered timeline, even
+/// once they accumulate tags / replies / reposts. The gate lives in
+/// `nexus-common/src/models/post/counts.rs` where collections are excluded
+/// from the engagement sorted set entirely (the read path falls back to
+/// Cypher with the `p.kind <> 'collection'` clause).
+#[tokio_shared_rt::test(shared)]
+async fn test_hot_stream_excludes_collections() -> Result<()> {
+    let path = format!("{ROOT_PATH}?source=all&sorting=total_engagement&limit=200");
+    let body = get_request(&path).await?;
+
+    let ids = ids_in(&body);
+    for collection_id in &[COL_BOGOTA_1, COL_BOGOTA_2, COL_CAIRO] {
+        assert!(
+            !ids.iter().any(|id| id == collection_id),
+            "collection {collection_id} leaked into the hot/engagement stream"
+        );
+    }
+
+    // Also: no returned post should carry kind="collection".
+    for post in body.as_array().unwrap() {
+        assert_ne!(
+            post["details"]["kind"].as_str(),
+            Some("collection"),
+            "collection kind leaked into the hot/engagement stream: {:?}",
+            post["details"]["id"]
+        );
+    }
+
+    Ok(())
+}
+
+/// By-tag stream (`?tags=LABEL`) is suppression invariant #5: even if a
+/// collection has been tagged, it must not appear in by-tag streams. The
+/// gate lives in `nexus-watcher/src/events/handlers/tag.rs` where
+/// `PostsByTagSearch::put_to_index` is skipped when the target post is a
+/// collection (extracted helper `target_post_is_collection`).
+///
+/// This is a regression guard: collections in the seed data are NOT
+/// currently tagged, so no collection should ever appear in a by-tag
+/// stream. If a future change accidentally indexes a collection-tag
+/// relationship in the by-tag sorted set, this test catches it.
+#[tokio_shared_rt::test(shared)]
+async fn test_by_tag_stream_excludes_collections() -> Result<()> {
+    // Use a tag label that exists in seed data for non-collection posts.
+    let path = format!("{ROOT_PATH}?source=all&tags=api&limit=200");
+    let body = get_request(&path).await?;
+
+    for post in body.as_array().unwrap() {
+        assert_ne!(
+            post["details"]["kind"].as_str(),
+            Some("collection"),
+            "collection leaked into the ?tags=api by-tag stream: {:?}",
+            post["details"]["id"]
+        );
+    }
+
+    Ok(())
+}
