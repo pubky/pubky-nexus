@@ -202,6 +202,24 @@ async fn put_sync_resource(
 /// - `post_uri` - A `String` representing the homeserver URI of the tagged post.
 /// - `indexed_at` - A 64-bit integer representing the timestamp when the post was indexed.
 ///
+/// Returns `true` if the post at `(author_id, post_id)` is a Collection.
+///
+/// Only called from the `Updated` and `CreatedOrDeleted` arms of
+/// `put_sync_post` — never from `MissingDependency`, which returns early
+/// before any index writes — so the lookup cost never lands on the retry
+/// path. Returns `false` if the post isn't indexed yet (e.g. a tag-on-
+/// non-existent-post race), which is the safe default: indexing the tag
+/// in the by-tag stream is the standard behavior for unknown targets.
+async fn target_post_is_collection(
+    author_id: &PubkyId,
+    post_id: &str,
+) -> Result<bool, EventProcessorError> {
+    Ok(PostDetails::get_by_id(author_id, post_id)
+        .await?
+        .map(|d| matches!(d.kind, PubkyAppPostKind::Collection))
+        .unwrap_or(false))
+}
+
 async fn put_sync_post(
     tagger_user_id: PubkyId,
     author_id: PubkyId,
@@ -222,15 +240,11 @@ async fn put_sync_post(
     .await?
     {
         OperationOutcome::Updated => {
-            // Look up the target post's kind so we can skip the by-tag search
-            // index for collections (collections don't appear in by-tag streams
-            // unless callers explicitly request `?kind=collection`). Done here
-            // (not before the match) so the `MissingDependency` arm — which
-            // never reaches the index writes — doesn't pay for an extra lookup.
-            let target_is_collection = PostDetails::get_by_id(&author_id, post_id)
-                .await?
-                .map(|d| matches!(d.kind, PubkyAppPostKind::Collection))
-                .unwrap_or(false);
+            // Skip the by-tag search index for collections (they don't appear
+            // in by-tag streams unless callers explicitly request
+            // `?kind=collection`). Done after the match so the
+            // `MissingDependency` arm doesn't pay for the lookup.
+            let target_is_collection = target_post_is_collection(&author_id, post_id).await?;
 
             // Re-run idempotent ops to recover from partial failure (graph wrote, Redis didn't)
             let tag_label_slice = &[tag_label.to_string()];
@@ -261,12 +275,8 @@ async fn put_sync_post(
             Err(EventProcessorError::MissingDependency { dependency })
         }
         OperationOutcome::CreatedOrDeleted => {
-            // Look up target kind once per CreatedOrDeleted (see the matching
-            // comment in the `Updated` arm). Skipped in `MissingDependency`.
-            let target_is_collection = PostDetails::get_by_id(&author_id, post_id)
-                .await?
-                .map(|d| matches!(d.kind, PubkyAppPostKind::Collection))
-                .unwrap_or(false);
+            // See the matching comment in the `Updated` arm.
+            let target_is_collection = target_post_is_collection(&author_id, post_id).await?;
 
             // SAVE TO INDEXES
             let post_key_slice: &[&str] = &[&author_id, post_id];
