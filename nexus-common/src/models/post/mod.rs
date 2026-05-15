@@ -1,4 +1,5 @@
 mod bookmark;
+mod collection_follow;
 mod counts;
 mod details;
 mod relationships;
@@ -7,6 +8,7 @@ mod stream;
 mod view;
 
 pub use bookmark::Bookmark;
+pub use collection_follow::CollectionFollow;
 pub use counts::PostCounts;
 pub use details::PostDetails;
 pub use relationships::PostRelationships;

@@ -128,7 +128,7 @@ fn add_relationship_params(
         };
 
         return Ok(cypher_query
-            .param(author_param, parent_author_id.as_str())
+            .param(author_param, parent_author_id.as_ref())
             .param(post_param, parent_post_id.as_str()));
     }
     Ok(cypher_query)
@@ -175,6 +175,42 @@ pub fn create_follow(follower_id: &str, followee_id: &str, indexed_at: i64) -> Q
     )
     .param("follower_id", follower_id.to_string())
     .param("followee_id", followee_id.to_string())
+    .param("indexed_at", indexed_at)
+}
+
+/// Creates a "FOLLOWS_COLLECTION" relationship between a follower and a
+/// Collection post owned by another user.
+///
+/// The MATCH is the single hard gate that rejects edges to non-Collection
+/// posts (`kind: 'collection'`) AND edges that claim a wrong owner
+/// (`(owner)-[:AUTHORED]->(target)`). If either user or the target collection
+/// isn't in the graph, the MATCH yields no rows → the call site sees a
+/// `MissingDependency` outcome and can enqueue a retry.
+/// # Arguments
+/// * `follower_id` - The follower's pubky id.
+/// * `target_owner_id` - The pubky id of the target collection's author.
+/// * `target_post_id` - The target collection's post id.
+/// * `indexed_at` - Timestamp of when the relationship was indexed.
+pub fn create_collection_follow(
+    follower_id: &str,
+    target_owner_id: &str,
+    target_post_id: &str,
+    indexed_at: i64,
+) -> Query {
+    Query::new(
+        "create_collection_follow",
+        "MATCH (follower:User {id: $follower_id})
+         MATCH (owner:User {id: $target_owner_id})-[:AUTHORED]->(target:Post {id: $target_post_id, kind: 'collection'})
+         // Check if the follow-collection edge already existed
+         OPTIONAL MATCH (follower)-[existing:FOLLOWS_COLLECTION]->(target)
+         MERGE (follower)-[r:FOLLOWS_COLLECTION]->(target)
+         SET r.indexed_at = $indexed_at
+         // Returns true if the relationship already existed
+         RETURN existing IS NOT NULL AS flag;",
+    )
+    .param("follower_id", follower_id.to_string())
+    .param("target_owner_id", target_owner_id.to_string())
+    .param("target_post_id", target_post_id.to_string())
     .param("indexed_at", indexed_at)
 }
 

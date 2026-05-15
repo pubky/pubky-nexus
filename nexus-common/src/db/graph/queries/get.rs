@@ -808,6 +808,9 @@ pub fn post_stream(
             Some("MATCH (observer)-[:FOLLOWS]->(author)-[:FOLLOWS]->(observer)\n")
         }
         StreamSource::Bookmarks { .. } => Some("MATCH (observer)-[:BOOKMARKED]->(p)\n"),
+        StreamSource::CollectionsFollowed { .. } => {
+            Some("MATCH (observer)-[:FOLLOWS_COLLECTION]->(p)\n")
+        }
         _ => None,
     } {
         cypher.push_str(query);
@@ -839,9 +842,19 @@ pub fn post_stream(
     // watcher's PostCounts call site already gate collections out of the index
     // sorted sets, but the Cypher fallback path bypasses those, so we filter
     // here too).
-    match &kind {
-        Some(_) => append_condition(&mut cypher, "p.kind = $kind", &mut where_clause_applied),
-        None => append_condition(
+    //
+    // Exception: when the source is `CollectionsFollowed`, the result set is
+    // intrinsically collections-only — force `p.kind = 'collection'` and
+    // ignore any caller-supplied `kind` (collections_followed of a non-
+    // collection kind is a contradiction).
+    match (&source, &kind) {
+        (StreamSource::CollectionsFollowed { .. }, _) => append_condition(
+            &mut cypher,
+            "p.kind = 'collection'",
+            &mut where_clause_applied,
+        ),
+        (_, Some(_)) => append_condition(&mut cypher, "p.kind = $kind", &mut where_clause_applied),
+        (_, None) => append_condition(
             &mut cypher,
             "p.kind <> 'collection'",
             &mut where_clause_applied,
@@ -949,6 +962,7 @@ pub fn post_stream(
             StreamSource::Author { .. } => "post_stream_author",
             StreamSource::AuthorReplies { .. } => "post_stream_author_replies",
             StreamSource::PostReplies { .. } => "post_stream_post_replies",
+            StreamSource::CollectionsFollowed { .. } => "post_stream_collections_followed",
             StreamSource::All => "post_stream_all",
         },
         &cypher,

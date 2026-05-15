@@ -89,7 +89,7 @@ impl UserSearch {
         Self::delete_existing_records(
             details_list
                 .iter()
-                .map(|details| details.id.as_str())
+                .map(|details| details.id.as_ref())
                 .collect::<Vec<&str>>()
                 .as_slice(),
         )

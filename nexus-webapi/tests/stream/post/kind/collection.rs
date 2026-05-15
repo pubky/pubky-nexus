@@ -18,6 +18,8 @@ use anyhow::Result;
 use serde_json::Value;
 
 const BOGOTA: &str = "ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny";
+const DETROIT: &str = "7w4hmktqa7gia5thmk7zki8px7ttwpwjtgaaaou4tbqx64re8d1o";
+const AMSTERDAM: &str = "emq37ky6fbnaun7q1ris6rx3mqmw3a33so1txfesg9jj3ak9ryoy";
 
 const COL_BOGOTA_1: &str = "COLW1TGL5BKG1";
 const COL_BOGOTA_2: &str = "COLW1TGL5BKG2";
@@ -160,6 +162,62 @@ async fn test_by_tag_stream_excludes_collections() -> Result<()> {
             post["details"]["id"]
         );
     }
+
+    Ok(())
+}
+
+/// `?source=collections_followed&observer_id=<X>` returns exactly the
+/// collections that X has a `:FOLLOWS_COLLECTION` edge to. Seed data:
+///   - Detroit → COLW1TGL5BKG1 (bogota), COLW1TGL5BKG3 (cairo)
+///   - Detroit does NOT follow COLW1TGL5BKG2.
+#[tokio_shared_rt::test(shared)]
+async fn test_collections_followed_returns_followed() -> Result<()> {
+    let path = format!("{ROOT_PATH}?source=collections_followed&observer_id={DETROIT}&limit=50");
+    let body = get_request(&path).await?;
+    let ids = ids_in(&body);
+
+    // Detroit follows COL_BOGOTA_1 and COL_CAIRO.
+    assert!(
+        ids.iter().any(|id| id == COL_BOGOTA_1),
+        "expected COL_BOGOTA_1 in Detroit's collections_followed stream"
+    );
+    assert!(
+        ids.iter().any(|id| id == COL_CAIRO),
+        "expected COL_CAIRO in Detroit's collections_followed stream"
+    );
+
+    // Detroit does NOT follow COL_BOGOTA_2 — must be absent.
+    assert!(
+        !ids.iter().any(|id| id == COL_BOGOTA_2),
+        "COL_BOGOTA_2 (not followed) leaked into Detroit's collections_followed stream"
+    );
+
+    // Every returned post is kind=collection (intrinsic to the source).
+    for post in body.as_array().unwrap() {
+        assert_eq!(
+            post["details"]["kind"].as_str(),
+            Some("collection"),
+            "non-collection post leaked into collections_followed: {:?}",
+            post["details"]["id"]
+        );
+    }
+
+    Ok(())
+}
+
+/// `?source=collections_followed` for a user that follows nothing returns
+/// an empty stream (regression guard against accidentally bleeding other
+/// users' follows into the response).
+#[tokio_shared_rt::test(shared)]
+async fn test_collections_followed_empty_for_user_with_no_follows() -> Result<()> {
+    let path = format!("{ROOT_PATH}?source=collections_followed&observer_id={AMSTERDAM}&limit=50");
+    let body = get_request(&path).await?;
+    let ids = ids_in(&body);
+
+    assert!(
+        ids.is_empty(),
+        "Amsterdam follows no collections but got: {ids:?}"
+    );
 
     Ok(())
 }

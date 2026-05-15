@@ -48,6 +48,15 @@ pub enum StreamSource {
     AuthorReplies {
         author_id: String,
     },
+    /// Collections that `observer_id` follows (via
+    /// `(:User)-[:FOLLOWS_COLLECTION]->(:Post {kind:'collection'})` edges
+    /// materialized by the collection-pointer watcher handler). Cypher-
+    /// only — there is no Redis sorted-set side-index for this source.
+    /// The post kind is implicitly `Collection` regardless of any `kind`
+    /// query param.
+    CollectionsFollowed {
+        observer_id: String,
+    },
     #[default]
     All,
 }
@@ -58,7 +67,8 @@ impl StreamSource {
             StreamSource::Followers { observer_id }
             | StreamSource::Following { observer_id }
             | StreamSource::Friends { observer_id }
-            | StreamSource::Bookmarks { observer_id } => Some(observer_id),
+            | StreamSource::Bookmarks { observer_id }
+            | StreamSource::CollectionsFollowed { observer_id } => Some(observer_id),
             _ => None,
         }
     }

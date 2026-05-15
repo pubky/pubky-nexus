@@ -74,7 +74,7 @@ impl NexusWatcher {
     ) -> Result<(), DynError> {
         debug!(?config, "Running NexusWatcher with ");
 
-        let config_hs = PubkyId::try_from(config.homeserver.as_str())?;
+        let config_hs = PubkyId::try_from(config.homeserver.as_ref())?;
         Homeserver::persist_if_unknown(config_hs).await?;
 
         let mut interval = tokio::time::interval(Duration::from_millis(config.watcher_sleep));

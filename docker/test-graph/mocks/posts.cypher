@@ -241,4 +241,10 @@ MATCH (u:User {id: $bogota}), (p:Post {id: "COLW1TGL5BKG1"}) MERGE (u)-[:AUTHORE
 MERGE (p:Post {id: "COLW1TGL5BKG2"}) SET p.content = "{\"name\":\"Privacy reads\"}", p.kind = "collection", p.indexed_at = 1980477299410;
 MATCH (u:User {id: $bogota}), (p:Post {id: "COLW1TGL5BKG2"}) MERGE (u)-[:AUTHORED]->(p);
 MERGE (p:Post {id: "COLW1TGL5BKG3"}) SET p.content = "{\"name\":\"Cryptography classics\"}", p.kind = "collection", p.indexed_at = 1980477299420;
-MATCH (u:User {id: $cairo}), (p:Post {id: "COLW1TGL5BKG3"}) MERGE (u)-[:AUTHORED]->(p)
+MATCH (u:User {id: $cairo}), (p:Post {id: "COLW1TGL5BKG3"}) MERGE (u)-[:AUTHORED]->(p);
+
+// :FOLLOWS_COLLECTION edges (Phase 2 — collection-pointer follow-side).
+// Detroit follows bogota's COLW1TGL5BKG1 and cairo's COLW1TGL5BKG3 — used by
+// the `?source=collections_followed&observer_id=<detroit>` stream tests.
+MATCH (u:User {id: $detroit}), (p:Post {id: "COLW1TGL5BKG1"}) MERGE (u)-[:FOLLOWS_COLLECTION {indexed_at: 1980477299500}]->(p);
+MATCH (u:User {id: $detroit}), (p:Post {id: "COLW1TGL5BKG3"}) MERGE (u)-[:FOLLOWS_COLLECTION {indexed_at: 1980477299510}]->(p)
