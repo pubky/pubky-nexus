@@ -14,8 +14,9 @@
 use anyhow::Result;
 use chrono::Utc;
 use nexus_common::db::{fetch_key_from_graph, graph::Query};
+use nexus_watcher::events::handlers::collection_pointer;
 use pubky::{Keypair, ResourcePath};
-use pubky_app_specs::PubkyAppCollectionPointer;
+use pubky_app_specs::{PubkyAppCollectionPointer, PubkyId};
 
 use super::utils::{collection_post, test_user};
 use crate::event_processor::utils::watcher::WatcherTest;
@@ -234,13 +235,17 @@ async fn test_del_follow_pointer_removes_edge() -> Result<()> {
     Ok(())
 }
 
-/// DEL of a non-existent follow-pointer is a no-op (idempotent).
+/// Calling `sync_del` directly twice (simulating a watcher retry after the
+/// homeserver-side resource is already gone) must not error or corrupt
+/// state. We bypass `test.del` here because the homeserver itself rejects
+/// DEL on non-existent paths with 404 — that's an upstream-layer concern,
+/// not the watcher's idempotency invariant.
 #[tokio_shared_rt::test(shared)]
-async fn test_del_follow_pointer_idempotent_no_edge() -> Result<()> {
+async fn test_sync_del_follow_pointer_idempotent() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
     let author_kp = Keypair::random();
     let author = test_user("Watcher:Pointer:DelIdAuthor", "pointer_del_id_author");
-    let author_id = test.create_user(&author_kp, &author).await?;
+    let _author_id = test.create_user(&author_kp, &author).await?;
     let collection = collection_post("DelId", None, vec![]);
     let (post_id, post_path) = test.create_post(&author_kp, &collection).await?;
 
@@ -248,9 +253,19 @@ async fn test_del_follow_pointer_idempotent_no_edge() -> Result<()> {
     let follower = test_user("Watcher:Pointer:DelIdFollower", "pointer_del_id_follower");
     let _follower_id = test.create_user(&follower_kp, &follower).await?;
 
-    let path = pointer_path(&author_id, &post_id);
-    // DEL without prior PUT — must be a no-op, not an error.
-    test.del(&follower_kp, &path).await?;
+    let follower_pubky = PubkyId::from(follower_kp.clone());
+    let author_pubky = PubkyId::from(author_kp.clone());
+
+    // First call — no edge to delete; must succeed.
+    collection_pointer::sync_del(
+        follower_pubky.clone(),
+        author_pubky.clone(),
+        post_id.clone(),
+    )
+    .await?;
+
+    // Second call — still no edge; must succeed (retry idempotency).
+    collection_pointer::sync_del(follower_pubky, author_pubky, post_id).await?;
 
     test.cleanup_post(&author_kp, &post_path).await?;
     test.cleanup_user(&author_kp).await?;
