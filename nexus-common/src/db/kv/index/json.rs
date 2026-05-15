@@ -3,7 +3,7 @@ use crate::db::kv::error::{RedisError, RedisResult};
 use deadpool_redis::redis::Script;
 use deadpool_redis::redis::{AsyncCommands, JsonAsyncCommands};
 use serde::{de::DeserializeOwned, Serialize};
-use tracing::{debug, trace};
+use tracing::debug;
 
 #[derive(Clone, Debug)]
 pub enum JsonAction {
@@ -405,21 +405,17 @@ pub async fn _get_bool(prefix: &str, key: &str) -> RedisResult<Option<bool>> {
     let mut redis_conn = get_redis_conn().await?;
     let index_key = format!("{prefix}:{key}");
 
-    if let Ok(indexed_value) = redis_conn.get::<_, i32>(&index_key).await {
-        trace!(
-            "Restored boolean key: {} with value: {}",
-            index_key,
-            indexed_value
-        );
-        let value = match indexed_value {
-            1 => true,
-            0 => false,
-            _ => return Ok(None), // Invalid value in Redis
-        };
-        return Ok(Some(value));
-    }
+    // Match `get<T>`'s contract: a genuine miss decodes to None, every other
+    // failure propagates via `?`. The previous `if let Ok(_)` shape collapsed
+    // every error into `Ok(None)` (see #860).
+    let indexed_value: Option<i32> = redis_conn.get(&index_key).await?;
 
-    Ok(None)
+    match indexed_value {
+        Some(1) => Ok(Some(true)),
+        Some(0) => Ok(Some(false)),
+        Some(_) => Ok(None), // Invalid value in Redis
+        None => Ok(None),
+    }
 }
 
 /// Deletes multiple keys from Redis.
