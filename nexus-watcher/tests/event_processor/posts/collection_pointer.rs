@@ -14,6 +14,8 @@
 use anyhow::Result;
 use chrono::Utc;
 use nexus_common::db::{fetch_key_from_graph, graph::Query};
+use nexus_common::models::notification::{Notification, NotificationBody};
+use nexus_common::types::Pagination;
 use nexus_watcher::events::handlers::collection_pointer;
 use pubky::{Keypair, ResourcePath};
 use pubky_app_specs::{PubkyAppCollectionPointer, PubkyId};
@@ -49,8 +51,29 @@ fn pointer_body() -> PubkyAppCollectionPointer {
     }
 }
 
+/// Returns the number of `FollowCollection` notifications for `recipient_id`
+/// that reference the (`expected_follower`, `expected_post_id`) pair.
+async fn count_follow_collection_notifications(
+    recipient_id: &str,
+    expected_follower: &str,
+    expected_post_id: &str,
+) -> Result<usize> {
+    let notifs = Notification::get_by_id(recipient_id, Pagination::default()).await?;
+    Ok(notifs
+        .iter()
+        .filter(|n| match &n.body {
+            NotificationBody::FollowCollection {
+                followed_by,
+                collection_post_id,
+                ..
+            } => followed_by == expected_follower && collection_post_id == expected_post_id,
+            _ => false,
+        })
+        .count())
+}
+
 /// Own-pointer (URI host == path owner): Nexus must do nothing. No graph
-/// edge, no error.
+/// edge, no notification, no error.
 #[tokio_shared_rt::test(shared)]
 async fn test_put_own_pointer_is_noop() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
@@ -74,15 +97,23 @@ async fn test_put_own_pointer_is_noop() -> Result<()> {
         "own-pointer must NOT create a :FOLLOWS_COLLECTION edge"
     );
 
+    // Assertion: no self-notification.
+    assert_eq!(
+        count_follow_collection_notifications(&user_id, &user_id, &post_id).await?,
+        0,
+        "own-pointer must NOT emit a self-notification"
+    );
+
     test.del(&user_kp, &path).await?;
     test.cleanup_user(&user_kp).await?;
     Ok(())
 }
 
 /// Follow-pointer (URI host != path owner): MERGE the
-/// `:FOLLOWS_COLLECTION` edge.
+/// `:FOLLOWS_COLLECTION` edge AND emit a `FollowCollection` notification
+/// to the target owner.
 #[tokio_shared_rt::test(shared)]
-async fn test_put_follow_pointer_creates_edge() -> Result<()> {
+async fn test_put_follow_pointer_creates_edge_and_notifies() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
     // Author (target collection's owner).
@@ -107,7 +138,21 @@ async fn test_put_follow_pointer_creates_edge() -> Result<()> {
         "follow-pointer must create a :FOLLOWS_COLLECTION edge"
     );
 
+    // Notification: author received exactly one FollowCollection from follower.
+    assert_eq!(
+        count_follow_collection_notifications(&author_id, &follower_id, &post_id).await?,
+        1,
+        "target owner must receive exactly one FollowCollection notification"
+    );
+
+    // DEL: edge removed, but no new notification fires.
     test.del(&follower_kp, &path).await?;
+    assert_eq!(
+        count_follow_collection_notifications(&author_id, &follower_id, &post_id).await?,
+        1,
+        "DEL must NOT emit a new notification (the original PUT notification stays)"
+    );
+
     test.cleanup_post(&author_kp, &post_path).await?;
     test.cleanup_user(&author_kp).await?;
     test.cleanup_user(&follower_kp).await?;
@@ -133,15 +178,20 @@ async fn test_put_follow_pointer_idempotent() -> Result<()> {
     let follower_id = test.create_user(&follower_kp, &follower).await?;
 
     let path = pointer_path(&author_id, &post_id);
-    // First PUT: edge created.
+    // First PUT: edge created + 1 notification.
     test.put(&follower_kp, &path, pointer_body()).await?;
-    // Second PUT: idempotent; edge still exists.
+    // Second PUT: idempotent; edge still exists; NO duplicate notification.
     test.put(&follower_kp, &path, pointer_body()).await?;
 
     assert_eq!(
         follow_collection_edge_exists(&follower_id, &post_id).await?,
         Some(true),
         "re-PUT must not break the edge"
+    );
+    assert_eq!(
+        count_follow_collection_notifications(&author_id, &follower_id, &post_id).await?,
+        1,
+        "re-PUT must NOT duplicate the FollowCollection notification"
     );
 
     test.del(&follower_kp, &path).await?;

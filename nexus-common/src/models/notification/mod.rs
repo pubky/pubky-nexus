@@ -86,6 +86,16 @@ pub enum NotificationBody {
         edited_uri: String,
         linked_uri: String,
     },
+    /// Fired when a user creates a follow-pointer to someone else's
+    /// Collection post (`PubkyAppCollectionPointer` where path-owner !=
+    /// homeserver-user). The target owner is the recipient; no unfollow
+    /// notification fires on DEL (mirrors the non-mutual user-unfollow
+    /// precedent in `lost_follow`).
+    FollowCollection {
+        followed_by: String,
+        collection_owner: String,
+        collection_post_id: String,
+    },
 }
 
 type QueryFunction = fn(&str, &str) -> crate::db::graph::Query;
@@ -193,6 +203,27 @@ impl Notification {
         };
         let notification = Notification::new(body);
         notification.put_to_index(followee_id).await
+    }
+
+    /// Fires when `follower_id` creates a follow-pointer to a Collection
+    /// post owned by `collection_owner` (path-owner != homeserver-user).
+    /// Self-suppression is defensive: the watcher's own-pointer gate runs
+    /// first, but the helper enforces the invariant independently.
+    pub async fn new_collection_follow(
+        follower_id: &str,
+        collection_owner: &str,
+        collection_post_id: &str,
+    ) -> RedisResult<()> {
+        if follower_id == collection_owner {
+            return Ok(());
+        }
+        let body = NotificationBody::FollowCollection {
+            followed_by: follower_id.to_string(),
+            collection_owner: collection_owner.to_string(),
+            collection_post_id: collection_post_id.to_string(),
+        };
+        let notification = Notification::new(body);
+        notification.put_to_index(collection_owner).await
     }
 
     pub async fn new_post_tag(

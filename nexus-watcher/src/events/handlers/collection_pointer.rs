@@ -8,14 +8,16 @@
 //! - **own-pointer** (`URI host == path owner`) — sovereign homeserver-side
 //!   index entry; Nexus does nothing.
 //! - **follow-pointer** (`URI host != path owner`) — subscription; Nexus
-//!   materializes a `:FOLLOWS_COLLECTION` edge.
-//!
-//! Notification emission lands in a follow-on commit (Phase 2 commit 3).
+//!   materializes a `:FOLLOWS_COLLECTION` edge AND emits a
+//!   `FollowCollection` notification to the target owner. DEL removes the
+//!   edge silently (no unfollow notification, mirroring the non-mutual
+//!   user-unfollow precedent).
 
 use crate::events::retry::event::RetryEvent;
 use crate::events::EventProcessorError;
 use nexus_common::db::OperationOutcome;
 use nexus_common::models::homeserver::Homeserver;
+use nexus_common::models::notification::Notification;
 use nexus_common::models::post::CollectionFollow;
 use pubky_app_specs::{ParsedUri, PubkyId, Resource};
 use tracing::debug;
@@ -54,9 +56,10 @@ pub async fn sync_put(
             Ok(())
         }
         OperationOutcome::CreatedOrDeleted => {
-            // New follow-edge created.
-            // TODO(phase-2-commit-3): emit FollowCollection notification to
-            // target_owner_id here, once the new NotificationBody variant lands.
+            // New follow-edge created. Notify the target owner that someone
+            // (the follower) has subscribed to their collection.
+            Notification::new_collection_follow(&follower_id, &target_owner_id, &target_post_id)
+                .await?;
             Ok(())
         }
         OperationOutcome::MissingDependency => {
