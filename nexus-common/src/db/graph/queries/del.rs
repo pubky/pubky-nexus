@@ -45,6 +45,26 @@ pub fn delete_follow(follower_id: &str, followee_id: &str) -> Query {
     .param("followee_id", followee_id.to_string())
 }
 
+/// Deletes a "FOLLOWS_COLLECTION" relationship from a follower to a
+/// Collection post. Permissive on the target side: no kind / owner check
+/// (DEL must clean up even if the target was already removed or the kind
+/// concept of the post drifted).
+/// # Arguments
+/// * `follower_id` - The follower's pubky id.
+/// * `target_post_id` - The target post's id.
+pub fn delete_collection_follow(follower_id: &str, target_post_id: &str) -> Query {
+    Query::new(
+        "delete_collection_follow",
+        "MATCH (follower:User {id: $follower_id})
+         OPTIONAL MATCH (follower)-[existing:FOLLOWS_COLLECTION]->(:Post {id: $target_post_id})
+         DELETE existing
+         // Returns true if the relationship does not exist as 'flag'
+         RETURN existing IS NULL AS flag;",
+    )
+    .param("follower_id", follower_id.to_string())
+    .param("target_post_id", target_post_id.to_string())
+}
+
 /// Deletes a bookmark relationship between a user and a post
 /// # Arguments
 /// * `user_id` - The unique identifier of the user who created the bookmark.
