@@ -82,7 +82,7 @@ where
     path = STREAM_POSTS_ROUTE,
     tag = "Stream",
     params(
-        ("source" = Option<StreamSource>, Query, description = "Source of posts for streams with viewer (following, followers, friends, bookmarks, post_replies, author, author_replies, all)"),
+        ("source" = Option<StreamSource>, Query, description = "Source of posts for streams with viewer (following, followers, friends, bookmarks, post_replies, author, author_replies, collections_followed, all)"),
         ("viewer_id" = Option<String>, Query, description = "Viewer Pubky ID"),
         ("observer_id" = Option<String>, Query, description = "Observer Pubky ID. The central point for streams with Reach"),
         ("author_id" = Option<String>, Query, description = "Filter posts by an specific author User ID"),
@@ -145,7 +145,7 @@ pub async fn stream_posts_handler(
     path = STREAM_POST_KEYS_ROUTE,
     tag = "Stream",
     params(
-        ("source" = Option<StreamSource>, Query, description = "Source of posts for streams with viewer (following, followers, friends, bookmarks, post_replies, author, author_replies, all)"),
+        ("source" = Option<StreamSource>, Query, description = "Source of posts for streams with viewer (following, followers, friends, bookmarks, post_replies, author, author_replies, collections_followed, all)"),
         ("observer_id" = Option<String>, Query, description = "Observer Pubky ID. The central point for streams with Reach"),
         ("author_id" = Option<String>, Query, description = "Filter posts by an specific author User ID"),
         ("post_id" = Option<String>, Query, description = "This parameter is needed when we want to retrieve the replies stream for a post"),
