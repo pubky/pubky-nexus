@@ -91,6 +91,13 @@ pub async fn handle_put_event(
             )
             .await?
         }
+        (
+            PubkyAppObject::CollectionPointer(pointer),
+            Resource::CollectionPointer { owner, post_id },
+        ) => {
+            handlers::collection_pointer::sync_put(user_id, owner, post_id, pointer.created_at)
+                .await?
+        }
         other => debug!("Event type not handled, Resource: {other:?}"),
     }
     Ok(())
@@ -114,6 +121,9 @@ pub async fn handle_del_event(event: &Event) -> Result<(), EventProcessorError> 
         Resource::Tag(_) => handlers::tag::del(&event.uri).await?,
         Resource::File(file_id) => {
             handlers::file::del(&user_id, file_id.clone(), event.files_path.clone()).await?
+        }
+        Resource::CollectionPointer { owner, post_id } => {
+            handlers::collection_pointer::del(user_id, owner.clone(), post_id.clone()).await?
         }
         other => debug!("DEL event type not handled for resource: {other:?}"),
     }

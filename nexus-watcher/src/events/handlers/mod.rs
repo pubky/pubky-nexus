@@ -1,4 +1,5 @@
 pub mod bookmark;
+pub mod collection_pointer;
 pub mod file;
 pub mod follow;
 pub mod post;
