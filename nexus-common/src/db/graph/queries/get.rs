@@ -835,10 +835,6 @@ pub fn post_stream(
 
     // If post kind is provided, add the corresponding condition.
     // When no kind filter is set, exclude collections from the default stream
-    // (defense-in-depth: the Redis writers in models/post/details.rs and the
-    // watcher's PostCounts call site already gate collections out of the index
-    // sorted sets, but the Cypher fallback path bypasses those, so we filter
-    // here too).
     //
     // Exception: `source=bookmarks` is exempt — a user who bookmarked a
     // collection should see it in their bookmarks stream regardless of kind.
