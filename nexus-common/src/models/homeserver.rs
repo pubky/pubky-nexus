@@ -20,8 +20,13 @@ use tracing::{info, warn};
 pub struct Homeserver {
     pub id: PubkyId,
 
-    // We persist this field only in the cache, but not in the graph.
-    // Redis has regular snapshots, which ensures we get a recent state in case of RAM data loss (system crash).
+    // Cursor lives in Redis only (not the graph). Redis snapshots can
+    // lag, so a crash may lose recent advancement — the watcher then
+    // resumes from whatever cursor survived in the snapshot and catches
+    // up from the homeserver. We do NOT re-index from scratch on partial
+    // loss; `persist_if_unknown` only re-seeds cursor=0 when the
+    // Homeserver key is missing from Redis entirely (e.g. wiped volume),
+    // never on a routine crash.
     pub cursor: String,
 }
 

@@ -3,7 +3,7 @@ use crate::db::kv::error::{RedisError, RedisResult};
 use deadpool_redis::redis::Script;
 use deadpool_redis::redis::{AsyncCommands, JsonAsyncCommands};
 use serde::{de::DeserializeOwned, Serialize};
-use tracing::debug;
+use tracing::{debug, warn};
 
 #[derive(Clone, Debug)]
 pub enum JsonAction {
@@ -307,11 +307,6 @@ pub async fn get<T: DeserializeOwned + Send + Sync>(
     let index_key = format!("{prefix}:{key}");
     let json_path = path.unwrap_or("$");
 
-    // Bind to Option<String>: a genuine Nil reply (key absent) decodes to
-    // None; any other redis-side failure propagates via `?`. The previous
-    // `if let Ok(_)` shape collapsed every failure mode into `Ok(None)`,
-    // which let read-through caches mistake a transient error for a clean
-    // miss and bootstrap a default over real state (see #860).
     let indexed_value: Option<String> = redis_conn.json_get(index_key, json_path).await?;
 
     match indexed_value {
@@ -405,15 +400,15 @@ pub async fn _get_bool(prefix: &str, key: &str) -> RedisResult<Option<bool>> {
     let mut redis_conn = get_redis_conn().await?;
     let index_key = format!("{prefix}:{key}");
 
-    // Match `get<T>`'s contract: a genuine miss decodes to None, every other
-    // failure propagates via `?`. The previous `if let Ok(_)` shape collapsed
-    // every error into `Ok(None)` (see #860).
     let indexed_value: Option<i32> = redis_conn.get(&index_key).await?;
 
     match indexed_value {
         Some(1) => Ok(Some(true)),
         Some(0) => Ok(Some(false)),
-        Some(_) => Ok(None), // Invalid value in Redis
+        Some(other) => {
+            warn!("Unexpected non-boolean value at key {index_key}: {other}");
+            Ok(None)
+        }
         None => Ok(None),
     }
 }
