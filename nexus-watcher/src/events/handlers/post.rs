@@ -28,9 +28,6 @@ pub async fn sync_put(
     let post_details = PostDetails::from_homeserver(post.clone(), &author_id, &post_id);
     // We avoid indexing replies into global feed sorted sets
     let is_reply = post.parent.is_some();
-    // Collections are excluded from the global engagement sorted set so they
-    // do not pollute Home / Hot streams; they surface only via explicit
-    // `?kind=collection` queries (Cypher fallback).
     let is_collection = matches!(post.kind, PubkyAppPostKind::Collection);
     // PRE-INDEX operation, identify the post relationship
     let mut post_relationships = PostRelationships::from_homeserver(&post);
