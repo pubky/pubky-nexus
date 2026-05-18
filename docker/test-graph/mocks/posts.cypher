@@ -241,4 +241,11 @@ MATCH (u:User {id: $bogota}), (p:Post {id: "COLW1TGL5BKG1"}) MERGE (u)-[:AUTHORE
 MERGE (p:Post {id: "COLW1TGL5BKG2"}) SET p.content = "{\"name\":\"Privacy reads\"}", p.kind = "collection", p.indexed_at = 1980477299410;
 MATCH (u:User {id: $bogota}), (p:Post {id: "COLW1TGL5BKG2"}) MERGE (u)-[:AUTHORED]->(p);
 MERGE (p:Post {id: "COLW1TGL5BKG3"}) SET p.content = "{\"name\":\"Cryptography classics\"}", p.kind = "collection", p.indexed_at = 1980477299420;
-MATCH (u:User {id: $cairo}), (p:Post {id: "COLW1TGL5BKG3"}) MERGE (u)-[:AUTHORED]->(p)
+MATCH (u:User {id: $cairo}), (p:Post {id: "COLW1TGL5BKG3"}) MERGE (u)-[:AUTHORED]->(p);
+
+// Bookmarked collection (used by `?source=bookmarks` stream tests). Eixample
+// bookmarks Bogota's COLW1TGL5BKG1 — the bookmarks stream must surface this
+// regardless of `kind` filter or `sorting` mode (the BOOKMARKED edge is
+// kind-agnostic, but the Cypher fallback path must also exempt the
+// `source=bookmarks` case from the default collection exclusion).
+MATCH (u:User {id: $eixample}), (p:Post {id: "COLW1TGL5BKG1"}) MERGE (u)-[:BOOKMARKED {id: "BKMK_COLW1TGL5BKG1", indexed_at: 1980477299500}]->(p)

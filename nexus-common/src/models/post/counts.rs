@@ -28,8 +28,13 @@ impl PostCounts {
             None => {
                 let graph_response = Self::get_from_graph(author_id, post_id).await?;
                 if let Some((post_counts, is_reply, is_collection)) = graph_response {
+                    // Pass `is_reply` raw — `put_to_index` gates the engagement
+                    // sorted-set write on `!is_reply && !is_collection`. The
+                    // previous `!is_reply` here double-negated, so the
+                    // cache-miss rebuild path leaked replies into
+                    // POST_TOTAL_ENGAGEMENT (Greptile P1).
                     post_counts
-                        .put_to_index(author_id, post_id, !is_reply, is_collection)
+                        .put_to_index(author_id, post_id, is_reply, is_collection)
                         .await?;
                     return Ok(Some(post_counts));
                 }

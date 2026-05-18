@@ -8,7 +8,9 @@ use super::utils::{
     check_member_user_post_timeline, collection_post, find_post_counts, find_post_details,
     test_user,
 };
-use crate::event_processor::tags::utils::{check_member_post_tag_global_timeline, find_post_tag};
+use crate::event_processor::tags::utils::{
+    check_member_post_tag_global_timeline, check_member_total_engagement_post_tag, find_post_tag,
+};
 use crate::event_processor::utils::watcher::{HomeserverHashIdPath, WatcherTest};
 
 /// PUT a `kind=collection` post and confirm:
@@ -219,7 +221,50 @@ async fn test_tag_on_collection_indexes_graph_skips_by_tag_stream() -> Result<()
         "collection MUST NOT appear in by-tag stream, even when tagged"
     );
 
+    // Assertion 3: the collection is NOT in TAG_GLOBAL_POST_ENGAGEMENT.
+    // Without the gate on `PostsByTagSearch::update_index_score`, ZINCRBY
+    // would create a member for the collection with score=1, surfacing it on
+    // `?tags=LABEL&sorting=total_engagement` queries.
+    assert!(
+        check_member_total_engagement_post_tag(post_key, label)
+            .await?
+            .is_none(),
+        "collection MUST NOT appear in TAG_GLOBAL_POST_ENGAGEMENT, even when tagged"
+    );
+
+    // Assertion 4: the collection is NOT in POST_TOTAL_ENGAGEMENT (the global
+    // Hot stream). Without the gate on `PostStream::update_index_score`,
+    // ZINCRBY on a non-existent member would create the collection there too,
+    // leaking it into `?sorting=total_engagement` queries.
+    assert!(
+        check_member_total_engagement_user_posts(post_key)
+            .await?
+            .is_none(),
+        "collection MUST NOT appear in POST_TOTAL_ENGAGEMENT, even when tagged"
+    );
+
+    // DEL the tag and confirm all four sorted sets stay clean — the decrement
+    // path has its own gate so we don't drive any member to a negative score.
     test.del(&tagger_kp, &tag_path).await?;
+    assert!(
+        check_member_post_tag_global_timeline(post_key, label)
+            .await?
+            .is_none(),
+        "by-tag stream must stay empty after DEL"
+    );
+    assert!(
+        check_member_total_engagement_post_tag(post_key, label)
+            .await?
+            .is_none(),
+        "TAG_GLOBAL_POST_ENGAGEMENT must stay empty after DEL (no negative-score leak)"
+    );
+    assert!(
+        check_member_total_engagement_user_posts(post_key)
+            .await?
+            .is_none(),
+        "POST_TOTAL_ENGAGEMENT must stay empty after DEL (no negative-score leak)"
+    );
+
     test.cleanup_post(&author_kp, &post_path).await?;
     test.cleanup_user(&author_kp).await?;
     test.cleanup_user(&tagger_kp).await?;

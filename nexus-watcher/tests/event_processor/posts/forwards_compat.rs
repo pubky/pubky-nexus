@@ -17,37 +17,37 @@ use pubky_app_specs::{
 };
 
 #[test]
-fn test_v045_nexus_handles_collection_event_as_unknown_no_retry() {
-    // A v0.5.0 client publishes a kind=collection post. An older Nexus binary
-    // (carrying the v0.4.5 spec where Collection isn't a known variant) sees
-    // this on the wire.
+fn test_v045_nexus_handles_future_kind_event_as_unknown_no_retry() {
+    // A future client publishes a post whose kind isn't in this version of the
+    // spec yet. The blob below uses a `kind` string that is NOT a known variant
+    // — exercising the `#[serde(other)]` catch-all in `PubkyAppPostKind` is the
+    // whole point of this test.
+    //
+    // (Earlier this test used `kind: "collection"`, but once v0.5.0 landed that
+    // value started parsing as the real `Collection` variant — defeating the
+    // forwards-compat exercise. The test was passing for the wrong reason.)
     let blob = br#"{
-        "content": "{\"name\":\"AI papers\",\"description\":\"Best stuff\"}",
-        "kind": "collection",
+        "content": "future-post-content",
+        "kind": "hyperverse_post",
         "parent": null,
         "embed": null,
-        "attachments": [
-            "pubky://userA/pub/pubky.app/posts/0034A0X7NJ52A"
-        ]
+        "attachments": null
     }"#;
 
-    // Deserialization succeeds because of `#[serde(other)] Unknown`.
+    // Deserialization succeeds because `#[serde(other)]` routes unknown kind
+    // strings to `PubkyAppPostKind::Unknown` rather than failing the parse.
     let post: PubkyAppPost =
-        serde_json::from_slice(blob).expect("Unknown serde catch-all must accept future kinds");
+        serde_json::from_slice(blob).expect("serde(other) must accept unrecognized kinds");
+    assert_eq!(
+        post.kind,
+        PubkyAppPostKind::Unknown,
+        "unknown kind string must deserialize as PubkyAppPostKind::Unknown"
+    );
 
-    // In a v0.4.5 spec, `kind` would be `Unknown`. In the current bumped spec
-    // (v0.5.0), the same JSON deserializes to `Collection`. Both behaviors
-    // are correct; the load-bearing claim is that an *Unknown* kind also
-    // deserializes successfully — we assert this by constructing one
-    // explicitly and validating it.
-    let unknown_post = PubkyAppPost {
-        kind: PubkyAppPostKind::Unknown,
-        ..post.clone()
-    };
-
-    // Validation rejects Unknown (Phase 1 invariant).
-    let id = unknown_post.create_id();
-    let validation_err = unknown_post
+    // Validation rejects Unknown (Phase 1 invariant — Unknown is for
+    // deserialization-survival only, never a valid post-kind for write).
+    let id = post.create_id();
+    let validation_err = post
         .validate(Some(&id))
         .expect_err("Unknown kind must fail validation");
     assert!(

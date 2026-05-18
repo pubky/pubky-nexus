@@ -18,6 +18,7 @@ use anyhow::Result;
 use serde_json::Value;
 
 const BOGOTA: &str = "ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny";
+const EIXAMPLE: &str = "8attbeo9ftu5nztqkcfw3gydksehr7jbspgfi64u4h8eo5e7dbiy";
 
 const COL_BOGOTA_1: &str = "COLW1TGL5BKG1";
 const COL_BOGOTA_2: &str = "COLW1TGL5BKG2";
@@ -34,6 +35,25 @@ fn ids_in(response: &Value) -> Vec<String> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_kind_collection_returns_only_collections() -> Result<()> {
+    // Baseline: no `kind` filter. Verifies (a) the default stream is
+    // non-empty (so an empty-set match below is meaningful, not vacuous),
+    // and (b) confirms collections are absent from the default stream.
+    let baseline_path = format!("{ROOT_PATH}?source=all&sorting=timeline&limit=200");
+    let baseline = get_request(&baseline_path).await?;
+    let baseline_ids = ids_in(&baseline);
+    assert!(
+        !baseline_ids.is_empty(),
+        "baseline default stream must contain at least one post"
+    );
+    for collection_id in &[COL_BOGOTA_1, COL_BOGOTA_2, COL_CAIRO] {
+        assert!(
+            !baseline_ids.iter().any(|id| id == collection_id),
+            "baseline (no kind filter) must not contain collection {collection_id}"
+        );
+    }
+
+    // Filtered query: the `kind=collection` filter must change the result
+    // set — return collections that the baseline excluded.
     let path = format!("{ROOT_PATH}?source=all&kind=collection&sorting=timeline");
     let body = get_request(&path).await?;
 
@@ -50,7 +70,9 @@ async fn test_kind_collection_returns_only_collections() -> Result<()> {
         );
     }
 
-    // The 3 seeded collections must be present.
+    // The 3 seeded collections must be present in the filtered response —
+    // confirming the kind filter is doing real work (returns posts the
+    // baseline excluded).
     for expected in &[COL_BOGOTA_1, COL_BOGOTA_2, COL_CAIRO] {
         assert!(
             ids.iter().any(|id| id == expected),
@@ -63,8 +85,22 @@ async fn test_kind_collection_returns_only_collections() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_default_stream_excludes_collections() -> Result<()> {
-    // No `kind` filter → default streams must exclude collections via the
-    // Cypher `p.kind <> 'collection'` clause introduced in Phase 3.
+    // Baseline assertion: with `kind=collection` set, all three seeded
+    // collections ARE returned. This proves the seed data exists and the
+    // suppression invariant below is meaningful (not vacuous).
+    let included_path = format!("{ROOT_PATH}?source=all&kind=collection&sorting=timeline&limit=50");
+    let included = get_request(&included_path).await?;
+    let included_ids = ids_in(&included);
+    for collection_id in &[COL_BOGOTA_1, COL_BOGOTA_2, COL_CAIRO] {
+        assert!(
+            included_ids.iter().any(|id| id == collection_id),
+            "baseline (with kind=collection) must include {collection_id} — without this the suppression test below is vacuous"
+        );
+    }
+
+    // Suppression invariant: no `kind` filter → default streams must exclude
+    // collections via the Cypher `p.kind <> 'collection'` clause introduced
+    // in Phase 3.
     let path = format!("{ROOT_PATH}?source=all&sorting=timeline&limit=200");
     let body = get_request(&path).await?;
 
@@ -161,5 +197,42 @@ async fn test_by_tag_stream_excludes_collections() -> Result<()> {
         );
     }
 
+    Ok(())
+}
+
+/// `?source=bookmarks&sorting=timeline` is the Redis-path (kind-agnostic
+/// bookmark sorted set). A bookmarked collection should appear regardless
+/// of the global suppression invariant. Seed: Eixample bookmarks
+/// `COL_BOGOTA_1`.
+#[tokio_shared_rt::test(shared)]
+async fn test_bookmarks_timeline_includes_bookmarked_collection() -> Result<()> {
+    let path =
+        format!("{ROOT_PATH}?source=bookmarks&observer_id={EIXAMPLE}&sorting=timeline&limit=50");
+    let body = get_request(&path).await?;
+    let ids = ids_in(&body);
+    assert!(
+        ids.iter().any(|id| id == COL_BOGOTA_1),
+        "Eixample's bookmarked collection must appear in the timeline bookmarks stream"
+    );
+    Ok(())
+}
+
+/// `?source=bookmarks&sorting=total_engagement` is the Cypher-fallback path
+/// (`can_use_index` returns false for bookmarks + engagement sort). Without
+/// the new `source=bookmarks` exemption in the kind-filter match, the
+/// default `p.kind <> 'collection'` clause silently dropped bookmarked
+/// collections, contradicting the public OpenAPI promise that bookmarks
+/// are exempt. This is the load-bearing test for the Cypher exemption.
+#[tokio_shared_rt::test(shared)]
+async fn test_bookmarks_engagement_sort_includes_bookmarked_collection() -> Result<()> {
+    let path = format!(
+        "{ROOT_PATH}?source=bookmarks&observer_id={EIXAMPLE}&sorting=total_engagement&limit=50"
+    );
+    let body = get_request(&path).await?;
+    let ids = ids_in(&body);
+    assert!(
+        ids.iter().any(|id| id == COL_BOGOTA_1),
+        "Eixample's bookmarked collection must appear in the engagement-sorted bookmarks stream (Cypher fallback exemption)"
+    );
     Ok(())
 }
