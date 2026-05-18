@@ -4,7 +4,7 @@
 //!   - 3 collection posts: COLW1TGL5BKG1, COLW1TGL5BKG2 (author: $bogota),
 //!     COLW1TGL5BKG3 (author: $cairo).
 //!
-//! Phase 3 stream-suppression invariants we assert here:
+//! Stream-suppression invariants we assert here:
 //!   1. `?kind=collection` returns only collection posts (Cypher fallback path
 //!      with `p.kind = $kind`).
 //!   2. The default stream (no `kind`) does NOT include collections (Cypher
@@ -99,8 +99,7 @@ async fn test_default_stream_excludes_collections() -> Result<()> {
     }
 
     // Suppression invariant: no `kind` filter → default streams must exclude
-    // collections via the Cypher `p.kind <> 'collection'` clause introduced
-    // in Phase 3.
+    // collections via the Cypher `p.kind <> 'collection'` clause.
     let path = format!("{ROOT_PATH}?source=all&sorting=timeline&limit=200");
     let body = get_request(&path).await?;
 

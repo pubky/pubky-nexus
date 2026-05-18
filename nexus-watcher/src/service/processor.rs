@@ -286,10 +286,10 @@ mod tests {
 
     #[test]
     fn test_extract_retry_event_info_skips_spec_validation() {
-        // Phase 3 invariant: spec-validation failures (e.g. unknown post kind,
-        // malformed Collection envelope) are deterministic — re-running the
-        // same payload produces the same error, so they must NOT enqueue a
-        // retry. Without this, the v0.4.5 forwards-compat shim is theatre.
+        // Spec-validation failures (e.g. unknown post kind, malformed
+        // Collection envelope) are deterministic — re-running the same
+        // payload produces the same error, so they must NOT enqueue a retry.
+        // Without this, the v0.4.5 forwards-compat shim is theatre.
         let (event, _tmp) = fixture_event();
         let result = extract_retry_event_info(
             &event,

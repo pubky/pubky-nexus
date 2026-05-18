@@ -44,8 +44,8 @@ fn test_v045_nexus_handles_future_kind_event_as_unknown_no_retry() {
         "unknown kind string must deserialize as PubkyAppPostKind::Unknown"
     );
 
-    // Validation rejects Unknown (Phase 1 invariant — Unknown is for
-    // deserialization-survival only, never a valid post-kind for write).
+    // Validation rejects Unknown — Unknown is for deserialization-survival
+    // only, never a valid post-kind for write.
     let id = post.create_id();
     let validation_err = post
         .validate(Some(&id))

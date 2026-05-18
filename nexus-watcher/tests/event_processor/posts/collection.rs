@@ -20,10 +20,10 @@ use crate::event_processor::utils::watcher::{HomeserverHashIdPath, WatcherTest};
 /// - the post is NOT in the per-user timeline sorted set,
 /// - the post is NOT in the global engagement sorted set.
 ///
-/// This is the load-bearing assertion for the Phase 3 stream-suppression
-/// strategy: collections appear in the graph (so they can be queried via the
-/// Cypher fallback with `?kind=collection`) but never enter the Redis index
-/// sorted sets that power the default Home / Hot / By-Tag streams.
+/// This is the load-bearing assertion for the stream-suppression strategy:
+/// collections appear in the graph (so they can be queried via the Cypher
+/// fallback with `?kind=collection`) but never enter the Redis index sorted
+/// sets that power the default Home / Hot / By-Tag streams.
 #[tokio_shared_rt::test(shared)]
 async fn test_create_collection_post_indexes_graph_only() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
@@ -147,11 +147,11 @@ async fn test_edit_collection_post_keeps_streams_suppressed() -> Result<()> {
 }
 
 /// Tagging a Collection — a second user adds a tag to someone else's
-/// collection. The Phase-3 invariant: the graph TAGGED edge is created
-/// normally (so the tag is discoverable via the post's tag list), but
-/// the by-tag *stream* (`PostsByTagSearch`) must NOT include the
-/// collection (collections never appear in `?tags=LABEL` results, even
-/// when tagged). This is the load-bearing assertion for the
+/// collection. The invariant: the graph TAGGED edge is created normally
+/// (so the tag is discoverable via the post's tag list), but the by-tag
+/// *stream* (`PostsByTagSearch`) must NOT include the collection
+/// (collections never appear in `?tags=LABEL` results, even when tagged).
+/// This is the load-bearing assertion for the
 /// `target_post_is_collection` gate in `nexus-watcher/.../tag.rs`.
 #[tokio_shared_rt::test(shared)]
 async fn test_tag_on_collection_indexes_graph_skips_by_tag_stream() -> Result<()> {
@@ -212,7 +212,7 @@ async fn test_tag_on_collection_indexes_graph_skips_by_tag_stream() -> Result<()
 
     // Assertion 2: the collection is NOT in the by-tag stream
     // (`PostsByTagSearch` / `TAG_GLOBAL_POST_TIMELINE` sorted set).
-    // This is the Phase-3 gate at `tag.rs`: when target_post_is_collection
+    // This is the gate at `tag.rs`: when target_post_is_collection
     // returns true, we skip `PostsByTagSearch::put_to_index`.
     assert!(
         check_member_post_tag_global_timeline(post_key, label)

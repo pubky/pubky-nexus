@@ -736,10 +736,10 @@ mod tests {
     use super::*;
 
     /// `can_use_index` short-circuits to the Cypher path whenever a kind filter
-    /// is set, regardless of which kind. The Phase 3 stream-suppression
-    /// strategy relies on this so that `kind=collection` queries never hit the
-    /// Redis index (which is gated to exclude collections at write time), AND
-    /// so that any kind-filtered query (`kind=short`, `kind=long`, etc.) routes
+    /// is set, regardless of which kind. The stream-suppression strategy
+    /// relies on this so that `kind=collection` queries never hit the Redis
+    /// index (which is gated to exclude collections at write time), AND so
+    /// that any kind-filtered query (`kind=short`, `kind=long`, etc.) routes
     /// via Cypher where the kind-specific filter actually applies.
     ///
     /// We parametrize across the source/sorting combinations that *would*
