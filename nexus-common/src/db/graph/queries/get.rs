@@ -213,6 +213,7 @@ pub fn global_tags_by_post() -> Query {
         "global_tags_by_post",
         "
         MATCH (tagger:User)-[t:TAGGED]->(post:Post)<-[:AUTHORED]-(author:User)
+        WHERE post.kind <> 'collection'
         WITH t.label AS label, author.id + ':' + post.id AS post_id, post.indexed_at AS score
         WITH DISTINCT post_id, label, score
         WITH label, COLLECT([toFloat(score), post_id ]) AS sorted_set
@@ -230,6 +231,7 @@ pub fn global_tags_by_post_engagement() -> Query {
         "global_tags_by_post_engagement",
         "
         MATCH (author:User)-[:AUTHORED]->(post:Post)<-[tag:TAGGED]-(tagger:User)
+        WHERE post.kind <> 'collection'
         WITH post, COUNT(tag) AS tags_count, tag.label AS label, author.id + ':' + post.id AS key
         WITH DISTINCT key, label, post, tags_count
         WHERE tags_count > 0

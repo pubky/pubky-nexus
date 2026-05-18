@@ -23,6 +23,7 @@ mod idempotent;
 mod influencer;
 mod moderated;
 mod raw;
+mod reindex_collection;
 mod reply;
 mod reply_engagement;
 mod reply_notification;
