@@ -15,7 +15,7 @@ use pubky_app_specs::{
 };
 use tracing::{debug, Instrument};
 
-use super::utils::post_relationships_is_reply;
+use super::utils::{post_relationships_is_reply, target_post_is_collection};
 
 #[tracing::instrument(name = "post.put", skip_all, fields(user_id = %author_id, post_id = %post_id))]
 pub async fn sync_put(
@@ -159,12 +159,18 @@ pub async fn sync_put(
             Some((parent_author_id.to_string(), parent_post_id.clone()));
 
         let parent_post_key_parts: &[&str; 2] = &[&parent_author_id, &parent_post_id];
+        // Replies + Collections must not enter POST_TOTAL_ENGAGEMENT —
+        // ZINCRBY would create the member if absent.
+        let parent_is_collection =
+            target_post_is_collection(&parent_author_id, &parent_post_id).await?;
 
         let indexing_results = nexus_common::traced_join!(
             tracing::info_span!("index.write", phase = "reply_parent");
             PostCounts::increment_index_field(parent_post_key_parts, "replies", None),
             async {
-                if !post_relationships_is_reply(&parent_author_id, &parent_post_id).await? {
+                if !parent_is_collection
+                    && !post_relationships_is_reply(&parent_author_id, &parent_post_id).await?
+                {
                     PostStream::increment_score_index_sorted_set(
                         &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
                         parent_post_key_parts,
@@ -209,12 +215,18 @@ pub async fn sync_put(
             .map_err(EventProcessorError::generic)?;
 
         let parent_post_key_parts: &[&str; 2] = &[&parent_author_id, &parent_post_id];
+        // Replies + Collections must not enter POST_TOTAL_ENGAGEMENT —
+        // ZINCRBY would create the member if absent.
+        let parent_is_collection =
+            target_post_is_collection(&parent_author_id, &parent_post_id).await?;
+
         let indexing_results = nexus_common::traced_join!(
             tracing::info_span!("index.write", phase = "repost_parent");
             PostCounts::increment_index_field(parent_post_key_parts, "reposts", None),
             async {
-                // Post replies cannot be included in the total engagement index after they receive a reply
-                if !post_relationships_is_reply(&parent_author_id, &parent_post_id).await? {
+                if !parent_is_collection
+                    && !post_relationships_is_reply(&parent_author_id, &parent_post_id).await?
+                {
                     PostStream::increment_score_index_sorted_set(
                         &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
                         parent_post_key_parts,
@@ -532,6 +544,12 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), EventPr
             reply_parent_post_key_wrapper =
                 Some((parent_user_id.to_string(), parent_post_id.clone()));
 
+            // Symmetric DEL gate: ZINCRBY -1 would create the member if absent,
+            // leaking a Collection (or a reply parent) into POST_TOTAL_ENGAGEMENT
+            // with a negative score.
+            let parent_is_collection =
+                target_post_is_collection(&parent_user_id, &parent_post_id).await?;
+
             let indexing_results = nexus_common::traced_join!(
                 tracing::info_span!("index.delete", phase = "reply_parent");
                 async {
@@ -541,8 +559,8 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), EventPr
                     Ok::<(), EventProcessorError>(())
                 },
                 async {
-                    // Post replies cannot be included in the total engagement index after the reply is deleted
                     if post_in_index
+                        && !parent_is_collection
                         && !post_relationships_is_reply(&parent_user_id, &parent_post_id).await?
                     {
                         PostStream::decrement_score_index_sorted_set(
@@ -592,6 +610,12 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), EventPr
 
             let parent_post_key_parts: &[&str] = &[&reposted_uri.user_id, &parent_post_id];
 
+            // Symmetric DEL gate: ZINCRBY -1 would create the member if absent,
+            // leaking a Collection (or a reply parent) into POST_TOTAL_ENGAGEMENT
+            // with a negative score.
+            let parent_is_collection =
+                target_post_is_collection(&reposted_uri.user_id, &parent_post_id).await?;
+
             let indexing_results = nexus_common::traced_join!(
                 tracing::info_span!("index.delete", phase = "repost_parent");
                 async {
@@ -601,8 +625,8 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), EventPr
                     Ok::<(), EventProcessorError>(())
                 },
                 async {
-                    // Post replies cannot be included in the total engagement index after the repost is deleted
                     if post_in_index
+                        && !parent_is_collection
                         && !post_relationships_is_reply(&reposted_uri.user_id, &parent_post_id).await?
                     {
                         PostStream::decrement_score_index_sorted_set(

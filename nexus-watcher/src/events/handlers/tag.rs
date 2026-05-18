@@ -7,7 +7,7 @@ use nexus_common::db::{fetch_row_from_graph, queries, OperationOutcome, RedisOps
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::notification::Notification;
 use nexus_common::models::post::search::PostsByTagSearch;
-use nexus_common::models::post::{PostCounts, PostDetails, PostStream};
+use nexus_common::models::post::{PostCounts, PostStream};
 use nexus_common::models::resource::stream::ResourceStream;
 use nexus_common::models::resource::tag::TagResource;
 use nexus_common::models::resource::{classify_uri, normalize_uri, resource_id, UriCategory};
@@ -17,12 +17,10 @@ use nexus_common::models::tag::traits::{TagCollection, TaggersCollection};
 use nexus_common::models::tag::user::TagUser;
 use nexus_common::models::user::UserCounts;
 use nexus_common::types::Pagination;
-use pubky_app_specs::{
-    post_uri_builder, ParsedUri, PubkyAppPostKind, PubkyAppTag, PubkyId, Resource,
-};
+use pubky_app_specs::{post_uri_builder, ParsedUri, PubkyAppTag, PubkyId, Resource};
 use tracing::debug;
 
-use super::utils::post_relationships_is_reply;
+use super::utils::{post_relationships_is_reply, target_post_is_collection};
 
 #[derive(Debug)]
 struct TagStorageUri {
@@ -190,41 +188,6 @@ async fn put_sync_resource(
             Ok(())
         }
     }
-}
-
-/// Handles the synchronization of a tagged post by updating the graph, indexes, and related counts.
-/// # Arguments
-/// - `tagger_user_id` - The `PubkyId` of the user tagging the post.
-/// - `author_id` - The `PubkyId` of the author of the tagged post.
-/// - `post_id` - A `String` representing the unique identifier of the post being tagged.
-/// - `tag_id` - A `String` representing the unique identifier of the tag.
-/// - `tag_label` - A `String` representing the label of the tag.
-/// - `post_uri` - A `String` representing the homeserver URI of the tagged post.
-/// - `indexed_at` - A 64-bit integer representing the timestamp when the post was indexed.
-///
-/// Returns `true` if the post at `(author_id, post_id)` is a Collection.
-///
-/// Called from the index-write paths of `put_sync_post` and `del_sync_post`.
-/// `MissingDependency` arms return before any index writes, so this lookup
-/// never lands on the retry path.
-///
-/// **Default on `None`**: when the target post isn't indexed (cache miss +
-/// graph absent), this returns `true` — i.e. treat unknown targets as
-/// collections and skip the engagement/by-tag index writes. This matches
-/// the sibling helper `post_relationships_is_reply` (`posts/utils.rs`)
-/// which defaults to `Ok(true)` (treat unknown as reply, skip indexing).
-/// The conservative default is the safe one because under-indexing is
-/// transient (the tag still exists in the graph and can be re-derived),
-/// while over-indexing a collection into a default stream is a
-/// permanent suppression-invariant violation with no automatic cleanup.
-async fn target_post_is_collection(
-    author_id: &str,
-    post_id: &str,
-) -> Result<bool, EventProcessorError> {
-    Ok(PostDetails::get_by_id(author_id, post_id)
-        .await?
-        .map(|d| matches!(d.kind, PubkyAppPostKind::Collection))
-        .unwrap_or(true))
 }
 
 async fn put_sync_post(
