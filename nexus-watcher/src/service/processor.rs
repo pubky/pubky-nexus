@@ -255,24 +255,28 @@ fn extract_retry_event_info(
 mod tests {
     use super::*;
     use nexus_common::models::event::ParseResult;
-    use std::path::PathBuf;
+    use tempfile::TempDir;
 
     /// Build a syntactically-valid `Event` for classifier tests. The body of
     /// `extract_retry_event_info` only consults `event.uri` for the retry-eligible
     /// branch; the skip branches we test below short-circuit before reaching it.
-    fn fixture_event() -> Event {
+    /// The returned `TempDir` must be kept alive for the duration of the test so
+    /// the path stored on the `Event` remains valid.
+    fn fixture_event() -> (Event, TempDir) {
+        let tmp = tempfile::tempdir().expect("create temp files_path");
         let line = "PUT pubky://4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro/pub/pubky.app/posts/0034A0X7NJ52A";
-        match Event::parse_event(line, PathBuf::from("/tmp/nexus-test-files")).unwrap() {
+        let event = match Event::parse_event(line, tmp.path().to_path_buf()).unwrap() {
             ParseResult::Parsed(event) => event,
             other => panic!("expected Parsed event, got {:?}", other),
-        }
+        };
+        (event, tmp)
     }
 
     #[test]
     fn test_extract_retry_event_info_skips_invalid_event_line() {
         // Regression guard: the pre-existing non-retryable branch must keep
         // returning `None` so retry-queue behavior doesn't change.
-        let event = fixture_event();
+        let (event, _tmp) = fixture_event();
         let result = extract_retry_event_info(
             &event,
             EventProcessorError::InvalidEventLine("malformed".into()),
@@ -286,7 +290,7 @@ mod tests {
         // malformed Collection envelope) are deterministic — re-running the
         // same payload produces the same error, so they must NOT enqueue a
         // retry. Without this, the v0.4.5 forwards-compat shim is theatre.
-        let event = fixture_event();
+        let (event, _tmp) = fixture_event();
         let result = extract_retry_event_info(
             &event,
             EventProcessorError::SpecValidation("post kind is unknown".into()),
@@ -298,7 +302,7 @@ mod tests {
     fn test_extract_retry_event_info_retries_generic_errors() {
         // Counterpart: a non-classified (transient-looking) error still
         // enqueues a retry, so we don't accidentally drop recoverable failures.
-        let event = fixture_event();
+        let (event, _tmp) = fixture_event();
         let result = extract_retry_event_info(
             &event,
             EventProcessorError::Generic("transient failure".into()),
