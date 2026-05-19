@@ -73,7 +73,7 @@ pub async fn search_users_by_id_handler(
 ) -> Result<Json<UserSearch>> {
     let id_prefix = prefix;
     if id_prefix.trim().chars().count() < USER_ID_SEARCH_MIN_PREFIX_LEN {
-        return Err(Error::invalid_input(&format!(
+        return Err(Error::invalid_input(format!(
             "ID prefix must be at least {USER_ID_SEARCH_MIN_PREFIX_LEN} chars"
         )));
     }

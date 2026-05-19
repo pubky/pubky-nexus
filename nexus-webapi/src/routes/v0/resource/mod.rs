@@ -8,9 +8,10 @@ use axum::extract::{Path, Query};
 use axum::routing::get;
 use axum::{Json, Router};
 use nexus_common::models::resource::tag::TagResource;
-use nexus_common::models::resource::{normalize_uri, resource_id, ResourceDetails};
+use nexus_common::models::resource::ResourceDetails;
 use nexus_common::models::tag::traits::{TagCollection, TaggersCollection};
 use nexus_common::models::tag::TagDetails;
+use nexus_common::universal_tag::normalize::{normalize_uri, resource_id};
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 use utoipa::{OpenApi, ToSchema};
@@ -122,15 +123,14 @@ pub async fn resource_by_uri_handler(
     Query(query): Query<ResourceByUriQuery>,
 ) -> Result<Json<ResourceTagsResponse>> {
     if query.uri.len() > MAX_URI_LENGTH {
-        return Err(Error::invalid_input(&format!(
+        return Err(Error::invalid_input(format!(
             "URI too long (max {MAX_URI_LENGTH} bytes)"
         )));
     }
 
     debug!("GET {RESOURCE_BY_URI_ROUTE} uri:{}", query.uri);
 
-    let (normalized, _scheme) =
-        normalize_uri(&query.uri).map_err(|e| Error::InvalidInput { message: e })?;
+    let (normalized, _scheme) = normalize_uri(&query.uri).map_err(Error::invalid_input)?;
     let res_id = resource_id(&normalized);
 
     let tags = TagResource::get_by_id(

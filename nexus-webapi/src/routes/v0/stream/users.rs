@@ -257,7 +257,7 @@ fn build_user_stream_input(
             | UserStreamSource::Following
             | UserStreamSource::Friends
             | UserStreamSource::Recommended => {
-                return Err(Error::invalid_input(&format!(
+                return Err(Error::invalid_input(format!(
                     "user_id query param must be provided for source '{}'",
                     source_name(&source)
                 )));

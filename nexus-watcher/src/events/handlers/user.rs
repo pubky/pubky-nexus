@@ -60,10 +60,7 @@ pub async fn del(user_id: PubkyId) -> Result<(), EventProcessorError> {
     // 3. But if there is any relationship (OperationOutcome::Updated), then we simply update the user with empty profile
     // and keyword username [DELETED].
     // A deleted user is a user whose profile is empty and has username `"[DELETED]"`
-    match execute_graph_operation(query)
-        .await
-        .map_err(EventProcessorError::graph_query_failed)?
-    {
+    match execute_graph_operation(query).await? {
         OperationOutcome::CreatedOrDeleted => {
             // 1. UserSearch reads UserDetails — must run before UserDetails Redis is removed
             UserSearch::delete(&user_id).await?;
@@ -81,9 +78,7 @@ pub async fn del(user_id: PubkyId) -> Result<(), EventProcessorError> {
             indexing_results.1?;
 
             // 3. Graph deletion LAST
-            exec_single_row(queries::del::delete_user(&user_id))
-                .await
-                .map_err(EventProcessorError::graph_query_failed)?;
+            exec_single_row(queries::del::delete_user(&user_id)).await?;
         }
         OperationOutcome::Updated => {
             let deleted_user = PubkyAppUser {
