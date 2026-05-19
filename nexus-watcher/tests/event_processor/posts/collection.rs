@@ -1,7 +1,7 @@
 use anyhow::Result;
 use chrono::Utc;
 use pubky::Keypair;
-use pubky_app_specs::{post_uri_builder, PubkyAppTag};
+use pubky_app_specs::{post_uri_builder, PubkyAppCollectionContent, PubkyAppTag};
 
 use super::utils::{
     check_member_global_timeline_user_post, check_member_total_engagement_user_posts,
@@ -51,7 +51,16 @@ async fn test_create_collection_post_indexes_graph_only() -> Result<()> {
         post_details.kind,
         pubky_app_specs::PubkyAppPostKind::Collection
     );
-    assert_eq!(post_details.attachments.as_ref().unwrap().len(), 3);
+    assert!(
+        post_details
+            .attachments
+            .as_ref()
+            .is_none_or(|a| a.is_empty()),
+        "Collection must not store items in post.attachments"
+    );
+    let envelope: PubkyAppCollectionContent =
+        serde_json::from_str(&post_details.content).expect("envelope deserialization");
+    assert_eq!(envelope.items.len(), 3);
 
     // PostCounts initialized at zero.
     let counts = find_post_counts(&user_id, &post_id).await;
@@ -93,7 +102,7 @@ async fn test_edit_collection_post_keeps_streams_suppressed() -> Result<()> {
     let user_id = test.create_user(&user_kp, &user).await?;
 
     // Create with 3 items.
-    let original_attachments = vec![
+    let original_items = vec![
         format!("pubky://{user_id}/pub/pubky.app/posts/0034A0X7NJ52A"),
         format!("pubky://{user_id}/pub/pubky.app/posts/0034A0X7NJ52B"),
         format!("pubky://{user_id}/pub/pubky.app/posts/0034A0X7NJ52C"),
@@ -101,25 +110,23 @@ async fn test_edit_collection_post_keeps_streams_suppressed() -> Result<()> {
     let post = collection_post(
         "Original name",
         Some("Original description"),
-        original_attachments.clone(),
+        original_items.clone(),
     );
     let (post_id, post_path) = test.create_post(&user_kp, &post).await?;
 
     // Edit: rename + add a 4th item. Re-PUT to the same path.
-    let mut edited_attachments = original_attachments.clone();
-    edited_attachments.push(format!(
+    let mut edited_items = original_items.clone();
+    edited_items.push(format!(
         "pubky://{user_id}/pub/pubky.app/posts/0034A0X7NJ52D"
     ));
-    let edited = collection_post(
-        "Renamed",
-        Some("Updated description"),
-        edited_attachments.clone(),
-    );
+    let edited = collection_post("Renamed", Some("Updated description"), edited_items.clone());
     test.put(&user_kp, &post_path, &edited).await?;
 
     // Graph reflects the edit.
     let post_details = find_post_details(&user_id, &post_id).await?;
-    assert_eq!(post_details.attachments.as_ref().unwrap().len(), 4);
+    let envelope: PubkyAppCollectionContent =
+        serde_json::from_str(&post_details.content).expect("envelope deserialization");
+    assert_eq!(envelope.items.len(), 4);
 
     // Sorted sets still do not contain the collection.
     assert!(

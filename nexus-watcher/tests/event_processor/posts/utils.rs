@@ -184,16 +184,17 @@ pub fn short_repost(content: impl Into<String>, parent_uri: String) -> PubkyAppP
 }
 
 /// Build a `Collection` post with the given envelope (`name`, optional
-/// `description`) and item URIs in `attachments`. Mirrors the shape produced
-/// by a v0.5.0 client.
+/// `description`) and curated item URIs. Mirrors the shape produced by a
+/// v0.5.0 client: items live in the envelope; `post.attachments` is unused.
 pub fn collection_post(
     name: impl Into<String>,
     description: Option<&str>,
-    attachments: Vec<String>,
+    items: Vec<String>,
 ) -> PubkyAppPost {
     let envelope = PubkyAppCollectionContent {
         name: name.into(),
         description: description.map(|s| s.to_string()),
+        items,
     };
     let content = serde_json::to_string(&envelope).expect("envelope serialization");
     PubkyAppPost {
@@ -201,11 +202,7 @@ pub fn collection_post(
         kind: PubkyAppPostKind::Collection,
         parent: None,
         embed: None,
-        attachments: if attachments.is_empty() {
-            None
-        } else {
-            Some(attachments)
-        },
+        attachments: None,
     }
 }
 
