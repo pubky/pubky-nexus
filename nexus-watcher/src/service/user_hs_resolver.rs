@@ -12,7 +12,8 @@ use opentelemetry::metrics::Histogram;
 use pubky::PublicKey;
 use pubky_app_specs::PubkyId;
 use std::sync::LazyLock;
-use tracing::{debug, error, warn};
+use tokio::sync::watch::Receiver;
+use tracing::{debug, error, info, warn};
 
 static HS_RESOLVER_METRICS: LazyLock<HsResolverMetrics> = LazyLock::new(HsResolverMetrics::new);
 
@@ -20,7 +21,10 @@ static HS_RESOLVER_METRICS: LazyLock<HsResolverMetrics> = LazyLock::new(HsResolv
 ///
 /// `ttl_ms` controls the minimum time before a user's mapping is re-resolved.
 /// Users whose `HOSTED_BY.resolved_at` is newer than `ttl_ms` are skipped.
-pub async fn run(ttl_ms: u64) -> Result<(), DynError> {
+///
+/// `shutdown_rx` cancels the in-flight resolution on shutdown; cancelled users
+/// get re-picked-up on the next run via TTL.
+pub async fn run(ttl_ms: u64, shutdown_rx: &mut Receiver<bool>) -> Result<(), DynError> {
     let user_ids = get_users_needing_resolution(ttl_ms).await?;
     if user_ids.is_empty() {
         debug!("No users need homeserver resolution");
@@ -45,6 +49,7 @@ pub async fn run(ttl_ms: u64) -> Result<(), DynError> {
     debug!("Resolving homeservers for {} users", attempted);
 
     let mut failed = 0u64;
+    let mut processed = 0u64;
 
     // As of pubky 0.7.0 parallel resolution is possible but unreliable. This was tried:
     // - with the singleton Pubky client (up to 10% unresolved nodes with 10 req. in parallel)
@@ -60,13 +65,23 @@ pub async fn run(ttl_ms: u64) -> Result<(), DynError> {
     //
     // To achieve this, we use bisection ordering.
     for user_pk in bisection_order_user_pks(user_pks) {
-        if let Err(e) = resolve_user(&user_pk).await {
-            failed += 1;
-            warn!("Failed to resolve HS for user {}: {e}", user_pk.z32());
+        tokio::select! {
+            biased;
+            _ = shutdown_rx.changed() => {
+                info!("Shutdown detected; HS resolver stopping after {processed}/{attempted} users");
+                break;
+            }
+            result = resolve_user(&user_pk) => {
+                if let Err(e) = result {
+                    failed += 1;
+                    warn!("Failed to resolve HS for user {}: {e}", user_pk.z32());
+                }
+                processed += 1;
+            }
         }
     }
 
-    HS_RESOLVER_METRICS.run_total.record(attempted, &[]);
+    HS_RESOLVER_METRICS.run_total.record(processed, &[]);
     HS_RESOLVER_METRICS.run_failed.record(failed, &[]);
 
     Ok(())
