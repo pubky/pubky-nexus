@@ -3,7 +3,7 @@ use crate::db::kv::error::{RedisError, RedisResult};
 use deadpool_redis::redis::Script;
 use deadpool_redis::redis::{AsyncCommands, JsonAsyncCommands};
 use serde::{de::DeserializeOwned, Serialize};
-use tracing::{debug, trace};
+use tracing::{debug, warn};
 
 #[derive(Clone, Debug)]
 pub enum JsonAction {
@@ -305,19 +305,17 @@ pub async fn get<T: DeserializeOwned + Send + Sync>(
 ) -> RedisResult<Option<T>> {
     let mut redis_conn = get_redis_conn().await?;
     let index_key = format!("{prefix}:{key}");
-    let json_path = path.unwrap_or("$").to_string(); // Ensure path is a String
+    let json_path = path.unwrap_or("$");
 
-    // Use RedisJSON commands to get the value from the specified path
-    if let Ok(indexed_value) = redis_conn
-        .json_get::<String, String, String>(index_key.clone(), json_path)
-        .await
-    {
-        //debug!("Restored key: {} with value: {}", index_key, indexed_value);
-        let value: Vec<T> = from_json_str(&indexed_value)?;
-        return Ok(value.into_iter().next()); // Extract the first element from the Vec
+    let indexed_value: Option<String> = redis_conn.json_get(index_key, json_path).await?;
+
+    match indexed_value {
+        Some(s) => {
+            let value: Vec<T> = from_json_str(&s)?;
+            Ok(value.into_iter().next())
+        }
+        None => Ok(None),
     }
-
-    Ok(None)
 }
 
 /// Retrieves a list of JSON values from Redis based on a list of keys.
@@ -402,21 +400,17 @@ pub async fn _get_bool(prefix: &str, key: &str) -> RedisResult<Option<bool>> {
     let mut redis_conn = get_redis_conn().await?;
     let index_key = format!("{prefix}:{key}");
 
-    if let Ok(indexed_value) = redis_conn.get::<_, i32>(&index_key).await {
-        trace!(
-            "Restored boolean key: {} with value: {}",
-            index_key,
-            indexed_value
-        );
-        let value = match indexed_value {
-            1 => true,
-            0 => false,
-            _ => return Ok(None), // Invalid value in Redis
-        };
-        return Ok(Some(value));
-    }
+    let indexed_value: Option<i32> = redis_conn.get(&index_key).await?;
 
-    Ok(None)
+    match indexed_value {
+        Some(1) => Ok(Some(true)),
+        Some(0) => Ok(Some(false)),
+        Some(other) => {
+            warn!("Unexpected non-boolean value at key {index_key}: {other}");
+            Ok(None)
+        }
+        None => Ok(None),
+    }
 }
 
 /// Deletes multiple keys from Redis.
@@ -450,4 +444,72 @@ fn to_json_value<T: Serialize>(value: &T) -> RedisResult<serde_json::Value> {
 
 fn from_json_str<T: DeserializeOwned>(s: &str) -> RedisResult<T> {
     serde_json::from_str(s).map_err(|e| RedisError::DeserializationFailed(Box::new(e)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::get_redis_conn;
+    use crate::{types::DynError, StackConfig, StackManager};
+    use serde::{Deserialize, Serialize};
+
+    const TEST_PREFIX: &str = "JsonGetTest";
+
+    #[derive(Debug, Serialize, Deserialize, PartialEq)]
+    struct TestPayload {
+        value: u32,
+    }
+
+    #[tokio_shared_rt::test(shared)]
+    async fn test_get_roundtrip_returns_some() -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+
+        let key = "roundtrip";
+        del_multiple(TEST_PREFIX, &[key]).await?;
+
+        let payload = TestPayload { value: 42 };
+        put(TEST_PREFIX, key, &payload, None, None).await?;
+
+        let retrieved: Option<TestPayload> = get(TEST_PREFIX, key, None).await?;
+        assert_eq!(retrieved, Some(TestPayload { value: 42 }));
+
+        del_multiple(TEST_PREFIX, &[key]).await?;
+        Ok(())
+    }
+
+    #[tokio_shared_rt::test(shared)]
+    async fn test_get_missing_key_returns_none() -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+
+        let key = "missing";
+        del_multiple(TEST_PREFIX, &[key]).await?;
+
+        let retrieved: Option<TestPayload> = get(TEST_PREFIX, key, None).await?;
+        assert!(retrieved.is_none());
+
+        Ok(())
+    }
+
+    // Regression test for #860: a redis-side error from `JSON.GET` must surface
+    // as `Err`, not get collapsed into `Ok(None)`. Storing a plain string at the
+    // key forces `JSON.GET` to reply with a WRONGTYPE error.
+    #[tokio_shared_rt::test(shared)]
+    async fn test_get_on_wrong_type_propagates_err() -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+
+        let key = "wrong-type";
+        let full_key = format!("{TEST_PREFIX}:{key}");
+
+        let mut conn = get_redis_conn().await?;
+        let _: () = conn.set(&full_key, "not-a-json-document").await?;
+
+        let result: RedisResult<Option<TestPayload>> = get(TEST_PREFIX, key, None).await;
+        assert!(
+            matches!(result, Err(RedisError::CommandFailed(_))),
+            "expected Err(CommandFailed), got {result:?}"
+        );
+
+        del_multiple(TEST_PREFIX, &[key]).await?;
+        Ok(())
+    }
 }
