@@ -3183,6 +3183,7 @@ dependencies = [
  "rand 0.10.1",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
  "tokio-shared-rt",
  "tracing",
@@ -4149,8 +4150,8 @@ dependencies = [
 
 [[package]]
 name = "pubky-app-specs"
-version = "0.4.4"
-source = "git+https://github.com/pubky/pubky-app-specs.git?rev=b1620fd1b98b1665abd07ba3dd208a295da528d1#b1620fd1b98b1665abd07ba3dd208a295da528d1"
+version = "0.5.0"
+source = "git+https://github.com/pubky/pubky-app-specs.git?branch=feat%2Fspec-v0.5.0-collection-variant#5bf3d0cf8a732a8f86677cd4ead33a9716f8cccd"
 dependencies = [
  "base32",
  "blake3",

@@ -28,6 +28,12 @@ pub enum EventProcessorError {
     #[error("InvalidEventLine: {0}")]
     InvalidEventLine(String),
 
+    /// The event payload deserialized but failed `pubky-app-specs` validation
+    /// (e.g. unknown post kind, malformed Collection envelope, oversized field).
+    /// Non-retryable: re-running the same payload will produce the same error.
+    #[error("SpecValidation: {0}")]
+    SpecValidation(String),
+
     /// The Pubky client could not resolve the pubky
     #[error("PubkyClientError: {0}")]
     PubkyClientError(#[from] crate::db::PubkyClientError),

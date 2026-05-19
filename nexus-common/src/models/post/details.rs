@@ -82,11 +82,15 @@ impl PostDetails {
         if is_edit {
             return Ok(());
         }
-        // The replies are not indexed in the global feeds so we will ignore that indexing
+        // The replies are not indexed in the global feeds so we will ignore that indexing.
+        // Collections are also excluded from the default Home / per-user feeds; they
+        // surface only via explicit `?kind=collection` queries (Cypher fallback).
         match parent_key_wrapper {
             None => {
-                PostStream::add_to_timeline_sorted_set(self).await?;
-                PostStream::add_to_per_user_sorted_set(self).await?;
+                if !matches!(self.kind, PubkyAppPostKind::Collection) {
+                    PostStream::add_to_timeline_sorted_set(self).await?;
+                    PostStream::add_to_per_user_sorted_set(self).await?;
+                }
             }
             Some((parent_author_id, parent_post_id)) => {
                 PostStream::add_to_post_reply_sorted_set(

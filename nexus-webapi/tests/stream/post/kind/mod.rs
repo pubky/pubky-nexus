@@ -1,4 +1,5 @@
 pub mod all;
+pub mod collection;
 pub mod file;
 pub mod image;
 pub mod link;
