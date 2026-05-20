@@ -137,10 +137,17 @@ impl EventProcessorError {
         match self {
             Self::GraphQueryFailed(true, _) => true,
             Self::IndexOperationFailed(true, _) => true,
-            Self::PubkyClientError(err) => !matches!(
-                err,
-                PubkyClientError::NotFound404 { .. } | PubkyClientError::ServerError5xx { .. }
-            ),
+            Self::PubkyClientError(err) => match err {
+                PubkyClientError::NotFound404 { .. } | PubkyClientError::ServerError5xx { .. } => {
+                    false
+                }
+                PubkyClientError::NotInitialized
+                | PubkyClientError::RequestFailed { .. }
+                | PubkyClientError::PkarrFailed { .. }
+                | PubkyClientError::AuthenticationFailed { .. }
+                | PubkyClientError::BuildFailed { .. }
+                | PubkyClientError::ParseFailed { .. } => true,
+            },
             _ => false,
         }
     }
