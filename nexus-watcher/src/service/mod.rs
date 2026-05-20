@@ -115,8 +115,12 @@ impl NexusWatcher {
                 let runner = key_based_runner.clone();
                 async move { runner.run().await.map(|_| ()) }
             }),
-            PeriodicTask::new("user-hs-resolver", hs_resolver_sleep, move || async move {
-                user_hs_resolver::run(hs_resolver_ttl).await
+            PeriodicTask::new("user-hs-resolver", hs_resolver_sleep, {
+                let shutdown_rx = shutdown_rx.clone();
+                move || {
+                    let mut shutdown_rx = shutdown_rx.clone();
+                    async move { user_hs_resolver::run(hs_resolver_ttl, &mut shutdown_rx).await }
+                }
             }),
             PeriodicTask::new("retry-processor", RETRY_PROCESSOR_SLEEP, move || {
                 let processor = retry_processor.clone();
