@@ -840,11 +840,6 @@ pub fn post_stream(
     //
     // Exception: `source=bookmarks` is exempt — a user who bookmarked a
     // collection should see it in their bookmarks stream regardless of kind.
-    // The Redis bookmark sorted set is already kind-agnostic, so under
-    // `sorting=timeline` bookmarked collections surface naturally. Under
-    // `sorting=total_engagement` `can_use_index` returns false and execution
-    // falls through to this Cypher path; without this exemption we would
-    // silently drop bookmarked collections when sorting changes.
     match (&source, &kind) {
         (StreamSource::Bookmarks { .. }, None) => {}
         (_, Some(_)) => append_condition(&mut cypher, "p.kind = $kind", &mut where_clause_applied),
