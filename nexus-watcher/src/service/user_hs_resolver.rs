@@ -81,7 +81,7 @@ pub async fn run(ttl_ms: u64, shutdown_rx: &mut Receiver<bool>) -> Result<(), Dy
         }
     }
 
-    HS_RESOLVER_METRICS.run_total.record(processed, &[]);
+    HS_RESOLVER_METRICS.run_total.record(attempted, &[]);
     HS_RESOLVER_METRICS.run_failed.record(failed, &[]);
 
     Ok(())
