@@ -5,7 +5,10 @@ use chrono::Utc;
 use nexus_common::config::EventRetryConfig;
 use nexus_common::db::kv::RedisOps;
 use nexus_common::models::event::{EventProcessorError, EventType};
-use nexus_watcher::events::retry::{RedisRetryStore, RetryEvent, RetryProcessor, RetryStore};
+use nexus_watcher::events::retry::{
+    RedisRetryStore, RetryEvent, RetryProcessor, RetryStore, RETRY_MANAGER_EVENTS_INDEX,
+    RETRY_MANAGER_PREFIX,
+};
 use nexus_watcher::events::EventHandler;
 use nexus_watcher::service::TEventProcessor;
 use pubky_app_specs::post_uri_builder;
@@ -688,9 +691,9 @@ async fn test_stale_sorted_set_entry_cleaned_up() -> Result<()> {
     // Manually add a stale entry to the sorted set only (no JSON state).
     let now = Utc::now().timestamp_millis();
     RetryEvent::put_index_sorted_set(
-        &["events"],
+        &RETRY_MANAGER_EVENTS_INDEX,
         &[(now as f64, &resource_key)],
-        Some("RetryManager"),
+        Some(RETRY_MANAGER_PREFIX),
         None,
     )
     .await?;
