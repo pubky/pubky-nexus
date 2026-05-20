@@ -1,6 +1,8 @@
 mod attachments;
+mod collection;
 mod del_reply_notification;
 mod del_reply_parent_notification;
+mod forwards_compat;
 
 mod del_bookmarked_notification;
 mod del_repost_notification;
@@ -21,11 +23,14 @@ mod idempotent;
 mod influencer;
 mod moderated;
 mod raw;
+mod reindex_collection;
 mod reply;
 mod reply_engagement;
 mod reply_notification;
 mod reply_repost;
+mod reply_to_collection;
 mod repost;
+mod repost_collection;
 mod repost_notification;
 mod retry_all;
 mod retry_post;

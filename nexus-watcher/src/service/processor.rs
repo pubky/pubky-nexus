@@ -232,6 +232,12 @@ fn extract_retry_event_info(
             error!("{}", message);
             return None;
         }
+        EventProcessorError::SpecValidation(ref reason) => {
+            // Spec-validation failures are deterministic: re-running the same
+            // payload produces the same error. Don't poison the retry queue.
+            error!("SpecValidation: {}", reason);
+            return None;
+        }
         _ => RetryEvent::new(error),
     };
 
@@ -243,4 +249,64 @@ fn extract_retry_event_info(
         }
     };
     Some((format!("{}:{}", event.event_type, index), retry_event))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nexus_common::models::event::ParseResult;
+    use tempfile::TempDir;
+
+    /// Build a syntactically-valid `Event` for classifier tests. The body of
+    /// `extract_retry_event_info` only consults `event.uri` for the retry-eligible
+    /// branch; the skip branches we test below short-circuit before reaching it.
+    /// The returned `TempDir` must be kept alive for the duration of the test so
+    /// the path stored on the `Event` remains valid.
+    fn fixture_event() -> (Event, TempDir) {
+        let tmp = tempfile::tempdir().expect("create temp files_path");
+        let line = "PUT pubky://4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro/pub/pubky.app/posts/0034A0X7NJ52A";
+        let event = match Event::parse_event(line, tmp.path().to_path_buf()).unwrap() {
+            ParseResult::Parsed(event) => event,
+            other => panic!("expected Parsed event, got {:?}", other),
+        };
+        (event, tmp)
+    }
+
+    #[test]
+    fn test_extract_retry_event_info_skips_invalid_event_line() {
+        // Regression guard: the pre-existing non-retryable branch must keep
+        // returning `None` so retry-queue behavior doesn't change.
+        let (event, _tmp) = fixture_event();
+        let result = extract_retry_event_info(
+            &event,
+            EventProcessorError::InvalidEventLine("malformed".into()),
+        );
+        assert!(result.is_none(), "InvalidEventLine must skip retry");
+    }
+
+    #[test]
+    fn test_extract_retry_event_info_skips_spec_validation() {
+        // Spec-validation failures (e.g. unknown post kind, malformed
+        // Collection envelope) are deterministic — re-running the same
+        // payload produces the same error, so they must NOT enqueue a retry.
+        // Without this, the v0.4.5 forwards-compat shim is theatre.
+        let (event, _tmp) = fixture_event();
+        let result = extract_retry_event_info(
+            &event,
+            EventProcessorError::SpecValidation("post kind is unknown".into()),
+        );
+        assert!(result.is_none(), "SpecValidation must skip retry");
+    }
+
+    #[test]
+    fn test_extract_retry_event_info_retries_generic_errors() {
+        // Counterpart: a non-classified (transient-looking) error still
+        // enqueues a retry, so we don't accidentally drop recoverable failures.
+        let (event, _tmp) = fixture_event();
+        let result = extract_retry_event_info(
+            &event,
+            EventProcessorError::Generic("transient failure".into()),
+        );
+        assert!(result.is_some(), "Generic errors must enqueue a retry");
+    }
 }
