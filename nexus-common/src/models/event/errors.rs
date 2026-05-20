@@ -137,6 +137,10 @@ impl EventProcessorError {
         match self {
             Self::GraphQueryFailed(true, _) => true,
             Self::IndexOperationFailed(true, _) => true,
+            Self::PubkyClientError(err) => !matches!(
+                err,
+                PubkyClientError::NotFound404 { .. } | PubkyClientError::ServerError5xx { .. }
+            ),
             _ => false,
         }
     }
