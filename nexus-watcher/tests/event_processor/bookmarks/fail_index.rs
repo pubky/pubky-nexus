@@ -63,8 +63,8 @@ async fn test_homeserver_bookmark_without_user() -> Result<()> {
     // Simulate the event processor to handle the event.
     // If the event processor were activated, the test would not catch the missing dependency
     // error, and it would pass successfully
-    let moderation_ref = test.event_processor_runner.moderation.clone();
-    let sync_fail = retrieve_and_handle_event_line(&bookmark_event, moderation_ref)
+    let context_ref = test.event_processor_runner.context.clone();
+    let sync_fail = retrieve_and_handle_event_line(&bookmark_event, context_ref)
         .await
         .map_err(|e| error!("SYNC ERROR: {:?}", e))
         .is_err();
