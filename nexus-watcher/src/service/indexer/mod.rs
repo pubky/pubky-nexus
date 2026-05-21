@@ -123,7 +123,8 @@ pub trait TEventProcessor: Send + Sync + 'static {
     /// `DefaultEventHandler` → `tag::sync_put_resource` (main flow).
     async fn process_event_line(&self, line: &str) -> Result<(), EventProcessorError> {
         match Event::parse_event(line, self.files_path().clone()) {
-            Err(e) => error!("{e}"),
+            // Invalid event lines come from untrusted homeservers; treat as bad peer data, not Nexus errors.
+            Err(e) => warn!("{e}"),
             Ok(ParseResult::Skipped) => {}
             Ok(ParseResult::UnrecognizedUri { reason, .. }) => {
                 // Should not normally occur — UnknownResource parsing happens in HomeserverParsedUri
