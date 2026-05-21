@@ -15,12 +15,9 @@ pub type Result<T> = core::result::Result<T, Error>;
 #[derive(Error, Debug)]
 pub enum Error {
     #[error("User not found: {user_id}")]
-    UserNotFound { user_id: Box<PubkyId> },
+    UserNotFound { user_id: String },
     #[error("Post not found: {author_id} {post_id}")]
-    PostNotFound {
-        author_id: Box<PubkyId>,
-        post_id: PostId,
-    },
+    PostNotFound { author_id: String, post_id: String },
     #[error("Internal server error: {source}")]
     InternalServerError { source: DynError },
     #[error("Tags not found")]
@@ -30,12 +27,9 @@ pub enum Error {
     #[error("File not found.")]
     FileNotFound {},
     #[error("Tag {tag_id} of {tagger_id} not found")]
-    TagNotFound {
-        tag_id: String,
-        tagger_id: Box<PubkyId>,
-    },
+    TagNotFound { tag_id: String, tagger_id: String },
     #[error("Resource not found: {resource_id}")]
-    ResourceNotFound { resource_id: ResourceId },
+    ResourceNotFound { resource_id: String },
     // Add other custom errors here
 }
 
@@ -47,26 +41,28 @@ impl Error {
     }
 
     pub fn resource_not_found(resource_id: ResourceId) -> Self {
-        Error::ResourceNotFound { resource_id }
+        Error::ResourceNotFound {
+            resource_id: resource_id.to_string(),
+        }
     }
 
     pub fn user_not_found(user_id: PubkyId) -> Self {
         Error::UserNotFound {
-            user_id: Box::new(user_id),
+            user_id: user_id.to_string(),
         }
     }
 
     pub fn post_not_found(author_id: PubkyId, post_id: PostId) -> Self {
         Error::PostNotFound {
-            author_id: Box::new(author_id),
-            post_id,
+            author_id: author_id.to_string(),
+            post_id: post_id.to_string(),
         }
     }
 
     pub fn tag_not_found(tag_id: String, tagger_id: PubkyId) -> Self {
         Error::TagNotFound {
             tag_id,
-            tagger_id: Box::new(tagger_id),
+            tagger_id: tagger_id.to_string(),
         }
     }
 }
