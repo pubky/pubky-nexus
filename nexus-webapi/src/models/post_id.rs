@@ -57,15 +57,10 @@ impl TryFrom<String> for PostId {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use base32::{encode, Alphabet};
-
-    fn valid_post_id() -> String {
-        encode(Alphabet::Crockford, &1727740800000000i64.to_be_bytes())
-    }
 
     #[test]
     fn test_try_from_valid_id() {
-        let id = valid_post_id();
+        let id = "00000039YD9C0".to_string();
         assert_eq!(id.len(), 13);
         assert!(PostId::try_from(id).is_ok());
     }
@@ -82,7 +77,7 @@ mod tests {
 
     #[test]
     fn test_try_from_invalid_length_too_long() {
-        let id = valid_post_id() + "X";
+        let id = "00000039YD9C0".to_string() + "X";
         assert_eq!(id.len(), 14);
         let result = PostId::try_from(id);
         assert!(result.is_err());

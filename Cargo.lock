@@ -3196,7 +3196,6 @@ dependencies = [
  "anyhow",
  "axum",
  "axum-server",
- "base32",
  "chrono",
  "clap",
  "const_format",
