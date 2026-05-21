@@ -52,10 +52,7 @@ where
     }
 }
 
-/// A wrapper around Axum's Query extractor that maps deserialization/validation errors
-/// to Error::InvalidInput (400 Bad Request) for consistent JSON error responses.
-/// This ensures that query parameter validation failures return a proper JSON body
-/// instead of Axum's default plain-text rejection.
+/// Query extractor that maps Axum rejections to `Error::InvalidInput`.
 pub struct Query<T>(pub T);
 
 impl<S, T> FromRequestParts<S> for Query<T>
