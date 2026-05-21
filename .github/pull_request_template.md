@@ -1,6 +1,7 @@
 # Pre-submission Checklist
 
-> For tests to work you need a working neo4j and redis instance with the example dataset in `docker/db-graph`
-
-- [ ] **Testing**: Implement and pass new tests for the new features/fixes, `cargo nextest run`.
-- [ ] **Performance**: Ensure new code has relevant performance benchmarks, `cargo bench -p nexus-webapi`
+- [ ] I manually reviewed the PR
+- [ ] I asked one or more LLMs to review the PR
+- [ ] I asked one or more LLMs to check whether this PR (code, comments, logic, etc) can be simplified, clarified or made more concise
+- [ ] If appropriate, I added tests for the changes in this PR
+- [ ] If appropriate, I added performance benchmarks for the APIs added in this PR
