@@ -97,26 +97,26 @@ impl TEventProcessor for KeyBasedEventProcessor {
         let hs_id = self.homeserver.id.to_string();
 
         let hs_pk: PublicKey = hs_id.parse().map_err(|_| {
-            EventProcessorError::client_error(format!("Invalid homeserver public key: {hs_id}"))
+            EventProcessorError::client_error("Invalid homeserver public key".to_string())
         })?;
 
         let users = self
             .resolve_users_with_cursors(&hs_id)
             .await
-            .inspect_err(|e| error!("Failed to resolve users for HS {hs_id}: {e:?}"))?;
+            .inspect_err(|e| error!("Failed to resolve users: {e:?}"))?;
 
         if users.is_empty() {
-            debug!("No users on HS {hs_id}, skipping");
+            debug!("No users, skipping");
             return Ok(());
         }
 
-        info!("Found {} users on HS {hs_id}", users.len());
+        info!("Found {} users", users.len());
 
         // TODO: Process users concurrently (bounded semaphore) to reduce per-HS latency
         //       when many users share a non-default homeserver.
         for (user_pk, cursor) in &users {
             if *self.shutdown_rx.borrow() {
-                debug!("Shutdown detected; stopping user iteration for HS {hs_id}");
+                debug!("Shutdown detected; stopping user iteration");
                 break;
             }
 
@@ -155,12 +155,12 @@ impl KeyBasedEventProcessor {
         hs_id: &str,
     ) -> Result<Vec<(PublicKey, EventCursor)>, EventProcessorError> {
         let user_ids = user_hs_resolver::get_user_ids_by_homeserver(hs_id).await?;
-        debug!("Resolved {} user(s) on HS {hs_id}", user_ids.len());
+        debug!("Resolved {} user(s)", user_ids.len());
 
         let mut users = Vec::with_capacity(user_ids.len());
         for user_id in &user_ids {
             let Ok(user_pk) = user_id.parse::<PublicKey>() else {
-                error!("Invalid user public key '{user_id}' on HS {hs_id}, skipping");
+                error!("Invalid user public key '{user_id}', skipping");
                 continue;
             };
             // TODO Batch fetch cursors from Redis, when many users share a non-default homeserver.
