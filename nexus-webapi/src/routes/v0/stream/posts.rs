@@ -145,12 +145,6 @@ impl PostStreamQuery {
             self.order.as_ref().cloned().unwrap_or_default(),
         ))
     }
-
-    pub fn tags_as_strings(&self) -> Option<Vec<String>> {
-        self.tags
-            .as_ref()
-            .map(|tags| tags.0.iter().map(|t| t.0.clone()).collect())
-    }
 }
 
 #[utoipa::path(
@@ -196,7 +190,7 @@ pub async fn stream_posts_handler(
     query.initialize_defaults();
     let (source, sorting, order) = query.extract_stream_params()?;
     let include_attachment_metadata = query.include_attachment_metadata;
-    let tags = query.tags_as_strings();
+    let tags = query.tags.as_ref().map(Tags::to_string_vec);
 
     match PostStream::get_posts(
         source,
@@ -255,7 +249,7 @@ pub async fn stream_post_keys_handler(
 
     query.initialize_defaults();
     let (source, sorting, order) = query.extract_stream_params()?;
-    let tags = query.tags_as_strings();
+    let tags = query.tags.as_ref().map(Tags::to_string_vec);
 
     match PostStream::get_post_keys(source, query.pagination, order, sorting, tags, query.kind)
         .await?

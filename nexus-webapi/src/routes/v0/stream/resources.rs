@@ -57,10 +57,7 @@ pub async fn stream_resource_ids_handler(
 
     let order = query.order.unwrap_or(SortOrder::Descending);
 
-    let tags: Option<Vec<String>> = query
-        .tags
-        .as_ref()
-        .map(|t| t.0.iter().map(|tl| tl.0.clone()).collect());
+    let tags = query.tags.as_ref().map(Tags::to_string_vec);
 
     let keys = ResourceStream::get_resource_keys(
         &source,
@@ -107,10 +104,7 @@ pub async fn stream_resources_handler(
 
     let order = query.order.unwrap_or(SortOrder::Descending);
 
-    let tags: Option<Vec<String>> = query
-        .tags
-        .as_ref()
-        .map(|t| t.0.iter().map(|tl| tl.0.clone()).collect());
+    let tags = query.tags.as_ref().map(Tags::to_string_vec);
 
     let keys = ResourceStream::get_resource_keys(
         &source,

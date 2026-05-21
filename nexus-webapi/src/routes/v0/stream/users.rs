@@ -200,7 +200,7 @@ pub async fn stream_users_by_ids_handler(
         STREAM_USERS_BY_IDS_ROUTE, request.user_ids
     );
 
-    let user_ids: Vec<String> = request.user_ids.iter().map(|id| id.to_string()).collect();
+    let user_ids = request.user_ids.to_string_vec();
 
     match UserStream::from_listed_user_ids(&user_ids, request.viewer_id.as_deref(), request.depth)
         .await?

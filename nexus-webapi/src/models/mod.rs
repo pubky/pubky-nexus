@@ -38,6 +38,12 @@ impl Deref for Tags {
     }
 }
 
+impl Tags {
+    pub fn to_string_vec(&self) -> Vec<String> {
+        self.iter().map(|t| t.0.clone()).collect()
+    }
+}
+
 impl<'de> Deserialize<'de> for Tags {
     fn deserialize<D: serde::de::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
         bounded_vec::deserialize_csv::<TagLabel, D, 1, 5>(d).map(Self)
@@ -52,6 +58,12 @@ impl Deref for UserIds {
     type Target = Vec<PubkyId>;
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+impl UserIds {
+    pub fn to_string_vec(&self) -> Vec<String> {
+        self.iter().map(|id| id.to_string()).collect()
     }
 }
 
