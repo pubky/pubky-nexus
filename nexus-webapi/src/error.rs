@@ -154,6 +154,6 @@ impl IntoResponse for Error {
 
         let body = ErrorResponsePayload::new(self.to_string());
 
-        (status_code, body).into_response()
+        (status_code, axum::Json(body)).into_response()
     }
 }

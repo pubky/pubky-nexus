@@ -1,4 +1,3 @@
-use axum::response::IntoResponse;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -12,11 +11,5 @@ impl ErrorResponsePayload {
         Self {
             error: error.into(),
         }
-    }
-}
-
-impl IntoResponse for ErrorResponsePayload {
-    fn into_response(self) -> axum::response::Response {
-        axum::Json(self).into_response()
     }
 }
