@@ -3183,6 +3183,7 @@ dependencies = [
  "rand 0.10.1",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
  "tokio-shared-rt",
  "tracing",
@@ -4150,8 +4151,9 @@ dependencies = [
 
 [[package]]
 name = "pubky-app-specs"
-version = "0.4.4"
-source = "git+https://github.com/pubky/pubky-app-specs.git?rev=dee19e94b84e2a689791bcac791417af62e04a58#dee19e94b84e2a689791bcac791417af62e04a58"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "165bfbca7de3e46dd4582034b188e9db442dbdcf200eb734260fbbbb4eaa03d8"
 dependencies = [
  "base32",
  "blake3",
@@ -6734,7 +6736,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]

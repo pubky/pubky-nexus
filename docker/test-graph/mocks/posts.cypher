@@ -227,4 +227,25 @@ MATCH (u:User {id: $eixample}), (p:Post {id: "SIJW1TGL5BKG8"}) MERGE (u)-[:AUTHO
 // It has a reply
 MERGE (p:Post {id: "SIJW1TGL5BKG9"}) SET p.content = "LINK post, pubky H", p.kind = "link", p.indexed_at = 1980477299378;
 MATCH (u:User {id: $eixample}), (p:Post {id: "SIJW1TGL5BKG9"}) MERGE (u)-[:AUTHORED]->(p);
-MATCH (reply:Post {id: "SIJW1TGL5BKG9" }), (parent:Post {id: "SIJW1TGL5BKG8" }) MERGE (reply)-[:REPLIED]->(parent)
+MATCH (reply:Post {id: "SIJW1TGL5BKG9" }), (parent:Post {id: "SIJW1TGL5BKG8" }) MERGE (reply)-[:REPLIED]->(parent);
+
+// ###############################
+// ##### Collection posts ########
+// ###############################
+// Collections are kind="collection" with a JSON envelope ({name, description?, items})
+// in `content`. They are excluded from default streams (Home / Hot / By-Tag) and surface
+// only via explicit ?kind=collection queries. Indexed at timestamps after the LINK posts
+// so they sort to the front of an unfiltered author stream when explicitly included.
+MERGE (p:Post {id: "COLW1TGL5BKG1"}) SET p.content = "{\"name\":\"AI papers\",\"description\":\"Best stuff\",\"items\":[]}", p.kind = "collection", p.indexed_at = 1980477299400;
+MATCH (u:User {id: $bogota}), (p:Post {id: "COLW1TGL5BKG1"}) MERGE (u)-[:AUTHORED]->(p);
+MERGE (p:Post {id: "COLW1TGL5BKG2"}) SET p.content = "{\"name\":\"Privacy reads\",\"items\":[]}", p.kind = "collection", p.indexed_at = 1980477299410;
+MATCH (u:User {id: $bogota}), (p:Post {id: "COLW1TGL5BKG2"}) MERGE (u)-[:AUTHORED]->(p);
+MERGE (p:Post {id: "COLW1TGL5BKG3"}) SET p.content = "{\"name\":\"Cryptography classics\",\"items\":[]}", p.kind = "collection", p.indexed_at = 1980477299420;
+MATCH (u:User {id: $cairo}), (p:Post {id: "COLW1TGL5BKG3"}) MERGE (u)-[:AUTHORED]->(p);
+
+// Bookmarked collection (used by `?source=bookmarks` stream tests). Eixample
+// bookmarks Bogota's COLW1TGL5BKG1 — the bookmarks stream must surface this
+// regardless of `kind` filter or `sorting` mode (the BOOKMARKED edge is
+// kind-agnostic, but the Cypher fallback path must also exempt the
+// `source=bookmarks` case from the default collection exclusion).
+MATCH (u:User {id: $eixample}), (p:Post {id: "COLW1TGL5BKG1"}) MERGE (u)-[:BOOKMARKED {id: "BKMK_COLW1TGL5BKG1", indexed_at: 1980477299500}]->(p)

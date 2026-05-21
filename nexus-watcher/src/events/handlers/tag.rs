@@ -20,7 +20,7 @@ use nexus_common::types::Pagination;
 use pubky_app_specs::{post_uri_builder, ParsedUri, PubkyAppTag, PubkyId, Resource};
 use tracing::debug;
 
-use super::utils::post_relationships_is_reply;
+use super::utils::{post_relationships_is_reply, target_post_is_collection};
 
 #[derive(Debug)]
 struct TagStorageUri {
@@ -190,16 +190,6 @@ async fn put_sync_resource(
     }
 }
 
-/// Handles the synchronization of a tagged post by updating the graph, indexes, and related counts.
-/// # Arguments
-/// - `tagger_user_id` - The `PubkyId` of the user tagging the post.
-/// - `author_id` - The `PubkyId` of the author of the tagged post.
-/// - `post_id` - A `String` representing the unique identifier of the post being tagged.
-/// - `tag_id` - A `String` representing the unique identifier of the tag.
-/// - `tag_label` - A `String` representing the label of the tag.
-/// - `post_uri` - A `String` representing the homeserver URI of the tagged post.
-/// - `indexed_at` - A 64-bit integer representing the timestamp when the post was indexed.
-///
 async fn put_sync_post(
     tagger_user_id: PubkyId,
     author_id: PubkyId,
@@ -220,12 +210,23 @@ async fn put_sync_post(
     .await?
     {
         OperationOutcome::Updated => {
+            // Skip the by-tag search index for collections (they don't appear
+            // in by-tag streams unless callers explicitly request
+            // `?kind=collection`). Done after the match so the
+            // `MissingDependency` arm doesn't pay for the lookup.
+            let target_is_collection = target_post_is_collection(&author_id, post_id).await?;
+
             // Re-run idempotent ops to recover from partial failure (graph wrote, Redis didn't)
             let tag_label_slice = &[tag_label.to_string()];
             let idempotent_results = nexus_common::traced_join!(
                 tracing::info_span!("index.write", phase = "tag_post_retry");
                 TagPost::add_tagger_to_index(&author_id, Some(post_id), &tagger_user_id, tag_label),
-                PostsByTagSearch::put_to_index(&author_id, post_id, tag_label),
+                async {
+                    if !target_is_collection {
+                        PostsByTagSearch::put_to_index(&author_id, post_id, tag_label).await?;
+                    }
+                    Ok::<(), EventProcessorError>(())
+                },
                 TagSearch::put_to_index(tag_label_slice)
             );
             idempotent_results.0?;
@@ -244,6 +245,9 @@ async fn put_sync_post(
             Err(EventProcessorError::MissingDependency { dependency })
         }
         OperationOutcome::CreatedOrDeleted => {
+            // See the matching comment in the `Updated` arm.
+            let target_is_collection = target_post_is_collection(&author_id, post_id).await?;
+
             // SAVE TO INDEXES
             let post_key_slice: &[&str] = &[&author_id, post_id];
             let tag_label_slice = &[tag_label.to_string()];
@@ -276,11 +280,28 @@ async fn put_sync_post(
                 },
                 // Add user tag in post
                 TagPost::add_tagger_to_index(&author_id, Some(post_id), &tagger_user_id, tag_label),
-                // Add post to label total engagement
-                PostsByTagSearch::update_index_score(&author_id, post_id, tag_label, ScoreAction::Increment(1.0)),
+                // Add post to label total engagement (skip for collections —
+                // ZINCRBY creates a member if absent, so this would put the
+                // collection into TAG_GLOBAL_POST_ENGAGEMENT, leaking it
+                // into `?tags=LABEL&sorting=total_engagement` streams).
                 async {
-                    // Post replies cannot be included in the total engagement index once they have been tagged
-                    if !post_relationships_is_reply(&author_id, post_id).await? {
+                    if !target_is_collection {
+                        PostsByTagSearch::update_index_score(
+                            &author_id,
+                            post_id,
+                            tag_label,
+                            ScoreAction::Increment(1.0),
+                        )
+                        .await?;
+                    }
+                    Ok::<(), EventProcessorError>(())
+                },
+                async {
+                    // Post replies cannot be included in the total engagement index once they have been tagged.
+                    // Same suppression for collections: ZINCRBY would put them
+                    // into POST_TOTAL_ENGAGEMENT despite the original `put_to_index`
+                    // gate.
+                    if !target_is_collection && !post_relationships_is_reply(&author_id, post_id).await? {
                         // Increment in one post global engagement
                         PostStream::update_index_score(
                             &author_id,
@@ -291,8 +312,14 @@ async fn put_sync_post(
                     }
                     Ok::<(), EventProcessorError>(())
                 },
-                // Add post to global label timeline
-                PostsByTagSearch::put_to_index(&author_id, post_id, tag_label),
+                // Add post to global label timeline (skip for collections so they
+                // don't pollute by-tag streams; reachable only via ?kind=collection)
+                async {
+                    if !target_is_collection {
+                        PostsByTagSearch::put_to_index(&author_id, post_id, tag_label).await?;
+                    }
+                    Ok::<(), EventProcessorError>(())
+                },
                 // Save new notification
                 Notification::new_post_tag(&tagger_user_id, &author_id, tag_label, post_uri),
                 // Add tag to search index
@@ -593,6 +620,13 @@ async fn del_sync_post(
     let tag_post = TagPost(vec![tagger_id.to_string()]);
     let post_uri = post_uri_builder(author_id.to_string(), post_id.to_string());
 
+    // If the target is a Collection, the PUT side never wrote to the
+    // engagement sorted sets (TAG_GLOBAL_POST_ENGAGEMENT or POST_TOTAL_ENGAGEMENT).
+    // A decrement here would ZINCRBY a non-existent member, creating it with a
+    // NEGATIVE score and re-introducing the same suppression leak from the
+    // other direction. Skip the engagement decrements for collections.
+    let target_is_collection = target_post_is_collection(author_id, post_id).await?;
+
     let indexing_results = nexus_common::traced_join!(
         tracing::info_span!("index.delete", phase = "tag_post");
         // Guarded: Update user counts for tagger
@@ -628,7 +662,7 @@ async fn del_sync_post(
         },
         // Guarded: Decrease post from label total engagement
         async {
-            if tagger_in_index {
+            if tagger_in_index && !target_is_collection {
                 PostsByTagSearch::update_index_score(
                     author_id,
                     post_id,
@@ -640,7 +674,7 @@ async fn del_sync_post(
             Ok::<(), EventProcessorError>(())
         },
         async {
-            if tagger_in_index {
+            if tagger_in_index && !target_is_collection {
                 // Post replies cannot be included in the total engagement index once the tag have been deleted
                 if !post_relationships_is_reply(author_id, post_id).await? {
                     // Decrement in one post global engagement
