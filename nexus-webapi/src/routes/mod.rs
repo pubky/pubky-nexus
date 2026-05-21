@@ -14,9 +14,7 @@ pub mod v0;
 
 mod middlewares;
 
-/// A wrapper around Axum's Json extractor that maps deserialization errors
-/// to Error::InvalidInput (400 Bad Request) for consistent error handling
-/// across all extraction types (Query, Path, and Json).
+/// JSON extractor that maps Axum rejections to `Error::InvalidInput`.
 pub struct Json<T>(pub T);
 
 impl<S, T> FromRequest<S> for Json<T>
