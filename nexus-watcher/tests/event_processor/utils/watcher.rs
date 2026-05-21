@@ -139,7 +139,7 @@ impl WatcherTest {
 
         // Initialize the test-scoped EventProcessorRunner; mirrors the standard processor behavior
         let event_processor_runner =
-            Self::create_test_event_processor_runner(homeserver_id.clone(), files_path.clone());
+            Self::create_test_event_processor_runner(homeserver_id.clone(), files_path);
 
         Ok(Self {
             testnet,
