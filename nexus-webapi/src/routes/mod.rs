@@ -34,10 +34,7 @@ where
     }
 }
 
-/// A wrapper around Axum's Path extractor that maps deserialization/validation errors
-/// to Error::InvalidInput (400 Bad Request) for consistent JSON error responses.
-/// This ensures that path parameter validation failures return a proper JSON body
-/// instead of Axum's default plain-text rejection.
+/// Path extractor that maps Axum rejections to `Error::InvalidInput`.
 pub struct Path<T>(pub T);
 
 impl<S, T> FromRequestParts<S> for Path<T>
