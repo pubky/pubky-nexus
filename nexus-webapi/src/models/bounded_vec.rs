@@ -3,6 +3,19 @@ use std::fmt::Display;
 use serde::de::{self, Deserializer};
 use serde::Deserialize;
 
+fn validate_len<E, const MIN: usize, const MAX: usize>(len: usize) -> Result<(), E>
+where
+    E: de::Error,
+{
+    if len < MIN {
+        return Err(E::custom(format!("At least {MIN} item(s) required")));
+    }
+    if len > MAX {
+        return Err(E::custom(format!("Maximum {MAX} items allowed")));
+    }
+    Ok(())
+}
+
 /// Deserialize a comma-separated string into `Vec<T>`, enforcing `MIN..=MAX` length.
 ///
 /// Tokens are trimmed and empty tokens are skipped before `T::try_from(String)` runs.
@@ -21,14 +34,7 @@ where
         .filter(|t| !t.is_empty())
         .map(|t| T::try_from(t.to_string()).map_err(de::Error::custom))
         .collect::<Result<_, _>>()?;
-    if items.len() < MIN {
-        return Err(de::Error::custom(format!(
-            "At least {MIN} item(s) required"
-        )));
-    }
-    if items.len() > MAX {
-        return Err(de::Error::custom(format!("Maximum {MAX} items allowed")));
-    }
+    validate_len::<D::Error, MIN, MAX>(items.len())?;
     Ok(items)
 }
 
@@ -45,14 +51,7 @@ where
         serde_json::Value::Array(arr) => arr,
         _ => return Err(de::Error::custom("Expected an array")),
     };
-    if arr.len() < MIN {
-        return Err(de::Error::custom(format!(
-            "At least {MIN} item(s) required"
-        )));
-    }
-    if arr.len() > MAX {
-        return Err(de::Error::custom(format!("Maximum {MAX} items allowed")));
-    }
+    validate_len::<D::Error, MIN, MAX>(arr.len())?;
     arr.into_iter()
         .map(|v| serde_json::from_value(v).map_err(de::Error::custom))
         .collect()
