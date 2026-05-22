@@ -61,11 +61,7 @@ async fn test_user_avatar_endpoint() -> Result<()> {
         "Avatar response should set Cache-Control: public, max-age=3600"
     );
 
-    let content_length: usize = res
-        .header("content-length")
-        .unwrap()
-        .parse()
-        .unwrap();
+    let content_length: usize = res.header("content-length").unwrap().parse().unwrap();
     assert_ne!(
         content_length, source_size,
         "Served size should differ from source — proves small webp variant was generated, not the original served back"
