@@ -23,6 +23,7 @@ const EIXAMPLE: &str = "8attbeo9ftu5nztqkcfw3gydksehr7jbspgfi64u4h8eo5e7dbiy";
 const COL_BOGOTA_1: &str = "COLW1TGL5BKG1";
 const COL_BOGOTA_2: &str = "COLW1TGL5BKG2";
 const COL_CAIRO: &str = "COLW1TGL5BKG3";
+const SHORT_BOGOTA: &str = "A5D6P9V3Q0T";
 
 fn ids_in(response: &Value) -> Vec<String> {
     response
@@ -241,13 +242,11 @@ async fn test_bookmarks_engagement_sort_includes_bookmarked_collection() -> Resu
 /// collections.
 ///
 /// Seed: Eixample bookmarks both `COL_BOGOTA_1` (a Collection) and
-/// `A5D6P9V3Q0T` (a `kind=short` post). The kind filter must include the
+/// `SHORT_BOGOTA` (a `kind=short` post). The kind filter must include the
 /// former and exclude the latter — proving the intersection is doing real
 /// work, not just falling back to the kind-agnostic bookmarks stream.
 #[tokio_shared_rt::test(shared)]
 async fn test_bookmarks_with_kind_collection_returns_only_bookmarked_collections() -> Result<()> {
-    const A5D6P9V3Q0T: &str = "A5D6P9V3Q0T";
-
     // Baseline: without the kind filter, Eixample's bookmarks stream contains
     // both bookmarks. Locks in the seed and proves the kind filter below is
     // non-vacuous.
@@ -260,8 +259,8 @@ async fn test_bookmarks_with_kind_collection_returns_only_bookmarked_collections
         "baseline: Eixample bookmarks must include {COL_BOGOTA_1}"
     );
     assert!(
-        baseline_ids.iter().any(|id| id == A5D6P9V3Q0T),
-        "baseline: Eixample bookmarks must include {A5D6P9V3Q0T} (proves the kind filter is non-vacuous)"
+        baseline_ids.iter().any(|id| id == SHORT_BOGOTA),
+        "baseline: Eixample bookmarks must include {SHORT_BOGOTA} (proves the kind filter is non-vacuous)"
     );
 
     let path = format!(
@@ -275,8 +274,8 @@ async fn test_bookmarks_with_kind_collection_returns_only_bookmarked_collections
         "kind=collection filter must include the bookmarked Collection {COL_BOGOTA_1}"
     );
     assert!(
-        !ids.iter().any(|id| id == A5D6P9V3Q0T),
-        "kind=collection filter must exclude the non-collection bookmark {A5D6P9V3Q0T}"
+        !ids.iter().any(|id| id == SHORT_BOGOTA),
+        "kind=collection filter must exclude the non-collection bookmark {SHORT_BOGOTA}"
     );
     for post in body.as_array().unwrap() {
         assert_eq!(
@@ -298,12 +297,10 @@ async fn test_bookmarks_with_kind_collection_returns_only_bookmarked_collections
 #[tokio_shared_rt::test(shared)]
 async fn test_bookmarks_with_kind_collection_engagement_sort_returns_only_collections() -> Result<()>
 {
-    const A5D6P9V3Q0T: &str = "A5D6P9V3Q0T";
-
     // Baseline: without the kind filter, the engagement-sorted bookmarks
     // stream contains both bookmarks. Proves the kind filter below is
     // non-vacuous — the exclusion assertion would otherwise pass trivially
-    // if A5D6P9V3Q0T never appeared in the unfiltered result.
+    // if SHORT_BOGOTA never appeared in the unfiltered result.
     let baseline_path = format!(
         "{ROOT_PATH}?source=bookmarks&observer_id={EIXAMPLE}&sorting=total_engagement&limit=50"
     );
@@ -314,8 +311,8 @@ async fn test_bookmarks_with_kind_collection_engagement_sort_returns_only_collec
         "baseline: engagement-sorted bookmarks must include {COL_BOGOTA_1}"
     );
     assert!(
-        baseline_ids.iter().any(|id| id == A5D6P9V3Q0T),
-        "baseline: engagement-sorted bookmarks must include {A5D6P9V3Q0T} (proves the kind filter is non-vacuous)"
+        baseline_ids.iter().any(|id| id == SHORT_BOGOTA),
+        "baseline: engagement-sorted bookmarks must include {SHORT_BOGOTA} (proves the kind filter is non-vacuous)"
     );
 
     let path = format!(
@@ -329,8 +326,8 @@ async fn test_bookmarks_with_kind_collection_engagement_sort_returns_only_collec
         "engagement-sort: kind=collection must include the bookmarked Collection {COL_BOGOTA_1}"
     );
     assert!(
-        !ids.iter().any(|id| id == A5D6P9V3Q0T),
-        "engagement-sort: kind=collection must exclude the non-collection bookmark {A5D6P9V3Q0T}"
+        !ids.iter().any(|id| id == SHORT_BOGOTA),
+        "engagement-sort: kind=collection must exclude the non-collection bookmark {SHORT_BOGOTA}"
     );
     for post in body.as_array().unwrap() {
         assert_eq!(
