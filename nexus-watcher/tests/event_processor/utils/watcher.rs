@@ -355,10 +355,11 @@ impl WatcherTest {
 /// Throws an error if event parsing fails
 pub async fn retrieve_and_handle_event_line(
     event_line: &str,
+    homeserver_id: &PubkyId,
     moderation: Arc<Moderation>,
 ) -> Result<(), EventProcessorError> {
     match Event::parse_event(event_line, get_files_dir_pathbuf())? {
-        ParseResult::Parsed(event) => handle(&event, moderation).await,
+        ParseResult::Parsed(event) => handle(&event, homeserver_id, moderation).await,
         ParseResult::Skipped => Ok(()),
 
         // Propagate UnrecognizedUri as error, because this test helper is only meant for standard event handling

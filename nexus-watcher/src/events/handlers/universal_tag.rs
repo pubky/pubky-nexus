@@ -1,9 +1,9 @@
-use nexus_common::db::PubkyConnector;
 use nexus_common::models::event::{EventProcessorError, EventType};
 use pubky_app_specs::{PubkyAppTag, PubkyId, APP_PATH, PROTOCOL, PUBLIC_PATH};
 use tracing::debug;
 
 use super::tag;
+use crate::events::HomeserverClient;
 
 /// Info extracted from a universal tag path: `pubky://<user_id>/pub/<app>/tags/<tag_id>`
 pub struct AppTagInfo {
@@ -22,6 +22,7 @@ pub struct AppTagInfo {
 pub async fn try_handle(
     event_type: &EventType,
     uri: &str,
+    homeserver_id: &PubkyId,
 ) -> Option<Result<(), EventProcessorError>> {
     let info = try_parse_app_tag_path(uri)?;
 
@@ -31,15 +32,14 @@ pub async fn try_handle(
     );
 
     Some(match event_type {
-        EventType::Put => handle_put(info).await,
+        EventType::Put => handle_put(info, homeserver_id).await,
         EventType::Del => handle_del(info).await,
     })
 }
 
-async fn handle_put(info: AppTagInfo) -> Result<(), EventProcessorError> {
-    // Fetch the tag blob from the homeserver
-    let pubky = PubkyConnector::get()?;
-    let response = pubky.public_storage().get(&info.uri).await?;
+async fn handle_put(info: AppTagInfo, homeserver_id: &PubkyId) -> Result<(), EventProcessorError> {
+    let client = HomeserverClient::new(homeserver_id.clone())?;
+    let response = client.get(&info.uri).await?;
 
     if !response.status().is_success() {
         let status = response.status();

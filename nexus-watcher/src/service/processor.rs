@@ -157,7 +157,12 @@ impl EventProcessor {
     /// Attempts to handle an unrecognized URI as a universal tag at an app-specific path.
     /// Returns `true` if the event was claimed (regardless of success/failure).
     async fn try_handle_universal_tag(&self, event_type: &EventType, uri: &str) -> bool {
-        let result = crate::events::handlers::universal_tag::try_handle(event_type, uri).await;
+        let result = crate::events::handlers::universal_tag::try_handle(
+            event_type,
+            uri,
+            &self.homeserver.id,
+        )
+        .await;
 
         let Some(result) = result else {
             return false;
@@ -201,7 +206,7 @@ impl EventProcessor {
     )]
     async fn handle_event(&self, event: &Event) -> Result<(), EventProcessorError> {
         let span = tracing::Span::current();
-        if let Err(e) = handle(event, self.moderation.clone()).await {
+        if let Err(e) = handle(event, &self.homeserver.id, self.moderation.clone()).await {
             span.record("otel.status_code", "ERROR");
             span.record("otel.status_message", tracing::field::display(&e));
 
