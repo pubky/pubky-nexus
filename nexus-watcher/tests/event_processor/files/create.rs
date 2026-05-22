@@ -5,7 +5,6 @@ use nexus_common::models::event::Event;
 use pubky::Keypair;
 use pubky_app_specs::traits::{HasIdPath, HashId};
 use pubky_app_specs::{blob_uri_builder, PubkyAppBlob, PubkyAppFile, PubkyAppUser};
-use std::path::Path;
 
 #[tokio_shared_rt::test(shared)]
 async fn test_put_pubkyapp_file() -> Result<()> {
@@ -48,9 +47,9 @@ async fn test_put_pubkyapp_file() -> Result<()> {
     let result_file = assert_file_details(&user_id, &file_id, &blob_absolute_url, &file).await;
 
     // Assert: Ensure it's created
-    let blob_static_path = format!("./static/files/{}", result_file.urls.main.clone());
+    let blob_static_path = test.temp_dir.path().join(&result_file.urls.main);
     assert!(
-        Path::new(&blob_static_path).exists(),
+        blob_static_path.exists(),
         "File have to exist after PUT event"
     );
     let (_, events_in_redis_after) = Event::get_events_from_redis(None, 1000).await.unwrap();

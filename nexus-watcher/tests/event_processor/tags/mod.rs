@@ -1,5 +1,6 @@
 mod del_idempotent;
 mod fail_index;
+mod moderated;
 mod multi_user;
 mod post_del;
 mod post_del_notification;
@@ -20,4 +21,4 @@ mod user_notification;
 mod user_to_self_put;
 mod user_to_user_del;
 mod user_to_user_put;
-mod utils;
+pub mod utils;

@@ -11,7 +11,7 @@ use nexus_common::models::event::Event;
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::post::{PostCounts, PostDetails};
 use pubky::Keypair;
-use pubky_app_specs::{PubkyAppPost, PubkyAppPostKind, PubkyAppUser, PubkyId};
+use pubky_app_specs::{PubkyAppPost, PubkyAppPostKind, PubkyAppUser};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_put_post_event() -> Result<()> {
@@ -129,7 +129,7 @@ async fn reindex_and_ensure_cache_and_graph_unchanged(
     tokio::time::sleep(Duration::from_millis(10)).await;
 
     // Reset the cursor, to ensure the events are re-indexed
-    let homeserver = Homeserver::new(PubkyId::try_from(&test.homeserver_id).unwrap());
+    let homeserver = Homeserver::new(test.homeserver_id.clone());
     homeserver.put_to_graph().await.unwrap();
     homeserver.put_to_index().await.unwrap();
     test.ensure_event_processing_complete().await?;

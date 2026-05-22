@@ -25,7 +25,7 @@ impl CollectionId for &[&str] {
 #[async_trait]
 pub trait Collection<T>
 where
-    Self: RedisOps + Clone + Debug + Default,
+    Self: RedisOps + Clone + Debug,
     T: CollectionId + fmt::Debug + Sync + Send + Copy,
 {
     /// Retrieves records by their IDs, first attempting to fetch them from a cache (e.g., Redis),

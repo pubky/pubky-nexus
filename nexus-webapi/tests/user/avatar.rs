@@ -1,11 +1,9 @@
-use std::{
-    fs::{self},
-    path::PathBuf,
-};
+use std::path::PathBuf;
 
 use crate::utils::host_url;
+use crate::utils::server::TestServiceServer;
 use anyhow::Result;
-use tokio::fs::create_dir_all;
+use tokio::fs::{create_dir_all, read, write};
 
 const AVATAR_BLOB_NAME: &str = "avatar.png";
 const BLOB_PATH: &str = "tests/user/blobs";
@@ -20,23 +18,20 @@ const FILE_ID: &str = "003286NSMY490";
 async fn test_user_avatar_endpoint() -> Result<()> {
     let client = httpc_test::new_client(host_url().await)?;
 
-    let test_image_dir_path = format!("static/files/{USER_PUBKY}/{FILE_ID}");
-    let full_image_path = format!("{}/main", test_image_dir_path.clone());
+    let test_image_dir_path = TestServiceServer::get_test_server()
+        .await
+        .temp_dir
+        .path()
+        .join(USER_PUBKY)
+        .join(FILE_ID);
+    let full_image_path = test_image_dir_path.join("main");
 
-    // make sure directory exists
-    let exists = match fs::metadata(test_image_dir_path.clone()) {
-        Err(_) => false,
-        Ok(metadata) => metadata.is_dir(),
-    };
-    if !exists {
-        create_dir_all(&test_image_dir_path).await?;
-    }
-    // copy the avatar image into the static folder so the avatar handler
-    // can lazily generate the small webp variant from it
-    fs::copy(
-        PathBuf::from(BLOB_PATH).join(AVATAR_BLOB_NAME),
-        &full_image_path,
-    )?;
+    create_dir_all(&test_image_dir_path).await?;
+    // drop the source avatar into the static folder so the handler can
+    // lazily generate the small webp variant from it
+    let source_bytes = read(PathBuf::from(BLOB_PATH).join(AVATAR_BLOB_NAME)).await?;
+    let source_size = source_bytes.len();
+    write(&full_image_path, &source_bytes).await?;
 
     let res = client
         .do_get(format!("/static/avatar/{USER_PUBKY}").as_str())
@@ -64,6 +59,16 @@ async fn test_user_avatar_endpoint() -> Result<()> {
             .unwrap(),
         "public, max-age=3600",
         "Avatar response should set Cache-Control: public, max-age=3600"
+    );
+
+    let content_length: usize = res
+        .header("content-length")
+        .unwrap()
+        .parse()
+        .unwrap();
+    assert_ne!(
+        content_length, source_size,
+        "Served size should differ from source — proves small webp variant was generated, not the original served back"
     );
 
     Ok(())

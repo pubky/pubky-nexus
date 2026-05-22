@@ -51,7 +51,8 @@ pub fn post_counts(author_id: &str, post_id: &str) -> Query {
                 replies: COUNT { (p)<-[:REPLIED]-() },
                 reposts: COUNT { (p)<-[:REPOSTED]-() }
             } AS counts,
-            EXISTS { (p)-[:REPLIED]->(:Post) } AS is_reply
+            EXISTS { (p)-[:REPLIED]->(:Post) } AS is_reply,
+            p.kind = 'collection' AS is_collection
     ",
     )
     .param("author_id", author_id)
@@ -128,10 +129,14 @@ pub fn get_post_replies(author_id: &str, post_id: &str) -> Query {
 
 // Read the target details for a tag without deleting the TAGGED edge.
 // Used in tag del to read before graph-last deletion.
-pub fn get_tag_target(user_id: &str, tag_id: &str) -> Query {
-    Query::new(
-        "get_tag_target",
-        "MATCH (user:User {id: $user_id})-[tag:TAGGED {id: $tag_id}]->(target)
+pub fn get_tag_target(user_id: &str, tag_id: &str, app: Option<&str>) -> Query {
+    let app_filter = match app {
+        Some(_) => "\n    WHERE tag.app = $app",
+        None => "\n    WHERE tag.app IS NULL",
+    };
+
+    let cypher = format!(
+        "MATCH (user:User {{id: $user_id}})-[tag:TAGGED {{id: $tag_id}}]->(target){app_filter}
          OPTIONAL MATCH (target)<-[:AUTHORED]-(author:User)
          WITH CASE WHEN target:User THEN target.id ELSE null END AS user_id,
               CASE WHEN target:Post THEN target.id ELSE null END AS post_id,
@@ -139,10 +144,18 @@ pub fn get_tag_target(user_id: &str, tag_id: &str) -> Query {
               CASE WHEN target:Resource THEN target.id ELSE null END AS resource_id,
               tag.label AS label,
               tag.app AS app
-         RETURN user_id, post_id, author_id, resource_id, label, app",
-    )
-    .param("user_id", user_id)
-    .param("tag_id", tag_id)
+         RETURN user_id, post_id, author_id, resource_id, label, app"
+    );
+
+    let mut query = Query::new("get_tag_target", &cypher)
+        .param("user_id", user_id)
+        .param("tag_id", tag_id);
+
+    if let Some(a) = app {
+        query = query.param("app", a);
+    }
+
+    query
 }
 
 // Get all the tags/taggers that a post has received (used for edit/delete notifications)
@@ -200,6 +213,7 @@ pub fn global_tags_by_post() -> Query {
         "global_tags_by_post",
         "
         MATCH (tagger:User)-[t:TAGGED]->(post:Post)<-[:AUTHORED]-(author:User)
+        WHERE post.kind <> 'collection'
         WITH t.label AS label, author.id + ':' + post.id AS post_id, post.indexed_at AS score
         WITH DISTINCT post_id, label, score
         WITH label, COLLECT([toFloat(score), post_id ]) AS sorted_set
@@ -217,6 +231,7 @@ pub fn global_tags_by_post_engagement() -> Query {
         "global_tags_by_post_engagement",
         "
         MATCH (author:User)-[:AUTHORED]->(post:Post)<-[tag:TAGGED]-(tagger:User)
+        WHERE post.kind <> 'collection'
         WITH post, COUNT(tag) AS tags_count, tag.label AS label, author.id + ':' + post.id AS key
         WITH DISTINCT key, label, post, tags_count
         WHERE tags_count > 0
@@ -820,9 +835,19 @@ pub fn post_stream(
         );
     }
 
-    // If post kind is provided, add the corresponding condition
-    if kind.is_some() {
-        append_condition(&mut cypher, "p.kind = $kind", &mut where_clause_applied);
+    // If post kind is provided, add the corresponding condition.
+    // When no kind filter is set, exclude collections from the default stream
+    //
+    // Exception: `source=bookmarks` is exempt — a user who bookmarked a
+    // collection should see it in their bookmarks stream regardless of kind.
+    match (&source, &kind) {
+        (StreamSource::Bookmarks { .. }, None) => {}
+        (_, Some(_)) => append_condition(&mut cypher, "p.kind = $kind", &mut where_clause_applied),
+        (_, None) => append_condition(
+            &mut cypher,
+            "p.kind <> 'collection'",
+            &mut where_clause_applied,
+        ),
     }
 
     // Filter just the parent posts: StreamSource:PostReplies and StreamSource:AuthorReplies do not reach that query

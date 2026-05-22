@@ -10,19 +10,23 @@ use crate::models::error::ModelError;
 use crate::models::error::ModelResult;
 use crate::models::user::UserDetails;
 
-use pubky::PublicKey;
 use pubky_app_specs::ParsedUri;
 use pubky_app_specs::PubkyId;
 use serde::{Deserialize, Serialize};
-use tracing::info;
+use tracing::{info, warn};
 
 /// Represents a homeserver with its public key, URL, and cursor.
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Homeserver {
     pub id: PubkyId,
 
-    // We persist this field only in the cache, but not in the graph.
-    // Redis has regular snapshots, which ensures we get a recent state in case of RAM data loss (system crash).
+    // Cursor lives in Redis only (not the graph). Redis snapshots can
+    // lag, so a crash may lose recent advancement — the watcher then
+    // resumes from whatever cursor survived in the snapshot and catches
+    // up from the homeserver. We do NOT re-index from scratch on partial
+    // loss; `persist_if_unknown` only re-seeds cursor=0 when the
+    // Homeserver key is missing from Redis entirely (e.g. wiped volume),
+    // never on a routine crash.
     pub cursor: String,
 }
 
@@ -83,24 +87,55 @@ impl Homeserver {
     }
 
     pub async fn get_by_id(homeserver_id: PubkyId) -> ModelResult<Option<Homeserver>> {
-        match Homeserver::get_from_index(&homeserver_id).await? {
-            Some(hs) => Ok(Some(hs)),
-            None => match Self::get_from_graph(&homeserver_id).await? {
-                Some(hs_from_graph) => {
-                    hs_from_graph.put_to_index().await?;
-                    Ok(Some(hs_from_graph))
-                }
-                None => Ok(None),
-            },
-        }
+        // No graph fallback. A cache miss (or a Redis read error silently
+        // surfaced as `Ok(None)` by `json::get`) is treated as a failure
+        // and propagated to the caller, which puts the homeserver into
+        // backoff. The previous behaviour rebuilt from the graph (which
+        // does not store the cursor) and wrote cursor=0 back to Redis,
+        // silently overwriting the real value on a transient Redis hiccup.
+        Ok(Self::get_from_index(&homeserver_id).await?)
     }
 
-    /// Verifies if homeserver exists in the graph, or persists it if missing
+    /// Ensures the homeserver is recorded in both the graph and the index.
+    ///
+    /// - First-time install (missing from both): writes a fresh
+    ///   [`Homeserver::new`] to graph and index.
+    /// - Asymmetric state (present in graph, missing from index): re-seeds the
+    ///   index with the default cursor and logs a warning. This is the
+    ///   self-heal path for a wiped Redis volume sitting alongside a persisted
+    ///   Neo4j volume — common in dev/testnet workflows where operators tear
+    ///   down one store but not the other. The watcher will then re-index
+    ///   from `cursor=0`, which is the same recovery the system performs
+    ///   after a Redis crash by design.
+    /// - Both already present: no-op.
+    ///
+    /// Safe to call repeatedly. Relies on `get_from_index` returning a
+    /// reliable `Ok(None)` for genuine cache misses; if the read errors, the
+    /// error propagates and the re-seed never fires.
     pub async fn persist_if_unknown(homeserver_id: PubkyId) -> ModelResult<()> {
-        if Self::get_from_graph(&homeserver_id).await?.is_none() {
-            info!("Persisting new homeserver: {homeserver_id}");
-            let homeserver = Homeserver::new(homeserver_id);
+        let in_graph = Self::get_from_graph(&homeserver_id).await?.is_some();
+        let in_index = Self::get_from_index(&homeserver_id).await?.is_some();
+
+        if in_graph && in_index {
+            return Ok(());
+        }
+
+        let homeserver = Homeserver::new(homeserver_id.clone());
+
+        if !in_graph {
+            info!("Persisting new homeserver to graph: {homeserver_id}");
             homeserver.put_to_graph().await?;
+        }
+
+        if !in_index {
+            if in_graph {
+                warn!(
+                    "Homeserver {homeserver_id} present in graph but missing from index; \
+                     re-seeding index with default cursor — watcher will re-index from 0"
+                );
+            } else {
+                info!("Persisting new homeserver to index: {homeserver_id}");
+            }
             homeserver.put_to_index().await?;
         }
 
@@ -131,30 +166,29 @@ impl Homeserver {
     ///
     /// - `referenced_post_uri`: The parent post (if current post is a reply to it), or a reposted post (if current post is a Repost)
     pub async fn maybe_ingest_for_post(referenced_post_uri: &ParsedUri) -> ModelResult<()> {
-        let ref_post_author_id = referenced_post_uri.user_id.as_str();
-
-        Self::maybe_ingest_for_user(ref_post_author_id).await
+        Self::maybe_ingest_for_user(&referenced_post_uri.user_id).await
     }
 
     /// If a referenced user is using a new, unknown homeserver, this method triggers ingestion of that homeserver.
     ///
     /// ### Arguments
     ///
-    /// - `referenced_user_id`: The URI of the referenced user
+    /// - `referenced_user_id`: The `PubkyId` of the referenced user
     #[tracing::instrument(name = "homeserver.ingest", skip_all)]
-    pub async fn maybe_ingest_for_user(referenced_user_id: &str) -> ModelResult<()> {
+    pub async fn maybe_ingest_for_user(referenced_user_id: &PubkyId) -> ModelResult<()> {
         let pubky = PubkyConnector::get().map_err(ModelError::from_generic)?;
 
-        if UserDetails::get_by_id(referenced_user_id).await?.is_some() {
+        if UserDetails::get_by_id(referenced_user_id.as_ref())
+            .await?
+            .is_some()
+        {
             tracing::debug!(
                 "Skipping homeserver ingestion: author {referenced_user_id} already known"
             );
             return Ok(());
         }
 
-        let ref_post_author_pk = referenced_user_id
-            .parse::<PublicKey>()
-            .map_err(ModelError::from_generic)?;
+        let ref_post_author_pk = referenced_user_id.to_public_key();
         let Some(ref_post_author_hs) = pubky.get_homeserver_of(&ref_post_author_pk).await else {
             tracing::warn!("Skipping homeserver ingestion: author {ref_post_author_pk} has no published homeserver");
             return Ok(());
@@ -220,6 +254,75 @@ mod tests {
 
         assert_eq!(id, hs_from_index.id);
 
+        Ok(())
+    }
+
+    #[tokio_shared_rt::test(shared)]
+    async fn test_persist_if_unknown_first_time_install_writes_both() -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+
+        let keys = Keypair::random();
+        let id = PubkyId::try_from(&keys.public_key().to_z32())?;
+
+        Homeserver::persist_if_unknown(id.clone()).await?;
+
+        assert!(Homeserver::get_from_graph(&id).await?.is_some());
+        assert!(Homeserver::get_from_index(&id).await?.is_some());
+        Ok(())
+    }
+
+    // Regression test for the docker-testnet asymmetric-storage scenario:
+    // graph volume persisted, Redis volume wiped. Before this fix, watcher
+    // looped on "Homeserver not found" forever because get_by_id only reads
+    // the index and persist_if_unknown only wrote when the graph was empty.
+    #[tokio_shared_rt::test(shared)]
+    async fn test_persist_if_unknown_reseeds_index_when_only_graph_has_it() -> Result<(), DynError>
+    {
+        StackManager::setup(&StackConfig::default()).await?;
+
+        let keys = Keypair::random();
+        let id = PubkyId::try_from(&keys.public_key().to_z32())?;
+
+        // Simulate "graph persisted, Redis wiped": write to graph only.
+        Homeserver::new(id.clone()).put_to_graph().await?;
+        assert!(
+            Homeserver::get_from_index(&id).await?.is_none(),
+            "precondition: index should be empty for a fresh keypair"
+        );
+
+        Homeserver::persist_if_unknown(id.clone()).await?;
+
+        let from_index = Homeserver::get_from_index(&id)
+            .await?
+            .expect("index should be re-seeded after persist_if_unknown");
+        assert_eq!(from_index.id, id);
+        assert_eq!(from_index.cursor, "0000000000000");
+        Ok(())
+    }
+
+    #[tokio_shared_rt::test(shared)]
+    async fn test_persist_if_unknown_is_noop_when_both_present() -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+
+        let keys = Keypair::random();
+        let id = PubkyId::try_from(&keys.public_key().to_z32())?;
+
+        // Seed both stores with a non-default cursor to prove the no-op
+        // branch doesn't overwrite an existing index entry.
+        Homeserver::new(id.clone()).put_to_graph().await?;
+        Homeserver::try_from_cursor(id.clone(), "1234567890123")?
+            .put_to_index()
+            .await?;
+
+        Homeserver::persist_if_unknown(id.clone()).await?;
+
+        let from_index = Homeserver::get_from_index(&id)
+            .await?
+            .expect("index entry should still be present");
+        assert_eq!(
+            from_index.cursor, "1234567890123",
+            "existing cursor must not be overwritten"
+        );
         Ok(())
     }
 }
