@@ -110,8 +110,8 @@ fn create_signed_packet(context: &KeyRepublisherContext) -> Result<SignedPacket,
     let mut svcb = SVCB::new(1, root_name.clone());
     svcb.set_port(public_pubky_tls_port);
     match &public_ip {
-        IpAddr::V4(ip) => svcb.set_ipv4hint([ip.to_bits()])?,
-        IpAddr::V6(ip) => svcb.set_ipv6hint([ip.to_bits()])?,
+        IpAddr::V4(ip) => svcb.set_ipv4hint(&[ip.to_bits()]),
+        IpAddr::V6(ip) => svcb.set_ipv6hint(&[ip.to_bits()]),
     };
     signed_packet_builder = signed_packet_builder.https(root_name.clone(), svcb, ttl_sec);
 
