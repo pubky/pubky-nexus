@@ -1,8 +1,13 @@
 use anyhow::Result;
+use axum::http::StatusCode;
+use nexus_webapi::models::ErrorResponsePayload;
 use nexus_webapi::routes::v0::endpoints::SEARCH_POSTS_BY_TAG_ROUTE;
 use serde_json::Value;
 
-use crate::{stream::post::TAG_LABEL_2, utils::get_request};
+use crate::{
+    stream::post::TAG_LABEL_2,
+    utils::{get_request, invalid_get_request},
+};
 
 const POST_A: &str = "2VDW8YBDZJ02";
 const POST_B: &str = "1TDV7XBCF4M1";
@@ -88,6 +93,24 @@ async fn test_post_search_with_limit_and_skip() -> Result<()> {
 
     // Validate that each post has the searched tag
     search_posts(tags, post_order);
+
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_post_search_rejects_invalid_tag() -> Result<()> {
+    let over_length_tag = "a".repeat(21);
+    let path = format_search_posts_by_tag(&over_length_tag);
+    let res = invalid_get_request(&path, StatusCode::BAD_REQUEST).await?;
+
+    let error_response: ErrorResponsePayload =
+        serde_json::from_value(res).expect("Response should be a valid ErrorResponsePayload");
+    assert!(
+        error_response.error.contains("20")
+            || error_response.error.to_lowercase().contains("maximum"),
+        "Error message should mention the maximum length limit, got: {}",
+        error_response.error
+    );
 
     Ok(())
 }

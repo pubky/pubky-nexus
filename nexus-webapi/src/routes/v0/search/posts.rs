@@ -1,3 +1,4 @@
+use crate::models::TagLabel;
 use crate::routes::v0::endpoints::SEARCH_POSTS_BY_TAG_ROUTE;
 use crate::routes::{Path, Query};
 use crate::Result;
@@ -22,7 +23,7 @@ pub struct SearchPostsQuery {
     description = "Search Posts by Tag",
     tag = "Search",
     params(
-        ("tag" = String, Path, description = "Tag name"),
+        ("tag" = TagLabel, Path, description = "Tag name"),
         ("sorting" = Option<StreamSorting>, Query, description = "StreamSorting method"),
         ("start" = Option<usize>, Query, description = "The start of the stream timeframe. Posts with a timestamp greater than this value will be excluded from the results"),
         ("end" = Option<usize>, Query, description = "The end of the stream timeframe. Posts with a timestamp less than this value will be excluded from the results"),
@@ -35,7 +36,7 @@ pub struct SearchPostsQuery {
     )
 )]
 pub async fn search_posts_by_tag_handler(
-    Path(tag): Path<String>,
+    Path(tag): Path<TagLabel>,
     Query(query): Query<SearchPostsQuery>,
 ) -> Result<Json<Vec<PostsByTagSearch>>> {
     // Extract sorting and pagination fields from the query
