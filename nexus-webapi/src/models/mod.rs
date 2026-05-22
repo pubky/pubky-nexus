@@ -3,6 +3,7 @@ pub mod info;
 pub mod post;
 
 pub mod bounded_vec;
+pub mod file_id;
 pub mod global_post_id;
 pub mod post_id;
 pub mod resource_id;
@@ -16,6 +17,7 @@ use serde::Deserialize;
 use utoipa::ToSchema;
 
 pub use error_response::ErrorResponsePayload;
+pub use file_id::FileId;
 pub use global_post_id::{GlobalPostId, GlobalPostIds};
 pub use info::ServerInfo;
 pub use post::{PostStreamDetailed, PostViewDetailed};
