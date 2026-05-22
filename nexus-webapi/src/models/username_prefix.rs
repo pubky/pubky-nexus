@@ -14,7 +14,7 @@ impl FromStr for UsernamePrefix {
     type Err = Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let s = s.to_owned();
+        let s = s.trim().to_owned();
         Self::validate(&s)?;
         Ok(UsernamePrefix(s))
     }
@@ -45,8 +45,7 @@ impl<'de> serde::Deserialize<'de> for UsernamePrefix {
         D: Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        Self::validate(&s).map_err(de::Error::custom)?;
-        Ok(UsernamePrefix(s))
+        Self::try_from(s).map_err(de::Error::custom)
     }
 }
 
@@ -54,6 +53,7 @@ impl TryFrom<String> for UsernamePrefix {
     type Error = Error;
 
     fn try_from(s: String) -> Result<Self, Self::Error> {
+        let s = s.trim().to_owned();
         Self::validate(&s)?;
         Ok(UsernamePrefix(s))
     }
@@ -107,9 +107,9 @@ mod tests {
     }
 
     #[test]
-    fn deserialize_preserves_whitespace() {
+    fn deserialize_trims_whitespace() {
         let prefix: UsernamePrefix = serde_json::from_str("\"  alice  \"").unwrap();
-        assert_eq!(prefix.0, "  alice  ");
+        assert_eq!(prefix.0, "alice");
     }
 
     #[test]
@@ -119,9 +119,9 @@ mod tests {
     }
 
     #[test]
-    fn deserialize_accepts_whitespace_only() {
-        // Whitespace-only strings are non-empty, so they are accepted
-        let prefix: UsernamePrefix = serde_json::from_str("\"   \"").unwrap();
-        assert_eq!(prefix.0, "   ");
+    fn deserialize_rejects_whitespace_only() {
+        // "   " trims to "" -> empty -> invalid
+        let result: Result<UsernamePrefix, _> = serde_json::from_str("\"   \"");
+        assert!(result.is_err());
     }
 }

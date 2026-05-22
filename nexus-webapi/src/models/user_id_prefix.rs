@@ -26,7 +26,7 @@ impl FromStr for UserIdPrefix {
     type Err = Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let s = s.to_owned();
+        let s = s.trim().to_owned();
         Self::validate(&s)?;
         Ok(UserIdPrefix(s))
     }
@@ -57,6 +57,7 @@ impl TryFrom<String> for UserIdPrefix {
     type Error = Error;
 
     fn try_from(s: String) -> Result<Self, Self::Error> {
+        let s = s.trim().to_owned();
         Self::validate(&s)?;
         Ok(UserIdPrefix(s))
     }
@@ -153,5 +154,24 @@ mod tests {
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(matches!(err, Error::InvalidInput { .. }));
+    }
+
+    #[test]
+    fn test_try_from_trims_whitespace() {
+        let prefix = UserIdPrefix::try_from("  abc  ".to_string()).unwrap();
+        assert_eq!(prefix.0, "abc");
+    }
+
+    #[test]
+    fn test_try_from_rejects_whitespace_padded_too_short() {
+        // " ab " trims to "ab" -> 2 chars -> invalid
+        let result = UserIdPrefix::try_from(" ab ".to_string());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_from_str_trims_whitespace() {
+        let prefix: UserIdPrefix = "  abc  ".parse().unwrap();
+        assert_eq!(prefix.0, "abc");
     }
 }
