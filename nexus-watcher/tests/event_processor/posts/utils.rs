@@ -11,8 +11,7 @@ use nexus_common::{
     },
 };
 use pubky_app_specs::{
-    post_uri_builder, PubkyAppCollectionContent, PubkyAppPost, PubkyAppPostEmbed, PubkyAppPostKind,
-    PubkyAppUser, PubkyId,
+    post_uri_builder, PubkyAppPost, PubkyAppPostEmbed, PubkyAppPostKind, PubkyAppUser, PubkyId,
 };
 
 pub async fn find_post_counts(user_id: &str, post_id: &str) -> PostCounts {
@@ -180,29 +179,6 @@ pub fn short_repost(content: impl Into<String>, parent_uri: String) -> PubkyAppP
             uri: parent_uri,
         }),
         ..short_post(content)
-    }
-}
-
-/// Build a `Collection` post with the given envelope (`name`, optional
-/// `description`) and curated item URIs. Mirrors the shape produced by a
-/// v0.5.0 client: items live in the envelope; `post.attachments` is unused.
-pub fn collection_post(
-    name: impl Into<String>,
-    description: Option<&str>,
-    items: Vec<String>,
-) -> PubkyAppPost {
-    let envelope = PubkyAppCollectionContent {
-        name: name.into(),
-        description: description.map(|s| s.to_string()),
-        items,
-    };
-    let content = serde_json::to_string(&envelope).expect("envelope serialization");
-    PubkyAppPost {
-        content,
-        kind: PubkyAppPostKind::Collection,
-        parent: None,
-        embed: None,
-        attachments: None,
     }
 }
 
