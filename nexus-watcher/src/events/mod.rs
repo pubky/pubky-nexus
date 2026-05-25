@@ -34,20 +34,6 @@ pub async fn handle_put_event(
 
     let response = homeserver_client.get(&event.uri).await?;
 
-    if !response.status().is_success() {
-        let status = response.status();
-        let body = response
-            .text()
-            .await
-            .unwrap_or_else(|_| "<unable to read body>".to_string());
-
-        let err_msg = format!(
-            "Fetch resource failed {}: HTTP {status} - {body}",
-            event.uri
-        );
-        return Err(EventProcessorError::client_error(err_msg))?;
-    }
-
     let blob = response
         .bytes()
         .await

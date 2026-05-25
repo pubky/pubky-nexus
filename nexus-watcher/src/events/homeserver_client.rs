@@ -27,15 +27,18 @@ impl HomeserverClient {
     }
 
     /// GET a `pubky://<user>/<path>` URI from the bound homeserver.
+    ///
+    /// Errors on a non-success HTTP status, mirroring `public_storage().get()`.
     pub async fn get(&self, pubky_uri: &str) -> pubky::Result<Response> {
         let resource: PubkyResource = pubky_uri.parse()?;
-        let url = format!("https://{}{}", self.homeserver_id, resource.path.as_str(),);
+        let url = format!("https://{}{}", self.homeserver_id, resource.path.as_str());
         let response = self
             .client
             .request(Method::GET, &url)
             .header("pubky-host", resource.owner.z32())
             .send()
-            .await?;
+            .await?
+            .error_for_status()?;
         Ok(response)
     }
 }

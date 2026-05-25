@@ -44,18 +44,6 @@ async fn handle_put(
 ) -> Result<(), EventProcessorError> {
     let response = homeserver_client.get(&info.uri).await?;
 
-    if !response.status().is_success() {
-        let status = response.status();
-        let body = response
-            .text()
-            .await
-            .unwrap_or_else(|_| "<unable to read body>".to_string());
-        return Err(EventProcessorError::client_error(format!(
-            "Fetch universal tag failed {}: HTTP {status} - {body}",
-            info.uri
-        )));
-    }
-
     let blob = response
         .bytes()
         .await
