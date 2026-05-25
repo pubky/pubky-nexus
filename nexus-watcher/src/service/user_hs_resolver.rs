@@ -7,6 +7,7 @@ use nexus_common::db::{
     exec_single_row, fetch_key_from_graph, queries, GraphResult, PubkyConnector,
 };
 use nexus_common::types::DynError;
+use nexus_common::WatcherConfig;
 use opentelemetry::global;
 use opentelemetry::metrics::Histogram;
 use pubky::PublicKey;
@@ -16,6 +17,25 @@ use tokio::sync::watch::Receiver;
 use tracing::{debug, error, info, warn};
 
 static HS_RESOLVER_METRICS: LazyLock<HsResolverMetrics> = LazyLock::new(HsResolverMetrics::new);
+
+pub struct UserHsResolverRunner {
+    ttl_ms: u64,
+    shutdown_rx: Receiver<bool>,
+}
+
+impl UserHsResolverRunner {
+    pub fn from_config(config: &WatcherConfig, shutdown_rx: Receiver<bool>) -> Self {
+        Self {
+            ttl_ms: config.hs_resolver_ttl,
+            shutdown_rx,
+        }
+    }
+
+    pub async fn run(&self) -> Result<(), DynError> {
+        let mut shutdown_rx = self.shutdown_rx.clone();
+        run(self.ttl_ms, &mut shutdown_rx).await
+    }
+}
 
 /// Main entry point for one cycle of the periodic task.
 ///
