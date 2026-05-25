@@ -1,5 +1,6 @@
 use nexus_common::models::event::{EventProcessorError, EventType};
 use pubky_app_specs::{PubkyAppTag, PubkyId, APP_PATH, PROTOCOL, PUBLIC_PATH};
+use std::sync::Arc;
 use tracing::debug;
 
 use super::tag;
@@ -22,7 +23,7 @@ pub struct AppTagInfo {
 pub async fn try_handle(
     event_type: &EventType,
     uri: &str,
-    homeserver_id: &PubkyId,
+    homeserver_client: Arc<HomeserverClient>,
 ) -> Option<Result<(), EventProcessorError>> {
     let info = try_parse_app_tag_path(uri)?;
 
@@ -32,14 +33,16 @@ pub async fn try_handle(
     );
 
     Some(match event_type {
-        EventType::Put => handle_put(info, homeserver_id).await,
+        EventType::Put => handle_put(info, homeserver_client).await,
         EventType::Del => handle_del(info).await,
     })
 }
 
-async fn handle_put(info: AppTagInfo, homeserver_id: &PubkyId) -> Result<(), EventProcessorError> {
-    let client = HomeserverClient::new(homeserver_id.clone())?;
-    let response = client.get(&info.uri).await?;
+async fn handle_put(
+    info: AppTagInfo,
+    homeserver_client: Arc<HomeserverClient>,
+) -> Result<(), EventProcessorError> {
+    let response = homeserver_client.get(&info.uri).await?;
 
     if !response.status().is_success() {
         let status = response.status();

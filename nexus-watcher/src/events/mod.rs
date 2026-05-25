@@ -1,5 +1,5 @@
 use nexus_common::models::event::{Event, EventProcessorError, EventType};
-use pubky_app_specs::{PubkyAppObject, PubkyId, Resource};
+use pubky_app_specs::{PubkyAppObject, Resource};
 use std::sync::Arc;
 use tracing::debug;
 
@@ -13,11 +13,11 @@ pub use moderation::Moderation;
 
 pub async fn handle(
     event: &Event,
-    homeserver_id: &PubkyId,
+    homeserver_client: Arc<HomeserverClient>,
     moderation: Arc<Moderation>,
 ) -> Result<(), EventProcessorError> {
     match event.event_type {
-        EventType::Put => handle_put_event(event, homeserver_id, moderation).await,
+        EventType::Put => handle_put_event(event, homeserver_client, moderation).await,
         EventType::Del => handle_del_event(event).await,
     }?;
 
@@ -27,13 +27,12 @@ pub async fn handle(
 
 pub async fn handle_put_event(
     event: &Event,
-    homeserver_id: &PubkyId,
+    homeserver_client: Arc<HomeserverClient>,
     moderation: Arc<Moderation>,
 ) -> Result<(), EventProcessorError> {
     debug!("Handling PUT event for URI: {}", event.uri);
 
-    let client = HomeserverClient::new(homeserver_id.clone())?;
-    let response = client.get(&event.uri).await?;
+    let response = homeserver_client.get(&event.uri).await?;
 
     if !response.status().is_success() {
         let status = response.status();
@@ -94,7 +93,7 @@ pub async fn handle_put_event(
                 user_id,
                 file_id,
                 event.files_path.clone(),
-                homeserver_id,
+                homeserver_client,
             )
             .await?
         }

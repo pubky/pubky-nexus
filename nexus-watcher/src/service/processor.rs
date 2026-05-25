@@ -2,7 +2,7 @@ use nexus_common::models::event::{Event, EventProcessorError, EventType, ParseRe
 
 use crate::events::handle;
 use crate::events::retry::event::RetryEvent;
-use crate::events::Moderation;
+use crate::events::{HomeserverClient, Moderation};
 use crate::service::traits::TEventProcessor;
 use nexus_common::db::PubkyConnector;
 use nexus_common::models::homeserver::Homeserver;
@@ -22,6 +22,8 @@ pub struct EventProcessor {
     pub files_path: PathBuf,
     pub tracer_name: String,
     pub moderation: Arc<Moderation>,
+    /// HTTP client bound to this processor's homeserver
+    pub homeserver_client: Arc<HomeserverClient>,
     pub shutdown_rx: Receiver<bool>,
 }
 
@@ -160,7 +162,7 @@ impl EventProcessor {
         let result = crate::events::handlers::universal_tag::try_handle(
             event_type,
             uri,
-            &self.homeserver.id,
+            self.homeserver_client.clone(),
         )
         .await;
 
@@ -206,7 +208,13 @@ impl EventProcessor {
     )]
     async fn handle_event(&self, event: &Event) -> Result<(), EventProcessorError> {
         let span = tracing::Span::current();
-        if let Err(e) = handle(event, &self.homeserver.id, self.moderation.clone()).await {
+        if let Err(e) = handle(
+            event,
+            self.homeserver_client.clone(),
+            self.moderation.clone(),
+        )
+        .await
+        {
             span.record("otel.status_code", "ERROR");
             span.record("otel.status_message", tracing::field::display(&e));
 
