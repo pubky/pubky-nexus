@@ -466,16 +466,19 @@ mod tests {
         let user_id = Keypair::random().public_key().z32();
         let hs_id = Keypair::random().public_key().z32();
 
-        create_test_user(user_id).await?;
+        create_test_user(&user_id).await?;
 
         // No HOSTED_BY edge yet
-        assert_eq!(get_user_homeserver(user_id).await?, None);
+        assert_eq!(get_user_homeserver(&user_id).await?, None);
 
         // After assignment the current homeserver is returned
-        exec_single_row(queries::put::set_user_homeserver(user_id, hs_id)).await?;
-        assert_eq!(get_user_homeserver(user_id).await?, Some(hs_id.to_string()));
+        exec_single_row(queries::put::set_user_homeserver(&user_id, &hs_id)).await?;
+        assert_eq!(
+            get_user_homeserver(&user_id).await?,
+            Some(hs_id.to_string())
+        );
 
-        cleanup_test_user(user_id).await?;
+        cleanup_test_user(&user_id).await?;
 
         Ok(())
     }
