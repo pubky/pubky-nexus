@@ -374,7 +374,7 @@ impl UserStream {
             UserStreamSource::MostFollowed => Self::get_most_followed(skip, limit).await?,
             UserStreamSource::Influencers => Influencers::get_influencers(
                 user_id.as_deref(),
-                Some(reach.unwrap_or(StreamReach::Wot(3))),
+                Some(reach.unwrap_or(StreamReach::Wot)),
                 skip.unwrap_or(0),
                 limit.unwrap_or(10).min(100),
                 timeframe.unwrap_or(Timeframe::AllTime),
