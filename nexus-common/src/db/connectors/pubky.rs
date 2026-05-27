@@ -15,6 +15,9 @@ pub enum PubkyClientError {
     #[error("404: {message}")]
     NotFound404 { message: String },
 
+    #[error("429: {message}")]
+    TooManyRequests429 { message: String },
+
     #[error("Server error (5xx): {message}")]
     ServerError5xx { message: String },
 
@@ -41,6 +44,8 @@ impl From<pubky::Error> for PubkyClientError {
                 pubky::errors::RequestError::Server { status, message } => {
                     if status == StatusCode::NOT_FOUND {
                         Self::NotFound404 { message }
+                    } else if status == StatusCode::TOO_MANY_REQUESTS {
+                        Self::TooManyRequests429 { message }
                     } else if status.is_server_error() {
                         Self::ServerError5xx { message }
                     } else {
@@ -79,6 +84,7 @@ impl PubkyClientError {
         matches!(
             self,
             Self::NotInitialized
+                | Self::TooManyRequests429 { .. }
                 | Self::ServerError5xx { .. }
                 | Self::RequestFailed { .. }
                 | Self::PkarrFailed { .. }

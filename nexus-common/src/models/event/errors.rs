@@ -157,6 +157,13 @@ impl EventProcessorError {
         }
     }
 
+    pub fn is_too_many_requests(&self) -> bool {
+        matches!(
+            self,
+            Self::PubkyClientError(PubkyClientError::TooManyRequests429 { .. })
+        )
+    }
+
     /// Returns whether this error is a missing dependency
     pub fn is_missing_dependency(&self) -> bool {
         matches!(self, Self::MissingDependency { .. })

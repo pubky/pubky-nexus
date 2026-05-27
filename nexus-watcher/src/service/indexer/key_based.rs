@@ -1,5 +1,4 @@
-use std::path::PathBuf;
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use futures::StreamExt;
 use nexus_common::db::{PubkyConnector, RedisOps};
@@ -14,6 +13,8 @@ use super::TEventProcessor;
 use crate::events::retry::RetryScheduler;
 use crate::events::EventHandler;
 use crate::service::user_hs_resolver;
+
+const FETCH_EVENTS_429_BACKOFF_SECS: [u64; 3] = [1, 2, 3];
 
 #[async_trait::async_trait]
 pub trait KeyBasedEventSource: Send + Sync + 'static {
@@ -192,8 +193,7 @@ impl KeyBasedEventProcessor {
         cursor: EventCursor,
     ) -> Result<(), EventProcessorError> {
         let stream_events = self
-            .event_source
-            .fetch_events(hs_pk, user_pk, cursor, self.limit)
+            .fetch_user_events_with_429_backoff(hs_pk, hs_id, user_pk, cursor)
             .await?;
 
         let user_id = user_pk.z32();
@@ -214,6 +214,43 @@ impl KeyBasedEventProcessor {
         }
 
         result
+    }
+
+    async fn fetch_user_events_with_429_backoff(
+        &self,
+        hs_pk: &PublicKey,
+        hs_id: &str,
+        user_pk: &PublicKey,
+        cursor: EventCursor,
+    ) -> Result<Vec<StreamEvent>, EventProcessorError> {
+        let user_id = user_pk.z32();
+        let mut retry_index = 0;
+
+        loop {
+            match self
+                .event_source
+                .fetch_events(hs_pk, user_pk, cursor, self.limit)
+                .await
+            {
+                Ok(events) => return Ok(events),
+                Err(err) if err.is_too_many_requests() => {
+                    let Some(backoff_secs) = FETCH_EVENTS_429_BACKOFF_SECS.get(retry_index) else {
+                        return Err(err);
+                    };
+
+                    warn!(
+                        hs_id = %hs_id,
+                        user = %user_id,
+                        retry_after_secs = *backoff_secs,
+                        "Homeserver rate-limited user event fetch; retrying",
+                    );
+
+                    tokio::time::sleep(Duration::from_secs(*backoff_secs)).await;
+                    retry_index += 1;
+                }
+                Err(err) => return Err(err),
+            }
+        }
     }
 
     /// Processes already-fetched events for a single user stream.

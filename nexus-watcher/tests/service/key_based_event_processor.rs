@@ -1,11 +1,11 @@
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use chrono::Utc;
-use nexus_common::db::{exec_single_row, graph::Query, queries, RedisOps};
+use nexus_common::db::{exec_single_row, graph::Query, queries, PubkyClientError, RedisOps};
 use nexus_common::models::event::{Event, EventProcessorError};
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::user::{user_hs_cursor_key, UserDetails};
@@ -370,6 +370,45 @@ async fn key_based_processor_continues_after_non_infrastructure_fetch_error() ->
     Ok(())
 }
 
+/// Verifies 429 fetch failures for a user are retried with 1s, then 2s backoff.
+#[tokio_shared_rt::test(shared)]
+async fn key_based_processor_retries_429_fetch_errors_with_backoff() -> Result<(), DynError> {
+    setup().await?;
+
+    let (_hs_keypair, homeserver) = create_homeserver().await?;
+    let user_id = create_user_on_homeserver(&homeserver).await?;
+    let source = Arc::new(
+        MockKeyBasedEventSource::default()
+            .with_results(vec![
+                Err(too_many_requests_error()),
+                Err(too_many_requests_error()),
+                Ok(vec![stream_event(
+                    10,
+                    &user_id,
+                    "/pub/pubky.app/profile.json",
+                )?]),
+            ])
+            .await,
+    );
+    let handler = create_mock_handler(Ok(()), None);
+    let processor = processor(homeserver, handler.clone(), source.clone());
+
+    let started_at = Instant::now();
+    processor.run().await?;
+
+    assert!(
+        started_at.elapsed() >= Duration::from_secs(3),
+        "expected 1s + 2s retry backoff before success",
+    );
+    assert_eq!(
+        source.calls().await,
+        vec![user_id.clone(), user_id.clone(), user_id]
+    );
+    assert_eq!(handler.get_handle_count(), 1);
+
+    Ok(())
+}
+
 /// Verifies infrastructure handler failures abort without advancing the cursor.
 #[tokio_shared_rt::test(shared)]
 async fn key_based_processor_aborts_and_keeps_cursor_on_infrastructure_handler_error(
@@ -541,6 +580,12 @@ fn stream_event(cursor: u64, user_id: &str, path: &str) -> Result<StreamEvent, D
         event_type: EventType::Delete,
         resource: PubkyResource::new(user_pk, path)?,
         cursor: EventCursor::new(cursor),
+    })
+}
+
+fn too_many_requests_error() -> EventProcessorError {
+    EventProcessorError::PubkyClientError(PubkyClientError::TooManyRequests429 {
+        message: "rate limited".into(),
     })
 }
 
