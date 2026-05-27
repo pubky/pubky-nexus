@@ -20,12 +20,37 @@ pub enum StreamSorting {
     TotalEngagement,
 }
 
-#[derive(Debug, ToSchema, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum StreamReach {
     Followers,
     Following,
     Friends,
     Wot(u8),
+}
+
+impl utoipa::PartialSchema for StreamReach {
+    fn schema() -> utoipa::openapi::RefOr<utoipa::openapi::schema::Schema> {
+        utoipa::openapi::schema::ObjectBuilder::new()
+            .schema_type(utoipa::openapi::schema::SchemaType::new(
+                utoipa::openapi::schema::Type::String,
+            ))
+            .enum_values(Some([
+                "followers",
+                "following",
+                "friends",
+                "wot",
+                "wot_1",
+                "wot_2",
+                "wot_3",
+            ]))
+            .into()
+    }
+}
+
+impl utoipa::ToSchema for StreamReach {
+    fn name() -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("StreamReach")
+    }
 }
 
 impl<'de> Deserialize<'de> for StreamReach {
