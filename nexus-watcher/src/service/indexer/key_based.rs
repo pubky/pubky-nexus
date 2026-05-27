@@ -198,8 +198,6 @@ impl KeyBasedEventProcessor {
 
         if let Some(cursor_val) = latest_cursor {
             if let Err(write_err) = Self::write_user_cursor(&user_id, hs_id, cursor_val).await {
-                // TODO: Queue failed cursor writes in the retry manager so they
-                //       can be recovered without re-processing events.
                 error!(
                     hs_id = %hs_id,
                     user = %user_id,
