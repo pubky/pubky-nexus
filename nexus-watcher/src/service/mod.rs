@@ -104,6 +104,7 @@ impl NexusWatcher {
         ));
         let user_hs_resolver_runner = Arc::new(UserHsResolverRunner::from_config(
             &config,
+            Box::new(user_hs_resolver::PubkyConnectorResolver),
             shutdown_rx.clone(),
         ));
 
