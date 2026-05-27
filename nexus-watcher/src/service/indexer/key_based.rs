@@ -157,16 +157,23 @@ impl KeyBasedEventProcessor {
         let user_ids = user_hs_resolver::get_user_ids_by_homeserver(hs_id).await?;
         debug!("Resolved {} user(s)", user_ids.len());
 
-        let mut users = Vec::with_capacity(user_ids.len());
+        let mut valid_users: Vec<(PublicKey, &str)> = Vec::with_capacity(user_ids.len());
         for user_id in &user_ids {
             let Ok(user_pk) = user_id.parse::<PublicKey>() else {
                 error!("Invalid user public key '{user_id}', skipping");
                 continue;
             };
-            // TODO Batch fetch cursors from Redis, when many users share a non-default homeserver.
-            let cursor = Self::read_user_cursor(user_id, hs_id).await?;
-            users.push((user_pk, cursor));
+            valid_users.push((user_pk, user_id.as_str()));
         }
+
+        let user_id_strs: Vec<&str> = valid_users.iter().map(|(_, id)| *id).collect();
+        let cursors = Self::read_users_cursors(&user_id_strs, hs_id).await?;
+
+        let users = valid_users
+            .into_iter()
+            .zip(cursors)
+            .map(|((pk, _), cursor)| (pk, cursor))
+            .collect();
 
         Ok(users)
     }
@@ -275,21 +282,36 @@ impl KeyBasedEventProcessor {
         Ok(())
     }
 
-    /// Reads the per-user event cursor from the `USER_HS_CURSOR` sorted set in Redis.
+    /// Reads per-user event cursors from the `USER_HS_CURSOR` sorted sets in Redis.
     ///
-    /// Returns `EventCursor(0)` when the user has no cursor entry (newly ingested).
+    /// Each user's cursor lives in its own sorted set (keyed by user ID) with
+    /// the homeserver ID as the member. All lookups are batched into a single
+    /// `check_sorted_set_members` pipeline call.
+    ///
+    /// Returns `EventCursor(0)` for users with no cursor entry (newly ingested).
     /// Propagates Redis errors instead of silently rewinding to 0.
     ///
     /// The cursor is stored as the score (f64) of the homeserver member.
     /// f64 is exact for integer values up to 2^53 (~9 quadrillion), which is
     /// practically unreachable for monotonically incrementing event IDs.
-    async fn read_user_cursor(
-        user_id: &str,
+    async fn read_users_cursors(
+        user_ids: &[&str],
         hs_id: &str,
-    ) -> Result<EventCursor, EventProcessorError> {
-        let key = user_hs_cursor_key(user_id);
-        let score = UserDetails::check_sorted_set_member(None, &key, &[hs_id]).await?;
-        Ok(EventCursor::new(score.unwrap_or(0) as u64))
+    ) -> Result<Vec<EventCursor>, EventProcessorError> {
+        let keys: Vec<[&str; 3]> = user_ids
+            .iter()
+            .map(|user_id| user_hs_cursor_key(user_id))
+            .collect();
+        let keys_refs: Vec<&[&str]> = keys.iter().map(|k| k.as_slice()).collect();
+        let member: [&str; 1] = [hs_id];
+        let members_refs: Vec<&[&str]> = vec![member.as_slice(); user_ids.len()];
+
+        let scores = UserDetails::check_sorted_set_members(None, &keys_refs, &members_refs).await?;
+
+        Ok(scores
+            .into_iter()
+            .map(|s| EventCursor::new(s.unwrap_or(0) as u64))
+            .collect())
     }
 
     /// Persists the per-user event cursor back to the `USER_HS_CURSOR` sorted set.

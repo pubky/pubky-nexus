@@ -1,5 +1,5 @@
 use crate::db::get_redis_conn;
-use crate::db::kv::RedisResult;
+use crate::db::kv::{RedisError, RedisResult};
 use redis::AsyncCommands;
 use serde::Deserialize;
 use utoipa::ToSchema;
@@ -37,9 +37,41 @@ pub const SORTED_PREFIX: &str = "Sorted";
 pub async fn check_member(prefix: &str, key: &str, member: &str) -> RedisResult<Option<isize>> {
     let index_key = format!("{prefix}:{key}");
     let mut redis_conn = get_redis_conn().await?;
-    // Use the ZSCORE command to check if the member exists in the sorted set
+    // Direct ZSCORE instead of check_members() to avoid pipeline overhead for a single call.
     let rank = redis_conn.zscore(index_key, member).await?;
     Ok(rank)
+}
+
+/// Checks multiple (key, member) pairs in Redis sorted sets using a single
+/// pipeline of `ZSCORE` commands.
+///
+/// `keys` and `members` are parallel slices of the same length — each
+/// `(keys[i], members[i])` pair produces one `ZSCORE` call. Returns scores in
+/// the same order, with `None` for absent members.
+pub async fn check_members(
+    prefix: &str,
+    keys: &[&str],
+    members: &[&str],
+) -> RedisResult<Vec<Option<isize>>> {
+    if keys.len() != members.len() {
+        return Err(RedisError::InvalidInput(
+            "keys and members must have the same length".into(),
+        ));
+    }
+
+    if keys.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut pipe = redis::pipe();
+    for (key, member) in keys.iter().zip(members.iter()) {
+        let index_key = format!("{prefix}:{key}");
+        pipe.zscore(index_key, *member);
+    }
+
+    let mut redis_conn = get_redis_conn().await?;
+    let results: Vec<Option<isize>> = pipe.query_async(&mut redis_conn).await?;
+    Ok(results)
 }
 
 /// Adds elements to a Redis sorted set.
