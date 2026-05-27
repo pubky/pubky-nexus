@@ -58,6 +58,27 @@ impl PostStreamQuery {
         }
         Ok(())
     }
+
+    /// Must run before `initialize_defaults()` to see the user's raw input.
+    pub fn validate_source_compat(&self) -> AppResult<()> {
+        if !matches!(self.source, Some(StreamSource::Collection { .. })) {
+            return Ok(());
+        }
+        let incompatible = [
+            ("tags", self.tags.is_some()),
+            ("kind", self.kind.is_some()),
+            ("sorting", self.sorting.is_some()),
+            ("order", self.order.is_some()),
+            ("start", self.pagination.start.is_some()),
+            ("end", self.pagination.end.is_some()),
+        ];
+        if let Some((name, _)) = incompatible.iter().find(|(_, present)| *present) {
+            return Err(Error::invalid_input(&format!(
+                "`{name}` is not supported with `source=collection`"
+            )));
+        }
+        Ok(())
+    }
 }
 
 // Custom deserializer for comma-separated tags
@@ -82,7 +103,7 @@ where
     path = STREAM_POSTS_ROUTE,
     tag = "Stream",
     params(
-        ("source" = Option<StreamSource>, Query, description = "Source of posts for streams with viewer (following, followers, friends, bookmarks, post_replies, author, author_replies, all)"),
+        ("source" = Option<StreamSource>, Query, description = "Source of posts for streams with viewer (following, followers, friends, bookmarks, post_replies, author, author_replies, collection, all). For `source=collection`: provide `author_id` + `post_id` of the Collection post; items are returned in curator order. `tags`, `kind`, `sorting`, `order`, `start`, `end` are all rejected with 400 (incompatible with the curator-ordered result set). Items whose underlying post is missing (deleted, not indexed) or whose URI is malformed/non-post are dropped during hydration; pages may be shorter than `limit`. Pagination via `skip`/`limit` is not stable across deletions — if an item is removed between page fetches, the same `skip` returns a different window. The FE can identify dropped items by diffing the response against the Collection envelope's `items[]`."),
         ("viewer_id" = Option<String>, Query, description = "Viewer Pubky ID"),
         ("observer_id" = Option<String>, Query, description = "Observer Pubky ID. The central point for streams with Reach"),
         ("author_id" = Option<String>, Query, description = "Filter posts by an specific author User ID"),
@@ -109,6 +130,7 @@ The `source` parameter determines the type of stream. Depending on the `source`,
 - *post_replies*: Requires **author_id** and **post_id** to filter replies to a specific post.
 - *author*:  Requires  **author_id** to filter posts by a specific author.
 - *author_replies*:  Requires  **author_id** to filter replies by a specific author.
+- *collection*: Requires **author_id** and **post_id** of the Collection post; items are returned in curator order.
 
 Ensure that you provide the necessary parameters based on the selected `source`. If the required parameter is not provided, the provided `source` will be ignored and the stream type will default to *all*"#
 )]
@@ -117,6 +139,7 @@ pub async fn stream_posts_handler(
 ) -> AppResult<Json<PostStreamDetailed>> {
     debug!("GET {STREAM_POSTS_ROUTE}");
 
+    query.validate_source_compat()?; // before initialize_defaults
     query.initialize_defaults();
     query.validate_tags()?;
     let (source, sorting, order) = query.extract_stream_params();
@@ -145,7 +168,7 @@ pub async fn stream_posts_handler(
     path = STREAM_POST_KEYS_ROUTE,
     tag = "Stream",
     params(
-        ("source" = Option<StreamSource>, Query, description = "Source of posts for streams with viewer (following, followers, friends, bookmarks, post_replies, author, author_replies, all)"),
+        ("source" = Option<StreamSource>, Query, description = "Source of posts for streams with viewer (following, followers, friends, bookmarks, post_replies, author, author_replies, collection, all). For `source=collection`: provide `author_id` + `post_id` of the Collection post; keys are returned in curator order. `tags`, `kind`, `sorting`, `order`, `start`, `end` are all rejected with 400 (incompatible with the curator-ordered result set). Like every other source, the returned keys are a best-effort snapshot — they may reference posts that have since been deleted or are not yet indexed; callers should hydrate via `GET /v0/stream/posts?source=collection&author_id=...&post_id=...` (or `POST /v0/stream/posts/by_ids`) which drops unresolved refs. Pagination via `skip`/`limit` is not stable across deletions."),
         ("observer_id" = Option<String>, Query, description = "Observer Pubky ID. The central point for streams with Reach"),
         ("author_id" = Option<String>, Query, description = "Filter posts by an specific author User ID"),
         ("post_id" = Option<String>, Query, description = "This parameter is needed when we want to retrieve the replies stream for a post"),
@@ -169,6 +192,7 @@ The `source` parameter determines the type of stream. Depending on the `source`,
 - *post_replies*: Requires **author_id** and **post_id** to filter replies to a specific post.
 - *author*:  Requires  **author_id** to filter posts by a specific author.
 - *author_replies*:  Requires  **author_id** to filter replies by a specific author.
+- *collection*: Requires **author_id** and **post_id** of the Collection post; keys are returned in curator order.
 
 Ensure that you provide the necessary parameters based on the selected `source`. If the required parameter is not provided, the provided `source` will be ignored and the stream type will default to *all*"#
 )]
@@ -177,6 +201,7 @@ pub async fn stream_post_keys_handler(
 ) -> AppResult<Json<PostKeyStream>> {
     debug!("GET {STREAM_POST_KEYS_ROUTE}");
 
+    query.validate_source_compat()?; // before initialize_defaults
     query.initialize_defaults();
     query.validate_tags()?;
     let (source, sorting, order) = query.extract_stream_params();
