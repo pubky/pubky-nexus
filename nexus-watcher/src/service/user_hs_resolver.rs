@@ -238,7 +238,7 @@ async fn get_user_homeserver(user_id: &str) -> GraphResult<Option<String>> {
 
 /// Returns all user IDs hosted on a given homeserver.
 pub async fn get_user_ids_by_homeserver(hs_id: &str) -> GraphResult<Vec<String>> {
-    let query = queries::get::get_users_by_homeserver(hs_id);
+    let query = queries::get::get_active_users_by_homeserver(hs_id);
     let maybe_user_ids = fetch_key_from_graph(query, "user_ids").await?;
     Ok(maybe_user_ids.unwrap_or_default())
 }

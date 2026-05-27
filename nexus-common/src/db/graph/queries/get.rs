@@ -433,9 +433,9 @@ pub fn get_user_homeserver(user_id: &str) -> Query {
 /// Excludes users whose mapping is marked `stale` — i.e. whose published
 /// homeserver has diverged from the stored one — so the watcher stops
 /// indexing them until the mapping realigns.
-pub fn get_users_by_homeserver(hs_id: &str) -> Query {
+pub fn get_active_users_by_homeserver(hs_id: &str) -> Query {
     Query::new(
-        "get_users_by_homeserver",
+        "get_active_users_by_homeserver",
         "MATCH (u:User)-[r:HOSTED_BY]->(:Homeserver {id: $hs_id})
          WHERE u.name <> '[DELETED]' AND NOT coalesce(r.stale, false)
          RETURN collect(u.id) AS user_ids",
