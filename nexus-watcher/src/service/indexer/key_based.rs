@@ -112,8 +112,6 @@ impl TEventProcessor for KeyBasedEventProcessor {
 
         info!("Found {} users", users.len());
 
-        // TODO: Process users concurrently (bounded semaphore) to reduce per-HS latency
-        //       when many users share a non-default homeserver.
         for (user_pk, cursor) in &users {
             if *self.shutdown_rx.borrow() {
                 debug!("Shutdown detected; stopping user iteration");
