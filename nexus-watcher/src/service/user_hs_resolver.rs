@@ -464,8 +464,8 @@ mod tests {
     async fn test_get_user_homeserver() -> Result<(), DynError> {
         setup().await?;
 
-        let user_id = "get_user_hs_test_user";
-        let hs_id = "get_user_hs_test_hs";
+        let user_id = Keypair::random().public_key().z32();
+        let hs_id = Keypair::random().public_key().z32();
 
         create_test_user(user_id).await?;
 
