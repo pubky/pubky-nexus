@@ -51,8 +51,7 @@ pub fn post_counts(author_id: &str, post_id: &str) -> Query {
                 replies: COUNT { (p)<-[:REPLIED]-() },
                 reposts: COUNT { (p)<-[:REPOSTED]-() }
             } AS counts,
-            EXISTS { (p)-[:REPLIED]->(:Post) } AS is_reply,
-            p.kind = 'collection' AS is_collection
+            EXISTS { (p)-[:REPLIED]->(:Post) } AS is_reply
     ",
     )
     .param("author_id", author_id)
@@ -213,7 +212,6 @@ pub fn global_tags_by_post() -> Query {
         "global_tags_by_post",
         "
         MATCH (tagger:User)-[t:TAGGED]->(post:Post)<-[:AUTHORED]-(author:User)
-        WHERE post.kind <> 'collection'
         WITH t.label AS label, author.id + ':' + post.id AS post_id, post.indexed_at AS score
         WITH DISTINCT post_id, label, score
         WITH label, COLLECT([toFloat(score), post_id ]) AS sorted_set
@@ -231,7 +229,6 @@ pub fn global_tags_by_post_engagement() -> Query {
         "global_tags_by_post_engagement",
         "
         MATCH (author:User)-[:AUTHORED]->(post:Post)<-[tag:TAGGED]-(tagger:User)
-        WHERE post.kind <> 'collection'
         WITH post, COUNT(tag) AS tags_count, tag.label AS label, author.id + ':' + post.id AS key
         WITH DISTINCT key, label, post, tags_count
         WHERE tags_count > 0
@@ -836,18 +833,8 @@ pub fn post_stream(
     }
 
     // If post kind is provided, add the corresponding condition.
-    // When no kind filter is set, exclude collections from the default stream
-    //
-    // Exception: `source=bookmarks` is exempt — a user who bookmarked a
-    // collection should see it in their bookmarks stream regardless of kind.
-    match (&source, &kind) {
-        (StreamSource::Bookmarks { .. }, None) => {}
-        (_, Some(_)) => append_condition(&mut cypher, "p.kind = $kind", &mut where_clause_applied),
-        (_, None) => append_condition(
-            &mut cypher,
-            "p.kind <> 'collection'",
-            &mut where_clause_applied,
-        ),
+    if kind.is_some() {
+        append_condition(&mut cypher, "p.kind = $kind", &mut where_clause_applied);
     }
 
     // Filter just the parent posts: StreamSource:PostReplies and StreamSource:AuthorReplies do not reach that query
