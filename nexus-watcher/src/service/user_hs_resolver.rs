@@ -24,8 +24,7 @@ static HS_RESOLVER_METRICS: LazyLock<HsResolverMetrics> = LazyLock::new(HsResolv
 /// tests instead of hitting the network.
 #[async_trait::async_trait]
 pub trait PkdnsHomeserverResolver: Send + Sync {
-    /// Returns the homeserver published for `user_pk`, or `None` if none is
-    /// currently published.
+    /// Returns the HS published for `user_pk`, if any is currently published.
     async fn resolve_homeserver(&self, user_pk: &PublicKey) -> Result<Option<PubkyId>, DynError>;
 }
 
