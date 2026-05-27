@@ -381,6 +381,24 @@ async fn test_source_collection_with_end_rejected_400() -> Result<()> {
     Ok(())
 }
 
+/// `source=collection` without `author_id` falls through to source=None
+/// (Option<StreamSource> default behavior); we explicitly catch this in
+/// the handler and return 400 instead of silently serving the all-stream.
+#[tokio_shared_rt::test(shared)]
+async fn test_source_collection_without_author_id_rejected_400() -> Result<()> {
+    let path = format!("{ROOT_PATH}?source=collection&post_id={COL_BOGOTA_1}");
+    invalid_get_request(&path, StatusCode::BAD_REQUEST).await?;
+    Ok(())
+}
+
+/// Same as above but omitting `post_id`.
+#[tokio_shared_rt::test(shared)]
+async fn test_source_collection_without_post_id_rejected_400() -> Result<()> {
+    let path = format!("{ROOT_PATH}?source=collection&author_id={BOGOTA}");
+    invalid_get_request(&path, StatusCode::BAD_REQUEST).await?;
+    Ok(())
+}
+
 /// Malformed envelope JSON → empty stream (no 500). Seed: MALF1TGL5BKG7.
 #[tokio_shared_rt::test(shared)]
 async fn test_source_collection_with_malformed_envelope_returns_empty() -> Result<()> {

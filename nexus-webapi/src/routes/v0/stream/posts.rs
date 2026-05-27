@@ -3,7 +3,10 @@ use crate::routes::v0::endpoints::{
     STREAM_POSTS_BY_IDS_ROUTE, STREAM_POSTS_ROUTE, STREAM_POST_KEYS_ROUTE,
 };
 use crate::{Error, Result as AppResult};
-use axum::{extract::Query, Json};
+use axum::{
+    extract::{Query, RawQuery},
+    Json,
+};
 use nexus_common::db::kv::SortOrder;
 use nexus_common::types::StreamSorting;
 use nexus_common::{
@@ -60,8 +63,25 @@ impl PostStreamQuery {
     }
 
     /// Must run before `initialize_defaults()` to see the user's raw input.
-    pub fn validate_source_compat(&self) -> AppResult<()> {
-        if !matches!(self.source, Some(StreamSource::Collection { .. })) {
+    /// `raw_query` is the request's raw query string; used to detect cases
+    /// where the user typed `source=collection` but the required fields
+    /// (`author_id` + `post_id`) failed to deserialize and the source fell
+    /// through to `None` (the default `Option<StreamSource>` behavior).
+    pub fn validate_source_compat(&self, raw_query: Option<&str>) -> AppResult<()> {
+        let is_collection = matches!(self.source, Some(StreamSource::Collection { .. }));
+
+        // The user typed `source=collection` but a required field is missing.
+        // Without this guard the request silently falls through to `source=all`.
+        let raw_has_collection = raw_query
+            .map(|q| q.split('&').any(|seg| seg == "source=collection"))
+            .unwrap_or(false);
+        if raw_has_collection && !is_collection {
+            return Err(Error::invalid_input(
+                "`source=collection` requires both `author_id` and `post_id`",
+            ));
+        }
+
+        if !is_collection {
             return Ok(());
         }
         let incompatible = [
@@ -136,10 +156,11 @@ Ensure that you provide the necessary parameters based on the selected `source`.
 )]
 pub async fn stream_posts_handler(
     Query(mut query): Query<PostStreamQuery>,
+    RawQuery(raw): RawQuery,
 ) -> AppResult<Json<PostStreamDetailed>> {
     debug!("GET {STREAM_POSTS_ROUTE}");
 
-    query.validate_source_compat()?; // before initialize_defaults
+    query.validate_source_compat(raw.as_deref())?; // before initialize_defaults
     query.initialize_defaults();
     query.validate_tags()?;
     let (source, sorting, order) = query.extract_stream_params();
@@ -198,10 +219,11 @@ Ensure that you provide the necessary parameters based on the selected `source`.
 )]
 pub async fn stream_post_keys_handler(
     Query(mut query): Query<PostStreamQuery>,
+    RawQuery(raw): RawQuery,
 ) -> AppResult<Json<PostKeyStream>> {
     debug!("GET {STREAM_POST_KEYS_ROUTE}");
 
-    query.validate_source_compat()?; // before initialize_defaults
+    query.validate_source_compat(raw.as_deref())?; // before initialize_defaults
     query.initialize_defaults();
     query.validate_tags()?;
     let (source, sorting, order) = query.extract_stream_params();
