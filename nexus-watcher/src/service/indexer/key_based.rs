@@ -8,7 +8,7 @@ use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::user::{user_hs_cursor_key, UserDetails};
 use pubky::{Event as StreamEvent, EventCursor, PublicKey};
 use tokio::sync::watch::Receiver;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 use super::TEventProcessor;
 use crate::events::retry::RetryScheduler;
@@ -160,7 +160,7 @@ impl KeyBasedEventProcessor {
         let mut valid_users: Vec<(PublicKey, &str)> = Vec::with_capacity(user_ids.len());
         for user_id in &user_ids {
             let Ok(user_pk) = user_id.parse::<PublicKey>() else {
-                error!("Invalid user public key '{user_id}', skipping");
+                warn!("Invalid user public key '{user_id}', skipping");
                 continue;
             };
             valid_users.push((user_pk, user_id.as_str()));
