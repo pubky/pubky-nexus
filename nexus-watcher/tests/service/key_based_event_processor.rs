@@ -404,6 +404,39 @@ async fn key_based_processor_retries_429_fetch_errors_with_backoff() -> Result<(
     Ok(())
 }
 
+/// Verifies exhausted 429 retries abort the homeserver run instead of moving to later users.
+#[tokio_shared_rt::test(shared)]
+async fn key_based_processor_aborts_homeserver_after_exhausted_429_retries() -> Result<(), DynError>
+{
+    setup().await?;
+
+    let (_hs_keypair, homeserver) = create_homeserver().await?;
+    create_user_on_homeserver(&homeserver).await?;
+    create_user_on_homeserver(&homeserver).await?;
+    let source = Arc::new(
+        MockKeyBasedEventSource::default()
+            .with_results(vec![
+                Err(too_many_requests_error()),
+                Err(too_many_requests_error()),
+                Err(too_many_requests_error()),
+                Err(too_many_requests_error()),
+            ])
+            .await,
+    );
+    let handler = create_mock_handler(Ok(()), None);
+    let processor = processor(homeserver, handler.clone(), source.clone());
+
+    let err = processor.run().await.unwrap_err();
+
+    assert_internal_too_many_requests(err);
+    let calls = source.calls().await;
+    assert_eq!(calls.len(), 4); // First call + 3 retries with backoff
+    assert!(calls.iter().all(|user_id| user_id == &calls[0]));
+    assert_eq!(handler.get_handle_count(), 0);
+
+    Ok(())
+}
+
 /// Verifies infrastructure handler failures abort without advancing the cursor.
 #[tokio_shared_rt::test(shared)]
 async fn key_based_processor_aborts_and_keeps_cursor_on_infrastructure_handler_error(
@@ -647,6 +680,13 @@ fn assert_internal_infrastructure_index_operation_failed(err: RunError) {
     match err {
         RunError::Internal(EventProcessorError::IndexOperationFailed(true, _)) => {}
         other => panic!("expected internal infrastructure index operation failure, got {other:?}"),
+    }
+}
+
+fn assert_internal_too_many_requests(err: RunError) {
+    match err {
+        RunError::Internal(err) if err.is_too_many_requests() => {}
+        other => panic!("expected internal 429 error, got {other:?}"),
     }
 }
 

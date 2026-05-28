@@ -137,6 +137,13 @@ impl EventProcessorError {
         match self {
             Self::GraphQueryFailed(true, _) => true,
             Self::IndexOperationFailed(true, _) => true,
+
+            // If connections to a HS fail with 429 despite the internal retry with backoff,
+            // then the HS is seen as having an unreasonable behavior or configuration.
+            // It is treated as infrastructure error because making further calls to this HS
+            // to fetch events for any other users of this HS will result in the same error
+            Self::PubkyClientError(PubkyClientError::TooManyRequests429 { .. }) => true,
+
             _ => false,
         }
     }
