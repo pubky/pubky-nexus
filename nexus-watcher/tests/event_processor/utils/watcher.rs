@@ -3,7 +3,6 @@ use base32::{encode, Alphabet};
 use chrono::Utc;
 use nexus_common::db::PubkyConnector;
 use nexus_common::get_files_dir_pathbuf;
-use nexus_common::get_files_dir_test_pathbuf;
 use nexus_common::models::event::{Event, EventProcessorError, ParseResult};
 use nexus_common::models::file::FileDetails;
 use nexus_common::models::homeserver::Homeserver;
@@ -23,9 +22,11 @@ use pubky_app_specs::{
     PubkyAppFile, PubkyAppFollow, PubkyAppPost, PubkyAppUser, PubkyId,
 };
 use pubky_testnet::Testnet;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
+use tempfile::TempDir;
 use tracing::debug;
 
 use crate::event_processor::utils::default_moderation_tests;
@@ -55,6 +56,8 @@ pub struct WatcherTest {
     pub event_processor_runner: EventProcessorRunner,
     /// Whether to ensure event processing is complete
     pub ensure_event_processing: bool,
+    /// Keeps the static files temp dir alive for the test.
+    pub temp_dir: TempDir,
 }
 
 impl WatcherTest {
@@ -75,7 +78,10 @@ impl WatcherTest {
     ///
     /// # Returns
     /// Returns a fully configured `EventProcessorRunner` ready for use in tests.
-    fn create_test_event_processor_runner(default_homeserver: PubkyId) -> EventProcessorRunner {
+    fn create_test_event_processor_runner(
+        default_homeserver: PubkyId,
+        files_path: PathBuf,
+    ) -> EventProcessorRunner {
         let moderation = Arc::new(default_moderation_tests());
 
         let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
@@ -83,7 +89,7 @@ impl WatcherTest {
         EventProcessorRunner {
             limit: 1000,
             monitored_homeservers_limit: 100,
-            files_path: get_files_dir_test_pathbuf(),
+            files_path,
             tracer_name: "test".to_string(),
             moderation,
             shutdown_rx,
@@ -109,6 +115,9 @@ impl WatcherTest {
             return Err(Error::msg(format!("could not initialise the stack, {e:?}")));
         }
 
+        let temp_dir = TempDir::new()?;
+        let files_path = temp_dir.path().to_path_buf();
+
         // WARNING: testnet initialization is time expensive, we only init one per process
         // TODO: Maybe we should create a single testnet network (singleton and push there more homeservers)
         // This can be further sped up by using Testnet::new_unseeded() with pubky-testnet 0.7.x
@@ -130,13 +139,14 @@ impl WatcherTest {
 
         // Initialize the test-scoped EventProcessorRunner; mirrors the standard processor behavior
         let event_processor_runner =
-            Self::create_test_event_processor_runner(homeserver_id.clone());
+            Self::create_test_event_processor_runner(homeserver_id.clone(), files_path);
 
         Ok(Self {
             testnet,
             homeserver_id,
             event_processor_runner,
             ensure_event_processing: true,
+            temp_dir,
         })
     }
 

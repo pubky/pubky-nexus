@@ -1,8 +1,9 @@
 use std::net::SocketAddr;
 
 use anyhow::Result;
-use nexus_common::{get_files_dir_test_pathbuf, ApiConfig};
+use nexus_common::ApiConfig;
 use nexus_webapi::{api_context::ApiContextBuilder, NexusApi, NexusApiBuilder};
+use tempfile::TempDir;
 use tokio::sync::OnceCell;
 
 /// Util backend server for testing.
@@ -11,6 +12,8 @@ use tokio::sync::OnceCell;
 pub struct TestServiceServer {
     pub nexus_api: NexusApi,
     pub testnet: pubky_testnet::Testnet,
+    /// Keeps the static files temp dir alive for the test.
+    pub temp_dir: TempDir,
 }
 
 /// [TestServiceServer] with no key republisher
@@ -24,8 +27,12 @@ impl TestServiceServer {
         TEST_SERVER
             .get_or_init(|| async {
                 let testnet = pubky_testnet::Testnet::new().await.unwrap();
-                let nexus_api = Self::start_server(&testnet, false).await.unwrap();
-                TestServiceServer { nexus_api, testnet }
+                let (nexus_api, temp_dir) = Self::start_server(&testnet, false).await.unwrap();
+                TestServiceServer {
+                    nexus_api,
+                    testnet,
+                    temp_dir,
+                }
             })
             .await
     }
@@ -38,8 +45,12 @@ impl TestServiceServer {
         TEST_SERVER_WITH_KEY_REPUBLISHER
             .get_or_init(|| async {
                 let testnet = pubky_testnet::Testnet::new().await.unwrap();
-                let nexus_api = Self::start_server(&testnet, true).await.unwrap();
-                TestServiceServer { nexus_api, testnet }
+                let (nexus_api, temp_dir) = Self::start_server(&testnet, true).await.unwrap();
+                TestServiceServer {
+                    nexus_api,
+                    testnet,
+                    temp_dir,
+                }
             })
             .await
     }
@@ -47,7 +58,7 @@ impl TestServiceServer {
     async fn start_server(
         testnet: &pubky_testnet::Testnet,
         enable_key_republisher: bool,
-    ) -> Result<NexusApi> {
+    ) -> Result<(NexusApi, TempDir)> {
         let test_api_config = ApiConfig {
             // When we define the sockets, use local port 0 so OS assigns an available port
             public_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
@@ -55,8 +66,10 @@ impl TestServiceServer {
             ..Default::default()
         };
 
-        // Every time we start a test server, use a new temp config dir, which is automatically removed after the tests
-        let temp_config_dir = tempfile::TempDir::new_in(".")?;
+        // Separate temp directories: one for config (keypair), one for static files
+        let temp_config_dir = TempDir::new()?;
+        let temp_dir = TempDir::new()?;
+
         let api_context = ApiContextBuilder::from_config_dir(temp_config_dir.path().to_path_buf())
             .api_config(test_api_config)
             .pkarr_builder(testnet.pkarr_client_builder())
@@ -64,13 +77,13 @@ impl TestServiceServer {
             .await
             .expect("Failed to create ApiContext");
         let nexus_builder = NexusApiBuilder::new(api_context)
-            .files_path(get_files_dir_test_pathbuf())
+            .files_path(temp_dir.path().to_path_buf())
             .enable_key_republisher(enable_key_republisher);
 
         let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
         let _ = shutdown_tx.send(true); // We want the test server to return right away after start()
         let nexus_api = nexus_builder.start(Some(shutdown_rx)).await.unwrap();
 
-        Ok(nexus_api)
+        Ok((nexus_api, temp_dir))
     }
 }

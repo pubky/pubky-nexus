@@ -27,14 +27,11 @@ impl PostCounts {
             Some(counts) => Ok(Some(counts)),
             None => {
                 let graph_response = Self::get_from_graph(author_id, post_id).await?;
-                if let Some((post_counts, is_reply, is_collection)) = graph_response {
+                if let Some((post_counts, is_reply)) = graph_response {
                     // Pass `is_reply` raw — `put_to_index` gates the engagement
-                    // sorted-set write on `!is_reply && !is_collection`. The
-                    // previous `!is_reply` here double-negated, so the
-                    // cache-miss rebuild path leaked replies into
-                    // POST_TOTAL_ENGAGEMENT (Greptile P1).
+                    // sorted-set write on `!is_reply`.
                     post_counts
-                        .put_to_index(author_id, post_id, is_reply, is_collection)
+                        .put_to_index(author_id, post_id, is_reply)
                         .await?;
                     return Ok(Some(post_counts));
                 }
@@ -51,7 +48,7 @@ impl PostCounts {
     pub async fn get_from_graph(
         author_id: &str,
         post_id: &str,
-    ) -> GraphResult<Option<(PostCounts, bool, bool)>> {
+    ) -> GraphResult<Option<(PostCounts, bool)>> {
         let query = queries::get::post_counts(author_id, post_id);
         let maybe_row = fetch_row_from_graph(query).await?;
 
@@ -60,9 +57,8 @@ impl PostCounts {
             if post_exists {
                 let counts: PostCounts = row.get("counts")?;
                 let is_reply: bool = row.get("is_reply").unwrap_or(false);
-                let is_collection: bool = row.get("is_collection").unwrap_or(false);
 
-                return Ok(Some((counts, is_reply, is_collection)));
+                return Ok(Some((counts, is_reply)));
             }
         }
         Ok(None)
@@ -73,7 +69,6 @@ impl PostCounts {
         author_id: &str,
         post_id: &str,
         is_reply: bool,
-        is_collection: bool,
     ) -> RedisResult<()> {
         // Always cache the PostCounts JSON: read paths (/v0/post/...) and the
         // increment paths (tag/reply/repost handlers) both depend on this row
@@ -81,11 +76,9 @@ impl PostCounts {
         self.put_index_json(&[author_id, post_id], None, None)
             .await?;
 
-        // Skip the global engagement sorted set for posts that should not surface
-        // in Hot / engagement-ranked streams: replies (already excluded
-        // pre-existing) and collections (added in v0.5.0 — collections appear
-        // only via explicit `?kind=collection`).
-        if !is_reply && !is_collection {
+        // Skip the global engagement sorted set for replies — they're tracked
+        // via POST_REPLIES sets instead.
+        if !is_reply {
             PostStream::add_to_engagement_sorted_set(self, author_id, post_id).await?;
         }
         Ok(())
@@ -126,11 +119,7 @@ impl PostCounts {
 
     pub async fn reindex(author_id: &str, post_id: &str) -> ModelResult<()> {
         match Self::get_from_graph(author_id, post_id).await? {
-            Some((counts, is_reply, is_collection)) => {
-                counts
-                    .put_to_index(author_id, post_id, is_reply, is_collection)
-                    .await?
-            }
+            Some((counts, is_reply)) => counts.put_to_index(author_id, post_id, is_reply).await?,
             None => tracing::error!(
                 "{}:{} Could not found post counts in the graph",
                 author_id,

@@ -11,7 +11,7 @@ use crate::models::{
 };
 use crate::types::{Pagination, StreamSorting};
 use futures::TryStreamExt;
-use pubky_app_specs::PubkyAppPostKind;
+use pubky_app_specs::{ParsedUri, PubkyAppCollectionContent, PubkyAppPostKind, Resource};
 use serde::{Deserialize, Serialize};
 use tokio::task::spawn;
 use tokio::time::{timeout, Duration};
@@ -50,6 +50,10 @@ pub enum StreamSource {
     AuthorReplies {
         author_id: String,
     },
+    Collection {
+        author_id: String,
+        post_id: String,
+    },
     #[default]
     All,
 }
@@ -65,6 +69,8 @@ impl StreamSource {
         }
     }
 
+    /// Author whose posts are streamed. Collection returns `None`: its
+    /// `author_id` is the curator, not the items' authors.
     pub fn get_author(&self) -> Option<&str> {
         match self {
             StreamSource::PostReplies {
@@ -159,6 +165,18 @@ impl PostStream {
         tags: Option<Vec<String>>,
         kind: Option<PubkyAppPostKind>,
     ) -> ModelResult<PostKeyStream> {
+        // Collection has its own envelope-driven resolution path (neither
+        // sorted-set index nor Cypher).
+        if let StreamSource::Collection { author_id, post_id } = &source {
+            return Self::get_collection_items_post_keys(
+                author_id,
+                post_id,
+                pagination.skip,
+                pagination.limit,
+            )
+            .await;
+        }
+
         // Decide whether to use index or fallback to graph query
         let use_index = Self::can_use_index(&sorting, &source, &tags, &kind);
 
@@ -249,6 +267,47 @@ impl PostStream {
         Ok(result)
     }
 
+    async fn get_collection_items_post_keys(
+        author_id: &str,
+        post_id: &str,
+        skip: Option<usize>,
+        limit: Option<usize>,
+    ) -> ModelResult<PostKeyStream> {
+        let Some(details) = PostDetails::get_by_id(author_id, post_id).await? else {
+            return Ok(PostKeyStream::default());
+        };
+        if !matches!(details.kind, PubkyAppPostKind::Collection) {
+            return Ok(PostKeyStream::default());
+        }
+        let envelope: PubkyAppCollectionContent = match serde_json::from_str(&details.content) {
+            Ok(env) => env,
+            Err(e) => {
+                warn!("Collection {author_id}:{post_id} envelope malformed: {e}");
+                return Ok(PostKeyStream::default());
+            }
+        };
+
+        let skip = skip.unwrap_or(0);
+        let limit = limit.unwrap_or(usize::MAX);
+
+        // Filter before slicing so dead refs don't shorten pages.
+        let post_keys: Vec<String> = envelope
+            .items
+            .iter()
+            .filter_map(|uri| match ParsedUri::try_from(uri.as_str()) {
+                Ok(p) => match p.resource {
+                    Resource::Post(item_post_id) => Some(format!("{}:{}", p.user_id, item_post_id)),
+                    _ => None,
+                },
+                Err(_) => None,
+            })
+            .skip(skip)
+            .take(limit)
+            .collect();
+
+        Ok(PostKeyStream::new(post_keys, None))
+    }
+
     // Fetch posts from index
     async fn get_from_graph(
         source: StreamSource,
@@ -260,7 +319,7 @@ impl PostStream {
         let mut result;
         {
             let graph = get_neo4j_graph()?;
-            let query = queries::get::post_stream(source, sorting, tags, pagination, kind);
+            let query = queries::get::post_stream(source, sorting, tags, pagination, kind)?;
 
             // Set a 10-second timeout for the query execution
             result = match timeout(Duration::from_secs(10), graph.execute(query)).await {
@@ -738,11 +797,8 @@ mod tests {
     use super::*;
 
     /// `can_use_index` short-circuits to the Cypher path whenever a kind filter
-    /// is set, regardless of which kind. The stream-suppression strategy
-    /// relies on this so that `kind=collection` queries never hit the Redis
-    /// index (which is gated to exclude collections at write time), AND so
-    /// that any kind-filtered query (`kind=short`, `kind=long`, etc.) routes
-    /// via Cypher where the kind-specific filter actually applies.
+    /// is set, regardless of which kind — kind-filtered queries route via Cypher
+    /// where the kind-specific filter actually applies.
     ///
     /// We parametrize across the source/sorting combinations that *would*
     /// otherwise be index-eligible (per the match arms below the early-return)

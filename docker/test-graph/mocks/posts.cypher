@@ -233,19 +233,28 @@ MATCH (reply:Post {id: "SIJW1TGL5BKG9" }), (parent:Post {id: "SIJW1TGL5BKG8" }) 
 // ##### Collection posts ########
 // ###############################
 // Collections are kind="collection" with a JSON envelope ({name, description?, items})
-// in `content`. They are excluded from default streams (Home / Hot / By-Tag) and surface
-// only via explicit ?kind=collection queries. Indexed at timestamps after the LINK posts
-// so they sort to the front of an unfiltered author stream when explicitly included.
-MERGE (p:Post {id: "COLW1TGL5BKG1"}) SET p.content = "{\"name\":\"AI papers\",\"description\":\"Best stuff\",\"items\":[]}", p.kind = "collection", p.indexed_at = 1980477299400;
+// in `content`. Timestamps placed below other kinds so they don't disturb existing
+// timeline/bootstrap test fixtures.
+MERGE (p:Post {id: "COLW1TGL5BKG1"}) SET p.content = "{\"name\":\"AI papers\",\"description\":\"Best stuff\",\"items\":[\"pubky://ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny/pub/pubky.app/posts/00000039YD9BM\",\"pubky://ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny/pub/pubky.app/posts/00000039YD9C0\",\"pubky://ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny/pub/pubky.app/posts/00000039YD9CE\",\"pubky://ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny/pub/pubky.app/posts/ZZZZZZZZZZZZZ\",\"pubky://ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny/pub/pubky.app/profile.json\"]}", p.kind = "collection", p.indexed_at = 1980477299101;
 MATCH (u:User {id: $bogota}), (p:Post {id: "COLW1TGL5BKG1"}) MERGE (u)-[:AUTHORED]->(p);
-MERGE (p:Post {id: "COLW1TGL5BKG2"}) SET p.content = "{\"name\":\"Privacy reads\",\"items\":[]}", p.kind = "collection", p.indexed_at = 1980477299410;
+MERGE (p:Post {id: "COLW1TGL5BKG2"}) SET p.content = "{\"name\":\"Privacy reads\",\"items\":[]}", p.kind = "collection", p.indexed_at = 1980477299111;
 MATCH (u:User {id: $bogota}), (p:Post {id: "COLW1TGL5BKG2"}) MERGE (u)-[:AUTHORED]->(p);
-MERGE (p:Post {id: "COLW1TGL5BKG3"}) SET p.content = "{\"name\":\"Cryptography classics\",\"items\":[]}", p.kind = "collection", p.indexed_at = 1980477299420;
+MERGE (p:Post {id: "COLW1TGL5BKG3"}) SET p.content = "{\"name\":\"Cryptography classics\",\"items\":[]}", p.kind = "collection", p.indexed_at = 1980477299121;
 MATCH (u:User {id: $cairo}), (p:Post {id: "COLW1TGL5BKG3"}) MERGE (u)-[:AUTHORED]->(p);
 
+// Tag on a Collection (used by `?tags` stream tests). Bogota tags Cairo's
+// Collection with the `api` label.
+MATCH (u:User {id: $bogota}), (p:Post {id: "COLW1TGL5BKG3"}) MERGE (u)-[:TAGGED {label: $api_tag, id: "7APICOLBKG3Z", indexed_at: 1980477299130}]->(p);
+
+// Defensive seed: malformed envelope JSON. The resolver must `warn!` and
+// return an empty stream rather than 500 on corrupt graph state.
+MERGE (p:Post {id: "MALF1TGL5BKG7"}) SET p.content = "this is not JSON", p.kind = "collection", p.indexed_at = 1980477299430;
+MATCH (u:User {id: $bogota}), (p:Post {id: "MALF1TGL5BKG7"}) MERGE (u)-[:AUTHORED]->(p);
+
+// Collection-of-Collections: items[] references another Collection's post URI.
+MERGE (p:Post {id: "NEST1TGL5BKG8"}) SET p.content = "{\"name\":\"Meta\",\"items\":[\"pubky://ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny/pub/pubky.app/posts/COLW1TGL5BKG1\"]}", p.kind = "collection", p.indexed_at = 1980477299440;
+MATCH (u:User {id: $bogota}), (p:Post {id: "NEST1TGL5BKG8"}) MERGE (u)-[:AUTHORED]->(p);
+
 // Bookmarked collection (used by `?source=bookmarks` stream tests). Eixample
-// bookmarks Bogota's COLW1TGL5BKG1 — the bookmarks stream must surface this
-// regardless of `kind` filter or `sorting` mode (the BOOKMARKED edge is
-// kind-agnostic, but the Cypher fallback path must also exempt the
-// `source=bookmarks` case from the default collection exclusion).
+// bookmarks Bogota's COLW1TGL5BKG1.
 MATCH (u:User {id: $eixample}), (p:Post {id: "COLW1TGL5BKG1"}) MERGE (u)-[:BOOKMARKED {id: "BKMK_COLW1TGL5BKG1", indexed_at: 1980477299500}]->(p)
