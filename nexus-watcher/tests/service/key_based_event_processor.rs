@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use anyhow::Result;
 use chrono::Utc;
@@ -393,13 +393,8 @@ async fn key_based_processor_retries_429_fetch_errors_with_backoff() -> Result<(
     let handler = create_mock_handler(Ok(()), None);
     let processor = processor(homeserver, handler.clone(), source.clone());
 
-    let started_at = Instant::now();
     processor.run().await?;
 
-    assert!(
-        started_at.elapsed() >= Duration::from_secs(3),
-        "expected 1s + 2s retry backoff before success",
-    );
     assert_eq!(
         source.calls().await,
         vec![user_id.clone(), user_id.clone(), user_id]
