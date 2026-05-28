@@ -216,7 +216,7 @@ async fn test_user_tags_skip_beyond_range() -> Result<()> {
 async fn test_user_does_not_exist() -> Result<()> {
     let endpoint = format!(
         "/v0/user/{}/tags",
-        "db6w58pd5h63fbhtd88y8zz7pai9rkjwqt9omg6i7dz31dynrgc4"
+        "7xs3rn5gjgooidiit6spw7xhudtbftkwwcs9y4c8aszrd5iw31bo"
     );
     // TODO: Control post not found error control
     invalid_get_request(&endpoint, StatusCode::NOT_FOUND).await?;

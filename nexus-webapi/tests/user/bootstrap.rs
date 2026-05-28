@@ -90,7 +90,7 @@ async fn test_bootstrap_user() -> Result<()> {
 #[tokio_shared_rt::test(shared)]
 async fn test_bootstrap_user_not_indexed() -> Result<()> {
     // Use a random pubky ID that doesn't exist in the system
-    let user_id = "zdbg13k5gh4tfz9qz11quohrxetgqxs7awandu8h57147xddcuhi";
+    let user_id = "brnqswg4imgcw67b79m1ydimhai5kty4wqyx5rcop4wm16od8f1y";
 
     let body = get_request(&format!("/v0/bootstrap/{user_id}")).await?;
     let user_bootstrap_response: Bootstrap = serde_json::from_value(body).unwrap();

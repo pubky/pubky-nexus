@@ -17,7 +17,7 @@ const COL_CAIRO: &str = "COLW1TGL5BKG3";
 // They participate in the global Collection set just like any other.
 const COL_BOGOTA_MALF: &str = "MALF1TGL5BKG7";
 const COL_BOGOTA_NEST: &str = "NEST1TGL5BKG8";
-const SHORT_BOGOTA: &str = "A5D6P9V3Q0T";
+const SHORT_BOGOTA: &str = "00000039YD9BM";
 
 const ALL_COLLECTIONS: &[&str] = &[
     COL_BOGOTA_1,
@@ -215,9 +215,9 @@ async fn test_bookmarks_with_kind_collection_engagement_sort_returns_only_collec
 // ?source=collection seed: COLW1TGL5BKG1 has 5 items — 3 live posts (A, C, K),
 // 1 missing-post URI, 1 non-post URI (profile.json). Expected stream: [A, C, K].
 
-const POST_A: &str = "A5D6P9V3Q0T";
-const POST_C: &str = "C3L7W0F9Q4K8";
-const POST_K: &str = "K1P6Q9M2X4J8";
+const POST_A: &str = "00000039YD9BM";
+const POST_C: &str = "00000039YD9C0";
+const POST_K: &str = "00000039YD9CE";
 const MISSING_POST_ID: &str = "ZZZZZZZZZZZZZ";
 
 #[tokio_shared_rt::test(shared)]
