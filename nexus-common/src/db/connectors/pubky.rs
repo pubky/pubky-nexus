@@ -21,8 +21,8 @@ pub enum PubkyClientError {
     #[error("Server error (5xx): {message}")]
     ServerError5xx { message: String },
 
-    #[error("Request failed: {message}")]
-    RequestFailed { message: String },
+    #[error("Request failed (is_transport: {is_transport}): {message}")]
+    RequestFailed { is_transport: bool, message: String },
 
     #[error("Pkarr failed: {message}")]
     PkarrFailed { message: String },
@@ -49,18 +49,24 @@ impl From<pubky::Error> for PubkyClientError {
                     } else if status.is_server_error() {
                         Self::ServerError5xx { message }
                     } else {
-                        Self::RequestFailed { message }
+                        Self::RequestFailed {
+                            is_transport: false,
+                            message,
+                        }
                     }
                 }
                 pubky::errors::RequestError::Transport(err) => Self::RequestFailed {
+                    is_transport: true,
                     message: err.to_string(),
                 },
-                pubky::errors::RequestError::Validation { message } => {
-                    Self::RequestFailed { message }
-                }
-                pubky::errors::RequestError::DecodeJson { message } => {
-                    Self::RequestFailed { message }
-                }
+                pubky::errors::RequestError::Validation { message } => Self::RequestFailed {
+                    is_transport: false,
+                    message,
+                },
+                pubky::errors::RequestError::DecodeJson { message } => Self::RequestFailed {
+                    is_transport: false,
+                    message,
+                },
             },
             pubky::Error::Pkarr(pkarr_err) => Self::PkarrFailed {
                 message: pkarr_err.to_string(),

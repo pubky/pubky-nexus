@@ -109,7 +109,10 @@ impl EventProcessorError {
     }
 
     pub fn client_error(message: String) -> Self {
-        Self::PubkyClientError(PubkyClientError::RequestFailed { message })
+        Self::PubkyClientError(PubkyClientError::RequestFailed {
+            is_transport: false,
+            message,
+        })
     }
 
     pub fn client_error_404(message: String) -> Self {
@@ -137,6 +140,16 @@ impl EventProcessorError {
         match self {
             Self::GraphQueryFailed(true, _) => true,
             Self::IndexOperationFailed(true, _) => true,
+            Self::PubkyClientError(err) => match err {
+                PubkyClientError::NotFound404 { .. }
+                | PubkyClientError::ServerError5xx { .. }
+                | PubkyClientError::NotInitialized
+                | PubkyClientError::PkarrFailed { .. }
+                | PubkyClientError::AuthenticationFailed { .. }
+                | PubkyClientError::BuildFailed { .. }
+                | PubkyClientError::ParseFailed { .. } => false,
+                PubkyClientError::RequestFailed { is_transport, .. } => *is_transport,
+            },
             _ => false,
         }
     }
