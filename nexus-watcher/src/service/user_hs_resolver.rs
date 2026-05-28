@@ -42,9 +42,7 @@ impl PkdnsHomeserverResolver for PubkyConnectorResolver {
     }
 }
 
-/// Test [`PkdnsHomeserverResolver`] returning a fixed result for any user, so
-/// the resolver loop and the HsEventProcessor PKDNS fallback can be driven
-/// without touching the DHT. Gated so it never ships in production builds.
+/// Test [`PkdnsHomeserverResolver`] returning a fixed result without touching the DHT.
 #[cfg(any(test, feature = "test-utils"))]
 pub struct MockPkdnsResolver {
     result: Option<PubkyId>,

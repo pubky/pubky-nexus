@@ -24,8 +24,7 @@ pub struct HsEventProcessor {
     pub shutdown_rx: Receiver<bool>,
     /// Scheduler used to enqueue failed events onto the retry queue
     pub retry_scheduler: Arc<RetryScheduler>,
-    /// Resolves a user's published homeserver from PKDNS. Used as a fallback to
-    /// authorize events from users that have no `HOSTED_BY` mapping yet.
+    /// PKDNS fallback for users with no `HOSTED_BY` mapping yet.
     pub user_hs_resolver: Arc<dyn PkdnsHomeserverResolver>,
 }
 
@@ -58,14 +57,8 @@ impl TEventProcessor for HsEventProcessor {
         Some(self.homeserver.id.as_ref())
     }
 
-    /// Refuses event lines for users that are no longer hosted on this homeserver.
-    ///
-    /// A homeserver may keep emitting events for a user after the user has
-    /// re-pointed (or unpublished) their `_pubky` record in PKDNS. We only index
-    /// a line when the user still resolves to this homeserver:
-    /// - `HOSTED_BY` edge to this HS and not `stale` → process (cheap graph read).
-    /// - `HOSTED_BY` edge that diverges (points elsewhere, or here but `stale`) → refuse.
-    /// - No edge yet (new/unresolved user) → fall back to a live PKDNS lookup.
+    /// Refuses events for users no longer hosted here. Graph fast-path on `HOSTED_BY`;
+    /// PKDNS fallback when no mapping exists.
     #[tracing::instrument(
         name = "event.gate",
         skip_all,
@@ -74,20 +67,17 @@ impl TEventProcessor for HsEventProcessor {
     async fn should_process_event(&self, event: &Event) -> Result<bool, EventProcessorError> {
         let user_id = event.parsed_uri.user_id();
 
-        // Single read of the user's mapping (bound homeserver + stale flag).
         let hosting: Option<UserHosting> =
             fetch_key_from_graph(queries::get::get_user_hosting(user_id), "hosting").await?;
 
         match hosting {
-            // Active here: edge to this homeserver and not stale → process.
             Some(h) if h.homeserver_id == self.homeserver.id.as_ref() && !h.stale => Ok(true),
-            // Mapping diverges (points elsewhere, or here but stale). Switching is
-            // unsupported — refuse.
+            // Diverges (elsewhere or stale): switching unsupported.
             Some(_) => {
                 warn!("User mapping diverges from this homeserver; refusing event");
                 Ok(false)
             }
-            // No mapping yet (new/unresolved user): authorize against PKDNS directly.
+            // No mapping yet: fall back to PKDNS.
             None => {
                 let resolved = self
                     .user_hs_resolver

@@ -149,12 +149,8 @@ pub trait TEventProcessor: Send + Sync + 'static {
         Ok(())
     }
 
-    /// Pre-check invoked after a line is parsed into an actionable [`Event`] but
-    /// before it is handed to [`Self::handle_event`].
-    ///
-    /// Returning `Ok(false)` skips the event without error; `Err` propagates and
-    /// stops the batch (so the cursor is not advanced and the batch replays).
-    /// Default: process every event.
+    /// Pre-check between parse and `handle_event`. `Ok(false)` skips the event;
+    /// `Err` stops the batch (cursor not advanced — batch replays).
     async fn should_process_event(&self, _event: &Event) -> Result<bool, EventProcessorError> {
         Ok(true)
     }

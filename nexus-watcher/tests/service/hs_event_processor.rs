@@ -45,11 +45,8 @@ fn build_processor_with(
     })
 }
 
-/// Processor on a fresh random homeserver, with a PKDNS mock that resolves
-/// every user back to that homeserver. Event-URI users have no `HOSTED_BY`
-/// mapping, so the gate falls back to PKDNS and passes — letting these
-/// batch-behaviour tests run without graph setup, with no shared identifier
-/// between the user and homeserver roles.
+/// Processor on a fresh random homeserver with a PKDNS mock that resolves every user
+/// back to it, so gate falls back to PKDNS and passes without graph setup.
 fn build_processor(
     store: Arc<dyn RetryStore>,
     event_handler: Arc<dyn EventHandler>,
@@ -247,10 +244,8 @@ async fn test_batch_stops_on_infrastructure_error() -> Result<()> {
 
 // ============================================================================
 // PKDNS / HOSTED_BY gate
-// The default homeserver may keep emitting events for a user after that user
-// re-points (or unpublishes) their `_pubky` record. `should_process_event`
-// must refuse such lines, so the watcher stops indexing users no longer hosted
-// here. These tests exercise each branch of that gate.
+// Default HS may keep emitting events after a user re-points their `_pubky`
+// record. These tests exercise each branch of `should_process_event`.
 // ============================================================================
 
 /// Drives one PUT event for `user_id` through the gate and returns how many
