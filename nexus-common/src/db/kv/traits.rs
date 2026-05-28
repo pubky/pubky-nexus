@@ -549,20 +549,23 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     /// Checks multiple (key, member) pairs across Redis sorted sets in a single
     /// pipeline round-trip.
     ///
-    /// `keys_parts` and `members_parts` are parallel slices — each pair is joined
-    /// and passed as one `ZSCORE`. Returns scores in the same order, with `None`
-    /// for absent members.
+    /// Each `(key_parts, member_parts)` pair is joined and passed as one
+    /// `ZSCORE`. Returns scores in the same order, with `None` for absent
+    /// members.
     async fn check_sorted_set_members(
         prefix: Option<&str>,
-        keys_parts: &[&[&str]],
-        members_parts: &[&[&str]],
+        pairs: &[(&[&str], &[&str])],
     ) -> RedisResult<Vec<Option<isize>>> {
         let prefix = prefix.unwrap_or(SORTED_PREFIX);
-        let keys: Vec<String> = keys_parts.iter().map(|p| p.join(":")).collect();
-        let members: Vec<String> = members_parts.iter().map(|p| p.join(":")).collect();
-        let key_refs: Vec<&str> = keys.iter().map(|k| k.as_str()).collect();
-        let member_refs: Vec<&str> = members.iter().map(|m| m.as_str()).collect();
-        sorted_sets::check_members(prefix, &key_refs, &member_refs).await
+        let joined: Vec<(String, String)> = pairs
+            .iter()
+            .map(|(key_parts, member_parts)| (key_parts.join(":"), member_parts.join(":")))
+            .collect();
+        let pair_refs: Vec<(&str, &str)> = joined
+            .iter()
+            .map(|(key, member)| (key.as_str(), member.as_str()))
+            .collect();
+        sorted_sets::check_members(prefix, &pair_refs).await
     }
 
     /// Adds elements to a Redis sorted set using the provided key parts.

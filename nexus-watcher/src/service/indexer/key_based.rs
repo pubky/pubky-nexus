@@ -337,11 +337,13 @@ impl KeyBasedEventProcessor {
             .iter()
             .map(|user_id| user_hs_cursor_key(user_id))
             .collect();
-        let keys_refs: Vec<&[&str]> = keys.iter().map(|k| k.as_slice()).collect();
         let member: [&str; 1] = [hs_id];
-        let members_refs: Vec<&[&str]> = vec![member.as_slice(); user_ids.len()];
+        let pairs: Vec<(&[&str], &[&str])> = keys
+            .iter()
+            .map(|k| (k.as_slice(), member.as_slice()))
+            .collect();
 
-        let scores = UserDetails::check_sorted_set_members(None, &keys_refs, &members_refs).await?;
+        let scores = UserDetails::check_sorted_set_members(None, &pairs).await?;
 
         Ok(scores
             .into_iter()
