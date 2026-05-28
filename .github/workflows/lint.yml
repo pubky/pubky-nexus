@@ -33,4 +33,5 @@ jobs:
           cache-on-failure: true
 
       - name: Run clippy
-        run: cargo clippy --tests -- -D warnings # Fail on clippy warnings (checks main code and tests)
+        # `--all-features` so test-only doubles gated behind `test-utils` (e.g. `MockPkdnsResolver`) are linted.
+        run: cargo clippy --tests --all-features -- -D warnings
