@@ -392,3 +392,20 @@ pub fn set_user_homeserver(user_id: &str, homeserver_id: &str) -> Query {
     .param("user_id", user_id.to_string())
     .param("hs_id", homeserver_id.to_string())
 }
+
+/// Toggles the `stale` flag on a user's existing `HOSTED_BY` relationship and
+/// refreshes `resolved_at`.
+///
+/// Homeserver switching is not fully implemented, so the bound homeserver is
+/// never changed. Instead, when the published homeserver diverges (changed or
+/// removed) the mapping is marked stale to pause indexing; when it realigns the
+/// flag is cleared to resume.
+pub fn set_user_homeserver_stale(user_id: &str, stale: bool) -> Query {
+    Query::new(
+        "set_user_homeserver_stale",
+        "MATCH (u:User {id: $user_id})-[r:HOSTED_BY]->(:Homeserver)
+         SET r.stale = $stale, r.resolved_at = timestamp()",
+    )
+    .param("user_id", user_id.to_string())
+    .param("stale", stale)
+}

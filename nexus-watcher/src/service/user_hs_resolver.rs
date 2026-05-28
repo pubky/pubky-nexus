@@ -18,14 +18,44 @@ use tracing::{debug, error, info, warn};
 
 static HS_RESOLVER_METRICS: LazyLock<HsResolverMetrics> = LazyLock::new(HsResolverMetrics::new);
 
+/// Resolves a user's currently published homeserver from PKDNS/DHT.
+///
+/// Abstracted behind a trait so the resolver loop can be driven with a mock in
+/// tests instead of hitting the network.
+#[async_trait::async_trait]
+pub trait PkdnsHomeserverResolver: Send + Sync {
+    /// Returns the HS published for `user_pk`, if any is currently published.
+    async fn resolve_homeserver(&self, user_pk: &PublicKey) -> Result<Option<PubkyId>, DynError>;
+}
+
+/// Production resolver backed by the shared [`PubkyConnector`].
+pub struct PubkyConnectorResolver;
+
+#[async_trait::async_trait]
+impl PkdnsHomeserverResolver for PubkyConnectorResolver {
+    async fn resolve_homeserver(&self, user_pk: &PublicKey) -> Result<Option<PubkyId>, DynError> {
+        let pubky = PubkyConnector::get()?;
+        let Some(hs_pk) = pubky.get_homeserver_of(user_pk).await else {
+            return Ok(None);
+        };
+        Ok(Some(PubkyId::try_from(&hs_pk.into_inner().to_z32())?))
+    }
+}
+
 pub struct UserHsResolverRunner {
+    resolver: Box<dyn PkdnsHomeserverResolver>,
     ttl_ms: u64,
     shutdown_rx: Receiver<bool>,
 }
 
 impl UserHsResolverRunner {
-    pub fn from_config(config: &WatcherConfig, shutdown_rx: Receiver<bool>) -> Self {
+    pub fn from_config(
+        config: &WatcherConfig,
+        resolver: Box<dyn PkdnsHomeserverResolver>,
+        shutdown_rx: Receiver<bool>,
+    ) -> Self {
         Self {
+            resolver,
             ttl_ms: config.hs_resolver_ttl,
             shutdown_rx,
         }
@@ -33,7 +63,7 @@ impl UserHsResolverRunner {
 
     pub async fn run(&self) -> Result<(), DynError> {
         let mut shutdown_rx = self.shutdown_rx.clone();
-        run(self.ttl_ms, &mut shutdown_rx).await
+        run(self.resolver.as_ref(), self.ttl_ms, &mut shutdown_rx).await
     }
 }
 
@@ -44,7 +74,11 @@ impl UserHsResolverRunner {
 ///
 /// `shutdown_rx` cancels the in-flight resolution on shutdown; cancelled users
 /// get re-picked-up on the next run via TTL.
-pub async fn run(ttl_ms: u64, shutdown_rx: &mut Receiver<bool>) -> Result<(), DynError> {
+pub async fn run(
+    resolver: &dyn PkdnsHomeserverResolver,
+    ttl_ms: u64,
+    shutdown_rx: &mut Receiver<bool>,
+) -> Result<(), DynError> {
     let user_ids = get_users_needing_resolution(ttl_ms).await?;
     if user_ids.is_empty() {
         debug!("No users need homeserver resolution");
@@ -91,7 +125,7 @@ pub async fn run(ttl_ms: u64, shutdown_rx: &mut Receiver<bool>) -> Result<(), Dy
                 info!("Shutdown detected; HS resolver stopping after {processed}/{attempted} users");
                 break;
             }
-            result = resolve_user(&user_pk) => {
+            result = resolve_user(resolver, &user_pk) => {
                 if let Err(e) = result {
                     failed += 1;
                     warn!("Failed to resolve HS for user {}: {e}", user_pk.z32());
@@ -151,31 +185,59 @@ async fn get_users_needing_resolution(ttl_ms: u64) -> GraphResult<Vec<String>> {
 }
 
 /// Resolves a single user's homeserver and persists the HOSTED_BY relationship.
-async fn resolve_user(user_pk: &PublicKey) -> Result<(), DynError> {
-    let pubky = PubkyConnector::get()?;
-
+///
+/// Homeserver switching is not fully implemented, so the bound homeserver is
+/// never changed once set:
+/// - No stored mapping: store whatever the DHT resolves (if anything).
+/// - Stored mapping, DHT still points at it: clear any `stale` flag (resume indexing).
+/// - Stored mapping, DHT changed or returns nothing: mark the mapping `stale`
+///   so the watcher stops indexing the user until the DHT realigns.
+async fn resolve_user(
+    resolver: &dyn PkdnsHomeserverResolver,
+    user_pk: &PublicKey,
+) -> Result<(), DynError> {
     let user_id = user_pk.z32();
-    let Some(hs_pk) = pubky.get_homeserver_of(user_pk).await else {
-        // No PKDNS record: remove stale HOSTED_BY edge
-        let query = queries::del::remove_user_homeserver(&user_id);
-        exec_single_row(query).await?;
 
-        debug!("User {user_id} has no published homeserver, removed HOSTED_BY");
+    let resolved_hs_id = resolver.resolve_homeserver(user_pk).await?;
+
+    let Some(stored_hs_id) = get_user_homeserver(&user_id).await? else {
+        // First-time resolution: store whatever the DHT resolves.
+        let Some(hs_id) = resolved_hs_id else {
+            debug!("User {user_id} has no published homeserver");
+            return Ok(());
+        };
+        exec_single_row(queries::put::set_user_homeserver(&user_id, &hs_id)).await?;
+        debug!("User {user_id} -> HS {hs_id}");
         return Ok(());
     };
 
-    let hs_id = PubkyId::try_from(&hs_pk.into_inner().to_z32())?;
+    // Already bound to a homeserver: toggle the stale flag instead of switching.
+    let still_matches = resolved_hs_id
+        .as_ref()
+        .is_some_and(|hs_id| hs_id.as_ref() == stored_hs_id.as_str());
+    if still_matches {
+        exec_single_row(queries::put::set_user_homeserver_stale(&user_id, false)).await?;
+        debug!("User {user_id} still hosted on {stored_hs_id}, mapping active");
+    } else {
+        exec_single_row(queries::put::set_user_homeserver_stale(&user_id, true)).await?;
+        warn!(
+            "User {user_id} homeserver changed or was removed (stored {stored_hs_id}); \
+             switching unsupported, mapping marked stale and indexing paused"
+        );
+    }
 
-    let query = queries::put::set_user_homeserver(&user_id, &hs_id);
-    exec_single_row(query).await?;
-
-    debug!("User {user_id} -> HS {hs_id}");
     Ok(())
+}
+
+/// Returns the homeserver ID a user is currently assigned to, if any.
+async fn get_user_homeserver(user_id: &str) -> GraphResult<Option<String>> {
+    let query = queries::get::get_user_homeserver(user_id);
+    fetch_key_from_graph(query, "homeserver_id").await
 }
 
 /// Returns all user IDs hosted on a given homeserver.
 pub async fn get_user_ids_by_homeserver(hs_id: &str) -> GraphResult<Vec<String>> {
-    let query = queries::get::get_users_by_homeserver(hs_id);
+    let query = queries::get::get_active_users_by_homeserver(hs_id);
     let maybe_user_ids = fetch_key_from_graph(query, "user_ids").await?;
     Ok(maybe_user_ids.unwrap_or_default())
 }
@@ -214,6 +276,27 @@ mod tests {
 
     async fn setup() -> Result<(), DynError> {
         StackManager::setup(&StackConfig::default()).await
+    }
+
+    /// Resolver stub returning a fixed PKDNS result, so `resolve_user` can be
+    /// driven without touching the DHT.
+    struct MockResolver {
+        result: Option<PubkyId>,
+    }
+
+    #[async_trait::async_trait]
+    impl PkdnsHomeserverResolver for MockResolver {
+        async fn resolve_homeserver(
+            &self,
+            _user_pk: &PublicKey,
+        ) -> Result<Option<PubkyId>, DynError> {
+            Ok(self.result.clone())
+        }
+    }
+
+    /// Helper: a random homeserver id.
+    fn random_hs_id() -> PubkyId {
+        PubkyId::from(Keypair::random().public_key())
     }
 
     /// Helper: create a User node in the graph
@@ -376,6 +459,176 @@ mod tests {
         Ok(())
     }
 
+    #[tokio_shared_rt::test(shared)]
+    async fn test_get_user_homeserver() -> Result<(), DynError> {
+        setup().await?;
+
+        let user_id = Keypair::random().public_key().z32();
+        let hs_id = Keypair::random().public_key().z32();
+
+        create_test_user(&user_id).await?;
+
+        // No HOSTED_BY edge yet
+        assert_eq!(get_user_homeserver(&user_id).await?, None);
+
+        // After assignment the current homeserver is returned
+        exec_single_row(queries::put::set_user_homeserver(&user_id, &hs_id)).await?;
+        assert_eq!(
+            get_user_homeserver(&user_id).await?,
+            Some(hs_id.to_string())
+        );
+
+        cleanup_test_user(&user_id).await?;
+
+        Ok(())
+    }
+
+    /// First-time resolution stores whatever the DHT resolves.
+    #[tokio_shared_rt::test(shared)]
+    async fn test_resolve_user_first_time_sets_homeserver() -> Result<(), DynError> {
+        setup().await?;
+
+        let user_pk = Keypair::random().public_key();
+        let user_id = user_pk.z32();
+        let hs_id = random_hs_id();
+
+        create_test_user(&user_id).await?;
+
+        let resolver = MockResolver {
+            result: Some(hs_id.clone()),
+        };
+        resolve_user(&resolver, &user_pk).await?;
+
+        assert_eq!(
+            get_user_homeserver(&user_id).await?,
+            Some(hs_id.to_string())
+        );
+        assert!(get_user_ids_by_homeserver(&hs_id).await?.contains(&user_id));
+
+        cleanup_test_user(&user_id).await?;
+
+        Ok(())
+    }
+
+    /// A user with no published homeserver and no stored mapping is left alone.
+    #[tokio_shared_rt::test(shared)]
+    async fn test_resolve_user_first_time_no_homeserver_noop() -> Result<(), DynError> {
+        setup().await?;
+
+        let user_pk = Keypair::random().public_key();
+        let user_id = user_pk.z32();
+
+        create_test_user(&user_id).await?;
+
+        let resolver = MockResolver { result: None };
+        resolve_user(&resolver, &user_pk).await?;
+
+        assert_eq!(get_user_homeserver(&user_id).await?, None);
+
+        cleanup_test_user(&user_id).await?;
+
+        Ok(())
+    }
+
+    /// When the published homeserver changes, the binding is kept but marked
+    /// stale so the user stops being indexed; the new homeserver is never set.
+    #[tokio_shared_rt::test(shared)]
+    async fn test_resolve_user_change_keeps_binding_and_marks_stale() -> Result<(), DynError> {
+        setup().await?;
+
+        let user_pk = Keypair::random().public_key();
+        let user_id = user_pk.z32();
+        let stored_hs = random_hs_id();
+        let new_hs = random_hs_id();
+
+        create_test_user(&user_id).await?;
+        exec_single_row(queries::put::set_user_homeserver(&user_id, &stored_hs)).await?;
+
+        // DHT now points at a different homeserver
+        let resolver = MockResolver {
+            result: Some(new_hs.clone()),
+        };
+        resolve_user(&resolver, &user_pk).await?;
+
+        // Binding unchanged, and the user is indexed on neither homeserver
+        assert_eq!(
+            get_user_homeserver(&user_id).await?,
+            Some(stored_hs.to_string())
+        );
+        assert!(!get_user_ids_by_homeserver(&stored_hs)
+            .await?
+            .contains(&user_id));
+        assert!(!get_user_ids_by_homeserver(&new_hs)
+            .await?
+            .contains(&user_id));
+
+        cleanup_test_user(&user_id).await?;
+
+        Ok(())
+    }
+
+    /// When the homeserver is unpublished, the binding is kept but marked stale.
+    #[tokio_shared_rt::test(shared)]
+    async fn test_resolve_user_unpublished_keeps_binding_and_marks_stale() -> Result<(), DynError> {
+        setup().await?;
+
+        let user_pk = Keypair::random().public_key();
+        let user_id = user_pk.z32();
+        let stored_hs = random_hs_id();
+
+        create_test_user(&user_id).await?;
+        exec_single_row(queries::put::set_user_homeserver(&user_id, &stored_hs)).await?;
+
+        // DHT no longer publishes a homeserver
+        let resolver = MockResolver { result: None };
+        resolve_user(&resolver, &user_pk).await?;
+
+        assert_eq!(
+            get_user_homeserver(&user_id).await?,
+            Some(stored_hs.to_string())
+        );
+        assert!(!get_user_ids_by_homeserver(&stored_hs)
+            .await?
+            .contains(&user_id));
+
+        cleanup_test_user(&user_id).await?;
+
+        Ok(())
+    }
+
+    /// When the DHT realigns with the stored homeserver, the stale flag clears
+    /// and the user is indexed again.
+    #[tokio_shared_rt::test(shared)]
+    async fn test_resolve_user_realign_clears_stale() -> Result<(), DynError> {
+        setup().await?;
+
+        let user_pk = Keypair::random().public_key();
+        let user_id = user_pk.z32();
+        let stored_hs = random_hs_id();
+
+        create_test_user(&user_id).await?;
+        exec_single_row(queries::put::set_user_homeserver(&user_id, &stored_hs)).await?;
+        // Start from a stale mapping
+        exec_single_row(queries::put::set_user_homeserver_stale(&user_id, true)).await?;
+        assert!(!get_user_ids_by_homeserver(&stored_hs)
+            .await?
+            .contains(&user_id));
+
+        // DHT points back at the stored homeserver
+        let resolver = MockResolver {
+            result: Some(stored_hs.clone()),
+        };
+        resolve_user(&resolver, &user_pk).await?;
+
+        assert!(get_user_ids_by_homeserver(&stored_hs)
+            .await?
+            .contains(&user_id));
+
+        cleanup_test_user(&user_id).await?;
+
+        Ok(())
+    }
+
     #[test]
     fn test_bisection_order() {
         // Empty and single-element edge cases.
@@ -402,48 +655,5 @@ mod tests {
                 "position {pos}: expected sorted[{idx}]"
             );
         }
-    }
-
-    #[tokio_shared_rt::test(shared)]
-    async fn test_remove_user_homeserver() -> Result<(), DynError> {
-        setup().await?;
-
-        let user_id = "remove_hosted_by_test_user";
-        let hs_id = "remove_hosted_by_test_hs";
-
-        create_test_user(user_id).await?;
-
-        // Assign a homeserver
-        exec_single_row(queries::put::set_user_homeserver(user_id, hs_id)).await?;
-        let users = get_user_ids_by_homeserver(hs_id).await?;
-        assert!(
-            users.contains(&user_id.to_string()),
-            "user should be hosted"
-        );
-
-        // Remove the HOSTED_BY edge
-        exec_single_row(queries::del::remove_user_homeserver(user_id)).await?;
-
-        // User is no longer listed on that homeserver
-        let users = get_user_ids_by_homeserver(hs_id).await?;
-        assert!(
-            !users.contains(&user_id.to_string()),
-            "user should no longer be hosted after removal"
-        );
-
-        // User now needs resolution again (no HOSTED_BY edge)
-        let needing = get_users_needing_resolution(3_600_000).await?;
-        assert!(
-            needing.contains(&user_id.to_string()),
-            "user without HOSTED_BY should need resolution"
-        );
-
-        // Removing again is a no-op (no error)
-        exec_single_row(queries::del::remove_user_homeserver(user_id)).await?;
-
-        // Cleanup
-        cleanup_test_user(user_id).await?;
-
-        Ok(())
     }
 }
