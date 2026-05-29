@@ -36,7 +36,7 @@ pub enum GraphError {
 
 impl GraphError {
     #[allow(clippy::match_like_matches_macro)]
-    pub fn is_infrastructure_err(&self) -> bool {
+    pub fn should_not_retry_now(&self) -> bool {
         match self {
             GraphError::ConnectionNotInitialized => true,
             GraphError::QueryFailed(_) => true,

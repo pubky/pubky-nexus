@@ -95,8 +95,8 @@ async fn test_batch_continues_after_single_failure() -> Result<()> {
 
 // ============================================================================
 // Infrastructure error stops the batch
-// Infrastructure errors propagate out of `handle_error`, short-circuiting the
-// loop so the cursor is not advanced past unprocessed events.
+// Errors that should not be retried right now propagate out of `handle_error`,
+// short-circuiting the loop so the cursor is not advanced past unprocessed events.
 // ============================================================================
 
 #[tokio_shared_rt::test(shared)]
@@ -113,7 +113,7 @@ async fn test_batch_stops_on_infrastructure_error() -> Result<()> {
     let store = new_in_memory_store();
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
 
-    // Scope the infrastructure error to the first event only. The handler
+    // Scope the should-not-retry-now error to the first event only. The handler
     // returns Ok(()) for non-matching events, so if the batch continued past
     // the first failure, the second event would succeed. The invocation
     // counter provides the definitive proof: handle_count == 1 proves the
@@ -131,7 +131,7 @@ async fn test_batch_stops_on_infrastructure_error() -> Result<()> {
     let result = processor.process_event_lines(lines).await;
     assert!(
         result.is_err(),
-        "Infrastructure error must propagate and stop the batch"
+        "Should-not-retry-now error must propagate and stop the batch"
     );
 
     // Definitive proof: handler was called exactly once, so the batch stopped
@@ -139,13 +139,13 @@ async fn test_batch_stops_on_infrastructure_error() -> Result<()> {
     assert_eq!(
         handler.get_handle_count(),
         1,
-        "Handler must be called exactly once — batch stopped on infrastructure error"
+        "Handler must be called exactly once — batch stopped on should-not-retry-now error"
     );
 
-    // Infrastructure errors bypass the retry scheduler entirely.
+    // Should-not-retry-now errors bypass the retry scheduler entirely.
     assert!(
         store.get(&first_uri).await?.is_none(),
-        "Infrastructure errors must not be queued for retry"
+        "Should-not-retry-now errors must not be queued for retry"
     );
     assert!(
         store.get(&second_uri).await?.is_none(),
