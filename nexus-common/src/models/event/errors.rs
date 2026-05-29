@@ -157,6 +157,14 @@ impl EventProcessorError {
         }
     }
 
+    /// Returns whether this error is a 404 from the Pubky client.
+    pub fn is_not_found(&self) -> bool {
+        matches!(
+            self,
+            Self::PubkyClientError(PubkyClientError::NotFound404 { .. })
+        )
+    }
+
     pub fn is_too_many_requests(&self) -> bool {
         matches!(
             self,

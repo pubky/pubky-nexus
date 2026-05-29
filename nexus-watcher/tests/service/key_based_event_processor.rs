@@ -404,6 +404,136 @@ async fn key_based_processor_retries_429_fetch_errors_with_backoff() -> Result<(
     Ok(())
 }
 
+/// Verifies repeated 404 fetch errors back a user off for an increasing number of runs.
+///
+/// The 1st 404 skips the user for one subsequent run, the 2nd for two runs, and so on.
+/// A re-attempt happens only once the per-user skip budget has been consumed.
+#[tokio_shared_rt::test(shared)]
+async fn key_based_processor_backs_off_user_after_404() -> Result<(), DynError> {
+    setup().await?;
+
+    let (hs_keypair, homeserver) = create_homeserver().await?;
+    let hs_id = PubkyId::try_from(hs_keypair.public_key().to_z32().as_str())?;
+    create_user_on_homeserver(&homeserver).await?;
+
+    // The user's event fetch returns 404 on every run; the source is shared across runs
+    // so its backoff state persists, mirroring the long-lived runner source.
+    let source = Arc::new(
+        MockKeyBasedEventSource::default()
+            .with_sticky_error(user_not_found_error())
+            .await,
+    );
+    let handler = create_mock_handler(Ok(()), None);
+
+    // Rebuilds a processor per run, reusing the shared source and handler.
+    let build = || {
+        processor(
+            Homeserver::new(hs_id.clone()),
+            handler.clone(),
+            source.clone(),
+        )
+    };
+
+    // Run 1: fetched, 404 -> skip budget becomes 1.
+    build().run().await?;
+    assert_eq!(source.calls().await.len(), 1);
+
+    // Run 2: skipped (budget 1 -> 0), no new fetch.
+    build().run().await?;
+    assert_eq!(source.calls().await.len(), 1);
+
+    // Run 3: re-fetched, 404 -> skip budget becomes 2.
+    build().run().await?;
+    assert_eq!(source.calls().await.len(), 2);
+
+    // Runs 4 and 5: skipped twice (budget 2 -> 0), no new fetch.
+    build().run().await?;
+    build().run().await?;
+    assert_eq!(source.calls().await.len(), 2);
+
+    // Run 6: re-fetched, 404 -> skip budget becomes 3.
+    build().run().await?;
+    assert_eq!(source.calls().await.len(), 3);
+
+    // Every fetch failed, so no event was ever handled.
+    assert_eq!(handler.get_handle_count(), 0);
+
+    Ok(())
+}
+
+/// Verifies a successful fetch resets the accumulated 404 backoff, so a later 404
+/// starts the skip budget over at one run rather than continuing to grow.
+#[tokio_shared_rt::test(shared)]
+async fn key_based_processor_resets_404_backoff_after_success() -> Result<(), DynError> {
+    setup().await?;
+
+    let (hs_keypair, homeserver) = create_homeserver().await?;
+    let hs_id = PubkyId::try_from(hs_keypair.public_key().to_z32().as_str())?;
+    let user_id = create_user_on_homeserver(&homeserver).await?;
+
+    // Fetch results in fetch order. Skipped runs do not consume an entry, so this
+    // sequence only lists runs where a fetch actually happens.
+    let source = Arc::new(
+        MockKeyBasedEventSource::default()
+            .with_results(vec![
+                Err(user_not_found_error()), // run 1
+                Err(user_not_found_error()), // run 3
+                Ok(vec![stream_event(
+                    7,
+                    &user_id,
+                    "/pub/pubky.app/profile.json",
+                )?]), // run 6
+                Err(user_not_found_error()), // run 7
+                Err(user_not_found_error()), // run 9
+            ])
+            .await,
+    );
+    let handler = create_mock_handler(Ok(()), None);
+    let build = || {
+        processor(
+            Homeserver::new(hs_id.clone()),
+            handler.clone(),
+            source.clone(),
+        )
+    };
+
+    // Run 1: 404 -> budget 1.
+    build().run().await?;
+    assert_eq!(source.calls().await.len(), 1);
+
+    // Run 2: skipped (budget 1 -> 0).
+    build().run().await?;
+    assert_eq!(source.calls().await.len(), 1);
+
+    // Run 3: 404 -> budget grows to 2.
+    build().run().await?;
+    assert_eq!(source.calls().await.len(), 2);
+
+    // Runs 4 and 5: skipped twice (budget 2 -> 0).
+    build().run().await?;
+    build().run().await?;
+    assert_eq!(source.calls().await.len(), 2);
+
+    // Run 6: fetch succeeds, clearing the backoff (and the consecutive-404 count).
+    build().run().await?;
+    assert_eq!(source.calls().await.len(), 3);
+    assert_eq!(handler.get_handle_count(), 1);
+
+    // Run 7: a fresh 404. Because success reset the count, the budget is 1, not 3.
+    build().run().await?;
+    assert_eq!(source.calls().await.len(), 4);
+
+    // Run 8: skipped exactly once (budget 1 -> 0), proving the count restarted.
+    build().run().await?;
+    assert_eq!(source.calls().await.len(), 4);
+
+    // Run 9: re-fetched after a single skip.
+    build().run().await?;
+    assert_eq!(source.calls().await.len(), 5);
+
+    Ok(())
+}
+
 /// Verifies infrastructure handler failures abort without advancing the cursor.
 #[tokio_shared_rt::test(shared)]
 async fn key_based_processor_aborts_and_keeps_cursor_on_infrastructure_handler_error(
@@ -581,6 +711,12 @@ fn stream_event(cursor: u64, user_id: &str, path: &str) -> Result<StreamEvent, D
 fn too_many_requests_error() -> EventProcessorError {
     EventProcessorError::PubkyClientError(PubkyClientError::TooManyRequests429 {
         message: "rate limited".into(),
+    })
+}
+
+fn user_not_found_error() -> EventProcessorError {
+    EventProcessorError::PubkyClientError(PubkyClientError::NotFound404 {
+        message: "user not found".into(),
     })
 }
 

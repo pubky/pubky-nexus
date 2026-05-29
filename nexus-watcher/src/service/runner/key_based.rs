@@ -46,7 +46,7 @@ impl KeyBasedEventProcessorRunner {
             monitored_hs_limit: config.monitored_homeservers_limit,
             files_path: config.stack.files_path.clone(),
             event_handler: Arc::new(DefaultEventHandler::new(Moderation::from_config(config))),
-            event_source: Arc::new(PubkyKeyBasedEventSource),
+            event_source: Arc::new(PubkyKeyBasedEventSource::default()),
             shutdown_rx,
             default_homeserver: config.homeserver.clone(),
             backoff: Mutex::new(HomeserverBackoff::new(
