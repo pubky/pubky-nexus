@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-use std::sync::Mutex;
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use futures::StreamExt;
@@ -14,63 +12,10 @@ use tracing::{debug, error, info, warn};
 use super::TEventProcessor;
 use crate::events::retry::RetryScheduler;
 use crate::events::EventHandler;
+use crate::service::runner::UserNotFoundBackoff;
 use crate::service::user_hs_resolver;
 
 const FETCH_EVENTS_429_BACKOFF_SECS: [u64; 3] = [1, 2, 3];
-
-/// Upper bound on how many consecutive runs a user can be skipped after repeated 404s.
-const MAX_USER_NOT_FOUND_SKIPS: u32 = 10;
-
-/// Per-user backoff state for users whose event fetch returns HTTP 404.
-///
-/// Tracks consecutive 404s per user (keyed by public key) and derives how many
-/// subsequent runs that user should be skipped: the 1st 404 skips the user once,
-/// the 2nd skips twice, and so on, capped at `MAX_USER_NOT_FOUND_SKIPS`.
-/// A successful fetch clears the user's state.
-#[derive(Default)]
-pub struct UserNotFoundBackoff {
-    inner: Mutex<HashMap<PublicKey, BackoffEntry>>,
-}
-
-#[derive(Default)]
-struct BackoffEntry {
-    /// Number of consecutive 404s observed (capped at [`MAX_USER_NOT_FOUND_SKIPS`]).
-    consecutive_failures: u32,
-    /// Remaining runs to skip before re-attempting this user.
-    skips_remaining: u32,
-}
-
-impl UserNotFoundBackoff {
-    /// Returns `true` if the user should be skipped this run, consuming one unit
-    /// of the pending skip budget.
-    pub fn should_skip(&self, user_pk: &PublicKey) -> bool {
-        let mut map = self.inner.lock().expect("UserNotFoundBackoff poisoned");
-        match map.get_mut(user_pk) {
-            Some(entry) if entry.skips_remaining > 0 => {
-                entry.skips_remaining -= 1;
-                true
-            }
-            _ => false,
-        }
-    }
-
-    /// Records a 404 for the user, increasing the number of runs it will be
-    /// skipped on subsequent runs (capped at `MAX_USER_NOT_FOUND_SKIPS`).
-    pub fn record_not_found(&self, user_pk: &PublicKey) {
-        let mut map = self.inner.lock().expect("UserNotFoundBackoff poisoned");
-        let entry = map.entry(user_pk.clone()).or_default();
-        entry.consecutive_failures = (entry.consecutive_failures + 1).min(MAX_USER_NOT_FOUND_SKIPS);
-        entry.skips_remaining = entry.consecutive_failures;
-    }
-
-    /// Clears any tracked 404 backoff for the user after a successful fetch.
-    pub fn clear(&self, user_pk: &PublicKey) {
-        self.inner
-            .lock()
-            .expect("UserNotFoundBackoff poisoned")
-            .remove(user_pk);
-    }
-}
 
 #[async_trait::async_trait]
 pub trait KeyBasedEventSource: Send + Sync + 'static {
@@ -81,25 +26,9 @@ pub trait KeyBasedEventSource: Send + Sync + 'static {
         cursor: EventCursor,
         limit: u16,
     ) -> Result<Vec<StreamEvent>, EventProcessorError>;
-
-    /// Returns `true` if the user should be skipped this run due to a prior
-    /// 404 (`PubkyClientError::NotFound404`) backoff
-    fn should_skip_user(&self, _user_pk: &PublicKey) -> bool {
-        false
-    }
-
-    /// Records that fetching events for the user returned a 404, increasing the
-    /// number of runs the user will be skipped on subsequent runs.
-    fn record_user_not_found(&self, _user_pk: &PublicKey) {}
-
-    /// Clears any 404 backoff tracked for the user after a successful fetch.
-    fn clear_user_not_found(&self, _user_pk: &PublicKey) {}
 }
 
-#[derive(Default)]
-pub struct PubkyKeyBasedEventSource {
-    user_not_found_backoff: UserNotFoundBackoff,
-}
+pub struct PubkyKeyBasedEventSource;
 
 #[async_trait::async_trait]
 impl KeyBasedEventSource for PubkyKeyBasedEventSource {
@@ -130,18 +59,6 @@ impl KeyBasedEventSource for PubkyKeyBasedEventSource {
 
         Ok(events)
     }
-
-    fn should_skip_user(&self, user_pk: &PublicKey) -> bool {
-        self.user_not_found_backoff.should_skip(user_pk)
-    }
-
-    fn record_user_not_found(&self, user_pk: &PublicKey) {
-        self.user_not_found_backoff.record_not_found(user_pk);
-    }
-
-    fn clear_user_not_found(&self, user_pk: &PublicKey) {
-        self.user_not_found_backoff.clear(user_pk);
-    }
 }
 
 /// Event processor for non-default HSs, where the user-specific `/events-stream` endpoint is used
@@ -155,6 +72,9 @@ pub struct KeyBasedEventProcessor {
     pub files_path: PathBuf,
     pub event_handler: Arc<dyn EventHandler>,
     pub event_source: Arc<dyn KeyBasedEventSource>,
+    /// Per-user 404 backoff, shared with (and owned by) the runner so its state
+    /// persists across the per-run processors the runner builds.
+    pub user_not_found_backoff: Arc<UserNotFoundBackoff>,
     /// Scheduler used to enqueue failed events onto the retry queue
     pub retry_scheduler: Arc<RetryScheduler>,
     pub shutdown_rx: Receiver<bool>,
@@ -205,7 +125,7 @@ impl TEventProcessor for KeyBasedEventProcessor {
 
             // Users whose event fetch previously returned 404 are skipped for an
             // increasing number of runs (see `UserNotFoundBackoff`).
-            if self.event_source.should_skip_user(user_pk) {
+            if self.user_not_found_backoff.should_skip(user_pk) {
                 debug!(
                     hs_id = %hs_id,
                     user = %user_pk.z32(),
@@ -217,7 +137,7 @@ impl TEventProcessor for KeyBasedEventProcessor {
 
             match self.process_user(&hs_pk, &hs_id, user_pk, *cursor).await {
                 // Successful fetch clears any pending 404 backoff for the user.
-                Ok(()) => self.event_source.clear_user_not_found(user_pk),
+                Ok(()) => self.user_not_found_backoff.clear(user_pk),
                 Err(err) => {
                     let user_id = user_pk.z32();
                     if err.is_infrastructure() {
@@ -232,7 +152,7 @@ impl TEventProcessor for KeyBasedEventProcessor {
                     }
 
                     if err.is_not_found() {
-                        self.event_source.record_user_not_found(user_pk);
+                        self.user_not_found_backoff.record_not_found(user_pk);
                         warn!(
                             hs_id = %hs_id,
                             user = %user_id,

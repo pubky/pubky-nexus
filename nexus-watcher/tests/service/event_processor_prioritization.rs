@@ -8,6 +8,7 @@ use nexus_watcher::events::retry::{InitialBackoff, RedisRetryStore, RetrySchedul
 use nexus_watcher::events::{DefaultEventHandler, EventHandler};
 use nexus_watcher::service::backoff::HomeserverBackoff;
 use nexus_watcher::service::indexer::PubkyKeyBasedEventSource;
+use nexus_watcher::service::runner::UserNotFoundBackoff;
 use nexus_watcher::service::{KeyBasedEventProcessorRunner, TEventProcessorRunner};
 use pubky_app_specs::PubkyId;
 use std::path::PathBuf;
@@ -34,10 +35,11 @@ async fn test_event_processor_runner_default_homeserver_excluded() -> Result<(),
         monitored_hs_limit: HS_IDS.len(),
         files_path: PathBuf::from("/tmp/nexus-watcher-test"),
         event_handler,
-        event_source: Arc::new(PubkyKeyBasedEventSource::default()),
+        event_source: Arc::new(PubkyKeyBasedEventSource),
         shutdown_rx: tokio::sync::watch::channel(false).1,
         default_homeserver: PubkyId::try_from(HS_IDS[3]).unwrap(),
         backoff: Mutex::new(HomeserverBackoff::default()),
+        user_not_found_backoff: Arc::new(UserNotFoundBackoff::default()),
         retry_scheduler,
     };
 

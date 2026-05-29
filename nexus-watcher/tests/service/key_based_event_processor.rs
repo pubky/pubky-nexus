@@ -13,6 +13,7 @@ use nexus_common::types::DynError;
 use nexus_watcher::events::retry::{InitialBackoff, RetryScheduler};
 use nexus_watcher::events::EventHandler;
 use nexus_watcher::service::indexer::{KeyBasedEventProcessor, RunError, TEventProcessor};
+use nexus_watcher::service::runner::UserNotFoundBackoff;
 use pubky::{Event as StreamEvent, EventCursor, EventType, Keypair, PubkyResource, PublicKey};
 use pubky_app_specs::PubkyId;
 use tokio::sync::watch;
@@ -416,21 +417,24 @@ async fn key_based_processor_backs_off_user_after_404() -> Result<(), DynError> 
     let hs_id = PubkyId::try_from(hs_keypair.public_key().to_z32().as_str())?;
     create_user_on_homeserver(&homeserver).await?;
 
-    // The user's event fetch returns 404 on every run; the source is shared across runs
-    // so its backoff state persists, mirroring the long-lived runner source.
+    // The user's event fetch returns 404 on every run.
     let source = Arc::new(
         MockKeyBasedEventSource::default()
             .with_sticky_error(user_not_found_error())
             .await,
     );
     let handler = create_mock_handler(Ok(()), None);
+    // The backoff is shared across runs so its state persists, mirroring the
+    // long-lived backoff the runner injects into each processor it builds.
+    let backoff = Arc::new(UserNotFoundBackoff::default());
 
-    // Rebuilds a processor per run, reusing the shared source and handler.
+    // Rebuilds a processor per run, reusing the shared source, handler, and backoff.
     let build = || {
-        processor(
+        processor_with_backoff(
             Homeserver::new(hs_id.clone()),
             handler.clone(),
             source.clone(),
+            backoff.clone(),
         )
     };
 
@@ -489,11 +493,14 @@ async fn key_based_processor_resets_404_backoff_after_success() -> Result<(), Dy
             .await,
     );
     let handler = create_mock_handler(Ok(()), None);
+    // Shared across runs so backoff state persists, like the runner-owned backoff.
+    let backoff = Arc::new(UserNotFoundBackoff::default());
     let build = || {
-        processor(
+        processor_with_backoff(
             Homeserver::new(hs_id.clone()),
             handler.clone(),
             source.clone(),
+            backoff.clone(),
         )
     };
 
@@ -726,7 +733,33 @@ fn processor(
     source: Arc<MockKeyBasedEventSource>,
 ) -> Arc<KeyBasedEventProcessor> {
     let (_shutdown_tx, shutdown_rx) = watch::channel(false);
-    processor_with_options(homeserver, handler, source, 100, shutdown_rx)
+    processor_with_options(
+        homeserver,
+        handler,
+        source,
+        100,
+        shutdown_rx,
+        Arc::new(UserNotFoundBackoff::default()),
+    )
+}
+
+/// Builds a processor sharing the given 404 backoff, so its state survives across
+/// the per-run processors a test rebuilds (mirroring the long-lived runner backoff).
+fn processor_with_backoff(
+    homeserver: Homeserver,
+    handler: Arc<dyn EventHandler>,
+    source: Arc<MockKeyBasedEventSource>,
+    user_not_found_backoff: Arc<UserNotFoundBackoff>,
+) -> Arc<KeyBasedEventProcessor> {
+    let (_shutdown_tx, shutdown_rx) = watch::channel(false);
+    processor_with_options(
+        homeserver,
+        handler,
+        source,
+        100,
+        shutdown_rx,
+        user_not_found_backoff,
+    )
 }
 
 fn processor_with_limit(
@@ -736,7 +769,14 @@ fn processor_with_limit(
     limit: u16,
 ) -> Arc<KeyBasedEventProcessor> {
     let (_shutdown_tx, shutdown_rx) = watch::channel(false);
-    processor_with_options(homeserver, handler, source, limit, shutdown_rx)
+    processor_with_options(
+        homeserver,
+        handler,
+        source,
+        limit,
+        shutdown_rx,
+        Arc::new(UserNotFoundBackoff::default()),
+    )
 }
 
 fn processor_with_shutdown(
@@ -745,7 +785,14 @@ fn processor_with_shutdown(
     source: Arc<MockKeyBasedEventSource>,
     shutdown_rx: watch::Receiver<bool>,
 ) -> Arc<KeyBasedEventProcessor> {
-    processor_with_options(homeserver, handler, source, 100, shutdown_rx)
+    processor_with_options(
+        homeserver,
+        handler,
+        source,
+        100,
+        shutdown_rx,
+        Arc::new(UserNotFoundBackoff::default()),
+    )
 }
 
 fn processor_with_options(
@@ -754,6 +801,7 @@ fn processor_with_options(
     source: Arc<MockKeyBasedEventSource>,
     limit: u16,
     shutdown_rx: watch::Receiver<bool>,
+    user_not_found_backoff: Arc<UserNotFoundBackoff>,
 ) -> Arc<KeyBasedEventProcessor> {
     Arc::new(KeyBasedEventProcessor {
         homeserver,
@@ -761,6 +809,7 @@ fn processor_with_options(
         files_path: PathBuf::from("/tmp/nexus-watcher-test"),
         event_handler: handler,
         event_source: source,
+        user_not_found_backoff,
         retry_scheduler: Arc::new(RetryScheduler::new(
             new_in_memory_store(),
             InitialBackoff {

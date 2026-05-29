@@ -3,7 +3,7 @@ use std::collections::{HashMap, VecDeque};
 use tokio::sync::Mutex;
 
 use nexus_common::models::event::EventProcessorError;
-use nexus_watcher::service::indexer::{KeyBasedEventSource, UserNotFoundBackoff};
+use nexus_watcher::service::indexer::KeyBasedEventSource;
 use pubky::{Event as StreamEvent, EventCursor, PublicKey};
 
 type FetchEventsResult = Result<Vec<StreamEvent>, EventProcessorError>;
@@ -25,9 +25,6 @@ pub struct MockKeyBasedEventSource {
     /// User IDs, cursors, and limits requested from the mock, in fetch order.
     /// Useful for asserting the processor continued to, or stopped before, specific users.
     calls: Mutex<Vec<(String, u64, u16)>>,
-
-    /// Real 404 backoff state, so processor skip behavior can be exercised in tests.
-    user_not_found_backoff: UserNotFoundBackoff,
 }
 
 impl MockKeyBasedEventSource {
@@ -103,17 +100,5 @@ impl KeyBasedEventSource for MockKeyBasedEventSource {
             .await
             .pop_front()
             .unwrap_or_else(|| Ok(Vec::new()))
-    }
-
-    fn should_skip_user(&self, user_pk: &PublicKey) -> bool {
-        self.user_not_found_backoff.should_skip(user_pk)
-    }
-
-    fn record_user_not_found(&self, user_pk: &PublicKey) {
-        self.user_not_found_backoff.record_not_found(user_pk);
-    }
-
-    fn clear_user_not_found(&self, user_pk: &PublicKey) {
-        self.user_not_found_backoff.clear(user_pk);
     }
 }

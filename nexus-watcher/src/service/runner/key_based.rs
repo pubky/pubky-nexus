@@ -1,4 +1,4 @@
-use super::TEventProcessorRunner;
+use super::{TEventProcessorRunner, UserNotFoundBackoff};
 use crate::events::retry::RetryScheduler;
 use crate::events::{DefaultEventHandler, EventHandler, Moderation};
 use crate::service::backoff::HomeserverBackoff;
@@ -34,6 +34,10 @@ pub struct KeyBasedEventProcessorRunner {
     /// Per-target exponential backoff state
     pub backoff: Mutex<HomeserverBackoff>,
 
+    /// Per-user 404 backoff, shared with every processor this runner builds so its
+    /// state persists across runs (mirrors the long-lived `backoff` above).
+    pub user_not_found_backoff: Arc<UserNotFoundBackoff>,
+
     /// Scheduler shared with every processor this runner builds
     pub retry_scheduler: Arc<RetryScheduler>,
 }
@@ -46,13 +50,14 @@ impl KeyBasedEventProcessorRunner {
             monitored_hs_limit: config.monitored_homeservers_limit,
             files_path: config.stack.files_path.clone(),
             event_handler: Arc::new(DefaultEventHandler::new(Moderation::from_config(config))),
-            event_source: Arc::new(PubkyKeyBasedEventSource::default()),
+            event_source: Arc::new(PubkyKeyBasedEventSource),
             shutdown_rx,
             default_homeserver: config.homeserver.clone(),
             backoff: Mutex::new(HomeserverBackoff::new(
                 config.initial_backoff_secs,
                 config.max_backoff_secs,
             )),
+            user_not_found_backoff: Arc::new(UserNotFoundBackoff::default()),
             retry_scheduler: Arc::new(RetryScheduler::from_config(config)),
         }
     }
@@ -92,6 +97,7 @@ impl TEventProcessorRunner for KeyBasedEventProcessorRunner {
             files_path: self.files_path.clone(),
             event_handler: self.event_handler.clone(),
             event_source: self.event_source.clone(),
+            user_not_found_backoff: self.user_not_found_backoff.clone(),
             retry_scheduler: self.retry_scheduler.clone(),
             shutdown_rx: self.shutdown_rx.clone(),
         }))
