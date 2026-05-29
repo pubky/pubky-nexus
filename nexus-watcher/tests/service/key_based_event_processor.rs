@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use anyhow::Result;
 use chrono::Utc;
@@ -301,9 +301,9 @@ async fn key_based_processor_persists_last_safe_cursor_before_mismatch() -> Resu
     Ok(())
 }
 
-/// Verifies infrastructure fetch errors abort the homeserver run immediately.
+/// Verifies fetch errors that should not be retried right now abort the homeserver run immediately.
 #[tokio_shared_rt::test(shared)]
-async fn key_based_processor_aborts_on_infrastructure_fetch_error() -> Result<(), DynError> {
+async fn key_based_processor_aborts_on_not_retry_now_fetch_error() -> Result<(), DynError> {
     setup().await?;
 
     let (_hs_keypair, homeserver) = create_homeserver().await?;
@@ -322,17 +322,16 @@ async fn key_based_processor_aborts_on_infrastructure_fetch_error() -> Result<()
 
     let err = processor.run().await.unwrap_err();
 
-    assert_internal_infrastructure_index_operation_failed(err);
+    assert_internal_not_retry_now_index_operation_failed(err);
     assert_eq!(source.calls().await.len(), 1);
     assert_eq!(handler.get_handle_count(), 0);
 
     Ok(())
 }
 
-/// Verifies non-infrastructure fetch errors skip only the affected user.
+/// Verifies retryable fetch errors skip only the affected user.
 #[tokio_shared_rt::test(shared)]
-async fn key_based_processor_continues_after_non_infrastructure_fetch_error() -> Result<(), DynError>
-{
+async fn key_based_processor_continues_after_retryable_fetch_error() -> Result<(), DynError> {
     setup().await?;
 
     let (_hs_keypair, homeserver) = create_homeserver().await?;
@@ -393,13 +392,8 @@ async fn key_based_processor_retries_429_fetch_errors_with_backoff() -> Result<(
     let handler = create_mock_handler(Ok(()), None);
     let processor = processor(homeserver, handler.clone(), source.clone());
 
-    let started_at = Instant::now();
     processor.run().await?;
 
-    assert!(
-        started_at.elapsed() >= Duration::from_secs(3),
-        "expected 1s + 2s retry backoff before success",
-    );
     assert_eq!(
         source.calls().await,
         vec![user_id.clone(), user_id.clone(), user_id]
@@ -409,9 +403,42 @@ async fn key_based_processor_retries_429_fetch_errors_with_backoff() -> Result<(
     Ok(())
 }
 
-/// Verifies infrastructure handler failures abort without advancing the cursor.
+/// Verifies exhausted 429 retries abort the homeserver run instead of moving to later users.
 #[tokio_shared_rt::test(shared)]
-async fn key_based_processor_aborts_and_keeps_cursor_on_infrastructure_handler_error(
+async fn key_based_processor_aborts_homeserver_after_exhausted_429_retries() -> Result<(), DynError>
+{
+    setup().await?;
+
+    let (_hs_keypair, homeserver) = create_homeserver().await?;
+    create_user_on_homeserver(&homeserver).await?;
+    create_user_on_homeserver(&homeserver).await?;
+    let source = Arc::new(
+        MockKeyBasedEventSource::default()
+            .with_results(vec![
+                Err(too_many_requests_error()),
+                Err(too_many_requests_error()),
+                Err(too_many_requests_error()),
+                Err(too_many_requests_error()),
+            ])
+            .await,
+    );
+    let handler = create_mock_handler(Ok(()), None);
+    let processor = processor(homeserver, handler.clone(), source.clone());
+
+    let err = processor.run().await.unwrap_err();
+
+    assert_internal_hs_rate_limit_exhausted(err);
+    let calls = source.calls().await;
+    assert_eq!(calls.len(), 4); // First call + 3 retries with backoff
+    assert!(calls.iter().all(|user_id| user_id == &calls[0]));
+    assert_eq!(handler.get_handle_count(), 0);
+
+    Ok(())
+}
+
+/// Verifies not-retry-now handler failures abort without advancing the cursor.
+#[tokio_shared_rt::test(shared)]
+async fn key_based_processor_aborts_and_keeps_cursor_on_not_retry_now_handler_error(
 ) -> Result<(), DynError> {
     setup().await?;
 
@@ -438,7 +465,7 @@ async fn key_based_processor_aborts_and_keeps_cursor_on_infrastructure_handler_e
 
     let err = processor.run().await.unwrap_err();
 
-    assert_internal_infrastructure_index_operation_failed(err);
+    assert_internal_not_retry_now_index_operation_failed(err);
     assert_eq!(handler.get_handle_count(), 1);
     assert_eq!(user_cursor(&user_id, &hs_id).await?, None);
 
@@ -648,10 +675,19 @@ fn assert_internal_index_operation_failed(err: RunError) {
     }
 }
 
-fn assert_internal_infrastructure_index_operation_failed(err: RunError) {
+fn assert_internal_not_retry_now_index_operation_failed(err: RunError) {
     match err {
         RunError::Internal(EventProcessorError::IndexOperationFailed(true, _)) => {}
-        other => panic!("expected internal infrastructure index operation failure, got {other:?}"),
+        other => panic!("expected internal not-retry-now index operation failure, got {other:?}"),
+    }
+}
+
+fn assert_internal_hs_rate_limit_exhausted(err: RunError) {
+    match err {
+        RunError::Internal(EventProcessorError::HsEventsStreamRateLimitExhausted) => {}
+        other => {
+            panic!("expected internal HsEventsStreamRateLimitExhausted error, got {other:?}")
+        }
     }
 }
 

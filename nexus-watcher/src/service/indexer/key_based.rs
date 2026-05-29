@@ -4,7 +4,7 @@ use futures::StreamExt;
 use nexus_common::db::{PubkyConnector, RedisOps};
 use nexus_common::models::event::{Event, EventProcessorError};
 use nexus_common::models::homeserver::Homeserver;
-use nexus_common::models::user::{user_hs_cursor_key, UserDetails};
+use nexus_common::models::user::{user_hs_cursor_key, UserDetails, UserHsCursorKey};
 use pubky::{Event as StreamEvent, EventCursor, PublicKey};
 use tokio::sync::watch::Receiver;
 use tracing::{debug, error, info, warn};
@@ -121,13 +121,13 @@ impl TEventProcessor for KeyBasedEventProcessor {
 
             if let Err(err) = self.process_user(&hs_pk, &hs_id, user_pk, *cursor).await {
                 let user_id = user_pk.z32();
-                if err.is_infrastructure() {
+                if err.should_not_retry_now() {
                     error!(
                         hs_id = %hs_id,
                         user = %user_id,
                         action = "abort_hs",
                         error = ?err,
-                        "Infrastructure error while processing user; aborting homeserver run",
+                        "Got should-not-retry-now error while processing user; aborting homeserver run",
                     );
                     return Err(err);
                 }
@@ -137,7 +137,7 @@ impl TEventProcessor for KeyBasedEventProcessor {
                     user = %user_id,
                     action = "skip_user",
                     error = ?err,
-                    "Non-infrastructure user error; continuing with next user",
+                    "Got error while processing user: continuing with next user",
                 );
             }
         }
@@ -235,7 +235,7 @@ impl KeyBasedEventProcessor {
                 Ok(events) => return Ok(events),
                 Err(err) if err.is_too_many_requests() => {
                     let Some(backoff_secs) = FETCH_EVENTS_429_BACKOFF_SECS.get(retry_index) else {
-                        return Err(err);
+                        return Err(EventProcessorError::HsEventsStreamRateLimitExhausted);
                     };
 
                     warn!(
@@ -333,15 +333,17 @@ impl KeyBasedEventProcessor {
         user_ids: &[&str],
         hs_id: &str,
     ) -> Result<Vec<EventCursor>, EventProcessorError> {
-        let keys: Vec<[&str; 3]> = user_ids
+        let keys: Vec<UserHsCursorKey<'_>> = user_ids
             .iter()
             .map(|user_id| user_hs_cursor_key(user_id))
             .collect();
-        let keys_refs: Vec<&[&str]> = keys.iter().map(|k| k.as_slice()).collect();
         let member: [&str; 1] = [hs_id];
-        let members_refs: Vec<&[&str]> = vec![member.as_slice(); user_ids.len()];
+        let pairs: Vec<(&[&str], &[&str])> = keys
+            .iter()
+            .map(|k| (k.as_slice(), member.as_slice()))
+            .collect();
 
-        let scores = UserDetails::check_sorted_set_members(None, &keys_refs, &members_refs).await?;
+        let scores = UserDetails::check_sorted_set_members(None, &pairs).await?;
 
         Ok(scores
             .into_iter()

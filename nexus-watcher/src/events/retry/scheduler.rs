@@ -56,6 +56,7 @@ impl RetryScheduler {
                 | PubkyClientError::ServerError5xx { .. }
                 | PubkyClientError::RequestFailed { .. }
                 | PubkyClientError::PkarrFailed { .. } => true,
+
                 PubkyClientError::NotFound404 { .. }
                 | PubkyClientError::AuthenticationFailed { .. }
                 | PubkyClientError::BuildFailed { .. }
@@ -64,6 +65,8 @@ impl RetryScheduler {
             EventProcessorError::InvalidEventLine(_) => false,
             EventProcessorError::SkipIndexing => false,
             EventProcessorError::UserIdMismatch { .. } => false,
+            EventProcessorError::HsEventsStreamRateLimitExhausted => false,
+
             _ => true,
         }
     }

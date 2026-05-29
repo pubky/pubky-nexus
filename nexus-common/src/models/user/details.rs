@@ -14,9 +14,11 @@ use utoipa::ToSchema;
 
 pub const USER_HS_CURSOR: [&str; 2] = ["Users", "Homeservers"];
 
-/// Builds the Redis key path for per-user homeserver cursor storage:
-/// `["Users", "Homeservers", <user_id>]`.
-pub fn user_hs_cursor_key(user_id: &str) -> [&str; 3] {
+/// Redis key parts for per-user homeserver cursor storage: `["Users", "Homeservers", <user_id>]`.
+pub type UserHsCursorKey<'a> = [&'a str; 3];
+
+/// Builds the Redis key path for per-user homeserver cursor storage
+pub fn user_hs_cursor_key(user_id: &str) -> UserHsCursorKey<'_> {
     [USER_HS_CURSOR[0], USER_HS_CURSOR[1], user_id]
 }
 

@@ -9,7 +9,7 @@ use crate::models::error::ModelError;
 #[derive(Error, Debug, Clone, Serialize, Deserialize)]
 pub enum EventProcessorError {
     /// Failed to execute query in the graph database
-    #[error("GraphQueryFailed (is_infrastructure_err: {0}): {1}")]
+    #[error("GraphQueryFailed (should_not_retry_now: {0}): {1}")]
     GraphQueryFailed(bool, String),
 
     /// The event could not be indexed due to missing graph dependencies
@@ -17,7 +17,7 @@ pub enum EventProcessorError {
     MissingDependency { dependency: Vec<String> },
 
     /// Failed to complete indexing due to a Redis operation error
-    #[error("IndexOperationFailed (is_infrastructure_err: {0}): Indexing incomplete due to Redis error: {1}")]
+    #[error("IndexOperationFailed (should_not_retry_now: {0}): Indexing incomplete due to Redis error: {1}")]
     IndexOperationFailed(bool, String),
 
     /// The event appears to be unindexed. Verify the event in the retry queue
@@ -39,6 +39,11 @@ pub enum EventProcessorError {
     #[error("PubkyClientError: {0}")]
     PubkyClientError(#[from] PubkyClientError),
 
+    /// A homeserver's /events-stream keeps returning 429 Too Many Requests
+    /// even after all internal backoff retries were exhausted.
+    #[error("HS /events-stream rate limit exhausted (429 after all backoff retries)")]
+    HsEventsStreamRateLimitExhausted,
+
     #[error("MediaProcessor: {0}")]
     MediaProcessorError(String),
 
@@ -57,12 +62,12 @@ impl From<ModelError> for EventProcessorError {
     fn from(e: ModelError) -> Self {
         match e {
             ModelError::GraphOperationFailed(source) => {
-                let is_infrastructure_err = source.is_infrastructure_err();
-                EventProcessorError::GraphQueryFailed(is_infrastructure_err, source.to_string())
+                let should_not_retry_now = source.should_not_retry_now();
+                EventProcessorError::GraphQueryFailed(should_not_retry_now, source.to_string())
             }
             ModelError::KvOperationFailed(source) => {
-                let is_infrastructure_err = source.is_infrastructure_err();
-                EventProcessorError::IndexOperationFailed(is_infrastructure_err, source.to_string())
+                let should_not_retry_now = source.should_not_retry_now();
+                EventProcessorError::IndexOperationFailed(should_not_retry_now, source.to_string())
             }
             ModelError::MediaProcessorError(source) => {
                 EventProcessorError::MediaProcessorError(source.to_string())
@@ -89,15 +94,15 @@ impl From<std::io::Error> for EventProcessorError {
 
 impl From<RedisError> for EventProcessorError {
     fn from(e: RedisError) -> Self {
-        let is_infrastructure_err = e.is_infrastructure_err();
-        EventProcessorError::IndexOperationFailed(is_infrastructure_err, e.to_string())
+        let should_not_retry_now = e.should_not_retry_now();
+        EventProcessorError::IndexOperationFailed(should_not_retry_now, e.to_string())
     }
 }
 
 impl From<GraphError> for EventProcessorError {
     fn from(e: GraphError) -> Self {
-        let is_infrastructure_err = e.is_infrastructure_err();
-        EventProcessorError::GraphQueryFailed(is_infrastructure_err, e.to_string())
+        let should_not_retry_now = e.should_not_retry_now();
+        EventProcessorError::GraphQueryFailed(should_not_retry_now, e.to_string())
     }
 }
 
@@ -128,15 +133,17 @@ impl EventProcessorError {
         Self::InternalError(source.to_string())
     }
 
-    /// Returns whether or not this is an infrastructure error.
+    /// Returns whether or not we should refrain from retrying this error right now.
     ///
-    /// These are the kinds of errors that are expected to be thrown again,
+    /// These are the kinds of errors that are expected to be thrown again
     /// if the event processor caller continues processing other events.
     #[allow(clippy::match_like_matches_macro)]
-    pub fn is_infrastructure(&self) -> bool {
+    pub fn should_not_retry_now(&self) -> bool {
         match self {
             Self::GraphQueryFailed(true, _) => true,
             Self::IndexOperationFailed(true, _) => true,
+            Self::HsEventsStreamRateLimitExhausted => true,
+
             _ => false,
         }
     }
