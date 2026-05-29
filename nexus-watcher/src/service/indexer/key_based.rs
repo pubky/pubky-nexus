@@ -140,13 +140,13 @@ impl TEventProcessor for KeyBasedEventProcessor {
                 Ok(()) => self.user_not_found_backoff.clear(user_pk),
                 Err(err) => {
                     let user_id = user_pk.z32();
-                    if err.is_infrastructure() {
+                    if err.should_not_retry_now() {
                         error!(
                             hs_id = %hs_id,
                             user = %user_id,
                             action = "abort_hs",
                             error = ?err,
-                            "Infrastructure error while processing user; aborting homeserver run",
+                            "Got should-not-retry-now error while processing user; aborting homeserver run",
                         );
                         return Err(err);
                     }
@@ -166,7 +166,7 @@ impl TEventProcessor for KeyBasedEventProcessor {
                             user = %user_id,
                             action = "skip_user",
                             error = ?err,
-                            "Non-infrastructure user error; continuing with next user",
+                            "Got error while processing user; continuing with next user",
                         );
                     }
                 }
@@ -266,7 +266,7 @@ impl KeyBasedEventProcessor {
                 Ok(events) => return Ok(events),
                 Err(err) if err.is_too_many_requests() => {
                     let Some(backoff_secs) = FETCH_EVENTS_429_BACKOFF_SECS.get(retry_index) else {
-                        return Err(err);
+                        return Err(EventProcessorError::HsEventsStreamRateLimitExhausted);
                     };
 
                     warn!(

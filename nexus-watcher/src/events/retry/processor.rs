@@ -141,10 +141,10 @@ impl RetryProcessor {
                 warn!("Event {ev_uri} failed with non-retryable error, dead-lettering: {e}");
                 self.store.remove(index_key).await?;
             }
-            Err(e) if e.is_infrastructure() => {
-                // Infrastructure errors (Neo4j/Redis failures) must NOT count against the
-                // application-level max_retries limit.  Reschedule with backoff but do NOT
-                // increment retry_count, then propagate to stop the current batch.
+            Err(e) if e.should_not_retry_now() => {
+                // Errors we should not retry right now (e.g. Neo4j/Redis failures) must NOT count
+                // against the application-level max_retries limit.  Reschedule with backoff but do
+                // NOT increment retry_count, then propagate to stop the current batch.
                 self.reschedule(&retry_event, index_key, &e, false).await?;
                 return Err(e);
             }
@@ -164,8 +164,8 @@ impl RetryProcessor {
     /// Reschedule an event for retry with exponential backoff.
     ///
     /// When `increment_count` is `true` the retry budget is consumed (application-level
-    /// errors).  When `false` the counter stays unchanged — used for infrastructure
-    /// errors that should not count against the retry limit.
+    /// errors).  When `false` the counter stays unchanged — used for errors that
+    /// should not be retried right now, which should not count against the retry limit.
     async fn reschedule(
         &self,
         retry_event: &RetryEvent,
