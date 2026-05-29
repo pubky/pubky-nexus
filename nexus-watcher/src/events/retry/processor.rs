@@ -136,7 +136,7 @@ impl RetryProcessor {
                 debug!("Retry successful for event: {ev_uri}");
                 self.store.remove(index_key).await?;
             }
-            Err(e) if !e.is_retryable() => {
+            Err(e) if !RetryScheduler::is_interested_in(&e) => {
                 // Non-retryable error (ParseFailed, etc.) - dead-letter immediately
                 warn!("Event {ev_uri} failed with non-retryable error, dead-lettering: {e}");
                 self.store.remove(index_key).await?;

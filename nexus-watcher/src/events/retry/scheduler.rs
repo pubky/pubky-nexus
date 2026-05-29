@@ -45,6 +45,18 @@ impl RetryScheduler {
         )
     }
 
+    /// Whether this error is worth queuing. Defaults to interested:
+    /// when in doubt we enqueue (bounded by `max_retries`) rather than drop data.
+    pub fn is_interested_in(error: &EventProcessorError) -> bool {
+        match error {
+            EventProcessorError::PubkyClientError(err) => err.is_retryable(),
+            EventProcessorError::InvalidEventLine(_) => false,
+            EventProcessorError::SkipIndexing => false,
+            EventProcessorError::UserIdMismatch { .. } => false,
+            _ => true,
+        }
+    }
+
     pub async fn queue_missing_dep(&self, event: &Event) -> Result<(), EventProcessorError> {
         self.enqueue(event, self.initial.missing_dep_ms, "missing dependency")
             .await

@@ -141,22 +141,6 @@ impl EventProcessorError {
         }
     }
 
-    /// Returns whether this error is transient and worth queuing for retry.
-    ///
-    /// Default is **retryable**: when in doubt we enqueue rather than drop, since
-    /// `max_retries` bounds the waste on a misclassified deterministic error,
-    /// while silently dropping a misclassified transient error loses data outright.
-    /// Only variants we know to be deterministic at conversion time opt out.
-    pub fn is_retryable(&self) -> bool {
-        match self {
-            Self::PubkyClientError(err) => err.is_retryable(),
-            Self::InvalidEventLine(_) => false,
-            Self::SkipIndexing => false,
-            Self::UserIdMismatch { .. } => false,
-            _ => true,
-        }
-    }
-
     pub fn is_too_many_requests(&self) -> bool {
         matches!(
             self,

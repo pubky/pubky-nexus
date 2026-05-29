@@ -157,7 +157,7 @@ pub trait TEventProcessor: Send + Sync + 'static {
             return Err(error);
         }
 
-        if !error.is_retryable() {
+        if !RetryScheduler::is_interested_in(&error) {
             debug!("Non-retryable error, skipping event {}: {error}", event.uri);
             return Ok(());
         }
