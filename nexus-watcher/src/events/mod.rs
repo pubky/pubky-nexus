@@ -1,18 +1,23 @@
-use nexus_common::db::PubkyConnector;
 use nexus_common::models::event::{Event, EventProcessorError, EventType};
 use pubky_app_specs::{PubkyAppObject, Resource};
 use std::sync::Arc;
 use tracing::debug;
 
 pub mod handlers;
+mod homeserver_client;
 mod moderation;
 pub mod retry;
 
+pub use homeserver_client::HomeserverClient;
 pub use moderation::Moderation;
 
-pub async fn handle(event: &Event, moderation: Arc<Moderation>) -> Result<(), EventProcessorError> {
+pub async fn handle(
+    event: &Event,
+    homeserver_client: Arc<HomeserverClient>,
+    moderation: Arc<Moderation>,
+) -> Result<(), EventProcessorError> {
     match event.event_type {
-        EventType::Put => handle_put_event(event, moderation).await,
+        EventType::Put => handle_put_event(event, homeserver_client, moderation).await,
         EventType::Del => handle_del_event(event).await,
     }?;
 
@@ -22,26 +27,12 @@ pub async fn handle(event: &Event, moderation: Arc<Moderation>) -> Result<(), Ev
 
 pub async fn handle_put_event(
     event: &Event,
+    homeserver_client: Arc<HomeserverClient>,
     moderation: Arc<Moderation>,
 ) -> Result<(), EventProcessorError> {
     debug!("Handling PUT event for URI: {}", event.uri);
 
-    let pubky = PubkyConnector::get()?;
-    let response = pubky.public_storage().get(&event.uri).await?;
-
-    if !response.status().is_success() {
-        let status = response.status();
-        let body = response
-            .text()
-            .await
-            .unwrap_or_else(|_| "<unable to read body>".to_string());
-
-        let err_msg = format!(
-            "Fetch resource failed {}: HTTP {status} - {body}",
-            event.uri
-        );
-        return Err(EventProcessorError::client_error(err_msg))?;
-    }
+    let response = homeserver_client.get(&event.uri).await?;
 
     let blob = response
         .bytes()
@@ -88,6 +79,7 @@ pub async fn handle_put_event(
                 user_id,
                 file_id,
                 event.files_path.clone(),
+                homeserver_client,
             )
             .await?
         }

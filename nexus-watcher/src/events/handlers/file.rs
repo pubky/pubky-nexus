@@ -1,6 +1,5 @@
-use crate::events::EventProcessorError;
+use crate::events::{EventProcessorError, HomeserverClient};
 
-use nexus_common::db::PubkyConnector;
 use nexus_common::media::FileVariant;
 use nexus_common::media::VariantController;
 use nexus_common::models::file::Blob;
@@ -10,6 +9,7 @@ use nexus_common::models::{
 };
 use pubky_app_specs::{PubkyAppFile, PubkyAppObject, PubkyId};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use tokio::fs::remove_dir_all;
 use tracing::debug;
 
@@ -20,10 +20,18 @@ pub async fn sync_put(
     user_id: PubkyId,
     file_id: String,
     files_path: PathBuf,
+    homeserver_client: Arc<HomeserverClient>,
 ) -> Result<(), EventProcessorError> {
     debug!("Indexing new file resource at {}/{}", user_id, file_id);
 
-    let file_meta = ingest(&user_id, file_id.as_str(), &file, files_path).await?;
+    let file_meta = ingest(
+        &user_id,
+        file_id.as_str(),
+        &file,
+        files_path,
+        homeserver_client,
+    )
+    .await?;
 
     // Create FileDetails object
     let file_details =
@@ -51,9 +59,9 @@ async fn ingest(
     file_id: &str,
     pubkyapp_file: &PubkyAppFile,
     files_path: PathBuf,
+    homeserver_client: Arc<HomeserverClient>,
 ) -> Result<FileMeta, EventProcessorError> {
-    let pubky = PubkyConnector::get()?;
-    let response = pubky.public_storage().get(&pubkyapp_file.src).await?;
+    let response = homeserver_client.get(&pubkyapp_file.src).await?;
 
     let path = Path::new(&user_id.to_string()).join(file_id);
     let full_path = files_path.join(path.clone());

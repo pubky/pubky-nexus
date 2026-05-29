@@ -53,10 +53,11 @@ async fn test_homeserver_post_reply_without_post_parent() -> Result<()> {
     // If the event processor were activated, the test would not catch the missing dependency
     // error, and it would pass successfully
     let moderation_ref = test.event_processor_runner.moderation.clone();
-    let sync_fail = retrieve_and_handle_event_line(&post_event, moderation_ref)
-        .await
-        .map_err(|e| error!("SYNC ERROR: {:?}", e))
-        .is_err();
+    let sync_fail =
+        retrieve_and_handle_event_line(&post_event, &test.homeserver_id, moderation_ref)
+            .await
+            .map_err(|e| error!("SYNC ERROR: {:?}", e))
+            .is_err();
 
     assert!(
         sync_fail,

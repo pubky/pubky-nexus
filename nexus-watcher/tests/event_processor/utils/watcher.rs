@@ -9,7 +9,7 @@ use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::traits::Collection;
 use nexus_common::{StackConfig, StackManager};
 use nexus_watcher::events::retry::event::RetryEvent;
-use nexus_watcher::events::{handle, Moderation};
+use nexus_watcher::events::{handle, HomeserverClient, Moderation};
 use nexus_watcher::service::EventProcessorRunner;
 use nexus_watcher::service::TEventProcessorRunner;
 use pubky::Keypair;
@@ -355,10 +355,12 @@ impl WatcherTest {
 /// Throws an error if event parsing fails
 pub async fn retrieve_and_handle_event_line(
     event_line: &str,
+    homeserver_id: &PubkyId,
     moderation: Arc<Moderation>,
 ) -> Result<(), EventProcessorError> {
+    let homeserver_client = Arc::new(HomeserverClient::new(homeserver_id.clone())?);
     match Event::parse_event(event_line, get_files_dir_pathbuf())? {
-        ParseResult::Parsed(event) => handle(&event, moderation).await,
+        ParseResult::Parsed(event) => handle(&event, homeserver_client, moderation).await,
         ParseResult::Skipped => Ok(()),
 
         // Propagate UnrecognizedUri as error, because this test helper is only meant for standard event handling

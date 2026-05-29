@@ -1,4 +1,4 @@
-use crate::events::Moderation;
+use crate::events::{HomeserverClient, Moderation};
 use crate::service::processor::EventProcessor;
 use crate::service::traits::{TEventProcessor, TEventProcessorRunner};
 use nexus_common::models::homeserver::Homeserver;
@@ -76,6 +76,8 @@ impl TEventProcessorRunner for EventProcessorRunner {
             .await?
             .ok_or("Homeserver not found")?;
 
+        let homeserver_client = Arc::new(HomeserverClient::new(homeserver.id.clone())?);
+
         // Create a new event processor instance with the specified homeserver
         Ok(Arc::new(EventProcessor {
             homeserver,
@@ -83,6 +85,7 @@ impl TEventProcessorRunner for EventProcessorRunner {
             files_path: self.files_path.clone(),
             tracer_name: self.tracer_name.clone(),
             moderation: self.moderation.clone(),
+            homeserver_client,
             shutdown_rx: self.shutdown_rx.clone(),
         }))
     }
