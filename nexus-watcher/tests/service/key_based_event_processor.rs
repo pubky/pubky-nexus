@@ -301,9 +301,9 @@ async fn key_based_processor_persists_last_safe_cursor_before_mismatch() -> Resu
     Ok(())
 }
 
-/// Verifies infrastructure fetch errors abort the homeserver run immediately.
+/// Verifies fetch errors that should not be retried right now abort the homeserver run immediately.
 #[tokio_shared_rt::test(shared)]
-async fn key_based_processor_aborts_on_infrastructure_fetch_error() -> Result<(), DynError> {
+async fn key_based_processor_aborts_on_not_retry_now_fetch_error() -> Result<(), DynError> {
     setup().await?;
 
     let (_hs_keypair, homeserver) = create_homeserver().await?;
@@ -322,17 +322,16 @@ async fn key_based_processor_aborts_on_infrastructure_fetch_error() -> Result<()
 
     let err = processor.run().await.unwrap_err();
 
-    assert_internal_infrastructure_index_operation_failed(err);
+    assert_internal_not_retry_now_index_operation_failed(err);
     assert_eq!(source.calls().await.len(), 1);
     assert_eq!(handler.get_handle_count(), 0);
 
     Ok(())
 }
 
-/// Verifies non-infrastructure fetch errors skip only the affected user.
+/// Verifies retryable fetch errors skip only the affected user.
 #[tokio_shared_rt::test(shared)]
-async fn key_based_processor_continues_after_non_infrastructure_fetch_error() -> Result<(), DynError>
-{
+async fn key_based_processor_continues_after_retryable_fetch_error() -> Result<(), DynError> {
     setup().await?;
 
     let (_hs_keypair, homeserver) = create_homeserver().await?;
@@ -437,9 +436,9 @@ async fn key_based_processor_aborts_homeserver_after_exhausted_429_retries() -> 
     Ok(())
 }
 
-/// Verifies infrastructure handler failures abort without advancing the cursor.
+/// Verifies not-retry-now handler failures abort without advancing the cursor.
 #[tokio_shared_rt::test(shared)]
-async fn key_based_processor_aborts_and_keeps_cursor_on_infrastructure_handler_error(
+async fn key_based_processor_aborts_and_keeps_cursor_on_not_retry_now_handler_error(
 ) -> Result<(), DynError> {
     setup().await?;
 
@@ -466,7 +465,7 @@ async fn key_based_processor_aborts_and_keeps_cursor_on_infrastructure_handler_e
 
     let err = processor.run().await.unwrap_err();
 
-    assert_internal_infrastructure_index_operation_failed(err);
+    assert_internal_not_retry_now_index_operation_failed(err);
     assert_eq!(handler.get_handle_count(), 1);
     assert_eq!(user_cursor(&user_id, &hs_id).await?, None);
 
@@ -676,10 +675,10 @@ fn assert_internal_index_operation_failed(err: RunError) {
     }
 }
 
-fn assert_internal_infrastructure_index_operation_failed(err: RunError) {
+fn assert_internal_not_retry_now_index_operation_failed(err: RunError) {
     match err {
         RunError::Internal(EventProcessorError::IndexOperationFailed(true, _)) => {}
-        other => panic!("expected internal infrastructure index operation failure, got {other:?}"),
+        other => panic!("expected internal not-retry-now index operation failure, got {other:?}"),
     }
 }
 

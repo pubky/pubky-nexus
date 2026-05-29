@@ -121,13 +121,13 @@ impl TEventProcessor for KeyBasedEventProcessor {
 
             if let Err(err) = self.process_user(&hs_pk, &hs_id, user_pk, *cursor).await {
                 let user_id = user_pk.z32();
-                if err.is_infrastructure() {
+                if err.should_not_retry_now() {
                     error!(
                         hs_id = %hs_id,
                         user = %user_id,
                         action = "abort_hs",
                         error = ?err,
-                        "Infrastructure error while processing user; aborting homeserver run",
+                        "Got should-not-retry-now error while processing user; aborting homeserver run",
                     );
                     return Err(err);
                 }
@@ -137,7 +137,7 @@ impl TEventProcessor for KeyBasedEventProcessor {
                     user = %user_id,
                     action = "skip_user",
                     error = ?err,
-                    "Non-infrastructure user error; continuing with next user",
+                    "Got error while processing user: continuing with next user",
                 );
             }
         }

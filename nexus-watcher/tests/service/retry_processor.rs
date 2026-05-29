@@ -193,9 +193,9 @@ async fn test_backoff_exponential_growth() -> Result<()> {
 // ============================================================================
 // Infrastructure error at max_retries does NOT dead-letter
 // This is the key regression test for the P2 Infrastructure bug.
-// Even when retry_count >= max_retries, an infrastructure error must NOT be
-// dead-lettered — it must be re-queued with retry_count unchanged so the
-// event can be retried indefinitely until the infrastructure recovers.
+// Even when retry_count >= max_retries, an error that should not be retried
+// right now must NOT be dead-lettered — it must be re-queued with retry_count
+// unchanged so the event can be retried indefinitely until the infrastructure recovers.
 // ============================================================================
 
 #[tokio_shared_rt::test(shared)]
@@ -223,7 +223,7 @@ async fn test_infrastructure_error_at_max_retries_does_not_dead_letter() -> Resu
         create_test_config(10, 50, 60, 3600, 60, 3600),
         create_mock_handler(
             Err(EventProcessorError::GraphQueryFailed(
-                true, // is_infrastructure = true
+                true, // should_not_retry_now = true
                 "Database connection failed".to_string(),
             )),
             Some(post_id),
@@ -231,27 +231,27 @@ async fn test_infrastructure_error_at_max_retries_does_not_dead_letter() -> Resu
         shutdown_rx,
     );
 
-    // Process through the public API — infrastructure error must NOT dead-letter
+    // Process through the public API — should_not_retry_now error must NOT dead-letter
     let result = processor.run_internal().await;
     assert!(
         result.is_err(),
-        "Infrastructure error should propagate, not dead-letter"
+        "Should-not-retry-now error should propagate, not dead-letter"
     );
 
     // Verify event was NOT removed — it should still be in the queue for retry
     let updated_event = store.get(&resource_key).await?.expect(
-        "Event must NOT be dead-lettered; infrastructure errors don't count against max_retries",
+        "Event must NOT be dead-lettered; should-not-retry-now errors don't count against max_retries",
     );
 
     assert_eq!(
         updated_event.retry_count, 10,
-        "retry_count must remain 10 (unchanged) — infrastructure errors do not increment retry_count"
+        "retry_count must remain 10 (unchanged) — should-not-retry-now errors do not increment retry_count"
     );
 
     // next_retry_at should have been advanced with backoff
     assert!(
         updated_event.next_retry_at > now,
-        "next_retry_at should be in the future after infrastructure error backoff"
+        "next_retry_at should be in the future after should-not-retry-now error backoff"
     );
 
     let _ = shutdown_tx.send(true);
@@ -423,9 +423,10 @@ async fn test_retry_404_removes_from_queue() -> Result<()> {
 
 // ============================================================================
 // Infrastructure error schedules retry without incrementing retry_count
-// Handler returns infrastructure error, event is re-queued WITHOUT incrementing
-// retry_count — infrastructure failures must not consume the application-level
-// retry budget.  next_retry_at is still advanced via exponential backoff.
+// Handler returns error that should not be retried right now, event is re-queued
+// WITHOUT incrementing retry_count — such failures must not consume the
+// application-level retry budget.  next_retry_at is still advanced via
+// exponential backoff.
 // ============================================================================
 
 #[tokio_shared_rt::test(shared)]
@@ -446,14 +447,14 @@ async fn test_transient_error_schedules_retry() -> Result<()> {
     );
     store.put(&resource_key, &retry_event).await?;
 
-    // Create processor with handler that returns infrastructure error
+    // Create processor with handler that returns should_not_retry_now error
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let processor = build_processor(
         store.clone(),
         create_test_config(10, 50, 60, 3600, 60, 3600),
         create_mock_handler(
             Err(EventProcessorError::GraphQueryFailed(
-                true, // is_infrastructure = true
+                true, // should_not_retry_now = true
                 "Database connection failed".to_string(),
             )),
             Some(post_id),
@@ -461,12 +462,15 @@ async fn test_transient_error_schedules_retry() -> Result<()> {
         shutdown_rx,
     );
 
-    // Process through the public API - this will propagate the infrastructure error
+    // Process through the public API - this will propagate the should_not_retry_now error
     let result = processor.run_internal().await;
-    assert!(result.is_err(), "Infrastructure error should propagate");
+    assert!(
+        result.is_err(),
+        "Should-not-retry-now error should propagate"
+    );
 
-    // Verify event was re-queued with retry_count UNCHANGED (infrastructure errors
-    // do not consume the application-level retry budget).
+    // Verify event was re-queued with retry_count UNCHANGED (should-not-retry-now
+    // errors do not consume the application-level retry budget).
     let updated_event = store
         .get(&resource_key)
         .await?
@@ -474,7 +478,7 @@ async fn test_transient_error_schedules_retry() -> Result<()> {
 
     assert_eq!(
         updated_event.retry_count, 0,
-        "Retry count should remain 0 for infrastructure errors"
+        "Retry count should remain 0 for should-not-retry-now errors"
     );
 
     // Verify next_retry_at is set with transient backoff (60 seconds = 60000 ms)
@@ -561,7 +565,8 @@ async fn test_missing_dependency_schedules_retry() -> Result<()> {
 // ============================================================================
 // Dead-letter after max transient retries
 // Event with retry_count >= max_retries for an APPLICATION error is removed
-// without retrying.  Infrastructure errors NO LONGER count against max_retries.
+// without retrying.  Errors we should not retry right now NO LONGER count
+// against max_retries.
 // Uses a Generic error (application-level transient) to test the dead-letter path.
 // ============================================================================
 
@@ -796,7 +801,8 @@ async fn test_shutdown_interrupts_batch() -> Result<()> {
 
 // ============================================================================
 // Infrastructure error stops batch
-// Infrastructure error from processing propagates up, halting the batch
+// Error that should not be retried right now from processing propagates up,
+// halting the batch
 // ============================================================================
 
 #[tokio_shared_rt::test(shared)]
@@ -822,10 +828,10 @@ async fn test_infrastructure_error_stops_batch() -> Result<()> {
         store.put(&resource_key, &retry_event).await?;
     }
 
-    // Create processor with handler that returns infrastructure error for our events only
+    // Create processor with handler that returns should_not_retry_now error for our events only
     let handler = create_mock_handler(
         Err(EventProcessorError::GraphQueryFailed(
-            true, // is_infrastructure = true
+            true, // should_not_retry_now = true
             "Critical database failure".to_string(),
         )),
         Some("infrastop"),
@@ -838,33 +844,31 @@ async fn test_infrastructure_error_stops_batch() -> Result<()> {
         shutdown_rx,
     );
 
-    // Run the processor - should propagate infrastructure error
+    // Run the processor - should propagate should_not_retry_now error
     let result: Result<(), EventProcessorError> = processor.run_internal().await;
 
     // Verify the error propagated up
     assert!(
         result.is_err(),
-        "Processor should propagate infrastructure error"
+        "Processor should propagate should-not-retry-now error"
     );
 
-    // Handler called exactly once — infrastructure error halted the batch
+    // Handler called exactly once — should_not_retry_now error halted the batch
     // after the first event, so remaining events were never reached.
     assert_eq!(
         handler.get_handle_count(),
         1,
-        "Handler must be called exactly once — batch stopped on infrastructure error"
+        "Handler must be called exactly once — batch stopped on should-not-retry-now error"
     );
 
-    // Verify the error is an infrastructure error
+    // Verify the error is a should-not-retry-now error
     let err = result.unwrap_err();
     assert!(
-        err.is_infrastructure(),
-        "Error should be an infrastructure error"
+        err.should_not_retry_now(),
+        "Error should be a should-not-retry-now error"
     );
 
-    // InMemoryRetryStore sorts same-score events lexicographically by key,
-    // matching Redis sorted-set semantics. So event 0 is processed first.
-    // Infrastructure errors do NOT increment retry_count — they preserve the
+    // Should-not-retry-now errors do NOT increment retry_count — they preserve the
     // application-level retry budget.
     let first_key = post_uri_builder(TEST_USER_ID.to_string(), "infrastop0".to_string());
     let first_event = store
@@ -873,7 +877,7 @@ async fn test_infrastructure_error_stops_batch() -> Result<()> {
         .expect("First event should still be in queue (re-queued after error)");
     assert_eq!(
         first_event.retry_count, 0,
-        "First event should have retry_count unchanged (infrastructure errors do not increment retry_count)"
+        "First event should have retry_count unchanged (should-not-retry-now errors do not increment retry_count)"
     );
 
     // Remaining events should be untouched (retry_count still 0)

@@ -146,14 +146,14 @@ pub trait TEventProcessor: Send + Sync + 'static {
     /// Returns:
     /// - `Ok(())` - Continue processing the batch (non-retryable errors are dropped, retryable
     ///   ones are queued for retry)
-    /// - `Err(e)` - Stop processing and return error (for infrastructure errors)
+    /// - `Err(e)` - Stop processing and return error (for errors that should not be retried right now)
     async fn handle_error(
         &self,
         event: &Event,
         error: EventProcessorError,
     ) -> Result<(), EventProcessorError> {
-        if error.is_infrastructure() {
-            warn!("Infrastructure error, stopping batch: {error}");
+        if error.should_not_retry_now() {
+            warn!("Got error which not retry now, stopping batch: {error}");
             return Err(error);
         }
 
