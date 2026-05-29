@@ -11,6 +11,7 @@ members = [
 
 [workspace.dependencies]
 anyhow = "1.0.102"
+base32 = "0.5.1"
 blake3 = "1"
 hex = "0.4"
 async-trait = "0.1.89"
@@ -20,12 +21,12 @@ deadpool-redis = "0.23"
 dirs = "6.0.0"
 neo4rs = "0.8.0"
 redis = "1.0.4"
+reqwest = "0.13.3"
 opentelemetry = "0.31"
 opentelemetry_sdk = { version = "0.31", features = ["rt-tokio"] }
-pubky = "0.7.0"
-pubky-app-specs = { version = "0.5.0", features = ["openapi"] }
-pubky-testnet = "0.7.0"
-reqwest = { version = "0.13.2", default-features = false }
+pubky = "0.8.0"
+pubky-app-specs = { version = "0.5.2", features = ["openapi"] }
+pubky-testnet = "0.8.0"
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.149"
 tempfile = "3.25"

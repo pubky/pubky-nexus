@@ -6,14 +6,14 @@ use super::{AMSTERDAM, ROOT_PATH};
 
 // Amsterdam user from test/posts.cypher
 const AUTHOR_ID: &str = AMSTERDAM;
-const PARENT_POST_ID: &str = "1A1P4D8C9K0F";
+const PARENT_POST_ID: &str = "1A1P4D8C9K0FF";
 
-const CHILD_1_POST_ID: &str = "2B9XKZG3T4L6";
-const CHILD_2_POST_ID: &str = "3M6WQ8F5P9R2";
-const CHILD_3_POST_ID: &str = "4T7ZV0C8K5B1";
-const CHILD_4_POST_ID: &str = "5F8YQJ1L2D3E";
-const CHILD_5_POST_ID: &str = "6G3ZB9X0H7M4";
-const CHILD_6_POST_ID: &str = "7N8K0Y1C3T2Q";
+const CHILD_1_POST_ID: &str = "0000003A0BJWT";
+const CHILD_2_POST_ID: &str = "0000003A0BK4T";
+const CHILD_3_POST_ID: &str = "0000003A0BK5J";
+const CHILD_4_POST_ID: &str = "0000003A0BK6C";
+const CHILD_5_POST_ID: &str = "0000003A0BK70";
+const CHILD_6_POST_ID: &str = "0000003A0BK7P";
 
 #[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_replies() -> Result<()> {
