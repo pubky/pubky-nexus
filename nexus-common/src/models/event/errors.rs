@@ -39,6 +39,11 @@ pub enum EventProcessorError {
     #[error("PubkyClientError: {0}")]
     PubkyClientError(#[from] PubkyClientError),
 
+    /// A homeserver's /events-stream keeps returning 429 Too Many Requests
+    /// even after all internal backoff retries were exhausted.
+    #[error("HS /events-stream rate limit exhausted (429 after all backoff retries)")]
+    HsEventsStreamRateLimitExhausted,
+
     #[error("MediaProcessor: {0}")]
     MediaProcessorError(String),
 
@@ -137,12 +142,7 @@ impl EventProcessorError {
         match self {
             Self::GraphQueryFailed(true, _) => true,
             Self::IndexOperationFailed(true, _) => true,
-
-            // If connections to a HS fail with 429 despite the internal retry with backoff,
-            // then the HS is seen as having an unreasonable behavior or configuration.
-            // It is treated as infrastructure error because making further calls to this HS
-            // to fetch events for any other users of this HS will result in the same error
-            Self::PubkyClientError(PubkyClientError::TooManyRequests429 { .. }) => true,
+            Self::HsEventsStreamRateLimitExhausted => true,
 
             _ => false,
         }
@@ -160,6 +160,7 @@ impl EventProcessorError {
             Self::InvalidEventLine(_) => false,
             Self::SkipIndexing => false,
             Self::UserIdMismatch { .. } => false,
+            Self::HsEventsStreamRateLimitExhausted => false,
             _ => true,
         }
     }

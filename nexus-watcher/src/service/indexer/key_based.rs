@@ -235,7 +235,7 @@ impl KeyBasedEventProcessor {
                 Ok(events) => return Ok(events),
                 Err(err) if err.is_too_many_requests() => {
                     let Some(backoff_secs) = FETCH_EVENTS_429_BACKOFF_SECS.get(retry_index) else {
-                        return Err(err);
+                        return Err(EventProcessorError::HsEventsStreamRateLimitExhausted);
                     };
 
                     warn!(

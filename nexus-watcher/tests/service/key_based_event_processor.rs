@@ -428,7 +428,7 @@ async fn key_based_processor_aborts_homeserver_after_exhausted_429_retries() -> 
 
     let err = processor.run().await.unwrap_err();
 
-    assert_internal_too_many_requests(err);
+    assert_internal_hs_rate_limit_exhausted(err);
     let calls = source.calls().await;
     assert_eq!(calls.len(), 4); // First call + 3 retries with backoff
     assert!(calls.iter().all(|user_id| user_id == &calls[0]));
@@ -683,10 +683,12 @@ fn assert_internal_infrastructure_index_operation_failed(err: RunError) {
     }
 }
 
-fn assert_internal_too_many_requests(err: RunError) {
+fn assert_internal_hs_rate_limit_exhausted(err: RunError) {
     match err {
-        RunError::Internal(err) if err.is_too_many_requests() => {}
-        other => panic!("expected internal 429 error, got {other:?}"),
+        RunError::Internal(EventProcessorError::HsEventsStreamRateLimitExhausted) => {}
+        other => {
+            panic!("expected internal HsEventsStreamRateLimitExhausted error, got {other:?}")
+        }
     }
 }
 
