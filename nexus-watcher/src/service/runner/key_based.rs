@@ -1,10 +1,10 @@
 use super::{TEventProcessorRunner, UserNotFoundBackoff};
 use crate::events::retry::RetryScheduler;
 use crate::events::{DefaultEventHandler, EventHandler, Moderation};
-use crate::service::backoff::HomeserverBackoff;
 use crate::service::indexer::{
     KeyBasedEventProcessor, KeyBasedEventSource, PubkyKeyBasedEventSource, TEventProcessor,
 };
+use crate::service::runner::key_based_hs_backoff::HomeserverBackoff;
 use crate::service::stats::{ProcessedStats, ProcessorRunStatus, RunAllProcessorsStats};
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::types::DynError;

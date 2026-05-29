@@ -1,5 +1,6 @@
 mod homeserver;
 mod key_based;
+mod key_based_hs_backoff;
 mod key_based_user_backoff;
 
 pub use homeserver::HsEventProcessorRunner;
