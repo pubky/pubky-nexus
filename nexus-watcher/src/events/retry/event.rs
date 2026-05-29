@@ -25,6 +25,7 @@ pub struct RetryEvent {
     pub event_uri: String,
     /// Unix ms - when to next attempt (exponential backoff)
     pub next_retry_at: i64,
+    pub origin_homeserver_id: String,
 }
 
 #[async_trait]
@@ -36,12 +37,18 @@ impl RedisOps for RetryEvent {
 
 impl RetryEvent {
     /// Creates a new RetryEvent
-    pub fn new(event_type: EventType, event_uri: String, next_retry_at: i64) -> Self {
+    pub fn new(
+        event_type: EventType,
+        event_uri: String,
+        next_retry_at: i64,
+        origin_homeserver_id: String,
+    ) -> Self {
         Self {
             retry_count: 0,
             event_type,
             event_uri,
             next_retry_at,
+            origin_homeserver_id,
         }
     }
 

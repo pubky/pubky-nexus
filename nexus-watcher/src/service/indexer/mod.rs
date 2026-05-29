@@ -76,6 +76,10 @@ pub trait TEventProcessor: Send + Sync + 'static {
         None
     }
 
+    fn homeserver_id(&self) -> Option<&str> {
+        None
+    }
+
     async fn run(self: Arc<Self>) -> Result<(), RunError> {
         let timeout = self
             .custom_timeout()
@@ -166,11 +170,19 @@ pub trait TEventProcessor: Send + Sync + 'static {
             return Ok(());
         };
 
+        let Some(homeserver_id) = self.homeserver_id() else {
+            warn!(
+                "Retryable error but no origin homeserver to persist; skipping retry for {}",
+                event.uri
+            );
+            return Ok(());
+        };
+
         if error.is_missing_dependency() {
-            scheduler.queue_missing_dep(event).await
+            scheduler.queue_missing_dep(event, homeserver_id).await
         } else {
             warn!("Retryable error, queuing event for retry: {error}");
-            scheduler.queue_transient(event).await
+            scheduler.queue_transient(event, homeserver_id).await
         }
     }
 

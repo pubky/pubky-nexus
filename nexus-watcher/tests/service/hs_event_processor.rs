@@ -94,6 +94,45 @@ async fn test_batch_continues_after_single_failure() -> Result<()> {
 }
 
 // ============================================================================
+// Enqueued retries carry the origin homeserver id
+// A retryable failure persists the processor's homeserver onto the RetryEvent.
+// ============================================================================
+
+#[tokio_shared_rt::test(shared)]
+async fn test_retry_event_carries_origin_homeserver_id() -> Result<()> {
+    setup().await?;
+
+    let post_id = "originhs";
+    let uri = post_uri_builder(TEST_USER_ID.to_string(), post_id.to_string());
+
+    let store = new_in_memory_store();
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+
+    let handler = create_mock_handler(
+        Err(EventProcessorError::Generic("handler fails".to_string())),
+        None,
+    );
+    // build_processor sets the processor's homeserver to TEST_USER_ID.
+    let processor = build_processor(store.clone(), handler.clone(), shutdown_rx);
+
+    processor
+        .process_event_lines(vec![format!("PUT {uri}")])
+        .await?;
+
+    let retry_event = store
+        .get(&uri)
+        .await?
+        .expect("Retryable failure must enqueue a RetryEvent");
+    assert_eq!(
+        retry_event.origin_homeserver_id, TEST_USER_ID,
+        "Enqueued retry must carry the origin homeserver id"
+    );
+
+    let _ = shutdown_tx.send(true);
+    Ok(())
+}
+
+// ============================================================================
 // Infrastructure error stops the batch
 // Infrastructure errors propagate out of `handle_error`, short-circuiting the
 // loop so the cursor is not advanced past unprocessed events.
