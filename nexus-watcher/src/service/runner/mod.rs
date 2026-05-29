@@ -5,6 +5,7 @@ mod key_based_user_backoff;
 
 pub use homeserver::HsEventProcessorRunner;
 pub use key_based::KeyBasedEventProcessorRunner;
+pub use key_based_hs_backoff::HomeserverBackoff;
 pub use key_based_user_backoff::UserNotFoundBackoff;
 
 use std::sync::Arc;
