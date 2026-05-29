@@ -3,6 +3,7 @@ use std::sync::Arc;
 use chrono::Utc;
 use tracing::warn;
 
+use nexus_common::db::PubkyClientError;
 use nexus_common::models::event::{Event, EventProcessorError};
 use nexus_common::WatcherConfig;
 
@@ -45,11 +46,21 @@ impl RetryScheduler {
         )
     }
 
-    /// Whether this error is worth queuing. Defaults to interested:
-    /// when in doubt we enqueue (bounded by `max_retries`) rather than drop data.
-    pub fn is_interested_in(error: &EventProcessorError) -> bool {
+    /// Whether the event behind this error should be enqueued for retry.
+    /// When in doubt we enqueue (bounded by `max_retries`) rather than drop data.
+    pub fn should_enqueue_related_event(error: &EventProcessorError) -> bool {
         match error {
-            EventProcessorError::PubkyClientError(err) => err.is_retryable(),
+            EventProcessorError::PubkyClientError(err) => match err {
+                PubkyClientError::NotInitialized
+                | PubkyClientError::TooManyRequests429 { .. }
+                | PubkyClientError::ServerError5xx { .. }
+                | PubkyClientError::RequestFailed { .. }
+                | PubkyClientError::PkarrFailed { .. } => true,
+                PubkyClientError::NotFound404 { .. }
+                | PubkyClientError::AuthenticationFailed { .. }
+                | PubkyClientError::BuildFailed { .. }
+                | PubkyClientError::ParseFailed { .. } => false,
+            },
             EventProcessorError::InvalidEventLine(_) => false,
             EventProcessorError::SkipIndexing => false,
             EventProcessorError::UserIdMismatch { .. } => false,

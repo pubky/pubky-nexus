@@ -144,8 +144,8 @@ pub trait TEventProcessor: Send + Sync + 'static {
     /// Called in the event processing loop.
     ///
     /// Returns:
-    /// - `Ok(())` - Continue processing the batch (non-retryable errors are dropped, retryable
-    ///   ones are queued for retry)
+    /// - `Ok(())` - Continue processing the batch (errors not worth retrying are dropped, the
+    ///   rest are queued for retry)
     /// - `Err(e)` - Stop processing and return error (for infrastructure errors)
     async fn handle_error(
         &self,
@@ -157,8 +157,11 @@ pub trait TEventProcessor: Send + Sync + 'static {
             return Err(error);
         }
 
-        if !RetryScheduler::is_interested_in(&error) {
-            debug!("Non-retryable error, skipping event {}: {error}", event.uri);
+        if !RetryScheduler::should_enqueue_related_event(&error) {
+            debug!(
+                "Error not worth retrying, skipping event {}: {error}",
+                event.uri
+            );
             return Ok(());
         }
 
@@ -169,7 +172,7 @@ pub trait TEventProcessor: Send + Sync + 'static {
         if error.is_missing_dependency() {
             scheduler.queue_missing_dep(event).await
         } else {
-            warn!("Retryable error, queuing event for retry: {error}");
+            warn!("Transient error, queuing event for retry: {error}");
             scheduler.queue_transient(event).await
         }
     }

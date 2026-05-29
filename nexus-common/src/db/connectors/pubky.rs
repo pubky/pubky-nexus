@@ -78,20 +78,6 @@ impl From<pubky::Error> for PubkyClientError {
     }
 }
 
-impl PubkyClientError {
-    /// Returns true if this error is transient and worth retrying
-    pub fn is_retryable(&self) -> bool {
-        matches!(
-            self,
-            Self::NotInitialized
-                | Self::TooManyRequests429 { .. }
-                | Self::ServerError5xx { .. }
-                | Self::RequestFailed { .. }
-                | Self::PkarrFailed { .. }
-        )
-    }
-}
-
 pub struct PubkyConnector;
 
 impl PubkyConnector {
