@@ -25,7 +25,7 @@ const MAX_USER_NOT_FOUND_SKIPS: u32 = 10;
 ///
 /// Tracks consecutive 404s per user (keyed by public key) and derives how many
 /// subsequent runs that user should be skipped: the 1st 404 skips the user once,
-/// the 2nd skips twice, and so on, capped at [`MAX_USER_NOT_FOUND_SKIPS`].
+/// the 2nd skips twice, and so on, capped at `MAX_USER_NOT_FOUND_SKIPS`.
 /// A successful fetch clears the user's state.
 #[derive(Default)]
 pub struct UserNotFoundBackoff {
@@ -55,7 +55,7 @@ impl UserNotFoundBackoff {
     }
 
     /// Records a 404 for the user, increasing the number of runs it will be
-    /// skipped on subsequent runs (capped at [`MAX_USER_NOT_FOUND_SKIPS`]).
+    /// skipped on subsequent runs (capped at `MAX_USER_NOT_FOUND_SKIPS`).
     pub fn record_not_found(&self, user_pk: &PublicKey) {
         let mut map = self.inner.lock().expect("UserNotFoundBackoff poisoned");
         let entry = map.entry(user_pk.clone()).or_default();
@@ -83,7 +83,7 @@ pub trait KeyBasedEventSource: Send + Sync + 'static {
     ) -> Result<Vec<StreamEvent>, EventProcessorError>;
 
     /// Returns `true` if the user should be skipped this run due to a prior
-    /// [`EventProcessorError::UserIdNotFound`] (404) backoff
+    /// 404 (`PubkyClientError::NotFound404`) backoff
     fn should_skip_user(&self, _user_pk: &PublicKey) -> bool {
         false
     }
@@ -210,7 +210,7 @@ impl TEventProcessor for KeyBasedEventProcessor {
                     hs_id = %hs_id,
                     user = %user_pk.z32(),
                     action = "skip_user",
-                    "Skipping user due to prior UserIdNotFound (404) backoff",
+                    "Skipping user due to prior 404 (NotFound404) backoff",
                 );
                 continue;
             }
