@@ -152,7 +152,7 @@ impl TEventProcessor for KeyBasedEventProcessor {
                     }
 
                     if err.is_not_found() {
-                        self.user_not_found_backoff.record_not_found(user_pk);
+                        self.user_not_found_backoff.record_failure(user_pk);
                         warn!(
                             hs_id = %hs_id,
                             user = %user_id,

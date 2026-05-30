@@ -41,7 +41,7 @@ impl UserNotFoundBackoff {
 
     /// Records a 404 for the user, increasing the number of runs it will be
     /// skipped on subsequent runs (capped at `MAX_USER_NOT_FOUND_SKIPS`).
-    pub fn record_not_found(&self, user_pk: &PublicKey) {
+    pub fn record_failure(&self, user_pk: &PublicKey) {
         let mut map = self.inner.lock().expect("UserNotFoundBackoff poisoned");
         let entry = map.entry(user_pk.clone()).or_default();
         entry.consecutive_failures = (entry.consecutive_failures + 1).min(MAX_USER_NOT_FOUND_SKIPS);
@@ -76,7 +76,7 @@ mod tests {
     fn skipped_after_first_not_found() {
         let backoff = UserNotFoundBackoff::default();
         let pk = random_pk();
-        backoff.record_not_found(&pk);
+        backoff.record_failure(&pk);
         assert!(backoff.consume_skip(&pk));
         assert!(!backoff.consume_skip(&pk));
     }
@@ -86,16 +86,16 @@ mod tests {
         let backoff = UserNotFoundBackoff::default();
         let pk = random_pk();
 
-        backoff.record_not_found(&pk);
+        backoff.record_failure(&pk);
         assert!(backoff.consume_skip(&pk));
         assert!(!backoff.consume_skip(&pk));
 
-        backoff.record_not_found(&pk);
+        backoff.record_failure(&pk);
         assert!(backoff.consume_skip(&pk));
         assert!(backoff.consume_skip(&pk));
         assert!(!backoff.consume_skip(&pk));
 
-        backoff.record_not_found(&pk);
+        backoff.record_failure(&pk);
         assert!(backoff.consume_skip(&pk));
         assert!(backoff.consume_skip(&pk));
         assert!(backoff.consume_skip(&pk));
@@ -108,7 +108,7 @@ mod tests {
         let pk = random_pk();
 
         for _ in 0..(MAX_USER_NOT_FOUND_SKIPS + 5) {
-            backoff.record_not_found(&pk);
+            backoff.record_failure(&pk);
         }
 
         for _ in 0..MAX_USER_NOT_FOUND_SKIPS {
@@ -122,8 +122,8 @@ mod tests {
         let backoff = UserNotFoundBackoff::default();
         let pk = random_pk();
 
-        backoff.record_not_found(&pk);
-        backoff.record_not_found(&pk);
+        backoff.record_failure(&pk);
+        backoff.record_failure(&pk);
         backoff.clear(&pk);
 
         assert!(!backoff.consume_skip(&pk));
@@ -134,11 +134,11 @@ mod tests {
         let backoff = UserNotFoundBackoff::default();
         let pk = random_pk();
 
-        backoff.record_not_found(&pk);
-        backoff.record_not_found(&pk);
+        backoff.record_failure(&pk);
+        backoff.record_failure(&pk);
         backoff.clear(&pk);
 
-        backoff.record_not_found(&pk);
+        backoff.record_failure(&pk);
         assert!(backoff.consume_skip(&pk));
         assert!(!backoff.consume_skip(&pk));
     }
@@ -149,7 +149,7 @@ mod tests {
         let pk1 = random_pk();
         let pk2 = random_pk();
 
-        backoff.record_not_found(&pk1);
+        backoff.record_failure(&pk1);
 
         assert!(backoff.consume_skip(&pk1));
         assert!(!backoff.consume_skip(&pk2));
@@ -160,9 +160,9 @@ mod tests {
         let backoff = UserNotFoundBackoff::default();
         let pk = random_pk();
 
-        backoff.record_not_found(&pk);
-        backoff.record_not_found(&pk);
-        backoff.record_not_found(&pk);
+        backoff.record_failure(&pk);
+        backoff.record_failure(&pk);
+        backoff.record_failure(&pk);
 
         let mut skips = 0;
         while backoff.consume_skip(&pk) {
