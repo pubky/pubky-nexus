@@ -34,8 +34,6 @@ pub struct KeyBasedEventProcessorRunner {
     /// Per-target exponential backoff state
     pub backoff: Mutex<HomeserverBackoff>,
 
-    /// Per-user 404 backoff, shared with every processor this runner builds so its
-    /// state persists across runs (mirrors the long-lived `backoff` above).
     pub user_not_found_backoff: Arc<UserNotFoundBackoff>,
 
     /// Scheduler shared with every processor this runner builds

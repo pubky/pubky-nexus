@@ -69,14 +69,15 @@ pub struct KeyBasedEventProcessor {
     /// Max events the homeserver will send before closing the stream.
     /// Bounds execution time per user, preventing timeout and starvation.
     pub limit: u16,
+
     pub files_path: PathBuf,
     pub event_handler: Arc<dyn EventHandler>,
     pub event_source: Arc<dyn KeyBasedEventSource>,
-    /// Per-user 404 backoff, shared with (and owned by) the runner so its state
-    /// persists across the per-run processors the runner builds.
     pub user_not_found_backoff: Arc<UserNotFoundBackoff>,
+
     /// Scheduler used to enqueue failed events onto the retry queue
     pub retry_scheduler: Arc<RetryScheduler>,
+
     pub shutdown_rx: Receiver<bool>,
 }
 
@@ -136,7 +137,6 @@ impl TEventProcessor for KeyBasedEventProcessor {
             }
 
             match self.process_user(&hs_pk, &hs_id, user_pk, *cursor).await {
-                // Successful fetch clears any pending 404 backoff for the user.
                 Ok(()) => self.user_not_found_backoff.clear(user_pk),
                 Err(err) => {
                     let user_id = user_pk.z32();
