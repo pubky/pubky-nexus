@@ -172,8 +172,7 @@ impl UserDetails {
             .inspect_err(|e| tracing::error!("Failed to ingest user {user_id}: {e}"))?;
 
         // Store the start point of the homeserver cursor
-        let key = user_hs_cursor_key(user_id);
-        Self::put_index_sorted_set(&key, &[(0.0, hs_id)], None, None).await?;
+        Self::write_hs_cursor(user_id, hs_id, 0).await?;
 
         Ok(())
     }
