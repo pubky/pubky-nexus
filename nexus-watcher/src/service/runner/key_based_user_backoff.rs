@@ -1,7 +1,7 @@
 use std::collections::HashMap;
-use std::sync::Mutex;
 
 use pubky::PublicKey;
+use tokio::sync::Mutex;
 
 /// Upper bound on how many consecutive runs a user can be skipped after repeated 404s.
 const MAX_USER_NOT_FOUND_SKIPS: u32 = 10;
@@ -28,8 +28,8 @@ struct BackoffEntry {
 impl UserNotFoundBackoff {
     /// Consumes one unit of the user's pending skip budget, returning `true` if
     /// the user should be skipped this run.
-    pub fn consume_skip(&self, user_pk: &PublicKey) -> bool {
-        let mut map = self.inner.lock().expect("UserNotFoundBackoff poisoned");
+    pub async fn consume_skip(&self, user_pk: &PublicKey) -> bool {
+        let mut map = self.inner.lock().await;
         match map.get_mut(user_pk) {
             Some(entry) if entry.skips_remaining > 0 => {
                 entry.skips_remaining -= 1;
@@ -41,19 +41,16 @@ impl UserNotFoundBackoff {
 
     /// Records a 404 for the user, increasing the number of runs it will be
     /// skipped on subsequent runs (capped at `MAX_USER_NOT_FOUND_SKIPS`).
-    pub fn record_failure(&self, user_pk: &PublicKey) {
-        let mut map = self.inner.lock().expect("UserNotFoundBackoff poisoned");
+    pub async fn record_failure(&self, user_pk: &PublicKey) {
+        let mut map = self.inner.lock().await;
         let entry = map.entry(user_pk.clone()).or_default();
         entry.consecutive_failures = (entry.consecutive_failures + 1).min(MAX_USER_NOT_FOUND_SKIPS);
         entry.skips_remaining = entry.consecutive_failures;
     }
 
     /// Clears any tracked 404 backoff for the user after a successful fetch.
-    pub fn record_success(&self, user_pk: &PublicKey) {
-        self.inner
-            .lock()
-            .expect("UserNotFoundBackoff poisoned")
-            .remove(user_pk);
+    pub async fn record_success(&self, user_pk: &PublicKey) {
+        self.inner.lock().await.remove(user_pk);
     }
 }
 
@@ -65,55 +62,55 @@ mod tests {
         pubky::Keypair::random().public_key()
     }
 
-    #[test]
-    fn new_user_is_not_skipped() {
+    #[tokio::test]
+    async fn new_user_is_not_skipped() {
         let backoff = UserNotFoundBackoff::default();
         let pk = random_pk();
-        assert!(!backoff.consume_skip(&pk));
+        assert!(!backoff.consume_skip(&pk).await);
     }
 
-    #[test]
-    fn skip_count_grows_and_caps() {
+    #[tokio::test]
+    async fn skip_count_grows_and_caps() {
         let backoff = UserNotFoundBackoff::default();
         let pk = random_pk();
 
-        backoff.record_failure(&pk);
-        assert!(backoff.consume_skip(&pk));
-        assert!(!backoff.consume_skip(&pk));
+        backoff.record_failure(&pk).await;
+        assert!(backoff.consume_skip(&pk).await);
+        assert!(!backoff.consume_skip(&pk).await);
 
-        backoff.record_failure(&pk);
-        assert!(backoff.consume_skip(&pk));
-        assert!(backoff.consume_skip(&pk));
-        assert!(!backoff.consume_skip(&pk));
+        backoff.record_failure(&pk).await;
+        assert!(backoff.consume_skip(&pk).await);
+        assert!(backoff.consume_skip(&pk).await);
+        assert!(!backoff.consume_skip(&pk).await);
 
         for _ in 0..(MAX_USER_NOT_FOUND_SKIPS + 5) {
-            backoff.record_failure(&pk);
+            backoff.record_failure(&pk).await;
         }
         for _ in 0..MAX_USER_NOT_FOUND_SKIPS {
-            assert!(backoff.consume_skip(&pk));
+            assert!(backoff.consume_skip(&pk).await);
         }
-        assert!(!backoff.consume_skip(&pk));
+        assert!(!backoff.consume_skip(&pk).await);
     }
 
-    #[test]
-    fn success_resets_and_users_are_independent() {
+    #[tokio::test]
+    async fn success_resets_and_users_are_independent() {
         let backoff = UserNotFoundBackoff::default();
         let pk1 = random_pk();
         let pk2 = random_pk();
 
-        backoff.record_failure(&pk1);
-        backoff.record_failure(&pk1);
-        assert!(backoff.consume_skip(&pk1));
-        assert!(backoff.consume_skip(&pk1));
-        assert!(!backoff.consume_skip(&pk1));
+        backoff.record_failure(&pk1).await;
+        backoff.record_failure(&pk1).await;
+        assert!(backoff.consume_skip(&pk1).await);
+        assert!(backoff.consume_skip(&pk1).await);
+        assert!(!backoff.consume_skip(&pk1).await);
 
-        backoff.record_success(&pk1);
-        assert!(!backoff.consume_skip(&pk1));
+        backoff.record_success(&pk1).await;
+        assert!(!backoff.consume_skip(&pk1).await);
 
-        backoff.record_failure(&pk1);
-        assert!(backoff.consume_skip(&pk1));
-        assert!(!backoff.consume_skip(&pk1));
+        backoff.record_failure(&pk1).await;
+        assert!(backoff.consume_skip(&pk1).await);
+        assert!(!backoff.consume_skip(&pk1).await);
 
-        assert!(!backoff.consume_skip(&pk2));
+        assert!(!backoff.consume_skip(&pk2).await);
     }
 }

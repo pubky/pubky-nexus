@@ -126,7 +126,7 @@ impl TEventProcessor for KeyBasedEventProcessor {
 
             // Users whose event fetch previously returned 404 are skipped for an
             // increasing number of runs (see `UserNotFoundBackoff`).
-            if self.user_not_found_backoff.consume_skip(user_pk) {
+            if self.user_not_found_backoff.consume_skip(user_pk).await {
                 debug!(
                     hs_id = %hs_id,
                     user = %user_pk.z32(),
@@ -137,7 +137,7 @@ impl TEventProcessor for KeyBasedEventProcessor {
             }
 
             match self.process_user(&hs_pk, &hs_id, user_pk, *cursor).await {
-                Ok(()) => self.user_not_found_backoff.record_success(user_pk),
+                Ok(()) => self.user_not_found_backoff.record_success(user_pk).await,
                 Err(err) => {
                     let user_id = user_pk.z32();
                     if err.should_not_retry_now() {
@@ -152,7 +152,7 @@ impl TEventProcessor for KeyBasedEventProcessor {
                     }
 
                     if err.is_not_found() {
-                        self.user_not_found_backoff.record_failure(user_pk);
+                        self.user_not_found_backoff.record_failure(user_pk).await;
                         warn!(
                             hs_id = %hs_id,
                             user = %user_id,
