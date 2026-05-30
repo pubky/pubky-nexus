@@ -137,7 +137,7 @@ impl TEventProcessor for KeyBasedEventProcessor {
             }
 
             match self.process_user(&hs_pk, &hs_id, user_pk, *cursor).await {
-                Ok(()) => self.user_not_found_backoff.clear(user_pk),
+                Ok(()) => self.user_not_found_backoff.record_success(user_pk),
                 Err(err) => {
                     let user_id = user_pk.z32();
                     if err.should_not_retry_now() {

@@ -49,7 +49,7 @@ impl UserNotFoundBackoff {
     }
 
     /// Clears any tracked 404 backoff for the user after a successful fetch.
-    pub fn clear(&self, user_pk: &PublicKey) {
+    pub fn record_success(&self, user_pk: &PublicKey) {
         self.inner
             .lock()
             .expect("UserNotFoundBackoff poisoned")
@@ -124,7 +124,7 @@ mod tests {
 
         backoff.record_failure(&pk);
         backoff.record_failure(&pk);
-        backoff.clear(&pk);
+        backoff.record_success(&pk);
 
         assert!(!backoff.consume_skip(&pk));
     }
@@ -136,7 +136,7 @@ mod tests {
 
         backoff.record_failure(&pk);
         backoff.record_failure(&pk);
-        backoff.clear(&pk);
+        backoff.record_success(&pk);
 
         backoff.record_failure(&pk);
         assert!(backoff.consume_skip(&pk));
