@@ -12,7 +12,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json;
 use utoipa::ToSchema;
 
-pub const USER_HS_CURSOR: [&str; 2] = ["Users", "Homeservers"];
+const USER_HS_CURSOR: [&str; 2] = ["Users", "Homeservers"];
 
 /// Redis key parts for per-user homeserver cursor storage: `["Users", "Homeservers", <user_id>]`.
 pub type UserHsCursorKey<'a> = [&'a str; 3];
@@ -208,6 +208,9 @@ impl UserDetails {
 mod tests {
     use super::*;
     use neo4rs::{BoltInteger, BoltList, BoltMap, BoltNode, BoltString, BoltType, Node};
+    use pubky::Keypair;
+
+    use crate::{types::DynError, StackConfig, StackManager};
 
     /// Deserializing a UserDetails from a BoltNode without the links property
     /// should succeed with links: None. Neo4j drops null properties from nodes,
@@ -237,5 +240,37 @@ mod tests {
             .expect("should deserialize without links property (Neo4j drops null properties)");
         assert_eq!(details.name, "Dave");
         assert!(details.links.is_none());
+    }
+
+    /// `write_hs_cursor` persists a per-user cursor that `read_hs_cursors` reads
+    /// back, missing entries default to 0, and re-writing overwrites the value.
+    #[tokio_shared_rt::test(shared)]
+    async fn test_hs_cursor_read_write_roundtrip() -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+
+        // Random IDs keep the test isolated from mock data and other tests.
+        let user_with_cursor = PubkyId::from(Keypair::random().public_key()).to_string();
+        let user_without_cursor = PubkyId::from(Keypair::random().public_key()).to_string();
+        let hs_id = PubkyId::from(Keypair::random().public_key()).to_string();
+
+        // A user with no stored cursor reads back as 0.
+        let cursors = UserDetails::read_hs_cursors(&[user_with_cursor.as_str()], &hs_id).await?;
+        assert_eq!(cursors, vec![0]);
+
+        // A written cursor round-trips; a user without an entry stays at 0.
+        UserDetails::write_hs_cursor(&user_with_cursor, &hs_id, 42).await?;
+        let cursors = UserDetails::read_hs_cursors(
+            &[user_with_cursor.as_str(), user_without_cursor.as_str()],
+            &hs_id,
+        )
+        .await?;
+        assert_eq!(cursors, vec![42, 0]);
+
+        // Writing again overwrites the previous value.
+        UserDetails::write_hs_cursor(&user_with_cursor, &hs_id, 100).await?;
+        let cursors = UserDetails::read_hs_cursors(&[user_with_cursor.as_str()], &hs_id).await?;
+        assert_eq!(cursors, vec![100]);
+
+        Ok(())
     }
 }
