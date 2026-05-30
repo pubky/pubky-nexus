@@ -416,10 +416,15 @@ async fn key_based_processor_backs_off_user_after_404() -> Result<(), DynError> 
     let hs_id = PubkyId::try_from(hs_keypair.public_key().to_z32().as_str())?;
     create_user_on_homeserver(&homeserver).await?;
 
-    // The user's event fetch returns 404 on every run.
+    // The user's event fetch returns 404 on every run. Skipped runs do not fetch,
+    // so this lists only the runs where a fetch actually happens (1, 3, 6).
     let source = Arc::new(
         MockKeyBasedEventSource::default()
-            .with_sticky_error(user_not_found_error())
+            .with_results(vec![
+                Err(user_not_found_error()), // run 1
+                Err(user_not_found_error()), // run 3
+                Err(user_not_found_error()), // run 6
+            ])
             .await,
     );
     let handler = create_mock_handler(Ok(()), None);

@@ -18,10 +18,6 @@ pub struct MockKeyBasedEventSource {
     /// Useful when graph user ordering is intentionally not part of the assertion.
     user_events: Mutex<HashMap<String, FetchEventsResult>>,
 
-    /// Error returned on every fetch, without being consumed.
-    /// Useful for simulating a persistently failing user (e.g. repeated 404s) across runs.
-    sticky_error: Mutex<Option<EventProcessorError>>,
-
     /// User IDs, cursors, and limits requested from the mock, in fetch order.
     /// Useful for asserting the processor continued to, or stopped before, specific users.
     calls: Mutex<Vec<(String, u64, u16)>>,
@@ -48,13 +44,6 @@ impl MockKeyBasedEventSource {
 
     pub async fn with_user_results(self, results: Vec<(String, FetchEventsResult)>) -> Self {
         *self.user_events.lock().await = results.into_iter().collect();
-        self
-    }
-
-    /// Returns the given error on every fetch, without consuming it, so a user
-    /// can be made to fail persistently across multiple processor runs.
-    pub async fn with_sticky_error(self, error: EventProcessorError) -> Self {
-        *self.sticky_error.lock().await = Some(error);
         self
     }
 
@@ -87,14 +76,13 @@ impl KeyBasedEventSource for MockKeyBasedEventSource {
             .await
             .push((user_id.clone(), cursor.id(), limit));
 
-        if let Some(error) = self.sticky_error.lock().await.as_ref() {
-            return Err(error.clone());
-        }
-
         if let Some(events) = self.user_events.lock().await.remove(&user_id) {
             return events;
         }
 
+        // Once the queued results are exhausted, further fetches resolve to an
+        // empty success. Tests that model a persistently failing user must queue
+        // one result per expected fetch (see the 404 backoff tests).
         self.events
             .lock()
             .await
