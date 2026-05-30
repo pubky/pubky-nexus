@@ -56,3 +56,118 @@ impl UserNotFoundBackoff {
             .remove(user_pk);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn random_pk() -> PublicKey {
+        pubky::Keypair::random().public_key()
+    }
+
+    #[test]
+    fn new_user_is_not_skipped() {
+        let backoff = UserNotFoundBackoff::default();
+        let pk = random_pk();
+        assert!(!backoff.should_skip(&pk));
+    }
+
+    #[test]
+    fn skipped_after_first_not_found() {
+        let backoff = UserNotFoundBackoff::default();
+        let pk = random_pk();
+        backoff.record_not_found(&pk);
+        assert!(backoff.should_skip(&pk));
+        assert!(!backoff.should_skip(&pk));
+    }
+
+    #[test]
+    fn skip_count_increases_with_consecutive_not_found() {
+        let backoff = UserNotFoundBackoff::default();
+        let pk = random_pk();
+
+        backoff.record_not_found(&pk);
+        assert!(backoff.should_skip(&pk));
+        assert!(!backoff.should_skip(&pk));
+
+        backoff.record_not_found(&pk);
+        assert!(backoff.should_skip(&pk));
+        assert!(backoff.should_skip(&pk));
+        assert!(!backoff.should_skip(&pk));
+
+        backoff.record_not_found(&pk);
+        assert!(backoff.should_skip(&pk));
+        assert!(backoff.should_skip(&pk));
+        assert!(backoff.should_skip(&pk));
+        assert!(!backoff.should_skip(&pk));
+    }
+
+    #[test]
+    fn skip_count_capped_at_max() {
+        let backoff = UserNotFoundBackoff::default();
+        let pk = random_pk();
+
+        for _ in 0..(MAX_USER_NOT_FOUND_SKIPS + 5) {
+            backoff.record_not_found(&pk);
+        }
+
+        for _ in 0..MAX_USER_NOT_FOUND_SKIPS {
+            assert!(backoff.should_skip(&pk));
+        }
+        assert!(!backoff.should_skip(&pk));
+    }
+
+    #[test]
+    fn clear_resets_backoff() {
+        let backoff = UserNotFoundBackoff::default();
+        let pk = random_pk();
+
+        backoff.record_not_found(&pk);
+        backoff.record_not_found(&pk);
+        backoff.clear(&pk);
+
+        assert!(!backoff.should_skip(&pk));
+    }
+
+    #[test]
+    fn clear_then_not_found_starts_fresh() {
+        let backoff = UserNotFoundBackoff::default();
+        let pk = random_pk();
+
+        backoff.record_not_found(&pk);
+        backoff.record_not_found(&pk);
+        backoff.clear(&pk);
+
+        backoff.record_not_found(&pk);
+        assert!(backoff.should_skip(&pk));
+        assert!(!backoff.should_skip(&pk));
+    }
+
+    #[test]
+    fn independent_users() {
+        let backoff = UserNotFoundBackoff::default();
+        let pk1 = random_pk();
+        let pk2 = random_pk();
+
+        backoff.record_not_found(&pk1);
+
+        assert!(backoff.should_skip(&pk1));
+        assert!(!backoff.should_skip(&pk2));
+    }
+
+    #[test]
+    fn multiple_not_found_accumulates_skips() {
+        let backoff = UserNotFoundBackoff::default();
+        let pk = random_pk();
+
+        backoff.record_not_found(&pk);
+        backoff.record_not_found(&pk);
+        backoff.record_not_found(&pk);
+
+        let mut skips = 0;
+        while backoff.should_skip(&pk) {
+            skips += 1;
+        }
+        assert_eq!(skips, 3);
+    }
+}
