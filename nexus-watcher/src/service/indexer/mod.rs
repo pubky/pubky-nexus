@@ -153,7 +153,7 @@ pub trait TEventProcessor: Send + Sync + 'static {
         error: EventProcessorError,
     ) -> Result<(), EventProcessorError> {
         if error.should_not_retry_now() {
-            warn!("Got error which not retry now, stopping batch: {error}");
+            warn!("Got should-not-retry-now error, stopping batch: {error}");
             return Err(error);
         }
 
