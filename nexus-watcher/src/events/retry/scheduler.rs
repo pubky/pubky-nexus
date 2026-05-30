@@ -3,6 +3,7 @@ use std::sync::Arc;
 use chrono::Utc;
 use tracing::warn;
 
+use nexus_common::db::PubkyClientError;
 use nexus_common::models::event::{Event, EventProcessorError};
 use nexus_common::WatcherConfig;
 
@@ -43,6 +44,31 @@ impl RetryScheduler {
             Arc::new(RedisRetryStore::new()),
             InitialBackoff::from_config(config),
         )
+    }
+
+    /// Whether the event behind this error should be enqueued for retry.
+    /// When in doubt we enqueue (bounded by `max_retries`) rather than drop data.
+    pub fn should_enqueue_related_event(error: &EventProcessorError) -> bool {
+        match error {
+            EventProcessorError::PubkyClientError(err) => match err {
+                PubkyClientError::NotInitialized
+                | PubkyClientError::TooManyRequests429 { .. }
+                | PubkyClientError::ServerError5xx { .. }
+                | PubkyClientError::RequestFailed { .. }
+                | PubkyClientError::PkarrFailed { .. } => true,
+
+                PubkyClientError::NotFound404 { .. }
+                | PubkyClientError::AuthenticationFailed { .. }
+                | PubkyClientError::BuildFailed { .. }
+                | PubkyClientError::ParseFailed { .. } => false,
+            },
+            EventProcessorError::InvalidEventLine(_) => false,
+            EventProcessorError::SkipIndexing => false,
+            EventProcessorError::UserIdMismatch { .. } => false,
+            EventProcessorError::HsEventsStreamRateLimitExhausted => false,
+
+            _ => true,
+        }
     }
 
     pub async fn queue_missing_dep(&self, event: &Event) -> Result<(), EventProcessorError> {
