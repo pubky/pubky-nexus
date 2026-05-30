@@ -177,6 +177,32 @@ impl UserDetails {
 
         Ok(())
     }
+
+    /// Batch-reads each user's stored event cursor for `hs_id`, returning `0`
+    /// for users with no cursor entry yet (newly ingested).
+    ///
+    /// Each user's cursor lives in its own `USER_HS_CURSOR` sorted set (keyed by
+    /// user ID) with the homeserver ID as the member; all lookups are batched
+    /// into a single `check_sorted_set_members` pipeline call. Redis errors are
+    /// propagated instead of silently rewinding to 0.
+    ///
+    /// The cursor is stored as the score (f64), exact for integer values up to
+    /// 2^53 — practically unreachable for monotonic event IDs.
+    pub async fn read_hs_cursors(user_ids: &[&str], hs_id: &str) -> RedisResult<Vec<u64>> {
+        let keys: Vec<UserHsCursorKey> = user_ids.iter().map(|u| user_hs_cursor_key(u)).collect();
+        let pairs: Vec<(&[&str], &[&str])> = keys
+            .iter()
+            .map(|k| (k.as_slice(), std::slice::from_ref(&hs_id)))
+            .collect();
+        let scores = Self::check_sorted_set_members(None, &pairs).await?;
+        Ok(scores.into_iter().map(|s| s.unwrap_or(0) as u64).collect())
+    }
+
+    /// Persists a single user's event cursor for `hs_id` to its `USER_HS_CURSOR` sorted set.
+    pub async fn write_hs_cursor(user_id: &str, hs_id: &str, cursor: u64) -> RedisResult<()> {
+        let key = user_hs_cursor_key(user_id);
+        Self::put_index_sorted_set(&key, &[(cursor as f64, hs_id)], None, None).await
+    }
 }
 
 #[cfg(test)]

@@ -1,10 +1,10 @@
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use futures::StreamExt;
-use nexus_common::db::{PubkyConnector, RedisOps};
+use nexus_common::db::PubkyConnector;
 use nexus_common::models::event::{Event, EventProcessorError};
 use nexus_common::models::homeserver::Homeserver;
-use nexus_common::models::user::{user_hs_cursor_key, UserDetails, UserHsCursorKey};
+use nexus_common::models::user::UserDetails;
 use pubky::{Event as StreamEvent, EventCursor, PublicKey};
 use tokio::sync::watch::Receiver;
 use tracing::{debug, error, info, warn};
@@ -166,12 +166,12 @@ impl KeyBasedEventProcessor {
         }
 
         let user_id_strs: Vec<&str> = valid_users.iter().map(|(_, id)| *id).collect();
-        let cursors = Self::read_users_cursors(&user_id_strs, hs_id).await?;
+        let cursors = UserDetails::read_hs_cursors(&user_id_strs, hs_id).await?;
 
         let users = valid_users
             .into_iter()
             .zip(cursors)
-            .map(|((pk, _), cursor)| (pk, cursor))
+            .map(|((pk, _), cursor)| (pk, EventCursor::new(cursor)))
             .collect();
 
         Ok(users)
@@ -202,7 +202,8 @@ impl KeyBasedEventProcessor {
             .await;
 
         if let Some(cursor_val) = latest_cursor {
-            if let Err(write_err) = Self::write_user_cursor(&user_id, hs_id, cursor_val).await {
+            if let Err(write_err) = UserDetails::write_hs_cursor(&user_id, hs_id, cursor_val).await
+            {
                 error!(
                     hs_id = %hs_id,
                     user = %user_id,
@@ -314,51 +315,6 @@ impl KeyBasedEventProcessor {
             });
         }
 
-        Ok(())
-    }
-
-    /// Reads per-user event cursors from the `USER_HS_CURSOR` sorted sets in Redis.
-    ///
-    /// Each user's cursor lives in its own sorted set (keyed by user ID) with
-    /// the homeserver ID as the member. All lookups are batched into a single
-    /// `check_sorted_set_members` pipeline call.
-    ///
-    /// Returns `EventCursor(0)` for users with no cursor entry (newly ingested).
-    /// Propagates Redis errors instead of silently rewinding to 0.
-    ///
-    /// The cursor is stored as the score (f64) of the homeserver member.
-    /// f64 is exact for integer values up to 2^53 (~9 quadrillion), which is
-    /// practically unreachable for monotonically incrementing event IDs.
-    async fn read_users_cursors(
-        user_ids: &[&str],
-        hs_id: &str,
-    ) -> Result<Vec<EventCursor>, EventProcessorError> {
-        let keys: Vec<UserHsCursorKey<'_>> = user_ids
-            .iter()
-            .map(|user_id| user_hs_cursor_key(user_id))
-            .collect();
-        let member: [&str; 1] = [hs_id];
-        let pairs: Vec<(&[&str], &[&str])> = keys
-            .iter()
-            .map(|k| (k.as_slice(), member.as_slice()))
-            .collect();
-
-        let scores = UserDetails::check_sorted_set_members(None, &pairs).await?;
-
-        Ok(scores
-            .into_iter()
-            .map(|s| EventCursor::new(s.unwrap_or(0) as u64))
-            .collect())
-    }
-
-    /// Persists the per-user event cursor back to the `USER_HS_CURSOR` sorted set.
-    async fn write_user_cursor(
-        user_id: &str,
-        hs_id: &str,
-        cursor: u64,
-    ) -> Result<(), EventProcessorError> {
-        let key = user_hs_cursor_key(user_id);
-        UserDetails::put_index_sorted_set(&key, &[(cursor as f64, hs_id)], None, None).await?;
         Ok(())
     }
 }
