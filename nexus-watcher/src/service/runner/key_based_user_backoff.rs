@@ -26,9 +26,9 @@ struct BackoffEntry {
 }
 
 impl UserNotFoundBackoff {
-    /// Returns `true` if the user should be skipped this run, consuming one unit
-    /// of the pending skip budget.
-    pub fn should_skip(&self, user_pk: &PublicKey) -> bool {
+    /// Consumes one unit of the user's pending skip budget, returning `true` if
+    /// the user should be skipped this run.
+    pub fn consume_skip(&self, user_pk: &PublicKey) -> bool {
         let mut map = self.inner.lock().expect("UserNotFoundBackoff poisoned");
         match map.get_mut(user_pk) {
             Some(entry) if entry.skips_remaining > 0 => {
@@ -69,7 +69,7 @@ mod tests {
     fn new_user_is_not_skipped() {
         let backoff = UserNotFoundBackoff::default();
         let pk = random_pk();
-        assert!(!backoff.should_skip(&pk));
+        assert!(!backoff.consume_skip(&pk));
     }
 
     #[test]
@@ -77,8 +77,8 @@ mod tests {
         let backoff = UserNotFoundBackoff::default();
         let pk = random_pk();
         backoff.record_not_found(&pk);
-        assert!(backoff.should_skip(&pk));
-        assert!(!backoff.should_skip(&pk));
+        assert!(backoff.consume_skip(&pk));
+        assert!(!backoff.consume_skip(&pk));
     }
 
     #[test]
@@ -87,19 +87,19 @@ mod tests {
         let pk = random_pk();
 
         backoff.record_not_found(&pk);
-        assert!(backoff.should_skip(&pk));
-        assert!(!backoff.should_skip(&pk));
+        assert!(backoff.consume_skip(&pk));
+        assert!(!backoff.consume_skip(&pk));
 
         backoff.record_not_found(&pk);
-        assert!(backoff.should_skip(&pk));
-        assert!(backoff.should_skip(&pk));
-        assert!(!backoff.should_skip(&pk));
+        assert!(backoff.consume_skip(&pk));
+        assert!(backoff.consume_skip(&pk));
+        assert!(!backoff.consume_skip(&pk));
 
         backoff.record_not_found(&pk);
-        assert!(backoff.should_skip(&pk));
-        assert!(backoff.should_skip(&pk));
-        assert!(backoff.should_skip(&pk));
-        assert!(!backoff.should_skip(&pk));
+        assert!(backoff.consume_skip(&pk));
+        assert!(backoff.consume_skip(&pk));
+        assert!(backoff.consume_skip(&pk));
+        assert!(!backoff.consume_skip(&pk));
     }
 
     #[test]
@@ -112,9 +112,9 @@ mod tests {
         }
 
         for _ in 0..MAX_USER_NOT_FOUND_SKIPS {
-            assert!(backoff.should_skip(&pk));
+            assert!(backoff.consume_skip(&pk));
         }
-        assert!(!backoff.should_skip(&pk));
+        assert!(!backoff.consume_skip(&pk));
     }
 
     #[test]
@@ -126,7 +126,7 @@ mod tests {
         backoff.record_not_found(&pk);
         backoff.clear(&pk);
 
-        assert!(!backoff.should_skip(&pk));
+        assert!(!backoff.consume_skip(&pk));
     }
 
     #[test]
@@ -139,8 +139,8 @@ mod tests {
         backoff.clear(&pk);
 
         backoff.record_not_found(&pk);
-        assert!(backoff.should_skip(&pk));
-        assert!(!backoff.should_skip(&pk));
+        assert!(backoff.consume_skip(&pk));
+        assert!(!backoff.consume_skip(&pk));
     }
 
     #[test]
@@ -151,8 +151,8 @@ mod tests {
 
         backoff.record_not_found(&pk1);
 
-        assert!(backoff.should_skip(&pk1));
-        assert!(!backoff.should_skip(&pk2));
+        assert!(backoff.consume_skip(&pk1));
+        assert!(!backoff.consume_skip(&pk2));
     }
 
     #[test]
@@ -165,7 +165,7 @@ mod tests {
         backoff.record_not_found(&pk);
 
         let mut skips = 0;
-        while backoff.should_skip(&pk) {
+        while backoff.consume_skip(&pk) {
             skips += 1;
         }
         assert_eq!(skips, 3);

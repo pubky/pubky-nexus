@@ -126,7 +126,7 @@ impl TEventProcessor for KeyBasedEventProcessor {
 
             // Users whose event fetch previously returned 404 are skipped for an
             // increasing number of runs (see `UserNotFoundBackoff`).
-            if self.user_not_found_backoff.should_skip(user_pk) {
+            if self.user_not_found_backoff.consume_skip(user_pk) {
                 debug!(
                     hs_id = %hs_id,
                     user = %user_pk.z32(),
