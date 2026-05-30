@@ -73,16 +73,7 @@ mod tests {
     }
 
     #[test]
-    fn skipped_after_first_not_found() {
-        let backoff = UserNotFoundBackoff::default();
-        let pk = random_pk();
-        backoff.record_failure(&pk);
-        assert!(backoff.consume_skip(&pk));
-        assert!(!backoff.consume_skip(&pk));
-    }
-
-    #[test]
-    fn skip_count_increases_with_consecutive_not_found() {
+    fn skip_count_grows_and_caps() {
         let backoff = UserNotFoundBackoff::default();
         let pk = random_pk();
 
@@ -94,23 +85,10 @@ mod tests {
         assert!(backoff.consume_skip(&pk));
         assert!(backoff.consume_skip(&pk));
         assert!(!backoff.consume_skip(&pk));
-
-        backoff.record_failure(&pk);
-        assert!(backoff.consume_skip(&pk));
-        assert!(backoff.consume_skip(&pk));
-        assert!(backoff.consume_skip(&pk));
-        assert!(!backoff.consume_skip(&pk));
-    }
-
-    #[test]
-    fn skip_count_capped_at_max() {
-        let backoff = UserNotFoundBackoff::default();
-        let pk = random_pk();
 
         for _ in 0..(MAX_USER_NOT_FOUND_SKIPS + 5) {
             backoff.record_failure(&pk);
         }
-
         for _ in 0..MAX_USER_NOT_FOUND_SKIPS {
             assert!(backoff.consume_skip(&pk));
         }
@@ -118,56 +96,24 @@ mod tests {
     }
 
     #[test]
-    fn clear_resets_backoff() {
-        let backoff = UserNotFoundBackoff::default();
-        let pk = random_pk();
-
-        backoff.record_failure(&pk);
-        backoff.record_failure(&pk);
-        backoff.record_success(&pk);
-
-        assert!(!backoff.consume_skip(&pk));
-    }
-
-    #[test]
-    fn clear_then_not_found_starts_fresh() {
-        let backoff = UserNotFoundBackoff::default();
-        let pk = random_pk();
-
-        backoff.record_failure(&pk);
-        backoff.record_failure(&pk);
-        backoff.record_success(&pk);
-
-        backoff.record_failure(&pk);
-        assert!(backoff.consume_skip(&pk));
-        assert!(!backoff.consume_skip(&pk));
-    }
-
-    #[test]
-    fn independent_users() {
+    fn success_resets_and_users_are_independent() {
         let backoff = UserNotFoundBackoff::default();
         let pk1 = random_pk();
         let pk2 = random_pk();
 
         backoff.record_failure(&pk1);
-
+        backoff.record_failure(&pk1);
         assert!(backoff.consume_skip(&pk1));
+        assert!(backoff.consume_skip(&pk1));
+        assert!(!backoff.consume_skip(&pk1));
+
+        backoff.record_success(&pk1);
+        assert!(!backoff.consume_skip(&pk1));
+
+        backoff.record_failure(&pk1);
+        assert!(backoff.consume_skip(&pk1));
+        assert!(!backoff.consume_skip(&pk1));
+
         assert!(!backoff.consume_skip(&pk2));
-    }
-
-    #[test]
-    fn multiple_not_found_accumulates_skips() {
-        let backoff = UserNotFoundBackoff::default();
-        let pk = random_pk();
-
-        backoff.record_failure(&pk);
-        backoff.record_failure(&pk);
-        backoff.record_failure(&pk);
-
-        let mut skips = 0;
-        while backoff.consume_skip(&pk) {
-            skips += 1;
-        }
-        assert_eq!(skips, 3);
     }
 }
