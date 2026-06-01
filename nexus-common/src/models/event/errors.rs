@@ -94,15 +94,13 @@ impl From<std::io::Error> for EventProcessorError {
 
 impl From<RedisError> for EventProcessorError {
     fn from(e: RedisError) -> Self {
-        let should_not_retry_now = e.should_not_retry_now();
-        EventProcessorError::IndexOperationFailed(should_not_retry_now, e.to_string())
+        EventProcessorError::IndexOperationFailed(e.should_not_retry_now(), e.to_string())
     }
 }
 
 impl From<GraphError> for EventProcessorError {
     fn from(e: GraphError) -> Self {
-        let should_not_retry_now = e.should_not_retry_now();
-        EventProcessorError::GraphQueryFailed(should_not_retry_now, e.to_string())
+        EventProcessorError::GraphQueryFailed(e.should_not_retry_now(), e.to_string())
     }
 }
 
