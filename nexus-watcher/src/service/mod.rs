@@ -1,4 +1,3 @@
-pub mod backoff;
 mod constants;
 pub mod indexer;
 pub mod runner;

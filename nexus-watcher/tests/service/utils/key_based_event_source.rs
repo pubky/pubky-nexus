@@ -80,6 +80,9 @@ impl KeyBasedEventSource for MockKeyBasedEventSource {
             return events;
         }
 
+        // Once the queued results are exhausted, further fetches resolve to an
+        // empty success. Tests that model a persistently failing user must queue
+        // one result per expected fetch (see the 404 backoff tests).
         self.events
             .lock()
             .await

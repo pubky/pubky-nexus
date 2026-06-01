@@ -12,6 +12,7 @@ use tracing::{debug, error, info, warn};
 use super::TEventProcessor;
 use crate::events::retry::RetryScheduler;
 use crate::events::EventHandler;
+use crate::service::runner::UserNotFoundBackoff;
 use crate::service::user_hs_resolver;
 
 const FETCH_EVENTS_429_BACKOFF_SECS: [u64; 3] = [1, 2, 3];
@@ -68,11 +69,15 @@ pub struct KeyBasedEventProcessor {
     /// Max events the homeserver will send before closing the stream.
     /// Bounds execution time per user, preventing timeout and starvation.
     pub limit: u16,
+
     pub files_path: PathBuf,
     pub event_handler: Arc<dyn EventHandler>,
     pub event_source: Arc<dyn KeyBasedEventSource>,
+    pub user_not_found_backoff: Arc<UserNotFoundBackoff>,
+
     /// Scheduler used to enqueue failed events onto the retry queue
     pub retry_scheduler: Arc<RetryScheduler>,
+
     pub shutdown_rx: Receiver<bool>,
 }
 
@@ -119,26 +124,52 @@ impl TEventProcessor for KeyBasedEventProcessor {
                 break;
             }
 
-            if let Err(err) = self.process_user(&hs_pk, &hs_id, user_pk, *cursor).await {
-                let user_id = user_pk.z32();
-                if err.should_not_retry_now() {
-                    error!(
-                        hs_id = %hs_id,
-                        user = %user_id,
-                        action = "abort_hs",
-                        error = ?err,
-                        "Got should-not-retry-now error while processing user; aborting homeserver run",
-                    );
-                    return Err(err);
-                }
-
-                error!(
+            // Users whose event fetch previously returned 404 are skipped for an
+            // increasing number of runs (see `UserNotFoundBackoff`).
+            if self.user_not_found_backoff.consume_skip(user_pk).await {
+                debug!(
                     hs_id = %hs_id,
-                    user = %user_id,
+                    user = %user_pk.z32(),
                     action = "skip_user",
-                    error = ?err,
-                    "Got error while processing user: continuing with next user",
+                    "Skipping user due to prior 404 (NotFound404) backoff",
                 );
+                continue;
+            }
+
+            match self.process_user(&hs_pk, &hs_id, user_pk, *cursor).await {
+                Ok(()) => self.user_not_found_backoff.record_success(user_pk).await,
+                Err(err) => {
+                    let user_id = user_pk.z32();
+                    if err.should_not_retry_now() {
+                        error!(
+                            hs_id = %hs_id,
+                            user = %user_id,
+                            action = "abort_hs",
+                            error = ?err,
+                            "Got should-not-retry-now error while processing user; aborting homeserver run",
+                        );
+                        return Err(err);
+                    }
+
+                    if err.is_not_found() {
+                        self.user_not_found_backoff.record_failure(user_pk).await;
+                        warn!(
+                            hs_id = %hs_id,
+                            user = %user_id,
+                            action = "skip_user",
+                            error = ?err,
+                            "User event fetch returned 404; backing off this user for future runs",
+                        );
+                    } else {
+                        error!(
+                            hs_id = %hs_id,
+                            user = %user_id,
+                            action = "skip_user",
+                            error = ?err,
+                            "Got error while processing user; continuing with next user",
+                        );
+                    }
+                }
             }
         }
 
