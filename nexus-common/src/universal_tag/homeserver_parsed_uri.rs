@@ -32,16 +32,16 @@ impl HomeserverParsedUri {
     /// Returns the user ID from the parsed URI.
     pub fn user_id(&self) -> &PubkyId {
         match self {
-            HomeserverParsedUri::AppSpec { user_id, .. } => user_id,
-            HomeserverParsedUri::UniversalTag { user_id, .. } => user_id,
+            HomeserverParsedUri::AppSpec { user_id, .. }
+            | HomeserverParsedUri::UniversalTag { user_id, .. } => user_id,
         }
     }
 
     /// Returns the resource from the parsed URI.
     pub fn resource(&self) -> &Resource {
         match self {
-            HomeserverParsedUri::AppSpec { resource, .. } => resource,
-            HomeserverParsedUri::UniversalTag { resource, .. } => resource,
+            HomeserverParsedUri::AppSpec { resource, .. }
+            | HomeserverParsedUri::UniversalTag { resource, .. } => resource,
         }
     }
 
