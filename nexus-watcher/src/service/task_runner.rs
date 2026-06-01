@@ -117,7 +117,7 @@ pub(crate) async fn run_periodic_tasks(
         let mut get_task_name_fn = |id| {
             name_map
                 .remove(&id)
-                .unwrap_or_else(|| format!("<unknown id: {id}"))
+                .unwrap_or_else(|| format!("unknown id: {id}"))
         };
 
         match join_result {
