@@ -1,10 +1,12 @@
 use super::TEventProcessor;
 use crate::events::retry::RetryScheduler;
 use crate::events::EventHandler;
-use nexus_common::db::PubkyConnector;
-use nexus_common::models::event::EventProcessorError;
+use crate::service::user_hs_resolver::PkdnsHomeserverResolver;
+use nexus_common::db::{fetch_key_from_graph, queries, PubkyConnector};
+use nexus_common::models::event::{Event, EventProcessorError};
 use nexus_common::models::homeserver::Homeserver;
 use pubky::Method;
+use serde::Deserialize;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::watch::Receiver;
@@ -22,6 +24,16 @@ pub struct HsEventProcessor {
     pub shutdown_rx: Receiver<bool>,
     /// Scheduler used to enqueue failed events onto the retry queue
     pub retry_scheduler: Arc<RetryScheduler>,
+    /// Resolves a user's published homeserver from PKDNS. Used as a fallback to
+    /// authorize events from users that have no `HOSTED_BY` mapping yet.
+    pub user_hs_resolver: Arc<dyn PkdnsHomeserverResolver>,
+}
+
+/// A user's `HOSTED_BY` mapping as read by the event gate.
+#[derive(Deserialize)]
+struct UserHosting {
+    homeserver_id: String,
+    stale: bool,
 }
 
 #[async_trait::async_trait]
@@ -44,6 +56,57 @@ impl TEventProcessor for HsEventProcessor {
 
     fn homeserver_id(&self) -> Option<&str> {
         Some(self.homeserver.id.as_ref())
+    }
+
+    /// Refuses event lines for users that are no longer hosted on this homeserver.
+    ///
+    /// A homeserver may keep emitting events for a user after the user has
+    /// re-pointed (or unpublished) their `_pubky` record in PKDNS. We only index
+    /// a line when the user still resolves to this homeserver:
+    /// - `HOSTED_BY` edge to this HS and not `stale` → process (cheap graph read).
+    /// - `HOSTED_BY` edge that diverges (points elsewhere, or here but `stale`) → refuse.
+    /// - No edge yet (new/unresolved user) → fall back to a live PKDNS lookup.
+    #[tracing::instrument(
+        name = "event.gate",
+        skip_all,
+        fields(user = %event.parsed_uri.user_id(), hs = %self.homeserver.id)
+    )]
+    async fn should_process_event(&self, event: &Event) -> Result<bool, EventProcessorError> {
+        let user_id = event.parsed_uri.user_id();
+
+        // Single read of the user's mapping (bound homeserver + stale flag).
+        let hosting: Option<UserHosting> =
+            fetch_key_from_graph(queries::get::get_user_hosting(user_id), "hosting").await?;
+
+        match hosting {
+            // Active here: edge to this homeserver and not stale → process.
+            Some(h) if h.homeserver_id == self.homeserver.id.as_ref() && !h.stale => Ok(true),
+            // Mapping diverges (points elsewhere, or here but stale). Switching is
+            // unsupported — refuse.
+            Some(_) => {
+                warn!("User mapping diverges from this homeserver; refusing event");
+                Ok(false)
+            }
+            // No mapping yet (new/unresolved user): authorize against PKDNS directly.
+            None => {
+                let resolved = self
+                    .user_hs_resolver
+                    .resolve_homeserver(&user_id.to_public_key())
+                    .await
+                    .map_err(|e| EventProcessorError::client_error(e.to_string()))?;
+
+                match resolved {
+                    Some(ref resolved_hs) if *resolved_hs == self.homeserver.id => Ok(true),
+                    // `None` here conflates "user has no published HS" with "DHT lookup flaked" —
+                    // both refuse silently. Blocked on https://github.com/pubky/pubky-core/issues/408
+                    // to distinguish them at the SDK boundary so flakes can be retried instead.
+                    _ => {
+                        warn!("User does not point to this homeserver in PKDNS; refusing event");
+                        Ok(false)
+                    }
+                }
+            }
+        }
     }
 
     async fn run_internal(self: Arc<Self>) -> Result<(), EventProcessorError> {

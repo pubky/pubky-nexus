@@ -440,6 +440,19 @@ pub fn get_user_homeserver(user_id: &str) -> Query {
     .param("user_id", user_id.to_string())
 }
 
+/// Returns the homeserver a user is bound to and whether that mapping is stale.
+///
+/// One row when a `HOSTED_BY` edge exists; no row when the user has none, so the
+/// caller can distinguish "bound (here or elsewhere)" from "no mapping yet".
+pub fn get_user_hosting(user_id: &str) -> Query {
+    Query::new(
+        "get_user_hosting",
+        "MATCH (u:User {id: $user_id})-[r:HOSTED_BY]->(hs:Homeserver)
+         RETURN { homeserver_id: hs.id, stale: coalesce(r.stale, false) } AS hosting",
+    )
+    .param("user_id", user_id.to_string())
+}
+
 /// Retrieves all user IDs actively hosted on a given homeserver.
 ///
 /// Excludes users whose mapping is marked `stale` — i.e. whose published

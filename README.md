@@ -153,13 +153,14 @@ cargo nextest run -p nexus-webapi --no-fail-fast
 
 # nexus-watcher tests need the Postgres Connection URL as env variable, adjust it as needed
 # export TEST_PUBKY_CONNECTION_STRING=postgres://test_user:test_pass@localhost:5432/postgres?pubky-test=true
-cargo nextest run -p nexus-watcher --no-fail-fast
+# `--features test-utils` exposes in-crate test doubles to the integration tests
+cargo nextest run -p nexus-watcher --features test-utils --no-fail-fast
 ```
 
 To test specific feature(s):
 
 ```bash
-cargo nextest run -p nexus-watcher files::create --no-fail-fast
+cargo nextest run -p nexus-watcher --features test-utils files::create --no-fail-fast
 ```
 
 ## 🚀 Benchmarking

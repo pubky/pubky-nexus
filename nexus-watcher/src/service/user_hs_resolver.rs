@@ -42,6 +42,30 @@ impl PkdnsHomeserverResolver for PubkyConnectorResolver {
     }
 }
 
+/// Test [`PkdnsHomeserverResolver`] returning a fixed result for any user, so
+/// the resolver loop and the HsEventProcessor PKDNS fallback can be driven
+/// without touching the DHT. Gated so it never ships in production builds.
+#[cfg(any(test, feature = "test-utils"))]
+pub struct MockPkdnsResolver {
+    result: Option<PubkyId>,
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+impl MockPkdnsResolver {
+    /// Resolves every user to `result` (or to nothing when `None`).
+    pub fn new(result: Option<PubkyId>) -> Self {
+        Self { result }
+    }
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+#[async_trait::async_trait]
+impl PkdnsHomeserverResolver for MockPkdnsResolver {
+    async fn resolve_homeserver(&self, _user_pk: &PublicKey) -> Result<Option<PubkyId>, DynError> {
+        Ok(self.result.clone())
+    }
+}
+
 pub struct UserHsResolverRunner {
     resolver: Box<dyn PkdnsHomeserverResolver>,
     ttl_ms: u64,
@@ -278,22 +302,6 @@ mod tests {
         StackManager::setup(&StackConfig::default()).await
     }
 
-    /// Resolver stub returning a fixed PKDNS result, so `resolve_user` can be
-    /// driven without touching the DHT.
-    struct MockResolver {
-        result: Option<PubkyId>,
-    }
-
-    #[async_trait::async_trait]
-    impl PkdnsHomeserverResolver for MockResolver {
-        async fn resolve_homeserver(
-            &self,
-            _user_pk: &PublicKey,
-        ) -> Result<Option<PubkyId>, DynError> {
-            Ok(self.result.clone())
-        }
-    }
-
     /// Helper: a random homeserver id.
     fn random_hs_id() -> PubkyId {
         PubkyId::from(Keypair::random().public_key())
@@ -494,9 +502,7 @@ mod tests {
 
         create_test_user(&user_id).await?;
 
-        let resolver = MockResolver {
-            result: Some(hs_id.clone()),
-        };
+        let resolver = MockPkdnsResolver::new(Some(hs_id.clone()));
         resolve_user(&resolver, &user_pk).await?;
 
         assert_eq!(
@@ -520,7 +526,7 @@ mod tests {
 
         create_test_user(&user_id).await?;
 
-        let resolver = MockResolver { result: None };
+        let resolver = MockPkdnsResolver::new(None);
         resolve_user(&resolver, &user_pk).await?;
 
         assert_eq!(get_user_homeserver(&user_id).await?, None);
@@ -545,9 +551,7 @@ mod tests {
         exec_single_row(queries::put::set_user_homeserver(&user_id, &stored_hs)).await?;
 
         // DHT now points at a different homeserver
-        let resolver = MockResolver {
-            result: Some(new_hs.clone()),
-        };
+        let resolver = MockPkdnsResolver::new(Some(new_hs.clone()));
         resolve_user(&resolver, &user_pk).await?;
 
         // Binding unchanged, and the user is indexed on neither homeserver
@@ -580,7 +584,7 @@ mod tests {
         exec_single_row(queries::put::set_user_homeserver(&user_id, &stored_hs)).await?;
 
         // DHT no longer publishes a homeserver
-        let resolver = MockResolver { result: None };
+        let resolver = MockPkdnsResolver::new(None);
         resolve_user(&resolver, &user_pk).await?;
 
         assert_eq!(
@@ -615,9 +619,7 @@ mod tests {
             .contains(&user_id));
 
         // DHT points back at the stored homeserver
-        let resolver = MockResolver {
-            result: Some(stored_hs.clone()),
-        };
+        let resolver = MockPkdnsResolver::new(Some(stored_hs.clone()));
         resolve_user(&resolver, &user_pk).await?;
 
         assert!(get_user_ids_by_homeserver(&stored_hs)

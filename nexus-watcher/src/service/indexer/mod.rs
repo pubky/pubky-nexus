@@ -135,12 +135,28 @@ pub trait TEventProcessor: Send + Sync + 'static {
                 warn!("Unrecognized event URI: {reason}");
             }
             Ok(ParseResult::Parsed(event)) => {
+                // Gate errors bypass `handle_error` and stop the whole batch (cursor not advanced,
+                // replays next tick) — a single-user PKDNS/graph failure stalls the watcher until it recovers.
+                if !self.should_process_event(&event).await? {
+                    debug!("Refusing event after pre-check: {}", event.uri);
+                    return Ok(());
+                }
                 debug!("Processing event: {:?}", event);
                 self.handle_event(&event).await?;
             }
         }
 
         Ok(())
+    }
+
+    /// Pre-check invoked after a line is parsed into an actionable [`Event`] but
+    /// before it is handed to [`Self::handle_event`].
+    ///
+    /// Returning `Ok(false)` skips the event without error; `Err` propagates and
+    /// stops the batch (so the cursor is not advanced and the batch replays).
+    /// Default: process every event.
+    async fn should_process_event(&self, _event: &Event) -> Result<bool, EventProcessorError> {
+        Ok(true)
     }
 
     /// Handles an error of event processing from event processing (e.g. logging, scheduling retries).

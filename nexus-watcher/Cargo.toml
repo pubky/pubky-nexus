@@ -7,6 +7,12 @@ homepage = "https://github.com/pubky/pubky-nexus"
 repository = "https://github.com/pubky/pubky-nexus"
 license = "MIT"
 
+[features]
+# Exposes in-crate test doubles (e.g. `MockPkdnsResolver`) to the integration
+# test target, which can't see `#[cfg(test)]` items across the crate boundary.
+# Enable with `--features test-utils` when running `nexus-watcher` tests.
+test-utils = []
+
 [dependencies]
 async-trait = { workspace = true }
 chrono = { workspace = true }

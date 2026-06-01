@@ -2,6 +2,7 @@ use super::TEventProcessorRunner;
 use crate::events::retry::RetryScheduler;
 use crate::events::{DefaultEventHandler, EventHandler, Moderation};
 use crate::service::indexer::{HsEventProcessor, TEventProcessor};
+use crate::service::user_hs_resolver::PubkyConnectorResolver;
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::types::DynError;
 use nexus_common::WatcherConfig;
@@ -60,6 +61,7 @@ impl TEventProcessorRunner for HsEventProcessorRunner {
             event_handler: self.event_handler.clone(),
             shutdown_rx: self.shutdown_rx.clone(),
             retry_scheduler: self.retry_scheduler.clone(),
+            user_hs_resolver: Arc::new(PubkyConnectorResolver),
         }))
     }
 

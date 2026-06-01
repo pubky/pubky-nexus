@@ -80,7 +80,7 @@ jobs:
 
       # This test suite uses the TEST_PUBKY_CONNECTION_STRING env variable
       - name: Run WATCHER integration tests
-        run: cargo nextest run -p nexus-watcher --no-fail-fast
+        run: cargo nextest run -p nexus-watcher --features test-utils --no-fail-fast
 
       - name: Tear down Docker Compose
         if: always()
