@@ -196,40 +196,23 @@ fn default_key_based_events_limit() -> u16 {
     DEFAULT_KEY_BASED_EVENTS_LIMIT
 }
 
-fn deserialize_events_limit<'de, D>(deserializer: D) -> Result<u16, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let val = u16::deserialize(deserializer)?;
-    if val == 0 {
-        return Err(D::Error::custom("events_limit must be at least 1"));
-    }
-
-    if val > MAX_EVENTS_LIMIT {
-        let err_msg = format!("events_limit ({val}) exceeds max ({MAX_EVENTS_LIMIT})");
-        Err(D::Error::custom(err_msg))
-    } else {
-        Ok(val)
-    }
+fn deserialize_events_limit<'de, D: Deserializer<'de>>(d: D) -> Result<u16, D::Error> {
+    check_limit(u16::deserialize(d)?, "events_limit", MAX_EVENTS_LIMIT)
 }
 
-fn deserialize_key_based_events_limit<'de, D>(deserializer: D) -> Result<u16, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let val = u16::deserialize(deserializer)?;
-    if val == 0 {
-        return Err(D::Error::custom(
-            "key_based_events_limit must be at least 1",
-        ));
-    }
+fn deserialize_key_based_events_limit<'de, D: Deserializer<'de>>(d: D) -> Result<u16, D::Error> {
+    check_limit(
+        u16::deserialize(d)?,
+        "key_based_events_limit",
+        MAX_KEY_BASED_EVENTS_LIMIT,
+    )
+}
 
-    if val > MAX_KEY_BASED_EVENTS_LIMIT {
-        let err_msg =
-            format!("key_based_events_limit ({val}) exceeds max ({MAX_KEY_BASED_EVENTS_LIMIT})");
-        Err(D::Error::custom(err_msg))
-    } else {
-        Ok(val)
+fn check_limit<E: Error>(val: u16, field: &str, max: u16) -> Result<u16, E> {
+    match val {
+        0 => Err(E::custom(format!("{field} must be at least 1"))),
+        v if v > max => Err(E::custom(format!("{field} ({v}) exceeds max ({max})"))),
+        v => Ok(v),
     }
 }
 

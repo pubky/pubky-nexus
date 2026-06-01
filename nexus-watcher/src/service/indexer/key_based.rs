@@ -4,7 +4,7 @@ use futures::StreamExt;
 use nexus_common::db::{PubkyConnector, RedisOps};
 use nexus_common::models::event::{Event, EventProcessorError};
 use nexus_common::models::homeserver::Homeserver;
-use nexus_common::models::user::{user_hs_cursor_key, UserDetails};
+use nexus_common::models::user::{user_hs_cursor_key, UserDetails, UserHsCursorKey};
 use pubky::{Event as StreamEvent, EventCursor, PublicKey};
 use tokio::sync::watch::Receiver;
 use tracing::{debug, error, info, warn};
@@ -12,6 +12,7 @@ use tracing::{debug, error, info, warn};
 use super::TEventProcessor;
 use crate::events::retry::RetryScheduler;
 use crate::events::EventHandler;
+use crate::service::runner::UserNotFoundBackoff;
 use crate::service::user_hs_resolver;
 
 const FETCH_EVENTS_429_BACKOFF_SECS: [u64; 3] = [1, 2, 3];
@@ -68,11 +69,15 @@ pub struct KeyBasedEventProcessor {
     /// Max events the homeserver will send before closing the stream.
     /// Bounds execution time per user, preventing timeout and starvation.
     pub limit: u16,
+
     pub files_path: PathBuf,
     pub event_handler: Arc<dyn EventHandler>,
     pub event_source: Arc<dyn KeyBasedEventSource>,
+    pub user_not_found_backoff: Arc<UserNotFoundBackoff>,
+
     /// Scheduler used to enqueue failed events onto the retry queue
     pub retry_scheduler: Arc<RetryScheduler>,
+
     pub shutdown_rx: Receiver<bool>,
 }
 
@@ -123,26 +128,52 @@ impl TEventProcessor for KeyBasedEventProcessor {
                 break;
             }
 
-            if let Err(err) = self.process_user(&hs_pk, &hs_id, user_pk, *cursor).await {
-                let user_id = user_pk.z32();
-                if err.is_infrastructure() {
-                    error!(
-                        hs_id = %hs_id,
-                        user = %user_id,
-                        action = "abort_hs",
-                        error = ?err,
-                        "Infrastructure error while processing user; aborting homeserver run",
-                    );
-                    return Err(err);
-                }
-
-                error!(
+            // Users whose event fetch previously returned 404 are skipped for an
+            // increasing number of runs (see `UserNotFoundBackoff`).
+            if self.user_not_found_backoff.consume_skip(user_pk).await {
+                debug!(
                     hs_id = %hs_id,
-                    user = %user_id,
+                    user = %user_pk.z32(),
                     action = "skip_user",
-                    error = ?err,
-                    "Non-infrastructure user error; continuing with next user",
+                    "Skipping user due to prior 404 (NotFound404) backoff",
                 );
+                continue;
+            }
+
+            match self.process_user(&hs_pk, &hs_id, user_pk, *cursor).await {
+                Ok(()) => self.user_not_found_backoff.record_success(user_pk).await,
+                Err(err) => {
+                    let user_id = user_pk.z32();
+                    if err.should_not_retry_now() {
+                        error!(
+                            hs_id = %hs_id,
+                            user = %user_id,
+                            action = "abort_hs",
+                            error = ?err,
+                            "Got should-not-retry-now error while processing user; aborting homeserver run",
+                        );
+                        return Err(err);
+                    }
+
+                    if err.is_not_found() {
+                        self.user_not_found_backoff.record_failure(user_pk).await;
+                        warn!(
+                            hs_id = %hs_id,
+                            user = %user_id,
+                            action = "skip_user",
+                            error = ?err,
+                            "User event fetch returned 404; backing off this user for future runs",
+                        );
+                    } else {
+                        error!(
+                            hs_id = %hs_id,
+                            user = %user_id,
+                            action = "skip_user",
+                            error = ?err,
+                            "Got error while processing user; continuing with next user",
+                        );
+                    }
+                }
             }
         }
 
@@ -239,7 +270,7 @@ impl KeyBasedEventProcessor {
                 Ok(events) => return Ok(events),
                 Err(err) if err.is_too_many_requests() => {
                     let Some(backoff_secs) = FETCH_EVENTS_429_BACKOFF_SECS.get(retry_index) else {
-                        return Err(err);
+                        return Err(EventProcessorError::HsEventsStreamRateLimitExhausted);
                     };
 
                     warn!(
@@ -337,15 +368,17 @@ impl KeyBasedEventProcessor {
         user_ids: &[&str],
         hs_id: &str,
     ) -> Result<Vec<EventCursor>, EventProcessorError> {
-        let keys: Vec<[&str; 3]> = user_ids
+        let keys: Vec<UserHsCursorKey<'_>> = user_ids
             .iter()
             .map(|user_id| user_hs_cursor_key(user_id))
             .collect();
-        let keys_refs: Vec<&[&str]> = keys.iter().map(|k| k.as_slice()).collect();
         let member: [&str; 1] = [hs_id];
-        let members_refs: Vec<&[&str]> = vec![member.as_slice(); user_ids.len()];
+        let pairs: Vec<(&[&str], &[&str])> = keys
+            .iter()
+            .map(|k| (k.as_slice(), member.as_slice()))
+            .collect();
 
-        let scores = UserDetails::check_sorted_set_members(None, &keys_refs, &members_refs).await?;
+        let scores = UserDetails::check_sorted_set_members(None, &pairs).await?;
 
         Ok(scores
             .into_iter()

@@ -108,7 +108,7 @@ impl HsEventProcessor {
     /// Processes a batch of event lines retrieved from the homeserver.
     ///
     /// This function implements the retry logic:
-    /// - On infrastructure error: stops the batch, cursor is not saved, next tick replays from same position
+    /// - On error that should not be retried right now: stops the batch, cursor is not saved, next tick replays from same position
     /// - On MissingDependency: stores event in retry queue, continues processing
     /// - On 404 (blob not found): skips indexing, continues processing
     /// - On InvalidEventLine/SkipIndexing: logs and continues
