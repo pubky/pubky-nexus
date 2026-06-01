@@ -109,8 +109,7 @@ impl Homeserver {
     pub async fn get_all_active_from_graph() -> GraphResult<Vec<String>> {
         let query = queries::get::get_all_homeservers_with_active_users();
         let maybe_hs_ids = fetch_key_from_graph(query, "homeservers_list").await?;
-        let hs_ids: Vec<String> = maybe_hs_ids.unwrap_or_default();
-        Ok(hs_ids)
+        Ok(maybe_hs_ids.unwrap_or_default())
     }
 }
 
