@@ -58,14 +58,10 @@ async fn key_based_processor_skips_unrecognized_events() -> Result<(), DynError>
     let user_id = create_user_on_homeserver(&homeserver).await?;
 
     // Return one unrecognized event followed by one valid pubky.app event for the same user.
-    let source = Arc::new(
-        MockKeyBasedEventSource::default()
-            .with_events(vec![vec![
-                stream_event(1, &user_id, "/pub/other.app/profile.json")?,
-                stream_event(2, &user_id, "/pub/pubky.app/profile.json")?,
-            ]])
-            .await,
-    );
+    let source = Arc::new(MockKeyBasedEventSource::default().with_events(vec![vec![
+        stream_event(1, &user_id, "/pub/other.app/profile.json")?,
+        stream_event(2, &user_id, "/pub/pubky.app/profile.json")?,
+    ]]));
 
     let handler = create_mock_handler(Ok(()), None);
     let processor = processor(homeserver, handler.clone(), source.clone());
@@ -96,24 +92,20 @@ async fn key_based_processor_stops_mismatched_user_stream_but_continues_other_us
 
     // For the first hosted user, return an event whose URI belongs to a different user.
     // The following valid event for the same hosted user must not be processed after that mismatch.
-    let source = Arc::new(
-        MockKeyBasedEventSource::default()
-            .with_user_events(vec![
-                (
-                    user_a_id.clone(),
-                    vec![
-                        stream_event(1, &user_c_id, "/pub/pubky.app/profile.json")?,
-                        stream_event(2, &user_a_id, "/pub/pubky.app/profile.json")?,
-                    ],
-                ),
-                // For the second hosted user, return a valid event to prove processing continues.
-                (
-                    user_b_id.clone(),
-                    vec![stream_event(3, &user_b_id, "/pub/pubky.app/profile.json")?],
-                ),
-            ])
-            .await,
-    );
+    let source = Arc::new(MockKeyBasedEventSource::default().with_user_events(vec![
+        (
+            user_a_id.clone(),
+            vec![
+                stream_event(1, &user_c_id, "/pub/pubky.app/profile.json")?,
+                stream_event(2, &user_a_id, "/pub/pubky.app/profile.json")?,
+            ],
+        ),
+        // For the second hosted user, return a valid event to prove processing continues.
+        (
+            user_b_id.clone(),
+            vec![stream_event(3, &user_b_id, "/pub/pubky.app/profile.json")?],
+        ),
+    ]));
 
     // Wire the processor to the user-keyed mock source and handler.
     let handler = create_mock_handler(Ok(()), None);
@@ -178,18 +170,14 @@ async fn key_based_processor_skips_invalid_resolved_user_id() -> Result<(), DynE
     let invalid_user_id = "not-a-pubky-user";
     create_invalid_user_on_homeserver(&homeserver, invalid_user_id).await?;
 
-    let source = Arc::new(
-        MockKeyBasedEventSource::default()
-            .with_user_events(vec![(
-                valid_user_id.clone(),
-                vec![stream_event(
-                    1,
-                    &valid_user_id,
-                    "/pub/pubky.app/profile.json",
-                )?],
-            )])
-            .await,
-    );
+    let source = Arc::new(MockKeyBasedEventSource::default().with_user_events(vec![(
+        valid_user_id.clone(),
+        vec![stream_event(
+            1,
+            &valid_user_id,
+            "/pub/pubky.app/profile.json",
+        )?],
+    )]));
     let handler = create_mock_handler(Ok(()), None);
     let processor = processor(homeserver, handler.clone(), source.clone());
 
@@ -255,14 +243,10 @@ async fn key_based_processor_persists_latest_cursor_after_success() -> Result<()
     let (_hs_keypair, homeserver) = create_homeserver().await?;
     let hs_id = homeserver.id.to_string();
     let user_id = create_user_on_homeserver(&homeserver).await?;
-    let source = Arc::new(
-        MockKeyBasedEventSource::default()
-            .with_events(vec![vec![
-                stream_event(1, &user_id, "/pub/pubky.app/profile.json")?,
-                stream_event(4, &user_id, "/pub/pubky.app/profile.json")?,
-            ]])
-            .await,
-    );
+    let source = Arc::new(MockKeyBasedEventSource::default().with_events(vec![vec![
+        stream_event(1, &user_id, "/pub/pubky.app/profile.json")?,
+        stream_event(4, &user_id, "/pub/pubky.app/profile.json")?,
+    ]]));
     let handler = create_mock_handler(Ok(()), None);
     let processor = processor(homeserver, handler.clone(), source);
 
@@ -283,14 +267,10 @@ async fn key_based_processor_persists_last_safe_cursor_before_mismatch() -> Resu
     let hs_id = homeserver.id.to_string();
     let user_id = create_user_on_homeserver(&homeserver).await?;
     let mismatched_user_id = Keypair::random().public_key().to_z32();
-    let source = Arc::new(
-        MockKeyBasedEventSource::default()
-            .with_events(vec![vec![
-                stream_event(5, &user_id, "/pub/pubky.app/profile.json")?,
-                stream_event(6, &mismatched_user_id, "/pub/pubky.app/profile.json")?,
-            ]])
-            .await,
-    );
+    let source = Arc::new(MockKeyBasedEventSource::default().with_events(vec![vec![
+        stream_event(5, &user_id, "/pub/pubky.app/profile.json")?,
+        stream_event(6, &mismatched_user_id, "/pub/pubky.app/profile.json")?,
+    ]]));
     let handler = create_mock_handler(Ok(()), None);
     let processor = processor(homeserver, handler.clone(), source);
 
@@ -310,14 +290,9 @@ async fn key_based_processor_aborts_on_not_retry_now_fetch_error() -> Result<(),
     let (_hs_keypair, homeserver) = create_homeserver().await?;
     create_user_on_homeserver(&homeserver).await?;
     create_user_on_homeserver(&homeserver).await?;
-    let source = Arc::new(
-        MockKeyBasedEventSource::default()
-            .with_results(vec![Err(EventProcessorError::IndexOperationFailed(
-                true,
-                "redis unavailable".into(),
-            ))])
-            .await,
-    );
+    let source = Arc::new(MockKeyBasedEventSource::default().with_results(vec![Err(
+        EventProcessorError::IndexOperationFailed(true, "redis unavailable".into()),
+    )]));
     let handler = create_mock_handler(Ok(()), None);
     let processor = processor(homeserver, handler.clone(), source.clone());
 
@@ -338,24 +313,20 @@ async fn key_based_processor_continues_after_retryable_fetch_error() -> Result<(
     let (_hs_keypair, homeserver) = create_homeserver().await?;
     let user_a_id = create_user_on_homeserver(&homeserver).await?;
     let user_b_id = create_user_on_homeserver(&homeserver).await?;
-    let source = Arc::new(
-        MockKeyBasedEventSource::default()
-            .with_user_results(vec![
-                (
-                    user_a_id.clone(),
-                    Err(EventProcessorError::Generic("bad user stream".into())),
-                ),
-                (
-                    user_b_id.clone(),
-                    Ok(vec![stream_event(
-                        9,
-                        &user_b_id,
-                        "/pub/pubky.app/profile.json",
-                    )?]),
-                ),
-            ])
-            .await,
-    );
+    let source = Arc::new(MockKeyBasedEventSource::default().with_user_results(vec![
+        (
+            user_a_id.clone(),
+            Err(EventProcessorError::Generic("bad user stream".into())),
+        ),
+        (
+            user_b_id.clone(),
+            Ok(vec![stream_event(
+                9,
+                &user_b_id,
+                "/pub/pubky.app/profile.json",
+            )?]),
+        ),
+    ]));
     let handler = create_mock_handler(Ok(()), None);
     let processor = processor(homeserver, handler.clone(), source.clone());
 
@@ -377,19 +348,15 @@ async fn key_based_processor_retries_429_fetch_errors_with_backoff() -> Result<(
 
     let (_hs_keypair, homeserver) = create_homeserver().await?;
     let user_id = create_user_on_homeserver(&homeserver).await?;
-    let source = Arc::new(
-        MockKeyBasedEventSource::default()
-            .with_results(vec![
-                Err(too_many_requests_error()),
-                Err(too_many_requests_error()),
-                Ok(vec![stream_event(
-                    10,
-                    &user_id,
-                    "/pub/pubky.app/profile.json",
-                )?]),
-            ])
-            .await,
-    );
+    let source = Arc::new(MockKeyBasedEventSource::default().with_results(vec![
+        Err(too_many_requests_error()),
+        Err(too_many_requests_error()),
+        Ok(vec![stream_event(
+            10,
+            &user_id,
+            "/pub/pubky.app/profile.json",
+        )?]),
+    ]));
     let handler = create_mock_handler(Ok(()), None);
     let processor = processor(homeserver, handler.clone(), source.clone());
 
@@ -416,21 +383,17 @@ async fn key_based_processor_resets_404_backoff_after_success() -> Result<(), Dy
 
     // Fetch results in fetch order. Skipped runs do not consume an entry, so this
     // sequence only lists runs where a fetch actually happens.
-    let source = Arc::new(
-        MockKeyBasedEventSource::default()
-            .with_results(vec![
-                Err(user_not_found_error()), // run 1
-                Err(user_not_found_error()), // run 3
-                Ok(vec![stream_event(
-                    7,
-                    &user_id,
-                    "/pub/pubky.app/profile.json",
-                )?]), // run 6
-                Err(user_not_found_error()), // run 7
-                Err(user_not_found_error()), // run 9
-            ])
-            .await,
-    );
+    let source = Arc::new(MockKeyBasedEventSource::default().with_results(vec![
+        Err(user_not_found_error()), // run 1
+        Err(user_not_found_error()), // run 3
+        Ok(vec![stream_event(
+            7,
+            &user_id,
+            "/pub/pubky.app/profile.json",
+        )?]), // run 6
+        Err(user_not_found_error()), // run 7
+        Err(user_not_found_error()), // run 9
+    ]));
     let handler = create_mock_handler(Ok(()), None);
     // Shared across runs so backoff state persists, like the runner-owned backoff.
     let backoff = Arc::new(UserNotFoundBackoff::default());
@@ -489,16 +452,12 @@ async fn key_based_processor_aborts_homeserver_after_exhausted_429_retries() -> 
     let (_hs_keypair, homeserver) = create_homeserver().await?;
     create_user_on_homeserver(&homeserver).await?;
     create_user_on_homeserver(&homeserver).await?;
-    let source = Arc::new(
-        MockKeyBasedEventSource::default()
-            .with_results(vec![
-                Err(too_many_requests_error()),
-                Err(too_many_requests_error()),
-                Err(too_many_requests_error()),
-                Err(too_many_requests_error()),
-            ])
-            .await,
-    );
+    let source = Arc::new(MockKeyBasedEventSource::default().with_results(vec![
+        Err(too_many_requests_error()),
+        Err(too_many_requests_error()),
+        Err(too_many_requests_error()),
+        Err(too_many_requests_error()),
+    ]));
     let handler = create_mock_handler(Ok(()), None);
     let processor = processor(homeserver, handler.clone(), source.clone());
 
@@ -522,15 +481,14 @@ async fn key_based_processor_aborts_and_keeps_cursor_on_not_retry_now_handler_er
     let (_hs_keypair, homeserver) = create_homeserver().await?;
     let hs_id = homeserver.id.to_string();
     let user_id = create_user_on_homeserver(&homeserver).await?;
-    let source = Arc::new(
-        MockKeyBasedEventSource::default()
-            .with_events(vec![vec![stream_event(
+    let source =
+        Arc::new(
+            MockKeyBasedEventSource::default().with_events(vec![vec![stream_event(
                 9,
                 &user_id,
                 "/pub/pubky.app/profile.json",
-            )?]])
-            .await,
-    );
+            )?]]),
+        );
     let handler = create_mock_handler(
         Err(EventProcessorError::IndexOperationFailed(
             true,
@@ -582,26 +540,22 @@ async fn key_based_processor_stops_current_and_next_users_after_shutdown() -> Re
     let hs_id = homeserver.id.to_string();
     let user_a_id = create_user_on_homeserver(&homeserver).await?;
     let user_b_id = create_user_on_homeserver(&homeserver).await?;
-    let source = Arc::new(
-        MockKeyBasedEventSource::default()
-            .with_user_events(vec![
-                (
-                    user_a_id.clone(),
-                    vec![
-                        stream_event(1, &user_a_id, "/pub/pubky.app/profile.json")?,
-                        stream_event(2, &user_a_id, "/pub/pubky.app/profile.json")?,
-                    ],
-                ),
-                (
-                    user_b_id.clone(),
-                    vec![
-                        stream_event(1, &user_b_id, "/pub/pubky.app/profile.json")?,
-                        stream_event(2, &user_b_id, "/pub/pubky.app/profile.json")?,
-                    ],
-                ),
-            ])
-            .await,
-    );
+    let source = Arc::new(MockKeyBasedEventSource::default().with_user_events(vec![
+        (
+            user_a_id.clone(),
+            vec![
+                stream_event(1, &user_a_id, "/pub/pubky.app/profile.json")?,
+                stream_event(2, &user_a_id, "/pub/pubky.app/profile.json")?,
+            ],
+        ),
+        (
+            user_b_id.clone(),
+            vec![
+                stream_event(1, &user_b_id, "/pub/pubky.app/profile.json")?,
+                stream_event(2, &user_b_id, "/pub/pubky.app/profile.json")?,
+            ],
+        ),
+    ]));
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let handler = Arc::new(ShutdownOnFirstHandle::new(shutdown_tx));
     let processor =

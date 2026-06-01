@@ -24,26 +24,26 @@ pub struct MockKeyBasedEventSource {
 }
 
 impl MockKeyBasedEventSource {
-    pub async fn with_events(self, events: Vec<Vec<StreamEvent>>) -> Self {
-        *self.events.lock().await = events.into_iter().map(Ok).collect();
+    pub fn with_events(mut self, events: Vec<Vec<StreamEvent>>) -> Self {
+        *self.events.get_mut() = events.into_iter().map(Ok).collect();
         self
     }
 
-    pub async fn with_results(self, results: Vec<FetchEventsResult>) -> Self {
-        *self.events.lock().await = results.into();
+    pub fn with_results(mut self, results: Vec<FetchEventsResult>) -> Self {
+        *self.events.get_mut() = results.into();
         self
     }
 
-    pub async fn with_user_events(self, events: Vec<(String, Vec<StreamEvent>)>) -> Self {
-        *self.user_events.lock().await = events
+    pub fn with_user_events(mut self, events: Vec<(String, Vec<StreamEvent>)>) -> Self {
+        *self.user_events.get_mut() = events
             .into_iter()
             .map(|(user_id, events)| (user_id, Ok(events)))
             .collect();
         self
     }
 
-    pub async fn with_user_results(self, results: Vec<(String, FetchEventsResult)>) -> Self {
-        *self.user_events.lock().await = results.into_iter().collect();
+    pub fn with_user_results(mut self, results: Vec<(String, FetchEventsResult)>) -> Self {
+        *self.user_events.get_mut() = results.into_iter().collect();
         self
     }
 
