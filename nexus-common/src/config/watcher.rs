@@ -92,15 +92,14 @@ impl Default for EventRetryConfig {
 impl EventRetryConfig {
     /// Returns (initial_backoff, max_backoff) values, in seconds, for the given error
     pub fn get_backoff_params(&self, error: &EventProcessorError) -> (u64, u64) {
-        let initial = match error.is_missing_dependency() {
-            true => self.initial_missing_dep_backoff_secs,
-            false => self.initial_backoff_secs,
-        };
-        let max = match error.is_missing_dependency() {
-            true => self.max_missing_dep_backoff_secs,
-            false => self.max_backoff_secs,
-        };
-        (initial, max)
+        if error.is_missing_dependency() {
+            (
+                self.initial_missing_dep_backoff_secs,
+                self.max_missing_dep_backoff_secs,
+            )
+        } else {
+            (self.initial_backoff_secs, self.max_backoff_secs)
+        }
     }
 }
 
