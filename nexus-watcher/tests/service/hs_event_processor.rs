@@ -11,6 +11,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::watch;
 
+const TEST_HS_ID: &str = "1hb71xx9km3f4pw5izsy1gn19ff1uuuqonw4mcygzobwkryujoiy";
+
 /// Assemble an [`HsEventProcessor`] for tests. Tests bypass `poll_events` by
 /// calling `process_event_lines` directly with constructed event lines.
 fn build_processor(
@@ -25,7 +27,7 @@ fn build_processor(
             transient_ms: 10_000,
         },
     ));
-    let hs_id = PubkyId::try_from(TEST_USER_ID).expect("Valid test Pubky ID");
+    let hs_id = PubkyId::try_from(TEST_HS_ID).expect("Valid test Pubky ID");
 
     Arc::new(HsEventProcessor {
         homeserver: Homeserver::new(hs_id),
@@ -94,9 +96,48 @@ async fn test_batch_continues_after_single_failure() -> Result<()> {
 }
 
 // ============================================================================
+// Enqueued retries carry the origin homeserver id
+// A retryable failure persists the processor's homeserver onto the RetryEvent.
+// ============================================================================
+
+#[tokio_shared_rt::test(shared)]
+async fn test_retry_event_carries_origin_homeserver_id() -> Result<()> {
+    setup().await?;
+
+    let post_id = "originhs";
+    let uri = post_uri_builder(TEST_USER_ID.to_string(), post_id.to_string());
+
+    let store = new_in_memory_store();
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+
+    let handler = create_mock_handler(
+        Err(EventProcessorError::Generic("handler fails".to_string())),
+        None,
+    );
+
+    let processor = build_processor(store.clone(), handler.clone(), shutdown_rx);
+
+    processor
+        .process_event_lines(vec![format!("PUT {uri}")])
+        .await?;
+
+    let retry_event = store
+        .get(&uri)
+        .await?
+        .expect("Retryable failure must enqueue a RetryEvent");
+    assert_eq!(
+        retry_event.origin_homeserver_id, TEST_HS_ID,
+        "Enqueued retry must carry the origin homeserver id"
+    );
+
+    let _ = shutdown_tx.send(true);
+    Ok(())
+}
+
+// ============================================================================
 // Infrastructure error stops the batch
-// Infrastructure errors propagate out of `handle_error`, short-circuiting the
-// loop so the cursor is not advanced past unprocessed events.
+// Errors that should not be retried right now propagate out of `handle_error`,
+// short-circuiting the loop so the cursor is not advanced past unprocessed events.
 // ============================================================================
 
 #[tokio_shared_rt::test(shared)]
@@ -113,7 +154,7 @@ async fn test_batch_stops_on_infrastructure_error() -> Result<()> {
     let store = new_in_memory_store();
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
 
-    // Scope the infrastructure error to the first event only. The handler
+    // Scope the should-not-retry-now error to the first event only. The handler
     // returns Ok(()) for non-matching events, so if the batch continued past
     // the first failure, the second event would succeed. The invocation
     // counter provides the definitive proof: handle_count == 1 proves the
@@ -131,7 +172,7 @@ async fn test_batch_stops_on_infrastructure_error() -> Result<()> {
     let result = processor.process_event_lines(lines).await;
     assert!(
         result.is_err(),
-        "Infrastructure error must propagate and stop the batch"
+        "Should-not-retry-now error must propagate and stop the batch"
     );
 
     // Definitive proof: handler was called exactly once, so the batch stopped
@@ -139,13 +180,13 @@ async fn test_batch_stops_on_infrastructure_error() -> Result<()> {
     assert_eq!(
         handler.get_handle_count(),
         1,
-        "Handler must be called exactly once — batch stopped on infrastructure error"
+        "Handler must be called exactly once — batch stopped on should-not-retry-now error"
     );
 
-    // Infrastructure errors bypass the retry scheduler entirely.
+    // Should-not-retry-now errors bypass the retry scheduler entirely.
     assert!(
         store.get(&first_uri).await?.is_none(),
-        "Infrastructure errors must not be queued for retry"
+        "Should-not-retry-now errors must not be queued for retry"
     );
     assert!(
         store.get(&second_uri).await?.is_none(),

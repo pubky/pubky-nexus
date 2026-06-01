@@ -1,4 +1,4 @@
-use super::UserSearch;
+use super::{UserHsCursor, UserSearch};
 use crate::db::graph::Query;
 use crate::db::kv::RedisResult;
 use crate::db::{exec_single_row, queries, GraphResult, PubkyConnector, RedisOps};
@@ -11,8 +11,6 @@ use pubky_app_specs::{PubkyAppUser, PubkyAppUserLink, PubkyId};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json;
 use utoipa::ToSchema;
-
-pub const USER_HS_CURSOR: [&str; 2] = ["Users", "Homeservers"];
 
 #[async_trait]
 impl RedisOps for UserDetails {}
@@ -150,8 +148,7 @@ impl UserDetails {
             return Ok(());
         };
 
-        let pubky_id =
-            PubkyId::try_from(&user_pk.into_inner().to_z32()).map_err(ModelError::from_generic)?;
+        let pubky_id = PubkyId::from(user_pk);
         let user_details = Self::from_pubky(pubky_id);
 
         let hs_id = &hs_pk.into_inner().to_z32();
@@ -165,8 +162,7 @@ impl UserDetails {
             .inspect_err(|e| tracing::error!("Failed to ingest user {user_id}: {e}"))?;
 
         // Store the start point of the homeserver cursor
-        let key = &[&USER_HS_CURSOR[..], &[user_id]].concat();
-        Self::put_index_sorted_set(key, &[(0.0, hs_id)], None, None).await?;
+        UserHsCursor::write(user_id, hs_id, 0).await?;
 
         Ok(())
     }

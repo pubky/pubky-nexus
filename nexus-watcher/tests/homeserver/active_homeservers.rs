@@ -113,3 +113,34 @@ async fn test_get_all_active_homeservers() -> Result<(), DynError> {
     test.cleanup_user(&kp_b2).await?;
     Ok(())
 }
+
+/// A homeserver whose only user has a stale mapping must drop off the active list.
+#[tokio_shared_rt::test(shared)]
+async fn test_stale_users_excluded_from_active_homeservers() -> Result<(), DynError> {
+    let mut test = WatcherTest::setup().await?;
+
+    let hs = create_orphan_hs().await?;
+    let kp = Keypair::random();
+    let user_id = test
+        .create_user(&kp, &make_test_user("Watcher:ActiveHS:Stale"))
+        .await?;
+    exec_single_row(queries::put::set_user_homeserver(&user_id, &hs)).await?;
+
+    // With an active mapping the homeserver is listed.
+    let hs_ids = Homeserver::get_all_active_from_graph().await?;
+    assert!(
+        hs_ids.contains(&hs.to_string()),
+        "HS with an active user should be listed"
+    );
+
+    // Marking the only user stale drops the homeserver off the active list.
+    exec_single_row(queries::put::set_user_homeserver_stale(&user_id, true)).await?;
+    let hs_ids = Homeserver::get_all_active_from_graph().await?;
+    assert!(
+        !hs_ids.contains(&hs.to_string()),
+        "HS with only stale users should be excluded"
+    );
+
+    test.cleanup_user(&kp).await?;
+    Ok(())
+}

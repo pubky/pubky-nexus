@@ -14,6 +14,7 @@ nexus-common = { path = "../nexus-common" }
 opentelemetry = { workspace = true }
 pubky = { workspace = true }
 pubky-app-specs = { workspace = true }
+futures = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }

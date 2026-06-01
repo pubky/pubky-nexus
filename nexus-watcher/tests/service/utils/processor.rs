@@ -47,6 +47,10 @@ impl TEventProcessor for MockEventProcessor {
         format!("MockEventProcessor for HS ID: {}", self.homeserver_id)
     }
 
+    fn homeserver_id(&self) -> Option<&str> {
+        Some(self.homeserver_id.as_ref())
+    }
+
     fn retry_scheduler(&self) -> Option<&Arc<RetryScheduler>> {
         None
     }

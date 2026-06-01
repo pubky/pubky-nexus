@@ -546,6 +546,28 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         sorted_sets::check_member(prefix, &key, &member_key).await
     }
 
+    /// Checks multiple (key, member) pairs across Redis sorted sets in a single
+    /// pipeline round-trip.
+    ///
+    /// Each `(key_parts, member_parts)` pair is joined and passed as one
+    /// `ZSCORE`. Returns scores in the same order, with `None` for absent
+    /// members.
+    async fn check_sorted_set_members(
+        prefix: Option<&str>,
+        pairs: &[(&[&str], &[&str])],
+    ) -> RedisResult<Vec<Option<isize>>> {
+        let prefix = prefix.unwrap_or(SORTED_PREFIX);
+        let joined: Vec<(String, String)> = pairs
+            .iter()
+            .map(|(key_parts, member_parts)| (key_parts.join(":"), member_parts.join(":")))
+            .collect();
+        let pair_refs: Vec<(&str, &str)> = joined
+            .iter()
+            .map(|(key, member)| (key.as_str(), member.as_str()))
+            .collect();
+        sorted_sets::check_members(prefix, &pair_refs).await
+    }
+
     /// Adds elements to a Redis sorted set using the provided key parts.
     ///
     /// This method adds elements to a Redis sorted set under the key generated from the provided `key_parts`.

@@ -16,7 +16,7 @@ pub struct HsEventProcessor {
     pub homeserver: Homeserver,
 
     /// See [WatcherConfig::events_limit]
-    pub limit: u32,
+    pub limit: u16,
     pub files_path: PathBuf,
     pub event_handler: Arc<dyn EventHandler>,
     pub shutdown_rx: Receiver<bool>,
@@ -40,6 +40,10 @@ impl TEventProcessor for HsEventProcessor {
 
     fn retry_scheduler(&self) -> Option<&Arc<RetryScheduler>> {
         Some(&self.retry_scheduler)
+    }
+
+    fn homeserver_id(&self) -> Option<&str> {
+        Some(self.homeserver.id.as_ref())
     }
 
     async fn run_internal(self: Arc<Self>) -> Result<(), EventProcessorError> {
@@ -104,7 +108,7 @@ impl HsEventProcessor {
     /// Processes a batch of event lines retrieved from the homeserver.
     ///
     /// This function implements the retry logic:
-    /// - On infrastructure error: stops the batch, cursor is not saved, next tick replays from same position
+    /// - On error that should not be retried right now: stops the batch, cursor is not saved, next tick replays from same position
     /// - On MissingDependency: stores event in retry queue, continues processing
     /// - On 404 (blob not found): skips indexing, continues processing
     /// - On InvalidEventLine/SkipIndexing: logs and continues

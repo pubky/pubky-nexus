@@ -2,7 +2,7 @@ mod homeserver;
 mod key_based;
 
 pub use homeserver::HsEventProcessor;
-pub use key_based::KeyBasedEventProcessor;
+pub use key_based::{KeyBasedEventProcessor, KeyBasedEventSource, PubkyKeyBasedEventSource};
 use nexus_common::models::event::ParseResult;
 use std::{fmt::Display, path::PathBuf, sync::Arc, time::Duration};
 
@@ -76,6 +76,10 @@ pub trait TEventProcessor: Send + Sync + 'static {
         None
     }
 
+    fn homeserver_id(&self) -> Option<&str> {
+        None
+    }
+
     async fn run(self: Arc<Self>) -> Result<(), RunError> {
         let timeout = self
             .custom_timeout()
@@ -123,7 +127,8 @@ pub trait TEventProcessor: Send + Sync + 'static {
     /// `DefaultEventHandler` → `tag::sync_put_resource` (main flow).
     async fn process_event_line(&self, line: &str) -> Result<(), EventProcessorError> {
         match Event::parse_event(line, self.files_path().clone()) {
-            Err(e) => error!("{e}"),
+            // Invalid event lines come from untrusted homeservers; treat as bad peer data, not Nexus errors.
+            Err(e) => warn!("{e}"),
             Ok(ParseResult::Skipped) => {}
             Ok(ParseResult::UnrecognizedUri { reason, .. }) => {
                 // Should not normally occur — UnknownResource parsing happens in HomeserverParsedUri
@@ -143,21 +148,24 @@ pub trait TEventProcessor: Send + Sync + 'static {
     /// Called in the event processing loop.
     ///
     /// Returns:
-    /// - `Ok(())` - Continue processing the batch (non-retryable errors are dropped, retryable
-    ///   ones are queued for retry)
-    /// - `Err(e)` - Stop processing and return error (for infrastructure errors)
+    /// - `Ok(())` - Continue processing the batch (errors not worth retrying are dropped, the
+    ///   rest are queued for retry)
+    /// - `Err(e)` - Stop processing and return error (for errors that should not be retried right now)
     async fn handle_error(
         &self,
         event: &Event,
         error: EventProcessorError,
     ) -> Result<(), EventProcessorError> {
-        if error.is_infrastructure() {
-            warn!("Infrastructure error, stopping batch: {error}");
+        if error.should_not_retry_now() {
+            warn!("Got should-not-retry-now error, stopping batch: {error}");
             return Err(error);
         }
 
-        if !error.is_retryable() {
-            debug!("Non-retryable error, skipping event {}: {error}", event.uri);
+        if !RetryScheduler::should_enqueue_related_event(&error) {
+            debug!(
+                "Error not worth retrying, skipping event {}: {error}",
+                event.uri
+            );
             return Ok(());
         }
 
@@ -165,11 +173,19 @@ pub trait TEventProcessor: Send + Sync + 'static {
             return Ok(());
         };
 
+        let Some(homeserver_id) = self.homeserver_id() else {
+            warn!(
+                "Retryable error but no origin homeserver to persist; skipping retry for {}",
+                event.uri
+            );
+            return Ok(());
+        };
+
         if error.is_missing_dependency() {
-            scheduler.queue_missing_dep(event).await
+            scheduler.queue_missing_dep(event, homeserver_id).await
         } else {
-            warn!("Retryable error, queuing event for retry: {error}");
-            scheduler.queue_transient(event).await
+            warn!("Transient error, queuing event for retry: {error}");
+            scheduler.queue_transient(event, homeserver_id).await
         }
     }
 

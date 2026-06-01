@@ -1,4 +1,3 @@
-pub mod backoff;
 mod constants;
 pub mod indexer;
 pub mod runner;
@@ -11,6 +10,7 @@ pub use constants::{PROCESSING_TIMEOUT_SECS, WATCHER_CONFIG_FILE_NAME};
 pub use indexer::{HsEventProcessor, KeyBasedEventProcessor, RunError, TEventProcessor};
 pub use runner::{HsEventProcessorRunner, KeyBasedEventProcessorRunner, TEventProcessorRunner};
 pub(crate) use task_runner::{run_periodic_tasks, PeriodicTask};
+pub use user_hs_resolver::UserHsResolverRunner;
 
 /// Sleep interval for the retry processor (10 seconds)
 const RETRY_PROCESSOR_SLEEP: u64 = 10_000;
@@ -92,7 +92,6 @@ impl NexusWatcher {
 
         let watcher_sleep = config.watcher_sleep;
         let hs_resolver_sleep = config.hs_resolver_sleep;
-        let hs_resolver_ttl = config.hs_resolver_ttl;
 
         let hs_runner = Arc::new(HsEventProcessorRunner::from_config(
             &config,
@@ -100,6 +99,11 @@ impl NexusWatcher {
         ));
         let key_based_runner = Arc::new(KeyBasedEventProcessorRunner::from_config(
             &config,
+            shutdown_rx.clone(),
+        ));
+        let user_hs_resolver_runner = Arc::new(UserHsResolverRunner::from_config(
+            &config,
+            Box::new(user_hs_resolver::PubkyConnectorResolver),
             shutdown_rx.clone(),
         ));
 
@@ -115,8 +119,9 @@ impl NexusWatcher {
                 let runner = key_based_runner.clone();
                 async move { runner.run().await.map(|_| ()) }
             }),
-            PeriodicTask::new("user-hs-resolver", hs_resolver_sleep, move || async move {
-                user_hs_resolver::run(hs_resolver_ttl).await
+            PeriodicTask::new("user-hs-resolver", hs_resolver_sleep, move || {
+                let runner = user_hs_resolver_runner.clone();
+                async move { runner.run().await }
             }),
             PeriodicTask::new("retry-processor", RETRY_PROCESSOR_SLEEP, move || {
                 let processor = retry_processor.clone();

@@ -7,9 +7,11 @@ use nexus_common::db::RedisOps;
 
 use crate::events::EventProcessorError;
 
-const RETRY_MANAGER_PREFIX: &str = "RetryManager";
-const RETRY_MANAGER_EVENTS_INDEX: [&str; 1] = ["events"];
-const RETRY_MANAGER_STATE_INDEX: [&str; 1] = ["state"];
+// v2: RetryEvent schema changed incompatibly; bumped prefix so old keys under
+// "RetryManager:*" stay orphaned rather than failing to deserialize.
+pub const RETRY_MANAGER_PREFIX: &str = "RetryManagerV2";
+pub const RETRY_MANAGER_EVENTS_INDEX: [&str; 1] = ["events"];
+pub const RETRY_MANAGER_STATE_INDEX: [&str; 1] = ["state"];
 
 /// Represents an event in the retry queue and it is used to manage events that have failed
 /// to process and need to be retried
@@ -23,6 +25,8 @@ pub struct RetryEvent {
     pub event_uri: String,
     /// Unix ms - when to next attempt (exponential backoff)
     pub next_retry_at: i64,
+    /// Homeserver that served the event
+    pub origin_homeserver_id: String,
 }
 
 #[async_trait]
@@ -34,12 +38,18 @@ impl RedisOps for RetryEvent {
 
 impl RetryEvent {
     /// Creates a new RetryEvent
-    pub fn new(event_type: EventType, event_uri: String, next_retry_at: i64) -> Self {
+    pub fn new(
+        event_type: EventType,
+        event_uri: String,
+        next_retry_at: i64,
+        origin_homeserver_id: String,
+    ) -> Self {
         Self {
             retry_count: 0,
             event_type,
             event_uri,
             next_retry_at,
+            origin_homeserver_id,
         }
     }
 
