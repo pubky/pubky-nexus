@@ -1,4 +1,5 @@
 mod counts;
+mod cursor;
 mod details;
 //mod id;
 mod influencers;
@@ -9,7 +10,8 @@ mod tags;
 mod view;
 
 pub use counts::UserCounts;
-pub use details::{user_hs_cursor_key, UserDetails, UserHsCursorKey, USER_HS_CURSOR};
+pub use cursor::{user_hs_cursor_key, UserHsCursor, UserHsCursorKey};
+pub use details::UserDetails;
 pub use influencers::Influencers;
 pub use relationship::Relationship;
 pub use search::{UserSearch, USER_NAME_KEY_PARTS};
