@@ -127,14 +127,13 @@ impl TEventProcessor for KeyBasedEventProcessor {
                 debug!("Shutdown detected; stopping user iteration");
                 break;
             }
+            let user_id = user_pk.z32();
 
             // Users whose event fetch previously returned 404 are skipped for an
             // increasing number of runs (see `UserNotFoundBackoff`).
             if self.user_not_found_backoff.consume_skip(user_pk).await {
                 debug!(
-                    hs_id = %hs_id,
-                    user = %user_pk.z32(),
-                    action = "skip_user",
+                    %hs_id, %user_id, action = "skip_user",
                     "Skipping user due to prior 404 (NotFound404) backoff",
                 );
                 continue;
@@ -143,13 +142,9 @@ impl TEventProcessor for KeyBasedEventProcessor {
             match self.process_user(&hs_pk, &hs_id, user_pk, *cursor).await {
                 Ok(()) => self.user_not_found_backoff.record_success(user_pk).await,
                 Err(err) => {
-                    let user_id = user_pk.z32();
                     if err.should_not_retry_now() {
                         error!(
-                            hs_id = %hs_id,
-                            user = %user_id,
-                            action = "abort_hs",
-                            error = ?err,
+                            %hs_id, %user_id, action = "abort_hs", ?err,
                             "Got should-not-retry-now error while processing user; aborting homeserver run",
                         );
                         return Err(err);
@@ -158,18 +153,12 @@ impl TEventProcessor for KeyBasedEventProcessor {
                     if err.is_not_found() {
                         self.user_not_found_backoff.record_failure(user_pk).await;
                         warn!(
-                            hs_id = %hs_id,
-                            user = %user_id,
-                            action = "skip_user",
-                            error = ?err,
+                            %hs_id, %user_id, action = "skip_user", ?err,
                             "User event fetch returned 404; backing off this user for future runs",
                         );
                     } else {
                         error!(
-                            hs_id = %hs_id,
-                            user = %user_id,
-                            action = "skip_user",
-                            error = ?err,
+                            %hs_id, %user_id, action = "skip_user", ?err,
                             "Got error while processing user; continuing with next user",
                         );
                     }
@@ -239,10 +228,7 @@ impl KeyBasedEventProcessor {
         if let Some(cursor_val) = latest_cursor {
             if let Err(write_err) = UserHsCursor::write(&user_id, hs_id, cursor_val).await {
                 error!(
-                    hs_id = %hs_id,
-                    user = %user_id,
-                    cursor = cursor_val,
-                    cursor_write_error = ?write_err,
+                    %hs_id, %user_id, %cursor_val, ?write_err,
                     "Best-effort cursor persist failed; events may be re-processed on next run",
                 );
             }
@@ -274,9 +260,7 @@ impl KeyBasedEventProcessor {
                     };
 
                     warn!(
-                        hs_id = %hs_id,
-                        user = %user_id,
-                        retry_after_secs = *backoff_secs,
+                        %hs_id, %user_id, retry_after_secs = *backoff_secs,
                         "Homeserver rate-limited user event fetch; retrying",
                     );
 
