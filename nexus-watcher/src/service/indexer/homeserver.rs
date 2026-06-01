@@ -42,6 +42,10 @@ impl TEventProcessor for HsEventProcessor {
         Some(&self.retry_scheduler)
     }
 
+    fn homeserver_id(&self) -> Option<&str> {
+        Some(self.homeserver.id.as_ref())
+    }
+
     async fn run_internal(self: Arc<Self>) -> Result<(), EventProcessorError> {
         let maybe_event_lines = self
             .poll_events()

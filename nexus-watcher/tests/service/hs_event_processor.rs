@@ -11,6 +11,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::watch;
 
+const TEST_HS_ID: &str = "1hb71xx9km3f4pw5izsy1gn19ff1uuuqonw4mcygzobwkryujoiy";
+
 /// Assemble an [`HsEventProcessor`] for tests. Tests bypass `poll_events` by
 /// calling `process_event_lines` directly with constructed event lines.
 fn build_processor(
@@ -25,7 +27,7 @@ fn build_processor(
             transient_ms: 10_000,
         },
     ));
-    let hs_id = PubkyId::try_from(TEST_USER_ID).expect("Valid test Pubky ID");
+    let hs_id = PubkyId::try_from(TEST_HS_ID).expect("Valid test Pubky ID");
 
     Arc::new(HsEventProcessor {
         homeserver: Homeserver::new(hs_id),
@@ -87,6 +89,45 @@ async fn test_batch_continues_after_single_failure() -> Result<()> {
     assert!(
         store.get(&second_uri).await?.is_some(),
         "Second event must be queued for retry — proves the batch continued past the first failure"
+    );
+
+    let _ = shutdown_tx.send(true);
+    Ok(())
+}
+
+// ============================================================================
+// Enqueued retries carry the origin homeserver id
+// A retryable failure persists the processor's homeserver onto the RetryEvent.
+// ============================================================================
+
+#[tokio_shared_rt::test(shared)]
+async fn test_retry_event_carries_origin_homeserver_id() -> Result<()> {
+    setup().await?;
+
+    let post_id = "originhs";
+    let uri = post_uri_builder(TEST_USER_ID.to_string(), post_id.to_string());
+
+    let store = new_in_memory_store();
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+
+    let handler = create_mock_handler(
+        Err(EventProcessorError::Generic("handler fails".to_string())),
+        None,
+    );
+
+    let processor = build_processor(store.clone(), handler.clone(), shutdown_rx);
+
+    processor
+        .process_event_lines(vec![format!("PUT {uri}")])
+        .await?;
+
+    let retry_event = store
+        .get(&uri)
+        .await?
+        .expect("Retryable failure must enqueue a RetryEvent");
+    assert_eq!(
+        retry_event.origin_homeserver_id, TEST_HS_ID,
+        "Enqueued retry must carry the origin homeserver id"
     );
 
     let _ = shutdown_tx.send(true);

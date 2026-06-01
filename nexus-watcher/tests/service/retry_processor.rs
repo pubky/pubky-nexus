@@ -1,5 +1,5 @@
 use crate::service::utils::common::create_mock_handler;
-use crate::service::utils::{new_in_memory_store, setup, TEST_USER_ID};
+use crate::service::utils::{new_in_memory_store, setup, HS_IDS, TEST_USER_ID};
 use anyhow::Result;
 use chrono::Utc;
 use nexus_common::config::EventRetryConfig;
@@ -35,6 +35,9 @@ fn create_test_config(
     }
 }
 
+/// Origin homeserver carried on test retry events.
+const TEST_HOMESERVER_ID: &str = HS_IDS[0];
+
 /// Test helper to create a test RetryEvent with a valid URI
 fn create_test_retry_event(
     post_id: &str,
@@ -48,6 +51,7 @@ fn create_test_retry_event(
         event_type,
         event_uri,
         next_retry_at,
+        origin_homeserver_id: TEST_HOMESERVER_ID.to_string(),
     }
 }
 
@@ -547,6 +551,11 @@ async fn test_missing_dependency_schedules_retry() -> Result<()> {
         "Retry count should be incremented to 1"
     );
 
+    assert_eq!(
+        updated_event.origin_homeserver_id, TEST_HOMESERVER_ID,
+        "Origin homeserver id must be preserved across reschedule"
+    );
+
     // Verify next_retry_at is set with dependency backoff (300 seconds = 300000 ms)
     let expected_next_retry = now + 300_000;
     assert!(
@@ -753,6 +762,7 @@ async fn test_shutdown_interrupts_batch() -> Result<()> {
             event_type: EventType::Put,
             event_uri,
             next_retry_at: now - 1000,
+            origin_homeserver_id: TEST_HOMESERVER_ID.to_string(),
         };
         store.put(&resource_key, &retry_event).await?;
     }
@@ -824,6 +834,7 @@ async fn test_infrastructure_error_stops_batch() -> Result<()> {
             event_type: EventType::Put,
             event_uri,
             next_retry_at: now - 1000,
+            origin_homeserver_id: TEST_HOMESERVER_ID.to_string(),
         };
         store.put(&resource_key, &retry_event).await?;
     }

@@ -71,14 +71,32 @@ impl RetryScheduler {
         }
     }
 
-    pub async fn queue_missing_dep(&self, event: &Event) -> Result<(), EventProcessorError> {
-        self.enqueue(event, self.initial.missing_dep_ms, "missing dependency")
-            .await
+    pub async fn queue_missing_dep(
+        &self,
+        event: &Event,
+        origin_homeserver_id: &str,
+    ) -> Result<(), EventProcessorError> {
+        self.enqueue(
+            event,
+            self.initial.missing_dep_ms,
+            "missing dependency",
+            origin_homeserver_id,
+        )
+        .await
     }
 
-    pub async fn queue_transient(&self, event: &Event) -> Result<(), EventProcessorError> {
-        self.enqueue(event, self.initial.transient_ms, "client error")
-            .await
+    pub async fn queue_transient(
+        &self,
+        event: &Event,
+        origin_homeserver_id: &str,
+    ) -> Result<(), EventProcessorError> {
+        self.enqueue(
+            event,
+            self.initial.transient_ms,
+            "client error",
+            origin_homeserver_id,
+        )
+        .await
     }
 
     async fn enqueue(
@@ -86,10 +104,15 @@ impl RetryScheduler {
         event: &Event,
         initial_backoff_ms: i64,
         reason: &str,
+        origin_homeserver_id: &str,
     ) -> Result<(), EventProcessorError> {
         let next_retry_at = Utc::now().timestamp_millis() + initial_backoff_ms;
-        let retry_event =
-            RetryEvent::new(event.event_type.clone(), event.uri.clone(), next_retry_at);
+        let retry_event = RetryEvent::new(
+            event.event_type.clone(),
+            event.uri.clone(),
+            next_retry_at,
+            origin_homeserver_id.to_string(),
+        );
 
         // New EventRetries for the same URI will reset the retry_count
         // The HS state changed since the earlier event, so we disregard previous retry attempts
