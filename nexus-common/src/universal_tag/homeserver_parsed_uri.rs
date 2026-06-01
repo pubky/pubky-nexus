@@ -81,10 +81,7 @@ impl TryFrom<&str> for HomeserverParsedUri {
         // This handles URL validation, scheme checking, user_id extraction, and resource parsing
         // for pubky.app URIs in one call.
         if let Ok(parsed_uri) = ParsedUri::try_from(uri) {
-            return Ok(HomeserverParsedUri::AppSpec {
-                user_id: parsed_uri.user_id,
-                resource: parsed_uri.resource,
-            });
+            return Ok(parsed_uri.into());
         }
 
         // If ParsedUri::try_from failed, the URI might be from a different app.
