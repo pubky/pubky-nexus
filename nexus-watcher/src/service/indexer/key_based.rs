@@ -4,7 +4,7 @@ use futures::StreamExt;
 use nexus_common::db::PubkyConnector;
 use nexus_common::models::event::{Event, EventProcessorError};
 use nexus_common::models::homeserver::Homeserver;
-use nexus_common::models::user::UserDetails;
+use nexus_common::models::user::UserHsCursor;
 use pubky::{Event as StreamEvent, EventCursor, PublicKey};
 use tokio::sync::watch::Receiver;
 use tracing::{debug, error, info, warn};
@@ -166,7 +166,7 @@ impl KeyBasedEventProcessor {
         }
 
         let user_id_strs: Vec<&str> = valid_users.iter().map(|(_, id)| *id).collect();
-        let cursors = UserDetails::read_hs_cursors(&user_id_strs, hs_id).await?;
+        let cursors = UserHsCursor::read(&user_id_strs, hs_id).await?;
 
         let users = valid_users
             .into_iter()
@@ -202,8 +202,7 @@ impl KeyBasedEventProcessor {
             .await;
 
         if let Some(cursor_val) = latest_cursor {
-            if let Err(write_err) = UserDetails::write_hs_cursor(&user_id, hs_id, cursor_val).await
-            {
+            if let Err(write_err) = UserHsCursor::write(&user_id, hs_id, cursor_val).await {
                 error!(
                     hs_id = %hs_id,
                     user = %user_id,
