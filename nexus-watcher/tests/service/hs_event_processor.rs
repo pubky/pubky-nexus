@@ -11,6 +11,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::watch;
 
+const TEST_HS_ID: &str = "1hb71xx9km3f4pw5izsy1gn19ff1uuuqonw4mcygzobwkryujoiy";
+
 /// Assemble an [`HsEventProcessor`] for tests. Tests bypass `poll_events` by
 /// calling `process_event_lines` directly with constructed event lines.
 fn build_processor(
@@ -25,7 +27,7 @@ fn build_processor(
             transient_ms: 10_000,
         },
     ));
-    let hs_id = PubkyId::try_from(TEST_USER_ID).expect("Valid test Pubky ID");
+    let hs_id = PubkyId::try_from(TEST_HS_ID).expect("Valid test Pubky ID");
 
     Arc::new(HsEventProcessor {
         homeserver: Homeserver::new(hs_id),
@@ -112,7 +114,7 @@ async fn test_retry_event_carries_origin_homeserver_id() -> Result<()> {
         Err(EventProcessorError::Generic("handler fails".to_string())),
         None,
     );
-    // build_processor sets the processor's homeserver to TEST_USER_ID.
+
     let processor = build_processor(store.clone(), handler.clone(), shutdown_rx);
 
     processor
@@ -124,7 +126,7 @@ async fn test_retry_event_carries_origin_homeserver_id() -> Result<()> {
         .await?
         .expect("Retryable failure must enqueue a RetryEvent");
     assert_eq!(
-        retry_event.origin_homeserver_id, TEST_USER_ID,
+        retry_event.origin_homeserver_id, TEST_HS_ID,
         "Enqueued retry must carry the origin homeserver id"
     );
 
