@@ -4,13 +4,13 @@ use pubky::PublicKey;
 use tokio::sync::Mutex;
 
 /// Upper bound on how many consecutive runs a user can be skipped after repeated 404s.
-const MAX_USER_NOT_FOUND_SKIPS: u32 = 10;
+const MAX_FAILURES: u32 = 10;
 
 /// Per-user backoff state for users whose event fetch returns HTTP 404.
 ///
 /// Tracks consecutive 404s per user (keyed by public key) and derives how many
 /// subsequent runs that user should be skipped: the 1st 404 skips the user once,
-/// the 2nd skips twice, and so on, capped at `MAX_USER_NOT_FOUND_SKIPS`.
+/// the 2nd skips twice, and so on, capped at `MAX_FAILURES`.
 /// A successful fetch clears the user's state.
 #[derive(Default)]
 pub struct UserNotFoundBackoff {
@@ -19,7 +19,7 @@ pub struct UserNotFoundBackoff {
 
 #[derive(Default)]
 struct BackoffEntry {
-    /// Number of consecutive 404s observed (capped at [`MAX_USER_NOT_FOUND_SKIPS`]).
+    /// Number of consecutive 404s observed (capped at [`MAX_FAILURES`]).
     consecutive_failures: u32,
     /// Remaining runs to skip before re-attempting this user.
     skips_remaining: u32,
@@ -40,11 +40,11 @@ impl UserNotFoundBackoff {
     }
 
     /// Records a 404 for the user, increasing the number of runs it will be
-    /// skipped on subsequent runs (capped at `MAX_USER_NOT_FOUND_SKIPS`).
+    /// skipped on subsequent runs (capped at `MAX_FAILURES`).
     pub async fn record_failure(&self, user_pk: &PublicKey) {
         let mut map = self.inner.lock().await;
         let entry = map.entry(user_pk.clone()).or_default();
-        entry.consecutive_failures = (entry.consecutive_failures + 1).min(MAX_USER_NOT_FOUND_SKIPS);
+        entry.consecutive_failures = (entry.consecutive_failures + 1).min(MAX_FAILURES);
         entry.skips_remaining = entry.consecutive_failures;
     }
 
@@ -83,10 +83,10 @@ mod tests {
         assert!(backoff.consume_skip(&pk).await);
         assert!(!backoff.consume_skip(&pk).await);
 
-        for _ in 0..(MAX_USER_NOT_FOUND_SKIPS + 5) {
+        for _ in 0..(MAX_FAILURES + 5) {
             backoff.record_failure(&pk).await;
         }
-        for _ in 0..MAX_USER_NOT_FOUND_SKIPS {
+        for _ in 0..MAX_FAILURES {
             assert!(backoff.consume_skip(&pk).await);
         }
         assert!(!backoff.consume_skip(&pk).await);
