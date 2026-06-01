@@ -35,13 +35,11 @@ pub enum GraphError {
 }
 
 impl GraphError {
-    #[allow(clippy::match_like_matches_macro)]
     pub fn should_not_retry_now(&self) -> bool {
-        match self {
-            GraphError::ConnectionNotInitialized => true,
-            GraphError::QueryFailed(_) => true,
-            _ => false,
-        }
+        matches!(
+            self,
+            GraphError::ConnectionNotInitialized | GraphError::QueryFailed(_)
+        )
     }
 }
 

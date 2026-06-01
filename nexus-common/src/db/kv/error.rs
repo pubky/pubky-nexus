@@ -28,14 +28,13 @@ pub enum RedisError {
 }
 
 impl RedisError {
-    #[allow(clippy::match_like_matches_macro)]
     pub fn should_not_retry_now(&self) -> bool {
-        match self {
-            RedisError::ConnectionNotInitialized => true,
-            RedisError::ConnectionPoolError(_) => true,
-            RedisError::IoError(_) => true,
-            _ => false,
-        }
+        matches!(
+            self,
+            RedisError::ConnectionNotInitialized
+                | RedisError::ConnectionPoolError(_)
+                | RedisError::IoError(_)
+        )
     }
 }
 

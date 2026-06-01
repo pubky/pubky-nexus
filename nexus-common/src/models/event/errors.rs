@@ -137,15 +137,13 @@ impl EventProcessorError {
     ///
     /// These are the kinds of errors that are expected to be thrown again
     /// if the event processor caller continues processing other events.
-    #[allow(clippy::match_like_matches_macro)]
     pub fn should_not_retry_now(&self) -> bool {
-        match self {
-            Self::GraphQueryFailed(true, _) => true,
-            Self::IndexOperationFailed(true, _) => true,
-            Self::HsEventsStreamRateLimitExhausted => true,
-
-            _ => false,
-        }
+        matches!(
+            self,
+            Self::GraphQueryFailed(true, _)
+                | Self::IndexOperationFailed(true, _)
+                | Self::HsEventsStreamRateLimitExhausted
+        )
     }
 
     /// Returns whether this error is a 404 from the Pubky client.
