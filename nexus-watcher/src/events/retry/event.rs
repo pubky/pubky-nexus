@@ -25,6 +25,7 @@ pub struct RetryEvent {
     pub event_uri: String,
     /// Unix ms - when to next attempt (exponential backoff)
     pub next_retry_at: i64,
+    /// Homeserver that served the event
     pub origin_homeserver_id: String,
 }
 
