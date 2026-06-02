@@ -2,9 +2,10 @@ use std::cmp::min;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use crate::events::{Event, ParseResult};
 use chrono::{DateTime, Utc};
 use nexus_common::config::EventRetryConfig;
-use nexus_common::models::event::{Event, EventProcessorError, ParseResult};
+use nexus_common::models::event::EventProcessorError;
 use nexus_common::WatcherConfig;
 use tokio::sync::watch::Receiver;
 use tracing::{debug, info, warn};
