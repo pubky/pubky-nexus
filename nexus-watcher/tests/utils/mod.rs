@@ -1,4 +1,5 @@
-use nexus_common::models::event::{Event, EventProcessorError};
+use nexus_common::models::event::EventProcessorError;
+use nexus_watcher::events::Event;
 use nexus_watcher::events::{EventHandler, Moderation};
 use pubky_app_specs::PubkyId;
 use std::sync::Arc;

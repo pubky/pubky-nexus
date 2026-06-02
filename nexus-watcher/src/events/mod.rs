@@ -1,5 +1,9 @@
 use nexus_common::db::PubkyConnector;
-use nexus_common::models::event::{Event, EventProcessorError, EventType};
+pub mod event;
+
+pub use event::{Event, EventType, ParseResult};
+
+use nexus_common::models::event::EventProcessorError;
 use nexus_common::universal_tag::homeserver_parsed_uri::HomeserverParsedUri;
 use pubky_app_specs::{PubkyAppObject, Resource};
 use std::sync::Arc;
@@ -39,7 +43,7 @@ impl EventHandler for DefaultEventHandler {
             EventType::Del => handle_del_event(event).await,
         }?;
 
-        event.store_event().await?;
+        event.to_raw().store().await?;
         Ok(())
     }
 }

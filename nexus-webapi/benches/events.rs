@@ -1,5 +1,5 @@
 use criterion::{criterion_group, criterion_main, Criterion};
-use nexus_common::models::event::Event;
+use nexus_common::models::event::RawEvent;
 use setup::run_setup;
 use std::time::Duration;
 use tokio::runtime::Runtime;
@@ -18,11 +18,11 @@ fn bench_events(c: &mut Criterion) {
     c.bench_function("events", |b| {
         b.to_async(&rt).iter(|| async {
             let (mut total_result, mut cursor) =
-                Event::get_events_from_redis(None, 500).await.unwrap();
+                RawEvent::get_events_from_redis(None, 500).await.unwrap();
             let mut current_result = total_result.clone();
 
             while !current_result.is_empty() {
-                let (next_result, next_cursor) = Event::get_events_from_redis(Some(cursor), 500)
+                let (next_result, next_cursor) = RawEvent::get_events_from_redis(Some(cursor), 500)
                     .await
                     .unwrap();
                 cursor = next_cursor;

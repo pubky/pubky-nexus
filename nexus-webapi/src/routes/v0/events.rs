@@ -1,5 +1,5 @@
 use crate::routes::AppState;
-use nexus_common::models::event::Event;
+use nexus_common::models::event::RawEvent;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -57,7 +57,7 @@ pub struct EventsQuery {
 )]
 pub async fn get_events_handler(Query(q): Query<EventsQuery>) -> Result<Response, Error> {
     let (limit, cursor) = parse_query(&q)?;
-    let (events, next_cursor) = Event::get_events_from_redis(cursor, limit).await?;
+    let (events, next_cursor) = RawEvent::get_events_from_redis(cursor, limit).await?;
     let event_list = EventsList {
         events,
         cursor: next_cursor,
