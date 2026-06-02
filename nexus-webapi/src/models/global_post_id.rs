@@ -63,7 +63,7 @@ impl GlobalPostId {
         })?;
 
         PubkyId::try_from(pubky_part)
-            .map_err(|e| Error::invalid_input(&format!("Invalid PubkyId: {}", e)))?;
+            .map_err(|e| Error::invalid_input(format!("Invalid PubkyId: {}", e)))?;
 
         PostId::try_from(post_part.to_string())?;
 

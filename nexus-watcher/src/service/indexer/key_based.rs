@@ -324,12 +324,12 @@ impl KeyBasedEventProcessor {
         event: &Event,
         expected_user_id: &str,
     ) -> Result<(), EventProcessorError> {
-        let event_user_id = event.parsed_uri.user_id().as_str();
+        let event_user_id = event.parsed_uri.user_id().to_string();
         if event_user_id != expected_user_id {
             return Err(EventProcessorError::UserIdMismatch {
                 hs_id: hs_id.into(),
                 expected_user_id: expected_user_id.into(),
-                event_user_id: event_user_id.into(),
+                event_user_id,
             });
         }
 

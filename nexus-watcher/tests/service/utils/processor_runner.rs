@@ -45,12 +45,12 @@ impl MockEventProcessorRunner {
         Ok(hs_ids)
     }
 
-    pub fn default_homeserver(&self) -> &str {
+    pub fn default_homeserver(&self) -> String {
         // Use first mock homeserver ID if available, otherwise fallback to mock constant
         self.event_processors
             .first()
-            .map(|s| s.homeserver_id.as_str())
-            .unwrap_or("8pinxxgqs41n4aididenw5apqp1urfmzdztr8jt4abrkdn435ewo")
+            .map(|s| s.homeserver_id.to_string())
+            .unwrap_or("8pinxxgqs41n4aididenw5apqp1urfmzdztr8jt4abrkdn435ewo".into())
     }
 }
 

@@ -341,7 +341,7 @@ async fn put_sync_user(
             Ok(())
         }
         OperationOutcome::MissingDependency => {
-            if let Err(e) = UserDetails::maybe_ingest_user(tagged_user_id.as_str()).await {
+            if let Err(e) = UserDetails::maybe_ingest_user(&tagged_user_id).await {
                 tracing::error!("Failed to ingest user: {e}");
             }
 

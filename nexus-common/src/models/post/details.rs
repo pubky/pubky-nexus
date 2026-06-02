@@ -175,9 +175,7 @@ impl PostDetails {
     ///
     /// - `referenced_post_uri`: The parent post (if current post is a reply to it), or a reposted post (if current post is a Repost)
     pub async fn maybe_ingest_author_of_post(referenced_post_uri: &ParsedUri) -> ModelResult<()> {
-        let ref_post_author_id = referenced_post_uri.user_id.as_str();
-
-        UserDetails::maybe_ingest_user(ref_post_author_id).await
+        UserDetails::maybe_ingest_user(&referenced_post_uri.user_id).await
     }
 
     /// Determines whether or not a given [PostDetails] is different than (e.g. may be an edit of) this post.

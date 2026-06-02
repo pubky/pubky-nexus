@@ -6,7 +6,6 @@ use crate::models::error::{ModelError, ModelResult};
 use crate::models::traits::Collection;
 use async_trait::async_trait;
 use chrono::Utc;
-use pubky::PublicKey;
 use pubky_app_specs::{PubkyAppUser, PubkyAppUserLink, PubkyId};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json;
@@ -129,17 +128,16 @@ impl UserDetails {
     /// If a referenced user is unknown, not ingested in the graph yet, resolves their homeserver
     /// and persists the user node in the graph.
     #[tracing::instrument(name = "user.ingest", skip_all)]
-    pub async fn maybe_ingest_user(user_id: &str) -> ModelResult<()> {
-        if Self::get_by_id(user_id).await?.is_some() {
-            tracing::debug!("Skipping user ingestion: {user_id} already known");
+    pub async fn maybe_ingest_user(user_id: &PubkyId) -> ModelResult<()> {
+        let user_id_str = user_id.to_string();
+        if Self::get_by_id(&user_id_str).await?.is_some() {
+            tracing::debug!("Skipping user ingestion: {user_id_str} already known");
             return Ok(());
         }
 
         let pubky = PubkyConnector::get().map_err(ModelError::from_generic)?;
 
-        let user_pk = user_id
-            .parse::<PublicKey>()
-            .map_err(ModelError::from_generic)?;
+        let user_pk = user_id.to_public_key();
 
         let Some(hs_pk) = pubky.get_homeserver_of(&user_pk).await else {
             tracing::warn!(
