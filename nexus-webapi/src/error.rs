@@ -1,3 +1,4 @@
+use crate::models::{ErrorResponsePayload, PostId, PubkyId, ResourceId};
 use axum::http::header::InvalidHeaderValue;
 use axum::http::uri::InvalidUri;
 use axum::http::StatusCode;
@@ -19,8 +20,6 @@ pub enum Error {
     PostNotFound { author_id: String, post_id: String },
     #[error("Internal server error: {source}")]
     InternalServerError { source: DynError },
-    #[error("Bookmarks not found: {user_id}")]
-    BookmarksNotFound { user_id: String },
     #[error("Tags not found")]
     TagsNotFound { reach: String },
     #[error("Invalid input: {message}")]
@@ -38,6 +37,32 @@ impl Error {
     pub fn invalid_input<T: Into<String>>(message: T) -> Self {
         Error::InvalidInput {
             message: message.into(),
+        }
+    }
+
+    pub fn resource_not_found(resource_id: ResourceId) -> Self {
+        Error::ResourceNotFound {
+            resource_id: resource_id.to_string(),
+        }
+    }
+
+    pub fn user_not_found(user_id: PubkyId) -> Self {
+        Error::UserNotFound {
+            user_id: user_id.to_string(),
+        }
+    }
+
+    pub fn post_not_found(author_id: PubkyId, post_id: PostId) -> Self {
+        Error::PostNotFound {
+            author_id: author_id.to_string(),
+            post_id: post_id.to_string(),
+        }
+    }
+
+    pub fn tag_not_found(tag_id: String, tagger_id: PubkyId) -> Self {
+        Error::TagNotFound {
+            tag_id,
+            tagger_id: tagger_id.to_string(),
         }
     }
 }
@@ -95,7 +120,6 @@ impl IntoResponse for Error {
             Error::UserNotFound { .. } => StatusCode::NOT_FOUND,
             Error::PostNotFound { .. } => StatusCode::NOT_FOUND,
             Error::FileNotFound { .. } => StatusCode::NOT_FOUND,
-            Error::BookmarksNotFound { .. } => StatusCode::NOT_FOUND,
             Error::TagsNotFound { .. } => StatusCode::NOT_FOUND,
             Error::InvalidInput { .. } => StatusCode::BAD_REQUEST,
             Error::InternalServerError { .. } => StatusCode::INTERNAL_SERVER_ERROR,
@@ -113,9 +137,6 @@ impl IntoResponse for Error {
             Error::FileNotFound {} => {
                 error!("File not found.")
             }
-            Error::BookmarksNotFound { user_id } => {
-                error!("Bookmarks not found: {}", user_id)
-            }
             Error::TagsNotFound { reach } => {
                 error!("Tags not found: {}", reach)
             }
@@ -131,9 +152,7 @@ impl IntoResponse for Error {
             Error::InternalServerError { source } => error!("Internal server error: {:?}", source),
         };
 
-        let body = serde_json::json!({
-            "error": self.to_string()
-        });
+        let body = ErrorResponsePayload::new(self.to_string());
 
         (status_code, axum::Json(body)).into_response()
     }

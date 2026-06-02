@@ -1,13 +1,10 @@
-use std::{
-    fs::{self, File},
-    io::Write,
-};
+use std::{fs::File, io::Write};
 
+use crate::utils::host_url;
+use crate::utils::server::TestServiceServer;
 use anyhow::Result;
 use nexus_common::models::{file::FileDetails, traits::Collection};
 use tokio::fs::create_dir_all;
-
-use crate::utils::host_url;
 
 #[tokio_shared_rt::test(shared)]
 async fn test_static_serving() -> Result<()> {
@@ -23,26 +20,23 @@ async fn test_static_serving() -> Result<()> {
 
     let result_file = files[0].as_ref().expect("Created file was not found.");
 
-    let test_file_path = format!("static/files/{test_file_user}/{test_file_id}");
+    let test_file_dir = TestServiceServer::get_test_server()
+        .await
+        .temp_dir
+        .path()
+        .join(test_file_user)
+        .join(test_file_id);
     let test_file_name = "main";
 
-    let full_path = format!("{}/{}", test_file_path.clone(), test_file_name);
+    let full_file_path = test_file_dir.join(test_file_name);
 
-    let exists = match fs::metadata(test_file_path.clone()) {
-        Err(_) => false,
-        Ok(metadata) => metadata.is_dir(),
-    };
+    create_dir_all(&test_file_dir).await?;
 
-    if !exists {
-        create_dir_all(test_file_path.clone()).await?;
-    }
-
-    let mut file = File::create(full_path.as_str())?;
+    let mut file = File::create(&full_file_path)?;
     file.write_all(b"Hello, world!")?;
 
-    let res = client
-        .do_get(format!("/{}", full_path.as_str()).as_str())
-        .await?;
+    let url_path = format!("static/files/{test_file_user}/{test_file_id}/{test_file_name}");
+    let res = client.do_get(&format!("/{url_path}")).await?;
 
     assert_eq!(res.status(), 200);
     assert_eq!(
@@ -70,26 +64,23 @@ async fn test_static_serving_dl_param() -> Result<()> {
 
     let result_file = files[0].as_ref().expect("Created file was not found.");
 
-    let test_file_path = format!("static/files/{test_file_user}/{test_file_id}");
+    let test_file_dir = TestServiceServer::get_test_server()
+        .await
+        .temp_dir
+        .path()
+        .join(test_file_user)
+        .join(test_file_id);
     let test_file_name = "main";
 
-    let full_path = format!("{}/{}", test_file_path.clone(), test_file_name);
+    let full_file_path = test_file_dir.join(test_file_name);
 
-    let exists = match fs::metadata(test_file_path.clone()) {
-        Err(_) => false,
-        Ok(metadata) => metadata.is_dir(),
-    };
+    create_dir_all(&test_file_dir).await?;
 
-    if !exists {
-        create_dir_all(test_file_path.clone()).await?;
-    }
-
-    let mut file = File::create(full_path.as_str())?;
+    let mut file = File::create(&full_file_path)?;
     file.write_all(b"Hello, world!")?;
 
-    let res = client
-        .do_get(format!("/{}?dl", full_path.as_str()).as_str())
-        .await?;
+    let url_path = format!("static/files/{test_file_user}/{test_file_id}/{test_file_name}");
+    let res = client.do_get(&format!("/{url_path}?dl")).await?;
 
     assert_eq!(res.status(), 200);
     assert_eq!(

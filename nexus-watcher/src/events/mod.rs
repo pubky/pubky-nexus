@@ -59,9 +59,13 @@ pub async fn handle_put_event(
         .map_err(|e| EventProcessorError::client_error(e.to_string()))?;
     let resource = event.parsed_uri.resource().clone();
 
-    // Use the new importer from pubky-app-specs
-    let pubky_object =
-        PubkyAppObject::from_resource(&resource, &blob).map_err(EventProcessorError::generic)?;
+    // Use the new importer from pubky-app-specs.
+    // `from_resource` runs spec validation; failures are deterministic and must
+    // not be retried (a re-run produces the same error). Classify them as
+    // `SpecValidation` so the retry queue stays clean — the load-bearing
+    // counterpart to the `Unknown` forwards-compat variant in pubky-app-specs.
+    let pubky_object = PubkyAppObject::from_resource(&resource, &blob)
+        .map_err(|e| EventProcessorError::SpecValidation(e.to_string()))?;
 
     let user_id = event.parsed_uri.user_id().clone();
     match (pubky_object, resource) {

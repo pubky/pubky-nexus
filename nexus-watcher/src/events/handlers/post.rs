@@ -110,8 +110,6 @@ pub async fn sync_put(
         tracing::info_span!("index.write", phase = "post_counts");
         // TODO: Use SCARD on a set for unique tag count to avoid race conditions in parallel processing
         async {
-            // Create post counts index
-            // If new post (no existing counts) save a new PostCounts.
             if PostCounts::get_from_index(&author_id, &post_id)
                 .await?
                 .is_none()
@@ -165,6 +163,8 @@ pub async fn sync_put(
             tracing::info_span!("index.write", phase = "reply_parent");
             PostCounts::increment_index_field(parent_post_key_parts, "replies", None),
             async {
+                // Replies must not enter POST_TOTAL_ENGAGEMENT — ZINCRBY
+                // would create the member if absent.
                 if !post_relationships_is_reply(&parent_author_id, &parent_post_id).await? {
                     PostStream::increment_score_index_sorted_set(
                         &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
@@ -210,11 +210,13 @@ pub async fn sync_put(
             .map_err(EventProcessorError::generic)?;
 
         let parent_post_key_parts: &[&str; 2] = &[&parent_author_id, &parent_post_id];
+
         let indexing_results = nexus_common::traced_join!(
             tracing::info_span!("index.write", phase = "repost_parent");
             PostCounts::increment_index_field(parent_post_key_parts, "reposts", None),
             async {
-                // Post replies cannot be included in the total engagement index after they receive a reply
+                // Replies must not enter POST_TOTAL_ENGAGEMENT — ZINCRBY
+                // would create the member if absent.
                 if !post_relationships_is_reply(&parent_author_id, &parent_post_id).await? {
                     PostStream::increment_score_index_sorted_set(
                         &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
@@ -537,7 +539,9 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), EventPr
                     Ok::<(), EventProcessorError>(())
                 },
                 async {
-                    // Post replies cannot be included in the total engagement index after the reply is deleted
+                    // Symmetric DEL gate: ZINCRBY -1 would create the member
+                    // if absent, leaking a reply parent into POST_TOTAL_ENGAGEMENT
+                    // with a negative score.
                     if post_in_index
                         && !post_relationships_is_reply(&parent_user_id, &parent_post_id).await?
                     {
@@ -597,7 +601,9 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), EventPr
                     Ok::<(), EventProcessorError>(())
                 },
                 async {
-                    // Post replies cannot be included in the total engagement index after the repost is deleted
+                    // Symmetric DEL gate: ZINCRBY -1 would create the member
+                    // if absent, leaking a reply parent into POST_TOTAL_ENGAGEMENT
+                    // with a negative score.
                     if post_in_index
                         && !post_relationships_is_reply(&reposted_uri.user_id, &parent_post_id).await?
                     {

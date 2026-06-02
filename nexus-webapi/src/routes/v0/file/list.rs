@@ -1,4 +1,5 @@
 use crate::routes::v0::endpoints::FILE_LIST_ROUTE;
+use crate::routes::Json as RequestJson;
 use crate::Result;
 use axum::Json;
 use nexus_common::models::file::FileDetails;
@@ -24,7 +25,7 @@ pub struct FilesByIdsBody {
     )
 )]
 pub async fn file_details_by_uris_handler(
-    Json(body): Json<FilesByIdsBody>,
+    RequestJson(body): RequestJson<FilesByIdsBody>,
 ) -> Result<Json<Vec<FileDetails>>> {
     debug!("GET {FILE_LIST_ROUTE} uris:{:?}", body.uris);
 

@@ -83,7 +83,8 @@ impl PostDetails {
         if is_edit {
             return Ok(());
         }
-        // The replies are not indexed in the global feeds so we will ignore that indexing
+        // Replies are not indexed in the global feeds — they live in the
+        // per-parent reply set instead.
         match parent_key_wrapper {
             None => {
                 PostStream::add_to_timeline_sorted_set(self).await?;

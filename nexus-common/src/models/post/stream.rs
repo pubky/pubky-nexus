@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use super::{Bookmark, PostCounts, PostDetails, PostView};
 use crate::db::kv::{RedisResult, ScoreAction, SortOrder};
 use crate::db::{get_neo4j_graph, queries, GraphError, GraphResult, RedisOps};
@@ -9,7 +11,7 @@ use crate::models::{
 };
 use crate::types::{Pagination, StreamSorting};
 use futures::TryStreamExt;
-use pubky_app_specs::PubkyAppPostKind;
+use pubky_app_specs::{ParsedUri, PubkyAppCollectionContent, PubkyAppPostKind, Resource};
 use serde::{Deserialize, Serialize};
 use tokio::task::spawn;
 use tokio::time::{timeout, Duration};
@@ -48,6 +50,10 @@ pub enum StreamSource {
     AuthorReplies {
         author_id: String,
     },
+    Collection {
+        author_id: String,
+        post_id: String,
+    },
     #[default]
     All,
 }
@@ -63,6 +69,8 @@ impl StreamSource {
         }
     }
 
+    /// Author whose posts are streamed. Collection returns `None`: its
+    /// `author_id` is the curator, not the items' authors.
     pub fn get_author(&self) -> Option<&str> {
         match self {
             StreamSource::PostReplies {
@@ -117,7 +125,7 @@ impl PostStream {
         pagination: Pagination,
         order: SortOrder,
         sorting: StreamSorting,
-        viewer_id: Option<String>,
+        viewer_id: Option<&str>,
         tags: Option<Vec<String>>,
         kind: Option<PubkyAppPostKind>,
     ) -> ModelResult<Option<Self>> {
@@ -157,6 +165,18 @@ impl PostStream {
         tags: Option<Vec<String>>,
         kind: Option<PubkyAppPostKind>,
     ) -> ModelResult<PostKeyStream> {
+        // Collection has its own envelope-driven resolution path (neither
+        // sorted-set index nor Cypher).
+        if let StreamSource::Collection { author_id, post_id } = &source {
+            return Self::get_collection_items_post_keys(
+                author_id,
+                post_id,
+                pagination.skip,
+                pagination.limit,
+            )
+            .await;
+        }
+
         // Decide whether to use index or fallback to graph query
         let use_index = Self::can_use_index(&sorting, &source, &tags, &kind);
 
@@ -247,6 +267,47 @@ impl PostStream {
         Ok(result)
     }
 
+    async fn get_collection_items_post_keys(
+        author_id: &str,
+        post_id: &str,
+        skip: Option<usize>,
+        limit: Option<usize>,
+    ) -> ModelResult<PostKeyStream> {
+        let Some(details) = PostDetails::get_by_id(author_id, post_id).await? else {
+            return Ok(PostKeyStream::default());
+        };
+        if !matches!(details.kind, PubkyAppPostKind::Collection) {
+            return Ok(PostKeyStream::default());
+        }
+        let envelope: PubkyAppCollectionContent = match serde_json::from_str(&details.content) {
+            Ok(env) => env,
+            Err(e) => {
+                warn!("Collection {author_id}:{post_id} envelope malformed: {e}");
+                return Ok(PostKeyStream::default());
+            }
+        };
+
+        let skip = skip.unwrap_or(0);
+        let limit = limit.unwrap_or(usize::MAX);
+
+        // Filter before slicing so dead refs don't shorten pages.
+        let post_keys: Vec<String> = envelope
+            .items
+            .iter()
+            .filter_map(|uri| match ParsedUri::try_from(uri.as_str()) {
+                Ok(p) => match p.resource {
+                    Resource::Post(item_post_id) => Some(format!("{}:{}", p.user_id, item_post_id)),
+                    _ => None,
+                },
+                Err(_) => None,
+            })
+            .skip(skip)
+            .take(limit)
+            .collect();
+
+        Ok(PostKeyStream::new(post_keys, None))
+    }
+
     // Fetch posts from index
     async fn get_from_graph(
         source: StreamSource,
@@ -258,7 +319,7 @@ impl PostStream {
         let mut result;
         {
             let graph = get_neo4j_graph()?;
-            let query = queries::get::post_stream(source, sorting, tags, pagination, kind);
+            let query = queries::get::post_stream(source, sorting, tags, pagination, kind)?;
 
             // Set a 10-second timeout for the query execution
             result = match timeout(Duration::from_secs(10), graph.execute(query)).await {
@@ -548,10 +609,10 @@ impl PostStream {
     }
 
     pub async fn from_listed_post_ids(
-        viewer_id: Option<String>,
+        viewer_id: Option<&str>,
         post_keys: &[String],
     ) -> ModelResult<Option<Self>> {
-        let viewer_id = viewer_id.map(|id| id.to_string());
+        let viewer_id = viewer_id.map(Arc::from);
         let mut handles = Vec::with_capacity(post_keys.len());
 
         for post_key in post_keys {
@@ -728,5 +789,72 @@ impl PostStream {
             score_action,
         )
         .await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `can_use_index` short-circuits to the Cypher path whenever a kind filter
+    /// is set, regardless of which kind — kind-filtered queries route via Cypher
+    /// where the kind-specific filter actually applies.
+    ///
+    /// We parametrize across the source/sorting combinations that *would*
+    /// otherwise be index-eligible (per the match arms below the early-return)
+    /// to lock in that the kind short-circuit wins over the index path.
+    #[test]
+    fn test_can_use_index_returns_false_for_any_kind_filter() {
+        let kinds_to_test = [
+            PubkyAppPostKind::Short,
+            PubkyAppPostKind::Long,
+            PubkyAppPostKind::Image,
+            PubkyAppPostKind::Video,
+            PubkyAppPostKind::Link,
+            PubkyAppPostKind::File,
+            PubkyAppPostKind::Collection,
+        ];
+
+        // Combinations that would normally return `true` when kind is None.
+        let index_eligible_combos = [
+            (StreamSorting::Timeline, StreamSource::All),
+            (StreamSorting::TotalEngagement, StreamSource::All),
+            (
+                StreamSorting::Timeline,
+                StreamSource::Author {
+                    author_id: "author".to_string(),
+                },
+            ),
+            (
+                StreamSorting::Timeline,
+                StreamSource::Bookmarks {
+                    observer_id: "observer".to_string(),
+                },
+            ),
+        ];
+
+        for kind in &kinds_to_test {
+            for (sorting, source) in &index_eligible_combos {
+                let result = PostStream::can_use_index(sorting, source, &None, &Some(kind.clone()));
+                assert!(
+                    !result,
+                    "can_use_index({:?}, {:?}, None, Some({:?})) must return false",
+                    sorting, source, kind
+                );
+            }
+        }
+    }
+
+    /// Sanity counterpart: when no kind is set, `can_use_index` returns true
+    /// for the index-eligible combinations. Locks in that the test above
+    /// isn't passing because of a different bug elsewhere in the function.
+    #[test]
+    fn test_can_use_index_returns_true_for_no_kind_filter() {
+        assert!(PostStream::can_use_index(
+            &StreamSorting::Timeline,
+            &StreamSource::All,
+            &None,
+            &None,
+        ));
     }
 }

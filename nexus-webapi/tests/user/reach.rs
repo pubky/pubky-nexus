@@ -2,6 +2,8 @@ use crate::utils::{get_request, invalid_get_request};
 use anyhow::Result;
 use axum::http::StatusCode;
 
+const NON_EXISTING_USER_ID: &str = "qca6wzjg4okp6g1hwr9g8hmx1po1jpoirjfau9ejsws1qz3t7iiy";
+
 #[tokio_shared_rt::test(shared)]
 async fn test_get_followers() -> Result<()> {
     let user_id = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
@@ -43,7 +45,7 @@ async fn test_get_followers() -> Result<()> {
 
     // Test non-existing user
     invalid_get_request(
-        &format!("/v0/user/{}/followers", "bad_user_id"),
+        &format!("/v0/user/{NON_EXISTING_USER_ID}/followers"),
         StatusCode::NOT_FOUND,
     )
     .await?;
@@ -97,7 +99,7 @@ async fn test_get_following() -> Result<()> {
 
     // Test non-existing user
     invalid_get_request(
-        &format!("/v0/user/{}/following", "bad_user_id"),
+        &format!("/v0/user/{NON_EXISTING_USER_ID}/following"),
         StatusCode::NOT_FOUND,
     )
     .await?;
@@ -144,7 +146,7 @@ async fn test_get_friends() -> Result<()> {
 
     // Test non-existing user
     invalid_get_request(
-        &format!("/v0/user/{}/friends", "bad_user_id"),
+        &format!("/v0/user/{NON_EXISTING_USER_ID}/friends"),
         StatusCode::NOT_FOUND,
     )
     .await?;

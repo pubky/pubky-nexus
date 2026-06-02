@@ -28,8 +28,10 @@ impl PostCounts {
             None => {
                 let graph_response = Self::get_from_graph(author_id, post_id).await?;
                 if let Some((post_counts, is_reply)) = graph_response {
+                    // Pass `is_reply` raw — `put_to_index` gates the engagement
+                    // sorted-set write on `!is_reply`.
                     post_counts
-                        .put_to_index(author_id, post_id, !is_reply)
+                        .put_to_index(author_id, post_id, is_reply)
                         .await?;
                     return Ok(Some(post_counts));
                 }
@@ -68,10 +70,14 @@ impl PostCounts {
         post_id: &str,
         is_reply: bool,
     ) -> RedisResult<()> {
+        // Always cache the PostCounts JSON: read paths (/v0/post/...) and the
+        // increment paths (tag/reply/repost handlers) both depend on this row
+        // existing for every post regardless of kind.
         self.put_index_json(&[author_id, post_id], None, None)
             .await?;
 
-        // avoid indexing replies into global feeds
+        // Skip the global engagement sorted set for replies — they're tracked
+        // via POST_REPLIES sets instead.
         if !is_reply {
             PostStream::add_to_engagement_sorted_set(self, author_id, post_id).await?;
         }

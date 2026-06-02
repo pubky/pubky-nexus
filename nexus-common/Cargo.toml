@@ -11,13 +11,13 @@ license = "MIT"
 async-trait = { workspace = true }
 blake3 = { workspace = true }
 hex = { workspace = true }
-dirs = "6.0.0"
+dirs = { workspace = true }
 chrono = { workspace = true }
 futures = { workspace = true }
 neo4rs = { workspace = true }
 opentelemetry = { workspace = true }
-opentelemetry-appender-tracing = "0.31.1"
-opentelemetry-otlp = { version = "0.31", features = ["grpc-tonic"] }
+opentelemetry-appender-tracing = "0.32.0"
+opentelemetry-otlp = { version = "0.32", features = ["grpc-tonic"] }
 opentelemetry_sdk = { workspace = true }
 pubky = { workspace = true }
 pubky-app-specs = { workspace = true }

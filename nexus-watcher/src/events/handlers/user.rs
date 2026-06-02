@@ -66,7 +66,7 @@ pub async fn del(user_id: PubkyId) -> Result<(), EventProcessorError> {
             UserSearch::delete(&user_id).await?;
 
             // 2. Redis cleanup (parallel, all idempotent DEL/ZREM)
-            let user_id_str = user_id.as_str();
+            let user_id_str: &str = user_id.as_ref();
             let key_parts: &[&str] = &[user_id_str];
             let key_parts_list = [key_parts];
             let indexing_results = nexus_common::traced_join!(

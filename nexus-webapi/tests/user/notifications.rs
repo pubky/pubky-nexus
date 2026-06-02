@@ -36,10 +36,10 @@ async fn seed_follow(recipient_id: &str, follower_id: &str, timestamp: i64) -> R
 #[tokio_shared_rt::test(shared)]
 async fn test_get_notifications_with_limit() -> Result<()> {
     env_init().await;
-    const TEST_USER: &str = "test_notif_limit_recipient_00000000001";
-    const FOLLOWER_A: &str = "test_notif_limit_follower_a_00000000001";
-    const FOLLOWER_B: &str = "test_notif_limit_follower_b_00000000001";
-    const FOLLOWER_C: &str = "test_notif_limit_follower_c_00000000001";
+    const TEST_USER: &str = "qrqnkbwqt8rd6aya9zruro76gyc4qs77qzek7xc11axbdtbu6esy";
+    const FOLLOWER_A: &str = "17775cing48kciy3enntgjwhw7yptxz6zw8k8czcddzk1yruqhcy";
+    const FOLLOWER_B: &str = "xeeo9uagnox3obkwzud91bkjecgd5eaumbix4b13k8i7yorzjony";
+    const FOLLOWER_C: &str = "hm8qoi5bjtrmx3kngiifycarjnnwosiohhbujax8fcyanzp3xa6y";
 
     seed_follow(TEST_USER, FOLLOWER_A, 1000).await?;
     seed_follow(TEST_USER, FOLLOWER_B, 2000).await?;
@@ -74,10 +74,10 @@ async fn test_get_notifications_with_limit() -> Result<()> {
 #[tokio_shared_rt::test(shared)]
 async fn test_get_notifications_with_limit_zero() -> Result<()> {
     env_init().await;
-    const TEST_USER: &str = "test_notif_limit_zero_recipient_00000000001";
-    const FOLLOWER_A: &str = "test_notif_limit_zero_follower_a_00000000001";
-    const FOLLOWER_B: &str = "test_notif_limit_zero_follower_b_00000000001";
-    const FOLLOWER_C: &str = "test_notif_limit_zero_follower_c_00000000001";
+    const TEST_USER: &str = "rromxnw9y5cwww1h4b51rroxceinc3cefqpirptdqxb9qfchjxcy";
+    const FOLLOWER_A: &str = "si53n9je46g3ygaoez39cnmhz4ocy7kscqatpietbzr6isahehio";
+    const FOLLOWER_B: &str = "8swiuk8r7btkwryuawknd71w5ize5ca86jkr4kod1gcpwzsztmto";
+    const FOLLOWER_C: &str = "myz6jgweja4jiyp3ckxqhkyqtfkofbn8rxo7496w1hwjj9459zzo";
 
     seed_follow(TEST_USER, FOLLOWER_A, 1000).await?;
     seed_follow(TEST_USER, FOLLOWER_B, 2000).await?;
@@ -101,12 +101,12 @@ async fn test_get_notifications_with_limit_zero() -> Result<()> {
 #[tokio_shared_rt::test(shared)]
 async fn test_get_notifications_with_skip() -> Result<()> {
     env_init().await;
-    const TEST_USER: &str = "test_notif_skip_recipient_00000000001";
-    const FOLLOWER_A: &str = "test_notif_skip_follower_a_00000000001";
-    const FOLLOWER_B: &str = "test_notif_skip_follower_b_00000000001";
-    const FOLLOWER_C: &str = "test_notif_skip_follower_c_00000000001";
-    const FOLLOWER_D: &str = "test_notif_skip_follower_d_00000000001";
-    const FOLLOWER_E: &str = "test_notif_skip_follower_e_00000000001";
+    const TEST_USER: &str = "jwnbrorjegykfadh7tsiptzw4dppy1uj3hwp99xba9cibcib6zoy";
+    const FOLLOWER_A: &str = "iemqqjrupf55i9eomobw33pwky9dwsdb8xgas3ymo9jk9o7b8roy";
+    const FOLLOWER_B: &str = "eam6cr5oz4m4f8j6t8uamurr16eeybzh6g6u9sgsjc3ob6o3dfpy";
+    const FOLLOWER_C: &str = "uasynstkt15esz5zoas7gjxbexc7kcbkxgphbzsyxmxyu3r4c3ey";
+    const FOLLOWER_D: &str = "j4jf75ntxckgcmgtic9jy54h9xbmddnejj9wzeh3b66csnyf5uuy";
+    const FOLLOWER_E: &str = "3854rbxu37rixyg5shcfpzsohzrwdfzmqxsn7jchogbw3mgskpmy";
 
     seed_follow(TEST_USER, FOLLOWER_A, 1000).await?;
     seed_follow(TEST_USER, FOLLOWER_B, 2000).await?;
@@ -147,10 +147,10 @@ async fn test_get_notifications_with_skip() -> Result<()> {
 #[tokio_shared_rt::test(shared)]
 async fn test_get_notifications_with_start() -> Result<()> {
     env_init().await;
-    const TEST_USER: &str = "test_notif_start_recipient_00000000001";
-    const FOLLOWER_A: &str = "test_notif_start_follower_a_00000000001";
-    const FOLLOWER_B: &str = "test_notif_start_follower_b_00000000001";
-    const FOLLOWER_C: &str = "test_notif_start_follower_c_00000000001";
+    const TEST_USER: &str = "1ngp4fakazmu4apsw95w9mzmz4pfxm1jo359r881aci4o193siko";
+    const FOLLOWER_A: &str = "meiif3edkaw4qdh79mjh9oh5dgsc71i685i5prq71oowgygtj9to";
+    const FOLLOWER_B: &str = "sb6os3reiyxnxbwpd8sdj6uygco48fy6ycgxbxkdbsg9116awgto";
+    const FOLLOWER_C: &str = "gobmmmrnq9umtufu3sdj6xhgnbwhgqcfhtngrsrgsdfe7iasd31o";
 
     seed_follow(TEST_USER, FOLLOWER_A, 1000).await?;
     seed_follow(TEST_USER, FOLLOWER_B, 2000).await?;
@@ -181,10 +181,10 @@ async fn test_get_notifications_with_start() -> Result<()> {
 #[tokio_shared_rt::test(shared)]
 async fn test_get_notifications_with_end() -> Result<()> {
     env_init().await;
-    const TEST_USER: &str = "test_notif_end_recipient_00000000001";
-    const FOLLOWER_A: &str = "test_notif_end_follower_a_00000000001";
-    const FOLLOWER_B: &str = "test_notif_end_follower_b_00000000001";
-    const FOLLOWER_C: &str = "test_notif_end_follower_c_00000000001";
+    const TEST_USER: &str = "7o8r4f96a9sri1efwdhbamnpntghiuz4gtgkazzf9txiu7oej7ry";
+    const FOLLOWER_A: &str = "cmt1e5t9hkjka1giftphze3rmnnmxdk1bafg7ne71g4qxumb5esy";
+    const FOLLOWER_B: &str = "tffi66yjexyy6guz6rpgx816rpneobifatau3j46fmfy3i5nx8co";
+    const FOLLOWER_C: &str = "ow7e1wirjo5grk3peu8yzu4oked59ki6dbfhqd4mjzkpgwp67fny";
 
     seed_follow(TEST_USER, FOLLOWER_A, 1000).await?;
     seed_follow(TEST_USER, FOLLOWER_B, 2000).await?;
@@ -215,12 +215,12 @@ async fn test_get_notifications_with_end() -> Result<()> {
 #[tokio_shared_rt::test(shared)]
 async fn test_get_notifications_with_start_and_end() -> Result<()> {
     env_init().await;
-    const TEST_USER: &str = "test_notif_start_end_recipient_00000000001";
-    const FOLLOWER_A: &str = "test_notif_start_end_follower_a_00000000001";
-    const FOLLOWER_B: &str = "test_notif_start_end_follower_b_00000000001";
-    const FOLLOWER_C: &str = "test_notif_start_end_follower_c_00000000001";
-    const FOLLOWER_D: &str = "test_notif_start_end_follower_d_00000000001";
-    const FOLLOWER_E: &str = "test_notif_start_end_follower_e_00000000001";
+    const TEST_USER: &str = "h1z756b7jg8i595gh9iqnooj1dfkqyekt8yqyx9gxsnxk769966o";
+    const FOLLOWER_A: &str = "iy9kc4m4hsoo775zp98q7bhef938769hwxdtsyqumjmi5prx5yao";
+    const FOLLOWER_B: &str = "exkgz1yd4bj9xqwxftsdo7mrmmrm7c861c65zsugbk1csdinytxo";
+    const FOLLOWER_C: &str = "pocb988o3ahy1k3achcq34q8shc13phnzfj9mkyq9nj3wnk5c46y";
+    const FOLLOWER_D: &str = "waxkbh698e8kyhj5cgjbbe7z51rx6rmbeo4q87on1ddbnnrqoicy";
+    const FOLLOWER_E: &str = "8tzxghz61uhnwxdq6p3x7f8afc6g7h5194kxombhp53zf9ww9yso";
 
     seed_follow(TEST_USER, FOLLOWER_A, 1000).await?;
     seed_follow(TEST_USER, FOLLOWER_B, 2000).await?;
@@ -257,12 +257,12 @@ async fn test_get_notifications_with_start_and_end() -> Result<()> {
 #[tokio_shared_rt::test(shared)]
 async fn test_get_notifications_with_limit_and_skip() -> Result<()> {
     env_init().await;
-    const TEST_USER: &str = "test_notif_limit_skip_recipient_00000000001";
-    const FOLLOWER_A: &str = "test_notif_limit_skip_follower_a_00000000001";
-    const FOLLOWER_B: &str = "test_notif_limit_skip_follower_b_00000000001";
-    const FOLLOWER_C: &str = "test_notif_limit_skip_follower_c_00000000001";
-    const FOLLOWER_D: &str = "test_notif_limit_skip_follower_d_00000000001";
-    const FOLLOWER_E: &str = "test_notif_limit_skip_follower_e_00000000001";
+    const TEST_USER: &str = "a85p8hoso8pteigmc177oph83c6fp563o934szo4x8iouggey39o";
+    const FOLLOWER_A: &str = "u1w6mahico6k6smxhrexzubkzmtg7so7c5xpwtd9mzkwktph1r8o";
+    const FOLLOWER_B: &str = "b6uedjxmmns4rkkphu5i1aen9wyhcpt7nefrckp4cscf8w9q1tjo";
+    const FOLLOWER_C: &str = "91h4zoeeonxyusxzkhub6knqdyg61rrijkmyjnf1aqsjngj5w8ey";
+    const FOLLOWER_D: &str = "e7xe7b1gwcd485ce3srio9j5qz3opgrb3fpqeqmu64cznn5hqpeo";
+    const FOLLOWER_E: &str = "jy94hp5doi16dok1faidk9m695nkcryucfnfpr9jt53epsmpyf6o";
 
     seed_follow(TEST_USER, FOLLOWER_A, 1000).await?;
     seed_follow(TEST_USER, FOLLOWER_B, 2000).await?;

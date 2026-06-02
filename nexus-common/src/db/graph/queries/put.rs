@@ -128,7 +128,7 @@ fn add_relationship_params(
         };
 
         return Ok(cypher_query
-            .param(author_param, parent_author_id.as_str())
+            .param(author_param, parent_author_id.as_ref())
             .param(post_param, parent_post_id.as_str()));
     }
     Ok(cypher_query)

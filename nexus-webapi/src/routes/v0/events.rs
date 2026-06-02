@@ -5,8 +5,8 @@ use utoipa::ToSchema;
 
 use super::endpoints::EVENTS_ROUTE;
 
+use crate::routes::Query;
 use crate::Error;
-use axum::extract::Query;
 use axum::routing::get;
 use axum::{response::Response, Router};
 use utoipa::OpenApi;

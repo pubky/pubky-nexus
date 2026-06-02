@@ -188,16 +188,6 @@ async fn put_sync_resource(
     }
 }
 
-/// Handles the synchronization of a tagged post by updating the graph, indexes, and related counts.
-/// # Arguments
-/// - `tagger_user_id` - The `PubkyId` of the user tagging the post.
-/// - `author_id` - The `PubkyId` of the author of the tagged post.
-/// - `post_id` - A `String` representing the unique identifier of the post being tagged.
-/// - `tag_id` - A `String` representing the unique identifier of the tag.
-/// - `tag_label` - A `String` representing the label of the tag.
-/// - `post_uri` - A `String` representing the homeserver URI of the tagged post.
-/// - `indexed_at` - A 64-bit integer representing the timestamp when the post was indexed.
-///
 async fn put_sync_post(
     tagger_user_id: PubkyId,
     author_id: PubkyId,
@@ -273,14 +263,15 @@ async fn put_sync_post(
                     .await?;
                     Ok::<(), EventProcessorError>(())
                 },
-                // Add user tag in post
                 TagPost::add_tagger_to_index(&author_id, Some(post_id), &tagger_user_id, tag_label),
-                // Add post to label total engagement
-                PostsByTagSearch::update_index_score(&author_id, post_id, tag_label, ScoreAction::Increment(1.0)),
+                PostsByTagSearch::update_index_score(
+                    &author_id,
+                    post_id,
+                    tag_label,
+                    ScoreAction::Increment(1.0),
+                ),
                 async {
-                    // Post replies cannot be included in the total engagement index once they have been tagged
                     if !post_relationships_is_reply(&author_id, post_id).await? {
-                        // Increment in one post global engagement
                         PostStream::update_index_score(
                             &author_id,
                             post_id,
@@ -290,7 +281,6 @@ async fn put_sync_post(
                     }
                     Ok::<(), EventProcessorError>(())
                 },
-                // Add post to global label timeline
                 PostsByTagSearch::put_to_index(&author_id, post_id, tag_label),
                 // Save new notification
                 Notification::new_post_tag(&tagger_user_id, &author_id, tag_label, post_uri),
@@ -461,14 +451,14 @@ pub async fn del(tag_uri: &str) -> Result<(), EventProcessorError> {
     match (tagged_user_id, post_id, author_id, resource_id) {
         (Some(tagged_id), None, None, None) => {
             let tagger_in_index =
-                TagUser::check_set_member(&[&tagged_id, &label], arg_user_id.as_str())
+                TagUser::check_set_member(&[&tagged_id, &label], arg_user_id.as_ref())
                     .await?
                     .1;
             del_sync_user(arg_user_id.clone(), &tagged_id, &label, tagger_in_index).await?;
         }
         (None, Some(post_id), Some(author_id), None) => {
             let tagger_in_index =
-                TagPost::check_set_member(&[&author_id, &post_id, &label], arg_user_id.as_str())
+                TagPost::check_set_member(&[&author_id, &post_id, &label], arg_user_id.as_ref())
                     .await?
                     .1;
             del_sync_post(
@@ -642,13 +632,9 @@ async fn del_sync_post(
             Ok::<(), EventProcessorError>(())
         },
         async {
-            if tagger_in_index {
-                // Post replies cannot be included in the total engagement index once the tag have been deleted
-                if !post_relationships_is_reply(author_id, post_id).await? {
-                    // Decrement in one post global engagement
-                    PostStream::update_index_score(author_id, post_id, ScoreAction::Decrement(1.0))
-                        .await?;
-                }
+            if tagger_in_index && !post_relationships_is_reply(author_id, post_id).await? {
+                PostStream::update_index_score(author_id, post_id, ScoreAction::Decrement(1.0))
+                    .await?;
             }
             Ok::<(), EventProcessorError>(())
         },

@@ -8,7 +8,7 @@ use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
 use nexus_common::{
     db::{kv::SortOrder, RedisOps},
-    models::post::{PostDetails, PostRelationships, PostStream},
+    models::post::{PostCounts, PostDetails, PostRelationships, PostStream},
 };
 use pubky::Keypair;
 use pubky_app_specs::{post_uri_builder, PubkyAppPost, PubkyAppPostKind, PubkyAppUser};
@@ -188,5 +188,94 @@ async fn test_homeserver_post_reply() -> Result<()> {
     test.cleanup_user(&user_kp).await?;
     test.cleanup_post(&user_kp, &parent_post_path).await?;
 
+    Ok(())
+}
+
+/// Regression for the `!is_reply` inversion in `PostCounts::get_by_id`
+/// (Greptile P1). The cache-miss code path rebuilds PostCounts from the
+/// graph and writes it back via `put_to_index`. Previously it passed
+/// `!is_reply` (double-negated), so the engagement-gate inside
+/// `put_to_index` (`if !is_reply`) evaluated `true` for replies — adding
+/// the reply to POST_TOTAL_ENGAGEMENT on every cache rebuild after a
+/// Redis eviction.
+///
+/// Test plan: create a reply (which correctly stays out of
+/// POST_TOTAL_ENGAGEMENT via the watcher's normal path), evict its
+/// PostCounts JSON, call `get_by_id` to force the cache-miss rebuild, then
+/// assert the reply is still absent from POST_TOTAL_ENGAGEMENT.
+#[tokio_shared_rt::test(shared)]
+async fn test_postcounts_get_by_id_does_not_leak_reply_into_engagement_on_cache_miss() -> Result<()>
+{
+    let mut test = WatcherTest::setup().await?;
+    let user_kp = Keypair::random();
+    let user = PubkyAppUser {
+        bio: Some("test_postcounts_get_by_id_cache_miss".to_string()),
+        image: None,
+        links: None,
+        name: "Watcher:PostCountsCacheMiss:User".to_string(),
+        status: None,
+    };
+    let user_id = test.create_user(&user_kp, &user).await?;
+
+    // Parent post (kind=Short) — used only as a reply target.
+    let parent_post = PubkyAppPost {
+        content: "parent".to_string(),
+        kind: PubkyAppPostKind::Short,
+        parent: None,
+        embed: None,
+        attachments: None,
+    };
+    let (parent_post_id, parent_post_path) = test.create_post(&user_kp, &parent_post).await?;
+    let parent_uri = post_uri_builder(user_id.clone(), parent_post_id.clone());
+
+    // Reply post — by construction NOT supposed to enter POST_TOTAL_ENGAGEMENT.
+    let reply_post = PubkyAppPost {
+        content: "reply".to_string(),
+        kind: PubkyAppPostKind::Short,
+        parent: Some(parent_uri),
+        embed: None,
+        attachments: None,
+    };
+    let (reply_id, reply_path) = test.create_post(&user_kp, &reply_post).await?;
+
+    // Pre-condition: the watcher's normal path correctly gated the reply out.
+    let reply_key: &[&str] = &[&user_id, &reply_id];
+    assert!(
+        check_member_total_engagement_user_posts(reply_key)
+            .await?
+            .is_none(),
+        "pre-condition: reply must not be in POST_TOTAL_ENGAGEMENT after normal indexing"
+    );
+
+    // Evict the PostCounts JSON from Redis, forcing `get_by_id` to fall through
+    // to the graph and re-populate the cache via `put_to_index`.
+    PostCounts::remove_from_index_multiple_json(&[reply_key]).await?;
+    assert!(
+        PostCounts::get_from_index(&user_id, &reply_id)
+            .await?
+            .is_none(),
+        "eviction precondition: PostCounts JSON should be gone"
+    );
+
+    // Trigger the cache-miss rebuild path that the bug lives on.
+    let rebuilt = PostCounts::get_by_id(&user_id, &reply_id).await?;
+    assert!(
+        rebuilt.is_some(),
+        "get_by_id must rebuild PostCounts from the graph after eviction"
+    );
+
+    // The load-bearing assertion: the rebuild must NOT have added the reply
+    // to POST_TOTAL_ENGAGEMENT. With the `!is_reply` bug present, the next
+    // line would see the reply with score 0 in the engagement sorted set.
+    assert!(
+        check_member_total_engagement_user_posts(reply_key)
+            .await?
+            .is_none(),
+        "reply must not leak into POST_TOTAL_ENGAGEMENT on cache-miss rebuild"
+    );
+
+    test.cleanup_post(&user_kp, &reply_path).await?;
+    test.cleanup_post(&user_kp, &parent_post_path).await?;
+    test.cleanup_user(&user_kp).await?;
     Ok(())
 }

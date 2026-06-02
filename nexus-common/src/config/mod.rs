@@ -16,18 +16,6 @@ pub fn get_files_dir_pathbuf() -> PathBuf {
         .clone()
 }
 
-// All the tests run inside their own crate therefore the default directory does not apply
-pub const FILES_DIR_TEST: &str = "./static/files";
-static FILES_DIR_TEST_PATHBUF: OnceLock<PathBuf> = OnceLock::new();
-pub fn get_files_dir_test_pathbuf() -> PathBuf {
-    FILES_DIR_TEST_PATHBUF
-        .get_or_init(|| {
-            validate_and_expand_path(PathBuf::from(FILES_DIR_TEST))
-                .expect("Hardcoded FILES_DIR_TEST should be a valid directory path")
-        })
-        .clone()
-}
-
 mod api;
 mod daemon;
 pub mod file;

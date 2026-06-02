@@ -11,27 +11,29 @@ members = [
 
 [workspace.dependencies]
 anyhow = "1.0.102"
+base32 = "0.5.1"
 blake3 = "1"
 hex = "0.4"
 async-trait = "0.1.89"
 chrono = { version = "0.4.44", default-features = false, features = ["clock"] }
 clap = "4.6.1"
 deadpool-redis = "0.23"
+dirs = "6.0.0"
 neo4rs = "0.8.0"
 redis = "1.0.4"
-opentelemetry = "0.31"
-opentelemetry_sdk = { version = "0.31", features = ["rt-tokio"] }
-pubky = "0.7.0"
-pubky-app-specs = { git = "https://github.com/pubky/pubky-app-specs.git", rev = "b1620fd1b98b1665abd07ba3dd208a295da528d1", features = ["openapi"] }
-pubky-testnet = "0.7.0"
+opentelemetry = "0.32"
+opentelemetry_sdk = { version = "0.32", features = ["rt-tokio"] }
+pubky = "0.8.0"
+pubky-app-specs = { version = "0.5.2", features = ["openapi"] }
+pubky-testnet = "0.8.0"
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.149"
 tempfile = "3.25"
 thiserror = "2.0.17"
-tokio = { version = "1.52.1", features = ["full"] }
+tokio = { version = "1.52.3", features = ["full"] }
 tokio-shared-rt = "0.1"
 tracing = "0.1.44"
-tracing-opentelemetry = "0.32.1"
+tracing-opentelemetry = "0.33.0"
 tracing-test = "0.2"
 url = "2"
 utoipa = "5.5.0"
