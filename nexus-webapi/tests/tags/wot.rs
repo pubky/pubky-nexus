@@ -1,7 +1,8 @@
 use super::utils::{analyse_tag_details_structure, compare_tag_details, TagMockup};
-use crate::utils::get_request;
 use crate::utils::server::TestServiceServer;
+use crate::utils::{get_request, invalid_get_request};
 use anyhow::Result;
+use axum::http::StatusCode;
 use deadpool_redis::redis::AsyncCommands;
 use nexus_common::db::get_redis_conn;
 use nexus_common::models::tag::TagDetails;
@@ -68,7 +69,7 @@ async fn test_wot_user_tags_endpoints() -> Result<(), DynError> {
     // Validate that the posts tag structure
     analyse_tag_details_structure(tags);
 
-    // // Analyse the tag that is in the 4th index
+    // The hottest tag (athens) sorts first
     let athens_hot_tag = TagMockup::new(String::from(ATHENS_TAG), 3, 3);
     compare_tag_details(&tags[0], athens_hot_tag);
 
@@ -241,5 +242,132 @@ async fn clear_wot_tags_cache() -> Result<(), DynError> {
     // Remove the SORTED SET
     let sorted_set_key = format!("Cache:Sorted:Users:Tag:{EPICTTO_VIEWER}:{AURELIO_USER}");
     let _: () = redis_conn.del(sorted_set_key).await?;
+    Ok(())
+}
+
+// ##### WoT post tags (moderation-bot visibility) #####
+// The post-tag WoT path is graph-only (no cache), so no cache-clear is needed.
+// Fixture (docker/test-graph/mocks/wot.cypher): mod bot M tags reply WOTPOSTREPLY1
+// (authored by D2) with `nudity`; observer O follows M, spammer S does not.
+const WOT_OBSERVER: &str = "y6apowjmcg8rocmd9jirg95fyf3yykwuhqxozzts4mjipk4n7iao";
+const WOT_REPLY_AUTHOR: &str = "smf4xrqfhx7stnufkjzhbjyu3rbgb3gga64srqmzcyyoyzefse9y";
+const WOT_NON_FOLLOWER: &str = "qdsygndnk45m9ru5jseg3uxk5xg4usj9hrcraqbzgigapzweaa9o";
+const WOT_REPLY_POST: &str = "WOTPOSTREPLY1";
+const NUDITY_TAG: &str = "nudity";
+// D2's parent post: D2 is in the observer's WoT, but no WoT member tagged this post,
+// so its WoT post-tag list is empty (existing post, no trusted tags). 13-char PostId.
+const WOT_UNTAGGED_POST: &str = "WOTPOSTD20004";
+// Deep reply tagged by WoT members D1/D1B ('wotreview') and M ('wotflag'); used to
+// check that WoT post-tags honor skip_tags/limit_tags/limit_taggers like the global view.
+const WOT_TAG_LIMIT_POST: &str = "WOTPOSTTAGS01";
+
+#[tokio_shared_rt::test(shared)]
+async fn test_wot_post_tags_mod_visibility() -> Result<(), DynError> {
+    // The observer follows the mod bot, so its `nudity` tag on the post is visible.
+    let path = format!(
+        "/v0/post/{WOT_REPLY_AUTHOR}/{WOT_REPLY_POST}/tags?viewer_id={WOT_OBSERVER}&depth=2"
+    );
+    let body = get_request(&path).await?;
+    let tags = body.as_array().expect("Tag list should be an array");
+    assert_eq!(
+        tags.len(),
+        1,
+        "the mod bot's tag should surface for a follower"
+    );
+    assert_eq!(tags[0]["label"], NUDITY_TAG);
+
+    // A viewer who does not follow the mod bot: the post exists but its WoT has no
+    // tags on it, so the response is an empty list (200), not 404.
+    let path = format!(
+        "/v0/post/{WOT_REPLY_AUTHOR}/{WOT_REPLY_POST}/tags?viewer_id={WOT_NON_FOLLOWER}&depth=2"
+    );
+    let body = get_request(&path).await?;
+    let tags = body.as_array().expect("Tag list should be an array");
+    assert!(
+        tags.is_empty(),
+        "a non-follower should not see the mod bot's tag"
+    );
+
+    // The observer's WoT is non-empty (follows D1/D1B/M) but none of them tagged this
+    // post: it is a valid post, so the response is an empty list (200), not a 404.
+    let path = format!(
+        "/v0/post/{WOT_REPLY_AUTHOR}/{WOT_UNTAGGED_POST}/tags?viewer_id={WOT_OBSERVER}&depth=2"
+    );
+    let body = get_request(&path).await?;
+    let tags = body.as_array().expect("Tag list should be an array");
+    assert!(
+        tags.is_empty(),
+        "an existing post with no WoT-visible tags should be 200 [], not 404"
+    );
+
+    // `viewer_id` without `depth` is the global view, not WoT: the same spammer who
+    // saw nothing with depth=2 now sees the mod bot's tag through the global path.
+    let path =
+        format!("/v0/post/{WOT_REPLY_AUTHOR}/{WOT_REPLY_POST}/tags?viewer_id={WOT_NON_FOLLOWER}");
+    let body = get_request(&path).await?;
+    let tags = body.as_array().expect("Tag list should be an array");
+    assert_eq!(
+        tags.len(),
+        1,
+        "viewer_id without depth returns the global view"
+    );
+    assert_eq!(tags[0]["label"], NUDITY_TAG);
+
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_wot_tag_depth_out_of_range_rejected() -> Result<(), DynError> {
+    // An out-of-range WoT depth supplied with a viewer is a 400 on both tag endpoints,
+    // consistent with the stream endpoints (rather than silently falling back to global).
+    let path = format!(
+        "/v0/post/{WOT_REPLY_AUTHOR}/{WOT_REPLY_POST}/tags?viewer_id={WOT_OBSERVER}&depth=4"
+    );
+    invalid_get_request(&path, StatusCode::BAD_REQUEST).await?;
+
+    let path = format!("/v0/user/{AURELIO_USER}/tags?viewer_id={EPICTTO_VIEWER}&depth=4");
+    invalid_get_request(&path, StatusCode::BAD_REQUEST).await?;
+
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_wot_post_tags_respect_limits() -> Result<(), DynError> {
+    // WOTPOSTTAGS01 has two WoT labels: wotreview (2 trusted taggers, D1/D1B) and
+    // wotflag (1, M). Labels sort by tagger count; the limits bound the response.
+    let base = format!(
+        "/v0/post/{WOT_REPLY_AUTHOR}/{WOT_TAG_LIMIT_POST}/tags?viewer_id={WOT_OBSERVER}&depth=2"
+    );
+    let body = get_request(&base).await?;
+    let tags = body.as_array().expect("Tag list should be an array");
+    assert_eq!(tags.len(), 2, "both WoT labels are visible by default");
+    assert_eq!(
+        tags[0]["label"], "wotreview",
+        "the label with more taggers sorts first"
+    );
+    assert_eq!(
+        tags[0]["taggers"].as_array().expect("taggers array").len(),
+        2,
+        "wotreview has two trusted taggers"
+    );
+
+    // limit_tags caps the number of labels returned.
+    let body = get_request(&format!("{base}&limit_tags=1")).await?;
+    assert_eq!(
+        body.as_array().expect("array").len(),
+        1,
+        "limit_tags=1 returns only the top label"
+    );
+
+    // limit_taggers caps the taggers within each label.
+    let body = get_request(&format!("{base}&limit_taggers=1")).await?;
+    assert_eq!(
+        body.as_array().expect("array")[0]["taggers"]
+            .as_array()
+            .expect("taggers")
+            .len(),
+        1,
+        "limit_taggers=1 caps wotreview's taggers"
+    );
     Ok(())
 }

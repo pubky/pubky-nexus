@@ -1,8 +1,25 @@
 use crate::models::PubkyId;
+use crate::{Error, Result as AppResult};
 use nexus_common::models::tag::Taggers;
+use nexus_common::types::WotDepth;
 use serde::de::{self, Deserializer};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
+
+/// Resolves the WoT depth for tag endpoints: `Some(depth)` activates WoT filtering,
+/// `None` is the global path. Rejects an out-of-range depth requested together with a
+/// viewer (an explicit but malformed WoT request); `depth` without a viewer is ignored.
+pub(crate) fn resolve_tag_wot_depth(
+    viewer_id: Option<&str>,
+    depth: Option<u8>,
+) -> AppResult<Option<WotDepth>> {
+    match (viewer_id, depth) {
+        (Some(_), Some(d)) => WotDepth::new(d)
+            .map(Some)
+            .map_err(|e| Error::invalid_input(&e)),
+        _ => Ok(None),
+    }
+}
 
 #[derive(Default, Deserialize, Debug, ToSchema)]
 pub struct TagsQuery {
@@ -14,8 +31,8 @@ pub struct TagsQuery {
     pub depth: Option<u8>,
 }
 
-// Parsing strings or floats into f64
-fn parse_string_to_u8<'de, D>(deserializer: D) -> Result<Option<u8>, D::Error>
+// Query params arrive as strings, so deserialize via String first.
+pub(crate) fn parse_string_to_u8<'de, D>(deserializer: D) -> Result<Option<u8>, D::Error>
 where
     D: Deserializer<'de>,
 {

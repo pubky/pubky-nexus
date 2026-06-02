@@ -20,6 +20,44 @@ pub enum StreamSorting {
     TotalEngagement,
 }
 
+/// Web of Trust traversal depth, validated to `1..=3` at construction. The
+/// `FOLLOWS*1..n` graph traversals are expensive, so the query builders only
+/// accept this type, keeping the bound enforced for every caller (web, tests,
+/// benches, internal) rather than at the web layer alone.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct WotDepth(u8);
+
+impl WotDepth {
+    pub const MIN: u8 = 1;
+    pub const MAX: u8 = 3;
+    /// Default traversal depth (depth-3 is expensive without caching).
+    pub const DEFAULT: WotDepth = WotDepth(2);
+
+    /// Validates that `depth` is within `1..=3`.
+    pub fn new(depth: u8) -> Result<Self, String> {
+        if (Self::MIN..=Self::MAX).contains(&depth) {
+            Ok(WotDepth(depth))
+        } else {
+            Err(format!(
+                "'depth' must be between {} and {}",
+                Self::MIN,
+                Self::MAX
+            ))
+        }
+    }
+
+    /// The underlying depth value.
+    pub fn get(self) -> u8 {
+        self.0
+    }
+}
+
+impl std::fmt::Display for WotDepth {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 #[derive(Debug, ToSchema, Clone, PartialEq)]
 pub enum StreamReach {
     Followers,

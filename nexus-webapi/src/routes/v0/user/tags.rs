@@ -1,5 +1,6 @@
 use crate::models::{PubkyId, TagLabel};
 use crate::routes::v0::endpoints::{USER_TAGGERS_ROUTE, USER_TAGS_ROUTE};
+use crate::routes::v0::types::resolve_tag_wot_depth;
 use crate::routes::v0::{TaggersInfoResponse, TagsQuery};
 use crate::routes::Path;
 use crate::routes::Query;
@@ -8,7 +9,7 @@ use axum::Json;
 use nexus_common::models::tag::traits::{TagCollection, TaggersCollection};
 use nexus_common::models::tag::user::TagUser;
 use nexus_common::models::tag::TagDetails;
-use nexus_common::types::Pagination;
+use nexus_common::types::{Pagination, WotDepth};
 use serde::Deserialize;
 use tracing::debug;
 use utoipa::OpenApi;
@@ -24,10 +25,11 @@ use utoipa::OpenApi;
         ("limit_tags" = Option<usize>, Query, description = "Upper limit on the number of tags for the user. **Default** value 5"),
         ("limit_taggers" = Option<usize>, Query, description = "Upper limit on the number of taggers per tag. **Default** value 5"),
         ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID"),
-        ("depth" = Option<usize>, Query, description = "User trusted network depth, user following users distance. Numbers bigger than 4, will be ignored")
+        ("depth" = Option<u8>, Query, description = "WoT depth (1-3). When provided with `viewer_id`, tags are filtered through the viewer's Web of Trust. An out-of-range depth supplied with `viewer_id` is rejected with 400.")
     ),
     responses(
         (status = 200, description = "User tags", body = Vec<TagDetails>),
+        (status = 400, description = "Invalid input"),
         (status = 404, description = "User not found"),
         (status = 500, description = "Internal server error")
     )
@@ -41,6 +43,7 @@ pub async fn user_tags_handler(
         user_id, query.skip_tags, query.limit_tags, query.limit_taggers, query.viewer_id, query.depth
     );
 
+    let depth = resolve_tag_wot_depth(query.viewer_id.as_deref(), query.depth)?.map(WotDepth::get);
     match TagUser::get_by_id(
         &user_id,
         None,
@@ -48,7 +51,7 @@ pub async fn user_tags_handler(
         query.limit_tags,
         query.limit_taggers,
         query.viewer_id.as_deref(),
-        query.depth,
+        depth,
     )
     .await?
     {
@@ -82,10 +85,11 @@ pub struct TaggersQuery {
         ("skip" = Option<usize>, Query, description = "Number of taggers to skip for pagination"),
         ("limit" = Option<usize>, Query, description = "Number of taggers to return for pagination"),
         ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID"),
-        ("depth" = Option<usize>, Query, description = "User trusted network depth, user following users distance. Numbers bigger than 4, will be ignored")
+        ("depth" = Option<u8>, Query, description = "WoT depth (1-3). When provided with `viewer_id`, taggers are filtered through the viewer's Web of Trust. An out-of-range depth supplied with `viewer_id` is rejected with 400.")
     ),
     responses(
         (status = 200, description = "User tags", body = TaggersInfoResponse),
+        (status = 400, description = "Invalid input"),
         (status = 500, description = "Internal server error")
     )
 )]
@@ -101,13 +105,15 @@ pub async fn user_taggers_handler(
         user_id, label, pagination.skip, pagination.limit, tags_query.viewer_id, tags_query.depth
     );
 
+    let depth = resolve_tag_wot_depth(tags_query.viewer_id.as_deref(), tags_query.depth)?
+        .map(WotDepth::get);
     let taggers = TagUser::get_tagger_by_id(
         &user_id,
         None,
         &label,
         pagination,
         tags_query.viewer_id.as_deref(),
-        tags_query.depth,
+        depth,
     )
     .await?;
     Ok(Json(TaggersInfoResponse::from(taggers)))

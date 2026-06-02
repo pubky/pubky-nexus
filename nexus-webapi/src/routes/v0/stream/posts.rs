@@ -2,6 +2,7 @@ use crate::models::{GlobalPostId, GlobalPostIds, PostId, PostStreamDetailed, Pub
 use crate::routes::v0::endpoints::{
     STREAM_POSTS_BY_IDS_ROUTE, STREAM_POSTS_ROUTE, STREAM_POST_KEYS_ROUTE,
 };
+use crate::routes::v0::types::parse_string_to_u8;
 use crate::routes::Json as RequestJson;
 use crate::routes::Query;
 use crate::{Error, Result as AppResult};
@@ -10,7 +11,7 @@ use nexus_common::db::kv::SortOrder;
 use nexus_common::types::StreamSorting;
 use nexus_common::{
     models::post::{PostKeyStream, PostStream, StreamSource},
-    types::Pagination,
+    types::{Pagination, WotDepth},
 };
 use pubky_app_specs::PubkyAppPostKind;
 use serde::Deserialize;
@@ -31,8 +32,16 @@ pub enum StreamSourceKind {
     Author,
     AuthorReplies,
     Collection,
+    Wot,
+    WotDomain,
     #[default]
     All,
+}
+
+/// Applies the default WoT depth and validates it through `WotDepth`.
+fn resolve_wot_depth(depth: Option<u8>) -> AppResult<WotDepth> {
+    let depth = depth.unwrap_or(WotDepth::DEFAULT.get());
+    WotDepth::new(depth).map_err(|e| Error::invalid_input(&e))
 }
 
 /// Convert a validated query into the internal StreamSource used by nexus-common.
@@ -42,6 +51,8 @@ fn build_stream_source(
     author_id: Option<&PubkyId>,
     observer_id: Option<&PubkyId>,
     post_id: Option<&PostId>,
+    depth: Option<u8>,
+    domain_tags: Option<&Tags>,
 ) -> AppResult<StreamSource> {
     match kind {
         StreamSourceKind::PostReplies => match (post_id, author_id) {
@@ -117,6 +128,28 @@ fn build_stream_source(
                 post_id: post_id.unwrap().to_string(),
             })
         }
+        StreamSourceKind::Wot => match observer_id {
+            Some(observer_id) => Ok(StreamSource::Wot {
+                observer_id: observer_id.to_string(),
+                depth: resolve_wot_depth(depth)?,
+            }),
+            None => Err(Error::invalid_input(
+                "source 'wot' requires 'observer_id' parameter",
+            )),
+        },
+        StreamSourceKind::WotDomain => match (observer_id, domain_tags) {
+            (Some(observer_id), Some(domain_tags)) => Ok(StreamSource::WotDomain {
+                observer_id: observer_id.to_string(),
+                depth: resolve_wot_depth(depth)?,
+                domain_tags: domain_tags.to_string_vec(),
+            }),
+            (None, _) => Err(Error::invalid_input(
+                "source 'wot_domain' requires 'observer_id' parameter",
+            )),
+            (_, None) => Err(Error::invalid_input(
+                "source 'wot_domain' requires 'domain_tags' parameter",
+            )),
+        },
         StreamSourceKind::All => Ok(StreamSource::All),
     }
 }
@@ -134,6 +167,9 @@ pub struct PostStreamQuery {
     pub sorting: Option<StreamSorting>,
     pub viewer_id: Option<PubkyId>,
     pub tags: Option<Tags>,
+    #[serde(default, deserialize_with = "parse_string_to_u8")]
+    pub depth: Option<u8>,
+    pub domain_tags: Option<Tags>,
     pub kind: Option<PubkyAppPostKind>,
     #[serde(default)]
     pub include_attachment_metadata: bool,
@@ -152,6 +188,8 @@ impl PostStreamQuery {
             self.author_id.as_ref(),
             self.observer_id.as_ref(),
             self.post_id.as_ref(),
+            self.depth,
+            self.domain_tags.as_ref(),
         )
     }
 
@@ -191,7 +229,7 @@ impl PostStreamQuery {
     path = STREAM_POSTS_ROUTE,
     tag = "Stream",
     params(
-        ("source" = Option<StreamSourceKind>, Query, description = "Source of posts for streams with viewer (following, followers, friends, bookmarks, post_replies, author, author_replies, collection, all). For `source=collection`: provide `author_id` + `post_id` of the Collection post; items are returned in curator order. `tags`, `kind`, `sorting`, `order`, `start`, `end` are all rejected with 400 (incompatible with the curator-ordered result set). Items whose underlying post is missing (deleted, not indexed) or whose URI is malformed/non-post are dropped during hydration; pages may be shorter than `limit`. Pagination via `skip`/`limit` is not stable across deletions — if an item is removed between page fetches, the same `skip` returns a different window. The FE can identify dropped items by diffing the response against the Collection envelope's `items[]`."),
+        ("source" = Option<StreamSourceKind>, Query, description = "Source of posts for streams with viewer (following, followers, friends, bookmarks, post_replies, author, author_replies, collection, wot, wot_domain, all). For `source=collection`: provide `author_id` + `post_id` of the Collection post; items are returned in curator order. `tags`, `kind`, `sorting`, `order`, `start`, `end` are all rejected with 400 (incompatible with the curator-ordered result set). Items whose underlying post is missing (deleted, not indexed) or whose URI is malformed/non-post are dropped during hydration; pages may be shorter than `limit`. Pagination via `skip`/`limit` is not stable across deletions, if an item is removed between page fetches, the same `skip` returns a different window. The FE can identify dropped items by diffing the response against the Collection envelope's `items[]`."),
         ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID"),
         ("observer_id" = Option<PubkyId>, Query, description = "Observer Pubky ID. The central point for streams with Reach"),
         ("author_id" = Option<PubkyId>, Query, description = "Filter posts by an specific author User ID"),
@@ -199,6 +237,8 @@ impl PostStreamQuery {
         ("sorting" = Option<StreamSorting>, Query, description = "StreamSorting method"),
         ("order" = Option<SortOrder>, Query, description = "Ordering of response list. Either 'ascending' or 'descending'. Defaults to descending."),
         ("tags" = Option<Tags>, Query, description = "Filter by a list of comma-separated tags (max 5). E.g.,`&tags=dev,free,opensource`. Only posts matching at least one of the tags will be returned."),
+        ("depth" = Option<u8>, Query, description = "WoT traversal depth (1-3, default 2) for `source=wot` / `source=wot_domain`. Ignored for other sources."),
+        ("domain_tags" = Option<Tags>, Query, description = "Required for `source=wot_domain`. Comma-separated tag labels (max 5); returns posts by authors tagged with any of these by the observer's WoT. E.g. `&domain_tags=bitcoiner,btc-dev`. Ignored for other sources."),
         ("kind" = Option<PubkyAppPostKind>, Query, description = "Filter by post kind: short, long, image, video, link, file, collection."),
         ("skip" = Option<usize>, Query, description = "Skip N posts"),
         ("limit" = Option<usize>, Query, description = "Retrieve N posts"),
@@ -219,6 +259,9 @@ The `source` parameter determines the type of stream. Depending on the `source`,
 - *author*:  Requires  **author_id** to filter posts by a specific author.
 - *author_replies*:  Requires  **author_id** to filter replies by a specific author.
 - *collection*: Requires **author_id** and **post_id** of the Collection post; items are returned in curator order.
+
+- *wot*: Requires **observer_id**. Posts from users in the observer's Web of Trust (transitive follows, `depth` 1-3, default 2).
+- *wot_domain*: Requires **observer_id** and **domain_tags**. Posts from users whom the observer's Web of Trust has tagged with any of `domain_tags`.
 
 Ensure that you provide the necessary parameters based on the selected `source`. If a required parameter is missing, a 400 Bad Request error will be returned."#
 )]
@@ -256,13 +299,15 @@ pub async fn stream_posts_handler(
     path = STREAM_POST_KEYS_ROUTE,
     tag = "Stream",
     params(
-        ("source" = Option<StreamSourceKind>, Query, description = "Source of posts for streams with viewer (following, followers, friends, bookmarks, post_replies, author, author_replies, collection, all). For `source=collection`: provide `author_id` + `post_id` of the Collection post; keys are returned in curator order. `tags`, `kind`, `sorting`, `order`, `start`, `end` are all rejected with 400 (incompatible with the curator-ordered result set). Like every other source, the returned keys are a best-effort snapshot — they may reference posts that have since been deleted or are not yet indexed; callers should hydrate via `GET /v0/stream/posts?source=collection&author_id=...&post_id=...` (or `POST /v0/stream/posts/by_ids`) which drops unresolved refs. Pagination via `skip`/`limit` is not stable across deletions."),
+        ("source" = Option<StreamSourceKind>, Query, description = "Source of posts for streams with viewer (following, followers, friends, bookmarks, post_replies, author, author_replies, collection, wot, wot_domain, all). For `source=collection`: provide `author_id` + `post_id` of the Collection post; keys are returned in curator order. `tags`, `kind`, `sorting`, `order`, `start`, `end` are all rejected with 400 (incompatible with the curator-ordered result set). Like every other source, the returned keys are a best-effort snapshot, they may reference posts that have since been deleted or are not yet indexed; callers should hydrate via `GET /v0/stream/posts?source=collection&author_id=...&post_id=...` (or `POST /v0/stream/posts/by_ids`) which drops unresolved refs. Pagination via `skip`/`limit` is not stable across deletions."),
         ("observer_id" = Option<PubkyId>, Query, description = "Observer Pubky ID. The central point for streams with Reach"),
         ("author_id" = Option<PubkyId>, Query, description = "Filter posts by an specific author User ID"),
         ("post_id" = Option<PostId>, Query, description = "This parameter is needed when we want to retrieve the replies stream for a post"),
         ("sorting" = Option<StreamSorting>, Query, description = "StreamSorting method"),
         ("order" = Option<SortOrder>, Query, description = "Ordering of response list. Either 'ascending' or 'descending'. Defaults to descending."),
         ("tags" = Option<Tags>, Query, description = "Filter by a list of comma-separated tags (max 5). E.g.,`&tags=dev,free,opensource`. Only posts matching at least one of the tags will be returned."),
+        ("depth" = Option<u8>, Query, description = "WoT traversal depth (1-3, default 2) for `source=wot` / `source=wot_domain`. Ignored for other sources."),
+        ("domain_tags" = Option<Tags>, Query, description = "Required for `source=wot_domain`. Comma-separated tag labels (max 5); returns posts by authors tagged with any of these by the observer's WoT. E.g. `&domain_tags=bitcoiner,btc-dev`. Ignored for other sources."),
         ("kind" = Option<PubkyAppPostKind>, Query, description = "Filter by post kind: short, long, image, video, link, file, collection."),
         ("skip" = Option<usize>, Query, description = "Skip N posts"),
         ("limit" = Option<usize>, Query, description = "Retrieve N posts"),
@@ -281,6 +326,9 @@ The `source` parameter determines the type of stream. Depending on the `source`,
 - *author*:  Requires  **author_id** to filter posts by a specific author.
 - *author_replies*:  Requires  **author_id** to filter replies by a specific author.
 - *collection*: Requires **author_id** and **post_id** of the Collection post; keys are returned in curator order.
+
+- *wot*: Requires **observer_id**. Posts from users in the observer's Web of Trust (transitive follows, `depth` 1-3, default 2).
+- *wot_domain*: Requires **observer_id** and **domain_tags**. Posts from users whom the observer's Web of Trust has tagged with any of `domain_tags`.
 
 Ensure that you provide the necessary parameters based on the selected `source`. If a required parameter is missing, a 400 Bad Request error will be returned."#
 )]

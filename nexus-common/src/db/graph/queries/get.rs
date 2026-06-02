@@ -8,6 +8,7 @@ use crate::types::Pagination;
 use crate::types::StreamReach;
 use crate::types::StreamSorting;
 use crate::types::Timeframe;
+use crate::types::WotDepth;
 use pubky_app_specs::PubkyAppPostKind;
 
 // Retrieve post node by post id and author id
@@ -429,7 +430,7 @@ pub fn get_all_homeservers() -> Query {
 ///       - `label`: The tag label.
 ///       - `taggers`: A list of tagger user IDs who applied the tag.
 ///       - `taggers_count`: The number of taggers who applied the tag.
-pub fn get_viewer_trusted_network_tags(user_id: &str, viewer_id: &str, depth: u8) -> Query {
+pub fn get_viewer_trusted_network_tags(user_id: &str, viewer_id: &str, depth: WotDepth) -> Query {
     let graph_query = format!(
         "
         MATCH (viewer:User {{id: $viewer_id}})
@@ -455,6 +456,54 @@ pub fn get_viewer_trusted_network_tags(user_id: &str, viewer_id: &str, depth: u8
     Query::new("get_viewer_trusted_network_tags", graph_query.as_str())
         .param("user_id", user_id)
         .param("viewer_id", viewer_id)
+}
+
+/// Tags on a single post applied by users in the viewer's Web of Trust
+/// (transitive FOLLOWS, 1..=depth). Post existence is the anchor: the post is
+/// matched first and the viewer with `OPTIONAL MATCH`, so an existing post always
+/// returns one row with `tags` (`[]` when no trusted tagger tagged it, or when the
+/// viewer is unknown) for an empty/normal 200; only a missing post returns zero
+/// rows (404). Labels are ordered by tagger count and paginated with
+/// `skip_tags`/`limit_tags`; each label's taggers are capped at `limit_taggers`,
+/// mirroring the global tag endpoint so the response stays bounded.
+pub fn get_viewer_trusted_network_post_tags(
+    author_id: &str,
+    post_id: &str,
+    viewer_id: &str,
+    depth: WotDepth,
+    skip_tags: usize,
+    limit_tags: usize,
+    limit_taggers: usize,
+) -> Query {
+    let graph_query = format!(
+        "
+        MATCH (:User {{id: $author_id}})-[:AUTHORED]->(p:Post {{id: $post_id}})
+        OPTIONAL MATCH (viewer:User {{id: $viewer_id}})
+        CALL {{
+            WITH viewer, p
+            MATCH (viewer)-[:FOLLOWS*1..{depth}]->(tagger:User)-[tag:TAGGED]->(p)
+            WITH tag.label AS label, collect(DISTINCT tagger.id) AS taggerIds
+            WITH label, taggerIds, SIZE(taggerIds) AS taggersCount
+            ORDER BY taggersCount DESC, label ASC
+            SKIP $skip_tags
+            LIMIT $limit_tags
+            RETURN collect({{
+                label: label,
+                taggers: taggerIds[0..$limit_taggers],
+                taggers_count: taggersCount
+            }}) AS tags
+        }}
+        RETURN p IS NOT NULL AS exists, tags
+        "
+    );
+
+    Query::new("get_viewer_trusted_network_post_tags", graph_query.as_str())
+        .param("author_id", author_id)
+        .param("post_id", post_id)
+        .param("viewer_id", viewer_id)
+        .param("skip_tags", skip_tags as i64)
+        .param("limit_tags", limit_tags as i64)
+        .param("limit_taggers", limit_taggers as i64)
 }
 
 pub fn user_counts(user_id: &str) -> Query {
@@ -781,6 +830,7 @@ pub fn get_files_by_ids(key_pair: &[&[&str]]) -> Query {
 pub fn post_stream(
     source: StreamSource,
     sorting: StreamSorting,
+    order: SortOrder,
     tags: &Option<Vec<String>>,
     pagination: Pagination,
     kind: Option<PubkyAppPostKind>,
@@ -801,16 +851,38 @@ pub fn post_stream(
     cypher.push_str("MATCH (p:Post)<-[:AUTHORED]-(author:User)\n");
 
     // Apply source MATCH clause
-    if let Some(query) = match source {
-        StreamSource::Following { .. } => Some("MATCH (observer)-[:FOLLOWS]->(author)\n"),
-        StreamSource::Followers { .. } => Some("MATCH (observer)<-[:FOLLOWS]-(author)\n"),
-        StreamSource::Friends { .. } => {
-            Some("MATCH (observer)-[:FOLLOWS]->(author)-[:FOLLOWS]->(observer)\n")
+    match &source {
+        StreamSource::Following { .. } => {
+            cypher.push_str("MATCH (observer)-[:FOLLOWS]->(author)\n")
         }
-        StreamSource::Bookmarks { .. } => Some("MATCH (observer)-[:BOOKMARKED]->(p)\n"),
-        _ => None,
-    } {
-        cypher.push_str(query);
+        StreamSource::Followers { .. } => {
+            cypher.push_str("MATCH (observer)<-[:FOLLOWS]-(author)\n")
+        }
+        StreamSource::Friends { .. } => {
+            cypher.push_str("MATCH (observer)-[:FOLLOWS]->(author)-[:FOLLOWS]->(observer)\n")
+        }
+        StreamSource::Bookmarks { .. } => cypher.push_str("MATCH (observer)-[:BOOKMARKED]->(p)\n"),
+        // Inline: `author` is already bound by the base AUTHORED match, so a
+        // subquery returning `author` would conflict. Terminal WITH DISTINCT dedupes.
+        StreamSource::Wot { depth, .. } => {
+            cypher.push_str(&format!("MATCH (observer)-[:FOLLOWS*1..{depth}]->(author)\n"))
+        }
+        // CALL collapses the trust reach to distinct taggers before the tag join.
+        StreamSource::WotDomain { depth, .. } => cypher.push_str(&format!(
+            "CALL {{ WITH observer MATCH (observer)-[:FOLLOWS*1..{depth}]->(tagger:User) RETURN DISTINCT tagger }}\n\
+             MATCH (tagger)-[endorsement:TAGGED]->(author)\n"
+        )),
+        _ => {}
+    }
+
+    // Web of Trust must not surface the observer's own posts even when a trusted
+    // path loops back to them (a mutual follow reaches the observer at depth >= 2).
+    if matches!(source, StreamSource::Wot { .. }) {
+        append_condition(
+            &mut cypher,
+            "author.id <> $observer_id",
+            &mut where_clause_applied,
+        );
     }
 
     // Apply tags
@@ -819,6 +891,17 @@ pub fn post_stream(
         append_condition(
             &mut cypher,
             "tag.label IN $labels",
+            &mut where_clause_applied,
+        );
+    }
+
+    // Domain-trust filter: keep authors endorsed (tagged) by a WoT tagger with a
+    // label in $domain_tags. Placed after the tags block so all WHERE/AND
+    // conditions stay contiguous; `endorsement` is in scope until WITH DISTINCT.
+    if matches!(source, StreamSource::WotDomain { .. }) {
+        append_condition(
+            &mut cypher,
+            "endorsement.label IN $domain_tags",
             &mut where_clause_applied,
         );
     }
@@ -846,13 +929,22 @@ pub fn post_stream(
         &mut where_clause_applied,
     );
 
+    // Cursor bounds follow the sort direction. `start` is always the resume
+    // cursor (the last row's `last_post_score`) and `end` the hard limit:
+    // descending pages downward from `start` (<=) to the `end` floor (>=);
+    // ascending pages upward from `start` (>=) to the `end` ceiling (<=).
+    let (start_op, end_op) = match order {
+        SortOrder::Descending => ("<=", ">="),
+        SortOrder::Ascending => (">=", "<="),
+    };
+
     // Apply time interval conditions. Only can be applied with timeline sorting
-    // The engagament score has to be computed
+    // The engagement score has to be computed
     if sorting == StreamSorting::Timeline {
         if pagination.start.is_some() {
             append_condition(
                 &mut cypher,
-                "p.indexed_at <= $start",
+                &format!("p.indexed_at {start_op} $start"),
                 &mut where_clause_applied,
             );
         }
@@ -860,7 +952,7 @@ pub fn post_stream(
         if pagination.end.is_some() {
             append_condition(
                 &mut cypher,
-                "p.indexed_at >= $end",
+                &format!("p.indexed_at {end_op} $end"),
                 &mut where_clause_applied,
             );
         }
@@ -869,10 +961,15 @@ pub fn post_stream(
     // Make unique the posts, cannot be repeated
     cypher.push_str("WITH DISTINCT p, author\n");
 
-    // Apply StreamSorting
-    // Conditionally compute engagement counts only for TotalEngagement sorting
-    let order_clause = match sorting {
-        StreamSorting::Timeline => "ORDER BY p.indexed_at DESC".to_string(),
+    let order_dir = match order {
+        SortOrder::Ascending => "ASC",
+        SortOrder::Descending => "DESC",
+    };
+
+    // Apply StreamSorting. `score` is the value the cursor (`last_post_score`) pages
+    // on: the post timestamp for Timeline, the engagement count for TotalEngagement.
+    let (score_expr, order_clause) = match sorting {
+        StreamSorting::Timeline => ("p.indexed_at", format!("ORDER BY p.indexed_at {order_dir}")),
         StreamSorting::TotalEngagement => {
             // TODO: These optional matches could potentially be combined/collected to improve performance
             cypher.push_str(
@@ -899,7 +996,7 @@ pub fn post_stream(
             if pagination.start.is_some() {
                 append_condition(
                     &mut cypher,
-                    "total_engagement <= $start",
+                    &format!("total_engagement {start_op} $start"),
                     &mut where_clause_applied,
                 );
             }
@@ -907,18 +1004,20 @@ pub fn post_stream(
             if pagination.end.is_some() {
                 append_condition(
                     &mut cypher,
-                    "total_engagement >= $end",
+                    &format!("total_engagement {end_op} $end"),
                     &mut where_clause_applied,
                 );
             }
 
-            "ORDER BY total_engagement DESC".to_string()
+            (
+                "total_engagement",
+                format!("ORDER BY total_engagement {order_dir}"),
+            )
         }
     };
 
-    // Final return statement
     cypher.push_str(&format!(
-        "RETURN author.id AS author_id, p.id AS post_id, p.indexed_at AS indexed_at\n{order_clause}\n"
+        "RETURN author.id AS author_id, p.id AS post_id, {score_expr} AS score\n{order_clause}\n"
     ));
 
     // Apply skip and limit
@@ -929,7 +1028,6 @@ pub fn post_stream(
         cypher.push_str(&format!("LIMIT {limit}\n"));
     }
 
-    // Build the query and apply parameters using `param` method
     let query_name = match &source {
         StreamSource::Following { .. } => "post_stream_following",
         StreamSource::Followers { .. } => "post_stream_followers",
@@ -944,6 +1042,8 @@ pub fn post_stream(
                 "StreamSource::Collection must be served by collect_post_keys".to_string(),
             ));
         }
+        StreamSource::Wot { .. } => "post_stream_wot",
+        StreamSource::WotDomain { .. } => "post_stream_wot_domain",
         StreamSource::All => "post_stream_all",
     };
     let query = Query::new(query_name, &cypher);
@@ -992,6 +1092,9 @@ fn build_query_with_params(
 ) -> Query {
     if let Some(observer_id) = source.get_observer() {
         query = query.param("observer_id", observer_id.to_string());
+    }
+    if let Some(domain_tags) = source.get_domain_tags() {
+        query = query.param("domain_tags", domain_tags.to_vec());
     }
     if let Some(labels) = tags.clone() {
         query = query.param("labels", labels);

@@ -9,7 +9,7 @@ use crate::models::{
     follow::{Followers, Following, Friends, UserFollows},
     post::search::PostsByTagSearch,
 };
-use crate::types::{Pagination, StreamSorting};
+use crate::types::{Pagination, StreamSorting, WotDepth};
 use futures::TryStreamExt;
 use pubky_app_specs::{ParsedUri, PubkyAppCollectionContent, PubkyAppPostKind, Resource};
 use serde::{Deserialize, Serialize};
@@ -54,6 +54,17 @@ pub enum StreamSource {
         author_id: String,
         post_id: String,
     },
+    /// Posts authored by users in the observer's Web of Trust (transitive FOLLOWS, 1..=depth).
+    Wot {
+        observer_id: String,
+        depth: WotDepth,
+    },
+    /// Posts by users whom the observer's Web of Trust has tagged with a `domain_tags` label.
+    WotDomain {
+        observer_id: String,
+        depth: WotDepth,
+        domain_tags: Vec<String>,
+    },
     #[default]
     All,
 }
@@ -64,7 +75,17 @@ impl StreamSource {
             StreamSource::Followers { observer_id }
             | StreamSource::Following { observer_id }
             | StreamSource::Friends { observer_id }
-            | StreamSource::Bookmarks { observer_id } => Some(observer_id),
+            | StreamSource::Bookmarks { observer_id }
+            | StreamSource::Wot { observer_id, .. }
+            | StreamSource::WotDomain { observer_id, .. } => Some(observer_id),
+            _ => None,
+        }
+    }
+
+    /// Domain-trust tag labels carried by `WotDomain`; `None` for other sources.
+    pub fn get_domain_tags(&self) -> Option<&[String]> {
+        match self {
+            StreamSource::WotDomain { domain_tags, .. } => Some(domain_tags),
             _ => None,
         }
     }
@@ -182,7 +203,7 @@ impl PostStream {
 
         let post_keys = match use_index {
             true => Self::get_from_index(source, sorting, order, &tags, pagination).await?,
-            false => Self::get_from_graph(source, sorting, &tags, pagination, kind).await?,
+            false => Self::get_from_graph(source, sorting, order, &tags, pagination, kind).await?,
         };
 
         Ok(post_keys)
@@ -312,6 +333,7 @@ impl PostStream {
     async fn get_from_graph(
         source: StreamSource,
         sorting: StreamSorting,
+        order: SortOrder,
         tags: &Option<Vec<String>>,
         pagination: Pagination,
         kind: Option<PubkyAppPostKind>,
@@ -319,7 +341,7 @@ impl PostStream {
         let mut result;
         {
             let graph = get_neo4j_graph()?;
-            let query = queries::get::post_stream(source, sorting, tags, pagination, kind)?;
+            let query = queries::get::post_stream(source, sorting, order, tags, pagination, kind)?;
 
             // Set a 10-second timeout for the query execution
             result = match timeout(Duration::from_secs(10), graph.execute(query)).await {
@@ -330,23 +352,22 @@ impl PostStream {
         }
 
         let mut post_keys = Vec::new();
-        // Track the last post's indexed_at value
-        let mut last_post_indexed_at: Option<i64> = None;
+        // Last row's sorting score (timestamp for timeline, engagement otherwise),
+        // used as the pagination cursor.
+        let mut last_post_score: Option<i64> = None;
 
         while let Some(row) = result.try_next().await? {
             let author_id: String = row.get("author_id")?;
             let post_id: String = row.get("post_id")?;
-            let indexed_at: i64 = row.get("indexed_at")?;
-            let post_key = format!("{author_id}:{post_id}");
-            // Track the last post's indexed_at by overwriting on each iteration
-            last_post_indexed_at = Some(indexed_at);
-            post_keys.push(post_key);
+            let score: i64 = row.get("score")?;
+            last_post_score = Some(score);
+            post_keys.push(format!("{author_id}:{post_id}"));
         }
 
-        // Convert the last indexed_at to u64 for the score
-        let last_post_score = last_post_indexed_at.map(|indexed_at| indexed_at as u64);
-
-        Ok(PostKeyStream::new(post_keys, last_post_score))
+        Ok(PostKeyStream::new(
+            post_keys,
+            last_post_score.map(|s| s as u64),
+        ))
     }
 
     pub async fn get_global_posts_keys(
