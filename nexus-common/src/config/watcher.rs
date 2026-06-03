@@ -58,7 +58,7 @@ pub const MODERATED_TAGS: [&str; 6] = [
     "il_adult_nu_sex_act",
 ];
 
-/// Retry configuration settings
+/// Event retry limits and backoff
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(default)]
 pub struct EventRetryConfig {
@@ -109,7 +109,7 @@ pub struct WatcherConfig {
     pub testnet: bool,
     pub testnet_host: String,
 
-    /// Default homeserver. Other homeservers may be ingested in addition, but this one is prioritized.
+    /// Default, prioritized homeserver
     pub homeserver: PubkyId,
 
     /// Maximum number of events to fetch per run from the default homeserver.
@@ -219,8 +219,7 @@ fn default_hs_resolver_ttl() -> u64 {
     DEFAULT_HS_RESOLVER_TTL
 }
 
-/// Converts a [`DaemonConfig`] into an [`WatcherConfig`], extracting only the Watcher-related settings
-/// and the shared application stack
+/// Extracts [`WatcherConfig`] from [`DaemonConfig`]
 impl From<DaemonConfig> for WatcherConfig {
     fn from(daemon_config: DaemonConfig) -> Self {
         WatcherConfig {
