@@ -62,11 +62,12 @@ impl RetryScheduler {
                 | PubkyClientError::BuildFailed { .. }
                 | PubkyClientError::ParseFailed { .. } => false,
             },
-            EventProcessorError::InvalidEventLine(_) => false,
-            EventProcessorError::SkipIndexing => false,
-            EventProcessorError::SpecValidation(..) => false,
-            EventProcessorError::UserIdMismatch { .. } => false,
-            EventProcessorError::HsEventsStreamRateLimitExhausted => false,
+
+            EventProcessorError::InvalidEventLine(_)
+            | EventProcessorError::SkipIndexing
+            | EventProcessorError::SpecValidation(..)
+            | EventProcessorError::HsEventsStreamRateLimitExhausted
+            | EventProcessorError::UserIdMismatch { .. } => false,
 
             _ => true,
         }
