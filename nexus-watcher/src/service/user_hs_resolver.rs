@@ -80,14 +80,6 @@ pub async fn run(
     shutdown_rx: &mut Receiver<bool>,
 ) -> Result<(), DynError> {
     let user_ids = get_users_needing_resolution(ttl_ms).await?;
-    if user_ids.is_empty() {
-        debug!("No users need homeserver resolution");
-        HS_RESOLVER_METRICS.run_total.record(0, &[]);
-        HS_RESOLVER_METRICS.run_failed.record(0, &[]);
-        return Ok(());
-    }
-
-    // Convert user_ids to user_pks
     let user_pks: Vec<PublicKey> = user_ids
         .iter()
         .filter_map(|user_id| {
@@ -98,6 +90,12 @@ pub async fn run(
                 .ok()
         })
         .collect();
+    if user_pks.is_empty() {
+        debug!("No users need homeserver resolution");
+        HS_RESOLVER_METRICS.run_total.record(0, &[]);
+        HS_RESOLVER_METRICS.run_failed.record(0, &[]);
+        return Ok(());
+    }
 
     let attempted = user_pks.len() as u64;
     debug!("Resolving homeservers for {} users", attempted);
