@@ -200,30 +200,26 @@ async fn resolve_user(
 
     let resolved_hs_id = resolver.resolve_homeserver(user_pk).await?;
 
-    let Some(stored_hs_id) = get_user_homeserver(&user_id).await? else {
-        // First-time resolution: store whatever the DHT resolves.
-        let Some(hs_id) = resolved_hs_id else {
-            debug!("User {user_id} has no published homeserver");
-            return Ok(());
-        };
-        exec_single_row(queries::put::set_user_homeserver(&user_id, &hs_id)).await?;
-        debug!("User {user_id} -> HS {hs_id}");
-        return Ok(());
-    };
-
-    // Already bound to a homeserver: toggle the stale flag instead of switching.
-    let still_matches = resolved_hs_id
-        .as_ref()
-        .is_some_and(|hs_id| hs_id.as_ref() == stored_hs_id.as_str());
-    if still_matches {
-        exec_single_row(queries::put::set_user_homeserver_stale(&user_id, false)).await?;
-        debug!("User {user_id} still hosted on {stored_hs_id}, mapping active");
-    } else {
-        exec_single_row(queries::put::set_user_homeserver_stale(&user_id, true)).await?;
-        warn!(
-            "User {user_id} homeserver changed or was removed (stored {stored_hs_id}); \
-             switching unsupported, mapping marked stale and indexing paused"
-        );
+    let maybe_stored_hs_id = get_user_homeserver(&user_id).await?;
+    match (maybe_stored_hs_id, resolved_hs_id) {
+        // First-time resolution: store whatever the DHT resolves (if anything).
+        (None, None) => debug!("User {user_id} has no published homeserver"),
+        (None, Some(hs_id)) => {
+            exec_single_row(queries::put::set_user_homeserver(&user_id, &hs_id)).await?;
+            debug!("User {user_id} -> HS {hs_id}");
+        }
+        // Already bound to a homeserver: toggle the stale flag instead of switching.
+        (Some(stored_hs_id), Some(hs_id)) if hs_id.as_ref() == stored_hs_id.as_str() => {
+            exec_single_row(queries::put::set_user_homeserver_stale(&user_id, false)).await?;
+            debug!("User {user_id} still hosted on {stored_hs_id}, mapping active");
+        }
+        (Some(stored_hs_id), _) => {
+            exec_single_row(queries::put::set_user_homeserver_stale(&user_id, true)).await?;
+            warn!(
+                "User {user_id} homeserver changed or was removed (stored {stored_hs_id}); \
+                 switching unsupported, mapping marked stale and indexing paused"
+            );
+        }
     }
 
     Ok(())
