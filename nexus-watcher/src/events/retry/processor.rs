@@ -183,7 +183,7 @@ impl RetryProcessor {
         // Calculate backoff based on error type
         let (initial, max) = self.config.get_backoff_params(error);
         // Use retry_count (not new_retry_count) so first retry uses 2^0 * initial = initial
-        let backoff_secs = self.calculate_backoff(retry_event.retry_count, initial, max);
+        let backoff_secs = calculate_backoff(retry_event.retry_count, initial, max);
 
         let now = Utc::now().timestamp_millis();
         let next_retry_at = now + (backoff_secs as i64 * 1000);
@@ -204,15 +204,6 @@ impl RetryProcessor {
         Ok(())
     }
 
-    /// Calculate exponential backoff
-    fn calculate_backoff(&self, retry_count: u32, initial: u64, max: u64) -> u64 {
-        let exponential = 2u64
-            .checked_pow(retry_count)
-            .and_then(|p| initial.checked_mul(p))
-            .unwrap_or(max);
-        min(exponential, max)
-    }
-
     fn get_max_retries_for_err(&self, e: &EventProcessorError) -> u32 {
         if e.is_missing_dependency() {
             self.config.max_dependency_retries
@@ -220,4 +211,13 @@ impl RetryProcessor {
             self.config.max_retries
         }
     }
+}
+
+/// Calculate exponential backoff
+fn calculate_backoff(retry_count: u32, initial: u64, max: u64) -> u64 {
+    let exponential = 2u64
+        .checked_pow(retry_count)
+        .and_then(|p| initial.checked_mul(p))
+        .unwrap_or(max);
+    min(exponential, max)
 }
