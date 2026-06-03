@@ -64,7 +64,7 @@ async fn test_homeserver_tag_cannot_add_while_index() -> Result<()> {
 
     // Sync all pending events so shadow_user is now in the graph
     test.event_processor_runner
-        .build(&test.homeserver_id.to_string())
+        .build(test.homeserver_id.as_ref())
         .await
         .map_err(|e| anyhow!(e))?
         .run()

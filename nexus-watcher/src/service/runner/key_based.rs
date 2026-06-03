@@ -69,7 +69,7 @@ impl KeyBasedEventProcessorRunner {
         // The default HS is not expected to be active, but we still filter as an extra precaution
         let hs_ids: Vec<String> = hs_ids
             .into_iter()
-            .filter(|hs_id| hs_id != &self.default_homeserver.as_ref())
+            .filter(|hs_id| hs_id != self.default_homeserver.as_ref())
             .collect();
 
         Ok(hs_ids)
