@@ -50,7 +50,7 @@ pub trait TEventProcessorRunner: Send + Sync {
     ///
     /// # Errors
     /// Returns an error if the event processor couldn't be built
-    async fn build(&self, hs_id: String) -> Result<Arc<dyn TEventProcessor>, DynError>;
+    async fn build(&self, hs_id: &str) -> Result<Arc<dyn TEventProcessor>, DynError>;
 
     /// Pre-processing step before the main run loop.
     ///
@@ -84,7 +84,7 @@ pub trait TEventProcessorRunner: Send + Sync {
             }
 
             let t0 = Instant::now();
-            let status = match self.build(hs_id.clone()).await {
+            let status = match self.build(&hs_id).await {
                 Ok(event_processor) => status_from_run_result(event_processor.run().await),
                 Err(e) => {
                     error!(hs_id = %hs_id, error = %e, "Failed to build event processor");

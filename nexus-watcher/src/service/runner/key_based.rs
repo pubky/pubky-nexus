@@ -82,8 +82,8 @@ impl TEventProcessorRunner for KeyBasedEventProcessorRunner {
         self.shutdown_rx.clone()
     }
 
-    async fn build(&self, hs_id: String) -> Result<Arc<dyn TEventProcessor>, DynError> {
-        let homeserver_id = PubkyId::try_from(&hs_id)?;
+    async fn build(&self, hs_id: &str) -> Result<Arc<dyn TEventProcessor>, DynError> {
+        let homeserver_id = PubkyId::try_from(hs_id)?;
         let homeserver = Homeserver::get_by_id(homeserver_id)
             .await?
             .ok_or("Homeserver not found")?;

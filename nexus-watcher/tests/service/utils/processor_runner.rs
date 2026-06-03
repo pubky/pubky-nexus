@@ -63,7 +63,7 @@ impl TEventProcessorRunner for MockEventProcessorRunner {
     /// Returns the event processor for the specified homeserver.
     ///
     /// The mock event processor was pre-built and given to the mock runner on initialization, so this returns a reference to it.
-    async fn build(&self, hs_id: String) -> Result<Arc<dyn TEventProcessor>, DynError> {
+    async fn build(&self, hs_id: &str) -> Result<Arc<dyn TEventProcessor>, DynError> {
         let mock_event_processor = self
             .event_processors
             .iter()

@@ -168,7 +168,7 @@ impl WatcherTest {
     pub async fn ensure_event_processing_complete(&mut self) -> Result<()> {
         if self.ensure_event_processing {
             self.event_processor_runner
-                .build(self.homeserver_id.to_string())
+                .build(&self.homeserver_id.to_string())
                 .await
                 .map_err(|e| anyhow!(e))?
                 .run()
