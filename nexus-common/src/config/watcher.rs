@@ -101,6 +101,15 @@ impl EventRetryConfig {
             (self.initial_backoff_secs, self.max_backoff_secs)
         }
     }
+
+    /// Returns the max retry count, for the given error, before dead-lettering
+    pub fn get_max_retries_for_err(&self, error: &EventProcessorError) -> u32 {
+        if error.is_missing_dependency() {
+            self.max_dependency_retries
+        } else {
+            self.max_retries
+        }
+    }
 }
 
 /// Configuration settings for the Nexus Watcher service

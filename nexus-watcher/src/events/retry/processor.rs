@@ -150,7 +150,7 @@ impl RetryProcessor {
                 self.reschedule(&retry_event, index_key, &e, false).await?;
                 return Err(e);
             }
-            Err(e) if ev_retry_count >= self.get_max_retries_for_err(&e) => {
+            Err(e) if ev_retry_count >= self.config.get_max_retries_for_err(&e) => {
                 warn!("Event {ev_uri} exceeded max retries ({ev_retry_count}), dead-lettering");
                 self.store.remove(index_key).await?;
             }
@@ -202,14 +202,6 @@ impl RetryProcessor {
         );
 
         Ok(())
-    }
-
-    fn get_max_retries_for_err(&self, e: &EventProcessorError) -> u32 {
-        if e.is_missing_dependency() {
-            self.config.max_dependency_retries
-        } else {
-            self.config.max_retries
-        }
     }
 }
 
