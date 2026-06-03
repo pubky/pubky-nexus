@@ -65,9 +65,7 @@ impl RetryEvent {
 
         // Store full RetryEvent struct in JSON
         let index = &[RETRY_MANAGER_STATE_INDEX[0], index_key];
-        self.put_index_json(index, None, None).await?;
-
-        Ok(())
+        self.put_index_json(index, None, None).await
     }
 
     /// Checks if a specific event exists in the Redis sorted set.
@@ -118,9 +116,7 @@ impl RetryEvent {
 
         // Remove JSON state
         let index = &[RETRY_MANAGER_STATE_INDEX[0], index_key];
-        Self::remove_from_index_multiple_json(&[index.as_slice()]).await?;
-
-        Ok(())
+        Self::remove_from_index_multiple_json(&[index.as_slice()]).await
     }
 
     /// Removes multiple sorted-set index entries without touching JSON state.
