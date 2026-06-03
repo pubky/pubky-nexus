@@ -105,10 +105,7 @@ impl TEventProcessor for KeyBasedEventProcessor {
 
     async fn run_internal(self: Arc<Self>) -> Result<(), EventProcessorError> {
         let hs_id = self.homeserver.id.to_string();
-
-        let hs_pk: PublicKey = hs_id.parse().map_err(|_| {
-            EventProcessorError::client_error("Invalid homeserver public key".to_string())
-        })?;
+        let hs_pk = self.homeserver.id.to_public_key();
 
         let users = self
             .resolve_users_with_cursors(&hs_id)
