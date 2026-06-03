@@ -18,7 +18,7 @@ pub struct AppTagInfo {
 /// - App or tag_id contains slashes (invalid segments)
 pub fn try_parse_app_tag_path(uri: &str) -> Option<AppTagInfo> {
     // Case-insensitive scheme check per RFC 3986 (safe UTF-8 access)
-    let rest = to_ascii_lower_prefix(uri, PROTOCOL)?;
+    let rest = strip_prefix_ignore_ascii_case(uri, PROTOCOL)?;
 
     // Split: <user_id>/pub/<app>/tags/<tag_id>
     let (user_id_str, rest) = rest.split_once('/')?;
@@ -57,7 +57,7 @@ pub fn try_parse_app_tag_path(uri: &str) -> Option<AppTagInfo> {
 }
 
 /// Strip a case-insensitive prefix from a string.
-fn to_ascii_lower_prefix<'a>(s: &'a str, prefix: &str) -> Option<&'a str> {
+fn strip_prefix_ignore_ascii_case<'a>(s: &'a str, prefix: &str) -> Option<&'a str> {
     if s.len() < prefix.len() {
         return None;
     }
