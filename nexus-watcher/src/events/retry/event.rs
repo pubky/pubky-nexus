@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use nexus_common::db::kv::{RedisResult, SortOrder};
-use nexus_common::models::event::EventType;
+use nexus_common::models::event::{Event, EventType};
 use serde::{Deserialize, Serialize};
 
 use nexus_common::db::RedisOps;
@@ -37,19 +37,14 @@ impl RedisOps for RetryEvent {
 }
 
 impl RetryEvent {
-    /// Creates a new RetryEvent
-    pub fn new(
-        event_type: EventType,
-        event_uri: String,
-        next_retry_at: i64,
-        origin_homeserver_id: String,
-    ) -> Self {
+    /// Creates a new RetryEvent from the source event
+    pub fn new(event: &Event, next_retry_at: i64, origin_homeserver_id: impl Into<String>) -> Self {
         Self {
             retry_count: 0,
-            event_type,
-            event_uri,
+            event_type: event.event_type.clone(),
+            event_uri: event.uri.clone(),
             next_retry_at,
-            origin_homeserver_id,
+            origin_homeserver_id: origin_homeserver_id.into(),
         }
     }
 
