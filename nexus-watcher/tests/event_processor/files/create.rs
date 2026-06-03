@@ -28,7 +28,7 @@ async fn test_put_pubkyapp_file() -> Result<()> {
     let blob_relative_url = PubkyAppBlob::create_path(&blob_id);
     let blob_absolute_url = blob_uri_builder(user_id.clone(), blob_id);
 
-    let (_, events_in_redis_before) = Event::get_events_from_redis(None, 1000).await.unwrap();
+    let (_, events_in_redis_before) = Event::get_events_from_redis(None, 100_000).await.unwrap();
 
     test.create_file_from_body(&user_kp, blob_relative_url.as_str(), blob.0.clone())
         .await?;
@@ -52,7 +52,7 @@ async fn test_put_pubkyapp_file() -> Result<()> {
         blob_static_path.exists(),
         "File have to exist after PUT event"
     );
-    let (_, events_in_redis_after) = Event::get_events_from_redis(None, 1000).await.unwrap();
+    let (_, events_in_redis_after) = Event::get_events_from_redis(None, 100_000).await.unwrap();
     assert!(events_in_redis_after > events_in_redis_before);
 
     Ok(())

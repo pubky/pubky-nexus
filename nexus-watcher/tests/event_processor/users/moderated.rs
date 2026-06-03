@@ -2,17 +2,27 @@
 
 use crate::event_processor::{
     users::utils::find_user_details,
-    utils::watcher::{HomeserverHashIdPath, HomeserverPath, WatcherTest},
+    utils::watcher::{HomeserverHashIdPath, WatcherTest},
 };
-use anyhow::Result;
+use anyhow::{Error, Result};
 use chrono::Utc;
+use nexus_watcher::events::Moderation;
 use pubky::{recovery_file, Keypair};
-use pubky_app_specs::{PubkyAppTag, PubkyAppUser};
+use pubky_app_specs::{PubkyAppTag, PubkyAppUser, PubkyId};
+use std::sync::Arc;
 use tokio::fs;
 
 #[tokio_shared_rt::test(shared)]
 async fn test_moderated_user_lifecycle() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mod_file = fs::read("./tests/event_processor/utils/moderator_key.pkarr").await?;
+    let mod_kp = recovery_file::decrypt_recovery_file(&mod_file, "password")?;
+    let moderator_id =
+        PubkyId::try_from(mod_kp.public_key().to_z32().as_str()).map_err(Error::msg)?;
+    let moderation = Arc::new(Moderation {
+        id: moderator_id,
+        tags: vec!["label_to_moderate".to_string()],
+    });
+    let mut test = WatcherTest::setup_with_moderation(moderation).await?;
 
     // 1. Create the target user
     let user_kp = Keypair::random();
@@ -29,11 +39,7 @@ async fn test_moderated_user_lifecycle() -> Result<()> {
     let details = find_user_details(&target_id).await?;
     assert_eq!(details.id.to_string(), target_id);
 
-    // 3. Load moderator key and create moderator
-    let mod_file = fs::read("./tests/event_processor/utils/moderator_key.pkarr")
-        .await
-        .unwrap();
-    let mod_kp = recovery_file::decrypt_recovery_file(&mod_file, "password").unwrap();
+    // 3. Create moderator
     let _moderator_id = test.create_user(&mod_kp, &target).await?;
 
     // 4. Tag the target user with the moderation label
@@ -57,8 +63,7 @@ async fn test_moderated_user_lifecycle() -> Result<()> {
         links: None,
         status: None,
     };
-    let profile_path = PubkyAppUser::hs_path();
-    test.put(&user_kp, &profile_path, new_profile).await?;
+    test.create_profile(&user_kp, &new_profile).await?;
 
     let details = find_user_details(&target_id).await?;
     assert_eq!(details.bio, Some("i am back, will behave".to_string()));

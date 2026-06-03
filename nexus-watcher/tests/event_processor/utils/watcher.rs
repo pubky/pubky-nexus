@@ -2,16 +2,17 @@ use crate::event_processor::utils::default_moderation_tests;
 use anyhow::{anyhow, Error, Result};
 use base32::{encode, Alphabet};
 use chrono::Utc;
-use nexus_common::db::PubkyConnector;
+use nexus_common::db::{exec_single_row, queries, PubkyConnector};
 use nexus_common::get_files_dir_pathbuf;
 use nexus_common::models::event::{Event, EventProcessorError, ParseResult};
 use nexus_common::models::file::FileDetails;
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::traits::Collection;
+use nexus_common::models::user::UserDetails;
 use nexus_common::{StackConfig, StackManager};
 use nexus_watcher::events::retry::event::RetryEvent;
 use nexus_watcher::events::retry::{InitialBackoff, RedisRetryStore, RetryScheduler, RetryStore};
-use nexus_watcher::events::{DefaultEventHandler, EventHandler};
+use nexus_watcher::events::{DefaultEventHandler, EventHandler, Moderation};
 use nexus_watcher::service::HsEventProcessorRunner;
 use nexus_watcher::service::TEventProcessorRunner;
 use pubky::Keypair;
@@ -81,9 +82,9 @@ impl WatcherTest {
     fn create_test_event_processor_runner(
         default_homeserver: PubkyId,
         files_path: PathBuf,
+        moderation: Arc<Moderation>,
     ) -> HsEventProcessorRunner {
-        let event_handler: Arc<dyn EventHandler> =
-            Arc::new(DefaultEventHandler::new(default_moderation_tests()));
+        let event_handler: Arc<dyn EventHandler> = Arc::new(DefaultEventHandler::new(moderation));
 
         let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
 
@@ -120,6 +121,10 @@ impl WatcherTest {
     /// Returns an instance of `Self` containing the configuration, homeserver,
     /// event processor, and other test setup details, including the shutdown receiver.
     pub async fn setup() -> Result<Self> {
+        Self::setup_with_moderation(default_moderation_tests()).await
+    }
+
+    pub async fn setup_with_moderation(moderation: Arc<Moderation>) -> Result<Self> {
         if let Err(e) = StackManager::setup(&StackConfig::default()).await {
             return Err(Error::msg(format!("could not initialise the stack, {e:?}")));
         }
@@ -147,7 +152,7 @@ impl WatcherTest {
 
         // Initialize the test-scoped EventProcessorRunner; mirrors the standard processor behavior
         let event_processor_runner =
-            Self::create_test_event_processor_runner(homeserver_id.clone(), files_path);
+            Self::create_test_event_processor_runner(homeserver_id.clone(), files_path, moderation);
 
         Ok(Self {
             testnet,
@@ -248,10 +253,25 @@ impl WatcherTest {
         Ok(())
     }
 
+    async fn persist_user_homeserver(&self, user_id: &str) -> Result<()> {
+        let user_id = PubkyId::try_from(user_id).map_err(Error::msg)?;
+        let user = UserDetails::from_pubky(user_id.clone());
+
+        exec_single_row(queries::put::create_user(&user)?).await?;
+        exec_single_row(queries::put::set_user_homeserver(
+            &user_id,
+            &self.homeserver_id,
+        ))
+        .await?;
+
+        Ok(())
+    }
+
     pub async fn create_user(&mut self, user_kp: &Keypair, user: &PubkyAppUser) -> Result<String> {
         let user_id = user_kp.public_key().to_z32();
         // Register the key in the homeserver
         self.register_user(user_kp).await?;
+        self.persist_user_homeserver(&user_id).await?;
 
         // Write the user profile in the pubky.app repository
         let user_path = PubkyAppUser::hs_path();
@@ -269,6 +289,7 @@ impl WatcherTest {
         user: &PubkyAppUser,
     ) -> Result<String> {
         let user_id = user_kp.public_key().to_z32();
+        self.persist_user_homeserver(&user_id).await?;
 
         // Write the user profile in the pubky.app repository
         let user_path = PubkyAppUser::hs_path();

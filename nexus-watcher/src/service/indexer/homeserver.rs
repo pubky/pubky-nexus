@@ -1,8 +1,8 @@
 use super::TEventProcessor;
 use crate::events::retry::RetryScheduler;
 use crate::events::EventHandler;
-use nexus_common::db::PubkyConnector;
-use nexus_common::models::event::EventProcessorError;
+use nexus_common::db::{fetch_key_from_graph, queries, PubkyConnector};
+use nexus_common::models::event::{Event, EventProcessorError, ParseResult};
 use nexus_common::models::homeserver::Homeserver;
 use pubky::Method;
 use std::path::PathBuf;
@@ -44,6 +44,53 @@ impl TEventProcessor for HsEventProcessor {
 
     fn homeserver_id(&self) -> Option<&str> {
         Some(self.homeserver.id.as_ref())
+    }
+
+    async fn process_event_line(&self, line: &str) -> Result<(), EventProcessorError> {
+        match Event::parse_event(line, self.files_path().clone()) {
+            // Invalid event lines come from untrusted homeservers; treat as bad peer data, not Nexus errors.
+            Err(e) => warn!("{e}"),
+            Ok(ParseResult::Skipped) => {}
+            Ok(ParseResult::UnrecognizedUri { reason, .. }) => {
+                // Should not normally occur; UnknownResource parsing happens in HomeserverParsedUri.
+                warn!("Unrecognized event URI: {reason}");
+            }
+            Ok(ParseResult::Parsed(event)) => {
+                let user_id = event.parsed_uri.user_id();
+                let maybe_homeserver_id: Option<String> = fetch_key_from_graph(
+                    queries::get::get_user_homeserver(user_id),
+                    "homeserver_id",
+                )
+                .await?;
+
+                match maybe_homeserver_id.as_deref() {
+                    None => {
+                        warn!(
+                            %user_id,
+                            event.uri, "User has no HOSTED_BY edge; queuing event for retry"
+                        );
+                        self.retry_scheduler
+                            .queue_missing_dep(&event, self.homeserver.id.as_ref())
+                            .await?;
+                    }
+                    Some(homeserver_id) if homeserver_id != self.homeserver.id.as_ref() => {
+                        debug!(
+                            user_id = %user_id,
+                            event.uri,
+                            event_homeserver_id = homeserver_id,
+                            processor_homeserver_id = %self.homeserver.id,
+                            "Skipping event hosted by a different homeserver"
+                        );
+                    }
+                    Some(_) => {
+                        debug!("Processing event: {:?}", event);
+                        self.handle_event(&event).await?;
+                    }
+                }
+            }
+        }
+
+        Ok(())
     }
 
     async fn run_internal(self: Arc<Self>) -> Result<(), EventProcessorError> {

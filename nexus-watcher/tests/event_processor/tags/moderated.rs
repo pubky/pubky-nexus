@@ -1,19 +1,21 @@
 use super::resource_utils::{compute_resource_id, find_resource_tag};
 use super::utils::find_post_tag;
 use crate::event_processor::utils::watcher::{HomeserverHashIdPath, WatcherTest};
-use anyhow::Result;
+use anyhow::{Error, Result};
 use chrono::Utc;
-use pubky::{recovery_file, Keypair, ResourcePath};
+use nexus_watcher::events::Moderation;
+use pubky::{Keypair, ResourcePath};
 use pubky_app_specs::traits::HashId;
-use pubky_app_specs::{post_uri_builder, tag_uri_builder, PubkyAppPost, PubkyAppTag, PubkyAppUser};
-use tokio::fs;
+use pubky_app_specs::{
+    post_uri_builder, tag_uri_builder, PubkyAppPost, PubkyAppTag, PubkyAppUser, PubkyId,
+};
+use std::sync::Arc;
 
 const MODERATION_LABEL: &str = "label_to_moderate";
 
 #[tokio_shared_rt::test(shared)]
 async fn test_moderation_deletes_pubky_app_tag() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
-    let moderator_kp = create_moderator(&mut test).await?;
+    let (mut test, moderator_kp) = setup_with_moderator().await?;
     let (_author_kp, author_id, post_id) = create_author_and_post(&mut test).await?;
     let (tagger_kp, tagger_id) = create_tagger(&mut test, "pubky-app").await?;
 
@@ -38,8 +40,7 @@ async fn test_moderation_deletes_pubky_app_tag() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_moderation_deletes_universal_tag() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
-    let moderator_kp = create_moderator(&mut test).await?;
+    let (mut test, moderator_kp) = setup_with_moderator().await?;
     let (tagger_kp, tagger_id) = create_tagger(&mut test, "universal").await?;
 
     let target_uri = format!("https://example.com/moderate-universal/{tagger_id}");
@@ -71,8 +72,7 @@ async fn test_moderation_deletes_universal_tag() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_moderation_deletes_app_specific_known_post_tag() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
-    let moderator_kp = create_moderator(&mut test).await?;
+    let (mut test, moderator_kp) = setup_with_moderator().await?;
     let (_author_kp, author_id, post_id) = create_author_and_post(&mut test).await?;
     let (tagger_kp, tagger_id) = create_tagger(&mut test, "known-post").await?;
 
@@ -99,8 +99,7 @@ async fn test_moderation_deletes_app_specific_known_post_tag() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_moderation_keeps_same_label_universal_tag_from_same_user() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
-    let moderator_kp = create_moderator(&mut test).await?;
+    let (mut test, moderator_kp) = setup_with_moderator().await?;
     let (_author_kp, author_id, post_id) = create_author_and_post(&mut test).await?;
     let (tagger_kp, tagger_id) = create_tagger(&mut test, "same-user").await?;
 
@@ -136,8 +135,7 @@ async fn test_moderation_keeps_same_label_universal_tag_from_same_user() -> Resu
 
 #[tokio_shared_rt::test(shared)]
 async fn test_moderation_keeps_same_label_pubky_app_tag_from_different_user() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
-    let moderator_kp = create_moderator(&mut test).await?;
+    let (mut test, moderator_kp) = setup_with_moderator().await?;
     let (_author_kp, author_id, post_id) = create_author_and_post(&mut test).await?;
     let (pubky_tagger_kp, pubky_tagger_id) =
         create_tagger(&mut test, "different-user-pubky").await?;
@@ -180,13 +178,19 @@ async fn test_moderation_keeps_same_label_pubky_app_tag_from_different_user() ->
     Ok(())
 }
 
-async fn create_moderator(test: &mut WatcherTest) -> Result<Keypair> {
-    let moderator_recovery_file =
-        fs::read("./tests/event_processor/utils/moderator_key.pkarr").await?;
-    let moderator_kp = recovery_file::decrypt_recovery_file(&moderator_recovery_file, "password")?;
+async fn setup_with_moderator() -> Result<(WatcherTest, Keypair)> {
+    let moderator_kp = Keypair::random();
+    let moderator_id =
+        PubkyId::try_from(moderator_kp.public_key().to_z32().as_str()).map_err(Error::msg)?;
+    let moderation = Arc::new(Moderation {
+        id: moderator_id,
+        tags: vec![MODERATION_LABEL.to_string()],
+    });
+    let mut test = WatcherTest::setup_with_moderation(moderation).await?;
+
     let moderator = test_user("Mod:Moderator", "moderator");
     test.create_user(&moderator_kp, &moderator).await?;
-    Ok(moderator_kp)
+    Ok((test, moderator_kp))
 }
 
 async fn create_author_and_post(test: &mut WatcherTest) -> Result<(Keypair, String, String)> {

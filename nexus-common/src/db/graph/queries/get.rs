@@ -1070,8 +1070,9 @@ pub fn user_is_safe_to_delete(user_id: &str) -> Query {
         MATCH (u:User {id: $user_id})
         // Ensures all relationships to the user (u) are checked, counting as 0 if none exist
         OPTIONAL MATCH (u)-[r]-()
-        // Checks if the user has any relationships
-        WITH u, NOT (COUNT(r) = 0) AS flag
+        WITH u, [rel IN collect(r) WHERE rel IS NOT NULL AND type(rel) <> 'HOSTED_BY'] AS relationships
+        // Checks if the user has any relationships besides homeserver ownership metadata
+        WITH u, NOT (size(relationships) = 0) AS flag
         RETURN flag
         ",
     )

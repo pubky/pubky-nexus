@@ -35,7 +35,7 @@ async fn test_homeserver_put_post_event() -> Result<()> {
         embed: None,
         attachments: None,
     };
-    let (_, events_in_redis_before) = Event::get_events_from_redis(None, 1000).await.unwrap();
+    let (_, events_in_redis_before) = Event::get_events_from_redis(None, 100_000).await.unwrap();
 
     let (post_id, post_path) = test.create_post(&user_kp, &post).await?;
 
@@ -53,7 +53,7 @@ async fn test_homeserver_put_post_event() -> Result<()> {
     assert!(post_details.indexed_at > 0);
 
     // CACHE_OP: Check if the event writes in the graph
-    let (_, events_in_redis_after) = Event::get_events_from_redis(None, 1000).await.unwrap();
+    let (_, events_in_redis_after) = Event::get_events_from_redis(None, 100_000).await.unwrap();
     assert!(events_in_redis_after > events_in_redis_before);
 
     //User:Details:user_id:post_id

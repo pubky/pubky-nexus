@@ -45,7 +45,7 @@ async fn test_homeserver_put_tag_user_another() -> Result<()> {
     };
 
     let tag_path = tag.hs_path();
-    let (_, events_in_redis_before) = Event::get_events_from_redis(None, 1000).await.unwrap();
+    let (_, events_in_redis_before) = Event::get_events_from_redis(None, 100_000).await.unwrap();
 
     // PUT post tag
     test.put(&tagger_kp, &tag_path, tag).await?;
@@ -62,7 +62,7 @@ async fn test_homeserver_put_tag_user_another() -> Result<()> {
     assert_eq!(user_tag.taggers[0], tagger_user_id);
 
     // CACHE_OP: Check if the tag is correctly cached
-    let (_, events_in_redis_after) = Event::get_events_from_redis(None, 1000).await.unwrap();
+    let (_, events_in_redis_after) = Event::get_events_from_redis(None, 100_000).await.unwrap();
     assert!(events_in_redis_after > events_in_redis_before);
     let cache_user_tag =
         TagUser::get_from_index(&tagged_user_id, None, None, None, None, None, false)
