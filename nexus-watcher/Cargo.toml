@@ -8,21 +8,31 @@ repository = "https://github.com/pubky/pubky-nexus"
 license = "MIT"
 
 [dependencies]
+anyhow = { workspace = true, optional = true }
 async-trait = { workspace = true }
+base32 = { version = "0.5", optional = true }
 chrono = { workspace = true }
 opentelemetry = { workspace = true }
 pubky = { workspace = true }
 pubky-app-specs = { workspace = true }
+pubky-testnet = { workspace = true, optional = true }
 nexus-common = { version = "0.4.1", path = "../nexus-common" }
 serde = { workspace = true }
 serde_json = { workspace = true }
+tempfile = { workspace = true, optional = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
+
+[features]
+# Exposes `nexus_watcher::testing` for downstream domain plugins that need a
+# watcher/homeserver harness without depending on Nexus' private integration tests.
+testing = ["dep:anyhow", "dep:base32", "dep:pubky-testnet", "dep:tempfile"]
 
 [dev-dependencies]
 anyhow = { workspace = true }
 axum = { workspace = true }
 base32 = "0.5"
+nexus-watcher = { path = ".", features = ["testing"] }
 pubky-testnet = { workspace = true }
 rand = "0.10.1"
 tempfile = { workspace = true }

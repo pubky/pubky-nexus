@@ -3092,6 +3092,7 @@ dependencies = [
  "base32",
  "chrono",
  "nexus-common",
+ "nexus-watcher",
  "opentelemetry 0.32.0",
  "pubky",
  "pubky-app-specs",
