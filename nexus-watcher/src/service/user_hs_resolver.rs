@@ -35,10 +35,10 @@ pub struct PubkyConnectorResolver;
 impl PkdnsHomeserverResolver for PubkyConnectorResolver {
     async fn resolve_homeserver(&self, user_pk: &PublicKey) -> Result<Option<PubkyId>, DynError> {
         let pubky = PubkyConnector::get()?;
-        let Some(hs_pk) = pubky.get_homeserver_of(user_pk).await else {
-            return Ok(None);
-        };
-        Ok(Some(PubkyId::try_from(&hs_pk.into_inner().to_z32())?))
+        match pubky.get_homeserver_of(user_pk).await {
+            Some(hs_pk) => Ok(Some(PubkyId::from(hs_pk))),
+            None => Ok(None),
+        }
     }
 }
 
