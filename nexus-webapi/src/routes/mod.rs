@@ -73,7 +73,10 @@ pub struct AppState {
     pub files_path: Arc<PathBuf>,
 }
 
-pub fn routes(files_path: PathBuf) -> Router {
+pub fn routes(
+    files_path: PathBuf,
+    extra_swagger_docs: Vec<(String, utoipa::openapi::OpenApi)>,
+) -> Router {
     let state = AppState {
         files_path: Arc::new(files_path),
     };
@@ -82,12 +85,16 @@ pub fn routes(files_path: PathBuf) -> Router {
 
     let routes_v0 = v0::routes(state.clone());
 
-    let route_openapi = SwaggerUi::new("/swagger-ui")
+    let mut route_openapi = SwaggerUi::new("/swagger-ui")
         .url("/api-docs/v0/openapi.json", v0::ApiDoc::merge_docs())
         .url(
             "/api-docs/static/openapi.json",
             r#static::ApiDoc::merge_docs(),
         );
+
+    for (json_path, doc) in extra_swagger_docs {
+        route_openapi = route_openapi.url(json_path, doc);
+    }
 
     // Combine routes
     let app = routes_v0

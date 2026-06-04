@@ -1,5 +1,7 @@
-use std::{fmt::Debug, path::PathBuf};
+use std::{fmt::Debug, path::PathBuf, sync::Arc};
 
+use axum::Router;
+use nexus_common::plugin::{NexusPlugin, PluginContext};
 use nexus_common::DaemonConfig;
 use nexus_common::{types::DynError, utils::create_shutdown_rx};
 use nexus_watcher::NexusWatcherBuilder;
@@ -25,6 +27,18 @@ impl DaemonLauncher {
         config_dir: PathBuf,
         shutdown_rx: Option<Receiver<bool>>,
     ) -> Result<(), DynError> {
+        Self::start_with_plugins(config_dir, shutdown_rx, Vec::new()).await
+    }
+
+    /// Starts the daemon with externally provided plugins.
+    ///
+    /// This keeps `nexusd` free of concrete app dependencies while allowing a
+    /// deployment-specific binary to compile in plugins and pass them here.
+    pub async fn start_with_plugins(
+        config_dir: PathBuf,
+        shutdown_rx: Option<Receiver<bool>>,
+        plugins: Vec<Arc<dyn NexusPlugin>>,
+    ) -> Result<(), DynError> {
         let shutdown_rx = shutdown_rx.unwrap_or_else(create_shutdown_rx);
 
         let config = DaemonConfig::read_or_create_config_file(config_dir.clone()).await?;
@@ -32,9 +46,28 @@ impl DaemonLauncher {
         let api_context = ApiContextBuilder::from_config_dir(config_dir)
             .try_build()
             .await?;
-        let nexus_webapi_builder = NexusApiBuilder::new(api_context);
 
-        let nexus_watcher_builder = NexusWatcherBuilder::with_stack(config.watcher, &config.stack);
+        let mut extra_routes = Router::new();
+        for plugin in &plugins {
+            let manifest = plugin.manifest();
+            let path = format!("/v0/{}", manifest.name);
+            extra_routes = extra_routes.nest(
+                &path,
+                plugin.routes(PluginContext::for_plugin(plugin.as_ref())),
+            );
+        }
+
+        let mut nexus_webapi_builder =
+            NexusApiBuilder::new(api_context).with_extra_routes(extra_routes);
+        for plugin in &plugins {
+            if let Some(doc) = plugin.openapi_docs() {
+                let path = format!("/api-docs/{}/openapi.json", plugin.manifest().name);
+                nexus_webapi_builder = nexus_webapi_builder.with_swagger_doc(path, doc);
+            }
+        }
+
+        let nexus_watcher_builder =
+            NexusWatcherBuilder::with_stack(config.watcher, &config.stack).with_plugins(plugins);
 
         try_join!(
             nexus_webapi_builder.start(Some(shutdown_rx.clone())),

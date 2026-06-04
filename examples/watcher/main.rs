@@ -22,7 +22,7 @@ async fn main() -> Result<(), DynError> {
             NexusWatcher::start_from_path(expanded_path, None).await?
         }
         None => {
-            NexusWatcherBuilder(Default::default()).start(None).await?;
+            NexusWatcherBuilder::default().start(None).await?;
         }
     }
 

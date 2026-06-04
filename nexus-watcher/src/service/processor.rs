@@ -1,5 +1,6 @@
 use nexus_common::models::event::{Event, EventProcessorError, EventType, ParseResult};
 
+use crate::dispatcher::EventDispatcher;
 use crate::events::handle;
 use crate::events::retry::event::RetryEvent;
 use crate::events::Moderation;
@@ -23,6 +24,8 @@ pub struct EventProcessor {
     pub tracer_name: String,
     pub moderation: Arc<Moderation>,
     pub shutdown_rx: Receiver<bool>,
+    /// Domain plugin dispatcher — intercepts events before social parsing.
+    pub dispatcher: Option<Arc<EventDispatcher>>,
 }
 
 #[async_trait::async_trait]
@@ -115,6 +118,18 @@ impl EventProcessor {
                     Err(e) => warn!("{e}"),
                 }
             } else {
+                // Let domain plugins claim their events before social parsing.
+                if let Some(ref dispatcher) = self.dispatcher {
+                    match dispatcher.try_dispatch(line).await {
+                        Ok(true) => continue,
+                        Ok(false) => {}
+                        Err(e) => {
+                            self.enqueue_plugin_retry(line, e).await;
+                            continue;
+                        }
+                    }
+                }
+
                 match Event::parse_event(line, self.files_path.clone()) {
                     Err(e) => error!("{e}"),
                     Ok(ParseResult::Skipped) => {}
@@ -180,6 +195,25 @@ impl EventProcessor {
         }
 
         true
+    }
+
+    async fn enqueue_plugin_retry(&self, line: &str, error: EventProcessorError) {
+        let Some((event_type, uri)) = line.split_once(' ') else {
+            error!("Plugin dispatch error for malformed event line {line}: {error}");
+            return;
+        };
+
+        let retry_event = RetryEvent::new(error);
+        let Some(index) = RetryEvent::generate_index_key(uri.trim()) else {
+            error!("Plugin dispatch retry skipped for invalid URI: {uri}");
+            return;
+        };
+
+        let index_key = format!("{event_type}:{index}");
+        error!("{}, {}", retry_event.error_type, index_key);
+        if let Err(err) = retry_event.put_to_index(index_key).await {
+            error!("Failed to enqueue plugin retry: {err}");
+        }
     }
 
     /// Processes an event and track the fail event it if necessary

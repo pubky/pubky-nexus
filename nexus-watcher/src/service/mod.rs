@@ -12,13 +12,14 @@ pub use processor::EventProcessor;
 pub use processor_runner::EventProcessorRunner;
 pub use traits::{TEventProcessor, TEventProcessorRunner};
 
+use crate::dispatcher::EventDispatcher;
 use crate::NexusWatcherBuilder;
 use nexus_common::file::ConfigLoader;
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::utils::create_shutdown_rx;
 use nexus_common::{DaemonConfig, WatcherConfig};
-use pubky_app_specs::PubkyId;
 use std::path::PathBuf;
+use std::sync::Arc;
 use tokio::sync::watch::Receiver;
 use tokio::time::Duration;
 use tracing::{debug, error, info};
@@ -46,7 +47,14 @@ impl NexusWatcher {
         let shutdown_rx = shutdown_rx.unwrap_or_else(create_shutdown_rx);
 
         match WatcherConfig::load(config_dir.join(WATCHER_CONFIG_FILE_NAME)).await {
-            Ok(config) => NexusWatcherBuilder(config).start(Some(shutdown_rx)).await,
+            Ok(config) => {
+                NexusWatcherBuilder {
+                    config,
+                    plugins: vec![],
+                }
+                .start(Some(shutdown_rx))
+                .await
+            }
             Err(_) => NexusWatcher::start_from_daemon(config_dir, Some(shutdown_rx)).await,
         }
     }
@@ -65,20 +73,27 @@ impl NexusWatcher {
     ) -> Result<(), DynError> {
         let daemon_config = DaemonConfig::read_or_create_config_file(config_dir).await?;
         let watcher_config = WatcherConfig::from(daemon_config);
-        NexusWatcherBuilder(watcher_config).start(shutdown_rx).await
+        NexusWatcherBuilder {
+            config: watcher_config,
+            plugins: vec![],
+        }
+        .start(shutdown_rx)
+        .await
     }
 
     pub async fn start(
         mut shutdown_rx: Receiver<bool>,
         config: WatcherConfig,
+        dispatcher: Option<Arc<EventDispatcher>>,
     ) -> Result<(), DynError> {
         debug!(?config, "Running NexusWatcher with ");
 
-        let config_hs = PubkyId::try_from(config.homeserver.as_ref())?;
+        let config_hs = config.homeserver.clone();
         Homeserver::persist_if_unknown(config_hs).await?;
 
         let mut interval = tokio::time::interval(Duration::from_millis(config.watcher_sleep));
-        let ev_processor_runner = EventProcessorRunner::from_config(&config, shutdown_rx.clone());
+        let ev_processor_runner =
+            EventProcessorRunner::from_config(&config, shutdown_rx.clone(), dispatcher);
         let mut backoff = crate::service::backoff::HomeserverBackoff::new(
             config.initial_backoff_secs,
             config.max_backoff_secs,

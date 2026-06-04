@@ -5,7 +5,7 @@ use crate::routes;
 use std::net::TcpListener;
 use std::sync::Arc;
 use std::time::Duration;
-use std::{fmt::Debug, net::SocketAddr, path::PathBuf};
+use std::{net::SocketAddr, path::PathBuf};
 
 use axum::Router;
 use axum_server::tls_rustls::{RustlsAcceptor, RustlsConfig};
@@ -25,10 +25,24 @@ pub const API_CONFIG_FILE_NAME: &str = "api-config.toml";
 
 type ServerHandle = Handle<SocketAddr>;
 
-#[derive(Debug)]
 pub struct NexusApiBuilder {
     api_context: ApiContext,
     enable_key_republisher: bool,
+    /// Extra routes from domain plugins, merged into the main router at startup.
+    extra_routes: Router,
+    /// Additional OpenAPI docs exposed as separate swagger-ui entries.
+    /// Each entry is `(json_url_path, openapi_doc)`, e.g.
+    /// `("/api-docs/mapky/openapi.json", MapkyApiDoc::openapi())`.
+    extra_swagger_docs: Vec<(String, utoipa::openapi::OpenApi)>,
+}
+
+impl std::fmt::Debug for NexusApiBuilder {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("NexusApiBuilder")
+            .field("api_context", &self.api_context)
+            .field("enable_key_republisher", &self.enable_key_republisher)
+            .finish_non_exhaustive()
+    }
 }
 
 impl NexusApiBuilder {
@@ -36,7 +50,32 @@ impl NexusApiBuilder {
         Self {
             api_context,
             enable_key_republisher: true,
+            extra_routes: Router::new(),
+            extra_swagger_docs: Vec::new(),
         }
+    }
+
+    /// Merge additional routes (e.g. from domain plugins) into the API router.
+    ///
+    /// Call this before `start()`. Routes are merged at the top level — callers
+    /// are responsible for nesting under the appropriate path prefix first.
+    pub fn with_extra_routes(mut self, routes: Router) -> Self {
+        self.extra_routes = self.extra_routes.merge(routes);
+        self
+    }
+
+    /// Add an OpenAPI doc that will appear as a separate entry in the Swagger UI.
+    ///
+    /// `json_path` is the URL where the JSON spec is served, e.g.
+    /// `"/api-docs/mapky/openapi.json"`. The spec will be listed in the
+    /// swagger-ui dropdown alongside the built-in nexus docs.
+    pub fn with_swagger_doc(
+        mut self,
+        json_path: impl Into<String>,
+        doc: utoipa::openapi::OpenApi,
+    ) -> Self {
+        self.extra_swagger_docs.push((json_path.into(), doc));
+        self
     }
 
     /// Enables or disables the [KeyRepublisher].
@@ -90,9 +129,14 @@ impl NexusApiBuilder {
         StackManager::setup(&self.api_context.api_config.stack).await?;
         let mut shutdown_rx = shutdown_rx.unwrap_or_else(create_shutdown_rx);
 
-        let nexus_api = NexusApi::start(self.api_context, self.enable_key_republisher)
-            .await
-            .inspect_err(|e| error!("Failed to start Nexus API: {e}"))?;
+        let nexus_api = NexusApi::start(
+            self.api_context,
+            self.enable_key_republisher,
+            self.extra_routes,
+            self.extra_swagger_docs,
+        )
+        .await
+        .inspect_err(|e| error!("Failed to start Nexus API: {e}"))?;
 
         info!("Nexus API HTTP: {}", nexus_api.icann_http_url());
         info!("Nexus API Pubky TLS: {}", nexus_api.pubky_tls_dns_url());
@@ -174,9 +218,12 @@ impl NexusApi {
     pub(crate) async fn start(
         ctx: ApiContext,
         enable_key_republisher: bool,
+        extra_routes: Router,
+        extra_swagger_docs: Vec<(String, utoipa::openapi::OpenApi)>,
     ) -> Result<Self, DynError> {
-        // Create all the routes of the API
-        let router = routes::routes(ctx.api_config.stack.files_path.clone());
+        // Create all the routes of the API and merge any plugin routes
+        let router = routes::routes(ctx.api_config.stack.files_path.clone(), extra_swagger_docs)
+            .merge(extra_routes);
         debug!(?ctx.api_config, "Running NexusAPI with config");
 
         let (icann_http_handle, icann_http_socket) =

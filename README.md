@@ -34,6 +34,14 @@ Nexus is composed of several core components:
 - **nexus-common**: A library crate containing common functionalities shared by `service` and `watcher`, including database connectors, models, and queries.
 - **nexusd**: Manages the execution of Nexus components, with the capability to perform database migrations and reindexing when required
 
+### Plugin System
+
+Nexus supports domain-specific plugins that extend the core social graph with additional event handlers, API routes, schema setup, and optional OpenAPI docs without adding concrete app dependencies to core `nexusd`.
+
+Plugins implement `NexusPlugin` from `nexus-common`, declare a `/pub/{domain}.app/` namespace, and are passed to `DaemonLauncher::start_with_plugins` by a deployment-specific binary. Stock `nexusd` still runs with no plugins.
+
+Plugin API routes are mounted at `/v0/{name}/`, and plugin OpenAPI docs are exposed under `/api-docs/{name}/openapi.json` when provided.
+
 ### Data Flow
 
 ![pubky-nexus-arch](docs/images/pubky-nexus-arch.png)
