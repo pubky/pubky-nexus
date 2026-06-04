@@ -86,6 +86,15 @@ impl EventDispatcher {
             return Ok(false);
         }
 
+        // App-specific files/blobs use universal Nexus file handling. Let them
+        // fall through instead of requiring every plugin to duplicate file logic.
+        let resource_suffix = path
+            .strip_prefix(matching[0].manifest().namespace)
+            .unwrap_or(path);
+        if resource_suffix.starts_with("files/") || resource_suffix.starts_with("blobs/") {
+            return Ok(false);
+        }
+
         let user_id = match extract_user_id(uri) {
             Some(u) => u,
             None => {
@@ -262,6 +271,15 @@ mod tests {
         let dispatcher = EventDispatcher::new(vec![]);
         let result = dispatcher
             .try_dispatch("DEL pubky://abc123/pub/mock.app/items/id1")
+            .await;
+        assert!(matches!(result, Ok(false)));
+    }
+
+    #[tokio::test]
+    async fn test_try_dispatch_file_path_falls_through() {
+        let dispatcher = EventDispatcher::new(vec![Arc::new(MockPlugin) as Arc<dyn NexusPlugin>]);
+        let result = dispatcher
+            .try_dispatch("DEL pubky://abc123/pub/mock.app/files/file1")
             .await;
         assert!(matches!(result, Ok(false)));
     }

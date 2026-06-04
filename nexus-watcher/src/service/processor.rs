@@ -138,7 +138,9 @@ impl EventProcessor {
                         uri,
                         reason,
                     }) => {
-                        if !self.try_handle_universal_tag(&event_type, &uri).await {
+                        if !self.try_handle_universal_tag(&event_type, &uri).await
+                            && !self.try_handle_universal_file(&event_type, &uri).await
+                        {
                             error!("Cannot parse event URI: {reason}");
                         }
                     }
@@ -189,6 +191,36 @@ impl EventProcessor {
                     error!("{}, {}", retry_event.error_type, index_key);
                     if let Err(err) = retry_event.put_to_index(index_key).await {
                         error!("Failed to enqueue universal tag retry: {err}");
+                    }
+                }
+            }
+        }
+
+        true
+    }
+
+    /// Attempts to handle an unrecognized URI as a universal file at an app-specific path.
+    /// Returns `true` if the event was claimed (regardless of success/failure).
+    async fn try_handle_universal_file(&self, event_type: &EventType, uri: &str) -> bool {
+        let result =
+            crate::events::handlers::universal_file::try_handle(event_type, uri, &self.files_path)
+                .await;
+
+        let Some(result) = result else {
+            return false;
+        };
+
+        if let Err(e) = result {
+            match e {
+                EventProcessorError::InvalidEventLine(ref msg) => {
+                    error!("Universal file non-retryable: {msg}");
+                }
+                _ => {
+                    let index_key = format!("{event_type}:{uri}");
+                    let retry_event = RetryEvent::new(e);
+                    error!("{}, {}", retry_event.error_type, index_key);
+                    if let Err(err) = retry_event.put_to_index(index_key).await {
+                        error!("Failed to enqueue universal file retry: {err}");
                     }
                 }
             }
