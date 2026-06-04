@@ -58,10 +58,8 @@ pub fn try_parse_app_tag_path(uri: &str) -> Option<AppTagInfo> {
 
 /// Strip a case-insensitive prefix from a string.
 fn strip_prefix_ignore_ascii_case<'a>(s: &'a str, prefix: &str) -> Option<&'a str> {
-    if s.len() < prefix.len() {
-        return None;
-    }
-    if s[..prefix.len()].eq_ignore_ascii_case(prefix) {
+    let head = s.get(..prefix.len())?;
+    if head.eq_ignore_ascii_case(prefix) {
         Some(&s[prefix.len()..])
     } else {
         None
