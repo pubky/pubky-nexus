@@ -130,7 +130,7 @@ pub async fn run(
                     // Both resolve errors and finding no HS are treated as failures
                     let err_msg = match result {
                         Err(e) => format!("Failed to resolve HS: {e}"),
-                        Ok(_) => format!("PKDNS lookup found no HS")
+                        Ok(_) => "PKDNS lookup found no HS".into()
                     };
 
                     failed += 1;
@@ -207,7 +207,7 @@ async fn resolve_user(
         (None, None) => warn!("User {user_id} has no published homeserver"),
 
         (None, Some(resolved_hs_id)) => {
-            exec_single_row(queries::put::set_user_homeserver(&user_id, &resolved_hs_id)).await?;
+            exec_single_row(queries::put::set_user_homeserver(&user_id, resolved_hs_id)).await?;
             debug!("User {user_id} -> HS {resolved_hs_id}");
         }
 
