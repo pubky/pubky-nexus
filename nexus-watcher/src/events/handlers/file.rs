@@ -55,9 +55,6 @@ async fn ingest(
     let pubky = PubkyConnector::get()?;
     let response = pubky.public_storage().get(&pubkyapp_file.src).await?;
 
-    let path = Path::new(&user_id.to_string()).join(file_id);
-    let full_path = files_path.join(path.clone());
-
     let blob = response
         .bytes()
         .await
@@ -67,21 +64,42 @@ async fn ingest(
 
     match pubky_app_object {
         PubkyAppObject::Blob(blob) => {
-            Blob::put_to_static(FileVariant::Main.to_string(), full_path, &blob)
-                .await
-                .map_err(EventProcessorError::static_save_failed)?;
-
-            let urls = VariantController::get_file_urls_by_content_type(
-                pubkyapp_file.content_type.as_str(),
-                &path,
-            );
-            Ok(FileMeta { urls })
+            ingest_raw(
+                user_id,
+                file_id,
+                &pubkyapp_file.content_type,
+                blob.0,
+                files_path,
+            )
+            .await
         }
         _ => Err(EventProcessorError::InvalidEventLine(format!(
             "The file has a source uri that is not a blob path: {}",
             pubkyapp_file.src
         ))),
     }
+}
+
+/// Save raw blob bytes to disk and generate variant URLs.
+pub(crate) async fn ingest_raw(
+    user_id: &PubkyId,
+    file_id: &str,
+    content_type: &str,
+    raw_bytes: Vec<u8>,
+    files_path: PathBuf,
+) -> Result<FileMeta, EventProcessorError> {
+    use pubky_app_specs::PubkyAppBlob;
+
+    let path = Path::new(&user_id.to_string()).join(file_id);
+    let full_path = files_path.join(path.clone());
+
+    let blob = PubkyAppBlob::new(raw_bytes);
+    Blob::put_to_static(FileVariant::Main.to_string(), full_path, &blob)
+        .await
+        .map_err(EventProcessorError::static_save_failed)?;
+
+    let urls = VariantController::get_file_urls_by_content_type(content_type, &path);
+    Ok(FileMeta { urls })
 }
 
 #[tracing::instrument(name = "file.del", skip_all, fields(user_id = %user_id, file_id = %file_id))]
