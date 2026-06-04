@@ -32,8 +32,13 @@ testing = ["dep:anyhow", "dep:base32", "dep:pubky-testnet", "dep:tempfile"]
 anyhow = { workspace = true }
 axum = { workspace = true }
 base32 = "0.5"
+criterion = { version = "0.8", features = ["async_tokio"] }
 nexus-watcher = { path = ".", features = ["testing"] }
 pubky-testnet = { workspace = true }
 rand = "0.10.1"
 tempfile = { workspace = true }
 tokio-shared-rt = { workspace = true }
+
+[[bench]]
+name = "dispatcher"
+harness = false

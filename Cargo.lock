@@ -3091,6 +3091,7 @@ dependencies = [
  "axum",
  "base32",
  "chrono",
+ "criterion",
  "nexus-common",
  "nexus-watcher",
  "opentelemetry 0.32.0",
