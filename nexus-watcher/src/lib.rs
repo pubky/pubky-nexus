@@ -18,5 +18,7 @@ mod builder;
 pub mod dispatcher;
 pub mod events;
 pub mod service;
+#[cfg(feature = "testing")]
+pub mod testing;
 
 pub use builder::NexusWatcherBuilder;
