@@ -1,3 +1,4 @@
+use nexus_common::db::PubkyConnector;
 use nexus_common::models::event::{Event, EventProcessorError, EventType};
 use pubky_app_specs::{PubkyAppObject, Resource};
 use std::sync::Arc;
@@ -25,7 +26,27 @@ pub async fn handle_put_event(
 ) -> Result<(), EventProcessorError> {
     debug!("Handling PUT event for URI: {}", event.uri);
 
-    let blob = nexus_common::db::fetch_blob(&event.uri).await?;
+    let pubky = PubkyConnector::get()?;
+    let response = pubky.public_storage().get(&event.uri).await?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response
+            .text()
+            .await
+            .unwrap_or_else(|_| "<unable to read body>".to_string());
+
+        let err_msg = format!(
+            "Fetch resource failed {}: HTTP {status} - {body}",
+            event.uri
+        );
+        return Err(EventProcessorError::client_error(err_msg))?;
+    }
+
+    let blob = response
+        .bytes()
+        .await
+        .map_err(|e| EventProcessorError::client_error(e.to_string()))?;
     let resource = event.parsed_uri.resource.clone();
 
     // Use the new importer from pubky-app-specs.

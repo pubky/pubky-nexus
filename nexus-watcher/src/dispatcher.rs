@@ -2,6 +2,7 @@
 //! prefix, intercepting them *before* `Event::parse_event()` so
 //! `pubky-app-specs` never sees domain-specific URIs.
 
+use nexus_common::db::PubkyConnector;
 use nexus_common::models::event::EventProcessorError;
 use nexus_common::plugin::{NexusPlugin, PluginContext};
 use std::sync::Arc;
@@ -95,7 +96,7 @@ impl EventDispatcher {
 
         // Fetch the blob once for PUT events and share it across all plugins.
         let data: Option<Vec<u8>> = if event_type == "PUT" {
-            Some(nexus_common::db::fetch_blob(uri).await?)
+            Some(fetch_blob(uri).await?)
         } else {
             None
         };
@@ -144,6 +145,28 @@ fn extract_user_id(uri: &str) -> Option<String> {
     let without_scheme = uri.strip_prefix("pubky://")?;
     let slash_pos = without_scheme.find('/')?;
     Some(without_scheme[..slash_pos].to_string())
+}
+
+async fn fetch_blob(uri: &str) -> Result<Vec<u8>, EventProcessorError> {
+    let pubky = PubkyConnector::get()?;
+    let response = pubky.public_storage().get(uri).await?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response
+            .text()
+            .await
+            .unwrap_or_else(|_| "<unable to read body>".to_string());
+
+        let err_msg = format!("Fetch resource failed {uri}: HTTP {status} - {body}");
+        return Err(EventProcessorError::client_error(err_msg))?;
+    }
+
+    response
+        .bytes()
+        .await
+        .map(|bytes| bytes.to_vec())
+        .map_err(|e| EventProcessorError::client_error(e.to_string()))
 }
 
 #[cfg(test)]
