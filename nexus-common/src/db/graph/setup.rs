@@ -1,8 +1,8 @@
 use crate::db::get_neo4j_graph;
 use crate::db::graph::error::{GraphError, GraphResult};
-use crate::db::graph::Query;
+use crate::db::graph::{GraphOps, Query};
 use tokio::sync::OnceCell;
-use tracing::info;
+use tracing::{info, warn};
 
 static GRAPH_SETUP: OnceCell<()> = OnceCell::const_new();
 
@@ -46,14 +46,54 @@ async fn setup_graph_inner() -> GraphResult<()> {
     let graph = get_neo4j_graph()?;
 
     for &ddl in queries {
-        graph.run(Query::new("setup_ddl", ddl)).await.map_err(|e| {
-            GraphError::Generic(format!(
-                "Failed to apply graph constraint/index '{ddl}': {e}"
-            ))
-        })?;
+        apply_schema_ddl(graph.as_ref(), "setup_ddl", ddl).await?;
     }
 
     info!("Neo4j graph constraints and indexes have been applied successfully");
 
     Ok(())
+}
+
+/// Apply a Neo4j schema DDL statement, ignoring only the benign equivalent
+/// schema race that can happen when multiple Nexus processes start together.
+pub async fn apply_schema_ddl(
+    graph: &dyn GraphOps,
+    query_name: &'static str,
+    ddl: &str,
+) -> GraphResult<()> {
+    match graph.run(Query::new(query_name, ddl)).await {
+        Ok(()) => Ok(()),
+        Err(e) if is_equivalent_schema_rule_error(&e) => {
+            warn!("Neo4j schema DDL already exists with equivalent rule: {ddl}");
+            Ok(())
+        }
+        Err(e) => Err(GraphError::Generic(format!(
+            "Failed to apply graph constraint/index '{ddl}': {e}"
+        ))),
+    }
+}
+
+fn is_equivalent_schema_rule_error(error: &neo4rs::Error) -> bool {
+    is_equivalent_schema_rule_error_message(&error.to_string())
+}
+
+fn is_equivalent_schema_rule_error_message(message: &str) -> bool {
+    message.contains("EquivalentSchemaRuleAlreadyExists")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_equivalent_schema_rule_error_message;
+
+    #[test]
+    fn test_equivalent_schema_error_marker() {
+        let message = "Neo.ClientError.Schema.EquivalentSchemaRuleAlreadyExists";
+        assert!(is_equivalent_schema_rule_error_message(message));
+    }
+
+    #[test]
+    fn test_non_equivalent_schema_error_marker() {
+        let message = "Neo.ClientError.Schema.ConstraintAlreadyExists";
+        assert!(!is_equivalent_schema_rule_error_message(message));
+    }
 }

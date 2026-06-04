@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 
 use crate::migrations::manager::Migration;
-use nexus_common::{db::get_neo4j_graph, db::graph::Query, types::DynError};
+use nexus_common::{db::get_neo4j_graph, db::setup::apply_schema_ddl, types::DynError};
 use tracing::info;
 
 pub struct ResourceNodeSetup1774000000;
@@ -31,14 +31,9 @@ impl Migration for ResourceNodeSetup1774000000 {
 
         for ddl in ddl_statements {
             info!("Applying DDL: {ddl}");
-            graph
-                .run(Query::new("resource_ddl", ddl))
+            apply_schema_ddl(graph.as_ref(), "resource_ddl", ddl)
                 .await
-                .map_err(|e| -> DynError {
-                    Box::new(std::io::Error::other(format!(
-                        "Failed to apply DDL '{ddl}': {e}"
-                    )))
-                })?;
+                .map_err(|e| -> DynError { Box::new(std::io::Error::other(e.to_string())) })?;
         }
 
         info!("Resource node DDL applied successfully");
