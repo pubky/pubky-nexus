@@ -23,7 +23,11 @@ pub fn normalize_uri(uri: &str) -> Result<(String, String), String> {
             if let Some(colon_pos) = uri.find(':') {
                 let scheme = &uri[..colon_pos];
                 // Validate scheme: RFC 3986 §3.1 — ALPHA *( ALPHA / DIGIT / "+" / "-" / "." )
-                if scheme.is_empty()
+                // The first character must be ALPHA (this also rejects an empty scheme).
+                if !scheme
+                    .as_bytes()
+                    .first()
+                    .is_some_and(u8::is_ascii_alphabetic)
                     || !scheme
                         .bytes()
                         .all(|b| b.is_ascii_alphanumeric() || b == b'+' || b == b'-' || b == b'.')
@@ -187,6 +191,20 @@ mod tests {
     #[test]
     fn test_normalize_rejects_no_colon() {
         assert!(normalize_uri("justtext").is_err());
+    }
+
+    #[test]
+    fn test_normalize_rejects_scheme_starting_with_digit() {
+        // RFC 3986 §3.1 requires the scheme to start with ALPHA.
+        assert!(normalize_uri("1ttp://example.com").is_err());
+    }
+
+    #[test]
+    fn test_normalize_rejects_scheme_starting_with_special_char() {
+        // "+", "-" and "." are only valid after the first ALPHA character.
+        assert!(normalize_uri("+nostr:note1abc").is_err());
+        assert!(normalize_uri("-nostr:note1abc").is_err());
+        assert!(normalize_uri(".nostr:note1abc").is_err());
     }
 
     // -- resource_id tests --
