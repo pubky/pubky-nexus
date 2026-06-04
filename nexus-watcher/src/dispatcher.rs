@@ -269,12 +269,12 @@ mod tests {
     #[test]
     fn test_plugins_sorted_longest_namespace_first() {
         // The sort key is namespace length — verify the comparator directly.
-        let mut namespaces = vec![
+        let mut namespaces = [
             "/pub/mapky.app/",
             "/pub/mapky.app/places/",
             "/pub/other.app/",
         ];
-        namespaces.sort_by(|a, b| b.len().cmp(&a.len()));
+        namespaces.sort_by_key(|namespace| std::cmp::Reverse(namespace.len()));
         assert_eq!(namespaces[0], "/pub/mapky.app/places/"); // longest first
         assert_eq!(namespaces[2], "/pub/other.app/"); // shortest last
     }
