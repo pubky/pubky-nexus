@@ -3040,6 +3040,7 @@ name = "nexus-common"
 version = "0.4.1"
 dependencies = [
  "async-trait",
+ "axum",
  "blake3",
  "chrono",
  "deadpool-redis",
@@ -3087,6 +3088,7 @@ version = "0.4.1"
 dependencies = [
  "anyhow",
  "async-trait",
+ "axum",
  "base32",
  "chrono",
  "nexus-common",
@@ -3139,6 +3141,7 @@ name = "nexusd"
 version = "0.4.1"
 dependencies = [
  "async-trait",
+ "axum",
  "chrono",
  "clap",
  "dirs",

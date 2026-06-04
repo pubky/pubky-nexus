@@ -23,6 +23,7 @@ async fn test_event_processor_runner_default_homeserver_prioritization() -> Resu
         files_path: PathBuf::from("/tmp/nexus-watcher-test"),
         tracer_name: "test".to_string(),
         moderation: Arc::new(default_moderation_tests()),
+        dispatcher: None,
     };
 
     // Persist the homeservers

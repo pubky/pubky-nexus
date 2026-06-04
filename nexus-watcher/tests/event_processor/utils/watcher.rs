@@ -94,6 +94,7 @@ impl WatcherTest {
             moderation,
             shutdown_rx,
             default_homeserver,
+            dispatcher: None,
         }
     }
 

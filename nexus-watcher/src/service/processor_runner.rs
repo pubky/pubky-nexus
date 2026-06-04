@@ -1,3 +1,4 @@
+use crate::dispatcher::EventDispatcher;
 use crate::events::Moderation;
 use crate::service::processor::EventProcessor;
 use crate::service::traits::{TEventProcessor, TEventProcessorRunner};
@@ -20,11 +21,17 @@ pub struct EventProcessorRunner {
     pub shutdown_rx: Receiver<bool>,
     /// See [WatcherConfig::homeserver]
     pub default_homeserver: PubkyId,
+    /// Domain plugin dispatcher (None when no plugins are registered).
+    pub dispatcher: Option<Arc<EventDispatcher>>,
 }
 
 impl EventProcessorRunner {
     /// Creates a new instance from the provided configuration
-    pub fn from_config(config: &WatcherConfig, shutdown_rx: Receiver<bool>) -> Self {
+    pub fn from_config(
+        config: &WatcherConfig,
+        shutdown_rx: Receiver<bool>,
+        dispatcher: Option<Arc<EventDispatcher>>,
+    ) -> Self {
         Self {
             limit: config.events_limit,
             monitored_homeservers_limit: config.monitored_homeservers_limit,
@@ -36,6 +43,7 @@ impl EventProcessorRunner {
             }),
             shutdown_rx,
             default_homeserver: config.homeserver.clone(),
+            dispatcher,
         }
     }
 }
@@ -84,6 +92,7 @@ impl TEventProcessorRunner for EventProcessorRunner {
             tracer_name: self.tracer_name.clone(),
             moderation: self.moderation.clone(),
             shutdown_rx: self.shutdown_rx.clone(),
+            dispatcher: self.dispatcher.clone(),
         }))
     }
 }
