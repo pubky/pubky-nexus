@@ -182,35 +182,31 @@ async fn get_users_needing_resolution(ttl_ms: u64) -> GraphResult<Vec<String>> {
     Ok(maybe_user_ids.unwrap_or_default())
 }
 
-/// Resolves a single user's homeserver and persists the HOSTED_BY relationship.
-///
-/// Homeserver switching is not fully implemented, so the bound homeserver is
-/// never changed once set:
-/// - No stored mapping: store whatever the DHT resolves (if anything).
-/// - Stored mapping, DHT still points at it: clear any `stale` flag (resume indexing).
-/// - Stored mapping, DHT changed or returns nothing: mark the mapping `stale`
-///   so the watcher stops indexing the user until the DHT realigns.
+/// Resolves a single user's HS and persists the HOSTED_BY relationship.
 async fn resolve_user(
     resolver: &dyn PkdnsHomeserverResolver,
     user_pk: &PublicKey,
 ) -> Result<(), DynError> {
     let user_id = user_pk.z32();
 
-    let resolved_hs_id = resolver.resolve_homeserver(user_pk).await?;
-
+    let maybe_resolved_hs_id = resolver.resolve_homeserver(user_pk).await?;
     let maybe_stored_hs_id = get_user_homeserver(&user_id).await?;
-    match (maybe_stored_hs_id, resolved_hs_id) {
-        // First-time resolution: store whatever the DHT resolves (if anything).
+
+    match (maybe_stored_hs_id, maybe_resolved_hs_id) {
         (None, None) => debug!("User {user_id} has no published homeserver"),
-        (None, Some(hs_id)) => {
-            exec_single_row(queries::put::set_user_homeserver(&user_id, &hs_id)).await?;
-            debug!("User {user_id} -> HS {hs_id}");
+
+        (None, Some(resolved_hs_id)) => {
+            exec_single_row(queries::put::set_user_homeserver(&user_id, &resolved_hs_id)).await?;
+            debug!("User {user_id} -> HS {resolved_hs_id}");
         }
-        // Already bound to a homeserver: toggle the stale flag instead of switching.
-        (Some(stored_hs_id), Some(hs_id)) if hs_id.as_ref() == stored_hs_id.as_str() => {
+
+        // Already bound to a HS: toggle the stale flag instead of switching.
+        (Some(stored_hs_id), Some(resolved_hs_id)) if resolved_hs_id.as_ref() == &stored_hs_id => {
             exec_single_row(queries::put::set_user_homeserver_stale(&user_id, false)).await?;
             debug!("User {user_id} still hosted on {stored_hs_id}, mapping active");
         }
+
+        // HS switching is not fully implemented, so the bound HS is never changed once set
         (Some(stored_hs_id), _) => {
             exec_single_row(queries::put::set_user_homeserver_stale(&user_id, true)).await?;
             warn!(
