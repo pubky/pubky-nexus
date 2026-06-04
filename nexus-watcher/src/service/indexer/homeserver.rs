@@ -1,10 +1,11 @@
 use super::TEventProcessor;
 use crate::events::retry::RetryScheduler;
 use crate::events::EventHandler;
-use nexus_common::db::PubkyConnector;
-use nexus_common::models::event::EventProcessorError;
+use nexus_common::db::{fetch_key_from_graph, queries, GraphResult, PubkyConnector};
+use nexus_common::models::event::{Event, EventProcessorError};
 use nexus_common::models::homeserver::Homeserver;
 use pubky::Method;
+use pubky_app_specs::PubkyId;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::watch::Receiver;
@@ -46,6 +47,40 @@ impl TEventProcessor for HsEventProcessor {
         Some(self.homeserver.id.as_ref())
     }
 
+    /// Skips events from users that are bound to a *different* homeserver.
+    ///
+    /// Before an event is processed we inspect the user's `HOSTED_BY` edge:
+    /// - No edge, or the edge points at this processor's homeserver: process.
+    /// - The edge points at a different homeserver: log a warning and skip.
+    ///
+    /// A lookup failure fails open (the event is processed), so a transient
+    /// graph error never silently drops legitimate events.
+    async fn should_process_event(&self, event: &Event) -> bool {
+        let user_id = event.parsed_uri.user_id();
+
+        match self.user_bound_to_other_homeserver(user_id).await {
+            Ok(Some(other_hs_id)) => {
+                warn!(
+                    event.uri = %event.uri,
+                    user_id = %user_id,
+                    processor_homeserver = %self.homeserver.id,
+                    user_homeserver = %other_hs_id,
+                    "User is hosted on a different homeserver; skipping event"
+                );
+                false
+            }
+            Ok(None) => true,
+            Err(e) => {
+                warn!(
+                    event.uri = %event.uri,
+                    user_id = %user_id,
+                    "Failed to resolve user's homeserver; processing event anyway: {e}"
+                );
+                true
+            }
+        }
+    }
+
     async fn run_internal(self: Arc<Self>) -> Result<(), EventProcessorError> {
         let maybe_event_lines = self
             .poll_events()
@@ -65,6 +100,22 @@ impl TEventProcessor for HsEventProcessor {
 }
 
 impl HsEventProcessor {
+    /// Returns the homeserver a user is bound to via `HOSTED_BY`, but only when
+    /// it differs from this processor's homeserver.
+    ///
+    /// Returns `Ok(None)` when the user has no `HOSTED_BY` edge or the edge
+    /// points at this processor's homeserver, and `Ok(Some(hs_id))` when the
+    /// edge points at a different homeserver.
+    async fn user_bound_to_other_homeserver(
+        &self,
+        user_id: &PubkyId,
+    ) -> GraphResult<Option<String>> {
+        let query = queries::get::get_user_homeserver(user_id.as_ref());
+        let maybe_hs_id: Option<String> = fetch_key_from_graph(query, "homeserver_id").await?;
+
+        Ok(maybe_hs_id.filter(|hs_id| hs_id.as_str() != self.homeserver.id.as_ref()))
+    }
+
     /// Polls new events from the homeserver.
     ///
     /// It sends a GET request to the homeserver's events endpoint
