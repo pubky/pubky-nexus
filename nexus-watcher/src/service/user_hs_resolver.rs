@@ -97,8 +97,8 @@ pub async fn run(
         return Ok(());
     }
 
-    let attempted = user_pks.len() as u64;
-    debug!("Resolving homeservers for {} users", attempted);
+    let total = user_pks.len() as u64;
+    debug!("Resolving homeservers for {} users", total);
 
     let mut failed = 0u64;
     let mut processed = 0u64;
@@ -120,7 +120,7 @@ pub async fn run(
         tokio::select! {
             biased;
             _ = shutdown_rx.changed() => {
-                info!("Shutdown detected; HS resolver stopping after {processed}/{attempted} users");
+                info!("Shutdown detected; HS resolver stopping after {processed}/{total} users");
                 break;
             }
             result = resolve_user(resolver, &user_pk) => {
@@ -133,7 +133,7 @@ pub async fn run(
         }
     }
 
-    HS_RESOLVER_METRICS.run_total.record(attempted, &[]);
+    HS_RESOLVER_METRICS.run_total.record(total, &[]);
     HS_RESOLVER_METRICS.run_failed.record(failed, &[]);
 
     Ok(())
