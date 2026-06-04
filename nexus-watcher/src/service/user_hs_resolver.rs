@@ -201,7 +201,7 @@ async fn resolve_user(
         }
 
         // Already bound to a HS: toggle the stale flag instead of switching.
-        (Some(stored_hs_id), Some(resolved_hs_id)) if resolved_hs_id.as_ref() == &stored_hs_id => {
+        (Some(stored_hs_id), Some(resolved_hs_id)) if resolved_hs_id.as_ref() == stored_hs_id => {
             exec_single_row(queries::put::set_user_homeserver_stale(&user_id, false)).await?;
             debug!("User {user_id} still hosted on {stored_hs_id}, mapping active");
         }
