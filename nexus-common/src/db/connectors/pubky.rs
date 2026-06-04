@@ -7,6 +7,8 @@ use tracing::debug;
 
 static PUBKY_SINGLETON: OnceCell<Arc<Pubky>> = OnceCell::const_new();
 
+pub type PubkyClientResult<T> = std::result::Result<T, PubkyClientError>;
+
 #[derive(Debug, Error, Clone, Serialize, Deserialize)]
 pub enum PubkyClientError {
     #[error("PubkyClient not initialized")]
@@ -85,7 +87,7 @@ impl PubkyConnector {
     ///
     /// - For mainnet, pass `None`.
     /// - For testnet, pass `Some(hostname)` (e.g., "localhost" or "homeserver").
-    pub async fn initialise(testnet_host: Option<&str>) -> Result<(), PubkyClientError> {
+    pub async fn initialise(testnet_host: Option<&str>) -> PubkyClientResult<()> {
         PUBKY_SINGLETON
             .get_or_try_init(|| async {
                 let mode = testnet_host
@@ -109,7 +111,7 @@ impl PubkyConnector {
             .map(|_| ())
     }
     /// Retrieves the instance of `Pubky`
-    pub fn get() -> Result<Arc<Pubky>, PubkyClientError> {
+    pub fn get() -> PubkyClientResult<Arc<Pubky>> {
         PUBKY_SINGLETON
             .get()
             .cloned()
@@ -121,7 +123,7 @@ impl PubkyConnector {
     /// # Usage:
     /// - This function is primarily intended for **watcher tests** where a controlled `Pubky` instance
     ///   needs to be injected instead of relying on environment-based initialization
-    pub async fn init_from(sdk: Pubky) -> Result<(), PubkyClientError> {
+    pub async fn init_from(sdk: Pubky) -> PubkyClientResult<()> {
         PUBKY_SINGLETON
             .get_or_try_init(|| async { Ok(Arc::new(sdk)) })
             .await

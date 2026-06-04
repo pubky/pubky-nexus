@@ -4,7 +4,7 @@
 //! the `(:User)-[:HOSTED_BY]->(:Homeserver)` relationship in Neo4j.
 
 use nexus_common::db::{
-    exec_single_row, fetch_key_from_graph, queries, GraphResult, PubkyConnector,
+    exec_single_row, fetch_key_from_graph, queries, GraphResult, PubkyClientResult, PubkyConnector,
 };
 use nexus_common::types::DynError;
 use nexus_common::WatcherConfig;
@@ -25,7 +25,7 @@ static HS_RESOLVER_METRICS: LazyLock<HsResolverMetrics> = LazyLock::new(HsResolv
 #[async_trait::async_trait]
 pub trait PkdnsHomeserverResolver: Send + Sync {
     /// Returns the HS published for `user_pk`, if any is currently published.
-    async fn resolve_homeserver(&self, user_pk: &PublicKey) -> Result<Option<PubkyId>, DynError>;
+    async fn resolve_homeserver(&self, user_pk: &PublicKey) -> PubkyClientResult<Option<PubkyId>>;
 }
 
 /// Production resolver backed by the shared [`PubkyConnector`].
@@ -33,7 +33,7 @@ pub struct PubkyConnectorResolver;
 
 #[async_trait::async_trait]
 impl PkdnsHomeserverResolver for PubkyConnectorResolver {
-    async fn resolve_homeserver(&self, user_pk: &PublicKey) -> Result<Option<PubkyId>, DynError> {
+    async fn resolve_homeserver(&self, user_pk: &PublicKey) -> PubkyClientResult<Option<PubkyId>> {
         let pubky = PubkyConnector::get()?;
         match pubky.get_homeserver_of(user_pk).await {
             Some(hs_pk) => Ok(Some(PubkyId::from(hs_pk))),
@@ -283,7 +283,7 @@ mod tests {
         async fn resolve_homeserver(
             &self,
             _user_pk: &PublicKey,
-        ) -> Result<Option<PubkyId>, DynError> {
+        ) -> PubkyClientResult<Option<PubkyId>> {
             Ok(self.result.clone())
         }
     }
