@@ -1,5 +1,5 @@
 use crate::db::graph::Query;
-use crate::db::kv::{RedisResult, ScoreAction, SortOrder};
+use crate::db::kv::{search, RedisResult, ScoreAction, SortOrder};
 use crate::db::queries::get::{global_tags_by_post, global_tags_by_post_engagement};
 use crate::db::{fetch_all_rows_from_graph, RedisOps};
 use crate::models::error::ModelResult;
@@ -8,6 +8,7 @@ use crate::models::tag::post::TagPost;
 use crate::models::tag::traits::TaggersCollection;
 use crate::types::{Pagination, StreamSorting};
 use serde::{Deserialize, Serialize};
+use tracing::info;
 use utoipa::ToSchema;
 
 pub const TAG_GLOBAL_POST_TIMELINE: [&str; 4] = ["Tags", "Global", "Post", "Timeline"];
@@ -144,5 +145,41 @@ impl PostsByTagSearch {
             Self::remove_from_index_sorted_set(None, &key_parts, &[&post_key]).await?;
         }
         Ok(())
+    }
+}
+
+const POST_CONTENT_INDEX: &str = "postContentIdx";
+
+/// Creates the RediSearch full-text index over PostDetails JSON documents.
+/// Idempotent: no-ops if the index already exists.
+pub async fn create_post_content_index() -> RedisResult<()> {
+    let prefix = format!("{}:", PostDetails::prefix().await);
+    search::ft_create_json_text_index(POST_CONTENT_INDEX, &prefix, "$.content", "content").await?;
+    info!("RediSearch index '{POST_CONTENT_INDEX}' created or already exists");
+    Ok(())
+}
+
+// Results come from FT.SEARCH, not key-value lookups — no RedisOps impl.
+#[derive(Serialize, Deserialize, ToSchema, Default)]
+pub struct PostsByContentSearch {
+    pub post_key: String,
+    pub score: f64,
+}
+
+impl PostsByContentSearch {
+    pub async fn search(
+        query: &str,
+        skip: usize,
+        limit: usize,
+    ) -> RedisResult<Vec<PostsByContentSearch>> {
+        let prefix = format!("{}:", PostDetails::prefix().await);
+        let pairs = search::ft_search_scored(POST_CONTENT_INDEX, query, skip, limit).await?;
+        Ok(pairs
+            .into_iter()
+            .map(|(key, score)| PostsByContentSearch {
+                post_key: key.strip_prefix(&prefix).unwrap_or(&key).to_string(),
+                score,
+            })
+            .collect())
     }
 }
