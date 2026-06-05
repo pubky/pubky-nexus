@@ -20,8 +20,8 @@ deadpool-redis = "0.23"
 dirs = "6.0.0"
 neo4rs = "0.8.0"
 redis = "1.0.4"
-opentelemetry = "0.31"
-opentelemetry_sdk = { version = "0.31", features = ["rt-tokio"] }
+opentelemetry = "0.32"
+opentelemetry_sdk = { version = "0.32", features = ["rt-tokio"] }
 pubky = "0.8.0"
 pubky-app-specs = { version = "0.5.2", features = ["openapi"] }
 pubky-testnet = "0.8.0"
@@ -32,7 +32,7 @@ thiserror = "2.0.17"
 tokio = { version = "1.52.3", features = ["full"] }
 tokio-shared-rt = "0.1"
 tracing = "0.1.44"
-tracing-opentelemetry = "0.32.1"
+tracing-opentelemetry = "0.33.0"
 tracing-test = "0.2"
 url = "2"
 utoipa = "5.5.0"
