@@ -79,6 +79,7 @@ pub struct SearchPostsByContentQuery {
     ),
     responses(
         (status = 200, description = "Search results ordered by relevance score", body = Vec<PostsByContentSearch>),
+        (status = 400, description = "Invalid query or limit parameter"),
         (status = 500, description = "Internal server error")
     )
 )]
