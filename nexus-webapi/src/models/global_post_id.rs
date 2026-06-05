@@ -1,4 +1,3 @@
-use std::fmt;
 use std::ops::Deref;
 
 use crate::Error;
@@ -7,7 +6,7 @@ use serde::Deserialize;
 use utoipa::ToSchema;
 
 use super::bounded_vec;
-use super::post_id::PostId;
+use super::PostId;
 use pubky_app_specs::PubkyId;
 
 /// Composite post identifier in the format `{PubkyId}:{PostId}`.
@@ -35,22 +34,7 @@ impl<'de> Deserialize<'de> for GlobalPostIds {
     }
 }
 
-impl fmt::Display for GlobalPostId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.0)
-    }
-}
-
-impl Deref for GlobalPostId {
-    type Target = str;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
 impl GlobalPostIds {
-    /// Consumes self and returns a `Vec<String>` of the underlying ID strings.
     pub fn into_string_vec(self) -> Vec<String> {
         self.0.into_iter().map(|id| id.0).collect()
     }
@@ -63,7 +47,7 @@ impl GlobalPostId {
         })?;
 
         PubkyId::try_from(pubky_part)
-            .map_err(|e| Error::invalid_input(&format!("Invalid PubkyId: {}", e)))?;
+            .map_err(|e| Error::invalid_input(format!("Invalid PubkyId: {e}")))?;
 
         PostId::try_from(post_part.to_string())?;
 
@@ -107,14 +91,14 @@ mod tests {
     }
 
     #[test]
-    fn test_try_from_valid() {
+    fn try_from_valid() {
         let id = valid_global_post_id();
         let result = GlobalPostId::try_from(id);
         assert!(result.is_ok());
     }
 
     #[test]
-    fn test_try_from_missing_separator() {
+    fn try_from_missing_separator() {
         let result = GlobalPostId::try_from(
             "operrr8wsbpr3ue9d4qj41ge1kcc6r7fdiy6o3ugjrrhi4y77rdo00000039YD9DP".to_string(),
         );
@@ -123,14 +107,14 @@ mod tests {
     }
 
     #[test]
-    fn test_try_from_extra_separator() {
+    fn try_from_extra_separator() {
         let result = GlobalPostId::try_from("a:b:c".to_string());
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("Invalid PubkyId"));
     }
 
     #[test]
-    fn test_try_from_invalid_pubky_id() {
+    fn try_from_invalid_pubky_id() {
         let id = "short:00000039YD9DP".to_string();
         let result = GlobalPostId::try_from(id);
         assert!(result.is_err());
@@ -138,7 +122,7 @@ mod tests {
     }
 
     #[test]
-    fn test_try_from_invalid_post_id() {
+    fn try_from_invalid_post_id() {
         let id = format!("{}:short", valid_pubky_id());
         let result = GlobalPostId::try_from(id);
         assert!(result.is_err());
@@ -149,14 +133,14 @@ mod tests {
     }
 
     #[test]
-    fn test_deserialize_valid() {
+    fn deserialize_valid() {
         let json = format!(r#""{}""#, valid_global_post_id());
         let result: Result<GlobalPostId, _> = serde_json::from_str(&json);
         assert!(result.is_ok());
     }
 
     #[test]
-    fn test_deserialize_invalid() {
+    fn deserialize_invalid() {
         let json = r#""invalid""#;
         let result: Result<GlobalPostId, _> = serde_json::from_str(json);
         assert!(result.is_err());

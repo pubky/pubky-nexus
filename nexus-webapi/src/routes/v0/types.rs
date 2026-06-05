@@ -14,9 +14,7 @@ pub(crate) fn resolve_tag_wot_depth(
     depth: Option<u8>,
 ) -> AppResult<Option<WotDepth>> {
     match (viewer_id, depth) {
-        (Some(_), Some(d)) => WotDepth::new(d)
-            .map(Some)
-            .map_err(|e| Error::invalid_input(&e)),
+        (Some(_), Some(d)) => WotDepth::new(d).map(Some).map_err(Error::invalid_input),
         _ => Ok(None),
     }
 }

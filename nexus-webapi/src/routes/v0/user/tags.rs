@@ -9,7 +9,7 @@ use axum::Json;
 use nexus_common::models::tag::traits::{TagCollection, TaggersCollection};
 use nexus_common::models::tag::user::TagUser;
 use nexus_common::models::tag::TagDetails;
-use nexus_common::types::{Pagination, WotDepth};
+use nexus_common::types::Pagination;
 use serde::Deserialize;
 use tracing::debug;
 use utoipa::OpenApi;
@@ -43,7 +43,7 @@ pub async fn user_tags_handler(
         user_id, query.skip_tags, query.limit_tags, query.limit_taggers, query.viewer_id, query.depth
     );
 
-    let depth = resolve_tag_wot_depth(query.viewer_id.as_deref(), query.depth)?.map(WotDepth::get);
+    let depth = resolve_tag_wot_depth(query.viewer_id.as_deref(), query.depth)?;
     match TagUser::get_by_id(
         &user_id,
         None,
@@ -105,8 +105,7 @@ pub async fn user_taggers_handler(
         user_id, label, pagination.skip, pagination.limit, tags_query.viewer_id, tags_query.depth
     );
 
-    let depth = resolve_tag_wot_depth(tags_query.viewer_id.as_deref(), tags_query.depth)?
-        .map(WotDepth::get);
+    let depth = resolve_tag_wot_depth(tags_query.viewer_id.as_deref(), tags_query.depth)?;
     let taggers = TagUser::get_tagger_by_id(
         &user_id,
         None,

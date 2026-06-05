@@ -159,7 +159,7 @@ pub async fn stream_username_search_handler(
     );
 
     match UserStream::get_from_username_search(
-        query.username.as_str(),
+        &query.username,
         query.viewer_id.as_deref(),
         Some(skip),
         Some(limit),
@@ -238,7 +238,7 @@ fn build_user_stream_input(
             | UserStreamSource::Following
             | UserStreamSource::Friends
             | UserStreamSource::Recommended => {
-                return Err(Error::invalid_input(&format!(
+                return Err(Error::invalid_input(format!(
                     "user_id query param must be provided for source '{}'",
                     source_name(&source)
                 )));

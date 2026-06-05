@@ -11,7 +11,7 @@ where
         return Err(E::custom(format!("At least {MIN} item(s) required")));
     }
     if len > MAX {
-        return Err(E::custom(format!("Maximum {MAX} items allowed")));
+        return Err(E::custom(format!("At most {MAX} item(s) allowed")));
     }
     Ok(())
 }

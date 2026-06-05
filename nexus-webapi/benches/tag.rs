@@ -7,7 +7,7 @@ use nexus_common::models::tag::traits::{TagCollection, TaggersCollection};
 use nexus_common::models::tag::user::TagUser;
 use nexus_common::models::tag::view::TagView;
 use nexus_common::types::routes::HotTagsInputDTO;
-use nexus_common::types::{Pagination, StreamReach, Timeframe};
+use nexus_common::types::{Pagination, StreamReach, Timeframe, WotDepth};
 use setup::run_setup;
 use std::time::Duration;
 use tokio::runtime::Runtime;
@@ -60,7 +60,7 @@ fn bench_get_wot_user_tags(c: &mut Criterion) {
                     None,
                     None,
                     Some("bbkdkhm97pytrb785rdpornkjpcxi331hpq446ckn6rhb4abiguy"),
-                    Some(3),
+                    Some(WotDepth::new(3).unwrap()),
                 )
                 .await
                 .unwrap();
@@ -116,7 +116,7 @@ fn bench_get_wot_user_tag_taggers(c: &mut Criterion) {
                     "now",
                     Pagination::default(),
                     Some("bbkdkhm97pytrb785rdpornkjpcxi331hpq446ckn6rhb4abiguy"),
-                    Some(3),
+                    Some(WotDepth::new(3).unwrap()),
                 )
                 .await
                 .unwrap();
@@ -178,7 +178,7 @@ fn bench_get_wot_post_tags(c: &mut Criterion) {
                     params[0],
                     params[1],
                     params[2],
-                    nexus_common::types::WotDepth::new(3).unwrap(),
+                    WotDepth::new(3).unwrap(),
                     None,
                     None,
                     None,

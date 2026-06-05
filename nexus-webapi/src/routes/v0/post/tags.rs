@@ -121,11 +121,7 @@ pub async fn post_taggers_handler(
         Some(&post_id),
         &label,
         taggers_query.pagination,
-        taggers_query
-            .tags_query
-            .viewer_id
-            .as_ref()
-            .map(|v| v.as_ref()),
+        taggers_query.tags_query.viewer_id.as_deref(),
         None,
     )
     .await?;

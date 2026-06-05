@@ -38,10 +38,12 @@ pub enum StreamSourceKind {
     All,
 }
 
-/// Applies the default WoT depth and validates it through `WotDepth`.
+/// Validates the requested WoT depth, falling back to the default when absent.
 fn resolve_wot_depth(depth: Option<u8>) -> AppResult<WotDepth> {
-    let depth = depth.unwrap_or(WotDepth::DEFAULT.get());
-    WotDepth::new(depth).map_err(|e| Error::invalid_input(&e))
+    match depth {
+        Some(depth) => WotDepth::new(depth).map_err(Error::invalid_input),
+        None => Ok(WotDepth::default()),
+    }
 }
 
 /// Convert a validated query into the internal StreamSource used by nexus-common.
@@ -112,22 +114,18 @@ fn build_stream_source(
                 "source 'author_replies' requires 'author_id' parameter",
             )),
         },
-        StreamSourceKind::Collection => {
-            if author_id.is_none() {
-                return Err(Error::invalid_input(
-                    "source 'collection' requires 'author_id' parameter",
-                ));
-            }
-            if post_id.is_none() {
-                return Err(Error::invalid_input(
-                    "source 'collection' requires 'post_id' parameter",
-                ));
-            }
-            Ok(StreamSource::Collection {
-                author_id: author_id.unwrap().to_string(),
-                post_id: post_id.unwrap().to_string(),
-            })
-        }
+        StreamSourceKind::Collection => match (author_id, post_id) {
+            (Some(author_id), Some(post_id)) => Ok(StreamSource::Collection {
+                author_id: author_id.to_string(),
+                post_id: post_id.to_string(),
+            }),
+            (None, _) => Err(Error::invalid_input(
+                "source 'collection' requires 'author_id' parameter",
+            )),
+            (_, None) => Err(Error::invalid_input(
+                "source 'collection' requires 'post_id' parameter",
+            )),
+        },
         StreamSourceKind::Wot => match observer_id {
             Some(observer_id) => Ok(StreamSource::Wot {
                 observer_id: observer_id.to_string(),
@@ -196,8 +194,8 @@ impl PostStreamQuery {
     pub fn extract_stream_params(&self) -> AppResult<(StreamSource, StreamSorting, SortOrder)> {
         Ok((
             self.build_source()?,
-            self.sorting.as_ref().cloned().unwrap_or_default(),
-            self.order.as_ref().cloned().unwrap_or_default(),
+            self.sorting.clone().unwrap_or_default(),
+            self.order.clone().unwrap_or_default(),
         ))
     }
 
@@ -216,7 +214,7 @@ impl PostStreamQuery {
             ("end", self.pagination.end.is_some()),
         ];
         if let Some((name, _)) = incompatible.iter().find(|(_, present)| *present) {
-            return Err(Error::invalid_input(&format!(
+            return Err(Error::invalid_input(format!(
                 "`{name}` is not supported with `source=collection`"
             )));
         }

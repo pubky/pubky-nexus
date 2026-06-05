@@ -24,14 +24,19 @@ pub enum StreamSorting {
 /// `FOLLOWS*1..n` graph traversals are expensive, so the query builders only
 /// accept this type, keeping the bound enforced for every caller (web, tests,
 /// benches, internal) rather than at the web layer alone.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, ToSchema)]
 pub struct WotDepth(u8);
+
+impl Default for WotDepth {
+    /// Depth-3 is expensive without caching, so default to 2.
+    fn default() -> Self {
+        WotDepth(2)
+    }
+}
 
 impl WotDepth {
     pub const MIN: u8 = 1;
     pub const MAX: u8 = 3;
-    /// Default traversal depth (depth-3 is expensive without caching).
-    pub const DEFAULT: WotDepth = WotDepth(2);
 
     /// Validates that `depth` is within `1..=3`.
     pub fn new(depth: u8) -> Result<Self, String> {
@@ -52,6 +57,18 @@ impl WotDepth {
     }
 }
 
+// Deserialize through `new` so the `1..=3` invariant holds for every input,
+// not just values built at the web layer.
+impl<'de> Deserialize<'de> for WotDepth {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let depth = u8::deserialize(deserializer)?;
+        WotDepth::new(depth).map_err(de::Error::custom)
+    }
+}
+
 impl std::fmt::Display for WotDepth {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
@@ -63,7 +80,7 @@ pub enum StreamReach {
     Followers,
     Following,
     Friends,
-    Wot(u8),
+    Wot(WotDepth),
 }
 
 impl<'de> Deserialize<'de> for StreamReach {
@@ -78,18 +95,17 @@ impl<'de> Deserialize<'de> for StreamReach {
             "followers" => Ok(StreamReach::Followers),
             "following" => Ok(StreamReach::Following),
             "friends" => Ok(StreamReach::Friends),
-            "wot" => Ok(StreamReach::Wot(3)), // Default to depth 3 if just "wot" is provided
+            // Default to depth 3 if just "wot" is provided.
+            "wot" => Ok(StreamReach::Wot(
+                WotDepth::new(3).map_err(de::Error::custom)?,
+            )),
             _ => {
                 // Try to parse Wot variant with depth using wot_X format
                 if let Some(depth_str) = s.strip_prefix("wot_") {
                     let depth = depth_str.parse::<u8>().map_err(|_| {
-                        de::Error::custom(format!("Invalid depth value: {}", depth_str))
+                        de::Error::custom(format!("Invalid depth value: {depth_str}"))
                     })?;
-
-                    if !(1..=3).contains(&depth) {
-                        return Err(de::Error::custom("Wot depth must be between 1 and 3"));
-                    }
-
+                    let depth = WotDepth::new(depth).map_err(de::Error::custom)?;
                     Ok(StreamReach::Wot(depth))
                 } else {
                     Err(de::Error::unknown_variant(

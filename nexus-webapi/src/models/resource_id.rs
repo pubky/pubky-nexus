@@ -1,5 +1,5 @@
 use std::fmt;
-use std::str::FromStr;
+use std::ops::Deref;
 
 use crate::Error;
 use serde::{de, Deserialize};
@@ -9,15 +9,6 @@ use utoipa::ToSchema;
 #[derive(Debug, Clone, PartialEq, Eq, ToSchema)]
 #[schema(value_type = String, example = "0123456789abcdef0123456789abcdef")]
 pub struct ResourceId(pub String);
-
-impl FromStr for ResourceId {
-    type Err = Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::validate_id(s)?;
-        Ok(ResourceId(s.to_owned()))
-    }
-}
 
 impl<'de> Deserialize<'de> for ResourceId {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
@@ -35,18 +26,22 @@ impl fmt::Display for ResourceId {
     }
 }
 
-impl ResourceId {
-    pub fn as_str(&self) -> &str {
+impl Deref for ResourceId {
+    type Target = str;
+
+    fn deref(&self) -> &Self::Target {
         &self.0
     }
+}
 
+impl ResourceId {
     pub(crate) fn validate_id(id: &str) -> Result<(), Error> {
         if id.len() != 32
             || !id
                 .chars()
-                .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
+                .all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c))
         {
-            return Err(Error::invalid_input(&format!(
+            return Err(Error::invalid_input(format!(
                 "resource_id must be 32-char lowercase hex, got: {id}"
             )));
         }
@@ -74,26 +69,26 @@ mod tests {
     // -- validate_id unit tests --
 
     #[test]
-    fn test_validate_id_valid_lowercase_hex() {
+    fn validate_id_valid_lowercase_hex() {
         let id = valid_resource_id();
         assert_eq!(id.len(), 32);
         assert!(ResourceId::validate_id(&id).is_ok());
     }
 
     #[test]
-    fn test_validate_id_valid_all_zeros() {
+    fn validate_id_valid_all_zeros() {
         let id = "00000000000000000000000000000000".to_string();
         assert!(ResourceId::validate_id(&id).is_ok());
     }
 
     #[test]
-    fn test_validate_id_valid_all_ffs() {
+    fn validate_id_valid_all_ffs() {
         let id = "ffffffffffffffffffffffffffffffff".to_string();
         assert!(ResourceId::validate_id(&id).is_ok());
     }
 
     #[test]
-    fn test_validate_id_too_short() {
+    fn validate_id_too_short() {
         let id = "0123456789abcdef0123456789abcde"; // 31 chars
         assert_eq!(id.len(), 31);
         let result = ResourceId::validate_id(id);
@@ -102,7 +97,7 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_id_too_long() {
+    fn validate_id_too_long() {
         let id = "0123456789abcdef0123456789abcdef0"; // 33 chars
         assert_eq!(id.len(), 33);
         let result = ResourceId::validate_id(id);
@@ -111,7 +106,7 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_id_contains_uppercase() {
+    fn validate_id_contains_uppercase() {
         let id = "0123456789ABCDEF0123456789abcdef".to_string();
         assert_eq!(id.len(), 32);
         let result = ResourceId::validate_id(&id);
@@ -120,34 +115,34 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_id_all_uppercase() {
+    fn validate_id_all_uppercase() {
         let id = "0123456789ABCDEF0123456789ABCDEF".to_string();
         let result = ResourceId::validate_id(&id);
         assert!(result.is_err());
     }
 
     #[test]
-    fn test_validate_id_contains_invalid_chars() {
+    fn validate_id_contains_invalid_chars() {
         let id = "0123456789abcdef0123456789abcdeg".to_string();
         let result = ResourceId::validate_id(&id);
         assert!(result.is_err());
     }
 
     #[test]
-    fn test_validate_id_contains_space() {
+    fn validate_id_contains_space() {
         let id = "0123456789abcdef 23456789abcdef".to_string();
         let result = ResourceId::validate_id(&id);
         assert!(result.is_err());
     }
 
     #[test]
-    fn test_validate_id_empty_string() {
+    fn validate_id_empty_string() {
         let result = ResourceId::validate_id("");
         assert!(result.is_err());
     }
 
     #[test]
-    fn test_validate_id_with_special_chars() {
+    fn validate_id_with_special_chars() {
         let id = "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!".to_string();
         let result = ResourceId::validate_id(&id);
         assert!(result.is_err());
@@ -156,7 +151,7 @@ mod tests {
     // -- TryFrom<String> tests --
 
     #[test]
-    fn test_try_from_valid_id() {
+    fn try_from_valid_id() {
         let id = valid_resource_id();
         let result = ResourceId::try_from(id);
         assert!(result.is_ok());
@@ -164,7 +159,7 @@ mod tests {
     }
 
     #[test]
-    fn test_try_from_invalid_uppercase_id() {
+    fn try_from_invalid_uppercase_id() {
         let id = "0123456789ABCDEF0123456789ABCDEF".to_string();
         let result = ResourceId::try_from(id);
         assert!(result.is_err());

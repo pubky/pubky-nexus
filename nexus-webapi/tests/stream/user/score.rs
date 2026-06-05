@@ -138,7 +138,7 @@ async fn test_stream_recommended_missing_user_id() -> Result<()> {
     .await?;
 
     let error_response: ErrorResponsePayload =
-        serde_json::from_value(res).expect("Response should be a valid ErrroResponsePayload");
+        serde_json::from_value(res).expect("Response should be a valid ErrorResponsePayload");
     assert!(
         error_response
             .error

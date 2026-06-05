@@ -67,7 +67,7 @@ pub fn bench_stream_wot_domain_depth2(c: &mut Criterion) {
         b.to_async(&rt).iter(|| async {
             let source = StreamSource::WotDomain {
                 observer_id: OBSERVER_ID.to_string(),
-                depth: WotDepth::DEFAULT,
+                depth: WotDepth::default(),
                 domain_tags: vec!["bitcoin".to_string(), "dev".to_string()],
             };
 
