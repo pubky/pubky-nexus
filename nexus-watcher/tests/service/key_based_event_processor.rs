@@ -571,6 +571,39 @@ async fn key_based_processor_stops_current_and_next_users_after_shutdown() -> Re
     Ok(())
 }
 
+/// Verifies the processor refuses to run for a blacklisted HS, aborting before
+/// resolving or fetching any user events.
+#[tokio_shared_rt::test(shared)]
+async fn key_based_processor_aborts_blacklisted_homeserver() -> Result<(), DynError> {
+    setup().await?;
+
+    let (_hs_keypair, homeserver) = create_homeserver().await?;
+    // A user exists on the HS, but it must never be fetched.
+    create_user_on_homeserver(&homeserver).await?;
+
+    let source = Arc::new(MockKeyBasedEventSource::default());
+    let handler = create_mock_handler(Ok(()), None);
+    let (_shutdown_tx, shutdown_rx) = watch::channel(false);
+    let blacklist = Arc::new(vec![homeserver.id.clone()]);
+    let processor = processor_with_blacklist(
+        homeserver,
+        handler.clone(),
+        source.clone(),
+        100,
+        shutdown_rx,
+        Arc::new(UserNotFoundBackoff::default()),
+        blacklist,
+    );
+
+    let err = processor.run().await.unwrap_err();
+
+    assert_internal_homeserver_blacklisted(err);
+    assert!(source.calls().await.is_empty());
+    assert_eq!(handler.get_handle_count(), 0);
+
+    Ok(())
+}
+
 async fn create_homeserver() -> Result<(Keypair, Homeserver), DynError> {
     let keypair = Keypair::random();
     let homeserver_id = PubkyId::try_from(keypair.public_key().to_z32().as_str())?;
@@ -729,6 +762,27 @@ fn processor_with_options(
     shutdown_rx: watch::Receiver<bool>,
     user_not_found_backoff: Arc<UserNotFoundBackoff>,
 ) -> Arc<KeyBasedEventProcessor> {
+    processor_with_blacklist(
+        homeserver,
+        handler,
+        source,
+        limit,
+        shutdown_rx,
+        user_not_found_backoff,
+        Arc::new(Vec::new()),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn processor_with_blacklist(
+    homeserver: Homeserver,
+    handler: Arc<dyn EventHandler>,
+    source: Arc<MockKeyBasedEventSource>,
+    limit: u16,
+    shutdown_rx: watch::Receiver<bool>,
+    user_not_found_backoff: Arc<UserNotFoundBackoff>,
+    external_hs_pk_blacklist: Arc<Vec<PubkyId>>,
+) -> Arc<KeyBasedEventProcessor> {
     Arc::new(KeyBasedEventProcessor {
         homeserver,
         limit,
@@ -736,6 +790,7 @@ fn processor_with_options(
         event_handler: handler,
         event_source: source,
         user_not_found_backoff,
+        external_hs_pk_blacklist,
         retry_scheduler: Arc::new(RetryScheduler::new(
             new_in_memory_store(),
             InitialBackoff {
@@ -758,6 +813,13 @@ fn assert_internal_not_retry_now_index_operation_failed(err: RunError) {
     match err {
         RunError::Internal(EventProcessorError::IndexOperationFailed(true, _)) => {}
         other => panic!("expected internal not-retry-now index operation failure, got {other:?}"),
+    }
+}
+
+fn assert_internal_homeserver_blacklisted(err: RunError) {
+    match err {
+        RunError::Internal(EventProcessorError::HomeserverBlacklisted { .. }) => {}
+        other => panic!("expected internal HomeserverBlacklisted error, got {other:?}"),
     }
 }
 

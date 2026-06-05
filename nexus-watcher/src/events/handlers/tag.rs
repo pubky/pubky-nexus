@@ -4,7 +4,6 @@ use nexus_common::db::kv::{RedisResult, ScoreAction};
 use nexus_common::db::{fetch_row_from_graph, queries, OperationOutcome, RedisOps};
 use nexus_common::models::notification::Notification;
 use nexus_common::models::post::search::PostsByTagSearch;
-use nexus_common::models::post::PostDetails;
 use nexus_common::models::post::{PostCounts, PostStream};
 use nexus_common::models::resource::stream::ResourceStream;
 use nexus_common::models::resource::tag::TagResource;
@@ -12,8 +11,7 @@ use nexus_common::models::tag::post::TagPost;
 use nexus_common::models::tag::search::TagSearch;
 use nexus_common::models::tag::traits::{TagCollection, TaggersCollection};
 use nexus_common::models::tag::user::TagUser;
-use nexus_common::models::user::UserCounts;
-use nexus_common::models::user::UserDetails;
+use nexus_common::models::user::{UserCounts, UserIngestor};
 use nexus_common::types::Pagination;
 use nexus_common::universal_tag::app_tag_info::try_parse_app_tag_path;
 use nexus_common::universal_tag::normalize::{
@@ -36,6 +34,7 @@ pub async fn sync_put(
     tag: PubkyAppTag,
     tagger_id: PubkyId,
     tag_id: String,
+    ingestor: &UserIngestor,
 ) -> Result<(), EventProcessorError> {
     debug!("Indexing new tag: {} -> {}", tagger_id, tag_id);
 
@@ -49,12 +48,17 @@ pub async fn sync_put(
         Resource::Post(post_id) => {
             // Place the tag on post
             put_sync_post(
-                tagger_id, user_id, &post_id, &tag_id, &tag.label, &tag.uri, indexed_at,
+                tagger_id, user_id, &post_id, &tag_id, &tag.label, &tag.uri, indexed_at, ingestor,
             )
             .await
         }
         // If no post_id in the tagged URI, we place tag to a user.
-        Resource::User => put_sync_user(tagger_id, user_id, &tag_id, &tag.label, indexed_at).await,
+        Resource::User => {
+            put_sync_user(
+                tagger_id, user_id, &tag_id, &tag.label, indexed_at, ingestor,
+            )
+            .await
+        }
         other => Err(EventProcessorError::generic(format!(
             "The tagged resource is not Post or User, instead is: {other:?}"
         ))),
@@ -69,13 +73,14 @@ pub async fn sync_put_resource(
     tagger_id: PubkyId,
     tag_id: String,
     app: String,
+    ingestor: &UserIngestor,
 ) -> Result<(), EventProcessorError> {
     debug!("Indexing resource tag: {tagger_id} -> {tag_id} (app={app})",);
 
     match classify_uri(&tag.uri) {
         UriCategory::InternalKnown => {
             // The tagged URI is a known Post/User — delegate to existing flow
-            sync_put(tag, tagger_id, tag_id).await
+            sync_put(tag, tagger_id, tag_id, ingestor).await
         }
         UriCategory::InternalUnknown | UriCategory::External => {
             let (normalized, scheme) =
@@ -188,14 +193,16 @@ async fn put_sync_resource(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn put_sync_post(
     tagger_user_id: PubkyId,
     author_id: PubkyId,
     post_id: &str,
     tag_id: &str,
     tag_label: &str,
-    post_uri: &str,
+    post_uri_str: &str,
     indexed_at: i64,
+    ingestor: &UserIngestor,
 ) -> Result<(), EventProcessorError> {
     match TagPost::put_to_graph(
         &tagger_user_id,
@@ -222,14 +229,13 @@ async fn put_sync_post(
             Ok(())
         }
         OperationOutcome::MissingDependency => {
-            if let Ok(referenced_post_uri) = ParsedUri::try_from(post_uri) {
-                if let Err(e) = PostDetails::maybe_ingest_author_of_post(&referenced_post_uri).await
-                {
+            if let Ok(post_uri) = ParsedUri::try_from(post_uri_str) {
+                if let Err(e) = ingestor.maybe_ingest_author_of_post(&post_uri).await {
                     tracing::error!("Failed to ingest user: {e}");
                 }
             }
             Err(EventProcessorError::MissingDependency {
-                dependency: vec![post_uri.to_owned()],
+                dependency: vec![post_uri_str.to_owned()],
             })
         }
         OperationOutcome::CreatedOrDeleted => {
@@ -283,7 +289,7 @@ async fn put_sync_post(
                 },
                 PostsByTagSearch::put_to_index(&author_id, post_id, tag_label),
                 // Save new notification
-                Notification::new_post_tag(&tagger_user_id, &author_id, tag_label, post_uri),
+                Notification::new_post_tag(&tagger_user_id, &author_id, tag_label, post_uri_str),
                 // Add tag to search index
                 TagSearch::put_to_index(tag_label_slice)
             );
@@ -317,6 +323,7 @@ async fn put_sync_user(
     tag_id: &str,
     tag_label: &str,
     indexed_at: i64,
+    ingestor: &UserIngestor,
 ) -> Result<(), EventProcessorError> {
     match TagUser::put_to_graph(
         &tagger_user_id,
@@ -341,7 +348,7 @@ async fn put_sync_user(
             Ok(())
         }
         OperationOutcome::MissingDependency => {
-            if let Err(e) = UserDetails::maybe_ingest_user(&tagged_user_id).await {
+            if let Err(e) = ingestor.maybe_ingest_user(&tagged_user_id).await {
                 tracing::error!("Failed to ingest user: {e}");
             }
 

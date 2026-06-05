@@ -1,4 +1,4 @@
-use crate::event_processor::utils::default_moderation_tests;
+use crate::event_processor::utils::{default_ingestor_tests, default_moderation_tests};
 use anyhow::{anyhow, Error, Result};
 use base32::{encode, Alphabet};
 use chrono::Utc;
@@ -82,8 +82,10 @@ impl WatcherTest {
         default_homeserver: PubkyId,
         files_path: PathBuf,
     ) -> HsEventProcessorRunner {
-        let event_handler: Arc<dyn EventHandler> =
-            Arc::new(DefaultEventHandler::new(default_moderation_tests()));
+        let event_handler: Arc<dyn EventHandler> = Arc::new(DefaultEventHandler::new(
+            default_moderation_tests(),
+            default_ingestor_tests(),
+        ));
 
         let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
 

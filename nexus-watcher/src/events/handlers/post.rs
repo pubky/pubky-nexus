@@ -7,7 +7,7 @@ use nexus_common::models::notification::{Notification, PostChangedSource, PostCh
 use nexus_common::models::post::{
     PostCounts, PostDetails, PostRelationships, PostStream, POST_TOTAL_ENGAGEMENT_KEY_PARTS,
 };
-use nexus_common::models::user::{UserCounts, UserDetails};
+use nexus_common::models::user::{UserCounts, UserIngestor};
 use pubky_app_specs::{
     post_uri_builder, ParsedUri, PubkyAppPost, PubkyAppPostKind, PubkyId, Resource,
 };
@@ -20,6 +20,7 @@ pub async fn sync_put(
     post: PubkyAppPost,
     author_id: PubkyId,
     post_id: String,
+    ingestor: &UserIngestor,
 ) -> Result<(), EventProcessorError> {
     debug!("Indexing new post: {}/{}", author_id, post_id);
     // Create PostDetails object
@@ -40,7 +41,7 @@ pub async fn sync_put(
                     .map_err(EventProcessorError::generic)?;
                 dependency_event_keys.push(replied_uri_str);
 
-                if let Err(e) = PostDetails::maybe_ingest_author_of_post(replied_to_uri).await {
+                if let Err(e) = ingestor.maybe_ingest_author_of_post(replied_to_uri).await {
                     tracing::error!("Failed to ingest user: {e}");
                 }
             }
@@ -50,7 +51,7 @@ pub async fn sync_put(
                     .map_err(EventProcessorError::generic)?;
                 dependency_event_keys.push(reposted_uri_str);
 
-                if let Err(e) = PostDetails::maybe_ingest_author_of_post(reposted_uri).await {
+                if let Err(e) = ingestor.maybe_ingest_author_of_post(reposted_uri).await {
                     tracing::error!("Failed to ingest user: {e}");
                 }
             }
@@ -100,7 +101,7 @@ pub async fn sync_put(
     // We only consider the first mentioned (tagged) user, to mitigate DoS attacks against Nexus
     // whereby posts with many (inexistent) tagged PKs can cause Nexus to spend a lot of time trying to resolve them
     if let Some(mentioned_user_id) = &post_relationships.mentioned.first() {
-        if let Err(e) = UserDetails::maybe_ingest_user(mentioned_user_id).await {
+        if let Err(e) = ingestor.maybe_ingest_user(mentioned_user_id).await {
             tracing::error!("Failed to ingest user: {e}");
         }
     }
@@ -441,7 +442,9 @@ pub async fn del(author_id: PubkyId, post_id: String) -> Result<(), EventProcess
                 attachments: None,
             };
 
-            sync_put(dummy_deleted_post, author_id, post_id).await?;
+            // `[DELETED]` tombstone re-PUT has no user to ingest, so empty ingestor is good enough
+            let ingestor = UserIngestor::default();
+            sync_put(dummy_deleted_post, author_id, post_id, &ingestor).await?;
         }
         OperationOutcome::MissingDependency => return Err(EventProcessorError::SkipIndexing),
     };

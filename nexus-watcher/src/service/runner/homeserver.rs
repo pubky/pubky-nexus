@@ -1,6 +1,6 @@
 use super::TEventProcessorRunner;
 use crate::events::retry::RetryScheduler;
-use crate::events::{DefaultEventHandler, EventHandler, Moderation};
+use crate::events::{DefaultEventHandler, EventHandler};
 use crate::service::indexer::{HsEventProcessor, TEventProcessor};
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::types::DynError;
@@ -28,7 +28,7 @@ impl HsEventProcessorRunner {
         Self {
             limit: config.events_limit,
             files_path: config.stack.files_path.clone(),
-            event_handler: Arc::new(DefaultEventHandler::new(Moderation::from_config(config))),
+            event_handler: Arc::new(DefaultEventHandler::from_config(config)),
             shutdown_rx,
             default_homeserver: config.homeserver.clone(),
             retry_scheduler: Arc::new(RetryScheduler::from_config(config)),

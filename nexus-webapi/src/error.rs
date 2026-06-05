@@ -30,6 +30,8 @@ pub enum Error {
     TagNotFound { tag_id: String, tagger_id: String },
     #[error("Resource not found: {resource_id}")]
     ResourceNotFound { resource_id: String },
+    #[error("Forbidden: {message}")]
+    Forbidden { message: String },
     // Add other custom errors here
 }
 
@@ -69,8 +71,13 @@ impl Error {
 
 impl From<ModelError> for Error {
     fn from(source: ModelError) -> Self {
-        Error::InternalServerError {
-            source: source.into(),
+        match source {
+            ModelError::HomeserverBlacklisted { hs_id } => Error::Forbidden {
+                message: format!("Homeserver is blacklisted: {hs_id}"),
+            },
+            other => Error::InternalServerError {
+                source: other.into(),
+            },
         }
     }
 }
@@ -125,6 +132,7 @@ impl IntoResponse for Error {
             Error::InternalServerError { .. } => StatusCode::INTERNAL_SERVER_ERROR,
             Error::TagNotFound { .. } => StatusCode::NOT_FOUND,
             Error::ResourceNotFound { .. } => StatusCode::NOT_FOUND,
+            Error::Forbidden { .. } => StatusCode::FORBIDDEN,
             // Map other errors to appropriate status codes
         };
 
@@ -148,6 +156,9 @@ impl IntoResponse for Error {
             }
             Error::ResourceNotFound { resource_id } => {
                 error!("Resource not found: {}", resource_id)
+            }
+            Error::Forbidden { message } => {
+                error!("Forbidden: {}", message)
             }
             Error::InternalServerError { source } => error!("Internal server error: {:?}", source),
         };

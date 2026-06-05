@@ -50,6 +50,10 @@ pub enum EventProcessorError {
     #[error("HS /events-stream rate limit exhausted (429 after all backoff retries)")]
     HsEventsStreamRateLimitExhausted,
 
+    /// The HS is blacklisted and must not be indexed.
+    #[error("HomeserverBlacklisted: {hs_id}")]
+    HomeserverBlacklisted { hs_id: String },
+
     #[error("MediaProcessor: {0}")]
     MediaProcessorError(String),
 
@@ -80,6 +84,9 @@ impl From<ModelError> for EventProcessorError {
             }
             ModelError::FileOperationFailed(source) => {
                 EventProcessorError::InternalError(source.to_string())
+            }
+            ModelError::HomeserverBlacklisted { hs_id } => {
+                EventProcessorError::HomeserverBlacklisted { hs_id }
             }
             ModelError::Generic(message) => EventProcessorError::Generic(message),
         }

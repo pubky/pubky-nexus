@@ -1,5 +1,7 @@
 use std::path::PathBuf;
+use std::sync::Arc;
 
+use nexus_common::models::user::UserIngestor;
 use nexus_common::{file::default_config_dir_path, types::DynError, ApiConfig, DaemonConfig};
 use pubky::pkarr::{self, Keypair};
 
@@ -8,6 +10,7 @@ pub struct ApiContext {
     pub(crate) api_config: ApiConfig,
     pub(crate) keypair: pkarr::Keypair,
     pub(crate) pkarr_client: pkarr::Client,
+    pub(crate) ingestor: Arc<UserIngestor>,
 }
 
 pub struct ApiContextBuilder {
@@ -46,12 +49,15 @@ impl ApiContextBuilder {
         // Ensure path to config dir exists, regardless of how the builder was initialized
         std::fs::create_dir_all(self.config_dir.clone())?;
 
-        let api_config = match &self.api_config {
+        let (api_config, ingestor) = match &self.api_config {
             None => {
                 let dc = DaemonConfig::read_or_create_config_file(self.config_dir.clone()).await?;
-                ApiConfig::from(dc)
+                // Enforce the watcher's HS blacklist on API-triggered ingestion too.
+                let ingestor = UserIngestor::from_config(&dc.watcher);
+                (ApiConfig::from(dc), ingestor)
             }
-            Some(ac) => ac.clone(),
+            // No daemon config in scope (explicit ApiConfig): ingest everything.
+            Some(ac) => (ac.clone(), UserIngestor::default()),
         };
 
         let pkarr_builder = self.pkarr_builder.clone().unwrap_or_default();
@@ -63,6 +69,7 @@ impl ApiContextBuilder {
             api_config,
             keypair,
             pkarr_client,
+            ingestor: Arc::new(ingestor),
         })
     }
 

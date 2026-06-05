@@ -102,6 +102,7 @@ mod tests {
                 "il_adult_nu_sex_act",
             ]
         );
+        assert!(c.watcher.external_hs_pk_blacklist.is_empty());
 
         assert_eq!(c.stack.log_level, Level::Info);
         assert_eq!(

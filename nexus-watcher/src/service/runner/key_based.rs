@@ -1,6 +1,6 @@
 use super::{TEventProcessorRunner, UserNotFoundBackoff};
 use crate::events::retry::RetryScheduler;
-use crate::events::{DefaultEventHandler, EventHandler, Moderation};
+use crate::events::{DefaultEventHandler, EventHandler};
 use crate::service::indexer::{
     KeyBasedEventProcessor, KeyBasedEventSource, PubkyKeyBasedEventSource, TEventProcessor,
 };
@@ -31,6 +31,10 @@ pub struct KeyBasedEventProcessorRunner {
     /// Default homeserver ID, excluded from the external targets list
     pub default_homeserver: PubkyId,
 
+    /// HS PKs that must never be indexed. Excluded from `pre_run` and re-checked
+    /// by each [`KeyBasedEventProcessor`] this runner builds.
+    pub external_hs_pk_blacklist: Arc<Vec<PubkyId>>,
+
     /// Per-target exponential backoff state
     pub backoff: Mutex<HomeserverBackoff>,
 
@@ -47,10 +51,11 @@ impl KeyBasedEventProcessorRunner {
             limit: config.key_based_events_limit,
             monitored_hs_limit: config.monitored_homeservers_limit,
             files_path: config.stack.files_path.clone(),
-            event_handler: Arc::new(DefaultEventHandler::new(Moderation::from_config(config))),
+            event_handler: Arc::new(DefaultEventHandler::from_config(config)),
             event_source: Arc::new(PubkyKeyBasedEventSource),
             shutdown_rx,
             default_homeserver: config.homeserver.clone(),
+            external_hs_pk_blacklist: Arc::new(config.external_hs_pk_blacklist.clone()),
             backoff: Mutex::new(HomeserverBackoff::new(
                 config.initial_backoff_secs,
                 config.max_backoff_secs,
@@ -60,16 +65,25 @@ impl KeyBasedEventProcessorRunner {
         }
     }
 
+    /// Whether `hs_id` (z-base-32) is on the blacklist.
+    fn is_hs_blacklisted(&self, hs_id: &str) -> bool {
+        self.external_hs_pk_blacklist
+            .iter()
+            .any(|pk| pk.as_ref() == hs_id)
+    }
+
     /// Returns the homeserver IDs relevant for this run, ordered by their priority.
     /// The default homeserver is excluded from this list.
     async fn hs_by_priority(&self) -> Result<Vec<String>, DynError> {
         let hs_ids = Homeserver::get_all_active_from_graph().await?;
 
-        // Exclude the default homeserver from the list, as it is processed separately
-        // The default HS is not expected to be active, but we still filter as an extra precaution
         let hs_ids: Vec<String> = hs_ids
             .into_iter()
+            // Exclude the default HS, as it is processed separately
+            // The default HS is not expected to be active, but we still filter as an extra precaution
             .filter(|hs_id| hs_id != self.default_homeserver.as_ref())
+            // Exclude any blacklisted HS
+            .filter(|hs_id| !self.is_hs_blacklisted(hs_id))
             .collect();
 
         Ok(hs_ids)
@@ -96,14 +110,15 @@ impl TEventProcessorRunner for KeyBasedEventProcessorRunner {
             event_source: self.event_source.clone(),
             user_not_found_backoff: self.user_not_found_backoff.clone(),
             retry_scheduler: self.retry_scheduler.clone(),
+            external_hs_pk_blacklist: self.external_hs_pk_blacklist.clone(),
             shutdown_rx: self.shutdown_rx.clone(),
         }))
     }
 
     async fn pre_run(&self) -> Result<Vec<String>, DynError> {
-        let hs_ids = self.hs_by_priority().await?;
-        let max_index = std::cmp::min(self.monitored_hs_limit, hs_ids.len());
-        Ok(hs_ids[..max_index].to_vec())
+        let mut hs_ids = self.hs_by_priority().await?;
+        hs_ids.truncate(self.monitored_hs_limit);
+        Ok(hs_ids)
     }
 
     async fn backoff_should_skip(&self, hs_id: &str) -> Option<ProcessorRunStatus> {

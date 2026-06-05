@@ -6,6 +6,7 @@ use nexus_common::models::event::{Event, EventProcessorError};
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::user::UserHsCursor;
 use pubky::{Event as StreamEvent, EventCursor, PublicKey};
+use pubky_app_specs::PubkyId;
 use tokio::sync::watch::Receiver;
 use tracing::{debug, error, info, warn};
 
@@ -75,6 +76,11 @@ pub struct KeyBasedEventProcessor {
     pub event_source: Arc<dyn KeyBasedEventSource>,
     pub user_not_found_backoff: Arc<UserNotFoundBackoff>,
 
+    /// HS PKs that should not be indexed. Defense-in-depth: the runner already
+    /// excludes these from `pre_run`, but the processor refuses to run for a
+    /// blacklisted HS too.
+    pub external_hs_pk_blacklist: Arc<Vec<PubkyId>>,
+
     /// Scheduler used to enqueue failed events onto the retry queue
     pub retry_scheduler: Arc<RetryScheduler>,
 
@@ -105,6 +111,14 @@ impl TEventProcessor for KeyBasedEventProcessor {
 
     async fn run_internal(self: Arc<Self>) -> Result<(), EventProcessorError> {
         let hs_id = self.homeserver.id.to_string();
+
+        // Blacklisted HSs must never be indexed. The runner already excludes
+        // them from `pre_run`, so reaching here is unexpected.
+        if self.external_hs_pk_blacklist.contains(&self.homeserver.id) {
+            error!(%hs_id, action = "abort_hs", "Refusing to process blacklisted HS");
+            return Err(EventProcessorError::HomeserverBlacklisted { hs_id });
+        }
+
         let hs_pk = self.homeserver.id.to_public_key();
 
         let users = self

@@ -4,8 +4,7 @@ use nexus_common::db::kv::JsonAction;
 use nexus_common::db::OperationOutcome;
 use nexus_common::models::follow::{Followers, Following, Friends, UserFollows};
 use nexus_common::models::notification::Notification;
-use nexus_common::models::user::UserCounts;
-use nexus_common::models::user::UserDetails;
+use nexus_common::models::user::{UserCounts, UserIngestor};
 use pubky_app_specs::PubkyId;
 use tracing::debug;
 
@@ -13,6 +12,7 @@ use tracing::debug;
 pub async fn sync_put(
     follower_id: PubkyId,
     followee_id: PubkyId,
+    ingestor: &UserIngestor,
 ) -> Result<(), EventProcessorError> {
     debug!("Indexing new follow: {} -> {}", follower_id, followee_id);
     // SAVE TO GRAPH
@@ -35,7 +35,7 @@ pub async fn sync_put(
             return Ok(());
         }
         OperationOutcome::MissingDependency => {
-            if let Err(e) = UserDetails::maybe_ingest_user(&followee_id).await {
+            if let Err(e) = ingestor.maybe_ingest_user(&followee_id).await {
                 tracing::error!("Failed to ingest user: {e}");
             }
 

@@ -12,7 +12,7 @@ use tracing::{debug, info, warn};
 use super::store::{RedisRetryStore, RetryStore};
 use super::RetryEvent;
 use super::RetryScheduler;
-use crate::events::{DefaultEventHandler, EventHandler, Moderation};
+use crate::events::{DefaultEventHandler, EventHandler};
 use crate::service::indexer::TEventProcessor;
 
 /// Maximum number of retry events to fetch per batch to avoid memory spikes
@@ -74,11 +74,10 @@ impl TEventProcessor for RetryProcessor {
 
 impl RetryProcessor {
     pub fn new(config: &WatcherConfig, shutdown_rx: Receiver<bool>) -> Self {
-        let moderation = Moderation::from_config(config);
         let store: Arc<dyn RetryStore> = Arc::new(RedisRetryStore::new());
         Self {
             files_path: config.stack.files_path.clone(),
-            event_handler: Arc::new(DefaultEventHandler::new(moderation)),
+            event_handler: Arc::new(DefaultEventHandler::from_config(config)),
             shutdown_rx,
             config: config.retry.clone(),
             store,

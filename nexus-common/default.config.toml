@@ -39,6 +39,8 @@ moderated_tags = [
     "illegal_activities",
     "il_adult_nu_sex_act",
 ]
+# External HS PKs which are forbidden from being indexed
+external_hs_pk_blacklist = []
 
 # Event retry configuration
 [watcher.retry]
