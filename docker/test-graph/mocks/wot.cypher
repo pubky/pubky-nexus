@@ -123,3 +123,6 @@ MATCH (from:User {id: $d2}), (to:User {id: $btc4}) MERGE (from)-[:TAGGED {label:
 // Out of WoT: SPAMMER endorses BTC5 (bitcoiner) and ARTIST1 (artist) -> not visible to O
 MATCH (from:User {id: $spammer}), (to:User {id: $btc5}) MERGE (from)-[:TAGGED {label: $bitcoiner_tag, id: "WOTTAGBTC0006", indexed_at: 1224534095600}]->(to);
 MATCH (from:User {id: $spammer}), (to:User {id: $artist1}) MERGE (from)-[:TAGGED {label: $artist_tag, id: "WOTTAGART0001", indexed_at: 1224534095700}]->(to);
+// Self-endorsement: D1 (in O's WoT) tags the OBSERVER as bitcoiner. O's own posts
+// must still be excluded from O's wot_domain feed (self-exclusion, like `wot`).
+MATCH (from:User {id: $d1}), (to:User {id: $o_obs}) MERGE (from)-[:TAGGED {label: $bitcoiner_tag, id: "WOTTAGSELF001", indexed_at: 1224534096100}]->(to);

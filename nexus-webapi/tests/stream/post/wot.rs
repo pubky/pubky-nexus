@@ -134,17 +134,29 @@ async fn test_wot_domain_post_stream() -> Result<()> {
 }
 
 #[tokio_shared_rt::test(shared)]
+async fn test_wot_domain_excludes_self_endorsed_observer() -> Result<()> {
+    // D1 (in O's WoT) tags O as bitcoiner, making O a bitcoiner-endorsed author
+    // within their own trust network. O's own posts must still be excluded,
+    // mirroring the `wot` self-exclusion.
+    let path = format!(
+        "{ROOT_PATH}?source=wot_domain&observer_id={OBSERVER}&depth=2&domain_tags=bitcoiner&limit=30"
+    );
+    let body = get_request(&path).await?;
+    assert_excludes(&body, &[P_O]);
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
 async fn test_wot_domain_with_tags_and_engagement_sorting() -> Result<()> {
-    // Regression for the WHERE/AND ordering fix: wot_domain combined with a post
-    // `tags` filter and TotalEngagement sorting must produce valid Cypher (200).
+    // wot_domain combined with a post `tags` filter and TotalEngagement sorting
+    // must produce valid Cypher: the self-exclusion and tag conditions share one
+    // contiguous WHERE/AND chain. No bitcoiner post carries an `opensource`
+    // post-tag in the fixture, so the filtered result is exactly empty.
     let path = format!(
         "{ROOT_PATH}?source=wot_domain&observer_id={OBSERVER}&depth=2&domain_tags=bitcoiner&tags=opensource&sorting=total_engagement&limit=30"
     );
     let body = get_request(&path).await?;
-    assert!(
-        body.is_array(),
-        "wot_domain + tags + total_engagement must be a valid query"
-    );
+    assert_exact_set(&body, &[]);
     Ok(())
 }
 

@@ -875,22 +875,27 @@ pub fn post_stream(
         _ => {}
     }
 
-    // Web of Trust must not surface the observer's own posts even when a trusted
-    // path loops back to them (a mutual follow reaches the observer at depth >= 2).
-    if matches!(source, StreamSource::Wot { .. }) {
-        append_condition(
-            &mut cypher,
-            "author.id <> $observer_id",
-            &mut where_clause_applied,
-        );
-    }
-
     // Apply tags
     if tags.is_some() {
         cypher.push_str("MATCH (User)-[tag:TAGGED]->(p)\n");
         append_condition(
             &mut cypher,
             "tag.label IN $labels",
+            &mut where_clause_applied,
+        );
+    }
+
+    // Web of Trust must not surface the observer's own posts: a trusted path can
+    // loop back to them (a mutual follow reaches the observer at depth >= 2 for
+    // `wot`; a WoT member tagging the observer reaches them for `wot_domain`).
+    // After the tags MATCH so all WHERE/AND conditions stay contiguous.
+    if matches!(
+        source,
+        StreamSource::Wot { .. } | StreamSource::WotDomain { .. }
+    ) {
+        append_condition(
+            &mut cypher,
+            "author.id <> $observer_id",
             &mut where_clause_applied,
         );
     }
