@@ -176,9 +176,13 @@ impl PostsByContentSearch {
         let pairs = search::ft_search_scored(POST_CONTENT_INDEX, query, skip, limit).await?;
         Ok(pairs
             .into_iter()
-            .map(|(key, score)| PostsByContentSearch {
-                post_key: key.strip_prefix(&prefix).unwrap_or(&key).to_string(),
-                score,
+            .filter_map(|(key, score)| {
+                // Drop keys that don't match the expected prefix rather than leaking internal Redis key structure.
+                let post_key = key.strip_prefix(&prefix)?;
+                Some(PostsByContentSearch {
+                    post_key: post_key.to_string(),
+                    score,
+                })
             })
             .collect())
     }
