@@ -198,13 +198,34 @@ impl PostStream {
             .await;
         }
 
+        // WoT sources emit observability metrics (spec v3.1). Capture the source
+        // label and depth before `source` is consumed by the query below.
+        let wot = match &source {
+            StreamSource::Wot { depth, .. } => Some(("wot", depth.get())),
+            StreamSource::WotDomain { depth, .. } => Some(("wot_domain", depth.get())),
+            _ => None,
+        };
+        if let Some((source, _)) = wot {
+            super::metrics::record_wot_request(source);
+        }
+
         // Decide whether to use index or fallback to graph query
         let use_index = Self::can_use_index(&sorting, &source, &tags, &kind);
 
+        let started = std::time::Instant::now();
         let post_keys = match use_index {
             true => Self::get_from_index(source, sorting, order, &tags, pagination).await?,
             false => Self::get_from_graph(source, sorting, order, &tags, pagination, kind).await?,
         };
+
+        if let Some((source, depth)) = wot {
+            super::metrics::record_wot_result(
+                source,
+                depth,
+                started.elapsed(),
+                post_keys.post_keys.len(),
+            );
+        }
 
         Ok(post_keys)
     }
