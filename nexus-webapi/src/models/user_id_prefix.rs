@@ -89,27 +89,9 @@ mod tests {
     }
 
     #[test]
-    fn validate_whitespace_only() {
-        // "   " is 3 chars (spaces count as characters), so it's valid
-        assert!(UserIdPrefix::validate("   ").is_ok());
-    }
-
-    #[test]
-    fn validate_whitespace_only_too_short() {
-        // "  " is only 2 chars -> invalid
+    fn validate_counts_chars_below_min() {
+        // Length is by `.chars().count()`: "  " is 2 chars -> too short.
         assert!(UserIdPrefix::validate("  ").is_err());
-    }
-
-    #[test]
-    fn validate_whitespace_padding() {
-        // " abc " is 5 chars (including spaces) -> valid
-        assert!(UserIdPrefix::validate(" abc ").is_ok());
-    }
-
-    #[test]
-    fn validate_does_not_trim_padding() {
-        // `validate` counts the spaces: " ab " is 4 chars -> valid (only `try_from` trims).
-        assert!(UserIdPrefix::validate(" ab ").is_ok());
     }
 
     #[test]

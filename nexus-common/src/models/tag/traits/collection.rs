@@ -16,6 +16,9 @@ const CACHE_SORTED_SET_PREFIX: &str = "Cache:Sorted";
 pub const CACHE_SET_PREFIX: &str = "Cache";
 // TTL, 3HR
 const CACHE_TTL: i64 = 3 * 60 * 60;
+/// Upper bound on caller-supplied tag/tagger page sizes, so an absurd `limit`
+/// can't force an unbounded fan-out (mirrors the stream limit cap).
+pub(crate) const MAX_TAG_PAGE: usize = 100;
 
 /// Runs a tag query and parses the `exists`/`tags` row shape shared by the
 /// global and Web-of-Trust tag queries.
@@ -138,9 +141,9 @@ where
         limit_taggers: Option<usize>,
         is_cache: bool,
     ) -> RedisResult<Option<Vec<TagDetails>>> {
-        let limit_tags = limit_tags.unwrap_or(5);
+        let limit_tags = limit_tags.unwrap_or(5).min(MAX_TAG_PAGE);
         let skip_tags = skip_tags.unwrap_or(0);
-        let limit_taggers = limit_taggers.unwrap_or(5);
+        let limit_taggers = limit_taggers.unwrap_or(5).min(MAX_TAG_PAGE);
         let key_parts = Self::create_sorted_set_key_parts(user_id, extra_param, is_cache);
         // Prepare the extra prefix for cache search
         let cache_prefix = match is_cache {

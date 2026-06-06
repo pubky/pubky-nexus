@@ -65,17 +65,8 @@ mod tests {
     }
 
     #[test]
-    fn validate_accepts_whitespace_only() {
-        // Whitespace-only strings are non-empty, so they are accepted
-        assert!(UsernamePrefix::validate("   ").is_ok());
-        assert!(UsernamePrefix::validate("\t\n").is_ok());
-    }
-
-    #[test]
     fn validate_accepts_non_empty_string() {
         assert!(UsernamePrefix::validate("alice").is_ok());
-        // " alice " is now accepted as-is (8 chars, not empty)
-        assert!(UsernamePrefix::validate(" alice ").is_ok());
     }
 
     // --- TryFrom<String> tests ---

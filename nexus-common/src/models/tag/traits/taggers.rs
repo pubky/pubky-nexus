@@ -4,7 +4,7 @@ use crate::models::tag::Taggers;
 use crate::types::{Pagination, WotDepth};
 use async_trait::async_trait;
 
-use super::collection::CACHE_SET_PREFIX;
+use super::collection::{CACHE_SET_PREFIX, MAX_TAG_PAGE};
 
 pub type TaggersTuple = (Taggers, bool);
 
@@ -43,7 +43,7 @@ where
     ) -> RedisResult<TaggersTuple> {
         // Set default params for pagination
         let skip = pagination.skip.unwrap_or(0);
-        let limit = pagination.limit.unwrap_or(40);
+        let limit = pagination.limit.unwrap_or(40).min(MAX_TAG_PAGE);
         let mut prefix = None;
         let key_parts;
         // Get WoT tags. If we do not first hit the graph using `TagUser::get_by_id` function

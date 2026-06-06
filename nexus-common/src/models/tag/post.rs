@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 // TODO: Decide a better namimg, DO not like
+use super::traits::collection::MAX_TAG_PAGE;
 use super::traits::{fetch_tag_details, TagCollection, TaggersCollection};
 
 pub const POST_TAGS_KEY_PARTS: [&str; 2] = ["Posts", "Tag"];
@@ -35,8 +36,8 @@ impl TagPost {
             viewer_id,
             depth,
             skip_tags.unwrap_or(0),
-            limit_tags.unwrap_or(5),
-            limit_taggers.unwrap_or(5),
+            limit_tags.unwrap_or(5).min(MAX_TAG_PAGE),
+            limit_taggers.unwrap_or(5).min(MAX_TAG_PAGE),
         );
         Ok(fetch_tag_details(query).await?)
     }
