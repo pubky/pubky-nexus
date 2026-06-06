@@ -34,7 +34,7 @@ pub struct PostTaggersPath {
         ("skip_tags" = Option<usize>, Query, description = "Skip N tags. Defaults to `0`"),
         ("limit_tags" = Option<usize>, Query, description = "Upper limit on the number of tags for the posts. Defaults to `5`"),
         ("limit_taggers" = Option<usize>, Query, description = "Upper limit on the number of taggers per tag. Defaults to `5`"),
-        ("depth" = Option<u8>, Query, description = "WoT depth (1-3). Provide it together with `viewer_id` to filter post tags through the viewer's Web of Trust. `skip_tags`/`limit_tags`/`limit_taggers` apply the same as the global view (labels ordered by tagger count). `viewer_id` without `depth` returns the global tag view. An out-of-range depth supplied with `viewer_id` is rejected with 400."),
+        ("depth" = Option<u8>, Query, description = "WoT depth (1-3). Provide it together with `viewer_id` to filter post tags through the viewer's Web of Trust. `skip_tags`/`limit_tags`/`limit_taggers` apply the same as the global view (labels ordered by tagger count). `viewer_id` without `depth` returns the global tag view; `depth` without `viewer_id`, or an out-of-range `depth` with `viewer_id`, is rejected with 400."),
     ),
     responses(
         (status = 400, description = "Invalid input"),

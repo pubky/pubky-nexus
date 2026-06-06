@@ -332,6 +332,19 @@ async fn test_wot_tag_depth_out_of_range_rejected() -> Result<(), DynError> {
 }
 
 #[tokio_shared_rt::test(shared)]
+async fn test_wot_tag_depth_without_viewer_rejected() -> Result<(), DynError> {
+    // `depth` only makes sense with a viewer; supplying it alone is a malformed WoT
+    // request and is rejected with 400 (not silently treated as the global view).
+    let path = format!("/v0/post/{WOT_REPLY_AUTHOR}/{WOT_REPLY_POST}/tags?depth=2");
+    invalid_get_request(&path, StatusCode::BAD_REQUEST).await?;
+
+    let path = format!("/v0/user/{AURELIO_USER}/tags?depth=2");
+    invalid_get_request(&path, StatusCode::BAD_REQUEST).await?;
+
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
 async fn test_wot_post_tags_respect_limits() -> Result<(), DynError> {
     // WOTPOSTTAGS01 has two WoT labels: wotreview (2 trusted taggers, D1/D1B) and
     // wotflag (1, M). Labels sort by tagger count; the limits bound the response.

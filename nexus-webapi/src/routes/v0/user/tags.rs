@@ -25,7 +25,7 @@ use utoipa::OpenApi;
         ("limit_tags" = Option<usize>, Query, description = "Upper limit on the number of tags for the user. **Default** value 5"),
         ("limit_taggers" = Option<usize>, Query, description = "Upper limit on the number of taggers per tag. **Default** value 5"),
         ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID"),
-        ("depth" = Option<u8>, Query, description = "WoT depth (1-3). When provided with `viewer_id`, tags are filtered through the viewer's Web of Trust. An out-of-range depth supplied with `viewer_id` is rejected with 400.")
+        ("depth" = Option<u8>, Query, description = "WoT depth (1-3). When provided with `viewer_id`, tags are filtered through the viewer's Web of Trust. `depth` without `viewer_id`, or an out-of-range `depth` with `viewer_id`, is rejected with 400.")
     ),
     responses(
         (status = 200, description = "User tags", body = Vec<TagDetails>),
@@ -85,7 +85,7 @@ pub struct TaggersQuery {
         ("skip" = Option<usize>, Query, description = "Number of taggers to skip for pagination"),
         ("limit" = Option<usize>, Query, description = "Number of taggers to return for pagination"),
         ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID"),
-        ("depth" = Option<u8>, Query, description = "WoT depth (1-3). When provided with `viewer_id`, taggers are filtered through the viewer's Web of Trust. An out-of-range depth supplied with `viewer_id` is rejected with 400.")
+        ("depth" = Option<u8>, Query, description = "WoT depth (1-3). When provided with `viewer_id`, taggers are filtered through the viewer's Web of Trust. `depth` without `viewer_id`, or an out-of-range `depth` with `viewer_id`, is rejected with 400.")
     ),
     responses(
         (status = 200, description = "User tags", body = TaggersInfoResponse),

@@ -6,16 +6,20 @@ use serde::de::{self, Deserializer};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-/// Resolves the WoT depth for tag endpoints: `Some(depth)` activates WoT filtering,
-/// `None` is the global path. Rejects an out-of-range depth requested together with a
-/// viewer (an explicit but malformed WoT request); `depth` without a viewer is ignored.
+/// Resolves the WoT depth for tag endpoints. A viewer with an in-range `depth`
+/// activates WoT filtering; a viewer alone (or neither) is the global path. A
+/// `depth` that is out of range, or supplied without a `viewer_id`, is a malformed
+/// WoT request and is rejected with 400.
 pub(crate) fn resolve_tag_wot_depth(
     viewer_id: Option<&str>,
     depth: Option<u8>,
 ) -> AppResult<Option<WotDepth>> {
     match (viewer_id, depth) {
         (Some(_), Some(d)) => WotDepth::new(d).map(Some).map_err(Error::invalid_input),
-        _ => Ok(None),
+        // `depth` is only meaningful with a viewer; reject the malformed combination.
+        (None, Some(_)) => Err(Error::invalid_input("`depth` requires `viewer_id`")),
+        // Viewer alone, or neither, is the global view.
+        (Some(_), None) | (None, None) => Ok(None),
     }
 }
 
