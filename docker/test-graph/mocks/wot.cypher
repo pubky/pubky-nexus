@@ -126,3 +126,22 @@ MATCH (from:User {id: $spammer}), (to:User {id: $artist1}) MERGE (from)-[:TAGGED
 // Self-endorsement: D1 (in O's WoT) tags the OBSERVER as bitcoiner. O's own posts
 // must still be excluded from O's wot_domain feed (self-exclusion, like `wot`).
 MATCH (from:User {id: $d1}), (to:User {id: $o_obs}) MERGE (from)-[:TAGGED {label: $bitcoiner_tag, id: "WOTTAGSELF001", indexed_at: 1224534096100}]->(to);
+
+// ##################################
+// ##### WoT post-tag pagination ####
+// ##################################
+// A reply authored OUTSIDE O's trust network (spammer), so it stays out of O's
+// `wot` stream and — being a reply with year-2008 tag timestamps — out of the
+// global timeline/engagement/hot-tags assertions. O's WoT applies five `wmtag*`
+// labels (one tagger each) plus the mod bot's flag `wmtagflag`, which sorts last
+// by (tagger count, label). The old limit_tags=5 paginated the flag out of the
+// WoT tag view; it must now be returned by default.
+MERGE (p:Post {id: "WOTPOSTMODF01"}) SET p.content = "heavily flagged reply", p.kind = "short", p.indexed_at = 1650000000013;
+MATCH (u:User {id: $spammer}), (p:Post {id: "WOTPOSTMODF01"}) MERGE (u)-[:AUTHORED]->(p);
+MATCH (parent:Post {id: "WOTPOSTTAGS01"}), (reply:Post {id: "WOTPOSTMODF01"}) MERGE (reply)-[:REPLIED]->(parent);
+MATCH (u:User {id: $d1}), (p:Post {id: "WOTPOSTMODF01"}) MERGE (u)-[:TAGGED {label: "wmtag1", id: "WOTTAGMOD0001", indexed_at: 1224534096200}]->(p);
+MATCH (u:User {id: $d1}), (p:Post {id: "WOTPOSTMODF01"}) MERGE (u)-[:TAGGED {label: "wmtag2", id: "WOTTAGMOD0002", indexed_at: 1224534096201}]->(p);
+MATCH (u:User {id: $d1b}), (p:Post {id: "WOTPOSTMODF01"}) MERGE (u)-[:TAGGED {label: "wmtag3", id: "WOTTAGMOD0003", indexed_at: 1224534096202}]->(p);
+MATCH (u:User {id: $d1b}), (p:Post {id: "WOTPOSTMODF01"}) MERGE (u)-[:TAGGED {label: "wmtag4", id: "WOTTAGMOD0004", indexed_at: 1224534096203}]->(p);
+MATCH (u:User {id: $d2}), (p:Post {id: "WOTPOSTMODF01"}) MERGE (u)-[:TAGGED {label: "wmtag5", id: "WOTTAGMOD0005", indexed_at: 1224534096204}]->(p);
+MATCH (u:User {id: $modbot}), (p:Post {id: "WOTPOSTMODF01"}) MERGE (u)-[:TAGGED {label: "wmtagflag", id: "WOTTAGMOD0006", indexed_at: 1224534096205}]->(p);

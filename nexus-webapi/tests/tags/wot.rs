@@ -397,3 +397,50 @@ async fn test_wot_user_tags_existing_user_without_wot_tags_returns_empty() -> Re
     );
     Ok(())
 }
+
+// Post carrying six WoT-trusted labels; the mod bot's flag (`wmtagflag`) sorts
+// last by (tagger count, label). Authored by the spammer (WOT_NON_FOLLOWER).
+const WOT_MODTAG_POST: &str = "WOTPOSTMODF01";
+const WOT_MODTAG_FLAG: &str = "wmtagflag";
+
+#[tokio_shared_rt::test(shared)]
+async fn test_wot_post_tags_return_full_trusted_set_by_default() -> Result<(), DynError> {
+    // The WoT tag view returns the whole trusted set by default so a trusted
+    // moderation tag is never paginated out: the mod bot's flag must be present
+    // even though five other trusted labels outrank it.
+    let base = format!(
+        "/v0/post/{WOT_NON_FOLLOWER}/{WOT_MODTAG_POST}/tags?viewer_id={WOT_OBSERVER}&depth=2"
+    );
+
+    let body = get_request(&base).await?;
+    let labels: Vec<String> = body
+        .as_array()
+        .expect("array")
+        .iter()
+        .map(|t| t["label"].as_str().expect("label").to_string())
+        .collect();
+    assert_eq!(
+        labels.len(),
+        6,
+        "default returns the full trusted set, got {labels:?}"
+    );
+    assert!(
+        labels.iter().any(|l| l == WOT_MODTAG_FLAG),
+        "the mod bot's flag must be returned by default, got {labels:?}"
+    );
+
+    // An explicit small limit still caps and drops the lowest-ranked flag.
+    let body = get_request(&format!("{base}&limit_tags=5")).await?;
+    let labels: Vec<String> = body
+        .as_array()
+        .expect("array")
+        .iter()
+        .map(|t| t["label"].as_str().expect("label").to_string())
+        .collect();
+    assert_eq!(labels.len(), 5, "explicit limit_tags=5 still caps");
+    assert!(
+        !labels.iter().any(|l| l == WOT_MODTAG_FLAG),
+        "limit_tags=5 paginates out the lowest-ranked label, got {labels:?}"
+    );
+    Ok(())
+}

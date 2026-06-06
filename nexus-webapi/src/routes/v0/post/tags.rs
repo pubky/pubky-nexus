@@ -32,9 +32,9 @@ pub struct PostTaggersPath {
         ("post_id" = PostId, Path, description = "Post ID"),
         ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID"),
         ("skip_tags" = Option<usize>, Query, description = "Skip N tags. Defaults to `0`"),
-        ("limit_tags" = Option<usize>, Query, description = "Upper limit on the number of tags for the posts. Defaults to `5`"),
+        ("limit_tags" = Option<usize>, Query, description = "Upper limit on the number of tags. Defaults to `5` in the global view; the WoT view returns the full trusted set by default (capped at 100)."),
         ("limit_taggers" = Option<usize>, Query, description = "Upper limit on the number of taggers per tag. Defaults to `5`"),
-        ("depth" = Option<u8>, Query, description = "WoT depth (1-3). Provide it together with `viewer_id` to filter post tags through the viewer's Web of Trust. `skip_tags`/`limit_tags`/`limit_taggers` apply the same as the global view (labels ordered by tagger count). `viewer_id` without `depth` returns the global tag view; `depth` without `viewer_id`, or an out-of-range `depth` with `viewer_id`, is rejected with 400."),
+        ("depth" = Option<u8>, Query, description = "WoT depth (1-3). Provide it together with `viewer_id` to filter post tags through the viewer's Web of Trust. In the WoT view `limit_tags` defaults to the full trusted set so a trusted moderation tag is not paginated out by tagger count (pass `limit_tags` for a compact view); `skip_tags`/`limit_taggers` apply as in the global view. `viewer_id` without `depth` returns the global tag view; `depth` without `viewer_id`, or an out-of-range `depth` with `viewer_id`, is rejected with 400."),
     ),
     responses(
         (status = 400, description = "Invalid input"),
