@@ -877,7 +877,7 @@ pub fn post_stream(
 
     // Apply tags
     if tags.is_some() {
-        cypher.push_str("MATCH (User)-[tag:TAGGED]->(p)\n");
+        cypher.push_str("MATCH (:User)-[tag:TAGGED]->(p)\n");
         append_condition(
             &mut cypher,
             "tag.label IN $labels",
@@ -973,8 +973,14 @@ pub fn post_stream(
 
     // Apply StreamSorting. `score` is the value the cursor (`last_post_score`) pages
     // on: the post timestamp for Timeline, the engagement count for TotalEngagement.
+    // `p.id` is a deterministic secondary key so equal scores keep a stable order
+    // within a response (pagination across ties is still best-effort: the cursor
+    // carries only the score, not the id).
     let (score_expr, order_clause) = match sorting {
-        StreamSorting::Timeline => ("p.indexed_at", format!("ORDER BY p.indexed_at {order_dir}")),
+        StreamSorting::Timeline => (
+            "p.indexed_at",
+            format!("ORDER BY p.indexed_at {order_dir}, p.id {order_dir}"),
+        ),
         StreamSorting::TotalEngagement => {
             // TODO: These optional matches could potentially be combined/collected to improve performance
             cypher.push_str(
@@ -1016,7 +1022,7 @@ pub fn post_stream(
 
             (
                 "total_engagement",
-                format!("ORDER BY total_engagement {order_dir}"),
+                format!("ORDER BY total_engagement {order_dir}, p.id {order_dir}"),
             )
         }
     };
