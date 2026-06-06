@@ -89,7 +89,12 @@ where
                 None => {
                     let graph_response = Self::get_from_graph(user_id, viewer_id, depth).await?;
                     if let Some(tag_details) = graph_response {
-                        Self::put_to_index(user_id, viewer_id, &tag_details, true).await?;
+                        // Don't cache an empty WoT result: avoids an empty index
+                        // write and a stale-empty window if a trusted tagger tags
+                        // this user later.
+                        if !tag_details.is_empty() {
+                            Self::put_to_index(user_id, viewer_id, &tag_details, true).await?;
+                        }
                         return Ok(Some(tag_details));
                     }
                     return Ok(None);

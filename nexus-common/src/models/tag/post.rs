@@ -6,7 +6,6 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-// TODO: Decide a better namimg, DO not like
 use super::traits::collection::MAX_TAG_PAGE;
 use super::traits::{fetch_tag_details, TagCollection, TaggersCollection};
 

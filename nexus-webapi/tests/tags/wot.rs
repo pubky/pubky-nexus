@@ -38,7 +38,7 @@ async fn test_wot_user_tags_endpoints() -> Result<(), DynError> {
     let taggers_info: TaggersInfoResponse = serde_json::from_value(body)?;
     assert!(taggers_info.users.is_empty());
 
-    // => Start indexing the WoT tags
+    // Start indexing the WoT tags
     let path = format!("/v0/user/{AURELIO_USER}/tags?viewer_id={EPICTTO_VIEWER}&depth=2");
     let body = get_request(&path).await?;
 
@@ -50,13 +50,13 @@ async fn test_wot_user_tags_endpoints() -> Result<(), DynError> {
     // Validate that the posts tag structure
     analyse_tag_details_structure(tags);
 
-    // Analyse the tag that is in the 4th index
+    // athens (3 taggers) sorts first, now (2 taggers) second
     let now_hot_tag = TagMockup::new(String::from(NOW_TAG), 2, 2);
     let athens_hot_tag = TagMockup::new(String::from(ATHENS_TAG), 3, 3);
     compare_tag_details(&tags[1], now_hot_tag);
     compare_tag_details(&tags[0], athens_hot_tag);
 
-    // => test_wot_user_tags_endpoint_with_tag_limit
+    // test_wot_user_tags_endpoint_with_tag_limit
     let path =
         format!("/v0/user/{AURELIO_USER}/tags?viewer_id={EPICTTO_VIEWER}&depth=2&limit_tags=1");
     let body = get_request(&path).await?;
@@ -73,7 +73,7 @@ async fn test_wot_user_tags_endpoints() -> Result<(), DynError> {
     let athens_hot_tag = TagMockup::new(String::from(ATHENS_TAG), 3, 3);
     compare_tag_details(&tags[0], athens_hot_tag);
 
-    // => test_wot_user_tags_endpoint_with_tag_skip
+    // test_wot_user_tags_endpoint_with_tag_skip
     let path =
         format!("/v0/user/{AURELIO_USER}/tags?viewer_id={EPICTTO_VIEWER}&depth=2&skip_tags=1");
     let body = get_request(&path).await?;
@@ -90,7 +90,7 @@ async fn test_wot_user_tags_endpoints() -> Result<(), DynError> {
     let now_hot_tag = TagMockup::new(String::from(NOW_TAG), 2, 2);
     compare_tag_details(&tags[0], now_hot_tag);
 
-    // => test_wot_user_tags_endpoint_with_tag_skip_and_taggers_limit
+    // test_wot_user_tags_endpoint_with_tag_skip_and_taggers_limit
     let path = format!(
         "/v0/user/{AURELIO_USER}/tags?viewer_id={EPICTTO_VIEWER}&depth=2&skip_tags=1&limit_taggers=1"
     );
@@ -108,7 +108,7 @@ async fn test_wot_user_tags_endpoints() -> Result<(), DynError> {
     let now_hot_tag = TagMockup::new(String::from(NOW_TAG), 1, 2);
     compare_tag_details(&tags[0], now_hot_tag);
 
-    // => test_wot_user_tags_endpoint_with_tagger_limit
+    // test_wot_user_tags_endpoint_with_tagger_limit
     let path =
         format!("/v0/user/{AURELIO_USER}/tags?viewer_id={EPICTTO_VIEWER}&depth=2&limit_taggers=1");
     let body = get_request(&path).await?;
@@ -121,13 +121,12 @@ async fn test_wot_user_tags_endpoints() -> Result<(), DynError> {
     // Validate that the posts tag structure
     analyse_tag_details_structure(tags);
 
-    // // Analyse the tag that is in the 4th index
     let now_hot_tag = TagMockup::new(String::from(NOW_TAG), 1, 2);
     let athens_hot_tag = TagMockup::new(String::from(ATHENS_TAG), 1, 3);
     compare_tag_details(&tags[1], now_hot_tag);
     compare_tag_details(&tags[0], athens_hot_tag);
 
-    // => test_wot_user_tags_endpoint_with_tag_and_tagger_limit
+    // test_wot_user_tags_endpoint_with_tag_and_tagger_limit
     let path = format!(
         "/v0/user/{AURELIO_USER}/tags?viewer_id={EPICTTO_VIEWER}&depth=2&limit_tags=1&limit_taggers=1"
     );
@@ -141,11 +140,10 @@ async fn test_wot_user_tags_endpoints() -> Result<(), DynError> {
     // Validate that the posts tag structure
     analyse_tag_details_structure(tags);
 
-    // // Analyse the tag that is in the 4th index
     let now_hot_tag = TagMockup::new(String::from(ATHENS_TAG), 1, 3);
     compare_tag_details(&tags[0], now_hot_tag);
 
-    // => test_wot_user_label_taggers
+    // test_wot_user_label_taggers
     let path =
         format!("/v0/user/{AURELIO_USER}/taggers/{ATHENS_TAG}?viewer_id={EPICTTO_VIEWER}&depth=2");
     let body = get_request(&path).await?;
@@ -153,7 +151,7 @@ async fn test_wot_user_tags_endpoints() -> Result<(), DynError> {
     let mut mock_taggers = vec![USER_A, USER_B, USER_C];
     verify_taggers_list(mock_taggers, body);
 
-    // => test_wot_user_label_taggers_with_limit
+    // test_wot_user_label_taggers_with_limit
     let path = format!(
         "/v0/user/{AURELIO_USER}/taggers/{ATHENS_TAG}?viewer_id={EPICTTO_VIEWER}&depth=2&limit=2"
     );
@@ -162,7 +160,7 @@ async fn test_wot_user_tags_endpoints() -> Result<(), DynError> {
     mock_taggers = vec![USER_A, USER_B];
     verify_taggers_list(mock_taggers, body);
 
-    // => test_wot_user_label_taggers_with_limit
+    // test_wot_user_label_taggers_with_limit
     let path = format!(
         "/v0/user/{AURELIO_USER}/taggers/{ATHENS_TAG}?viewer_id={EPICTTO_VIEWER}&depth=2&limit=1&skip=1"
     );
@@ -183,7 +181,7 @@ async fn test_wot_user_tags_endpoints() -> Result<(), DynError> {
     verify_user_taggers(mock_taggers, tags[1].clone(), String::from(NOW_TAG));
 
     // USER STREAM
-    // TODO: MIssing that integration test, user_id-source-depth. Add more mock for that test
+    // TODO: Missing that integration test, user_id-source-depth. Add more mock for that test
 
     Ok(())
 }
@@ -381,6 +379,21 @@ async fn test_wot_post_tags_respect_limits() -> Result<(), DynError> {
             .len(),
         1,
         "limit_taggers=1 caps wotreview's taggers"
+    );
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_wot_user_tags_existing_user_without_wot_tags_returns_empty() -> Result<(), DynError> {
+    // An existing user whom nobody in the viewer's WoT has tagged must return an
+    // empty tag list (200 []), not 404 — mirroring the post WoT-tags endpoint.
+    // O follows into D2's neighborhood, but no one in O's WoT tagged the user D2.
+    let path = format!("/v0/user/{WOT_REPLY_AUTHOR}/tags?viewer_id={WOT_OBSERVER}&depth=2");
+    let body = get_request(&path).await?;
+    let tags = body.as_array().expect("Tag list should be an array");
+    assert!(
+        tags.is_empty(),
+        "existing user with no WoT-visible tags should return [], got {tags:?}"
     );
     Ok(())
 }
