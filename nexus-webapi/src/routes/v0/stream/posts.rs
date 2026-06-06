@@ -259,7 +259,7 @@ The `source` parameter determines the type of stream. Depending on the `source`,
 - *collection*: Requires **author_id** and **post_id** of the Collection post; items are returned in curator order.
 
 - *wot*: Requires **observer_id**. Posts from users in the observer's Web of Trust (transitive follows, `depth` 1-3, default 2).
-- *wot_domain*: Requires **observer_id** and **domain_tags**. Posts from users whom the observer's Web of Trust has tagged with any of `domain_tags`.
+- *wot_domain*: Requires **observer_id** and **domain_tags**. Posts by authors whom the observer's Web of Trust has tagged with any of `domain_tags` — all of those authors' posts, not only topic-tagged ones; combine with `tags=` for topic-scoped posts.
 
 Ensure that you provide the necessary parameters based on the selected `source`. If a required parameter is missing, a 400 Bad Request error will be returned."#
 )]
@@ -326,7 +326,7 @@ The `source` parameter determines the type of stream. Depending on the `source`,
 - *collection*: Requires **author_id** and **post_id** of the Collection post; keys are returned in curator order.
 
 - *wot*: Requires **observer_id**. Posts from users in the observer's Web of Trust (transitive follows, `depth` 1-3, default 2).
-- *wot_domain*: Requires **observer_id** and **domain_tags**. Posts from users whom the observer's Web of Trust has tagged with any of `domain_tags`.
+- *wot_domain*: Requires **observer_id** and **domain_tags**. Posts by authors whom the observer's Web of Trust has tagged with any of `domain_tags` — all of those authors' posts, not only topic-tagged ones; combine with `tags=` for topic-scoped posts.
 
 Ensure that you provide the necessary parameters based on the selected `source`. If a required parameter is missing, a 400 Bad Request error will be returned."#
 )]

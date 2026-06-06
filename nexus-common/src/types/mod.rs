@@ -95,10 +95,8 @@ impl<'de> Deserialize<'de> for StreamReach {
             "followers" => Ok(StreamReach::Followers),
             "following" => Ok(StreamReach::Following),
             "friends" => Ok(StreamReach::Friends),
-            // Default to depth 3 if just "wot" is provided.
-            "wot" => Ok(StreamReach::Wot(
-                WotDepth::new(3).map_err(de::Error::custom)?,
-            )),
+            // Bare "wot" uses the default WoT depth (2).
+            "wot" => Ok(StreamReach::Wot(WotDepth::default())),
             _ => {
                 // Try to parse Wot variant with depth using wot_X format
                 if let Some(depth_str) = s.strip_prefix("wot_") {
@@ -123,5 +121,28 @@ impl<'de> Deserialize<'de> for StreamReach {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bare_wot_defaults_to_depth_2() {
+        let reach: StreamReach = serde_json::from_str("\"wot\"").unwrap();
+        assert_eq!(reach, StreamReach::Wot(WotDepth::default()));
+        assert_eq!(WotDepth::default().get(), 2);
+    }
+
+    #[test]
+    fn wot_with_explicit_depth_parses() {
+        let reach: StreamReach = serde_json::from_str("\"wot_3\"").unwrap();
+        assert_eq!(reach, StreamReach::Wot(WotDepth::new(3).unwrap()));
+    }
+
+    #[test]
+    fn wot_out_of_range_is_rejected() {
+        assert!(serde_json::from_str::<StreamReach>("\"wot_4\"").is_err());
     }
 }
