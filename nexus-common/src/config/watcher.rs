@@ -152,13 +152,14 @@ pub struct WatcherConfig {
     /// Initial backoff duration (in seconds) after the first failure of a homeserver
     #[serde(default = "default_initial_backoff_secs")]
     pub initial_backoff_secs: u64,
+
     /// Maximum backoff duration (in seconds) for a failing homeserver
     #[serde(default = "default_max_backoff_secs")]
     pub max_backoff_secs: u64,
+
     #[serde(default = "default_stack")]
     pub stack: StackConfig,
 
-    // Retry configuration
     #[serde(default)]
     pub retry: EventRetryConfig,
 
