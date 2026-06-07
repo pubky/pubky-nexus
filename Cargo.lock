@@ -711,9 +711,9 @@ dependencies = [
 
 [[package]]
 name = "chrono"
-version = "0.4.44"
+version = "0.4.45"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c673075a2e0e5f4a1dde27ce9dee1ea4558c7ffe648f576438a20ca1d2acc4b0"
+checksum = "1aa79e62e7697b8e29b513a68abacf485adcd1fe8284a4316c5ae868e6633327"
 dependencies = [
  "iana-time-zone",
  "num-traits",
@@ -3051,7 +3051,7 @@ dependencies = [
  "opentelemetry-appender-tracing",
  "opentelemetry-otlp",
  "opentelemetry_sdk 0.32.1",
- "pubky",
+ "pubky 0.9.1",
  "pubky-app-specs",
  "redis",
  "serde",
@@ -3091,7 +3091,7 @@ dependencies = [
  "chrono",
  "nexus-common",
  "opentelemetry 0.32.0",
- "pubky",
+ "pubky 0.9.1",
  "pubky-app-specs",
  "pubky-testnet",
  "rand 0.10.1",
@@ -3118,7 +3118,7 @@ dependencies = [
  "futures-util",
  "httpc-test",
  "nexus-common",
- "pubky",
+ "pubky 0.9.1",
  "pubky-app-specs",
  "pubky-testnet",
  "serde",
@@ -4013,7 +4013,32 @@ dependencies = [
  "httpdate",
  "log",
  "pkarr",
- "pubky-common",
+ "pubky-common 0.8.0",
+ "reqwest 0.13.4",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "url",
+ "wasm-bindgen-futures",
+ "web-time",
+]
+
+[[package]]
+name = "pubky"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8aba83a5e7fee3d70c913c1ab567e32ba8024f729d3494ac624e8e37d33fa27d"
+dependencies = [
+ "base64",
+ "cookie",
+ "eventsource-stream",
+ "flume 0.11.1",
+ "futures-lite",
+ "futures-util",
+ "httpdate",
+ "log",
+ "pkarr",
+ "pubky-common 0.9.1",
  "reqwest 0.13.4",
  "serde",
  "thiserror 2.0.18",
@@ -4034,7 +4059,7 @@ dependencies = [
  "blake3",
  "js-sys",
  "mime",
- "pubky",
+ "pubky 0.8.0",
  "serde",
  "serde-wasm-bindgen",
  "serde_json",
@@ -4068,10 +4093,32 @@ dependencies = [
 ]
 
 [[package]]
-name = "pubky-homeserver"
-version = "0.8.0"
+name = "pubky-common"
+version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c0919f7b292910ae0bb17282bc5e08f8a0dd07048fced696126a1745c6e0d2f9"
+checksum = "bf53e10c1d8f2a928a46d3e24e561a622c09d1cc58f1db700b9bfae138e2a625"
+dependencies = [
+ "argon2",
+ "base32",
+ "blake3",
+ "crypto_secretbox",
+ "ed25519-dalek",
+ "js-sys",
+ "once_cell",
+ "pkarr",
+ "postcard",
+ "pubky-timestamp",
+ "rand 0.10.1",
+ "serde",
+ "thiserror 2.0.18",
+ "url",
+]
+
+[[package]]
+name = "pubky-homeserver"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b405a73bdac70da0e8fa14a652530663d3cf100a2531d0e5429d4c1a1b847492"
 dependencies = [
  "anyhow",
  "async-dropper",
@@ -4107,7 +4154,7 @@ dependencies = [
  "percent-encoding",
  "pkarr",
  "prometheus",
- "pubky-common",
+ "pubky-common 0.9.1",
  "pubky_test_utils",
  "reqwest 0.13.4",
  "sea-query",
@@ -4132,9 +4179,9 @@ dependencies = [
 
 [[package]]
 name = "pubky-testnet"
-version = "0.8.0"
+version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2d24360d665c35baa092ef1a68c0409c0a383cd222abf24b165e1e7a51466cef"
+checksum = "ade1b460cb1511722dbe9e6da643303af6f147e6dfec858fca56614482f7a670"
 dependencies = [
  "anyhow",
  "clap",
@@ -4144,8 +4191,8 @@ dependencies = [
  "once_cell",
  "pkarr",
  "pkarr-relay",
- "pubky",
- "pubky-common",
+ "pubky 0.9.1",
+ "pubky-common 0.9.1",
  "pubky-homeserver",
  "pubky_test_utils",
  "tempfile",
