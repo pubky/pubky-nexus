@@ -165,7 +165,6 @@ impl EventProcessorError {
         )
     }
 
-    /// Returns whether this error is a missing dependency
     pub fn is_missing_dependency(&self) -> bool {
         matches!(self, Self::MissingDependency { .. })
     }
