@@ -23,9 +23,9 @@ neo4rs = "0.8.0"
 redis = "1.0.4"
 opentelemetry = "0.32"
 opentelemetry_sdk = { version = "0.32", features = ["rt-tokio"] }
-pubky = "0.9.1"
+pubky = "0.8.0"
 pubky-app-specs = { version = "0.5.2", features = ["openapi"] }
-pubky-testnet = "0.9.1"
+pubky-testnet = "0.8.0"
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.149"
 tempfile = "3.25"
