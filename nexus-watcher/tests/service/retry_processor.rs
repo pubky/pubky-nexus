@@ -404,9 +404,7 @@ async fn test_retry_404_removes_from_queue() -> Result<()> {
         store.clone(),
         create_test_config(10, 50, 60, 3600, 60, 3600),
         create_mock_handler(
-            Err(EventProcessorError::PubkyClientError(
-                nexus_common::db::PubkyClientError::NotFound404 { message: event_uri },
-            )),
+            Err(nexus_common::db::PubkyClientError::NotFound404 { message: event_uri }.into()),
             Some(post_id),
         ),
         shutdown_rx,

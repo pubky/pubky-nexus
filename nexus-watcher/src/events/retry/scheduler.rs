@@ -50,17 +50,17 @@ impl RetryScheduler {
     /// When in doubt we enqueue (bounded by `max_retries`) rather than drop data.
     pub fn should_enqueue_related_event(error: &EventProcessorError) -> bool {
         match error {
-            EventProcessorError::PubkyClientError(err) => match err {
+            EventProcessorError::PubkyClientError(err) => match err.as_ref() {
                 PubkyClientError::NotInitialized
                 | PubkyClientError::TooManyRequests429 { .. }
                 | PubkyClientError::ServerError5xx { .. }
                 | PubkyClientError::RequestFailed { .. }
-                | PubkyClientError::PkarrFailed { .. } => true,
+                | PubkyClientError::PkarrFailed(..) => true,
 
                 PubkyClientError::NotFound404 { .. }
-                | PubkyClientError::AuthenticationFailed { .. }
-                | PubkyClientError::BuildFailed { .. }
-                | PubkyClientError::ParseFailed { .. } => false,
+                | PubkyClientError::AuthenticationFailed(..)
+                | PubkyClientError::BuildFailed(..)
+                | PubkyClientError::ParseFailed(..) => false,
             },
 
             EventProcessorError::InvalidEventLine(_)
