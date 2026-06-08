@@ -231,7 +231,7 @@ async fn put_sync_post(
         OperationOutcome::MissingDependency => {
             if let Ok(post_uri) = ParsedUri::try_from(post_uri_str) {
                 if let Err(e) = ingestor.maybe_ingest_author_of_post(&post_uri).await {
-                    tracing::error!("Failed to ingest user: {e}");
+                    tracing::warn!("Failed to ingest user: {e}");
                 }
             }
             Err(EventProcessorError::MissingDependency {
@@ -349,7 +349,7 @@ async fn put_sync_user(
         }
         OperationOutcome::MissingDependency => {
             if let Err(e) = ingestor.maybe_ingest_user(&tagged_user_id).await {
-                tracing::error!("Failed to ingest user: {e}");
+                tracing::warn!("Failed to ingest tagged user {tagged_user_id}: {e}");
             }
 
             let tagged_uri = tagged_user_id

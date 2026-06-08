@@ -55,6 +55,7 @@ impl UserIngestor {
     pub async fn maybe_ingest_user(&self, user_id: &PubkyId) -> ModelResult<()> {
         let user_id_str = user_id.to_string();
         if UserDetails::get_by_id(&user_id_str).await?.is_some() {
+            // If user is already known, don't check the HS blacklist as it has no effect on users
             tracing::debug!("Skipping ingestion: {user_id_str} already known");
             return Ok(());
         }

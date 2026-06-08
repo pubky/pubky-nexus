@@ -36,7 +36,7 @@ pub async fn sync_put(
         }
         OperationOutcome::MissingDependency => {
             if let Err(e) = ingestor.maybe_ingest_user(&followee_id).await {
-                tracing::error!("Failed to ingest user: {e}");
+                tracing::warn!("Failed to ingest user {followee_id}: {e}");
             }
 
             let followee_uri = followee_id

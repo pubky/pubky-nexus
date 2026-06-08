@@ -42,7 +42,7 @@ pub async fn sync_put(
                 dependency_event_keys.push(replied_uri_str);
 
                 if let Err(e) = ingestor.maybe_ingest_author_of_post(replied_to_uri).await {
-                    tracing::error!("Failed to ingest user: {e}");
+                    tracing::warn!("Failed to ingest user: {e}");
                 }
             }
             if let Some(reposted_uri) = &post_relationships.reposted {
@@ -52,7 +52,7 @@ pub async fn sync_put(
                 dependency_event_keys.push(reposted_uri_str);
 
                 if let Err(e) = ingestor.maybe_ingest_author_of_post(reposted_uri).await {
-                    tracing::error!("Failed to ingest user: {e}");
+                    tracing::warn!("Failed to ingest user: {e}");
                 }
             }
             if dependency_event_keys.is_empty() {
@@ -102,7 +102,7 @@ pub async fn sync_put(
     // whereby posts with many (inexistent) tagged PKs can cause Nexus to spend a lot of time trying to resolve them
     if let Some(mentioned_user_id) = &post_relationships.mentioned.first() {
         if let Err(e) = ingestor.maybe_ingest_user(mentioned_user_id).await {
-            tracing::error!("Failed to ingest user: {e}");
+            tracing::warn!("Failed to ingest user {mentioned_user_id}: {e}");
         }
     }
 
