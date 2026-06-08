@@ -77,7 +77,7 @@ MATCH (u3:User {id: $detroit}), (p3:Post {id: "00000039YD9CY"}) MERGE (u3)-[:AUT
 MATCH (u:User {id: $amsterdam}), (p:Post {id: "00000039YD9CY"}) MERGE (u)-[:TAGGED {label: $opensource_tag, id: "R1L3X7P2F9J8", indexed_at: 1724134080000}]->(p);
 MATCH (u:User {id: $bogota}), (p:Post {id: "00000039YD9CY"}) MERGE (u)-[:TAGGED {label: $opensource_tag, id: "S4M0Q2N6F1J9", indexed_at: 1724134092000}]->(p);
 
-MERGE (p3:Post {id: "00000039YD9DA"}) SET p3.content = "Open-source enables security auditing", p3.kind = "short", p3.indexed_at = 1693822934567;
+MERGE (p3:Post {id: "00000039YD9DA"}) SET p3.content = "Open-source enables security auditing via e-mail notifications", p3.kind = "short", p3.indexed_at = 1693822934567;
 MATCH (u3:User {id: $detroit}), (p3:Post {id: "00000039YD9DA"}) MERGE (u3)-[:AUTHORED]->(p3);
 MATCH (u:User {id: $amsterdam}), (p:Post {id: "00000039YD9DA"}) MERGE (u)-[:TAGGED {label: $opensource_tag, id: "T5X8L1P3J4N2", indexed_at: 1724134080000}]->(p);
 MATCH (u:User {id: $bogota}), (p:Post {id: "00000039YD9DA"}) MERGE (u)-[:TAGGED {label: $opensource_tag, id: "U6Q7F0M2X1J8", indexed_at: 1724134092000}]->(p);
