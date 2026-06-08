@@ -6,7 +6,7 @@ use crate::models::error::ModelResult;
 use crate::models::traits::Collection;
 use async_trait::async_trait;
 use chrono::Utc;
-use pubky_app_specs::{ParsedUri, PubkyAppFile, Resource};
+use pubky_app_specs::{PubkyAppFile, PubkyId};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
@@ -139,11 +139,56 @@ impl FileDetails {
     }
 
     pub fn file_key_from_uri(uri: &str) -> Option<(String, String)> {
-        let parsed_uri = ParsedUri::try_from(uri).ok()?;
-        if let Resource::File(file_id) = parsed_uri.resource {
-            Some((parsed_uri.user_id.to_string(), file_id))
-        } else {
-            None
+        let rest = uri.strip_prefix("pubky://")?;
+        let (user_id, path) = rest.split_once('/')?;
+        PubkyId::try_from(user_id).ok()?;
+
+        let path = path.strip_prefix("pub/")?;
+        let (app, file_id) = path.split_once("/files/")?;
+        if app.is_empty() || app.contains('/') || file_id.is_empty() || file_id.contains('/') {
+            return None;
         }
+
+        Some((user_id.to_string(), file_id.to_string()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::FileDetails;
+
+    const USER_ID: &str = "8pinxxgqs41n4aididenw5apqp1urfmzdztr8jt4abrkdn435ewo";
+
+    #[test]
+    fn file_key_from_uri_accepts_pubky_app_files() {
+        let uri = format!("pubky://{USER_ID}/pub/pubky.app/files/00357F21ZG7KG");
+        assert_eq!(
+            FileDetails::file_key_from_uri(&uri),
+            Some((USER_ID.to_string(), "00357F21ZG7KG".to_string()))
+        );
+    }
+
+    #[test]
+    fn file_key_from_uri_accepts_mapky_app_files() {
+        let uri = format!("pubky://{USER_ID}/pub/mapky.app/files/00357F21ZG7KG");
+        assert_eq!(
+            FileDetails::file_key_from_uri(&uri),
+            Some((USER_ID.to_string(), "00357F21ZG7KG".to_string()))
+        );
+    }
+
+    #[test]
+    fn file_key_from_uri_accepts_other_app_files() {
+        let uri = format!("pubky://{USER_ID}/pub/eventky.app/files/ABC123");
+        assert_eq!(
+            FileDetails::file_key_from_uri(&uri),
+            Some((USER_ID.to_string(), "ABC123".to_string()))
+        );
+    }
+
+    #[test]
+    fn file_key_from_uri_rejects_non_file_uris() {
+        let uri = format!("pubky://{USER_ID}/pub/mapky.app/posts/00357F21ZG7KG");
+        assert_eq!(FileDetails::file_key_from_uri(&uri), None);
     }
 }
