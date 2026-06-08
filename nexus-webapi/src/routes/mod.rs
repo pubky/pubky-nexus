@@ -27,7 +27,7 @@ where
     async fn from_request(req: Request<Body>, state: &S) -> Result<Self, Self::Rejection> {
         let json: AxumJson<T> = AxumJson::from_request(req, state)
             .await
-            .map_err(|rejection| crate::Error::invalid_input(&rejection.to_string()))?;
+            .map_err(|rejection| crate::Error::invalid_input(rejection.to_string()))?;
         Ok(Json(json.0))
     }
 }
@@ -45,7 +45,7 @@ where
     async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
         let path: axum::extract::Path<T> = axum::extract::Path::from_request_parts(parts, state)
             .await
-            .map_err(|rejection| crate::Error::invalid_input(&rejection.to_string()))?;
+            .map_err(|rejection| crate::Error::invalid_input(rejection.to_string()))?;
         Ok(Path(path.0))
     }
 }
@@ -63,7 +63,7 @@ where
     async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
         let query: axum::extract::Query<T> = axum::extract::Query::from_request_parts(parts, state)
             .await
-            .map_err(|rejection| crate::Error::invalid_input(&rejection.to_string()))?;
+            .map_err(|rejection| crate::Error::invalid_input(rejection.to_string()))?;
         Ok(Query(query.0))
     }
 }

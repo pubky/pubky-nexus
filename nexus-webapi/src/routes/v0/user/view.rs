@@ -24,7 +24,7 @@ pub struct ProfileQuery {
     params(
         ("user_id" = PubkyId, Path, description = "User Pubky ID"),
         ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID"),
-        ("depth" = Option<usize>, Query, description = "User trusted network depth, user following users distance. Numbers bigger than 4, will be ignored")
+        ("depth" = Option<usize>, Query, description = "WoT depth (1-3) for filtering the profile's tags through the viewer's network. Requires `viewer_id`; values outside 1-3 are ignored (global tags)")
     ),
     responses(
         (status = 200, description = "User Profile", body = UserView),

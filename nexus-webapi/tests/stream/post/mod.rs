@@ -10,6 +10,7 @@ pub mod posts;
 pub mod reach;
 pub mod tags;
 pub mod utils;
+pub mod wot;
 
 pub const ROOT_PATH: &str = endpoints::STREAM_POSTS_ROUTE;
 pub const KEYS_ROOT_PATH: &str = endpoints::STREAM_POST_KEYS_ROUTE;

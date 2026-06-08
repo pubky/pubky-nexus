@@ -4,6 +4,7 @@ use crate::db::{
     execute_graph_operation, fetch_row_from_graph, queries, GraphResult, OperationOutcome, RedisOps,
 };
 use crate::models::error::ModelResult;
+use crate::types::WotDepth;
 use async_trait::async_trait;
 use tracing::error;
 
@@ -15,6 +16,25 @@ const CACHE_SORTED_SET_PREFIX: &str = "Cache:Sorted";
 pub const CACHE_SET_PREFIX: &str = "Cache";
 // TTL, 3HR
 const CACHE_TTL: i64 = 3 * 60 * 60;
+/// Upper bound on caller-supplied tag/tagger page sizes, so an absurd `limit`
+/// can't force an unbounded fan-out (mirrors the stream limit cap).
+pub(crate) const MAX_TAG_PAGE: usize = 100;
+
+/// Runs a tag query and parses the `exists`/`tags` row shape shared by the
+/// global and Web-of-Trust tag queries.
+pub(crate) async fn fetch_tag_details(query: Query) -> GraphResult<Option<Vec<TagDetails>>> {
+    let maybe_row = fetch_row_from_graph(query).await?;
+    if let Some(row) = maybe_row {
+        let exists: bool = row.get("exists").unwrap_or(false);
+        if exists {
+            // A decode failure on an existing post/user is a real error, not a
+            // "not found": surface it instead of masking it as `None`.
+            let tags = row.get::<Vec<TagDetails>>("tags")?;
+            return Ok(Some(tags));
+        }
+    }
+    Ok(None)
+}
 
 /// Trait for managing a collection of tags
 ///
@@ -35,12 +55,12 @@ where
     /// - `limit_taggers` - An optional limit on the number of taggers (users who have tagged) to retrieve.
     /// - `viewer_id` - An optional string slice representing the ID of the viewer or requester.
     ///   If `Some`, the function attempts to filter tags based on the viewer's network (WoT - Web of Trust) and the specified depth.
-    /// - `depth` - An optional depth value (1-3) for filtering tags within the viewer's Web of Trust. Values outside the range (1-3) are ignored.
+    /// - `depth` - An optional validated `WotDepth` for filtering tags through the viewer's Web of Trust; only used together with `viewer_id`.
     ///
     /// # Behavior
     ///
-    /// - If `viewer_id` is provided and `depth` is within the range 1-3, it will retrieve the WoT tags
-    /// - If `viewer_id` is not provided or `depth` is out of range, the function retrieves global tags for the user
+    /// - If `viewer_id` and `depth` are both provided, it retrieves the WoT tags
+    /// - Otherwise the function retrieves global tags for the user
     /// - The function ensures results from the graph database are cached in the index for faster future retrievals.
     async fn get_by_id(
         user_id: &str,
@@ -49,11 +69,11 @@ where
         limit_tags: Option<usize>,
         limit_taggers: Option<usize>,
         viewer_id: Option<&str>,
-        depth: Option<u8>,
+        depth: Option<WotDepth>,
     ) -> ModelResult<Option<Vec<TagDetails>>> {
         // Query for the tags that are in its WoT
         // Actually we just apply that search to User node
-        if viewer_id.is_some() && matches!(depth, Some(1..=3)) {
+        if viewer_id.is_some() && depth.is_some() {
             match Self::get_from_index(
                 user_id,
                 viewer_id,
@@ -67,11 +87,14 @@ where
             {
                 Some(tag_details) => return Ok(Some(tag_details)),
                 None => {
-                    let depth = depth.unwrap_or(1);
-                    let graph_response =
-                        Self::get_from_graph(user_id, viewer_id, Some(depth)).await?;
+                    let graph_response = Self::get_from_graph(user_id, viewer_id, depth).await?;
                     if let Some(tag_details) = graph_response {
-                        Self::put_to_index(user_id, viewer_id, &tag_details, true).await?;
+                        // Don't cache an empty WoT result: avoids an empty index
+                        // write and a stale-empty window if a trusted tagger tags
+                        // this user later.
+                        if !tag_details.is_empty() {
+                            Self::put_to_index(user_id, viewer_id, &tag_details, true).await?;
+                        }
                         return Ok(Some(tag_details));
                     }
                     return Ok(None);
@@ -123,9 +146,9 @@ where
         limit_taggers: Option<usize>,
         is_cache: bool,
     ) -> RedisResult<Option<Vec<TagDetails>>> {
-        let limit_tags = limit_tags.unwrap_or(5);
+        let limit_tags = limit_tags.unwrap_or(5).min(MAX_TAG_PAGE);
         let skip_tags = skip_tags.unwrap_or(0);
-        let limit_taggers = limit_taggers.unwrap_or(5);
+        let limit_taggers = limit_taggers.unwrap_or(5).min(MAX_TAG_PAGE);
         let key_parts = Self::create_sorted_set_key_parts(user_id, extra_param, is_cache);
         // Prepare the extra prefix for cache search
         let cache_prefix = match is_cache {
@@ -185,35 +208,25 @@ where
     /// # Arguments
     /// * user_id - The key of the user for whom to retrieve tags.
     /// * extra_param - An optional parameter for specifying additional constraints (e.g., post_id, viewer_id (for WoT search) )
-    /// * `depth` - An optional depth value (1-3) for filtering tags within the viewer's Web of Trust.
+    /// * `depth` - An optional validated `WotDepth` for filtering tags within the viewer's Web of Trust.
     /// # Returns
     /// A Result containing an optional vector of TagDetails, or an error.
     async fn get_from_graph(
         user_id: &str,
         extra_param: Option<&str>,
-        depth: Option<u8>,
+        depth: Option<WotDepth>,
     ) -> GraphResult<Option<Vec<TagDetails>>> {
         // We cannot use LIMIT clause because we need all data related
         let query = match depth {
-            Some(distance) => queries::get::get_viewer_trusted_network_tags(
+            Some(depth) => queries::get::get_viewer_trusted_network_tags(
                 user_id,
                 extra_param.unwrap_or_default(),
-                distance,
+                depth,
             ),
             None => Self::read_graph_query(user_id, extra_param),
         };
 
-        let maybe_row = fetch_row_from_graph(query).await?;
-        if let Some(row) = maybe_row {
-            let user_exists: bool = row.get("exists").unwrap_or(false);
-            if user_exists {
-                match row.get::<Vec<TagDetails>>("tags") {
-                    Ok(tagged_from) => return Ok(Some(tagged_from)),
-                    Err(_e) => return Ok(None),
-                }
-            }
-        }
-        Ok(None)
+        fetch_tag_details(query).await
     }
 
     /// Adds the retrieved tags to a sorted set and a set in Redis.

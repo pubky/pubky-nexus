@@ -1,10 +1,10 @@
 use crate::db::kv::RedisResult;
 use crate::db::RedisOps;
 use crate::models::tag::Taggers;
-use crate::types::Pagination;
+use crate::types::{Pagination, WotDepth};
 use async_trait::async_trait;
 
-use super::collection::CACHE_SET_PREFIX;
+use super::collection::{CACHE_SET_PREFIX, MAX_TAG_PAGE};
 
 pub type TaggersTuple = (Taggers, bool);
 
@@ -26,7 +26,7 @@ where
     /// * `viewer_id` - An optional viewer ID, used for two purposes:
     ///   1. **Checking if the viewer is in the taggers list**.
     ///   2. **Retrieving Web of Trust (WoT) tags** when combined with `depth`.
-    /// * `depth` - An optional depth parameter, used to determine the distance in WoT relationships.
+    /// * `depth` - An optional validated `WotDepth`; its presence (with `viewer_id`) selects the WoT-tagger index.
     ///
     /// # Returns
     /// A result containing `(Taggers, bool)`:
@@ -39,11 +39,11 @@ where
         label: &str,
         pagination: Pagination,
         viewer_id: Option<&str>,
-        depth: Option<u8>,
+        depth: Option<WotDepth>,
     ) -> RedisResult<TaggersTuple> {
         // Set default params for pagination
         let skip = pagination.skip.unwrap_or(0);
-        let limit = pagination.limit.unwrap_or(40);
+        let limit = pagination.limit.unwrap_or(40).min(MAX_TAG_PAGE);
         let mut prefix = None;
         let key_parts;
         // Get WoT tags. If we do not first hit the graph using `TagUser::get_by_id` function

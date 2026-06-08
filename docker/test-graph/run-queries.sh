@@ -8,6 +8,7 @@ HOT_TAGS_TEST_FILE="/test-graph/mocks/hot-tags.cypher"
 POSTS_TEST_FILE="/test-graph/mocks/posts.cypher"
 FILES_TEST_FILE="/test-graph/mocks/files.cypher"
 RESOURCES_TEST_FILE="/test-graph/mocks/resources.cypher"
+WOT_TEST_FILE="/test-graph/mocks/wot.cypher"
 
 echo "Starting Cypher query execution..."
 
@@ -29,6 +30,8 @@ echo "Importing FILEs test graph..."
 time cypher-shell -u neo4j -p 12345678 -f "$FILES_TEST_FILE"
 echo "Importing RESOURCEs test graph..."
 time cypher-shell -u neo4j -p 12345678 -f "$RESOURCES_TEST_FILE"
+echo "Importing WoT test graph..."
+time cypher-shell -u neo4j -p 12345678 -f "$WOT_TEST_FILE"
 
 if [[ $? -eq 0 ]]; then
     echo "Queries executed successfully."
