@@ -26,7 +26,7 @@ pub use tag_label::TagLabel;
 pub use user_id_prefix::UserIdPrefix;
 pub use username_prefix::UsernamePrefix;
 
-/// Comma-separated list of tag labels; deserialization enforces 1..=5 items, each validated and sanitized.
+/// Comma-separated list of tag labels (min=1, max=5). Each label is validated and sanitized.
 #[derive(Debug, ToSchema)]
 #[schema(value_type = String, example = "dev,free,opensource")]
 pub struct Tags(pub Vec<TagLabel>);
@@ -50,7 +50,7 @@ impl<'de> Deserialize<'de> for Tags {
     }
 }
 
-/// JSON array of `PubkyId` values; deserialization enforces 1..=100 items.
+/// JSON array of `PubkyId` values (min=1, max=100).
 #[derive(Debug, ToSchema)]
 pub struct UserIds(pub Vec<PubkyId>);
 

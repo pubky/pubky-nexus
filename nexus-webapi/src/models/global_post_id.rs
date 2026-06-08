@@ -35,6 +35,7 @@ impl<'de> Deserialize<'de> for GlobalPostIds {
 }
 
 impl GlobalPostIds {
+    /// Consumes self and returns a `Vec<String>` of the underlying ID strings.
     pub fn into_string_vec(self) -> Vec<String> {
         self.0.into_iter().map(|id| id.0).collect()
     }
@@ -91,14 +92,14 @@ mod tests {
     }
 
     #[test]
-    fn try_from_valid() {
+    fn test_try_from_valid() {
         let id = valid_global_post_id();
         let result = GlobalPostId::try_from(id);
         assert!(result.is_ok());
     }
 
     #[test]
-    fn try_from_missing_separator() {
+    fn test_try_from_missing_separator() {
         let result = GlobalPostId::try_from(
             "operrr8wsbpr3ue9d4qj41ge1kcc6r7fdiy6o3ugjrrhi4y77rdo00000039YD9DP".to_string(),
         );
@@ -107,14 +108,14 @@ mod tests {
     }
 
     #[test]
-    fn try_from_extra_separator() {
+    fn test_try_from_extra_separator() {
         let result = GlobalPostId::try_from("a:b:c".to_string());
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("Invalid PubkyId"));
     }
 
     #[test]
-    fn try_from_invalid_pubky_id() {
+    fn test_try_from_invalid_pubky_id() {
         let id = "short:00000039YD9DP".to_string();
         let result = GlobalPostId::try_from(id);
         assert!(result.is_err());
@@ -122,7 +123,7 @@ mod tests {
     }
 
     #[test]
-    fn try_from_invalid_post_id() {
+    fn test_try_from_invalid_post_id() {
         let id = format!("{}:short", valid_pubky_id());
         let result = GlobalPostId::try_from(id);
         assert!(result.is_err());
@@ -133,14 +134,14 @@ mod tests {
     }
 
     #[test]
-    fn deserialize_valid() {
+    fn test_deserialize_valid() {
         let json = format!(r#""{}""#, valid_global_post_id());
         let result: Result<GlobalPostId, _> = serde_json::from_str(&json);
         assert!(result.is_ok());
     }
 
     #[test]
-    fn deserialize_invalid() {
+    fn test_deserialize_invalid() {
         let json = r#""invalid""#;
         let result: Result<GlobalPostId, _> = serde_json::from_str(json);
         assert!(result.is_err());

@@ -66,7 +66,7 @@ async fn test_search_users_by_id_invalid_prefix_length() -> Result<()> {
         let res = invalid_get_request(&url_path, StatusCode::BAD_REQUEST).await?;
 
         let error_response: ErrorResponsePayload =
-            serde_json::from_value(res).expect("Response should be a valid ErrorResponsePayload");
+            serde_json::from_value(res).expect("Response should be a valid ErrroResponsePayload");
         assert!(
             error_response.error.contains("ID prefix must be at least"),
             "Error message should mention min size limit, got: {}",

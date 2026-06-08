@@ -7,9 +7,7 @@ use serde::de;
 use serde::Deserialize;
 use utoipa::ToSchema;
 
-/// Defines a 13-character Crockford Base32 ID newtype. Post and file IDs are
-/// structurally identical (same encoding, length and validation), so they share
-/// one definition instead of duplicating the impls and tests.
+/// 13-character Crockford Base32 ID newtype, used for post and file IDs.
 macro_rules! crockford_id {
     ($name:ident, $doc:literal) => {
         #[doc = $doc]

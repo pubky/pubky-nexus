@@ -287,7 +287,7 @@ async fn test_stream_posts_missing_observer_id_validation() -> Result<()> {
     let body = invalid_get_request(&endpoint, StatusCode::BAD_REQUEST).await?;
 
     let error_response: ErrorResponsePayload =
-        serde_json::from_value(body).expect("Response should be valid ErrorResponsePayload JSON");
+        serde_json::from_value(body).expect("Response should be valid ErrroResponsePayload JSON");
 
     assert_eq!(
         error_response.error,
