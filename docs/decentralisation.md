@@ -72,9 +72,9 @@ HS user-events endpoint. Configured in
 
 ### `monitored_homeservers_limit`
 - **Type / default:** `usize` / `50` (`DEFAULT_MONITORED_HOMESERVERS_LIMIT`).
-- **What it does:** Upper bound on how many homeservers are monitored.
-- **Notes:** Setting it to `1` means **only the default HS is monitored** —
-  effectively disabling decentralized indexing.
+- **What it does:** Bounds the number of **external** HSs monitored. The default
+  HS is always indexed separately (Section 2) and excluded from this count.
+- **Notes:** `0` disables external-HS indexing; `1` monitors one external HS.
 - **Tuning:** Each additional monitored HS adds HS requests (and, upstream, PKDNS
   resolutions) per tick. Raise deliberately as the network of indexed HSs grows.
 
@@ -191,7 +191,7 @@ fields.
 | `homeserver` | `[watcher]` | `PubkyId` | Synonym HS | — | default-homeserver |
 | `events_limit` | `[watcher]` | `u16` | `50` (code `1000`) | `1000` | default-homeserver |
 | `watcher_sleep` | `[watcher]` | `u64` ms | `5000` | — | default + external (shared tick) |
-| `monitored_homeservers_limit` | `[watcher]` | `usize` | `50` | — | external-homeservers |
+| `monitored_homeservers_limit` | `[watcher]` | `usize` | `50` | — | external-homeservers (`0` = disabled) |
 | `key_based_events_limit` | `[watcher]` | `u16` | `50` | `100` | external-homeservers |
 | `initial_backoff_secs` | `[watcher]` | `u64` s | `60` | — | external-homeservers (per-HS offline) |
 | `max_backoff_secs` | `[watcher]` | `u64` s | `3600` | — | external-homeservers (per-HS offline) |
