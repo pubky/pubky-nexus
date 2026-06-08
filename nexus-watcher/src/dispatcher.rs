@@ -284,6 +284,15 @@ mod tests {
         assert!(matches!(result, Ok(false)));
     }
 
+    #[tokio::test]
+    async fn test_try_dispatch_tag_path_reaches_plugin() {
+        let dispatcher = EventDispatcher::new(vec![Arc::new(MockPlugin) as Arc<dyn NexusPlugin>]);
+        let result = dispatcher
+            .try_dispatch("DEL pubky://abc123/pub/mock.app/tags/tag1")
+            .await;
+        assert!(matches!(result, Ok(true)));
+    }
+
     #[test]
     fn test_plugins_sorted_longest_namespace_first() {
         // The sort key is namespace length — verify the comparator directly.
