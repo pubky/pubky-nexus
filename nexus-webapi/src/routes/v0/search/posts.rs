@@ -1,4 +1,4 @@
-use crate::models::{PostSearchQuery, SearchLimit, TagLabel, SEARCH_LIMIT_DEFAULT};
+use crate::models::{PostSearchQuery, SearchLimit, SearchSkip, TagLabel, SEARCH_LIMIT_DEFAULT};
 use crate::routes::v0::endpoints::{SEARCH_POSTS_BY_CONTENT_ROUTE, SEARCH_POSTS_BY_TAG_ROUTE};
 use crate::routes::{Path, Query};
 use crate::Result;
@@ -63,7 +63,7 @@ pub async fn search_posts_by_tag_handler(
 #[derive(Deserialize)]
 pub struct SearchPostsByContentQuery {
     pub q: PostSearchQuery,
-    pub skip: Option<usize>,
+    pub skip: Option<SearchSkip<1000>>,
     pub limit: Option<SearchLimit<100>>,
 }
 
@@ -74,7 +74,7 @@ pub struct SearchPostsByContentQuery {
     tag = "Search",
     params(
         ("q" = PostSearchQuery, Query, description = "Search query (2–200 characters)"),
-        ("skip" = Option<usize>, Query, description = "Skip N results"),
+        ("skip" = Option<SearchSkip<1000>>, Query, description = "Skip N results (max 1000)"),
         ("limit" = Option<SearchLimit<100>>, Query, description = "Limit the number of results")
     ),
     responses(
@@ -86,7 +86,7 @@ pub struct SearchPostsByContentQuery {
 pub async fn search_posts_by_content_handler(
     Query(query): Query<SearchPostsByContentQuery>,
 ) -> Result<Json<Vec<PostsByContentSearch>>> {
-    let skip = query.skip.unwrap_or(0);
+    let skip = query.skip.as_ref().map_or(0, SearchSkip::value);
     let limit = query
         .limit
         .as_ref()
@@ -104,6 +104,6 @@ pub async fn search_posts_by_content_handler(
 #[derive(OpenApi)]
 #[openapi(
     paths(search_posts_by_tag_handler, search_posts_by_content_handler),
-    components(schemas(PostsByTagSearch, PostsByContentSearch, SearchLimit<100>, PostSearchQuery))
+    components(schemas(PostsByTagSearch, PostsByContentSearch, SearchLimit<100>, SearchSkip<1000>, PostSearchQuery))
 )]
 pub struct SearchPostsApiDocs;

@@ -248,6 +248,24 @@ async fn test_content_search_pagination() -> Result<()> {
     Ok(())
 }
 
+#[tokio_shared_rt::test(shared)]
+async fn test_content_search_skip_over_max_rejected() -> Result<()> {
+    let res = invalid_get_request(
+        &format!("{SEARCH_POSTS_BY_CONTENT_ROUTE}?q=test&skip=1001"),
+        StatusCode::BAD_REQUEST,
+    )
+    .await?;
+    let error_response: ErrorResponsePayload =
+        serde_json::from_value(res).expect("should be ErrorResponsePayload");
+    assert!(
+        error_response.error.contains("1000")
+            || error_response.error.to_lowercase().contains("maximum"),
+        "error should mention the maximum offset, got: {}",
+        error_response.error
+    );
+    Ok(())
+}
+
 fn search_posts(posts: &[Value], post_order: Vec<&str>) {
     for (index, post) in posts.iter().enumerate() {
         let post_parts: Vec<&str> = post["post_key"].as_str().unwrap().split(':').collect();
