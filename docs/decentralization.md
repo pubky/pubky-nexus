@@ -5,8 +5,7 @@ decentralization: indexing third-party homeservers (HSs), resolving which HS
 each user is hosted on, and the limits/timeouts/backoffs that govern this.
 
 All fields below live under `[watcher]` (or `[watcher.retry]`) in
-`nexus-common/default.config.toml`, and are defined on `WatcherConfig` in
-`nexus-common/src/config/watcher.rs`.
+`nexus-common/default.config.toml`, and are defined on `WatcherConfig`.
 
 ---
 
@@ -20,8 +19,7 @@ currently-published HS from PKDNS/DHT and records it as a
 `(:User)-[:HOSTED_BY]->(:Homeserver)` edge, so the indexer knows which users to
 pull from which HS.
 
-This runs as parallel watcher threads started in `NexusWatcher::start`
-(`nexus-watcher/src/service/mod.rs`):
+This runs as parallel watcher threads started in `NexusWatcher::start`:
 - `default-homeserver` (Section 2)
 - `external-homeservers` (Section 3)
 - `user-hs-resolver` (Section 4), and
@@ -41,7 +39,7 @@ thread.
 - **What it does:** The single default, prioritized homeserver. Its events are
   bulk-ingested, and it is explicitly *excluded* from the third-party
   (`external-homeservers`) list so it is never double-indexed
-  (`runner/key_based.rs`, `hs_by_priority`).
+  (`hs_by_priority`).
 - **Notes:** Changing this re-points the entire default-HS pipeline. The HS is
   persisted to the graph on startup (`Homeserver::persist_if_unknown`).
 
@@ -68,7 +66,7 @@ thread.
 The core of decentralization. Driven by the `external-homeservers` thread, which
 walks every monitored HS *except* the default and pulls events per user via the
 HS user-events endpoint. Configured in
-`KeyBasedEventProcessorRunner::from_config` (`runner/key_based.rs`).
+`KeyBasedEventProcessorRunner::from_config`.
 
 ### `monitored_homeservers_limit`
 - **Type / default:** `usize` / `50` (`DEFAULT_MONITORED_HOMESERVERS_LIMIT`).
@@ -93,8 +91,7 @@ HS user-events endpoint. Configured in
 - **Type / default:** `u64` seconds / `60` and `3600`
   (`DEFAULT_INITIAL_BACKOFF_SECS`, `DEFAULT_MAX_BACKOFF_SECS`).
 - **What it does:** Per-HS exponential backoff for homeservers found to be
-  **offline/unreachable** (`runner/key_based_hs_backoff.rs`, `HomeserverBackoff`,
-  constructed at `runner/key_based.rs`). After a failure the HS is skipped for
+  **offline/unreachable** (`HomeserverBackoff`). After a failure the HS is skipped for
   `initial_backoff_secs`; the skip interval doubles on each consecutive failure,
   capped at `max_backoff_secs`.
 - **Constraint:** `initial_backoff_secs` must not exceed `max_backoff_secs`
@@ -117,8 +114,8 @@ HS user-events endpoint. Configured in
 
 Driven by the `user-hs-resolver` thread. For each user it resolves the currently
 published HS from PKDNS/DHT and persists/refreshes the
-`(:User)-[:HOSTED_BY]->(:Homeserver)` edge with a `resolved_at` timestamp
-(`service/user_hs_resolver.rs`). This is what tells the third-party indexer which
+`(:User)-[:HOSTED_BY]->(:Homeserver)` edge with a `resolved_at` timestamp.
+This is what tells the third-party indexer which
 users belong to which HS.
 
 ### `hs_resolver_sleep`
@@ -133,8 +130,7 @@ users belong to which HS.
   `DEFAULT_HS_RESOLVER_TTL`).
 - **What it does:** Minimum age before a user's HS mapping is considered stale and
   eligible for re-resolution. A user whose `HOSTED_BY.resolved_at` is newer than
-  this TTL is **skipped** on a resolver run (`user_hs_resolver.rs`, `run`),
-  preventing redundant PKDNS lookups.
+  this TTL is **skipped** on a resolver run, preventing redundant PKDNS lookups.
 - **Tuning:** Lower → mappings stay fresher at the cost of far more PKDNS lookups.
   Higher → cheaper, but Nexus may keep pulling a user's events from an HS they
   have already left for up to ~`hs_resolver_ttl`.
@@ -144,8 +140,7 @@ users belong to which HS.
 ## 5. Event retry & backoff — `[watcher.retry]`
 
 Cross-cutting: applies to **all** indexing (default and third-party), driven by
-the `retry-processor` thread. Defined on `EventRetryConfig`
-(`nexus-common/src/config/watcher.rs`). Backoff parameters are selected per error
+the `retry-processor` thread. Defined on `EventRetryConfig`. Backoff parameters are selected per error
 via `EventRetryConfig::get_backoff_params` / `get_max_retries_for_err`: *transient*
 errors and *missing-dependency* errors use separate limits.
 
