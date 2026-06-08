@@ -52,11 +52,11 @@ async fn test_homeserver_post_tag_event_to_queue() -> Result<()> {
     // to let write the indexes
     test.put(&tagger_kp, &tag_path, tag).await?;
 
-    let index_key = tag_absolute_url.clone();
+    let index_key = RetryEvent::index_key(&tag_absolute_url);
 
     assert_eventually_exists(&index_key).await;
 
-    assert!(RetryEvent::check_uri(&index_key).await.unwrap());
+    assert!(RetryEvent::check_index_key(&index_key).await.unwrap());
 
     let event_retry = RetryEvent::get_from_index(&index_key).await.unwrap();
     assert!(event_retry.is_some());

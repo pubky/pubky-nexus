@@ -43,11 +43,11 @@ async fn test_homeserver_post_repost_cannot_index() -> Result<()> {
 
     let repost_absolute_url = post_uri_builder(user_id, repost_id);
 
-    let index_key = repost_absolute_url.clone();
+    let index_key = RetryEvent::index_key(&repost_absolute_url);
 
     assert_eventually_exists(&index_key).await;
 
-    assert!(RetryEvent::check_uri(&index_key).await.unwrap());
+    assert!(RetryEvent::check_index_key(&index_key).await.unwrap());
 
     let event_retry = RetryEvent::get_from_index(&index_key).await.unwrap();
     assert!(event_retry.is_some());

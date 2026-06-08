@@ -37,6 +37,10 @@ impl RedisOps for RetryEvent {
 }
 
 impl RetryEvent {
+    pub fn index_key(uri: &str) -> String {
+        nexus_common::utils::hash_bytes_hex(uri)
+    }
+
     /// Creates a new RetryEvent from the source event
     pub fn new(event: &Event, next_retry_at: i64, origin_homeserver_id: impl Into<String>) -> Self {
         Self {
@@ -72,7 +76,7 @@ impl RetryEvent {
     ///
     /// Only used by integration tests (`nexus-watcher/tests/`); kept `pub` because
     /// those tests compile against this crate as an external consumer.
-    pub async fn check_uri(index_key: &str) -> RedisResult<bool> {
+    pub async fn check_index_key(index_key: &str) -> RedisResult<bool> {
         Self::check_sorted_set_member(
             Some(RETRY_MANAGER_PREFIX),
             &RETRY_MANAGER_EVENTS_INDEX,
@@ -156,5 +160,18 @@ impl RetryEvent {
         .await
         .map(Option::unwrap_or_default)
         .map_err(|e| EventProcessorError::generic(format!("Failed to fetch retry events: {}", e)))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn index_key_is_32_hex_chars_and_deterministic() {
+        let uri = "pubky://abc123/pub/pubky.app/posts/xyz789";
+        let key = RetryEvent::index_key(uri);
+        assert_eq!(key.len(), 32);
+        assert_eq!(key, RetryEvent::index_key(uri));
     }
 }

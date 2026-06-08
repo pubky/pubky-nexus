@@ -389,7 +389,7 @@ pub async fn assert_eventually_exists(event_index: &str) {
             MAX_RETRIES,
             SLEEP_MS * attempt as u64
         );
-        match RetryEvent::check_uri(event_index).await {
+        match RetryEvent::check_index_key(event_index).await {
             Ok(true) => return,
             Ok(false) => {}
             Err(e) => panic!("Error while getting index: {e:?}"),

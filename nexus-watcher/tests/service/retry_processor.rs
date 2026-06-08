@@ -55,9 +55,11 @@ fn create_test_retry_event(
     }
 }
 
-/// Test helper to create a resource key for a test event, matching the format the scheduler uses.
 fn create_resource_key(post_id: &str) -> String {
-    post_uri_builder(TEST_USER_ID.to_string(), post_id.to_string())
+    RetryEvent::index_key(&post_uri_builder(
+        TEST_USER_ID.to_string(),
+        post_id.to_string(),
+    ))
 }
 
 /// Assemble a [`RetryProcessor`] for tests with the given store, config, and handler.
@@ -753,7 +755,7 @@ async fn test_shutdown_interrupts_batch() -> Result<()> {
     for i in 0..num_events {
         let post_id = format!("shutdown{}", i);
         let event_uri = post_uri_builder(TEST_USER_ID.to_string(), post_id);
-        let resource_key = event_uri.clone();
+        let resource_key = RetryEvent::index_key(&event_uri);
 
         let retry_event = RetryEvent {
             retry_count: 0,
@@ -796,7 +798,10 @@ async fn test_shutdown_interrupts_batch() -> Result<()> {
 
     // Verify events are still in the queue (not processed due to shutdown)
     for i in 0..num_events {
-        let resource_key = post_uri_builder(TEST_USER_ID.to_string(), format!("shutdown{}", i));
+        let resource_key = RetryEvent::index_key(&post_uri_builder(
+            TEST_USER_ID.to_string(),
+            format!("shutdown{}", i),
+        ));
         assert!(
             store.get(&resource_key).await?.is_some(),
             "Event {} should still be in queue (not processed due to shutdown)",
@@ -824,8 +829,8 @@ async fn test_infrastructure_error_stops_batch() -> Result<()> {
 
     for i in 0..num_events {
         let post_id = format!("infrastop{}", i);
-        let resource_key = post_uri_builder(TEST_USER_ID.to_string(), post_id.clone());
         let event_uri = post_uri_builder(TEST_USER_ID.to_string(), post_id);
+        let resource_key = RetryEvent::index_key(&event_uri);
 
         let retry_event = RetryEvent {
             retry_count: 0,
@@ -879,7 +884,10 @@ async fn test_infrastructure_error_stops_batch() -> Result<()> {
 
     // Should-not-retry-now errors do NOT increment retry_count — they preserve the
     // application-level retry budget.
-    let first_key = post_uri_builder(TEST_USER_ID.to_string(), "infrastop0".to_string());
+    let first_key = RetryEvent::index_key(&post_uri_builder(
+        TEST_USER_ID.to_string(),
+        "infrastop0".to_string(),
+    ));
     let first_event = store
         .get(&first_key)
         .await?
@@ -891,7 +899,10 @@ async fn test_infrastructure_error_stops_batch() -> Result<()> {
 
     // Remaining events should be untouched (retry_count still 0)
     for i in 1..num_events {
-        let resource_key = post_uri_builder(TEST_USER_ID.to_string(), format!("infrastop{}", i));
+        let resource_key = RetryEvent::index_key(&post_uri_builder(
+            TEST_USER_ID.to_string(),
+            format!("infrastop{}", i),
+        ));
         let event = store
             .get(&resource_key)
             .await?

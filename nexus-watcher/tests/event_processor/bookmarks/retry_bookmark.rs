@@ -42,11 +42,11 @@ async fn test_homeserver_bookmark_cannot_index() -> Result<()> {
     // PUT bookmark
     test.put(&user_kp, &bookmark_path, bookmark).await?;
 
-    let index_key = bookmark_absolute_url.clone();
+    let index_key = RetryEvent::index_key(&bookmark_absolute_url);
 
     assert_eventually_exists(&index_key).await;
 
-    assert!(RetryEvent::check_uri(&index_key).await.unwrap());
+    assert!(RetryEvent::check_index_key(&index_key).await.unwrap());
 
     let event_retry = RetryEvent::get_from_index(&index_key).await.unwrap();
     assert!(event_retry.is_some());
