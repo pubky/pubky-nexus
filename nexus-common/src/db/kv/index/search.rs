@@ -109,8 +109,9 @@ fn parse_ft_search_response(raw: deadpool_redis::redis::Value) -> RedisResult<Ve
     let array = match raw {
         deadpool_redis::redis::Value::Array(a) => a,
         _ => {
-            warn!("Unexpected FT.SEARCH response shape, expected Array (RESP2); got a different type — RESP3 may be active");
-            return Ok(vec![]);
+            return Err(RedisError::CommandFailed(
+                "unexpected FT.SEARCH reply shape (RESP3 may be active)".into(),
+            ));
         }
     };
 
