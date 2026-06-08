@@ -2,7 +2,8 @@ use std::sync::Arc;
 
 use pubky_app_specs::{ParsedUri, PubkyId};
 
-use crate::db::PubkyConnector;
+use crate::db::queries::put;
+use crate::db::{exec_single_row, PubkyConnector};
 use crate::models::error::{ModelError, ModelResult};
 use crate::models::traits::Collection;
 use crate::models::user::{UserDetails, UserHsCursor};
@@ -86,6 +87,9 @@ impl UserIngestor {
             .await
             .inspect(|_| tracing::info!("Ingested user {user_id} from HS {hs_id}"))
             .inspect_err(|e| tracing::error!("Failed to ingest user {user_id}: {e}"))?;
+
+        // Bind the user to their HS (HOSTED_BY + resolved_at), since we just resolved the HS
+        exec_single_row(put::set_user_homeserver(&user_id_str, &hs_id)).await?;
 
         // Store the start point of the user's HS cursor
         UserHsCursor::write(user_id, &hs_id, 0).await?;
