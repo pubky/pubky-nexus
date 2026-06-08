@@ -3,10 +3,11 @@ use crate::service::utils::HS_IDS;
 use crate::service::utils::{create_mock_event_processors, setup, MockEventProcessorRunner};
 use anyhow::Result;
 use chrono::Utc;
-use nexus_common::db::{exec_single_row, queries};
 use nexus_common::models::homeserver::Homeserver;
+use nexus_common::models::traits::Collection;
 use nexus_common::models::user::UserDetails;
 use nexus_common::types::DynError;
+use nexus_watcher::events::handlers::user::set_user_homeserver;
 use nexus_watcher::events::retry::{InitialBackoff, RedisRetryStore, RetryScheduler, RetryStore};
 use nexus_watcher::events::{DefaultEventHandler, EventHandler};
 use nexus_watcher::service::indexer::PubkyKeyBasedEventSource;
@@ -174,8 +175,8 @@ async fn create_active_user_on_homeserver(hs_id: &PubkyId) -> Result<(), DynErro
         indexed_at: Utc::now().timestamp_millis(),
     };
 
-    exec_single_row(queries::put::create_user(&user)?).await?;
-    exec_single_row(queries::put::set_user_homeserver(&user_id, hs_id)).await?;
+    user.put_to_graph().await?;
+    set_user_homeserver(&user_id, hs_id).await?;
 
     Ok(())
 }

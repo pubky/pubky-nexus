@@ -5,11 +5,13 @@ use std::time::Duration;
 
 use anyhow::Result;
 use chrono::Utc;
-use nexus_common::db::{exec_single_row, graph::Query, queries, PubkyClientError, RedisOps};
+use nexus_common::db::{exec_single_row, graph::Query, PubkyClientError, RedisOps};
 use nexus_common::models::event::{Event, EventProcessorError};
 use nexus_common::models::homeserver::Homeserver;
+use nexus_common::models::traits::Collection;
 use nexus_common::models::user::{user_hs_cursor_key, UserDetails};
 use nexus_common::types::DynError;
+use nexus_watcher::events::handlers::user::set_user_homeserver;
 use nexus_watcher::events::retry::{InitialBackoff, RetryScheduler};
 use nexus_watcher::events::EventHandler;
 use nexus_watcher::service::indexer::{KeyBasedEventProcessor, RunError, TEventProcessor};
@@ -624,8 +626,8 @@ async fn create_user_on_homeserver(homeserver: &Homeserver) -> Result<String, Dy
         indexed_at: Utc::now().timestamp_millis(),
     };
 
-    exec_single_row(queries::put::create_user(&user)?).await?;
-    exec_single_row(queries::put::set_user_homeserver(&user_id, &homeserver.id)).await?;
+    user.put_to_graph().await?;
+    set_user_homeserver(&user_id, &homeserver.id).await?;
 
     Ok(user_id.to_string())
 }
@@ -643,7 +645,7 @@ async fn create_invalid_user_on_homeserver(
         .param("name", "invalid-key-based-processor-test-user".to_string()),
     )
     .await?;
-    exec_single_row(queries::put::set_user_homeserver(user_id, &homeserver.id)).await?;
+    set_user_homeserver(user_id, &homeserver.id).await?;
 
     Ok(())
 }

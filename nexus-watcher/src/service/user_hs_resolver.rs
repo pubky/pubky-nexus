@@ -3,8 +3,9 @@
 //! Periodic task that resolves each user's homeserver and persists
 //! the `(:User)-[:HOSTED_BY]->(:Homeserver)` relationship in Neo4j.
 
+use crate::events::handlers::user::{set_user_homeserver, set_user_homeserver_stale};
 use nexus_common::db::{
-    exec_single_row, fetch_key_from_graph, queries, GraphResult, PubkyClientResult, PubkyConnector,
+    fetch_key_from_graph, queries, GraphResult, PubkyClientResult, PubkyConnector,
 };
 use nexus_common::types::DynError;
 use nexus_common::WatcherConfig;
@@ -207,19 +208,19 @@ async fn resolve_user(
         (None, None) => warn!("User {user_id} has no published homeserver"),
 
         (None, Some(resolved_hs_id)) => {
-            exec_single_row(queries::put::set_user_homeserver(&user_id, resolved_hs_id)).await?;
+            set_user_homeserver(&user_id, resolved_hs_id).await?;
             debug!("User {user_id} -> HS {resolved_hs_id}");
         }
 
         // Already bound to a HS: toggle the stale flag instead of switching.
         (Some(stored_hs_id), Some(resolved_hs_id)) if resolved_hs_id.as_ref() == stored_hs_id => {
-            exec_single_row(queries::put::set_user_homeserver_stale(&user_id, false)).await?;
+            set_user_homeserver_stale(&user_id, false).await?;
             debug!("User {user_id} still hosted on {stored_hs_id}, mapping active");
         }
 
         // HS switching is not fully implemented, so the bound HS is never changed once set
         (Some(stored_hs_id), _) => {
-            exec_single_row(queries::put::set_user_homeserver_stale(&user_id, true)).await?;
+            set_user_homeserver_stale(&user_id, true).await?;
             warn!(
                 "User {user_id} homeserver changed or was removed (stored {stored_hs_id}); \
                  switching unsupported, mapping marked stale and indexing paused"
@@ -379,7 +380,7 @@ mod tests {
         create_test_user(user_no_hs).await?;
 
         // Give user_fresh a recently resolved mapping
-        exec_single_row(queries::put::set_user_homeserver(user_fresh, hs_id)).await?;
+        set_user_homeserver(user_fresh, hs_id).await?;
 
         // Give user_stale a mapping with an old resolved_at (1 hour ago)
         let stale_query = Query::new(
@@ -435,9 +436,9 @@ mod tests {
         create_test_user(user_c).await?;
 
         // Host user_a and user_b on hs_one, user_c on hs_two
-        exec_single_row(queries::put::set_user_homeserver(user_a, hs_one)).await?;
-        exec_single_row(queries::put::set_user_homeserver(user_b, hs_one)).await?;
-        exec_single_row(queries::put::set_user_homeserver(user_c, hs_two)).await?;
+        set_user_homeserver(user_a, hs_one).await?;
+        set_user_homeserver(user_b, hs_one).await?;
+        set_user_homeserver(user_c, hs_two).await?;
 
         // Query users on hs_one
         let mut users = get_user_ids_by_homeserver(hs_one).await?;
@@ -473,7 +474,7 @@ mod tests {
         assert_eq!(get_user_homeserver(&user_id).await?, None);
 
         // After assignment the current homeserver is returned
-        exec_single_row(queries::put::set_user_homeserver(&user_id, &hs_id)).await?;
+        set_user_homeserver(&user_id, &hs_id).await?;
         assert_eq!(
             get_user_homeserver(&user_id).await?,
             Some(hs_id.to_string())
@@ -549,7 +550,7 @@ mod tests {
         let new_hs = random_hs_id();
 
         create_test_user(&user_id).await?;
-        exec_single_row(queries::put::set_user_homeserver(&user_id, &stored_hs)).await?;
+        set_user_homeserver(&user_id, &stored_hs).await?;
 
         // DHT now points at a different homeserver
         let resolver = MockResolver {
@@ -584,7 +585,7 @@ mod tests {
         let stored_hs = random_hs_id();
 
         create_test_user(&user_id).await?;
-        exec_single_row(queries::put::set_user_homeserver(&user_id, &stored_hs)).await?;
+        set_user_homeserver(&user_id, &stored_hs).await?;
 
         // DHT no longer publishes a homeserver
         let resolver = MockResolver { result: None };
@@ -614,9 +615,9 @@ mod tests {
         let stored_hs = random_hs_id();
 
         create_test_user(&user_id).await?;
-        exec_single_row(queries::put::set_user_homeserver(&user_id, &stored_hs)).await?;
+        set_user_homeserver(&user_id, &stored_hs).await?;
         // Start from a stale mapping
-        exec_single_row(queries::put::set_user_homeserver_stale(&user_id, true)).await?;
+        set_user_homeserver_stale(&user_id, true).await?;
         assert!(!get_user_ids_by_homeserver(&stored_hs)
             .await?
             .contains(&user_id));
