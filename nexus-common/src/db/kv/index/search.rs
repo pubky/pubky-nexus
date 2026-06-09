@@ -3,7 +3,7 @@ use crate::db::kv::error::{RedisError, RedisResult};
 use tracing::warn;
 
 /// Creates a RediSearch JSON index with a single TEXT field.
-/// Idempotent: treats "Index already exists" as success so concurrent callers are safe.
+/// Idempotent: treats any error containing "already exists" as success so concurrent callers are safe.
 pub(crate) async fn ft_create_json_text_index(
     index_name: &str,
     prefix: &str,
