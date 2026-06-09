@@ -92,24 +92,34 @@ fn bench_post_tag_search_by_timeline(c: &mut Criterion) {
 
 fn bench_post_content_search(c: &mut Criterion) {
     println!("******************************************************************************");
-    println!("Benchmarking post content search.");
+    println!("Benchmarking post content search");
     println!("******************************************************************************");
 
     run_setup();
 
-    let query = "free";
     let rt = Runtime::new().unwrap();
 
-    c.bench_with_input(
-        BenchmarkId::new("post_content_search", query),
-        &query,
-        |b, &query| {
-            b.to_async(&rt).iter(|| async {
-                let result = PostsByContentSearch::search(query, 0, 20).await.unwrap();
-                std::hint::black_box(result);
-            });
-        },
-    );
+    // Each covers a different fuzzy-distance tier in fuzzy_token()
+    let queries = &[
+        ("api", "api"),                   // <=3 chars: exact match, 1 hit
+        ("privacy", "privacy"),           // <=8 chars: 1-fuzzy, 4 hits
+        ("transparency", "transparency"), // >8 chars: 2-fuzzy, 2 hits
+        ("open_source", "open source"),   // multi-token AND, 6 hits
+        ("free", "free"),                 // no match, empty-result path
+    ];
+
+    for (id, query) in queries {
+        c.bench_with_input(
+            BenchmarkId::new("post_content_search", id),
+            query,
+            |b, &query| {
+                b.to_async(&rt).iter(|| async {
+                    let result = PostsByContentSearch::search(query, 0, 20).await.unwrap();
+                    std::hint::black_box(result);
+                });
+            },
+        );
+    }
 }
 
 fn configure_criterion() -> Criterion {
