@@ -1,4 +1,4 @@
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use nexus_common::{
     models::{
         post::search::{PostsByContentSearch, PostsByTagSearch},
@@ -91,25 +91,32 @@ fn bench_post_tag_search_by_timeline(c: &mut Criterion) {
 }
 
 fn bench_post_content_search(c: &mut Criterion) {
-    println!("******************************************************************************");
-    println!("Benchmarking post content search.");
-    println!("******************************************************************************");
-
     run_setup();
 
-    let query = "free";
     let rt = Runtime::new().unwrap();
 
-    c.bench_with_input(
-        BenchmarkId::new("post_content_search", query),
-        &query,
-        |b, &query| {
+    // Queries chosen to cover all three fuzzy-distance tiers in fuzzy_token() and the multi-token
+    // AND path, using terms that actually appear in the seed dataset:
+    //   "api"          — ≤3 chars → exact match (distance 0), 1 hit
+    //   "privacy"      — ≤8 chars → 1-fuzzy (%privacy%), 4 hits
+    //   "transparency" — >8 chars → 2-fuzzy (%%transparency%%), 2 hits
+    //   "open source"  — two tokens, each 1-fuzzy, AND query, 6 hits
+    //   "free"         — no match in seed data, measures the empty-result path
+    let queries: &[&str] = &["api", "privacy", "transparency", "open source", "free"];
+
+    let mut group = c.benchmark_group("post_content_search");
+    group.throughput(Throughput::Elements(20));
+
+    for query in queries {
+        group.bench_with_input(BenchmarkId::from_parameter(query), query, |b, &query| {
             b.to_async(&rt).iter(|| async {
                 let result = PostsByContentSearch::search(query, 0, 20).await.unwrap();
                 std::hint::black_box(result);
             });
-        },
-    );
+        });
+    }
+
+    group.finish();
 }
 
 fn configure_criterion() -> Criterion {
