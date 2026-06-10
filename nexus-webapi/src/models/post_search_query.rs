@@ -7,9 +7,9 @@ use serde::Deserialize;
 use utoipa::ToSchema;
 
 pub const MIN_POST_SEARCH_QUERY_LEN: usize = 2;
-pub const MAX_POST_SEARCH_QUERY_LEN: usize = 200;
+pub const MAX_POST_SEARCH_QUERY_LEN: usize = 30;
 
-/// Post content search query (2–200 characters).
+/// Post content search query (2–30 characters).
 #[derive(Debug, ToSchema)]
 #[schema(value_type = String, example = "bitcoin")]
 pub struct PostSearchQuery(pub String);
@@ -90,12 +90,12 @@ mod tests {
 
     #[test]
     fn rejects_over_limit() {
-        assert!(PostSearchQuery::try_from("a".repeat(201)).is_err());
+        assert!(PostSearchQuery::try_from("a".repeat(31)).is_err());
     }
 
     #[test]
     fn accepts_max_length() {
-        assert!(PostSearchQuery::try_from("a".repeat(200)).is_ok());
+        assert!(PostSearchQuery::try_from("a".repeat(30)).is_ok());
     }
 
     #[test]
