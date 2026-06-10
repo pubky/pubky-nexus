@@ -1,6 +1,19 @@
+use crate::db::config::FT_SEARCH_TIMEOUT_MS;
 use crate::db::get_redis_conn;
 use crate::db::kv::error::{RedisError, RedisResult};
+use std::sync::OnceLock;
 use tracing::warn;
+
+static FT_SEARCH_TIMEOUT: OnceLock<usize> = OnceLock::new();
+
+/// Sets the configured FT.SEARCH timeout (ms). Called once during stack setup.
+pub(crate) fn set_ft_search_timeout_ms(ms: usize) {
+    let _ = FT_SEARCH_TIMEOUT.set(ms);
+}
+
+fn ft_search_timeout_ms() -> usize {
+    *FT_SEARCH_TIMEOUT.get().unwrap_or(&FT_SEARCH_TIMEOUT_MS)
+}
 
 /// Creates a RediSearch JSON index with a single TEXT field.
 /// Idempotent: treats any error containing "already exists" as success so concurrent callers are safe.
@@ -66,6 +79,8 @@ pub(crate) async fn ft_search_scored(
         .arg("LIMIT")
         .arg(skip)
         .arg(limit)
+        .arg("TIMEOUT")
+        .arg(ft_search_timeout_ms())
         .query_async(&mut conn)
         .await
         .map_err(|e| RedisError::CommandFailed(e.to_string().into()))?;

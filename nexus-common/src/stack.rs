@@ -1,3 +1,4 @@
+use crate::db::kv::search::set_ft_search_timeout_ms;
 use crate::db::{Neo4jConnector, RedisConnector};
 use crate::types::DynError;
 use crate::{Level, StackConfig};
@@ -36,6 +37,7 @@ impl StackManager {
 
                 RedisConnector::init(&config.db.redis).await?;
                 Neo4jConnector::init(&config.db.neo4j).await?;
+                set_ft_search_timeout_ms(config.db.ft_search_timeout_ms);
                 Ok::<_, DynError>(config.clone())
             })
             .await?;
