@@ -39,8 +39,6 @@ moderated_tags = [
     "illegal_activities",
     "il_adult_nu_sex_act",
 ]
-# External HS PKs which are forbidden from being indexed
-external_hs_pk_blacklist = []
 
 # Event retry configuration
 [watcher.retry]
@@ -61,6 +59,8 @@ max_missing_dep_backoff_secs = 3600
 # Logging, options: error, warn, info, debug and trace
 log_level = "info"
 files_path = "~/.pubky-nexus/static/files"
+# External HS PKs which are forbidden from being indexed
+external_hs_pk_blacklist = []
 
 [stack.otlp]
 # Service name used for tracing, logging, and metrics in OpenTelemetry

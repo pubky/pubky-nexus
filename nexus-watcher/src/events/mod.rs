@@ -40,7 +40,7 @@ impl DefaultEventHandler {
     pub fn from_config(config: &WatcherConfig) -> Self {
         Self::new(
             Moderation::from_config(config),
-            Arc::new(UserIngestor::from_config(config)),
+            Arc::new(UserIngestor::from_config(&config.stack)),
         )
     }
 }

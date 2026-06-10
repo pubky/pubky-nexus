@@ -1,4 +1,5 @@
 use crate::{db::DatabaseConfig, get_files_dir_pathbuf};
+use pubky_app_specs::PubkyId;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::{fmt::Debug, path::PathBuf};
 
@@ -30,7 +31,7 @@ impl Default for OtlpConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct StackConfig {
     pub log_level: Level,
     #[serde(deserialize_with = "deserialize_and_expand")]
@@ -38,6 +39,10 @@ pub struct StackConfig {
     #[serde(default)]
     pub otlp: OtlpConfig,
     pub db: DatabaseConfig,
+
+    /// External HS PKs which are forbidden from being indexed
+    #[serde(default)]
+    pub external_hs_pk_blacklist: Vec<PubkyId>,
 }
 
 /// Utility function
@@ -52,6 +57,7 @@ impl Default for StackConfig {
             files_path: get_files_dir_pathbuf(),
             otlp: OtlpConfig::default(),
             db: DatabaseConfig::default(),
+            external_hs_pk_blacklist: Vec::new(),
         }
     }
 }

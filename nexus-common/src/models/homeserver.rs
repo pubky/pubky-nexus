@@ -21,7 +21,7 @@ impl HsBlacklist {
         Self(Arc::new(hs_pks.into_iter().collect()))
     }
 
-    pub fn from_config(config: &crate::WatcherConfig) -> Self {
+    pub fn from_config(config: &crate::StackConfig) -> Self {
         Self::new(config.external_hs_pk_blacklist.iter().cloned())
     }
 

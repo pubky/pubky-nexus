@@ -55,7 +55,7 @@ impl KeyBasedEventProcessorRunner {
             event_source: Arc::new(PubkyKeyBasedEventSource),
             shutdown_rx,
             default_homeserver: config.homeserver.clone(),
-            hs_blacklist: HsBlacklist::from_config(config),
+            hs_blacklist: HsBlacklist::from_config(&config.stack),
             backoff: Mutex::new(HomeserverBackoff::new(
                 config.initial_backoff_secs,
                 config.max_backoff_secs,

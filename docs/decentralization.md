@@ -4,7 +4,7 @@ These are technical notes describing configuration fields related to Decentraliz
 
 ## Indexing 3rd-party Homeservers
 
-### `WatcherConfig` / `external_hs_pk_blacklist`
+### `StackConfig` / `external_hs_pk_blacklist`
 
 List of external HS PKs from which new events are not being indexed, for as long as they are on this list.
 

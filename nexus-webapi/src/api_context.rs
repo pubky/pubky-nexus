@@ -49,16 +49,15 @@ impl ApiContextBuilder {
         // Ensure path to config dir exists, regardless of how the builder was initialized
         std::fs::create_dir_all(self.config_dir.clone())?;
 
-        let (api_config, ingestor) = match &self.api_config {
+        let api_config = match &self.api_config {
             None => {
                 let dc = DaemonConfig::read_or_create_config_file(self.config_dir.clone()).await?;
-                // Enforce the watcher's HS blacklist on API-triggered ingestion too.
-                let ingestor = UserIngestor::from_config(&dc.watcher);
-                (ApiConfig::from(dc), ingestor)
+                ApiConfig::from(dc)
             }
-            // No daemon config in scope (explicit ApiConfig): ingest everything.
-            Some(ac) => (ac.clone(), UserIngestor::default()),
+            Some(ac) => ac.clone(),
         };
+
+        let ingestor = UserIngestor::from_config(&api_config.stack);
 
         let pkarr_builder = self.pkarr_builder.clone().unwrap_or_default();
         let pkarr_client = pkarr_builder.build()?;

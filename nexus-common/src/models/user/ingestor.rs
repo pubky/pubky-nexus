@@ -6,13 +6,10 @@ use crate::models::error::{ModelError, ModelResult};
 use crate::models::homeserver::HsBlacklist;
 use crate::models::traits::Collection;
 use crate::models::user::{UserDetails, UserHsCursor};
-use crate::WatcherConfig;
+use crate::StackConfig;
 
 /// Ingests previously-unknown users referenced by events, refusing any user
-/// whose HS is blacklisted.
-///
-/// Shared by the watcher and webapi, both built from the same [`WatcherConfig`]
-/// blacklist. The default carries an empty blacklist (ingest everything).
+/// whose HS is blacklisted
 #[derive(Debug, Default, Clone)]
 pub struct UserIngestor {
     /// HS PKs which should not be indexed
@@ -27,8 +24,7 @@ impl UserIngestor {
         }
     }
 
-    /// Builds an ingestor from [`WatcherConfig::external_hs_pk_blacklist`].
-    pub fn from_config(config: &WatcherConfig) -> Self {
+    pub fn from_config(config: &StackConfig) -> Self {
         Self {
             hs_blacklist: HsBlacklist::from_config(config),
         }

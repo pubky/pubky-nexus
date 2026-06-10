@@ -165,10 +165,6 @@ pub struct WatcherConfig {
     // Moderation
     pub moderation_id: PubkyId,
     pub moderated_tags: Vec<String>,
-
-    /// External HS PKs which are forbidden from being indexed.
-    #[serde(default)]
-    pub external_hs_pk_blacklist: Vec<PubkyId>,
 }
 
 impl Default for WatcherConfig {
@@ -196,7 +192,6 @@ impl Default for WatcherConfig {
             retry: EventRetryConfig::default(),
             moderation_id,
             moderated_tags: MODERATED_TAGS.iter().map(|s| s.to_string()).collect(),
-            external_hs_pk_blacklist: Vec::new(),
         }
     }
 }
