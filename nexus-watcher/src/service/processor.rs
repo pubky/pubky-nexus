@@ -6,14 +6,27 @@ use crate::events::Moderation;
 use crate::service::traits::TEventProcessor;
 use nexus_common::db::PubkyConnector;
 use nexus_common::models::homeserver::Homeserver;
+use opentelemetry::metrics::Counter;
 use opentelemetry::trace::{FutureExt, Span, TraceContextExt, Tracer};
 use opentelemetry::{global, Context, KeyValue};
 use pubky::Method;
 use pubky_app_specs::PubkyId;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::LazyLock;
 use tokio::sync::watch::Receiver;
 use tracing::{debug, error, info, warn};
+
+/// OpenTelemetry meter name for all watcher metrics.
+const METER_NAME: &str = "nexus.watcher";
+
+/// Counter for events permanently rejected for exceeding a fetch size limit.
+static REJECTED: LazyLock<Counter<u64>> = LazyLock::new(|| {
+    global::meter(METER_NAME)
+        .u64_counter("watcher.fetch.rejected")
+        .with_description("Event fetches rejected for exceeding a size limit")
+        .build()
+});
 
 pub struct EventProcessor {
     pub homeserver: Homeserver,
@@ -23,6 +36,8 @@ pub struct EventProcessor {
     pub tracer_name: String,
     pub moderation: Arc<Moderation>,
     pub shutdown_rx: Receiver<bool>,
+    /// See [WatcherConfig::max_file_size]
+    pub max_file_size: u64,
 }
 
 #[async_trait::async_trait]
@@ -168,6 +183,11 @@ impl EventProcessor {
                 EventProcessorError::InvalidEventLine(ref msg) => {
                     error!("Universal tag non-retryable: {msg}");
                 }
+                EventProcessorError::FetchSizeExceeded(size, limit) => {
+                    // Deterministic: re-fetching produces the same result
+                    warn!(size, limit, uri, "FetchSizeExceeded: permanently rejected");
+                    REJECTED.add(1, &[KeyValue::new("reason", "size_exceeded")]);
+                }
                 _ => {
                     let index_key = format!("{event_type}:{uri}");
                     let retry_event = RetryEvent::new(e);
@@ -201,7 +221,7 @@ impl EventProcessor {
     )]
     async fn handle_event(&self, event: &Event) -> Result<(), EventProcessorError> {
         let span = tracing::Span::current();
-        if let Err(e) = handle(event, self.moderation.clone()).await {
+        if let Err(e) = handle(event, self.moderation.clone(), self.max_file_size).await {
             span.record("otel.status_code", "ERROR");
             span.record("otel.status_message", tracing::field::display(&e));
 
@@ -218,11 +238,7 @@ impl EventProcessor {
     }
 }
 
-/// Extracts retry-related information from an event and its associated error
-///
-/// # Parameters
-/// - `event`: Reference to the event for which retry information is being extracted
-/// - `error`: Determines whether the event is eligible for a retry or should be discarded
+/// Returns `Some` if the error is retryable, otherwise logs and returns `None`.
 fn extract_retry_event_info(
     event: &Event,
     error: EventProcessorError,
@@ -236,6 +252,17 @@ fn extract_retry_event_info(
             // Spec-validation failures are deterministic: re-running the same
             // payload produces the same error. Don't poison the retry queue.
             error!("SpecValidation: {}", reason);
+            return None;
+        }
+        EventProcessorError::FetchSizeExceeded(size, limit) => {
+            // Deterministic: re-fetching produces the same result
+            warn!(
+                size,
+                limit,
+                uri = %event.uri,
+                "FetchSizeExceeded: permanently rejected"
+            );
+            REJECTED.add(1, &[KeyValue::new("reason", "size_exceeded")]);
             return None;
         }
         _ => RetryEvent::new(error),
@@ -296,6 +323,16 @@ mod tests {
             EventProcessorError::SpecValidation("post kind is unknown".into()),
         );
         assert!(result.is_none(), "SpecValidation must skip retry");
+    }
+
+    #[test]
+    fn test_extract_retry_event_info_skips_response_size_exceeded() {
+        let (event, _tmp) = fixture_event();
+        let result = extract_retry_event_info(
+            &event,
+            EventProcessorError::FetchSizeExceeded(100_000_000, 50_000_000),
+        );
+        assert!(result.is_none());
     }
 
     #[test]

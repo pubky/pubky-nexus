@@ -1,3 +1,5 @@
+use crate::events::read_stream_capped;
+use crate::events::{fetch_capped, format_error_body, MAX_ERROR_BODY, MAX_RESOURCE_SIZE};
 use nexus_common::db::PubkyConnector;
 use nexus_common::models::event::{EventProcessorError, EventType};
 use pubky_app_specs::{PubkyAppTag, PubkyId, APP_PATH, PROTOCOL, PUBLIC_PATH};
@@ -43,20 +45,17 @@ async fn handle_put(info: AppTagInfo) -> Result<(), EventProcessorError> {
 
     if !response.status().is_success() {
         let status = response.status();
-        let body = response
-            .text()
+        let (body, _exceeded) = read_stream_capped(response.bytes_stream(), MAX_ERROR_BODY)
             .await
-            .unwrap_or_else(|_| "<unable to read body>".to_string());
+            .unwrap_or_default();
+        let body = format_error_body(&body, MAX_ERROR_BODY);
         return Err(EventProcessorError::client_error(format!(
             "Fetch universal tag failed {}: HTTP {status} - {body}",
             info.uri
         )));
     }
 
-    let blob = response
-        .bytes()
-        .await
-        .map_err(|e| EventProcessorError::client_error(e.to_string()))?;
+    let blob = fetch_capped(response, MAX_RESOURCE_SIZE as u64).await?;
 
     // Deserialize as PubkyAppTag — if it's not a valid tag, this fails cleanly
     let app_tag: PubkyAppTag = serde_json::from_slice(&blob).map_err(|e| {

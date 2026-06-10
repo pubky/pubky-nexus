@@ -23,6 +23,11 @@ watcher_sleep = 5000
 initial_backoff_secs = 60
 # Maximum backoff duration (in seconds) for a failing homeserver
 max_backoff_secs = 3600
+# Maximum allowed file size (in bytes) for ingested files. Default: 52428800 (50 MiB).
+# Responses with Content-Length exceeding this are rejected immediately.
+# Responses without a header are streamed with a running byte-count and aborted past the cap.
+# Rejected files are treated as permanent failures (not retried).
+max_file_size = 52428800
 # User public key to trust for moderating content (test user key, change as needed)
 moderation_id = "uo7jgkykft4885n8cruizwy6khw71mnu5pq3ay9i8pw1ymcn85ko"
 # Tags on content to de-index when placed by the trusted moderator above
