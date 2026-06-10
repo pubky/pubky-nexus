@@ -1,10 +1,9 @@
-use std::sync::Arc;
-
 use pubky_app_specs::{ParsedUri, PubkyId};
 
 use crate::db::queries::put;
 use crate::db::{exec_single_row, PubkyConnector};
 use crate::models::error::{ModelError, ModelResult};
+use crate::models::homeserver::HsBlacklist;
 use crate::models::traits::Collection;
 use crate::models::user::{UserDetails, UserHsCursor};
 use crate::WatcherConfig;
@@ -17,27 +16,22 @@ use crate::WatcherConfig;
 #[derive(Debug, Default, Clone)]
 pub struct UserIngestor {
     /// HS PKs which should not be indexed
-    external_hs_pk_blacklist: Arc<Vec<PubkyId>>,
+    hs_blacklist: HsBlacklist,
 }
 
 impl UserIngestor {
     /// Builds an ingestor enforcing the given HS blacklist.
     pub fn new(external_hs_pk_blacklist: impl IntoIterator<Item = PubkyId>) -> Self {
         Self {
-            external_hs_pk_blacklist: Arc::new(external_hs_pk_blacklist.into_iter().collect()),
+            hs_blacklist: HsBlacklist::new(external_hs_pk_blacklist),
         }
     }
 
     /// Builds an ingestor from [`WatcherConfig::external_hs_pk_blacklist`].
     pub fn from_config(config: &WatcherConfig) -> Self {
-        Self::new(config.external_hs_pk_blacklist.iter().cloned())
-    }
-
-    /// Whether `hs_id` (z-base-32) is blacklisted.
-    fn is_hs_blacklisted(&self, hs_id: &str) -> bool {
-        self.external_hs_pk_blacklist
-            .iter()
-            .any(|pk| pk.as_ref() == hs_id)
+        Self {
+            hs_blacklist: HsBlacklist::from_config(config),
+        }
     }
 
     /// Ingests the author of a referenced post, if unknown.
@@ -73,7 +67,7 @@ impl UserIngestor {
         let hs_id = hs_pk.into_inner().to_z32();
 
         // Refuse users hosted on a blacklisted HS.
-        if self.is_hs_blacklisted(&hs_id) {
+        if self.hs_blacklist.is_blacklisted(&hs_id) {
             tracing::warn!("Aborting ingestion: {user_id} hosted on blacklisted HS {hs_id}");
             return Err(ModelError::HomeserverBlacklisted { hs_id });
         }

@@ -3,10 +3,9 @@ use std::{path::PathBuf, sync::Arc, time::Duration};
 use futures::StreamExt;
 use nexus_common::db::PubkyConnector;
 use nexus_common::models::event::{Event, EventProcessorError};
-use nexus_common::models::homeserver::Homeserver;
+use nexus_common::models::homeserver::{Homeserver, HsBlacklist};
 use nexus_common::models::user::UserHsCursor;
 use pubky::{Event as StreamEvent, EventCursor, PublicKey};
-use pubky_app_specs::PubkyId;
 use tokio::sync::watch::Receiver;
 use tracing::{debug, error, info, warn};
 
@@ -79,7 +78,7 @@ pub struct KeyBasedEventProcessor {
     /// HS PKs that should not be indexed. Defense-in-depth: the runner already
     /// excludes these from `pre_run`, but the processor refuses to run for a
     /// blacklisted HS too.
-    pub external_hs_pk_blacklist: Arc<Vec<PubkyId>>,
+    pub hs_blacklist: HsBlacklist,
 
     /// Scheduler used to enqueue failed events onto the retry queue
     pub retry_scheduler: Arc<RetryScheduler>,
@@ -114,7 +113,7 @@ impl TEventProcessor for KeyBasedEventProcessor {
 
         // Blacklisted HSs must never be indexed. The runner already excludes
         // them from `pre_run`, so reaching here is unexpected.
-        if self.external_hs_pk_blacklist.contains(&self.homeserver.id) {
+        if self.hs_blacklist.is_blacklisted(&hs_id) {
             error!(%hs_id, action = "abort_hs", "Refusing to process blacklisted HS");
             return Err(EventProcessorError::HomeserverBlacklisted { hs_id });
         }

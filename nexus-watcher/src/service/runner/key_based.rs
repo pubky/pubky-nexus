@@ -6,7 +6,7 @@ use crate::service::indexer::{
 };
 use crate::service::runner::key_based_hs_backoff::HomeserverBackoff;
 use crate::service::stats::{ProcessedStats, ProcessorRunStatus, RunAllProcessorsStats};
-use nexus_common::models::homeserver::Homeserver;
+use nexus_common::models::homeserver::{Homeserver, HsBlacklist};
 use nexus_common::types::DynError;
 use nexus_common::WatcherConfig;
 use pubky_app_specs::PubkyId;
@@ -33,7 +33,7 @@ pub struct KeyBasedEventProcessorRunner {
 
     /// HS PKs that must never be indexed. Excluded from `pre_run` and re-checked
     /// by each [`KeyBasedEventProcessor`] this runner builds.
-    pub external_hs_pk_blacklist: Arc<Vec<PubkyId>>,
+    pub hs_blacklist: HsBlacklist,
 
     /// Per-target exponential backoff state
     pub backoff: Mutex<HomeserverBackoff>,
@@ -55,7 +55,7 @@ impl KeyBasedEventProcessorRunner {
             event_source: Arc::new(PubkyKeyBasedEventSource),
             shutdown_rx,
             default_homeserver: config.homeserver.clone(),
-            external_hs_pk_blacklist: Arc::new(config.external_hs_pk_blacklist.clone()),
+            hs_blacklist: HsBlacklist::from_config(config),
             backoff: Mutex::new(HomeserverBackoff::new(
                 config.initial_backoff_secs,
                 config.max_backoff_secs,
@@ -63,13 +63,6 @@ impl KeyBasedEventProcessorRunner {
             user_not_found_backoff: Arc::new(UserNotFoundBackoff::default()),
             retry_scheduler: Arc::new(RetryScheduler::from_config(config)),
         }
-    }
-
-    /// Whether `hs_id` (z-base-32) is on the blacklist.
-    fn is_hs_blacklisted(&self, hs_id: &str) -> bool {
-        self.external_hs_pk_blacklist
-            .iter()
-            .any(|pk| pk.as_ref() == hs_id)
     }
 
     /// Returns the homeserver IDs relevant for this run, ordered by their priority.
@@ -83,7 +76,7 @@ impl KeyBasedEventProcessorRunner {
             // The default HS is not expected to be active, but we still filter as an extra precaution
             .filter(|hs_id| hs_id != self.default_homeserver.as_ref())
             // Exclude any blacklisted HS
-            .filter(|hs_id| !self.is_hs_blacklisted(hs_id))
+            .filter(|hs_id| !self.hs_blacklist.is_blacklisted(hs_id))
             .collect();
 
         Ok(hs_ids)
@@ -110,7 +103,7 @@ impl TEventProcessorRunner for KeyBasedEventProcessorRunner {
             event_source: self.event_source.clone(),
             user_not_found_backoff: self.user_not_found_backoff.clone(),
             retry_scheduler: self.retry_scheduler.clone(),
-            external_hs_pk_blacklist: self.external_hs_pk_blacklist.clone(),
+            hs_blacklist: self.hs_blacklist.clone(),
             shutdown_rx: self.shutdown_rx.clone(),
         }))
     }

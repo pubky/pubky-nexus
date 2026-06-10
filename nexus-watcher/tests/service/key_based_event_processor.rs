@@ -7,7 +7,7 @@ use anyhow::Result;
 use chrono::Utc;
 use nexus_common::db::{exec_single_row, graph::Query, PubkyClientError, RedisOps};
 use nexus_common::models::event::{Event, EventProcessorError};
-use nexus_common::models::homeserver::Homeserver;
+use nexus_common::models::homeserver::{Homeserver, HsBlacklist};
 use nexus_common::models::traits::Collection;
 use nexus_common::models::user::{user_hs_cursor_key, UserDetails};
 use nexus_common::types::DynError;
@@ -586,7 +586,7 @@ async fn key_based_processor_aborts_blacklisted_homeserver() -> Result<(), DynEr
     let source = Arc::new(MockKeyBasedEventSource::default());
     let handler = create_mock_handler(Ok(()), None);
     let (_shutdown_tx, shutdown_rx) = watch::channel(false);
-    let blacklist = Arc::new(vec![homeserver.id.clone()]);
+    let blacklist = HsBlacklist::new([homeserver.id.clone()]);
     let processor = processor_with_blacklist(
         homeserver,
         handler.clone(),
@@ -771,7 +771,7 @@ fn processor_with_options(
         limit,
         shutdown_rx,
         user_not_found_backoff,
-        Arc::new(Vec::new()),
+        HsBlacklist::default(),
     )
 }
 
@@ -783,7 +783,7 @@ fn processor_with_blacklist(
     limit: u16,
     shutdown_rx: watch::Receiver<bool>,
     user_not_found_backoff: Arc<UserNotFoundBackoff>,
-    external_hs_pk_blacklist: Arc<Vec<PubkyId>>,
+    hs_blacklist: HsBlacklist,
 ) -> Arc<KeyBasedEventProcessor> {
     Arc::new(KeyBasedEventProcessor {
         homeserver,
@@ -792,7 +792,7 @@ fn processor_with_blacklist(
         event_handler: handler,
         event_source: source,
         user_not_found_backoff,
-        external_hs_pk_blacklist,
+        hs_blacklist,
         retry_scheduler: Arc::new(RetryScheduler::new(
             new_in_memory_store(),
             InitialBackoff {

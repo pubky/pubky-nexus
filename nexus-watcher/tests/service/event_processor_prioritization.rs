@@ -3,7 +3,7 @@ use crate::service::utils::HS_IDS;
 use crate::service::utils::{create_mock_event_processors, setup, MockEventProcessorRunner};
 use anyhow::Result;
 use chrono::Utc;
-use nexus_common::models::homeserver::Homeserver;
+use nexus_common::models::homeserver::{Homeserver, HsBlacklist};
 use nexus_common::models::traits::Collection;
 use nexus_common::models::user::UserDetails;
 use nexus_common::types::DynError;
@@ -45,7 +45,7 @@ async fn test_event_processor_runner_default_homeserver_excluded() -> Result<(),
         event_source: Arc::new(PubkyKeyBasedEventSource),
         shutdown_rx: tokio::sync::watch::channel(false).1,
         default_homeserver: PubkyId::try_from(HS_IDS[3]).unwrap(),
-        external_hs_pk_blacklist: Arc::new(Vec::new()),
+        hs_blacklist: HsBlacklist::default(),
         backoff: Mutex::new(HomeserverBackoff::default()),
         user_not_found_backoff: Arc::new(UserNotFoundBackoff::default()),
         retry_scheduler,
@@ -96,7 +96,7 @@ async fn test_event_processor_runner_blacklisted_homeserver_excluded() -> Result
         event_source: Arc::new(PubkyKeyBasedEventSource),
         shutdown_rx: tokio::sync::watch::channel(false).1,
         default_homeserver: PubkyId::try_from(HS_IDS[3]).unwrap(),
-        external_hs_pk_blacklist: Arc::new(vec![blacklisted_hs.clone()]),
+        hs_blacklist: HsBlacklist::new([blacklisted_hs.clone()]),
         backoff: Mutex::new(HomeserverBackoff::default()),
         user_not_found_backoff: Arc::new(UserNotFoundBackoff::default()),
         retry_scheduler,
