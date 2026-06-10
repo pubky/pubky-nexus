@@ -9,16 +9,15 @@ use crate::models::error::ModelError;
 use crate::models::error::ModelResult;
 use pubky_app_specs::PubkyId;
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 use tracing::{info, warn};
 
 /// A set of homeserver public keys forbidden from indexing and ingestion.
 #[derive(Debug, Default, Clone)]
-pub struct HsBlacklist(Arc<Vec<PubkyId>>);
+pub struct HsBlacklist(Vec<PubkyId>);
 
 impl HsBlacklist {
     pub fn new(hs_pks: impl IntoIterator<Item = PubkyId>) -> Self {
-        Self(Arc::new(hs_pks.into_iter().collect()))
+        Self(hs_pks.into_iter().collect())
     }
 
     pub fn from_config(config: &crate::StackConfig) -> Self {
