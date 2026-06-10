@@ -9,9 +9,8 @@ use nexus_common::db::{exec_single_row, graph::Query, PubkyClientError, RedisOps
 use nexus_common::models::event::{Event, EventProcessorError};
 use nexus_common::models::homeserver::{Homeserver, HsBlacklist};
 use nexus_common::models::traits::Collection;
-use nexus_common::models::user::{user_hs_cursor_key, UserDetails};
+use nexus_common::models::user::{set_user_homeserver, user_hs_cursor_key, UserDetails};
 use nexus_common::types::DynError;
-use nexus_watcher::events::handlers::user::set_user_homeserver;
 use nexus_watcher::events::retry::{InitialBackoff, RetryScheduler};
 use nexus_watcher::events::EventHandler;
 use nexus_watcher::service::indexer::{KeyBasedEventProcessor, RunError, TEventProcessor};

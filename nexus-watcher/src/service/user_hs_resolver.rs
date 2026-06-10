@@ -3,10 +3,10 @@
 //! Periodic task that resolves each user's homeserver and persists
 //! the `(:User)-[:HOSTED_BY]->(:Homeserver)` relationship in Neo4j.
 
-use crate::events::handlers::user::{set_user_homeserver, set_user_homeserver_stale};
 use nexus_common::db::{
     fetch_key_from_graph, queries, GraphResult, PubkyClientResult, PubkyConnector,
 };
+use nexus_common::models::user::{set_user_homeserver, set_user_homeserver_stale};
 use nexus_common::types::DynError;
 use nexus_common::WatcherConfig;
 use opentelemetry::global;

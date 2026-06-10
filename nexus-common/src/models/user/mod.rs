@@ -12,7 +12,7 @@ mod view;
 
 pub use counts::UserCounts;
 pub use cursor::{user_hs_cursor_key, UserHsCursor, UserHsCursorKey};
-pub use details::UserDetails;
+pub use details::{set_user_homeserver, set_user_homeserver_stale, UserDetails};
 pub use influencers::Influencers;
 pub use ingestor::UserIngestor;
 pub use relationship::Relationship;

@@ -1,7 +1,7 @@
 use crate::event_processor::utils::watcher::WatcherTest;
 use nexus_common::models::homeserver::Homeserver;
+use nexus_common::models::user::{set_user_homeserver, set_user_homeserver_stale};
 use nexus_common::types::DynError;
-use nexus_watcher::events::handlers::user::{set_user_homeserver, set_user_homeserver_stale};
 use pubky::Keypair;
 use pubky_app_specs::{PubkyAppUser, PubkyId};
 

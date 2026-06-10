@@ -2,7 +2,7 @@ use crate::events::EventProcessorError;
 
 use nexus_common::db::queries::get::user_is_safe_to_delete;
 use nexus_common::db::{
-    exec_single_row, execute_graph_operation, queries, GraphResult, OperationOutcome, RedisOps,
+    exec_single_row, execute_graph_operation, queries, OperationOutcome, RedisOps,
 };
 use nexus_common::models::{
     traits::Collection,
@@ -97,14 +97,4 @@ pub async fn del(user_id: PubkyId) -> Result<(), EventProcessorError> {
     // TODO notifications for deleted user
 
     Ok(())
-}
-
-/// Binds a user to their homeserver, recording the `HOSTED_BY` relationship and `resolved_at`.
-pub async fn set_user_homeserver(user_id: &str, homeserver_id: &str) -> GraphResult<()> {
-    exec_single_row(queries::put::set_user_homeserver(user_id, homeserver_id)).await
-}
-
-/// Toggles the stale flag on a user's existing homeserver mapping.
-pub async fn set_user_homeserver_stale(user_id: &str, stale: bool) -> GraphResult<()> {
-    exec_single_row(queries::put::set_user_homeserver_stale(user_id, stale)).await
 }
