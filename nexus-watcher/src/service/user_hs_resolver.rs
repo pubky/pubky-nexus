@@ -274,7 +274,8 @@ mod tests {
     use nexus_common::db::graph::Query;
     use nexus_common::types::DynError;
     use nexus_common::{StackConfig, StackManager};
-    use pubky::Keypair;
+
+    use crate::test_utils::{random_pk, random_pubky_id};
 
     async fn setup() -> Result<(), DynError> {
         StackManager::setup(&StackConfig::default()).await
@@ -294,11 +295,6 @@ mod tests {
         ) -> PubkyClientResult<Option<PubkyId>> {
             Ok(self.result.clone())
         }
-    }
-
-    /// Helper: a random homeserver id.
-    fn random_hs_id() -> PubkyId {
-        PubkyId::from(Keypair::random().public_key())
     }
 
     /// Helper: create a User node in the graph
@@ -465,8 +461,8 @@ mod tests {
     async fn test_get_user_homeserver() -> Result<(), DynError> {
         setup().await?;
 
-        let user_id = Keypair::random().public_key().z32();
-        let hs_id = Keypair::random().public_key().z32();
+        let user_id = random_pk().z32();
+        let hs_id = random_pk().z32();
 
         create_test_user(&user_id).await?;
 
@@ -490,9 +486,9 @@ mod tests {
     async fn test_resolve_user_first_time_sets_homeserver() -> Result<(), DynError> {
         setup().await?;
 
-        let user_pk = Keypair::random().public_key();
+        let user_pk = random_pk();
         let user_id = user_pk.z32();
-        let hs_id = random_hs_id();
+        let hs_id = random_pubky_id();
 
         create_test_user(&user_id).await?;
 
@@ -517,7 +513,7 @@ mod tests {
     async fn test_resolve_user_first_time_no_homeserver_noop() -> Result<(), DynError> {
         setup().await?;
 
-        let user_pk = Keypair::random().public_key();
+        let user_pk = random_pk();
         let user_id = user_pk.z32();
 
         create_test_user(&user_id).await?;
@@ -544,10 +540,10 @@ mod tests {
     async fn test_resolve_user_change_keeps_binding_and_marks_stale() -> Result<(), DynError> {
         setup().await?;
 
-        let user_pk = Keypair::random().public_key();
+        let user_pk = random_pk();
         let user_id = user_pk.z32();
-        let stored_hs = random_hs_id();
-        let new_hs = random_hs_id();
+        let stored_hs = random_pubky_id();
+        let new_hs = random_pubky_id();
 
         create_test_user(&user_id).await?;
         set_user_homeserver(&user_id, &stored_hs).await?;
@@ -580,9 +576,9 @@ mod tests {
     async fn test_resolve_user_unpublished_keeps_binding_and_marks_stale() -> Result<(), DynError> {
         setup().await?;
 
-        let user_pk = Keypair::random().public_key();
+        let user_pk = random_pk();
         let user_id = user_pk.z32();
-        let stored_hs = random_hs_id();
+        let stored_hs = random_pubky_id();
 
         create_test_user(&user_id).await?;
         set_user_homeserver(&user_id, &stored_hs).await?;
@@ -610,9 +606,9 @@ mod tests {
     async fn test_resolve_user_realign_clears_stale() -> Result<(), DynError> {
         setup().await?;
 
-        let user_pk = Keypair::random().public_key();
+        let user_pk = random_pk();
         let user_id = user_pk.z32();
-        let stored_hs = random_hs_id();
+        let stored_hs = random_pubky_id();
 
         create_test_user(&user_id).await?;
         set_user_homeserver(&user_id, &stored_hs).await?;
@@ -641,13 +637,13 @@ mod tests {
     fn test_bisection_order() {
         // Empty and single-element edge cases.
         assert!(bisection_order_user_pks(vec![]).is_empty());
-        let lone = Keypair::random().public_key();
+        let lone = random_pk();
         let result = bisection_order_user_pks(vec![lone.clone()]);
         assert_eq!(result[0].as_bytes(), lone.as_bytes());
 
         // For 8 keys, verify the full BFS-bisection permutation.
         // Sort first to establish the ground-truth lexicographic order.
-        let mut sorted: Vec<PublicKey> = (0..8).map(|_| Keypair::random().public_key()).collect();
+        let mut sorted: Vec<PublicKey> = (0..8).map(|_| random_pk()).collect();
         sorted.sort_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
 
         // BFS over a sorted array of 8 elements (half-open intervals) emits:

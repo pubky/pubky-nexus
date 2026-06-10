@@ -1,6 +1,8 @@
 use crate::event_processor::utils::{default_ingestor_tests, default_moderation_tests};
 use crate::service::utils::HS_IDS;
-use crate::service::utils::{create_mock_event_processors, setup, MockEventProcessorRunner};
+use crate::service::utils::{
+    create_mock_event_processors, random_pubky_id, setup, MockEventProcessorRunner,
+};
 use anyhow::Result;
 use chrono::Utc;
 use nexus_common::models::homeserver::{Homeserver, HsBlacklist};
@@ -13,7 +15,6 @@ use nexus_watcher::service::indexer::PubkyKeyBasedEventSource;
 use nexus_watcher::service::runner::HomeserverBackoff;
 use nexus_watcher::service::runner::UserNotFoundBackoff;
 use nexus_watcher::service::{KeyBasedEventProcessorRunner, TEventProcessorRunner};
-use pubky::Keypair;
 use pubky_app_specs::PubkyId;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -85,8 +86,8 @@ async fn test_event_processor_runner_blacklisted_homeserver_excluded() -> Result
     ));
 
     // Fresh random HSs so this test's active-user graph state is isolated.
-    let blacklisted_hs = random_homeserver_id();
-    let allowed_hs = random_homeserver_id();
+    let blacklisted_hs = random_pubky_id();
+    let allowed_hs = random_pubky_id();
     let runner = KeyBasedEventProcessorRunner {
         limit: 1000,
         monitored_hs_limit: 100,
@@ -156,14 +157,10 @@ async fn test_mock_event_processor_runner_default_homeserver_excluded() -> Resul
     Ok(())
 }
 
-fn random_homeserver_id() -> PubkyId {
-    PubkyId::try_from(Keypair::random().public_key().to_z32().as_str()).unwrap()
-}
-
 /// Creates a user node with a `HOSTED_BY` edge to `hs_id`, making the HS
 /// "active" for `get_all_active_from_graph`.
 async fn create_active_user_on_homeserver(hs_id: &PubkyId) -> Result<(), DynError> {
-    let user_id = random_homeserver_id();
+    let user_id = random_pubky_id();
     let user = UserDetails {
         id: user_id.clone(),
         name: "prioritization-test-user".into(),

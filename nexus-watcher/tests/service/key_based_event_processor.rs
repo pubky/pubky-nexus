@@ -20,8 +20,8 @@ use pubky_app_specs::PubkyId;
 use tokio::sync::watch;
 
 use crate::service::utils::{
-    create_mock_handler, create_random_homeservers_and_persist, new_in_memory_store, setup,
-    MockEventProcessorResult, MockKeyBasedEventSource,
+    create_mock_handler, create_random_homeservers_and_persist, new_in_memory_store,
+    random_pubky_id, setup, MockEventProcessorResult, MockKeyBasedEventSource,
 };
 
 /// Verifies `TEventProcessor::run` maps elapsed execution to a timeout error.
@@ -89,7 +89,7 @@ async fn key_based_processor_stops_mismatched_user_stream_but_continues_other_us
     let user_b_id = create_user_on_homeserver(&homeserver).await?;
 
     // This ID is not hosted on the homeserver; it simulates a malicious or broken event source.
-    let user_c_id = Keypair::random().public_key().to_z32();
+    let user_c_id = random_pubky_id().to_string();
 
     // For the first hosted user, return an event whose URI belongs to a different user.
     // The following valid event for the same hosted user must not be processed after that mismatch.
@@ -267,7 +267,7 @@ async fn key_based_processor_persists_last_safe_cursor_before_mismatch() -> Resu
     let (_hs_keypair, homeserver) = create_homeserver().await?;
     let hs_id = homeserver.id.to_string();
     let user_id = create_user_on_homeserver(&homeserver).await?;
-    let mismatched_user_id = Keypair::random().public_key().to_z32();
+    let mismatched_user_id = random_pubky_id().to_string();
     let source = Arc::new(MockKeyBasedEventSource::default().with_events(vec![vec![
         stream_event(5, &user_id, "/pub/pubky.app/profile.json")?,
         stream_event(6, &mismatched_user_id, "/pub/pubky.app/profile.json")?,
@@ -586,7 +586,7 @@ async fn key_based_processor_aborts_blacklisted_homeserver() -> Result<(), DynEr
     let handler = create_mock_handler(Ok(()), None);
     let (_shutdown_tx, shutdown_rx) = watch::channel(false);
     let blacklist = HsBlacklist::new([homeserver.id.clone()]);
-    let processor = processor_with_blacklist(
+    let processor = processor_with_options(
         homeserver,
         handler.clone(),
         source.clone(),
@@ -614,7 +614,7 @@ async fn create_homeserver() -> Result<(Keypair, Homeserver), DynError> {
 }
 
 async fn create_user_on_homeserver(homeserver: &Homeserver) -> Result<String, DynError> {
-    let user_id = PubkyId::try_from(Keypair::random().public_key().to_z32().as_str())?;
+    let user_id = random_pubky_id();
     let user = UserDetails {
         id: user_id.clone(),
         name: "key-based-processor-test-user".into(),
@@ -700,6 +700,7 @@ fn processor(
         100,
         shutdown_rx,
         Arc::new(UserNotFoundBackoff::default()),
+        HsBlacklist::default(),
     )
 }
 
@@ -719,6 +720,7 @@ fn processor_with_backoff(
         100,
         shutdown_rx,
         user_not_found_backoff,
+        HsBlacklist::default(),
     )
 }
 
@@ -736,6 +738,7 @@ fn processor_with_limit(
         limit,
         shutdown_rx,
         Arc::new(UserNotFoundBackoff::default()),
+        HsBlacklist::default(),
     )
 }
 
@@ -752,30 +755,11 @@ fn processor_with_shutdown(
         100,
         shutdown_rx,
         Arc::new(UserNotFoundBackoff::default()),
-    )
-}
-
-fn processor_with_options(
-    homeserver: Homeserver,
-    handler: Arc<dyn EventHandler>,
-    source: Arc<MockKeyBasedEventSource>,
-    limit: u16,
-    shutdown_rx: watch::Receiver<bool>,
-    user_not_found_backoff: Arc<UserNotFoundBackoff>,
-) -> Arc<KeyBasedEventProcessor> {
-    processor_with_blacklist(
-        homeserver,
-        handler,
-        source,
-        limit,
-        shutdown_rx,
-        user_not_found_backoff,
         HsBlacklist::default(),
     )
 }
 
-#[allow(clippy::too_many_arguments)]
-fn processor_with_blacklist(
+fn processor_with_options(
     homeserver: Homeserver,
     handler: Arc<dyn EventHandler>,
     source: Arc<MockKeyBasedEventSource>,
