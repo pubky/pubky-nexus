@@ -25,9 +25,7 @@ impl UserIngestor {
     }
 
     pub fn from_config(config: &StackConfig) -> Self {
-        Self {
-            hs_blacklist: HsBlacklist::from_config(config),
-        }
+        Self::new(config.external_hs_pk_blacklist.iter().cloned())
     }
 
     /// Ingests the author of a referenced post, if unknown.
