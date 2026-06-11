@@ -13,7 +13,7 @@ use pubky_app_specs::{
 };
 use tracing::{debug, Instrument};
 
-use super::utils::post_relationships_is_reply;
+use super::utils::{fail_on_blacklisted_hs, post_relationships_is_reply};
 
 #[tracing::instrument(name = "post.put", skip_all, fields(user_id = %author_id, post_id = %post_id))]
 pub async fn sync_put(
@@ -41,9 +41,10 @@ pub async fn sync_put(
                     .map_err(EventProcessorError::generic)?;
                 dependency_event_keys.push(replied_uri_str);
 
-                if let Err(e) = ingestor.maybe_ingest_author_of_post(replied_to_uri).await {
-                    tracing::warn!("Failed to ingest user: {e}");
-                }
+                // We try to index missing dependency "replied-to post's author". If their HS is blacklisted
+                // they cannot be ingested, so fail with non-retryable error to prevent enqueuing.
+                // This has the effect of dropping the reply.
+                fail_on_blacklisted_hs(ingestor.maybe_ingest_author_of_post(replied_to_uri).await)?;
             }
             if let Some(reposted_uri) = &post_relationships.reposted {
                 let reposted_uri_str = reposted_uri
@@ -51,9 +52,10 @@ pub async fn sync_put(
                     .map_err(EventProcessorError::generic)?;
                 dependency_event_keys.push(reposted_uri_str);
 
-                if let Err(e) = ingestor.maybe_ingest_author_of_post(reposted_uri).await {
-                    tracing::warn!("Failed to ingest user: {e}");
-                }
+                // We try to index missing dependency "reposted post's author". If their HS is blacklisted
+                // they cannot be ingested, so fail with non-retryable error to prevent enqueuing.
+                // This has the effect of dropping the repost.
+                fail_on_blacklisted_hs(ingestor.maybe_ingest_author_of_post(reposted_uri).await)?;
             }
             if dependency_event_keys.is_empty() {
                 let author_uri = author_id
@@ -101,6 +103,8 @@ pub async fn sync_put(
     // We only consider the first mentioned (tagged) user, to mitigate DoS attacks against Nexus
     // whereby posts with many (inexistent) tagged PKs can cause Nexus to spend a lot of time trying to resolve them
     if let Some(mentioned_user_id) = &post_relationships.mentioned.first() {
+        // Best-effort: failures (incl. a blacklisted HS) must not fail the post itself,
+        // which is indexed regardless; the MENTIONED edge is simply not materialized.
         if let Err(e) = ingestor.maybe_ingest_user(mentioned_user_id).await {
             tracing::warn!("Failed to ingest user {mentioned_user_id}: {e}");
         }

@@ -20,7 +20,7 @@ use nexus_common::universal_tag::normalize::{
 use pubky_app_specs::{post_uri_builder, ParsedUri, PubkyAppTag, PubkyId, Resource};
 use tracing::debug;
 
-use super::utils::post_relationships_is_reply;
+use super::utils::{fail_on_blacklisted_hs, post_relationships_is_reply};
 
 #[derive(Debug)]
 struct TagStorageUri {
@@ -230,9 +230,10 @@ async fn put_sync_post(
         }
         OperationOutcome::MissingDependency => {
             if let Ok(post_uri) = ParsedUri::try_from(post_uri_str) {
-                if let Err(e) = ingestor.maybe_ingest_author_of_post(&post_uri).await {
-                    tracing::warn!("Failed to ingest user: {e}");
-                }
+                // We try to index missing dependency "tagged post's author". If their HS is blacklisted
+                // they cannot be ingested, so fail with non-retryable error to prevent enqueuing.
+                // This has the effect of dropping the tag.
+                fail_on_blacklisted_hs(ingestor.maybe_ingest_author_of_post(&post_uri).await)?;
             }
             Err(EventProcessorError::MissingDependency {
                 dependency: vec![post_uri_str.to_owned()],
@@ -348,9 +349,10 @@ async fn put_sync_user(
             Ok(())
         }
         OperationOutcome::MissingDependency => {
-            if let Err(e) = ingestor.maybe_ingest_user(&tagged_user_id).await {
-                tracing::warn!("Failed to ingest tagged user {tagged_user_id}: {e}");
-            }
+            // We try to index missing dependency "tagged user". If their HS is blacklisted
+            // they cannot be ingested, so fail with non-retryable error to prevent enqueuing.
+            // This has the effect of dropping the tag.
+            fail_on_blacklisted_hs(ingestor.maybe_ingest_user(&tagged_user_id).await)?;
 
             let tagged_uri = tagged_user_id
                 .to_uri()

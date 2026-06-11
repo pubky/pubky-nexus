@@ -8,6 +8,8 @@ use nexus_common::models::user::{UserCounts, UserIngestor};
 use pubky_app_specs::PubkyId;
 use tracing::debug;
 
+use super::utils::fail_on_blacklisted_hs;
+
 #[tracing::instrument(name = "follow.put", skip_all, fields(follower_id = %follower_id, followee_id = %followee_id))]
 pub async fn sync_put(
     follower_id: PubkyId,
@@ -35,9 +37,10 @@ pub async fn sync_put(
             return Ok(());
         }
         OperationOutcome::MissingDependency => {
-            if let Err(e) = ingestor.maybe_ingest_user(&followee_id).await {
-                tracing::warn!("Failed to ingest user {followee_id}: {e}");
-            }
+            // We try to index missing dependency "followee". If their HS is blacklisted
+            // they cannot be ingested, so fail with non-retryable error to prevent enqueuing.
+            // This has the effect of dropping the follow.
+            fail_on_blacklisted_hs(ingestor.maybe_ingest_user(&followee_id).await)?;
 
             let followee_uri = followee_id
                 .to_uri()
