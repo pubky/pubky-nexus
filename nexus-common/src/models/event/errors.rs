@@ -85,9 +85,7 @@ impl From<ModelError> for EventProcessorError {
             ModelError::FileOperationFailed(source) => {
                 EventProcessorError::InternalError(source.to_string())
             }
-            ModelError::HomeserverBlacklisted { hs_id } => {
-                EventProcessorError::HsBlacklisted { hs_id }
-            }
+            ModelError::HsBlacklisted { hs_id } => EventProcessorError::HsBlacklisted { hs_id },
             ModelError::Generic(message) => EventProcessorError::Generic(message),
         }
     }

@@ -72,7 +72,7 @@ impl Error {
 impl From<ModelError> for Error {
     fn from(source: ModelError) -> Self {
         match source {
-            ModelError::HomeserverBlacklisted { hs_id } => Error::Forbidden {
+            ModelError::HsBlacklisted { hs_id } => Error::Forbidden {
                 message: format!("Homeserver is blacklisted: {hs_id}"),
             },
             other => Error::InternalServerError {

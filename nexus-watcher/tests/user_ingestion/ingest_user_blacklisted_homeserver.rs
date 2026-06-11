@@ -9,8 +9,7 @@ use pubky::Keypair;
 use pubky_app_specs::{PubkyAppUser, PubkyId};
 
 /// A [`UserIngestor`] whose blacklist contains the user's HS refuses to ingest
-/// that user, returning [`ModelError::HomeserverBlacklisted`] and leaving no
-/// graph node behind.
+/// that user, returning [`ModelError::HsBlacklisted`] and leaving no graph node behind.
 #[tokio_shared_rt::test(shared)]
 async fn test_maybe_ingest_user_aborts_on_blacklisted_homeserver() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
@@ -29,8 +28,8 @@ async fn test_maybe_ingest_user_aborts_on_blacklisted_homeserver() -> Result<()>
         .await
         .expect_err("ingestion should be refused for a blacklisted HS");
     assert!(
-        matches!(err, ModelError::HomeserverBlacklisted { .. }),
-        "expected HomeserverBlacklisted, got {err:?}"
+        matches!(err, ModelError::HsBlacklisted { .. }),
+        "expected HsBlacklisted, got {err:?}"
     );
 
     assert!(

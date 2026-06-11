@@ -5,7 +5,7 @@ use nexus_common::models::post::PostRelationships;
 /// Classifies the outcome of a best-effort user ingestion attempted while
 /// handling an [`OperationOutcome::MissingDependency`](nexus_common::db::OperationOutcome::MissingDependency).
 ///
-/// Propagates [`ModelError::HomeserverBlacklisted`] as the non-retryable
+/// Propagates [`ModelError::HsBlacklisted`] as the non-retryable
 /// [`EventProcessorError::HsBlacklisted`], so the event is dropped instead of
 /// churning in the retry queue. Any other ingestion error is swallowed: the handler
 /// returns `MissingDependency` anyway, and the next retry re-attempts the ingestion.
@@ -14,7 +14,7 @@ pub(super) fn fail_on_blacklisted_hs(
     ingest_result: ModelResult<()>,
 ) -> Result<(), EventProcessorError> {
     match ingest_result {
-        Err(e @ ModelError::HomeserverBlacklisted { .. }) => Err(e.into()),
+        Err(e @ ModelError::HsBlacklisted { .. }) => Err(e.into()),
         _ => Ok(()),
     }
 }

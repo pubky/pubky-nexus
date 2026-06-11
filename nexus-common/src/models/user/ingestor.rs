@@ -40,7 +40,7 @@ impl UserIngestor {
     /// # Returns
     /// - `Ok(Some(hs_id))` if the user's HS resolved and is not blacklisted
     /// - `Ok(None)` if the user has no published HS or is an HS PK itself
-    /// - [`ModelError::HomeserverBlacklisted`] if the resolved HS is blacklisted
+    /// - [`ModelError::HsBlacklisted`] if the resolved HS is blacklisted
     pub async fn ensure_hs_not_blacklisted(
         &self,
         user_id: &PubkyId,
@@ -53,7 +53,7 @@ impl UserIngestor {
 
         let hs_id = hs_pk.into_inner().to_z32();
         if self.hs_blacklist.is_blacklisted(&hs_id) {
-            return Err(ModelError::HomeserverBlacklisted { hs_id });
+            return Err(ModelError::HsBlacklisted { hs_id });
         }
 
         Ok(Some(hs_id))
@@ -62,7 +62,7 @@ impl UserIngestor {
     /// If a referenced user is unknown, not ingested in the graph yet, resolves their HS
     /// and persists the user node in the graph.
     ///
-    /// If the resolved HS is blacklisted, throws  [`ModelError::HomeserverBlacklisted`].
+    /// If the resolved HS is blacklisted, throws  [`ModelError::HsBlacklisted`].
     #[tracing::instrument(name = "user.ingest", skip_all)]
     pub async fn maybe_ingest_user(&self, user_id: &PubkyId) -> ModelResult<()> {
         let user_id_str = user_id.to_string();
