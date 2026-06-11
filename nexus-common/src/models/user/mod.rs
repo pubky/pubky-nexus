@@ -14,8 +14,8 @@ pub use influencers::Influencers;
 pub use relationship::Relationship;
 pub use search::{UserSearch, USER_NAME_KEY_PARTS};
 pub use stream::{
-    UserIdStream, UserStream, UserStreamInput, UserStreamSource, USER_INFLUENCERS_KEY_PARTS,
-    USER_MOSTFOLLOWED_KEY_PARTS,
+    UserIdStream, UserStream, UserStreamInput, UserStreamSource,
+    CACHE_USER_RECOMMENDED_KEY_PARTS, USER_INFLUENCERS_KEY_PARTS, USER_MOSTFOLLOWED_KEY_PARTS,
 };
 pub use tags::ProfileTag;
 pub use tags::UserTags;

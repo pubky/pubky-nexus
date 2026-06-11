@@ -10,14 +10,15 @@ use tracing::{debug, error};
 use utoipa::OpenApi;
 
 use super::endpoints::STATIC_FILES_ROUTE;
+use super::serve_dir::serve_file_variant;
 use crate::models::{FileId, PubkyId};
 use crate::routes::Path;
-use crate::routes::{r#static::PubkyServeDir, AppState};
+use crate::routes::AppState;
 use crate::{Error, Result};
 use nexus_common::{
     media::{FileVariant, VariantController},
     models::{
-        file::{Blob, FileDetails},
+        file::FileDetails,
         traits::Collection,
     },
 };
@@ -96,46 +97,18 @@ pub async fn static_files_handler(
         )));
     }
 
-    let file_variant_content_type = Blob::get_by_id(&file, &variant, file_path.clone())
-        .await
-        .inspect_err(|_| {
-            error!("Error while processing file variant for variant: {variant} and file: {file_id}")
-        })?;
-
-    let request_uri = request.uri().clone();
-
-    let mut response = PubkyServeDir::try_call(
+    serve_file_variant(
         request,
-        request_uri.path().replace("static/files", ""),
-        file_variant_content_type,
+        &file,
+        &owner_id,
+        &variant,
         file_path.clone(),
+        params.dl.as_ref().map(|_| file.name.as_str()),
     )
-    .await?;
-
-    // Remove any default "cache-control" header (which may be set to no-cache)
-    response.headers_mut().remove("cache-control");
-
-    // Set a new Cache-Control header to cache the file for 3600 seconds (1 hour)
-    let cache_control_header = "public, max-age=3600"
-        .parse()
-        .inspect_err(|err| error!("Failed to parse Cache-Control header value: {}", err))?;
-
-    // Insert our newly parsed Cache-Control header.
-    response
-        .headers_mut()
-        .insert("cache-control", cache_control_header);
-
-    // if dl parameter is passed, set content-disposition header to attachment to force download
-    if params.dl.is_some() {
-        let content_disposition_header = format!("attachment; filename=\"{}\"", file.name)
-            .parse()
-            .inspect_err(|_| error!("Invalid content disposition header: {}", file.name))?;
-        response
-            .headers_mut()
-            .insert("content-disposition", content_disposition_header);
-    }
-
-    Ok(response)
+    .await
+    .inspect_err(|_| {
+        error!("Error while processing file variant for variant: {variant} and file: {file_id}")
+    })
 }
 
 #[derive(OpenApi)]
