@@ -46,8 +46,11 @@ impl MockDb {
         info!("Dropping Graph database...");
         let graph = get_neo4j_graph().expect("Failed to get Neo4j graph connection");
 
-        // drop and run the queries again
-        let drop_all_query = Query::new("drop_graph", "MATCH (n) DETACH DELETE n;");
+        // MATCH must be outside the subquery so IN TRANSACTIONS batches on the rows it feeds in.
+        let drop_all_query = Query::new(
+            "drop_graph",
+            "MATCH (n) CALL { WITH n DETACH DELETE n } IN TRANSACTIONS OF 10000 ROWS;",
+        );
         graph
             .run(drop_all_query)
             .await
