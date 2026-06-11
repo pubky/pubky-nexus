@@ -4,14 +4,15 @@ use nexus_common::db::PubkyConnector;
 use nexus_common::media::FileVariant;
 use nexus_common::media::VariantController;
 use nexus_common::models::file::Blob;
+use nexus_common::models::user::UserIngestor;
 use nexus_common::models::{
     file::{FileDetails, FileMeta},
     traits::Collection,
 };
-use pubky_app_specs::{PubkyAppFile, PubkyAppObject, PubkyId};
+use pubky_app_specs::{ParsedUri, PubkyAppFile, PubkyAppObject, PubkyId};
 use std::path::{Path, PathBuf};
 use tokio::fs::remove_dir_all;
-use tracing::debug;
+use tracing::{debug, warn};
 
 #[tracing::instrument(name = "file.put", skip_all, fields(user_id = %user_id, file_id = %file_id))]
 pub async fn sync_put(
@@ -20,10 +21,11 @@ pub async fn sync_put(
     user_id: PubkyId,
     file_id: String,
     files_path: PathBuf,
+    ingestor: &UserIngestor,
 ) -> Result<(), EventProcessorError> {
     debug!("Indexing new file resource at {}/{}", user_id, file_id);
 
-    let file_meta = ingest(&user_id, file_id.as_str(), &file, files_path).await?;
+    let file_meta = ingest(&user_id, file_id.as_str(), &file, files_path, ingestor).await?;
 
     // Create FileDetails object
     let file_details =
@@ -51,7 +53,19 @@ async fn ingest(
     file_id: &str,
     pubkyapp_file: &PubkyAppFile,
     files_path: PathBuf,
+    ingestor: &UserIngestor,
 ) -> Result<FileMeta, EventProcessorError> {
+    let file_src = &pubkyapp_file.src;
+    let parsed_source_uri = ParsedUri::try_from(file_src.to_string()).map_err(|e| {
+        EventProcessorError::generic(format!("Invalid file source URI {file_src}: {e}"))
+    })?;
+
+    // Refuse to download content hosted on a blacklisted HS
+    ingestor
+        .ensure_hs_not_blacklisted(&parsed_source_uri.user_id)
+        .await
+        .inspect_err(|e| warn!("Aborting file ingest: source {file_src}: {e}"))?;
+
     let pubky = PubkyConnector::get()?;
     let response = pubky.public_storage().get(&pubkyapp_file.src).await?;
 
@@ -62,7 +76,7 @@ async fn ingest(
         .bytes()
         .await
         .map_err(|e| EventProcessorError::client_error(e.to_string()))?;
-    let pubky_app_object = PubkyAppObject::from_uri(&pubkyapp_file.src, &blob)
+    let pubky_app_object = PubkyAppObject::from_resource(&parsed_source_uri.resource, &blob)
         .map_err(EventProcessorError::generic)?;
 
     match pubky_app_object {

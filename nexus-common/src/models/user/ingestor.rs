@@ -35,6 +35,30 @@ impl UserIngestor {
         self.maybe_ingest_user(&referenced_post_uri.user_id).await
     }
 
+    /// Resolves the HS hosting `user_id` and refuses it if blacklisted.
+    ///
+    /// # Returns
+    /// - `Ok(Some(hs_id))` if the user's HS resolved and is not blacklisted
+    /// - `Ok(None)` if the user has no published HS or is an HS PK itself
+    /// - [`ModelError::HomeserverBlacklisted`] if the resolved HS is blacklisted
+    pub async fn ensure_hs_not_blacklisted(
+        &self,
+        user_id: &PubkyId,
+    ) -> ModelResult<Option<String>> {
+        let pubky = PubkyConnector::get().map_err(ModelError::from_generic)?;
+
+        let Some(hs_pk) = pubky.get_homeserver_of(&user_id.to_public_key()).await else {
+            return Ok(None);
+        };
+
+        let hs_id = hs_pk.into_inner().to_z32();
+        if self.hs_blacklist.is_blacklisted(&hs_id) {
+            return Err(ModelError::HomeserverBlacklisted { hs_id });
+        }
+
+        Ok(Some(hs_id))
+    }
+
     /// If a referenced user is unknown, not ingested in the graph yet, resolves their HS
     /// and persists the user node in the graph.
     ///
@@ -48,24 +72,17 @@ impl UserIngestor {
             return Ok(());
         }
 
-        let pubky = PubkyConnector::get().map_err(ModelError::from_generic)?;
+        let maybe_hs_id = self
+            .ensure_hs_not_blacklisted(user_id)
+            .await
+            .inspect_err(|e| tracing::warn!("Aborting ingestion of {user_id}: {e}"))?;
 
-        let user_pk = user_id.to_public_key();
-
-        let Some(hs_pk) = pubky.get_homeserver_of(&user_pk).await else {
+        let Some(hs_id) = maybe_hs_id else {
             tracing::warn!("Skipping ingestion: {user_id} has no published HS or is an HS PK");
             return Ok(());
         };
 
-        let hs_id = hs_pk.into_inner().to_z32();
-
-        // Refuse users hosted on a blacklisted HS.
-        if self.hs_blacklist.is_blacklisted(&hs_id) {
-            tracing::warn!("Aborting ingestion: {user_id} hosted on blacklisted HS {hs_id}");
-            return Err(ModelError::HomeserverBlacklisted { hs_id });
-        }
-
-        let user_details = UserDetails::from_pubky(PubkyId::from(user_pk));
+        let user_details = UserDetails::from_pubky(user_id.clone());
 
         // Do not add to index, as this would affect the timeline of events for this user.
         // Only create stub graph node for HS-resolver to store user-HS mapping.

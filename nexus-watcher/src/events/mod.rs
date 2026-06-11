@@ -130,6 +130,7 @@ pub async fn handle_put_event(
                 user_id,
                 file_id,
                 event.files_path.clone(),
+                &ingestor,
             )
             .await?
         }
