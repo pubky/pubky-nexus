@@ -131,9 +131,7 @@ mod tests {
     // --- FileUris tests ---
 
     fn make_uris(count: usize) -> String {
-        let items: Vec<String> = (0..count)
-            .map(|i| format!("uri_{}", i))
-            .collect();
+        let items: Vec<String> = (0..count).map(|i| format!("uri_{}", i)).collect();
         serde_json::to_string(&items).unwrap()
     }
 
