@@ -9,9 +9,7 @@ license = "MIT"
 
 [dependencies]
 async-trait = { workspace = true }
-blake3 = { workspace = true }
 chrono = { workspace = true }
-hex = { workspace = true }
 nexus-common = { path = "../nexus-common" }
 opentelemetry = { workspace = true }
 pubky = { workspace = true }

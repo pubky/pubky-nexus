@@ -6,7 +6,7 @@ use nexus_common::config::EventRetryConfig;
 use nexus_common::db::kv::RedisOps;
 use nexus_common::models::event::{EventProcessorError, EventType};
 use nexus_watcher::events::retry::{
-    RedisRetryStore, RetryEvent, RetryProcessor, RetryStore, RETRY_MANAGER_EVENTS_INDEX,
+    IndexKey, RedisRetryStore, RetryEvent, RetryProcessor, RetryStore, RETRY_MANAGER_EVENTS_INDEX,
     RETRY_MANAGER_PREFIX,
 };
 use nexus_watcher::events::EventHandler;
@@ -55,8 +55,8 @@ fn create_test_retry_event(
     }
 }
 
-fn create_resource_key(post_id: &str) -> String {
-    RetryEvent::index_key(&post_uri_builder(
+fn create_index_key(post_id: &str) -> IndexKey {
+    IndexKey::for_uri(&post_uri_builder(
         TEST_USER_ID.to_string(),
         post_id.to_string(),
     ))
@@ -88,7 +88,7 @@ async fn test_backoff_first_retry_uses_initial_value() -> Result<()> {
     setup().await?;
 
     let post_id = "backoff1st";
-    let resource_key = create_resource_key(post_id);
+    let resource_key = create_index_key(post_id);
     let store = new_in_memory_store();
 
     // Create and store a retry event with retry_count = 0
@@ -99,7 +99,7 @@ async fn test_backoff_first_retry_uses_initial_value() -> Result<()> {
         0, // First retry attempt
         now - 1000,
     );
-    store.put(&resource_key, &retry_event).await?;
+    store.put(&retry_event).await?;
 
     // Create processor with initial_backoff_secs = 60
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
@@ -147,7 +147,7 @@ async fn test_backoff_exponential_growth() -> Result<()> {
     setup().await?;
 
     let post_id = "backoffexp";
-    let resource_key = create_resource_key(post_id);
+    let resource_key = create_index_key(post_id);
     let store = new_in_memory_store();
 
     // Create and store a retry event with retry_count = 3
@@ -158,7 +158,7 @@ async fn test_backoff_exponential_growth() -> Result<()> {
         3, // Third retry attempt
         now - 1000,
     );
-    store.put(&resource_key, &retry_event).await?;
+    store.put(&retry_event).await?;
 
     // Create processor with initial_backoff_secs = 10
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
@@ -209,7 +209,7 @@ async fn test_infrastructure_error_at_max_retries_does_not_dead_letter() -> Resu
     setup().await?;
 
     let post_id = "inframax";
-    let resource_key = create_resource_key(post_id);
+    let resource_key = create_index_key(post_id);
     let store = new_in_memory_store();
 
     // Create a retry event already at max_retries (10)
@@ -220,7 +220,7 @@ async fn test_infrastructure_error_at_max_retries_does_not_dead_letter() -> Resu
         10, // At max_retries — would be dead-lettered by application errors
         now - 1000,
     );
-    store.put(&resource_key, &retry_event).await?;
+    store.put(&retry_event).await?;
 
     // Create processor with max_retries = 10
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
@@ -274,7 +274,7 @@ async fn test_backoff_capped_at_max() -> Result<()> {
     setup().await?;
 
     let post_id = "backoffcap";
-    let resource_key = create_resource_key(post_id);
+    let resource_key = create_index_key(post_id);
     let store = new_in_memory_store();
 
     // Create and store a retry event with retry_count = 6
@@ -286,7 +286,7 @@ async fn test_backoff_capped_at_max() -> Result<()> {
         6, // Large retry count
         now - 1000,
     );
-    store.put(&resource_key, &retry_event).await?;
+    store.put(&retry_event).await?;
 
     // Create processor with initial_backoff_secs = 60, max_backoff_secs = 3600
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
@@ -334,7 +334,7 @@ async fn test_retry_success_removes_from_queue() -> Result<()> {
     setup().await?;
 
     let post_id = "successrmv";
-    let resource_key = create_resource_key(post_id);
+    let resource_key = create_index_key(post_id);
     let store = new_in_memory_store();
 
     // Create and store a retry event
@@ -345,7 +345,7 @@ async fn test_retry_success_removes_from_queue() -> Result<()> {
         0,
         now - 1000, // Ready for retry (in the past)
     );
-    store.put(&resource_key, &retry_event).await?;
+    store.put(&retry_event).await?;
 
     // Verify event exists in index
     assert!(
@@ -385,14 +385,14 @@ async fn test_retry_404_removes_from_queue() -> Result<()> {
     setup().await?;
 
     let post_id = "r404remove";
-    let resource_key = create_resource_key(post_id);
+    let resource_key = create_index_key(post_id);
     let event_uri = post_uri_builder(TEST_USER_ID.to_string(), post_id.to_string());
     let store = new_in_memory_store();
 
     // Create and store a retry event
     let now = Utc::now().timestamp_millis();
     let retry_event = create_test_retry_event(post_id, EventType::Put, 0, now - 1000);
-    store.put(&resource_key, &retry_event).await?;
+    store.put(&retry_event).await?;
 
     // Verify event exists in index
     assert!(
@@ -438,7 +438,7 @@ async fn test_transient_error_schedules_retry() -> Result<()> {
     setup().await?;
 
     let post_id = "transientr";
-    let resource_key = create_resource_key(post_id);
+    let resource_key = create_index_key(post_id);
     let store = new_in_memory_store();
 
     // Create and store a retry event with retry_count = 0
@@ -449,7 +449,7 @@ async fn test_transient_error_schedules_retry() -> Result<()> {
         0, // First retry attempt
         now - 1000,
     );
-    store.put(&resource_key, &retry_event).await?;
+    store.put(&retry_event).await?;
 
     // Create processor with handler that returns should_not_retry_now error
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
@@ -510,7 +510,7 @@ async fn test_missing_dependency_schedules_retry() -> Result<()> {
     setup().await?;
 
     let post_id = "missingdep";
-    let resource_key = create_resource_key(post_id);
+    let resource_key = create_index_key(post_id);
     let store = new_in_memory_store();
 
     // Create and store a retry event with retry_count = 0
@@ -521,7 +521,7 @@ async fn test_missing_dependency_schedules_retry() -> Result<()> {
         0, // First retry attempt
         now - 1000,
     );
-    store.put(&resource_key, &retry_event).await?;
+    store.put(&retry_event).await?;
 
     // Create processor with handler that returns MissingDependency
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
@@ -584,7 +584,7 @@ async fn test_dead_letter_after_max_transient_retries() -> Result<()> {
     setup().await?;
 
     let post_id = "dltransmax";
-    let resource_key = create_resource_key(post_id);
+    let resource_key = create_index_key(post_id);
     let store = new_in_memory_store();
 
     // Create and store a retry event that has exceeded max_retries (10)
@@ -595,7 +595,7 @@ async fn test_dead_letter_after_max_transient_retries() -> Result<()> {
         10, // At max_retries
         now - 1000,
     );
-    store.put(&resource_key, &retry_event).await?;
+    store.put(&retry_event).await?;
 
     // Verify event exists in index
     assert!(
@@ -641,7 +641,7 @@ async fn test_dead_letter_after_max_dependency_retries() -> Result<()> {
     setup().await?;
 
     let post_id = "dldepndmax";
-    let resource_key = create_resource_key(post_id);
+    let resource_key = create_index_key(post_id);
     let store = new_in_memory_store();
 
     // Create and store a retry event that has exceeded max_dependency_retries (50)
@@ -652,7 +652,7 @@ async fn test_dead_letter_after_max_dependency_retries() -> Result<()> {
         50, // At max_dependency_retries
         now - 1000,
     );
-    store.put(&resource_key, &retry_event).await?;
+    store.put(&retry_event).await?;
 
     // Verify event exists in index
     assert!(
@@ -700,13 +700,13 @@ async fn test_stale_sorted_set_entry_cleaned_up() -> Result<()> {
     setup().await?;
 
     let post_id = "staleclnup";
-    let resource_key = create_resource_key(post_id);
+    let resource_key = create_index_key(post_id);
 
     // Manually add a stale entry to the sorted set only (no JSON state).
     let now = Utc::now().timestamp_millis();
     RetryEvent::put_index_sorted_set(
         &RETRY_MANAGER_EVENTS_INDEX,
-        &[(now as f64, &resource_key)],
+        &[(now as f64, resource_key.as_str())],
         Some(RETRY_MANAGER_PREFIX),
         None,
     )
@@ -755,7 +755,6 @@ async fn test_shutdown_interrupts_batch() -> Result<()> {
     for i in 0..num_events {
         let post_id = format!("shutdown{}", i);
         let event_uri = post_uri_builder(TEST_USER_ID.to_string(), post_id);
-        let resource_key = RetryEvent::index_key(&event_uri);
 
         let retry_event = RetryEvent {
             retry_count: 0,
@@ -764,7 +763,7 @@ async fn test_shutdown_interrupts_batch() -> Result<()> {
             next_retry_at: now - 1000,
             origin_homeserver_id: TEST_HOMESERVER_ID.to_string(),
         };
-        store.put(&resource_key, &retry_event).await?;
+        store.put(&retry_event).await?;
     }
 
     // Create processor; shutdown is set before run_internal so nothing is actually
@@ -798,7 +797,7 @@ async fn test_shutdown_interrupts_batch() -> Result<()> {
 
     // Verify events are still in the queue (not processed due to shutdown)
     for i in 0..num_events {
-        let resource_key = RetryEvent::index_key(&post_uri_builder(
+        let resource_key = IndexKey::for_uri(&post_uri_builder(
             TEST_USER_ID.to_string(),
             format!("shutdown{}", i),
         ));
@@ -830,7 +829,6 @@ async fn test_infrastructure_error_stops_batch() -> Result<()> {
     for i in 0..num_events {
         let post_id = format!("infrastop{}", i);
         let event_uri = post_uri_builder(TEST_USER_ID.to_string(), post_id);
-        let resource_key = RetryEvent::index_key(&event_uri);
 
         let retry_event = RetryEvent {
             retry_count: 0,
@@ -839,7 +837,7 @@ async fn test_infrastructure_error_stops_batch() -> Result<()> {
             next_retry_at: now - 1000,
             origin_homeserver_id: TEST_HOMESERVER_ID.to_string(),
         };
-        store.put(&resource_key, &retry_event).await?;
+        store.put(&retry_event).await?;
     }
 
     // Create processor with handler that returns should_not_retry_now error for our events only
@@ -884,7 +882,7 @@ async fn test_infrastructure_error_stops_batch() -> Result<()> {
 
     // Should-not-retry-now errors do NOT increment retry_count — they preserve the
     // application-level retry budget.
-    let first_key = RetryEvent::index_key(&post_uri_builder(
+    let first_key = IndexKey::for_uri(&post_uri_builder(
         TEST_USER_ID.to_string(),
         "infrastop0".to_string(),
     ));
@@ -899,7 +897,7 @@ async fn test_infrastructure_error_stops_batch() -> Result<()> {
 
     // Remaining events should be untouched (retry_count still 0)
     for i in 1..num_events {
-        let resource_key = RetryEvent::index_key(&post_uri_builder(
+        let resource_key = IndexKey::for_uri(&post_uri_builder(
             TEST_USER_ID.to_string(),
             format!("infrastop{}", i),
         ));
@@ -963,13 +961,13 @@ async fn test_del_event_retry_success() -> Result<()> {
     setup().await?;
 
     let post_id = "delretrys";
-    let resource_key = create_resource_key(post_id);
+    let resource_key = create_index_key(post_id);
     let store = new_in_memory_store();
 
     // Create a DEL retry event
     let now = Utc::now().timestamp_millis();
     let retry_event = create_test_retry_event(post_id, EventType::Del, 0, now - 1000);
-    store.put(&resource_key, &retry_event).await?;
+    store.put(&retry_event).await?;
 
     // Create processor with handler that returns success
     let handler = create_mock_handler(Ok(()), Some(post_id));
@@ -1011,12 +1009,12 @@ async fn test_non_retryable_error_removes_event() -> Result<()> {
     setup().await?;
 
     let post_id = "nonretrybl";
-    let resource_key = create_resource_key(post_id);
+    let resource_key = create_index_key(post_id);
     let store = new_in_memory_store();
 
     let now = Utc::now().timestamp_millis();
     let retry_event = create_test_retry_event(post_id, EventType::Put, 0, now - 1000);
-    store.put(&resource_key, &retry_event).await?;
+    store.put(&retry_event).await?;
 
     // Create processor with handler that returns a non-retryable error
     let handler = create_mock_handler(
@@ -1069,22 +1067,26 @@ async fn test_batch_continues_after_single_failure() -> Result<()> {
     // removed — proving the batch continued past the failure.
     let failing_post_id = "failbatch1";
     let succeeding_post_id = "okbatch2";
-    let failing_key = create_resource_key(failing_post_id);
-    let succeeding_key = create_resource_key(succeeding_post_id);
+    let failing_key = create_index_key(failing_post_id);
+    let succeeding_key = create_index_key(succeeding_post_id);
 
     let store = new_in_memory_store();
     let now = Utc::now().timestamp_millis();
     store
-        .put(
-            &failing_key,
-            &create_test_retry_event(failing_post_id, EventType::Put, 0, now - 1000),
-        )
+        .put(&create_test_retry_event(
+            failing_post_id,
+            EventType::Put,
+            0,
+            now - 1000,
+        ))
         .await?;
     store
-        .put(
-            &succeeding_key,
-            &create_test_retry_event(succeeding_post_id, EventType::Put, 0, now - 1000),
-        )
+        .put(&create_test_retry_event(
+            succeeding_post_id,
+            EventType::Put,
+            0,
+            now - 1000,
+        ))
         .await?;
 
     // MockEventHandler's `target_uri_substring` scopes the error to the failing
@@ -1150,7 +1152,7 @@ async fn test_future_events_not_picked_up() -> Result<()> {
     setup().await?;
 
     let post_id = "futureevnt";
-    let resource_key = create_resource_key(post_id);
+    let resource_key = create_index_key(post_id);
     let store = new_in_memory_store();
 
     // Create a retry event scheduled far in the future
@@ -1161,7 +1163,7 @@ async fn test_future_events_not_picked_up() -> Result<()> {
         0,
         now + 600_000, // 10 minutes in the future
     );
-    store.put(&resource_key, &retry_event).await?;
+    store.put(&retry_event).await?;
 
     // Create processor with handler that would fail if called
     let handler = create_mock_handler(

@@ -1,6 +1,7 @@
 use tokio::sync::watch::Receiver;
 
-pub fn hash_bytes_hex(input: &str) -> String {
+// blake3 truncated to 128 bits. Shared by resource_id and IndexKey::for_uri — fine, separate keyspaces.
+pub fn hash_str_hex(input: &str) -> String {
     let hash = blake3::hash(input.as_bytes());
     hex::encode(&hash.as_bytes()[..16])
 }

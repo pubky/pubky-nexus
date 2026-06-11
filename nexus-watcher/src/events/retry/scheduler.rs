@@ -113,8 +113,7 @@ impl RetryScheduler {
 
         // New EventRetries for the same URI will reset the retry_count
         // The HS state changed since the earlier event, so we disregard previous retry attempts
-        let index_key = RetryEvent::index_key(&event.uri);
-        self.store.put(&index_key, &retry_event).await?;
+        self.store.put(&retry_event).await?;
         warn!("Queued event for retry ({}): {}", reason, event.uri);
         Ok(())
     }

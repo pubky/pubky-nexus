@@ -120,7 +120,7 @@ pub fn classify_uri(uri: &str) -> UriCategory {
 ///
 /// `resource_id = hex(BLAKE3(normalized_uri)[0..16])`
 pub fn resource_id(normalized_uri: &str) -> String {
-    crate::utils::hash_bytes_hex(normalized_uri)
+    crate::utils::hash_str_hex(normalized_uri)
 }
 
 #[cfg(test)]
