@@ -416,7 +416,11 @@ async fn merge_mention_edges(
 }
 
 #[tracing::instrument(name = "post.del", skip_all, fields(user_id = %author_id, post_id = %post_id))]
-pub async fn del(author_id: PubkyId, post_id: String) -> Result<(), EventProcessorError> {
+pub async fn del(
+    author_id: PubkyId,
+    post_id: String,
+    ingestor: &UserIngestor,
+) -> Result<(), EventProcessorError> {
     debug!("Deleting post: {}/{}", author_id, post_id);
 
     // Graph query to check if there is any edge at all to this post other than AUTHORED, is a reply or is a repost.
@@ -442,9 +446,9 @@ pub async fn del(author_id: PubkyId, post_id: String) -> Result<(), EventProcess
                 attachments: None,
             };
 
-            // `[DELETED]` tombstone re-PUT has no user to ingest, so empty ingestor is good enough
-            let ingestor = UserIngestor::default();
-            sync_put(dummy_deleted_post, author_id, post_id, &ingestor).await?;
+            // The tombstone keeps the `parent` of a deleted reply, so re-PUT may
+            // still ingest the parent's author; pass on ingestor to enforce the real blacklist.
+            sync_put(dummy_deleted_post, author_id, post_id, ingestor).await?;
         }
         OperationOutcome::MissingDependency => return Err(EventProcessorError::SkipIndexing),
     };

@@ -52,7 +52,7 @@ impl EventHandler for DefaultEventHandler {
             EventType::Put => {
                 handle_put_event(event, self.moderation.clone(), self.ingestor.clone()).await
             }
-            EventType::Del => handle_del_event(event).await,
+            EventType::Del => handle_del_event(event, self.ingestor.clone()).await,
         }?;
 
         event.store_event().await?;
@@ -139,13 +139,16 @@ pub async fn handle_put_event(
 }
 
 /// Handles a DEL event by dispatching to the appropriate handler.
-pub async fn handle_del_event(event: &Event) -> Result<(), EventProcessorError> {
+pub async fn handle_del_event(
+    event: &Event,
+    ingestor: Arc<UserIngestor>,
+) -> Result<(), EventProcessorError> {
     debug!("Handling DEL event for URI: {}", event.uri);
 
     let user_id = event.parsed_uri.user_id().clone();
     match event.parsed_uri.resource() {
         Resource::User => handlers::user::del(user_id).await?,
-        Resource::Post(post_id) => handlers::post::del(user_id, post_id.clone()).await?,
+        Resource::Post(post_id) => handlers::post::del(user_id, post_id.clone(), &ingestor).await?,
         Resource::Follow(followee_id) => {
             handlers::follow::del(user_id, followee_id.clone()).await?
         }
