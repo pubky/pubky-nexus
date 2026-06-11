@@ -12,15 +12,12 @@ use utoipa::OpenApi;
 use super::endpoints::STATIC_FILES_ROUTE;
 use super::serve_dir::serve_file_variant;
 use crate::models::{FileId, PubkyId};
-use crate::routes::Path;
 use crate::routes::AppState;
+use crate::routes::Path;
 use crate::{Error, Result};
 use nexus_common::{
     media::{FileVariant, VariantController},
-    models::{
-        file::FileDetails,
-        traits::Collection,
-    },
+    models::{file::FileDetails, traits::Collection},
 };
 
 #[derive(Deserialize)]
@@ -103,7 +100,7 @@ pub async fn static_files_handler(
         &owner_id,
         &variant,
         file_path.clone(),
-        params.dl.as_ref().map(|_| file.name.as_str()),
+        params.dl.is_some(),
     )
     .await
     .inspect_err(|_| {

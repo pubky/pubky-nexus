@@ -1,13 +1,10 @@
-use std::{
-    path::PathBuf,
-    sync::Arc,
-    time::Duration,
-};
+use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use axum::{
     body::{Body, Bytes},
     extract::State,
     http::{Request, StatusCode},
+    response::Response,
 };
 use criterion::{criterion_group, criterion_main, Criterion};
 use http_body_util::BodyExt;
@@ -22,6 +19,7 @@ use nexus_webapi::{
 };
 use tempfile::TempDir;
 use tokio::{fs, runtime::Runtime};
+use tower_http::services::fs::ServeFileSystemResponseBody;
 
 mod setup;
 
@@ -31,8 +29,8 @@ const AVATAR_BLOB_NAME: &str = "avatar.png";
 const BLOB_PATH: &str = "tests/user/blobs";
 const USER_PUBKY: &str = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
 const FILE_ID: &str = "003286NSMY490";
-const AVATAR_URI: &str =
-    "pubky://4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro/pub/pubky.app/files/003286NSMY490";
+
+type AvatarResponse = Response<ServeFileSystemResponseBody>;
 
 struct AvatarBenchSetup {
     _temp_dir: TempDir,
@@ -42,6 +40,7 @@ struct AvatarBenchSetup {
 
 impl AvatarBenchSetup {
     async fn new() -> Self {
+        let user_id = PubkyId::try_from(USER_PUBKY).unwrap();
         let temp_dir = TempDir::new().unwrap();
         let files_path = temp_dir.path().to_path_buf();
         let image_dir = files_path.join(USER_PUBKY).join(FILE_ID);
@@ -50,29 +49,31 @@ impl AvatarBenchSetup {
         let source_path = PathBuf::from(BLOB_PATH).join(AVATAR_BLOB_NAME);
         let source_size = fs::copy(source_path, image_dir.join("main")).await.unwrap();
 
-        Self::seed_avatar_records(source_size).await;
+        Self::seed_avatar_records(&user_id, source_size).await;
 
         let setup = Self {
             _temp_dir: temp_dir,
             app_state: AppState {
                 files_path: Arc::new(files_path),
             },
-            user_id: PubkyId::try_from(USER_PUBKY).unwrap(),
+            user_id,
         };
 
-        setup.warm_small_variant().await;
+        let response = setup.call_avatar_handler().await.unwrap();
+        std::hint::black_box(consume_avatar_response(response).await);
         setup
     }
 
-    async fn seed_avatar_records(source_size: u64) {
-        let user_id = PubkyId::try_from(USER_PUBKY).unwrap();
+    async fn seed_avatar_records(user_id: &PubkyId, source_size: u64) {
+        let avatar_uri = format!("pubky://{USER_PUBKY}/pub/pubky.app/files/{FILE_ID}");
+
         let user = UserDetails {
             name: "Avatar Bench User".to_string(),
             bio: None,
-            id: user_id,
+            id: user_id.clone(),
             links: None,
             status: None,
-            image: Some(AVATAR_URI.to_string()),
+            image: Some(avatar_uri.clone()),
             indexed_at: 1_724_134_095_000,
         };
 
@@ -82,7 +83,7 @@ impl AvatarBenchSetup {
 
         let file = FileDetails {
             id: FILE_ID.to_string(),
-            uri: AVATAR_URI.to_string(),
+            uri: avatar_uri,
             owner_id: USER_PUBKY.to_string(),
             indexed_at: 1_724_134_095_000,
             created_at: 1_784_134_095_000,
@@ -103,29 +104,23 @@ impl AvatarBenchSetup {
             .unwrap();
     }
 
-    async fn warm_small_variant(&self) {
-        let response = self.call_avatar_handler().await.unwrap();
-        std::hint::black_box(consume_avatar_response(response).await);
-    }
-
-    async fn clear_small_variant(&self) {
-        let small_variant_path = self
-            .app_state
+    fn small_variant_path(&self) -> PathBuf {
+        self.app_state
             .files_path
             .join(USER_PUBKY)
             .join(FILE_ID)
-            .join("small");
+            .join("small")
+    }
 
-        if let Err(err) = fs::remove_file(small_variant_path).await {
+    async fn clear_small_variant(&self) {
+        if let Err(err) = fs::remove_file(self.small_variant_path()).await {
             if err.kind() != std::io::ErrorKind::NotFound {
                 panic!("failed to remove small avatar variant: {err}");
             }
         }
     }
 
-    async fn call_avatar_handler(&self) -> nexus_webapi::Result<
-        axum::response::Response<tower_http::services::fs::ServeFileSystemResponseBody>,
-    > {
+    async fn call_avatar_handler(&self) -> nexus_webapi::Result<AvatarResponse> {
         user_avatar_handler(
             Path(self.user_id.clone()),
             State(self.app_state.clone()),
@@ -133,18 +128,24 @@ impl AvatarBenchSetup {
         )
         .await
     }
+
+    async fn request_avatar(&self) {
+        let response = self.call_avatar_handler().await.unwrap();
+        std::hint::black_box(consume_avatar_response(response).await);
+    }
 }
 
-async fn consume_avatar_response(
-    response: axum::response::Response<tower_http::services::fs::ServeFileSystemResponseBody>,
-) -> (StatusCode, Bytes) {
+async fn consume_avatar_response(response: AvatarResponse) -> Bytes {
     let status = response.status();
     let bytes = response.into_body().collect().await.unwrap().to_bytes();
 
     assert_eq!(status, StatusCode::OK);
-    assert!(!bytes.is_empty(), "avatar response body should not be empty");
+    assert!(
+        !bytes.is_empty(),
+        "avatar response body should not be empty"
+    );
 
-    (status, bytes)
+    bytes
 }
 
 fn bench_avatar_handler(c: &mut Criterion) {
@@ -155,23 +156,19 @@ fn bench_avatar_handler(c: &mut Criterion) {
     run_setup();
 
     let rt = Runtime::new().unwrap();
-    // PubkyServeDir caches the first files_path in a process-wide OnceLock, so both
-    // measurements must share one temp directory while this function is running.
+    // Share one TempDir because PubkyServeDir pins the first files_path process-wide.
     let setup = rt.block_on(AvatarBenchSetup::new());
 
     c.bench_function("avatar_handler_warm", |b| {
         b.to_async(&rt).iter(|| async {
-            let response = setup.call_avatar_handler().await.unwrap();
-            std::hint::black_box(consume_avatar_response(response).await);
+            setup.request_avatar().await;
         });
     });
 
     c.bench_function("avatar_handler_cold", |b| {
         b.to_async(&rt).iter(|| async {
             setup.clear_small_variant().await;
-
-            let response = setup.call_avatar_handler().await.unwrap();
-            std::hint::black_box(consume_avatar_response(response).await);
+            setup.request_avatar().await;
         });
     });
 }

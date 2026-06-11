@@ -63,7 +63,7 @@ pub async fn user_avatar_handler(
         &user_id,
         &FileVariant::Small,
         file_path.clone(),
-        None,
+        false,
     )
     .await
     .inspect_err(|_| {

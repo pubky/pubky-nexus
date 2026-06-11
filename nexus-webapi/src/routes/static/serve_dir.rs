@@ -61,16 +61,15 @@ impl PubkyServeDir {
     }
 }
 
-/// Ensures a file variant exists on disk, serves it, and applies standard cache headers.
-///
-/// When `download_filename` is set, also adds a `Content-Disposition: attachment` header.
+/// Ensures a file variant exists, serves it, and applies cache headers.
+/// If `download` is true, sets `Content-Disposition: attachment`.
 pub async fn serve_file_variant(
     request: Request<Body>,
     file: &FileDetails,
     owner_id: &str,
     variant: &FileVariant,
     files_path: PathBuf,
-    download_filename: Option<&str>,
+    download: bool,
 ) -> Result<Response<ServeFileSystemResponseBody>> {
     let content_type = Blob::get_by_id(file, variant, files_path.clone()).await?;
 
@@ -89,7 +88,8 @@ pub async fn serve_file_variant(
         .headers_mut()
         .insert("cache-control", cache_control_header);
 
-    if let Some(filename) = download_filename {
+    if download {
+        let filename = &file.name;
         let content_disposition_header = format!("attachment; filename=\"{filename}\"")
             .parse()
             .inspect_err(|_| error!("Invalid content disposition header: {filename}"))?;
