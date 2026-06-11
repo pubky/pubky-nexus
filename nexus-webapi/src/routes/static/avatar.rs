@@ -60,7 +60,7 @@ pub async fn user_avatar_handler(
     serve_file_variant(
         request,
         &file_details,
-        &user_id,
+        &owner_id,
         &FileVariant::Small,
         file_path.clone(),
         false,

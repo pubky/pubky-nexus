@@ -156,7 +156,8 @@ fn bench_avatar_handler(c: &mut Criterion) {
     run_setup();
 
     let rt = Runtime::new().unwrap();
-    // Share one TempDir because PubkyServeDir pins the first files_path process-wide.
+    // Reuse one TempDir because PubkyServeDir stores the first files_path
+    // in a process-global OnceLock.
     let setup = rt.block_on(AvatarBenchSetup::new());
 
     c.bench_function("avatar_handler_warm", |b| {
