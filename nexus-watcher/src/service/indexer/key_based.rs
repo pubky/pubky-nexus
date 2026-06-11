@@ -115,7 +115,7 @@ impl TEventProcessor for KeyBasedEventProcessor {
         // them from `pre_run`, so reaching here is unexpected.
         if self.hs_blacklist.is_blacklisted(&hs_id) {
             error!(%hs_id, action = "abort_hs", "Refusing to process blacklisted HS");
-            return Err(EventProcessorError::HomeserverBlacklisted { hs_id });
+            return Err(EventProcessorError::HsBlacklisted { hs_id });
         }
 
         let hs_pk = self.homeserver.id.to_public_key();

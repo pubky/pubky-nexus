@@ -803,8 +803,8 @@ fn assert_internal_not_retry_now_index_operation_failed(err: RunError) {
 
 fn assert_internal_homeserver_blacklisted(err: RunError) {
     match err {
-        RunError::Internal(EventProcessorError::HomeserverBlacklisted { .. }) => {}
-        other => panic!("expected internal HomeserverBlacklisted error, got {other:?}"),
+        RunError::Internal(EventProcessorError::HsBlacklisted { .. }) => {}
+        other => panic!("expected internal HsBlacklisted error, got {other:?}"),
     }
 }
 
