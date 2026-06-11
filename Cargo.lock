@@ -3127,6 +3127,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tokio-shared-rt",
+ "tower",
  "tower-http",
  "tracing",
  "url",

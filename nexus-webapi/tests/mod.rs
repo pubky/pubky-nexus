@@ -1,3 +1,5 @@
+#![recursion_limit = "256"]
+
 pub mod endpoints;
 pub mod events;
 pub mod files;

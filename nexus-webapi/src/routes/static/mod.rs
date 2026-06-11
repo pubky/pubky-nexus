@@ -12,7 +12,7 @@ mod files;
 mod legacy_files;
 mod serve_dir;
 
-pub fn routes(app_state: AppState) -> Router<AppState> {
+pub fn router(app_state: AppState) -> Router<AppState> {
     Router::new()
         .with_state(app_state)
         .route(STATIC_FILES_ROUTE, get(files::static_files_handler))
