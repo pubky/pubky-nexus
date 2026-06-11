@@ -7,11 +7,9 @@ use crate::models::traits::Collection;
 use crate::models::user::{set_user_homeserver, UserDetails, UserHsCursor};
 use crate::StackConfig;
 
-/// Ingests previously-unknown users referenced by events, refusing any user
-/// whose HS is blacklisted
+/// Ingests previously-unknown users unless their HS is blacklisted.
 #[derive(Debug, Default, Clone)]
 pub struct UserIngestor {
-    /// HS PKs which should not be indexed
     hs_blacklist: HsBlacklist,
 }
 
@@ -59,15 +57,13 @@ impl UserIngestor {
         Ok(Some(hs_id))
     }
 
-    /// If a referenced user is unknown, not ingested in the graph yet, resolves their HS
-    /// and persists the user node in the graph.
+    /// Resolves and persists a previously-unknown user.
     ///
-    /// If the resolved HS is blacklisted, throws  [`ModelError::HsBlacklisted`].
+    /// Returns [`ModelError::HsBlacklisted`] if the user's resolved HS is blacklisted.
     #[tracing::instrument(name = "user.ingest", skip_all)]
     pub async fn maybe_ingest_user(&self, user_id: &PubkyId) -> ModelResult<()> {
         let user_id_str = user_id.to_string();
         if UserDetails::get_by_id(&user_id_str).await?.is_some() {
-            // If user is already known, don't check the HS blacklist as it has no effect on users
             tracing::debug!("Skipping ingestion: {user_id_str} already known");
             return Ok(());
         }

@@ -41,9 +41,7 @@ pub async fn sync_put(
                     .map_err(EventProcessorError::generic)?;
                 dependency_event_keys.push(replied_uri_str);
 
-                // We try to index missing dependency "replied-to post's author". If their HS is blacklisted
-                // they cannot be ingested, so fail with non-retryable error to prevent enqueuing.
-                // This has the effect of dropping the reply.
+                // Drop the reply (non-retryable) if the replied-to post's author is on a blacklisted HS.
                 fail_on_blacklisted_hs(ingestor.maybe_ingest_author_of_post(replied_to_uri).await)?;
             }
             if let Some(reposted_uri) = &post_relationships.reposted {
@@ -52,9 +50,7 @@ pub async fn sync_put(
                     .map_err(EventProcessorError::generic)?;
                 dependency_event_keys.push(reposted_uri_str);
 
-                // We try to index missing dependency "reposted post's author". If their HS is blacklisted
-                // they cannot be ingested, so fail with non-retryable error to prevent enqueuing.
-                // This has the effect of dropping the repost.
+                // Drop the repost (non-retryable) if the reposted post's author is on a blacklisted HS.
                 fail_on_blacklisted_hs(ingestor.maybe_ingest_author_of_post(reposted_uri).await)?;
             }
             if dependency_event_keys.is_empty() {

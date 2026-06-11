@@ -123,7 +123,7 @@ impl RetryProcessor {
         let ev_retry_count = retry_event.retry_count;
 
         // In principle, it's possible to check if `origin_homeserver_id` is blacklisted before
-        // handling the event. A retry entry may have been queued before that HS blacklisted.
+        // handling the event. A retry entry may have been queued before that HS got blacklisted.
         // Retrying those pre-existing events is acceptable for now. Newly discovered events from a
         // blacklisted HS are blocked before they can be enqueued.
         //
@@ -142,7 +142,7 @@ impl RetryProcessor {
             }
             Err(e) if !RetryScheduler::should_enqueue_related_event(&e) => {
                 // Not worth retrying (ParseFailed, etc.) - dead-letter immediately
-                warn!("Event {ev_uri} thew an error not worth retrying, dead-lettering: {e}");
+                warn!("Event {ev_uri} threw an error not worth retrying, dead-lettering: {e}");
                 self.store.remove(index_key).await?;
             }
             Err(e) if e.should_not_retry_now() => {

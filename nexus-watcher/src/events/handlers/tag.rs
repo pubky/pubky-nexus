@@ -230,9 +230,7 @@ async fn put_sync_post(
         }
         OperationOutcome::MissingDependency => {
             if let Ok(post_uri) = ParsedUri::try_from(post_uri_str) {
-                // We try to index missing dependency "tagged post's author". If their HS is blacklisted
-                // they cannot be ingested, so fail with non-retryable error to prevent enqueuing.
-                // This has the effect of dropping the tag.
+                // Drop the tag (non-retryable) if the tagged post's author is on a blacklisted HS.
                 fail_on_blacklisted_hs(ingestor.maybe_ingest_author_of_post(&post_uri).await)?;
             }
             Err(EventProcessorError::MissingDependency {
@@ -349,9 +347,7 @@ async fn put_sync_user(
             Ok(())
         }
         OperationOutcome::MissingDependency => {
-            // We try to index missing dependency "tagged user". If their HS is blacklisted
-            // they cannot be ingested, so fail with non-retryable error to prevent enqueuing.
-            // This has the effect of dropping the tag.
+            // Drop the tag (non-retryable) if the tagged user is on a blacklisted HS.
             fail_on_blacklisted_hs(ingestor.maybe_ingest_user(&tagged_user_id).await)?;
 
             let tagged_uri = tagged_user_id

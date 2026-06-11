@@ -37,9 +37,7 @@ pub async fn sync_put(
             return Ok(());
         }
         OperationOutcome::MissingDependency => {
-            // We try to index missing dependency "followee". If their HS is blacklisted
-            // they cannot be ingested, so fail with non-retryable error to prevent enqueuing.
-            // This has the effect of dropping the follow.
+            // Drop the follow (non-retryable) if the followee's HS is blacklisted.
             fail_on_blacklisted_hs(ingestor.maybe_ingest_user(&followee_id).await)?;
 
             let followee_uri = followee_id
