@@ -1,19 +1,21 @@
-use crate::service::utils::common::create_mock_handler;
-use crate::service::utils::{new_in_memory_store, setup};
+use std::path::PathBuf;
+use std::sync::Arc;
+
 use anyhow::Result;
 use chrono::Utc;
 use nexus_common::db::{exec_single_row, queries};
 use nexus_common::models::event::EventProcessorError;
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::user::UserDetails;
-use nexus_watcher::events::retry::{InitialBackoff, RetryScheduler, RetryStore};
+use nexus_watcher::events::retry::{IndexKey, InitialBackoff, RetryScheduler, RetryStore};
 use nexus_watcher::events::EventHandler;
 use nexus_watcher::service::HsEventProcessor;
 use pubky::Keypair;
 use pubky_app_specs::{post_uri_builder, PubkyId};
-use std::path::PathBuf;
-use std::sync::Arc;
 use tokio::sync::watch;
+
+use crate::service::utils::common::create_mock_handler;
+use crate::service::utils::{new_in_memory_store, setup};
 
 const TEST_HS_ID: &str = "1hb71xx9km3f4pw5izsy1gn19ff1uuuqonw4mcygzobwkryujoiy";
 
@@ -118,11 +120,11 @@ async fn test_batch_continues_after_single_failure() -> Result<()> {
     );
 
     assert!(
-        store.get(&first_uri).await?.is_some(),
+        store.get(&IndexKey::for_uri(&first_uri)).await?.is_some(),
         "First event must be queued for retry"
     );
     assert!(
-        store.get(&second_uri).await?.is_some(),
+        store.get(&IndexKey::for_uri(&second_uri)).await?.is_some(),
         "Second event must be queued for retry — proves the batch continued past the first failure"
     );
 
@@ -158,7 +160,7 @@ async fn test_retry_event_carries_origin_homeserver_id() -> Result<()> {
         .await?;
 
     let retry_event = store
-        .get(&uri)
+        .get(&IndexKey::for_uri(&uri))
         .await?
         .expect("Retryable failure must enqueue a RetryEvent");
     assert_eq!(
@@ -407,11 +409,11 @@ async fn test_batch_stops_on_infrastructure_error() -> Result<()> {
 
     // Should-not-retry-now errors bypass the retry scheduler entirely.
     assert!(
-        store.get(&first_uri).await?.is_none(),
+        store.get(&IndexKey::for_uri(&first_uri)).await?.is_none(),
         "Should-not-retry-now errors must not be queued for retry"
     );
     assert!(
-        store.get(&second_uri).await?.is_none(),
+        store.get(&IndexKey::for_uri(&second_uri)).await?.is_none(),
         "Second event must not be queued — batch should have stopped at the first failure"
     );
 

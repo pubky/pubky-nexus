@@ -4,7 +4,8 @@ pub mod scheduler;
 pub mod store;
 
 pub use event::{
-    RetryEvent, RETRY_MANAGER_EVENTS_INDEX, RETRY_MANAGER_PREFIX, RETRY_MANAGER_STATE_INDEX,
+    IndexKey, RetryEvent, RETRY_MANAGER_EVENTS_INDEX, RETRY_MANAGER_PREFIX,
+    RETRY_MANAGER_STATE_INDEX,
 };
 pub use processor::RetryProcessor;
 pub use scheduler::{InitialBackoff, RetryScheduler};
