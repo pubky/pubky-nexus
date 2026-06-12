@@ -97,7 +97,6 @@ pub async fn static_files_handler(
     serve_file_variant(
         request,
         &file,
-        &owner_id,
         &variant,
         file_path.clone(),
         params.dl.is_some(),

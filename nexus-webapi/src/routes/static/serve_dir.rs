@@ -66,14 +66,13 @@ impl PubkyServeDir {
 pub async fn serve_file_variant(
     request: Request<Body>,
     file: &FileDetails,
-    owner_id: &str,
     variant: &FileVariant,
     files_path: PathBuf,
     download: bool,
 ) -> Result<Response<ServeFileSystemResponseBody>> {
     let content_type = Blob::get_by_id(file, variant, files_path.clone()).await?;
 
-    let disk_path = format!("/{owner_id}/{}/{variant}", file.id);
+    let disk_path = format!("/{}/{}/{variant}", file.owner_id, file.id);
 
     let mut response =
         PubkyServeDir::try_call(request, disk_path, content_type, files_path).await?;
