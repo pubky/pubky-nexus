@@ -20,19 +20,14 @@ use utoipa::OpenApi;
         (status = 500, description = "Internal server error")
     )
 )]
-pub async fn homeservers_handler(
-    State(app_state): State<AppState>,
-) -> Result<Json<Vec<String>>> {
+pub async fn homeservers_handler(State(app_state): State<AppState>) -> Result<Json<Vec<String>>> {
     let homeservers = Homeserver::get_all_from_graph().await?;
     let homeservers = filter_allowed_homeservers(homeservers, &app_state.hs_blacklist);
 
     Ok(Json(homeservers))
 }
 
-fn filter_allowed_homeservers(
-    homeservers: Vec<String>,
-    hs_blacklist: &HsBlacklist,
-) -> Vec<String> {
+fn filter_allowed_homeservers(homeservers: Vec<String>, hs_blacklist: &HsBlacklist) -> Vec<String> {
     homeservers
         .into_iter()
         .filter(|hs_id| !hs_blacklist.is_blacklisted(hs_id))
