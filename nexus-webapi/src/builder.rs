@@ -13,6 +13,7 @@ use axum_server::Handle;
 use futures_util::TryFutureExt;
 use nexus_common::db::DatabaseConfig;
 use nexus_common::file::ConfigLoader;
+use nexus_common::models::homeserver::HsBlacklist;
 use nexus_common::types::DynError;
 use nexus_common::utils::create_shutdown_rx;
 use nexus_common::Level;
@@ -176,7 +177,8 @@ impl NexusApi {
         enable_key_republisher: bool,
     ) -> Result<Self, DynError> {
         // Create all the routes of the API
-        let router = routes::routes(ctx.api_config.stack.files_path.clone());
+        let hs_blacklist = HsBlacklist::from_config(&ctx.api_config.stack);
+        let router = routes::routes(ctx.api_config.stack.files_path.clone(), hs_blacklist);
         debug!(?ctx.api_config, "Running NexusAPI with config");
 
         let (icann_http_handle, icann_http_socket) =

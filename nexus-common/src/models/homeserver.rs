@@ -1,5 +1,6 @@
 use crate::db::exec_single_row;
 use crate::db::fetch_key_from_graph;
+use crate::db::get_redis_conn;
 use crate::db::kv::RedisError;
 use crate::db::kv::RedisResult;
 use crate::db::queries;
@@ -7,9 +8,28 @@ use crate::db::GraphResult;
 use crate::db::RedisOps;
 use crate::models::error::ModelError;
 use crate::models::error::ModelResult;
+use deadpool_redis::redis::{AsyncCommands, AsyncIter};
 use pubky_app_specs::PubkyId;
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
+
+/// A set of homeserver public keys forbidden from indexing and ingestion.
+#[derive(Debug, Default, Clone)]
+pub struct HsBlacklist(Vec<PubkyId>);
+
+impl HsBlacklist {
+    pub fn new(hs_pks: impl IntoIterator<Item = PubkyId>) -> Self {
+        Self(hs_pks.into_iter().collect())
+    }
+
+    pub fn from_config(config: &crate::StackConfig) -> Self {
+        Self::new(config.external_hs_pk_blacklist.iter().cloned())
+    }
+
+    pub fn is_blacklisted(&self, hs_id: &str) -> bool {
+        self.0.iter().any(|pk| pk.as_ref() == hs_id)
+    }
+}
 
 /// Represents a homeserver with its public key, URL, and cursor.
 #[derive(Serialize, Deserialize, Debug)]
@@ -80,6 +100,26 @@ impl Homeserver {
             ));
         }
         self.put_index_json(&[&self.id], None, None).await
+    }
+
+    /// Retrieves all homeserver IDs known by existing Redis homeserver records.
+    pub async fn get_all_from_index() -> RedisResult<Vec<String>> {
+        let prefix = Self::prefix().await;
+        let pattern = format!("{prefix}:*");
+        let mut redis_conn = get_redis_conn().await?;
+        let mut iter: AsyncIter<'_, String> = redis_conn.scan_match(pattern).await?;
+        let mut keys = Vec::new();
+        while let Some(key) = iter.next_item().await {
+            keys.push(key?);
+        }
+
+        let mut homeservers: Vec<String> = keys
+            .into_iter()
+            .filter_map(|key| key.strip_prefix(&format!("{prefix}:")).map(str::to_string))
+            .filter(|id| PubkyId::try_from(id.as_str()).is_ok())
+            .collect();
+        homeservers.sort();
+        Ok(homeservers)
     }
 
     pub async fn get_by_id(homeserver_id: PubkyId) -> ModelResult<Option<Homeserver>> {

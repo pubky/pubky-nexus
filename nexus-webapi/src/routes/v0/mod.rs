@@ -5,6 +5,7 @@ pub mod bootstrap;
 pub mod endpoints;
 pub mod events;
 pub mod file;
+pub mod homeservers;
 pub mod info;
 pub mod notification;
 pub mod post;
@@ -31,6 +32,7 @@ pub fn routes(app_state: AppState) -> Router<AppState> {
     let route_notification = notification::routes();
     let route_bootstrap = bootstrap::routes();
     let route_events = events::routes();
+    let route_homeservers = homeservers::routes();
 
     routes_post
         .merge(routes_info)
@@ -43,6 +45,7 @@ pub fn routes(app_state: AppState) -> Router<AppState> {
         .merge(route_notification)
         .merge(route_bootstrap)
         .merge(route_events)
+        .merge(route_homeservers)
 }
 
 #[derive(OpenApi)]
@@ -63,6 +66,7 @@ impl ApiDoc {
         combined.merge(resource::ResourceApiDoc::openapi());
         combined.merge(notification::NotificationApiDoc::merge_docs());
         combined.merge(events::EventsApiDoc::openapi());
+        combined.merge(homeservers::HomeserversApiDoc::openapi());
 
         combined
     }

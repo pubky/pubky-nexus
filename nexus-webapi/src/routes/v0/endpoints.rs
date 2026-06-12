@@ -6,6 +6,9 @@ const VERSION_ROUTE: &str = "/v0";
 // Info routes
 pub const INFO_ROUTE: &str = concatcp!(VERSION_ROUTE, "/info");
 
+// Homeserver routes
+pub const HOMESERVERS_ROUTE: &str = concatcp!(VERSION_ROUTE, "/homeservers");
+
 // -- USER endpoints --
 const USER_PREFIX: &str = concatcp!(VERSION_ROUTE, "/user");
 pub const USER_ROUTE: &str = concatcp!(USER_PREFIX, "/{user_id}");

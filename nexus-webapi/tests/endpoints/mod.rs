@@ -2,6 +2,9 @@ use crate::utils::{host_url, server::TestServiceServer};
 
 use anyhow::Result;
 use axum::http::Method;
+use nexus_common::models::homeserver::Homeserver;
+use pubky::Keypair;
+use pubky_app_specs::PubkyId;
 
 mod openapi;
 
@@ -44,6 +47,27 @@ async fn test_info_endpoint() -> Result<()> {
     println!("body: {body:?}");
     assert_eq!(body["name"], env!("CARGO_PKG_NAME"));
     assert_eq!(body["version"], env!("CARGO_PKG_VERSION"));
+
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_homeservers_endpoint() -> Result<()> {
+    let client = httpc_test::new_client(host_url().await)?;
+
+    let hs_id = PubkyId::from(Keypair::random().public_key());
+    Homeserver::new(hs_id.clone()).put_to_index().await?;
+
+    let res = client.do_get("/v0/homeservers").await?;
+    assert_eq!(res.status(), 200);
+
+    let body = res.json_body()?;
+    let homeservers = body["homeservers"]
+        .as_array()
+        .expect("homeservers should be an array");
+    assert!(homeservers
+        .iter()
+        .any(|value| value.as_str() == Some(hs_id.as_ref())));
 
     Ok(())
 }
