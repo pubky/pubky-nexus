@@ -1,7 +1,7 @@
 use super::TEventProcessor;
 use crate::events::retry::RetryScheduler;
 use crate::events::EventHandler;
-use nexus_common::db::{fetch_key_from_graph, queries, GraphResult, PubkyConnector};
+use nexus_common::db::{fetch_row_from_graph, queries, GraphResult, PubkyConnector};
 use nexus_common::models::event::{Event, EventProcessorError};
 use nexus_common::models::homeserver::Homeserver;
 use pubky::Method;
@@ -10,6 +10,20 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::watch::Receiver;
 use tracing::{debug, error, info, warn};
+
+/// A user's `HOSTED_BY` binding, classified relative to a processor's homeserver.
+///
+/// The `stale` flag is only carried where it is meaningful: a stale mapping means
+/// the user's published homeserver has diverged from the stored one (see
+/// [`set_user_homeserver_stale`](nexus_common::db::queries::put::set_user_homeserver_stale)).
+enum HsBinding {
+    /// The user has no `HOSTED_BY` edge yet.
+    Unbound,
+    /// The user is bound to this processor's homeserver.
+    Current { stale: bool },
+    /// The user is bound to a different homeserver.
+    Other { hs_id: String },
+}
 
 /// Event processor for the default homeserver
 pub struct HsEventProcessor {
@@ -47,29 +61,47 @@ impl TEventProcessor for HsEventProcessor {
         Some(self.homeserver.id.as_ref())
     }
 
-    /// Skips events from users that are bound to a *different* homeserver.
+    /// Skips events from users that are not actively bound to this homeserver.
     ///
     /// Before an event is processed we inspect the user's `HOSTED_BY` edge:
-    /// - No edge, or the edge points at this processor's homeserver: process.
-    /// - The edge points at a different homeserver: log a warning and skip.
+    /// - No edge, or a non-stale edge to this processor's homeserver: process.
+    /// - A stale edge to this homeserver (the user's published homeserver has
+    ///   diverged): log a warning and skip until the resolver realigns it.
+    /// - An edge to a different homeserver: log a warning and skip.
     ///
     /// A lookup failure fails open (the event is processed), so a transient
     /// graph error never silently drops legitimate events.
     async fn should_process_event(&self, event: &Event) -> bool {
         let user_id = event.parsed_uri.user_id();
 
-        match self.user_bound_to_other_homeserver(user_id).await {
-            Ok(Some(other_hs_id)) => {
+        match self.user_hs_binding(user_id).await {
+            // No mapping yet (graceful fallback) or actively bound here: process.
+            Ok(HsBinding::Unbound) | Ok(HsBinding::Current { stale: false }) => true,
+
+            // Bound here but the mapping is stale: skip until the resolver realigns it.
+            Ok(HsBinding::Current { stale: true }) => {
                 warn!(
                     event.uri = %event.uri,
                     user_id = %user_id,
                     processor_homeserver = %self.homeserver.id,
-                    user_homeserver = %other_hs_id,
+                    "User's homeserver mapping is stale; skipping event"
+                );
+                false
+            }
+
+            // Bound to a different homeserver: skip.
+            Ok(HsBinding::Other { hs_id }) => {
+                warn!(
+                    event.uri = %event.uri,
+                    user_id = %user_id,
+                    processor_homeserver = %self.homeserver.id,
+                    user_homeserver = %hs_id,
                     "User is hosted on a different homeserver; skipping event"
                 );
                 false
             }
-            Ok(None) => true,
+
+            // Lookup failed: fail open so transient graph errors don't drop events.
             Err(e) => {
                 warn!(
                     event.uri = %event.uri,
@@ -100,20 +132,25 @@ impl TEventProcessor for HsEventProcessor {
 }
 
 impl HsEventProcessor {
-    /// Returns the homeserver a user is bound to via `HOSTED_BY`, but only when
-    /// it differs from this processor's homeserver.
+    /// Resolves a user's `HOSTED_BY` binding relative to this processor's HS.
     ///
-    /// Returns `Ok(None)` when the user has no `HOSTED_BY` edge or the edge
-    /// points at this processor's homeserver, and `Ok(Some(hs_id))` when the
-    /// edge points at a different homeserver.
-    async fn user_bound_to_other_homeserver(
-        &self,
-        user_id: &PubkyId,
-    ) -> GraphResult<Option<String>> {
+    /// Performs a single graph lookup and classifies the result, attaching the
+    /// `stale` flag where it is meaningful (see [`HsBinding`]).
+    async fn user_hs_binding(&self, user_id: &PubkyId) -> GraphResult<HsBinding> {
         let query = queries::get::get_user_homeserver(user_id.as_ref());
-        let maybe_hs_id: Option<String> = fetch_key_from_graph(query, "homeserver_id").await?;
 
-        Ok(maybe_hs_id.filter(|hs_id| hs_id.as_str() != self.homeserver.id.as_ref()))
+        let Some(row) = fetch_row_from_graph(query).await? else {
+            return Ok(HsBinding::Unbound);
+        };
+
+        let hs_id: String = row.get("homeserver_id")?;
+        let stale: bool = row.get("stale")?;
+
+        Ok(if hs_id.as_str() == self.homeserver.id.as_ref() {
+            HsBinding::Current { stale }
+        } else {
+            HsBinding::Other { hs_id }
+        })
     }
 
     /// Polls new events from the homeserver.

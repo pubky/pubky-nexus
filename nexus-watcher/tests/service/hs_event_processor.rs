@@ -239,6 +239,44 @@ async fn test_processes_event_when_user_hosted_on_same_homeserver() -> Result<()
 }
 
 // ============================================================================
+// HOSTED_BY guard: skip events when the mapping to this homeserver is stale
+// A stale edge means the user's published homeserver has diverged, so events
+// must be paused until the resolver realigns the mapping.
+// ============================================================================
+
+#[tokio_shared_rt::test(shared)]
+async fn test_skips_event_when_user_mapping_to_this_homeserver_is_stale() -> Result<()> {
+    setup().await?;
+
+    // User is bound to this processor's homeserver, but the mapping is stale.
+    let user_id = random_user_id();
+    create_user_hosted_on(&user_id, Some(TEST_HS_ID)).await;
+    exec_single_row(queries::put::set_user_homeserver_stale(&user_id, true))
+        .await
+        .expect("mark user homeserver mapping stale");
+
+    let uri = post_uri_builder(user_id.clone(), "staleme".to_string());
+
+    let store = new_in_memory_store();
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let handler = create_mock_handler(Ok(()), None);
+    let processor = build_processor(store.clone(), handler.clone(), shutdown_rx);
+
+    processor
+        .process_event_lines(vec![format!("PUT {uri}")])
+        .await?;
+
+    assert_eq!(
+        handler.get_handle_count(),
+        0,
+        "Event from a user with a stale mapping to this homeserver must be skipped"
+    );
+
+    let _ = shutdown_tx.send(true);
+    Ok(())
+}
+
+// ============================================================================
 // HOSTED_BY guard: process events from users with no HOSTED_BY edge
 // A missing edge is the common case (e.g. before the resolver has run) and must
 // not block processing.
