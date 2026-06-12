@@ -43,6 +43,10 @@ pub struct HsEventProcessor {
 
     /// Per-run cache of users' `HOSTED_BY` mappings. For a given user's events in
     /// the events list, only the 1st one results in a graph lookup, the rest read from this cache.
+    ///
+    /// Entries are deliberately never refreshed within a run: once a user's mapping
+    /// is resolved, the same decision is reused for the rest of the batch even if the
+    /// resolver realigns the underlying edge mid-run. The cache is dropped when the run ends.
     pub hs_mapping_cache: Mutex<HashMap<String, HsMapping>>,
 }
 
