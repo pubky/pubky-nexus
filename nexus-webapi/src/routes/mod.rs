@@ -4,6 +4,7 @@ use axum::http::request::Parts;
 use axum::http::Request;
 use axum::Json as AxumJson;
 use axum::Router;
+use nexus_common::models::homeserver::HsBlacklist;
 use std::{path::PathBuf, sync::Arc};
 use tower_http::compression::CompressionLayer;
 use tower_http::cors::{Any, CorsLayer};
@@ -71,11 +72,13 @@ where
 #[derive(Clone)]
 pub struct AppState {
     pub files_path: Arc<PathBuf>,
+    pub hs_blacklist: HsBlacklist,
 }
 
-pub fn routes(files_path: PathBuf) -> Router {
+pub fn routes(files_path: PathBuf, hs_blacklist: HsBlacklist) -> Router {
     let state = AppState {
         files_path: Arc::new(files_path),
+        hs_blacklist,
     };
 
     let route_static = r#static::routes(state.clone());

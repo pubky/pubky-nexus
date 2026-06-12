@@ -398,6 +398,19 @@ pub fn get_homeserver_by_id(id: &str) -> Query {
     .param("id", id)
 }
 
+/// Retrieves all homeserver IDs known in the graph.
+///
+/// Returns a single `homeservers_list` column containing the collected IDs.
+pub fn get_all_homeservers() -> Query {
+    Query::new(
+        "get_all_homeservers",
+        "MATCH (hs:Homeserver)
+        WITH hs.id AS id
+        ORDER BY id
+        RETURN collect(id) AS homeservers_list",
+    )
+}
+
 /// Retrieves all homeserver IDs that have at least one active user
 /// (incoming `HOSTED_BY` relationships from `User` nodes).
 ///

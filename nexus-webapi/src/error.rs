@@ -4,6 +4,7 @@ use axum::http::uri::InvalidUri;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use nexus_common::db::kv::RedisError;
+use nexus_common::db::GraphError;
 use nexus_common::models::error::ModelError;
 use nexus_common::types::DynError;
 use std::io;
@@ -79,6 +80,14 @@ impl From<RedisError> for Error {
     fn from(source: RedisError) -> Self {
         Error::InternalServerError {
             source: source.into(),
+        }
+    }
+}
+
+impl From<GraphError> for Error {
+    fn from(source: GraphError) -> Self {
+        Error::InternalServerError {
+            source: Box::new(source),
         }
     }
 }

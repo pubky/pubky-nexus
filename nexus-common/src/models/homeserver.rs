@@ -11,6 +11,24 @@ use pubky_app_specs::PubkyId;
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 
+/// A set of homeserver public keys forbidden from indexing and ingestion.
+#[derive(Debug, Default, Clone)]
+pub struct HsBlacklist(Vec<PubkyId>);
+
+impl HsBlacklist {
+    pub fn new(hs_pks: impl IntoIterator<Item = PubkyId>) -> Self {
+        Self(hs_pks.into_iter().collect())
+    }
+
+    pub fn from_config(config: &crate::StackConfig) -> Self {
+        Self::new(config.external_hs_pk_blacklist.iter().cloned())
+    }
+
+    pub fn is_blacklisted(&self, hs_id: &str) -> bool {
+        self.0.iter().any(|pk| pk.as_ref() == hs_id)
+    }
+}
+
 /// Represents a homeserver with its public key, URL, and cursor.
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Homeserver {
@@ -65,6 +83,13 @@ impl Homeserver {
         let maybe_hs = maybe_id.map(Homeserver::new);
 
         Ok(maybe_hs)
+    }
+
+    /// Returns all homeserver IDs known in the graph.
+    pub async fn get_all_from_graph() -> GraphResult<Vec<String>> {
+        let query = queries::get::get_all_homeservers();
+        let maybe_hs_ids = fetch_key_from_graph(query, "homeservers_list").await?;
+        Ok(maybe_hs_ids.unwrap_or_default())
     }
 
     /// Retrieves the homeserver from Redis.
