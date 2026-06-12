@@ -6,6 +6,10 @@ public_ip = "127.0.0.1"
 public_addr = "127.0.0.1:8080"
 # The local IP and port to which the HTTPS (Pkarr TLS) server will bind and listen on
 pubky_listen_socket = "127.0.0.1:8081"
+# Time (in seconds) before a request is aborted with a 408 Request Timeout
+request_timeout_secs = 30
+# Maximum size (in bytes) accepted for a request body
+max_body_size_bytes = 1048576
 
 [watcher]
 testnet = false
