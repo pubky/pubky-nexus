@@ -20,7 +20,7 @@ use serde::Deserialize;
 use utoipa::ToSchema;
 
 pub use error_response::ErrorResponsePayload;
-pub use file_id::FileId;
+pub use file_id::{FileId, FileUris};
 pub use global_post_id::{GlobalPostId, GlobalPostIds};
 pub use info::ServerInfo;
 pub use post::{PostStreamDetailed, PostViewDetailed};
