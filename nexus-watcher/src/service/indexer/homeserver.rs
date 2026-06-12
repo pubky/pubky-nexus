@@ -87,7 +87,7 @@ impl TEventProcessor for HsEventProcessor {
 
         match self.user_hs_mapping(user_id).await {
             // No mapping yet (graceful fallback) or actively bound here: process.
-            Ok(HsMapping::Unbound) | Ok(HsMapping::Current { stale: false }) => true,
+            Ok(HsMapping::Unbound | HsMapping::Current { stale: false }) => true,
 
             // Bound here but the mapping is stale: skip until the resolver realigns it.
             Ok(HsMapping::Current { stale: true }) => {
