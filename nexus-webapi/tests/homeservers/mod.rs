@@ -2,19 +2,15 @@ use crate::utils::get_request;
 
 use anyhow::Result;
 use nexus_common::models::homeserver::Homeserver;
+use nexus_webapi::routes::v0::endpoints::HOMESERVERS_ROUTE;
 use pubky::Keypair;
 use pubky_app_specs::PubkyId;
 use std::collections::BTreeSet;
 
-const HOMESERVERS_ROUTE: &str = "/v0/homeservers";
-
-fn random_homeserver_id() -> PubkyId {
-    PubkyId::from(Keypair::random().public_key())
-}
-
-async fn persist_homeserver_to_graph(hs_id: &PubkyId) -> Result<()> {
+async fn create_homeserver_in_graph() -> Result<PubkyId> {
+    let hs_id = PubkyId::from(Keypair::random().public_key());
     Homeserver::new(hs_id.clone()).put_to_graph().await?;
-    Ok(())
+    Ok(hs_id)
 }
 
 #[tokio_shared_rt::test(shared)]
@@ -31,8 +27,7 @@ async fn test_homeservers_endpoint_returns_array() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeservers_endpoint_includes_graph_homeserver_without_users() -> Result<()> {
-    let hs_id = random_homeserver_id();
-    persist_homeserver_to_graph(&hs_id).await?;
+    let hs_id = create_homeserver_in_graph().await?;
 
     let homeservers = get_request(HOMESERVERS_ROUTE)
         .await?
@@ -53,13 +48,10 @@ async fn test_homeservers_endpoint_includes_graph_homeserver_without_users() -> 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeservers_endpoint_returns_created_graph_homeservers() -> Result<()> {
     let hs_ids = [
-        random_homeserver_id(),
-        random_homeserver_id(),
-        random_homeserver_id(),
+        create_homeserver_in_graph().await?,
+        create_homeserver_in_graph().await?,
+        create_homeserver_in_graph().await?,
     ];
-    for hs_id in &hs_ids {
-        persist_homeserver_to_graph(hs_id).await?;
-    }
 
     let expected_hs_ids = hs_ids
         .iter()
