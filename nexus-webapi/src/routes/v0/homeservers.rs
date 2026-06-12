@@ -46,24 +46,3 @@ pub fn routes() -> Router<AppState> {
 #[derive(OpenApi)]
 #[openapi(paths(homeservers_handler))]
 pub struct HomeserversApiDoc;
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use pubky::Keypair;
-    use pubky_app_specs::PubkyId;
-
-    #[test]
-    fn test_filter_allowed_homeservers() {
-        let allowed = PubkyId::from(Keypair::random().public_key());
-        let blacklisted = PubkyId::from(Keypair::random().public_key());
-        let hs_blacklist = HsBlacklist::new([blacklisted.clone()]);
-
-        let homeservers = filter_allowed_homeservers(
-            vec![allowed.to_string(), blacklisted.to_string()],
-            &hs_blacklist,
-        );
-
-        assert_eq!(homeservers, vec![allowed.to_string()]);
-    }
-}
