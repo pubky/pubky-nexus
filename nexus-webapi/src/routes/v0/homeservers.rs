@@ -5,13 +5,7 @@ use axum::extract::State;
 use axum::routing::get;
 use axum::{Json, Router};
 use nexus_common::models::homeserver::{Homeserver, HsBlacklist};
-use serde::{Deserialize, Serialize};
-use utoipa::{OpenApi, ToSchema};
-
-#[derive(Serialize, Deserialize, Debug, ToSchema)]
-pub struct HomeserversResponse {
-    pub homeservers: Vec<String>,
-}
+use utoipa::OpenApi;
 
 #[utoipa::path(
     get,
@@ -20,22 +14,22 @@ pub struct HomeserversResponse {
     responses(
         (
             status = 200,
-            description = "Known non-blacklisted homeservers this Nexus can index once users are assigned",
-            body = HomeserversResponse
+            description = "List known homeservers available as indexing sources",
+            body = Vec<String>
         ),
         (status = 500, description = "Internal server error")
     )
 )]
 pub async fn homeservers_handler(
     State(app_state): State<AppState>,
-) -> Result<Json<HomeserversResponse>> {
-    let homeservers = Homeserver::get_all_from_index().await?;
-    let homeservers = filter_blacklisted_homeservers(homeservers, &app_state.hs_blacklist);
+) -> Result<Json<Vec<String>>> {
+    let homeservers = Homeserver::get_all_from_graph().await?;
+    let homeservers = filter_allowed_homeservers(homeservers, &app_state.hs_blacklist);
 
-    Ok(Json(HomeserversResponse { homeservers }))
+    Ok(Json(homeservers))
 }
 
-fn filter_blacklisted_homeservers(
+fn filter_allowed_homeservers(
     homeservers: Vec<String>,
     hs_blacklist: &HsBlacklist,
 ) -> Vec<String> {
@@ -50,7 +44,7 @@ pub fn routes() -> Router<AppState> {
 }
 
 #[derive(OpenApi)]
-#[openapi(paths(homeservers_handler), components(schemas(HomeserversResponse)))]
+#[openapi(paths(homeservers_handler))]
 pub struct HomeserversApiDoc;
 
 #[cfg(test)]
@@ -60,12 +54,12 @@ mod tests {
     use pubky_app_specs::PubkyId;
 
     #[test]
-    fn test_filter_blacklisted_homeservers() {
+    fn test_filter_allowed_homeservers() {
         let allowed = PubkyId::from(Keypair::random().public_key());
         let blacklisted = PubkyId::from(Keypair::random().public_key());
         let hs_blacklist = HsBlacklist::new([blacklisted.clone()]);
 
-        let homeservers = filter_blacklisted_homeservers(
+        let homeservers = filter_allowed_homeservers(
             vec![allowed.to_string(), blacklisted.to_string()],
             &hs_blacklist,
         );
