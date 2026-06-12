@@ -10,6 +10,7 @@ use tokio::sync::watch::Receiver;
 use tracing::{debug, info, warn};
 
 use super::store::{RedisRetryStore, RetryStore};
+use super::IndexKey;
 use super::RetryEvent;
 use super::RetryScheduler;
 use crate::events::{DefaultEventHandler, EventHandler, Moderation};
@@ -91,14 +92,14 @@ impl RetryProcessor {
     async fn fetch_ready_events(
         &self,
         now: i64,
-    ) -> Result<Vec<(String, RetryEvent)>, EventProcessorError> {
+    ) -> Result<Vec<(IndexKey, RetryEvent)>, EventProcessorError> {
         self.store.fetch_ready(now, Some(RETRY_BATCH_SIZE)).await
     }
 
     /// Process a single retry event
     async fn process_retry_event(
         &self,
-        index_key: &str,
+        index_key: &IndexKey,
         retry_event: RetryEvent,
     ) -> Result<(), EventProcessorError> {
         // Reconstruct the event line and parse the event
@@ -147,7 +148,7 @@ impl RetryProcessor {
                 // Errors we should not retry right now (e.g. Neo4j/Redis failures) must NOT count
                 // against the application-level max_retries limit.  Reschedule with backoff but do
                 // NOT increment retry_count, then propagate to stop the current batch.
-                self.reschedule(&retry_event, index_key, &e, false).await?;
+                self.reschedule(&retry_event, &e, false).await?;
                 return Err(e);
             }
             Err(e) if ev_retry_count >= self.config.get_max_retries_for_err(&e) => {
@@ -156,7 +157,7 @@ impl RetryProcessor {
             }
             Err(e) => {
                 // Schedule retry with backoff (increments retry_count)
-                self.reschedule(&retry_event, index_key, &e, true).await?;
+                self.reschedule(&retry_event, &e, true).await?;
             }
         }
 
@@ -171,7 +172,6 @@ impl RetryProcessor {
     async fn reschedule(
         &self,
         retry_event: &RetryEvent,
-        index_key: &str,
         error: &EventProcessorError,
         increment_count: bool,
     ) -> Result<(), EventProcessorError> {
@@ -192,7 +192,7 @@ impl RetryProcessor {
         updated_event.retry_count = new_retry_count;
         updated_event.next_retry_at = next_retry_at;
 
-        self.store.put(index_key, &updated_event).await?;
+        self.store.put(&updated_event).await?;
 
         let retry_time =
             DateTime::<Utc>::from_timestamp_millis(next_retry_at).unwrap_or_else(Utc::now);
