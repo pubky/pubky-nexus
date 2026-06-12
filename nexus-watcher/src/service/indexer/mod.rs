@@ -215,11 +215,13 @@ pub trait TEventProcessor: Send + Sync + 'static {
         )
     )]
     async fn handle_event(&self, event: &Event) -> Result<(), EventProcessorError> {
+        let span = tracing::Span::current();
+
         if !self.should_process_event(event).await {
+            span.record("otel.status_code", "OK");
             return Ok(());
         }
 
-        let span = tracing::Span::current();
         if let Err(e) = self.event_handler().handle(event).await {
             span.record("otel.status_code", "ERROR");
             span.record("otel.status_message", tracing::field::display(&e));
