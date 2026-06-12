@@ -6,9 +6,11 @@ use nexus_common::models::event::{Event, EventProcessorError};
 use nexus_common::models::homeserver::Homeserver;
 use pubky::Method;
 use pubky_app_specs::PubkyId;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::watch::Receiver;
+use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
 
 /// A user's `HOSTED_BY` binding, classified relative to a processor's homeserver.
@@ -16,7 +18,8 @@ use tracing::{debug, error, info, warn};
 /// The `stale` flag is only carried where it is meaningful: a stale mapping means
 /// the user's published homeserver has diverged from the stored one (see
 /// [`set_user_homeserver_stale`](nexus_common::db::queries::put::set_user_homeserver_stale)).
-enum HsBinding {
+#[derive(Clone)]
+pub enum HsBinding {
     /// The user has no `HOSTED_BY` edge yet.
     Unbound,
     /// The user is bound to this processor's homeserver.
@@ -37,6 +40,10 @@ pub struct HsEventProcessor {
     pub shutdown_rx: Receiver<bool>,
     /// Scheduler used to enqueue failed events onto the retry queue
     pub retry_scheduler: Arc<RetryScheduler>,
+
+    /// Per-run cache of users' `HOSTED_BY` mappings. For a given user's events in
+    /// the events list, only the 1st one results in a graph lookup, the rest read from this cache.
+    pub hs_mapping_cache: Mutex<HashMap<String, HsBinding>>,
 }
 
 #[async_trait::async_trait]
@@ -74,7 +81,7 @@ impl TEventProcessor for HsEventProcessor {
     async fn should_process_event(&self, event: &Event) -> bool {
         let user_id = event.parsed_uri.user_id();
 
-        match self.user_hs_binding(user_id).await {
+        match self.user_hs_mapping(user_id).await {
             // No mapping yet (graceful fallback) or actively bound here: process.
             Ok(HsBinding::Unbound) | Ok(HsBinding::Current { stale: false }) => true,
 
@@ -132,25 +139,33 @@ impl TEventProcessor for HsEventProcessor {
 }
 
 impl HsEventProcessor {
-    /// Resolves a user's `HOSTED_BY` binding relative to this processor's HS.
-    ///
-    /// Performs a single graph lookup and classifies the result, attaching the
-    /// `stale` flag where it is meaningful (see [`HsBinding`]).
-    async fn user_hs_binding(&self, user_id: &PubkyId) -> GraphResult<HsBinding> {
-        let query = queries::get::get_user_homeserver(user_id.as_ref());
+    /// Resolves and caches a user's `HOSTED_BY` binding relative to this processor's HS
+    async fn user_hs_mapping(&self, user_id: &PubkyId) -> GraphResult<HsBinding> {
+        if let Some(binding) = self.hs_mapping_cache.lock().await.get(user_id.as_ref()) {
+            return Ok(binding.clone());
+        }
 
-        let Some(row) = fetch_row_from_graph(query).await? else {
-            return Ok(HsBinding::Unbound);
+        let query = queries::get::get_user_homeserver(user_id.as_ref());
+        let mapping = match fetch_row_from_graph(query).await? {
+            None => HsBinding::Unbound,
+            Some(row) => {
+                let hs_id: String = row.get("homeserver_id")?;
+                let stale: bool = row.get("stale")?;
+
+                if hs_id.as_str() == self.homeserver.id.as_ref() {
+                    HsBinding::Current { stale }
+                } else {
+                    HsBinding::Other { hs_id }
+                }
+            }
         };
 
-        let hs_id: String = row.get("homeserver_id")?;
-        let stale: bool = row.get("stale")?;
+        self.hs_mapping_cache
+            .lock()
+            .await
+            .insert(user_id.as_ref().to_string(), mapping.clone());
 
-        Ok(if hs_id.as_str() == self.homeserver.id.as_ref() {
-            HsBinding::Current { stale }
-        } else {
-            HsBinding::Other { hs_id }
-        })
+        Ok(mapping)
     }
 
     /// Polls new events from the homeserver.

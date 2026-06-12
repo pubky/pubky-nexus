@@ -68,6 +68,7 @@ fn build_processor(
         event_handler,
         shutdown_rx,
         retry_scheduler,
+        hs_mapping_cache: Default::default(),
     })
 }
 
@@ -303,6 +304,50 @@ async fn test_processes_event_when_user_has_no_homeserver_edge() -> Result<()> {
         handler.get_handle_count(),
         1,
         "Event from a user without a HOSTED_BY edge must be processed"
+    );
+
+    let _ = shutdown_tx.send(true);
+    Ok(())
+}
+
+// ============================================================================
+// HOSTED_BY guard: the mapping is cached for the processor's lifetime
+// The first event resolves the user's mapping and caches it; later events reuse
+// the cached decision even if the underlying graph state changes afterwards.
+// ============================================================================
+
+#[tokio_shared_rt::test(shared)]
+async fn test_user_homeserver_mapping_is_cached_across_events() -> Result<()> {
+    setup().await?;
+
+    // User starts with no HOSTED_BY edge, so the first event is processed and the
+    // resulting "unbound" mapping is cached.
+    let user_id = random_user_id();
+    let first_uri = post_uri_builder(user_id.clone(), "cacheone".to_string());
+    let second_uri = post_uri_builder(user_id.clone(), "cachetwo".to_string());
+
+    let store = new_in_memory_store();
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let handler = create_mock_handler(Ok(()), None);
+    let processor = build_processor(store.clone(), handler.clone(), shutdown_rx);
+
+    processor
+        .process_event_lines(vec![format!("PUT {first_uri}")])
+        .await?;
+
+    // Map the user to a *different* homeserver. A fresh lookup would now skip,
+    // but the cached "unbound" mapping must keep this user's events flowing.
+    let other_hs_id = PubkyId::from(Keypair::random().public_key()).to_string();
+    create_user_hosted_on(&user_id, Some(&other_hs_id)).await;
+
+    processor
+        .process_event_lines(vec![format!("PUT {second_uri}")])
+        .await?;
+
+    assert_eq!(
+        handler.get_handle_count(),
+        2,
+        "Second event must reuse the cached mapping and still be processed despite the new HOSTED_BY edge"
     );
 
     let _ = shutdown_tx.send(true);
