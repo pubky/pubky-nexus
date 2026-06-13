@@ -3,6 +3,8 @@ use nexus_common::models::event::EventProcessorError;
 use nexus_watcher::events::retry::{InMemoryRetryStore, RetryStore};
 use std::sync::{Arc, Mutex};
 
+pub use nexus_watcher::test_utils::random_pubky_id;
+
 pub const TEST_USER_ID: &str = "uo7jgkykft4885n8cruizwy6khw71mnu5pq3ay9i8pw1ymcn85ko";
 
 pub fn new_in_memory_store() -> Arc<dyn RetryStore> {

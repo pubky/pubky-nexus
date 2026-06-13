@@ -57,10 +57,7 @@ impl UserNotFoundBackoff {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn random_pk() -> PublicKey {
-        pubky::Keypair::random().public_key()
-    }
+    use crate::test_utils::random_pk;
 
     #[tokio::test]
     async fn new_user_is_not_skipped() {

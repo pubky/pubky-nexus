@@ -66,6 +66,7 @@ impl RetryScheduler {
             EventProcessorError::InvalidEventLine(_)
             | EventProcessorError::SkipIndexing
             | EventProcessorError::SpecValidation(..)
+            | EventProcessorError::HsBlacklisted { .. }
             | EventProcessorError::HsEventsStreamRateLimitExhausted
             | EventProcessorError::UserIdMismatch { .. } => false,
 

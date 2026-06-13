@@ -13,7 +13,7 @@ use super::store::{RedisRetryStore, RetryStore};
 use super::IndexKey;
 use super::RetryEvent;
 use super::RetryScheduler;
-use crate::events::{DefaultEventHandler, EventHandler, Moderation};
+use crate::events::{DefaultEventHandler, EventHandler};
 use crate::service::indexer::TEventProcessor;
 
 /// Maximum number of retry events to fetch per batch to avoid memory spikes
@@ -75,11 +75,10 @@ impl TEventProcessor for RetryProcessor {
 
 impl RetryProcessor {
     pub fn new(config: &WatcherConfig, shutdown_rx: Receiver<bool>) -> Self {
-        let moderation = Moderation::from_config(config);
         let store: Arc<dyn RetryStore> = Arc::new(RedisRetryStore::new());
         Self {
             files_path: config.stack.files_path.clone(),
-            event_handler: Arc::new(DefaultEventHandler::new(moderation)),
+            event_handler: Arc::new(DefaultEventHandler::from_config(config)),
             shutdown_rx,
             config: config.retry.clone(),
             store,
@@ -124,6 +123,11 @@ impl RetryProcessor {
         let ev_uri = &retry_event.event_uri;
         let ev_retry_count = retry_event.retry_count;
 
+        // In principle, it's possible to check if `origin_homeserver_id` is blacklisted before
+        // handling the event. A retry entry may have been queued before that HS got blacklisted.
+        // Retrying those pre-existing events is acceptable for now. Newly discovered events from a
+        // blacklisted HS are blocked before they can be enqueued.
+        //
         // Call event_handler directly to get the actual error (bypassing handle_event/handle_error)
         let event_handle_res = self.event_handler().handle(&event).await.inspect_err(|e| {
             // In case of error, log it before the error itself is classified and handled
@@ -139,9 +143,7 @@ impl RetryProcessor {
             }
             Err(e) if !RetryScheduler::should_enqueue_related_event(&e) => {
                 // Not worth retrying (ParseFailed, etc.) - dead-letter immediately
-                warn!(
-                    "Event {ev_uri} failed with an error not worth retrying, dead-lettering: {e}"
-                );
+                warn!("Event {ev_uri} threw an error not worth retrying, dead-lettering: {e}");
                 self.store.remove(index_key).await?;
             }
             Err(e) if e.should_not_retry_now() => {

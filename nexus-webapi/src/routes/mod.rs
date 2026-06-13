@@ -4,7 +4,10 @@ use axum::http::request::Parts;
 use axum::http::Request;
 use axum::Json as AxumJson;
 use axum::Router;
+use nexus_common::models::user::UserIngestor;
 use std::{path::PathBuf, sync::Arc};
+
+use crate::api_context::ApiContext;
 use tower_http::compression::CompressionLayer;
 use tower_http::cors::{Any, CorsLayer};
 use utoipa_swagger_ui::SwaggerUi;
@@ -71,11 +74,14 @@ where
 #[derive(Clone)]
 pub struct AppState {
     pub files_path: Arc<PathBuf>,
+    /// Shared ingestor enforcing the HS blacklist on API-triggered ingestion.
+    pub ingestor: Arc<UserIngestor>,
 }
 
-pub fn routes(files_path: PathBuf) -> Router {
+pub fn routes(ctx: &ApiContext) -> Router {
     let state = AppState {
-        files_path: Arc::new(files_path),
+        files_path: Arc::new(ctx.api_config.stack.files_path.clone()),
+        ingestor: ctx.ingestor.clone(),
     };
 
     let route_static = r#static::routes(state.clone());

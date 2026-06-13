@@ -1,5 +1,7 @@
 use std::path::PathBuf;
+use std::sync::Arc;
 
+use nexus_common::models::user::UserIngestor;
 use nexus_common::{file::default_config_dir_path, types::DynError, ApiConfig, DaemonConfig};
 use pubky::pkarr::{self, Keypair};
 
@@ -8,6 +10,7 @@ pub struct ApiContext {
     pub(crate) api_config: ApiConfig,
     pub(crate) keypair: pkarr::Keypair,
     pub(crate) pkarr_client: pkarr::Client,
+    pub(crate) ingestor: Arc<UserIngestor>,
 }
 
 pub struct ApiContextBuilder {
@@ -54,6 +57,8 @@ impl ApiContextBuilder {
             Some(ac) => ac.clone(),
         };
 
+        let ingestor = UserIngestor::from_config(&api_config.stack);
+
         let pkarr_builder = self.pkarr_builder.clone().unwrap_or_default();
         let pkarr_client = pkarr_builder.build()?;
 
@@ -63,6 +68,7 @@ impl ApiContextBuilder {
             api_config,
             keypair,
             pkarr_client,
+            ingestor: Arc::new(ingestor),
         })
     }
 

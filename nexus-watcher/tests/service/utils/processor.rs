@@ -4,11 +4,10 @@ use std::sync::Arc;
 use crate::service::utils::common::create_mock_handler;
 use crate::service::utils::{MockEventProcessorResult, HS_IDS};
 use chrono::Utc;
-use nexus_common::db::exec_single_row;
-use nexus_common::db::queries;
 use nexus_common::models::event::EventProcessorError;
 use nexus_common::models::homeserver::Homeserver;
-use nexus_common::models::user::UserDetails;
+use nexus_common::models::traits::Collection;
+use nexus_common::models::user::{set_user_homeserver, UserDetails};
 use nexus_watcher::events::retry::RetryScheduler;
 use nexus_watcher::events::EventHandler;
 use nexus_watcher::service::TEventProcessor;
@@ -110,10 +109,8 @@ pub async fn create_random_homeservers_and_persist(
                 image: None,
                 indexed_at: Utc::now().timestamp_millis(),
             };
-            let create_query = queries::put::create_user(&user).unwrap();
-            exec_single_row(create_query).await.unwrap();
-            let link_query = queries::put::set_user_homeserver(&user_id, &homeserver_id);
-            exec_single_row(link_query).await.unwrap();
+            user.put_to_graph().await.unwrap();
+            set_user_homeserver(&user_id, &homeserver_id).await.unwrap();
         }
     }
 

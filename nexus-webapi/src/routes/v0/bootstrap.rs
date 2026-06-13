@@ -5,11 +5,11 @@ use crate::routes::AppState;
 use crate::routes::Path;
 use crate::Result;
 
+use axum::extract::State;
 use axum::routing::{get, put};
 use axum::Json;
 use axum::Router;
 use nexus_common::models::bootstrap::{Bootstrap, ViewType};
-use nexus_common::models::user::UserDetails;
 use tracing::debug;
 use utoipa::OpenApi;
 
@@ -46,13 +46,17 @@ pub async fn bootstrap_handler(
     ),
     responses(
         (status = 200, description = "User successfully ingested (or already known)"),
+        (status = 403, description = "User is hosted on a blacklisted HS"),
         (status = 500, description = "Internal server error")
     )
 )]
-pub async fn ingest_user_handler(Path(user_id): Path<PubkyId>) -> Result<()> {
+pub async fn ingest_user_handler(
+    State(app_state): State<AppState>,
+    Path(user_id): Path<PubkyId>,
+) -> Result<()> {
     debug!("PUT {INGEST_USER_ROUTE}, user_id:{user_id}");
 
-    UserDetails::maybe_ingest_user(&user_id).await?;
+    app_state.ingestor.maybe_ingest_user(&user_id).await?;
     Ok(())
 }
 
