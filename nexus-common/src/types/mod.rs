@@ -20,8 +20,8 @@ pub enum StreamSorting {
 }
 
 #[derive(Debug, Deserialize, Clone, PartialEq, ToSchema)]
-#[serde(rename_all = "snake_case")]
-#[schema(rename_all = "snake_case")]
+#[serde(rename_all = "lowercase")]
+#[schema(rename_all = "lowercase")]
 pub enum StreamReach {
     Followers,
     Following,
@@ -29,16 +29,10 @@ pub enum StreamReach {
     /// Web of Trust with default depth 3
     Wot,
     /// Web of Trust with depth 1
-    #[serde(rename = "wot_1")]
-    #[schema(rename = "wot_1")]
     Wot1,
     /// Web of Trust with depth 2
-    #[serde(rename = "wot_2")]
-    #[schema(rename = "wot_2")]
     Wot2,
     /// Web of Trust with depth 3
-    #[serde(rename = "wot_3")]
-    #[schema(rename = "wot_3")]
     Wot3,
 }
 
