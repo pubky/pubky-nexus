@@ -117,7 +117,7 @@ pub fn bench_stream_influencers(c: &mut Criterion) {
                     skip: None,
                     limit: Some(20),
                     source: UserStreamSource::Influencers,
-                    reach: Some(StreamReach::Wot(3)),
+                    reach: Some(StreamReach::Wot),
                     author_id: None,
                     post_id: None,
                     timeframe: None,
