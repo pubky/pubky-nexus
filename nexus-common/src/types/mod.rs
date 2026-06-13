@@ -29,10 +29,16 @@ pub enum StreamReach {
     /// Web of Trust with default depth 3
     Wot,
     /// Web of Trust with depth 1
+    #[serde(rename = "wot_1")]
+    #[schema(rename = "wot_1")]
     Wot1,
     /// Web of Trust with depth 2
+    #[serde(rename = "wot_2")]
+    #[schema(rename = "wot_2")]
     Wot2,
     /// Web of Trust with depth 3
+    #[serde(rename = "wot_3")]
+    #[schema(rename = "wot_3")]
     Wot3,
 }
 
