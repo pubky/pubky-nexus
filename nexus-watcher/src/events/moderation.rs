@@ -1,7 +1,9 @@
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use crate::events::handlers;
 use nexus_common::models::event::EventProcessorError;
+use nexus_common::WatcherConfig;
 use pubky_app_specs::{ParsedUri, PubkyAppTag, PubkyId, Resource};
 use tracing::info;
 
@@ -13,12 +15,28 @@ pub struct Moderation {
 }
 
 impl Moderation {
-    pub async fn should_delete(&self, tag: &PubkyAppTag, tagger_id: PubkyId) -> bool {
+    pub fn from_config(config: &WatcherConfig) -> Arc<Self> {
+        Arc::new(Self {
+            id: config.moderation_id.clone(),
+            tags: config.moderated_tags.clone(),
+        })
+    }
+
+    /// Check if a tag should trigger deletion of the tagged content.
+    ///
+    /// Returns `true` if the tag was applied by the moderator and matches
+    /// a moderated tag label.
+    pub fn should_delete(&self, tag: &PubkyAppTag, tagger_id: PubkyId) -> bool {
         tagger_id == self.id && self.tags.contains(&tag.label)
     }
 
+    /// Apply moderation by deleting the tagged resource.
+    ///
+    /// Parses the embedded URI in the moderator tag and deletes the corresponding
+    /// resource (post, tag, user, or file).
     #[tracing::instrument(name = "moderation.apply", skip_all)]
     pub async fn apply_moderation(
+        &self,
         moderator_tag: PubkyAppTag,
         files_path: PathBuf,
     ) -> Result<(), EventProcessorError> {

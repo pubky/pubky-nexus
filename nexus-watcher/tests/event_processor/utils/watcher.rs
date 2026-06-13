@@ -1,3 +1,4 @@
+use crate::event_processor::utils::default_moderation_tests;
 use anyhow::{anyhow, Error, Result};
 use base32::{encode, Alphabet};
 use chrono::Utc;
@@ -9,8 +10,11 @@ use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::traits::Collection;
 use nexus_common::{StackConfig, StackManager};
 use nexus_watcher::events::retry::event::RetryEvent;
-use nexus_watcher::events::{handle, Moderation};
-use nexus_watcher::service::EventProcessorRunner;
+use nexus_watcher::events::retry::{
+    IndexKey, InitialBackoff, RedisRetryStore, RetryScheduler, RetryStore,
+};
+use nexus_watcher::events::{DefaultEventHandler, EventHandler};
+use nexus_watcher::service::HsEventProcessorRunner;
 use nexus_watcher::service::TEventProcessorRunner;
 use pubky::Keypair;
 use pubky::PublicKey;
@@ -28,8 +32,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use tempfile::TempDir;
 use tracing::debug;
-
-use crate::event_processor::utils::default_moderation_tests;
 
 static COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -53,7 +55,7 @@ pub struct WatcherTest {
     /// The homeserver ID
     pub homeserver_id: PubkyId,
     /// The event processor runner
-    pub event_processor_runner: EventProcessorRunner,
+    pub event_processor_runner: HsEventProcessorRunner,
     /// Whether to ensure event processing is complete
     pub ensure_event_processing: bool,
     /// Keeps the static files temp dir alive for the test.
@@ -77,23 +79,32 @@ impl WatcherTest {
     /// that are designed specifically for test scenarios and should not be used in production.
     ///
     /// # Returns
-    /// Returns a fully configured `EventProcessorRunner` ready for use in tests.
+    /// Returns a fully configured `HsEventProcessorRunner` ready for use in tests.
     fn create_test_event_processor_runner(
         default_homeserver: PubkyId,
         files_path: PathBuf,
-    ) -> EventProcessorRunner {
-        let moderation = Arc::new(default_moderation_tests());
+    ) -> HsEventProcessorRunner {
+        let event_handler: Arc<dyn EventHandler> =
+            Arc::new(DefaultEventHandler::new(default_moderation_tests()));
 
         let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
 
-        EventProcessorRunner {
+        let store: Arc<dyn RetryStore> = Arc::new(RedisRetryStore::new());
+        let retry_scheduler = Arc::new(RetryScheduler::new(
+            store,
+            InitialBackoff {
+                missing_dep_ms: 60_000,
+                transient_ms: 10_000,
+            },
+        ));
+
+        HsEventProcessorRunner {
             limit: 1000,
-            monitored_homeservers_limit: 100,
             files_path,
-            tracer_name: "test".to_string(),
-            moderation,
+            event_handler,
             shutdown_rx,
             default_homeserver,
+            retry_scheduler,
         }
     }
 
@@ -120,8 +131,7 @@ impl WatcherTest {
 
         // WARNING: testnet initialization is time expensive, we only init one per process
         // TODO: Maybe we should create a single testnet network (singleton and push there more homeservers)
-        // This can be further sped up by using Testnet::new_unseeded() with pubky-testnet 0.7.x
-        let mut testnet = Testnet::new().await?;
+        let mut testnet = Testnet::new_unseeded().await?;
         testnet.create_http_relay().await?;
 
         // Create a random homeserver with a random public key
@@ -160,7 +170,7 @@ impl WatcherTest {
     pub async fn ensure_event_processing_complete(&mut self) -> Result<()> {
         if self.ensure_event_processing {
             self.event_processor_runner
-                .build(self.homeserver_id.to_string())
+                .build(self.homeserver_id.as_ref())
                 .await
                 .map_err(|e| anyhow!(e))?
                 .run()
@@ -355,16 +365,11 @@ impl WatcherTest {
 /// Throws an error if event parsing fails
 pub async fn retrieve_and_handle_event_line(
     event_line: &str,
-    moderation: Arc<Moderation>,
+    event_handler: Arc<dyn EventHandler>,
 ) -> Result<(), EventProcessorError> {
     match Event::parse_event(event_line, get_files_dir_pathbuf())? {
-        ParseResult::Parsed(event) => handle(&event, moderation).await,
-        ParseResult::Skipped => Ok(()),
-
-        // Propagate UnrecognizedUri as error, because this test helper is only meant for standard event handling
-        ParseResult::UnrecognizedUri { reason, .. } => Err(EventProcessorError::InvalidEventLine(
-            format!("Cannot parse event URI: {reason}"),
-        )),
+        ParseResult::Parsed(event) => event_handler.handle(&event).await,
+        ParseResult::Skipped | ParseResult::UnrecognizedUri { .. } => Ok(()),
     }
 }
 
@@ -373,8 +378,8 @@ pub async fn retrieve_and_handle_event_line(
 ///
 /// Attempts to read an event index with retries before timing out
 /// # Arguments
-/// * `event_index` - A string slice representing the index to check
-pub async fn assert_eventually_exists(event_index: &str) {
+/// * `event_index` - The index key to check
+pub async fn assert_eventually_exists(event_index: &IndexKey) {
     const SLEEP_MS: u64 = 3;
     const MAX_RETRIES: usize = 50;
 
@@ -386,12 +391,9 @@ pub async fn assert_eventually_exists(event_index: &str) {
             MAX_RETRIES,
             SLEEP_MS * attempt as u64
         );
-        match RetryEvent::check_uri(event_index).await {
-            Ok(timeframe) => {
-                if timeframe.is_some() {
-                    return;
-                }
-            }
+        match RetryEvent::check_index_key(event_index).await {
+            Ok(true) => return,
+            Ok(false) => {}
             Err(e) => panic!("Error while getting index: {e:?}"),
         };
         // Nap time

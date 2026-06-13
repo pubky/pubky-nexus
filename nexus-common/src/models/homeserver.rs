@@ -3,14 +3,10 @@ use crate::db::fetch_key_from_graph;
 use crate::db::kv::RedisError;
 use crate::db::kv::RedisResult;
 use crate::db::queries;
-use crate::db::GraphError;
 use crate::db::GraphResult;
-use crate::db::{PubkyConnector, RedisOps};
+use crate::db::RedisOps;
 use crate::models::error::ModelError;
 use crate::models::error::ModelResult;
-use crate::models::user::UserDetails;
-
-use pubky_app_specs::ParsedUri;
 use pubky_app_specs::PubkyId;
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
@@ -142,63 +138,14 @@ impl Homeserver {
         Ok(())
     }
 
-    /// Retrieves all homeservers from the graph.
+    /// Returns all HS IDs with at least one active user, sorted by user count descending.
     ///
     /// # Returns
-    /// A list of all known homeserver IDs.
-    ///
-    /// # Errors
-    /// Throws an error if no homeservers are found.
-    pub async fn get_all_from_graph() -> GraphResult<Vec<String>> {
-        let query = queries::get::get_all_homeservers();
+    /// A list of active homeserver IDs.
+    pub async fn get_all_active_from_graph() -> GraphResult<Vec<String>> {
+        let query = queries::get::get_all_homeservers_with_active_users();
         let maybe_hs_ids = fetch_key_from_graph(query, "homeservers_list").await?;
-        let hs_ids: Vec<String> = maybe_hs_ids.unwrap_or_default();
-
-        match hs_ids.is_empty() {
-            true => Err(GraphError::Generic("No homeservers found in graph".into())),
-            false => Ok(hs_ids),
-        }
-    }
-
-    /// If a referenced post is hosted on a new, unknown homeserver, this method triggers ingestion of that homeserver.
-    ///
-    /// ### Arguments
-    ///
-    /// - `referenced_post_uri`: The parent post (if current post is a reply to it), or a reposted post (if current post is a Repost)
-    pub async fn maybe_ingest_for_post(referenced_post_uri: &ParsedUri) -> ModelResult<()> {
-        Self::maybe_ingest_for_user(&referenced_post_uri.user_id).await
-    }
-
-    /// If a referenced user is using a new, unknown homeserver, this method triggers ingestion of that homeserver.
-    ///
-    /// ### Arguments
-    ///
-    /// - `referenced_user_id`: The `PubkyId` of the referenced user
-    #[tracing::instrument(name = "homeserver.ingest", skip_all)]
-    pub async fn maybe_ingest_for_user(referenced_user_id: &PubkyId) -> ModelResult<()> {
-        let pubky = PubkyConnector::get().map_err(ModelError::from_generic)?;
-
-        if UserDetails::get_by_id(referenced_user_id.as_ref())
-            .await?
-            .is_some()
-        {
-            tracing::debug!(
-                "Skipping homeserver ingestion: author {referenced_user_id} already known"
-            );
-            return Ok(());
-        }
-
-        let ref_post_author_pk = referenced_user_id.to_public_key();
-        let Some(ref_post_author_hs) = pubky.get_homeserver_of(&ref_post_author_pk).await else {
-            tracing::warn!("Skipping homeserver ingestion: author {ref_post_author_pk} has no published homeserver");
-            return Ok(());
-        };
-
-        let hs_pk = PubkyId::from(ref_post_author_hs);
-        Self::persist_if_unknown(hs_pk.clone())
-            .await
-            .inspect(|_| tracing::info!("Ingested homeserver {hs_pk}"))
-            .inspect_err(|e| tracing::error!("Failed to ingest homeserver {hs_pk}: {e}"))
+        Ok(maybe_hs_ids.unwrap_or_default())
     }
 }
 
@@ -216,7 +163,7 @@ mod tests {
         StackManager::setup(&StackConfig::default()).await?;
 
         let keys = Keypair::random();
-        let id = PubkyId::try_from(&keys.public_key().to_z32())?;
+        let id = PubkyId::from(keys.public_key());
 
         let hs = Homeserver::new(id.clone());
         hs.put_to_graph()
@@ -239,7 +186,7 @@ mod tests {
         StackManager::setup(&StackConfig::default()).await?;
 
         let keys = Keypair::random();
-        let id = PubkyId::try_from(&keys.public_key().to_z32())?;
+        let id = PubkyId::from(keys.public_key());
 
         let hs = Homeserver::new(id.clone());
         hs.put_to_index()

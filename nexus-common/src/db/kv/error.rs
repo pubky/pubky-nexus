@@ -27,6 +27,17 @@ pub enum RedisError {
     InvalidInput(String),
 }
 
+impl RedisError {
+    pub fn should_not_retry_now(&self) -> bool {
+        matches!(
+            self,
+            RedisError::ConnectionNotInitialized
+                | RedisError::ConnectionPoolError(_)
+                | RedisError::IoError(_)
+        )
+    }
+}
+
 impl From<redis::RedisError> for RedisError {
     fn from(e: redis::RedisError) -> Self {
         if e.is_connection_refusal() || e.is_timeout() || e.is_io_error() {

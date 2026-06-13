@@ -1,14 +1,15 @@
 use crate::models::PubkyId;
 use crate::routes::v0::endpoints::BOOTSTRAP_ROUTE;
-use crate::routes::v0::endpoints::PUT_HOMESERVER_ROUTE;
+use crate::routes::v0::endpoints::INGEST_USER_ROUTE;
 use crate::routes::AppState;
 use crate::routes::Path;
 use crate::Result;
+
 use axum::routing::{get, put};
 use axum::Json;
 use axum::Router;
 use nexus_common::models::bootstrap::{Bootstrap, ViewType};
-use nexus_common::models::homeserver::Homeserver;
+use nexus_common::models::user::UserDetails;
 use tracing::debug;
 use utoipa::OpenApi;
 
@@ -37,26 +38,27 @@ pub async fn bootstrap_handler(
 
 #[utoipa::path(
     put,
-    path = PUT_HOMESERVER_ROUTE,
-    description = "Ingest (start monitoring all events of) the Homeserver on which this User PK stores data at this time",
+    path = INGEST_USER_ROUTE,
+    description = "Ingest a user by resolving their homeserver and persisting a user node in the graph. If the user is already known, this is a no-op.",
     tag = "Bootstrap",
     params(
         ("user_id" = PubkyId, Path, description = "User Pubky ID")
     ),
     responses(
-        (status = 200, description = "Successfully added new homeserver"),
+        (status = 200, description = "User successfully ingested (or already known)"),
         (status = 500, description = "Internal server error")
     )
 )]
-pub async fn put_homeserver_handler(Path(user_id): Path<PubkyId>) -> Result<()> {
-    debug!("PUT {PUT_HOMESERVER_ROUTE}, user_id:{user_id}");
-    Homeserver::maybe_ingest_for_user(&user_id).await?;
+pub async fn ingest_user_handler(Path(user_id): Path<PubkyId>) -> Result<()> {
+    debug!("PUT {INGEST_USER_ROUTE}, user_id:{user_id}");
+
+    UserDetails::maybe_ingest_user(&user_id).await?;
     Ok(())
 }
 
 #[derive(OpenApi)]
 #[openapi(
-    paths(bootstrap_handler, put_homeserver_handler),
+    paths(bootstrap_handler, ingest_user_handler),
     components(schemas(Bootstrap, PubkyId))
 )]
 pub struct BootstrapApiDoc;
@@ -64,5 +66,5 @@ pub struct BootstrapApiDoc;
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route(BOOTSTRAP_ROUTE, get(bootstrap_handler))
-        .route(PUT_HOMESERVER_ROUTE, put(put_homeserver_handler))
+        .route(INGEST_USER_ROUTE, put(ingest_user_handler))
 }

@@ -34,9 +34,9 @@ pub enum Error {
 }
 
 impl Error {
-    pub fn invalid_input(message: &str) -> Self {
+    pub fn invalid_input<T: Into<String>>(message: T) -> Self {
         Error::InvalidInput {
-            message: message.to_string(),
+            message: message.into(),
         }
     }
 

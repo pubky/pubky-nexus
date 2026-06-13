@@ -46,7 +46,7 @@ impl ResourceId {
                 .chars()
                 .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
         {
-            return Err(Error::invalid_input(&format!(
+            return Err(Error::invalid_input(format!(
                 "resource_id must be 32-char lowercase hex, got: {id}"
             )));
         }

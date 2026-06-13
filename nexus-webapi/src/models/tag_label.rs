@@ -48,7 +48,7 @@ impl TagLabel {
         );
         temp_tag
             .validate(None)
-            .map_err(|e| Error::invalid_input(&e.to_string()))?;
+            .map_err(|e| Error::invalid_input(e.to_string()))?;
         Ok(temp_tag.label)
     }
 }

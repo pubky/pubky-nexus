@@ -15,7 +15,7 @@ impl<const MAX: usize> SearchSkip<MAX> {
 
     fn validate(n: usize) -> Result<(), Error> {
         if n > MAX {
-            return Err(Error::invalid_input(&format!(
+            return Err(Error::invalid_input(format!(
                 "skip exceeds maximum of {MAX}"
             )));
         }

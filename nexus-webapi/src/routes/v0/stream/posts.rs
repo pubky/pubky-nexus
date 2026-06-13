@@ -178,7 +178,7 @@ impl PostStreamQuery {
             ("end", self.pagination.end.is_some()),
         ];
         if let Some((name, _)) = incompatible.iter().find(|(_, present)| *present) {
-            return Err(Error::invalid_input(&format!(
+            return Err(Error::invalid_input(format!(
                 "`{name}` is not supported with `source=collection`"
             )));
         }
