@@ -540,7 +540,7 @@ fn stream_reach_to_graph_subquery(reach: &StreamReach) -> String {
         StreamReach::Friends => {
             "MATCH (user:User)-[:FOLLOWS]->(reach:User), (user)<-[:FOLLOWS]-(reach)".to_string()
         }
-        _ => {
+        StreamReach::Wot | StreamReach::Wot1 | StreamReach::Wot2 | StreamReach::Wot3 => {
             let depth = reach.wot_depth().unwrap_or(3);
             format!("MATCH (user:User)-[:FOLLOWS*1..{depth}]->(reach:User)")
         }
