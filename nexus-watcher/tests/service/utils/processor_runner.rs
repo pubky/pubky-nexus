@@ -40,10 +40,10 @@ impl TEventProcessorRunner for MockEventProcessorRunner {
 
     fn default_homeserver(&self) -> &str {
         // Use first mock homeserver ID if available, otherwise fallback to mock constant
-        self.event_processors
-            .first()
-            .map(|s| s.homeserver_id.as_ref())
-            .unwrap_or("8pinxxgqs41n4aididenw5apqp1urfmzdztr8jt4abrkdn435ewo")
+        self.event_processors.first().map_or(
+            "8pinxxgqs41n4aididenw5apqp1urfmzdztr8jt4abrkdn435ewo",
+            |s| &*s.homeserver_id,
+        )
     }
 
     fn monitored_homeservers_limit(&self) -> usize {

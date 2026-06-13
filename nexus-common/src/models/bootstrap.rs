@@ -254,7 +254,7 @@ impl Bootstrap {
             pagination,
             SortOrder::default(),
             StreamSorting::Timeline,
-            maybe_viewer_id.map(|id| id.to_string()),
+            maybe_viewer_id,
             None,
             None,
         )

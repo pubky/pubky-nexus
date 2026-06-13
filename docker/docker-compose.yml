@@ -1,6 +1,6 @@
 services:
   neo4j:
-    image: neo4j:5.26.25-community
+    image: neo4j:5.26.27-community
     container_name: neo4j
     restart: unless-stopped
     ports:

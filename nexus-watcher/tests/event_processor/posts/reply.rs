@@ -195,9 +195,9 @@ async fn test_homeserver_post_reply() -> Result<()> {
 /// (Greptile P1). The cache-miss code path rebuilds PostCounts from the
 /// graph and writes it back via `put_to_index`. Previously it passed
 /// `!is_reply` (double-negated), so the engagement-gate inside
-/// `put_to_index` (`if !is_reply && !is_collection`) evaluated `true` for
-/// replies — adding the reply to POST_TOTAL_ENGAGEMENT on every cache
-/// rebuild after a Redis eviction.
+/// `put_to_index` (`if !is_reply`) evaluated `true` for replies — adding
+/// the reply to POST_TOTAL_ENGAGEMENT on every cache rebuild after a
+/// Redis eviction.
 ///
 /// Test plan: create a reply (which correctly stays out of
 /// POST_TOTAL_ENGAGEMENT via the watcher's normal path), evict its
