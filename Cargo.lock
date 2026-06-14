@@ -3112,6 +3112,7 @@ dependencies = [
  "criterion",
  "deadpool-redis",
  "futures-util",
+ "http-body-util",
  "httpc-test",
  "nexus-common",
  "pubky",
