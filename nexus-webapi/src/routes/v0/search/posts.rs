@@ -73,7 +73,7 @@ pub struct SearchPostsByContentQuery {
     description = "Full-text search over post content",
     tag = "Search",
     params(
-        ("q" = PostSearchQuery, Query, description = "Search query (2–200 characters)"),
+        ("q" = PostSearchQuery, Query, description = "Search query (2–30 characters, up to 4 terms)"),
         ("skip" = Option<SearchSkip<1000>>, Query, description = "Skip N results (max 1000)"),
         ("limit" = Option<SearchLimit<100>>, Query, description = "Limit the number of results")
     ),
