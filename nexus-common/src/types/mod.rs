@@ -5,7 +5,6 @@ mod timeframe;
 pub use pagination::Pagination;
 pub use timeframe::Timeframe;
 
-use serde::de::{self, Deserializer};
 use serde::{Deserialize, Serialize};
 use std::error::Error;
 use utoipa::ToSchema;
@@ -20,54 +19,41 @@ pub enum StreamSorting {
     TotalEngagement,
 }
 
-#[derive(Debug, ToSchema, Clone, PartialEq)]
+#[derive(Debug, Deserialize, Clone, PartialEq, ToSchema)]
+#[serde(rename_all = "lowercase")]
+#[schema(rename_all = "lowercase")]
 pub enum StreamReach {
     Followers,
     Following,
     Friends,
-    Wot(u8),
+
+    /// Web of Trust with default depth 3
+    Wot,
+
+    /// Web of Trust with depth 1
+    #[serde(rename = "wot_1")]
+    #[schema(rename = "wot_1")]
+    Wot1,
+
+    /// Web of Trust with depth 2
+    #[serde(rename = "wot_2")]
+    #[schema(rename = "wot_2")]
+    Wot2,
+
+    /// Web of Trust with depth 3
+    #[serde(rename = "wot_3")]
+    #[schema(rename = "wot_3")]
+    Wot3,
 }
 
-impl<'de> Deserialize<'de> for StreamReach {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-
-        // Handle simple variants
-        match s.as_str() {
-            "followers" => Ok(StreamReach::Followers),
-            "following" => Ok(StreamReach::Following),
-            "friends" => Ok(StreamReach::Friends),
-            "wot" => Ok(StreamReach::Wot(3)), // Default to depth 3 if just "wot" is provided
-            _ => {
-                // Try to parse Wot variant with depth using wot_X format
-                if let Some(depth_str) = s.strip_prefix("wot_") {
-                    let depth = depth_str.parse::<u8>().map_err(|_| {
-                        de::Error::custom(format!("Invalid depth value: {}", depth_str))
-                    })?;
-
-                    if !(1..=3).contains(&depth) {
-                        return Err(de::Error::custom("Wot depth must be between 1 and 3"));
-                    }
-
-                    Ok(StreamReach::Wot(depth))
-                } else {
-                    Err(de::Error::unknown_variant(
-                        &s,
-                        &[
-                            "followers",
-                            "following",
-                            "friends",
-                            "wot",
-                            "wot_1",
-                            "wot_2",
-                            "wot_3",
-                        ],
-                    ))
-                }
-            }
+impl StreamReach {
+    /// Returns the WoT depth for Wot variants, used in graph queries.
+    pub fn wot_depth(&self) -> Option<u8> {
+        match self {
+            StreamReach::Wot | StreamReach::Wot3 => Some(3),
+            StreamReach::Wot1 => Some(1),
+            StreamReach::Wot2 => Some(2),
+            _ => None,
         }
     }
 }
