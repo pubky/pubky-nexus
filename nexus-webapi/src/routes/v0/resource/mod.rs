@@ -1,4 +1,4 @@
-use crate::models::{PubkyId, ResourceId, TagLabel};
+use crate::models::{BoundedLimit, BoundedSkip, PubkyId, ResourceId, TagLabel};
 use crate::routes::v0::endpoints::{
     RESOURCE_BY_URI_ROUTE, RESOURCE_TAGGERS_ROUTE, RESOURCE_TAGS_ROUTE,
 };
@@ -69,9 +69,9 @@ pub async fn resource_tags_handler(
     let tags = TagResource::get_by_id(
         res_id.as_str(),
         None,
-        query.skip_tags,
-        query.limit_tags,
-        query.limit_taggers,
+        query.skip_tags.map(|s| s.value()),
+        query.limit_tags.map(|l| l.value()),
+        query.limit_taggers.map(|l| l.value()),
         query.viewer_id.as_deref(),
         query.depth,
     )
@@ -120,9 +120,9 @@ pub async fn resource_by_uri_handler(
     let tags = TagResource::get_by_id(
         &res_id,
         None,
-        query.tags_query.skip_tags,
-        query.tags_query.limit_tags,
-        query.tags_query.limit_taggers,
+        query.tags_query.skip_tags.map(|s| s.value()),
+        query.tags_query.limit_tags.map(|l| l.value()),
+        query.tags_query.limit_taggers.map(|l| l.value()),
         query.tags_query.viewer_id.as_deref(),
         query.tags_query.depth,
     )
@@ -149,8 +149,8 @@ pub struct ResourceTaggersPath {
         ("resource_id" = ResourceId, Path, description = "Resource ID (32-char hex)"),
         ("label" = TagLabel, Path, description = "Tag label"),
         ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID"),
-        ("skip" = Option<usize>, Query, description = "Skip N taggers"),
-        ("limit" = Option<usize>, Query, description = "Limit taggers"),
+        ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Skip N taggers"),
+        ("limit" = Option<BoundedLimit<40, 100>>, Query, description = "Limit taggers (1–100, default 40)"),
     ),
     responses(
         (status = 200, description = "Resource taggers", body = TaggersInfoResponse),
@@ -165,11 +165,14 @@ pub async fn resource_taggers_handler(
         "GET {RESOURCE_TAGGERS_ROUTE} resource_id:{}, label:{}",
         resource_id, label
     );
+
+    let pagination = taggers_query.pagination.to_pagination(None, None);
+
     let taggers = TagResource::get_tagger_by_id(
         resource_id.as_str(),
         None,
         &label,
-        taggers_query.pagination,
+        pagination,
         taggers_query
             .tags_query
             .viewer_id

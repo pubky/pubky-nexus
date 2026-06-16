@@ -1,4 +1,4 @@
-use crate::models::{PostId, PostViewDetailed, PubkyId};
+use crate::models::{BoundedLimit, PostId, PostViewDetailed, PubkyId};
 use crate::routes::v0::endpoints::POST_ROUTE;
 use crate::routes::Path;
 use crate::routes::Query;
@@ -20,8 +20,8 @@ pub struct PostPath {
 #[derive(Default, Deserialize, Debug)]
 pub struct PostViewQuery {
     pub viewer_id: Option<PubkyId>,
-    pub limit_tags: Option<usize>,
-    pub limit_taggers: Option<usize>,
+    pub limit_tags: Option<BoundedLimit<5, 50>>,
+    pub limit_taggers: Option<BoundedLimit<5, 50>>,
     #[serde(default)]
     pub include_attachment_metadata: bool,
 }
@@ -35,12 +35,13 @@ pub struct PostViewQuery {
         ("author_id" = PubkyId, Path, description = "Author Pubky ID"),
         ("post_id" = PostId, Path, description = "Post Crockford32 ID"),
         ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID"),
-        ("limit_tags" = Option<usize>, Query, description = "Upper limit on the number of tags for the post"),
-        ("limit_taggers" = Option<usize>, Query, description = "Upper limit on the number of taggers per tag"),
+        ("limit_tags" = Option<BoundedLimit<5, 50>>, Query, description = "Upper limit on the number of tags for the post (1–50, default 5)"),
+        ("limit_taggers" = Option<BoundedLimit<5, 50>>, Query, description = "Upper limit on the number of taggers per tag (1–50, default 5)"),
         ("include_attachment_metadata" = Option<bool>, Query, description = "Include file metadata for post attachments"),
     ),
     responses(
         (status = 200, description = "Post", body = PostViewDetailed),
+        (status = 400, description = "Invalid parameters"),
         (status = 404, description = "Post not found"),
         (status = 500, description = "Internal server error")
     )
@@ -62,8 +63,8 @@ pub async fn post_view_handler(
         &author_id,
         &post_id,
         query.viewer_id.as_deref(),
-        query.limit_tags,
-        query.limit_taggers,
+        query.limit_tags.map(|l| l.value()),
+        query.limit_taggers.map(|l| l.value()),
         query.include_attachment_metadata,
     )
     .await?

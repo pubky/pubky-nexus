@@ -1,4 +1,4 @@
-use crate::models::{PubkyId, TagLabel};
+use crate::models::{BoundedLimit, BoundedPagination, BoundedSkip, PubkyId, TagLabel};
 use crate::routes::v0::endpoints::{USER_TAGGERS_ROUTE, USER_TAGS_ROUTE};
 use crate::routes::v0::{TaggersInfoResponse, TagsQuery};
 use crate::routes::Path;
@@ -8,7 +8,6 @@ use axum::Json;
 use nexus_common::models::tag::traits::{TagCollection, TaggersCollection};
 use nexus_common::models::tag::user::TagUser;
 use nexus_common::models::tag::TagDetails;
-use nexus_common::types::Pagination;
 use serde::Deserialize;
 use tracing::debug;
 use utoipa::OpenApi;
@@ -20,14 +19,15 @@ use utoipa::OpenApi;
     tag = "User",
     params(
         ("user_id" = PubkyId, Path, description = "User Pubky ID"),
-        ("skip_tags" = Option<usize>, Query, description = "Skip N tags. **Default** value 0"),
-        ("limit_tags" = Option<usize>, Query, description = "Upper limit on the number of tags for the user. **Default** value 5"),
-        ("limit_taggers" = Option<usize>, Query, description = "Upper limit on the number of taggers per tag. **Default** value 5"),
+        ("skip_tags" = Option<BoundedSkip<10_000>>, Query, description = "Skip N tags. **Default** value 0"),
+        ("limit_tags" = Option<BoundedLimit<5, 50>>, Query, description = "Upper limit on the number of tags for the user (1–50, **default** 5)"),
+        ("limit_taggers" = Option<BoundedLimit<5, 50>>, Query, description = "Upper limit on the number of taggers per tag (1–50, **default** 5)"),
         ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID"),
         ("depth" = Option<usize>, Query, description = "User trusted network depth, user following users distance. Numbers bigger than 4, will be ignored")
     ),
     responses(
         (status = 200, description = "User tags", body = Vec<TagDetails>),
+        (status = 400, description = "Invalid parameters"),
         (status = 404, description = "User not found"),
         (status = 500, description = "Internal server error")
     )
@@ -44,9 +44,9 @@ pub async fn user_tags_handler(
     match TagUser::get_by_id(
         &user_id,
         None,
-        query.skip_tags,
-        query.limit_tags,
-        query.limit_taggers,
+        query.skip_tags.map(|s| s.value()),
+        query.limit_tags.map(|l| l.value()),
+        query.limit_taggers.map(|l| l.value()),
         query.viewer_id.as_deref(),
         query.depth,
     )
@@ -66,7 +66,7 @@ pub struct UserTaggersPath {
 #[derive(Deserialize)]
 pub struct TaggersQuery {
     #[serde(flatten)]
-    pub pagination: Pagination,
+    pub pagination: BoundedPagination<10_000, 40, 50>,
     #[serde(flatten)]
     pub tags_query: TagsQuery,
 }
@@ -79,35 +79,40 @@ pub struct TaggersQuery {
     params(
         ("user_id" = PubkyId, Path, description = "User Pubky ID"),
         ("label" = TagLabel, Path, description = "Tag name"),
-        ("skip" = Option<usize>, Query, description = "Number of taggers to skip for pagination"),
-        ("limit" = Option<usize>, Query, description = "Number of taggers to return for pagination"),
+        ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Number of taggers to skip for pagination"),
+        ("limit" = Option<BoundedLimit<40, 50>>, Query, description = "Number of taggers to return for pagination (1–50, default 40)"),
         ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID"),
         ("depth" = Option<usize>, Query, description = "User trusted network depth, user following users distance. Numbers bigger than 4, will be ignored")
     ),
     responses(
         (status = 200, description = "User tags", body = TaggersInfoResponse),
+        (status = 400, description = "Invalid parameters"),
         (status = 500, description = "Internal server error")
     )
 )]
 pub async fn user_taggers_handler(
     Path(UserTaggersPath { user_id, label }): Path<UserTaggersPath>,
-    Query(TaggersQuery {
-        pagination,
-        tags_query,
-    }): Query<TaggersQuery>,
+    Query(taggers_query): Query<TaggersQuery>,
 ) -> Result<Json<TaggersInfoResponse>> {
     debug!(
-        "GET {USER_TAGGERS_ROUTE} user_id:{}, label: {}, skip:{:?}, limit:{:?}, viewer_id:{:?}, depth:{:?}",
-        user_id, label, pagination.skip, pagination.limit, tags_query.viewer_id, tags_query.depth
+        "GET {USER_TAGGERS_ROUTE} user_id:{}, label: {}, skip:{}, limit:{}, viewer_id:{:?}, depth:{:?}",
+        user_id,
+        label,
+        taggers_query.pagination.skip_value(),
+        taggers_query.pagination.limit_value(),
+        taggers_query.tags_query.viewer_id,
+        taggers_query.tags_query.depth
     );
+
+    let pagination = taggers_query.pagination.to_pagination(None, None);
 
     let taggers = TagUser::get_tagger_by_id(
         &user_id,
         None,
         &label,
         pagination,
-        tags_query.viewer_id.as_deref(),
-        tags_query.depth,
+        taggers_query.tags_query.viewer_id.as_deref(),
+        taggers_query.tags_query.depth,
     )
     .await?;
     Ok(Json(TaggersInfoResponse::from(taggers)))

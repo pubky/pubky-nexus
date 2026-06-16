@@ -1,4 +1,4 @@
-use crate::models::PubkyId;
+use crate::models::{BoundedLimit, BoundedSkip, PubkyId};
 use nexus_common::models::tag::Taggers;
 use serde::de::{self, Deserializer};
 use serde::{Deserialize, Serialize};
@@ -6,9 +6,9 @@ use utoipa::ToSchema;
 
 #[derive(Default, Deserialize, Debug, ToSchema)]
 pub struct TagsQuery {
-    pub limit_tags: Option<usize>,
-    pub skip_tags: Option<usize>,
-    pub limit_taggers: Option<usize>,
+    pub limit_tags: Option<BoundedLimit<5, 50>>,
+    pub skip_tags: Option<BoundedSkip<10_000>>,
+    pub limit_taggers: Option<BoundedLimit<5, 50>>,
     pub viewer_id: Option<PubkyId>,
     #[serde(default, deserialize_with = "parse_string_to_u8")]
     pub depth: Option<u8>,

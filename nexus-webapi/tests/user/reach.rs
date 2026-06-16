@@ -153,3 +153,46 @@ async fn test_get_friends() -> Result<()> {
 
     Ok(())
 }
+
+#[tokio_shared_rt::test(shared)]
+async fn test_follows_limit_cap() -> Result<()> {
+    let user_id = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
+
+    // limit=99999999 exceeds BoundedLimit<50, 200>::MAX → 400
+    invalid_get_request(
+        &format!("/v0/user/{user_id}/followers?limit=99999999"),
+        StatusCode::BAD_REQUEST,
+    )
+    .await?;
+
+    invalid_get_request(
+        &format!("/v0/user/{user_id}/following?limit=99999999"),
+        StatusCode::BAD_REQUEST,
+    )
+    .await?;
+
+    invalid_get_request(
+        &format!("/v0/user/{user_id}/friends?limit=99999999"),
+        StatusCode::BAD_REQUEST,
+    )
+    .await?;
+
+    // skip=99999999 exceeds BoundedSkip<10_000>::MAX → 400
+    invalid_get_request(
+        &format!("/v0/user/{user_id}/followers?skip=99999999"),
+        StatusCode::BAD_REQUEST,
+    )
+    .await?;
+
+    // limit=0 is rejected → 400
+    invalid_get_request(
+        &format!("/v0/user/{user_id}/followers?limit=0"),
+        StatusCode::BAD_REQUEST,
+    )
+    .await?;
+
+    // limit=200 (at MAX) is accepted → 200
+    get_request(&format!("/v0/user/{user_id}/followers?limit=200")).await?;
+
+    Ok(())
+}

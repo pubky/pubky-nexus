@@ -150,3 +150,44 @@ async fn test_search_empty_username() -> Result<()> {
 
     Ok(())
 }
+
+#[tokio_shared_rt::test(shared)]
+async fn test_user_search_limit_cap() -> Result<()> {
+    let name_prefix = "Jo";
+    let id_prefix = "xte";
+
+    // limit=99999999 exceeds BoundedLimit<50, 200>::MAX → 400
+    invalid_get_request(
+        &format_search_users_by_name_prefix(&format!("{name_prefix}?limit=99999999")),
+        StatusCode::BAD_REQUEST,
+    )
+    .await?;
+
+    invalid_get_request(
+        &format_search_users_by_id_prefix(&format!("{id_prefix}?limit=99999999")),
+        StatusCode::BAD_REQUEST,
+    )
+    .await?;
+
+    // skip=99999999 exceeds BoundedSkip<10_000>::MAX → 400
+    invalid_get_request(
+        &format_search_users_by_name_prefix(&format!("{name_prefix}?skip=99999999")),
+        StatusCode::BAD_REQUEST,
+    )
+    .await?;
+
+    // limit=0 is rejected → 400
+    invalid_get_request(
+        &format_search_users_by_name_prefix(&format!("{name_prefix}?limit=0")),
+        StatusCode::BAD_REQUEST,
+    )
+    .await?;
+
+    // limit=200 (at MAX) is accepted → 200
+    get_request(&format_search_users_by_name_prefix(&format!(
+        "{name_prefix}?limit=200"
+    )))
+    .await?;
+
+    Ok(())
+}

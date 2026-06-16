@@ -1,4 +1,4 @@
-use crate::models::{PostId, PubkyId, TagLabel};
+use crate::models::{BoundedLimit, BoundedSkip, PostId, PubkyId, TagLabel};
 use crate::routes::v0::endpoints::{POST_TAGGERS_ROUTE, POST_TAGS_ROUTE};
 use crate::routes::v0::post::view::PostPath;
 use crate::routes::v0::user::tags::TaggersQuery;
@@ -51,9 +51,9 @@ pub async fn post_tags_handler(
     match TagPost::get_by_id(
         &author_id,
         Some(&post_id),
-        query.skip_tags,
-        query.limit_tags,
-        query.limit_taggers,
+        query.skip_tags.map(|s| s.value()),
+        query.limit_tags.map(|l| l.value()),
+        query.limit_taggers.map(|l| l.value()),
         query.viewer_id.as_deref(),
         None, // Avoid by default WoT tags in a Post
     )
@@ -74,8 +74,8 @@ pub async fn post_tags_handler(
         ("label" = TagLabel, Path, description = "Tag name"),
         ("post_id" = PostId, Path, description = "Post ID"),
         ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID"),
-        ("skip" = Option<usize>, Query, description = "Number of taggers to skip for pagination. Defaults to `0`"),
-        ("limit" = Option<usize>, Query, description = "Number of taggers to return for pagination. Defaults to `40`")
+        ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Number of taggers to skip for pagination"),
+        ("limit" = Option<BoundedLimit<40, 50>>, Query, description = "Number of taggers to return (1–50, default 40)")
     ),
     responses(
         (status = 200, description = "Post tags", body = TaggersInfoResponse),
@@ -91,14 +91,18 @@ pub async fn post_taggers_handler(
     Query(taggers_query): Query<TaggersQuery>,
 ) -> Result<Json<TaggersInfoResponse>> {
     debug!(
-        "GET {POST_TAGGERS_ROUTE} author_id:{}, post_id: {}, label: {}, viewer_id:{:?}, skip:{:?}, limit:{:?}",
-        author_id, post_id, label, taggers_query.tags_query.viewer_id, taggers_query.pagination.skip, taggers_query.pagination.limit
+        "GET {POST_TAGGERS_ROUTE} author_id:{}, post_id: {}, label: {}, viewer_id:{:?}, skip:{}, limit:{}",
+        author_id, post_id, label, taggers_query.tags_query.viewer_id,
+        taggers_query.pagination.skip_value(), taggers_query.pagination.limit_value()
     );
+
+    let pagination = taggers_query.pagination.to_pagination(None, None);
+
     let taggers = TagPost::get_tagger_by_id(
         &author_id,
         Some(&post_id),
         &label,
-        taggers_query.pagination,
+        pagination,
         taggers_query
             .tags_query
             .viewer_id

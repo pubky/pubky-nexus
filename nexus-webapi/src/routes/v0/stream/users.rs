@@ -1,4 +1,6 @@
-use crate::models::{PostId, PubkyId, UserIds, UsernamePrefix};
+use crate::models::{
+    BoundedLimit, BoundedPagination, BoundedSkip, PostId, PubkyId, UserIds, UsernamePrefix,
+};
 use crate::routes::v0::endpoints::{
     STREAM_USERS_BY_IDS_ROUTE, STREAM_USERS_ROUTE, STREAM_USERS_USERNAME_SEARCH_ROUTE,
     STREAM_USER_IDS_ROUTE,
@@ -8,7 +10,7 @@ use crate::routes::Query;
 use crate::{Error, Result};
 use axum::Json;
 use nexus_common::models::user::{UserIdStream, UserStream, UserStreamInput, UserStreamSource};
-use nexus_common::types::{Pagination, StreamReach, Timeframe};
+use nexus_common::types::{StreamReach, Timeframe};
 use serde::Deserialize;
 use tracing::debug;
 use utoipa::{OpenApi, ToSchema};
@@ -127,7 +129,7 @@ pub struct UserStreamSearchQuery {
     username: UsernamePrefix,
     viewer_id: Option<PubkyId>,
     #[serde(flatten)]
-    pagination: Pagination,
+    pagination: BoundedPagination<10_000, 20, 20>,
 }
 
 #[utoipa::path(
@@ -138,8 +140,8 @@ pub struct UserStreamSearchQuery {
     params(
         ("username" = UsernamePrefix, Query, description = "Username to search for"),
         ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID"),
-        ("skip" = Option<usize>, Query, description = "Skip N users"),
-        ("limit" = Option<usize>, Query, description = "Retrieve N users")
+        ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Skip N users (max 10000)"),
+        ("limit" = Option<BoundedLimit<20, 20>>, Query, description = "Retrieve N users (1–20, default 20)")
     ),
     responses(
         (status = 200, description = "Username search stream", body = UserStream),
@@ -150,8 +152,8 @@ pub struct UserStreamSearchQuery {
 pub async fn stream_username_search_handler(
     Query(query): Query<UserStreamSearchQuery>,
 ) -> Result<Json<UserStream>> {
-    let skip = query.pagination.skip.unwrap_or(0);
-    let limit = query.pagination.limit.unwrap_or(20);
+    let skip = query.pagination.skip_value();
+    let limit = query.pagination.limit_value();
 
     debug!(
         "GET {STREAM_USERS_USERNAME_SEARCH_ROUTE}?username={}",

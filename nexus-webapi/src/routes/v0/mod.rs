@@ -1,3 +1,4 @@
+use crate::models::{BoundedLimit, BoundedSkip};
 use axum::Router;
 use utoipa::OpenApi;
 
@@ -46,7 +47,7 @@ pub fn routes(app_state: AppState) -> Router<AppState> {
 }
 
 #[derive(OpenApi)]
-#[openapi()]
+#[openapi(components(schemas(BoundedLimit<50, 200>, BoundedSkip<10_000>)))]
 pub struct ApiDoc;
 
 impl ApiDoc {
@@ -63,6 +64,7 @@ impl ApiDoc {
         combined.merge(resource::ResourceApiDoc::openapi());
         combined.merge(notification::NotificationApiDoc::merge_docs());
         combined.merge(events::EventsApiDoc::openapi());
+        combined.merge(ApiDoc::openapi());
 
         combined
     }
