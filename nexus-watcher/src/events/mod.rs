@@ -26,7 +26,7 @@ pub(super) fn format_error_body(bytes: &[u8], max: usize) -> String {
     }
 }
 
-/// Reads chunks from a byte stream, stopping after `max + 1` bytes.
+/// Reads chunks from a byte stream, buffering at most `max + 1` bytes.
 /// Returns `Ok((bytes, exceeded))` on completion, `Err(e)` on stream failure.
 pub(super) async fn read_stream_capped<S, E>(
     mut stream: S,
@@ -42,9 +42,9 @@ where
     while let Some(chunk) = stream.next().await {
         let bytes = chunk?;
         total += bytes.len();
-        buf.extend_from_slice(&bytes);
+        buf.extend_from_slice(&bytes[..bytes.len().min(cap.saturating_sub(buf.len()))]);
         if total >= cap {
-            return Ok((buf, total > max));
+            return Ok((buf, true));
         }
     }
 
@@ -238,6 +238,16 @@ mod tests {
     #[tokio::test]
     async fn read_stream_capped_over() {
         let (buf, exceeded) = read_stream_capped(ok_stream(vec![1; 101]), 100)
+            .await
+            .unwrap();
+        assert_eq!(buf.len(), 101);
+        assert!(exceeded);
+    }
+
+    #[tokio::test]
+    async fn read_stream_capped_single_large_chunk() {
+        // A chunk much larger than max must not bloat buf beyond cap (max + 1).
+        let (buf, exceeded) = read_stream_capped(ok_stream(vec![1; 1_000_000]), 100)
             .await
             .unwrap();
         assert_eq!(buf.len(), 101);
