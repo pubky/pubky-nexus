@@ -205,8 +205,8 @@ impl PostStream {
             StreamSource::WotDomain { depth, .. } => Some(("wot_domain", depth.get())),
             _ => None,
         };
-        if let Some((source, _)) = wot {
-            super::metrics::record_wot_request(source);
+        if let Some((source, depth)) = wot {
+            super::metrics::record_wot_request(source, depth);
         }
 
         // Decide whether to use index or fallback to graph query

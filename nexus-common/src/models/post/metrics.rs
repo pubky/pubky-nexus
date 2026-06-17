@@ -12,7 +12,7 @@
 //!
 //! | Instrument                         | Spec metric                                |
 //! |------------------------------------|--------------------------------------------|
-//! | `wot.post_stream.requests{source}` | `wot_post_stream_requests{source=wot}` and `wot_domain_post_stream_requests{source=wot_domain}` |
+//! | `wot.post_stream.requests{source,depth}` | `wot_post_stream_requests{source=wot}` and `wot_domain_post_stream_requests{source=wot_domain}` |
 //! | `wot.post_stream.empty` / requests | `wot_feed_empty_rate{depth}`               |
 //! | `wot.post_stream.query_duration`   | `wot_query_latency_p95{depth}` (p95 derived downstream) |
 //! | `wot.post_stream.returned_posts`   | adoption/load proxy — see below            |
@@ -32,7 +32,9 @@ use opentelemetry::{global, KeyValue};
 const METER_NAME: &str = "wot";
 
 struct WotStreamMetrics {
-    /// One per `source=wot` / `source=wot_domain` request.
+    /// One per `source=wot` / `source=wot_domain` request, by source/depth.
+    /// Dimensioned by `depth` too so the empty-rate denominator (`empty / requests`)
+    /// lines up with `empty`, which is per-depth.
     requests: Counter<u64>,
     /// Requests that returned no posts (empty-rate = empty / requests).
     empty: Counter<u64>,
@@ -51,7 +53,7 @@ impl WotStreamMetrics {
         Self {
             requests: meter
                 .u64_counter("wot.post_stream.requests")
-                .with_description("Total WoT post-stream requests, by source")
+                .with_description("Total WoT post-stream requests, by source/depth")
                 .build(),
             empty: meter
                 .u64_counter("wot.post_stream.empty")
@@ -80,8 +82,14 @@ impl WotStreamMetrics {
 static METRICS: LazyLock<WotStreamMetrics> = LazyLock::new(WotStreamMetrics::new);
 
 /// Count one WoT post-stream request. `source` is `"wot"` or `"wot_domain"`.
-pub(super) fn record_wot_request(source: &'static str) {
-    METRICS.requests.add(1, &[KeyValue::new("source", source)]);
+pub(super) fn record_wot_request(source: &'static str, depth: u8) {
+    METRICS.requests.add(
+        1,
+        &[
+            KeyValue::new("source", source),
+            KeyValue::new("depth", i64::from(depth)),
+        ],
+    );
 }
 
 /// Record a finished WoT query. `posts` is the returned count, or `None` if the
