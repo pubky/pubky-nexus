@@ -3,7 +3,13 @@ use serde::{Deserialize, Serialize};
 use tracing::error;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EventLine(pub String);
+pub struct EventLine(String);
+
+impl EventLine {
+    pub fn new(line: String) -> Self {
+        Self(line)
+    }
+}
 
 #[async_trait::async_trait]
 impl RedisOps for EventLine {

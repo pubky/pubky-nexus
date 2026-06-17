@@ -165,6 +165,6 @@ impl Event {
     }
 
     pub fn to_event_line(&self) -> EventLine {
-        EventLine(self.event_line.clone())
+        EventLine::new(self.event_line.clone())
     }
 }
