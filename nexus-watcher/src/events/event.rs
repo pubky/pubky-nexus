@@ -31,11 +31,17 @@ impl fmt::Display for EventType {
     }
 }
 
+/// Result of parsing an event line from a homeserver.
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
 pub enum ParseResult {
+    /// Successfully parsed into a known, actionable event.
     Parsed(Event),
+    /// Known resource type that Nexus does not handle (e.g. LastRead, Feed, Blob).
     Skipped,
+    /// URI was not recognised by pubky-app-specs. This may be an app-specific
+    /// path (e.g. `/pub/mapky/tags/...`) or a genuinely malformed URI.
+    /// Callers should attempt fallback handling and log `reason` if no handler claims it.
     UnrecognizedUri {
         event_type: EventType,
         uri: String,
@@ -55,14 +61,24 @@ impl ParseResult {
 
 #[derive(Debug, Clone)]
 pub struct Event {
+    /// Pubky resource URI from the homeserver event line.
     pub uri: String,
+
+    /// Operation represented by the event, used to dispatch to PUT or DEL handlers.
     pub event_type: EventType,
+
+    /// Parsed representation of [`Self::uri`].
     pub parsed_uri: HomeserverParsedUri,
+
+    /// Local files directory on Nexus used for file-backed events.
     pub files_path: PathBuf,
+
+    /// Original event line as received from the homeserver.
     event_line: String,
 }
 
 impl Event {
+    /// Parse event from a line returned by the homeserver's `/events` endpoint.
     pub fn parse_event(
         line: &str,
         files_path: PathBuf,
@@ -89,7 +105,7 @@ impl Event {
         Self::parse_event_parts(event_type, uri, event_line, files_path)
     }
 
-    /// Constructs an [`Event`] directly from a [`StreamEvent`], avoiding
+    /// Constructs a nexus [`Event`] directly from a [`StreamEvent`], avoiding
     /// the string round-trip through [`Self::parse_event`].
     pub fn from_stream_event(
         stream_event: &StreamEvent,
