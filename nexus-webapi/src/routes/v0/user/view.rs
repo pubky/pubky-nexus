@@ -1,5 +1,6 @@
 use crate::models::PubkyId;
 use crate::routes::v0::endpoints::USER_ROUTE;
+use crate::routes::v0::types::resolve_tag_wot_depth;
 use crate::routes::Path;
 use crate::routes::Query;
 use crate::{Error, Result};
@@ -24,7 +25,7 @@ pub struct ProfileQuery {
     params(
         ("user_id" = PubkyId, Path, description = "User Pubky ID"),
         ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID"),
-        ("depth" = Option<usize>, Query, description = "WoT depth (1-3) for filtering the profile's tags through the viewer's network. Requires `viewer_id`; values outside 1-3 are ignored (global tags)")
+        ("depth" = Option<usize>, Query, description = "WoT depth (1-3) for filtering the profile's tags through the viewer's network. Requires `viewer_id`; a value outside 1-3 (or `depth` without `viewer_id`) returns 400")
     ),
     responses(
         (status = 200, description = "User Profile", body = UserView),
@@ -41,7 +42,10 @@ pub async fn user_view_handler(
         user_id, query.viewer_id, query.depth
     );
 
-    match UserView::get_by_id(&user_id, query.viewer_id.as_deref(), query.depth).await? {
+    // Validate `depth` at the boundary (same as the tag endpoints) so an invalid
+    // depth is a 400, not a silent fall-back to global tags.
+    let depth = resolve_tag_wot_depth(query.viewer_id.as_deref(), query.depth)?;
+    match UserView::get_by_id(&user_id, query.viewer_id.as_deref(), depth.map(|d| d.get())).await? {
         Some(user) => Ok(Json(user)),
         None => Err(Error::user_not_found(user_id)),
     }
