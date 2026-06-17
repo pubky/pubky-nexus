@@ -16,6 +16,7 @@
 //! | `wot.post_stream.empty` / requests | `wot_feed_empty_rate{depth}`               |
 //! | `wot.post_stream.query_duration`   | `wot_query_latency_p95{depth}` (p95 derived downstream) |
 //! | `wot.post_stream.returned_posts`   | adoption/load proxy — see below            |
+//! | `wot.post_stream.errors`           | failed queries (timeout/DB) — keeps `query_duration` honest |
 //!
 //! `wot_membership_size_p95{depth}` (spec; >10k → cap depth) is NOT emitted: the
 //! true trusted-member count needs its own traversal, which belongs with the
@@ -40,6 +41,8 @@ struct WotStreamMetrics {
     /// Posts returned by the WoT query. A cheap load proxy; NOT the spec's
     /// trust-membership size (which needs its own traversal — see module docs).
     returned_posts: Histogram<u64>,
+    /// Queries that failed (timeout / DB error), by source/depth.
+    errors: Counter<u64>,
 }
 
 impl WotStreamMetrics {
@@ -64,6 +67,12 @@ impl WotStreamMetrics {
                 .with_description("Posts returned by a WoT post-stream query, by source/depth")
                 .with_unit("{post}")
                 .build(),
+            errors: meter
+                .u64_counter("wot.post_stream.errors")
+                .with_description(
+                    "WoT post-stream queries that failed (timeout / DB error), by source/depth",
+                )
+                .build(),
         }
     }
 }
@@ -75,8 +84,15 @@ pub(super) fn record_wot_request(source: &'static str) {
     METRICS.requests.add(1, &[KeyValue::new("source", source)]);
 }
 
-/// Record a completed WoT query: latency, returned-post count, and emptiness.
-pub(super) fn record_wot_result(source: &'static str, depth: u8, elapsed: Duration, posts: usize) {
+/// Record a finished WoT query. `posts` is the returned count, or `None` if the
+/// query failed (timeout / DB error). Failures still record `query_duration` — so
+/// p95 reflects outages instead of hiding the dropped timeouts — and bump `errors`.
+pub(super) fn record_wot_result(
+    source: &'static str,
+    depth: u8,
+    elapsed: Duration,
+    posts: Option<usize>,
+) {
     let attrs = &[
         KeyValue::new("source", source),
         KeyValue::new("depth", i64::from(depth)),
@@ -84,8 +100,13 @@ pub(super) fn record_wot_result(source: &'static str, depth: u8, elapsed: Durati
     METRICS
         .query_duration
         .record(elapsed.as_secs_f64() * 1000.0, attrs);
-    METRICS.returned_posts.record(posts as u64, attrs);
-    if posts == 0 {
-        METRICS.empty.add(1, attrs);
+    match posts {
+        Some(posts) => {
+            METRICS.returned_posts.record(posts as u64, attrs);
+            if posts == 0 {
+                METRICS.empty.add(1, attrs);
+            }
+        }
+        None => METRICS.errors.add(1, attrs),
     }
 }

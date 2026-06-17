@@ -213,21 +213,25 @@ impl PostStream {
         let use_index = Self::can_use_index(&sorting, &source, &tags, &kind);
 
         let started = std::time::Instant::now();
-        let post_keys = match use_index {
-            true => Self::get_from_index(source, sorting, order, &tags, pagination).await?,
-            false => Self::get_from_graph(source, sorting, order, &tags, pagination, kind).await?,
+        let result: ModelResult<PostKeyStream> = match use_index {
+            true => Self::get_from_index(source, sorting, order, &tags, pagination).await,
+            false => Self::get_from_graph(source, sorting, order, &tags, pagination, kind)
+                .await
+                .map_err(Into::into),
         };
 
+        // Record duration on both success and error paths, so timeouts / DB errors
+        // are not silently dropped from the latency histogram.
         if let Some((source, depth)) = wot {
             super::metrics::record_wot_result(
                 source,
                 depth,
                 started.elapsed(),
-                post_keys.post_keys.len(),
+                result.as_ref().ok().map(|keys| keys.post_keys.len()),
             );
         }
 
-        Ok(post_keys)
+        result
     }
 
     // Determine if we have a quick access sorted set for this combination

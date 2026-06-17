@@ -419,6 +419,9 @@ pub fn get_viewer_trusted_network_tags(user_id: &str, viewer_id: &str, depth: Wo
     let graph_query = format!(
         "
         MATCH (tagged:User {{id: $user_id}})
+        // Viewer is optional: an unknown viewer is NULL, so the CALL's expand finds
+        // no taggers and `tags` collects to [] (existing user with no trusted tags
+        // -> 200 []), rather than dropping the row and 404-ing.
         OPTIONAL MATCH (viewer:User {{id: $viewer_id}})
         CALL {{
             WITH viewer, tagged
