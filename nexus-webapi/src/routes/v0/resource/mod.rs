@@ -2,7 +2,6 @@ use crate::models::{PubkyId, ResourceId, TagLabel};
 use crate::routes::v0::endpoints::{
     RESOURCE_BY_URI_ROUTE, RESOURCE_TAGGERS_ROUTE, RESOURCE_TAGS_ROUTE,
 };
-use crate::routes::v0::types::resolve_tag_wot_depth;
 use crate::routes::v0::user::tags::TaggersQuery;
 use crate::routes::v0::{TaggersInfoResponse, TagsQuery};
 use crate::routes::AppState;
@@ -36,6 +35,20 @@ pub fn routes() -> Router<AppState> {
         .route(RESOURCE_BY_URI_ROUTE, get(resource_by_uri_handler))
 }
 
+/// Resource tags have no Web-of-Trust variant: the WoT tag query matches a
+/// `User` node, so feeding it a resource id silently returns nothing and 404s
+/// an existing resource. Reject `depth` outright instead of pretending to
+/// support it (ponytail: 400 over a broken feature; add real resource-WoT here
+/// if it's ever needed).
+fn reject_resource_depth(depth: Option<u8>) -> Result<()> {
+    match depth {
+        Some(_) => Err(Error::invalid_input(
+            "`depth` is not supported for resource tags",
+        )),
+        None => Ok(()),
+    }
+}
+
 #[derive(Deserialize, Debug)]
 pub struct ResourceByUriQuery {
     pub uri: String,
@@ -67,7 +80,7 @@ pub async fn resource_tags_handler(
 ) -> Result<Json<ResourceTagsResponse>> {
     debug!("GET {RESOURCE_TAGS_ROUTE} resource_id:{}", res_id);
 
-    let depth = resolve_tag_wot_depth(query.viewer_id.as_deref(), query.depth)?;
+    reject_resource_depth(query.depth)?;
     let tags = TagResource::get_by_id(
         &res_id,
         None,
@@ -75,7 +88,7 @@ pub async fn resource_tags_handler(
         query.limit_tags,
         query.limit_taggers,
         query.viewer_id.as_deref(),
-        depth,
+        None,
     )
     .await?
     .ok_or_else(|| Error::resource_not_found(res_id.to_string()))?;
@@ -118,10 +131,7 @@ pub async fn resource_by_uri_handler(
     let (normalized, _scheme) = normalize_uri(&query.uri).map_err(Error::invalid_input)?;
     let res_id = resource_id(&normalized);
 
-    let depth = resolve_tag_wot_depth(
-        query.tags_query.viewer_id.as_deref(),
-        query.tags_query.depth,
-    )?;
+    reject_resource_depth(query.tags_query.depth)?;
     let tags = TagResource::get_by_id(
         &res_id,
         None,
@@ -129,7 +139,7 @@ pub async fn resource_by_uri_handler(
         query.tags_query.limit_tags,
         query.tags_query.limit_taggers,
         query.tags_query.viewer_id.as_deref(),
-        depth,
+        None,
     )
     .await?
     .ok_or_else(|| Error::resource_not_found(res_id.clone()))?;
@@ -170,17 +180,14 @@ pub async fn resource_taggers_handler(
         "GET {RESOURCE_TAGGERS_ROUTE} resource_id:{}, label:{}",
         resource_id, label
     );
-    let depth = resolve_tag_wot_depth(
-        taggers_query.tags_query.viewer_id.as_deref(),
-        taggers_query.tags_query.depth,
-    )?;
+    reject_resource_depth(taggers_query.tags_query.depth)?;
     let taggers = TagResource::get_tagger_by_id(
         &resource_id,
         None,
         &label,
         taggers_query.pagination,
         taggers_query.tags_query.viewer_id.as_deref(),
-        depth,
+        None,
     )
     .await?;
     Ok(Json(TaggersInfoResponse::from(taggers)))
