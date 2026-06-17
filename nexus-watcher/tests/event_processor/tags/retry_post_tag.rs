@@ -3,7 +3,7 @@ use crate::event_processor::utils::watcher::{
 };
 use anyhow::Result;
 use chrono::Utc;
-use nexus_watcher::events::retry::RetryEvent;
+use nexus_watcher::events::retry::{IndexKey, RetryEvent};
 use pubky::Keypair;
 use pubky_app_specs::{post_uri_builder, tag_uri_builder};
 use pubky_app_specs::{traits::HashId, PubkyAppTag, PubkyAppUser};
@@ -52,11 +52,11 @@ async fn test_homeserver_post_tag_event_to_queue() -> Result<()> {
     // to let write the indexes
     test.put(&tagger_kp, &tag_path, tag).await?;
 
-    let index_key = tag_absolute_url.clone();
+    let index_key = IndexKey::for_uri(&tag_absolute_url);
 
     assert_eventually_exists(&index_key).await;
 
-    assert!(RetryEvent::check_uri(&index_key).await.unwrap());
+    assert!(RetryEvent::check_index_key(&index_key).await.unwrap());
 
     let event_retry = RetryEvent::get_from_index(&index_key).await.unwrap();
     assert!(event_retry.is_some());

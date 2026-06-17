@@ -51,23 +51,24 @@ impl RetryScheduler {
     /// When in doubt we enqueue (bounded by `max_retries`) rather than drop data.
     pub fn should_enqueue_related_event(error: &EventProcessorError) -> bool {
         match error {
-            EventProcessorError::PubkyClientError(err) => match err {
+            EventProcessorError::PubkyClientError(err) => match err.as_ref() {
                 PubkyClientError::NotInitialized
                 | PubkyClientError::TooManyRequests429 { .. }
                 | PubkyClientError::ServerError5xx { .. }
                 | PubkyClientError::RequestFailed { .. }
-                | PubkyClientError::PkarrFailed { .. } => true,
+                | PubkyClientError::PkarrFailed(..) => true,
 
                 PubkyClientError::NotFound404 { .. }
-                | PubkyClientError::AuthenticationFailed { .. }
-                | PubkyClientError::BuildFailed { .. }
-                | PubkyClientError::ParseFailed { .. } => false,
+                | PubkyClientError::AuthenticationFailed(..)
+                | PubkyClientError::BuildFailed(..)
+                | PubkyClientError::ParseFailed(..) => false,
             },
-            EventProcessorError::InvalidEventLine(_) => false,
-            EventProcessorError::SkipIndexing => false,
-            EventProcessorError::SpecValidation(..) => false,
-            EventProcessorError::UserIdMismatch { .. } => false,
-            EventProcessorError::HsEventsStreamRateLimitExhausted => false,
+
+            EventProcessorError::InvalidEventLine(_)
+            | EventProcessorError::SkipIndexing
+            | EventProcessorError::SpecValidation(..)
+            | EventProcessorError::HsEventsStreamRateLimitExhausted
+            | EventProcessorError::UserIdMismatch { .. } => false,
 
             _ => true,
         }
@@ -109,16 +110,11 @@ impl RetryScheduler {
         origin_homeserver_id: &str,
     ) -> Result<(), EventProcessorError> {
         let next_retry_at = Utc::now().timestamp_millis() + initial_backoff_ms;
-        let retry_event = RetryEvent::new(
-            event.event_type.clone(),
-            event.uri.clone(),
-            next_retry_at,
-            origin_homeserver_id.to_string(),
-        );
+        let retry_event = RetryEvent::new(event, next_retry_at, origin_homeserver_id);
 
         // New EventRetries for the same URI will reset the retry_count
         // The HS state changed since the earlier event, so we disregard previous retry attempts
-        self.store.put(&event.uri, &retry_event).await?;
+        self.store.put(&retry_event).await?;
         warn!("Queued event for retry ({}): {}", reason, event.uri);
         Ok(())
     }

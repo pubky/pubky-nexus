@@ -1,6 +1,7 @@
 use clap::ValueEnum;
 use nexus_common::{
     db::{get_neo4j_graph, get_redis_conn, graph::Query, reindex},
+    models::post::create_post_content_index,
     StackConfig, StackManager,
 };
 use std::process::Stdio;
@@ -45,8 +46,11 @@ impl MockDb {
         info!("Dropping Graph database...");
         let graph = get_neo4j_graph().expect("Failed to get Neo4j graph connection");
 
-        // drop and run the queries again
-        let drop_all_query = Query::new("drop_graph", "MATCH (n) DETACH DELETE n;");
+        // MATCH must be outside the subquery so IN TRANSACTIONS batches on the rows it feeds in.
+        let drop_all_query = Query::new(
+            "drop_graph",
+            "MATCH (n) CALL { WITH n DETACH DELETE n } IN TRANSACTIONS OF 10000 ROWS;",
+        );
         graph
             .run(drop_all_query)
             .await
@@ -90,7 +94,11 @@ impl MockDb {
 
     async fn sync_redis() {
         Self::drop_cache().await;
-        // Reindex
+        // TODO: test framework should run migrations after resetting to a fresh database;
+        // that would recreate this index automatically and remove the need for this call.
+        create_post_content_index()
+            .await
+            .expect("Failed to create post content FT index");
         info!("Starting reindexing process...");
         reindex::sync().await;
     }

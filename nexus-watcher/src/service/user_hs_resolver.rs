@@ -4,7 +4,7 @@
 //! the `(:User)-[:HOSTED_BY]->(:Homeserver)` relationship in Neo4j.
 
 use nexus_common::db::{
-    exec_single_row, fetch_key_from_graph, queries, GraphResult, PubkyConnector,
+    exec_single_row, fetch_key_from_graph, queries, GraphResult, PubkyClientResult, PubkyConnector,
 };
 use nexus_common::types::DynError;
 use nexus_common::WatcherConfig;
@@ -25,7 +25,7 @@ static HS_RESOLVER_METRICS: LazyLock<HsResolverMetrics> = LazyLock::new(HsResolv
 #[async_trait::async_trait]
 pub trait PkdnsHomeserverResolver: Send + Sync {
     /// Returns the HS published for `user_pk`, if any is currently published.
-    async fn resolve_homeserver(&self, user_pk: &PublicKey) -> Result<Option<PubkyId>, DynError>;
+    async fn resolve_homeserver(&self, user_pk: &PublicKey) -> PubkyClientResult<Option<PubkyId>>;
 }
 
 /// Production resolver backed by the shared [`PubkyConnector`].
@@ -33,12 +33,12 @@ pub struct PubkyConnectorResolver;
 
 #[async_trait::async_trait]
 impl PkdnsHomeserverResolver for PubkyConnectorResolver {
-    async fn resolve_homeserver(&self, user_pk: &PublicKey) -> Result<Option<PubkyId>, DynError> {
+    async fn resolve_homeserver(&self, user_pk: &PublicKey) -> PubkyClientResult<Option<PubkyId>> {
         let pubky = PubkyConnector::get()?;
-        let Some(hs_pk) = pubky.get_homeserver_of(user_pk).await else {
-            return Ok(None);
-        };
-        Ok(Some(PubkyId::try_from(&hs_pk.into_inner().to_z32())?))
+        match pubky.get_homeserver_of(user_pk).await {
+            Some(hs_pk) => Ok(Some(PubkyId::from(hs_pk))),
+            None => Ok(None),
+        }
     }
 }
 
@@ -80,14 +80,6 @@ pub async fn run(
     shutdown_rx: &mut Receiver<bool>,
 ) -> Result<(), DynError> {
     let user_ids = get_users_needing_resolution(ttl_ms).await?;
-    if user_ids.is_empty() {
-        debug!("No users need homeserver resolution");
-        HS_RESOLVER_METRICS.run_total.record(0, &[]);
-        HS_RESOLVER_METRICS.run_failed.record(0, &[]);
-        return Ok(());
-    }
-
-    // Convert user_ids to user_pks
     let user_pks: Vec<PublicKey> = user_ids
         .iter()
         .filter_map(|user_id| {
@@ -98,9 +90,15 @@ pub async fn run(
                 .ok()
         })
         .collect();
+    if user_pks.is_empty() {
+        debug!("No users need homeserver resolution");
+        HS_RESOLVER_METRICS.run_total.record(0, &[]);
+        HS_RESOLVER_METRICS.run_failed.record(0, &[]);
+        return Ok(());
+    }
 
-    let attempted = user_pks.len() as u64;
-    debug!("Resolving homeservers for {} users", attempted);
+    let total = user_pks.len() as u64;
+    debug!("Resolving homeservers for {} users", total);
 
     let mut failed = 0u64;
     let mut processed = 0u64;
@@ -122,20 +120,29 @@ pub async fn run(
         tokio::select! {
             biased;
             _ = shutdown_rx.changed() => {
-                info!("Shutdown detected; HS resolver stopping after {processed}/{attempted} users");
+                info!("Shutdown detected; HS resolver stopping after {processed}/{total} users");
                 break;
             }
             result = resolve_user(resolver, &user_pk) => {
-                if let Err(e) = result {
+                let user_id = user_pk.z32();
+                let user_hs_resolved = matches!(result, Ok(true));
+                if !user_hs_resolved {
+                    // Both resolve errors and finding no HS are treated as failures
+                    let err_msg = match result {
+                        Err(e) => format!("Failed to resolve HS: {e}"),
+                        Ok(_) => "PKDNS lookup found no HS".into()
+                    };
+
                     failed += 1;
-                    warn!("Failed to resolve HS for user {}: {e}", user_pk.z32());
+                    warn!(%user_id, err_msg);
                 }
+
                 processed += 1;
             }
         }
     }
 
-    HS_RESOLVER_METRICS.run_total.record(attempted, &[]);
+    HS_RESOLVER_METRICS.run_total.record(total, &[]);
     HS_RESOLVER_METRICS.run_failed.record(failed, &[]);
 
     Ok(())
@@ -184,49 +191,43 @@ async fn get_users_needing_resolution(ttl_ms: u64) -> GraphResult<Vec<String>> {
     Ok(maybe_user_ids.unwrap_or_default())
 }
 
-/// Resolves a single user's homeserver and persists the HOSTED_BY relationship.
+/// Resolves a single user's HS and persists the HOSTED_BY relationship.
 ///
-/// Homeserver switching is not fully implemented, so the bound homeserver is
-/// never changed once set:
-/// - No stored mapping: store whatever the DHT resolves (if anything).
-/// - Stored mapping, DHT still points at it: clear any `stale` flag (resume indexing).
-/// - Stored mapping, DHT changed or returns nothing: mark the mapping `stale`
-///   so the watcher stops indexing the user until the DHT realigns.
+/// Returns whether or not a PKDNS HS mapping was found when resolving the PKDNS record.
 async fn resolve_user(
     resolver: &dyn PkdnsHomeserverResolver,
     user_pk: &PublicKey,
-) -> Result<(), DynError> {
+) -> Result<bool, DynError> {
     let user_id = user_pk.z32();
 
-    let resolved_hs_id = resolver.resolve_homeserver(user_pk).await?;
+    let maybe_resolved_hs_id = resolver.resolve_homeserver(user_pk).await?;
+    let maybe_stored_hs_id = get_user_homeserver(&user_id).await?;
 
-    let Some(stored_hs_id) = get_user_homeserver(&user_id).await? else {
-        // First-time resolution: store whatever the DHT resolves.
-        let Some(hs_id) = resolved_hs_id else {
-            debug!("User {user_id} has no published homeserver");
-            return Ok(());
-        };
-        exec_single_row(queries::put::set_user_homeserver(&user_id, &hs_id)).await?;
-        debug!("User {user_id} -> HS {hs_id}");
-        return Ok(());
-    };
+    match (&maybe_stored_hs_id, &maybe_resolved_hs_id) {
+        (None, None) => warn!("User {user_id} has no published homeserver"),
 
-    // Already bound to a homeserver: toggle the stale flag instead of switching.
-    let still_matches = resolved_hs_id
-        .as_ref()
-        .is_some_and(|hs_id| hs_id.as_ref() == stored_hs_id.as_str());
-    if still_matches {
-        exec_single_row(queries::put::set_user_homeserver_stale(&user_id, false)).await?;
-        debug!("User {user_id} still hosted on {stored_hs_id}, mapping active");
-    } else {
-        exec_single_row(queries::put::set_user_homeserver_stale(&user_id, true)).await?;
-        warn!(
-            "User {user_id} homeserver changed or was removed (stored {stored_hs_id}); \
-             switching unsupported, mapping marked stale and indexing paused"
-        );
+        (None, Some(resolved_hs_id)) => {
+            exec_single_row(queries::put::set_user_homeserver(&user_id, resolved_hs_id)).await?;
+            debug!("User {user_id} -> HS {resolved_hs_id}");
+        }
+
+        // Already bound to a HS: toggle the stale flag instead of switching.
+        (Some(stored_hs_id), Some(resolved_hs_id)) if resolved_hs_id.as_ref() == stored_hs_id => {
+            exec_single_row(queries::put::set_user_homeserver_stale(&user_id, false)).await?;
+            debug!("User {user_id} still hosted on {stored_hs_id}, mapping active");
+        }
+
+        // HS switching is not fully implemented, so the bound HS is never changed once set
+        (Some(stored_hs_id), _) => {
+            exec_single_row(queries::put::set_user_homeserver_stale(&user_id, true)).await?;
+            warn!(
+                "User {user_id} homeserver changed or was removed (stored {stored_hs_id}); \
+                 switching unsupported, mapping marked stale and indexing paused"
+            );
+        }
     }
 
-    Ok(())
+    Ok(maybe_resolved_hs_id.is_some())
 }
 
 /// Returns the homeserver ID a user is currently assigned to, if any.
@@ -289,7 +290,7 @@ mod tests {
         async fn resolve_homeserver(
             &self,
             _user_pk: &PublicKey,
-        ) -> Result<Option<PubkyId>, DynError> {
+        ) -> PubkyClientResult<Option<PubkyId>> {
             Ok(self.result.clone())
         }
     }
@@ -524,6 +525,12 @@ mod tests {
         resolve_user(&resolver, &user_pk).await?;
 
         assert_eq!(get_user_homeserver(&user_id).await?, None);
+        assert!(
+            get_users_needing_resolution(3_600_000)
+                .await?
+                .contains(&user_id),
+            "users with no HS PKDNS mapping found should be retried on every resolver run"
+        );
 
         cleanup_test_user(&user_id).await?;
 

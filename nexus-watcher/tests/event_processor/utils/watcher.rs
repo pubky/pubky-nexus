@@ -10,7 +10,9 @@ use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::traits::Collection;
 use nexus_common::{StackConfig, StackManager};
 use nexus_watcher::events::retry::event::RetryEvent;
-use nexus_watcher::events::retry::{InitialBackoff, RedisRetryStore, RetryScheduler, RetryStore};
+use nexus_watcher::events::retry::{
+    IndexKey, InitialBackoff, RedisRetryStore, RetryScheduler, RetryStore,
+};
 use nexus_watcher::events::{DefaultEventHandler, EventHandler};
 use nexus_watcher::events::{Event, ParseResult};
 use nexus_watcher::service::HsEventProcessorRunner;
@@ -169,7 +171,7 @@ impl WatcherTest {
     pub async fn ensure_event_processing_complete(&mut self) -> Result<()> {
         if self.ensure_event_processing {
             self.event_processor_runner
-                .build(self.homeserver_id.to_string())
+                .build(self.homeserver_id.as_ref())
                 .await
                 .map_err(|e| anyhow!(e))?
                 .run()
@@ -377,8 +379,8 @@ pub async fn retrieve_and_handle_event_line(
 ///
 /// Attempts to read an event index with retries before timing out
 /// # Arguments
-/// * `event_index` - A string slice representing the index to check
-pub async fn assert_eventually_exists(event_index: &str) {
+/// * `event_index` - The index key to check
+pub async fn assert_eventually_exists(event_index: &IndexKey) {
     const SLEEP_MS: u64 = 3;
     const MAX_RETRIES: usize = 50;
 
@@ -390,7 +392,7 @@ pub async fn assert_eventually_exists(event_index: &str) {
             MAX_RETRIES,
             SLEEP_MS * attempt as u64
         );
-        match RetryEvent::check_uri(event_index).await {
+        match RetryEvent::check_index_key(event_index).await {
             Ok(true) => return,
             Ok(false) => {}
             Err(e) => panic!("Error while getting index: {e:?}"),

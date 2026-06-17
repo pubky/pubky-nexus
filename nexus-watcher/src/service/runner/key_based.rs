@@ -64,13 +64,12 @@ impl KeyBasedEventProcessorRunner {
     /// The default homeserver is excluded from this list.
     async fn hs_by_priority(&self) -> Result<Vec<String>, DynError> {
         let hs_ids = Homeserver::get_all_active_from_graph().await?;
-        let default_hs = self.default_homeserver.to_string();
 
         // Exclude the default homeserver from the list, as it is processed separately
         // The default HS is not expected to be active, but we still filter as an extra precaution
         let hs_ids: Vec<String> = hs_ids
             .into_iter()
-            .filter(|hs_id| hs_id != &default_hs)
+            .filter(|hs_id| hs_id != self.default_homeserver.as_ref())
             .collect();
 
         Ok(hs_ids)
@@ -83,8 +82,8 @@ impl TEventProcessorRunner for KeyBasedEventProcessorRunner {
         self.shutdown_rx.clone()
     }
 
-    async fn build(&self, hs_id: String) -> Result<Arc<dyn TEventProcessor>, DynError> {
-        let homeserver_id = PubkyId::try_from(&hs_id)?;
+    async fn build(&self, hs_id: &str) -> Result<Arc<dyn TEventProcessor>, DynError> {
+        let homeserver_id = PubkyId::try_from(hs_id)?;
         let homeserver = Homeserver::get_by_id(homeserver_id)
             .await?
             .ok_or("Homeserver not found")?;
@@ -107,17 +106,12 @@ impl TEventProcessorRunner for KeyBasedEventProcessorRunner {
         Ok(hs_ids[..max_index].to_vec())
     }
 
-    async fn backoff_should_skip(&self, hs_id: &str) -> Option<ProcessorRunStatus> {
+    async fn backoff_hs_should_skip(&self, hs_id: &str) -> bool {
         let backoff = self.backoff.lock().await;
-        if backoff.should_skip(hs_id) {
-            debug!(%hs_id, "Skipping homeserver in backoff");
-            Some(ProcessorRunStatus::Skipped)
-        } else {
-            None
-        }
+        backoff.should_skip(hs_id)
     }
 
-    async fn backoff_on_result(&self, hs_id: &str, status: &ProcessorRunStatus) {
+    async fn backoff_hs_record_result(&self, hs_id: &str, status: &ProcessorRunStatus) {
         let mut backoff = self.backoff.lock().await;
         if *status == ProcessorRunStatus::Ok {
             backoff.record_success(hs_id);

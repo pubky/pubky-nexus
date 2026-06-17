@@ -643,15 +643,17 @@ fn stream_event(cursor: u64, user_id: &str, path: &str) -> Result<StreamEvent, D
 }
 
 fn too_many_requests_error() -> EventProcessorError {
-    EventProcessorError::PubkyClientError(PubkyClientError::TooManyRequests429 {
+    PubkyClientError::TooManyRequests429 {
         message: "rate limited".into(),
-    })
+    }
+    .into()
 }
 
 fn user_not_found_error() -> EventProcessorError {
-    EventProcessorError::PubkyClientError(PubkyClientError::NotFound404 {
+    PubkyClientError::NotFound404 {
         message: "user not found".into(),
-    })
+    }
+    .into()
 }
 
 fn processor(

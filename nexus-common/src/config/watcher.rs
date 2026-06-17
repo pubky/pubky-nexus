@@ -15,10 +15,6 @@ pub const HOMESERVER_PUBKY: &str = "8pinxxgqs41n4aididenw5apqp1urfmzdztr8jt4abrk
 pub const DEFAULT_EVENTS_LIMIT: u16 = 1_000;
 /// Default for [WatcherConfig::key_based_events_limit]
 pub const DEFAULT_KEY_BASED_EVENTS_LIMIT: u16 = 50;
-/// Upper bound for [WatcherConfig::events_limit]
-pub const MAX_EVENTS_LIMIT: u16 = 1_000;
-/// Upper bound for [WatcherConfig::key_based_events_limit]
-pub const MAX_KEY_BASED_EVENTS_LIMIT: u16 = 100;
 /// Default for [WatcherConfig::monitored_homeservers_limit]
 pub const DEFAULT_MONITORED_HOMESERVERS_LIMIT: usize = 50;
 /// Default for [WatcherConfig::watcher_sleep]
@@ -31,6 +27,11 @@ pub const DEFAULT_HS_RESOLVER_TTL: u64 = 3_600_000;
 pub const DEFAULT_INITIAL_BACKOFF_SECS: u64 = 60;
 /// Default for [WatcherConfig::max_backoff_secs]
 pub const DEFAULT_MAX_BACKOFF_SECS: u64 = 3_600;
+
+/// Extra-safety check: Upper bound for [WatcherConfig::events_limit]
+pub const MAX_EVENTS_LIMIT: u16 = 1_000;
+/// Extra-safety check: Upper bound for [WatcherConfig::key_based_events_limit]
+pub const MAX_KEY_BASED_EVENTS_LIMIT: u16 = 100;
 
 // Retry configuration defaults
 /// Default for [EventRetryConfig::max_retries]
@@ -58,7 +59,7 @@ pub const MODERATED_TAGS: [&str; 6] = [
     "il_adult_nu_sex_act",
 ];
 
-/// Retry configuration settings
+/// Event retry limits and backoff
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(default)]
 pub struct EventRetryConfig {
@@ -101,6 +102,15 @@ impl EventRetryConfig {
             (self.initial_backoff_secs, self.max_backoff_secs)
         }
     }
+
+    /// Returns the max retry count, for the given error, before dead-lettering
+    pub fn get_max_retries_for_err(&self, error: &EventProcessorError) -> u32 {
+        if error.is_missing_dependency() {
+            self.max_dependency_retries
+        } else {
+            self.max_retries
+        }
+    }
 }
 
 /// Configuration settings for the Nexus Watcher service
@@ -109,7 +119,7 @@ pub struct WatcherConfig {
     pub testnet: bool,
     pub testnet_host: String,
 
-    /// Default homeserver. Other homeservers may be ingested in addition, but this one is prioritized.
+    /// Default, prioritized homeserver
     pub homeserver: PubkyId,
 
     /// Maximum number of events to fetch per run from the default homeserver.
@@ -143,13 +153,14 @@ pub struct WatcherConfig {
     /// Initial backoff duration (in seconds) after the first failure of a homeserver
     #[serde(default = "default_initial_backoff_secs")]
     pub initial_backoff_secs: u64,
+
     /// Maximum backoff duration (in seconds) for a failing homeserver
     #[serde(default = "default_max_backoff_secs")]
     pub max_backoff_secs: u64,
+
     #[serde(default = "default_stack")]
     pub stack: StackConfig,
 
-    // Retry configuration
     #[serde(default)]
     pub retry: EventRetryConfig,
 
@@ -219,8 +230,7 @@ fn default_hs_resolver_ttl() -> u64 {
     DEFAULT_HS_RESOLVER_TTL
 }
 
-/// Converts a [`DaemonConfig`] into an [`WatcherConfig`], extracting only the Watcher-related settings
-/// and the shared application stack
+/// Extracts [`WatcherConfig`] from [`DaemonConfig`]
 impl From<DaemonConfig> for WatcherConfig {
     fn from(daemon_config: DaemonConfig) -> Self {
         WatcherConfig {

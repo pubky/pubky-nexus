@@ -47,8 +47,8 @@ impl TEventProcessorRunner for HsEventProcessorRunner {
     }
 
     /// Creates and returns a new event processor instance for the specified homeserver
-    async fn build(&self, homeserver_id: String) -> Result<Arc<dyn TEventProcessor>, DynError> {
-        let homeserver_id = PubkyId::try_from(&homeserver_id)?;
+    async fn build(&self, homeserver_id: &str) -> Result<Arc<dyn TEventProcessor>, DynError> {
+        let homeserver_id = PubkyId::try_from(homeserver_id)?;
         let homeserver = Homeserver::get_by_id(homeserver_id)
             .await?
             .ok_or("Homeserver not found")?;
@@ -60,6 +60,7 @@ impl TEventProcessorRunner for HsEventProcessorRunner {
             event_handler: self.event_handler.clone(),
             shutdown_rx: self.shutdown_rx.clone(),
             retry_scheduler: self.retry_scheduler.clone(),
+            hs_mapping_cache: Default::default(),
         }))
     }
 
