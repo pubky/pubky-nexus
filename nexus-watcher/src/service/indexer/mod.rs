@@ -195,8 +195,8 @@ pub trait TEventProcessor: Send + Sync + 'static {
     /// to the event handler. The default always processes the event;
     /// [`HsEventProcessor`](crate::service::indexer::HsEventProcessor) overrides
     /// this to skip events from users bound to a different homeserver.
-    async fn should_process_event(&self, _event: &Event) -> bool {
-        true
+    async fn should_process_event(&self, _event: &Event) -> Result<bool, EventProcessorError> {
+        Ok(true)
     }
 
     /// Processes an event and delegates to [`Self::handle_error`] on failure.
@@ -217,9 +217,18 @@ pub trait TEventProcessor: Send + Sync + 'static {
     async fn handle_event(&self, event: &Event) -> Result<(), EventProcessorError> {
         let span = tracing::Span::current();
 
-        if !self.should_process_event(event).await {
-            span.record("otel.status_code", "OK");
-            return Ok(());
+        match self.should_process_event(event).await {
+            Ok(true) => {}
+            Ok(false) => {
+                span.record("otel.status_code", "UNSET");
+                span.record("otel.status_message", "SKIPPED");
+                return Ok(());
+            }
+            Err(e) => {
+                span.record("otel.status_code", "ERROR");
+                span.record("otel.status_message", tracing::field::display(&e));
+                return self.handle_error(event, e).await;
+            }
         }
 
         if let Err(e) = self.event_handler().handle(event).await {

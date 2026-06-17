@@ -79,29 +79,26 @@ impl TEventProcessor for HsEventProcessor {
     /// - A stale edge to this homeserver (the user's published homeserver has
     ///   diverged): log a warning and skip until the resolver realigns it.
     /// - An edge to a different homeserver: log a warning and skip.
-    ///
-    /// A lookup failure fails open (the event is processed), so a transient
-    /// graph error never silently drops legitimate events.
-    async fn should_process_event(&self, event: &Event) -> bool {
+    async fn should_process_event(&self, event: &Event) -> Result<bool, EventProcessorError> {
         let user_id = event.parsed_uri.user_id();
 
-        match self.user_hs_mapping(user_id).await {
+        match self.user_hs_mapping(user_id).await? {
             // No mapping yet (graceful fallback) or actively bound here: process.
-            Ok(HsMapping::Unbound | HsMapping::Current { stale: false }) => true,
+            HsMapping::Unbound | HsMapping::Current { stale: false } => Ok(true),
 
             // Bound here but the mapping is stale: skip until the resolver realigns it.
-            Ok(HsMapping::Current { stale: true }) => {
+            HsMapping::Current { stale: true } => {
                 warn!(
                     event.uri = %event.uri,
                     user_id = %user_id,
                     processor_homeserver = %self.homeserver.id,
                     "User's homeserver mapping is stale; skipping event"
                 );
-                false
+                Ok(false)
             }
 
             // Bound to a different homeserver: skip.
-            Ok(HsMapping::Other { hs_id }) => {
+            HsMapping::Other { hs_id } => {
                 warn!(
                     event.uri = %event.uri,
                     user_id = %user_id,
@@ -109,17 +106,7 @@ impl TEventProcessor for HsEventProcessor {
                     user_homeserver = %hs_id,
                     "User is hosted on a different homeserver; skipping event"
                 );
-                false
-            }
-
-            // Lookup failed: fail open so transient graph errors don't drop events.
-            Err(e) => {
-                warn!(
-                    event.uri = %event.uri,
-                    user_id = %user_id,
-                    "Failed to resolve user's homeserver; processing event anyway: {e}"
-                );
-                true
+                Ok(false)
             }
         }
     }
