@@ -431,12 +431,13 @@ pub fn get_users_needing_hs_resolution(ttl_ms: u64) -> Query {
     .param("ttl_ms", ttl_ms as i64)
 }
 
-/// Retrieves the homeserver ID a user is currently hosted on, if any.
+/// Retrieves the homeserver ID a user is currently hosted on, if any, along with
+/// whether that `HOSTED_BY` mapping is marked `stale`.
 pub fn get_user_homeserver(user_id: &str) -> Query {
     Query::new(
         "get_user_homeserver",
-        "MATCH (u:User {id: $user_id})-[:HOSTED_BY]->(hs:Homeserver)
-         RETURN hs.id AS homeserver_id",
+        "MATCH (u:User {id: $user_id})-[r:HOSTED_BY]->(hs:Homeserver)
+         RETURN hs.id AS homeserver_id, coalesce(r.stale, false) AS stale",
     )
     .param("user_id", user_id.to_string())
 }
