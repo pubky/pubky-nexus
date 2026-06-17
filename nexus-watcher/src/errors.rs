@@ -143,6 +143,10 @@ impl EventProcessorError {
         Self::InternalError(source.to_string())
     }
 
+    /// Returns whether or not we should refrain from retrying this error right now.
+    ///
+    /// These are the kinds of errors that are expected to be thrown again
+    /// if the event processor caller continues processing other events.
     pub fn should_not_retry_now(&self) -> bool {
         matches!(
             self,
@@ -152,6 +156,7 @@ impl EventProcessorError {
         )
     }
 
+    /// Returns whether this error is a 404 from the Pubky client.
     pub fn is_not_found(&self) -> bool {
         matches!(
             self,
