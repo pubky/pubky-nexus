@@ -76,9 +76,10 @@ async fn test_stream_posts_by_engagement_reach_following_with_tag_start_skip_and
         None,
         Some(1),
         Some(1),
-        // The POST_TC_ING has the same engagement: 2. For some reason, neo4j filters that node instead of C
-        // when we apply the limit CLAUSE
-        &[POST_ED_ING],
+        // POST_EC_ING and POST_ED_ING are tied at engagement 2; the `p.id` tiebreaker
+        // orders POST_EC_ING first (higher id, descending), so skip=1 deterministically
+        // returns it.
+        &[POST_EC_ING],
     )
     .await
 }

@@ -22,7 +22,7 @@ impl<const DEFAULT: usize, const MAX: usize> BoundedLimit<DEFAULT, MAX> {
             return Err(Error::invalid_input("limit must be at least 1"));
         }
         if n > MAX {
-            return Err(Error::invalid_input(&format!(
+            return Err(Error::invalid_input(format!(
                 "limit exceeds maximum of {MAX}"
             )));
         }

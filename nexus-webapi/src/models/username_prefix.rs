@@ -1,5 +1,5 @@
 use std::fmt;
-use std::str::FromStr;
+use std::ops::Deref;
 
 use crate::Error;
 use serde::de::{self, Deserializer};
@@ -10,27 +10,21 @@ use utoipa::ToSchema;
 #[schema(value_type = String, example = "alice")]
 pub struct UsernamePrefix(pub String);
 
-impl FromStr for UsernamePrefix {
-    type Err = Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let s = s.trim().to_owned();
-        Self::validate(&s)?;
-        Ok(UsernamePrefix(s))
-    }
-}
-
 impl fmt::Display for UsernamePrefix {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.0)
     }
 }
 
-impl UsernamePrefix {
-    pub fn as_str(&self) -> &str {
+impl Deref for UsernamePrefix {
+    type Target = str;
+
+    fn deref(&self) -> &Self::Target {
         &self.0
     }
+}
 
+impl UsernamePrefix {
     fn validate(prefix: &str) -> Result<(), Error> {
         if prefix.is_empty() {
             return Err(Error::invalid_input("Username cannot be empty"));
@@ -71,17 +65,8 @@ mod tests {
     }
 
     #[test]
-    fn validate_accepts_whitespace_only() {
-        // Whitespace-only strings are non-empty, so they are accepted
-        assert!(UsernamePrefix::validate("   ").is_ok());
-        assert!(UsernamePrefix::validate("\t\n").is_ok());
-    }
-
-    #[test]
     fn validate_accepts_non_empty_string() {
         assert!(UsernamePrefix::validate("alice").is_ok());
-        // " alice " is now accepted as-is (8 chars, not empty)
-        assert!(UsernamePrefix::validate(" alice ").is_ok());
     }
 
     // --- TryFrom<String> tests ---

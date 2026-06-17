@@ -1,4 +1,4 @@
-use crate::models::{ErrorResponsePayload, PostId, PubkyId, ResourceId};
+use crate::models::{ErrorResponsePayload, PostId, PubkyId};
 use axum::http::header::InvalidHeaderValue;
 use axum::http::uri::InvalidUri;
 use axum::http::StatusCode;
@@ -34,15 +34,15 @@ pub enum Error {
 }
 
 impl Error {
-    pub fn invalid_input(message: &str) -> Self {
+    pub fn invalid_input(message: impl Into<String>) -> Self {
         Error::InvalidInput {
-            message: message.to_string(),
+            message: message.into(),
         }
     }
 
-    pub fn resource_not_found(resource_id: ResourceId) -> Self {
+    pub fn resource_not_found(resource_id: impl Into<String>) -> Self {
         Error::ResourceNotFound {
-            resource_id: resource_id.to_string(),
+            resource_id: resource_id.into(),
         }
     }
 
