@@ -1,6 +1,7 @@
 use std::fmt;
 use std::ops::Deref;
 
+use super::bounded_vec;
 use crate::Error;
 use pubky_app_specs::validate_crockford_id;
 use serde::de;
@@ -53,6 +54,24 @@ macro_rules! crockford_id {
 crockford_id!(PostId, "13-character Crockford Base32-encoded post ID.");
 crockford_id!(FileId, "13-character Crockford Base32-encoded file ID.");
 
+/// JSON array of file URI strings (min=1, max=100).
+#[derive(Debug, ToSchema)]
+pub struct FileUris(pub Vec<String>);
+
+impl Deref for FileUris {
+    type Target = Vec<String>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<'de> Deserialize<'de> for FileUris {
+    fn deserialize<D: serde::de::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        bounded_vec::deserialize_json_array::<String, D, 1, 100>(d).map(Self)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -101,5 +120,48 @@ mod tests {
     fn file_id_shares_the_same_validation() {
         assert!(FileId::try_from("00000039YD9C0".to_string()).is_ok());
         assert!(FileId::try_from("ABCDEFG".to_string()).is_err());
+    }
+
+    // --- FileUris tests ---
+
+    fn make_uris(count: usize) -> String {
+        let items: Vec<String> = (0..count).map(|i| format!("uri_{}", i)).collect();
+        serde_json::to_string(&items).unwrap()
+    }
+
+    #[test]
+    fn test_file_uris_rejects_empty_array() {
+        let result: Result<FileUris, _> = serde_json::from_str("[]");
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("At least 1 item(s) required"));
+    }
+
+    #[test]
+    fn test_file_uris_accepts_one_uri() {
+        let result: Result<FileUris, _> = serde_json::from_str(r#"["single_uri"]"#);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().0.len(), 1);
+    }
+
+    #[test]
+    fn test_file_uris_accepts_100_uris() {
+        let json = make_uris(100);
+        let result: Result<FileUris, _> = serde_json::from_str(&json);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().0.len(), 100);
+    }
+
+    #[test]
+    fn test_file_uris_rejects_101_uris() {
+        let json = make_uris(101);
+        let result: Result<FileUris, _> = serde_json::from_str(&json);
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Maximum 100 items allowed"));
     }
 }

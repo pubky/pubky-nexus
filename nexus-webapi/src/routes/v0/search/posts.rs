@@ -1,9 +1,9 @@
-use crate::models::TagLabel;
-use crate::routes::v0::endpoints::SEARCH_POSTS_BY_TAG_ROUTE;
+use crate::models::{PostSearchQuery, SearchLimit, SearchSkip, TagLabel, SEARCH_LIMIT_DEFAULT};
+use crate::routes::v0::endpoints::{SEARCH_POSTS_BY_CONTENT_ROUTE, SEARCH_POSTS_BY_TAG_ROUTE};
 use crate::routes::{Path, Query};
 use crate::Result;
 use axum::Json;
-use nexus_common::models::post::search::PostsByTagSearch;
+use nexus_common::models::post::search::{PostsByContentSearch, PostsByTagSearch};
 use nexus_common::types::Pagination;
 use nexus_common::types::StreamSorting;
 use serde::Deserialize;
@@ -60,9 +60,50 @@ pub async fn search_posts_by_tag_handler(
     }
 }
 
+#[derive(Deserialize)]
+pub struct SearchPostsByContentQuery {
+    pub q: PostSearchQuery,
+    pub skip: Option<SearchSkip<1000>>,
+    pub limit: Option<SearchLimit<100>>,
+}
+
+#[utoipa::path(
+    get,
+    path = SEARCH_POSTS_BY_CONTENT_ROUTE,
+    description = "Full-text search over post content",
+    tag = "Search",
+    params(
+        ("q" = PostSearchQuery, Query, description = "Search query (2–30 characters, up to 4 terms)"),
+        ("skip" = Option<SearchSkip<1000>>, Query, description = "Skip N results (max 1000)"),
+        ("limit" = Option<SearchLimit<100>>, Query, description = "Limit the number of results")
+    ),
+    responses(
+        (status = 200, description = "Search results ordered by relevance score", body = Vec<PostsByContentSearch>),
+        (status = 400, description = "Invalid query or limit parameter"),
+        (status = 500, description = "Internal server error")
+    )
+)]
+pub async fn search_posts_by_content_handler(
+    Query(query): Query<SearchPostsByContentQuery>,
+) -> Result<Json<Vec<PostsByContentSearch>>> {
+    let skip = query.skip.as_ref().map_or(0, SearchSkip::value);
+    let limit = query
+        .limit
+        .as_ref()
+        .map_or(SEARCH_LIMIT_DEFAULT, SearchLimit::value);
+
+    debug!(
+        "GET {SEARCH_POSTS_BY_CONTENT_ROUTE} q:{}, skip:{skip}, limit:{limit}",
+        query.q
+    );
+
+    let results = PostsByContentSearch::search(query.q.as_str(), skip, limit).await?;
+    Ok(Json(results))
+}
+
 #[derive(OpenApi)]
 #[openapi(
-    paths(search_posts_by_tag_handler),
-    components(schemas(PostsByTagSearch))
+    paths(search_posts_by_tag_handler, search_posts_by_content_handler),
+    components(schemas(PostsByTagSearch, PostsByContentSearch, SearchLimit<100>, SearchSkip<1000>, PostSearchQuery))
 )]
-pub struct SearchPostsByTagApiDocs;
+pub struct SearchPostsApiDocs;

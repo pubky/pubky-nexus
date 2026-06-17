@@ -1,6 +1,10 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use nexus_common::{
-    models::{post::search::PostsByTagSearch, tag::search::TagSearch, user::UserSearch},
+    models::{
+        post::search::{PostsByContentSearch, PostsByTagSearch},
+        tag::search::TagSearch,
+        user::UserSearch,
+    },
     types::Pagination,
 };
 use setup::run_setup;
@@ -86,6 +90,38 @@ fn bench_post_tag_search_by_timeline(c: &mut Criterion) {
     );
 }
 
+fn bench_post_content_search(c: &mut Criterion) {
+    println!("******************************************************************************");
+    println!("Benchmarking post content search");
+    println!("******************************************************************************");
+
+    run_setup();
+
+    let rt = Runtime::new().unwrap();
+
+    // Each covers a different fuzzy-distance tier in fuzzy_token()
+    let queries = &[
+        ("api", "api"),                   // <=3 chars: exact match, 1 hit
+        ("privacy", "privacy"),           // <=8 chars: 1-fuzzy, 4 hits
+        ("transparency", "transparency"), // >8 chars: 2-fuzzy, 2 hits
+        ("open_source", "open source"),   // multi-token AND, 6 hits
+        ("free", "free"),                 // no match, empty-result path
+    ];
+
+    for (id, query) in queries {
+        c.bench_with_input(
+            BenchmarkId::new("post_content_search", id),
+            query,
+            |b, &query| {
+                b.to_async(&rt).iter(|| async {
+                    let result = PostsByContentSearch::search(query, 0, 20).await.unwrap();
+                    std::hint::black_box(result);
+                });
+            },
+        );
+    }
+}
+
 fn configure_criterion() -> Criterion {
     Criterion::default()
         .measurement_time(Duration::new(5, 0))
@@ -98,7 +134,8 @@ criterion_group! {
     config = configure_criterion();
     targets =   bench_user_search,
                 bench_tag_search,
-                bench_post_tag_search_by_timeline
+                bench_post_tag_search_by_timeline,
+                bench_post_content_search
 }
 
 criterion_main!(benches);

@@ -1,3 +1,4 @@
+use crate::models::FileUris;
 use crate::routes::v0::endpoints::FILE_LIST_ROUTE;
 use crate::routes::Json as RequestJson;
 use crate::Result;
@@ -10,7 +11,7 @@ use utoipa::{OpenApi, ToSchema};
 
 #[derive(Deserialize, ToSchema)]
 pub struct FilesByIdsBody {
-    uris: Vec<String>,
+    uris: FileUris,
 }
 
 #[utoipa::path(
