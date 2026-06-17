@@ -1,4 +1,4 @@
-use nexus_common::models::event::{EventProcessorError, RawEvent};
+use nexus_common::models::event::{EventLine, EventProcessorError};
 use nexus_common::universal_tag::homeserver_parsed_uri::HomeserverParsedUri;
 use pubky::Event as StreamEvent;
 use pubky_app_specs::Resource;
@@ -163,7 +163,7 @@ impl Event {
         }))
     }
 
-    pub fn to_raw(&self) -> RawEvent {
-        RawEvent(self.event_line.clone())
+    pub fn to_event_line(&self) -> EventLine {
+        EventLine(self.event_line.clone())
     }
 }

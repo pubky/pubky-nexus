@@ -43,7 +43,7 @@ impl EventHandler for DefaultEventHandler {
             EventType::Del => handle_del_event(event).await,
         }?;
 
-        event.to_raw().store().await?;
+        event.to_event_line().store().await?;
         Ok(())
     }
 }
