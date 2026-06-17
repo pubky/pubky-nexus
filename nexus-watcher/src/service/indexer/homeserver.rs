@@ -1,8 +1,8 @@
 use super::TEventProcessor;
+use crate::errors::EventProcessorError;
 use crate::events::retry::RetryScheduler;
 use crate::events::{Event, EventHandler};
 use nexus_common::db::{fetch_row_from_graph, queries, GraphResult, PubkyConnector};
-use nexus_common::models::event::EventProcessorError;
 use nexus_common::models::homeserver::Homeserver;
 use pubky::Method;
 use pubky_app_specs::PubkyId;

@@ -3,7 +3,7 @@ pub mod event;
 
 pub use event::{Event, EventType, ParseResult};
 
-use nexus_common::models::event::EventProcessorError;
+use crate::errors::EventProcessorError;
 use nexus_common::universal_tag::homeserver_parsed_uri::HomeserverParsedUri;
 use pubky_app_specs::{PubkyAppObject, Resource};
 use std::sync::Arc;

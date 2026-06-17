@@ -1,4 +1,4 @@
-use nexus_common::models::event::EventProcessorError;
+use crate::errors::EventProcessorError;
 use nexus_common::models::post::PostRelationships;
 
 /// Checks if a post is a reply based on its relationships.

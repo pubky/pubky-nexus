@@ -1,4 +1,5 @@
-use nexus_common::models::event::{EventLine, EventProcessorError};
+use crate::errors::EventProcessorError;
+use nexus_common::models::event::EventLine;
 use nexus_common::universal_tag::homeserver_parsed_uri::HomeserverParsedUri;
 use pubky::Event as StreamEvent;
 use pubky_app_specs::Resource;

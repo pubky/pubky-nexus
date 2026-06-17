@@ -2,7 +2,7 @@ use std::collections::{HashMap, VecDeque};
 
 use tokio::sync::Mutex;
 
-use nexus_common::models::event::EventProcessorError;
+use nexus_watcher::errors::EventProcessorError;
 use nexus_watcher::service::indexer::KeyBasedEventSource;
 use pubky::{Event as StreamEvent, EventCursor, PublicKey};
 

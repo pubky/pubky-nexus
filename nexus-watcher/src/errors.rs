@@ -1,10 +1,10 @@
 use std::fmt::Display;
 use std::sync::Arc;
 
+use nexus_common::db::kv::RedisError;
+use nexus_common::db::{GraphError, PubkyClientError};
+use nexus_common::models::error::ModelError;
 use thiserror::Error;
-
-use crate::db::{kv::RedisError, GraphError, PubkyClientError};
-use crate::models::error::ModelError;
 
 #[derive(Error, Debug, Clone)]
 pub enum EventProcessorError {
@@ -143,10 +143,6 @@ impl EventProcessorError {
         Self::InternalError(source.to_string())
     }
 
-    /// Returns whether or not we should refrain from retrying this error right now.
-    ///
-    /// These are the kinds of errors that are expected to be thrown again
-    /// if the event processor caller continues processing other events.
     pub fn should_not_retry_now(&self) -> bool {
         matches!(
             self,
@@ -156,7 +152,6 @@ impl EventProcessorError {
         )
     }
 
-    /// Returns whether this error is a 404 from the Pubky client.
     pub fn is_not_found(&self) -> bool {
         matches!(
             self,

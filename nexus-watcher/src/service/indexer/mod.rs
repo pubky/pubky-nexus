@@ -7,8 +7,8 @@ use std::{fmt::Display, path::PathBuf, sync::Arc, time::Duration};
 
 use tracing::Instrument;
 
+use crate::errors::EventProcessorError;
 use crate::events::{Event, ParseResult};
-use nexus_common::models::event::EventProcessorError;
 use tracing::{debug, error, warn};
 
 use crate::events::retry::RetryScheduler;

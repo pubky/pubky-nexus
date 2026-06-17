@@ -1,10 +1,6 @@
-mod errors;
-
 use crate::db::{kv::RedisResult, RedisOps};
 use serde::{Deserialize, Serialize};
 use tracing::error;
-
-pub use errors::EventProcessorError;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EventLine(pub String);
