@@ -1,5 +1,5 @@
 use std::fmt;
-use std::str::FromStr;
+use std::ops::Deref;
 
 use crate::Error;
 use serde::{de, Deserialize};
@@ -9,15 +9,6 @@ use utoipa::ToSchema;
 #[derive(Debug, Clone, PartialEq, Eq, ToSchema)]
 #[schema(value_type = String, example = "0123456789abcdef0123456789abcdef")]
 pub struct ResourceId(pub String);
-
-impl FromStr for ResourceId {
-    type Err = Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::validate_id(s)?;
-        Ok(ResourceId(s.to_owned()))
-    }
-}
 
 impl<'de> Deserialize<'de> for ResourceId {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
@@ -35,18 +26,22 @@ impl fmt::Display for ResourceId {
     }
 }
 
-impl ResourceId {
-    pub fn as_str(&self) -> &str {
+impl Deref for ResourceId {
+    type Target = str;
+
+    fn deref(&self) -> &Self::Target {
         &self.0
     }
+}
 
+impl ResourceId {
     pub(crate) fn validate_id(id: &str) -> Result<(), Error> {
         if id.len() != 32
             || !id
                 .chars()
                 .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
         {
-            return Err(Error::invalid_input(&format!(
+            return Err(Error::invalid_input(format!(
                 "resource_id must be 32-char lowercase hex, got: {id}"
             )));
         }

@@ -8,7 +8,7 @@ use crate::models::error::ModelError;
 use crate::models::error::ModelResult;
 use crate::models::follow::{Followers, Following, Friends, UserFollows};
 use crate::models::post::{PostStream, POST_REPLIES_PER_POST_KEY_PARTS};
-use crate::types::{StreamReach, Timeframe};
+use crate::types::{StreamReach, Timeframe, WotDepth};
 
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -374,7 +374,7 @@ impl UserStream {
             UserStreamSource::MostFollowed => Self::get_most_followed(skip, limit).await?,
             UserStreamSource::Influencers => Influencers::get_influencers(
                 user_id.as_deref(),
-                Some(reach.unwrap_or(StreamReach::Wot)),
+                Some(reach.unwrap_or(StreamReach::Wot(WotDepth::default()))),
                 skip.unwrap_or(0),
                 limit.unwrap_or(10).min(100),
                 timeframe.unwrap_or(Timeframe::AllTime),

@@ -44,7 +44,7 @@ pub async fn search_tags_by_prefix_handler(
         prefix, pagination.skip, pagination.limit
     );
 
-    match TagSearch::get_by_label(prefix.as_str(), &pagination).await? {
+    match TagSearch::get_by_label(&prefix, &pagination).await? {
         Some(tags_list) => Ok(Json(tags_list)),
         None => Ok(Json(vec![])),
     }

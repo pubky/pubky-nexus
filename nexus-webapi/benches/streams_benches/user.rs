@@ -2,7 +2,7 @@ use crate::run_setup;
 use criterion::Criterion;
 use nexus_common::{
     models::user::{UserIdStream, UserStream, UserStreamInput, UserStreamSource},
-    types::StreamReach,
+    types::{StreamReach, WotDepth},
 };
 use tokio::runtime::Runtime;
 
@@ -117,7 +117,7 @@ pub fn bench_stream_influencers(c: &mut Criterion) {
                     skip: None,
                     limit: Some(20),
                     source: UserStreamSource::Influencers,
-                    reach: Some(StreamReach::Wot),
+                    reach: Some(StreamReach::Wot(WotDepth::new(3).unwrap())),
                     author_id: None,
                     post_id: None,
                     timeframe: None,

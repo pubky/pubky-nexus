@@ -38,18 +38,18 @@ impl PostSearchQuery {
     fn validate(q: &str) -> Result<(), Error> {
         let len = q.chars().count();
         if len < MIN_POST_SEARCH_QUERY_LEN {
-            return Err(Error::invalid_input(&format!(
+            return Err(Error::invalid_input(format!(
                 "Search query must be at least {MIN_POST_SEARCH_QUERY_LEN} characters"
             )));
         }
         if len > MAX_POST_SEARCH_QUERY_LEN {
-            return Err(Error::invalid_input(&format!(
+            return Err(Error::invalid_input(format!(
                 "Search query exceeds maximum length of {MAX_POST_SEARCH_QUERY_LEN} characters"
             )));
         }
         let terms = q.split_whitespace().count();
         if terms > MAX_POST_SEARCH_QUERY_TERMS {
-            return Err(Error::invalid_input(&format!(
+            return Err(Error::invalid_input(format!(
                 "Search query exceeds maximum of {MAX_POST_SEARCH_QUERY_TERMS} terms"
             )));
         }
