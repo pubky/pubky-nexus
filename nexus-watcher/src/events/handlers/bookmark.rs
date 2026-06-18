@@ -5,6 +5,7 @@ use nexus_common::models::user::UserCounts;
 use pubky_app_specs::{ParsedUri, PubkyAppBookmark, PubkyId, Resource};
 use tracing::debug;
 
+use super::utils::post_is_collection;
 use crate::events::EventProcessorError;
 
 #[tracing::instrument(name = "bookmark.put", skip_all, fields(user_id = %user_id, bookmark_id = %id))]
@@ -27,6 +28,11 @@ pub async fn sync_put(
         }
     };
 
+    // Decide collection-follow BEFORE any write: if this lookup failed after the
+    // graph/index write, the retry would see `existed = true` and skip the
+    // increment forever, leaving a real bookmark uncounted.
+    let target_is_collection = post_is_collection(&author_id, &post_id).await?;
+
     // Save new bookmark relationship to the graph, only if the bookmarked user exists
     let indexed_at = Utc::now().timestamp_millis();
     let existed =
@@ -46,7 +52,8 @@ pub async fn sync_put(
         .put_to_index(&author_id, &post_id, &user_id)
         .await?;
 
-    if !existed {
+    // A collection-follow is stored as a bookmark; don't count it.
+    if !existed && !target_is_collection {
         UserCounts::increment(&user_id, "bookmarks", None).await?;
     }
     Ok(())
@@ -71,10 +78,16 @@ pub async fn sync_del(user_id: PubkyId, bookmark_id: String) -> Result<(), Event
         .await?
         .is_some();
 
+    // Decide collection-follow BEFORE the cleanup: if this lookup failed after
+    // `del_from_index`, the retry would see `existed_in_index = false` and skip
+    // the decrement forever, leaving a real bookmark counted.
+    let target_is_collection = post_is_collection(&author_id, &post_id).await?;
+
     // 3. Redis cleanup (idempotent)
     Bookmark::del_from_index(&user_id, &post_id, &author_id).await?;
 
-    if existed_in_index {
+    // Mirror the PUT gate: collection-follows never incremented `bookmarks`.
+    if existed_in_index && !target_is_collection {
         UserCounts::decrement(&user_id, "bookmarks", None).await?;
     }
 

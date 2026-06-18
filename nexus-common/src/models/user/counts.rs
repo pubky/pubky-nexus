@@ -18,6 +18,9 @@ pub struct UserCounts {
     pub unique_tags: u32,
     pub posts: u32,
     pub replies: u32,
+    // Defaulted so counts cached before this field existed still deserialize.
+    #[serde(default)]
+    pub collections: u32,
     pub following: u32,
     pub followers: u32,
     pub friends: u32,

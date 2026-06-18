@@ -474,7 +474,9 @@ pub fn user_counts(user_id: &str) -> Query {
         // Count relationships to posts
         COUNT { (u)-[:AUTHORED]->(:Post) } AS posts,
         COUNT { (u)-[:AUTHORED]->(:Post)-[:REPLIED]->(:Post) } AS replies,
-        COUNT { (u)-[:BOOKMARKED]->(:Post) } AS bookmarks,
+        COUNT { (u)-[:AUTHORED]->(p:Post) WHERE p.kind = 'collection' } AS collections,
+        // A collection-follow is stored as a bookmark; keep it out of the count.
+        COUNT { (u)-[:BOOKMARKED]->(bp:Post) WHERE (bp.kind IS NULL OR bp.kind <> 'collection') } AS bookmarks,
 
         // Count user and post tagging
         COUNT { (u)-[:TAGGED]->(:User) } AS user_tags,
@@ -489,6 +491,7 @@ pub fn user_counts(user_id: &str) -> Query {
                 friends: friends,
                 posts: posts,
                 replies: replies,
+                collections: collections,
                 tagged: user_tags + post_tags,
                 tags: tags,
                 unique_tags: unique_tags,
