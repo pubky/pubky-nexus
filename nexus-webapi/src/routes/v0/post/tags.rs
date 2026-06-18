@@ -96,7 +96,7 @@ pub async fn post_tags_handler(
         ("post_id" = PostId, Path, description = "Post ID"),
         ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID"),
         ("depth" = Option<u8>, Query, description = "Ignored: Web of Trust filtering is not applied to taggers"),
-        ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Number of taggers to skip for pagination"),
+        ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Skip N taggers (0–10 000, **default** 0)"),
         ("limit" = Option<BoundedLimit<40, 100>>, Query, description = "Number of taggers to return (1–100, **default** 40)")
     ),
     responses(

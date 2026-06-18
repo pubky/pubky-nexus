@@ -165,7 +165,7 @@ pub struct ResourceTaggersPath {
         ("resource_id" = ResourceId, Path, description = "Resource ID (32-char hex)"),
         ("label" = TagLabel, Path, description = "Tag label"),
         ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID"),
-        ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Skip N taggers"),
+        ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Skip N taggers (0–10 000, **default** 0)"),
         ("limit" = Option<BoundedLimit<40, 100>>, Query, description = "Limit taggers (1–100, default 40)"),
     ),
     responses(

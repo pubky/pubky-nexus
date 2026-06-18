@@ -20,7 +20,7 @@ use utoipa::OpenApi;
     tag = "User",
     params(
         ("user_id" = PubkyId, Path, description = "User Pubky ID"),
-        ("skip_tags" = Option<BoundedSkip<10_000>>, Query, description = "Skip N tags. **Default** value 0"),
+        ("skip_tags" = Option<BoundedSkip<10_000>>, Query, description = "Skip N tags (0–10 000, **default** 0)"),
         ("limit_tags" = Option<BoundedLimit<5, 100>>, Query, description = "Upper limit on the number of tags for the user (1–100, **default** 5)"),
         ("limit_taggers" = Option<BoundedLimit<5, 100>>, Query, description = "Upper limit on the number of taggers per tag (1–100, **default** 5)"),
         ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID"),
@@ -81,7 +81,7 @@ pub struct TaggersQuery {
     params(
         ("user_id" = PubkyId, Path, description = "User Pubky ID"),
         ("label" = TagLabel, Path, description = "Tag name"),
-        ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Number of taggers to skip for pagination"),
+        ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Skip N taggers (0–10 000, **default** 0)"),
         ("limit" = Option<BoundedLimit<40, 100>>, Query, description = "Number of taggers to return for pagination (1–100, **default** 40)"),
         ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID"),
         ("depth" = Option<u8>, Query, description = "WoT depth (1-3). When provided with `viewer_id`, taggers are filtered through the viewer's Web of Trust. `depth` without `viewer_id`, or an out-of-range `depth` with `viewer_id`, is rejected with 400.")
