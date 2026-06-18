@@ -43,6 +43,16 @@ impl UserIngestor {
         &self,
         user_id: &PubkyId,
     ) -> ModelResult<Option<String>> {
+        // `user_id` may itself be an HS PK (e.g. a file `src` of the form
+        // `pubky://<hs_pk>/...` that addresses the HS directly). `get_homeserver_of`
+        // returns `None` for an HS PK, so without this self-check a blacklisted HS
+        // used as a direct source would slip through and we'd reach out to it.
+        if self.hs_blacklist.is_blacklisted(user_id.as_ref()) {
+            return Err(ModelError::HsBlacklisted {
+                hs_id: user_id.to_string(),
+            });
+        }
+
         let pubky = PubkyConnector::get().map_err(ModelError::from_generic)?;
 
         let Some(hs_pk) = pubky.get_homeserver_of(&user_id.to_public_key()).await else {

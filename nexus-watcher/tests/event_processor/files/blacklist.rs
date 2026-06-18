@@ -91,6 +91,70 @@ async fn test_file_ingest_aborts_on_blacklisted_source_homeserver() -> Result<()
     Ok(())
 }
 
+/// A file whose `src` addresses a blacklisted HS PK *directly*
+/// (`pubky://<blacklisted_hs_pk>/...`, rather than a user hosted on it) must also
+/// be refused. An HS PK publishes no homeserver record, so `get_homeserver_of`
+/// returns `None`; here it is the blacklist self-check — not the DHT lookup —
+/// that blocks ingestion, before any request reaches the HS.
+#[tokio_shared_rt::test(shared)]
+async fn test_file_ingest_aborts_when_source_is_blacklisted_hs_pk_directly() -> Result<()> {
+    let test = WatcherTest::setup().await?;
+
+    // `src` blob is addressed to the HS PK itself, not to a user hosted on it.
+    let blob = PubkyAppBlob::new("Hello World!".as_bytes().to_vec());
+    let blob_id = blob.create_id();
+    let src = blob_uri_builder(test.homeserver_id.to_string(), blob_id);
+
+    let file = PubkyAppFile {
+        name: "myfile".to_string(),
+        content_type: "text/plain".to_string(),
+        src,
+        size: blob.0.len(),
+        created_at: Utc::now().timestamp_millis(),
+    };
+
+    // The file owner is an unrelated, non-blacklisted user.
+    let owner_id = random_pubky_id();
+    let file_id = file.create_id();
+    let file_uri = file_uri_builder(owner_id.to_string(), file_id.clone());
+
+    // Ingestor blacklisting the HS PK used as the direct blob source.
+    let ingestor = UserIngestor::new([test.homeserver_id.clone()]);
+
+    let err = sync_put(
+        file,
+        file_uri,
+        owner_id.clone(),
+        file_id.clone(),
+        test.temp_dir.path().to_path_buf(),
+        &ingestor,
+    )
+    .await
+    .expect_err("file ingest should be refused when src addresses a blacklisted HS PK directly");
+    assert!(
+        matches!(&err, EventProcessorError::HsBlacklisted { hs_id } if *hs_id == *test.homeserver_id),
+        "expected HsBlacklisted for {}, got {err:?}",
+        test.homeserver_id
+    );
+
+    let files = FileDetails::get_by_ids(&[&[owner_id.as_ref(), file_id.as_str()]]).await?;
+    assert!(
+        files[0].is_none(),
+        "file with a blacklisted HS PK as direct source must not be indexed"
+    );
+    assert!(
+        !test
+            .temp_dir
+            .path()
+            .join(owner_id.as_ref())
+            .join(&file_id)
+            .exists(),
+        "blob from a blacklisted HS PK source must not be written to disk"
+    );
+
+    Ok(())
+}
+
 /// Control: a blacklist that does not contain the source HS leaves file
 /// ingestion untouched, proving the blacklist match (not some other failure)
 /// is what blocked ingestion above.
