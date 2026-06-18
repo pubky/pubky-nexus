@@ -5,9 +5,10 @@ use std::time::Duration;
 
 use anyhow::Result;
 use chrono::Utc;
-use nexus_common::db::{exec_single_row, graph::Query, queries, PubkyClientError, RedisOps};
-use nexus_common::models::homeserver::Homeserver;
-use nexus_common::models::user::{user_hs_cursor_key, UserDetails};
+use nexus_common::db::{exec_single_row, graph::Query, PubkyClientError, RedisOps};
+use nexus_common::models::homeserver::{Homeserver, HsBlacklist};
+use nexus_common::models::traits::Collection;
+use nexus_common::models::user::{set_user_homeserver, user_hs_cursor_key, UserDetails};
 use nexus_common::types::DynError;
 use nexus_watcher::errors::EventProcessorError;
 use nexus_watcher::events::retry::{InitialBackoff, RetryScheduler};

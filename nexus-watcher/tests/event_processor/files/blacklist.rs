@@ -1,12 +1,12 @@
 use crate::event_processor::utils::watcher::{assert_file_details, WatcherTest};
 use anyhow::Result;
 use chrono::Utc;
-use nexus_common::models::event::EventProcessorError;
 use nexus_common::models::file::FileDetails;
 use nexus_common::models::traits::Collection;
 use nexus_common::models::user::UserIngestor;
 use nexus_watcher::events::handlers::file::sync_put;
 use nexus_watcher::test_utils::random_pubky_id;
+use nexus_watcher::EventProcessorError;
 use pubky::Keypair;
 use pubky_app_specs::traits::{HasIdPath, HashId, TimestampId};
 use pubky_app_specs::{

@@ -2,9 +2,9 @@ use super::utils::{assert_user_ingested, create_external_test_homeserver};
 use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
 use nexus_common::models::error::ModelError;
-use nexus_common::models::event::EventProcessorError;
 use nexus_common::models::user::{UserDetails, UserIngestor};
 use nexus_watcher::events::handlers;
+use nexus_watcher::EventProcessorError;
 use pubky::Keypair;
 use pubky_app_specs::{PubkyAppUser, PubkyId};
 

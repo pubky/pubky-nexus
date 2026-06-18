@@ -1,5 +1,8 @@
 use crate::errors::EventProcessorError;
-use nexus_common::models::post::PostRelationships;
+use nexus_common::models::{
+    error::{ModelError, ModelResult},
+    post::PostRelationships,
+};
 
 /// Classifies the outcome of a best-effort user ingestion attempted while
 /// handling an [`OperationOutcome::MissingDependency`](nexus_common::db::OperationOutcome::MissingDependency).

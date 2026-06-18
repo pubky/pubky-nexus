@@ -1,4 +1,4 @@
-use nexus_common::db::PubkyConnector;
+use nexus_common::{db::PubkyConnector, models::user::UserIngestor};
 pub mod event;
 
 pub use event::{Event, EventType, ParseResult};

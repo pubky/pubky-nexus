@@ -1,3 +1,4 @@
+use nexus_common::models::user::UserIngestor;
 use nexus_watcher::errors::EventProcessorError;
 use nexus_watcher::events::Event;
 use nexus_watcher::events::{EventHandler, Moderation};
