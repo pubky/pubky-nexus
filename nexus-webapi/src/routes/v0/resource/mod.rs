@@ -64,11 +64,12 @@ pub struct ResourceByUriQuery {
     params(
         ("resource_id" = ResourceId, Path, description = "Resource ID (32-char hex)"),
         ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID"),
-        ("skip_tags" = Option<usize>, Query, description = "Skip N tags"),
-        ("limit_tags" = Option<usize>, Query, description = "Limit tags"),
-        ("limit_taggers" = Option<usize>, Query, description = "Limit taggers per tag"),
+        ("skip_tags" = Option<BoundedSkip<10_000>>, Query, description = "Skip N tags (0–10 000, **default** 0)"),
+        ("limit_tags" = Option<BoundedLimit<5, 50>>, Query, description = "Upper limit on the number of tags (1–50, **default** 5)"),
+        ("limit_taggers" = Option<BoundedLimit<5, 50>>, Query, description = "Upper limit on the number of taggers per tag (1–50, **default** 5)"),
     ),
     responses(
+        (status = 400, description = "Invalid parameters"),
         (status = 404, description = "Resource not found"),
         (status = 200, description = "Resource tags with metadata", body = ResourceTagsResponse),
         (status = 500, description = "Internal server error")
@@ -106,9 +107,9 @@ pub async fn resource_tags_handler(
     params(
         ("uri" = String, Query, description = "Raw URI to look up"),
         ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID"),
-        ("skip_tags" = Option<usize>, Query, description = "Skip N tags"),
-        ("limit_tags" = Option<usize>, Query, description = "Limit tags"),
-        ("limit_taggers" = Option<usize>, Query, description = "Limit taggers per tag"),
+        ("skip_tags" = Option<BoundedSkip<10_000>>, Query, description = "Skip N tags (0–10 000, **default** 0)"),
+        ("limit_tags" = Option<BoundedLimit<5, 50>>, Query, description = "Upper limit on the number of tags (1–50, **default** 5)"),
+        ("limit_taggers" = Option<BoundedLimit<5, 50>>, Query, description = "Upper limit on the number of taggers per tag (1–50, **default** 5)"),
     ),
     responses(
         (status = 404, description = "Resource not found"),
