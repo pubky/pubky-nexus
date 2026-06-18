@@ -49,7 +49,7 @@ pub async fn post_tags_handler(
 ) -> Result<Json<Vec<TagDetails>>> {
     debug!(
         "GET {POST_TAGS_ROUTE} author_id:{}, post_id: {}, skip_tags:{:?}, limit_tags:{:?}, limit_taggers:{:?}, depth:{:?}",
-        author_id, post_id, query.limit_tags, query.skip_tags, query.limit_taggers, query.depth
+        author_id, post_id, query.skip_tags, query.limit_tags, query.limit_taggers, query.depth
     );
     let wot_depth = resolve_tag_wot_depth(query.viewer_id.as_deref(), query.depth)?;
     let tags = match (query.viewer_id.as_deref(), wot_depth) {
