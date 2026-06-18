@@ -8,7 +8,7 @@ use utoipa::ToSchema;
 /// Deserializes from a string (query params are always strings).
 /// Rejects 0 and values above MAX with a 400 error.
 /// Absent query params resolve to DEFAULT via `Option::unwrap_or_default`.
-#[derive(Debug, ToSchema)]
+#[derive(Debug, Clone, ToSchema)]
 #[schema(value_type = u64)]
 pub struct BoundedLimit<const DEFAULT: usize, const MAX: usize>(pub usize);
 

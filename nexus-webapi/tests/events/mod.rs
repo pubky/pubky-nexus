@@ -25,11 +25,9 @@ async fn test_events_limit_zero() -> Result<()> {
     let url = host_url().await;
     let client = httpc_test::new_client("")?;
 
-    // limit=0 must return HTTP 200 with an empty event list and cursor at 0.
+    // limit=0 is invalid and must be rejected with 400.
     let res = client.do_get(&format!("{url}/v0/events?limit=0")).await?;
-    assert_eq!(res.status(), 200);
-    let body = res.text_body()?;
-    assert_eq!(body.trim(), "cursor: 0");
+    assert_eq!(res.status(), 400);
 
     Ok(())
 }

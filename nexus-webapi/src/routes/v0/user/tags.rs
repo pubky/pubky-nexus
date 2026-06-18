@@ -68,7 +68,7 @@ pub struct UserTaggersPath {
 #[derive(Deserialize)]
 pub struct TaggersQuery {
     #[serde(flatten)]
-    pub pagination: BoundedPagination<10_000, 40, 50>,
+    pub pagination: BoundedPagination<10_000, 40, 100>,
     #[serde(flatten)]
     pub tags_query: TagsQuery,
 }
@@ -82,7 +82,7 @@ pub struct TaggersQuery {
         ("user_id" = PubkyId, Path, description = "User Pubky ID"),
         ("label" = TagLabel, Path, description = "Tag name"),
         ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Number of taggers to skip for pagination"),
-        ("limit" = Option<BoundedLimit<40, 50>>, Query, description = "Number of taggers to return for pagination (1–50, default 40)"),
+        ("limit" = Option<BoundedLimit<40, 100>>, Query, description = "Number of taggers to return for pagination (1–100, **default** 40)"),
         ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID"),
         ("depth" = Option<u8>, Query, description = "WoT depth (1-3). When provided with `viewer_id`, taggers are filtered through the viewer's Web of Trust. `depth` without `viewer_id`, or an out-of-range `depth` with `viewer_id`, is rejected with 400.")
     ),
