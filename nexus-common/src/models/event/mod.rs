@@ -30,7 +30,7 @@ impl EventLine {
         self.put_index_list(&["Events"]).await
     }
 
-    pub async fn get_events_from_redis(
+    pub async fn get_from_index(
         cursor: Option<u64>,
         limit: usize,
     ) -> RedisResult<(Vec<String>, u64)> {

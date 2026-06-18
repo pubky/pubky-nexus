@@ -57,7 +57,7 @@ pub struct EventsQuery {
 )]
 pub async fn get_events_handler(Query(q): Query<EventsQuery>) -> Result<Response, Error> {
     let (limit, cursor) = parse_query(&q)?;
-    let (events, next_cursor) = EventLine::get_events_from_redis(cursor, limit).await?;
+    let (events, next_cursor) = EventLine::get_from_index(cursor, limit).await?;
     let event_list = EventsList {
         events,
         cursor: next_cursor,
