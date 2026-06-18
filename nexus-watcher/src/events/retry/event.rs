@@ -1,6 +1,6 @@
+use crate::events::{Event, EventType};
 use async_trait::async_trait;
 use nexus_common::db::kv::{RedisResult, SortOrder};
-use nexus_common::models::event::{Event, EventType};
 use serde::{Deserialize, Serialize};
 
 use nexus_common::db::RedisOps;

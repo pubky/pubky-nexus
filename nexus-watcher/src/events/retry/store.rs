@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use tokio::sync::Mutex;
 use tracing::debug;
 
-use nexus_common::models::event::EventProcessorError;
+use crate::errors::EventProcessorError;
 
 use super::{IndexKey, RetryEvent};
 

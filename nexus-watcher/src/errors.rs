@@ -1,10 +1,10 @@
 use std::fmt::Display;
 use std::sync::Arc;
 
+use nexus_common::db::kv::RedisError;
+use nexus_common::db::{GraphError, PubkyClientError};
+use nexus_common::models::error::ModelError;
 use thiserror::Error;
-
-use crate::db::{kv::RedisError, GraphError, PubkyClientError};
-use crate::models::error::ModelError;
 
 #[derive(Error, Debug, Clone)]
 pub enum EventProcessorError {

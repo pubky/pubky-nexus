@@ -3,12 +3,12 @@ mod key_based;
 
 pub use homeserver::HsEventProcessor;
 pub use key_based::{KeyBasedEventProcessor, KeyBasedEventSource, PubkyKeyBasedEventSource};
-use nexus_common::models::event::ParseResult;
 use std::{fmt::Display, path::PathBuf, sync::Arc, time::Duration};
 
 use tracing::Instrument;
 
-use nexus_common::models::event::{Event, EventProcessorError};
+use crate::errors::EventProcessorError;
+use crate::events::{Event, ParseResult};
 use tracing::{debug, error, warn};
 
 use crate::events::retry::RetryScheduler;

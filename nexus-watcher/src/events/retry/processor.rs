@@ -2,9 +2,10 @@ use std::cmp::min;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use crate::errors::EventProcessorError;
+use crate::events::{Event, ParseResult};
 use chrono::{DateTime, Utc};
 use nexus_common::config::EventRetryConfig;
-use nexus_common::models::event::{Event, EventProcessorError, ParseResult};
 use nexus_common::WatcherConfig;
 use tokio::sync::watch::Receiver;
 use tracing::{debug, info, warn};
@@ -151,7 +152,7 @@ impl RetryProcessor {
                 self.reschedule(&retry_event, &e, false).await?;
                 return Err(e);
             }
-            Err(e) if ev_retry_count >= self.config.get_max_retries_for_err(&e) => {
+            Err(e) if ev_retry_count >= self.max_retries_for(&e) => {
                 warn!("Event {ev_uri} exceeded max retries ({ev_retry_count}), dead-lettering");
                 self.store.remove(index_key).await?;
             }
@@ -162,6 +163,28 @@ impl RetryProcessor {
         }
 
         Ok(())
+    }
+
+    fn max_retries_for(&self, error: &EventProcessorError) -> u32 {
+        if error.is_missing_dependency() {
+            self.config.max_dependency_retries
+        } else {
+            self.config.max_retries
+        }
+    }
+
+    fn backoff_params_for(&self, error: &EventProcessorError) -> (u64, u64) {
+        if error.is_missing_dependency() {
+            (
+                self.config.initial_missing_dep_backoff_secs,
+                self.config.max_missing_dep_backoff_secs,
+            )
+        } else {
+            (
+                self.config.initial_backoff_secs,
+                self.config.max_backoff_secs,
+            )
+        }
     }
 
     /// Reschedule an event for retry with exponential backoff.
@@ -180,8 +203,7 @@ impl RetryProcessor {
             false => retry_event.retry_count,
         };
 
-        // Calculate backoff based on error type
-        let (initial, max) = self.config.get_backoff_params(error);
+        let (initial, max) = self.backoff_params_for(error);
         // Use retry_count (not new_retry_count) so first retry uses 2^0 * initial = initial
         let backoff_secs = calculate_backoff(retry_event.retry_count, initial, max);
 

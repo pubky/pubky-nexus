@@ -3,8 +3,9 @@ use std::sync::Arc;
 use chrono::Utc;
 use tracing::warn;
 
+use crate::errors::EventProcessorError;
+use crate::events::Event;
 use nexus_common::db::PubkyClientError;
-use nexus_common::models::event::{Event, EventProcessorError};
 use nexus_common::WatcherConfig;
 
 use super::{RedisRetryStore, RetryEvent, RetryStore};
