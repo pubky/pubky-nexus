@@ -20,8 +20,8 @@ pub struct PostPath {
 #[derive(Default, Deserialize, Debug)]
 pub struct PostViewQuery {
     pub viewer_id: Option<PubkyId>,
-    pub limit_tags: Option<BoundedLimit<5, 50>>,
-    pub limit_taggers: Option<BoundedLimit<5, 50>>,
+    pub limit_tags: Option<BoundedLimit<5, 100>>,
+    pub limit_taggers: Option<BoundedLimit<5, 100>>,
     #[serde(default)]
     pub include_attachment_metadata: bool,
 }
@@ -35,8 +35,8 @@ pub struct PostViewQuery {
         ("author_id" = PubkyId, Path, description = "Author Pubky ID"),
         ("post_id" = PostId, Path, description = "Post Crockford32 ID"),
         ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID"),
-        ("limit_tags" = Option<BoundedLimit<5, 50>>, Query, description = "Upper limit on the number of tags for the post (1–50, default 5)"),
-        ("limit_taggers" = Option<BoundedLimit<5, 50>>, Query, description = "Upper limit on the number of taggers per tag (1–50, default 5)"),
+        ("limit_tags" = Option<BoundedLimit<5, 100>>, Query, description = "Upper limit on the number of tags for the post (1–100, **default** 5)"),
+        ("limit_taggers" = Option<BoundedLimit<5, 100>>, Query, description = "Upper limit on the number of taggers per tag (1–100, **default** 5)"),
         ("include_attachment_metadata" = Option<bool>, Query, description = "Include file metadata for post attachments"),
     ),
     responses(

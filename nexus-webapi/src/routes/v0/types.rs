@@ -25,9 +25,9 @@ pub(crate) fn resolve_tag_wot_depth(
 
 #[derive(Default, Deserialize, Debug, ToSchema)]
 pub struct TagsQuery {
-    pub limit_tags: Option<BoundedLimit<5, 50>>,
+    pub limit_tags: Option<BoundedLimit<5, 100>>,
     pub skip_tags: Option<BoundedSkip<10_000>>,
-    pub limit_taggers: Option<BoundedLimit<5, 50>>,
+    pub limit_taggers: Option<BoundedLimit<5, 100>>,
     pub viewer_id: Option<PubkyId>,
     #[serde(default, deserialize_with = "parse_string_to_u8")]
     pub depth: Option<u8>,

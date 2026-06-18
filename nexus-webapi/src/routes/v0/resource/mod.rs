@@ -65,8 +65,8 @@ pub struct ResourceByUriQuery {
         ("resource_id" = ResourceId, Path, description = "Resource ID (32-char hex)"),
         ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID"),
         ("skip_tags" = Option<BoundedSkip<10_000>>, Query, description = "Skip N tags (0–10 000, **default** 0)"),
-        ("limit_tags" = Option<BoundedLimit<5, 50>>, Query, description = "Upper limit on the number of tags (1–50, **default** 5)"),
-        ("limit_taggers" = Option<BoundedLimit<5, 50>>, Query, description = "Upper limit on the number of taggers per tag (1–50, **default** 5)"),
+        ("limit_tags" = Option<BoundedLimit<5, 100>>, Query, description = "Upper limit on the number of tags (1–100, **default** 5)"),
+        ("limit_taggers" = Option<BoundedLimit<5, 100>>, Query, description = "Upper limit on the number of taggers per tag (1–100, **default** 5)"),
     ),
     responses(
         (status = 400, description = "Invalid parameters"),
@@ -108,8 +108,8 @@ pub async fn resource_tags_handler(
         ("uri" = String, Query, description = "Raw URI to look up"),
         ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID"),
         ("skip_tags" = Option<BoundedSkip<10_000>>, Query, description = "Skip N tags (0–10 000, **default** 0)"),
-        ("limit_tags" = Option<BoundedLimit<5, 50>>, Query, description = "Upper limit on the number of tags (1–50, **default** 5)"),
-        ("limit_taggers" = Option<BoundedLimit<5, 50>>, Query, description = "Upper limit on the number of taggers per tag (1–50, **default** 5)"),
+        ("limit_tags" = Option<BoundedLimit<5, 100>>, Query, description = "Upper limit on the number of tags (1–100, **default** 5)"),
+        ("limit_taggers" = Option<BoundedLimit<5, 100>>, Query, description = "Upper limit on the number of taggers per tag (1–100, **default** 5)"),
     ),
     responses(
         (status = 404, description = "Resource not found"),

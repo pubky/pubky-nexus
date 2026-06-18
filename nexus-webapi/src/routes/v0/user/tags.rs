@@ -21,8 +21,8 @@ use utoipa::OpenApi;
     params(
         ("user_id" = PubkyId, Path, description = "User Pubky ID"),
         ("skip_tags" = Option<BoundedSkip<10_000>>, Query, description = "Skip N tags. **Default** value 0"),
-        ("limit_tags" = Option<BoundedLimit<5, 50>>, Query, description = "Upper limit on the number of tags for the user (1–50, **default** 5)"),
-        ("limit_taggers" = Option<BoundedLimit<5, 50>>, Query, description = "Upper limit on the number of taggers per tag (1–50, **default** 5)"),
+        ("limit_tags" = Option<BoundedLimit<5, 100>>, Query, description = "Upper limit on the number of tags for the user (1–100, **default** 5)"),
+        ("limit_taggers" = Option<BoundedLimit<5, 100>>, Query, description = "Upper limit on the number of taggers per tag (1–100, **default** 5)"),
         ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID"),
         ("depth" = Option<u8>, Query, description = "WoT depth (1-3). When provided with `viewer_id`, tags are filtered through the viewer's Web of Trust. `depth` without `viewer_id`, or an out-of-range `depth` with `viewer_id`, is rejected with 400.")
     ),
