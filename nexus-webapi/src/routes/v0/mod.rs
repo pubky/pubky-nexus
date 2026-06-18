@@ -47,7 +47,21 @@ pub fn routes(app_state: AppState) -> Router<AppState> {
 }
 
 #[derive(OpenApi)]
-#[openapi(components(schemas(BoundedLimit<50, 200>, BoundedSkip<10_000>)))]
+#[openapi(components(schemas(
+    BoundedLimit<5, 20>,
+    BoundedLimit<5, 100>,
+    BoundedLimit<10, 50>,
+    BoundedLimit<10, 100>,
+    BoundedLimit<20, 20>,
+    BoundedLimit<20, 100>,
+    BoundedLimit<20, 200>,
+    BoundedLimit<40, 40>,
+    BoundedLimit<40, 100>,
+    BoundedLimit<50, 200>,
+    BoundedLimit<500, 1000>,
+    BoundedSkip<1000>,
+    BoundedSkip<10_000>
+)))]
 pub struct ApiDoc;
 
 impl ApiDoc {

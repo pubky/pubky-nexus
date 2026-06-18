@@ -1,15 +1,31 @@
 use crate::Error;
 use serde::de::{self, Deserializer};
 use serde::Deserialize;
-use utoipa::ToSchema;
 
 /// Pagination skip with compile-time maximum. Absent query params resolve to 0.
 ///
 /// Deserializes from a string (query params are always strings).
 /// Rejects values above MAX with a 400 error.
-#[derive(Debug, ToSchema)]
-#[schema(value_type = u64, example = 0)]
+#[derive(Debug)]
 pub struct BoundedSkip<const MAX: usize>(pub usize);
+
+impl<const MAX: usize> utoipa::PartialSchema for BoundedSkip<MAX> {
+    fn schema() -> utoipa::openapi::RefOr<utoipa::openapi::schema::Schema> {
+        use utoipa::openapi::schema::{ObjectBuilder, SchemaType, Type};
+        ObjectBuilder::new()
+            .schema_type(SchemaType::new(Type::Integer))
+            .minimum(Some(0usize))
+            .maximum(Some(MAX))
+            .default(Some(serde_json::json!(0)))
+            .into()
+    }
+}
+
+impl<const MAX: usize> utoipa::ToSchema for BoundedSkip<MAX> {
+    fn name() -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Owned(format!("BoundedSkip_{}", MAX))
+    }
+}
 
 impl<const MAX: usize> BoundedSkip<MAX> {
     pub fn value(&self) -> usize {

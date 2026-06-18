@@ -1,16 +1,32 @@
 use crate::Error;
 use serde::de::{self, Deserializer};
 use serde::Deserialize;
-use utoipa::ToSchema;
 
 /// Pagination limit with compile-time default and maximum.
 ///
 /// Deserializes from a string (query params are always strings).
 /// Rejects 0 and values above MAX with a 400 error.
 /// Absent query params resolve to DEFAULT via `Option::unwrap_or_default`.
-#[derive(Debug, Clone, ToSchema)]
-#[schema(value_type = u64)]
+#[derive(Debug, Clone)]
 pub struct BoundedLimit<const DEFAULT: usize, const MAX: usize>(pub usize);
+
+impl<const DEFAULT: usize, const MAX: usize> utoipa::PartialSchema for BoundedLimit<DEFAULT, MAX> {
+    fn schema() -> utoipa::openapi::RefOr<utoipa::openapi::schema::Schema> {
+        use utoipa::openapi::schema::{ObjectBuilder, SchemaType, Type};
+        ObjectBuilder::new()
+            .schema_type(SchemaType::new(Type::Integer))
+            .minimum(Some(1usize))
+            .maximum(Some(MAX))
+            .default(Some(serde_json::json!(DEFAULT)))
+            .into()
+    }
+}
+
+impl<const DEFAULT: usize, const MAX: usize> utoipa::ToSchema for BoundedLimit<DEFAULT, MAX> {
+    fn name() -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Owned(format!("BoundedLimit_{}_{}", DEFAULT, MAX))
+    }
+}
 
 impl<const DEFAULT: usize, const MAX: usize> BoundedLimit<DEFAULT, MAX> {
     pub fn value(&self) -> usize {
