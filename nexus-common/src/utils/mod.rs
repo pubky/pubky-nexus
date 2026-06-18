@@ -1,3 +1,5 @@
+pub mod test_utils;
+
 use tokio::sync::watch::Receiver;
 
 // blake3 truncated to 128 bits. Shared by resource_id and IndexKey::for_uri — fine, separate keyspaces.

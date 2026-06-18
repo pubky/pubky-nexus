@@ -1,14 +1,14 @@
 use crate::event_processor::utils::{default_ingestor_tests, default_moderation_tests};
 use crate::service::utils::HS_IDS;
-use crate::service::utils::{
-    create_mock_event_processors, random_pubky_id, setup, MockEventProcessorRunner,
-};
+use crate::service::utils::{create_mock_event_processors, setup, MockEventProcessorRunner};
+
 use anyhow::Result;
 use chrono::Utc;
 use nexus_common::models::homeserver::{Homeserver, HsBlacklist};
 use nexus_common::models::traits::Collection;
 use nexus_common::models::user::{set_user_homeserver, UserDetails};
 use nexus_common::types::DynError;
+use nexus_common::utils::test_utils::random_pubky_id;
 use nexus_watcher::events::retry::{InitialBackoff, RedisRetryStore, RetryScheduler, RetryStore};
 use nexus_watcher::events::{DefaultEventHandler, EventHandler};
 use nexus_watcher::service::indexer::PubkyKeyBasedEventSource;

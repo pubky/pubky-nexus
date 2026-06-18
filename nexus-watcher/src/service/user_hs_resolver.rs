@@ -273,9 +273,8 @@ mod tests {
     use nexus_common::db::exec_single_row;
     use nexus_common::db::graph::Query;
     use nexus_common::types::DynError;
+    use nexus_common::utils::test_utils::{random_pk, random_pubky_id};
     use nexus_common::{StackConfig, StackManager};
-
-    use crate::test_utils::{random_pk, random_pubky_id};
 
     async fn setup() -> Result<(), DynError> {
         StackManager::setup(&StackConfig::default()).await

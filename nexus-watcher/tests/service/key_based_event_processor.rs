@@ -10,6 +10,7 @@ use nexus_common::models::homeserver::{Homeserver, HsBlacklist};
 use nexus_common::models::traits::Collection;
 use nexus_common::models::user::{set_user_homeserver, user_hs_cursor_key, UserDetails};
 use nexus_common::types::DynError;
+use nexus_common::utils::test_utils::random_pubky_id;
 use nexus_watcher::errors::EventProcessorError;
 use nexus_watcher::events::retry::{InitialBackoff, RetryScheduler};
 use nexus_watcher::events::Event;
@@ -21,8 +22,8 @@ use pubky_app_specs::PubkyId;
 use tokio::sync::watch;
 
 use crate::service::utils::{
-    create_mock_handler, create_random_homeservers_and_persist, new_in_memory_store,
-    random_pubky_id, setup, MockEventProcessorResult, MockKeyBasedEventSource,
+    create_mock_handler, create_random_homeservers_and_persist, new_in_memory_store, setup,
+    MockEventProcessorResult, MockKeyBasedEventSource,
 };
 
 /// Verifies `TEventProcessor::run` maps elapsed execution to a timeout error.

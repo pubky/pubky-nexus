@@ -1,6 +1,6 @@
 //! # Test Utilities
 //!
-//! Shared helpers for unit and integration tests. Not intended for production use.
+//! Shared helpers for unit and integration tests.
 
 use pubky::{Keypair, PublicKey};
 use pubky_app_specs::PubkyId;

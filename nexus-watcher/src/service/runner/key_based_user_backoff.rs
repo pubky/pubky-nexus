@@ -56,8 +56,9 @@ impl UserNotFoundBackoff {
 
 #[cfg(test)]
 mod tests {
+    use nexus_common::utils::test_utils::random_pk;
+
     use super::*;
-    use crate::test_utils::random_pk;
 
     #[tokio::test]
     async fn new_user_is_not_skipped() {

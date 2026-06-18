@@ -6,11 +6,11 @@ use chrono::Utc;
 use nexus_common::db::{exec_single_row, queries};
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::user::UserDetails;
+use nexus_common::utils::test_utils::{random_pk, random_pubky_id};
 use nexus_watcher::errors::EventProcessorError;
 use nexus_watcher::events::retry::{IndexKey, InitialBackoff, RetryScheduler, RetryStore};
 use nexus_watcher::events::EventHandler;
 use nexus_watcher::service::HsEventProcessor;
-use pubky::Keypair;
 use pubky_app_specs::{post_uri_builder, PubkyId};
 use tokio::sync::watch;
 
@@ -21,7 +21,7 @@ const TEST_HS_ID: &str = "1hb71xx9km3f4pw5izsy1gn19ff1uuuqonw4mcygzobwkryujoiy";
 
 /// Returns a fresh random user id (z32 public key) that has no graph state yet.
 fn random_user_id() -> String {
-    Keypair::random().public_key().to_z32()
+    random_pk().to_z32()
 }
 
 /// Creates a `User` node and, when `hs_id` is `Some`, links it to that homeserver
@@ -184,7 +184,7 @@ async fn test_skips_event_when_user_hosted_on_different_homeserver() -> Result<(
 
     // User is bound to a homeserver that is NOT this processor's homeserver.
     let user_id = random_user_id();
-    let other_hs_id = PubkyId::from(Keypair::random().public_key()).to_string();
+    let other_hs_id = random_pubky_id().to_string();
     create_user_hosted_on(&user_id, Some(&other_hs_id)).await;
 
     let uri = post_uri_builder(user_id.clone(), "skipme".to_string());
@@ -339,7 +339,7 @@ async fn test_user_homeserver_mapping_is_cached_across_events() -> Result<()> {
 
     // Map the user to a *different* homeserver. A fresh lookup would now skip,
     // but the cached "unbound" mapping must keep this user's events flowing.
-    let other_hs_id = PubkyId::from(Keypair::random().public_key()).to_string();
+    let other_hs_id = random_pubky_id().to_string();
     create_user_hosted_on(&user_id, Some(&other_hs_id)).await;
 
     processor
