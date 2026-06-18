@@ -19,8 +19,8 @@ use utoipa::{OpenApi, ToSchema};
 pub struct UserStreamQuery {
     user_id: Option<PubkyId>,
     viewer_id: Option<PubkyId>,
-    skip: Option<usize>,
-    limit: Option<usize>,
+    #[serde(flatten)]
+    pagination: BoundedPagination<10_000, 5, 20>,
     source: Option<UserStreamSource>,
     reach: Option<StreamReach>,
     author_id: Option<PubkyId>,
@@ -44,11 +44,12 @@ pub struct UserStreamQuery {
         ("timeframe" = Option<Timeframe>, Query, description = "Timeframe for sources supporting a range"),
         ("preview" = Option<bool>, Query, description = "Provide a random selection of size 3 for sources supporting preview. Passing preview ignores skip and limit parameters."),
         ("depth" = Option<u8>, Query, description = "User trusted network depth, user following users distance. Numbers bigger than 3 will be ignored"),
-        ("skip" = Option<usize>, Query, description = "Skip N users"),
-        ("limit" = Option<usize>, Query, description = "Retrieve N users")
+        ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Skip N users (max 10000)"),
+        ("limit" = Option<BoundedLimit<5, 20>>, Query, description = "Retrieve N users (1–20, default 5)")
     ),
     responses(
         (status = 200, description = "Users stream", body = UserStream),
+        (status = 400, description = "Invalid parameters"),
         (status = 500, description = "Internal server error")
     ),
     description = r#"Stream Users: Retrieve a stream of users.
@@ -91,11 +92,12 @@ pub async fn stream_users_handler(
         ("timeframe" = Option<Timeframe>, Query, description = "Timeframe for sources supporting a range"),
         ("preview" = Option<bool>, Query, description = "Provide a random selection of size 3 for sources supporting preview. Passing preview ignores skip and limit parameters."),
         ("depth" = Option<u8>, Query, description = "User trusted network depth, user following users distance. Numbers bigger than 3 will be ignored"),
-        ("skip" = Option<usize>, Query, description = "Skip N users"),
-        ("limit" = Option<usize>, Query, description = "Retrieve N users")
+        ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Skip N users (max 10000)"),
+        ("limit" = Option<BoundedLimit<5, 20>>, Query, description = "Retrieve N users (1–20, default 5)")
     ),
     responses(
         (status = 200, description = "User IDs stream", body = UserIdStream),
+        (status = 400, description = "Invalid parameters"),
         (status = 500, description = "Internal server error")
     ),
     description = r#"Stream User IDs: Retrieve a stream of user identifiers.
@@ -218,8 +220,7 @@ fn build_user_stream_input(
     let UserStreamQuery {
         user_id,
         viewer_id,
-        skip,
-        limit,
+        pagination,
         source,
         reach,
         author_id,
@@ -230,8 +231,8 @@ fn build_user_stream_input(
     } = query;
 
     let source = source.unwrap_or(UserStreamSource::Followers);
-    let skip = skip.unwrap_or(0);
-    let limit = limit.unwrap_or(5).min(20);
+    let skip = pagination.skip_value();
+    let limit = pagination.limit_value();
     let timeframe = timeframe.unwrap_or(Timeframe::AllTime);
 
     if user_id.is_none() {
