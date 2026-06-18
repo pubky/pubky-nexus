@@ -1,9 +1,10 @@
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
+use crate::errors::EventProcessorError;
+use crate::events::Event;
 use futures::StreamExt;
 use nexus_common::db::PubkyConnector;
-use nexus_common::models::event::{Event, EventProcessorError};
-use nexus_common::models::homeserver::{Homeserver, HsBlacklist};
+use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::user::UserHsCursor;
 use pubky::{Event as StreamEvent, EventCursor, PublicKey};
 use tokio::sync::watch::Receiver;

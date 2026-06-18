@@ -1,14 +1,32 @@
 use super::TEventProcessor;
+use crate::errors::EventProcessorError;
 use crate::events::retry::RetryScheduler;
-use crate::events::EventHandler;
-use nexus_common::db::PubkyConnector;
-use nexus_common::models::event::EventProcessorError;
+use crate::events::{Event, EventHandler};
+use nexus_common::db::{fetch_row_from_graph, queries, GraphResult, PubkyConnector};
 use nexus_common::models::homeserver::Homeserver;
 use pubky::Method;
+use pubky_app_specs::PubkyId;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::watch::Receiver;
+use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
+
+/// A user's `HOSTED_BY` mapping, classified relative to a processor's HS.
+///
+/// The `stale` flag is only carried where it is meaningful: a stale mapping means
+/// the user's published HS has diverged from the stored one (see
+/// [`set_user_homeserver_stale`](nexus_common::db::queries::put::set_user_homeserver_stale)).
+#[derive(Clone)]
+pub enum HsMapping {
+    /// The user has no `HOSTED_BY` edge yet.
+    Unbound,
+    /// The user is mapped to this processor's HS.
+    Current { stale: bool },
+    /// The user is mapped to a different HS.
+    Other { hs_id: String },
+}
 
 /// Event processor for the default homeserver
 pub struct HsEventProcessor {
@@ -22,6 +40,14 @@ pub struct HsEventProcessor {
     pub shutdown_rx: Receiver<bool>,
     /// Scheduler used to enqueue failed events onto the retry queue
     pub retry_scheduler: Arc<RetryScheduler>,
+
+    /// Per-run cache of users' `HOSTED_BY` mappings. For a given user's events in
+    /// the events list, only the 1st one results in a graph lookup, the rest read from this cache.
+    ///
+    /// Entries are deliberately never refreshed within a run: once a user's mapping
+    /// is resolved, the same decision is reused for the rest of the batch even if the
+    /// resolver realigns the underlying edge mid-run. The cache is dropped when the run ends.
+    pub hs_mapping_cache: Mutex<HashMap<String, HsMapping>>,
 }
 
 #[async_trait::async_trait]
@@ -46,6 +72,45 @@ impl TEventProcessor for HsEventProcessor {
         Some(self.homeserver.id.as_ref())
     }
 
+    /// Skips events from users that are not actively bound to this homeserver.
+    ///
+    /// Before an event is processed we inspect the user's `HOSTED_BY` edge:
+    /// - No edge, or a non-stale edge to this processor's homeserver: process.
+    /// - A stale edge to this homeserver (the user's published homeserver has
+    ///   diverged): log a warning and skip until the resolver realigns it.
+    /// - An edge to a different homeserver: log a warning and skip.
+    async fn should_process_event(&self, event: &Event) -> Result<bool, EventProcessorError> {
+        let user_id = event.parsed_uri.user_id();
+
+        match self.user_hs_mapping(user_id).await? {
+            // No mapping yet (graceful fallback) or actively bound here: process.
+            HsMapping::Unbound | HsMapping::Current { stale: false } => Ok(true),
+
+            // Bound here but the mapping is stale: skip until the resolver realigns it.
+            HsMapping::Current { stale: true } => {
+                warn!(
+                    event.uri = %event.uri,
+                    user_id = %user_id,
+                    processor_homeserver = %self.homeserver.id,
+                    "User's homeserver mapping is stale; skipping event"
+                );
+                Ok(false)
+            }
+
+            // Bound to a different homeserver: skip.
+            HsMapping::Other { hs_id } => {
+                warn!(
+                    event.uri = %event.uri,
+                    user_id = %user_id,
+                    processor_homeserver = %self.homeserver.id,
+                    user_homeserver = %hs_id,
+                    "User is hosted on a different homeserver; skipping event"
+                );
+                Ok(false)
+            }
+        }
+    }
+
     async fn run_internal(self: Arc<Self>) -> Result<(), EventProcessorError> {
         let maybe_event_lines = self
             .poll_events()
@@ -65,6 +130,35 @@ impl TEventProcessor for HsEventProcessor {
 }
 
 impl HsEventProcessor {
+    /// Resolves and caches a user's `HOSTED_BY` mapping relative to this processor's HS
+    async fn user_hs_mapping(&self, user_id: &PubkyId) -> GraphResult<HsMapping> {
+        if let Some(hs_mapping) = self.hs_mapping_cache.lock().await.get(user_id.as_ref()) {
+            return Ok(hs_mapping.clone());
+        }
+
+        let query = queries::get::get_user_homeserver(user_id.as_ref());
+        let mapping = match fetch_row_from_graph(query).await? {
+            None => HsMapping::Unbound,
+            Some(row) => {
+                let hs_id: String = row.get("homeserver_id")?;
+                let stale: bool = row.get("stale")?;
+
+                if hs_id.as_str() == self.homeserver.id.as_ref() {
+                    HsMapping::Current { stale }
+                } else {
+                    HsMapping::Other { hs_id }
+                }
+            }
+        };
+
+        self.hs_mapping_cache
+            .lock()
+            .await
+            .insert(user_id.as_ref().to_string(), mapping.clone());
+
+        Ok(mapping)
+    }
+
     /// Polls new events from the homeserver.
     ///
     /// It sends a GET request to the homeserver's events endpoint

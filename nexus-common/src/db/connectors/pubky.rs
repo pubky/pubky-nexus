@@ -1,5 +1,5 @@
+use pubky::errors::{AuthError, BuildError, PkarrError, RequestError};
 use pubky::{Pubky, PubkyHttpClient, StatusCode};
-use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::OnceCell;
@@ -9,7 +9,7 @@ static PUBKY_SINGLETON: OnceCell<Arc<Pubky>> = OnceCell::const_new();
 
 pub type PubkyClientResult<T> = std::result::Result<T, PubkyClientError>;
 
-#[derive(Debug, Error, Clone, Serialize, Deserialize)]
+#[derive(Debug, Error)]
 pub enum PubkyClientError {
     #[error("PubkyClient not initialized")]
     NotInitialized,
@@ -26,56 +26,39 @@ pub enum PubkyClientError {
     #[error("Request failed: {message}")]
     RequestFailed { message: String },
 
-    #[error("Pkarr failed: {message}")]
-    PkarrFailed { message: String },
+    #[error("Pkarr failed: {0}")]
+    PkarrFailed(#[from] PkarrError),
 
-    #[error("Authentication failed: {message}")]
-    AuthenticationFailed { message: String },
+    #[error("Authentication failed: {0}")]
+    AuthenticationFailed(#[from] AuthError),
 
-    #[error("Build failed: {message}")]
-    BuildFailed { message: String },
+    #[error("Build failed: {0}")]
+    BuildFailed(#[from] BuildError),
 
-    #[error("Parse failed: {message}")]
-    ParseFailed { message: String },
+    #[error("Parse failed: {0}")]
+    ParseFailed(#[from] url::ParseError),
 }
 
 impl From<pubky::Error> for PubkyClientError {
     fn from(err: pubky::Error) -> Self {
         match err {
-            pubky::Error::Request(req_err) => match req_err {
-                pubky::errors::RequestError::Server { status, message } => {
-                    if status == StatusCode::NOT_FOUND {
-                        Self::NotFound404 { message }
-                    } else if status == StatusCode::TOO_MANY_REQUESTS {
-                        Self::TooManyRequests429 { message }
-                    } else if status.is_server_error() {
-                        Self::ServerError5xx { message }
-                    } else {
-                        Self::RequestFailed { message }
-                    }
-                }
-                pubky::errors::RequestError::Transport(err) => Self::RequestFailed {
-                    message: err.to_string(),
-                },
-                pubky::errors::RequestError::Validation { message } => {
-                    Self::RequestFailed { message }
-                }
-                pubky::errors::RequestError::DecodeJson { message } => {
-                    Self::RequestFailed { message }
-                }
+            pubky::Error::Request(RequestError::Server { status, message }) => match status {
+                StatusCode::NOT_FOUND => Self::NotFound404 { message },
+                StatusCode::TOO_MANY_REQUESTS => Self::TooManyRequests429 { message },
+                s if s.is_server_error() => Self::ServerError5xx { message },
+                _ => Self::RequestFailed { message },
             },
-            pubky::Error::Pkarr(pkarr_err) => Self::PkarrFailed {
-                message: pkarr_err.to_string(),
+            pubky::Error::Request(RequestError::Transport(e)) => Self::RequestFailed {
+                message: e.to_string(),
             },
-            pubky::Error::Authentication(auth_err) => Self::AuthenticationFailed {
-                message: auth_err.to_string(),
-            },
-            pubky::Error::Build(build_err) => Self::BuildFailed {
-                message: build_err.to_string(),
-            },
-            pubky::Error::Parse(parse_err) => Self::ParseFailed {
-                message: parse_err.to_string(),
-            },
+            pubky::Error::Request(
+                RequestError::Validation { message } | RequestError::DecodeJson { message },
+            ) => Self::RequestFailed { message },
+
+            pubky::Error::Pkarr(e) => e.into(),
+            pubky::Error::Authentication(e) => e.into(),
+            pubky::Error::Build(e) => e.into(),
+            pubky::Error::Parse(e) => e.into(),
         }
     }
 }

@@ -1,5 +1,5 @@
 use crate::utils::MockEventHandler;
-use nexus_common::models::event::EventProcessorError;
+use nexus_watcher::errors::EventProcessorError;
 use nexus_watcher::events::retry::{InMemoryRetryStore, RetryStore};
 use std::sync::{Arc, Mutex};
 

@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use crate::errors::EventProcessorError;
 use crate::events::handlers;
-use nexus_common::models::event::EventProcessorError;
 use nexus_common::WatcherConfig;
 use pubky_app_specs::{ParsedUri, PubkyAppTag, PubkyId, Resource};
 use tracing::info;

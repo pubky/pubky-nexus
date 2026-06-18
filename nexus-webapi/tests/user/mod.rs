@@ -1,3 +1,4 @@
+pub mod avatar;
 pub mod bootstrap;
 pub mod notifications;
 pub mod reach;

@@ -3,8 +3,9 @@ use std::sync::Arc;
 use chrono::Utc;
 use tracing::warn;
 
+use crate::errors::EventProcessorError;
+use crate::events::Event;
 use nexus_common::db::PubkyClientError;
-use nexus_common::models::event::{Event, EventProcessorError};
 use nexus_common::WatcherConfig;
 
 use super::{RedisRetryStore, RetryEvent, RetryStore};
@@ -50,17 +51,17 @@ impl RetryScheduler {
     /// When in doubt we enqueue (bounded by `max_retries`) rather than drop data.
     pub fn should_enqueue_related_event(error: &EventProcessorError) -> bool {
         match error {
-            EventProcessorError::PubkyClientError(err) => match err {
+            EventProcessorError::PubkyClientError(err) => match err.as_ref() {
                 PubkyClientError::NotInitialized
                 | PubkyClientError::TooManyRequests429 { .. }
                 | PubkyClientError::ServerError5xx { .. }
                 | PubkyClientError::RequestFailed { .. }
-                | PubkyClientError::PkarrFailed { .. } => true,
+                | PubkyClientError::PkarrFailed(..) => true,
 
                 PubkyClientError::NotFound404 { .. }
-                | PubkyClientError::AuthenticationFailed { .. }
-                | PubkyClientError::BuildFailed { .. }
-                | PubkyClientError::ParseFailed { .. } => false,
+                | PubkyClientError::AuthenticationFailed(..)
+                | PubkyClientError::BuildFailed(..)
+                | PubkyClientError::ParseFailed(..) => false,
             },
 
             EventProcessorError::InvalidEventLine(_)
@@ -114,7 +115,7 @@ impl RetryScheduler {
 
         // New EventRetries for the same URI will reset the retry_count
         // The HS state changed since the earlier event, so we disregard previous retry attempts
-        self.store.put(&event.uri, &retry_event).await?;
+        self.store.put(&retry_event).await?;
         warn!("Queued event for retry ({}): {}", reason, event.uri);
         Ok(())
     }

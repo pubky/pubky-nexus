@@ -15,8 +15,10 @@
 //! The main entry point is in `main.rs`, which simply calls the builder’s `run()` method to start the event loop.
 
 mod builder;
+pub mod errors;
 pub mod events;
 pub mod service;
 pub mod test_utils;
 
 pub use builder::NexusWatcherBuilder;
+pub use errors::EventProcessorError;

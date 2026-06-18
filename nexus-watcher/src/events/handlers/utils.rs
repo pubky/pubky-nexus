@@ -1,5 +1,4 @@
-use nexus_common::models::error::{ModelError, ModelResult};
-use nexus_common::models::event::EventProcessorError;
+use crate::errors::EventProcessorError;
 use nexus_common::models::post::PostRelationships;
 
 /// Classifies the outcome of a best-effort user ingestion attempted while

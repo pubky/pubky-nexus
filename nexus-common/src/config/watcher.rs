@@ -1,5 +1,3 @@
-use crate::models::event::EventProcessorError;
-
 use super::file::ConfigLoader;
 use super::{default_stack, DaemonConfig, StackConfig};
 use async_trait::async_trait;
@@ -15,10 +13,6 @@ pub const HOMESERVER_PUBKY: &str = "8pinxxgqs41n4aididenw5apqp1urfmzdztr8jt4abrk
 pub const DEFAULT_EVENTS_LIMIT: u16 = 1_000;
 /// Default for [WatcherConfig::key_based_events_limit]
 pub const DEFAULT_KEY_BASED_EVENTS_LIMIT: u16 = 50;
-/// Upper bound for [WatcherConfig::events_limit]
-pub const MAX_EVENTS_LIMIT: u16 = 1_000;
-/// Upper bound for [WatcherConfig::key_based_events_limit]
-pub const MAX_KEY_BASED_EVENTS_LIMIT: u16 = 100;
 /// Default for [WatcherConfig::monitored_homeservers_limit]
 pub const DEFAULT_MONITORED_HOMESERVERS_LIMIT: usize = 50;
 /// Default for [WatcherConfig::watcher_sleep]
@@ -31,6 +25,11 @@ pub const DEFAULT_HS_RESOLVER_TTL: u64 = 3_600_000;
 pub const DEFAULT_INITIAL_BACKOFF_SECS: u64 = 60;
 /// Default for [WatcherConfig::max_backoff_secs]
 pub const DEFAULT_MAX_BACKOFF_SECS: u64 = 3_600;
+
+/// Extra-safety check: Upper bound for [WatcherConfig::events_limit]
+pub const MAX_EVENTS_LIMIT: u16 = 1_000;
+/// Extra-safety check: Upper bound for [WatcherConfig::key_based_events_limit]
+pub const MAX_KEY_BASED_EVENTS_LIMIT: u16 = 100;
 
 // Retry configuration defaults
 /// Default for [EventRetryConfig::max_retries]
@@ -89,29 +88,6 @@ impl Default for EventRetryConfig {
     }
 }
 
-impl EventRetryConfig {
-    /// Returns (initial_backoff, max_backoff) values, in seconds, for the given error
-    pub fn get_backoff_params(&self, error: &EventProcessorError) -> (u64, u64) {
-        if error.is_missing_dependency() {
-            (
-                self.initial_missing_dep_backoff_secs,
-                self.max_missing_dep_backoff_secs,
-            )
-        } else {
-            (self.initial_backoff_secs, self.max_backoff_secs)
-        }
-    }
-
-    /// Returns the max retry count, for the given error, before dead-lettering
-    pub fn get_max_retries_for_err(&self, error: &EventProcessorError) -> u32 {
-        if error.is_missing_dependency() {
-            self.max_dependency_retries
-        } else {
-            self.max_retries
-        }
-    }
-}
-
 /// Configuration settings for the Nexus Watcher service
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct WatcherConfig {
@@ -152,13 +128,14 @@ pub struct WatcherConfig {
     /// Initial backoff duration (in seconds) after the first failure of a homeserver
     #[serde(default = "default_initial_backoff_secs")]
     pub initial_backoff_secs: u64,
+
     /// Maximum backoff duration (in seconds) for a failing homeserver
     #[serde(default = "default_max_backoff_secs")]
     pub max_backoff_secs: u64,
+
     #[serde(default = "default_stack")]
     pub stack: StackConfig,
 
-    // Retry configuration
     #[serde(default)]
     pub retry: EventRetryConfig,
 

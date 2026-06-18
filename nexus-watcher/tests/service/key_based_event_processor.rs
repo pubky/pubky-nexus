@@ -5,13 +5,13 @@ use std::time::Duration;
 
 use anyhow::Result;
 use chrono::Utc;
-use nexus_common::db::{exec_single_row, graph::Query, PubkyClientError, RedisOps};
-use nexus_common::models::event::{Event, EventProcessorError};
-use nexus_common::models::homeserver::{Homeserver, HsBlacklist};
-use nexus_common::models::traits::Collection;
-use nexus_common::models::user::{set_user_homeserver, user_hs_cursor_key, UserDetails};
+use nexus_common::db::{exec_single_row, graph::Query, queries, PubkyClientError, RedisOps};
+use nexus_common::models::homeserver::Homeserver;
+use nexus_common::models::user::{user_hs_cursor_key, UserDetails};
 use nexus_common::types::DynError;
+use nexus_watcher::errors::EventProcessorError;
 use nexus_watcher::events::retry::{InitialBackoff, RetryScheduler};
+use nexus_watcher::events::Event;
 use nexus_watcher::events::EventHandler;
 use nexus_watcher::service::indexer::{KeyBasedEventProcessor, RunError, TEventProcessor};
 use nexus_watcher::service::runner::UserNotFoundBackoff;
@@ -676,15 +676,17 @@ fn stream_event(cursor: u64, user_id: &str, path: &str) -> Result<StreamEvent, D
 }
 
 fn too_many_requests_error() -> EventProcessorError {
-    EventProcessorError::PubkyClientError(PubkyClientError::TooManyRequests429 {
+    PubkyClientError::TooManyRequests429 {
         message: "rate limited".into(),
-    })
+    }
+    .into()
 }
 
 fn user_not_found_error() -> EventProcessorError {
-    EventProcessorError::PubkyClientError(PubkyClientError::NotFound404 {
+    PubkyClientError::NotFound404 {
         message: "user not found".into(),
-    })
+    }
+    .into()
 }
 
 fn processor(

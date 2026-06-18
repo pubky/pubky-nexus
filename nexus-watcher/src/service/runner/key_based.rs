@@ -112,17 +112,12 @@ impl TEventProcessorRunner for KeyBasedEventProcessorRunner {
         Ok(hs_ids)
     }
 
-    async fn backoff_should_skip(&self, hs_id: &str) -> Option<ProcessorRunStatus> {
+    async fn backoff_hs_should_skip(&self, hs_id: &str) -> bool {
         let backoff = self.backoff.lock().await;
-        if backoff.should_skip(hs_id) {
-            debug!(%hs_id, "Skipping homeserver in backoff");
-            Some(ProcessorRunStatus::Skipped)
-        } else {
-            None
-        }
+        backoff.should_skip(hs_id)
     }
 
-    async fn backoff_on_result(&self, hs_id: &str, status: &ProcessorRunStatus) {
+    async fn backoff_hs_record_result(&self, hs_id: &str, status: &ProcessorRunStatus) {
         let mut backoff = self.backoff.lock().await;
         if *status == ProcessorRunStatus::Ok {
             backoff.record_success(hs_id);

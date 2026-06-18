@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 
 use nexus_common::types::DynError;
 use tokio::sync::watch::Receiver;
-use tracing::{error, info};
+use tracing::{debug, error, info};
 
 use crate::service::{
     indexer::{RunError, TEventProcessor},
@@ -78,8 +78,9 @@ pub trait TEventProcessorRunner: Send + Sync {
                 break;
             }
 
-            if let Some(skip_status) = self.backoff_should_skip(&hs_id).await {
-                run_stats.add_run_result(hs_id, Duration::ZERO, skip_status);
+            if self.backoff_hs_should_skip(&hs_id).await {
+                debug!(%hs_id, "Skipping homeserver in backoff");
+                run_stats.add_run_result(hs_id, Duration::ZERO, ProcessorRunStatus::Skipped);
                 continue;
             }
 
@@ -93,7 +94,7 @@ pub trait TEventProcessorRunner: Send + Sync {
             };
             let duration = t0.elapsed();
 
-            self.backoff_on_result(&hs_id, &status).await;
+            self.backoff_hs_record_result(&hs_id, &status).await;
             run_stats.add_run_result(hs_id, duration, status);
         }
 
@@ -101,16 +102,15 @@ pub trait TEventProcessorRunner: Send + Sync {
         Ok(processed_stats)
     }
 
-    /// Called before processing a homeserver, to check if backoff mechanism indicates it
-    /// should be skipped. Return `Some(status)` to skip it.
+    /// Called before processing a HS, to check if backoff mechanism indicates it should be skipped.
     ///
     /// No-op default implementation. Runners that use backoff should overwrite as needed.
-    async fn backoff_should_skip(&self, _hs_id: &str) -> Option<ProcessorRunStatus> {
-        None
+    async fn backoff_hs_should_skip(&self, _hs_id: &str) -> bool {
+        false
     }
 
-    /// Called after a homeserver is processed (build + run), to update its backoff status.
+    /// Called after a HS is processed (build + run), to update its backoff status.
     ///
     /// No-op default implementation. Runners that use backoff should overwrite as needed.
-    async fn backoff_on_result(&self, _hs_id: &str, _status: &ProcessorRunStatus) {}
+    async fn backoff_hs_record_result(&self, _hs_id: &str, _status: &ProcessorRunStatus) {}
 }
