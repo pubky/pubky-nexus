@@ -4,7 +4,7 @@ use std::sync::OnceLock;
 use crate::Result;
 use axum::{
     body::Body,
-    http::{Request, Uri},
+    http::{header, HeaderValue, Request, Uri},
     response::Response,
 };
 use nexus_common::{
@@ -77,24 +77,18 @@ pub async fn serve_file_variant(
     let mut response =
         PubkyServeDir::try_call(request, disk_path, content_type, files_path).await?;
 
-    response.headers_mut().remove("cache-control");
-
-    let cache_control_header = CACHE_CONTROL
-        .parse()
-        .inspect_err(|err| error!("Failed to parse Cache-Control header value: {}", err))?;
-
-    response
-        .headers_mut()
-        .insert("cache-control", cache_control_header);
+    let headers = response.headers_mut();
+    headers.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static(CACHE_CONTROL),
+    );
 
     if download {
         let filename = &file.name;
-        let content_disposition_header = format!("attachment; filename=\"{filename}\"")
+        let content_disposition = format!("attachment; filename=\"{filename}\"")
             .parse()
             .inspect_err(|_| error!("Invalid content disposition header: {filename}"))?;
-        response
-            .headers_mut()
-            .insert("content-disposition", content_disposition_header);
+        headers.insert(header::CONTENT_DISPOSITION, content_disposition);
     }
 
     Ok(response)
