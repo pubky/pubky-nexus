@@ -21,7 +21,6 @@ pub enum ModelError {
     #[error("FileOperationFailed")]
     FileOperationFailed(#[from] std::io::Error),
 
-    /// The user's HS is blacklisted; the user must not be ingested.
     #[error("HsBlacklisted: {hs_id}")]
     HsBlacklisted { hs_id: String },
 
