@@ -2,7 +2,7 @@ use nexus_common::models::event::{Event, EventProcessorError, EventType, ParseRe
 
 use crate::events::handle;
 use crate::events::retry::event::RetryEvent;
-use crate::events::Moderation;
+use crate::events::{read_stream_capped, Moderation, MAX_EVENTS_BODY};
 use crate::service::traits::TEventProcessor;
 use nexus_common::db::PubkyConnector;
 use nexus_common::models::homeserver::Homeserver;
@@ -89,10 +89,16 @@ impl EventProcessor {
                 .await
                 .map_err(|e| EventProcessorError::client_error(e.to_string()))?;
 
-            response
-                .text()
+            let (buf, exceeded) = read_stream_capped(response.bytes_stream(), MAX_EVENTS_BODY)
                 .await
-                .map_err(|e| EventProcessorError::client_error(e.to_string()))?
+                .map_err(|e| EventProcessorError::client_error(e.to_string()))?;
+            if exceeded {
+                return Err(EventProcessorError::FetchSizeExceeded(
+                    buf.len() as u64,
+                    MAX_EVENTS_BODY as u64,
+                ));
+            }
+            String::from_utf8_lossy(&buf).into_owned()
         };
 
         let lines: Vec<String> = response_text.trim().lines().map(String::from).collect();

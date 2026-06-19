@@ -7,6 +7,10 @@ pub(crate) const MAX_ERROR_BODY: usize = 4 * 1024;
 /// Max bytes for a JSON resource descriptor (user, post, tag, file meta, etc).
 pub(crate) const MAX_RESOURCE_SIZE: usize = 2 * 1024 * 1024;
 
+/// Max bytes for a homeserver `/events` response body.
+/// Worst case: 1 000 events × 4 160 bytes/line ≈ 4 MiB; 5 MiB gives headroom.
+pub(crate) const MAX_EVENTS_BODY: usize = 5 * 1024 * 1024;
+
 /// Truncates a byte slice to `max` bytes for safe embedding in error messages.
 pub(crate) fn format_error_body(bytes: &[u8], max: usize) -> String {
     if bytes.len() > max {
