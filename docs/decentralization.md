@@ -14,26 +14,25 @@ currently-published HS from PKDNS/DHT and records it as a
 `(:User)-[:HOSTED_BY]->(:Homeserver)` edge, so the indexer knows which users to
 pull from which HS.
 
-This runs as parallel watcher threads started in `NexusWatcher::start`:
-- `default-homeserver` (Section 2)
-- `external-homeservers` (Section 3)
-- `user-hs-resolver` (Section 4), and
-- `retry-processor` (`[watcher.retry]`, Section 5, applies to all indexing)
+This runs as parallel tasks started in `NexusWatcher::start`, each driving one runner:
+- `HsEventProcessorRunner` (Section 2)
+- `KeyBasedEventProcessorRunner` (Section 3)
+- `UserHsResolverRunner` (Section 4), and
+- `RetryProcessor` (`[watcher.retry]`, Section 5, applies to all indexing)
 
-The sections below group each config field under the thread it drives.
+The sections below group each config field under the runner it drives.
 
 ---
 
 ## 2. Default homeserver indexing
 
-The baseline, pre-decentralization path. Driven by the `default-homeserver`
-thread.
+The baseline, pre-decentralization path. Driven by `HsEventProcessorRunner`.
 
 ### `[watcher].homeserver`
 - **Type / default:** `PubkyId` / Synonym's HS key (see `default.config.toml`).
 - **What it does:** The single default, prioritized homeserver. Its events are
   bulk-ingested, and it is explicitly *excluded* from the third-party
-  (`external-homeservers`) list so it is never double-indexed
+  (`KeyBasedEventProcessorRunner`) list so it is never double-indexed
   (`hs_by_priority`).
 - **Notes:** Changing this re-points the entire default-HS pipeline. The HS is
   persisted to the graph on startup (`Homeserver::persist_if_unknown`).
@@ -49,8 +48,9 @@ thread.
 
 ### `[watcher].watcher_sleep`
 - **Type / default:** `u64` milliseconds / `5000`.
-- **What it does:** Sleep between full runs for **both** event-processing threads
-  (default + external). It is the master tick for indexing.
+- **What it does:** Sleep between full runs for **both** event-processing runners
+  (`HsEventProcessorRunner` + `KeyBasedEventProcessorRunner`). It is the master
+  tick for indexing.
 - **Tuning:** Lower → fresher data, more load on HSs and DBs. Higher → less load,
   more lag between an event being published and indexed.
 
@@ -58,7 +58,7 @@ thread.
 
 ## 3. Indexing externally-hosted users
 
-The core of decentralization. Driven by the `external-homeservers` thread, which
+The core of decentralization. Driven by `KeyBasedEventProcessorRunner`, which
 indexes users hosted on non-default ("third-party") homeservers: for every
 monitored HS *except* the default, it pulls each hosted user's events per user
 via the HS user-events endpoint (hence "key-based" — keyed on each user's
@@ -115,7 +115,7 @@ Events that depend on a not-yet-ingested user hosted by a blacklisted HS (a foll
 
 ## 4. User → homeserver resolution
 
-Driven by the `user-hs-resolver` thread. For each user it resolves the currently
+Driven by `UserHsResolverRunner`. For each user it resolves the currently
 published HS from PKDNS/DHT and persists/refreshes the
 `(:User)-[:HOSTED_BY]->(:Homeserver)` edge with a `resolved_at` timestamp.
 This is what tells the externally-hosted-user indexer (Section 3) which
@@ -143,7 +143,7 @@ users belong to which HS.
 ## 5. Event retry & backoff — `[watcher.retry]`
 
 Cross-cutting: applies to **all** indexing, driven by
-the `retry-processor` thread. Backoff parameters are selected per error
+`RetryProcessor`. Backoff parameters are selected per error
 via `EventRetryConfig::get_backoff_params` / `get_max_retries_for_err`: *transient*
 errors and *missing-dependency* errors use separate limits.
 
@@ -182,23 +182,23 @@ Relevant only insofar as they switch the HS/relay target during local/dev runs.
 
 ## 7. Quick reference
 
-| Field | TOML path | Type | Default | Max | Thread / consumer |
+| Field | TOML path | Type | Default | Max | Runner / consumer |
 |---|---|---|---|---|---|
-| `homeserver` | `[watcher]` | `PubkyId` | Synonym HS | — | default-homeserver |
-| `events_limit` | `[watcher]` | `u16` | `50` (code `1000`) | `1000` | default-homeserver |
-| `watcher_sleep` | `[watcher]` | `u64` ms | `5000` | — | default + external (shared tick) |
-| `monitored_homeservers_limit` | `[watcher]` | `usize` | `50` | — | external-homeservers (`0` = disabled) |
-| `key_based_events_limit` | `[watcher]` | `u16` | `50` | `100` | external-homeservers |
-| `initial_backoff_secs` | `[watcher]` | `u64` s | `60` | — | external-homeservers (per-HS offline) |
-| `max_backoff_secs` | `[watcher]` | `u64` s | `3600` | — | external-homeservers (per-HS offline) |
-| `external_hs_pk_blacklist` | `[stack]` | `Vec<PubkyId>` | `[]` | — | external-homeservers + user ingestion (incl. REST API) |
-| `hs_resolver_sleep` | `[watcher]` | `u64` ms | `10000` | — | user-hs-resolver (tick) |
-| `hs_resolver_ttl` | `[watcher]` | `u64` ms | `3_600_000` | — | user-hs-resolver (staleness) |
-| `max_retries` | `[watcher.retry]` | `u32` | `10` | — | retry-processor (transient) |
-| `max_dependency_retries` | `[watcher.retry]` | `u32` | `50` | — | retry-processor (missing-dep) |
-| `initial_backoff_secs` | `[watcher.retry]` | `u64` s | `10` | — | retry-processor (transient) |
-| `max_backoff_secs` | `[watcher.retry]` | `u64` s | `3600` | — | retry-processor (transient) |
-| `initial_missing_dep_backoff_secs` | `[watcher.retry]` | `u64` s | `60` | — | retry-processor (missing-dep) |
-| `max_missing_dep_backoff_secs` | `[watcher.retry]` | `u64` s | `3600` | — | retry-processor (missing-dep) |
+| `homeserver` | `[watcher]` | `PubkyId` | Synonym HS | — | `HsEventProcessorRunner` |
+| `events_limit` | `[watcher]` | `u16` | `50` (code `1000`) | `1000` | `HsEventProcessorRunner` |
+| `watcher_sleep` | `[watcher]` | `u64` ms | `5000` | — | `HsEventProcessorRunner` + `KeyBasedEventProcessorRunner` (shared tick) |
+| `monitored_homeservers_limit` | `[watcher]` | `usize` | `50` | — | `KeyBasedEventProcessorRunner` (`0` = disabled) |
+| `key_based_events_limit` | `[watcher]` | `u16` | `50` | `100` | `KeyBasedEventProcessorRunner` |
+| `initial_backoff_secs` | `[watcher]` | `u64` s | `60` | — | `KeyBasedEventProcessorRunner` (per-HS offline) |
+| `max_backoff_secs` | `[watcher]` | `u64` s | `3600` | — | `KeyBasedEventProcessorRunner` (per-HS offline) |
+| `external_hs_pk_blacklist` | `[stack]` | `Vec<PubkyId>` | `[]` | — | `KeyBasedEventProcessorRunner` + user ingestion (incl. REST API) |
+| `hs_resolver_sleep` | `[watcher]` | `u64` ms | `10000` | — | `UserHsResolverRunner` (tick) |
+| `hs_resolver_ttl` | `[watcher]` | `u64` ms | `3_600_000` | — | `UserHsResolverRunner` (staleness) |
+| `max_retries` | `[watcher.retry]` | `u32` | `10` | — | `RetryProcessor` (transient) |
+| `max_dependency_retries` | `[watcher.retry]` | `u32` | `50` | — | `RetryProcessor` (missing-dep) |
+| `initial_backoff_secs` | `[watcher.retry]` | `u64` s | `10` | — | `RetryProcessor` (transient) |
+| `max_backoff_secs` | `[watcher.retry]` | `u64` s | `3600` | — | `RetryProcessor` (transient) |
+| `initial_missing_dep_backoff_secs` | `[watcher.retry]` | `u64` s | `60` | — | `RetryProcessor` (missing-dep) |
+| `max_missing_dep_backoff_secs` | `[watcher.retry]` | `u64` s | `3600` | — | `RetryProcessor` (missing-dep) |
 | `testnet` | `[watcher]` | `bool` | `false` | — | startup |
 | `testnet_host` | `[watcher]` | `String` | `"localhost"` | — | startup |
