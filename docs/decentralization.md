@@ -14,13 +14,14 @@ currently-published HS from PKDNS/DHT and records it as a
 `(:User)-[:HOSTED_BY]->(:Homeserver)` edge, so the indexer knows which users to
 pull from which HS.
 
-This runs as parallel tasks started in `NexusWatcher::start`, each driving one runner:
-- `HsEventProcessorRunner` — bulk indexing of the default HS (Section 2)
-- `KeyBasedEventProcessorRunner` — key-based indexing of externally-hosted users (Section 3)
-- `UserHsResolverRunner` — user → HS resolution (Section 4)
-- `RetryProcessor` — `[watcher.retry]`, applies to all indexing (Section 5)
+These run as parallel tasks started in `NexusWatcher::start`, each driving one
+runner; the sections below group each config field under the runner it drives:
 
-The sections below group each config field under the runner it drives.
+- [Section 2: Bulk indexing of default HS](#2-indexing-the-default-hs-bulk)
+- [Section 3: Key-based indexing of externally-hosted users](#3-indexing-externally-hosted-users-key-based)
+- [Section 4: User → HS resolution](#4-user--hs-resolution)
+- [Section 5: Event retry & backoff](#5-event-retry--backoff--watcherretry)
+- [Section 6: Quick reference](#6-quick-reference)
 
 ---
 
@@ -62,23 +63,24 @@ more lag between an event being published and indexed.
 ## 3. Indexing externally-hosted users (key-based)
 
 The core of decentralization. Driven by `KeyBasedEventProcessorRunner`, which
-indexes users hosted on non-default ("third-party") HSs: for every
-monitored HS *except* the default, it pulls each hosted user's events per user
-via the HS user-events endpoint (hence "key-based" — keyed on each user's
-pubky). Configured in `KeyBasedEventProcessorRunner::from_config`.
+indexes users hosted on **third-party** HSs — any HS other than the default
+(also called "external" or "non-default"). For every monitored HS *except* the
+default, it pulls each hosted user's events per user via the HS user-events
+endpoint (hence "key-based" — keyed on each user's pubky). Configured in
+`KeyBasedEventProcessorRunner::from_config`.
 
 ### `monitored_homeservers_limit`
 
-> Bounds the number of **external** HSs monitored.
+> Bounds the number of **third-party** HSs monitored.
 
-`0` disables external-HS indexing; `1` monitors one external HS.
+`0` disables third-party-HS indexing; `1` monitors one third-party HS.
 
 *Tuning:* each additional monitored HS adds HS requests (and, upstream, PKDNS
 resolutions) per tick. Raise deliberately as the network of indexed HSs grows.
 
 ### `key_based_events_limit`
 
-> Maximum events **per user, per run** when pulling from non-default HSs.
+> Maximum events **per user, per run** when pulling from third-party HSs.
 
 Validated at deserialize time (`deserialize_key_based_events_limit`).
 
@@ -88,7 +90,7 @@ kept small to bound total work and per-HS request size.
 
 ### `initial_backoff_secs` / `max_backoff_secs` — offline-HS backoff
 
-> Per-HS exponential backoff for homeservers found to be **offline/unreachable**
+> Per-HS exponential backoff for third-party HSs found to be **offline/unreachable**
 > (`HomeserverBackoff`). After a failure the HS is skipped for `initial_backoff_secs`;
 > the skip interval doubles on each consecutive failure, capped at `max_backoff_secs`.
 
@@ -99,12 +101,13 @@ kept small to bound total work and per-HS request size.
 notice one coming back. Smaller → faster recovery, more retry traffic.
 
 > ⚠️ **Do not confuse these with `[watcher.retry].initial_backoff_secs` /
-> `max_backoff_secs`.** Same names, different mechanism — see Section 5.
+> `max_backoff_secs`.** Same names, different mechanism — see
+> [Section 5](#5-event-retry--backoff--watcherretry).
 
 ### `external_hs_pk_blacklist` — HS public-key blacklist
 
-> List of external HS PKs from which new events are not being indexed, for as long
-> as they are on this list. Consulted when indexing 3rd party HSs, and also checked
+> List of third-party HS PKs from which new events are not being indexed, for as long
+> as they are on this list. Consulted when indexing third-party HSs, and also checked
 > when ingesting new users (e.g. via the Nexus REST API).
 
 Each entry is parsed as a `PubkyId` at deserialize time, so an invalid pubky in
@@ -130,7 +133,8 @@ mention relationship is not materialized.
 Driven by `UserHsResolverRunner`. For each user it resolves the currently
 published HS from PKDNS/DHT and persists/refreshes the
 `(:User)-[:HOSTED_BY]->(:Homeserver)` edge with a `resolved_at` timestamp.
-This is what tells the externally-hosted-user indexer (Section 3) which users
+This is what tells the externally-hosted-user indexer
+([Section 3](#3-indexing-externally-hosted-users-key-based)) which users
 belong to which HS.
 
 ### `hs_resolver_sleep`
@@ -190,7 +194,8 @@ avoid hammering an HS for content that may not exist yet.
 
 > ⚠️ **Two distinct "backoff" systems — do not conflate them:**
 >
-> - **`[watcher].initial_backoff_secs` / `max_backoff_secs`** (Section 3) — skips
+> - **`[watcher].initial_backoff_secs` / `max_backoff_secs`**
+>   ([Section 3](#3-indexing-externally-hosted-users-key-based)) — skips
 >   an **entire HS** found to be **offline/unreachable**.
 > - **`[watcher.retry].initial_backoff_secs` / `max_backoff_secs`** — retries an
 >   **individual event** that hit a **transient processing error**.
@@ -205,7 +210,7 @@ avoid hammering an HS for content that may not exist yet.
 | Field | TOML path | Type | Default |
 |---|---|---|---|
 | `homeserver` | `[watcher]` | `PubkyId` | Synonym HS |
-| `events_limit` | `[watcher]` | `u16` | `50` (code `1000`) (max `1000`) |
+| `events_limit` | `[watcher]` | `u16` | `50` (max `1000`; code default `1000`) |
 | `watcher_sleep` | `[watcher]` | `u64` ms | `5000` |
 | `monitored_homeservers_limit` | `[watcher]` | `usize` | `50` |
 | `key_based_events_limit` | `[watcher]` | `u16` | `50` (max `100`) |
