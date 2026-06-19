@@ -200,18 +200,7 @@ avoid hammering an HS for content that may not exist yet.
 
 ---
 
-## 6. Testnet / general
-
-Relevant only insofar as they switch the HS/relay target during local/dev runs.
-
-| Field | Default | Role |
-|---|---|---|
-| `testnet` | `false` | Run against a testnet HS/relay instead of mainnet. |
-| `testnet_host` | `"localhost"` | Host for the testnet HS/relay; change only if it runs on another machine (e.g. Docker setups). |
-
----
-
-## 7. Quick reference
+## 6. Quick reference
 
 | Field | TOML path | Type | Default |
 |---|---|---|---|
@@ -231,5 +220,3 @@ Relevant only insofar as they switch the HS/relay target during local/dev runs.
 | `max_backoff_secs` | `[watcher.retry]` | `u64` s | `3600` |
 | `initial_missing_dep_backoff_secs` | `[watcher.retry]` | `u64` s | `60` |
 | `max_missing_dep_backoff_secs` | `[watcher.retry]` | `u64` s | `3600` |
-| `testnet` | `[watcher]` | `bool` | `false` |
-| `testnet_host` | `[watcher]` | `String` | `"localhost"` |
