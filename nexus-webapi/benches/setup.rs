@@ -1,4 +1,4 @@
-use nexus_common::{Level, StackConfig, StackManager};
+use nexus_common::{models::post::create_post_content_index, Level, StackConfig, StackManager};
 use std::sync::Once;
 use tokio::runtime::Runtime;
 
@@ -13,6 +13,8 @@ pub fn run_setup() {
                 ..Default::default()
             };
             let _ = StackManager::setup(&config).await;
+            // index is create through migration script, we call it explicitly here
+            create_post_content_index().await.unwrap();
         });
     });
 }

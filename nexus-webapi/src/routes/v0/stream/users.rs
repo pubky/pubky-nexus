@@ -38,7 +38,7 @@ pub struct UserStreamQuery {
         ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID"),
         ("author_id" = Option<PubkyId>, Query, description = "Author ID when source is 'post_replies'"),
         ("post_id" = Option<PostId>, Query, description = "Post ID when source is 'post_replies'"),
-        ("reach" = Option<StreamReach>, Query, description = "The target reach of the source. Supported in 'influencers' source."),
+        ("reach" = Option<String>, Query, example = "wot_2", description = "The target reach of the 'influencers' source: `followers` | `following` | `friends` | `wot` | `wot_1`..`wot_3`. Bare `wot` defaults to depth 2."),
         ("timeframe" = Option<Timeframe>, Query, description = "Timeframe for sources supporting a range"),
         ("preview" = Option<bool>, Query, description = "Provide a random selection of size 3 for sources supporting preview. Passing preview ignores skip and limit parameters."),
         ("depth" = Option<u8>, Query, description = "User trusted network depth, user following users distance. Numbers bigger than 3 will be ignored"),
@@ -53,7 +53,7 @@ pub struct UserStreamQuery {
 
 The `source` parameter determines the type of stream. Depending on the `source`, certain parameters are required:
 - *following*, *followers*, *friends*, *recommended*: Requires **user_id**.
-- *influencers*: When **user_id** is provided with a **timeframe** (not 'all_time'), **reach** determines the network scope for finding influencers.The **reach** parameter can be: 'followers', 'following', 'friends', 'wot' (defaults to depth 3), or 'wot_1', 'wot_2', 'wot_3'. Defaults to 'wot_3' if not specified. If **user_id** is not provided, returns global influencers.
+- *influencers*: When **user_id** is provided with a **timeframe** (not 'all_time'), **reach** determines the network scope for finding influencers.The **reach** parameter can be: 'followers', 'following', 'friends', 'wot' (defaults to depth 2), or 'wot_1', 'wot_2', 'wot_3'. Defaults to 'wot_2' if not specified. If **user_id** is not provided, returns global influencers.
 - *post_replies*: Requires **author_id** and **post_id** to filter replies to a specific post.
 - *most_followed*: Does not require **user_id**.
 
@@ -85,7 +85,7 @@ pub async fn stream_users_handler(
         ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID"),
         ("author_id" = Option<PubkyId>, Query, description = "Author ID when source is 'post_replies'"),
         ("post_id" = Option<PostId>, Query, description = "Post ID when source is 'post_replies'"),
-        ("reach" = Option<StreamReach>, Query, description = "The target reach of the source. Supported in 'influencers' source."),
+        ("reach" = Option<String>, Query, example = "wot_2", description = "The target reach of the 'influencers' source: `followers` | `following` | `friends` | `wot` | `wot_1`..`wot_3`. Bare `wot` defaults to depth 2."),
         ("timeframe" = Option<Timeframe>, Query, description = "Timeframe for sources supporting a range"),
         ("preview" = Option<bool>, Query, description = "Provide a random selection of size 3 for sources supporting preview. Passing preview ignores skip and limit parameters."),
         ("depth" = Option<u8>, Query, description = "User trusted network depth, user following users distance. Numbers bigger than 3 will be ignored"),
@@ -100,7 +100,7 @@ pub async fn stream_users_handler(
 
 The `source` parameter determines the type of stream. Depending on the `source`, certain parameters are required:
 - *following*, *followers*, *friends*, *recommended*: Requires **user_id**.
-- *influencers*: When **user_id** is provided with a **timeframe** (not 'all_time'), **reach** determines the network scope for finding influencers.The **reach** parameter can be: 'followers', 'following', 'friends', 'wot' (defaults to depth 3), or 'wot_1', 'wot_2', 'wot_3'. Defaults to 'wot_3' if not specified. If **user_id** is not provided, returns global influencers.
+- *influencers*: When **user_id** is provided with a **timeframe** (not 'all_time'), **reach** determines the network scope for finding influencers.The **reach** parameter can be: 'followers', 'following', 'friends', 'wot' (defaults to depth 2), or 'wot_1', 'wot_2', 'wot_3'. Defaults to 'wot_2' if not specified. If **user_id** is not provided, returns global influencers.
 - *post_replies*: Requires **author_id** and **post_id** to filter replies to a specific post.
 - *most_followed*: Does not require **user_id**.
 
@@ -159,7 +159,7 @@ pub async fn stream_username_search_handler(
     );
 
     match UserStream::get_from_username_search(
-        query.username.as_str(),
+        &query.username,
         query.viewer_id.as_deref(),
         Some(skip),
         Some(limit),

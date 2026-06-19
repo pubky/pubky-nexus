@@ -1,6 +1,5 @@
 use std::fmt;
 use std::ops::Deref;
-use std::str::FromStr;
 
 use crate::Error;
 use pubky_app_specs::traits::Validatable;
@@ -13,14 +12,6 @@ use utoipa::ToSchema;
 #[derive(Debug, ToSchema)]
 #[schema(value_type = String, example = "rust")]
 pub struct TagLabel(pub String);
-
-impl FromStr for TagLabel {
-    type Err = Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(TagLabel(Self::validate_and_sanitize(s.to_owned())?))
-    }
-}
 
 impl fmt::Display for TagLabel {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -37,11 +28,9 @@ impl Deref for TagLabel {
 }
 
 impl TagLabel {
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-
     fn validate_and_sanitize(label: String) -> Result<String, Error> {
+        // Reuse the canonical `PubkyAppTag` label validator; the URI is a
+        // throwaway placeholder since only the label is validated here.
         let temp_tag = PubkyAppTag::new(
             "pubky://user_pubky_id/pub/pubky.app/profile.json".into(),
             label,

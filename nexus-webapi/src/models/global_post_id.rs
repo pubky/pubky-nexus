@@ -1,4 +1,3 @@
-use std::fmt;
 use std::ops::Deref;
 
 use crate::Error;
@@ -7,7 +6,7 @@ use serde::Deserialize;
 use utoipa::ToSchema;
 
 use super::bounded_vec;
-use super::post_id::PostId;
+use super::PostId;
 use pubky_app_specs::PubkyId;
 
 /// Composite post identifier in the format `{PubkyId}:{PostId}`.
@@ -35,20 +34,6 @@ impl<'de> Deserialize<'de> for GlobalPostIds {
     }
 }
 
-impl fmt::Display for GlobalPostId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.0)
-    }
-}
-
-impl Deref for GlobalPostId {
-    type Target = str;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
 impl GlobalPostIds {
     /// Consumes self and returns a `Vec<String>` of the underlying ID strings.
     pub fn into_string_vec(self) -> Vec<String> {
@@ -63,7 +48,7 @@ impl GlobalPostId {
         })?;
 
         PubkyId::try_from(pubky_part)
-            .map_err(|e| Error::invalid_input(format!("Invalid PubkyId: {}", e)))?;
+            .map_err(|e| Error::invalid_input(format!("Invalid PubkyId: {e}")))?;
 
         PostId::try_from(post_part.to_string())?;
 

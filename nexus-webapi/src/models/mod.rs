@@ -3,9 +3,8 @@ pub mod info;
 pub mod post;
 
 pub mod bounded_vec;
-pub mod file_id;
+pub mod crockford_id;
 pub mod global_post_id;
-pub mod post_id;
 pub mod post_search_query;
 pub mod resource_id;
 pub mod search_limit;
@@ -19,12 +18,11 @@ use std::ops::Deref;
 use serde::Deserialize;
 use utoipa::ToSchema;
 
+pub use crockford_id::{FileId, FileUris, PostId};
 pub use error_response::ErrorResponsePayload;
-pub use file_id::FileId;
 pub use global_post_id::{GlobalPostId, GlobalPostIds};
 pub use info::ServerInfo;
 pub use post::{PostStreamDetailed, PostViewDetailed};
-pub use post_id::PostId;
 pub use post_search_query::PostSearchQuery;
 pub use pubky_app_specs::PubkyId;
 pub use resource_id::ResourceId;

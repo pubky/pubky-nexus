@@ -7,7 +7,7 @@ use nexus_common::models::tag::traits::{TagCollection, TaggersCollection};
 use nexus_common::models::tag::user::TagUser;
 use nexus_common::models::tag::view::TagView;
 use nexus_common::types::routes::HotTagsInputDTO;
-use nexus_common::types::{Pagination, StreamReach, Timeframe};
+use nexus_common::types::{Pagination, StreamReach, Timeframe, WotDepth};
 use setup::run_setup;
 use std::time::Duration;
 use tokio::runtime::Runtime;
@@ -60,7 +60,7 @@ fn bench_get_wot_user_tags(c: &mut Criterion) {
                     None,
                     None,
                     Some("bbkdkhm97pytrb785rdpornkjpcxi331hpq446ckn6rhb4abiguy"),
-                    Some(3),
+                    Some(WotDepth::new(3).unwrap()),
                 )
                 .await
                 .unwrap();
@@ -116,7 +116,7 @@ fn bench_get_wot_user_tag_taggers(c: &mut Criterion) {
                     "now",
                     Pagination::default(),
                     Some("bbkdkhm97pytrb785rdpornkjpcxi331hpq446ckn6rhb4abiguy"),
-                    Some(3),
+                    Some(WotDepth::new(3).unwrap()),
                 )
                 .await
                 .unwrap();
@@ -154,6 +154,43 @@ fn bench_get_post_tags(c: &mut Criterion) {
         },
     );
 }
+fn bench_get_wot_post_tags(c: &mut Criterion) {
+    println!("******************************************************************************");
+    println!("Test the performance of getting WoT-filtered post tags (graph-only path)");
+    println!("******************************************************************************");
+
+    run_setup();
+
+    let author_id = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
+    let post_id = "2Z1NJPW2QHGG0";
+    let viewer_id = "bbkdkhm97pytrb785rdpornkjpcxi331hpq446ckn6rhb4abiguy";
+    let rt = Runtime::new().unwrap();
+
+    c.bench_with_input(
+        BenchmarkId::new(
+            "bench_get_wot_post_tags",
+            format!("author_id: {author_id}, post_id: {post_id}"),
+        ),
+        &[author_id, post_id, viewer_id],
+        |b, &params| {
+            b.to_async(&rt).iter(|| async {
+                let tag_details_list = TagPost::get_wot_tags_by_post(
+                    params[0],
+                    params[1],
+                    params[2],
+                    WotDepth::new(3).unwrap(),
+                    None,
+                    None,
+                    None,
+                )
+                .await
+                .unwrap();
+                std::hint::black_box(tag_details_list);
+            });
+        },
+    );
+}
+
 fn bench_get_post_tag_taggers(c: &mut Criterion) {
     println!("*****************************************************************");
     println!("Test the performance of getting a post tag taggers, using index");
@@ -401,6 +438,7 @@ criterion_group! {
                 bench_get_user_tag_taggers,
                 bench_get_wot_user_tag_taggers,
                 bench_get_post_tags,
+                bench_get_wot_post_tags,
                 bench_get_post_tag_taggers,
                 bench_get_global_hot_tags,
                 bench_get_global_tag_taggers,

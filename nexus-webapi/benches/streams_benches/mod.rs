@@ -7,5 +7,6 @@ pub mod sorting;
 pub mod tag;
 pub mod user;
 mod utils;
+pub mod wot;
 
 pub use utils::LIMIT_20;

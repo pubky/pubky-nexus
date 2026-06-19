@@ -70,6 +70,8 @@ name = "nexusd"
 
 [stack.db]
 redis = "redis://127.0.0.1:6379"
+# Maximum time (ms) RediSearch spends on a single FT.SEARCH before returning partial results
+#ft_search_timeout_ms = 50
 
 [stack.db.neo4j]
 uri = "bolt://localhost:7687"

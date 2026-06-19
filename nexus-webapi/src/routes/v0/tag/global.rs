@@ -40,7 +40,7 @@ pub struct TagTaggersQuery {
     tag = "Tags",
     params(
         ("label" = TagLabel, Path, description = "Tag name"),
-        ("reach" = Option<StreamReach>, Query, description = "Reach type: `follower` | `following` | `friends` | `wot`. To apply that, user_id is required"),
+        ("reach" = Option<String>, Query, example = "wot_2", description = "Reach type: `followers` | `following` | `friends` | `wot` | `wot_1`..`wot_3`. To apply that, user_id is required. Bare `wot` defaults to depth 2."),
         ("user_id" = Option<PubkyId>, Query, description = "User ID to base reach on"),
         ("skip" = Option<usize>, Query, description = "Skip N taggers. Defaults to `0`"),
         ("limit" = Option<usize>, Query, description = "Retrieve N tagggers. Defaults to `20`"),
@@ -90,7 +90,7 @@ pub async fn tag_taggers_handler(
     tag = "Tags",
     params(
         ("user_id" = Option<PubkyId>, Query, description = "User Pubky ID"),
-        ("reach" = Option<StreamReach>, Query, description = "Reach type: `follower` | `following` | `friends` | `wot`. To apply that, user_id is required"),
+        ("reach" = Option<String>, Query, example = "wot_2", description = "Reach type: `followers` | `following` | `friends` | `wot` | `wot_1`..`wot_3`. To apply that, user_id is required. Bare `wot` defaults to depth 2."),
         ("taggers_limit" = Option<usize>, Query, description = "Retrieve N user_id for each tag. Defaults to `20`"),
         ("skip" = Option<usize>, Query, description = "Skip N tags. Defaults to `0`"),
         ("limit" = Option<usize>, Query, description = "Retrieve N tag. Defaults to `40`"),

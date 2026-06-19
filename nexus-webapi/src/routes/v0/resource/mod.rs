@@ -36,6 +36,20 @@ pub fn routes() -> Router<AppState> {
         .route(RESOURCE_BY_URI_ROUTE, get(resource_by_uri_handler))
 }
 
+/// Resource tags have no Web-of-Trust variant: the WoT tag query matches a
+/// `User` node, so feeding it a resource id silently returns nothing and 404s
+/// an existing resource. Reject `depth` outright instead of pretending to
+/// support it (ponytail: 400 over a broken feature; add real resource-WoT here
+/// if it's ever needed).
+fn reject_resource_depth(depth: Option<u8>) -> Result<()> {
+    match depth {
+        Some(_) => Err(Error::invalid_input(
+            "`depth` is not supported for resource tags",
+        )),
+        None => Ok(()),
+    }
+}
+
 #[derive(Deserialize, Debug)]
 pub struct ResourceByUriQuery {
     pub uri: String,
@@ -67,19 +81,20 @@ pub async fn resource_tags_handler(
 ) -> Result<Json<ResourceTagsResponse>> {
     debug!("GET {RESOURCE_TAGS_ROUTE} resource_id:{}", res_id);
 
+    reject_resource_depth(query.depth)?;
     let tags = TagResource::get_by_id(
-        res_id.as_str(),
+        &res_id,
         None,
         query.skip_tags,
         query.limit_tags,
         query.limit_taggers,
         query.viewer_id.as_deref(),
-        query.depth,
+        None,
     )
     .await?
-    .ok_or_else(|| Error::resource_not_found(res_id.clone()))?;
+    .ok_or_else(|| Error::resource_not_found(res_id.to_string()))?;
 
-    let resource = load_resource_details(res_id.as_str()).await?;
+    let resource = load_resource_details(&res_id).await?;
 
     Ok(Json(ResourceTagsResponse { resource, tags }))
 }
@@ -117,6 +132,7 @@ pub async fn resource_by_uri_handler(
     let (normalized, _scheme) = normalize_uri(&query.uri).map_err(Error::invalid_input)?;
     let res_id = resource_id(&normalized);
 
+    reject_resource_depth(query.tags_query.depth)?;
     let tags = TagResource::get_by_id(
         &res_id,
         None,
@@ -124,10 +140,10 @@ pub async fn resource_by_uri_handler(
         query.tags_query.limit_tags,
         query.tags_query.limit_taggers,
         query.tags_query.viewer_id.as_deref(),
-        query.tags_query.depth,
+        None,
     )
     .await?
-    .ok_or_else(|| Error::resource_not_found(ResourceId(res_id.clone())))?;
+    .ok_or_else(|| Error::resource_not_found(res_id.clone()))?;
 
     let resource = load_resource_details(&res_id).await?;
 
@@ -165,17 +181,14 @@ pub async fn resource_taggers_handler(
         "GET {RESOURCE_TAGGERS_ROUTE} resource_id:{}, label:{}",
         resource_id, label
     );
+    reject_resource_depth(taggers_query.tags_query.depth)?;
     let taggers = TagResource::get_tagger_by_id(
-        resource_id.as_str(),
+        &resource_id,
         None,
         &label,
         taggers_query.pagination,
-        taggers_query
-            .tags_query
-            .viewer_id
-            .as_ref()
-            .map(|v| v.as_ref()),
-        taggers_query.tags_query.depth,
+        taggers_query.tags_query.viewer_id.as_deref(),
+        None,
     )
     .await?;
     Ok(Json(TaggersInfoResponse::from(taggers)))
@@ -185,7 +198,7 @@ pub async fn resource_taggers_handler(
 async fn load_resource_details(res_id: &str) -> Result<ResourceDetails> {
     ResourceDetails::get_by_id(res_id)
         .await?
-        .ok_or_else(|| Error::resource_not_found(ResourceId(res_id.to_string())))
+        .ok_or_else(|| Error::resource_not_found(res_id))
 }
 
 #[derive(OpenApi)]

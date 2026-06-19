@@ -7,9 +7,10 @@ use serde::Deserialize;
 use utoipa::ToSchema;
 
 pub const MIN_POST_SEARCH_QUERY_LEN: usize = 2;
-pub const MAX_POST_SEARCH_QUERY_LEN: usize = 200;
+pub const MAX_POST_SEARCH_QUERY_LEN: usize = 30;
+pub const MAX_POST_SEARCH_QUERY_TERMS: usize = 4;
 
-/// Post content search query (2–200 characters).
+/// Post content search query (2–30 characters, up to 4 terms).
 #[derive(Debug, ToSchema)]
 #[schema(value_type = String, example = "bitcoin")]
 pub struct PostSearchQuery(pub String);
@@ -44,6 +45,12 @@ impl PostSearchQuery {
         if len > MAX_POST_SEARCH_QUERY_LEN {
             return Err(Error::invalid_input(format!(
                 "Search query exceeds maximum length of {MAX_POST_SEARCH_QUERY_LEN} characters"
+            )));
+        }
+        let terms = q.split_whitespace().count();
+        if terms > MAX_POST_SEARCH_QUERY_TERMS {
+            return Err(Error::invalid_input(format!(
+                "Search query exceeds maximum of {MAX_POST_SEARCH_QUERY_TERMS} terms"
             )));
         }
         Ok(())
@@ -90,17 +97,27 @@ mod tests {
 
     #[test]
     fn rejects_over_limit() {
-        assert!(PostSearchQuery::try_from("a".repeat(201)).is_err());
+        assert!(PostSearchQuery::try_from("a".repeat(31)).is_err());
     }
 
     #[test]
     fn accepts_max_length() {
-        assert!(PostSearchQuery::try_from("a".repeat(200)).is_ok());
+        assert!(PostSearchQuery::try_from("a".repeat(30)).is_ok());
     }
 
     #[test]
     fn accepts_normal_query() {
         let q = PostSearchQuery::try_from("bitcoin price".to_string()).unwrap();
         assert_eq!(q.0, "bitcoin price");
+    }
+
+    #[test]
+    fn accepts_max_terms() {
+        assert!(PostSearchQuery::try_from("a b c d".to_string()).is_ok());
+    }
+
+    #[test]
+    fn rejects_over_max_terms() {
+        assert!(PostSearchQuery::try_from("a b c d e".to_string()).is_err());
     }
 }
