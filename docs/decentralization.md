@@ -67,7 +67,7 @@ more lag between an event being published and indexed.
 The core of decentralization. Driven by `KeyBasedEventProcessorRunner`, which
 indexes users hosted on **third-party** HSs — any HS other than the default
 (also called "external" or "non-default"). For every monitored HS *except* the
-default, it pulls each hosted user's events per user via the HS user-events
+default, it pulls each hosted user's events per user from the HS `/events-stream`
 endpoint (hence "key-based" — keyed on each user's pubky). Configured in
 `KeyBasedEventProcessorRunner::from_config`.
 
