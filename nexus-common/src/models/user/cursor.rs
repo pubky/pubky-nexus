@@ -55,10 +55,8 @@ impl UserHsCursor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pubky::Keypair;
-    use pubky_app_specs::PubkyId;
 
-    use crate::{types::DynError, StackConfig, StackManager};
+    use crate::{types::DynError, utils::test_utils::random_pubky_id, StackConfig, StackManager};
 
     /// `write` persists a per-user cursor that `read` reads back, missing entries
     /// default to 0, and re-writing overwrites the value.
@@ -67,9 +65,9 @@ mod tests {
         StackManager::setup(&StackConfig::default()).await?;
 
         // Random IDs keep the test isolated from mock data and other tests.
-        let user_with_cursor = PubkyId::from(Keypair::random().public_key()).to_string();
-        let user_without_cursor = PubkyId::from(Keypair::random().public_key()).to_string();
-        let hs_id = PubkyId::from(Keypair::random().public_key()).to_string();
+        let user_with_cursor = random_pubky_id().to_string();
+        let user_without_cursor = random_pubky_id().to_string();
+        let hs_id = random_pubky_id().to_string();
 
         // A user with no stored cursor reads back as 0.
         let cursors = UserHsCursor::read(&[user_with_cursor.as_str()], &hs_id).await?;

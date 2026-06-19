@@ -1,12 +1,31 @@
 use crate::errors::EventProcessorError;
-use nexus_common::models::post::PostRelationships;
+use nexus_common::models::{
+    error::{ModelError, ModelResult},
+    post::PostRelationships,
+};
+
+/// Classifies the outcome of a best-effort user ingestion attempted while
+/// handling an [`OperationOutcome::MissingDependency`](nexus_common::db::OperationOutcome::MissingDependency).
+///
+/// Propagates [`ModelError::HsBlacklisted`] as the non-retryable
+/// [`EventProcessorError::HsBlacklisted`], so the event is dropped instead of
+/// churning in the retry queue. Any other ingestion error is swallowed: the handler
+/// returns `MissingDependency` anyway, and the next retry re-attempts the ingestion.
+/// (`maybe_ingest_user` already logs the underlying failure.)
+pub(super) fn fail_on_blacklisted_hs(
+    ingest_result: ModelResult<()>,
+) -> Result<(), EventProcessorError> {
+    match ingest_result {
+        Err(e @ ModelError::HsBlacklisted { .. }) => Err(e.into()),
+        _ => Ok(()),
+    }
+}
 
 /// Checks if a post is a reply based on its relationships.
 /// # Arguments
 /// * `author_id` - The ID of the author of the post
 /// * `post_id` - The ID of the post to check
-///
-pub async fn post_relationships_is_reply(
+pub(super) async fn post_relationships_is_reply(
     author_id: &str,
     post_id: &str,
 ) -> Result<bool, EventProcessorError> {

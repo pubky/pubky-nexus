@@ -176,7 +176,7 @@ impl NexusApi {
         enable_key_republisher: bool,
     ) -> Result<Self, DynError> {
         // Create all the routes of the API
-        let router = routes::routes(ctx.api_config.stack.files_path.clone());
+        let router = routes::routes(&ctx);
         debug!(?ctx.api_config, "Running NexusAPI with config");
 
         let (icann_http_handle, icann_http_socket) =

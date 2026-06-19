@@ -1,3 +1,4 @@
+use nexus_common::models::user::UserIngestor;
 use nexus_watcher::errors::EventProcessorError;
 use nexus_watcher::events::Event;
 use nexus_watcher::events::{EventHandler, Moderation};
@@ -56,4 +57,9 @@ pub fn default_moderation_tests() -> Arc<Moderation> {
         .expect("Hardcoded test moderation key should be valid");
     let tags = Vec::from(["label_to_moderate".to_string()]);
     Arc::new(Moderation { id, tags })
+}
+
+/// Default user ingestor for tests: empty HS blacklist (ingest everything).
+pub fn default_ingestor_tests() -> Arc<UserIngestor> {
+    Arc::new(UserIngestor::default())
 }

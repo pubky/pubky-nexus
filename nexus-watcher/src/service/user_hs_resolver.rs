@@ -4,8 +4,9 @@
 //! the `(:User)-[:HOSTED_BY]->(:Homeserver)` relationship in Neo4j.
 
 use nexus_common::db::{
-    exec_single_row, fetch_key_from_graph, queries, GraphResult, PubkyClientResult, PubkyConnector,
+    fetch_key_from_graph, queries, GraphResult, PubkyClientResult, PubkyConnector,
 };
+use nexus_common::models::user::{set_user_homeserver, set_user_homeserver_stale};
 use nexus_common::types::DynError;
 use nexus_common::WatcherConfig;
 use opentelemetry::global;
@@ -207,19 +208,19 @@ async fn resolve_user(
         (None, None) => warn!("User {user_id} has no published homeserver"),
 
         (None, Some(resolved_hs_id)) => {
-            exec_single_row(queries::put::set_user_homeserver(&user_id, resolved_hs_id)).await?;
+            set_user_homeserver(&user_id, resolved_hs_id).await?;
             debug!("User {user_id} -> HS {resolved_hs_id}");
         }
 
         // Already bound to a HS: toggle the stale flag instead of switching.
         (Some(stored_hs_id), Some(resolved_hs_id)) if resolved_hs_id.as_ref() == stored_hs_id => {
-            exec_single_row(queries::put::set_user_homeserver_stale(&user_id, false)).await?;
+            set_user_homeserver_stale(&user_id, false).await?;
             debug!("User {user_id} still hosted on {stored_hs_id}, mapping active");
         }
 
         // HS switching is not fully implemented, so the bound HS is never changed once set
         (Some(stored_hs_id), _) => {
-            exec_single_row(queries::put::set_user_homeserver_stale(&user_id, true)).await?;
+            set_user_homeserver_stale(&user_id, true).await?;
             warn!(
                 "User {user_id} homeserver changed or was removed (stored {stored_hs_id}); \
                  switching unsupported, mapping marked stale and indexing paused"
@@ -272,8 +273,8 @@ mod tests {
     use nexus_common::db::exec_single_row;
     use nexus_common::db::graph::Query;
     use nexus_common::types::DynError;
+    use nexus_common::utils::test_utils::{random_pk, random_pubky_id};
     use nexus_common::{StackConfig, StackManager};
-    use pubky::Keypair;
 
     async fn setup() -> Result<(), DynError> {
         StackManager::setup(&StackConfig::default()).await
@@ -293,11 +294,6 @@ mod tests {
         ) -> PubkyClientResult<Option<PubkyId>> {
             Ok(self.result.clone())
         }
-    }
-
-    /// Helper: a random homeserver id.
-    fn random_hs_id() -> PubkyId {
-        PubkyId::from(Keypair::random().public_key())
     }
 
     /// Helper: create a User node in the graph
@@ -379,7 +375,7 @@ mod tests {
         create_test_user(user_no_hs).await?;
 
         // Give user_fresh a recently resolved mapping
-        exec_single_row(queries::put::set_user_homeserver(user_fresh, hs_id)).await?;
+        set_user_homeserver(user_fresh, hs_id).await?;
 
         // Give user_stale a mapping with an old resolved_at (1 hour ago)
         let stale_query = Query::new(
@@ -435,9 +431,9 @@ mod tests {
         create_test_user(user_c).await?;
 
         // Host user_a and user_b on hs_one, user_c on hs_two
-        exec_single_row(queries::put::set_user_homeserver(user_a, hs_one)).await?;
-        exec_single_row(queries::put::set_user_homeserver(user_b, hs_one)).await?;
-        exec_single_row(queries::put::set_user_homeserver(user_c, hs_two)).await?;
+        set_user_homeserver(user_a, hs_one).await?;
+        set_user_homeserver(user_b, hs_one).await?;
+        set_user_homeserver(user_c, hs_two).await?;
 
         // Query users on hs_one
         let mut users = get_user_ids_by_homeserver(hs_one).await?;
@@ -464,8 +460,8 @@ mod tests {
     async fn test_get_user_homeserver() -> Result<(), DynError> {
         setup().await?;
 
-        let user_id = Keypair::random().public_key().z32();
-        let hs_id = Keypair::random().public_key().z32();
+        let user_id = random_pk().z32();
+        let hs_id = random_pk().z32();
 
         create_test_user(&user_id).await?;
 
@@ -473,7 +469,7 @@ mod tests {
         assert_eq!(get_user_homeserver(&user_id).await?, None);
 
         // After assignment the current homeserver is returned
-        exec_single_row(queries::put::set_user_homeserver(&user_id, &hs_id)).await?;
+        set_user_homeserver(&user_id, &hs_id).await?;
         assert_eq!(
             get_user_homeserver(&user_id).await?,
             Some(hs_id.to_string())
@@ -489,9 +485,9 @@ mod tests {
     async fn test_resolve_user_first_time_sets_homeserver() -> Result<(), DynError> {
         setup().await?;
 
-        let user_pk = Keypair::random().public_key();
+        let user_pk = random_pk();
         let user_id = user_pk.z32();
-        let hs_id = random_hs_id();
+        let hs_id = random_pubky_id();
 
         create_test_user(&user_id).await?;
 
@@ -516,7 +512,7 @@ mod tests {
     async fn test_resolve_user_first_time_no_homeserver_noop() -> Result<(), DynError> {
         setup().await?;
 
-        let user_pk = Keypair::random().public_key();
+        let user_pk = random_pk();
         let user_id = user_pk.z32();
 
         create_test_user(&user_id).await?;
@@ -543,13 +539,13 @@ mod tests {
     async fn test_resolve_user_change_keeps_binding_and_marks_stale() -> Result<(), DynError> {
         setup().await?;
 
-        let user_pk = Keypair::random().public_key();
+        let user_pk = random_pk();
         let user_id = user_pk.z32();
-        let stored_hs = random_hs_id();
-        let new_hs = random_hs_id();
+        let stored_hs = random_pubky_id();
+        let new_hs = random_pubky_id();
 
         create_test_user(&user_id).await?;
-        exec_single_row(queries::put::set_user_homeserver(&user_id, &stored_hs)).await?;
+        set_user_homeserver(&user_id, &stored_hs).await?;
 
         // DHT now points at a different homeserver
         let resolver = MockResolver {
@@ -579,12 +575,12 @@ mod tests {
     async fn test_resolve_user_unpublished_keeps_binding_and_marks_stale() -> Result<(), DynError> {
         setup().await?;
 
-        let user_pk = Keypair::random().public_key();
+        let user_pk = random_pk();
         let user_id = user_pk.z32();
-        let stored_hs = random_hs_id();
+        let stored_hs = random_pubky_id();
 
         create_test_user(&user_id).await?;
-        exec_single_row(queries::put::set_user_homeserver(&user_id, &stored_hs)).await?;
+        set_user_homeserver(&user_id, &stored_hs).await?;
 
         // DHT no longer publishes a homeserver
         let resolver = MockResolver { result: None };
@@ -609,14 +605,14 @@ mod tests {
     async fn test_resolve_user_realign_clears_stale() -> Result<(), DynError> {
         setup().await?;
 
-        let user_pk = Keypair::random().public_key();
+        let user_pk = random_pk();
         let user_id = user_pk.z32();
-        let stored_hs = random_hs_id();
+        let stored_hs = random_pubky_id();
 
         create_test_user(&user_id).await?;
-        exec_single_row(queries::put::set_user_homeserver(&user_id, &stored_hs)).await?;
+        set_user_homeserver(&user_id, &stored_hs).await?;
         // Start from a stale mapping
-        exec_single_row(queries::put::set_user_homeserver_stale(&user_id, true)).await?;
+        set_user_homeserver_stale(&user_id, true).await?;
         assert!(!get_user_ids_by_homeserver(&stored_hs)
             .await?
             .contains(&user_id));
@@ -640,13 +636,13 @@ mod tests {
     fn test_bisection_order() {
         // Empty and single-element edge cases.
         assert!(bisection_order_user_pks(vec![]).is_empty());
-        let lone = Keypair::random().public_key();
+        let lone = random_pk();
         let result = bisection_order_user_pks(vec![lone.clone()]);
         assert_eq!(result[0].as_bytes(), lone.as_bytes());
 
         // For 8 keys, verify the full BFS-bisection permutation.
         // Sort first to establish the ground-truth lexicographic order.
-        let mut sorted: Vec<PublicKey> = (0..8).map(|_| Keypair::random().public_key()).collect();
+        let mut sorted: Vec<PublicKey> = (0..8).map(|_| random_pk()).collect();
         sorted.sort_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
 
         // BFS over a sorted array of 8 elements (half-open intervals) emits:

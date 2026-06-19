@@ -1,7 +1,6 @@
 use crate::event_processor::utils::watcher::WatcherTest;
-use nexus_common::db::exec_single_row;
-use nexus_common::db::queries;
 use nexus_common::models::homeserver::Homeserver;
+use nexus_common::models::user::{set_user_homeserver, set_user_homeserver_stale};
 use nexus_common::types::DynError;
 use pubky::Keypair;
 use pubky_app_specs::{PubkyAppUser, PubkyId};
@@ -41,7 +40,7 @@ async fn test_get_all_active_homeservers() -> Result<(), DynError> {
     let id_a1 = test
         .create_user(&kp_a1, &make_test_user("Watcher:ActiveHS:A1"))
         .await?;
-    exec_single_row(queries::put::set_user_homeserver(&id_a1, &hs_a)).await?;
+    set_user_homeserver(&id_a1, &hs_a).await?;
 
     // -- HS-B: 2 users --
     let hs_b = create_orphan_hs().await?;
@@ -49,13 +48,13 @@ async fn test_get_all_active_homeservers() -> Result<(), DynError> {
     let id_b1 = test
         .create_user(&kp_b1, &make_test_user("Watcher:ActiveHS:B1"))
         .await?;
-    exec_single_row(queries::put::set_user_homeserver(&id_b1, &hs_b)).await?;
+    set_user_homeserver(&id_b1, &hs_b).await?;
 
     let kp_b2 = Keypair::random();
     let id_b2 = test
         .create_user(&kp_b2, &make_test_user("Watcher:ActiveHS:B2"))
         .await?;
-    exec_single_row(queries::put::set_user_homeserver(&id_b2, &hs_b)).await?;
+    set_user_homeserver(&id_b2, &hs_b).await?;
 
     let hs_ids = Homeserver::get_all_active_from_graph().await?;
 
@@ -81,7 +80,7 @@ async fn test_get_all_active_homeservers() -> Result<(), DynError> {
     assert!(pos_b < pos_a, "HS-B (2 users) should precede HS-A (1 user)");
 
     // -- Reassign one user from HS-B to HS-A; both HSs must stay active --
-    exec_single_row(queries::put::set_user_homeserver(&id_b2, &hs_a)).await?;
+    set_user_homeserver(&id_b2, &hs_a).await?;
 
     let hs_ids = Homeserver::get_all_active_from_graph().await?;
     assert!(
@@ -124,7 +123,7 @@ async fn test_stale_users_excluded_from_active_homeservers() -> Result<(), DynEr
     let user_id = test
         .create_user(&kp, &make_test_user("Watcher:ActiveHS:Stale"))
         .await?;
-    exec_single_row(queries::put::set_user_homeserver(&user_id, &hs)).await?;
+    set_user_homeserver(&user_id, &hs).await?;
 
     // With an active mapping the homeserver is listed.
     let hs_ids = Homeserver::get_all_active_from_graph().await?;
@@ -134,7 +133,7 @@ async fn test_stale_users_excluded_from_active_homeservers() -> Result<(), DynEr
     );
 
     // Marking the only user stale drops the homeserver off the active list.
-    exec_single_row(queries::put::set_user_homeserver_stale(&user_id, true)).await?;
+    set_user_homeserver_stale(&user_id, true).await?;
     let hs_ids = Homeserver::get_all_active_from_graph().await?;
     assert!(
         !hs_ids.contains(&hs.to_string()),
