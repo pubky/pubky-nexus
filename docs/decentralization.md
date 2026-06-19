@@ -7,9 +7,9 @@ These are technical notes describing configuration fields related to Decentraliz
 ## 1. Background
 
 Originally the watcher pointed at one default homeserver and bulk-ingested all of
-its events. With decentralization, Nexus still bulk-indexes that default HS but
-*also* indexes other ("third-party") homeservers on a per-user basis, using the
-homeserver's user-events endpoint. A separate task resolves each user's
+its events. With decentralization, Nexus still bulk-indexes the default HS but
+*also* indexes users hosted on other ("third-party") homeservers on a per-user
+basis, using each homeserver's user-events endpoint. A separate task resolves each user's
 currently-published HS from PKDNS/DHT and records it as a
 `(:User)-[:HOSTED_BY]->(:Homeserver)` edge, so the indexer knows which users to
 pull from which HS.
@@ -56,17 +56,17 @@ thread.
 
 ---
 
-## 3. Third-party ("key-based") homeserver indexing
+## 3. Indexing externally-hosted users
 
 The core of decentralization. Driven by the `external-homeservers` thread, which
-walks every monitored HS *except* the default and pulls events per user via the
-HS user-events endpoint. Configured in
-`KeyBasedEventProcessorRunner::from_config`.
+indexes users hosted on non-default ("third-party") homeservers: for every
+monitored HS *except* the default, it pulls each hosted user's events per user
+via the HS user-events endpoint (hence "key-based" — keyed on each user's
+pubky). Configured in `KeyBasedEventProcessorRunner::from_config`.
 
 ### `[watcher].monitored_homeservers_limit`
 - **Type / default:** `usize` / `50` (`DEFAULT_MONITORED_HOMESERVERS_LIMIT`).
-- **What it does:** Bounds the number of **external** HSs monitored. The default
-  HS is always indexed separately (Section 2) and excluded from this count.
+- **What it does:** Bounds the number of **external** HSs monitored.
 - **Notes:** `0` disables external-HS indexing; `1` monitors one external HS.
 - **Tuning:** Each additional monitored HS adds HS requests (and, upstream, PKDNS
   resolutions) per tick. Raise deliberately as the network of indexed HSs grows.
@@ -118,7 +118,7 @@ Events that depend on a not-yet-ingested user hosted by a blacklisted HS (a foll
 Driven by the `user-hs-resolver` thread. For each user it resolves the currently
 published HS from PKDNS/DHT and persists/refreshes the
 `(:User)-[:HOSTED_BY]->(:Homeserver)` edge with a `resolved_at` timestamp.
-This is what tells the third-party indexer which
+This is what tells the externally-hosted-user indexer (Section 3) which
 users belong to which HS.
 
 ### `hs_resolver_sleep`
@@ -142,8 +142,8 @@ users belong to which HS.
 
 ## 5. Event retry & backoff — `[watcher.retry]`
 
-Cross-cutting: applies to **all** indexing (default and third-party), driven by
-the `retry-processor` thread. Defined on `EventRetryConfig`. Backoff parameters are selected per error
+Cross-cutting: applies to **all** indexing, driven by
+the `retry-processor` thread. Backoff parameters are selected per error
 via `EventRetryConfig::get_backoff_params` / `get_max_retries_for_err`: *transient*
 errors and *missing-dependency* errors use separate limits.
 
