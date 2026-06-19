@@ -101,6 +101,10 @@ HS user-events endpoint. Configured in
 
 List of external HS PKs from which new events are not being indexed, for as long as they are on this list.
 
+- **Type / default:** `Vec<PubkyId>` / `[]` (empty). Each entry is parsed as a
+  `PubkyId` at deserialize time, so an invalid pubky in the list fails config
+  load rather than being silently ignored (`test_external_hs_pk_blacklist_rejects_invalid_pk`).
+
 This list is consulted when indexing 3rd party HSs. Any existing events from users pointing to one of these HSs are not affected.
 
 This list is also checked when ingesting new users, for example via the Nexus REST API. New users which point to one of these HSs will not be ingested. Any users that already were ingested, who now point to a blacklisted HS, are not affected in the sense that their old data is not deleted; however new events from their new blacklisted HS are not being indexed.
@@ -187,7 +191,7 @@ Relevant only insofar as they switch the HS/relay target during local/dev runs.
 | `key_based_events_limit` | `[watcher]` | `u16` | `50` | `100` | external-homeservers |
 | `initial_backoff_secs` | `[watcher]` | `u64` s | `60` | — | external-homeservers (per-HS offline) |
 | `max_backoff_secs` | `[watcher]` | `u64` s | `3600` | — | external-homeservers (per-HS offline) |
-| *HS blacklist* | `[watcher]` | *(list)* | — | — | external-homeservers *(planned, PR #906)* |
+| `external_hs_pk_blacklist` | `[stack]` | `Vec<PubkyId>` | `[]` | — | external-homeservers + user ingestion (incl. REST API) |
 | `hs_resolver_sleep` | `[watcher]` | `u64` ms | `10000` | — | user-hs-resolver (tick) |
 | `hs_resolver_ttl` | `[watcher]` | `u64` ms | `3_600_000` | — | user-hs-resolver (staleness) |
 | `max_retries` | `[watcher.retry]` | `u32` | `10` | — | retry-processor (transient) |
