@@ -6,10 +6,10 @@ These are technical notes describing configuration fields related to Decentraliz
 
 ## 1. Background
 
-Originally the watcher pointed at one default homeserver and bulk-ingested all of
+Originally the watcher pointed at one default HS and bulk-ingested all of
 its events. With decentralization, Nexus still bulk-indexes the default HS but
-*also* indexes users hosted on other ("third-party") homeservers on a per-user
-basis, using each homeserver's user-events endpoint. A separate task resolves each user's
+*also* indexes users hosted on other ("third-party") HSs on a per-user
+basis, using each HS's user-events endpoint. A separate task resolves each user's
 currently-published HS from PKDNS/DHT and records it as a
 `(:User)-[:HOSTED_BY]->(:Homeserver)` edge, so the indexer knows which users to
 pull from which HS.
@@ -24,14 +24,14 @@ The sections below group each config field under the runner it drives.
 
 ---
 
-## 2. Indexing the default homeserver (bulk)
+## 2. Indexing the default HS (bulk)
 
 The baseline, pre-decentralization path: the default HS is indexed in *bulk* — all
 of its events are pulled in batches. Driven by `HsEventProcessorRunner`.
 
 ### `homeserver`
 
-> The single default, prioritized homeserver. Its events are bulk-ingested.
+> The single default, prioritized HS. Its events are bulk-ingested.
 
 It is explicitly *excluded* from the third-party (`KeyBasedEventProcessorRunner`)
 list so it is never double-indexed (`hs_by_priority`). Changing this re-points
@@ -62,7 +62,7 @@ more lag between an event being published and indexed.
 ## 3. Indexing externally-hosted users (key-based)
 
 The core of decentralization. Driven by `KeyBasedEventProcessorRunner`, which
-indexes users hosted on non-default ("third-party") homeservers: for every
+indexes users hosted on non-default ("third-party") HSs: for every
 monitored HS *except* the default, it pulls each hosted user's events per user
 via the HS user-events endpoint (hence "key-based" — keyed on each user's
 pubky). Configured in `KeyBasedEventProcessorRunner::from_config`.
@@ -125,7 +125,7 @@ mention relationship is not materialized.
 
 ---
 
-## 4. User → homeserver resolution
+## 4. User → HS resolution
 
 Driven by `UserHsResolverRunner`. For each user it resolves the currently
 published HS from PKDNS/DHT and persists/refreshes the
@@ -191,7 +191,7 @@ avoid hammering an HS for content that may not exist yet.
 > ⚠️ **Two distinct "backoff" systems — do not conflate them:**
 >
 > - **`[watcher].initial_backoff_secs` / `max_backoff_secs`** (Section 3) — skips
->   an **entire homeserver** found to be **offline/unreachable**.
+>   an **entire HS** found to be **offline/unreachable**.
 > - **`[watcher.retry].initial_backoff_secs` / `max_backoff_secs`** — retries an
 >   **individual event** that hit a **transient processing error**.
 >
@@ -206,7 +206,7 @@ Relevant only insofar as they switch the HS/relay target during local/dev runs.
 
 | Field | Default | Role |
 |---|---|---|
-| `testnet` | `false` | Run against a testnet homeserver/relay instead of mainnet. |
+| `testnet` | `false` | Run against a testnet HS/relay instead of mainnet. |
 | `testnet_host` | `"localhost"` | Host for the testnet HS/relay; change only if it runs on another machine (e.g. Docker setups). |
 
 ---
