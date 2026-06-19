@@ -183,23 +183,23 @@ Relevant only insofar as they switch the HS/relay target during local/dev runs.
 
 ## 7. Quick reference
 
-| Field | TOML path | Type | Default | Max | Runner / consumer |
-|---|---|---|---|---|---|
-| `homeserver` | `[watcher]` | `PubkyId` | Synonym HS | — | `HsEventProcessorRunner` |
-| `events_limit` | `[watcher]` | `u16` | `50` (code `1000`) | `1000` | `HsEventProcessorRunner` |
-| `watcher_sleep` | `[watcher]` | `u64` ms | `5000` | — | `HsEventProcessorRunner` + `KeyBasedEventProcessorRunner` (shared tick) |
-| `monitored_homeservers_limit` | `[watcher]` | `usize` | `50` | — | `KeyBasedEventProcessorRunner` (`0` = disabled) |
-| `key_based_events_limit` | `[watcher]` | `u16` | `50` | `100` | `KeyBasedEventProcessorRunner` |
-| `initial_backoff_secs` | `[watcher]` | `u64` s | `60` | — | `KeyBasedEventProcessorRunner` (per-HS offline) |
-| `max_backoff_secs` | `[watcher]` | `u64` s | `3600` | — | `KeyBasedEventProcessorRunner` (per-HS offline) |
-| `external_hs_pk_blacklist` | `[stack]` | `Vec<PubkyId>` | `[]` | — | `KeyBasedEventProcessorRunner` + user ingestion (incl. REST API) |
-| `hs_resolver_sleep` | `[watcher]` | `u64` ms | `10000` | — | `UserHsResolverRunner` (tick) |
-| `hs_resolver_ttl` | `[watcher]` | `u64` ms | `3_600_000` | — | `UserHsResolverRunner` (staleness) |
-| `max_retries` | `[watcher.retry]` | `u32` | `10` | — | `RetryProcessor` (transient) |
-| `max_dependency_retries` | `[watcher.retry]` | `u32` | `50` | — | `RetryProcessor` (missing-dep) |
-| `initial_backoff_secs` | `[watcher.retry]` | `u64` s | `10` | — | `RetryProcessor` (transient) |
-| `max_backoff_secs` | `[watcher.retry]` | `u64` s | `3600` | — | `RetryProcessor` (transient) |
-| `initial_missing_dep_backoff_secs` | `[watcher.retry]` | `u64` s | `60` | — | `RetryProcessor` (missing-dep) |
-| `max_missing_dep_backoff_secs` | `[watcher.retry]` | `u64` s | `3600` | — | `RetryProcessor` (missing-dep) |
-| `testnet` | `[watcher]` | `bool` | `false` | — | startup |
-| `testnet_host` | `[watcher]` | `String` | `"localhost"` | — | startup |
+| Field | TOML path | Type | Default |
+|---|---|---|---|
+| `homeserver` | `[watcher]` | `PubkyId` | Synonym HS |
+| `events_limit` | `[watcher]` | `u16` | `50` (code `1000`) (max `1000`) |
+| `watcher_sleep` | `[watcher]` | `u64` ms | `5000` |
+| `monitored_homeservers_limit` | `[watcher]` | `usize` | `50` |
+| `key_based_events_limit` | `[watcher]` | `u16` | `50` (max `100`) |
+| `initial_backoff_secs` | `[watcher]` | `u64` s | `60` |
+| `max_backoff_secs` | `[watcher]` | `u64` s | `3600` |
+| `external_hs_pk_blacklist` | `[stack]` | `Vec<PubkyId>` | `[]` |
+| `hs_resolver_sleep` | `[watcher]` | `u64` ms | `10000` |
+| `hs_resolver_ttl` | `[watcher]` | `u64` ms | `3_600_000` |
+| `max_retries` | `[watcher.retry]` | `u32` | `10` |
+| `max_dependency_retries` | `[watcher.retry]` | `u32` | `50` |
+| `initial_backoff_secs` | `[watcher.retry]` | `u64` s | `10` |
+| `max_backoff_secs` | `[watcher.retry]` | `u64` s | `3600` |
+| `initial_missing_dep_backoff_secs` | `[watcher.retry]` | `u64` s | `60` |
+| `max_missing_dep_backoff_secs` | `[watcher.retry]` | `u64` s | `3600` |
+| `testnet` | `[watcher]` | `bool` | `false` |
+| `testnet_host` | `[watcher]` | `String` | `"localhost"` |
