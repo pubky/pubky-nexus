@@ -1,6 +1,11 @@
-use nexus_common::db::PubkyConnector;
-use nexus_common::models::event::{Event, EventProcessorError, EventType};
+use nexus_common::{db::PubkyConnector, models::user::UserIngestor};
+pub mod event;
+
+pub use event::{Event, EventType, ParseResult};
+
+use crate::errors::EventProcessorError;
 use nexus_common::universal_tag::homeserver_parsed_uri::HomeserverParsedUri;
+use nexus_common::WatcherConfig;
 use pubky_app_specs::{PubkyAppObject, Resource};
 use std::sync::Arc;
 use tracing::debug;
@@ -23,11 +28,23 @@ pub trait EventHandler: Send + Sync {
 /// Default implementation of `EventHandler` that uses the actual event handling logic.
 pub struct DefaultEventHandler {
     moderation: Arc<Moderation>,
+    ingestor: Arc<UserIngestor>,
 }
 
 impl DefaultEventHandler {
-    pub fn new(moderation: Arc<Moderation>) -> Self {
-        Self { moderation }
+    pub fn new(moderation: Arc<Moderation>, ingestor: Arc<UserIngestor>) -> Self {
+        Self {
+            moderation,
+            ingestor,
+        }
+    }
+
+    /// Builds a handler, deriving its moderation rules and user ingestor from config.
+    pub fn from_config(config: &WatcherConfig) -> Self {
+        Self::new(
+            Moderation::from_config(config),
+            Arc::new(UserIngestor::from_config(&config.stack)),
+        )
     }
 }
 
@@ -35,11 +52,13 @@ impl DefaultEventHandler {
 impl EventHandler for DefaultEventHandler {
     async fn handle(&self, event: &Event) -> Result<(), EventProcessorError> {
         match event.event_type {
-            EventType::Put => handle_put_event(event, self.moderation.clone()).await,
-            EventType::Del => handle_del_event(event).await,
+            EventType::Put => {
+                handle_put_event(event, self.moderation.clone(), self.ingestor.clone()).await
+            }
+            EventType::Del => handle_del_event(event, self.ingestor.clone()).await,
         }?;
 
-        event.store_event().await?;
+        event.to_event_line().store().await?;
         Ok(())
     }
 }
@@ -47,6 +66,7 @@ impl EventHandler for DefaultEventHandler {
 pub async fn handle_put_event(
     event: &Event,
     moderation: Arc<Moderation>,
+    ingestor: Arc<UserIngestor>,
 ) -> Result<(), EventProcessorError> {
     debug!("Handling PUT event for URI: {}", event.uri);
 
@@ -73,10 +93,10 @@ pub async fn handle_put_event(
             handlers::user::sync_put(user, user_id).await?
         }
         (PubkyAppObject::Post(post), Resource::Post(post_id)) => {
-            handlers::post::sync_put(post, user_id, post_id).await?
+            handlers::post::sync_put(post, user_id, post_id, &ingestor).await?
         }
         (PubkyAppObject::Follow(_follow), Resource::Follow(followee_id)) => {
-            handlers::follow::sync_put(user_id, followee_id).await?
+            handlers::follow::sync_put(user_id, followee_id, &ingestor).await?
         }
         (PubkyAppObject::Mute(_), Resource::Mute(_)) => {
             debug!("Mute events are no longer handled by nexus");
@@ -93,10 +113,16 @@ pub async fn handle_put_event(
                 // Route universal tag events (non-pubky.app apps) to sync_put_resource
                 // which handles Resource nodes for InternalUnknown/InternalUnknown URIs.
                 if let HomeserverParsedUri::UniversalTag { app, .. } = &event.parsed_uri {
-                    handlers::tag::sync_put_resource(tag, user_id, tag_id.to_string(), app.clone())
-                        .await?
+                    handlers::tag::sync_put_resource(
+                        tag,
+                        user_id,
+                        tag_id.to_string(),
+                        app.clone(),
+                        &ingestor,
+                    )
+                    .await?
                 } else {
-                    handlers::tag::sync_put(tag, user_id, tag_id.to_string()).await?
+                    handlers::tag::sync_put(tag, user_id, tag_id.to_string(), &ingestor).await?
                 }
             }
         }
@@ -107,6 +133,7 @@ pub async fn handle_put_event(
                 user_id,
                 file_id,
                 event.files_path.clone(),
+                &ingestor,
             )
             .await?
         }
@@ -116,13 +143,16 @@ pub async fn handle_put_event(
 }
 
 /// Handles a DEL event by dispatching to the appropriate handler.
-pub async fn handle_del_event(event: &Event) -> Result<(), EventProcessorError> {
+pub async fn handle_del_event(
+    event: &Event,
+    ingestor: Arc<UserIngestor>,
+) -> Result<(), EventProcessorError> {
     debug!("Handling DEL event for URI: {}", event.uri);
 
     let user_id = event.parsed_uri.user_id().clone();
     match event.parsed_uri.resource() {
         Resource::User => handlers::user::del(user_id).await?,
-        Resource::Post(post_id) => handlers::post::del(user_id, post_id.clone()).await?,
+        Resource::Post(post_id) => handlers::post::del(user_id, post_id.clone(), &ingestor).await?,
         Resource::Follow(followee_id) => {
             handlers::follow::del(user_id, followee_id.clone()).await?
         }

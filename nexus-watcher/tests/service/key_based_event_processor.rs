@@ -5,12 +5,15 @@ use std::time::Duration;
 
 use anyhow::Result;
 use chrono::Utc;
-use nexus_common::db::{exec_single_row, graph::Query, queries, PubkyClientError, RedisOps};
-use nexus_common::models::event::{Event, EventProcessorError};
-use nexus_common::models::homeserver::Homeserver;
-use nexus_common::models::user::{user_hs_cursor_key, UserDetails};
+use nexus_common::db::{exec_single_row, graph::Query, PubkyClientError, RedisOps};
+use nexus_common::models::homeserver::{Homeserver, HsBlacklist};
+use nexus_common::models::traits::Collection;
+use nexus_common::models::user::{set_user_homeserver, user_hs_cursor_key, UserDetails};
 use nexus_common::types::DynError;
+use nexus_common::utils::test_utils::random_pubky_id;
+use nexus_watcher::errors::EventProcessorError;
 use nexus_watcher::events::retry::{InitialBackoff, RetryScheduler};
+use nexus_watcher::events::Event;
 use nexus_watcher::events::EventHandler;
 use nexus_watcher::service::indexer::{KeyBasedEventProcessor, RunError, TEventProcessor};
 use nexus_watcher::service::runner::UserNotFoundBackoff;
@@ -88,7 +91,7 @@ async fn key_based_processor_stops_mismatched_user_stream_but_continues_other_us
     let user_b_id = create_user_on_homeserver(&homeserver).await?;
 
     // This ID is not hosted on the homeserver; it simulates a malicious or broken event source.
-    let user_c_id = Keypair::random().public_key().to_z32();
+    let user_c_id = random_pubky_id().to_string();
 
     // For the first hosted user, return an event whose URI belongs to a different user.
     // The following valid event for the same hosted user must not be processed after that mismatch.
@@ -266,7 +269,7 @@ async fn key_based_processor_persists_last_safe_cursor_before_mismatch() -> Resu
     let (_hs_keypair, homeserver) = create_homeserver().await?;
     let hs_id = homeserver.id.to_string();
     let user_id = create_user_on_homeserver(&homeserver).await?;
-    let mismatched_user_id = Keypair::random().public_key().to_z32();
+    let mismatched_user_id = random_pubky_id().to_string();
     let source = Arc::new(MockKeyBasedEventSource::default().with_events(vec![vec![
         stream_event(5, &user_id, "/pub/pubky.app/profile.json")?,
         stream_event(6, &mismatched_user_id, "/pub/pubky.app/profile.json")?,
@@ -571,6 +574,39 @@ async fn key_based_processor_stops_current_and_next_users_after_shutdown() -> Re
     Ok(())
 }
 
+/// Verifies the processor refuses to run for a blacklisted HS, aborting before
+/// resolving or fetching any user events.
+#[tokio_shared_rt::test(shared)]
+async fn key_based_processor_aborts_blacklisted_homeserver() -> Result<(), DynError> {
+    setup().await?;
+
+    let (_hs_keypair, homeserver) = create_homeserver().await?;
+    // A user exists on the HS, but it must never be fetched.
+    create_user_on_homeserver(&homeserver).await?;
+
+    let source = Arc::new(MockKeyBasedEventSource::default());
+    let handler = create_mock_handler(Ok(()), None);
+    let (_shutdown_tx, shutdown_rx) = watch::channel(false);
+    let blacklist = HsBlacklist::new([homeserver.id.clone()]);
+    let processor = processor_with_options(
+        homeserver,
+        handler.clone(),
+        source.clone(),
+        100,
+        shutdown_rx,
+        Arc::new(UserNotFoundBackoff::default()),
+        blacklist,
+    );
+
+    let err = processor.run().await.unwrap_err();
+
+    assert_internal_homeserver_blacklisted(err);
+    assert!(source.calls().await.is_empty());
+    assert_eq!(handler.get_handle_count(), 0);
+
+    Ok(())
+}
+
 async fn create_homeserver() -> Result<(Keypair, Homeserver), DynError> {
     let keypair = Keypair::random();
     let homeserver_id = PubkyId::try_from(keypair.public_key().to_z32().as_str())?;
@@ -580,7 +616,7 @@ async fn create_homeserver() -> Result<(Keypair, Homeserver), DynError> {
 }
 
 async fn create_user_on_homeserver(homeserver: &Homeserver) -> Result<String, DynError> {
-    let user_id = PubkyId::try_from(Keypair::random().public_key().to_z32().as_str())?;
+    let user_id = random_pubky_id();
     let user = UserDetails {
         id: user_id.clone(),
         name: "key-based-processor-test-user".into(),
@@ -591,8 +627,8 @@ async fn create_user_on_homeserver(homeserver: &Homeserver) -> Result<String, Dy
         indexed_at: Utc::now().timestamp_millis(),
     };
 
-    exec_single_row(queries::put::create_user(&user)?).await?;
-    exec_single_row(queries::put::set_user_homeserver(&user_id, &homeserver.id)).await?;
+    user.put_to_graph().await?;
+    set_user_homeserver(&user_id, &homeserver.id).await?;
 
     Ok(user_id.to_string())
 }
@@ -610,7 +646,7 @@ async fn create_invalid_user_on_homeserver(
         .param("name", "invalid-key-based-processor-test-user".to_string()),
     )
     .await?;
-    exec_single_row(queries::put::set_user_homeserver(user_id, &homeserver.id)).await?;
+    set_user_homeserver(user_id, &homeserver.id).await?;
 
     Ok(())
 }
@@ -642,15 +678,17 @@ fn stream_event(cursor: u64, user_id: &str, path: &str) -> Result<StreamEvent, D
 }
 
 fn too_many_requests_error() -> EventProcessorError {
-    EventProcessorError::PubkyClientError(PubkyClientError::TooManyRequests429 {
+    PubkyClientError::TooManyRequests429 {
         message: "rate limited".into(),
-    })
+    }
+    .into()
 }
 
 fn user_not_found_error() -> EventProcessorError {
-    EventProcessorError::PubkyClientError(PubkyClientError::NotFound404 {
+    PubkyClientError::NotFound404 {
         message: "user not found".into(),
-    })
+    }
+    .into()
 }
 
 fn processor(
@@ -666,6 +704,7 @@ fn processor(
         100,
         shutdown_rx,
         Arc::new(UserNotFoundBackoff::default()),
+        HsBlacklist::default(),
     )
 }
 
@@ -685,6 +724,7 @@ fn processor_with_backoff(
         100,
         shutdown_rx,
         user_not_found_backoff,
+        HsBlacklist::default(),
     )
 }
 
@@ -702,6 +742,7 @@ fn processor_with_limit(
         limit,
         shutdown_rx,
         Arc::new(UserNotFoundBackoff::default()),
+        HsBlacklist::default(),
     )
 }
 
@@ -718,6 +759,7 @@ fn processor_with_shutdown(
         100,
         shutdown_rx,
         Arc::new(UserNotFoundBackoff::default()),
+        HsBlacklist::default(),
     )
 }
 
@@ -728,6 +770,7 @@ fn processor_with_options(
     limit: u16,
     shutdown_rx: watch::Receiver<bool>,
     user_not_found_backoff: Arc<UserNotFoundBackoff>,
+    hs_blacklist: HsBlacklist,
 ) -> Arc<KeyBasedEventProcessor> {
     Arc::new(KeyBasedEventProcessor {
         homeserver,
@@ -736,6 +779,7 @@ fn processor_with_options(
         event_handler: handler,
         event_source: source,
         user_not_found_backoff,
+        hs_blacklist,
         retry_scheduler: Arc::new(RetryScheduler::new(
             new_in_memory_store(),
             InitialBackoff {
@@ -758,6 +802,13 @@ fn assert_internal_not_retry_now_index_operation_failed(err: RunError) {
     match err {
         RunError::Internal(EventProcessorError::IndexOperationFailed(true, _)) => {}
         other => panic!("expected internal not-retry-now index operation failure, got {other:?}"),
+    }
+}
+
+fn assert_internal_homeserver_blacklisted(err: RunError) {
+    match err {
+        RunError::Internal(EventProcessorError::HsBlacklisted { .. }) => {}
+        other => panic!("expected internal HsBlacklisted error, got {other:?}"),
     }
 }
 

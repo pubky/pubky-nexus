@@ -4,9 +4,8 @@ use crate::db::{
     execute_graph_operation, fetch_row_from_graph, queries, GraphResult, OperationOutcome, RedisOps,
 };
 use crate::models::error::ModelResult;
-use crate::models::user::UserDetails;
 use chrono::Utc;
-use pubky_app_specs::{post_uri_builder, ParsedUri, PubkyAppPost, PubkyAppPostKind, PubkyId};
+use pubky_app_specs::{post_uri_builder, PubkyAppPost, PubkyAppPostKind, PubkyId};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -167,15 +166,6 @@ impl PostDetails {
             }
         }
         Ok(())
-    }
-
-    /// If a referenced post is authored by a new, unknown user, this method triggers ingestion of that user.
-    ///
-    /// ### Arguments
-    ///
-    /// - `referenced_post_uri`: The parent post (if current post is a reply to it), or a reposted post (if current post is a Repost)
-    pub async fn maybe_ingest_author_of_post(referenced_post_uri: &ParsedUri) -> ModelResult<()> {
-        UserDetails::maybe_ingest_user(&referenced_post_uri.user_id).await
     }
 
     /// Determines whether or not a given [PostDetails] is different than (e.g. may be an edit of) this post.

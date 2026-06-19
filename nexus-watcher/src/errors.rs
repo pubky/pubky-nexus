@@ -1,12 +1,12 @@
 use std::fmt::Display;
+use std::sync::Arc;
 
-use serde::{Deserialize, Serialize};
+use nexus_common::db::kv::RedisError;
+use nexus_common::db::{GraphError, PubkyClientError};
+use nexus_common::models::error::ModelError;
 use thiserror::Error;
 
-use crate::db::{kv::RedisError, GraphError, PubkyClientError};
-use crate::models::error::ModelError;
-
-#[derive(Error, Debug, Clone, Serialize, Deserialize)]
+#[derive(Error, Debug, Clone)]
 pub enum EventProcessorError {
     /// Failed to execute query in the graph database
     #[error("GraphQueryFailed (should_not_retry_now: {0}): {1}")]
@@ -43,12 +43,16 @@ pub enum EventProcessorError {
 
     /// The Pubky client could not resolve the pubky
     #[error("PubkyClientError: {0}")]
-    PubkyClientError(#[from] PubkyClientError),
+    PubkyClientError(Arc<PubkyClientError>),
 
     /// A homeserver's /events-stream keeps returning 429 Too Many Requests
     /// even after all internal backoff retries were exhausted.
     #[error("HS /events-stream rate limit exhausted (429 after all backoff retries)")]
     HsEventsStreamRateLimitExhausted,
+
+    /// The HS is blacklisted and must not be indexed.
+    #[error("HsBlacklisted: {hs_id}")]
+    HsBlacklisted { hs_id: String },
 
     #[error("MediaProcessor: {0}")]
     MediaProcessorError(String),
@@ -81,14 +85,21 @@ impl From<ModelError> for EventProcessorError {
             ModelError::FileOperationFailed(source) => {
                 EventProcessorError::InternalError(source.to_string())
             }
+            ModelError::HsBlacklisted { hs_id } => EventProcessorError::HsBlacklisted { hs_id },
             ModelError::Generic(message) => EventProcessorError::Generic(message),
         }
     }
 }
 
+impl From<PubkyClientError> for EventProcessorError {
+    fn from(e: PubkyClientError) -> Self {
+        EventProcessorError::PubkyClientError(Arc::new(e))
+    }
+}
+
 impl From<pubky::Error> for EventProcessorError {
     fn from(e: pubky::Error) -> Self {
-        EventProcessorError::PubkyClientError(PubkyClientError::from(e))
+        PubkyClientError::from(e).into()
     }
 }
 
@@ -118,11 +129,11 @@ impl EventProcessorError {
     }
 
     pub fn client_error(message: String) -> Self {
-        Self::PubkyClientError(PubkyClientError::RequestFailed { message })
+        PubkyClientError::RequestFailed { message }.into()
     }
 
     pub fn client_error_404(message: String) -> Self {
-        Self::PubkyClientError(PubkyClientError::NotFound404 { message })
+        PubkyClientError::NotFound404 { message }.into()
     }
 
     pub fn static_save_failed(source: impl Display) -> Self {
@@ -154,14 +165,14 @@ impl EventProcessorError {
     pub fn is_not_found(&self) -> bool {
         matches!(
             self,
-            Self::PubkyClientError(PubkyClientError::NotFound404 { .. })
+            Self::PubkyClientError(e) if matches!(e.as_ref(), PubkyClientError::NotFound404 { .. })
         )
     }
 
     pub fn is_too_many_requests(&self) -> bool {
         matches!(
             self,
-            Self::PubkyClientError(PubkyClientError::TooManyRequests429 { .. })
+            Self::PubkyClientError(e) if matches!(e.as_ref(), PubkyClientError::TooManyRequests429 { .. })
         )
     }
 

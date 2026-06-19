@@ -21,6 +21,9 @@ pub enum ModelError {
     #[error("FileOperationFailed")]
     FileOperationFailed(#[from] std::io::Error),
 
+    #[error("HsBlacklisted: {hs_id}")]
+    HsBlacklisted { hs_id: String },
+
     #[error("Generic: {0}")]
     Generic(String),
 }

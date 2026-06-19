@@ -1,11 +1,6 @@
 # Nexus and HS Decentralization — Configuration Reference
 
-These are technical notes describing the configuration fields related to
-decentralization: indexing third-party homeservers (HSs), resolving which HS
-each user is hosted on, and the limits/timeouts/backoffs that govern this.
-
-All fields below live under `[watcher]` (or `[watcher.retry]`) in
-`nexus-common/default.config.toml`, and are defined on `WatcherConfig`.
+These are technical notes describing configuration fields related to Decentralization.
 
 ---
 
@@ -34,7 +29,7 @@ The sections below group each config field under the thread it drives.
 The baseline, pre-decentralization path. Driven by the `default-homeserver`
 thread.
 
-### `homeserver`
+### `[watcher].homeserver`
 - **Type / default:** `PubkyId` / Synonym's HS key (see `default.config.toml`).
 - **What it does:** The single default, prioritized homeserver. Its events are
   bulk-ingested, and it is explicitly *excluded* from the third-party
@@ -43,7 +38,7 @@ thread.
 - **Notes:** Changing this re-points the entire default-HS pipeline. The HS is
   persisted to the graph on startup (`Homeserver::persist_if_unknown`).
 
-### `events_limit`
+### `[watcher].events_limit`
 - **Type / default / max:** `u16` / `50` in the shipped config (code default
   `1000`) / **max `1000`** (`MAX_EVENTS_LIMIT`).
 - **What it does:** Maximum number of events fetched **per run** from the default
@@ -52,7 +47,7 @@ thread.
 - **Tuning:** Higher → more throughput per tick but larger batches and longer
   per-run latency. Lower → smoother but slower to drain a backlog.
 
-### `watcher_sleep`
+### `[watcher].watcher_sleep`
 - **Type / default:** `u64` milliseconds / `5000`.
 - **What it does:** Sleep between full runs for **both** event-processing threads
   (default + external). It is the master tick for indexing.
@@ -68,7 +63,7 @@ walks every monitored HS *except* the default and pulls events per user via the
 HS user-events endpoint. Configured in
 `KeyBasedEventProcessorRunner::from_config`.
 
-### `monitored_homeservers_limit`
+### `[watcher].monitored_homeservers_limit`
 - **Type / default:** `usize` / `50` (`DEFAULT_MONITORED_HOMESERVERS_LIMIT`).
 - **What it does:** Bounds the number of **external** HSs monitored. The default
   HS is always indexed separately (Section 2) and excluded from this count.
@@ -76,7 +71,7 @@ HS user-events endpoint. Configured in
 - **Tuning:** Each additional monitored HS adds HS requests (and, upstream, PKDNS
   resolutions) per tick. Raise deliberately as the network of indexed HSs grows.
 
-### `key_based_events_limit`
+### `[watcher].key_based_events_limit`
 - **Type / default / max:** `u16` / `50`
   (`DEFAULT_KEY_BASED_EVENTS_LIMIT`) / **max `100`**
   (`MAX_KEY_BASED_EVENTS_LIMIT`). Validated at deserialize time
@@ -87,7 +82,7 @@ HS user-events endpoint. Configured in
   *per HS*. A run may touch many users across many HSs, so the per-user batch is
   kept small to bound total work and per-HS request size.
 
-### Offline-HS backoff: `initial_backoff_secs` / `max_backoff_secs`
+### Offline-HS backoff: `[watcher].initial_backoff_secs` / `[watcher].max_backoff_secs`
 - **Type / default:** `u64` seconds / `60` and `3600`
   (`DEFAULT_INITIAL_BACKOFF_SECS`, `DEFAULT_MAX_BACKOFF_SECS`).
 - **What it does:** Per-HS exponential backoff for homeservers found to be
@@ -102,11 +97,15 @@ HS user-events endpoint. Configured in
 > ⚠️ **Do not confuse these with `[watcher.retry].initial_backoff_secs` /
 > `max_backoff_secs`.** Same names, different mechanism — see Section 5.
 
-### HS public-key blacklist *(planned — not yet merged)*
-- **Status:** Tracked by PR #906; **not present** in `WatcherConfig` on this
-  branch yet.
-- **Intended use:** A config list of HS pubkys that must **never** be indexed,
-  applied before any third-party HS is contacted. Document fully once merged.
+### HS public-key blacklist: `[stack].external_hs_pk_blacklist`
+
+List of external HS PKs from which new events are not being indexed, for as long as they are on this list.
+
+This list is consulted when indexing 3rd party HSs. Any existing events from users pointing to one of these HSs are not affected.
+
+This list is also checked when ingesting new users, for example via the Nexus REST API. New users which point to one of these HSs will not be ingested. Any users that already were ingested, who now point to a blacklisted HS, are not affected in the sense that their old data is not deleted; however new events from their new blacklisted HS are not being indexed.
+
+Events that depend on a not-yet-ingested user hosted by a blacklisted HS (a follow of such a user, a tag on them or their posts, a reply or repost referencing their posts) are dropped rather than queued for retry, since the dependency cannot be ingested while the HS is blacklisted. Removing the HS from the list later does not recover these dropped events. Posts that merely mention such a user are still indexed; only the mention relationship is not materialized.
 
 ---
 
@@ -174,8 +173,6 @@ Relevant only insofar as they switch the HS/relay target during local/dev runs.
 | `testnet` | `false` | Run against a testnet homeserver/relay instead of mainnet. |
 | `testnet_host` | `"localhost"` | Host for the testnet HS/relay; change only if it runs on another machine (e.g. Docker setups). |
 
-Out of scope for decentralization: `[api]`, `[stack]`, and the `moderation_*`
-fields.
 
 ---
 

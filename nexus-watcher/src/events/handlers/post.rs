@@ -7,19 +7,20 @@ use nexus_common::models::notification::{Notification, PostChangedSource, PostCh
 use nexus_common::models::post::{
     PostCounts, PostDetails, PostRelationships, PostStream, POST_TOTAL_ENGAGEMENT_KEY_PARTS,
 };
-use nexus_common::models::user::{UserCounts, UserDetails};
+use nexus_common::models::user::{UserCounts, UserIngestor};
 use pubky_app_specs::{
     post_uri_builder, ParsedUri, PubkyAppPost, PubkyAppPostKind, PubkyId, Resource,
 };
 use tracing::{debug, Instrument};
 
-use super::utils::post_relationships_is_reply;
+use super::utils::{fail_on_blacklisted_hs, post_relationships_is_reply};
 
 #[tracing::instrument(name = "post.put", skip_all, fields(user_id = %author_id, post_id = %post_id))]
 pub async fn sync_put(
     post: PubkyAppPost,
     author_id: PubkyId,
     post_id: String,
+    ingestor: &UserIngestor,
 ) -> Result<(), EventProcessorError> {
     debug!("Indexing new post: {}/{}", author_id, post_id);
     // Create PostDetails object
@@ -40,9 +41,8 @@ pub async fn sync_put(
                     .map_err(EventProcessorError::generic)?;
                 dependency_event_keys.push(replied_uri_str);
 
-                if let Err(e) = PostDetails::maybe_ingest_author_of_post(replied_to_uri).await {
-                    tracing::error!("Failed to ingest user: {e}");
-                }
+                // Drop the reply (non-retryable) if the replied-to post's author is on a blacklisted HS.
+                fail_on_blacklisted_hs(ingestor.maybe_ingest_author_of_post(replied_to_uri).await)?;
             }
             if let Some(reposted_uri) = &post_relationships.reposted {
                 let reposted_uri_str = reposted_uri
@@ -50,9 +50,8 @@ pub async fn sync_put(
                     .map_err(EventProcessorError::generic)?;
                 dependency_event_keys.push(reposted_uri_str);
 
-                if let Err(e) = PostDetails::maybe_ingest_author_of_post(reposted_uri).await {
-                    tracing::error!("Failed to ingest user: {e}");
-                }
+                // Drop the repost (non-retryable) if the reposted post's author is on a blacklisted HS.
+                fail_on_blacklisted_hs(ingestor.maybe_ingest_author_of_post(reposted_uri).await)?;
             }
             if dependency_event_keys.is_empty() {
                 let author_uri = author_id
@@ -100,8 +99,10 @@ pub async fn sync_put(
     // We only consider the first mentioned (tagged) user, to mitigate DoS attacks against Nexus
     // whereby posts with many (inexistent) tagged PKs can cause Nexus to spend a lot of time trying to resolve them
     if let Some(mentioned_user_id) = &post_relationships.mentioned.first() {
-        if let Err(e) = UserDetails::maybe_ingest_user(mentioned_user_id).await {
-            tracing::error!("Failed to ingest user: {e}");
+        // Best-effort: failures (incl. a blacklisted HS) must not fail the post itself,
+        // which is indexed regardless; the MENTIONED edge is simply not materialized.
+        if let Err(e) = ingestor.maybe_ingest_user(mentioned_user_id).await {
+            tracing::warn!("Failed to ingest user {mentioned_user_id}: {e}");
         }
     }
 
@@ -415,7 +416,11 @@ async fn merge_mention_edges(
 }
 
 #[tracing::instrument(name = "post.del", skip_all, fields(user_id = %author_id, post_id = %post_id))]
-pub async fn del(author_id: PubkyId, post_id: String) -> Result<(), EventProcessorError> {
+pub async fn del(
+    author_id: PubkyId,
+    post_id: String,
+    ingestor: &UserIngestor,
+) -> Result<(), EventProcessorError> {
     debug!("Deleting post: {}/{}", author_id, post_id);
 
     // Graph query to check if there is any edge at all to this post other than AUTHORED, is a reply or is a repost.
@@ -441,7 +446,9 @@ pub async fn del(author_id: PubkyId, post_id: String) -> Result<(), EventProcess
                 attachments: None,
             };
 
-            sync_put(dummy_deleted_post, author_id, post_id).await?;
+            // The tombstone keeps the `parent` of a deleted reply, so re-PUT may
+            // still ingest the parent's author; pass on ingestor to enforce the real blacklist.
+            sync_put(dummy_deleted_post, author_id, post_id, ingestor).await?;
         }
         OperationOutcome::MissingDependency => return Err(EventProcessorError::SkipIndexing),
     };

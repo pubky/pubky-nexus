@@ -3,12 +3,12 @@ mod key_based;
 
 pub use homeserver::HsEventProcessor;
 pub use key_based::{KeyBasedEventProcessor, KeyBasedEventSource, PubkyKeyBasedEventSource};
-use nexus_common::models::event::ParseResult;
 use std::{fmt::Display, path::PathBuf, sync::Arc, time::Duration};
 
 use tracing::Instrument;
 
-use nexus_common::models::event::{Event, EventProcessorError};
+use crate::errors::EventProcessorError;
+use crate::events::{Event, ParseResult};
 use tracing::{debug, error, warn};
 
 use crate::events::retry::RetryScheduler;
@@ -189,6 +189,16 @@ pub trait TEventProcessor: Send + Sync + 'static {
         }
     }
 
+    /// Decides whether the given event should be processed by this processor.
+    ///
+    /// Called at the start of [`Self::handle_event`], before the event is handed
+    /// to the event handler. The default always processes the event;
+    /// [`HsEventProcessor`](crate::service::indexer::HsEventProcessor) overrides
+    /// this to skip events from users bound to a different homeserver.
+    async fn should_process_event(&self, _event: &Event) -> Result<bool, EventProcessorError> {
+        Ok(true)
+    }
+
     /// Processes an event and delegates to [`Self::handle_error`] on failure.
     #[tracing::instrument(
         name = "event.process",
@@ -206,6 +216,21 @@ pub trait TEventProcessor: Send + Sync + 'static {
     )]
     async fn handle_event(&self, event: &Event) -> Result<(), EventProcessorError> {
         let span = tracing::Span::current();
+
+        match self.should_process_event(event).await {
+            Ok(true) => {}
+            Ok(false) => {
+                span.record("otel.status_code", "UNSET");
+                span.record("otel.status_message", "SKIPPED");
+                return Ok(());
+            }
+            Err(e) => {
+                span.record("otel.status_code", "ERROR");
+                span.record("otel.status_message", tracing::field::display(&e));
+                return self.handle_error(event, e).await;
+            }
+        }
+
         if let Err(e) = self.event_handler().handle(event).await {
             span.record("otel.status_code", "ERROR");
             span.record("otel.status_message", tracing::field::display(&e));
