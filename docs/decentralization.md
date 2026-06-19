@@ -15,8 +15,8 @@ currently-published HS from PKDNS/DHT and records it as a
 pull from which HS.
 
 This runs as parallel tasks started in `NexusWatcher::start`, each driving one runner:
-- `HsEventProcessorRunner` (Section 2)
-- `KeyBasedEventProcessorRunner` (Section 3)
+- `HsEventProcessorRunner` — bulk indexing of the default HS (Section 2)
+- `KeyBasedEventProcessorRunner` — key-based indexing of externally-hosted users (Section 3)
 - `UserHsResolverRunner` (Section 4), and
 - `RetryProcessor` (`[watcher.retry]`, Section 5, applies to all indexing)
 
@@ -24,9 +24,10 @@ The sections below group each config field under the runner it drives.
 
 ---
 
-## 2. Default homeserver indexing
+## 2. Indexing the default homeserver (bulk)
 
-The baseline, pre-decentralization path. Driven by `HsEventProcessorRunner`.
+The baseline, pre-decentralization path: the default HS is indexed in *bulk* — all
+of its events are pulled in batches. Driven by `HsEventProcessorRunner`.
 
 ### `[watcher].homeserver`
 - **Type / default:** `PubkyId` / Synonym's HS key (see `default.config.toml`).
@@ -56,7 +57,7 @@ The baseline, pre-decentralization path. Driven by `HsEventProcessorRunner`.
 
 ---
 
-## 3. Indexing externally-hosted users
+## 3. Indexing externally-hosted users (key-based)
 
 The core of decentralization. Driven by `KeyBasedEventProcessorRunner`, which
 indexes users hosted on non-default ("third-party") homeservers: for every
