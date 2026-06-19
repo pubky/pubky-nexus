@@ -28,7 +28,7 @@ runner; the sections below group each config field under the runner it drives:
 ## 2. Indexing the default HS (bulk)
 
 The baseline, pre-decentralization path: the default HS is indexed in *bulk* — all
-of its events are pulled in batches. Driven by `HsEventProcessorRunner`.
+of its events are pulled from the HS `/events` endpoint. Driven by `HsEventProcessorRunner`.
 
 The default HS is trusted, which implies a different event validation model.
 
