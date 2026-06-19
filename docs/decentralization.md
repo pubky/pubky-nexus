@@ -218,7 +218,6 @@ avoid hammering an HS for content that may not exist yet.
 | `key_based_events_limit` | `[watcher]` | `u16` | `50` (max `100`) |
 | `initial_backoff_secs` | `[watcher]` | `u64` s | `60` |
 | `max_backoff_secs` | `[watcher]` | `u64` s | `3600` |
-| `external_hs_pk_blacklist` | `[stack]` | `Vec<PubkyId>` | `[]` |
 | `hs_resolver_sleep` | `[watcher]` | `u64` ms | `10000` |
 | `hs_resolver_ttl` | `[watcher]` | `u64` ms | `3_600_000` |
 | `max_retries` | `[watcher.retry]` | `u32` | `10` |
@@ -227,3 +226,4 @@ avoid hammering an HS for content that may not exist yet.
 | `max_backoff_secs` | `[watcher.retry]` | `u64` s | `3600` |
 | `initial_missing_dep_backoff_secs` | `[watcher.retry]` | `u64` s | `60` |
 | `max_missing_dep_backoff_secs` | `[watcher.retry]` | `u64` s | `3600` |
+| `external_hs_pk_blacklist` | `[stack]` | `Vec<PubkyId>` | `[]` |
