@@ -90,9 +90,13 @@ impl NexusApiBuilder {
         StackManager::setup(&self.api_context.api_config.stack).await?;
         let mut shutdown_rx = shutdown_rx.unwrap_or_else(create_shutdown_rx);
 
-        let nexus_api = NexusApi::start(self.api_context, self.enable_key_republisher)
-            .await
-            .inspect_err(|e| error!("Failed to start Nexus API: {e}"))?;
+        let nexus_api = NexusApi::start(
+            self.api_context,
+            self.enable_key_republisher,
+            shutdown_rx.clone(),
+        )
+        .await
+        .inspect_err(|e| error!("Failed to start Nexus API: {e}"))?;
 
         info!("Nexus API HTTP: {}", nexus_api.icann_http_url());
         info!("Nexus API Pubky TLS: {}", nexus_api.pubky_tls_dns_url());
@@ -174,12 +178,13 @@ impl NexusApi {
     pub(crate) async fn start(
         ctx: ApiContext,
         enable_key_republisher: bool,
+        shutdown_rx: Receiver<bool>,
     ) -> Result<Self, DynError> {
         // Create all the routes of the API
         let state = routes::AppState {
             files_path: Arc::new(ctx.api_config.stack.files_path.clone()),
         };
-        let app_routes = routes::app_routes(state.clone());
+        let app_routes = routes::app_routes(state.clone(), &ctx.api_config.rate_limit, shutdown_rx);
         let router = routes::build_app(
             app_routes,
             state,
@@ -233,7 +238,7 @@ impl NexusApi {
         tokio::spawn(
             icann_server
                 .handle(handle.clone())
-                .serve(router.into_make_service())
+                .serve(router.into_make_service_with_connect_info::<SocketAddr>())
                 .inspect_err(|e| error!("Nexus API ICANN DNS endpoint error: {e}")),
         );
 
@@ -263,7 +268,7 @@ impl NexusApi {
             tls_server
                 .acceptor(Self::create_pubky_tls_acceptor(&ctx.keypair))
                 .handle(pubky_handle.clone())
-                .serve(router.into_make_service())
+                .serve(router.into_make_service_with_connect_info::<SocketAddr>())
                 .inspect_err(|e| error!("Nexus API pubky TLS endpoint error: {e}")),
         );
 

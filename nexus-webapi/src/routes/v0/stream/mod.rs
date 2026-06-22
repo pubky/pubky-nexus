@@ -9,20 +9,13 @@ use axum::routing::{get, post};
 use axum::Router;
 use utoipa::OpenApi;
 
-mod posts;
+pub mod posts;
 mod resources;
-mod users;
+pub mod users;
 
-pub fn routes() -> Router<AppState> {
+pub fn expensive_routes() -> Router<AppState> {
     Router::new()
         .route(STREAM_USERS_ROUTE, get(users::stream_users_handler))
-        .route(STREAM_USER_IDS_ROUTE, get(users::stream_user_ids_handler))
-        .route(
-            STREAM_USERS_USERNAME_SEARCH_ROUTE,
-            get(users::stream_username_search_handler),
-        )
-        .route(STREAM_POST_KEYS_ROUTE, get(posts::stream_post_keys_handler))
-        .route(STREAM_POSTS_ROUTE, get(posts::stream_posts_handler))
         .route(
             STREAM_USERS_BY_IDS_ROUTE,
             post(users::stream_users_by_ids_handler),
@@ -31,6 +24,17 @@ pub fn routes() -> Router<AppState> {
             STREAM_POSTS_BY_IDS_ROUTE,
             post(posts::stream_posts_by_ids_handler),
         )
+}
+
+pub fn routes() -> Router<AppState> {
+    Router::new()
+        .route(STREAM_USER_IDS_ROUTE, get(users::stream_user_ids_handler))
+        .route(
+            STREAM_USERS_USERNAME_SEARCH_ROUTE,
+            get(users::stream_username_search_handler),
+        )
+        .route(STREAM_POST_KEYS_ROUTE, get(posts::stream_post_keys_handler))
+        .route(STREAM_POSTS_ROUTE, get(posts::stream_posts_handler))
         .route(
             STREAM_RESOURCES_ROUTE,
             get(resources::stream_resources_handler),

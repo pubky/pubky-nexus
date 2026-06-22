@@ -34,6 +34,7 @@ pub struct SearchPostsQuery {
     responses(
         (status = 200, description = "Search results", body = Vec<PostsByTagSearch>),
         (status = 400, description = "Invalid parameters"),
+        (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error")
     )
 )]
@@ -77,6 +78,7 @@ pub struct SearchPostsByContentQuery {
     responses(
         (status = 200, description = "Search results ordered by relevance score", body = Vec<PostsByContentSearch>),
         (status = 400, description = "Invalid query or limit parameter"),
+        (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error")
     )
 )]

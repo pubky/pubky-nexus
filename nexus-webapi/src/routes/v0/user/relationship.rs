@@ -26,6 +26,7 @@ pub struct RelationshipPath {
     responses(
         (status = 200, description = "User relationship", body = Relationship),
         (status = 404, description = "User not found"),
+        (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error")
     )
 )]

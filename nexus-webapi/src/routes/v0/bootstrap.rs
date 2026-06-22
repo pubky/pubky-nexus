@@ -1,6 +1,5 @@
 use crate::models::PubkyId;
-use crate::routes::v0::endpoints::BOOTSTRAP_ROUTE;
-use crate::routes::v0::endpoints::PUT_HOMESERVER_ROUTE;
+use crate::routes::v0::endpoints::{BOOTSTRAP_ROUTE, PUT_HOMESERVER_ROUTE};
 use crate::routes::AppState;
 use crate::routes::Path;
 use crate::Result;
@@ -22,16 +21,12 @@ use utoipa::OpenApi;
     ),
     responses(
         (status = 200, description = "Initial payload to bootstrap the client", body = Bootstrap),
+        (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error")
     )
 )]
-pub async fn bootstrap_handler(
-    Path(user_id): Path<PubkyId>,
-    // TODO: Might need a param like "ViewType". There might be too much data to include in the first go, especially for mobile
-    //Query(query): Query<Pub>,
-) -> Result<Json<Bootstrap>> {
+pub async fn bootstrap_handler(Path(user_id): Path<PubkyId>) -> Result<Json<Bootstrap>> {
     debug!("GET {BOOTSTRAP_ROUTE}, user_id:{}", user_id);
-
     Ok(Json(Bootstrap::get_by_id(&user_id, ViewType::Full).await?))
 }
 
@@ -45,6 +40,7 @@ pub async fn bootstrap_handler(
     ),
     responses(
         (status = 200, description = "Successfully added new homeserver"),
+        (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error")
     )
 )]
@@ -61,8 +57,10 @@ pub async fn put_homeserver_handler(Path(user_id): Path<PubkyId>) -> Result<()> 
 )]
 pub struct BootstrapApiDoc;
 
+pub fn expensive_routes() -> Router<AppState> {
+    Router::new().route(BOOTSTRAP_ROUTE, get(bootstrap_handler))
+}
+
 pub fn routes() -> Router<AppState> {
-    Router::new()
-        .route(BOOTSTRAP_ROUTE, get(bootstrap_handler))
-        .route(PUT_HOMESERVER_ROUTE, put(put_homeserver_handler))
+    Router::new().route(PUT_HOMESERVER_ROUTE, put(put_homeserver_handler))
 }

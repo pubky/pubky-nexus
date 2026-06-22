@@ -42,6 +42,7 @@ pub struct ResourceStreamQuery {
     responses(
         (status = 200, description = "Resource IDs with cursor", body = ResourceKeyStream),
         (status = 400, description = "Invalid parameters"),
+        (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error")
     )
 )]
@@ -90,6 +91,7 @@ pub async fn stream_resource_ids_handler(
     responses(
         (status = 200, description = "Resource stream", body = Vec<ResourceView>),
         (status = 400, description = "Invalid parameters"),
+        (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error")
     )
 )]

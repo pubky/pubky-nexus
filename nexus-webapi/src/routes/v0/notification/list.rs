@@ -32,6 +32,7 @@ pub struct NotificationsQuery {
     responses(
         (status = 200, description = "List of notifications", body = Vec<Notification>),
         (status = 400, description = "Invalid parameters"),
+        (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error")
     )
 )]

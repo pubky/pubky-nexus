@@ -22,6 +22,7 @@ pub struct FilesByIdsBody {
     request_body = FilesByIdsBody,
     responses(
         (status = 200, description = "List of File Details", body = Vec<FileDetails>),
+        (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error")
     )
 )]
