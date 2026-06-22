@@ -3,6 +3,7 @@ mod key_based;
 
 pub use homeserver::HsEventProcessor;
 pub use key_based::{KeyBasedEventProcessor, KeyBasedEventSource, PubkyKeyBasedEventSource};
+use nexus_common::DEFAULT_MAX_FILE_SIZE;
 use std::{fmt::Display, path::PathBuf, sync::Arc, time::Duration};
 
 use tracing::Instrument;
@@ -122,6 +123,10 @@ pub trait TEventProcessor: Send + Sync + 'static {
         None
     }
 
+    fn max_file_size(&self) -> u64 {
+        DEFAULT_MAX_FILE_SIZE
+    }
+
     /// Parses a single event line and dispatches to [`Self::handle_event`].
     /// Unknown resource events are handled via `HomeserverParsedUri::UnknownResource` →
     /// `DefaultEventHandler` → `tag::sync_put_resource` (main flow).
@@ -231,7 +236,11 @@ pub trait TEventProcessor: Send + Sync + 'static {
             }
         }
 
-        if let Err(e) = self.event_handler().handle(event).await {
+        if let Err(e) = self
+            .event_handler()
+            .handle(event, self.max_file_size())
+            .await
+        {
             span.record("otel.status_code", "ERROR");
             span.record("otel.status_message", tracing::field::display(&e));
 

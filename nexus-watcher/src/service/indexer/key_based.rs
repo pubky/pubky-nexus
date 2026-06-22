@@ -75,6 +75,7 @@ pub struct KeyBasedEventProcessor {
     pub event_handler: Arc<dyn EventHandler>,
     pub event_source: Arc<dyn KeyBasedEventSource>,
     pub user_not_found_backoff: Arc<UserNotFoundBackoff>,
+    pub max_file_size: u64,
 
     /// HS PKs that should not be indexed. Defense-in-depth: the runner already
     /// excludes these from `pre_run`, but the processor refuses to run for a

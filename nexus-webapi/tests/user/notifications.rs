@@ -1,5 +1,6 @@
-use crate::utils::get_request;
+use crate::utils::{get_request, invalid_get_request};
 use anyhow::Result;
+use axum::http::StatusCode;
 use nexus_common::{
     db::RedisOps,
     models::notification::{Notification, NotificationBody},
@@ -70,25 +71,17 @@ async fn test_get_notifications_with_limit() -> Result<()> {
     Ok(())
 }
 
-/// Seeds 3 notifications and verifies that limit=0 returns an empty array.
+/// Verifies that limit=0 is rejected with 400 (must be at least 1).
 #[tokio_shared_rt::test(shared)]
 async fn test_get_notifications_with_limit_zero() -> Result<()> {
     env_init().await;
     const TEST_USER: &str = "rromxnw9y5cwww1h4b51rroxceinc3cefqpirptdqxb9qfchjxcy";
-    const FOLLOWER_A: &str = "si53n9je46g3ygaoez39cnmhz4ocy7kscqatpietbzr6isahehio";
-    const FOLLOWER_B: &str = "8swiuk8r7btkwryuawknd71w5ize5ca86jkr4kod1gcpwzsztmto";
-    const FOLLOWER_C: &str = "myz6jgweja4jiyp3ckxqhkyqtfkofbn8rxo7496w1hwjj9459zzo";
 
-    seed_follow(TEST_USER, FOLLOWER_A, 1000).await?;
-    seed_follow(TEST_USER, FOLLOWER_B, 2000).await?;
-    seed_follow(TEST_USER, FOLLOWER_C, 3000).await?;
-
-    let res = get_request(&format!("/v0/user/{TEST_USER}/notifications?limit=0")).await?;
-    assert_eq!(
-        res.as_array().unwrap().len(),
-        0,
-        "limit=0 should return empty array"
-    );
+    invalid_get_request(
+        &format!("/v0/user/{TEST_USER}/notifications?limit=0"),
+        StatusCode::BAD_REQUEST,
+    )
+    .await?;
 
     Ok(())
 }

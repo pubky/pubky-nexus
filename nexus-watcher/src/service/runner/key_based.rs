@@ -27,6 +27,7 @@ pub struct KeyBasedEventProcessorRunner {
     pub event_handler: Arc<dyn EventHandler>,
     pub event_source: Arc<dyn KeyBasedEventSource>,
     pub shutdown_rx: Receiver<bool>,
+    pub max_file_size: u64,
 
     /// Default homeserver ID, excluded from the external targets list
     pub default_homeserver: PubkyId,
@@ -54,6 +55,7 @@ impl KeyBasedEventProcessorRunner {
             event_handler: Arc::new(DefaultEventHandler::from_config(config)),
             event_source: Arc::new(PubkyKeyBasedEventSource),
             shutdown_rx,
+            max_file_size: config.max_file_size,
             default_homeserver: config.homeserver.clone(),
             hs_blacklist: HsBlacklist::from_config(&config.stack),
             backoff: Mutex::new(HomeserverBackoff::new(
@@ -100,6 +102,7 @@ impl TEventProcessorRunner for KeyBasedEventProcessorRunner {
             event_handler: self.event_handler.clone(),
             event_source: self.event_source.clone(),
             user_not_found_backoff: self.user_not_found_backoff.clone(),
+            max_file_size: self.max_file_size,
             retry_scheduler: self.retry_scheduler.clone(),
             hs_blacklist: self.hs_blacklist.clone(),
             shutdown_rx: self.shutdown_rx.clone(),

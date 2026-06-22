@@ -1,17 +1,30 @@
 use super::TEventProcessor;
 use crate::errors::EventProcessorError;
 use crate::events::retry::RetryScheduler;
-use crate::events::{Event, EventHandler};
+use crate::events::{read_stream_capped, Event, EventHandler, MAX_EVENTS_BODY};
 use nexus_common::db::{fetch_row_from_graph, queries, GraphResult, PubkyConnector};
 use nexus_common::models::homeserver::Homeserver;
+use opentelemetry::metrics::Counter;
+use opentelemetry::{global, KeyValue};
 use pubky::Method;
 use pubky_app_specs::PubkyId;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use tokio::sync::watch::Receiver;
 use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
+
+/// OpenTelemetry meter name for all watcher metrics.
+const METER_NAME: &str = "nexus.watcher";
+
+/// Counter for events permanently rejected for exceeding a fetch size limit.
+static REJECTED: LazyLock<Counter<u64>> = LazyLock::new(|| {
+    global::meter(METER_NAME)
+        .u64_counter("watcher.fetch.rejected")
+        .with_description("Event fetches rejected for exceeding a size limit")
+        .build()
+});
 
 /// A user's `HOSTED_BY` mapping, classified relative to a processor's HS.
 ///
@@ -38,6 +51,10 @@ pub struct HsEventProcessor {
     pub files_path: PathBuf,
     pub event_handler: Arc<dyn EventHandler>,
     pub shutdown_rx: Receiver<bool>,
+
+    /// See [WatcherConfig::max_file_size]
+    pub max_file_size: u64,
+
     /// Scheduler used to enqueue failed events onto the retry queue
     pub retry_scheduler: Arc<RetryScheduler>,
 
@@ -183,10 +200,18 @@ impl HsEventProcessor {
                 .await
                 .map_err(|e| EventProcessorError::client_error(e.to_string()))?;
 
-            response
-                .text()
+            let (buf, exceeded) = read_stream_capped(response.bytes_stream(), MAX_EVENTS_BODY)
                 .await
-                .map_err(|e| EventProcessorError::client_error(e.to_string()))?
+                .map_err(|e| EventProcessorError::client_error(e.to_string()))?;
+            if exceeded {
+                REJECTED.add(1, &[KeyValue::new("reason", "size_exceeded")]);
+
+                return Err(EventProcessorError::FetchSizeExceeded(
+                    buf.len() as u64,
+                    MAX_EVENTS_BODY as u64,
+                ));
+            }
+            String::from_utf8_lossy(&buf).into_owned()
         };
 
         let lines: Vec<String> = response_text.trim().lines().map(String::from).collect();

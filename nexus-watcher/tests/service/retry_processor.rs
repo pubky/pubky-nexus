@@ -4,6 +4,7 @@ use anyhow::Result;
 use chrono::Utc;
 use nexus_common::config::EventRetryConfig;
 use nexus_common::db::kv::RedisOps;
+use nexus_common::DEFAULT_MAX_FILE_SIZE;
 use nexus_watcher::errors::EventProcessorError;
 use nexus_watcher::events::retry::{
     IndexKey, RedisRetryStore, RetryEvent, RetryProcessor, RetryStore, RETRY_MANAGER_EVENTS_INDEX,
@@ -76,6 +77,7 @@ fn build_processor(
         shutdown_rx,
         config,
         store,
+        max_file_size: DEFAULT_MAX_FILE_SIZE,
     })
 }
 

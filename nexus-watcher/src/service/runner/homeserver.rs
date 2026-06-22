@@ -13,11 +13,17 @@ use tokio::sync::watch::Receiver;
 pub struct HsEventProcessorRunner {
     /// See [WatcherConfig::events_limit]
     pub limit: u16,
+
     pub files_path: PathBuf,
     pub event_handler: Arc<dyn EventHandler>,
     pub shutdown_rx: Receiver<bool>,
+
     /// See [WatcherConfig::homeserver]
     pub default_homeserver: PubkyId,
+
+    /// See [WatcherConfig::max_file_size]
+    pub max_file_size: u64,
+
     /// Scheduler shared with every processor this runner builds
     pub retry_scheduler: Arc<RetryScheduler>,
 }
@@ -31,6 +37,7 @@ impl HsEventProcessorRunner {
             event_handler: Arc::new(DefaultEventHandler::from_config(config)),
             shutdown_rx,
             default_homeserver: config.homeserver.clone(),
+            max_file_size: config.max_file_size,
             retry_scheduler: Arc::new(RetryScheduler::from_config(config)),
         }
     }
@@ -61,6 +68,7 @@ impl TEventProcessorRunner for HsEventProcessorRunner {
             shutdown_rx: self.shutdown_rx.clone(),
             retry_scheduler: self.retry_scheduler.clone(),
             hs_mapping_cache: Default::default(),
+            max_file_size: self.max_file_size,
         }))
     }
 

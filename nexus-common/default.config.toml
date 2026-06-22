@@ -6,6 +6,10 @@ public_ip = "127.0.0.1"
 public_addr = "127.0.0.1:8080"
 # The local IP and port to which the HTTPS (Pkarr TLS) server will bind and listen on
 pubky_listen_socket = "127.0.0.1:8081"
+# Time (in seconds) before a request is aborted with a 408 Request Timeout; values below 1 are clamped to 1
+request_timeout_secs = 30
+# Maximum size (in bytes) accepted for a request body
+max_body_size_bytes = 1048576
 
 [watcher]
 testnet = false
@@ -28,6 +32,11 @@ hs_resolver_ttl = 3600000
 initial_backoff_secs = 60
 # Maximum backoff duration (in seconds) for a failing homeserver
 max_backoff_secs = 3600
+# Maximum allowed file size (in bytes) for ingested files. Default: 52428800 (50 MiB).
+# Responses with Content-Length exceeding this are rejected immediately.
+# Responses without a header are streamed with a running byte-count and aborted past the cap.
+# Rejected files are treated as permanent failures (not retried).
+max_file_size = 52428800
 # User public key to trust for moderating content (test user key, change as needed)
 moderation_id = "uo7jgkykft4885n8cruizwy6khw71mnu5pq3ay9i8pw1ymcn85ko"
 # Tags on content to de-index when placed by the trusted moderator above

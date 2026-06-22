@@ -1,4 +1,4 @@
-use crate::event_processor::utils::{default_ingestor_tests, default_moderation_tests};
+use crate::event_processor::utils::default_moderation_tests;
 use crate::service::utils::HS_IDS;
 use crate::service::utils::{create_mock_event_processors, setup, MockEventProcessorRunner};
 
@@ -8,7 +8,8 @@ use nexus_common::models::homeserver::{Homeserver, HsBlacklist};
 use nexus_common::models::traits::Collection;
 use nexus_common::models::user::{set_user_homeserver, UserDetails};
 use nexus_common::types::DynError;
-use nexus_common::utils::test_utils::random_pubky_id;
+use nexus_common::utils::test_utils::{default_ingestor_tests, random_pubky_id};
+use nexus_common::DEFAULT_MAX_FILE_SIZE;
 use nexus_watcher::events::retry::{InitialBackoff, RedisRetryStore, RetryScheduler, RetryStore};
 use nexus_watcher::events::{DefaultEventHandler, EventHandler};
 use nexus_watcher::service::indexer::PubkyKeyBasedEventSource;
@@ -49,6 +50,7 @@ async fn test_event_processor_runner_default_homeserver_excluded() -> Result<(),
         backoff: Mutex::new(HomeserverBackoff::default()),
         user_not_found_backoff: Arc::new(UserNotFoundBackoff::default()),
         retry_scheduler,
+        max_file_size: DEFAULT_MAX_FILE_SIZE,
     };
 
     // Persist the homeservers
@@ -100,6 +102,7 @@ async fn test_event_processor_runner_blacklisted_homeserver_excluded() -> Result
         backoff: Mutex::new(HomeserverBackoff::default()),
         user_not_found_backoff: Arc::new(UserNotFoundBackoff::default()),
         retry_scheduler,
+        max_file_size: DEFAULT_MAX_FILE_SIZE,
     };
 
     // Both HSs need a hosted user to count as "active" in `get_all_active_from_graph`.

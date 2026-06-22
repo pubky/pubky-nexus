@@ -1,0 +1,104 @@
+use crate::Error;
+use serde::de::{self, Deserializer};
+use serde::Deserialize;
+
+/// Pagination skip with compile-time maximum. Absent query params resolve to 0.
+///
+/// Deserializes from a string (query params are always strings).
+/// Rejects values above MAX with a 400 error.
+#[derive(Debug)]
+pub struct BoundedSkip<const MAX: usize>(pub usize);
+
+impl<const MAX: usize> utoipa::PartialSchema for BoundedSkip<MAX> {
+    fn schema() -> utoipa::openapi::RefOr<utoipa::openapi::schema::Schema> {
+        use utoipa::openapi::schema::{ObjectBuilder, SchemaType, Type};
+        ObjectBuilder::new()
+            .schema_type(SchemaType::new(Type::Integer))
+            .minimum(Some(0usize))
+            .maximum(Some(MAX))
+            .default(Some(serde_json::json!(0)))
+            .into()
+    }
+}
+
+impl<const MAX: usize> utoipa::ToSchema for BoundedSkip<MAX> {
+    fn name() -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Owned(format!("BoundedSkip_{}", MAX))
+    }
+}
+
+impl<const MAX: usize> BoundedSkip<MAX> {
+    pub fn value(&self) -> usize {
+        self.0
+    }
+
+    fn validate(n: usize) -> Result<(), Error> {
+        if n > MAX {
+            return Err(Error::invalid_input(format!(
+                "skip exceeds maximum of {MAX}"
+            )));
+        }
+        Ok(())
+    }
+}
+
+impl<const MAX: usize> Default for BoundedSkip<MAX> {
+    fn default() -> Self {
+        BoundedSkip(0)
+    }
+}
+
+impl<'de, const MAX: usize> Deserialize<'de> for BoundedSkip<MAX> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        let n: u64 = s.parse().map_err(de::Error::custom)?;
+        let n = usize::try_from(n).map_err(|_| de::Error::custom("skip out of range"))?;
+        Self::validate(n).map_err(de::Error::custom)?;
+        Ok(BoundedSkip(n))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    type Skip10k = BoundedSkip<10_000>;
+
+    fn deser(s: &str) -> Result<Skip10k, serde_json::Error> {
+        serde_json::from_str(s)
+    }
+
+    #[test]
+    fn accepts_zero() {
+        assert_eq!(deser("\"0\"").unwrap().value(), 0);
+    }
+
+    #[test]
+    fn accepts_max() {
+        assert_eq!(deser("\"10000\"").unwrap().value(), 10_000);
+    }
+
+    #[test]
+    fn rejects_above_max() {
+        assert!(deser("\"10001\"").is_err());
+    }
+
+    #[test]
+    fn default_is_zero() {
+        assert_eq!(Skip10k::default().value(), 0);
+    }
+
+    #[test]
+    fn different_max_enforced() {
+        assert!(serde_json::from_str::<BoundedSkip<500>>("\"501\"").is_err());
+        assert_eq!(
+            serde_json::from_str::<BoundedSkip<500>>("\"500\"")
+                .unwrap()
+                .value(),
+            500
+        );
+    }
+}

@@ -3,9 +3,9 @@ use crate::event_processor::posts::utils::{
     find_post_details, pubky_id, short_post, short_reply, short_repost, test_user,
 };
 use crate::event_processor::users::utils::find_user_counts;
-use crate::event_processor::utils::default_ingestor_tests;
 use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
+use nexus_common::utils::test_utils::default_ingestor_tests;
 use nexus_watcher::errors::EventProcessorError;
 use nexus_watcher::events::handlers;
 use pubky::Keypair;

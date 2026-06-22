@@ -1,4 +1,4 @@
-use crate::event_processor::utils::{default_ingestor_tests, default_moderation_tests};
+use crate::event_processor::utils::default_moderation_tests;
 use anyhow::{anyhow, Error, Result};
 use base32::{encode, Alphabet};
 use chrono::Utc;
@@ -7,6 +7,7 @@ use nexus_common::get_files_dir_pathbuf;
 use nexus_common::models::file::FileDetails;
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::traits::Collection;
+use nexus_common::utils::test_utils::default_ingestor_tests;
 use nexus_common::{StackConfig, StackManager};
 use nexus_watcher::errors::EventProcessorError;
 use nexus_watcher::events::retry::event::RetryEvent;
@@ -61,6 +62,8 @@ pub struct WatcherTest {
     pub ensure_event_processing: bool,
     /// Keeps the static files temp dir alive for the test.
     pub temp_dir: TempDir,
+    /// Custom max_file_size override (defaults to DEFAULT_MAX_FILE_SIZE).
+    pub max_file_size: u64,
 }
 
 impl WatcherTest {
@@ -84,6 +87,7 @@ impl WatcherTest {
     fn create_test_event_processor_runner(
         default_homeserver: PubkyId,
         files_path: PathBuf,
+        max_file_size: u64,
     ) -> HsEventProcessorRunner {
         let event_handler: Arc<dyn EventHandler> = Arc::new(DefaultEventHandler::new(
             default_moderation_tests(),
@@ -108,6 +112,7 @@ impl WatcherTest {
             shutdown_rx,
             default_homeserver,
             retry_scheduler,
+            max_file_size,
         }
     }
 
@@ -150,9 +155,14 @@ impl WatcherTest {
             Err(e) => panic!("WatcherTest: PubkyConnector initialization failed: {}", e),
         }
 
+        let max_file_size = nexus_common::DEFAULT_MAX_FILE_SIZE;
+
         // Initialize the test-scoped EventProcessorRunner; mirrors the standard processor behavior
-        let event_processor_runner =
-            Self::create_test_event_processor_runner(homeserver_id.clone(), files_path);
+        let event_processor_runner = Self::create_test_event_processor_runner(
+            homeserver_id.clone(),
+            files_path,
+            max_file_size,
+        );
 
         Ok(Self {
             testnet,
@@ -160,7 +170,15 @@ impl WatcherTest {
             event_processor_runner,
             ensure_event_processing: true,
             temp_dir,
+            max_file_size,
         })
+    }
+
+    /// Overrides the max_file_size on the runner for tests that need a custom cap.
+    pub fn with_max_file_size(mut self, size: u64) -> Self {
+        self.event_processor_runner.max_file_size = size;
+        self.max_file_size = size;
+        self
     }
 
     /// Disables event processing and returns the modified instance.
@@ -370,8 +388,9 @@ pub async fn retrieve_and_handle_event_line(
     event_line: &str,
     event_handler: Arc<dyn EventHandler>,
 ) -> Result<(), EventProcessorError> {
+    use nexus_common::DEFAULT_MAX_FILE_SIZE;
     match Event::parse_event(event_line, get_files_dir_pathbuf())? {
-        ParseResult::Parsed(event) => event_handler.handle(&event).await,
+        ParseResult::Parsed(event) => event_handler.handle(&event, DEFAULT_MAX_FILE_SIZE).await,
         ParseResult::Skipped | ParseResult::UnrecognizedUri { .. } => Ok(()),
     }
 }

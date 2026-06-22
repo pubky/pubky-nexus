@@ -1,4 +1,4 @@
-use crate::models::PubkyId;
+use crate::models::{BoundedLimit, BoundedSkip, PubkyId};
 use crate::{Error, Result as AppResult};
 use nexus_common::models::tag::Taggers;
 use nexus_common::types::WotDepth;
@@ -25,12 +25,26 @@ pub(crate) fn resolve_tag_wot_depth(
 
 #[derive(Default, Deserialize, Debug, ToSchema)]
 pub struct TagsQuery {
-    pub limit_tags: Option<usize>,
-    pub skip_tags: Option<usize>,
-    pub limit_taggers: Option<usize>,
+    pub limit_tags: Option<BoundedLimit<5, 100>>,
+    pub skip_tags: Option<BoundedSkip<10_000>>,
+    pub limit_taggers: Option<BoundedLimit<5, 100>>,
     pub viewer_id: Option<PubkyId>,
     #[serde(default, deserialize_with = "parse_string_to_u8")]
     pub depth: Option<u8>,
+}
+
+impl TagsQuery {
+    pub fn skip_tags_as_usize(&self) -> Option<usize> {
+        self.skip_tags.as_ref().map(|s| s.value())
+    }
+
+    pub fn limit_tags_as_usize(&self) -> Option<usize> {
+        self.limit_tags.as_ref().map(|l| l.value())
+    }
+
+    pub fn limit_taggers_as_usize(&self) -> Option<usize> {
+        self.limit_taggers.as_ref().map(|l| l.value())
+    }
 }
 
 // Query params arrive as strings, so deserialize via String first.

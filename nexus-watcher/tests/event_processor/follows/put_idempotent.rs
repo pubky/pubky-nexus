@@ -1,6 +1,5 @@
 use super::utils::find_follow_relationship;
 use crate::event_processor::users::utils::find_user_counts;
-use crate::event_processor::utils::default_ingestor_tests;
 use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
 use nexus_common::{
@@ -10,6 +9,7 @@ use nexus_common::{
         notification::Notification,
     },
     types::Pagination,
+    utils::test_utils::default_ingestor_tests,
 };
 use nexus_watcher::events::handlers::follow;
 use pubky::Keypair;

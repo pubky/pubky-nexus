@@ -1,4 +1,3 @@
-use nexus_common::models::user::UserIngestor;
 use nexus_watcher::errors::EventProcessorError;
 use nexus_watcher::events::Event;
 use nexus_watcher::events::{EventHandler, Moderation};
@@ -37,7 +36,7 @@ impl MockEventHandler {
 
 #[async_trait::async_trait]
 impl EventHandler for MockEventHandler {
-    async fn handle(&self, event: &Event) -> Result<(), EventProcessorError> {
+    async fn handle(&self, event: &Event, _max_file_size: u64) -> Result<(), EventProcessorError> {
         // Increment invocation counter on every call
         *self.handle_count.lock().unwrap() += 1;
         self.handled_uris.lock().unwrap().push(event.uri.clone());
@@ -57,9 +56,4 @@ pub fn default_moderation_tests() -> Arc<Moderation> {
         .expect("Hardcoded test moderation key should be valid");
     let tags = Vec::from(["label_to_moderate".to_string()]);
     Arc::new(Moderation { id, tags })
-}
-
-/// Default user ingestor for tests: empty HS blacklist (ingest everything).
-pub fn default_ingestor_tests() -> Arc<UserIngestor> {
-    Arc::new(UserIngestor::default())
 }

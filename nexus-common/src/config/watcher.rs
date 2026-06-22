@@ -30,6 +30,8 @@ pub const DEFAULT_MAX_BACKOFF_SECS: u64 = 3_600;
 pub const MAX_EVENTS_LIMIT: u16 = 1_000;
 /// Extra-safety check: Upper bound for [WatcherConfig::key_based_events_limit]
 pub const MAX_KEY_BASED_EVENTS_LIMIT: u16 = 100;
+/// Default for [WatcherConfig::max_file_size] — 50 MiB
+pub const DEFAULT_MAX_FILE_SIZE: u64 = 50 * 1024 * 1024;
 
 // Retry configuration defaults
 /// Default for [EventRetryConfig::max_retries]
@@ -133,6 +135,11 @@ pub struct WatcherConfig {
     #[serde(default = "default_max_backoff_secs")]
     pub max_backoff_secs: u64,
 
+    /// Max file size in bytes (Content-Length check + streaming enforcement).
+    /// Rejected files are permanent failures (not retried). Default: 50 MiB.
+    #[serde(default = "default_max_file_size")]
+    pub max_file_size: u64,
+
     #[serde(default = "default_stack")]
     pub stack: StackConfig,
 
@@ -166,6 +173,7 @@ impl Default for WatcherConfig {
             hs_resolver_ttl: DEFAULT_HS_RESOLVER_TTL,
             initial_backoff_secs: DEFAULT_INITIAL_BACKOFF_SECS,
             max_backoff_secs: DEFAULT_MAX_BACKOFF_SECS,
+            max_file_size: DEFAULT_MAX_FILE_SIZE,
             retry: EventRetryConfig::default(),
             moderation_id,
             moderated_tags: MODERATED_TAGS.iter().map(|s| s.to_string()).collect(),
@@ -224,4 +232,8 @@ fn default_initial_backoff_secs() -> u64 {
 
 fn default_max_backoff_secs() -> u64 {
     DEFAULT_MAX_BACKOFF_SECS
+}
+
+fn default_max_file_size() -> u64 {
+    DEFAULT_MAX_FILE_SIZE
 }

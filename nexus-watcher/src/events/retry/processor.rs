@@ -26,6 +26,7 @@ pub struct RetryProcessor {
     pub event_handler: Arc<dyn EventHandler>,
     pub shutdown_rx: Receiver<bool>,
     pub config: EventRetryConfig,
+    pub max_file_size: u64,
     /// Persistence backend for retry events. Production wiring uses
     /// [`RedisRetryStore`]; tests swap in an in-memory store for isolation.
     pub store: Arc<dyn RetryStore>,
@@ -82,6 +83,7 @@ impl RetryProcessor {
             event_handler: Arc::new(DefaultEventHandler::from_config(config)),
             shutdown_rx,
             config: config.retry.clone(),
+            max_file_size: config.max_file_size,
             store,
         }
     }
@@ -130,11 +132,15 @@ impl RetryProcessor {
         // blacklisted HS are blocked before they can be enqueued.
         //
         // Call event_handler directly to get the actual error (bypassing handle_event/handle_error)
-        let event_handle_res = self.event_handler().handle(&event).await.inspect_err(|e| {
-            // In case of error, log it before the error itself is classified and handled
-            // Error handling could itself throw an error. We log it here to pre-empt this possibility.
-            warn!("Retry event handling failed: {e}");
-        });
+        let event_handle_res = self
+            .event_handler()
+            .handle(&event, self.max_file_size)
+            .await
+            .inspect_err(|e| {
+                // In case of error, log it before the error itself is classified and handled
+                // Error handling could itself throw an error. We log it here to pre-empt this possibility.
+                warn!("Retry event handling failed: {e}");
+            });
 
         match event_handle_res {
             Ok(()) => {

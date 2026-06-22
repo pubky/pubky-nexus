@@ -11,6 +11,11 @@ use crate::types::Timeframe;
 use crate::types::WotDepth;
 use pubky_app_specs::PubkyAppPostKind;
 
+// Defense-in-depth: cap SKIP and LIMIT before splicing into Cypher so a future
+// route regression can't produce runaway result sets or excessive skip cost.
+const MAX_QUERY_SKIP: usize = 10_000;
+const MAX_QUERY_LIMIT: usize = 1_000;
+
 // Retrieve post node by post id and author id
 pub fn get_post_by_id(author_id: &str, post_id: &str) -> Query {
     Query::new(
@@ -593,10 +598,10 @@ pub fn get_user_followers(user_id: &str, skip: Option<usize>, limit: Option<usiz
                 COLLECT(follower.id) AS follower_ids",
     );
     if let Some(skip_value) = skip {
-        query_string.push_str(&format!(" SKIP {skip_value}"));
+        query_string.push_str(&format!(" SKIP {}", skip_value.min(MAX_QUERY_SKIP)));
     }
     if let Some(limit_value) = limit {
-        query_string.push_str(&format!(" LIMIT {limit_value}"));
+        query_string.push_str(&format!(" LIMIT {}", limit_value.min(MAX_QUERY_LIMIT)));
     }
     Query::new("get_user_followers", &query_string).param("user_id", user_id)
 }
@@ -609,10 +614,10 @@ pub fn get_user_following(user_id: &str, skip: Option<usize>, limit: Option<usiz
                 COLLECT(following.id) AS following_ids",
     );
     if let Some(skip_value) = skip {
-        query_string.push_str(&format!(" SKIP {skip_value}"));
+        query_string.push_str(&format!(" SKIP {}", skip_value.min(MAX_QUERY_SKIP)));
     }
     if let Some(limit_value) = limit {
-        query_string.push_str(&format!(" LIMIT {limit_value}"));
+        query_string.push_str(&format!(" LIMIT {}", limit_value.min(MAX_QUERY_LIMIT)));
     }
     Query::new("get_user_following", &query_string).param("user_id", user_id)
 }
@@ -1070,10 +1075,10 @@ pub fn post_stream(
 
     // Apply skip and limit
     if let Some(skip) = pagination.skip {
-        cypher.push_str(&format!("SKIP {skip}\n"));
+        cypher.push_str(&format!("SKIP {}\n", skip.min(MAX_QUERY_SKIP)));
     }
     if let Some(limit) = pagination.limit {
-        cypher.push_str(&format!("LIMIT {limit}\n"));
+        cypher.push_str(&format!("LIMIT {}\n", limit.min(MAX_QUERY_LIMIT)));
     }
 
     let query_name = match &source {

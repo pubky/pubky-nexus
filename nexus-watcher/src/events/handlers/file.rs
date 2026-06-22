@@ -1,4 +1,4 @@
-use crate::events::EventProcessorError;
+use crate::events::{fetch_capped, EventProcessorError};
 
 use nexus_common::db::PubkyConnector;
 use nexus_common::media::FileVariant;
@@ -21,11 +21,20 @@ pub async fn sync_put(
     user_id: PubkyId,
     file_id: String,
     files_path: PathBuf,
+    max_file_size: u64,
     ingestor: &UserIngestor,
 ) -> Result<(), EventProcessorError> {
     debug!("Indexing new file resource at {}/{}", user_id, file_id);
 
-    let file_meta = ingest(&user_id, file_id.as_str(), &file, files_path, ingestor).await?;
+    let file_meta = ingest(
+        &user_id,
+        file_id.as_str(),
+        &file,
+        files_path,
+        max_file_size,
+        ingestor,
+    )
+    .await?;
 
     // Create FileDetails object
     let file_details =
@@ -53,6 +62,7 @@ async fn ingest(
     file_id: &str,
     pubkyapp_file: &PubkyAppFile,
     files_path: PathBuf,
+    max_file_size: u64,
     ingestor: &UserIngestor,
 ) -> Result<FileMeta, EventProcessorError> {
     let file_src = &pubkyapp_file.src;
@@ -72,10 +82,7 @@ async fn ingest(
     let path = Path::new(&user_id.to_string()).join(file_id);
     let full_path = files_path.join(path.clone());
 
-    let blob = response
-        .bytes()
-        .await
-        .map_err(|e| EventProcessorError::client_error(e.to_string()))?;
+    let blob = fetch_capped(response, max_file_size).await?;
     let pubky_app_object = PubkyAppObject::from_resource(&parsed_source_uri.resource, &blob)
         .map_err(EventProcessorError::generic)?;
 
