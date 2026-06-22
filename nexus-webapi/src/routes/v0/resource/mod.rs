@@ -169,6 +169,7 @@ pub struct ResourceTaggersPath {
         ("limit" = Option<BoundedLimit<40, 100>>, Query, description = "Limit taggers (1–100, default 40)"),
     ),
     responses(
+        (status = 400, description = "Invalid parameters"),
         (status = 200, description = "Resource taggers", body = TaggersInfoResponse),
         (status = 500, description = "Internal server error")
     )

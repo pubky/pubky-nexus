@@ -47,6 +47,7 @@ pub struct TagTaggersQuery {
         ("timeframe" = Option<Timeframe>, Query, description = "Retrieve taggers for this specific timeframe (not applied for reach). Defaults to `all_time`"),
     ),
     responses(
+        (status = 400, description = "Invalid parameters"),
         (status = 200, description = "Taggers", body = TaggersType),
         (status = 500, description = "Internal server error")
     )
@@ -97,6 +98,7 @@ pub async fn tag_taggers_handler(
         ("timeframe" = Option<Timeframe>, Query, description = "Retrieve hot tags for this specific timeframe. Defaults to `all_time`"),
     ),
     responses(
+        (status = 400, description = "Invalid parameters"),
         (status = 200, description = "Retrieve tags by reach cluster", body = Vec<HotTag>),
         (status = 500, description = "Internal server error")
     )

@@ -100,6 +100,7 @@ pub async fn post_tags_handler(
         ("limit" = Option<BoundedLimit<40, 100>>, Query, description = "Number of taggers to return (1–100, **default** 40)")
     ),
     responses(
+        (status = 400, description = "Invalid parameters"),
         (status = 200, description = "Post tags", body = TaggersInfoResponse),
         (status = 500, description = "Internal server error")
     )
