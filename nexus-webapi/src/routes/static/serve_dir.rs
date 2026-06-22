@@ -4,13 +4,19 @@ use std::sync::OnceLock;
 use crate::Result;
 use axum::{
     body::Body,
-    http::{Request, Uri},
+    http::{header, HeaderValue, Request, Uri},
     response::Response,
+};
+use nexus_common::{
+    media::FileVariant,
+    models::file::{Blob, FileDetails},
 };
 use tower_http::services::{fs::ServeFileSystemResponseBody, ServeDir};
 use tracing::error;
 
 static SERVE_DIR_INSTANCE: OnceLock<ServeDir> = OnceLock::new();
+
+const CACHE_CONTROL: &str = "public, max-age=3600";
 
 pub struct PubkyServeDir;
 
@@ -53,4 +59,37 @@ impl PubkyServeDir {
             .insert("content-type", content_type_header);
         Ok(response)
     }
+}
+
+/// Ensures a file variant exists, serves it, and applies cache headers.
+/// If `download` is true, sets `Content-Disposition: attachment`.
+pub async fn serve_file_variant(
+    request: Request<Body>,
+    file: &FileDetails,
+    variant: &FileVariant,
+    files_path: PathBuf,
+    download: bool,
+) -> Result<Response<ServeFileSystemResponseBody>> {
+    let content_type = Blob::get_by_id(file, variant, files_path.clone()).await?;
+
+    let disk_path = format!("/{}/{}/{variant}", file.owner_id, file.id);
+
+    let mut response =
+        PubkyServeDir::try_call(request, disk_path, content_type, files_path).await?;
+
+    let headers = response.headers_mut();
+    headers.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static(CACHE_CONTROL),
+    );
+
+    if download {
+        let filename = &file.name;
+        let content_disposition = format!("attachment; filename=\"{filename}\"")
+            .parse()
+            .inspect_err(|_| error!("Invalid content disposition header: {filename}"))?;
+        headers.insert(header::CONTENT_DISPOSITION, content_disposition);
+    }
+
+    Ok(response)
 }
