@@ -84,23 +84,29 @@ async fn sleep_handler(Path(millis): Path<u64>) -> StatusCode {
     StatusCode::OK
 }
 
-/// With `request_timeout_secs = 0`, the [TimeoutLayer]'s internal zero-duration
-/// sleep resolves immediately on first poll, while a handler that genuinely
-/// awaits (even briefly) is `Pending` on first poll. The timeout therefore
-/// always wins, deterministically and without any real wait.
+/// A request whose handler exceeds the configured timeout receives 408.
+/// Time is paused so the test doesn't wait a real second.
 #[tokio::test]
 async fn test_request_timeout_returns_408() -> Result<()> {
+    tokio::time::pause();
+
     let temp_dir = TempDir::new()?;
     let state = AppState {
         files_path: Arc::new(temp_dir.path().to_path_buf()),
     };
     let routes = Router::new().route("/sleep/{millis}", get(sleep_handler));
 
-    let app = build_app(routes, state, 0, 1024 * 1024);
+    // 1-second timeout; handler sleeps far longer (time is paused, so no real wait).
+    let app = build_app(routes, state, 1, 1024 * 1024);
 
-    let req = Request::builder().uri("/sleep/100").body(Body::empty())?;
+    let req = Request::builder()
+        .uri("/sleep/9999999")
+        .body(Body::empty())?;
+    let task = tokio::spawn(app.oneshot(req));
+    tokio::task::yield_now().await;
+    tokio::time::advance(Duration::from_secs(2)).await;
 
-    let response = app.oneshot(req).await?;
+    let response = task.await??;
 
     assert_eq!(response.status(), StatusCode::REQUEST_TIMEOUT);
 
@@ -153,20 +159,26 @@ async fn test_body_size_limit_response_has_cors_header() -> Result<()> {
 /// status/body. This test guards the layer ordering that prevents that.
 #[tokio::test]
 async fn test_request_timeout_response_has_cors_header() -> Result<()> {
+    tokio::time::pause();
+
     let temp_dir = TempDir::new()?;
     let state = AppState {
         files_path: Arc::new(temp_dir.path().to_path_buf()),
     };
     let routes = Router::new().route("/sleep/{millis}", get(sleep_handler));
 
-    let app = build_app(routes, state, 0, 1024 * 1024);
+    // 1-second timeout; handler sleeps far longer (time is paused, so no real wait).
+    let app = build_app(routes, state, 1, 1024 * 1024);
 
     let req = Request::builder()
-        .uri("/sleep/100")
+        .uri("/sleep/9999999")
         .header(ORIGIN, "https://example.com")
         .body(Body::empty())?;
+    let task = tokio::spawn(app.oneshot(req));
+    tokio::task::yield_now().await;
+    tokio::time::advance(Duration::from_secs(2)).await;
 
-    let response = app.oneshot(req).await?;
+    let response = task.await??;
 
     assert_eq!(response.status(), StatusCode::REQUEST_TIMEOUT);
     assert!(

@@ -116,9 +116,11 @@ pub fn build_app(
         // Also raise the extractor limit (Json, Bytes, etc.), which otherwise defaults to
         // 2MB regardless of RequestBodyLimitLayer above, capping requests below max_body_size_bytes.
         .layer(DefaultBodyLimit::max(max_body_size_bytes))
+        // Clamp to 1 s minimum: a zero-duration timeout fires before any handler runs,
+        // returning 408 for every request. Treat 0 as "use the minimum".
         .layer(TimeoutLayer::with_status_code(
             StatusCode::REQUEST_TIMEOUT,
-            Duration::from_secs(request_timeout_secs),
+            Duration::from_secs(request_timeout_secs.max(1)),
         ))
         .layer(cors)
         .layer(axum::middleware::from_fn(
