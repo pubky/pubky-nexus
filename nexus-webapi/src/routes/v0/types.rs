@@ -33,6 +33,20 @@ pub struct TagsQuery {
     pub depth: Option<u8>,
 }
 
+impl TagsQuery {
+    pub fn skip_tags_as_usize(&self) -> Option<usize> {
+        self.skip_tags.as_ref().map(|s| s.value())
+    }
+
+    pub fn limit_tags_as_usize(&self) -> Option<usize> {
+        self.limit_tags.as_ref().map(|l| l.value())
+    }
+
+    pub fn limit_taggers_as_usize(&self) -> Option<usize> {
+        self.limit_taggers.as_ref().map(|l| l.value())
+    }
+}
+
 // Query params arrive as strings, so deserialize via String first.
 pub(crate) fn parse_string_to_u8<'de, D>(deserializer: D) -> Result<Option<u8>, D::Error>
 where

@@ -46,9 +46,9 @@ pub async fn user_tags_handler(
     match TagUser::get_by_id(
         &user_id,
         None,
-        query.skip_tags.map(|s| s.value()),
-        query.limit_tags.map(|l| l.value()),
-        query.limit_taggers.map(|l| l.value()),
+        query.skip_tags_as_usize(),
+        query.limit_tags_as_usize(),
+        query.limit_taggers_as_usize(),
         query.viewer_id.as_deref(),
         depth,
     )

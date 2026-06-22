@@ -85,9 +85,9 @@ pub async fn resource_tags_handler(
     let tags = TagResource::get_by_id(
         &res_id,
         None,
-        query.skip_tags.map(|s| s.value()),
-        query.limit_tags.map(|l| l.value()),
-        query.limit_taggers.map(|l| l.value()),
+        query.skip_tags_as_usize(),
+        query.limit_tags_as_usize(),
+        query.limit_taggers_as_usize(),
         query.viewer_id.as_deref(),
         None,
     )
@@ -136,9 +136,9 @@ pub async fn resource_by_uri_handler(
     let tags = TagResource::get_by_id(
         &res_id,
         None,
-        query.tags_query.skip_tags.map(|s| s.value()),
-        query.tags_query.limit_tags.map(|l| l.value()),
-        query.tags_query.limit_taggers.map(|l| l.value()),
+        query.tags_query.skip_tags_as_usize(),
+        query.tags_query.limit_tags_as_usize(),
+        query.tags_query.limit_taggers_as_usize(),
         query.tags_query.viewer_id.as_deref(),
         None,
     )
