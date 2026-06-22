@@ -110,6 +110,10 @@ impl TEventProcessor for KeyBasedEventProcessor {
         Some(self.homeserver.id.as_ref())
     }
 
+    fn max_file_size(&self) -> u64 {
+        self.max_file_size
+    }
+
     async fn run_internal(self: Arc<Self>) -> Result<(), EventProcessorError> {
         let hs_id = self.homeserver.id.to_string();
 

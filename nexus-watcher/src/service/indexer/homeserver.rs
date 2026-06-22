@@ -89,6 +89,10 @@ impl TEventProcessor for HsEventProcessor {
         Some(self.homeserver.id.as_ref())
     }
 
+    fn max_file_size(&self) -> u64 {
+        self.max_file_size
+    }
+
     /// Skips events from users that are not actively bound to this homeserver.
     ///
     /// Before an event is processed we inspect the user's `HOSTED_BY` edge:
