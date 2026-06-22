@@ -1,4 +1,7 @@
-use crate::models::{GlobalPostId, GlobalPostIds, PostId, PostStreamDetailed, PubkyId, Tags};
+use crate::models::{
+    BoundedLimit, BoundedPagination, BoundedSkip, GlobalPostId, GlobalPostIds, PostId,
+    PostStreamDetailed, PubkyId, Tags,
+};
 use crate::routes::v0::endpoints::{
     STREAM_POSTS_BY_IDS_ROUTE, STREAM_POSTS_ROUTE, STREAM_POST_KEYS_ROUTE,
 };
@@ -11,7 +14,7 @@ use nexus_common::db::kv::SortOrder;
 use nexus_common::types::StreamSorting;
 use nexus_common::{
     models::post::{PostKeyStream, PostStream, StreamSource},
-    types::{Pagination, WotDepth},
+    types::WotDepth,
 };
 use pubky_app_specs::PubkyAppPostKind;
 use serde::Deserialize;
@@ -152,7 +155,7 @@ fn build_stream_source(
     }
 }
 
-#[derive(Deserialize, Debug, ToSchema)]
+#[derive(Deserialize, Debug)]
 pub struct PostStreamQuery {
     #[serde(default)]
     pub source: StreamSourceKind,
@@ -160,7 +163,9 @@ pub struct PostStreamQuery {
     pub observer_id: Option<PubkyId>,
     pub post_id: Option<PostId>,
     #[serde(flatten)]
-    pub pagination: Pagination,
+    pub pagination: BoundedPagination<10_000, 10, 50>,
+    pub start: Option<f64>,
+    pub end: Option<f64>,
     pub order: Option<SortOrder>,
     pub sorting: Option<StreamSorting>,
     pub viewer_id: Option<PubkyId>,
@@ -175,8 +180,6 @@ pub struct PostStreamQuery {
 
 impl PostStreamQuery {
     pub fn initialize_defaults(&mut self) {
-        self.pagination.skip.get_or_insert(0);
-        self.pagination.limit = Some(self.pagination.limit.unwrap_or(10).min(30));
         self.sorting.get_or_insert(StreamSorting::Timeline);
     }
 
@@ -210,8 +213,8 @@ impl PostStreamQuery {
             ("kind", self.kind.is_some()),
             ("sorting", self.sorting.is_some()),
             ("order", self.order.is_some()),
-            ("start", self.pagination.start.is_some()),
-            ("end", self.pagination.end.is_some()),
+            ("start", self.start.is_some()),
+            ("end", self.end.is_some()),
         ];
         if let Some((name, _)) = incompatible.iter().find(|(_, present)| *present) {
             return Err(Error::invalid_input(format!(
@@ -238,14 +241,15 @@ impl PostStreamQuery {
         ("depth" = Option<u8>, Query, description = "WoT traversal depth (1-3, default 2) for `source=wot` / `source=wot_domain`. Ignored for other sources."),
         ("domain_tags" = Option<Tags>, Query, description = "Required for `source=wot_domain`. Comma-separated tag labels (max 5); returns posts by authors tagged with any of these by the observer's WoT. E.g. `&domain_tags=bitcoiner,btc-dev`. Ignored for other sources."),
         ("kind" = Option<PubkyAppPostKind>, Query, description = "Filter by post kind: short, long, image, video, link, file, collection."),
-        ("skip" = Option<usize>, Query, description = "Skip N posts"),
-        ("limit" = Option<usize>, Query, description = "Retrieve N posts"),
-        ("start" = Option<usize>, Query, description = "The start of the stream timeframe or score. Posts with a timestamp/score greater than this value will be excluded from the results"),
-        ("end" = Option<usize>, Query, description = "The end of the stream timeframe or score. Posts with a timestamp/score less than this value will be excluded from the results"),
+        ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Skip N posts (max 10000)"),
+        ("limit" = Option<BoundedLimit<10, 50>>, Query, description = "Retrieve N posts (1–50, default 10)"),
+        ("start" = Option<f64>, Query, description = "The start of the stream timeframe or score. Posts with a timestamp/score greater than this value will be excluded from the results"),
+        ("end" = Option<f64>, Query, description = "The end of the stream timeframe or score. Posts with a timestamp/score less than this value will be excluded from the results"),
         ("include_attachment_metadata" = Option<bool>, Query, description = "Include file metadata for post attachments"),
     ),
     responses(
         (status = 200, description = "Posts stream", body = PostStreamDetailed),
+        (status = 400, description = "Invalid parameters"),
         (status = 500, description = "Internal server error")
     ),
     description = r#"Stream Posts: Retrieve a stream of posts.
@@ -270,13 +274,14 @@ pub async fn stream_posts_handler(
 
     query.validate_source_compat()?; // before initialize_defaults
     query.initialize_defaults();
+    let pagination = query.pagination.to_pagination(query.start, query.end);
     let (source, sorting, order) = query.extract_stream_params()?;
     let include_attachment_metadata = query.include_attachment_metadata;
     let tags = query.tags.as_ref().map(Tags::to_string_vec);
 
     match PostStream::get_posts(
         source,
-        query.pagination,
+        pagination,
         order,
         sorting,
         query.viewer_id.as_deref(),
@@ -307,13 +312,14 @@ pub async fn stream_posts_handler(
         ("depth" = Option<u8>, Query, description = "WoT traversal depth (1-3, default 2) for `source=wot` / `source=wot_domain`. Ignored for other sources."),
         ("domain_tags" = Option<Tags>, Query, description = "Required for `source=wot_domain`. Comma-separated tag labels (max 5); returns posts by authors tagged with any of these by the observer's WoT. E.g. `&domain_tags=bitcoiner,btc-dev`. Ignored for other sources."),
         ("kind" = Option<PubkyAppPostKind>, Query, description = "Filter by post kind: short, long, image, video, link, file, collection."),
-        ("skip" = Option<usize>, Query, description = "Skip N posts"),
-        ("limit" = Option<usize>, Query, description = "Retrieve N posts"),
-        ("start" = Option<usize>, Query, description = "The start of the stream timeframe or score. Posts with a timestamp/score greater than this value will be excluded from the results"),
-        ("end" = Option<usize>, Query, description = "The end of the stream timeframe or score. Posts with a timestamp/score less than this value will be excluded from the results"),
+        ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Skip N posts (max 10000)"),
+        ("limit" = Option<BoundedLimit<10, 50>>, Query, description = "Retrieve N posts (1–50, default 10)"),
+        ("start" = Option<f64>, Query, description = "The start of the stream timeframe or score. Posts with a timestamp/score greater than this value will be excluded from the results"),
+        ("end" = Option<f64>, Query, description = "The end of the stream timeframe or score. Posts with a timestamp/score less than this value will be excluded from the results"),
     ),
     responses(
         (status = 200, description = "Post key stream", body = PostKeyStream),
+        (status = 400, description = "Invalid parameters"),
         (status = 500, description = "Internal server error")
     ),
     description = r#"Stream Post Keys: Retrieve a stream of post keys
@@ -337,12 +343,11 @@ pub async fn stream_post_keys_handler(
 
     query.validate_source_compat()?; // before initialize_defaults
     query.initialize_defaults();
+    let pagination = query.pagination.to_pagination(query.start, query.end);
     let (source, sorting, order) = query.extract_stream_params()?;
     let tags = query.tags.as_ref().map(Tags::to_string_vec);
 
-    match PostStream::get_post_keys(source, query.pagination, order, sorting, tags, query.kind)
-        .await?
-    {
+    match PostStream::get_post_keys(source, pagination, order, sorting, tags, query.kind).await? {
         Some(stream) => Ok(Json(stream)),
         None => Ok(Json(PostKeyStream::default())),
     }

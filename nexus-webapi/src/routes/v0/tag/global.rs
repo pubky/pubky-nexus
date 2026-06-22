@@ -1,4 +1,4 @@
-use crate::models::{PubkyId, TagLabel};
+use crate::models::{BoundedLimit, BoundedPagination, BoundedSkip, PubkyId, TagLabel};
 use crate::routes::v0::endpoints::{TAGS_HOT_ROUTE, TAG_TAGGERS_ROUTE};
 use crate::routes::Path;
 use crate::routes::Query;
@@ -9,7 +9,7 @@ use nexus_common::models::tag::stream::{HotTag, HotTags};
 use nexus_common::models::tag::TaggedType;
 use nexus_common::models::tag::Taggers as TaggersType;
 use nexus_common::types::routes::HotTagsInputDTO;
-use nexus_common::types::{Pagination, StreamReach, Timeframe};
+use nexus_common::types::{StreamReach, Timeframe};
 use serde::Deserialize;
 use tracing::debug;
 use utoipa::OpenApi;
@@ -18,16 +18,16 @@ use utoipa::OpenApi;
 pub struct HotTagsQuery {
     user_id: Option<PubkyId>,
     reach: Option<StreamReach>,
-    taggers_limit: Option<usize>,
+    taggers_limit: Option<BoundedLimit<20, 20>>,
     timeframe: Option<Timeframe>,
     #[serde(flatten)]
-    pagination: Pagination,
+    pagination: BoundedPagination<10_000, 40, 40>,
 }
 
 #[derive(Deserialize, Debug)]
 pub struct TagTaggersQuery {
     #[serde(flatten)]
-    pagination: Pagination,
+    pagination: BoundedPagination<10_000, 20, 20>,
     user_id: Option<PubkyId>,
     reach: Option<StreamReach>,
     timeframe: Option<Timeframe>,
@@ -42,11 +42,12 @@ pub struct TagTaggersQuery {
         ("label" = TagLabel, Path, description = "Tag name"),
         ("reach" = Option<String>, Query, example = "wot_2", description = "Reach type: `followers` | `following` | `friends` | `wot` | `wot_1`..`wot_3`. To apply that, user_id is required. Bare `wot` defaults to depth 2."),
         ("user_id" = Option<PubkyId>, Query, description = "User ID to base reach on"),
-        ("skip" = Option<usize>, Query, description = "Skip N taggers. Defaults to `0`"),
-        ("limit" = Option<usize>, Query, description = "Retrieve N tagggers. Defaults to `20`"),
+        ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Skip N taggers (0–10 000, **default** 0)"),
+        ("limit" = Option<BoundedLimit<20, 20>>, Query, description = "Retrieve N tagggers. Defaults to `20`"),
         ("timeframe" = Option<Timeframe>, Query, description = "Retrieve taggers for this specific timeframe (not applied for reach). Defaults to `all_time`"),
     ),
     responses(
+        (status = 400, description = "Invalid parameters"),
         (status = 200, description = "Taggers", body = TaggersType),
         (status = 500, description = "Internal server error")
     )
@@ -64,8 +65,8 @@ pub async fn tag_taggers_handler(
         ));
     }
 
-    let skip = query.pagination.skip.unwrap_or(0);
-    let limit = query.pagination.limit.unwrap_or(20).min(20);
+    let skip = query.pagination.skip_value();
+    let limit = query.pagination.limit_value();
     let timeframe = query.timeframe.unwrap_or(Timeframe::AllTime);
 
     match Taggers::get_global_taggers(
@@ -91,12 +92,13 @@ pub async fn tag_taggers_handler(
     params(
         ("user_id" = Option<PubkyId>, Query, description = "User Pubky ID"),
         ("reach" = Option<String>, Query, example = "wot_2", description = "Reach type: `followers` | `following` | `friends` | `wot` | `wot_1`..`wot_3`. To apply that, user_id is required. Bare `wot` defaults to depth 2."),
-        ("taggers_limit" = Option<usize>, Query, description = "Retrieve N user_id for each tag. Defaults to `20`"),
-        ("skip" = Option<usize>, Query, description = "Skip N tags. Defaults to `0`"),
-        ("limit" = Option<usize>, Query, description = "Retrieve N tag. Defaults to `40`"),
+        ("taggers_limit" = Option<BoundedLimit<20, 20>>, Query, description = "Retrieve N user_id for each tag. Defaults to `20`"),
+        ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Skip N tags (0–10 000, **default** 0)"),
+        ("limit" = Option<BoundedLimit<40, 40>>, Query, description = "Retrieve N tag. Defaults to `40`"),
         ("timeframe" = Option<Timeframe>, Query, description = "Retrieve hot tags for this specific timeframe. Defaults to `all_time`"),
     ),
     responses(
+        (status = 400, description = "Invalid parameters"),
         (status = 200, description = "Retrieve tags by reach cluster", body = Vec<HotTag>),
         (status = 500, description = "Internal server error")
     )
@@ -111,9 +113,9 @@ pub async fn hot_tags_handler(Query(query): Query<HotTagsQuery>) -> Result<Json<
         ));
     }
 
-    let skip = query.pagination.skip.unwrap_or(0);
-    let limit = query.pagination.limit.unwrap_or(40).min(40);
-    let taggers_limit = query.taggers_limit.unwrap_or(20).min(20);
+    let skip = query.pagination.skip_value();
+    let limit = query.pagination.limit_value();
+    let taggers_limit = query.taggers_limit.unwrap_or_default().value();
     let timeframe = query.timeframe.unwrap_or(Timeframe::AllTime);
 
     let input = HotTagsInputDTO {

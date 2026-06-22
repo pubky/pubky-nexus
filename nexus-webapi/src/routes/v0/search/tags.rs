@@ -1,11 +1,10 @@
-use crate::models::TagLabel;
+use crate::models::{BoundedLimit, BoundedPagination, BoundedSkip, TagLabel};
 use crate::routes::v0::endpoints::SEARCH_TAGS_BY_PREFIX_ROUTE;
 use crate::routes::Path;
 use crate::routes::Query;
 use crate::Result;
 use axum::Json;
 use nexus_common::models::tag::search::TagSearch;
-use nexus_common::types::Pagination;
 use serde::Deserialize;
 use tracing::debug;
 use utoipa::OpenApi;
@@ -13,7 +12,7 @@ use utoipa::OpenApi;
 #[derive(Deserialize)]
 pub struct SearchTagsQuery {
     #[serde(flatten)]
-    pub pagination: Pagination,
+    pub pagination: BoundedPagination<10_000, 20, 100>,
 }
 
 #[utoipa::path(
@@ -23,8 +22,8 @@ pub struct SearchTagsQuery {
     tag = "Search",
     params(
         ("prefix" = TagLabel, Path, description = "Tag name prefix"),
-        ("skip" = Option<usize>, Query, description = "Skip N results"),
-        ("limit" = Option<usize>, Query, description = "Limit the number of results")
+        ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Skip N results (max 10000)"),
+        ("limit" = Option<BoundedLimit<20, 100>>, Query, description = "Limit the number of results (1–100, default 20)")
     ),
     responses(
         (status = 200, description = "Search results", body = Vec<String>),
@@ -35,9 +34,7 @@ pub async fn search_tags_by_prefix_handler(
     Path(prefix): Path<TagLabel>,
     Query(query): Query<SearchTagsQuery>,
 ) -> Result<Json<Vec<TagSearch>>> {
-    let mut pagination = query.pagination;
-    pagination.skip.get_or_insert_default();
-    pagination.limit.get_or_insert(20);
+    let pagination = query.pagination.to_pagination(None, None);
 
     debug!(
         "GET {SEARCH_TAGS_BY_PREFIX_ROUTE} validated_prefix:{}, skip: {:?}, limit: {:?}",

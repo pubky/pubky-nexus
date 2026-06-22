@@ -1,3 +1,4 @@
+use crate::models::BoundedLimit;
 use crate::routes::AppState;
 use nexus_common::models::event::Event;
 use serde::{Deserialize, Serialize};
@@ -30,7 +31,7 @@ impl std::fmt::Display for EventsList {
 #[derive(Deserialize)]
 pub struct EventsQuery {
     cursor: Option<u64>,
-    limit: Option<usize>,
+    limit: Option<BoundedLimit<500, 1000>>,
 }
 
 #[utoipa::path(
@@ -39,7 +40,7 @@ pub struct EventsQuery {
     tag = "Events",
     params(
         ("cursor" = u64, Query, description = "Cursor"),
-        ("limit" = usize, Query, description = "Limit the number of results, (default 500, maximum 1000)")
+        ("limit" = Option<BoundedLimit<500, 1000>>, Query, description = "Number of events to return (1–1000, **default** 500)")
     ),
     responses(
         (
@@ -56,7 +57,8 @@ pub struct EventsQuery {
     )
 )]
 pub async fn get_events_handler(Query(q): Query<EventsQuery>) -> Result<Response, Error> {
-    let (limit, cursor) = parse_query(&q)?;
+    let limit = q.limit.as_ref().map_or(500, |l| l.value());
+    let cursor = q.cursor;
     let (events, next_cursor) = Event::get_events_from_redis(cursor, limit).await?;
     let event_list = EventsList {
         events,
@@ -66,13 +68,6 @@ pub async fn get_events_handler(Query(q): Query<EventsQuery>) -> Result<Response
     // Convert to a plain text response
     let response: Response = axum::response::IntoResponse::into_response(event_list.to_string());
     Ok(response)
-}
-
-fn parse_query(q: &EventsQuery) -> Result<(usize, Option<u64>), Error> {
-    let limit = q.limit.unwrap_or(500).min(1000);
-    let cursor = q.cursor;
-
-    Ok((limit, cursor))
 }
 
 pub fn routes() -> Router<AppState> {

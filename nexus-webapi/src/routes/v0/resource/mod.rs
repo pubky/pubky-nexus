@@ -1,4 +1,4 @@
-use crate::models::{PubkyId, ResourceId, TagLabel};
+use crate::models::{BoundedLimit, BoundedSkip, PubkyId, ResourceId, TagLabel};
 use crate::routes::v0::endpoints::{
     RESOURCE_BY_URI_ROUTE, RESOURCE_TAGGERS_ROUTE, RESOURCE_TAGS_ROUTE,
 };
@@ -64,11 +64,12 @@ pub struct ResourceByUriQuery {
     params(
         ("resource_id" = ResourceId, Path, description = "Resource ID (32-char hex)"),
         ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID"),
-        ("skip_tags" = Option<usize>, Query, description = "Skip N tags"),
-        ("limit_tags" = Option<usize>, Query, description = "Limit tags"),
-        ("limit_taggers" = Option<usize>, Query, description = "Limit taggers per tag"),
+        ("skip_tags" = Option<BoundedSkip<10_000>>, Query, description = "Skip N tags (0–10 000, **default** 0)"),
+        ("limit_tags" = Option<BoundedLimit<5, 100>>, Query, description = "Upper limit on the number of tags (1–100, **default** 5)"),
+        ("limit_taggers" = Option<BoundedLimit<5, 100>>, Query, description = "Upper limit on the number of taggers per tag (1–100, **default** 5)"),
     ),
     responses(
+        (status = 400, description = "Invalid parameters"),
         (status = 404, description = "Resource not found"),
         (status = 200, description = "Resource tags with metadata", body = ResourceTagsResponse),
         (status = 500, description = "Internal server error")
@@ -84,9 +85,9 @@ pub async fn resource_tags_handler(
     let tags = TagResource::get_by_id(
         &res_id,
         None,
-        query.skip_tags,
-        query.limit_tags,
-        query.limit_taggers,
+        query.skip_tags_as_usize(),
+        query.limit_tags_as_usize(),
+        query.limit_taggers_as_usize(),
         query.viewer_id.as_deref(),
         None,
     )
@@ -106,9 +107,9 @@ pub async fn resource_tags_handler(
     params(
         ("uri" = String, Query, description = "Raw URI to look up"),
         ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID"),
-        ("skip_tags" = Option<usize>, Query, description = "Skip N tags"),
-        ("limit_tags" = Option<usize>, Query, description = "Limit tags"),
-        ("limit_taggers" = Option<usize>, Query, description = "Limit taggers per tag"),
+        ("skip_tags" = Option<BoundedSkip<10_000>>, Query, description = "Skip N tags (0–10 000, **default** 0)"),
+        ("limit_tags" = Option<BoundedLimit<5, 100>>, Query, description = "Upper limit on the number of tags (1–100, **default** 5)"),
+        ("limit_taggers" = Option<BoundedLimit<5, 100>>, Query, description = "Upper limit on the number of taggers per tag (1–100, **default** 5)"),
     ),
     responses(
         (status = 404, description = "Resource not found"),
@@ -135,9 +136,9 @@ pub async fn resource_by_uri_handler(
     let tags = TagResource::get_by_id(
         &res_id,
         None,
-        query.tags_query.skip_tags,
-        query.tags_query.limit_tags,
-        query.tags_query.limit_taggers,
+        query.tags_query.skip_tags_as_usize(),
+        query.tags_query.limit_tags_as_usize(),
+        query.tags_query.limit_taggers_as_usize(),
         query.tags_query.viewer_id.as_deref(),
         None,
     )
@@ -164,10 +165,11 @@ pub struct ResourceTaggersPath {
         ("resource_id" = ResourceId, Path, description = "Resource ID (32-char hex)"),
         ("label" = TagLabel, Path, description = "Tag label"),
         ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID"),
-        ("skip" = Option<usize>, Query, description = "Skip N taggers"),
-        ("limit" = Option<usize>, Query, description = "Limit taggers"),
+        ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Skip N taggers (0–10 000, **default** 0)"),
+        ("limit" = Option<BoundedLimit<40, 100>>, Query, description = "Limit taggers (1–100, default 40)"),
     ),
     responses(
+        (status = 400, description = "Invalid parameters"),
         (status = 200, description = "Resource taggers", body = TaggersInfoResponse),
         (status = 500, description = "Internal server error")
     )
@@ -181,11 +183,13 @@ pub async fn resource_taggers_handler(
         resource_id, label
     );
     reject_resource_depth(taggers_query.tags_query.depth)?;
+    let pagination = taggers_query.pagination.to_pagination(None, None);
+
     let taggers = TagResource::get_tagger_by_id(
         &resource_id,
         None,
         &label,
-        taggers_query.pagination,
+        pagination,
         taggers_query.tags_query.viewer_id.as_deref(),
         None,
     )
