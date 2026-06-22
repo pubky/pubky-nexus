@@ -15,7 +15,7 @@ use pubky_app_specs::{
 };
 use tracing::{debug, Instrument};
 
-use super::utils::post_relationships_is_reply;
+use super::utils::{post_is_collection, post_relationships_is_reply};
 
 #[tracing::instrument(name = "post.put", skip_all, fields(user_id = %author_id, post_id = %post_id))]
 pub async fn sync_put(
@@ -28,6 +28,7 @@ pub async fn sync_put(
     let post_details = PostDetails::from_homeserver(post.clone(), &author_id, &post_id);
     // We avoid indexing replies into global feed sorted sets
     let is_reply = post.parent.is_some();
+    let is_collection = post.kind == PubkyAppPostKind::Collection;
     // PRE-INDEX operation, identify the post relationship
     let mut post_relationships = PostRelationships::from_homeserver(&post);
 
@@ -66,8 +67,21 @@ pub async fn sync_put(
         // If the post existed, let's confirm this is an edit. Is the content different?
         match PostDetails::get_from_index(&author_id, &post_id).await? {
             Some(existing_details) => {
-                if existing_details.is_different_than(&post_details) {
-                    sync_edit(post, author_id, post_id, post_details).await?;
+                let was_collection = existing_details.kind == PubkyAppPostKind::Collection;
+                // Persist the new PostDetails (incl. kind) BEFORE moving the
+                // `collections` counter. If the counter moved first and a later
+                // step failed, a retry would re-read the old kind, see the same
+                // transition, and move the counter twice. Writing the kind first
+                // means a retry sees the new kind and the transition is gone.
+                if existing_details.is_different_than(&post_details)
+                    || was_collection != is_collection
+                {
+                    sync_edit(post, author_id.clone(), post_id.clone(), post_details).await?;
+                }
+                match (was_collection, is_collection) {
+                    (false, true) => UserCounts::increment(&author_id, "collections", None).await?,
+                    (true, false) => UserCounts::decrement(&author_id, "collections", None).await?,
+                    _ => {}
                 }
             }
             None => {
@@ -119,8 +133,11 @@ pub async fn sync_put(
         // Update user counts with the new post
         UserCounts::increment(&author_id, "posts", None),
         async {
+            // reply XOR collection (collections forbid `parent`); never both.
             if is_reply {
                 UserCounts::increment(&author_id, "replies", None).await?;
+            } else if is_collection {
+                UserCounts::increment(&author_id, "collections", None).await?;
             };
             Ok::<(), EventProcessorError>(())
         }
@@ -460,6 +477,11 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), EventPr
         PostRelationships::get_from_index(&author_id, &post_id).await?;
     let post_in_index = post_relationships_from_index.is_some();
 
+    // Recover the kind BEFORE removing the gate below. PostDetails is still present
+    // (graph-delete runs last). Doing this after the gate deletion would let a
+    // failed lookup strand the decrements on retry (gate gone, post_in_index false).
+    let is_collection = post_in_index && post_is_collection(&author_id, &post_id).await?;
+
     // 2. Atomically commit the cleanup decision: remove the gate as the very
     //    first mutation. Subsequent retries will observe `post_in_index = false`
     //    and skip non-idempotent ops (counters, scores, notifications).
@@ -495,8 +517,11 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), EventPr
             Ok::<(), EventProcessorError>(())
         },
         async {
+            // reply XOR collection; never both fire.
             if post_in_index && is_reply {
                 UserCounts::decrement(&author_id, "replies", None).await?;
+            } else if is_collection {
+                UserCounts::decrement(&author_id, "collections", None).await?;
             };
             Ok::<(), EventProcessorError>(())
         }
