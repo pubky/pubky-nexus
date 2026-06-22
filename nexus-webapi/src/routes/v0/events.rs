@@ -57,7 +57,8 @@ pub struct EventsQuery {
     )
 )]
 pub async fn get_events_handler(Query(q): Query<EventsQuery>) -> Result<Response, Error> {
-    let (limit, cursor) = parse_query(&q)?;
+    let limit = q.limit.as_ref().map_or(500, |l| l.value());
+    let cursor = q.cursor;
     let (events, next_cursor) = Event::get_events_from_redis(cursor, limit).await?;
     let event_list = EventsList {
         events,
@@ -67,13 +68,6 @@ pub async fn get_events_handler(Query(q): Query<EventsQuery>) -> Result<Response
     // Convert to a plain text response
     let response: Response = axum::response::IntoResponse::into_response(event_list.to_string());
     Ok(response)
-}
-
-fn parse_query(q: &EventsQuery) -> Result<(usize, Option<u64>), Error> {
-    let limit = q.limit.as_ref().map_or(500, |l| l.value());
-    let cursor = q.cursor;
-
-    Ok((limit, cursor))
 }
 
 pub fn routes() -> Router<AppState> {
