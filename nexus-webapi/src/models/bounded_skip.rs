@@ -53,18 +53,9 @@ impl<'de, const MAX: usize> Deserialize<'de> for BoundedSkip<MAX> {
     where
         D: Deserializer<'de>,
     {
-        struct V;
-        impl de::Visitor<'_> for V {
-            type Value = usize;
-            fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                f.write_str("a string containing a non-negative integer")
-            }
-            fn visit_str<E: de::Error>(self, v: &str) -> Result<usize, E> {
-                let n: u64 = v.parse().map_err(de::Error::custom)?;
-                usize::try_from(n).map_err(|_| de::Error::custom("skip out of range"))
-            }
-        }
-        let n = deserializer.deserialize_str(V)?;
+        let s = String::deserialize(deserializer)?;
+        let n: u64 = s.parse().map_err(de::Error::custom)?;
+        let n = usize::try_from(n).map_err(|_| de::Error::custom("skip out of range"))?;
         Self::validate(n).map_err(de::Error::custom)?;
         Ok(BoundedSkip(n))
     }
