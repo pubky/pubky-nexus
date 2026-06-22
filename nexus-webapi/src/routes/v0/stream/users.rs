@@ -1,4 +1,6 @@
-use crate::models::{PostId, PubkyId, UserIds, UsernamePrefix};
+use crate::models::{
+    BoundedLimit, BoundedPagination, BoundedSkip, PostId, PubkyId, UserIds, UsernamePrefix,
+};
 use crate::routes::v0::endpoints::{
     STREAM_USERS_BY_IDS_ROUTE, STREAM_USERS_ROUTE, STREAM_USERS_USERNAME_SEARCH_ROUTE,
     STREAM_USER_IDS_ROUTE,
@@ -8,7 +10,7 @@ use crate::routes::Query;
 use crate::{Error, Result};
 use axum::Json;
 use nexus_common::models::user::{UserIdStream, UserStream, UserStreamInput, UserStreamSource};
-use nexus_common::types::{Pagination, StreamReach, Timeframe};
+use nexus_common::types::{StreamReach, Timeframe};
 use serde::Deserialize;
 use tracing::debug;
 use utoipa::{OpenApi, ToSchema};
@@ -17,8 +19,8 @@ use utoipa::{OpenApi, ToSchema};
 pub struct UserStreamQuery {
     user_id: Option<PubkyId>,
     viewer_id: Option<PubkyId>,
-    skip: Option<usize>,
-    limit: Option<usize>,
+    #[serde(flatten)]
+    pagination: BoundedPagination<10_000, 5, 20>,
     source: Option<UserStreamSource>,
     reach: Option<StreamReach>,
     author_id: Option<PubkyId>,
@@ -38,22 +40,23 @@ pub struct UserStreamQuery {
         ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID"),
         ("author_id" = Option<PubkyId>, Query, description = "Author ID when source is 'post_replies'"),
         ("post_id" = Option<PostId>, Query, description = "Post ID when source is 'post_replies'"),
-        ("reach" = Option<StreamReach>, Query, description = "The target reach of the source. Supported in 'influencers' source."),
+        ("reach" = Option<String>, Query, example = "wot_2", description = "The target reach of the 'influencers' source: `followers` | `following` | `friends` | `wot` | `wot_1`..`wot_3`. Bare `wot` defaults to depth 2."),
         ("timeframe" = Option<Timeframe>, Query, description = "Timeframe for sources supporting a range"),
         ("preview" = Option<bool>, Query, description = "Provide a random selection of size 3 for sources supporting preview. Passing preview ignores skip and limit parameters."),
         ("depth" = Option<u8>, Query, description = "User trusted network depth, user following users distance. Numbers bigger than 3 will be ignored"),
-        ("skip" = Option<usize>, Query, description = "Skip N users"),
-        ("limit" = Option<usize>, Query, description = "Retrieve N users")
+        ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Skip N users (max 10000)"),
+        ("limit" = Option<BoundedLimit<5, 20>>, Query, description = "Retrieve N users (1–20, default 5)")
     ),
     responses(
         (status = 200, description = "Users stream", body = UserStream),
+        (status = 400, description = "Invalid parameters"),
         (status = 500, description = "Internal server error")
     ),
     description = r#"Stream Users: Retrieve a stream of users.
 
 The `source` parameter determines the type of stream. Depending on the `source`, certain parameters are required:
 - *following*, *followers*, *friends*, *recommended*: Requires **user_id**.
-- *influencers*: When **user_id** is provided with a **timeframe** (not 'all_time'), **reach** determines the network scope for finding influencers.The **reach** parameter can be: 'followers', 'following', 'friends', 'wot' (defaults to depth 3), or 'wot_1', 'wot_2', 'wot_3'. Defaults to 'wot_3' if not specified. If **user_id** is not provided, returns global influencers.
+- *influencers*: When **user_id** is provided with a **timeframe** (not 'all_time'), **reach** determines the network scope for finding influencers.The **reach** parameter can be: 'followers', 'following', 'friends', 'wot' (defaults to depth 2), or 'wot_1', 'wot_2', 'wot_3'. Defaults to 'wot_2' if not specified. If **user_id** is not provided, returns global influencers.
 - *post_replies*: Requires **author_id** and **post_id** to filter replies to a specific post.
 - *most_followed*: Does not require **user_id**.
 
@@ -85,22 +88,23 @@ pub async fn stream_users_handler(
         ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID"),
         ("author_id" = Option<PubkyId>, Query, description = "Author ID when source is 'post_replies'"),
         ("post_id" = Option<PostId>, Query, description = "Post ID when source is 'post_replies'"),
-        ("reach" = Option<StreamReach>, Query, description = "The target reach of the source. Supported in 'influencers' source."),
+        ("reach" = Option<String>, Query, example = "wot_2", description = "The target reach of the 'influencers' source: `followers` | `following` | `friends` | `wot` | `wot_1`..`wot_3`. Bare `wot` defaults to depth 2."),
         ("timeframe" = Option<Timeframe>, Query, description = "Timeframe for sources supporting a range"),
         ("preview" = Option<bool>, Query, description = "Provide a random selection of size 3 for sources supporting preview. Passing preview ignores skip and limit parameters."),
         ("depth" = Option<u8>, Query, description = "User trusted network depth, user following users distance. Numbers bigger than 3 will be ignored"),
-        ("skip" = Option<usize>, Query, description = "Skip N users"),
-        ("limit" = Option<usize>, Query, description = "Retrieve N users")
+        ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Skip N users (max 10000)"),
+        ("limit" = Option<BoundedLimit<5, 20>>, Query, description = "Retrieve N users (1–20, default 5)")
     ),
     responses(
         (status = 200, description = "User IDs stream", body = UserIdStream),
+        (status = 400, description = "Invalid parameters"),
         (status = 500, description = "Internal server error")
     ),
     description = r#"Stream User IDs: Retrieve a stream of user identifiers.
 
 The `source` parameter determines the type of stream. Depending on the `source`, certain parameters are required:
 - *following*, *followers*, *friends*, *recommended*: Requires **user_id**.
-- *influencers*: When **user_id** is provided with a **timeframe** (not 'all_time'), **reach** determines the network scope for finding influencers.The **reach** parameter can be: 'followers', 'following', 'friends', 'wot' (defaults to depth 3), or 'wot_1', 'wot_2', 'wot_3'. Defaults to 'wot_3' if not specified. If **user_id** is not provided, returns global influencers.
+- *influencers*: When **user_id** is provided with a **timeframe** (not 'all_time'), **reach** determines the network scope for finding influencers.The **reach** parameter can be: 'followers', 'following', 'friends', 'wot' (defaults to depth 2), or 'wot_1', 'wot_2', 'wot_3'. Defaults to 'wot_2' if not specified. If **user_id** is not provided, returns global influencers.
 - *post_replies*: Requires **author_id** and **post_id** to filter replies to a specific post.
 - *most_followed*: Does not require **user_id**.
 
@@ -127,7 +131,7 @@ pub struct UserStreamSearchQuery {
     username: UsernamePrefix,
     viewer_id: Option<PubkyId>,
     #[serde(flatten)]
-    pagination: Pagination,
+    pagination: BoundedPagination<10_000, 20, 20>,
 }
 
 #[utoipa::path(
@@ -138,8 +142,8 @@ pub struct UserStreamSearchQuery {
     params(
         ("username" = UsernamePrefix, Query, description = "Username to search for"),
         ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID"),
-        ("skip" = Option<usize>, Query, description = "Skip N users"),
-        ("limit" = Option<usize>, Query, description = "Retrieve N users")
+        ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Skip N users (max 10000)"),
+        ("limit" = Option<BoundedLimit<20, 20>>, Query, description = "Retrieve N users (1–20, default 20)")
     ),
     responses(
         (status = 200, description = "Username search stream", body = UserStream),
@@ -150,8 +154,8 @@ pub struct UserStreamSearchQuery {
 pub async fn stream_username_search_handler(
     Query(query): Query<UserStreamSearchQuery>,
 ) -> Result<Json<UserStream>> {
-    let skip = query.pagination.skip.unwrap_or(0);
-    let limit = query.pagination.limit.unwrap_or(20);
+    let skip = query.pagination.skip_value();
+    let limit = query.pagination.limit_value();
 
     debug!(
         "GET {STREAM_USERS_USERNAME_SEARCH_ROUTE}?username={}",
@@ -159,7 +163,7 @@ pub async fn stream_username_search_handler(
     );
 
     match UserStream::get_from_username_search(
-        query.username.as_str(),
+        &query.username,
         query.viewer_id.as_deref(),
         Some(skip),
         Some(limit),
@@ -216,8 +220,7 @@ fn build_user_stream_input(
     let UserStreamQuery {
         user_id,
         viewer_id,
-        skip,
-        limit,
+        pagination,
         source,
         reach,
         author_id,
@@ -228,8 +231,8 @@ fn build_user_stream_input(
     } = query;
 
     let source = source.unwrap_or(UserStreamSource::Followers);
-    let skip = skip.unwrap_or(0);
-    let limit = limit.unwrap_or(5).min(20);
+    let skip = pagination.skip_value();
+    let limit = pagination.limit_value();
     let timeframe = timeframe.unwrap_or(Timeframe::AllTime);
 
     if user_id.is_none() {
@@ -238,7 +241,7 @@ fn build_user_stream_input(
             | UserStreamSource::Following
             | UserStreamSource::Friends
             | UserStreamSource::Recommended => {
-                return Err(Error::invalid_input(&format!(
+                return Err(Error::invalid_input(format!(
                     "user_id query param must be provided for source '{}'",
                     source_name(&source)
                 )));

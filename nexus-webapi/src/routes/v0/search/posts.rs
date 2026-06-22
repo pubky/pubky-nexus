@@ -1,10 +1,9 @@
-use crate::models::{PostSearchQuery, SearchLimit, SearchSkip, TagLabel, SEARCH_LIMIT_DEFAULT};
+use crate::models::{BoundedLimit, BoundedPagination, BoundedSkip, PostSearchQuery, TagLabel};
 use crate::routes::v0::endpoints::{SEARCH_POSTS_BY_CONTENT_ROUTE, SEARCH_POSTS_BY_TAG_ROUTE};
 use crate::routes::{Path, Query};
 use crate::Result;
 use axum::Json;
 use nexus_common::models::post::search::{PostsByContentSearch, PostsByTagSearch};
-use nexus_common::types::Pagination;
 use nexus_common::types::StreamSorting;
 use serde::Deserialize;
 use tracing::debug;
@@ -14,7 +13,9 @@ use utoipa::OpenApi;
 pub struct SearchPostsQuery {
     pub sorting: Option<StreamSorting>,
     #[serde(flatten)]
-    pub pagination: Pagination,
+    pub pagination: BoundedPagination<10_000, 20, 200>,
+    pub start: Option<f64>,
+    pub end: Option<f64>,
 }
 
 #[utoipa::path(
@@ -25,13 +26,14 @@ pub struct SearchPostsQuery {
     params(
         ("tag" = TagLabel, Path, description = "Tag name"),
         ("sorting" = Option<StreamSorting>, Query, description = "StreamSorting method"),
-        ("start" = Option<usize>, Query, description = "The start of the stream timeframe. Posts with a timestamp greater than this value will be excluded from the results"),
-        ("end" = Option<usize>, Query, description = "The end of the stream timeframe. Posts with a timestamp less than this value will be excluded from the results"),
-        ("skip" = Option<usize>, Query, description = "Skip N results"),
-        ("limit" = Option<usize>, Query, description = "Limit the number of results")
+        ("start" = Option<f64>, Query, description = "The start of the stream timeframe. Posts with a timestamp greater than this value will be excluded from the results"),
+        ("end" = Option<f64>, Query, description = "The end of the stream timeframe. Posts with a timestamp less than this value will be excluded from the results"),
+        ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Skip N results (max 10000)"),
+        ("limit" = Option<BoundedLimit<20, 200>>, Query, description = "Limit the number of results (1–200, default 20)")
     ),
     responses(
         (status = 200, description = "Search results", body = Vec<PostsByTagSearch>),
+        (status = 400, description = "Invalid parameters"),
         (status = 500, description = "Internal server error")
     )
 )]
@@ -39,20 +41,15 @@ pub async fn search_posts_by_tag_handler(
     Path(tag): Path<TagLabel>,
     Query(query): Query<SearchPostsQuery>,
 ) -> Result<Json<Vec<PostsByTagSearch>>> {
-    // Extract sorting and pagination fields from the query
     let sorting = query.sorting;
-    let mut pagination = query.pagination;
 
     debug!(
-        "GET {SEARCH_POSTS_BY_TAG_ROUTE} tag:{}, sort_by: {:?}, start: {:?}, end: {:?}, skip: {:?}, limit: {:?}",
-        tag, sorting, pagination.start, pagination.end, pagination.skip, pagination.limit
+        "GET {SEARCH_POSTS_BY_TAG_ROUTE} tag:{}, sort_by: {:?}, start: {:?}, end: {:?}, skip: {}, limit: {}",
+        tag, sorting, query.start, query.end,
+        query.pagination.skip_value(), query.pagination.limit_value()
     );
 
-    let skip = pagination.skip.unwrap_or(0);
-    let limit = pagination.limit.unwrap_or(20);
-
-    pagination.skip = Some(skip);
-    pagination.limit = Some(limit);
+    let pagination = query.pagination.to_pagination(query.start, query.end);
 
     match PostsByTagSearch::get_by_label(&tag, sorting, pagination).await? {
         Some(posts_list) => Ok(Json(posts_list)),
@@ -63,8 +60,8 @@ pub async fn search_posts_by_tag_handler(
 #[derive(Deserialize)]
 pub struct SearchPostsByContentQuery {
     pub q: PostSearchQuery,
-    pub skip: Option<SearchSkip<1000>>,
-    pub limit: Option<SearchLimit<100>>,
+    #[serde(flatten)]
+    pub pagination: BoundedPagination<1000, 20, 100>,
 }
 
 #[utoipa::path(
@@ -73,9 +70,9 @@ pub struct SearchPostsByContentQuery {
     description = "Full-text search over post content",
     tag = "Search",
     params(
-        ("q" = PostSearchQuery, Query, description = "Search query (2–200 characters)"),
-        ("skip" = Option<SearchSkip<1000>>, Query, description = "Skip N results (max 1000)"),
-        ("limit" = Option<SearchLimit<100>>, Query, description = "Limit the number of results")
+        ("q" = PostSearchQuery, Query, description = "Search query (2–30 characters, up to 4 terms)"),
+        ("skip" = Option<BoundedSkip<1000>>, Query, description = "Skip N results (max 1000)"),
+        ("limit" = Option<BoundedLimit<20, 100>>, Query, description = "Limit the number of results (1–100, default 20)")
     ),
     responses(
         (status = 200, description = "Search results ordered by relevance score", body = Vec<PostsByContentSearch>),
@@ -86,11 +83,8 @@ pub struct SearchPostsByContentQuery {
 pub async fn search_posts_by_content_handler(
     Query(query): Query<SearchPostsByContentQuery>,
 ) -> Result<Json<Vec<PostsByContentSearch>>> {
-    let skip = query.skip.as_ref().map_or(0, SearchSkip::value);
-    let limit = query
-        .limit
-        .as_ref()
-        .map_or(SEARCH_LIMIT_DEFAULT, SearchLimit::value);
+    let skip = query.pagination.skip_value();
+    let limit = query.pagination.limit_value();
 
     debug!(
         "GET {SEARCH_POSTS_BY_CONTENT_ROUTE} q:{}, skip:{skip}, limit:{limit}",
@@ -104,6 +98,6 @@ pub async fn search_posts_by_content_handler(
 #[derive(OpenApi)]
 #[openapi(
     paths(search_posts_by_tag_handler, search_posts_by_content_handler),
-    components(schemas(PostsByTagSearch, PostsByContentSearch, SearchLimit<100>, SearchSkip<1000>, PostSearchQuery))
+    components(schemas(PostsByTagSearch, PostsByContentSearch, PostSearchQuery))
 )]
 pub struct SearchPostsApiDocs;

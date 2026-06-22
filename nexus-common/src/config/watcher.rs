@@ -19,6 +19,8 @@ pub const DEFAULT_WATCHER_SLEEP: u64 = 5_000;
 pub const DEFAULT_INITIAL_BACKOFF_SECS: u64 = 60;
 /// Default for [WatcherConfig::max_backoff_secs]
 pub const DEFAULT_MAX_BACKOFF_SECS: u64 = 3_600;
+/// Default for [WatcherConfig::max_file_size] — 50 MiB
+pub const DEFAULT_MAX_FILE_SIZE: u64 = 50 * 1024 * 1024;
 // Default moderation service key (test user key, overridden by config.toml value)
 pub const DEFAULT_MODERATION_ID: &str = "uo7jgkykft4885n8cruizwy6khw71mnu5pq3ay9i8pw1ymcn85ko";
 // Moderation service key
@@ -50,6 +52,10 @@ pub struct WatcherConfig {
     /// Maximum backoff duration (in seconds) for a failing homeserver
     #[serde(default = "default_max_backoff_secs")]
     pub max_backoff_secs: u64,
+    /// Max file size in bytes (Content-Length check + streaming enforcement).
+    /// Rejected files are permanent failures (not retried). Default: 50 MiB.
+    #[serde(default = "default_max_file_size")]
+    pub max_file_size: u64,
     #[serde(default = "default_stack")]
     pub stack: StackConfig,
     // Moderation
@@ -76,6 +82,7 @@ impl Default for WatcherConfig {
             watcher_sleep: DEFAULT_WATCHER_SLEEP,
             initial_backoff_secs: DEFAULT_INITIAL_BACKOFF_SECS,
             max_backoff_secs: DEFAULT_MAX_BACKOFF_SECS,
+            max_file_size: DEFAULT_MAX_FILE_SIZE,
             moderation_id,
             moderated_tags: MODERATED_TAGS.iter().map(|s| s.to_string()).collect(),
         }
@@ -102,4 +109,8 @@ fn default_initial_backoff_secs() -> u64 {
 
 fn default_max_backoff_secs() -> u64 {
     DEFAULT_MAX_BACKOFF_SECS
+}
+
+fn default_max_file_size() -> u64 {
+    DEFAULT_MAX_FILE_SIZE
 }

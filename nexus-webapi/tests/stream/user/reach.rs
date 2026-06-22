@@ -1,5 +1,6 @@
-use crate::utils::get_request;
+use crate::utils::{get_request, invalid_get_request};
 use anyhow::Result;
+use axum::http::StatusCode;
 
 #[tokio_shared_rt::test(shared)]
 async fn test_stream_following() -> Result<()> {
@@ -53,6 +54,52 @@ async fn test_stream_following() -> Result<()> {
 
     assert!(body.is_array());
     assert!(body.as_array().unwrap().is_empty());
+
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_stream_users_pagination_cap() -> Result<()> {
+    let user_id = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
+
+    // skip=99999999 exceeds BoundedSkip<10_000>::MAX → 400
+    invalid_get_request(
+        &format!("/v0/stream/users?source=following&user_id={user_id}&skip=99999999"),
+        StatusCode::BAD_REQUEST,
+    )
+    .await?;
+
+    invalid_get_request(
+        &format!("/v0/stream/users/ids?source=following&user_id={user_id}&skip=99999999"),
+        StatusCode::BAD_REQUEST,
+    )
+    .await?;
+
+    // limit=99999999 exceeds BoundedLimit<5, 20>::MAX → 400
+    invalid_get_request(
+        &format!("/v0/stream/users?source=following&user_id={user_id}&limit=99999999"),
+        StatusCode::BAD_REQUEST,
+    )
+    .await?;
+
+    // limit=0 is rejected → 400
+    invalid_get_request(
+        &format!("/v0/stream/users?source=following&user_id={user_id}&limit=0"),
+        StatusCode::BAD_REQUEST,
+    )
+    .await?;
+
+    // limit=20 (at MAX) is accepted → 200
+    get_request(&format!(
+        "/v0/stream/users?source=following&user_id={user_id}&limit=20"
+    ))
+    .await?;
+
+    // skip=10000 (at MAX) is accepted → 200
+    get_request(&format!(
+        "/v0/stream/users?source=following&user_id={user_id}&skip=10000"
+    ))
+    .await?;
 
     Ok(())
 }

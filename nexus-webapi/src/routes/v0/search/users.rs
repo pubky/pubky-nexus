@@ -1,4 +1,4 @@
-use crate::models::{UserIdPrefix, UsernamePrefix};
+use crate::models::{BoundedLimit, BoundedPagination, BoundedSkip, UserIdPrefix, UsernamePrefix};
 use crate::routes::v0::endpoints::{SEARCH_USERS_BY_ID_ROUTE, SEARCH_USERS_BY_NAME_ROUTE};
 use crate::routes::v0::search::USER_ID_SEARCH_MIN_PREFIX_LEN;
 use crate::routes::Path;
@@ -6,7 +6,6 @@ use crate::routes::Query;
 use crate::Result;
 use axum::Json;
 use nexus_common::models::user::UserSearch;
-use nexus_common::types::Pagination;
 use serde::Deserialize;
 use tracing::debug;
 use utoipa::OpenApi;
@@ -14,7 +13,7 @@ use utoipa::OpenApi;
 #[derive(Deserialize)]
 pub struct SearchQuery {
     #[serde(flatten)]
-    pagination: Pagination,
+    pub pagination: BoundedPagination<10_000, 50, 200>,
 }
 
 #[utoipa::path(
@@ -24,12 +23,12 @@ pub struct SearchQuery {
     tag = "Search",
     params(
         ("prefix" = UsernamePrefix, Path, description = "Username prefix to search for"),
-        ("skip" = Option<usize>, Query, description = "Skip N results"),
-        ("limit" = Option<usize>, Query, description = "Limit the number of results")
+        ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Skip N results (max 10000)"),
+        ("limit" = Option<BoundedLimit<50, 200>>, Query, description = "Limit the number of results (1–200, default 50)")
     ),
     responses(
         (status = 200, description = "Search results", body = UserSearch),
-        (status = 400, description = "Invalid input"),
+        (status = 400, description = "Invalid parameters"),
         (status = 500, description = "Internal server error")
     )
 )]
@@ -39,10 +38,9 @@ pub async fn search_users_by_name_handler(
 ) -> Result<Json<UserSearch>> {
     debug!("GET {SEARCH_USERS_BY_NAME_ROUTE} username:{}", prefix);
 
-    let skip = query.pagination.skip.unwrap_or(0);
-    let limit = query.pagination.limit.unwrap_or(200);
+    let pagination = query.pagination.to_pagination(None, None);
 
-    match UserSearch::get_by_name(prefix.as_str(), Some(skip), Some(limit)).await? {
+    match UserSearch::get_by_name(&prefix, pagination.skip, pagination.limit).await? {
         Some(user_search) => Ok(Json(user_search)),
         None => Ok(Json(UserSearch::default())),
     }
@@ -55,12 +53,12 @@ pub async fn search_users_by_name_handler(
     tag = "Search",
     params(
         ("prefix" = UserIdPrefix, Path, description = format!("User ID prefix to search for (at least {USER_ID_SEARCH_MIN_PREFIX_LEN} characters)")),
-        ("skip" = Option<usize>, Query, description = "Skip N results"),
-        ("limit" = Option<usize>, Query, description = "Limit the number of results")
+        ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Skip N results (max 10000)"),
+        ("limit" = Option<BoundedLimit<50, 200>>, Query, description = "Limit the number of results (1–200, default 50)")
     ),
     responses(
         (status = 200, description = "Search results", body = UserSearch),
-        (status = 400, description = "Invalid input"),
+        (status = 400, description = "Invalid parameters"),
         (status = 500, description = "Internal server error")
     )
 )]
@@ -70,10 +68,9 @@ pub async fn search_users_by_id_handler(
 ) -> Result<Json<UserSearch>> {
     debug!("GET {SEARCH_USERS_BY_ID_ROUTE} ID:{}", prefix);
 
-    let skip = query.pagination.skip.unwrap_or(0);
-    let limit = query.pagination.limit.unwrap_or(200);
+    let pagination = query.pagination.to_pagination(None, None);
 
-    match UserSearch::get_by_id(prefix.as_str(), Some(skip), Some(limit)).await? {
+    match UserSearch::get_by_id(&prefix, pagination.skip, pagination.limit).await? {
         Some(user_search) => Ok(Json(user_search)),
         None => Ok(Json(UserSearch::default())),
     }

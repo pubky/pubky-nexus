@@ -1,6 +1,7 @@
-use crate::models::{PostId, PubkyId, TagLabel};
+use crate::models::{BoundedLimit, BoundedSkip, PostId, PubkyId, TagLabel};
 use crate::routes::v0::endpoints::{POST_TAGGERS_ROUTE, POST_TAGS_ROUTE};
 use crate::routes::v0::post::view::PostPath;
+use crate::routes::v0::types::resolve_tag_wot_depth;
 use crate::routes::v0::user::tags::TaggersQuery;
 use crate::routes::v0::{TaggersInfoResponse, TagsQuery};
 use crate::routes::Path;
@@ -30,11 +31,13 @@ pub struct PostTaggersPath {
         ("author_id" = PubkyId, Path, description = "Author Pubky ID"),
         ("post_id" = PostId, Path, description = "Post ID"),
         ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID"),
-        ("skip_tags" = Option<usize>, Query, description = "Skip N tags. Defaults to `0`"),
-        ("limit_tags" = Option<usize>, Query, description = "Upper limit on the number of tags for the posts. Defaults to `5`"),
-        ("limit_taggers" = Option<usize>, Query, description = "Upper limit on the number of taggers per tag. Defaults to `5`"),
+        ("skip_tags" = Option<BoundedSkip<10_000>>, Query, description = "Skip N tags (0–10 000, **default** 0)"),
+        ("limit_tags" = Option<BoundedLimit<5, 100>>, Query, description = "Upper limit on the number of tags (1–100, **default** 5 in the global view; the WoT view returns the full trusted set by default—pass `limit_tags` for a compact view)"),
+        ("limit_taggers" = Option<BoundedLimit<5, 100>>, Query, description = "Upper limit on the number of taggers per tag (1–100, **default** 5)"),
+        ("depth" = Option<u8>, Query, description = "WoT depth (1-3). Provide it together with `viewer_id` to filter post tags through the viewer's Web of Trust. In the WoT view `limit_tags` defaults to the full trusted set so a trusted moderation tag is not paginated out by tagger count (pass `limit_tags` for a compact view); `skip_tags`/`limit_taggers` apply as in the global view. `viewer_id` without `depth` returns the global tag view; `depth` without `viewer_id`, or an out-of-range `depth` with `viewer_id`, is rejected with 400."),
     ),
     responses(
+        (status = 400, description = "Invalid input"),
         (status = 404, description = "Post not found"),
         (status = 200, description = "Post tags", body = Vec<TagDetails>),
         (status = 500, description = "Internal server error")
@@ -45,20 +48,38 @@ pub async fn post_tags_handler(
     Query(query): Query<TagsQuery>,
 ) -> Result<Json<Vec<TagDetails>>> {
     debug!(
-        "GET {POST_TAGS_ROUTE} author_id:{}, post_id: {}, skip_tags:{:?}, limit_tags:{:?}, limit_taggers:{:?}",
-        author_id, post_id, query.limit_tags, query.skip_tags, query.limit_taggers
+        "GET {POST_TAGS_ROUTE} author_id:{}, post_id: {}, skip_tags:{:?}, limit_tags:{:?}, limit_taggers:{:?}, depth:{:?}",
+        author_id, post_id, query.skip_tags, query.limit_tags, query.limit_taggers, query.depth
     );
-    match TagPost::get_by_id(
-        &author_id,
-        Some(&post_id),
-        query.skip_tags,
-        query.limit_tags,
-        query.limit_taggers,
-        query.viewer_id.as_deref(),
-        None, // Avoid by default WoT tags in a Post
-    )
-    .await?
-    {
+    let wot_depth = resolve_tag_wot_depth(query.viewer_id.as_deref(), query.depth)?;
+    let tags = match (query.viewer_id.as_deref(), wot_depth) {
+        // WoT-filtered post tags (graph-only): tags from taggers in the viewer's Web of Trust.
+        (Some(viewer_id), Some(depth)) => {
+            TagPost::get_wot_tags_by_post(
+                &author_id,
+                &post_id,
+                viewer_id,
+                depth,
+                query.skip_tags_as_usize(),
+                query.limit_tags_as_usize(),
+                query.limit_taggers_as_usize(),
+            )
+            .await?
+        }
+        _ => {
+            TagPost::get_by_id(
+                &author_id,
+                Some(&post_id),
+                query.skip_tags_as_usize(),
+                query.limit_tags_as_usize(),
+                query.limit_taggers_as_usize(),
+                query.viewer_id.as_deref(),
+                None,
+            )
+            .await?
+        }
+    };
+    match tags {
         Some(tags) => Ok(Json(tags)),
         None => Err(Error::post_not_found(author_id, post_id)),
     }
@@ -74,10 +95,12 @@ pub async fn post_tags_handler(
         ("label" = TagLabel, Path, description = "Tag name"),
         ("post_id" = PostId, Path, description = "Post ID"),
         ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID"),
-        ("skip" = Option<usize>, Query, description = "Number of taggers to skip for pagination. Defaults to `0`"),
-        ("limit" = Option<usize>, Query, description = "Number of taggers to return for pagination. Defaults to `40`")
+        ("depth" = Option<u8>, Query, description = "Ignored: Web of Trust filtering is not applied to taggers"),
+        ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Skip N taggers (0–10 000, **default** 0)"),
+        ("limit" = Option<BoundedLimit<40, 100>>, Query, description = "Number of taggers to return (1–100, **default** 40)")
     ),
     responses(
+        (status = 400, description = "Invalid parameters"),
         (status = 200, description = "Post tags", body = TaggersInfoResponse),
         (status = 500, description = "Internal server error")
     )
@@ -91,19 +114,19 @@ pub async fn post_taggers_handler(
     Query(taggers_query): Query<TaggersQuery>,
 ) -> Result<Json<TaggersInfoResponse>> {
     debug!(
-        "GET {POST_TAGGERS_ROUTE} author_id:{}, post_id: {}, label: {}, viewer_id:{:?}, skip:{:?}, limit:{:?}",
-        author_id, post_id, label, taggers_query.tags_query.viewer_id, taggers_query.pagination.skip, taggers_query.pagination.limit
+        "GET {POST_TAGGERS_ROUTE} author_id:{}, post_id: {}, label: {}, viewer_id:{:?}, skip:{}, limit:{}",
+        author_id, post_id, label, taggers_query.tags_query.viewer_id,
+        taggers_query.pagination.skip_value(), taggers_query.pagination.limit_value()
     );
+
+    let pagination = taggers_query.pagination.to_pagination(None, None);
+
     let taggers = TagPost::get_tagger_by_id(
         &author_id,
         Some(&post_id),
         &label,
-        taggers_query.pagination,
-        taggers_query
-            .tags_query
-            .viewer_id
-            .as_ref()
-            .map(|v| v.as_ref()),
+        pagination,
+        taggers_query.tags_query.viewer_id.as_deref(),
         None,
     )
     .await?;

@@ -34,6 +34,10 @@ pub enum EventProcessorError {
     #[error("SpecValidation: {0}")]
     SpecValidation(String),
 
+    /// Fetch exceeded size cap (non-retryable).
+    #[error("FetchSizeExceeded: {0} bytes (limit: {1} bytes)")]
+    FetchSizeExceeded(u64, u64),
+
     /// The Pubky client could not resolve the pubky
     #[error("PubkyClientError: {0}")]
     PubkyClientError(#[from] crate::db::PubkyClientError),

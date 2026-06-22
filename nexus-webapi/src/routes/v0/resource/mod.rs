@@ -1,4 +1,4 @@
-use crate::models::{PubkyId, ResourceId, TagLabel};
+use crate::models::{BoundedLimit, BoundedSkip, PubkyId, ResourceId, TagLabel};
 use crate::routes::v0::endpoints::{
     RESOURCE_BY_URI_ROUTE, RESOURCE_TAGGERS_ROUTE, RESOURCE_TAGS_ROUTE,
 };
@@ -35,6 +35,20 @@ pub fn routes() -> Router<AppState> {
         .route(RESOURCE_BY_URI_ROUTE, get(resource_by_uri_handler))
 }
 
+/// Resource tags have no Web-of-Trust variant: the WoT tag query matches a
+/// `User` node, so feeding it a resource id silently returns nothing and 404s
+/// an existing resource. Reject `depth` outright instead of pretending to
+/// support it (ponytail: 400 over a broken feature; add real resource-WoT here
+/// if it's ever needed).
+fn reject_resource_depth(depth: Option<u8>) -> Result<()> {
+    match depth {
+        Some(_) => Err(Error::invalid_input(
+            "`depth` is not supported for resource tags",
+        )),
+        None => Ok(()),
+    }
+}
+
 #[derive(Deserialize, Debug)]
 pub struct ResourceByUriQuery {
     pub uri: String,
@@ -50,11 +64,12 @@ pub struct ResourceByUriQuery {
     params(
         ("resource_id" = ResourceId, Path, description = "Resource ID (32-char hex)"),
         ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID"),
-        ("skip_tags" = Option<usize>, Query, description = "Skip N tags"),
-        ("limit_tags" = Option<usize>, Query, description = "Limit tags"),
-        ("limit_taggers" = Option<usize>, Query, description = "Limit taggers per tag"),
+        ("skip_tags" = Option<BoundedSkip<10_000>>, Query, description = "Skip N tags (0–10 000, **default** 0)"),
+        ("limit_tags" = Option<BoundedLimit<5, 100>>, Query, description = "Upper limit on the number of tags (1–100, **default** 5)"),
+        ("limit_taggers" = Option<BoundedLimit<5, 100>>, Query, description = "Upper limit on the number of taggers per tag (1–100, **default** 5)"),
     ),
     responses(
+        (status = 400, description = "Invalid parameters"),
         (status = 404, description = "Resource not found"),
         (status = 200, description = "Resource tags with metadata", body = ResourceTagsResponse),
         (status = 500, description = "Internal server error")
@@ -66,19 +81,20 @@ pub async fn resource_tags_handler(
 ) -> Result<Json<ResourceTagsResponse>> {
     debug!("GET {RESOURCE_TAGS_ROUTE} resource_id:{}", res_id);
 
+    reject_resource_depth(query.depth)?;
     let tags = TagResource::get_by_id(
-        res_id.as_str(),
+        &res_id,
         None,
-        query.skip_tags,
-        query.limit_tags,
-        query.limit_taggers,
+        query.skip_tags_as_usize(),
+        query.limit_tags_as_usize(),
+        query.limit_taggers_as_usize(),
         query.viewer_id.as_deref(),
-        query.depth,
+        None,
     )
     .await?
-    .ok_or_else(|| Error::resource_not_found(res_id.clone()))?;
+    .ok_or_else(|| Error::resource_not_found(res_id.to_string()))?;
 
-    let resource = load_resource_details(res_id.as_str()).await?;
+    let resource = load_resource_details(&res_id).await?;
 
     Ok(Json(ResourceTagsResponse { resource, tags }))
 }
@@ -91,9 +107,9 @@ pub async fn resource_tags_handler(
     params(
         ("uri" = String, Query, description = "Raw URI to look up"),
         ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID"),
-        ("skip_tags" = Option<usize>, Query, description = "Skip N tags"),
-        ("limit_tags" = Option<usize>, Query, description = "Limit tags"),
-        ("limit_taggers" = Option<usize>, Query, description = "Limit taggers per tag"),
+        ("skip_tags" = Option<BoundedSkip<10_000>>, Query, description = "Skip N tags (0–10 000, **default** 0)"),
+        ("limit_tags" = Option<BoundedLimit<5, 100>>, Query, description = "Upper limit on the number of tags (1–100, **default** 5)"),
+        ("limit_taggers" = Option<BoundedLimit<5, 100>>, Query, description = "Upper limit on the number of taggers per tag (1–100, **default** 5)"),
     ),
     responses(
         (status = 404, description = "Resource not found"),
@@ -106,28 +122,28 @@ pub async fn resource_by_uri_handler(
     Query(query): Query<ResourceByUriQuery>,
 ) -> Result<Json<ResourceTagsResponse>> {
     if query.uri.len() > MAX_URI_LENGTH {
-        return Err(Error::invalid_input(&format!(
+        return Err(Error::invalid_input(format!(
             "URI too long (max {MAX_URI_LENGTH} bytes)"
         )));
     }
 
     debug!("GET {RESOURCE_BY_URI_ROUTE} uri:{}", query.uri);
 
-    let (normalized, _scheme) =
-        normalize_uri(&query.uri).map_err(|e| Error::InvalidInput { message: e })?;
+    let (normalized, _scheme) = normalize_uri(&query.uri).map_err(Error::invalid_input)?;
     let res_id = resource_id(&normalized);
 
+    reject_resource_depth(query.tags_query.depth)?;
     let tags = TagResource::get_by_id(
         &res_id,
         None,
-        query.tags_query.skip_tags,
-        query.tags_query.limit_tags,
-        query.tags_query.limit_taggers,
+        query.tags_query.skip_tags_as_usize(),
+        query.tags_query.limit_tags_as_usize(),
+        query.tags_query.limit_taggers_as_usize(),
         query.tags_query.viewer_id.as_deref(),
-        query.tags_query.depth,
+        None,
     )
     .await?
-    .ok_or_else(|| Error::resource_not_found(ResourceId(res_id.clone())))?;
+    .ok_or_else(|| Error::resource_not_found(res_id.clone()))?;
 
     let resource = load_resource_details(&res_id).await?;
 
@@ -149,10 +165,11 @@ pub struct ResourceTaggersPath {
         ("resource_id" = ResourceId, Path, description = "Resource ID (32-char hex)"),
         ("label" = TagLabel, Path, description = "Tag label"),
         ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID"),
-        ("skip" = Option<usize>, Query, description = "Skip N taggers"),
-        ("limit" = Option<usize>, Query, description = "Limit taggers"),
+        ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Skip N taggers (0–10 000, **default** 0)"),
+        ("limit" = Option<BoundedLimit<40, 100>>, Query, description = "Limit taggers (1–100, default 40)"),
     ),
     responses(
+        (status = 400, description = "Invalid parameters"),
         (status = 200, description = "Resource taggers", body = TaggersInfoResponse),
         (status = 500, description = "Internal server error")
     )
@@ -165,17 +182,16 @@ pub async fn resource_taggers_handler(
         "GET {RESOURCE_TAGGERS_ROUTE} resource_id:{}, label:{}",
         resource_id, label
     );
+    reject_resource_depth(taggers_query.tags_query.depth)?;
+    let pagination = taggers_query.pagination.to_pagination(None, None);
+
     let taggers = TagResource::get_tagger_by_id(
-        resource_id.as_str(),
+        &resource_id,
         None,
         &label,
-        taggers_query.pagination,
-        taggers_query
-            .tags_query
-            .viewer_id
-            .as_ref()
-            .map(|v| v.as_ref()),
-        taggers_query.tags_query.depth,
+        pagination,
+        taggers_query.tags_query.viewer_id.as_deref(),
+        None,
     )
     .await?;
     Ok(Json(TaggersInfoResponse::from(taggers)))
@@ -185,7 +201,7 @@ pub async fn resource_taggers_handler(
 async fn load_resource_details(res_id: &str) -> Result<ResourceDetails> {
     ResourceDetails::get_by_id(res_id)
         .await?
-        .ok_or_else(|| Error::resource_not_found(ResourceId(res_id.to_string())))
+        .ok_or_else(|| Error::resource_not_found(res_id))
 }
 
 #[derive(OpenApi)]

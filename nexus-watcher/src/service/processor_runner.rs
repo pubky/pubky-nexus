@@ -20,6 +20,8 @@ pub struct EventProcessorRunner {
     pub shutdown_rx: Receiver<bool>,
     /// See [WatcherConfig::homeserver]
     pub default_homeserver: PubkyId,
+    /// See [WatcherConfig::max_file_size]
+    pub max_file_size: u64,
 }
 
 impl EventProcessorRunner {
@@ -36,6 +38,7 @@ impl EventProcessorRunner {
             }),
             shutdown_rx,
             default_homeserver: config.homeserver.clone(),
+            max_file_size: config.max_file_size,
         }
     }
 }
@@ -84,6 +87,7 @@ impl TEventProcessorRunner for EventProcessorRunner {
             tracer_name: self.tracer_name.clone(),
             moderation: self.moderation.clone(),
             shutdown_rx: self.shutdown_rx.clone(),
+            max_file_size: self.max_file_size,
         }))
     }
 }

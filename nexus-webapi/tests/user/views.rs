@@ -125,10 +125,35 @@ async fn test_get_counts() -> Result<()> {
     assert_eq!(res["friends"], 6);
     assert!(res["bookmarks"].is_number());
     assert_eq!(res["bookmarks"], 14);
+    assert!(res["collections"].is_number());
+    assert_eq!(res["collections"], 0, "user authored no collections");
 
     // Test non-existing user
     let user_id = "qca6wzjg4okp6g1hwr9g8hmx1po1jpoirjfau9ejsws1qz3t7iiy";
     invalid_get_request(&format!("/v0/user/{user_id}/counts"), StatusCode::NOT_FOUND).await?;
+
+    Ok(())
+}
+
+/// Counts derived from the seed in `docker/test-graph/mocks/posts.cypher`.
+#[tokio_shared_rt::test(shared)]
+async fn test_user_counts_collections_and_bookmark_exclusion() -> Result<()> {
+    let bogota = "ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny";
+    let res = get_request(&format!("/v0/user/{bogota}/counts")).await?;
+    assert_eq!(res["collections"], 4, "Bogota authored 4 collections");
+
+    let cairo = "f5tcy5gtgzshipr6pag6cn9uski3s8tjare7wd3n7enmyokgjk1o";
+    let res = get_request(&format!("/v0/user/{cairo}/counts")).await?;
+    assert_eq!(res["collections"], 1, "Cairo authored 1 collection");
+
+    // Eixample bookmarks one normal post and one collection.
+    let eixample = "8attbeo9ftu5nztqkcfw3gydksehr7jbspgfi64u4h8eo5e7dbiy";
+    let res = get_request(&format!("/v0/user/{eixample}/counts")).await?;
+    assert_eq!(
+        res["bookmarks"], 1,
+        "collection-follow excluded from bookmarks"
+    );
+    assert_eq!(res["collections"], 0, "Eixample authored no collections");
 
     Ok(())
 }

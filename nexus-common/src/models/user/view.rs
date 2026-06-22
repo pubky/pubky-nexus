@@ -7,6 +7,7 @@ use crate::models::error::ModelResult;
 use crate::models::tag::traits::TagCollection;
 use crate::models::tag::user::TagUser;
 use crate::models::tag::TagDetails;
+use crate::types::WotDepth;
 
 /// Represents a Pubky user with relational data including tags, counts, bookmark and relationship with other posts.
 #[derive(Serialize, Deserialize, ToSchema, Debug)]
@@ -42,9 +43,17 @@ impl UserView {
         // doesn't exist, leading us to query the graph unnecessarily, assuming the data wasn't indexed
         let tags = match counts.tags {
             0 => Vec::new(),
-            _ => TagUser::get_by_id(user_id, None, None, None, None, viewer_id, depth)
-                .await?
-                .unwrap_or_default(),
+            _ => TagUser::get_by_id(
+                user_id,
+                None,
+                None,
+                None,
+                None,
+                viewer_id,
+                depth.and_then(|d| WotDepth::new(d).ok()),
+            )
+            .await?
+            .unwrap_or_default(),
         };
 
         Ok(Some(Self {
@@ -87,9 +96,17 @@ impl UserView {
             // Before fetching post tags, check if the post has any tags
             let tags = match counts.tags {
                 0 => Vec::new(),
-                _ => TagUser::get_by_id(user_id, None, None, None, None, viewer_id, depth)
-                    .await?
-                    .unwrap_or_default(),
+                _ => TagUser::get_by_id(
+                    user_id,
+                    None,
+                    None,
+                    None,
+                    None,
+                    viewer_id,
+                    depth.and_then(|d| WotDepth::new(d).ok()),
+                )
+                .await?
+                .unwrap_or_default(),
             };
 
             user_views.push(Some(Self {

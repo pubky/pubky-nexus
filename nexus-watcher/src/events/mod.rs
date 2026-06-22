@@ -4,15 +4,24 @@ use pubky_app_specs::{PubkyAppObject, Resource};
 use std::sync::Arc;
 use tracing::debug;
 
+mod fetch;
 pub mod handlers;
 mod moderation;
 pub mod retry;
 
+pub(crate) use fetch::{
+    fetch_capped, format_error_body, read_stream_capped, MAX_ERROR_BODY, MAX_EVENTS_BODY,
+    MAX_RESOURCE_SIZE,
+};
 pub use moderation::Moderation;
 
-pub async fn handle(event: &Event, moderation: Arc<Moderation>) -> Result<(), EventProcessorError> {
+pub async fn handle(
+    event: &Event,
+    moderation: Arc<Moderation>,
+    max_file_size: u64,
+) -> Result<(), EventProcessorError> {
     match event.event_type {
-        EventType::Put => handle_put_event(event, moderation).await,
+        EventType::Put => handle_put_event(event, moderation, max_file_size).await,
         EventType::Del => handle_del_event(event).await,
     }?;
 
@@ -23,6 +32,7 @@ pub async fn handle(event: &Event, moderation: Arc<Moderation>) -> Result<(), Ev
 pub async fn handle_put_event(
     event: &Event,
     moderation: Arc<Moderation>,
+    max_file_size: u64,
 ) -> Result<(), EventProcessorError> {
     debug!("Handling PUT event for URI: {}", event.uri);
 
@@ -31,10 +41,10 @@ pub async fn handle_put_event(
 
     if !response.status().is_success() {
         let status = response.status();
-        let body = response
-            .text()
+        let (body, _exceeded) = read_stream_capped(response.bytes_stream(), MAX_ERROR_BODY)
             .await
-            .unwrap_or_else(|_| "<unable to read body>".to_string());
+            .unwrap_or_default();
+        let body = format_error_body(&body, MAX_ERROR_BODY);
 
         let err_msg = format!(
             "Fetch resource failed {}: HTTP {status} - {body}",
@@ -43,10 +53,8 @@ pub async fn handle_put_event(
         return Err(EventProcessorError::client_error(err_msg))?;
     }
 
-    let blob = response
-        .bytes()
-        .await
-        .map_err(|e| EventProcessorError::client_error(e.to_string()))?;
+    let blob = fetch_capped(response, MAX_RESOURCE_SIZE as u64).await?;
+
     let resource = event.parsed_uri.resource.clone();
 
     // Use the new importer from pubky-app-specs.
@@ -54,7 +62,7 @@ pub async fn handle_put_event(
     // not be retried (a re-run produces the same error). Classify them as
     // `SpecValidation` so the retry queue stays clean — the load-bearing
     // counterpart to the `Unknown` forwards-compat variant in pubky-app-specs.
-    let pubky_object = PubkyAppObject::from_resource(&resource, &blob)
+    let pubky_object = PubkyAppObject::from_resource(&resource, blob.as_slice())
         .map_err(|e| EventProcessorError::SpecValidation(e.to_string()))?;
 
     let user_id = event.parsed_uri.user_id.clone();
@@ -88,6 +96,7 @@ pub async fn handle_put_event(
                 user_id,
                 file_id,
                 event.files_path.clone(),
+                max_file_size,
             )
             .await?
         }
