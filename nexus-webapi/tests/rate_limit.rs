@@ -1,4 +1,5 @@
 use axum::body::Body;
+use axum::extract::ConnectInfo;
 use axum::http::{Request, StatusCode};
 use axum::routing::get;
 use axum::Router;
@@ -6,6 +7,7 @@ use nexus_common::RateLimitConfig;
 use nexus_webapi::routes::middlewares::rate_limit::{
     apply_rate_limit_default, apply_rate_limit_expensive,
 };
+use std::net::SocketAddr;
 use tower::ServiceExt;
 
 // ── Flood test ─────────────────────────────────────────────────────────
@@ -80,6 +82,44 @@ async fn flood_test_expensive_bucket_returns_429_after_burst() {
         retry_after_header.unwrap() >= 1,
         "Retry-After should be ≥ 1"
     );
+}
+
+#[tokio::test]
+async fn flood_test_peer_ip_extractor_returns_429_after_burst() {
+    let (_, shutdown_rx) = tokio::sync::watch::channel(false);
+
+    let config = RateLimitConfig {
+        enabled: true,
+        trust_proxy_headers: false, // PeerIpKeyExtractor — the production default
+        expensive_bucket: nexus_common::RateLimitBucketConfig { rate: 20, burst: 3 },
+        ..Default::default()
+    };
+
+    let app = Router::new().route("/", get(|| async { "ok" }));
+    let app = apply_rate_limit_expensive(app, &config, shutdown_rx);
+
+    let peer: SocketAddr = "127.0.0.1:1234".parse().unwrap();
+    let mut ok_count = 0;
+    let mut rejected = false;
+
+    for _ in 0..5 {
+        let mut request = Request::builder().uri("/").body(Body::empty()).unwrap();
+        request
+            .extensions_mut()
+            .insert(ConnectInfo::<SocketAddr>(peer));
+
+        let response = app.clone().oneshot(request).await.unwrap();
+        if response.status() == StatusCode::OK {
+            ok_count += 1;
+        } else if response.status() == StatusCode::TOO_MANY_REQUESTS {
+            rejected = true;
+        } else {
+            panic!("Unexpected status {:?}", response.status());
+        }
+    }
+
+    assert_eq!(ok_count, 3, "Expected exactly 3 requests within burst");
+    assert!(rejected, "Expected at least one 429 after burst exhausted");
 }
 
 #[tokio::test]
