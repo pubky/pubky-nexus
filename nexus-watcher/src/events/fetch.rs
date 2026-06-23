@@ -1,6 +1,29 @@
+use std::sync::LazyLock;
+
 use futures::StreamExt;
+use opentelemetry::metrics::Counter;
+use opentelemetry::{global, KeyValue};
 
 use crate::EventProcessorError;
+
+/// OpenTelemetry meter name for all watcher metrics.
+const METER_NAME: &str = "nexus.watcher";
+
+/// Counter for events permanently rejected for exceeding a fetch size limit.
+///
+/// Shared by every event-fetch path (`/events` polling and per-user
+/// `/events-stream` consumption) so size rejections are reported uniformly.
+static REJECTED: LazyLock<Counter<u64>> = LazyLock::new(|| {
+    global::meter(METER_NAME)
+        .u64_counter("watcher.fetch.rejected")
+        .with_description("Event fetches rejected for exceeding a size limit")
+        .build()
+});
+
+/// Records a single fetch rejected for exceeding a size limit.
+pub(crate) fn record_fetch_size_rejected() {
+    REJECTED.add(1, &[KeyValue::new("reason", "size_exceeded")]);
+}
 
 /// Max bytes to read from an error response body.
 pub(crate) const MAX_ERROR_BODY: usize = 4 * 1024;

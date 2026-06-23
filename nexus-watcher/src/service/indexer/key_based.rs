@@ -12,11 +12,25 @@ use tracing::{debug, error, info, warn};
 
 use super::TEventProcessor;
 use crate::events::retry::RetryScheduler;
-use crate::events::EventHandler;
+use crate::events::{record_fetch_size_rejected, EventHandler, MAX_EVENTS_BODY};
 use crate::service::runner::UserNotFoundBackoff;
 use crate::service::user_hs_resolver;
 
 const FETCH_EVENTS_429_BACKOFF_SECS: [u64; 3] = [1, 2, 3];
+
+/// Adds `event`'s URI size to `total`, rejecting once the running total exceeds
+/// the `MAX_EVENTS_BODY` cap `HsEventProcessor::poll_events` applies to `/events`.
+fn checked_add_event_size(total: usize, event: &StreamEvent) -> Result<usize, EventProcessorError> {
+    let next = total.saturating_add(event.resource.to_pubky_url().len());
+    if next > MAX_EVENTS_BODY {
+        record_fetch_size_rejected();
+        return Err(EventProcessorError::FetchSizeExceeded(
+            next as u64,
+            MAX_EVENTS_BODY as u64,
+        ));
+    }
+    Ok(next)
+}
 
 #[async_trait::async_trait]
 pub trait KeyBasedEventSource: Send + Sync + 'static {
@@ -53,9 +67,14 @@ impl KeyBasedEventSource for PubkyKeyBasedEventSource {
             .await
             .inspect_err(|e| error!("Failed to subscribe to event stream: {e:?}"))?;
 
+        // Bound the bytes loaded into memory: `limit` caps the event count but not
+        // their size, so reject once the cumulative URI size exceeds the cap.
         let mut events = Vec::new();
+        let mut consumed_bytes = 0usize;
         while let Some(result) = stream.next().await {
-            events.push(result?);
+            let event = result?;
+            consumed_bytes = checked_add_event_size(consumed_bytes, &event)?;
+            events.push(event);
         }
 
         Ok(events)
@@ -350,5 +369,57 @@ impl KeyBasedEventProcessor {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pubky::{EventType, Keypair, PubkyResource};
+
+    /// Builds an event whose URI is at least `uri_len` bytes long.
+    fn event_with_uri_len(uri_len: usize) -> StreamEvent {
+        let owner = Keypair::random().public_key();
+        let path = format!("/pub/{}", "a".repeat(uri_len));
+        StreamEvent {
+            event_type: EventType::Delete,
+            resource: PubkyResource::new(owner, path).expect("valid resource path"),
+            cursor: EventCursor::new(1),
+        }
+    }
+
+    #[test]
+    fn accumulates_uri_sizes() {
+        let event = event_with_uri_len(100);
+        let per_event = event.resource.to_pubky_url().len();
+
+        let after_first = checked_add_event_size(0, &event).unwrap();
+        assert_eq!(after_first, per_event);
+        assert_eq!(
+            checked_add_event_size(after_first, &event).unwrap(),
+            per_event * 2
+        );
+    }
+
+    #[test]
+    fn accepts_exactly_at_cap() {
+        let event = event_with_uri_len(100);
+        let start = MAX_EVENTS_BODY - event.resource.to_pubky_url().len();
+        assert_eq!(
+            checked_add_event_size(start, &event).unwrap(),
+            MAX_EVENTS_BODY
+        );
+    }
+
+    #[test]
+    fn rejects_over_cap() {
+        let event = event_with_uri_len(100);
+        match checked_add_event_size(MAX_EVENTS_BODY, &event) {
+            Err(EventProcessorError::FetchSizeExceeded(consumed, limit)) => {
+                assert!(consumed > MAX_EVENTS_BODY as u64);
+                assert_eq!(limit, MAX_EVENTS_BODY as u64);
+            }
+            other => panic!("expected FetchSizeExceeded, got {other:?}"),
+        }
     }
 }

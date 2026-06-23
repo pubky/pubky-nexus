@@ -16,8 +16,8 @@ mod moderation;
 pub mod retry;
 
 pub(crate) use fetch::{
-    fetch_capped, format_error_body, read_stream_capped, MAX_ERROR_BODY, MAX_EVENTS_BODY,
-    MAX_RESOURCE_SIZE,
+    fetch_capped, format_error_body, read_stream_capped, record_fetch_size_rejected,
+    MAX_ERROR_BODY, MAX_EVENTS_BODY, MAX_RESOURCE_SIZE,
 };
 pub use moderation::Moderation;
 

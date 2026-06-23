@@ -1,30 +1,19 @@
 use super::TEventProcessor;
 use crate::errors::EventProcessorError;
 use crate::events::retry::RetryScheduler;
-use crate::events::{read_stream_capped, Event, EventHandler, MAX_EVENTS_BODY};
+use crate::events::{
+    read_stream_capped, record_fetch_size_rejected, Event, EventHandler, MAX_EVENTS_BODY,
+};
 use nexus_common::db::{fetch_row_from_graph, queries, GraphResult, PubkyConnector};
 use nexus_common::models::homeserver::Homeserver;
-use opentelemetry::metrics::Counter;
-use opentelemetry::{global, KeyValue};
 use pubky::Method;
 use pubky_app_specs::PubkyId;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
 use tokio::sync::watch::Receiver;
 use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
-
-/// OpenTelemetry meter name for all watcher metrics.
-const METER_NAME: &str = "nexus.watcher";
-
-/// Counter for events permanently rejected for exceeding a fetch size limit.
-static REJECTED: LazyLock<Counter<u64>> = LazyLock::new(|| {
-    global::meter(METER_NAME)
-        .u64_counter("watcher.fetch.rejected")
-        .with_description("Event fetches rejected for exceeding a size limit")
-        .build()
-});
 
 /// A user's `HOSTED_BY` mapping, classified relative to a processor's HS.
 ///
@@ -208,7 +197,7 @@ impl HsEventProcessor {
                 .await
                 .map_err(|e| EventProcessorError::client_error(e.to_string()))?;
             if exceeded {
-                REJECTED.add(1, &[KeyValue::new("reason", "size_exceeded")]);
+                record_fetch_size_rejected();
 
                 return Err(EventProcessorError::FetchSizeExceeded(
                     buf.len() as u64,
