@@ -9,7 +9,7 @@ use tower_governor::errors::GovernorError;
 use tower_governor::governor::GovernorConfigBuilder;
 use tower_governor::key_extractor::{KeyExtractor, PeerIpKeyExtractor, SmartIpKeyExtractor};
 use tower_governor::GovernorLayer;
-use tracing::debug;
+use tracing::{debug, error};
 
 type RateLimitLayer = GovernorLayer<
     IpKeyExtractor,
@@ -99,20 +99,24 @@ fn build_layer(
     );
 
     Some(
-        GovernorLayer::new(config).error_handler(move |err: GovernorError| {
-            counter.add(1, &[opentelemetry::KeyValue::new("bucket", bucket_label)]);
-            let wait_secs = match &err {
-                GovernorError::TooManyRequests { wait_time, .. } => *wait_time,
-                _ => 0,
-            };
-            debug!("Rate limit exceeded (bucket={bucket_label}) — retry after {wait_secs}s");
-
-            let mut response = Response::new(axum::body::Body::empty());
-            *response.status_mut() = StatusCode::TOO_MANY_REQUESTS;
-            response
-                .headers_mut()
-                .insert(header::RETRY_AFTER, wait_secs.to_string().parse().unwrap());
-            response
+        GovernorLayer::new(config).error_handler(move |err: GovernorError| match &err {
+            GovernorError::TooManyRequests { wait_time, .. } => {
+                let wait_secs = *wait_time;
+                counter.add(1, &[opentelemetry::KeyValue::new("bucket", bucket_label)]);
+                debug!("Rate limit exceeded (bucket={bucket_label}) — retry after {wait_secs}s");
+                let mut response = Response::new(axum::body::Body::empty());
+                *response.status_mut() = StatusCode::TOO_MANY_REQUESTS;
+                response
+                    .headers_mut()
+                    .insert(header::RETRY_AFTER, wait_secs.to_string().parse().unwrap());
+                response
+            }
+            _ => {
+                error!("Rate-limit key extraction failed (bucket={bucket_label}): {err}");
+                let mut response = Response::new(axum::body::Body::empty());
+                *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+                response
+            }
         }),
     )
 }
