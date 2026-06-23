@@ -32,8 +32,6 @@ tower-http = { version = "0.7.0", features = [
     "limit",
     "timeout",
 ] }
-governor = "0.10"
-tower = { version = "0.5", features = ["util"] }
 tower_governor = { version = "0.8", default-features = false, features = ["axum"] }
 tracing = { workspace = true }
 utoipa = { workspace = true }

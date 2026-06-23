@@ -11,12 +11,6 @@ use tower_governor::key_extractor::{KeyExtractor, PeerIpKeyExtractor, SmartIpKey
 use tower_governor::GovernorLayer;
 use tracing::{debug, error};
 
-type RateLimitLayer = GovernorLayer<
-    IpKeyExtractor,
-    governor::middleware::NoOpMiddleware<governor::clock::QuantaInstant>,
-    axum::body::Body,
->;
-
 /// A unified IP key extractor that delegates to either peer-IP or forwarded-header extraction
 /// depending on how it was constructed.
 ///
@@ -49,21 +43,25 @@ fn compute_refill_period(rate_per_min: u32) -> Duration {
     Duration::from_millis((60_000 / rate_per_min as u64).max(1))
 }
 
-/// Build a `GovernorLayer` for the given bucket config.
-/// Returns `None` when rate limiting is disabled or burst/rate are zero.
+/// Apply a `GovernorLayer` for the given bucket config.
+/// Returns `router` unchanged when rate limiting is disabled or burst/rate are zero.
 ///
 /// **Security:** When `trust_proxy_headers` is `true`, forwarded-IP headers
 /// are consulted (behind a known reverse proxy). When `false`, only the real
 /// TCP peer address is used — preventing trivial client-side XFF spoofing.
-fn build_layer(
+fn apply_rate_limit_bucket<S>(
+    router: axum::Router<S>,
     rate_per_min: u32,
     burst: u32,
     bucket_label: &'static str,
     trust_proxy_headers: bool,
     shutdown_rx: Receiver<bool>,
-) -> Option<RateLimitLayer> {
+) -> axum::Router<S>
+where
+    S: Clone + Send + Sync + 'static,
+{
     if rate_per_min == 0 || burst == 0 {
-        return None;
+        return router;
     }
 
     let key_extractor = if trust_proxy_headers {
@@ -74,11 +72,14 @@ fn build_layer(
 
     let refill_period = compute_refill_period(rate_per_min);
 
-    let config = GovernorConfigBuilder::default()
+    let Some(config) = GovernorConfigBuilder::default()
         .period(refill_period)
         .burst_size(burst)
         .key_extractor(key_extractor)
-        .finish()?;
+        .finish()
+    else {
+        return router;
+    };
 
     let limiter = config.limiter().clone();
     tokio::spawn(async move {
@@ -102,7 +103,7 @@ fn build_layer(
             .build(),
     );
 
-    Some(
+    router.layer(
         GovernorLayer::new(config).error_handler(move |err: GovernorError| match &err {
             GovernorError::TooManyRequests { wait_time, .. } => {
                 let wait_secs = *wait_time;
@@ -138,16 +139,14 @@ where
     if !config.enabled {
         return router;
     }
-    match build_layer(
+    apply_rate_limit_bucket(
+        router,
         config.expensive_bucket.rate,
         config.expensive_bucket.burst,
         "expensive",
         config.trust_proxy_headers,
         shutdown_rx,
-    ) {
-        Some(layer) => router.layer(layer),
-        None => router,
-    }
+    )
 }
 
 /// Apply the default-bucket rate-limit layer to `router`.
@@ -163,45 +162,74 @@ where
     if !config.enabled {
         return router;
     }
-    match build_layer(
+    apply_rate_limit_bucket(
+        router,
         config.default_bucket.rate,
         config.default_bucket.burst,
         "default",
         config.trust_proxy_headers,
         shutdown_rx,
-    ) {
-        Some(layer) => router.layer(layer),
-        None => router,
-    }
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn zero_rate_or_burst_is_noop() {
-        let (_, rx) = tokio::sync::watch::channel(false);
-        assert!(build_layer(0, 50, "test", false, rx).is_none());
-        let (_, rx) = tokio::sync::watch::channel(false);
-        assert!(build_layer(300, 0, "test", false, rx).is_none());
+    #[tokio::test]
+    async fn zero_rate_or_burst_is_noop() {
+        use axum::body::Body;
+        use axum::http::{Request, StatusCode};
+        use axum::routing::get;
+        use tower::ServiceExt;
+
+        // No ConnectInfo on the request: if a GovernorLayer were applied it would
+        // fail key extraction and return 500, so all-200 proves no layer was added.
+        for (rate, burst) in [(0u32, 50u32), (300, 0)] {
+            let (_, rx) = tokio::sync::watch::channel(false);
+            let router = axum::Router::new().route("/", get(|| async { "ok" }));
+            let router = apply_rate_limit_bucket(router, rate, burst, "test", false, rx);
+
+            for _ in 0..10 {
+                let resp = router
+                    .clone()
+                    .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
+                    .await
+                    .unwrap();
+                assert_eq!(resp.status(), StatusCode::OK);
+            }
+        }
     }
 
     #[tokio::test]
     async fn enabled_builds_layer() {
-        let config = RateLimitConfig {
-            enabled: true,
-            ..Default::default()
-        };
+        use axum::body::Body;
+        use axum::extract::ConnectInfo;
+        use axum::http::{Request, StatusCode};
+        use axum::routing::get;
+        use std::net::SocketAddr;
+        use tower::ServiceExt;
+
         let (_, shutdown_rx) = tokio::sync::watch::channel(false);
-        assert!(build_layer(
-            config.default_bucket.rate,
-            config.default_bucket.burst,
-            "test",
-            false,
-            shutdown_rx,
-        )
-        .is_some());
+        let router = axum::Router::new().route("/", get(|| async { "ok" }));
+        // burst=1: first request consumes the single token, second is rejected.
+        let router = apply_rate_limit_bucket(router, 60, 1, "test", false, shutdown_rx);
+
+        let peer: SocketAddr = "127.0.0.1:1234".parse().unwrap();
+
+        let mut req = Request::builder().uri("/").body(Body::empty()).unwrap();
+        req.extensions_mut().insert(ConnectInfo::<SocketAddr>(peer));
+        assert_eq!(
+            router.clone().oneshot(req).await.unwrap().status(),
+            StatusCode::OK
+        );
+
+        let mut req = Request::builder().uri("/").body(Body::empty()).unwrap();
+        req.extensions_mut().insert(ConnectInfo::<SocketAddr>(peer));
+        assert_eq!(
+            router.clone().oneshot(req).await.unwrap().status(),
+            StatusCode::TOO_MANY_REQUESTS
+        );
     }
 
     #[test]
