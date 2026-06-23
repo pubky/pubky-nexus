@@ -91,7 +91,7 @@ impl TEventProcessorRunner for KeyBasedEventProcessorRunner {
         let homeserver_id = PubkyId::try_from(hs_id)?;
 
         Ok(Arc::new(KeyBasedEventProcessor {
-            homeserver: Homeserver::new(homeserver_id),
+            homeserver_id,
             limit: self.limit,
             files_path: self.files_path.clone(),
             event_handler: self.event_handler.clone(),
