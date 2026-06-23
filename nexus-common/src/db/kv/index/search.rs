@@ -15,18 +15,14 @@ fn ft_search_timeout_ms() -> usize {
     *FT_SEARCH_TIMEOUT.get().unwrap_or(&FT_SEARCH_TIMEOUT_MS)
 }
 
-/// Creates a RediSearch JSON index with a single TEXT field.
-/// Idempotent: treats any error containing "already exists" as success so concurrent callers are safe.
-pub(crate) async fn ft_create_json_text_index(
-    index_name: &str,
-    prefix: &str,
-    field_path: &str,
-    field_alias: &str,
-) -> RedisResult<()> {
+/// Creates the post content index: $.content TEXT + $.author TAG CASESENSITIVE + $.kind TAG CASESENSITIVE.
+/// NOOFFSETS/NOHL kept; NOFIELDS dropped to allow field-targeted queries.
+/// Idempotent: short-circuits on "already exists".
+pub(crate) async fn ft_create_post_content_index(prefix: &str) -> RedisResult<()> {
     let mut conn = get_redis_conn().await?;
 
     let result = deadpool_redis::redis::cmd("FT.CREATE")
-        .arg(index_name)
+        .arg("postContentIdx")
         .arg("ON")
         .arg("JSON")
         .arg("PREFIX")
@@ -34,12 +30,21 @@ pub(crate) async fn ft_create_json_text_index(
         .arg(prefix)
         .arg("NOOFFSETS")
         .arg("NOHL")
-        .arg("NOFIELDS")
         .arg("SCHEMA")
-        .arg(field_path)
+        .arg("$.content")
         .arg("AS")
-        .arg(field_alias)
+        .arg("content")
         .arg("TEXT")
+        .arg("$.author")
+        .arg("AS")
+        .arg("author")
+        .arg("TAG")
+        .arg("CASESENSITIVE")
+        .arg("$.kind")
+        .arg("AS")
+        .arg("kind")
+        .arg("TAG")
+        .arg("CASESENSITIVE")
         .query_async::<()>(&mut conn)
         .await;
 
@@ -50,24 +55,76 @@ pub(crate) async fn ft_create_json_text_index(
     }
 }
 
-/// Full-text search returning `(redis_key, score)` pairs ordered by relevance.
-/// Keys are returned as-is (including any Redis prefix); the caller strips the prefix.
-pub(crate) async fn ft_search_scored(
-    index_name: &str,
-    query: &str,
-    skip: usize,
-    limit: usize,
-) -> RedisResult<Vec<(String, f64)>> {
-    let sanitized = sanitize_query(query);
+/// Drops the post content index without deleting the underlying documents.
+/// Idempotent: swallows "Unknown index name" so repeated calls are safe.
+pub(crate) async fn drop_post_content_index() -> RedisResult<()> {
+    let mut conn = get_redis_conn().await?;
+
+    let result = deadpool_redis::redis::cmd("FT.DROPINDEX")
+        .arg("postContentIdx")
+        .query_async::<()>(&mut conn)
+        .await;
+
+    match result {
+        Ok(()) => Ok(()),
+        Err(e) if e.to_string().contains("Unknown index name") => Ok(()),
+        Err(e) => Err(RedisError::CommandFailed(e.to_string().into())),
+    }
+}
+
+/// Assembles the RediSearch query string from a content fragment, optional author
+/// filter, and optional kind filter.
+///
+/// * The **content** half runs through `sanitize_query` → `fuzzy_token` as before.
+/// * The **author** half is assembled raw as `@author:{<id>}` and must NOT pass
+///   through `sanitize_query` (which would turn `@` and `{` into spaces) or
+///   `fuzzy_token` (which would %-escape the author id).
+/// * The **kind** half is assembled raw as `@kind:{<kind>}` — the kind value is
+///   the serde-serialized enum variant (e.g. "short", "long").
+///
+/// Returns `None` when the content half is empty — author/kind filters alone
+/// must not degenerate into listing endpoints.
+fn build_ft_query(content: &str, author: Option<&str>, kind: Option<&str>) -> Option<String> {
+    let sanitized = sanitize_query(content);
     if sanitized.is_empty() {
-        return Ok(vec![]);
+        return None;
     }
 
-    let ft_query = sanitized
+    let fuzzy = sanitized
         .split_whitespace()
         .map(fuzzy_token)
         .collect::<Vec<_>>()
         .join(" ");
+
+    let mut parts = Vec::with_capacity(3);
+    if let Some(a) = author {
+        parts.push(format!("@author:{{{a}}}"));
+    }
+    if let Some(k) = kind {
+        parts.push(format!("@kind:{{{k}}}"));
+    }
+    parts.push(fuzzy);
+
+    Some(parts.join(" "))
+}
+
+/// Full-text search returning `(redis_key, score)` pairs ordered by relevance.
+/// Keys are returned as-is (including any Redis prefix); the caller strips the prefix.
+///
+/// When `author` is `Some`, results are scoped to posts by that author.
+/// When `kind` is `Some`, results are further filtered to that post kind.
+pub(crate) async fn ft_search_scored(
+    index_name: &str,
+    query: &str,
+    author: Option<&str>,
+    kind: Option<&str>,
+    skip: usize,
+    limit: usize,
+) -> RedisResult<Vec<(String, f64)>> {
+    let ft_query = match build_ft_query(query, author, kind) {
+        Some(q) => q,
+        None => return Ok(vec![]),
+    };
 
     let mut conn = get_redis_conn().await?;
 
@@ -166,7 +223,7 @@ fn parse_ft_search_response(raw: deadpool_redis::redis::Value) -> RedisResult<Ve
 
 #[cfg(test)]
 mod tests {
-    use super::sanitize_query;
+    use super::{build_ft_query, sanitize_query};
 
     #[test]
     fn punctuation_becomes_separator_not_glue() {
@@ -189,5 +246,85 @@ mod tests {
     #[test]
     fn only_punctuation_becomes_empty() {
         assert_eq!(sanitize_query("!!!"), "");
+    }
+
+    // -----------------------------------------------------------------------
+    // build_ft_query: brace escaping and sanitize-bypass correctness tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn author_none_produces_content_only() {
+        let q = build_ft_query("hello world", None, None);
+        // Two tokens ≥ 5 chars → fuzzy distance 1 → %hello% %world%
+        assert_eq!(q.as_deref(), Some("%hello% %world%"));
+    }
+
+    #[test]
+    fn author_some_appends_braced_tag_filter() {
+        let q = build_ft_query("hello", Some("user123"), None);
+        // @author:{user123} must use double-{{ }} to produce single braces.
+        // "hello" (5 chars) → %hello%
+        assert_eq!(q.as_deref(), Some("@author:{user123} %hello%"));
+    }
+
+    #[test]
+    fn author_only_empty_content_returns_none() {
+        // Scoped search with empty content → None, not an author listing.
+        // If this returned Some("@author:{alice}"), it would act as an
+        // unbounded author-listing endpoint rather than a search.
+        let q = build_ft_query("", Some("alice"), None);
+        assert!(q.is_none());
+    }
+
+    #[test]
+    fn author_only_all_punctuation_returns_none() {
+        // q=".." passes PostSearchQuery validation (2 chars, 1 term) but
+        // sanitize_query strips to empty. Must not become an author listing.
+        let q = build_ft_query("..", Some("alice"), None);
+        assert!(q.is_none());
+    }
+
+    #[test]
+    fn both_empty_returns_none() {
+        let q = build_ft_query("", None, None);
+        assert!(q.is_none());
+    }
+
+    #[test]
+    fn author_braces_are_not_sanitized() {
+        // CRITICAL: if the author clause ever routes through sanitize_query,
+        // "@author:{alice}" becomes "author alice" and the query degrades to garbage.
+        // This test asserts the braces survive intact.
+        let q = build_ft_query("test", Some("alice"), None);
+        assert!(
+            q.as_deref().map(|s| s.contains('@')).unwrap_or(false),
+            "author clause must contain @"
+        );
+        assert!(
+            q.as_deref().map(|s| s.contains('{')).unwrap_or(false),
+            "author clause must contain open brace"
+        );
+        assert!(
+            q.as_deref().map(|s| s.contains('}')).unwrap_or(false),
+            "author clause must contain close brace"
+        );
+    }
+
+    #[test]
+    fn kind_some_appends_braced_tag_filter() {
+        let q = build_ft_query("hello", None, Some("short"));
+        assert_eq!(q.as_deref(), Some("@kind:{short} %hello%"));
+    }
+
+    #[test]
+    fn author_and_kind_both_set() {
+        let q = build_ft_query("hello", Some("user123"), Some("long"));
+        assert_eq!(q.as_deref(), Some("@author:{user123} @kind:{long} %hello%"));
+    }
+
+    #[test]
+    fn kind_only_empty_content_returns_none() {
+        let q = build_ft_query("", None, Some("short"));
+        assert!(q.is_none());
     }
 }

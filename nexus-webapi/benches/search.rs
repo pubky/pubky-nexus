@@ -114,7 +114,9 @@ fn bench_post_content_search(c: &mut Criterion) {
             query,
             |b, &query| {
                 b.to_async(&rt).iter(|| async {
-                    let result = PostsByContentSearch::search(query, 0, 20).await.unwrap();
+                    let result = PostsByContentSearch::search(query, None, None, 0, 20)
+                        .await
+                        .unwrap();
                     std::hint::black_box(result);
                 });
             },

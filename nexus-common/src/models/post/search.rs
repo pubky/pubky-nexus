@@ -150,12 +150,21 @@ impl PostsByTagSearch {
 
 const POST_CONTENT_INDEX: &str = "postContentIdx";
 
-/// Creates the RediSearch full-text index over PostDetails JSON documents.
+/// Creates the post content full-text index: $.content TEXT + $.author TAG CASESENSITIVE + $.kind TAG CASESENSITIVE.
+/// Includes NOOFFSETS/NOHL; NOFIELDS dropped to allow field-targeted queries.
 /// Idempotent: no-ops if the index already exists.
 pub async fn create_post_content_index() -> RedisResult<()> {
     let prefix = format!("{}:", PostDetails::prefix().await);
-    search::ft_create_json_text_index(POST_CONTENT_INDEX, &prefix, "$.content", "content").await?;
+    search::ft_create_post_content_index(&prefix).await?;
     info!("RediSearch index '{POST_CONTENT_INDEX}' created or already exists");
+    Ok(())
+}
+
+/// Drops the post content index without deleting underlying JSON documents.
+/// Idempotent: swallows "Unknown index name" errors.
+pub async fn drop_post_content_index() -> RedisResult<()> {
+    search::drop_post_content_index().await?;
+    info!("RediSearch index '{POST_CONTENT_INDEX}' dropped or already absent");
     Ok(())
 }
 
@@ -169,11 +178,14 @@ pub struct PostsByContentSearch {
 impl PostsByContentSearch {
     pub async fn search(
         query: &str,
+        author: Option<&str>,
+        kind: Option<&str>,
         skip: usize,
         limit: usize,
     ) -> RedisResult<Vec<PostsByContentSearch>> {
         let prefix = format!("{}:", PostDetails::prefix().await);
-        let pairs = search::ft_search_scored(POST_CONTENT_INDEX, query, skip, limit).await?;
+        let pairs =
+            search::ft_search_scored(POST_CONTENT_INDEX, query, author, kind, skip, limit).await?;
         Ok(pairs
             .into_iter()
             .filter_map(|(key, score)| {
