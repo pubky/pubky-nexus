@@ -19,7 +19,7 @@ use super::{simulate_partial_del_cleanup_child, simulate_partial_del_cleanup_roo
 /// (no double-decrement), and finally delete the graph node.
 #[tokio_shared_rt::test(shared)]
 async fn test_post_del_recovers_after_partial_redis_cleanup() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     let user_kp = Keypair::random();
     let user_id = test
@@ -72,7 +72,7 @@ async fn test_post_del_recovers_after_partial_redis_cleanup() -> Result<()> {
 /// MissingDependency (mapped to SkipIndexing) without corrupting state.
 #[tokio_shared_rt::test(shared)]
 async fn test_post_del_replay_after_full_success_skips() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     let user_kp = Keypair::random();
     let user_id = test
@@ -120,7 +120,7 @@ async fn test_post_del_replay_after_full_success_skips() -> Result<()> {
 /// count MUST NOT be double-mutated on retry.
 #[tokio_shared_rt::test(shared)]
 async fn test_post_del_reply_recovers_without_double_decrement() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     // Parent author (Alice).
     let alice_kp = Keypair::random();
@@ -218,7 +218,7 @@ async fn test_post_del_reply_recovers_without_double_decrement() -> Result<()> {
 /// repost-deletion notification.
 #[tokio_shared_rt::test(shared)]
 async fn test_post_del_repost_recovers_without_double_decrement() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     // Parent author (Alice).
     let alice_kp = Keypair::random();

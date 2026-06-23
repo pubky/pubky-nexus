@@ -10,7 +10,7 @@ use pubky_app_specs::{
 
 #[tokio_shared_rt::test(shared)]
 async fn test_reply_to_post_on_unknown_homeserver() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     let parent_author_hs_pk = create_external_test_homeserver(&mut test).await?;
 
@@ -60,7 +60,7 @@ async fn test_reply_to_post_on_unknown_homeserver() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_repost_of_post_on_unknown_homeserver() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     let original_author_hs_pk = create_external_test_homeserver(&mut test).await?;
 
@@ -113,7 +113,7 @@ async fn test_repost_of_post_on_unknown_homeserver() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_post_and_mention_users_on_unknown_homeserver() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     let user_1_hs_pk = create_external_test_homeserver(&mut test).await?;
     let user_2_hs_pk = create_external_test_homeserver(&mut test).await?;

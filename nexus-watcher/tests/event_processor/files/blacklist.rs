@@ -54,7 +54,7 @@ async fn setup_user_with_blob(
 /// written to disk and no `FileDetails` is indexed.
 #[tokio_shared_rt::test(shared)]
 async fn test_file_ingest_aborts_on_blacklisted_source_homeserver() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     let (user_pubky_id, file, user_id, _) = setup_user_with_blob(&mut test).await?;
     let file_id = file.create_id();
@@ -100,7 +100,7 @@ async fn test_file_ingest_aborts_on_blacklisted_source_homeserver() -> Result<()
 /// that blocks ingestion, before any request reaches the HS.
 #[tokio_shared_rt::test(shared)]
 async fn test_file_ingest_aborts_when_source_is_blacklisted_hs_pk_directly() -> Result<()> {
-    let test = WatcherTest::setup().await?;
+    let test = WatcherTest::setup(None).await?;
 
     // `src` blob is addressed to the HS PK itself, not to a user hosted on it.
     let blob = PubkyAppBlob::new("Hello World!".as_bytes().to_vec());
@@ -163,7 +163,7 @@ async fn test_file_ingest_aborts_when_source_is_blacklisted_hs_pk_directly() -> 
 /// is what blocked ingestion above.
 #[tokio_shared_rt::test(shared)]
 async fn test_file_ingest_proceeds_when_source_homeserver_not_blacklisted() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     let (user_pubky_id, file, user_id, blob_absolute_url) = setup_user_with_blob(&mut test).await?;
     let file_id = file.create_id();

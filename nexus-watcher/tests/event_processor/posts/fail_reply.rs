@@ -7,7 +7,7 @@ use tracing::error;
 /// The user profile is stored in the homeserver and synched in the graph, but the posts just exist in the homeserver
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_post_reply_without_post_parent() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     let author_user_kp = Keypair::random();
     let author = PubkyAppUser {

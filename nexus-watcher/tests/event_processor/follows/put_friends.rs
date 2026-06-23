@@ -8,7 +8,7 @@ use pubky_app_specs::PubkyAppUser;
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_follow_friend() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     // Create Alice user
     let alice_kp = Keypair::random();

@@ -15,7 +15,7 @@ use pubky_app_specs::{file_uri_builder, PubkyAppUser, PubkyAppUserLink};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_user_put_event() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     let user_kp = Keypair::random();
 

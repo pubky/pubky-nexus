@@ -7,7 +7,7 @@ use tracing::error;
 /// Verifies that a follow fails with MissingDependency when either party is not yet indexed.
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_follow_cannot_complete() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     let follower_kp = Keypair::random();
     let follower = PubkyAppUser {

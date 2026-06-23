@@ -19,7 +19,7 @@ use pubky_app_specs::{
 /// that user, returning [`ModelError::HsBlacklisted`] and leaving no graph node behind.
 #[tokio_shared_rt::test(shared)]
 async fn test_maybe_ingest_user_aborts_on_blacklisted_homeserver() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     let hs_pk = create_external_test_homeserver(&mut test).await?;
 
@@ -51,7 +51,7 @@ async fn test_maybe_ingest_user_aborts_on_blacklisted_homeserver() -> Result<()>
 /// the blacklist (not some other failure) is what blocked ingestion above.
 #[tokio_shared_rt::test(shared)]
 async fn test_maybe_ingest_user_ingests_when_not_blacklisted() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     let hs_pk = create_external_test_homeserver(&mut test).await?;
 
@@ -75,7 +75,7 @@ async fn test_maybe_ingest_user_ingests_when_not_blacklisted() -> Result<()> {
 /// against a dependency that cannot resolve.
 #[tokio_shared_rt::test(shared)]
 async fn test_follow_of_user_on_blacklisted_homeserver_is_dropped() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     let hs_pk = create_external_test_homeserver(&mut test).await?;
 
@@ -115,7 +115,7 @@ async fn test_follow_of_user_on_blacklisted_homeserver_is_dropped() -> Result<()
 /// blacklisted parent author is never ingested.
 #[tokio_shared_rt::test(shared)]
 async fn test_reply_to_post_on_blacklisted_homeserver_is_dropped() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     let parent_hs_pk = create_external_test_homeserver(&mut test).await?;
 
@@ -166,7 +166,7 @@ async fn test_reply_to_post_on_blacklisted_homeserver_is_dropped() -> Result<()>
 /// blacklisted reposted author is never ingested.
 #[tokio_shared_rt::test(shared)]
 async fn test_repost_of_post_on_blacklisted_homeserver_is_dropped() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     let original_hs_pk = create_external_test_homeserver(&mut test).await?;
 
@@ -220,7 +220,7 @@ async fn test_repost_of_post_on_blacklisted_homeserver_is_dropped() -> Result<()
 /// ingested.
 #[tokio_shared_rt::test(shared)]
 async fn test_tag_post_on_blacklisted_homeserver_is_dropped() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     let post_hs_pk = create_external_test_homeserver(&mut test).await?;
 
@@ -268,7 +268,7 @@ async fn test_tag_post_on_blacklisted_homeserver_is_dropped() -> Result<()> {
 /// dropped instead of retried, and the blacklisted tagged user is never ingested.
 #[tokio_shared_rt::test(shared)]
 async fn test_tag_user_on_blacklisted_homeserver_is_dropped() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     let tagged_hs_pk = create_external_test_homeserver(&mut test).await?;
 

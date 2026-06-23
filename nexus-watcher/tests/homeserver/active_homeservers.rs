@@ -28,7 +28,7 @@ async fn create_orphan_hs() -> Result<PubkyId, DynError> {
 /// Active homeserver listing: orphan exclusion, sort order, and stability after user reassignment.
 #[tokio_shared_rt::test(shared)]
 async fn test_get_all_active_homeservers() -> Result<(), DynError> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     // -- Orphan HSs (no users) must be excluded --
     let orphan1 = create_orphan_hs().await?;
@@ -116,7 +116,7 @@ async fn test_get_all_active_homeservers() -> Result<(), DynError> {
 /// A homeserver whose only user has a stale mapping must drop off the active list.
 #[tokio_shared_rt::test(shared)]
 async fn test_stale_users_excluded_from_active_homeservers() -> Result<(), DynError> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     let hs = create_orphan_hs().await?;
     let kp = Keypair::random();

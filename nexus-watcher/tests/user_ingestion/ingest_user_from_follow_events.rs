@@ -6,7 +6,7 @@ use pubky_app_specs::PubkyAppUser;
 
 #[tokio_shared_rt::test(shared)]
 async fn test_follow_on_unknown_homeserver() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     let followee_hs_pk = create_external_test_homeserver(&mut test).await?;
 

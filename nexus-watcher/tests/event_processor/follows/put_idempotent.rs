@@ -19,7 +19,7 @@ use pubky_app_specs::{PubkyAppUser, PubkyId};
 /// counters, duplicate index entries, or create extra notifications.
 #[tokio_shared_rt::test(shared)]
 async fn test_follow_put_idempotent() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     // Create follower
     let follower_kp = Keypair::random();
@@ -124,7 +124,7 @@ async fn test_follow_put_idempotent() -> Result<()> {
 /// without duplicating counters or notifications.
 #[tokio_shared_rt::test(shared)]
 async fn test_follow_put_recovers_missing_indexes() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     // Create follower
     let follower_kp = Keypair::random();

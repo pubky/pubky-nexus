@@ -21,7 +21,7 @@ use super::utils::{
 
 #[tokio_shared_rt::test(shared)]
 async fn test_delete_post_without_relationships() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     // Create a new user
     let user_kp = Keypair::random();
@@ -126,7 +126,7 @@ async fn test_delete_post_without_relationships() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_delete_post_that_reposted() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     // Create a new user
     let user_kp = Keypair::random();
@@ -257,7 +257,7 @@ async fn test_delete_post_that_reposted() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_delete_post_that_replied() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     // Create a new user
     let user_kp = Keypair::random();

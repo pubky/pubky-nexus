@@ -12,7 +12,7 @@ use tracing::error;
 /// is not yet indexed in the graph.
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_tag_cannot_add_while_index() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     let tagged_keypair = Keypair::random();
     let tagged_user = PubkyAppUser {

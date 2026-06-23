@@ -23,7 +23,7 @@ use super::{
 /// re-run idempotent index writes WITHOUT double-incrementing user counts.
 #[tokio_shared_rt::test(shared)]
 async fn test_post_put_recovers_after_partial_redis_write() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     let user_kp = Keypair::random();
     let user_id = test
@@ -81,7 +81,7 @@ async fn test_post_put_recovers_after_partial_redis_write() -> Result<()> {
 /// parent counts must also stay stable.
 #[tokio_shared_rt::test(shared)]
 async fn test_post_put_replay_after_full_success_is_noop() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     let user_kp = Keypair::random();
     let user_id = test
@@ -153,7 +153,7 @@ async fn test_post_put_replay_after_full_success_is_noop() -> Result<()> {
 /// re-sending the mention notification (0 > N).
 #[tokio_shared_rt::test(shared)]
 async fn test_post_put_recovers_mention_edge() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     // Author (Alice).
     let alice_kp = Keypair::random();
@@ -236,7 +236,7 @@ async fn test_post_put_recovers_mention_edge() -> Result<()> {
 /// parent's post-reply sorted set, then verifying recovery rebuilds it.
 #[tokio_shared_rt::test(shared)]
 async fn test_post_put_recovers_reply_preserves_parent_sorted_sets() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     // Parent author (Alice).
     let alice_kp = Keypair::random();
@@ -366,7 +366,7 @@ async fn test_post_put_recovers_reply_preserves_parent_sorted_sets() -> Result<(
 /// author.
 #[tokio_shared_rt::test(shared)]
 async fn test_post_put_recovers_repost_preserves_parent_state() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     // Parent author (Alice).
     let alice_kp = Keypair::random();

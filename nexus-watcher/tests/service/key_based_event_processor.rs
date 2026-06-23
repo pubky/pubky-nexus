@@ -11,7 +11,6 @@ use nexus_common::models::traits::Collection;
 use nexus_common::models::user::{set_user_homeserver, user_hs_cursor_key, UserDetails};
 use nexus_common::types::DynError;
 use nexus_common::utils::test_utils::random_pubky_id;
-use nexus_common::DEFAULT_MAX_FILE_SIZE;
 use nexus_watcher::errors::EventProcessorError;
 use nexus_watcher::events::retry::{InitialBackoff, RetryScheduler};
 use nexus_watcher::events::Event;
@@ -789,7 +788,6 @@ fn processor_with_options(
             },
         )),
         shutdown_rx,
-        max_file_size: DEFAULT_MAX_FILE_SIZE,
     })
 }
 
@@ -847,7 +845,7 @@ impl ShutdownOnFirstHandle {
 
 #[async_trait::async_trait]
 impl EventHandler for ShutdownOnFirstHandle {
-    async fn handle(&self, _event: &Event, _max_file_size: u64) -> Result<(), EventProcessorError> {
+    async fn handle(&self, _event: &Event) -> Result<(), EventProcessorError> {
         if self.handle_count.fetch_add(1, Ordering::SeqCst) == 0 {
             let _ = self.shutdown_tx.send(true);
         }

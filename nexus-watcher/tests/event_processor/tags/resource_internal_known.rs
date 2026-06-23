@@ -13,7 +13,7 @@ use pubky_app_specs::{post_uri_builder, PubkyAppPost, PubkyAppTag, PubkyAppUser}
 /// This means the tag creates a (:User)-[:TAGGED]->(:Post) relationship, NOT a (:Resource).
 #[tokio_shared_rt::test(shared)]
 async fn test_resource_tag_internal_known_delegates_to_post() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     // Create user + post
     let user_kp = Keypair::random();

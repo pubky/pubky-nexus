@@ -12,7 +12,7 @@ use pubky_app_specs::{PubkyAppTag, PubkyAppUser};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_put_tag_user_another() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     // Step 1: Create the users
     let tagged_kp = Keypair::random();

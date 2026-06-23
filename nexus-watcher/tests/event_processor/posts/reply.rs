@@ -15,7 +15,7 @@ use pubky_app_specs::{post_uri_builder, PubkyAppPost, PubkyAppPostKind, PubkyApp
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_post_reply() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     let user_kp = Keypair::random();
 
@@ -206,7 +206,7 @@ async fn test_homeserver_post_reply() -> Result<()> {
 #[tokio_shared_rt::test(shared)]
 async fn test_postcounts_get_by_id_does_not_leak_reply_into_engagement_on_cache_miss() -> Result<()>
 {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
     let user_kp = Keypair::random();
     let user = PubkyAppUser {
         bio: Some("test_postcounts_get_by_id_cache_miss".to_string()),

@@ -14,7 +14,7 @@ use pubky_app_specs::{
 #[tokio_shared_rt::test(shared)]
 async fn test_delete_pubkyapp_file() -> Result<()> {
     // Arrange
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     let user_kp = Keypair::random();
     let user = PubkyAppUser {
@@ -89,7 +89,7 @@ async fn test_delete_pubkyapp_file() -> Result<()> {
 #[tokio_shared_rt::test(shared)]
 async fn test_delete_pubkyapp_file_is_idempotent() -> Result<()> {
     // Arrange: create a user and file
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     let user_kp = Keypair::random();
     let user = PubkyAppUser {

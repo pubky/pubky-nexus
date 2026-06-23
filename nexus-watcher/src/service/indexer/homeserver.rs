@@ -52,9 +52,6 @@ pub struct HsEventProcessor {
     pub event_handler: Arc<dyn EventHandler>,
     pub shutdown_rx: Receiver<bool>,
 
-    /// See [WatcherConfig::max_file_size]
-    pub max_file_size: u64,
-
     /// Scheduler used to enqueue failed events onto the retry queue
     pub retry_scheduler: Arc<RetryScheduler>,
 
@@ -87,10 +84,6 @@ impl TEventProcessor for HsEventProcessor {
 
     fn homeserver_id(&self) -> Option<&str> {
         Some(self.homeserver.id.as_ref())
-    }
-
-    fn max_file_size(&self) -> u64 {
-        self.max_file_size
     }
 
     /// Skips events from users that are not actively bound to this homeserver.

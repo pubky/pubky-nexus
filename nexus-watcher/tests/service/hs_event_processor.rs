@@ -7,7 +7,6 @@ use nexus_common::db::{exec_single_row, queries};
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::user::UserDetails;
 use nexus_common::utils::test_utils::{random_pk, random_pubky_id};
-use nexus_common::DEFAULT_MAX_FILE_SIZE;
 use nexus_watcher::errors::EventProcessorError;
 use nexus_watcher::events::retry::{IndexKey, InitialBackoff, RetryScheduler, RetryStore};
 use nexus_watcher::events::EventHandler;
@@ -72,7 +71,6 @@ fn build_processor(
         shutdown_rx,
         retry_scheduler,
         hs_mapping_cache: Default::default(),
-        max_file_size: DEFAULT_MAX_FILE_SIZE,
     })
 }
 

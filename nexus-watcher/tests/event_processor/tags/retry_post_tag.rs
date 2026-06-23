@@ -10,7 +10,7 @@ use pubky_app_specs::{traits::HashId, PubkyAppTag, PubkyAppUser};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_post_tag_event_to_queue() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     let tagger_kp = Keypair::random();
     let tagger_user = PubkyAppUser {

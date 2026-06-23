@@ -10,7 +10,7 @@ use pubky_app_specs::{post_uri_builder, PubkyAppBookmark, PubkyAppPost, PubkyApp
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_unbookmark() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     // Step 1: Create a user
     let bookmarker_kp = Keypair::random();

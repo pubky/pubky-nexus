@@ -7,7 +7,7 @@ use pubky_app_specs::{follow_uri_builder, PubkyAppUser};
 /// The user profile is stored in the homeserver. Missing the followee to connect with follower
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_follow_cannot_index() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     let followee_keypair = Keypair::random();
     let followee_id = followee_keypair.public_key().to_z32();

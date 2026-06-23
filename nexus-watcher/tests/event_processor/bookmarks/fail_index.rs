@@ -12,7 +12,7 @@ use tracing::error;
 /// The user profile is stored in the homeserver. Missing the author that creates the bookmark
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_bookmark_without_user() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     let author_kp = Keypair::random();
     let author = PubkyAppUser {

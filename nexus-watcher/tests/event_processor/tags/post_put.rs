@@ -20,7 +20,7 @@ use pubky_app_specs::{PubkyAppPost, PubkyAppTag, PubkyAppUser};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_put_tag_post() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     // Step 1: Create a user
     let user_kp = Keypair::random();
@@ -161,7 +161,7 @@ async fn test_homeserver_put_tag_post() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_put_tag_post_unique_count() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     // Create a user
     let tagger_kp = Keypair::random();
@@ -225,7 +225,7 @@ async fn test_homeserver_put_tag_post_unique_count() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_put_tag_user_unique_count() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     // Create a user
     let tagger_kp = Keypair::random();

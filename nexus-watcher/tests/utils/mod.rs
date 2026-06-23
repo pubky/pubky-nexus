@@ -36,7 +36,7 @@ impl MockEventHandler {
 
 #[async_trait::async_trait]
 impl EventHandler for MockEventHandler {
-    async fn handle(&self, event: &Event, _max_file_size: u64) -> Result<(), EventProcessorError> {
+    async fn handle(&self, event: &Event) -> Result<(), EventProcessorError> {
         // Increment invocation counter on every call
         *self.handle_count.lock().unwrap() += 1;
         self.handled_uris.lock().unwrap().push(event.uri.clone());

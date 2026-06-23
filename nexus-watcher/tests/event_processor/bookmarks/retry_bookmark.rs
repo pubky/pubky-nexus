@@ -11,7 +11,7 @@ use pubky_app_specs::{
 /// The user profile is stored in the homeserver. Missing the post to connect the bookmark
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_bookmark_cannot_index() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     let user_kp = Keypair::random();
     let user = PubkyAppUser {

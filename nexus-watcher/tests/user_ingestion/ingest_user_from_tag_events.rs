@@ -10,7 +10,7 @@ use pubky_app_specs::{
 
 #[tokio_shared_rt::test(shared)]
 async fn test_tag_post_on_unknown_homeserver() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     let tagged_post_hs_pk = create_external_test_homeserver(&mut test).await?;
 
@@ -57,7 +57,7 @@ async fn test_tag_post_on_unknown_homeserver() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_tag_user_on_unknown_homeserver() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     let tagged_user_hs_pk = create_external_test_homeserver(&mut test).await?;
 

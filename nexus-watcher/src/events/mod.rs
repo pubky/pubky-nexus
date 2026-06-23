@@ -27,20 +27,26 @@ pub use moderation::Moderation;
 /// including mocked versions for testing.
 #[async_trait::async_trait]
 pub trait EventHandler: Send + Sync {
-    async fn handle(&self, event: &Event, max_file_size: u64) -> Result<(), EventProcessorError>;
+    async fn handle(&self, event: &Event) -> Result<(), EventProcessorError>;
 }
 
 /// Default implementation of `EventHandler` that uses the actual event handling logic.
 pub struct DefaultEventHandler {
     moderation: Arc<Moderation>,
     ingestor: Arc<UserIngestor>,
+    max_file_size: u64,
 }
 
 impl DefaultEventHandler {
-    pub fn new(moderation: Arc<Moderation>, ingestor: Arc<UserIngestor>) -> Self {
+    pub fn new(
+        moderation: Arc<Moderation>,
+        ingestor: Arc<UserIngestor>,
+        max_file_size: u64,
+    ) -> Self {
         Self {
             moderation,
             ingestor,
+            max_file_size,
         }
     }
 
@@ -49,18 +55,19 @@ impl DefaultEventHandler {
         Self::new(
             Moderation::from_config(config),
             Arc::new(UserIngestor::from_config(&config.stack)),
+            config.max_file_size,
         )
     }
 }
 
 #[async_trait::async_trait]
 impl EventHandler for DefaultEventHandler {
-    async fn handle(&self, event: &Event, max_file_size: u64) -> Result<(), EventProcessorError> {
+    async fn handle(&self, event: &Event) -> Result<(), EventProcessorError> {
         match event.event_type {
             EventType::Put => {
                 handle_put_event(
                     event,
-                    max_file_size,
+                    self.max_file_size,
                     self.moderation.clone(),
                     self.ingestor.clone(),
                 )

@@ -7,7 +7,7 @@ use pubky_app_specs::{post_uri_builder, PubkyAppPost, PubkyAppTag, PubkyAppUser}
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_self_untag_post_no_notification() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     // Create a single user who will be both author and tagger
     let user_kp = Keypair::random();

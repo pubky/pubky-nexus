@@ -29,6 +29,7 @@ async fn test_event_processor_runner_default_homeserver_excluded() -> Result<(),
     let event_handler: Arc<dyn EventHandler> = Arc::new(DefaultEventHandler::new(
         default_moderation_tests(),
         default_ingestor_tests(),
+        DEFAULT_MAX_FILE_SIZE,
     ));
     let store: Arc<dyn RetryStore> = Arc::new(RedisRetryStore::new());
     let retry_scheduler = Arc::new(RetryScheduler::new(
@@ -50,7 +51,6 @@ async fn test_event_processor_runner_default_homeserver_excluded() -> Result<(),
         backoff: Mutex::new(HomeserverBackoff::default()),
         user_not_found_backoff: Arc::new(UserNotFoundBackoff::default()),
         retry_scheduler,
-        max_file_size: DEFAULT_MAX_FILE_SIZE,
     };
 
     // Persist the homeservers
@@ -77,6 +77,7 @@ async fn test_event_processor_runner_blacklisted_homeserver_excluded() -> Result
     let event_handler: Arc<dyn EventHandler> = Arc::new(DefaultEventHandler::new(
         default_moderation_tests(),
         default_ingestor_tests(),
+        DEFAULT_MAX_FILE_SIZE,
     ));
     let store: Arc<dyn RetryStore> = Arc::new(RedisRetryStore::new());
     let retry_scheduler = Arc::new(RetryScheduler::new(
@@ -102,7 +103,6 @@ async fn test_event_processor_runner_blacklisted_homeserver_excluded() -> Result
         backoff: Mutex::new(HomeserverBackoff::default()),
         user_not_found_backoff: Arc::new(UserNotFoundBackoff::default()),
         retry_scheduler,
-        max_file_size: DEFAULT_MAX_FILE_SIZE,
     };
 
     // Both HSs need a hosted user to count as "active" in `get_all_active_from_graph`.

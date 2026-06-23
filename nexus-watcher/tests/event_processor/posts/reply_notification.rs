@@ -8,7 +8,7 @@ use pubky_app_specs::{post_uri_builder, PubkyAppPost, PubkyAppPostKind, PubkyApp
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_post_reply_notification() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     let alice_kp = Keypair::random();
 

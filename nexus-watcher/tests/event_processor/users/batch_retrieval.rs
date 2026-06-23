@@ -6,7 +6,7 @@ use pubky_app_specs::PubkyAppUser;
 
 #[tokio_shared_rt::test(shared)]
 async fn test_user_view_batch_retrieval() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     // Step 1: Create 5 users
     let mut user_ids = Vec::with_capacity(5);
