@@ -773,7 +773,7 @@ fn processor_with_options(
     hs_blacklist: HsBlacklist,
 ) -> Arc<KeyBasedEventProcessor> {
     Arc::new(KeyBasedEventProcessor {
-        homeserver,
+        homeserver_id: homeserver.id,
         limit,
         files_path: PathBuf::from("/tmp/nexus-watcher-test"),
         event_handler: handler,

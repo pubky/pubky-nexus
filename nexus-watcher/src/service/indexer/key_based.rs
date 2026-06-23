@@ -4,9 +4,10 @@ use crate::errors::EventProcessorError;
 use crate::events::Event;
 use futures::StreamExt;
 use nexus_common::db::PubkyConnector;
-use nexus_common::models::homeserver::{Homeserver, HsBlacklist};
+use nexus_common::models::homeserver::HsBlacklist;
 use nexus_common::models::user::UserHsCursor;
 use pubky::{Event as StreamEvent, EventCursor, PublicKey};
+use pubky_app_specs::PubkyId;
 use tokio::sync::watch::Receiver;
 use tracing::{debug, error, info, warn};
 
@@ -65,7 +66,7 @@ impl KeyBasedEventSource for PubkyKeyBasedEventSource {
 /// Event processor for non-default HSs, where the user-specific `/events-stream` endpoint is used
 pub struct KeyBasedEventProcessor {
     /// The HS endpoint this processor fetches events from
-    pub homeserver: Homeserver,
+    pub homeserver_id: PubkyId,
 
     /// Max events the homeserver will send before closing the stream.
     /// Bounds execution time per user, preventing timeout and starvation.
@@ -98,7 +99,7 @@ impl TEventProcessor for KeyBasedEventProcessor {
     }
 
     fn instance_name(&self) -> String {
-        format!("KeyBasedEventProcessor with HS ID: {}", self.homeserver.id)
+        format!("KeyBasedEventProcessor with HS ID: {}", self.homeserver_id)
     }
 
     fn retry_scheduler(&self) -> Option<&Arc<RetryScheduler>> {
@@ -106,11 +107,11 @@ impl TEventProcessor for KeyBasedEventProcessor {
     }
 
     fn homeserver_id(&self) -> Option<&str> {
-        Some(self.homeserver.id.as_ref())
+        Some(self.homeserver_id.as_ref())
     }
 
     async fn run_internal(self: Arc<Self>) -> Result<(), EventProcessorError> {
-        let hs_id = self.homeserver.id.to_string();
+        let hs_id = self.homeserver_id.to_string();
 
         // Blacklisted HSs must never be indexed. The runner already excludes
         // them from `pre_run`, so reaching here is unexpected.
@@ -119,7 +120,7 @@ impl TEventProcessor for KeyBasedEventProcessor {
             return Err(EventProcessorError::HsBlacklisted { hs_id });
         }
 
-        let hs_pk = self.homeserver.id.to_public_key();
+        let hs_pk = self.homeserver_id.to_public_key();
 
         let users = self
             .resolve_users_with_cursors(&hs_id)
