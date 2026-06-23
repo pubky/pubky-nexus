@@ -54,8 +54,18 @@ impl KeyBasedEventSource for PubkyKeyBasedEventSource {
             .await
             .inspect_err(|e| error!("Failed to subscribe to event stream: {e:?}"))?;
 
-        let mut events = Vec::new();
+        // The HS is asked for at most `limit` events, but a misbehaving one could return more
+        let limit = limit as usize;
+        let mut events = Vec::with_capacity(limit);
         while let Some(result) = stream.next().await {
+            // Read at most `limit` events. If the stream still has more, log an error and drop the rest.
+            if events.len() >= limit {
+                error!(
+                    "Event stream for user {user_pk} on HS {hs_pk} returned more than the \
+                     requested limit of {limit} events; ignoring the excess"
+                );
+                break;
+            }
             events.push(result?);
         }
 
