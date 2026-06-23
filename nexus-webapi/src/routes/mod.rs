@@ -86,7 +86,7 @@ pub fn app_routes(
 ) -> Router<AppState> {
     // Split routes into expensive and default buckets
     let (v0_expensive, v0_default) = v0::routes(state.clone());
-    let (static_expensive, static_default) = r#static::routes(state.clone());
+    let (static_expensive, static_default) = r#static::routes();
 
     // Swagger UI and OpenAPI docs get default-bucket rate limiting
     let swagger = Router::new().merge(
