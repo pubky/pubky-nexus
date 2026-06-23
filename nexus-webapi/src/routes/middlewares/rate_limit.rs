@@ -41,6 +41,14 @@ impl KeyExtractor for IpKeyExtractor {
     }
 }
 
+/// Compute the token-bucket refill period from a per-minute rate.
+///
+/// Uses millisecond arithmetic to avoid the integer-division truncation that
+/// occurs with `Duration::from_secs(60 / rate)` for rates 31–59.
+fn compute_refill_period(rate_per_min: u32) -> Duration {
+    Duration::from_millis((60_000 / rate_per_min as u64).max(1))
+}
+
 /// Build a `GovernorLayer` for the given bucket config.
 /// Returns `None` when rate limiting is disabled or burst/rate are zero.
 ///
@@ -64,11 +72,7 @@ fn build_layer(
         IpKeyExtractor::Peer
     };
 
-    let refill_period = if rate_per_min >= 60 {
-        Duration::from_millis((1_000 * 60 / rate_per_min as u64).max(1))
-    } else {
-        Duration::from_secs((60 / rate_per_min as u64).max(1))
-    };
+    let refill_period = compute_refill_period(rate_per_min);
 
     let config = GovernorConfigBuilder::default()
         .period(refill_period)
@@ -198,5 +202,26 @@ mod tests {
             shutdown_rx,
         )
         .is_some());
+    }
+
+    #[test]
+    fn refill_period_is_accurate_for_all_rates() {
+        // rate 40 → 60_000 / 40 = 1500 ms (old bug: 60/40=1s → enforced 60 req/min)
+        assert_eq!(compute_refill_period(40), Duration::from_millis(1500));
+
+        // rate 31 → 60_000 / 31 = 1935 ms (old bug: truncated to 1s)
+        assert_eq!(compute_refill_period(31), Duration::from_millis(1935));
+
+        // rate 59 → 60_000 / 59 = 1016 ms (old bug: truncated to 1s)
+        assert_eq!(compute_refill_period(59), Duration::from_millis(1016));
+
+        // rate 60 → exactly 1000 ms (boundary, was correct in the old >=60 branch)
+        assert_eq!(compute_refill_period(60), Duration::from_millis(1000));
+
+        // rate 120 → 500 ms (sub-second, requires millis arithmetic)
+        assert_eq!(compute_refill_period(120), Duration::from_millis(500));
+
+        // rate 1 → 60_000 ms = 60s (lowest valid rate)
+        assert_eq!(compute_refill_period(1), Duration::from_millis(60_000));
     }
 }
