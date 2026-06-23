@@ -89,12 +89,9 @@ impl TEventProcessorRunner for KeyBasedEventProcessorRunner {
 
     async fn build(&self, hs_id: &str) -> Result<Arc<dyn TEventProcessor>, DynError> {
         let homeserver_id = PubkyId::try_from(hs_id)?;
-        let homeserver = Homeserver::get_by_id(homeserver_id)
-            .await?
-            .ok_or("Homeserver not found")?;
 
         Ok(Arc::new(KeyBasedEventProcessor {
-            homeserver,
+            homeserver: Homeserver::new(homeserver_id),
             limit: self.limit,
             files_path: self.files_path.clone(),
             event_handler: self.event_handler.clone(),
