@@ -1,10 +1,8 @@
 use super::utils::find_post_tag;
-use crate::event_processor::posts::utils::find_post_counts;
 use crate::event_processor::users::utils::find_user_counts;
 use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
 use nexus_common::db::OperationOutcome;
-use nexus_common::models::post::PostCounts;
 use nexus_common::models::tag::post::TagPost;
 use nexus_common::models::tag::traits::{TagCollection, TaggersCollection};
 use nexus_common::models::user::UserCounts;
@@ -67,39 +65,34 @@ async fn test_tag_post_del_retry_no_double_decrement() -> Result<()> {
     .await?;
     assert!(matches!(outcome, OperationOutcome::CreatedOrDeleted));
 
-    // Populate Redis state: tagger set + counters
+    // Populate Redis state: tagger set + counter
     TagPost::add_tagger_to_index(&author_id, Some(&post_id), &tagger_id, label).await?;
     UserCounts::increment(&tagger_id, "tagged", None).await?;
-    PostCounts::increment_index_field(&[&author_id, &post_id], "tags", None).await?;
 
     // Verify initial state
     assert_eq!(find_user_counts(&tagger_id).await.tagged, 1);
-    assert_eq!(find_post_counts(&author_id, &post_id).await.tags, 1);
 
     // Simulate partial completion of a previous del attempt:
-    // Remove tagger from Redis set + decrement counters (as if Redis ops completed but graph delete failed)
+    // Remove tagger from Redis set + decrement counter (as if Redis ops completed but graph delete failed)
     let tag_post = TagPost(vec![tagger_id.clone()]);
     tag_post
         .del_from_index(&author_id, Some(&post_id), label)
         .await?;
     UserCounts::decrement(&tagger_id, "tagged", None).await?;
-    PostCounts::decrement_index_field(&[&author_id, &post_id], "tags", None).await?;
 
-    // Verify simulated state: graph still has TAGGED edge, Redis tagger set empty, counters at 0
+    // Verify simulated state: graph still has TAGGED edge, Redis tagger set empty, counter at 0
     let post_tag = find_post_tag(&author_id, &post_id, label).await?;
     assert!(post_tag.is_some(), "Graph should still have the tag edge");
     assert_eq!(find_user_counts(&tagger_id).await.tagged, 0);
-    assert_eq!(find_post_counts(&author_id, &post_id).await.tags, 0);
 
     // Retry: call del handler directly — should delete graph without double-decrement
     let tag_uri = tag_uri_builder(tagger_id.clone(), tag_id.to_string());
     handlers::tag::del(&tag_uri).await?;
 
-    // Verify final state: graph edge deleted, counters still 0
+    // Verify final state: graph edge deleted, counter still 0
     let post_tag = find_post_tag(&author_id, &post_id, label).await?;
     assert!(post_tag.is_none(), "Graph tag edge should be deleted");
     assert_eq!(find_user_counts(&tagger_id).await.tagged, 0);
-    assert_eq!(find_post_counts(&author_id, &post_id).await.tags, 0);
 
     // Cleanup
     test.cleanup_post(&author_kp, &post_path).await?;

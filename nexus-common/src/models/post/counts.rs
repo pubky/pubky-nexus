@@ -1,11 +1,13 @@
-use crate::db::kv::{JsonAction, RedisResult};
+use crate::db::kv::RedisResult;
 use crate::db::{fetch_row_from_graph, queries, GraphResult, RedisOps};
 use crate::models::error::ModelResult;
-use crate::models::tag::post::POST_TAGS_KEY_PARTS;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use super::PostStream;
+
+/// Backstop TTL for the read-through cache, in case an invalidation is ever missed.
+const POST_COUNTS_TTL_SECS: i64 = 600;
 
 /// Represents total counts of relationships of a user.
 #[derive(Serialize, Deserialize, ToSchema, Default, Debug)]
@@ -27,12 +29,9 @@ impl PostCounts {
             Some(counts) => Ok(Some(counts)),
             None => {
                 let graph_response = Self::get_from_graph(author_id, post_id).await?;
-                if let Some((post_counts, is_reply)) = graph_response {
-                    // Pass `is_reply` raw — `put_to_index` gates the engagement
-                    // sorted-set write on `!is_reply`.
-                    post_counts
-                        .put_to_index(author_id, post_id, is_reply)
-                        .await?;
+                if let Some((post_counts, _is_reply)) = graph_response {
+                    // Cache miss: populate from the graph via cache_json (JSON only).
+                    post_counts.cache_json(author_id, post_id).await?;
                     return Ok(Some(post_counts));
                 }
                 Ok(None)
@@ -70,13 +69,9 @@ impl PostCounts {
         post_id: &str,
         is_reply: bool,
     ) -> RedisResult<()> {
-        // Always cache the PostCounts JSON: read paths (/v0/post/...) and the
-        // increment paths (tag/reply/repost handlers) both depend on this row
-        // existing for every post regardless of kind.
-        self.put_index_json(&[author_id, post_id], None, None)
-            .await?;
+        self.cache_json(author_id, post_id).await?;
 
-        // Skip the global engagement sorted set for replies — they're tracked
+        // Skip the global engagement sorted set for replies. They're tracked
         // via POST_REPLIES sets instead.
         if !is_reply {
             PostStream::add_to_engagement_sorted_set(self, author_id, post_id).await?;
@@ -84,37 +79,17 @@ impl PostCounts {
         Ok(())
     }
 
-    /// Updates a specified JSON field in the index
-    ///
-    /// # Arguments
-    ///
-    /// * `index_key` - A slice of string references representing the index key parts.
-    /// * `field` - The name of the JSON field to be updated.
-    /// * `action` - The action to perform on the JSON field (increment or decrement).
-    /// * `tag_label` - An optional tag label used to check membership in a sorted set. Important field to update the unique_tags field
-    pub async fn update_index_field(
-        index_key: &[&str],
-        field: &str,
-        action: JsonAction,
-        tag_label: Option<&str>,
-    ) -> RedisResult<()> {
-        // This condition applies only when updating `unique_tags`
-        if let Some(label) = tag_label {
-            let index_parts = [&POST_TAGS_KEY_PARTS[..], index_key].concat();
-            let score = Self::check_sorted_set_member(None, &index_parts, &[label]).await?;
-            match (score, &action) {
-                // If tag value is less than 1, `unique_tags` can be incremented or decremented
-                (Some(tag_value), _) if tag_value < 1 => (),
+    /// JSON-only cache write (with TTL). Unlike `put_to_index` it never seeds the
+    /// engagement sorted set, so it is safe to call on every cache-miss read.
+    pub async fn cache_json(&self, author_id: &str, post_id: &str) -> RedisResult<()> {
+        self.put_index_json(&[author_id, post_id], None, Some(POST_COUNTS_TTL_SECS))
+            .await
+    }
 
-                // Incrementing `unique_tags` is also allowed when the tag value doesn't exist yet in the sorted set
-                (None, JsonAction::Increment(_)) => (),
-
-                // Do not update the index
-                _ => return Ok(()),
-            }
-        }
-
-        Self::modify_json_field(index_key, field, action).await
+    /// Invalidates the cached counts JSON so the next read recomputes from the
+    /// graph (read-your-writes). Does NOT touch the engagement sorted set.
+    pub async fn invalidate(index_key: &[&str]) -> RedisResult<()> {
+        Self::remove_from_index_multiple_json(&[index_key]).await
     }
 
     pub async fn reindex(author_id: &str, post_id: &str) -> ModelResult<()> {
@@ -141,23 +116,5 @@ impl PostCounts {
             PostStream::delete_from_engagement_sorted_set(author_id, post_id).await?;
         }
         Ok(())
-    }
-
-    /// Increments a specified JSON field in a post's index by 1.
-    pub async fn increment_index_field(
-        index_key: &[&str],
-        field: &str,
-        tag_label: Option<&str>,
-    ) -> RedisResult<()> {
-        Self::update_index_field(index_key, field, JsonAction::Increment(1), tag_label).await
-    }
-
-    /// Decrements a specified JSON field in a post's index by 1.
-    pub async fn decrement_index_field(
-        index_key: &[&str],
-        field: &str,
-        tag_label: Option<&str>,
-    ) -> RedisResult<()> {
-        Self::update_index_field(index_key, field, JsonAction::Decrement(1), tag_label).await
     }
 }

@@ -173,7 +173,7 @@ pub async fn sync_put(
 
         let indexing_results = nexus_common::traced_join!(
             tracing::info_span!("index.write", phase = "reply_parent");
-            PostCounts::increment_index_field(parent_post_key_parts, "replies", None),
+            PostCounts::invalidate(parent_post_key_parts),
             async {
                 // Replies must not enter POST_TOTAL_ENGAGEMENT — ZINCRBY
                 // would create the member if absent.
@@ -225,7 +225,7 @@ pub async fn sync_put(
 
         let indexing_results = nexus_common::traced_join!(
             tracing::info_span!("index.write", phase = "repost_parent");
-            PostCounts::increment_index_field(parent_post_key_parts, "reposts", None),
+            PostCounts::invalidate(parent_post_key_parts),
             async {
                 // Replies must not enter POST_TOTAL_ENGAGEMENT — ZINCRBY
                 // would create the member if absent.
@@ -533,6 +533,9 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), EventPr
 
     // Use that index wrapper to delete a post reply
     let mut reply_parent_post_key_wrapper: Option<(String, String)> = None;
+    // Parent post-count caches to invalidate AFTER the graph delete. Invalidating
+    // before the node is gone lets a concurrent read recache the pre-delete count.
+    let mut parents_to_invalidate: Vec<[String; 2]> = Vec::new();
 
     if let Some(relationships) = post_relationships_opt {
         // PHASE 2: Process POST REPLIES indexes
@@ -554,15 +557,11 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), EventPr
             let parent_post_key_parts: [&str; 2] = [&parent_user_id, &parent_post_id];
             reply_parent_post_key_wrapper =
                 Some((parent_user_id.to_string(), parent_post_id.clone()));
+            // Parent reply count changes; invalidated after the graph delete below.
+            parents_to_invalidate.push([parent_user_id.to_string(), parent_post_id.clone()]);
 
             let indexing_results = nexus_common::traced_join!(
                 tracing::info_span!("index.delete", phase = "reply_parent");
-                async {
-                    if post_in_index {
-                        PostCounts::decrement_index_field(&parent_post_key_parts, "replies", None).await?;
-                    }
-                    Ok::<(), EventProcessorError>(())
-                },
                 async {
                     // Symmetric DEL gate: ZINCRBY -1 would create the member
                     // if absent, leaking a reply parent into POST_TOTAL_ENGAGEMENT
@@ -578,7 +577,7 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), EventPr
                     }
                     Ok::<(), EventProcessorError>(())
                 },
-                // Notification: "A reply to your post was deleted" — guarded to
+                // Notification "a reply to your post was deleted", guarded to
                 // prevent duplicate notifications on retry.
                 async {
                     if post_in_index {
@@ -598,7 +597,6 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), EventPr
 
             indexing_results.0?;
             indexing_results.1?;
-            indexing_results.2?;
         }
         // PHASE 3: Process POST REPOSTED indexes
         // Decrement counts for resposted post if existed
@@ -616,15 +614,11 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), EventPr
                 .map_err(EventProcessorError::generic)?;
 
             let parent_post_key_parts: &[&str] = &[&reposted_uri.user_id, &parent_post_id];
+            // Parent repost count changes; invalidated after the graph delete below.
+            parents_to_invalidate.push([reposted_uri.user_id.to_string(), parent_post_id.clone()]);
 
             let indexing_results = nexus_common::traced_join!(
                 tracing::info_span!("index.delete", phase = "repost_parent");
-                async {
-                    if post_in_index {
-                        PostCounts::decrement_index_field(parent_post_key_parts, "reposts", None).await?;
-                    }
-                    Ok::<(), EventProcessorError>(())
-                },
                 async {
                     // Symmetric DEL gate: ZINCRBY -1 would create the member
                     // if absent, leaking a reply parent into POST_TOTAL_ENGAGEMENT
@@ -640,7 +634,7 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), EventPr
                     }
                     Ok::<(), EventProcessorError>(())
                 },
-                // Notification: "A repost of your post was deleted" — guarded.
+                // Notification "a repost of your post was deleted", guarded.
                 async {
                     if post_in_index {
                         Notification::post_children_changed(
@@ -659,7 +653,6 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), EventPr
 
             indexing_results.0?;
             indexing_results.1?;
-            indexing_results.2?;
         }
     }
 
@@ -674,6 +667,12 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), EventPr
     exec_single_row(queries::del::delete_post(&author_id, &post_id))
         .instrument(tracing::info_span!("graph.delete", phase = "post_graph"))
         .await?;
+
+    // Now that the graph reflects the deletion, invalidate the parent post-count
+    // caches so the next read recomputes the new count instead of the old one.
+    for parent in &parents_to_invalidate {
+        PostCounts::invalidate(&[&parent[0], &parent[1]]).await?;
+    }
 
     Ok(())
 }

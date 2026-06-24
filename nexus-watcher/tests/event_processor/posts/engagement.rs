@@ -1,6 +1,7 @@
-use super::utils::check_member_total_engagement_user_posts;
+use super::utils::{check_member_total_engagement_user_posts, find_post_counts};
 use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
+use nexus_common::models::post::{PostCounts, PostStream};
 use pubky::Keypair;
 use pubky_app_specs::{
     post_uri_builder, PubkyAppPost, PubkyAppPostEmbed, PubkyAppPostKind, PubkyAppUser,
@@ -95,5 +96,55 @@ async fn test_homeserver_post_engagement() -> Result<()> {
     test.cleanup_user(&bob_user_kp).await?;
     //test.cleanup_post(&user_id, &parent_post_id).await?;
 
+    Ok(())
+}
+
+/// Read-through must not seed the engagement feed. `get_by_id` recomputes a
+/// cache miss via `cache_json` (JSON only), so a read must not resurrect a post
+/// into `POST_TOTAL_ENGAGEMENT`. Guards the `cache_json`-vs-`put_to_index` split.
+#[tokio_shared_rt::test(shared)]
+async fn test_post_counts_read_does_not_seed_engagement() -> Result<()> {
+    let mut test = WatcherTest::setup().await?;
+
+    let user_kp = Keypair::random();
+    let user = PubkyAppUser {
+        bio: None,
+        image: None,
+        links: None,
+        name: "Watcher:CountsReadEngagement".to_string(),
+        status: None,
+    };
+    let user_id = test.create_user(&user_kp, &user).await?;
+
+    let post = PubkyAppPost {
+        content: "root".to_string(),
+        kind: PubkyAppPostKind::Short,
+        parent: None,
+        embed: None,
+        attachments: None,
+    };
+    let (post_id, _post_path) = test.create_post(&user_kp, &post).await?;
+
+    let post_key: [&str; 2] = [&user_id, &post_id];
+    assert!(
+        check_member_total_engagement_user_posts(&post_key)
+            .await?
+            .is_some(),
+        "root post is seeded into the engagement feed at creation"
+    );
+
+    // Remove it from the feed, then force a read-through cache miss.
+    PostStream::delete_from_engagement_sorted_set(&user_id, &post_id).await?;
+    PostCounts::invalidate(&[&user_id, &post_id]).await?;
+    let _ = find_post_counts(&user_id, &post_id).await;
+
+    assert!(
+        check_member_total_engagement_user_posts(&post_key)
+            .await?
+            .is_none(),
+        "read-through recompute must not seed POST_TOTAL_ENGAGEMENT"
+    );
+
+    test.cleanup_user(&user_kp).await?;
     Ok(())
 }
