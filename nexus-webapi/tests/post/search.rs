@@ -316,17 +316,15 @@ async fn test_content_search_with_author_scopes_to_that_author() -> Result<()> {
 // ── Content-search kind-scoping tests ─────────────────────────────────────────
 
 // Seed data: searching "post" matches content across multiple kinds:
-//  long   → "Long post, article A–H"   (4ZCW1TGL5BKG1–8, authored by amsterdam)
-//  image  → "IMAGE post, SVG A–H"      (5YCW1TGL5BKG1–8, authored by amsterdam)
-//  video  → "VIDEO post, mkv A–H"      (MLOW1TGL5BKH1–8, authored by detroit/eixample)
-//  file   → "FILE post, pdf A–H"       (GJMW1TGL5BKG1–8, authored by bogota/cairo/eixample)
-//  link   → "LINK post, pubky A–H"     (SIJW1TGL5BKG1–9, authored by bogota/cairo/eixample)
+//  long   → "Long post, article A–H"   (authored by amsterdam)
+//  image  → "IMAGE post, SVG A–H"      (authored by amsterdam)
+//  video  → "VIDEO post, mkv A–H"      (authored by detroit/eixample)
+//  file   → "FILE post, pdf A–H"       (authored by bogota/cairo/eixample)
+//  link   → "LINK post, pubky A–H"     (authored by bogota/cairo/eixample)
 // Short posts and collection posts do NOT contain the word "post" in their content.
 
 #[tokio_shared_rt::test(shared)]
 async fn test_content_search_with_kind_scopes_to_that_kind() -> Result<()> {
-    // Search "post" scoped to kind=video — every result's post_id must match
-    // the video post prefix from the seed (MLOW1TGL5BKH*).
     let url = format!("{SEARCH_POSTS_BY_CONTENT_ROUTE}?q=post&kind=video&limit=100");
     let body = get_request(&url).await?;
     let results = body.as_array().expect("should be array");
@@ -336,27 +334,20 @@ async fn test_content_search_with_kind_scopes_to_that_kind() -> Result<()> {
         "kind-scoped search for 'post' with kind=video should return at least one result"
     );
 
-    // Verify every result is a video-kind post (MLOW prefix in seed data).
+    // Verify every returned post actually has kind=video by looking up its details.
     for r in results.iter() {
         let post_key = r["post_key"].as_str().expect("post_key must be a string");
-        let post_id = post_key.split(':').nth(1).unwrap_or("");
-        assert!(
-            post_id.starts_with("MLOW"),
-            "post_key '{post_key}' does not look like a video-kind post (expected MLOW prefix)"
+        let (author, post_id) = post_key
+            .split_once(':')
+            .expect("post_key must be author:post_id");
+        let detail = get_request(&format!("/v0/post/{author}/{post_id}")).await?;
+        assert_eq!(
+            detail["details"]["kind"].as_str(),
+            Some("video"),
+            "post_key '{post_key}' was returned by kind=video filter but has kind={:?}",
+            detail["details"]["kind"]
         );
     }
-
-    // Verify a known non-video post containing "post" is NOT in the results.
-    // GJMW1TGL5BKG1 is a file-kind post with content "FILE post, pdf A".
-    let contains_file_post = results.iter().any(|r| {
-        r["post_key"]
-            .as_str()
-            .is_some_and(|k| k.ends_with(":GJMW1TGL5BKG1"))
-    });
-    assert!(
-        !contains_file_post,
-        "kind=video should exclude file-kind post GJMW1TGL5BKG1 ('FILE post, pdf A')"
-    );
 
     Ok(())
 }
@@ -364,8 +355,6 @@ async fn test_content_search_with_kind_scopes_to_that_kind() -> Result<()> {
 #[tokio_shared_rt::test(shared)]
 async fn test_content_search_without_kind_returns_multiple_kinds() -> Result<()> {
     // Same query without kind filter — should return posts from more than one kind.
-    // We infer kind from the post_id prefix in the seed data:
-    //  4ZCW = long, 5YCW = image, MLOW = video, GJMW = file, SIJW = link
     let url = format!("{SEARCH_POSTS_BY_CONTENT_ROUTE}?q=post&limit=100");
     let body = get_request(&url).await?;
     let results = body.as_array().expect("should be array");
@@ -375,30 +364,20 @@ async fn test_content_search_without_kind_returns_multiple_kinds() -> Result<()>
         "unscoped search for 'post' should return at least one result"
     );
 
-    let mut kinds: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    let mut kinds: std::collections::HashSet<String> = std::collections::HashSet::new();
     for r in results.iter() {
         let post_key = match r["post_key"].as_str() {
             Some(pk) => pk,
             None => continue,
         };
-        let post_id = match post_key.split(':').nth(1) {
-            Some(pid) => pid,
+        let (author, post_id) = match post_key.split_once(':') {
+            Some(parts) => parts,
             None => continue,
         };
-        let inferred_kind = if post_id.starts_with("4ZCW") {
-            "long"
-        } else if post_id.starts_with("5YCW") {
-            "image"
-        } else if post_id.starts_with("MLOW") {
-            "video"
-        } else if post_id.starts_with("GJMW") {
-            "file"
-        } else if post_id.starts_with("SIJW") {
-            "link"
-        } else {
-            continue;
-        };
-        kinds.insert(inferred_kind);
+        let detail = get_request(&format!("/v0/post/{author}/{post_id}")).await?;
+        if let Some(k) = detail["details"]["kind"].as_str() {
+            kinds.insert(k.to_string());
+        }
     }
 
     assert!(
