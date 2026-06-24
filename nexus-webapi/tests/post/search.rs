@@ -1,5 +1,6 @@
 use anyhow::Result;
 use axum::http::StatusCode;
+use nexus_common::models::post::PostDetails;
 use nexus_webapi::models::ErrorResponsePayload;
 use nexus_webapi::routes::v0::endpoints::{
     SEARCH_POSTS_BY_CONTENT_ROUTE, SEARCH_POSTS_BY_TAG_ROUTE,
@@ -340,12 +341,14 @@ async fn test_content_search_with_kind_scopes_to_that_kind() -> Result<()> {
         let (author, post_id) = post_key
             .split_once(':')
             .expect("post_key must be author:post_id");
-        let detail = get_request(&format!("/v0/post/{author}/{post_id}")).await?;
+        let details = PostDetails::get_by_id(author, post_id)
+            .await?
+            .unwrap_or_else(|| panic!("post '{post_key}' not found in index"));
         assert_eq!(
-            detail["details"]["kind"].as_str(),
-            Some("video"),
-            "post_key '{post_key}' was returned by kind=video filter but has kind={:?}",
-            detail["details"]["kind"]
+            details.kind.to_string(),
+            "video",
+            "post_key '{post_key}' was returned by kind=video filter but has kind={}",
+            details.kind,
         );
     }
 
@@ -374,9 +377,8 @@ async fn test_content_search_without_kind_returns_multiple_kinds() -> Result<()>
             Some(parts) => parts,
             None => continue,
         };
-        let detail = get_request(&format!("/v0/post/{author}/{post_id}")).await?;
-        if let Some(k) = detail["details"]["kind"].as_str() {
-            kinds.insert(k.to_string());
+        if let Some(details) = PostDetails::get_by_id(author, post_id).await? {
+            kinds.insert(details.kind.to_string());
         }
     }
 
