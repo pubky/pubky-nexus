@@ -184,8 +184,7 @@ impl PostsByContentSearch {
         limit: usize,
     ) -> RedisResult<Vec<PostsByContentSearch>> {
         let prefix = format!("{}:", PostDetails::prefix().await);
-        let pairs =
-            search::ft_search_scored(POST_CONTENT_INDEX, query, author, kind, skip, limit).await?;
+        let pairs = search::ft_search_scored(query, author, kind, skip, limit).await?;
         Ok(pairs
             .into_iter()
             .filter_map(|(key, score)| {

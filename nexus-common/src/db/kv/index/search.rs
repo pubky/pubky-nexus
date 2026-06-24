@@ -108,13 +108,12 @@ fn build_ft_query(content: &str, author: Option<&str>, kind: Option<&str>) -> Op
     Some(parts.join(" "))
 }
 
-/// Full-text search returning `(redis_key, score)` pairs ordered by relevance.
+/// Full-text search on `postContentIdx` returning `(redis_key, score)` pairs ordered by relevance.
 /// Keys are returned as-is (including any Redis prefix); the caller strips the prefix.
 ///
 /// When `author` is `Some`, results are scoped to posts by that author.
 /// When `kind` is `Some`, results are further filtered to that post kind.
 pub(crate) async fn ft_search_scored(
-    index_name: &str,
     query: &str,
     author: Option<&str>,
     kind: Option<&str>,
@@ -129,7 +128,7 @@ pub(crate) async fn ft_search_scored(
     let mut conn = get_redis_conn().await?;
 
     let raw: deadpool_redis::redis::Value = deadpool_redis::redis::cmd("FT.SEARCH")
-        .arg(index_name)
+        .arg("postContentIdx")
         .arg(&ft_query)
         .arg("NOCONTENT")
         .arg("WITHSCORES")
