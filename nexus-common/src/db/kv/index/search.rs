@@ -67,13 +67,14 @@ pub(crate) async fn drop_post_content_index() -> RedisResult<()> {
 
     match result {
         Ok(()) => Ok(()),
-        Err(e)
-            if e.to_string().contains("Unknown index name")
-                || e.to_string().contains("no such index") =>
-        {
-            Ok(())
+        Err(e) => {
+            let msg = e.to_string().to_lowercase();
+            if msg.contains("unknown index name") || msg.contains("no such index") {
+                Ok(())
+            } else {
+                Err(RedisError::CommandFailed(e.to_string().into()))
+            }
         }
-        Err(e) => Err(RedisError::CommandFailed(e.to_string().into())),
     }
 }
 
