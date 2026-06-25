@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::db::kv::RedisResult;
+use crate::db::kv::{RedisError, RedisResult};
 use crate::db::RedisOps;
 
 const USER_HS_CURSOR: [&str; 2] = ["Users", "Homeservers"];
@@ -42,7 +42,20 @@ impl UserHsCursor {
             .map(|k| (k.as_slice(), std::slice::from_ref(&hs_id)))
             .collect();
         let scores = Self::check_sorted_set_members(None, &pairs).await?;
-        Ok(scores.into_iter().map(|s| s.unwrap_or(0) as u64).collect())
+        scores
+            .into_iter()
+            .map(|s| {
+                // Score is retrieved from Redis as isize, which can have negative values.
+                // A negative score (due to manual intervention, or Redis corruption) would result in
+                // a very high cursor value when converted to u64, meaning that user gets no more events
+                let score = s.unwrap_or(0);
+                if score < 0 {
+                    let msg = format!("negative cursor score {score} for HS {hs_id}");
+                    return Err(RedisError::InvalidInput(msg));
+                }
+                Ok(score as u64)
+            })
+            .collect()
     }
 
     /// Persists a single user's event cursor for `hs_id` to its `USER_HS_CURSOR` sorted set.
@@ -86,6 +99,26 @@ mod tests {
         UserHsCursor::write(&user_with_cursor, &hs_id, 100).await?;
         let cursors = UserHsCursor::read(&[user_with_cursor.as_str()], &hs_id).await?;
         assert_eq!(cursors, vec![100]);
+
+        Ok(())
+    }
+
+    /// `read` rejects a stored negative cursor score instead of wrapping it into a huge `u64`.
+    #[tokio_shared_rt::test(shared)]
+    async fn test_hs_cursor_read_rejects_negative_score() -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+
+        let user_id = random_pubky_id().to_string();
+        let hs_id = random_pubky_id().to_string();
+
+        // `write` only accepts u64, so store a negative score directly.
+        let key = user_hs_cursor_key(&user_id);
+        UserHsCursor::put_index_sorted_set(&key, &[(-1.0, hs_id.as_str())], None, None).await?;
+
+        let err = UserHsCursor::read(&[user_id.as_str()], &hs_id)
+            .await
+            .expect_err("negative cursor score should error");
+        assert!(matches!(err, RedisError::InvalidInput(_)));
 
         Ok(())
     }
