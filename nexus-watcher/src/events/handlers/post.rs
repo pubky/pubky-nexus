@@ -73,10 +73,21 @@ pub async fn sync_put(
                 // step failed, a retry would re-read the old kind, see the same
                 // transition, and move the counter twice. Writing the kind first
                 // means a retry sees the new kind and the transition is gone.
-                if existing_details.is_different_than(&post_details)
-                    || was_collection != is_collection
-                {
-                    sync_edit(post, author_id.clone(), post_id.clone(), post_details).await?;
+                let collection_toggled = was_collection != is_collection;
+                if existing_details.is_different_than(&post_details) || collection_toggled {
+                    // A lock-only toggle refreshes the cache but is not a content
+                    // edit, so it must not notify interactors. Notify only when
+                    // content/attachments or the collection kind changed.
+                    let notify =
+                        existing_details.content_differs_from(&post_details) || collection_toggled;
+                    sync_edit(
+                        post,
+                        author_id.clone(),
+                        post_id.clone(),
+                        post_details,
+                        notify,
+                    )
+                    .await?;
                 }
                 match (was_collection, is_collection) {
                     (false, true) => UserCounts::increment(&author_id, "collections", None).await?,
@@ -319,15 +330,18 @@ async fn sync_edit(
     author_id: PubkyId,
     post_id: String,
     post_details: PostDetails,
+    notify: bool,
 ) -> Result<(), EventProcessorError> {
-    // Construct the URI of the post that changed
-    let changed_uri = post_uri_builder(author_id.to_string(), post_id.clone());
-
-    // Update content of PostDetails!
+    // Refresh the cached details (always, even for a lock-only toggle).
     post_details.put_to_index(&author_id, None, true).await?;
 
-    // Notifications
-    // Determine the change type
+    // A lock-only toggle reaches here to refresh the cache but is not a content
+    // edit, so it skips interactor notifications.
+    if !notify {
+        return Ok(());
+    }
+
+    let changed_uri = post_uri_builder(author_id.to_string(), post_id.clone());
     let change_type = if post_details.content == *"[DELETED]" {
         PostChangedType::Deleted
     } else {

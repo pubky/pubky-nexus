@@ -173,11 +173,17 @@ impl PostDetails {
         Ok(())
     }
 
-    /// Determines whether or not a given [PostDetails] is different than (e.g. may be an edit of) this post.
+    /// True when the post's visible content (content or attachments) changed.
+    /// Deliberately excludes `lock` so a lock toggle is not treated as a content edit.
+    pub fn content_differs_from(&self, other: &PostDetails) -> bool {
+        self.content != other.content || self.attachments != other.attachments
+    }
+
+    /// True when any cached field changed and the index needs refreshing. Unlike
+    /// [`Self::content_differs_from`] this includes `lock`, so a lock-only toggle
+    /// refreshes the cache without counting as a content edit.
     pub fn is_different_than(&self, other: &PostDetails) -> bool {
-        self.content != other.content
-            || self.attachments != other.attachments
-            || self.lock != other.lock
+        self.content_differs_from(other) || self.lock != other.lock
     }
 }
 
@@ -256,5 +262,32 @@ mod tests {
         }"#;
         let details: PostDetails = serde_json::from_str(legacy).unwrap();
         assert_eq!(details.lock, None);
+    }
+
+    #[test]
+    fn test_content_differs_from_ignores_lock() {
+        let base = PostDetails {
+            content: "c".into(),
+            id: "p".into(),
+            indexed_at: 1,
+            author: "a".into(),
+            kind: PubkyAppPostKind::Short,
+            uri: "u".into(),
+            attachments: None,
+            lock: None,
+        };
+        let locked = PostDetails {
+            lock: Some("pubky://host/pub/lock".into()),
+            ..base.clone()
+        };
+        // A lock-only toggle is a cache difference but not a content edit.
+        assert!(base.is_different_than(&locked));
+        assert!(!base.content_differs_from(&locked));
+        // A content change is both.
+        let edited = PostDetails {
+            content: "c2".into(),
+            ..base.clone()
+        };
+        assert!(base.content_differs_from(&edited));
     }
 }
