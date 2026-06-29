@@ -33,6 +33,7 @@ async fn test_delete_user_with_relationships() -> Result<()> {
         parent: None,
         embed: None,
         attachments: None,
+        lock: None,
     };
     let (_post_id, post_path) = test.create_post(&user_kp, &post).await?;
 
@@ -155,6 +156,7 @@ async fn test_delete_user_with_relationships() -> Result<()> {
         parent: None,
         embed: None,
         attachments: None,
+        lock: None,
     };
     let (_post_b_id, post_b_path) = test.create_post(&user_with_kp, &post_b).await?;
 
@@ -277,6 +279,7 @@ async fn test_delete_recommended_user() -> Result<()> {
             parent: None,
             embed: None,
             attachments: None,
+            lock: None,
         };
         test.create_post(&carol_kp, &post).await?;
     }

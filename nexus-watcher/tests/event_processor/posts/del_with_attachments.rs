@@ -71,6 +71,7 @@ async fn test_homeserver_del_post_with_attachments() -> Result<()> {
         parent: None,
         embed: None,
         attachments: Some(post_attachments.clone()),
+        lock: None,
     };
 
     let (post_id, post_path) = test.create_post(&user_kp, &post).await?;

@@ -160,6 +160,7 @@ pub fn short_post(content: impl Into<String>) -> PubkyAppPost {
         parent: None,
         embed: None,
         attachments: None,
+        lock: None,
     }
 }
 
@@ -220,7 +221,8 @@ pub fn get_post_details_by_id(user_id: &str, post_id: &str) -> Query {
             indexed_at: post.indexed_at,
             uri: 'pubky://' + user.id + '/pub/pubky.app/posts/' + post.id,
             author: user.id,
-            attachments: post.attachments
+            attachments: post.attachments,
+            lock: post.lock
         } AS details
         ",
     )

@@ -28,6 +28,7 @@ async fn test_homeserver_post_reply_notification() -> Result<()> {
         parent: None,
         embed: None,
         attachments: None,
+        lock: None,
     };
 
     let (alice_post_id, alice_post_path) = test.create_post(&alice_kp, &parent_post).await?;
@@ -40,6 +41,7 @@ async fn test_homeserver_post_reply_notification() -> Result<()> {
         parent: Some(parent_absolute_uri.clone()),
         embed: None,
         attachments: None,
+        lock: None,
     };
 
     let (_alice_reply_id, alice_reply_path) = test.create_post(&alice_kp, &reply_post).await?;
@@ -73,6 +75,7 @@ async fn test_homeserver_post_reply_notification() -> Result<()> {
         parent: Some(parent_absolute_uri.clone()),
         embed: None,
         attachments: None,
+        lock: None,
     };
 
     let (bob_reply_id, bob_reply_path) = test.create_post(&bob_kp, &reply_post).await?;

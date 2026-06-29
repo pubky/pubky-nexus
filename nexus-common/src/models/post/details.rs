@@ -22,6 +22,8 @@ pub struct PostDetails {
     pub kind: PubkyAppPostKind,
     pub uri: String,
     pub attachments: Option<Vec<String>>,
+    /// `pubky://` URL of the lock server; `None` when the post is unlocked.
+    pub lock: Option<String>,
 }
 
 impl RedisOps for PostDetails {}
@@ -116,6 +118,7 @@ impl PostDetails {
             author: author_id.to_string(),
             kind: homeserver_post.kind,
             attachments: homeserver_post.attachments,
+            lock: homeserver_post.lock,
         }
     }
 
@@ -170,7 +173,9 @@ impl PostDetails {
 
     /// Determines whether or not a given [PostDetails] is different than (e.g. may be an edit of) this post.
     pub fn is_different_than(&self, other: &PostDetails) -> bool {
-        self.content != other.content || self.attachments != other.attachments
+        self.content != other.content
+            || self.attachments != other.attachments
+            || self.lock != other.lock
     }
 }
 
@@ -190,6 +195,7 @@ mod tests {
             kind: PubkyAppPostKind::Short,
             uri: "uri1".into(),
             attachments: Some(vec!["image1.jpg".into(), "image2.jpg".into()]),
+            lock: None,
         };
 
         // Test with same content and attachments
@@ -223,5 +229,12 @@ mod tests {
             ..base_post.clone()
         };
         assert!(base_post.is_different_than(&no_attachments_post));
+
+        // Test with a different lock (lock toggle must count as an edit)
+        let locked_post = PostDetails {
+            lock: Some("pubky://lockserver.example/pub/pubky.app/lock".into()),
+            ..base_post.clone()
+        };
+        assert!(base_post.is_different_than(&locked_post));
     }
 }

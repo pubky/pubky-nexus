@@ -34,6 +34,7 @@ async fn test_homeserver_put_post_event() -> Result<()> {
         parent: None,
         embed: None,
         attachments: None,
+        lock: None,
     };
     let (_, events_in_redis_before) = Event::get_events_from_redis(None, 1000).await.unwrap();
 

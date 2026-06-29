@@ -456,6 +456,7 @@ pub async fn del(author_id: PubkyId, post_id: String) -> Result<(), EventProcess
                 embed: None,
                 kind: PubkyAppPostKind::Short,
                 attachments: None,
+                lock: None,
             };
 
             sync_put(dummy_deleted_post, author_id, post_id).await?;

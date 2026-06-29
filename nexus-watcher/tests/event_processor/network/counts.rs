@@ -82,6 +82,7 @@ async fn test_large_network_scenario_counts() -> Result<()> {
                 parent: None,
                 embed: None,
                 attachments: None,
+                lock: None,
             };
             let (post_id, _post_path) = test.create_post(user_kp, &post).await?;
             user_posts.get_mut(user_id).unwrap().push(post_id);
