@@ -4005,7 +4005,7 @@ dependencies = [
 [[package]]
 name = "pubky-app-specs"
 version = "0.6.0"
-source = "git+https://github.com/pubky/pubky-app-specs?branch=feat%2Flocks#1ba87c05cbdb9b7a5df3b05358d1a8cff3257d9b"
+source = "git+https://github.com/pubky/pubky-app-specs?rev=1ba87c05cbdb9b7a5df3b05358d1a8cff3257d9b#1ba87c05cbdb9b7a5df3b05358d1a8cff3257d9b"
 dependencies = [
  "base32",
  "blake3",

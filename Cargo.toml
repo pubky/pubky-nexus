@@ -23,8 +23,9 @@ redis = "1.0.4"
 opentelemetry = "0.32"
 opentelemetry_sdk = { version = "0.32", features = ["rt-tokio"] }
 pubky = "0.9.1"
-# TODO: switch back to version = "0.6.0" once published to crates.io
-pubky-app-specs = { git = "https://github.com/pubky/pubky-app-specs", branch = "feat/locks", features = ["openapi"] }
+# TODO: switch back to version = "0.6.0" once published to crates.io.
+# Pinned to an immutable rev (feat/locks tip) for reproducible builds until then.
+pubky-app-specs = { git = "https://github.com/pubky/pubky-app-specs", rev = "1ba87c05cbdb9b7a5df3b05358d1a8cff3257d9b", features = ["openapi"] }
 pubky-testnet = "0.9.1"
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.149"

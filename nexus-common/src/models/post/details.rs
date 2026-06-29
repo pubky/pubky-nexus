@@ -23,6 +23,8 @@ pub struct PostDetails {
     pub uri: String,
     pub attachments: Option<Vec<String>>,
     /// `pubky://` URL of the lock server; `None` when the post is unlocked.
+    /// `default` keeps pre-lock cached JSON (no `lock` key) deserializing.
+    #[serde(default)]
     pub lock: Option<String>,
 }
 
@@ -236,5 +238,23 @@ mod tests {
             ..base_post.clone()
         };
         assert!(base_post.is_different_than(&locked_post));
+    }
+
+    #[test]
+    fn test_deserialize_legacy_json_without_lock() {
+        // A pre-lock cached PostDetails JSON has no `lock` key. It must still
+        // deserialize, with `lock` defaulting to None, so old Redis entries
+        // stay readable after deploy.
+        let legacy = r#"{
+            "content": "hi",
+            "id": "post1",
+            "indexed_at": 123456789,
+            "author": "author1",
+            "kind": "short",
+            "uri": "pubky://author1/pub/pubky.app/posts/post1",
+            "attachments": null
+        }"#;
+        let details: PostDetails = serde_json::from_str(legacy).unwrap();
+        assert_eq!(details.lock, None);
     }
 }
