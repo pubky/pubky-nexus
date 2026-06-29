@@ -14,6 +14,9 @@ max_body_size_bytes = 1048576
 [api.rate_limit]
 # Enable rate limiting (disabled by default for permissiveness behind NATs)
 enabled = false
+# Trust forwarded-IP headers (X-Forwarded-For / X-Real-IP) for real-IP extraction.
+# Only enable behind a known reverse proxy — clients can spoof these headers otherwise.
+# trust_proxy_headers = false
 # Default bucket for standard endpoints (300 req/min, burst 50)
 [api.rate_limit.default_bucket]
 rate = 300
@@ -22,9 +25,6 @@ burst = 50
 [api.rate_limit.expensive_bucket]
 rate = 20
 burst = 5
-# Trust forwarded-IP headers (X-Forwarded-For / X-Real-IP) for real-IP extraction.
-# Only enable behind a known reverse proxy — clients can spoof these headers otherwise.
-# trust_proxy_headers = false
 
 [watcher]
 testnet = false
