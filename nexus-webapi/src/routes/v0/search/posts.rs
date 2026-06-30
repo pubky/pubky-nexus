@@ -1,4 +1,7 @@
-use crate::models::{BoundedLimit, BoundedPagination, BoundedSkip, PostSearchQuery, TagLabel};
+use crate::models::{
+    BoundedLimit, BoundedPagination, BoundedSkip, PostSearchQuery, PubkyAppPostKind, PubkyId,
+    TagLabel,
+};
 use crate::routes::v0::endpoints::{SEARCH_POSTS_BY_CONTENT_ROUTE, SEARCH_POSTS_BY_TAG_ROUTE};
 use crate::routes::{Path, Query};
 use crate::Result;
@@ -34,6 +37,7 @@ pub struct SearchPostsQuery {
     responses(
         (status = 200, description = "Search results", body = Vec<PostsByTagSearch>),
         (status = 400, description = "Invalid parameters"),
+        (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error")
     )
 )]
@@ -60,6 +64,8 @@ pub async fn search_posts_by_tag_handler(
 #[derive(Deserialize)]
 pub struct SearchPostsByContentQuery {
     pub q: PostSearchQuery,
+    pub author: Option<PubkyId>,
+    pub kind: Option<PubkyAppPostKind>,
     #[serde(flatten)]
     pub pagination: BoundedPagination<1000, 20, 100>,
 }
@@ -71,12 +77,15 @@ pub struct SearchPostsByContentQuery {
     tag = "Search",
     params(
         ("q" = PostSearchQuery, Query, description = "Search query (2–30 characters, up to 4 terms)"),
+        ("author" = Option<PubkyId>, Query, description = "Optional author Pubky ID to scope results"),
+        ("kind" = Option<PubkyAppPostKind>, Query, description = "Optional post kind to filter by: short, long, image, video, link, file, collection"),
         ("skip" = Option<BoundedSkip<1000>>, Query, description = "Skip N results (max 1000)"),
         ("limit" = Option<BoundedLimit<20, 100>>, Query, description = "Limit the number of results (1–100, default 20)")
     ),
     responses(
         (status = 200, description = "Search results ordered by relevance score", body = Vec<PostsByContentSearch>),
         (status = 400, description = "Invalid query or limit parameter"),
+        (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error")
     )
 )]
@@ -87,17 +96,73 @@ pub async fn search_posts_by_content_handler(
     let limit = query.pagination.limit_value();
 
     debug!(
-        "GET {SEARCH_POSTS_BY_CONTENT_ROUTE} q:{}, skip:{skip}, limit:{limit}",
-        query.q
+        "GET {SEARCH_POSTS_BY_CONTENT_ROUTE} q:{}, author:{:?}, kind:{:?}, skip:{skip}, limit:{limit}",
+        query.q, query.author, query.kind
     );
 
-    let results = PostsByContentSearch::search(query.q.as_str(), skip, limit).await?;
+    let kind_str = query.kind.as_ref().map(|k| k.to_string());
+
+    let results = PostsByContentSearch::search(
+        query.q.as_str(),
+        query.author.as_deref(),
+        kind_str.as_deref(),
+        skip,
+        limit,
+    )
+    .await?;
     Ok(Json(results))
 }
 
 #[derive(OpenApi)]
 #[openapi(
     paths(search_posts_by_tag_handler, search_posts_by_content_handler),
-    components(schemas(PostsByTagSearch, PostsByContentSearch, PostSearchQuery))
+    components(schemas(
+        PostsByTagSearch,
+        PostsByContentSearch,
+        PostSearchQuery,
+        PubkyAppPostKind
+    ))
 )]
 pub struct SearchPostsApiDocs;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse_query(
+        s: &str,
+    ) -> std::result::Result<SearchPostsByContentQuery, serde_urlencoded::de::Error> {
+        serde_urlencoded::from_str(s)
+    }
+
+    #[test]
+    fn author_missing_parses_unscoped() {
+        let q = parse_query("q=bitcoin").expect("valid query must parse");
+        assert!(q.author.is_none());
+        assert!(q.kind.is_none());
+    }
+
+    #[test]
+    fn author_invalid_format_rejected() {
+        assert!(parse_query("q=bitcoin&author=not-a-pubky").is_err());
+    }
+
+    #[test]
+    fn kind_missing_parses_unscoped() {
+        let q = parse_query("q=bitcoin").expect("valid query must parse");
+        assert!(q.kind.is_none());
+    }
+
+    #[test]
+    fn kind_valid_short_accepted() {
+        let q = parse_query("q=bitcoin&kind=short").expect("valid kind must parse");
+        assert_eq!(q.kind, Some(PubkyAppPostKind::Short));
+    }
+
+    #[test]
+    fn kind_unknown_parses_as_unknown() {
+        let q =
+            parse_query("q=bitcoin&kind=not-a-kind").expect("lenient kind parsing must not error");
+        assert_eq!(q.kind, Some(PubkyAppPostKind::Unknown));
+    }
+}

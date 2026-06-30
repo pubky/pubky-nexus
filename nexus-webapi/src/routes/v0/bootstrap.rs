@@ -23,16 +23,12 @@ use utoipa::OpenApi;
     ),
     responses(
         (status = 200, description = "Initial payload to bootstrap the client", body = Bootstrap),
+        (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error")
     )
 )]
-pub async fn bootstrap_handler(
-    Path(user_id): Path<PubkyId>,
-    // TODO: Might need a param like "ViewType". There might be too much data to include in the first go, especially for mobile
-    //Query(query): Query<Pub>,
-) -> Result<Json<Bootstrap>> {
+pub async fn bootstrap_handler(Path(user_id): Path<PubkyId>) -> Result<Json<Bootstrap>> {
     debug!("GET {BOOTSTRAP_ROUTE}, user_id:{}", user_id);
-
     Ok(Json(Bootstrap::get_by_id(&user_id, ViewType::Full).await?))
 }
 
@@ -47,6 +43,7 @@ pub async fn bootstrap_handler(
     responses(
         (status = 200, description = "User successfully ingested (or already known)"),
         (status = 403, description = "User is hosted on a blacklisted HS"),
+        (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error")
     )
 )]
@@ -67,8 +64,10 @@ pub async fn ingest_user_handler(
 )]
 pub struct BootstrapApiDoc;
 
+pub fn expensive_routes() -> Router<AppState> {
+    Router::new().route(BOOTSTRAP_ROUTE, get(bootstrap_handler))
+}
+
 pub fn routes() -> Router<AppState> {
-    Router::new()
-        .route(BOOTSTRAP_ROUTE, get(bootstrap_handler))
-        .route(INGEST_USER_ROUTE, put(ingest_user_handler))
+    Router::new().route(INGEST_USER_ROUTE, put(ingest_user_handler))
 }

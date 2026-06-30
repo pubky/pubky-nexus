@@ -22,7 +22,7 @@ pub mod file;
 mod stack;
 pub mod watcher;
 
-pub use api::ApiConfig;
+pub use api::{ApiConfig, RateLimitBucketConfig, RateLimitConfig};
 pub use daemon::DaemonConfig;
 pub use stack::{default_stack, OtlpConfig, StackConfig};
 pub use watcher::{

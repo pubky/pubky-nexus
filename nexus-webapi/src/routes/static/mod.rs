@@ -12,15 +12,19 @@ mod files;
 mod legacy_files;
 mod serve_dir;
 
-pub fn router(app_state: AppState) -> Router<AppState> {
-    Router::new()
-        .with_state(app_state)
+/// Returns (expensive_routes, default_routes).
+/// Expensive routes spawn ImageMagick on first hit per variant.
+pub fn routes() -> (Router<AppState>, Router<AppState>) {
+    let expensive = Router::new()
         .route(STATIC_FILES_ROUTE, get(files::static_files_handler))
-        .route(
-            LEGACY_STATIC_FILES_ROUTE,
-            get(legacy_files::legacy_files_handler),
-        )
-        .route(USER_AVATAR_ROUTE, get(avatar::user_avatar_handler))
+        .route(USER_AVATAR_ROUTE, get(avatar::user_avatar_handler));
+
+    let default = Router::new().route(
+        LEGACY_STATIC_FILES_ROUTE,
+        get(legacy_files::legacy_files_handler),
+    );
+
+    (expensive, default)
 }
 
 #[derive(OpenApi)]

@@ -30,6 +30,7 @@ use utoipa::OpenApi;
         (status = 200, description = "User tags", body = Vec<TagDetails>),
         (status = 400, description = "Invalid parameters"),
         (status = 404, description = "User not found"),
+        (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error")
     )
 )]
@@ -89,6 +90,7 @@ pub struct TaggersQuery {
     responses(
         (status = 200, description = "User tags", body = TaggersInfoResponse),
         (status = 400, description = "Invalid parameters"),
+        (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error")
     )
 )]

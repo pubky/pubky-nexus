@@ -52,6 +52,7 @@ pub struct EventsQuery {
             example = "PUT pubky://<pk>/<path>\nDEL pubky://<pk>/<path>\nPUT pubky://<pk>/<path>\ncursor: 2"
         ),
         (status = 400, description = "Bad request"),
+        (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error"),
 
     )

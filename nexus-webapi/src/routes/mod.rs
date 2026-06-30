@@ -1,3 +1,7 @@
+use std::time::Duration;
+use std::{path::PathBuf, sync::Arc};
+
+use crate::api_context::ApiContext;
 use axum::body::Body;
 use axum::extract::{DefaultBodyLimit, FromRequest, FromRequestParts};
 use axum::http::request::Parts;
@@ -5,10 +9,8 @@ use axum::http::{Request, StatusCode};
 use axum::Json as AxumJson;
 use axum::Router;
 use nexus_common::models::user::UserIngestor;
-use std::time::Duration;
-use std::{path::PathBuf, sync::Arc};
-
-use crate::api_context::ApiContext;
+use nexus_common::RateLimitConfig;
+use tokio::sync::watch::Receiver;
 use tower_http::compression::CompressionLayer;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::limit::RequestBodyLimitLayer;
@@ -18,7 +20,7 @@ use utoipa_swagger_ui::SwaggerUi;
 pub mod r#static;
 pub mod v0;
 
-mod middlewares;
+pub mod middlewares;
 
 /// JSON extractor that maps Axum rejections to `Error::InvalidInput`.
 pub struct Json<T>(pub T);
@@ -81,13 +83,13 @@ pub struct AppState {
     pub ingestor: Arc<UserIngestor>,
 }
 
-pub fn routes(ctx: &ApiContext) -> Router {
+pub fn routes(ctx: &ApiContext, shutdown_rx: Receiver<bool>) -> Router {
     let state = AppState {
         files_path: Arc::new(ctx.api_config.stack.files_path.clone()),
         ingestor: ctx.ingestor.clone(),
     };
 
-    let app_routes = app_routes(state.clone());
+    let app_routes = app_routes(state.clone(), &ctx.api_config.rate_limit, shutdown_rx);
 
     build_app(
         app_routes,
@@ -98,18 +100,41 @@ pub fn routes(ctx: &ApiContext) -> Router {
 }
 
 /// The application's routes: v0 API, static file serving, and OpenAPI/Swagger UI docs.
-pub fn app_routes(state: AppState) -> Router<AppState> {
-    let route_static = r#static::router(state.clone());
-    let routes_v0 = v0::router(state.clone());
+pub fn app_routes(
+    state: AppState,
+    rate_limit: &RateLimitConfig,
+    shutdown_rx: Receiver<bool>,
+) -> Router<AppState> {
+    // Split routes into expensive and default buckets
+    let (v0_expensive, v0_default) = v0::routes(state.clone());
+    let (static_expensive, static_default) = r#static::routes();
 
-    let route_openapi = SwaggerUi::new("/swagger-ui")
-        .url("/api-docs/v0/openapi.json", v0::ApiDoc::merge_docs())
-        .url(
-            "/api-docs/static/openapi.json",
-            r#static::ApiDoc::merge_docs(),
-        );
+    // Swagger UI and OpenAPI docs get default-bucket rate limiting
+    let swagger = Router::new().merge(
+        SwaggerUi::new("/swagger-ui")
+            .url("/api-docs/v0/openapi.json", v0::ApiDoc::merge_docs())
+            .url(
+                "/api-docs/static/openapi.json",
+                r#static::ApiDoc::merge_docs(),
+            ),
+    );
 
-    routes_v0.merge(route_static).merge(route_openapi)
+    // Apply expensive rate limiting to expensive routes
+    let expensive = middlewares::rate_limit::apply_rate_limit_expensive(
+        v0_expensive.merge(static_expensive),
+        rate_limit,
+        shutdown_rx.clone(),
+    );
+
+    // Apply default rate limiting to default routes (including swagger)
+    let default = middlewares::rate_limit::apply_rate_limit_default(
+        v0_default.merge(static_default).merge(swagger),
+        rate_limit,
+        shutdown_rx,
+    );
+
+    // Merge both buckets (each carries its own rate limit layer).
+    expensive.merge(default)
 }
 
 /// Builds the full application [Router]: attaches `routes` to `state`, then layers on
