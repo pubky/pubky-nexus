@@ -21,7 +21,11 @@ pub fn get_post_by_id(author_id: &str, post_id: &str) -> Query {
     Query::new(
         "get_post_by_id",
         "
-            MATCH (u:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
+            // The WITH barrier is load-bearing: without it the planner anchors on the
+            // author and expands all their posts instead of seeking the post by id.
+            MATCH (p:Post {id: $post_id})
+            WITH p
+            MATCH (u:User {id: $author_id}) WHERE (u)-[:AUTHORED]->(p)
             OPTIONAL MATCH (p)-[replied:REPLIED]->(parent_post:Post)<-[:AUTHORED]-(author:User)
             WITH u, p, parent_post, author
             RETURN {
@@ -47,7 +51,10 @@ pub fn post_counts(author_id: &str, post_id: &str) -> Query {
     Query::new(
         "post_counts",
         "
-        MATCH (u:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
+        // Anchor on the post's unique id: matching via the author would make the
+        // planner expand every post they wrote.
+        MATCH (p:Post {id: $post_id})
+        WHERE EXISTS { (:User {id: $author_id})-[:AUTHORED]->(p) }
         WITH p
         OPTIONAL MATCH (p)<-[t:TAGGED]-()
         WITH p, COUNT (t) AS tags_count, COUNT(DISTINCT t.label) AS unique_tags_count
@@ -168,7 +175,9 @@ pub fn get_tag_target(user_id: &str, tag_id: &str, app: Option<&str>) -> Query {
 pub fn get_post_tags(author_id: &str, post_id: &str) -> Query {
     Query::new(
         "get_post_tags",
-        "MATCH (tagger:User)-[t:TAGGED]->(p:Post {id: $post_id})<-[:AUTHORED]-(author:User {id: $author_id})
+        "MATCH (p:Post {id: $post_id})
+         WHERE EXISTS { (:User {id: $author_id})-[:AUTHORED]->(p) }
+         MATCH (tagger:User)-[t:TAGGED]->(p)
          RETURN tagger.id AS tagger_id, t.id AS tag_id",
     )
     .param("author_id", author_id)
@@ -178,7 +187,8 @@ pub fn get_post_tags(author_id: &str, post_id: &str) -> Query {
 pub fn post_relationships(author_id: &str, post_id: &str) -> Query {
     Query::new(
         "post_relationships",
-        "MATCH (u:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
+        "MATCH (p:Post {id: $post_id})
+        WHERE EXISTS { (:User {id: $author_id})-[:AUTHORED]->(p) }
         OPTIONAL MATCH (p)-[:REPLIED]->(replied_post:Post)<-[:AUTHORED]-(replied_author:User)
         OPTIONAL MATCH (p)-[:REPOSTED]->(reposted_post:Post)<-[:AUTHORED]-(reposted_author:User)
         OPTIONAL MATCH (p)-[:MENTIONED]->(mentioned_user:User)
@@ -258,7 +268,11 @@ pub fn post_tags(user_id: &str, post_id: &str) -> Query {
     Query::new(
         "post_tags",
         "
-        MATCH (u:User {id: $user_id})-[:AUTHORED]->(p:Post {id: $post_id})
+        // Anchor on the post's unique id: matching via the author would make the
+        // planner expand every post they wrote.
+        MATCH (p:Post {id: $post_id})
+        WITH p
+        MATCH (u:User {id: $user_id}) WHERE (u)-[:AUTHORED]->(p)
         CALL {
             WITH p
             MATCH (tagger:User)-[tag:TAGGED]->(p)
