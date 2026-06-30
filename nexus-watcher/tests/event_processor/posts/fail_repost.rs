@@ -42,6 +42,7 @@ async fn test_homeserver_post_repost_without_post_parent() -> Result<()> {
         parent: None,
         embed: None,
         attachments: None,
+        lock: None,
     };
 
     let (post_id, _post_path) = test.create_post(&post_author_user_kp, &post).await?;
@@ -56,6 +57,7 @@ async fn test_homeserver_post_repost_without_post_parent() -> Result<()> {
             uri: post_uri_builder(post_author_id, post_id),
         }),
         attachments: None,
+        lock: None,
     };
     let (repost_id, _repost_path) = test.create_post(&post_repost_author_kp, &repost).await?;
 

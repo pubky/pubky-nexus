@@ -34,6 +34,7 @@ async fn test_tag_post_on_unknown_homeserver() -> Result<()> {
         parent: None,
         embed: None,
         attachments: None,
+        lock: None,
     };
 
     // We cannot PUT that event because the tagged user is not signed up (missing profile.json, missing graph node)

@@ -33,7 +33,8 @@ pub fn get_post_by_id(author_id: &str, post_id: &str) -> Query {
                 // default value when the specified property is null
                 // Avoids enum deserialization ERROR
                 kind: COALESCE(p.kind, 'short'),
-                attachments: p.attachments
+                attachments: p.attachments,
+                lock: p.lock
             } as details,
             COLLECT([author.id, parent_post.id]) AS reply
 

@@ -17,6 +17,7 @@ fn collection_post(name: &str) -> PubkyAppPost {
         parent: None,
         embed: None,
         attachments: None,
+        lock: None,
     }
 }
 
@@ -27,6 +28,7 @@ fn short_post(content: &str) -> PubkyAppPost {
         parent: None,
         embed: None,
         attachments: None,
+        lock: None,
     }
 }
 
