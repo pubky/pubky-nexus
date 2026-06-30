@@ -296,6 +296,21 @@ async fn recover_post_index_state(
             )
         })?;
 
+    // Invalidate the replies/reposts cache of any parent this post points at, so
+    // the next read recomputes those counts from the now-durable graph edges.
+    // Invalidate-only is sufficient and safe on missing keys. Run before the child
+    // reindex below so a failure there still leaves the parent caches refreshed.
+    if let Some(relationships) = PostRelationships::get_from_graph(author_id, post_id).await? {
+        for parent in [relationships.replied, relationships.reposted]
+            .into_iter()
+            .flatten()
+        {
+            if let Resource::Post(parent_post_id) = &parent.resource {
+                PostCounts::invalidate(&[&parent.user_id, parent_post_id]).await?;
+            }
+        }
+    }
+
     // Re-merge any MENTIONED graph edges that the original mention loop
     // didn't finish. Skips notifications (0 > N on retry).
     merge_mention_edges(author_id, post_id, &post_details.content).await?;

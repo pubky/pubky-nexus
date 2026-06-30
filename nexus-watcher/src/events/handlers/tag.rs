@@ -212,15 +212,20 @@ async fn put_sync_post(
         OperationOutcome::Updated => {
             // Re-run idempotent ops to recover from partial failure (graph wrote, Redis didn't)
             let tag_label_slice = &[tag_label.to_string()];
+            let post_key_slice: &[&str] = &[&author_id, post_id];
             let idempotent_results = nexus_common::traced_join!(
                 tracing::info_span!("index.write", phase = "tag_post_retry");
                 TagPost::add_tagger_to_index(&author_id, Some(post_id), &tagger_user_id, tag_label),
                 PostsByTagSearch::put_to_index(&author_id, post_id, tag_label),
-                TagSearch::put_to_index(tag_label_slice)
+                TagSearch::put_to_index(tag_label_slice),
+                // TAGGED edge already durable; invalidate-only so the next read
+                // recomputes tags/unique_tags from graph. Safe on missing key.
+                PostCounts::invalidate(post_key_slice)
             );
             idempotent_results.0?;
             idempotent_results.1?;
             idempotent_results.2?;
+            idempotent_results.3?;
             Ok(())
         }
         OperationOutcome::MissingDependency => {
