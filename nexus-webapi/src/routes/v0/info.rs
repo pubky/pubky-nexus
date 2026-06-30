@@ -15,7 +15,9 @@ use utoipa::OpenApi;
     path = INFO_ROUTE,
     tag = "Info",
     responses(
-        (status = 200, description = "Server info", body = ServerInfo)
+        (status = 200, description = "Server info", body = ServerInfo),
+        (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error")
     )
 )]
 pub async fn info_handler(State(app_state): State<AppState>) -> impl IntoResponse {

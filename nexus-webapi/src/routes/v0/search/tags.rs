@@ -27,6 +27,7 @@ pub struct SearchTagsQuery {
     ),
     responses(
         (status = 200, description = "Search results", body = Vec<String>),
+        (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error")
     )
 )]

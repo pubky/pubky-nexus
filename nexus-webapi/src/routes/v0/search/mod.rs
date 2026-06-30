@@ -7,11 +7,18 @@ use axum::routing::get;
 use axum::Router;
 use utoipa::OpenApi;
 
-mod posts;
+pub mod posts;
 mod tags;
 mod users;
 
 pub use crate::models::user_id_prefix::USER_ID_SEARCH_MIN_PREFIX_LEN;
+
+pub fn expensive_routes() -> Router<AppState> {
+    Router::new().route(
+        SEARCH_POSTS_BY_CONTENT_ROUTE,
+        get(posts::search_posts_by_content_handler),
+    )
+}
 
 pub fn routes() -> Router<AppState> {
     Router::new()
@@ -26,10 +33,6 @@ pub fn routes() -> Router<AppState> {
         .route(
             SEARCH_POSTS_BY_TAG_ROUTE,
             get(posts::search_posts_by_tag_handler),
-        )
-        .route(
-            SEARCH_POSTS_BY_CONTENT_ROUTE,
-            get(posts::search_posts_by_content_handler),
         )
         .route(
             SEARCH_TAGS_BY_PREFIX_ROUTE,

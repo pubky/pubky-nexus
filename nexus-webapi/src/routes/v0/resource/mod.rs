@@ -72,6 +72,7 @@ pub struct ResourceByUriQuery {
         (status = 400, description = "Invalid parameters"),
         (status = 404, description = "Resource not found"),
         (status = 200, description = "Resource tags with metadata", body = ResourceTagsResponse),
+        (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error")
     )
 )]
@@ -115,6 +116,7 @@ pub async fn resource_tags_handler(
         (status = 404, description = "Resource not found"),
         (status = 200, description = "Resource tags with metadata", body = ResourceTagsResponse),
         (status = 400, description = "Invalid URI"),
+        (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error")
     )
 )]
@@ -171,6 +173,7 @@ pub struct ResourceTaggersPath {
     responses(
         (status = 400, description = "Invalid parameters"),
         (status = 200, description = "Resource taggers", body = TaggersInfoResponse),
+        (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error")
     )
 )]

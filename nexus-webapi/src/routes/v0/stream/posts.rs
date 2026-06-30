@@ -250,6 +250,7 @@ impl PostStreamQuery {
     responses(
         (status = 200, description = "Posts stream", body = PostStreamDetailed),
         (status = 400, description = "Invalid parameters"),
+        (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error")
     ),
     description = r#"Stream Posts: Retrieve a stream of posts.
@@ -320,6 +321,7 @@ pub async fn stream_posts_handler(
     responses(
         (status = 200, description = "Post key stream", body = PostKeyStream),
         (status = 400, description = "Invalid parameters"),
+        (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error")
     ),
     description = r#"Stream Post Keys: Retrieve a stream of post keys
@@ -368,6 +370,7 @@ pub struct PostStreamByIdsRequest {
     request_body = PostStreamByIdsRequest,
     responses(
         (status = 200, description = "Post stream", body = PostStreamDetailed),
+        (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error")
     )
 )]

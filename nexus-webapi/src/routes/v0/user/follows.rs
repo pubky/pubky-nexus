@@ -31,6 +31,7 @@ pub struct FollowsQuery {
         (status = 200, description = "User followers list", body = Followers),
         (status = 400, description = "Invalid parameters"),
         (status = 404, description = "User not found"),
+        (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error")
     )
 )]
@@ -62,6 +63,7 @@ pub async fn user_followers_handler(
         (status = 200, description = "User following list", body = Following),
         (status = 400, description = "Invalid parameters"),
         (status = 404, description = "User not found"),
+        (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error")
     )
 )]
@@ -93,6 +95,7 @@ pub async fn user_following_handler(
         (status = 200, description = "User friends list", body = Friends),
         (status = 400, description = "Invalid parameters"),
         (status = 404, description = "User not found"),
+        (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error")
     )
 )]

@@ -20,30 +20,30 @@ pub use types::{TaggersInfoResponse, TagsQuery};
 
 use super::AppState;
 
-pub fn router(app_state: AppState) -> Router<AppState> {
-    let routes_info = info::routes(app_state);
-    let routes_post = post::routes();
-    let route_user = user::routes();
-    let route_stream = stream::routes();
-    let route_search = search::routes();
-    let route_file = file::routes();
-    let route_tag = tag::routes();
-    let route_resource = resource::routes();
-    let route_notification = notification::routes();
-    let route_bootstrap = bootstrap::routes();
-    let route_events = events::routes();
+/// Returns (expensive_routes, default_routes).
+/// Expensive routes receive tighter rate limiting.
+pub fn routes(app_state: AppState) -> (Router<AppState>, Router<AppState>) {
+    let expensive = Router::new()
+        .merge(stream::expensive_routes())
+        .merge(tag::expensive_routes())
+        .merge(search::expensive_routes())
+        .merge(file::expensive_routes())
+        .merge(bootstrap::expensive_routes());
 
-    routes_post
-        .merge(routes_info)
-        .merge(route_user)
-        .merge(route_stream)
-        .merge(route_search)
-        .merge(route_file)
-        .merge(route_tag)
-        .merge(route_resource)
-        .merge(route_notification)
-        .merge(route_bootstrap)
-        .merge(route_events)
+    let default = Router::new()
+        .merge(info::routes(app_state.clone()))
+        .merge(post::routes())
+        .merge(user::routes())
+        .merge(stream::routes())
+        .merge(search::routes())
+        .merge(file::routes())
+        .merge(tag::routes())
+        .merge(resource::routes())
+        .merge(notification::routes())
+        .merge(bootstrap::routes())
+        .merge(events::routes());
+
+    (expensive, default)
 }
 
 #[derive(OpenApi)]
@@ -71,7 +71,6 @@ impl ApiDoc {
         combined.merge(info::InfoApiDoc::openapi());
         combined.merge(user::UserApiDoc::merge_docs());
         combined.merge(stream::StreamApiDoc::merge_docs());
-        combined.merge(search::SearchApiDoc::merge_docs());
         combined.merge(search::SearchApiDoc::merge_docs());
         combined.merge(file::FileApiDoc::merge_docs());
         combined.merge(tag::TagApiDoc::merge_docs());
