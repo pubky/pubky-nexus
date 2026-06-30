@@ -48,7 +48,7 @@ async fn bookmark_post(
 
 #[tokio_shared_rt::test(shared)]
 async fn test_collection_post_increments_collections_not_replies() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     let user_kp = Keypair::random();
     let user = PubkyAppUser {
@@ -89,7 +89,7 @@ async fn test_collection_post_increments_collections_not_replies() -> Result<()>
 
 #[tokio_shared_rt::test(shared)]
 async fn test_delete_collection_decrements_collections() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     let user_kp = Keypair::random();
     let user = PubkyAppUser {
@@ -124,7 +124,7 @@ async fn test_delete_collection_decrements_collections() -> Result<()> {
 /// the Cypher backfill until the next reindex.
 #[tokio_shared_rt::test(shared)]
 async fn test_editing_post_kind_moves_collections_counter() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     let user_kp = Keypair::random();
     let user = PubkyAppUser {
@@ -171,7 +171,7 @@ async fn test_editing_post_kind_moves_collections_counter() -> Result<()> {
 /// drop by exactly one, and the kind transition must persist.
 #[tokio_shared_rt::test(shared)]
 async fn test_soft_deleting_a_bookmarked_collection_decrements_collections_once() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     let author_kp = Keypair::random();
     let author = PubkyAppUser {
@@ -221,7 +221,7 @@ async fn test_soft_deleting_a_bookmarked_collection_decrements_collections_once(
 
 #[tokio_shared_rt::test(shared)]
 async fn test_bookmarking_a_collection_is_excluded_from_bookmarks() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     let user_kp = Keypair::random();
     let user = PubkyAppUser {

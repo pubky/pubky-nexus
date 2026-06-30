@@ -1,13 +1,15 @@
 use crate::models::PubkyId;
-use crate::routes::v0::endpoints::{BOOTSTRAP_ROUTE, PUT_HOMESERVER_ROUTE};
+use crate::routes::v0::endpoints::BOOTSTRAP_ROUTE;
+use crate::routes::v0::endpoints::INGEST_USER_ROUTE;
 use crate::routes::AppState;
 use crate::routes::Path;
 use crate::Result;
+
+use axum::extract::State;
 use axum::routing::{get, put};
 use axum::Json;
 use axum::Router;
 use nexus_common::models::bootstrap::{Bootstrap, ViewType};
-use nexus_common::models::homeserver::Homeserver;
 use tracing::debug;
 use utoipa::OpenApi;
 
@@ -32,27 +34,32 @@ pub async fn bootstrap_handler(Path(user_id): Path<PubkyId>) -> Result<Json<Boot
 
 #[utoipa::path(
     put,
-    path = PUT_HOMESERVER_ROUTE,
-    description = "Ingest (start monitoring all events of) the Homeserver on which this User PK stores data at this time",
+    path = INGEST_USER_ROUTE,
+    description = "Ingest a user by resolving their homeserver and persisting a user node in the graph. If the user is already known, this is a no-op.",
     tag = "Bootstrap",
     params(
         ("user_id" = PubkyId, Path, description = "User Pubky ID")
     ),
     responses(
-        (status = 200, description = "Successfully added new homeserver"),
+        (status = 200, description = "User successfully ingested (or already known)"),
+        (status = 403, description = "User is hosted on a blacklisted HS"),
         (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error")
     )
 )]
-pub async fn put_homeserver_handler(Path(user_id): Path<PubkyId>) -> Result<()> {
-    debug!("PUT {PUT_HOMESERVER_ROUTE}, user_id:{user_id}");
-    Homeserver::maybe_ingest_for_user(&user_id).await?;
+pub async fn ingest_user_handler(
+    State(app_state): State<AppState>,
+    Path(user_id): Path<PubkyId>,
+) -> Result<()> {
+    debug!("PUT {INGEST_USER_ROUTE}, user_id:{user_id}");
+
+    app_state.ingestor.maybe_ingest_user(&user_id).await?;
     Ok(())
 }
 
 #[derive(OpenApi)]
 #[openapi(
-    paths(bootstrap_handler, put_homeserver_handler),
+    paths(bootstrap_handler, ingest_user_handler),
     components(schemas(Bootstrap, PubkyId))
 )]
 pub struct BootstrapApiDoc;
@@ -62,5 +69,5 @@ pub fn expensive_routes() -> Router<AppState> {
 }
 
 pub fn routes() -> Router<AppState> {
-    Router::new().route(PUT_HOMESERVER_ROUTE, put(put_homeserver_handler))
+    Router::new().route(INGEST_USER_ROUTE, put(ingest_user_handler))
 }

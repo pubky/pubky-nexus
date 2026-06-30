@@ -1,7 +1,9 @@
 mod counts;
+mod cursor;
 mod details;
 //mod id;
 mod influencers;
+mod ingestor;
 mod relationship;
 mod search;
 mod stream;
@@ -9,8 +11,10 @@ mod tags;
 mod view;
 
 pub use counts::UserCounts;
-pub use details::UserDetails;
+pub use cursor::{user_hs_cursor_key, UserHsCursor, UserHsCursorKey};
+pub use details::{set_user_homeserver, set_user_homeserver_stale, UserDetails};
 pub use influencers::Influencers;
+pub use ingestor::UserIngestor;
 pub use relationship::Relationship;
 pub use search::{UserSearch, USER_NAME_KEY_PARTS};
 pub use stream::{

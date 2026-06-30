@@ -7,7 +7,7 @@ use pubky_app_specs::{PubkyAppTag, PubkyAppUser};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_self_untag_profile_no_notification() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     // Create a single user who will tag and untag their own profile
     let user_kp = Keypair::random();

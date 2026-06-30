@@ -1,6 +1,6 @@
 use crate::models::BoundedLimit;
 use crate::routes::AppState;
-use nexus_common::models::event::Event;
+use nexus_common::models::event::EventLine;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -60,7 +60,7 @@ pub struct EventsQuery {
 pub async fn get_events_handler(Query(q): Query<EventsQuery>) -> Result<Response, Error> {
     let limit = q.limit.as_ref().map_or(500, |l| l.value());
     let cursor = q.cursor;
-    let (events, next_cursor) = Event::get_events_from_redis(cursor, limit).await?;
+    let (events, next_cursor) = EventLine::get_from_index(cursor, limit).await?;
     let event_list = EventsList {
         events,
         cursor: next_cursor,

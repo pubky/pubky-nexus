@@ -1,12 +1,15 @@
+use std::time::Duration;
+use std::{path::PathBuf, sync::Arc};
+
+use crate::api_context::ApiContext;
 use axum::body::Body;
 use axum::extract::{DefaultBodyLimit, FromRequest, FromRequestParts};
 use axum::http::request::Parts;
 use axum::http::{Request, StatusCode};
 use axum::Json as AxumJson;
 use axum::Router;
+use nexus_common::models::user::UserIngestor;
 use nexus_common::RateLimitConfig;
-use std::time::Duration;
-use std::{path::PathBuf, sync::Arc};
 use tokio::sync::watch::Receiver;
 use tower_http::compression::CompressionLayer;
 use tower_http::cors::{Any, CorsLayer};
@@ -76,6 +79,24 @@ where
 #[derive(Clone)]
 pub struct AppState {
     pub files_path: Arc<PathBuf>,
+    /// Shared ingestor enforcing the HS blacklist on API-triggered ingestion.
+    pub ingestor: Arc<UserIngestor>,
+}
+
+pub fn routes(ctx: &ApiContext, shutdown_rx: Receiver<bool>) -> Router {
+    let state = AppState {
+        files_path: Arc::new(ctx.api_config.stack.files_path.clone()),
+        ingestor: ctx.ingestor.clone(),
+    };
+
+    let app_routes = app_routes(state.clone(), &ctx.api_config.rate_limit, shutdown_rx);
+
+    build_app(
+        app_routes,
+        state,
+        ctx.api_config.request_timeout_secs,
+        ctx.api_config.max_body_size_bytes,
+    )
 }
 
 /// The application's routes: v0 API, static file serving, and OpenAPI/Swagger UI docs.

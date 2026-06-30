@@ -9,6 +9,7 @@ use nexus_common::{
         notification::Notification,
     },
     types::Pagination,
+    utils::test_utils::default_ingestor_tests,
 };
 use nexus_watcher::events::handlers::follow;
 use pubky::Keypair;
@@ -18,7 +19,7 @@ use pubky_app_specs::{PubkyAppUser, PubkyId};
 /// counters, duplicate index entries, or create extra notifications.
 #[tokio_shared_rt::test(shared)]
 async fn test_follow_put_idempotent() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     // Create follower
     let follower_kp = Keypair::random();
@@ -73,7 +74,7 @@ async fn test_follow_put_idempotent() -> Result<()> {
     // Simulate retry: call sync_put directly with the same follower/followee
     let follower_pubky = PubkyId::from(follower_kp.clone());
     let followee_pubky = PubkyId::from(followee_kp.clone());
-    follow::sync_put(follower_pubky, followee_pubky).await?;
+    follow::sync_put(follower_pubky, followee_pubky, &default_ingestor_tests()).await?;
 
     // Verify counts are unchanged (not doubled)
     let followee_counts = find_user_counts(&followee_id).await;
@@ -123,7 +124,7 @@ async fn test_follow_put_idempotent() -> Result<()> {
 /// without duplicating counters or notifications.
 #[tokio_shared_rt::test(shared)]
 async fn test_follow_put_recovers_missing_indexes() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     // Create follower
     let follower_kp = Keypair::random();
@@ -169,7 +170,7 @@ async fn test_follow_put_recovers_missing_indexes() -> Result<()> {
     // Simulate retry: sync_put hits Updated (graph edge exists) and runs recovery
     let follower_pubky = PubkyId::from(follower_kp.clone());
     let followee_pubky = PubkyId::from(followee_kp.clone());
-    follow::sync_put(follower_pubky, followee_pubky).await?;
+    follow::sync_put(follower_pubky, followee_pubky, &default_ingestor_tests()).await?;
 
     // Verify both indexes are recovered
     let (_, is_follower) = Followers::check_set_member(&[&followee_id], &follower_id).await?;

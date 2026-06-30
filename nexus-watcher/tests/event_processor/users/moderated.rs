@@ -12,7 +12,7 @@ use tokio::fs;
 
 #[tokio_shared_rt::test(shared)]
 async fn test_moderated_user_lifecycle() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     // 1. Create the target user
     let user_kp = Keypair::random();

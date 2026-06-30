@@ -181,16 +181,7 @@ impl NexusApi {
         shutdown_rx: Receiver<bool>,
     ) -> Result<Self, DynError> {
         // Create all the routes of the API
-        let state = routes::AppState {
-            files_path: Arc::new(ctx.api_config.stack.files_path.clone()),
-        };
-        let app_routes = routes::app_routes(state.clone(), &ctx.api_config.rate_limit, shutdown_rx);
-        let router = routes::build_app(
-            app_routes,
-            state,
-            ctx.api_config.request_timeout_secs,
-            ctx.api_config.max_body_size_bytes,
-        );
+        let router = routes::routes(&ctx, shutdown_rx);
         debug!(?ctx.api_config, "Running NexusAPI with config");
 
         let (icann_http_handle, icann_http_socket) =

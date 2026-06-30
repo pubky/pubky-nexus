@@ -12,7 +12,7 @@ const MODERATION_LABEL: &str = "label_to_moderate";
 
 #[tokio_shared_rt::test(shared)]
 async fn test_moderation_deletes_pubky_app_tag() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
     let moderator_kp = create_moderator(&mut test).await?;
     let (_author_kp, author_id, post_id) = create_author_and_post(&mut test).await?;
     let (tagger_kp, tagger_id) = create_tagger(&mut test, "pubky-app").await?;
@@ -38,7 +38,7 @@ async fn test_moderation_deletes_pubky_app_tag() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_moderation_deletes_universal_tag() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
     let moderator_kp = create_moderator(&mut test).await?;
     let (tagger_kp, tagger_id) = create_tagger(&mut test, "universal").await?;
 
@@ -71,7 +71,7 @@ async fn test_moderation_deletes_universal_tag() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_moderation_deletes_app_specific_known_post_tag() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
     let moderator_kp = create_moderator(&mut test).await?;
     let (_author_kp, author_id, post_id) = create_author_and_post(&mut test).await?;
     let (tagger_kp, tagger_id) = create_tagger(&mut test, "known-post").await?;
@@ -99,7 +99,7 @@ async fn test_moderation_deletes_app_specific_known_post_tag() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_moderation_keeps_same_label_universal_tag_from_same_user() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
     let moderator_kp = create_moderator(&mut test).await?;
     let (_author_kp, author_id, post_id) = create_author_and_post(&mut test).await?;
     let (tagger_kp, tagger_id) = create_tagger(&mut test, "same-user").await?;
@@ -136,7 +136,7 @@ async fn test_moderation_keeps_same_label_universal_tag_from_same_user() -> Resu
 
 #[tokio_shared_rt::test(shared)]
 async fn test_moderation_keeps_same_label_pubky_app_tag_from_different_user() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
     let moderator_kp = create_moderator(&mut test).await?;
     let (_author_kp, author_id, post_id) = create_author_and_post(&mut test).await?;
     let (pubky_tagger_kp, pubky_tagger_id) =

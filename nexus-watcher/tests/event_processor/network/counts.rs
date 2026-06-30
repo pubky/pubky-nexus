@@ -26,7 +26,7 @@ const NUM_USERS: usize = 10;
 
 #[tokio_shared_rt::test(shared)]
 async fn test_large_network_scenario_counts() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     if !PROCESS_EVENTS_ONE_BY_ONE {
         test = test.remove_event_processing().await;
@@ -200,7 +200,7 @@ async fn test_large_network_scenario_counts() -> Result<()> {
             // We do this because earlier, the runner's event processing has been turned off temporarily
             // but at this point we are ready to run the event processing
             test.event_processor_runner
-                .build(test.homeserver_id.to_string())
+                .build(test.homeserver_id.as_ref())
                 .await
                 .map_err(|e| anyhow!(e))?
                 .run()

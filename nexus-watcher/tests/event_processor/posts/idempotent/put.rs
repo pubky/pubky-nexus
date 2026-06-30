@@ -8,6 +8,7 @@ use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
 use nexus_common::db::RedisOps;
 use nexus_common::models::post::{PostCounts, PostDetails, PostRelationships};
+use nexus_common::utils::test_utils::default_ingestor_tests;
 use nexus_watcher::events::handlers;
 use pubky::Keypair;
 use pubky_app_specs::post_uri_builder;
@@ -22,7 +23,7 @@ use super::{
 /// re-run idempotent index writes WITHOUT double-incrementing user counts.
 #[tokio_shared_rt::test(shared)]
 async fn test_post_put_recovers_after_partial_redis_write() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     let user_kp = Keypair::random();
     let user_id = test
@@ -50,7 +51,13 @@ async fn test_post_put_recovers_after_partial_redis_write() -> Result<()> {
 
     // Retry: invoke sync_put directly. Graph reports `Updated`, the handler
     // takes the recovery path and rebuilds the Redis state from the graph.
-    handlers::post::sync_put(post.clone(), pubky_id(&user_id)?, post_id.clone()).await?;
+    handlers::post::sync_put(
+        post.clone(),
+        pubky_id(&user_id)?,
+        post_id.clone(),
+        &default_ingestor_tests(),
+    )
+    .await?;
 
     // PostDetails / PostRelationships / PostCounts and the three root-post
     // sorted-set memberships must all be back.
@@ -74,7 +81,7 @@ async fn test_post_put_recovers_after_partial_redis_write() -> Result<()> {
 /// parent counts must also stay stable.
 #[tokio_shared_rt::test(shared)]
 async fn test_post_put_replay_after_full_success_is_noop() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     let user_kp = Keypair::random();
     let user_id = test
@@ -101,7 +108,13 @@ async fn test_post_put_replay_after_full_success_is_noop() -> Result<()> {
 
     // Replay sync_put with identical content. Handler must hit the
     // `existed == Some(matching)` branch and early-return.
-    handlers::post::sync_put(post.clone(), pubky_id(&user_id)?, post_id.clone()).await?;
+    handlers::post::sync_put(
+        post.clone(),
+        pubky_id(&user_id)?,
+        post_id.clone(),
+        &default_ingestor_tests(),
+    )
+    .await?;
 
     // User counts must not have been double-incremented.
     assert_eq!(
@@ -140,7 +153,7 @@ async fn test_post_put_replay_after_full_success_is_noop() -> Result<()> {
 /// re-sending the mention notification (0 > N).
 #[tokio_shared_rt::test(shared)]
 async fn test_post_put_recovers_mention_edge() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     // Author (Alice).
     let alice_kp = Keypair::random();
@@ -187,7 +200,13 @@ async fn test_post_put_recovers_mention_edge() -> Result<()> {
 
     // Retry: graph reports Updated, handler enters recovery path, which
     // calls merge_mention_edges and then reindexes Redis state.
-    handlers::post::sync_put(post.clone(), pubky_id(&alice_id)?, post_id.clone()).await?;
+    handlers::post::sync_put(
+        post.clone(),
+        pubky_id(&alice_id)?,
+        post_id.clone(),
+        &default_ingestor_tests(),
+    )
+    .await?;
 
     // MENTIONED edge must be back.
     let mentioned_after = find_post_mentions(&alice_id, &post_id).await?;
@@ -217,7 +236,7 @@ async fn test_post_put_recovers_mention_edge() -> Result<()> {
 /// parent's post-reply sorted set, then verifying recovery rebuilds it.
 #[tokio_shared_rt::test(shared)]
 async fn test_post_put_recovers_reply_preserves_parent_sorted_sets() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     // Parent author (Alice).
     let alice_kp = Keypair::random();
@@ -282,7 +301,13 @@ async fn test_post_put_recovers_reply_preserves_parent_sorted_sets() -> Result<(
     // calls PostDetails::reindex which re-runs put_to_index — including the
     // Some(parent) branch that re-adds the reply to the parent's post-reply
     // sorted set.
-    handlers::post::sync_put(reply_post.clone(), pubky_id(&bob_id)?, reply_id.clone()).await?;
+    handlers::post::sync_put(
+        reply_post.clone(),
+        pubky_id(&bob_id)?,
+        reply_id.clone(),
+        &default_ingestor_tests(),
+    )
+    .await?;
 
     // Reply's Redis state must be rebuilt.
     assert!(PostDetails::get_from_index(&bob_id, &reply_id)
@@ -341,7 +366,7 @@ async fn test_post_put_recovers_reply_preserves_parent_sorted_sets() -> Result<(
 /// author.
 #[tokio_shared_rt::test(shared)]
 async fn test_post_put_recovers_repost_preserves_parent_state() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     // Parent author (Alice).
     let alice_kp = Keypair::random();
@@ -405,7 +430,13 @@ async fn test_post_put_recovers_repost_preserves_parent_state() -> Result<()> {
     // PostRelationships::reindex must read the REPOSTED edge back into the
     // `reposted` field, and PostCounts::reindex must put the repost back in
     // the engagement sorted set (is_reply = false from graph).
-    handlers::post::sync_put(repost.clone(), pubky_id(&bob_id)?, repost_id.clone()).await?;
+    handlers::post::sync_put(
+        repost.clone(),
+        pubky_id(&bob_id)?,
+        repost_id.clone(),
+        &default_ingestor_tests(),
+    )
+    .await?;
 
     // Bob's repost must be fully indexed again as a root post.
     assert_root_post_fully_indexed(&bob_id, &repost_id).await?;
