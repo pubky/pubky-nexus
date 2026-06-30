@@ -829,17 +829,24 @@ pub fn get_global_influencers(skip: usize, limit: usize, timeframe: &Timeframe) 
         WHERE user.name <> '[DELETED]'
         WITH DISTINCT user
 
-        OPTIONAL MATCH (others:User)-[follow:FOLLOWS]->(user)
-        WHERE follow.indexed_at >= $from AND follow.indexed_at < $to
-
-        OPTIONAL MATCH (user)-[tag:TAGGED]->(tagged:Post)
-        WHERE tag.indexed_at >= $from AND tag.indexed_at < $to
-
-        OPTIONAL MATCH (user)-[authored:AUTHORED]->(post:Post)
-        WHERE authored.indexed_at >= $from AND authored.indexed_at < $to
-
-        WITH user, COUNT(DISTINCT follow) AS followers_count, COUNT(DISTINCT tag) AS tags_count,
-             COUNT(DISTINCT post) AS posts_count
+        // Each count is a scoped CALL(user){} subquery so it stays per-user
+        // instead of multiplying into a cartesian product. Mirrors
+        // get_influencers_by_reach.
+        CALL (user) {
+            MATCH (others:User)-[follow:FOLLOWS]->(user)
+            WHERE follow.indexed_at >= $from AND follow.indexed_at < $to
+            RETURN count(DISTINCT follow) AS followers_count
+        }
+        CALL (user) {
+            MATCH (user)-[tag:TAGGED]->(:Post)
+            WHERE tag.indexed_at >= $from AND tag.indexed_at < $to
+            RETURN count(DISTINCT tag) AS tags_count
+        }
+        CALL (user) {
+            MATCH (user)-[authored:AUTHORED]->(post:Post)
+            WHERE authored.indexed_at >= $from AND authored.indexed_at < $to
+            RETURN count(DISTINCT post) AS posts_count
+        }
         WITH {
             id: user.id,
             score: (tags_count + posts_count) * sqrt(followers_count)
