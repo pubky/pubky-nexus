@@ -1033,21 +1033,14 @@ pub fn post_stream(
             format!("ORDER BY p.indexed_at {order_dir}, p.id {order_dir}"),
         ),
         StreamSorting::TotalEngagement => {
-            // TODO: These optional matches could potentially be combined/collected to improve performance
+            // Each engagement count is its own COUNT{} subquery, so they don't
+            // multiply into a cartesian product per post.
             cypher.push_str(
                 "
-                // Count tags
-                OPTIONAL MATCH (p)<-[tag:TAGGED]-(:User)
-                // Count replies
-                OPTIONAL MATCH (p)<-[reply:REPLIED]-(:Post)
-                // Count reposts
-                OPTIONAL MATCH (p)<-[repost:REPOSTED]-(:Post)
-
                 WITH p, author,
-                    COUNT(DISTINCT tag) AS tags_count,
-                    COUNT(DISTINCT reply) AS replies_count,
-                    COUNT(DISTINCT repost) AS reposts_count,
-                    (COUNT(DISTINCT tag) + COUNT(DISTINCT reply) + COUNT(DISTINCT repost)) AS total_engagement
+                    COUNT { (p)<-[:TAGGED]-(:User) }
+                    + COUNT { (p)<-[:REPLIED]-(:Post) }
+                    + COUNT { (p)<-[:REPOSTED]-(:Post) } AS total_engagement
                 ",
             );
 
