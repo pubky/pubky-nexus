@@ -78,25 +78,34 @@ pub fn post_bookmark(author_id: &str, post_id: &str, viewer_id: &str) -> Query {
     .param("viewer_id", viewer_id)
 }
 
-// Check all the bookmarks that user creates
-pub fn user_bookmarks(user_id: &str) -> Query {
+// Keyset pagination on p.id (indexed).
+pub fn user_bookmarks(user_id: &str, cursor: &str, limit: i64) -> Query {
     Query::new(
         "user_bookmarks",
         "MATCH (u:User {id: $user_id})-[b:BOOKMARKED]->(p:Post)<-[:AUTHORED]-(author:User)
-         RETURN b, p.id AS post_id, author.id AS author_id",
+         WHERE p.id > $cursor
+         RETURN b, p.id AS post_id, author.id AS author_id
+         ORDER BY p.id LIMIT $limit",
     )
     .param("user_id", user_id)
+    .param("cursor", cursor)
+    .param("limit", limit)
 }
 
-// Get all the bookmarks that a post has received (used for edit/delete notifications)
-pub fn get_post_bookmarks(author_id: &str, post_id: &str) -> Query {
+// BOOKMARKED has no unique/indexed property, so keyset pagination uses elementId(b).
+pub fn get_post_bookmarks(author_id: &str, post_id: &str, cursor: &str, limit: i64) -> Query {
     Query::new(
         "get_post_bookmarks",
         "MATCH (bookmarker:User)-[b:BOOKMARKED]->(p:Post {id: $post_id})<-[:AUTHORED]-(author:User {id: $author_id})
-         RETURN b.id AS bookmark_id, bookmarker.id AS bookmarker_id",
+         WHERE elementId(b) > $cursor
+         RETURN b.id AS bookmark_id, bookmarker.id AS bookmarker_id, elementId(b) AS cursor
+         ORDER BY cursor
+         LIMIT $limit",
     )
     .param("author_id", author_id)
     .param("post_id", post_id)
+    .param("cursor", cursor)
+    .param("limit", limit)
 }
 
 // Read the target (post_id, author_id) for a bookmark without deleting the edge.
@@ -112,25 +121,37 @@ pub fn get_bookmark_target(user_id: &str, bookmark_id: &str) -> Query {
 }
 
 // Get all the reposts that a post has received (used for edit/delete notifications)
-pub fn get_post_reposts(author_id: &str, post_id: &str) -> Query {
+// Keyset pagination on the repost Post id (globally unique + indexed).
+pub fn get_post_reposts(author_id: &str, post_id: &str, cursor: &str, limit: i64) -> Query {
     Query::new(
         "get_post_reposts",
         "MATCH (reposter:User)-[:AUTHORED]->(repost:Post)-[:REPOSTED]->(p:Post {id: $post_id})<-[:AUTHORED]-(author:User {id: $author_id})
-         RETURN reposter.id AS reposter_id, repost.id AS repost_id",
+         WHERE repost.id > $cursor
+         RETURN reposter.id AS reposter_id, repost.id AS repost_id, repost.id AS cursor
+         ORDER BY cursor
+         LIMIT $limit",
     )
     .param("author_id", author_id)
     .param("post_id", post_id)
+    .param("cursor", cursor)
+    .param("limit", limit)
 }
 
 // Get all the replies that a post has received (used for edit/delete notifications)
-pub fn get_post_replies(author_id: &str, post_id: &str) -> Query {
+// Keyset pagination on the reply Post id (globally unique + indexed).
+pub fn get_post_replies(author_id: &str, post_id: &str, cursor: &str, limit: i64) -> Query {
     Query::new(
         "get_post_replies",
         "MATCH (replier:User)-[:AUTHORED]->(reply:Post)-[:REPLIED]->(p:Post {id: $post_id})<-[:AUTHORED]-(author:User {id: $author_id})
-         RETURN replier.id AS replier_id, reply.id AS reply_id",
+         WHERE reply.id > $cursor
+         RETURN replier.id AS replier_id, reply.id AS reply_id, reply.id AS cursor
+         ORDER BY cursor
+         LIMIT $limit",
     )
     .param("author_id", author_id)
     .param("post_id", post_id)
+    .param("cursor", cursor)
+    .param("limit", limit)
 }
 
 // Read the target details for a tag without deleting the TAGGED edge.
@@ -164,15 +185,20 @@ pub fn get_tag_target(user_id: &str, tag_id: &str, app: Option<&str>) -> Query {
     query
 }
 
-// Get all the tags/taggers that a post has received (used for edit/delete notifications)
-pub fn get_post_tags(author_id: &str, post_id: &str) -> Query {
+// t.id collides across taggers (hashes only {target_uri, label}), so keyset pagination uses elementId(t).
+pub fn get_post_tags(author_id: &str, post_id: &str, cursor: &str, limit: i64) -> Query {
     Query::new(
         "get_post_tags",
         "MATCH (tagger:User)-[t:TAGGED]->(p:Post {id: $post_id})<-[:AUTHORED]-(author:User {id: $author_id})
-         RETURN tagger.id AS tagger_id, t.id AS tag_id",
+         WHERE elementId(t) > $cursor
+         RETURN tagger.id AS tagger_id, t.id AS tag_id, elementId(t) AS cursor
+         ORDER BY cursor
+         LIMIT $limit",
     )
     .param("author_id", author_id)
     .param("post_id", post_id)
+    .param("cursor", cursor)
+    .param("limit", limit)
 }
 
 pub fn post_relationships(author_id: &str, post_id: &str) -> Query {

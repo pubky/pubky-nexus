@@ -1,9 +1,10 @@
 use crate::db::kv::RedisResult;
+use crate::db::reindex::{keyset_scan, REINDEX_BATCH_SIZE};
 use crate::db::{
     execute_graph_operation, fetch_all_rows_from_graph, fetch_key_from_graph, queries, GraphResult,
     OperationOutcome, RedisOps,
 };
-use crate::models::error::ModelResult;
+use crate::models::error::{ModelError, ModelResult};
 use neo4rs::Relation;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -91,23 +92,45 @@ impl Bookmark {
     }
 
     /// Retrieves all post_keys a user bookmarked from Neo4j
-    /// TODO: using in reindex, Refactor
+    /// Paginates in batches to limit memory usage for users with many bookmarks.
     pub async fn reindex(user_id: &str) -> ModelResult<()> {
-        let query = queries::get::user_bookmarks(user_id);
-        let rows = fetch_all_rows_from_graph(query).await?;
-
-        for row in rows {
-            if let Some(relation) = row.get::<Option<Relation>>("b")? {
-                let bookmark = Bookmark {
-                    id: relation.get("id").unwrap_or_default(),
-                    indexed_at: relation.get("indexed_at").unwrap_or_default(),
-                };
-                let author_id = row.get("author_id")?;
-                let post_id = row.get("post_id")?;
-                bookmark.put_to_index(author_id, post_id, user_id).await?;
+        let user_id = user_id.to_string();
+        keyset_scan(REINDEX_BATCH_SIZE, "bookmark_reindex", |cursor| {
+            let user_id = user_id.clone();
+            async move {
+                let rows = fetch_all_rows_from_graph(queries::get::user_bookmarks(
+                    &user_id,
+                    &cursor,
+                    REINDEX_BATCH_SIZE as i64,
+                ))
+                .await?;
+                let count = rows.len();
+                let mut last_id = String::new();
+                for row in rows {
+                    let post_id: String = row.get("post_id")?;
+                    last_id = post_id.clone();
+                    if let Some(relation) = row.get::<Option<Relation>>("b")? {
+                        let bookmark = Bookmark {
+                            id: relation.get("id").unwrap_or_default(),
+                            indexed_at: relation.get("indexed_at").unwrap_or_default(),
+                        };
+                        let author_id: String = row.get("author_id")?;
+                        bookmark
+                            .put_to_index(&author_id, &post_id, &user_id)
+                            .await?;
+                    }
+                }
+                Ok::<(usize, Option<String>), ModelError>((
+                    count,
+                    if last_id.is_empty() {
+                        None
+                    } else {
+                        Some(last_id)
+                    },
+                ))
             }
-        }
-        Ok(())
+        })
+        .await
     }
 
     /// Reads (post_id, author_id) for a bookmark from the graph without deleting the edge.

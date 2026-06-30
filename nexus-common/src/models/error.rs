@@ -38,4 +38,10 @@ impl ModelError {
     }
 }
 
+impl From<String> for ModelError {
+    fn from(s: String) -> Self {
+        Self::Generic(s)
+    }
+}
+
 pub type ModelResult<T> = Result<T, ModelError>;
