@@ -1192,12 +1192,10 @@ pub fn user_is_safe_to_delete(user_id: &str) -> Query {
         "user_is_safe_to_delete",
         "
         MATCH (u:User {id: $user_id})
-        // Ensures all relationships to the user (u) are checked, counting as 0 if none exist
-        OPTIONAL MATCH (u)-[r]-()
-        // Checks if the user has any relationships
-        WITH u, NOT (COUNT(r) = 0) AS flag
-        RETURN flag
-        ",
+        // EXISTS stops at the first relationship, so this is O(1) on high-degree
+        // users rather than scanning every edge.
+        RETURN EXISTS { (u)-[]-() } AS flag
+",
     )
     .param("user_id", user_id)
 }
@@ -1214,23 +1212,23 @@ pub fn post_is_safe_to_delete(author_id: &str, post_id: &str) -> Query {
         "post_is_safe_to_delete",
         "
         MATCH (u:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
-        // Ensures all relationships to the post (p) are checked, counting as 0 if none exist
-        OPTIONAL MATCH (p)-[r]-()
-        WHERE NOT (
-            // Allowed relationships:
-            // 1. Incoming AUTHORED relationship from the specified user
-            (type(r) = 'AUTHORED' AND startNode(r).id = $author_id AND endNode(r) = p)
-            OR
-            // 2. Outgoing REPOSTED relationship to another post
-            (type(r) = 'REPOSTED' AND startNode(r) = p)
-            OR
-            // 3. Outgoing REPLIED relationship to another post
-            (type(r) = 'REPLIED' AND startNode(r) = p)
-        )
-        // Checks if any disallowed relationships exist for the post
-        WITH p, NOT (COUNT(r) = 0) AS flag
-        RETURN flag
-        ",
+        // EXISTS stops at the first disallowed relationship, so this is O(1) on
+        // high-degree posts rather than scanning every edge.
+        RETURN EXISTS {
+            MATCH (p)-[r]-()
+            WHERE NOT (
+                // Allowed relationships:
+                // 1. Incoming AUTHORED relationship from the specified user
+                (type(r) = 'AUTHORED' AND startNode(r).id = $author_id AND endNode(r) = p)
+                OR
+                // 2. Outgoing REPOSTED relationship to another post
+                (type(r) = 'REPOSTED' AND startNode(r) = p)
+                OR
+                // 3. Outgoing REPLIED relationship to another post
+                (type(r) = 'REPLIED' AND startNode(r) = p)
+            )
+        } AS flag
+",
     )
     .param("author_id", author_id)
     .param("post_id", post_id)
