@@ -1,3 +1,5 @@
 # Generated audit reports (the canonical findings live in the GitHub issue).
 report.md
 *.report.md
+# Generated per-query PROFILE plans.
+plans/
