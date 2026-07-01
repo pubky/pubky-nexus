@@ -21,7 +21,11 @@ pub fn get_post_by_id(author_id: &str, post_id: &str) -> Query {
     Query::new(
         "get_post_by_id",
         "
-            MATCH (u:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
+            // The WITH barrier is load-bearing: without it the planner anchors on the
+            // author and expands all their posts instead of seeking the post by id.
+            MATCH (p:Post {id: $post_id})
+            WITH p
+            MATCH (u:User {id: $author_id}) WHERE (u)-[:AUTHORED]->(p)
             OPTIONAL MATCH (p)-[replied:REPLIED]->(parent_post:Post)<-[:AUTHORED]-(author:User)
             WITH u, p, parent_post, author
             RETURN {
@@ -47,7 +51,10 @@ pub fn post_counts(author_id: &str, post_id: &str) -> Query {
     Query::new(
         "post_counts",
         "
-        MATCH (u:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
+        // Anchor on the post's unique id: matching via the author would make the
+        // planner expand every post they wrote.
+        MATCH (p:Post {id: $post_id})
+        WHERE EXISTS { (:User {id: $author_id})-[:AUTHORED]->(p) }
         WITH p
         OPTIONAL MATCH (p)<-[t:TAGGED]-()
         WITH p, COUNT (t) AS tags_count, COUNT(DISTINCT t.label) AS unique_tags_count
@@ -168,7 +175,9 @@ pub fn get_tag_target(user_id: &str, tag_id: &str, app: Option<&str>) -> Query {
 pub fn get_post_tags(author_id: &str, post_id: &str) -> Query {
     Query::new(
         "get_post_tags",
-        "MATCH (tagger:User)-[t:TAGGED]->(p:Post {id: $post_id})<-[:AUTHORED]-(author:User {id: $author_id})
+        "MATCH (p:Post {id: $post_id})
+         WHERE EXISTS { (:User {id: $author_id})-[:AUTHORED]->(p) }
+         MATCH (tagger:User)-[t:TAGGED]->(p)
          RETURN tagger.id AS tagger_id, t.id AS tag_id",
     )
     .param("author_id", author_id)
@@ -178,7 +187,8 @@ pub fn get_post_tags(author_id: &str, post_id: &str) -> Query {
 pub fn post_relationships(author_id: &str, post_id: &str) -> Query {
     Query::new(
         "post_relationships",
-        "MATCH (u:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
+        "MATCH (p:Post {id: $post_id})
+        WHERE EXISTS { (:User {id: $author_id})-[:AUTHORED]->(p) }
         OPTIONAL MATCH (p)-[:REPLIED]->(replied_post:Post)<-[:AUTHORED]-(replied_author:User)
         OPTIONAL MATCH (p)-[:REPOSTED]->(reposted_post:Post)<-[:AUTHORED]-(reposted_author:User)
         OPTIONAL MATCH (p)-[:MENTIONED]->(mentioned_user:User)
@@ -239,11 +249,13 @@ pub fn global_tags_by_post_engagement() -> Query {
         WITH post, COUNT(tag) AS tags_count, tag.label AS label, author.id + ':' + post.id AS key
         WITH DISTINCT key, label, post, tags_count
         WHERE tags_count > 0
-        OPTIONAL MATCH (post)<-[reply:REPLIED]-()
-        OPTIONAL MATCH (post)<-[repost:REPOSTED]-()
-        OPTIONAL MATCH (post)-[mention:MENTIONED]->()
-        OPTIONAL MATCH (post)<-[tagged:TAGGED]-()
-        WITH COUNT(DISTINCT tagged) AS taggers, COUNT(DISTINCT reply) AS replies_count, COUNT(DISTINCT repost) AS reposts_count, COUNT(DISTINCT mention) AS mention_count, key, label
+        // Each engagement count is its own COUNT{} subquery, so they don't
+        // multiply into a cartesian product per post.
+        WITH key, label,
+             COUNT { (post)<-[:TAGGED]-() } AS taggers,
+             COUNT { (post)<-[:REPLIED]-() } AS replies_count,
+             COUNT { (post)<-[:REPOSTED]-() } AS reposts_count,
+             COUNT { (post)-[:MENTIONED]->() } AS mention_count
         WITH label, COLLECT([toFloat(taggers + replies_count + reposts_count + mention_count), key ]) AS sorted_set
         RETURN label, sorted_set
         order by label
@@ -256,7 +268,11 @@ pub fn post_tags(user_id: &str, post_id: &str) -> Query {
     Query::new(
         "post_tags",
         "
-        MATCH (u:User {id: $user_id})-[:AUTHORED]->(p:Post {id: $post_id})
+        // Anchor on the post's unique id: matching via the author would make the
+        // planner expand every post they wrote.
+        MATCH (p:Post {id: $post_id})
+        WITH p
+        MATCH (u:User {id: $user_id}) WHERE (u)-[:AUTHORED]->(p)
         CALL {
             WITH p
             MATCH (tagger:User)-[tag:TAGGED]->(p)
@@ -813,17 +829,24 @@ pub fn get_global_influencers(skip: usize, limit: usize, timeframe: &Timeframe) 
         WHERE user.name <> '[DELETED]'
         WITH DISTINCT user
 
-        OPTIONAL MATCH (others:User)-[follow:FOLLOWS]->(user)
-        WHERE follow.indexed_at >= $from AND follow.indexed_at < $to
-
-        OPTIONAL MATCH (user)-[tag:TAGGED]->(tagged:Post)
-        WHERE tag.indexed_at >= $from AND tag.indexed_at < $to
-
-        OPTIONAL MATCH (user)-[authored:AUTHORED]->(post:Post)
-        WHERE authored.indexed_at >= $from AND authored.indexed_at < $to
-
-        WITH user, COUNT(DISTINCT follow) AS followers_count, COUNT(DISTINCT tag) AS tags_count,
-             COUNT(DISTINCT post) AS posts_count
+        // Each count is a scoped CALL(user){} subquery so it stays per-user
+        // instead of multiplying into a cartesian product. Mirrors
+        // get_influencers_by_reach.
+        CALL (user) {
+            MATCH (others:User)-[follow:FOLLOWS]->(user)
+            WHERE follow.indexed_at >= $from AND follow.indexed_at < $to
+            RETURN count(DISTINCT follow) AS followers_count
+        }
+        CALL (user) {
+            MATCH (user)-[tag:TAGGED]->(:Post)
+            WHERE tag.indexed_at >= $from AND tag.indexed_at < $to
+            RETURN count(DISTINCT tag) AS tags_count
+        }
+        CALL (user) {
+            MATCH (user)-[authored:AUTHORED]->(post:Post)
+            WHERE authored.indexed_at >= $from AND authored.indexed_at < $to
+            RETURN count(DISTINCT post) AS posts_count
+        }
         WITH {
             id: user.id,
             score: (tags_count + posts_count) * sqrt(followers_count)
@@ -1010,21 +1033,14 @@ pub fn post_stream(
             format!("ORDER BY p.indexed_at {order_dir}, p.id {order_dir}"),
         ),
         StreamSorting::TotalEngagement => {
-            // TODO: These optional matches could potentially be combined/collected to improve performance
+            // Each engagement count is its own COUNT{} subquery, so they don't
+            // multiply into a cartesian product per post.
             cypher.push_str(
                 "
-                // Count tags
-                OPTIONAL MATCH (p)<-[tag:TAGGED]-(:User)
-                // Count replies
-                OPTIONAL MATCH (p)<-[reply:REPLIED]-(:Post)
-                // Count reposts
-                OPTIONAL MATCH (p)<-[repost:REPOSTED]-(:Post)
-
                 WITH p, author,
-                    COUNT(DISTINCT tag) AS tags_count,
-                    COUNT(DISTINCT reply) AS replies_count,
-                    COUNT(DISTINCT repost) AS reposts_count,
-                    (COUNT(DISTINCT tag) + COUNT(DISTINCT reply) + COUNT(DISTINCT repost)) AS total_engagement
+                    COUNT { (p)<-[:TAGGED]-(:User) }
+                    + COUNT { (p)<-[:REPLIED]-(:Post) }
+                    + COUNT { (p)<-[:REPOSTED]-(:Post) } AS total_engagement
                 ",
             );
 
@@ -1162,12 +1178,10 @@ pub fn user_is_safe_to_delete(user_id: &str) -> Query {
         "user_is_safe_to_delete",
         "
         MATCH (u:User {id: $user_id})
-        // Ensures all relationships to the user (u) are checked, counting as 0 if none exist
-        OPTIONAL MATCH (u)-[r]-()
-        // Checks if the user has any relationships
-        WITH u, NOT (COUNT(r) = 0) AS flag
-        RETURN flag
-        ",
+        // EXISTS stops at the first relationship, so this is O(1) on high-degree
+        // users rather than scanning every edge.
+        RETURN EXISTS { (u)-[]-() } AS flag
+",
     )
     .param("user_id", user_id)
 }
@@ -1184,23 +1198,23 @@ pub fn post_is_safe_to_delete(author_id: &str, post_id: &str) -> Query {
         "post_is_safe_to_delete",
         "
         MATCH (u:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
-        // Ensures all relationships to the post (p) are checked, counting as 0 if none exist
-        OPTIONAL MATCH (p)-[r]-()
-        WHERE NOT (
-            // Allowed relationships:
-            // 1. Incoming AUTHORED relationship from the specified user
-            (type(r) = 'AUTHORED' AND startNode(r).id = $author_id AND endNode(r) = p)
-            OR
-            // 2. Outgoing REPOSTED relationship to another post
-            (type(r) = 'REPOSTED' AND startNode(r) = p)
-            OR
-            // 3. Outgoing REPLIED relationship to another post
-            (type(r) = 'REPLIED' AND startNode(r) = p)
-        )
-        // Checks if any disallowed relationships exist for the post
-        WITH p, NOT (COUNT(r) = 0) AS flag
-        RETURN flag
-        ",
+        // EXISTS stops at the first disallowed relationship, so this is O(1) on
+        // high-degree posts rather than scanning every edge.
+        RETURN EXISTS {
+            MATCH (p)-[r]-()
+            WHERE NOT (
+                // Allowed relationships:
+                // 1. Incoming AUTHORED relationship from the specified user
+                (type(r) = 'AUTHORED' AND startNode(r).id = $author_id AND endNode(r) = p)
+                OR
+                // 2. Outgoing REPOSTED relationship to another post
+                (type(r) = 'REPOSTED' AND startNode(r) = p)
+                OR
+                // 3. Outgoing REPLIED relationship to another post
+                (type(r) = 'REPLIED' AND startNode(r) = p)
+            )
+        } AS flag
+",
     )
     .param("author_id", author_id)
     .param("post_id", post_id)
