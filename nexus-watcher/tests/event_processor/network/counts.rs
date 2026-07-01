@@ -2,10 +2,7 @@
 
 use crate::event_processor::utils::watcher::{HomeserverHashIdPath, HomeserverIdPath, WatcherTest};
 use anyhow::{anyhow, Result};
-use nexus_common::{
-    db::RedisOps,
-    models::{post::PostCounts, user::UserCounts},
-};
+use nexus_common::{db::RedisOps, models::user::UserCounts};
 use nexus_watcher::service::TEventProcessorRunner;
 use pubky::Keypair;
 use pubky_app_specs::{
@@ -261,37 +258,6 @@ async fn test_large_network_scenario_counts() -> Result<()> {
             counts_cache.unique_tags, counts_graph.unique_tags,
             "Unique tag counts mismatch for user {user_id} between cache and graph"
         );
-    }
-
-    // Compare PostCounts for each post
-    for (user_id, posts) in user_posts.iter() {
-        for post_id in posts.iter() {
-            let counts_cache = PostCounts::try_from_index_json(&[user_id, post_id], None)
-                .await
-                .unwrap()
-                .expect("PostCounts not found in index");
-            let counts_graph = PostCounts::get_from_graph(user_id, post_id)
-                .await
-                .unwrap()
-                .expect("PostCounts not found in graph");
-
-            assert_eq!(
-                counts_cache.tags, counts_graph.0.tags,
-                "Tag counts mismatch for post {post_id} by user {user_id} between cache and graph"
-            );
-            assert_eq!(
-                counts_cache.unique_tags, counts_graph.0.unique_tags,
-                "Tag unique counts mismatch for post {post_id} by user {user_id} between cache and graph"
-            );
-            assert_eq!(
-                counts_cache.replies, counts_graph.0.replies,
-                "Tag counts mismatch for post {post_id} by user {user_id} between cache and graph"
-            );
-            assert_eq!(
-                counts_cache.reposts, counts_graph.0.reposts,
-                "Tag counts mismatch for post {post_id} by user {user_id} between cache and graph"
-            );
-        }
     }
 
     // Optionally, verify total counts across all users

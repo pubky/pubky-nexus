@@ -82,9 +82,9 @@ pub(super) enum ChildKind {
 
 /// Simulate the partial-failure window of a graph-last `sync_del` for a
 /// CHILD post (reply or repost): every Redis cleanup step completed but the
-/// graph delete failed. Covers the scenario-specific writes (parent
-/// reply/repost count decrement, parent engagement decrement, and — for
-/// replies — the author's `replies` counter decrement).
+/// graph delete failed. Covers the scenario-specific writes (parent engagement
+/// decrement, the child's removed counts/details, and the author counter
+/// decrements).
 pub(super) async fn simulate_partial_del_cleanup_child(
     author_id: &str,
     post_id: &str,
@@ -101,21 +101,18 @@ pub(super) async fn simulate_partial_del_cleanup_child(
     // Author's post count decremented.
     UserCounts::decrement(&author_pubky, "posts", None).await?;
 
-    let (parent_field, remove_from_feeds, delete_parent_tuple) = match kind {
+    let (remove_from_feeds, delete_parent_tuple) = match kind {
         ChildKind::Reply => {
             // Replies also decrement the author's `replies` counter.
             UserCounts::decrement(&author_pubky, "replies", None).await?;
             (
-                "replies",
                 false,
                 Some((parent_author_id.to_string(), parent_post_id.to_string())),
             )
         }
-        ChildKind::Repost => ("reposts", true, None),
+        ChildKind::Repost => (true, None),
     };
 
-    // Parent's reply/repost count decremented.
-    PostCounts::decrement_index_field(parent_key, parent_field, None).await?;
     // Parent engagement score decremented (parent is a root post).
     PostStream::decrement_score_index_sorted_set(
         &nexus_common::models::post::POST_TOTAL_ENGAGEMENT_KEY_PARTS,
