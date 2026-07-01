@@ -550,40 +550,26 @@ pub fn user_counts(user_id: &str) -> Query {
         "user_counts",
         "
         MATCH (u:User {id: $user_id})
-        // tags that reference this user
-        OPTIONAL MATCH (u)<-[t:TAGGED]-(:User)
-        WITH u, COUNT(DISTINCT t.label) AS unique_tags,
-
-        // Count relationships to users
-        COUNT { (u)-[:FOLLOWS]->(:User) } AS following,
-        COUNT { (:User)-[:FOLLOWS]->(u) } AS followers,
-        COUNT { (u)-[:FOLLOWS]->(friend:User) WHERE (friend)-[:FOLLOWS]->(u) } AS friends,
-
-        // Count relationships to posts
-        COUNT { (u)-[:AUTHORED]->(:Post) } AS posts,
-        COUNT { (u)-[:AUTHORED]->(:Post)-[:REPLIED]->(:Post) } AS replies,
-        COUNT { (u)-[:AUTHORED]->(p:Post) WHERE p.kind = 'collection' } AS collections,
-        // A collection-follow is stored as a bookmark; keep it out of the count.
-        COUNT { (u)-[:BOOKMARKED]->(bp:Post) WHERE (bp.kind IS NULL OR bp.kind <> 'collection') } AS bookmarks,
-
-        // Count user and post tagging
-        COUNT { (u)-[:TAGGED]->(:User) } AS user_tags,
-        COUNT { (u)-[:TAGGED]->(:Post) } AS post_tags,
-        COUNT { (:User)-[:TAGGED]->(u) } AS tags
-
+        // Each field is an independent COUNT { } subquery off the single (u) row.
+        // Do NOT precede this with a row-multiplying OPTIONAL MATCH (e.g. over
+        // received tags): that makes every subquery a per-row grouping key, so the
+        // whole block runs once per received tag, i.e. O(received_tags x authored_posts)
+        // and hangs on heavy users. See issue #935.
         RETURN
             u IS NOT NULL AS exists,
             {
-                following: following,
-                followers: followers,
-                friends: friends,
-                posts: posts,
-                replies: replies,
-                collections: collections,
-                tagged: user_tags + post_tags,
-                tags: tags,
-                unique_tags: unique_tags,
-                bookmarks: bookmarks
+                following: COUNT { (u)-[:FOLLOWS]->(:User) },
+                followers: COUNT { (:User)-[:FOLLOWS]->(u) },
+                friends: COUNT { (u)-[:FOLLOWS]->(friend:User) WHERE (friend)-[:FOLLOWS]->(u) },
+                posts: COUNT { (u)-[:AUTHORED]->(:Post) },
+                replies: COUNT { (u)-[:AUTHORED]->(:Post)-[:REPLIED]->(:Post) },
+                collections: COUNT { (u)-[:AUTHORED]->(p:Post) WHERE p.kind = 'collection' },
+                // A collection-follow is stored as a bookmark; keep it out of the count.
+                bookmarks: COUNT { (u)-[:BOOKMARKED]->(bp:Post) WHERE (bp.kind IS NULL OR bp.kind <> 'collection') },
+                // tagged = tags this user assigned to users + to posts
+                tagged: COUNT { (u)-[:TAGGED]->(:User) } + COUNT { (u)-[:TAGGED]->(:Post) },
+                tags: COUNT { (:User)-[:TAGGED]->(u) },
+                unique_tags: COUNT { MATCH (u)<-[t:TAGGED]-(:User) RETURN DISTINCT t.label }
             } AS counts;
         ",
     )
