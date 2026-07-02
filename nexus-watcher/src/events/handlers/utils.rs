@@ -5,6 +5,34 @@ use nexus_common::models::{
 };
 use pubky_app_specs::PubkyAppPostKind;
 
+/// TTL (in seconds) for delete-tombstone guard keys: 6 hours.
+///
+/// The tombstone must outlive the event retry backoff window so that a retried
+/// delete still observes the guard acquired by the first attempt. If the delete
+/// dead-letters and never completes, the key expires on its own and leaves no
+/// permanent garbage behind. This value must exceed the worst-case retry window
+/// derived from the `EventRetryConfig` `max_retries`/`max_backoff_secs` settings
+/// (roughly 2.5 hours with defaults) and should be revisited if those are raised.
+pub const DELETION_GUARD_TTL_SECS: u64 = 21600;
+
+/// Redis key of the SETNX tombstone marking an in-flight post deletion.
+///
+/// Unlike the `PostRelationships` index gate, this key cannot be recreated by
+/// read-through cache population, so it survives the retry window even if a
+/// concurrent read resurrects the index entry from the still-present graph node.
+pub fn post_deletion_guard_key(author_id: &str, post_id: &str) -> String {
+    format!("Deleting:Post:{author_id}:{post_id}")
+}
+
+/// Redis key of the SETNX tombstone marking an in-flight follow deletion.
+///
+/// Unlike the `Followers` index gate, this key cannot be recreated by
+/// read-through cache population, so it survives the retry window even if a
+/// concurrent read resurrects the follow sets from the still-present graph edge.
+pub fn follow_deletion_guard_key(follower_id: &str, followee_id: &str) -> String {
+    format!("Deleting:Follow:{follower_id}:{followee_id}")
+}
+
 /// Classifies the outcome of a best-effort user ingestion attempted while
 /// handling an [`OperationOutcome::MissingDependency`](nexus_common::db::OperationOutcome::MissingDependency).
 ///

@@ -5,9 +5,12 @@ use crate::event_processor::posts::utils::{
 use crate::event_processor::users::utils::find_user_counts;
 use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
+use nexus_common::db::kv::guards;
+use nexus_common::models::post::PostRelationships;
 use nexus_common::utils::test_utils::default_ingestor_tests;
 use nexus_watcher::errors::EventProcessorError;
 use nexus_watcher::events::handlers;
+use nexus_watcher::events::handlers::utils::{post_deletion_guard_key, DELETION_GUARD_TTL_SECS};
 use pubky::Keypair;
 use pubky_app_specs::post_uri_builder;
 
@@ -63,6 +66,104 @@ async fn test_post_del_recovers_after_partial_redis_cleanup() -> Result<()> {
     // saw `post_in_index = false` and skipped `UserCounts::decrement`).
     assert!(find_post_details(&user_id, &post_id).await.is_err());
     assert_eq!(find_user_counts(&user_id).await.posts, 0);
+
+    test.cleanup_user(&user_kp).await?;
+    Ok(())
+}
+
+/// Tombstone gate vs read-through resurrection: a previous attempt
+/// completed every Redis cleanup step (gate consumed, counters decremented)
+/// but failed at the final graph delete. Between attempts, a public read
+/// (`PostRelationships::get_by_id`, reachable from GET /v0/post) re-populates
+/// the index gate from the still-present graph node. Without the SETNX
+/// tombstone, the retry would see `post_in_index = true` again and re-run the
+/// non-idempotent decrements. With the tombstone held by the first attempt,
+/// the retry must skip them: the author's `posts` count is decremented
+/// exactly once across both attempts.
+///
+/// The author owns a SECOND post so `posts` starts at 2: the counter decrement
+/// is floored at 0 by the Lua script, so starting from 1 a double decrement
+/// would be invisible (0 stays 0) and the headline assertion could never fail
+/// on the unguarded code path.
+#[tokio_shared_rt::test(shared)]
+async fn test_post_del_retry_skips_side_effects_after_readthrough_resurrection() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+
+    let user_kp = Keypair::random();
+    let user_id = test
+        .create_user(
+            &user_kp,
+            &test_user(
+                "Watcher:Post:DelResurrection:User",
+                "test_post_del_retry_skips_side_effects_after_readthrough_resurrection",
+            ),
+        )
+        .await?;
+
+    let post = short_post("Watcher:Post:DelResurrection:Post");
+    let (post_id, _post_path) = test.create_post(&user_kp, &post).await?;
+
+    // Second post: keeps the author's `posts` count above the Lua floor across
+    // the scenario so a double decrement is observable (2 -> 1 -> 0, not 1 -> 0 -> 0).
+    let second_post = short_post("Watcher:Post:DelResurrection:SecondPost");
+    let (_second_post_id, _second_post_path) = test.create_post(&user_kp, &second_post).await?;
+
+    // Sanity: fully indexed.
+    assert!(find_post_details(&user_id, &post_id).await.is_ok());
+    assert_eq!(find_user_counts(&user_id).await.posts, 2);
+
+    // Simulate attempt 1 of the tombstone-gated sync_del against the FIRST
+    // post: the guard was acquired, every Redis cleanup step ran (gate
+    // consumed, UserCounts decremented), and only the final graph delete
+    // failed.
+    let guard_key = post_deletion_guard_key(&user_id, &post_id);
+    assert!(
+        guards::try_acquire(&guard_key, DELETION_GUARD_TTL_SECS).await?,
+        "fresh deletion guard should be acquirable"
+    );
+    simulate_partial_del_cleanup_root(&user_id, &post_id).await?;
+
+    // Between attempts, a read-through resurrects the index gate: the graph
+    // node is still present (graph delete runs LAST), so `get_by_id` misses
+    // the index, falls back to the graph, and re-populates the exact key the
+    // retry uses as its `post_in_index` gate.
+    assert!(
+        PostRelationships::get_by_id(&user_id, &post_id)
+            .await?
+            .is_some(),
+        "read-through should find the post in the graph"
+    );
+    assert!(
+        PostRelationships::get_from_index(&user_id, &post_id)
+            .await?
+            .is_some(),
+        "read-through must have resurrected the index gate"
+    );
+
+    // Retry through the public entry point. Without the tombstone this would
+    // observe the resurrected gate and decrement `posts` a second time.
+    handlers::post::del(
+        pubky_id(&user_id)?,
+        post_id.clone(),
+        &default_ingestor_tests(),
+    )
+    .await?;
+
+    // Graph node gone; `posts` decremented exactly once across both attempts
+    // (2 -> 1). An unguarded retry would have decremented again (1 -> 0).
+    assert!(find_post_details(&user_id, &post_id).await.is_err());
+    assert_eq!(
+        find_user_counts(&user_id).await.posts,
+        1,
+        "posts count must not be double-decremented after read-through resurrection"
+    );
+
+    // Successful completion released the tombstone: it must be acquirable again.
+    assert!(
+        guards::try_acquire(&guard_key, DELETION_GUARD_TTL_SECS).await?,
+        "deletion guard should have been released after the successful delete"
+    );
+    guards::release(&guard_key).await?;
 
     test.cleanup_user(&user_kp).await?;
     Ok(())

@@ -3,7 +3,7 @@ use crate::event_processor::users::utils::find_user_counts;
 use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
 use nexus_common::{
-    db::kv::JsonAction,
+    db::kv::{guards, JsonAction},
     db::RedisOps,
     models::{
         follow::{Followers, Following, UserFollows},
@@ -11,6 +11,7 @@ use nexus_common::{
     },
 };
 use nexus_watcher::events::handlers::follow;
+use nexus_watcher::events::handlers::utils::{follow_deletion_guard_key, DELETION_GUARD_TTL_SECS};
 use pubky::Keypair;
 use pubky_app_specs::{PubkyAppUser, PubkyId};
 
@@ -207,6 +208,152 @@ async fn test_follow_del_recovers_stale_indexes() -> Result<()> {
     // Cleanup
     test.cleanup_user(&follower_kp).await?;
     test.cleanup_user(&followee_kp).await?;
+
+    Ok(())
+}
+
+/// Tombstone gate vs read-through resurrection, follow flavor: attempt 1
+/// of deleting the F->X follow completed every Redis step (both follow sets
+/// SREMed, both counters decremented once) but failed at the final graph
+/// delete. Between attempts, `Followers::get_by_id(X)` read-through
+/// re-populates `Followers:{X}` from the still-present graph edge, which is
+/// the exact set the retry uses as its `still_indexed` gate. With the
+/// tombstone held by attempt 1, the retry must skip the non-idempotent
+/// decrements: F's `following` count is decremented exactly once across both
+/// attempts.
+///
+/// F follows a SECOND user (Y) so `following` starts at 2: the counter
+/// decrement is floored at 0, so starting from 1 a double decrement would be
+/// invisible (0 stays 0) and the headline assertion could never fail on the
+/// unguarded code path.
+#[tokio_shared_rt::test(shared)]
+async fn test_follow_del_retry_skips_side_effects_after_readthrough_resurrection() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+
+    // Follower F
+    let f_kp = Keypair::random();
+    let f_user = PubkyAppUser {
+        bio: Some(
+            "test_follow_del_retry_skips_side_effects_after_readthrough_resurrection".to_string(),
+        ),
+        image: None,
+        links: None,
+        name: "Watcher:DelResurrection:Follower".to_string(),
+        status: None,
+    };
+    let f_id = test.create_user(&f_kp, &f_user).await?;
+
+    // Followee X (the follow under deletion; F is X's only follower)
+    let x_kp = Keypair::random();
+    let x_user = PubkyAppUser {
+        bio: Some(
+            "test_follow_del_retry_skips_side_effects_after_readthrough_resurrection".to_string(),
+        ),
+        image: None,
+        links: None,
+        name: "Watcher:DelResurrection:FolloweeX".to_string(),
+        status: None,
+    };
+    let x_id = test.create_user(&x_kp, &x_user).await?;
+
+    // Followee Y (keeps F's `following` count above the floor)
+    let y_kp = Keypair::random();
+    let y_user = PubkyAppUser {
+        bio: Some(
+            "test_follow_del_retry_skips_side_effects_after_readthrough_resurrection".to_string(),
+        ),
+        image: None,
+        links: None,
+        name: "Watcher:DelResurrection:FolloweeY".to_string(),
+        status: None,
+    };
+    let y_id = test.create_user(&y_kp, &y_user).await?;
+
+    // F follows both X and Y.
+    test.create_follow(&f_kp, &x_id).await?;
+    test.create_follow(&f_kp, &y_id).await?;
+
+    // Sanity: F is following 2 users, X has exactly 1 follower (F).
+    assert_eq!(find_user_counts(&f_id).await.following, 2);
+    assert_eq!(find_user_counts(&x_id).await.followers, 1);
+
+    // Simulate attempt 1 of the tombstone-gated sync_del for F->X: the guard
+    // was acquired, both follow sets were SREMed, both counters were
+    // decremented once (F and X are not friends, so no friends update), and
+    // only the final graph delete failed.
+    let guard_key = follow_deletion_guard_key(&f_id, &x_id);
+    assert!(
+        guards::try_acquire(&guard_key, DELETION_GUARD_TTL_SECS).await?,
+        "fresh deletion guard should be acquirable"
+    );
+    Followers(vec![f_id.to_string()])
+        .del_from_index(&x_id)
+        .await?;
+    Following(vec![x_id.to_string()])
+        .del_from_index(&f_id)
+        .await?;
+    UserCounts::update_index_field(&f_id, "following", JsonAction::Decrement(1)).await?;
+    UserCounts::update(&x_id, "followers", JsonAction::Decrement(1), None).await?;
+
+    // Graph edge still present: the graph delete runs LAST and it failed.
+    assert!(
+        find_follow_relationship(&f_id, &x_id).await?,
+        "graph edge should survive the failed first attempt"
+    );
+
+    // Between attempts, a read-through resurrects the gate: `Followers:{X}` is
+    // re-populated from the still-present graph edge.
+    assert!(
+        Followers::get_by_id(&x_id, None, None).await?.is_some(),
+        "read-through should find X's followers in the graph"
+    );
+    assert!(
+        Followers::check_in_index(&x_id, &f_id).await?,
+        "read-through must have resurrected the still_indexed gate"
+    );
+
+    // Retry. Without the tombstone this would observe the resurrected gate and
+    // decrement `following`/`followers` a second time.
+    follow::sync_del(
+        PubkyId::from(f_kp.public_key()),
+        PubkyId::from(x_kp.public_key()),
+    )
+    .await?;
+
+    // Graph edge gone; F's `following` decremented exactly once across both
+    // attempts (2 -> 1). An unguarded retry would have decremented again (1 -> 0).
+    assert!(
+        !find_follow_relationship(&f_id, &x_id).await?,
+        "graph edge should be gone after the retry"
+    );
+    assert_eq!(
+        find_user_counts(&f_id).await.following,
+        1,
+        "following count must not be double-decremented after read-through resurrection"
+    );
+    assert_eq!(
+        find_user_counts(&x_id).await.followers,
+        0,
+        "X should have 0 followers after the delete"
+    );
+
+    // The F->Y follow is untouched.
+    assert!(
+        Following::check_in_index(&f_id, &y_id).await?,
+        "F->Y follow should be unaffected"
+    );
+
+    // Successful completion released the tombstone: it must be acquirable again.
+    assert!(
+        guards::try_acquire(&guard_key, DELETION_GUARD_TTL_SECS).await?,
+        "deletion guard should have been released after the successful delete"
+    );
+    guards::release(&guard_key).await?;
+
+    // Cleanup
+    test.cleanup_user(&f_kp).await?;
+    test.cleanup_user(&x_kp).await?;
+    test.cleanup_user(&y_kp).await?;
 
     Ok(())
 }
