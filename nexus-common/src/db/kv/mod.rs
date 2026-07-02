@@ -6,6 +6,7 @@ mod traits;
 
 pub use error::{RedisError, RedisResult};
 pub use flush::clear_redis;
+pub use index::guards;
 pub use index::json::JsonAction;
 pub(crate) use index::search;
 pub use index::sets;

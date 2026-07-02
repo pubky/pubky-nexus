@@ -1,6 +1,6 @@
 use crate::events::EventProcessorError;
 
-use nexus_common::db::kv::JsonAction;
+use nexus_common::db::kv::{guards, JsonAction};
 use nexus_common::db::OperationOutcome;
 use nexus_common::models::follow::{Followers, Following, Friends, UserFollows};
 use nexus_common::models::notification::Notification;
@@ -8,7 +8,7 @@ use nexus_common::models::user::{UserCounts, UserIngestor};
 use pubky_app_specs::PubkyId;
 use tracing::debug;
 
-use super::utils::fail_on_blacklisted_hs;
+use super::utils::{fail_on_blacklisted_hs, follow_deletion_guard_key, DELETION_GUARD_TTL_SECS};
 
 #[tracing::instrument(name = "follow.put", skip_all, fields(follower_id = %follower_id, followee_id = %followee_id))]
 pub async fn sync_put(
@@ -101,6 +101,17 @@ pub async fn sync_del(
     // On retry (Redis already cleaned, graph edge still present), skip non-idempotent ops.
     let still_indexed = Followers::check_in_index(&followee_id, &follower_id).await?;
 
+    // SETNX deletion tombstone: `still_indexed` alone is not retry-safe because
+    // read-through can resurrect the follow sets (see `follow_deletion_guard_key`).
+    // Acquired only now, after all reads, so a transient read failure stays
+    // retryable with side effects intact.
+    let deletion_guard_key = follow_deletion_guard_key(&follower_id, &followee_id);
+    let first_attempt = guards::try_acquire(&deletion_guard_key, DELETION_GUARD_TTL_SECS).await?;
+
+    // Non-idempotent side effects run only when both gates agree this is the
+    // first attempt.
+    let run_side_effects = still_indexed && first_attempt;
+
     let followers = Followers(vec![follower_id.to_string()]);
     let following = Following(vec![followee_id.to_string()]);
 
@@ -114,7 +125,7 @@ pub async fn sync_del(
     indexing_results.1?;
 
     // Only after indexes are confirmed clean: non-idempotent ops
-    if still_indexed {
+    if run_side_effects {
         update_follow_counts(
             &follower_id,
             &followee_id,
@@ -128,6 +139,13 @@ pub async fn sync_del(
     // Graph deletion LAST — on retry, we re-enter here with indexes already clean.
     // MissingDependency means the resource is already gone — deletion is complete.
     Followers::del_from_graph(&follower_id, &followee_id).await?;
+
+    // The delete completed: drop the tombstone. Best-effort: the TTL backstops
+    // a leaked key, and failing the event after a successful graph delete would
+    // only force a useless retry cycle.
+    if let Err(e) = guards::release(&deletion_guard_key).await {
+        tracing::warn!("failed to release deletion guard {deletion_guard_key}: {e}");
+    }
     Ok(())
 }
 
