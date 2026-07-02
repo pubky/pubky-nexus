@@ -18,22 +18,24 @@ pub enum MockType {
 pub struct MockDb {}
 
 impl MockDb {
-    async fn init_stack() {
-        StackManager::setup(&StackConfig::default())
+    async fn init_stack(config: &StackConfig) {
+        StackManager::setup(config)
             .await
             .expect("Failed to initialize stack");
     }
 
-    pub async fn clear_database() {
-        Self::init_stack().await;
+    /// Clears the Redis and Neo4j databases described by `config`
+    pub async fn clear_database(config: &StackConfig) {
+        Self::init_stack(config).await;
 
         Self::drop_cache().await;
         Self::drop_graph().await;
         info!("Both ddbb cleared successfully");
     }
 
-    pub async fn run(mock_type: Option<MockType>) {
-        Self::init_stack().await;
+    /// Mocks the Redis and/or Neo4j databases described by `config`
+    pub async fn run(mock_type: Option<MockType>, config: &StackConfig) {
+        Self::init_stack(config).await;
 
         match mock_type {
             Some(MockType::Redis) => Self::sync_redis().await,

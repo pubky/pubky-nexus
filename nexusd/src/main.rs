@@ -27,6 +27,7 @@ fn job_registry(trust_rank: &TrustRankConfig, lock_ttl_secs: u64) -> JobRegistry
 #[tokio::main]
 async fn main() -> Result<(), DynError> {
     let cli = Cli::parse();
+    let config_dir = cli.config_dir.clone();
     let command = Cli::receive_command(cli);
     let lock_ttl_secs = nexusd::jobs::LOCK_TTL_SECS;
 
@@ -35,15 +36,19 @@ async fn main() -> Result<(), DynError> {
             DbCommands::Clear { yes } => {
                 if !yes {
                     eprintln!(
-                        "db clear is destructive: it wipes the default-config Redis database (redis://localhost:6379, FLUSHDB) and deletes every node in the connected Neo4j graph."
+                        "db clear is destructive: it wipes the Redis logical database (FLUSHDB) and deletes every node in the Neo4j graph configured in {}.",
+                        config_dir.display()
                     );
-                    eprintln!("Note: db clear currently ignores --config-dir.");
                     eprintln!("Re-run with --yes to proceed.");
                     std::process::exit(1);
                 }
-                MockDb::clear_database().await
+                let config = DaemonConfig::read_or_create_config_file(config_dir).await?;
+                MockDb::clear_database(&config.stack).await
             }
-            DbCommands::Mock(args) => MockDb::run(args.mock_type).await,
+            DbCommands::Mock(args) => {
+                let config = DaemonConfig::read_or_create_config_file(config_dir).await?;
+                MockDb::run(args.mock_type, &config.stack).await
+            }
             DbCommands::Migration(migration_command) => match migration_command {
                 MigrationCommands::New(args) => MigrationManager::new_migration(args.name).await?,
                 MigrationCommands::Run => {
