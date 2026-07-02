@@ -281,6 +281,14 @@ pub async fn sync_put(
     indexing_results.0?;
     indexing_results.1?;
 
+    // A new PUT for this key proves any earlier delete cycle is finished, so
+    // its tombstone is stale; drop it (best-effort) so it cannot suppress the
+    // side effects of a later legitimate delete of the re-created post.
+    let deletion_guard_key = post_deletion_guard_key(&author_id, &post_id);
+    if let Err(e) = guards::release(&deletion_guard_key).await {
+        tracing::warn!("failed to release stale deletion guard {deletion_guard_key}: {e}");
+    }
+
     Ok(())
 }
 
@@ -533,12 +541,16 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), EventPr
     // failed lookup strand the decrements on retry (gate gone, post_in_index false).
     let is_collection = post_in_index && post_is_collection(&author_id, &post_id).await?;
 
-    // SETNX deletion tombstone: the index gate alone is not retry-safe because
-    // read-through can resurrect it (see `post_deletion_guard_key`). Acquired
-    // only now, after all reads, so a transient read failure stays retryable
-    // with side effects intact.
+    // SETNX tombstone: the index gate alone is not retry-safe, read-through can
+    // resurrect it (see `post_deletion_guard_key`). Acquired after all reads and
+    // only when the gate is present, so read failures stay retryable and a
+    // no-op delete leaves no tombstone behind.
     let deletion_guard_key = post_deletion_guard_key(&author_id, &post_id);
-    let first_attempt = guards::try_acquire(&deletion_guard_key, DELETION_GUARD_TTL_SECS).await?;
+    let first_attempt = if post_in_index {
+        guards::try_acquire(&deletion_guard_key, DELETION_GUARD_TTL_SECS).await?
+    } else {
+        false
+    };
 
     // Non-idempotent side effects (counter decrements, engagement score updates,
     // notifications) run only when both gates agree this is the first attempt.
@@ -548,7 +560,21 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), EventPr
     //    first mutation. Subsequent retries will observe `post_in_index = false`
     //    and skip non-idempotent ops (counters, scores, notifications).
     if post_in_index {
-        PostRelationships::delete(&author_id, &post_id).await?;
+        // A guard acquired by THIS attempt must not survive a failure here: no
+        // side effects have run yet, and a stranded tombstone would make the
+        // retry skip them. A guard held by a previous attempt is kept, that
+        // attempt may already have run them; once the joins below start,
+        // partial completion must not re-run either.
+        if let Err(e) = PostRelationships::delete(&author_id, &post_id).await {
+            if first_attempt {
+                if let Err(release_err) = guards::release(&deletion_guard_key).await {
+                    tracing::warn!(
+                        "failed to release deletion guard {deletion_guard_key}: {release_err}"
+                    );
+                }
+            }
+            return Err(e.into());
+        }
     }
 
     // 3. On retry (gate already gone), fall back to the graph for parent info

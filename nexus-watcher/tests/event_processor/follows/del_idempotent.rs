@@ -212,7 +212,7 @@ async fn test_follow_del_recovers_stale_indexes() -> Result<()> {
     Ok(())
 }
 
-/// Tombstone gate vs read-through resurrection (#960), follow flavor: attempt 1
+/// Tombstone gate vs read-through resurrection, follow flavor: attempt 1
 /// of deleting the F->X follow completed every Redis step (both follow sets
 /// SREMed, both counters decremented once) but failed at the final graph
 /// delete. Between attempts, `Followers::get_by_id(X)` read-through

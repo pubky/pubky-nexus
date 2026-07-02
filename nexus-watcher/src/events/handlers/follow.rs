@@ -80,6 +80,14 @@ pub async fn sync_put(
         }
     };
 
+    // A new PUT for this edge proves any earlier delete cycle is finished, so
+    // its tombstone is stale; drop it (best-effort) so it cannot suppress the
+    // side effects of a later legitimate delete of the re-created follow.
+    let deletion_guard_key = follow_deletion_guard_key(&follower_id, &followee_id);
+    if let Err(e) = guards::release(&deletion_guard_key).await {
+        tracing::warn!("failed to release stale deletion guard {deletion_guard_key}: {e}");
+    }
+
     Ok(())
 }
 
@@ -101,12 +109,16 @@ pub async fn sync_del(
     // On retry (Redis already cleaned, graph edge still present), skip non-idempotent ops.
     let still_indexed = Followers::check_in_index(&followee_id, &follower_id).await?;
 
-    // SETNX deletion tombstone: `still_indexed` alone is not retry-safe because
-    // read-through can resurrect the follow sets (see `follow_deletion_guard_key`).
-    // Acquired only now, after all reads, so a transient read failure stays
-    // retryable with side effects intact.
+    // SETNX tombstone: `still_indexed` alone is not retry-safe, read-through can
+    // resurrect the follow sets (see `follow_deletion_guard_key`). Acquired after
+    // all reads and only when the gate is present, so read failures stay
+    // retryable and a no-op delete leaves no tombstone behind.
     let deletion_guard_key = follow_deletion_guard_key(&follower_id, &followee_id);
-    let first_attempt = guards::try_acquire(&deletion_guard_key, DELETION_GUARD_TTL_SECS).await?;
+    let first_attempt = if still_indexed {
+        guards::try_acquire(&deletion_guard_key, DELETION_GUARD_TTL_SECS).await?
+    } else {
+        false
+    };
 
     // Non-idempotent side effects run only when both gates agree this is the
     // first attempt.
@@ -115,14 +127,27 @@ pub async fn sync_del(
     let followers = Followers(vec![follower_id.to_string()]);
     let following = Following(vec![followee_id.to_string()]);
 
-    // Redis cleanup first — SREM is idempotent
+    // Redis cleanup first, SREM is idempotent
     let indexing_results = nexus_common::traced_join!(
         tracing::info_span!("index.delete");
         followers.del_from_index(&followee_id),
         following.del_from_index(&follower_id)
     );
-    indexing_results.0?;
-    indexing_results.1?;
+    // A guard acquired by THIS attempt must not survive a failure here: no side
+    // effects have run yet, and a stranded tombstone would make the retry skip
+    // them. A guard held by a previous attempt is kept, that attempt may
+    // already have run them; once the counts update below starts, partial
+    // completion must not re-run either.
+    if let Err(e) = indexing_results.0.and(indexing_results.1) {
+        if first_attempt {
+            if let Err(release_err) = guards::release(&deletion_guard_key).await {
+                tracing::warn!(
+                    "failed to release deletion guard {deletion_guard_key}: {release_err}"
+                );
+            }
+        }
+        return Err(e.into());
+    }
 
     // Only after indexes are confirmed clean: non-idempotent ops
     if run_side_effects {

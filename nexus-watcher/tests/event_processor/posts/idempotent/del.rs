@@ -71,7 +71,7 @@ async fn test_post_del_recovers_after_partial_redis_cleanup() -> Result<()> {
     Ok(())
 }
 
-/// Tombstone gate vs read-through resurrection (#960): a previous attempt
+/// Tombstone gate vs read-through resurrection: a previous attempt
 /// completed every Redis cleanup step (gate consumed, counters decremented)
 /// but failed at the final graph delete. Between attempts, a public read
 /// (`PostRelationships::get_by_id`, reachable from GET /v0/post) re-populates
