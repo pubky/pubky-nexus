@@ -147,6 +147,10 @@ async fn put_sync_resource(
                 ),
                 // Add tagger to Resource's label tagger set
                 TagResource::add_tagger_to_index(resource_id, None, &tagger_id, tag_label),
+                // Add tagger to the app-scoped tagger set. The TAGGED edge is
+                // keyed {label, app}, so this records one member per created
+                // edge; tag::del uses it as the retry gate for the decrements
+                TagResource::add_tagger_to_index(resource_id, Some(app), &tagger_id, tag_label),
                 // Add to global tag search index
                 TagSearch::put_to_index(tag_label_slice),
                 // ResourceStream sorted set maintenance
@@ -187,6 +191,7 @@ async fn put_sync_resource(
             indexing_results.8?;
             indexing_results.9?;
             indexing_results.10?;
+            indexing_results.11?;
 
             Ok(())
         }
@@ -476,10 +481,24 @@ pub async fn del(tag_uri: &str) -> Result<(), EventProcessorError> {
             .await?;
         }
         (None, None, None, Some(res_id)) => {
-            let tagger_in_index =
-                TagResource::check_set_member(&[&res_id, &label], arg_user_id.as_ref())
-                    .await?
-                    .1;
+            // The put path runs its increments once per created TAGGED edge,
+            // and resource edges are keyed {label, app}: the same user tagging
+            // the same resource and label from two apps increments every count
+            // twice. The retry gate must therefore be app-scoped as well; the
+            // app-agnostic taggers set holds the member only once and would
+            // wrongly skip the decrements of the second app's delete
+            let tagger_in_index = match app.as_deref() {
+                Some(a) => {
+                    TagResource::check_set_member(&[&res_id, a, &label], arg_user_id.as_ref())
+                        .await?
+                        .1
+                }
+                None => {
+                    TagResource::check_set_member(&[&res_id, &label], arg_user_id.as_ref())
+                        .await?
+                        .1
+                }
+            };
             del_sync_resource(
                 arg_user_id.clone(),
                 &res_id,
@@ -697,7 +716,9 @@ async fn del_sync_post(
 /// Orphaned Resource node cleanup is handled by the delete_tag Cypher query.
 /// Timeline entries are only removed when taggers count reaches zero.
 /// Non-idempotent decrements are guarded by `tagger_in_index` so a retried
-/// event does not double-decrement the taggers counts.
+/// event does not double-decrement the taggers counts. The gate comes from
+/// the app-scoped tagger set, which the put path fills once per created
+/// TAGGED edge (keyed {label, app}), matching the per-edge increments.
 async fn del_sync_resource(
     tagger_id: PubkyId,
     resource_id: &str,
@@ -725,6 +746,13 @@ async fn del_sync_resource(
             TagResource(vec![tagger_id.to_string()])
                 .del_from_index(resource_id, None, tag_label)
                 .await?;
+            // Idempotent: Delete the tagger from the app-scoped tagger set
+            // that gates the decrements above (SREM)
+            if let Some(a) = app {
+                TagResource(vec![tagger_id.to_string()])
+                    .del_from_index(resource_id, Some(a), tag_label)
+                    .await?;
+            }
             Ok::<(), EventProcessorError>(())
         },
         // Guarded: Decrement global taggers count

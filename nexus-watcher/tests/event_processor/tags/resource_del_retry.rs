@@ -16,9 +16,9 @@ use pubky_app_specs::{PubkyAppTag, PubkyAppUser};
 
 /// Simulate a retry of a resource tag del after a partial failure where the
 /// Redis cleanup succeeded but the graph deletion failed. On retry, the
-/// taggers counts must NOT be decremented again (guarded by the tagger set
-/// membership check), so a still-tagged resource must keep count 1 and stay
-/// in the resource timelines.
+/// taggers counts must NOT be decremented again (guarded by the app-scoped
+/// tagger set membership check), so a still-tagged resource must keep count 1
+/// and stay in the resource timelines.
 #[tokio_shared_rt::test(shared)]
 async fn test_resource_tag_del_retry_no_double_decrement() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
@@ -75,10 +75,13 @@ async fn test_resource_tag_del_retry_no_double_decrement() -> Result<()> {
     assert_eq!(global_count, Some(2));
 
     // Simulate partial completion of a previous del attempt for user1's tag:
-    // the Redis cleanup (SREM + all decrements) completed, but the graph
+    // the Redis cleanup (SREMs + all decrements) completed, but the graph
     // deletion failed, so the TAGGED edge is still present
     TagResource(vec![user1_id.clone()])
         .del_from_index(&resource_id, None, label)
+        .await?;
+    TagResource(vec![user1_id.clone()])
+        .del_from_index(&resource_id, Some(app), label)
         .await?;
     TagResource::update_index_score(&resource_id, None, label, ScoreAction::Decrement(1.0)).await?;
     ResourceStream::update_global_taggers_count(&resource_id, ScoreAction::Decrement(1.0)).await?;
@@ -163,6 +166,177 @@ async fn test_resource_tag_del_retry_no_double_decrement() -> Result<()> {
     test.del(&user2_kp, &path2).await?;
     test.cleanup_user(&user1_kp).await?;
     test.cleanup_user(&user2_kp).await?;
+
+    Ok(())
+}
+
+/// The same user tags the same external URI with the same label from TWO
+/// different app namespaces, creating two app-scoped TAGGED edges whose put
+/// events each incremented all five taggers counts. The retry gate must be
+/// app-scoped: a retry of the first app's delete must not double-decrement,
+/// and the second app's delete must still run its decrements so that every
+/// count reaches zero and the resource is evicted from all timelines.
+#[tokio_shared_rt::test(shared)]
+async fn test_resource_tag_del_multi_app_full_cleanup() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+
+    let target_uri = "https://example.com/multi-app-del-test";
+    let label = "multi-app-res-label";
+    let app1 = "mapky";
+    let app2 = "eventky";
+    let resource_id = compute_resource_id(target_uri);
+
+    let user_kp = Keypair::random();
+    let user = PubkyAppUser {
+        bio: Some("resource_del_multi_app_user".to_string()),
+        image: None,
+        links: None,
+        name: "Watcher:ResourceDelMultiApp:User".to_string(),
+        status: None,
+    };
+    let user_id = test.create_user(&user_kp, &user).await?;
+
+    // Tag the URI from app1
+    let tag1 = PubkyAppTag {
+        uri: target_uri.to_string(),
+        label: label.to_string(),
+        created_at: Utc::now().timestamp_millis(),
+    };
+    let tag1_id = tag1.create_id();
+    let path1: ResourcePath = format!("/pub/{app1}/tags/{tag1_id}").parse()?;
+    test.put(&user_kp, &path1, &tag1).await?;
+
+    // Tag the same URI with the same label from app2
+    let tag2 = PubkyAppTag {
+        uri: target_uri.to_string(),
+        label: label.to_string(),
+        created_at: Utc::now().timestamp_millis() + 1,
+    };
+    let tag2_id = tag2.create_id();
+    let path2: ResourcePath = format!("/pub/{app2}/tags/{tag2_id}").parse()?;
+    test.put(&user_kp, &path2, &tag2).await?;
+
+    // Two app-scoped TAGGED edges; the per-edge increments ran twice for the
+    // app-agnostic counts and once for each app-scoped count
+    assert_eq!(count_resource_tags(&resource_id).await?, 2);
+    for (count_key_parts, expected) in [
+        (vec!["Resources", "Global", "TaggersCount"], 2),
+        (vec!["Resources", "Tag", label, "TaggersCount"], 2),
+        (vec!["Resources", "App", app1, "TaggersCount"], 1),
+        (
+            vec!["Resources", "App", app1, "Tag", label, "TaggersCount"],
+            1,
+        ),
+        (vec!["Resources", "App", app2, "TaggersCount"], 1),
+        (
+            vec!["Resources", "App", app2, "Tag", label, "TaggersCount"],
+            1,
+        ),
+    ] {
+        let count = check_resource_in_sorted_set(&count_key_parts, &resource_id).await?;
+        assert_eq!(
+            count,
+            Some(expected),
+            "Taggers count {count_key_parts:?} after both puts"
+        );
+    }
+
+    // Simulate partial completion of a del attempt for the app1 tag: the
+    // Redis cleanup (SREMs + all decrements) completed, but the graph
+    // deletion failed, so the app1 TAGGED edge is still present
+    TagResource(vec![user_id.clone()])
+        .del_from_index(&resource_id, None, label)
+        .await?;
+    TagResource(vec![user_id.clone()])
+        .del_from_index(&resource_id, Some(app1), label)
+        .await?;
+    TagResource::update_index_score(&resource_id, None, label, ScoreAction::Decrement(1.0)).await?;
+    ResourceStream::update_global_taggers_count(&resource_id, ScoreAction::Decrement(1.0)).await?;
+    ResourceStream::update_tag_taggers_count(label, &resource_id, ScoreAction::Decrement(1.0))
+        .await?;
+    ResourceStream::update_app_taggers_count(app1, &resource_id, ScoreAction::Decrement(1.0))
+        .await?;
+    ResourceStream::update_app_tag_taggers_count(
+        app1,
+        label,
+        &resource_id,
+        ScoreAction::Decrement(1.0),
+    )
+    .await?;
+
+    // Retry the app1 delete: it must not decrement anything again, only
+    // finish the pending graph deletion
+    let tag1_uri = format!("pubky://{user_id}/pub/{app1}/tags/{tag1_id}");
+    handlers::tag::del(&tag1_uri).await?;
+
+    // Only the app2 TAGGED edge remains, and the retry did not
+    // double-decrement the app-agnostic counts
+    assert_eq!(count_resource_tags(&resource_id).await?, 1);
+    for count_key_parts in [
+        vec!["Resources", "Global", "TaggersCount"],
+        vec!["Resources", "Tag", label, "TaggersCount"],
+        vec!["Resources", "App", app2, "TaggersCount"],
+        vec!["Resources", "App", app2, "Tag", label, "TaggersCount"],
+    ] {
+        let count = check_resource_in_sorted_set(&count_key_parts, &resource_id).await?;
+        assert_eq!(
+            count,
+            Some(1),
+            "Taggers count {count_key_parts:?} must be 1 after the app1 retry"
+        );
+    }
+    for timeline_key_parts in [
+        vec!["Resources", "Global", "Timeline"],
+        vec!["Resources", "Tag", label, "Timeline"],
+        vec!["Resources", "App", app2, "Timeline"],
+        vec!["Resources", "App", app2, "Tag", label, "Timeline"],
+    ] {
+        let member = check_resource_in_sorted_set(&timeline_key_parts, &resource_id).await?;
+        assert!(
+            member.is_some(),
+            "Resource must remain in timeline {timeline_key_parts:?} after the app1 retry"
+        );
+    }
+
+    // Delete the app2 tag: its app-scoped tagger set still holds the member,
+    // so all five decrements must run and zero out every count
+    test.del(&user_kp, &path2).await?;
+
+    assert_eq!(count_resource_tags(&resource_id).await?, 0);
+    for count_key_parts in [
+        vec!["Resources", "Global", "TaggersCount"],
+        vec!["Resources", "Tag", label, "TaggersCount"],
+        vec!["Resources", "App", app1, "TaggersCount"],
+        vec!["Resources", "App", app1, "Tag", label, "TaggersCount"],
+        vec!["Resources", "App", app2, "TaggersCount"],
+        vec!["Resources", "App", app2, "Tag", label, "TaggersCount"],
+    ] {
+        let count = check_resource_in_sorted_set(&count_key_parts, &resource_id).await?;
+        assert_eq!(
+            count.unwrap_or(0),
+            0,
+            "Taggers count {count_key_parts:?} must be 0 after both deletes"
+        );
+    }
+    for timeline_key_parts in [
+        vec!["Resources", "Global", "Timeline"],
+        vec!["Resources", "Tag", label, "Timeline"],
+        vec!["Resources", "App", app1, "Timeline"],
+        vec!["Resources", "App", app1, "Tag", label, "Timeline"],
+        vec!["Resources", "App", app2, "Timeline"],
+        vec!["Resources", "App", app2, "Tag", label, "Timeline"],
+    ] {
+        let member = check_resource_in_sorted_set(&timeline_key_parts, &resource_id).await?;
+        assert!(
+            member.is_none(),
+            "Resource must be evicted from timeline {timeline_key_parts:?} after both deletes"
+        );
+    }
+
+    // Cleanup: the app1 homeserver file still exists (its graph edge is
+    // already gone, so the DEL event is an idempotent no-op)
+    test.del(&user_kp, &path1).await?;
+    test.cleanup_user(&user_kp).await?;
 
     Ok(())
 }
