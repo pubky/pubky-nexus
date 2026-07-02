@@ -843,8 +843,11 @@ pub fn get_global_influencers(skip: usize, limit: usize, timeframe: &Timeframe) 
             RETURN count(DISTINCT tag) AS tags_count
         }
         CALL (user) {
-            MATCH (user)-[authored:AUTHORED]->(post:Post)
-            WHERE authored.indexed_at >= $from AND authored.indexed_at < $to
+            // Filter on the Post node's indexed_at, like get_influencers_by_reach does.
+            // The AUTHORED edge carries no indexed_at property (create_post never sets
+            // one), so filtering on the edge would always yield posts_count = 0.
+            MATCH (user)-[:AUTHORED]->(post:Post)
+            WHERE post.indexed_at >= $from AND post.indexed_at < $to
             RETURN count(DISTINCT post) AS posts_count
         }
         WITH {
