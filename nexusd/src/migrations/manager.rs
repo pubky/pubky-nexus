@@ -218,6 +218,34 @@ impl MigrationManager {
         Ok(())
     }
 
+    /// Returns registered migrations with pending work as `(id, phase)` pairs,
+    /// where phase is the stored phase or "new" for a migration not yet stored.
+    ///
+    /// Mirrors `run` semantics: pending means `run` would execute a phase or
+    /// store a new migration node. Stored migrations that are not registered
+    /// are ignored, exactly as in `run`.
+    pub async fn check(
+        &self,
+        migrations_backfill_ready: &[String],
+    ) -> Result<Vec<(String, String)>, DynError> {
+        let stored_migrations = self.get_migrations().await?;
+        let mut pending = Vec::new();
+        for migration in &self.migrations {
+            let migration_id = migration.id();
+            let stored = stored_migrations.iter().find(|m| m.id == migration_id);
+            let backfill_ready = migrations_backfill_ready
+                .iter()
+                .any(|id| id == migration_id);
+            if is_pending(stored.map(|m| &m.phase), backfill_ready) {
+                let phase = stored
+                    .map(|m| m.phase.to_string().to_owned())
+                    .unwrap_or_else(|| "new".to_owned());
+                pending.push((migration_id.to_owned(), phase));
+            }
+        }
+        Ok(pending)
+    }
+
     async fn get_migrations(&self) -> Result<Vec<MigrationNode>, DynError> {
         let query = Query::new(
             "get_migrations",
@@ -267,5 +295,44 @@ impl MigrationManager {
 
         self.graph.run(query).await?;
         Ok(())
+    }
+}
+
+/// Decides whether a registered migration has pending work, given its stored
+/// phase (`None` when never stored) and whether it is listed in `backfill_ready`.
+///
+/// `Done` is terminal regardless of `backfill_ready`: `check` deliberately does
+/// not mirror `run`'s current behavior of resetting a done migration listed in
+/// `backfill_ready`, which is a bug tracked in #967.
+fn is_pending(stored_phase: Option<&MigrationPhase>, backfill_ready: bool) -> bool {
+    match stored_phase {
+        // Never stored: `run` stores the node (and backfills if single-staged)
+        None => true,
+        Some(MigrationPhase::Done) => false,
+        // Waiting for the operator flag; `run` only acts on it once listed
+        Some(MigrationPhase::DualWrite) => backfill_ready,
+        // Backfill, Cutover, Cleanup: `run` executes the phase
+        Some(_) => true,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{is_pending, MigrationPhase};
+
+    #[test]
+    fn pending_semantics_mirror_run() {
+        assert!(is_pending(None, false));
+        assert!(is_pending(None, true));
+
+        assert!(!is_pending(Some(&MigrationPhase::Done), false));
+        assert!(!is_pending(Some(&MigrationPhase::Done), true));
+
+        assert!(!is_pending(Some(&MigrationPhase::DualWrite), false));
+        assert!(is_pending(Some(&MigrationPhase::DualWrite), true));
+
+        assert!(is_pending(Some(&MigrationPhase::Backfill), false));
+        assert!(is_pending(Some(&MigrationPhase::Cutover), false));
+        assert!(is_pending(Some(&MigrationPhase::Cleanup), false));
     }
 }

@@ -94,6 +94,10 @@ pub enum MigrationCommands {
 
     /// Run pending migrations
     Run,
+
+    /// Check for pending migrations without running them.
+    /// Exits 0 when nothing is pending, 10 when at least one migration has pending work.
+    Check,
 }
 
 #[derive(Args, Debug)]

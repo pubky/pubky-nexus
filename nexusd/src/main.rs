@@ -25,6 +25,22 @@ async fn main() -> Result<(), DynError> {
                     import_migrations(&mut mm);
                     mm.run(&builder.migrations_backfill_ready()).await?;
                 }
+                MigrationCommands::Check => {
+                    let builder = MigrationBuilder::default().await?;
+                    StackManager::setup(builder.stack()).await?;
+                    let mut mm = MigrationManager::default();
+                    import_migrations(&mut mm);
+                    let pending = mm.check(&builder.migrations_backfill_ready()).await?;
+                    if pending.is_empty() {
+                        println!("No pending migrations");
+                    } else {
+                        for (id, phase) in &pending {
+                            println!("{id} ({phase})");
+                        }
+                        println!("{} pending migration(s)", pending.len());
+                        std::process::exit(10);
+                    }
+                }
             },
         },
         NexusCommands::Api(ApiArgs { config_dir }) => {
