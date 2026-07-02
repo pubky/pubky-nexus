@@ -476,7 +476,18 @@ pub async fn del(tag_uri: &str) -> Result<(), EventProcessorError> {
             .await?;
         }
         (None, None, None, Some(res_id)) => {
-            del_sync_resource(arg_user_id.clone(), &res_id, &label, app.as_deref()).await?;
+            let tagger_in_index =
+                TagResource::check_set_member(&[&res_id, &label], arg_user_id.as_ref())
+                    .await?
+                    .1;
+            del_sync_resource(
+                arg_user_id.clone(),
+                &res_id,
+                &label,
+                app.as_deref(),
+                tagger_in_index,
+            )
+            .await?;
         }
         _ => {
             debug!("DEL-Tag: Unexpected combination of tag details");
@@ -685,46 +696,82 @@ async fn del_sync_post(
 /// Cleans up Redis indexes when a Resource tag is deleted.
 /// Orphaned Resource node cleanup is handled by the delete_tag Cypher query.
 /// Timeline entries are only removed when taggers count reaches zero.
+/// Non-idempotent decrements are guarded by `tagger_in_index` so a retried
+/// event does not double-decrement the taggers counts.
 async fn del_sync_resource(
     tagger_id: PubkyId,
     resource_id: &str,
     tag_label: &str,
     app: Option<&str>,
+    tagger_in_index: bool,
 ) -> Result<(), EventProcessorError> {
     // Step 1: Decrement scores and remove tagger from sets
     let score_results = tokio::join!(
-        TagResource::update_index_score(resource_id, None, tag_label, ScoreAction::Decrement(1.0)),
+        // Guarded: Decrement label score in the resource
         async {
+            if tagger_in_index {
+                TagResource::update_index_score(
+                    resource_id,
+                    None,
+                    tag_label,
+                    ScoreAction::Decrement(1.0),
+                )
+                .await?;
+            }
+            Ok::<(), EventProcessorError>(())
+        },
+        async {
+            // Idempotent: Delete the tagger from the tag list (SREM)
             TagResource(vec![tagger_id.to_string()])
                 .del_from_index(resource_id, None, tag_label)
                 .await?;
             Ok::<(), EventProcessorError>(())
         },
-        ResourceStream::update_global_taggers_count(resource_id, ScoreAction::Decrement(1.0)),
-        ResourceStream::update_tag_taggers_count(
-            tag_label,
-            resource_id,
-            ScoreAction::Decrement(1.0),
-        ),
+        // Guarded: Decrement global taggers count
         async {
-            if let Some(a) = app {
-                let (r1, r2) = tokio::join!(
-                    ResourceStream::update_app_taggers_count(
-                        a,
-                        resource_id,
-                        ScoreAction::Decrement(1.0),
-                    ),
-                    ResourceStream::update_app_tag_taggers_count(
-                        a,
-                        tag_label,
-                        resource_id,
-                        ScoreAction::Decrement(1.0),
-                    ),
-                );
-                r1?;
-                r2?;
+            if tagger_in_index {
+                ResourceStream::update_global_taggers_count(
+                    resource_id,
+                    ScoreAction::Decrement(1.0),
+                )
+                .await?;
             }
-            Ok::<(), nexus_common::db::kv::RedisError>(())
+            Ok::<(), EventProcessorError>(())
+        },
+        // Guarded: Decrement tag taggers count
+        async {
+            if tagger_in_index {
+                ResourceStream::update_tag_taggers_count(
+                    tag_label,
+                    resource_id,
+                    ScoreAction::Decrement(1.0),
+                )
+                .await?;
+            }
+            Ok::<(), EventProcessorError>(())
+        },
+        // Guarded: Decrement app and app-tag taggers counts
+        async {
+            if tagger_in_index {
+                if let Some(a) = app {
+                    let (r1, r2) = tokio::join!(
+                        ResourceStream::update_app_taggers_count(
+                            a,
+                            resource_id,
+                            ScoreAction::Decrement(1.0),
+                        ),
+                        ResourceStream::update_app_tag_taggers_count(
+                            a,
+                            tag_label,
+                            resource_id,
+                            ScoreAction::Decrement(1.0),
+                        ),
+                    );
+                    r1?;
+                    r2?;
+                }
+            }
+            Ok::<(), EventProcessorError>(())
         }
     );
 

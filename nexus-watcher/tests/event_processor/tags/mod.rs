@@ -10,6 +10,7 @@ mod post_notification;
 mod post_put;
 mod resource_dedup;
 mod resource_del;
+mod resource_del_retry;
 mod resource_internal_known;
 mod resource_put;
 mod resource_utils;
