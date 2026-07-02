@@ -8,7 +8,7 @@ use nexus_common::models::error::ModelError;
 use nexus_common::types::DynError;
 use std::io;
 use thiserror::Error;
-use tracing::error;
+use tracing::{debug, error, warn};
 
 pub type Result<T> = core::result::Result<T, Error>;
 
@@ -136,29 +136,31 @@ impl IntoResponse for Error {
             // Map other errors to appropriate status codes
         };
 
-        // Logging
+        // Logging. Client errors (4xx) are ordinary and must not be logged at
+        // ERROR on a public, unauthenticated API, else a scanner crawling random
+        // ids floods the error stream and buries genuine 5xx. Only 5xx is ERROR.
         match &self {
-            Error::UserNotFound { user_id } => error!("User not found: {}", user_id),
+            Error::UserNotFound { user_id } => debug!("User not found: {}", user_id),
             Error::PostNotFound { author_id, post_id } => {
-                error!("Post not found: {} {}", author_id, post_id)
+                debug!("Post not found: {} {}", author_id, post_id)
             }
             Error::FileNotFound {} => {
-                error!("File not found.")
+                debug!("File not found.")
             }
             Error::TagsNotFound { reach } => {
-                error!("Tags not found: {}", reach)
+                debug!("Tags not found: {}", reach)
             }
             Error::InvalidInput { message } => {
-                error!("Invalid input: {}", message)
+                debug!("Invalid input: {}", message)
             }
             Error::TagNotFound { tag_id, tagger_id } => {
-                error!("Tag not found: {} of {}", tag_id, tagger_id)
+                debug!("Tag not found: {} of {}", tag_id, tagger_id)
             }
             Error::ResourceNotFound { resource_id } => {
-                error!("Resource not found: {}", resource_id)
+                debug!("Resource not found: {}", resource_id)
             }
             Error::Forbidden { message } => {
-                error!("Forbidden: {}", message)
+                warn!("Forbidden: {}", message)
             }
             Error::InternalServerError { source } => error!("Internal server error: {:?}", source),
         };

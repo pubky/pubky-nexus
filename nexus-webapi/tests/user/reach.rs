@@ -154,6 +154,35 @@ async fn test_get_friends() -> Result<()> {
     Ok(())
 }
 
+/// An existing user with no mutual follows must return `200 []`, not `404`.
+///
+/// Regression test: `Friends::get_by_id` used to collapse "user exists but has
+/// no mutual friends" and "user does not exist" into the same `None`, so an
+/// existing user with an empty intersection was reported as `404 User not found`
+/// (inconsistent with `/followers` and `/following`, which return `200 []`).
+#[tokio_shared_rt::test(shared)]
+async fn test_get_friends_existing_user_without_mutuals() -> Result<()> {
+    // This user exists in the fixture (it is in the main user's following list,
+    // see `test_get_following`) and has both followers and followees, but no
+    // reciprocal follow, so the mutual-friends intersection is empty.
+    let user_id = "5g3fwnue819wfdjwiwm8qr35ww6uxxgbzrigrtdgmbi19ksioeoy";
+
+    // `get_request` asserts a 200 status, so a regression to 404 fails here.
+    let res = get_request(&format!("/v0/user/{user_id}/friends")).await?;
+
+    assert!(
+        res.is_array(),
+        "an existing user's friends response must be a JSON array"
+    );
+    assert_eq!(
+        res.as_array().unwrap().len(),
+        0,
+        "an existing user with no mutual follows should return an empty list"
+    );
+
+    Ok(())
+}
+
 #[tokio_shared_rt::test(shared)]
 async fn test_follows_limit_cap() -> Result<()> {
     let user_id = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
