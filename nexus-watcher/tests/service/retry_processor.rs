@@ -53,6 +53,7 @@ fn create_test_retry_event(
         event_uri,
         next_retry_at,
         origin_homeserver_id: TEST_HOMESERVER_ID.to_string(),
+        nonce: 0,
     }
 }
 
@@ -740,6 +741,94 @@ async fn test_stale_sorted_set_entry_cleaned_up() -> Result<()> {
 }
 
 // ============================================================================
+// Nonce guard survives an overwrite (Redis-backed)
+// Regression test for #963: retry entries are keyed by hash(URI) only, so a
+// newer event enqueued for the same URI overwrites the entry while the retry
+// processor may still hold the old one in memory. The stale event's
+// conditional remove/reschedule (Lua compare-and-act) must be a no-op and the
+// newer entry must remain fetchable. Exercises RedisRetryStore directly since
+// the atomicity lives in the Redis Lua script.
+// ============================================================================
+
+#[tokio_shared_rt::test(shared)]
+async fn test_redis_stale_conditional_ops_do_not_clobber_newer_entry() -> Result<()> {
+    setup().await?;
+
+    let post_id = "noncegrd01";
+    let resource_key = create_index_key(post_id);
+    let store = RedisRetryStore::new();
+
+    let now = Utc::now().timestamp_millis();
+
+    // E1: a PUT enqueued and then snapshotted by the retry processor.
+    let mut e1 = create_test_retry_event(post_id, EventType::Put, 0, now - 1000);
+    e1.nonce = 100;
+    store.put(&e1).await?;
+
+    // E2: a live processor transiently fails a DEL for the same URI and
+    // enqueues it, overwriting the hash(URI) slot with a fresh nonce.
+    let mut e2 = create_test_retry_event(post_id, EventType::Del, 0, now - 500);
+    e2.nonce = 200;
+    store.put(&e2).await?;
+
+    // E1's retry succeeds; its conditional removal must not act.
+    assert!(
+        !store.remove_if(&resource_key, e1.nonce).await?,
+        "remove_if with a stale nonce must be a no-op"
+    );
+
+    // A stale reschedule of E1 must not clobber E2 either.
+    let mut rescheduled_e1 = e1.clone();
+    rescheduled_e1.retry_count = 1;
+    rescheduled_e1.next_retry_at = now + 60_000;
+    assert!(
+        !store.put_if(&rescheduled_e1, e1.nonce).await?,
+        "put_if with a stale nonce must be a no-op"
+    );
+
+    // E2 survives untouched and is still fetchable.
+    let stored = store
+        .get(&resource_key)
+        .await?
+        .expect("newer entry must survive stale conditional ops");
+    assert_eq!(stored.nonce, 200, "stored entry must still be E2");
+    assert_eq!(stored.event_type, EventType::Del);
+    assert_eq!(stored.retry_count, 0);
+    let ready = store.fetch_ready(now, None).await?;
+    assert!(
+        ready
+            .iter()
+            .any(|(key, event)| key == &resource_key && event.nonce == 200),
+        "newer entry must still be returned by fetch_ready"
+    );
+
+    // Matching nonce acts: reschedule E2, then remove it (also cleans up).
+    let mut rescheduled_e2 = stored.clone();
+    rescheduled_e2.retry_count = 1;
+    assert!(
+        store.put_if(&rescheduled_e2, 200).await?,
+        "put_if with the matching nonce must act"
+    );
+    assert!(
+        store.remove_if(&resource_key, 200).await?,
+        "remove_if with the matching nonce must act"
+    );
+    assert!(
+        store.get(&resource_key).await?.is_none(),
+        "entry must be gone after matching-nonce removal"
+    );
+    // The Lua script's ZREM must also drop the sorted-set member; a key/member
+    // mismatch inside the script would leave a stale index entry behind while
+    // the JSON state is gone.
+    assert!(
+        !RetryEvent::check_index_key(&resource_key).await?,
+        "sorted-set member must be gone after matching-nonce removal"
+    );
+
+    Ok(())
+}
+
+// ============================================================================
 // Shutdown interrupts batch
 // Shutdown signal set mid-batch stops processing remaining events and returns Ok(())
 // ============================================================================
@@ -763,6 +852,7 @@ async fn test_shutdown_interrupts_batch() -> Result<()> {
             event_uri,
             next_retry_at: now - 1000,
             origin_homeserver_id: TEST_HOMESERVER_ID.to_string(),
+            nonce: 0,
         };
         store.put(&retry_event).await?;
     }
@@ -837,6 +927,7 @@ async fn test_infrastructure_error_stops_batch() -> Result<()> {
             event_uri,
             next_retry_at: now - 1000,
             origin_homeserver_id: TEST_HOMESERVER_ID.to_string(),
+            nonce: 0,
         };
         store.put(&retry_event).await?;
     }

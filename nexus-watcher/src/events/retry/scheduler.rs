@@ -114,8 +114,11 @@ impl RetryScheduler {
         let next_retry_at = Utc::now().timestamp_millis() + initial_backoff_ms;
         let retry_event = RetryEvent::new(event, next_retry_at, origin_homeserver_id);
 
-        // New EventRetries for the same URI will reset the retry_count
-        // The HS state changed since the earlier event, so we disregard previous retry attempts
+        // New EventRetries for the same URI intentionally overwrite the stored entry
+        // and reset retry_count: the HS state changed since the earlier event, so we
+        // disregard previous retry attempts. The fresh nonce minted in RetryEvent::new
+        // also turns any in-flight retry of the overwritten event into a no-op on its
+        // conditional remove/reschedule, so it cannot clobber this newer entry.
         self.store.put(&retry_event).await?;
         warn!("Queued event for retry ({}): {}", reason, event.uri);
         Ok(())
