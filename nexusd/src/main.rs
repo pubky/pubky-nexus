@@ -14,7 +14,17 @@ async fn main() -> Result<(), DynError> {
     let command = Cli::receive_command(cli);
     match command {
         NexusCommands::Db(db_command) => match db_command {
-            DbCommands::Clear => MockDb::clear_database().await,
+            DbCommands::Clear { yes } => {
+                if !yes {
+                    eprintln!(
+                        "db clear is destructive: it wipes the default-config Redis database (redis://localhost:6379, FLUSHDB) and deletes every node in the connected Neo4j graph."
+                    );
+                    eprintln!("Note: db clear currently ignores --config-dir.");
+                    eprintln!("Re-run with --yes to proceed.");
+                    std::process::exit(1);
+                }
+                MockDb::clear_database().await
+            }
             DbCommands::Mock(args) => MockDb::run(args.mock_type).await,
             DbCommands::Migration(migration_command) => match migration_command {
                 MigrationCommands::New(args) => MigrationManager::new_migration(args.name).await?,

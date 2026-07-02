@@ -69,8 +69,14 @@ pub struct WatcherArgs {
 
 #[derive(Subcommand, Debug)]
 pub enum DbCommands {
-    /// Clear the databases
-    Clear,
+    /// Clear the databases (destructive, requires --yes)
+    Clear {
+        /// Confirm wiping the default-config Redis database (redis://localhost:6379)
+        /// and every node in the connected Neo4j graph. Note: `db clear` currently
+        /// ignores --config-dir.
+        #[arg(long)]
+        yes: bool,
+    },
 
     /// Mock the database (optional redis/graph). Usually for tests
     Mock(MockArgs),
@@ -101,4 +107,27 @@ pub struct MigrationNewArgs {
     /// The name of the new migration
     #[arg(required = true)]
     pub name: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn db_clear_without_yes_parses_as_unconfirmed() {
+        let cli = Cli::try_parse_from(["nexusd", "db", "clear"]).expect("should parse");
+        match cli.command {
+            Some(NexusCommands::Db(DbCommands::Clear { yes })) => assert!(!yes),
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn db_clear_with_yes_parses_as_confirmed() {
+        let cli = Cli::try_parse_from(["nexusd", "db", "clear", "--yes"]).expect("should parse");
+        match cli.command {
+            Some(NexusCommands::Db(DbCommands::Clear { yes })) => assert!(yes),
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
 }

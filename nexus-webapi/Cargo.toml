@@ -8,6 +8,11 @@ repository = "https://github.com/pubky/pubky-nexus"
 license = "MIT"
 build = "build.rs"
 
+[features]
+# Dev and test tooling: MockDb helpers that wipe and reseed the databases.
+# Not part of the regular library surface, consumers must opt in.
+mock = []
+
 [dependencies]
 axum = "0.8.9"
 axum-server = { version = "0.8.0", features = ["tls-rustls-no-provider"] }
@@ -41,6 +46,9 @@ utoipa-swagger-ui = { version = "9.0.2", features = ["axum"] }
 anyhow = { workspace = true }
 criterion = { version = "0.8", features = ["async_tokio"] }
 httpc-test = "0.1.10"
+# Self dev-dependency so the crate's own tests and benches get the `mock`
+# feature without needing extra flags on `cargo test` or `cargo bench`.
+nexus-webapi = { path = ".", features = ["mock"] }
 pubky-testnet = { workspace = true }
 serde_urlencoded = "0.7"
 tempfile = { workspace = true }

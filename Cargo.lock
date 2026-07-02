@@ -3105,6 +3105,7 @@ dependencies = [
  "futures-util",
  "httpc-test",
  "nexus-common",
+ "nexus-webapi",
  "opentelemetry 0.32.0",
  "pubky",
  "pubky-app-specs",
