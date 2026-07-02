@@ -9,7 +9,8 @@ use nexus_common::models::post::{
 };
 use nexus_common::models::user::{UserCounts, UserIngestor};
 use pubky_app_specs::{
-    post_uri_builder, ParsedUri, PubkyAppPost, PubkyAppPostKind, PubkyId, Resource,
+    post_uri_builder, ParsedUri, PubkyAppCollectionContent, PubkyAppPost, PubkyAppPostKind,
+    PubkyId, Resource,
 };
 use tracing::{debug, Instrument};
 
@@ -80,7 +81,14 @@ pub async fn sync_put(
                 if existing_details.is_different_than(&post_details)
                     || was_collection != is_collection
                 {
-                    sync_edit(post, author_id.clone(), post_id.clone(), post_details).await?;
+                    sync_edit(
+                        &post,
+                        author_id.clone(),
+                        post_id.clone(),
+                        post_details,
+                        ingestor,
+                    )
+                    .await?;
                 }
                 match (was_collection, is_collection) {
                     (false, true) => UserCounts::increment(&author_id, "collections", None).await?,
@@ -119,6 +127,8 @@ pub async fn sync_put(
             tracing::warn!("Failed to ingest user {mentioned_user_id}: {e}");
         }
     }
+
+    ingest_collection_item_authors(&post, ingestor).await;
 
     // SAVE TO INDEX - PHASE 1, update post counts
     let indexing_results = nexus_common::traced_join!(
@@ -321,16 +331,20 @@ async fn recover_post_index_state(
 }
 
 async fn sync_edit(
-    post: PubkyAppPost,
+    post: &PubkyAppPost,
     author_id: PubkyId,
     post_id: String,
     post_details: PostDetails,
+    ingestor: &UserIngestor,
 ) -> Result<(), EventProcessorError> {
     // Construct the URI of the post that changed
     let changed_uri = post_uri_builder(author_id.to_string(), post_id.clone());
 
     // Update content of PostDetails!
     post_details.put_to_index(&author_id, None, true).await?;
+
+    // Re-run on edits; `maybe_ingest_user` is a no-op for already-known users.
+    ingest_collection_item_authors(post, ingestor).await;
 
     // Notifications
     // Determine the change type
@@ -344,12 +358,12 @@ async fn sync_edit(
     Notification::changed_post(&author_id, &post_id, &changed_uri, &change_type).await?;
 
     // Handle "A reply to your post was edited/deleted"
-    if let Some(parent) = post.parent {
+    if let Some(parent) = &post.parent {
         let parsed_parent =
             ParsedUri::try_from(parent.as_str()).map_err(EventProcessorError::generic)?;
         Notification::post_children_changed(
             &author_id,
-            &parent,
+            parent,
             &parsed_parent.user_id,
             &changed_uri,
             PostChangedSource::Reply,
@@ -430,6 +444,32 @@ async fn merge_mention_edges(
         }
     }
     Ok(())
+}
+
+/// Best-effort ingestion of the user of every URI in a Collection's
+/// `items` envelope. No-op for non-Collection posts; failures (malformed URI,
+/// blacklisted HS) are logged and skipped so the Collection is still indexed.
+async fn ingest_collection_item_authors(post: &PubkyAppPost, ingestor: &UserIngestor) {
+    if post.kind != PubkyAppPostKind::Collection {
+        return;
+    }
+    let Ok(envelope) = serde_json::from_str::<PubkyAppCollectionContent>(&post.content) else {
+        tracing::warn!("Collection user ingestion: unparseable content envelope, skipping");
+        return;
+    };
+
+    for item_uri in &envelope.items {
+        match ParsedUri::try_from(item_uri.as_str()) {
+            Ok(parsed) => {
+                if let Err(e) = ingestor.maybe_ingest_user(&parsed.user_id).await {
+                    tracing::warn!("Failed to ingest collection item author {item_uri}: {e}");
+                }
+            }
+            Err(e) => {
+                tracing::warn!("Collection user ingestion: skipping malformed item {item_uri}: {e}")
+            }
+        }
+    }
 }
 
 #[tracing::instrument(name = "post.del", skip_all, fields(user_id = %author_id, post_id = %post_id))]
