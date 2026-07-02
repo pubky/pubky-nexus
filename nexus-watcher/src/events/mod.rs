@@ -147,7 +147,9 @@ pub async fn handle_put_event(
         }
         (PubkyAppObject::Tag(tag), Resource::Tag(tag_id)) => {
             if moderation.should_delete(&tag, &user_id) {
-                moderation.apply_moderation(tag, files_path).await?
+                moderation
+                    .apply_moderation(tag, files_path, &ingestor)
+                    .await?
             } else {
                 // Route universal tag events (non-pubky.app apps) to sync_put_resource
                 // which handles Resource nodes for InternalUnknown/InternalUnknown URIs.
