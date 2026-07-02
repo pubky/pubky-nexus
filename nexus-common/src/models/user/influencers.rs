@@ -196,12 +196,13 @@ impl Influencers {
         match timeframe {
             // AllTime reads come from Sorted:Users:Influencers, the live set that is
             // incrementally maintained by UserStream::add_to_influencers_sorted_set. The
-            // graph query only approximates that incremental score: UserCounts.tagged
-            // counts tags on the user AND their posts, while the graph query counts post
-            // tags only. The fallback therefore seeds an approximation, and per-user
-            // activity rewrites each member's score on their next counts update. Seed that
-            // key so the re-read in get_global_influencers finds the data. No TTL, the set
-            // is kept up to date by user activity.
+            // graph query counts the same tag edges as UserCounts.tagged (tags the user
+            // assigned to posts and to users), so the seeded AllTime score matches the
+            // incremental one, except for edges indexed at or after the query's `to`
+            // snapshot (taken at query build); per-user activity rewrites each member's
+            // score on its next counts update. Seed that key so the re-read in
+            // get_global_influencers finds the data. No TTL, the set is kept up to date
+            // by user activity.
             Timeframe::AllTime => {
                 Influencers::put_index_sorted_set(
                     USER_INFLUENCERS_KEY_PARTS.as_slice(),

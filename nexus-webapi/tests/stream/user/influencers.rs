@@ -42,7 +42,7 @@ async fn test_global_influencers() -> Result<()> {
     Ok(())
 }
 
-/// Recovery path for the AllTime influencers stream (issue #965): if the live
+/// Recovery path for the AllTime influencers stream: if the live
 /// `Sorted:Users:Influencers` set is lost (e.g. after Redis data loss), the next request
 /// must fall back to the graph, reseed that same key, and still return results.
 #[tokio_shared_rt::test(shared)]
