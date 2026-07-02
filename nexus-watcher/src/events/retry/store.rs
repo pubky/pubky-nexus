@@ -348,7 +348,7 @@ mod tests {
         assert!(store.get(&key).await.unwrap().is_none());
     }
 
-    /// The #963 clobber scenario at store level: the retry processor holds a
+    /// Lost-update clobber scenario at store level: the retry processor holds a
     /// fetched PUT (E1) while a live processor enqueues a DEL (E2) for the same
     /// URI, overwriting the hash(URI)-keyed entry. E1's success-path removal
     /// must not delete E2, which must remain fetchable.

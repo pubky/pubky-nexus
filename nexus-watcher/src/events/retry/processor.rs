@@ -181,7 +181,8 @@ impl RetryProcessor {
 
     /// Remove the entry for `index_key` only if it still carries `nonce`, i.e.
     /// it is still the event this processor fetched. Logs at debug when the
-    /// entry was superseded by a newer event enqueued for the same URI.
+    /// entry was superseded by a newer event enqueued for the same URI or was
+    /// already removed.
     async fn remove_if_current(
         &self,
         index_key: &IndexKey,
@@ -189,7 +190,9 @@ impl RetryProcessor {
         uri: &str,
     ) -> Result<(), EventProcessorError> {
         if !self.store.remove_if(index_key, nonce).await? {
-            debug!("Retry entry superseded by a newer event for this URI, leaving it: {uri}");
+            debug!(
+                "Retry entry superseded by a newer event or already removed for this URI, skipping: {uri}"
+            );
         }
         Ok(())
     }
@@ -248,7 +251,7 @@ impl RetryProcessor {
         // replaced the entry for this URI while the retry was in flight.
         if !self.store.put_if(&updated_event, retry_event.nonce).await? {
             debug!(
-                "Retry entry superseded by a newer event for this URI, leaving it: {}",
+                "Retry entry superseded by a newer event or already removed for this URI, skipping: {}",
                 retry_event.event_uri
             );
             return Ok(());
@@ -302,7 +305,7 @@ mod tests {
         }
     }
 
-    /// The #963 clobber scenario end-to-end through the processor: the
+    /// Lost-update clobber scenario end-to-end through the processor: the
     /// success-path removal of a fetched event must not delete the newer
     /// entry that replaced it mid-flight.
     #[tokio::test]

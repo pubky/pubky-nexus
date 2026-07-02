@@ -742,7 +742,7 @@ async fn test_stale_sorted_set_entry_cleaned_up() -> Result<()> {
 
 // ============================================================================
 // Nonce guard survives an overwrite (Redis-backed)
-// Regression test for #963: retry entries are keyed by hash(URI) only, so a
+// Regression test: retry entries are keyed by hash(URI) only, so a
 // newer event enqueued for the same URI overwrites the entry while the retry
 // processor may still hold the old one in memory. The stale event's
 // conditional remove/reschedule (Lua compare-and-act) must be a no-op and the

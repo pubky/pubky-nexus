@@ -4,6 +4,7 @@ use chrono::Utc;
 use deadpool_redis::redis::Script;
 use nexus_common::db::kv::{RedisError, RedisResult, SortOrder};
 use serde::{Deserialize, Serialize};
+use std::sync::LazyLock;
 
 use nexus_common::db::{get_redis_conn, RedisOps};
 
@@ -98,6 +99,30 @@ const NONCE_GUARD_LUA: &str = r#"
                 return 0
             end"#;
 
+/// Script for [`RetryEvent::remove_from_index_if_nonce`]. Static so the source
+/// string and its SHA1 are computed once, not on every call.
+static REMOVE_IF_NONCE_SCRIPT: LazyLock<Script> = LazyLock::new(|| {
+    Script::new(&format!(
+        r#"{NONCE_GUARD_LUA}
+            redis.call('JSON.DEL', KEYS[1])
+            redis.call('ZREM', KEYS[2], ARGV[2])
+            return 1
+        "#
+    ))
+});
+
+/// Script for [`RetryEvent::put_to_index_if_nonce`]. Static so the source
+/// string and its SHA1 are computed once, not on every call.
+static PUT_IF_NONCE_SCRIPT: LazyLock<Script> = LazyLock::new(|| {
+    Script::new(&format!(
+        r#"{NONCE_GUARD_LUA}
+            redis.call('JSON.SET', KEYS[1], '$', ARGV[2])
+            redis.call('ZADD', KEYS[2], ARGV[3], ARGV[4])
+            return 1
+        "#
+    ))
+});
+
 impl RetryEvent {
     /// Creates a new RetryEvent from the source event
     pub fn new(event: &Event, next_retry_at: i64, origin_homeserver_id: impl Into<String>) -> Self {
@@ -121,8 +146,8 @@ impl RetryEvent {
     }
 
     /// Full Redis key of the JSON state entry for `index_key`, matching the
-    /// layout used by [`Self::put_to_index`] (RedisOps prefix + key parts
-    /// joined with ':').
+    /// layout used by the RedisOps helpers (prefix + key parts joined with
+    /// ':').
     fn state_json_key(index_key: &IndexKey) -> String {
         format!(
             "{RETRY_MANAGER_PREFIX}:{}:{}",
@@ -132,27 +157,46 @@ impl RetryEvent {
     }
 
     /// Full Redis key of the events sorted set, matching the layout used by
-    /// [`Self::put_to_index`].
+    /// the RedisOps helpers.
     fn events_sorted_set_key() -> String {
         format!("{RETRY_MANAGER_PREFIX}:{}", RETRY_MANAGER_EVENTS_INDEX[0])
     }
 
     /// Stores an event in both a sorted set and a JSON index in Redis.
     /// The sorted set uses next_retry_at as the score for efficient retrieval of ready events.
+    ///
+    /// Both keys are written in a single MULTI/EXEC transaction. Writing them
+    /// with two separate commands would open a race with the conditional ops:
+    /// a stale [`Self::remove_from_index_if_nonce`] could interleave between
+    /// them, match the old JSON nonce, and delete the sorted-set member this
+    /// enqueue just wrote, leaving JSON state that [`Self::fetch_ready`] never
+    /// returns.
     #[tracing::instrument(name = "retry.index.write", skip_all)]
     pub async fn put_to_index(&self, index_key: &IndexKey) -> RedisResult<()> {
-        // Add to sorted set with next_retry_at as score
-        Self::put_index_sorted_set(
-            &RETRY_MANAGER_EVENTS_INDEX,
-            &[(self.next_retry_at as f64, index_key.as_str())],
-            Some(RETRY_MANAGER_PREFIX),
-            None,
-        )
-        .await?;
+        let payload = serde_json::to_string(self)
+            .map_err(|e| RedisError::SerializationFailed(Box::new(e)))?;
 
-        // Store full RetryEvent struct in JSON
-        let index = &[RETRY_MANAGER_STATE_INDEX[0], index_key.as_str()];
-        self.put_index_json(index, None, None).await
+        let mut pipe = deadpool_redis::redis::pipe();
+        pipe.atomic()
+            // Store full RetryEvent struct in JSON
+            .cmd("JSON.SET")
+            .arg(Self::state_json_key(index_key))
+            .arg("$")
+            .arg(payload)
+            .ignore()
+            // Add to sorted set with next_retry_at as score
+            .cmd("ZADD")
+            .arg(Self::events_sorted_set_key())
+            .arg(self.next_retry_at)
+            .arg(index_key.as_str())
+            .ignore();
+
+        let mut redis_conn = get_redis_conn().await?;
+        let _: () = pipe
+            .query_async(&mut redis_conn)
+            .await
+            .map_err(RedisError::from)?;
+        Ok(())
     }
 
     /// Checks if a specific event exists in the Redis sorted set.
@@ -193,6 +237,12 @@ impl RetryEvent {
     }
 
     /// Removes an event from the retry queue (both sorted set and JSON state)
+    ///
+    /// NOTE: the two removals are not atomic, so a concurrent enqueue for the
+    /// same URI can interleave between them and lose its entry. This is the
+    /// last remaining non-atomic writer of the key pair; the processor only
+    /// removes fetched events via [`Self::remove_from_index_if_nonce`], and
+    /// this baseline primitive currently has no production callers.
     #[tracing::instrument(name = "retry.index.remove", skip_all)]
     pub async fn remove_from_index(index_key: &IndexKey) -> RedisResult<()> {
         // Remove from sorted set
@@ -220,16 +270,8 @@ impl RetryEvent {
         index_key: &IndexKey,
         expected_nonce: i64,
     ) -> RedisResult<bool> {
-        let script = Script::new(&format!(
-            r#"{NONCE_GUARD_LUA}
-            redis.call('JSON.DEL', KEYS[1])
-            redis.call('ZREM', KEYS[2], ARGV[2])
-            return 1
-        "#
-        ));
-
         let mut redis_conn = get_redis_conn().await?;
-        let removed: i64 = script
+        let removed: i64 = REMOVE_IF_NONCE_SCRIPT
             .key(Self::state_json_key(index_key))
             .key(Self::events_sorted_set_key())
             .arg(expected_nonce.to_string())
@@ -255,16 +297,8 @@ impl RetryEvent {
         let payload = serde_json::to_string(self)
             .map_err(|e| RedisError::SerializationFailed(Box::new(e)))?;
 
-        let script = Script::new(&format!(
-            r#"{NONCE_GUARD_LUA}
-            redis.call('JSON.SET', KEYS[1], '$', ARGV[2])
-            redis.call('ZADD', KEYS[2], ARGV[3], ARGV[4])
-            return 1
-        "#
-        ));
-
         let mut redis_conn = get_redis_conn().await?;
-        let updated: i64 = script
+        let updated: i64 = PUT_IF_NONCE_SCRIPT
             .key(Self::state_json_key(index_key))
             .key(Self::events_sorted_set_key())
             .arg(expected_nonce.to_string())
