@@ -20,6 +20,7 @@ use utoipa::OpenApi;
         (status = 200, description = "File Details", body = FileDetails),
         (status = 400, description = "Malformed file URI"),
         (status = 404, description = "File not found"),
+        (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error")
     )
 )]

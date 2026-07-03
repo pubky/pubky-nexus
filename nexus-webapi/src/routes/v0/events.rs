@@ -1,6 +1,6 @@
 use crate::models::BoundedLimit;
 use crate::routes::AppState;
-use nexus_common::models::event::Event;
+use nexus_common::models::event::EventLine;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -52,6 +52,7 @@ pub struct EventsQuery {
             example = "PUT pubky://<pk>/<path>\nDEL pubky://<pk>/<path>\nPUT pubky://<pk>/<path>\ncursor: 2"
         ),
         (status = 400, description = "Bad request"),
+        (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error"),
 
     )
@@ -59,7 +60,7 @@ pub struct EventsQuery {
 pub async fn get_events_handler(Query(q): Query<EventsQuery>) -> Result<Response, Error> {
     let limit = q.limit.as_ref().map_or(500, |l| l.value());
     let cursor = q.cursor;
-    let (events, next_cursor) = Event::get_events_from_redis(cursor, limit).await?;
+    let (events, next_cursor) = EventLine::get_from_index(cursor, limit).await?;
     let event_list = EventsList {
         events,
         cursor: next_cursor,

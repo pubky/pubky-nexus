@@ -15,7 +15,7 @@ use pubky_app_specs::{PubkyAppPost, PubkyAppTag, PubkyAppUser};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_del_tag_post() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     // Step 1: Create a user
     let tagger_kp = Keypair::random();

@@ -17,7 +17,7 @@ use pubky_app_specs::{
 /// decremented again (guarded by the Redis index check).
 #[tokio_shared_rt::test(shared)]
 async fn test_bookmark_del_retry_no_double_decrement() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     // Create post author
     let author_kp = Keypair::random();
@@ -108,7 +108,7 @@ async fn test_bookmark_del_retry_no_double_decrement() -> Result<()> {
 /// After a fully successful delete, a replay of sync_del should return Ok
 #[tokio_shared_rt::test(shared)]
 async fn test_bookmark_del_replay_after_success_skips() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     // Create post author
     let author_kp = Keypair::random();

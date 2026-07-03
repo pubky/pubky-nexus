@@ -19,7 +19,7 @@ const OLD_INDEXED_AT: i64 = 1_000_000;
 /// decremented again (guarded by the tagger set membership check).
 #[tokio_shared_rt::test(shared)]
 async fn test_tag_post_del_retry_no_double_decrement() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     // Create users + post through the watcher (no TAGGED edges)
     let tagger_kp = Keypair::random();
@@ -105,7 +105,7 @@ async fn test_tag_post_del_retry_no_double_decrement() -> Result<()> {
 /// After a fully successful delete, a replay of tag del should return Ok
 #[tokio_shared_rt::test(shared)]
 async fn test_tag_post_del_replay_after_success_skips() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     let tagger_kp = Keypair::random();
     let tagger = PubkyAppUser {

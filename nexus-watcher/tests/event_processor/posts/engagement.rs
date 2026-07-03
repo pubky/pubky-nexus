@@ -9,7 +9,7 @@ use pubky_app_specs::{
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_post_engagement() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     let alice_user_kp = Keypair::random();
 
@@ -104,7 +104,7 @@ async fn test_homeserver_post_engagement() -> Result<()> {
 /// into `POST_TOTAL_ENGAGEMENT`. Guards the `cache_json`-vs-`put_to_index` split.
 #[tokio_shared_rt::test(shared)]
 async fn test_post_counts_read_does_not_seed_engagement() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     let user_kp = Keypair::random();
     let user = PubkyAppUser {

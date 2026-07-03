@@ -1,5 +1,6 @@
 use anyhow::Result;
 use axum::http::StatusCode;
+use nexus_common::models::post::PostDetails;
 use nexus_webapi::models::ErrorResponsePayload;
 use nexus_webapi::routes::v0::endpoints::{
     SEARCH_POSTS_BY_CONTENT_ROUTE, SEARCH_POSTS_BY_TAG_ROUTE,
@@ -262,6 +263,129 @@ async fn test_content_search_skip_over_max_rejected() -> Result<()> {
             || error_response.error.to_lowercase().contains("maximum"),
         "error should mention the maximum offset, got: {}",
         error_response.error
+    );
+    Ok(())
+}
+
+// ── Content-search author-scoping tests ──────────────────────────────────────
+
+// detroit: authored "Open-source solutions build trusty" and "Open-source enables security auditing..."
+const DETROIT_USER: &str = "7w4hmktqa7gia5thmk7zki8px7ttwpwjtgaaaou4tbqx64re8d1o";
+
+#[tokio_shared_rt::test(shared)]
+async fn test_content_search_without_author_returns_multiple_authors() -> Result<()> {
+    // "open" matches all "Open-source …" posts authored by amsterdam, bogota, detroit, and cairo.
+    let url = format!("{SEARCH_POSTS_BY_CONTENT_ROUTE}?q=open&limit=100");
+    let body = get_request(&url).await?;
+    let results = body.as_array().expect("should be array");
+
+    let authors: std::collections::HashSet<&str> = results
+        .iter()
+        .filter_map(|r| r["post_key"].as_str()?.split(':').next())
+        .collect();
+
+    assert!(
+        authors.len() > 1,
+        "unscoped search for 'open' should return posts from more than one author, got: {:?}",
+        authors
+    );
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_content_search_with_author_scopes_to_that_author() -> Result<()> {
+    // Same query but scoped to DETROIT_USER — every result must belong to that author.
+    let url = format!("{SEARCH_POSTS_BY_CONTENT_ROUTE}?q=open&author={DETROIT_USER}&limit=100");
+    let body = get_request(&url).await?;
+    let results = body.as_array().expect("should be array");
+
+    assert!(
+        !results.is_empty(),
+        "author-scoped search for 'open' by detroit should return at least one result"
+    );
+    for r in results {
+        let post_key = r["post_key"].as_str().expect("post_key must be a string");
+        let author = post_key.split(':').next().unwrap_or("");
+        assert_eq!(
+            author, DETROIT_USER,
+            "post_key '{post_key}' does not belong to the expected author"
+        );
+    }
+    Ok(())
+}
+
+// ── Content-search kind-scoping tests ─────────────────────────────────────────
+
+// Seed data: searching "post" matches content across multiple kinds:
+//  long   → "Long post, article A–H"   (authored by amsterdam)
+//  image  → "IMAGE post, SVG A–H"      (authored by amsterdam)
+//  video  → "VIDEO post, mkv A–H"      (authored by detroit/eixample)
+//  file   → "FILE post, pdf A–H"       (authored by bogota/cairo/eixample)
+//  link   → "LINK post, pubky A–H"     (authored by bogota/cairo/eixample)
+// Short posts and collection posts do NOT contain the word "post" in their content.
+
+#[tokio_shared_rt::test(shared)]
+async fn test_content_search_with_kind_scopes_to_that_kind() -> Result<()> {
+    let url = format!("{SEARCH_POSTS_BY_CONTENT_ROUTE}?q=post&kind=video&limit=100");
+    let body = get_request(&url).await?;
+    let results = body.as_array().expect("should be array");
+
+    assert!(
+        !results.is_empty(),
+        "kind-scoped search for 'post' with kind=video should return at least one result"
+    );
+
+    // Verify every returned post actually has kind=video by looking up its details.
+    for r in results.iter() {
+        let post_key = r["post_key"].as_str().expect("post_key must be a string");
+        let (author, post_id) = post_key
+            .split_once(':')
+            .expect("post_key must be author:post_id");
+        let details = PostDetails::get_by_id(author, post_id)
+            .await?
+            .unwrap_or_else(|| panic!("post '{post_key}' not found in index"));
+        assert_eq!(
+            details.kind.to_string(),
+            "video",
+            "post_key '{post_key}' was returned by kind=video filter but has kind={}",
+            details.kind,
+        );
+    }
+
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_content_search_without_kind_returns_multiple_kinds() -> Result<()> {
+    // Same query without kind filter — should return posts from more than one kind.
+    let url = format!("{SEARCH_POSTS_BY_CONTENT_ROUTE}?q=post&limit=100");
+    let body = get_request(&url).await?;
+    let results = body.as_array().expect("should be array");
+
+    assert!(
+        !results.is_empty(),
+        "unscoped search for 'post' should return at least one result"
+    );
+
+    let mut kinds: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for r in results.iter() {
+        let post_key = match r["post_key"].as_str() {
+            Some(pk) => pk,
+            None => continue,
+        };
+        let (author, post_id) = match post_key.split_once(':') {
+            Some(parts) => parts,
+            None => continue,
+        };
+        if let Some(details) = PostDetails::get_by_id(author, post_id).await? {
+            kinds.insert(details.kind.to_string());
+        }
+    }
+
+    assert!(
+        kinds.len() > 1,
+        "unscoped search for 'post' should return posts from more than one kind, got: {:?}",
+        kinds
     );
     Ok(())
 }

@@ -14,7 +14,7 @@ use pubky_app_specs::{PubkyAppTag, PubkyAppUser};
 /// Test the full DEL cycle: PUT → DEL → verify Resource node is cleaned up
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_del_resource_tag() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     let user_kp = Keypair::random();
     let user = PubkyAppUser {
@@ -83,7 +83,7 @@ async fn test_homeserver_del_resource_tag() -> Result<()> {
 /// Test PUT → DEL → re-PUT cycle (like post_put.rs unique count test)
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_resource_tag_put_del_reput() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     let user_kp = Keypair::random();
     let user = PubkyAppUser {

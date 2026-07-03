@@ -8,7 +8,7 @@ use pubky_app_specs::PubkyAppUser;
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_sequential_follow() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     // Create followee
     let followee_kp = Keypair::random();

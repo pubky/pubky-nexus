@@ -2,8 +2,8 @@ use crate::event_processor::users::utils::find_user_details;
 use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
 use nexus_common::db::RedisOps;
-use nexus_common::models::event::EventProcessorError;
 use nexus_common::models::user::{UserCounts, UserDetails, UserSearch};
+use nexus_watcher::errors::EventProcessorError;
 use nexus_watcher::events::handlers::user;
 use pubky::Keypair;
 use pubky_app_specs::{PubkyAppUser, PubkyId};
@@ -12,7 +12,7 @@ use pubky_app_specs::{PubkyAppUser, PubkyId};
 /// and leaves no stale data behind.
 #[tokio_shared_rt::test(shared)]
 async fn test_user_del_idempotent() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     // Create a user with no relationships
     let user_kp = Keypair::random();
@@ -69,7 +69,7 @@ async fn test_user_del_idempotent() -> Result<()> {
 /// CreatedOrDeleted, clean remaining stale Redis data, and delete graph last.
 #[tokio_shared_rt::test(shared)]
 async fn test_user_del_graph_last_recovery() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     // Create a user with no relationships
     let user_kp = Keypair::random();

@@ -1,27 +1,27 @@
-use crate::events::retry::event::RetryEvent;
 use crate::events::EventProcessorError;
 
 use nexus_common::db::queries::get::post_is_safe_to_delete;
 use nexus_common::db::{exec_single_row, execute_graph_operation, OperationOutcome};
 use nexus_common::db::{queries, RedisOps};
-use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::notification::{Notification, PostChangedSource, PostChangedType};
 use nexus_common::models::post::{
     PostCounts, PostDetails, PostRelationships, PostStream, POST_TOTAL_ENGAGEMENT_KEY_PARTS,
 };
-use nexus_common::models::user::UserCounts;
+use nexus_common::models::user::{UserCounts, UserIngestor};
 use pubky_app_specs::{
-    post_uri_builder, ParsedUri, PubkyAppPost, PubkyAppPostKind, PubkyId, Resource,
+    post_uri_builder, ParsedUri, PubkyAppCollectionContent, PubkyAppPost, PubkyAppPostKind,
+    PubkyId, Resource,
 };
 use tracing::{debug, Instrument};
 
-use super::utils::{post_is_collection, post_relationships_is_reply};
+use super::utils::{fail_on_blacklisted_hs, post_is_collection, post_relationships_is_reply};
 
 #[tracing::instrument(name = "post.put", skip_all, fields(user_id = %author_id, post_id = %post_id))]
 pub async fn sync_put(
     post: PubkyAppPost,
     author_id: PubkyId,
     post_id: String,
+    ingestor: &UserIngestor,
 ) -> Result<(), EventProcessorError> {
     debug!("Indexing new post: {}/{}", author_id, post_id);
     // Create PostDetails object
@@ -38,24 +38,29 @@ pub async fn sync_put(
         OperationOutcome::MissingDependency => {
             let mut dependency_event_keys = Vec::new();
             if let Some(replied_to_uri) = &post_relationships.replied {
-                let reply_dependency = RetryEvent::generate_index_key_from_uri(replied_to_uri);
-                dependency_event_keys.push(reply_dependency);
+                let replied_uri_str = replied_to_uri
+                    .try_to_uri_str()
+                    .map_err(EventProcessorError::generic)?;
+                dependency_event_keys.push(replied_uri_str);
 
-                if let Err(e) = Homeserver::maybe_ingest_for_post(replied_to_uri).await {
-                    tracing::error!("Failed to ingest homeserver: {e}");
-                }
+                // Drop the reply (non-retryable) if the replied-to post's author is on a blacklisted HS.
+                fail_on_blacklisted_hs(ingestor.maybe_ingest_author_of_post(replied_to_uri).await)?;
             }
             if let Some(reposted_uri) = &post_relationships.reposted {
-                let reply_dependency = RetryEvent::generate_index_key_from_uri(reposted_uri);
-                dependency_event_keys.push(reply_dependency);
+                let reposted_uri_str = reposted_uri
+                    .try_to_uri_str()
+                    .map_err(EventProcessorError::generic)?;
+                dependency_event_keys.push(reposted_uri_str);
 
-                if let Err(e) = Homeserver::maybe_ingest_for_post(reposted_uri).await {
-                    tracing::error!("Failed to ingest homeserver: {e}");
-                }
+                // Drop the repost (non-retryable) if the reposted post's author is on a blacklisted HS.
+                fail_on_blacklisted_hs(ingestor.maybe_ingest_author_of_post(reposted_uri).await)?;
             }
             if dependency_event_keys.is_empty() {
-                let key = RetryEvent::generate_index_key_from_uri(&author_id.to_uri());
-                dependency_event_keys.push(key);
+                let author_uri = author_id
+                    .to_uri()
+                    .try_to_uri_str()
+                    .map_err(EventProcessorError::generic)?;
+                dependency_event_keys.push(author_uri);
             }
             return Err(EventProcessorError::missing_dependencies(
                 dependency_event_keys,
@@ -76,7 +81,14 @@ pub async fn sync_put(
                 if existing_details.is_different_than(&post_details)
                     || was_collection != is_collection
                 {
-                    sync_edit(post, author_id.clone(), post_id.clone(), post_details).await?;
+                    sync_edit(
+                        &post,
+                        author_id.clone(),
+                        post_id.clone(),
+                        post_details,
+                        ingestor,
+                    )
+                    .await?;
                 }
                 match (was_collection, is_collection) {
                     (false, true) => UserCounts::increment(&author_id, "collections", None).await?,
@@ -108,11 +120,15 @@ pub async fn sync_put(
 
     // We only consider the first mentioned (tagged) user, to mitigate DoS attacks against Nexus
     // whereby posts with many (inexistent) tagged PKs can cause Nexus to spend a lot of time trying to resolve them
-    if let Some(mentioned_user_id) = post_relationships.mentioned.first() {
-        if let Err(e) = Homeserver::maybe_ingest_for_user(mentioned_user_id).await {
-            tracing::error!("Failed to ingest homeserver: {e}");
+    if let Some(mentioned_user_id) = &post_relationships.mentioned.first() {
+        // Best-effort: failures (incl. a blacklisted HS) must not fail the post itself,
+        // which is indexed regardless; the MENTIONED edge is simply not materialized.
+        if let Err(e) = ingestor.maybe_ingest_user(mentioned_user_id).await {
+            tracing::warn!("Failed to ingest user {mentioned_user_id}: {e}");
         }
     }
+
+    ingest_collection_item_authors(&post, ingestor).await;
 
     // SAVE TO INDEX - PHASE 1, update post counts
     let indexing_results = nexus_common::traced_join!(
@@ -330,16 +346,20 @@ async fn recover_post_index_state(
 }
 
 async fn sync_edit(
-    post: PubkyAppPost,
+    post: &PubkyAppPost,
     author_id: PubkyId,
     post_id: String,
     post_details: PostDetails,
+    ingestor: &UserIngestor,
 ) -> Result<(), EventProcessorError> {
     // Construct the URI of the post that changed
     let changed_uri = post_uri_builder(author_id.to_string(), post_id.clone());
 
     // Update content of PostDetails!
     post_details.put_to_index(&author_id, None, true).await?;
+
+    // Re-run on edits; `maybe_ingest_user` is a no-op for already-known users.
+    ingest_collection_item_authors(post, ingestor).await;
 
     // Notifications
     // Determine the change type
@@ -353,12 +373,12 @@ async fn sync_edit(
     Notification::changed_post(&author_id, &post_id, &changed_uri, &change_type).await?;
 
     // Handle "A reply to your post was edited/deleted"
-    if let Some(parent) = post.parent {
+    if let Some(parent) = &post.parent {
         let parsed_parent =
             ParsedUri::try_from(parent.as_str()).map_err(EventProcessorError::generic)?;
         Notification::post_children_changed(
             &author_id,
-            &parent,
+            parent,
             &parsed_parent.user_id,
             &changed_uri,
             PostChangedSource::Reply,
@@ -399,9 +419,7 @@ async fn put_mentioned_relationships_for_prefix(
     for pubky_id in find_mentioned_ids(content, prefix) {
         // Create the MENTIONED relationship in the graph
         let query = queries::put::create_mention_relationship(author_id, post_id, &pubky_id);
-        exec_single_row(query)
-            .await
-            .map_err(EventProcessorError::graph_query_failed)?;
+        exec_single_row(query).await?;
 
         let maybe_mentioned_id = Notification::new_mention(author_id, &pubky_id, post_id).await?;
         if let Some(mentioned_user_id) = maybe_mentioned_id {
@@ -443,8 +461,38 @@ async fn merge_mention_edges(
     Ok(())
 }
 
+/// Best-effort ingestion of the user of every URI in a Collection's
+/// `items` envelope. No-op for non-Collection posts; failures (malformed URI,
+/// blacklisted HS) are logged and skipped so the Collection is still indexed.
+async fn ingest_collection_item_authors(post: &PubkyAppPost, ingestor: &UserIngestor) {
+    if post.kind != PubkyAppPostKind::Collection {
+        return;
+    }
+    let Ok(envelope) = serde_json::from_str::<PubkyAppCollectionContent>(&post.content) else {
+        tracing::warn!("Collection user ingestion: unparseable content envelope, skipping");
+        return;
+    };
+
+    for item_uri in &envelope.items {
+        match ParsedUri::try_from(item_uri.as_str()) {
+            Ok(parsed) => {
+                if let Err(e) = ingestor.maybe_ingest_user(&parsed.user_id).await {
+                    tracing::warn!("Failed to ingest collection item author {item_uri}: {e}");
+                }
+            }
+            Err(e) => {
+                tracing::warn!("Collection user ingestion: skipping malformed item {item_uri}: {e}")
+            }
+        }
+    }
+}
+
 #[tracing::instrument(name = "post.del", skip_all, fields(user_id = %author_id, post_id = %post_id))]
-pub async fn del(author_id: PubkyId, post_id: String) -> Result<(), EventProcessorError> {
+pub async fn del(
+    author_id: PubkyId,
+    post_id: String,
+    ingestor: &UserIngestor,
+) -> Result<(), EventProcessorError> {
     debug!("Deleting post: {}/{}", author_id, post_id);
 
     // Graph query to check if there is any edge at all to this post other than AUTHORED, is a reply or is a repost.
@@ -453,10 +501,7 @@ pub async fn del(author_id: PubkyId, post_id: String) -> Result<(), EventProcess
     // If there is none other relationship (OperationOutcome::CreatedOrDeleted), we delete from graph and redis.
     // But if there is any (OperationOutcome::Updated), then we simply update the post with keyword content [DELETED].
     // A deleted post is a post whose content is EXACTLY `"[DELETED]"`
-    match execute_graph_operation(query)
-        .await
-        .map_err(EventProcessorError::graph_query_failed)?
-    {
+    match execute_graph_operation(query).await? {
         OperationOutcome::CreatedOrDeleted => sync_del(author_id, post_id).await?,
         OperationOutcome::Updated => {
             let existing_relationships = PostRelationships::get_by_id(&author_id, &post_id).await?;
@@ -473,7 +518,9 @@ pub async fn del(author_id: PubkyId, post_id: String) -> Result<(), EventProcess
                 attachments: None,
             };
 
-            sync_put(dummy_deleted_post, author_id, post_id).await?;
+            // The tombstone keeps the `parent` of a deleted reply, so re-PUT may
+            // still ingest the parent's author; pass on ingestor to enforce the real blacklist.
+            sync_put(dummy_deleted_post, author_id, post_id, ingestor).await?;
         }
         OperationOutcome::MissingDependency => return Err(EventProcessorError::SkipIndexing),
     };

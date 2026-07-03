@@ -90,6 +90,20 @@ impl UserDetails {
         Ok(details_collection.into_iter().flatten().next())
     }
 
+    /// Creates a minimal `UserDetails` with only the public key.
+    /// All profile fields (bio, links, status, image) default to `None`.
+    pub fn from_pubky(user_id: PubkyId) -> Self {
+        UserDetails {
+            name: user_id.to_string(),
+            id: user_id.clone(),
+            indexed_at: Utc::now().timestamp_millis(),
+            bio: None,
+            links: None,
+            status: None,
+            image: None,
+        }
+    }
+
     pub fn from_homeserver(homeserver_user: PubkyAppUser, user_id: &PubkyId) -> Self {
         UserDetails {
             name: homeserver_user.name,
@@ -110,6 +124,16 @@ impl UserDetails {
 
         Ok(())
     }
+}
+
+/// Binds a user to their homeserver, recording the `HOSTED_BY` relationship and `resolved_at`.
+pub async fn set_user_homeserver(user_id: &str, homeserver_id: &str) -> GraphResult<()> {
+    exec_single_row(queries::put::set_user_homeserver(user_id, homeserver_id)).await
+}
+
+/// Toggles the stale flag on a user's existing homeserver mapping.
+pub async fn set_user_homeserver_stale(user_id: &str, stale: bool) -> GraphResult<()> {
+    exec_single_row(queries::put::set_user_homeserver_stale(user_id, stale)).await
 }
 
 #[cfg(test)]

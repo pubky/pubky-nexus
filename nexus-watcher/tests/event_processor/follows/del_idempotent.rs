@@ -18,7 +18,7 @@ use pubky_app_specs::{PubkyAppUser, PubkyId};
 /// negative counts or corrupt indexes.
 #[tokio_shared_rt::test(shared)]
 async fn test_follow_del_idempotent() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     // Create follower
     let follower_kp = Keypair::random();
@@ -116,7 +116,7 @@ async fn test_follow_del_idempotent() -> Result<()> {
 /// counters exactly once (from 1 to 0), not double-decrement.
 #[tokio_shared_rt::test(shared)]
 async fn test_follow_del_recovers_stale_indexes() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     // Create follower
     let follower_kp = Keypair::random();
@@ -215,7 +215,7 @@ async fn test_follow_del_recovers_stale_indexes() -> Result<()> {
 /// the friends counter for either user.
 #[tokio_shared_rt::test(shared)]
 async fn test_follow_del_friends_idempotent() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     // Create user A
     let a_kp = Keypair::random();

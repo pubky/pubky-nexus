@@ -29,9 +29,7 @@ fn create_small_blob() -> PubkyAppBlob {
 #[tokio_shared_rt::test(shared)]
 async fn test_small_file_written_to_disk() -> Result<()> {
     // Arrange: use the same tiny cap, but a blob that fits
-    let mut test = WatcherTest::setup()
-        .await?
-        .with_max_file_size(TINY_MAX_FILE_SIZE);
+    let mut test = WatcherTest::setup(Some(TINY_MAX_FILE_SIZE)).await?;
 
     let user_kp = Keypair::random();
     let user = PubkyAppUser {
@@ -91,9 +89,7 @@ async fn test_small_file_written_to_disk() -> Result<()> {
 #[tokio_shared_rt::test(shared)]
 async fn test_rejected_file_not_written_to_disk() -> Result<()> {
     // Arrange: set a tiny max_file_size so the blob is oversized
-    let mut test = WatcherTest::setup()
-        .await?
-        .with_max_file_size(TINY_MAX_FILE_SIZE);
+    let mut test = WatcherTest::setup(Some(TINY_MAX_FILE_SIZE)).await?;
 
     let user_kp = Keypair::random();
     let user = PubkyAppUser {
@@ -152,9 +148,7 @@ async fn test_rejected_file_not_written_to_disk() -> Result<()> {
 #[tokio_shared_rt::test(shared)]
 async fn test_ingestion_continues_after_rejection() -> Result<()> {
     // Arrange: set a tiny max_file_size so the blob is oversized
-    let mut test = WatcherTest::setup()
-        .await?
-        .with_max_file_size(TINY_MAX_FILE_SIZE);
+    let mut test = WatcherTest::setup(Some(TINY_MAX_FILE_SIZE)).await?;
 
     let user_kp = Keypair::random();
     let user = PubkyAppUser {

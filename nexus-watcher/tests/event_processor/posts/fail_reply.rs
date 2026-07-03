@@ -7,7 +7,7 @@ use tracing::error;
 /// The user profile is stored in the homeserver and synched in the graph, but the posts just exist in the homeserver
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_post_reply_without_post_parent() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     let author_user_kp = Keypair::random();
     let author = PubkyAppUser {
@@ -52,8 +52,8 @@ async fn test_homeserver_post_reply_without_post_parent() -> Result<()> {
     // Simulate the event processor to handle the event.
     // If the event processor were activated, the test would not catch the missing dependency
     // error, and it would pass successfully
-    let moderation_ref = test.event_processor_runner.moderation.clone();
-    let sync_fail = retrieve_and_handle_event_line(&post_event, moderation_ref)
+    let event_handler = test.event_processor_runner.event_handler.clone();
+    let sync_fail = retrieve_and_handle_event_line(&post_event, event_handler)
         .await
         .map_err(|e| error!("SYNC ERROR: {:?}", e))
         .is_err();

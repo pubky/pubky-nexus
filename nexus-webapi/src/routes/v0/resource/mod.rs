@@ -11,9 +11,10 @@ use crate::{Error, Result};
 use axum::routing::get;
 use axum::{Json, Router};
 use nexus_common::models::resource::tag::TagResource;
-use nexus_common::models::resource::{normalize_uri, resource_id, ResourceDetails};
+use nexus_common::models::resource::ResourceDetails;
 use nexus_common::models::tag::traits::{TagCollection, TaggersCollection};
 use nexus_common::models::tag::TagDetails;
+use nexus_common::universal_tag::normalize::{normalize_uri, resource_id};
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 use utoipa::{OpenApi, ToSchema};
@@ -72,6 +73,7 @@ pub struct ResourceByUriQuery {
         (status = 400, description = "Invalid parameters"),
         (status = 404, description = "Resource not found"),
         (status = 200, description = "Resource tags with metadata", body = ResourceTagsResponse),
+        (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error")
     )
 )]
@@ -115,6 +117,7 @@ pub async fn resource_tags_handler(
         (status = 404, description = "Resource not found"),
         (status = 200, description = "Resource tags with metadata", body = ResourceTagsResponse),
         (status = 400, description = "Invalid URI"),
+        (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error")
     )
 )]
@@ -171,6 +174,7 @@ pub struct ResourceTaggersPath {
     responses(
         (status = 400, description = "Invalid parameters"),
         (status = 200, description = "Resource taggers", body = TaggersInfoResponse),
+        (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error")
     )
 )]

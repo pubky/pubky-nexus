@@ -1,19 +1,20 @@
-use crate::events::retry::event::RetryEvent;
 use crate::events::EventProcessorError;
 
 use nexus_common::db::kv::JsonAction;
 use nexus_common::db::OperationOutcome;
 use nexus_common::models::follow::{Followers, Following, Friends, UserFollows};
-use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::notification::Notification;
-use nexus_common::models::user::UserCounts;
+use nexus_common::models::user::{UserCounts, UserIngestor};
 use pubky_app_specs::PubkyId;
 use tracing::debug;
+
+use super::utils::fail_on_blacklisted_hs;
 
 #[tracing::instrument(name = "follow.put", skip_all, fields(follower_id = %follower_id, followee_id = %followee_id))]
 pub async fn sync_put(
     follower_id: PubkyId,
     followee_id: PubkyId,
+    ingestor: &UserIngestor,
 ) -> Result<(), EventProcessorError> {
     debug!("Indexing new follow: {} -> {}", follower_id, followee_id);
     // SAVE TO GRAPH
@@ -36,12 +37,14 @@ pub async fn sync_put(
             return Ok(());
         }
         OperationOutcome::MissingDependency => {
-            if let Err(e) = Homeserver::maybe_ingest_for_user(&followee_id).await {
-                tracing::error!("Failed to ingest homeserver: {e}");
-            }
+            // Drop the follow (non-retryable) if the followee's HS is blacklisted.
+            fail_on_blacklisted_hs(ingestor.maybe_ingest_user(&followee_id).await)?;
 
-            let key = RetryEvent::generate_index_key_from_uri(&followee_id.to_uri());
-            let dependency = vec![key];
+            let followee_uri = followee_id
+                .to_uri()
+                .try_to_uri_str()
+                .map_err(EventProcessorError::generic)?;
+            let dependency = vec![followee_uri];
             return Err(EventProcessorError::MissingDependency { dependency });
         }
         // The relationship did not exist, create all related indexes

@@ -7,7 +7,7 @@ use pubky_app_specs::{PubkyAppPost, PubkyAppPostKind, PubkyAppUser};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_mentions() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     // Create first user (author)
     let author_user_kp = Keypair::random();

@@ -8,7 +8,7 @@ use pubky_app_specs::PubkyAppUser;
 
 #[tokio_shared_rt::test(shared)]
 async fn test_delete_user_without_relationships() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     // Create a new user without any relationships
     let user_kp = Keypair::random();

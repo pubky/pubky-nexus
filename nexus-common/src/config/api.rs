@@ -26,6 +26,56 @@ const fn default_max_body_size_bytes() -> usize {
     DEFAULT_MAX_BODY_SIZE_BYTES
 }
 
+/// Per-bucket rate limiting configuration
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+pub struct RateLimitBucketConfig {
+    /// Maximum requests per minute
+    pub rate: u32,
+    /// Maximum burst size
+    pub burst: u32,
+}
+
+fn default_default_bucket() -> RateLimitBucketConfig {
+    RateLimitBucketConfig {
+        rate: 300,
+        burst: 50,
+    }
+}
+
+fn default_expensive_bucket() -> RateLimitBucketConfig {
+    RateLimitBucketConfig { rate: 20, burst: 5 }
+}
+
+/// Rate limiting configuration for the API
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+pub struct RateLimitConfig {
+    /// Whether rate limiting is enabled (default: false for permissiveness behind NATs)
+    #[serde(default)]
+    pub enabled: bool,
+    /// Default bucket config for standard endpoints
+    #[serde(default = "default_default_bucket")]
+    pub default_bucket: RateLimitBucketConfig,
+    /// Expensive bucket config for high-cost endpoints
+    #[serde(default = "default_expensive_bucket")]
+    pub expensive_bucket: RateLimitBucketConfig,
+    /// When true, forwarded-IP headers (X-Forwarded-For / X-Real-IP) are trusted for
+    /// real-IP extraction. Only enable behind a known reverse proxy; never in direct-to-internet
+    /// deployments (clients can spoof these headers).
+    #[serde(default)]
+    pub trust_proxy_headers: bool,
+}
+
+impl Default for RateLimitConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            default_bucket: default_default_bucket(),
+            expensive_bucket: default_expensive_bucket(),
+            trust_proxy_headers: false,
+        }
+    }
+}
+
 /// Configuration settings for the Nexus API service
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ApiConfig {
@@ -41,6 +91,8 @@ pub struct ApiConfig {
     pub max_body_size_bytes: usize,
     #[serde(default = "default_stack")]
     pub stack: StackConfig,
+    #[serde(default)]
+    pub rate_limit: RateLimitConfig,
 }
 
 impl Default for ApiConfig {
@@ -52,6 +104,7 @@ impl Default for ApiConfig {
             request_timeout_secs: DEFAULT_REQUEST_TIMEOUT_SECS,
             max_body_size_bytes: DEFAULT_MAX_BODY_SIZE_BYTES,
             stack: StackConfig::default(),
+            rate_limit: RateLimitConfig::default(),
         }
     }
 }
