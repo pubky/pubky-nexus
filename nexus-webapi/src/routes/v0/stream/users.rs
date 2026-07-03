@@ -50,6 +50,7 @@ pub struct UserStreamQuery {
     responses(
         (status = 200, description = "Users stream", body = UserStream),
         (status = 400, description = "Invalid parameters"),
+        (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error")
     ),
     description = r#"Stream Users: Retrieve a stream of users.
@@ -98,6 +99,7 @@ pub async fn stream_users_handler(
     responses(
         (status = 200, description = "User IDs stream", body = UserIdStream),
         (status = 400, description = "Invalid parameters"),
+        (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error")
     ),
     description = r#"Stream User IDs: Retrieve a stream of user identifiers.
@@ -148,6 +150,7 @@ pub struct UserStreamSearchQuery {
     responses(
         (status = 200, description = "Username search stream", body = UserStream),
         (status = 400, description = "Bad Request"),
+        (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error")
     )
 )]
@@ -193,6 +196,7 @@ pub struct UserStreamByIdsRequest {
     request_body = UserStreamByIdsRequest,
     responses(
         (status = 200, description = "Users stream", body = UserStream),
+        (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error")
     )
 )]

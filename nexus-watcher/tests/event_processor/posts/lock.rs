@@ -14,7 +14,7 @@ use pubky_app_specs::{
 /// cache, and an unlocked post must read back as `None` in both.
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_post_lock_roundtrip() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     let user_kp = Keypair::random();
     let user = PubkyAppUser {
@@ -76,7 +76,7 @@ async fn test_homeserver_post_lock_roundtrip() -> Result<()> {
 /// while a subsequent content edit still does.
 #[tokio_shared_rt::test(shared)]
 async fn test_lock_only_edit_sends_no_notification() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     let author_kp = Keypair::random();
     let author = PubkyAppUser {

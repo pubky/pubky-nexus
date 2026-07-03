@@ -29,6 +29,7 @@ pub struct SearchQuery {
     responses(
         (status = 200, description = "Search results", body = UserSearch),
         (status = 400, description = "Invalid parameters"),
+        (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error")
     )
 )]
@@ -59,6 +60,7 @@ pub async fn search_users_by_name_handler(
     responses(
         (status = 200, description = "Search results", body = UserSearch),
         (status = 400, description = "Invalid parameters"),
+        (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error")
     )
 )]

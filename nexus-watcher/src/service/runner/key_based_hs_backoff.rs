@@ -8,7 +8,7 @@ struct BackoffState {
     backoff_until: Instant,
 }
 
-/// Tracks per-homeserver failure counts and exponential backoff windows.
+/// Tracks per-HS failure counts and exponential backoff windows.
 pub struct HomeserverBackoff {
     initial_backoff_secs: u64,
     max_backoff_secs: u64,

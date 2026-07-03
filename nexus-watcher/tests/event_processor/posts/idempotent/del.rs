@@ -5,7 +5,8 @@ use crate::event_processor::posts::utils::{
 use crate::event_processor::users::utils::find_user_counts;
 use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
-use nexus_common::models::event::EventProcessorError;
+use nexus_common::utils::test_utils::default_ingestor_tests;
+use nexus_watcher::errors::EventProcessorError;
 use nexus_watcher::events::handlers;
 use pubky::Keypair;
 use pubky_app_specs::post_uri_builder;
@@ -18,7 +19,7 @@ use super::{simulate_partial_del_cleanup_child, simulate_partial_del_cleanup_roo
 /// (no double-decrement), and finally delete the graph node.
 #[tokio_shared_rt::test(shared)]
 async fn test_post_del_recovers_after_partial_redis_cleanup() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     let user_kp = Keypair::random();
     let user_id = test
@@ -50,7 +51,12 @@ async fn test_post_del_recovers_after_partial_redis_cleanup() -> Result<()> {
 
     // Retry through the public entry point: post::del re-checks
     // post_is_safe_to_delete and dispatches into sync_del again.
-    handlers::post::del(pubky_id(&user_id)?, post_id.clone()).await?;
+    handlers::post::del(
+        pubky_id(&user_id)?,
+        post_id.clone(),
+        &default_ingestor_tests(),
+    )
+    .await?;
 
     // Final state: graph node gone (retry ran its sole remaining step — the
     // graph delete), count NOT double-decremented (still 0, not -1 — retry
@@ -66,7 +72,7 @@ async fn test_post_del_recovers_after_partial_redis_cleanup() -> Result<()> {
 /// MissingDependency (mapped to SkipIndexing) without corrupting state.
 #[tokio_shared_rt::test(shared)]
 async fn test_post_del_replay_after_full_success_skips() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     let user_kp = Keypair::random();
     let user_id = test
@@ -90,7 +96,12 @@ async fn test_post_del_replay_after_full_success_skips() -> Result<()> {
 
     // Replay: graph is gone, post_is_safe_to_delete returns no rows ->
     // MissingDependency -> SkipIndexing.
-    let result = handlers::post::del(pubky_id(&user_id)?, post_id.clone()).await;
+    let result = handlers::post::del(
+        pubky_id(&user_id)?,
+        post_id.clone(),
+        &default_ingestor_tests(),
+    )
+    .await;
     assert!(
         matches!(result, Err(EventProcessorError::SkipIndexing)),
         "Replay after full delete should return SkipIndexing, got: {result:?}"
@@ -109,7 +120,7 @@ async fn test_post_del_replay_after_full_success_skips() -> Result<()> {
 /// count MUST NOT be double-mutated on retry.
 #[tokio_shared_rt::test(shared)]
 async fn test_post_del_reply_recovers_without_double_decrement() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     // Parent author (Alice).
     let alice_kp = Keypair::random();
@@ -165,7 +176,12 @@ async fn test_post_del_reply_recovers_without_double_decrement() -> Result<()> {
         .await?;
 
     // Retry through the public entry point.
-    handlers::post::del(pubky_id(&bob_id)?, reply_id.clone()).await?;
+    handlers::post::del(
+        pubky_id(&bob_id)?,
+        reply_id.clone(),
+        &default_ingestor_tests(),
+    )
+    .await?;
 
     // Reply graph node gone; parent reply count NOT decremented again.
     assert!(find_post_details(&bob_id, &reply_id).await.is_err());
@@ -202,7 +218,7 @@ async fn test_post_del_reply_recovers_without_double_decrement() -> Result<()> {
 /// repost-deletion notification.
 #[tokio_shared_rt::test(shared)]
 async fn test_post_del_repost_recovers_without_double_decrement() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     // Parent author (Alice).
     let alice_kp = Keypair::random();
@@ -262,7 +278,12 @@ async fn test_post_del_repost_recovers_without_double_decrement() -> Result<()> 
     .await?;
 
     // Retry through the public entry point.
-    handlers::post::del(pubky_id(&bob_id)?, repost_id.clone()).await?;
+    handlers::post::del(
+        pubky_id(&bob_id)?,
+        repost_id.clone(),
+        &default_ingestor_tests(),
+    )
+    .await?;
 
     // Repost graph node gone; parent repost count NOT decremented again.
     assert!(find_post_details(&bob_id, &repost_id).await.is_err());

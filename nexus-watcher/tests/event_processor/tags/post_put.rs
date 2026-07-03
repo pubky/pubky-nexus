@@ -7,7 +7,7 @@ use crate::event_processor::users::utils::find_user_counts;
 use crate::event_processor::utils::watcher::{HomeserverHashIdPath, WatcherTest};
 use anyhow::Result;
 use chrono::Utc;
-use nexus_common::models::event::Event;
+use nexus_common::models::event::EventLine;
 use nexus_common::models::notification::Notification;
 use nexus_common::models::post::PostDetails;
 use nexus_common::models::tag::post::TagPost;
@@ -20,7 +20,7 @@ use pubky_app_specs::{PubkyAppPost, PubkyAppTag, PubkyAppUser};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_put_tag_post() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     // Step 1: Create a user
     let user_kp = Keypair::random();
@@ -55,7 +55,7 @@ async fn test_homeserver_put_tag_post() -> Result<()> {
     };
     let tag_path = tag.hs_path();
 
-    let (_, events_in_redis_before) = Event::get_events_from_redis(None, 1000).await.unwrap();
+    let (_, events_in_redis_before) = EventLine::get_from_index(None, 1000).await.unwrap();
     // Put tag
     test.put(&user_kp, &tag_path, tag).await?;
 
@@ -72,7 +72,7 @@ async fn test_homeserver_put_tag_post() -> Result<()> {
     assert_eq!(post_tag.taggers[0], tagger_user_id);
 
     // CACHE_OP: Check if the tag is correctly cached
-    let (_, events_in_redis_after) = Event::get_events_from_redis(None, 1000).await.unwrap();
+    let (_, events_in_redis_after) = EventLine::get_from_index(None, 1000).await.unwrap();
     assert!(events_in_redis_after > events_in_redis_before);
     let cache_post_tag = TagPost::get_from_index(
         &tagger_user_id,
@@ -162,7 +162,7 @@ async fn test_homeserver_put_tag_post() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_put_tag_post_unique_count() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     // Create a user
     let tagger_kp = Keypair::random();
@@ -227,7 +227,7 @@ async fn test_homeserver_put_tag_post_unique_count() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_put_tag_user_unique_count() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     // Create a user
     let tagger_kp = Keypair::random();

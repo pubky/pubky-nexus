@@ -11,7 +11,7 @@ use pubky_app_specs::{
 
 #[tokio_shared_rt::test(shared)]
 async fn test_delete_post_that_reposted_notification() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     // Create a user who posts
     let poster_kp = Keypair::random();

@@ -13,7 +13,7 @@ use pubky_app_specs::{
 
 #[tokio_shared_rt::test(shared)]
 async fn test_delete_user_with_relationships() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     // Create a new user
     let user_kp = Keypair::random();
@@ -244,7 +244,7 @@ async fn test_delete_user_with_relationships() -> Result<()> {
 /// - ensure that user is not recommended anymore in that list
 #[tokio_shared_rt::test(shared)]
 async fn test_delete_recommended_user() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     let fn_create_user =
         async |test: &mut WatcherTest, keypair: &Keypair, name: &str| -> Result<String> {

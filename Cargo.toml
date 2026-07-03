@@ -10,7 +10,7 @@ members = [
 ]
 
 [workspace.dependencies]
-anyhow = "1.0.102"
+anyhow = "1.0.103"
 blake3 = "1"
 hex = "0.4"
 async-trait = "0.1.89"
@@ -22,11 +22,9 @@ neo4rs = "0.8.0"
 redis = "1.0.4"
 opentelemetry = "0.32"
 opentelemetry_sdk = { version = "0.32", features = ["rt-tokio"] }
-pubky = "0.9.1"
-# TODO: switch back to version = "0.6.0" once published to crates.io.
-# Pinned to an immutable rev (feat/locks tip) for reproducible builds until then.
-pubky-app-specs = { git = "https://github.com/pubky/pubky-app-specs", rev = "1ba87c05cbdb9b7a5df3b05358d1a8cff3257d9b", features = ["openapi"] }
-pubky-testnet = "0.9.1"
+pubky = "0.9.3"
+pubky-app-specs = { version = "0.6.0", features = ["openapi"] }
+pubky-testnet = "0.9.3"
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.149"
 tempfile = "3.25"

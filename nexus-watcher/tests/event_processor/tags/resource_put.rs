@@ -15,7 +15,7 @@ use pubky_app_specs::{PubkyAppTag, PubkyAppUser};
 /// and verify the Resource node is created in Neo4j with correct Redis indexes.
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_put_resource_tag_external_uri() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     // Create a tagger user
     let user_kp = Keypair::random();
@@ -135,7 +135,7 @@ async fn test_homeserver_put_resource_tag_external_uri() -> Result<()> {
 /// Test tagging a pubky:// URI that is NOT a known Post/User (Internal-Unknown)
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_put_resource_tag_internal_unknown() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     let user_kp = Keypair::random();
     let user = PubkyAppUser {

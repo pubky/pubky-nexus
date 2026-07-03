@@ -9,7 +9,7 @@ use pubky_app_specs::{post_uri_builder, PubkyAppPost, PubkyAppPostKind, PubkyApp
 
 #[tokio_shared_rt::test(shared)]
 async fn test_delete_parent_post_notification() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     // Create User A who makes the original post
     let user_a_kp = Keypair::random();

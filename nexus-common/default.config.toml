@@ -11,6 +11,21 @@ request_timeout_secs = 30
 # Maximum size (in bytes) accepted for a request body
 max_body_size_bytes = 1048576
 
+[api.rate_limit]
+# Enable rate limiting (disabled by default for permissiveness behind NATs)
+enabled = false
+# Trust forwarded-IP headers (X-Forwarded-For / X-Real-IP) for real-IP extraction.
+# Only enable behind a known reverse proxy — clients can spoof these headers otherwise.
+# trust_proxy_headers = false
+# Default bucket for standard endpoints (300 req/min, burst 50)
+[api.rate_limit.default_bucket]
+rate = 300
+burst = 50
+# Expensive bucket for high-cost endpoints (20 req/min, burst 5)
+[api.rate_limit.expensive_bucket]
+rate = 20
+burst = 5
+
 [watcher]
 testnet = false
 # testnet host, leave as "localhost" for local development. Change only if the
@@ -18,11 +33,16 @@ testnet = false
 testnet_host = "localhost"
 # Synonym homeserver pubky
 homeserver = "8um71us3fyw6h8wbcxb5ar3rwusy1a6u49956ikzojg3gcwd1dty"
-# Maximum number of events to fetch per run from each homeserver
+# Maximum number of events to fetch per run from the default homeserver (max: 1000)
 events_limit = 50
-# Maximum number of monitored homeservers. If set to 1, only the default homeserver is monitored.
+# Maximum events per user per run for key-based (non-default) homeservers (max: 100)
+key_based_events_limit = 50
+# Maximum number of monitored external homeservers.
 monitored_homeservers_limit = 50
 watcher_sleep = 5000
+hs_resolver_sleep = 10000
+# Minimum time (ms) before a user's homeserver mapping is considered stale and therefore eligible to be re-resolved (default: 1 hour)
+hs_resolver_ttl = 3600000
 # Initial backoff duration (in seconds) after the first failure of a homeserver
 initial_backoff_secs = 60
 # Maximum backoff duration (in seconds) for a failing homeserver
@@ -44,11 +64,27 @@ moderated_tags = [
     "il_adult_nu_sex_act",
 ]
 
+# Event retry configuration
+[watcher.retry]
+# Transient error retry limit before dead-letter
+max_retries = 10
+# Safety net for homeservers that disappear silently
+max_dependency_retries = 50
+# Base for exponential backoff on transient retries (seconds)
+initial_backoff_secs = 10
+# Backoff ceiling for transient retries (seconds)
+max_backoff_secs = 3600
+# Base for MissingDependency polling backoff (seconds)
+initial_missing_dep_backoff_secs = 60
+# Backoff ceiling for MissingDependency (seconds)
+max_missing_dep_backoff_secs = 3600
 
 [stack]
 # Logging, options: error, warn, info, debug and trace
 log_level = "info"
 files_path = "~/.pubky-nexus/static/files"
+# External HS PKs which are forbidden from being indexed
+external_hs_pk_blacklist = []
 
 [stack.otlp]
 # Service name used for tracing, logging, and metrics in OpenTelemetry

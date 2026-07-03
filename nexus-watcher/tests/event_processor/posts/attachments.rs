@@ -11,7 +11,7 @@ use pubky_app_specs::{
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_post_attachments() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     let user_kp = Keypair::random();
     let user = PubkyAppUser {
@@ -71,7 +71,7 @@ async fn test_homeserver_post_attachments() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_post_attachment_only_edits() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     let user_kp = Keypair::random();
     let user = PubkyAppUser {

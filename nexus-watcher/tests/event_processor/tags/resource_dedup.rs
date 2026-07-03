@@ -16,7 +16,7 @@ use pubky_app_specs::{PubkyAppTag, PubkyAppUser};
 /// - Correct aggregated tagger count
 #[tokio_shared_rt::test(shared)]
 async fn test_resource_tag_multi_user_dedup() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     let target_uri = "https://example.com/dedup-test";
     let label = "dedup-label";

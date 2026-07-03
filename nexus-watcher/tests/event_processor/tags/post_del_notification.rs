@@ -10,7 +10,7 @@ use pubky_app_specs::{post_uri_builder, PubkyAppPost, PubkyAppTag, PubkyAppUser}
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_untag_post_notification() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     // Create first user (post author)
     let author_kp = Keypair::random();

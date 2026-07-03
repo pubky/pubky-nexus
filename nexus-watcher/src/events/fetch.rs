@@ -1,5 +1,6 @@
 use futures::StreamExt;
-use nexus_common::models::event::EventProcessorError;
+
+use crate::EventProcessorError;
 
 /// Max bytes to read from an error response body.
 pub(crate) const MAX_ERROR_BODY: usize = 4 * 1024;
@@ -78,7 +79,6 @@ pub(crate) async fn fetch_capped(
 mod tests {
     use super::*;
     use futures::stream;
-    use nexus_common::models::event::EventProcessorError;
 
     /// Trivial error type so we can construct a failing stream without reqwest internals.
     #[derive(Debug)]

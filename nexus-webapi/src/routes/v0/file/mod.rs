@@ -6,12 +6,14 @@ use axum::Router;
 use utoipa::OpenApi;
 
 mod details;
-mod list;
+pub mod list;
+
+pub fn expensive_routes() -> Router<AppState> {
+    Router::new().route(FILE_LIST_ROUTE, post(list::file_details_by_uris_handler))
+}
 
 pub fn routes() -> Router<AppState> {
-    Router::new()
-        .route(FILE_ROUTE, get(details::file_details_handler))
-        .route(FILE_LIST_ROUTE, post(list::file_details_by_uris_handler))
+    Router::new().route(FILE_ROUTE, get(details::file_details_handler))
 }
 
 #[derive(OpenApi)]

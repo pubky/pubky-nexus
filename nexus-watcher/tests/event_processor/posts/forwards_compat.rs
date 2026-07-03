@@ -10,7 +10,7 @@
 //! error-classification surface directly. Without these guarantees, the entire
 //! v0.4.5 → v0.5.0 staged-rollout strategy is theatre.
 
-use nexus_common::models::event::EventProcessorError;
+use nexus_watcher::errors::EventProcessorError;
 use pubky_app_specs::{
     traits::{TimestampId, Validatable},
     PubkyAppPost, PubkyAppPostKind,

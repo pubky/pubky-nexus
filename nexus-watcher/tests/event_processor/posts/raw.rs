@@ -7,7 +7,7 @@ use super::utils::{
 use crate::event_processor::users::utils::{check_member_user_influencer, find_user_counts};
 use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
-use nexus_common::models::event::Event;
+use nexus_common::models::event::EventLine;
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::post::{PostCounts, PostDetails};
 use pubky::Keypair;
@@ -15,7 +15,7 @@ use pubky_app_specs::{PubkyAppPost, PubkyAppPostKind, PubkyAppUser};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_put_post_event() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     let user_kp = Keypair::random();
     let user = PubkyAppUser {
@@ -36,7 +36,7 @@ async fn test_homeserver_put_post_event() -> Result<()> {
         attachments: None,
         lock: None,
     };
-    let (_, events_in_redis_before) = Event::get_events_from_redis(None, 1000).await.unwrap();
+    let (_, events_in_redis_before) = EventLine::get_from_index(None, 1000).await.unwrap();
 
     let (post_id, post_path) = test.create_post(&user_kp, &post).await?;
 
@@ -54,7 +54,7 @@ async fn test_homeserver_put_post_event() -> Result<()> {
     assert!(post_details.indexed_at > 0);
 
     // CACHE_OP: Check if the event writes in the graph
-    let (_, events_in_redis_after) = Event::get_events_from_redis(None, 1000).await.unwrap();
+    let (_, events_in_redis_after) = EventLine::get_from_index(None, 1000).await.unwrap();
     assert!(events_in_redis_after > events_in_redis_before);
 
     //User:Details:user_id:post_id

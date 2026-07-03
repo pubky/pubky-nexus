@@ -34,6 +34,15 @@ pub enum GraphError {
     Generic(String),
 }
 
+impl GraphError {
+    pub fn should_not_retry_now(&self) -> bool {
+        matches!(
+            self,
+            GraphError::ConnectionNotInitialized | GraphError::QueryFailed(_)
+        )
+    }
+}
+
 impl From<neo4rs::DeError> for GraphError {
     fn from(e: neo4rs::DeError) -> Self {
         GraphError::DeserializationFailed(Box::new(e))

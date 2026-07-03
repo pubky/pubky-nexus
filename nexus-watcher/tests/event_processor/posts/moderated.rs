@@ -12,7 +12,7 @@ use tokio::fs;
 
 #[tokio_shared_rt::test(shared)]
 async fn test_moderated_post_lifecycle() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     // 1. User signup and writes a post
     let user_kp = Keypair::random();

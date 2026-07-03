@@ -1,29 +1,56 @@
 use crate::event_processor::utils::default_moderation_tests;
 use crate::service::utils::HS_IDS;
 use crate::service::utils::{create_mock_event_processors, setup, MockEventProcessorRunner};
+
 use anyhow::Result;
-use nexus_common::models::homeserver::Homeserver;
+use chrono::Utc;
+use nexus_common::models::homeserver::{Homeserver, HsBlacklist};
+use nexus_common::models::traits::Collection;
+use nexus_common::models::user::{set_user_homeserver, UserDetails};
 use nexus_common::types::DynError;
-use nexus_watcher::service::EventProcessorRunner;
-use nexus_watcher::service::TEventProcessorRunner;
+use nexus_common::utils::test_utils::{default_ingestor_tests, random_pubky_id};
+use nexus_common::DEFAULT_MAX_FILE_SIZE;
+use nexus_watcher::events::retry::{InitialBackoff, RedisRetryStore, RetryScheduler, RetryStore};
+use nexus_watcher::events::{DefaultEventHandler, EventHandler};
+use nexus_watcher::service::indexer::PubkyKeyBasedEventSource;
+use nexus_watcher::service::runner::HomeserverBackoff;
+use nexus_watcher::service::runner::UserNotFoundBackoff;
+use nexus_watcher::service::{KeyBasedEventProcessorRunner, TEventProcessorRunner};
 use pubky_app_specs::PubkyId;
 use std::path::PathBuf;
 use std::sync::Arc;
+use tokio::sync::Mutex;
 
 #[tokio_shared_rt::test(shared)]
-async fn test_event_processor_runner_default_homeserver_prioritization() -> Result<(), DynError> {
+async fn test_event_processor_runner_default_homeserver_excluded() -> Result<(), DynError> {
     // Initialize the test
     setup().await?;
 
-    let runner = EventProcessorRunner {
-        default_homeserver: PubkyId::try_from(HS_IDS[3]).unwrap(),
-        shutdown_rx: tokio::sync::watch::channel(false).1,
+    let event_handler: Arc<dyn EventHandler> = Arc::new(DefaultEventHandler::new(
+        default_moderation_tests(),
+        default_ingestor_tests(),
+        DEFAULT_MAX_FILE_SIZE,
+    ));
+    let store: Arc<dyn RetryStore> = Arc::new(RedisRetryStore::new());
+    let retry_scheduler = Arc::new(RetryScheduler::new(
+        store,
+        InitialBackoff {
+            missing_dep_ms: 60_000,
+            transient_ms: 10_000,
+        },
+    ));
+    let runner = KeyBasedEventProcessorRunner {
         limit: 1000,
-        monitored_homeservers_limit: HS_IDS.len(),
+        monitored_hs_limit: HS_IDS.len(),
         files_path: PathBuf::from("/tmp/nexus-watcher-test"),
-        tracer_name: "test".to_string(),
-        moderation: Arc::new(default_moderation_tests()),
-        max_file_size: nexus_common::DEFAULT_MAX_FILE_SIZE,
+        event_handler,
+        event_source: Arc::new(PubkyKeyBasedEventSource),
+        shutdown_rx: tokio::sync::watch::channel(false).1,
+        default_homeserver: PubkyId::try_from(HS_IDS[3]).unwrap(),
+        hs_blacklist: HsBlacklist::default(),
+        backoff: Mutex::new(HomeserverBackoff::default()),
+        user_not_found_backoff: Arc::new(UserNotFoundBackoff::default()),
+        retry_scheduler,
     };
 
     // Persist the homeservers
@@ -32,16 +59,77 @@ async fn test_event_processor_runner_default_homeserver_prioritization() -> Resu
         hs.put_to_graph().await.unwrap();
     }
 
-    // Prioritize the default homeserver
-    let hs_ids = runner.homeservers_by_priority().await?;
-    assert_eq!(hs_ids[0], HS_IDS[3]);
+    // The default homeserver should be excluded from the list
+    let hs_ids = runner.pre_run().await?;
+    assert!(
+        !hs_ids.contains(&HS_IDS[3].to_string()),
+        "Default homeserver should be excluded from pre_run"
+    );
 
     Ok(())
 }
 
 #[tokio_shared_rt::test(shared)]
-async fn test_mock_event_processor_runner_default_homeserver_prioritization() -> Result<(), DynError>
-{
+async fn test_event_processor_runner_blacklisted_homeserver_excluded() -> Result<(), DynError> {
+    // Initialize the test
+    setup().await?;
+
+    let event_handler: Arc<dyn EventHandler> = Arc::new(DefaultEventHandler::new(
+        default_moderation_tests(),
+        default_ingestor_tests(),
+        DEFAULT_MAX_FILE_SIZE,
+    ));
+    let store: Arc<dyn RetryStore> = Arc::new(RedisRetryStore::new());
+    let retry_scheduler = Arc::new(RetryScheduler::new(
+        store,
+        InitialBackoff {
+            missing_dep_ms: 60_000,
+            transient_ms: 10_000,
+        },
+    ));
+
+    // Fresh random HSs so this test's active-user graph state is isolated.
+    let blacklisted_hs = random_pubky_id();
+    let allowed_hs = random_pubky_id();
+    let runner = KeyBasedEventProcessorRunner {
+        limit: 1000,
+        monitored_hs_limit: 100,
+        files_path: PathBuf::from("/tmp/nexus-watcher-test"),
+        event_handler,
+        event_source: Arc::new(PubkyKeyBasedEventSource),
+        shutdown_rx: tokio::sync::watch::channel(false).1,
+        default_homeserver: PubkyId::try_from(HS_IDS[3]).unwrap(),
+        hs_blacklist: HsBlacklist::new([blacklisted_hs.clone()]),
+        backoff: Mutex::new(HomeserverBackoff::default()),
+        user_not_found_backoff: Arc::new(UserNotFoundBackoff::default()),
+        retry_scheduler,
+    };
+
+    // Both HSs need a hosted user to count as "active" in `get_all_active_from_graph`.
+    Homeserver::new(blacklisted_hs.clone())
+        .put_to_graph()
+        .await?;
+    Homeserver::new(allowed_hs.clone()).put_to_graph().await?;
+    create_active_user_on_homeserver(&blacklisted_hs).await?;
+    create_active_user_on_homeserver(&allowed_hs).await?;
+
+    let hs_ids = runner.pre_run().await?;
+    assert!(
+        !hs_ids.contains(&blacklisted_hs.to_string()),
+        "Blacklisted HS should be excluded from pre_run"
+    );
+    // The non-blacklisted active HS must still be present, proving the blacklist
+    // (not just inactivity) removed the other one.
+    assert!(
+        hs_ids.contains(&allowed_hs.to_string()),
+        "Non-blacklisted active HS should be included in pre_run"
+    );
+
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_mock_event_processor_runner_default_homeserver_excluded() -> Result<(), DynError> {
     // Initialize the test
     setup().await?;
 
@@ -52,7 +140,7 @@ async fn test_mock_event_processor_runner_default_homeserver_prioritization() ->
 
     let runner = MockEventProcessorRunner {
         event_processors,
-        monitored_homeservers_limit: 100,
+        monitored_hs_limit: 100,
         shutdown_rx: tokio::sync::watch::channel(false).1,
     };
 
@@ -62,9 +150,32 @@ async fn test_mock_event_processor_runner_default_homeserver_prioritization() ->
         hs.put_to_graph().await.unwrap();
     }
 
-    // Prioritize the default homeserver
-    let hs_ids = runner.homeservers_by_priority().await?;
-    assert_eq!(hs_ids[0], HS_IDS[0]);
+    // The default homeserver (HS_IDS[0]) should be excluded from the list
+    let hs_ids = runner.hs_by_priority().await?;
+    assert!(
+        !hs_ids.contains(&HS_IDS[0].to_string()),
+        "Default homeserver should be excluded from hs_by_priority"
+    );
+
+    Ok(())
+}
+
+/// Creates a user node with a `HOSTED_BY` edge to `hs_id`, making the HS
+/// "active" for `get_all_active_from_graph`.
+async fn create_active_user_on_homeserver(hs_id: &PubkyId) -> Result<(), DynError> {
+    let user_id = random_pubky_id();
+    let user = UserDetails {
+        id: user_id.clone(),
+        name: "prioritization-test-user".into(),
+        bio: None,
+        status: None,
+        links: None,
+        image: None,
+        indexed_at: Utc::now().timestamp_millis(),
+    };
+
+    user.put_to_graph().await?;
+    set_user_homeserver(&user_id, hs_id).await?;
 
     Ok(())
 }

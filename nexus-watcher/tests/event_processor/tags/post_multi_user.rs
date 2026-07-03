@@ -25,7 +25,7 @@ use pubky_app_specs::{PubkyAppPost, PubkyAppTag, PubkyAppUser};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_multi_user_posts_tags() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     // Step 1: Write in the homeserver and index in nexus
     let mut user_kps_and_ids = Vec::with_capacity(4);

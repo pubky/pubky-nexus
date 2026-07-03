@@ -30,7 +30,7 @@ You can explore available endpoints, test queries, and view schema definitions d
 
 Nexus is composed of several core components:
 
-- **nexus-service**: The REST API server for handling client requests, querying databases, and returning responses to the Pubky-App frontend.
+- **nexus-webapi**: The REST API server for handling client requests, querying databases, and returning responses to the Pubky-App frontend.
 - **nexus-watcher**: The event aggregator that listens to homeserver events, translating them into social graph updates within the Nexus databases.
 - **nexus-common**: A library crate containing common functionalities shared by `service` and `watcher`, including database connectors, models, and queries.
 - **nexusd**: Manages the execution of Nexus components, with the capability to perform database migrations and reindexing when required
@@ -100,7 +100,7 @@ The Migration Manager is a purpose-built tool designed to simplify and standardi
 The Migration Manager uses a phased approach to handle data migrations safely and systematically. Each phase serves a distinct purpose in transitioning data from the old source to the new source, ensuring consistency and minimal disruption. Here's an overview of the phases:
 
 - **Dual Write**: During this phase, all writes to the old source are mirrored to the new source. This ensures that both sources remain synchronized during normal application operations. Developers invoke `MigrationManager::dual_write` in the application logic (preferrably in the application data layer) for this purpose. Once dual writes are stable and verified, the migration can progress to the next phase.
-  **Note**: Mark a migration as ready for backfill phase using the `backfill_ready` in `config.toml`(_nexusd/src/migrations/config.toml_) by providing a comma separated list of migration ids.
+  **Note**: Mark a migration as ready for backfill phase using the `backfill_ready` in `default.config.toml`(_nexusd/src/migrations/default.config.toml_) by providing a comma separated list of migration ids.
 
 - **Backfill**: In this phase, any missing or historical data in the new source is backfilled from the old source. This ensures that the new source is fully populated and consistent with the old source. The Migration Manager handles this phase automatically when the migration is progressed.
 
@@ -128,7 +128,7 @@ This will generate a new migration file in the `nexusd/src/migrations/migrations
 After implementing your migration, run the migrations to execute pending migrations:
 
 ```bash
-cargo run -p nexusd db migration run
+cargo run -p nexusd -- db migration run
 ```
 
 The manager will automatically handle migrations in the appropriate order, progressing through phases as needed.

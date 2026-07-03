@@ -6,7 +6,7 @@ use pubky_app_specs::{PubkyAppPost, PubkyAppPostKind};
 /// The user profile is stored in the homeserver. Missing the author to connect the post
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_post_without_user() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(None).await?;
 
     let user_kp = Keypair::random();
     let _user_id = user_kp.public_key().to_z32();

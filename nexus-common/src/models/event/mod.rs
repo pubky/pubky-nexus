@@ -1,157 +1,42 @@
-mod errors;
-
 use crate::db::{kv::RedisResult, RedisOps};
-use pubky_app_specs::{ParsedUri, Resource};
 use serde::{Deserialize, Serialize};
-use std::{fmt, path::PathBuf};
-use tracing::{debug, error};
-
-pub use errors::EventProcessorError;
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub enum EventType {
-    Put,
-    Del,
-}
-
-/// Result of parsing an event line from a homeserver.
-#[allow(clippy::large_enum_variant)]
-#[derive(Debug)]
-pub enum ParseResult {
-    /// Successfully parsed into a known, actionable event.
-    Parsed(Event),
-    /// Known resource type that Nexus does not handle (e.g. LastRead, Feed, Blob).
-    Skipped,
-    /// URI was not recognised by pubky-app-specs. This may be an app-specific
-    /// path (e.g. `/pub/mapky/tags/...`) or a genuinely malformed URI.
-    /// Callers should attempt fallback handling and log `reason` if no handler claims it.
-    UnrecognizedUri {
-        event_type: EventType,
-        uri: String,
-        reason: String,
-    },
-}
-
-impl ParseResult {
-    fn unrecognized_uri(event_type: EventType, uri: String, reason: String) -> Self {
-        Self::UnrecognizedUri {
-            event_type,
-            uri,
-            reason,
-        }
-    }
-}
-
-impl fmt::Display for EventType {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let upper_case_str = match self {
-            EventType::Put => "PUT",
-            EventType::Del => "DEL",
-        };
-        write!(f, "{upper_case_str}")
-    }
-}
+use tracing::error;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Event {
-    /// Pubky resource URI from the homeserver event line.
-    pub uri: String,
+pub struct EventLine(String);
 
-    /// Operation represented by the event, used to dispatch to PUT or DEL handlers.
-    pub event_type: EventType,
-
-    /// Parsed representation of [`Self::uri`].
-    pub parsed_uri: ParsedUri,
-
-    /// Local files directory on Nexus used for file-backed events.
-    pub files_path: PathBuf,
-
-    /// Original event line as received from the homeserver.
-    event_line: String,
+impl EventLine {
+    pub fn new(line: String) -> Self {
+        Self(line)
+    }
 }
 
-impl RedisOps for Event {}
+#[async_trait::async_trait]
+impl RedisOps for EventLine {
+    async fn prefix() -> String {
+        "Event".to_string()
+    }
+}
 
-impl AsRef<[String]> for Event {
+impl AsRef<[String]> for EventLine {
     fn as_ref(&self) -> &[String] {
-        std::slice::from_ref(&self.event_line)
+        std::slice::from_ref(&self.0)
     }
 }
 
-impl Event {
-    /// Parse event based on event line returned by homeservers' /events endpoint.
-    /// - line - event line string
-    /// - files_path - path to the directory where files are stored on nexus
-    pub fn parse_event(
-        line: &str,
-        files_path: PathBuf,
-    ) -> Result<ParseResult, EventProcessorError> {
-        debug!("New event: {}", line);
-        let parts: Vec<&str> = line.split(' ').collect();
-        if parts.len() != 2 {
-            return Err(EventProcessorError::InvalidEventLine(format!(
-                "Malformed event line, {line}"
-            )));
-        }
-
-        let event_type = match parts[0] {
-            "PUT" => Ok(EventType::Put),
-            "DEL" => Ok(EventType::Del),
-            other => Err(EventProcessorError::InvalidEventLine(format!(
-                "Unknown event type: {other}"
-            ))),
-        }?;
-
-        // Validate and parse the URI using pubky-app-specs
-        let uri = parts[1].to_string();
-        let parsed_uri = match ParsedUri::try_from(uri.as_str()) {
-            Ok(parsed) => parsed,
-            Err(e) => {
-                let reason = e.to_string();
-                return Ok(ParseResult::unrecognized_uri(event_type, uri, reason));
-            }
-        };
-
-        match parsed_uri.resource {
-            // Unknown resource
-            Resource::Unknown => {
-                return Err(EventProcessorError::InvalidEventLine(format!(
-                    "Unknown resource in URI: {uri}"
-                )))
-            }
-            // Known resources not handled by Nexus
-            Resource::LastRead | Resource::Feed(_) | Resource::Blob(_) => {
-                return Ok(ParseResult::Skipped)
-            }
-            _ => (),
-        };
-
-        let event_line = line.to_string();
-
-        Ok(ParseResult::Parsed(Event {
-            uri,
-            event_type,
-            parsed_uri,
-            files_path,
-            event_line,
-        }))
-    }
-
-    /// Stores event line in Redis as part of the events list.
+impl EventLine {
     #[tracing::instrument(name = "event.index.write", skip_all)]
-    pub async fn store_event(&self) -> RedisResult<()> {
+    pub async fn store(&self) -> RedisResult<()> {
         self.put_index_list(&["Events"]).await
     }
 
-    pub async fn get_events_from_redis(
+    pub async fn get_from_index(
         cursor: Option<u64>,
         limit: usize,
     ) -> RedisResult<(Vec<String>, u64)> {
         let start = cursor.unwrap_or(0);
-        // Clamp to usize::MAX: on 32-bit targets u64 can exceed usize; the LRANGE
-        // would return empty results for such a large index either way.
         let start_u = usize::try_from(start).unwrap_or(usize::MAX);
-        let result = Event::try_from_index_list(&["Events"], Some(start_u), Some(limit)).await;
+        let result = EventLine::try_from_index_list(&["Events"], Some(start_u), Some(limit)).await;
 
         let events = match result {
             Ok(r) => r.unwrap_or_default(),
@@ -162,7 +47,6 @@ impl Event {
         };
 
         let next_cursor = start + events.len() as u64;
-
         Ok((events, next_cursor))
     }
 }

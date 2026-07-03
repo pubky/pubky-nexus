@@ -40,6 +40,7 @@ pub struct PostTaggersPath {
         (status = 400, description = "Invalid input"),
         (status = 404, description = "Post not found"),
         (status = 200, description = "Post tags", body = Vec<TagDetails>),
+        (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error")
     )
 )]
@@ -102,6 +103,7 @@ pub async fn post_tags_handler(
     responses(
         (status = 400, description = "Invalid parameters"),
         (status = 200, description = "Post tags", body = TaggersInfoResponse),
+        (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error")
     )
 )]

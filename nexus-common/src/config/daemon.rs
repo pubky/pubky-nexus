@@ -64,6 +64,7 @@ mod tests {
 
     use pubky_app_specs::PubkyId;
 
+    use crate::config::file::{reader::DEFAULT_CONFIG_TOML, ConfigLoader};
     use crate::{
         config::watcher::DEFAULT_MODERATION_ID, file::validate_and_expand_path, DaemonConfig, Level,
     };
@@ -84,7 +85,9 @@ mod tests {
             PubkyId::try_from("8um71us3fyw6h8wbcxb5ar3rwusy1a6u49956ikzojg3gcwd1dty").unwrap()
         );
         assert_eq!(c.watcher.events_limit, 50);
+        assert_eq!(c.watcher.key_based_events_limit, 50);
         assert_eq!(c.watcher.watcher_sleep, 5_000);
+        assert_eq!(c.watcher.hs_resolver_sleep, 10_000);
         assert_eq!(
             c.watcher.moderation_id,
             PubkyId::try_from(DEFAULT_MODERATION_ID).unwrap()
@@ -100,6 +103,7 @@ mod tests {
                 "il_adult_nu_sex_act",
             ]
         );
+        assert!(c.stack.external_hs_pk_blacklist.is_empty());
 
         assert_eq!(c.stack.log_level, Level::Info);
         assert_eq!(
@@ -111,5 +115,45 @@ mod tests {
         assert!(c.stack.otlp.endpoint.is_none());
         assert_eq!(c.stack.db.redis, "redis://127.0.0.1:6379");
         assert_eq!(c.stack.db.neo4j.uri, "bolt://localhost:7687");
+    }
+
+    /// A populated `external_hs_pk_blacklist` is parsed into the expected
+    /// `Vec<PubkyId>`, preserving the order and number of entries.
+    #[test]
+    fn test_external_hs_pk_blacklist_parsing() {
+        let hs1 = "8um71us3fyw6h8wbcxb5ar3rwusy1a6u49956ikzojg3gcwd1dty";
+        let hs2 = "operrr8wsbpr3ue9d4qj41ge1kcc6r7fdiy6o3ugjrrhi4y77rdo";
+
+        let toml = DEFAULT_CONFIG_TOML.replace(
+            "external_hs_pk_blacklist = []",
+            &format!(r#"external_hs_pk_blacklist = ["{hs1}", "{hs2}"]"#),
+        );
+
+        let c = DaemonConfig::try_from_str(&toml)
+            .expect("config with a populated blacklist should parse");
+
+        assert_eq!(
+            c.stack.external_hs_pk_blacklist,
+            vec![
+                PubkyId::try_from(hs1).unwrap(),
+                PubkyId::try_from(hs2).unwrap(),
+            ],
+            "blacklist entries should parse, in order, into PubkyId values"
+        );
+    }
+
+    /// An invalid public key in the blacklist must fail config parsing, since
+    /// `PubkyId` validates the z32 encoding on deserialization.
+    #[test]
+    fn test_external_hs_pk_blacklist_rejects_invalid_pk() {
+        let toml = DEFAULT_CONFIG_TOML.replace(
+            "external_hs_pk_blacklist = []",
+            r#"external_hs_pk_blacklist = ["not-a-valid-pubky"]"#,
+        );
+
+        assert!(
+            DaemonConfig::try_from_str(&toml).is_err(),
+            "an invalid public key in the blacklist must fail config parsing"
+        );
     }
 }

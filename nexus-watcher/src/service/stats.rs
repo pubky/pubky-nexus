@@ -22,7 +22,7 @@ pub struct RunAllProcessorsStats {
 }
 
 impl RunAllProcessorsStats {
-    pub(crate) fn add_run_result(
+    pub fn add_run_result(
         &mut self,
         hs_id: String,
         duration: Duration,
