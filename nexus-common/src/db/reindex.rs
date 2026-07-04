@@ -1,5 +1,6 @@
 use crate::db::graph::exec::fetch_all_rows_from_graph;
 use crate::db::graph::Query;
+use crate::db::kv::clear_redis;
 use crate::models::follow::{Followers, Following, UserFollows};
 use crate::models::post::search::PostsByTagSearch;
 use crate::models::post::Bookmark;
@@ -15,13 +16,31 @@ use crate::{
     models::post::{PostCounts, PostDetails, PostRelationships},
     models::user::UserCounts,
 };
+use std::sync::Arc;
+use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
 use tracing::{info, Instrument};
+
+/// Clean rebuild of the whole Redis index from the graph: flushes the logical
+/// database (which re-applies the RediSearch schema), then reindexes every
+/// entity via [`sync`].
+pub async fn rebuild() {
+    info!("Dropping Redis database...");
+    clear_redis().await.expect("Failed to flush Redis");
+    info!("Starting reindexing process...");
+    sync().await;
+}
+
+/// Upper bound on concurrently running entity reindex tasks. Unbounded spawning
+/// works on mock-sized datasets but a production graph fans out into thousands
+/// of simultaneous Cypher queries and exhausts memory on both ends.
+const REINDEX_CONCURRENCY: usize = 32;
 
 #[tracing::instrument(name = "reindex.sync", skip_all)]
 pub async fn sync() {
     let mut user_tasks = JoinSet::new();
     let mut post_tasks = JoinSet::new();
+    let semaphore = Arc::new(Semaphore::new(REINDEX_CONCURRENCY));
 
     let user_ids: Vec<String> = get_all_user_ids().await.expect("Failed to get user IDs");
     let user_ids_refs: Vec<&str> = user_ids.iter().map(|id| id.as_str()).collect();
@@ -32,9 +51,17 @@ pub async fn sync() {
     //TODO use collections for every other model
 
     for user_id in user_ids {
+        // Acquire before spawning so pending work queues here instead of as
+        // parked tasks; live tasks (and their spans) stay capped at the bound
+        let permit = semaphore
+            .clone()
+            .acquire_owned()
+            .await
+            .expect("semaphore closed");
         let span = tracing::info_span!("reindex.user", user_id = %user_id);
         user_tasks.spawn(
             async move {
+                let _permit = permit;
                 if let Err(e) = reindex_user(&user_id).await {
                     tracing::error!("Failed to reindex user {}: {:?}", user_id, e);
                 }
@@ -45,9 +72,15 @@ pub async fn sync() {
 
     let post_ids = get_all_post_ids().await.expect("Failed to get post IDs");
     for (author_id, post_id) in post_ids {
+        let permit = semaphore
+            .clone()
+            .acquire_owned()
+            .await
+            .expect("semaphore closed");
         let span = tracing::info_span!("reindex.post", author_id = %author_id, post_id = %post_id);
         post_tasks.spawn(
             async move {
+                let _permit = permit;
                 if let Err(e) = reindex_post(&author_id, &post_id).await {
                     tracing::error!("Failed to reindex post {}: {:?}", post_id, e);
                 }

@@ -6,6 +6,7 @@ pub mod bootstrap;
 pub mod endpoints;
 pub mod events;
 pub mod file;
+pub mod graph;
 pub mod info;
 pub mod notification;
 pub mod post;
@@ -28,7 +29,8 @@ pub fn routes(app_state: AppState) -> (Router<AppState>, Router<AppState>) {
         .merge(tag::expensive_routes())
         .merge(search::expensive_routes())
         .merge(file::expensive_routes())
-        .merge(bootstrap::expensive_routes());
+        .merge(bootstrap::expensive_routes())
+        .merge(graph::routes());
 
     let default = Router::new()
         .merge(info::routes(app_state.clone()))
@@ -55,6 +57,7 @@ pub fn routes(app_state: AppState) -> (Router<AppState>, Router<AppState>) {
     BoundedLimit<20, 20>,
     BoundedLimit<20, 100>,
     BoundedLimit<20, 200>,
+    BoundedLimit<30, 50>,
     BoundedLimit<40, 40>,
     BoundedLimit<40, 100>,
     BoundedLimit<50, 200>,
@@ -73,6 +76,7 @@ impl ApiDoc {
         combined.merge(stream::StreamApiDoc::merge_docs());
         combined.merge(search::SearchApiDoc::merge_docs());
         combined.merge(file::FileApiDoc::merge_docs());
+        combined.merge(graph::GraphApiDoc::openapi());
         combined.merge(tag::TagApiDoc::merge_docs());
         combined.merge(resource::ResourceApiDoc::openapi());
         combined.merge(notification::NotificationApiDoc::merge_docs());

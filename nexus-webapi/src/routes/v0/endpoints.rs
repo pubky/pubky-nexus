@@ -45,6 +45,10 @@ pub const STREAM_TAGS_GLOBAL_ROUTE: &str = concatcp!(STREAM_TAGS_ROUTE, "/global
 pub const STREAM_TAGS_REACH_ROUTE: &str =
     concatcp!(STREAM_TAGS_ROUTE, "/reached/{user_id}/{reach}");
 
+// -- GRAPH endpoints --
+pub const GRAPH_ROUTE: &str = concatcp!(VERSION_ROUTE, "/graph/{kind}/{id}");
+pub const GRAPH_PATH_ROUTE: &str = concatcp!(VERSION_ROUTE, "/graph/path/{from}/{to}");
+
 // -- SEARCH endpoints --
 const SEARCH_PREFIX: &str = concatcp!(VERSION_ROUTE, "/search");
 const SEARCH_USERS_ROUTE: &str = concatcp!(SEARCH_PREFIX, "/users");
