@@ -1,7 +1,6 @@
 use clap::ValueEnum;
 use nexus_common::{
     db::{get_neo4j_graph, get_redis_conn, graph::Query, reindex},
-    models::post::create_post_content_index,
     StackConfig, StackManager,
 };
 use std::process::Stdio;
@@ -93,13 +92,8 @@ impl MockDb {
     }
 
     async fn sync_redis() {
-        Self::drop_cache().await;
         // TODO: test framework should run migrations after resetting to a fresh database;
-        // that would recreate this index automatically and remove the need for this call.
-        create_post_content_index()
-            .await
-            .expect("Failed to create post content FT index");
-        info!("Starting reindexing process...");
-        reindex::sync().await;
+        // that would recreate the FT index automatically instead of `rebuild` doing it.
+        reindex::rebuild().await;
     }
 }

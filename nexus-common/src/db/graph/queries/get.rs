@@ -3,6 +3,7 @@ use crate::db::graph::Query;
 use crate::db::kv::SortOrder;
 use crate::models::post::StreamSource;
 use crate::models::resource::stream::ResourceSorting;
+use crate::models::user::USER_DELETED_SENTINEL;
 use crate::types::routes::HotTagsInputDTO;
 use crate::types::Pagination;
 use crate::types::StreamReach;
@@ -1260,4 +1261,310 @@ pub fn get_tag_by_tagger_and_id(tagger_id: &str, tag_id: &str) -> Query {
     )
     .param("tagger_id", tagger_id)
     .param("tag_id", tag_id)
+}
+
+// ---------------------------------------------------------------------------
+// Graph explorer fragments
+// ---------------------------------------------------------------------------
+
+/// Cypher predicate excluding soft-deleted users, whose node survives with its
+/// name set to the deletion sentinel.
+fn not_deleted(var: &str) -> String {
+    format!("{var}.name <> '{USER_DELETED_SENTINEL}'")
+}
+
+/// Cypher map projection of a user's graph card.
+fn user_projection(var: &str) -> String {
+    format!("{{id: {var}.id, name: {var}.name, image: {var}.image}}")
+}
+
+/// Braceless Cypher map fields of a post's graph card (content truncated to
+/// 100 chars, with defaults for legacy nodes), so call sites can extend the map.
+fn post_fields(var: &str) -> String {
+    format!(
+        "id: {var}.id, content: left(coalesce({var}.content, ''), 100), kind: coalesce({var}.kind, 'short'), indexed_at: coalesce({var}.indexed_at, 0)"
+    )
+}
+
+/// [`post_fields`] plus the post author's card inlined, for posts whose author
+/// is not the center.
+fn authored_post_fields(post_var: &str, author_var: &str) -> String {
+    format!(
+        "{}, author_id: {author_var}.id, author_name: {author_var}.name, author_image: {author_var}.image",
+        post_fields(post_var)
+    )
+}
+
+/// Typed neighborhood around a user for the graph explorer.
+///
+/// Hop-1 is the center's *undirected* FOLLOWS neighborhood (followers hidden
+/// from an ego view would make it lie), friends first then most-followed,
+/// capped at `limit`. Hop-2 is a single globally-capped DISTINCT set
+/// (`hop2_limit`, 0 disables it), never a per-node fan-out, so payloads stay
+/// bounded by construction. Posts/tags attach to the center only; a limit of 0
+/// disables the class. The edge subqueries then collect every FOLLOWS, TAGGED,
+/// MENTIONED and REPLIED/REPOSTED relationship *among* the returned entities:
+/// neighbor-to-neighbor edges are what make the picture a graph, not a star.
+pub fn graph_neighborhood_by_user(
+    user_id: &str,
+    limit: usize,
+    hop2_limit: usize,
+    posts_limit: usize,
+    tags_limit: usize,
+) -> Query {
+    let cypher = format!(
+        "
+        MATCH (center:User {{id: $user_id}})
+        WHERE {center_ok}
+        CALL {{
+            WITH center
+            MATCH (center)-[:FOLLOWS]-(u:User)
+            WHERE {hop1_ok} AND u <> center
+            WITH DISTINCT u, center
+            WITH u,
+                 EXISTS {{ (u)-[:FOLLOWS]->(center) }} AND EXISTS {{ (center)-[:FOLLOWS]->(u) }} AS is_friend,
+                 COUNT {{ (u)<-[:FOLLOWS]-() }} AS popularity
+            ORDER BY is_friend DESC, popularity DESC
+            LIMIT $limit
+            RETURN collect(u) AS hop1
+        }}
+        CALL {{
+            WITH center, hop1
+            UNWIND hop1 AS h
+            MATCH (h)-[:FOLLOWS]-(u2:User)
+            WHERE u2 <> center AND NOT u2 IN hop1 AND {hop2_ok}
+            WITH DISTINCT u2
+            WITH u2, COUNT {{ (u2)<-[:FOLLOWS]-() }} AS popularity
+            ORDER BY popularity DESC
+            LIMIT $hop2_limit
+            RETURN collect(u2) AS hop2
+        }}
+        WITH center, [center] + hop1 + hop2 AS users
+        CALL {{
+            WITH center
+            MATCH (center)-[:AUTHORED]->(p:Post)
+            WITH p ORDER BY p.indexed_at DESC
+            LIMIT $posts_limit
+            RETURN collect(p) AS posts
+        }}
+        CALL {{
+            WITH center, posts
+            // Anchored on the bound nodes: an unanchored MATCH with an OR-over-
+            // identities predicate degenerates into a full TAGGED relationship scan
+            UNWIND [center] + posts AS target
+            MATCH (:User)-[t:TAGGED]->(target)
+            WITH t.label AS label, count(*) AS usages,
+                 collect(DISTINCT CASE WHEN target:User THEN 'user:' + target.id
+                                       ELSE 'post:' + $user_id + ':' + target.id END) AS targets
+            ORDER BY usages DESC
+            LIMIT $tags_limit
+            RETURN collect({{label: label, count: usages, targets: targets}}) AS tags
+        }}
+        CALL {{
+            WITH users
+            UNWIND users AS a
+            MATCH (a)-[f:FOLLOWS]->(b:User)
+            WHERE b IN users
+            RETURN collect([a.id, b.id, f.indexed_at]) AS follow_edges
+        }}
+        CALL {{
+            WITH users
+            UNWIND users AS a
+            MATCH (a)-[t:TAGGED]->(b:User)
+            WHERE b IN users AND a <> b
+            // One edge per (pair, label): the same label applied repeatedly
+            // between the same users must not multiply payload edges
+            WITH a, b, t.label AS label, min(t.indexed_at) AS ts
+            RETURN collect([a.id, b.id, label, ts]) AS user_tag_edges
+        }}
+        CALL {{
+            WITH posts, users
+            UNWIND posts AS p
+            MATCH (p)-[:MENTIONED]->(m:User)
+            WHERE m IN users
+            RETURN collect([p.id, m.id]) AS mention_edges
+        }}
+        CALL {{
+            WITH posts
+            UNWIND posts AS p
+            MATCH (p)-[r:REPLIED|REPOSTED]->(q:Post)
+            WHERE q IN posts
+            RETURN collect([type(r), p.id, q.id]) AS post_post_edges
+        }}
+        RETURN
+            [u IN users | {user_proj}] AS user_nodes,
+            [p IN posts | {{{post_f}}}] AS post_nodes,
+            tags AS tag_nodes,
+            follow_edges, user_tag_edges, mention_edges, post_post_edges
+        ",
+        center_ok = not_deleted("center"),
+        hop1_ok = not_deleted("u"),
+        hop2_ok = not_deleted("u2"),
+        user_proj = user_projection("u"),
+        post_f = post_fields("p"),
+    );
+    Query::new("graph_neighborhood_by_user", cypher)
+        .param("user_id", user_id.to_string())
+        .param("limit", limit as i64)
+        .param("hop2_limit", hop2_limit as i64)
+        .param("posts_limit", posts_limit as i64)
+        .param("tags_limit", tags_limit as i64)
+}
+
+/// Typed neighborhood around a tag label: most active taggers, tagged users,
+/// recent tagged posts (with their authors inline), and FOLLOWS edges among the
+/// returned taggers. Zero TAGGED usages of the label returns zero rows (404).
+/// A `posts_limit` of 0 disables the post class.
+pub fn graph_neighborhood_by_tag(label: &str, limit: usize, posts_limit: usize) -> Query {
+    let cypher = format!(
+        "
+        MATCH (:User)-[t:TAGGED {{label: $label}}]->()
+        WITH count(t) AS total
+        WHERE total > 0
+        CALL {{
+            MATCH (tagger:User)-[t:TAGGED {{label: $label}}]->()
+            WHERE {tagger_ok}
+            WITH tagger, count(t) AS usages
+            ORDER BY usages DESC
+            LIMIT $limit
+            RETURN collect(tagger) AS taggers
+        }}
+        CALL {{
+            MATCH (tu:User)<-[:TAGGED {{label: $label}}]-(:User)
+            WHERE {tagged_ok}
+            WITH DISTINCT tu
+            LIMIT $limit
+            RETURN collect(tu) AS tagged_users
+        }}
+        CALL {{
+            MATCH (author:User)-[:AUTHORED]->(p:Post)<-[:TAGGED {{label: $label}}]-(:User)
+            WITH DISTINCT p, author
+            ORDER BY p.indexed_at DESC
+            LIMIT $posts_limit
+            RETURN collect({{{post_f}}}) AS posts
+        }}
+        CALL {{
+            WITH taggers
+            UNWIND taggers AS a
+            MATCH (a)-[f:FOLLOWS]->(b:User)
+            WHERE b IN taggers
+            RETURN collect([a.id, b.id, f.indexed_at]) AS follow_edges
+        }}
+        RETURN total,
+            [u IN taggers | {user_proj}] AS tagger_nodes,
+            [u IN tagged_users | {user_proj}] AS tagged_user_nodes,
+            posts AS post_nodes,
+            follow_edges
+        ",
+        tagger_ok = not_deleted("tagger"),
+        tagged_ok = not_deleted("tu"),
+        post_f = authored_post_fields("p", "author"),
+        user_proj = user_projection("u"),
+    );
+    Query::new("graph_neighborhood_by_tag", cypher)
+        .param("label", label.to_string())
+        .param("limit", limit as i64)
+        .param("posts_limit", posts_limit as i64)
+}
+
+/// Typed neighborhood around a post: author, recent replies/reposts with their
+/// authors, parents, mentioned users, and the labels on it. Unknown post (or
+/// author/post mismatch) returns zero rows (404). A `tags_limit` of 0 disables
+/// the label class.
+pub fn graph_neighborhood_by_post(
+    author_id: &str,
+    post_id: &str,
+    limit: usize,
+    tags_limit: usize,
+) -> Query {
+    let cypher = format!(
+        "
+        // WITH barrier as in get_post_by_id: anchor on the post id, not the author
+        MATCH (center:Post {{id: $post_id}})
+        WITH center
+        MATCH (author:User {{id: $author_id}}) WHERE (author)-[:AUTHORED]->(center)
+        CALL {{
+            WITH center
+            MATCH (ra:User)-[:AUTHORED]->(reply:Post)-[:REPLIED]->(center)
+            WITH reply, ra ORDER BY reply.indexed_at DESC
+            LIMIT $limit
+            RETURN collect({{{reply_f}}}) AS replies
+        }}
+        CALL {{
+            WITH center
+            MATCH (ra:User)-[:AUTHORED]->(rp:Post)-[:REPOSTED]->(center)
+            WITH rp, ra ORDER BY rp.indexed_at DESC
+            LIMIT $limit
+            RETURN collect({{{repost_f}}}) AS reposts
+        }}
+        CALL {{
+            WITH center
+            MATCH (center)-[r:REPLIED|REPOSTED]->(parent:Post)<-[:AUTHORED]-(pa:User)
+            RETURN collect({{rel: type(r), {parent_f}}}) AS parents
+        }}
+        CALL {{
+            WITH center
+            MATCH (center)-[:MENTIONED]->(m:User)
+            RETURN collect(m) AS mentioned
+        }}
+        CALL {{
+            WITH center
+            MATCH (:User)-[t:TAGGED]->(center)
+            WITH t.label AS label, count(*) AS usages
+            ORDER BY usages DESC
+            LIMIT $tags_limit
+            RETURN collect({{label: label, count: usages}}) AS labels
+        }}
+        RETURN
+            {author_proj} AS author_node,
+            {{{center_f}}} AS center_node,
+            replies, reposts, parents,
+            [m IN mentioned | {mentioned_proj}] AS mentioned_nodes,
+            labels
+        ",
+        reply_f = authored_post_fields("reply", "ra"),
+        repost_f = authored_post_fields("rp", "ra"),
+        parent_f = authored_post_fields("parent", "pa"),
+        author_proj = user_projection("author"),
+        center_f = post_fields("center"),
+        mentioned_proj = user_projection("m"),
+    );
+    Query::new("graph_neighborhood_by_post", cypher)
+        .param("author_id", author_id.to_string())
+        .param("post_id", post_id.to_string())
+        .param("limit", limit as i64)
+        .param("tags_limit", tags_limit as i64)
+}
+
+/// Shortest undirected FOLLOWS path between two users, capped at 6 hops.
+/// Nodes come back in path order (from first, to last); edges keep their true
+/// direction. Zero rows when either user is unknown or no path exists (404).
+pub fn graph_shortest_path(from: &str, to: &str) -> Query {
+    let cypher = format!(
+        "
+        MATCH (a:User {{id: $from}})
+        MATCH (b:User {{id: $to}})
+        MATCH p = shortestPath((a)-[:FOLLOWS*..6]-(b))
+        RETURN
+            [n IN nodes(p) | {user_proj}] AS path_nodes,
+            [r IN relationships(p) | [startNode(r).id, endNode(r).id, r.indexed_at]] AS path_edges
+        ",
+        user_proj = user_projection("n"),
+    );
+    Query::new("graph_shortest_path", cypher)
+        .param("from", from.to_string())
+        .param("to", to.to_string())
+}
+
+/// Single user card for degenerate graph views (e.g. a path from a user to
+/// themselves). Zero rows when the user is unknown.
+pub fn graph_user_card(user_id: &str) -> Query {
+    let cypher = format!(
+        "MATCH (u:User {{id: $user_id}})
+         WHERE {user_ok}
+         RETURN {user_proj} AS user_node",
+        user_ok = not_deleted("u"),
+        user_proj = user_projection("u"),
+    );
+    Query::new("graph_user_card", cypher).param("user_id", user_id.to_string())
 }
