@@ -47,7 +47,7 @@ jobs:
 
       - name: Set up Docker Compose
         working-directory: docker
-        run: docker compose --env-file .env-sample up -d
+        run: docker compose --profile dev --env-file .env-sample up -d
 
       # Install imagemagick after docker containers are started and before waiting for services to be up
       # This ensures services are starting up during this step, saving time in the "wait for services" step
@@ -69,6 +69,11 @@ jobs:
             || (echo "Neo4j failed to start" && exit 1)
           echo "Neo4j is ready"
 
+          echo "Waiting for Postgres..."
+          timeout 60 bash -c 'until nc -z 127.0.0.1 5432; do sleep 1; done' \
+            || (echo "Postgres failed to start" && exit 1)
+          echo "Postgres is ready"
+
       - name: Load Mock Data
         run: cargo run -p nexusd -- db mock
 
@@ -85,4 +90,4 @@ jobs:
       - name: Tear down Docker Compose
         if: always()
         working-directory: docker
-        run: docker compose down --volumes
+        run: docker compose --profile dev down --volumes

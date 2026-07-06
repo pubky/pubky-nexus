@@ -57,8 +57,15 @@ To get started with Nexus, first set up the required databases: Neo4j and Redis.
 ```bash
 cd docker
 cp .env-sample .env
+
+# Lean stack: Neo4j + Redis + Redis Insight
 docker compose up -d
+
+# Full dev: Lean stack + Postgres (for watcher tests)
+docker compose --profile dev up -d
 ```
+
+To always use the full dev stack without passing `--profile dev`, uncomment `COMPOSE_PROFILES=dev` in `.env`.
 
 3. Optionally, populate the Neo4j database with initial mock data. Follow [Running Tests](#-running-tests) section about setting up mock data.
 
@@ -152,7 +159,8 @@ cargo nextest run -p nexus-common --no-fail-fast
 
 cargo nextest run -p nexus-webapi --no-fail-fast
 
-# nexus-watcher tests need the Postgres Connection URL as env variable, adjust it as needed
+# nexus-watcher tests need Postgres (docker compose --profile dev up -d) and
+# TEST_PUBKY_CONNECTION_STRING from docker/.env-sample
 # export TEST_PUBKY_CONNECTION_STRING=postgres://test_user:test_pass@localhost:5432/postgres?pubky-test=true
 cargo nextest run -p nexus-watcher --no-fail-fast
 ```
