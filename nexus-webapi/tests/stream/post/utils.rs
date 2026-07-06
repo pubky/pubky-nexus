@@ -1,5 +1,15 @@
 use serde_json::Value;
 
+/// Extracts the post ids from a post stream response.
+pub fn ids_in(response: &Value) -> Vec<String> {
+    response
+        .as_array()
+        .expect("Post stream should be an array")
+        .iter()
+        .map(|p| p["details"]["id"].as_str().unwrap_or_default().to_string())
+        .collect()
+}
+
 // TODO: Check if it is in the cache
 pub fn search_tag_in_post(mock_posts: &[Value], label: &str, post_order: Vec<&str>) {
     for (index, post) in mock_posts.iter().enumerate() {

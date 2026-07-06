@@ -1,7 +1,7 @@
 use crate::db::graph::error::{GraphError, GraphResult};
 use crate::db::graph::Query;
 use crate::db::kv::SortOrder;
-use crate::models::post::StreamSource;
+use crate::models::post::{KindFilter, StreamSource};
 use crate::models::resource::stream::ResourceSorting;
 use crate::types::routes::HotTagsInputDTO;
 use crate::types::DomainTrust;
@@ -10,7 +10,6 @@ use crate::types::StreamReach;
 use crate::types::StreamSorting;
 use crate::types::Timeframe;
 use crate::types::WotDepth;
-use pubky_app_specs::PubkyAppPostKind;
 
 // Defense-in-depth: cap SKIP and LIMIT before splicing into Cypher so a future
 // route regression can't produce runaway result sets or excessive skip cost.
@@ -886,7 +885,7 @@ pub fn post_stream(
     order: SortOrder,
     tags: &Option<Vec<String>>,
     pagination: Pagination,
-    kind: Option<PubkyAppPostKind>,
+    kind: Option<KindFilter>,
 ) -> GraphResult<Query> {
     // Initialize the cypher query
     let mut cypher = String::new();
@@ -983,18 +982,42 @@ pub fn post_stream(
         );
     }
 
-    // If post kind is provided, add the corresponding condition.
-    if kind.is_some() {
-        append_condition(&mut cypher, "p.kind = $kind", &mut where_clause_applied);
+    // If a post kind filter is provided, add the corresponding condition.
+    match &kind {
+        Some(KindFilter::Kind(_)) => {
+            append_condition(&mut cypher, "p.kind = $kind", &mut where_clause_applied);
+        }
+        // The IS NULL guard is load-bearing: with Cypher's three-valued logic,
+        // `NOT p.kind IN [...]` evaluates to NULL (row dropped) for legacy
+        // posts whose kind property was never set.
+        Some(KindFilter::Exclude(_)) => {
+            append_condition(
+                &mut cypher,
+                "(p.kind IS NULL OR NOT p.kind IN $exclude_kinds)",
+                &mut where_clause_applied,
+            );
+        }
+        None => {}
     }
 
-    // Filter just the parent posts: StreamSource:PostReplies and StreamSource:AuthorReplies do not reach that query
-    // so we do not need any condition to filter just parent nodes
-    append_condition(
-        &mut cypher,
-        "NOT ( (p)-[:REPLIED]->(:Post) )",
-        &mut where_clause_applied,
-    );
+    // Filter just the parent posts. StreamSource::PostReplies and
+    // StreamSource::AuthorReplies must never reach this query: it has no reply
+    // MATCH arm, so this parents-only condition would invert their semantics.
+    // The route layer rejects kind filters for those sources
+    // (validate_source_compat).
+    //
+    // Bookmarks are exempt: they target specific posts the user picked, replies
+    // included, and the Redis bookmarks sorted set carries them all. Applying
+    // the parents-only filter here would silently drop bookmarked replies on the
+    // graph path (reachable via kind/exclude_kinds or engagement sort), diverging
+    // from the index path. Every other source that routes here wants parents only.
+    if !matches!(source, StreamSource::Bookmarks { .. }) {
+        append_condition(
+            &mut cypher,
+            "NOT ( (p)-[:REPLIED]->(:Post) )",
+            &mut where_clause_applied,
+        );
+    }
 
     // Cursor bounds follow the sort direction. `start` is always the resume
     // cursor (the last row's `last_post_score`) and `end` the hard limit:
@@ -1147,13 +1170,13 @@ fn append_condition(cypher: &mut String, condition: &str, where_clause_applied: 
 /// * `query` - A `Query` already constructed with its label and cypher string.
 /// * `source` - The `StreamSource` specifying the origin of the posts (e.g., Following, Followers).
 /// * `tags` - An optional list of tag labels to filter the posts.
-/// * `kind` - An optional `PubkyAppPostKind` to filter the posts by their kind.
+/// * `kind` - An optional `KindFilter` to include a single kind or exclude a list of kinds.
 /// * `pagination` - The `Pagination` object containing pagination parameters like `start`, `end`, `skip`, and `limit`.
 fn build_query_with_params(
     mut query: Query,
     source: &StreamSource,
     tags: &Option<Vec<String>>,
-    kind: Option<PubkyAppPostKind>,
+    kind: Option<KindFilter>,
     pagination: &Pagination,
 ) -> Query {
     if let Some(observer_id) = source.get_observer() {
@@ -1168,8 +1191,18 @@ fn build_query_with_params(
     if let Some(author_id) = source.get_author() {
         query = query.param("author_id", author_id.to_string());
     }
-    if let Some(post_kind) = kind {
-        query = query.param("kind", post_kind.to_string());
+    match kind {
+        Some(KindFilter::Kind(post_kind)) => {
+            query = query.param("kind", post_kind.to_string());
+        }
+        Some(KindFilter::Exclude(kinds)) => {
+            // Bare lowercase names, matching how `p.kind` is stored (see put.rs).
+            query = query.param(
+                "exclude_kinds",
+                kinds.iter().map(ToString::to_string).collect::<Vec<_>>(),
+            );
+        }
+        None => {}
     }
     if let Some(start_interval) = pagination.start {
         query = query.param("start", start_interval);

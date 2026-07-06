@@ -107,6 +107,17 @@ impl StreamSource {
     }
 }
 
+/// Post-kind filter for streams. Any filter routes the query to the Cypher
+/// path: the Redis sorted-set indexes carry no kind information.
+#[derive(Debug, Clone, PartialEq)]
+pub enum KindFilter {
+    /// Only posts of exactly this kind.
+    Kind(PubkyAppPostKind),
+    /// Posts of any kind except the listed ones. Posts with a missing (NULL)
+    /// or unrecognized ("unknown") kind are never excluded.
+    Exclude(Vec<PubkyAppPostKind>),
+}
+
 #[derive(Serialize, Deserialize, ToSchema, Debug, Default, Clone)]
 #[serde(rename_all = "snake_case")]
 pub struct PostKeyStream {
@@ -150,7 +161,7 @@ impl PostStream {
         sorting: StreamSorting,
         viewer_id: Option<&str>,
         tags: Option<Vec<String>>,
-        kind: Option<PubkyAppPostKind>,
+        kind: Option<KindFilter>,
     ) -> ModelResult<Option<Self>> {
         let post_key_stream =
             Self::collect_post_keys(source, pagination, order, sorting, tags, kind).await?;
@@ -168,7 +179,7 @@ impl PostStream {
         order: SortOrder,
         sorting: StreamSorting,
         tags: Option<Vec<String>>,
-        kind: Option<PubkyAppPostKind>,
+        kind: Option<KindFilter>,
     ) -> ModelResult<Option<PostKeyStream>> {
         let post_key_stream =
             Self::collect_post_keys(source, pagination, order, sorting, tags, kind).await?;
@@ -186,7 +197,7 @@ impl PostStream {
         order: SortOrder,
         sorting: StreamSorting,
         tags: Option<Vec<String>>,
-        kind: Option<PubkyAppPostKind>,
+        kind: Option<KindFilter>,
     ) -> ModelResult<PostKeyStream> {
         // Collection has its own envelope-driven resolution path (neither
         // sorted-set index nor Cypher).
@@ -248,7 +259,7 @@ impl PostStream {
         sorting: &StreamSorting,
         source: &StreamSource,
         tags: &Option<Vec<String>>,
-        kind: &Option<PubkyAppPostKind>,
+        kind: &Option<KindFilter>,
     ) -> bool {
         if kind.is_some() {
             return false;
@@ -370,7 +381,7 @@ impl PostStream {
         order: SortOrder,
         tags: &Option<Vec<String>>,
         pagination: Pagination,
-        kind: Option<PubkyAppPostKind>,
+        kind: Option<KindFilter>,
     ) -> GraphResult<PostKeyStream> {
         let mut result;
         {
@@ -902,12 +913,18 @@ mod tests {
 
         for kind in &kinds_to_test {
             for (sorting, source) in &index_eligible_combos {
-                let result = PostStream::can_use_index(sorting, source, &None, &Some(kind.clone()));
-                assert!(
-                    !result,
-                    "can_use_index({:?}, {:?}, None, Some({:?})) must return false",
-                    sorting, source, kind
-                );
+                for filter in [
+                    KindFilter::Kind(kind.clone()),
+                    KindFilter::Exclude(vec![kind.clone()]),
+                ] {
+                    assert!(
+                        !PostStream::can_use_index(sorting, source, &None, &Some(filter.clone())),
+                        "can_use_index({:?}, {:?}, None, Some({:?})) must return false",
+                        sorting,
+                        source,
+                        filter
+                    );
+                }
             }
         }
     }

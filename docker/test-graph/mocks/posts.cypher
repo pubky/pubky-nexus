@@ -257,4 +257,10 @@ MATCH (u:User {id: $bogota}), (p:Post {id: "NEST1TGL5BKG8"}) MERGE (u)-[:AUTHORE
 
 // Bookmarked collection (used by `?source=bookmarks` stream tests). Eixample
 // bookmarks Bogota's COLW1TGL5BKG1.
-MATCH (u:User {id: $eixample}), (p:Post {id: "COLW1TGL5BKG1"}) MERGE (u)-[:BOOKMARKED {id: "BKMK_COLW1TGL5BKG1", indexed_at: 1980477299500}]->(p)
+MATCH (u:User {id: $eixample}), (p:Post {id: "COLW1TGL5BKG1"}) MERGE (u)-[:BOOKMARKED {id: "BKMK_COLW1TGL5BKG1", indexed_at: 1980477299500}]->(p);
+
+// Bookmarked reply (used by `?source=bookmarks&exclude_kinds=...` test). Eixample
+// bookmarks Bogota's short reply 0000003A0BJWT (a reply to 1A1P4D8C9K0FF), to
+// prove kind filtering on bookmarks keeps bookmarked replies (the graph path
+// must not apply the parents-only filter for the bookmarks source).
+MATCH (u:User {id: $eixample}), (p:Post {id: "0000003A0BJWT"}) MERGE (u)-[:BOOKMARKED {id: "BKMK_REPLY_0BJWT", indexed_at: 1980477299510}]->(p);
