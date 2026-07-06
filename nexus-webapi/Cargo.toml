@@ -40,6 +40,7 @@ utoipa-swagger-ui = { version = "9.0.2", features = ["axum"] }
 [dev-dependencies]
 anyhow = { workspace = true }
 criterion = { version = "0.8", features = ["async_tokio"] }
+http-body-util = "0.1.3"
 httpc-test = "0.1.10"
 pubky-testnet = { workspace = true }
 serde_urlencoded = "0.7"
@@ -80,6 +81,11 @@ harness = false
 [[bench]]
 name = "search"
 harness = false
+
+[[bench]]
+name = "avatar"
+harness = false
+
 [[bench]]
 name = "events"
 harness = false

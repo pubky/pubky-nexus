@@ -3103,6 +3103,7 @@ dependencies = [
  "criterion",
  "deadpool-redis",
  "futures-util",
+ "http-body-util",
  "httpc-test",
  "nexus-common",
  "opentelemetry 0.32.0",
