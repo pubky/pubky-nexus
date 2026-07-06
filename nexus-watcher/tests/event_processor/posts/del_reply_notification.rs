@@ -40,6 +40,7 @@ async fn test_delete_post_that_replied_notification() -> Result<()> {
         parent: None,
         embed: None,
         attachments: None,
+        lock: None,
     };
     let (post_id, _post_path) = test.create_post(&poster_kp, &post).await?;
 
@@ -50,6 +51,7 @@ async fn test_delete_post_that_replied_notification() -> Result<()> {
         parent: Some(post_uri_builder(poster_id.clone(), post_id.clone())),
         embed: None,
         attachments: None,
+        lock: None,
     };
     let (reply_id, reply_path) = test.create_post(&replier_kp, &reply).await?;
 

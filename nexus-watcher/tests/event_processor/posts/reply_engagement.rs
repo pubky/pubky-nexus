@@ -32,6 +32,7 @@ async fn test_homeserver_reply_engagement_control() -> Result<()> {
         parent: None,
         embed: None,
         attachments: None,
+        lock: None,
     };
 
     let (parent_post_id, _parent_post_path) = test.create_post(&user_kp, &parent_post).await?;
@@ -45,6 +46,7 @@ async fn test_homeserver_reply_engagement_control() -> Result<()> {
         parent: Some(parent_absolute_uri.clone()),
         embed: None,
         attachments: None,
+        lock: None,
     };
 
     let (reply_id, _reply_path) = test.create_post(&user_kp, &reply).await?;
@@ -67,6 +69,7 @@ async fn test_homeserver_reply_engagement_control() -> Result<()> {
         parent: Some(reply_absolute_uri.clone()),
         embed: None,
         attachments: None,
+        lock: None,
     };
 
     let (_reply_reply_id, reply_reply_path) = test.create_post(&user_kp, &reply_of_reply).await?;
@@ -98,6 +101,7 @@ async fn test_homeserver_reply_engagement_control() -> Result<()> {
             uri: reply_absolute_uri.clone(),
         }),
         attachments: None,
+        lock: None,
     };
 
     let (reply_repost_id, reply_repost_path) = test.create_post(&user_kp, &reply_repost).await?;

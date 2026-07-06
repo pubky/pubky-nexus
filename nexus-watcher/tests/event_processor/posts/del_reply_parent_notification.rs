@@ -40,6 +40,7 @@ async fn test_delete_parent_post_notification() -> Result<()> {
         parent: None,
         embed: None,
         attachments: None,
+        lock: None,
     };
     let (post_id, post_path) = test.create_post(&user_a_kp, &post).await?;
 
@@ -50,6 +51,7 @@ async fn test_delete_parent_post_notification() -> Result<()> {
         parent: Some(post_uri_builder(user_a_id.clone(), post_id.clone())),
         embed: None,
         attachments: None,
+        lock: None,
     };
     let (reply_id, _reply_path) = test.create_post(&user_b_kp, &reply).await?;
 

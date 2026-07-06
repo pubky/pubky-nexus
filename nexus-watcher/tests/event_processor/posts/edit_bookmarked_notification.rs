@@ -43,6 +43,7 @@ async fn test_edit_bookmarked_post_notification() -> Result<()> {
         parent: None,
         embed: None,
         attachments: None,
+        lock: None,
     };
     let (post_id, post_path) = test.create_post(&user_a_kp, &post).await?;
 

@@ -131,6 +131,7 @@ async fn test_reply_to_post_on_blacklisted_homeserver_is_dropped() -> Result<()>
         parent: None,
         embed: None,
         attachments: None,
+        lock: None,
     };
     let parent_post_uri = post_uri_builder(parent_author_id.clone(), parent_post.create_id());
 
@@ -140,6 +141,7 @@ async fn test_reply_to_post_on_blacklisted_homeserver_is_dropped() -> Result<()>
         parent: Some(parent_post_uri),
         embed: None,
         attachments: None,
+        lock: None,
     };
     let reply_id = reply.create_id();
 
@@ -182,6 +184,7 @@ async fn test_repost_of_post_on_blacklisted_homeserver_is_dropped() -> Result<()
         parent: None,
         embed: None,
         attachments: None,
+        lock: None,
     };
     let original_post_uri = post_uri_builder(original_author_id.clone(), original_post.create_id());
 
@@ -194,6 +197,7 @@ async fn test_repost_of_post_on_blacklisted_homeserver_is_dropped() -> Result<()
             uri: original_post_uri,
         }),
         attachments: None,
+        lock: None,
     };
     let repost_id = repost.create_id();
 
@@ -236,6 +240,7 @@ async fn test_tag_post_on_blacklisted_homeserver_is_dropped() -> Result<()> {
         parent: None,
         embed: None,
         attachments: None,
+        lock: None,
     };
     let post_uri = post_uri_builder(post_author_id.clone(), post.create_id());
 

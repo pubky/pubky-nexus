@@ -42,6 +42,7 @@ async fn test_delete_post_that_reposted_notification() -> Result<()> {
         parent: None,
         embed: None,
         attachments: None,
+        lock: None,
     };
     let (post_id, _post_path) = test.create_post(&poster_kp, &post).await?;
 
@@ -55,6 +56,7 @@ async fn test_delete_post_that_reposted_notification() -> Result<()> {
             uri: post_uri_builder(poster_id.clone(), post_id.clone()),
         }),
         attachments: None,
+        lock: None,
     };
     let (repost_id, repost_path) = test.create_post(&reposter_kp, &repost).await?;
 

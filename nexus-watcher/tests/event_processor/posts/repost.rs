@@ -37,6 +37,7 @@ async fn test_homeserver_post_repost() -> Result<()> {
         parent: None,
         embed: None,
         attachments: None,
+        lock: None,
     };
 
     let (parent_post_id, parent_post_path) = test.create_post(&user_kp, &parent_post).await?;
@@ -53,6 +54,7 @@ async fn test_homeserver_post_repost() -> Result<()> {
             uri: parent_absolute_uri.clone(),
         }),
         attachments: None,
+        lock: None,
     };
 
     let (repost_id, repost_path) = test.create_post(&user_kp, &repost).await?;

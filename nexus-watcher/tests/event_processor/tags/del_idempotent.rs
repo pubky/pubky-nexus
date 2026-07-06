@@ -50,6 +50,7 @@ async fn test_tag_post_del_retry_no_double_decrement() -> Result<()> {
         parent: None,
         embed: None,
         attachments: None,
+        lock: None,
     };
     let (post_id, post_path) = test.create_post(&author_kp, &post).await?;
 
@@ -140,6 +141,7 @@ async fn test_tag_post_del_replay_after_success_skips() -> Result<()> {
         parent: None,
         embed: None,
         attachments: None,
+        lock: None,
     };
     let (post_id, post_path) = test.create_post(&author_kp, &post).await?;
 

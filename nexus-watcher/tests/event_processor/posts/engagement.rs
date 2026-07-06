@@ -28,6 +28,7 @@ async fn test_homeserver_post_engagement() -> Result<()> {
         parent: None,
         embed: None,
         attachments: None,
+        lock: None,
     };
 
     let (alice_post_id, _alice_post_path) = test.create_post(&alice_user_kp, &alice_post).await?;
@@ -63,6 +64,7 @@ async fn test_homeserver_post_engagement() -> Result<()> {
         parent: Some(alice_post_absolute_uri.clone()),
         embed: None,
         attachments: None,
+        lock: None,
     };
 
     let (_reply_id, _reply_path) = test.create_post(&bob_user_kp, &reply).await?;
@@ -77,6 +79,7 @@ async fn test_homeserver_post_engagement() -> Result<()> {
             uri: alice_post_absolute_uri.clone(),
         }),
         attachments: None,
+        lock: None,
     };
 
     test.create_post(&bob_user_kp, &repost).await?;

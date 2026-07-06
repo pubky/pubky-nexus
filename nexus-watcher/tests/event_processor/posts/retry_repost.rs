@@ -37,6 +37,7 @@ async fn test_homeserver_post_repost_cannot_index() -> Result<()> {
             uri: dependency_absolute_uri.clone(),
         }),
         attachments: None,
+        lock: None,
     };
 
     let (repost_id, _repost_path) = test.create_post(&user_kp, &repost_post).await?;

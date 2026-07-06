@@ -41,6 +41,7 @@ async fn test_homeserver_put_tag_post() -> Result<()> {
         parent: None,
         embed: None,
         attachments: None,
+        lock: None,
     };
     let (post_id, post_path) = test.create_post(&user_kp, &post).await?;
 
@@ -181,6 +182,7 @@ async fn test_homeserver_put_tag_post_unique_count() -> Result<()> {
         parent: None,
         embed: None,
         attachments: None,
+        lock: None,
     };
     let (post_id, post_path) = test.create_post(&tagger_kp, &post).await?;
 

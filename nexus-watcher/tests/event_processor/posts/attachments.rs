@@ -52,6 +52,7 @@ async fn test_homeserver_post_attachments() -> Result<()> {
         parent: None,
         embed: None,
         attachments: post_attachments.clone(),
+        lock: None,
     };
 
     let (post_id, post_path) = test.create_post(&user_kp, &post).await?;
@@ -143,6 +144,7 @@ async fn test_homeserver_post_attachment_only_edits() -> Result<()> {
         parent: None,
         embed: None,
         attachments: Some(vec![attachment_a.clone(), attachment_b.clone()]),
+        lock: None,
     };
 
     let (post_id, post_path) = test.create_post(&user_kp, &post).await?;

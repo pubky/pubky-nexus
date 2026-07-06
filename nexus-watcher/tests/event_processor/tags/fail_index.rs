@@ -78,6 +78,7 @@ async fn test_homeserver_tag_cannot_add_while_index() -> Result<()> {
         parent: None,
         embed: None,
         attachments: None,
+        lock: None,
     };
     let (post_id, _post_path) = test.create_post(&tagged_keypair, &post).await?;
 

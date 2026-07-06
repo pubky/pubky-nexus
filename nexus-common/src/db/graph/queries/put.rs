@@ -69,7 +69,8 @@ pub fn create_post(
             new_post.indexed_at = $indexed_at
         SET new_post.content = $content,
             new_post.kind = $kind,
-            new_post.attachments = $attachments
+            new_post.attachments = $attachments,
+            new_post.lock = $lock
         RETURN existing_post IS NOT NULL AS flag",
     );
 
@@ -82,7 +83,9 @@ pub fn create_post(
         .param("content", post.content.to_string())
         .param("indexed_at", post.indexed_at)
         .param("kind", kind.trim_matches('"'))
-        .param("attachments", post.attachments.clone().unwrap_or_default());
+        .param("attachments", post.attachments.clone().unwrap_or_default())
+        // Pass Option directly so None clears the property; "" would read back as Some("").
+        .param("lock", post.lock.clone());
 
     // Handle "replied" relationship
     cypher_query = add_relationship_params(

@@ -31,6 +31,7 @@ async fn test_moderated_post_lifecycle() -> Result<()> {
         parent: None,
         embed: None,
         attachments: None,
+        lock: None,
     };
 
     let (post_id, _post_path) = test.create_post(&user_kp, &post).await?;
