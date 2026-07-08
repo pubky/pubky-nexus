@@ -3,7 +3,7 @@ use crate::streams_benches::LIMIT_20;
 use criterion::Criterion;
 use nexus_common::db::kv::SortOrder;
 use nexus_common::models::post::{PostStream, StreamSource};
-use nexus_common::types::{StreamSorting, WotDepth};
+use nexus_common::types::{DomainTrust, StreamSorting, WotDepth};
 use tokio::runtime::Runtime;
 
 // Real, high-degree observer from the seeded skunk graph (same as the reach benches).
@@ -67,7 +67,7 @@ pub fn bench_stream_wot_domain_depth2(c: &mut Criterion) {
         b.to_async(&rt).iter(|| async {
             let source = StreamSource::WotDomain {
                 observer_id: OBSERVER_ID.to_string(),
-                depth: WotDepth::default(),
+                trust: DomainTrust::Network(WotDepth::default()),
                 domain_tags: vec!["bitcoin".to_string(), "dev".to_string()],
             };
 
