@@ -25,12 +25,6 @@ impl NexusWatcherBuilder {
         self
     }
 
-    pub fn testnet(&mut self, testnet: bool) -> &mut Self {
-        self.0.testnet = testnet;
-
-        self
-    }
-
     pub fn homeserver(&mut self, homeserver: PubkyId) -> &mut Self {
         self.0.homeserver = homeserver;
 
@@ -70,8 +64,7 @@ impl NexusWatcherBuilder {
         StackManager::setup(&self.0.stack).await?;
         let shutdown_rx = shutdown_rx.unwrap_or_else(create_shutdown_rx);
 
-        let testnet_host = self.0.testnet.then_some(self.0.testnet_host.as_str());
-        let _ = PubkyConnector::initialise(testnet_host).await;
+        let _ = PubkyConnector::initialise(self.0.stack.net.pubky_client_testnet_host()).await;
 
         NexusWatcher::start(shutdown_rx, self.0).await
     }

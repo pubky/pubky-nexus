@@ -1,4 +1,3 @@
-testnet = false
 homeserver = "8um71us3fyw6h8wbcxb5ar3rwusy1a6u49956ikzojg3gcwd1dty"
 events_limit = 50
 key_based_events_limit = 50
@@ -39,6 +38,11 @@ max_missing_dep_backoff_secs = 3600
 # Logging, options: error, warn, info, debug and trace
 log_level = "debug"
 files_path = "./examples/static/files"
+
+[stack.net]
+testnet = false
+external_hs_pk_blacklist = []
+
 [stack.otlp]
 # Service name used for tracing, logging, and metrics in OpenTelemetry
 name = "nexus.example.watcher"

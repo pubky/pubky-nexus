@@ -27,10 +27,6 @@ rate = 20
 burst = 5
 
 [watcher]
-testnet = false
-# testnet host, leave as "localhost" for local development. Change only if the
-# testnet homeserver/relay are on another machine (e.g. Docker setups).
-testnet_host = "localhost"
 # Synonym homeserver pubky
 homeserver = "8um71us3fyw6h8wbcxb5ar3rwusy1a6u49956ikzojg3gcwd1dty"
 # Maximum number of events to fetch per run from the default homeserver (max: 1000)
@@ -83,6 +79,12 @@ max_missing_dep_backoff_secs = 3600
 # Logging, options: error, warn, info, debug and trace
 log_level = "info"
 files_path = "~/.pubky-nexus/static/files"
+
+[stack.net]
+testnet = false
+# testnet host, leave as "localhost" for local development. Change only if the
+# testnet homeserver/relay are on another machine (e.g. Docker setups).
+testnet_host = "localhost"
 # External HS PKs which are forbidden from being indexed
 external_hs_pk_blacklist = []
 

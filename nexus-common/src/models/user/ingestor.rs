@@ -22,7 +22,7 @@ impl UserIngestor {
     }
 
     pub fn from_config(config: &StackConfig) -> Self {
-        Self::new(config.external_hs_pk_blacklist.iter().cloned())
+        Self::new(config.net.external_hs_pk_blacklist.iter().cloned())
     }
 
     /// Ingests the author of a referenced post, if unknown.

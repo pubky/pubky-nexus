@@ -21,7 +21,7 @@ impl HsBlacklist {
     }
 
     pub fn from_config(config: &crate::StackConfig) -> Self {
-        Self::new(config.external_hs_pk_blacklist.iter().cloned())
+        Self::new(config.net.external_hs_pk_blacklist.iter().cloned())
     }
 
     pub fn is_blacklisted(&self, hs_id: &str) -> bool {

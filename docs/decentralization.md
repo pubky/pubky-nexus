@@ -21,7 +21,8 @@ runner; the sections below group each config field under the runner it drives:
 - [Section 3: Key-based indexing of externally-hosted users](#3-indexing-externally-hosted-users-key-based)
 - [Section 4: User → HS resolution](#4-user--hs-resolution)
 - [Section 5: Event retry & backoff](#5-event-retry--backoff--watcherretry)
-- [Section 6: Quick reference](#6-quick-reference)
+- [Section 6: Pubky client](#6-pubky-client--stacknet)
+- [Section 7: Quick reference](#7-quick-reference)
 
 ---
 
@@ -108,9 +109,10 @@ notice one coming back. Smaller → faster recovery, more retry traffic.
 
 ### `external_hs_pk_blacklist` — HS public-key blacklist
 
-> List of third-party HS PKs from which new events are not being indexed, for as long
-> as they are on this list. Consulted when indexing third-party HSs, and also checked
-> when ingesting new users (e.g. via the Nexus REST API).
+> Configured in `[stack.net]`. List of third-party HS PKs from which new events
+> are not being indexed, for as long as they are on this list. Consulted when
+> indexing third-party HSs, and also checked when ingesting new users (e.g. via
+> the Nexus REST API).
 
 Each entry is parsed as a `PubkyId` at deserialize time, so an invalid pubky in
 the list fails config load rather than being silently ignored
@@ -207,7 +209,23 @@ avoid hammering an HS for content that may not exist yet.
 
 ---
 
-## 6. Quick reference
+## 6. Pubky client — `[stack.net]`
+
+Stack-wide Pubky SDK settings. Not tied to a single watcher runner — both the
+API and watcher read `[stack.net]` to initialize the shared `PubkyConnector`
+(mainnet vs. local testnet). PKDNS resolution ([Section 4](#4-user--hs-resolution)),
+user ingest (`PUT /v0/ingest/{user_id}`), and homeserver HTTP calls all depend
+on this client.
+
+### `testnet` / `testnet_host`
+
+When `testnet = true`, the Pubky SDK client targets a local testnet relay at
+`testnet_host` (default `"localhost"`). When `testnet = false` (default),
+`testnet_host` is ignored and mainnet is used.
+
+---
+
+## 7. Quick reference
 
 | Field | TOML path | Type | Default |
 |---|---|---|---|
@@ -226,4 +244,6 @@ avoid hammering an HS for content that may not exist yet.
 | `max_backoff_secs` | `[watcher.retry]` | `u64` s | `3600` |
 | `initial_missing_dep_backoff_secs` | `[watcher.retry]` | `u64` s | `60` |
 | `max_missing_dep_backoff_secs` | `[watcher.retry]` | `u64` s | `3600` |
-| `external_hs_pk_blacklist` | `[stack]` | `Vec<PubkyId>` | `[]` |
+| `testnet` | `[stack.net]` | `bool` | `false` |
+| `testnet_host` | `[stack.net]` | `String` | `"localhost"` |
+| `external_hs_pk_blacklist` | `[stack.net]` | `Vec<PubkyId>` | `[]` |
