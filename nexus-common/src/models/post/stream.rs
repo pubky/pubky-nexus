@@ -10,6 +10,7 @@ use crate::models::{
     post::search::PostsByTagSearch,
 };
 use crate::types::{Pagination, StreamSorting, WotDepth};
+use futures::stream::{self, StreamExt};
 use futures::TryStreamExt;
 use pubky_app_specs::{ParsedUri, PubkyAppCollectionContent, PubkyAppPostKind, Resource};
 use serde::{Deserialize, Serialize};
@@ -600,32 +601,44 @@ impl PostStream {
         skip: Option<usize>,
         limit: Option<usize>,
     ) -> ModelResult<Vec<(String, f64)>> {
-        let mut post_keys = Vec::new();
         // Limit the number of user IDs to process to the first 200
         let max_user_ids = 200;
-        let truncated_user_ids: Vec<&str> = user_ids.iter().take(max_user_ids).cloned().collect();
+        let truncated_user_ids: Vec<String> = user_ids
+            .iter()
+            .take(max_user_ids)
+            .map(|s| s.to_string())
+            .collect();
 
-        // Retrieve posts for each user and collect them
-        for user_id in &truncated_user_ids {
-            let key_parts = [&POST_PER_USER_KEY_PARTS[..], &[user_id]].concat();
-            if let Some(post_ids) = Self::try_from_index_sorted_set(
-                &key_parts,
-                start,
-                end,
-                None, // We do not apply skip and limit here, as we need the full sorted set
-                None,
-                order.clone(),
-                None,
-            )
+        // Bounded to protect the pool; `buffered` keeps equal-score ties in input
+        // order through the stable re-sort below; items owned so the future stays `Send`.
+        let mut post_keys: Vec<(f64, String)> =
+            stream::iter(truncated_user_ids.into_iter().map(|user_id| {
+                let order = order.clone();
+                async move {
+                    let key_parts = [&POST_PER_USER_KEY_PARTS[..], &[user_id.as_str()]].concat();
+                    let post_ids = Self::try_from_index_sorted_set(
+                        &key_parts, start, end,
+                        None, // We do not apply skip and limit here, as we need the full sorted set
+                        None, order, None,
+                    )
+                    .await?;
+                    Ok::<_, ModelError>(
+                        post_ids
+                            .map(|ids| {
+                                ids.into_iter()
+                                    .map(|(post_id, score)| (score, format!("{user_id}:{post_id}")))
+                                    .collect::<Vec<_>>()
+                            })
+                            .unwrap_or_default(),
+                    )
+                }
+            }))
+            .buffered(8)
+            .try_collect::<Vec<Vec<_>>>()
             .await?
-            {
-                let user_post_keys: Vec<(f64, String)> = post_ids
-                    .into_iter()
-                    .map(|(post_id, score)| (score, format!("{user_id}:{post_id}")))
-                    .collect();
-                post_keys.extend(user_post_keys);
-            }
-        }
+            .into_iter()
+            .flatten()
+            .collect();
 
         // The selected user_ids does not have any post
         if post_keys.is_empty() {
