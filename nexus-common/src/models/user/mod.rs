@@ -7,7 +7,6 @@ mod ingestor;
 mod relationship;
 mod search;
 mod stream;
-mod tags;
 mod view;
 
 pub use counts::UserCounts;
@@ -21,8 +20,6 @@ pub use stream::{
     UserIdStream, UserStream, UserStreamInput, UserStreamSource, CACHE_USER_RECOMMENDED_KEY_PARTS,
     USER_INFLUENCERS_KEY_PARTS, USER_MOSTFOLLOWED_KEY_PARTS,
 };
-pub use tags::ProfileTag;
-pub use tags::UserTags;
 pub use view::UserView;
 
 /// Sentinel value used to mark deleted users in the system.
