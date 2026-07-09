@@ -90,6 +90,7 @@ mod tests {
         assert_eq!(c.watcher.default_hs_monitoring_interval_ms, 5_000);
         assert_eq!(c.watcher.external_hs_monitoring_interval_ms, 5_000);
         assert_eq!(c.watcher.hs_resolver_interval_ms, 10_000);
+        assert_eq!(c.watcher.retry_processor_interval_ms, 10_000);
         assert_eq!(
             c.watcher.moderation_id,
             PubkyId::try_from(DEFAULT_MODERATION_ID).unwrap()
