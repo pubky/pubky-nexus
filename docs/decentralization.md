@@ -230,6 +230,6 @@ avoid hammering an HS for content that may not exist yet.
 | `external_hs_pk_blacklist` | `[stack.net]` | `Vec<PubkyId>` | `[]` |
 
 
-[^1]: Note: this is the *interval* at which runs are *triggered*, not a sleep duration
+[^1]: This is the *interval* at which runs are *triggered*, not a sleep duration
 that starts only after a run finishes. If a run takes longer than the interval,
 the next run starts right after it returns.
