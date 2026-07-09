@@ -75,13 +75,12 @@ impl NexusWatcher {
 
     /// Starts the Nexus Watcher with parallel periodic task loops.
     ///
-    /// Currently runs three tasks:
-    /// 1. **Default homeserver**: Processes events from the default homeserver defined in [`WatcherConfig`].
-    /// 2. **External homeservers**: Processes events from all external monitored homeservers, excluding the default.
-    /// 3. **User HS resolver**: Resolves each user's homeserver and persists `HOSTED_BY` relationships.
+    /// Currently runs four tasks, each on its own tick interval:
+    /// 1. **Default homeserver** ([`WatcherConfig::default_hs_monitoring_interval_ms`]).
+    /// 2. **External homeservers** ([`WatcherConfig::external_hs_monitoring_interval_ms`]).
+    /// 3. **User HS resolver** ([`WatcherConfig::hs_resolver_interval_ms`]).
+    /// 4. **Retry processor** (see `RETRY_PROCESSOR_SLEEP`).
     ///
-    /// The event-processing tasks share the same tick interval ([`WatcherConfig::default_hs_monitoring_interval_ms`]),
-    /// while the HS resolver uses its own interval ([`WatcherConfig::hs_resolver_interval_ms`]).
     /// All tasks listen for the shutdown signal to exit gracefully. If any task panics,
     /// an internal cancellation signal is sent so that sibling tasks can finish their
     /// current iteration and exit.
@@ -91,6 +90,7 @@ impl NexusWatcher {
         Homeserver::persist_if_unknown(config.homeserver.clone()).await?;
 
         let default_hs_monitoring_interval_ms = config.default_hs_monitoring_interval_ms;
+        let external_hs_monitoring_interval_ms = config.external_hs_monitoring_interval_ms;
         let hs_resolver_interval_ms = config.hs_resolver_interval_ms;
 
         let hs_runner = Arc::new(HsEventProcessorRunner::from_config(
@@ -121,7 +121,7 @@ impl NexusWatcher {
             ),
             PeriodicTask::new(
                 "external-homeservers",
-                default_hs_monitoring_interval_ms,
+                external_hs_monitoring_interval_ms,
                 move || {
                     let runner = key_based_runner.clone();
                     async move { runner.run().await.map(|_| ()) }

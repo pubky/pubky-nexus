@@ -53,9 +53,8 @@ per-run latency. Lower → smoother but slower to drain a backlog.
 
 ### `default_hs_monitoring_interval_ms`
 
-> Scheduling interval[^1] for triggering runs of **both** event-processing runners
-> (`HsEventProcessorRunner` + `KeyBasedEventProcessorRunner`). It is the master tick
-> for indexing.
+> Scheduling interval[^1] for triggering runs of the **default-HS** indexing runner
+> (`HsEventProcessorRunner`).
 
 *Tuning:* lower → fresher data, more load on HSs and DBs. Higher → less load,
 more lag between an event being published and indexed.
@@ -79,6 +78,16 @@ endpoint (hence "key-based" — keyed on each user's pubky). Configured in
 
 *Tuning:* each additional monitored HS adds HS requests (and, upstream, PKDNS
 resolutions) per tick. Raise deliberately as the network of indexed HSs grows.
+
+### `external_hs_monitoring_interval_ms`
+
+> Scheduling interval[^1] for this `KeyBasedEventProcessorRunner` (the external-HS
+> monitoring task). Independent of `default_hs_monitoring_interval_ms` so the two
+> cadences can be tuned separately.
+
+*Tuning:* lower → fresher data from external HSs, more load on them and the DBs.
+Higher → less load, more lag. External-HS runs typically touch many users across
+many HSs, so this is often set larger than `default_hs_monitoring_interval_ms`.
 
 ### `key_based_events_limit`
 
@@ -144,8 +153,8 @@ belong to which HS.
 
 > Scheduling interval[^1] for triggering runs of the resolver task.
 
-**Independent** of `default_hs_monitoring_interval_ms` — resolution and
-indexing tick on separate clocks.
+**Independent** of `default_hs_monitoring_interval_ms` and
+`external_hs_monitoring_interval_ms` — resolution and indexing tick on separate clocks.
 
 *Tuning:* lower → mappings react faster to users migrating HSs, more PKDNS/DHT
 traffic. Higher → less traffic, slower to notice a user's HS change.
@@ -215,6 +224,7 @@ avoid hammering an HS for content that may not exist yet.
 | `homeserver` | `[watcher]` | `PubkyId` | Synonym HS |
 | `events_limit` | `[watcher]` | `u16` | `50` (max `1000`; code default `1000`) |
 | `default_hs_monitoring_interval_ms` | `[watcher]` | `u64` ms | `5000` |
+| `external_hs_monitoring_interval_ms` | `[watcher]` | `u64` ms | `5000` |
 | `monitored_homeservers_limit` | `[watcher]` | `usize` | `50` |
 | `key_based_events_limit` | `[watcher]` | `u16` | `50` (max `100`) |
 | `initial_backoff_secs` | `[watcher]` | `u64` s | `60` |

@@ -36,6 +36,7 @@ key_based_events_limit = 50
 # Maximum number of monitored external homeservers.
 monitored_homeservers_limit = 50
 default_hs_monitoring_interval_ms = 5000
+external_hs_monitoring_interval_ms = 5000
 hs_resolver_interval_ms = 10000
 # Minimum time (ms) before a user's homeserver mapping is considered stale and therefore eligible to be re-resolved (default: 1 hour)
 hs_resolver_ttl = 3600000

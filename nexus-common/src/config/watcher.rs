@@ -15,6 +15,8 @@ pub const DEFAULT_KEY_BASED_EVENTS_LIMIT: u16 = 50;
 pub const DEFAULT_MONITORED_HOMESERVERS_LIMIT: usize = 50;
 /// Default for [WatcherConfig::default_hs_monitoring_interval_ms]
 pub const DEFAULT_DEFAULT_HS_MONITORING_INTERVAL_MS: u64 = 5_000;
+/// Default for [WatcherConfig::external_hs_monitoring_interval_ms]
+pub const DEFAULT_EXTERNAL_HS_MONITORING_INTERVAL_MS: u64 = 5_000;
 /// Default for [WatcherConfig::hs_resolver_interval_ms]
 pub const DEFAULT_HS_RESOLVER_INTERVAL_MS: u64 = 10_000;
 /// Default for [WatcherConfig::hs_resolver_ttl]: 1 hour in milliseconds
@@ -115,6 +117,10 @@ pub struct WatcherConfig {
     #[serde(alias = "watcher_sleep")]
     pub default_hs_monitoring_interval_ms: u64,
 
+    /// Scheduling interval (ms) at which the key-based (external HS) monitoring task is triggered.
+    #[serde(default = "default_external_hs_monitoring_interval_ms")]
+    pub external_hs_monitoring_interval_ms: u64,
+
     /// Scheduling interval (ms) at which the user HS resolver task is triggered.
     /// The alias `hs_resolver_sleep` is kept for backward compatibility.
     #[serde(
@@ -168,6 +174,7 @@ impl Default for WatcherConfig {
             key_based_events_limit: DEFAULT_KEY_BASED_EVENTS_LIMIT,
             monitored_homeservers_limit: DEFAULT_MONITORED_HOMESERVERS_LIMIT,
             default_hs_monitoring_interval_ms: DEFAULT_DEFAULT_HS_MONITORING_INTERVAL_MS,
+            external_hs_monitoring_interval_ms: DEFAULT_EXTERNAL_HS_MONITORING_INTERVAL_MS,
             hs_resolver_interval_ms: DEFAULT_HS_RESOLVER_INTERVAL_MS,
             hs_resolver_ttl: DEFAULT_HS_RESOLVER_TTL,
             initial_backoff_secs: DEFAULT_INITIAL_BACKOFF_SECS,
@@ -182,6 +189,10 @@ impl Default for WatcherConfig {
 
 fn default_hs_resolver_interval_ms() -> u64 {
     DEFAULT_HS_RESOLVER_INTERVAL_MS
+}
+
+fn default_external_hs_monitoring_interval_ms() -> u64 {
+    DEFAULT_EXTERNAL_HS_MONITORING_INTERVAL_MS
 }
 
 fn default_key_based_events_limit() -> u16 {
