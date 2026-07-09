@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use crate::errors::EventProcessorError;
 use crate::events::handlers;
+use nexus_common::models::user::UserIngestor;
 use nexus_common::WatcherConfig;
 use pubky_app_specs::{ParsedUri, PubkyAppTag, PubkyId, Resource};
 use tracing::info;
@@ -30,15 +31,17 @@ impl Moderation {
         tagger_id == self.id && self.tags.contains(&tag.label)
     }
 
-    /// Apply moderation by deleting the tagged resource.
+    /// Apply moderation to the tagged resource.
     ///
-    /// Parses the embedded URI in the moderator tag and deletes the corresponding
-    /// resource (post, tag, user, or file).
+    /// Parses the embedded URI in the moderator tag and removes the corresponding
+    /// resource (tag, user, or file). Posts are hard-deleted when edge-free or
+    /// tombstoned when engagement edges remain.
     #[tracing::instrument(name = "moderation.apply", skip_all)]
     pub async fn apply_moderation(
         &self,
         moderator_tag: PubkyAppTag,
         files_path: PathBuf,
+        ingestor: &UserIngestor,
     ) -> Result<(), EventProcessorError> {
         let lahel = moderator_tag.label;
         let moderated_uri = &moderator_tag.uri;
@@ -57,7 +60,9 @@ impl Moderation {
         match parsed_uri.resource {
             Resource::Post(post_id) => {
                 info!("Moderation tag '{lahel}' detected. Deleting post {user_id}:{post_id}");
-                handlers::post::sync_del(user_id, post_id).await
+                // Same gate as user-issued DEL events: hard-delete when edge-free, tombstone
+                // when any engagement edge remains (tags, bookmarks, replies, reposts, mentions).
+                handlers::post::del(user_id, post_id, ingestor).await
             }
             Resource::Tag(tag_id) => {
                 info!("Moderation tag '{lahel}' detected. Deleting tag {user_id}:{tag_id}");

@@ -138,7 +138,7 @@ pub async fn handle_put_event(
         (PubkyAppObject::Tag(tag), Resource::Tag(tag_id)) => {
             if moderation.should_delete(&tag, user_id.clone()) {
                 moderation
-                    .apply_moderation(tag, event.files_path.clone())
+                    .apply_moderation(tag, event.files_path.clone(), &ingestor)
                     .await?
             } else {
                 // Route universal tag events (non-pubky.app apps) to sync_put_resource
