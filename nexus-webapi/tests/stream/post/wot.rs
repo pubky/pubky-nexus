@@ -130,6 +130,14 @@ async fn test_wot_domain_post_stream() -> Result<()> {
         "artist is not endorsed by the observer's WoT"
     );
 
+    // Backward-compat: omitting `depth` defaults to the depth-2 network reach
+    // (Network(2)), NOT the depth-0 "Me" set. Same result as explicit depth=2.
+    let path = format!(
+        "{ROOT_PATH}?source=wot_domain&observer_id={OBSERVER}&domain_tags=bitcoiner&limit=30"
+    );
+    let body = get_request(&path).await?;
+    assert_exact_set(&body, &[P_BTC1, P_BTC2, P_BTC3]);
+
     Ok(())
 }
 
@@ -160,6 +168,72 @@ async fn test_wot_domain_with_tags_and_engagement_sorting() -> Result<()> {
     Ok(())
 }
 
+// depth=0 is the "Me" trust set: posts by authors the observer tagged directly,
+// with no follow traversal. SPAMMER has an empty follow-network, so only its own
+// TAGGED edges count. It tagged BTC5 (bitcoiner), ARTIST1 (artist) and self-tagged
+// bitcoiner; the self-tag must not surface SPAMMER's own post.
+#[tokio_shared_rt::test(shared)]
+async fn test_wot_domain_me_self_tagged_and_self_excluded() -> Result<()> {
+    let path = format!(
+        "{ROOT_PATH}?source=wot_domain&observer_id={SPAMMER}&depth=0&domain_tags=bitcoiner&limit=30"
+    );
+    let body = get_request(&path).await?;
+    assert_exact_set(&body, &[P_BTC5]);
+    assert_excludes(&body, &[P_S]);
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_wot_domain_me_or_filter_and_empty() -> Result<()> {
+    // OR over the label list.
+    let path = format!(
+        "{ROOT_PATH}?source=wot_domain&observer_id={SPAMMER}&depth=0&domain_tags=bitcoiner,artist&limit=30"
+    );
+    let body = get_request(&path).await?;
+    assert_exact_set(&body, &[P_BTC5, P_ART1]);
+
+    // No self-tag carries this label => empty.
+    let path = format!(
+        "{ROOT_PATH}?source=wot_domain&observer_id={SPAMMER}&depth=0&domain_tags=btc-dev&limit=30"
+    );
+    let body = get_request(&path).await?;
+    assert_exact_set(&body, &[]);
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_wot_domain_me_uses_only_observer_tags() -> Result<()> {
+    // depth=0 consults only the observer's own tags, never the follow-network. O
+    // has no outgoing TAGGED edges (D1->O is D1 tagging O, not O tagging), so O's
+    // "Me" feed is empty, in contrast to O's depth-2 network feed.
+    let me = format!(
+        "{ROOT_PATH}?source=wot_domain&observer_id={OBSERVER}&depth=0&domain_tags=bitcoiner&limit=30"
+    );
+    let body = get_request(&me).await?;
+    assert_exact_set(&body, &[]);
+
+    let network = format!(
+        "{ROOT_PATH}?source=wot_domain&observer_id={OBSERVER}&depth=2&domain_tags=bitcoiner&limit=30"
+    );
+    let body = get_request(&network).await?;
+    assert_exact_set(&body, &[P_BTC1, P_BTC2, P_BTC3]);
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_wot_domain_me_with_topic_tags() -> Result<()> {
+    // depth=0 combined with a post `tags` filter + engagement sort must build
+    // valid Cypher (direct-tag MATCH + self-exclusion + endorsement + tag
+    // conditions in one WHERE/AND chain). No bitcoiner post carries an
+    // `opensource` tag, so the result is exactly empty.
+    let path = format!(
+        "{ROOT_PATH}?source=wot_domain&observer_id={SPAMMER}&depth=0&domain_tags=bitcoiner&tags=opensource&sorting=total_engagement&limit=30"
+    );
+    let body = get_request(&path).await?;
+    assert_exact_set(&body, &[]);
+    Ok(())
+}
+
 #[tokio_shared_rt::test(shared)]
 async fn test_wot_validation_errors() -> Result<()> {
     // wot_domain without domain_tags.
@@ -176,6 +250,14 @@ async fn test_wot_validation_errors() -> Result<()> {
 
     // depth out of range.
     let path = format!("{ROOT_PATH}?source=wot&observer_id={OBSERVER}&depth=4");
+    invalid_get_request(&path, StatusCode::BAD_REQUEST).await?;
+
+    // depth=0 is exclusive to wot_domain; `wot` still rejects it.
+    let path = format!("{ROOT_PATH}?source=wot&observer_id={OBSERVER}&depth=0");
+    invalid_get_request(&path, StatusCode::BAD_REQUEST).await?;
+
+    // wot_domain at depth=0 still requires domain_tags.
+    let path = format!("{ROOT_PATH}?source=wot_domain&observer_id={OBSERVER}&depth=0");
     invalid_get_request(&path, StatusCode::BAD_REQUEST).await?;
 
     Ok(())

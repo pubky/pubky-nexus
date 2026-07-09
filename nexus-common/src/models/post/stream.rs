@@ -9,7 +9,7 @@ use crate::models::{
     follow::{Followers, Following, Friends, UserFollows},
     post::search::PostsByTagSearch,
 };
-use crate::types::{Pagination, StreamSorting, WotDepth};
+use crate::types::{DomainTrust, Pagination, StreamSorting, WotDepth};
 use futures::stream::{self, StreamExt};
 use futures::TryStreamExt;
 use pubky_app_specs::{ParsedUri, PubkyAppCollectionContent, PubkyAppPostKind, Resource};
@@ -61,9 +61,10 @@ pub enum StreamSource {
         depth: WotDepth,
     },
     /// Posts by users whom the observer's Web of Trust has tagged with a `domain_tags` label.
+    /// `trust = Me` restricts the taggers to the observer alone (depth-0 self set).
     WotDomain {
         observer_id: String,
-        depth: WotDepth,
+        trust: DomainTrust,
         domain_tags: Vec<String>,
     },
     #[default]
@@ -203,7 +204,14 @@ impl PostStream {
         // label and depth before `source` is consumed by the query below.
         let wot = match &source {
             StreamSource::Wot { depth, .. } => Some(("wot", depth.get())),
-            StreamSource::WotDomain { depth, .. } => Some(("wot_domain", depth.get())),
+            // depth-0 is the "Me" self trust set; 1..=3 is the follow-network reach.
+            StreamSource::WotDomain { trust, .. } => Some((
+                "wot_domain",
+                match trust {
+                    DomainTrust::Me => 0,
+                    DomainTrust::Network(depth) => depth.get(),
+                },
+            )),
             _ => None,
         };
         if let Some((source, depth)) = wot {

@@ -14,7 +14,7 @@ use nexus_common::db::kv::SortOrder;
 use nexus_common::types::StreamSorting;
 use nexus_common::{
     models::post::{PostKeyStream, PostStream, StreamSource},
-    types::WotDepth,
+    types::{DomainTrust, WotDepth},
 };
 use pubky_app_specs::PubkyAppPostKind;
 use serde::Deserialize;
@@ -46,6 +46,19 @@ fn resolve_wot_depth(depth: Option<u8>) -> AppResult<WotDepth> {
     match depth {
         Some(depth) => WotDepth::new(depth).map_err(Error::invalid_input),
         None => Ok(WotDepth::default()),
+    }
+}
+
+/// Resolves the `wot_domain` trust set from `depth`. `depth=0` selects the
+/// observer-only ("Me") set; absent falls back to the default network reach.
+/// Unlike `source=wot`, `depth=0` is valid here and means "no follow traversal".
+fn resolve_domain_trust(depth: Option<u8>) -> AppResult<DomainTrust> {
+    match depth {
+        None => Ok(DomainTrust::Network(WotDepth::default())),
+        Some(0) => Ok(DomainTrust::Me),
+        Some(depth) => WotDepth::new(depth)
+            .map(DomainTrust::Network)
+            .map_err(Error::invalid_input),
     }
 }
 
@@ -141,7 +154,7 @@ fn build_stream_source(
         StreamSourceKind::WotDomain => match (observer_id, domain_tags) {
             (Some(observer_id), Some(domain_tags)) => Ok(StreamSource::WotDomain {
                 observer_id: observer_id.to_string(),
-                depth: resolve_wot_depth(depth)?,
+                trust: resolve_domain_trust(depth)?,
                 domain_tags: domain_tags.to_string_vec(),
             }),
             (None, _) => Err(Error::invalid_input(
@@ -238,8 +251,8 @@ impl PostStreamQuery {
         ("sorting" = Option<StreamSorting>, Query, description = "Sort method (`timeline` or `total_engagement`). Ties are broken by post id; pagination across equal scores is best-effort."),
         ("order" = Option<SortOrder>, Query, description = "Ordering of response list. Either 'ascending' or 'descending'. Defaults to descending."),
         ("tags" = Option<Tags>, Query, description = "Filter by a list of comma-separated tags (max 5). E.g.,`&tags=dev,free,opensource`. Only posts matching at least one of the tags will be returned."),
-        ("depth" = Option<u8>, Query, description = "WoT traversal depth (1-3, default 2) for `source=wot` / `source=wot_domain`. Ignored for other sources."),
-        ("domain_tags" = Option<Tags>, Query, description = "Required for `source=wot_domain`. Comma-separated tag labels (max 5); returns posts by authors tagged with any of these by the observer's WoT. E.g. `&domain_tags=bitcoiner,btc-dev`. Ignored for other sources."),
+        ("depth" = Option<u8>, Query, description = "WoT traversal depth. For `source=wot`: 1-3, default 2. For `source=wot_domain`: 0-3, default 2, where `depth=0` is the observer-only (\"Me\") trust set (posts by authors the observer tagged directly, no follow traversal). `depth=0` is invalid for `source=wot`. Ignored for other sources."),
+        ("domain_tags" = Option<Tags>, Query, description = "Required for `source=wot_domain`. Comma-separated tag labels (max 5); returns posts by authors tagged with any of these by the observer's WoT, or by the observer alone when `depth=0`. E.g. `&domain_tags=bitcoiner,btc-dev`. Ignored for other sources."),
         ("kind" = Option<PubkyAppPostKind>, Query, description = "Filter by post kind: short, long, image, video, link, file, collection."),
         ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Skip N posts (max 10000)"),
         ("limit" = Option<BoundedLimit<10, 50>>, Query, description = "Retrieve N posts (1–50, default 10)"),
@@ -264,7 +277,7 @@ The `source` parameter determines the type of stream. Depending on the `source`,
 - *collection*: Requires **author_id** and **post_id** of the Collection post; items are returned in curator order.
 
 - *wot*: Requires **observer_id**. Posts from users in the observer's Web of Trust (transitive follows, `depth` 1-3, default 2).
-- *wot_domain*: Requires **observer_id** and **domain_tags**. Posts by authors whom the observer's Web of Trust has tagged with any of `domain_tags` — all of those authors' posts, not only topic-tagged ones; combine with `tags=` for topic-scoped posts.
+- *wot_domain*: Requires **observer_id** and **domain_tags**. Posts by authors whom the observer's Web of Trust has tagged with any of `domain_tags`, all of those authors' posts, not only topic-tagged ones; combine with `tags=` for topic-scoped posts. With `depth=0` the trust set is the observer alone ("Me"): posts by authors the observer tagged directly.
 
 Ensure that you provide the necessary parameters based on the selected `source`. If a required parameter is missing, a 400 Bad Request error will be returned."#
 )]
@@ -310,8 +323,8 @@ pub async fn stream_posts_handler(
         ("sorting" = Option<StreamSorting>, Query, description = "Sort method (`timeline` or `total_engagement`). Ties are broken by post id; pagination across equal scores is best-effort."),
         ("order" = Option<SortOrder>, Query, description = "Ordering of response list. Either 'ascending' or 'descending'. Defaults to descending."),
         ("tags" = Option<Tags>, Query, description = "Filter by a list of comma-separated tags (max 5). E.g.,`&tags=dev,free,opensource`. Only posts matching at least one of the tags will be returned."),
-        ("depth" = Option<u8>, Query, description = "WoT traversal depth (1-3, default 2) for `source=wot` / `source=wot_domain`. Ignored for other sources."),
-        ("domain_tags" = Option<Tags>, Query, description = "Required for `source=wot_domain`. Comma-separated tag labels (max 5); returns posts by authors tagged with any of these by the observer's WoT. E.g. `&domain_tags=bitcoiner,btc-dev`. Ignored for other sources."),
+        ("depth" = Option<u8>, Query, description = "WoT traversal depth. For `source=wot`: 1-3, default 2. For `source=wot_domain`: 0-3, default 2, where `depth=0` is the observer-only (\"Me\") trust set (posts by authors the observer tagged directly, no follow traversal). `depth=0` is invalid for `source=wot`. Ignored for other sources."),
+        ("domain_tags" = Option<Tags>, Query, description = "Required for `source=wot_domain`. Comma-separated tag labels (max 5); returns posts by authors tagged with any of these by the observer's WoT, or by the observer alone when `depth=0`. E.g. `&domain_tags=bitcoiner,btc-dev`. Ignored for other sources."),
         ("kind" = Option<PubkyAppPostKind>, Query, description = "Filter by post kind: short, long, image, video, link, file, collection."),
         ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Skip N posts (max 10000)"),
         ("limit" = Option<BoundedLimit<10, 50>>, Query, description = "Retrieve N posts (1–50, default 10)"),
@@ -334,7 +347,7 @@ The `source` parameter determines the type of stream. Depending on the `source`,
 - *collection*: Requires **author_id** and **post_id** of the Collection post; keys are returned in curator order.
 
 - *wot*: Requires **observer_id**. Posts from users in the observer's Web of Trust (transitive follows, `depth` 1-3, default 2).
-- *wot_domain*: Requires **observer_id** and **domain_tags**. Posts by authors whom the observer's Web of Trust has tagged with any of `domain_tags` — all of those authors' posts, not only topic-tagged ones; combine with `tags=` for topic-scoped posts.
+- *wot_domain*: Requires **observer_id** and **domain_tags**. Posts by authors whom the observer's Web of Trust has tagged with any of `domain_tags`, all of those authors' posts, not only topic-tagged ones; combine with `tags=` for topic-scoped posts. With `depth=0` the trust set is the observer alone ("Me"): posts by authors the observer tagged directly.
 
 Ensure that you provide the necessary parameters based on the selected `source`. If a required parameter is missing, a 400 Bad Request error will be returned."#
 )]
@@ -414,3 +427,28 @@ pub async fn stream_posts_by_ids_handler(
     ))
 )]
 pub struct StreamPostsApiDocs;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolve_domain_trust_maps_depth() {
+        // Absent depth defaults to the network reach (backward compatible).
+        assert_eq!(
+            resolve_domain_trust(None).unwrap(),
+            DomainTrust::Network(WotDepth::default())
+        );
+        // depth=0 selects the observer-only "Me" trust set.
+        assert_eq!(resolve_domain_trust(Some(0)).unwrap(), DomainTrust::Me);
+        // 1..=3 are network reaches.
+        for d in 1..=3 {
+            assert_eq!(
+                resolve_domain_trust(Some(d)).unwrap(),
+                DomainTrust::Network(WotDepth::new(d).unwrap())
+            );
+        }
+        // Out of range is rejected (unlike depth=0, which is valid here).
+        assert!(resolve_domain_trust(Some(4)).is_err());
+    }
+}
