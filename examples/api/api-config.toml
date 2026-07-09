@@ -25,6 +25,11 @@ burst = 5
 # Logging, options: error, warn, info, debug and trace
 log_level = "debug"
 files_path = "./examples/static/files"
+
+[stack.net]
+testnet = false
+external_hs_pk_blacklist = []
+
 [stack.otlp]
 # Service name used for tracing, logging, and metrics in OpenTelemetry
 name = "nexus.example.api"

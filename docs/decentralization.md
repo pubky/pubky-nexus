@@ -108,9 +108,10 @@ notice one coming back. Smaller → faster recovery, more retry traffic.
 
 ### `external_hs_pk_blacklist` — HS public-key blacklist
 
-> List of third-party HS PKs from which new events are not being indexed, for as long
-> as they are on this list. Consulted when indexing third-party HSs, and also checked
-> when ingesting new users (e.g. via the Nexus REST API).
+> Configured in `[stack.net]`. List of third-party HS PKs from which new events
+> are not being indexed, for as long as they are on this list. Consulted when
+> indexing third-party HSs, and also checked when ingesting new users (e.g. via
+> the Nexus REST API).
 
 Each entry is parsed as a `PubkyId` at deserialize time, so an invalid pubky in
 the list fails config load rather than being silently ignored
@@ -226,4 +227,4 @@ avoid hammering an HS for content that may not exist yet.
 | `max_backoff_secs` | `[watcher.retry]` | `u64` s | `3600` |
 | `initial_missing_dep_backoff_secs` | `[watcher.retry]` | `u64` s | `60` |
 | `max_missing_dep_backoff_secs` | `[watcher.retry]` | `u64` s | `3600` |
-| `external_hs_pk_blacklist` | `[stack]` | `Vec<PubkyId>` | `[]` |
+| `external_hs_pk_blacklist` | `[stack.net]` | `Vec<PubkyId>` | `[]` |

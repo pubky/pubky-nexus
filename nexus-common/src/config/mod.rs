@@ -19,11 +19,13 @@ pub fn get_files_dir_pathbuf() -> PathBuf {
 mod api;
 mod daemon;
 pub mod file;
+mod net;
 mod stack;
 pub mod watcher;
 
 pub use api::{ApiConfig, RateLimitBucketConfig, RateLimitConfig};
 pub use daemon::DaemonConfig;
+pub use net::NetConfig;
 pub use stack::{default_stack, OtlpConfig, StackConfig};
 pub use watcher::{
     EventRetryConfig, WatcherConfig, DEFAULT_HS_RESOLVER_TTL, DEFAULT_INITIAL_BACKOFF_SECS,

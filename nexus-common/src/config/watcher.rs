@@ -5,8 +5,6 @@ use pubky_app_specs::PubkyId;
 use serde::{de::Error, Deserialize, Deserializer, Serialize};
 use std::fmt::Debug;
 
-pub const TESTNET: bool = false;
-pub const DEFAULT_TESTNET_HOST: &str = "localhost";
 // Testnet homeserver key
 pub const HOMESERVER_PUBKY: &str = "8pinxxgqs41n4aididenw5apqp1urfmzdztr8jt4abrkdn435ewo";
 /// Default for [WatcherConfig::events_limit]
@@ -93,9 +91,6 @@ impl Default for EventRetryConfig {
 /// Configuration settings for the Nexus Watcher service
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct WatcherConfig {
-    pub testnet: bool,
-    pub testnet_host: String,
-
     /// Default, prioritized homeserver
     pub homeserver: PubkyId,
 
@@ -162,8 +157,6 @@ impl Default for WatcherConfig {
             .expect("Hardcoded default moderation should be a valid pubky id");
         Self {
             stack: StackConfig::default(),
-            testnet: TESTNET,
-            testnet_host: DEFAULT_TESTNET_HOST.to_string(),
             homeserver,
             events_limit: DEFAULT_EVENTS_LIMIT,
             key_based_events_limit: DEFAULT_KEY_BASED_EVENTS_LIMIT,

@@ -79,7 +79,8 @@ mod tests {
 
         assert_eq!(c.api.public_addr, SocketAddr::from(([127, 0, 0, 1], 8080)));
 
-        assert!(!c.watcher.testnet);
+        assert!(!c.stack.net.testnet);
+        assert_eq!(c.stack.net.testnet_host, "localhost");
         assert_eq!(
             c.watcher.homeserver,
             PubkyId::try_from("8um71us3fyw6h8wbcxb5ar3rwusy1a6u49956ikzojg3gcwd1dty").unwrap()
@@ -103,7 +104,7 @@ mod tests {
                 "il_adult_nu_sex_act",
             ]
         );
-        assert!(c.stack.external_hs_pk_blacklist.is_empty());
+        assert!(c.stack.net.external_hs_pk_blacklist.is_empty());
 
         assert_eq!(c.stack.log_level, Level::Info);
         assert_eq!(
@@ -133,7 +134,7 @@ mod tests {
             .expect("config with a populated blacklist should parse");
 
         assert_eq!(
-            c.stack.external_hs_pk_blacklist,
+            c.stack.net.external_hs_pk_blacklist,
             vec![
                 PubkyId::try_from(hs1).unwrap(),
                 PubkyId::try_from(hs2).unwrap(),

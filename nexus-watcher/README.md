@@ -15,7 +15,7 @@ It polls for events from the `/events` endpoint of a homeserver and processes th
   Leverages shared components from the `nexus-common` crate for configuration, database access, logging, and stack management
 
 - **Configurable and Extensible:**  
-  Provides a builder API to configure service parameters such as the homeserver Pubky ID, database settings, logging level, testnet mode, and more
+  Provides a builder API to configure service parameters such as the homeserver Pubky ID, database settings, logging level, and more.
 
 - **Comprehensive Testing:**  
   Comes with an extensive test suite covering all event types and error conditions
