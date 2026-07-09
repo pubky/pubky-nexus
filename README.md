@@ -61,11 +61,11 @@ cp .env-sample .env
 # Lean stack: Neo4j + Redis + Redis Insight
 docker compose up -d
 
-# Full dev: Lean stack + Postgres (for watcher tests)
-docker compose --profile dev up -d
+# With Postgres (for watcher tests)
+docker compose --profile tests up -d
 ```
 
-To always use the full dev stack without passing `--profile dev`, uncomment `COMPOSE_PROFILES=dev` in `.env`.
+To always start Postgres without passing `--profile tests`, uncomment `COMPOSE_PROFILES=tests` in `.env`.
 
 3. Optionally, populate the Neo4j database with initial mock data. Follow [Running Tests](#-running-tests) section about setting up mock data.
 
@@ -159,7 +159,7 @@ cargo nextest run -p nexus-common --no-fail-fast
 
 cargo nextest run -p nexus-webapi --no-fail-fast
 
-# nexus-watcher tests need Postgres (docker compose --profile dev up -d) and
+# nexus-watcher tests need Postgres (docker compose --profile tests up -d) and
 # TEST_PUBKY_CONNECTION_STRING from docker/.env-sample
 # export TEST_PUBKY_CONNECTION_STRING=postgres://test_user:test_pass@localhost:5432/postgres?pubky-test=true
 cargo nextest run -p nexus-watcher --no-fail-fast
