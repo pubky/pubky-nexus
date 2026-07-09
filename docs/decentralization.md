@@ -51,9 +51,9 @@ values above the max are rejected rather than clamped.
 *Tuning:* higher → more throughput per tick but larger batches and longer
 per-run latency. Lower → smoother but slower to drain a backlog.
 
-### `watcher_sleep`
+### `default_hs_monitoring_interval_ms`
 
-> Sleep between full runs for **both** event-processing runners
+> Scheduling interval[^1] for triggering runs of **both** event-processing runners
 > (`HsEventProcessorRunner` + `KeyBasedEventProcessorRunner`). It is the master tick
 > for indexing.
 
@@ -140,12 +140,12 @@ This is what tells the externally-hosted-user indexer
 ([Section 3](#3-indexing-externally-hosted-users-key-based)) which users
 belong to which HS.
 
-### `hs_resolver_sleep`
+### `hs_resolver_interval_ms`
 
-> Sleep between runs of the resolver task.
+> Scheduling interval[^1] for triggering runs of the resolver task.
 
-**Independent** of `watcher_sleep` — resolution and indexing tick on separate
-clocks.
+**Independent** of `default_hs_monitoring_interval_ms` — resolution and
+indexing tick on separate clocks.
 
 *Tuning:* lower → mappings react faster to users migrating HSs, more PKDNS/DHT
 traffic. Higher → less traffic, slower to notice a user's HS change.
@@ -214,12 +214,12 @@ avoid hammering an HS for content that may not exist yet.
 |---|---|---|---|
 | `homeserver` | `[watcher]` | `PubkyId` | Synonym HS |
 | `events_limit` | `[watcher]` | `u16` | `50` (max `1000`; code default `1000`) |
-| `watcher_sleep` | `[watcher]` | `u64` ms | `5000` |
+| `default_hs_monitoring_interval_ms` | `[watcher]` | `u64` ms | `5000` |
 | `monitored_homeservers_limit` | `[watcher]` | `usize` | `50` |
 | `key_based_events_limit` | `[watcher]` | `u16` | `50` (max `100`) |
 | `initial_backoff_secs` | `[watcher]` | `u64` s | `60` |
 | `max_backoff_secs` | `[watcher]` | `u64` s | `3600` |
-| `hs_resolver_sleep` | `[watcher]` | `u64` ms | `10000` |
+| `hs_resolver_interval_ms` | `[watcher]` | `u64` ms | `10000` |
 | `hs_resolver_ttl` | `[watcher]` | `u64` ms | `3_600_000` |
 | `max_retries` | `[watcher.retry]` | `u32` | `10` |
 | `max_dependency_retries` | `[watcher.retry]` | `u32` | `50` |
@@ -228,3 +228,8 @@ avoid hammering an HS for content that may not exist yet.
 | `initial_missing_dep_backoff_secs` | `[watcher.retry]` | `u64` s | `60` |
 | `max_missing_dep_backoff_secs` | `[watcher.retry]` | `u64` s | `3600` |
 | `external_hs_pk_blacklist` | `[stack.net]` | `Vec<PubkyId>` | `[]` |
+
+
+[^1]: Note: this is the *interval* at which runs are *triggered*, not a sleep duration
+that starts only after a run finishes. If a run takes longer than the interval,
+the next run starts right after it returns.
