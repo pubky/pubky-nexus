@@ -120,9 +120,15 @@ MATCH (from:User {id: $d1b}), (to:User {id: $btc3}) MERGE (from)-[:TAGGED {label
 MATCH (from:User {id: $d1b}), (to:User {id: $btc1}) MERGE (from)-[:TAGGED {label: $bitcoiner_tag, id: "WOTTAGBTC0004", indexed_at: 1224534095400}]->(to);
 // Endorsed via btc-dev by depth-2 rater D2 -> BTC4
 MATCH (from:User {id: $d2}), (to:User {id: $btc4}) MERGE (from)-[:TAGGED {label: $btcdev_tag, id: "WOTTAGBTC0005", indexed_at: 1224534095500}]->(to);
-// Out of WoT: SPAMMER endorses BTC5 (bitcoiner) and ARTIST1 (artist) -> not visible to O
+// Out of WoT: SPAMMER endorses BTC5 (bitcoiner) and ARTIST1 (artist) -> not visible to O.
+// These double as SPAMMER's own (depth-0 "Me") domain endorsements: a wot_domain
+// stream for SPAMMER at depth=0 surfaces BTC5/ARTIST1's posts (its follow-network is
+// empty, so only its own TAGGED edges count).
 MATCH (from:User {id: $spammer}), (to:User {id: $btc5}) MERGE (from)-[:TAGGED {label: $bitcoiner_tag, id: "WOTTAGBTC0006", indexed_at: 1224534095600}]->(to);
 MATCH (from:User {id: $spammer}), (to:User {id: $artist1}) MERGE (from)-[:TAGGED {label: $artist_tag, id: "WOTTAGART0001", indexed_at: 1224534095700}]->(to);
+// SPAMMER self-tags as bitcoiner: its own post must still be excluded from its
+// own depth-0 feed (self-exclusion applies to the "Me" trust set too).
+MATCH (from:User {id: $spammer}), (to:User {id: $spammer}) MERGE (from)-[:TAGGED {label: $bitcoiner_tag, id: "WOTTAGSELF002", indexed_at: 1224534096300}]->(to);
 // Self-endorsement: D1 (in O's WoT) tags the OBSERVER as bitcoiner. O's own posts
 // must still be excluded from O's wot_domain feed (self-exclusion, like `wot`).
 MATCH (from:User {id: $d1}), (to:User {id: $o_obs}) MERGE (from)-[:TAGGED {label: $bitcoiner_tag, id: "WOTTAGSELF001", indexed_at: 1224534096100}]->(to);

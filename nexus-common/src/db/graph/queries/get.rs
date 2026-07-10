@@ -4,6 +4,7 @@ use crate::db::kv::SortOrder;
 use crate::models::post::StreamSource;
 use crate::models::resource::stream::ResourceSorting;
 use crate::types::routes::HotTagsInputDTO;
+use crate::types::DomainTrust;
 use crate::types::Pagination;
 use crate::types::StreamReach;
 use crate::types::StreamSorting;
@@ -919,8 +920,17 @@ pub fn post_stream(
         StreamSource::Wot { depth, .. } => {
             cypher.push_str(&format!("MATCH (observer)-[:FOLLOWS*1..{depth}]->(author)\n"))
         }
-        // CALL collapses the trust reach to distinct taggers before the tag join.
-        StreamSource::WotDomain { depth, .. } => cypher.push_str(&format!(
+        // Me (depth-0): the observer is the sole tagger, so match their TAGGED
+        // edge directly, no traversal and no CALL. Cheaper than the network path.
+        StreamSource::WotDomain {
+            trust: DomainTrust::Me,
+            ..
+        } => cypher.push_str("MATCH (observer)-[endorsement:TAGGED]->(author)\n"),
+        // Network: CALL collapses the trust reach to distinct taggers before the tag join.
+        StreamSource::WotDomain {
+            trust: DomainTrust::Network(depth),
+            ..
+        } => cypher.push_str(&format!(
             "CALL {{ WITH observer MATCH (observer)-[:FOLLOWS*1..{depth}]->(tagger:User) RETURN DISTINCT tagger }}\n\
              MATCH (tagger)-[endorsement:TAGGED]->(author)\n"
         )),

@@ -1,3 +1,5 @@
+name: pubky-nexus
+
 services:
   neo4j:
     image: neo4j:5.26.27-community
@@ -57,8 +59,9 @@ services:
       - redis
     restart: always
 
-  # Only used for tests that involve homeservers
+  # Only used for tests that involve homeservers (requires --profile tests)
   postgres:
+    profiles: ["tests"]
     image: postgres:18-alpine
     container_name: postgres
     environment:
@@ -73,17 +76,6 @@ services:
       timeout: 5s
       retries: 5
 
-  # jaeger:
-  #   image: jaegertracing/all-in-one:1.65.0
-  #   container_name: jaeger
-  #   environment:
-      # This ensures the Jaeger container also listens for OTLP signals
-      # COLLECTOR_OTLP_ENABLED: "true"
-    # ports:
-    #   - "127.0.0.1:16686:16686"    # Jaeger UI
-    #   - "127.0.0.1:4317:4317"      # OTLP/gRPC
-    #   - "4318:4318"      # OTLP/HTTP
-    # networks:
-    #   - default
-    # restart: unless-stopped
-    # network_mode: host
+networks:
+  default:
+    name: pubky-nexus
