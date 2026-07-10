@@ -87,8 +87,8 @@ mod tests {
         );
         assert_eq!(c.watcher.events_limit, 50);
         assert_eq!(c.watcher.key_based_events_limit, 50);
-        assert_eq!(c.watcher.watcher_sleep, 5_000);
-        assert_eq!(c.watcher.hs_resolver_sleep, 10_000);
+        assert_eq!(c.watcher.default_hs_monitoring_interval_ms, 5_000);
+        assert_eq!(c.watcher.hs_resolver_interval_ms, 10_000);
         assert_eq!(
             c.watcher.moderation_id,
             PubkyId::try_from(DEFAULT_MODERATION_ID).unwrap()
@@ -156,5 +156,28 @@ mod tests {
             DaemonConfig::try_from_str(&toml).is_err(),
             "an invalid public key in the blacklist must fail config parsing"
         );
+    }
+
+    /// Legacy `watcher_sleep` / `hs_resolver_sleep` field names (renamed to
+    /// `*_interval_ms` to clarify they are scheduling intervals, not post-run
+    /// sleeps) must still parse via serde aliases.
+    #[test]
+    fn test_legacy_watcher_interval_aliases_still_parse() {
+        let toml = DEFAULT_CONFIG_TOML
+            .replace(
+                "default_hs_monitoring_interval_ms = 5000",
+                "watcher_sleep = 7000",
+            )
+            .replace(
+                "hs_resolver_interval_ms = 10000",
+                "hs_resolver_sleep = 20000",
+            );
+
+        let c = DaemonConfig::try_from_str(&toml).expect(
+            "legacy watcher_sleep / hs_resolver_sleep field names must still parse via aliases",
+        );
+
+        assert_eq!(c.watcher.default_hs_monitoring_interval_ms, 7_000);
+        assert_eq!(c.watcher.hs_resolver_interval_ms, 20_000);
     }
 }

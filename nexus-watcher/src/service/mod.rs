@@ -80,8 +80,8 @@ impl NexusWatcher {
     /// 2. **External homeservers**: Processes events from all external monitored homeservers, excluding the default.
     /// 3. **User HS resolver**: Resolves each user's homeserver and persists `HOSTED_BY` relationships.
     ///
-    /// The event-processing tasks share the same tick interval ([`WatcherConfig::watcher_sleep`]),
-    /// while the HS resolver uses its own interval ([`WatcherConfig::hs_resolver_sleep`]).
+    /// The event-processing tasks share the same tick interval ([`WatcherConfig::default_hs_monitoring_interval_ms`]),
+    /// while the HS resolver uses its own interval ([`WatcherConfig::hs_resolver_interval_ms`]).
     /// All tasks listen for the shutdown signal to exit gracefully. If any task panics,
     /// an internal cancellation signal is sent so that sibling tasks can finish their
     /// current iteration and exit.
@@ -90,8 +90,8 @@ impl NexusWatcher {
 
         Homeserver::persist_if_unknown(config.homeserver.clone()).await?;
 
-        let watcher_sleep = config.watcher_sleep;
-        let hs_resolver_sleep = config.hs_resolver_sleep;
+        let default_hs_monitoring_interval_ms = config.default_hs_monitoring_interval_ms;
+        let hs_resolver_interval_ms = config.hs_resolver_interval_ms;
 
         let hs_runner = Arc::new(HsEventProcessorRunner::from_config(
             &config,
@@ -111,15 +111,23 @@ impl NexusWatcher {
         let retry_processor = Arc::new(RetryProcessor::new(&config, shutdown_rx.clone()));
 
         let tasks = vec![
-            PeriodicTask::new("default-homeserver", watcher_sleep, move || {
-                let runner = hs_runner.clone();
-                async move { runner.run().await.map(|_| ()) }
-            }),
-            PeriodicTask::new("external-homeservers", watcher_sleep, move || {
-                let runner = key_based_runner.clone();
-                async move { runner.run().await.map(|_| ()) }
-            }),
-            PeriodicTask::new("user-hs-resolver", hs_resolver_sleep, move || {
+            PeriodicTask::new(
+                "default-homeserver",
+                default_hs_monitoring_interval_ms,
+                move || {
+                    let runner = hs_runner.clone();
+                    async move { runner.run().await.map(|_| ()) }
+                },
+            ),
+            PeriodicTask::new(
+                "external-homeservers",
+                default_hs_monitoring_interval_ms,
+                move || {
+                    let runner = key_based_runner.clone();
+                    async move { runner.run().await.map(|_| ()) }
+                },
+            ),
+            PeriodicTask::new("user-hs-resolver", hs_resolver_interval_ms, move || {
                 let runner = user_hs_resolver_runner.clone();
                 async move { runner.run().await }
             }),

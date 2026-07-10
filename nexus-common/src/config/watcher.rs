@@ -13,10 +13,10 @@ pub const DEFAULT_EVENTS_LIMIT: u16 = 1_000;
 pub const DEFAULT_KEY_BASED_EVENTS_LIMIT: u16 = 50;
 /// Default for [WatcherConfig::monitored_homeservers_limit]
 pub const DEFAULT_MONITORED_HOMESERVERS_LIMIT: usize = 50;
-/// Default for [WatcherConfig::watcher_sleep]
-pub const DEFAULT_WATCHER_SLEEP: u64 = 5_000;
-/// Default for [WatcherConfig::hs_resolver_sleep]
-pub const DEFAULT_HS_RESOLVER_SLEEP: u64 = 10_000;
+/// Default for [WatcherConfig::default_hs_monitoring_interval_ms]
+pub const DEFAULT_DEFAULT_HS_MONITORING_INTERVAL_MS: u64 = 5_000;
+/// Default for [WatcherConfig::hs_resolver_interval_ms]
+pub const DEFAULT_HS_RESOLVER_INTERVAL_MS: u64 = 10_000;
 /// Default for [WatcherConfig::hs_resolver_ttl]: 1 hour in milliseconds
 pub const DEFAULT_HS_RESOLVER_TTL: u64 = 3_600_000;
 /// Default for [WatcherConfig::initial_backoff_secs]
@@ -110,12 +110,18 @@ pub struct WatcherConfig {
     /// Maximum number of monitored homeservers
     pub monitored_homeservers_limit: usize,
 
-    /// Sleep between every full run (over all monitored homeservers), in milliseconds
-    pub watcher_sleep: u64,
+    /// Scheduling interval (ms) at which the default-HS monitoring task is triggered.
+    /// The alias `watcher_sleep` is kept for backward compatibility.
+    #[serde(alias = "watcher_sleep")]
+    pub default_hs_monitoring_interval_ms: u64,
 
-    /// Sleep between every run of the user HS resolver periodic task, in milliseconds
-    #[serde(default = "default_hs_resolver_sleep")]
-    pub hs_resolver_sleep: u64,
+    /// Scheduling interval (ms) at which the user HS resolver task is triggered.
+    /// The alias `hs_resolver_sleep` is kept for backward compatibility.
+    #[serde(
+        default = "default_hs_resolver_interval_ms",
+        alias = "hs_resolver_sleep"
+    )]
+    pub hs_resolver_interval_ms: u64,
 
     /// Minimum time (ms) before a user's homeserver mapping is re-resolved.
     /// Users whose `HOSTED_BY.resolved_at` is newer than this TTL are skipped.
@@ -161,8 +167,8 @@ impl Default for WatcherConfig {
             events_limit: DEFAULT_EVENTS_LIMIT,
             key_based_events_limit: DEFAULT_KEY_BASED_EVENTS_LIMIT,
             monitored_homeservers_limit: DEFAULT_MONITORED_HOMESERVERS_LIMIT,
-            watcher_sleep: DEFAULT_WATCHER_SLEEP,
-            hs_resolver_sleep: DEFAULT_HS_RESOLVER_SLEEP,
+            default_hs_monitoring_interval_ms: DEFAULT_DEFAULT_HS_MONITORING_INTERVAL_MS,
+            hs_resolver_interval_ms: DEFAULT_HS_RESOLVER_INTERVAL_MS,
             hs_resolver_ttl: DEFAULT_HS_RESOLVER_TTL,
             initial_backoff_secs: DEFAULT_INITIAL_BACKOFF_SECS,
             max_backoff_secs: DEFAULT_MAX_BACKOFF_SECS,
@@ -174,8 +180,8 @@ impl Default for WatcherConfig {
     }
 }
 
-fn default_hs_resolver_sleep() -> u64 {
-    DEFAULT_HS_RESOLVER_SLEEP
+fn default_hs_resolver_interval_ms() -> u64 {
+    DEFAULT_HS_RESOLVER_INTERVAL_MS
 }
 
 fn default_key_based_events_limit() -> u16 {
