@@ -80,7 +80,7 @@ async fn ingest(
     let response = pubky.public_storage().get(&pubkyapp_file.src).await?;
 
     let path = Path::new(&user_id.to_string()).join(file_id);
-    let full_path = files_path.join(path.clone());
+    let full_path = files_path.join(&path);
 
     let blob = fetch_capped(response, max_file_size).await?;
     let pubky_app_object = PubkyAppObject::from_resource(&parsed_source_uri.resource, &blob)
