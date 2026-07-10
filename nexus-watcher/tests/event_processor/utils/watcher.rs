@@ -3,7 +3,6 @@ use anyhow::{anyhow, Error, Result};
 use base32::{encode, Alphabet};
 use chrono::Utc;
 use nexus_common::db::PubkyConnector;
-use nexus_common::get_files_dir_pathbuf;
 use nexus_common::models::file::FileDetails;
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::traits::Collection;
@@ -91,6 +90,7 @@ impl WatcherTest {
             default_moderation_tests(),
             default_ingestor_tests(),
             max_file_size,
+            files_path.clone(),
         ));
 
         let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
@@ -106,7 +106,6 @@ impl WatcherTest {
 
         HsEventProcessorRunner {
             limit: 1000,
-            files_path,
             event_handler,
             shutdown_rx,
             default_homeserver,
@@ -378,7 +377,7 @@ pub async fn retrieve_and_handle_event_line(
     event_line: &str,
     event_handler: Arc<dyn EventHandler>,
 ) -> Result<(), EventProcessorError> {
-    match Event::parse_event(event_line, get_files_dir_pathbuf())? {
+    match Event::parse_event(event_line)? {
         ParseResult::Parsed(event) => event_handler.handle(&event).await,
         ParseResult::Skipped | ParseResult::UnrecognizedUri { .. } => Ok(()),
     }
