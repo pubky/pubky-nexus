@@ -90,7 +90,7 @@ impl WatcherTest {
             default_moderation_tests(),
             default_ingestor_tests(),
             max_file_size,
-            files_path.clone(),
+            files_path,
         ));
 
         let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
