@@ -1,10 +1,14 @@
 use clap::Parser;
 use nexus_common::types::DynError;
-use nexus_common::StackManager;
+use nexus_common::{DaemonConfig, StackManager};
 use nexus_watcher::service::NexusWatcher;
 use nexus_webapi::mock::MockDb;
 use nexus_webapi::NexusApi;
-use nexusd::cli::{ApiArgs, Cli, DbCommands, MigrationCommands, NexusCommands, WatcherArgs};
+use nexusd::cli::{
+    ApiArgs, Cli, DbCommands, JobCommands, JobRunArgs, MigrationCommands, NexusCommands,
+    WatcherArgs,
+};
+use nexusd::jobs::JobRegistry;
 use nexusd::migrations::{import_migrations, MigrationBuilder, MigrationManager};
 use nexusd::DaemonLauncher;
 
@@ -12,6 +16,8 @@ use nexusd::DaemonLauncher;
 async fn main() -> Result<(), DynError> {
     let cli = Cli::parse();
     let command = Cli::receive_command(cli);
+    let job_registry = JobRegistry::new(Vec::new());
+
     match command {
         NexusCommands::Db(db_command) => match db_command {
             DbCommands::Clear => MockDb::clear_database().await,
@@ -49,8 +55,21 @@ async fn main() -> Result<(), DynError> {
         NexusCommands::Watcher(WatcherArgs { config_dir }) => {
             NexusWatcher::start_from_daemon(config_dir, None).await?;
         }
+        NexusCommands::Jobs(job_command) => match job_command {
+            JobCommands::Run(JobRunArgs { name, config_dir }) => {
+                let config = DaemonConfig::read_or_create_config_file(config_dir).await?;
+                // run_on_demand validates [jobs.*], so a typo'd section fails here
+                // just like `nexusd run`.
+                job_registry.run_on_demand(&name, &config).await?;
+            }
+            JobCommands::List => {
+                for name in job_registry.job_names() {
+                    println!("{name}");
+                }
+            }
+        },
         NexusCommands::Run { config_dir } => {
-            DaemonLauncher::start(config_dir, None).await?;
+            DaemonLauncher::start(config_dir, &job_registry, None).await?;
         }
     }
 

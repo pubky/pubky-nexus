@@ -12,14 +12,21 @@ async-trait = { workspace = true }
 dirs = { workspace = true }
 chrono = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
+cron = { workspace = true }
 futures = { workspace = true }
 nexus-webapi = { version = "0.4.1", path = "../nexus-webapi" }
 nexus-common = { version = "0.4.1", path = "../nexus-common" }
+opentelemetry = { workspace = true }
 redis = { workspace = true, features = ["tokio-comp"] }
 nexus-watcher = { version = "0.4.1", path = "../nexus-watcher" }
 serde = { workspace = true }
+thiserror = { workspace = true }
 tracing = { workspace = true }
 tokio = { workspace = true }
 
 [dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
 tokio-shared-rt = { workspace = true }
+tempfile = { workspace = true }
+tracing-test = { workspace = true }
+opentelemetry_sdk = { workspace = true, features = ["testing"] }
