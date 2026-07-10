@@ -75,6 +75,16 @@ impl std::fmt::Display for WotDepth {
     }
 }
 
+/// Trust set for a `wot_domain` post stream. `Me` is the observer's own
+/// `TAGGED` edges (depth-0, no follow traversal); `Network(d)` is the taggers
+/// reached via `FOLLOWS*1..d`. Keeping `Me` on this enum (rather than widening
+/// `WotDepth`) makes depth-0 unrepresentable for `source=wot` and `reach=wot_N`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub enum DomainTrust {
+    Me,
+    Network(WotDepth),
+}
+
 #[derive(Debug, ToSchema, Clone, PartialEq)]
 pub enum StreamReach {
     Followers,
