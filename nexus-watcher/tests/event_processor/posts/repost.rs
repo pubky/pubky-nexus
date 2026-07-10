@@ -163,7 +163,7 @@ async fn test_homeserver_post_repost() -> Result<()> {
     );
 
     // Check that repost is in the global total engagement sorted set
-    let repost_key = format!("{}:{}", user_id, &repost_id);
+    let repost_key = format!("{}:{}", user_id, repost_id);
 
     let repost_global_total_engagement = check_member_total_engagement_user_posts(&[&repost_key])
         .await

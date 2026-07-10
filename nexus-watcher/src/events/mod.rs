@@ -103,7 +103,7 @@ pub async fn handle_put_event(
             "Fetch resource failed {}: HTTP {status} - {body}",
             event.uri
         );
-        return Err(EventProcessorError::client_error(err_msg))?;
+        return Err(EventProcessorError::client_error(err_msg));
     }
 
     let blob = fetch_capped(response, MAX_RESOURCE_SIZE as u64).await?;
