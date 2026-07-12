@@ -73,7 +73,8 @@ impl KeyBasedEventSource for PubkyKeyBasedEventSource {
     }
 }
 
-/// Event processor for non-default HSs, where the user-specific `/events-stream` endpoint is used
+/// Event processor for third-party (external) HSs, where the user-specific `/events-stream`
+/// endpoint is used
 pub struct KeyBasedEventProcessor {
     /// The HS endpoint this processor fetches events from
     pub homeserver_id: PubkyId,

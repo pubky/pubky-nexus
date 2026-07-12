@@ -13,8 +13,8 @@ pub const DEFAULT_EVENTS_LIMIT: u16 = 1_000;
 pub const DEFAULT_KEY_BASED_EVENTS_LIMIT: u16 = 50;
 /// Default for [WatcherConfig::monitored_homeservers_limit]
 pub const DEFAULT_MONITORED_HOMESERVERS_LIMIT: usize = 50;
-/// Default for [WatcherConfig::default_hs_monitoring_interval_ms]
-pub const DEFAULT_DEFAULT_HS_MONITORING_INTERVAL_MS: u64 = 5_000;
+/// Default for [WatcherConfig::primary_hs_monitoring_interval_ms]
+pub const DEFAULT_PRIMARY_HS_MONITORING_INTERVAL_MS: u64 = 5_000;
 /// Default for [WatcherConfig::external_hs_monitoring_interval_ms]
 pub const DEFAULT_EXTERNAL_HS_MONITORING_INTERVAL_MS: u64 = 5_000;
 /// Default for [WatcherConfig::hs_resolver_interval_ms]
@@ -96,12 +96,12 @@ pub struct WatcherConfig {
     /// Default, prioritized homeserver
     pub homeserver: PubkyId,
 
-    /// Maximum number of events to fetch per run from the default homeserver.
+    /// Maximum number of events to fetch per run from the primary homeserver.
     /// Must not exceed [MAX_EVENTS_LIMIT].
     #[serde(deserialize_with = "deserialize_events_limit")]
     pub events_limit: u16,
 
-    /// Maximum events per user per run for key-based (non-default) homeservers.
+    /// Maximum events per user per run for key-based (external) homeservers.
     /// Must not exceed [MAX_KEY_BASED_EVENTS_LIMIT].
     #[serde(
         default = "default_key_based_events_limit",
@@ -112,10 +112,10 @@ pub struct WatcherConfig {
     /// Maximum number of monitored homeservers
     pub monitored_homeservers_limit: usize,
 
-    /// Scheduling interval (ms) at which the default-HS monitoring task is triggered.
+    /// Scheduling interval (ms) at which the primary-HS monitoring task is triggered.
     /// The alias `watcher_sleep` is kept for backward compatibility.
     #[serde(alias = "watcher_sleep")]
-    pub default_hs_monitoring_interval_ms: u64,
+    pub primary_hs_monitoring_interval_ms: u64,
 
     /// Scheduling interval (ms) at which the key-based (external HS) monitoring task is triggered.
     #[serde(default = "default_external_hs_monitoring_interval_ms")]
@@ -173,7 +173,7 @@ impl Default for WatcherConfig {
             events_limit: DEFAULT_EVENTS_LIMIT,
             key_based_events_limit: DEFAULT_KEY_BASED_EVENTS_LIMIT,
             monitored_homeservers_limit: DEFAULT_MONITORED_HOMESERVERS_LIMIT,
-            default_hs_monitoring_interval_ms: DEFAULT_DEFAULT_HS_MONITORING_INTERVAL_MS,
+            primary_hs_monitoring_interval_ms: DEFAULT_PRIMARY_HS_MONITORING_INTERVAL_MS,
             external_hs_monitoring_interval_ms: DEFAULT_EXTERNAL_HS_MONITORING_INTERVAL_MS,
             hs_resolver_interval_ms: DEFAULT_HS_RESOLVER_INTERVAL_MS,
             hs_resolver_ttl: DEFAULT_HS_RESOLVER_TTL,

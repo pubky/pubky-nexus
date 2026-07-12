@@ -83,7 +83,7 @@ impl WatcherTest {
     /// # Returns
     /// Returns a fully configured `HsEventProcessorRunner` ready for use in tests.
     fn create_test_event_processor_runner(
-        default_homeserver: PubkyId,
+        primary_homeserver: PubkyId,
         files_path: PathBuf,
         max_file_size: u64,
     ) -> HsEventProcessorRunner {
@@ -109,7 +109,7 @@ impl WatcherTest {
             files_path,
             event_handler,
             shutdown_rx,
-            default_homeserver,
+            primary_homeserver,
             retry_scheduler,
         }
     }

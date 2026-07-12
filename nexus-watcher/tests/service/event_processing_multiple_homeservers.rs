@@ -40,7 +40,7 @@ async fn test_multiple_homeserver_event_processing() -> Result<()> {
 
     let runner = MockEventProcessorRunner::new(event_processor_list, 4, shutdown_rx);
 
-    // run excludes the default homeserver (the first one), so only 3 are processed
+    // run excludes the primary homeserver (the first one), so only 3 are processed
     let stats = runner.run().await.unwrap().0;
     assert_eq!(stats.count_ok(), 2);
     assert_eq!(stats.count_error(), 1);
@@ -73,7 +73,7 @@ async fn test_multi_hs_event_processing_with_homeserver_limit() -> Result<()> {
     assert_eq!(event_processor_list.len(), 5); // Ensure 5 HSs are available
     let hs_limit = 3;
     let runner = MockEventProcessorRunner::new(event_processor_list, hs_limit, shutdown_rx);
-    // run excludes the default HS, so 4 non-default HSs available, limited to 3
+    // run excludes the primary HS, so 4 external HSs available, limited to 3
     let stats = runner.run().await.unwrap().0;
 
     assert_eq!(stats.count_ok(), 3); // 3 successful ones, due to the limit
@@ -106,14 +106,14 @@ async fn test_multi_hs_event_processing_with_homeserver_limit_one() -> Result<()
 
     assert_eq!(event_processor_list.len(), 5); // Ensure 5 HSs are available
 
-    // Check that, when the limit is 1, only one non-default homeserver is considered
+    // Check that, when the limit is 1, only one external homeserver is considered
     let runner_one = MockEventProcessorRunner::new(event_processor_list, 1, shutdown_rx);
     let hs_list = runner_one.pre_run().await.unwrap();
     assert_eq!(hs_list.len(), 1);
     assert_ne!(
         hs_list.first().unwrap(),
-        &runner_one.default_homeserver(),
-        "Default homeserver should be excluded from pre_run"
+        &runner_one.primary_homeserver(),
+        "Primary homeserver should be excluded from pre_run"
     );
 
     let stats_one = runner_one.run().await.unwrap().0;
@@ -133,7 +133,7 @@ async fn test_multi_hs_event_processing_with_timeout() -> Result<()> {
     let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
 
     // Create 3 random homeservers with timeout limit
-    // Index 0: 0s sleep (default, excluded from run)
+    // Index 0: 0s sleep (primary, excluded from run)
     // Index 1: 2s sleep
     // Index 2: 4s sleep
     for index in 0..3 {
@@ -151,7 +151,7 @@ async fn test_multi_hs_event_processing_with_timeout() -> Result<()> {
 
     let runner = MockEventProcessorRunner::new(event_processor_list, 3, shutdown_rx);
 
-    // run excludes the default HS (0s sleep), so only index 1 and 2 are processed.
+    // run excludes the primary HS (0s sleep), so only index 1 and 2 are processed.
     // Both have sleep durations exceeding the 1s timeout.
     let stats = runner.run().await.unwrap().0;
     assert_eq!(stats.count_ok(), 0); // no successes
@@ -198,9 +198,9 @@ async fn test_multi_hs_event_processing_with_panic() -> Result<()> {
 
     let runner = MockEventProcessorRunner::new(event_processor_list, 5, shutdown_rx);
 
-    // run excludes the default HS (first success), so 2 success + 2 panic are processed
+    // run excludes the primary HS (first success), so 2 success + 2 panic are processed
     let stats = runner.run().await.unwrap().0;
-    assert_eq!(stats.count_ok(), 2); // 2 expected to succeed (3 - 1 default)
+    assert_eq!(stats.count_ok(), 2); // 2 expected to succeed (3 - 1 primary)
     assert_eq!(stats.count_timeout(), 0);
     assert_eq!(stats.count_error(), 0);
     assert_eq!(stats.count_panic(), 2); // 2 expected to panic
