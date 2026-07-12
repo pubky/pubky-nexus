@@ -284,6 +284,21 @@ mod tests {
             .expect("config with the appended section should parse")
     }
 
+    /// A registry with `extra` plus a stub for every other `[jobs.<name>]`
+    /// section `config` carries, so validation against the full default config
+    /// sees a known job per shipped section without this generic test naming a
+    /// specific one.
+    fn registry_covering(config: &DaemonConfig, extra: &'static str) -> JobRegistry {
+        let mut jobs: Vec<Arc<dyn Job>> = vec![Arc::new(CountingJob::new(extra))];
+        for name in config.jobs.keys() {
+            if name != extra {
+                let name: &'static str = Box::leak(name.clone().into_boxed_str());
+                jobs.push(Arc::new(CountingJob::new(name)));
+            }
+        }
+        JobRegistry::new(jobs)
+    }
+
     #[tokio::test]
     async fn run_once_locked_reports_a_held_lock_as_already_running() {
         let lock: Arc<dyn lock::RunLock> = FakeLock::new(AcquireOutcome::Denied);
@@ -369,8 +384,8 @@ mod tests {
 
     #[tokio::test]
     async fn run_on_demand_validates_jobs_config() {
-        let registry = JobRegistry::new(vec![Arc::new(CountingJob::new("stub"))]);
         let config = default_config_with("[jobs.stub]\ncron = \"not a cron\"\n").await;
+        let registry = registry_covering(&config, "stub");
 
         // The bad cron is caught before StackManager::setup, so no stack is needed.
         let err = match registry.run_on_demand("stub", &config).await {
@@ -397,9 +412,8 @@ mod tests {
 
     #[tokio::test]
     async fn scheduled_jobs_fails_fast_on_malformed_cron() {
-        let registry = JobRegistry::new(vec![Arc::new(CountingJob::new("stub"))]);
-
         let config = default_config_with("[jobs.stub]\ncron = \"not a cron\"\n").await;
+        let registry = registry_covering(&config, "stub");
 
         // scheduled_jobs only resolves; it never spawns. The error must name the
         // offending job so the operator needn't grep the config.

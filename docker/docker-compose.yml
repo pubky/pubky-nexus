@@ -2,7 +2,11 @@ name: pubky-nexus
 
 services:
   neo4j:
-    image: neo4j:5.26.27-community
+    # Locally-built neo4j with the GDS plugin baked in (see neo4j/Dockerfile);
+    # `docker compose up` builds it on first use, CI pre-builds it with a
+    # GitHub Actions layer cache.
+    build: ./neo4j
+    image: pubky-nexus/neo4j:5.26.27-gds2.13.10
     container_name: neo4j
     restart: unless-stopped
     ports:
@@ -33,6 +37,11 @@ services:
       # https://neo4j.com/docs/operations-manual/current/configuration/configuration-settings/#config_client.allow_telemetry
       NEO4J_client_allow__telemetry: false
       # NEO4J_apoc_uuid_enabled: false
+      # Graph Data Science plugin (free on Community Edition), used to compute
+      # seeded PageRank trust scores over the follow graph.
+      NEO4J_PLUGINS: '["graph-data-science"]'
+      NEO4J_dbms_security_procedures_unrestricted: gds.*
+      NEO4J_dbms_security_procedures_allowlist: gds.graph.project,gds.graph.drop,gds.graph.list,gds.pageRank.write
 
   redis:
     image: redis:8.0.6-alpine

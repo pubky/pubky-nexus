@@ -1,6 +1,8 @@
+use std::sync::Arc;
+
 use clap::Parser;
 use nexus_common::types::DynError;
-use nexus_common::{DaemonConfig, StackManager};
+use nexus_common::{DaemonConfig, StackManager, TrustRankConfig};
 use nexus_watcher::service::NexusWatcher;
 use nexus_webapi::mock::MockDb;
 use nexus_webapi::NexusApi;
@@ -10,13 +12,19 @@ use nexusd::cli::{
 };
 use nexusd::jobs::JobRegistry;
 use nexusd::migrations::{import_migrations, MigrationBuilder, MigrationManager};
+use nexusd::trust::TrustRecomputeJob;
 use nexusd::DaemonLauncher;
+
+/// The registry of jobs available to the daemon, built from config. Config-free
+/// callers (e.g. `jobs list`) can pass `TrustRankConfig::default()`.
+fn job_registry(trust_rank: &TrustRankConfig) -> JobRegistry {
+    JobRegistry::new(vec![Arc::new(TrustRecomputeJob::from_config(trust_rank))])
+}
 
 #[tokio::main]
 async fn main() -> Result<(), DynError> {
     let cli = Cli::parse();
     let command = Cli::receive_command(cli);
-    let job_registry = JobRegistry::new(Vec::new());
 
     match command {
         NexusCommands::Db(db_command) => match db_command {
@@ -60,16 +68,20 @@ async fn main() -> Result<(), DynError> {
                 let config = DaemonConfig::read_or_create_config_file(config_dir).await?;
                 // run_on_demand validates [jobs.*], so a typo'd section fails here
                 // just like `nexusd run`.
-                job_registry.run_on_demand(&name, &config).await?;
+                job_registry(&config.trust_rank)
+                    .run_on_demand(&name, &config)
+                    .await?;
             }
             JobCommands::List => {
-                for name in job_registry.job_names() {
+                // Listing needs only job names, so a default config suffices.
+                for name in job_registry(&TrustRankConfig::default()).job_names() {
                     println!("{name}");
                 }
             }
         },
         NexusCommands::Run { config_dir } => {
-            DaemonLauncher::start(config_dir, &job_registry, None).await?;
+            let config = DaemonConfig::read_or_create_config_file(config_dir.clone()).await?;
+            DaemonLauncher::start(config_dir, &job_registry(&config.trust_rank), None).await?;
         }
     }
 
