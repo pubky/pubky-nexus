@@ -40,9 +40,9 @@ pub enum HsMapping {
     Other { hs_id: String },
 }
 
-/// Event processor for the default homeserver
+/// Event processor for the primary homeserver
 pub struct HsEventProcessor {
-    /// The default HS endpoint this processor fetches events from
+    /// The primary HS endpoint this processor fetches events from
     pub homeserver: Homeserver,
 
     /// See [WatcherConfig::events_limit]

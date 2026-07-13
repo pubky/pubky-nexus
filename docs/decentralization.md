@@ -6,8 +6,8 @@ These are technical notes describing configuration fields related to Decentraliz
 
 ## 1. Background
 
-Originally the watcher pointed at one default HS and bulk-ingested all of
-its events. With decentralization, Nexus still bulk-indexes the default HS but
+Originally the watcher pointed at one primary HS and bulk-ingested all of
+its events. With decentralization, Nexus still bulk-indexes the primary HS but
 *also* indexes users hosted on other ("third-party") HSs on a per-user
 basis, using each HS's user-events endpoint. A separate task resolves each user's
 currently-published HS from PKDNS/DHT and records it as a
@@ -17,7 +17,7 @@ pull from which HS.
 These run as parallel tasks started in `NexusWatcher::start`, each driving one
 runner; the sections below group each config field under the runner it drives:
 
-- [Section 2: Bulk indexing of default HS](#2-indexing-the-default-hs-bulk)
+- [Section 2: Bulk indexing of primary HS](#2-indexing-the-primary-hs-bulk)
 - [Section 3: Key-based indexing of externally-hosted users](#3-indexing-externally-hosted-users-key-based)
 - [Section 4: User → HS resolution](#4-user--hs-resolution)
 - [Section 5: Event retry & backoff](#5-event-retry--backoff--watcherretry)
@@ -25,25 +25,25 @@ runner; the sections below group each config field under the runner it drives:
 
 ---
 
-## 2. Indexing the default HS (bulk)
+## 2. Indexing the primary HS (bulk)
 
-The baseline, pre-decentralization path: the default HS is indexed in *bulk* — all
+The baseline, pre-decentralization path: the primary HS is indexed in *bulk* — all
 of its events are pulled from the HS `/events` endpoint. Driven by `HsEventProcessorRunner`.
 
-The default HS is trusted, which implies a different event validation model.
+The primary HS is trusted, which implies a different event validation model.
 
 ### `homeserver`
 
-> The single default, prioritized HS. Its events are bulk-ingested.
+> The single primary, prioritized HS. Its events are bulk-ingested.
 
 It is explicitly *excluded* from the third-party (`KeyBasedEventProcessorRunner`)
 list so it is never double-indexed (`hs_by_priority`). Changing this re-points
-the entire default-HS pipeline; the HS is persisted to the graph on startup
+the entire primary-HS pipeline; the HS is persisted to the graph on startup
 (`Homeserver::persist_if_unknown`).
 
 ### `events_limit`
 
-> Maximum number of events fetched **per run** from the default HS.
+> Maximum number of events fetched **per run** from the primary HS.
 
 Validated at deserialize time (`deserialize_events_limit`): `0` is rejected, and
 values above the max are rejected rather than clamped.
@@ -51,11 +51,10 @@ values above the max are rejected rather than clamped.
 *Tuning:* higher → more throughput per tick but larger batches and longer
 per-run latency. Lower → smoother but slower to drain a backlog.
 
-### `default_hs_monitoring_interval_ms`
+### `primary_hs_monitoring_interval_ms`
 
-> Scheduling interval[^1] for triggering runs of **both** event-processing runners
-> (`HsEventProcessorRunner` + `KeyBasedEventProcessorRunner`). It is the master tick
-> for indexing.
+> Scheduling interval[^1] for triggering runs of the **primary-HS** indexing runner
+> (`HsEventProcessorRunner`).
 
 *Tuning:* lower → fresher data, more load on HSs and DBs. Higher → less load,
 more lag between an event being published and indexed.
@@ -65,9 +64,9 @@ more lag between an event being published and indexed.
 ## 3. Indexing externally-hosted users (key-based)
 
 The core of decentralization. Driven by `KeyBasedEventProcessorRunner`, which
-indexes users hosted on **third-party** HSs — any HS other than the default
-(also called "external" or "non-default"). For every monitored HS *except* the
-default, it pulls each hosted user's events per user from the HS `/events-stream`
+indexes users hosted on **third-party** HSs — any HS other than the primary
+(also called "external" or "secondary"). For every monitored HS *except* the
+primary, it pulls each hosted user's events per user from the HS `/events-stream`
 endpoint (hence "key-based" — keyed on each user's pubky). Configured in
 `KeyBasedEventProcessorRunner::from_config`.
 
@@ -79,6 +78,16 @@ endpoint (hence "key-based" — keyed on each user's pubky). Configured in
 
 *Tuning:* each additional monitored HS adds HS requests (and, upstream, PKDNS
 resolutions) per tick. Raise deliberately as the network of indexed HSs grows.
+
+### `external_hs_monitoring_interval_ms`
+
+> Scheduling interval[^1] for this `KeyBasedEventProcessorRunner` (the external-HS
+> monitoring task). Independent of `primary_hs_monitoring_interval_ms` so the two
+> cadences can be tuned separately.
+
+*Tuning:* lower → fresher data from external HSs, more load on them and the DBs.
+Higher → less load, more lag. External-HS runs typically touch many users across
+many HSs, so this is often set larger than `primary_hs_monitoring_interval_ms`.
 
 ### `key_based_events_limit`
 
@@ -144,8 +153,8 @@ belong to which HS.
 
 > Scheduling interval[^1] for triggering runs of the resolver task.
 
-**Independent** of `default_hs_monitoring_interval_ms` — resolution and
-indexing tick on separate clocks.
+**Independent** of `primary_hs_monitoring_interval_ms` and
+`external_hs_monitoring_interval_ms` — resolution and indexing tick on separate clocks.
 
 *Tuning:* lower → mappings react faster to users migrating HSs, more PKDNS/DHT
 traffic. Higher → less traffic, slower to notice a user's HS change.
@@ -214,7 +223,8 @@ avoid hammering an HS for content that may not exist yet.
 |---|---|---|---|
 | `homeserver` | `[watcher]` | `PubkyId` | Synonym HS |
 | `events_limit` | `[watcher]` | `u16` | `50` (max `1000`; code default `1000`) |
-| `default_hs_monitoring_interval_ms` | `[watcher]` | `u64` ms | `5000` |
+| `primary_hs_monitoring_interval_ms` | `[watcher]` | `u64` ms | `5000` |
+| `external_hs_monitoring_interval_ms` | `[watcher]` | `u64` ms | `5000` |
 | `monitored_homeservers_limit` | `[watcher]` | `usize` | `50` |
 | `key_based_events_limit` | `[watcher]` | `u16` | `50` (max `100`) |
 | `initial_backoff_secs` | `[watcher]` | `u64` s | `60` |

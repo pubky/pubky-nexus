@@ -37,7 +37,7 @@ impl MockEventProcessorRunner {
 
         for mock_event_processor in self.event_processors.iter() {
             let hs_id = mock_event_processor.homeserver_id.to_string();
-            if persisted_hs_ids.contains(&hs_id) && hs_id != self.default_homeserver() {
+            if persisted_hs_ids.contains(&hs_id) && hs_id != self.primary_homeserver() {
                 hs_ids.push(hs_id);
             }
         }
@@ -45,7 +45,7 @@ impl MockEventProcessorRunner {
         Ok(hs_ids)
     }
 
-    pub fn default_homeserver(&self) -> String {
+    pub fn primary_homeserver(&self) -> String {
         // Use first mock homeserver ID if available, otherwise fallback to mock constant
         self.event_processors
             .first()

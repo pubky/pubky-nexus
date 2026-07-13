@@ -29,13 +29,14 @@ burst = 5
 [watcher]
 # Synonym homeserver pubky
 homeserver = "8um71us3fyw6h8wbcxb5ar3rwusy1a6u49956ikzojg3gcwd1dty"
-# Maximum number of events to fetch per run from the default homeserver (max: 1000)
+# Maximum number of events to fetch per run from the primary homeserver (max: 1000)
 events_limit = 50
-# Maximum events per user per run for key-based (non-default) homeservers (max: 100)
+# Maximum events per user per run for key-based (third-party) homeservers (max: 100)
 key_based_events_limit = 50
 # Maximum number of monitored external homeservers.
 monitored_homeservers_limit = 50
-default_hs_monitoring_interval_ms = 5000
+primary_hs_monitoring_interval_ms = 5000
+external_hs_monitoring_interval_ms = 5000
 hs_resolver_interval_ms = 10000
 # Minimum time (ms) before a user's homeserver mapping is considered stale and therefore eligible to be re-resolved (default: 1 hour)
 hs_resolver_ttl = 3600000
