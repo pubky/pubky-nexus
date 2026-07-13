@@ -13,11 +13,12 @@ use nexus_common::models::tag::traits::{TagCollection, TaggersCollection};
 use nexus_common::models::tag::user::TagUser;
 use nexus_common::models::user::{UserCounts, UserIngestor};
 use nexus_common::types::Pagination;
-use nexus_common::universal_tag::app_tag_info::try_parse_app_tag_path;
 use nexus_common::universal_tag::normalize::{
     classify_uri, normalize_uri, resource_id, UriCategory,
 };
-use pubky_app_specs::{post_uri_builder, ParsedUri, PubkyAppTag, PubkyId, Resource};
+use pubky_app_specs::{
+    post_uri_builder, ExtendedParsedUri, ParsedUri, PubkyAppTag, PubkyId, Resource,
+};
 use tracing::debug;
 
 use super::utils::{fail_on_blacklisted_hs, post_relationships_is_reply};
@@ -501,27 +502,28 @@ pub fn is_tag_storage_uri(tag_uri: &str) -> bool {
 }
 
 fn parse_tag_storage_uri(tag_uri: &str) -> Result<TagStorageUri, EventProcessorError> {
-    if let Ok(parsed_uri) = ParsedUri::try_from(tag_uri) {
-        return match parsed_uri.resource {
-            Resource::Tag(tag_id) => Ok(TagStorageUri {
-                user_id: parsed_uri.user_id,
-                tag_id,
-                app: None,
-            }),
-            other => Err(EventProcessorError::generic(format!(
-                "Expected tag URI, found resource: {other:?}"
-            ))),
-        };
+    match ExtendedParsedUri::try_from(tag_uri).map_err(EventProcessorError::generic)? {
+        ExtendedParsedUri::PubkyApp {
+            user_id,
+            resource: Resource::Tag(tag_id),
+        } => Ok(TagStorageUri {
+            user_id,
+            tag_id,
+            app: None,
+        }),
+        ExtendedParsedUri::UniversalTag {
+            user_id,
+            app,
+            resource: Resource::Tag(tag_id),
+        } => Ok(TagStorageUri {
+            user_id,
+            tag_id,
+            app: Some(app),
+        }),
+        other => Err(EventProcessorError::generic(format!(
+            "Expected tag URI, found: {other:?}"
+        ))),
     }
-
-    let info = try_parse_app_tag_path(tag_uri)
-        .ok_or_else(|| EventProcessorError::generic(format!("Invalid tag URI: {tag_uri}")))?;
-
-    Ok(TagStorageUri {
-        user_id: info.user_id,
-        tag_id: info.tag_id,
-        app: Some(info.app),
-    })
 }
 
 async fn del_sync_user(

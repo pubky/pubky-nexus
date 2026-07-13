@@ -121,15 +121,14 @@ pub trait TEventProcessor: Send + Sync + 'static {
     }
 
     /// Parses a single event line and dispatches to [`Self::handle_event`].
-    /// Unknown resource events are handled via `HomeserverParsedUri::UnknownResource` →
-    /// `DefaultEventHandler` → `tag::sync_put_resource` (main flow).
+    /// Universal tag events are handled via `ExtendedParsedUri::UniversalTag` →
+    /// `DefaultEventHandler` → `tag::sync_put_resource`.
     async fn process_event_line(&self, line: &str) -> Result<(), EventProcessorError> {
         match Event::parse_event(line) {
             // Invalid event lines come from untrusted homeservers; treat as bad peer data, not Nexus errors.
             Err(e) => warn!("{e}"),
             Ok(ParseResult::Skipped) => {}
             Ok(ParseResult::UnrecognizedUri { reason, .. }) => {
-                // Should not normally occur — UnknownResource parsing happens in HomeserverParsedUri
                 warn!("Unrecognized event URI: {reason}");
             }
             Ok(ParseResult::Parsed(event)) => {
