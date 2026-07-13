@@ -87,7 +87,7 @@ mod tests {
         );
         assert_eq!(c.watcher.events_limit, 50);
         assert_eq!(c.watcher.key_based_events_limit, 50);
-        assert_eq!(c.watcher.default_hs_monitoring_interval_ms, 5_000);
+        assert_eq!(c.watcher.primary_hs_monitoring_interval_ms, 5_000);
         assert_eq!(c.watcher.external_hs_monitoring_interval_ms, 5_000);
         assert_eq!(c.watcher.hs_resolver_interval_ms, 10_000);
         assert_eq!(
@@ -166,7 +166,7 @@ mod tests {
     fn test_legacy_watcher_interval_aliases_still_parse() {
         let toml = DEFAULT_CONFIG_TOML
             .replace(
-                "default_hs_monitoring_interval_ms = 5000",
+                "primary_hs_monitoring_interval_ms = 5000",
                 "watcher_sleep = 7000",
             )
             .replace(
@@ -178,7 +178,7 @@ mod tests {
             "legacy watcher_sleep / hs_resolver_sleep field names must still parse via aliases",
         );
 
-        assert_eq!(c.watcher.default_hs_monitoring_interval_ms, 7_000);
+        assert_eq!(c.watcher.primary_hs_monitoring_interval_ms, 7_000);
         assert_eq!(c.watcher.hs_resolver_interval_ms, 20_000);
     }
 }
