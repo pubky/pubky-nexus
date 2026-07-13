@@ -6,7 +6,6 @@ use nexus_common::models::homeserver::Homeserver;
 use nexus_common::types::DynError;
 use nexus_common::WatcherConfig;
 use pubky_app_specs::PubkyId;
-use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::watch::Receiver;
 
@@ -14,7 +13,6 @@ pub struct HsEventProcessorRunner {
     /// See [WatcherConfig::events_limit]
     pub limit: u16,
 
-    pub files_path: PathBuf,
     pub event_handler: Arc<dyn EventHandler>,
     pub shutdown_rx: Receiver<bool>,
 
@@ -30,7 +28,6 @@ impl HsEventProcessorRunner {
     pub fn from_config(config: &WatcherConfig, shutdown_rx: Receiver<bool>) -> Self {
         Self {
             limit: config.events_limit,
-            files_path: config.stack.files_path.clone(),
             event_handler: Arc::new(DefaultEventHandler::from_config(config)),
             shutdown_rx,
             default_homeserver: config.homeserver.clone(),
@@ -59,7 +56,6 @@ impl TEventProcessorRunner for HsEventProcessorRunner {
         Ok(Arc::new(HsEventProcessor {
             homeserver,
             limit: self.limit,
-            files_path: self.files_path.clone(),
             event_handler: self.event_handler.clone(),
             shutdown_rx: self.shutdown_rx.clone(),
             retry_scheduler: self.retry_scheduler.clone(),

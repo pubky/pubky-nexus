@@ -10,7 +10,7 @@ use nexus_common::models::{
     traits::Collection,
 };
 use pubky_app_specs::{ParsedUri, PubkyAppFile, PubkyAppObject, PubkyId};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use tokio::fs::remove_dir_all;
 use tracing::{debug, warn};
 
@@ -20,7 +20,7 @@ pub async fn sync_put(
     uri: String,
     user_id: PubkyId,
     file_id: String,
-    files_path: PathBuf,
+    files_path: &Path,
     max_file_size: u64,
     ingestor: &UserIngestor,
 ) -> Result<(), EventProcessorError> {
@@ -61,7 +61,7 @@ async fn ingest(
     user_id: &PubkyId,
     file_id: &str,
     pubkyapp_file: &PubkyAppFile,
-    files_path: PathBuf,
+    files_path: &Path,
     max_file_size: u64,
     ingestor: &UserIngestor,
 ) -> Result<FileMeta, EventProcessorError> {
@@ -80,7 +80,7 @@ async fn ingest(
     let response = pubky.public_storage().get(&pubkyapp_file.src).await?;
 
     let path = Path::new(&user_id.to_string()).join(file_id);
-    let full_path = files_path.join(path.clone());
+    let full_path = files_path.join(&path);
 
     let blob = fetch_capped(response, max_file_size).await?;
     let pubky_app_object = PubkyAppObject::from_resource(&parsed_source_uri.resource, &blob)
@@ -109,7 +109,7 @@ async fn ingest(
 pub async fn del(
     user_id: &PubkyId,
     file_id: String,
-    files_path: PathBuf,
+    files_path: &Path,
 ) -> Result<(), EventProcessorError> {
     debug!("Deleting File resource at {}/{}", user_id, file_id);
     let result = FileDetails::get_by_ids(&[&[user_id, &file_id]]).await?;

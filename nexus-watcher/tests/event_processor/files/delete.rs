@@ -127,8 +127,7 @@ async fn test_delete_pubkyapp_file_is_idempotent() -> Result<()> {
 
     // Simulate a replay: call the DEL handler again directly (e.g. crash between FS delete and store_event)
     let user_pubky_id = PubkyId::try_from(user_id.as_str()).map_err(anyhow::Error::msg)?;
-    let result =
-        handlers::file::del(&user_pubky_id, file_id, test.temp_dir.path().to_path_buf()).await;
+    let result = handlers::file::del(&user_pubky_id, file_id, test.temp_dir.path()).await;
 
     assert!(
         result.is_ok(),

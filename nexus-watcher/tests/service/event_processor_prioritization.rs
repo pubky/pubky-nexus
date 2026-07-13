@@ -30,6 +30,7 @@ async fn test_event_processor_runner_default_homeserver_excluded() -> Result<(),
         default_moderation_tests(),
         default_ingestor_tests(),
         DEFAULT_MAX_FILE_SIZE,
+        PathBuf::from("/tmp/nexus-watcher-test"),
     ));
     let store: Arc<dyn RetryStore> = Arc::new(RedisRetryStore::new());
     let retry_scheduler = Arc::new(RetryScheduler::new(
@@ -42,7 +43,6 @@ async fn test_event_processor_runner_default_homeserver_excluded() -> Result<(),
     let runner = KeyBasedEventProcessorRunner {
         limit: 1000,
         monitored_hs_limit: HS_IDS.len(),
-        files_path: PathBuf::from("/tmp/nexus-watcher-test"),
         event_handler,
         event_source: Arc::new(PubkyKeyBasedEventSource),
         shutdown_rx: tokio::sync::watch::channel(false).1,
@@ -78,6 +78,7 @@ async fn test_event_processor_runner_blacklisted_homeserver_excluded() -> Result
         default_moderation_tests(),
         default_ingestor_tests(),
         DEFAULT_MAX_FILE_SIZE,
+        PathBuf::from("/tmp/nexus-watcher-test"),
     ));
     let store: Arc<dyn RetryStore> = Arc::new(RedisRetryStore::new());
     let retry_scheduler = Arc::new(RetryScheduler::new(
@@ -94,7 +95,6 @@ async fn test_event_processor_runner_blacklisted_homeserver_excluded() -> Result
     let runner = KeyBasedEventProcessorRunner {
         limit: 1000,
         monitored_hs_limit: 100,
-        files_path: PathBuf::from("/tmp/nexus-watcher-test"),
         event_handler,
         event_source: Arc::new(PubkyKeyBasedEventSource),
         shutdown_rx: tokio::sync::watch::channel(false).1,

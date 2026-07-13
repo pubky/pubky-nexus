@@ -1,4 +1,3 @@
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::service::utils::common::create_mock_handler;
@@ -24,16 +23,11 @@ pub struct MockEventProcessor {
     sleep_duration: Option<Duration>,
     custom_timeout: Option<Duration>,
     shutdown_rx: Receiver<bool>,
-    files_path: PathBuf,
     event_handler: Arc<dyn EventHandler>,
 }
 
 #[async_trait::async_trait]
 impl TEventProcessor for MockEventProcessor {
-    fn files_path(&self) -> &PathBuf {
-        &self.files_path
-    }
-
     fn event_handler(&self) -> &Arc<dyn EventHandler> {
         &self.event_handler
     }
@@ -120,7 +114,6 @@ pub async fn create_random_homeservers_and_persist(
         processor_status,
         custom_timeout,
         shutdown_rx,
-        files_path: PathBuf::from("/tmp/mock"),
         event_handler: create_mock_handler(Ok(()), None),
     };
     event_processor_list.push(event_processor);
@@ -148,7 +141,6 @@ pub fn create_mock_event_processors(
             processor_status: status,
             custom_timeout,
             shutdown_rx: shutdown_rx.clone(),
-            files_path: PathBuf::from("/tmp/mock"),
             event_handler: event_handler.clone(),
         },
     )
