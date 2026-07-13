@@ -3,7 +3,7 @@ mod key_based;
 
 pub use homeserver::HsEventProcessor;
 pub use key_based::{KeyBasedEventProcessor, KeyBasedEventSource, PubkyKeyBasedEventSource};
-use std::{fmt::Display, path::PathBuf, sync::Arc, time::Duration};
+use std::{fmt::Display, sync::Arc, time::Duration};
 
 use tracing::Instrument;
 
@@ -57,8 +57,6 @@ impl Display for RunError {
 ///   different processor implementations
 #[async_trait::async_trait]
 pub trait TEventProcessor: Send + Sync + 'static {
-    fn files_path(&self) -> &PathBuf;
-
     /// Returns the event handler used to process events.
     ///
     /// This allows for flexible event handling implementations, including mocked versions for testing.
@@ -126,7 +124,7 @@ pub trait TEventProcessor: Send + Sync + 'static {
     /// Unknown resource events are handled via `HomeserverParsedUri::UnknownResource` →
     /// `DefaultEventHandler` → `tag::sync_put_resource` (main flow).
     async fn process_event_line(&self, line: &str) -> Result<(), EventProcessorError> {
-        match Event::parse_event(line, self.files_path().clone()) {
+        match Event::parse_event(line) {
             // Invalid event lines come from untrusted homeservers; treat as bad peer data, not Nexus errors.
             Err(e) => warn!("{e}"),
             Ok(ParseResult::Skipped) => {}

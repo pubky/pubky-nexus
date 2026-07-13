@@ -9,7 +9,6 @@ use opentelemetry::{global, KeyValue};
 use pubky::Method;
 use pubky_app_specs::PubkyId;
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::{Arc, LazyLock};
 use tokio::sync::watch::Receiver;
 use tokio::sync::Mutex;
@@ -41,14 +40,13 @@ pub enum HsMapping {
     Other { hs_id: String },
 }
 
-/// Event processor for the default homeserver
+/// Event processor for the primary homeserver
 pub struct HsEventProcessor {
-    /// The default HS endpoint this processor fetches events from
+    /// The primary HS endpoint this processor fetches events from
     pub homeserver: Homeserver,
 
     /// See [WatcherConfig::events_limit]
     pub limit: u16,
-    pub files_path: PathBuf,
     pub event_handler: Arc<dyn EventHandler>,
     pub shutdown_rx: Receiver<bool>,
 
@@ -66,10 +64,6 @@ pub struct HsEventProcessor {
 
 #[async_trait::async_trait]
 impl TEventProcessor for HsEventProcessor {
-    fn files_path(&self) -> &PathBuf {
-        &self.files_path
-    }
-
     fn event_handler(&self) -> &Arc<dyn EventHandler> {
         &self.event_handler
     }

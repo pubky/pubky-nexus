@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::Path;
 use std::sync::Arc;
 
 use crate::errors::EventProcessorError;
@@ -26,8 +26,8 @@ impl Moderation {
     ///
     /// Returns `true` if the tag was applied by the moderator and matches
     /// a moderated tag label.
-    pub fn should_delete(&self, tag: &PubkyAppTag, tagger_id: PubkyId) -> bool {
-        tagger_id == self.id && self.tags.contains(&tag.label)
+    pub fn should_delete(&self, tag: &PubkyAppTag, tagger_id: &PubkyId) -> bool {
+        tagger_id == &self.id && self.tags.contains(&tag.label)
     }
 
     /// Apply moderation by deleting the tagged resource.
@@ -38,7 +38,7 @@ impl Moderation {
     pub async fn apply_moderation(
         &self,
         moderator_tag: PubkyAppTag,
-        files_path: PathBuf,
+        files_path: &Path,
     ) -> Result<(), EventProcessorError> {
         let lahel = moderator_tag.label;
         let moderated_uri = &moderator_tag.uri;

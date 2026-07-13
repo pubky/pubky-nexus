@@ -73,7 +73,7 @@ impl NexusWatcher {
     /// Starts the Nexus Watcher with parallel periodic task loops.
     ///
     /// Currently runs four tasks, each on its own tick interval:
-    /// 1. **Default homeserver** ([`WatcherConfig::default_hs_monitoring_interval_ms`]).
+    /// 1. **Primary homeserver** ([`WatcherConfig::primary_hs_monitoring_interval_ms`]).
     /// 2. **External homeservers** ([`WatcherConfig::external_hs_monitoring_interval_ms`]).
     /// 3. **User HS resolver** ([`WatcherConfig::hs_resolver_interval_ms`]).
     /// 4. **Retry processor** ([`WatcherConfig::retry_processor_interval_ms`]).
@@ -86,7 +86,7 @@ impl NexusWatcher {
 
         Homeserver::persist_if_unknown(config.homeserver.clone()).await?;
 
-        let default_hs_monitoring_interval_ms = config.default_hs_monitoring_interval_ms;
+        let primary_hs_monitoring_interval_ms = config.primary_hs_monitoring_interval_ms;
         let external_hs_monitoring_interval_ms = config.external_hs_monitoring_interval_ms;
         let hs_resolver_interval_ms = config.hs_resolver_interval_ms;
         let retry_processor_interval_ms = config.retry_processor_interval_ms;
@@ -110,8 +110,8 @@ impl NexusWatcher {
 
         let tasks = vec![
             PeriodicTask::new(
-                "default-homeserver",
-                default_hs_monitoring_interval_ms,
+                "primary-homeserver",
+                primary_hs_monitoring_interval_ms,
                 move || {
                     let runner = hs_runner.clone();
                     async move { runner.run().await.map(|_| ()) }

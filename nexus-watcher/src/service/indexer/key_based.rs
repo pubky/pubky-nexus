@@ -1,4 +1,4 @@
-use std::{path::PathBuf, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
 use crate::errors::EventProcessorError;
 use crate::events::Event;
@@ -73,7 +73,8 @@ impl KeyBasedEventSource for PubkyKeyBasedEventSource {
     }
 }
 
-/// Event processor for non-default HSs, where the user-specific `/events-stream` endpoint is used
+/// Event processor for third-party (external) HSs, where the user-specific `/events-stream`
+/// endpoint is used
 pub struct KeyBasedEventProcessor {
     /// The HS endpoint this processor fetches events from
     pub homeserver_id: PubkyId,
@@ -82,7 +83,6 @@ pub struct KeyBasedEventProcessor {
     /// Bounds execution time per user, preventing timeout and starvation.
     pub limit: u16,
 
-    pub files_path: PathBuf,
     pub event_handler: Arc<dyn EventHandler>,
     pub event_source: Arc<dyn KeyBasedEventSource>,
     pub user_not_found_backoff: Arc<UserNotFoundBackoff>,
@@ -100,10 +100,6 @@ pub struct KeyBasedEventProcessor {
 
 #[async_trait::async_trait]
 impl TEventProcessor for KeyBasedEventProcessor {
-    fn files_path(&self) -> &PathBuf {
-        &self.files_path
-    }
-
     fn event_handler(&self) -> &Arc<dyn EventHandler> {
         &self.event_handler
     }
@@ -315,7 +311,7 @@ impl KeyBasedEventProcessor {
 
             let cursor_id = stream_event.cursor.id();
 
-            match Event::from_stream_event(&stream_event, self.files_path.clone()) {
+            match Event::from_stream_event(&stream_event) {
                 Ok(Some(event)) => {
                     // External homeservers must not index another user's URI.
                     if let Err(err) = Self::validate_user_id(hs_id, &event, user_id) {

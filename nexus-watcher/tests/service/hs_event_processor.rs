@@ -1,4 +1,3 @@
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -66,7 +65,6 @@ fn build_processor(
     Arc::new(HsEventProcessor {
         homeserver: Homeserver::new(hs_id),
         limit: 100,
-        files_path: PathBuf::from("/tmp/test"),
         event_handler,
         shutdown_rx,
         retry_scheduler,

@@ -6,7 +6,6 @@ use nexus_common::models::homeserver::Homeserver;
 use nexus_common::types::DynError;
 use nexus_common::WatcherConfig;
 use pubky_app_specs::PubkyId;
-use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::watch::Receiver;
 
@@ -14,12 +13,11 @@ pub struct HsEventProcessorRunner {
     /// See [WatcherConfig::events_limit]
     pub limit: u16,
 
-    pub files_path: PathBuf,
     pub event_handler: Arc<dyn EventHandler>,
     pub shutdown_rx: Receiver<bool>,
 
     /// See [WatcherConfig::homeserver]
-    pub default_homeserver: PubkyId,
+    pub primary_homeserver: PubkyId,
 
     /// Scheduler shared with every processor this runner builds
     pub retry_scheduler: Arc<RetryScheduler>,
@@ -30,16 +28,15 @@ impl HsEventProcessorRunner {
     pub fn from_config(config: &WatcherConfig, shutdown_rx: Receiver<bool>) -> Self {
         Self {
             limit: config.events_limit,
-            files_path: config.stack.files_path.clone(),
             event_handler: Arc::new(DefaultEventHandler::from_config(config)),
             shutdown_rx,
-            default_homeserver: config.homeserver.clone(),
+            primary_homeserver: config.homeserver.clone(),
             retry_scheduler: Arc::new(RetryScheduler::from_config(config)),
         }
     }
 
-    pub fn default_homeserver(&self) -> &str {
-        &self.default_homeserver
+    pub fn primary_homeserver(&self) -> &str {
+        &self.primary_homeserver
     }
 }
 
@@ -59,7 +56,6 @@ impl TEventProcessorRunner for HsEventProcessorRunner {
         Ok(Arc::new(HsEventProcessor {
             homeserver,
             limit: self.limit,
-            files_path: self.files_path.clone(),
             event_handler: self.event_handler.clone(),
             shutdown_rx: self.shutdown_rx.clone(),
             retry_scheduler: self.retry_scheduler.clone(),
@@ -68,6 +64,6 @@ impl TEventProcessorRunner for HsEventProcessorRunner {
     }
 
     async fn pre_run(&self) -> Result<Vec<String>, DynError> {
-        Ok(vec![self.default_homeserver.to_string()])
+        Ok(vec![self.primary_homeserver.to_string()])
     }
 }

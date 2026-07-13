@@ -1,4 +1,3 @@
-use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -775,7 +774,6 @@ fn processor_with_options(
     Arc::new(KeyBasedEventProcessor {
         homeserver_id: homeserver.id,
         limit,
-        files_path: PathBuf::from("/tmp/nexus-watcher-test"),
         event_handler: handler,
         event_source: source,
         user_not_found_backoff,

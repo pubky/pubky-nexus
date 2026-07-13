@@ -8,7 +8,8 @@
 //! Mapping from these (dotted) instrument names to the spec's metric names. The
 //! `source` and `depth` attributes carry the spec's `{source}`/`{depth}`
 //! dimensions, so `wot` and `wot_domain` share one instrument rather than
-//! splitting into two metric names (the idiomatic low-cardinality OTel shape):
+//! splitting into two metric names (the idiomatic low-cardinality OTel shape).
+//! For `source=wot_domain`, `depth=0` denotes the observer-only ("Me") trust set:
 //!
 //! | Instrument                         | Spec metric                                |
 //! |------------------------------------|--------------------------------------------|

@@ -117,7 +117,7 @@ impl MigrationManager {
         let snake_case_name = utils::to_snake_case(&name);
         let migration_file_name = format!("{snake_case_name}_{now}");
         let migration_template = generate_template(&migration_file_name);
-        let file_path = format!("{}{}.rs", MIGRATION_PATH, &migration_file_name);
+        let file_path = format!("{}{}.rs", MIGRATION_PATH, migration_file_name);
         tokio::fs::write(file_path.clone(), migration_template)
             .await
             .map_err(|err| {

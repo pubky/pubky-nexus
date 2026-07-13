@@ -10,7 +10,6 @@ use nexus_common::models::homeserver::{Homeserver, HsBlacklist};
 use nexus_common::types::DynError;
 use nexus_common::WatcherConfig;
 use pubky_app_specs::PubkyId;
-use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::{watch::Receiver, Mutex};
 use tracing::{debug, info, warn};
@@ -23,13 +22,12 @@ pub struct KeyBasedEventProcessorRunner {
     /// See [WatcherConfig::monitored_homeservers_limit]
     pub monitored_hs_limit: usize,
 
-    pub files_path: PathBuf,
     pub event_handler: Arc<dyn EventHandler>,
     pub event_source: Arc<dyn KeyBasedEventSource>,
     pub shutdown_rx: Receiver<bool>,
 
-    /// Default homeserver ID, excluded from the external targets list
-    pub default_homeserver: PubkyId,
+    /// Primary homeserver ID, excluded from the external targets list
+    pub primary_homeserver: PubkyId,
 
     /// HS PKs that must never be indexed. Excluded from `pre_run` and re-checked
     /// by each [`KeyBasedEventProcessor`] this runner builds.
@@ -50,11 +48,10 @@ impl KeyBasedEventProcessorRunner {
         Self {
             limit: config.key_based_events_limit,
             monitored_hs_limit: config.monitored_homeservers_limit,
-            files_path: config.stack.files_path.clone(),
             event_handler: Arc::new(DefaultEventHandler::from_config(config)),
             event_source: Arc::new(PubkyKeyBasedEventSource),
             shutdown_rx,
-            default_homeserver: config.homeserver.clone(),
+            primary_homeserver: config.homeserver.clone(),
             hs_blacklist: HsBlacklist::from_config(&config.stack),
             backoff: Mutex::new(HomeserverBackoff::new(
                 config.initial_backoff_secs,
@@ -71,8 +68,8 @@ impl KeyBasedEventProcessorRunner {
 
         let result_hs_ids: Vec<String> = active_hs_ids
             .into_iter()
-            // Exclude the default HS, as it is processed separately
-            .filter(|hs_id| hs_id != self.default_homeserver.as_ref())
+            // Exclude the primary HS, as it is processed separately
+            .filter(|hs_id| hs_id != self.primary_homeserver.as_ref())
             // Exclude any blacklisted HS
             .filter(|hs_id| !self.hs_blacklist.is_blacklisted(hs_id))
             .collect();
@@ -93,7 +90,6 @@ impl TEventProcessorRunner for KeyBasedEventProcessorRunner {
         Ok(Arc::new(KeyBasedEventProcessor {
             homeserver_id,
             limit: self.limit,
-            files_path: self.files_path.clone(),
             event_handler: self.event_handler.clone(),
             event_source: self.event_source.clone(),
             user_not_found_backoff: self.user_not_found_backoff.clone(),

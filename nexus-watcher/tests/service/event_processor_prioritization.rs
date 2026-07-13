@@ -22,7 +22,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 #[tokio_shared_rt::test(shared)]
-async fn test_event_processor_runner_default_homeserver_excluded() -> Result<(), DynError> {
+async fn test_event_processor_runner_primary_homeserver_excluded() -> Result<(), DynError> {
     // Initialize the test
     setup().await?;
 
@@ -30,6 +30,7 @@ async fn test_event_processor_runner_default_homeserver_excluded() -> Result<(),
         default_moderation_tests(),
         default_ingestor_tests(),
         DEFAULT_MAX_FILE_SIZE,
+        PathBuf::from("/tmp/nexus-watcher-test"),
     ));
     let store: Arc<dyn RetryStore> = Arc::new(RedisRetryStore::new());
     let retry_scheduler = Arc::new(RetryScheduler::new(
@@ -42,11 +43,10 @@ async fn test_event_processor_runner_default_homeserver_excluded() -> Result<(),
     let runner = KeyBasedEventProcessorRunner {
         limit: 1000,
         monitored_hs_limit: HS_IDS.len(),
-        files_path: PathBuf::from("/tmp/nexus-watcher-test"),
         event_handler,
         event_source: Arc::new(PubkyKeyBasedEventSource),
         shutdown_rx: tokio::sync::watch::channel(false).1,
-        default_homeserver: PubkyId::try_from(HS_IDS[3]).unwrap(),
+        primary_homeserver: PubkyId::try_from(HS_IDS[3]).unwrap(),
         hs_blacklist: HsBlacklist::default(),
         backoff: Mutex::new(HomeserverBackoff::default()),
         user_not_found_backoff: Arc::new(UserNotFoundBackoff::default()),
@@ -59,11 +59,11 @@ async fn test_event_processor_runner_default_homeserver_excluded() -> Result<(),
         hs.put_to_graph().await.unwrap();
     }
 
-    // The default homeserver should be excluded from the list
+    // The primary homeserver should be excluded from the list
     let hs_ids = runner.pre_run().await?;
     assert!(
         !hs_ids.contains(&HS_IDS[3].to_string()),
-        "Default homeserver should be excluded from pre_run"
+        "Primary homeserver should be excluded from pre_run"
     );
 
     Ok(())
@@ -78,6 +78,7 @@ async fn test_event_processor_runner_blacklisted_homeserver_excluded() -> Result
         default_moderation_tests(),
         default_ingestor_tests(),
         DEFAULT_MAX_FILE_SIZE,
+        PathBuf::from("/tmp/nexus-watcher-test"),
     ));
     let store: Arc<dyn RetryStore> = Arc::new(RedisRetryStore::new());
     let retry_scheduler = Arc::new(RetryScheduler::new(
@@ -94,11 +95,10 @@ async fn test_event_processor_runner_blacklisted_homeserver_excluded() -> Result
     let runner = KeyBasedEventProcessorRunner {
         limit: 1000,
         monitored_hs_limit: 100,
-        files_path: PathBuf::from("/tmp/nexus-watcher-test"),
         event_handler,
         event_source: Arc::new(PubkyKeyBasedEventSource),
         shutdown_rx: tokio::sync::watch::channel(false).1,
-        default_homeserver: PubkyId::try_from(HS_IDS[3]).unwrap(),
+        primary_homeserver: PubkyId::try_from(HS_IDS[3]).unwrap(),
         hs_blacklist: HsBlacklist::new([blacklisted_hs.clone()]),
         backoff: Mutex::new(HomeserverBackoff::default()),
         user_not_found_backoff: Arc::new(UserNotFoundBackoff::default()),
@@ -129,7 +129,7 @@ async fn test_event_processor_runner_blacklisted_homeserver_excluded() -> Result
 }
 
 #[tokio_shared_rt::test(shared)]
-async fn test_mock_event_processor_runner_default_homeserver_excluded() -> Result<(), DynError> {
+async fn test_mock_event_processor_runner_primary_homeserver_excluded() -> Result<(), DynError> {
     // Initialize the test
     setup().await?;
 
@@ -150,11 +150,11 @@ async fn test_mock_event_processor_runner_default_homeserver_excluded() -> Resul
         hs.put_to_graph().await.unwrap();
     }
 
-    // The default homeserver (HS_IDS[0]) should be excluded from the list
+    // The primary homeserver (HS_IDS[0]) should be excluded from the list
     let hs_ids = runner.hs_by_priority().await?;
     assert!(
         !hs_ids.contains(&HS_IDS[0].to_string()),
-        "Default homeserver should be excluded from hs_by_priority"
+        "Primary homeserver should be excluded from hs_by_priority"
     );
 
     Ok(())
