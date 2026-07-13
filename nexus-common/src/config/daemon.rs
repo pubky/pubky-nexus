@@ -182,4 +182,34 @@ mod tests {
         assert_eq!(c.watcher.primary_hs_monitoring_interval_ms, 7_000);
         assert_eq!(c.watcher.hs_resolver_interval_ms, 20_000);
     }
+
+    #[test]
+    fn test_periodic_watcher_intervals_reject_zero() {
+        let zero_intervals = [
+            (
+                "primary_hs_monitoring_interval_ms = 5000",
+                "primary_hs_monitoring_interval_ms = 0",
+            ),
+            (
+                "external_hs_monitoring_interval_ms = 5000",
+                "external_hs_monitoring_interval_ms = 0",
+            ),
+            (
+                "hs_resolver_interval_ms = 10000",
+                "hs_resolver_interval_ms = 0",
+            ),
+            (
+                "retry_processor_interval_ms = 10000",
+                "retry_processor_interval_ms = 0",
+            ),
+        ];
+
+        for (configured_value, zero_value) in zero_intervals {
+            let toml = DEFAULT_CONFIG_TOML.replace(configured_value, zero_value);
+            assert!(
+                DaemonConfig::try_from_str(&toml).is_err(),
+                "{zero_value} must be rejected"
+            );
+        }
+    }
 }
