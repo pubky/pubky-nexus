@@ -44,6 +44,7 @@ hs_resolver_ttl = 3600000
 initial_backoff_secs = 60
 # Maximum backoff duration (in seconds) for a failing homeserver
 max_backoff_secs = 3600
+retry_processor_interval_ms = 10000
 # Maximum allowed file size (in bytes) for ingested files. Default: 52428800 (50 MiB).
 # Responses with Content-Length exceeding this are rejected immediately.
 # Responses without a header are streamed with a running byte-count and aborted past the cap.

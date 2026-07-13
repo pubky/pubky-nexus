@@ -21,6 +21,8 @@ pub const DEFAULT_EXTERNAL_HS_MONITORING_INTERVAL_MS: u64 = 5_000;
 pub const DEFAULT_HS_RESOLVER_INTERVAL_MS: u64 = 10_000;
 /// Default for [WatcherConfig::hs_resolver_ttl]: 1 hour in milliseconds
 pub const DEFAULT_HS_RESOLVER_TTL: u64 = 3_600_000;
+/// Default for [WatcherConfig::retry_processor_interval_ms]
+pub const DEFAULT_RETRY_PROCESSOR_INTERVAL_MS: u64 = 10_000;
 /// Default for [WatcherConfig::initial_backoff_secs]
 pub const DEFAULT_INITIAL_BACKOFF_SECS: u64 = 60;
 /// Default for [WatcherConfig::max_backoff_secs]
@@ -114,18 +116,25 @@ pub struct WatcherConfig {
 
     /// Scheduling interval (ms) at which the primary-HS monitoring task is triggered.
     /// The alias `watcher_sleep` is kept for backward compatibility.
-    #[serde(alias = "watcher_sleep")]
+    #[serde(
+        alias = "watcher_sleep",
+        deserialize_with = "deserialize_nonzero_interval_ms"
+    )]
     pub primary_hs_monitoring_interval_ms: u64,
 
     /// Scheduling interval (ms) at which the key-based (external HS) monitoring task is triggered.
-    #[serde(default = "default_external_hs_monitoring_interval_ms")]
+    #[serde(
+        default = "default_external_hs_monitoring_interval_ms",
+        deserialize_with = "deserialize_nonzero_interval_ms"
+    )]
     pub external_hs_monitoring_interval_ms: u64,
 
     /// Scheduling interval (ms) at which the user HS resolver task is triggered.
     /// The alias `hs_resolver_sleep` is kept for backward compatibility.
     #[serde(
         default = "default_hs_resolver_interval_ms",
-        alias = "hs_resolver_sleep"
+        alias = "hs_resolver_sleep",
+        deserialize_with = "deserialize_nonzero_interval_ms"
     )]
     pub hs_resolver_interval_ms: u64,
 
@@ -141,6 +150,13 @@ pub struct WatcherConfig {
     /// Maximum backoff duration (in seconds) for a failing homeserver
     #[serde(default = "default_max_backoff_secs")]
     pub max_backoff_secs: u64,
+
+    /// Scheduling interval (ms) at which the retry processor task is triggered.
+    #[serde(
+        default = "default_retry_processor_interval_ms",
+        deserialize_with = "deserialize_nonzero_interval_ms"
+    )]
+    pub retry_processor_interval_ms: u64,
 
     /// Max file size in bytes (Content-Length check + streaming enforcement).
     /// Rejected files are permanent failures (not retried). Default: 50 MiB.
@@ -179,6 +195,7 @@ impl Default for WatcherConfig {
             hs_resolver_ttl: DEFAULT_HS_RESOLVER_TTL,
             initial_backoff_secs: DEFAULT_INITIAL_BACKOFF_SECS,
             max_backoff_secs: DEFAULT_MAX_BACKOFF_SECS,
+            retry_processor_interval_ms: DEFAULT_RETRY_PROCESSOR_INTERVAL_MS,
             max_file_size: DEFAULT_MAX_FILE_SIZE,
             retry: EventRetryConfig::default(),
             moderation_id,
@@ -209,6 +226,13 @@ fn deserialize_key_based_events_limit<'de, D: Deserializer<'de>>(d: D) -> Result
         "key_based_events_limit",
         MAX_KEY_BASED_EVENTS_LIMIT,
     )
+}
+
+fn deserialize_nonzero_interval_ms<'de, D: Deserializer<'de>>(d: D) -> Result<u64, D::Error> {
+    match u64::deserialize(d)? {
+        0 => Err(D::Error::custom("scheduling interval cannot be 0ms")),
+        value => Ok(value),
+    }
 }
 
 fn check_limit<E: Error>(val: u16, field: &str, max: u16) -> Result<u16, E> {
@@ -242,6 +266,10 @@ fn default_initial_backoff_secs() -> u64 {
 
 fn default_max_backoff_secs() -> u64 {
     DEFAULT_MAX_BACKOFF_SECS
+}
+
+fn default_retry_processor_interval_ms() -> u64 {
+    DEFAULT_RETRY_PROCESSOR_INTERVAL_MS
 }
 
 fn default_max_file_size() -> u64 {
