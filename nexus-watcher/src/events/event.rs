@@ -1,8 +1,7 @@
 use crate::errors::EventProcessorError;
 use nexus_common::models::event::EventLine;
-use nexus_common::universal_tag::homeserver_parsed_uri::HomeserverParsedUri;
 use pubky::Event as StreamEvent;
-use pubky_app_specs::Resource;
+use pubky_app_specs::{ExtendedParsedUri, Resource};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use tracing::{debug, warn};
@@ -69,7 +68,7 @@ pub struct Event {
     pub event_type: EventType,
 
     /// Parsed representation of [`Self::uri`].
-    pub parsed_uri: HomeserverParsedUri,
+    pub parsed_uri: ExtendedParsedUri,
 
     /// Original event line as received from the homeserver.
     event_line: String,
@@ -126,14 +125,14 @@ impl Event {
         uri: String,
         event_line: String,
     ) -> Result<ParseResult, EventProcessorError> {
-        // Validate and parse the URI using HomeserverParsedUri. This handles both
+        // Validate and parse the URI using ExtendedParsedUri. This handles both
         // standard pubky-app-specs URIs and universal tag URIs from other apps.
-        let parsed_uri = match HomeserverParsedUri::try_from(uri.as_str()) {
+        let parsed_uri = match ExtendedParsedUri::try_from(uri.as_str()) {
             Ok(parsed) => parsed,
             Err(e) => return Ok(ParseResult::unrecognized_uri(event_type, uri, e)),
         };
 
-        if let HomeserverParsedUri::AppSpec { resource, .. } = &parsed_uri {
+        if let ExtendedParsedUri::PubkyApp { resource, .. } = &parsed_uri {
             match resource {
                 Resource::Unknown => {
                     return Err(EventProcessorError::InvalidEventLine(format!(

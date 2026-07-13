@@ -4,9 +4,8 @@ pub mod event;
 pub use event::{Event, EventType, ParseResult};
 
 use crate::errors::EventProcessorError;
-use nexus_common::universal_tag::homeserver_parsed_uri::HomeserverParsedUri;
 use nexus_common::WatcherConfig;
-use pubky_app_specs::{PubkyAppObject, Resource};
+use pubky_app_specs::{ExtendedParsedUri, PubkyAppObject, Resource};
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
@@ -154,7 +153,7 @@ pub async fn handle_put_event(
             } else {
                 // Route universal tag events (non-pubky.app apps) to sync_put_resource
                 // which handles Resource nodes for InternalUnknown/InternalUnknown URIs.
-                if let HomeserverParsedUri::UniversalTag { app, .. } = &event.parsed_uri {
+                if let ExtendedParsedUri::UniversalTag { app, .. } = &event.parsed_uri {
                     handlers::tag::sync_put_resource(
                         tag,
                         user_id,

@@ -4012,8 +4012,7 @@ dependencies = [
 [[package]]
 name = "pubky-app-specs"
 version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9168a579997ff7f2e36d74d3b5372b13d9d49c8398f9d41a760da25b5eb46766"
+source = "git+https://github.com/pubky/pubky-app-specs?rev=48b8220a61d3b7932830bc847f85b7f424936baf#48b8220a61d3b7932830bc847f85b7f424936baf"
 dependencies = [
  "base32",
  "blake3",
