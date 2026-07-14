@@ -36,7 +36,8 @@ async fn test_homeserver_put_post_event() -> Result<()> {
         attachments: None,
         lock: None,
     };
-    let (_, events_in_redis_before) = EventLine::get_from_index(None, 1000).await.unwrap();
+    // Uncapped: the shared event log is append-only and unbounded.
+    let (_, events_in_redis_before) = EventLine::get_from_index(None, usize::MAX).await.unwrap();
 
     let (post_id, post_path) = test.create_post(&user_kp, &post).await?;
 
@@ -54,7 +55,7 @@ async fn test_homeserver_put_post_event() -> Result<()> {
     assert!(post_details.indexed_at > 0);
 
     // CACHE_OP: Check if the event writes in the graph
-    let (_, events_in_redis_after) = EventLine::get_from_index(None, 1000).await.unwrap();
+    let (_, events_in_redis_after) = EventLine::get_from_index(None, usize::MAX).await.unwrap();
     assert!(events_in_redis_after > events_in_redis_before);
 
     //User:Details:user_id:post_id

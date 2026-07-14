@@ -1,3 +1,4 @@
+mod collection_notification;
 mod del_idempotent;
 mod fail_index;
 mod moderated;

@@ -21,7 +21,7 @@ use pubky_app_specs::{
 };
 use tracing::debug;
 
-use super::utils::{fail_on_blacklisted_hs, post_relationships_is_reply};
+use super::utils::{fail_on_blacklisted_hs, post_kind, post_relationships_is_reply};
 
 #[derive(Debug)]
 struct TagStorageUri {
@@ -280,8 +280,19 @@ async fn put_sync_post(
                     Ok::<(), EventProcessorError>(())
                 },
                 PostsByTagSearch::put_to_index(&author_id, post_id, tag_label),
-                // Save new notification
-                Notification::new_post_tag(&tagger_user_id, &author_id, tag_label, post_uri_str),
+                // Kind lookup rides the join, not the critical path before it.
+                async {
+                    let tagged_post_kind = post_kind(&author_id, post_id).await?;
+                    Notification::new_post_tag(
+                        &tagger_user_id,
+                        &author_id,
+                        tag_label,
+                        post_uri_str,
+                        tagged_post_kind,
+                    )
+                    .await?;
+                    Ok::<(), EventProcessorError>(())
+                },
                 // Add tag to search index
                 TagSearch::put_to_index(tag_label_slice)
             );
@@ -638,7 +649,15 @@ async fn del_sync_post(
         // Guarded: notification
         async {
             if tagger_in_index {
-                Notification::new_post_untag(&tagger_id, author_id, tag_label, &post_uri).await?;
+                let tagged_post_kind = post_kind(author_id, post_id).await?;
+                Notification::new_post_untag(
+                    &tagger_id,
+                    author_id,
+                    tag_label,
+                    &post_uri,
+                    tagged_post_kind,
+                )
+                .await?;
             }
             Ok::<(), EventProcessorError>(())
         },

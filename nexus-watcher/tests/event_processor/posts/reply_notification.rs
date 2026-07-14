@@ -97,8 +97,14 @@ async fn test_homeserver_post_reply_notification() -> Result<()> {
         replied_by,
         reply_uri,
         parent_post_uri,
+        post_kind,
     } = notification_body
     {
+        assert_eq!(
+            post_kind,
+            &PubkyAppPostKind::Short,
+            "Replying to a note should report the parent's post_kind = Short"
+        );
         assert_eq!(
             replied_by, &bob_id,
             "Reply Notification should contain the correct replier"

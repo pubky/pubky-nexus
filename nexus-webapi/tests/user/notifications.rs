@@ -290,3 +290,59 @@ async fn test_get_notifications_with_limit_and_skip() -> Result<()> {
 
     Ok(())
 }
+
+/// Pins the `post_kind` wire contract: a new-format `TagPost` serializes the
+/// kind as a lowercase string, and an old-format row (no `post_kind`) reads
+/// back as `unknown` via the serde default.
+#[tokio_shared_rt::test(shared)]
+async fn test_notification_post_kind_wire_and_backcompat() -> Result<()> {
+    env_init().await;
+    // Valid z-base32 IDs borrowed from other tests' FOLLOWER constants; those
+    // ids are only ever used as `followed_by` values, never as recipients, so
+    // this recipient's notification list starts empty.
+    const TEST_USER: &str = "ow7e1wirjo5grk3peu8yzu4oked59ki6dbfhqd4mjzkpgwp67fny";
+    const TAGGER: &str = "17775cing48kciy3enntgjwhw7yptxz6zw8k8czcddzk1yruqhcy";
+
+    // New-format: a collection tag carries post_kind = Collection.
+    let new_body = NotificationBody::TagPost {
+        tagged_by: TAGGER.to_string(),
+        tag_label: "curated".to_string(),
+        post_uri: format!("pubky://{TEST_USER}/pub/pubky.app/posts/0000000000000"),
+        post_kind: pubky_app_specs::PubkyAppPostKind::Collection,
+    };
+    Notification::put_index_sorted_set(
+        &["Notification", TEST_USER],
+        &[(2000.0, serde_json::to_string(&new_body).unwrap().as_str())],
+        None,
+        None,
+    )
+    .await
+    .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    // Old-format: a pre-field row stored without `post_kind`.
+    let old_json = format!(
+        r#"{{"type":"tag_post","tagged_by":"{TAGGER}","tag_label":"legacy","post_uri":"pubky://{TEST_USER}/pub/pubky.app/posts/0000000000001"}}"#
+    );
+    Notification::put_index_sorted_set(
+        &["Notification", TEST_USER],
+        &[(1000.0, old_json.as_str())],
+        None,
+        None,
+    )
+    .await
+    .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    let res = get_request(&format!("/v0/user/{TEST_USER}/notifications")).await?;
+    let items = res.as_array().unwrap();
+    assert_eq!(items.len(), 2, "Expected both seeded notifications");
+
+    // Newest first: the new-format collection tag.
+    assert_eq!(items[0]["body"]["type"], "tag_post");
+    assert_eq!(items[0]["body"]["post_kind"], "collection");
+
+    // The old-format row still deserializes and defaults post_kind to unknown.
+    assert_eq!(items[1]["body"]["type"], "tag_post");
+    assert_eq!(items[1]["body"]["post_kind"], "unknown");
+
+    Ok(())
+}

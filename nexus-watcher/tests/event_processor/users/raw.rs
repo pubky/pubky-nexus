@@ -32,7 +32,8 @@ async fn test_homeserver_user_put_event() -> Result<()> {
         name: "Watcher:UserEvent:User".to_string(),
         status: Some("Running Nexus Watcher".to_string()),
     };
-    let (_, events_in_redis_before) = EventLine::get_from_index(None, 1000).await.unwrap();
+    // Uncapped: the shared event log is append-only and unbounded.
+    let (_, events_in_redis_before) = EventLine::get_from_index(None, usize::MAX).await.unwrap();
 
     let user_id = test.create_user(&user_kp, &user).await?;
 
@@ -61,7 +62,7 @@ async fn test_homeserver_user_put_event() -> Result<()> {
 
     // CACHE_OP: Check if the event writes in the graph
     // User:Counts:user_id
-    let (_, events_in_redis_after) = EventLine::get_from_index(None, 1000).await.unwrap();
+    let (_, events_in_redis_after) = EventLine::get_from_index(None, usize::MAX).await.unwrap();
     assert!(events_in_redis_after > events_in_redis_before);
 
     let user_counts = UserCounts::get_from_index(&user_id)
