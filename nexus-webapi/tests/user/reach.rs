@@ -1,6 +1,8 @@
-use crate::utils::{get_request, invalid_get_request};
+use crate::utils::{get_request, invalid_get_request, server::TestServiceServer};
 use anyhow::Result;
 use axum::http::StatusCode;
+use deadpool_redis::redis::AsyncCommands;
+use nexus_common::db::get_redis_conn;
 
 const NON_EXISTING_USER_ID: &str = "qca6wzjg4okp6g1hwr9g8hmx1po1jpoirjfau9ejsws1qz3t7iiy";
 
@@ -222,6 +224,111 @@ async fn test_follows_limit_cap() -> Result<()> {
 
     // limit=200 (at MAX) is accepted → 200
     get_request(&format!("/v0/user/{user_id}/followers?limit=200")).await?;
+
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_follows_skip_past_end() -> Result<()> {
+    // The fixture user has 10 followers and follows 15 users. Skipping past the
+    // end of either list must return 200 with an empty array, not 404.
+    let user_id = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
+
+    let res = get_request(&format!("/v0/user/{user_id}/followers?skip=100")).await?;
+    assert!(res.is_array());
+    assert!(
+        res.as_array().unwrap().is_empty(),
+        "Expected empty followers page past the end"
+    );
+
+    let res = get_request(&format!("/v0/user/{user_id}/following?skip=100")).await?;
+    assert!(res.is_array());
+    assert!(
+        res.as_array().unwrap().is_empty(),
+        "Expected empty following page past the end"
+    );
+
+    // A nonexistent user still 404s, regardless of pagination
+    invalid_get_request(
+        &format!("/v0/user/{NON_EXISTING_USER_ID}/followers?skip=100"),
+        StatusCode::NOT_FOUND,
+    )
+    .await?;
+
+    invalid_get_request(
+        &format!("/v0/user/{NON_EXISTING_USER_ID}/following?skip=100"),
+        StatusCode::NOT_FOUND,
+    )
+    .await?;
+
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_follows_pagination_slicing() -> Result<()> {
+    // The fixture user has 10 followers and follows 15 users; skip/limit must
+    // slice the list instead of being ignored. CI seeds a warm
+    // cache, and the warm SSCAN path already slices, so each request below
+    // deletes the cached set first to force the cold graph-fetch path.
+    let user_id = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
+
+    // Ensure the server is running, so the Redis pool is initialized
+    TestServiceServer::get_test_server().await;
+    let mut redis_conn = get_redis_conn().await?;
+    let followers_key = format!("Followers:{user_id}");
+    let following_key = format!("Following:{user_id}");
+
+    // Cold cache: limit smaller than the list returns exactly limit items
+    let _: () = redis_conn.del(&followers_key).await?;
+    let res = get_request(&format!("/v0/user/{user_id}/followers?limit=4")).await?;
+    assert_eq!(
+        res.as_array().unwrap().len(),
+        4,
+        "Expected followers limit to cap the page size on a cold cache"
+    );
+
+    // Cold cache: a mid-list skip returns 200 with the remainder instead of
+    // 404ing (the aggregated single-row query used to drop the row on SKIP)
+    let _: () = redis_conn.del(&followers_key).await?;
+    let res = get_request(&format!("/v0/user/{user_id}/followers?skip=8&limit=4")).await?;
+    assert_eq!(
+        res.as_array().unwrap().len(),
+        2,
+        "Expected a cold mid-list skip to return the remainder"
+    );
+
+    // The cold request above cached the full list, so the warm SSCAN path
+    // must serve a page of the same size
+    let res = get_request(&format!("/v0/user/{user_id}/followers?skip=8&limit=4")).await?;
+    assert_eq!(
+        res.as_array().unwrap().len(),
+        2,
+        "Expected the warm cache to serve the same page size as the cold path"
+    );
+
+    // Same checks for the following list
+    let _: () = redis_conn.del(&following_key).await?;
+    let res = get_request(&format!("/v0/user/{user_id}/following?limit=6")).await?;
+    assert_eq!(
+        res.as_array().unwrap().len(),
+        6,
+        "Expected following limit to cap the page size on a cold cache"
+    );
+
+    let _: () = redis_conn.del(&following_key).await?;
+    let res = get_request(&format!("/v0/user/{user_id}/following?skip=10&limit=10")).await?;
+    assert_eq!(
+        res.as_array().unwrap().len(),
+        5,
+        "Expected a cold mid-list skip to return the last following page"
+    );
+
+    let res = get_request(&format!("/v0/user/{user_id}/following?skip=10&limit=10")).await?;
+    assert_eq!(
+        res.as_array().unwrap().len(),
+        5,
+        "Expected the warm cache to serve the same page size as the cold path"
+    );
 
     Ok(())
 }

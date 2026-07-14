@@ -356,7 +356,8 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     /// * `prefix` - An optional string representing the prefix for the Redis keys. If `Some(String)`, the prefix will be used
     /// # Returns
     ///
-    /// Returns a vector of deserialized elements if they exist, or an empty vector if no matching elements are found.
+    /// Returns `None` if the set does not exist, or `Some(vec)` with the requested window
+    /// otherwise. The vector may be empty when the window is past the end of the set.
     ///
     /// # Errors
     ///
