@@ -105,13 +105,22 @@ impl JobRegistry {
             .map_err(JobError::Stack)?;
 
         let lock: Arc<dyn lock::RunLock> = Arc::new(RedisRunLock::new());
-        let token = lock
-            .try_lock(job.name())
-            .await
-            .map_err(JobError::Lock)?
-            .ok_or_else(|| JobError::AlreadyRunning { job: job.name() })?;
+        let token = lock.new_token();
+        // Arm the guard before acquiring so a cancel mid-acquire still releases
+        // (see `scheduler::run_locked`).
+        let guard = lock::LockGuard::new(job.name(), token.clone(), Arc::clone(&lock));
 
-        let guard = lock::LockGuard::new(job.name(), token, Arc::clone(&lock));
+        match lock.acquire(job.name(), &token).await {
+            Ok(true) => {}
+            Ok(false) => {
+                guard.disarm();
+                return Err(JobError::AlreadyRunning { job: job.name() });
+            }
+            Err(e) => {
+                guard.disarm();
+                return Err(JobError::Lock(e));
+            }
+        }
 
         let result = job.run().await;
         guard.release().await;
@@ -420,9 +429,12 @@ mod tests {
         }
         #[async_trait]
         impl lock::RunLock for RecordingLock {
-            async fn try_lock(&self, _job: &str) -> RedisResult<Option<String>> {
+            fn new_token(&self) -> String {
+                "t".to_string()
+            }
+            async fn acquire(&self, _job: &str, _token: &str) -> RedisResult<bool> {
                 self.acquired.fetch_add(1, Ordering::SeqCst);
-                Ok(Some("t".to_string()))
+                Ok(true)
             }
             async fn unlock(&self, _job: &str, _token: &str) -> RedisResult<()> {
                 self.released.fetch_add(1, Ordering::SeqCst);

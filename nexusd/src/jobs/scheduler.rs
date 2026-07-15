@@ -196,9 +196,17 @@ impl Scheduler {
         self.run_attempts
             .add(1, &[KeyValue::new("job", name.to_string())]);
 
-        let token = match self.lock.try_lock(name).await {
-            Ok(Some(token)) => token,
-            Ok(None) => {
+        let token = self.lock.new_token();
+        // Arm the guard *before* acquiring. If this future is dropped mid-acquire
+        // on shutdown, Drop releases the lock iff it was actually taken (else it's
+        // a no-op), so the acquire can't orphan it. `name` isn't &'static; use
+        // `job.name()`, which the trait guarantees is.
+        let guard = super::lock::LockGuard::new(job.name(), token.clone(), self.lock.clone());
+
+        match self.lock.acquire(name, &token).await {
+            Ok(true) => {}
+            Ok(false) => {
+                guard.disarm();
                 self.run_skipped.add(
                     1,
                     &[
@@ -213,6 +221,7 @@ impl Scheduler {
                 return;
             }
             Err(e) => {
+                guard.disarm();
                 self.run_skipped.add(
                     1,
                     &[
@@ -226,10 +235,7 @@ impl Scheduler {
                 );
                 return;
             }
-        };
-
-        // `name` isn't &'static; use `job.name()`, which the trait guarantees is.
-        let guard = super::lock::LockGuard::new(job.name(), token, self.lock.clone());
+        }
 
         let result = job.run().await;
 
@@ -540,15 +546,18 @@ mod tests {
         );
     }
 
-    /// A lock held elsewhere (`try_lock` → `None`) makes the scheduler skip every
+    /// A lock held elsewhere (`acquire` → `false`) makes the scheduler skip every
     /// fire — the job never runs — while it keeps ticking and exits on shutdown.
     #[tokio::test(start_paused = true)]
     async fn run_job_skips_run_when_lock_held() {
         struct HeldLock;
         #[async_trait]
         impl RunLock for HeldLock {
-            async fn try_lock(&self, _job: &str) -> RedisResult<Option<String>> {
-                Ok(None)
+            fn new_token(&self) -> String {
+                "token".to_string()
+            }
+            async fn acquire(&self, _job: &str, _token: &str) -> RedisResult<bool> {
+                Ok(false)
             }
             async fn unlock(&self, _job: &str, _token: &str) -> RedisResult<()> {
                 Ok(())
@@ -588,9 +597,12 @@ mod tests {
         }
         #[async_trait]
         impl RunLock for RecordingLock {
-            async fn try_lock(&self, _job: &str) -> RedisResult<Option<String>> {
+            fn new_token(&self) -> String {
+                "token".to_string()
+            }
+            async fn acquire(&self, _job: &str, _token: &str) -> RedisResult<bool> {
                 self.acquired.fetch_add(1, Ordering::SeqCst);
-                Ok(Some("token".to_string()))
+                Ok(true)
             }
             async fn unlock(&self, _job: &str, _token: &str) -> RedisResult<()> {
                 self.released.fetch_add(1, Ordering::SeqCst);
@@ -633,6 +645,64 @@ mod tests {
         );
     }
 
+    /// Cancelling a run while its acquire is still in flight (shutdown dropping
+    /// the future between the lock being taken and the token reaching us) must
+    /// not orphan the lock: the guard is armed before the acquire, so its Drop
+    /// releases it. Modelled with an `acquire` that never resolves.
+    #[tokio::test(start_paused = true)]
+    async fn cancel_during_acquire_releases_lock() {
+        struct StalledLock {
+            released: Arc<AtomicU32>,
+        }
+        #[async_trait]
+        impl RunLock for StalledLock {
+            fn new_token(&self) -> String {
+                "token".to_string()
+            }
+            async fn acquire(&self, _job: &str, _token: &str) -> RedisResult<bool> {
+                // Never resolves: the acquire's response never reaches us before
+                // the task is cancelled.
+                std::future::pending::<()>().await;
+                unreachable!()
+            }
+            async fn unlock(&self, _job: &str, _token: &str) -> RedisResult<()> {
+                self.released.fetch_add(1, Ordering::SeqCst);
+                Ok(())
+            }
+        }
+
+        let released = Arc::new(AtomicU32::new(0));
+        let scheduler = Scheduler::new(
+            virtual_now(),
+            Arc::new(StalledLock {
+                released: released.clone(),
+            }),
+        );
+        let job = CountingJob {
+            count: Arc::new(AtomicU32::new(0)),
+        };
+
+        // Poll run_locked so it reaches (and stalls on) the acquire, then drop it.
+        {
+            let fut = scheduler.run_locked("counting", &job);
+            tokio::pin!(fut);
+            tokio::select! {
+                _ = &mut fut => panic!("acquire stalls; run_locked cannot complete"),
+                _ = tokio::time::sleep(Duration::from_millis(1)) => {}
+            }
+        } // fut dropped here → the pre-armed guard's Drop spawns the unlock.
+
+        // Let the detached Drop-spawn unlock run.
+        tokio::task::yield_now().await;
+        tokio::time::sleep(Duration::from_millis(10)).await;
+
+        assert_eq!(
+            released.load(Ordering::SeqCst),
+            1,
+            "a run dropped mid-acquire must still release via the pre-armed guard"
+        );
+    }
+
     /// Every fire is one attempt that partitions into completed or skipped,
     /// never both — asserted by reading the real `jobs.run.*` OTel counters back
     /// through an in-memory exporter.
@@ -645,12 +715,11 @@ mod tests {
         }
         #[async_trait]
         impl RunLock for AlternatingLock {
-            async fn try_lock(&self, _job: &str) -> RedisResult<Option<String>> {
-                if self.calls.fetch_add(1, Ordering::SeqCst).is_multiple_of(2) {
-                    Ok(Some("token".to_string()))
-                } else {
-                    Ok(None)
-                }
+            fn new_token(&self) -> String {
+                "token".to_string()
+            }
+            async fn acquire(&self, _job: &str, _token: &str) -> RedisResult<bool> {
+                Ok(self.calls.fetch_add(1, Ordering::SeqCst).is_multiple_of(2))
             }
             async fn unlock(&self, _job: &str, _token: &str) -> RedisResult<()> {
                 Ok(())

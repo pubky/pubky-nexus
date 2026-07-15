@@ -13,11 +13,15 @@ const LOCK_TTL_SECS: u64 = 3600;
 /// without Redis.
 #[async_trait]
 pub trait RunLock: Send + Sync {
-    /// Tries to claim the run slot for `job`. `Ok(None)` when another run holds
-    /// it; the returned token must be passed back to [`unlock`](Self::unlock).
-    async fn try_lock(&self, job: &str) -> RedisResult<Option<String>>;
+    /// Mints a fresh token (no I/O), so a [`LockGuard`] can be armed before
+    /// `acquire` — a run cancelled mid-acquire then still releases.
+    fn new_token(&self) -> String;
 
-    /// Releases a slot claimed with `token` (compare-and-delete).
+    /// Tries to claim the run slot for `job` under `token`. `Ok(false)` when
+    /// another run already holds it.
+    async fn acquire(&self, job: &str, token: &str) -> RedisResult<bool>;
+
+    /// Releases the slot, but only if it's still held by `token`.
     async fn unlock(&self, job: &str, token: &str) -> RedisResult<()>;
 }
 
@@ -42,16 +46,6 @@ impl RedisRunLock {
             counter: AtomicU64::new(0),
         }
     }
-
-    /// A token unique per acquisition within this process: `<pid>-<seed>-<counter>`.
-    fn new_token(&self) -> String {
-        format!(
-            "{}-{}-{}",
-            std::process::id(),
-            self.seed,
-            self.counter.fetch_add(1, Ordering::Relaxed),
-        )
-    }
 }
 
 impl Default for RedisRunLock {
@@ -62,13 +56,18 @@ impl Default for RedisRunLock {
 
 #[async_trait]
 impl RunLock for RedisRunLock {
-    async fn try_lock(&self, job: &str) -> RedisResult<Option<String>> {
-        let token = self.new_token();
-        if try_acquire_lock(&key(job), &token, LOCK_TTL_SECS).await? {
-            Ok(Some(token))
-        } else {
-            Ok(None)
-        }
+    /// A token unique per acquisition within this process: `<pid>-<seed>-<counter>`.
+    fn new_token(&self) -> String {
+        format!(
+            "{}-{}-{}",
+            std::process::id(),
+            self.seed,
+            self.counter.fetch_add(1, Ordering::Relaxed),
+        )
+    }
+
+    async fn acquire(&self, job: &str, token: &str) -> RedisResult<bool> {
+        try_acquire_lock(&key(job), token, LOCK_TTL_SECS).await
     }
 
     async fn unlock(&self, job: &str, token: &str) -> RedisResult<()> {
@@ -100,6 +99,13 @@ impl LockGuard {
             token: Some(token),
             lock,
         }
+    }
+
+    /// Forget the lock without releasing it — for the path where the guard was
+    /// armed before the acquire but the lock wasn't actually taken. After this,
+    /// Drop is a no-op.
+    pub(super) fn disarm(mut self) {
+        self.token = None;
     }
 
     /// Releases the lock, awaiting the result so unlock errors log
@@ -144,8 +150,11 @@ pub struct AlwaysAvailableLock;
 #[cfg(test)]
 #[async_trait]
 impl RunLock for AlwaysAvailableLock {
-    async fn try_lock(&self, _job: &str) -> RedisResult<Option<String>> {
-        Ok(Some("test-token".to_string()))
+    fn new_token(&self) -> String {
+        "test-token".to_string()
+    }
+    async fn acquire(&self, _job: &str, _token: &str) -> RedisResult<bool> {
+        Ok(true)
     }
     async fn unlock(&self, _job: &str, _token: &str) -> RedisResult<()> {
         Ok(())
