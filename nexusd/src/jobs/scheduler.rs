@@ -350,6 +350,16 @@ mod tests {
         assert!(validate_cron("0 0 3 * * * 2020").is_err());
     }
 
+    /// The `cron` crate is seconds-first (6-7 fields). A standard 5-field
+    /// expression is rejected outright, not silently reinterpreted as a
+    /// seconds-first schedule — so `0 3 * * *` can't sneak in as ":03 every
+    /// hour". Pins that guarantee against a crate bump loosening parsing.
+    #[test]
+    fn validate_cron_rejects_five_field_expressions() {
+        assert!(validate_cron("0 3 * * *").is_err());
+        assert!(validate_cron("* * * * *").is_err());
+    }
+
     /// A run overrunning several fire times gets no back-to-back catch-up runs:
     /// the scheduler skips missed ticks and fires exactly once more.
     #[tokio::test(start_paused = true)]
