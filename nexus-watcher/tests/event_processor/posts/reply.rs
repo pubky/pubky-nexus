@@ -175,7 +175,7 @@ async fn test_homeserver_post_reply() -> Result<()> {
     );
 
     // Check that replies are NOT in the global total engagement sorted set
-    let reply_key = format!("{}:{}", user_id, &reply_id);
+    let reply_key = format!("{}:{}", user_id, reply_id);
     let global_total_engagement = check_member_total_engagement_user_posts(&[&reply_key])
         .await
         .unwrap_or_default();
