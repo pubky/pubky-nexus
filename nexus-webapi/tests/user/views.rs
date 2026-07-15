@@ -146,11 +146,12 @@ async fn test_user_counts_collections_and_bookmark_exclusion() -> Result<()> {
     let res = get_request(&format!("/v0/user/{cairo}/counts")).await?;
     assert_eq!(res["collections"], 1, "Cairo authored 1 collection");
 
-    // Eixample bookmarks one normal post and one collection.
+    // Eixample bookmarks two normal posts (a root and a reply) and one
+    // collection; the collection is excluded from the bookmark count.
     let eixample = "8attbeo9ftu5nztqkcfw3gydksehr7jbspgfi64u4h8eo5e7dbiy";
     let res = get_request(&format!("/v0/user/{eixample}/counts")).await?;
     assert_eq!(
-        res["bookmarks"], 1,
+        res["bookmarks"], 2,
         "collection-follow excluded from bookmarks"
     );
     assert_eq!(res["collections"], 0, "Eixample authored no collections");

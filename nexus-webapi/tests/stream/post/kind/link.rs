@@ -7,7 +7,7 @@ use anyhow::Result;
 
 const KIND: &str = "link";
 
-const POST_L1: &str = "SIJW1TGL5BKG8";
+pub const POST_L1: &str = "SIJW1TGL5BKG8";
 const POST_L2: &str = "SIJW1TGL5BKG7";
 const POST_L3: &str = "SIJW1TGL5BKG6";
 const POST_L4: &str = "SIJW1TGL5BKG5";
