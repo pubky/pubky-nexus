@@ -69,8 +69,13 @@ pub struct WatcherArgs {
 
 #[derive(Subcommand, Debug)]
 pub enum DbCommands {
-    /// Clear the databases
-    Clear,
+    /// Clear the databases (destructive, requires --yes)
+    Clear {
+        /// Confirm wiping the Redis logical database (FLUSHDB) and every node
+        /// in the Neo4j graph configured via --config-dir.
+        #[arg(long)]
+        yes: bool,
+    },
 
     /// Mock the database (optional redis/graph). Usually for tests
     Mock(MockArgs),
@@ -105,4 +110,47 @@ pub struct MigrationNewArgs {
     /// The name of the new migration
     #[arg(required = true)]
     pub name: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn db_clear_without_yes_parses_as_unconfirmed() {
+        let cli = Cli::try_parse_from(["nexusd", "db", "clear"]).expect("should parse");
+        match cli.command {
+            Some(NexusCommands::Db(DbCommands::Clear { yes })) => assert!(!yes),
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn db_clear_with_yes_parses_as_confirmed() {
+        let cli = Cli::try_parse_from(["nexusd", "db", "clear", "--yes"]).expect("should parse");
+        match cli.command {
+            Some(NexusCommands::Db(DbCommands::Clear { yes })) => assert!(yes),
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
+    /// The top-level --config-dir must be available to db commands so they
+    /// operate on the configured stack rather than the default one.
+    #[test]
+    fn db_clear_keeps_top_level_config_dir() {
+        let cli = Cli::try_parse_from([
+            "nexusd",
+            "--config-dir",
+            "/custom/dir",
+            "db",
+            "clear",
+            "--yes",
+        ])
+        .expect("should parse");
+        assert_eq!(cli.config_dir, PathBuf::from("/custom/dir"));
+        match cli.command {
+            Some(NexusCommands::Db(DbCommands::Clear { yes })) => assert!(yes),
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
 }
