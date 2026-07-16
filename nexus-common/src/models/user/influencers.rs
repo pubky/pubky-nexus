@@ -105,6 +105,7 @@ impl Influencers {
             return Ok(cached_influencers);
         }
 
+        // Recovery seeds only the top 100; deeper pages return empty until organic activity repopulates the set.
         let query = queries::get::get_global_influencers(0, 100, timeframe);
         let result = fetch_key_from_graph::<Influencers>(query, "influencers").await?;
 
@@ -177,28 +178,54 @@ impl Influencers {
         }
     }
 
-    /// Stores a list of global influencers in the cache as a sorted set for the given timeframe
+    /// Stores a list of global influencers as a sorted set for the given timeframe.
+    ///
+    /// The target key must match the one `get_from_global_cache` reads for that timeframe:
+    /// `AllTime` reads the live `Sorted:Users:Influencers` set, every other timeframe reads
+    /// `Cache:Influencers:{timeframe}`.
     ///
     /// # Arguments
     /// * `result` - The list of influencers with their scores to cache
-    /// * `timeframe` - The timeframe used to generate the cache key and expiry
+    /// * `timeframe` - The timeframe used to select the target key and expiry
     async fn put_to_global_cache(result: Influencers, timeframe: &Timeframe) -> ModelResult<()> {
-        let key_parts = Influencers::get_cache_key_parts(timeframe);
-        let key_parts_vector: Vec<&str> =
-            key_parts.iter().map(|s| s.as_str()).collect::<Vec<&str>>();
+        let elements: Vec<(f64, &str)> = result
+            .iter()
+            .map(|influencer| (influencer.1, influencer.0.as_str()))
+            .collect();
 
-        // store the ranking as sorted set in cache
-        Influencers::put_index_sorted_set(
-            key_parts_vector.as_slice(),
-            result
-                .iter()
-                .map(|influencer| (influencer.1, influencer.0.as_str()))
-                .collect::<Vec<(f64, &str)>>()
-                .as_slice(),
-            Some(GLOBAL_INFLUENCERS_PREFIX),
-            Some(timeframe.to_cache_period()),
-        )
-        .await?;
+        match timeframe {
+            // AllTime reads come from Sorted:Users:Influencers, the live set that is
+            // incrementally maintained by UserStream::add_to_influencers_sorted_set. The
+            // graph query counts the same tag edges as UserCounts.tagged (tags the user
+            // assigned to posts and to users), so the seeded AllTime score matches the
+            // incremental one, except for edges indexed at or after the query's `to`
+            // snapshot (taken at query build); per-user activity rewrites each member's
+            // score on its next counts update. Seed that key so the re-read in
+            // get_global_influencers finds the data. No TTL, the set is kept up to date
+            // by user activity.
+            Timeframe::AllTime => {
+                Influencers::put_index_sorted_set(
+                    USER_INFLUENCERS_KEY_PARTS.as_slice(),
+                    elements.as_slice(),
+                    None,
+                    None,
+                )
+                .await?;
+            }
+            // Other timeframes use the TTL-based cache key Cache:Influencers:{timeframe}
+            _ => {
+                let key_parts = Influencers::get_cache_key_parts(timeframe);
+                let key_parts_vector: Vec<&str> = key_parts.iter().map(|s| s.as_str()).collect();
+
+                Influencers::put_index_sorted_set(
+                    key_parts_vector.as_slice(),
+                    elements.as_slice(),
+                    Some(GLOBAL_INFLUENCERS_PREFIX),
+                    Some(timeframe.to_cache_period()),
+                )
+                .await?;
+            }
+        }
         Ok(())
     }
 

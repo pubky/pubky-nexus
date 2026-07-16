@@ -815,47 +815,58 @@ pub fn get_influencers_by_reach(
 
 pub fn get_global_influencers(skip: usize, limit: usize, timeframe: &Timeframe) -> Query {
     let (from, to) = timeframe.to_timestamp_range();
-    Query::new(
-        "get_global_influencers",
+    // AllTime seeds the live influencers set, whose incremental scores count
+    // tags the user assigned to posts AND to users, so the seed must match
+    // that definition. Windowed timeframes keep their post-tags-only scoring;
+    // they only feed their own per-timeframe cache.
+    let tag_targets = match timeframe {
+        Timeframe::AllTime => ":Post|User",
+        _ => ":Post",
+    };
+    let query_string = format!(
         "
         MATCH (user:User)
         WHERE user.name <> '[DELETED]'
         WITH DISTINCT user
 
-        // Each count is a scoped CALL(user){} subquery so it stays per-user
+        // Each count is a scoped CALL(user){{}} subquery so it stays per-user
         // instead of multiplying into a cartesian product. Mirrors
         // get_influencers_by_reach.
-        CALL (user) {
+        CALL (user) {{
             MATCH (others:User)-[follow:FOLLOWS]->(user)
             WHERE follow.indexed_at >= $from AND follow.indexed_at < $to
             RETURN count(DISTINCT follow) AS followers_count
-        }
-        CALL (user) {
-            MATCH (user)-[tag:TAGGED]->(:Post)
+        }}
+        CALL (user) {{
+            MATCH (user)-[tag:TAGGED]->({tag_targets})
             WHERE tag.indexed_at >= $from AND tag.indexed_at < $to
             RETURN count(DISTINCT tag) AS tags_count
-        }
-        CALL (user) {
-            MATCH (user)-[authored:AUTHORED]->(post:Post)
-            WHERE authored.indexed_at >= $from AND authored.indexed_at < $to
+        }}
+        CALL (user) {{
+            // Filter on the Post node's indexed_at, like get_influencers_by_reach does.
+            // The AUTHORED edge carries no indexed_at property (create_post never sets
+            // one), so filtering on the edge would always yield posts_count = 0.
+            MATCH (user)-[:AUTHORED]->(post:Post)
+            WHERE post.indexed_at >= $from AND post.indexed_at < $to
             RETURN count(DISTINCT post) AS posts_count
-        }
-        WITH {
+        }}
+        WITH {{
             id: user.id,
             score: (tags_count + posts_count) * sqrt(followers_count)
-        } AS influencer
+        }} AS influencer
         WHERE influencer.id IS NOT NULL
 
         ORDER BY influencer.score DESC, influencer.id ASC
         SKIP $skip
         LIMIT $limit
         RETURN COLLECT([influencer.id, influencer.score]) as influencers
-    ",
-    )
-    .param("skip", skip as i64)
-    .param("limit", limit as i64)
-    .param("from", from)
-    .param("to", to)
+    "
+    );
+    Query::new("get_global_influencers", &query_string)
+        .param("skip", skip as i64)
+        .param("limit", limit as i64)
+        .param("from", from)
+        .param("to", to)
 }
 
 pub fn get_files_by_ids(key_pair: &[&[&str]]) -> Query {
