@@ -148,6 +148,10 @@ async fn put_sync_resource(
                 ),
                 // Add tagger to Resource's label tagger set
                 TagResource::add_tagger_to_index(resource_id, None, &tagger_id, tag_label),
+                // Add tagger to the app-scoped tagger set. The TAGGED edge is
+                // keyed {label, app}, so this records one member per created
+                // edge; tag::del uses it as the retry gate for the decrements
+                TagResource::add_tagger_to_index(resource_id, Some(app), &tagger_id, tag_label),
                 // Add to global tag search index
                 TagSearch::put_to_index(tag_label_slice),
                 // ResourceStream sorted set maintenance
@@ -188,6 +192,7 @@ async fn put_sync_resource(
             indexing_results.8?;
             indexing_results.9?;
             indexing_results.10?;
+            indexing_results.11?;
 
             Ok(())
         }
@@ -484,7 +489,32 @@ pub async fn del(tag_uri: &str) -> Result<(), EventProcessorError> {
             post_counts_to_invalidate = Some([author_id, post_id]);
         }
         (None, None, None, Some(res_id)) => {
-            del_sync_resource(arg_user_id.clone(), &res_id, &label, app.as_deref()).await?;
+            // The put path runs its increments once per created TAGGED edge,
+            // and resource edges are keyed {label, app}: the same user tagging
+            // the same resource and label from two apps increments every count
+            // twice. The retry gate must therefore be app-scoped as well; the
+            // app-agnostic taggers set holds the member only once and would
+            // wrongly skip the decrements of the second app's delete
+            let tagger_in_index = match app.as_deref() {
+                Some(a) => {
+                    TagResource::check_set_member(&[&res_id, a, &label], arg_user_id.as_ref())
+                        .await?
+                        .1
+                }
+                None => {
+                    TagResource::check_set_member(&[&res_id, &label], arg_user_id.as_ref())
+                        .await?
+                        .1
+                }
+            };
+            del_sync_resource(
+                arg_user_id.clone(),
+                &res_id,
+                &label,
+                app.as_deref(),
+                tagger_in_index,
+            )
+            .await?;
         }
         _ => {
             debug!("DEL-Tag: Unexpected combination of tag details");
@@ -698,46 +728,91 @@ async fn del_sync_post(
 /// Cleans up Redis indexes when a Resource tag is deleted.
 /// Orphaned Resource node cleanup is handled by the delete_tag Cypher query.
 /// Timeline entries are only removed when taggers count reaches zero.
+/// Non-idempotent decrements are guarded by `tagger_in_index` so a retried
+/// event does not double-decrement the taggers counts. The gate comes from
+/// the app-scoped tagger set, which the put path fills once per created
+/// TAGGED edge (keyed {label, app}), matching the per-edge increments.
 async fn del_sync_resource(
     tagger_id: PubkyId,
     resource_id: &str,
     tag_label: &str,
     app: Option<&str>,
+    tagger_in_index: bool,
 ) -> Result<(), EventProcessorError> {
     // Step 1: Decrement scores and remove tagger from sets
     let score_results = tokio::join!(
-        TagResource::update_index_score(resource_id, None, tag_label, ScoreAction::Decrement(1.0)),
+        // Guarded: Decrement label score in the resource
         async {
+            if tagger_in_index {
+                TagResource::update_index_score(
+                    resource_id,
+                    None,
+                    tag_label,
+                    ScoreAction::Decrement(1.0),
+                )
+                .await?;
+            }
+            Ok::<(), EventProcessorError>(())
+        },
+        async {
+            // Idempotent: Delete the tagger from the tag list (SREM)
             TagResource(vec![tagger_id.to_string()])
                 .del_from_index(resource_id, None, tag_label)
                 .await?;
+            // Idempotent: Delete the tagger from the app-scoped tagger set
+            // that gates the decrements above (SREM)
+            if let Some(a) = app {
+                TagResource(vec![tagger_id.to_string()])
+                    .del_from_index(resource_id, Some(a), tag_label)
+                    .await?;
+            }
             Ok::<(), EventProcessorError>(())
         },
-        ResourceStream::update_global_taggers_count(resource_id, ScoreAction::Decrement(1.0)),
-        ResourceStream::update_tag_taggers_count(
-            tag_label,
-            resource_id,
-            ScoreAction::Decrement(1.0),
-        ),
+        // Guarded: Decrement global taggers count
         async {
-            if let Some(a) = app {
-                let (r1, r2) = tokio::join!(
-                    ResourceStream::update_app_taggers_count(
-                        a,
-                        resource_id,
-                        ScoreAction::Decrement(1.0),
-                    ),
-                    ResourceStream::update_app_tag_taggers_count(
-                        a,
-                        tag_label,
-                        resource_id,
-                        ScoreAction::Decrement(1.0),
-                    ),
-                );
-                r1?;
-                r2?;
+            if tagger_in_index {
+                ResourceStream::update_global_taggers_count(
+                    resource_id,
+                    ScoreAction::Decrement(1.0),
+                )
+                .await?;
             }
-            Ok::<(), nexus_common::db::kv::RedisError>(())
+            Ok::<(), EventProcessorError>(())
+        },
+        // Guarded: Decrement tag taggers count
+        async {
+            if tagger_in_index {
+                ResourceStream::update_tag_taggers_count(
+                    tag_label,
+                    resource_id,
+                    ScoreAction::Decrement(1.0),
+                )
+                .await?;
+            }
+            Ok::<(), EventProcessorError>(())
+        },
+        // Guarded: Decrement app and app-tag taggers counts
+        async {
+            if tagger_in_index {
+                if let Some(a) = app {
+                    let (r1, r2) = tokio::join!(
+                        ResourceStream::update_app_taggers_count(
+                            a,
+                            resource_id,
+                            ScoreAction::Decrement(1.0),
+                        ),
+                        ResourceStream::update_app_tag_taggers_count(
+                            a,
+                            tag_label,
+                            resource_id,
+                            ScoreAction::Decrement(1.0),
+                        ),
+                    );
+                    r1?;
+                    r2?;
+                }
+            }
+            Ok::<(), EventProcessorError>(())
         }
     );
 
