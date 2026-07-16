@@ -25,7 +25,8 @@ async fn test_homeserver_bookmark() -> Result<()> {
         status: None,
     };
     let user_id = test.create_user(&user_kp, &user).await?;
-    let (_, events_in_redis_before) = EventLine::get_from_index(None, 1000).await.unwrap();
+    // Uncapped: the shared event log is append-only and unbounded.
+    let (_, events_in_redis_before) = EventLine::get_from_index(None, usize::MAX).await.unwrap();
 
     // Step 2: Create a post under that user
     let post = PubkyAppPost {
@@ -61,7 +62,7 @@ async fn test_homeserver_bookmark() -> Result<()> {
     assert_eq!(user_counts.bookmarks, 1);
 
     // INDEX_OP: Assert if the event writes the indexes
-    let (_, events_in_redis_after) = EventLine::get_from_index(None, 1000).await.unwrap();
+    let (_, events_in_redis_after) = EventLine::get_from_index(None, usize::MAX).await.unwrap();
     assert!(events_in_redis_after > events_in_redis_before);
 
     let result_bookmarks = PostStream::get_bookmarked_posts(

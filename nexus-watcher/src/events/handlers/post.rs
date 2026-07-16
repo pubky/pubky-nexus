@@ -14,7 +14,7 @@ use pubky_app_specs::{
 };
 use tracing::{debug, Instrument};
 
-use super::utils::{fail_on_blacklisted_hs, post_is_collection, post_relationships_is_reply};
+use super::utils::{fail_on_blacklisted_hs, post_kind, post_relationships_is_reply};
 
 #[tracing::instrument(name = "post.put", skip_all, fields(user_id = %author_id, post_id = %post_id))]
 pub async fn sync_put(
@@ -79,10 +79,10 @@ pub async fn sync_put(
                 // transition, and move the counter twice. Writing the kind first
                 // means a retry sees the new kind and the transition is gone.
                 let collection_toggled = was_collection != is_collection;
-                if existing_details.is_different_than(&post_details) || collection_toggled {
-                    // A lock-only toggle refreshes the cache but is not a content
-                    // edit, so it must not notify interactors. Notify only when
-                    // content/attachments or the collection kind changed.
+                // `is_different_than` ignores kind, so refresh on a kind-only edit too.
+                let kind_changed = existing_details.kind != post_details.kind;
+                if existing_details.is_different_than(&post_details) || kind_changed {
+                    // A lock- or kind-only toggle refreshes the cache but must not notify.
                     let notify =
                         existing_details.content_differs_from(&post_details) || collection_toggled;
                     sync_edit(
@@ -92,6 +92,7 @@ pub async fn sync_put(
                         post_details,
                         ingestor,
                         notify,
+                        existing_details.kind.clone(),
                     )
                     .await?;
                 }
@@ -120,6 +121,7 @@ pub async fn sync_put(
         &post_id,
         &post_details.content,
         &mut post_relationships,
+        post.kind.clone(),
     )
     .await?;
 
@@ -213,12 +215,18 @@ pub async fn sync_put(
                 &post_id,
                 post_details.indexed_at,
             ),
-            Notification::new_post_reply(
-                &author_id,
-                &replied_uri_str,
-                &post_details.uri,
-                &parent_author_id,
-            )
+            async {
+                let parent_kind = post_kind(&parent_author_id, &parent_post_id).await?;
+                Notification::new_post_reply(
+                    &author_id,
+                    &replied_uri_str,
+                    &post_details.uri,
+                    &parent_author_id,
+                    parent_kind,
+                )
+                .await?;
+                Ok::<(), EventProcessorError>(())
+            }
         );
 
         indexing_results.0?;
@@ -259,12 +267,18 @@ pub async fn sync_put(
                 }
                 Ok::<(), EventProcessorError>(())
             },
-            Notification::new_repost(
-                &author_id,
-                &reposted_uri_str,
-                &post_details.uri,
-                &parent_author_id,
-            )
+            async {
+                let embed_kind = post_kind(&parent_author_id, &parent_post_id).await?;
+                Notification::new_repost(
+                    &author_id,
+                    &reposted_uri_str,
+                    &post_details.uri,
+                    &parent_author_id,
+                    embed_kind,
+                )
+                .await?;
+                Ok::<(), EventProcessorError>(())
+            }
         );
 
         indexing_results.0?;
@@ -357,6 +371,7 @@ async fn sync_edit(
     post_details: PostDetails,
     ingestor: &UserIngestor,
     notify: bool,
+    was_kind: PubkyAppPostKind,
 ) -> Result<(), EventProcessorError> {
     // Refresh the cached details (always, even for a lock-only toggle).
     post_details.put_to_index(&author_id, None, true).await?;
@@ -379,8 +394,21 @@ async fn sync_edit(
         PostChangedType::Edited
     };
 
+    // Deletes report the prior kind (the tombstone forges a Short); edits the new kind.
+    let changed_kind = match change_type {
+        PostChangedType::Deleted => was_kind,
+        PostChangedType::Edited => post_details.kind.clone(),
+    };
+
     // Send notifications to users who interacted with the post
-    Notification::changed_post(&author_id, &post_id, &changed_uri, &change_type).await?;
+    Notification::changed_post(
+        &author_id,
+        &post_id,
+        &changed_uri,
+        &change_type,
+        changed_kind.clone(),
+    )
+    .await?;
 
     // Handle "A reply to your post was edited/deleted"
     if let Some(parent) = &post.parent {
@@ -393,6 +421,7 @@ async fn sync_edit(
             &changed_uri,
             PostChangedSource::Reply,
             &change_type,
+            changed_kind,
         )
         .await?;
     };
@@ -406,15 +435,30 @@ pub async fn put_mentioned_relationships(
     post_id: &str,
     content: &str,
     relationships: &mut PostRelationships,
+    post_kind: PubkyAppPostKind,
 ) -> Result<(), EventProcessorError> {
     // TODO Deprecate, drop support for pk: support in an upcoming release
     // Backwards compatibility: identify user references with "pk:" prefix
-    put_mentioned_relationships_for_prefix(author_id, post_id, content, relationships, "pk:")
-        .await?;
+    put_mentioned_relationships_for_prefix(
+        author_id,
+        post_id,
+        content,
+        relationships,
+        "pk:",
+        post_kind.clone(),
+    )
+    .await?;
 
     // Support new pubkey display: identify user references with "pubky" prefix
-    put_mentioned_relationships_for_prefix(author_id, post_id, content, relationships, "pubky")
-        .await?;
+    put_mentioned_relationships_for_prefix(
+        author_id,
+        post_id,
+        content,
+        relationships,
+        "pubky",
+        post_kind,
+    )
+    .await?;
 
     Ok(())
 }
@@ -425,13 +469,15 @@ async fn put_mentioned_relationships_for_prefix(
     content: &str,
     relationships: &mut PostRelationships,
     prefix: &str,
+    post_kind: PubkyAppPostKind,
 ) -> Result<(), EventProcessorError> {
     for pubky_id in find_mentioned_ids(content, prefix) {
         // Create the MENTIONED relationship in the graph
         let query = queries::put::create_mention_relationship(author_id, post_id, &pubky_id);
         exec_single_row(query).await?;
 
-        let maybe_mentioned_id = Notification::new_mention(author_id, &pubky_id, post_id).await?;
+        let maybe_mentioned_id =
+            Notification::new_mention(author_id, &pubky_id, post_id, post_kind.clone()).await?;
         if let Some(mentioned_user_id) = maybe_mentioned_id {
             relationships.mentioned.push(mentioned_user_id);
         }
@@ -553,7 +599,12 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), EventPr
     // Recover the kind BEFORE removing the gate below. PostDetails is still present
     // (graph-delete runs last). Doing this after the gate deletion would let a
     // failed lookup strand the decrements on retry (gate gone, post_in_index false).
-    let is_collection = post_in_index && post_is_collection(&author_id, &post_id).await?;
+    let deleted_kind = if post_in_index {
+        post_kind(&author_id, &post_id).await?
+    } else {
+        PubkyAppPostKind::Unknown
+    };
+    let is_collection = deleted_kind == PubkyAppPostKind::Collection;
 
     // 2. Atomically commit the cleanup decision: remove the gate as the very
     //    first mutation. Subsequent retries will observe `post_in_index = false`
@@ -661,6 +712,7 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), EventPr
                             &deleted_uri,
                             PostChangedSource::Reply,
                             &PostChangedType::Deleted,
+                            deleted_kind.clone(),
                         )
                         .await?;
                     }
@@ -717,6 +769,7 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), EventPr
                             &deleted_uri,
                             PostChangedSource::Repost,
                             &PostChangedType::Deleted,
+                            deleted_kind.clone(),
                         )
                         .await?;
                     }

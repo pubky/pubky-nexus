@@ -105,8 +105,14 @@ async fn test_homeserver_post_repost_notification() -> Result<()> {
         reposted_by,
         embed_uri,
         repost_uri,
+        post_kind,
     } = notification_body
     {
+        assert_eq!(
+            post_kind,
+            &PubkyAppPostKind::Short,
+            "Reposting a note should report the embed's post_kind = Short"
+        );
         assert_eq!(
             reposted_by, &bob_id,
             "Respost Notification should contain the correct replier"

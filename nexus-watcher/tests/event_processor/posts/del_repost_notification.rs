@@ -80,8 +80,14 @@ async fn test_delete_post_that_reposted_notification() -> Result<()> {
         deleted_by,
         deleted_uri,
         linked_uri,
+        post_kind,
     } = &notification.body
     {
+        assert_eq!(
+            post_kind,
+            &PubkyAppPostKind::Short,
+            "A deleted note should report post_kind = Short"
+        );
         assert_eq!(
             deleted_by, &reposter_id,
             "Notification should contain the correct deleter"

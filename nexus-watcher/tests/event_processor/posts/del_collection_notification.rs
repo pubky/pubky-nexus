@@ -1,4 +1,5 @@
-use crate::event_processor::utils::watcher::WatcherTest;
+use super::utils::collection_post;
+use crate::event_processor::utils::watcher::{HomeserverHashIdPath, WatcherTest};
 use anyhow::Result;
 use nexus_common::{
     models::notification::{Notification, NotificationBody, PostChangedSource},
@@ -6,64 +7,55 @@ use nexus_common::{
 };
 use pubky::Keypair;
 use pubky_app_specs::{
-    post_uri_builder, PubkyAppPost, PubkyAppPostEmbed, PubkyAppPostKind, PubkyAppUser,
+    bookmark_uri_builder, post_uri_builder, traits::HashId, PubkyAppBookmark, PubkyAppPostKind,
+    PubkyAppUser,
 };
 
+/// Deleting a bookmarked collection (soft-delete tombstone) must still report
+/// the prior kind.
 #[tokio_shared_rt::test(shared)]
-async fn test_delete_reposted_post_notification() -> Result<()> {
+async fn test_delete_bookmarked_collection_notification() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
 
-    // Create User A who makes the original post
+    // Create User A who makes the original collection
     let user_a_kp = Keypair::random();
     let user_a = PubkyAppUser {
         bio: Some("User A bio".to_string()),
         image: None,
         links: None,
-        name: "Watcher:RepostedPostDeleteNotification:UserA".to_string(),
+        name: "Watcher:CollectionDeleteNotification:UserA".to_string(),
         status: None,
     };
     let user_a_id = test.create_user(&user_a_kp, &user_a).await?;
 
-    // Create User B who reposts User A's post
+    // Create User B who bookmarks User A's collection
     let user_b_kp = Keypair::random();
     let user_b = PubkyAppUser {
         bio: Some("User B bio".to_string()),
         image: None,
         links: None,
-        name: "Watcher:RepostedPostDeleteNotification:UserB".to_string(),
+        name: "Watcher:CollectionDeleteNotification:UserB".to_string(),
         status: None,
     };
     let user_b_id = test.create_user(&user_b_kp, &user_b).await?;
 
-    // User A creates a post
-    let post = PubkyAppPost {
-        content: "Original post by User A".to_string(),
-        kind: PubkyAppPostKind::Short,
-        parent: None,
-        embed: None,
-        attachments: None,
-        lock: None,
-    };
+    // User A creates a collection
+    let post = collection_post("doomed");
     let (post_id, post_path) = test.create_post(&user_a_kp, &post).await?;
 
-    // User B reposts User A's post
-    let repost = PubkyAppPost {
-        content: "".to_string(), // Reposts usually have empty content
-        kind: PubkyAppPostKind::Short,
-        parent: None,
-        embed: Some(PubkyAppPostEmbed {
-            kind: PubkyAppPostKind::Short,
-            uri: post_uri_builder(user_a_id.clone(), post_id.clone()),
-        }),
-        attachments: None,
-        lock: None,
+    // User B bookmarks User A's collection
+    let bookmark = PubkyAppBookmark {
+        uri: post_uri_builder(user_a_id.clone(), post_id.clone()),
+        created_at: 0,
     };
-    let (repost_id, _repost_path) = test.create_post(&user_b_kp, &repost).await?;
+    let bookmark_absolute_url = bookmark_uri_builder(user_b_id.clone(), bookmark.create_id());
+    let bookmark_path = bookmark.hs_path();
+    test.put(&user_b_kp, &bookmark_path, bookmark).await?;
 
-    // User A deletes their post
+    // User A deletes their collection
     test.cleanup_post(&user_a_kp, &post_path).await?;
 
-    // Verify that User B receives a notification about the deletion
+    // Verify that User B receives a collection-specific delete notification
     let notifications = Notification::get_by_id(&user_b_id, Pagination::default())
         .await
         .unwrap();
@@ -84,26 +76,25 @@ async fn test_delete_reposted_post_notification() -> Result<()> {
     {
         assert_eq!(
             post_kind,
-            &PubkyAppPostKind::Short,
-            "A deleted note should report post_kind = Short"
+            &PubkyAppPostKind::Collection,
+            "Deleting a collection should tag the notification with post_kind = Collection (prior kind, via the tombstone)"
         );
         assert_eq!(
             deleted_by, &user_a_id,
-            "Notification should specify the correct user who deleted the post"
+            "Notification should specify the correct user who deleted the collection"
         );
         assert_eq!(
             deleted_uri,
             &format!("pubky://{user_a_id}/pub/pubky.app/posts/{post_id}"),
-            "Notification should contain the correct deleted post URI"
+            "Notification should contain the correct deleted collection URI"
         );
         assert_eq!(
-            linked_uri,
-            &format!("pubky://{user_b_id}/pub/pubky.app/posts/{repost_id}"),
-            "Notification should contain the correct repost URI"
+            linked_uri, &bookmark_absolute_url,
+            "Notification should contain the correct bookmark URI"
         );
         assert_eq!(
             delete_source,
-            &PostChangedSource::RepostEmbed,
+            &PostChangedSource::Bookmark,
             "Delete notification should have the correct source"
         );
     } else {

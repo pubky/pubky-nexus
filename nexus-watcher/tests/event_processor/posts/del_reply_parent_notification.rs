@@ -74,8 +74,14 @@ async fn test_delete_parent_post_notification() -> Result<()> {
         deleted_by,
         deleted_uri,
         linked_uri,
+        post_kind,
     } = &notifications[0].body
     {
+        assert_eq!(
+            post_kind,
+            &PubkyAppPostKind::Short,
+            "A deleted note should report post_kind = Short"
+        );
         assert_eq!(
             deleted_by, &user_a_id,
             "Notification should specify the correct user who deleted the post"
