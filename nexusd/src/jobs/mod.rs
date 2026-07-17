@@ -410,7 +410,7 @@ mod tests {
     #[tokio::test(start_paused = true)]
     #[traced_test]
     async fn panic_in_run_still_releases_lock() {
-        use nexus_common::db::RedisResult;
+        use crate::jobs::error::LockResult;
 
         struct PanicJob;
         #[async_trait]
@@ -432,11 +432,11 @@ mod tests {
             fn new_token(&self) -> String {
                 "t".to_string()
             }
-            async fn acquire(&self, _job: &str, _token: &str) -> RedisResult<bool> {
+            async fn acquire(&self, _job: &str, _token: &str) -> LockResult<bool> {
                 self.acquired.fetch_add(1, Ordering::SeqCst);
                 Ok(true)
             }
-            async fn unlock(&self, _job: &str, _token: &str) -> RedisResult<()> {
+            async fn unlock(&self, _job: &str, _token: &str) -> LockResult<()> {
                 self.released.fetch_add(1, Ordering::SeqCst);
                 Ok(())
             }

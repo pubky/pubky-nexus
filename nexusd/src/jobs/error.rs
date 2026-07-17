@@ -1,6 +1,12 @@
-use nexus_common::db::RedisError;
 use nexus_common::types::DynError;
 use thiserror::Error;
+
+/// A run lock backend failure.
+#[derive(Debug, Error)]
+#[error("run lock backend failed: {0}")]
+pub struct LockError(#[source] pub DynError);
+
+pub type LockResult<T> = Result<T, LockError>;
 
 #[derive(Debug, Error)]
 pub enum JobError {
@@ -8,7 +14,7 @@ pub enum JobError {
     AlreadyRunning { job: &'static str },
 
     #[error("run lock error: {0}")]
-    Lock(#[source] RedisError),
+    Lock(#[source] LockError),
 
     #[error("unknown job(s) {unknown:?}; available jobs: {available}")]
     UnknownJobConfig {

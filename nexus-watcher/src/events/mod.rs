@@ -6,6 +6,7 @@ pub use event::{Event, EventType, ParseResult};
 use crate::errors::EventProcessorError;
 use nexus_common::WatcherConfig;
 use pubky_app_specs::{ExtendedParsedUri, PubkyAppObject, Resource};
+use std::collections::HashSet;
 use std::{
     path::{Path, PathBuf},
     sync::Arc,

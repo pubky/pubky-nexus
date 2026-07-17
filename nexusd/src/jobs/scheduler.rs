@@ -27,10 +27,10 @@ pub struct Scheduler {
     lock: Arc<dyn RunLock>,
     /// Every fire attempt, before the lock is tried.
     run_attempts: Counter<u64>,
-    /// Fires where the job ran, labelled by `outcome` in {ok, error}.
+    /// Fires where the job ran, labelled by `outcome` in {ok, error, abandoned}.
     run_completed: Counter<u64>,
     /// Fires that didn't run the job, labelled by `reason` in
-    /// {in_progress, lock_error}.
+    /// {in_progress, lock_error, shutdown_before_acquire}.
     run_skipped: Counter<u64>,
     /// Schedulers that stopped and won't run again until restart, labelled by
     /// `reason` in {panic, schedule_exhausted}. Excludes clean shutdown. A
@@ -91,7 +91,7 @@ impl Scheduler {
 }
 
 /// Waits until `shutdown_rx` carries `true` or all senders drop; `false` sends
-/// are ignored.
+/// are ignored. Edge-triggered: an already-seen `true` won't wake it.
 ///
 /// Cancel-safe: the only await is `Receiver::changed()`, and there's no await
 /// between wake and `borrow_and_update()`, so a `select!` drop can't swallow a
@@ -146,6 +146,14 @@ impl Scheduler {
         info!(job = name, cron = %schedule, "Job scheduler started");
 
         loop {
+            // `wait_for_shutdown` only fires on the false→true transition, and
+            // run_locked may already have consumed it while abandoning a run. Read
+            // the current value directly so an already-signaled shutdown still exits.
+            if *shutdown_rx.borrow() {
+                info!(job = name, "Shutdown received, exiting job scheduler");
+                return;
+            }
+
             // Re-anchor to wall-clock each iteration: O(1) skip of all missed ticks.
             let now = (self.now_fn)();
             let Some(next) = schedule.after(&now).next() else {
@@ -162,6 +170,7 @@ impl Scheduler {
             // `after(&now)` returns times strictly after `now`, so the sleep is
             // always positive — no overrun check needed.
             let remaining = (next - now).to_std().unwrap_or(Duration::ZERO);
+            // Sleep phase: shutdown can drop this safely — no lock I/O here.
             tokio::select! {
                 biased;
 
@@ -173,16 +182,10 @@ impl Scheduler {
             }
 
             debug!(job = name, fire_time = %next, "Running scheduled job");
-            tokio::select! {
-                biased;
-
-                // Dropping the future leaves the lock to its TTL, but we're exiting anyway.
-                _ = wait_for_shutdown(&mut shutdown_rx) => {
-                    info!(job = name, "Shutdown received during run; abandoning it");
-                    return;
-                }
-                () = self.run_locked(name, job) => {}
-            }
+            // Run phase: no select! around run_locked — that would drop it (and its
+            // in-flight lock I/O) on shutdown. run_locked observes shutdown itself,
+            // as a signal that leaves acquire and release uncancellable.
+            self.run_locked(name, job, &mut shutdown_rx).await;
         }
     }
 
@@ -190,17 +193,35 @@ impl Scheduler {
     /// error) when the lock is held or unreachable — the next tick retries
     /// rather than piling up a backlog.
     ///
+    /// Structured in three phases around `shutdown`: acquire and release are
+    /// uncancellable (they read the backend's reply before returning, so a
+    /// mid-flight drop can't orphan the lock or poison a pooled connection); only
+    /// `job.run()` is raced against shutdown, via `select!` on the watch receiver.
+    ///
     /// A panic in `run()` propagates via `JoinSet` (see `supervise`); the lock
     /// still releases through `LockGuard`'s Drop.
-    async fn run_locked(&self, name: &str, job: &dyn Job) {
+    async fn run_locked(&self, name: &str, job: &dyn Job, shutdown: &mut Receiver<bool>) {
         self.run_attempts
             .add(1, &[KeyValue::new("job", name.to_string())]);
 
+        // Shutdown already signaled before we touched the lock: skip without acquiring.
+        if *shutdown.borrow() {
+            self.run_skipped.add(
+                1,
+                &[
+                    KeyValue::new("job", name.to_string()),
+                    KeyValue::new("reason", "shutdown_before_acquire"),
+                ],
+            );
+            return;
+        }
+
+        // Phase 1: acquire — uncancellable. Reads the SET reply before returning.
         let token = self.lock.new_token();
-        // Arm the guard *before* acquiring. If this future is dropped mid-acquire
-        // on shutdown, Drop releases the lock iff it was actually taken (else it's
-        // a no-op), so the acquire can't orphan it. `name` isn't &'static; use
-        // `job.name()`, which the trait guarantees is.
+        // Arm the guard *before* acquiring. If the acquire errors after the SET
+        // committed but its reply was lost, Drop releases the lock; the
+        // compare-and-delete is a no-op if our token wasn't stored. `name` isn't
+        // &'static; use `job.name()`, which the trait guarantees is.
         let guard = super::lock::LockGuard::new(job.name(), token.clone(), self.lock.clone());
 
         match self.lock.acquire(name, &token).await {
@@ -221,7 +242,6 @@ impl Scheduler {
                 return;
             }
             Err(e) => {
-                guard.disarm();
                 self.run_skipped.add(
                     1,
                     &[
@@ -237,16 +257,31 @@ impl Scheduler {
             }
         }
 
-        let result = job.run().await;
+        // Phase 2: the job — cancellable via the shutdown signal (drops job.run()'s
+        // future, never the acquire or release around it).
+        let outcome = tokio::select! {
+            biased;
 
-        // Await the release so unlock errors log synchronously. A panic in run()
-        // skips this line — Drop releases instead.
+            _ = wait_for_shutdown(shutdown) => {
+                info!(job = name, "Shutdown during run; abandoning");
+                "abandoned"
+            }
+            result = job.run() => match result {
+                Ok(()) => {
+                    debug!(job = name, "Scheduled job completed");
+                    "ok"
+                }
+                Err(e) => {
+                    error!(job = name, "Scheduled job failed: {e:?}");
+                    "error"
+                }
+            },
+        };
+
+        // Phase 3: release — uncancellable. Runs even after abandonment; awaiting
+        // the EVAL reply costs a few ms at shutdown but leaves the lock known-free.
         guard.release().await;
 
-        let outcome = match &result {
-            Ok(()) => "ok",
-            Err(_) => "error",
-        };
         self.run_completed.add(
             1,
             &[
@@ -254,10 +289,6 @@ impl Scheduler {
                 KeyValue::new("outcome", outcome),
             ],
         );
-        match result {
-            Ok(()) => debug!(job = name, "Scheduled job completed"),
-            Err(e) => error!(job = name, "Scheduled job failed: {e:?}"),
-        }
     }
 }
 
@@ -276,11 +307,11 @@ pub(crate) fn virtual_now() -> NowFn {
 
 #[cfg(test)]
 mod tests {
+    use super::super::error::LockResult;
     use super::super::lock::{AlwaysAvailableLock, RunLock};
     use super::{validate_cron, virtual_now, NowFn, Scheduler};
     use crate::jobs::Job;
     use async_trait::async_trait;
-    use nexus_common::db::RedisResult;
     use opentelemetry::metrics::MeterProvider;
     use opentelemetry_sdk::metrics::data::{AggregatedMetrics, MetricData, ResourceMetrics};
     use opentelemetry_sdk::metrics::{InMemoryMetricExporter, SdkMeterProvider};
@@ -566,10 +597,10 @@ mod tests {
             fn new_token(&self) -> String {
                 "token".to_string()
             }
-            async fn acquire(&self, _job: &str, _token: &str) -> RedisResult<bool> {
+            async fn acquire(&self, _job: &str, _token: &str) -> LockResult<bool> {
                 Ok(false)
             }
-            async fn unlock(&self, _job: &str, _token: &str) -> RedisResult<()> {
+            async fn unlock(&self, _job: &str, _token: &str) -> LockResult<()> {
                 Ok(())
             }
         }
@@ -610,11 +641,11 @@ mod tests {
             fn new_token(&self) -> String {
                 "token".to_string()
             }
-            async fn acquire(&self, _job: &str, _token: &str) -> RedisResult<bool> {
+            async fn acquire(&self, _job: &str, _token: &str) -> LockResult<bool> {
                 self.acquired.fetch_add(1, Ordering::SeqCst);
                 Ok(true)
             }
-            async fn unlock(&self, _job: &str, _token: &str) -> RedisResult<()> {
+            async fn unlock(&self, _job: &str, _token: &str) -> LockResult<()> {
                 self.released.fetch_add(1, Ordering::SeqCst);
                 Ok(())
             }
@@ -669,13 +700,13 @@ mod tests {
             fn new_token(&self) -> String {
                 "token".to_string()
             }
-            async fn acquire(&self, _job: &str, _token: &str) -> RedisResult<bool> {
+            async fn acquire(&self, _job: &str, _token: &str) -> LockResult<bool> {
                 // Never resolves: the acquire's response never reaches us before
                 // the task is cancelled.
                 std::future::pending::<()>().await;
                 unreachable!()
             }
-            async fn unlock(&self, _job: &str, _token: &str) -> RedisResult<()> {
+            async fn unlock(&self, _job: &str, _token: &str) -> LockResult<()> {
                 self.released.fetch_add(1, Ordering::SeqCst);
                 Ok(())
             }
@@ -691,10 +722,11 @@ mod tests {
         let job = CountingJob {
             count: Arc::new(AtomicU32::new(0)),
         };
+        let (_tx, mut rx) = watch::channel(false);
 
         // Poll run_locked so it reaches (and stalls on) the acquire, then drop it.
         {
-            let fut = scheduler.run_locked("counting", &job);
+            let fut = scheduler.run_locked("counting", &job, &mut rx);
             tokio::pin!(fut);
             tokio::select! {
                 _ = &mut fut => panic!("acquire stalls; run_locked cannot complete"),
@@ -728,10 +760,10 @@ mod tests {
             fn new_token(&self) -> String {
                 "token".to_string()
             }
-            async fn acquire(&self, _job: &str, _token: &str) -> RedisResult<bool> {
+            async fn acquire(&self, _job: &str, _token: &str) -> LockResult<bool> {
                 Ok(self.calls.fetch_add(1, Ordering::SeqCst).is_multiple_of(2))
             }
-            async fn unlock(&self, _job: &str, _token: &str) -> RedisResult<()> {
+            async fn unlock(&self, _job: &str, _token: &str) -> LockResult<()> {
                 Ok(())
             }
         }
@@ -780,6 +812,132 @@ mod tests {
             attempts,
             completed + skipped,
             "every fire attempt must partition into exactly one of completed or skipped"
+        );
+    }
+
+    /// A run abandoned mid-flight on shutdown records `completed{outcome=abandoned}`
+    /// (not a skip), so the attempts partition still holds and abandonment is
+    /// observable.
+    #[tokio::test(start_paused = true)]
+    async fn abandoned_run_records_completed_outcome() {
+        /// Marks itself started, then blocks forever on a never-signaled `Notify`.
+        struct BlockingJob {
+            started: Arc<AtomicU32>,
+            gate: Arc<tokio::sync::Notify>,
+        }
+        #[async_trait]
+        impl Job for BlockingJob {
+            fn name(&self) -> &'static str {
+                "blocking"
+            }
+            async fn run(&self) -> Result<(), Box<dyn Error + Send + Sync>> {
+                self.started.fetch_add(1, Ordering::SeqCst);
+                self.gate.notified().await; // never signaled
+                Ok(())
+            }
+        }
+
+        let started = Arc::new(AtomicU32::new(0));
+        let job = BlockingJob {
+            started: started.clone(),
+            gate: Arc::new(tokio::sync::Notify::new()),
+        };
+        let (tx, rx) = watch::channel(false);
+
+        let schedule = validate_cron("* * * * * *").unwrap();
+        let (scheduler, provider, exporter) =
+            metered_scheduler(virtual_now(), Arc::new(AlwaysAvailableLock));
+        let runner = scheduler.run_job("blocking", &schedule, &job, rx);
+        let driver = async {
+            while started.load(Ordering::SeqCst) == 0 {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+            let _ = tx.send(true);
+        };
+        tokio::join!(runner, driver);
+
+        provider.force_flush().unwrap();
+        let metrics = exporter.get_finished_metrics().unwrap();
+
+        let abandoned = counter_value(
+            &metrics,
+            "jobs.run.completed",
+            &[("job", "blocking"), ("outcome", "abandoned")],
+        );
+        assert_eq!(
+            abandoned, 1,
+            "a run abandoned on shutdown must record exactly one completed{{abandoned}}"
+        );
+
+        // The partition still holds across all outcomes/reasons.
+        let attempts = counter_value(&metrics, "jobs.run.attempts", &[("job", "blocking")]);
+        let completed = counter_value(&metrics, "jobs.run.completed", &[("job", "blocking")]);
+        let skipped = counter_value(&metrics, "jobs.run.skipped", &[("job", "blocking")]);
+        assert_eq!(
+            attempts,
+            completed + skipped,
+            "abandonment folds into completed, keeping attempts = completed + skipped"
+        );
+    }
+
+    /// Shutdown already signaled before we touch the lock: `run_locked` fast-exits,
+    /// recording `skipped{shutdown_before_acquire}` and never calling `acquire`.
+    #[tokio::test(start_paused = true)]
+    async fn run_locked_fast_exits_when_already_shutdown() {
+        struct AcquireCountingLock {
+            acquired: Arc<AtomicU32>,
+        }
+        #[async_trait]
+        impl RunLock for AcquireCountingLock {
+            fn new_token(&self) -> String {
+                "token".to_string()
+            }
+            async fn acquire(&self, _job: &str, _token: &str) -> LockResult<bool> {
+                self.acquired.fetch_add(1, Ordering::SeqCst);
+                Ok(true)
+            }
+            async fn unlock(&self, _job: &str, _token: &str) -> LockResult<()> {
+                Ok(())
+            }
+        }
+
+        let acquired = Arc::new(AtomicU32::new(0));
+        let job = CountingJob {
+            count: Arc::new(AtomicU32::new(0)),
+        };
+        let (scheduler, provider, exporter) = metered_scheduler(
+            virtual_now(),
+            Arc::new(AcquireCountingLock {
+                acquired: acquired.clone(),
+            }),
+        );
+
+        // Shutdown is already true when run_locked is entered.
+        let (tx, mut rx) = watch::channel(false);
+        tx.send(true).unwrap();
+        scheduler.run_locked("counting", &job, &mut rx).await;
+
+        provider.force_flush().unwrap();
+        let metrics = exporter.get_finished_metrics().unwrap();
+
+        assert_eq!(
+            acquired.load(Ordering::SeqCst),
+            0,
+            "a fast-exit on shutdown must not reach acquire"
+        );
+        assert_eq!(
+            counter_value(
+                &metrics,
+                "jobs.run.skipped",
+                &[("job", "counting"), ("reason", "shutdown_before_acquire")],
+            ),
+            1,
+            "the fast-exit must record one skipped{{shutdown_before_acquire}}"
+        );
+        assert_eq!(
+            counter_value(&metrics, "jobs.run.completed", &[("job", "counting")]),
+            0,
+            "the fast-exit must not record a completed run"
         );
     }
 

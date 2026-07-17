@@ -1,8 +1,10 @@
 use async_trait::async_trait;
-use nexus_common::db::{release_lock, try_acquire_lock, RedisResult};
+use nexus_common::db::{release_lock, try_acquire_lock, RedisError};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
+
+use super::error::{LockError, LockResult};
 
 /// TTL on a job's run lock, and the crash backstop. Must exceed the longest
 /// expected run, or a run outliving its lease could overlap another.
@@ -19,10 +21,16 @@ pub trait RunLock: Send + Sync {
 
     /// Tries to claim the run slot for `job` under `token`. `Ok(false)` when
     /// another run already holds it.
-    async fn acquire(&self, job: &str, token: &str) -> RedisResult<bool>;
+    async fn acquire(&self, job: &str, token: &str) -> LockResult<bool>;
 
     /// Releases the slot, but only if it's still held by `token`.
-    async fn unlock(&self, job: &str, token: &str) -> RedisResult<()>;
+    async fn unlock(&self, job: &str, token: &str) -> LockResult<()>;
+}
+
+impl From<RedisError> for LockError {
+    fn from(e: RedisError) -> Self {
+        Self(Box::new(e))
+    }
 }
 
 /// Redis-backed [`RunLock`] used in production. Construct once per process (via
@@ -66,12 +74,12 @@ impl RunLock for RedisRunLock {
         )
     }
 
-    async fn acquire(&self, job: &str, token: &str) -> RedisResult<bool> {
-        try_acquire_lock(&key(job), token, LOCK_TTL_SECS).await
+    async fn acquire(&self, job: &str, token: &str) -> LockResult<bool> {
+        Ok(try_acquire_lock(&key(job), token, LOCK_TTL_SECS).await?)
     }
 
-    async fn unlock(&self, job: &str, token: &str) -> RedisResult<()> {
-        release_lock(&key(job), token).await
+    async fn unlock(&self, job: &str, token: &str) -> LockResult<()> {
+        Ok(release_lock(&key(job), token).await?)
     }
 }
 
@@ -143,7 +151,7 @@ impl Drop for LockGuard {
     }
 }
 
-/// Test [`RunLock`] that always grants the lock and never touches Redis.
+/// Test [`RunLock`] that always grants the lock.
 #[cfg(test)]
 pub struct AlwaysAvailableLock;
 
@@ -153,10 +161,10 @@ impl RunLock for AlwaysAvailableLock {
     fn new_token(&self) -> String {
         "test-token".to_string()
     }
-    async fn acquire(&self, _job: &str, _token: &str) -> RedisResult<bool> {
+    async fn acquire(&self, _job: &str, _token: &str) -> LockResult<bool> {
         Ok(true)
     }
-    async fn unlock(&self, _job: &str, _token: &str) -> RedisResult<()> {
+    async fn unlock(&self, _job: &str, _token: &str) -> LockResult<()> {
         Ok(())
     }
 }
