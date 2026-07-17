@@ -70,7 +70,10 @@ impl Homeserver {
         Homeserver { id, cursor: 0 }
     }
 
-    /// Creates a new homeserver instance with the specified cursor
+    /// Creates a new homeserver instance with the specified cursor.
+    ///
+    /// Includes a validation call to [Self::validate_cursor_change],
+    /// so that callers can detect invalid cursors early.
     pub async fn try_from_cursor<T: Into<String>>(id: PubkyId, cursor: T) -> ModelResult<Self> {
         let cursor = cursor.into();
         let cursor = cursor.parse().map_err(|_| {
