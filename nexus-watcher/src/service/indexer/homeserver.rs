@@ -14,14 +14,24 @@ use tokio::sync::watch::Receiver;
 use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
 
-/// OpenTelemetry meter name for all watcher metrics.
-const METER_NAME: &str = "nexus.watcher";
-
 /// Counter for events permanently rejected for exceeding a fetch size limit.
 static REJECTED: LazyLock<Counter<u64>> = LazyLock::new(|| {
-    global::meter(METER_NAME)
+    global::meter(super::METER_NAME)
         .u64_counter("watcher.fetch.rejected")
         .with_description("Event fetches rejected for exceeding a size limit")
+        .build()
+});
+
+/// Counter for cursor lines the Primary HS sent that could not be applied.
+///
+/// A non-empty count means the HS returned a cursor we cannot parse or that
+/// would move the stored cursor backward, so the cursor is not advanced and the
+/// same batch is re-fetched on the next poll. A sustained non-zero rate for one
+/// HS indicates it is stuck replaying a batch and needs operator attention.
+static INVALID_CURSOR_PRIMARY_HS: LazyLock<Counter<u64>> = LazyLock::new(|| {
+    global::meter(super::METER_NAME)
+        .u64_counter("watcher.primary_hs.cursor.invalid")
+        .with_description("Cursor lines from the Primary HS that could not be applied")
         .build()
 });
 
@@ -235,9 +245,14 @@ impl HsEventProcessor {
 
             if let Some(cursor) = line.strip_prefix("cursor: ") {
                 info!("Received cursor for the next request: {cursor}");
-                match Homeserver::try_from_cursor(self.homeserver.id.clone(), cursor) {
+                match Homeserver::try_from_cursor(self.homeserver.id.clone(), cursor).await {
                     Ok(hs) => hs.put_to_index().await?,
-                    Err(e) => warn!("{e}"),
+                    Err(e) => {
+                        // Cursor could not be parsed or would rewind
+                        INVALID_CURSOR_PRIMARY_HS
+                            .add(1, &[KeyValue::new("hs_id", self.homeserver.id.to_string())]);
+                        warn!(hs_id = %self.homeserver.id, "Ignoring invalid cursor '{cursor}': {e}");
+                    }
                 }
                 continue;
             }

@@ -237,7 +237,7 @@ async fn key_based_processor_passes_stored_cursor_and_limit_to_source() -> Resul
     Ok(())
 }
 
-/// Verifies successful event processing persists the last stream cursor.
+/// Verifies successful event processing persists the latest stream cursor.
 #[tokio_shared_rt::test(shared)]
 async fn key_based_processor_persists_latest_cursor_after_success() -> Result<(), DynError> {
     setup().await?;
@@ -256,6 +256,97 @@ async fn key_based_processor_persists_latest_cursor_after_success() -> Result<()
 
     assert_eq!(handler.get_handle_count(), 2);
     assert_eq!(user_cursor(&user_id, &hs_id).await?, Some(4));
+
+    Ok(())
+}
+
+/// Verifies an out-of-order stream cursor is rejected before its event is handled.
+#[tokio_shared_rt::test(shared)]
+async fn key_based_processor_rejects_out_of_order_cursor() -> Result<(), DynError> {
+    setup().await?;
+
+    let (_hs_keypair, homeserver) = create_homeserver().await?;
+    let hs_id = homeserver.id.to_string();
+    let user_id = create_user_on_homeserver(&homeserver).await?;
+    let source = Arc::new(MockKeyBasedEventSource::default().with_events(vec![vec![
+        stream_event(4, &user_id, "/pub/pubky.app/profile.json")?,
+        stream_event(1, &user_id, "/pub/pubky.app/profile.json")?,
+    ]]));
+    let handler = create_mock_handler(Ok(()), None);
+    let processor = processor(homeserver, handler.clone(), source);
+
+    processor.run().await?;
+
+    assert_eq!(handler.get_handle_count(), 1);
+    assert_eq!(user_cursor(&user_id, &hs_id).await?, Some(4));
+
+    Ok(())
+}
+
+/// Verifies a homeserver cannot rewind a stored per-user cursor.
+#[tokio_shared_rt::test(shared)]
+async fn key_based_processor_does_not_rewind_stored_cursor() -> Result<(), DynError> {
+    setup().await?;
+
+    let (_hs_keypair, homeserver) = create_homeserver().await?;
+    let hs_id = homeserver.id.to_string();
+    let user_id = create_user_on_homeserver(&homeserver).await?;
+    let cursor_key = user_hs_cursor_key(&user_id);
+    UserDetails::put_index_sorted_set(&cursor_key, &[(42.0, hs_id.as_str())], None, None).await?;
+
+    // A malformed or malicious homeserver could return an old event after being
+    // asked for cursor 42. The persisted cursor must remain at 42.
+    let source =
+        Arc::new(
+            MockKeyBasedEventSource::default().with_events(vec![vec![stream_event(
+                9,
+                &user_id,
+                "/pub/pubky.app/profile.json",
+            )?]]),
+        );
+    let handler = create_mock_handler(Ok(()), None);
+    let processor = processor(homeserver, handler.clone(), source);
+
+    processor.run().await?;
+
+    // The stale event must be rejected before the handler runs (not merely
+    // ignored at cursor-write time), and the persisted cursor stays at 42.
+    assert_eq!(handler.get_handle_count(), 0);
+    assert_eq!(user_cursor(&user_id, &hs_id).await?, Some(42));
+
+    Ok(())
+}
+
+/// Verifies an event whose cursor equals the stored one is rejected. Fetches are
+/// cursor-exclusive, so re-returning the boundary cursor is a replay, not progress.
+#[tokio_shared_rt::test(shared)]
+async fn key_based_processor_rejects_cursor_equal_to_stored() -> Result<(), DynError> {
+    setup().await?;
+
+    let (_hs_keypair, homeserver) = create_homeserver().await?;
+    let hs_id = homeserver.id.to_string();
+    let user_id = create_user_on_homeserver(&homeserver).await?;
+    let cursor_key = user_hs_cursor_key(&user_id);
+    UserDetails::put_index_sorted_set(&cursor_key, &[(42.0, hs_id.as_str())], None, None).await?;
+
+    // Asked to continue from 42, the homeserver re-returns the event at 42.
+    let source =
+        Arc::new(
+            MockKeyBasedEventSource::default().with_events(vec![vec![stream_event(
+                42,
+                &user_id,
+                "/pub/pubky.app/profile.json",
+            )?]]),
+        );
+    let handler = create_mock_handler(Ok(()), None);
+    let processor = processor(homeserver, handler.clone(), source);
+
+    processor.run().await?;
+
+    // The boundary event must be rejected before the handler runs, and the
+    // persisted cursor stays at 42.
+    assert_eq!(handler.get_handle_count(), 0);
+    assert_eq!(user_cursor(&user_id, &hs_id).await?, Some(42));
 
     Ok(())
 }

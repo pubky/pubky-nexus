@@ -35,6 +35,15 @@ pub enum EventProcessorError {
         event_user_id: String,
     },
 
+    /// A homeserver returned a per-user event cursor lower than an earlier event.
+    #[error("HS returned an out-of-order event cursor: hs_id={hs_id}, user_id={user_id}, cursor={cursor}, max_cursor={max_cursor}")]
+    EventCursorOutOfOrder {
+        hs_id: String,
+        user_id: String,
+        cursor: u64,
+        max_cursor: u64,
+    },
+
     /// The event payload deserialized but failed `pubky-app-specs` validation
     /// (e.g. unknown post kind, malformed Collection envelope, oversized field).
     /// Non-retryable: re-running the same payload will produce the same error.

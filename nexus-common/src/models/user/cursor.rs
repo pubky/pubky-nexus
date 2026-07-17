@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::db::kv::{RedisError, RedisResult};
+use crate::db::kv::{ensure_cursor_not_backwards, RedisError, RedisResult};
 use crate::db::RedisOps;
 
 const USER_HS_CURSOR: [&str; 2] = ["Users", "Homeservers"];
@@ -58,10 +58,42 @@ impl UserHsCursor {
             .collect()
     }
 
-    /// Persists a single user's event cursor for `hs_id` to its `USER_HS_CURSOR` sorted set.
+    /// Advances a user's event cursor for `hs_id`, rejecting a value that would
+    /// move it backward. Mirrors `Homeserver::put_to_index` so both cursor types
+    /// share one monotonicity rule.
+    ///
+    /// Read-then-write is not atomic but is race-free in practice: a given
+    /// `(user_id, hs_id)` pair is only ever written by one processor run at a
+    /// time (users are processed sequentially within a poll cycle, and cycles
+    /// for the same homeserver do not overlap).
     pub async fn write(user_id: &str, hs_id: &str, cursor: u64) -> RedisResult<()> {
+        let stored_cursor = Self::read(&[user_id], hs_id)
+            .await?
+            .into_iter()
+            .next()
+            .unwrap_or_default();
+        ensure_cursor_not_backwards(cursor, stored_cursor)?;
         let key = user_hs_cursor_key(user_id);
         Self::put_index_sorted_set(&key, &[(cursor as f64, hs_id)], None, None).await
+    }
+
+    /// Seeds the user's cursor to `0` the first time we track them on `hs_id`,
+    /// and no-ops if one already exists (e.g. re-ingestion after it advanced),
+    /// establishing the floor without ever rewinding it.
+    ///
+    /// The check-then-set is non-atomic and safe under the same single-writer invariant,
+    /// as [`Self::write`].
+    pub async fn init(user_id: &str, hs_id: &str) -> RedisResult<()> {
+        let key = user_hs_cursor_key(user_id);
+        // Check the raw score, not `read` (which maps a missing entry to 0 and
+        // so can't tell "absent" from "present == 0").
+        if Self::check_sorted_set_member(None, &key, &[hs_id])
+            .await?
+            .is_some()
+        {
+            return Ok(());
+        }
+        Self::put_index_sorted_set(&key, &[(0.0, hs_id)], None, None).await
     }
 }
 
@@ -72,7 +104,7 @@ mod tests {
     use crate::{types::DynError, utils::test_utils::random_pubky_id, StackConfig, StackManager};
 
     /// `write` persists a per-user cursor that `read` reads back, missing entries
-    /// default to 0, and re-writing overwrites the value.
+    /// default to 0, and a lower re-write is rejected rather than rewinding.
     #[tokio_shared_rt::test(shared)]
     async fn test_hs_cursor_read_write_roundtrip() -> Result<(), DynError> {
         StackManager::setup(&StackConfig::default()).await?;
@@ -95,9 +127,39 @@ mod tests {
         .await?;
         assert_eq!(cursors, vec![42, 0]);
 
-        // Writing again overwrites the previous value.
+        // Writing a higher cursor advances the value.
         UserHsCursor::write(&user_with_cursor, &hs_id, 100).await?;
         let cursors = UserHsCursor::read(&[user_with_cursor.as_str()], &hs_id).await?;
+        assert_eq!(cursors, vec![100]);
+
+        // Writing a lower cursor is rejected and leaves the existing value intact.
+        let err = UserHsCursor::write(&user_with_cursor, &hs_id, 50)
+            .await
+            .expect_err("backward cursor must be rejected");
+        assert!(matches!(err, RedisError::InvalidInput(_)));
+        let cursors = UserHsCursor::read(&[user_with_cursor.as_str()], &hs_id).await?;
+        assert_eq!(cursors, vec![100]);
+
+        Ok(())
+    }
+
+    /// `init` seeds a fresh user's cursor to 0 and never rewinds an existing one.
+    #[tokio_shared_rt::test(shared)]
+    async fn test_hs_cursor_init_seeds_without_rewinding() -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+
+        let user_id = random_pubky_id().to_string();
+        let hs_id = random_pubky_id().to_string();
+
+        // First init seeds the starting cursor at 0.
+        UserHsCursor::init(&user_id, &hs_id).await?;
+        let cursors = UserHsCursor::read(&[user_id.as_str()], &hs_id).await?;
+        assert_eq!(cursors, vec![0]);
+
+        // Advance the cursor, then init again (e.g. re-ingestion): it must not rewind.
+        UserHsCursor::write(&user_id, &hs_id, 100).await?;
+        UserHsCursor::init(&user_id, &hs_id).await?;
+        let cursors = UserHsCursor::read(&[user_id.as_str()], &hs_id).await?;
         assert_eq!(cursors, vec![100]);
 
         Ok(())

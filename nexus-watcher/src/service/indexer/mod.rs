@@ -3,17 +3,18 @@ mod key_based;
 
 pub use homeserver::HsEventProcessor;
 pub use key_based::{KeyBasedEventProcessor, KeyBasedEventSource, PubkyKeyBasedEventSource};
+
 use std::{fmt::Display, sync::Arc, time::Duration};
 
-use tracing::Instrument;
-
 use crate::errors::EventProcessorError;
-use crate::events::{Event, ParseResult};
-use tracing::{debug, error, warn};
-
 use crate::events::retry::RetryScheduler;
 use crate::events::EventHandler;
+use crate::events::{Event, ParseResult};
 use crate::service::PROCESSING_TIMEOUT_SECS;
+use tracing::{debug, error, warn, Instrument};
+
+/// OpenTelemetry meter name shared by all watcher indexer metrics.
+pub(super) const METER_NAME: &str = "nexus.watcher";
 
 /// Possible error types of an event processor run
 #[derive(Debug)]
