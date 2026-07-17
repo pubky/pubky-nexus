@@ -58,8 +58,14 @@ impl UserHsCursor {
             .collect()
     }
 
-    /// Persists a single user's event cursor for `hs_id` to its `USER_HS_CURSOR` sorted set.
+    /// Persists a single user's event cursor for `hs_id` without moving it backward.
     pub async fn write(user_id: &str, hs_id: &str, cursor: u64) -> RedisResult<()> {
+        let stored_cursor = Self::read(&[user_id], hs_id)
+            .await?
+            .into_iter()
+            .next()
+            .unwrap_or_default();
+        let cursor = cursor.max(stored_cursor);
         let key = user_hs_cursor_key(user_id);
         Self::put_index_sorted_set(&key, &[(cursor as f64, hs_id)], None, None).await
     }
@@ -72,7 +78,7 @@ mod tests {
     use crate::{types::DynError, utils::test_utils::random_pubky_id, StackConfig, StackManager};
 
     /// `write` persists a per-user cursor that `read` reads back, missing entries
-    /// default to 0, and re-writing overwrites the value.
+    /// default to 0, and lower re-writes do not rewind the value.
     #[tokio_shared_rt::test(shared)]
     async fn test_hs_cursor_read_write_roundtrip() -> Result<(), DynError> {
         StackManager::setup(&StackConfig::default()).await?;
@@ -95,8 +101,13 @@ mod tests {
         .await?;
         assert_eq!(cursors, vec![42, 0]);
 
-        // Writing again overwrites the previous value.
+        // Writing a higher cursor advances the value.
         UserHsCursor::write(&user_with_cursor, &hs_id, 100).await?;
+        let cursors = UserHsCursor::read(&[user_with_cursor.as_str()], &hs_id).await?;
+        assert_eq!(cursors, vec![100]);
+
+        // Writing a lower cursor leaves the existing value intact.
+        UserHsCursor::write(&user_with_cursor, &hs_id, 50).await?;
         let cursors = UserHsCursor::read(&[user_with_cursor.as_str()], &hs_id).await?;
         assert_eq!(cursors, vec![100]);
 

@@ -302,6 +302,7 @@ impl KeyBasedEventProcessor {
         stream_events: Vec<StreamEvent>,
     ) -> (Option<u64>, Result<(), EventProcessorError>) {
         let mut latest_cursor: Option<u64> = None;
+        let mut max_cursor: Option<u64> = None;
 
         for stream_event in stream_events {
             if *self.shutdown_rx.borrow() {
@@ -310,6 +311,19 @@ impl KeyBasedEventProcessor {
             }
 
             let cursor_id = stream_event.cursor.id();
+            let next_latest_cursor = Some(cursor_id);
+            let next_max_cursor = max_cursor.map_or(cursor_id, |max| max.max(cursor_id));
+            if next_latest_cursor != Some(next_max_cursor) {
+                return (
+                    latest_cursor,
+                    Err(EventProcessorError::EventCursorOutOfOrder {
+                        hs_id: hs_id.into(),
+                        user_id: user_id.into(),
+                        cursor: cursor_id,
+                        max_cursor: next_max_cursor,
+                    }),
+                );
+            }
 
             match Event::from_stream_event(&stream_event) {
                 Ok(Some(event)) => {
@@ -331,7 +345,8 @@ impl KeyBasedEventProcessor {
             // Advance after successful handling, unsupported resources, or
             // logged parse errors. UserIdMismatch and handler errors return
             // before this point, so their cursor is not persisted.
-            latest_cursor = Some(cursor_id);
+            latest_cursor = next_latest_cursor;
+            max_cursor = Some(next_max_cursor);
         }
 
         (latest_cursor, Ok(()))
