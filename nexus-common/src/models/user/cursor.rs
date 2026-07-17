@@ -80,6 +80,9 @@ impl UserHsCursor {
     /// Seeds the user's cursor to `0` the first time we track them on `hs_id`,
     /// and no-ops if one already exists (e.g. re-ingestion after it advanced),
     /// establishing the floor without ever rewinding it.
+    ///
+    /// The check-then-set is non-atomic and safe under the same single-writer invariant,
+    /// as [`Self::write`].
     pub async fn init(user_id: &str, hs_id: &str) -> RedisResult<()> {
         let key = user_hs_cursor_key(user_id);
         // Check the raw score, not `read` (which maps a missing entry to 0 and
