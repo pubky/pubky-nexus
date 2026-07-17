@@ -1,6 +1,8 @@
 mod error;
 mod lock;
 mod scheduler;
+#[cfg(test)]
+mod test_support;
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -105,30 +107,7 @@ impl JobRegistry {
             .map_err(JobError::Stack)?;
 
         let lock: Arc<dyn lock::RunLock> = Arc::new(RedisRunLock::new());
-        let token = lock.new_token();
-        // Arm the guard before acquiring so a cancel mid-acquire still releases
-        // (see `scheduler::run_locked`).
-        let guard = lock::LockGuard::new(job.name(), token.clone(), Arc::clone(&lock));
-
-        match lock.acquire(job.name(), &token).await {
-            Ok(true) => {}
-            Ok(false) => {
-                guard.disarm();
-                return Err(JobError::AlreadyRunning { job: job.name() });
-            }
-            Err(e) => {
-                guard.disarm();
-                return Err(JobError::Lock(e));
-            }
-        }
-
-        let result = job.run().await;
-        guard.release().await;
-
-        result.map_err(|source| JobError::Run {
-            job: job.name(),
-            source,
-        })
+        run_once_locked(job.as_ref(), &lock).await
     }
 
     /// The scheduled jobs, resolved from config. Each job's schedule is validated
@@ -174,6 +153,25 @@ impl JobRegistry {
     }
 }
 
+/// Runs `job` once under `lock`, mapping lock state to [`JobError`]. Split from
+/// [`JobRegistry::run_on_demand`] so it's testable without a stack; `lock` is
+/// injected for the same reason.
+async fn run_once_locked(job: &dyn Job, lock: &Arc<dyn lock::RunLock>) -> Result<(), JobError> {
+    let guard = match lock::acquire(job.name(), lock).await {
+        lock::Acquired::Taken(guard) => guard,
+        lock::Acquired::Held => return Err(JobError::AlreadyRunning { job: job.name() }),
+        lock::Acquired::Failed(e) => return Err(JobError::Lock(e)),
+    };
+
+    let result = job.run().await;
+    guard.release().await;
+
+    result.map_err(|source| JobError::Run {
+        job: job.name(),
+        source,
+    })
+}
+
 /// Runs every scheduled job until shutdown, one supervised task per job. A panic
 /// in one job is caught and logged, leaving siblings up until restart. Returns
 /// once all jobs stop (immediately when there are none). Sets up the stack
@@ -215,7 +213,7 @@ async fn supervise(
         let scheduler = scheduler.clone();
         let handle = set.spawn(async move {
             scheduler
-                .run_job(name, &schedule, job.as_ref(), job_shutdown_rx)
+                .run_job(&schedule, job.as_ref(), job_shutdown_rx)
                 .await;
         });
         names.insert(handle.id(), name);
@@ -241,9 +239,8 @@ async fn supervise(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::jobs::test_support::{AcquireOutcome, CountingJob, FakeLock, PanicJob};
     use scheduler::virtual_now;
-    use std::error::Error;
-    use std::sync::atomic::{AtomicU32, Ordering};
     use std::sync::Arc;
     use std::time::Duration;
     use tokio::sync::watch;
@@ -263,28 +260,44 @@ mod tests {
             .expect("config with the appended section should parse")
     }
 
-    /// Stub job for testing schedule resolution.
-    struct StubJob;
-    #[async_trait]
-    impl Job for StubJob {
-        fn name(&self) -> &'static str {
-            "stub"
-        }
-        async fn run(&self) -> Result<(), Box<dyn Error + Send + Sync>> {
-            Ok(())
-        }
+    #[tokio::test]
+    async fn run_once_locked_reports_a_held_lock_as_already_running() {
+        let lock: Arc<dyn lock::RunLock> = FakeLock::new(AcquireOutcome::Denied);
+        let job = CountingJob::new("stub");
+        let err = run_once_locked(&job, &lock).await.err().unwrap();
+
+        assert!(
+            matches!(err, JobError::AlreadyRunning { job } if job == "stub"),
+            "a held lock must surface as AlreadyRunning, got: {err:?}"
+        );
     }
 
-    /// Duplicate job names must fail registry construction: lookups match
-    /// first-by-name, so the second entry would be dead code.
+    #[tokio::test]
+    async fn run_once_locked_surfaces_lock_errors() {
+        let job = CountingJob::new("counter");
+        let lock: Arc<dyn lock::RunLock> = FakeLock::new(AcquireOutcome::Fails);
+        let err = run_once_locked(&job, &lock).await.err().unwrap();
+
+        assert!(
+            matches!(err, JobError::Lock(_)),
+            "an unreachable backend must surface as JobError::Lock, got: {err:?}"
+        );
+        assert_eq!(
+            job.runs(),
+            0,
+            "the job must not run when the lock could not be taken"
+        );
+    }
+
     #[test]
     #[should_panic(expected = "duplicate names")]
     fn new_panics_on_duplicate_job_names() {
-        JobRegistry::new(vec![Arc::new(StubJob), Arc::new(StubJob)]);
+        JobRegistry::new(vec![
+            Arc::new(CountingJob::new("stub")),
+            Arc::new(CountingJob::new("stub")),
+        ]);
     }
 
-    /// An empty registry renders the unknown-job hint as `(none)` rather than a
-    /// dangling "available jobs:".
     #[tokio::test]
     async fn unknown_job_error_shows_none_when_registry_empty() {
         let registry = JobRegistry::new(Vec::new());
@@ -302,11 +315,9 @@ mod tests {
         );
     }
 
-    /// run_on_demand validates the `[jobs.*]` config itself: a malformed cron
-    /// fails before the stack is touched, giving parity with `nexusd run`.
     #[tokio::test]
     async fn run_on_demand_validates_jobs_config() {
-        let registry = JobRegistry::new(vec![Arc::new(StubJob)]);
+        let registry = JobRegistry::new(vec![Arc::new(CountingJob::new("stub"))]);
         let config = default_config_with("[jobs.stub]\ncron = \"not a cron\"\n").await;
 
         // The bad cron is caught before StackManager::setup, so no stack is needed.
@@ -320,11 +331,9 @@ mod tests {
         );
     }
 
-    /// A `[jobs.<name>]` section that matches no registered job fails startup
-    /// rather than being silently ignored.
     #[tokio::test]
     async fn scheduled_jobs_rejects_unknown_job_config_key() {
-        let registry = JobRegistry::new(vec![Arc::new(StubJob)]);
+        let registry = JobRegistry::new(vec![Arc::new(CountingJob::new("stub"))]);
         let config = default_config_with("[jobs.does_not_exist]\n").await;
 
         let err = registry.scheduled_jobs(&config).err().unwrap();
@@ -334,11 +343,9 @@ mod tests {
         );
     }
 
-    /// A malformed `[jobs.<name>]` cron is caught at startup rather than at first
-    /// fire, and the error names the offending job.
     #[tokio::test]
     async fn scheduled_jobs_fails_fast_on_malformed_cron() {
-        let registry = JobRegistry::new(vec![Arc::new(StubJob)]);
+        let registry = JobRegistry::new(vec![Arc::new(CountingJob::new("stub"))]);
 
         let config = default_config_with("[jobs.stub]\ncron = \"not a cron\"\n").await;
 
@@ -351,24 +358,10 @@ mod tests {
         );
     }
 
-    /// A panicking job is contained: its sibling keeps running, supervise returns
-    /// (no propagation or hang), and the panic is logged.
     #[tokio::test(start_paused = true)]
     #[traced_test]
     async fn panic_in_one_job_does_not_stop_siblings() {
-        /// Panics on every fire.
-        struct PanicJob;
-        #[async_trait]
-        impl Job for PanicJob {
-            fn name(&self) -> &'static str {
-                "panicky"
-            }
-            async fn run(&self) -> Result<(), Box<dyn Error + Send + Sync>> {
-                panic!("boom");
-            }
-        }
-
-        let count = Arc::new(AtomicU32::new(0));
+        let counter = Arc::new(CountingJob::new("counter"));
         let cron = validate_cron("* * * * * *").unwrap();
         let jobs = vec![
             ScheduledJob {
@@ -377,16 +370,13 @@ mod tests {
             },
             ScheduledJob {
                 schedule: cron,
-                job: Arc::new(CountingJob {
-                    name: "counter",
-                    count: count.clone(),
-                }),
+                job: counter.clone(),
             },
         ];
 
         let (tx, rx) = watch::channel(false);
         let scheduler =
-            scheduler::Scheduler::new(virtual_now(), Arc::new(lock::AlwaysAvailableLock));
+            scheduler::Scheduler::new(virtual_now(), FakeLock::new(AcquireOutcome::Granted));
         let supervisor = supervise(scheduler, jobs, rx);
         let stopper = async {
             tokio::time::sleep(Duration::from_millis(1500)).await;
@@ -396,7 +386,7 @@ mod tests {
         let ((), ()) = tokio::join!(supervisor, stopper);
 
         assert!(
-            count.load(Ordering::SeqCst) >= 1,
+            counter.runs() >= 1,
             "the sibling job must keep firing despite the panicking job"
         );
         assert!(
@@ -405,45 +395,9 @@ mod tests {
         );
     }
 
-    /// A panicking job still releases its run lock via `LockGuard`'s Drop, so it
-    /// doesn't stay stuck for its TTL. The panic itself still surfaces.
     #[tokio::test(start_paused = true)]
     #[traced_test]
     async fn panic_in_run_still_releases_lock() {
-        use crate::jobs::error::LockResult;
-
-        struct PanicJob;
-        #[async_trait]
-        impl Job for PanicJob {
-            fn name(&self) -> &'static str {
-                "panicky"
-            }
-            async fn run(&self) -> Result<(), Box<dyn Error + Send + Sync>> {
-                panic!("boom");
-            }
-        }
-
-        struct RecordingLock {
-            acquired: Arc<AtomicU32>,
-            released: Arc<AtomicU32>,
-        }
-        #[async_trait]
-        impl lock::RunLock for RecordingLock {
-            fn new_token(&self) -> String {
-                "t".to_string()
-            }
-            async fn acquire(&self, _job: &str, _token: &str) -> LockResult<bool> {
-                self.acquired.fetch_add(1, Ordering::SeqCst);
-                Ok(true)
-            }
-            async fn unlock(&self, _job: &str, _token: &str) -> LockResult<()> {
-                self.released.fetch_add(1, Ordering::SeqCst);
-                Ok(())
-            }
-        }
-
-        let acquired = Arc::new(AtomicU32::new(0));
-        let released = Arc::new(AtomicU32::new(0));
         let cron = validate_cron("* * * * * *").unwrap();
         let jobs = vec![ScheduledJob {
             schedule: cron,
@@ -451,13 +405,8 @@ mod tests {
         }];
 
         let (tx, rx) = watch::channel(false);
-        let scheduler = scheduler::Scheduler::new(
-            virtual_now(),
-            Arc::new(RecordingLock {
-                acquired: acquired.clone(),
-                released: released.clone(),
-            }),
-        );
+        let lock = FakeLock::new(AcquireOutcome::Granted);
+        let scheduler = scheduler::Scheduler::new(virtual_now(), lock.clone());
         let supervisor = supervise(scheduler, jobs, rx);
         let stopper = async {
             tokio::time::sleep(Duration::from_millis(1500)).await;
@@ -471,12 +420,12 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(10)).await;
 
         assert_eq!(
-            acquired.load(Ordering::SeqCst),
+            lock.acquires(),
             1,
             "PanicJob dies after one fire (JoinSet catches, task ends)"
         );
         assert_eq!(
-            released.load(Ordering::SeqCst),
+            lock.releases(),
             1,
             "the panicked run's lock must still be released via Drop"
         );
@@ -487,30 +436,11 @@ mod tests {
         );
     }
 
-    /// Minimal stub job that just counts how many times it ran.
-    struct CountingJob {
-        name: &'static str,
-        count: Arc<AtomicU32>,
-    }
-
-    #[async_trait]
-    impl Job for CountingJob {
-        fn name(&self) -> &'static str {
-            self.name
-        }
-        async fn run(&self) -> Result<(), Box<dyn Error + Send + Sync>> {
-            self.count.fetch_add(1, Ordering::SeqCst);
-            Ok(())
-        }
-    }
-
-    /// No cron configured → the job is unscheduled.
     #[test]
     fn job_cron_none_when_unscheduled() {
         assert!(job_cron(&JobConfig { cron: None }).unwrap().is_none());
     }
 
-    /// A valid cron is parsed into a Schedule that round-trips to the same string.
     #[test]
     fn job_cron_returns_valid_cron() {
         let config = JobConfig {
@@ -525,7 +455,6 @@ mod tests {
         );
     }
 
-    /// A malformed cron fails fast rather than silently going unscheduled.
     #[test]
     fn job_cron_rejects_malformed_cron() {
         let config = JobConfig {
@@ -534,21 +463,16 @@ mod tests {
         assert!(job_cron(&config).is_err());
     }
 
-    /// The scheduler fires the job on its cron. Virtual clock keeps it instant.
     #[tokio::test(start_paused = true)]
     async fn run_job_fires_on_schedule() {
-        let count = Arc::new(AtomicU32::new(0));
-        let job = CountingJob {
-            name: "mock",
-            count: count.clone(),
-        };
+        let job = CountingJob::new("mock");
         let (tx, rx) = watch::channel(false);
 
         // Fires every second; stop after ~1.5s (virtual) so it fires at least once.
         let schedule = validate_cron("* * * * * *").unwrap();
         let scheduler =
-            scheduler::Scheduler::new(virtual_now(), Arc::new(lock::AlwaysAvailableLock));
-        let runner = scheduler.run_job("mock", &schedule, &job, rx);
+            scheduler::Scheduler::new(virtual_now(), FakeLock::new(AcquireOutcome::Granted));
+        let runner = scheduler.run_job(&schedule, &job, rx);
         let stopper = async {
             tokio::time::sleep(Duration::from_millis(1500)).await;
             let _ = tx.send(true);
@@ -556,7 +480,7 @@ mod tests {
         tokio::join!(runner, stopper);
 
         assert!(
-            count.load(Ordering::SeqCst) >= 1,
+            job.runs() >= 1,
             "a per-second cron should fire at least once"
         );
     }

@@ -2,9 +2,11 @@ use nexus_common::types::DynError;
 use thiserror::Error;
 
 /// A run lock backend failure.
+///
+/// Type-erased so alternative lock backends keep their error types out of the trait.
 #[derive(Debug, Error)]
 #[error("run lock backend failed: {0}")]
-pub struct LockError(#[source] pub DynError);
+pub struct LockError(#[source] pub Box<dyn std::error::Error + Send + Sync>);
 
 pub type LockResult<T> = Result<T, LockError>;
 

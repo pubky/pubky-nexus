@@ -14,6 +14,9 @@ use super::{CronParseError, Job};
 /// OpenTelemetry meter name for all job metrics.
 const METER_NAME: &str = "nexus.jobs";
 
+/// Wall-clock re-check interval while waiting for a fire time (see [`Scheduler::sleep_until`]).
+const MAX_SLEEP: Duration = Duration::from_secs(30);
+
 /// Shared clock source. Production passes `Arc::new(Utc::now)`; tests pass a
 /// virtual clock tied to tokio's paused time.
 pub type NowFn = Arc<dyn Fn() -> DateTime<Utc> + Send + Sync>;
@@ -25,6 +28,8 @@ pub type NowFn = Arc<dyn Fn() -> DateTime<Utc> + Send + Sync>;
 pub struct Scheduler {
     now_fn: NowFn,
     lock: Arc<dyn RunLock>,
+    /// Wall-clock re-check interval while sleeping toward a fire time (see [`MAX_SLEEP`]).
+    max_sleep: Duration,
     /// Every fire attempt, before the lock is tried.
     run_attempts: Counter<u64>,
     /// Fires where the job ran, labelled by `outcome` in {ok, error, abandoned}.
@@ -70,11 +75,21 @@ impl Scheduler {
         Self {
             now_fn,
             lock,
+            max_sleep: MAX_SLEEP,
             run_attempts,
             run_completed,
             run_skipped,
             scheduler_stopped,
         }
+    }
+
+    /// Overrides the wall-clock re-check interval. Only for tests pinning a
+    /// far-future fire time, where the default would grind through millions of
+    /// chunks under a paused clock.
+    #[cfg(test)]
+    pub(crate) fn with_max_sleep(mut self, max_sleep: Duration) -> Self {
+        self.max_sleep = max_sleep;
+        self
     }
 
     /// Records that a job's scheduler stopped and won't run again until restart
@@ -133,17 +148,21 @@ pub fn validate_cron(cron_expr: &str) -> Result<Schedule, CronParseError> {
 
 impl Scheduler {
     /// Drives a single [`Job`] on its pre-parsed `schedule` until shutdown. A
-    /// failing run is logged but doesn't stop later runs. Each iteration
-    /// re-anchors to wall-clock via `schedule.after()`, so a forward clock jump
-    /// (NTP, resume) is O(1) with no catch-up per missed tick.
+    /// failing run is logged but doesn't stop later runs. Wall-clock jumps in
+    /// either direction are handled at the anchor and in [`sleep_until`](Self::sleep_until).
     pub async fn run_job(
         &self,
-        name: &str,
         schedule: &Schedule,
         job: &dyn Job,
         mut shutdown_rx: Receiver<bool>,
     ) {
+        // Single source of truth for the name: the lock key and the metric labels
+        // must agree, or a run releases a key it never acquired.
+        let name = job.name();
         info!(job = name, cron = %schedule, "Job scheduler started");
+
+        // The last tick fired, so a backward clock step can't hand it back.
+        let mut last_fired: Option<DateTime<Utc>> = None;
 
         loop {
             // `wait_for_shutdown` only fires on the false→true transition, and
@@ -155,8 +174,12 @@ impl Scheduler {
             }
 
             // Re-anchor to wall-clock each iteration: O(1) skip of all missed ticks.
+            // Anchor past `last_fired` too — a backward step (NTP, snapshot restore)
+            // leaves `now` before a tick we already ran, and `after()` would return
+            // that same tick for a second run.
             let now = (self.now_fn)();
-            let Some(next) = schedule.after(&now).next() else {
+            let anchor = last_fired.map_or(now, |last| last.max(now));
+            let Some(next) = schedule.after(&anchor).next() else {
                 // Bounded schedule (e.g. fixed past year) ran out of fire times.
                 warn!(
                     job = name,
@@ -167,49 +190,65 @@ impl Scheduler {
                 break;
             };
 
-            // `after(&now)` returns times strictly after `now`, so the sleep is
-            // always positive — no overrun check needed.
-            let remaining = (next - now).to_std().unwrap_or(Duration::ZERO);
             // Sleep phase: shutdown can drop this safely — no lock I/O here.
-            tokio::select! {
-                biased;
-
-                _ = wait_for_shutdown(&mut shutdown_rx) => {
-                    info!(job = name, "Shutdown received, exiting job scheduler");
-                    return;
-                }
-                _ = tokio::time::sleep(remaining) => {}
+            if !self.sleep_until(next, &mut shutdown_rx).await {
+                info!(job = name, "Shutdown received, exiting job scheduler");
+                return;
             }
+
+            // Consumed whether or not the run below is skipped: this tick is spent
+            // either way, and retrying it would double-run the job.
+            last_fired = Some(next);
 
             debug!(job = name, fire_time = %next, "Running scheduled job");
             // Run phase: no select! around run_locked — that would drop it (and its
             // in-flight lock I/O) on shutdown. run_locked observes shutdown itself,
             // as a signal that leaves acquire and release uncancellable.
-            self.run_locked(name, job, &mut shutdown_rx).await;
+            self.run_locked(job, &mut shutdown_rx).await;
         }
     }
 
-    /// Acquires the run lock, runs the job once, then releases it. Skips (no
-    /// error) when the lock is held or unreachable — the next tick retries
-    /// rather than piling up a backlog.
+    /// Sleeps until the wall clock reaches `deadline`, re-reading it after each
+    /// chunk of at most `max_sleep`. Returns `false` if shutdown was signaled
+    /// instead.
     ///
-    /// Structured in three phases around `shutdown`: acquire and release are
-    /// uncancellable (they read the backend's reply before returning, so a
-    /// mid-flight drop can't orphan the lock or poison a pooled connection); only
-    /// `job.run()` is raced against shutdown, via `select!` on the watch receiver.
-    ///
-    /// A panic in `run()` propagates via `JoinSet` (see `supervise`); the lock
-    /// still releases through `LockGuard`'s Drop.
-    async fn run_locked(&self, name: &str, job: &dyn Job, shutdown: &mut Receiver<bool>) {
-        self.run_attempts
-            .add(1, &[KeyValue::new("job", name.to_string())]);
+    /// Chunking is what makes the deadline wall-clock-based: `tokio::time::sleep`
+    /// counts monotonic time, which doesn't advance across a host suspend, so one
+    /// `sleep(deadline - now)` would fire late by the suspend's full duration.
+    async fn sleep_until(&self, deadline: DateTime<Utc>, shutdown: &mut Receiver<bool>) -> bool {
+        loop {
+            // Negative (deadline already passed) converts to ZERO — fire now.
+            let remaining = (deadline - (self.now_fn)())
+                .to_std()
+                .unwrap_or(Duration::ZERO);
+            if remaining.is_zero() {
+                return true;
+            }
+            tokio::select! {
+                biased;
+
+                _ = wait_for_shutdown(shutdown) => return false,
+                _ = tokio::time::sleep(remaining.min(self.max_sleep)) => {}
+            }
+        }
+    }
+
+    // Acquires the run lock, runs the job once, releases it; skips (no error) when
+    // the lock is held or unreachable, so a backlog can't pile up. Three phases
+    // around `shutdown`: acquire and release are uncancellable (they read the
+    // backend reply first, so a mid-flight drop can't orphan the lock or poison a
+    // pooled connection); only `job.run()` races shutdown. A panic in `run()`
+    // propagates via `JoinSet` (see `supervise`); the lock still releases via Drop.
+    async fn run_locked(&self, job: &dyn Job, shutdown: &mut Receiver<bool>) {
+        let name = job.name();
+        self.run_attempts.add(1, &[KeyValue::new("job", name)]);
 
         // Shutdown already signaled before we touched the lock: skip without acquiring.
         if *shutdown.borrow() {
             self.run_skipped.add(
                 1,
                 &[
-                    KeyValue::new("job", name.to_string()),
+                    KeyValue::new("job", name),
                     KeyValue::new("reason", "shutdown_before_acquire"),
                 ],
             );
@@ -217,21 +256,13 @@ impl Scheduler {
         }
 
         // Phase 1: acquire — uncancellable. Reads the SET reply before returning.
-        let token = self.lock.new_token();
-        // Arm the guard *before* acquiring. If the acquire errors after the SET
-        // committed but its reply was lost, Drop releases the lock; the
-        // compare-and-delete is a no-op if our token wasn't stored. `name` isn't
-        // &'static; use `job.name()`, which the trait guarantees is.
-        let guard = super::lock::LockGuard::new(job.name(), token.clone(), self.lock.clone());
-
-        match self.lock.acquire(name, &token).await {
-            Ok(true) => {}
-            Ok(false) => {
-                guard.disarm();
+        let guard = match super::lock::acquire(name, &self.lock).await {
+            super::lock::Acquired::Taken(guard) => guard,
+            super::lock::Acquired::Held => {
                 self.run_skipped.add(
                     1,
                     &[
-                        KeyValue::new("job", name.to_string()),
+                        KeyValue::new("job", name),
                         KeyValue::new("reason", "in_progress"),
                     ],
                 );
@@ -241,11 +272,11 @@ impl Scheduler {
                 );
                 return;
             }
-            Err(e) => {
+            super::lock::Acquired::Failed(e) => {
                 self.run_skipped.add(
                     1,
                     &[
-                        KeyValue::new("job", name.to_string()),
+                        KeyValue::new("job", name),
                         KeyValue::new("reason", "lock_error"),
                     ],
                 );
@@ -255,7 +286,7 @@ impl Scheduler {
                 );
                 return;
             }
-        }
+        };
 
         // Phase 2: the job — cancellable via the shutdown signal (drops job.run()'s
         // future, never the acquire or release around it).
@@ -285,7 +316,7 @@ impl Scheduler {
         self.run_completed.add(
             1,
             &[
-                KeyValue::new("job", name.to_string()),
+                KeyValue::new("job", name),
                 KeyValue::new("outcome", outcome),
             ],
         );
@@ -307,16 +338,25 @@ pub(crate) fn virtual_now() -> NowFn {
 
 #[cfg(test)]
 mod tests {
-    use super::super::error::LockResult;
-    use super::super::lock::{AlwaysAvailableLock, RunLock};
-    use super::{validate_cron, virtual_now, NowFn, Scheduler};
+    use super::super::lock::RunLock;
+    use super::{validate_cron, virtual_now, DateTime, NowFn, Scheduler, Utc};
+
+    /// Parses an RFC-3339 instant for pinning a test clock's epoch.
+    fn at(rfc3339: &str) -> DateTime<Utc> {
+        DateTime::parse_from_rfc3339(rfc3339)
+            .expect("test epoch must be valid RFC-3339")
+            .with_timezone(&Utc)
+    }
+    use crate::jobs::test_support::{
+        steppable_clock, AcquireOutcome, BlockingJob, CountingJob, FakeLock,
+    };
     use crate::jobs::Job;
     use async_trait::async_trait;
     use opentelemetry::metrics::MeterProvider;
     use opentelemetry_sdk::metrics::data::{AggregatedMetrics, MetricData, ResourceMetrics};
     use opentelemetry_sdk::metrics::{InMemoryMetricExporter, SdkMeterProvider};
     use std::error::Error;
-    use std::sync::atomic::{AtomicU32, Ordering};
+    use std::sync::atomic::{AtomicI64, AtomicU32, Ordering};
     use std::sync::Arc;
     use std::sync::Mutex;
     use std::time::Duration;
@@ -363,36 +403,27 @@ mod tests {
         total
     }
 
-    /// A valid cron expression is accepted.
     #[test]
     fn validate_cron_accepts_valid_expression() {
         assert!(validate_cron("0 0 3 * * *").is_ok());
     }
 
-    /// A malformed cron expression is rejected.
     #[test]
     fn validate_cron_rejects_invalid_expression() {
         assert!(validate_cron("not a cron expression").is_err());
     }
 
-    /// A syntactically valid cron that can never fire (fixed past year) is rejected.
     #[test]
     fn validate_cron_rejects_never_firing() {
         assert!(validate_cron("0 0 3 * * * 2020").is_err());
     }
 
-    /// The `cron` crate is seconds-first (6-7 fields). A standard 5-field
-    /// expression is rejected outright, not silently reinterpreted as a
-    /// seconds-first schedule — so `0 3 * * *` can't sneak in as ":03 every
-    /// hour". Pins that guarantee against a crate bump loosening parsing.
     #[test]
     fn validate_cron_rejects_five_field_expressions() {
         assert!(validate_cron("0 3 * * *").is_err());
         assert!(validate_cron("* * * * *").is_err());
     }
 
-    /// A run overrunning several fire times gets no back-to-back catch-up runs:
-    /// the scheduler skips missed ticks and fires exactly once more.
     #[tokio::test(start_paused = true)]
     async fn overrunning_run_skips_missed_ticks_and_fires_once_more() {
         /// Sleeps past several per-second ticks on its first run only.
@@ -422,8 +453,8 @@ mod tests {
         let (tx, rx) = watch::channel(false);
 
         let schedule = validate_cron("* * * * * *").unwrap();
-        let scheduler = Scheduler::new(virtual_now(), Arc::new(AlwaysAvailableLock));
-        let runner = scheduler.run_job("overrun", &schedule, &job, rx);
+        let scheduler = Scheduler::new(virtual_now(), FakeLock::new(AcquireOutcome::Granted));
+        let runner = scheduler.run_job(&schedule, &job, rx);
         let driver = async {
             // Anchor to the first fire so timing doesn't depend on the start
             // offset within the second.
@@ -444,45 +475,19 @@ mod tests {
         );
     }
 
-    /// Shutdown mid-run abandons the (here never-completing) run and returns
-    /// promptly.
     #[tokio::test(start_paused = true)]
     async fn shutdown_during_running_job_returns_promptly() {
-        /// Starts, then blocks forever on a `Notify` that is never signaled.
-        struct BlockingJob {
-            started: Arc<AtomicU32>,
-            completed: Arc<AtomicU32>,
-            gate: Arc<tokio::sync::Notify>,
-        }
-        #[async_trait]
-        impl Job for BlockingJob {
-            fn name(&self) -> &'static str {
-                "blocking"
-            }
-            async fn run(&self) -> Result<(), Box<dyn Error + Send + Sync>> {
-                self.started.fetch_add(1, Ordering::SeqCst);
-                self.gate.notified().await; // never signaled
-                self.completed.fetch_add(1, Ordering::SeqCst);
-                Ok(())
-            }
-        }
-
-        let started = Arc::new(AtomicU32::new(0));
-        let completed = Arc::new(AtomicU32::new(0));
-        let job = BlockingJob {
-            started: started.clone(),
-            completed: completed.clone(),
-            gate: Arc::new(tokio::sync::Notify::new()),
-        };
+        let job = BlockingJob::new();
         let (tx, rx) = watch::channel(false);
 
         let shutdown_at: Mutex<Option<tokio::time::Instant>> = Mutex::new(None);
         let schedule = validate_cron("* * * * * *").unwrap();
-        let scheduler = Scheduler::new(virtual_now(), Arc::new(AlwaysAvailableLock));
-        let runner = scheduler.run_job("blocking", &schedule, &job, rx);
+        let (scheduler, provider, exporter) =
+            metered_scheduler(virtual_now(), FakeLock::new(AcquireOutcome::Granted));
+        let runner = scheduler.run_job(&schedule, &job, rx);
         let driver = async {
             // Wait until the job has actually started running.
-            while started.load(Ordering::SeqCst) == 0 {
+            while job.started() == 0 {
                 tokio::time::sleep(Duration::from_millis(5)).await;
             }
             *shutdown_at.lock().unwrap() = Some(tokio::time::Instant::now());
@@ -490,6 +495,8 @@ mod tests {
         };
         tokio::join!(runner, driver);
 
+        // Behaviour: the run started, never completed, and run_job returned in zero
+        // virtual time.
         let elapsed = shutdown_at
             .lock()
             .unwrap()
@@ -501,48 +508,50 @@ mod tests {
             "run_job must return promptly after shutdown mid-run (zero virtual time elapsed); took {elapsed:?}"
         );
         assert_eq!(
-            started.load(Ordering::SeqCst),
+            job.started(),
             1,
             "the job must have started before shutdown"
         );
         assert_eq!(
-            completed.load(Ordering::SeqCst),
+            job.completed(),
             0,
             "the abandoned run must not have completed"
         );
+
+        // Metrics: abandonment records completed{abandoned} (not a skip), so the
+        // attempts partition still holds.
+        provider.force_flush().unwrap();
+        let metrics = exporter.get_finished_metrics().unwrap();
+        assert_eq!(
+            counter_value(
+                &metrics,
+                "jobs.run.completed",
+                &[("job", "blocking"), ("outcome", "abandoned")],
+            ),
+            1,
+            "a run abandoned on shutdown must record exactly one completed{{abandoned}}"
+        );
+        let attempts = counter_value(&metrics, "jobs.run.attempts", &[("job", "blocking")]);
+        let completed = counter_value(&metrics, "jobs.run.completed", &[("job", "blocking")]);
+        let skipped = counter_value(&metrics, "jobs.run.skipped", &[("job", "blocking")]);
+        assert_eq!(
+            attempts,
+            completed + skipped,
+            "abandonment folds into completed, keeping attempts = completed + skipped"
+        );
     }
 
-    /// A minimal job that just counts how many times it ran.
-    struct CountingJob {
-        count: Arc<AtomicU32>,
-    }
-    #[async_trait]
-    impl Job for CountingJob {
-        fn name(&self) -> &'static str {
-            "counting"
-        }
-        async fn run(&self) -> Result<(), Box<dyn Error + Send + Sync>> {
-            self.count.fetch_add(1, Ordering::SeqCst);
-            Ok(())
-        }
-    }
-
-    /// Shutdown during the sleep phase (first select!) exits without firing. Uses
-    /// a far-future cron so the job never fires on its own.
     #[tokio::test(start_paused = true)]
     async fn run_job_exits_on_shutdown_without_firing() {
-        let count = Arc::new(AtomicU32::new(0));
-        let job = CountingJob {
-            count: count.clone(),
-        };
+        let job = CountingJob::new("counting");
         let (tx, rx) = watch::channel(false);
 
         // Year-pinned cron (2100, the crate's max) fixes one fire far outside any
         // test run. The pin is what guarantees no fire: an unpinned "0 0 0 1 1 *"
         // recurs yearly and could fire if the paused clock lands near Jan 1 UTC.
         let schedule = validate_cron("0 0 0 1 1 * 2100").unwrap();
-        let scheduler = Scheduler::new(virtual_now(), Arc::new(AlwaysAvailableLock));
-        let runner = scheduler.run_job("counting", &schedule, &job, rx);
+        let scheduler = Scheduler::new(virtual_now(), FakeLock::new(AcquireOutcome::Granted));
+        let runner = scheduler.run_job(&schedule, &job, rx);
         let stopper = async {
             tokio::time::sleep(Duration::from_millis(100)).await;
             let _ = tx.send(true);
@@ -550,28 +559,23 @@ mod tests {
         tokio::join!(runner, stopper);
 
         assert_eq!(
-            count.load(Ordering::SeqCst),
+            job.runs(),
             0,
             "shutdown during sleep must exit without firing the job"
         );
     }
 
-    /// A `false` send must not stop the scheduler; it exits only on `true` (or
-    /// dropped senders).
     #[tokio::test(start_paused = true)]
     async fn false_shutdown_signal_does_not_stop_scheduler() {
-        let count = Arc::new(AtomicU32::new(0));
-        let job = CountingJob {
-            count: count.clone(),
-        };
+        let job = CountingJob::new("counting");
         let (tx, rx) = watch::channel(false);
 
         let schedule = validate_cron("* * * * * *").unwrap();
-        let scheduler = Scheduler::new(virtual_now(), Arc::new(AlwaysAvailableLock));
-        let runner = scheduler.run_job("counting", &schedule, &job, rx);
+        let scheduler = Scheduler::new(virtual_now(), FakeLock::new(AcquireOutcome::Granted));
+        let runner = scheduler.run_job(&schedule, &job, rx);
         let driver = async {
             // Wait for the first fire, then send false (a no-op).
-            while count.load(Ordering::SeqCst) == 0 {
+            while job.runs() == 0 {
                 tokio::time::sleep(Duration::from_millis(10)).await;
             }
             let _ = tx.send(false);
@@ -582,38 +586,19 @@ mod tests {
         tokio::join!(runner, driver);
 
         assert!(
-            count.load(Ordering::SeqCst) >= 2,
+            job.runs() >= 2,
             "a false send must not stop the scheduler; it should keep firing"
         );
     }
 
-    /// A lock held elsewhere (`acquire` → `false`) makes the scheduler skip every
-    /// fire — the job never runs — while it keeps ticking and exits on shutdown.
     #[tokio::test(start_paused = true)]
     async fn run_job_skips_run_when_lock_held() {
-        struct HeldLock;
-        #[async_trait]
-        impl RunLock for HeldLock {
-            fn new_token(&self) -> String {
-                "token".to_string()
-            }
-            async fn acquire(&self, _job: &str, _token: &str) -> LockResult<bool> {
-                Ok(false)
-            }
-            async fn unlock(&self, _job: &str, _token: &str) -> LockResult<()> {
-                Ok(())
-            }
-        }
-
-        let count = Arc::new(AtomicU32::new(0));
-        let job = CountingJob {
-            count: count.clone(),
-        };
+        let job = CountingJob::new("counting");
         let (tx, rx) = watch::channel(false);
 
         let schedule = validate_cron("* * * * * *").unwrap();
-        let scheduler = Scheduler::new(virtual_now(), Arc::new(HeldLock));
-        let runner = scheduler.run_job("counting", &schedule, &job, rx);
+        let scheduler = Scheduler::new(virtual_now(), FakeLock::new(AcquireOutcome::Denied));
+        let runner = scheduler.run_job(&schedule, &job, rx);
         let stopper = async {
             // Several ticks pass; every fire should be skipped.
             tokio::time::sleep(Duration::from_millis(3500)).await;
@@ -622,166 +607,52 @@ mod tests {
         tokio::join!(runner, stopper);
 
         assert_eq!(
-            count.load(Ordering::SeqCst),
+            job.runs(),
             0,
             "a held lock must prevent the job from running"
         );
     }
 
-    /// Every fire pairs one lock acquire with one release, so the lock is never
-    /// leaked between runs.
     #[tokio::test(start_paused = true)]
     async fn run_job_acquires_and_releases_lock_around_run() {
-        struct RecordingLock {
-            acquired: Arc<AtomicU32>,
-            released: Arc<AtomicU32>,
-        }
-        #[async_trait]
-        impl RunLock for RecordingLock {
-            fn new_token(&self) -> String {
-                "token".to_string()
-            }
-            async fn acquire(&self, _job: &str, _token: &str) -> LockResult<bool> {
-                self.acquired.fetch_add(1, Ordering::SeqCst);
-                Ok(true)
-            }
-            async fn unlock(&self, _job: &str, _token: &str) -> LockResult<()> {
-                self.released.fetch_add(1, Ordering::SeqCst);
-                Ok(())
-            }
-        }
-
-        let acquired = Arc::new(AtomicU32::new(0));
-        let released = Arc::new(AtomicU32::new(0));
-        let count = Arc::new(AtomicU32::new(0));
-        let job = CountingJob {
-            count: count.clone(),
-        };
+        let job = CountingJob::new("counting");
         let (tx, rx) = watch::channel(false);
 
         let schedule = validate_cron("* * * * * *").unwrap();
-        let lock = RecordingLock {
-            acquired: acquired.clone(),
-            released: released.clone(),
-        };
-        let scheduler = Scheduler::new(virtual_now(), Arc::new(lock));
-        let runner = scheduler.run_job("counting", &schedule, &job, rx);
+        let lock = FakeLock::new(AcquireOutcome::Granted);
+        let scheduler = Scheduler::new(virtual_now(), lock.clone());
+        let runner = scheduler.run_job(&schedule, &job, rx);
         let stopper = async {
             tokio::time::sleep(Duration::from_millis(2500)).await;
             let _ = tx.send(true);
         };
         tokio::join!(runner, stopper);
 
-        let runs = count.load(Ordering::SeqCst);
+        let runs = job.runs();
         assert!(runs >= 2, "the job should have fired at least twice");
         assert_eq!(
-            acquired.load(Ordering::SeqCst),
-            released.load(Ordering::SeqCst),
+            lock.acquires(),
+            lock.releases(),
             "every acquire must be paired with a release"
         );
         assert_eq!(
-            released.load(Ordering::SeqCst),
+            lock.releases(),
             runs,
             "the lock must be released once per run"
         );
     }
 
-    /// Cancelling a run while its acquire is still in flight (shutdown dropping
-    /// the future between the lock being taken and the token reaching us) must
-    /// not orphan the lock: the guard is armed before the acquire, so its Drop
-    /// releases it. Modelled with an `acquire` that never resolves.
-    #[tokio::test(start_paused = true)]
-    async fn cancel_during_acquire_releases_lock() {
-        struct StalledLock {
-            released: Arc<AtomicU32>,
-        }
-        #[async_trait]
-        impl RunLock for StalledLock {
-            fn new_token(&self) -> String {
-                "token".to_string()
-            }
-            async fn acquire(&self, _job: &str, _token: &str) -> LockResult<bool> {
-                // Never resolves: the acquire's response never reaches us before
-                // the task is cancelled.
-                std::future::pending::<()>().await;
-                unreachable!()
-            }
-            async fn unlock(&self, _job: &str, _token: &str) -> LockResult<()> {
-                self.released.fetch_add(1, Ordering::SeqCst);
-                Ok(())
-            }
-        }
-
-        let released = Arc::new(AtomicU32::new(0));
-        let scheduler = Scheduler::new(
-            virtual_now(),
-            Arc::new(StalledLock {
-                released: released.clone(),
-            }),
-        );
-        let job = CountingJob {
-            count: Arc::new(AtomicU32::new(0)),
-        };
-        let (_tx, mut rx) = watch::channel(false);
-
-        // Poll run_locked so it reaches (and stalls on) the acquire, then drop it.
-        {
-            let fut = scheduler.run_locked("counting", &job, &mut rx);
-            tokio::pin!(fut);
-            tokio::select! {
-                _ = &mut fut => panic!("acquire stalls; run_locked cannot complete"),
-                _ = tokio::time::sleep(Duration::from_millis(1)) => {}
-            }
-        } // fut dropped here → the pre-armed guard's Drop spawns the unlock.
-
-        // Let the detached Drop-spawn unlock run.
-        tokio::task::yield_now().await;
-        tokio::time::sleep(Duration::from_millis(10)).await;
-
-        assert_eq!(
-            released.load(Ordering::SeqCst),
-            1,
-            "a run dropped mid-acquire must still release via the pre-armed guard"
-        );
-    }
-
-    /// Every fire is one attempt that partitions into completed or skipped,
-    /// never both — asserted by reading the real `jobs.run.*` OTel counters back
-    /// through an in-memory exporter.
     #[tokio::test(start_paused = true)]
     async fn attempts_partition_between_completed_and_skipped() {
-        /// Grants then denies the lock on alternate fires: even fires run the job
-        /// (completed{ok}), odd fires are denied (skipped{in_progress}).
-        struct AlternatingLock {
-            calls: AtomicU32,
-        }
-        #[async_trait]
-        impl RunLock for AlternatingLock {
-            fn new_token(&self) -> String {
-                "token".to_string()
-            }
-            async fn acquire(&self, _job: &str, _token: &str) -> LockResult<bool> {
-                Ok(self.calls.fetch_add(1, Ordering::SeqCst).is_multiple_of(2))
-            }
-            async fn unlock(&self, _job: &str, _token: &str) -> LockResult<()> {
-                Ok(())
-            }
-        }
-
-        let count = Arc::new(AtomicU32::new(0));
-        let job = CountingJob {
-            count: count.clone(),
-        };
+        let job = CountingJob::new("counting");
         let (tx, rx) = watch::channel(false);
 
         let schedule = validate_cron("* * * * * *").unwrap();
-        let (scheduler, provider, exporter) = metered_scheduler(
-            virtual_now(),
-            Arc::new(AlternatingLock {
-                calls: AtomicU32::new(0),
-            }),
-        );
-        let runner = scheduler.run_job("counting", &schedule, &job, rx);
+        // Alternating: even fires run the job (completed{ok}), odd fires are
+        // denied (skipped{in_progress}), so one run exercises both branches.
+        let (scheduler, provider, exporter) =
+            metered_scheduler(virtual_now(), FakeLock::new(AcquireOutcome::Alternating));
+        let runner = scheduler.run_job(&schedule, &job, rx);
         let stopper = async {
             tokio::time::sleep(Duration::from_millis(4500)).await;
             let _ = tx.send(true);
@@ -815,113 +686,22 @@ mod tests {
         );
     }
 
-    /// A run abandoned mid-flight on shutdown records `completed{outcome=abandoned}`
-    /// (not a skip), so the attempts partition still holds and abandonment is
-    /// observable.
-    #[tokio::test(start_paused = true)]
-    async fn abandoned_run_records_completed_outcome() {
-        /// Marks itself started, then blocks forever on a never-signaled `Notify`.
-        struct BlockingJob {
-            started: Arc<AtomicU32>,
-            gate: Arc<tokio::sync::Notify>,
-        }
-        #[async_trait]
-        impl Job for BlockingJob {
-            fn name(&self) -> &'static str {
-                "blocking"
-            }
-            async fn run(&self) -> Result<(), Box<dyn Error + Send + Sync>> {
-                self.started.fetch_add(1, Ordering::SeqCst);
-                self.gate.notified().await; // never signaled
-                Ok(())
-            }
-        }
-
-        let started = Arc::new(AtomicU32::new(0));
-        let job = BlockingJob {
-            started: started.clone(),
-            gate: Arc::new(tokio::sync::Notify::new()),
-        };
-        let (tx, rx) = watch::channel(false);
-
-        let schedule = validate_cron("* * * * * *").unwrap();
-        let (scheduler, provider, exporter) =
-            metered_scheduler(virtual_now(), Arc::new(AlwaysAvailableLock));
-        let runner = scheduler.run_job("blocking", &schedule, &job, rx);
-        let driver = async {
-            while started.load(Ordering::SeqCst) == 0 {
-                tokio::time::sleep(Duration::from_millis(5)).await;
-            }
-            let _ = tx.send(true);
-        };
-        tokio::join!(runner, driver);
-
-        provider.force_flush().unwrap();
-        let metrics = exporter.get_finished_metrics().unwrap();
-
-        let abandoned = counter_value(
-            &metrics,
-            "jobs.run.completed",
-            &[("job", "blocking"), ("outcome", "abandoned")],
-        );
-        assert_eq!(
-            abandoned, 1,
-            "a run abandoned on shutdown must record exactly one completed{{abandoned}}"
-        );
-
-        // The partition still holds across all outcomes/reasons.
-        let attempts = counter_value(&metrics, "jobs.run.attempts", &[("job", "blocking")]);
-        let completed = counter_value(&metrics, "jobs.run.completed", &[("job", "blocking")]);
-        let skipped = counter_value(&metrics, "jobs.run.skipped", &[("job", "blocking")]);
-        assert_eq!(
-            attempts,
-            completed + skipped,
-            "abandonment folds into completed, keeping attempts = completed + skipped"
-        );
-    }
-
-    /// Shutdown already signaled before we touch the lock: `run_locked` fast-exits,
-    /// recording `skipped{shutdown_before_acquire}` and never calling `acquire`.
     #[tokio::test(start_paused = true)]
     async fn run_locked_fast_exits_when_already_shutdown() {
-        struct AcquireCountingLock {
-            acquired: Arc<AtomicU32>,
-        }
-        #[async_trait]
-        impl RunLock for AcquireCountingLock {
-            fn new_token(&self) -> String {
-                "token".to_string()
-            }
-            async fn acquire(&self, _job: &str, _token: &str) -> LockResult<bool> {
-                self.acquired.fetch_add(1, Ordering::SeqCst);
-                Ok(true)
-            }
-            async fn unlock(&self, _job: &str, _token: &str) -> LockResult<()> {
-                Ok(())
-            }
-        }
-
-        let acquired = Arc::new(AtomicU32::new(0));
-        let job = CountingJob {
-            count: Arc::new(AtomicU32::new(0)),
-        };
-        let (scheduler, provider, exporter) = metered_scheduler(
-            virtual_now(),
-            Arc::new(AcquireCountingLock {
-                acquired: acquired.clone(),
-            }),
-        );
+        let job = CountingJob::new("counting");
+        let lock = FakeLock::new(AcquireOutcome::Granted);
+        let (scheduler, provider, exporter) = metered_scheduler(virtual_now(), lock.clone());
 
         // Shutdown is already true when run_locked is entered.
         let (tx, mut rx) = watch::channel(false);
         tx.send(true).unwrap();
-        scheduler.run_locked("counting", &job, &mut rx).await;
+        scheduler.run_locked(&job, &mut rx).await;
 
         provider.force_flush().unwrap();
         let metrics = exporter.get_finished_metrics().unwrap();
 
         assert_eq!(
-            acquired.load(Ordering::SeqCst),
+            lock.acquires(),
             0,
             "a fast-exit on shutdown must not reach acquire"
         );
@@ -941,28 +721,107 @@ mod tests {
         );
     }
 
-    /// A bounded schedule that runs out of fire times records one
-    /// `jobs.scheduler.stopped{reason=schedule_exhausted}` and returns on its own.
+    #[tokio::test(start_paused = true)]
+    async fn wall_clock_jump_forward_fires_within_max_sleep() {
+        let job = CountingJob::new("counting");
+        let (tx, rx) = watch::channel(false);
+
+        // Epoch pinned on the hour, so the next hourly fire is exactly 1h out.
+        let (now_fn, skew) = steppable_clock(at("2030-01-01T00:00:00Z"));
+        let schedule = validate_cron("0 0 * * * *").unwrap();
+        let scheduler = Scheduler::new(now_fn, FakeLock::new(AcquireOutcome::Granted))
+            .with_max_sleep(Duration::from_secs(30));
+        let runner = scheduler.run_job(&schedule, &job, rx);
+        let driver = async {
+            // Let the scheduler settle into its wait toward 01:00.
+            tokio::time::sleep(Duration::from_millis(10)).await;
+            assert_eq!(job.runs(), 0, "the hourly job must not fire an hour early");
+            // Suspend: the wall clock lands past the fire time, tokio's does not.
+            skew.store(2 * 3600, Ordering::SeqCst);
+            // Two max_sleep chunks — one is enough to re-anchor and notice.
+            tokio::time::sleep(Duration::from_secs(60)).await;
+            let _ = tx.send(true);
+        };
+        tokio::join!(runner, driver);
+
+        assert!(
+            job.runs() >= 1,
+            "the fire time passed during the jump; the scheduler must re-anchor to the \
+             wall clock within max_sleep instead of sleeping out the monotonic delay"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn wall_clock_step_backward_does_not_refire_the_same_tick() {
+        /// Steps the clock back on its first run. The step has to land between the
+        /// run finishing and the scheduler re-anchoring for the next tick, and the
+        /// job body *is* that window — which is also how it happens for real: NTP
+        /// corrects while the job is executing.
+        struct SteppingJob {
+            runs: AtomicU32,
+            skew: Arc<AtomicI64>,
+        }
+        #[async_trait]
+        impl Job for SteppingJob {
+            fn name(&self) -> &'static str {
+                "stepping"
+            }
+            async fn run(&self) -> Result<(), Box<dyn Error + Send + Sync>> {
+                if self.runs.fetch_add(1, Ordering::SeqCst) == 0 {
+                    // Back 2s: `now` now sits before the 01:00:00 tick we just fired.
+                    self.skew.store(-2, Ordering::SeqCst);
+                }
+                Ok(())
+            }
+        }
+
+        // Epoch 1s before the hourly fire, so 01:00:00 lands almost immediately.
+        let (now_fn, skew) = steppable_clock(at("2030-01-01T00:59:59Z"));
+        let job = SteppingJob {
+            runs: AtomicU32::new(0),
+            skew,
+        };
+        let (tx, rx) = watch::channel(false);
+
+        let schedule = validate_cron("0 0 * * * *").unwrap();
+        let scheduler = Scheduler::new(now_fn, FakeLock::new(AcquireOutcome::Granted));
+        let runner = scheduler.run_job(&schedule, &job, rx);
+        let stopper = async {
+            // Far longer than the ~2s a re-fire of 01:00:00 would take, and far
+            // short of the next real fire at 02:00.
+            tokio::time::sleep(Duration::from_secs(30)).await;
+            let _ = tx.send(true);
+        };
+        tokio::join!(runner, stopper);
+
+        assert_eq!(
+            job.runs.load(Ordering::SeqCst),
+            1,
+            "a backward clock step must not re-fire the 01:00:00 tick; the anchor \
+             must never move behind the last tick fired"
+        );
+    }
+
     #[tokio::test(start_paused = true)]
     async fn exhausted_schedule_records_stopped_metric() {
-        let count = Arc::new(AtomicU32::new(0));
-        let job = CountingJob {
-            count: count.clone(),
-        };
+        let job = CountingJob::new("counting");
         // No shutdown is sent: run_job returns once the schedule is exhausted.
         let (_tx, rx) = watch::channel(false);
 
         // Year-pinned single fire: fires once, then `after()` yields no more times.
         let schedule = validate_cron("0 0 0 1 1 * 2099").unwrap();
         let (scheduler, provider, exporter) =
-            metered_scheduler(virtual_now(), Arc::new(AlwaysAvailableLock));
-        scheduler.run_job("counting", &schedule, &job, rx).await;
+            metered_scheduler(virtual_now(), FakeLock::new(AcquireOutcome::Granted));
+        // Unbounded chunks: the fire is decades out, and the default 30s re-check
+        // would need millions of iterations to reach it under the paused clock.
+        let scheduler = scheduler.with_max_sleep(Duration::MAX);
+        scheduler.run_job(&schedule, &job, rx).await;
 
         provider.force_flush().unwrap();
         let metrics = exporter.get_finished_metrics().unwrap();
 
         assert!(
-            count.load(Ordering::SeqCst) >= 1,
+            job.runs() >= 1,
             "the single-fire schedule must fire before exhausting"
         );
         assert_eq!(

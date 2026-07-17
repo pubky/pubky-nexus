@@ -87,13 +87,49 @@ fn key(job: &str) -> String {
     format!("lock:job:{job}")
 }
 
-/// RAII lock release. Call `release()` on the happy path to await unlock; on a
-/// panic the explicit call is skipped but Drop still frees the lock so it
-/// doesn't stay stuck for its TTL.
+/// The outcome of [`acquire`].
+pub(super) enum Acquired {
+    /// Taken; release through the guard.
+    Taken(LockGuard),
+    /// Another run holds it. Nothing to release.
+    Held,
+    /// The backend failed. Anything we might have taken is already released.
+    Failed(LockError),
+}
+
+/// Takes `job`'s run slot, arming the guard *before* the acquire so a lost SET
+/// reply (or a cancel mid-acquire) still releases; the compare-and-delete no-ops
+/// if our token was never stored.
 ///
-/// Drop releases fire-and-forget via `tokio::spawn` (so it must be dropped
-/// inside a runtime context), falling back to the TTL if the spawn is dropped
-/// during shutdown.
+/// One `job` feeds both the acquire and the guard, so a run can't release a key
+/// it never acquired. On backend error the guard is released inline rather than
+/// left to Drop: callers may return straight into process exit, where a
+/// Drop-spawned unlock never gets polled.
+pub(super) async fn acquire(job: &'static str, lock: &Arc<dyn RunLock>) -> Acquired {
+    let token = lock.new_token();
+    let guard = LockGuard::new(job, token.clone(), Arc::clone(lock));
+
+    match lock.acquire(job, &token).await {
+        Ok(true) => Acquired::Taken(guard),
+        Ok(false) => {
+            guard.disarm();
+            Acquired::Held
+        }
+        Err(e) => {
+            guard.release().await;
+            Acquired::Failed(e)
+        }
+    }
+}
+
+/// RAII lock release. Prefer `release()`, which awaits the unlock; Drop is the
+/// backstop for guards dropped while still armed (a panic in `run()`, or the
+/// whole future being dropped).
+///
+/// Drop releases fire-and-forget via `tokio::spawn`, so it must be dropped in a
+/// runtime context, and only frees the lock if that runtime outlives the spawn —
+/// otherwise the TTL is the fallback. Don't rely on it where the process may
+/// exit right after (see [`acquire`]).
 pub struct LockGuard {
     job: &'static str,
     token: Option<String>,
@@ -138,33 +174,72 @@ impl Drop for LockGuard {
         };
         let lock = self.lock.clone();
         let job = self.job;
-        // Fire-and-forget. Only reached on the panic path — happy path calls
-        // release() first, which sets self.token = None.
+        // Fire-and-forget: reached whenever a guard is dropped still armed, which
+        // release() and disarm() both prevent. Needs the runtime to outlive it.
         tokio::spawn(async move {
             if let Err(e) = lock.unlock(job, &token).await {
-                tracing::warn!(
-                    job,
-                    "Could not release run lock on panic path (will expire via TTL): {e}"
-                );
+                tracing::warn!(job, "Could not release run lock (will expire via TTL): {e}");
             }
         });
     }
 }
 
-/// Test [`RunLock`] that always grants the lock.
 #[cfg(test)]
-pub struct AlwaysAvailableLock;
+mod tests {
+    use super::{acquire, Acquired, RunLock};
+    use crate::jobs::test_support::{AcquireOutcome, FakeLock};
+    use std::sync::Arc;
 
-#[cfg(test)]
-#[async_trait]
-impl RunLock for AlwaysAvailableLock {
-    fn new_token(&self) -> String {
-        "test-token".to_string()
+    #[tokio::test]
+    async fn failed_acquire_releases_before_returning() {
+        let fake = FakeLock::new(AcquireOutcome::Fails);
+        let lock: Arc<dyn RunLock> = fake.clone();
+
+        let outcome = acquire("job", &lock).await;
+
+        // Asserted with no yield in between: a Drop-spawned unlock could not have
+        // run yet, so a nonzero count can only mean the release was awaited inline.
+        assert_eq!(
+            fake.releases(),
+            1,
+            "a failed acquire must release inline, not leave it to Drop's spawn"
+        );
+        assert!(matches!(outcome, Acquired::Failed(_)));
     }
-    async fn acquire(&self, _job: &str, _token: &str) -> LockResult<bool> {
-        Ok(true)
+
+    #[tokio::test]
+    async fn held_lock_is_not_released() {
+        let fake = FakeLock::new(AcquireOutcome::Denied);
+        let lock: Arc<dyn RunLock> = fake.clone();
+
+        let outcome = acquire("job", &lock).await;
+        // Yield so a stray Drop-spawned unlock would surface rather than race us.
+        tokio::task::yield_now().await;
+
+        assert_eq!(
+            fake.releases(),
+            0,
+            "we never held the lock; unlocking would free another run's lease"
+        );
+        assert!(matches!(outcome, Acquired::Held));
     }
-    async fn unlock(&self, _job: &str, _token: &str) -> LockResult<()> {
-        Ok(())
+
+    #[tokio::test]
+    async fn acquire_and_release_use_the_same_job() {
+        let fake = FakeLock::new(AcquireOutcome::Granted);
+        let lock: Arc<dyn RunLock> = fake.clone();
+
+        let Acquired::Taken(guard) = acquire("the-job", &lock).await else {
+            panic!("a granted acquire must yield a guard");
+        };
+        assert_eq!(fake.releases(), 0, "held until released");
+        guard.release().await;
+
+        assert_eq!(fake.releases(), 1);
+        assert_eq!(
+            fake.acquired_with(),
+            fake.released_with(),
+            "the release must target the key the acquire took"
+        );
     }
 }
