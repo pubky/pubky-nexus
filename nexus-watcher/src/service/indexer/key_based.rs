@@ -1,4 +1,7 @@
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::{Arc, LazyLock},
+    time::Duration,
+};
 
 use crate::errors::EventProcessorError;
 use crate::events::Event;
@@ -6,6 +9,8 @@ use futures::StreamExt;
 use nexus_common::db::PubkyConnector;
 use nexus_common::models::homeserver::HsBlacklist;
 use nexus_common::models::user::UserHsCursor;
+use opentelemetry::metrics::Counter;
+use opentelemetry::{global, KeyValue};
 use pubky::{Event as StreamEvent, EventCursor, PublicKey};
 use pubky_app_specs::PubkyId;
 use tokio::sync::watch::Receiver;
@@ -18,6 +23,17 @@ use crate::service::runner::UserNotFoundBackoff;
 use crate::service::user_hs_resolver;
 
 const FETCH_EVENTS_429_BACKOFF_SECS: [u64; 3] = [1, 2, 3];
+
+/// Counter for per-user stream events an External HS returned at or below the
+/// user's stored cursor — replays of already-indexed events, rejected before any
+/// handler runs. A sustained non-zero rate for one HS means it is stuck replaying
+/// and needs operator attention. Labelled by `hs_id` only to avoid per-user metric cardinality.
+static OUT_OF_ORDER_CURSOR_EXTERNAL_HS: LazyLock<Counter<u64>> = LazyLock::new(|| {
+    global::meter(super::METER_NAME)
+        .u64_counter("watcher.external_hs.cursor.out_of_order")
+        .with_description("Per-user stream events a homeserver returned out of cursor order")
+        .build()
+});
 
 #[async_trait::async_trait]
 pub trait KeyBasedEventSource: Send + Sync + 'static {
@@ -322,6 +338,8 @@ impl KeyBasedEventProcessor {
             // of an already-indexed event.
             let ordering_floor = latest_cursor.unwrap_or(persisted_cursor);
             if cursor_id <= ordering_floor {
+                OUT_OF_ORDER_CURSOR_EXTERNAL_HS
+                    .add(1, &[KeyValue::new("hs_id", hs_id.to_string())]);
                 return (
                     latest_cursor,
                     Err(EventProcessorError::EventCursorOutOfOrder {
