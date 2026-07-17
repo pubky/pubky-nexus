@@ -114,6 +114,7 @@ impl Homeserver {
     }
 
     async fn validate_cursor_change(id: &PubkyId, new_cursor: u64) -> RedisResult<()> {
+        // Read-then-write is non-atomic but race-free: a given HS is only ever written by one processor run at a time.
         if let Some(existing) = Self::get_from_index(id).await? {
             ensure_cursor_not_backwards(new_cursor, existing.cursor)?;
         }
