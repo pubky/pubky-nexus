@@ -1,6 +1,6 @@
 use crate::db::exec_single_row;
 use crate::db::fetch_key_from_graph;
-use crate::db::kv::RedisError;
+use crate::db::kv::ensure_cursor_not_backwards;
 use crate::db::kv::RedisResult;
 use crate::db::queries;
 use crate::db::GraphResult;
@@ -115,11 +115,7 @@ impl Homeserver {
 
     async fn validate_cursor_change(id: &PubkyId, new_cursor: u64) -> RedisResult<()> {
         if let Some(existing) = Self::get_from_index(id).await? {
-            if new_cursor < existing.cursor {
-                return Err(RedisError::InvalidInput(
-                    "Cursor cannot move backwards".into(),
-                ));
-            }
+            ensure_cursor_not_backwards(new_cursor, existing.cursor)?;
         }
 
         Ok(())
@@ -197,6 +193,7 @@ mod tests {
     use pubky::Keypair;
     use pubky_app_specs::PubkyId;
 
+    use crate::db::kv::RedisError;
     use crate::{types::DynError, StackConfig, StackManager};
 
     use super::*;
