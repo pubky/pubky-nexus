@@ -240,7 +240,7 @@ impl KeyBasedEventProcessor {
 
         let user_id = user_pk.z32();
         let (latest_cursor, result) = self
-            .process_user_events(hs_id, &user_id, stream_events)
+            .process_user_events(hs_id, &user_id, cursor.id(), stream_events)
             .await;
 
         if let Some(cursor_val) = latest_cursor {
@@ -292,6 +292,10 @@ impl KeyBasedEventProcessor {
 
     /// Processes already-fetched events for a single user stream.
     ///
+    /// `persisted_cursor` is the user's currently stored cursor for this
+    /// homeserver; it acts as the initial ordering floor so that events at or
+    /// below what we have already indexed are rejected before any handler runs.
+    ///
     /// Returns the latest cursor that is safe to persist, plus the processing
     /// result. Cursor advancement is intentionally skipped for `UserIdMismatch`
     /// and handler errors so those events are fetched again on the next run.
@@ -299,6 +303,7 @@ impl KeyBasedEventProcessor {
         &self,
         hs_id: &str,
         user_id: &str,
+        persisted_cursor: u64,
         stream_events: Vec<StreamEvent>,
     ) -> (Option<u64>, Result<(), EventProcessorError>) {
         let mut latest_cursor: Option<u64> = None;
@@ -310,18 +315,23 @@ impl KeyBasedEventProcessor {
             }
 
             let cursor_id = stream_event.cursor.id();
-            if let Some(previous_cursor) = latest_cursor {
-                if cursor_id < previous_cursor {
-                    return (
-                        latest_cursor,
-                        Err(EventProcessorError::EventCursorOutOfOrder {
-                            hs_id: hs_id.into(),
-                            user_id: user_id.into(),
-                            cursor: cursor_id,
-                            max_cursor: previous_cursor,
-                        }),
-                    );
-                }
+            // Ordering floor: the highest cursor we have already advanced past —
+            // an event handled earlier in this batch, or the persisted cursor if
+            // none has been handled yet. Rejecting events strictly below this
+            // stops a misbehaving homeserver from replaying already-indexed
+            // events; the in-batch guard alone misses events below the persisted
+            // cursor because `latest_cursor` starts empty on every batch.
+            let ordering_floor = latest_cursor.unwrap_or(persisted_cursor);
+            if cursor_id < ordering_floor {
+                return (
+                    latest_cursor,
+                    Err(EventProcessorError::EventCursorOutOfOrder {
+                        hs_id: hs_id.into(),
+                        user_id: user_id.into(),
+                        cursor: cursor_id,
+                        max_cursor: ordering_floor,
+                    }),
+                );
             }
 
             match Event::from_stream_event(&stream_event) {

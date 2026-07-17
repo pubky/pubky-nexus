@@ -305,10 +305,13 @@ async fn key_based_processor_does_not_rewind_stored_cursor() -> Result<(), DynEr
             )?]]),
         );
     let handler = create_mock_handler(Ok(()), None);
-    let processor = processor(homeserver, handler, source);
+    let processor = processor(homeserver, handler.clone(), source);
 
     processor.run().await?;
 
+    // The stale event must be rejected before the handler runs (not merely
+    // ignored at cursor-write time), and the persisted cursor stays at 42.
+    assert_eq!(handler.get_handle_count(), 0);
     assert_eq!(user_cursor(&user_id, &hs_id).await?, Some(42));
 
     Ok(())
