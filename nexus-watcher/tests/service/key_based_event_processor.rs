@@ -317,6 +317,40 @@ async fn key_based_processor_does_not_rewind_stored_cursor() -> Result<(), DynEr
     Ok(())
 }
 
+/// Verifies an event whose cursor equals the stored one is rejected. Fetches are
+/// cursor-exclusive, so re-returning the boundary cursor is a replay, not progress.
+#[tokio_shared_rt::test(shared)]
+async fn key_based_processor_rejects_cursor_equal_to_stored() -> Result<(), DynError> {
+    setup().await?;
+
+    let (_hs_keypair, homeserver) = create_homeserver().await?;
+    let hs_id = homeserver.id.to_string();
+    let user_id = create_user_on_homeserver(&homeserver).await?;
+    let cursor_key = user_hs_cursor_key(&user_id);
+    UserDetails::put_index_sorted_set(&cursor_key, &[(42.0, hs_id.as_str())], None, None).await?;
+
+    // Asked to continue from 42, the homeserver re-returns the event at 42.
+    let source =
+        Arc::new(
+            MockKeyBasedEventSource::default().with_events(vec![vec![stream_event(
+                42,
+                &user_id,
+                "/pub/pubky.app/profile.json",
+            )?]]),
+        );
+    let handler = create_mock_handler(Ok(()), None);
+    let processor = processor(homeserver, handler.clone(), source);
+
+    processor.run().await?;
+
+    // The boundary event must be rejected before the handler runs, and the
+    // persisted cursor stays at 42.
+    assert_eq!(handler.get_handle_count(), 0);
+    assert_eq!(user_cursor(&user_id, &hs_id).await?, Some(42));
+
+    Ok(())
+}
+
 /// Verifies cursor persistence stops at the last safe event before a mismatch.
 #[tokio_shared_rt::test(shared)]
 async fn key_based_processor_persists_last_safe_cursor_before_mismatch() -> Result<(), DynError> {

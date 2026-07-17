@@ -315,14 +315,13 @@ impl KeyBasedEventProcessor {
             }
 
             let cursor_id = stream_event.cursor.id();
-            // Ordering floor: the highest cursor we have already advanced past —
-            // an event handled earlier in this batch, or the persisted cursor if
-            // none has been handled yet. Rejecting events strictly below this
-            // stops a misbehaving homeserver from replaying already-indexed
-            // events; the in-batch guard alone misses events below the persisted
-            // cursor because `latest_cursor` starts empty on every batch.
+            // Fetches are cursor-exclusive, so a correct HS only returns events
+            // above the floor; anything at or below it is a replay. Seeding the
+            // floor from `persisted_cursor` matters because `latest_cursor`
+            // resets each batch — the in-batch check alone would miss a replay
+            // of an already-indexed event.
             let ordering_floor = latest_cursor.unwrap_or(persisted_cursor);
-            if cursor_id < ordering_floor {
+            if cursor_id <= ordering_floor {
                 return (
                     latest_cursor,
                     Err(EventProcessorError::EventCursorOutOfOrder {
