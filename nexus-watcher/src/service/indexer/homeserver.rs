@@ -25,6 +25,19 @@ static REJECTED: LazyLock<Counter<u64>> = LazyLock::new(|| {
         .build()
 });
 
+/// Counter for cursor lines the homeserver sent that could not be applied.
+///
+/// A non-empty count means the HS returned a cursor we cannot parse or that
+/// would move the stored cursor backward, so the cursor is not advanced and the
+/// same batch is re-fetched on the next poll. A sustained non-zero rate for one
+/// HS indicates it is stuck replaying a batch and needs operator attention.
+static INVALID_CURSOR: LazyLock<Counter<u64>> = LazyLock::new(|| {
+    global::meter(METER_NAME)
+        .u64_counter("watcher.cursor.invalid")
+        .with_description("Cursor lines from a homeserver that could not be applied")
+        .build()
+});
+
 /// A user's `HOSTED_BY` mapping, classified relative to a processor's HS.
 ///
 /// The `stale` flag is only carried where it is meaningful: a stale mapping means
@@ -237,7 +250,12 @@ impl HsEventProcessor {
                 info!("Received cursor for the next request: {cursor}");
                 match Homeserver::try_from_cursor(self.homeserver.id.clone(), cursor).await {
                     Ok(hs) => hs.put_to_index().await?,
-                    Err(e) => warn!("{e}"),
+                    Err(e) => {
+                        // Cursor could not be parsed or would rewind
+                        INVALID_CURSOR
+                            .add(1, &[KeyValue::new("hs_id", self.homeserver.id.to_string())]);
+                        warn!(hs_id = %self.homeserver.id, "Ignoring invalid cursor '{cursor}': {e}");
+                    }
                 }
                 continue;
             }
