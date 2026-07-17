@@ -39,6 +39,14 @@ impl ModelError {
     pub fn from_generic(source: impl std::fmt::Display) -> Self {
         Self::Generic(source.to_string())
     }
+
+    /// Returns true if this error is `MediaProcessorError::AtCapacity`.
+    pub fn is_at_capacity(&self) -> bool {
+        matches!(
+            self,
+            Self::MediaProcessorError(crate::media::processors::MediaProcessorError::AtCapacity)
+        )
+    }
 }
 
 pub type ModelResult<T> = Result<T, ModelError>;

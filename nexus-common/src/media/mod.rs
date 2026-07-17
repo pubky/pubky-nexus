@@ -1,5 +1,4 @@
 use crate::{
-    media::processors::MediaProcessorError,
     models::file::{FileDetails, FileUrls},
     types::DynError,
 };
@@ -13,7 +12,11 @@ use std::{
 use tokio::fs;
 use utoipa::ToSchema;
 
+mod concurrency;
 pub mod processors;
+
+pub use concurrency::MediaGate;
+use processors::MediaProcessorError;
 
 #[derive(Debug, PartialEq, Serialize, Deserialize, ToSchema, Clone)]
 #[serde(rename_all = "lowercase")]
@@ -47,20 +50,28 @@ impl Display for FileVariant {
     }
 }
 
-pub struct VariantController;
+#[derive(Clone)]
+pub struct VariantController {
+    gate: MediaGate,
+}
 
 impl VariantController {
+    pub fn new(gate: MediaGate) -> Self {
+        Self { gate }
+    }
+
     pub async fn create_file_variant(
+        &self,
         file: &FileDetails,
         variant: &FileVariant,
         file_path: PathBuf,
     ) -> Result<String, MediaProcessorError> {
         match &file.content_type {
             content_type if content_type.starts_with("image/") => {
-                ImageProcessor::create_variant(file, variant, file_path).await
+                ImageProcessor::create_variant(file, variant, file_path, &self.gate).await
             }
             content_type if content_type.starts_with("video/") => {
-                VideoProcessor::create_variant(file, variant, file_path).await
+                VideoProcessor::create_variant(file, variant, file_path, &self.gate).await
             }
             _ => Err(MediaProcessorError::UnsupportedContentType(
                 file.content_type.clone(),

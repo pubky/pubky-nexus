@@ -1,4 +1,7 @@
-use crate::{media::FileVariant, models::file::FileDetails};
+use crate::{
+    media::{concurrency::MediaGate, FileVariant},
+    models::file::FileDetails,
+};
 use async_trait::async_trait;
 use std::path::PathBuf;
 use thiserror::Error;
@@ -28,6 +31,8 @@ pub enum MediaProcessorError {
     UnsupportedFileVariant,
     #[error("InvalidFilePath: {0}")]
     InvalidFilePath(String),
+    #[error("AtCapacity: media processing concurrency limit reached")]
+    AtCapacity,
 }
 
 impl MediaProcessorError {
@@ -70,6 +75,7 @@ pub trait VariantProcessor {
         file: &FileDetails,
         variant: &FileVariant,
         file_path: PathBuf,
+        gate: &MediaGate,
     ) -> Result<String, MediaProcessorError> {
         // if there are no options for this variant, return with the original content type
         let options = match Self::get_options_for_variant(file, variant) {
@@ -96,6 +102,8 @@ pub trait VariantProcessor {
             ));
         };
 
+        // Held only around the subprocess, not the path/option work above.
+        let _permit = gate.acquire().await?;
         Self::process(origin_file_path, output_path, &options).await?;
 
         Ok(options.content_type())

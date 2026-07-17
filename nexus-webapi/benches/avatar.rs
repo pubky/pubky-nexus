@@ -8,11 +8,13 @@ use axum::{
 };
 use criterion::{criterion_group, criterion_main, Criterion};
 use http_body_util::BodyExt;
+use nexus_common::media::{MediaGate, VariantController};
 use nexus_common::models::{
     file::{FileDetails, FileUrls},
     traits::Collection,
     user::UserDetails,
 };
+use nexus_common::utils::test_utils::default_ingestor_tests;
 use nexus_webapi::{
     models::PubkyId,
     routes::{r#static::user_avatar_handler, AppState, Path},
@@ -55,6 +57,8 @@ impl AvatarBenchSetup {
             _temp_dir: temp_dir,
             app_state: AppState {
                 files_path: Arc::new(files_path),
+                ingestor: default_ingestor_tests(),
+                variant_controller: VariantController::new(MediaGate::new(1)),
             },
             user_id,
         };

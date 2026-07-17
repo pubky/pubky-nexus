@@ -32,6 +32,8 @@ pub enum Error {
     ResourceNotFound { resource_id: String },
     #[error("Forbidden: {message}")]
     Forbidden { message: String },
+    #[error("Service unavailable: {message}")]
+    ServiceUnavailable { message: String },
     // Add other custom errors here
 }
 
@@ -45,6 +47,12 @@ impl Error {
     pub fn resource_not_found(resource_id: impl Into<String>) -> Self {
         Error::ResourceNotFound {
             resource_id: resource_id.into(),
+        }
+    }
+
+    pub fn service_unavailable(message: impl Into<String>) -> Self {
+        Error::ServiceUnavailable {
+            message: message.into(),
         }
     }
 
@@ -75,6 +83,10 @@ impl From<ModelError> for Error {
             ModelError::HsBlacklisted { hs_id } => Error::Forbidden {
                 message: format!("Homeserver is blacklisted: {hs_id}"),
             },
+            // Load shed: the client-facing message stays generic, the cause is logged server-side.
+            other if other.is_at_capacity() => {
+                Error::service_unavailable("service temporarily unavailable")
+            }
             other => Error::InternalServerError {
                 source: other.into(),
             },
@@ -133,6 +145,7 @@ impl IntoResponse for Error {
             Error::TagNotFound { .. } => StatusCode::NOT_FOUND,
             Error::ResourceNotFound { .. } => StatusCode::NOT_FOUND,
             Error::Forbidden { .. } => StatusCode::FORBIDDEN,
+            Error::ServiceUnavailable { .. } => StatusCode::SERVICE_UNAVAILABLE,
             // Map other errors to appropriate status codes
         };
 
@@ -162,6 +175,7 @@ impl IntoResponse for Error {
             Error::Forbidden { message } => {
                 warn!("Forbidden: {}", message)
             }
+            Error::ServiceUnavailable { message } => warn!("Service unavailable: {}", message),
             Error::InternalServerError { source } => error!("Internal server error: {:?}", source),
         };
 

@@ -1,9 +1,6 @@
 use crate::{
-    media::{
-        processors::{ImageProcessor, VariantProcessor, VideoProcessor},
-        FileVariant, VariantController,
-    },
-    models::error::{ModelError, ModelResult},
+    media::{FileVariant, VariantController},
+    models::error::ModelResult,
 };
 use pubky_app_specs::PubkyAppBlob;
 use std::path::PathBuf;
@@ -40,6 +37,7 @@ impl Blob {
         file: &FileDetails,
         variant: &FileVariant,
         file_path: PathBuf,
+        controller: &VariantController,
     ) -> ModelResult<String> {
         let file_variant_exists =
             VariantController::check_variant_exists(file, variant.clone(), file_path.clone()).await;
@@ -49,34 +47,13 @@ impl Blob {
                 file, variant,
             ))
         } else {
-            Self::put_variant(file, variant, file_path)
+            controller
+                .create_file_variant(file, variant, file_path)
                 .await
+                .map_err(Into::into)
                 .inspect_err(|e| {
                     tracing::error!("Creating variant failed for file: {file:?} with error: {e}")
                 })
-        }
-    }
-
-    async fn put_variant(
-        file: &FileDetails,
-        variant: &FileVariant,
-        file_path: PathBuf,
-    ) -> ModelResult<String> {
-        match &file.content_type {
-            content_type if content_type.starts_with("image/") => {
-                ImageProcessor::create_variant(file, variant, file_path)
-                    .await
-                    .map_err(Into::into)
-            }
-            content_type if content_type.starts_with("video/") => {
-                VideoProcessor::create_variant(file, variant, file_path)
-                    .await
-                    .map_err(Into::into)
-            }
-            _ => Err(ModelError::from_generic(format!(
-                "Unsupported content type: {}",
-                file.content_type
-            ))),
         }
     }
 }
