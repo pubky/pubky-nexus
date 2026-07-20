@@ -110,3 +110,8 @@ password = "12345678"
 slow_query_logging_threshold_ms = 100
 # Include the Cypher query text in slow query log entries
 #slow_query_logging_include_cypher = false
+
+[stack.media]
+# Maximum number of concurrent media processing subprocesses (ImageMagick/ffmpeg).
+# Defaults to the number of available CPU cores (minimum 4). Must be greater than 0.
+#max_concurrency = 4

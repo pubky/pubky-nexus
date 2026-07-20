@@ -8,6 +8,7 @@ use axum::http::request::Parts;
 use axum::http::{Request, StatusCode};
 use axum::Json as AxumJson;
 use axum::Router;
+use nexus_common::media::{MediaGate, VariantController};
 use nexus_common::models::user::UserIngestor;
 use nexus_common::RateLimitConfig;
 use tokio::sync::watch::Receiver;
@@ -81,12 +82,16 @@ pub struct AppState {
     pub files_path: Arc<PathBuf>,
     /// Shared ingestor enforcing the HS blacklist on API-triggered ingestion.
     pub ingestor: Arc<UserIngestor>,
+    pub variant_controller: VariantController,
 }
 
 pub fn routes(ctx: &ApiContext, shutdown_rx: Receiver<bool>) -> Router {
     let state = AppState {
         files_path: Arc::new(ctx.api_config.stack.files_path.clone()),
         ingestor: ctx.ingestor.clone(),
+        variant_controller: VariantController::new(MediaGate::new(
+            ctx.api_config.stack.media.max_concurrency,
+        )),
     };
 
     let app_routes = app_routes(state.clone(), &ctx.api_config.rate_limit, shutdown_rx);
