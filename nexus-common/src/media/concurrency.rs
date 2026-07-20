@@ -2,7 +2,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use tokio::sync::{Semaphore, SemaphorePermit};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use super::processors::MediaProcessorError;
 
@@ -51,17 +51,19 @@ impl MediaGate {
         self
     }
 
-    /// Acquire a permit or shed with `AtCapacity`.
-    pub async fn acquire(&self) -> Result<SemaphorePermit<'_>, MediaProcessorError> {
+    /// Acquire a permit or shed with `AtCapacity`. The permit is owned so it can be
+    /// moved into the task running the subprocess and outlive the caller's request.
+    pub async fn acquire(&self) -> Result<OwnedSemaphorePermit, MediaProcessorError> {
         // Fast path: capacity is free, so never touch the queue or the timer.
-        if let Ok(permit) = self.semaphore.try_acquire() {
+        if let Ok(permit) = Arc::clone(&self.semaphore).try_acquire_owned() {
             return Ok(permit);
         }
 
         // Queue is already deep enough; shed now rather than park another request.
         let _waiting = WaitingGuard::enter(&self.waiting, self.max_waiting)?;
 
-        match tokio::time::timeout(self.acquire_timeout, self.semaphore.acquire()).await {
+        let acquire = Arc::clone(&self.semaphore).acquire_owned();
+        match tokio::time::timeout(self.acquire_timeout, acquire).await {
             Ok(Ok(permit)) => Ok(permit),
             Ok(Err(_closed)) => Err(MediaProcessorError::AtCapacity), // semaphore closed (shouldn't happen)
             Err(_elapsed) => Err(MediaProcessorError::AtCapacity), // waited too long -> shed load
