@@ -69,3 +69,79 @@ impl Job for TrustRecomputeJob {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    use std::sync::Arc;
+
+    use super::super::engine::{TrustRankEngine, TrustRankParams, TrustRankStats};
+    use super::*;
+
+    // Dumb stub: bumps a shared counter and replays a canned result. The counter
+    // is shared so the test can inspect it after the engine moves into the job.
+    struct MockEngine {
+        calls: Arc<AtomicU32>,
+        fail: bool,
+    }
+
+    #[async_trait]
+    impl TrustRankEngine for MockEngine {
+        async fn compute(&self, _params: &TrustRankParams) -> Result<TrustRankStats, DynError> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            if self.fail {
+                return Err("compute failed".into());
+            }
+            Ok(TrustRankStats {
+                users_written: 1,
+                ran_iterations: 1,
+                did_converge: true,
+            })
+        }
+    }
+
+    fn params() -> TrustRankParams {
+        TrustRankParams {
+            seed_ids: vec!["seed".to_string()],
+            alpha: 0.85,
+            max_iterations: 20,
+            tolerance: 1e-6,
+        }
+    }
+
+    // No report_dir: run() computes and returns without touching the store.
+    #[tokio::test]
+    async fn run_without_report_computes_and_skips_report() {
+        let calls = Arc::new(AtomicU32::new(0));
+        let engine = MockEngine {
+            calls: Arc::clone(&calls),
+            fail: false,
+        };
+        let job = TrustRecomputeJob::new(params(), Box::new(engine), None);
+
+        job.run().await.expect("run should succeed");
+
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    // A compute error propagates and short-circuits before the report block,
+    // so run() fails without ever reaching the store (report_dir is Some here).
+    #[tokio::test]
+    async fn run_propagates_compute_error_before_report() {
+        let calls = Arc::new(AtomicU32::new(0));
+        let engine = MockEngine {
+            calls: Arc::clone(&calls),
+            fail: true,
+        };
+        let job = TrustRecomputeJob::new(
+            params(),
+            Box::new(engine),
+            Some(PathBuf::from("/does-not-matter")),
+        );
+
+        let err = job.run().await.expect_err("run should fail");
+
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert_eq!(err.to_string(), "compute failed");
+    }
+}
