@@ -2,13 +2,22 @@ use async_trait::async_trait;
 use nexus_common::db::{release_lock, try_acquire_lock, RedisError};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use super::error::{LockError, LockResult};
 
-/// TTL on a job's run lock, and the crash backstop. Must exceed the longest
-/// expected run, or a run outliving its lease could overlap another.
-const LOCK_TTL_SECS: u64 = 3600;
+/// The one knob: how long a run may take. Callers abandon `run()` at this
+/// wall-clock deadline, and the lease is sized from it, so a run can't outlive
+/// its lease and overlap another process's.
+pub(super) const MAX_RUN: Duration = Duration::from_secs(3600);
+
+/// Lease slack past [`MAX_RUN`], covering the acquire-to-run gap and the release
+/// round-trip. Also the crash backstop: after a hard kill the slot frees itself
+/// this long after the deadline.
+const LEASE_MARGIN: Duration = Duration::from_secs(60);
+
+/// Lease TTL, sized from the deadline it has to outlast.
+const LOCK_TTL_SECS: u64 = MAX_RUN.as_secs() + LEASE_MARGIN.as_secs();
 
 /// Cross-process mutual exclusion for a job's runs (the scheduler already
 /// serializes within one process). Injected so the scheduler is testable
@@ -186,9 +195,18 @@ impl Drop for LockGuard {
 
 #[cfg(test)]
 mod tests {
-    use super::{acquire, Acquired, RunLock};
+    use super::{acquire, Acquired, RunLock, LOCK_TTL_SECS, MAX_RUN};
     use crate::jobs::test_support::{AcquireOutcome, FakeLock};
     use std::sync::Arc;
+
+    #[test]
+    fn lease_outlives_the_run_deadline() {
+        assert!(
+            LOCK_TTL_SECS > MAX_RUN.as_secs(),
+            "the lease must outlast the deadline, or an abandoned run's slot could \
+             be taken before its release lands"
+        );
+    }
 
     #[tokio::test]
     async fn failed_acquire_releases_before_returning() {

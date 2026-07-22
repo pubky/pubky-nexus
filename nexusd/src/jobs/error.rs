@@ -38,6 +38,12 @@ pub enum JobError {
     #[error("stack setup failed: {0}")]
     Stack(#[source] DynError),
 
+    #[error("job {job:?} exceeded its {after:?} run deadline and was abandoned")]
+    TimedOut {
+        job: &'static str,
+        after: std::time::Duration,
+    },
+
     /// Boxed: jobs are heterogeneous and the runner only logs the error.
     #[error("job {job:?} failed: {source}")]
     Run {

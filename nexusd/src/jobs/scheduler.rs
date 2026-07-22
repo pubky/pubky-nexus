@@ -8,14 +8,14 @@ use std::time::Duration;
 use tokio::sync::watch::Receiver;
 use tracing::{debug, error, info, warn};
 
-use super::lock::RunLock;
+use super::lock::{self, RunLock};
 use super::{CronParseError, Job};
 
 /// OpenTelemetry meter name for all job metrics.
 const METER_NAME: &str = "nexus.jobs";
 
 /// Wall-clock re-check interval while waiting for a fire time (see [`Scheduler::sleep_until`]).
-const MAX_SLEEP: Duration = Duration::from_secs(30);
+pub(super) const MAX_SLEEP: Duration = Duration::from_secs(30);
 
 /// Shared clock source. Production passes `Arc::new(Utc::now)`; tests pass a
 /// virtual clock tied to tokio's paused time.
@@ -30,9 +30,11 @@ pub struct Scheduler {
     lock: Arc<dyn RunLock>,
     /// Wall-clock re-check interval while sleeping toward a fire time (see [`MAX_SLEEP`]).
     max_sleep: Duration,
+    /// Deadline for a single run, past which it's abandoned (see [`lock::MAX_RUN`]).
+    max_run: Duration,
     /// Every fire attempt, before the lock is tried.
     run_attempts: Counter<u64>,
-    /// Fires where the job ran, labelled by `outcome` in {ok, error, abandoned}.
+    /// Fires where the job ran, labelled by `outcome` in {ok, error, abandoned, timed_out}.
     run_completed: Counter<u64>,
     /// Fires that didn't run the job, labelled by `reason` in
     /// {in_progress, lock_error, shutdown_before_acquire}.
@@ -76,6 +78,7 @@ impl Scheduler {
             now_fn,
             lock,
             max_sleep: MAX_SLEEP,
+            max_run: lock::MAX_RUN,
             run_attempts,
             run_completed,
             run_skipped,
@@ -92,6 +95,14 @@ impl Scheduler {
         self
     }
 
+    /// Overrides the per-run deadline, so tests can hit it without burning the
+    /// production hour of virtual time.
+    #[cfg(test)]
+    pub(crate) fn with_max_run(mut self, max_run: Duration) -> Self {
+        self.max_run = max_run;
+        self
+    }
+
     /// Records that a job's scheduler stopped and won't run again until restart
     /// (a caught panic or an exhausted schedule — never a clean shutdown).
     pub(super) fn record_stopped(&self, job: &str, reason: &'static str) {
@@ -102,6 +113,28 @@ impl Scheduler {
                 KeyValue::new("reason", reason),
             ],
         );
+    }
+}
+
+/// Sleeps for `dur` of *wall-clock* time, re-reading `now_fn` after each chunk of
+/// at most `max_sleep`.
+///
+/// Same reason as [`Scheduler::sleep_until`]: `tokio::time::sleep` counts
+/// monotonic time, which stalls across a host suspend. The run lock's lease is a
+/// wall-clock TTL, so a monotonic deadline would let a suspend push a run past
+/// its expired lease and alongside another process's run.
+pub(super) async fn sleep_wall(dur: Duration, now_fn: &NowFn, max_sleep: Duration) {
+    let started = now_fn();
+    loop {
+        // A backward clock step reads as no elapsed time rather than as overshoot.
+        let elapsed = (now_fn() - started).to_std().unwrap_or(Duration::ZERO);
+        let Some(remaining) = dur.checked_sub(elapsed) else {
+            return;
+        };
+        if remaining.is_zero() {
+            return;
+        }
+        tokio::time::sleep(remaining.min(max_sleep)).await;
     }
 }
 
@@ -288,8 +321,11 @@ impl Scheduler {
             }
         };
 
-        // Phase 2: the job — cancellable via the shutdown signal (drops job.run()'s
-        // future, never the acquire or release around it).
+        // Phase 2: the job — cancellable via the shutdown signal or the deadline
+        // (both drop job.run()'s future, never the acquire or release around it).
+        // This loop already serializes fires within the process; the deadline is
+        // what bounds a hung run and keeps it from outliving its lease, which
+        // would let *another* process acquire alongside it.
         let outcome = tokio::select! {
             biased;
 
@@ -307,6 +343,16 @@ impl Scheduler {
                     "error"
                 }
             },
+            // Polled after the run, so a run finishing on the deadline still counts
+            // as finished.
+            _ = sleep_wall(self.max_run, &self.now_fn, self.max_sleep) => {
+                error!(
+                    job = name,
+                    "Run exceeded the {:?} deadline; abandoning to keep runs from overlapping",
+                    self.max_run
+                );
+                "timed_out"
+            }
         };
 
         // Phase 3: release — uncancellable. Runs even after abandonment; awaiting
@@ -538,6 +584,52 @@ mod tests {
             attempts,
             completed + skipped,
             "abandonment folds into completed, keeping attempts = completed + skipped"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn overlong_run_is_abandoned_at_the_deadline() {
+        let job = BlockingJob::new();
+        let (tx, rx) = watch::channel(false);
+
+        let schedule = validate_cron("* * * * * *").unwrap();
+        let lock = FakeLock::new(AcquireOutcome::Granted);
+        let (scheduler, provider, exporter) = metered_scheduler(virtual_now(), lock.clone());
+        let scheduler = scheduler.with_max_run(Duration::from_secs(2));
+        let runner = scheduler.run_job(&schedule, &job, rx);
+        let driver = async {
+            // Two deadlines' worth: enough for the hung run to be abandoned and the
+            // next fire to take the lock again.
+            tokio::time::sleep(Duration::from_millis(4500)).await;
+            let _ = tx.send(true);
+        };
+        tokio::join!(runner, driver);
+
+        assert!(
+            job.started() >= 2,
+            "the deadline must free the slot so a later fire runs; started={}",
+            job.started()
+        );
+        assert_eq!(
+            job.completed(),
+            0,
+            "the hung runs must never have completed"
+        );
+        assert_eq!(
+            lock.acquires(),
+            lock.releases(),
+            "an abandoned run must still release its lease"
+        );
+
+        provider.force_flush().unwrap();
+        let metrics = exporter.get_finished_metrics().unwrap();
+        assert!(
+            counter_value(
+                &metrics,
+                "jobs.run.completed",
+                &[("job", "blocking"), ("outcome", "timed_out")],
+            ) >= 1,
+            "an abandoned-at-deadline run must record completed{{timed_out}}"
         );
     }
 

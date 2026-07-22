@@ -32,8 +32,10 @@ pub fn job_cron(config: &JobConfig) -> Result<Option<Schedule>, CronParseError> 
 /// any concrete job; both set up the stack first, so `run` can assume it's up.
 ///
 /// The runner takes a cross-process run lock around every run, so a job's runs
-/// never overlap — implementors don't manage concurrency. It imposes no timeout,
-/// though, so jobs hitting external services should apply their own.
+/// never overlap — implementors don't manage concurrency. A run is abandoned at
+/// the runner's one-hour deadline, so a job needing finer granularity should
+/// apply its own timeouts. Abandonment only drops `run`'s future: work the job
+/// spawned onto its own task keeps going, outside the lock's protection.
 #[async_trait]
 pub trait Job: Send + Sync {
     /// Stable unique identifier: used in logs, on-demand selection, and as the
@@ -107,7 +109,8 @@ impl JobRegistry {
             .map_err(JobError::Stack)?;
 
         let lock: Arc<dyn lock::RunLock> = Arc::new(RedisRunLock::new());
-        run_once_locked(job.as_ref(), &lock).await
+        let now_fn = Arc::new(Utc::now) as scheduler::NowFn;
+        run_once_locked(job.as_ref(), &lock, &now_fn).await
     }
 
     /// The scheduled jobs, resolved from config. Each job's schedule is validated
@@ -154,22 +157,43 @@ impl JobRegistry {
 }
 
 /// Runs `job` once under `lock`, mapping lock state to [`JobError`]. Split from
-/// [`JobRegistry::run_on_demand`] so it's testable without a stack; `lock` is
-/// injected for the same reason.
-async fn run_once_locked(job: &dyn Job, lock: &Arc<dyn lock::RunLock>) -> Result<(), JobError> {
+/// [`JobRegistry::run_on_demand`] so it's testable without a stack; `lock` and
+/// `now_fn` are injected for the same reason.
+///
+/// Abandoned at [`lock::MAX_RUN`] like a scheduled run, so an on-demand run can't
+/// outlive its lease either.
+async fn run_once_locked(
+    job: &dyn Job,
+    lock: &Arc<dyn lock::RunLock>,
+    now_fn: &scheduler::NowFn,
+) -> Result<(), JobError> {
     let guard = match lock::acquire(job.name(), lock).await {
         lock::Acquired::Taken(guard) => guard,
         lock::Acquired::Held => return Err(JobError::AlreadyRunning { job: job.name() }),
         lock::Acquired::Failed(e) => return Err(JobError::Lock(e)),
     };
 
-    let result = job.run().await;
+    // Wall-clock deadline, not `tokio::time::timeout` — see `scheduler::sleep_wall`.
+    let result = tokio::select! {
+        biased;
+
+        // Polled first, so a run finishing on the deadline still counts as finished.
+        result = job.run() => Some(result),
+        _ = scheduler::sleep_wall(lock::MAX_RUN, now_fn, scheduler::MAX_SLEEP) => None,
+    };
     guard.release().await;
 
-    result.map_err(|source| JobError::Run {
-        job: job.name(),
-        source,
-    })
+    match result {
+        Some(Ok(())) => Ok(()),
+        Some(Err(source)) => Err(JobError::Run {
+            job: job.name(),
+            source,
+        }),
+        None => Err(JobError::TimedOut {
+            job: job.name(),
+            after: lock::MAX_RUN,
+        }),
+    }
 }
 
 /// Runs every scheduled job until shutdown, one supervised task per job. A panic
@@ -264,7 +288,7 @@ mod tests {
     async fn run_once_locked_reports_a_held_lock_as_already_running() {
         let lock: Arc<dyn lock::RunLock> = FakeLock::new(AcquireOutcome::Denied);
         let job = CountingJob::new("stub");
-        let err = run_once_locked(&job, &lock).await.err().unwrap();
+        let err = run_once_locked(&job, &lock, &virtual_now()).await.err().unwrap();
 
         assert!(
             matches!(err, JobError::AlreadyRunning { job } if job == "stub"),
@@ -272,11 +296,30 @@ mod tests {
         );
     }
 
+    #[tokio::test(start_paused = true)]
+    async fn run_once_locked_abandons_a_run_past_the_deadline() {
+        let job = crate::jobs::test_support::BlockingJob::new();
+        let lock: Arc<dyn lock::RunLock> = FakeLock::new(AcquireOutcome::Granted);
+
+        // Paused time auto-advances while the run hangs, so the hour costs nothing.
+        let err = run_once_locked(&job, &lock, &virtual_now()).await.err().unwrap();
+
+        assert!(
+            matches!(err, JobError::TimedOut { job, .. } if job == "blocking"),
+            "a run past the deadline must surface as TimedOut, got: {err:?}"
+        );
+        assert_eq!(
+            job.completed(),
+            0,
+            "the abandoned run must not have completed"
+        );
+    }
+
     #[tokio::test]
     async fn run_once_locked_surfaces_lock_errors() {
         let job = CountingJob::new("counter");
         let lock: Arc<dyn lock::RunLock> = FakeLock::new(AcquireOutcome::Fails);
-        let err = run_once_locked(&job, &lock).await.err().unwrap();
+        let err = run_once_locked(&job, &lock, &virtual_now()).await.err().unwrap();
 
         assert!(
             matches!(err, JobError::Lock(_)),
