@@ -20,8 +20,27 @@ use queries::{
 /// Seeds are weighted equally (`v` uniform, `1/N` over `params.seed_ids`): GDS
 /// 2.13 (the only version on Neo4j 5.26) has no weighted `sourceNodes`. The GDS
 /// projection is rebuilt each run — Neo4j Community has no incremental update.
-#[derive(Debug, Default, Clone, Copy)]
-pub struct GdsNeo4j;
+#[derive(Debug, Clone, Copy)]
+pub struct GdsNeo4j {
+    /// L1-normalize the written scores into a distribution (summing to 1). On in
+    /// production; tests turn it off to observe the raw scores, which expose the
+    /// mass a reachable dangling node leaks (that L1Norm otherwise rescales away).
+    use_l1norm: bool,
+}
+
+impl Default for GdsNeo4j {
+    fn default() -> Self {
+        Self { use_l1norm: true }
+    }
+}
+
+impl GdsNeo4j {
+    /// Engine with an explicit scaling choice. `GdsNeo4j::default()` gives the
+    /// production `L1Norm`; tests pass `false` to observe the raw scores.
+    pub fn new(use_l1norm: bool) -> Self {
+        Self { use_l1norm }
+    }
+}
 
 #[async_trait]
 impl TrustRankEngine for GdsNeo4j {
@@ -94,6 +113,7 @@ impl TrustRankEngine for GdsNeo4j {
             damping_factor,
             params.max_iterations,
             params.tolerance,
+            if self.use_l1norm { "L1Norm" } else { "NONE" },
         ))
         .await;
 

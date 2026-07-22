@@ -71,8 +71,11 @@ pub fn count_matching_seeds(seed_ids: &[String]) -> Query {
 /// Teleports uniformly across `seed_ids` (`v = 1/N`); GDS 2.13 (the only
 /// version on Neo4j 5.26) has no weighted `sourceNodes`.
 ///
-/// `scaler: 'L1Norm'` writes scores as an L1-normalized distribution (summing
-/// to 1) rather than raw rank values. Write mode overwrites `trust` on every
+/// `scaler` picks the GDS output scaling: `L1Norm` (production) writes an
+/// L1-normalized distribution (summing to 1); `NONE` writes raw rank values.
+/// GDS drops — never teleport-redistributes — the mass of reachable dangling
+/// nodes, so raw single-seed scores sum to < 1; `L1Norm` rescales that back to a
+/// distribution, hiding the leak. Write mode overwrites `trust` on every
 /// projected `:User` each run, so scores never go stale.
 ///
 /// The `size(sourceNodes) > 0` guard makes the query produce no rows when no
@@ -84,6 +87,7 @@ pub fn trust_rank_pagerank_write(
     damping_factor: f64,
     max_iterations: u32,
     tolerance: f64,
+    scaler: &str,
 ) -> Query {
     Query::new(
         "trust_rank_pagerank_write",
@@ -96,7 +100,7 @@ pub fn trust_rank_pagerank_write(
              dampingFactor: $damping_factor,
              maxIterations: $max_iterations,
              tolerance: $tolerance,
-             scaler: 'L1Norm'
+             scaler: $scaler
          })
          YIELD nodePropertiesWritten, ranIterations, didConverge
          RETURN nodePropertiesWritten, ranIterations, didConverge",
@@ -106,6 +110,7 @@ pub fn trust_rank_pagerank_write(
     .param("damping_factor", damping_factor)
     .param("max_iterations", max_iterations as i64)
     .param("tolerance", tolerance)
+    .param("scaler", scaler.to_string())
 }
 
 /// Reads back the `trust` scores written by [`trust_rank_pagerank_write`],
@@ -156,12 +161,21 @@ mod tests {
     #[test]
     fn trust_rank_pagerank_write_populates_seed_ids() {
         let seed_ids = vec!["alice".to_string(), "bob".to_string()];
-        let q = trust_rank_pagerank_write("nexusTrustGraph-1-2", &seed_ids, 0.65, 200, 0.0000001);
+        let q = trust_rank_pagerank_write(
+            "nexusTrustGraph-1-2",
+            &seed_ids,
+            0.65,
+            200,
+            0.0000001,
+            "L1Norm",
+        );
         let populated = q.to_cypher_populated();
         assert!(populated.contains("['alice', 'bob']"));
         assert!(populated.contains("0.65"));
         assert!(populated.contains("'nexusTrustGraph-1-2'"));
         assert!(populated.contains("writeProperty: 'trust'"));
+        // Scaler is parameterized (toggled between L1Norm and NONE), not hardcoded.
+        assert!(populated.contains("'L1Norm'"));
         // Guard closing the seed-deletion race; empty match → no rows, not global PageRank.
         assert!(populated.contains("size(sourceNodes) > 0"));
     }

@@ -79,20 +79,24 @@ async fn test_trust_recompute_assigns_scores_to_graph_nodes() -> Result<()> {
 
     create_follow_graph(&seed, &a, &b, &c).await?;
 
-    // Recompute seeded PageRank teleporting only from `seed`.
     let params = TrustRankParams {
         seed_ids: vec![seed.clone()],
         alpha: 0.35,
         max_iterations: 200,
         tolerance: 1e-7,
     };
-    let recompute_result = GdsNeo4j.compute(&params).await;
 
-    // Read the scores that were written onto the nodes before tearing them
-    // down, so the assertions below run against a clean graph regardless of
-    // whether they pass or panic.
+    // Read every score written onto the nodes before tearing them down, so the
+    // assertions below run against a clean graph regardless of pass/panic. Both
+    // scalings run in one test: `gds.pageRank.write` writes `trust` on *every*
+    // projected user, so splitting them into two tests would let concurrent runs
+    // clobber each other's nodes (production serializes via the job lock).
     let read_result = async {
-        let stats = recompute_result.map_err(|e| anyhow::anyhow!("{e}"))?;
+        // L1Norm (production scaling): the shape a seeded ranking must have.
+        let stats = GdsNeo4j::default()
+            .compute(&params)
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
         let seed_score = trust_of(&seed).await?.context("seed has no trust score")?;
         let a_score = trust_of(&a)
             .await?
@@ -105,13 +109,26 @@ async fn test_trust_recompute_assigns_scores_to_graph_nodes() -> Result<()> {
         let c_score = trust_of(&c).await?.unwrap_or(0.0);
         // The full read-back path (used by the CLI/report) must also surface these.
         let all_scores: HashMap<String, f64> = read_scores().await?.into_iter().collect();
-        anyhow::Ok((stats, seed_score, a_score, b_score, c_score, all_scores))
+
+        // Raw (L1Norm off): same run un-normalized, to observe the mass leak.
+        GdsNeo4j::new(false)
+            .compute(&params)
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+        let raw_seed = trust_of(&seed).await?.context("raw seed score")?;
+        let raw_a = trust_of(&a).await?.context("raw a score")?;
+        let raw_b = trust_of(&b).await?.context("raw b score")?;
+
+        anyhow::Ok((
+            stats, seed_score, a_score, b_score, c_score, all_scores, raw_seed, raw_a, raw_b,
+        ))
     }
     .await;
 
     delete_users(&[&seed, &a, &b, &c]).await?;
 
-    let (stats, seed_score, a_score, b_score, c_score, all_scores) = read_result?;
+    let (stats, seed_score, a_score, b_score, c_score, all_scores, raw_seed, raw_a, raw_b) =
+        read_result?;
 
     // Scores were actually written to the graph.
     assert!(
@@ -153,6 +170,30 @@ async fn test_trust_recompute_assigns_scores_to_graph_nodes() -> Result<()> {
     // The read-back helper returns the same scores it wrote.
     assert_eq!(all_scores.get(&seed).copied(), Some(seed_score));
     assert_eq!(all_scores.get(&a).copied(), Some(a_score));
+
+    // Scaler toggle. `b` is a dangling node (reachable, but follows nobody). GDS
+    // drops — never teleport-redistributes — its mass, so with a single seed the
+    // raw scores leak below 1; L1Norm rescales the same vector back to a
+    // distribution summing to 1, hiding the leak.
+    let raw_sum = raw_seed + raw_a + raw_b;
+    assert!(
+        raw_sum < 1.0 - 1e-6,
+        "raw scores should leak below 1 at the dangling node, summed to {raw_sum}"
+    );
+    let l1_sum = seed_score + a_score + b_score;
+    assert!(
+        (l1_sum - 1.0).abs() < 1e-6,
+        "l1norm scores should sum to 1, summed to {l1_sum}"
+    );
+
+    // The rescale is uniform: node ratios are unchanged, so L1Norm only hides the
+    // leak — it does not re-flow the leaked mass to other nodes.
+    let raw_ratio = raw_a / raw_seed;
+    let l1_ratio = a_score / seed_score;
+    assert!(
+        (raw_ratio - l1_ratio).abs() < 1e-6,
+        "a/seed ratio should survive scaling: raw {raw_ratio} vs l1norm {l1_ratio}"
+    );
 
     Ok(())
 }

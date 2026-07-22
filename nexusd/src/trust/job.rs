@@ -41,7 +41,7 @@ impl TrustRecomputeJob {
     pub fn from_config(config: &TrustRankConfig) -> Self {
         Self::new(
             TrustRankParams::from(config),
-            Box::new(GdsNeo4j),
+            Box::new(GdsNeo4j::default()),
             config.report_enabled.then(|| config.report_dir.clone()),
         )
     }
