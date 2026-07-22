@@ -1,3 +1,4 @@
+use nexus_common::db::graph::queries::get::user_count_fields_columns;
 use nexus_common::db::graph::Query;
 
 /// Name prefix of the per-run GDS graph projections. Each run projects under a
@@ -127,31 +128,22 @@ pub fn read_trust_scores() -> Query {
 /// Batched name + counts for a list of user ids, read straight from the graph
 /// (no Redis) so the report's numbers reflect current state, not a stale cache.
 ///
+/// The count columns come from `nexus_common`'s shared `USER_COUNT_FIELDS` (via
+/// [`user_count_fields_columns`]), so the filters can't drift from `user_counts`.
 /// `OPTIONAL MATCH` keeps one row per requested id even if a user is missing;
-/// each `COUNT {}` subquery mirrors `nexus_common`'s `user_counts` and stays
-/// O(1) per field, as no row-multiplying match precedes them.
+/// that match is single-row per id (not row-multiplying), so each `COUNT {}`
+/// stays O(1) per field.
 pub fn trust_report_user_details(user_ids: &[String]) -> Query {
-    Query::new(
-        "trust_report_user_details",
-        "
-        UNWIND $user_ids AS user_id
-        OPTIONAL MATCH (u:User {id: user_id})
-        RETURN
-            user_id AS id,
-            u.name AS name,
-            COUNT { (u)-[:FOLLOWS]->(:User) } AS following,
-            COUNT { (:User)-[:FOLLOWS]->(u) } AS followers,
-            COUNT { (u)-[:FOLLOWS]->(friend:User) WHERE (friend)-[:FOLLOWS]->(u) } AS friends,
-            COUNT { (u)-[:AUTHORED]->(:Post) } AS posts,
-            COUNT { (u)-[:AUTHORED]->(:Post)-[:REPLIED]->(:Post) } AS replies,
-            COUNT { (u)-[:AUTHORED]->(p:Post) WHERE p.kind = 'collection' } AS collections,
-            COUNT { (u)-[:BOOKMARKED]->(bp:Post) WHERE (bp.kind IS NULL OR bp.kind <> 'collection') } AS bookmarks,
-            COUNT { (u)-[:TAGGED]->(:User) } + COUNT { (u)-[:TAGGED]->(:Post) } AS tagged,
-            COUNT { (:User)-[:TAGGED]->(u) } AS tags,
-            COUNT { MATCH (u)<-[t:TAGGED]-(:User) RETURN DISTINCT t.label } AS unique_tags
-        ",
-    )
-    .param("user_ids", user_ids.to_vec())
+    let cypher = format!(
+        "UNWIND $user_ids AS user_id
+         OPTIONAL MATCH (u:User {{id: user_id}})
+         RETURN
+             user_id AS id,
+             u.name AS name,
+             {fields}",
+        fields = user_count_fields_columns()
+    );
+    Query::new("trust_report_user_details", cypher).param("user_ids", user_ids.to_vec())
 }
 
 #[cfg(test)]
@@ -186,5 +178,15 @@ mod tests {
         let populated = count_matching_seeds(&seed_ids).to_cypher_populated();
         assert!(populated.contains("['alice', 'bob']"));
         assert!(populated.contains("count(seed) AS matched"));
+    }
+
+    // Smoke test: the trust report has no integration coverage (nexusd-side),
+    // so just check the composed Cypher is well-formed off the OPTIONAL MATCH.
+    #[test]
+    fn trust_report_user_details_is_well_formed() {
+        let cypher = trust_report_user_details(&["alice".to_string()]).to_cypher_populated();
+        assert!(cypher.contains("OPTIONAL MATCH (u:User {id: user_id})"));
+        assert!(cypher.contains("AS following"));
+        assert!(cypher.contains("bp.kind <> 'collection'"));
     }
 }
