@@ -1,11 +1,12 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::{fmt::Debug, path::PathBuf};
 use tracing::error;
 
 use crate::{file::CONFIG_FILE_NAME, types::DynError};
 
-use super::{file::ConfigLoader, ApiConfig, StackConfig, WatcherConfig};
+use super::{file::ConfigLoader, ApiConfig, JobConfig, StackConfig, WatcherConfig};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DaemonConfig {
@@ -14,6 +15,9 @@ pub struct DaemonConfig {
     #[serde(default)]
     pub watcher: WatcherConfig,
     pub stack: StackConfig,
+    /// Scheduling config per cron job, keyed by job name (`[jobs.<name>]`).
+    #[serde(default)]
+    pub jobs: HashMap<String, JobConfig>,
 }
 
 impl DaemonConfig {
@@ -118,6 +122,31 @@ mod tests {
         assert!(c.stack.otlp.endpoint.is_none());
         assert_eq!(c.stack.db.redis, "redis://127.0.0.1:6379");
         assert_eq!(c.stack.db.neo4j.uri, "bolt://localhost:7687");
+
+        // No jobs are registered/configured by default.
+        assert!(c.jobs.is_empty());
+    }
+
+    /// A `[jobs.<name>]` section parses into a keyed [`JobConfig`], with its cron
+    /// stored verbatim.
+    #[test]
+    fn test_job_config_parsing() {
+        let toml = format!("{DEFAULT_CONFIG_TOML}\n[jobs.example]\ncron = \"0 0 3 * * *\"\n");
+
+        let c = DaemonConfig::try_from_str(&toml).expect("config with a job section should parse");
+
+        assert_eq!(c.jobs["example"].cron.as_deref(), Some("0 0 3 * * *"));
+    }
+
+    /// An absent cron leaves the job unscheduled (the default).
+    #[test]
+    fn test_job_config_defaults_to_no_cron() {
+        let toml = format!("{DEFAULT_CONFIG_TOML}\n[jobs.example]\n");
+
+        let c = DaemonConfig::try_from_str(&toml)
+            .expect("config with an empty job section should parse");
+
+        assert!(c.jobs["example"].cron.is_none());
     }
 
     /// A populated `external_hs_pk_blacklist` is parsed into the expected

@@ -110,3 +110,15 @@ password = "12345678"
 slow_query_logging_threshold_ms = 100
 # Include the Cypher query text in slow query log entries
 #slow_query_logging_include_cypher = false
+
+# Cron scheduling, one section per registered job (see `nexusd jobs list`),
+# keyed by job name: `[jobs.<name>]`.
+#
+# `cron` is SECONDS-FIRST, not the standard 5-field crontab — always include the
+# seconds field: sec min hour day-of-month month day-of-week [year]
+#
+# No enable flag: an absent `cron` (or section) leaves the job unscheduled, but
+# still runnable on demand with `nexusd jobs run <name>`.
+#[jobs.example]
+#cron = "0 0 3 * * *"    # daily at 03:00 UTC
+#cron = "0 0 4 * * MON"  # Mondays at 04:00 UTC
