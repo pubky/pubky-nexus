@@ -4,8 +4,12 @@ use nexus_common::models::error::ModelResult;
 use nexus_common::types::DynError;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::neo4j::queries::{read_trust_scores, trust_report_user_details};
+
+// Per-process counter so two reports in the same second get distinct names.
+static REPORT_SEQ: AtomicU64 = AtomicU64::new(0);
 
 /// Reads the `trust` scores written by the last recompute, highest first.
 /// Used by the CSV report and callers needing scores back after a
@@ -118,9 +122,14 @@ pub async fn write_timestamped_csv(
     Ok(path)
 }
 
-/// Second precision is enough: scheduled runs are minutes apart at their densest.
+// Second-precision timestamp stays readable/sortable; the per-process counter
+// makes the name unique so two runs in the same second can't overwrite it.
 fn report_file_name(now: DateTime<Utc>) -> String {
-    format!("trust-report-{}.csv", now.format("%Y%m%dT%H%M%SZ"))
+    format!(
+        "trust-report-{}-{:06}.csv",
+        now.format("%Y%m%dT%H%M%SZ"),
+        REPORT_SEQ.fetch_add(1, Ordering::Relaxed)
+    )
 }
 
 /// Quotes a CSV field per RFC 4180 and neutralizes spreadsheet formula
@@ -143,14 +152,27 @@ fn csv_field(s: &str) -> String {
 mod tests {
     use super::*;
 
-    /// Report filenames are timestamped and filesystem-safe (no `:` or spaces).
+    /// Filenames are timestamped, filesystem-safe (no `:` or spaces), and the
+    /// per-process counter makes two same-second runs distinct.
     #[test]
     fn test_report_file_name() {
         let ts = DateTime::parse_from_rfc3339("2026-07-08T03:00:05Z")
             .unwrap()
             .with_timezone(&Utc);
 
-        assert_eq!(report_file_name(ts), "trust-report-20260708T030005Z.csv");
+        let first = report_file_name(ts);
+        assert!(first.starts_with("trust-report-20260708T030005Z-"));
+        assert!(first.ends_with(".csv"));
+
+        // The counter segment is numeric.
+        let seq = first
+            .strip_prefix("trust-report-20260708T030005Z-")
+            .and_then(|s| s.strip_suffix(".csv"))
+            .expect("name has the expected prefix/suffix");
+        assert!(seq.chars().all(|c| c.is_ascii_digit()));
+
+        // Same timestamp, second run → different name (no overwrite).
+        assert_ne!(first, report_file_name(ts));
     }
 
     /// Formula trigger chars get a leading `'` so they don't execute on open.
