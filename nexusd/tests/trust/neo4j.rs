@@ -13,6 +13,7 @@ use nexus_common::db::{exec_single_row, fetch_all_rows_from_graph};
 use nexus_common::{StackConfig, StackManager};
 use nexusd::trust::{read_scores, GdsNeo4j, TrustRankEngine, TrustRankParams};
 use std::collections::HashMap;
+use std::time::Duration;
 
 /// Creates four `:User` nodes and the follow chain `seed -> a -> b`, leaving
 /// `c` isolated (followed by no one, following no one).
@@ -91,9 +92,12 @@ async fn test_trust_recompute_assigns_scores_to_graph_nodes() -> Result<()> {
     // scalings run in one test: `gds.pageRank.write` writes `trust` on *every*
     // projected user, so splitting them into two tests would let concurrent runs
     // clobber each other's nodes (production serializes via the job lock).
+    // This test never asserts on the stale-projection sweep; a long age keeps it
+    // from touching any live projection so the value is otherwise irrelevant.
+    let sweep_age = Duration::from_secs(3600);
     let read_result = async {
         // L1Norm (production scaling): the shape a seeded ranking must have.
-        let stats = GdsNeo4j::default()
+        let stats = GdsNeo4j::new(true, sweep_age)
             .compute(&params)
             .await
             .map_err(|e| anyhow::anyhow!("{e}"))?;
@@ -111,7 +115,7 @@ async fn test_trust_recompute_assigns_scores_to_graph_nodes() -> Result<()> {
         let all_scores: HashMap<String, f64> = read_scores().await?.into_iter().collect();
 
         // Raw (L1Norm off): same run un-normalized, to observe the mass leak.
-        GdsNeo4j::new(false)
+        GdsNeo4j::new(false, sweep_age)
             .compute(&params)
             .await
             .map_err(|e| anyhow::anyhow!("{e}"))?;

@@ -3,6 +3,8 @@
 
 pub mod queries;
 
+use std::time::Duration;
+
 use async_trait::async_trait;
 use nexus_common::db::fetch_row_from_graph;
 use nexus_common::types::DynError;
@@ -26,19 +28,19 @@ pub struct GdsNeo4j {
     /// production; tests turn it off to observe the raw scores, which expose the
     /// mass a reachable dangling node leaks (that L1Norm otherwise rescales away).
     use_l1norm: bool,
-}
-
-impl Default for GdsNeo4j {
-    fn default() -> Self {
-        Self { use_l1norm: true }
-    }
+    /// GDS projections older than this are swept as crash leftovers.
+    stale_graph_age: Duration,
 }
 
 impl GdsNeo4j {
-    /// Engine with an explicit scaling choice. `GdsNeo4j::default()` gives the
-    /// production `L1Norm`; tests pass `false` to observe the raw scores.
-    pub fn new(use_l1norm: bool) -> Self {
-        Self { use_l1norm }
+    /// Engine with an explicit scaling choice (`use_l1norm`: `L1Norm` in
+    /// production, `false` in tests to observe raw scores) and the stale-graph
+    /// sweep age (see [`GdsNeo4j::stale_graph_age`]).
+    pub fn new(use_l1norm: bool, stale_graph_age: Duration) -> Self {
+        Self {
+            use_l1norm,
+            stale_graph_age,
+        }
     }
 }
 
@@ -87,7 +89,8 @@ impl TrustRankEngine for GdsNeo4j {
         // Sweep projections leaked by crashed runs (age-gated, can't race a live
         // run). Catalog calls use fetch_row_from_graph (PULL): GDS runs the side
         // effect only when the row is pulled.
-        if let Some(row) = fetch_row_from_graph(drop_stale_trust_graphs()).await? {
+        let stale_secs = self.stale_graph_age.as_secs() as i64;
+        if let Some(row) = fetch_row_from_graph(drop_stale_trust_graphs(stale_secs)).await? {
             let dropped: Vec<String> = row.get("dropped").unwrap_or_default();
             if !dropped.is_empty() {
                 warn!(

@@ -16,6 +16,7 @@ use tracing::error;
 
 pub use error::{CronParseError, JobError};
 use lock::RedisRunLock;
+pub use lock::LOCK_TTL_SECS;
 pub use scheduler::validate_cron;
 
 /// Resolves and validates a job's cron: `None` when unscheduled, else the

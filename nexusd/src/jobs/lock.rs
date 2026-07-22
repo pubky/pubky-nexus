@@ -17,7 +17,7 @@ pub(super) const MAX_RUN: Duration = Duration::from_secs(3600);
 const LEASE_MARGIN: Duration = Duration::from_secs(60);
 
 /// Lease TTL, sized from the deadline it has to outlast.
-const LOCK_TTL_SECS: u64 = MAX_RUN.as_secs() + LEASE_MARGIN.as_secs();
+pub const LOCK_TTL_SECS: u64 = MAX_RUN.as_secs() + LEASE_MARGIN.as_secs();
 
 /// Cross-process mutual exclusion for a job's runs (the scheduler already
 /// serializes within one process). Injected so the scheduler is testable

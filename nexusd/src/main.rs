@@ -17,14 +17,18 @@ use nexusd::DaemonLauncher;
 
 /// The registry of jobs available to the daemon, built from config. Config-free
 /// callers (e.g. `jobs list`) can pass `TrustRankConfig::default()`.
-fn job_registry(trust_rank: &TrustRankConfig) -> JobRegistry {
-    JobRegistry::new(vec![Arc::new(TrustRecomputeJob::from_config(trust_rank))])
+fn job_registry(trust_rank: &TrustRankConfig, lock_ttl_secs: u64) -> JobRegistry {
+    JobRegistry::new(vec![Arc::new(TrustRecomputeJob::build(
+        trust_rank,
+        lock_ttl_secs,
+    ))])
 }
 
 #[tokio::main]
 async fn main() -> Result<(), DynError> {
     let cli = Cli::parse();
     let command = Cli::receive_command(cli);
+    let lock_ttl_secs = nexusd::jobs::LOCK_TTL_SECS;
 
     match command {
         NexusCommands::Db(db_command) => match db_command {
@@ -68,20 +72,25 @@ async fn main() -> Result<(), DynError> {
                 let config = DaemonConfig::read_or_create_config_file(config_dir).await?;
                 // run_on_demand validates [jobs.*], so a typo'd section fails here
                 // just like `nexusd run`.
-                job_registry(&config.trust_rank)
+                job_registry(&config.trust_rank, lock_ttl_secs)
                     .run_on_demand(&name, &config)
                     .await?;
             }
             JobCommands::List => {
                 // Listing needs only job names, so a default config suffices.
-                for name in job_registry(&TrustRankConfig::default()).job_names() {
+                for name in job_registry(&TrustRankConfig::default(), lock_ttl_secs).job_names() {
                     println!("{name}");
                 }
             }
         },
         NexusCommands::Run { config_dir } => {
             let config = DaemonConfig::read_or_create_config_file(config_dir.clone()).await?;
-            DaemonLauncher::start(config_dir, &job_registry(&config.trust_rank), None).await?;
+            DaemonLauncher::start(
+                config_dir,
+                &job_registry(&config.trust_rank, lock_ttl_secs),
+                None,
+            )
+            .await?;
         }
     }
 

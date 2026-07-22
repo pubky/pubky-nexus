@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use nexus_common::types::DynError;
@@ -13,8 +14,8 @@ use crate::jobs::Job;
 /// The trust-rank recompute as a runnable [`Job`]: runs the seeded PageRank
 /// computation and, when a report dir is set, writes a CSV report of the run.
 /// Build from resolved inputs with [`TrustRecomputeJob::new`] or from config
-/// with [`TrustRecomputeJob::from_config`]; the job runner resolves its
-/// schedule from the `[jobs.trust-recompute]` cron.
+/// with [`TrustRecomputeJob::build`]; the job runner resolves its schedule from
+/// the `[jobs.trust-recompute]` cron.
 pub struct TrustRecomputeJob {
     params: TrustRankParams,
     engine: Box<dyn TrustRankEngine>,
@@ -36,12 +37,13 @@ impl TrustRecomputeJob {
         }
     }
 
-    /// Builds the job from its trust-rank config. The cron is resolved
-    /// separately from the `[jobs.trust-recompute]` section.
-    pub fn from_config(config: &TrustRankConfig) -> Self {
+    /// Builds the job from its trust-rank config and the run lease TTL.
+    pub fn build(config: &TrustRankConfig, lock_ttl_secs: u64) -> Self {
+        // Sweep age = 2× the lease TTL (which already includes LEASE_MARGIN), so
+        // it sits well past lease expiry and the sweep can never race a live run.
         Self::new(
             TrustRankParams::from(config),
-            Box::new(GdsNeo4j::default()),
+            Box::new(GdsNeo4j::new(true, Duration::from_secs(2 * lock_ttl_secs))),
             config.report_enabled.then(|| config.report_dir.clone()),
         )
     }

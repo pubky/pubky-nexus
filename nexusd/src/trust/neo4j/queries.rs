@@ -15,32 +15,24 @@ pub fn drop_trust_graph(graph_name: &str) -> Query {
     .param("graph_name", graph_name.to_string())
 }
 
-/// Age gate for the stale-projection sweep, in hours. Set to 2× the run
-/// deadline (`MAX_RUN`, 1h) so the sweep can never race a lock-holding run.
-const STALE_GRAPH_SWEEP_HOURS: i64 = 2;
-
 /// Reclaims GDS projections left by a run that died before dropping its own:
-/// prefix-matched entries older than [`STALE_GRAPH_SWEEP_HOURS`]. A run drops
-/// its projection on success and on error, so a leak means a hard crash
-/// (SIGKILL/OOM) or a shutdown-cancelled run.
+/// prefix-matched entries older than `stale_seconds`. A run drops its projection
+/// on success and on error, so a leak means a hard crash (SIGKILL/OOM) or a
+/// shutdown-cancelled run.
 ///
-/// Age proxies for "the owner is dead". The real invariant comes from the run
-/// lock: a run is abandoned at its deadline (`nexusd::jobs::lock::MAX_RUN`, 1h)
-/// and its lease expires shortly after, after which a second run may start. The
-/// sweep gate is 2× that deadline, comfortably past the lease, so a projection
-/// old enough to sweep cannot belong to a run still holding (or able to hold)
-/// the lock — the sweep never races a live computation. If `MAX_RUN` changes,
-/// revisit this margin.
-pub fn drop_stale_trust_graphs() -> Query {
+/// Age proxies for "the owner is dead". The caller sizes `stale_seconds` past a
+/// run's lease expiry so a projection old enough to sweep cannot belong to a run
+/// still holding (or able to hold) the lock.
+pub fn drop_stale_trust_graphs(stale_seconds: i64) -> Query {
     Query::new(
         "drop_stale_trust_graphs",
         "CALL gds.graph.list() YIELD graphName, creationTime
-         WHERE graphName STARTS WITH $prefix AND creationTime < datetime() - duration({hours: $stale_hours})
+         WHERE graphName STARTS WITH $prefix AND creationTime < datetime() - duration({seconds: $stale_seconds})
          CALL gds.graph.drop(graphName, false) YIELD graphName AS dropped
          RETURN collect(dropped) AS dropped",
     )
     .param("prefix", TRUST_GRAPH_PREFIX)
-    .param("stale_hours", STALE_GRAPH_SWEEP_HOURS)
+    .param("stale_seconds", stale_seconds)
 }
 
 /// Projects the follow graph (`User` nodes, `FOLLOWS` edges) into the GDS in-memory catalog.
