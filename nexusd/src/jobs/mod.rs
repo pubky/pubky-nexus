@@ -288,7 +288,10 @@ mod tests {
     async fn run_once_locked_reports_a_held_lock_as_already_running() {
         let lock: Arc<dyn lock::RunLock> = FakeLock::new(AcquireOutcome::Denied);
         let job = CountingJob::new("stub");
-        let err = run_once_locked(&job, &lock, &virtual_now()).await.err().unwrap();
+        let err = run_once_locked(&job, &lock, &virtual_now())
+            .await
+            .err()
+            .unwrap();
 
         assert!(
             matches!(err, JobError::AlreadyRunning { job } if job == "stub"),
@@ -302,7 +305,10 @@ mod tests {
         let lock: Arc<dyn lock::RunLock> = FakeLock::new(AcquireOutcome::Granted);
 
         // Paused time auto-advances while the run hangs, so the hour costs nothing.
-        let err = run_once_locked(&job, &lock, &virtual_now()).await.err().unwrap();
+        let err = run_once_locked(&job, &lock, &virtual_now())
+            .await
+            .err()
+            .unwrap();
 
         assert!(
             matches!(err, JobError::TimedOut { job, .. } if job == "blocking"),
@@ -319,7 +325,10 @@ mod tests {
     async fn run_once_locked_surfaces_lock_errors() {
         let job = CountingJob::new("counter");
         let lock: Arc<dyn lock::RunLock> = FakeLock::new(AcquireOutcome::Fails);
-        let err = run_once_locked(&job, &lock, &virtual_now()).await.err().unwrap();
+        let err = run_once_locked(&job, &lock, &virtual_now())
+            .await
+            .err()
+            .unwrap();
 
         assert!(
             matches!(err, JobError::Lock(_)),
