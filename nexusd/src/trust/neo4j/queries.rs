@@ -69,7 +69,9 @@ pub fn count_matching_seeds(seed_ids: &[String]) -> Query {
 /// GDS drops — never teleport-redistributes — the mass of reachable dangling
 /// nodes, so raw single-seed scores sum to < 1; `L1Norm` rescales that back to a
 /// distribution, hiding the leak. Write mode overwrites `trust` on every
-/// projected `:User` each run, so scores never go stale.
+/// projected `:User` each run; the projection is a snapshot, so users created
+/// after it carry no score until the next run picks them up (normal for a batch
+/// job).
 ///
 /// The `size(sourceNodes) > 0` guard makes the query produce no rows when no
 /// seed matches, so a raced seed deletion can never fall back to
