@@ -67,9 +67,7 @@ async fn test_compute_aborts_when_estimate_exceeds_cap() -> Result<()> {
 
     delete_users(&[&seed, &a, &b, &c]).await?;
 
-    let err = compute_result
-        .err()
-        .expect("compute should fail with a tiny cap");
+    let err = compute_result.expect_err("compute should fail with a tiny cap");
     let err_msg = format!("{err}");
     assert!(
         err_msg.contains("exceeds configured cap"),
