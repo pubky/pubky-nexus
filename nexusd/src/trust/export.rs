@@ -11,11 +11,9 @@ use super::neo4j::queries::{read_trust_scores, trust_report_user_details};
 // Per-process counter so two reports in the same second get distinct names.
 static REPORT_SEQ: AtomicU64 = AtomicU64::new(0);
 
-/// Reads the `trust` scores written by the last recompute, highest first.
-/// Used by the CSV report and callers needing scores back after a
-/// [`super::TrustRankEngine::compute`].
-pub async fn read_scores() -> ModelResult<Vec<(String, f64)>> {
-    let rows = fetch_all_rows_from_graph(read_trust_scores()).await?;
+/// Reads the top `limit` trust scores from the last recompute, highest first.
+pub async fn read_scores(limit: usize) -> ModelResult<Vec<(String, f64)>> {
+    let rows = fetch_all_rows_from_graph(read_trust_scores(limit)).await?;
     let mut scores = Vec::with_capacity(rows.len());
     for row in rows {
         let user_id: String = row.get("user_id")?;
@@ -25,7 +23,7 @@ pub async fn read_scores() -> ModelResult<Vec<(String, f64)>> {
     Ok(scores)
 }
 
-#[derive(Default, Clone)]
+#[derive(Default)]
 struct UserReportRow {
     name: String,
     following: i64,
@@ -47,7 +45,7 @@ struct UserReportRow {
 /// Columns: id, name, score, followers, following, friends, posts, replies,
 /// tagged, tags, unique_tags, bookmarks, collections. `scores` must be
 /// highest-first (as [`super::read_scores`] returns); rows preserve that order.
-pub async fn write_csv(path: &Path, scores: &[(String, f64)]) -> Result<(), DynError> {
+async fn write_csv(path: &Path, scores: &[(String, f64)]) -> Result<(), DynError> {
     let ids: Vec<String> = scores.iter().map(|(id, _)| id.clone()).collect();
 
     let rows = fetch_all_rows_from_graph(trust_report_user_details(&ids)).await?;
@@ -77,9 +75,11 @@ pub async fn write_csv(path: &Path, scores: &[(String, f64)]) -> Result<(), DynE
     let mut csv = String::from(
         "id,name,score,followers,following,friends,posts,replies,tagged,tags,unique_tags,bookmarks,collections\n",
     );
+    // Shared default for missing ids; avoids cloning per row.
+    let missing = UserReportRow::default();
     for (id, score) in scores {
         // Every requested id yields a row (OPTIONAL MATCH), but default missing.
-        let d = details.get(id).cloned().unwrap_or_default();
+        let d = details.get(id).unwrap_or(&missing);
 
         csv.push_str(&csv_field(id));
         csv.push(',');
@@ -112,7 +112,7 @@ pub async fn write_csv(path: &Path, scores: &[(String, f64)]) -> Result<(), DynE
 
 /// Writes a scheduled-run report into `dir` as `trust-report-<UTC timestamp>.csv`
 /// (columns per [`write_csv`]), creating `dir` if missing. Returns the path.
-pub async fn write_timestamped_csv(
+pub(super) async fn write_timestamped_csv(
     dir: &Path,
     scores: &[(String, f64)],
 ) -> Result<PathBuf, DynError> {

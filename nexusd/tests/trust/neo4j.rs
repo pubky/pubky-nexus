@@ -46,6 +46,30 @@ async fn delete_users(ids: &[&str]) -> Result<()> {
     Ok(())
 }
 
+/// Creates `n` scored users (`trust: 1.0..=n`) without GDS.
+async fn create_scored_users(prefix: &str, n: usize) -> Result<()> {
+    let query = Query::new(
+        "trusttest_create_scored_users",
+        "UNWIND range(1, $n) AS i
+         CREATE (:User {id: $prefix + toString(i), trust: toFloat(i)})",
+    )
+    .param("prefix", prefix.to_string())
+    .param("n", n as i64);
+    exec_single_row(query).await?;
+    Ok(())
+}
+
+/// Removes users by id prefix.
+async fn delete_users_by_prefix(prefix: &str) -> Result<()> {
+    let query = Query::new(
+        "trusttest_delete_by_prefix",
+        "MATCH (u:User) WHERE u.id STARTS WITH $prefix DETACH DELETE u",
+    )
+    .param("prefix", prefix.to_string());
+    exec_single_row(query).await?;
+    Ok(())
+}
+
 /// Reads a single user's `trust` property straight from the graph.
 async fn trust_of(id: &str) -> Result<Option<f64>> {
     let query = Query::new(
@@ -111,8 +135,8 @@ async fn test_trust_recompute_assigns_scores_to_graph_nodes() -> Result<()> {
         // An unreachable node scores exactly 0; GDS may write 0.0 or leave the
         // property unset — both mean "no trust".
         let c_score = trust_of(&c).await?.unwrap_or(0.0);
-        // The full read-back path (used by the CLI/report) must also surface these.
-        let all_scores: HashMap<String, f64> = read_scores().await?.into_iter().collect();
+        // Read-back path must surface all scores (limit > graph size).
+        let all_scores: HashMap<String, f64> = read_scores(1000).await?.into_iter().collect();
 
         // Raw (L1Norm off): same run un-normalized, to observe the mass leak.
         GdsNeo4j::new(false, sweep_age)
@@ -197,6 +221,44 @@ async fn test_trust_recompute_assigns_scores_to_graph_nodes() -> Result<()> {
     assert!(
         (raw_ratio - l1_ratio).abs() < 1e-6,
         "a/seed ratio should survive scaling: raw {raw_ratio} vs l1norm {l1_ratio}"
+    );
+
+    Ok(())
+}
+
+/// `read_scores(limit)` bounds results to `limit` rows, highest-first.
+#[tokio_shared_rt::test(shared)]
+async fn test_read_scores_respects_limit() -> Result<()> {
+    StackManager::setup(&StackConfig::default())
+        .await
+        .map_err(|e| anyhow::anyhow!("could not initialise the stack: {e:?}"))?;
+
+    let prefix = format!(
+        "trusttest-cap-{}-{}-",
+        std::process::id(),
+        chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
+    );
+
+    // More users than limit to force row trimming.
+    let limit = 5;
+    create_scored_users(&prefix, limit + 3).await?;
+
+    let read_result = read_scores(limit).await.map_err(|e| anyhow::anyhow!("{e}"));
+
+    delete_users_by_prefix(&prefix).await?;
+
+    let scores = read_result?;
+
+    // LIMIT trims to exactly `limit` rows.
+    assert_eq!(
+        scores.len(),
+        limit,
+        "read_scores must return exactly `limit` rows when more scored users exist"
+    );
+    // Rows remain highest-first.
+    assert!(
+        scores.windows(2).all(|w| w[0].1 >= w[1].1),
+        "capped scores must remain sorted highest-first, got {scores:?}"
     );
 
     Ok(())

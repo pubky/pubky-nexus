@@ -77,7 +77,7 @@ mod tests {
     use crate::{
         config::watcher::DEFAULT_MODERATION_ID, default_trust_report_dir,
         file::validate_and_expand_path, DaemonConfig, Level, DEFAULT_TRUST_ALPHA,
-        DEFAULT_TRUST_MAX_ITERATIONS, DEFAULT_TRUST_TOLERANCE,
+        DEFAULT_TRUST_MAX_ITERATIONS, DEFAULT_TRUST_REPORT_LIMIT, DEFAULT_TRUST_TOLERANCE,
     };
 
     #[tokio_shared_rt::test(shared)]
@@ -141,6 +141,7 @@ mod tests {
         assert_eq!(c.trust_rank.tolerance, DEFAULT_TRUST_TOLERANCE);
         assert!(!c.trust_rank.report_enabled);
         assert_eq!(c.trust_rank.report_dir, default_trust_report_dir());
+        assert_eq!(c.trust_rank.report_limit, DEFAULT_TRUST_REPORT_LIMIT);
     }
 
     /// A `[jobs.<name>]` section parses into a keyed [`JobConfig`], with its cron
@@ -274,6 +275,16 @@ mod tests {
         assert!(
             DaemonConfig::try_from_str(&toml).is_err(),
             "max_iterations = 0 should be rejected"
+        );
+    }
+
+    /// `report_limit` must be ≥ 1; zero fails parsing.
+    #[test]
+    fn test_trust_report_limit_rejects_zero() {
+        let toml = DEFAULT_CONFIG_TOML.replace("report_limit = 10000", "report_limit = 0");
+        assert!(
+            DaemonConfig::try_from_str(&toml).is_err(),
+            "report_limit = 0 should be rejected"
         );
     }
 

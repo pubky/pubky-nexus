@@ -108,15 +108,16 @@ pub fn trust_rank_pagerank_write(
     .param("scaler", scaler.to_string())
 }
 
-/// Reads back the `trust` scores written by [`trust_rank_pagerank_write`],
-/// highest first. Off any hot path, so a full scan of scored users is fine.
-pub fn read_trust_scores() -> Query {
+/// Reads the top `limit` trust scores, highest first. `LIMIT` prevents scanning the entire user base.
+pub fn read_trust_scores(limit: usize) -> Query {
     Query::new(
         "read_trust_scores",
         "MATCH (u:User) WHERE u.trust IS NOT NULL
          RETURN u.id AS user_id, u.trust AS score
-         ORDER BY score DESC",
+         ORDER BY score DESC
+         LIMIT $limit",
     )
+    .param("limit", limit as i64)
 }
 
 /// Batched name + counts for a list of user ids, read straight from the graph

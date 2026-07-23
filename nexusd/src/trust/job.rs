@@ -20,20 +20,23 @@ pub struct TrustRecomputeJob {
     params: TrustRankParams,
     engine: Box<dyn TrustRankEngine>,
     report_dir: Option<PathBuf>,
+    report_limit: usize,
 }
 
 impl TrustRecomputeJob {
-    /// Builds the job from already-resolved inputs. `report_dir` is `Some` to
-    /// write a CSV report after each run, `None` to skip reporting.
+    /// Builds the job from inputs. `report_dir` is `Some` to write a CSV, `None` to skip;
+    /// `report_limit` caps rows in the report.
     pub fn new(
         params: TrustRankParams,
         engine: Box<dyn TrustRankEngine>,
         report_dir: Option<PathBuf>,
+        report_limit: usize,
     ) -> Self {
         Self {
             params,
             engine,
             report_dir,
+            report_limit,
         }
     }
 
@@ -45,6 +48,7 @@ impl TrustRecomputeJob {
             TrustRankParams::from(config),
             Box::new(GdsNeo4j::new(true, Duration::from_secs(2 * lock_ttl_secs))),
             config.report_enabled.then(|| config.report_dir.clone()),
+            config.report_limit,
         )
     }
 }
@@ -60,7 +64,7 @@ impl Job for TrustRecomputeJob {
 
         // Report failures are logged, not fatal: scores are already persisted.
         if let Some(dir) = &self.report_dir {
-            match read_scores().await {
+            match read_scores(self.report_limit).await {
                 Ok(scores) => match write_timestamped_csv(dir, &scores).await {
                     Ok(path) => info!(path = %path.display(), "Trust rank report written"),
                     Err(e) => error!("Failed to write trust rank report: {e:?}"),
@@ -119,7 +123,7 @@ mod tests {
             calls: Arc::clone(&calls),
             fail: false,
         };
-        let job = TrustRecomputeJob::new(params(), Box::new(engine), None);
+        let job = TrustRecomputeJob::new(params(), Box::new(engine), None, 10);
 
         job.run().await.expect("run should succeed");
 
@@ -139,6 +143,7 @@ mod tests {
             params(),
             Box::new(engine),
             Some(PathBuf::from("/does-not-matter")),
+            10,
         );
 
         let err = job.run().await.expect_err("run should fail");

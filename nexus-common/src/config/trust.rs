@@ -12,6 +12,8 @@ pub const DEFAULT_TRUST_ALPHA: f64 = 0.35;
 pub const DEFAULT_TRUST_MAX_ITERATIONS: u32 = 200;
 /// Default convergence tolerance: run close to full convergence rather than early-stop.
 pub const DEFAULT_TRUST_TOLERANCE: f64 = 0.0000001;
+/// Default max rows in a recompute CSV report.
+pub const DEFAULT_TRUST_REPORT_LIMIT: usize = 10_000;
 
 /// Dedupes the seed list, keeping first-occurrence order: duplicate ids would
 /// otherwise inflate `sourceNodes` and skew the configured-vs-matched seed check.
@@ -40,6 +42,14 @@ fn deserialize_max_iterations<'de, D: Deserializer<'de>>(d: D) -> Result<u32, D:
         return Err(D::Error::custom("trust.max_iterations must be at least 1"));
     }
     Ok(max_iterations)
+}
+
+fn deserialize_report_limit<'de, D: Deserializer<'de>>(d: D) -> Result<usize, D::Error> {
+    let report_limit = usize::deserialize(d)?;
+    if report_limit == 0 {
+        return Err(D::Error::custom("trust.report_limit must be at least 1"));
+    }
+    Ok(report_limit)
 }
 
 fn deserialize_tolerance<'de, D: Deserializer<'de>>(d: D) -> Result<f64, D::Error> {
@@ -96,6 +106,9 @@ pub struct TrustRankConfig {
     /// Files are named `trust-report-<UTC timestamp>.csv`.
     #[serde(deserialize_with = "deserialize_report_dir")]
     pub report_dir: PathBuf,
+    /// Max rows in a recompute report (top users by score). Must be ≥ 1.
+    #[serde(deserialize_with = "deserialize_report_limit")]
+    pub report_limit: usize,
 }
 
 impl Default for TrustRankConfig {
@@ -107,6 +120,7 @@ impl Default for TrustRankConfig {
             tolerance: DEFAULT_TRUST_TOLERANCE,
             report_enabled: false,
             report_dir: default_trust_report_dir(),
+            report_limit: DEFAULT_TRUST_REPORT_LIMIT,
         }
     }
 }

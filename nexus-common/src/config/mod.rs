@@ -32,7 +32,7 @@ pub use net::NetConfig;
 pub use stack::{default_stack, OtlpConfig, StackConfig};
 pub use trust::{
     default_trust_report_dir, TrustRankConfig, DEFAULT_TRUST_ALPHA, DEFAULT_TRUST_MAX_ITERATIONS,
-    DEFAULT_TRUST_TOLERANCE,
+    DEFAULT_TRUST_REPORT_LIMIT, DEFAULT_TRUST_TOLERANCE,
 };
 pub use watcher::{
     EventRetryConfig, WatcherConfig, DEFAULT_HS_RESOLVER_TTL, DEFAULT_INITIAL_BACKOFF_SECS,
