@@ -136,6 +136,13 @@ impl TrustRankEngine for GdsNeo4j {
         };
         let _ = estimate_ok;
 
+        // GDS work below runs server-side. A run abandoned at the job's MAX_RUN
+        // drops this future but can't cancel the in-flight projection/pageRank:
+        // it keeps grinding and its projection stays resident, so the next tick
+        // can project a second graph on top (double memory). We can't bound it
+        // per-query yet — neo4rs 0.8 exposes no RUN tx_timeout metadata (needs
+        // 0.9's Query::extra, currently only an RC). The age-gated stale sweep
+        // above is the backstop until then.
         let projected = fetch_row_from_graph(project_trust_graph(&graph_name)).await?;
         if let Some(row) = &projected {
             let node_count: i64 = row.get("nodeCount").unwrap_or_default();
