@@ -122,3 +122,34 @@ slow_query_logging_threshold_ms = 100
 #[jobs.example]
 #cron = "0 0 3 * * *"    # daily at 03:00 UTC
 #cron = "0 0 4 * * MON"  # Mondays at 04:00 UTC
+
+# Scheduling for the trust-rank recompute job. Set a cron for automatic
+# recomputes; omit it to leave the job on-demand only (`nexusd jobs run
+# trust-recompute` always works).
+[jobs.trust-recompute]
+# Example: daily at 03:00:
+#cron = "0 0 3 * * *"
+
+# Trust-rank parameters (what the recompute does; when it runs is set under
+# [jobs.trust-recompute] above).
+[trust_rank]
+# Seeds for the personalized PageRank over the follow graph, each weighted
+# equally (v = 1/N). Empty by default: the job refuses to run until set.
+# Duplicate ids are silently deduplicated, keeping first-occurrence order. Example:
+# seed = ["8um71us3fyw6h8wbcxb5ar3rwusy1a6u49956ikzojg3gcwd1dty"]
+seed = []
+# Teleport weight `alpha` in `trust = alpha*v + (1-alpha)*M*trust` (GDS dampingFactor = 1-alpha)
+alpha = 0.35
+# Cap on power-iteration rounds
+max_iterations = 200
+# Convergence tolerance; kept low to run to convergence rather than early-stop
+tolerance = 0.0000001
+# When true, each recompute also writes a CSV report of the run to report_dir
+report_enabled = false
+# Directory recompute reports are written to, created if missing.
+# Files are named trust-report-<UTC timestamp>.csv
+report_dir = "~/.pubky-nexus/trust-reports"
+# Max rows in a report (top users by score).
+report_limit = 10000
+# Hard cap on GDS projection size (bytes). Prevents projection larger than Neo4j heap.
+# max_projection_bytes = 2147483648

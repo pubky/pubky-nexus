@@ -2,7 +2,11 @@ name: pubky-nexus
 
 services:
   neo4j:
-    image: neo4j:5.26.27-community
+    # Locally-built neo4j with the GDS plugin baked in (see neo4j/Dockerfile);
+    # `docker compose up` builds it on first use, CI pre-builds it with a
+    # GitHub Actions layer cache.
+    build: ./neo4j
+    image: pubky-nexus/neo4j:5.26.27-gds2.13.10
     container_name: neo4j
     restart: unless-stopped
     ports:
@@ -22,7 +26,8 @@ services:
       NEO4J_AUTH: ${NEO4J_DB_USERNAME}/${NEO4J_PASSWORD}
       # https://neo4j.com/docs/operations-manual/current/docker/configuration/
       # Modify the default configuration
-      # Raise memory limits
+      # Raise memory limits.
+      # GDS projection lives in heap.
       NEO4J_server_memory_pagecache_size: 1G
       NEO4J_server_memory_heap_initial__size: 2G
       NEO4J_server_memory_heap_max__size: 2G
@@ -33,7 +38,11 @@ services:
       # https://neo4j.com/docs/operations-manual/current/configuration/configuration-settings/#config_client.allow_telemetry
       NEO4J_client_allow__telemetry: false
       # NEO4J_apoc_uuid_enabled: false
-
+      # Graph Data Science plugin (free on Community Edition), used to compute
+      # seeded PageRank trust scores over the follow graph.
+      NEO4J_PLUGINS: '["graph-data-science"]'
+      NEO4J_dbms_security_procedures_unrestricted: gds.*
+      NEO4J_dbms_security_procedures_allowlist: gds.graph.project,gds.graph.project.estimate,gds.graph.drop,gds.graph.list,gds.pageRank.write
   redis:
     image: redis:8.0.6-alpine
     container_name: redis
@@ -44,7 +53,6 @@ services:
     volumes:
       - .database/redis/data:/data:Z
     restart: always
-
   redisinsight:
     image: redis/redisinsight:3.0.3
     container_name: redisinsight
@@ -58,7 +66,6 @@ services:
     depends_on:
       - redis
     restart: always
-
   # Only used for tests that involve homeservers (requires --profile tests)
   postgres:
     profiles: ["tests"]

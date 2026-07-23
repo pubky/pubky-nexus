@@ -563,35 +563,75 @@ pub fn get_viewer_trusted_network_post_tags(
         .param("limit_taggers", limit_taggers as i64)
 }
 
+/// Per-user count fields, as `(alias, COUNT {} subquery)` pairs bound to the
+/// node variable `u`. Single source of truth shared by [`user_counts`] (map
+/// form) and the trust report (column form), so their filters — especially the
+/// collection/bookmark rules — can't drift between the two queries.
+const USER_COUNT_FIELDS: &[(&str, &str)] = &[
+    ("following", "COUNT { (u)-[:FOLLOWS]->(:User) }"),
+    ("followers", "COUNT { (:User)-[:FOLLOWS]->(u) }"),
+    (
+        "friends",
+        "COUNT { (u)-[:FOLLOWS]->(friend:User) WHERE (friend)-[:FOLLOWS]->(u) }",
+    ),
+    ("posts", "COUNT { (u)-[:AUTHORED]->(:Post) }"),
+    (
+        "replies",
+        "COUNT { (u)-[:AUTHORED]->(:Post)-[:REPLIED]->(:Post) }",
+    ),
+    (
+        "collections",
+        "COUNT { (u)-[:AUTHORED]->(p:Post) WHERE p.kind = 'collection' }",
+    ),
+    // A collection-follow is stored as a bookmark; keep it out of the count.
+    (
+        "bookmarks",
+        "COUNT { (u)-[:BOOKMARKED]->(bp:Post) WHERE (bp.kind IS NULL OR bp.kind <> 'collection') }",
+    ),
+    // tagged = tags this user assigned to users + to posts
+    (
+        "tagged",
+        "COUNT { (u)-[:TAGGED]->(:User) } + COUNT { (u)-[:TAGGED]->(:Post) }",
+    ),
+    ("tags", "COUNT { (:User)-[:TAGGED]->(u) }"),
+    (
+        "unique_tags",
+        "COUNT { MATCH (u)<-[t:TAGGED]-(:User) RETURN DISTINCT t.label }",
+    ),
+];
+
+/// Renders [`USER_COUNT_FIELDS`] as `field: COUNT {…}, …` for a Cypher map literal.
+fn user_count_fields_map() -> String {
+    USER_COUNT_FIELDS
+        .iter()
+        .map(|(name, expr)| format!("{name}: {expr}"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// Renders [`USER_COUNT_FIELDS`] as `COUNT {…} AS field, …` for a flat RETURN.
+pub fn user_count_fields_columns() -> String {
+    USER_COUNT_FIELDS
+        .iter()
+        .map(|(name, expr)| format!("{expr} AS {name}"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 pub fn user_counts(user_id: &str) -> Query {
-    Query::new(
-        "user_counts",
-        "
-        MATCH (u:User {id: $user_id})
-        // Each field is an independent COUNT { } subquery off the single (u) row.
-        // Do NOT precede this with a row-multiplying OPTIONAL MATCH (e.g. over
-        // received tags): that makes every subquery a per-row grouping key, so the
-        // whole block runs once per received tag, i.e. O(received_tags x authored_posts)
-        // and hangs on heavy users. See issue #935.
-        RETURN
-            u IS NOT NULL AS exists,
-            {
-                following: COUNT { (u)-[:FOLLOWS]->(:User) },
-                followers: COUNT { (:User)-[:FOLLOWS]->(u) },
-                friends: COUNT { (u)-[:FOLLOWS]->(friend:User) WHERE (friend)-[:FOLLOWS]->(u) },
-                posts: COUNT { (u)-[:AUTHORED]->(:Post) },
-                replies: COUNT { (u)-[:AUTHORED]->(:Post)-[:REPLIED]->(:Post) },
-                collections: COUNT { (u)-[:AUTHORED]->(p:Post) WHERE p.kind = 'collection' },
-                // A collection-follow is stored as a bookmark; keep it out of the count.
-                bookmarks: COUNT { (u)-[:BOOKMARKED]->(bp:Post) WHERE (bp.kind IS NULL OR bp.kind <> 'collection') },
-                // tagged = tags this user assigned to users + to posts
-                tagged: COUNT { (u)-[:TAGGED]->(:User) } + COUNT { (u)-[:TAGGED]->(:Post) },
-                tags: COUNT { (:User)-[:TAGGED]->(u) },
-                unique_tags: COUNT { MATCH (u)<-[t:TAGGED]-(:User) RETURN DISTINCT t.label }
-            } AS counts;
-        ",
-    )
-    .param("user_id", user_id)
+    // Each field is an independent COUNT { } subquery off the single (u) row.
+    // Do NOT precede this with a row-multiplying OPTIONAL MATCH (e.g. over
+    // received tags): that makes every subquery a per-row grouping key, so the
+    // whole block runs once per received tag, i.e. O(received_tags x authored_posts)
+    // and hangs on heavy users. See issue #935.
+    let cypher = format!(
+        "MATCH (u:User {{id: $user_id}})
+         RETURN
+             u IS NOT NULL AS exists,
+             {{ {fields} }} AS counts;",
+        fields = user_count_fields_map()
+    );
+    Query::new("user_counts", cypher).param("user_id", user_id)
 }
 
 pub fn get_user_followers(user_id: &str, skip: Option<usize>, limit: Option<usize>) -> Query {
