@@ -12,8 +12,8 @@ use tracing::{info, warn};
 
 use super::engine::{TrustRankEngine, TrustRankParams, TrustRankStats};
 use queries::{
-    count_matching_seeds, drop_stale_trust_graphs, drop_trust_graph, project_trust_graph,
-    trust_rank_pagerank_write, TRUST_GRAPH_PREFIX,
+    count_matching_seeds, drop_stale_trust_graphs, drop_trust_graph, estimate_trust_graph,
+    project_trust_graph, trust_rank_pagerank_write, TRUST_GRAPH_PREFIX,
 };
 
 /// Computes trust rank via the Neo4j GDS `pageRank` procedure in write mode,
@@ -99,6 +99,42 @@ impl TrustRankEngine for GdsNeo4j {
                 );
             }
         }
+
+        // Estimate projection size (dry-run, allocates nothing). When no cap is
+        // configured the estimate is a log-only breadcrumb — failures (e.g. the
+        // procedure missing from the allowlist) warn and continue. When a cap is
+        // set the estimate is load-bearing and errors propagate.
+        let estimate_ok = match fetch_row_from_graph(estimate_trust_graph()).await {
+            Ok(row) => {
+                if let Some(row) = &row {
+                    let required_memory: String = row.get("requiredMemory").unwrap_or_default();
+                    let bytes_max: u64 = row.get("bytesMax").unwrap_or_default();
+                    let est_nodes: i64 = row.get("nodeCount").unwrap_or_default();
+                    let est_rels: i64 = row.get("relationshipCount").unwrap_or_default();
+                    info!(
+                        required_memory = %required_memory,
+                        bytes_max, estimate_nodes = est_nodes, estimate_rels = est_rels,
+                        "GDS projection estimate"
+                    );
+                    if let Some(cap) = params.max_projection_bytes {
+                        if bytes_max > cap {
+                            return Err(format!(
+                                "GDS projection estimate ({bytes_max} bytes / {required_memory}) exceeds configured cap ({cap} bytes); increase NEO4J_server_memory_heap_max__size or raise trust_rank.max_projection_bytes"
+                            ).into());
+                        }
+                    }
+                }
+                true
+            }
+            Err(e) => {
+                if params.max_projection_bytes.is_some() {
+                    return Err(e.into());
+                }
+                warn!("GDS projection estimate failed (continuing without cap check): {e:?}");
+                false
+            }
+        };
+        let _ = estimate_ok;
 
         let projected = fetch_row_from_graph(project_trust_graph(&graph_name)).await?;
         if let Some(row) = &projected {

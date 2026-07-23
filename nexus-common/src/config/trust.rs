@@ -109,6 +109,8 @@ pub struct TrustRankConfig {
     /// Max rows in a recompute report (top users by score). Must be ≥ 1.
     #[serde(deserialize_with = "deserialize_report_limit")]
     pub report_limit: usize,
+    /// Hard cap on the GDS projection size (bytes). Default: None (no cap).
+    pub max_projection_bytes: Option<u64>,
 }
 
 impl Default for TrustRankConfig {
@@ -121,6 +123,7 @@ impl Default for TrustRankConfig {
             report_enabled: false,
             report_dir: default_trust_report_dir(),
             report_limit: DEFAULT_TRUST_REPORT_LIMIT,
+            max_projection_bytes: None,
         }
     }
 }

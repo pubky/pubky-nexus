@@ -151,3 +151,5 @@ report_enabled = false
 report_dir = "~/.pubky-nexus/trust-reports"
 # Max rows in a report (top users by score).
 report_limit = 10000
+# Hard cap on GDS projection size (bytes). Prevents projection larger than Neo4j heap.
+# max_projection_bytes = 2147483648

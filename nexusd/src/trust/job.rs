@@ -112,6 +112,7 @@ mod tests {
             alpha: 0.85,
             max_iterations: 20,
             tolerance: 1e-6,
+            max_projection_bytes: None,
         }
     }
 

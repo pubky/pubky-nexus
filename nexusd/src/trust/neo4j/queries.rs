@@ -46,6 +46,17 @@ pub fn project_trust_graph(graph_name: &str) -> Query {
     .param("graph_name", graph_name.to_string())
 }
 
+/// Dry-run estimate for the User+FOLLOWS GDS projection (allocates nothing).
+/// Returns `requiredMemory`, `bytesMax`, `nodeCount`, and `relationshipCount`.
+pub fn estimate_trust_graph() -> Query {
+    Query::new(
+        "estimate_trust_graph",
+        "CALL gds.graph.project.estimate('User', 'FOLLOWS')
+         YIELD requiredMemory, bytesMax, nodeCount, relationshipCount
+         RETURN requiredMemory, bytesMax, nodeCount, relationshipCount",
+    )
+}
+
 /// Counts how many of the configured seed ids exist as `:User` nodes.
 ///
 /// Run before the PageRank query: if zero seeds match, GDS gets an empty

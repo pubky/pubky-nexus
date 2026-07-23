@@ -15,6 +15,8 @@ pub struct TrustRankParams {
     pub max_iterations: u32,
     /// Convergence tolerance.
     pub tolerance: f64,
+    /// Optional hard cap on the GDS projection size (bytes).
+    pub max_projection_bytes: Option<u64>,
 }
 
 impl From<&TrustRankConfig> for TrustRankParams {
@@ -24,6 +26,7 @@ impl From<&TrustRankConfig> for TrustRankParams {
             alpha: config.alpha,
             max_iterations: config.max_iterations,
             tolerance: config.tolerance,
+            max_projection_bytes: config.max_projection_bytes,
         }
     }
 }

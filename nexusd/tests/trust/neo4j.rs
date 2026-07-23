@@ -35,6 +35,54 @@ async fn create_follow_graph(seed: &str, a: &str, b: &str, c: &str) -> Result<()
     Ok(())
 }
 
+/// `max_projection_bytes` cap aborts compute when the estimate exceeds the limit.
+#[tokio_shared_rt::test(shared)]
+async fn test_compute_aborts_when_estimate_exceeds_cap() -> Result<()> {
+    StackManager::setup(&StackConfig::default())
+        .await
+        .map_err(|e| anyhow::anyhow!("could not initialise the stack: {e:?}"))?;
+
+    let tag = format!(
+        "{}-{}",
+        std::process::id(),
+        chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
+    );
+    let seed = format!("cap-{tag}-seed");
+    let a = format!("cap-{tag}-a");
+    let b = format!("cap-{tag}-b");
+    let c = format!("cap-{tag}-c");
+
+    create_follow_graph(&seed, &a, &b, &c).await?;
+
+    let params = TrustRankParams {
+        seed_ids: vec![seed.clone()],
+        alpha: 0.35,
+        max_iterations: 200,
+        tolerance: 1e-7,
+        max_projection_bytes: Some(1), // Deliberately tiny cap
+    };
+
+    let sweep_age = Duration::from_secs(3600);
+    let compute_result = GdsNeo4j::new(true, sweep_age).compute(&params).await;
+
+    delete_users(&[&seed, &a, &b, &c]).await?;
+
+    let err = compute_result
+        .err()
+        .expect("compute should fail with a tiny cap");
+    let err_msg = format!("{err}");
+    assert!(
+        err_msg.contains("exceeds configured cap"),
+        "error should mention cap violation, got: {err_msg}"
+    );
+    assert!(
+        err_msg.contains("cap (1 bytes)"),
+        "error should name the cap value, got: {err_msg}"
+    );
+
+    Ok(())
+}
+
 /// Removes the test nodes (and their edges) so the shared graph is left clean.
 async fn delete_users(ids: &[&str]) -> Result<()> {
     let query = Query::new(
@@ -109,6 +157,7 @@ async fn test_trust_recompute_assigns_scores_to_graph_nodes() -> Result<()> {
         alpha: 0.35,
         max_iterations: 200,
         tolerance: 1e-7,
+        max_projection_bytes: None,
     };
 
     // Read every score written onto the nodes before tearing them down, so the
