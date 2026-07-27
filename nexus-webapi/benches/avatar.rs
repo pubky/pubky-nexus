@@ -8,6 +8,7 @@ use axum::{
 };
 use criterion::{criterion_group, criterion_main, Criterion};
 use http_body_util::BodyExt;
+use nexus_common::models::user::UserIngestor;
 use nexus_common::models::{
     file::{FileDetails, FileUrls},
     traits::Collection,
@@ -55,6 +56,7 @@ impl AvatarBenchSetup {
             _temp_dir: temp_dir,
             app_state: AppState {
                 files_path: Arc::new(files_path),
+                ingestor: Arc::new(UserIngestor::new(vec![])),
             },
             user_id,
         };
