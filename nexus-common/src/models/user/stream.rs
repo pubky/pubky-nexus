@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use super::{Influencers, UserCounts, UserDetails, UserSearch, UserView, USER_DELETED_SENTINEL};
+use super::{Influencers, UserCounts, UserDetails, UserSearch, UserView};
 
 use crate::db::kv::{sets, RedisError, RedisResult, SortOrder};
 use crate::db::{fetch_all_rows_from_graph, queries, RedisOps};
@@ -155,7 +155,7 @@ impl UserStream {
 
             for (id, details) in cached_ids.into_iter().zip(details_list) {
                 match details {
-                    Some(ref d) if d.name != USER_DELETED_SENTINEL => filtered_ids.push(id),
+                    Some(ref d) if !d.deleted => filtered_ids.push(id),
                     _ => deleted_ids.push(id),
                 }
             }
@@ -177,13 +177,9 @@ impl UserStream {
         let mut user_ids = Vec::new();
 
         for row in rows {
-            let maybe_rec_user_id = row.get::<Option<String>>("recommended_user_id")?;
-            let maybe_rec_user_name = row.get::<Option<String>>("recommended_user_name")?;
-
-            if let (Some(user_id), Some(user_name)) = (maybe_rec_user_id, maybe_rec_user_name) {
-                if user_name != USER_DELETED_SENTINEL {
-                    user_ids.push(user_id);
-                }
+            // Deleted users are filtered in Cypher; only the user ID is projected.
+            if let Some(uid) = row.get::<Option<String>>("recommended_user_id")? {
+                user_ids.push(uid);
             }
         }
 
@@ -266,7 +262,7 @@ impl UserStream {
 
         for ((id, _score), details) in set.into_iter().zip(details_list) {
             match details {
-                Some(ref d) if d.name != USER_DELETED_SENTINEL => filtered_ids.push(id),
+                Some(ref d) if !d.deleted => filtered_ids.push(id),
                 _ => deleted_ids.push(id),
             }
         }

@@ -1,9 +1,10 @@
-use super::{UserDetails, USER_DELETED_SENTINEL};
+use super::UserDetails;
 use crate::db::kv::RedisResult;
 use crate::db::RedisOps;
 use crate::models::create_zero_score_tuples;
 use crate::models::traits::Collection;
 use serde::{Deserialize, Serialize};
+use tracing::warn;
 use utoipa::ToSchema;
 
 pub const USER_NAME_KEY_PARTS: [&str; 2] = ["Users", "Name"];
@@ -85,7 +86,8 @@ impl UserSearch {
     ///
     /// This method takes a list of `UserDetails` and adds them all to the sorted set at once.
     pub async fn put_to_index(details_list: &[&UserDetails]) -> RedisResult<()> {
-        // ensure existing records are deleted
+        // put_to_graph already wrote the NEW name; only the cache knows the stale member.
+        // Unresolved ids are ignored: a first-time index has no prior name to remove.
         Self::delete_existing_records(
             details_list
                 .iter()
@@ -99,10 +101,9 @@ impl UserSearch {
         let mut pairs: Vec<String> = Vec::with_capacity(details_list.len());
         let mut ids: Vec<String> = Vec::with_capacity(details_list.len());
 
-        for details in details_list
-            .iter()
-            .filter(|d| d.name != USER_DELETED_SENTINEL)
-        {
+        // Tombstoned users are removed from the index by `delete`; never re-add them
+        // here, or the next cache-miss read would resurrect the entry.
+        for details in details_list.iter().filter(|d| !d.deleted) {
             // Convert the username to lowercase before storing
             let username = details.name.to_lowercase();
             let user_id = &details.id;
@@ -118,28 +119,36 @@ impl UserSearch {
     }
 
     pub async fn delete(user_id: &str) -> RedisResult<()> {
-        Self::delete_existing_records(&[user_id]).await
+        for id in Self::delete_existing_records(&[user_id]).await? {
+            warn!(user_id = %id, "no cached name at delete; Users:Name member may leak if the user was still indexed")
+        }
+        Ok(())
     }
 
-    async fn delete_existing_records(user_ids: &[&str]) -> RedisResult<()> {
+    /// Removes the cached index members for `user_ids`, returning the ids whose
+    /// name could not be resolved from the JSON cache.
+    async fn delete_existing_records(user_ids: &[&str]) -> RedisResult<Vec<String>> {
         if user_ids.is_empty() {
-            return Ok(());
+            return Ok(Vec::new());
         }
-        let mut records_to_delete: Vec<String> = Vec::with_capacity(user_ids.len());
+        // Resolve names from Redis JSON cache.
         let keys: Vec<Vec<&str>> = user_ids.iter().map(|&id| vec![id]).collect();
-        let users = UserDetails::get_from_index(keys.iter().map(|item| item.as_slice()).collect())
-            .await?
-            .into_iter()
-            .flatten()
-            .collect::<Vec<UserDetails>>();
-        for user_id in user_ids {
-            let existing_username = users
-                .iter()
-                .find(|user| user.id.to_string() == *user_id)
-                .map(|user| user.name.to_lowercase());
-            if let Some(existing_record) = existing_username {
-                let search_key = format!("{existing_record}:{user_id}");
-                records_to_delete.push(search_key);
+        let cached_users =
+            UserDetails::get_from_index(keys.iter().map(|item| item.as_slice()).collect())
+                .await?
+                .into_iter()
+                .flatten()
+                .collect::<Vec<UserDetails>>();
+
+        let mut records_to_delete: Vec<String> = Vec::with_capacity(user_ids.len());
+        let mut unresolved: Vec<String> = Vec::new();
+        for id in user_ids {
+            match cached_users.iter().find(|u| u.id.to_string() == *id) {
+                Some(user) => {
+                    let name = user.name.to_lowercase();
+                    records_to_delete.push(format!("{name}:{id}"));
+                }
+                None => unresolved.push((*id).to_string()),
             }
         }
 
@@ -152,6 +161,8 @@ impl UserSearch {
                 .collect::<Vec<&str>>(),
         )
         .await?;
-        Self::remove_from_index_sorted_set(None, &USER_ID_KEY_PARTS, user_ids).await
+        Self::remove_from_index_sorted_set(None, &USER_ID_KEY_PARTS, user_ids).await?;
+
+        Ok(unresolved)
     }
 }

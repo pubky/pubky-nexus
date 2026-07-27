@@ -6,7 +6,7 @@ use nexus_common::db::{
 };
 use nexus_common::models::{
     traits::Collection,
-    user::{UserCounts, UserDetails, UserSearch, USER_DELETED_SENTINEL},
+    user::{UserCounts, UserDetails, UserSearch},
 };
 use pubky_app_specs::{PubkyAppUser, PubkyId};
 use tracing::debug;
@@ -56,10 +56,9 @@ pub async fn del(user_id: PubkyId) -> Result<(), EventProcessorError> {
     // 1. Graph query to check if there is any edge at all to this user.
     let query = user_is_safe_to_delete(&user_id);
 
-    // 2. If there is no relationships (OperationOutcome::CreatedOrDeleted), delete from graph and redis.
-    // 3. But if there is any relationship (OperationOutcome::Updated), then we simply update the user with empty profile
-    // and keyword username [DELETED].
-    // A deleted user is a user whose profile is empty and has username `"[DELETED]"`
+    // 2. If there are no relationships (OperationOutcome::CreatedOrDeleted), delete from graph and redis.
+    // 3. If there are relationships (OperationOutcome::Updated), overwrite the node with a cleared
+    // profile carrying `deleted = true`. The node survives so its edges stay intact.
     match execute_graph_operation(query).await? {
         OperationOutcome::CreatedOrDeleted => {
             // 1. UserSearch reads UserDetails — must run before UserDetails Redis is removed
@@ -81,15 +80,20 @@ pub async fn del(user_id: PubkyId) -> Result<(), EventProcessorError> {
             exec_single_row(queries::del::delete_user(&user_id)).await?;
         }
         OperationOutcome::Updated => {
-            let deleted_user = PubkyAppUser {
-                name: USER_DELETED_SENTINEL.to_string(),
-                bio: None,
-                status: None,
-                links: None,
-                image: None,
-            };
+            // 1. UserSearch resolves the indexed name from UserDetails — must run
+            // before the profile is wiped, or the stale entry cannot be removed.
+            UserSearch::delete(&user_id).await?;
 
-            sync_put(deleted_user, user_id).await?;
+            // 2. Graph-first: write the tombstone before invalidating the cache.
+            // Collection::get_by_ids repopulates the cache from the graph on a miss,
+            // so invalidating first would let a concurrent read cache the live profile
+            // again — and nothing would invalidate it a second time.
+            UserDetails::tombstone(&user_id).put_to_graph().await?;
+
+            // 3. Invalidate cached UserDetails JSON so subsequent reads see the tombstone.
+            let key_parts: &[&str] = &[user_id.as_ref()];
+            let key_parts_list = [key_parts];
+            UserDetails::remove_from_index_multiple_json(&key_parts_list).await?;
         }
         OperationOutcome::MissingDependency => return Err(EventProcessorError::SkipIndexing),
     }

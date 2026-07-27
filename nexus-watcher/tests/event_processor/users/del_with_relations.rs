@@ -4,7 +4,8 @@ use crate::{
 };
 use anyhow::Result;
 use chrono::Utc;
-use nexus_common::models::user::{UserCounts, UserStream, UserView, USER_DELETED_SENTINEL};
+use nexus_common::models::traits::Collection;
+use nexus_common::models::user::{UserCounts, UserDetails, UserSearch, UserStream, UserView};
 use pubky::Keypair;
 use pubky_app_specs::{
     traits::{HasIdPath, HashId},
@@ -40,24 +41,19 @@ async fn test_delete_user_with_relationships() -> Result<()> {
     // Delete the user
     test.cleanup_user(&user_kp).await?;
 
-    // Fetch user details; should be updated to "[DELETED]"
+    // Fetch user details; the profile must be wiped and the deleted flag set.
     let user_details = find_user_details(&user_id).await?;
-    assert_eq!(
-        user_details.name, USER_DELETED_SENTINEL,
-        "User name should be '[DELETED]' after deletion"
+    assert!(
+        user_details.deleted,
+        "User should be marked as deleted after deletion with relationships"
     );
     assert_eq!(
-        user_details.bio, None,
-        "User bio should be 'null' after deletion.",
+        user_details.name, "",
+        "User name should be cleared after deletion"
     );
-    assert_eq!(
-        user_details.status, None,
-        "User status should be None after deletion"
-    );
-    assert_eq!(
-        user_details.image, None,
-        "User image should be None after deletion"
-    );
+    assert_eq!(user_details.bio, None, "User bio should be cleared");
+    assert_eq!(user_details.status, None, "User status should be cleared");
+    assert_eq!(user_details.image, None, "User image should be cleared");
 
     // User counts should still exist
     let user_counts = find_user_counts(&user_id).await;
@@ -73,9 +69,13 @@ async fn test_delete_user_with_relationships() -> Result<()> {
         "User view should be present after deletion"
     );
     let user_view = user_view.unwrap();
+    assert!(
+        user_view.details.deleted,
+        "User view should report deleted: true after tombstoning"
+    );
     assert_eq!(
-        user_view.details.name, USER_DELETED_SENTINEL,
-        "User view name should be '[DELETED]' after deletion"
+        user_view.details.name, "",
+        "User view name should be cleared after deletion"
     );
 
     // Now delete the user's post
@@ -163,23 +163,22 @@ async fn test_delete_user_with_relationships() -> Result<()> {
     // Delete the user
     test.cleanup_user(&user_with_kp).await?;
 
-    // Fetch user details; should be updated to "[DELETED]"
+    // Fetch user details; the profile must be wiped and the deleted flag set.
     let user_details = find_user_details(&user_with_id).await?;
-    assert_eq!(
-        user_details.name, USER_DELETED_SENTINEL,
-        "User name should be '[DELETED]' after deletion"
+    assert!(
+        user_details.deleted,
+        "User should be marked as deleted after deletion with relationships"
     );
     assert_eq!(
-        user_details.bio, None,
-        "User bio should be 'null' after deletion.",
+        user_details.name, "",
+        "User name should be cleared after deletion"
     );
-    assert_eq!(
-        user_details.status, None,
-        "User status should be None after deletion"
-    );
-    assert_eq!(
-        user_details.image, None,
-        "User image should be None after deletion"
+    assert_eq!(user_details.bio, None, "User bio should be cleared");
+    assert_eq!(user_details.status, None, "User status should be cleared");
+    assert_eq!(user_details.image, None, "User image should be cleared");
+    assert!(
+        user_details.links.is_none(),
+        "User links should be cleared after deletion"
     );
 
     // User counts should still exist
@@ -199,8 +198,12 @@ async fn test_delete_user_with_relationships() -> Result<()> {
     );
     let user_view = user_view.unwrap();
     assert_eq!(
-        user_view.details.name, USER_DELETED_SENTINEL,
-        "User view name should be '[DELETED]' after deletion"
+        user_view.details.name, "",
+        "User view name should be cleared after deletion"
+    );
+    assert!(
+        user_view.details.deleted,
+        "User view should report deleted: true after tombstoning"
     );
 
     // Now delete the user's post
@@ -297,6 +300,210 @@ async fn test_delete_recommended_user() -> Result<()> {
     let alice_recommended_ids_res_2 = UserStream::get_recommended_ids(&alice_id, None).await;
     let alice_recommended_ids_2 = alice_recommended_ids_res_2.unwrap();
     assert_eq!(alice_recommended_ids_2, None);
+
+    Ok(())
+}
+
+/// Resurrection: delete a user with relationships, re-PUT a profile, assert deleted == false
+/// and that the user is visible again in streams.
+#[tokio_shared_rt::test(shared)]
+async fn test_user_resurrection() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+
+    // Create a user
+    let user_kp = Keypair::random();
+    let user = PubkyAppUser {
+        bio: Some("Resurrection test user".to_string()),
+        image: None,
+        links: None,
+        name: "Watcher:UserResurrection:User".to_string(),
+        status: None,
+    };
+    let user_id = test.create_user(&user_kp, &user).await?;
+
+    // Create a post to establish a relationship
+    let post = PubkyAppPost {
+        content: "User's post before deletion".to_string(),
+        kind: PubkyAppPostKind::Short,
+        parent: None,
+        embed: None,
+        attachments: None,
+        lock: None,
+    };
+    test.create_post(&user_kp, &post).await?;
+
+    // Delete the user (tombstone with relationships)
+    test.cleanup_user(&user_kp).await?;
+
+    // Verify deleted flag is set
+    let user_details = find_user_details(&user_id).await?;
+    assert!(
+        user_details.deleted,
+        "User should be marked as deleted after tombstoning"
+    );
+
+    // Re-PUT a profile (resurrection)
+    let revived_user = PubkyAppUser {
+        bio: Some("Revived!".to_string()),
+        image: None,
+        links: None,
+        name: "Watcher:UserResurrection:User".to_string(),
+        status: None,
+    };
+    test.create_profile(&user_kp, &revived_user).await?;
+
+    // Verify deleted flag is cleared — create_user always sets deleted: false
+    let user_details = find_user_details(&user_id).await?;
+    assert!(
+        !user_details.deleted,
+        "User should NOT be deleted after re-PUTting their profile (resurrection)"
+    );
+    assert_eq!(user_details.name, "Watcher:UserResurrection:User");
+    assert_eq!(user_details.bio, Some("Revived!".to_string()));
+
+    // User should be visible in search
+    let search_result =
+        nexus_common::models::user::UserSearch::get_by_name("Watcher:UserResurrection", None, None)
+            .await?;
+    assert!(
+        search_result.is_some(),
+        "Resurrected user should be visible in name search"
+    );
+    let search_ids = search_result.unwrap().0;
+    assert!(
+        search_ids.contains(&user_id),
+        "Resurrected user ID should appear in search results"
+    );
+
+    Ok(())
+}
+
+/// A tombstoned user must drop out of both search indexes, and stay out: the
+/// `deleted` filter in `put_to_index` stops a cache-miss read from re-adding them.
+#[tokio_shared_rt::test(shared)]
+async fn test_deleted_user_removed_from_search() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+
+    // Create a user
+    let user_kp = Keypair::random();
+    let user = PubkyAppUser {
+        bio: None,
+        image: None,
+        links: None,
+        name: "Watcher:DeletedInSearch:User".to_string(),
+        status: None,
+    };
+    let user_id = test.create_user(&user_kp, &user).await?;
+
+    // Create a post so the user has relationships and will be tombstoned
+    let post = PubkyAppPost {
+        content: "A post".to_string(),
+        kind: PubkyAppPostKind::Short,
+        parent: None,
+        embed: None,
+        attachments: None,
+        lock: None,
+    };
+    test.create_post(&user_kp, &post).await?;
+
+    // Delete the user
+    test.cleanup_user(&user_kp).await?;
+
+    // Verify deleted flag
+    let user_details = find_user_details(&user_id).await?;
+    assert!(user_details.deleted, "User should be marked as deleted");
+
+    // The old name must no longer resolve to this user
+    let search_ids =
+        nexus_common::models::user::UserSearch::get_by_name("Watcher:DeletedInSearch", None, None)
+            .await?
+            .map(|s| s.0)
+            .unwrap_or_default();
+    assert!(
+        !search_ids.contains(&user_id),
+        "Deleted user should be removed from name search"
+    );
+
+    // ...nor should the ID index still carry them
+    let id_search_ids = nexus_common::models::user::UserSearch::get_by_id(
+        user_id.chars().take(10).collect::<String>().as_str(),
+        None,
+        None,
+    )
+    .await?
+    .map(|s| s.0)
+    .unwrap_or_default();
+    assert!(
+        !id_search_ids.contains(&user_id),
+        "Deleted user should be removed from ID search"
+    );
+
+    Ok(())
+}
+
+/// Regression: a user node whose name is the literal "[DELETED]" must report
+/// deleted: false and stay visible in name search — deletion is the flag, never
+/// the name. The old sentinel-name scheme was deliberate, but it conflated a
+/// legitimate name with a tombstone, which is why the flag replaced it.
+///
+/// `PubkyAppUser::sanitize` rewrites that name to "anonymous", so the shape is
+/// unreachable through a profile.json event and only exists for rows written
+/// before the flag. The test reproduces it by ingesting normally and then
+/// renaming through the model, below the sanitize boundary.
+#[tokio_shared_rt::test(shared)]
+async fn test_live_user_with_sentinel_name_is_not_tombstoned() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+
+    let user_kp = Keypair::random();
+    let user = PubkyAppUser {
+        bio: Some("I chose this name intentionally".to_string()),
+        image: None,
+        links: None,
+        name: "Watcher:SentinelName".to_string(),
+        status: None,
+    };
+    let user_id = test.create_user(&user_kp, &user).await?;
+
+    // Rename to the legacy sentinel while staying live.
+    let mut user_details = find_user_details(&user_id).await?;
+    user_details.name = "[DELETED]".to_string();
+    user_details.put_to_graph().await?;
+
+    // Order matters: `UserSearch::put_to_index` drops the stale `name:id` member
+    // by resolving the OLD name from the cached JSON, so refresh that cache only
+    // afterwards — `UserDetails::put_to_index` writes it before reindexing search.
+    UserSearch::put_to_index(&[&user_details]).await?;
+    UserDetails::put_to_index(&[&user_details.id], vec![Some(user_details.clone())]).await?;
+
+    // The node keeps the sentinel name and is still live
+    let stored = find_user_details(&user_id).await?;
+    assert_eq!(stored.name, "[DELETED]");
+    assert!(
+        !stored.deleted,
+        "A live user with name '[DELETED]' should NOT be treated as deleted"
+    );
+
+    // User should be visible in search under the sentinel name
+    let search_result = UserSearch::get_by_name("[DELETED]", None, None).await?;
+    assert!(
+        search_result.is_some(),
+        "User with name '[DELETED]' should appear in name search"
+    );
+    let search_ids = search_result.unwrap().0;
+    assert!(
+        search_ids.contains(&user_id),
+        "User with name '[DELETED]' should be visible in name search"
+    );
+
+    // ...and the pre-rename name must no longer resolve to them
+    let stale_ids = UserSearch::get_by_name("Watcher:SentinelName", None, None)
+        .await?
+        .map(|s| s.0)
+        .unwrap_or_default();
+    assert!(
+        !stale_ids.contains(&user_id),
+        "Renamed user should be dropped from the old name index"
+    );
 
     Ok(())
 }

@@ -13,6 +13,7 @@ use crate::migrations::migrations_list::post_content_index_author_setup_17805312
 use crate::migrations::migrations_list::post_content_index_setup_1780444800::PostContentIndexSetup1780444800;
 use crate::migrations::migrations_list::remove_muted_1771718400::RemoveMuted1771718400;
 use crate::migrations::migrations_list::resource_node_setup_1774000000::ResourceNodeSetup1774000000;
+use crate::migrations::migrations_list::user_deleted_flag_1780617600::UserDeletedFlag1780617600;
 use crate::migrations::migrations_list::users_by_pk_reindex_1751635096::UsersByPkReindex1751635096;
 /// Registers migrations with the `MigrationManager`
 ///
@@ -47,6 +48,7 @@ pub fn import_migrations(migration_manager: &mut MigrationManager) {
         Box::new(ResourceNodeSetup1774000000),
         Box::new(PostContentIndexSetup1780444800),
         Box::new(PostContentIndexAuthorSetup1780531200),
+        Box::new(UserDeletedFlag1780617600),
     ];
     for migration in migrations {
         migration_manager.register(migration);
