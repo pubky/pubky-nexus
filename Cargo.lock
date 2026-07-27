@@ -3031,7 +3031,6 @@ dependencies = [
  "futures",
  "hex",
  "neo4rs",
- "nexus-common",
  "opentelemetry 0.32.0",
  "opentelemetry-appender-tracing",
  "opentelemetry-otlp",

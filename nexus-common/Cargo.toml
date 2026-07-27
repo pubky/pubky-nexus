@@ -39,7 +39,6 @@ url = { workspace = true }
 utoipa = { workspace = true }
 
 [dev-dependencies]
-nexus-common = { path = ".", features = ["test-utils"] }
 tempfile = { workspace = true }
 tokio-shared-rt = { workspace = true }
 tracing-test = { workspace = true }
