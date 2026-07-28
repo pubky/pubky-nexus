@@ -3,6 +3,8 @@
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use opentelemetry_sdk::metrics::data::{AggregatedMetrics, MetricData, ResourceMetrics};
+use std::borrow::Cow;
 use std::error::Error;
 use std::sync::atomic::{AtomicI64, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
@@ -212,4 +214,34 @@ impl Job for BlockingJob {
         self.completed.fetch_add(1, Ordering::SeqCst);
         Ok(())
     }
+}
+
+/// Sum of a `u64` counter's data points whose attributes contain every
+/// (key, value) pair in `filters`.
+pub(super) fn counter_value(
+    metrics: &[ResourceMetrics],
+    name: &str,
+    filters: &[(&str, &str)],
+) -> u64 {
+    let mut total = 0;
+    for rm in metrics {
+        for sm in rm.scope_metrics() {
+            for m in sm.metrics().filter(|m| m.name() == name) {
+                let AggregatedMetrics::U64(MetricData::Sum(sum)) = m.data() else {
+                    continue;
+                };
+                for dp in sum.data_points() {
+                    let matches = filters.iter().all(|(k, v)| {
+                        dp.attributes().any(|kv| {
+                            kv.key.as_str() == *k && kv.value.as_str() == Cow::Borrowed(*v)
+                        })
+                    });
+                    if matches {
+                        total += dp.value();
+                    }
+                }
+            }
+        }
+    }
+    total
 }

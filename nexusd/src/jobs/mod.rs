@@ -15,8 +15,11 @@ use tokio::sync::watch::Receiver;
 use tracing::{error, warn};
 
 pub use error::{CronParseError, JobError};
-use lock::RedisRunLock;
+use lock::{LockMetrics, RedisRunLock};
 pub use scheduler::validate_cron;
+
+/// OpenTelemetry meter name for all job metrics.
+const METER_NAME: &str = "nexus.jobs";
 
 /// Resolves and validates a job's cron: `None` when unscheduled, else the
 /// parsed [`Schedule`] so callers don't re-parse.
@@ -110,7 +113,8 @@ impl JobRegistry {
 
         let lock: Arc<dyn lock::RunLock> = Arc::new(RedisRunLock::new());
         let now_fn = Arc::new(Utc::now) as scheduler::NowFn;
-        run_once_locked(job.as_ref(), &lock, &now_fn).await
+        let metrics = LockMetrics::new();
+        run_once_locked(job.as_ref(), &lock, &now_fn, &metrics).await
     }
 
     /// The scheduled jobs, resolved from config. Each job's schedule is validated
@@ -157,8 +161,8 @@ impl JobRegistry {
 }
 
 /// Runs `job` once under `lock`, mapping lock state to [`JobError`]. Split from
-/// [`JobRegistry::run_on_demand`] so it's testable without a stack; `lock` and
-/// `now_fn` are injected for the same reason.
+/// [`JobRegistry::run_on_demand`] so it's testable without a stack; `lock`,
+/// `now_fn`, and `metrics` are injected for the same reason.
 ///
 /// Abandoned at [`lock::MAX_RUN`] like a scheduled run, so an on-demand run can't
 /// outlive its lease either.
@@ -166,8 +170,9 @@ async fn run_once_locked(
     job: &dyn Job,
     lock: &Arc<dyn lock::RunLock>,
     now_fn: &scheduler::NowFn,
+    metrics: &LockMetrics,
 ) -> Result<(), JobError> {
-    let guard = match lock::acquire(job.name(), lock).await {
+    let guard = match lock::acquire(job.name(), lock, metrics).await {
         lock::Acquired::Taken(guard) => guard,
         lock::Acquired::Held => return Err(JobError::AlreadyRunning { job: job.name() }),
         lock::Acquired::Failed { error, released } => {
@@ -293,6 +298,7 @@ mod tests {
     use crate::jobs::test_support::{
         AcquireOutcome, CountingJob, FakeLock, PanicJob, UnlockOutcome,
     };
+    use lock::LockMetrics;
     use scheduler::virtual_now;
     use std::sync::Arc;
     use std::time::Duration;
@@ -318,7 +324,7 @@ mod tests {
         let lock: Arc<dyn lock::RunLock> =
             FakeLock::new(AcquireOutcome::Denied, UnlockOutcome::Succeeds);
         let job = CountingJob::new("stub");
-        let err = run_once_locked(&job, &lock, &virtual_now())
+        let err = run_once_locked(&job, &lock, &virtual_now(), &LockMetrics::new())
             .await
             .err()
             .unwrap();
@@ -336,7 +342,7 @@ mod tests {
             FakeLock::new(AcquireOutcome::Granted, UnlockOutcome::Succeeds);
 
         // Paused time auto-advances while the run hangs, so the hour costs nothing.
-        let err = run_once_locked(&job, &lock, &virtual_now())
+        let err = run_once_locked(&job, &lock, &virtual_now(), &LockMetrics::new())
             .await
             .err()
             .unwrap();
@@ -357,7 +363,7 @@ mod tests {
         let job = CountingJob::new("counter");
         let lock: Arc<dyn lock::RunLock> =
             FakeLock::new(AcquireOutcome::Fails, UnlockOutcome::Succeeds);
-        let err = run_once_locked(&job, &lock, &virtual_now())
+        let err = run_once_locked(&job, &lock, &virtual_now(), &LockMetrics::new())
             .await
             .err()
             .unwrap();
@@ -581,7 +587,7 @@ mod tests {
         let lock: Arc<dyn lock::RunLock> =
             FakeLock::new(AcquireOutcome::Hangs, UnlockOutcome::Hangs);
 
-        let err = run_once_locked(&job, &lock, &virtual_now())
+        let err = run_once_locked(&job, &lock, &virtual_now(), &LockMetrics::new())
             .await
             .err()
             .unwrap();
@@ -604,7 +610,7 @@ mod tests {
         let lock: Arc<dyn lock::RunLock> =
             FakeLock::new(AcquireOutcome::Fails, UnlockOutcome::Hangs);
 
-        let err = run_once_locked(&job, &lock, &virtual_now())
+        let err = run_once_locked(&job, &lock, &virtual_now(), &LockMetrics::new())
             .await
             .err()
             .unwrap();
@@ -624,7 +630,7 @@ mod tests {
         let lock: Arc<dyn lock::RunLock> =
             FakeLock::new(AcquireOutcome::Granted, UnlockOutcome::Hangs);
 
-        let result = run_once_locked(&job, &lock, &virtual_now()).await;
+        let result = run_once_locked(&job, &lock, &virtual_now(), &LockMetrics::new()).await;
         assert!(
             result.is_ok(),
             "the run itself must succeed; only the phase-3 release hangs, got: {result:?}"

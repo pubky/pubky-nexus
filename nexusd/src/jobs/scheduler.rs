@@ -8,11 +8,8 @@ use std::time::Duration;
 use tokio::sync::watch::Receiver;
 use tracing::{debug, error, info, warn};
 
-use super::lock::{self, RunLock};
-use super::{CronParseError, Job};
-
-/// OpenTelemetry meter name for all job metrics.
-const METER_NAME: &str = "nexus.jobs";
+use super::lock::{self, LockMetrics, RunLock};
+use super::{CronParseError, Job, METER_NAME};
 
 /// Wall-clock re-check interval while waiting for a fire time (see [`Scheduler::sleep_until`]).
 pub(super) const MAX_SLEEP: Duration = Duration::from_secs(30);
@@ -28,6 +25,7 @@ pub type NowFn = Arc<dyn Fn() -> DateTime<Utc> + Send + Sync>;
 pub struct Scheduler {
     now_fn: NowFn,
     lock: Arc<dyn RunLock>,
+    lock_metrics: LockMetrics,
     /// Wall-clock re-check interval while sleeping toward a fire time (see [`MAX_SLEEP`]).
     max_sleep: Duration,
     /// Deadline for a single run, past which it's abandoned (see [`lock::MAX_RUN`]).
@@ -56,6 +54,7 @@ impl Scheduler {
     /// [`new`](Self::new) with an explicit `meter`, so tests can install a local
     /// `SdkMeterProvider` and read the counters back.
     pub(crate) fn with_meter(now_fn: NowFn, lock: Arc<dyn RunLock>, meter: Meter) -> Self {
+        let lock_metrics = LockMetrics::with_meter(meter.clone());
         let run_attempts = meter
             .u64_counter("jobs.run.attempts")
             .with_description("Scheduled fire attempts (before lock acquisition)")
@@ -77,6 +76,7 @@ impl Scheduler {
         Self {
             now_fn,
             lock,
+            lock_metrics,
             max_sleep: MAX_SLEEP,
             max_run: lock::MAX_RUN,
             run_attempts,
@@ -289,7 +289,7 @@ impl Scheduler {
         }
 
         // Phase 1: acquire — uncancellable. Reads the SET reply before returning.
-        let guard = match super::lock::acquire(name, &self.lock).await {
+        let guard = match super::lock::acquire(name, &self.lock, &self.lock_metrics).await {
             super::lock::Acquired::Taken(guard) => guard,
             super::lock::Acquired::Held => {
                 self.run_skipped.add(
@@ -429,12 +429,12 @@ mod tests {
             .with_timezone(&Utc)
     }
     use crate::jobs::test_support::{
-        steppable_clock, AcquireOutcome, BlockingJob, CountingJob, FakeLock, UnlockOutcome,
+        counter_value, steppable_clock, AcquireOutcome, BlockingJob, CountingJob, FakeLock,
+        UnlockOutcome,
     };
     use crate::jobs::Job;
     use async_trait::async_trait;
     use opentelemetry::metrics::MeterProvider;
-    use opentelemetry_sdk::metrics::data::{AggregatedMetrics, MetricData, ResourceMetrics};
     use opentelemetry_sdk::metrics::{InMemoryMetricExporter, SdkMeterProvider};
     use std::error::Error;
     use std::sync::atomic::{AtomicI64, AtomicU32, Ordering};
@@ -455,33 +455,6 @@ mod tests {
             .build();
         let scheduler = Scheduler::with_meter(now_fn, lock, provider.meter("test"));
         (scheduler, provider, exporter)
-    }
-
-    /// Sum of a `u64` counter's data points whose attributes contain every
-    /// (key, value) pair in `filters`.
-    fn counter_value(metrics: &[ResourceMetrics], name: &str, filters: &[(&str, &str)]) -> u64 {
-        let mut total = 0;
-        for rm in metrics {
-            for sm in rm.scope_metrics() {
-                for m in sm.metrics().filter(|m| m.name() == name) {
-                    let AggregatedMetrics::U64(MetricData::Sum(sum)) = m.data() else {
-                        continue;
-                    };
-                    for dp in sum.data_points() {
-                        let matches = filters.iter().all(|(k, v)| {
-                            dp.attributes().any(|kv| {
-                                kv.key.as_str() == *k
-                                    && kv.value.as_str() == std::borrow::Cow::Borrowed(*v)
-                            })
-                        });
-                        if matches {
-                            total += dp.value();
-                        }
-                    }
-                }
-            }
-        }
-        total
     }
 
     #[test]
