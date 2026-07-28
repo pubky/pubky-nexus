@@ -44,6 +44,9 @@ pub enum JobError {
         after: std::time::Duration,
     },
 
+    #[error("lock acquire timed out for job {job:?}")]
+    LockTimedOut { job: &'static str },
+
     /// Boxed: jobs are heterogeneous and the runner only logs the error.
     #[error("job {job:?} failed: {source}")]
     Run {

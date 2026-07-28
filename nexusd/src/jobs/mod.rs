@@ -12,7 +12,7 @@ use chrono::Utc;
 use cron::Schedule;
 use nexus_common::{DaemonConfig, JobConfig};
 use tokio::sync::watch::Receiver;
-use tracing::error;
+use tracing::{error, warn};
 
 pub use error::{CronParseError, JobError};
 use lock::RedisRunLock;
@@ -170,7 +170,24 @@ async fn run_once_locked(
     let guard = match lock::acquire(job.name(), lock).await {
         lock::Acquired::Taken(guard) => guard,
         lock::Acquired::Held => return Err(JobError::AlreadyRunning { job: job.name() }),
-        lock::Acquired::Failed(e) => return Err(JobError::Lock(e)),
+        lock::Acquired::Failed { error, released } => {
+            if !released {
+                warn!(
+                    job = job.name(),
+                    "Lock acquire failed and inline release also failed — slot may stay held until TTL expires"
+                );
+            }
+            return Err(JobError::Lock(error));
+        }
+        lock::Acquired::TimedOut { released } => {
+            if !released {
+                warn!(
+                    job = job.name(),
+                    "Lock acquire timed out and inline release also failed — slot may stay held until TTL expires"
+                );
+            }
+            return Err(JobError::LockTimedOut { job: job.name() });
+        }
     };
 
     // Wall-clock deadline, not `tokio::time::timeout` — see `scheduler::sleep_wall`.
@@ -181,7 +198,17 @@ async fn run_once_locked(
         result = job.run() => Some(result),
         _ = scheduler::sleep_wall(lock::MAX_RUN, now_fn, scheduler::MAX_SLEEP) => None,
     };
-    guard.release().await;
+    let release_outcome = guard.release().await;
+    if !matches!(
+        release_outcome,
+        lock::ReleaseOutcome::Released | lock::ReleaseOutcome::NotHeld
+    ) {
+        warn!(
+            job = job.name(),
+            ?release_outcome,
+            "Lock release failed after run — slot may stay held until TTL expires"
+        );
+    }
 
     match result {
         Some(Ok(())) => Ok(()),
@@ -263,7 +290,9 @@ async fn supervise(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::jobs::test_support::{AcquireOutcome, CountingJob, FakeLock, PanicJob};
+    use crate::jobs::test_support::{
+        AcquireOutcome, CountingJob, FakeLock, PanicJob, UnlockOutcome,
+    };
     use scheduler::virtual_now;
     use std::sync::Arc;
     use std::time::Duration;
@@ -286,7 +315,8 @@ mod tests {
 
     #[tokio::test]
     async fn run_once_locked_reports_a_held_lock_as_already_running() {
-        let lock: Arc<dyn lock::RunLock> = FakeLock::new(AcquireOutcome::Denied);
+        let lock: Arc<dyn lock::RunLock> =
+            FakeLock::new(AcquireOutcome::Denied, UnlockOutcome::Succeeds);
         let job = CountingJob::new("stub");
         let err = run_once_locked(&job, &lock, &virtual_now())
             .await
@@ -302,7 +332,8 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn run_once_locked_abandons_a_run_past_the_deadline() {
         let job = crate::jobs::test_support::BlockingJob::new();
-        let lock: Arc<dyn lock::RunLock> = FakeLock::new(AcquireOutcome::Granted);
+        let lock: Arc<dyn lock::RunLock> =
+            FakeLock::new(AcquireOutcome::Granted, UnlockOutcome::Succeeds);
 
         // Paused time auto-advances while the run hangs, so the hour costs nothing.
         let err = run_once_locked(&job, &lock, &virtual_now())
@@ -324,7 +355,8 @@ mod tests {
     #[tokio::test]
     async fn run_once_locked_surfaces_lock_errors() {
         let job = CountingJob::new("counter");
-        let lock: Arc<dyn lock::RunLock> = FakeLock::new(AcquireOutcome::Fails);
+        let lock: Arc<dyn lock::RunLock> =
+            FakeLock::new(AcquireOutcome::Fails, UnlockOutcome::Succeeds);
         let err = run_once_locked(&job, &lock, &virtual_now())
             .await
             .err()
@@ -427,8 +459,10 @@ mod tests {
         ];
 
         let (tx, rx) = watch::channel(false);
-        let scheduler =
-            scheduler::Scheduler::new(virtual_now(), FakeLock::new(AcquireOutcome::Granted));
+        let scheduler = scheduler::Scheduler::new(
+            virtual_now(),
+            FakeLock::new(AcquireOutcome::Granted, UnlockOutcome::Succeeds),
+        );
         let supervisor = supervise(scheduler, jobs, rx);
         let stopper = async {
             tokio::time::sleep(Duration::from_millis(1500)).await;
@@ -457,7 +491,7 @@ mod tests {
         }];
 
         let (tx, rx) = watch::channel(false);
-        let lock = FakeLock::new(AcquireOutcome::Granted);
+        let lock = FakeLock::new(AcquireOutcome::Granted, UnlockOutcome::Succeeds);
         let scheduler = scheduler::Scheduler::new(virtual_now(), lock.clone());
         let supervisor = supervise(scheduler, jobs, rx);
         let stopper = async {
@@ -477,7 +511,7 @@ mod tests {
             "PanicJob dies after one fire (JoinSet catches, task ends)"
         );
         assert_eq!(
-            lock.releases(),
+            lock.unlock_attempts(),
             1,
             "the panicked run's lock must still be released via Drop"
         );
@@ -522,8 +556,10 @@ mod tests {
 
         // Fires every second; stop after ~1.5s (virtual) so it fires at least once.
         let schedule = validate_cron("* * * * * *").unwrap();
-        let scheduler =
-            scheduler::Scheduler::new(virtual_now(), FakeLock::new(AcquireOutcome::Granted));
+        let scheduler = scheduler::Scheduler::new(
+            virtual_now(),
+            FakeLock::new(AcquireOutcome::Granted, UnlockOutcome::Succeeds),
+        );
         let runner = scheduler.run_job(&schedule, &job, rx);
         let stopper = async {
             tokio::time::sleep(Duration::from_millis(1500)).await;
@@ -534,6 +570,69 @@ mod tests {
         assert!(
             job.runs() >= 1,
             "a per-second cron should fire at least once"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    #[traced_test]
+    async fn run_once_locked_warns_when_acquire_times_out_and_release_fails() {
+        let job = CountingJob::new("stub");
+        // Hangs + Hangs => acquire times out, inline release also times out (released == false)
+        let lock: Arc<dyn lock::RunLock> =
+            FakeLock::new(AcquireOutcome::Hangs, UnlockOutcome::Hangs);
+
+        let err = run_once_locked(&job, &lock, &virtual_now())
+            .await
+            .err()
+            .unwrap();
+
+        assert!(
+            matches!(err, JobError::LockTimedOut { job } if job == "stub"),
+            "got: {err:?}"
+        );
+        assert!(
+            logs_contain("Lock acquire timed out and inline release also failed"),
+            "should warn when both acquire timeout and inline release fail"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    #[traced_test]
+    async fn run_once_locked_warns_when_acquire_fails_and_release_fails() {
+        let job = CountingJob::new("stub");
+        // Fails + Hangs => acquire errors, inline release times out (released == false)
+        let lock: Arc<dyn lock::RunLock> =
+            FakeLock::new(AcquireOutcome::Fails, UnlockOutcome::Hangs);
+
+        let err = run_once_locked(&job, &lock, &virtual_now())
+            .await
+            .err()
+            .unwrap();
+
+        assert!(matches!(err, JobError::Lock(_)), "got: {err:?}");
+        assert!(
+            logs_contain("Lock acquire failed and inline release also failed"),
+            "should warn when both acquire error and inline release fail"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    #[traced_test]
+    async fn run_once_locked_warns_when_phase_three_release_fails() {
+        let job = CountingJob::new("stub");
+        // Granted + Hangs => acquire succeeds, phase-3 release times out
+        let lock: Arc<dyn lock::RunLock> =
+            FakeLock::new(AcquireOutcome::Granted, UnlockOutcome::Hangs);
+
+        let result = run_once_locked(&job, &lock, &virtual_now()).await;
+        assert!(
+            result.is_ok(),
+            "the run itself must succeed; only the phase-3 release hangs, got: {result:?}"
+        );
+
+        assert!(
+            logs_contain("Lock release failed after run"),
+            "should warn when phase-3 release fails"
         );
     }
 }
