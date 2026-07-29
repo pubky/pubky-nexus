@@ -186,8 +186,6 @@ impl TrustRankEngine for GdsNeo4j {
             );
         }
 
-        info!(users_written, did_converge, "Trust rank recomputed");
-
         Ok(TrustRankStats {
             users_written: users_written as u64,
             ran_iterations: ran_iterations as u64,

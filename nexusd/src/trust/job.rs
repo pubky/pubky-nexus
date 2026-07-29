@@ -4,7 +4,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use nexus_common::types::DynError;
 use nexus_common::TrustRankConfig;
-use tracing::{error, info};
+use tracing::{debug, error, info};
 
 use super::engine::{TrustRankEngine, TrustRankParams};
 use super::export::{read_scores, write_timestamped_csv};
@@ -60,7 +60,13 @@ impl Job for TrustRecomputeJob {
     }
 
     async fn run(&self) -> Result<(), DynError> {
-        self.engine.compute(&self.params).await?;
+        let stats = self.engine.compute(&self.params).await?;
+        debug!(
+            users_written = stats.users_written,
+            ran_iterations = stats.ran_iterations,
+            did_converge = stats.did_converge,
+            "Trust rank run stats"
+        );
 
         // Report failures are logged, not fatal: scores are already persisted.
         if let Some(dir) = &self.report_dir {
