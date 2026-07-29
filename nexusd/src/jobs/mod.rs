@@ -1,8 +1,11 @@
 mod error;
+mod influencers;
 mod lock;
 mod scheduler;
 #[cfg(test)]
 mod test_support;
+
+pub use influencers::InfluencersCacheJob;
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -305,9 +308,10 @@ mod tests {
     use tokio::sync::watch;
     use tracing_test::traced_test;
 
-    /// Builds a [`DaemonConfig`] from the canonical default config with `extra`
-    /// TOML appended (e.g. a `[jobs.<name>]` section).
-    async fn default_config_with(extra: &str) -> DaemonConfig {
+    /// Builds a [`DaemonConfig`] from the canonical default config, stripping all
+    /// `[jobs.*]` sections so generic (job-agnostic) tests are not affected by
+    /// concrete job config. `extra` TOML (e.g. a `[jobs.<name>]` section) is appended.
+    async fn default_config_without_jobs(extra: &str) -> DaemonConfig {
         use nexus_common::file::{ConfigLoader, CONFIG_FILE_NAME};
 
         let dir = tempfile::TempDir::new().unwrap();
@@ -315,8 +319,30 @@ mod tests {
             .await
             .unwrap();
         let default_toml = std::fs::read_to_string(dir.path().join(CONFIG_FILE_NAME)).unwrap();
-        DaemonConfig::try_from_str(&format!("{default_toml}\n{extra}"))
+        let stripped = strip_jobs_sections(&default_toml);
+        DaemonConfig::try_from_str(&format!("{stripped}\n{extra}"))
             .expect("config with the appended section should parse")
+    }
+
+    /// Remove every `[jobs.xxx]` TOML table header and the keys that follow it
+    /// until the next table header or end of file.
+    fn strip_jobs_sections(toml: &str) -> String {
+        let mut in_jobs = false;
+        toml.lines()
+            .filter(|line| {
+                let trimmed = line.trim();
+                if trimmed.starts_with("[jobs") && trimmed.contains(']') {
+                    in_jobs = true;
+                    false // drop the header
+                } else if trimmed.starts_with('[') {
+                    in_jobs = false;
+                    true // new table starts
+                } else {
+                    !in_jobs
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
     }
 
     #[tokio::test]
@@ -391,24 +417,24 @@ mod tests {
     #[tokio::test]
     async fn unknown_job_error_shows_none_when_registry_empty() {
         let registry = JobRegistry::new(Vec::new());
-        let config = default_config_with("").await;
+        let config = default_config_without_jobs("").await;
 
-        // The name lookup fails before stack setup, so this needs no stack.
-        let err = match registry.run_on_demand("whatever", &config).await {
-            Ok(()) => panic!("running against an empty registry must error"),
-            Err(e) => e.to_string(),
-        };
+        let err = registry
+            .run_on_demand("whatever", &config)
+            .await
+            .err()
+            .unwrap();
 
         assert!(
-            err.contains("available jobs: (none)"),
-            "empty registry must render `(none)`, got: {err}"
+            matches!(err, JobError::UnknownJobName { ref available, .. } if available == "(none)"),
+            "must fail with UnknownJobName showing (none), got: {err:?}"
         );
     }
 
     #[tokio::test]
     async fn run_on_demand_validates_jobs_config() {
         let registry = JobRegistry::new(vec![Arc::new(CountingJob::new("stub"))]);
-        let config = default_config_with("[jobs.stub]\ncron = \"not a cron\"\n").await;
+        let config = default_config_without_jobs("[jobs.stub]\ncron = \"not a cron\"\n").await;
 
         // The bad cron is caught before StackManager::setup, so no stack is needed.
         let err = match registry.run_on_demand("stub", &config).await {
@@ -424,20 +450,25 @@ mod tests {
     #[tokio::test]
     async fn scheduled_jobs_rejects_unknown_job_config_key() {
         let registry = JobRegistry::new(vec![Arc::new(CountingJob::new("stub"))]);
-        let config = default_config_with("[jobs.does_not_exist]\n").await;
+        let config = default_config_without_jobs("[jobs.does_not_exist]\n").await;
 
         let err = registry.scheduled_jobs(&config).err().unwrap();
+        let is_correct = match &err {
+            JobError::UnknownJobConfig { unknown, .. } => {
+                unknown == &["does_not_exist".to_string()]
+            }
+            _ => false,
+        };
         assert!(
-            matches!(err, JobError::UnknownJobConfig { .. }),
-            "an unknown [jobs.<name>] key must fail startup, got: {err:?}"
+            is_correct,
+            "unknown list must contain exactly does_not_exist, got: {err:?}"
         );
     }
 
     #[tokio::test]
     async fn scheduled_jobs_fails_fast_on_malformed_cron() {
         let registry = JobRegistry::new(vec![Arc::new(CountingJob::new("stub"))]);
-
-        let config = default_config_with("[jobs.stub]\ncron = \"not a cron\"\n").await;
+        let config = default_config_without_jobs("[jobs.stub]\ncron = \"not a cron\"\n").await;
 
         // scheduled_jobs only resolves; it never spawns. The error must name the
         // offending job so the operator needn't grep the config.

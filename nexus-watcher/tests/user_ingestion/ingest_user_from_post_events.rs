@@ -224,6 +224,7 @@ async fn test_collection_ingests_each_item_author() -> Result<()> {
         description: None,
         items: vec![item1_uri.clone(), item2_uri.clone()],
         cover_image: None,
+        layout: None,
     };
     let collection = PubkyAppPost {
         content: serde_json::to_string(&envelope).unwrap(),

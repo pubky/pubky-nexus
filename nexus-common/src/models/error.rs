@@ -24,8 +24,12 @@ pub enum ModelError {
     #[error("HsBlacklisted: {hs_id}")]
     HsBlacklisted { hs_id: String },
 
-    #[error("Generic: {0}")]
-    Generic(String),
+    #[error("Generic: {message}")]
+    Generic {
+        message: String,
+        #[source]
+        source: Option<Box<Self>>,
+    },
 }
 
 impl From<neo4rs::DeError> for ModelError {
@@ -37,7 +41,18 @@ impl From<neo4rs::DeError> for ModelError {
 
 impl ModelError {
     pub fn from_generic(source: impl std::fmt::Display) -> Self {
-        Self::Generic(source.to_string())
+        Self::Generic {
+            message: source.to_string(),
+            source: None,
+        }
+    }
+
+    /// Create a generic error that carries an underlying cause.
+    pub fn from_generic_with_source(message: impl std::fmt::Display, source: Self) -> Self {
+        Self::Generic {
+            message: message.to_string(),
+            source: Some(Box::new(source)),
+        }
     }
 }
 

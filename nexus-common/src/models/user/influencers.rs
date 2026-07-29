@@ -1,18 +1,24 @@
 use crate::db::kv::RedisResult;
 use crate::db::kv::SortOrder;
-use crate::models::error::ModelResult;
+use crate::models::error::{ModelError, ModelResult};
 use crate::types::StreamReach;
 use crate::types::Timeframe;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::ops::Deref;
-use tracing::debug;
+use tracing::{debug, error, warn};
 use utoipa::ToSchema;
 
 use super::{UserDetails, USER_DELETED_SENTINEL, USER_INFLUENCERS_KEY_PARTS};
 use crate::db::{fetch_key_from_graph, queries, RedisOps};
 
 const GLOBAL_INFLUENCERS_PREFIX: &str = "Cache:Influencers";
+
+/// Timeframes kept warm by the influencers cache job. `AllTime` is excluded on
+/// purpose: it is served from the incrementally maintained `Sorted:Users:Influencers`
+/// set and has no TTL. See the `AllTime` arm of `get_from_global_cache`.
+const REFRESH_TIMEFRAMES: [Timeframe; 3] =
+    [Timeframe::Today, Timeframe::ThisWeek, Timeframe::ThisMonth];
 
 #[derive(Serialize, Deserialize, Debug, ToSchema, Default, Clone)]
 pub struct Influencers(pub Vec<(String, f64)>); // (user_id, score)
@@ -105,21 +111,44 @@ impl Influencers {
             return Ok(cached_influencers);
         }
 
-        let query = queries::get::get_global_influencers(0, 100, timeframe);
-        let result = fetch_key_from_graph::<Influencers>(query, "influencers").await?;
-
-        let influencers = match result {
-            Some(influencers) => influencers,
-            None => return Ok(None),
-        };
-
-        if !influencers.is_empty() {
-            Influencers::put_to_global_cache(influencers.clone(), timeframe).await?;
-        }
-
+        Influencers::fetch_and_cache(timeframe).await?;
         Influencers::get_from_global_cache(skip, limit, timeframe)
             .await
             .map_err(Into::into)
+    }
+
+    /// Fetch top-100 influencers from the graph and atomically replace the cache.
+    ///
+    /// A transient empty or `None` graph result must not evict a good ranking, so the
+    /// previous cache is preferred. The caller can retry on the next scheduled tick.
+    pub async fn fetch_and_cache(timeframe: &Timeframe) -> ModelResult<()> {
+        let query = queries::get::get_global_influencers(0, 100, timeframe);
+        let result = fetch_key_from_graph::<Influencers>(query, "influencers").await?;
+
+        match result {
+            Some(influencers) if !influencers.is_empty() => {
+                debug!(
+                    ?timeframe,
+                    count = influencers.len(),
+                    "Writing influencer cache"
+                );
+                Influencers::put_to_global_cache(influencers, timeframe).await?;
+            }
+            Some(empty) => {
+                warn!(
+                    ?timeframe,
+                    count = empty.len(),
+                    "Graph returned empty influencer set — previous cache left untouched"
+                );
+            }
+            None => {
+                warn!(
+                    ?timeframe,
+                    "Graph returned no influencers — previous cache left untouched"
+                );
+            }
+        }
+        Ok(())
     }
 
     /// Retrieves a paginated list of global influencers from the cache for the given timeframe,
@@ -188,7 +217,7 @@ impl Influencers {
             key_parts.iter().map(|s| s.as_str()).collect::<Vec<&str>>();
 
         // store the ranking as sorted set in cache
-        Influencers::put_index_sorted_set(
+        Influencers::replace_index_sorted_set(
             key_parts_vector.as_slice(),
             result
                 .iter()
@@ -286,8 +315,55 @@ impl Influencers {
         vec![timeframe.to_string()]
     }
 
-    /// Rebuilds the global influencer cache for `AllTime` and `ThisMonth` timeframes
+    pub async fn refresh_global_cache() -> ModelResult<()> {
+        Influencers::refresh_global_cache_with(&|tf| async move {
+            Influencers::fetch_and_cache(&tf).await
+        })
+        .await
+    }
+
+    /// Run a per-timeframe refresh for [`REFRESH_TIMEFRAMES`] and aggregate failures.
     ///
+    /// `refresh` is invoked once per timeframe with an owned `Timeframe`. Callers may
+    /// wrap the future in a timeout or inject test doubles before passing it in.
+    pub async fn refresh_global_cache_with<F, Fut>(refresh: &F) -> ModelResult<()>
+    where
+        F: Fn(Timeframe) -> Fut,
+        Fut: std::future::Future<Output = ModelResult<()>>,
+    {
+        let mut failed: Vec<String> = Vec::new();
+        let mut first_error: Option<ModelError> = None;
+
+        for tf in REFRESH_TIMEFRAMES {
+            let tf_label = tf.to_string();
+            if let Err(e) = refresh(tf).await {
+                error!(
+                    timeframe = %tf_label,
+                    error = ?e,
+                    "Influencer cache refresh failed"
+                );
+                first_error.get_or_insert(e);
+                failed.push(tf_label);
+            }
+        }
+
+        if failed.is_empty() {
+            Ok(())
+        } else {
+            let message = format!(
+                "{}/{} influencer cache refreshes failed: {}",
+                failed.len(),
+                REFRESH_TIMEFRAMES.len(),
+                failed.join(", ")
+            );
+            Err(ModelError::from_generic_with_source(
+                message,
+                first_error.expect("first_error is Some when failed is not empty"),
+            ))
+        }
+    }
+
+    /// Rebuilds the global influencer cache for `AllTime` and `ThisMonth` timeframes
     pub async fn reindex() -> ModelResult<()> {
         Influencers::get_global_influencers(0, 100, &Timeframe::AllTime).await?;
         Influencers::get_global_influencers(0, 100, &Timeframe::ThisMonth).await?;

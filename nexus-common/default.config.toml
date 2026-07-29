@@ -122,3 +122,7 @@ slow_query_logging_threshold_ms = 100
 #[jobs.example]
 #cron = "0 0 3 * * *"    # daily at 03:00 UTC
 #cron = "0 0 4 * * MON"  # Mondays at 04:00 UTC
+
+[jobs.influencers_cache]
+# Polls every 30 min; rebuilds all timeframe caches (Today, ThisWeek, ThisMonth) on every run.
+cron = "0 */30 * * * *"

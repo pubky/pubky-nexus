@@ -596,6 +596,18 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         sorted_sets::put(prefix, &key, elements, expiration).await
     }
 
+    /// Atomically replaces a sorted set (DEL + ZADD + EXPIRE).
+    async fn replace_index_sorted_set(
+        key_parts: &[&str],
+        elements: &[(f64, &str)],
+        prefix: Option<&str>,
+        expiration: Option<i64>,
+    ) -> RedisResult<()> {
+        let prefix = prefix.unwrap_or(SORTED_PREFIX);
+        let key = key_parts.join(":");
+        sorted_sets::replace(prefix, &key, elements, expiration).await
+    }
+
     /// Updates the score of a member in a Redis sorted set.
     ///
     /// This method updates the score associated with a specific member in a Redis sorted set

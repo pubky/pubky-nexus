@@ -8,15 +8,16 @@ use nexusd::cli::{
     ApiArgs, Cli, DbCommands, JobCommands, JobRunArgs, MigrationCommands, NexusCommands,
     WatcherArgs,
 };
-use nexusd::jobs::JobRegistry;
+use nexusd::jobs::{InfluencersCacheJob, JobRegistry};
 use nexusd::migrations::{import_migrations, MigrationBuilder, MigrationManager};
 use nexusd::DaemonLauncher;
+use std::sync::Arc;
 
 #[tokio::main]
 async fn main() -> Result<(), DynError> {
     let cli = Cli::parse();
     let command = Cli::receive_command(cli);
-    let job_registry = JobRegistry::new(Vec::new());
+    let job_registry = JobRegistry::new(vec![Arc::new(InfluencersCacheJob)]);
 
     match command {
         NexusCommands::Db(db_command) => match db_command {

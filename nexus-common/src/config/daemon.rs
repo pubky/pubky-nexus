@@ -123,8 +123,12 @@ mod tests {
         assert_eq!(c.stack.db.redis, "redis://127.0.0.1:6379");
         assert_eq!(c.stack.db.neo4j.uri, "bolt://localhost:7687");
 
-        // No jobs are registered/configured by default.
-        assert!(c.jobs.is_empty());
+        // The influencers_cache job is scheduled by default.
+        assert!(c.jobs.contains_key("influencers_cache"));
+        assert_eq!(
+            c.jobs["influencers_cache"].cron.as_deref(),
+            Some("0 */30 * * * *")
+        );
     }
 
     /// A `[jobs.<name>]` section parses into a keyed [`JobConfig`], with its cron

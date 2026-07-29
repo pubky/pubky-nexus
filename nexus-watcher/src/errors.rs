@@ -90,7 +90,7 @@ impl From<ModelError> for EventProcessorError {
                 EventProcessorError::InternalError(source.to_string())
             }
             ModelError::HsBlacklisted { hs_id } => EventProcessorError::HsBlacklisted { hs_id },
-            ModelError::Generic(message) => EventProcessorError::Generic(message),
+            ModelError::Generic { message, .. } => EventProcessorError::Generic(message),
         }
     }
 }
