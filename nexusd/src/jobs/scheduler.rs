@@ -269,8 +269,8 @@ impl Scheduler {
     // Acquires the run lock, runs the job once, releases it; skips (no error) when
     // the lock is held or unreachable, so a backlog can't pile up. Three phases
     // around `shutdown`: acquire and release are uncancellable (they read the
-    // backend reply first, so a mid-flight drop can't orphan the lock or poison a
-    // pooled connection); only `job.run()` races shutdown. A panic in `run()`
+    // backend reply first, so a mid-flight drop can't orphan the lock or leave the
+    // backend mid-request); only `job.run()` races shutdown. A panic in `run()`
     // propagates via `JoinSet` (see `supervise`); the lock still releases via Drop.
     async fn run_locked(&self, job: &dyn Job, shutdown: &mut Receiver<bool>) {
         let name = job.name();
@@ -288,7 +288,7 @@ impl Scheduler {
             return;
         }
 
-        // Phase 1: acquire — uncancellable. Reads the SET reply before returning.
+        // Phase 1: acquire — uncancellable. Reads the backend's reply before returning.
         let guard = match super::lock::acquire(name, &self.lock, &self.lock_metrics).await {
             super::lock::Acquired::Taken(guard) => guard,
             super::lock::Acquired::Held => {
@@ -381,7 +381,7 @@ impl Scheduler {
         };
 
         // Phase 3: release — uncancellable. Runs even after abandonment; awaiting
-        // the EVAL reply costs a few ms at shutdown but leaves the lock known-free.
+        // the unlock reply costs a few ms at shutdown but leaves the lock known-free.
         let release_outcome = guard.release().await;
         if !matches!(
             release_outcome,

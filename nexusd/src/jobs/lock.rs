@@ -20,9 +20,9 @@ pub(super) const MAX_RUN: Duration = Duration::from_secs(3600);
 /// this long after the deadline.
 const LEASE_MARGIN: Duration = Duration::from_secs(60);
 
-/// Deadline for a single lock round trip (pool checkout + command). The pool
-/// has no wait timeout and redis-rs has no response timeout, so without this
-/// a blackholed connection hangs the run phase and, worse, shutdown.
+/// Deadline for a single lock round trip. A backend isn't required to bound its
+/// own calls, so without this a stalled one hangs the run phase and, worse,
+/// shutdown.
 /// Monotonic on purpose: `tokio::time::timeout`, not `sleep_wall`. The
 /// wall-clock discipline elsewhere exists so a run can't outlive its lease;
 /// a five-second I/O window is unaffected by host suspend.
@@ -33,7 +33,10 @@ const LOCK_TTL_SECS: u64 = MAX_RUN.as_secs() + LEASE_MARGIN.as_secs();
 
 /// Cross-process mutual exclusion for a job's runs (the scheduler already
 /// serializes within one process). Injected so the scheduler is testable
-/// without Redis.
+/// without a real backend.
+///
+/// A claim must expire on its own, so a crashed holder's slot frees itself; that
+/// lease has to outlast [`MAX_RUN`].
 #[async_trait]
 pub trait RunLock: Send + Sync {
     /// Mints a fresh token (no I/O), so a [`LockGuard`] can be armed before
@@ -114,11 +117,11 @@ pub(super) enum Acquired {
     Taken(LockGuard),
     /// Another run holds it. Nothing to release.
     Held,
-    /// Backend error during SET. Inline release was attempted; `released` is true
-    /// when the unlock command completed.
+    /// Backend error while acquiring. Inline release was attempted; `released` is
+    /// true when that unlock succeeded.
     Failed { error: LockError, released: bool },
-    /// I/O deadline elapsed during SET. Inline release was attempted; `released`
-    /// is true when the unlock command completed, false when it also timed out.
+    /// I/O deadline elapsed while acquiring. Inline release was attempted;
+    /// `released` is true when that unlock succeeded, false when it also timed out.
     TimedOut { released: bool },
 }
 
@@ -131,8 +134,8 @@ pub(super) enum ReleaseOutcome {
     NotHeld,
     /// Backend reported an error releasing the lock.
     Failed,
-    /// I/O deadline elapsed during the unlock command. The slot will now
-    /// stay held until its TTL expires.
+    /// I/O deadline elapsed while releasing. The slot will now stay held until
+    /// its lease expires.
     TimedOut,
 }
 
@@ -206,9 +209,9 @@ impl LockMetrics {
     }
 }
 
-/// Takes `job`'s run slot, arming the guard *before* the acquire so a lost SET
-/// reply (or a cancel mid-acquire) still releases; the compare-and-delete no-ops
-/// if our token was never stored.
+/// Takes `job`'s run slot, arming the guard *before* the acquire so a lost
+/// acquire reply (or a cancel mid-acquire) still releases; the release is
+/// token-scoped, so it no-ops if our token never took the slot.
 ///
 /// One `job` feeds both the acquire and the guard, so a run can't release a key
 /// it never acquired. On backend error the guard is released inline rather than
@@ -256,8 +259,8 @@ pub(super) async fn acquire(
 ///
 /// Drop releases fire-and-forget via `tokio::spawn`, so it must be dropped in a
 /// runtime context, and only frees the lock if that runtime outlives the spawn —
-/// otherwise the TTL is the fallback. Don't rely on it where the process may
-/// exit right after (see [`acquire`]).
+/// otherwise the lease expiry is the fallback. Don't rely on it where the
+/// process may exit right after (see [`acquire`]).
 pub struct LockGuard {
     job: &'static str,
     token: Option<String>,
