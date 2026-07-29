@@ -4,12 +4,17 @@ use std::time::Duration;
 use async_trait::async_trait;
 use nexus_common::types::DynError;
 use nexus_common::TrustRankConfig;
-use tracing::{debug, error, info};
+use opentelemetry::global;
+use opentelemetry::metrics::{Counter, Meter};
+use tracing::{debug, error, info, warn};
 
 use super::engine::{TrustRankEngine, TrustRankParams};
 use super::export::{read_scores, write_timestamped_csv};
 use super::neo4j::GdsNeo4j;
 use crate::jobs::Job;
+
+/// OpenTelemetry meter name for all trust-rank metrics.
+const METER_NAME: &str = "nexus.trust";
 
 /// The trust-rank recompute as a runnable [`Job`]: runs the seeded PageRank
 /// computation and, when a report dir is set, writes a CSV report of the run.
@@ -21,22 +26,50 @@ pub struct TrustRecomputeJob {
     engine: Box<dyn TrustRankEngine>,
     report_dir: Option<PathBuf>,
     report_limit: usize,
+    /// Runs that exhausted `max_iterations` without converging, so the written
+    /// scores are the last (unconverged) iterate. A sustained nonzero rate means
+    /// `max_iterations` or `tolerance` needs raising.
+    max_iterations_reached: Counter<u64>,
 }
 
 impl TrustRecomputeJob {
     /// Builds the job from inputs. `report_dir` is `Some` to write a CSV, `None` to skip;
-    /// `report_limit` caps rows in the report.
+    /// `report_limit` caps rows in the report. Instruments come from the global
+    /// meter (no-ops until an `SdkMeterProvider` is installed).
     pub fn new(
         params: TrustRankParams,
         engine: Box<dyn TrustRankEngine>,
         report_dir: Option<PathBuf>,
         report_limit: usize,
     ) -> Self {
+        Self::with_meter(
+            params,
+            engine,
+            report_dir,
+            report_limit,
+            global::meter(METER_NAME),
+        )
+    }
+
+    /// [`new`](Self::new) with an explicit `meter`, so tests can install a local
+    /// `SdkMeterProvider` and read the counter back.
+    pub(crate) fn with_meter(
+        params: TrustRankParams,
+        engine: Box<dyn TrustRankEngine>,
+        report_dir: Option<PathBuf>,
+        report_limit: usize,
+        meter: Meter,
+    ) -> Self {
+        let max_iterations_reached = meter
+            .u64_counter("trust.recompute.max_iterations_reached")
+            .with_description("Trust rank runs that hit max_iterations without converging")
+            .build();
         Self {
             params,
             engine,
             report_dir,
             report_limit,
+            max_iterations_reached,
         }
     }
 
@@ -67,6 +100,14 @@ impl Job for TrustRecomputeJob {
             did_converge = stats.did_converge,
             "Trust rank run stats"
         );
+        if !stats.did_converge {
+            self.max_iterations_reached.add(1, &[]);
+            warn!(
+                max_iterations = self.params.max_iterations,
+                tolerance = self.params.tolerance,
+                "Trust rank hit max_iterations without converging"
+            );
+        }
 
         // Report failures are logged, not fatal: scores are already persisted.
         if let Some(dir) = &self.report_dir {
@@ -87,6 +128,10 @@ mod tests {
     use std::sync::atomic::{AtomicU32, Ordering};
     use std::sync::Arc;
 
+    use opentelemetry::metrics::MeterProvider;
+    use opentelemetry_sdk::metrics::data::{AggregatedMetrics, MetricData, ResourceMetrics};
+    use opentelemetry_sdk::metrics::{InMemoryMetricExporter, SdkMeterProvider};
+
     use super::super::engine::{TrustRankEngine, TrustRankParams, TrustRankStats};
     use super::*;
 
@@ -95,6 +140,17 @@ mod tests {
     struct MockEngine {
         calls: Arc<AtomicU32>,
         fail: bool,
+        did_converge: bool,
+    }
+
+    impl MockEngine {
+        fn new(calls: &Arc<AtomicU32>, fail: bool) -> Self {
+            Self {
+                calls: Arc::clone(calls),
+                fail,
+                did_converge: true,
+            }
+        }
     }
 
     #[async_trait]
@@ -107,9 +163,38 @@ mod tests {
             Ok(TrustRankStats {
                 users_written: 1,
                 ran_iterations: 1,
-                did_converge: true,
+                did_converge: self.did_converge,
             })
         }
+    }
+
+    /// A job whose counters feed an in-memory exporter. Call
+    /// `provider.force_flush()` before reading `exporter.get_finished_metrics()`.
+    fn metered_job(
+        engine: Box<dyn TrustRankEngine>,
+    ) -> (TrustRecomputeJob, SdkMeterProvider, InMemoryMetricExporter) {
+        let exporter = InMemoryMetricExporter::default();
+        let provider = SdkMeterProvider::builder()
+            .with_periodic_exporter(exporter.clone())
+            .build();
+        let job = TrustRecomputeJob::with_meter(params(), engine, None, 10, provider.meter("test"));
+        (job, provider, exporter)
+    }
+
+    /// Sum of a `u64` counter's data points across all exported metrics.
+    fn counter_value(metrics: &[ResourceMetrics], name: &str) -> u64 {
+        let mut total = 0;
+        for rm in metrics {
+            for sm in rm.scope_metrics() {
+                for m in sm.metrics().filter(|m| m.name() == name) {
+                    let AggregatedMetrics::U64(MetricData::Sum(sum)) = m.data() else {
+                        continue;
+                    };
+                    total += sum.data_points().map(|dp| dp.value()).sum::<u64>();
+                }
+            }
+        }
+        total
     }
 
     fn params() -> TrustRankParams {
@@ -126,10 +211,7 @@ mod tests {
     #[tokio::test]
     async fn run_without_report_computes_and_skips_report() {
         let calls = Arc::new(AtomicU32::new(0));
-        let engine = MockEngine {
-            calls: Arc::clone(&calls),
-            fail: false,
-        };
+        let engine = MockEngine::new(&calls, false);
         let job = TrustRecomputeJob::new(params(), Box::new(engine), None, 10);
 
         job.run().await.expect("run should succeed");
@@ -142,10 +224,7 @@ mod tests {
     #[tokio::test]
     async fn run_propagates_compute_error_before_report() {
         let calls = Arc::new(AtomicU32::new(0));
-        let engine = MockEngine {
-            calls: Arc::clone(&calls),
-            fail: true,
-        };
+        let engine = MockEngine::new(&calls, true);
         let job = TrustRecomputeJob::new(
             params(),
             Box::new(engine),
@@ -157,5 +236,45 @@ mod tests {
 
         assert_eq!(calls.load(Ordering::SeqCst), 1);
         assert_eq!(err.to_string(), "compute failed");
+    }
+
+    // A run that exhausted max_iterations bumps the counter.
+    #[tokio::test]
+    async fn run_counts_max_iterations_reached_when_not_converged() {
+        let calls = Arc::new(AtomicU32::new(0));
+        let engine = MockEngine {
+            did_converge: false,
+            ..MockEngine::new(&calls, false)
+        };
+        let (job, provider, exporter) = metered_job(Box::new(engine));
+
+        job.run().await.expect("run should succeed");
+        provider.force_flush().expect("flush should succeed");
+
+        let metrics = exporter
+            .get_finished_metrics()
+            .expect("metrics should be exported");
+        assert_eq!(
+            counter_value(&metrics, "trust.recompute.max_iterations_reached"),
+            1
+        );
+    }
+
+    // A converged run leaves the counter untouched.
+    #[tokio::test]
+    async fn run_does_not_count_max_iterations_reached_when_converged() {
+        let calls = Arc::new(AtomicU32::new(0));
+        let (job, provider, exporter) = metered_job(Box::new(MockEngine::new(&calls, false)));
+
+        job.run().await.expect("run should succeed");
+        provider.force_flush().expect("flush should succeed");
+
+        let metrics = exporter
+            .get_finished_metrics()
+            .expect("metrics should be exported");
+        assert_eq!(
+            counter_value(&metrics, "trust.recompute.max_iterations_reached"),
+            0
+        );
     }
 }
