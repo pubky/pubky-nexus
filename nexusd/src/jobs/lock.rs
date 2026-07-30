@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use nexus_common::db::{release_lock, try_acquire_lock, RedisError};
+use nexus_common::utils::ms;
 use opentelemetry::metrics::{Counter, Histogram, Meter};
 use opentelemetry::{global, KeyValue};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -204,8 +205,7 @@ impl LockMetrics {
                 ]
             });
         self.operations_counter.add(1, &tags);
-        self.duration_histogram
-            .record(duration.as_secs_f64() * 1000.0, &tags);
+        self.duration_histogram.record(ms(duration), &tags);
     }
 
     fn record_acquire(&self, job: &'static str, outcome: &'static str, duration: Duration) {

@@ -30,6 +30,8 @@ use std::time::Duration;
 use opentelemetry::metrics::{Counter, Histogram};
 use opentelemetry::{global, KeyValue};
 
+use crate::utils::ms;
+
 const METER_NAME: &str = "wot";
 
 struct WotStreamMetrics {
@@ -106,9 +108,7 @@ pub(super) fn record_wot_result(
         KeyValue::new("source", source),
         KeyValue::new("depth", i64::from(depth)),
     ];
-    METRICS
-        .query_duration
-        .record(elapsed.as_secs_f64() * 1000.0, attrs);
+    METRICS.query_duration.record(ms(elapsed), attrs);
     match posts {
         Some(posts) => {
             METRICS.returned_posts.record(posts as u64, attrs);
