@@ -190,6 +190,10 @@ cargo nextest run -p nexus-webapi --no-fail-fast
 # TEST_PUBKY_CONNECTION_STRING from docker/.env-sample
 # export TEST_PUBKY_CONNECTION_STRING=postgres://test_user:test_pass@localhost:5432/postgres?pubky-test=true
 cargo nextest run -p nexus-watcher --no-fail-fast
+
+# nexusd trust-rank tests require the GDS plugin baked into the neo4j image
+# (docker/neo4j/Dockerfile); the docker compose stack builds it automatically.
+cargo nextest run -p nexusd --no-fail-fast
 ```
 
 To test specific feature(s):
