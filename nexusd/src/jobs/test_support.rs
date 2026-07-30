@@ -3,6 +3,8 @@
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use opentelemetry_sdk::metrics::data::{AggregatedMetrics, MetricData, ResourceMetrics};
+use std::borrow::Cow;
 use std::error::Error;
 use std::sync::atomic::{AtomicI64, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
@@ -42,12 +44,23 @@ pub(super) enum AcquireOutcome {
     Fails,
     /// Granted on even calls, denied on odd, so one run exercises both branches.
     Alternating,
+    /// Hangs indefinitely (awaits a future that never resolves).
+    Hangs,
+}
+
+/// What [`FakeLock`]'s `unlock` does, fixed per instance.
+pub(super) enum UnlockOutcome {
+    /// Succeeds immediately.
+    Succeeds,
+    /// Hangs indefinitely (awaits a future that never resolves).
+    Hangs,
 }
 
 /// The [`RunLock`] stub: a canned `acquire` outcome plus counters and the last
 /// job name seen on each call.
 pub(super) struct FakeLock {
-    outcome: AcquireOutcome,
+    acquire_outcome: AcquireOutcome,
+    unlock_outcome: UnlockOutcome,
     acquires: AtomicU32,
     releases: AtomicU32,
     acquired_with: Mutex<Option<String>>,
@@ -55,9 +68,10 @@ pub(super) struct FakeLock {
 }
 
 impl FakeLock {
-    pub(super) fn new(outcome: AcquireOutcome) -> Arc<Self> {
+    pub(super) fn new(acquire_outcome: AcquireOutcome, unlock_outcome: UnlockOutcome) -> Arc<Self> {
         Arc::new(Self {
-            outcome,
+            acquire_outcome,
+            unlock_outcome,
             acquires: AtomicU32::new(0),
             releases: AtomicU32::new(0),
             acquired_with: Mutex::new(None),
@@ -70,8 +84,8 @@ impl FakeLock {
         self.acquires.load(Ordering::SeqCst)
     }
 
-    /// Calls to `unlock`.
-    pub(super) fn releases(&self) -> u32 {
+    /// Calls to `unlock` (tracks attempts, including ones that hang).
+    pub(super) fn unlock_attempts(&self) -> u32 {
         self.releases.load(Ordering::SeqCst)
     }
 
@@ -95,18 +109,22 @@ impl RunLock for FakeLock {
     async fn acquire(&self, job: &str, _token: &str) -> LockResult<bool> {
         *self.acquired_with.lock().unwrap() = Some(job.to_string());
         let call = self.acquires.fetch_add(1, Ordering::SeqCst);
-        match self.outcome {
+        match self.acquire_outcome {
             AcquireOutcome::Granted => Ok(true),
             AcquireOutcome::Denied => Ok(false),
             AcquireOutcome::Fails => Err(LockError("backend down".into())),
             AcquireOutcome::Alternating => Ok(call.is_multiple_of(2)),
+            AcquireOutcome::Hangs => std::future::pending().await,
         }
     }
 
     async fn unlock(&self, job: &str, _token: &str) -> LockResult<()> {
         *self.released_with.lock().unwrap() = Some(job.to_string());
         self.releases.fetch_add(1, Ordering::SeqCst);
-        Ok(())
+        match self.unlock_outcome {
+            UnlockOutcome::Succeeds => Ok(()),
+            UnlockOutcome::Hangs => std::future::pending().await,
+        }
     }
 }
 
@@ -196,4 +214,34 @@ impl Job for BlockingJob {
         self.completed.fetch_add(1, Ordering::SeqCst);
         Ok(())
     }
+}
+
+/// Sum of a `u64` counter's data points whose attributes contain every
+/// (key, value) pair in `filters`.
+pub(super) fn counter_value(
+    metrics: &[ResourceMetrics],
+    name: &str,
+    filters: &[(&str, &str)],
+) -> u64 {
+    let mut total = 0;
+    for rm in metrics {
+        for sm in rm.scope_metrics() {
+            for m in sm.metrics().filter(|m| m.name() == name) {
+                let AggregatedMetrics::U64(MetricData::Sum(sum)) = m.data() else {
+                    continue;
+                };
+                for dp in sum.data_points() {
+                    let matches = filters.iter().all(|(k, v)| {
+                        dp.attributes().any(|kv| {
+                            kv.key.as_str() == *k && kv.value.as_str() == Cow::Borrowed(*v)
+                        })
+                    });
+                    if matches {
+                        total += dp.value();
+                    }
+                }
+            }
+        }
+    }
+    total
 }

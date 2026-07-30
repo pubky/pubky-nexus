@@ -8,11 +8,8 @@ use std::time::Duration;
 use tokio::sync::watch::Receiver;
 use tracing::{debug, error, info, warn};
 
-use super::lock::{self, RunLock};
-use super::{CronParseError, Job};
-
-/// OpenTelemetry meter name for all job metrics.
-const METER_NAME: &str = "nexus.jobs";
+use super::lock::{self, LockMetrics, RunLock};
+use super::{CronParseError, Job, METER_NAME};
 
 /// Wall-clock re-check interval while waiting for a fire time (see [`Scheduler::sleep_until`]).
 pub(super) const MAX_SLEEP: Duration = Duration::from_secs(30);
@@ -28,6 +25,7 @@ pub type NowFn = Arc<dyn Fn() -> DateTime<Utc> + Send + Sync>;
 pub struct Scheduler {
     now_fn: NowFn,
     lock: Arc<dyn RunLock>,
+    lock_metrics: LockMetrics,
     /// Wall-clock re-check interval while sleeping toward a fire time (see [`MAX_SLEEP`]).
     max_sleep: Duration,
     /// Deadline for a single run, past which it's abandoned (see [`lock::MAX_RUN`]).
@@ -37,7 +35,7 @@ pub struct Scheduler {
     /// Fires where the job ran, labelled by `outcome` in {ok, error, abandoned, timed_out}.
     run_completed: Counter<u64>,
     /// Fires that didn't run the job, labelled by `reason` in
-    /// {in_progress, lock_error, shutdown_before_acquire}.
+    /// {in_progress, lock_error, acquire_timed_out, shutdown_before_acquire}.
     run_skipped: Counter<u64>,
     /// Schedulers that stopped and won't run again until restart, labelled by
     /// `reason` in {panic, schedule_exhausted}. Excludes clean shutdown. A
@@ -56,6 +54,7 @@ impl Scheduler {
     /// [`new`](Self::new) with an explicit `meter`, so tests can install a local
     /// `SdkMeterProvider` and read the counters back.
     pub(crate) fn with_meter(now_fn: NowFn, lock: Arc<dyn RunLock>, meter: Meter) -> Self {
+        let lock_metrics = LockMetrics::with_meter(meter.clone());
         let run_attempts = meter
             .u64_counter("jobs.run.attempts")
             .with_description("Scheduled fire attempts (before lock acquisition)")
@@ -77,6 +76,7 @@ impl Scheduler {
         Self {
             now_fn,
             lock,
+            lock_metrics,
             max_sleep: MAX_SLEEP,
             max_run: lock::MAX_RUN,
             run_attempts,
@@ -269,8 +269,8 @@ impl Scheduler {
     // Acquires the run lock, runs the job once, releases it; skips (no error) when
     // the lock is held or unreachable, so a backlog can't pile up. Three phases
     // around `shutdown`: acquire and release are uncancellable (they read the
-    // backend reply first, so a mid-flight drop can't orphan the lock or poison a
-    // pooled connection); only `job.run()` races shutdown. A panic in `run()`
+    // backend reply first, so a mid-flight drop can't orphan the lock or leave the
+    // backend mid-request); only `job.run()` races shutdown. A panic in `run()`
     // propagates via `JoinSet` (see `supervise`); the lock still releases via Drop.
     async fn run_locked(&self, job: &dyn Job, shutdown: &mut Receiver<bool>) {
         let name = job.name();
@@ -288,8 +288,8 @@ impl Scheduler {
             return;
         }
 
-        // Phase 1: acquire — uncancellable. Reads the SET reply before returning.
-        let guard = match super::lock::acquire(name, &self.lock).await {
+        // Phase 1: acquire — uncancellable. Reads the backend's reply before returning.
+        let guard = match super::lock::acquire(name, &self.lock, &self.lock_metrics).await {
             super::lock::Acquired::Taken(guard) => guard,
             super::lock::Acquired::Held => {
                 self.run_skipped.add(
@@ -305,7 +305,7 @@ impl Scheduler {
                 );
                 return;
             }
-            super::lock::Acquired::Failed(e) => {
+            super::lock::Acquired::Failed { error, released } => {
                 self.run_skipped.add(
                     1,
                     &[
@@ -313,10 +313,35 @@ impl Scheduler {
                         KeyValue::new("reason", "lock_error"),
                     ],
                 );
-                error!(
-                    job = name,
-                    "Could not acquire run lock; skipping this fire: {e}"
+                if released {
+                    warn!(
+                        job = name,
+                        "Could not acquire run lock; skipping this fire: {error}"
+                    );
+                } else {
+                    warn!(
+                        job = name,
+                        "Could not acquire run lock and inline release also failed — slot may stay held until TTL expires; skipping this fire: {error}"
+                    );
+                }
+                return;
+            }
+            super::lock::Acquired::TimedOut { released } => {
+                self.run_skipped.add(
+                    1,
+                    &[
+                        KeyValue::new("job", name),
+                        KeyValue::new("reason", "acquire_timed_out"),
+                    ],
                 );
+                if released {
+                    warn!(job = name, "Lock acquire timed out; skipping this fire");
+                } else {
+                    warn!(
+                        job = name,
+                        "Lock acquire timed out and inline release also failed — slot may stay held until TTL expires; skipping this fire"
+                    );
+                }
                 return;
             }
         };
@@ -356,8 +381,18 @@ impl Scheduler {
         };
 
         // Phase 3: release — uncancellable. Runs even after abandonment; awaiting
-        // the EVAL reply costs a few ms at shutdown but leaves the lock known-free.
-        guard.release().await;
+        // the unlock reply costs a few ms at shutdown but leaves the lock known-free.
+        let release_outcome = guard.release().await;
+        if !matches!(
+            release_outcome,
+            super::lock::ReleaseOutcome::Released | super::lock::ReleaseOutcome::NotHeld
+        ) {
+            warn!(
+                job = name,
+                ?release_outcome,
+                "Lock release failed after run — slot may stay held until TTL expires"
+            );
+        }
 
         self.run_completed.add(
             1,
@@ -394,12 +429,12 @@ mod tests {
             .with_timezone(&Utc)
     }
     use crate::jobs::test_support::{
-        steppable_clock, AcquireOutcome, BlockingJob, CountingJob, FakeLock,
+        counter_value, steppable_clock, AcquireOutcome, BlockingJob, CountingJob, FakeLock,
+        UnlockOutcome,
     };
     use crate::jobs::Job;
     use async_trait::async_trait;
     use opentelemetry::metrics::MeterProvider;
-    use opentelemetry_sdk::metrics::data::{AggregatedMetrics, MetricData, ResourceMetrics};
     use opentelemetry_sdk::metrics::{InMemoryMetricExporter, SdkMeterProvider};
     use std::error::Error;
     use std::sync::atomic::{AtomicI64, AtomicU32, Ordering};
@@ -420,33 +455,6 @@ mod tests {
             .build();
         let scheduler = Scheduler::with_meter(now_fn, lock, provider.meter("test"));
         (scheduler, provider, exporter)
-    }
-
-    /// Sum of a `u64` counter's data points whose attributes contain every
-    /// (key, value) pair in `filters`.
-    fn counter_value(metrics: &[ResourceMetrics], name: &str, filters: &[(&str, &str)]) -> u64 {
-        let mut total = 0;
-        for rm in metrics {
-            for sm in rm.scope_metrics() {
-                for m in sm.metrics().filter(|m| m.name() == name) {
-                    let AggregatedMetrics::U64(MetricData::Sum(sum)) = m.data() else {
-                        continue;
-                    };
-                    for dp in sum.data_points() {
-                        let matches = filters.iter().all(|(k, v)| {
-                            dp.attributes().any(|kv| {
-                                kv.key.as_str() == *k
-                                    && kv.value.as_str() == std::borrow::Cow::Borrowed(*v)
-                            })
-                        });
-                        if matches {
-                            total += dp.value();
-                        }
-                    }
-                }
-            }
-        }
-        total
     }
 
     #[test]
@@ -499,7 +507,10 @@ mod tests {
         let (tx, rx) = watch::channel(false);
 
         let schedule = validate_cron("* * * * * *").unwrap();
-        let scheduler = Scheduler::new(virtual_now(), FakeLock::new(AcquireOutcome::Granted));
+        let scheduler = Scheduler::new(
+            virtual_now(),
+            FakeLock::new(AcquireOutcome::Granted, UnlockOutcome::Succeeds),
+        );
         let runner = scheduler.run_job(&schedule, &job, rx);
         let driver = async {
             // Anchor to the first fire so timing doesn't depend on the start
@@ -528,8 +539,10 @@ mod tests {
 
         let shutdown_at: Mutex<Option<tokio::time::Instant>> = Mutex::new(None);
         let schedule = validate_cron("* * * * * *").unwrap();
-        let (scheduler, provider, exporter) =
-            metered_scheduler(virtual_now(), FakeLock::new(AcquireOutcome::Granted));
+        let (scheduler, provider, exporter) = metered_scheduler(
+            virtual_now(),
+            FakeLock::new(AcquireOutcome::Granted, UnlockOutcome::Succeeds),
+        );
         let runner = scheduler.run_job(&schedule, &job, rx);
         let driver = async {
             // Wait until the job has actually started running.
@@ -593,7 +606,7 @@ mod tests {
         let (tx, rx) = watch::channel(false);
 
         let schedule = validate_cron("* * * * * *").unwrap();
-        let lock = FakeLock::new(AcquireOutcome::Granted);
+        let lock = FakeLock::new(AcquireOutcome::Granted, UnlockOutcome::Succeeds);
         let (scheduler, provider, exporter) = metered_scheduler(virtual_now(), lock.clone());
         let scheduler = scheduler.with_max_run(Duration::from_secs(2));
         let runner = scheduler.run_job(&schedule, &job, rx);
@@ -617,7 +630,7 @@ mod tests {
         );
         assert_eq!(
             lock.acquires(),
-            lock.releases(),
+            lock.unlock_attempts(),
             "an abandoned run must still release its lease"
         );
 
@@ -642,7 +655,10 @@ mod tests {
         // test run. The pin is what guarantees no fire: an unpinned "0 0 0 1 1 *"
         // recurs yearly and could fire if the paused clock lands near Jan 1 UTC.
         let schedule = validate_cron("0 0 0 1 1 * 2100").unwrap();
-        let scheduler = Scheduler::new(virtual_now(), FakeLock::new(AcquireOutcome::Granted));
+        let scheduler = Scheduler::new(
+            virtual_now(),
+            FakeLock::new(AcquireOutcome::Granted, UnlockOutcome::Succeeds),
+        );
         let runner = scheduler.run_job(&schedule, &job, rx);
         let stopper = async {
             tokio::time::sleep(Duration::from_millis(100)).await;
@@ -663,7 +679,10 @@ mod tests {
         let (tx, rx) = watch::channel(false);
 
         let schedule = validate_cron("* * * * * *").unwrap();
-        let scheduler = Scheduler::new(virtual_now(), FakeLock::new(AcquireOutcome::Granted));
+        let scheduler = Scheduler::new(
+            virtual_now(),
+            FakeLock::new(AcquireOutcome::Granted, UnlockOutcome::Succeeds),
+        );
         let runner = scheduler.run_job(&schedule, &job, rx);
         let driver = async {
             // Wait for the first fire, then send false (a no-op).
@@ -689,7 +708,10 @@ mod tests {
         let (tx, rx) = watch::channel(false);
 
         let schedule = validate_cron("* * * * * *").unwrap();
-        let scheduler = Scheduler::new(virtual_now(), FakeLock::new(AcquireOutcome::Denied));
+        let scheduler = Scheduler::new(
+            virtual_now(),
+            FakeLock::new(AcquireOutcome::Denied, UnlockOutcome::Succeeds),
+        );
         let runner = scheduler.run_job(&schedule, &job, rx);
         let stopper = async {
             // Several ticks pass; every fire should be skipped.
@@ -711,7 +733,7 @@ mod tests {
         let (tx, rx) = watch::channel(false);
 
         let schedule = validate_cron("* * * * * *").unwrap();
-        let lock = FakeLock::new(AcquireOutcome::Granted);
+        let lock = FakeLock::new(AcquireOutcome::Granted, UnlockOutcome::Succeeds);
         let scheduler = Scheduler::new(virtual_now(), lock.clone());
         let runner = scheduler.run_job(&schedule, &job, rx);
         let stopper = async {
@@ -724,11 +746,11 @@ mod tests {
         assert!(runs >= 2, "the job should have fired at least twice");
         assert_eq!(
             lock.acquires(),
-            lock.releases(),
+            lock.unlock_attempts(),
             "every acquire must be paired with a release"
         );
         assert_eq!(
-            lock.releases(),
+            lock.unlock_attempts(),
             runs,
             "the lock must be released once per run"
         );
@@ -742,8 +764,10 @@ mod tests {
         let schedule = validate_cron("* * * * * *").unwrap();
         // Alternating: even fires run the job (completed{ok}), odd fires are
         // denied (skipped{in_progress}), so one run exercises both branches.
-        let (scheduler, provider, exporter) =
-            metered_scheduler(virtual_now(), FakeLock::new(AcquireOutcome::Alternating));
+        let (scheduler, provider, exporter) = metered_scheduler(
+            virtual_now(),
+            FakeLock::new(AcquireOutcome::Alternating, UnlockOutcome::Succeeds),
+        );
         let runner = scheduler.run_job(&schedule, &job, rx);
         let stopper = async {
             tokio::time::sleep(Duration::from_millis(4500)).await;
@@ -781,7 +805,7 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn run_locked_fast_exits_when_already_shutdown() {
         let job = CountingJob::new("counting");
-        let lock = FakeLock::new(AcquireOutcome::Granted);
+        let lock = FakeLock::new(AcquireOutcome::Granted, UnlockOutcome::Succeeds);
         let (scheduler, provider, exporter) = metered_scheduler(virtual_now(), lock.clone());
 
         // Shutdown is already true when run_locked is entered.
@@ -821,8 +845,11 @@ mod tests {
         // Epoch pinned on the hour, so the next hourly fire is exactly 1h out.
         let (now_fn, skew) = steppable_clock(at("2030-01-01T00:00:00Z"));
         let schedule = validate_cron("0 0 * * * *").unwrap();
-        let scheduler = Scheduler::new(now_fn, FakeLock::new(AcquireOutcome::Granted))
-            .with_max_sleep(Duration::from_secs(30));
+        let scheduler = Scheduler::new(
+            now_fn,
+            FakeLock::new(AcquireOutcome::Granted, UnlockOutcome::Succeeds),
+        )
+        .with_max_sleep(Duration::from_secs(30));
         let runner = scheduler.run_job(&schedule, &job, rx);
         let driver = async {
             // Let the scheduler settle into its wait toward 01:00.
@@ -876,7 +903,10 @@ mod tests {
         let (tx, rx) = watch::channel(false);
 
         let schedule = validate_cron("0 0 * * * *").unwrap();
-        let scheduler = Scheduler::new(now_fn, FakeLock::new(AcquireOutcome::Granted));
+        let scheduler = Scheduler::new(
+            now_fn,
+            FakeLock::new(AcquireOutcome::Granted, UnlockOutcome::Succeeds),
+        );
         let runner = scheduler.run_job(&schedule, &job, rx);
         let stopper = async {
             // Far longer than the ~2s a re-fire of 01:00:00 would take, and far
@@ -902,8 +932,10 @@ mod tests {
 
         // Year-pinned single fire: fires once, then `after()` yields no more times.
         let schedule = validate_cron("0 0 0 1 1 * 2099").unwrap();
-        let (scheduler, provider, exporter) =
-            metered_scheduler(virtual_now(), FakeLock::new(AcquireOutcome::Granted));
+        let (scheduler, provider, exporter) = metered_scheduler(
+            virtual_now(),
+            FakeLock::new(AcquireOutcome::Granted, UnlockOutcome::Succeeds),
+        );
         // Unbounded chunks: the fire is decades out, and the default 30s re-check
         // would need millions of iterations to reach it under the paused clock.
         let scheduler = scheduler.with_max_sleep(Duration::MAX);
