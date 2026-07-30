@@ -164,7 +164,8 @@ impl LockMetrics {
             .build();
         let duration_histogram = meter
             .f64_histogram("jobs.lock.duration")
-            .with_description("Lock acquire/release duration (seconds)")
+            .with_description("Lock acquire/release duration, in milliseconds")
+            .with_unit("ms")
             .build();
         Self {
             operations_counter,
@@ -188,7 +189,7 @@ impl LockMetrics {
         ];
         self.operations_counter.add(1, &tags);
         self.duration_histogram
-            .record(duration.as_secs_f64(), &tags);
+            .record(duration.as_secs_f64() * 1000.0, &tags);
     }
 
     fn record_acquire(&self, job: &'static str, outcome: &'static str, duration: Duration) {
