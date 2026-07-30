@@ -173,31 +173,43 @@ impl LockMetrics {
         }
     }
 
+    /// Record an acquire/release outcome.
+    ///
+    /// `path` describes how an *unlock* happened and is emitted only on release
+    /// points (`inline` = explicit `release()`, `drop` = Drop backstop,
+    /// `cleanup` = acquire-failure cleanup). Acquire points carry no `path`
+    /// attribute because there is only one way to acquire.
     fn record(
         &self,
         job: &'static str,
         operation: &'static str,
         outcome: &'static str,
-        path: &'static str,
+        path: Option<&'static str>,
         duration: Duration,
     ) {
-        let tags = [
-            KeyValue::new("job", job),
-            KeyValue::new("operation", operation),
-            KeyValue::new("outcome", outcome),
-            KeyValue::new("path", path),
-        ];
+        let tags: Vec<KeyValue> = path
+            .map(|p| {
+                vec![
+                    KeyValue::new("job", job),
+                    KeyValue::new("operation", operation),
+                    KeyValue::new("outcome", outcome),
+                    KeyValue::new("path", p),
+                ]
+            })
+            .unwrap_or_else(|| {
+                vec![
+                    KeyValue::new("job", job),
+                    KeyValue::new("operation", operation),
+                    KeyValue::new("outcome", outcome),
+                ]
+            });
         self.operations_counter.add(1, &tags);
         self.duration_histogram
             .record(duration.as_secs_f64() * 1000.0, &tags);
     }
 
     fn record_acquire(&self, job: &'static str, outcome: &'static str, duration: Duration) {
-        self.record(job, "acquire", outcome, "inline", duration);
-    }
-
-    fn record_release(&self, job: &'static str, outcome: &'static str, duration: Duration) {
-        self.record(job, "release", outcome, "inline", duration);
+        self.record(job, "acquire", outcome, None, duration);
     }
 
     fn record_release_from_drop(
@@ -206,7 +218,7 @@ impl LockMetrics {
         outcome: &'static str,
         duration: Duration,
     ) {
-        self.record(job, "release", outcome, "drop", duration);
+        self.record(job, "release", outcome, Some("drop"), duration);
     }
 }
 
@@ -241,13 +253,13 @@ pub(super) async fn acquire(
         }
         Ok(Err(e)) => {
             let elapsed = start.elapsed();
-            let released = matches!(guard.release().await, ReleaseOutcome::Released);
+            let released = matches!(guard.release_as("cleanup").await, ReleaseOutcome::Released);
             metrics.record_acquire(job, "error", elapsed);
             Acquired::Failed { error: e, released }
         }
         Err(_) => {
             let elapsed = start.elapsed();
-            let released = matches!(guard.release().await, ReleaseOutcome::Released);
+            let released = matches!(guard.release_as("cleanup").await, ReleaseOutcome::Released);
             metrics.record_acquire(job, "timeout", elapsed);
             Acquired::TimedOut { released }
         }
@@ -292,8 +304,15 @@ impl LockGuard {
     }
 
     /// Releases the lock, awaiting the result so unlock errors log
-    /// synchronously. After this, Drop is a no-op.
-    pub async fn release(mut self) -> ReleaseOutcome {
+    /// synchronously. After this, Drop is a no-op. Emits metrics with
+    /// `path=inline`.
+    pub async fn release(self) -> ReleaseOutcome {
+        self.release_as("inline").await
+    }
+
+    /// Like [`release`](Self::release) but emits the given `path` label.
+    /// Used by [`acquire`] to distinguish cleanup releases from normal ones.
+    pub(super) async fn release_as(mut self, path: &'static str) -> ReleaseOutcome {
         let Some(token) = self.token.take() else {
             return ReleaseOutcome::NotHeld;
         };
@@ -301,18 +320,19 @@ impl LockGuard {
         let start = Instant::now();
         match timeout(LOCK_IO_TIMEOUT, self.lock.unlock(self.job, &token)).await {
             Ok(Ok(())) => {
-                self.metrics.record_release(self.job, "ok", start.elapsed());
+                self.metrics
+                    .record(self.job, "release", "ok", Some(path), start.elapsed());
                 ReleaseOutcome::Released
             }
             Ok(Err(e)) => {
                 self.metrics
-                    .record_release(self.job, "error", start.elapsed());
+                    .record(self.job, "release", "error", Some(path), start.elapsed());
                 tracing::debug!(job = self.job, "Could not release run lock: {e}");
                 ReleaseOutcome::Failed
             }
             Err(_) => {
                 self.metrics
-                    .record_release(self.job, "timeout", start.elapsed());
+                    .record(self.job, "release", "timeout", Some(path), start.elapsed());
                 tracing::debug!(
                     job = self.job,
                     "Unlock timed out — slot may stay held until TTL expires"
@@ -626,10 +646,14 @@ mod tests {
             counter_value(
                 &resource_metrics,
                 "jobs.lock.operations",
-                &[("outcome", "ok"), ("operation", "release")]
+                &[
+                    ("outcome", "ok"),
+                    ("operation", "release"),
+                    ("path", "inline")
+                ]
             ),
             1,
-            "release outcome must be recorded"
+            "happy-path release must be recorded with path=inline"
         );
         // Histogram has two series: one acquire + one release (each a unique attr set)
         let mut histogram_count = 0u64;
@@ -646,6 +670,58 @@ mod tests {
         assert!(
             histogram_count >= 2,
             "duration histogram must have at least 2 series (acquire + release), got {histogram_count}"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn lock_metrics_record_cleanup_release_on_failed_acquire() {
+        let fake = FakeLock::new(AcquireOutcome::Fails, UnlockOutcome::Succeeds);
+        let lock: Arc<dyn RunLock> = fake.clone();
+        let (metrics, provider, exporter) = metered_lock_metrics();
+
+        let outcome = acquire("test-job", &lock, &metrics).await;
+        assert!(matches!(outcome, Acquired::Failed { released: true, .. }));
+
+        provider.force_flush().unwrap();
+        let resource_metrics = exporter.get_finished_metrics().unwrap();
+
+        // The acquire error should have no path attribute
+        assert_eq!(
+            counter_value(
+                &resource_metrics,
+                "jobs.lock.operations",
+                &[("outcome", "error"), ("operation", "acquire")]
+            ),
+            1,
+            "acquire error must be recorded without path"
+        );
+        // The cleanup release should have path=cleanup
+        assert_eq!(
+            counter_value(
+                &resource_metrics,
+                "jobs.lock.operations",
+                &[
+                    ("outcome", "ok"),
+                    ("operation", "release"),
+                    ("path", "cleanup")
+                ]
+            ),
+            1,
+            "cleanup release after failed acquire must be recorded with path=cleanup"
+        );
+        // No inline release should exist
+        assert_eq!(
+            counter_value(
+                &resource_metrics,
+                "jobs.lock.operations",
+                &[
+                    ("outcome", "ok"),
+                    ("operation", "release"),
+                    ("path", "inline")
+                ]
+            ),
+            0,
+            "no inline release should exist when acquire failed"
         );
     }
 
