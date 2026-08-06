@@ -55,7 +55,6 @@ impl RetryScheduler {
                 PubkyClientError::NotInitialized
                 | PubkyClientError::TooManyRequests429 { .. }
                 | PubkyClientError::ServerError5xx { .. }
-                | PubkyClientError::TransportFailed { .. }
                 | PubkyClientError::RequestFailed { .. }
                 | PubkyClientError::PkarrFailed(..) => true,
 

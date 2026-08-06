@@ -3,9 +3,10 @@ use std::{sync::Arc, time::Duration};
 use crate::errors::EventProcessorError;
 use crate::events::Event;
 use futures::StreamExt;
-use nexus_common::db::{PubkyClientError, PubkyConnector};
+use nexus_common::db::PubkyConnector;
 use nexus_common::models::homeserver::HsBlacklist;
 use nexus_common::models::user::UserHsCursor;
+use pubky::errors::RequestError;
 use pubky::{Event as StreamEvent, EventCursor, PublicKey};
 use pubky_app_specs::PubkyId;
 use tokio::sync::watch::Receiver;
@@ -42,6 +43,11 @@ impl KeyBasedEventSource for PubkyKeyBasedEventSource {
         limit: u16,
     ) -> Result<Vec<StreamEvent>, EventProcessorError> {
         let pubky = PubkyConnector::get()?;
+        let hs_transport_failed =
+            |message: String| EventProcessorError::HsEventsStreamTransportFailed {
+                hs_id: hs_pk.z32(),
+                message,
+            };
 
         // We are building the stream without the live flag, so it performs an HTTP GET and closes.
         // See rustdoc of EventStreamBuilder::live()
@@ -52,6 +58,12 @@ impl KeyBasedEventSource for PubkyKeyBasedEventSource {
             .path("/pub/")
             .subscribe()
             .await
+            .map_err(|error| match error {
+                pubky::Error::Request(RequestError::Transport(error)) => {
+                    hs_transport_failed(error.to_string())
+                }
+                error => error.into(),
+            })
             .inspect_err(|e| error!("Failed to subscribe to event stream: {e:?}"))?;
 
         // The HS is asked for at most `limit` events, but a misbehaving one could return more
@@ -68,11 +80,7 @@ impl KeyBasedEventSource for PubkyKeyBasedEventSource {
             }
 
             // For SSE connections: Pubky emits SSE connection failures as stream item errors.
-            let event = result.map_err(|error| PubkyClientError::TransportFailed {
-                message: error.to_string(),
-            })?;
-
-            events.push(event);
+            events.push(result.map_err(|error| hs_transport_failed(error.to_string()))?);
         }
 
         Ok(events)

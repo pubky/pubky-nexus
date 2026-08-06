@@ -54,6 +54,10 @@ pub enum EventProcessorError {
     #[error("HS /events-stream rate limit exhausted (429 after all backoff retries)")]
     HsEventsStreamRateLimitExhausted,
 
+    /// Transport to an external homeserver's /events-stream failed.
+    #[error("HS {hs_id} /events-stream transport failed: {message}")]
+    HsEventsStreamTransportFailed { hs_id: String, message: String },
+
     /// The HS is blacklisted and must not be indexed.
     #[error("HsBlacklisted: {hs_id}")]
     HsBlacklisted { hs_id: String },
@@ -157,17 +161,13 @@ impl EventProcessorError {
     /// These are the kinds of errors that are expected to be thrown again
     /// if the event processor caller continues processing other events.
     pub fn should_not_retry_now(&self) -> bool {
-        match self {
+        matches!(
+            self,
             Self::GraphQueryFailed(true, _)
-            | Self::IndexOperationFailed(true, _)
-            | Self::HsEventsStreamRateLimitExhausted => true,
-
-            Self::PubkyClientError(error) => {
-                matches!(error.as_ref(), PubkyClientError::TransportFailed { .. })
-            }
-
-            _ => false,
-        }
+                | Self::IndexOperationFailed(true, _)
+                | Self::HsEventsStreamRateLimitExhausted
+                | Self::HsEventsStreamTransportFailed { .. }
+        )
     }
 
     /// Returns whether this error is a 404 from the Pubky client.
@@ -195,16 +195,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn pubky_transport_failure_should_not_retry_now() {
-        let error = EventProcessorError::from(PubkyClientError::TransportFailed {
+    fn hs_events_stream_transport_failure_should_not_retry_now() {
+        let error = EventProcessorError::HsEventsStreamTransportFailed {
+            hs_id: "homeserver".into(),
             message: "connection refused".into(),
-        });
+        };
 
         assert!(error.should_not_retry_now());
     }
 
     #[test]
-    fn non_transport_pubky_failures_can_retry_now() {
+    fn pubky_client_failures_can_retry_now() {
         let errors = [
             PubkyClientError::ServerError5xx {
                 message: "service unavailable".into(),

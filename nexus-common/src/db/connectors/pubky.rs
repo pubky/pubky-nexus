@@ -23,9 +23,6 @@ pub enum PubkyClientError {
     #[error("Server error (5xx): {message}")]
     ServerError5xx { message: String },
 
-    #[error("Transport failed: {message}")]
-    TransportFailed { message: String },
-
     #[error("Request failed: {message}")]
     RequestFailed { message: String },
 
@@ -51,7 +48,7 @@ impl From<pubky::Error> for PubkyClientError {
                 s if s.is_server_error() => Self::ServerError5xx { message },
                 _ => Self::RequestFailed { message },
             },
-            pubky::Error::Request(RequestError::Transport(e)) => Self::TransportFailed {
+            pubky::Error::Request(RequestError::Transport(e)) => Self::RequestFailed {
                 message: e.to_string(),
             },
             pubky::Error::Request(

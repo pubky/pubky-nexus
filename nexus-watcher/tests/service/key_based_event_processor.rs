@@ -290,19 +290,53 @@ async fn key_based_processor_aborts_on_homeserver_transport_failure() -> Result<
     setup().await?;
 
     let (_hs_keypair, homeserver) = create_homeserver().await?;
+    let hs_id = homeserver.id.to_string();
     create_user_on_homeserver(&homeserver).await?;
     create_user_on_homeserver(&homeserver).await?;
     let source = Arc::new(
-        MockKeyBasedEventSource::default().with_results(vec![Err(homeserver_transport_error())]),
+        MockKeyBasedEventSource::default()
+            .with_results(vec![Err(homeserver_event_stream_transport_error(&hs_id))]),
     );
     let handler = create_mock_handler(Ok(()), None);
     let processor = processor(homeserver, handler.clone(), source.clone());
 
     let err = processor.run().await.unwrap_err();
 
-    assert_internal_homeserver_transport_failed(err);
+    assert_internal_homeserver_transport_failed(err, &hs_id);
     assert_eq!(source.calls().await.len(), 1);
     assert_eq!(handler.get_handle_count(), 0);
+
+    Ok(())
+}
+
+/// Verifies transport failures unrelated to the homeserver event stream remain per-event errors.
+#[tokio_shared_rt::test(shared)]
+async fn key_based_processor_continues_after_resource_transport_failure() -> Result<(), DynError> {
+    setup().await?;
+
+    let (_hs_keypair, homeserver) = create_homeserver().await?;
+    let user_a_id = create_user_on_homeserver(&homeserver).await?;
+    let user_b_id = create_user_on_homeserver(&homeserver).await?;
+    let source = Arc::new(MockKeyBasedEventSource::default().with_user_events(vec![
+        (
+            user_a_id.clone(),
+            vec![stream_event(1, &user_a_id, "/pub/pubky.app/profile.json")?],
+        ),
+        (
+            user_b_id.clone(),
+            vec![stream_event(1, &user_b_id, "/pub/pubky.app/profile.json")?],
+        ),
+    ]));
+    let handler = create_mock_handler(Err(resource_transport_error()), None);
+    let processor = processor(homeserver, handler.clone(), source.clone());
+
+    processor.run().await?;
+
+    let calls = source.calls().await;
+    assert_eq!(calls.len(), 2);
+    assert!(calls.contains(&user_a_id));
+    assert!(calls.contains(&user_b_id));
+    assert_eq!(handler.get_handle_count(), 2);
 
     Ok(())
 }
@@ -690,11 +724,15 @@ fn user_not_found_error() -> EventProcessorError {
     .into()
 }
 
-fn homeserver_transport_error() -> EventProcessorError {
-    PubkyClientError::TransportFailed {
+fn homeserver_event_stream_transport_error(hs_id: &str) -> EventProcessorError {
+    EventProcessorError::HsEventsStreamTransportFailed {
+        hs_id: hs_id.into(),
         message: "connection refused".into(),
     }
-    .into()
+}
+
+fn resource_transport_error() -> EventProcessorError {
+    EventProcessorError::client_error("connection refused".into())
 }
 
 fn processor(
@@ -810,10 +848,11 @@ fn assert_internal_not_retry_now_index_operation_failed(err: RunError) {
     }
 }
 
-fn assert_internal_homeserver_transport_failed(err: RunError) {
+fn assert_internal_homeserver_transport_failed(err: RunError, expected_hs_id: &str) {
     match err {
-        RunError::Internal(EventProcessorError::PubkyClientError(error))
-            if matches!(error.as_ref(), PubkyClientError::TransportFailed { .. }) => {}
+        RunError::Internal(EventProcessorError::HsEventsStreamTransportFailed {
+            hs_id, ..
+        }) if hs_id == expected_hs_id => {}
         other => panic!("expected internal homeserver transport failure, got {other:?}"),
     }
 }
