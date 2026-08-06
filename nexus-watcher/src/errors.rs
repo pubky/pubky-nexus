@@ -157,12 +157,17 @@ impl EventProcessorError {
     /// These are the kinds of errors that are expected to be thrown again
     /// if the event processor caller continues processing other events.
     pub fn should_not_retry_now(&self) -> bool {
-        matches!(
-            self,
+        match self {
             Self::GraphQueryFailed(true, _)
-                | Self::IndexOperationFailed(true, _)
-                | Self::HsEventsStreamRateLimitExhausted
-        )
+            | Self::IndexOperationFailed(true, _)
+            | Self::HsEventsStreamRateLimitExhausted => true,
+
+            Self::PubkyClientError(error) => {
+                matches!(error.as_ref(), PubkyClientError::TransportFailed { .. })
+            }
+
+            _ => false,
+        }
     }
 
     /// Returns whether this error is a 404 from the Pubky client.
@@ -182,5 +187,35 @@ impl EventProcessorError {
 
     pub fn is_missing_dependency(&self) -> bool {
         matches!(self, Self::MissingDependency { .. })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pubky_transport_failure_should_not_retry_now() {
+        let error = EventProcessorError::from(PubkyClientError::TransportFailed {
+            message: "connection refused".into(),
+        });
+
+        assert!(error.should_not_retry_now());
+    }
+
+    #[test]
+    fn non_transport_pubky_failures_can_retry_now() {
+        let errors = [
+            PubkyClientError::ServerError5xx {
+                message: "service unavailable".into(),
+            },
+            PubkyClientError::RequestFailed {
+                message: "invalid response".into(),
+            },
+        ];
+
+        for error in errors {
+            assert!(!EventProcessorError::from(error).should_not_retry_now());
+        }
     }
 }

@@ -3,7 +3,7 @@ use std::{sync::Arc, time::Duration};
 use crate::errors::EventProcessorError;
 use crate::events::Event;
 use futures::StreamExt;
-use nexus_common::db::PubkyConnector;
+use nexus_common::db::{PubkyClientError, PubkyConnector};
 use nexus_common::models::homeserver::HsBlacklist;
 use nexus_common::models::user::UserHsCursor;
 use pubky::{Event as StreamEvent, EventCursor, PublicKey};
@@ -66,7 +66,13 @@ impl KeyBasedEventSource for PubkyKeyBasedEventSource {
                 );
                 break;
             }
-            events.push(result?);
+
+            // For SSE connections: Pubky emits SSE connection failures as stream item errors.
+            let event = result.map_err(|error| PubkyClientError::TransportFailed {
+                message: error.to_string(),
+            })?;
+
+            events.push(event);
         }
 
         Ok(events)

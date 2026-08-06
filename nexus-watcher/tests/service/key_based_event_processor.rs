@@ -284,23 +284,23 @@ async fn key_based_processor_persists_last_safe_cursor_before_mismatch() -> Resu
     Ok(())
 }
 
-/// Verifies fetch errors that should not be retried right now abort the homeserver run immediately.
+/// Verifies homeserver transport failures abort before fetching subsequent users.
 #[tokio_shared_rt::test(shared)]
-async fn key_based_processor_aborts_on_not_retry_now_fetch_error() -> Result<(), DynError> {
+async fn key_based_processor_aborts_on_homeserver_transport_failure() -> Result<(), DynError> {
     setup().await?;
 
     let (_hs_keypair, homeserver) = create_homeserver().await?;
     create_user_on_homeserver(&homeserver).await?;
     create_user_on_homeserver(&homeserver).await?;
-    let source = Arc::new(MockKeyBasedEventSource::default().with_results(vec![Err(
-        EventProcessorError::IndexOperationFailed(true, "redis unavailable".into()),
-    )]));
+    let source = Arc::new(
+        MockKeyBasedEventSource::default().with_results(vec![Err(homeserver_transport_error())]),
+    );
     let handler = create_mock_handler(Ok(()), None);
     let processor = processor(homeserver, handler.clone(), source.clone());
 
     let err = processor.run().await.unwrap_err();
 
-    assert_internal_not_retry_now_index_operation_failed(err);
+    assert_internal_homeserver_transport_failed(err);
     assert_eq!(source.calls().await.len(), 1);
     assert_eq!(handler.get_handle_count(), 0);
 
@@ -690,6 +690,13 @@ fn user_not_found_error() -> EventProcessorError {
     .into()
 }
 
+fn homeserver_transport_error() -> EventProcessorError {
+    PubkyClientError::TransportFailed {
+        message: "connection refused".into(),
+    }
+    .into()
+}
+
 fn processor(
     homeserver: Homeserver,
     handler: Arc<dyn EventHandler>,
@@ -800,6 +807,14 @@ fn assert_internal_not_retry_now_index_operation_failed(err: RunError) {
     match err {
         RunError::Internal(EventProcessorError::IndexOperationFailed(true, _)) => {}
         other => panic!("expected internal not-retry-now index operation failure, got {other:?}"),
+    }
+}
+
+fn assert_internal_homeserver_transport_failed(err: RunError) {
+    match err {
+        RunError::Internal(EventProcessorError::PubkyClientError(error))
+            if matches!(error.as_ref(), PubkyClientError::TransportFailed { .. }) => {}
+        other => panic!("expected internal homeserver transport failure, got {other:?}"),
     }
 }
 
