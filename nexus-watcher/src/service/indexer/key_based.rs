@@ -43,11 +43,6 @@ impl KeyBasedEventSource for PubkyKeyBasedEventSource {
         limit: u16,
     ) -> Result<Vec<StreamEvent>, EventProcessorError> {
         let pubky = PubkyConnector::get()?;
-        let hs_transport_failed =
-            |message: String| EventProcessorError::HsEventsStreamTransportFailed {
-                hs_id: hs_pk.z32(),
-                message,
-            };
 
         // We are building the stream without the live flag, so it performs an HTTP GET and closes.
         // See rustdoc of EventStreamBuilder::live()
@@ -60,7 +55,10 @@ impl KeyBasedEventSource for PubkyKeyBasedEventSource {
             .await
             .map_err(|error| match error {
                 pubky::Error::Request(RequestError::Transport(error)) => {
-                    hs_transport_failed(error.to_string())
+                    EventProcessorError::HsEventsStreamTransportFailed {
+                        hs_id: hs_pk.z32(),
+                        message: error.to_string(),
+                    }
                 }
                 error => error.into(),
             })
@@ -79,8 +77,9 @@ impl KeyBasedEventSource for PubkyKeyBasedEventSource {
                 break;
             }
 
-            // For SSE connections: Pubky emits SSE connection failures as stream item errors.
-            events.push(result.map_err(|error| hs_transport_failed(error.to_string()))?);
+            // SSE is currently not used.
+            // When used, "result?" will need to map SSE connection errors to HsEventsStreamTransportFailed.
+            events.push(result?);
         }
 
         Ok(events)
