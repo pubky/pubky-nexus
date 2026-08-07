@@ -59,7 +59,7 @@ impl KeyBasedEventSource for PubkyKeyBasedEventSource {
                 }
                 error => error.into(),
             })
-            .inspect_err(|e| error!("Failed to subscribe to event stream: {e:?}"))?;
+            .inspect_err(|e| error!(error = ?e, "Failed to subscribe to event stream"))?;
 
         // The HS is asked for at most `limit` events, but a misbehaving one could return more
         let limit = limit as usize;
@@ -68,8 +68,10 @@ impl KeyBasedEventSource for PubkyKeyBasedEventSource {
             // Read at most `limit` events. If the stream still has more, log an error and drop the rest.
             if events.len() >= limit {
                 error!(
-                    "Event stream for user {user_pk} on HS {hs_pk} returned more than the \
-                     requested limit of {limit} events; ignoring the excess"
+                    %user_pk,
+                    %hs_pk,
+                    limit,
+                    "Event stream returned more than the requested limit; ignoring the excess"
                 );
                 break;
             }
@@ -142,14 +144,14 @@ impl TEventProcessor for KeyBasedEventProcessor {
         let users = self
             .resolve_users_with_cursors(&hs_id)
             .await
-            .inspect_err(|e| error!("Failed to resolve users: {e:?}"))?;
+            .inspect_err(|e| error!(error = ?e, "Failed to resolve users"))?;
 
         if users.is_empty() {
             debug!("No users, skipping");
             return Ok(());
         }
 
-        info!("Found {} users", users.len());
+        info!(user_count = users.len(), "Found users");
 
         for (user_pk, cursor) in &users {
             if *self.shutdown_rx.borrow() {
@@ -207,12 +209,12 @@ impl KeyBasedEventProcessor {
         hs_id: &str,
     ) -> Result<Vec<(PublicKey, EventCursor)>, EventProcessorError> {
         let user_ids = user_hs_resolver::get_user_ids_by_homeserver(hs_id).await?;
-        debug!("Resolved {} user(s)", user_ids.len());
+        debug!(user_count = user_ids.len(), "Resolved users");
 
         let mut valid_users: Vec<(PublicKey, &str)> = Vec::with_capacity(user_ids.len());
         for user_id in &user_ids {
             let Ok(user_pk) = user_id.parse::<PublicKey>() else {
-                warn!("Invalid user public key '{user_id}', skipping");
+                warn!(%user_id, "Invalid user public key, skipping");
                 continue;
             };
             valid_users.push((user_pk, user_id.as_str()));
@@ -313,7 +315,7 @@ impl KeyBasedEventProcessor {
 
         for stream_event in stream_events {
             if *self.shutdown_rx.borrow() {
-                debug!(hs_id = %hs_id, user = %user_id, "Shutdown detected; exiting event loop");
+                debug!(%hs_id, %user_id, "Shutdown detected; exiting event loop");
                 break;
             }
 
@@ -332,7 +334,13 @@ impl KeyBasedEventProcessor {
                 }
                 Ok(None) => { /* resource not handled by Nexus, skip */ }
                 Err(e) => {
-                    error!(%hs_id, %user_id, %cursor_id, "Skipping unparseable stream event: {e}");
+                    error!(
+                        %hs_id,
+                        %user_id,
+                        %cursor_id,
+                        error = %e,
+                        "Skipping unparseable stream event"
+                    );
                 }
             }
 

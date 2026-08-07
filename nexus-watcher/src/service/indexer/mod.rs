@@ -147,13 +147,13 @@ pub trait TEventProcessor: Send + Sync + 'static {
     async fn process_event_line(&self, line: &str) -> Result<(), EventProcessorError> {
         match Event::parse_event(line) {
             // Invalid event lines come from untrusted homeservers; treat as bad peer data, not Nexus errors.
-            Err(e) => warn!("{e}"),
+            Err(e) => warn!(error = %e, "Invalid event line"),
             Ok(ParseResult::Skipped) => {}
             Ok(ParseResult::UnrecognizedUri { reason, .. }) => {
-                warn!("Unrecognized event URI: {reason}");
+                warn!(%reason, "Unrecognized event URI");
             }
             Ok(ParseResult::Parsed(event)) => {
-                trace!("Processing event: {:?}", event);
+                trace!(?event, "Processing event");
                 self.handle_event(&event).await?;
             }
         }
@@ -175,14 +175,15 @@ pub trait TEventProcessor: Send + Sync + 'static {
         error: EventProcessorError,
     ) -> Result<(), EventProcessorError> {
         if error.should_not_retry_now() {
-            warn!("Got should-not-retry-now error, stopping batch: {error}");
+            warn!(error = %error, "Got should-not-retry-now error, stopping batch");
             return Err(error);
         }
 
         if !RetryScheduler::should_enqueue_related_event(&error) {
             debug!(
-                "Error not worth retrying, skipping event {}: {error}",
-                event.uri
+                event.uri = %event.uri,
+                error = %error,
+                "Error not worth retrying, skipping event"
             );
             return Ok(());
         }
@@ -193,8 +194,8 @@ pub trait TEventProcessor: Send + Sync + 'static {
 
         let Some(homeserver_id) = self.homeserver_id() else {
             warn!(
-                "Retryable error but no origin homeserver to persist; skipping retry for {}",
-                event.uri
+                event.uri = %event.uri,
+                "Retryable error but no origin homeserver to persist; skipping retry"
             );
             return Ok(());
         };
@@ -202,7 +203,7 @@ pub trait TEventProcessor: Send + Sync + 'static {
         if error.is_missing_dependency() {
             scheduler.queue_missing_dep(event, homeserver_id).await
         } else {
-            warn!("Transient error, queuing event for retry: {error}");
+            warn!(error = %error, "Transient error, queuing event for retry");
             scheduler.queue_transient(event, homeserver_id).await
         }
     }
