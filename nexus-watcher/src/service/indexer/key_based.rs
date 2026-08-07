@@ -135,7 +135,7 @@ impl TEventProcessor for KeyBasedEventProcessor {
         // Blacklisted HSs must never be indexed. The runner already excludes
         // them from `pre_run`, so reaching here is unexpected.
         if self.hs_blacklist.is_blacklisted(&hs_id) {
-            error!(%hs_id, action = "abort_hs", "Refusing to process blacklisted HS");
+            error!(action = "abort_hs", "Refusing to process blacklisted HS");
             return Err(EventProcessorError::HsBlacklisted { hs_id });
         }
 
@@ -164,7 +164,7 @@ impl TEventProcessor for KeyBasedEventProcessor {
             // increasing number of runs (see `UserNotFoundBackoff`).
             if self.user_not_found_backoff.consume_skip(user_pk).await {
                 debug!(
-                    %hs_id, %user_id, action = "skip_user",
+                    %user_id, action = "skip_user",
                     "Skipping user due to prior 404 (NotFound404) backoff",
                 );
                 continue;
@@ -175,7 +175,7 @@ impl TEventProcessor for KeyBasedEventProcessor {
                 Err(err) => {
                     if err.should_not_retry_now() {
                         error!(
-                            %hs_id, %user_id, action = "abort_hs", ?err,
+                            %user_id, action = "abort_hs", ?err,
                             "Got should-not-retry-now error while processing user; aborting homeserver run",
                         );
                         return Err(err);
@@ -184,12 +184,12 @@ impl TEventProcessor for KeyBasedEventProcessor {
                     if err.is_not_found() {
                         self.user_not_found_backoff.record_failure(user_pk).await;
                         warn!(
-                            %hs_id, %user_id, action = "skip_user", ?err,
+                            %user_id, action = "skip_user", ?err,
                             "User event fetch returned 404; backing off this user for future runs",
                         );
                     } else {
                         error!(
-                            %hs_id, %user_id, action = "skip_user", ?err,
+                            %user_id, action = "skip_user", ?err,
                             "Got error while processing user; continuing with next user",
                         );
                     }
@@ -245,7 +245,7 @@ impl KeyBasedEventProcessor {
         cursor: EventCursor,
     ) -> Result<(), EventProcessorError> {
         let stream_events = self
-            .fetch_user_events_with_429_backoff(hs_pk, hs_id, user_pk, cursor)
+            .fetch_user_events_with_429_backoff(hs_pk, user_pk, cursor)
             .await?;
 
         let user_id = user_pk.z32();
@@ -256,7 +256,7 @@ impl KeyBasedEventProcessor {
         if let Some(cursor_val) = latest_cursor {
             if let Err(write_err) = UserHsCursor::write(&user_id, hs_id, cursor_val).await {
                 error!(
-                    %hs_id, %user_id, %cursor_val, ?write_err,
+                    %user_id, %cursor_val, ?write_err,
                     "Best-effort cursor persist failed; events may be re-processed on next run",
                 );
             }
@@ -268,7 +268,6 @@ impl KeyBasedEventProcessor {
     async fn fetch_user_events_with_429_backoff(
         &self,
         hs_pk: &PublicKey,
-        hs_id: &str,
         user_pk: &PublicKey,
         cursor: EventCursor,
     ) -> Result<Vec<StreamEvent>, EventProcessorError> {
@@ -288,7 +287,7 @@ impl KeyBasedEventProcessor {
                     };
 
                     warn!(
-                        %hs_id, %user_id, retry_after_secs = *backoff_secs,
+                        %user_id, retry_after_secs = *backoff_secs,
                         "Homeserver rate-limited user event fetch; retrying",
                     );
 
@@ -315,7 +314,7 @@ impl KeyBasedEventProcessor {
 
         for stream_event in stream_events {
             if *self.shutdown_rx.borrow() {
-                debug!(%hs_id, %user_id, "Shutdown detected; exiting event loop");
+                debug!(%user_id, "Shutdown detected; exiting event loop");
                 break;
             }
 
@@ -335,7 +334,6 @@ impl KeyBasedEventProcessor {
                 Ok(None) => { /* resource not handled by Nexus, skip */ }
                 Err(e) => {
                     error!(
-                        %hs_id,
                         %user_id,
                         %cursor_id,
                         error = %e,

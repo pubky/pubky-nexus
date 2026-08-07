@@ -99,7 +99,6 @@ impl TEventProcessor for HsEventProcessor {
                 warn!(
                     event.uri = %event.uri,
                     user_id = %user_id,
-                    processor_homeserver = %self.homeserver.id,
                     "User's homeserver mapping is stale; skipping event"
                 );
                 Ok(false)
@@ -110,7 +109,6 @@ impl TEventProcessor for HsEventProcessor {
                 warn!(
                     event.uri = %event.uri,
                     user_id = %user_id,
-                    processor_homeserver = %self.homeserver.id,
                     user_homeserver = %hs_id,
                     "User is hosted on a different homeserver; skipping event"
                 );

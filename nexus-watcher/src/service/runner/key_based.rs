@@ -124,7 +124,7 @@ impl TEventProcessorRunner for KeyBasedEventProcessorRunner {
             let hs_id = &individual_run_stat.hs_id;
             let duration = individual_run_stat.duration;
             let status = &individual_run_stat.status;
-            info!(%hs_id, ?duration, ?status, "Event processor run completed");
+            info!(homeserver = %hs_id, ?duration, ?status, "Event processor run completed");
         }
 
         let count_ok = stats.count_ok();
