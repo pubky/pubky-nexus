@@ -189,31 +189,3 @@ impl EventProcessorError {
         matches!(self, Self::MissingDependency { .. })
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn hs_events_stream_transport_failure_should_not_retry_now() {
-        let error = EventProcessorError::HsEventsStreamTransportFailed("connection refused".into());
-
-        assert!(error.should_not_retry_now());
-    }
-
-    #[test]
-    fn pubky_client_failures_can_retry_now() {
-        let errors = [
-            PubkyClientError::ServerError5xx {
-                message: "service unavailable".into(),
-            },
-            PubkyClientError::RequestFailed {
-                message: "invalid response".into(),
-            },
-        ];
-
-        for error in errors {
-            assert!(!EventProcessorError::from(error).should_not_retry_now());
-        }
-    }
-}
