@@ -290,19 +290,18 @@ async fn key_based_processor_aborts_on_homeserver_transport_failure() -> Result<
     setup().await?;
 
     let (_hs_keypair, homeserver) = create_homeserver().await?;
-    let hs_id = homeserver.id.to_string();
     create_user_on_homeserver(&homeserver).await?;
     create_user_on_homeserver(&homeserver).await?;
     let source = Arc::new(
         MockKeyBasedEventSource::default()
-            .with_results(vec![Err(homeserver_event_stream_transport_error(&hs_id))]),
+            .with_results(vec![Err(homeserver_event_stream_transport_error())]),
     );
     let handler = create_mock_handler(Ok(()), None);
     let processor = processor(homeserver, handler.clone(), source.clone());
 
     let err = processor.run().await.unwrap_err();
 
-    assert_internal_homeserver_transport_failed(err, &hs_id);
+    assert_internal_homeserver_transport_failed(err);
     assert_eq!(source.calls().await.len(), 1);
     assert_eq!(handler.get_handle_count(), 0);
 
@@ -724,11 +723,8 @@ fn user_not_found_error() -> EventProcessorError {
     .into()
 }
 
-fn homeserver_event_stream_transport_error(hs_id: &str) -> EventProcessorError {
-    EventProcessorError::HsEventsStreamTransportFailed {
-        hs_id: hs_id.into(),
-        message: "connection refused".into(),
-    }
+fn homeserver_event_stream_transport_error() -> EventProcessorError {
+    EventProcessorError::HsEventsStreamTransportFailed("connection refused".into())
 }
 
 fn resource_transport_error() -> EventProcessorError {
@@ -848,11 +844,9 @@ fn assert_internal_not_retry_now_index_operation_failed(err: RunError) {
     }
 }
 
-fn assert_internal_homeserver_transport_failed(err: RunError, expected_hs_id: &str) {
+fn assert_internal_homeserver_transport_failed(err: RunError) {
     match err {
-        RunError::Internal(EventProcessorError::HsEventsStreamTransportFailed {
-            hs_id, ..
-        }) if hs_id == expected_hs_id => {}
+        RunError::Internal(EventProcessorError::HsEventsStreamTransportFailed(_)) => {}
         other => panic!("expected internal homeserver transport failure, got {other:?}"),
     }
 }

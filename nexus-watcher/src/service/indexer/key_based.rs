@@ -55,10 +55,7 @@ impl KeyBasedEventSource for PubkyKeyBasedEventSource {
             .await
             .map_err(|error| match error {
                 pubky::Error::Request(RequestError::Transport(error)) => {
-                    EventProcessorError::HsEventsStreamTransportFailed {
-                        hs_id: hs_pk.z32(),
-                        message: error.to_string(),
-                    }
+                    EventProcessorError::HsEventsStreamTransportFailed(error.to_string())
                 }
                 error => error.into(),
             })

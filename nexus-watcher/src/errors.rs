@@ -55,8 +55,8 @@ pub enum EventProcessorError {
     HsEventsStreamRateLimitExhausted,
 
     /// Transport to an external homeserver's /events-stream failed.
-    #[error("HS {hs_id} /events-stream transport failed: {message}")]
-    HsEventsStreamTransportFailed { hs_id: String, message: String },
+    #[error("HsEventsStreamTransportFailed: {0}")]
+    HsEventsStreamTransportFailed(String),
 
     /// The HS is blacklisted and must not be indexed.
     #[error("HsBlacklisted: {hs_id}")]
@@ -166,7 +166,7 @@ impl EventProcessorError {
             Self::GraphQueryFailed(true, _)
                 | Self::IndexOperationFailed(true, _)
                 | Self::HsEventsStreamRateLimitExhausted
-                | Self::HsEventsStreamTransportFailed { .. }
+                | Self::HsEventsStreamTransportFailed(_)
         )
     }
 
@@ -196,10 +196,7 @@ mod tests {
 
     #[test]
     fn hs_events_stream_transport_failure_should_not_retry_now() {
-        let error = EventProcessorError::HsEventsStreamTransportFailed {
-            hs_id: "homeserver".into(),
-            message: "connection refused".into(),
-        };
+        let error = EventProcessorError::HsEventsStreamTransportFailed("connection refused".into());
 
         assert!(error.should_not_retry_now());
     }
