@@ -55,7 +55,7 @@ impl KeyBasedEventSource for PubkyKeyBasedEventSource {
             .await
             .map_err(|error| match error {
                 pubky::Error::Request(RequestError::Transport(error)) => {
-                    EventProcessorError::HsEventsStreamTransportFailed(error.to_string())
+                    EventProcessorError::hs_transport_failed(error)
                 }
                 error => error.into(),
             })
@@ -74,9 +74,10 @@ impl KeyBasedEventSource for PubkyKeyBasedEventSource {
                 break;
             }
 
-            // SSE is currently not used.
-            // When used, "result?" will need to map SSE connection errors to HsEventsStreamTransportFailed.
-            events.push(result?);
+            // Pubky uses SSE framing regardless of EventStreamBuilder::live().
+            // Failures after response headers are emitted as stream item errors.
+            let event = result.map_err(EventProcessorError::hs_transport_failed)?;
+            events.push(event);
         }
 
         Ok(events)

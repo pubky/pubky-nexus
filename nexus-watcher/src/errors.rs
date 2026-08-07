@@ -156,6 +156,10 @@ impl EventProcessorError {
         Self::InternalError(source.to_string())
     }
 
+    pub fn hs_transport_failed(source: impl Display) -> Self {
+        Self::HsEventsStreamTransportFailed(source.to_string())
+    }
+
     /// Returns whether or not we should refrain from retrying this error right now.
     ///
     /// These are the kinds of errors that are expected to be thrown again
