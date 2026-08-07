@@ -116,7 +116,7 @@ impl TEventProcessor for KeyBasedEventProcessor {
     }
 
     fn instance_name(&self) -> String {
-        format!("KeyBasedEventProcessor with HS ID: {}", self.homeserver_id)
+        "KeyBasedEventProcessor".into()
     }
 
     fn retry_scheduler(&self) -> Option<&Arc<RetryScheduler>> {
@@ -201,7 +201,7 @@ impl TEventProcessor for KeyBasedEventProcessor {
 
 impl KeyBasedEventProcessor {
     /// Resolves monitored users on this homeserver and reads their cursors from Redis.
-    #[tracing::instrument(name = "dx.users.resolve", skip_all, fields(homeserver = %hs_id))]
+    #[tracing::instrument(name = "dx.users.resolve", skip_all)]
     async fn resolve_users_with_cursors(
         &self,
         hs_id: &str,
@@ -234,10 +234,7 @@ impl KeyBasedEventProcessor {
     ///
     /// Each user gets their own `limit` budget, ensuring fair progress regardless
     /// of how many events other users have produced.
-    #[tracing::instrument(name = "dx.user_events.process", skip_all, fields(
-        homeserver = %hs_id,
-        user = %user_pk.z32(),
-    ))]
+    #[tracing::instrument(name = "dx.user_events.process", skip_all, fields(user_id = %user_pk.z32()))]
     async fn process_user(
         &self,
         hs_pk: &PublicKey,

@@ -77,7 +77,6 @@ pub struct Event {
 impl Event {
     /// Parse event from a line returned by the homeserver's `/events` endpoint.
     pub fn parse_event(line: &str) -> Result<ParseResult, EventProcessorError> {
-        debug!("New event: {}", line);
         let parts: Vec<&str> = line.split(' ').collect();
         if parts.len() != 2 {
             return Err(EventProcessorError::InvalidEventLine(format!(

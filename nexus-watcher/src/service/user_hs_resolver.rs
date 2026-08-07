@@ -209,7 +209,7 @@ async fn resolve_user(
 
         (None, Some(resolved_hs_id)) => {
             set_user_homeserver(&user_id, resolved_hs_id).await?;
-            debug!("User {user_id} -> HS {resolved_hs_id}");
+            debug!(%user_id, homeserver = %resolved_hs_id, "HS mapping created");
         }
 
         // Already bound to a HS: toggle the stale flag instead of switching.

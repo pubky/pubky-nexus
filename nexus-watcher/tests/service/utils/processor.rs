@@ -37,7 +37,7 @@ impl TEventProcessor for MockEventProcessor {
     }
 
     fn instance_name(&self) -> String {
-        format!("MockEventProcessor for HS ID: {}", self.homeserver_id)
+        "MockEventProcessor".into()
     }
 
     fn homeserver_id(&self) -> Option<&str> {

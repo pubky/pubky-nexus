@@ -5,7 +5,7 @@ pub use homeserver::HsEventProcessor;
 pub use key_based::{KeyBasedEventProcessor, KeyBasedEventSource, PubkyKeyBasedEventSource};
 use std::{fmt::Display, sync::Arc, time::Duration};
 
-use tracing::Instrument;
+use tracing::{Instrument, trace};
 
 use crate::errors::EventProcessorError;
 use crate::events::{Event, ParseResult};
@@ -62,9 +62,7 @@ pub trait TEventProcessor: Send + Sync + 'static {
     /// This allows for flexible event handling implementations, including mocked versions for testing.
     fn event_handler(&self) -> &Arc<dyn EventHandler>;
 
-    /// Returns the instance name of the event processor, used in the monitoring and tracing spans.
-    ///
-    /// For instances mapped to a specific HS, this should include the HS ID.
+    /// Returns a short service label for monitoring and tracing spans (e.g. `HsEventProcessor`).
     fn instance_name(&self) -> String;
 
     /// Returns the retry scheduler used by [`Self::handle_error`] to enqueue failed
@@ -84,12 +82,25 @@ pub trait TEventProcessor: Send + Sync + 'static {
             .unwrap_or(Duration::from_secs(PROCESSING_TIMEOUT_SECS));
 
         let instance_name = self.instance_name();
-        let span = tracing::info_span!("event_processor.run", service = %instance_name);
+        let homeserver = self.homeserver_id().map(str::to_owned);
+        let span = match homeserver.as_deref() {
+            Some(hs_id) => tracing::info_span!(
+                "event_processor.run",
+                service = %instance_name,
+                homeserver = %hs_id,
+            ),
+            None => tracing::info_span!("event_processor.run", service = %instance_name),
+        };
         let handle = tokio::spawn(self.run_internal().instrument(span));
 
         let join_result = tokio::time::timeout(timeout, handle)
             .await
-            .inspect_err(|_| error!("Event processor timed out for {instance_name}"))
+            .inspect_err(|_| match homeserver.as_deref() {
+                Some(hs_id) => {
+                    error!(service = %instance_name, homeserver = %hs_id, "Event processor timed out")
+                }
+                None => error!(service = %instance_name, "Event processor timed out"),
+            })
             .map_err(|_| RunError::TimedOut)?;
 
         // The JoinError can be:
@@ -100,11 +111,21 @@ pub trait TEventProcessor: Send + Sync + 'static {
         // In our model, we don't trigger such interruptions. Instead we use the shutdown signal
         // to gracefully stop the event processing loop. Therefore we consider all JoinErrors as panics.
         let run_internal_result = join_result
-            .inspect_err(|je| error!("JoinError by event processor for {instance_name}: {je:?}"))
+            .inspect_err(|je| match homeserver.as_deref() {
+                Some(hs_id) => {
+                    error!(service = %instance_name, homeserver = %hs_id, error = ?je, "Event processor JoinError")
+                }
+                None => error!(service = %instance_name, error = ?je, "Event processor JoinError"),
+            })
             .map_err(|_| RunError::Panicked)?;
 
         run_internal_result
-            .inspect_err(|e| error!("Event processor failed for {instance_name}: {e:?}"))
+            .inspect_err(|e| match homeserver.as_deref() {
+                Some(hs_id) => {
+                    error!(service = %instance_name, homeserver = %hs_id, error = ?e, "Event processor failed")
+                }
+                None => error!(service = %instance_name, error = ?e, "Event processor failed"),
+            })
             .map_err(RunError::Internal)
     }
 
@@ -132,7 +153,7 @@ pub trait TEventProcessor: Send + Sync + 'static {
                 warn!("Unrecognized event URI: {reason}");
             }
             Ok(ParseResult::Parsed(event)) => {
-                debug!("Processing event: {:?}", event);
+                trace!("Processing event: {:?}", event);
                 self.handle_event(&event).await?;
             }
         }
@@ -206,7 +227,6 @@ pub trait TEventProcessor: Send + Sync + 'static {
             event.r#type = %event.event_type,
             event.user_id = %event.parsed_uri.user_id(),
             event.resource_id = event.parsed_uri.resource().id().unwrap_or_default(),
-            instance = %self.instance_name(),
             otel.status_code = tracing::field::Empty,
             otel.status_message = tracing::field::Empty,
         )

@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, LazyLock};
 use tokio::sync::watch::Receiver;
 use tokio::sync::Mutex;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info, trace, warn};
 
 /// OpenTelemetry meter name for all watcher metrics.
 const METER_NAME: &str = "nexus.watcher";
@@ -69,7 +69,7 @@ impl TEventProcessor for HsEventProcessor {
     }
 
     fn instance_name(&self) -> String {
-        format!("HsEventProcessor with HS ID: {}", self.homeserver.id)
+        "HsEventProcessor".into()
     }
 
     fn retry_scheduler(&self) -> Option<&Arc<RetryScheduler>> {
@@ -173,9 +173,9 @@ impl HsEventProcessor {
     /// using the current cursor and a specified limit. It retrieves new event
     /// URIs in a newline-separated format, processes it into a vector of strings,
     /// and returns the result.
-    #[tracing::instrument(name = "events.poll", skip_all, fields(homeserver = %self.homeserver.id))]
+    #[tracing::instrument(name = "events.poll", skip_all)]
     async fn poll_events(&self) -> Result<Option<Vec<String>>, EventProcessorError> {
-        debug!("Polling new events from homeserver");
+        debug!(cursor = %self.homeserver.cursor, "Polling events");
 
         let response_text = {
             let pubky = PubkyConnector::get()?;
@@ -206,7 +206,7 @@ impl HsEventProcessor {
         };
 
         let lines: Vec<String> = response_text.trim().lines().map(String::from).collect();
-        debug!("Homeserver response lines {:?}", lines);
+        trace!("Homeserver response lines {:?}", lines);
 
         if lines.is_empty() || (lines.len() == 1 && lines[0].is_empty()) {
             return Ok(None);

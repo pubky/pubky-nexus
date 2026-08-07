@@ -99,8 +99,6 @@ pub async fn handle_put_event(
     moderation: Arc<Moderation>,
     ingestor: Arc<UserIngestor>,
 ) -> Result<(), EventProcessorError> {
-    debug!("Handling PUT event for URI: {}", event.uri);
-
     let pubky = PubkyConnector::get()?;
     let response = pubky.public_storage().get(&event.uri).await?;
 
