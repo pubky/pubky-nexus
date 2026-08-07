@@ -3,7 +3,7 @@ use crate::db::kv::error::{RedisError, RedisResult};
 use deadpool_redis::redis::Script;
 use deadpool_redis::redis::{AsyncCommands, JsonAsyncCommands};
 use serde::{de::DeserializeOwned, Serialize};
-use tracing::{debug, warn};
+use tracing::{trace, warn};
 
 #[derive(Clone, Debug)]
 pub enum JsonAction {
@@ -59,7 +59,7 @@ pub async fn put<T: Serialize + Send + Sync>(
         }
     }
 
-    debug!(
+    trace!(
         "Set key: {} with optional expiration: {:?}",
         index_key, expiration
     );
@@ -144,7 +144,7 @@ pub async fn modify_json_field(
     "#,
     );
 
-    debug!(
+    trace!(
         "Modifiying field: {} in key: {} by {}",
         field, index_key, amount
     );
