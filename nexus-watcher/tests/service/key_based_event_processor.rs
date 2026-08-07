@@ -308,9 +308,10 @@ async fn key_based_processor_aborts_on_homeserver_transport_failure() -> Result<
     Ok(())
 }
 
-/// Verifies transport failures unrelated to the homeserver event stream remain per-event errors.
+/// Verifies a client error that merely reads like a connection problem stays per-user:
+/// only /events-stream transport failures abort the homeserver run.
 #[tokio_shared_rt::test(shared)]
-async fn key_based_processor_continues_after_resource_transport_failure() -> Result<(), DynError> {
+async fn key_based_processor_continues_after_retryable_client_error() -> Result<(), DynError> {
     setup().await?;
 
     let (_hs_keypair, homeserver) = create_homeserver().await?;
@@ -326,7 +327,7 @@ async fn key_based_processor_continues_after_resource_transport_failure() -> Res
             vec![stream_event(1, &user_b_id, "/pub/pubky.app/profile.json")?],
         ),
     ]));
-    let handler = create_mock_handler(Err(resource_transport_error()), None);
+    let handler = create_mock_handler(Err(retryable_client_error()), None);
     let processor = processor(homeserver, handler.clone(), source.clone());
 
     processor.run().await?;
@@ -723,11 +724,13 @@ fn user_not_found_error() -> EventProcessorError {
     .into()
 }
 
+/// Transport error type, identified by its type
 fn homeserver_event_stream_transport_error() -> EventProcessorError {
     EventProcessorError::HsEventsStreamTransportFailed("connection refused".into())
 }
 
-fn resource_transport_error() -> EventProcessorError {
+/// Non-transport error type, that happens to have a transport-error-like error message
+fn retryable_client_error() -> EventProcessorError {
     EventProcessorError::client_error("connection refused".into())
 }
 
