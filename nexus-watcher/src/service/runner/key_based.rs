@@ -12,7 +12,7 @@ use nexus_common::WatcherConfig;
 use pubky_app_specs::PubkyId;
 use std::sync::Arc;
 use tokio::sync::{watch::Receiver, Mutex};
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 /// Runner for [KeyBasedEventProcessor]
 pub struct KeyBasedEventProcessorRunner {
@@ -124,7 +124,7 @@ impl TEventProcessorRunner for KeyBasedEventProcessorRunner {
             let hs_id = &individual_run_stat.hs_id;
             let duration = individual_run_stat.duration;
             let status = &individual_run_stat.status;
-            info!(homeserver = %hs_id, ?duration, ?status, "Event processor run completed");
+            debug!(homeserver = %hs_id, ?duration, ?status, "Event processor run completed");
         }
 
         let count_ok = stats.count_ok();
@@ -147,14 +147,14 @@ impl TEventProcessorRunner for KeyBasedEventProcessorRunner {
             );
         } else if count_skipped > 0 {
             warn!(
-                ok = count_ok,
-                skipped = count_skipped,
-                "Key-based indexing (per hs) finished; some skipped (backoff)"
+                hs_ok = count_ok,
+                hs_skipped = count_skipped,
+                "Key-based indexing finished; some homeservers skipped (backoff)"
             );
         } else if count_ok == 0 {
             info!("Key-based indexing finished: no external homeservers");
         } else {
-            info!(ok = count_ok, "Key-based indexing (per hs) finished");
+            info!(hs_ok = count_ok, "Key-based indexing finished");
         }
 
         ProcessedStats(stats)

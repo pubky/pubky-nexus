@@ -117,8 +117,8 @@ impl TEventProcessor for KeyBasedEventProcessor {
         &self.event_handler
     }
 
-    fn instance_name(&self) -> String {
-        "KeyBasedEventProcessor".into()
+    fn instance_name(&self) -> &'static str {
+        "KeyBasedEventProcessor"
     }
 
     fn retry_scheduler(&self) -> Option<&Arc<RetryScheduler>> {
@@ -142,7 +142,7 @@ impl TEventProcessor for KeyBasedEventProcessor {
         let hs_pk = self.homeserver_id.to_public_key();
 
         let users = self
-            .resolve_users_with_cursors(&hs_id)
+            .resolve_users_with_cursors()
             .await
             .inspect_err(|e| error!(error = ?e, "Failed to resolve users"))?;
 
@@ -170,7 +170,7 @@ impl TEventProcessor for KeyBasedEventProcessor {
                 continue;
             }
 
-            match self.process_user(&hs_pk, &hs_id, user_pk, *cursor).await {
+            match self.process_user(&hs_pk, user_pk, *cursor).await {
                 Ok(()) => self.user_not_found_backoff.record_success(user_pk).await,
                 Err(err) => {
                     if err.should_not_retry_now() {
@@ -206,8 +206,8 @@ impl KeyBasedEventProcessor {
     #[tracing::instrument(name = "dx.users.resolve", skip_all)]
     async fn resolve_users_with_cursors(
         &self,
-        hs_id: &str,
     ) -> Result<Vec<(PublicKey, EventCursor)>, EventProcessorError> {
+        let hs_id: &str = self.homeserver_id.as_ref();
         let user_ids = user_hs_resolver::get_user_ids_by_homeserver(hs_id).await?;
         debug!(user_count = user_ids.len(), "Resolved users");
 
@@ -240,10 +240,10 @@ impl KeyBasedEventProcessor {
     async fn process_user(
         &self,
         hs_pk: &PublicKey,
-        hs_id: &str,
         user_pk: &PublicKey,
         cursor: EventCursor,
     ) -> Result<(), EventProcessorError> {
+        let hs_id: &str = self.homeserver_id.as_ref();
         let stream_events = self
             .fetch_user_events_with_429_backoff(hs_pk, user_pk, cursor)
             .await?;

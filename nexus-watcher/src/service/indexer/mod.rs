@@ -5,11 +5,10 @@ pub use homeserver::HsEventProcessor;
 pub use key_based::{KeyBasedEventProcessor, KeyBasedEventSource, PubkyKeyBasedEventSource};
 use std::{fmt::Display, sync::Arc, time::Duration};
 
-use tracing::{Instrument, trace};
+use tracing::{debug, error, trace, warn, Instrument};
 
 use crate::errors::EventProcessorError;
 use crate::events::{Event, ParseResult};
-use tracing::{debug, error, warn};
 
 use crate::events::retry::RetryScheduler;
 use crate::events::EventHandler;
@@ -63,7 +62,7 @@ pub trait TEventProcessor: Send + Sync + 'static {
     fn event_handler(&self) -> &Arc<dyn EventHandler>;
 
     /// Returns a short service label for monitoring and tracing spans (e.g. `HsEventProcessor`).
-    fn instance_name(&self) -> String;
+    fn instance_name(&self) -> &'static str;
 
     /// Returns the retry scheduler used by [`Self::handle_error`] to enqueue failed
     /// events for later retry.  Returns `None` when the processor bypasses

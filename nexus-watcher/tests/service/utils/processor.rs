@@ -36,8 +36,8 @@ impl TEventProcessor for MockEventProcessor {
         self.custom_timeout
     }
 
-    fn instance_name(&self) -> String {
-        "MockEventProcessor".into()
+    fn instance_name(&self) -> &'static str {
+        "MockEventProcessor"
     }
 
     fn homeserver_id(&self) -> Option<&str> {

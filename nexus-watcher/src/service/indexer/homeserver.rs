@@ -68,8 +68,8 @@ impl TEventProcessor for HsEventProcessor {
         &self.event_handler
     }
 
-    fn instance_name(&self) -> String {
-        "HsEventProcessor".into()
+    fn instance_name(&self) -> &'static str {
+        "HsEventProcessor"
     }
 
     fn retry_scheduler(&self) -> Option<&Arc<RetryScheduler>> {

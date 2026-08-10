@@ -35,8 +35,8 @@ impl TEventProcessor for RetryProcessor {
         &self.event_handler
     }
 
-    fn instance_name(&self) -> String {
-        "RetryProcessor".to_string()
+    fn instance_name(&self) -> &'static str {
+        "RetryProcessor"
     }
 
     fn retry_scheduler(&self) -> Option<&Arc<RetryScheduler>> {
