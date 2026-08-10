@@ -6,6 +6,7 @@ use futures::StreamExt;
 use nexus_common::db::PubkyConnector;
 use nexus_common::models::homeserver::HsBlacklist;
 use nexus_common::models::user::UserHsCursor;
+use pubky::errors::RequestError;
 use pubky::{Event as StreamEvent, EventCursor, PublicKey};
 use pubky_app_specs::PubkyId;
 use tokio::sync::watch::Receiver;
@@ -52,6 +53,12 @@ impl KeyBasedEventSource for PubkyKeyBasedEventSource {
             .path("/pub/")
             .subscribe()
             .await
+            .map_err(|error| match error {
+                pubky::Error::Request(RequestError::Transport(error)) => {
+                    EventProcessorError::hs_transport_failed(error)
+                }
+                error => error.into(),
+            })
             .inspect_err(|e| error!("Failed to subscribe to event stream: {e:?}"))?;
 
         // The HS is asked for at most `limit` events, but a misbehaving one could return more
@@ -66,7 +73,11 @@ impl KeyBasedEventSource for PubkyKeyBasedEventSource {
                 );
                 break;
             }
-            events.push(result?);
+
+            // Pubky uses SSE framing regardless of EventStreamBuilder::live().
+            // Failures after response headers are emitted as stream item errors.
+            let event = result.map_err(EventProcessorError::hs_transport_failed)?;
+            events.push(event);
         }
 
         Ok(events)
