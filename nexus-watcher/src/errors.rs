@@ -63,6 +63,10 @@ pub enum EventProcessorError {
     #[error("HS /events-stream rate limit exhausted (429 after all backoff retries)")]
     HsEventsStreamRateLimitExhausted,
 
+    /// Transport to an external homeserver's /events-stream failed.
+    #[error("HsEventsStreamTransportFailed: {0}")]
+    HsEventsStreamTransportFailed(String),
+
     /// The HS is blacklisted and must not be indexed.
     #[error("HsBlacklisted: {hs_id}")]
     HsBlacklisted { hs_id: String },
@@ -161,6 +165,10 @@ impl EventProcessorError {
         Self::InternalError(source.to_string())
     }
 
+    pub fn hs_transport_failed(source: impl Display) -> Self {
+        Self::HsEventsStreamTransportFailed(source.to_string())
+    }
+
     /// Returns whether or not we should refrain from retrying this error right now.
     ///
     /// These are the kinds of errors that are expected to be thrown again
@@ -171,6 +179,7 @@ impl EventProcessorError {
             Self::GraphQueryFailed(true, _)
                 | Self::IndexOperationFailed(true, _)
                 | Self::HsEventsStreamRateLimitExhausted
+                | Self::HsEventsStreamTransportFailed(_)
         )
     }
 
