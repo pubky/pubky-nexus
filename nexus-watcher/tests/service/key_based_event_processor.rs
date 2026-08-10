@@ -260,9 +260,11 @@ async fn key_based_processor_persists_latest_cursor_after_success() -> Result<()
     Ok(())
 }
 
-/// Verifies an out-of-order stream cursor is rejected before its event is handled.
+/// Verifies an unsorted batch — an event regressing against an earlier one in the
+/// same response — stops at the offending event, which is never handled. The
+/// homeserver has to re-deliver it, and everything after it, in order.
 #[tokio_shared_rt::test(shared)]
-async fn key_based_processor_rejects_out_of_order_cursor() -> Result<(), DynError> {
+async fn key_based_processor_stops_on_unsorted_batch() -> Result<(), DynError> {
     setup().await?;
 
     let (_hs_keypair, homeserver) = create_homeserver().await?;
@@ -271,14 +273,51 @@ async fn key_based_processor_rejects_out_of_order_cursor() -> Result<(), DynErro
     let source = Arc::new(MockKeyBasedEventSource::default().with_events(vec![vec![
         stream_event(4, &user_id, "/pub/pubky.app/profile.json")?,
         stream_event(1, &user_id, "/pub/pubky.app/profile.json")?,
+        stream_event(7, &user_id, "/pub/pubky.app/profile.json")?,
     ]]));
     let handler = create_mock_handler(Ok(()), None);
     let processor = processor(homeserver, handler.clone(), source);
 
     processor.run().await?;
 
+    // Only the event at 4 is handled: 1 regresses against it, and the batch stops
+    // there rather than skipping ahead to 7. The cursor holds at the last safe
+    // event, which is strictly above where the poll started — so the next poll
+    // asks for a higher range and the user cannot get stuck here.
     assert_eq!(handler.get_handle_count(), 1);
     assert_eq!(user_cursor(&user_id, &hs_id).await?, Some(4));
+
+    Ok(())
+}
+
+/// Verifies a replayed event does not block newer events behind it. The stored
+/// cursor can never move past a replay, so stopping the batch would leave the
+/// next poll re-fetching the same response indefinitely.
+#[tokio_shared_rt::test(shared)]
+async fn key_based_processor_skips_replay_and_continues_batch() -> Result<(), DynError> {
+    setup().await?;
+
+    let (_hs_keypair, homeserver) = create_homeserver().await?;
+    let hs_id = homeserver.id.to_string();
+    let user_id = create_user_on_homeserver(&homeserver).await?;
+    let cursor_key = user_hs_cursor_key(&user_id);
+    UserDetails::put_index_sorted_set(&cursor_key, &[(12.0, hs_id.as_str())], None, None).await?;
+
+    // Asked to continue from 12, the homeserver leads with an already-indexed
+    // event before the genuinely new one.
+    let source = Arc::new(MockKeyBasedEventSource::default().with_events(vec![vec![
+        stream_event(9, &user_id, "/pub/pubky.app/profile.json")?,
+        stream_event(13, &user_id, "/pub/pubky.app/profile.json")?,
+    ]]));
+    let handler = create_mock_handler(Ok(()), None);
+    let processor = processor(homeserver, handler.clone(), source);
+
+    processor.run().await?;
+
+    // The replay is skipped without reaching a handler, and the event at 13 is
+    // still indexed and checkpointed.
+    assert_eq!(handler.get_handle_count(), 1);
+    assert_eq!(user_cursor(&user_id, &hs_id).await?, Some(13));
 
     Ok(())
 }
