@@ -35,13 +35,14 @@ pub enum EventProcessorError {
         event_user_id: String,
     },
 
-    /// A homeserver returned a per-user event cursor lower than an earlier event.
-    #[error("HS returned an out-of-order event cursor: hs_id={hs_id}, user_id={user_id}, cursor={cursor}, max_cursor={max_cursor}")]
+    /// An external HS returned a per-user event cursor at or below the cursor
+    /// floor: the user's stored cursor, or an earlier event in the same batch.
+    #[error("HS returned an out-of-order event cursor: hs_id={hs_id}, user_id={user_id}, cursor={cursor}, cursor_floor={cursor_floor}")]
     EventCursorOutOfOrder {
         hs_id: String,
         user_id: String,
         cursor: u64,
-        max_cursor: u64,
+        cursor_floor: u64,
     },
 
     /// The event payload deserialized but failed `pubky-app-specs` validation

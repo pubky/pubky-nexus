@@ -26,9 +26,11 @@ use crate::service::user_hs_resolver;
 const FETCH_EVENTS_429_BACKOFF_SECS: [u64; 3] = [1, 2, 3];
 
 /// Counter for per-user stream events an External HS returned at or below the
-/// user's stored cursor — replays of already-indexed events, rejected before any
-/// handler runs. A sustained non-zero rate for one HS means it is stuck replaying
-/// and needs operator attention. Labelled by `hs_id` only to avoid per-user metric cardinality.
+/// ordering floor — a replay of already-indexed data, or a regression against an
+/// earlier event in the same batch. Both are rejected before any handler runs and
+/// stop the batch, stalling the user entirely when its first event trips the check.
+/// A sustained non-zero rate for one HS means it is misbehaving and needs operator
+/// attention. Labelled by `hs_id` only to avoid per-user metric cardinality.
 static OUT_OF_ORDER_CURSOR_EXTERNAL_HS: LazyLock<Counter<u64>> = LazyLock::new(|| {
     global::meter(super::METER_NAME)
         .u64_counter("watcher.external_hs.cursor.out_of_order")
@@ -342,13 +344,13 @@ impl KeyBasedEventProcessor {
             }
 
             let cursor_id = stream_event.cursor.id();
-            // Fetches are cursor-exclusive, so a correct HS only returns events
-            // above the floor; anything at or below it is a replay. Seeding the
-            // floor from `persisted_cursor` matters because `latest_cursor`
-            // resets each batch — the in-batch check alone would miss a replay
-            // of an already-indexed event.
-            let ordering_floor = latest_cursor.unwrap_or(persisted_cursor);
-            if cursor_id <= ordering_floor {
+            // Fetches are cursor-exclusive and a correct HS returns events in
+            // increasing order, so every event must sit strictly above the floor:
+            // the stored cursor for the first event, the previous event after that.
+            // Seeding from `persisted_cursor` matters because `latest_cursor` resets
+            // each batch — the in-batch check alone would miss a replay.
+            let cursor_floor = latest_cursor.unwrap_or(persisted_cursor);
+            if cursor_id <= cursor_floor {
                 OUT_OF_ORDER_CURSOR_EXTERNAL_HS
                     .add(1, &[KeyValue::new("hs_id", hs_id.to_string())]);
                 return (
@@ -357,7 +359,7 @@ impl KeyBasedEventProcessor {
                         hs_id: hs_id.into(),
                         user_id: user_id.into(),
                         cursor: cursor_id,
-                        max_cursor: ordering_floor,
+                        cursor_floor,
                     }),
                 );
             }
