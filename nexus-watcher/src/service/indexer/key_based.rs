@@ -25,18 +25,10 @@ use crate::service::user_hs_resolver;
 
 const FETCH_EVENTS_429_BACKOFF_SECS: [u64; 3] = [1, 2, 3];
 
-/// Counter for per-user stream events an External HS returned out of cursor
-/// order, rejected before any handler runs. The `reason` label separates the two
-/// ways the ordering contract can break, which have different causes and
-/// different consequences:
-///
-/// - `replay`: the event is at or below the user's stored cursor, so it was
-///   already indexed. Skipped, and the batch continues.
-/// - `unsorted`: the event is above the stored cursor but below one already seen
-///   in this same batch, so the HS returned an unsorted response. The batch stops.
-///
-/// A sustained non-zero rate for one HS means it is misbehaving and needs
-/// operator attention. Labelled by `hs_id` only to avoid per-user metric cardinality.
+/// Counter for per-user stream events an External HS returned at or below the
+/// user's stored cursor — replays of already-indexed events, rejected before any
+/// handler runs. A sustained non-zero rate for one HS means it is stuck replaying
+/// and needs operator attention. Labelled by `hs_id` only to avoid per-user metric cardinality.
 static OUT_OF_ORDER_CURSOR_EXTERNAL_HS: LazyLock<Counter<u64>> = LazyLock::new(|| {
     global::meter(super::METER_NAME)
         .u64_counter("watcher.external_hs.cursor.out_of_order")
@@ -328,9 +320,8 @@ impl KeyBasedEventProcessor {
     /// Processes already-fetched events for a single user stream.
     ///
     /// `persisted_cursor` is the user's currently stored cursor for this
-    /// homeserver. Events at or below it are replays of already-indexed data and
-    /// are skipped before any handler runs; events that regress against an
-    /// earlier event *in this batch* stop it. See the ordering checks below.
+    /// homeserver; it acts as the initial ordering floor so that events at or
+    /// below what we have already indexed are rejected before any handler runs.
     ///
     /// Returns the latest cursor that is safe to persist, plus the processing
     /// result. Cursor advancement is intentionally skipped for `UserIdMismatch`
@@ -351,49 +342,22 @@ impl KeyBasedEventProcessor {
             }
 
             let cursor_id = stream_event.cursor.id();
-
             // Fetches are cursor-exclusive, so a correct HS only returns events
-            // above the cursor it was asked with. An event at or below it breaks
-            // that contract in one of two ways, which are handled differently.
-
-            // Below the stored cursor: a replay of an event already indexed on a
-            // previous run. Skipping it is safe — the data is in the graph — and
-            // it is the only way to make progress: the stored cursor cannot move
-            // past a replay, so aborting here would leave the next poll asking
-            // for the same range, receiving the same replay, and wedging this
-            // user forever behind one stale event.
-            //
-            // The primary-HS path (`homeserver.rs`) skips the whole batch in the
-            // equivalent situation. The asymmetry is deliberate: that homeserver
-            // is ours, so a stalled cursor is an actionable alert someone can go
-            // and fix. An external HS is third-party, and a stall there is an
-            // open-ended outage for the user with no lever on our side to end it.
-            if cursor_id <= persisted_cursor {
-                Self::record_out_of_order(hs_id, "replay");
-                warn!(
-                    %hs_id, %user_id, %cursor_id, %persisted_cursor,
-                    "Homeserver replayed an already-indexed event; skipping it and continuing",
-                );
-                continue;
-            }
-
-            // Above the stored cursor but below one already seen in this batch:
-            // the HS returned an unsorted response, so this event may never have
-            // been indexed. It is not skipped, because handling it after a later
-            // event would let a stale write land on top of a newer one; the batch
-            // stops instead so the HS can re-deliver it in order. This cannot
-            // wedge the user: `latest_cursor` is above `persisted_cursor` by
-            // construction, so it is persisted on the way out and the next poll
-            // asks for a strictly higher range.
-            if let Some(latest_cursor) = latest_cursor.filter(|latest| cursor_id <= *latest) {
-                Self::record_out_of_order(hs_id, "unsorted");
+            // above the floor; anything at or below it is a replay. Seeding the
+            // floor from `persisted_cursor` matters because `latest_cursor`
+            // resets each batch — the in-batch check alone would miss a replay
+            // of an already-indexed event.
+            let ordering_floor = latest_cursor.unwrap_or(persisted_cursor);
+            if cursor_id <= ordering_floor {
+                OUT_OF_ORDER_CURSOR_EXTERNAL_HS
+                    .add(1, &[KeyValue::new("hs_id", hs_id.to_string())]);
                 return (
-                    Some(latest_cursor),
+                    latest_cursor,
                     Err(EventProcessorError::EventCursorOutOfOrder {
                         hs_id: hs_id.into(),
                         user_id: user_id.into(),
                         cursor: cursor_id,
-                        max_cursor: latest_cursor,
+                        max_cursor: ordering_floor,
                     }),
                 );
             }
@@ -422,18 +386,6 @@ impl KeyBasedEventProcessor {
         }
 
         (latest_cursor, Ok(()))
-    }
-
-    /// Records an out-of-order event on [`OUT_OF_ORDER_CURSOR_EXTERNAL_HS`],
-    /// where `reason` is `replay` or `unsorted`.
-    fn record_out_of_order(hs_id: &str, reason: &'static str) {
-        OUT_OF_ORDER_CURSOR_EXTERNAL_HS.add(
-            1,
-            &[
-                KeyValue::new("hs_id", hs_id.to_string()),
-                KeyValue::new("reason", reason),
-            ],
-        );
     }
 
     fn validate_user_id(
