@@ -1,7 +1,3 @@
-# Prometheus receives metrics pushed by the collector via remote write
-# (see --web.enable-remote-write-receiver in the compose command).
-# It also scrapes itself so the target list is never empty.
-
 global:
   scrape_interval: 15s
   evaluation_interval: 15s

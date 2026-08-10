@@ -1,7 +1,3 @@
-# OpenTelemetry Collector - single OTLP entry point for local nexus testing.
-# Receives traces, logs and metrics over OTLP and fans each signal out to its
-# backend (Tempo / Prometheus / Loki).
-
 receivers:
   otlp:
     protocols:
@@ -35,7 +31,6 @@ exporters:
       insecure: true
 
   # Mirror everything to stdout for a quick sanity check:
-  #   docker compose -f docker/docker-compose.otel-local.yml logs -f otel-collector
   debug:
     verbosity: normal
 

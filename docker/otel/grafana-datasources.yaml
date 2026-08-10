@@ -1,5 +1,3 @@
-# Auto-provisioned Grafana datasources for the three signals.
-
 apiVersion: 1
 
 datasources:

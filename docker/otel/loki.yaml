@@ -1,5 +1,3 @@
-# Minimal single-binary Loki config with native OTLP log ingestion enabled.
-
 auth_enabled: false
 
 server:
@@ -28,7 +26,6 @@ schema_config:
         prefix: index_
         period: 24h
 
-# Required so OTLP resource/scope attributes can be stored as structured metadata
 limits_config:
   allow_structured_metadata: true
   volume_enabled: true
