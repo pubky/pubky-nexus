@@ -61,7 +61,8 @@ pub async fn put<T: Serialize + Send + Sync>(
 
     trace!(
         "Set key: {} with optional expiration: {:?}",
-        index_key, expiration
+        index_key,
+        expiration
     );
     Ok(())
 }
@@ -146,7 +147,9 @@ pub async fn modify_json_field(
 
     trace!(
         "Modifiying field: {} in key: {} by {}",
-        field, index_key, amount
+        field,
+        index_key,
+        amount
     );
 
     let _: i64 = script

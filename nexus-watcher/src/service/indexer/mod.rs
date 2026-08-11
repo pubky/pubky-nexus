@@ -92,9 +92,9 @@ pub trait TEventProcessor: Send + Sync + 'static {
 
         let join_result = tokio::time::timeout(timeout, handle)
             .await
-            .inspect_err(|_| {
-                error!(service = %instance_name, homeserver, "Event processor timed out")
-            })
+            .inspect_err(
+                |_| error!(service = %instance_name, homeserver, "Event processor timed out"),
+            )
             .map_err(|_| RunError::TimedOut)?;
 
         // The JoinError can be:
