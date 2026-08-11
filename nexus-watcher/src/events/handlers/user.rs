@@ -13,7 +13,7 @@ use tracing::debug;
 
 #[tracing::instrument(name = "user.put", skip_all, fields(user_id = %user_id))]
 pub async fn sync_put(user: PubkyAppUser, user_id: PubkyId) -> Result<(), EventProcessorError> {
-    debug!("Indexing new user profile: {}", user_id);
+    debug!("Indexing user profile");
 
     // Step 1: Create `UserDetails` object
     let user_details = UserDetails::from_homeserver(user, &user_id);
@@ -51,7 +51,7 @@ pub async fn sync_put(user: PubkyAppUser, user_id: PubkyId) -> Result<(), EventP
 
 #[tracing::instrument(name = "user.del", skip_all, fields(user_id = %user_id))]
 pub async fn del(user_id: PubkyId) -> Result<(), EventProcessorError> {
-    debug!("Deleting user profile:  {}", user_id);
+    debug!("Deleting user profile");
 
     // 1. Graph query to check if there is any edge at all to this user.
     let query = user_is_safe_to_delete(&user_id);

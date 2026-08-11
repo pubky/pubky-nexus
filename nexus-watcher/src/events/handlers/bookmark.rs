@@ -14,7 +14,7 @@ pub async fn sync_put(
     bookmark: PubkyAppBookmark,
     id: String,
 ) -> Result<(), EventProcessorError> {
-    debug!("Indexing new bookmark: {} -> {}", user_id, id);
+    debug!("Indexing bookmark");
     // Parse the URI to extract author_id and post_id using the updated parse_post_uri
     let parsed_uri =
         ParsedUri::try_from(bookmark.uri.as_str()).map_err(EventProcessorError::generic)?;
@@ -61,7 +61,7 @@ pub async fn sync_put(
 
 #[tracing::instrument(name = "bookmark.del", skip_all, fields(user_id = %user_id, bookmark_id = %bookmark_id))]
 pub async fn del(user_id: PubkyId, bookmark_id: String) -> Result<(), EventProcessorError> {
-    debug!("Deleting bookmark: {} -> {}", user_id, bookmark_id);
+    debug!("Deleting bookmark");
     sync_del(user_id, bookmark_id).await
 }
 

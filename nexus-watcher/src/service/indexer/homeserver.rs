@@ -14,7 +14,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, LazyLock};
 use tokio::sync::watch::Receiver;
 use tokio::sync::Mutex;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info, trace, warn};
 
 /// Counter for events permanently rejected for exceeding a fetch size limit.
 static REJECTED: LazyLock<Counter<u64>> = LazyLock::new(|| {
@@ -145,8 +145,8 @@ impl TEventProcessor for HsEventProcessor {
         &self.event_handler
     }
 
-    fn instance_name(&self) -> String {
-        format!("HsEventProcessor with HS ID: {}", self.homeserver.id)
+    fn instance_name(&self) -> &'static str {
+        "HsEventProcessor"
     }
 
     fn retry_scheduler(&self) -> Option<&Arc<RetryScheduler>> {
@@ -176,7 +176,6 @@ impl TEventProcessor for HsEventProcessor {
                 warn!(
                     event.uri = %event.uri,
                     user_id = %user_id,
-                    processor_homeserver = %self.homeserver.id,
                     "User's homeserver mapping is stale; skipping event"
                 );
                 Ok(false)
@@ -187,7 +186,6 @@ impl TEventProcessor for HsEventProcessor {
                 warn!(
                     event.uri = %event.uri,
                     user_id = %user_id,
-                    processor_homeserver = %self.homeserver.id,
                     user_homeserver = %hs_id,
                     "User is hosted on a different homeserver; skipping event"
                 );
@@ -200,12 +198,12 @@ impl TEventProcessor for HsEventProcessor {
         let maybe_event_lines = self
             .poll_events()
             .await
-            .inspect_err(|e| error!("Error polling events: {e:?}"))?;
+            .inspect_err(|e| error!(error = ?e, "Error polling events"))?;
 
         match maybe_event_lines {
             None => debug!("No new events"),
             Some(event_lines) => {
-                info!("Processing {} event lines", event_lines.len());
+                info!(event_lines = event_lines.len(), "Processing event lines");
                 self.process_event_lines(event_lines).await?;
             }
         }
@@ -250,9 +248,9 @@ impl HsEventProcessor {
     /// using the current cursor and a specified limit. It retrieves new event
     /// URIs in a newline-separated format, processes it into a vector of strings,
     /// and returns the result.
-    #[tracing::instrument(name = "events.poll", skip_all, fields(homeserver = %self.homeserver.id))]
+    #[tracing::instrument(name = "events.poll", skip_all)]
     async fn poll_events(&self) -> Result<Option<Vec<String>>, EventProcessorError> {
-        debug!("Polling new events from homeserver");
+        debug!(cursor = %self.homeserver.cursor, "Polling events");
 
         let response_text = {
             let pubky = PubkyConnector::get()?;
@@ -283,7 +281,7 @@ impl HsEventProcessor {
         };
 
         let lines: Vec<String> = response_text.trim().lines().map(String::from).collect();
-        debug!("Homeserver response lines {:?}", lines);
+        trace!(?lines, "Homeserver response lines");
 
         if lines.is_empty() || (lines.len() == 1 && lines[0].is_empty()) {
             return Ok(None);
@@ -346,7 +344,7 @@ impl HsEventProcessor {
 
         for line in &batch.event_lines {
             if *self.shutdown_rx.borrow() {
-                debug!(hs_id = %self.homeserver.id, "Shutdown detected; exiting event processing loop");
+                debug!("Shutdown detected; exiting event processing loop");
                 // The cursor is deliberately left unpersisted: the batch is only
                 // partly processed, so the next run has to replay it.
                 return Ok(());

@@ -99,8 +99,6 @@ pub async fn handle_put_event(
     moderation: Arc<Moderation>,
     ingestor: Arc<UserIngestor>,
 ) -> Result<(), EventProcessorError> {
-    debug!("Handling PUT event for URI: {}", event.uri);
-
     let pubky = PubkyConnector::get()?;
     let response = pubky.public_storage().get(&event.uri).await?;
 
@@ -179,7 +177,7 @@ pub async fn handle_put_event(
             )
             .await?
         }
-        other => debug!("Event type not handled, Resource: {other:?}"),
+        other => debug!(?other, "Event type not handled"),
     }
     Ok(())
 }
@@ -190,8 +188,6 @@ pub async fn handle_del_event(
     files_path: &Path,
     ingestor: Arc<UserIngestor>,
 ) -> Result<(), EventProcessorError> {
-    debug!("Handling DEL event for URI: {}", event.uri);
-
     let user_id = event.parsed_uri.user_id().clone();
     match event.parsed_uri.resource() {
         Resource::User => handlers::user::del(user_id).await?,
@@ -207,7 +203,7 @@ pub async fn handle_del_event(
         Resource::File(file_id) => {
             handlers::file::del(&user_id, file_id.clone(), files_path).await?
         }
-        other => debug!("DEL event type not handled for resource: {other:?}"),
+        other => debug!(?other, "DEL event type not handled"),
     }
     Ok(())
 }
