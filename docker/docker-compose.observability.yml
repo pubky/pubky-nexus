@@ -1,5 +1,11 @@
 name: pubky-nexus-otel-local
 
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.115.1
@@ -11,9 +17,13 @@ services:
       - 127.0.0.1:4317:4317
       - 127.0.0.1:4318:4318
     depends_on:
-      - tempo
-      - prometheus
-      - loki
+      tempo:
+        condition: service_healthy
+      prometheus:
+        condition: service_healthy
+      loki:
+        condition: service_healthy
+    logging: *default-logging
     restart: unless-stopped
 
   tempo:
@@ -23,6 +33,13 @@ services:
     volumes:
       - ./otel/tempo.yaml:/etc/tempo.yaml:ro
       - tempo_data:/var/tempo
+    healthcheck:
+      test: ["CMD", "/usr/bin/wget", "-qO-", "http://localhost:3200/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    logging: *default-logging
     restart: unless-stopped
 
   prometheus:
@@ -31,12 +48,20 @@ services:
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=24h'
       - '--web.enable-remote-write-receiver'
     volumes:
       - ./otel/prometheus.yaml:/etc/prometheus/prometheus.yml:ro
       - prometheus_data:/prometheus
     ports:
       - 127.0.0.1:9090:9090
+    healthcheck:
+      test: ["CMD", "/bin/wget", "-qO-", "http://localhost:9090/-/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    logging: *default-logging
     restart: unless-stopped
 
   loki:
@@ -48,6 +73,13 @@ services:
       - loki_data:/loki
     ports:
       - 127.0.0.1:3100:3100
+    healthcheck:
+      test: ["CMD", "/busybox/wget", "-qO-", "http://localhost:3100/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    logging: *default-logging
     restart: unless-stopped
 
   grafana:
@@ -62,10 +94,7 @@ services:
       - grafana_data:/var/lib/grafana
     ports:
       - 127.0.0.1:3000:3000
-    depends_on:
-      - prometheus
-      - tempo
-      - loki
+    logging: *default-logging
     restart: unless-stopped
 
 volumes:
