@@ -1,7 +1,13 @@
+use crate::service::utils::create_mock_handler;
 use crate::service::utils::{create_mock_event_processors, MockEventProcessorRunner, HS_IDS};
 use anyhow::Result;
 use nexus_common::types::DynError;
+use nexus_watcher::errors::EventProcessorError;
+use nexus_watcher::events::EventHandler;
+use nexus_watcher::service::TEventProcessor;
 use nexus_watcher::service::TEventProcessorRunner;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 const TIMEOUT: Duration = Duration::from_secs(2);
@@ -37,4 +43,59 @@ async fn test_mock_event_processors() -> Result<(), DynError> {
     );
 
     Ok(())
+}
+
+/// Verifies that `run` waits for its timed-out task to be cancelled.
+#[tokio_shared_rt::test(shared)]
+async fn processor_run_aborts_spawned_task_on_timeout() -> Result<(), DynError> {
+    let task_dropped = Arc::new(AtomicBool::new(false));
+    let processor = Arc::new(AbortTrackingProcessor {
+        task_dropped: task_dropped.clone(),
+        event_handler: create_mock_handler(Ok(()), None),
+        timeout: Duration::from_millis(50),
+    });
+
+    let err = processor.run().await.unwrap_err();
+    assert!(err.is_timeout(), "expected timeout, got {err:?}");
+    assert!(
+        task_dropped.load(Ordering::SeqCst),
+        "run should await cancellation of the timed-out task"
+    );
+
+    Ok(())
+}
+
+struct AbortTrackingProcessor {
+    task_dropped: Arc<AtomicBool>,
+    event_handler: Arc<dyn EventHandler>,
+    timeout: Duration,
+}
+
+struct TaskDropGuard(Arc<AtomicBool>);
+
+impl Drop for TaskDropGuard {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::SeqCst);
+    }
+}
+
+#[async_trait::async_trait]
+impl TEventProcessor for AbortTrackingProcessor {
+    fn event_handler(&self) -> &Arc<dyn EventHandler> {
+        &self.event_handler
+    }
+
+    fn instance_name(&self) -> &'static str {
+        "AbortTrackingProcessor"
+    }
+
+    fn custom_timeout(&self) -> Option<Duration> {
+        Some(self.timeout)
+    }
+
+    async fn run_internal(self: Arc<Self>) -> Result<(), EventProcessorError> {
+        let _guard = TaskDropGuard(self.task_dropped.clone());
+        std::future::pending::<()>().await;
+        Ok(())
+    }
 }
