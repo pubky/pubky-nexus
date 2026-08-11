@@ -1,5 +1,6 @@
 use crate::{db::DatabaseConfig, get_files_dir_pathbuf};
 use serde::{Deserialize, Deserializer, Serialize};
+use std::collections::HashMap;
 use std::{fmt::Debug, path::PathBuf};
 
 use super::net::NetConfig;
@@ -20,6 +21,11 @@ pub struct OtlpConfig {
     pub name: String,
     /// OTLP endpoint. When set, enables export of traces, logs, and metrics
     pub endpoint: Option<String>,
+    /// Extra resource attributes attached to all traces, metrics, and logs
+    /// from this process (e.g. `host`, `env`) so shared collectors can
+    /// distinguish sources.
+    #[serde(default)]
+    pub resource_attributes: HashMap<String, String>,
 }
 
 impl Default for OtlpConfig {
@@ -27,6 +33,7 @@ impl Default for OtlpConfig {
         Self {
             name: String::from("nexus"),
             endpoint: None,
+            resource_attributes: HashMap::new(),
         }
     }
 }
