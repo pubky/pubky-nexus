@@ -129,6 +129,10 @@ impl TEventProcessor for KeyBasedEventProcessor {
         Some(self.homeserver_id.as_ref())
     }
 
+    fn custom_timeout(&self) -> Option<Duration> {
+        Some(Duration::from_mins(8))
+    }
+
     async fn run_internal(self: Arc<Self>) -> Result<(), EventProcessorError> {
         let hs_id = self.homeserver_id.to_string();
 
