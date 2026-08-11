@@ -53,7 +53,10 @@ impl StackManager {
         match &otlp.endpoint {
             None => Self::setup_local_logging(log_level),
             Some(_) => match Self::setup_otlp_logging(otlp, log_level).await {
-                Ok(()) => info!("OpenTelemetry Logging initialized for {} service", otlp.name),
+                Ok(()) => info!(
+                    "OpenTelemetry Logging initialized for {} service",
+                    otlp.name
+                ),
                 Err(e) => error!("Failed to initialize OpenTelemetry Logging: {:?}", e),
             },
         }
@@ -157,9 +160,8 @@ impl StackManager {
         // Bridge tracing spans into OpenTelemetry trace spans.
         // This allows #[instrument] and info_span!() to produce OTel spans
         // that are exported alongside manually-created OTel spans.
-        let otel_trace_layer =
-            OpenTelemetryLayer::new(tracer_provider.tracer(otlp.name.clone()))
-                .with_filter(Self::env_filter(log_level));
+        let otel_trace_layer = OpenTelemetryLayer::new(tracer_provider.tracer(otlp.name.clone()))
+            .with_filter(Self::env_filter(log_level));
 
         // Creates a tracing subscriber
         let subscriber = Registry::default()
@@ -205,7 +207,10 @@ impl StackManager {
 
                 // Register globally the metrics
                 global::set_meter_provider(provider);
-                info!("OpenTelemetry Metrics initialized for {} service", otlp.name);
+                info!(
+                    "OpenTelemetry Metrics initialized for {} service",
+                    otlp.name
+                );
             }
         }
     }
@@ -245,7 +250,10 @@ mod tests {
             resource.get(&Key::new("service.name")),
             Some(Value::from("nexusd"))
         );
-        assert_eq!(resource.get(&Key::new("host")), Some(Value::from("nexus-1")));
+        assert_eq!(
+            resource.get(&Key::new("host")),
+            Some(Value::from("nexus-1"))
+        );
         assert_eq!(resource.get(&Key::new("env")), Some(Value::from("prod")));
     }
 

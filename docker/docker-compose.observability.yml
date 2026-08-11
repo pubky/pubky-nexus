@@ -1,4 +1,4 @@
-name: pubky-nexus-otel-local
+name: pubky-nexus-observability
 
 x-logging: &default-logging
   driver: json-file
