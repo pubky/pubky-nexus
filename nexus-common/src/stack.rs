@@ -62,13 +62,27 @@ impl StackManager {
     }
 
     /// Builds an [`EnvFilter`] at the given level with directives to suppress noisy dependencies.
+    ///
+    /// HTTP/TLS crates are always capped. Discovery crates (`mainline`, `pkarr`, `pubky`) are
+    /// capped unless the global level is [`Level::Trace`], so their detail only appears when
+    /// explicitly tracing.
     fn env_filter(log_level: Level) -> EnvFilter {
         EnvFilter::try_from_default_env().unwrap_or_else(|_| {
-            EnvFilter::new(log_level.as_str())
+            let mut filter = EnvFilter::new(log_level.as_str())
                 .add_directive("opentelemetry=error".parse().unwrap())
                 .add_directive("h2=error".parse().unwrap())
                 .add_directive("tower=info".parse().unwrap())
-                .add_directive("mainline=info".parse().unwrap())
+                .add_directive("reqwest=warn".parse().unwrap())
+                .add_directive("hyper_util=warn".parse().unwrap())
+                .add_directive("rustls=warn".parse().unwrap());
+
+            if log_level != Level::Trace {
+                for directive in ["mainline=info", "pkarr=warn", "pubky=warn"] {
+                    filter = filter.add_directive(directive.parse().unwrap());
+                }
+            }
+
+            filter
         })
     }
 

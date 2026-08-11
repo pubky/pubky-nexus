@@ -23,7 +23,7 @@ pub async fn sync_put(
     post_id: String,
     ingestor: &UserIngestor,
 ) -> Result<(), EventProcessorError> {
-    debug!("Indexing new post: {}/{}", author_id, post_id);
+    debug!("Indexing post");
     // Create PostDetails object
     let post_details = PostDetails::from_homeserver(post.clone(), &author_id, &post_id);
     // We avoid indexing replies into global feed sorted sets
@@ -315,10 +315,7 @@ async fn recover_post_index_state(
     author_id: &PubkyId,
     post_id: &str,
 ) -> Result<(), EventProcessorError> {
-    debug!(
-        "Recovering post index state from graph: {}/{}",
-        author_id, post_id
-    );
+    debug!("Recovering post index state from graph");
 
     // Fetch post details from the graph once — used both to drive mention
     // edge recovery (needs the content) and to re-populate the PostDetails
@@ -549,7 +546,7 @@ pub async fn del(
     post_id: String,
     ingestor: &UserIngestor,
 ) -> Result<(), EventProcessorError> {
-    debug!("Deleting post: {}/{}", author_id, post_id);
+    debug!("Deleting post");
 
     // Graph query to check if there is any edge at all to this post other than AUTHORED, is a reply or is a repost.
     let query = post_is_safe_to_delete(&author_id, &post_id);

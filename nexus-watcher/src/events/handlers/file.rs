@@ -24,7 +24,7 @@ pub async fn sync_put(
     max_file_size: u64,
     ingestor: &UserIngestor,
 ) -> Result<(), EventProcessorError> {
-    debug!("Indexing new file resource at {}/{}", user_id, file_id);
+    debug!("Indexing file");
 
     let file_meta = ingest(
         &user_id,
@@ -111,7 +111,7 @@ pub async fn del(
     file_id: String,
     files_path: &Path,
 ) -> Result<(), EventProcessorError> {
-    debug!("Deleting File resource at {}/{}", user_id, file_id);
+    debug!("Deleting file");
     let result = FileDetails::get_by_ids(&[&[user_id, &file_id]]).await?;
 
     if result.is_empty() {

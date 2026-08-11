@@ -74,12 +74,12 @@ pub trait TEventProcessorRunner: Send + Sync {
 
         for hs_id in hs_ids {
             if *self.shutdown_rx().borrow() {
-                info!(hs_id = %hs_id, "Shutdown detected; exiting run loop");
+                info!(homeserver = %hs_id, "Shutdown detected; exiting run loop");
                 break;
             }
 
             if self.backoff_hs_should_skip(&hs_id).await {
-                debug!(%hs_id, "Skipping homeserver in backoff");
+                debug!(homeserver = %hs_id, "Skipping homeserver in backoff");
                 run_stats.add_run_result(hs_id, Duration::ZERO, ProcessorRunStatus::Skipped);
                 continue;
             }
@@ -88,7 +88,7 @@ pub trait TEventProcessorRunner: Send + Sync {
             let status = match self.build(&hs_id).await {
                 Ok(event_processor) => status_from_run_result(event_processor.run().await),
                 Err(e) => {
-                    error!(hs_id = %hs_id, error = %e, "Failed to build event processor");
+                    error!(homeserver = %hs_id, error = %e, "Failed to build event processor");
                     ProcessorRunStatus::FailedToBuild
                 }
             };
