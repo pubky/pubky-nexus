@@ -81,24 +81,19 @@ pub trait TEventProcessor: Send + Sync + 'static {
             .unwrap_or(Duration::from_secs(PROCESSING_TIMEOUT_SECS));
 
         let instance_name = self.instance_name();
-        let homeserver = self.homeserver_id().map(str::to_owned);
-        let span = match homeserver.as_deref() {
-            Some(hs_id) => tracing::info_span!(
-                "event_processor.run",
-                service = %instance_name,
-                homeserver = %hs_id,
-            ),
-            None => tracing::info_span!("event_processor.run", service = %instance_name),
-        };
+        let homeserver_id = self.homeserver_id().map(str::to_owned);
+        let homeserver = homeserver_id.as_deref().map(tracing::field::display);
+        let span = tracing::info_span!(
+            "event_processor.run",
+            service = %instance_name,
+            homeserver,
+        );
         let handle = tokio::spawn(self.run_internal().instrument(span));
 
         let join_result = tokio::time::timeout(timeout, handle)
             .await
-            .inspect_err(|_| match homeserver.as_deref() {
-                Some(hs_id) => {
-                    error!(service = %instance_name, homeserver = %hs_id, "Event processor timed out")
-                }
-                None => error!(service = %instance_name, "Event processor timed out"),
+            .inspect_err(|_| {
+                error!(service = %instance_name, homeserver, "Event processor timed out")
             })
             .map_err(|_| RunError::TimedOut)?;
 
@@ -110,20 +105,24 @@ pub trait TEventProcessor: Send + Sync + 'static {
         // In our model, we don't trigger such interruptions. Instead we use the shutdown signal
         // to gracefully stop the event processing loop. Therefore we consider all JoinErrors as panics.
         let run_internal_result = join_result
-            .inspect_err(|je| match homeserver.as_deref() {
-                Some(hs_id) => {
-                    error!(service = %instance_name, homeserver = %hs_id, error = ?je, "Event processor JoinError")
-                }
-                None => error!(service = %instance_name, error = ?je, "Event processor JoinError"),
+            .inspect_err(|je| {
+                error!(
+                    service = %instance_name,
+                    homeserver,
+                    error = ?je,
+                    "Event processor JoinError"
+                )
             })
             .map_err(|_| RunError::Panicked)?;
 
         run_internal_result
-            .inspect_err(|e| match homeserver.as_deref() {
-                Some(hs_id) => {
-                    error!(service = %instance_name, homeserver = %hs_id, error = ?e, "Event processor failed")
-                }
-                None => error!(service = %instance_name, error = ?e, "Event processor failed"),
+            .inspect_err(|e| {
+                error!(
+                    service = %instance_name,
+                    homeserver,
+                    error = ?e,
+                    "Event processor failed"
+                )
             })
             .map_err(RunError::Internal)
     }
