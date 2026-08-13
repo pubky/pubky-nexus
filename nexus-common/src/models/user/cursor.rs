@@ -62,10 +62,11 @@ impl UserHsCursor {
     /// move it backward. Mirrors `Homeserver::put_to_index` so both cursor types
     /// share one monotonicity rule.
     ///
-    /// Read-then-write is not atomic but is race-free in practice: a given
-    /// `(user_id, hs_id)` pair is only ever written by one processor run at a
-    /// time (users are processed sequentially within a poll cycle, and cycles
-    /// for the same homeserver do not overlap).
+    /// Read-then-write is not atomic but is race-free in practice: the external-HS
+    /// event processor is its only caller, and it writes a given `(user_id, hs_id)`
+    /// pair from one run at a time (users are processed sequentially within a poll
+    /// cycle, and cycles for the same homeserver do not overlap). Per-process only:
+    /// the invariant would not survive running the watcher as several replicas.
     pub async fn write(user_id: &str, hs_id: &str, cursor: u64) -> RedisResult<()> {
         let stored_cursor = Self::read(&[user_id], hs_id)
             .await?
@@ -81,19 +82,15 @@ impl UserHsCursor {
     /// and no-ops if one already exists (e.g. re-ingestion after it advanced),
     /// establishing the floor without ever rewinding it.
     ///
-    /// The check-then-set is non-atomic and safe under the same single-writer invariant,
-    /// as [`Self::write`].
+    /// Seeded atomically (`ZADD NX`) rather than under [`Self::write`]'s
+    /// single-writer invariant, which does not reach here: the caller is the user
+    /// ingestor, running on the primary-HS and retry-processor tasks, and it
+    /// publishes the user's `HOSTED_BY` edge before seeding — so the concurrent
+    /// external-HS task can fetch, index and `write` a real cursor in between. A
+    /// read-then-write would clobber that with 0 and re-index the user's history.
     pub async fn init(user_id: &str, hs_id: &str) -> RedisResult<()> {
         let key = user_hs_cursor_key(user_id);
-        // Check the raw score, not `read` (which maps a missing entry to 0 and
-        // so can't tell "absent" from "present == 0").
-        if Self::check_sorted_set_member(None, &key, &[hs_id])
-            .await?
-            .is_some()
-        {
-            return Ok(());
-        }
-        Self::put_index_sorted_set(&key, &[(0.0, hs_id)], None, None).await
+        Self::put_index_sorted_set_if_absent(&key, 0.0, hs_id, None).await
     }
 }
 
