@@ -1,6 +1,6 @@
 use super::utils::test_reach_filter_with_posts;
 use crate::{
-    stream::post::{AMSTERDAM, BOGOTA, ROOT_PATH, TAG_LABEL_2, USER_ID},
+    stream::post::{AMSTERDAM, BOGOTA, ROOT_PATH, TAG_LABEL_2},
     utils::get_request,
 };
 use anyhow::Result;
@@ -8,42 +8,71 @@ use anyhow::Result;
 // User from posts.cypher mock
 const EIXAMPLE: &str = "8attbeo9ftu5nztqkcfw3gydksehr7jbspgfi64u4h8eo5e7dbiy";
 
-#[tokio_shared_rt::test(shared)]
-async fn test_stream_posts_following() -> Result<()> {
-    let path = format!("{ROOT_PATH}?observer_id={USER_ID}&source=following");
-    let body = get_request(&path).await?;
-
-    assert!(body.is_array());
-
-    for post in body.as_array().expect("Post stream should be an array") {
-        assert!(
-            post["details"]["author"].is_string(),
-            "author should be a string"
+fn assert_excludes_author(body: &serde_json::Value, observer_id: &str, source: &str) {
+    let posts = body.as_array().expect("Post stream should be an array");
+    assert!(
+        !posts.is_empty(),
+        "{source} regression fixture must return posts"
+    );
+    for post in posts {
+        assert_ne!(
+            post["details"]["author"].as_str(),
+            Some(observer_id),
+            "{source} must not include posts authored by its observer"
         );
     }
-
-    Ok(())
 }
 
-#[tokio_shared_rt::test(shared)]
-async fn test_stream_posts_followers() -> Result<()> {
-    let path = format!("{ROOT_PATH}?observer_id={USER_ID}&source=followers");
-    let body = get_request(&path).await?;
-
-    assert!(body.is_array());
-
-    for post in body.as_array().expect("Post stream should be an array") {
-        assert!(
-            post["details"]["author"].is_string(),
-            "author should be a string"
-        );
-    }
-
-    Ok(())
+fn assert_post_ids(body: &serde_json::Value, expected: &[&str]) {
+    let ids: Vec<&str> = body
+        .as_array()
+        .expect("Post stream should be an array")
+        .iter()
+        .map(|post| {
+            post["details"]["id"]
+                .as_str()
+                .expect("post id should be a string")
+        })
+        .collect();
+    assert_eq!(ids, expected, "post IDs should match exactly");
 }
 
 const START_TIME: usize = 1980477299321;
 const END_TIME: usize = 1980477299312;
+
+#[tokio_shared_rt::test(shared)]
+async fn test_stream_posts_following_excludes_observer_in_matching_window() -> Result<()> {
+    // This window contains Amsterdam's 00000039YD99Y / 00000039YD9B2 posts and
+    // posts by followed users. Before the fix, the observer injection returned
+    // both groups; now only followed-user posts remain.
+    let path = format!(
+        "{ROOT_PATH}?observer_id={AMSTERDAM}&source=following&viewer_id={AMSTERDAM}&start=1720000000000&end=1690000000000&limit=50"
+    );
+    let body = get_request(&path).await?;
+    let ids: Vec<&str> = body
+        .as_array()
+        .expect("Post stream should be an array")
+        .iter()
+        .map(|post| {
+            post["details"]["id"]
+                .as_str()
+                .expect("post id should be a string")
+        })
+        .collect();
+
+    assert_excludes_author(&body, AMSTERDAM, "following");
+    assert!(
+        ids.iter().any(|id| *id == "00000039YD9C0"),
+        "the regression window must retain a known followed-user post, got {ids:?}"
+    );
+    assert!(
+        !ids.iter()
+            .any(|id| matches!(*id, "00000039YD99Y" | "00000039YD9B2")),
+        "the regression window must exclude Amsterdam's posts, got {ids:?}"
+    );
+
+    Ok(())
+}
 
 #[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_following_with_start() -> Result<()> {
@@ -54,30 +83,16 @@ async fn test_stream_posts_following_with_start() -> Result<()> {
 
     assert!(body.is_array());
 
-    let post_array = [
-        "MLOW1TGL5BKH4",
-        "SIJW1TGL5BKG3",
-        "GJMW1TGL5BKG3",
-        "MLOW1TGL5BKH3",
-        "SIJW1TGL5BKG2",
-    ];
-
-    for (index, post) in body
-        .as_array()
-        .expect("Post stream should be an array")
-        .iter()
-        .enumerate()
-    {
-        assert!(
-            post["details"]["author"].is_string(),
-            "author should be a string"
-        );
-
-        assert_eq!(
-            post_array[index], post["details"]["id"],
-            "The post index does not match"
-        )
-    }
+    assert_post_ids(
+        &body,
+        &[
+            "MLOW1TGL5BKH4",
+            "SIJW1TGL5BKG3",
+            "GJMW1TGL5BKG3",
+            "MLOW1TGL5BKH3",
+            "SIJW1TGL5BKG2",
+        ],
+    );
 
     Ok(())
 }
@@ -91,24 +106,7 @@ async fn test_stream_posts_following_with_start_and_end() -> Result<()> {
 
     assert!(body.is_array());
 
-    let post_array = ["MLOW1TGL5BKH4", "SIJW1TGL5BKG3", "GJMW1TGL5BKG3"];
-
-    for (index, post) in body
-        .as_array()
-        .expect("Post stream should be an array")
-        .iter()
-        .enumerate()
-    {
-        assert!(
-            post["details"]["author"].is_string(),
-            "author should be a string"
-        );
-
-        assert_eq!(
-            post_array[index], post["details"]["id"],
-            "The post index does not match"
-        )
-    }
+    assert_post_ids(&body, &["MLOW1TGL5BKH4", "SIJW1TGL5BKG3", "GJMW1TGL5BKG3"]);
 
     Ok(())
 }
@@ -125,24 +123,7 @@ async fn test_stream_posts_followers_with_start() -> Result<()> {
 
     assert!(body.is_array());
 
-    let post_array = ["00000039YD9CE", "00000039YD9CY", "00000039YD9DA"];
-
-    for (index, post) in body
-        .as_array()
-        .expect("Post stream should be an array")
-        .iter()
-        .enumerate()
-    {
-        assert!(
-            post["details"]["author"].is_string(),
-            "author should be a string"
-        );
-
-        assert_eq!(
-            post_array[index], post["details"]["id"],
-            "The post index does not match"
-        )
-    }
+    assert_post_ids(&body, &["00000039YD9CY", "00000039YD9DA"]);
 
     Ok(())
 }
@@ -156,24 +137,7 @@ async fn test_stream_posts_followers_with_start_and_end() -> Result<()> {
 
     assert!(body.is_array());
 
-    let post_array = ["00000039YD9CE", "00000039YD9CY"];
-
-    for (index, post) in body
-        .as_array()
-        .expect("Post stream should be an array")
-        .iter()
-        .enumerate()
-    {
-        assert!(
-            post["details"]["author"].is_string(),
-            "author should be a string"
-        );
-
-        assert_eq!(
-            post_array[index], post["details"]["id"],
-            "The post index does not match"
-        )
-    }
+    assert_post_ids(&body, &["00000039YD9CY"]);
 
     Ok(())
 }
@@ -188,24 +152,7 @@ async fn test_stream_posts_friend_with_start() -> Result<()> {
 
     assert!(body.is_array());
 
-    let post_array = ["4ZCW1TGL5BKG7", "00000039YD9CY", "00000039YD9DA"];
-
-    for (index, post) in body
-        .as_array()
-        .expect("Post stream should be an array")
-        .iter()
-        .enumerate()
-    {
-        assert!(
-            post["details"]["author"].is_string(),
-            "author should be a string"
-        );
-
-        assert_eq!(
-            post_array[index], post["details"]["id"],
-            "The post index does not match"
-        )
-    }
+    assert_post_ids(&body, &["00000039YD9CY", "00000039YD9DA"]);
 
     Ok(())
 }
@@ -220,24 +167,7 @@ async fn test_stream_posts_friend_with_start_and_end() -> Result<()> {
 
     assert!(body.is_array());
 
-    let post_array = ["4ZCW1TGL5BKG7", "00000039YD9CY"];
-
-    for (index, post) in body
-        .as_array()
-        .expect("Post stream should be an array")
-        .iter()
-        .enumerate()
-    {
-        assert!(
-            post["details"]["author"].is_string(),
-            "author should be a string"
-        );
-
-        assert_eq!(
-            post_array[index], post["details"]["id"],
-            "The post index does not match"
-        )
-    }
+    assert_post_ids(&body, &["00000039YD9CY"]);
 
     Ok(())
 }
