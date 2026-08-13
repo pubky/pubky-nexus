@@ -383,36 +383,36 @@ impl PostStream {
         pagination: Pagination,
         kind: Option<KindFilter>,
     ) -> GraphResult<PostKeyStream> {
-        let mut result;
-        {
-            let graph = get_neo4j_graph()?;
-            let query = queries::get::post_stream(source, sorting, order, tags, pagination, kind)?;
+        let graph = get_neo4j_graph()?;
+        let query = queries::get::post_stream(source, sorting, order, tags, pagination, kind)?;
 
-            // Set a 10-second timeout for the query execution
-            result = match timeout(Duration::from_secs(10), graph.execute(query)).await {
-                Ok(Ok(res)) => res, // Successfully executed within the timeout
-                Ok(Err(e)) => return Err(GraphError::QueryFailed(e)), // Query failed
-                Err(_) => return Err(GraphError::QueryTimeout), // Timeout error
-            };
-        }
+        // The 10-second budget covers execution AND row streaming: execute()
+        // only submits the query and the heavy work (ORDER BY materializes at
+        // the first pull) happens while streaming, so a timeout on execute
+        // alone lets a slow query run until the HTTP layer's 408.
+        timeout(Duration::from_secs(10), async {
+            let mut result = graph.execute(query).await?;
 
-        let mut post_keys = Vec::new();
-        // Last row's sorting score (timestamp for timeline, engagement otherwise),
-        // used as the pagination cursor.
-        let mut last_post_score: Option<i64> = None;
+            let mut post_keys = Vec::new();
+            // Last row's sorting score (timestamp for timeline, engagement otherwise),
+            // used as the pagination cursor.
+            let mut last_post_score: Option<i64> = None;
 
-        while let Some(row) = result.try_next().await? {
-            let author_id: String = row.get("author_id")?;
-            let post_id: String = row.get("post_id")?;
-            let score: i64 = row.get("score")?;
-            last_post_score = Some(score);
-            post_keys.push(format!("{author_id}:{post_id}"));
-        }
+            while let Some(row) = result.try_next().await? {
+                let author_id: String = row.get("author_id")?;
+                let post_id: String = row.get("post_id")?;
+                let score: i64 = row.get("score")?;
+                last_post_score = Some(score);
+                post_keys.push(format!("{author_id}:{post_id}"));
+            }
 
-        Ok(PostKeyStream::new(
-            post_keys,
-            last_post_score.map(|s| s as u64),
-        ))
+            Ok(PostKeyStream::new(
+                post_keys,
+                last_post_score.map(|s| s as u64),
+            ))
+        })
+        .await
+        .map_err(|_| GraphError::QueryTimeout)?
     }
 
     pub async fn get_global_posts_keys(
