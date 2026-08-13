@@ -317,6 +317,32 @@ async fn test_starter_pack_caps_the_label_count() -> Result<()> {
     Ok(())
 }
 
+/// user_id is the subject and viewer_id only shapes relationship flags, as on every other source.
+#[tokio_shared_rt::test(shared)]
+async fn test_starter_pack_user_id_outranks_viewer_id() -> Result<()> {
+    // D1 follows D2, the only `wotreview` candidate. BTC1 follows nobody.
+    let ids = pack(&format!(
+        "tags=wotreview&limit=20&user_id={D1}&viewer_id={BTC1}"
+    ))
+    .await?;
+    assert!(
+        ids.is_empty(),
+        "user_id should drive exclusion, got {ids:?}"
+    );
+
+    let ids = pack(&format!(
+        "tags=wotreview&limit=20&user_id={BTC1}&viewer_id={D1}"
+    ))
+    .await?;
+    assert_eq!(
+        ids,
+        [D2],
+        "viewer_id should not exclude once user_id is given"
+    );
+
+    Ok(())
+}
+
 /// Past this the query cannot fetch enough candidates, so it must reject rather than return a
 /// short page.
 #[tokio_shared_rt::test(shared)]

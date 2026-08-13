@@ -1385,8 +1385,9 @@ pub fn recommend_users(user_id: &str, limit: usize) -> Query {
 ///
 /// Both arms are needed: profile tags skew to identity, so most interests only appear on posts.
 /// Summing endorser trust rather than counting keeps a few prolific taggers from minting
-/// reputation. `since` reads `Post.indexed_at`, since the `AUTHORED` edge carries none; pass 0
-/// for "has ever posted".
+/// reputation. `since` is a liveness threshold, not a measurement window, so it has no upper
+/// bound. It reads `Post.indexed_at`, since the `AUTHORED` edge carries none; pass 0 for "has
+/// ever posted".
 pub fn starter_pack_users(
     labels: &[String],
     user_id: Option<&str>,
