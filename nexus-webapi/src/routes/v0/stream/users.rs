@@ -40,7 +40,7 @@ pub struct UserStreamQuery {
     tag = "Stream",
     params(
         ("source" = Option<UserStreamSource>, Query, description = "Source of users for streams (followers, following, friends, most_followed, influencers, recommended, post_replies, starter_pack)"),
-        ("user_id" = Option<PubkyId>, Query, description = "User ID to use for streams with source 'following', 'followers', 'friends', 'influencers' and 'recommended'. Optional for 'starter_pack', where it only excludes that user and the people they already follow, and where 'viewer_id' does the same job."),
+        ("user_id" = Option<PubkyId>, Query, description = "User ID to use for streams with source 'following', 'followers', 'friends', 'influencers' and 'recommended'. Optional for 'starter_pack', where it is the subject whose self and follows are excluded; 'viewer_id' stands in as that subject only when 'user_id' is absent."),
         ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID"),
         ("author_id" = Option<PubkyId>, Query, description = "Author ID when source is 'post_replies'"),
         ("post_id" = Option<PostId>, Query, description = "Post ID when source is 'post_replies'"),
@@ -49,7 +49,7 @@ pub struct UserStreamQuery {
         ("preview" = Option<bool>, Query, description = "Provide a random selection of size 3 for sources supporting preview. Passing preview ignores skip and limit parameters."),
         ("depth" = Option<u8>, Query, description = "User trusted network depth, user following users distance. Numbers bigger than 3 will be ignored"),
         ("tags" = Option<Tags>, Query, example = "bitcoin,travel,music", description = "Comma-separated interest labels (1-5) for source 'starter_pack'. Rejected with 400 for every other source, and for moderation labels."),
-        ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Skip N users (max 10000)"),
+        ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Skip N users (max 10000, or 100 for source 'starter_pack')"),
         ("limit" = Option<BoundedLimit<5, 20>>, Query, description = "Retrieve N users (1–20, default 5)")
     ),
     responses(
@@ -91,7 +91,7 @@ pub async fn stream_users_handler(
     tag = "Stream",
     params(
         ("source" = Option<UserStreamSource>, Query, description = "Source of users for streams (followers, following, friends, most_followed, influencers, recommended, post_replies, starter_pack)"),
-        ("user_id" = Option<PubkyId>, Query, description = "User ID to use for streams with source 'following', 'followers', 'friends', 'influencers' and 'recommended'. Optional for 'starter_pack', where it only excludes that user and the people they already follow, and where 'viewer_id' does the same job."),
+        ("user_id" = Option<PubkyId>, Query, description = "User ID to use for streams with source 'following', 'followers', 'friends', 'influencers' and 'recommended'. Optional for 'starter_pack', where it is the subject whose self and follows are excluded; 'viewer_id' stands in as that subject only when 'user_id' is absent."),
         ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID"),
         ("author_id" = Option<PubkyId>, Query, description = "Author ID when source is 'post_replies'"),
         ("post_id" = Option<PostId>, Query, description = "Post ID when source is 'post_replies'"),
@@ -100,7 +100,7 @@ pub async fn stream_users_handler(
         ("preview" = Option<bool>, Query, description = "Provide a random selection of size 3 for sources supporting preview. Passing preview ignores skip and limit parameters."),
         ("depth" = Option<u8>, Query, description = "User trusted network depth, user following users distance. Numbers bigger than 3 will be ignored"),
         ("tags" = Option<Tags>, Query, example = "bitcoin,travel,music", description = "Comma-separated interest labels (1-5) for source 'starter_pack'. Rejected with 400 for every other source, and for moderation labels."),
-        ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Skip N users (max 10000)"),
+        ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Skip N users (max 10000, or 100 for source 'starter_pack')"),
         ("limit" = Option<BoundedLimit<5, 20>>, Query, description = "Retrieve N users (1–20, default 5)")
     ),
     responses(
