@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use super::{Influencers, UserCounts, UserDetails, UserSearch, UserView, USER_DELETED_SENTINEL};
 
@@ -29,6 +29,7 @@ pub enum UserStreamSource {
     Influencers,
     Recommended,
     PostReplies,
+    StarterPack,
 }
 
 pub struct UserStreamInput {
@@ -41,6 +42,7 @@ pub struct UserStreamInput {
     pub preview: Option<bool>,
     pub author_id: Option<String>,
     pub post_id: Option<String>,
+    pub tags: Option<Vec<String>>,
 }
 
 #[derive(Serialize, Deserialize, ToSchema, Debug, Default, Clone)]
@@ -237,6 +239,45 @@ impl UserStream {
         let _ = sets::del(&prefix, user_id, &deleted_refs).await;
     }
 
+    /// One deduplicated ranked list of people to follow for a set of interest tags.
+    ///
+    /// Interleaved in the caller's tag order, so a popular interest cannot crowd out a niche
+    /// one. `user_id` is optional; the cold-start case this exists for has none.
+    pub async fn get_starter_pack_ids(
+        labels: &[String],
+        user_id: Option<&str>,
+        since: i64,
+        skip: usize,
+        limit: usize,
+    ) -> ModelResult<Option<Vec<String>>> {
+        // Overfetch per label: without slack, an overlapping label's own people are never
+        // fetched. The query clamps this, and past the clamp a page silently loses entries.
+        let per_label = skip
+            .saturating_add(limit)
+            .saturating_mul(labels.len().max(1));
+        let query = queries::get::starter_pack_users(labels, user_id, since, per_label);
+
+        let mut by_label: HashMap<String, Vec<String>> = HashMap::new();
+        for row in fetch_all_rows_from_graph(query).await? {
+            by_label.insert(row.get("label")?, row.get("candidates")?);
+        }
+
+        // Labels come back in arbitrary order and an empty one is absent, so never zip.
+        // Taking each entry also collapses a repeated label.
+        let ranked = labels
+            .iter()
+            .filter_map(|label| by_label.remove(label))
+            .collect();
+
+        let user_ids: Vec<String> = interleave_unique(ranked)
+            .into_iter()
+            .skip(skip)
+            .take(limit)
+            .collect();
+
+        Ok((!user_ids.is_empty()).then_some(user_ids))
+    }
+
     /// Retrieves most-followed user IDs from the sorted set, filtering out deleted users
     /// and cleaning them from the cache.
     async fn get_most_followed(
@@ -339,6 +380,7 @@ impl UserStream {
             preview,
             author_id,
             post_id,
+            tags,
         } = input;
         let user_ids = match source {
             UserStreamSource::Followers => Followers::get_by_id(
@@ -402,7 +444,87 @@ impl UserStream {
             UserStreamSource::PostReplies => {
                 UserStream::get_post_replies_ids(post_id, author_id).await?
             }
+            UserStreamSource::StarterPack => {
+                let labels = tags
+                    .ok_or("Tags should be provided for user streams with source 'starter_pack'")
+                    .map_err(ModelError::from_generic)?;
+                // AllTime lands on 0, which keeps the liveness gate at "has ever posted".
+                let (since, _) = timeframe.unwrap_or(Timeframe::AllTime).to_timestamp_range();
+                UserStream::get_starter_pack_ids(
+                    &labels,
+                    user_id.as_deref(),
+                    since,
+                    skip.unwrap_or(0),
+                    limit.unwrap_or(5),
+                )
+                .await?
+            }
         };
         Ok(user_ids)
+    }
+}
+
+/// Round-robin merge, so every label the caller picked lands near the front.
+///
+/// A label misses out only when all its fetched candidates were claimed by an earlier one.
+fn interleave_unique(ranked: Vec<Vec<String>>) -> Vec<String> {
+    // `find` doubles as the cursor, stepping over ids an earlier label claimed.
+    let mut lists: Vec<_> = ranked.into_iter().map(Vec::into_iter).collect();
+    let mut seen = HashSet::new();
+    let mut merged = Vec::new();
+
+    loop {
+        let round_start = merged.len();
+        for candidates in &mut lists {
+            if let Some(id) = candidates.find(|id| seen.insert(id.clone())) {
+                merged.push(id);
+            }
+        }
+        if merged.len() == round_start {
+            return merged;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::interleave_unique;
+
+    fn lists(raw: &[&[&str]]) -> Vec<Vec<String>> {
+        raw.iter()
+            .map(|l| l.iter().map(|s| s.to_string()).collect())
+            .collect()
+    }
+
+    #[test]
+    fn takes_one_per_label_per_round() {
+        let merged = interleave_unique(lists(&[&["a1", "a2", "a3"], &["b1", "b2"]]));
+        assert_eq!(merged, ["a1", "b1", "a2", "b2", "a3"]);
+    }
+
+    #[test]
+    fn a_niche_label_is_not_crowded_out_by_a_popular_one() {
+        let popular: Vec<&str> = vec!["p1", "p2", "p3", "p4", "p5"];
+        let merged = interleave_unique(lists(&[&popular, &["niche"]]));
+        assert_eq!(merged[1], "niche");
+    }
+
+    #[test]
+    fn duplicates_keep_their_first_position_and_free_a_later_slot() {
+        // The second label should fall through to its own next pick, not lose the round.
+        let merged = interleave_unique(lists(&[&["dup", "a2"], &["dup", "b2"]]));
+        assert_eq!(merged, ["dup", "b2", "a2"]);
+    }
+
+    #[test]
+    fn exhausted_labels_stop_holding_slots() {
+        let merged = interleave_unique(lists(&[&["a1"], &["b1", "b2", "b3"]]));
+        assert_eq!(merged, ["a1", "b1", "b2", "b3"]);
+    }
+
+    #[test]
+    fn empty_input_is_empty() {
+        assert!(interleave_unique(lists(&[])).is_empty());
+        assert!(interleave_unique(lists(&[&[], &[]])).is_empty());
     }
 }
