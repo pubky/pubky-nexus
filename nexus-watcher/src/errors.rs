@@ -170,10 +170,20 @@ impl EventProcessorError {
         Self::HsEventsStreamTransportFailed(source.to_string())
     }
 
-    /// Returns whether or not we should refrain from retrying this error right now.
+    /// Returns whether processing should stop and this error should be propagated
+    /// to the caller instead of being handled as an isolated event.
     ///
-    /// These are the kinds of errors that are expected to be thrown again
-    /// if the event processor caller continues processing other events.
+    /// This method does not schedule a retry or backoff itself. Callers decide the
+    /// consequence:
+    ///
+    /// - Event-processing loops abort the current batch or HS run.
+    /// - In the external key-based runner, a propagated error produces a non-`Ok`
+    ///   run status and therefore triggers per-HS backoff.
+    /// - The retry processor reschedules the event without consuming its retry
+    ///   allowance, then stops its current batch.
+    ///
+    /// `false` does not necessarily mean the error will be retried; the caller may
+    /// skip it, enqueue it, or continue processing.
     pub fn should_not_retry_now(&self) -> bool {
         matches!(
             self,
@@ -181,6 +191,11 @@ impl EventProcessorError {
                 | Self::IndexOperationFailed(true, _)
                 | Self::HsEventsStreamRateLimitExhausted
                 | Self::HsEventsStreamTransportFailed(_)
+
+                // For a key-based runner, this indicates the external HS either
+                // has a temporary glitch or is malicious. Including it here to
+                // abort this run and let the runner apply per-HS backoff.
+                | Self::EventCursorOutOfOrder { .. }
         )
     }
 

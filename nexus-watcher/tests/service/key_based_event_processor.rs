@@ -10,12 +10,14 @@ use nexus_common::models::traits::Collection;
 use nexus_common::models::user::{set_user_homeserver, user_hs_cursor_key, UserDetails};
 use nexus_common::types::DynError;
 use nexus_common::utils::test_utils::random_pubky_id;
+use nexus_common::WatcherConfig;
 use nexus_watcher::errors::EventProcessorError;
 use nexus_watcher::events::retry::{InitialBackoff, RetryScheduler};
 use nexus_watcher::events::Event;
 use nexus_watcher::events::EventHandler;
 use nexus_watcher::service::indexer::{KeyBasedEventProcessor, RunError, TEventProcessor};
 use nexus_watcher::service::runner::UserNotFoundBackoff;
+use nexus_watcher::service::{KeyBasedEventProcessorRunner, TEventProcessorRunner};
 use pubky::{Event as StreamEvent, EventCursor, EventType, Keypair, PubkyResource, PublicKey};
 use pubky_app_specs::PubkyId;
 use tokio::sync::watch;
@@ -275,10 +277,58 @@ async fn key_based_processor_rejects_out_of_order_cursor() -> Result<(), DynErro
     let handler = create_mock_handler(Ok(()), None);
     let processor = processor(homeserver, handler.clone(), source);
 
-    processor.run().await?;
+    let err = processor
+        .run()
+        .await
+        .expect_err("out-of-order cursor must abort the homeserver run");
+
+    assert_internal_event_cursor_out_of_order(err);
 
     assert_eq!(handler.get_handle_count(), 1);
     assert_eq!(user_cursor(&user_id, &hs_id).await?, Some(4));
+
+    Ok(())
+}
+
+/// Verifies an out-of-order cursor backs off the whole external homeserver, so
+/// the next runner pass skips it instead of fetching the malformed stream again.
+#[tokio_shared_rt::test(shared)]
+async fn key_based_runner_backs_off_homeserver_after_out_of_order_cursor() -> Result<(), DynError> {
+    setup().await?;
+
+    let (_hs_keypair, homeserver) = create_homeserver().await?;
+    let hs_id = homeserver.id.to_string();
+    let user_id = create_user_on_homeserver(&homeserver).await?;
+    let source = Arc::new(MockKeyBasedEventSource::default().with_user_events(vec![(
+        user_id.clone(),
+        vec![
+            stream_event(4, &user_id, "/pub/pubky.app/profile.json")?,
+            stream_event(1, &user_id, "/pub/pubky.app/profile.json")?,
+        ],
+    )]));
+    let mut runner = KeyBasedEventProcessorRunner::from_config(
+        &WatcherConfig::default(),
+        watch::channel(false).1,
+    );
+    runner.monitored_hs_limit = usize::MAX;
+    runner.event_handler = create_mock_handler(Ok(()), None);
+    runner.event_source = source.clone();
+    runner.primary_homeserver = random_pubky_id();
+
+    runner.run().await?;
+    assert!(runner.backoff.lock().await.should_skip(&hs_id));
+
+    runner.run().await?;
+    let target_fetches = source
+        .calls()
+        .await
+        .into_iter()
+        .filter(|called_user| called_user == &user_id)
+        .count();
+    assert_eq!(
+        target_fetches, 1,
+        "backed-off homeserver must not be fetched again"
+    );
 
     Ok(())
 }
@@ -307,7 +357,11 @@ async fn key_based_processor_does_not_rewind_stored_cursor() -> Result<(), DynEr
     let handler = create_mock_handler(Ok(()), None);
     let processor = processor(homeserver, handler.clone(), source);
 
-    processor.run().await?;
+    let err = processor
+        .run()
+        .await
+        .expect_err("rewound cursor must abort the homeserver run");
+    assert_internal_event_cursor_out_of_order(err);
 
     // The stale event must be rejected before the handler runs (not merely
     // ignored at cursor-write time), and the persisted cursor stays at 42.
@@ -341,7 +395,11 @@ async fn key_based_processor_rejects_cursor_equal_to_stored() -> Result<(), DynE
     let handler = create_mock_handler(Ok(()), None);
     let processor = processor(homeserver, handler.clone(), source);
 
-    processor.run().await?;
+    let err = processor
+        .run()
+        .await
+        .expect_err("replayed boundary cursor must abort the homeserver run");
+    assert_internal_event_cursor_out_of_order(err);
 
     // The boundary event must be rejected before the handler runs, and the
     // persisted cursor stays at 42.
@@ -958,6 +1016,13 @@ fn assert_internal_hs_rate_limit_exhausted(err: RunError) {
         other => {
             panic!("expected internal HsEventsStreamRateLimitExhausted error, got {other:?}")
         }
+    }
+}
+
+fn assert_internal_event_cursor_out_of_order(err: RunError) {
+    match err {
+        RunError::Internal(EventProcessorError::EventCursorOutOfOrder { .. }) => {}
+        other => panic!("expected internal EventCursorOutOfOrder error, got {other:?}"),
     }
 }
 
