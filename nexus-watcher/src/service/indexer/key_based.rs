@@ -27,10 +27,8 @@ const FETCH_EVENTS_429_BACKOFF_SECS: [u64; 3] = [1, 2, 3];
 
 /// Counter for per-user stream events an External HS returned at or below the
 /// ordering floor — a replay of already-indexed data, or a regression against an
-/// earlier event in the same batch. Both are rejected before any handler runs and
-/// stop the batch, stalling the user entirely when its first event trips the check.
-/// A sustained non-zero rate for one HS means it is misbehaving and needs operator
-/// attention. Labelled by `hs_id` only to avoid per-user metric cardinality.
+/// earlier event in the same batch. The whole batch is rejected before any handler
+/// runs. Labelled by `hs_id` only to avoid per-user metric cardinality.
 static OUT_OF_ORDER_CURSOR_EXTERNAL_HS: LazyLock<Counter<u64>> = LazyLock::new(|| {
     global::meter(super::METER_NAME)
         .u64_counter("watcher.external_hs.cursor.out_of_order")
@@ -321,7 +319,8 @@ impl KeyBasedEventProcessor {
     ///
     /// `persisted_cursor` is the user's currently stored cursor for this
     /// homeserver; it acts as the initial ordering floor so that events at or
-    /// below what we have already indexed are rejected before any handler runs.
+    /// below what we have already indexed are rejected. The complete batch is
+    /// validated before any handler runs.
     ///
     /// Returns the latest cursor that is safe to persist, plus the processing
     /// result. Cursor advancement is intentionally skipped for `UserIdMismatch`
@@ -333,6 +332,30 @@ impl KeyBasedEventProcessor {
         persisted_cursor: u64,
         stream_events: Vec<StreamEvent>,
     ) -> (Option<u64>, Result<(), EventProcessorError>) {
+        if *self.shutdown_rx.borrow() {
+            debug!(%user_id, "Shutdown detected; exiting event loop");
+            return (None, Ok(()));
+        }
+
+        let mut cursor_floor = persisted_cursor;
+        for stream_event in &stream_events {
+            let cursor_id = stream_event.cursor.id();
+            if cursor_id <= cursor_floor {
+                OUT_OF_ORDER_CURSOR_EXTERNAL_HS
+                    .add(1, &[KeyValue::new("hs_id", hs_id.to_string())]);
+                return (
+                    None,
+                    Err(EventProcessorError::EventCursorOutOfOrder {
+                        hs_id: hs_id.into(),
+                        user_id: user_id.into(),
+                        cursor: cursor_id,
+                        cursor_floor,
+                    }),
+                );
+            }
+            cursor_floor = cursor_id;
+        }
+
         let mut latest_cursor: Option<u64> = None;
 
         for stream_event in stream_events {
@@ -342,26 +365,6 @@ impl KeyBasedEventProcessor {
             }
 
             let cursor_id = stream_event.cursor.id();
-            // Fetches are cursor-exclusive and a correct HS returns events in
-            // increasing order, so every event must sit strictly above the floor:
-            // the stored cursor for the first event, the previous event after that.
-            // Seeding from `persisted_cursor` matters because `latest_cursor` resets
-            // each batch — the in-batch check alone would miss a replay.
-            let cursor_floor = latest_cursor.unwrap_or(persisted_cursor);
-            if cursor_id <= cursor_floor {
-                OUT_OF_ORDER_CURSOR_EXTERNAL_HS
-                    .add(1, &[KeyValue::new("hs_id", hs_id.to_string())]);
-                return (
-                    latest_cursor,
-                    Err(EventProcessorError::EventCursorOutOfOrder {
-                        hs_id: hs_id.into(),
-                        user_id: user_id.into(),
-                        cursor: cursor_id,
-                        cursor_floor,
-                    }),
-                );
-            }
-
             match Event::from_stream_event(&stream_event) {
                 Ok(Some(event)) => {
                     // External homeservers must not index another user's URI.

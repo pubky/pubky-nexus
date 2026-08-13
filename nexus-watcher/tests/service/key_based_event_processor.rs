@@ -262,9 +262,9 @@ async fn key_based_processor_persists_latest_cursor_after_success() -> Result<()
     Ok(())
 }
 
-/// Verifies an out-of-order stream cursor is rejected before its event is handled.
+/// Verifies an out-of-order stream cursor rejects the whole batch before handling.
 #[tokio_shared_rt::test(shared)]
-async fn key_based_processor_rejects_out_of_order_cursor() -> Result<(), DynError> {
+async fn key_based_processor_rejects_out_of_order_batch() -> Result<(), DynError> {
     setup().await?;
 
     let (_hs_keypair, homeserver) = create_homeserver().await?;
@@ -284,8 +284,8 @@ async fn key_based_processor_rejects_out_of_order_cursor() -> Result<(), DynErro
 
     assert_internal_event_cursor_out_of_order(err);
 
-    assert_eq!(handler.get_handle_count(), 1);
-    assert_eq!(user_cursor(&user_id, &hs_id).await?, Some(4));
+    assert_eq!(handler.get_handle_count(), 0);
+    assert_eq!(user_cursor(&user_id, &hs_id).await?, None);
 
     Ok(())
 }
