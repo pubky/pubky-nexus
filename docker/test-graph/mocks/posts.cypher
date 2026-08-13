@@ -32,6 +32,11 @@ MATCH (u1:User {id: $detroit}), (u2:User {id: $cairo}) MERGE (u1)-[:FOLLOWS {ind
 MATCH (u1:User {id: $detroit}), (u2:User {id: $eixample}) MERGE (u1)-[:FOLLOWS {indexed_at: 1730475900000, id: "P73K44JG5SZT7"}]->(u2);
 MATCH (u1:User {id: $eixample}), (u2:User {id: $detroit}) MERGE (u1)-[:FOLLOWS {indexed_at: 1730475940000, id: "P73K85JG5DZT7"}]->(u2);
 
+// Historical self-follows exercise defensive filtering in all reach backends.
+MATCH (u:User {id: $amsterdam}) MERGE (u)-[:FOLLOWS {indexed_at: 1730475950000, id: "P73K85JGSELF1"}]->(u);
+MATCH (u:User {id: $bogota}) MERGE (u)-[:FOLLOWS {indexed_at: 1730475950001, id: "P73K85JGSELF2"}]->(u);
+MATCH (u:User {id: $eixample}) MERGE (u)-[:FOLLOWS {indexed_at: 1730475950002, id: "P73K85JGSELF3"}]->(u);
+
 // ###############################
 // ##### Posts related tags ######
 // ###############################

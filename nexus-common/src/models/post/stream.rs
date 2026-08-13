@@ -531,6 +531,7 @@ impl PostStream {
         limit: Option<usize>,
     ) -> ModelResult<PostKeyStream> {
         let custom_limit = Some(200);
+        let observer_id = source.get_observer();
         let user_ids = match &source {
             StreamSource::Following { observer_id } => {
                 Following::get_by_id(observer_id, None, custom_limit)
@@ -551,7 +552,10 @@ impl PostStream {
                     .0
             }
             _ => vec![],
-        };
+        }
+        .into_iter()
+        .filter(|user_id| Some(user_id.as_str()) != observer_id)
+        .collect::<Vec<_>>();
 
         if !user_ids.is_empty() {
             let post_keys = Self::get_posts_for_user_ids(

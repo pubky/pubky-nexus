@@ -94,3 +94,41 @@ async fn test_homeserver_put_follow() -> Result<()> {
 
     Ok(())
 }
+
+#[tokio_shared_rt::test(shared)]
+async fn test_homeserver_ignores_self_follow() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let user_kp = Keypair::random();
+    let user = PubkyAppUser {
+        bio: Some("test_homeserver_self_follow".to_string()),
+        image: None,
+        links: None,
+        name: "Watcher:Follow:Self".to_string(),
+        status: None,
+    };
+    let user_id = test.create_user(&user_kp, &user).await?;
+
+    test.create_follow(&user_kp, &user_id).await?;
+
+    assert!(
+        !find_follow_relationship(&user_id, &user_id).await?,
+        "Self-follow should not be created in the graph"
+    );
+    let (_, is_follower) = Followers::check_set_member(&[&user_id], &user_id).await?;
+    assert!(
+        !is_follower,
+        "Self-follow should not be added to the followers index"
+    );
+    let (_, is_following) = Following::check_set_member(&[&user_id], &user_id).await?;
+    assert!(
+        !is_following,
+        "Self-follow should not be added to the following index"
+    );
+
+    let counts = find_user_counts(&user_id).await;
+    assert_eq!(counts.followers, 0);
+    assert_eq!(counts.following, 0);
+
+    test.cleanup_user(&user_kp).await?;
+    Ok(())
+}

@@ -16,6 +16,11 @@ pub async fn sync_put(
     followee_id: PubkyId,
     ingestor: &UserIngestor,
 ) -> Result<(), EventProcessorError> {
+    if follower_id == followee_id {
+        debug!("Ignoring self-follow");
+        return Ok(());
+    }
+
     debug!("Indexing follow");
     // SAVE TO GRAPH
     // (follower_id)-[:FOLLOWS]->(followee_id)
