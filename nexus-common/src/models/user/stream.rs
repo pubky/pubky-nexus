@@ -16,6 +16,9 @@ use utoipa::ToSchema;
 pub const USER_MOSTFOLLOWED_KEY_PARTS: [&str; 2] = ["Users", "MostFollowed"];
 pub const USER_INFLUENCERS_KEY_PARTS: [&str; 2] = ["Users", "Influencers"];
 pub const CACHE_USER_RECOMMENDED_KEY_PARTS: [&str; 3] = ["Cache", "Users", "Recommended"];
+/// Keeps the per-label overfetch inside the graph query's own row cap, so a page is never
+/// silently short. A pack is an onboarding list, so paging this far is already meaningless.
+pub const STARTER_PACK_MAX_SKIP: usize = 100;
 // TTL, 12HR
 pub const CACHE_USER_RECOMMENDED_TTL: i64 = 12 * 60 * 60;
 
@@ -251,7 +254,7 @@ impl UserStream {
         limit: usize,
     ) -> ModelResult<Option<Vec<String>>> {
         // Overfetch per label: without slack, an overlapping label's own people are never
-        // fetched. The query clamps this, and past the clamp a page silently loses entries.
+        // fetched. STARTER_PACK_MAX_SKIP keeps the result inside the query's own row cap.
         let per_label = skip
             .saturating_add(limit)
             .saturating_mul(labels.len().max(1));

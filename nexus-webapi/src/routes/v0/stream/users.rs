@@ -10,7 +10,9 @@ use crate::routes::Query;
 use crate::{Error, Result};
 use axum::Json;
 use nexus_common::config::watcher::MODERATED_TAGS;
-use nexus_common::models::user::{UserIdStream, UserStream, UserStreamInput, UserStreamSource};
+use nexus_common::models::user::{
+    UserIdStream, UserStream, UserStreamInput, UserStreamSource, STARTER_PACK_MAX_SKIP,
+};
 use nexus_common::types::{StreamReach, Timeframe};
 use serde::Deserialize;
 use tracing::debug;
@@ -63,7 +65,7 @@ The `source` parameter determines the type of stream. Depending on the `source`,
 - *influencers*: When **user_id** is provided with a **timeframe** (not 'all_time'), **reach** determines the network scope for finding influencers.The **reach** parameter can be: 'followers', 'following', 'friends', 'wot' (defaults to depth 2), or 'wot_1', 'wot_2', 'wot_3'. Defaults to 'wot_2' if not specified. If **user_id** is not provided, returns global influencers.
 - *post_replies*: Requires **author_id** and **post_id** to filter replies to a specific post.
 - *most_followed*: Does not require **user_id**.
-- *starter_pack*: Requires **tags** (1-5 comma-separated interest labels) and nothing else, so it works for a brand new account with no follows. Returns one deduplicated list ranked by the summed TrustRank of the people who tagged each candidate, either on their profile or on a post they wrote. Labels are ranked separately and interleaved in the order given, so a popular interest does not crowd out a niche one. Passing **user_id** or **viewer_id** additionally drops that user and everyone they already follow; an id that is not indexed yet simply excludes nothing. **timeframe** gates on the candidate having posted within it; the default 'all_time' only requires that they have ever posted. Moderation labels are rejected.
+- *starter_pack*: Requires **tags** (1-5 comma-separated interest labels) and nothing else, so it works for a brand new account with no follows. Returns one deduplicated list ranked by the summed TrustRank of the people who tagged each candidate, either on their profile or on a post they wrote. Labels are ranked separately and interleaved in the order given, so a popular interest does not crowd out a niche one. Passing **user_id** or **viewer_id** additionally drops that user and everyone they already follow; an id that is not indexed yet simply excludes nothing. **timeframe** gates on the candidate having posted within it; the default 'all_time' only requires that they have ever posted. Moderation labels are rejected, as is a **skip** above 100, which is past the point the ranking can be paged accurately.
 
 Ensure that you provide the necessary parameters based on the selected `source`. If the required parameter is not provided, an error will be returned."#
 )]
@@ -114,7 +116,7 @@ The `source` parameter determines the type of stream. Depending on the `source`,
 - *influencers*: When **user_id** is provided with a **timeframe** (not 'all_time'), **reach** determines the network scope for finding influencers.The **reach** parameter can be: 'followers', 'following', 'friends', 'wot' (defaults to depth 2), or 'wot_1', 'wot_2', 'wot_3'. Defaults to 'wot_2' if not specified. If **user_id** is not provided, returns global influencers.
 - *post_replies*: Requires **author_id** and **post_id** to filter replies to a specific post.
 - *most_followed*: Does not require **user_id**.
-- *starter_pack*: Requires **tags** (1-5 comma-separated interest labels) and nothing else, so it works for a brand new account with no follows. Returns one deduplicated list ranked by the summed TrustRank of the people who tagged each candidate, either on their profile or on a post they wrote. Labels are ranked separately and interleaved in the order given, so a popular interest does not crowd out a niche one. Passing **user_id** or **viewer_id** additionally drops that user and everyone they already follow; an id that is not indexed yet simply excludes nothing. **timeframe** gates on the candidate having posted within it; the default 'all_time' only requires that they have ever posted. Moderation labels are rejected.
+- *starter_pack*: Requires **tags** (1-5 comma-separated interest labels) and nothing else, so it works for a brand new account with no follows. Returns one deduplicated list ranked by the summed TrustRank of the people who tagged each candidate, either on their profile or on a post they wrote. Labels are ranked separately and interleaved in the order given, so a popular interest does not crowd out a niche one. Passing **user_id** or **viewer_id** additionally drops that user and everyone they already follow; an id that is not indexed yet simply excludes nothing. **timeframe** gates on the candidate having posted within it; the default 'all_time' only requires that they have ever posted. Moderation labels are rejected, as is a **skip** above 100, which is past the point the ranking can be paged accurately.
 
 Ensure that you provide the necessary parameters based on the selected `source`. If the required parameter is not provided, an error will be returned."#
 )]
@@ -247,7 +249,16 @@ fn build_user_stream_input(
     let timeframe = timeframe.unwrap_or(Timeframe::AllTime);
 
     let tags = match (&source, tags) {
-        (UserStreamSource::StarterPack, Some(tags)) => Some(validate_interest_tags(tags)?),
+        (UserStreamSource::StarterPack, Some(tags)) => {
+            // Beyond this the graph query cannot fetch enough candidates to fill the page, and
+            // would return a short one rather than an error.
+            if skip > STARTER_PACK_MAX_SKIP {
+                return Err(Error::invalid_input(format!(
+                    "skip must be at most {STARTER_PACK_MAX_SKIP} for source 'starter_pack'"
+                )));
+            }
+            Some(validate_interest_tags(tags)?)
+        }
         (UserStreamSource::StarterPack, None) => {
             return Err(Error::invalid_input(
                 "tags query param must be provided for source 'starter_pack'",

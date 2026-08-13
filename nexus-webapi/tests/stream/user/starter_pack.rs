@@ -317,6 +317,21 @@ async fn test_starter_pack_caps_the_label_count() -> Result<()> {
     Ok(())
 }
 
+/// Past this the query cannot fetch enough candidates, so it must reject rather than return a
+/// short page.
+#[tokio_shared_rt::test(shared)]
+async fn test_starter_pack_rejects_unpageable_skip() -> Result<()> {
+    let error = bad_request("source=starter_pack&tags=bitcoiner&skip=101").await?;
+    assert!(
+        error.contains("skip must be at most 100"),
+        "error should name the skip bound, got: {error}"
+    );
+
+    pack("tags=bitcoiner&skip=100&limit=20").await?;
+
+    Ok(())
+}
+
 /// Two labels, so the page is a window on the interleaved list rather than on one ranking.
 #[tokio_shared_rt::test(shared)]
 async fn test_starter_pack_paginates_over_the_merged_list() -> Result<()> {
