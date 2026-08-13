@@ -26,10 +26,10 @@ static REJECTED: LazyLock<Counter<u64>> = LazyLock::new(|| {
 
 /// Counter for cursor lines the Primary HS sent that could not be applied.
 ///
-/// A non-empty count means the HS returned a cursor we cannot parse or that
-/// would move the stored cursor backward, so the cursor is not advanced and the
-/// same batch is re-fetched on the next poll. A sustained non-zero rate for one
-/// HS indicates it is stuck replaying a batch and needs operator attention.
+/// A non-empty count means the HS returned a cursor we cannot parse, that would
+/// move the stored cursor backward, or that advances without delivering events.
+/// The cursor is not advanced and the same position is fetched on the next poll.
+/// A sustained non-zero rate for one HS indicates it needs operator attention.
 static INVALID_CURSOR_PRIMARY_HS: LazyLock<Counter<u64>> = LazyLock::new(|| {
     global::meter(super::METER_NAME)
         .u64_counter("watcher.primary_hs.cursor.invalid")
@@ -109,7 +109,7 @@ impl<'a> EventBatch<'a> {
 
 /// Why a batch's closing cursor was not applied. Each variant has its own metric.
 enum CursorRejection {
-    /// Unparseable, or it would rewind the stored cursor.
+    /// Unparseable, would rewind the stored cursor, or advances without events.
     Invalid,
     /// The batch carried events, yet the checkpoint cannot move past them: the
     /// cursor holds at the position the batch was fetched with, or the batch
@@ -400,15 +400,24 @@ impl HsEventProcessor {
         // batch was requested with (`self.homeserver.cursor`, read from Redis
         // when this processor was built and unchanged since — one poll per run).
         // A cursor merely holding at that position would make the next poll
-        // re-request and re-process this exact batch, indefinitely. An empty
-        // batch is just an idle poll, where repeating the cursor is the normal
-        // reply and `try_from_cursor`'s no-rewind rule is guard enough.
+        // re-request and re-process this exact batch, indefinitely.
         if batch_had_events && homeserver.cursor <= self.homeserver.cursor {
             let reason = format!(
                 "batch carried events but cursor '{raw_cursor}' does not advance past the requested {}",
                 self.homeserver.cursor
             );
             self.reject_batch(&CursorRejection::Stalled, &reason);
+            return Ok(None);
+        }
+
+        // An idle response cannot prove that any intervening events were
+        // delivered, so it may repeat the requested cursor but never advance it.
+        if !batch_had_events && homeserver.cursor != self.homeserver.cursor {
+            let reason = format!(
+                "batch carried no events but cursor '{raw_cursor}' differs from the requested {}",
+                self.homeserver.cursor
+            );
+            self.reject_batch(&CursorRejection::Invalid, &reason);
             return Ok(None);
         }
 

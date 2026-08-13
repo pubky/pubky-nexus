@@ -588,6 +588,36 @@ async fn test_idle_batch_may_repeat_cursor() -> Result<()> {
 }
 
 // ============================================================================
+// An idle poll may not advance the cursor
+// Without event lines, the response cannot prove the watcher received the
+// events between the requested and returned cursors. Advancing would skip them.
+// ============================================================================
+
+#[tokio_shared_rt::test(shared)]
+async fn test_idle_batch_may_not_advance_cursor() -> Result<()> {
+    setup().await?;
+
+    let store = new_in_memory_store();
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let handler = create_mock_handler(Ok(()), None);
+    let processor =
+        build_processor_at_cursor(10, store.clone(), handler.clone(), shutdown_rx).await?;
+
+    processor
+        .process_event_lines(vec!["cursor: 20".to_string()])
+        .await?;
+
+    assert_eq!(
+        stored_cursor(&processor.homeserver.id).await?,
+        10,
+        "An idle poll must not advance past events it did not deliver"
+    );
+
+    let _ = shutdown_tx.send(true);
+    Ok(())
+}
+
+// ============================================================================
 // An advancing cursor is persisted once the batch has been processed
 // ============================================================================
 
