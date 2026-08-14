@@ -13,7 +13,8 @@ dirs = { workspace = true }
 chrono = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 futures = { workspace = true }
-nexus-webapi = { version = "0.4.1", path = "../nexus-webapi" }
+# `mock` is needed for the `nexusd db clear` and `nexusd db mock` subcommands.
+nexus-webapi = { version = "0.4.1", path = "../nexus-webapi", features = ["mock"] }
 nexus-common = { version = "0.4.1", path = "../nexus-common" }
 redis = { workspace = true, features = ["tokio-comp"] }
 nexus-watcher = { version = "0.4.1", path = "../nexus-watcher" }

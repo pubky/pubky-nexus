@@ -78,7 +78,7 @@ cargo run -p nexusd
 cargo run -p nexusd -- --config-dir="custom/config/folder"
 # There is also an option to run services individually
 # Useful to run a database clear command before start running the watcher
-# cargo run -p nexusd -- db clear
+# cargo run -p nexusd -- db clear --yes
 cargo run -p nexusd -- watcher
 cargo run -p nexusd -- api
 ```
