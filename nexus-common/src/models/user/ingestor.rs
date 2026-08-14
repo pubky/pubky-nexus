@@ -55,11 +55,15 @@ impl UserIngestor {
 
         let pubky = PubkyConnector::get().map_err(ModelError::from_generic)?;
 
-        let Some(hs_pk) = pubky.get_homeserver_of(&user_id.to_public_key()).await else {
+        let Some(hs_pk) = pubky
+            .get_homeserver_of(&user_id.to_public_key())
+            .await
+            .map_err(ModelError::from_generic)?
+        else {
             return Ok(None);
         };
 
-        let hs_id = hs_pk.into_inner().to_z32();
+        let hs_id = hs_pk.to_z32();
         if self.hs_blacklist.is_blacklisted(&hs_id) {
             return Err(ModelError::HsBlacklisted { hs_id });
         }
