@@ -4,6 +4,8 @@ use crate::utils::get_request;
 use anyhow::Result;
 use serde_json::Value;
 
+/// Asserts a non-empty stream contains no posts authored by `observer_id`.
+/// An empty body is a failure: it would not exercise the exclusion.
 pub fn assert_excludes_author(body: &Value, observer_id: &str, source: &str) {
     let posts = body.as_array().expect("Post stream should be an array");
     assert!(

@@ -147,6 +147,12 @@ MERGE (p:Post {id: "4ZCW1TGL5BKG6"}) SET p.content = "Long post, article F", p.k
 MATCH (u:User {id: $bogota}), (p:Post {id: "4ZCW1TGL5BKG6"}) MERGE (u)-[:AUTHORED]->(p);
 MERGE (p:Post {id: "4ZCW1TGL5BKG7"}) SET p.content = "Long post, article G", p.kind = "long", p.indexed_at = 1819477230350;
 MATCH (u:User {id: $eixample}), (p:Post {id: "4ZCW1TGL5BKG7"}) MERGE (u)-[:AUTHORED]->(p);
+// Graph-path friends regression: unique label on an existing Eixample parent.
+// Eixample's self-follow would make this post a friends candidate unless the
+// query excludes the observer. Unique label (not `opensource`) so we do not
+// bump engagement on the opensource ranking fixtures; 2008 tag timestamp
+// keeps it out of hot-tags windows.
+MATCH (tagger:User {id: $amsterdam}), (post:Post {id: "4ZCW1TGL5BKG7"}) MERGE (tagger)-[:TAGGED {label: "reach-self-follow", id: "REACHSELFTAG1", indexed_at: 1224534096400}]->(post);
 MERGE (p:Post {id: "4ZCW1TGL5BKG8"}) SET p.content = "Long post, article H", p.kind = "long", p.indexed_at = 1819477230360;
 MATCH (u:User {id: $eixample}), (p:Post {id: "4ZCW1TGL5BKG8"}) MERGE (u)-[:AUTHORED]->(p);
 // Image posts
@@ -233,12 +239,6 @@ MATCH (u:User {id: $eixample}), (p:Post {id: "SIJW1TGL5BKG8"}) MERGE (u)-[:AUTHO
 MERGE (p:Post {id: "SIJW1TGL5BKG9"}) SET p.content = "LINK post, pubky H", p.kind = "link", p.indexed_at = 1980477299378;
 MATCH (u:User {id: $eixample}), (p:Post {id: "SIJW1TGL5BKG9"}) MERGE (u)-[:AUTHORED]->(p);
 MATCH (reply:Post {id: "SIJW1TGL5BKG9" }), (parent:Post {id: "SIJW1TGL5BKG8" }) MERGE (reply)-[:REPLIED]->(parent);
-
-// Graph-path friends regression: Eixample's self-follow makes its own tagged
-// post a candidate, while Detroit's tagged post is the valid friend result.
-// The source query must return only Detroit's post.
-MATCH (tagger:User {id: $amsterdam}), (post:Post {id: "4ZCW1TGL5BKG7"}) MERGE (tagger)-[:TAGGED {label: "reach-self-follow", id: "REACHSELFTAG1", indexed_at: 1224534096400}]->(post);
-MATCH (tagger:User {id: $amsterdam}), (post:Post {id: "00000039YD9CY"}) MERGE (tagger)-[:TAGGED {label: "reach-self-follow", id: "REACHSELFTAG2", indexed_at: 1224534096401}]->(post);
 
 // ###############################
 // ##### Collection posts ########

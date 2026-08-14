@@ -524,9 +524,8 @@ pub fn get_viewer_trusted_network_tags(user_id: &str, viewer_id: &str, depth: Wo
 /// existing post always returns one row with `tags` (`[]` when no trusted tagger
 /// tagged it, or when the viewer is unknown) for an empty/normal 200; only a
 /// missing post returns zero rows (404). Labels are ordered by tagger count and
-/// paginated with
-/// `skip_tags`/`limit_tags`; each label's taggers are capped at `limit_taggers`,
-/// mirroring the global tag endpoint so the response stays bounded.
+/// paginated with `skip_tags`/`limit_tags`; each label's taggers are capped at
+/// `limit_taggers`, mirroring the global tag endpoint so the response stays bounded.
 pub fn get_viewer_trusted_network_post_tags(
     author_id: &str,
     post_id: &str,

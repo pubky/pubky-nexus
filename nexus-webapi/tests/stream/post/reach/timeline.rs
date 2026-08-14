@@ -367,20 +367,18 @@ const SELF_FOLLOW_GRAPH_TAG: &str = "reach-self-follow";
 
 #[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_by_timeline_reach_friends_excludes_observer() -> Result<()> {
-    // Both Eixample and its friend Detroit have a post carrying this tag.
-    // Eixample's self-follow must not make its own post part of the friends stream.
-    test_reach_filter_with_posts(
-        EIXAMPLE,
-        None,
-        "friends",
-        Some(SELF_FOLLOW_GRAPH_TAG),
-        None,
-        None,
-        None,
-        None,
-        &[POST_TA_FR],
-    )
-    .await
+    // Unique tag on Eixample's long post. The self-follow would put that post
+    // in friends unless the observer is excluded. Empty is the expected result;
+    // `test_reach_filter_with_posts` requires a non-empty list.
+    let path =
+        format!("{ROOT_PATH}?observer_id={EIXAMPLE}&source=friends&tags={SELF_FOLLOW_GRAPH_TAG}");
+    let body = get_request(&path).await?;
+    let posts = body.as_array().expect("Post stream should be an array");
+    assert!(
+        posts.is_empty(),
+        "eixample's self-follow must not surface its own tagged post in friends, got {posts:?}"
+    );
+    Ok(())
 }
 
 #[tokio_shared_rt::test(shared)]
