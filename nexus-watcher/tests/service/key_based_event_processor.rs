@@ -82,6 +82,33 @@ async fn key_based_processor_skips_unrecognized_events() -> Result<(), DynError>
 }
 
 #[tokio_shared_rt::test(shared)]
+async fn key_based_processor_rejects_unrecognized_event_for_mismatched_user() -> Result<(), DynError>
+{
+    setup().await?;
+
+    let (_hs_keypair, homeserver) = create_homeserver().await?;
+    let hs_id = homeserver.id.to_string();
+    let user_id = create_user_on_homeserver(&homeserver).await?;
+    let mismatched_user_id = random_pubky_id().to_string();
+    let cursor_key = user_hs_cursor_key(&user_id);
+    UserDetails::put_index_sorted_set(&cursor_key, &[(10.0, hs_id.as_str())], None, None).await?;
+
+    let source = Arc::new(MockKeyBasedEventSource::default().with_events(vec![vec![
+        stream_event(100, &mismatched_user_id, "/pub/other.app/profile.json")?,
+        stream_event(101, &user_id, "/pub/pubky.app/profile.json")?,
+    ]]));
+    let handler = create_mock_handler(Ok(()), None);
+    let processor = processor(homeserver, handler.clone(), source);
+
+    processor.run().await?;
+
+    assert_eq!(handler.get_handle_count(), 0);
+    assert_eq!(user_cursor(&user_id, &hs_id).await?, Some(10));
+
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
 async fn key_based_processor_stops_mismatched_user_stream_but_continues_other_users(
 ) -> Result<(), DynError> {
     setup().await?;

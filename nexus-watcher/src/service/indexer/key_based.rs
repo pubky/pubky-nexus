@@ -365,13 +365,17 @@ impl KeyBasedEventProcessor {
             }
 
             let cursor_id = stream_event.cursor.id();
+
+            // External homeservers must not index another user's URI.
+            // Validate the raw resource before [Event::from_stream_event],
+            // because a foreign user PK with an unsupported path would
+            // return Ok(None) thus skipping but also advancing latest_cursor.
+            if let Err(err) = Self::validate_user_id(hs_id, &stream_event, user_id) {
+                return (latest_cursor, Err(err));
+            }
+
             match Event::from_stream_event(&stream_event) {
                 Ok(Some(event)) => {
-                    // External homeservers must not index another user's URI.
-                    if let Err(err) = Self::validate_user_id(hs_id, &event, user_id) {
-                        return (latest_cursor, Err(err));
-                    }
-
                     if let Err(err) = self.handle_event(&event).await {
                         return (latest_cursor, Err(err));
                     }
@@ -398,10 +402,10 @@ impl KeyBasedEventProcessor {
 
     fn validate_user_id(
         hs_id: &str,
-        event: &Event,
+        stream_event: &StreamEvent,
         expected_user_id: &str,
     ) -> Result<(), EventProcessorError> {
-        let event_user_id = event.parsed_uri.user_id().to_string();
+        let event_user_id = stream_event.resource.owner.z32();
         if event_user_id != expected_user_id {
             return Err(EventProcessorError::UserIdMismatch {
                 hs_id: hs_id.into(),
