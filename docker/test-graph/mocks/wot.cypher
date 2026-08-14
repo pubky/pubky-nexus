@@ -110,6 +110,13 @@ MATCH (u:User {id: $d1}), (p:Post {id: "WOTPOSTTAGS01"}) MERGE (u)-[:TAGGED {lab
 MATCH (u:User {id: $d1b}), (p:Post {id: "WOTPOSTTAGS01"}) MERGE (u)-[:TAGGED {label: "wotreview", id: "WOTTAGREV0002", indexed_at: 1224534095900}]->(p);
 MATCH (u:User {id: $modbot}), (p:Post {id: "WOTPOSTTAGS01"}) MERGE (u)-[:TAGGED {label: "wotflag", id: "WOTTAGFLAG001", indexed_at: 1224534096000}]->(p);
 
+// Regression fixture for the O->D1->O follow cycle. O tags this deep reply
+// directly, but returning to O through the cycle must not make O a trusted tagger.
+MERGE (p:Post {id: "WOTPOSTCYCLE1"}) SET p.content = "follow-cycle tag fixture", p.kind = "short", p.indexed_at = 1650000000008;
+MATCH (u:User {id: $d2}), (p:Post {id: "WOTPOSTCYCLE1"}) MERGE (u)-[:AUTHORED]->(p);
+MATCH (parent:Post {id: "WOTPOSTTAGS01"}), (reply:Post {id: "WOTPOSTCYCLE1"}) MERGE (reply)-[:REPLIED]->(parent);
+MATCH (from:User {id: $o_obs}), (to:Post {id: "WOTPOSTCYCLE1"}) MERGE (from)-[:TAGGED {label: "cycle-only", id: "WOTTAGCYCLE02", indexed_at: 1224534096201}]->(to);
+
 // ##############################
 // ##### Domain user->user tags #
 // ##############################
