@@ -3895,8 +3895,9 @@ dependencies = [
 
 [[package]]
 name = "pubky-app-specs"
-version = "0.7.1"
-source = "git+https://github.com/pubky/pubky-app-specs?branch=bump%2Fdependencies#753ab6ba533e395704a091801eeba665e28dd120"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2e3f048c60ac2f9176d26cbbb82789193d454d90ae3cb3bb8333972e2f02a53c"
 dependencies = [
  "base32",
  "blake3",
@@ -5535,7 +5536,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",
@@ -6514,7 +6515,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
