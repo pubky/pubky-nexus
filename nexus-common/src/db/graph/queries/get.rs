@@ -891,10 +891,18 @@ pub fn post_stream(
         cypher.push_str("MATCH (observer:User {id: $observer_id})\n");
     }
 
-    // Base match for posts and authors
-    cypher.push_str("MATCH (p:Post)<-[:AUTHORED]-(author:User)\n");
-
-    // Apply source MATCH clause
+    // Apply source MATCH clause. Must precede the posts MATCH: a CALL subquery
+    // executes once per incoming row and the planner cannot hoist it, so emitting
+    // it after the posts MATCH re-runs the reach traversal for every post in the
+    // graph.
+    //
+    // The WoT arms filter and dedupe (WITH DISTINCT author) before the posts
+    // MATCH: a variable-length traversal yields one row per path, and expanding
+    // each path row to the author's posts multiplies rows the terminal DISTINCT
+    // would only dedupe after paying for them. Their trust filters (author is
+    // not the observer, since a trusted path can loop back to them; endorsement
+    // label in the domain) must move up here with them, before `endorsement`
+    // and the path row multiplicity leave scope.
     match &source {
         StreamSource::Following { .. } => {
             cypher.push_str("MATCH (observer)-[:FOLLOWS]->(author)\n")
@@ -906,27 +914,38 @@ pub fn post_stream(
             cypher.push_str("MATCH (observer)-[:FOLLOWS]->(author)-[:FOLLOWS]->(observer)\n")
         }
         StreamSource::Bookmarks { .. } => cypher.push_str("MATCH (observer)-[:BOOKMARKED]->(p)\n"),
-        // Inline: `author` is already bound by the base AUTHORED match, so a
-        // subquery returning `author` would conflict. Terminal WITH DISTINCT dedupes.
-        StreamSource::Wot { depth, .. } => {
-            cypher.push_str(&format!("MATCH (observer)-[:FOLLOWS*1..{depth}]->(author)\n"))
-        }
+        StreamSource::Wot { depth, .. } => cypher.push_str(&format!(
+            "MATCH (observer)-[:FOLLOWS*1..{depth}]->(author:User)\n\
+             WHERE author.id <> $observer_id\n\
+             WITH DISTINCT author\n"
+        )),
         // Me (depth-0): the observer is the sole tagger, so match their TAGGED
         // edge directly, no traversal and no CALL. Cheaper than the network path.
         StreamSource::WotDomain {
             trust: DomainTrust::Me,
             ..
-        } => cypher.push_str("MATCH (observer)-[endorsement:TAGGED]->(author)\n"),
+        } => cypher.push_str(
+            "MATCH (observer)-[endorsement:TAGGED]->(author:User)\n\
+             WHERE endorsement.label IN $domain_tags AND author.id <> $observer_id\n\
+             WITH DISTINCT author\n",
+        ),
         // Network: CALL collapses the trust reach to distinct taggers before the tag join.
         StreamSource::WotDomain {
             trust: DomainTrust::Network(depth),
             ..
         } => cypher.push_str(&format!(
             "CALL {{ WITH observer MATCH (observer)-[:FOLLOWS*1..{depth}]->(tagger:User) RETURN DISTINCT tagger }}\n\
-             MATCH (tagger)-[endorsement:TAGGED]->(author)\n"
+             MATCH (tagger)-[endorsement:TAGGED]->(author:User)\n\
+             WHERE endorsement.label IN $domain_tags AND author.id <> $observer_id\n\
+             WITH DISTINCT author\n"
         )),
         _ => {}
     }
+
+    // Base match for posts and authors. For observer-anchored sources `author`
+    // is already bound, so this expands their posts instead of enumerating all
+    // posts.
+    cypher.push_str("MATCH (p:Post)<-[:AUTHORED]-(author:User)\n");
 
     // Apply tags
     if tags.is_some() {
@@ -934,32 +953,6 @@ pub fn post_stream(
         append_condition(
             &mut cypher,
             "tag.label IN $labels",
-            &mut where_clause_applied,
-        );
-    }
-
-    // Web of Trust must not surface the observer's own posts: a trusted path can
-    // loop back to them (a mutual follow reaches the observer at depth >= 2 for
-    // `wot`; a WoT member tagging the observer reaches them for `wot_domain`).
-    // After the tags MATCH so all WHERE/AND conditions stay contiguous.
-    if matches!(
-        source,
-        StreamSource::Wot { .. } | StreamSource::WotDomain { .. }
-    ) {
-        append_condition(
-            &mut cypher,
-            "author.id <> $observer_id",
-            &mut where_clause_applied,
-        );
-    }
-
-    // Domain-trust filter: keep authors endorsed (tagged) by a WoT tagger with a
-    // label in $domain_tags. Placed after the tags block so all WHERE/AND
-    // conditions stay contiguous; `endorsement` is in scope until WITH DISTINCT.
-    if matches!(source, StreamSource::WotDomain { .. }) {
-        append_condition(
-            &mut cypher,
-            "endorsement.label IN $domain_tags",
             &mut where_clause_applied,
         );
     }
@@ -1296,4 +1289,62 @@ pub fn get_tag_by_tagger_and_id(tagger_id: &str, tag_id: &str) -> Query {
     )
     .param("tagger_id", tagger_id)
     .param("tag_id", tag_id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::WotDepth;
+
+    fn build(source: StreamSource) -> String {
+        post_stream(
+            source,
+            StreamSorting::Timeline,
+            SortOrder::Descending,
+            &None,
+            Pagination {
+                limit: Some(10),
+                ..Default::default()
+            },
+            None,
+        )
+        .unwrap()
+        .to_cypher_populated()
+    }
+
+    /// The trust traversal must bind and dedupe authors before the posts MATCH.
+    /// A CALL subquery runs once per incoming row (the planner cannot hoist it)
+    /// and a variable-length traversal yields one row per path, so either one
+    /// placed after the posts MATCH multiplies into posts-times-reach work.
+    #[test]
+    fn wot_sources_bind_authors_before_posts() {
+        let observer = || "obs".to_string();
+        let tags = || vec!["bitcoin".to_string()];
+        for source in [
+            StreamSource::Wot {
+                observer_id: observer(),
+                depth: WotDepth::default(),
+            },
+            StreamSource::WotDomain {
+                observer_id: observer(),
+                trust: DomainTrust::Me,
+                domain_tags: tags(),
+            },
+            StreamSource::WotDomain {
+                observer_id: observer(),
+                trust: DomainTrust::Network(WotDepth::default()),
+                domain_tags: tags(),
+            },
+        ] {
+            let cypher = build(source);
+            let dedup = cypher
+                .find("WITH DISTINCT author")
+                .expect("wot sources dedupe authors");
+            let posts = cypher.find("MATCH (p:Post)").expect("posts match");
+            assert!(
+                dedup < posts,
+                "author dedup must precede the posts MATCH:\n{cypher}"
+            );
+        }
+    }
 }
