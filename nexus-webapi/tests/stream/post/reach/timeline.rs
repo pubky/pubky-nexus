@@ -1,41 +1,15 @@
-use super::utils::test_reach_filter_with_posts;
+use super::utils::{assert_excludes_author, test_reach_filter_with_posts};
 use crate::{
-    stream::post::{AMSTERDAM, BOGOTA, ROOT_PATH, TAG_LABEL_2},
+    stream::post::{
+        utils::{ids_in, verify_post_list},
+        AMSTERDAM, BOGOTA, ROOT_PATH, TAG_LABEL_2,
+    },
     utils::get_request,
 };
 use anyhow::Result;
 
 // User from posts.cypher mock
 const EIXAMPLE: &str = "8attbeo9ftu5nztqkcfw3gydksehr7jbspgfi64u4h8eo5e7dbiy";
-
-fn assert_excludes_author(body: &serde_json::Value, observer_id: &str, source: &str) {
-    let posts = body.as_array().expect("Post stream should be an array");
-    assert!(
-        !posts.is_empty(),
-        "{source} regression fixture must return posts"
-    );
-    for post in posts {
-        assert_ne!(
-            post["details"]["author"].as_str(),
-            Some(observer_id),
-            "{source} must not include posts authored by its observer"
-        );
-    }
-}
-
-fn assert_post_ids(body: &serde_json::Value, expected: &[&str]) {
-    let ids: Vec<&str> = body
-        .as_array()
-        .expect("Post stream should be an array")
-        .iter()
-        .map(|post| {
-            post["details"]["id"]
-                .as_str()
-                .expect("post id should be a string")
-        })
-        .collect();
-    assert_eq!(ids, expected, "post IDs should match exactly");
-}
 
 const START_TIME: usize = 1980477299321;
 const END_TIME: usize = 1980477299312;
@@ -49,25 +23,16 @@ async fn test_stream_posts_following_excludes_observer_in_matching_window() -> R
         "{ROOT_PATH}?observer_id={AMSTERDAM}&source=following&viewer_id={AMSTERDAM}&start=1720000000000&end=1690000000000&limit=50"
     );
     let body = get_request(&path).await?;
-    let ids: Vec<&str> = body
-        .as_array()
-        .expect("Post stream should be an array")
-        .iter()
-        .map(|post| {
-            post["details"]["id"]
-                .as_str()
-                .expect("post id should be a string")
-        })
-        .collect();
+    let ids = ids_in(&body);
 
     assert_excludes_author(&body, AMSTERDAM, "following");
     assert!(
-        ids.iter().any(|id| *id == "00000039YD9C0"),
+        ids.iter().any(|id| id == "00000039YD9C0"),
         "the regression window must retain a known followed-user post, got {ids:?}"
     );
     assert!(
         !ids.iter()
-            .any(|id| matches!(*id, "00000039YD99Y" | "00000039YD9B2")),
+            .any(|id| matches!(id.as_str(), "00000039YD99Y" | "00000039YD9B2")),
         "the regression window must exclude Amsterdam's posts, got {ids:?}"
     );
 
@@ -83,15 +48,15 @@ async fn test_stream_posts_following_with_start() -> Result<()> {
 
     assert!(body.is_array());
 
-    assert_post_ids(
-        &body,
-        &[
+    verify_post_list(
+        vec![
             "MLOW1TGL5BKH4",
             "SIJW1TGL5BKG3",
             "GJMW1TGL5BKG3",
             "MLOW1TGL5BKH3",
             "SIJW1TGL5BKG2",
         ],
+        body,
     );
 
     Ok(())
@@ -106,7 +71,10 @@ async fn test_stream_posts_following_with_start_and_end() -> Result<()> {
 
     assert!(body.is_array());
 
-    assert_post_ids(&body, &["MLOW1TGL5BKH4", "SIJW1TGL5BKG3", "GJMW1TGL5BKG3"]);
+    verify_post_list(
+        vec!["MLOW1TGL5BKH4", "SIJW1TGL5BKG3", "GJMW1TGL5BKG3"],
+        body,
+    );
 
     Ok(())
 }
@@ -123,7 +91,7 @@ async fn test_stream_posts_followers_with_start() -> Result<()> {
 
     assert!(body.is_array());
 
-    assert_post_ids(&body, &["00000039YD9CY", "00000039YD9DA"]);
+    verify_post_list(vec!["00000039YD9CY", "00000039YD9DA"], body);
 
     Ok(())
 }
@@ -137,7 +105,7 @@ async fn test_stream_posts_followers_with_start_and_end() -> Result<()> {
 
     assert!(body.is_array());
 
-    assert_post_ids(&body, &["00000039YD9CY"]);
+    verify_post_list(vec!["00000039YD9CY"], body);
 
     Ok(())
 }
@@ -152,7 +120,7 @@ async fn test_stream_posts_friend_with_start() -> Result<()> {
 
     assert!(body.is_array());
 
-    assert_post_ids(&body, &["00000039YD9CY", "00000039YD9DA"]);
+    verify_post_list(vec!["00000039YD9CY", "00000039YD9DA"], body);
 
     Ok(())
 }
@@ -167,7 +135,7 @@ async fn test_stream_posts_friend_with_start_and_end() -> Result<()> {
 
     assert!(body.is_array());
 
-    assert_post_ids(&body, &["00000039YD9CY"]);
+    verify_post_list(vec!["00000039YD9CY"], body);
 
     Ok(())
 }
@@ -395,6 +363,25 @@ async fn test_stream_posts_by_timeline_reach_followers_with_tag_start_and_end() 
 // Post order by timeline
 pub const POST_TA_FR: &str = "00000039YD9CY";
 pub const POST_TB_FR: &str = "00000039YD9DA";
+const SELF_FOLLOW_GRAPH_TAG: &str = "reach-self-follow";
+
+#[tokio_shared_rt::test(shared)]
+async fn test_stream_posts_by_timeline_reach_friends_excludes_observer() -> Result<()> {
+    // Both Eixample and its friend Detroit have a post carrying this tag.
+    // Eixample's self-follow must not make its own post part of the friends stream.
+    test_reach_filter_with_posts(
+        EIXAMPLE,
+        None,
+        "friends",
+        Some(SELF_FOLLOW_GRAPH_TAG),
+        None,
+        None,
+        None,
+        None,
+        &[POST_TA_FR],
+    )
+    .await
+}
 
 #[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_by_timeline_reach_friends_with_tag() -> Result<()> {

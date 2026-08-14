@@ -300,7 +300,8 @@ impl PostStreamQuery {
 
 
 The `source` parameter determines the type of stream. Depending on the `source`, certain parameters are required:
-- *following*, *followers*, *friends*, *bookmarks*: Requires **observer_id**.
+- *following*, *followers*, *friends*: Require **observer_id** and exclude posts authored by the observer.
+- *bookmarks*: Requires **observer_id**.
 - *post_replies*: Requires **author_id** and **post_id** to filter replies to a specific post.
 - *author*:  Requires  **author_id** to filter posts by a specific author.
 - *author_replies*:  Requires  **author_id** to filter replies by a specific author.
@@ -371,7 +372,8 @@ pub async fn stream_posts_handler(
     description = r#"Stream Post Keys: Retrieve a stream of post keys
 
 The `source` parameter determines the type of stream. Depending on the `source`, certain parameters are required:
-- *following*, *followers*, *friends*, *bookmarks*: Requires **observer_id**.
+- *following*, *followers*, *friends*: Require **observer_id** and exclude posts authored by the observer.
+- *bookmarks*: Requires **observer_id**.
 - *post_replies*: Requires **author_id** and **post_id** to filter replies to a specific post.
 - *author*:  Requires  **author_id** to filter posts by a specific author.
 - *author_replies*:  Requires  **author_id** to filter replies by a specific author.

@@ -2,8 +2,26 @@ use crate::stream::post::utils::{verify_post_list, verify_timeline_post_list};
 use crate::stream::post::ROOT_PATH;
 use crate::utils::get_request;
 use anyhow::Result;
+use serde_json::Value;
 
-/// Test all the reach endpoints that hits the graph
+pub fn assert_excludes_author(body: &Value, observer_id: &str, source: &str) {
+    let posts = body.as_array().expect("Post stream should be an array");
+    assert!(
+        !posts.is_empty(),
+        "{source} regression fixture must return posts"
+    );
+    for post in posts {
+        let author = post["details"]["author"]
+            .as_str()
+            .expect("post author should be a string");
+        assert_ne!(
+            author, observer_id,
+            "{source} must not include posts authored by its observer"
+        );
+    }
+}
+
+/// Tests reach endpoints that use the graph path.
 #[allow(clippy::too_many_arguments)]
 pub async fn test_reach_filter_with_posts(
     user_id: &str,
@@ -43,6 +61,7 @@ pub async fn test_reach_filter_with_posts(
     println!("PATH: {path:?}");
 
     let body = get_request(&path).await?;
+    assert_excludes_author(&body, user_id, source);
 
     if verify_timeline {
         verify_timeline_post_list(expected_posts.to_vec(), body);

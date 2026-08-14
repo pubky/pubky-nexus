@@ -234,6 +234,12 @@ MERGE (p:Post {id: "SIJW1TGL5BKG9"}) SET p.content = "LINK post, pubky H", p.kin
 MATCH (u:User {id: $eixample}), (p:Post {id: "SIJW1TGL5BKG9"}) MERGE (u)-[:AUTHORED]->(p);
 MATCH (reply:Post {id: "SIJW1TGL5BKG9" }), (parent:Post {id: "SIJW1TGL5BKG8" }) MERGE (reply)-[:REPLIED]->(parent);
 
+// Graph-path friends regression: Eixample's self-follow makes its own tagged
+// post a candidate, while Detroit's tagged post is the valid friend result.
+// The source query must return only Detroit's post.
+MATCH (tagger:User {id: $amsterdam}), (post:Post {id: "4ZCW1TGL5BKG7"}) MERGE (tagger)-[:TAGGED {label: "reach-self-follow", id: "REACHSELFTAG1", indexed_at: 1224534096400}]->(post);
+MATCH (tagger:User {id: $amsterdam}), (post:Post {id: "00000039YD9CY"}) MERGE (tagger)-[:TAGGED {label: "reach-self-follow", id: "REACHSELFTAG2", indexed_at: 1224534096401}]->(post);
+
 // ###############################
 // ##### Collection posts ########
 // ###############################
