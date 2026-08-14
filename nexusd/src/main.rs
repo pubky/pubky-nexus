@@ -16,6 +16,18 @@ async fn main() -> Result<(), DynError> {
         NexusCommands::Db(db_command) => match db_command {
             DbCommands::Clear => MockDb::clear_database().await,
             DbCommands::Mock(args) => MockDb::run(args.mock_type).await,
+            DbCommands::Reindex(args) => {
+                // The daemon's own config file, not the migrations one: a
+                // missing migrations config would silently auto-create itself
+                // with default credentials.
+                let dc =
+                    nexus_common::DaemonConfig::read_or_create_config_file(args.config_dir).await?;
+                let api_config = nexus_common::ApiConfig::from(dc);
+                StackManager::setup(&api_config.stack).await?;
+                // Clean rebuild: entities deleted since the backup must not
+                // survive in the index.
+                nexus_common::db::reindex::rebuild().await;
+            }
             DbCommands::Migration(migration_command) => match migration_command {
                 MigrationCommands::New(args) => MigrationManager::new_migration(args.name).await?,
                 MigrationCommands::Run => {

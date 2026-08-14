@@ -75,9 +75,21 @@ pub enum DbCommands {
     /// Mock the database (optional redis/graph). Usually for tests
     Mock(MockArgs),
 
+    /// Flush Redis and rebuild the index from the graph (connection settings
+    /// from `config.toml` in the config dir). Needed after restoring a Neo4j
+    /// backup.
+    Reindex(ReindexArgs),
+
     /// Manage database migrations
     #[command(subcommand)]
     Migration(MigrationCommands),
+}
+
+#[derive(Args, Debug)]
+pub struct ReindexArgs {
+    /// Directory containing `config.toml`
+    #[arg(short, long, default_value_os_t = default_config_dir_path(), value_parser = validate_config_dir_path)]
+    pub config_dir: PathBuf,
 }
 
 #[derive(Args, Debug)]

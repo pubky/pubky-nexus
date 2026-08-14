@@ -30,6 +30,8 @@ pub enum Error {
     TagNotFound { tag_id: String, tagger_id: String },
     #[error("Resource not found: {resource_id}")]
     ResourceNotFound { resource_id: String },
+    #[error("No follow path between {from} and {to} within 6 hops")]
+    PathNotFound { from: String, to: String },
     #[error("Forbidden: {message}")]
     Forbidden { message: String },
     // Add other custom errors here
@@ -132,6 +134,7 @@ impl IntoResponse for Error {
             Error::InternalServerError { .. } => StatusCode::INTERNAL_SERVER_ERROR,
             Error::TagNotFound { .. } => StatusCode::NOT_FOUND,
             Error::ResourceNotFound { .. } => StatusCode::NOT_FOUND,
+            Error::PathNotFound { .. } => StatusCode::NOT_FOUND,
             Error::Forbidden { .. } => StatusCode::FORBIDDEN,
             // Map other errors to appropriate status codes
         };
@@ -155,6 +158,9 @@ impl IntoResponse for Error {
             }
             Error::TagNotFound { tag_id, tagger_id } => {
                 debug!("Tag not found: {} of {}", tag_id, tagger_id)
+            }
+            Error::PathNotFound { from, to } => {
+                error!("No follow path between {} and {}", from, to)
             }
             Error::ResourceNotFound { resource_id } => {
                 debug!("Resource not found: {}", resource_id)

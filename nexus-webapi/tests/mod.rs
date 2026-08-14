@@ -5,6 +5,7 @@
 pub mod endpoints;
 pub mod events;
 pub mod files;
+pub mod graph;
 pub mod post;
 pub mod rate_limit;
 pub mod resource;
