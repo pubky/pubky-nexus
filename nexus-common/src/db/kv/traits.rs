@@ -617,6 +617,37 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         sorted_sets::put_score(SORTED_PREFIX, &key, &member_key, score_mutation).await
     }
 
+    /// Atomically derives a sorted-set member's score from a set's
+    /// cardinality: the score becomes `SCARD` of the source set, and the
+    /// member is removed when the set is empty. Runs as one Lua script, so
+    /// concurrent writers cannot commit a stale cardinality.
+    ///
+    /// # Arguments
+    ///
+    /// * `source_set_prefix` - Prefix of the source set key.
+    /// * `source_set_key_parts` - Key parts of the source set whose cardinality becomes the score.
+    /// * `sorted_set_key_parts` - Key parts of the destination sorted set (under the `Sorted` prefix).
+    /// * `member` - The sorted-set member to write or remove.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the script execution fails.
+    async fn put_cardinality_index_sorted_set(
+        source_set_prefix: &str,
+        source_set_key_parts: &[&str],
+        sorted_set_key_parts: &[&str],
+        member: &str,
+    ) -> RedisResult<()> {
+        sorted_sets::sync_score_from_set_cardinality(
+            source_set_prefix,
+            &source_set_key_parts.join(":"),
+            SORTED_PREFIX,
+            &sorted_set_key_parts.join(":"),
+            member,
+        )
+        .await
+    }
+
     /// Increments the score of a member in a Redis sorted set by 1.0.
     async fn increment_score_index_sorted_set(
         key_parts: &[&str],

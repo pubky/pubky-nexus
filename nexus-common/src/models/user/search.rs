@@ -36,7 +36,14 @@ impl From<(String, f64)> for UsersByTagSearch {
 impl RedisOps for UsersByTagSearch {}
 
 impl UsersByTagSearch {
-    /// Indexes user profile tags into per-label global sorted sets.
+    /// Indexes user profile tags into per-label global sorted sets from a
+    /// graph snapshot. Only for full rebuilds over quiescent or empty Redis
+    /// (`db mock`, full reindex); live backfills go through
+    /// [`Self::backfill_from_graph`] instead, which cannot overwrite
+    /// concurrent watcher writes with snapshot state.
+    ///
+    /// # Errors
+    /// Returns an error when the graph read or a Redis write fails.
     pub async fn reindex() -> ModelResult<()> {
         let rows = fetch_all_rows_from_graph(queries::get::global_tags_by_user()).await?;
 
@@ -51,6 +58,20 @@ impl UsersByTagSearch {
         Ok(())
     }
 
+    /// Searches users by profile tag labels with union semantics: any user
+    /// whose profile carries at least one of the labels is returned, scored
+    /// by the summed distinct-tagger counts, descending. Tie order between
+    /// equal scores is unspecified.
+    ///
+    /// A single label is served from the per-label Redis sorted set; two or
+    /// more labels aggregate in the graph under a 10-second budget.
+    ///
+    /// # Errors
+    /// Returns [`crate::models::error::ModelError::KvOperationFailed`] on
+    /// Redis failures and
+    /// [`crate::models::error::ModelError::GraphOperationFailed`] on graph
+    /// failures, including `GraphError::QueryTimeout` when the graph path
+    /// exceeds its budget.
     pub async fn get_by_labels(
         labels: &[String],
         pagination: Pagination,
@@ -111,19 +132,41 @@ impl UsersByTagSearch {
     }
 
     /// Syncs the per-label score for a user from the taggers set the tag
-    /// handlers already maintain idempotently. Deriving the score instead of
-    /// counting increments means retries converge to the true count, so
-    /// callers need no gating. Must run after the taggers SADD/SREM settled.
-    /// The SCARD-then-ZADD pair is not atomic: concurrent events for the same
-    /// (user, label) on different processor lanes can land a stale score for
-    /// a moment; the next event for that pair rewrites it from the set.
+    /// handlers already maintain idempotently: the score becomes the set
+    /// cardinality, and the member is removed when the set empties. The read
+    /// and the conditional write run as one Lua script, so concurrent events
+    /// for the same (user, label) cannot commit a stale score, and retries
+    /// converge without gating. Must run after the taggers SADD/SREM settled.
+    ///
+    /// # Errors
+    /// Returns an error if the Redis script execution fails.
     pub async fn sync_index_score(user_id: &str, label: &str) -> RedisResult<()> {
-        let taggers = TagUser::get_set_size(&[user_id, label]).await?.unwrap_or(0);
-        let key_parts = [&TAG_GLOBAL_USER_TAGGERS[..], &[label]].concat();
-        match taggers {
-            0 => Self::remove_from_index_sorted_set(None, &key_parts, &[user_id]).await,
-            n => Self::put_index_sorted_set(&key_parts, &[(n as f64, user_id)], None, None).await,
+        Self::put_cardinality_index_sorted_set(
+            &TagUser::prefix().await,
+            &[user_id, label],
+            &[&TAG_GLOBAL_USER_TAGGERS[..], &[label]].concat(),
+            user_id,
+        )
+        .await
+    }
+
+    /// Backfills the index against live data: the graph only enumerates
+    /// candidate (user, label) pairs, and every score is derived atomically
+    /// from the current taggers set by [`Self::sync_index_score`]. Events
+    /// landing during the backfill are therefore never overwritten with
+    /// snapshot state; a pair whose tag was deleted mid-backfill derives an
+    /// empty set and stays out of the index.
+    ///
+    /// # Errors
+    /// Returns an error when the graph enumeration or a Redis sync fails.
+    pub async fn backfill_from_graph() -> ModelResult<()> {
+        let rows = fetch_all_rows_from_graph(queries::get::get_user_tag_pairs()).await?;
+        for row in rows {
+            let user_id: String = row.get("user_id")?;
+            let label: String = row.get("label")?;
+            Self::sync_index_score(&user_id, &label).await?;
         }
+        Ok(())
     }
 }
 

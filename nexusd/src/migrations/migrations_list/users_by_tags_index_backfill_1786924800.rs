@@ -20,12 +20,13 @@ impl Migration for UsersByTagsIndexBackfill1786924800 {
     }
 
     async fn backfill(&self) -> Result<(), DynError> {
-        // Build the per-label users-by-tag sorted sets from a graph snapshot,
-        // run after the new watcher is live. Puts overwritten mid-backfill are
-        // safe; a delete landing between the graph read and the ZADD can be
-        // resurrected and stays until the next event for that (user, label).
-        // Same accepted race class as PostsByTagSearch::reindex.
-        UsersByTagSearch::reindex().await.map_err(Into::into)
+        // Run after the new watcher is live. The graph snapshot only
+        // enumerates candidate (user, label) pairs; every score is derived
+        // atomically from the live taggers set, so events landing during the
+        // backfill are never overwritten with snapshot state.
+        UsersByTagSearch::backfill_from_graph()
+            .await
+            .map_err(Into::into)
     }
 
     async fn cutover(&self) -> Result<(), DynError> {

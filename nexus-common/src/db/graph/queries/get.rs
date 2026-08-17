@@ -280,6 +280,19 @@ pub fn global_tags_by_user() -> Query {
     )
 }
 
+/// Enumerates the distinct (tagged user, label) pairs carried by user
+/// profiles, without counts: backfills derive each score from the live
+/// taggers set instead of trusting a snapshot value.
+pub fn get_user_tag_pairs() -> Query {
+    Query::new(
+        "get_user_tag_pairs",
+        "
+        MATCH (:User)-[t:TAGGED]->(u:User)
+        RETURN DISTINCT u.id AS user_id, t.label AS label
+        ",
+    )
+}
+
 /// Users whose profile carries any of the given tag labels, scored by distinct
 /// tagger count summed across the searched labels.
 pub fn search_users_by_tags(labels: &[String], skip: Option<usize>, limit: Option<usize>) -> Query {

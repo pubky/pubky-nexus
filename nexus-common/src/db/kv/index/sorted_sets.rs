@@ -1,6 +1,6 @@
 use crate::db::get_redis_conn;
 use crate::db::kv::RedisResult;
-use redis::AsyncCommands;
+use redis::{AsyncCommands, Script};
 use serde::Deserialize;
 use utoipa::ToSchema;
 
@@ -269,5 +269,56 @@ pub async fn del(prefix: &str, key: &str, values: &[&str]) -> RedisResult<()> {
 
     // Remove the elements from the sorted set
     let _: () = redis_conn.zrem(index_key, values).await?;
+    Ok(())
+}
+
+/// Atomically derives a sorted-set member's score from a set's cardinality:
+/// the member's score becomes `SCARD` of the source set, and the member is
+/// removed when the set is empty.
+///
+/// The read and the conditional write run as one Lua script, so concurrent
+/// writers cannot commit a stale cardinality between the two commands.
+///
+/// # Arguments
+///
+/// * `set_prefix` - Prefix of the source set key.
+/// * `set_key` - Key of the source set whose cardinality becomes the score.
+/// * `sorted_set_prefix` - Prefix of the destination sorted set key.
+/// * `sorted_set_key` - Key of the destination sorted set.
+/// * `member` - The sorted-set member to write or remove.
+///
+/// # Errors
+///
+/// Returns an error if the script execution fails.
+pub async fn sync_score_from_set_cardinality(
+    set_prefix: &str,
+    set_key: &str,
+    sorted_set_prefix: &str,
+    sorted_set_key: &str,
+    member: &str,
+) -> RedisResult<()> {
+    let set_index_key = format!("{set_prefix}:{set_key}");
+    let sorted_set_index_key = format!("{sorted_set_prefix}:{sorted_set_key}");
+    let mut redis_conn = get_redis_conn().await?;
+
+    let script = Script::new(
+        r#"
+        local cardinality = redis.call('SCARD', KEYS[1])
+        if cardinality == 0 then
+            redis.call('ZREM', KEYS[2], ARGV[1])
+        else
+            redis.call('ZADD', KEYS[2], cardinality, ARGV[1])
+        end
+        return cardinality
+    "#,
+    );
+
+    let _: i64 = script
+        .key(set_index_key)
+        .key(sorted_set_index_key)
+        .arg(member)
+        .invoke_async(&mut redis_conn)
+        .await?;
+
     Ok(())
 }
