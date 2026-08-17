@@ -33,4 +33,4 @@ jobs:
           cache-on-failure: true
 
       - name: Run clippy
-        run: cargo clippy --tests -- -D warnings # Fail on clippy warnings (checks main code and tests)
+        run: cargo clippy --all-targets -- -D warnings # Fail on clippy warnings (main code, tests and benches)
