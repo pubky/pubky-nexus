@@ -155,14 +155,17 @@ impl UsersByTagSearch {
         .await
     }
 
-    /// Removes a tombstoned user from every per-label sorted set their
-    /// profile tags placed them in. Each per-label sync re-checks the
-    /// tombstone atomically, so a concurrent tag event cannot re-add them.
+    /// Re-derives the user's entry in every per-label sorted set their
+    /// profile tags placed them in: evicts them when their details carry the
+    /// deleted sentinel, restores them when a recreated profile cleared it.
+    /// Each per-label sync checks the tombstone atomically, so concurrent tag
+    /// events cannot race the outcome. Must run after the details write
+    /// settled.
     ///
     /// # Errors
     /// Returns an error when reading the user's tag labels or syncing a
     /// label fails.
-    pub async fn evict_user(user_id: &str) -> RedisResult<()> {
+    pub async fn sync_user_labels(user_id: &str) -> RedisResult<()> {
         let key_parts = [&USER_TAGS_KEY_PARTS[..], &[user_id]].concat();
         let mut skip = 0;
         loop {

@@ -1,4 +1,4 @@
-use super::utils::check_member_user_tag_taggers;
+use super::utils::{check_member_user_tag_taggers, find_user_tag};
 use crate::event_processor::utils::watcher::{HomeserverHashIdPath, WatcherTest};
 use anyhow::Result;
 use chrono::Utc;
@@ -151,6 +151,89 @@ async fn test_users_by_tags_excludes_deleted_users() -> Result<()> {
         "A tag event after the tombstone cannot re-add the user"
     );
 
+    test.cleanup_user(&tagger_kp).await?;
+
+    Ok(())
+}
+
+/// A tombstoned user who recreates their profile gets their retained tag
+/// entries back: eviction and restoration are the same label sync, decided
+/// by the tombstone state at derive time.
+#[tokio_shared_rt::test(shared)]
+async fn test_users_by_tags_restores_recreated_users() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+
+    let tagged_kp = Keypair::random();
+    let tagged_user = PubkyAppUser {
+        bio: Some("test_users_by_tags_restores_recreated".to_string()),
+        image: None,
+        links: None,
+        name: "Watcher:RestoredUser:TaggedUser".to_string(),
+        status: None,
+    };
+    let tagged_user_id = test.create_user(&tagged_kp, &tagged_user).await?;
+
+    let tagger_kp = Keypair::random();
+    let tagger_user = PubkyAppUser {
+        bio: Some("test_users_by_tags_restores_recreated".to_string()),
+        image: None,
+        links: None,
+        name: "Watcher:RestoredUser:TaggerUser".to_string(),
+        status: None,
+    };
+    let _tagger_user_id = test.create_user(&tagger_kp, &tagger_user).await?;
+
+    let label = "phoenixtag";
+    let tag = PubkyAppTag {
+        uri: format!("pubky://{tagged_user_id}/pub/pubky.app/profile.json"),
+        label: label.to_string(),
+        created_at: Utc::now().timestamp_millis(),
+    };
+    let tag_path = tag.hs_path();
+    test.put(&tagger_kp, &tag_path, tag).await?;
+
+    let score = check_member_user_tag_taggers(&tagged_user_id, label)
+        .await
+        .expect("Failed to check the users-by-tag score");
+    assert_eq!(score, Some(1));
+
+    // Tombstone the tagged user (the TAGGED edge keeps the node) and verify
+    // the eviction
+    test.cleanup_user(&tagged_kp).await?;
+
+    let score = check_member_user_tag_taggers(&tagged_user_id, label)
+        .await
+        .expect("Failed to check the users-by-tag score");
+    assert!(score.is_none(), "Tombstoned user must be evicted");
+
+    // Recreate the profile without touching the tag: the retained label must
+    // come back with its taggers count
+    let restored_user = PubkyAppUser {
+        bio: Some("test_users_by_tags_restores_recreated".to_string()),
+        image: None,
+        links: None,
+        name: "Watcher:RestoredUser:TaggedUserBack".to_string(),
+        status: None,
+    };
+    test.create_profile(&tagged_kp, &restored_user).await?;
+
+    let score = check_member_user_tag_taggers(&tagged_user_id, label)
+        .await
+        .expect("Failed to check the users-by-tag score");
+    assert_eq!(
+        score,
+        Some(1),
+        "A recreated profile must restore its retained tag entries"
+    );
+
+    // The graph agrees: the retained edge still carries one tagger
+    let graph_tag = find_user_tag(&tagged_user_id, label)
+        .await
+        .unwrap()
+        .expect("Retained tag must exist in the graph");
+    assert_eq!(graph_tag.taggers_count, 1);
+
+    test.cleanup_user(&tagged_kp).await?;
     test.cleanup_user(&tagger_kp).await?;
 
     Ok(())
