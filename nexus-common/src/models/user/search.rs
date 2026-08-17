@@ -1,13 +1,131 @@
 use super::{UserDetails, USER_DELETED_SENTINEL};
-use crate::db::kv::RedisResult;
-use crate::db::RedisOps;
+use crate::db::kv::{RedisResult, SortOrder};
+use crate::db::{fetch_all_rows_from_graph, get_neo4j_graph, queries, GraphError, RedisOps};
 use crate::models::create_zero_score_tuples;
+use crate::models::error::ModelResult;
+use crate::models::tag::user::TagUser;
 use crate::models::traits::Collection;
+use crate::types::Pagination;
+use futures::TryStreamExt;
 use serde::{Deserialize, Serialize};
+use tokio::time::{timeout, Duration};
 use utoipa::ToSchema;
 
 pub const USER_NAME_KEY_PARTS: [&str; 2] = ["Users", "Name"];
 pub const USER_ID_KEY_PARTS: [&str; 2] = ["Users", "ID"];
+pub const TAG_GLOBAL_USER_TAGGERS: [&str; 4] = ["Tags", "Global", "User", "Taggers"];
+
+/// Represents a single result of a "users by tags" search: a user whose profile
+/// carries at least one of the searched tag labels, and how many distinct
+/// taggers applied them (summed across the searched labels).
+#[derive(Serialize, Deserialize, ToSchema, Default)]
+pub struct UsersByTagSearch {
+    pub user_id: String,
+    pub score: usize,
+}
+
+impl From<(String, f64)> for UsersByTagSearch {
+    fn from(tuple: (String, f64)) -> Self {
+        UsersByTagSearch {
+            user_id: tuple.0,
+            score: tuple.1 as usize,
+        }
+    }
+}
+
+impl RedisOps for UsersByTagSearch {}
+
+impl UsersByTagSearch {
+    /// Indexes user profile tags into per-label global sorted sets.
+    pub async fn reindex() -> ModelResult<()> {
+        let rows = fetch_all_rows_from_graph(queries::get::global_tags_by_user()).await?;
+
+        for row in rows {
+            let label: &str = row.get("label").unwrap_or("");
+            let sorted_set: Vec<(f64, &str)> = row.get("sorted_set").unwrap_or(Vec::new());
+            if !label.is_empty() && !sorted_set.is_empty() {
+                let key_parts = [&TAG_GLOBAL_USER_TAGGERS[..], &[label]].concat();
+                Self::put_index_sorted_set(&key_parts, &sorted_set, None, None).await?;
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn get_by_labels(
+        labels: &[String],
+        pagination: Pagination,
+    ) -> ModelResult<Vec<UsersByTagSearch>> {
+        match labels {
+            // Single label: served straight from the per-label sorted set
+            [label] => {
+                let users = Self::try_from_index_sorted_set(
+                    &[&TAG_GLOBAL_USER_TAGGERS[..], &[label.as_str()]].concat(),
+                    None,
+                    None,
+                    pagination.skip,
+                    pagination.limit,
+                    SortOrder::Descending,
+                    None,
+                )
+                .await?;
+                Ok(users
+                    .map(|list| list.into_iter().map(Into::into).collect())
+                    .unwrap_or_default())
+            }
+            // Union across labels needs an aggregation over multiple sorted sets,
+            // so it goes to the graph instead
+            _ => Self::get_from_graph(labels, pagination.skip, pagination.limit).await,
+        }
+    }
+
+    async fn get_from_graph(
+        labels: &[String],
+        skip: Option<usize>,
+        limit: Option<usize>,
+    ) -> ModelResult<Vec<UsersByTagSearch>> {
+        let graph = get_neo4j_graph()?;
+        let query = queries::get::search_users_by_tags(labels, skip, limit);
+
+        // The 10-second budget covers execution AND row streaming: execute()
+        // only submits the query and the heavy work (ORDER BY materializes at
+        // the first pull) happens while streaming, so a timeout on execute
+        // alone lets a slow query run until the HTTP layer's 408.
+        let users = timeout(Duration::from_secs(10), async {
+            let mut result = graph.execute(query).await?;
+
+            let mut users = Vec::new();
+            while let Some(row) = result.try_next().await? {
+                let user_id: String = row.get("user_id")?;
+                let score: i64 = row.get("score")?;
+                users.push(UsersByTagSearch {
+                    user_id,
+                    score: score as usize,
+                });
+            }
+            Ok::<_, GraphError>(users)
+        })
+        .await
+        .map_err(|_| GraphError::QueryTimeout)??;
+
+        Ok(users)
+    }
+
+    /// Syncs the per-label score for a user from the taggers set the tag
+    /// handlers already maintain idempotently. Deriving the score instead of
+    /// counting increments means retries converge to the true count, so
+    /// callers need no gating. Must run after the taggers SADD/SREM settled.
+    /// The SCARD-then-ZADD pair is not atomic: concurrent events for the same
+    /// (user, label) on different processor lanes can land a stale score for
+    /// a moment; the next event for that pair rewrites it from the set.
+    pub async fn sync_index_score(user_id: &str, label: &str) -> RedisResult<()> {
+        let taggers = TagUser::get_set_size(&[user_id, label]).await?.unwrap_or(0);
+        let key_parts = [&TAG_GLOBAL_USER_TAGGERS[..], &[label]].concat();
+        match taggers {
+            0 => Self::remove_from_index_sorted_set(None, &key_parts, &[user_id]).await,
+            n => Self::put_index_sorted_set(&key_parts, &[(n as f64, user_id)], None, None).await,
+        }
+    }
+}
 
 /// List of user IDs
 #[derive(Serialize, Deserialize, ToSchema, Default)]

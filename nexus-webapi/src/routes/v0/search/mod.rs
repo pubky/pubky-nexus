@@ -1,6 +1,6 @@
 use crate::routes::v0::endpoints::{
     SEARCH_POSTS_BY_CONTENT_ROUTE, SEARCH_POSTS_BY_TAG_ROUTE, SEARCH_TAGS_BY_PREFIX_ROUTE,
-    SEARCH_USERS_BY_ID_ROUTE, SEARCH_USERS_BY_NAME_ROUTE,
+    SEARCH_USERS_BY_ID_ROUTE, SEARCH_USERS_BY_NAME_ROUTE, SEARCH_USERS_BY_TAGS_ROUTE,
 };
 use crate::routes::AppState;
 use axum::routing::get;
@@ -29,6 +29,10 @@ pub fn routes() -> Router<AppState> {
         .route(
             SEARCH_USERS_BY_ID_ROUTE,
             get(users::search_users_by_id_handler),
+        )
+        .route(
+            SEARCH_USERS_BY_TAGS_ROUTE,
+            get(users::search_users_by_tags_handler),
         )
         .route(
             SEARCH_POSTS_BY_TAG_ROUTE,

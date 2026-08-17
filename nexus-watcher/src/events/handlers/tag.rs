@@ -11,7 +11,7 @@ use nexus_common::models::tag::post::TagPost;
 use nexus_common::models::tag::search::TagSearch;
 use nexus_common::models::tag::traits::{TagCollection, TaggersCollection};
 use nexus_common::models::tag::user::TagUser;
-use nexus_common::models::user::{UserCounts, UserIngestor};
+use nexus_common::models::user::{UserCounts, UserIngestor, UsersByTagSearch};
 use nexus_common::types::Pagination;
 use nexus_common::universal_tag::normalize::{
     classify_uri, normalize_uri, resource_id, UriCategory,
@@ -348,6 +348,8 @@ async fn put_sync_user(
             );
             idempotent_results.0?;
             idempotent_results.1?;
+
+            UsersByTagSearch::sync_index_score(&tagged_user_id, tag_label).await?;
             Ok(())
         }
         OperationOutcome::MissingDependency => {
@@ -394,6 +396,10 @@ async fn put_sync_user(
             indexing_results.3?;
             indexing_results.4?;
             indexing_results.5?;
+
+            // After the taggers SADD settled: the users-by-tag score is derived
+            // from that set (SCARD), so first attempts and retries converge alike.
+            UsersByTagSearch::sync_index_score(&tagged_user_id, tag_label).await?;
 
             Ok(())
         }
@@ -590,6 +596,10 @@ async fn del_sync_user(
     indexing_results.2?;
     indexing_results.3?;
     indexing_results.4?;
+
+    // After the taggers SREM settled: recompute the derived users-by-tag score,
+    // dropping the member once the last tagger is gone.
+    UsersByTagSearch::sync_index_score(tagged_id, tag_label).await?;
 
     Ok(())
 }

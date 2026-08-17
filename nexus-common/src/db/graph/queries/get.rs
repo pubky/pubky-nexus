@@ -264,6 +264,45 @@ pub fn global_tags_by_post_engagement() -> Query {
     )
 }
 
+/// Retrieves unique global tags on user profiles, returning per label the tagged
+/// user ids paired with their distinct tagger counts.
+pub fn global_tags_by_user() -> Query {
+    Query::new(
+        "global_tags_by_user",
+        "
+        // create_user_tag MERGEs one TAGGED edge per (tagger, tagged, label),
+        // so COUNT(t) is the distinct tagger count.
+        MATCH (tagger:User)-[t:TAGGED]->(u:User)
+        WITH t.label AS label, u.id AS user_id, COUNT(t) AS score
+        WITH label, COLLECT([toFloat(score), user_id]) AS sorted_set
+        RETURN label, sorted_set
+        ",
+    )
+}
+
+/// Users whose profile carries any of the given tag labels, scored by distinct
+/// tagger count summed across the searched labels.
+pub fn search_users_by_tags(labels: &[String], skip: Option<usize>, limit: Option<usize>) -> Query {
+    let mut cypher = String::from(
+        "
+        MATCH (tagger:User)-[tag:TAGGED]->(u:User)
+        WHERE tag.label IN $labels
+        WITH u, COUNT(tag) AS score
+        RETURN u.id AS user_id, score
+        ORDER BY score DESC, u.id ASC
+        ",
+    );
+
+    if let Some(skip) = skip {
+        cypher.push_str(&format!("SKIP {}\n", skip.min(MAX_QUERY_SKIP)));
+    }
+    if let Some(limit) = limit {
+        cypher.push_str(&format!("LIMIT {}\n", limit.min(MAX_QUERY_LIMIT)));
+    }
+
+    Query::new("search_users_by_tags", &cypher).param("labels", labels.to_vec())
+}
+
 // Retrieve all the tags of the post
 pub fn post_tags(user_id: &str, post_id: &str) -> Query {
     Query::new(

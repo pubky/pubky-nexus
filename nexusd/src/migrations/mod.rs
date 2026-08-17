@@ -14,6 +14,7 @@ use crate::migrations::migrations_list::post_content_index_setup_1780444800::Pos
 use crate::migrations::migrations_list::remove_muted_1771718400::RemoveMuted1771718400;
 use crate::migrations::migrations_list::resource_node_setup_1774000000::ResourceNodeSetup1774000000;
 use crate::migrations::migrations_list::users_by_pk_reindex_1751635096::UsersByPkReindex1751635096;
+use crate::migrations::migrations_list::users_by_tags_index_backfill_1786924800::UsersByTagsIndexBackfill1786924800;
 /// Registers migrations with the `MigrationManager`
 ///
 /// # Description
@@ -47,6 +48,7 @@ pub fn import_migrations(migration_manager: &mut MigrationManager) {
         Box::new(ResourceNodeSetup1774000000),
         Box::new(PostContentIndexSetup1780444800),
         Box::new(PostContentIndexAuthorSetup1780531200),
+        Box::new(UsersByTagsIndexBackfill1786924800),
     ];
     for migration in migrations {
         migration_manager.register(migration);
