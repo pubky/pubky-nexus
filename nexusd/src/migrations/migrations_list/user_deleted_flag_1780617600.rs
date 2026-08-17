@@ -10,8 +10,12 @@ use tracing::info;
 /// Migrate from the `[DELETED]` name sentinel to a boolean `deleted` property.
 ///
 /// # What this does
-/// - Sets `u.deleted = true` where `name = '[DELETED]'`. Live users are left untouched, so
-///   `deleted IS NULL` stays a normal permanent state: every reader treats absent as live,
+/// - Sets `u.deleted = true` and clears `u.name` where `name = '[DELETED]'`, converging old
+///   tombstones on the shape `UserDetails::tombstone` writes. Old ones already had
+///   `bio`/`status`/`links`/`image` wiped by the pre-cutover `sync_put`, so `name` was the
+///   only field that still differed. Clients that display the name no longer see two shapes.
+/// - Live users are left untouched, so `deleted IS NULL` stays a normal permanent state:
+///   every reader treats absent as live,
 ///   Cypher via `NOT coalesce(u.deleted, false)` and Rust via `deserialize_user_deleted`.
 ///   The filters keep their `coalesce()` — dropping it would make a missing property read
 ///   as deleted, which silently drops the user from `get_active_users_by_homeserver` and
@@ -25,17 +29,26 @@ use tracing::info;
 /// Tombstone IDs use keyset pagination over the `uniqueUserId` index; `SKIP`/`LIMIT`
 /// replans as a label scan with `Limit $limit + $skip`, re-reading every earlier row.
 ///
+/// # Why the name is authoritative here
+/// Only for the legacy rows this runs against: `PubkyAppUser::sanitize` rewrites a
+/// `[DELETED]` name to "anonymous", so no live user can reach that shape through a
+/// profile.json event, and every sentinel-named row predates the flag. The codebase
+/// otherwise treats the flag as the only signal — a live user renamed below the sanitize
+/// boundary (`test_live_user_with_sentinel_name_is_not_tombstoned`) must stay live, and a
+/// re-run would tombstone them and destroy the name irreversibly.
+///
 /// # Idempotency
-/// Safe to re-run: the `SET` falsifies the `WHERE`. `is_multi_staged()` is `false`, so the
-/// manager marks this Done after one backfill; re-running needs the id in
-/// `migrations_backfill_ready`. `coalesce()` in the predicate makes it match both an
-/// unmigrated tombstone (no property at all) and one written by pre-cutover code after the
-/// scan. `IN TRANSACTIONS` commits per batch, so a mid-run failure leaves the
-/// backfill partial and not Done, as the old client loop did; re-running finishes it.
+/// Safe to re-run: clearing `name` falsifies the `WHERE`. `is_multi_staged()` is `false`, so
+/// the manager marks this Done after one backfill; re-running needs the id in
+/// `migrations_backfill_ready`. `IN TRANSACTIONS` commits per batch, so a mid-run failure
+/// leaves the backfill partial and not Done, as the old client loop did; re-running
+/// finishes it.
 ///
 /// # Rollback caveat
-/// New-code tombstones leave `name` empty, not `'[DELETED]'`. Rolling back to code that
-/// filters by the sentinel name makes them appear live, with an empty profile.
+/// After this runs, *no* tombstone carries `'[DELETED]'` any more — the sentinel is gone
+/// from the graph entirely. Rolling back to code that filters by the sentinel name makes
+/// every tombstone appear live, with an empty profile, not just the ones written post-
+/// cutover. Only the flag distinguishes them, so a rollback needs the flag-aware readers.
 ///
 /// # Deploy ordering
 /// Hard cutover: stop every pre-cutover instance (nexus-watcher is the only tombstone
@@ -43,8 +56,10 @@ use tracing::info;
 /// steps must not overlap — old code tombstones via the sentinel name without touching
 /// `deleted`, so one written after the backfill drains reads as LIVE permanently,
 /// recoverable only by a re-run. The post-backfill verify catches such a write if it lands
-/// before the check, but it is a guard, not a guarantee. Between the last two both readers
-/// are consistent: the backfill leaves `name` intact.
+/// before the check, but it is a guard, not a guarantee. Clearing `name` also removes the
+/// old margin for error on the last step: a pre-cutover instance left running past the
+/// migration now sees every tombstone as a live user with an empty profile, where it used
+/// to still filter them by name.
 pub struct UserDeletedFlag1780617600;
 
 /// Tombstone IDs invalidated per keyset page.
@@ -72,9 +87,9 @@ impl Migration for UserDeletedFlag1780617600 {
         let query = Query::new(
             "user_deleted_flag_backfill",
             "MATCH (u:User)
-             WHERE u.name = '[DELETED]' AND coalesce(u.deleted, false) = false
+             WHERE u.name = '[DELETED]'
              CALL (u) {
-                 SET u.deleted = true
+                 SET u.deleted = true, u.name = ''
              } IN TRANSACTIONS OF 10000 ROWS
              RETURN count(u) AS processed",
         );
@@ -86,17 +101,17 @@ impl Migration for UserDeletedFlag1780617600 {
             None => 0,
         };
         info!(
-            "UserDeletedFlag migration: {} tombstones flagged",
+            "UserDeletedFlag migration: {} tombstones flagged and names cleared",
             processed
         );
 
-        // Re-run the drain predicate: a leftover row means either the batches did not all
-        // commit, or a pre-cutover writer tombstoned a user after the scan (see # Deploy
-        // ordering). Erroring here leaves the migration not Done, so a re-run is required.
+        // Re-run the drain predicate: a surviving sentinel name means either the batches did
+        // not all commit, or a pre-cutover writer tombstoned a user after the scan (see
+        // # Deploy ordering). Erroring here leaves the migration not Done, forcing a re-run.
         let verify = Query::new(
             "user_deleted_flag_verify",
             "MATCH (u:User)
-             WHERE u.name = '[DELETED]' AND coalesce(u.deleted, false) = false
+             WHERE u.name = '[DELETED]'
              RETURN count(u) AS remaining",
         );
 
@@ -108,14 +123,15 @@ impl Migration for UserDeletedFlag1780617600 {
         };
         if remaining != 0 {
             return Err(format!(
-                "UserDeletedFlag migration: backfill did not drain — {remaining} tombstones \
-                 still unflagged. Confirm every pre-cutover instance is stopped, then re-run \
-                 the migration before starting the new binaries."
+                "UserDeletedFlag migration: backfill did not drain — {remaining} users still \
+                 named '[DELETED]'. Confirm every pre-cutover instance is stopped, then \
+                 re-run the migration before starting the new binaries."
             )
             .into());
         }
 
-        // Tombstones only: live users' missing key already deserializes to false.
+        // Tombstones only: live users' missing key already deserializes to false. This pass
+        // is also what propagates the cleared name — cached JSON still holds '[DELETED]'.
         let mut cursor = String::new();
         let mut total_tombstoned: usize = 0;
 
@@ -160,7 +176,7 @@ impl Migration for UserDeletedFlag1780617600 {
         }
 
         info!(
-            "UserDeletedFlag migration: complete — {} tombstones flagged, {} tombstones marked and cache-invalidated",
+            "UserDeletedFlag migration: complete — {} tombstones flagged and cleared, {} cache entries invalidated",
             processed, total_tombstoned
         );
 

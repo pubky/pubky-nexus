@@ -208,13 +208,11 @@ mod tests {
         );
     }
 
-    /// Deserializing a UserDetails from a BoltNode with `deleted: true` should
-    /// preserve the flag — this is the shape after the one-shot migration has
-    /// marked a sentinel tombstone.
+    /// A present `deleted: true` deserializes as true — the other branch of the custom deserializer.
     #[test]
     fn deserialize_from_node_with_deleted_true() {
         let mut props = BoltMap::new();
-        props.put(BoltString::from("name"), BoltType::from("[DELETED]"));
+        props.put(BoltString::from("name"), BoltType::from(""));
         props.put(
             BoltString::from("id"),
             BoltType::from("uo7jgkykft4885n8cruizwy6khw71mnu5pq3ay9i8pw1ymcn85ko"),
