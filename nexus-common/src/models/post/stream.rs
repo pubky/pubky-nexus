@@ -62,6 +62,7 @@ pub enum StreamSource {
     },
     /// Posts by users whom the observer's Web of Trust has tagged with a `domain_tags` label.
     /// `trust = Me` restricts the taggers to the observer alone (depth-0 self set).
+    /// Includes the observer's own posts when they themselves carry a matching label.
     WotDomain {
         observer_id: String,
         trust: DomainTrust,
@@ -530,7 +531,8 @@ impl PostStream {
         limit: Option<usize>,
     ) -> ModelResult<PostKeyStream> {
         let custom_limit = Some(200);
-        let mut user_ids = match &source {
+        let observer_id = source.get_observer();
+        let user_ids = match &source {
             StreamSource::Following { observer_id } => {
                 Following::get_by_id(observer_id, None, custom_limit)
                     .await?
@@ -550,14 +552,12 @@ impl PostStream {
                     .0
             }
             _ => vec![],
-        };
+        }
+        .into_iter()
+        .filter(|user_id| Some(user_id.as_str()) != observer_id)
+        .collect::<Vec<_>>();
 
         if !user_ids.is_empty() {
-            // Include the observer in the post stream
-            if let Some(observer_id) = source.get_observer() {
-                user_ids.push(observer_id.to_string());
-            }
-
             let post_keys = Self::get_posts_for_user_ids(
                 &user_ids.iter().map(AsRef::as_ref).collect::<Vec<_>>(),
                 order,

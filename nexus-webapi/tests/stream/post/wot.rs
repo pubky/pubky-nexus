@@ -94,16 +94,22 @@ async fn test_wot_post_stream_depth_matrix_and_dedup() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_wot_domain_post_stream() -> Result<()> {
-    // bitcoiner: 3 endorsed by the observer's WoT; BTC1 endorsed by two raters => once.
+    // bitcoiner: three external authors and the observer are endorsed by the
+    // observer's WoT; BTC1 is endorsed by two raters and must appear once.
     let path = format!(
         "{ROOT_PATH}?source=wot_domain&observer_id={OBSERVER}&depth=2&domain_tags=bitcoiner&limit=30"
     );
     let body = get_request(&path).await?;
-    assert_exact_set(&body, &[P_BTC1, P_BTC2, P_BTC3]);
+    assert_exact_set(&body, &[P_BTC1, P_BTC2, P_BTC3, P_O]);
     assert_eq!(
         count_id(&body, P_BTC1),
         1,
         "P_BTC1 must dedup across endorsers"
+    );
+    assert_eq!(
+        count_id(&body, P_O),
+        1,
+        "the qualified observer's post must appear exactly once"
     );
 
     // btc-dev: only BTC4 (endorsed by depth-2 rater D2).
@@ -118,47 +124,24 @@ async fn test_wot_domain_post_stream() -> Result<()> {
         "{ROOT_PATH}?source=wot_domain&observer_id={OBSERVER}&depth=2&domain_tags=bitcoiner,btc-dev&limit=30"
     );
     let body = get_request(&path).await?;
-    assert_exact_set(&body, &[P_BTC1, P_BTC2, P_BTC3, P_BTC4]);
-
-    // artist is endorsed only by an out-of-WoT user => nothing for this observer.
-    let path = format!(
-        "{ROOT_PATH}?source=wot_domain&observer_id={OBSERVER}&depth=2&domain_tags=artist&limit=30"
-    );
-    let body = get_request(&path).await?;
-    assert!(
-        body.as_array().expect("array").is_empty(),
-        "artist is not endorsed by the observer's WoT"
-    );
+    assert_exact_set(&body, &[P_BTC1, P_BTC2, P_BTC3, P_BTC4, P_O]);
 
     // Backward-compat: omitting `depth` defaults to the depth-2 network reach
-    // (Network(2)), NOT the depth-0 "Me" set. Same result as explicit depth=2.
+    // (Network(2)), not the depth-0 observer-only set. Same result as explicit depth=2.
     let path = format!(
         "{ROOT_PATH}?source=wot_domain&observer_id={OBSERVER}&domain_tags=bitcoiner&limit=30"
     );
     let body = get_request(&path).await?;
-    assert_exact_set(&body, &[P_BTC1, P_BTC2, P_BTC3]);
+    assert_exact_set(&body, &[P_BTC1, P_BTC2, P_BTC3, P_O]);
 
-    Ok(())
-}
-
-#[tokio_shared_rt::test(shared)]
-async fn test_wot_domain_excludes_self_endorsed_observer() -> Result<()> {
-    // D1 (in O's WoT) tags O as bitcoiner, making O a bitcoiner-endorsed author
-    // within their own trust network. O's own posts must still be excluded,
-    // mirroring the `wot` self-exclusion.
-    let path = format!(
-        "{ROOT_PATH}?source=wot_domain&observer_id={OBSERVER}&depth=2&domain_tags=bitcoiner&limit=30"
-    );
-    let body = get_request(&path).await?;
-    assert_excludes(&body, &[P_O]);
     Ok(())
 }
 
 #[tokio_shared_rt::test(shared)]
 async fn test_wot_domain_with_tags_and_engagement_sorting() -> Result<()> {
     // wot_domain combined with a post `tags` filter and TotalEngagement sorting
-    // must produce valid Cypher: the self-exclusion and tag conditions share one
-    // contiguous WHERE/AND chain. No bitcoiner post carries an `opensource`
+    // must produce valid Cypher: the endorsement and post-tag conditions share
+    // one contiguous WHERE/AND chain. No bitcoiner post carries an `opensource`
     // post-tag in the fixture, so the filtered result is exactly empty.
     let path = format!(
         "{ROOT_PATH}?source=wot_domain&observer_id={OBSERVER}&depth=2&domain_tags=bitcoiner&tags=opensource&sorting=total_engagement&limit=30"
@@ -168,29 +151,27 @@ async fn test_wot_domain_with_tags_and_engagement_sorting() -> Result<()> {
     Ok(())
 }
 
-// depth=0 is the "Me" trust set: posts by authors the observer tagged directly,
-// with no follow traversal. SPAMMER has an empty follow-network, so only its own
-// TAGGED edges count. It tagged BTC5 (bitcoiner), ARTIST1 (artist) and self-tagged
-// bitcoiner; the self-tag must not surface SPAMMER's own post.
+// At depth 0 the observer is the only tagger, with no follow traversal. SPAMMER
+// tagged BTC5 (bitcoiner), ARTIST1 (artist), and itself as bitcoiner; the
+// self-tag qualifies SPAMMER's own post for Tagged as.
 #[tokio_shared_rt::test(shared)]
-async fn test_wot_domain_me_self_tagged_and_self_excluded() -> Result<()> {
+async fn test_wot_domain_depth_zero_includes_self_tagged_observer() -> Result<()> {
     let path = format!(
         "{ROOT_PATH}?source=wot_domain&observer_id={SPAMMER}&depth=0&domain_tags=bitcoiner&limit=30"
     );
     let body = get_request(&path).await?;
-    assert_exact_set(&body, &[P_BTC5]);
-    assert_excludes(&body, &[P_S]);
+    assert_exact_set(&body, &[P_BTC5, P_S]);
     Ok(())
 }
 
 #[tokio_shared_rt::test(shared)]
-async fn test_wot_domain_me_or_filter_and_empty() -> Result<()> {
+async fn test_wot_domain_depth_zero_or_filter_and_empty() -> Result<()> {
     // OR over the label list.
     let path = format!(
         "{ROOT_PATH}?source=wot_domain&observer_id={SPAMMER}&depth=0&domain_tags=bitcoiner,artist&limit=30"
     );
     let body = get_request(&path).await?;
-    assert_exact_set(&body, &[P_BTC5, P_ART1]);
+    assert_exact_set(&body, &[P_BTC5, P_ART1, P_S]);
 
     // No self-tag carries this label => empty.
     let path = format!(
@@ -202,30 +183,45 @@ async fn test_wot_domain_me_or_filter_and_empty() -> Result<()> {
 }
 
 #[tokio_shared_rt::test(shared)]
-async fn test_wot_domain_me_uses_only_observer_tags() -> Result<()> {
-    // depth=0 consults only the observer's own tags, never the follow-network. O
-    // has no outgoing TAGGED edges (D1->O is D1 tagging O, not O tagging), so O's
-    // "Me" feed is empty, in contrast to O's depth-2 network feed.
-    let me = format!(
+async fn test_wot_domain_depth_zero_uses_only_observer_tags() -> Result<()> {
+    // depth=0 consults only the observer's own tags, never the follow-network.
+    // D1->O is D1 tagging O, so it cannot make O's observer-only bitcoiner feed non-empty.
+    let observer_only = format!(
         "{ROOT_PATH}?source=wot_domain&observer_id={OBSERVER}&depth=0&domain_tags=bitcoiner&limit=30"
     );
-    let body = get_request(&me).await?;
+    let body = get_request(&observer_only).await?;
     assert_exact_set(&body, &[]);
 
-    let network = format!(
+    // O directly tags ARTIST1. This appears at depth 0.
+    let observer_only = format!(
+        "{ROOT_PATH}?source=wot_domain&observer_id={OBSERVER}&depth=0&domain_tags=artist&limit=30"
+    );
+    let body = get_request(&observer_only).await?;
+    assert_exact_set(&body, &[P_ART1]);
+
+    // At depth 2, O is reachable again through O->D1->O but remains excluded as
+    // a network tagger. SPAMMER is outside the WoT, so neither artist
+    // endorsement qualifies.
+    let network_artist = format!(
+        "{ROOT_PATH}?source=wot_domain&observer_id={OBSERVER}&depth=2&domain_tags=artist&limit=30"
+    );
+    let body = get_request(&network_artist).await?;
+    assert_exact_set(&body, &[]);
+
+    let network_bitcoiner = format!(
         "{ROOT_PATH}?source=wot_domain&observer_id={OBSERVER}&depth=2&domain_tags=bitcoiner&limit=30"
     );
-    let body = get_request(&network).await?;
-    assert_exact_set(&body, &[P_BTC1, P_BTC2, P_BTC3]);
+    let body = get_request(&network_bitcoiner).await?;
+    assert_exact_set(&body, &[P_BTC1, P_BTC2, P_BTC3, P_O]);
     Ok(())
 }
 
 #[tokio_shared_rt::test(shared)]
-async fn test_wot_domain_me_with_topic_tags() -> Result<()> {
+async fn test_wot_domain_depth_zero_with_topic_tags() -> Result<()> {
     // depth=0 combined with a post `tags` filter + engagement sort must build
-    // valid Cypher (direct-tag MATCH + self-exclusion + endorsement + tag
-    // conditions in one WHERE/AND chain). No bitcoiner post carries an
-    // `opensource` tag, so the result is exactly empty.
+    // valid Cypher (direct-tag MATCH + endorsement + post-tag conditions in one
+    // WHERE/AND chain). No bitcoiner post carries an `opensource` tag, so the
+    // result is exactly empty.
     let path = format!(
         "{ROOT_PATH}?source=wot_domain&observer_id={SPAMMER}&depth=0&domain_tags=bitcoiner&tags=opensource&sorting=total_engagement&limit=30"
     );

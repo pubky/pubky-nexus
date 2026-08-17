@@ -481,10 +481,12 @@ pub fn get_active_users_by_homeserver(hs_id: &str) -> Query {
 }
 
 /// Tags on a user applied by users in the viewer's Web of Trust (transitive
-/// FOLLOWS, 1..=depth). User existence is the anchor: the user is matched first
-/// and the viewer with `OPTIONAL MATCH`, so an existing user always returns one
-/// row with `tags` (`[]` when no trusted tagger tagged them, or the viewer is
-/// unknown) for an empty/normal 200; only a missing user returns zero rows (404).
+/// FOLLOWS, 1..=depth). A follow cycle that reaches the viewer again does not add
+/// the viewer to the trusted tagger set. User existence is the anchor: the user
+/// is matched first and the viewer with `OPTIONAL MATCH`, so an existing user
+/// always returns one row with `tags` (`[]` when no trusted tagger tagged them,
+/// or the viewer is unknown) for an empty/normal 200; only a missing user returns
+/// zero rows (404).
 /// Mirrors `get_viewer_trusted_network_post_tags`.
 pub fn get_viewer_trusted_network_tags(user_id: &str, viewer_id: &str, depth: WotDepth) -> Query {
     let graph_query = format!(
@@ -497,6 +499,7 @@ pub fn get_viewer_trusted_network_tags(user_id: &str, viewer_id: &str, depth: Wo
         CALL {{
             WITH viewer, tagged
             MATCH (viewer)-[:FOLLOWS*1..{depth}]->(tagger:User)-[tag:TAGGED]->(tagged)
+            WHERE tagger.id <> viewer.id
             WITH tag.label AS label, collect(DISTINCT tagger.id) AS taggerIds
             RETURN collect({{
                 label: label,
@@ -515,13 +518,14 @@ pub fn get_viewer_trusted_network_tags(user_id: &str, viewer_id: &str, depth: Wo
 }
 
 /// Tags on a single post applied by users in the viewer's Web of Trust
-/// (transitive FOLLOWS, 1..=depth). Post existence is the anchor: the post is
-/// matched first and the viewer with `OPTIONAL MATCH`, so an existing post always
-/// returns one row with `tags` (`[]` when no trusted tagger tagged it, or when the
-/// viewer is unknown) for an empty/normal 200; only a missing post returns zero
-/// rows (404). Labels are ordered by tagger count and paginated with
-/// `skip_tags`/`limit_tags`; each label's taggers are capped at `limit_taggers`,
-/// mirroring the global tag endpoint so the response stays bounded.
+/// (transitive FOLLOWS, 1..=depth). A follow cycle that reaches the viewer again
+/// does not add the viewer to the trusted tagger set. Post existence is the
+/// anchor: the post is matched first and the viewer with `OPTIONAL MATCH`, so an
+/// existing post always returns one row with `tags` (`[]` when no trusted tagger
+/// tagged it, or when the viewer is unknown) for an empty/normal 200; only a
+/// missing post returns zero rows (404). Labels are ordered by tagger count and
+/// paginated with `skip_tags`/`limit_tags`; each label's taggers are capped at
+/// `limit_taggers`, mirroring the global tag endpoint so the response stays bounded.
 pub fn get_viewer_trusted_network_post_tags(
     author_id: &str,
     post_id: &str,
@@ -538,6 +542,7 @@ pub fn get_viewer_trusted_network_post_tags(
         CALL {{
             WITH viewer, p
             MATCH (viewer)-[:FOLLOWS*1..{depth}]->(tagger:User)-[tag:TAGGED]->(p)
+            WHERE tagger.id <> viewer.id
             WITH tag.label AS label, collect(DISTINCT tagger.id) AS taggerIds
             WITH label, taggerIds, SIZE(taggerIds) AS taggersCount
             ORDER BY taggersCount DESC, label ASC
@@ -896,23 +901,24 @@ pub fn post_stream(
     // it after the posts MATCH re-runs the reach traversal for every post in the
     // graph.
     //
-    // The WoT arms filter and dedupe (WITH DISTINCT author) before the posts
-    // MATCH: a variable-length traversal yields one row per path, and expanding
-    // each path row to the author's posts multiplies rows the terminal DISTINCT
-    // would only dedupe after paying for them. Their trust filters (author is
-    // not the observer, since a trusted path can loop back to them; endorsement
-    // label in the domain) must move up here with them, before `endorsement`
-    // and the path row multiplicity leave scope.
+    // The WoT arms bind, filter, and dedupe authors before the posts MATCH.
+    // Variable-length traversals yield one row per path, so expanding posts first
+    // would multiply work that a later DISTINCT could only remove afterward.
+    // Keep each source's filters in its arm; WITH DISTINCT drops path-specific
+    // variables from scope and carries only the qualified authors forward.
     match &source {
-        StreamSource::Following { .. } => {
-            cypher.push_str("MATCH (observer)-[:FOLLOWS]->(author)\n")
-        }
-        StreamSource::Followers { .. } => {
-            cypher.push_str("MATCH (observer)<-[:FOLLOWS]-(author)\n")
-        }
-        StreamSource::Friends { .. } => {
-            cypher.push_str("MATCH (observer)-[:FOLLOWS]->(author)-[:FOLLOWS]->(observer)\n")
-        }
+        StreamSource::Following { .. } => cypher.push_str(
+            "MATCH (observer)-[:FOLLOWS]->(author)\n\
+             WHERE author.id <> $observer_id\n",
+        ),
+        StreamSource::Followers { .. } => cypher.push_str(
+            "MATCH (observer)<-[:FOLLOWS]-(author)\n\
+             WHERE author.id <> $observer_id\n",
+        ),
+        StreamSource::Friends { .. } => cypher.push_str(
+            "MATCH (observer)-[:FOLLOWS]->(author)-[:FOLLOWS]->(observer)\n\
+             WHERE author.id <> $observer_id\n",
+        ),
         StreamSource::Bookmarks { .. } => cypher.push_str("MATCH (observer)-[:BOOKMARKED]->(p)\n"),
         StreamSource::Wot { depth, .. } => cypher.push_str(&format!(
             "MATCH (observer)-[:FOLLOWS*1..{depth}]->(author:User)\n\
@@ -920,23 +926,26 @@ pub fn post_stream(
              WITH DISTINCT author\n"
         )),
         // Me (depth-0): the observer is the sole tagger, so match their TAGGED
-        // edge directly, no traversal and no CALL. Cheaper than the network path.
+        // edge directly. A matching self-endorsement may qualify the observer as
+        // an author; no traversal or CALL is needed.
         StreamSource::WotDomain {
             trust: DomainTrust::Me,
             ..
         } => cypher.push_str(
             "MATCH (observer)-[endorsement:TAGGED]->(author:User)\n\
-             WHERE endorsement.label IN $domain_tags AND author.id <> $observer_id\n\
+             WHERE endorsement.label IN $domain_tags\n\
              WITH DISTINCT author\n",
         ),
-        // Network: CALL collapses the trust reach to distinct taggers before the tag join.
+        // Network: collapse the trust reach to distinct taggers before the tag
+        // join. A follow cycle must not make the observer a network tagger, but
+        // a trusted tagger may still qualify the observer as an author.
         StreamSource::WotDomain {
             trust: DomainTrust::Network(depth),
             ..
         } => cypher.push_str(&format!(
-            "CALL {{ WITH observer MATCH (observer)-[:FOLLOWS*1..{depth}]->(tagger:User) RETURN DISTINCT tagger }}\n\
+            "CALL {{ WITH observer MATCH (observer)-[:FOLLOWS*1..{depth}]->(tagger:User) WHERE tagger.id <> observer.id RETURN DISTINCT tagger }}\n\
              MATCH (tagger)-[endorsement:TAGGED]->(author:User)\n\
-             WHERE endorsement.label IN $domain_tags AND author.id <> $observer_id\n\
+             WHERE endorsement.label IN $domain_tags\n\
              WITH DISTINCT author\n"
         )),
         _ => {}
@@ -1344,6 +1353,29 @@ mod tests {
             assert!(
                 dedup < posts,
                 "author dedup must precede the posts MATCH:\n{cypher}"
+            );
+        }
+    }
+
+    #[test]
+    fn trusted_network_tag_queries_exclude_viewer_reached_through_cycle() {
+        let user_tags = get_viewer_trusted_network_tags("user", "viewer", WotDepth::default())
+            .to_cypher_populated();
+        let post_tags = get_viewer_trusted_network_post_tags(
+            "author",
+            "post",
+            "viewer",
+            WotDepth::default(),
+            0,
+            10,
+            10,
+        )
+        .to_cypher_populated();
+
+        for cypher in [user_tags, post_tags] {
+            assert!(
+                cypher.contains("WHERE tagger.id <> viewer.id"),
+                "trusted-network tag queries must exclude a viewer reached through a follow cycle:\n{cypher}"
             );
         }
     }
