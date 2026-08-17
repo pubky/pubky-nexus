@@ -6,7 +6,7 @@ use nexus_common::db::{
 };
 use nexus_common::models::{
     traits::Collection,
-    user::{UserCounts, UserDetails, UserSearch, USER_DELETED_SENTINEL},
+    user::{UserCounts, UserDetails, UserSearch, UsersByTagSearch, USER_DELETED_SENTINEL},
 };
 use pubky_app_specs::{PubkyAppUser, PubkyId};
 use tracing::debug;
@@ -89,7 +89,12 @@ pub async fn del(user_id: PubkyId) -> Result<(), EventProcessorError> {
                 image: None,
             };
 
-            sync_put(deleted_user, user_id).await?;
+            sync_put(deleted_user, user_id.clone()).await?;
+
+            // After the tombstone settled: drop the user from users-by-tag
+            // search. Each per-label sync re-checks the tombstone atomically,
+            // so a concurrent tag event cannot re-add them.
+            UsersByTagSearch::evict_user(&user_id).await?;
         }
         OperationOutcome::MissingDependency => return Err(EventProcessorError::SkipIndexing),
     }

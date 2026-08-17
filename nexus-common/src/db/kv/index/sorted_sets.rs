@@ -286,6 +286,10 @@ pub async fn del(prefix: &str, key: &str, values: &[&str]) -> RedisResult<()> {
 /// * `sorted_set_prefix` - Prefix of the destination sorted set key.
 /// * `sorted_set_key` - Key of the destination sorted set.
 /// * `member` - The sorted-set member to write or remove.
+/// * `removal_guard` - Optional `(json_key, json_path, value)`: when the JSON
+///   document at `json_key` holds `value` at `json_path`, the member is
+///   removed regardless of cardinality. Checked inside the same script, so
+///   the guard cannot race the write.
 ///
 /// # Errors
 ///
@@ -296,13 +300,13 @@ pub async fn sync_score_from_set_cardinality(
     sorted_set_prefix: &str,
     sorted_set_key: &str,
     member: &str,
+    removal_guard: Option<(&str, &str, &str)>,
 ) -> RedisResult<()> {
     let set_index_key = format!("{set_prefix}:{set_key}");
     let sorted_set_index_key = format!("{sorted_set_prefix}:{sorted_set_key}");
     let mut redis_conn = get_redis_conn().await?;
 
-    let script = Script::new(
-        r#"
+    let derive = r#"
         local cardinality = redis.call('SCARD', KEYS[1])
         if cardinality == 0 then
             redis.call('ZREM', KEYS[2], ARGV[1])
@@ -310,15 +314,44 @@ pub async fn sync_score_from_set_cardinality(
             redis.call('ZADD', KEYS[2], cardinality, ARGV[1])
         end
         return cardinality
-    "#,
-    );
+    "#;
 
-    let _: i64 = script
-        .key(set_index_key)
-        .key(sorted_set_index_key)
-        .arg(member)
-        .invoke_async(&mut redis_conn)
-        .await?;
+    let invocation = match removal_guard {
+        Some((json_key, json_path, value)) => {
+            let script = Script::new(&format!(
+                r#"
+                local guarded = redis.call('JSON.GET', KEYS[3], ARGV[2])
+                if guarded then
+                    local decoded = cjson.decode(guarded)
+                    if type(decoded) == 'table' and decoded[1] == ARGV[3] then
+                        redis.call('ZREM', KEYS[2], ARGV[1])
+                        return 0
+                    end
+                end
+                {derive}
+            "#
+            ));
+            script
+                .key(set_index_key)
+                .key(sorted_set_index_key)
+                .key(json_key)
+                .arg(member)
+                .arg(json_path)
+                .arg(value)
+                .invoke_async(&mut redis_conn)
+                .await
+        }
+        None => {
+            let script = Script::new(derive);
+            script
+                .key(set_index_key)
+                .key(sorted_set_index_key)
+                .arg(member)
+                .invoke_async(&mut redis_conn)
+                .await
+        }
+    };
 
+    let _: i64 = invocation?;
     Ok(())
 }

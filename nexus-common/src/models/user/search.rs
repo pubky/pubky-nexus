@@ -3,7 +3,7 @@ use crate::db::kv::{RedisResult, SortOrder};
 use crate::db::{fetch_all_rows_from_graph, get_neo4j_graph, queries, GraphError, RedisOps};
 use crate::models::create_zero_score_tuples;
 use crate::models::error::ModelResult;
-use crate::models::tag::user::TagUser;
+use crate::models::tag::user::{TagUser, USER_TAGS_KEY_PARTS};
 use crate::models::traits::Collection;
 use crate::types::Pagination;
 use futures::TryStreamExt;
@@ -14,6 +14,7 @@ use utoipa::ToSchema;
 pub const USER_NAME_KEY_PARTS: [&str; 2] = ["Users", "Name"];
 pub const USER_ID_KEY_PARTS: [&str; 2] = ["Users", "ID"];
 pub const TAG_GLOBAL_USER_TAGGERS: [&str; 4] = ["Tags", "Global", "User", "Taggers"];
+const EVICT_PAGE_SIZE: usize = 500;
 
 /// Represents a single result of a "users by tags" search: a user whose profile
 /// carries at least one of the searched tag labels, and how many distinct
@@ -133,21 +134,62 @@ impl UsersByTagSearch {
 
     /// Syncs the per-label score for a user from the taggers set the tag
     /// handlers already maintain idempotently: the score becomes the set
-    /// cardinality, and the member is removed when the set empties. The read
-    /// and the conditional write run as one Lua script, so concurrent events
-    /// for the same (user, label) cannot commit a stale score, and retries
-    /// converge without gating. Must run after the taggers SADD/SREM settled.
+    /// cardinality, and the member is removed when the set empties or when
+    /// the user's details carry the deleted sentinel. Everything runs as one
+    /// Lua script, so concurrent events for the same (user, label) cannot
+    /// commit a stale score and a concurrent tombstone cannot be raced; the
+    /// callers need no gating and retries converge on their own. Must run
+    /// after the taggers SADD/SREM settled.
     ///
     /// # Errors
     /// Returns an error if the Redis script execution fails.
     pub async fn sync_index_score(user_id: &str, label: &str) -> RedisResult<()> {
+        let details_key = format!("{}:{}", UserDetails::prefix().await, user_id);
         Self::put_cardinality_index_sorted_set(
             &TagUser::prefix().await,
             &[user_id, label],
             &[&TAG_GLOBAL_USER_TAGGERS[..], &[label]].concat(),
             user_id,
+            Some((&details_key, "$.name", USER_DELETED_SENTINEL)),
         )
         .await
+    }
+
+    /// Removes a tombstoned user from every per-label sorted set their
+    /// profile tags placed them in. Each per-label sync re-checks the
+    /// tombstone atomically, so a concurrent tag event cannot re-add them.
+    ///
+    /// # Errors
+    /// Returns an error when reading the user's tag labels or syncing a
+    /// label fails.
+    pub async fn evict_user(user_id: &str) -> RedisResult<()> {
+        let key_parts = [&USER_TAGS_KEY_PARTS[..], &[user_id]].concat();
+        let mut skip = 0;
+        loop {
+            let page = Self::try_from_index_sorted_set(
+                &key_parts,
+                None,
+                None,
+                Some(skip),
+                Some(EVICT_PAGE_SIZE),
+                SortOrder::Descending,
+                None,
+            )
+            .await?;
+            let Some(page) = page else { break };
+            if page.is_empty() {
+                break;
+            }
+            let page_len = page.len();
+            for (label, _) in page {
+                Self::sync_index_score(user_id, &label).await?;
+            }
+            if page_len < EVICT_PAGE_SIZE {
+                break;
+            }
+            skip += page_len;
+        }
+        Ok(())
     }
 
     /// Backfills the index against live data: the graph only enumerates

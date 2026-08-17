@@ -81,6 +81,81 @@ async fn test_users_by_tags_backfill_does_not_resurrect_deleted_tag() -> Result<
     Ok(())
 }
 
+/// Deleting a user with edges tombstones them, and tombstoned users must
+/// leave the users-by-tag index and stay out even when tag events for them
+/// keep arriving.
+#[tokio_shared_rt::test(shared)]
+async fn test_users_by_tags_excludes_deleted_users() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+
+    let tagged_kp = Keypair::random();
+    let tagged_user = PubkyAppUser {
+        bio: Some("test_users_by_tags_excludes_deleted".to_string()),
+        image: None,
+        links: None,
+        name: "Watcher:DeletedUser:TaggedUser".to_string(),
+        status: None,
+    };
+    let tagged_user_id = test.create_user(&tagged_kp, &tagged_user).await?;
+
+    let tagger_kp = Keypair::random();
+    let tagger_user = PubkyAppUser {
+        bio: Some("test_users_by_tags_excludes_deleted".to_string()),
+        image: None,
+        links: None,
+        name: "Watcher:DeletedUser:TaggerUser".to_string(),
+        status: None,
+    };
+    let _tagger_user_id = test.create_user(&tagger_kp, &tagger_user).await?;
+
+    let label = "deadtag";
+    let tag = PubkyAppTag {
+        uri: format!("pubky://{tagged_user_id}/pub/pubky.app/profile.json"),
+        label: label.to_string(),
+        created_at: Utc::now().timestamp_millis(),
+    };
+    let tag_path = tag.hs_path();
+    test.put(&tagger_kp, &tag_path, tag).await?;
+
+    let score = check_member_user_tag_taggers(&tagged_user_id, label)
+        .await
+        .expect("Failed to check the users-by-tag score");
+    assert_eq!(score, Some(1));
+
+    // The tagged user has a TAGGED edge, so deletion tombstones them and
+    // must evict them from the index
+    test.cleanup_user(&tagged_kp).await?;
+
+    let score = check_member_user_tag_taggers(&tagged_user_id, label)
+        .await
+        .expect("Failed to check the users-by-tag score");
+    assert!(
+        score.is_none(),
+        "A tombstoned user cannot stay in the users-by-tag index"
+    );
+
+    // A tag event arriving after the tombstone cannot resurrect them: the
+    // derive re-checks the tombstone atomically
+    let late_tag = PubkyAppTag {
+        uri: format!("pubky://{tagged_user_id}/pub/pubky.app/profile.json"),
+        label: label.to_string(),
+        created_at: Utc::now().timestamp_millis(),
+    };
+    test.put(&tagger_kp, &tag_path, late_tag).await?;
+
+    let score = check_member_user_tag_taggers(&tagged_user_id, label)
+        .await
+        .expect("Failed to check the users-by-tag score");
+    assert!(
+        score.is_none(),
+        "A tag event after the tombstone cannot re-add the user"
+    );
+
+    test.cleanup_user(&tagger_kp).await?;
+
+    Ok(())
+}
+
 /// Semantics of the atomic derive: the score equals the taggers set
 /// cardinality, and the member disappears when the set empties.
 #[tokio_shared_rt::test(shared)]
