@@ -10,8 +10,12 @@ use tracing::info;
 /// Migrate from the `[DELETED]` name sentinel to a boolean `deleted` property.
 ///
 /// # What this does
-/// - Sets `u.deleted = true` where `name = '[DELETED]'`, `false` everywhere else, so the
-///   property is present on every `:User` (enables dropping `coalesce()` later).
+/// - Sets `u.deleted = true` where `name = '[DELETED]'`. Live users are left untouched, so
+///   `deleted IS NULL` stays a normal permanent state: every reader treats absent as live,
+///   Cypher via `NOT coalesce(u.deleted, false)` and Rust via `deserialize_user_deleted`.
+///   The filters keep their `coalesce()` — dropping it would make a missing property read
+///   as deleted, which silently drops the user from `get_active_users_by_homeserver` and
+///   stops the watcher indexing them.
 /// - Invalidates cached tombstone JSON per page. Live users' pre-migration entries lack
 ///   the key and deserialize to `false`, which is already correct.
 ///
@@ -24,9 +28,9 @@ use tracing::info;
 /// # Idempotency
 /// Safe to re-run: the `SET` falsifies the `WHERE`. `is_multi_staged()` is `false`, so the
 /// manager marks this Done after one backfill; re-running needs the id in
-/// `migrations_backfill_ready`. The second disjunct
-/// (`u.name = '[DELETED]' AND u.deleted = false`) re-catches users tombstoned by
-/// pre-cutover code. `IN TRANSACTIONS` commits per batch, so a mid-run failure leaves the
+/// `migrations_backfill_ready`. `coalesce()` in the predicate makes it match both an
+/// unmigrated tombstone (no property at all) and one written by pre-cutover code after the
+/// scan. `IN TRANSACTIONS` commits per batch, so a mid-run failure leaves the
 /// backfill partial and not Done, as the old client loop did; re-running finishes it.
 ///
 /// # Rollback caveat
@@ -38,8 +42,9 @@ use tracing::info;
 /// writer), run `nexusd db migration run`, then start the new binaries. The first two
 /// steps must not overlap — old code tombstones via the sentinel name without touching
 /// `deleted`, so one written after the backfill drains reads as LIVE permanently,
-/// recoverable only by a re-run. Between the last two both readers are consistent: the
-/// backfill leaves `name` intact.
+/// recoverable only by a re-run. The post-backfill verify catches such a write if it lands
+/// before the check, but it is a guard, not a guarantee. Between the last two both readers
+/// are consistent: the backfill leaves `name` intact.
 pub struct UserDeletedFlag1780617600;
 
 /// Tombstone IDs invalidated per keyset page.
@@ -67,9 +72,9 @@ impl Migration for UserDeletedFlag1780617600 {
         let query = Query::new(
             "user_deleted_flag_backfill",
             "MATCH (u:User)
-             WHERE u.deleted IS NULL OR (u.name = '[DELETED]' AND u.deleted = false)
+             WHERE u.name = '[DELETED]' AND coalesce(u.deleted, false) = false
              CALL (u) {
-                 SET u.deleted = coalesce(u.name = '[DELETED]', false)
+                 SET u.deleted = true
              } IN TRANSACTIONS OF 10000 ROWS
              RETURN count(u) AS processed",
         );
@@ -80,7 +85,35 @@ impl Migration for UserDeletedFlag1780617600 {
             Some(Err(e)) => return Err(e.into()),
             None => 0,
         };
-        info!("UserDeletedFlag migration: {} users backfilled", processed);
+        info!(
+            "UserDeletedFlag migration: {} tombstones flagged",
+            processed
+        );
+
+        // Re-run the drain predicate: a leftover row means either the batches did not all
+        // commit, or a pre-cutover writer tombstoned a user after the scan (see # Deploy
+        // ordering). Erroring here leaves the migration not Done, so a re-run is required.
+        let verify = Query::new(
+            "user_deleted_flag_verify",
+            "MATCH (u:User)
+             WHERE u.name = '[DELETED]' AND coalesce(u.deleted, false) = false
+             RETURN count(u) AS remaining",
+        );
+
+        let mut result = graph.execute(verify).await?;
+        let remaining: i64 = match result.next().await {
+            Some(Ok(row)) => row.get::<i64>("remaining")?,
+            Some(Err(e)) => return Err(e.into()),
+            None => return Err("UserDeletedFlag migration: verify query returned no rows".into()),
+        };
+        if remaining != 0 {
+            return Err(format!(
+                "UserDeletedFlag migration: backfill did not drain — {remaining} tombstones \
+                 still unflagged. Confirm every pre-cutover instance is stopped, then re-run \
+                 the migration before starting the new binaries."
+            )
+            .into());
+        }
 
         // Tombstones only: live users' missing key already deserializes to false.
         let mut cursor = String::new();
@@ -127,7 +160,7 @@ impl Migration for UserDeletedFlag1780617600 {
         }
 
         info!(
-            "UserDeletedFlag migration: complete — {} users backfilled, {} tombstones marked and cache-invalidated",
+            "UserDeletedFlag migration: complete — {} tombstones flagged, {} tombstones marked and cache-invalidated",
             processed, total_tombstoned
         );
 
