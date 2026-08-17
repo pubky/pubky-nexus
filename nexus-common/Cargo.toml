@@ -7,6 +7,9 @@ homepage = "https://github.com/pubky/pubky-nexus"
 repository = "https://github.com/pubky/pubky-nexus"
 license = "MIT"
 
+[features]
+test-utils = []
+
 [dependencies]
 async-trait = { workspace = true }
 blake3 = { workspace = true }
