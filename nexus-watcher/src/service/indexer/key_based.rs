@@ -1,4 +1,7 @@
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::{Arc, LazyLock},
+    time::Duration,
+};
 
 use crate::errors::EventProcessorError;
 use crate::events::Event;
@@ -6,6 +9,8 @@ use futures::StreamExt;
 use nexus_common::db::PubkyConnector;
 use nexus_common::models::homeserver::HsBlacklist;
 use nexus_common::models::user::UserHsCursor;
+use opentelemetry::metrics::Counter;
+use opentelemetry::{global, KeyValue};
 use pubky::errors::RequestError;
 use pubky::{Event as StreamEvent, EventCursor, PublicKey};
 use pubky_app_specs::PubkyId;
@@ -19,6 +24,17 @@ use crate::service::runner::UserNotFoundBackoff;
 use crate::service::user_hs_resolver;
 
 const FETCH_EVENTS_429_BACKOFF_SECS: [u64; 3] = [1, 2, 3];
+
+/// Counter for per-user stream events an External HS returned at or below the
+/// ordering floor — a replay of already-indexed data, or a regression against an
+/// earlier event in the same batch. The whole batch is rejected before any handler
+/// runs. Labelled by `hs_id` only to avoid per-user metric cardinality.
+static OUT_OF_ORDER_CURSOR_EXTERNAL_HS: LazyLock<Counter<u64>> = LazyLock::new(|| {
+    global::meter(super::METER_NAME)
+        .u64_counter("watcher.external_hs.cursor.out_of_order")
+        .with_description("Per-user stream events a homeserver returned out of cursor order")
+        .build()
+});
 
 #[async_trait::async_trait]
 pub trait KeyBasedEventSource: Send + Sync + 'static {
@@ -254,7 +270,7 @@ impl KeyBasedEventProcessor {
 
         let user_id = user_pk.z32();
         let (latest_cursor, result) = self
-            .process_user_events(hs_id, &user_id, stream_events)
+            .process_user_events(hs_id, &user_id, cursor.id(), stream_events)
             .await;
 
         if let Some(cursor_val) = latest_cursor {
@@ -305,6 +321,11 @@ impl KeyBasedEventProcessor {
 
     /// Processes already-fetched events for a single user stream.
     ///
+    /// `persisted_cursor` is the user's currently stored cursor for this
+    /// homeserver; it acts as the initial ordering floor so that events at or
+    /// below what we have already indexed are rejected. The complete batch is
+    /// validated before any handler runs.
+    ///
     /// Returns the latest cursor that is safe to persist, plus the processing
     /// result. Cursor advancement is intentionally skipped for `UserIdMismatch`
     /// and handler errors so those events are fetched again on the next run.
@@ -312,8 +333,33 @@ impl KeyBasedEventProcessor {
         &self,
         hs_id: &str,
         user_id: &str,
+        persisted_cursor: u64,
         stream_events: Vec<StreamEvent>,
     ) -> (Option<u64>, Result<(), EventProcessorError>) {
+        if *self.shutdown_rx.borrow() {
+            debug!(%user_id, "Shutdown detected; exiting event loop");
+            return (None, Ok(()));
+        }
+
+        let mut cursor_floor = persisted_cursor;
+        for stream_event in &stream_events {
+            let cursor_id = stream_event.cursor.id();
+            if cursor_id <= cursor_floor {
+                OUT_OF_ORDER_CURSOR_EXTERNAL_HS
+                    .add(1, &[KeyValue::new("hs_id", hs_id.to_string())]);
+                return (
+                    None,
+                    Err(EventProcessorError::EventCursorOutOfOrder {
+                        hs_id: hs_id.into(),
+                        user_id: user_id.into(),
+                        cursor: cursor_id,
+                        cursor_floor,
+                    }),
+                );
+            }
+            cursor_floor = cursor_id;
+        }
+
         let mut latest_cursor: Option<u64> = None;
 
         for stream_event in stream_events {
@@ -324,13 +370,16 @@ impl KeyBasedEventProcessor {
 
             let cursor_id = stream_event.cursor.id();
 
+            // External homeservers must not index another user's URI.
+            // Validate the raw resource before [Event::from_stream_event],
+            // because a foreign user PK with an unsupported path would
+            // return Ok(None) thus skipping but also advancing latest_cursor.
+            if let Err(err) = Self::validate_user_id(hs_id, &stream_event, user_id) {
+                return (latest_cursor, Err(err));
+            }
+
             match Event::from_stream_event(&stream_event) {
                 Ok(Some(event)) => {
-                    // External homeservers must not index another user's URI.
-                    if let Err(err) = Self::validate_user_id(hs_id, &event, user_id) {
-                        return (latest_cursor, Err(err));
-                    }
-
                     if let Err(err) = self.handle_event(&event).await {
                         return (latest_cursor, Err(err));
                     }
@@ -357,10 +406,10 @@ impl KeyBasedEventProcessor {
 
     fn validate_user_id(
         hs_id: &str,
-        event: &Event,
+        stream_event: &StreamEvent,
         expected_user_id: &str,
     ) -> Result<(), EventProcessorError> {
-        let event_user_id = event.parsed_uri.user_id().to_string();
+        let event_user_id = stream_event.resource.owner.z32();
         if event_user_id != expected_user_id {
             return Err(EventProcessorError::UserIdMismatch {
                 hs_id: hs_id.into(),
