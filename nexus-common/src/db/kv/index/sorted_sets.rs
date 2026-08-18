@@ -111,7 +111,12 @@ pub async fn put(
 ///
 /// `ZADD NX` makes the check and the write one atomic operation, so an existing
 /// member keeps its score whatever concurrent writers are doing.
-pub async fn put_if_absent(prefix: &str, key: &str, score: f64, member: &str) -> RedisResult<()> {
+pub async fn add_member_if_absent(
+    prefix: &str,
+    key: &str,
+    score: f64,
+    member: &str,
+) -> RedisResult<()> {
     let index_key = format!("{prefix}:{key}");
     let mut redis_conn = get_redis_conn().await?;
     let _: () = redis::cmd("ZADD")

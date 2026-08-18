@@ -90,7 +90,7 @@ impl UserHsCursor {
     /// read-then-write would clobber that with 0 and re-index the user's history.
     pub async fn init(user_id: &str, hs_id: &str) -> RedisResult<()> {
         let key = user_hs_cursor_key(user_id);
-        Self::put_index_sorted_set_if_absent(&key, 0.0, hs_id, None).await
+        Self::add_index_sorted_set_if_absent(&key, 0.0, hs_id, None).await
     }
 }
 
