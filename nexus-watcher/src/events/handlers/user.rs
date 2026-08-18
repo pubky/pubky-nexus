@@ -21,13 +21,15 @@ pub async fn sync_put(user: PubkyAppUser, user_id: PubkyId) -> Result<(), EventP
     // Step 2: Save to graph
     user_details.put_to_graph().await?;
 
-    // Step 3: Run in parallel the cache process: SAVE TO INDEX
+    // Step 3: Reindex search BEFORE refreshing the details cache. `put_to_index`
+    // resolves the stale `name:id` member from the cached JSON, so a concurrent
+    // `UserDetails::put_to_index` could overwrite it with the new name first and
+    // leak the old member forever.
+    UserSearch::put_to_index(&[&user_details]).await?;
+
+    // Step 4: Run in parallel the remaining cache writes: SAVE TO INDEX
     let indexing_results = nexus_common::traced_join!(
         tracing::info_span!("index.write");
-        async {
-            UserSearch::put_to_index(&[&user_details]).await?;
-            Ok::<(), EventProcessorError>(())
-        },
         async {
             // TODO: Use SCARD on a set for unique tag count to avoid race conditions in parallel processing
             // If new user (no existing counts), save a new `UserCounts`
@@ -45,7 +47,6 @@ pub async fn sync_put(user: PubkyAppUser, user_id: PubkyId) -> Result<(), EventP
 
     indexing_results.0?;
     indexing_results.1?;
-    indexing_results.2?;
     Ok(())
 }
 

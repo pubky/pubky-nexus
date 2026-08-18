@@ -4,12 +4,13 @@ use crate::{
 };
 use anyhow::Result;
 use chrono::Utc;
-use nexus_common::models::traits::Collection;
-use nexus_common::models::user::{UserCounts, UserDetails, UserSearch, UserStream, UserView};
+use nexus_common::models::user::{UserCounts, UserSearch, UserStream, UserView};
+use nexus_watcher::events::handlers;
 use pubky::Keypair;
 use pubky_app_specs::{
     traits::{HasIdPath, HashId},
     PubkyAppBlob, PubkyAppFile, PubkyAppPost, PubkyAppPostKind, PubkyAppUser, PubkyAppUserLink,
+    PubkyId,
 };
 
 #[tokio_shared_rt::test(shared)]
@@ -449,7 +450,7 @@ async fn test_deleted_user_removed_from_search() -> Result<()> {
 /// `PubkyAppUser::sanitize` rewrites that name to "anonymous", so the shape is
 /// unreachable through a profile.json event and only exists for rows written
 /// before the flag. The test reproduces it by ingesting normally and then
-/// renaming through the model, below the sanitize boundary.
+/// calling `user::sync_put` directly, below the sanitize boundary.
 #[tokio_shared_rt::test(shared)]
 async fn test_live_user_with_sentinel_name_is_not_tombstoned() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
@@ -463,17 +464,15 @@ async fn test_live_user_with_sentinel_name_is_not_tombstoned() -> Result<()> {
         status: None,
     };
     let user_id = test.create_user(&user_kp, &user).await?;
-
-    // Rename to the legacy sentinel while staying live.
-    let mut user_details = find_user_details(&user_id).await?;
-    user_details.name = "[DELETED]".to_string();
-    user_details.put_to_graph().await?;
-
-    // Order matters: `UserSearch::put_to_index` drops the stale `name:id` member
-    // by resolving the OLD name from the cached JSON, so refresh that cache only
-    // afterwards — `UserDetails::put_to_index` writes it before reindexing search.
-    UserSearch::put_to_index(&[&user_details]).await?;
-    UserDetails::put_to_index(&[&user_details.id], vec![Some(user_details.clone())]).await?;
+    
+    // Rename to the legacy sentinel while staying live. Goes through the real
+    // handler so graph and both indexes are written in production order.
+    let renamed = PubkyAppUser {
+        name: "[DELETED]".to_string(),
+        ..user
+    };
+    let user_pubky_id = PubkyId::try_from(user_id.as_str()).map_err(anyhow::Error::msg)?;
+    handlers::user::sync_put(renamed, user_pubky_id).await?;
 
     // The node keeps the sentinel name and is still live
     let stored = find_user_details(&user_id).await?;
