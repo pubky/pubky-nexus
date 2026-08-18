@@ -464,7 +464,7 @@ async fn test_live_user_with_sentinel_name_is_not_tombstoned() -> Result<()> {
         status: None,
     };
     let user_id = test.create_user(&user_kp, &user).await?;
-    
+
     // Rename to the legacy sentinel while staying live. Goes through the real
     // handler so graph and both indexes are written in production order.
     let renamed = PubkyAppUser {
