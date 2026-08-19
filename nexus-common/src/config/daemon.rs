@@ -60,7 +60,7 @@ impl ConfigLoader<DaemonConfig> for DaemonConfig {}
 
 #[cfg(test)]
 mod tests {
-    use std::{net::SocketAddr, path::PathBuf, str::FromStr};
+    use std::{collections::HashMap, net::SocketAddr, path::PathBuf, str::FromStr};
 
     use pubky_app_specs::PubkyId;
 
@@ -116,8 +116,38 @@ mod tests {
         );
         assert_eq!(c.stack.otlp.name, "nexusd");
         assert!(c.stack.otlp.endpoint.is_none());
+        assert!(c.stack.otlp.resource_attributes.is_empty());
         assert_eq!(c.stack.db.redis, "redis://127.0.0.1:6379");
         assert_eq!(c.stack.db.neo4j.uri, "bolt://localhost:7687");
+    }
+
+    /// Optional `[stack.otlp.resource_attributes]` parses into a string map.
+    #[test]
+    fn test_otlp_resource_attributes_parsing() {
+        let toml = format!(
+            "{DEFAULT_CONFIG_TOML}\n\
+             [stack.otlp.resource_attributes]\n\
+             host = \"nexus-1\"\n\
+             env = \"prod\"\n\
+             region = \"eu-central\"\n\
+             \"deployment.environment\" = \"production\"\n\
+             \"service.instance.id\" = \"nexusd-01\"\n"
+        );
+
+        let c = DaemonConfig::try_from_str(&toml)
+            .expect("config with otlp resource_attributes should parse");
+
+        let expected = HashMap::from([
+            ("host".to_string(), "nexus-1".to_string()),
+            ("env".to_string(), "prod".to_string()),
+            ("region".to_string(), "eu-central".to_string()),
+            (
+                "deployment.environment".to_string(),
+                "production".to_string(),
+            ),
+            ("service.instance.id".to_string(), "nexusd-01".to_string()),
+        ]);
+        assert_eq!(c.stack.otlp.resource_attributes, expected);
     }
 
     /// A populated `external_hs_pk_blacklist` is parsed into the expected

@@ -107,6 +107,28 @@ pub async fn put(
     Ok(())
 }
 
+/// Seeds `member` with `score` only if it is not already in the sorted set.
+///
+/// `ZADD NX` makes the check and the write one atomic operation, so an existing
+/// member keeps its score whatever concurrent writers are doing.
+pub async fn add_member_if_absent(
+    prefix: &str,
+    key: &str,
+    score: f64,
+    member: &str,
+) -> RedisResult<()> {
+    let index_key = format!("{prefix}:{key}");
+    let mut redis_conn = get_redis_conn().await?;
+    let _: () = redis::cmd("ZADD")
+        .arg(index_key)
+        .arg("NX")
+        .arg(score)
+        .arg(member)
+        .query_async(&mut redis_conn)
+        .await?;
+    Ok(())
+}
+
 /// Updates the score of a member in a Redis sorted set.
 ///
 /// This function modifies the score of a member in the specified Redis sorted set by incrementing or decrementing it

@@ -37,7 +37,7 @@ pub async fn sync_put(
     tag_id: String,
     ingestor: &UserIngestor,
 ) -> Result<(), EventProcessorError> {
-    debug!("Indexing new tag: {} -> {}", tagger_id, tag_id);
+    debug!("Indexing tag");
 
     // Parse the embeded URI to extract author_id and post_id using parse_tagged_post_uri
     let parsed_uri = ParsedUri::try_from(tag.uri.as_str()).map_err(EventProcessorError::generic)?;
@@ -76,7 +76,7 @@ pub async fn sync_put_resource(
     app: String,
     ingestor: &UserIngestor,
 ) -> Result<(), EventProcessorError> {
-    debug!("Indexing resource tag: {tagger_id} -> {tag_id} (app={app})",);
+    debug!(%app, "Indexing resource tag");
 
     match classify_uri(&tag.uri) {
         UriCategory::InternalKnown => {
@@ -409,7 +409,7 @@ pub async fn del(tag_uri: &str) -> Result<(), EventProcessorError> {
     let arg_tag_id = tag_storage_uri.tag_id;
     let arg_app = tag_storage_uri.app;
 
-    debug!("Deleting tag: {arg_user_id} -> {arg_tag_id} (app={arg_app:?})");
+    debug!("Deleting tag");
 
     // 1. Read target from graph WITHOUT deleting the edge
     let row = match fetch_row_from_graph(queries::get::get_tag_target(
