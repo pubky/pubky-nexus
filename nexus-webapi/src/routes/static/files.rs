@@ -103,7 +103,7 @@ pub async fn static_files_handler(
         &variant,
         file_path.clone(),
         params.dl.is_some(),
-        &app_state.variant_controller,
+        &app_state.queued_variant_controller,
     )
     .await
     .inspect_err(|_| {

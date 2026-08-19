@@ -1,4 +1,3 @@
-use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Result;
@@ -8,7 +7,7 @@ use axum::http::header::{ACCESS_CONTROL_ALLOW_ORIGIN, CONTENT_LENGTH, ORIGIN};
 use axum::http::{Method, Request, StatusCode};
 use axum::routing::{get, post};
 use axum::Router;
-use nexus_common::media::{MediaGate, VariantController};
+use nexus_common::media::MediaPermits;
 use nexus_common::utils::test_utils::default_ingestor_tests;
 use nexus_common::RateLimitConfig;
 use nexus_webapi::routes::{app_routes, build_app, AppState};
@@ -22,11 +21,11 @@ use tower::ServiceExt;
 #[tokio::test]
 async fn test_request_body_size_limit() -> Result<()> {
     let temp_dir = TempDir::new()?;
-    let state = AppState {
-        files_path: Arc::new(temp_dir.path().to_path_buf()),
-        ingestor: default_ingestor_tests(),
-        variant_controller: VariantController::new(MediaGate::new(1)),
-    };
+    let state = AppState::new(
+        temp_dir.path().to_path_buf(),
+        default_ingestor_tests(),
+        MediaPermits::new(1),
+    );
     let rate_limit_config: RateLimitConfig = RateLimitConfig::default();
     let (_tx, rx) = watch::channel(false);
     let routes = app_routes(state.clone(), &rate_limit_config, rx);
@@ -60,11 +59,11 @@ async fn bytes_handler(_body: axum::body::Bytes) -> StatusCode {
 #[tokio::test]
 async fn test_request_body_size_limit_without_content_length() -> Result<()> {
     let temp_dir = TempDir::new()?;
-    let state = AppState {
-        files_path: Arc::new(temp_dir.path().to_path_buf()),
-        ingestor: default_ingestor_tests(),
-        variant_controller: VariantController::new(MediaGate::new(1)),
-    };
+    let state = AppState::new(
+        temp_dir.path().to_path_buf(),
+        default_ingestor_tests(),
+        MediaPermits::new(1),
+    );
     let routes = Router::new().route("/echo", post(bytes_handler));
 
     // 10-byte limit; body well over it, sent without a Content-Length header.
@@ -100,11 +99,11 @@ async fn test_request_timeout_returns_408() -> Result<()> {
     tokio::time::pause();
 
     let temp_dir = TempDir::new()?;
-    let state = AppState {
-        files_path: Arc::new(temp_dir.path().to_path_buf()),
-        ingestor: default_ingestor_tests(),
-        variant_controller: VariantController::new(MediaGate::new(1)),
-    };
+    let state = AppState::new(
+        temp_dir.path().to_path_buf(),
+        default_ingestor_tests(),
+        MediaPermits::new(1),
+    );
     let routes = Router::new().route("/sleep/{millis}", get(sleep_handler));
 
     // 1-second timeout; handler sleeps far longer (time is paused, so no real wait).
@@ -139,11 +138,11 @@ async fn ok_handler() -> StatusCode {
 #[tokio::test]
 async fn test_body_size_limit_response_has_cors_header() -> Result<()> {
     let temp_dir = TempDir::new()?;
-    let state = AppState {
-        files_path: Arc::new(temp_dir.path().to_path_buf()),
-        ingestor: default_ingestor_tests(),
-        variant_controller: VariantController::new(MediaGate::new(1)),
-    };
+    let state = AppState::new(
+        temp_dir.path().to_path_buf(),
+        default_ingestor_tests(),
+        MediaPermits::new(1),
+    );
     let routes = Router::new().route("/echo", post(ok_handler));
 
     // 10-byte limit; body well over it.
@@ -175,11 +174,11 @@ async fn test_request_timeout_response_has_cors_header() -> Result<()> {
     tokio::time::pause();
 
     let temp_dir = TempDir::new()?;
-    let state = AppState {
-        files_path: Arc::new(temp_dir.path().to_path_buf()),
-        ingestor: default_ingestor_tests(),
-        variant_controller: VariantController::new(MediaGate::new(1)),
-    };
+    let state = AppState::new(
+        temp_dir.path().to_path_buf(),
+        default_ingestor_tests(),
+        MediaPermits::new(1),
+    );
     let routes = Router::new().route("/sleep/{millis}", get(sleep_handler));
 
     // 1-second timeout; handler sleeps far longer (time is paused, so no real wait).

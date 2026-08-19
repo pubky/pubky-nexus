@@ -1,11 +1,11 @@
-use std::{io::ErrorKind, path::PathBuf, sync::Arc, time::Duration};
+use std::{io::ErrorKind, path::PathBuf, time::Duration, time::Instant};
 
 use crate::utils::host_url;
 use crate::utils::server::TestServiceServer;
 use anyhow::Result;
 use axum::body::{to_bytes, Body};
 use axum::http::Request;
-use nexus_common::media::{MediaGate, VariantController};
+use nexus_common::media::MediaPermits;
 use nexus_common::models::{traits::Collection, user::UserDetails};
 use nexus_common::utils::test_utils::default_ingestor_tests;
 use nexus_common::RateLimitConfig;
@@ -192,18 +192,19 @@ async fn test_user_avatar_degrades_to_main_when_at_capacity() -> Result<()> {
     let source_bytes = read(PathBuf::from(BLOB_PATH).join(AVATAR_BLOB_NAME)).await?;
     write(image_dir.join("main"), &source_bytes).await?;
 
-    // A gate with zero permits and a short timeout: every variant generation
-    // sheds with `AtCapacity` almost immediately.
-    let gate = MediaGate::new(0).with_acquire_timeout(Duration::from_millis(50));
-    let state = AppState {
-        files_path: Arc::new(files_dir.path().to_path_buf()),
-        ingestor: default_ingestor_tests(),
-        variant_controller: VariantController::new(gate),
-    };
+    // Zero permits: every variant generation sheds with `AtCapacity`. The default
+    // acquire timeout stays in place on purpose, so the assertion below catches a
+    // fallback that queues for it instead of failing fast.
+    let state = AppState::new(
+        files_dir.path().to_path_buf(),
+        default_ingestor_tests(),
+        MediaPermits::new(0),
+    );
     let (_tx, rx) = watch::channel(false);
     let routes = app_routes(state.clone(), &RateLimitConfig::default(), rx);
     let app = build_app(routes, state, 30, 10 * 1024 * 1024);
 
+    let start = Instant::now();
     let res = app
         .oneshot(
             Request::builder()
@@ -211,11 +212,18 @@ async fn test_user_avatar_degrades_to_main_when_at_capacity() -> Result<()> {
                 .body(Body::empty())?,
         )
         .await?;
+    let elapsed = start.elapsed();
 
     assert_eq!(
         res.status(),
         200,
         "At capacity should still serve 200 by falling back to main"
+    );
+
+    // The fallback must not wait out the gate's acquire timeout to reach the same answer.
+    assert!(
+        elapsed < Duration::from_secs(1),
+        "At-capacity fallback must be immediate, took {elapsed:?}"
     );
 
     // FILE_ID's content type in the mock graph is image/jpeg (the main/original),
@@ -253,13 +261,12 @@ async fn test_user_avatar_serves_small_variant_when_gate_available() -> Result<(
     let source_bytes = read(PathBuf::from(BLOB_PATH).join(AVATAR_BLOB_NAME)).await?;
     write(image_dir.join("main"), &source_bytes).await?;
 
-    // A gate with an available permit lets variant generation proceed.
-    let gate = MediaGate::new(1);
-    let state = AppState {
-        files_path: Arc::new(files_dir.path().to_path_buf()),
-        ingestor: default_ingestor_tests(),
-        variant_controller: VariantController::new(gate),
-    };
+    // An available permit lets variant generation proceed.
+    let state = AppState::new(
+        files_dir.path().to_path_buf(),
+        default_ingestor_tests(),
+        MediaPermits::new(1),
+    );
     let (_tx, rx) = watch::channel(false);
     let routes = app_routes(state.clone(), &RateLimitConfig::default(), rx);
     let app = build_app(routes, state, 30, 10 * 1024 * 1024);

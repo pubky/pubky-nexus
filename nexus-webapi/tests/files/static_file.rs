@@ -1,5 +1,3 @@
-use std::sync::Arc;
-use std::time::Duration;
 use std::{fs::File, io::Write};
 
 use crate::utils::host_url;
@@ -7,7 +5,7 @@ use crate::utils::server::TestServiceServer;
 use anyhow::Result;
 use axum::body::Body;
 use axum::http::Request;
-use nexus_common::media::{MediaGate, VariantController};
+use nexus_common::media::MediaPermits;
 use nexus_common::models::{file::FileDetails, traits::Collection};
 use nexus_common::utils::test_utils::default_ingestor_tests;
 use nexus_common::RateLimitConfig;
@@ -133,13 +131,12 @@ async fn test_static_serving_at_capacity_returns_503() -> Result<()> {
     )
     .await?;
 
-    // Zero permits + short timeout: variant generation sheds with AtCapacity immediately.
-    let gate = MediaGate::new(0).with_acquire_timeout(Duration::from_millis(50));
-    let state = AppState {
-        files_path: Arc::new(files_dir.path().to_path_buf()),
-        ingestor: default_ingestor_tests(),
-        variant_controller: VariantController::new(gate),
-    };
+    // Zero permits: a pool that can never grant one sheds with AtCapacity immediately.
+    let state = AppState::new(
+        files_dir.path().to_path_buf(),
+        default_ingestor_tests(),
+        MediaPermits::new(0),
+    );
     let (_tx, rx) = watch::channel(false);
     let routes = app_routes(state.clone(), &RateLimitConfig::default(), rx);
     let app = build_app(routes, state, 30, 10 * 1024 * 1024);

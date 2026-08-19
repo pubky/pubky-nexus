@@ -8,6 +8,7 @@ use std::{
     fmt::Display,
     path::{Path, PathBuf},
     str::FromStr,
+    sync::Arc,
 };
 use tokio::fs;
 use utoipa::ToSchema;
@@ -15,7 +16,7 @@ use utoipa::ToSchema;
 mod concurrency;
 pub mod processors;
 
-pub use concurrency::MediaGate;
+pub use concurrency::{FailFastGate, MediaGate, MediaPermits, QueuedGate};
 use processors::MediaProcessorError;
 
 #[derive(Debug, PartialEq, Serialize, Deserialize, ToSchema, Clone)]
@@ -52,12 +53,14 @@ impl Display for FileVariant {
 
 #[derive(Clone)]
 pub struct VariantController {
-    gate: MediaGate,
+    gate: Arc<dyn MediaGate>,
 }
 
 impl VariantController {
-    pub fn new(gate: MediaGate) -> Self {
-        Self { gate }
+    pub fn new(gate: impl MediaGate + 'static) -> Self {
+        Self {
+            gate: Arc::new(gate),
+        }
     }
 
     pub async fn create_file_variant(
@@ -68,10 +71,10 @@ impl VariantController {
     ) -> Result<String, MediaProcessorError> {
         match &file.content_type {
             content_type if content_type.starts_with("image/") => {
-                ImageProcessor::create_variant(file, variant, file_path, &self.gate).await
+                ImageProcessor::create_variant(file, variant, file_path, self.gate.as_ref()).await
             }
             content_type if content_type.starts_with("video/") => {
-                VideoProcessor::create_variant(file, variant, file_path, &self.gate).await
+                VideoProcessor::create_variant(file, variant, file_path, self.gate.as_ref()).await
             }
             _ => Err(MediaProcessorError::UnsupportedContentType(
                 file.content_type.clone(),

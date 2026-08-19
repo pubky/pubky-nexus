@@ -1,4 +1,4 @@
-use std::{path::PathBuf, sync::Arc, time::Duration};
+use std::{path::PathBuf, time::Duration};
 
 use axum::{
     body::{Body, Bytes},
@@ -8,7 +8,7 @@ use axum::{
 };
 use criterion::{criterion_group, criterion_main, Criterion};
 use http_body_util::BodyExt;
-use nexus_common::media::{MediaGate, VariantController};
+use nexus_common::media::MediaPermits;
 use nexus_common::models::{
     file::{FileDetails, FileUrls},
     traits::Collection,
@@ -55,11 +55,7 @@ impl AvatarBenchSetup {
 
         let setup = Self {
             _temp_dir: temp_dir,
-            app_state: AppState {
-                files_path: Arc::new(files_path),
-                ingestor: default_ingestor_tests(),
-                variant_controller: VariantController::new(MediaGate::new(1)),
-            },
+            app_state: AppState::new(files_path, default_ingestor_tests(), MediaPermits::new(1)),
             user_id,
         };
 

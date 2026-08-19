@@ -8,7 +8,7 @@ use axum::http::request::Parts;
 use axum::http::{Request, StatusCode};
 use axum::Json as AxumJson;
 use axum::Router;
-use nexus_common::media::{MediaGate, VariantController};
+use nexus_common::media::{FailFastGate, MediaPermits, QueuedGate, VariantController};
 use nexus_common::models::user::UserIngestor;
 use nexus_common::RateLimitConfig;
 use tokio::sync::watch::Receiver;
@@ -82,17 +82,34 @@ pub struct AppState {
     pub files_path: Arc<PathBuf>,
     /// Shared ingestor enforcing the HS blacklist on API-triggered ingestion.
     pub ingestor: Arc<UserIngestor>,
-    pub variant_controller: VariantController,
+    /// Queues for a media permit before shedding. The default for routes whose only
+    /// other answer is an error.
+    pub queued_variant_controller: VariantController,
+    /// Same permits as `queued_variant_controller`, but sheds instead of queueing. For
+    /// routes with a cheaper fallback than waiting: see `user_avatar_handler`.
+    pub fail_fast_variant_controller: VariantController,
+}
+
+impl AppState {
+    /// Both controllers over one pool of permits, so they bound the same subprocesses.
+    /// Build state through here rather than field-by-field: a second pool would let each
+    /// gate run `max_concurrency` subprocesses of its own.
+    pub fn new(files_path: PathBuf, ingestor: Arc<UserIngestor>, permits: MediaPermits) -> Self {
+        Self {
+            files_path: Arc::new(files_path),
+            ingestor,
+            queued_variant_controller: VariantController::new(QueuedGate::new(permits.clone())),
+            fail_fast_variant_controller: VariantController::new(FailFastGate::new(permits)),
+        }
+    }
 }
 
 pub fn routes(ctx: &ApiContext, shutdown_rx: Receiver<bool>) -> Router {
-    let state = AppState {
-        files_path: Arc::new(ctx.api_config.stack.files_path.clone()),
-        ingestor: ctx.ingestor.clone(),
-        variant_controller: VariantController::new(MediaGate::new(
-            ctx.api_config.stack.media.max_concurrency,
-        )),
-    };
+    let state = AppState::new(
+        ctx.api_config.stack.files_path.clone(),
+        ctx.ingestor.clone(),
+        MediaPermits::new(ctx.api_config.stack.media.max_concurrency),
+    );
 
     let app_routes = app_routes(state.clone(), &ctx.api_config.rate_limit, shutdown_rx);
 

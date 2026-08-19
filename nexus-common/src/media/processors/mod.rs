@@ -75,7 +75,7 @@ pub trait VariantProcessor {
         file: &FileDetails,
         variant: &FileVariant,
         file_path: PathBuf,
-        gate: &MediaGate,
+        gate: &dyn MediaGate,
     ) -> Result<String, MediaProcessorError>
     where
         Self: Sized + 'static,
@@ -128,9 +128,13 @@ pub trait VariantProcessor {
 mod tests {
     use std::path::{Path, PathBuf};
     use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
     use std::time::Duration;
 
-    use crate::media::{concurrency::MediaGate, FileVariant};
+    use crate::media::{
+        concurrency::{MediaPermits, QueuedGate},
+        FileVariant, MediaGate,
+    };
     use crate::models::file::{FileDetails, FileUrls};
 
     use super::{BaseProcessingOptions, MediaProcessorError, VariantProcessor};
@@ -199,16 +203,20 @@ mod tests {
     // subprocess is still running, or the gate would undercount live subprocesses.
     #[tokio_shared_rt::test(shared)]
     async fn test_cancelled_request_holds_permit_until_work_completes() {
-        let gate = MediaGate::new(1).with_acquire_timeout(Duration::from_millis(50));
+        let gate = Arc::new(QueuedGate::with_limits(
+            MediaPermits::new(1),
+            4,
+            Duration::from_millis(50),
+        ));
 
         let caller = tokio::spawn({
-            let gate = gate.clone();
+            let gate = Arc::clone(&gate);
             async move {
                 SlowProcessor::create_variant(
                     &file_details(),
                     &FileVariant::Small,
                     PathBuf::from("/tmp"),
-                    &gate,
+                    gate.as_ref(),
                 )
                 .await
             }

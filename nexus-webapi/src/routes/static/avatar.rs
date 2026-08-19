@@ -62,9 +62,12 @@ pub async fn user_avatar_handler(
         return Err(Error::FileNotFound {});
     };
 
-    // Falls back to the untouched main image when the media gate is at capacity,
-    // so an avatar still renders instead of failing.
-    let controller = &app_state.variant_controller;
+    // No permit free: serve the untouched `main` image instead of queueing for one.
+    // Queueing could still win a permit before the timeout, but that is not worth up to
+    // 5s of latency on an avatar — and `small` is only deferred, not lost: the short
+    // cache TTL brings the client back, and whichever request gets a permit writes the
+    // variant to disk for every request after it.
+    let controller = &app_state.fail_fast_variant_controller;
     let variant = match Blob::get_by_id(
         &file_details,
         &FileVariant::Small,
