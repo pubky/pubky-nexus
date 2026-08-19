@@ -13,7 +13,7 @@ use nexus_common::media::FileVariant;
 use nexus_common::models::file::Blob;
 use nexus_common::models::{file::FileDetails, traits::Collection, user::UserDetails};
 use tower_http::services::fs::ServeFileSystemResponseBody;
-use tracing::{debug, error, warn};
+use tracing::{debug, warn};
 use utoipa::OpenApi;
 
 const AVATAR_FALLBACK_CACHE_CONTROL: &str = "public, max-age=30";
@@ -81,12 +81,7 @@ pub async fn user_avatar_handler(
             warn!("Media processing at capacity for user: {user_id} avatar with file: {file_id}, falling back to main");
             FileVariant::Main
         }
-        Err(e) => {
-            error!(
-                "Error while processing small variant for user: {user_id} avatar with file: {file_id}"
-            );
-            return Err(e.into());
-        }
+        Err(e) => return Err(e.into()),
     };
 
     let mut response = serve_file_variant(
@@ -97,12 +92,7 @@ pub async fn user_avatar_handler(
         false,
         controller,
     )
-    .await
-    .inspect_err(|_| {
-        error!(
-            "Error while serving {variant} variant for user: {user_id} avatar with file: {file_id}"
-        )
-    })?;
+    .await?;
 
     // A degraded `main` fallback must not outlive the capacity blip that caused it,
     // so it gets a short TTL instead of the hour the real small variant earns.

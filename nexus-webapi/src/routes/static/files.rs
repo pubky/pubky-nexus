@@ -106,9 +106,6 @@ pub async fn static_files_handler(
         &app_state.queued_variant_controller,
     )
     .await
-    .inspect_err(|_| {
-        error!("Error while processing file variant for variant: {variant} and file: {file_id}")
-    })
 }
 
 #[derive(OpenApi)]

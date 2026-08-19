@@ -51,9 +51,6 @@ impl Blob {
                 .create_file_variant(file, variant, file_path)
                 .await
                 .map_err(Into::into)
-                .inspect_err(|e| {
-                    tracing::error!("Creating variant failed for file: {file:?} with error: {e}")
-                })
         }
     }
 }
