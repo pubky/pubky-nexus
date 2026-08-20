@@ -40,12 +40,12 @@ impl ModelError {
         Self::Generic(source.to_string())
     }
 
-    /// Returns true if this error is `MediaProcessorError::AtCapacity`.
-    pub fn is_at_capacity(&self) -> bool {
-        matches!(
-            self,
-            Self::MediaProcessorError(crate::media::processors::MediaProcessorError::AtCapacity)
-        )
+    /// Returns true if media processing shed this request rather than failing on the file itself.
+    pub fn is_media_shed(&self) -> bool {
+        match self {
+            Self::MediaProcessorError(source) => source.is_load_shed(),
+            _ => false,
+        }
     }
 }
 

@@ -16,6 +16,13 @@ pub struct MediaConfig {
         deserialize_with = "deserialize_max_concurrency"
     )]
     pub max_concurrency: usize,
+    /// Wall-clock deadline for a single media subprocess, after which it is killed and reaped.
+    /// A backstop above ImageMagick's own time limit, for children that hang without burning CPU.
+    #[serde(
+        default = "MediaConfig::default_process_timeout_secs",
+        deserialize_with = "deserialize_process_timeout_secs"
+    )]
+    pub process_timeout_secs: u64,
 }
 
 /// Rejects 0, which would otherwise shed every variant request forever.
@@ -32,7 +39,28 @@ where
     Ok(max_concurrency)
 }
 
+/// Rejects 0, which would kill every subprocess before it could start.
+fn deserialize_process_timeout_secs<'de, D>(deserializer: D) -> Result<u64, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let process_timeout_secs = u64::deserialize(deserializer)?;
+    if process_timeout_secs == 0 {
+        return Err(serde::de::Error::custom(
+            "stack.media.process_timeout_secs must be greater than 0",
+        ));
+    }
+    Ok(process_timeout_secs)
+}
+
 impl MediaConfig {
+    /// Well above an honest 100 MB resize, which runs in seconds to tens of seconds.
+    const DEFAULT_PROCESS_TIMEOUT_SECS: u64 = 180;
+
+    fn default_process_timeout_secs() -> u64 {
+        Self::DEFAULT_PROCESS_TIMEOUT_SECS
+    }
+
     fn default_max_concurrency() -> usize {
         std::thread::available_parallelism()
             .map(|n| n.get())
@@ -45,6 +73,7 @@ impl Default for MediaConfig {
     fn default() -> Self {
         Self {
             max_concurrency: Self::default_max_concurrency(),
+            process_timeout_secs: Self::default_process_timeout_secs(),
         }
     }
 }
@@ -136,8 +165,27 @@ mod tests {
     }
 
     #[test]
+    fn test_process_timeout_parsing() {
+        let cases = [
+            ("process_timeout_secs = 1", Some(1)),
+            ("process_timeout_secs = 300", Some(300)),
+            // 0 would kill every subprocess before it could start.
+            ("process_timeout_secs = 0", None),
+            ("process_timeout_secs = -1", None),
+        ];
+
+        for (toml, expected) in cases {
+            let parsed = toml::from_str::<MediaConfig>(toml)
+                .ok()
+                .map(|c| c.process_timeout_secs);
+            assert_eq!(parsed, expected, "unexpected result for {toml:?}");
+        }
+    }
+
+    #[test]
     fn test_max_concurrency_defaults_when_absent() {
         let config: MediaConfig = toml::from_str("").expect("empty table must use the default");
         assert!(config.max_concurrency >= 4);
+        assert!(config.process_timeout_secs > 0);
     }
 }

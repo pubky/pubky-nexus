@@ -14,7 +14,7 @@ use nexus_common::models::{
     traits::Collection,
     user::UserDetails,
 };
-use nexus_common::utils::test_utils::default_ingestor_tests;
+use nexus_common::utils::test_utils::{default_ingestor_tests, default_subprocess_tests};
 use nexus_webapi::{
     models::PubkyId,
     routes::{r#static::user_avatar_handler, AppState, Path},
@@ -55,7 +55,12 @@ impl AvatarBenchSetup {
 
         let setup = Self {
             _temp_dir: temp_dir,
-            app_state: AppState::new(files_path, default_ingestor_tests(), MediaPermits::new(1)),
+            app_state: AppState::new(
+                files_path,
+                default_ingestor_tests(),
+                MediaPermits::new(1),
+                default_subprocess_tests(),
+            ),
             user_id,
         };
 

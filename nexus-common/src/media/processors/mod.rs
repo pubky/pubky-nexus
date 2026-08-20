@@ -1,10 +1,12 @@
 use crate::{
-    media::{concurrency::MediaGate, FileVariant},
+    media::{concurrency::MediaGate, FileVariant, MediaSubprocess},
     models::file::FileDetails,
 };
 use async_trait::async_trait;
 use std::path::PathBuf;
+use std::time::Duration;
 use thiserror::Error;
+use tokio::fs;
 
 mod image;
 mod video;
@@ -33,6 +35,8 @@ pub enum MediaProcessorError {
     InvalidFilePath(String),
     #[error("AtCapacity: media processing concurrency limit reached")]
     AtCapacity,
+    #[error("Timeout: {command} exceeded {deadline:?}")]
+    Timeout { command: String, deadline: Duration },
 }
 
 impl MediaProcessorError {
@@ -40,6 +44,12 @@ impl MediaProcessorError {
         Self::CommandFailed {
             source: source.into(),
         }
+    }
+
+    /// Whether this means "no variant right now" rather than "this file is broken", so the caller
+    /// degrades (serves `main`, answers 503) instead of reporting a server fault.
+    pub fn is_load_shed(&self) -> bool {
+        matches!(self, Self::AtCapacity | Self::Timeout { .. })
     }
 }
 
@@ -67,6 +77,7 @@ pub trait VariantProcessor {
         origin_file_path: &str,
         output_file_path: &str,
         options: &Self::ProcessingOptions,
+        subprocess: MediaSubprocess,
     ) -> Result<String, MediaProcessorError>;
 
     /// Creates a variant for the given file
@@ -76,6 +87,7 @@ pub trait VariantProcessor {
         variant: &FileVariant,
         file_path: PathBuf,
         gate: &dyn MediaGate,
+        subprocess: MediaSubprocess,
     ) -> Result<String, MediaProcessorError>
     where
         Self: Sized + 'static,
@@ -113,12 +125,29 @@ pub trait VariantProcessor {
         let origin_file_path = origin_file_path.to_string();
         let output_path = output_path.to_string();
 
-        tokio::spawn(async move {
-            let _permit = permit;
-            Self::process(&origin_file_path, &output_path, &options).await
+        let processed = tokio::spawn({
+            let output_path = output_path.clone();
+            async move {
+                let _permit = permit;
+                Self::process(&origin_file_path, &output_path, &options, subprocess).await
+            }
         })
         .await
-        .map_err(MediaProcessorError::command_failed)??;
+        .map_err(MediaProcessorError::command_failed)?;
+
+        if let Err(error) = processed {
+            // A killed or failed converter leaves its half-written output behind, and an existing
+            // file *is* the "variant already made" check, so leaving it serves that wreckage
+            // forever. Best effort: if the removal fails the next request will serve it anyway.
+            let _ = fs::remove_file(&output_path).await;
+
+            if matches!(error, MediaProcessorError::Timeout { .. }) {
+                // A killed child means a tool-level limit was escaped, so it is worth its own line:
+                // the shed answer the caller returns names neither the file nor the command.
+                tracing::warn!("Media subprocess killed for file {}: {error}", file.id);
+            }
+            return Err(error);
+        }
 
         Ok(content_type)
     }
@@ -133,7 +162,7 @@ mod tests {
 
     use crate::media::{
         concurrency::{MediaPermits, QueuedGate},
-        FileVariant, MediaGate,
+        FileVariant, MediaGate, MediaSubprocess,
     };
     use crate::models::file::{FileDetails, FileUrls};
 
@@ -176,6 +205,7 @@ mod tests {
             _origin_file_path: &str,
             _output_file_path: &str,
             _options: &SlowOptions,
+            _subprocess: MediaSubprocess,
         ) -> Result<String, MediaProcessorError> {
             tokio::time::sleep(WORK).await;
             FINISHED.store(true, Ordering::SeqCst);
@@ -217,6 +247,7 @@ mod tests {
                     &FileVariant::Small,
                     PathBuf::from("/tmp"),
                     gate.as_ref(),
+                    MediaSubprocess::new(Duration::from_secs(30)),
                 )
                 .await
             }
@@ -245,6 +276,141 @@ mod tests {
         assert!(
             gate.acquire().await.is_ok(),
             "permit must be released once the work completes"
+        );
+    }
+
+    /// Writes the half-finished output a killed converter would leave behind, then fails.
+    struct HalfWrittenProcessor;
+
+    #[async_trait::async_trait]
+    impl VariantProcessor for HalfWrittenProcessor {
+        type ProcessingOptions = SlowOptions;
+
+        fn get_valid_variants_for_content_type(_content_type: &str) -> Vec<FileVariant> {
+            vec![FileVariant::Small]
+        }
+
+        fn get_content_type_for_variant(_file: &FileDetails, _variant: &FileVariant) -> String {
+            String::from("image/webp")
+        }
+
+        fn get_options_for_variant(
+            _file: &FileDetails,
+            _variant: &FileVariant,
+        ) -> Result<SlowOptions, MediaProcessorError> {
+            Ok(SlowOptions)
+        }
+
+        async fn process(
+            _origin_file_path: &str,
+            output_file_path: &str,
+            _options: &SlowOptions,
+            _subprocess: MediaSubprocess,
+        ) -> Result<String, MediaProcessorError> {
+            tokio::fs::write(output_file_path, b"")
+                .await
+                .expect("the stand-in must leave its wreckage behind");
+            Err(MediaProcessorError::Timeout {
+                command: String::from("convert"),
+                deadline: Duration::from_millis(1),
+            })
+        }
+    }
+
+    // An existing file is the "variant already made" check, so a half-written one would be served
+    // as the variant from then on.
+    #[tokio_shared_rt::test(shared)]
+    async fn test_failed_conversion_leaves_no_output_behind() {
+        let dir = tempfile::TempDir::new().expect("temp dir");
+        let file = file_details();
+        let output = dir
+            .path()
+            .join(file.owner_id.as_str())
+            .join(file.id.as_str());
+        tokio::fs::create_dir_all(&output)
+            .await
+            .expect("variant dir");
+        let output = output.join(FileVariant::Small.to_string());
+
+        let gate = QueuedGate::with_limits(MediaPermits::new(1), 4, Duration::from_millis(200));
+        let result = HalfWrittenProcessor::create_variant(
+            &file,
+            &FileVariant::Small,
+            dir.path().to_path_buf(),
+            &gate,
+            MediaSubprocess::new(Duration::from_secs(30)),
+        )
+        .await;
+
+        assert!(result.is_err(), "the conversion failed");
+        assert!(
+            !output.exists(),
+            "a failed conversion must not leave a variant behind"
+        );
+    }
+
+    /// Runs a child that never exits on its own, so only the deadline can end it.
+    struct WedgedProcessor;
+
+    #[async_trait::async_trait]
+    impl VariantProcessor for WedgedProcessor {
+        type ProcessingOptions = SlowOptions;
+
+        fn get_valid_variants_for_content_type(_content_type: &str) -> Vec<FileVariant> {
+            vec![FileVariant::Small]
+        }
+
+        fn get_content_type_for_variant(_file: &FileDetails, _variant: &FileVariant) -> String {
+            String::from("image/webp")
+        }
+
+        fn get_options_for_variant(
+            _file: &FileDetails,
+            _variant: &FileVariant,
+        ) -> Result<SlowOptions, MediaProcessorError> {
+            Ok(SlowOptions)
+        }
+
+        async fn process(
+            _origin_file_path: &str,
+            _output_file_path: &str,
+            _options: &SlowOptions,
+            subprocess: MediaSubprocess,
+        ) -> Result<String, MediaProcessorError> {
+            subprocess
+                .run(tokio::process::Command::new("sleep").arg("30"))
+                .await?;
+            Ok(String::from("image/webp"))
+        }
+    }
+
+    // Without a deadline a hung subprocess keeps its permit until restart, and enough of them
+    // exhaust the gate.
+    #[tokio_shared_rt::test(shared)]
+    async fn test_wedged_subprocess_releases_its_permit_at_the_deadline() {
+        let gate = QueuedGate::with_limits(
+            MediaPermits::new(1),
+            4,
+            // Short enough that the assertion below fails fast if the permit is never returned.
+            Duration::from_millis(200),
+        );
+
+        let result = WedgedProcessor::create_variant(
+            &file_details(),
+            &FileVariant::Small,
+            PathBuf::from("/tmp"),
+            &gate,
+            MediaSubprocess::new(Duration::from_millis(100)),
+        )
+        .await;
+
+        assert!(
+            matches!(result, Err(MediaProcessorError::Timeout { .. })),
+            "the deadline must surface as a timeout, got {result:?}"
+        );
+        assert!(
+            gate.acquire().await.is_ok(),
+            "killing the child must return its permit to the pool"
         );
     }
 }

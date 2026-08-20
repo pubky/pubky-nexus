@@ -7,7 +7,7 @@ use axum::body::Body;
 use axum::http::Request;
 use nexus_common::media::MediaPermits;
 use nexus_common::models::{file::FileDetails, traits::Collection};
-use nexus_common::utils::test_utils::default_ingestor_tests;
+use nexus_common::utils::test_utils::{default_ingestor_tests, default_subprocess_tests};
 use nexus_common::RateLimitConfig;
 use nexus_webapi::routes::{app_routes, build_app, AppState};
 use tempfile::TempDir;
@@ -136,6 +136,7 @@ async fn test_static_serving_at_capacity_returns_503() -> Result<()> {
         files_dir.path().to_path_buf(),
         default_ingestor_tests(),
         MediaPermits::new(0),
+        default_subprocess_tests(),
     );
     let (_tx, rx) = watch::channel(false);
     let routes = app_routes(state.clone(), &RateLimitConfig::default(), rx);

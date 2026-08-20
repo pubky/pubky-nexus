@@ -84,7 +84,7 @@ impl From<ModelError> for Error {
                 message: format!("Homeserver is blacklisted: {hs_id}"),
             },
             // Load shed: the client-facing message stays generic, the cause is logged server-side.
-            other if other.is_at_capacity() => {
+            other if other.is_media_shed() => {
                 Error::service_unavailable("service temporarily unavailable")
             }
             other => Error::InternalServerError {
@@ -182,5 +182,52 @@ impl IntoResponse for Error {
         let body = ErrorResponsePayload::new(self.to_string());
 
         (status_code, axum::Json(body)).into_response()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use axum::http::StatusCode;
+    use std::time::Duration;
+
+    use axum::response::IntoResponse;
+    use nexus_common::media::processors::MediaProcessorError;
+    use nexus_common::models::error::ModelError;
+
+    use super::Error;
+
+    // A killed subprocess means "no variant right now", the same answer as a full gate, so it
+    // must degrade rather than surface as a server fault.
+    #[test]
+    fn test_media_shed_errors_map_to_503() {
+        let shed = [
+            MediaProcessorError::AtCapacity,
+            MediaProcessorError::Timeout {
+                command: String::from("convert"),
+                deadline: Duration::from_secs(180),
+            },
+        ];
+
+        for source in shed {
+            let error = Error::from(ModelError::MediaProcessorError(source));
+            assert!(matches!(error, Error::ServiceUnavailable { .. }));
+            assert_eq!(
+                error.into_response().status(),
+                StatusCode::SERVICE_UNAVAILABLE
+            );
+        }
+    }
+
+    // A genuine processing failure is still a server fault, not a shed.
+    #[test]
+    fn test_command_failure_maps_to_500() {
+        let error = Error::from(ModelError::MediaProcessorError(
+            MediaProcessorError::command_failed("boom"),
+        ));
+
+        assert_eq!(
+            error.into_response().status(),
+            StatusCode::INTERNAL_SERVER_ERROR
+        );
     }
 }

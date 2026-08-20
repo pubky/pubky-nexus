@@ -120,3 +120,7 @@ slow_query_logging_threshold_ms = 100
 # Maximum number of concurrent media processing subprocesses (ImageMagick/ffmpeg).
 # Defaults to the number of available CPU cores (minimum 4). Must be greater than 0.
 #max_concurrency = 4
+# Wall-clock deadline (seconds) for a single ImageMagick/ffmpeg subprocess. Past it the process
+# group is killed and reaped so its concurrency slot is returned. Keep it above ImageMagick's own
+# time limit: it is a backstop for children that hang without burning CPU. Must be greater than 0.
+#process_timeout_secs = 180

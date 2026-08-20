@@ -77,8 +77,8 @@ pub async fn user_avatar_handler(
     .await
     {
         Ok(_) => FileVariant::Small,
-        Err(ref e) if e.is_at_capacity() => {
-            warn!("Media processing at capacity for user: {user_id} avatar with file: {file_id}, falling back to main");
+        Err(ref e) if e.is_media_shed() => {
+            warn!("Media processing unavailable ({e}) for user: {user_id} avatar with file: {file_id}, falling back to main");
             FileVariant::Main
         }
         Err(e) => return Err(e.into()),

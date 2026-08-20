@@ -8,7 +8,9 @@ use axum::http::request::Parts;
 use axum::http::{Request, StatusCode};
 use axum::Json as AxumJson;
 use axum::Router;
-use nexus_common::media::{FailFastGate, MediaPermits, QueuedGate, VariantController};
+use nexus_common::media::{
+    FailFastGate, MediaPermits, MediaSubprocess, QueuedGate, VariantController,
+};
 use nexus_common::models::user::UserIngestor;
 use nexus_common::RateLimitConfig;
 use tokio::sync::watch::Receiver;
@@ -94,12 +96,23 @@ impl AppState {
     /// Both controllers over one pool of permits, so they bound the same subprocesses.
     /// Build state through here rather than field-by-field: a second pool would let each
     /// gate run `max_concurrency` subprocesses of its own.
-    pub fn new(files_path: PathBuf, ingestor: Arc<UserIngestor>, permits: MediaPermits) -> Self {
+    pub fn new(
+        files_path: PathBuf,
+        ingestor: Arc<UserIngestor>,
+        permits: MediaPermits,
+        subprocess: MediaSubprocess,
+    ) -> Self {
         Self {
             files_path: Arc::new(files_path),
             ingestor,
-            queued_variant_controller: VariantController::new(QueuedGate::new(permits.clone())),
-            fail_fast_variant_controller: VariantController::new(FailFastGate::new(permits)),
+            queued_variant_controller: VariantController::new(
+                QueuedGate::new(permits.clone()),
+                subprocess,
+            ),
+            fail_fast_variant_controller: VariantController::new(
+                FailFastGate::new(permits),
+                subprocess,
+            ),
         }
     }
 }
@@ -109,6 +122,9 @@ pub fn routes(ctx: &ApiContext, shutdown_rx: Receiver<bool>) -> Router {
         ctx.api_config.stack.files_path.clone(),
         ctx.ingestor.clone(),
         MediaPermits::new(ctx.api_config.stack.media.max_concurrency),
+        MediaSubprocess::new(Duration::from_secs(
+            ctx.api_config.stack.media.process_timeout_secs,
+        )),
     );
 
     let app_routes = app_routes(state.clone(), &ctx.api_config.rate_limit, shutdown_rx);
