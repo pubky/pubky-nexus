@@ -37,6 +37,8 @@ pub enum MediaProcessorError {
     AtCapacity,
     #[error("Timeout: {command} exceeded {deadline:?}")]
     Timeout { command: String, deadline: Duration },
+    #[error("SkippedAfterTimeout: converting {file} was killed recently; not retrying yet")]
+    SkippedAfterTimeout { file: String },
 }
 
 impl MediaProcessorError {
@@ -49,7 +51,10 @@ impl MediaProcessorError {
     /// Whether this means "no variant right now" rather than "this file is broken", so the caller
     /// degrades (serves `main`, answers 503) instead of reporting a server fault.
     pub fn is_load_shed(&self) -> bool {
-        matches!(self, Self::AtCapacity | Self::Timeout { .. })
+        matches!(
+            self,
+            Self::AtCapacity | Self::Timeout { .. } | Self::SkippedAfterTimeout { .. }
+        )
     }
 }
 
@@ -57,46 +62,69 @@ impl MediaProcessorError {
 /// deadline, so a temp file belonging to a run still in flight is never touched.
 const TEMP_FILE_MAX_AGE: Duration = Duration::from_secs(60 * 60);
 
-/// A path only this run writes to, so a failure cleans up after itself without touching a variant
-/// another request may have just finished.
-fn temp_variant_path(output_path: &str) -> String {
+/// Conversions write here rather than beside the variants, so the strays left by a process that
+/// died mid-conversion are one directory to list instead of a walk over every file on disk. Inside
+/// `files_path` on purpose: `rename` is atomic within a filesystem, and nesting it here makes that
+/// structural rather than a deployment assumption. No request can address it -- the owner segment
+/// of a served path is always a `PubkyId`.
+const TEMP_DIR_NAME: &str = ".tmp";
+
+/// How long a killed conversion is remembered. Far above any deadline, so a hostile file costs one
+/// conversion per hour rather than one per request, while a file that timed out because the box was
+/// loaded is retried within the hour.
+const TIMEDOUT_MARKER_TTL: Duration = Duration::from_secs(60 * 60);
+
+/// Records that converting this file was killed, so the next request sheds instead of spending
+/// another full deadline learning the same thing. Per file rather than per variant: every variant
+/// decodes the same source, which is where a hostile file burns the time, so `small` timing out
+/// tells us what `feed` would find. It lives beside the variants, not in the temp directory: it is
+/// state tied to the file, and deleting the file takes it along. Named so it cannot collide with a
+/// variant, which is always one of `FileVariant`.
+const TIMEDOUT_MARKER_NAME: &str = ".timedout";
+
+/// Whether a killed conversion is still recent enough to skip retrying. Clears the marker once it
+/// expires -- this is the only place that stats it, so reclaiming it here costs nothing.
+async fn timed_out_recently(marker_path: &Path) -> bool {
+    let Ok(metadata) = fs::metadata(marker_path).await else {
+        return false;
+    };
+
+    let recent = metadata
+        .modified()
+        .ok()
+        .and_then(|modified| modified.elapsed().ok())
+        .is_some_and(|age| age < TIMEDOUT_MARKER_TTL);
+
+    if !recent {
+        let _ = fs::remove_file(marker_path).await;
+    }
+    recent
+}
+
+/// A name only this run writes to, so a failure cleans up after itself without touching a variant
+/// another request may have just finished. It carries the file it belongs to so an orphan in the
+/// temp directory can be traced back.
+fn temp_variant_name(file: &FileDetails, variant: &FileVariant) -> String {
     let nanos = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap_or_default()
         .as_nanos();
-    format!("{output_path}.{}.{nanos}", std::process::id())
-}
-
-/// Whether `name` is a temp file for `variant`, i.e. `<variant>.<pid>.<nanos>`.
-fn is_temp_variant_of(name: &str, variant: &str) -> bool {
-    let Some(suffix) = name.strip_prefix(&format!("{variant}.")) else {
-        return false;
-    };
-    let mut parts = suffix.split('.');
-    let (Some(pid), Some(nanos), None) = (parts.next(), parts.next(), parts.next()) else {
-        return false;
-    };
-    !pid.is_empty()
-        && !nanos.is_empty()
-        && pid.bytes().all(|b| b.is_ascii_digit())
-        && nanos.bytes().all(|b| b.is_ascii_digit())
+    format!(
+        "{}.{}.{variant}.{}.{nanos}",
+        file.owner_id,
+        file.id,
+        std::process::id()
+    )
 }
 
 /// Drops temp files left behind by a run that never got to clean up, e.g. one killed with the whole
-/// process. They are never served -- the variant check stats the exact path -- but they are disk
-/// that never comes back.
-async fn sweep_stale_temp_files(dir: &Path, variant: &str) {
-    let Ok(mut entries) = fs::read_dir(dir).await else {
+/// process. Everything in the temp directory is one of ours, so age is the only question.
+async fn sweep_stale_temp_files(temp_dir: &Path) {
+    let Ok(mut entries) = fs::read_dir(temp_dir).await else {
         return;
     };
 
     while let Ok(Some(entry)) = entries.next_entry().await {
-        let name = entry.file_name();
-        let Some(name) = name.to_str() else { continue };
-        if !is_temp_variant_of(name, variant) {
-            continue;
-        }
-
         let aged = match entry.metadata().await.and_then(|m| m.modified()) {
             Ok(modified) => modified.elapsed().is_ok_and(|age| age > TEMP_FILE_MAX_AGE),
             Err(_) => false,
@@ -171,17 +199,42 @@ pub trait VariantProcessor {
             ));
         };
 
-        // Held only around the subprocess, not the path/option work above. The permit moves
-        // into the task so it is released when the child exits, not when the caller's future
-        // is dropped: a cancelled request must not hand its permit on while its child runs.
-        // TODO: run as a periodic job instead, so conversions stop paying a read_dir each time.
-        sweep_stale_temp_files(&origin_path, &variant.to_string()).await;
+        // A killed conversion will be killed again, so shed here rather than spend another full
+        // deadline on it. Checked before the permit: a retry we already know the answer to must not
+        // occupy a slot other files could use.
+        let marker_path = origin_path.join(TIMEDOUT_MARKER_NAME);
+        if timed_out_recently(&marker_path).await {
+            tracing::debug!(
+                "Skipping {variant} for file {}: converting it was killed within the last hour",
+                file.id
+            );
+            return Err(MediaProcessorError::SkippedAfterTimeout {
+                file: file.id.clone(),
+            });
+        }
 
         // The converter writes here, never to the variant path: an existing variant file *is* the
         // "already made" check, so a killed or crashed child writing there directly would publish
         // its wreckage. Only the rename below makes a variant visible, and only when complete.
-        let temp_path = temp_variant_path(output_path);
+        let temp_dir = file_path.join(TEMP_DIR_NAME);
+        fs::create_dir_all(&temp_dir)
+            .await
+            .map_err(MediaProcessorError::command_failed)?;
 
+        // TODO: run as a periodic job instead, so conversions stop paying a read_dir each time.
+        sweep_stale_temp_files(&temp_dir).await;
+
+        let temp_file = temp_dir.join(temp_variant_name(file, variant));
+        let Some(temp_path) = temp_file.to_str() else {
+            return Err(MediaProcessorError::InvalidFilePath(
+                "Temp file".to_string(),
+            ));
+        };
+        let temp_path = temp_path.to_string();
+
+        // Held only around the subprocess, not the path/option work above. The permit moves
+        // into the task so it is released when the child exits, not when the caller's future
+        // is dropped: a cancelled request must not hand its permit on while its child runs.
         let permit = gate.acquire().await?;
         let content_type = options.content_type();
         let origin_file_path = origin_file_path.to_string();
@@ -205,6 +258,8 @@ pub trait VariantProcessor {
                 // A killed child means a tool-level limit was escaped, so it is worth its own line:
                 // the shed answer the caller returns names neither the file nor the command.
                 tracing::warn!("Media subprocess killed for file {}: {error}", file.id);
+                // Remembered so the next request sheds instead of repeating the same deadline.
+                let _ = fs::write(&marker_path, b"").await;
             }
             return Err(error);
         }
@@ -223,7 +278,8 @@ pub trait VariantProcessor {
             )));
         }
 
-        // Atomic within the directory: a reader sees the finished variant or no variant at all.
+        // Atomic: both paths are under `files_path`, so this is a same-filesystem rename and a
+        // reader sees the finished variant or no variant at all.
         fs::rename(&temp_path, &output_path)
             .await
             .map_err(MediaProcessorError::command_failed)?;
@@ -246,8 +302,9 @@ mod tests {
     use crate::models::file::{FileDetails, FileUrls};
 
     use super::{
-        is_temp_variant_of, sweep_stale_temp_files, BaseProcessingOptions, MediaProcessorError,
-        VariantProcessor, TEMP_FILE_MAX_AGE,
+        sweep_stale_temp_files, timed_out_recently, BaseProcessingOptions, MediaProcessorError,
+        VariantProcessor, TEMP_DIR_NAME, TEMP_FILE_MAX_AGE, TIMEDOUT_MARKER_NAME,
+        TIMEDOUT_MARKER_TTL,
     };
 
     static FINISHED: AtomicBool = AtomicBool::new(false);
@@ -423,14 +480,15 @@ mod tests {
             !output.exists(),
             "a failed conversion must not leave a variant behind"
         );
-        assert!(
-            variant_dir_entries(&variant_dir).await.is_empty(),
-            "the temp file must be cleaned up too"
+        assert_eq!(
+            dir_entries(&variant_dir).await,
+            vec![TIMEDOUT_MARKER_NAME.to_string()],
+            "only the marker remains: no variant, no temp file"
         );
     }
 
-    /// Every file sitting in a variant directory, by name.
-    async fn variant_dir_entries(dir: &Path) -> Vec<String> {
+    /// Every file sitting in a directory, by name.
+    async fn dir_entries(dir: &Path) -> Vec<String> {
         let mut entries = tokio::fs::read_dir(dir).await.expect("variant dir");
         let mut names = Vec::new();
         while let Some(entry) = entries.next_entry().await.expect("dir entry") {
@@ -438,6 +496,15 @@ mod tests {
         }
         names.sort();
         names
+    }
+
+    /// Every file in the shared temp directory, by name.
+    async fn temp_dir_entries(root: &Path) -> Vec<String> {
+        let dir = root.join(TEMP_DIR_NAME);
+        if !dir.exists() {
+            return Vec::new();
+        }
+        dir_entries(&dir).await
     }
 
     /// Creates the variant directory a processor writes into, and returns it.
@@ -451,6 +518,8 @@ mod tests {
     struct ReportingProcessor;
 
     static OBSERVED: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+    /// Directory the stand-in inspects mid-conversion.
+    static WATCHED: std::sync::Mutex<Option<PathBuf>> = std::sync::Mutex::new(None);
 
     #[async_trait::async_trait]
     impl VariantProcessor for ReportingProcessor {
@@ -481,13 +550,12 @@ mod tests {
                 .await
                 .expect("stand-in must write its output");
 
-            // What a concurrent reader would see while the conversion is still running.
-            let dir = Path::new(output_file_path)
-                .parent()
-                .expect("variant dir")
-                .to_path_buf();
-            let visible = variant_dir_entries(&dir).await;
-            OBSERVED.lock().expect("observed").extend(visible);
+            // What a concurrent reader would see in the variant directory while this runs.
+            let watched = WATCHED.lock().expect("watched").clone();
+            if let Some(dir) = watched {
+                let visible = dir_entries(&dir).await;
+                OBSERVED.lock().expect("observed").extend(visible);
+            }
 
             Ok(String::from("image/webp"))
         }
@@ -502,6 +570,7 @@ mod tests {
         let dir = variant_dir(root.path(), &file).await;
         let variant = FileVariant::Small.to_string();
         OBSERVED.lock().expect("observed").clear();
+        *WATCHED.lock().expect("watched") = Some(dir.clone());
 
         let gate = QueuedGate::with_limits(MediaPermits::new(1), 4, Duration::from_millis(200));
         ReportingProcessor::create_variant(
@@ -516,16 +585,16 @@ mod tests {
 
         let during = OBSERVED.lock().expect("observed").clone();
         assert!(
-            !during.contains(&variant),
-            "the variant path was visible mid-conversion: {during:?}"
-        );
-        assert!(
-            during.iter().any(|name| is_temp_variant_of(name, &variant)),
-            "the conversion should write to a temp path: {during:?}"
+            during.is_empty(),
+            "nothing may be visible beside the variants mid-conversion: {during:?}"
         );
 
         // Only the rename publishes it, and it leaves nothing else behind.
-        assert_eq!(variant_dir_entries(&dir).await, vec![variant]);
+        assert_eq!(dir_entries(&dir).await, vec![variant]);
+        assert!(
+            temp_dir_entries(root.path()).await.is_empty(),
+            "the temp file is consumed by the rename"
+        );
     }
 
     // A run that fails must not delete a variant another request just finished.
@@ -576,28 +645,181 @@ mod tests {
 
         assert!(result.is_err(), "an empty conversion is a failure");
         assert!(
-            variant_dir_entries(&dir).await.is_empty(),
+            dir_entries(&dir).await.is_empty(),
             "nothing may be published, not even the temp file"
         );
     }
 
-    #[test]
-    fn test_temp_variant_name_matching() {
-        let cases = [
-            ("small.1234.5678", true),
-            // The variant itself, and another variant's temp file.
-            ("small", false),
-            ("feed.1234.5678", false),
-            // Shapes that are not <variant>.<pid>.<nanos>.
-            ("small.1234", false),
-            ("small.1234.5678.9", false),
-            ("small.abc.5678", false),
-            ("small..5678", false),
-        ];
+    /// Records whether it ran, so a test can prove a shed never reached the converter.
+    struct RecordingProcessor;
 
-        for (name, expected) in cases {
-            assert_eq!(is_temp_variant_of(name, "small"), expected, "{name}");
+    #[async_trait::async_trait]
+    impl VariantProcessor for RecordingProcessor {
+        type ProcessingOptions = SlowOptions;
+
+        fn get_valid_variants_for_content_type(_content_type: &str) -> Vec<FileVariant> {
+            vec![FileVariant::Small]
         }
+
+        fn get_content_type_for_variant(_file: &FileDetails, _variant: &FileVariant) -> String {
+            String::from("image/webp")
+        }
+
+        fn get_options_for_variant(
+            _file: &FileDetails,
+            _variant: &FileVariant,
+        ) -> Result<SlowOptions, MediaProcessorError> {
+            Ok(SlowOptions)
+        }
+
+        async fn process(
+            _origin_file_path: &str,
+            output_file_path: &str,
+            _options: &SlowOptions,
+            _subprocess: MediaSubprocess,
+        ) -> Result<String, MediaProcessorError> {
+            tokio::fs::write(output_file_path, b"variant bytes")
+                .await
+                .expect("stand-in must write its output");
+            Ok(String::from("image/webp"))
+        }
+    }
+
+    /// The marker a killed conversion leaves for the file, whichever variant was being made.
+    fn marker_path(dir: &Path) -> PathBuf {
+        dir.join(TIMEDOUT_MARKER_NAME)
+    }
+
+    async fn create_small<P: VariantProcessor + Send + Sync + Sized + 'static>(
+        root: &Path,
+        file: &FileDetails,
+        gate: &dyn MediaGate,
+    ) -> Result<String, MediaProcessorError> {
+        P::create_variant(
+            file,
+            &FileVariant::Small,
+            root.to_path_buf(),
+            gate,
+            MediaSubprocess::new(Duration::from_secs(30)),
+        )
+        .await
+    }
+
+    // A conversion we already killed will be killed again, so it must not cost a second deadline --
+    // or a permit, which is what a hostile file would use to keep the gate full.
+    #[tokio_shared_rt::test(shared)]
+    async fn test_recent_timeout_sheds_without_converting() {
+        let root = tempfile::TempDir::new().expect("temp dir");
+        let file = file_details();
+        let dir = variant_dir(root.path(), &file).await;
+        tokio::fs::write(marker_path(&dir), b"")
+            .await
+            .expect("marker");
+
+        let gate = QueuedGate::with_limits(MediaPermits::new(1), 4, Duration::from_millis(200));
+        let result = create_small::<RecordingProcessor>(root.path(), &file, &gate).await;
+
+        assert!(
+            matches!(result, Err(MediaProcessorError::SkippedAfterTimeout { .. })),
+            "expected a shed, got {result:?}"
+        );
+        assert!(
+            !dir.join(FileVariant::Small.to_string()).exists()
+                && temp_dir_entries(root.path()).await.is_empty(),
+            "the converter must not run"
+        );
+        assert!(
+            gate.acquire().await.is_ok(),
+            "a shed must not consume a permit"
+        );
+    }
+
+    // Every variant decodes the same source, so one kill answers for all of them: `feed` must not
+    // spend its own deadline rediscovering what `small` already found.
+    #[tokio_shared_rt::test(shared)]
+    async fn test_a_kill_covers_every_variant_of_the_file() {
+        let root = tempfile::TempDir::new().expect("temp dir");
+        let file = file_details();
+        let dir = variant_dir(root.path(), &file).await;
+        let gate = QueuedGate::with_limits(MediaPermits::new(1), 4, Duration::from_millis(200));
+
+        // `small` is killed.
+        let killed = create_small::<HalfWrittenProcessor>(root.path(), &file, &gate).await;
+        assert!(matches!(killed, Err(MediaProcessorError::Timeout { .. })));
+        assert!(marker_path(&dir).exists());
+
+        // `feed` then sheds on that marker rather than converting.
+        let feed = RecordingProcessor::create_variant(
+            &file,
+            &FileVariant::Feed,
+            root.path().to_path_buf(),
+            &gate,
+            MediaSubprocess::new(Duration::from_secs(30)),
+        )
+        .await;
+
+        assert!(
+            matches!(feed, Err(MediaProcessorError::SkippedAfterTimeout { .. })),
+            "expected a shed, got {feed:?}"
+        );
+        assert!(
+            !dir.join(FileVariant::Feed.to_string()).exists(),
+            "the converter must not run"
+        );
+    }
+
+    // Past the TTL the file gets another chance, so a timeout caused by a loaded box heals.
+    #[tokio_shared_rt::test(shared)]
+    async fn test_expired_marker_lets_the_conversion_run() {
+        let root = tempfile::TempDir::new().expect("temp dir");
+        let file = file_details();
+        let dir = variant_dir(root.path(), &file).await;
+        let marker = marker_path(&dir);
+        tokio::fs::write(&marker, b"").await.expect("marker");
+        set_modified(
+            &marker,
+            SystemTime::now() - TIMEDOUT_MARKER_TTL - Duration::from_secs(60),
+        );
+
+        let gate = QueuedGate::with_limits(MediaPermits::new(1), 4, Duration::from_millis(200));
+        create_small::<RecordingProcessor>(root.path(), &file, &gate)
+            .await
+            .expect("an expired marker must not block the conversion");
+
+        assert!(
+            dir.join(FileVariant::Small.to_string()).exists(),
+            "the converter must run"
+        );
+        assert!(!marker.exists(), "the expiry check reclaims the marker");
+    }
+
+    // Only killed conversions are worth remembering: an ordinary failure is cheap to retry.
+    #[tokio_shared_rt::test(shared)]
+    async fn test_only_a_timeout_is_remembered() {
+        let root = tempfile::TempDir::new().expect("temp dir");
+        let file = file_details();
+        let dir = variant_dir(root.path(), &file).await;
+
+        let gate = QueuedGate::with_limits(MediaPermits::new(1), 4, Duration::from_millis(200));
+
+        // HalfWrittenProcessor fails with a timeout.
+        let timed_out = create_small::<HalfWrittenProcessor>(root.path(), &file, &gate).await;
+        assert!(timed_out.is_err());
+        assert!(
+            marker_path(&dir).exists(),
+            "a killed conversion must be remembered"
+        );
+        tokio::fs::remove_file(marker_path(&dir))
+            .await
+            .expect("clear for the next case");
+
+        // EmptyOutputProcessor fails without one.
+        let failed = create_small::<EmptyOutputProcessor>(root.path(), &file, &gate).await;
+        assert!(failed.is_err());
+        assert!(
+            !marker_path(&dir).exists(),
+            "an ordinary failure stays retryable"
+        );
     }
 
     // A temp file outlives its run only when the whole process dies, and nothing else will ever
@@ -605,31 +827,57 @@ mod tests {
     #[tokio_shared_rt::test(shared)]
     async fn test_sweep_removes_only_aged_temp_files() {
         let root = tempfile::TempDir::new().expect("temp dir");
-        let file = file_details();
-        let dir = variant_dir(root.path(), &file).await;
-        let variant = FileVariant::Small.to_string();
+        let temp_dir = root.path().join(TEMP_DIR_NAME);
+        tokio::fs::create_dir_all(&temp_dir)
+            .await
+            .expect("temp dir");
 
-        let orphan = dir.join(format!("{variant}.999.111"));
-        let in_flight = dir.join(format!("{variant}.888.222"));
-        let finished = dir.join(&variant);
-        for path in [&orphan, &in_flight, &finished] {
+        let orphan = temp_dir.join("owner.file.small.999.111");
+        let in_flight = temp_dir.join("owner.file.feed.888.222");
+        for path in [&orphan, &in_flight] {
             tokio::fs::write(path, b"x").await.expect("write");
         }
 
         // Only the orphan is older than the sweep's cutoff.
-        let aged = SystemTime::now() - TEMP_FILE_MAX_AGE - Duration::from_secs(60);
-        set_modified(&orphan, aged);
+        set_modified(
+            &orphan,
+            SystemTime::now() - TEMP_FILE_MAX_AGE - Duration::from_secs(60),
+        );
 
-        sweep_stale_temp_files(&dir, &variant).await;
+        sweep_stale_temp_files(&temp_dir).await;
 
         assert_eq!(
-            variant_dir_entries(&dir).await,
-            vec![variant.clone(), format!("{variant}.888.222")],
+            dir_entries(&temp_dir).await,
+            vec![String::from("owner.file.feed.888.222")],
             "the sweep must take the orphan and nothing else"
         );
     }
 
-    /// Backdates a file so the sweep sees it as abandoned.
+    // Nothing walks the variant directories any more, so the expiry check is what reclaims a
+    // marker -- it already stats it, so this costs nothing.
+    #[tokio_shared_rt::test(shared)]
+    async fn test_expired_marker_is_reclaimed_by_the_check() {
+        let root = tempfile::TempDir::new().expect("temp dir");
+        let file = file_details();
+        let dir = variant_dir(root.path(), &file).await;
+        let marker = marker_path(&dir);
+        tokio::fs::write(&marker, b"").await.expect("marker");
+
+        assert!(timed_out_recently(&marker).await, "a fresh marker sheds");
+        assert!(marker.exists(), "and survives the check");
+
+        set_modified(
+            &marker,
+            SystemTime::now() - TIMEDOUT_MARKER_TTL - Duration::from_secs(60),
+        );
+        assert!(
+            !timed_out_recently(&marker).await,
+            "an expired marker does not"
+        );
+        assert!(!marker.exists(), "and is reclaimed on the way out");
+    }
+
+    /// Backdates a file so it reads as abandoned.
     fn set_modified(path: &Path, when: SystemTime) {
         let file = std::fs::File::options()
             .write(true)
