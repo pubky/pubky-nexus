@@ -4,9 +4,9 @@ use anyhow::Result;
 use chrono::Utc;
 use nexus_common::db::{fetch_all_rows_from_graph, queries, RedisOps};
 use nexus_common::models::tag::user::TagUser;
-use nexus_common::models::user::UsersByTagSearch;
+use nexus_common::models::user::{UserDetails, UsersByTagSearch, USER_DELETED_SENTINEL};
 use pubky::Keypair;
-use pubky_app_specs::{PubkyAppTag, PubkyAppUser};
+use pubky_app_specs::{PubkyAppTag, PubkyAppUser, PubkyId};
 
 /// The backfill enumerates pairs from a graph snapshot but derives every
 /// score from the live taggers set, so a delete landing after the snapshot
@@ -272,6 +272,76 @@ async fn test_sync_index_score_derives_from_taggers_set() -> Result<()> {
         score.is_none(),
         "Member must be removed when the taggers set empties"
     );
+
+    Ok(())
+}
+
+/// Direct coverage of the removal guard: a `[DELETED]` details document
+/// forces removal regardless of the taggers set cardinality, and clearing it
+/// restores the derive.
+#[tokio_shared_rt::test(shared)]
+async fn test_sync_index_score_removal_guard() -> Result<()> {
+    // Setup only initializes the shared stack connectors
+    let _test = WatcherTest::setup(None).await?;
+
+    // A real key so the details fixture can carry a valid PubkyId
+    let user_id = Keypair::random().public_key().to_z32();
+    let pubky_id =
+        PubkyId::try_from(user_id.as_str()).expect("A random keypair id must parse as PubkyId");
+    let label = "guardcheck";
+    let taggers = ["guardchecktaggerone", "guardchecktaggertwo"];
+
+    TagUser::put_index_set(&[&user_id, label], &taggers, None, None).await?;
+
+    // Guard set: the sentinel wins over a non-empty taggers set
+    let tombstone = UserDetails::from_homeserver(
+        PubkyAppUser {
+            bio: None,
+            image: None,
+            links: None,
+            name: USER_DELETED_SENTINEL.to_string(),
+            status: None,
+        },
+        &pubky_id,
+    );
+    tombstone.put_index_json(&[&user_id], None, None).await?;
+    UsersByTagSearch::sync_index_score(&user_id, label).await?;
+    let score = check_member_user_tag_taggers(&user_id, label)
+        .await
+        .expect("Failed to check the users-by-tag score");
+    assert!(
+        score.is_none(),
+        "The sentinel must force removal even with a non-empty taggers set"
+    );
+
+    // Guard cleared: the derive restores the member from the set cardinality
+    let restored = UserDetails::from_homeserver(
+        PubkyAppUser {
+            bio: None,
+            image: None,
+            links: None,
+            name: "Watcher:GuardCheck:Restored".to_string(),
+            status: None,
+        },
+        &pubky_id,
+    );
+    restored.put_index_json(&[&user_id], None, None).await?;
+    UsersByTagSearch::sync_index_score(&user_id, label).await?;
+    let score = check_member_user_tag_taggers(&user_id, label)
+        .await
+        .expect("Failed to check the users-by-tag score");
+    assert_eq!(
+        score,
+        Some(2),
+        "Clearing the sentinel must restore the derived score"
+    );
+
+    // Cleanup the fixture keys
+    TagUser(taggers.iter().map(|t| t.to_string()).collect())
+        .remove_from_index_set(&[&user_id, label])
+        .await?;
+    UsersByTagSearch::sync_index_score(&user_id, label).await?;
+    UserDetails::remove_from_index_multiple_json(&[&[user_id.as_str()]]).await?;
 
     Ok(())
 }

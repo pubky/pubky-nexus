@@ -1,6 +1,6 @@
 use super::{UserDetails, USER_DELETED_SENTINEL};
 use crate::db::kv::{RedisResult, SortOrder};
-use crate::db::{fetch_all_rows_from_graph, get_neo4j_graph, queries, GraphError, RedisOps};
+use crate::db::{get_neo4j_graph, queries, GraphError, GraphResult, RedisOps};
 use crate::models::create_zero_score_tuples;
 use crate::models::error::ModelResult;
 use crate::models::tag::user::{TagUser, USER_TAGS_KEY_PARTS};
@@ -38,17 +38,22 @@ impl RedisOps for UsersByTagSearch {}
 
 impl UsersByTagSearch {
     /// Indexes user profile tags into per-label global sorted sets from a
-    /// graph snapshot. Only for full rebuilds over quiescent or empty Redis
-    /// (`db mock`, full reindex); live backfills go through
-    /// [`Self::backfill_from_graph`] instead, which cannot overwrite
-    /// concurrent watcher writes with snapshot state.
+    /// graph snapshot, streaming one label row at a time. Only for full
+    /// rebuilds over quiescent or empty Redis (`db mock`, full reindex); live
+    /// backfills go through the `UsersByTagsIndexBackfill` migration instead,
+    /// which derives every score from live state and cannot overwrite
+    /// concurrent watcher writes.
     ///
     /// # Errors
     /// Returns an error when the graph read or a Redis write fails.
     pub async fn reindex() -> ModelResult<()> {
-        let rows = fetch_all_rows_from_graph(queries::get::global_tags_by_user()).await?;
+        let graph = get_neo4j_graph()?;
+        let mut rows = graph
+            .execute(queries::get::global_tags_by_user())
+            .await
+            .map_err(GraphError::from)?;
 
-        for row in rows {
+        while let Some(row) = rows.try_next().await.map_err(GraphError::from)? {
             let label: &str = row.get("label").unwrap_or("");
             let sorted_set: Vec<(f64, &str)> = row.get("sorted_set").unwrap_or(Vec::new());
             if !label.is_empty() && !sorted_set.is_empty() {
@@ -96,7 +101,9 @@ impl UsersByTagSearch {
             }
             // Union across labels needs an aggregation over multiple sorted sets,
             // so it goes to the graph instead
-            _ => Self::get_from_graph(labels, pagination.skip, pagination.limit).await,
+            _ => Self::get_from_graph(labels, pagination.skip, pagination.limit)
+                .await
+                .map_err(Into::into),
         }
     }
 
@@ -104,7 +111,7 @@ impl UsersByTagSearch {
         labels: &[String],
         skip: Option<usize>,
         limit: Option<usize>,
-    ) -> ModelResult<Vec<UsersByTagSearch>> {
+    ) -> GraphResult<Vec<UsersByTagSearch>> {
         let graph = get_neo4j_graph()?;
         let query = queries::get::search_users_by_tags(labels, skip, limit);
 
@@ -112,7 +119,7 @@ impl UsersByTagSearch {
         // only submits the query and the heavy work (ORDER BY materializes at
         // the first pull) happens while streaming, so a timeout on execute
         // alone lets a slow query run until the HTTP layer's 408.
-        let users = timeout(Duration::from_secs(10), async {
+        timeout(Duration::from_secs(10), async {
             let mut result = graph.execute(query).await?;
 
             let mut users = Vec::new();
@@ -124,12 +131,10 @@ impl UsersByTagSearch {
                     score: score as usize,
                 });
             }
-            Ok::<_, GraphError>(users)
+            Ok(users)
         })
         .await
-        .map_err(|_| GraphError::QueryTimeout)??;
-
-        Ok(users)
+        .map_err(|_| GraphError::QueryTimeout)?
     }
 
     /// Syncs the per-label score for a user from the taggers set the tag
