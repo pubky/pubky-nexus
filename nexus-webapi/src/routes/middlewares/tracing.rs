@@ -18,12 +18,8 @@ use tracing::Instrument;
 
 const METER_NAME: &str = "nexus";
 
-/// HTTP request instruments. No-ops until an `SdkMeterProvider` is installed.
-///
-/// `requests` duplicates the histogram's count (same attributes, same call
-/// site) but is kept for cheaper PromQL. `errors` is the availability SLI
-/// (see [`is_failed_request`]). `duration` runs until the handler returns a
-/// `Response` — headers ready, not end-of-body.
+/// Request total, availability failures, and time until response headers are ready.
+/// Instruments are no-ops until an `SdkMeterProvider` is installed.
 struct HttpMetrics {
     requests: Counter<u64>,
     errors: Counter<u64>,
@@ -139,10 +135,7 @@ pub async fn tracing_middleware(request: Request, next: Next) -> Response {
         otel.status_message = tracing::field::Empty,
     );
     if method == "_OTHER" {
-        span.record(
-            "http.request.method_original",
-            request.method().to_string(),
-        );
+        span.record("http.request.method_original", request.method().to_string());
     }
 
     let started = Instant::now();

@@ -33,6 +33,8 @@ struct GraphMetrics {
     execute_duration: Histogram<f64>,
     /// Number of rows returned by a query.
     rows: Histogram<u64>,
+    /// Query completions (stream drop, execute failure, or run); error-rate denominator.
+    requests: Counter<u64>,
     /// Incremented on every failed `execute()` or `run()` call.
     errors: Counter<u64>,
     /// Incremented when a query's total duration exceeds the slow-query threshold.
@@ -72,6 +74,10 @@ impl GraphMetrics {
                 .u64_histogram("neo4j.query.rows")
                 .with_description("Number of rows returned per Neo4j query")
                 .with_unit("{row}")
+                .build(),
+            requests: meter
+                .u64_counter("neo4j.query.requests")
+                .with_description("Total Neo4j query executions, by query label")
                 .build(),
             errors: meter
                 .u64_counter("neo4j.query.errors")
@@ -155,6 +161,7 @@ impl Drop for InstrumentedStream {
         let attrs: &[KeyValue] = &query_attrs(self.label);
 
         // Always record metrics (no-op when OTLP is not configured).
+        self.metrics.requests.add(1, attrs);
         self.metrics.duration.record(ms(total), attrs);
         self.metrics
             .execute_duration
@@ -302,6 +309,7 @@ impl<G: GraphOps> GraphOps for InstrumentedGraph<G> {
             }
             Err(e) => {
                 let attrs: &[KeyValue] = &query_attrs(label);
+                self.metrics.requests.add(1, attrs);
                 self.metrics.duration.record(ms(execute_duration), attrs);
                 self.metrics
                     .execute_duration
@@ -339,6 +347,7 @@ impl<G: GraphOps> GraphOps for InstrumentedGraph<G> {
         let elapsed = start.elapsed();
 
         let attrs: &[KeyValue] = &query_attrs(label);
+        self.metrics.requests.add(1, attrs);
         self.metrics.duration.record(ms(elapsed), attrs);
         self.metrics.execute_duration.record(ms(elapsed), attrs);
 
