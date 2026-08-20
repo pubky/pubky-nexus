@@ -1,10 +1,27 @@
 use std::process::{Output, Stdio};
+use std::sync::LazyLock;
 use std::time::Duration;
 
+use opentelemetry::metrics::Counter;
+use opentelemetry::{global, KeyValue};
 use tokio::io::AsyncReadExt;
 use tokio::process::{Child, Command};
 
 use super::processors::MediaProcessorError;
+use super::METER_NAME;
+
+/// Counter for media subprocesses killed for outrunning their deadline, by command.
+///
+/// Every increment is a conversion that produced nothing and a permit held for the full deadline.
+/// A sustained non-zero rate means files are reaching the deadline rather than the converter's own
+/// limits: either the deadline is too tight for what is being uploaded, or someone is feeding the
+/// endpoint files built to burn it.
+static TIMED_OUT: LazyLock<Counter<u64>> = LazyLock::new(|| {
+    global::meter(METER_NAME)
+        .u64_counter("media.subprocess.timeout")
+        .with_description("Media subprocesses killed for exceeding the conversion deadline")
+        .build()
+});
 
 /// Wall-clock deadline for a single media subprocess.
 ///
@@ -70,12 +87,18 @@ impl MediaSubprocess {
             }),
             Err(_elapsed) => {
                 kill_and_reap(&mut child).await;
+
+                // The program name alone, never the arguments: those carry the input and output
+                // paths, which would make the attribute unbounded and put file paths in metrics.
+                let program = command
+                    .as_std()
+                    .get_program()
+                    .to_string_lossy()
+                    .into_owned();
+                TIMED_OUT.add(1, &[KeyValue::new("command", program.clone())]);
+
                 Err(MediaProcessorError::Timeout {
-                    command: command
-                        .as_std()
-                        .get_program()
-                        .to_string_lossy()
-                        .into_owned(),
+                    command: program,
                     deadline: self.deadline,
                 })
             }

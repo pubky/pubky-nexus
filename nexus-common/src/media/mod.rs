@@ -17,6 +17,9 @@ mod concurrency;
 pub mod processors;
 mod subprocess;
 
+/// Meter for everything under `media`, so its metrics group together wherever the crate is used.
+pub(crate) const METER_NAME: &str = "nexus.media";
+
 pub use concurrency::{FailFastGate, MediaGate, MediaPermits, QueuedGate};
 use processors::MediaProcessorError;
 pub use subprocess::MediaSubprocess;
