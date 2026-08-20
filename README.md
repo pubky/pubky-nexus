@@ -91,12 +91,29 @@ cargo run -p nexusd -- api
 
 ## 📈 Observability
 
-If you want to enable observability in Nexus, you can connect it to an OpenTelemetry exporter. Follow these steps:
+Nexus exports telemetry over OTLP. For local development, use either the bundled observability stack or a separately installed SigNoz instance.
 
-1. Install Signoz locally – Follow the Signoz installation [guide](https://signoz.io/docs/install)
-2. Configure the connection – In _config.toml_, set the `endpoint` under `[stack.otlp]` to point Nexus to the Signoz endpoint
-3. Run Nexus – Start nexusd using the configured settings
-4. Access the Signoz dashboard – Open http://localhost:3301 in your browser (allow some time for data to populate).
+Configure the OTLP endpoint in _config.toml_:
+
+```toml
+[stack.otlp]
+name = "nexusd"
+endpoint = "http://localhost:4317"
+```
+
+OTLP export is disabled when `endpoint` is omitted. When configured, Nexus exports logs, traces, and metrics using `name` as the OpenTelemetry `service.name`.
+
+### Local observability stack
+
+The bundled stack runs independently of the database services and combines the OpenTelemetry Collector with Grafana, Tempo, Prometheus, and Loki.
+
+```bash
+docker compose -f docker/docker-compose.observability.yml up -d
+```
+
+### SigNoz
+
+SigNoz remains supported as an alternative OpenTelemetry backend. Follow the [SigNoz installation guide](https://signoz.io/docs/install), then replace the local endpoint above with the SigNoz OTLP endpoint. Its local dashboard is available at [http://localhost:3301](http://localhost:3301).
 
 ## 📦 Data Migrations
 

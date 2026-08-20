@@ -1,6 +1,6 @@
 use crate::db::exec_single_row;
 use crate::db::fetch_key_from_graph;
-use crate::db::kv::RedisError;
+use crate::db::kv::ensure_cursor_not_backwards;
 use crate::db::kv::RedisResult;
 use crate::db::queries;
 use crate::db::GraphResult;
@@ -8,7 +8,7 @@ use crate::db::RedisOps;
 use crate::models::error::ModelError;
 use crate::models::error::ModelResult;
 use pubky_app_specs::PubkyId;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use tracing::{info, warn};
 
 /// A set of homeserver public keys forbidden from indexing and ingestion.
@@ -41,7 +41,25 @@ pub struct Homeserver {
     // loss; `persist_if_unknown` only re-seeds cursor=0 when the
     // Homeserver key is missing from Redis entirely (e.g. wiped volume),
     // never on a routine crash.
-    pub cursor: String,
+    #[serde(deserialize_with = "deserialize_cursor")]
+    pub cursor: u64,
+}
+
+fn deserialize_cursor<'de, D>(deserializer: D) -> Result<u64, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Cursor {
+        Number(u64),
+        String(String),
+    }
+
+    match Cursor::deserialize(deserializer)? {
+        Cursor::Number(cursor) => Ok(cursor),
+        Cursor::String(cursor) => cursor.parse().map_err(serde::de::Error::custom),
+    }
 }
 
 impl RedisOps for Homeserver {}
@@ -49,20 +67,22 @@ impl RedisOps for Homeserver {}
 impl Homeserver {
     /// Instantiates a new homeserver with default cursor
     pub fn new(id: PubkyId) -> Self {
-        Homeserver {
-            id,
-            cursor: "0000000000000".to_string(),
-        }
+        Homeserver { id, cursor: 0 }
     }
 
-    /// Creates a new homeserver instance with the specified cursor
-    pub fn try_from_cursor<T: Into<String>>(id: PubkyId, cursor: T) -> ModelResult<Self> {
+    /// Creates a new homeserver instance with the specified cursor.
+    ///
+    /// Includes a validation call to [Self::validate_cursor_change],
+    /// so that callers can detect invalid cursors early.
+    pub async fn try_from_cursor<T: Into<String>>(id: PubkyId, cursor: T) -> ModelResult<Self> {
         let cursor = cursor.into();
-        if cursor.is_empty() {
-            return Err(ModelError::from_generic(
-                "Cannot create a homeserver from an empty cursor",
-            ));
-        }
+        let cursor = cursor.parse().map_err(|_| {
+            ModelError::from_generic(format!(
+                "Cannot create a homeserver from a non-numeric cursor: {cursor}"
+            ))
+        })?;
+
+        Self::validate_cursor_change(&id, cursor).await?;
 
         Ok(Homeserver { id, cursor })
     }
@@ -92,12 +112,17 @@ impl Homeserver {
 
     /// Stores this homeserver in Redis.
     pub async fn put_to_index(&self) -> RedisResult<()> {
-        if self.cursor.is_empty() {
-            return Err(RedisError::InvalidInput(
-                "Cannot save to index a homeserver with an empty cursor".into(),
-            ));
-        }
+        Self::validate_cursor_change(&self.id, self.cursor).await?;
         self.put_index_json(&[&self.id], None, None).await
+    }
+
+    async fn validate_cursor_change(id: &PubkyId, new_cursor: u64) -> RedisResult<()> {
+        // Read-then-write is non-atomic but race-free: a given HS is only ever written by one processor run at a time.
+        if let Some(existing) = Self::get_from_index(id).await? {
+            ensure_cursor_not_backwards(new_cursor, existing.cursor)?;
+        }
+
+        Ok(())
     }
 
     pub async fn get_by_id(homeserver_id: PubkyId) -> ModelResult<Option<Homeserver>> {
@@ -172,9 +197,32 @@ mod tests {
     use pubky::Keypair;
     use pubky_app_specs::PubkyId;
 
+    use crate::db::kv::RedisError;
     use crate::{types::DynError, StackConfig, StackManager};
 
     use super::*;
+
+    #[test]
+    fn test_deserialize_cursor_from_string() {
+        let id = PubkyId::from(Keypair::random().public_key());
+        for (cursor, expected) in [("\"0000000000000\"", 0), ("\"42\"", 42)] {
+            let json = format!(r#"{{"id":"{id}","cursor":{cursor}}}"#);
+            let homeserver: Homeserver = serde_json::from_str(&json).unwrap();
+
+            assert_eq!(homeserver.cursor, expected);
+        }
+    }
+
+    #[test]
+    fn test_deserialize_cursor_from_number() {
+        let id = PubkyId::from(Keypair::random().public_key());
+        for (cursor, expected) in [("0", 0), ("1234567890123", 1_234_567_890_123)] {
+            let json = format!(r#"{{"id":"{id}","cursor":{cursor}}}"#);
+            let homeserver: Homeserver = serde_json::from_str(&json).unwrap();
+
+            assert_eq!(homeserver.cursor, expected);
+        }
+    }
 
     #[tokio_shared_rt::test(shared)]
     async fn test_put_to_get_from_graph() -> Result<(), DynError> {
@@ -223,6 +271,101 @@ mod tests {
     }
 
     #[tokio_shared_rt::test(shared)]
+    async fn test_cursor_forwards_accepted() -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+
+        let id = PubkyId::from(Keypair::random().public_key());
+        Homeserver::try_from_cursor(id.clone(), "100")
+            .await?
+            .put_to_index()
+            .await?;
+        Homeserver::try_from_cursor(id.clone(), "200")
+            .await?
+            .put_to_index()
+            .await?;
+
+        let homeserver = Homeserver::get_from_index(&id)
+            .await?
+            .expect("homeserver should be in the index");
+        assert_eq!(homeserver.cursor, 200);
+
+        Ok(())
+    }
+
+    #[tokio_shared_rt::test(shared)]
+    async fn test_cursor_backwards_rejected_by_put_to_index() -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+
+        let id = PubkyId::from(Keypair::random().public_key());
+        Homeserver::try_from_cursor(id.clone(), "500")
+            .await?
+            .put_to_index()
+            .await?;
+
+        let err = Homeserver {
+            id: id.clone(),
+            cursor: 100,
+        }
+        .put_to_index()
+        .await
+        .expect_err("backward cursor must be rejected");
+        assert!(matches!(err, RedisError::InvalidInput(_)));
+
+        let homeserver = Homeserver::get_from_index(&id)
+            .await?
+            .expect("homeserver should remain in the index");
+        assert_eq!(homeserver.cursor, 500);
+
+        Ok(())
+    }
+
+    #[tokio_shared_rt::test(shared)]
+    async fn test_cursor_backwards_rejected_by_try_from_cursor() -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+
+        let id = PubkyId::from(Keypair::random().public_key());
+        Homeserver::try_from_cursor(id.clone(), "300")
+            .await?
+            .put_to_index()
+            .await?;
+
+        let err = Homeserver::try_from_cursor(id.clone(), "50")
+            .await
+            .expect_err("backward cursor must be rejected");
+        assert!(matches!(
+            err,
+            ModelError::KvOperationFailed(RedisError::InvalidInput(_))
+        ));
+
+        let homeserver = Homeserver::try_from_cursor(id, "400").await?;
+        assert_eq!(homeserver.cursor, 400);
+
+        Ok(())
+    }
+
+    #[tokio_shared_rt::test(shared)]
+    async fn test_cursor_equal_value_accepted() -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+
+        let id = PubkyId::from(Keypair::random().public_key());
+        Homeserver::try_from_cursor(id.clone(), "200")
+            .await?
+            .put_to_index()
+            .await?;
+        Homeserver::try_from_cursor(id.clone(), "200")
+            .await?
+            .put_to_index()
+            .await?;
+
+        let homeserver = Homeserver::get_from_index(&id)
+            .await?
+            .expect("homeserver should be in the index");
+        assert_eq!(homeserver.cursor, 200);
+
+        Ok(())
+    }
+
+    #[tokio_shared_rt::test(shared)]
     async fn test_persist_if_unknown_first_time_install_writes_both() -> Result<(), DynError> {
         StackManager::setup(&StackConfig::default()).await?;
 
@@ -261,7 +404,7 @@ mod tests {
             .await?
             .expect("index should be re-seeded after persist_if_unknown");
         assert_eq!(from_index.id, id);
-        assert_eq!(from_index.cursor, "0000000000000");
+        assert_eq!(from_index.cursor, 0);
         Ok(())
     }
 
@@ -275,7 +418,8 @@ mod tests {
         // Seed both stores with a non-default cursor to prove the no-op
         // branch doesn't overwrite an existing index entry.
         Homeserver::new(id.clone()).put_to_graph().await?;
-        Homeserver::try_from_cursor(id.clone(), "1234567890123")?
+        Homeserver::try_from_cursor(id.clone(), "1234567890123")
+            .await?
             .put_to_index()
             .await?;
 
@@ -285,7 +429,7 @@ mod tests {
             .await?
             .expect("index entry should still be present");
         assert_eq!(
-            from_index.cursor, "1234567890123",
+            from_index.cursor, 1_234_567_890_123,
             "existing cursor must not be overwritten"
         );
         Ok(())

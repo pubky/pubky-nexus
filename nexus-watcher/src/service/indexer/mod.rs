@@ -3,17 +3,18 @@ mod key_based;
 
 pub use homeserver::HsEventProcessor;
 pub use key_based::{KeyBasedEventProcessor, KeyBasedEventSource, PubkyKeyBasedEventSource};
+
 use std::{fmt::Display, sync::Arc, time::Duration};
 
-use tracing::Instrument;
-
 use crate::errors::EventProcessorError;
-use crate::events::{Event, ParseResult};
-use tracing::{debug, error, warn};
-
 use crate::events::retry::RetryScheduler;
 use crate::events::EventHandler;
+use crate::events::{Event, ParseResult};
 use crate::service::PROCESSING_TIMEOUT_SECS;
+use tracing::{debug, error, trace, warn, Instrument};
+
+/// OpenTelemetry meter name shared by all watcher indexer metrics.
+pub(super) const METER_NAME: &str = "nexus.watcher";
 
 /// Possible error types of an event processor run
 #[derive(Debug)]
@@ -62,10 +63,8 @@ pub trait TEventProcessor: Send + Sync + 'static {
     /// This allows for flexible event handling implementations, including mocked versions for testing.
     fn event_handler(&self) -> &Arc<dyn EventHandler>;
 
-    /// Returns the instance name of the event processor, used in the monitoring and tracing spans.
-    ///
-    /// For instances mapped to a specific HS, this should include the HS ID.
-    fn instance_name(&self) -> String;
+    /// Returns a short service label for monitoring and tracing spans (e.g. `HsEventProcessor`).
+    fn instance_name(&self) -> &'static str;
 
     /// Returns the retry scheduler used by [`Self::handle_error`] to enqueue failed
     /// events for later retry.  Returns `None` when the processor bypasses
@@ -84,12 +83,20 @@ pub trait TEventProcessor: Send + Sync + 'static {
             .unwrap_or(Duration::from_secs(PROCESSING_TIMEOUT_SECS));
 
         let instance_name = self.instance_name();
-        let span = tracing::info_span!("event_processor.run", service = %instance_name);
+        let homeserver_id = self.homeserver_id().map(str::to_owned);
+        let homeserver = homeserver_id.as_deref().map(tracing::field::display);
+        let span = tracing::info_span!(
+            "event_processor.run",
+            service = %instance_name,
+            homeserver,
+        );
         let handle = tokio::spawn(self.run_internal().instrument(span));
 
         let join_result = tokio::time::timeout(timeout, handle)
             .await
-            .inspect_err(|_| error!("Event processor timed out for {instance_name}"))
+            .inspect_err(
+                |_| error!(service = %instance_name, homeserver, "Event processor timed out"),
+            )
             .map_err(|_| RunError::TimedOut)?;
 
         // The JoinError can be:
@@ -100,11 +107,25 @@ pub trait TEventProcessor: Send + Sync + 'static {
         // In our model, we don't trigger such interruptions. Instead we use the shutdown signal
         // to gracefully stop the event processing loop. Therefore we consider all JoinErrors as panics.
         let run_internal_result = join_result
-            .inspect_err(|je| error!("JoinError by event processor for {instance_name}: {je:?}"))
+            .inspect_err(|je| {
+                error!(
+                    service = %instance_name,
+                    homeserver,
+                    error = ?je,
+                    "Event processor JoinError"
+                )
+            })
             .map_err(|_| RunError::Panicked)?;
 
         run_internal_result
-            .inspect_err(|e| error!("Event processor failed for {instance_name}: {e:?}"))
+            .inspect_err(|e| {
+                error!(
+                    service = %instance_name,
+                    homeserver,
+                    error = ?e,
+                    "Event processor failed"
+                )
+            })
             .map_err(RunError::Internal)
     }
 
@@ -126,13 +147,13 @@ pub trait TEventProcessor: Send + Sync + 'static {
     async fn process_event_line(&self, line: &str) -> Result<(), EventProcessorError> {
         match Event::parse_event(line) {
             // Invalid event lines come from untrusted homeservers; treat as bad peer data, not Nexus errors.
-            Err(e) => warn!("{e}"),
+            Err(e) => warn!(error = %e, "Invalid event line"),
             Ok(ParseResult::Skipped) => {}
             Ok(ParseResult::UnrecognizedUri { reason, .. }) => {
-                warn!("Unrecognized event URI: {reason}");
+                warn!(%reason, "Unrecognized event URI");
             }
             Ok(ParseResult::Parsed(event)) => {
-                debug!("Processing event: {:?}", event);
+                trace!(?event, "Processing event");
                 self.handle_event(&event).await?;
             }
         }
@@ -154,14 +175,15 @@ pub trait TEventProcessor: Send + Sync + 'static {
         error: EventProcessorError,
     ) -> Result<(), EventProcessorError> {
         if error.should_not_retry_now() {
-            warn!("Got should-not-retry-now error, stopping batch: {error}");
+            warn!(error = %error, "Got should-not-retry-now error, stopping batch");
             return Err(error);
         }
 
         if !RetryScheduler::should_enqueue_related_event(&error) {
             debug!(
-                "Error not worth retrying, skipping event {}: {error}",
-                event.uri
+                event.uri = %event.uri,
+                error = %error,
+                "Error not worth retrying, skipping event"
             );
             return Ok(());
         }
@@ -172,8 +194,8 @@ pub trait TEventProcessor: Send + Sync + 'static {
 
         let Some(homeserver_id) = self.homeserver_id() else {
             warn!(
-                "Retryable error but no origin homeserver to persist; skipping retry for {}",
-                event.uri
+                event.uri = %event.uri,
+                "Retryable error but no origin homeserver to persist; skipping retry"
             );
             return Ok(());
         };
@@ -181,7 +203,7 @@ pub trait TEventProcessor: Send + Sync + 'static {
         if error.is_missing_dependency() {
             scheduler.queue_missing_dep(event, homeserver_id).await
         } else {
-            warn!("Transient error, queuing event for retry: {error}");
+            warn!(error = %error, "Transient error, queuing event for retry");
             scheduler.queue_transient(event, homeserver_id).await
         }
     }
@@ -206,7 +228,6 @@ pub trait TEventProcessor: Send + Sync + 'static {
             event.r#type = %event.event_type,
             event.user_id = %event.parsed_uri.user_id(),
             event.resource_id = event.parsed_uri.resource().id().unwrap_or_default(),
-            instance = %self.instance_name(),
             otel.status_code = tracing::field::Empty,
             otel.status_message = tracing::field::Empty,
         )

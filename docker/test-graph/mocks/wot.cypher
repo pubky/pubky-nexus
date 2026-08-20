@@ -110,6 +110,14 @@ MATCH (u:User {id: $d1}), (p:Post {id: "WOTPOSTTAGS01"}) MERGE (u)-[:TAGGED {lab
 MATCH (u:User {id: $d1b}), (p:Post {id: "WOTPOSTTAGS01"}) MERGE (u)-[:TAGGED {label: "wotreview", id: "WOTTAGREV0002", indexed_at: 1224534095900}]->(p);
 MATCH (u:User {id: $modbot}), (p:Post {id: "WOTPOSTTAGS01"}) MERGE (u)-[:TAGGED {label: "wotflag", id: "WOTTAGFLAG001", indexed_at: 1224534096000}]->(p);
 
+// Regression fixture for the O->D1->O follow cycle. O tags this deep reply
+// directly; returning to O through the cycle must not make O a trusted tagger.
+// Nested under WOTPOSTTAGS01 so it stays out of parent streams and engagement.
+MERGE (p:Post {id: "WOTPOSTCYCLE1"}) SET p.content = "follow-cycle tag fixture", p.kind = "short", p.indexed_at = 1650000000008;
+MATCH (u:User {id: $d2}), (p:Post {id: "WOTPOSTCYCLE1"}) MERGE (u)-[:AUTHORED]->(p);
+MATCH (parent:Post {id: "WOTPOSTTAGS01"}), (reply:Post {id: "WOTPOSTCYCLE1"}) MERGE (reply)-[:REPLIED]->(parent);
+MATCH (from:User {id: $o_obs}), (to:Post {id: "WOTPOSTCYCLE1"}) MERGE (from)-[:TAGGED {label: "cycle-only", id: "WOTTAGCYCLE02", indexed_at: 1224534096201}]->(to);
+
 // ##############################
 // ##### Domain user->user tags #
 // ##############################
@@ -126,12 +134,14 @@ MATCH (from:User {id: $d2}), (to:User {id: $btc4}) MERGE (from)-[:TAGGED {label:
 // empty, so only its own TAGGED edges count).
 MATCH (from:User {id: $spammer}), (to:User {id: $btc5}) MERGE (from)-[:TAGGED {label: $bitcoiner_tag, id: "WOTTAGBTC0006", indexed_at: 1224534095600}]->(to);
 MATCH (from:User {id: $spammer}), (to:User {id: $artist1}) MERGE (from)-[:TAGGED {label: $artist_tag, id: "WOTTAGART0001", indexed_at: 1224534095700}]->(to);
-// SPAMMER self-tags as bitcoiner: its own post must still be excluded from its
-// own depth-0 feed (self-exclusion applies to the "Me" trust set too).
+// SPAMMER self-tags as bitcoiner: its own post qualifies for its depth-0
+// Tagged-as feed.
 MATCH (from:User {id: $spammer}), (to:User {id: $spammer}) MERGE (from)-[:TAGGED {label: $bitcoiner_tag, id: "WOTTAGSELF002", indexed_at: 1224534096300}]->(to);
-// Self-endorsement: D1 (in O's WoT) tags the OBSERVER as bitcoiner. O's own posts
-// must still be excluded from O's wot_domain feed (self-exclusion, like `wot`).
+// D1 (in O's WoT) tags the OBSERVER as bitcoiner, so O's own posts qualify for
+// O's network Tagged-as feed.
 MATCH (from:User {id: $d1}), (to:User {id: $o_obs}) MERGE (from)-[:TAGGED {label: $bitcoiner_tag, id: "WOTTAGSELF001", indexed_at: 1224534096100}]->(to);
+// O's direct tag must not leak into network depth through the O->D1->O cycle.
+MATCH (from:User {id: $o_obs}), (to:User {id: $artist1}) MERGE (from)-[:TAGGED {label: $artist_tag, id: "WOTTAGCYCLE01", indexed_at: 1224534096200}]->(to);
 
 // ##################################
 // ##### WoT post-tag pagination ####

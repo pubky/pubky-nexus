@@ -36,10 +36,7 @@ pub struct PubkyConnectorResolver;
 impl PkdnsHomeserverResolver for PubkyConnectorResolver {
     async fn resolve_homeserver(&self, user_pk: &PublicKey) -> PubkyClientResult<Option<PubkyId>> {
         let pubky = PubkyConnector::get()?;
-        match pubky.get_homeserver_of(user_pk).await {
-            Some(hs_pk) => Ok(Some(PubkyId::from(hs_pk))),
-            None => Ok(None),
-        }
+        Ok(pubky.get_homeserver_of(user_pk).await?.map(PubkyId::from))
     }
 }
 
@@ -87,7 +84,7 @@ pub async fn run(
             // For the user_ids that fail to convert, we log an error message and skip them
             user_id
                 .parse::<PublicKey>()
-                .map_err(|e| error!("Failed to parse user_id {user_id}: {e}"))
+                .map_err(|e| error!(%user_id, error = %e, "Failed to parse user_id"))
                 .ok()
         })
         .collect();
@@ -99,7 +96,7 @@ pub async fn run(
     }
 
     let total = user_pks.len() as u64;
-    debug!("Resolving homeservers for {} users", total);
+    debug!(user_count = total, "Resolving homeservers");
 
     let mut failed = 0u64;
     let mut processed = 0u64;
@@ -121,7 +118,7 @@ pub async fn run(
         tokio::select! {
             biased;
             _ = shutdown_rx.changed() => {
-                info!("Shutdown detected; HS resolver stopping after {processed}/{total} users");
+                info!(processed, total, "Shutdown detected; HS resolver stopping");
                 break;
             }
             result = resolve_user(resolver, &user_pk) => {
@@ -205,25 +202,26 @@ async fn resolve_user(
     let maybe_stored_hs_id = get_user_homeserver(&user_id).await?;
 
     match (&maybe_stored_hs_id, &maybe_resolved_hs_id) {
-        (None, None) => warn!("User {user_id} has no published homeserver"),
+        (None, None) => warn!(%user_id, "User has no published homeserver"),
 
         (None, Some(resolved_hs_id)) => {
             set_user_homeserver(&user_id, resolved_hs_id).await?;
-            debug!("User {user_id} -> HS {resolved_hs_id}");
+            debug!(%user_id, homeserver = %resolved_hs_id, "HS mapping created");
         }
 
         // Already bound to a HS: toggle the stale flag instead of switching.
         (Some(stored_hs_id), Some(resolved_hs_id)) if resolved_hs_id.as_ref() == stored_hs_id => {
             set_user_homeserver_stale(&user_id, false).await?;
-            debug!("User {user_id} still hosted on {stored_hs_id}, mapping active");
+            debug!(%user_id, homeserver = %stored_hs_id, "HS mapping still active");
         }
 
         // HS switching is not fully implemented, so the bound HS is never changed once set
         (Some(stored_hs_id), _) => {
             set_user_homeserver_stale(&user_id, true).await?;
             warn!(
-                "User {user_id} homeserver changed or was removed (stored {stored_hs_id}); \
-                 switching unsupported, mapping marked stale and indexing paused"
+                %user_id,
+                stored_homeserver = %stored_hs_id,
+                "User homeserver changed or was removed; switching unsupported, mapping marked stale"
             );
         }
     }

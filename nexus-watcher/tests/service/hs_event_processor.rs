@@ -18,9 +18,29 @@ use crate::service::utils::{new_in_memory_store, setup};
 
 const TEST_HS_ID: &str = "1hb71xx9km3f4pw5izsy1gn19ff1uuuqonw4mcygzobwkryujoiy";
 
+/// Cursor line closing the batches of tests that are not about cursor handling.
+///
+/// Any value above the 0 that [`build_processor`] sits at works, and using a
+/// single shared one keeps it valid however many of these tests persist it for
+/// [`TEST_HS_ID`]: re-persisting the same cursor is not a rewind.
+const TEST_NEXT_CURSOR: &str = "cursor: 1";
+
 /// Returns a fresh random user id (z32 public key) that has no graph state yet.
 fn random_user_id() -> String {
     random_pk().to_z32()
+}
+
+/// Closes `event_lines` into a well-formed batch, the way a homeserver ends a
+/// non-empty response.
+///
+/// Tests that are not about cursor handling still need this: a batch carrying
+/// events but no cursor line is rejected as stalled, since nothing in it could
+/// move the checkpoint past the events it delivers.
+fn batch(event_lines: impl IntoIterator<Item = String>) -> Vec<String> {
+    event_lines
+        .into_iter()
+        .chain([TEST_NEXT_CURSOR.to_string()])
+        .collect()
 }
 
 /// Creates a `User` node and, when `hs_id` is `Some`, links it to that homeserver
@@ -73,6 +93,48 @@ fn build_processor(
     })
 }
 
+/// Assembles an [`HsEventProcessor`] sitting at `cursor` on a fresh random
+/// homeserver, with that same cursor seeded in Redis — mirroring a real
+/// processor, which is built by reading the stored cursor and then requesting
+/// events from exactly that position.
+///
+/// A random homeserver id keeps the stored cursor from leaking between tests.
+async fn build_processor_at_cursor(
+    cursor: u64,
+    store: Arc<dyn RetryStore>,
+    event_handler: Arc<dyn EventHandler>,
+    shutdown_rx: watch::Receiver<bool>,
+) -> Result<Arc<HsEventProcessor>> {
+    let hs_id = random_pubky_id();
+    let homeserver = Homeserver { id: hs_id, cursor };
+    homeserver.put_to_index().await?;
+
+    let retry_scheduler = Arc::new(RetryScheduler::new(
+        store,
+        InitialBackoff {
+            missing_dep_ms: 60_000,
+            transient_ms: 10_000,
+        },
+    ));
+
+    Ok(Arc::new(HsEventProcessor {
+        homeserver,
+        limit: 100,
+        event_handler,
+        shutdown_rx,
+        retry_scheduler,
+        hs_mapping_cache: Default::default(),
+    }))
+}
+
+/// Reads a homeserver's currently stored cursor.
+async fn stored_cursor(hs_id: &str) -> Result<u64> {
+    Ok(Homeserver::get_from_index(hs_id)
+        .await?
+        .expect("Homeserver must be present in the index")
+        .cursor)
+}
+
 // ============================================================================
 // Batch continues after a single event fails
 // A retryable application error on one event must not halt the batch — later
@@ -90,7 +152,7 @@ async fn test_batch_continues_after_single_failure() -> Result<()> {
     let first_uri = post_uri_builder(user_id.clone(), first_post_id.to_string());
     let second_uri = post_uri_builder(user_id, second_post_id.to_string());
 
-    let lines = vec![format!("PUT {first_uri}"), format!("PUT {second_uri}")];
+    let lines = batch([format!("PUT {first_uri}"), format!("PUT {second_uri}")]);
 
     let store = new_in_memory_store();
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
@@ -155,7 +217,7 @@ async fn test_retry_event_carries_origin_homeserver_id() -> Result<()> {
     let processor = build_processor(store.clone(), handler.clone(), shutdown_rx);
 
     processor
-        .process_event_lines(vec![format!("PUT {uri}")])
+        .process_event_lines(batch([format!("PUT {uri}")]))
         .await?;
 
     let retry_event = store
@@ -194,7 +256,7 @@ async fn test_skips_event_when_user_hosted_on_different_homeserver() -> Result<(
     let processor = build_processor(store.clone(), handler.clone(), shutdown_rx);
 
     processor
-        .process_event_lines(vec![format!("PUT {uri}")])
+        .process_event_lines(batch([format!("PUT {uri}")]))
         .await?;
 
     assert_eq!(
@@ -227,7 +289,7 @@ async fn test_processes_event_when_user_hosted_on_same_homeserver() -> Result<()
     let processor = build_processor(store.clone(), handler.clone(), shutdown_rx);
 
     processor
-        .process_event_lines(vec![format!("PUT {uri}")])
+        .process_event_lines(batch([format!("PUT {uri}")]))
         .await?;
 
     assert_eq!(
@@ -265,7 +327,7 @@ async fn test_skips_event_when_user_mapping_to_this_homeserver_is_stale() -> Res
     let processor = build_processor(store.clone(), handler.clone(), shutdown_rx);
 
     processor
-        .process_event_lines(vec![format!("PUT {uri}")])
+        .process_event_lines(batch([format!("PUT {uri}")]))
         .await?;
 
     assert_eq!(
@@ -298,7 +360,7 @@ async fn test_processes_event_when_user_has_no_homeserver_edge() -> Result<()> {
     let processor = build_processor(store.clone(), handler.clone(), shutdown_rx);
 
     processor
-        .process_event_lines(vec![format!("PUT {uri}")])
+        .process_event_lines(batch([format!("PUT {uri}")]))
         .await?;
 
     assert_eq!(
@@ -333,7 +395,7 @@ async fn test_user_homeserver_mapping_is_cached_across_events() -> Result<()> {
     let processor = build_processor(store.clone(), handler.clone(), shutdown_rx);
 
     processor
-        .process_event_lines(vec![format!("PUT {first_uri}")])
+        .process_event_lines(batch([format!("PUT {first_uri}")]))
         .await?;
 
     // Map the user to a *different* homeserver. A fresh lookup would now skip,
@@ -342,7 +404,7 @@ async fn test_user_homeserver_mapping_is_cached_across_events() -> Result<()> {
     create_user_hosted_on(&user_id, Some(&other_hs_id)).await;
 
     processor
-        .process_event_lines(vec![format!("PUT {second_uri}")])
+        .process_event_lines(batch([format!("PUT {second_uri}")]))
         .await?;
 
     assert_eq!(
@@ -372,7 +434,7 @@ async fn test_batch_stops_on_infrastructure_error() -> Result<()> {
     let first_uri = post_uri_builder(user_id.clone(), first_post_id.to_string());
     let second_uri = post_uri_builder(user_id, second_post_id.to_string());
 
-    let lines = vec![format!("PUT {first_uri}"), format!("PUT {second_uri}")];
+    let lines = batch([format!("PUT {first_uri}"), format!("PUT {second_uri}")]);
 
     let store = new_in_memory_store();
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
@@ -414,6 +476,292 @@ async fn test_batch_stops_on_infrastructure_error() -> Result<()> {
     assert!(
         store.get(&IndexKey::for_uri(&second_uri)).await?.is_none(),
         "Second event must not be queued — batch should have stopped at the first failure"
+    );
+
+    let _ = shutdown_tx.send(true);
+    Ok(())
+}
+
+// ============================================================================
+// A batch carrying events must advance the cursor
+// A response fetched at cursor 10 that carries events but closes at cursor 10
+// would be re-requested and re-processed on every subsequent poll. The batch is
+// skipped before any handler runs, and the cursor is left where it was.
+// ============================================================================
+
+#[tokio_shared_rt::test(shared)]
+async fn test_non_advancing_cursor_skips_batch_with_events() -> Result<()> {
+    setup().await?;
+
+    let uri = post_uri_builder(random_user_id(), "stalled".to_string());
+
+    let store = new_in_memory_store();
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let handler = create_mock_handler(Ok(()), None);
+    let processor =
+        build_processor_at_cursor(10, store.clone(), handler.clone(), shutdown_rx).await?;
+
+    processor
+        .process_event_lines(vec![format!("PUT {uri}"), "cursor: 10".to_string()])
+        .await?;
+
+    assert_eq!(
+        handler.get_handle_count(),
+        0,
+        "Batch must be skipped before any handler runs — the cursor could never record the work"
+    );
+    assert_eq!(
+        stored_cursor(&processor.homeserver.id).await?,
+        10,
+        "A non-advancing cursor must not be persisted"
+    );
+
+    let _ = shutdown_tx.send(true);
+    Ok(())
+}
+
+// ============================================================================
+// A batch carrying events but no cursor line is skipped
+// Nothing in such a batch can move the checkpoint past the events it delivers,
+// so the next poll would re-fetch and re-process it — the same stall as a
+// non-advancing cursor, reached by omission rather than repetition.
+// ============================================================================
+
+#[tokio_shared_rt::test(shared)]
+async fn test_batch_without_cursor_line_is_skipped() -> Result<()> {
+    setup().await?;
+
+    let uri = post_uri_builder(random_user_id(), "nocursor".to_string());
+
+    let store = new_in_memory_store();
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let handler = create_mock_handler(Ok(()), None);
+    let processor =
+        build_processor_at_cursor(10, store.clone(), handler.clone(), shutdown_rx).await?;
+
+    processor
+        .process_event_lines(vec![format!("PUT {uri}")])
+        .await?;
+
+    assert_eq!(
+        handler.get_handle_count(),
+        0,
+        "A batch with events but no cursor line must be skipped before any handler runs"
+    );
+    assert_eq!(
+        stored_cursor(&processor.homeserver.id).await?,
+        10,
+        "A batch with no cursor line must leave the cursor untouched"
+    );
+
+    let _ = shutdown_tx.send(true);
+    Ok(())
+}
+
+// ============================================================================
+// An idle poll may repeat the cursor
+// A response with no event lines legitimately closes at the cursor it was
+// fetched with; that is the homeserver saying "nothing new", not a stall.
+// ============================================================================
+
+#[tokio_shared_rt::test(shared)]
+async fn test_idle_batch_may_repeat_cursor() -> Result<()> {
+    setup().await?;
+
+    let store = new_in_memory_store();
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let handler = create_mock_handler(Ok(()), None);
+    let processor =
+        build_processor_at_cursor(10, store.clone(), handler.clone(), shutdown_rx).await?;
+
+    processor
+        .process_event_lines(vec!["cursor: 10".to_string()])
+        .await?;
+
+    assert_eq!(
+        stored_cursor(&processor.homeserver.id).await?,
+        10,
+        "An idle poll repeating the cursor must be accepted and leave it in place"
+    );
+
+    let _ = shutdown_tx.send(true);
+    Ok(())
+}
+
+// ============================================================================
+// An idle poll may not advance the cursor
+// Without event lines, the response cannot prove the watcher received the
+// events between the requested and returned cursors. Advancing would skip them.
+// ============================================================================
+
+#[tokio_shared_rt::test(shared)]
+async fn test_idle_batch_may_not_advance_cursor() -> Result<()> {
+    setup().await?;
+
+    let store = new_in_memory_store();
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let handler = create_mock_handler(Ok(()), None);
+    let processor =
+        build_processor_at_cursor(10, store.clone(), handler.clone(), shutdown_rx).await?;
+
+    processor
+        .process_event_lines(vec!["cursor: 20".to_string()])
+        .await?;
+
+    assert_eq!(
+        stored_cursor(&processor.homeserver.id).await?,
+        10,
+        "An idle poll must not advance past events it did not deliver"
+    );
+
+    let _ = shutdown_tx.send(true);
+    Ok(())
+}
+
+// ============================================================================
+// An advancing cursor is persisted once the batch has been processed
+// ============================================================================
+
+#[tokio_shared_rt::test(shared)]
+async fn test_advancing_cursor_is_persisted_after_batch() -> Result<()> {
+    setup().await?;
+
+    let uri = post_uri_builder(random_user_id(), "advance".to_string());
+
+    let store = new_in_memory_store();
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let handler = create_mock_handler(Ok(()), None);
+    let processor =
+        build_processor_at_cursor(10, store.clone(), handler.clone(), shutdown_rx).await?;
+
+    processor
+        .process_event_lines(vec![format!("PUT {uri}"), "cursor: 11".to_string()])
+        .await?;
+
+    assert_eq!(
+        handler.get_handle_count(),
+        1,
+        "Event must be handled when the batch closes with an advancing cursor"
+    );
+    assert_eq!(
+        stored_cursor(&processor.homeserver.id).await?,
+        11,
+        "An advancing cursor must be persisted after the batch"
+    );
+
+    let _ = shutdown_tx.send(true);
+    Ok(())
+}
+
+// ============================================================================
+// A rewinding or unparseable cursor skips the batch before handlers run
+// Validating up front means bad homeserver input costs no handler work, since
+// the cursor stays put and the next poll re-fetches the same batch anyway.
+// ============================================================================
+
+#[tokio_shared_rt::test(shared)]
+async fn test_rewinding_cursor_skips_batch_before_handlers() -> Result<()> {
+    setup().await?;
+
+    let uri = post_uri_builder(random_user_id(), "rewind".to_string());
+
+    let store = new_in_memory_store();
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let handler = create_mock_handler(Ok(()), None);
+    let processor =
+        build_processor_at_cursor(10, store.clone(), handler.clone(), shutdown_rx).await?;
+
+    processor
+        .process_event_lines(vec![format!("PUT {uri}"), "cursor: 5".to_string()])
+        .await?;
+
+    assert_eq!(
+        handler.get_handle_count(),
+        0,
+        "A rewinding cursor must skip the batch before any handler runs"
+    );
+    assert_eq!(
+        stored_cursor(&processor.homeserver.id).await?,
+        10,
+        "A rewinding cursor must not be persisted"
+    );
+
+    let _ = shutdown_tx.send(true);
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_unparseable_cursor_skips_batch_before_handlers() -> Result<()> {
+    setup().await?;
+
+    let uri = post_uri_builder(random_user_id(), "garbage".to_string());
+
+    let store = new_in_memory_store();
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let handler = create_mock_handler(Ok(()), None);
+    let processor =
+        build_processor_at_cursor(10, store.clone(), handler.clone(), shutdown_rx).await?;
+
+    processor
+        .process_event_lines(vec![
+            format!("PUT {uri}"),
+            "cursor: not-a-number".to_string(),
+        ])
+        .await?;
+
+    assert_eq!(
+        handler.get_handle_count(),
+        0,
+        "An unparseable cursor must skip the batch before any handler runs"
+    );
+    assert_eq!(
+        stored_cursor(&processor.homeserver.id).await?,
+        10,
+        "An unparseable cursor must not be persisted"
+    );
+
+    let _ = shutdown_tx.send(true);
+    Ok(())
+}
+
+// ============================================================================
+// The cursor is persisted only after the whole batch succeeds
+// A should-not-retry-now error stops the batch partway, so the valid cursor
+// closing it must not be applied — the next run has to replay from the same
+// position.
+// ============================================================================
+
+#[tokio_shared_rt::test(shared)]
+async fn test_cursor_not_persisted_when_batch_stops() -> Result<()> {
+    setup().await?;
+
+    let post_id = "cursorhalt";
+    let uri = post_uri_builder(random_user_id(), post_id.to_string());
+
+    let store = new_in_memory_store();
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let handler = create_mock_handler(
+        Err(EventProcessorError::IndexOperationFailed(
+            true,
+            "simulated infra failure".to_string(),
+        )),
+        Some(post_id),
+    );
+    let processor =
+        build_processor_at_cursor(10, store.clone(), handler.clone(), shutdown_rx).await?;
+
+    let result = processor
+        .process_event_lines(vec![format!("PUT {uri}"), "cursor: 11".to_string()])
+        .await;
+    assert!(
+        result.is_err(),
+        "Should-not-retry-now error must propagate and stop the batch"
+    );
+
+    assert_eq!(
+        stored_cursor(&processor.homeserver.id).await?,
+        10,
+        "Cursor must not advance past events the stopped batch never processed"
     );
 
     let _ = shutdown_tx.send(true);

@@ -5,6 +5,7 @@ use nexus_common::{
     models::{
         post::search::{PostsByTagSearch, TAG_GLOBAL_POST_ENGAGEMENT, TAG_GLOBAL_POST_TIMELINE},
         tag::TagDetails,
+        user::{UsersByTagSearch, TAG_GLOBAL_USER_TAGGERS},
     },
 };
 
@@ -38,6 +39,17 @@ pub async fn check_member_total_engagement_post_tag(
     .await
     .unwrap();
     Ok(total_engagement)
+}
+
+pub async fn check_member_user_tag_taggers(user_id: &str, label: &str) -> Result<Option<isize>> {
+    let taggers_count = UsersByTagSearch::check_sorted_set_member(
+        None,
+        &[&TAG_GLOBAL_USER_TAGGERS[..], &[label]].concat(),
+        &[user_id],
+    )
+    .await
+    .unwrap();
+    Ok(taggers_count)
 }
 
 pub async fn check_member_post_tag_global_timeline(
