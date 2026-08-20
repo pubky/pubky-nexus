@@ -92,7 +92,7 @@ pub struct SearchUsersByTagsQuery {
 #[utoipa::path(
     get,
     path = SEARCH_USERS_BY_TAGS_ROUTE,
-    description = "Search users by profile tags, scored by how many taggers applied the searched labels. Tie order between equal scores is unspecified",
+    description = "Search users by profile tags, scored by how many taggers applied the searched labels. Equal scores break ties by user id descending",
     tag = "Search",
     params(
         ("tags" = Tags, Query, description = "Comma-separated tag labels (1-5). Users tagged with any of them are returned"),

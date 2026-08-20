@@ -61,8 +61,8 @@ impl UsersByTagSearch {
 
     /// Searches users by profile tag labels with union semantics: any user
     /// whose profile carries at least one of the labels is returned, scored
-    /// by the summed distinct-tagger counts, descending. Tie order between
-    /// equal scores is unspecified.
+    /// by the summed distinct-tagger counts, descending. Equal scores break
+    /// ties by user id descending on both serving paths.
     ///
     /// A single label is served from the per-label Redis sorted set; two or
     /// more labels aggregate in the graph under a 10-second budget.
@@ -191,25 +191,6 @@ impl UsersByTagSearch {
                 break;
             }
             skip += page_len;
-        }
-        Ok(())
-    }
-
-    /// Backfills the index against live data: the graph only enumerates
-    /// candidate (user, label) pairs, and every score is derived atomically
-    /// from the current taggers set by [`Self::sync_index_score`]. Events
-    /// landing during the backfill are therefore never overwritten with
-    /// snapshot state; a pair whose tag was deleted mid-backfill derives an
-    /// empty set and stays out of the index.
-    ///
-    /// # Errors
-    /// Returns an error when the graph enumeration or a Redis sync fails.
-    pub async fn backfill_from_graph() -> ModelResult<()> {
-        let rows = fetch_all_rows_from_graph(queries::get::get_user_tag_pairs()).await?;
-        for row in rows {
-            let user_id: String = row.get("user_id")?;
-            let label: String = row.get("label")?;
-            Self::sync_index_score(&user_id, &label).await?;
         }
         Ok(())
     }

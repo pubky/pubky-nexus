@@ -80,12 +80,12 @@ async fn test_user_search_by_tags_union() -> Result<()> {
 #[tokio_shared_rt::test(shared)]
 async fn test_user_search_by_tags_redis_graph_parity() -> Result<()> {
     // The same label served from the index (single label) and from the graph
-    // (multi label with an unknown second one) must agree on members and
-    // scores. Tie order may differ between paths, so compare as maps.
+    // (multi label with an unknown second one) must return identical rows in
+    // identical order: both paths break equal scores by user id descending
     let redis_body = get_request(&search_users_by_tags("tags=pubky&limit=200")).await?;
     let graph_body =
         get_request(&search_users_by_tags("tags=pubky,nonexistentzz&limit=200")).await?;
-    assert_eq!(scores_by_user(&redis_body), scores_by_user(&graph_body));
+    assert_eq!(result_rows(&redis_body), result_rows(&graph_body));
 
     Ok(())
 }

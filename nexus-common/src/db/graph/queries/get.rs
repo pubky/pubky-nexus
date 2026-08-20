@@ -307,7 +307,9 @@ pub fn search_users_by_tags(labels: &[String], skip: Option<usize>, limit: Optio
         WHERE tag.label IN $labels AND u.name <> $deleted
         WITH u, COUNT(tag) AS score
         RETURN u.id AS user_id, score
-        ORDER BY score DESC, u.id ASC
+        // id DESC matches how Redis breaks equal scores (reverse-lex member
+        // order), keeping pagination windows identical across both paths
+        ORDER BY score DESC, u.id DESC
         ",
     );
 
