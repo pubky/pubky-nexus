@@ -6,7 +6,7 @@ use nexus_common::db::{
 };
 use nexus_common::models::{
     traits::Collection,
-    user::{UserCounts, UserDetails, UserSearch, USER_DELETED_SENTINEL},
+    user::{UserCounts, UserDetails, UserSearch, UsersByTagSearch, USER_DELETED_SENTINEL},
 };
 use pubky_app_specs::{PubkyAppUser, PubkyId};
 use tracing::debug;
@@ -46,6 +46,13 @@ pub async fn sync_put(user: PubkyAppUser, user_id: PubkyId) -> Result<(), EventP
     indexing_results.0?;
     indexing_results.1?;
     indexing_results.2?;
+
+    // Profile writes flip the tombstone state in both directions: deletion
+    // writes the sentinel, recreation clears it. Re-derive the user's
+    // per-label search entries afterwards, so tombstones are evicted and
+    // recreated profiles get their retained tags back.
+    UsersByTagSearch::sync_user_labels(&user_id).await?;
+
     Ok(())
 }
 
@@ -89,6 +96,8 @@ pub async fn del(user_id: PubkyId) -> Result<(), EventProcessorError> {
                 image: None,
             };
 
+            // sync_put re-derives the per-label search entries after writing
+            // the tombstone, which evicts the user from users-by-tag search
             sync_put(deleted_user, user_id).await?;
         }
         OperationOutcome::MissingDependency => return Err(EventProcessorError::SkipIndexing),

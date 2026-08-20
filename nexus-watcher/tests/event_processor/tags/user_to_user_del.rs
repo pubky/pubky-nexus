@@ -1,4 +1,4 @@
-use super::utils::find_user_tag;
+use super::utils::{check_member_user_tag_taggers, find_user_tag};
 use crate::event_processor::{
     users::utils::{check_member_user_influencer, find_user_counts},
     utils::watcher::{HomeserverHashIdPath, WatcherTest},
@@ -72,6 +72,16 @@ async fn test_homeserver_del_tag_to_another_user() -> Result<()> {
     assert!(
         cache_user_tag.unwrap().is_empty(),
         "The SORTED SET index cannot exist for the tag"
+    );
+
+    // The users-by-tag member must drop with its last tagger:
+    // Sorted:Tags:Global:User:Taggers:{label}
+    let taggers_score = check_member_user_tag_taggers(&tagged_user_id, label)
+        .await
+        .expect("Failed to check the users-by-tag score");
+    assert!(
+        taggers_score.is_none(),
+        "Tagged user cannot stay in the users-by-tag index after the last tagger deletes"
     );
 
     // Check if user counts is updated, User:Counts:user_id

@@ -15,7 +15,7 @@ pub use details::{set_user_homeserver, set_user_homeserver_stale, UserDetails};
 pub use influencers::Influencers;
 pub use ingestor::UserIngestor;
 pub use relationship::Relationship;
-pub use search::{UserSearch, USER_NAME_KEY_PARTS};
+pub use search::{UserSearch, UsersByTagSearch, TAG_GLOBAL_USER_TAGGERS, USER_NAME_KEY_PARTS};
 pub use stream::{
     UserIdStream, UserStream, UserStreamInput, UserStreamSource, CACHE_USER_RECOMMENDED_KEY_PARTS,
     USER_INFLUENCERS_KEY_PARTS, USER_MOSTFOLLOWED_KEY_PARTS,

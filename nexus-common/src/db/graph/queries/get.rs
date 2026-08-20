@@ -3,6 +3,7 @@ use crate::db::graph::Query;
 use crate::db::kv::SortOrder;
 use crate::models::post::{KindFilter, StreamSource};
 use crate::models::resource::stream::ResourceSorting;
+use crate::models::user::USER_DELETED_SENTINEL;
 use crate::types::routes::HotTagsInputDTO;
 use crate::types::DomainTrust;
 use crate::types::Pagination;
@@ -262,6 +263,66 @@ pub fn global_tags_by_post_engagement() -> Query {
         order by label
         ",
     )
+}
+
+/// Retrieves unique global tags on user profiles, returning per label the tagged
+/// user ids paired with their distinct tagger counts.
+pub fn global_tags_by_user() -> Query {
+    Query::new(
+        "global_tags_by_user",
+        "
+        // create_user_tag MERGEs one TAGGED edge per (tagger, tagged, label),
+        // so COUNT(t) is the distinct tagger count.
+        MATCH (tagger:User)-[t:TAGGED]->(u:User)
+        WHERE u.name <> $deleted
+        WITH t.label AS label, u.id AS user_id, COUNT(t) AS score
+        WITH label, COLLECT([toFloat(score), user_id]) AS sorted_set
+        RETURN label, sorted_set
+        ",
+    )
+    .param("deleted", USER_DELETED_SENTINEL)
+}
+
+/// Enumerates the distinct (tagged user, label) pairs carried by user
+/// profiles, without counts: backfills derive each score from the live
+/// taggers set instead of trusting a snapshot value.
+pub fn get_user_tag_pairs() -> Query {
+    Query::new(
+        "get_user_tag_pairs",
+        "
+        MATCH (:User)-[t:TAGGED]->(u:User)
+        WHERE u.name <> $deleted
+        RETURN DISTINCT u.id AS user_id, t.label AS label
+        ",
+    )
+    .param("deleted", USER_DELETED_SENTINEL)
+}
+
+/// Users whose profile carries any of the given tag labels, scored by distinct
+/// tagger count summed across the searched labels.
+pub fn search_users_by_tags(labels: &[String], skip: Option<usize>, limit: Option<usize>) -> Query {
+    let mut cypher = String::from(
+        "
+        MATCH (tagger:User)-[tag:TAGGED]->(u:User)
+        WHERE tag.label IN $labels AND u.name <> $deleted
+        WITH u, COUNT(tag) AS score
+        RETURN u.id AS user_id, score
+        // id DESC matches how Redis breaks equal scores (reverse-lex member
+        // order), keeping pagination windows identical across both paths
+        ORDER BY score DESC, u.id DESC
+        ",
+    );
+
+    if let Some(skip) = skip {
+        cypher.push_str(&format!("SKIP {}\n", skip.min(MAX_QUERY_SKIP)));
+    }
+    if let Some(limit) = limit {
+        cypher.push_str(&format!("LIMIT {}\n", limit.min(MAX_QUERY_LIMIT)));
+    }
+
+    Query::new("search_users_by_tags", &cypher)
+        .param("labels", labels.to_vec())
+        .param("deleted", USER_DELETED_SENTINEL)
 }
 
 // Retrieve all the tags of the post
