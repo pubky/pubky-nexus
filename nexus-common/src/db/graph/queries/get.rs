@@ -657,6 +657,25 @@ pub fn get_tags() -> Query {
     )
 }
 
+/// Metric label `{base}_{reach}` / `{base}_wot_{depth}`. Depth lives here
+/// (unlike `post_stream_wot`, these queries have no companion meter). A new
+/// WoT depth must get its own arm — never reuse an existing label.
+macro_rules! reach_query_label {
+    ($base:literal, $reach:expr) => {
+        match $reach {
+            StreamReach::Followers => concat!($base, "_followers"),
+            StreamReach::Following => concat!($base, "_following"),
+            StreamReach::Friends => concat!($base, "_friends"),
+            StreamReach::Wot(depth) => match depth.get() {
+                1 => concat!($base, "_wot_1"),
+                2 => concat!($base, "_wot_2"),
+                3 => concat!($base, "_wot_3"),
+                other => unreachable!("WotDepth out of range: {other}"),
+            },
+        }
+    };
+}
+
 pub fn get_tag_taggers_by_reach(
     label: &str,
     user_id: &str,
@@ -684,11 +703,14 @@ pub fn get_tag_taggers_by_reach(
             ",
         stream_reach_to_graph_subquery(&reach)
     );
-    Query::new("get_tag_taggers_by_reach", &cypher)
-        .param("label", label)
-        .param("user_id", user_id)
-        .param("skip", skip as i64)
-        .param("limit", limit as i64)
+    Query::new(
+        reach_query_label!("get_tag_taggers_by_reach", reach),
+        &cypher,
+    )
+    .param("label", label)
+    .param("user_id", user_id)
+    .param("skip", skip as i64)
+    .param("limit", limit as i64)
 }
 
 pub fn get_hot_tags_by_reach(
@@ -726,7 +748,7 @@ pub fn get_hot_tags_by_reach(
         input_tagged_type,
         tags_query.taggers_limit
     );
-    Query::new("get_hot_tags_by_reach", &cypher)
+    Query::new(reach_query_label!("get_hot_tags_by_reach", reach), &cypher)
         .param("user_id", user_id)
         .param("skip", tags_query.skip as i64)
         .param("limit", tags_query.limit as i64)
@@ -810,12 +832,15 @@ pub fn get_influencers_by_reach(
     ",
         stream_reach_to_graph_subquery(&reach),
     );
-    Query::new("get_influencers_by_reach", &cypher)
-        .param("user_id", user_id)
-        .param("skip", skip as i64)
-        .param("limit", limit as i64)
-        .param("from", from)
-        .param("to", to)
+    Query::new(
+        reach_query_label!("get_influencers_by_reach", reach),
+        &cypher,
+    )
+    .param("user_id", user_id)
+    .param("skip", skip as i64)
+    .param("limit", limit as i64)
+    .param("from", from)
+    .param("to", to)
 }
 
 pub fn get_global_influencers(skip: usize, limit: usize, timeframe: &Timeframe) -> Query {
@@ -1319,6 +1344,35 @@ mod tests {
         )
         .unwrap()
         .to_cypher_populated()
+    }
+
+    #[test]
+    fn reach_queries_split_label_by_reach_and_depth() {
+        let cases = [
+            (StreamReach::Followers, "get_influencers_by_reach_followers"),
+            (StreamReach::Following, "get_influencers_by_reach_following"),
+            (StreamReach::Friends, "get_influencers_by_reach_friends"),
+            (
+                StreamReach::Wot(WotDepth::new(1).unwrap()),
+                "get_influencers_by_reach_wot_1",
+            ),
+            (
+                StreamReach::Wot(WotDepth::new(3).unwrap()),
+                "get_influencers_by_reach_wot_3",
+            ),
+        ];
+        for (reach, expected) in cases {
+            let query = get_influencers_by_reach("user", reach, 0, 10, &Timeframe::AllTime);
+            assert_eq!(query.label(), Some(expected));
+        }
+
+        let taggers =
+            get_tag_taggers_by_reach("tag", "user", StreamReach::Wot(WotDepth::default()), 0, 10);
+        assert_eq!(taggers.label(), Some("get_tag_taggers_by_reach_wot_2"));
+
+        let hot_tags_input = HotTagsInputDTO::new(Timeframe::AllTime, 10, 0, 5, None);
+        let hot_tags = get_hot_tags_by_reach("user", StreamReach::Friends, &hot_tags_input);
+        assert_eq!(hot_tags.label(), Some("get_hot_tags_by_reach_friends"));
     }
 
     /// The trust traversal must bind and dedupe authors before the posts MATCH.

@@ -56,26 +56,16 @@ impl HttpMetrics {
     }
 }
 
-/// Lazy on purpose: instruments bind to whatever meter provider is global at
-/// creation time, and stay no-ops forever if that is still the default one.
-/// First use is the first HTTP request, safely after `setup_metrics`.
+/// Bound after `setup_metrics`; no-ops if OTLP was never configured.
 static METRICS: LazyLock<HttpMetrics> = LazyLock::new(HttpMetrics::new);
 
-/// Availability failure: 5xx, plus 408 because it times out *our* work.
-///
-/// Other 4xx (bad input, missing entities, blacklist 403, oversized 413,
-/// rate-limit 429) are ordinary on a public unauthenticated API. They stay on
-/// `http.server.requests` via `http.response.status_code` without polluting
-/// the error rate — same policy as `Error` logging in `error.rs`.
+/// 5xx, plus 408 (our timeout). Other 4xx stay on `requests` by status code.
 fn is_failed_request(status: u16) -> bool {
     matches!(status, 408 | 500..=599)
 }
 
-/// Low-cardinality route template, or `unmatched`. Never the raw URI:
-/// `/v0/user/<pubkey>` would explode series cardinality on scanner 404s.
-///
-/// `MatchedPath` is only set for middleware on the router that declared the
-/// routes (see `build_app`). A nested copy of this layer would see `unmatched`.
+/// Matched route template, or `unmatched`. Never the raw URI (cardinality).
+/// Only set when this middleware sits on the router that declared the routes.
 fn http_route(request: &Request) -> String {
     request
         .extensions()
@@ -84,9 +74,7 @@ fn http_route(request: &Request) -> String {
         .unwrap_or_else(|| "unmatched".to_string())
 }
 
-/// Known methods per OTel semconv, `_OTHER` for the rest. Clients can send
-/// arbitrary extension methods, which would otherwise mint unbounded metric
-/// series. The raw value goes on the span as `http.request.method_original`.
+/// Semconv well-known methods; anything else is `_OTHER` (raw value on the span).
 fn http_method(method: &Method) -> &'static str {
     match *method {
         Method::GET => "GET",
@@ -115,17 +103,15 @@ fn record_http_request(method: &str, route: &str, status: u16, elapsed_secs: f64
     }
 }
 
-/// Root span plus request/error/duration metrics for every request.
 pub async fn tracing_middleware(request: Request, next: Next) -> Response {
     let route = http_route(&request);
     let method = http_method(request.method());
 
-    // Query strings are deliberately not recorded: they carry search text,
-    // pubkeys, and filter values, with no cardinality bound in Tempo.
+    // No query string: search text / pubkeys / filters, unbounded in Tempo.
     let span = tracing::info_span!(
         "http.request",
-        // Semconv wants a bare `{method}` when no route matched; we keep
-        // `unmatched` so scanner 404s stay searchable in Tempo.
+        // Semconv would use a bare `{method}` when unmatched; keep the token
+        // so scanner 404s stay searchable.
         otel.name = %format!("{method} {route}"),
         http.request.method = %method,
         http.request.method_original = tracing::field::Empty,
@@ -135,15 +121,16 @@ pub async fn tracing_middleware(request: Request, next: Next) -> Response {
         otel.status_message = tracing::field::Empty,
     );
     if method == "_OTHER" {
-        span.record("http.request.method_original", request.method().to_string());
+        span.record("http.request.method_original", request.method().as_str());
     }
 
     let started = Instant::now();
     let response = next.run(request).instrument(span.clone()).await;
 
     let status = response.status();
-    span.record("http.response.status_code", status.as_u16());
-    if is_failed_request(status.as_u16()) {
+    let status_code = status.as_u16();
+    span.record("http.response.status_code", status_code);
+    if is_failed_request(status_code) {
         span.record("otel.status_code", "ERROR");
         span.record(
             "otel.status_message",
@@ -151,12 +138,7 @@ pub async fn tracing_middleware(request: Request, next: Next) -> Response {
         );
     }
 
-    record_http_request(
-        method,
-        &route,
-        status.as_u16(),
-        started.elapsed().as_secs_f64(),
-    );
+    record_http_request(method, &route, status_code, started.elapsed().as_secs_f64());
 
     response
 }

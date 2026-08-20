@@ -32,7 +32,7 @@ struct GraphMetrics {
     execute_duration: Histogram<f64>,
     /// Number of rows returned by a query.
     rows: Histogram<u64>,
-    /// Query completions (stream drop, execute failure, or run); error-rate denominator.
+    /// Total queries (error-rate denominator). Same sites as `duration`.
     requests: Counter<u64>,
     /// Incremented on every failed `execute()` or `run()` call.
     errors: Counter<u64>,

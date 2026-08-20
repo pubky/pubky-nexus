@@ -168,8 +168,7 @@ pub fn build_app(
             Duration::from_secs(request_timeout_secs.max(1)),
         ))
         .layer(cors)
-        // Must stay on this outer router: `MatchedPath` is only populated for
-        // middleware layered here, not if a nested sub-router copies this layer.
+        // Outer router only: a nested copy of this layer would see `unmatched`.
         .layer(axum::middleware::from_fn(
             middlewares::tracing::tracing_middleware,
         ))
