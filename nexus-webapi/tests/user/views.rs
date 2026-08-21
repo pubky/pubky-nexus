@@ -181,3 +181,34 @@ async fn test_get_details() -> Result<()> {
 
     Ok(())
 }
+
+/// Assert that the `deleted` field appears on both the `/details` and `/user` (view)
+/// responses and is serialized as a plain bool.
+#[tokio_shared_rt::test(shared)]
+async fn test_deleted_flag_in_details_and_view() -> Result<()> {
+    let user_id = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
+
+    // /v0/user/{id}/details
+    let details = get_request(&format!("/v0/user/{user_id}/details")).await?;
+    assert!(
+        details["deleted"].is_boolean(),
+        "details response must serialize deleted as a boolean"
+    );
+    assert_eq!(
+        details["deleted"], false,
+        "live user must report deleted: false"
+    );
+
+    // /v0/user/{id} (UserView embeds UserDetails)
+    let view = get_request(&format!("/v0/user/{user_id}")).await?;
+    assert!(
+        view["details"]["deleted"].is_boolean(),
+        "view response must serialize deleted as a boolean"
+    );
+    assert_eq!(
+        view["details"]["deleted"], false,
+        "live user must report deleted: false in view response"
+    );
+
+    Ok(())
+}

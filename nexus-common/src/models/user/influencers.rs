@@ -9,7 +9,7 @@ use std::ops::Deref;
 use tracing::debug;
 use utoipa::ToSchema;
 
-use super::{UserDetails, USER_DELETED_SENTINEL, USER_INFLUENCERS_KEY_PARTS};
+use super::{UserDetails, USER_INFLUENCERS_KEY_PARTS};
 use crate::db::{fetch_key_from_graph, queries, RedisOps};
 
 const GLOBAL_INFLUENCERS_PREFIX: &str = "Cache:Influencers";
@@ -237,7 +237,7 @@ impl Influencers {
 
         for ((id, score), details) in influencers.0.into_iter().zip(details_list) {
             match details {
-                Some(ref d) if d.name != USER_DELETED_SENTINEL => kept.push((id, score)),
+                Some(ref d) if !d.deleted => kept.push((id, score)),
                 _ => deleted_ids.push(id),
             }
         }

@@ -3,5 +3,6 @@ pub mod post_content_index_author_setup_1780531200;
 pub mod post_content_index_setup_1780444800;
 pub mod remove_muted_1771718400;
 pub mod resource_node_setup_1774000000;
+pub mod user_deleted_flag_1780617600;
 pub mod users_by_pk_reindex_1751635096;
 pub mod users_by_tags_index_backfill_1786924800;

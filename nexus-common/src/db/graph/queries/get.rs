@@ -3,7 +3,6 @@ use crate::db::graph::Query;
 use crate::db::kv::SortOrder;
 use crate::models::post::{KindFilter, StreamSource};
 use crate::models::resource::stream::ResourceSorting;
-use crate::models::user::USER_DELETED_SENTINEL;
 use crate::types::routes::HotTagsInputDTO;
 use crate::types::DomainTrust;
 use crate::types::Pagination;
@@ -274,13 +273,12 @@ pub fn global_tags_by_user() -> Query {
         // create_user_tag MERGEs one TAGGED edge per (tagger, tagged, label),
         // so COUNT(t) is the distinct tagger count.
         MATCH (tagger:User)-[t:TAGGED]->(u:User)
-        WHERE u.name <> $deleted
+        WHERE NOT coalesce(u.deleted, false)
         WITH t.label AS label, u.id AS user_id, COUNT(t) AS score
         WITH label, COLLECT([toFloat(score), user_id]) AS sorted_set
         RETURN label, sorted_set
         ",
     )
-    .param("deleted", USER_DELETED_SENTINEL)
 }
 
 /// Enumerates the distinct (tagged user, label) pairs carried by user
@@ -291,11 +289,10 @@ pub fn get_user_tag_pairs() -> Query {
         "get_user_tag_pairs",
         "
         MATCH (:User)-[t:TAGGED]->(u:User)
-        WHERE u.name <> $deleted
+        WHERE NOT coalesce(u.deleted, false)
         RETURN DISTINCT u.id AS user_id, t.label AS label
         ",
     )
-    .param("deleted", USER_DELETED_SENTINEL)
 }
 
 /// Users whose profile carries any of the given tag labels, scored by distinct
@@ -304,7 +301,7 @@ pub fn search_users_by_tags(labels: &[String], skip: Option<usize>, limit: Optio
     let mut cypher = String::from(
         "
         MATCH (tagger:User)-[tag:TAGGED]->(u:User)
-        WHERE tag.label IN $labels AND u.name <> $deleted
+        WHERE tag.label IN $labels AND NOT coalesce(u.deleted, false)
         WITH u, COUNT(tag) AS score
         RETURN u.id AS user_id, score
         // id DESC matches how Redis breaks equal scores (reverse-lex member
@@ -320,9 +317,7 @@ pub fn search_users_by_tags(labels: &[String], skip: Option<usize>, limit: Optio
         cypher.push_str(&format!("LIMIT {}\n", limit.min(MAX_QUERY_LIMIT)));
     }
 
-    Query::new("search_users_by_tags", &cypher)
-        .param("labels", labels.to_vec())
-        .param("deleted", USER_DELETED_SENTINEL)
+    Query::new("search_users_by_tags", &cypher).param("labels", labels.to_vec())
 }
 
 // Retrieve all the tags of the post
@@ -491,7 +486,7 @@ pub fn get_all_homeservers_with_active_users() -> Query {
     Query::new(
         "get_all_homeservers_with_active_users",
         "MATCH (u:User)-[r:HOSTED_BY]->(hs:Homeserver)
-        WHERE u.name <> '[DELETED]' AND NOT coalesce(r.stale, false)
+        WHERE NOT coalesce(u.deleted, false) AND NOT coalesce(r.stale, false)
         WITH hs.id AS id, count(u) AS active_users
         ORDER BY active_users DESC
         RETURN collect(id) AS homeservers_list",
@@ -504,7 +499,7 @@ pub fn get_users_needing_hs_resolution(ttl_ms: u64) -> Query {
     Query::new(
         "get_users_needing_hs_resolution",
         "MATCH (u:User)
-         WHERE u.name <> '[DELETED]'
+         WHERE NOT coalesce(u.deleted, false)
          OPTIONAL MATCH (u)-[r:HOSTED_BY]->(:Homeserver)
          WITH u, r
          WHERE r IS NULL
@@ -535,7 +530,7 @@ pub fn get_active_users_by_homeserver(hs_id: &str) -> Query {
     Query::new(
         "get_active_users_by_homeserver",
         "MATCH (u:User)-[r:HOSTED_BY]->(:Homeserver {id: $hs_id})
-         WHERE u.name <> '[DELETED]' AND NOT coalesce(r.stale, false)
+         WHERE NOT coalesce(u.deleted, false) AND NOT coalesce(r.stale, false)
          RETURN collect(u.id) AS user_ids",
     )
     .param("hs_id", hs_id.to_string())
@@ -842,7 +837,7 @@ pub fn get_influencers_by_reach(
         {}
         WHERE user.id = $user_id
         WITH DISTINCT reach
-        WHERE reach.name <> '[DELETED]'
+        WHERE NOT coalesce(reach.deleted, false)
 
         CALL (reach) {{
             MATCH (others:User)-[follow:FOLLOWS]->(reach)
@@ -885,7 +880,7 @@ pub fn get_global_influencers(skip: usize, limit: usize, timeframe: &Timeframe) 
         "get_global_influencers",
         "
         MATCH (user:User)
-        WHERE user.name <> '[DELETED]'
+        WHERE NOT coalesce(user.deleted, false)
         WITH DISTINCT user
 
         // Each count is a scoped CALL(user){} subquery so it stays per-user
@@ -1320,7 +1315,8 @@ pub fn post_is_safe_to_delete(author_id: &str, post_id: &str) -> Query {
 }
 
 /// Find user recommendations: active users (with 5+ posts) who are 1-3 degrees of separation away
-/// from the given user, but not directly followed by them
+/// from the given user, but not directly followed by them.
+/// Deleted users are filtered in Cypher; only the user ID is projected (no name column).
 pub fn recommend_users(user_id: &str, limit: usize) -> Query {
     Query::new(
         "recommend_users",
@@ -1329,11 +1325,12 @@ pub fn recommend_users(user_id: &str, limit: usize) -> Query {
         MATCH (user)-[:FOLLOWS*1..3]->(potential:User)
         WHERE NOT (user)-[:FOLLOWS]->(potential)
         AND potential.id <> $user_id
+        AND NOT coalesce(potential.deleted, false)
         WITH DISTINCT potential
         MATCH (potential)-[:AUTHORED]->(post:Post)
         WITH potential, COUNT(post) AS post_count
         WHERE post_count >= 5
-        RETURN potential.id AS recommended_user_id, potential.name AS recommended_user_name
+        RETURN potential.id AS recommended_user_id
         LIMIT $limit
     ",
     )
