@@ -89,6 +89,33 @@ cargo run -p nexusd -- api
      - Note: on first run, an error popup is shown and a TOS popup. After you accept the TOS, the link will work.
    - Neo4J Browser: [http://localhost:7474/browser/](http://localhost:7474/browser/)
 
+## ⏰ Scheduled Jobs
+
+Nexusd can run background jobs on a cron schedule. Jobs are configured in `config.toml` under `[jobs.<name>]` sections:
+
+```toml
+[jobs.my_job]
+cron = "0 0 3 * * *"  # every day at 03:00 (UTC)
+```
+
+The `cron` expression is SECONDS-FIRST, not the standard 5-field crontab — always include the seconds field: `sec min hour day-of-month month day-of-week [year]`. The trailing year field is optional. The same format is used for every schedule, from coarse to per-second granularity:
+
+```toml
+[jobs.reindex]
+cron = "0 * * * * *"  # every minute at second 0
+```
+
+### Available Commands
+
+- **`nexusd jobs list`** — prints the names of all available jobs
+- **`nexusd jobs run <name>`** — runs a single job immediately (on demand), bypassing the schedule
+
+### Notes
+
+- A job with no `[jobs.<name>]` section or no `cron` key is unscheduled (won't run automatically) but can still be triggered on demand.
+- The `nexusd run` daemon validates all `[jobs.*]` sections at startup — a typo'd section name fails fast rather than being silently ignored.
+- Running a job on demand with `nexusd jobs run` also validates the config, so a typo'd `[jobs.<name>]` section is caught regardless of how you invoke it.
+
 ## 📈 Observability
 
 Nexus exports telemetry over OTLP. For local development, use either the bundled observability stack or a separately installed SigNoz instance.
@@ -180,6 +207,10 @@ cargo nextest run -p nexus-webapi --no-fail-fast
 # TEST_PUBKY_CONNECTION_STRING from docker/.env-sample
 # export TEST_PUBKY_CONNECTION_STRING=postgres://test_user:test_pass@localhost:5432/postgres?pubky-test=true
 cargo nextest run -p nexus-watcher --no-fail-fast
+
+# nexusd trust-rank tests require the GDS plugin baked into the neo4j image
+# (docker/neo4j/Dockerfile); the docker compose stack builds it automatically.
+cargo nextest run -p nexusd --no-fail-fast
 ```
 
 To test specific feature(s):

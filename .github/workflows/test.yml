@@ -45,6 +45,22 @@ jobs:
         with:
           tool: cargo-nextest
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Pre-build the neo4j+GDS image with the GHA layer cache: after the
+      # first run, the ~62MB GDS jar layer is restored from cache instead of
+      # downloaded from graphdatascience.ninja. `docker compose up` below
+      # finds the image under this tag and skips its own build.
+      - name: Build Neo4j image with GDS plugin (cached)
+        uses: docker/build-push-action@v6
+        with:
+          context: docker/neo4j
+          tags: pubky-nexus/neo4j:5.26.27-gds2.13.10
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha
+
       - name: Set up Docker Compose
         working-directory: docker
         run: docker compose --profile tests --env-file .env-sample up -d
@@ -86,6 +102,12 @@ jobs:
       # This test suite uses the TEST_PUBKY_CONNECTION_STRING env variable
       - name: Run WATCHER integration tests
         run: cargo nextest run -p nexus-watcher --no-fail-fast
+
+      # Runs last: the trust recompute writes a `trust` property across all
+      # :User nodes, so keep it after the suites that assert on graph state.
+      # Requires the GDS plugin in the neo4j image (pre-built above).
+      - name: Run NEXUSD integration tests
+        run: cargo nextest run -p nexusd --no-fail-fast
 
       - name: Tear down Docker Compose
         if: always()
