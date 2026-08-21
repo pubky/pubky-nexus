@@ -1381,6 +1381,64 @@ pub fn recommend_users(user_id: &str, limit: usize) -> Query {
     .param("limit", limit as i64)
 }
 
+/// Ranks the users the network associates with each label, one list per label.
+///
+/// Both arms are needed: profile tags skew to identity, so most interests only appear on posts.
+/// Summing endorser trust rather than counting keeps a few prolific taggers from minting
+/// reputation. `since` is a liveness threshold, not a measurement window, so it has no upper
+/// bound. It reads `Post.indexed_at`, since the `AUTHORED` edge carries none; pass 0 for "has
+/// ever posted".
+pub fn starter_pack_users(
+    labels: &[String],
+    user_id: Option<&str>,
+    since: i64,
+    per_label: usize,
+) -> Query {
+    Query::new(
+        "starter_pack_users",
+        "
+        // Bound once, so the follows check stays a lookup.
+        OPTIONAL MATCH (user:User {id: $user_id})
+        UNWIND $labels AS label
+        WITH DISTINCT user, label
+        // Ranking per label in its own subquery so ORDER BY + LIMIT plans as Top. Collecting
+        // first and slicing after sorts every candidate of every label instead.
+        CALL (user, label) {
+            CALL (label) {
+                MATCH (tagger:User)-[t:TAGGED]->(candidate:User)
+                WHERE t.label = label
+                RETURN candidate, tagger
+              UNION
+                MATCH (tagger:User)-[t:TAGGED]->(:Post)<-[:AUTHORED]-(candidate:User)
+                WHERE t.label = label
+                RETURN candidate, tagger
+            }
+            // UNION, not UNION ALL: it is what makes this one vote per endorser.
+            WITH user, candidate,
+                 sum(coalesce(tagger.trust, 0.0)) AS trust_score,
+                 count(DISTINCT tagger) AS endorsers
+            // Cheaper here than against every endorsement row.
+            // TODO: drop the name check once nothing writes the [DELETED] sentinel.
+            WHERE candidate.name <> '[DELETED]' AND NOT coalesce(candidate.deleted, false)
+              AND (user IS NULL OR (candidate <> user AND NOT (user)-[:FOLLOWS]->(candidate)))
+              AND EXISTS { MATCH (candidate)-[:AUTHORED]->(p:Post) WHERE p.indexed_at >= $since }
+            WITH candidate.id AS id, trust_score, endorsers
+            ORDER BY trust_score DESC, endorsers DESC, id ASC
+            LIMIT $per_label
+            RETURN collect(id) AS candidates
+        }
+        // A label with no candidates stays absent, as the caller expects.
+        WITH label, candidates
+        WHERE candidates <> []
+        RETURN label, candidates
+        ",
+    )
+    .param("labels", labels.to_vec())
+    .param("user_id", user_id.map(str::to_string))
+    .param("since", since)
+    .param("per_label", per_label.min(MAX_QUERY_LIMIT) as i64)
+}
+
 /// Retrieve specific tag created by the user
 pub fn get_tag_by_tagger_and_id(tagger_id: &str, tag_id: &str) -> Query {
     Query::new(
