@@ -18,11 +18,10 @@ use tracing::Instrument;
 
 const METER_NAME: &str = "nexus";
 
-/// Request total, availability failures, and time until response headers are ready.
+/// Request count and time until response headers are ready.
 /// Instruments are no-ops until an `SdkMeterProvider` is installed.
 struct HttpMetrics {
     requests: Counter<u64>,
-    errors: Counter<u64>,
     duration: Histogram<f64>,
 }
 
@@ -32,15 +31,7 @@ impl HttpMetrics {
         Self {
             requests: meter
                 .u64_counter("http.server.requests")
-                .with_description(
-                    "Total HTTP requests handled by Nexus, by method/route/status",
-                )
-                .build(),
-            errors: meter
-                .u64_counter("http.server.errors")
-                .with_description(
-                    "HTTP requests that failed from the server's perspective (5xx and 408 timeouts), by method/route/status",
-                )
+                .with_description("Total HTTP requests handled by Nexus, by method/route/status")
                 .build(),
             duration: meter
                 .f64_histogram("http.server.request.duration")
@@ -48,8 +39,7 @@ impl HttpMetrics {
                 .with_unit("s")
                 // Explicit buckets from the HTTP semantic conventions (seconds).
                 .with_boundaries(vec![
-                    0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1.0, 2.5, 5.0, 7.5,
-                    10.0,
+                    0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1.0, 2.5, 5.0, 7.5, 10.0,
                 ])
                 .build(),
         }
@@ -59,7 +49,7 @@ impl HttpMetrics {
 /// Bound after `setup_metrics`; no-ops if OTLP was never configured.
 static METRICS: LazyLock<HttpMetrics> = LazyLock::new(HttpMetrics::new);
 
-/// 5xx, plus 408 (our timeout). Other 4xx stay on `requests` by status code.
+/// 5xx, plus 408 (our timeout). Used to mark the span ERROR; metrics use status labels.
 fn is_failed_request(status: u16) -> bool {
     matches!(status, 408 | 500..=599)
 }
@@ -98,9 +88,6 @@ fn record_http_request(method: &str, route: &str, status: u16, elapsed_secs: f64
     ];
     METRICS.requests.add(1, &attrs);
     METRICS.duration.record(elapsed_secs, &attrs);
-    if is_failed_request(status) {
-        METRICS.errors.add(1, &attrs);
-    }
 }
 
 pub async fn tracing_middleware(request: Request, next: Next) -> Response {
