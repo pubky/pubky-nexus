@@ -143,6 +143,8 @@ pub struct PostGraphNode {
     /// First 100 characters of the post content
     pub content: String,
     pub post_kind: String,
+    /// Replies to a parent outside the neighborhood carry no REPLIED edge
+    pub is_reply: bool,
     pub indexed_at: i64,
 }
 
@@ -256,6 +258,7 @@ struct PostRow {
     id: String,
     content: String,
     kind: String,
+    is_reply: bool,
     indexed_at: i64,
 }
 
@@ -269,6 +272,7 @@ struct AuthoredPostRow {
     author_image: Option<String>,
     content: String,
     kind: String,
+    is_reply: bool,
     indexed_at: i64,
 }
 
@@ -282,6 +286,7 @@ struct ParentPostRow {
     author_image: Option<String>,
     content: String,
     kind: String,
+    is_reply: bool,
     indexed_at: i64,
 }
 
@@ -331,6 +336,7 @@ impl GraphBuilder {
                 post_id: post.id,
                 content: post.content,
                 post_kind: post.kind,
+                is_reply: post.is_reply,
                 indexed_at: post.indexed_at,
             }));
         }
@@ -347,6 +353,7 @@ impl GraphBuilder {
                 id: post.id,
                 content: post.content,
                 kind: post.kind,
+                is_reply: post.is_reply,
                 indexed_at: post.indexed_at,
             },
         );
@@ -679,6 +686,7 @@ impl GraphView {
                 author_image: parent.author_image,
                 content: parent.content,
                 kind: parent.kind,
+                is_reply: parent.is_reply,
                 indexed_at: parent.indexed_at,
             });
             builder.edge(&center_id, &parent_gid, edge_type, None);

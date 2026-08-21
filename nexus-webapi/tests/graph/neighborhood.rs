@@ -119,6 +119,10 @@ async fn test_graph_user_depth1_shape() -> Result<()> {
         assert_eq!(post_node["author_id"], ALDERT);
         assert!(post_node["content"].is_string());
         assert!(post_node["indexed_at"].is_number());
+        assert!(
+            post_node["is_reply"].is_boolean(),
+            "post nodes carry is_reply"
+        );
         assert!(has_edge(&res, &center, &post_node_id, "AUTHORED"));
     }
 
@@ -266,11 +270,23 @@ async fn test_graph_post_center() -> Result<()> {
     assert!(has_edge(&res, &author_id, &center_id, "AUTHORED"));
 
     // The 6 fixture replies show up as post nodes with REPLIED edges into the center
-    let reply_edges = edges(&res)
+    let reply_sources: Vec<&str> = edges(&res)
         .iter()
         .filter(|e| e["target"] == center_id.as_str() && e["type"] == "REPLIED")
-        .count();
-    assert_eq!(reply_edges, 6, "expected 6 REPLIED edges");
+        .map(|e| e["source"].as_str().expect("edge source"))
+        .collect();
+    assert_eq!(reply_sources.len(), 6, "expected 6 REPLIED edges");
+
+    // Reply-ness is a node property, so clients can glyph replies whose parent
+    // falls outside the neighborhood (no REPLIED edge to derive it from)
+    assert_eq!(center["is_reply"], false, "the root post is not a reply");
+    for source in reply_sources {
+        let reply = nodes(&res)
+            .iter()
+            .find(|n| n["id"] == source)
+            .unwrap_or_else(|| panic!("missing reply node {source}"));
+        assert_eq!(reply["is_reply"], true, "{source} replies to the center");
+    }
 
     Ok(())
 }

@@ -1279,10 +1279,11 @@ fn user_projection(var: &str) -> String {
 }
 
 /// Braceless Cypher map fields of a post's graph card (content truncated to
-/// 100 chars, with defaults for legacy nodes), so call sites can extend the map.
+/// 100 chars, defaults for legacy nodes, reply-ness as a node flag since the
+/// parent may lie outside the neighborhood), so call sites can extend the map.
 fn post_fields(var: &str) -> String {
     format!(
-        "id: {var}.id, content: left(coalesce({var}.content, ''), 100), kind: coalesce({var}.kind, 'short'), indexed_at: coalesce({var}.indexed_at, 0)"
+        "id: {var}.id, content: left(coalesce({var}.content, ''), 100), kind: coalesce({var}.kind, 'short'), is_reply: EXISTS {{ ({var})-[:REPLIED]->(:Post) }}, indexed_at: coalesce({var}.indexed_at, 0)"
     )
 }
 
