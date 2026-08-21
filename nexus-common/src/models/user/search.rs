@@ -156,7 +156,7 @@ impl UsersByTagSearch {
             &[user_id, label],
             &[&TAG_GLOBAL_USER_TAGGERS[..], &[label]].concat(),
             user_id,
-            Some((&details_key, "$.deleted")),
+            Some((&details_key, "$.deleted", "true")),
         )
         .await
     }

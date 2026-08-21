@@ -644,9 +644,9 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     /// * `source_set_key_parts` - Key parts of the source set whose cardinality becomes the score.
     /// * `sorted_set_key_parts` - Key parts of the destination sorted set (under the `Sorted` prefix).
     /// * `member` - The sorted-set member to write or remove.
-    /// * `removal_guard` - Optional `(json_key, json_path)` that forces removal
-    ///   when the JSON document holds `true` at that path, checked atomically
-    ///   with the write.
+    /// * `removal_guard` - Optional `(json_key, json_path, value)` that forces
+    ///   removal when the JSON document holds `value` at that path, compared by
+    ///   text form (`"true"` for a boolean flag), checked atomically with the write.
     ///
     /// # Errors
     ///
@@ -656,7 +656,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         source_set_key_parts: &[&str],
         sorted_set_key_parts: &[&str],
         member: &str,
-        removal_guard: Option<(&str, &str)>,
+        removal_guard: Option<(&str, &str, &str)>,
     ) -> RedisResult<()> {
         sorted_sets::sync_score_from_set_cardinality(
             source_set_prefix,
