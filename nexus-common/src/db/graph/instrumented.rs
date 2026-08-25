@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 use tracing::warn;
 
 use super::ops::{Graph, GraphOps};
-use super::query::Query;
+use super::query::{Query, TelemetryValue};
 use crate::utils::ms;
 
 /// The OpenTelemetry meter name used by all Neo4j graph metrics.
@@ -41,9 +41,30 @@ struct GraphMetrics {
     slow: Counter<u64>,
 }
 
-/// Returns the single-element attribute slice used for all Neo4j metric recordings.
-fn query_attrs(label: Option<&'static str>) -> [KeyValue; 1] {
-    [KeyValue::new("query", label.unwrap_or("unknown"))]
+/// Builds the shared metric, span, and log attributes: `query=<label>` first,
+/// then the query's telemetry attributes.
+fn build_attrs(query: &Query) -> Vec<KeyValue> {
+    std::iter::once(KeyValue::new("query", query.label()))
+        .chain(
+            query
+                .telemetry_attrs()
+                .iter()
+                .map(|(key, value)| match value {
+                    TelemetryValue::Str(s) => KeyValue::new(*key, *s),
+                    TelemetryValue::Int(i) => KeyValue::new(*key, i64::from(*i)),
+                }),
+        )
+        .collect()
+}
+
+/// `key=value` pairs after the leading `query` attribute, for slow-query logs.
+fn format_attrs(attrs: &[KeyValue]) -> String {
+    attrs
+        .iter()
+        .skip(1)
+        .map(|kv| format!("{}={}", kv.key, kv.value))
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 impl GraphMetrics {
@@ -77,7 +98,7 @@ impl GraphMetrics {
                 .build(),
             requests: meter
                 .u64_counter("neo4j.query.requests")
-                .with_description("Total Neo4j query executions, by query label")
+                .with_description("Total Neo4j query executions")
                 .build(),
             errors: meter
                 .u64_counter("neo4j.query.errors")
@@ -97,7 +118,9 @@ impl GraphMetrics {
 /// records OpenTelemetry metrics when dropped.
 struct InstrumentedStream {
     inner: BoxStream<'static, Result<Row, neo4rs::Error>>,
-    label: Option<&'static str>,
+    label: &'static str,
+    /// Prebuilt metric/span attributes: `query=<label>` + telemetry attributes.
+    attrs: Vec<KeyValue>,
     /// Populated cypher text for debug logging (only set when `slow_query_logging_include_cypher` is enabled).
     cypher: Option<String>,
     /// Pool-acquire + Bolt RUN round-trip (query planning & start of execution).
@@ -114,9 +137,11 @@ struct InstrumentedStream {
 }
 
 impl InstrumentedStream {
+    #[allow(clippy::too_many_arguments)]
     fn new(
         inner: BoxStream<'static, Result<Row, neo4rs::Error>>,
-        label: Option<&'static str>,
+        label: &'static str,
+        attrs: Vec<KeyValue>,
         cypher: Option<String>,
         execute_duration: Duration,
         threshold: Option<Duration>,
@@ -126,6 +151,7 @@ impl InstrumentedStream {
         Self {
             inner,
             label,
+            attrs,
             cypher,
             execute_duration,
             stream_start: Instant::now(),
@@ -158,7 +184,7 @@ impl Drop for InstrumentedStream {
         let fetch_duration = self.stream_start.elapsed();
         let total = self.execute_duration + fetch_duration;
 
-        let attrs: &[KeyValue] = &query_attrs(self.label);
+        let attrs: &[KeyValue] = &self.attrs;
 
         // Always record metrics (no-op when OTLP is not configured).
         self.metrics.requests.add(1, attrs);
@@ -176,18 +202,16 @@ impl Drop for InstrumentedStream {
 
         if is_slow {
             self.metrics.slow.add(1, attrs);
-
-            if let Some(label) = &self.label {
-                warn!(
-                    total_ms = total.as_millis(),
-                    execute_ms = self.execute_duration.as_millis(),
-                    fetch_ms = fetch_duration.as_millis(),
-                    rows = self.row_count,
-                    query = %label,
-                    cypher = self.cypher.as_deref().unwrap_or(""),
-                    "Slow Neo4j query"
-                );
-            }
+            warn!(
+                total_ms = total.as_millis(),
+                execute_ms = self.execute_duration.as_millis(),
+                fetch_ms = fetch_duration.as_millis(),
+                rows = self.row_count,
+                query = %self.label,
+                attrs = %format_attrs(attrs),
+                cypher = self.cypher.as_deref().unwrap_or(""),
+                "Slow Neo4j query"
+            );
         }
 
         // End the OTel span with query timing attributes
@@ -248,22 +272,21 @@ impl<G: GraphOps> InstrumentedGraph<G> {
         &self,
         elapsed: Duration,
         attrs: &[KeyValue],
-        label: Option<&'static str>,
+        label: &'static str,
         cypher: Option<&str>,
         suffix: &'static str,
     ) {
         if let Some(threshold) = self.slow_query_threshold {
             if elapsed > threshold {
                 self.metrics.slow.add(1, attrs);
-                if let Some(lbl) = label {
-                    warn!(
-                        elapsed_ms = elapsed.as_millis(),
-                        query = %lbl,
-                        cypher = cypher.unwrap_or(""),
-                        "Slow Neo4j query{}",
-                        suffix
-                    );
-                }
+                warn!(
+                    elapsed_ms = elapsed.as_millis(),
+                    query = %label,
+                    attrs = %format_attrs(attrs),
+                    cypher = cypher.unwrap_or(""),
+                    "Slow Neo4j query{}",
+                    suffix
+                );
             }
         }
     }
@@ -276,16 +299,19 @@ impl<G: GraphOps> GraphOps for InstrumentedGraph<G> {
         query: Query,
     ) -> neo4rs::Result<BoxStream<'static, Result<Row, neo4rs::Error>>> {
         let label = query.label();
-        let span_name = label.unwrap_or("neo4j.query");
+        let attrs = build_attrs(&query);
         let cypher = self.log_cypher.then(|| query.to_cypher_populated());
 
         // Create an OTel span for this query (child of the current context).
         let tracer = global::tracer(TRACER_NAME);
         let mut span = tracer
-            .span_builder(span_name)
+            .span_builder(label)
             .with_kind(SpanKind::Client)
             .start(&tracer);
         span.set_attribute(KeyValue::new("db.system", "neo4j"));
+        for attr in &attrs {
+            span.set_attribute(attr.clone());
+        }
 
         let start = Instant::now();
         let result = self.inner.execute(query).await;
@@ -299,6 +325,7 @@ impl<G: GraphOps> GraphOps for InstrumentedGraph<G> {
                 let instrumented = InstrumentedStream::new(
                     stream,
                     label,
+                    attrs,
                     cypher,
                     execute_duration,
                     self.slow_query_threshold,
@@ -308,12 +335,13 @@ impl<G: GraphOps> GraphOps for InstrumentedGraph<G> {
                 Ok(instrumented.boxed())
             }
             Err(e) => {
-                let attrs: &[KeyValue] = &query_attrs(label);
+                let attrs: &[KeyValue] = &attrs;
                 self.metrics.requests.add(1, attrs);
                 self.metrics.duration.record(ms(execute_duration), attrs);
                 self.metrics
                     .execute_duration
                     .record(ms(execute_duration), attrs);
+                self.metrics.rows.record(0, attrs);
                 self.metrics.errors.add(1, attrs);
                 span.set_status(Status::error(e.to_string()));
                 span.end();
@@ -332,21 +360,24 @@ impl<G: GraphOps> GraphOps for InstrumentedGraph<G> {
 
     async fn run(&self, query: Query) -> neo4rs::Result<()> {
         let label = query.label();
-        let span_name = label.unwrap_or("neo4j.query");
+        let attrs = build_attrs(&query);
         let cypher = self.log_cypher.then(|| query.to_cypher_populated());
 
         let tracer = global::tracer(TRACER_NAME);
         let mut span = tracer
-            .span_builder(span_name)
+            .span_builder(label)
             .with_kind(SpanKind::Client)
             .start(&tracer);
         span.set_attribute(KeyValue::new("db.system", "neo4j"));
+        for attr in &attrs {
+            span.set_attribute(attr.clone());
+        }
 
         let start = Instant::now();
         let result = self.inner.run(query).await;
         let elapsed = start.elapsed();
 
-        let attrs: &[KeyValue] = &query_attrs(label);
+        let attrs: &[KeyValue] = &attrs;
         self.metrics.requests.add(1, attrs);
         self.metrics.duration.record(ms(elapsed), attrs);
         self.metrics.execute_duration.record(ms(elapsed), attrs);
@@ -382,14 +413,75 @@ mod tests {
         Row::new(fields, data)
     }
 
+    fn test_attrs(label: &'static str) -> Vec<KeyValue> {
+        vec![KeyValue::new("query", label)]
+    }
+
+    // ── build_attrs / format_attrs ──────────────────────────────────
+
+    #[test]
+    fn build_attrs_prepends_query_label_and_converts_values() {
+        let q = Query::new("post_stream", "RETURN 1")
+            .telemetry_attr("source", "wot")
+            .telemetry_attr("depth", 2_u8);
+        let attrs = build_attrs(&q);
+
+        let as_strings: Vec<(String, String)> = attrs
+            .iter()
+            .map(|kv| (kv.key.to_string(), kv.value.to_string()))
+            .collect();
+        assert_eq!(
+            as_strings,
+            vec![
+                ("query".into(), "post_stream".into()),
+                ("source".into(), "wot".into()),
+                ("depth".into(), "2".into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn format_attrs_skips_leading_query() {
+        let attrs = vec![
+            KeyValue::new("query", "post_stream"),
+            KeyValue::new("source", "wot"),
+            KeyValue::new("depth", 2_i64),
+        ];
+        assert_eq!(format_attrs(&attrs), "source=wot depth=2");
+        assert_eq!(format_attrs(&[KeyValue::new("query", "post_stream")]), "");
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn slow_warning_includes_telemetry_attrs() {
+        let q = Query::new("post_stream", "RETURN 1")
+            .telemetry_attr("source", "wot")
+            .telemetry_attr("depth", 2_u8);
+        let ts = InstrumentedStream::new(
+            stream::empty().boxed(),
+            q.label(),
+            build_attrs(&q),
+            None,
+            Duration::ZERO,
+            Some(Duration::ZERO),
+            GraphMetrics::new(),
+            None,
+        );
+        drop(ts);
+
+        assert!(logs_contain("Slow Neo4j query"));
+        assert!(logs_contain("source=wot depth=2"));
+    }
+
     fn make_instrumented_stream(
         inner: BoxStream<'static, Result<Row, neo4rs::Error>>,
-        label: Option<&'static str>,
+        label: &'static str,
         threshold: Option<Duration>,
     ) -> InstrumentedStream {
         InstrumentedStream::new(
             inner,
             label,
+            test_attrs(label),
             None,
             Duration::ZERO,
             threshold,
@@ -404,7 +496,7 @@ mod tests {
     async fn counts_rows_from_inner_stream() {
         let rows = vec![Ok(dummy_row()), Ok(dummy_row()), Ok(dummy_row())];
         let inner = stream::iter(rows).boxed();
-        let mut ts = make_instrumented_stream(inner, Some("test"), Some(Duration::from_secs(100)));
+        let mut ts = make_instrumented_stream(inner, "test", Some(Duration::from_secs(100)));
 
         while ts.next().await.is_some() {}
         assert_eq!(ts.row_count, 3);
@@ -413,7 +505,7 @@ mod tests {
     #[tokio::test]
     async fn empty_stream_yields_none_and_zero_rows() {
         let inner = stream::empty().boxed();
-        let mut ts = make_instrumented_stream(inner, Some("test"), Some(Duration::from_secs(100)));
+        let mut ts = make_instrumented_stream(inner, "test", Some(Duration::from_secs(100)));
         assert!(ts.next().await.is_none());
         assert_eq!(ts.row_count, 0);
     }
@@ -425,7 +517,7 @@ mod tests {
         // Threshold is 0ms — every query is "slow", but all rows must still be returned.
         let rows = vec![Ok(dummy_row()), Ok(dummy_row())];
         let inner = stream::iter(rows).boxed();
-        let mut ts = make_instrumented_stream(inner, Some("slow_q"), Some(Duration::ZERO));
+        let mut ts = make_instrumented_stream(inner, "slow_q", Some(Duration::ZERO));
 
         let mut collected = Vec::new();
         while let Some(item) = ts.next().await {
@@ -442,7 +534,7 @@ mod tests {
     async fn emits_warning_when_threshold_exceeded() {
         let inner = stream::iter(vec![Ok(dummy_row())]).boxed();
         // threshold = 0 → always slow
-        let mut ts = make_instrumented_stream(inner, Some("slow_label"), Some(Duration::ZERO));
+        let mut ts = make_instrumented_stream(inner, "slow_label", Some(Duration::ZERO));
         while ts.next().await.is_some() {}
         drop(ts);
 
@@ -454,18 +546,7 @@ mod tests {
     #[traced_test]
     async fn no_warning_when_under_threshold() {
         let inner = stream::empty().boxed();
-        let ts = make_instrumented_stream(inner, Some("fast_q"), Some(Duration::from_secs(600)));
-        drop(ts);
-
-        assert!(!logs_contain("Slow Neo4j query"));
-    }
-
-    #[tokio::test]
-    #[traced_test]
-    async fn no_warning_when_label_is_none() {
-        let inner = stream::empty().boxed();
-        // threshold = 0 but no label → drop skips logging entirely
-        let ts = make_instrumented_stream(inner, None, Some(Duration::ZERO));
+        let ts = make_instrumented_stream(inner, "fast_q", Some(Duration::from_secs(600)));
         drop(ts);
 
         assert!(!logs_contain("Slow Neo4j query"));
@@ -476,7 +557,8 @@ mod tests {
     async fn warning_includes_cypher_when_set() {
         let ts = InstrumentedStream::new(
             stream::empty().boxed(),
-            Some("cypher_q"),
+            "cypher_q",
+            test_attrs("cypher_q"),
             Some("MATCH (n) RETURN n".into()),
             Duration::ZERO,
             Some(Duration::ZERO),

@@ -73,6 +73,29 @@ pub enum StreamSource {
 }
 
 impl StreamSource {
+    /// Low-cardinality source value and optional WoT depth for telemetry.
+    pub(crate) fn telemetry_dimensions(&self) -> (&'static str, Option<u8>) {
+        match self {
+            StreamSource::PostReplies { .. } => ("post_replies", None),
+            StreamSource::Following { .. } => ("following", None),
+            StreamSource::Followers { .. } => ("followers", None),
+            StreamSource::Friends { .. } => ("friends", None),
+            StreamSource::Bookmarks { .. } => ("bookmarks", None),
+            StreamSource::Author { .. } => ("author", None),
+            StreamSource::AuthorReplies { .. } => ("author_replies", None),
+            StreamSource::Collection { .. } => ("collection", None),
+            StreamSource::Wot { depth, .. } => ("wot", Some(depth.get())),
+            StreamSource::WotDomain { trust, .. } => (
+                "wot_domain",
+                Some(match trust {
+                    DomainTrust::Me => 0,
+                    DomainTrust::Network(depth) => depth.get(),
+                }),
+            ),
+            StreamSource::All => ("all", None),
+        }
+    }
+
     pub fn get_observer(&self) -> Option<&str> {
         match self {
             StreamSource::Followers { observer_id }
