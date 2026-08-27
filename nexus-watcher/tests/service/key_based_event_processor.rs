@@ -15,7 +15,9 @@ use nexus_watcher::errors::{BatchProcessingError, EventProcessorError};
 use nexus_watcher::events::retry::{InitialBackoff, RetryScheduler};
 use nexus_watcher::events::Event;
 use nexus_watcher::events::EventHandler;
-use nexus_watcher::service::indexer::{KeyBasedEventProcessor, RunError, TEventProcessor};
+use nexus_watcher::service::indexer::{
+    KeyBasedEventProcessor, RunError, TEventProcessor, MAX_BATCH_USERS,
+};
 use nexus_watcher::service::runner::UserNotFoundBackoff;
 use nexus_watcher::service::{KeyBasedEventProcessorRunner, TEventProcessorRunner};
 use pubky::{Event as StreamEvent, EventCursor, EventType, Keypair, PubkyResource, PublicKey};
@@ -76,7 +78,10 @@ async fn key_based_processor_skips_unrecognized_events() -> Result<(), DynError>
     assert_eq!(handler.get_handle_count(), 1);
 
     // The processor fetched events only for the hosted user.
-    assert_eq!(source.calls().await, vec![user_id]);
+    let batch_calls = source.batch_calls().await;
+    assert_eq!(batch_calls.len(), 1);
+    assert_eq!(batch_calls[0].users.len(), 1);
+    assert_eq!(batch_calls[0].users[0].0, user_id);
 
     Ok(())
 }
@@ -108,21 +113,26 @@ async fn key_based_processor_rejects_unrecognized_event_for_mismatched_user() ->
     Ok(())
 }
 
+/// Verifies a homeserver event from a user that is not in the requested batch
+/// poisons the entire batch: no handlers run and no cursors advance. In the
+/// batched world both hosted users share one `/events-stream` call, so unlike
+/// the legacy per-user loop, the healthy second user does not "continue" —
+/// the batch is rejected atomically.
 #[tokio_shared_rt::test(shared)]
-async fn key_based_processor_stops_mismatched_user_stream_but_continues_other_users(
-) -> Result<(), DynError> {
+async fn key_based_processor_rejects_batch_on_event_from_unexpected_user() -> Result<(), DynError> {
     setup().await?;
 
-    // Create a homeserver with two hosted users to resolve during the run.
     let (_hs_keypair, homeserver) = create_homeserver().await?;
+    let hs_id = homeserver.id.to_string();
     let user_a_id = create_user_on_homeserver(&homeserver).await?;
     let user_b_id = create_user_on_homeserver(&homeserver).await?;
 
     // This ID is not hosted on the homeserver; it simulates a malicious or broken event source.
     let user_c_id = random_pubky_id().to_string();
 
-    // For the first hosted user, return an event whose URI belongs to a different user.
-    // The following valid event for the same hosted user must not be processed after that mismatch.
+    // The batched fetch returns an event owned by a user not in the batch (C)
+    // plus valid events for both hosted users. The unexpected-owner event
+    // poisons the entire batch at membership-validation time.
     let source = Arc::new(MockKeyBasedEventSource::default().with_user_events(vec![
         (
             user_a_id.clone(),
@@ -131,44 +141,36 @@ async fn key_based_processor_stops_mismatched_user_stream_but_continues_other_us
                 stream_event(2, &user_a_id, "/pub/pubky.app/profile.json")?,
             ],
         ),
-        // For the second hosted user, return a valid event to prove processing continues.
         (
             user_b_id.clone(),
             vec![stream_event(3, &user_b_id, "/pub/pubky.app/profile.json")?],
         ),
     ]));
 
-    // Wire the processor to the user-keyed mock source and handler.
     let handler = create_mock_handler(Ok(()), None);
-    let hs_id = homeserver.id.to_string();
     let processor = processor(homeserver, handler.clone(), source.clone());
 
-    // Run one processing pass. User-level mismatches should be logged and skipped, not fail the run.
-    let result = processor.run().await;
+    processor.run().await?;
 
-    assert!(result.is_ok());
+    // The poisoned batch rejects ALL users: no events are handled anywhere.
+    assert_eq!(handler.get_handle_count(), 0);
 
-    // Both hosted users were fetched from the same homeserver despite the first user's mismatch.
-    let calls = source.calls().await;
-    assert_eq!(calls.len(), 2);
-    assert!(calls.contains(&user_a_id));
-    assert!(calls.contains(&user_b_id));
+    // Both users were requested in one batched call, not two individual ones.
+    let batch_calls = source.batch_calls().await;
+    assert_eq!(batch_calls.len(), 1, "expected one batched call");
+    assert_eq!(batch_calls[0].users.len(), 2);
+    assert!(batch_calls[0]
+        .users
+        .iter()
+        .any(|(user_id, _)| user_id == &user_a_id));
+    assert!(batch_calls[0]
+        .users
+        .iter()
+        .any(|(user_id, _)| user_id == &user_b_id));
 
-    // Only the other user's event was handled; the valid event after the mismatch was skipped.
-    let handled_uris = handler.get_handled_uris();
-    assert_eq!(handled_uris.len(), 1);
-    assert!(handled_uris.iter().all(|uri| !uri.contains(&user_a_id)));
-    assert!(handled_uris.iter().any(|uri| uri.contains(&user_b_id)));
-
-    // The mismatched user's cursor must not be persisted: the bad event is the first in the
-    // batch, so `latest_cursor` is never set and no write to the USER_HS_CURSOR set should occur.
-    let cursor_a =
-        UserDetails::check_sorted_set_member(None, &user_hs_cursor_key(&user_a_id), &[&hs_id])
-            .await?;
-    assert!(
-        cursor_a.is_none(),
-        "user_a cursor must not be advanced past the mismatched event, got {cursor_a:?}",
-    );
+    // Neither user's cursor is persisted — the batch is rejected before any write.
+    assert!(user_cursor(&user_a_id, &hs_id).await?.is_none());
+    assert!(user_cursor(&user_b_id, &hs_id).await?.is_none());
 
     Ok(())
 }
@@ -185,7 +187,7 @@ async fn key_based_processor_returns_ok_without_users() -> Result<(), DynError> 
 
     processor.run().await?;
 
-    assert!(source.calls().await.is_empty());
+    assert!(source.batch_calls().await.is_empty());
     assert_eq!(handler.get_handle_count(), 0);
 
     Ok(())
@@ -214,7 +216,10 @@ async fn key_based_processor_skips_invalid_resolved_user_id() -> Result<(), DynE
 
     processor.run().await?;
 
-    assert_eq!(source.calls().await, vec![valid_user_id]);
+    let batch_calls = source.batch_calls().await;
+    assert_eq!(batch_calls.len(), 1);
+    assert_eq!(batch_calls[0].users.len(), 1);
+    assert_eq!(batch_calls[0].users[0].0, valid_user_id);
     assert_eq!(handler.get_handle_count(), 1);
 
     Ok(())
@@ -239,7 +244,7 @@ async fn key_based_processor_propagates_cursor_read_errors() -> Result<(), DynEr
     let err = processor.run().await.unwrap_err();
 
     assert_internal_index_operation_failed(err);
-    assert!(source.calls().await.is_empty());
+    assert!(source.batch_calls().await.is_empty());
 
     Ok(())
 }
@@ -261,7 +266,10 @@ async fn key_based_processor_passes_stored_cursor_and_limit_to_source() -> Resul
 
     processor.run().await?;
 
-    assert_eq!(source.call_details().await, vec![(user_id, Some(42), 17)]);
+    let batch_calls = source.batch_calls().await;
+    assert_eq!(batch_calls.len(), 1);
+    assert_eq!(batch_calls[0].users, vec![(user_id, Some(42))]);
+    assert_eq!(batch_calls[0].limit, 17);
 
     Ok(())
 }
@@ -347,10 +355,11 @@ async fn key_based_runner_backs_off_homeserver_after_out_of_order_cursor() -> Re
 
     runner.run().await?;
     let target_fetches = source
-        .calls()
+        .batch_calls()
         .await
-        .into_iter()
-        .filter(|called_user| called_user == &user_id)
+        .iter()
+        .flat_map(|call| &call.users)
+        .filter(|(called_user, _)| called_user == &user_id)
         .count();
     assert_eq!(
         target_fetches, 1,
@@ -436,31 +445,51 @@ async fn key_based_processor_rejects_cursor_equal_to_stored() -> Result<(), DynE
     Ok(())
 }
 
-/// Verifies cursor persistence stops at the last safe event before a mismatch.
+/// Verifies cursor persistence advances past an unsupported-path event that is
+/// skipped, in a batched stream.
+/// (The legacy per-user "mismatch stops at last safe cursor" case is covered by
+/// `key_based_processor_rejects_batch_on_event_from_unexpected_user`, since an
+/// event owned by a non-batch user now poisons the whole batch up front.)
 #[tokio_shared_rt::test(shared)]
-async fn key_based_processor_persists_last_safe_cursor_before_mismatch() -> Result<(), DynError> {
+async fn key_based_processor_advances_cursor_past_unsupported_events() -> Result<(), DynError> {
     setup().await?;
 
     let (_hs_keypair, homeserver) = create_homeserver().await?;
     let hs_id = homeserver.id.to_string();
-    let user_id = create_user_on_homeserver(&homeserver).await?;
-    let mismatched_user_id = random_pubky_id().to_string();
-    let source = Arc::new(MockKeyBasedEventSource::default().with_events(vec![vec![
-        stream_event(5, &user_id, "/pub/pubky.app/profile.json")?,
-        stream_event(6, &mismatched_user_id, "/pub/pubky.app/profile.json")?,
-    ]]));
+    let user_a_id = create_user_on_homeserver(&homeserver).await?;
+    let user_b_id = create_user_on_homeserver(&homeserver).await?;
+
+    // B's events include an unsupported path (skipped, but cursor still
+    // advances past it) followed by a valid event. All events are owned by
+    // batch users, so the batch is not poisoned.
+    let source = Arc::new(MockKeyBasedEventSource::default().with_user_events(vec![
+        (
+            user_a_id.clone(),
+            vec![stream_event(1, &user_a_id, "/pub/pubky.app/profile.json")?],
+        ),
+        (
+            user_b_id.clone(),
+            vec![
+                stream_event(2, &user_b_id, "/pub/other.app/ignored.json")?,
+                stream_event(3, &user_b_id, "/pub/pubky.app/profile.json")?,
+            ],
+        ),
+    ]));
     let handler = create_mock_handler(Ok(()), None);
-    let processor = processor(homeserver, handler.clone(), source);
+    let processor = processor(homeserver, handler.clone(), source.clone());
 
     processor.run().await?;
 
-    assert_eq!(handler.get_handle_count(), 1);
-    assert_eq!(user_cursor(&user_id, &hs_id).await?, Some(5));
+    // A handled 1 event (cursor 1); B handled 1 valid event, skipped the
+    // unsupported one, and persisted its cursor at the latest valid event (3).
+    assert_eq!(handler.get_handle_count(), 2);
+    assert_eq!(user_cursor(&user_a_id, &hs_id).await?, Some(1));
+    assert_eq!(user_cursor(&user_b_id, &hs_id).await?, Some(3));
 
     Ok(())
 }
 
-/// Verifies homeserver transport failures abort before fetching subsequent users.
+/// Verifies a homeserver transport failure on the batched fetch aborts the run.
 #[tokio_shared_rt::test(shared)]
 async fn key_based_processor_aborts_on_homeserver_transport_failure() -> Result<(), DynError> {
     setup().await?;
@@ -478,7 +507,10 @@ async fn key_based_processor_aborts_on_homeserver_transport_failure() -> Result<
     let err = processor.run().await.unwrap_err();
 
     assert_internal_homeserver_transport_failed(err);
-    assert_eq!(source.calls().await.len(), 1);
+    // Both users were covered by a single batched fetch, which failed atomically.
+    let batch_calls = source.batch_calls().await;
+    assert_eq!(batch_calls.len(), 1);
+    assert_eq!(batch_calls[0].users.len(), 2);
     assert_eq!(handler.get_handle_count(), 0);
 
     Ok(())
@@ -508,23 +540,37 @@ async fn key_based_processor_continues_after_retryable_client_error() -> Result<
 
     processor.run().await?;
 
-    let calls = source.calls().await;
-    assert_eq!(calls.len(), 2);
-    assert!(calls.contains(&user_a_id));
-    assert!(calls.contains(&user_b_id));
+    let batch_calls = source.batch_calls().await;
+    assert_eq!(batch_calls.len(), 1);
+    assert_eq!(batch_calls[0].users.len(), 2);
+    assert!(batch_calls[0]
+        .users
+        .iter()
+        .any(|(user_id, _)| user_id == &user_a_id));
+    assert!(batch_calls[0]
+        .users
+        .iter()
+        .any(|(user_id, _)| user_id == &user_b_id));
     assert_eq!(handler.get_handle_count(), 2);
 
     Ok(())
 }
 
-/// Verifies retryable fetch errors skip only the affected user.
+/// Verifies a retryable fetch error fails the whole batched fetch: the run
+/// finishes `Ok`, nothing is handled, and no cursors advance. Unlike the legacy
+/// per-user loop, the healthy user is not "skipped to" within the same run —
+/// retrying the batch is the next run's job.
 #[tokio_shared_rt::test(shared)]
-async fn key_based_processor_continues_after_retryable_fetch_error() -> Result<(), DynError> {
+async fn key_based_processor_retryable_fetch_error_fails_whole_batch() -> Result<(), DynError> {
     setup().await?;
 
     let (_hs_keypair, homeserver) = create_homeserver().await?;
+    let hs_id = homeserver.id.to_string();
     let user_a_id = create_user_on_homeserver(&homeserver).await?;
     let user_b_id = create_user_on_homeserver(&homeserver).await?;
+
+    // In the batched world both users share one /events-stream call, so a
+    // fetch failure for one fails the (single) batched fetch for both.
     let source = Arc::new(MockKeyBasedEventSource::default().with_user_results(vec![
         (
             user_a_id.clone(),
@@ -544,11 +590,19 @@ async fn key_based_processor_continues_after_retryable_fetch_error() -> Result<(
 
     processor.run().await?;
 
-    let calls = source.calls().await;
-    assert_eq!(calls.len(), 2);
-    assert!(calls.contains(&user_a_id));
-    assert!(calls.contains(&user_b_id));
-    assert_eq!(handler.get_handle_count(), 1);
+    // Both users were requested in one batched call, which failed atomically.
+    let batch_calls = source.batch_calls().await;
+    assert_eq!(
+        batch_calls.len(),
+        1,
+        "expected one batched call, not per-user fetches"
+    );
+    assert_eq!(batch_calls[0].users.len(), 2);
+
+    // Nothing was handled or persisted from the failed batch.
+    assert_eq!(handler.get_handle_count(), 0);
+    assert!(user_cursor(&user_a_id, &hs_id).await?.is_none());
+    assert!(user_cursor(&user_b_id, &hs_id).await?.is_none());
 
     Ok(())
 }
@@ -574,10 +628,11 @@ async fn key_based_processor_retries_429_fetch_errors_with_backoff() -> Result<(
 
     processor.run().await?;
 
-    assert_eq!(
-        source.calls().await,
-        vec![user_id.clone(), user_id.clone(), user_id]
-    );
+    let batch_calls = source.batch_calls().await;
+    assert_eq!(batch_calls.len(), 3);
+    assert!(batch_calls
+        .iter()
+        .all(|call| call.users.len() == 1 && call.users[0].0 == user_id));
     assert_eq!(handler.get_handle_count(), 1);
 
     Ok(())
@@ -620,42 +675,43 @@ async fn key_based_processor_resets_404_backoff_after_success() -> Result<(), Dy
 
     // Run 1: 404 -> budget 1.
     build().run().await?;
-    assert_eq!(source.calls().await.len(), 1);
+    assert_eq!(source.batch_calls().await.len(), 1);
 
     // Run 2: skipped (budget 1 -> 0).
     build().run().await?;
-    assert_eq!(source.calls().await.len(), 1);
+    assert_eq!(source.batch_calls().await.len(), 1);
 
     // Run 3: 404 -> budget grows to 2.
     build().run().await?;
-    assert_eq!(source.calls().await.len(), 2);
+    assert_eq!(source.batch_calls().await.len(), 2);
 
     // Runs 4 and 5: skipped twice (budget 2 -> 0).
     build().run().await?;
     build().run().await?;
-    assert_eq!(source.calls().await.len(), 2);
+    assert_eq!(source.batch_calls().await.len(), 2);
 
     // Run 6: fetch succeeds, clearing the backoff (and the consecutive-404 count).
     build().run().await?;
-    assert_eq!(source.calls().await.len(), 3);
+    assert_eq!(source.batch_calls().await.len(), 3);
     assert_eq!(handler.get_handle_count(), 1);
 
     // Run 7: a fresh 404. Because success reset the count, the budget is 1, not 3.
     build().run().await?;
-    assert_eq!(source.calls().await.len(), 4);
+    assert_eq!(source.batch_calls().await.len(), 4);
 
     // Run 8: skipped exactly once (budget 1 -> 0), proving the count restarted.
     build().run().await?;
-    assert_eq!(source.calls().await.len(), 4);
+    assert_eq!(source.batch_calls().await.len(), 4);
 
     // Run 9: re-fetched after a single skip.
     build().run().await?;
-    assert_eq!(source.calls().await.len(), 5);
+    assert_eq!(source.batch_calls().await.len(), 5);
 
     Ok(())
 }
 
-/// Verifies exhausted 429 retries abort the homeserver run instead of moving to later users.
+/// Verifies exhausted 429 retries abort the homeserver run instead of continuing
+/// to later batches or users.
 #[tokio_shared_rt::test(shared)]
 async fn key_based_processor_aborts_homeserver_after_exhausted_429_retries() -> Result<(), DynError>
 {
@@ -676,9 +732,14 @@ async fn key_based_processor_aborts_homeserver_after_exhausted_429_retries() -> 
     let err = processor.run().await.unwrap_err();
 
     assert_internal_hs_rate_limit_exhausted(err);
-    let calls = source.calls().await;
-    assert_eq!(calls.len(), 4); // First call + 3 retries with backoff
-    assert!(calls.iter().all(|user_id| user_id == &calls[0]));
+    // The whole batch was retried by the shared 429 backoff, so every call
+    // contains both users: 1 initial fetch + 3 retries.
+    let batch_calls = source.batch_calls().await;
+    assert_eq!(batch_calls.len(), 4); // First call + 3 retries with backoff
+    assert!(
+        batch_calls.iter().all(|call| call.users.len() == 2),
+        "every retry re-fetches the same two-user batch"
+    );
     assert_eq!(handler.get_handle_count(), 0);
 
     Ok(())
@@ -719,6 +780,51 @@ async fn key_based_processor_aborts_and_keeps_cursor_on_not_retry_now_handler_er
     Ok(())
 }
 
+/// Verifies a fatal result does not discard safe progress from users whose
+/// handlers already completed later in the same batch.
+#[tokio_shared_rt::test(shared)]
+async fn key_based_processor_persists_completed_users_before_fatal_batch_error(
+) -> Result<(), DynError> {
+    setup().await?;
+
+    let (_hs_keypair, homeserver) = create_homeserver().await?;
+    let hs_id = homeserver.id.to_string();
+    let user_a_id = create_user_on_homeserver(&homeserver).await?;
+    let user_b_id = create_user_on_homeserver(&homeserver).await?;
+    let source = Arc::new(MockKeyBasedEventSource::default().with_user_events(vec![
+        (
+            user_a_id.clone(),
+            vec![stream_event(1, &user_a_id, "/pub/pubky.app/profile.json")?],
+        ),
+        (
+            user_b_id.clone(),
+            vec![stream_event(1, &user_b_id, "/pub/pubky.app/profile.json")?],
+        ),
+    ]));
+    let handler = Arc::new(FatalOnFirstHandle::default());
+    let processor = processor(homeserver, handler.clone(), source);
+
+    let err = processor.run().await.unwrap_err();
+
+    assert_internal_not_retry_now_index_operation_failed(err);
+    assert_eq!(handler.handle_count(), 2);
+
+    // Graph resolution order is unspecified. Whichever user was processed
+    // first failed and has no safe cursor; the other completed and must retain
+    // cursor 1 even though the batch ultimately returns the fatal error.
+    let cursors = [
+        user_cursor(&user_a_id, &hs_id).await?,
+        user_cursor(&user_b_id, &hs_id).await?,
+    ];
+    assert_eq!(
+        cursors.iter().filter(|cursor| **cursor == Some(1)).count(),
+        1
+    );
+    assert_eq!(cursors.iter().filter(|cursor| cursor.is_none()).count(), 1);
+
+    Ok(())
+}
+
 /// Verifies an already-signaled shutdown exits before fetching any user events.
 #[tokio_shared_rt::test(shared)]
 async fn key_based_processor_does_not_fetch_when_shutdown_is_already_set() -> Result<(), DynError> {
@@ -737,7 +843,7 @@ async fn key_based_processor_does_not_fetch_when_shutdown_is_already_set() -> Re
 
     processor.run().await?;
 
-    assert!(source.calls().await.is_empty());
+    assert!(source.batch_calls().await.is_empty());
     assert_eq!(handler.get_handle_count(), 0);
 
     Ok(())
@@ -775,10 +881,21 @@ async fn key_based_processor_stops_current_and_next_users_after_shutdown() -> Re
 
     processor.run().await?;
 
-    let calls = source.calls().await;
-    assert_eq!(calls.len(), 1);
+    // One batched fetch covered both users; processing then stopped after the
+    // first handled event of the first processed user (graph resolution order),
+    // leaving the other user's stream untouched.
+    let batch_calls = source.batch_calls().await;
+    assert_eq!(batch_calls.len(), 1);
+    assert_eq!(batch_calls[0].users.len(), 2);
     assert_eq!(handler.handle_count(), 1);
-    assert_eq!(user_cursor(&calls[0], &hs_id).await?, Some(1));
+
+    let cursor_a = user_cursor(&user_a_id, &hs_id).await?;
+    let cursor_b = user_cursor(&user_b_id, &hs_id).await?;
+    assert!(
+        cursor_a == Some(1) && cursor_b.is_none()
+            || cursor_b == Some(1) && cursor_a.is_none(),
+        "first processed user keeps its safe cursor 1, second has none: a={cursor_a:?} b={cursor_b:?}"
+    );
 
     Ok(())
 }
@@ -810,7 +927,7 @@ async fn key_based_processor_aborts_blacklisted_homeserver() -> Result<(), DynEr
     let err = processor.run().await.unwrap_err();
 
     assert_internal_homeserver_blacklisted(err);
-    assert!(source.calls().await.is_empty());
+    assert!(source.batch_calls().await.is_empty());
     assert_eq!(handler.get_handle_count(), 0);
 
     Ok(())
@@ -1054,7 +1171,7 @@ async fn key_based_recovery_404_single_user_records_backoff() -> Result<(), DynE
     assert_eq!(fetch.backed_off_users, vec![user_pk.clone()]);
     // Backoff was recorded: the user should be skipped on the next run.
     assert!(backoff.consume_skip(&user_pk).await);
-    assert_eq!(source.calls().await.len(), 1);
+    assert_eq!(source.batch_calls().await.len(), 1);
 
     Ok(())
 }
@@ -1332,6 +1449,158 @@ async fn key_based_recovery_429_exhaustion_aborts_pending_splits() -> Result<(),
     Ok(())
 }
 
+/// Verifies `run_internal` splits more than `MAX_BATCH_USERS` active users
+/// into sequential `/events-stream` chunks of at most that size.
+#[tokio_shared_rt::test(shared)]
+async fn key_based_processor_chunks_users_into_max_batch_size() -> Result<(), DynError> {
+    setup().await?;
+
+    let (_hs_keypair, homeserver) = create_homeserver().await?;
+    let total_users = MAX_BATCH_USERS + 25; // 75 users → chunks of 50 + 25.
+    let mut user_ids = Vec::with_capacity(total_users);
+    for _ in 0..total_users {
+        user_ids.push(create_user_on_homeserver(&homeserver).await?);
+    }
+
+    let source = Arc::new(MockKeyBasedEventSource::default());
+    let handler = create_mock_handler(Ok(()), None);
+    let processor = processor(homeserver, handler, source.clone());
+
+    processor.run().await?;
+
+    // Two batched calls: first chunk of `MAX_BATCH_USERS`, second with the rest.
+    let batch_calls = source.batch_calls().await;
+    assert_eq!(batch_calls.len(), 2, "expected two chunk fetches");
+    assert_eq!(batch_calls[0].users.len(), MAX_BATCH_USERS);
+    assert_eq!(batch_calls[1].users.len(), total_users - MAX_BATCH_USERS);
+
+    // Every resolved user was requested exactly once, across both chunks.
+    let called: Vec<&str> = batch_calls
+        .iter()
+        .flat_map(|call| call.users.iter().map(|(user_id, _)| user_id.as_str()))
+        .collect();
+    assert_eq!(called.len(), total_users);
+    for user_id in &user_ids {
+        assert!(
+            called.contains(&user_id.as_str()),
+            "user {user_id} must appear in exactly one chunk"
+        );
+    }
+
+    Ok(())
+}
+
+/// Verifies a single batched fetch routes each user's events to the handler
+/// and persists every active user's cursor.
+#[tokio_shared_rt::test(shared)]
+async fn key_based_processor_batch_persists_all_user_cursors() -> Result<(), DynError> {
+    setup().await?;
+
+    let (_hs_keypair, homeserver) = create_homeserver().await?;
+    let hs_id = homeserver.id.to_string();
+    let user_a_id = create_user_on_homeserver(&homeserver).await?;
+    let user_b_id = create_user_on_homeserver(&homeserver).await?;
+
+    // One batched call returns interleaved events for both users.
+    let source = Arc::new(MockKeyBasedEventSource::default().with_events(vec![vec![
+        stream_event(1, &user_a_id, "/pub/pubky.app/profile.json")?,
+        stream_event(2, &user_b_id, "/pub/pubky.app/profile.json")?,
+        stream_event(3, &user_a_id, "/pub/pubky.app/profile.json")?,
+        stream_event(4, &user_b_id, "/pub/pubky.app/profile.json")?,
+    ]]));
+    let handler = create_mock_handler(Ok(()), None);
+    let processor = processor(homeserver, handler.clone(), source.clone());
+
+    processor.run().await?;
+
+    // Both users shared exactly one batched fetch.
+    let batch_calls = source.batch_calls().await;
+    assert_eq!(batch_calls.len(), 1);
+    assert_eq!(batch_calls[0].users.len(), 2);
+
+    // All four events were handled, and each user's cursor persisted
+    // independently at their own latest event.
+    assert_eq!(handler.get_handle_count(), 4);
+    assert_eq!(user_cursor(&user_a_id, &hs_id).await?, Some(3));
+    assert_eq!(user_cursor(&user_b_id, &hs_id).await?, Some(4));
+
+    Ok(())
+}
+
+/// Regression test for the `record_success`-wipe trap: a user that 404'd in a
+/// batch was already recorded into the backoff by `fetch_events_with_404_recovery`.
+/// `process_users` must NOT `record_success` for it (which would clear the fresh
+/// skip budget), so the next run must skip the user without re-fetching, while
+/// healthy batch-mates are still fetched and their successes recorded.
+#[tokio_shared_rt::test(shared)]
+async fn key_based_processor_backed_off_user_stays_skipped_next_run() -> Result<(), DynError> {
+    setup().await?;
+
+    let (_hs_keypair, homeserver) = create_homeserver().await?;
+    let hs_id = homeserver.id.clone();
+    let user_a_id = create_user_on_homeserver(&homeserver).await?;
+    let user_b_id = create_user_on_homeserver(&homeserver).await?;
+
+    // Run 1: user A is missing on the HS (404 wherever requested), user B is
+    // valid but has no new events. Keyed fixtures mirror real HS behavior: the
+    // batch 404s, the split isolates [A] which 404s at the leaf, [B] succeeds.
+    let source = Arc::new(MockKeyBasedEventSource::default().with_user_results(vec![
+        (user_a_id.clone(), Err(user_not_found_error())),
+        (user_b_id.clone(), Ok(vec![])),
+    ]));
+    let handler = create_mock_handler(Ok(()), None);
+    let backoff = Arc::new(UserNotFoundBackoff::default());
+    let build = || {
+        processor_with_backoff(
+            Homeserver::new(hs_id.clone()),
+            handler.clone(),
+            source.clone(),
+            backoff.clone(),
+        )
+    };
+
+    build().run().await?;
+
+    let run1_calls = source.batch_calls().await.len();
+    assert!(
+        run1_calls >= 2,
+        "expected split fetches in run 1, got {run1_calls}"
+    );
+
+    // Run 2: user A must be skipped via the backoff (no fetch includes it),
+    // while user B is still fetched (fresh single-user batch this time).
+    // If `process_users` had wrongly called `record_success` for A in run 1
+    // (wiping the skip budget the 404 recovery just recorded), A would be
+    // re-fetched here — this assertion is the actual regression guard.
+    build().run().await?;
+
+    let run2_calls = &source.batch_calls().await[run1_calls..];
+    assert_eq!(run2_calls.len(), 1, "expected exactly one fetch in run 2");
+    assert_eq!(
+        run2_calls[0].users.len(),
+        1,
+        "run 2 must fetch only the healthy user"
+    );
+    assert_eq!(
+        run2_calls[0].users[0].0, user_b_id,
+        "run 2 must fetch user B alone; user A is backed off"
+    );
+
+    // Run 3: the skip budget (1) was consumed exactly once, so A is re-fetched
+    // and 404s again as a single-user batch — proof the budget was exactly the
+    // one recorded in run 1, not wiped by a stray `record_success`.
+    build().run().await?;
+    let run3_calls = &source.batch_calls().await[run1_calls + run2_calls.len()..];
+    assert!(
+        run3_calls
+            .iter()
+            .any(|call| call.users.iter().any(|(id, _)| id == &user_a_id)),
+        "user A re-fetched after exactly one skipped run"
+    );
+
+    Ok(())
+}
+
 async fn create_homeserver() -> Result<(Keypair, Homeserver), DynError> {
     let keypair = Keypair::random();
     let homeserver_id = PubkyId::try_from(keypair.public_key().to_z32().as_str())?;
@@ -1586,10 +1855,36 @@ fn assert_internal_event_cursor_out_of_order(err: RunError) {
     }
 }
 
+/// Test handler that fails fatally on its first event and succeeds thereafter.
+#[derive(Default)]
+struct FatalOnFirstHandle {
+    handle_count: AtomicUsize,
+}
+
+impl FatalOnFirstHandle {
+    fn handle_count(&self) -> usize {
+        self.handle_count.load(Ordering::SeqCst)
+    }
+}
+
+#[async_trait::async_trait]
+impl EventHandler for FatalOnFirstHandle {
+    async fn handle(&self, _event: &Event) -> Result<(), EventProcessorError> {
+        if self.handle_count.fetch_add(1, Ordering::SeqCst) == 0 {
+            return Err(EventProcessorError::IndexOperationFailed(
+                true,
+                "fatal first event".into(),
+            ));
+        }
+
+        Ok(())
+    }
+}
+
 /// Test handler that signals shutdown after handling its first event.
 ///
 /// This lets shutdown-path tests verify that the processor persists the first
-/// safe cursor, stops the current user stream, and does not fetch later users.
+/// safe cursor and does not process later events from the fetched batch.
 struct ShutdownOnFirstHandle {
     shutdown_tx: watch::Sender<bool>,
     handle_count: AtomicUsize,

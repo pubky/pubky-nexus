@@ -4,7 +4,7 @@ mod key_based;
 pub use homeserver::HsEventProcessor;
 pub use key_based::{
     BatchFetchEvents, KeyBasedEventProcessor, KeyBasedEventSource, PubkyKeyBasedEventSource,
-    UserBatchResult,
+    UserBatchResult, MAX_BATCH_USERS,
 };
 
 use std::{fmt::Display, sync::Arc, time::Duration};
