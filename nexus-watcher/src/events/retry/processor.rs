@@ -14,7 +14,7 @@ use super::IndexKey;
 use super::RetryEvent;
 use super::RetryScheduler;
 use crate::events::{DefaultEventHandler, EventHandler};
-use crate::service::indexer::TEventProcessor;
+use crate::service::indexer::{ProcessorResult, RunCompletion, RunContext, TEventProcessor};
 
 /// Maximum number of retry events to fetch per batch to avoid memory spikes
 const RETRY_BATCH_SIZE: usize = 100;
@@ -43,7 +43,7 @@ impl TEventProcessor for RetryProcessor {
         None
     }
 
-    async fn run_internal(self: Arc<Self>) -> Result<(), EventProcessorError> {
+    async fn run_internal(self: Arc<Self>, _context: RunContext) -> ProcessorResult {
         let now = Utc::now().timestamp_millis();
 
         loop {
@@ -51,7 +51,7 @@ impl TEventProcessor for RetryProcessor {
 
             if events.is_empty() {
                 debug!("No more events ready for retry");
-                return Ok(());
+                return Ok(RunCompletion::Completed);
             }
 
             info!("Processing batch of {} retry events", events.len());
@@ -59,7 +59,7 @@ impl TEventProcessor for RetryProcessor {
             for (index_key, retry_event) in events {
                 if *self.shutdown_rx.borrow() {
                     debug!("Shutdown detected; exiting retry processing loop");
-                    return Ok(());
+                    return Ok(RunCompletion::Completed);
                 }
 
                 self.process_retry_event(&index_key, retry_event).await?;

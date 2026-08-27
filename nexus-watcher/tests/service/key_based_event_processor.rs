@@ -15,7 +15,9 @@ use nexus_watcher::errors::EventProcessorError;
 use nexus_watcher::events::retry::{InitialBackoff, RetryScheduler};
 use nexus_watcher::events::Event;
 use nexus_watcher::events::EventHandler;
-use nexus_watcher::service::indexer::{KeyBasedEventProcessor, RunError, TEventProcessor};
+use nexus_watcher::service::indexer::{
+    KeyBasedEventProcessor, RunCompletion, RunContext, RunError, TEventProcessor,
+};
 use nexus_watcher::service::runner::UserNotFoundBackoff;
 use nexus_watcher::service::{KeyBasedEventProcessorRunner, TEventProcessorRunner};
 use pubky::{Event as StreamEvent, EventCursor, EventType, Keypair, PubkyResource, PublicKey};
@@ -769,7 +771,7 @@ async fn key_based_processor_stops_current_and_next_users_after_shutdown() -> Re
         ),
     ]));
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
-    let handler = Arc::new(ShutdownOnFirstHandle::new(shutdown_tx));
+    let handler = Arc::new(SignalOnFirstHandle::new(shutdown_tx));
     let processor =
         processor_with_shutdown(homeserver, handler.clone(), source.clone(), shutdown_rx);
 
@@ -779,6 +781,44 @@ async fn key_based_processor_stops_current_and_next_users_after_shutdown() -> Re
     assert_eq!(calls.len(), 1);
     assert_eq!(handler.handle_count(), 1);
     assert_eq!(user_cursor(&calls[0], &hs_id).await?, Some(1));
+
+    Ok(())
+}
+
+/// Verifies budget exhaustion waits for the current event, persists its cursor,
+/// and stops before another event or user.
+#[tokio_shared_rt::test(shared)]
+async fn key_based_processor_persists_cursor_before_budget_stop() -> Result<(), DynError> {
+    setup().await?;
+
+    let (_hs_keypair, homeserver) = create_homeserver().await?;
+    let hs_id = homeserver.id.to_string();
+    let user_a_id = create_user_on_homeserver(&homeserver).await?;
+    let user_b_id = create_user_on_homeserver(&homeserver).await?;
+    let source = Arc::new(MockKeyBasedEventSource::default().with_user_events(vec![
+        (
+            user_a_id.clone(),
+            vec![
+                stream_event(1, &user_a_id, "/pub/pubky.app/profile.json")?,
+                stream_event(2, &user_a_id, "/pub/pubky.app/profile.json")?,
+            ],
+        ),
+        (
+            user_b_id.clone(),
+            vec![stream_event(1, &user_b_id, "/pub/pubky.app/profile.json")?],
+        ),
+    ]));
+    let (budget_exhaustion_tx, context) = RunContext::with_budget_signal();
+    let handler = Arc::new(SignalOnFirstHandle::new(budget_exhaustion_tx));
+    let processor = processor(homeserver, handler.clone(), source.clone());
+
+    let completion = processor.run_internal(context).await?;
+    let calls = source.calls().await;
+
+    assert_eq!(calls.len(), 1);
+    assert_eq!(handler.handle_count(), 1);
+    assert_eq!(user_cursor(&calls[0], &hs_id).await?, Some(1));
+    assert_eq!(completion, RunCompletion::BudgetExhausted);
 
     Ok(())
 }
@@ -1057,15 +1097,15 @@ fn assert_internal_event_cursor_out_of_order(err: RunError) {
 ///
 /// This lets shutdown-path tests verify that the processor persists the first
 /// safe cursor, stops the current user stream, and does not fetch later users.
-struct ShutdownOnFirstHandle {
-    shutdown_tx: watch::Sender<bool>,
+struct SignalOnFirstHandle {
+    signal_tx: watch::Sender<bool>,
     handle_count: AtomicUsize,
 }
 
-impl ShutdownOnFirstHandle {
-    fn new(shutdown_tx: watch::Sender<bool>) -> Self {
+impl SignalOnFirstHandle {
+    fn new(signal_tx: watch::Sender<bool>) -> Self {
         Self {
-            shutdown_tx,
+            signal_tx,
             handle_count: AtomicUsize::new(0),
         }
     }
@@ -1076,10 +1116,10 @@ impl ShutdownOnFirstHandle {
 }
 
 #[async_trait::async_trait]
-impl EventHandler for ShutdownOnFirstHandle {
+impl EventHandler for SignalOnFirstHandle {
     async fn handle(&self, _event: &Event) -> Result<(), EventProcessorError> {
         if self.handle_count.fetch_add(1, Ordering::SeqCst) == 0 {
-            let _ = self.shutdown_tx.send(true);
+            self.signal_tx.send_replace(true);
         }
 
         Ok(())

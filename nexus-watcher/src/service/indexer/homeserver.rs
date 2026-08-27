@@ -1,4 +1,4 @@
-use super::TEventProcessor;
+use super::{ProcessorResult, RunCompletion, RunContext, TEventProcessor};
 use crate::errors::EventProcessorError;
 use crate::events::retry::RetryScheduler;
 use crate::events::{read_stream_capped, Event, EventHandler, MAX_EVENTS_BODY};
@@ -194,7 +194,7 @@ impl TEventProcessor for HsEventProcessor {
         }
     }
 
-    async fn run_internal(self: Arc<Self>) -> Result<(), EventProcessorError> {
+    async fn run_internal(self: Arc<Self>, _context: RunContext) -> ProcessorResult {
         let maybe_event_lines = self
             .poll_events()
             .await
@@ -208,7 +208,7 @@ impl TEventProcessor for HsEventProcessor {
             }
         }
 
-        Ok(())
+        Ok(RunCompletion::Completed)
     }
 }
 

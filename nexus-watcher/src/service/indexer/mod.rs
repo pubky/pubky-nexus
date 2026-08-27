@@ -1,10 +1,13 @@
 mod homeserver;
 mod key_based;
+mod processor_run;
 
 pub use homeserver::HsEventProcessor;
 pub use key_based::{KeyBasedEventProcessor, KeyBasedEventSource, PubkyKeyBasedEventSource};
+pub use processor_run::{ProcessorResult, RunCompletion, RunContext, RunError, TimeoutPolicy};
 
-use std::{fmt::Display, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
+use tokio::task::JoinHandle;
 
 use crate::errors::EventProcessorError;
 use crate::events::retry::RetryScheduler;
@@ -16,46 +19,52 @@ use tracing::{debug, error, trace, warn, Instrument};
 /// OpenTelemetry meter name shared by all watcher indexer metrics.
 pub(super) const METER_NAME: &str = "nexus.watcher";
 
-/// Possible error types of an event processor run
-#[derive(Debug)]
-pub enum RunError {
-    Internal(EventProcessorError),
-    Panicked,
-    TimedOut,
-}
-
-impl RunError {
-    pub fn is_panic(&self) -> bool {
-        matches!(self, RunError::Panicked)
-    }
-
-    pub fn is_timeout(&self) -> bool {
-        matches!(self, RunError::TimedOut)
-    }
-}
-
-impl std::error::Error for RunError {}
-
-impl Display for RunError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            RunError::Internal(err) => write!(f, "Internal error: {err}"),
-            RunError::Panicked => write!(f, "Execution panicked"),
-            RunError::TimedOut => write!(f, "Execution timed out"),
+fn resolve_processor_task_result(
+    result: Result<ProcessorResult, tokio::task::JoinError>,
+    instance_name: &str,
+    homeserver_id: Option<&str>,
+) -> Result<RunCompletion, RunError> {
+    let homeserver = homeserver_id.map(tracing::field::display);
+    match result {
+        Ok(Ok(completion)) => Ok(completion),
+        Ok(Err(error)) => {
+            error!(
+                service = %instance_name,
+                homeserver,
+                ?error,
+                "Event processor failed"
+            );
+            Err(RunError::Internal(error))
+        }
+        Err(error) => {
+            error!(
+                service = %instance_name,
+                homeserver,
+                ?error,
+                "Event processor task failed"
+            );
+            Err(RunError::Panicked)
         }
     }
 }
 
+async fn force_abort_processor_task(
+    handle: &mut JoinHandle<ProcessorResult>,
+) -> Result<RunCompletion, RunError> {
+    handle.abort();
+    // TODO: Bound this wait and fence unfinished tasks so later processor runs cannot overlap.
+    let _ = handle.await;
+    Err(RunError::TimedOut)
+}
+
 /// Asynchronous event processor interface for the Watcher service.
 ///
-/// This trait represents a component that can process events asynchronously and can be
-/// gracefully shut down through a watch channel.
+/// Processors support watcher-wide shutdown and may also observe a run-scoped
+/// budget through [`RunContext`].
 ///
 /// # Implementation Notes
-/// - Implementors should regularly check the `shutdown_rx` channel for shutdown signals
-///   and terminate gracefully when received
-/// - The method returns an `EventProcessorError` to allow for typed error handling across
-///   different processor implementations
+/// - Check watcher shutdown at safe processing boundaries.
+/// - Processors using cooperative timeouts should also check [`RunContext::is_budget_exhausted`].
 #[async_trait::async_trait]
 pub trait TEventProcessor: Send + Sync + 'static {
     /// Returns the event handler used to process events.
@@ -77,7 +86,7 @@ pub trait TEventProcessor: Send + Sync + 'static {
         None
     }
 
-    async fn run(self: Arc<Self>) -> Result<(), RunError> {
+    async fn run(self: Arc<Self>) -> Result<RunCompletion, RunError> {
         let timeout = self
             .custom_timeout()
             .unwrap_or(Duration::from_secs(PROCESSING_TIMEOUT_SECS));
@@ -85,57 +94,65 @@ pub trait TEventProcessor: Send + Sync + 'static {
         let instance_name = self.instance_name();
         let homeserver_id = self.homeserver_id().map(str::to_owned);
         let homeserver = homeserver_id.as_deref().map(tracing::field::display);
+        let timeout_policy = self.timeout_policy();
+
         let span = tracing::info_span!(
             "event_processor.run",
             service = %instance_name,
             homeserver,
         );
-        let mut handle = tokio::spawn(self.run_internal().instrument(span));
 
-        let join_result = match tokio::time::timeout(timeout, &mut handle).await {
-            Ok(result) => result,
-            Err(_) => {
-                error!(service = %instance_name, homeserver, "Event processor timed out");
-                handle.abort();
-                let _ = handle.await;
-                return Err(RunError::TimedOut);
+        let (budget_exhaustion_tx, context) = RunContext::with_budget_signal();
+        let mut handle = tokio::spawn(self.run_internal(context).instrument(span));
+
+        match tokio::time::timeout(timeout, &mut handle).await {
+            Ok(join_result) => {
+                resolve_processor_task_result(join_result, instance_name, homeserver_id.as_deref())
             }
-        };
+            Err(_) => match timeout_policy {
+                TimeoutPolicy::HardAbort => {
+                    error!(service = %instance_name, homeserver, "Event processor timed out");
+                    force_abort_processor_task(&mut handle).await
+                }
+                TimeoutPolicy::Cooperative { grace } => {
+                    debug!(
+                        service = %instance_name,
+                        homeserver,
+                        ?grace,
+                        "Event processor budget exhausted; requesting cooperative stop"
+                    );
+                    budget_exhaustion_tx.send_replace(true);
 
-        // The JoinError can be:
-        // - join_error.is_panic() => panic by the inner future
-        // - join_error.is_cancelled() => inner future was abruptly interrupted, for example
-        //   - JoinHandle::abort() is called on the handle
-        //   - the Tokio runtime is shut down
-        // Timeout cancellation is handled above. Any JoinError reaching this point is unexpected,
-        // so we treat it as a panic.
-        let run_internal_result = join_result
-            .inspect_err(|je| {
-                error!(
-                    service = %instance_name,
-                    homeserver,
-                    error = ?je,
-                    "Event processor JoinError"
-                )
-            })
-            .map_err(|_| RunError::Panicked)?;
-
-        run_internal_result
-            .inspect_err(|e| {
-                error!(
-                    service = %instance_name,
-                    homeserver,
-                    error = ?e,
-                    "Event processor failed"
-                )
-            })
-            .map_err(RunError::Internal)
+                    match tokio::time::timeout(grace, &mut handle).await {
+                        Ok(join_result) => resolve_processor_task_result(
+                            join_result,
+                            instance_name,
+                            homeserver_id.as_deref(),
+                        ),
+                        Err(_) => {
+                            error!(
+                                service = %instance_name,
+                                homeserver,
+                                ?grace,
+                                "Event processor did not stop within grace period"
+                            );
+                            force_abort_processor_task(&mut handle).await
+                        }
+                    }
+                }
+            },
+        }
     }
 
     /// Runs the event processor asynchronously.
     ///
-    /// Returns `Ok(())` on a clean exit, or `Err(EventProcessorError)` on failure.
-    async fn run_internal(self: Arc<Self>) -> Result<(), EventProcessorError>;
+    /// Returns the completion reason on a clean exit, or an error on failure.
+    async fn run_internal(self: Arc<Self>, context: RunContext) -> ProcessorResult;
+
+    /// Selects immediate hard abort or cooperative cancellation after a timeout.
+    fn timeout_policy(&self) -> TimeoutPolicy {
+        TimeoutPolicy::HardAbort
+    }
 
     /// Optional custom timeout for this event processor.
     ///

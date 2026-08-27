@@ -2,10 +2,11 @@ use crate::service::utils::create_mock_handler;
 use crate::service::utils::{create_mock_event_processors, MockEventProcessorRunner, HS_IDS};
 use anyhow::Result;
 use nexus_common::types::DynError;
-use nexus_watcher::errors::EventProcessorError;
 use nexus_watcher::events::EventHandler;
-use nexus_watcher::service::TEventProcessor;
-use nexus_watcher::service::TEventProcessorRunner;
+use nexus_watcher::service::{
+    ProcessorResult, RunCompletion, RunContext, TEventProcessor, TEventProcessorRunner,
+    TimeoutPolicy,
+};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -53,6 +54,7 @@ async fn processor_run_aborts_spawned_task_on_timeout() -> Result<(), DynError> 
         task_dropped: task_dropped.clone(),
         event_handler: create_mock_handler(Ok(()), None),
         timeout: Duration::from_millis(50),
+        timeout_policy: TimeoutPolicy::HardAbort,
     });
 
     let err = processor.run().await.unwrap_err();
@@ -65,10 +67,43 @@ async fn processor_run_aborts_spawned_task_on_timeout() -> Result<(), DynError> 
     Ok(())
 }
 
+#[tokio_shared_rt::test(shared)]
+async fn processor_run_stops_cooperatively_after_budget_exhaustion() -> Result<(), DynError> {
+    let result = Arc::new(CooperativeProcessor {
+        event_handler: create_mock_handler(Ok(()), None),
+        timeout: Duration::from_millis(50),
+        grace: Duration::from_millis(500),
+    })
+    .run()
+    .await?;
+
+    assert_eq!(result, RunCompletion::BudgetExhausted);
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn processor_run_aborts_after_cooperative_grace_expires() -> Result<(), DynError> {
+    let task_dropped = Arc::new(AtomicBool::new(false));
+    let processor = Arc::new(AbortTrackingProcessor {
+        task_dropped: task_dropped.clone(),
+        event_handler: create_mock_handler(Ok(()), None),
+        timeout: Duration::from_millis(50),
+        timeout_policy: TimeoutPolicy::Cooperative {
+            grace: Duration::from_millis(50),
+        },
+    });
+
+    let err = processor.run().await.unwrap_err();
+    assert!(err.is_timeout(), "expected timeout, got {err:?}");
+    assert!(task_dropped.load(Ordering::SeqCst));
+    Ok(())
+}
+
 struct AbortTrackingProcessor {
     task_dropped: Arc<AtomicBool>,
     event_handler: Arc<dyn EventHandler>,
     timeout: Duration,
+    timeout_policy: TimeoutPolicy,
 }
 
 struct TaskDropGuard(Arc<AtomicBool>);
@@ -93,9 +128,45 @@ impl TEventProcessor for AbortTrackingProcessor {
         Some(self.timeout)
     }
 
-    async fn run_internal(self: Arc<Self>) -> Result<(), EventProcessorError> {
+    fn timeout_policy(&self) -> TimeoutPolicy {
+        self.timeout_policy
+    }
+
+    async fn run_internal(self: Arc<Self>, _context: RunContext) -> ProcessorResult {
         let _guard = TaskDropGuard(self.task_dropped.clone());
         std::future::pending::<()>().await;
-        Ok(())
+        Ok(RunCompletion::Completed)
+    }
+}
+
+struct CooperativeProcessor {
+    event_handler: Arc<dyn EventHandler>,
+    timeout: Duration,
+    grace: Duration,
+}
+
+#[async_trait::async_trait]
+impl TEventProcessor for CooperativeProcessor {
+    fn event_handler(&self) -> &Arc<dyn EventHandler> {
+        &self.event_handler
+    }
+
+    fn instance_name(&self) -> &'static str {
+        "CooperativeProcessor"
+    }
+
+    fn custom_timeout(&self) -> Option<Duration> {
+        Some(self.timeout)
+    }
+
+    fn timeout_policy(&self) -> TimeoutPolicy {
+        TimeoutPolicy::Cooperative { grace: self.grace }
+    }
+
+    async fn run_internal(self: Arc<Self>, context: RunContext) -> ProcessorResult {
+        while !context.is_budget_exhausted() {
+            tokio::task::yield_now().await;
+        }
+        Ok(RunCompletion::BudgetExhausted)
     }
 }

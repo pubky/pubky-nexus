@@ -16,13 +16,14 @@ use tokio::sync::watch::Receiver;
 use tracing::{debug, error, info};
 
 use crate::service::{
-    indexer::{RunError, TEventProcessor},
+    indexer::{RunCompletion, RunError, TEventProcessor},
     stats::{ProcessedStats, ProcessorRunStatus, RunAllProcessorsStats},
 };
 
-pub fn status_from_run_result(result: Result<(), RunError>) -> ProcessorRunStatus {
+pub fn status_from_run_result(result: Result<RunCompletion, RunError>) -> ProcessorRunStatus {
     match result {
-        Ok(_) => ProcessorRunStatus::Ok,
+        Ok(RunCompletion::Completed) => ProcessorRunStatus::Ok,
+        Ok(RunCompletion::BudgetExhausted) => ProcessorRunStatus::BudgetExhausted,
         Err(RunError::Internal(_)) => ProcessorRunStatus::Error,
         Err(RunError::Panicked) => ProcessorRunStatus::Panic,
         Err(RunError::TimedOut) => ProcessorRunStatus::Timeout,
@@ -113,4 +114,23 @@ pub trait TEventProcessorRunner: Send + Sync {
     ///
     /// No-op default implementation. Runners that use backoff should overwrite as needed.
     async fn backoff_hs_record_result(&self, _hs_id: &str, _status: &ProcessorRunStatus) {}
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn budget_completion_maps_to_budget_exhausted_status() {
+        let status = status_from_run_result(Ok(RunCompletion::BudgetExhausted));
+        assert_eq!(status, ProcessorRunStatus::BudgetExhausted);
+    }
+
+    #[test]
+    fn timeout_error_maps_to_timeout_status() {
+        assert_eq!(
+            status_from_run_result(Err(RunError::TimedOut)),
+            ProcessorRunStatus::Timeout
+        );
+    }
 }

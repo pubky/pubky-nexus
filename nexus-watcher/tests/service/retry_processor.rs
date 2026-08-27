@@ -11,7 +11,7 @@ use nexus_watcher::events::retry::{
 };
 use nexus_watcher::events::EventHandler;
 use nexus_watcher::events::EventType;
-use nexus_watcher::service::TEventProcessor;
+use nexus_watcher::service::{RunContext, TEventProcessor};
 use pubky_app_specs::post_uri_builder;
 use std::sync::Arc;
 use tokio::sync::watch;
@@ -113,7 +113,7 @@ async fn test_backoff_first_retry_uses_initial_value() -> Result<()> {
     );
 
     // Process through the public API
-    let _ = processor.run_internal().await;
+    let _ = processor.run_internal(RunContext::inactive()).await;
 
     // Verify event was re-queued with backoff
     let updated_event = store
@@ -172,7 +172,7 @@ async fn test_backoff_exponential_growth() -> Result<()> {
     );
 
     // Process through the public API
-    let _ = processor.run_internal().await;
+    let _ = processor.run_internal(RunContext::inactive()).await;
 
     // Verify event was re-queued with exponential backoff
     let updated_event = store
@@ -237,7 +237,7 @@ async fn test_infrastructure_error_at_max_retries_does_not_dead_letter() -> Resu
     );
 
     // Process through the public API — should_not_retry_now error must NOT dead-letter
-    let result = processor.run_internal().await;
+    let result = processor.run_internal(RunContext::inactive()).await;
     assert!(
         result.is_err(),
         "Should-not-retry-now error should propagate, not dead-letter"
@@ -300,7 +300,7 @@ async fn test_backoff_capped_at_max() -> Result<()> {
     );
 
     // Process through the public API
-    let _ = processor.run_internal().await;
+    let _ = processor.run_internal(RunContext::inactive()).await;
 
     // Verify event was re-queued with capped backoff
     let updated_event = store
@@ -362,7 +362,7 @@ async fn test_retry_success_removes_from_queue() -> Result<()> {
     );
 
     // Process through the public API
-    let _ = processor.run_internal().await;
+    let _ = processor.run_internal(RunContext::inactive()).await;
 
     // Verify event was removed from index after processing
     assert!(
@@ -412,7 +412,7 @@ async fn test_retry_404_removes_from_queue() -> Result<()> {
     );
 
     // Process through the public API
-    let _ = processor.run_internal().await;
+    let _ = processor.run_internal(RunContext::inactive()).await;
 
     // Verify event was removed from index (404 means content is gone)
     assert!(
@@ -466,7 +466,7 @@ async fn test_transient_error_schedules_retry() -> Result<()> {
     );
 
     // Process through the public API - this will propagate the should_not_retry_now error
-    let result = processor.run_internal().await;
+    let result = processor.run_internal(RunContext::inactive()).await;
     assert!(
         result.is_err(),
         "Should-not-retry-now error should propagate"
@@ -537,7 +537,7 @@ async fn test_missing_dependency_schedules_retry() -> Result<()> {
     );
 
     // Process through the public API
-    let _ = processor.run_internal().await;
+    let _ = processor.run_internal(RunContext::inactive()).await;
 
     // Verify event was re-queued with incremented retry_count
     let updated_event = store
@@ -618,7 +618,7 @@ async fn test_dead_letter_after_max_transient_retries() -> Result<()> {
     );
 
     // Process through the public API — event should be dead-lettered
-    let _ = processor.run_internal().await;
+    let _ = processor.run_internal(RunContext::inactive()).await;
 
     // Verify event was removed from index (dead-lettered)
     assert!(
@@ -674,7 +674,7 @@ async fn test_dead_letter_after_max_dependency_retries() -> Result<()> {
     );
 
     // Process through the public API
-    let _ = processor.run_internal().await;
+    let _ = processor.run_internal(RunContext::inactive()).await;
 
     // Verify event was removed from index (dead-lettered)
     assert!(
@@ -780,7 +780,7 @@ async fn test_shutdown_interrupts_batch() -> Result<()> {
     shutdown_tx.send(true)?;
 
     // Run the processor - should return Ok(()) immediately due to shutdown
-    let result: Result<(), EventProcessorError> = processor.run_internal().await;
+    let result = processor.run_internal(RunContext::inactive()).await;
 
     assert!(
         result.is_ok(),
@@ -856,7 +856,7 @@ async fn test_infrastructure_error_stops_batch() -> Result<()> {
     );
 
     // Run the processor - should propagate should_not_retry_now error
-    let result: Result<(), EventProcessorError> = processor.run_internal().await;
+    let result = processor.run_internal(RunContext::inactive()).await;
 
     // Verify the error propagated up
     assert!(
@@ -936,7 +936,7 @@ async fn test_empty_batch_returns_ok() -> Result<()> {
     );
 
     // No events in queue - should return Ok(())
-    let result: Result<(), EventProcessorError> = processor.run_internal().await;
+    let result = processor.run_internal(RunContext::inactive()).await;
     assert!(result.is_ok(), "Empty batch should return Ok(())");
 
     // No events, handler must never be called.
@@ -978,7 +978,7 @@ async fn test_del_event_retry_success() -> Result<()> {
         shutdown_rx,
     );
 
-    let _ = processor.run_internal().await;
+    let _ = processor.run_internal(RunContext::inactive()).await;
 
     // Handler called once for the DEL event.
     assert_eq!(
@@ -1030,7 +1030,7 @@ async fn test_non_retryable_error_removes_event() -> Result<()> {
         shutdown_rx,
     );
 
-    let result = processor.run_internal().await;
+    let result = processor.run_internal(RunContext::inactive()).await;
     assert!(result.is_ok(), "Non-retryable error should not propagate");
 
     // Handler called once for the event before dead-lettering.
@@ -1105,7 +1105,7 @@ async fn test_batch_continues_after_single_failure() -> Result<()> {
         shutdown_rx,
     );
 
-    let result = processor.run_internal().await;
+    let result = processor.run_internal(RunContext::inactive()).await;
     assert!(
         result.is_ok(),
         "Retryable application error must not stop the batch"
@@ -1179,7 +1179,7 @@ async fn test_future_events_not_picked_up() -> Result<()> {
         shutdown_rx,
     );
 
-    let result = processor.run_internal().await;
+    let result = processor.run_internal(RunContext::inactive()).await;
     assert!(result.is_ok(), "Should return Ok when no ready events");
 
     // Handler must never be called — no ready events in the batch.

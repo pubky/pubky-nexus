@@ -17,13 +17,56 @@ use pubky_app_specs::PubkyId;
 use tokio::sync::watch::Receiver;
 use tracing::{debug, error, info, warn};
 
-use super::TEventProcessor;
+use super::{ProcessorResult, RunCompletion, RunContext, TEventProcessor, TimeoutPolicy};
 use crate::events::retry::RetryScheduler;
 use crate::events::EventHandler;
 use crate::service::runner::UserNotFoundBackoff;
 use crate::service::user_hs_resolver;
 
 const FETCH_EVENTS_429_BACKOFF_SECS: [u64; 3] = [1, 2, 3];
+const CURSOR_PERSIST_BACKOFF_MS: [u64; 2] = [100, 250];
+const KEY_BASED_TIMEOUT_GRACE: Duration = Duration::from_secs(10);
+
+/// Controls whether homeserver indexing continues after processing one user.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ProcessingControl {
+    /// Continue with the next user.
+    Continue,
+    /// End the run and report cooperative budget exhaustion.
+    StopOnBudgetExhaustion,
+}
+
+/// Progress from processing one user's events, before cursor persistence.
+struct EventProgress {
+    latest_cursor: Option<u64>,
+    result: Result<ProcessingControl, EventProcessorError>,
+}
+
+impl EventProgress {
+    /// Keep going; persist `latest_cursor` if any.
+    fn continuing(latest_cursor: Option<u64>) -> Self {
+        Self {
+            latest_cursor,
+            result: Ok(ProcessingControl::Continue),
+        }
+    }
+
+    /// Budget exhausted; persist `latest_cursor` if any, then stop.
+    fn stop_on_budget_exhaustion(latest_cursor: Option<u64>) -> Self {
+        Self {
+            latest_cursor,
+            result: Ok(ProcessingControl::StopOnBudgetExhaustion),
+        }
+    }
+
+    /// Handler or validation failed; persist `latest_cursor` if any, then return the error.
+    fn failed(latest_cursor: Option<u64>, error: EventProcessorError) -> Self {
+        Self {
+            latest_cursor,
+            result: Err(error),
+        }
+    }
+}
 
 /// Counter for per-user stream events an External HS returned at or below the
 /// ordering floor — a replay of already-indexed data, or a regression against an
@@ -149,7 +192,13 @@ impl TEventProcessor for KeyBasedEventProcessor {
         Some(Duration::from_mins(8))
     }
 
-    async fn run_internal(self: Arc<Self>) -> Result<(), EventProcessorError> {
+    fn timeout_policy(&self) -> TimeoutPolicy {
+        TimeoutPolicy::Cooperative {
+            grace: KEY_BASED_TIMEOUT_GRACE,
+        }
+    }
+
+    async fn run_internal(self: Arc<Self>, context: RunContext) -> ProcessorResult {
         let hs_id = self.homeserver_id.to_string();
 
         // Blacklisted HSs must never be indexed. The runner already excludes
@@ -168,7 +217,7 @@ impl TEventProcessor for KeyBasedEventProcessor {
 
         if users.is_empty() {
             debug!("No users, skipping");
-            return Ok(());
+            return Ok(RunCompletion::Completed);
         }
 
         info!(user_count = users.len(), "Found users");
@@ -177,6 +226,10 @@ impl TEventProcessor for KeyBasedEventProcessor {
             if *self.shutdown_rx.borrow() {
                 debug!("Shutdown detected; stopping user iteration");
                 break;
+            }
+            if context.is_budget_exhausted() {
+                debug!("Run budget exhausted; stopping user iteration");
+                return Ok(RunCompletion::BudgetExhausted);
             }
             let user_id = user_pk.z32();
 
@@ -190,8 +243,14 @@ impl TEventProcessor for KeyBasedEventProcessor {
                 continue;
             }
 
-            match self.process_user(&hs_pk, user_pk, *cursor).await {
-                Ok(()) => self.user_not_found_backoff.record_success(user_pk).await,
+            match self.process_user(&hs_pk, user_pk, *cursor, &context).await {
+                Ok(control) => {
+                    self.user_not_found_backoff.record_success(user_pk).await;
+
+                    if control == ProcessingControl::StopOnBudgetExhaustion {
+                        return Ok(RunCompletion::BudgetExhausted);
+                    }
+                }
                 Err(err) => {
                     if err.should_not_retry_now() {
                         error!(
@@ -217,7 +276,7 @@ impl TEventProcessor for KeyBasedEventProcessor {
             }
         }
 
-        Ok(())
+        Ok(RunCompletion::Completed)
     }
 }
 
@@ -262,27 +321,65 @@ impl KeyBasedEventProcessor {
         hs_pk: &PublicKey,
         user_pk: &PublicKey,
         cursor: EventCursor,
-    ) -> Result<(), EventProcessorError> {
+        context: &RunContext,
+    ) -> Result<ProcessingControl, EventProcessorError> {
         let hs_id: &str = self.homeserver_id.as_ref();
         let stream_events = self
             .fetch_user_events_with_429_backoff(hs_pk, user_pk, cursor)
             .await?;
 
         let user_id = user_pk.z32();
-        let (latest_cursor, result) = self
-            .process_user_events(hs_id, &user_id, cursor.id(), stream_events)
+        let EventProgress {
+            latest_cursor,
+            result,
+        } = self
+            .process_user_events(hs_id, &user_id, cursor.id(), stream_events, context)
             .await;
 
-        if let Some(cursor_val) = latest_cursor {
-            if let Err(write_err) = UserHsCursor::write(&user_id, hs_id, cursor_val).await {
-                error!(
-                    %user_id, %cursor_val, ?write_err,
-                    "Best-effort cursor persist failed; events may be re-processed on next run",
-                );
-            }
+        if let Some(cursor_to_persist) = latest_cursor {
+            Self::persist_user_cursor(&user_id, hs_id, cursor_to_persist).await?;
         }
 
         result
+    }
+
+    /// Writes the user's homeserver cursor to Redis. On write failure, retries
+    /// with [`CURSOR_PERSIST_BACKOFF_MS`], then returns the last error.
+    async fn persist_user_cursor(
+        user_id: &str,
+        hs_id: &str,
+        cursor: u64,
+    ) -> Result<(), EventProcessorError> {
+        let mut retry_index = 0;
+
+        loop {
+            match UserHsCursor::write(user_id, hs_id, cursor).await {
+                Ok(()) => return Ok(()),
+                Err(error) => {
+                    let Some(&backoff_ms) = CURSOR_PERSIST_BACKOFF_MS.get(retry_index) else {
+                        error!(
+                            %user_id,
+                            %cursor,
+                            attempts = retry_index + 1,
+                            ?error,
+                            "Failed to persist user cursor after retries",
+                        );
+                        return Err(error.into());
+                    };
+
+                    warn!(
+                        %user_id,
+                        %cursor,
+                        attempt = retry_index + 1,
+                        retry_after_ms = backoff_ms,
+                        ?error,
+                        "Failed to persist user cursor; retrying",
+                    );
+                    tokio::time::sleep(Duration::from_millis(backoff_ms)).await;
+                    retry_index += 1;
+                }
+            }
+        }
     }
 
     async fn fetch_user_events_with_429_backoff(
@@ -335,26 +432,32 @@ impl KeyBasedEventProcessor {
         user_id: &str,
         persisted_cursor: u64,
         stream_events: Vec<StreamEvent>,
-    ) -> (Option<u64>, Result<(), EventProcessorError>) {
+        context: &RunContext,
+    ) -> EventProgress {
         if *self.shutdown_rx.borrow() {
             debug!(%user_id, "Shutdown detected; exiting event loop");
-            return (None, Ok(()));
+            return EventProgress::continuing(None);
+        }
+        if context.is_budget_exhausted() {
+            debug!(%user_id, "Run budget exhausted; exiting event loop");
+            return EventProgress::stop_on_budget_exhaustion(None);
         }
 
         let mut cursor_floor = persisted_cursor;
+
         for stream_event in &stream_events {
             let cursor_id = stream_event.cursor.id();
             if cursor_id <= cursor_floor {
                 OUT_OF_ORDER_CURSOR_EXTERNAL_HS
                     .add(1, &[KeyValue::new("hs_id", hs_id.to_string())]);
-                return (
+                return EventProgress::failed(
                     None,
-                    Err(EventProcessorError::EventCursorOutOfOrder {
+                    EventProcessorError::EventCursorOutOfOrder {
                         hs_id: hs_id.into(),
                         user_id: user_id.into(),
                         cursor: cursor_id,
                         cursor_floor,
-                    }),
+                    },
                 );
             }
             cursor_floor = cursor_id;
@@ -367,6 +470,10 @@ impl KeyBasedEventProcessor {
                 debug!(%user_id, "Shutdown detected; exiting event loop");
                 break;
             }
+            if context.is_budget_exhausted() {
+                debug!(%user_id, "Run budget exhausted; exiting event loop");
+                return EventProgress::stop_on_budget_exhaustion(latest_cursor);
+            }
 
             let cursor_id = stream_event.cursor.id();
 
@@ -375,13 +482,13 @@ impl KeyBasedEventProcessor {
             // because a foreign user PK with an unsupported path would
             // return Ok(None) thus skipping but also advancing latest_cursor.
             if let Err(err) = Self::validate_user_id(hs_id, &stream_event, user_id) {
-                return (latest_cursor, Err(err));
+                return EventProgress::failed(latest_cursor, err);
             }
 
             match Event::from_stream_event(&stream_event) {
                 Ok(Some(event)) => {
                     if let Err(err) = self.handle_event(&event).await {
-                        return (latest_cursor, Err(err));
+                        return EventProgress::failed(latest_cursor, err);
                     }
                 }
                 Ok(None) => { /* resource not handled by Nexus, skip */ }
@@ -399,9 +506,14 @@ impl KeyBasedEventProcessor {
             // logged parse errors. UserIdMismatch and handler errors return
             // before this point, so their cursor is not persisted.
             latest_cursor = Some(cursor_id);
+
+            if context.is_budget_exhausted() {
+                debug!(%user_id, %cursor_id, "Run budget exhausted after event");
+                return EventProgress::stop_on_budget_exhaustion(latest_cursor);
+            }
         }
 
-        (latest_cursor, Ok(()))
+        EventProgress::continuing(latest_cursor)
     }
 
     fn validate_user_id(

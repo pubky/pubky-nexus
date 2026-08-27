@@ -4,6 +4,7 @@ use std::time::Duration;
 pub enum ProcessorRunStatus {
     FailedToBuild,
     Ok,
+    BudgetExhausted,
     Error,
     Panic,
     Timeout,
@@ -45,6 +46,11 @@ impl RunAllProcessorsStats {
         self.count(ProcessorRunStatus::Ok)
     }
 
+    /// Number of homeservers that stopped cleanly after using their run budget.
+    pub fn count_budget_exhausted(&self) -> usize {
+        self.count(ProcessorRunStatus::BudgetExhausted)
+    }
+
     /// Number of homeservers where processing failed with Err
     pub fn count_error(&self) -> usize {
         self.count(ProcessorRunStatus::Error)
@@ -73,3 +79,27 @@ impl RunAllProcessorsStats {
 
 /// Wrapper around `RunAllProcessorsStats` which indicates they've been processed
 pub struct ProcessedStats(pub RunAllProcessorsStats);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn budget_exhaustion_is_counted_separately_from_timeout() {
+        let mut stats = RunAllProcessorsStats::default();
+        stats.add_run_result(
+            "budgeted".into(),
+            Duration::ZERO,
+            ProcessorRunStatus::BudgetExhausted,
+        );
+        stats.add_run_result(
+            "timed-out".into(),
+            Duration::ZERO,
+            ProcessorRunStatus::Timeout,
+        );
+
+        assert_eq!(stats.count_budget_exhausted(), 1);
+        assert_eq!(stats.count_timeout(), 1);
+        assert_eq!(stats.count_ok(), 0);
+    }
+}

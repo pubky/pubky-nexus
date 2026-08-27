@@ -7,7 +7,10 @@ pub mod user_hs_resolver;
 
 /// Module exports
 pub use constants::{PROCESSING_TIMEOUT_SECS, WATCHER_CONFIG_FILE_NAME};
-pub use indexer::{HsEventProcessor, KeyBasedEventProcessor, RunError, TEventProcessor};
+pub use indexer::{
+    HsEventProcessor, KeyBasedEventProcessor, ProcessorResult, RunCompletion, RunContext, RunError,
+    TEventProcessor, TimeoutPolicy,
+};
 pub use runner::{HsEventProcessorRunner, KeyBasedEventProcessorRunner, TEventProcessorRunner};
 pub(crate) use task_runner::{run_periodic_tasks, PeriodicTask};
 pub use user_hs_resolver::UserHsResolverRunner;
@@ -131,7 +134,7 @@ impl NexusWatcher {
             }),
             PeriodicTask::new("retry-processor", retry_processor_interval_ms, move || {
                 let processor = retry_processor.clone();
-                async move { processor.run().await.map_err(DynError::from) }
+                async move { processor.run().await.map(|_| ()).map_err(DynError::from) }
             }),
         ];
 

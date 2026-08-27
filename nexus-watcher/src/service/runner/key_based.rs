@@ -112,10 +112,11 @@ impl TEventProcessorRunner for KeyBasedEventProcessorRunner {
 
     async fn backoff_hs_record_result(&self, hs_id: &str, status: &ProcessorRunStatus) {
         let mut backoff = self.backoff.lock().await;
-        if *status == ProcessorRunStatus::Ok {
-            backoff.record_success(hs_id);
-        } else {
-            backoff.record_failure(hs_id);
+        match status {
+            ProcessorRunStatus::Ok | ProcessorRunStatus::BudgetExhausted => {
+                backoff.record_success(hs_id)
+            }
+            _ => backoff.record_failure(hs_id),
         }
     }
 
@@ -128,6 +129,7 @@ impl TEventProcessorRunner for KeyBasedEventProcessorRunner {
         }
 
         let count_ok = stats.count_ok();
+        let count_budget_exhausted = stats.count_budget_exhausted();
         let count_error = stats.count_error();
         let count_panic = stats.count_panic();
         let count_timeout = stats.count_timeout();
@@ -151,12 +153,51 @@ impl TEventProcessorRunner for KeyBasedEventProcessorRunner {
                 hs_skipped = count_skipped,
                 "Key-based indexing finished; some homeservers skipped (backoff)"
             );
-        } else if count_ok == 0 {
+        } else if count_ok == 0 && count_budget_exhausted == 0 {
             info!("Key-based indexing finished: no external homeservers");
         } else {
-            info!(hs_ok = count_ok, "Key-based indexing finished");
+            info!(
+                hs_ok = count_ok,
+                hs_budget_exhausted = count_budget_exhausted,
+                "Key-based indexing finished"
+            );
         }
 
         ProcessedStats(stats)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn runner() -> KeyBasedEventProcessorRunner {
+        let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+        KeyBasedEventProcessorRunner::from_config(&WatcherConfig::default(), shutdown_rx)
+    }
+
+    #[tokio::test]
+    async fn budget_exhaustion_resets_homeserver_backoff() {
+        let runner = runner();
+
+        runner.backoff.lock().await.record_failure("hs1");
+        assert!(runner.backoff.lock().await.should_skip("hs1"));
+
+        runner
+            .backoff_hs_record_result("hs1", &ProcessorRunStatus::BudgetExhausted)
+            .await;
+
+        assert!(!runner.backoff.lock().await.should_skip("hs1"));
+    }
+
+    #[tokio::test]
+    async fn forced_timeout_triggers_homeserver_backoff() {
+        let runner = runner();
+
+        runner
+            .backoff_hs_record_result("hs1", &ProcessorRunStatus::Timeout)
+            .await;
+
+        assert!(runner.backoff.lock().await.should_skip("hs1"));
     }
 }
