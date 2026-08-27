@@ -194,8 +194,8 @@ async fn test_homeserver_post_reply() -> Result<()> {
 }
 
 /// Regression for the `!is_reply` inversion in `PostCounts::get_by_id`
-/// (Greptile P1). The cache-miss code path rebuilds PostCounts from the
-/// graph and writes it back via `put_to_index`. Previously it passed
+/// found during review. The cache-miss code path rebuilds PostCounts from
+/// the graph and writes it back via `put_to_index`. Previously it passed
 /// `!is_reply` (double-negated), so the engagement-gate inside
 /// `put_to_index` (`if !is_reply`) evaluated `true` for replies — adding
 /// the reply to POST_TOTAL_ENGAGEMENT on every cache rebuild after a

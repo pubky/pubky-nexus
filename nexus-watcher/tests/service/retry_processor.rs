@@ -197,7 +197,7 @@ async fn test_backoff_exponential_growth() -> Result<()> {
 
 // ============================================================================
 // Infrastructure error at max_retries does NOT dead-letter
-// This is the key regression test for the P2 Infrastructure bug.
+// This is the key regression test for infrastructure-error handling.
 // Even when retry_count >= max_retries, an error that should not be retried
 // right now must NOT be dead-lettered — it must be re-queued with retry_count
 // unchanged so the event can be retried indefinitely until the infrastructure recovers.
