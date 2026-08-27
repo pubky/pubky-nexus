@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     sync::{Arc, LazyLock},
     time::Duration,
 };
@@ -114,6 +114,16 @@ pub struct UserBatchResult {
     pub result: Result<(), EventProcessorError>,
 }
 
+/// Outcome of [`KeyBasedEventProcessor::fetch_events_with_404_recovery`].
+#[derive(Debug)]
+pub struct BatchFetchEvents {
+    /// Events fetched from the healthy (sub-)batches, in fetch order.
+    pub events: Vec<StreamEvent>,
+    /// Users whose fetch returned 404 and were recorded into
+    /// [`UserNotFoundBackoff`]. Callers must not record success for these users.
+    pub backed_off_users: Vec<PublicKey>,
+}
+
 /// Event processor for third-party (external) HSs, where the user-specific `/events-stream`
 /// endpoint is used
 pub struct KeyBasedEventProcessor {
@@ -214,11 +224,7 @@ impl TEventProcessor for KeyBasedEventProcessor {
                     }
 
                     if err.is_not_found() {
-                        self.user_not_found_backoff.record_failure(user_pk).await;
-                        warn!(
-                            %user_id, action = "skip_user", ?err,
-                            "User event fetch returned 404; backing off this user for future runs",
-                        );
+                        self.record_user_not_found(user_pk, &err).await;
                     } else {
                         error!(
                             %user_id, action = "skip_user", ?err,
@@ -276,8 +282,12 @@ impl KeyBasedEventProcessor {
         cursor: EventCursor,
     ) -> Result<(), EventProcessorError> {
         let hs_id: &str = self.homeserver_id.as_ref();
+        // Single-user fetch: no split is possible, so go through the 429-backoff
+        // layer directly and let any 404 propagate to the caller, which records
+        // the per-user backoff. `fetch_events_with_404_recovery` (with its
+        // leaf-level backoff recording) is reserved for the multi-user path.
         let stream_events = self
-            .fetch_user_events_with_429_backoff(hs_pk, user_pk, cursor)
+            .fetch_batch_events_with_429_backoff(hs_pk, &[(user_pk, Some(cursor))])
             .await?;
 
         let user_id = user_pk.z32();
@@ -356,19 +366,35 @@ impl KeyBasedEventProcessor {
         Ok(results)
     }
 
-    async fn fetch_user_events_with_429_backoff(
+    /// Records a 404 for `user_pk` into the per-user skip backoff and logs it
+    /// with the file's conventional `action = "skip_user"` fields.
+    async fn record_user_not_found(&self, user_pk: &PublicKey, err: &EventProcessorError) {
+        self.user_not_found_backoff.record_failure(user_pk).await;
+        warn!(
+            user_id = %user_pk.z32(), action = "skip_user", ?err,
+            "User event fetch returned 404; backing off this user for future runs",
+        );
+    }
+
+    /// Fetches events for a batch of users, retrying 429s with the internal
+    /// backoff schedule [`FETCH_EVENTS_429_BACKOFF_SECS`].
+    ///
+    /// A persistent 429 exhausts the retries into
+    /// [`EventProcessorError::HsEventsStreamRateLimitExhausted`], which is
+    /// `should_not_retry_now`, so the whole homeserver run aborts and the
+    /// runner applies its own per-HS backoff. Any other error propagates
+    /// immediately without retry.
+    async fn fetch_batch_events_with_429_backoff(
         &self,
         hs_pk: &PublicKey,
-        user_pk: &PublicKey,
-        cursor: EventCursor,
+        users: &[(&PublicKey, Option<EventCursor>)],
     ) -> Result<Vec<StreamEvent>, EventProcessorError> {
-        let user_id = user_pk.z32();
         let mut retry_index = 0;
 
         loop {
             match self
                 .event_source
-                .fetch_events(hs_pk, &[(user_pk, Some(cursor))], self.limit)
+                .fetch_events(hs_pk, users, self.limit)
                 .await
             {
                 Ok(events) => return Ok(events),
@@ -378,8 +404,9 @@ impl KeyBasedEventProcessor {
                     };
 
                     warn!(
-                        %user_id, retry_after_secs = *backoff_secs,
-                        "Homeserver rate-limited user event fetch; retrying",
+                        batch_size = users.len(),
+                        retry_after_secs = *backoff_secs,
+                        "Homeserver rate-limited user batch fetch; retrying",
                     );
 
                     tokio::time::sleep(Duration::from_secs(*backoff_secs)).await;
@@ -388,6 +415,79 @@ impl KeyBasedEventProcessor {
                 Err(err) => return Err(err),
             }
         }
+    }
+
+    /// Fetches events for a batch of users, isolating users the homeserver
+    /// reports as missing (HTTP 404) via recursive-style binary split.
+    ///
+    /// The homeserver answers a multi-user `/events-stream` request with a
+    /// single 404 if **any** requested user is unknown to it, without naming
+    /// the offender. To keep the per-user 404 backoff fair without giving up
+    /// batching, a 404 on a multi-user batch is split in half and each half
+    /// retried independently. Once a 404 surfaces on a single-user leaf, the
+    /// user is recorded via [`Self::record_user_not_found`] and contributes an
+    /// empty event list so the healthy parts of the batch still proceed.
+    ///
+    /// Implemented iteratively with an explicit worklist — equivalent to the
+    /// natural recursion but without pulling in an `async_recursion` macro
+    /// dependency.
+    ///
+    /// Returns the fetched events plus the users that were recorded as 404;
+    /// callers must not record success for the latter.
+    ///
+    /// Non-404 errors propagate immediately. 429 exhaustion inside a
+    /// sub-batch also propagates, aborting the homeserver run.
+    pub async fn fetch_events_with_404_recovery(
+        &self,
+        hs_pk: &PublicKey,
+        users: &[(&PublicKey, Option<EventCursor>)],
+    ) -> Result<BatchFetchEvents, EventProcessorError> {
+        let mut events = Vec::new();
+        let mut backed_off_users = Vec::new();
+        if users.is_empty() {
+            return Ok(BatchFetchEvents {
+                events,
+                backed_off_users,
+            });
+        }
+
+        // Worklist of pending user sub-batches. Items are index ranges into `users`.
+        let mut pending: VecDeque<(usize, usize)> = VecDeque::from([(0, users.len())]);
+
+        while let Some((start, end)) = pending.pop_front() {
+            let batch = &users[start..end];
+
+            match self.fetch_batch_events_with_429_backoff(hs_pk, batch).await {
+                Ok(batch_events) => events.extend(batch_events),
+                Err(err) if err.is_not_found() => {
+                    if batch.len() == 1 {
+                        let (user_pk, _) = batch[0];
+                        self.record_user_not_found(user_pk, &err).await;
+                        // Missing user contributes no events; continue with the rest.
+                        backed_off_users.push((*user_pk).clone());
+                    } else {
+                        let mid = batch.len() / 2;
+                        debug!(
+                            total = batch.len(),
+                            left = mid,
+                            right = batch.len() - mid,
+                            "404 on user batch fetch; binary-splitting to isolate missing user(s)",
+                        );
+                        // Preserve depth-first order so fetches stay roughly in
+                        // the original user order, which is gentler on the HS
+                        // and keeps logs easier to follow.
+                        pending.push_front((start + mid, end));
+                        pending.push_front((start, start + mid));
+                    }
+                }
+                Err(err) => return Err(err),
+            }
+        }
+
+        Ok(BatchFetchEvents {
+            events,
+            backed_off_users,
+        })
     }
 
     /// Processes already-fetched events for a single user stream.
