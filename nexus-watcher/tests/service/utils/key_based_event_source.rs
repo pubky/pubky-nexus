@@ -25,11 +25,13 @@ pub struct MockKeyBasedEventSource {
 
     /// Event batches returned by requested user ID.
     /// Useful when graph user ordering is intentionally not part of the assertion.
+    /// Every keyed user in a fetched batch must have an entry for the fixture
+    /// to apply; events are merged in requested-user order.
     user_events: Mutex<HashMap<String, FetchEventsResult>>,
 
     /// Batches requested from the mock, in fetch order.
     /// Useful for asserting the processor continued to, or stopped before, specific users.
-    calls: Mutex<Vec<FetchCall>>,
+    recorded_batches: Mutex<Vec<FetchCall>>,
 }
 
 impl MockKeyBasedEventSource {
@@ -56,34 +58,9 @@ impl MockKeyBasedEventSource {
         self
     }
 
-    /// Returns the user IDs from all recorded calls, flattened across batches.
-    pub async fn calls(&self) -> Vec<String> {
-        self.calls
-            .lock()
-            .await
-            .iter()
-            .flat_map(|call| call.users.iter().map(|(user_id, _)| user_id.clone()))
-            .collect()
-    }
-
-    /// Returns per-user `(user_id, cursor)` pairs with the batch-wide `limit` from their call, flattened across batches.
-    pub async fn call_details(&self) -> Vec<(String, Option<u64>, u16)> {
-        self.calls
-            .lock()
-            .await
-            .iter()
-            .flat_map(|call| {
-                call.users
-                    .iter()
-                    .map(move |(user_id, cursor)| (user_id.clone(), *cursor, call.limit))
-            })
-            .collect()
-    }
-
     /// Returns the raw batch calls, preserving batch structure.
-    #[allow(dead_code)] // Used in PR 2+ batch tests
     pub async fn batch_calls(&self) -> Vec<FetchCall> {
-        self.calls.lock().await.clone()
+        self.recorded_batches.lock().await.clone()
     }
 }
 
@@ -100,22 +77,38 @@ impl KeyBasedEventSource for MockKeyBasedEventSource {
             .map(|(pk, cursor)| (pk.z32(), cursor.map(|c| c.id())))
             .collect();
 
-        // Extract the single-user ID before moving batch into the call record.
-        let single_user_id = if batch.len() == 1 {
-            Some(batch[0].0.clone())
-        } else {
-            None
-        };
-
-        self.calls.lock().await.push(FetchCall {
-            users: batch,
+        self.recorded_batches.lock().await.push(FetchCall {
+            users: batch.clone(),
             limit,
         });
 
-        // For single-user fetches, check the user-keyed fixtures first.
-        if let Some(user_id) = single_user_id {
-            if let Some(events) = self.user_events.lock().await.remove(&user_id) {
-                return events;
+        // User-keyed fixtures apply when every requested user has an entry.
+        // An error result fails that whole batched fetch *repeatedly* — it is
+        // sticky (not consumed), mirroring a real HS where a missing (404) or
+        // temporarily failing user keeps erroring every sub-batch that still
+        // contains it, until the caller stops requesting the user (e.g. via
+        // the 404 backoff). On success, events are merged in requested-user
+        // order and their entries consumed.
+        if !batch.is_empty() {
+            let mut keyed = self.user_events.lock().await;
+            if batch.iter().all(|(user_id, _)| keyed.contains_key(user_id)) {
+                if let Some(err) = batch
+                    .iter()
+                    .filter_map(|(user_id, _)| keyed[user_id].as_ref().err())
+                    .next()
+                {
+                    return Err(err.clone());
+                }
+
+                let mut events = Vec::new();
+                for (user_id, _) in &batch {
+                    let user_events = keyed
+                        .remove(user_id)
+                        .expect("checked contains_key")
+                        .expect("no errors left");
+                    events.extend(user_events);
+                }
+                return Ok(events);
             }
         }
 
