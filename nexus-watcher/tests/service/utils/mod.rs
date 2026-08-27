@@ -6,7 +6,8 @@ mod result;
 mod setup;
 
 pub use common::{create_mock_handler, new_in_memory_store, TEST_USER_ID};
-pub use key_based_event_source::MockKeyBasedEventSource;
+#[allow(unused_imports)] // Used in PR 2+ batch tests
+pub use key_based_event_source::{FetchCall, MockKeyBasedEventSource};
 pub use processor::{
     create_mock_event_processors, create_random_homeservers_and_persist, MockEventProcessor,
 };

@@ -261,7 +261,7 @@ async fn key_based_processor_passes_stored_cursor_and_limit_to_source() -> Resul
 
     processor.run().await?;
 
-    assert_eq!(source.call_details().await, vec![(user_id, 42, 17)]);
+    assert_eq!(source.call_details().await, vec![(user_id, Some(42), 17)]);
 
     Ok(())
 }
