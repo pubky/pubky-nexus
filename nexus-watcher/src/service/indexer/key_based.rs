@@ -38,11 +38,15 @@ static OUT_OF_ORDER_CURSOR_EXTERNAL_HS: LazyLock<Counter<u64>> = LazyLock::new(|
 
 #[async_trait::async_trait]
 pub trait KeyBasedEventSource: Send + Sync + 'static {
+    /// Fetch events for a batch of users from a homeserver's `/events-stream` endpoint.
+    ///
+    /// - `users` must be non-empty and contain at most 50 entries (SDK-enforced limit).
+    /// - Each user's `Option<EventCursor>` is their individual resume position (`None` = from beginning).
+    /// - `limit` is a batch-wide cap on the total number of events returned across all users.
     async fn fetch_events(
         &self,
         hs_pk: &PublicKey,
-        user_pk: &PublicKey,
-        cursor: EventCursor,
+        users: &[(&PublicKey, Option<EventCursor>)],
         limit: u16,
     ) -> Result<Vec<StreamEvent>, EventProcessorError>;
 }
@@ -54,8 +58,7 @@ impl KeyBasedEventSource for PubkyKeyBasedEventSource {
     async fn fetch_events(
         &self,
         hs_pk: &PublicKey,
-        user_pk: &PublicKey,
-        cursor: EventCursor,
+        users: &[(&PublicKey, Option<EventCursor>)],
         limit: u16,
     ) -> Result<Vec<StreamEvent>, EventProcessorError> {
         let pubky = PubkyConnector::get()?;
@@ -64,7 +67,7 @@ impl KeyBasedEventSource for PubkyKeyBasedEventSource {
         // See rustdoc of EventStreamBuilder::live()
         let mut stream = pubky
             .event_stream_for(hs_pk)
-            .add_users(vec![(user_pk, Some(cursor))])?
+            .add_users(users.iter().copied())?
             .limit(limit)
             .path("/pub/")
             .subscribe()
@@ -84,8 +87,8 @@ impl KeyBasedEventSource for PubkyKeyBasedEventSource {
             // Read at most `limit` events. If the stream still has more, log an error and drop the rest.
             if events.len() >= limit {
                 error!(
-                    %user_pk,
                     %hs_pk,
+                    user_count = users.len(),
                     limit,
                     "Event stream returned more than the requested limit; ignoring the excess"
                 );
@@ -297,7 +300,7 @@ impl KeyBasedEventProcessor {
         loop {
             match self
                 .event_source
-                .fetch_events(hs_pk, user_pk, cursor, self.limit)
+                .fetch_events(hs_pk, &[(user_pk, Some(cursor))], self.limit)
                 .await
             {
                 Ok(events) => return Ok(events),
