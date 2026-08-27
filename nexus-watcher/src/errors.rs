@@ -45,6 +45,16 @@ pub enum EventProcessorError {
         cursor_floor: u64,
     },
 
+    /// An external HS returned an event whose owner is not among the requested
+    /// batch users. The whole batch is rejected before any handler runs.
+    #[error(
+        "HS returned an event for an unexpected user: hs_id={hs_id}, event_user_id={event_user_id}"
+    )]
+    UnexpectedBatchUser {
+        hs_id: String,
+        event_user_id: String,
+    },
+
     /// The event payload deserialized but failed `pubky-app-specs` validation
     /// (e.g. unknown post kind, malformed Collection envelope, oversized field).
     /// Non-retryable: re-running the same payload will produce the same error.

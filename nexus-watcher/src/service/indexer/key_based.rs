@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     sync::{Arc, LazyLock},
     time::Duration,
 };
@@ -104,6 +105,13 @@ impl KeyBasedEventSource for PubkyKeyBasedEventSource {
 
         Ok(events)
     }
+}
+
+/// Result of processing a single user's events within a batch.
+pub struct UserBatchResult {
+    pub user_pk: PublicKey,
+    pub latest_cursor: Option<u64>,
+    pub result: Result<(), EventProcessorError>,
 }
 
 /// Event processor for third-party (external) HSs, where the user-specific `/events-stream`
@@ -287,6 +295,78 @@ impl KeyBasedEventProcessor {
         }
 
         result
+    }
+
+    /// Processes already-fetched events for a batch of users from a single
+    /// merged, interleaved event stream.
+    ///
+    /// The incoming `stream_events` are expected to be ordered by event ID across
+    /// all users in the batch. This function:
+    /// 1. Validates that every event's `resource.owner` is in `users`. An event from
+    ///    an unexpected user causes an immediate [`EventProcessorError::UnexpectedBatchUser`]
+    ///    for every user in the batch without advancing any cursors.
+    /// 2. Partitions events into per-user subsequences, preserving original relative order.
+    /// 3. Validates each user's event subsequence for strict cursor monotonicity
+    ///    against their `persisted_cursor` floor. Any user with an out-of-order cursor
+    ///    gets an [`EventProcessorError::EventCursorOutOfOrder`] and no cursor advance,
+    ///    while other users in the batch continue unaffected.
+    /// 4. Executes handlers per user and tracks the highest successfully processed cursor.
+    ///    If shutdown is signaled, processing stops cleanly and partial progress is returned.
+    pub async fn process_batch_events(
+        &self,
+        users: &[(&PublicKey, u64)],
+        stream_events: Vec<StreamEvent>,
+    ) -> Vec<UserBatchResult> {
+        let hs_id: &str = self.homeserver_id.as_ref();
+
+        // Build a lookup map of requested users and their persisted cursor floors.
+        let mut user_map: HashMap<&PublicKey, Vec<StreamEvent>> =
+            users.iter().map(|(pk, _)| (*pk, Vec::new())).collect();
+
+        // Defensive: duplicate user keys would collide in the partition map.
+        debug_assert_eq!(user_map.len(), users.len(), "duplicate user PKs in batch");
+
+        // 1. Membership validation and partitioning
+        for event in stream_events {
+            let owner = &event.resource.owner;
+            if let Some(user_events) = user_map.get_mut(owner) {
+                user_events.push(event);
+            } else {
+                // Unexpected owner: poison the whole batch — no handlers run, no cursors advance.
+                let event_user_id = owner.z32();
+                return users
+                    .iter()
+                    .map(|(pk, _)| UserBatchResult {
+                        user_pk: (**pk).clone(),
+                        latest_cursor: None,
+                        result: Err(EventProcessorError::UnexpectedBatchUser {
+                            hs_id: hs_id.into(),
+                            event_user_id: event_user_id.clone(),
+                        }),
+                    })
+                    .collect();
+            }
+        }
+
+        // 2. Process each user's partitioned subsequence
+        let mut results = Vec::with_capacity(users.len());
+
+        for (user_pk, persisted_cursor) in users {
+            let user_id = user_pk.z32();
+            let events = user_map.remove(user_pk).unwrap_or_default();
+
+            let (latest_cursor, result) = self
+                .process_user_events(hs_id, &user_id, *persisted_cursor, events)
+                .await;
+
+            results.push(UserBatchResult {
+                user_pk: (**user_pk).clone(),
+                latest_cursor,
+                result,
+            });
+        }
+
+        results
     }
 
     async fn fetch_user_events_with_429_backoff(
