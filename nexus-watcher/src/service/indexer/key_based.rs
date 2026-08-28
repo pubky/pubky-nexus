@@ -366,16 +366,6 @@ impl KeyBasedEventProcessor {
         Ok(results)
     }
 
-    /// Records a 404 for `user_pk` into the per-user skip backoff and logs it
-    /// with the file's conventional `action = "skip_user"` fields.
-    async fn record_user_not_found(&self, user_pk: &PublicKey, err: &EventProcessorError) {
-        self.user_not_found_backoff.record_failure(user_pk).await;
-        warn!(
-            user_id = %user_pk.z32(), action = "skip_user", ?err,
-            "User event fetch returned 404; backing off this user for future runs",
-        );
-    }
-
     /// Fetches events for a batch of users, retrying 429s with the internal
     /// backoff schedule [`FETCH_EVENTS_429_BACKOFF_SECS`].
     ///
