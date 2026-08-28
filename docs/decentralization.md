@@ -66,9 +66,8 @@ more lag between an event being published and indexed.
 The core of decentralization. Driven by `KeyBasedEventProcessorRunner`, which
 indexes users hosted on **third-party** HSs — any HS other than the primary
 (also called "external" or "secondary"). For every monitored HS *except* the
-primary, it pulls each hosted user's events per user from the HS `/events-stream`
-endpoint (hence "key-based" — keyed on each user's pubky). Configured in
-`KeyBasedEventProcessorRunner::from_config`.
+primary, it pulls hosted users' events from the HS `/events-stream` endpoint,
+keyed on their pubkys. Configured in `KeyBasedEventProcessorRunner::from_config`.
 
 ### `monitored_homeservers_limit`
 
@@ -91,13 +90,10 @@ many HSs, so this is often set larger than `primary_hs_monitoring_interval_ms`.
 
 ### `key_based_events_limit`
 
-> Maximum events **per user, per run** when pulling from third-party HSs.
+> Maximum events per `/events-stream` request when pulling from third-party
+> HSs, independent of how many users that request includes.
 
 Validated at deserialize time (`deserialize_key_based_events_limit`).
-
-*Why the ceiling is lower than `events_limit`:* this limit is *per user*, not
-*per HS*. A run may touch many users across many HSs, so the per-user batch is
-kept small to bound total work and per-HS request size.
 
 ### `initial_backoff_secs` / `max_backoff_secs` — offline-HS backoff
 
@@ -226,7 +222,7 @@ avoid hammering an HS for content that may not exist yet.
 | `primary_hs_monitoring_interval_ms` | `[watcher]` | `u64` ms | `5000` |
 | `external_hs_monitoring_interval_ms` | `[watcher]` | `u64` ms | `5000` |
 | `monitored_homeservers_limit` | `[watcher]` | `usize` | `50` |
-| `key_based_events_limit` | `[watcher]` | `u16` | `50` (max `100`) |
+| `key_based_events_limit` | `[watcher]` | `u16` | `500` (max `1000`) |
 | `initial_backoff_secs` | `[watcher]` | `u64` s | `60` |
 | `max_backoff_secs` | `[watcher]` | `u64` s | `3600` |
 | `hs_resolver_interval_ms` | `[watcher]` | `u64` ms | `10000` |
