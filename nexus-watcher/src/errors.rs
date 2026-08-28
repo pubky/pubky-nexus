@@ -6,6 +6,23 @@ use nexus_common::db::{GraphError, PubkyClientError};
 use nexus_common::models::error::ModelError;
 use thiserror::Error;
 
+/// Batch-level failures caused by invalid external homeserver output.
+///
+/// Every variant rejects the batch atomically and is treated as a homeserver-level
+/// failure by [`EventProcessorError::should_not_retry_now`].
+#[derive(Error, Debug, Clone)]
+pub enum BatchProcessingError {
+    /// An external HS returned an event whose owner is not among the requested
+    /// batch users. The whole batch is rejected before any handler runs.
+    #[error(
+        "HS returned an event for an unexpected user: hs_id={hs_id}, event_user_id={event_user_id}"
+    )]
+    UnexpectedBatchUser {
+        hs_id: String,
+        event_user_id: String,
+    },
+}
+
 #[derive(Error, Debug, Clone)]
 pub enum EventProcessorError {
     /// Failed to execute query in the graph database
@@ -45,15 +62,9 @@ pub enum EventProcessorError {
         cursor_floor: u64,
     },
 
-    /// An external HS returned an event whose owner is not among the requested
-    /// batch users. The whole batch is rejected before any handler runs.
-    #[error(
-        "HS returned an event for an unexpected user: hs_id={hs_id}, event_user_id={event_user_id}"
-    )]
-    UnexpectedBatchUser {
-        hs_id: String,
-        event_user_id: String,
-    },
+    /// Processing a homeserver batch failed atomically.
+    #[error("BatchProcessingError: {0}")]
+    BatchProcessingError(#[from] BatchProcessingError),
 
     /// The event payload deserialized but failed `pubky-app-specs` validation
     /// (e.g. unknown post kind, malformed Collection envelope, oversized field).
@@ -206,6 +217,7 @@ impl EventProcessorError {
                 // has a temporary glitch or is malicious. Including it here to
                 // abort this run and let the runner apply per-HS backoff.
                 | Self::EventCursorOutOfOrder { .. }
+                | Self::BatchProcessingError(_)
         )
     }
 
