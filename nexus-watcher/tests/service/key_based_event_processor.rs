@@ -105,7 +105,11 @@ async fn key_based_processor_rejects_unrecognized_event_for_mismatched_user() ->
     let handler = create_mock_handler(Ok(()), None);
     let processor = processor(homeserver, handler.clone(), source);
 
-    processor.run().await?;
+    let err = processor
+        .run()
+        .await
+        .expect_err("an event from an unrequested user must abort the homeserver run");
+    assert_internal_unexpected_batch_user(err);
 
     assert_eq!(handler.get_handle_count(), 0);
     assert_eq!(user_cursor(&user_id, &hs_id).await?, Some(10));
@@ -150,7 +154,11 @@ async fn key_based_processor_rejects_batch_on_event_from_unexpected_user() -> Re
     let handler = create_mock_handler(Ok(()), None);
     let processor = processor(homeserver, handler.clone(), source.clone());
 
-    processor.run().await?;
+    let err = processor
+        .run()
+        .await
+        .expect_err("an unexpected batch user must abort the homeserver run");
+    assert_internal_unexpected_batch_user(err);
 
     // The poisoned batch rejects ALL users: no events are handled anywhere.
     assert_eq!(handler.get_handle_count(), 0);
@@ -169,6 +177,66 @@ async fn key_based_processor_rejects_batch_on_event_from_unexpected_user() -> Re
         .any(|(user_id, _)| user_id == &user_b_id));
 
     // Neither user's cursor is persisted — the batch is rejected before any write.
+    assert!(user_cursor(&user_a_id, &hs_id).await?.is_none());
+    assert!(user_cursor(&user_b_id, &hs_id).await?.is_none());
+
+    Ok(())
+}
+
+/// Verifies an unexpected batch user backs off the whole external homeserver,
+/// so the next runner pass skips it instead of fetching the malformed stream again.
+#[tokio_shared_rt::test(shared)]
+async fn key_based_runner_backs_off_homeserver_after_unexpected_batch_user() -> Result<(), DynError>
+{
+    setup().await?;
+
+    let (_hs_keypair, hs) = create_homeserver().await?;
+    let hs_id = hs.id.to_string();
+    let user_a_id = create_user_on_homeserver(&hs).await?;
+    let user_b_id = create_user_on_homeserver(&hs).await?;
+    let unexpected_user_id = random_pubky_id().to_string();
+    let source = Arc::new(MockKeyBasedEventSource::default().with_user_events(vec![
+        (
+            user_a_id.clone(),
+            vec![stream_event(
+                1,
+                &unexpected_user_id,
+                "/pub/pubky.app/profile.json",
+            )?],
+        ),
+        (user_b_id.clone(), vec![]),
+    ]));
+    let mut runner = KeyBasedEventProcessorRunner::from_config(
+        &WatcherConfig::default(),
+        watch::channel(false).1,
+    );
+    runner.monitored_hs_limit = usize::MAX;
+    let handler = create_mock_handler(Ok(()), None);
+    runner.event_handler = handler.clone();
+    runner.event_source = source.clone();
+    runner.primary_homeserver = random_pubky_id();
+
+    runner.run().await?;
+    assert!(runner.backoff.lock().await.should_skip(&hs_id));
+
+    runner.run().await?;
+    let target_fetches = source
+        .batch_calls()
+        .await
+        .iter()
+        .filter(|call| {
+            call.users
+                .iter()
+                .any(|(called_user, _)| called_user == &user_a_id)
+        })
+        .count();
+    assert_eq!(
+        target_fetches, 1,
+        "backed-off homeserver must not be fetched again"
+    );
+
+    // Both hosted users shared the rejected batch, and neither was handled or advanced.
+    assert_eq!(handler.get_handle_count(), 0);
     assert!(user_cursor(&user_a_id, &hs_id).await?.is_none());
     assert!(user_cursor(&user_b_id, &hs_id).await?.is_none());
 
@@ -1852,6 +1920,15 @@ fn assert_internal_event_cursor_out_of_order(err: RunError) {
     match err {
         RunError::Internal(EventProcessorError::EventCursorOutOfOrder { .. }) => {}
         other => panic!("expected internal EventCursorOutOfOrder error, got {other:?}"),
+    }
+}
+
+fn assert_internal_unexpected_batch_user(err: RunError) {
+    match err {
+        RunError::Internal(EventProcessorError::BatchProcessingError(
+            BatchProcessingError::UnexpectedBatchUser { .. },
+        )) => {}
+        other => panic!("expected internal UnexpectedBatchUser error, got {other:?}"),
     }
 }
 
