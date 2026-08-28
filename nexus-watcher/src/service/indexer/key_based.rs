@@ -274,6 +274,8 @@ impl KeyBasedEventProcessor {
     ///   those users into the per-user backoff).
     /// - Fan-outs the interleaved events to per-user handlers via
     ///   [`Self::process_batch_events`], persisting each user's cursor.
+    /// - Propagates batch-atomic validation errors before per-user bookkeeping;
+    ///   these errors are detected before any handler or cursor write runs.
     /// - Records `record_success` for users that completed without fatal error,
     ///   clearing any stale 404 backoff.
     /// - After recording every user's safe progress, propagates the first
@@ -299,7 +301,9 @@ impl KeyBasedEventProcessor {
         // `process_batch_events`, keeping references into `users` alive.
         let batch_users: Vec<(&PublicKey, u64)> =
             users.iter().map(|(pk, cursor)| (pk, cursor.id())).collect();
-        let batch_results = self.process_batch_events(&batch_users, fetch.events).await;
+        let batch_results = self
+            .process_batch_events(&batch_users, fetch.events)
+            .await?;
 
         // Users whose fetch 404'd were already recorded into the backoff by
         // `fetch_events_with_404_recovery`; do NOT record success for them, or
@@ -610,8 +614,8 @@ impl KeyBasedEventProcessor {
             // Defense-in-depth: after batch partitioning, events reach
             // this check only via process_batch_events' owner-keyed buckets,
             // so `owner == user_id` holds by construction — a foreign owner is
-            // already rejected as `UnexpectedBatchUser`. The check stays
-            // deliberately (from the #997 hardening) as the last-resort guard
+            // already rejected as `BatchProcessingError::UnexpectedBatchUser`.
+            // The check stays deliberately (from the #997 hardening) as the last-resort guard
             // against a foreign-user event silently advancing the cursor via
             // the unsupported-path skip, before [Event::from_stream_event].
             if let Err(err) = Self::validate_user_id(hs_id, &stream_event, user_id) {
