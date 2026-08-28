@@ -42,7 +42,8 @@ pub trait KeyBasedEventSource: Send + Sync + 'static {
     ///
     /// - `users` must be non-empty and contain at most 50 entries (SDK-enforced limit).
     /// - Each user's `Option<EventCursor>` is their individual resume position (`None` = from beginning).
-    /// - `limit` is a batch-wide cap on the total number of events returned across all users.
+    /// - `limit` caps the total events returned across all users in this
+    ///   individual `/events-stream` request.
     async fn fetch_events(
         &self,
         hs_pk: &PublicKey,
@@ -111,8 +112,8 @@ pub struct KeyBasedEventProcessor {
     /// The HS endpoint this processor fetches events from
     pub homeserver_id: PubkyId,
 
-    /// Max events the homeserver will send before closing the stream.
-    /// Bounds execution time per user, preventing timeout and starvation.
+    /// Max events requested from the homeserver for each `/events-stream`
+    /// request. Recovery sub-batches reuse this limit even for one user.
     pub limit: u16,
 
     pub event_handler: Arc<dyn EventHandler>,

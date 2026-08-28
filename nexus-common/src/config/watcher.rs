@@ -31,7 +31,7 @@ pub const DEFAULT_MAX_BACKOFF_SECS: u64 = 3_600;
 /// Extra-safety check: Upper bound for [WatcherConfig::events_limit]
 pub const MAX_EVENTS_LIMIT: u16 = 1_000;
 /// Extra-safety check: Upper bound for [WatcherConfig::key_based_events_limit]
-pub const MAX_KEY_BASED_EVENTS_LIMIT: u16 = 100;
+pub const MAX_KEY_BASED_EVENTS_LIMIT: u16 = 1_000;
 /// Default for [WatcherConfig::max_file_size] — 50 MiB
 pub const DEFAULT_MAX_FILE_SIZE: u64 = 50 * 1024 * 1024;
 
@@ -103,7 +103,8 @@ pub struct WatcherConfig {
     #[serde(deserialize_with = "deserialize_events_limit")]
     pub events_limit: u16,
 
-    /// Maximum events per user per run for key-based (external) homeservers.
+    /// Maximum events per `/events-stream` request for key-based (external)
+    /// homeservers, independent of how many users that request includes.
     /// Must not exceed [MAX_KEY_BASED_EVENTS_LIMIT].
     #[serde(
         default = "default_key_based_events_limit",
