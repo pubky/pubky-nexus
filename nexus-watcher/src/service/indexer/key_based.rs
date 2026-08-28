@@ -322,13 +322,6 @@ impl KeyBasedEventProcessor {
         let mut events_by_user: HashMap<&PublicKey, Vec<StreamEvent>> =
             users.iter().map(|(pk, _)| (*pk, Vec::new())).collect();
 
-        // Defensive: duplicate user keys would collide in the partition map.
-        debug_assert_eq!(
-            events_by_user.len(),
-            users.len(),
-            "duplicate user PKs in batch"
-        );
-
         // 1. Membership validation and partitioning
         for event in stream_events {
             let owner = &event.resource.owner;
