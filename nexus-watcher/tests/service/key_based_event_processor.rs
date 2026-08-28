@@ -11,7 +11,7 @@ use nexus_common::models::user::{set_user_homeserver, user_hs_cursor_key, UserDe
 use nexus_common::types::DynError;
 use nexus_common::utils::test_utils::random_pubky_id;
 use nexus_common::WatcherConfig;
-use nexus_watcher::errors::EventProcessorError;
+use nexus_watcher::errors::{BatchProcessingError, EventProcessorError};
 use nexus_watcher::events::retry::{InitialBackoff, RetryScheduler};
 use nexus_watcher::events::Event;
 use nexus_watcher::events::EventHandler;
@@ -849,7 +849,9 @@ async fn key_based_batch_routes_interleaved_events_to_correct_users() -> Result<
 
     let users = [(&user_a_pk, 0), (&user_b_pk, 0), (&user_c_pk, 0)];
 
-    let results = processor.process_batch_events(&users, stream_events).await;
+    let results = processor
+        .process_batch_events(&users, stream_events)
+        .await?;
 
     assert_eq!(results.len(), 3);
 
@@ -902,16 +904,16 @@ async fn key_based_batch_rejects_unexpected_user_in_stream() -> Result<(), DynEr
 
     let users = [(&user_a_pk, 0), (&user_b_pk, 0)];
 
-    let results = processor.process_batch_events(&users, stream_events).await;
-
-    assert_eq!(results.len(), 2);
-    for res in results {
-        assert_eq!(res.latest_cursor, None);
-        match res.result {
-            Err(EventProcessorError::UnexpectedBatchUser { .. }) => {}
-            other => panic!("expected UnexpectedBatchUser, got {other:?}"),
-        }
-    }
+    let batch_err = match processor.process_batch_events(&users, stream_events).await {
+        Err(err @ BatchProcessingError::UnexpectedBatchUser { .. }) => err,
+        Ok(_) => panic!("expected UnexpectedBatchUser"),
+    };
+    let processor_err = EventProcessorError::from(batch_err);
+    assert!(matches!(
+        &processor_err,
+        EventProcessorError::BatchProcessingError(BatchProcessingError::UnexpectedBatchUser { .. })
+    ));
+    assert!(processor_err.should_not_retry_now());
 
     assert_eq!(handler.get_handle_count(), 0);
 
@@ -949,7 +951,9 @@ async fn key_based_batch_isolates_out_of_order_cursor_per_user() -> Result<(), D
 
     let users = [(&user_a_pk, 0), (&user_b_pk, 0)];
 
-    let results = processor.process_batch_events(&users, stream_events).await;
+    let results = processor
+        .process_batch_events(&users, stream_events)
+        .await?;
 
     assert_eq!(results.len(), 2);
 
@@ -1002,7 +1006,9 @@ async fn key_based_batch_preserves_partial_progress_on_shutdown() -> Result<(), 
 
     let users = [(&user_a_pk, 0), (&user_b_pk, 0)];
 
-    let results = processor.process_batch_events(&users, stream_events).await;
+    let results = processor
+        .process_batch_events(&users, stream_events)
+        .await?;
 
     assert_eq!(results.len(), 2);
 

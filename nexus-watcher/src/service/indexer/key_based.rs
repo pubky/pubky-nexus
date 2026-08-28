@@ -4,7 +4,7 @@ use std::{
     time::Duration,
 };
 
-use crate::errors::EventProcessorError;
+use crate::errors::{BatchProcessingError, EventProcessorError};
 use crate::events::Event;
 use futures::StreamExt;
 use nexus_common::db::PubkyConnector;
@@ -303,8 +303,8 @@ impl KeyBasedEventProcessor {
     /// The incoming `stream_events` are expected to be ordered by event ID across
     /// all users in the batch. This function:
     /// 1. Validates that every event's `resource.owner` is in `users`. An event from
-    ///    an unexpected user causes an immediate [`EventProcessorError::UnexpectedBatchUser`]
-    ///    for every user in the batch without advancing any cursors.
+    ///    an unexpected user rejects the whole batch with
+    ///    [`BatchProcessingError::UnexpectedBatchUser`] before any cursor advances.
     /// 2. Partitions events into per-user subsequences, preserving original relative order.
     /// 3. Validates each user's event subsequence for strict cursor monotonicity
     ///    against their `persisted_cursor` floor. Any user with an out-of-order cursor
@@ -316,7 +316,7 @@ impl KeyBasedEventProcessor {
         &self,
         users: &[(&PublicKey, u64)],
         stream_events: Vec<StreamEvent>,
-    ) -> Vec<UserBatchResult> {
+    ) -> Result<Vec<UserBatchResult>, BatchProcessingError> {
         let hs_id: &str = self.homeserver_id.as_ref();
 
         let mut events_by_user: HashMap<&PublicKey, Vec<StreamEvent>> =
@@ -328,7 +328,10 @@ impl KeyBasedEventProcessor {
             if let Some(user_events) = events_by_user.get_mut(owner) {
                 user_events.push(event);
             } else {
-                return self.unexpected_user_results(users, owner);
+                return Err(BatchProcessingError::UnexpectedBatchUser {
+                    hs_id: self.homeserver_id.to_string(),
+                    event_user_id: owner.z32(),
+                });
             }
         }
 
@@ -350,36 +353,7 @@ impl KeyBasedEventProcessor {
             });
         }
 
-        results
-    }
-
-    /// Returns one failure result per requested user when a batch contains an unexpected owner.
-    ///
-    /// Every result contains [`EventProcessorError::UnexpectedBatchUser`] and no
-    /// cursor advancement, ensuring no part of the rejected batch is persisted.
-    ///
-    /// # Arguments
-    ///
-    /// * `users` - The users requested in the batch, each with its persisted cursor floor.
-    /// * `event_user_pk` - The unexpected owner found in the homeserver event stream.
-    fn unexpected_user_results(
-        &self,
-        users: &[(&PublicKey, u64)],
-        event_user_pk: &PublicKey,
-    ) -> Vec<UserBatchResult> {
-        let error = EventProcessorError::UnexpectedBatchUser {
-            hs_id: self.homeserver_id.to_string(),
-            event_user_id: event_user_pk.z32(),
-        };
-
-        users
-            .iter()
-            .map(|(user_pk, _)| UserBatchResult {
-                user_pk: (**user_pk).clone(),
-                latest_cursor: None,
-                result: Err(error.clone()),
-            })
-            .collect()
+        Ok(results)
     }
 
     async fn fetch_user_events_with_429_backoff(
