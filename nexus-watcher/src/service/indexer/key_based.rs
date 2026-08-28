@@ -1,9 +1,10 @@
 use std::{
+    collections::HashMap,
     sync::{Arc, LazyLock},
     time::Duration,
 };
 
-use crate::errors::EventProcessorError;
+use crate::errors::{BatchProcessingError, EventProcessorError};
 use crate::events::Event;
 use futures::StreamExt;
 use nexus_common::db::PubkyConnector;
@@ -104,6 +105,13 @@ impl KeyBasedEventSource for PubkyKeyBasedEventSource {
 
         Ok(events)
     }
+}
+
+/// Result of processing a single user's events within a batch.
+pub struct UserBatchResult {
+    pub user_pk: PublicKey,
+    pub latest_cursor: Option<u64>,
+    pub result: Result<(), EventProcessorError>,
 }
 
 /// Event processor for third-party (external) HSs, where the user-specific `/events-stream`
@@ -287,6 +295,65 @@ impl KeyBasedEventProcessor {
         }
 
         result
+    }
+
+    /// Processes already-fetched events for a batch of users from a single
+    /// merged, interleaved event stream.
+    ///
+    /// The incoming `stream_events` are expected to be ordered by event ID across
+    /// all users in the batch. This function:
+    /// 1. Validates that every event's `resource.owner` is in `users`. An event from
+    ///    an unexpected user rejects the whole batch with
+    ///    [`BatchProcessingError::UnexpectedBatchUser`] before any cursor advances.
+    /// 2. Partitions events into per-user subsequences, preserving original relative order.
+    /// 3. Validates each user's event subsequence for strict cursor monotonicity
+    ///    against their `persisted_cursor` floor. Any user with an out-of-order cursor
+    ///    gets an [`EventProcessorError::EventCursorOutOfOrder`] and no cursor advance,
+    ///    while other users in the batch continue unaffected.
+    /// 4. Executes handlers per user and tracks the highest successfully processed cursor.
+    ///    If shutdown is signaled, processing stops cleanly and partial progress is returned.
+    pub async fn process_batch_events(
+        &self,
+        users: &[(&PublicKey, u64)],
+        stream_events: Vec<StreamEvent>,
+    ) -> Result<Vec<UserBatchResult>, BatchProcessingError> {
+        let hs_id: &str = self.homeserver_id.as_ref();
+
+        let mut events_by_user: HashMap<&PublicKey, Vec<StreamEvent>> =
+            users.iter().map(|(pk, _)| (*pk, Vec::new())).collect();
+
+        // 1. Membership validation and partitioning
+        for event in stream_events {
+            let owner = &event.resource.owner;
+            if let Some(user_events) = events_by_user.get_mut(owner) {
+                user_events.push(event);
+            } else {
+                return Err(BatchProcessingError::UnexpectedBatchUser {
+                    hs_id: self.homeserver_id.to_string(),
+                    event_user_id: owner.z32(),
+                });
+            }
+        }
+
+        // 2. Process each user's partitioned subsequence
+        let mut results = Vec::with_capacity(users.len());
+
+        for (user_pk, persisted_cursor) in users {
+            let user_id = user_pk.z32();
+            let events = events_by_user.remove(user_pk).unwrap_or_default();
+
+            let (latest_cursor, result) = self
+                .process_user_events(hs_id, &user_id, *persisted_cursor, events)
+                .await;
+
+            results.push(UserBatchResult {
+                user_pk: (**user_pk).clone(),
+                latest_cursor,
+                result,
+            });
+        }
+
+        Ok(results)
     }
 
     async fn fetch_user_events_with_429_backoff(
