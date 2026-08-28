@@ -458,7 +458,19 @@ impl KeyBasedEventProcessor {
             let batch = &users[start..end];
 
             match self.fetch_batch_events_with_429_backoff(hs_pk, batch).await {
-                Ok(batch_events) => events.extend(batch_events),
+                Ok(batch_events) => {
+                    for event in &batch_events {
+                        let owner = &event.resource.owner;
+                        if !batch.iter().any(|(user_pk, _)| *user_pk == owner) {
+                            return Err(BatchProcessingError::UnexpectedBatchUser {
+                                hs_id: self.homeserver_id.to_string(),
+                                event_user_id: owner.z32(),
+                            }
+                            .into());
+                        }
+                    }
+                    events.extend(batch_events);
+                }
                 Err(err) if err.is_not_found() => {
                     if batch.len() == 1 {
                         let (user_pk, _) = batch[0];

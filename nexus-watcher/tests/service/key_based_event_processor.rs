@@ -1132,6 +1132,109 @@ async fn key_based_recovery_isolates_missing_user_in_batch() -> Result<(), DynEr
     Ok(())
 }
 
+/// Verifies that successful split responses cannot include events owned by a
+/// user requested only by a different split sub-batch.
+#[tokio_shared_rt::test(shared)]
+async fn key_based_recovery_rejects_event_from_other_split_sub_batch() -> Result<(), DynError> {
+    setup().await?;
+
+    let (_hs_keypair, hs) = create_homeserver().await?;
+    let mut user_pks = Vec::new();
+    let mut user_ids = Vec::new();
+    for _ in 0..4 {
+        let user_id = create_user_on_homeserver(&hs).await?;
+        user_pks.push(user_id.parse::<PublicKey>()?);
+        user_ids.push(user_id);
+    }
+
+    // [A, B, C, D] 404s, then [A, B] incorrectly returns an event for C.
+    let source = Arc::new(MockKeyBasedEventSource::default().with_results(vec![
+        Err(user_not_found_error()),
+        Ok(vec![stream_event(
+            1,
+            &user_ids[2],
+            "/pub/pubky.app/profile.json",
+        )?]),
+    ]));
+    let (processor, _backoff) = recovery_processor(&hs, source.clone());
+    let user_entries: Vec<(&PublicKey, Option<EventCursor>)> = user_pks
+        .iter()
+        .map(|pk| (pk, Some(EventCursor::new(0))))
+        .collect();
+
+    let err = processor
+        .fetch_events_with_404_recovery(&hs.id.to_public_key(), &user_entries)
+        .await
+        .expect_err("an event owner outside the split request must reject recovery");
+
+    assert!(matches!(
+        err,
+        EventProcessorError::BatchProcessingError(BatchProcessingError::UnexpectedBatchUser { .. })
+    ));
+    // Recovery stops at the malformed [A, B] response rather than fetching [C, D].
+    assert_eq!(source.batch_calls().await.len(), 2);
+
+    Ok(())
+}
+
+/// Verifies every split `/events-stream` request keeps the configured limit,
+/// including one-user leaves, and that recovery retains every successful response.
+#[tokio_shared_rt::test(shared)]
+async fn key_based_recovery_keeps_per_request_limit_after_split() -> Result<(), DynError> {
+    setup().await?;
+
+    let (_hs_keypair, hs) = create_homeserver().await?;
+    let user_a_id = create_user_on_homeserver(&hs).await?;
+    let user_b_id = create_user_on_homeserver(&hs).await?;
+    let user_a_pk: PublicKey = user_a_id.parse()?;
+    let user_b_pk: PublicKey = user_b_id.parse()?;
+    let limit = 2;
+
+    // [A, B] 404s, then each one-user leaf returns its full per-request limit.
+    let source = Arc::new(MockKeyBasedEventSource::default().with_results(vec![
+        Err(user_not_found_error()),
+        Ok(vec![
+            stream_event(1, &user_a_id, "/pub/pubky.app/profile.json")?,
+            stream_event(2, &user_a_id, "/pub/pubky.app/profile.json")?,
+        ]),
+        Ok(vec![
+            stream_event(3, &user_b_id, "/pub/pubky.app/profile.json")?,
+            stream_event(4, &user_b_id, "/pub/pubky.app/profile.json")?,
+        ]),
+    ]));
+    let processor = processor_with_limit(
+        Homeserver::new(hs.id.clone()),
+        create_mock_handler(Ok(()), None),
+        source.clone(),
+        limit,
+    );
+
+    let fetch = processor
+        .fetch_events_with_404_recovery(
+            &hs.id.to_public_key(),
+            &[
+                (&user_a_pk, Some(EventCursor::new(0))),
+                (&user_b_pk, Some(EventCursor::new(0))),
+            ],
+        )
+        .await?;
+
+    let fetched_cursors: Vec<u64> = fetch.events.iter().map(|event| event.cursor.id()).collect();
+    assert_eq!(fetched_cursors, vec![1, 2, 3, 4]);
+    let calls = source.batch_calls().await;
+    assert_eq!(calls.len(), 3);
+    assert_eq!(
+        calls
+            .iter()
+            .map(|call| call.users.len())
+            .collect::<Vec<_>>(),
+        vec![2, 1, 1]
+    );
+    assert!(calls.iter().all(|call| call.limit == limit));
+
+    Ok(())
+}
+
 /// Verifies a batch where every user 404s: the split walks all leaves, records
 /// backoff for every user, and returns an empty event list without failing.
 #[tokio_shared_rt::test(shared)]
