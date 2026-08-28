@@ -328,19 +328,7 @@ impl KeyBasedEventProcessor {
             if let Some(user_events) = events_by_user.get_mut(owner) {
                 user_events.push(event);
             } else {
-                // Unexpected owner: poison the whole batch — no handlers run, no cursors advance.
-                let event_user_id = owner.z32();
-                return users
-                    .iter()
-                    .map(|(pk, _)| UserBatchResult {
-                        user_pk: (**pk).clone(),
-                        latest_cursor: None,
-                        result: Err(EventProcessorError::UnexpectedBatchUser {
-                            hs_id: hs_id.into(),
-                            event_user_id: event_user_id.clone(),
-                        }),
-                    })
-                    .collect();
+                return self.unexpected_user_results(users, owner);
             }
         }
 
@@ -363,6 +351,35 @@ impl KeyBasedEventProcessor {
         }
 
         results
+    }
+
+    /// Returns one failure result per requested user when a batch contains an unexpected owner.
+    ///
+    /// Every result contains [`EventProcessorError::UnexpectedBatchUser`] and no
+    /// cursor advancement, ensuring no part of the rejected batch is persisted.
+    ///
+    /// # Arguments
+    ///
+    /// * `users` - The users requested in the batch, each with its persisted cursor floor.
+    /// * `event_user_pk` - The unexpected owner found in the homeserver event stream.
+    fn unexpected_user_results(
+        &self,
+        users: &[(&PublicKey, u64)],
+        event_user_pk: &PublicKey,
+    ) -> Vec<UserBatchResult> {
+        let error = EventProcessorError::UnexpectedBatchUser {
+            hs_id: self.homeserver_id.to_string(),
+            event_user_id: event_user_pk.z32(),
+        };
+
+        users
+            .iter()
+            .map(|(user_pk, _)| UserBatchResult {
+                user_pk: (**user_pk).clone(),
+                latest_cursor: None,
+                result: Err(error.clone()),
+            })
+            .collect()
     }
 
     async fn fetch_user_events_with_429_backoff(
