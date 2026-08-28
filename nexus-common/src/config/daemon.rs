@@ -97,7 +97,7 @@ mod tests {
             PubkyId::try_from("8um71us3fyw6h8wbcxb5ar3rwusy1a6u49956ikzojg3gcwd1dty").unwrap()
         );
         assert_eq!(c.watcher.events_limit, 50);
-        assert_eq!(c.watcher.key_based_events_limit, 50);
+        assert_eq!(c.watcher.key_based_events_limit, 500);
         assert_eq!(c.watcher.primary_hs_monitoring_interval_ms, 5_000);
         assert_eq!(c.watcher.external_hs_monitoring_interval_ms, 5_000);
         assert_eq!(c.watcher.hs_resolver_interval_ms, 10_000);
