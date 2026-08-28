@@ -874,7 +874,7 @@ async fn key_based_batch_routes_interleaved_events_to_correct_users() -> Result<
 }
 
 /// Verifies that an event from an unexpected user (not in the requested batch)
-/// causes all users in the batch to receive UserIdMismatch and zero cursor advancement.
+/// fails the whole batch without advancing any cursor.
 #[tokio_shared_rt::test(shared)]
 async fn key_based_batch_rejects_unexpected_user_in_stream() -> Result<(), DynError> {
     setup().await?;
