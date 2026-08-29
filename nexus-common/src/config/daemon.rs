@@ -69,7 +69,7 @@ impl ConfigLoader<DaemonConfig> for DaemonConfig {}
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashMap, net::SocketAddr, path::PathBuf, str::FromStr};
+    use std::{collections::HashMap, net::SocketAddr, path::PathBuf, str::FromStr, time::Duration};
 
     use pubky_app_specs::PubkyId;
 
@@ -118,6 +118,11 @@ mod tests {
             ]
         );
         assert!(c.stack.net.external_hs_pk_blacklist.is_empty());
+        assert_eq!(c.stack.net.pubky_http_request_timeout, 30);
+        assert_eq!(
+            c.stack.net.pubky_client_http_request_timeout(),
+            Duration::from_secs(30)
+        );
 
         assert_eq!(c.stack.log_level, Level::Info);
         assert_eq!(
@@ -371,6 +376,29 @@ mod tests {
             DaemonConfig::try_from_str(&toml).is_err(),
             "an invalid public key in the blacklist must fail config parsing"
         );
+    }
+
+    #[test]
+    fn test_pubky_http_request_timeout_rejects_zero() {
+        let toml = DEFAULT_CONFIG_TOML.replace(
+            "pubky_http_request_timeout = 30",
+            "pubky_http_request_timeout = 0",
+        );
+
+        assert!(
+            DaemonConfig::try_from_str(&toml).is_err(),
+            "pubky_http_request_timeout must be at least 1 second"
+        );
+    }
+
+    #[test]
+    fn test_pubky_http_request_timeout_defaults_when_omitted() {
+        let toml = DEFAULT_CONFIG_TOML.replace("pubky_http_request_timeout = 30\n", "");
+
+        let config = DaemonConfig::try_from_str(&toml)
+            .expect("config without pubky_http_request_timeout should use the default");
+
+        assert_eq!(config.stack.net.pubky_http_request_timeout, 30);
     }
 
     /// Legacy `watcher_sleep` / `hs_resolver_sleep` field names (renamed to

@@ -87,6 +87,9 @@ testnet = false
 # testnet host, leave as "localhost" for local development. Change only if the
 # testnet homeserver/relay are on another machine (e.g. Docker setups).
 testnet_host = "localhost"
+# Total request timeout in seconds for all HTTP requests made by the shared Pubky client.
+# This includes response-body reads and should accommodate max_file_size blob downloads.
+pubky_http_request_timeout = 30
 # External HS PKs which are forbidden from being indexed
 external_hs_pk_blacklist = []
 
