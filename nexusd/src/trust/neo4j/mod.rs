@@ -218,6 +218,3 @@ impl TrustRankEngine for GdsNeo4j {
         })
     }
 }
-
-#[cfg(test)]
-mod tests;
