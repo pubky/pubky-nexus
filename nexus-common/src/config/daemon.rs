@@ -75,9 +75,11 @@ mod tests {
 
     use crate::config::file::{reader::DEFAULT_CONFIG_TOML, ConfigLoader};
     use crate::{
-        config::watcher::DEFAULT_MODERATION_ID, default_trust_report_dir,
-        file::validate_and_expand_path, DaemonConfig, Level, DEFAULT_TRUST_ALPHA,
-        DEFAULT_TRUST_MAX_ITERATIONS, DEFAULT_TRUST_REPORT_LIMIT, DEFAULT_TRUST_TOLERANCE,
+        config::watcher::{DEFAULT_MAX_FILE_SIZE, DEFAULT_MODERATION_ID},
+        default_trust_report_dir,
+        file::validate_and_expand_path,
+        DaemonConfig, Level, DEFAULT_TRUST_ALPHA, DEFAULT_TRUST_MAX_ITERATIONS,
+        DEFAULT_TRUST_REPORT_LIMIT, DEFAULT_TRUST_TOLERANCE,
     };
 
     #[tokio_shared_rt::test(shared)]
@@ -102,6 +104,7 @@ mod tests {
         assert_eq!(c.watcher.external_hs_monitoring_interval_ms, 5_000);
         assert_eq!(c.watcher.hs_resolver_interval_ms, 10_000);
         assert_eq!(c.watcher.retry_processor_interval_ms, 10_000);
+        assert_eq!(c.watcher.max_file_size, DEFAULT_MAX_FILE_SIZE);
         assert_eq!(
             c.watcher.moderation_id,
             PubkyId::try_from(DEFAULT_MODERATION_ID).unwrap()
