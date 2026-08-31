@@ -77,7 +77,6 @@ pub struct Event {
 impl Event {
     /// Parse event from a line returned by the homeserver's `/events` endpoint.
     pub fn parse_event(line: &str) -> Result<ParseResult, EventProcessorError> {
-        debug!("New event: {}", line);
         let parts: Vec<&str> = line.split(' ').collect();
         if parts.len() != 2 {
             return Err(EventProcessorError::InvalidEventLine(format!(
@@ -107,14 +106,14 @@ impl Event {
         let event_type: EventType = stream_event.event_type.clone().into();
 
         let uri = stream_event.resource.to_pubky_url();
-        debug!("New stream event: {event_type} {uri}");
+        debug!(%event_type, %uri, "New stream event");
 
         let event_line = format!("{event_type} {uri}");
         match Self::parse_event_parts(event_type, uri, event_line)? {
             ParseResult::Parsed(event) => Ok(Some(event)),
             ParseResult::Skipped => Ok(None),
             ParseResult::UnrecognizedUri { reason, .. } => {
-                warn!("Unrecognized event URI: {reason}");
+                warn!(%reason, "Unrecognized event URI");
                 Ok(None)
             }
         }

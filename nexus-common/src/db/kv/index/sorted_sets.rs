@@ -108,6 +108,28 @@ pub async fn put(
     Ok(())
 }
 
+/// Seeds `member` with `score` only if it is not already in the sorted set.
+///
+/// `ZADD NX` makes the check and the write one atomic operation, so an existing
+/// member keeps its score whatever concurrent writers are doing.
+pub async fn add_member_if_absent(
+    prefix: &str,
+    key: &str,
+    score: f64,
+    member: &str,
+) -> RedisResult<()> {
+    let index_key = format!("{prefix}:{key}");
+    let mut redis_conn = get_redis_conn().await?;
+    let _: () = redis::cmd("ZADD")
+        .arg(index_key)
+        .arg("NX")
+        .arg(score)
+        .arg(member)
+        .query_async(&mut redis_conn)
+        .await?;
+    Ok(())
+}
+
 /// Updates the score of a member in a Redis sorted set.
 ///
 /// This function modifies the score of a member in the specified Redis sorted set by incrementing or decrementing it
@@ -365,6 +387,90 @@ pub async fn ttl(prefix: &str, key: &str) -> RedisResult<Option<i64>> {
         -2 | -1 => Ok(None),
         n => Ok(Some(n)),
     }
+}
+
+/// Atomically derives a sorted-set member's score from a set's cardinality:
+/// the member's score becomes `SCARD` of the source set, and the member is
+/// removed when the set is empty.
+///
+/// The read and the conditional write run as one Lua script, so concurrent
+/// writers cannot commit a stale cardinality between the two commands.
+///
+/// # Arguments
+///
+/// * `set_prefix` - Prefix of the source set key.
+/// * `set_key` - Key of the source set whose cardinality becomes the score.
+/// * `sorted_set_prefix` - Prefix of the destination sorted set key.
+/// * `sorted_set_key` - Key of the destination sorted set.
+/// * `member` - The sorted-set member to write or remove.
+/// * `removal_guard` - Optional `(json_key, json_path, value)`: when the JSON
+///   document at `json_key` holds `value` at `json_path`, the member is
+///   removed regardless of cardinality. Checked inside the same script, so
+///   the guard cannot race the write.
+///
+/// # Errors
+///
+/// Returns an error if the script execution fails.
+pub async fn sync_score_from_set_cardinality(
+    set_prefix: &str,
+    set_key: &str,
+    sorted_set_prefix: &str,
+    sorted_set_key: &str,
+    member: &str,
+    removal_guard: Option<(&str, &str, &str)>,
+) -> RedisResult<()> {
+    let set_index_key = format!("{set_prefix}:{set_key}");
+    let sorted_set_index_key = format!("{sorted_set_prefix}:{sorted_set_key}");
+    let mut redis_conn = get_redis_conn().await?;
+
+    let derive = r#"
+        local cardinality = redis.call('SCARD', KEYS[1])
+        if cardinality == 0 then
+            redis.call('ZREM', KEYS[2], ARGV[1])
+        else
+            redis.call('ZADD', KEYS[2], cardinality, ARGV[1])
+        end
+        return cardinality
+    "#;
+
+    let invocation = match removal_guard {
+        Some((json_key, json_path, value)) => {
+            let script = Script::new(&format!(
+                r#"
+                local guarded = redis.call('JSON.GET', KEYS[3], ARGV[2])
+                if guarded then
+                    local decoded = cjson.decode(guarded)
+                    if type(decoded) == 'table' and decoded[1] == ARGV[3] then
+                        redis.call('ZREM', KEYS[2], ARGV[1])
+                        return 0
+                    end
+                end
+                {derive}
+            "#
+            ));
+            script
+                .key(set_index_key)
+                .key(sorted_set_index_key)
+                .key(json_key)
+                .arg(member)
+                .arg(json_path)
+                .arg(value)
+                .invoke_async(&mut redis_conn)
+                .await
+        }
+        None => {
+            let script = Script::new(derive);
+            script
+                .key(set_index_key)
+                .key(sorted_set_index_key)
+                .arg(member)
+                .invoke_async(&mut redis_conn)
+                .await
+        }
+    };
+
+    let _: i64 = invocation?;
+    Ok(())
 }
 
 #[cfg(test)]

@@ -1,3 +1,4 @@
+mod collection_notification;
 mod del_idempotent;
 mod fail_index;
 mod moderated;
@@ -21,4 +22,5 @@ mod user_notification;
 mod user_to_self_put;
 mod user_to_user_del;
 mod user_to_user_put;
+mod users_by_tags_sync;
 pub mod utils;

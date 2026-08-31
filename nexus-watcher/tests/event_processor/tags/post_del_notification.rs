@@ -6,7 +6,9 @@ use nexus_common::{
     types::Pagination,
 };
 use pubky::Keypair;
-use pubky_app_specs::{post_uri_builder, PubkyAppPost, PubkyAppTag, PubkyAppUser};
+use pubky_app_specs::{
+    post_uri_builder, PubkyAppPost, PubkyAppPostKind, PubkyAppTag, PubkyAppUser,
+};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_untag_post_notification() -> Result<()> {
@@ -91,8 +93,14 @@ async fn test_homeserver_untag_post_notification() -> Result<()> {
         untagged_by,
         tag_label,
         post_uri,
+        post_kind,
     } = &notification.body
     {
+        assert_eq!(
+            post_kind,
+            &PubkyAppPostKind::Short,
+            "Untagging a note should report post_kind = Short"
+        );
         assert_eq!(
             untagged_by, &tagger_id,
             "Notification should contain the correct untagger"

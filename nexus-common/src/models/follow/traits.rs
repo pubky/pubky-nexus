@@ -25,22 +25,28 @@ pub trait UserFollows: Sized + RedisOps + AsRef<[String]> + Default {
         match Self::get_from_index(user_id, skip, limit).await? {
             Some(connections) => Ok(Some(Self::from_vec(connections))),
             None => {
-                let graph_response = Self::get_from_graph(user_id, skip, limit).await?;
-                if let Some(follows) = graph_response {
-                    follows.put_to_index(user_id).await?;
-                    return Ok(Some(follows));
+                // Index miss: cache the full list (check_in_index needs complete
+                // membership), then slice skip/limit in Rust.
+                let Some(follows) = Self::get_from_graph(user_id).await? else {
+                    // None is reserved for "user does not exist in the graph"
+                    return Ok(None);
+                };
+                follows.put_to_index(user_id).await?;
+
+                let mut connections = follows.as_ref().to_vec();
+                if let Some(skip) = skip {
+                    connections = connections.into_iter().skip(skip).collect();
                 }
-                Ok(None)
+                if let Some(limit) = limit {
+                    connections.truncate(limit);
+                }
+                Ok(Some(Self::from_vec(connections)))
             }
         }
     }
 
-    async fn get_from_graph(
-        user_id: &str,
-        skip: Option<usize>,
-        limit: Option<usize>,
-    ) -> GraphResult<Option<Self>> {
-        let query = Self::get_query(user_id, skip, limit);
+    async fn get_from_graph(user_id: &str) -> GraphResult<Option<Self>> {
+        let query = Self::get_query(user_id);
         let maybe_row = fetch_row_from_graph(query).await?;
 
         let Some(row) = maybe_row else {
@@ -75,7 +81,7 @@ pub trait UserFollows: Sized + RedisOps + AsRef<[String]> + Default {
     }
 
     async fn reindex(user_id: &str) -> ModelResult<()> {
-        match Self::get_from_graph(user_id, None, None).await? {
+        match Self::get_from_graph(user_id).await? {
             Some(follow) => follow.put_to_index(user_id).await?,
             None => tracing::error!(
                 "{}: Could not found user follow relationship in the graph",
@@ -94,7 +100,7 @@ pub trait UserFollows: Sized + RedisOps + AsRef<[String]> + Default {
         self.remove_from_index_set(&[user_id]).await
     }
 
-    fn get_query(user_id: &str, skip: Option<usize>, limit: Option<usize>) -> Query;
+    fn get_query(user_id: &str) -> Query;
 
     fn get_ids_field_name() -> &'static str;
 

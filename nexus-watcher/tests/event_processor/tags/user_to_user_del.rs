@@ -1,4 +1,4 @@
-use super::utils::find_user_tag;
+use super::utils::{check_member_user_tag_taggers, find_user_tag};
 use crate::event_processor::{
     users::utils::{check_member_user_influencer, find_user_counts},
     utils::watcher::{HomeserverHashIdPath, WatcherTest},
@@ -47,7 +47,8 @@ async fn test_homeserver_del_tag_to_another_user() -> Result<()> {
     };
 
     let tag_path = tag.hs_path();
-    let (_, events_in_redis_before) = EventLine::get_from_index(None, 1000).await.unwrap();
+    // Uncapped: the shared event log is append-only and unbounded.
+    let (_, events_in_redis_before) = EventLine::get_from_index(None, usize::MAX).await.unwrap();
 
     // Put tag
     test.put(&tagger_kp, &tag_path, tag).await?;
@@ -61,7 +62,7 @@ async fn test_homeserver_del_tag_to_another_user() -> Result<()> {
     assert!(user_tag.is_none());
 
     // CACHE_OP: Check if the tag is correctly updated in the cache
-    let (_, events_in_redis_after) = EventLine::get_from_index(None, 1000).await.unwrap();
+    let (_, events_in_redis_after) = EventLine::get_from_index(None, usize::MAX).await.unwrap();
     assert!(events_in_redis_after > events_in_redis_before);
     let cache_user_tag =
         TagUser::get_from_index(&tagged_user_id, None, None, None, None, None, false)
@@ -71,6 +72,16 @@ async fn test_homeserver_del_tag_to_another_user() -> Result<()> {
     assert!(
         cache_user_tag.unwrap().is_empty(),
         "The SORTED SET index cannot exist for the tag"
+    );
+
+    // The users-by-tag member must drop with its last tagger:
+    // Sorted:Tags:Global:User:Taggers:{label}
+    let taggers_score = check_member_user_tag_taggers(&tagged_user_id, label)
+        .await
+        .expect("Failed to check the users-by-tag score");
+    assert!(
+        taggers_score.is_none(),
+        "Tagged user cannot stay in the users-by-tag index after the last tagger deletes"
     );
 
     // Check if user counts is updated, User:Counts:user_id

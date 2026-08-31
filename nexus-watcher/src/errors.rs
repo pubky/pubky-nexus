@@ -35,6 +35,16 @@ pub enum EventProcessorError {
         event_user_id: String,
     },
 
+    /// An external HS returned a per-user event cursor at or below the cursor
+    /// floor: the user's stored cursor, or an earlier event in the same batch.
+    #[error("HS returned an out-of-order event cursor: hs_id={hs_id}, user_id={user_id}, cursor={cursor}, cursor_floor={cursor_floor}")]
+    EventCursorOutOfOrder {
+        hs_id: String,
+        user_id: String,
+        cursor: u64,
+        cursor_floor: u64,
+    },
+
     /// The event payload deserialized but failed `pubky-app-specs` validation
     /// (e.g. unknown post kind, malformed Collection envelope, oversized field).
     /// Non-retryable: re-running the same payload will produce the same error.
@@ -53,6 +63,10 @@ pub enum EventProcessorError {
     /// even after all internal backoff retries were exhausted.
     #[error("HS /events-stream rate limit exhausted (429 after all backoff retries)")]
     HsEventsStreamRateLimitExhausted,
+
+    /// Transport to an external homeserver's /events-stream failed.
+    #[error("HsEventsStreamTransportFailed: {0}")]
+    HsEventsStreamTransportFailed(String),
 
     /// The HS is blacklisted and must not be indexed.
     #[error("HsBlacklisted: {hs_id}")]
@@ -152,16 +166,36 @@ impl EventProcessorError {
         Self::InternalError(source.to_string())
     }
 
-    /// Returns whether or not we should refrain from retrying this error right now.
+    pub fn hs_transport_failed(source: impl Display) -> Self {
+        Self::HsEventsStreamTransportFailed(source.to_string())
+    }
+
+    /// Returns whether processing should stop and this error should be propagated
+    /// to the caller instead of being handled as an isolated event.
     ///
-    /// These are the kinds of errors that are expected to be thrown again
-    /// if the event processor caller continues processing other events.
+    /// This method does not schedule a retry or backoff itself. Callers decide the
+    /// consequence:
+    ///
+    /// - Event-processing loops abort the current batch or HS run.
+    /// - In the external key-based runner, a propagated error produces a non-`Ok`
+    ///   run status and therefore triggers per-HS backoff.
+    /// - The retry processor reschedules the event without consuming its retry
+    ///   allowance, then stops its current batch.
+    ///
+    /// `false` does not necessarily mean the error will be retried; the caller may
+    /// skip it, enqueue it, or continue processing.
     pub fn should_not_retry_now(&self) -> bool {
         matches!(
             self,
             Self::GraphQueryFailed(true, _)
                 | Self::IndexOperationFailed(true, _)
                 | Self::HsEventsStreamRateLimitExhausted
+                | Self::HsEventsStreamTransportFailed(_)
+
+                // For a key-based runner, this indicates the external HS either
+                // has a temporary glitch or is malicious. Including it here to
+                // abort this run and let the runner apply per-HS backoff.
+                | Self::EventCursorOutOfOrder { .. }
         )
     }
 

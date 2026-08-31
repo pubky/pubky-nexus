@@ -16,7 +16,12 @@ pub async fn sync_put(
     followee_id: PubkyId,
     ingestor: &UserIngestor,
 ) -> Result<(), EventProcessorError> {
-    debug!("Indexing new follow: {} -> {}", follower_id, followee_id);
+    if follower_id == followee_id {
+        debug!("Ignoring self-follow");
+        return Ok(());
+    }
+
+    debug!("Indexing follow");
     // SAVE TO GRAPH
     // (follower_id)-[:FOLLOWS]->(followee_id)
     match Followers::put_to_graph(&follower_id, &followee_id).await? {
@@ -85,7 +90,7 @@ pub async fn sync_put(
 
 #[tracing::instrument(name = "follow.del", skip_all, fields(follower_id = %follower_id, followee_id = %followee_id))]
 pub async fn del(follower_id: PubkyId, followee_id: PubkyId) -> Result<(), EventProcessorError> {
-    debug!("Deleting follow: {} -> {}", follower_id, followee_id);
+    debug!("Deleting follow");
     // Maybe we could do it here but lets follow the naming convention
     sync_del(follower_id, followee_id).await
 }

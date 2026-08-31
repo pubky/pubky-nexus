@@ -1,3 +1,4 @@
+use super::utils::collection_post;
 use crate::event_processor::users::utils::find_user_counts;
 use crate::event_processor::utils::watcher::{HomeserverHashIdPath, WatcherTest};
 use anyhow::Result;
@@ -7,19 +8,6 @@ use pubky::Keypair;
 use pubky_app_specs::{
     post_uri_builder, PubkyAppBookmark, PubkyAppPost, PubkyAppPostKind, PubkyAppUser,
 };
-
-/// Collection posts require a JSON envelope (`name` + `items`) in `content`.
-fn collection_post(name: &str) -> PubkyAppPost {
-    let content = serde_json::json!({ "name": name, "items": [] }).to_string();
-    PubkyAppPost {
-        content,
-        kind: PubkyAppPostKind::Collection,
-        parent: None,
-        embed: None,
-        attachments: None,
-        lock: None,
-    }
-}
 
 fn short_post(content: &str) -> PubkyAppPost {
     PubkyAppPost {

@@ -58,7 +58,9 @@ pub async fn put(
 ///
 /// # Returns
 ///
-/// Returns a vector of strings containing the retrieved elements.
+/// Returns `Ok(None)` if the key does not exist, and `Ok(Some(vec))` otherwise.
+/// The vector may be empty when the requested window is past the end of the set,
+/// so callers can tell a missing index apart from a past-the-end page.
 ///
 /// # Errors
 ///
@@ -107,10 +109,23 @@ pub async fn get_range(
         }
     }
 
-    if collected.is_empty() {
-        Ok(None)
-    } else {
+    if !collected.is_empty() {
+        return Ok(Some(collected));
+    }
+
+    // Redis deletes empty sets, so key-exists plus empty-window can only be a
+    // past-the-end page; report it as Some(vec![]) so callers do not treat it
+    // as a miss and refetch the whole list from the graph.
+    if skip == 0 {
+        // Nothing was skipped, so an empty scan already means the key is
+        // absent; the EXISTS round-trip is redundant.
+        return Ok(None);
+    }
+    let key_exists: bool = redis_conn.exists(&index_key).await?;
+    if key_exists {
         Ok(Some(collected))
+    } else {
+        Ok(None)
     }
 }
 

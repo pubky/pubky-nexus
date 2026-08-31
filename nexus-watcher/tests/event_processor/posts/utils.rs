@@ -166,6 +166,26 @@ pub fn short_post(content: impl Into<String>) -> PubkyAppPost {
     }
 }
 
+/// Build a `Collection` post; content is the required `{name, items}` envelope.
+pub fn collection_post(name: &str) -> PubkyAppPost {
+    PubkyAppPost {
+        content: serde_json::json!({ "name": name, "items": [] }).to_string(),
+        kind: PubkyAppPostKind::Collection,
+        parent: None,
+        embed: None,
+        attachments: None,
+        lock: None,
+    }
+}
+
+/// Build a `Long` (article) root post with the given content.
+pub fn long_post(content: &str) -> PubkyAppPost {
+    PubkyAppPost {
+        kind: PubkyAppPostKind::Long,
+        ..short_post(content)
+    }
+}
+
 /// Build a `Short` reply post with the given content and parent URI.
 pub fn short_reply(content: impl Into<String>, parent_uri: String) -> PubkyAppPost {
     PubkyAppPost {

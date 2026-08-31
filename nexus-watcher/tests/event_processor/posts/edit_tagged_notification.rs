@@ -7,7 +7,8 @@ use nexus_common::{
 };
 use pubky::Keypair;
 use pubky_app_specs::{
-    post_uri_builder, tag_uri_builder, traits::HashId, PubkyAppPost, PubkyAppTag, PubkyAppUser,
+    post_uri_builder, tag_uri_builder, traits::HashId, PubkyAppPost, PubkyAppPostKind, PubkyAppTag,
+    PubkyAppUser,
 };
 
 #[tokio_shared_rt::test(shared)]
@@ -83,8 +84,14 @@ async fn test_edit_tagged_post_notification() -> Result<()> {
         edited_by,
         edited_uri,
         linked_uri,
+        post_kind,
     } = &notifications[0].body
     {
+        assert_eq!(
+            post_kind,
+            &PubkyAppPostKind::Short,
+            "An edited note should report post_kind = Short"
+        );
         assert_eq!(
             edited_by, &user_a_id,
             "Notification should specify the correct user who edited the post"

@@ -37,14 +37,22 @@ pub(super) async fn post_relationships_is_reply(
     }
 }
 
+/// The post's kind; a missing target reads back as `Unknown`.
+pub async fn post_kind(
+    author_id: &str,
+    post_id: &str,
+) -> Result<PubkyAppPostKind, EventProcessorError> {
+    Ok(PostDetails::get_by_id(author_id, post_id)
+        .await?
+        .map(|details| details.kind)
+        .unwrap_or(PubkyAppPostKind::Unknown))
+}
+
 /// Whether a post is a Collection. A missing/unknown target defaults to `false`
 /// (a normal post) so the increment and decrement paths stay symmetric.
 pub async fn post_is_collection(
     author_id: &str,
     post_id: &str,
 ) -> Result<bool, EventProcessorError> {
-    Ok(matches!(
-        PostDetails::get_by_id(author_id, post_id).await?,
-        Some(details) if details.kind == PubkyAppPostKind::Collection
-    ))
+    Ok(post_kind(author_id, post_id).await? == PubkyAppPostKind::Collection)
 }

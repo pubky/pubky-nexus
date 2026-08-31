@@ -1,12 +1,14 @@
-use super::utils::find_user_tag;
+use super::utils::{check_member_user_tag_taggers, find_user_tag};
 use crate::event_processor::{
     users::utils::{check_member_user_influencer, find_user_counts},
     utils::watcher::{HomeserverHashIdPath, WatcherTest},
 };
 use anyhow::Result;
 use chrono::Utc;
+use nexus_common::db::RedisOps;
 use nexus_common::models::event::EventLine;
 use nexus_common::models::tag::{traits::TagCollection, user::TagUser};
+use nexus_common::models::user::{UsersByTagSearch, TAG_GLOBAL_USER_TAGGERS};
 use pubky::Keypair;
 use pubky_app_specs::{PubkyAppTag, PubkyAppUser};
 
@@ -45,7 +47,8 @@ async fn test_homeserver_put_tag_user_another() -> Result<()> {
     };
 
     let tag_path = tag.hs_path();
-    let (_, events_in_redis_before) = EventLine::get_from_index(None, 1000).await.unwrap();
+    // Uncapped: the shared event log is append-only and unbounded.
+    let (_, events_in_redis_before) = EventLine::get_from_index(None, usize::MAX).await.unwrap();
 
     // PUT post tag
     test.put(&tagger_kp, &tag_path, tag).await?;
@@ -62,7 +65,7 @@ async fn test_homeserver_put_tag_user_another() -> Result<()> {
     assert_eq!(user_tag.taggers[0], tagger_user_id);
 
     // CACHE_OP: Check if the tag is correctly cached
-    let (_, events_in_redis_after) = EventLine::get_from_index(None, 1000).await.unwrap();
+    let (_, events_in_redis_after) = EventLine::get_from_index(None, usize::MAX).await.unwrap();
     assert!(events_in_redis_after > events_in_redis_before);
     let cache_user_tag =
         TagUser::get_from_index(&tagged_user_id, None, None, None, None, None, false)
@@ -99,7 +102,86 @@ async fn test_homeserver_put_tag_user_another() -> Result<()> {
     );
     assert_eq!(influencer_score.unwrap(), 0);
 
+    // Check the users-by-tag search score: Sorted:Tags:Global:User:Taggers:{label}
+    let taggers_score = check_member_user_tag_taggers(&tagged_user_id, label)
+        .await
+        .expect("Failed to check the users-by-tag score");
+    assert!(
+        taggers_score.is_some(),
+        "Tagged user should be a member of the users-by-tag index"
+    );
+    assert_eq!(taggers_score.unwrap(), 1);
+
     // Cleanup user
+    test.cleanup_user(&tagged_kp).await?;
+    test.cleanup_user(&tagger_kp).await?;
+
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_homeserver_user_tag_retry_heals_search_index() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+
+    let tagged_kp = Keypair::random();
+    let tagged_user = PubkyAppUser {
+        bio: Some("test_homeserver_user_tag_retry_heals_search_index".to_string()),
+        image: None,
+        links: None,
+        name: "Watcher:PutTagRetry:TaggedUser".to_string(),
+        status: None,
+    };
+    let tagged_user_id = test.create_user(&tagged_kp, &tagged_user).await?;
+
+    let tagger_kp = Keypair::random();
+    let tagger_user = PubkyAppUser {
+        bio: Some("test_homeserver_user_tag_retry_heals_search_index".to_string()),
+        image: None,
+        links: None,
+        name: "Watcher:PutTagRetry:TaggerUser".to_string(),
+        status: None,
+    };
+    let _tagger_user_id = test.create_user(&tagger_kp, &tagger_user).await?;
+
+    let label = "selfheal";
+
+    let tag = PubkyAppTag {
+        uri: format!("pubky://{tagged_user_id}/pub/pubky.app/profile.json"),
+        label: label.to_string(),
+        created_at: Utc::now().timestamp_millis(),
+    };
+    let tag_path = tag.hs_path();
+    test.put(&tagger_kp, &tag_path, tag).await?;
+
+    // Simulate the partial failure the Updated branch retries over: the graph
+    // edge exists but the search index write was lost
+    UsersByTagSearch::remove_from_index_sorted_set(
+        None,
+        &[&TAG_GLOBAL_USER_TAGGERS[..], &[label]].concat(),
+        &[tagged_user_id.as_str()],
+    )
+    .await
+    .unwrap();
+
+    // Re-put the same tag: the id hashes (uri, label), so this lands on the
+    // same path and routes the event through the Updated branch, which must
+    // restore the derived score
+    let retry_tag = PubkyAppTag {
+        uri: format!("pubky://{tagged_user_id}/pub/pubky.app/profile.json"),
+        label: label.to_string(),
+        created_at: Utc::now().timestamp_millis(),
+    };
+    test.put(&tagger_kp, &tag_path, retry_tag).await?;
+
+    let taggers_score = check_member_user_tag_taggers(&tagged_user_id, label)
+        .await
+        .expect("Failed to check the users-by-tag score");
+    assert_eq!(
+        taggers_score,
+        Some(1),
+        "The retry path must restore the users-by-tag score from the taggers set"
+    );
+
     test.cleanup_user(&tagged_kp).await?;
     test.cleanup_user(&tagger_kp).await?;
 

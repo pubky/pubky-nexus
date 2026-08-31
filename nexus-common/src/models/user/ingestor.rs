@@ -55,11 +55,15 @@ impl UserIngestor {
 
         let pubky = PubkyConnector::get().map_err(ModelError::from_generic)?;
 
-        let Some(hs_pk) = pubky.get_homeserver_of(&user_id.to_public_key()).await else {
+        let Some(hs_pk) = pubky
+            .get_homeserver_of(&user_id.to_public_key())
+            .await
+            .map_err(ModelError::from_generic)?
+        else {
             return Ok(None);
         };
 
-        let hs_id = hs_pk.into_inner().to_z32();
+        let hs_id = hs_pk.to_z32();
         if self.hs_blacklist.is_blacklisted(&hs_id) {
             return Err(ModelError::HsBlacklisted { hs_id });
         }
@@ -101,8 +105,8 @@ impl UserIngestor {
         // Bind the user to their HS (HOSTED_BY + resolved_at), since we just resolved the HS
         set_user_homeserver(&user_id_str, &hs_id).await?;
 
-        // Store the start point of the user's HS cursor
-        UserHsCursor::write(user_id, &hs_id, 0).await?;
+        // Seed the user's HS cursor floor (no-op if we're already tracking them).
+        UserHsCursor::init(user_id, &hs_id).await?;
 
         Ok(())
     }

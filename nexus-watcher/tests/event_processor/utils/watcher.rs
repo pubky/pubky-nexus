@@ -17,6 +17,7 @@ use nexus_watcher::events::{DefaultEventHandler, EventHandler};
 use nexus_watcher::events::{Event, ParseResult};
 use nexus_watcher::service::HsEventProcessorRunner;
 use nexus_watcher::service::TEventProcessorRunner;
+use pubky::ClientId;
 use pubky::Keypair;
 use pubky::PublicKey;
 use pubky::ResourcePath;
@@ -35,6 +36,11 @@ use tempfile::TempDir;
 use tracing::debug;
 
 static COUNTER: AtomicU64 = AtomicU64::new(0);
+
+/// Client ID used for grant-based test sessions (pubky 0.10+).
+fn test_client_id() -> ClientId {
+    ClientId::new("nexus-watcher.test").expect("static test client id is valid")
+}
 
 /// Generate a unique post ID for tests.
 /// Uses PID-based offset for inter-process uniqueness and atomic counter
@@ -212,7 +218,7 @@ impl WatcherTest {
         let pubky = PubkyConnector::get()?;
 
         let signer = pubky.signer(user_keypair.clone());
-        let session = signer.signin().await?;
+        let session = signer.signin(test_client_id()).await?;
         session
             .storage()
             .put(hs_path, serde_json::to_string(&object)?)
@@ -235,7 +241,7 @@ impl WatcherTest {
         let pubky = PubkyConnector::get()?;
 
         let signer = pubky.signer(user_keypair.clone());
-        let session = signer.signin().await?;
+        let session = signer.signin(test_client_id()).await?;
         session.storage().delete(hs_path).await?;
         self.ensure_event_processing_complete().await?;
         Ok(())
@@ -338,7 +344,7 @@ impl WatcherTest {
         let pubky = PubkyConnector::get()?;
 
         let signer = pubky.signer(user_kp.clone());
-        let session = signer.signin().await?;
+        let session = signer.signin(test_client_id()).await?;
         session.storage().put(homeserver_uri, object).await?;
         Ok(())
     }

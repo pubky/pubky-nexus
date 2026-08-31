@@ -4,7 +4,9 @@ use crate::models::error::ModelResult;
 use crate::types::Pagination;
 use chrono::Utc;
 use neo4rs::Row;
-use pubky_app_specs::{bookmark_uri_builder, post_uri_builder, tag_uri_builder, PubkyId};
+use pubky_app_specs::{
+    bookmark_uri_builder, post_uri_builder, tag_uri_builder, PubkyAppPostKind, PubkyId,
+};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -22,6 +24,10 @@ pub enum PostChangedSource {
 pub enum PostChangedType {
     Edited,
     Deleted,
+}
+
+fn unknown_post_kind() -> PubkyAppPostKind {
+    PubkyAppPostKind::Unknown
 }
 
 #[derive(Serialize, Deserialize, ToSchema, Default, Debug)]
@@ -46,6 +52,8 @@ pub enum NotificationBody {
         tagged_by: String,
         tag_label: String,
         post_uri: String,
+        #[serde(default = "unknown_post_kind")]
+        post_kind: PubkyAppPostKind,
     },
     TagProfile {
         tagged_by: String,
@@ -55,6 +63,8 @@ pub enum NotificationBody {
         untagged_by: String,
         tag_label: String,
         post_uri: String,
+        #[serde(default = "unknown_post_kind")]
+        post_kind: PubkyAppPostKind,
     },
     UntagProfile {
         untagged_by: String,
@@ -64,27 +74,37 @@ pub enum NotificationBody {
         replied_by: String,
         parent_post_uri: String,
         reply_uri: String,
+        #[serde(default = "unknown_post_kind")]
+        post_kind: PubkyAppPostKind,
     },
     Repost {
         reposted_by: String,
         embed_uri: String,
         repost_uri: String,
+        #[serde(default = "unknown_post_kind")]
+        post_kind: PubkyAppPostKind,
     },
     Mention {
         mentioned_by: String,
         post_uri: String,
+        #[serde(default = "unknown_post_kind")]
+        post_kind: PubkyAppPostKind,
     },
     PostDeleted {
         delete_source: PostChangedSource,
         deleted_by: String,
         deleted_uri: String,
         linked_uri: String,
+        #[serde(default = "unknown_post_kind")]
+        post_kind: PubkyAppPostKind,
     },
     PostEdited {
         edit_source: PostChangedSource,
         edited_by: String,
         edited_uri: String,
         linked_uri: String,
+        #[serde(default = "unknown_post_kind")]
+        post_kind: PubkyAppPostKind,
     },
 }
 
@@ -200,6 +220,7 @@ impl Notification {
         author_id: &str,
         label: &str,
         post_uri: &str,
+        post_kind: PubkyAppPostKind,
     ) -> RedisResult<()> {
         if user_id == author_id {
             return Ok(());
@@ -208,6 +229,7 @@ impl Notification {
             tagged_by: user_id.to_string(),
             tag_label: label.to_string(),
             post_uri: post_uri.to_string(),
+            post_kind,
         };
         let notification = Notification::new(body);
         notification.put_to_index(author_id).await
@@ -234,6 +256,7 @@ impl Notification {
         author_id: &str,
         label: &str,
         post_uri: &str,
+        post_kind: PubkyAppPostKind,
     ) -> RedisResult<()> {
         if user_id == author_id {
             return Ok(());
@@ -242,6 +265,7 @@ impl Notification {
             untagged_by: user_id.to_string(),
             tag_label: label.to_string(),
             post_uri: post_uri.to_string(),
+            post_kind,
         };
         let notification = Notification::new(body);
         notification.put_to_index(author_id).await
@@ -268,6 +292,7 @@ impl Notification {
         parent_uri: &str,
         reply_uri: &str,
         parent_post_author: &str,
+        post_kind: PubkyAppPostKind,
     ) -> RedisResult<()> {
         if user_id == parent_post_author {
             return Ok(());
@@ -276,6 +301,7 @@ impl Notification {
             replied_by: user_id.to_string(),
             parent_post_uri: parent_uri.to_string(),
             reply_uri: reply_uri.to_string(),
+            post_kind,
         };
         let notification = Notification::new(body);
         notification.put_to_index(parent_post_author).await
@@ -285,6 +311,7 @@ impl Notification {
         user_id: &PubkyId,
         mentioned_id: &PubkyId,
         post_id: &str,
+        post_kind: PubkyAppPostKind,
     ) -> RedisResult<Option<PubkyId>> {
         if user_id == mentioned_id {
             return Ok(None);
@@ -292,6 +319,7 @@ impl Notification {
         let body = NotificationBody::Mention {
             mentioned_by: user_id.to_string(),
             post_uri: post_uri_builder(user_id.to_string(), post_id.to_string()),
+            post_kind,
         };
         let notification = Notification::new(body);
         notification.put_to_index(mentioned_id).await?;
@@ -304,6 +332,7 @@ impl Notification {
         embed_uri: &str,
         repost_uri: &str,
         embed_post_author: &str,
+        post_kind: PubkyAppPostKind,
     ) -> RedisResult<()> {
         if user_id == embed_post_author {
             return Ok(());
@@ -312,6 +341,7 @@ impl Notification {
             reposted_by: user_id.to_string(),
             embed_uri: embed_uri.to_string(),
             repost_uri: repost_uri.to_string(),
+            post_kind,
         };
         let notification = Notification::new(body);
         notification.put_to_index(embed_post_author).await
@@ -324,6 +354,7 @@ impl Notification {
         changed_uri: &str,
         change_source: PostChangedSource,
         changed_type: &PostChangedType,
+        post_kind: PubkyAppPostKind,
     ) -> RedisResult<()> {
         if user_id == linked_post_author {
             return Ok(());
@@ -334,12 +365,14 @@ impl Notification {
                 deleted_by: user_id.to_string(),
                 deleted_uri: changed_uri.to_string(),
                 linked_uri: linked_uri.to_string(),
+                post_kind,
             },
             PostChangedType::Edited => NotificationBody::PostEdited {
                 edit_source: change_source,
                 edited_by: user_id.to_string(),
                 edited_uri: changed_uri.to_string(),
                 linked_uri: linked_uri.to_string(),
+                post_kind,
             },
         };
         let notification = Notification::new(body);
@@ -354,6 +387,7 @@ impl Notification {
         post_id: &str,
         changed_uri: &str,
         changed_type: &PostChangedType,
+        post_kind: PubkyAppPostKind,
     ) -> ModelResult<()> {
         // Define the notification types and associated data
         let notification_types: Vec<(QueryFunction, PostChangedSource, ExtractFunction)> = vec![
@@ -417,12 +451,14 @@ impl Notification {
                         deleted_by: author_id.to_string(),
                         deleted_uri: changed_uri.to_string(),
                         linked_uri,
+                        post_kind: post_kind.clone(),
                     },
                     PostChangedType::Edited => NotificationBody::PostEdited {
                         edit_source: post_changed_source.clone(),
                         edited_by: author_id.to_string(),
                         edited_uri: changed_uri.to_string(),
                         linked_uri,
+                        post_kind: post_kind.clone(),
                     },
                 };
 
@@ -431,5 +467,47 @@ impl Notification {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn old_rows_without_post_kind_default_to_unknown() {
+        // A TagPost stored before `post_kind` existed must still deserialize.
+        let old = r#"{"type":"tag_post","tagged_by":"a","tag_label":"l","post_uri":"u"}"#;
+        let body: NotificationBody = serde_json::from_str(old).unwrap();
+        match body {
+            NotificationBody::TagPost { post_kind, .. } => {
+                assert_eq!(post_kind, PubkyAppPostKind::Unknown);
+            }
+            other => panic!("expected TagPost, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn post_kind_round_trips_as_lowercase() {
+        for (kind, wire) in [
+            (PubkyAppPostKind::Collection, "collection"),
+            (PubkyAppPostKind::Unknown, "unknown"),
+        ] {
+            let body = NotificationBody::TagPost {
+                tagged_by: "a".into(),
+                tag_label: "l".into(),
+                post_uri: "u".into(),
+                post_kind: kind.clone(),
+            };
+            let json = serde_json::to_string(&body).unwrap();
+            assert!(
+                json.contains(&format!(r#""post_kind":"{wire}""#)),
+                "got {json}"
+            );
+            match serde_json::from_str::<NotificationBody>(&json).unwrap() {
+                NotificationBody::TagPost { post_kind, .. } => assert_eq!(post_kind, kind),
+                other => panic!("expected TagPost, got {other:?}"),
+            }
+        }
     }
 }

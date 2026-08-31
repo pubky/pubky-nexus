@@ -2,12 +2,14 @@ use super::TEventProcessorRunner;
 use crate::events::retry::RetryScheduler;
 use crate::events::{DefaultEventHandler, EventHandler};
 use crate::service::indexer::{HsEventProcessor, TEventProcessor};
+use crate::service::stats::{ProcessedStats, RunAllProcessorsStats};
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::types::DynError;
 use nexus_common::WatcherConfig;
 use pubky_app_specs::PubkyId;
 use std::sync::Arc;
 use tokio::sync::watch::Receiver;
+use tracing::debug;
 
 pub struct HsEventProcessorRunner {
     /// See [WatcherConfig::events_limit]
@@ -65,5 +67,16 @@ impl TEventProcessorRunner for HsEventProcessorRunner {
 
     async fn pre_run(&self) -> Result<Vec<String>, DynError> {
         Ok(vec![self.primary_homeserver.to_string()])
+    }
+
+    async fn post_run(&self, stats: RunAllProcessorsStats) -> ProcessedStats {
+        for individual_run_stat in &stats.stats {
+            let hs_id = &individual_run_stat.hs_id;
+            let duration = individual_run_stat.duration;
+            let status = &individual_run_stat.status;
+            debug!(homeserver = %hs_id, ?duration, ?status, "Primary homeserver run completed");
+        }
+
+        ProcessedStats(stats)
     }
 }

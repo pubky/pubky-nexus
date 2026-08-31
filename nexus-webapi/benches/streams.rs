@@ -44,6 +44,7 @@ criterion_group! {
               kind::bench_stream_post_kind_video,
               kind::bench_stream_post_kind_link,
               kind::bench_stream_post_kind_file,
+              kind::bench_stream_post_exclude_kinds,
               wot::bench_stream_wot_depth1_timeline,
               wot::bench_stream_wot_depth2_timeline,
               wot::bench_stream_wot_depth3_timeline,
