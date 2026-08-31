@@ -13,11 +13,12 @@ use tracing::{info, warn};
 use super::engine::{TrustRankEngine, TrustRankParams, TrustRankStats};
 use queries::{
     count_matching_seeds, drop_stale_trust_graphs, drop_trust_graph, estimate_trust_graph,
-    project_trust_graph, trust_rank_pagerank_write, TRUST_GRAPH_PREFIX,
+    project_trust_graph, trust_rank_pagerank_mutate, write_back_trust_scores, TRUST_GRAPH_PREFIX,
 };
 
-/// Computes trust rank via the Neo4j GDS `pageRank` procedure in write mode,
-/// storing the result on each `:User` node as the `trust` property.
+/// Computes trust rank via the Neo4j GDS `pageRank` procedure in mutate mode,
+/// then streams the scores onto each `:User` node as the `trust` property,
+/// skipping users deleted since the projection.
 ///
 /// Seeds are weighted equally (`v` uniform, `1/N` over `params.seed_ids`): GDS
 /// 2.13 (the only version on Neo4j 5.26) has no weighted `sourceNodes`. The GDS
@@ -153,7 +154,9 @@ impl TrustRankEngine for GdsNeo4j {
             );
         }
 
-        let write_result = fetch_row_from_graph(trust_rank_pagerank_write(
+        // Two phases so a user deleted mid-run can't abort it; see
+        // `write_back_trust_scores`.
+        let mutate_result = fetch_row_from_graph(trust_rank_pagerank_mutate(
             &graph_name,
             &params.seed_ids,
             damping_factor,
@@ -162,6 +165,12 @@ impl TrustRankEngine for GdsNeo4j {
             if self.use_l1norm { "L1Norm" } else { "NONE" },
         ))
         .await;
+
+        // Only worth streaming back if the algorithm actually produced a run.
+        let write_back_result = match mutate_result {
+            Ok(Some(_)) => Some(fetch_row_from_graph(write_back_trust_scores(&graph_name)).await),
+            _ => None,
+        };
 
         // Always drop the projection so a failed run doesn't leak GDS memory.
         // Log-and-continue: a `?` would shadow the pagerank error; the stale
@@ -173,11 +182,27 @@ impl TrustRankEngine for GdsNeo4j {
             );
         }
 
-        let row = write_result?
-            .ok_or_else(|| -> DynError { "GDS pageRank.write returned no summary row".into() })?;
-        let users_written: i64 = row.get("nodePropertiesWritten").unwrap_or_default();
+        let row = mutate_result?
+            .ok_or_else(|| -> DynError { "GDS pageRank.mutate returned no summary row".into() })?;
+        let scores_computed: i64 = row.get("nodePropertiesWritten").unwrap_or_default();
         let ran_iterations: i64 = row.get("ranIterations").unwrap_or_default();
         let did_converge: bool = row.get("didConverge").unwrap_or_default();
+
+        // Persisted, not computed: the gap is users deleted mid-run.
+        let users_written: i64 = match write_back_result {
+            Some(result) => result?
+                .map(|row| row.get("written"))
+                .transpose()?
+                .unwrap_or_default(),
+            None => 0,
+        };
+        let skipped = scores_computed - users_written;
+        if skipped > 0 {
+            warn!(
+                scores_computed,
+                users_written, skipped, "Some ranked users were deleted before write-back"
+            );
+        }
 
         if users_written == 0 {
             return Err(
@@ -193,3 +218,6 @@ impl TrustRankEngine for GdsNeo4j {
         })
     }
 }
+
+#[cfg(test)]
+mod tests;
