@@ -12,6 +12,7 @@ use tracing::warn;
 
 use super::ops::{Graph, GraphOps};
 use super::query::Query;
+use crate::utils::ms;
 
 /// The OpenTelemetry meter name used by all Neo4j graph metrics.
 ///
@@ -355,10 +356,6 @@ impl<G: GraphOps> GraphOps for InstrumentedGraph<G> {
         span.end();
         result
     }
-}
-
-fn ms(d: Duration) -> f64 {
-    d.as_secs_f64() * 1000.0
 }
 
 #[cfg(test)]
