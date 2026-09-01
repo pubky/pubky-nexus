@@ -11,5 +11,5 @@ pub use error::{GraphError, GraphResult};
 pub(crate) use instrumented::InstrumentedGraph;
 pub(crate) use ops::Graph;
 pub use ops::GraphOps;
-pub use pagination::keyset_scan;
+pub use pagination::{keyset_scan, keyset_scan_composite};
 pub use query::Query;

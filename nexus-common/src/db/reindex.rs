@@ -151,13 +151,6 @@ async fn reindex_posts_by_batch() -> Result<(), DynError> {
             let mut post_ids: Vec<(String, String)> = Vec::with_capacity(count);
             let mut last_id = String::new();
             for row in batch {
-                let author = match row.get::<String>("author_id") {
-                    Ok(v) => v,
-                    Err(e) => {
-                        tracing::warn!(error = %e, "Failed to extract author_id from graph row");
-                        continue;
-                    }
-                };
                 let post = match row.get::<String>("post_id") {
                     Ok(v) => v,
                     Err(e) => {
@@ -166,6 +159,13 @@ async fn reindex_posts_by_batch() -> Result<(), DynError> {
                     }
                 };
                 last_id = post.clone();
+                let author = match row.get::<String>("author_id") {
+                    Ok(v) => v,
+                    Err(e) => {
+                        tracing::warn!(error = %e, "Failed to extract author_id from graph row");
+                        continue;
+                    }
+                };
                 post_ids.push((author, post));
             }
             if !post_ids.is_empty() {

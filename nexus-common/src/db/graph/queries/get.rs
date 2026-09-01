@@ -100,19 +100,20 @@ pub fn user_bookmarks(user_id: &str, cursor: &str, limit: i64) -> Query {
     .param("limit", limit)
 }
 
-// BOOKMARKED has no unique/indexed property, so keyset pagination uses elementId(b).
-pub fn get_post_bookmarks(author_id: &str, post_id: &str, cursor: &str, limit: i64) -> Query {
+// b.id collides across bookmarkers (hashes only the post uri), but BOOKMARKED is MERGEd
+// per (user, post), so bookmarker.id is unique per row and keyset pagination uses it.
+pub fn get_post_bookmarks(author_id: &str, post_id: &str, cursor: &[String], limit: i64) -> Query {
     Query::new(
         "get_post_bookmarks",
         "MATCH (bookmarker:User)-[b:BOOKMARKED]->(p:Post {id: $post_id})<-[:AUTHORED]-(author:User {id: $author_id})
-         WHERE elementId(b) > $cursor
-         RETURN b.id AS bookmark_id, bookmarker.id AS bookmarker_id, elementId(b) AS cursor
-         ORDER BY cursor
+         WHERE [bookmarker.id] > $cursor AND bookmarker.id IS NOT NULL
+         RETURN b.id AS bookmark_id, bookmarker.id AS bookmarker_id, [bookmarker.id] AS cursor
+         ORDER BY bookmarker.id
          LIMIT $limit",
     )
     .param("author_id", author_id)
     .param("post_id", post_id)
-    .param("cursor", cursor)
+    .param("cursor", cursor.to_vec())
     .param("limit", limit)
 }
 
@@ -130,35 +131,35 @@ pub fn get_bookmark_target(user_id: &str, bookmark_id: &str) -> Query {
 
 // Get all the reposts that a post has received (used for edit/delete notifications)
 // Keyset pagination on the repost Post id (globally unique + indexed).
-pub fn get_post_reposts(author_id: &str, post_id: &str, cursor: &str, limit: i64) -> Query {
+pub fn get_post_reposts(author_id: &str, post_id: &str, cursor: &[String], limit: i64) -> Query {
     Query::new(
         "get_post_reposts",
         "MATCH (reposter:User)-[:AUTHORED]->(repost:Post)-[:REPOSTED]->(p:Post {id: $post_id})<-[:AUTHORED]-(author:User {id: $author_id})
-         WHERE repost.id > $cursor
-         RETURN reposter.id AS reposter_id, repost.id AS repost_id, repost.id AS cursor
-         ORDER BY cursor
+         WHERE [repost.id] > $cursor AND repost.id IS NOT NULL
+         RETURN reposter.id AS reposter_id, repost.id AS repost_id, [repost.id] AS cursor
+         ORDER BY repost.id
          LIMIT $limit",
     )
     .param("author_id", author_id)
     .param("post_id", post_id)
-    .param("cursor", cursor)
+    .param("cursor", cursor.to_vec())
     .param("limit", limit)
 }
 
 // Get all the replies that a post has received (used for edit/delete notifications)
 // Keyset pagination on the reply Post id (globally unique + indexed).
-pub fn get_post_replies(author_id: &str, post_id: &str, cursor: &str, limit: i64) -> Query {
+pub fn get_post_replies(author_id: &str, post_id: &str, cursor: &[String], limit: i64) -> Query {
     Query::new(
         "get_post_replies",
         "MATCH (replier:User)-[:AUTHORED]->(reply:Post)-[:REPLIED]->(p:Post {id: $post_id})<-[:AUTHORED]-(author:User {id: $author_id})
-         WHERE reply.id > $cursor
-         RETURN replier.id AS replier_id, reply.id AS reply_id, reply.id AS cursor
-         ORDER BY cursor
+         WHERE [reply.id] > $cursor AND reply.id IS NOT NULL
+         RETURN replier.id AS replier_id, reply.id AS reply_id, [reply.id] AS cursor
+         ORDER BY reply.id
          LIMIT $limit",
     )
     .param("author_id", author_id)
     .param("post_id", post_id)
-    .param("cursor", cursor)
+    .param("cursor", cursor.to_vec())
     .param("limit", limit)
 }
 
@@ -193,21 +194,26 @@ pub fn get_tag_target(user_id: &str, tag_id: &str, app: Option<&str>) -> Query {
     query
 }
 
-// t.id collides across taggers (hashes only {target_uri, label}), so keyset pagination uses elementId(t).
-pub fn get_post_tags(author_id: &str, post_id: &str, cursor: &str, limit: i64) -> Query {
+// t.id collides across taggers (hashes only {target_uri, label}), so the keyset is the row value
+// [tagger.id, t.id]: TAGGED is MERGEd per (tagger, post, label) and t.id maps 1:1 to label within
+// a post, which makes the pair unique per row.
+// Cursor columns are guarded IS NOT NULL: `['a', null] > []` is true, so a null column would come
+// back and fail to deserialize into the cursor, aborting the scan. create_post_tag always sets
+// t.id, so the guard only ever excludes corrupt edges.
+pub fn get_post_tags(author_id: &str, post_id: &str, cursor: &[String], limit: i64) -> Query {
     Query::new(
         "get_post_tags",
         "MATCH (p:Post {id: $post_id})
          WHERE EXISTS { (:User {id: $author_id})-[:AUTHORED]->(p) }
          MATCH (tagger:User)-[t:TAGGED]->(p)
-         WHERE elementId(t) > $cursor
-         RETURN tagger.id AS tagger_id, t.id AS tag_id, elementId(t) AS cursor
-         ORDER BY cursor
+         WHERE [tagger.id, t.id] > $cursor AND tagger.id IS NOT NULL AND t.id IS NOT NULL
+         RETURN tagger.id AS tagger_id, t.id AS tag_id, [tagger.id, t.id] AS cursor
+         ORDER BY tagger.id, t.id
          LIMIT $limit",
     )
     .param("author_id", author_id)
     .param("post_id", post_id)
-    .param("cursor", cursor)
+    .param("cursor", cursor.to_vec())
     .param("limit", limit)
 }
 

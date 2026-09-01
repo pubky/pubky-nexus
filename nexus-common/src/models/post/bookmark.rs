@@ -1,6 +1,5 @@
 use crate::db::graph::keyset_scan;
 use crate::db::kv::RedisResult;
-use crate::db::reindex::REINDEX_BATCH_SIZE;
 use crate::db::{
     execute_graph_operation, fetch_all_rows_from_graph, fetch_key_from_graph, queries, GraphResult,
     OperationOutcome, RedisOps,
@@ -11,6 +10,8 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use super::PostStream;
+
+const BOOKMARK_PAGE_SIZE: usize = 500;
 
 #[derive(Serialize, Deserialize, ToSchema, Default, Debug)]
 pub struct Bookmark {
@@ -96,13 +97,13 @@ impl Bookmark {
     /// Paginates in batches to limit memory usage for users with many bookmarks.
     pub async fn reindex(user_id: &str) -> ModelResult<()> {
         let user_id = user_id.to_string();
-        keyset_scan(REINDEX_BATCH_SIZE, "bookmark_reindex", |cursor| {
+        keyset_scan(BOOKMARK_PAGE_SIZE, "bookmark_reindex", |cursor| {
             let user_id = user_id.clone();
             async move {
                 let rows = fetch_all_rows_from_graph(queries::get::user_bookmarks(
                     &user_id,
                     &cursor,
-                    REINDEX_BATCH_SIZE as i64,
+                    BOOKMARK_PAGE_SIZE as i64,
                 ))
                 .await?;
                 let count = rows.len();

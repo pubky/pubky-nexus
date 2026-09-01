@@ -1,11 +1,15 @@
 use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
-use nexus_common::db::{fetch_all_rows_from_graph, get_neo4j_graph, queries::get::get_post_tags};
+use nexus_common::db::{
+    fetch_all_rows_from_graph, get_neo4j_graph, graph::keyset_scan_composite,
+    queries::get::get_post_tags,
+};
+use nexus_common::models::error::ModelError;
 use pubky::Keypair;
 use pubky_app_specs::{traits::HashId, PubkyAppPost, PubkyAppTag, PubkyAppUser};
 
-/// Two taggers, same label → identical t.id, distinct elementId(t).
-/// A regression to t.id keyset drops the second edge; this test catches it.
+/// Two taggers, same label → identical t.id, distinct (tagger.id, t.id) pairs.
+/// A regression to a plain t.id keyset drops the second edge; this test catches it.
 #[tokio_shared_rt::test(shared)]
 async fn test_tagged_pagination_no_dup_or_drop() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
@@ -110,9 +114,9 @@ async fn test_tagged_pagination_no_dup_or_drop() -> Result<()> {
     graph.run(query).await?;
 
     // Page with limit=1 so the cursor must advance between every edge.
-    // Track by elementId (cursor), not tag_id — two edges legitimately share a tag_id.
-    let mut cursor = String::new();
-    let mut seen_cursors: std::collections::HashSet<String> = std::collections::HashSet::new();
+    // Track by the [tagger.id, t.id] row value, not tag_id — two edges legitimately share a tag_id.
+    let mut cursor: Vec<String> = Vec::new();
+    let mut seen_cursors: std::collections::HashSet<Vec<String>> = std::collections::HashSet::new();
 
     loop {
         let query = get_post_tags(&author_id, &post_id, &cursor, 1);
@@ -121,11 +125,15 @@ async fn test_tagged_pagination_no_dup_or_drop() -> Result<()> {
             break;
         }
         for row in &rows {
-            let edge_cursor = row.get::<String>("cursor")?;
+            let edge_cursor = row.get::<Vec<String>>("cursor")?;
             assert!(
                 seen_cursors.insert(edge_cursor.clone()),
-                "duplicate elementId(t) cursor: {}",
-                edge_cursor
+                "duplicate keyset cursor: {edge_cursor:?}"
+            );
+            // Neo4j ordered the rows; Rust must agree, since keyset_scan compares cursors itself.
+            assert!(
+                cursor.is_empty() || edge_cursor > cursor,
+                "cursor went backwards in Rust ordering: {cursor:?} -> {edge_cursor:?}"
             );
             cursor = edge_cursor;
         }
@@ -137,6 +145,34 @@ async fn test_tagged_pagination_no_dup_or_drop() -> Result<()> {
         3,
         "expected 3 edges, got {}",
         seen_cursors.len()
+    );
+
+    // Drive the real scan loop over the same edges: batch_size 1 makes every page a full
+    // one, so each hop must clear keyset_scan's strictly-increasing cursor check.
+    let scanned = std::cell::RefCell::new(Vec::new());
+    keyset_scan_composite(1, "tagged_pagination", |cursor| {
+        let scanned = &scanned;
+        let author_id = author_id.clone();
+        let post_id = post_id.clone();
+        async move {
+            let rows =
+                fetch_all_rows_from_graph(get_post_tags(&author_id, &post_id, &cursor, 1)).await?;
+            let count = rows.len();
+            let mut last_cursor = None;
+            for row in &rows {
+                let edge_cursor = row.get::<Vec<String>>("cursor")?;
+                scanned.borrow_mut().push(edge_cursor.clone());
+                last_cursor = Some(edge_cursor);
+            }
+            Ok::<(usize, Option<Vec<String>>), ModelError>((count, last_cursor))
+        }
+    })
+    .await?;
+
+    assert_eq!(
+        scanned.into_inner().len(),
+        3,
+        "keyset_scan must walk every edge without stalling"
     );
 
     Ok(())

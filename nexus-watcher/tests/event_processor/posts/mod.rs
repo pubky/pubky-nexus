@@ -2,6 +2,7 @@ mod attachments;
 mod collection_counts;
 mod del_reply_notification;
 mod del_reply_parent_notification;
+mod fanout_pagination;
 mod forwards_compat;
 
 mod del_bookmarked_notification;

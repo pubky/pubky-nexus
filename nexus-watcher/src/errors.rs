@@ -41,6 +41,10 @@ pub enum EventProcessorError {
     #[error("SpecValidation: {0}")]
     SpecValidation(String),
 
+    /// A keyset scan could not advance: a deterministic data anomaly, so retrying reproduces it.
+    #[error("DataAnomaly: {0}")]
+    DataAnomaly(String),
+
     /// Fetch exceeded size cap (non-retryable).
     #[error("FetchSizeExceeded: {0} bytes (limit: {1} bytes)")]
     FetchSizeExceeded(u64, u64),
@@ -75,10 +79,7 @@ pub enum EventProcessorError {
 impl From<ModelError> for EventProcessorError {
     fn from(e: ModelError) -> Self {
         match e {
-            ModelError::GraphOperationFailed(source) => {
-                let should_not_retry_now = source.should_not_retry_now();
-                EventProcessorError::GraphQueryFailed(should_not_retry_now, source.to_string())
-            }
+            ModelError::GraphOperationFailed(source) => source.into(),
             ModelError::KvOperationFailed(source) => {
                 let should_not_retry_now = source.should_not_retry_now();
                 EventProcessorError::IndexOperationFailed(should_not_retry_now, source.to_string())
@@ -121,7 +122,10 @@ impl From<RedisError> for EventProcessorError {
 
 impl From<GraphError> for EventProcessorError {
     fn from(e: GraphError) -> Self {
-        EventProcessorError::GraphQueryFailed(e.should_not_retry_now(), e.to_string())
+        match e {
+            GraphError::KeysetScanStalled { .. } => EventProcessorError::DataAnomaly(e.to_string()),
+            _ => EventProcessorError::GraphQueryFailed(e.should_not_retry_now(), e.to_string()),
+        }
     }
 }
 

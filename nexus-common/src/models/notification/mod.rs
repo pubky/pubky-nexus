@@ -1,4 +1,4 @@
-use crate::db::graph::keyset_scan;
+use crate::db::graph::keyset_scan_composite;
 use crate::db::kv::{RedisError, RedisResult, SortOrder};
 use crate::db::{fetch_all_rows_from_graph, queries, RedisOps};
 use crate::models::error::{ModelError, ModelResult};
@@ -113,7 +113,7 @@ pub enum NotificationBody {
 
 const NOTIFICATION_FANOUT_PAGE_SIZE: i64 = 1_000;
 
-type QueryFunction = fn(&str, &str, &str, i64) -> crate::db::graph::Query;
+type QueryFunction = fn(&str, &str, &[String], i64) -> crate::db::graph::Query;
 type ExtractFunction = Arc<dyn Fn(&Row) -> (String, String) + Send + Sync>;
 
 impl Default for NotificationBody {
@@ -395,8 +395,9 @@ impl Notification {
         post_kind: PubkyAppPostKind,
     ) -> ModelResult<()> {
         // Define the notification types and associated data
-        let notification_types: Vec<(QueryFunction, PostChangedSource, ExtractFunction)> = vec![
+        let notification_types: Vec<(&str, QueryFunction, PostChangedSource, ExtractFunction)> = vec![
             (
+                "get_post_replies",
                 queries::get::get_post_replies as QueryFunction,
                 PostChangedSource::ReplyParent,
                 Arc::new(|row: &Row| {
@@ -407,6 +408,7 @@ impl Notification {
                 }),
             ),
             (
+                "get_post_tags",
                 queries::get::get_post_tags as QueryFunction,
                 PostChangedSource::TaggedPost,
                 Arc::new(|row: &Row| {
@@ -417,6 +419,7 @@ impl Notification {
                 }),
             ),
             (
+                "get_post_bookmarks",
                 queries::get::get_post_bookmarks as QueryFunction,
                 PostChangedSource::Bookmark,
                 Arc::new(|row: &Row| {
@@ -427,6 +430,7 @@ impl Notification {
                 }),
             ),
             (
+                "get_post_reposts",
                 queries::get::get_post_reposts as QueryFunction,
                 PostChangedSource::RepostEmbed,
                 Arc::new(|row: &Row| {
@@ -443,67 +447,54 @@ impl Notification {
         let changed_uri = changed_uri.to_string();
         let changed_type = changed_type.clone();
 
-        for (query_fn, post_changed_source, extract_fn) in notification_types {
+        for (label, query_fn, post_changed_source, extract_fn) in notification_types {
             let author_id = author_id.clone();
             let post_id = post_id.clone();
             let changed_uri = changed_uri.clone();
             let changed_type = changed_type.clone();
-            keyset_scan(
-                NOTIFICATION_FANOUT_PAGE_SIZE as usize,
-                "notification fan-out",
-                |cursor| {
-                    let author_id = author_id.clone();
-                    let post_id = post_id.clone();
-                    let changed_uri = changed_uri.clone();
-                    let changed_type = changed_type.clone();
-                    let kind = post_kind.clone();
-                    let post_changed_source = post_changed_source.clone();
-                    let extract_fn = Arc::clone(&extract_fn);
-                    async move {
-                        let query =
-                            query_fn(&author_id, &post_id, &cursor, NOTIFICATION_FANOUT_PAGE_SIZE);
-                        let rows = fetch_all_rows_from_graph(query).await?;
-                        let count = rows.len();
-                        let mut last_cursor = String::new();
-                        for row in &rows {
-                            if let Ok(c) = row.get::<String>("cursor") {
-                                last_cursor = c;
-                            }
-                            let (user_id, linked_uri) = extract_fn(row);
-                            if author_id == user_id {
-                                // Do not notify the author themselves
-                                continue;
-                            }
-                            let notification_body = match changed_type {
-                                PostChangedType::Deleted => NotificationBody::PostDeleted {
-                                    delete_source: post_changed_source.clone(),
-                                    deleted_by: author_id.clone(),
-                                    deleted_uri: changed_uri.clone(),
-                                    linked_uri,
-                                    post_kind: kind.clone(),
-                                },
-                                PostChangedType::Edited => NotificationBody::PostEdited {
-                                    edit_source: post_changed_source.clone(),
-                                    edited_by: author_id.clone(),
-                                    edited_uri: changed_uri.clone(),
-                                    linked_uri,
-                                    post_kind: kind.clone(),
-                                },
-                            };
-                            let notification = Notification::new(notification_body);
-                            notification.put_to_index(&user_id).await?;
+            keyset_scan_composite(NOTIFICATION_FANOUT_PAGE_SIZE as usize, label, |cursor| {
+                let author_id = author_id.clone();
+                let post_id = post_id.clone();
+                let changed_uri = changed_uri.clone();
+                let changed_type = changed_type.clone();
+                let kind = post_kind.clone();
+                let post_changed_source = post_changed_source.clone();
+                let extract_fn = Arc::clone(&extract_fn);
+                async move {
+                    let query =
+                        query_fn(&author_id, &post_id, &cursor, NOTIFICATION_FANOUT_PAGE_SIZE);
+                    let rows = fetch_all_rows_from_graph(query).await?;
+                    let count = rows.len();
+                    let mut last_cursor = None;
+                    for row in &rows {
+                        last_cursor = Some(row.get::<Vec<String>>("cursor")?);
+                        let (user_id, linked_uri) = extract_fn(row);
+                        if author_id == user_id {
+                            // Do not notify the author themselves
+                            continue;
                         }
-                        Ok::<(usize, Option<String>), ModelError>((
-                            count,
-                            if last_cursor.is_empty() {
-                                None
-                            } else {
-                                Some(last_cursor)
+                        let notification_body = match changed_type {
+                            PostChangedType::Deleted => NotificationBody::PostDeleted {
+                                delete_source: post_changed_source.clone(),
+                                deleted_by: author_id.clone(),
+                                deleted_uri: changed_uri.clone(),
+                                linked_uri,
+                                post_kind: kind.clone(),
                             },
-                        ))
+                            PostChangedType::Edited => NotificationBody::PostEdited {
+                                edit_source: post_changed_source.clone(),
+                                edited_by: author_id.clone(),
+                                edited_uri: changed_uri.clone(),
+                                linked_uri,
+                                post_kind: kind.clone(),
+                            },
+                        };
+                        let notification = Notification::new(notification_body);
+                        notification.put_to_index(&user_id).await?;
                     }
-                },
-            )
+                    Ok::<(usize, Option<Vec<String>>), ModelError>((count, last_cursor))
+                }
+            })
             .await?;
         }
         Ok(())

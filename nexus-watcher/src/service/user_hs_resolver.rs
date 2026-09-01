@@ -43,6 +43,10 @@ impl PkdnsHomeserverResolver for PubkyConnectorResolver {
     }
 }
 
+pub trait PubkyClient {
+    async fn get_homeserver_of(&self, user_public_key: &PublicKey) -> Option<PublicKey>;
+}
+
 pub struct UserHsResolverRunner {
     resolver: Box<dyn PkdnsHomeserverResolver>,
     ttl_ms: u64,
