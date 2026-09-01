@@ -46,18 +46,15 @@ impl SocialGraphStatus {
             return Ok(Vec::new());
         }
 
-        let members: Vec<[&str; 1]> = user_ids.iter().map(|id| [id.as_ref()]).collect();
-        let pairs: Vec<(&[&str], &[&str])> = members
-            .iter()
-            .map(|member| (USER_SOCIAL_GRAPH_KEY_PARTS.as_slice(), member.as_slice()))
-            .collect();
+        let members: Vec<&str> = user_ids.iter().map(|id| id.as_ref()).collect();
 
-        // The population sizes the `established` cut, so it is read alongside
-        // the ranks rather than baked into them: tuning the cut needs no rebuild.
-        let (population, ranks) = tokio::try_join!(
-            Self::index_sorted_set_card(&USER_SOCIAL_GRAPH_KEY_PARTS, None),
-            Self::check_sorted_set_members(None, &pairs),
-        )?;
+        // The population sizes the `established` cut, so it is read alongside the
+        // ranks rather than baked into them: tuning the cut needs no rebuild. Both
+        // come from one snapshot, or a rebuild landing mid-read could size the cut
+        // from one ranking and place users by another.
+        let (population, ranks) =
+            Self::index_sorted_set_card_and_members(&USER_SOCIAL_GRAPH_KEY_PARTS, &members, None)
+                .await?;
 
         debug_assert_eq!(ranks.len(), user_ids.len());
         Ok(Self::classify(population, &ranks))

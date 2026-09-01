@@ -141,12 +141,32 @@ pub async fn replace(
     Ok(())
 }
 
-/// Number of members in a Redis sorted set, or `0` when the key is absent.
-pub async fn card(prefix: &str, key: &str) -> RedisResult<usize> {
+/// Reads a sorted set's size and the scores of `members`, from one snapshot.
+///
+/// `MULTI`/`EXEC`, so the count and the scores cannot straddle a concurrent
+/// rewrite of the set. Two independent reads could observe different
+/// generations, which for a ranking means a size from one and positions from
+/// another. Returns `(cardinality, one slot per member)`; an absent key reads
+/// as `0` with every slot `None`.
+pub async fn card_and_members(
+    prefix: &str,
+    key: &str,
+    members: &[&str],
+) -> RedisResult<(usize, Vec<Option<isize>>)> {
     let index_key = format!("{prefix}:{key}");
+
+    let mut pipe = redis::pipe();
+    pipe.atomic();
+    pipe.zcard(&index_key);
+    for member in members {
+        pipe.zscore(&index_key, *member);
+    }
+
     let mut redis_conn = get_redis_conn().await?;
-    let count: usize = redis_conn.zcard(&index_key).await?;
-    Ok(count)
+    let mut replies: Vec<Option<isize>> = pipe.query_async(&mut redis_conn).await?;
+    // The ZCARD reply leads; the rest line up with `members`.
+    let cardinality = replies.remove(0).unwrap_or(0).max(0) as usize;
+    Ok((cardinality, replies))
 }
 
 /// Seeds `member` with `score` only if it is not already in the sorted set.
