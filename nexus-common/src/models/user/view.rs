@@ -36,7 +36,11 @@ impl UserView {
             UserCounts::get_by_id(user_id),
             Relationship::get_by_id(user_id, viewer_id),
             // The others surface ModelError; this one is Redis-only.
-            async { SocialGraphStatus::get_by_id(user_id).await.map_err(ModelError::from) },
+            async {
+                SocialGraphStatus::get_by_id(user_id)
+                    .await
+                    .map_err(ModelError::from)
+            },
         )?;
 
         let Some(details) = details else {

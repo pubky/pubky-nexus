@@ -76,10 +76,7 @@ impl SocialGraphStatus {
     ///
     /// An empty ranking means it was never built, which is not the same as
     /// ranking everyone as new, so every slot is `None` and the badge hides.
-    fn classify(
-        population: usize,
-        ranks: &[Option<isize>],
-    ) -> Vec<Option<SocialGraphStatus>> {
+    fn classify(population: usize, ranks: &[Option<isize>]) -> Vec<Option<SocialGraphStatus>> {
         if population == 0 {
             return vec![None; ranks.len()];
         }

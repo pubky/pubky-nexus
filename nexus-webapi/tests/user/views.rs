@@ -233,7 +233,10 @@ async fn test_social_graph_status() -> Result<()> {
         // ranking, or the positional zip in `UserView::get_by_ids` truncates and
         // every user stream comes back empty.
         let stream = get_request("/v0/stream/users?source=most_followed&limit=5").await?;
-        anyhow::Ok((unavailable, stream.as_array().map(Vec::len).unwrap_or_default()))
+        anyhow::Ok((
+            unavailable,
+            stream.as_array().map(Vec::len).unwrap_or_default(),
+        ))
     }
     .await;
 
@@ -261,7 +264,8 @@ async fn test_replacing_a_sorted_set_with_nothing_drops_it() -> Result<()> {
     let key_parts = ["Test", "SocialGraphReplace"];
     let mut redis_conn = get_redis_conn().await?;
 
-    SocialGraphStatus::replace_index_sorted_set(&key_parts, &[(1.0, "someone")], None, None).await?;
+    SocialGraphStatus::replace_index_sorted_set(&key_parts, &[(1.0, "someone")], None, None)
+        .await?;
     let populated: bool = redis_conn.exists("Sorted:Test:SocialGraphReplace").await?;
 
     SocialGraphStatus::replace_index_sorted_set(&key_parts, &[], None, None).await?;
