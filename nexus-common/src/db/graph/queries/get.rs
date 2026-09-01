@@ -298,6 +298,31 @@ pub fn get_user_tag_pairs() -> Query {
     .param("deleted", USER_DELETED_SENTINEL)
 }
 
+/// Users carrying positive trust, highest first: the ranked population behind
+/// the social graph badge.
+///
+/// `coalesce` rather than `IS NOT NULL` because GDS may write `0.0` or leave
+/// the property unset for a node unreachable from the seed set, and both mean
+/// the same thing. Only positive scores are ranked: everyone at zero shares one
+/// value, so their order would be arbitrary and would reshuffle every run.
+/// Absence from the ranking is what marks them new.
+///
+/// `user_id ASC` breaks score ties deterministically, so two runs over the same
+/// graph agree.
+pub fn get_trust_ranked_user_ids() -> Query {
+    Query::new(
+        "get_trust_ranked_user_ids",
+        "
+        MATCH (u:User)
+        WHERE coalesce(u.trust, 0.0) > 0
+          AND u.name <> $deleted AND NOT coalesce(u.deleted, false)
+        RETURN u.id AS user_id
+        ORDER BY u.trust DESC, user_id ASC
+        ",
+    )
+    .param("deleted", USER_DELETED_SENTINEL)
+}
+
 /// Users whose profile carries any of the given tag labels, scored by distinct
 /// tagger count summed across the searched labels.
 pub fn search_users_by_tags(labels: &[String], skip: Option<usize>, limit: Option<usize>) -> Query {

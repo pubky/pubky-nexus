@@ -107,6 +107,48 @@ pub async fn put(
     Ok(())
 }
 
+/// Replaces a sorted set's entire contents, atomically.
+///
+/// Unlike [`put`], which only adds, this drops members that are no longer
+/// present: use it for a projection rebuilt wholesale from an upstream source.
+/// The `DEL` and the `ZADD` run in one `MULTI`/`EXEC`, so a reader never
+/// observes the set empty or half-written.
+///
+/// Empty `items` deletes the key. For a projection that is the honest result,
+/// since "nothing to rank" and "never built" have to look the same to readers.
+pub async fn replace(
+    prefix: &str,
+    key: &str,
+    items: &[(f64, &str)],
+    expiration: Option<i64>,
+) -> RedisResult<()> {
+    let index_key = format!("{prefix}:{key}");
+    let mut redis_conn = get_redis_conn().await?;
+
+    if items.is_empty() {
+        let _: () = redis_conn.del(&index_key).await?;
+        return Ok(());
+    }
+
+    let mut pipe = redis::pipe();
+    pipe.atomic();
+    pipe.del(&index_key);
+    pipe.zadd_multiple(&index_key, items);
+    if let Some(ttl) = expiration {
+        pipe.expire(&index_key, ttl);
+    }
+    let _: () = pipe.query_async(&mut redis_conn).await?;
+    Ok(())
+}
+
+/// Number of members in a Redis sorted set, or `0` when the key is absent.
+pub async fn card(prefix: &str, key: &str) -> RedisResult<usize> {
+    let index_key = format!("{prefix}:{key}");
+    let mut redis_conn = get_redis_conn().await?;
+    let count: usize = redis_conn.zcard(&index_key).await?;
+    Ok(count)
+}
+
 /// Seeds `member` with `score` only if it is not already in the sorted set.
 ///
 /// `ZADD NX` makes the check and the write one atomic operation, so an existing

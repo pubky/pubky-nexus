@@ -1,9 +1,14 @@
 use crate::{
     tags::user::PUBKY_PEER,
+    utils::server::TestServiceServer,
     utils::{get_request, invalid_get_request},
 };
 use anyhow::Result;
 use axum::http::StatusCode;
+use deadpool_redis::redis::AsyncCommands;
+use nexus_common::db::get_redis_conn;
+use nexus_common::db::RedisOps;
+use nexus_common::models::user::{SocialGraphStatus, USER_SOCIAL_GRAPH_KEY_PARTS};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_user_endpoint() -> Result<()> {
@@ -179,5 +184,90 @@ async fn test_get_details() -> Result<()> {
     )
     .await?;
 
+    Ok(())
+}
+
+// ##### Social graph status #####
+// Fixture (docker/test-graph/mocks/wot.cypher): D1 0.4, D2 0.2, D1B 0.1, and no
+// other user carries a trust score, so the ranking is exactly three deep and
+// `ceil(3 * 0.05)` puts only its top in `established`.
+const WOT_D1: &str = "qjftuwjog819ki1wktuy5tndebce36bmxxwtjjm3z1fr97jk9yuo";
+const WOT_D2: &str = "smf4xrqfhx7stnufkjzhbjyu3rbgb3gga64srqmzcyyoyzefse9y";
+const WOT_D1B: &str = "t5ixbtatg4tq5q5ixg16qqrg1bmem75ksg6cweuftuydwzw91pzy";
+const UNRANKED_USER: &str = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
+
+/// Returns the field itself rather than the whole body, so a caller can tell an
+/// explicit `null` from a field that was omitted: `Value` indexing answers
+/// `Null` for both, and the frontend branches on the field being there.
+async fn social_graph_status(user_id: &str) -> Result<serde_json::Value> {
+    let res = get_request(&format!("/v0/user/{user_id}")).await?;
+    Ok(res
+        .get("social_graph_status")
+        .cloned()
+        .expect("social_graph_status must always be serialized, null included"))
+}
+
+/// Both halves live in one test on purpose: the ranking is a single global key,
+/// so a separate test that dropped it could race this one and see its own null.
+#[tokio_shared_rt::test(shared)]
+async fn test_social_graph_status() -> Result<()> {
+    assert_eq!(social_graph_status(WOT_D1).await?, "established");
+    assert_eq!(social_graph_status(WOT_D2).await?, "networked");
+    assert_eq!(social_graph_status(WOT_D1B).await?, "networked");
+    // Carries no trust at all, so it is absent from a ranking that exists.
+    assert_eq!(social_graph_status(UNRANKED_USER).await?, "new");
+
+    // With no ranking at all the field must be null, never "new". Production
+    // ships with an empty seed set, so a non-optional field would hang a NEW
+    // badge on every profile in the app.
+    TestServiceServer::get_test_server().await;
+    let mut redis_conn = get_redis_conn().await?;
+    let key = format!("Sorted:{}", USER_SOCIAL_GRAPH_KEY_PARTS.join(":"));
+    let _: () = redis_conn.del(&key).await?;
+
+    // Probed without `?` so an error between the delete and the rebuild cannot
+    // strand the ranking for every other test.
+    let probe = async {
+        let unavailable = social_graph_status(WOT_D1).await?;
+        // The batch read has to return one slot per requested id even with no
+        // ranking, or the positional zip in `UserView::get_by_ids` truncates and
+        // every user stream comes back empty.
+        let stream = get_request("/v0/stream/users?source=most_followed&limit=5").await?;
+        anyhow::Ok((unavailable, stream.as_array().map(Vec::len).unwrap_or_default()))
+    }
+    .await;
+
+    SocialGraphStatus::reindex().await?;
+    let (unavailable, streamed) = probe?;
+
+    // Present and null, never omitted: the frontend branches on the field
+    // existing, and `is_null` alone would also pass for a missing key.
+    assert!(
+        unavailable.is_null(),
+        "expected null without a ranking, got {unavailable}"
+    );
+    assert_eq!(streamed, 5, "a missing ranking must not empty user streams");
+    assert_eq!(social_graph_status(WOT_D1).await?, "established");
+
+    Ok(())
+}
+
+/// The path production is on today: with no seed set nothing carries trust, so
+/// the rebuild has nothing to write and must drop the key. Leaving a stale set
+/// behind would serve an old ranking forever.
+#[tokio_shared_rt::test(shared)]
+async fn test_replacing_a_sorted_set_with_nothing_drops_it() -> Result<()> {
+    TestServiceServer::get_test_server().await;
+    let key_parts = ["Test", "SocialGraphReplace"];
+    let mut redis_conn = get_redis_conn().await?;
+
+    SocialGraphStatus::replace_index_sorted_set(&key_parts, &[(1.0, "someone")], None, None).await?;
+    let populated: bool = redis_conn.exists("Sorted:Test:SocialGraphReplace").await?;
+
+    SocialGraphStatus::replace_index_sorted_set(&key_parts, &[], None, None).await?;
+    let after_empty: bool = redis_conn.exists("Sorted:Test:SocialGraphReplace").await?;
+
+    assert!(populated, "a non-empty replace should create the key");
+    assert!(!after_empty, "an empty replace should drop the key");
     Ok(())
 }
