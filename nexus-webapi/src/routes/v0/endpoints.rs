@@ -12,6 +12,7 @@ pub const USER_ROUTE: &str = concatcp!(USER_PREFIX, "/{user_id}");
 pub const RELATIONSHIP_ROUTE: &str = concatcp!(USER_ROUTE, "/relationship/{viewer_id}");
 pub const USER_COUNTS_ROUTE: &str = concatcp!(USER_ROUTE, "/counts");
 pub const USER_DETAILS_ROUTE: &str = concatcp!(USER_ROUTE, "/details");
+pub const USER_CURSOR_ROUTE: &str = concatcp!(USER_ROUTE, "/cursor");
 pub const USER_TAGS_ROUTE: &str = concatcp!(USER_ROUTE, "/tags");
 pub const USER_TAGGERS_ROUTE: &str = concatcp!(USER_ROUTE, "/taggers/{label}");
 pub const USER_FOLLOWERS_ROUTE: &str = concatcp!(USER_ROUTE, "/followers");

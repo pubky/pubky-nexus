@@ -2,9 +2,11 @@ use std::net::{IpAddr, Ipv4Addr};
 use std::{fmt::Debug, net::SocketAddr};
 
 use super::file::ConfigLoader;
+use super::watcher::HOMESERVER_PUBKY;
 use super::{default_stack, DaemonConfig, StackConfig};
 
 use async_trait::async_trait;
+use pubky_app_specs::PubkyId;
 use serde::{Deserialize, Serialize};
 
 pub const DEFAULT_LOCAL_IP: [u8; 4] = [127, 0, 0, 1];
@@ -89,6 +91,13 @@ pub struct ApiConfig {
     /// Maximum size (in bytes) accepted for a request body
     #[serde(default = "default_max_body_size_bytes")]
     pub max_body_size_bytes: usize,
+    /// The primary homeserver this deployment indexes in bulk.
+    ///
+    /// When derived from a daemon config, defaults to the watcher's primary
+    /// homeserver (see [ApiConfig::primary_homeserver]); when set explicitly,
+    /// overrides it.
+    #[serde(default)]
+    pub homeserver: Option<PubkyId>,
     #[serde(default = "default_stack")]
     pub stack: StackConfig,
     #[serde(default)]
@@ -103,9 +112,23 @@ impl Default for ApiConfig {
             pubky_listen_socket: SocketAddr::from((DEFAULT_LOCAL_IP, DEFAULT_PUBKY_LOCAL_PORT)),
             request_timeout_secs: DEFAULT_REQUEST_TIMEOUT_SECS,
             max_body_size_bytes: DEFAULT_MAX_BODY_SIZE_BYTES,
+            homeserver: None,
             stack: StackConfig::default(),
             rate_limit: RateLimitConfig::default(),
         }
+    }
+}
+
+impl ApiConfig {
+    /// Resolves the primary homeserver ID.
+    ///
+    /// Returns the explicitly configured `homeserver` value, falling back to
+    /// the hardcoded default homeserver key when none is configured.
+    pub fn primary_homeserver(&self) -> PubkyId {
+        self.homeserver.clone().unwrap_or_else(|| {
+            PubkyId::try_from(HOMESERVER_PUBKY)
+                .expect("Hardcoded homeserver should be a valid pubky id")
+        })
     }
 }
 
@@ -113,9 +136,13 @@ impl Default for ApiConfig {
 /// and the shared application stack
 impl From<DaemonConfig> for ApiConfig {
     fn from(daemon_config: DaemonConfig) -> Self {
+        let DaemonConfig { api, watcher, stack, .. } = daemon_config;
         ApiConfig {
-            stack: daemon_config.stack,
-            ..daemon_config.api
+            // Prefer an explicit [api] homeserver; otherwise inherit the primary
+            // homeserver monitored by the watcher so both services agree.
+            homeserver: api.homeserver.or(Some(watcher.homeserver)),
+            stack,
+            ..api
         }
     }
 }

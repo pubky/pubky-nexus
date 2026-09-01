@@ -2,6 +2,7 @@ use std::time::Duration;
 use std::{path::PathBuf, sync::Arc};
 
 use crate::api_context::ApiContext;
+use crate::models::PubkyId;
 use axum::body::Body;
 use axum::extract::{DefaultBodyLimit, FromRequest, FromRequestParts};
 use axum::http::request::Parts;
@@ -81,12 +82,16 @@ pub struct AppState {
     pub files_path: Arc<PathBuf>,
     /// Shared ingestor enforcing the HS blacklist on API-triggered ingestion.
     pub ingestor: Arc<UserIngestor>,
+    /// The primary homeserver. Users hosted on it are served the homeserver-level
+    /// index cursor instead of a per-user cursor.
+    pub primary_homeserver: PubkyId,
 }
 
 pub fn routes(ctx: &ApiContext, shutdown_rx: Receiver<bool>) -> Router {
     let state = AppState {
         files_path: Arc::new(ctx.api_config.stack.files_path.clone()),
         ingestor: ctx.ingestor.clone(),
+        primary_homeserver: ctx.api_config.primary_homeserver(),
     };
 
     let app_routes = app_routes(state.clone(), &ctx.api_config.rate_limit, shutdown_rx);

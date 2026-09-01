@@ -1,6 +1,7 @@
 use crate::routes::v0::endpoints::{
-    RELATIONSHIP_ROUTE, USER_COUNTS_ROUTE, USER_DETAILS_ROUTE, USER_FOLLOWERS_ROUTE,
-    USER_FOLLOWING_ROUTE, USER_FRIENDS_ROUTE, USER_ROUTE, USER_TAGGERS_ROUTE, USER_TAGS_ROUTE,
+    RELATIONSHIP_ROUTE, USER_COUNTS_ROUTE, USER_CURSOR_ROUTE, USER_DETAILS_ROUTE,
+    USER_FOLLOWERS_ROUTE, USER_FOLLOWING_ROUTE, USER_FRIENDS_ROUTE, USER_ROUTE, USER_TAGGERS_ROUTE,
+    USER_TAGS_ROUTE,
 };
 use crate::routes::AppState;
 
@@ -9,6 +10,7 @@ use axum::Router;
 use utoipa::OpenApi;
 
 mod counts;
+mod cursor;
 mod details;
 mod follows;
 mod relationship;
@@ -26,6 +28,7 @@ pub fn routes() -> Router<AppState> {
         .route(USER_TAGS_ROUTE, get(tags::user_tags_handler))
         .route(USER_TAGGERS_ROUTE, get(tags::user_taggers_handler))
         .route(USER_COUNTS_ROUTE, get(counts::user_counts_handler))
+        .route(USER_CURSOR_ROUTE, get(cursor::user_cursor_handler))
         .route(USER_FOLLOWERS_ROUTE, get(follows::user_followers_handler))
         .route(USER_FOLLOWING_ROUTE, get(follows::user_following_handler))
         .route(USER_FRIENDS_ROUTE, get(follows::user_friends_handler))
@@ -39,6 +42,7 @@ impl UserApiDoc {
     pub fn merge_docs() -> utoipa::openapi::OpenApi {
         let mut combined = view::UserViewApiDoc::openapi();
         combined.merge(counts::UserCountsApiDoc::openapi());
+        combined.merge(cursor::UserCursorApiDoc::openapi());
         combined.merge(details::UserDetailsApiDoc::openapi());
         combined.merge(relationship::RelationshipApiDoc::openapi());
         combined.merge(tags::UserTagsApiDoc::openapi());

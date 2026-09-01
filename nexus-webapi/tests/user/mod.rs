@@ -1,5 +1,6 @@
 pub mod avatar;
 pub mod bootstrap;
+pub mod cursor;
 pub mod notifications;
 pub mod reach;
 pub mod search;

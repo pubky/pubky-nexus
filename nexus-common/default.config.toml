@@ -10,6 +10,9 @@ pubky_listen_socket = "127.0.0.1:8081"
 request_timeout_secs = 30
 # Maximum size (in bytes) accepted for a request body
 max_body_size_bytes = 1048576
+# Primary homeserver pubky id. Only needed when the API runs standalone; in a
+# full daemon it defaults to [watcher] homeserver.
+# homeserver = "8um71us3fyw6h8wbcxb5ar3rwusy1a6u49956ikzojg3gcwd1dty"
 
 [api.rate_limit]
 # Enable rate limiting (disabled by default for permissiveness behind NATs)

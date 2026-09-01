@@ -13,7 +13,7 @@ use nexus_common::models::{
     traits::Collection,
     user::UserDetails,
 };
-use nexus_common::utils::test_utils::default_ingestor_tests;
+use nexus_common::utils::test_utils::{default_ingestor_tests, default_primary_homeserver_tests};
 use nexus_webapi::{
     models::PubkyId,
     routes::{r#static::user_avatar_handler, AppState, Path},
@@ -57,6 +57,7 @@ impl AvatarBenchSetup {
             app_state: AppState {
                 files_path: Arc::new(files_path),
                 ingestor: default_ingestor_tests(),
+                primary_homeserver: default_primary_homeserver_tests(),
             },
             user_id,
         };

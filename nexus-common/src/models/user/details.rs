@@ -1,7 +1,7 @@
 use super::UserSearch;
 use crate::db::graph::Query;
 use crate::db::kv::RedisResult;
-use crate::db::{exec_single_row, queries, GraphResult, RedisOps};
+use crate::db::{exec_single_row, fetch_key_from_graph, queries, GraphResult, RedisOps};
 use crate::models::error::ModelResult;
 use crate::models::traits::Collection;
 use async_trait::async_trait;
@@ -129,6 +129,12 @@ impl UserDetails {
 /// Binds a user to their homeserver, recording the `HOSTED_BY` relationship and `resolved_at`.
 pub async fn set_user_homeserver(user_id: &str, homeserver_id: &str) -> GraphResult<()> {
     exec_single_row(queries::put::set_user_homeserver(user_id, homeserver_id)).await
+}
+
+/// Returns the homeserver ID a user is currently bound to, if any.
+pub async fn get_user_homeserver(user_id: &str) -> ModelResult<Option<String>> {
+    let query = queries::get::get_user_homeserver(user_id);
+    Ok(fetch_key_from_graph(query, "homeserver_id").await?)
 }
 
 /// Toggles the stale flag on a user's existing homeserver mapping.

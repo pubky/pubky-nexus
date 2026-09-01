@@ -7,6 +7,7 @@ use std::sync::Arc;
 use pubky::{Keypair, PublicKey};
 use pubky_app_specs::PubkyId;
 
+use crate::config::watcher::HOMESERVER_PUBKY;
 use crate::models::user::UserIngestor;
 
 /// Generates a random public key.
@@ -22,4 +23,9 @@ pub fn random_pubky_id() -> PubkyId {
 /// Default user ingestor for tests: empty HS blacklist (ingest everything).
 pub fn default_ingestor_tests() -> Arc<UserIngestor> {
     Arc::new(UserIngestor::default())
+}
+
+/// Default primary homeserver for tests: the hardcoded default HS key.
+pub fn default_primary_homeserver_tests() -> PubkyId {
+    PubkyId::try_from(HOMESERVER_PUBKY).expect("HOMESERVER_PUBKY should be a valid pubky id")
 }
