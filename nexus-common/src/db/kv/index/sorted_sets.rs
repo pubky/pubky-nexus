@@ -107,6 +107,68 @@ pub async fn put(
     Ok(())
 }
 
+/// Replaces a sorted set's entire contents, atomically.
+///
+/// Unlike [`put`], which only adds, this drops members that are no longer
+/// present: use it for a projection rebuilt wholesale from an upstream source.
+/// The `DEL` and the `ZADD` run in one `MULTI`/`EXEC`, so a reader never
+/// observes the set empty or half-written.
+///
+/// Empty `items` deletes the key. For a projection that is the honest result,
+/// since "nothing to rank" and "never built" have to look the same to readers.
+pub async fn replace(
+    prefix: &str,
+    key: &str,
+    items: &[(f64, &str)],
+    expiration: Option<i64>,
+) -> RedisResult<()> {
+    let index_key = format!("{prefix}:{key}");
+    let mut redis_conn = get_redis_conn().await?;
+
+    if items.is_empty() {
+        let _: () = redis_conn.del(&index_key).await?;
+        return Ok(());
+    }
+
+    let mut pipe = redis::pipe();
+    pipe.atomic();
+    pipe.del(&index_key);
+    pipe.zadd_multiple(&index_key, items);
+    if let Some(ttl) = expiration {
+        pipe.expire(&index_key, ttl);
+    }
+    let _: () = pipe.query_async(&mut redis_conn).await?;
+    Ok(())
+}
+
+/// Reads a sorted set's size and the scores of `members`, from one snapshot.
+///
+/// `MULTI`/`EXEC`, so the count and the scores cannot straddle a concurrent
+/// rewrite of the set. Two independent reads could observe different
+/// generations, which for a ranking means a size from one and positions from
+/// another. Returns `(cardinality, one slot per member)`; an absent key reads
+/// as `0` with every slot `None`.
+pub async fn card_and_members(
+    prefix: &str,
+    key: &str,
+    members: &[&str],
+) -> RedisResult<(usize, Vec<Option<isize>>)> {
+    let index_key = format!("{prefix}:{key}");
+
+    let mut pipe = redis::pipe();
+    pipe.atomic();
+    pipe.zcard(&index_key);
+    for member in members {
+        pipe.zscore(&index_key, *member);
+    }
+
+    let mut redis_conn = get_redis_conn().await?;
+    let mut replies: Vec<Option<isize>> = pipe.query_async(&mut redis_conn).await?;
+    // The ZCARD reply leads; the rest line up with `members`.
+    let cardinality = replies.remove(0).unwrap_or(0).max(0) as usize;
+    Ok((cardinality, replies))
+}
+
 /// Seeds `member` with `score` only if it is not already in the sorted set.
 ///
 /// `ZADD NX` makes the check and the write one atomic operation, so an existing

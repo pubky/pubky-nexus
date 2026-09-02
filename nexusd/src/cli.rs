@@ -40,11 +40,15 @@ pub enum NexusCommands {
     /// Run the event watcher
     Watcher(WatcherArgs),
 
+    /// Run scheduled jobs on demand
+    #[command(subcommand)]
+    Jobs(JobCommands),
+
     /// Database operations
     #[command(subcommand)]
     Db(DbCommands),
 
-    /// Run both the API and the Watcher (default when no arguments are given)
+    /// Run the API, the Watcher and the scheduled Jobs (default when no arguments are given)
     #[command(hide = true)]
     Run {
         /// Path to the configuration file
@@ -63,6 +67,26 @@ pub struct ApiArgs {
 #[derive(Args, Debug)]
 pub struct WatcherArgs {
     /// Optional configuration file for the watcher
+    #[arg(short, long, default_value_os_t = default_config_dir_path(), value_parser = validate_config_dir_path)]
+    pub config_dir: PathBuf,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum JobCommands {
+    /// Run a single job once, now
+    Run(JobRunArgs),
+
+    /// List the available jobs
+    List,
+}
+
+#[derive(Args, Debug)]
+pub struct JobRunArgs {
+    /// Name of the job to run (see `jobs list`)
+    #[arg(required = true)]
+    pub name: String,
+
+    /// Directory containing `config.toml`
     #[arg(short, long, default_value_os_t = default_config_dir_path(), value_parser = validate_config_dir_path)]
     pub config_dir: PathBuf,
 }

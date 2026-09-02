@@ -295,6 +295,30 @@ pub fn get_user_tag_pairs() -> Query {
     )
 }
 
+/// Users carrying positive trust, highest first: the ranked population behind
+/// the social graph badge.
+///
+/// A node unreachable from the seed set may carry `0.0` or no `trust` property
+/// at all, and `null > 0` is null, so both drop out here. Only positive scores
+/// are ranked: everyone at zero shares one value, so their order would be
+/// arbitrary and would reshuffle every run. Absence from the ranking is what
+/// marks them new.
+///
+/// `user_id ASC` breaks score ties deterministically, so two runs over the same
+/// graph agree.
+pub fn get_trust_ranked_user_ids() -> Query {
+    Query::new(
+        "get_trust_ranked_user_ids",
+        "
+        MATCH (u:User)
+        WHERE u.trust > 0
+          AND NOT coalesce(u.deleted, false)
+        RETURN u.id AS user_id
+        ORDER BY u.trust DESC, user_id ASC
+        ",
+    )
+}
+
 /// Users whose profile carries any of the given tag labels, scored by distinct
 /// tagger count summed across the searched labels.
 pub fn search_users_by_tags(labels: &[String], skip: Option<usize>, limit: Option<usize>) -> Query {
@@ -623,35 +647,75 @@ pub fn get_viewer_trusted_network_post_tags(
         .param("limit_taggers", limit_taggers as i64)
 }
 
+/// Per-user count fields, as `(alias, COUNT {} subquery)` pairs bound to the
+/// node variable `u`. Single source of truth shared by [`user_counts`] (map
+/// form) and the trust report (column form), so their filters — especially the
+/// collection/bookmark rules — can't drift between the two queries.
+const USER_COUNT_FIELDS: &[(&str, &str)] = &[
+    ("following", "COUNT { (u)-[:FOLLOWS]->(:User) }"),
+    ("followers", "COUNT { (:User)-[:FOLLOWS]->(u) }"),
+    (
+        "friends",
+        "COUNT { (u)-[:FOLLOWS]->(friend:User) WHERE (friend)-[:FOLLOWS]->(u) }",
+    ),
+    ("posts", "COUNT { (u)-[:AUTHORED]->(:Post) }"),
+    (
+        "replies",
+        "COUNT { (u)-[:AUTHORED]->(:Post)-[:REPLIED]->(:Post) }",
+    ),
+    (
+        "collections",
+        "COUNT { (u)-[:AUTHORED]->(p:Post) WHERE p.kind = 'collection' }",
+    ),
+    // A collection-follow is stored as a bookmark; keep it out of the count.
+    (
+        "bookmarks",
+        "COUNT { (u)-[:BOOKMARKED]->(bp:Post) WHERE (bp.kind IS NULL OR bp.kind <> 'collection') }",
+    ),
+    // tagged = tags this user assigned to users + to posts
+    (
+        "tagged",
+        "COUNT { (u)-[:TAGGED]->(:User) } + COUNT { (u)-[:TAGGED]->(:Post) }",
+    ),
+    ("tags", "COUNT { (:User)-[:TAGGED]->(u) }"),
+    (
+        "unique_tags",
+        "COUNT { MATCH (u)<-[t:TAGGED]-(:User) RETURN DISTINCT t.label }",
+    ),
+];
+
+/// Renders [`USER_COUNT_FIELDS`] as `field: COUNT {…}, …` for a Cypher map literal.
+fn user_count_fields_map() -> String {
+    USER_COUNT_FIELDS
+        .iter()
+        .map(|(name, expr)| format!("{name}: {expr}"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// Renders [`USER_COUNT_FIELDS`] as `COUNT {…} AS field, …` for a flat RETURN.
+pub fn user_count_fields_columns() -> String {
+    USER_COUNT_FIELDS
+        .iter()
+        .map(|(name, expr)| format!("{expr} AS {name}"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 pub fn user_counts(user_id: &str) -> Query {
-    Query::new(
-        "user_counts",
-        "
-        MATCH (u:User {id: $user_id})
-        // Each field is an independent COUNT { } subquery off the single (u) row.
-        // Do NOT precede this with a row-multiplying OPTIONAL MATCH (e.g. over
-        // received tags): that makes every subquery a per-row grouping key, so the
-        // whole block runs once per received tag, i.e. O(received_tags x authored_posts)
-        // and hangs on heavy users. See issue #935.
-        RETURN
-            u IS NOT NULL AS exists,
-            {
-                following: COUNT { (u)-[:FOLLOWS]->(:User) },
-                followers: COUNT { (:User)-[:FOLLOWS]->(u) },
-                friends: COUNT { (u)-[:FOLLOWS]->(friend:User) WHERE (friend)-[:FOLLOWS]->(u) },
-                posts: COUNT { (u)-[:AUTHORED]->(:Post) },
-                replies: COUNT { (u)-[:AUTHORED]->(:Post)-[:REPLIED]->(:Post) },
-                collections: COUNT { (u)-[:AUTHORED]->(p:Post) WHERE p.kind = 'collection' },
-                // A collection-follow is stored as a bookmark; keep it out of the count.
-                bookmarks: COUNT { (u)-[:BOOKMARKED]->(bp:Post) WHERE (bp.kind IS NULL OR bp.kind <> 'collection') },
-                // tagged = tags this user assigned to users + to posts
-                tagged: COUNT { (u)-[:TAGGED]->(:User) } + COUNT { (u)-[:TAGGED]->(:Post) },
-                tags: COUNT { (:User)-[:TAGGED]->(u) },
-                unique_tags: COUNT { MATCH (u)<-[t:TAGGED]-(:User) RETURN DISTINCT t.label }
-            } AS counts;
-        ",
-    )
-    .param("user_id", user_id)
+    // Each field is an independent COUNT { } subquery off the single (u) row.
+    // Do NOT precede this with a row-multiplying OPTIONAL MATCH (e.g. over
+    // received tags): that makes every subquery a per-row grouping key, so the
+    // whole block runs once per received tag, i.e. O(received_tags x authored_posts)
+    // and hangs on heavy users. See issue #935.
+    let cypher = format!(
+        "MATCH (u:User {{id: $user_id}})
+         RETURN
+             u IS NOT NULL AS exists,
+             {{ {fields} }} AS counts;",
+        fields = user_count_fields_map()
+    );
+    Query::new("user_counts", cypher).param("user_id", user_id)
 }
 
 // These queries aggregate into a single row, so SKIP/LIMIT cannot paginate the
@@ -1336,6 +1400,64 @@ pub fn recommend_users(user_id: &str, limit: usize) -> Query {
     )
     .param("user_id", user_id.to_string())
     .param("limit", limit as i64)
+}
+
+/// Ranks the users the network associates with each label, one list per label.
+///
+/// Both arms are needed: profile tags skew to identity, so most interests only appear on posts.
+/// Summing endorser trust rather than counting keeps a few prolific taggers from minting
+/// reputation. `since` is a liveness threshold, not a measurement window, so it has no upper
+/// bound. It reads `Post.indexed_at`, since the `AUTHORED` edge carries none; pass 0 for "has
+/// ever posted".
+pub fn starter_pack_users(
+    labels: &[String],
+    user_id: Option<&str>,
+    since: i64,
+    per_label: usize,
+) -> Query {
+    Query::new(
+        "starter_pack_users",
+        "
+        // Bound once, so the follows check stays a lookup.
+        OPTIONAL MATCH (user:User {id: $user_id})
+        UNWIND $labels AS label
+        WITH DISTINCT user, label
+        // Ranking per label in its own subquery so ORDER BY + LIMIT plans as Top. Collecting
+        // first and slicing after sorts every candidate of every label instead.
+        CALL (user, label) {
+            CALL (label) {
+                MATCH (tagger:User)-[t:TAGGED]->(candidate:User)
+                WHERE t.label = label
+                RETURN candidate, tagger
+              UNION
+                MATCH (tagger:User)-[t:TAGGED]->(:Post)<-[:AUTHORED]-(candidate:User)
+                WHERE t.label = label
+                RETURN candidate, tagger
+            }
+            // UNION, not UNION ALL: it is what makes this one vote per endorser.
+            WITH user, candidate,
+                 sum(coalesce(tagger.trust, 0.0)) AS trust_score,
+                 count(DISTINCT tagger) AS endorsers
+            // Cheaper here than against every endorsement row.
+            // TODO: drop the name check once nothing writes the [DELETED] sentinel.
+            WHERE candidate.name <> '[DELETED]' AND NOT coalesce(candidate.deleted, false)
+              AND (user IS NULL OR (candidate <> user AND NOT (user)-[:FOLLOWS]->(candidate)))
+              AND EXISTS { MATCH (candidate)-[:AUTHORED]->(p:Post) WHERE p.indexed_at >= $since }
+            WITH candidate.id AS id, trust_score, endorsers
+            ORDER BY trust_score DESC, endorsers DESC, id ASC
+            LIMIT $per_label
+            RETURN collect(id) AS candidates
+        }
+        // A label with no candidates stays absent, as the caller expects.
+        WITH label, candidates
+        WHERE candidates <> []
+        RETURN label, candidates
+        ",
+    )
+    .param("labels", labels.to_vec())
+    .param("user_id", user_id.map(str::to_string))
+    .param("since", since)
+    .param("per_label", per_label.min(MAX_QUERY_LIMIT) as i64)
 }
 
 /// Retrieve specific tag created by the user
