@@ -2,8 +2,9 @@ use clap::ValueEnum;
 use nexus_common::{
     db::{get_neo4j_graph, get_redis_conn, graph::Query, reindex},
     models::post::create_post_content_index,
-    StackConfig, StackManager,
+    DaemonConfig, StackManager,
 };
+use std::path::PathBuf;
 use std::process::Stdio;
 use tracing::info;
 
@@ -18,22 +19,25 @@ pub enum MockType {
 pub struct MockDb {}
 
 impl MockDb {
-    async fn init_stack() {
-        StackManager::setup(&StackConfig::default())
+    async fn init_stack(config_dir: PathBuf) {
+        let config = DaemonConfig::read_or_create_config_file(config_dir)
+            .await
+            .expect("Failed to load daemon config");
+        StackManager::setup(&config.stack)
             .await
             .expect("Failed to initialize stack");
     }
 
-    pub async fn clear_database() {
-        Self::init_stack().await;
+    pub async fn clear_database(config_dir: PathBuf) {
+        Self::init_stack(config_dir).await;
 
         Self::drop_cache().await;
         Self::drop_graph().await;
         info!("Both ddbb cleared successfully");
     }
 
-    pub async fn run(mock_type: Option<MockType>) {
-        Self::init_stack().await;
+    pub async fn run(mock_type: Option<MockType>, config_dir: PathBuf) {
+        Self::init_stack(config_dir).await;
 
         match mock_type {
             Some(MockType::Redis) => Self::sync_redis().await,
