@@ -1,17 +1,35 @@
+use std::sync::Arc;
+
 use clap::Parser;
 use nexus_common::types::DynError;
-use nexus_common::StackManager;
+use nexus_common::{DaemonConfig, StackManager, TrustRankConfig};
 use nexus_watcher::service::NexusWatcher;
 use nexus_webapi::mock::MockDb;
 use nexus_webapi::NexusApi;
-use nexusd::cli::{ApiArgs, Cli, DbCommands, MigrationCommands, NexusCommands, WatcherArgs};
+use nexusd::cli::{
+    ApiArgs, Cli, DbCommands, JobCommands, JobRunArgs, MigrationCommands, NexusCommands,
+    WatcherArgs,
+};
+use nexusd::jobs::JobRegistry;
 use nexusd::migrations::{import_migrations, MigrationBuilder, MigrationManager};
+use nexusd::trust::TrustRecomputeJob;
 use nexusd::DaemonLauncher;
+
+/// The registry of jobs available to the daemon, built from config. Config-free
+/// callers (e.g. `jobs list`) can pass `TrustRankConfig::default()`.
+fn job_registry(trust_rank: &TrustRankConfig, lock_ttl_secs: u64) -> JobRegistry {
+    JobRegistry::new(vec![Arc::new(TrustRecomputeJob::build(
+        trust_rank,
+        lock_ttl_secs,
+    ))])
+}
 
 #[tokio::main]
 async fn main() -> Result<(), DynError> {
     let cli = Cli::parse();
     let command = Cli::receive_command(cli);
+    let lock_ttl_secs = nexusd::jobs::LOCK_TTL_SECS;
+
     match command {
         NexusCommands::Db(db_command) => match db_command {
             DbCommands::Clear => MockDb::clear_database().await,
@@ -49,8 +67,30 @@ async fn main() -> Result<(), DynError> {
         NexusCommands::Watcher(WatcherArgs { config_dir }) => {
             NexusWatcher::start_from_daemon(config_dir, None).await?;
         }
+        NexusCommands::Jobs(job_command) => match job_command {
+            JobCommands::Run(JobRunArgs { name, config_dir }) => {
+                let config = DaemonConfig::read_or_create_config_file(config_dir).await?;
+                // run_on_demand validates [jobs.*], so a typo'd section fails here
+                // just like `nexusd run`.
+                job_registry(&config.trust_rank, lock_ttl_secs)
+                    .run_on_demand(&name, &config)
+                    .await?;
+            }
+            JobCommands::List => {
+                // Listing needs only job names, so a default config suffices.
+                for name in job_registry(&TrustRankConfig::default(), lock_ttl_secs).job_names() {
+                    println!("{name}");
+                }
+            }
+        },
         NexusCommands::Run { config_dir } => {
-            DaemonLauncher::start(config_dir, None).await?;
+            let config = DaemonConfig::read_or_create_config_file(config_dir.clone()).await?;
+            DaemonLauncher::start(
+                config_dir,
+                &job_registry(&config.trust_rank, lock_ttl_secs),
+                None,
+            )
+            .await?;
         }
     }
 

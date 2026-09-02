@@ -31,6 +31,7 @@ pub fn bench_stream_following(c: &mut Criterion) {
                     preview: None,
                     author_id: None,
                     post_id: None,
+                    tags: None,
                 },
                 None,
                 None,
@@ -64,6 +65,7 @@ pub fn bench_stream_most_followed(c: &mut Criterion) {
                     preview: None,
                     author_id: None,
                     post_id: None,
+                    tags: None,
                 },
                 None,
                 None,
@@ -120,6 +122,7 @@ pub fn bench_stream_influencers(c: &mut Criterion) {
                     reach: Some(StreamReach::Wot(WotDepth::new(3).unwrap())),
                     author_id: None,
                     post_id: None,
+                    tags: None,
                     timeframe: None,
                     preview: None,
                 },
@@ -154,6 +157,7 @@ pub fn bench_stream_post_replies(c: &mut Criterion) {
                     source: UserStreamSource::PostReplies,
                     author_id: Some(author_id.to_string()),
                     post_id: Some(post_id.to_string()),
+                    tags: None,
                     reach: None,
                     timeframe: None,
                     preview: None,
@@ -189,6 +193,7 @@ pub fn bench_stream_user_ids_most_followed(c: &mut Criterion) {
                 preview: None,
                 author_id: None,
                 post_id: None,
+                tags: None,
             })
             .await
             .unwrap()

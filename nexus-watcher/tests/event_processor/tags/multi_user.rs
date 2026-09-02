@@ -1,4 +1,4 @@
-use super::utils::find_user_tag;
+use super::utils::{check_member_user_tag_taggers, find_user_tag};
 use crate::event_processor::users::utils::find_user_counts;
 use crate::event_processor::utils::watcher::{HomeserverHashIdPath, WatcherTest};
 use anyhow::Result;
@@ -130,7 +130,31 @@ async fn test_homeserver_multi_user_tags() -> Result<()> {
     let tagger_c_user_counts = find_user_counts(&tagger_c_id_kp.0).await;
     assert_eq!(tagger_c_user_counts.tagged, 2);
 
+    // Users-by-tag scores follow the taggers sets:
+    // Sorted:Tags:Global:User:Taggers:{label}
+    let wind_score = check_member_user_tag_taggers(tagged_id, label_wind)
+        .await
+        .expect("Failed to check the users-by-tag score");
+    assert_eq!(wind_score, Some(3));
+    let earth_score = check_member_user_tag_taggers(tagged_id, label_earth)
+        .await
+        .expect("Failed to check the users-by-tag score");
+    assert_eq!(earth_score, Some(2));
+
     // Step 4: DEL tag from homeserver
+    // Partial delete first: the member must stay with the remaining taggers count
+    let (first_tag_path, first_tagger_kp) = tag_paths_and_tagger_kps.remove(0);
+    test.del(first_tagger_kp, &first_tag_path).await?;
+
+    let wind_score = check_member_user_tag_taggers(tagged_id, label_wind)
+        .await
+        .expect("Failed to check the users-by-tag score");
+    assert_eq!(
+        wind_score,
+        Some(2),
+        "Partial delete must keep the member with the remaining taggers count"
+    );
+
     for (tag_url, tagger_kp) in tag_paths_and_tagger_kps {
         test.del(tagger_kp, &tag_url).await?;
     }
@@ -169,6 +193,16 @@ async fn test_homeserver_multi_user_tags() -> Result<()> {
             .await
             .unwrap();
     assert!(earth_taggers_result.is_empty());
+
+    // Sorted:Tags:Global:User:Taggers:{label} members must be gone as well
+    let wind_score = check_member_user_tag_taggers(tagged_id, label_wind)
+        .await
+        .expect("Failed to check the users-by-tag score");
+    assert!(wind_score.is_none());
+    let earth_score = check_member_user_tag_taggers(tagged_id, label_earth)
+        .await
+        .expect("Failed to check the users-by-tag score");
+    assert!(earth_score.is_none());
 
     // Check if user counts updated: User:Counts:user_id:post_id
     let user_counts = find_user_counts(tagged_id).await;

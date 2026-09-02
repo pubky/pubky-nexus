@@ -14,4 +14,4 @@ pub use graph::exec::*;
 pub use graph::queries;
 pub use graph::setup;
 pub use graph::GraphOps;
-pub use kv::RedisOps;
+pub use kv::{release_lock, try_acquire_lock, RedisError, RedisOps, RedisResult};

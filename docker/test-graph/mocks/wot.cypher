@@ -6,6 +6,7 @@
 // Fixture user ids deliberately sort high so they stay out of the zero-score,
 // id-ordered window the global-influencer suite asserts over (lower ids would evict
 // the users it expects).
+// Also carries `trust` scores and the starter-pack sentinels, see those blocks.
 
 // Set up parameters (session-based)
 :param o_obs => 'y6apowjmcg8rocmd9jirg95fyf3yykwuhqxozzts4mjipk4n7iao';
@@ -21,8 +22,12 @@
 :param btc5 => 'wbhcz1gfz14jc4qjg74auyo5bwxd4gc3y84ic18iro17yi4bgz3y';
 :param artist1 => 'w153s1dr9rw6t8s3nd1de6pqquuprb37dwrnwh3nk85jt9ys9k7o';
 
+:param deleted_user => 'z4e8s17cou9qmuwen8p1556jzhf1wktmzo6ijsfnri9c4hnrdfty';
+
 :param bitcoiner_tag => 'bitcoiner';
 :param btcdev_tag => 'btc-dev';
+:param packdeleted_tag => 'packdeleted';
+:param packoverlap_tag => 'packoverlap';
 :param artist_tag => 'artist';
 :param nudity_tag => 'nudity';
 
@@ -41,6 +46,30 @@ MERGE (u:User {id: $btc3}) SET u.name = "wot_btc3", u.bio = "", u.status = "unde
 MERGE (u:User {id: $btc4}) SET u.name = "wot_btc4", u.bio = "", u.status = "undefined", u.indexed_at = 1650000000000, u.links = "[]";
 MERGE (u:User {id: $btc5}) SET u.name = "wot_btc5", u.bio = "", u.status = "undefined", u.indexed_at = 1650000000000, u.links = "[]";
 MERGE (u:User {id: $artist1}) SET u.name = "wot_artist1", u.bio = "", u.status = "undefined", u.indexed_at = 1650000000000, u.links = "[]";
+
+// ##############################
+// ##### Endorser trust #########
+// ##############################
+// Hand-picked stand-ins for TrustRank output; only their relative order matters. SPAMMER
+// deliberately has none, so its endorsements are worth zero, its self-tag included.
+// A GDS recompute rewrites `trust` for every user, so run the nexusd suite last and reseed.
+MATCH (u:User {id: $d1}) SET u.trust = 0.4;
+MATCH (u:User {id: $d1b}) SET u.trust = 0.1;
+MATCH (u:User {id: $d2}) SET u.trust = 0.2;
+
+// ##################################
+// ##### Starter-pack sentinels #####
+// ##################################
+// Endorsed and has a post, so only the deleted check can keep it out of a pack. Both markers
+// are set to survive the switch to the boolean flag. High-sorting id, so the zero-score
+// influencer window is undisturbed.
+MERGE (u:User {id: $deleted_user}) SET u.name = "[DELETED]", u.deleted = true, u.bio = "", u.status = "undefined", u.indexed_at = 1650000000000, u.links = "[]";
+MERGE (p:Post {id: "WOTPOSTDEL001"}) SET p.content = "post by a deleted account", p.kind = "short", p.indexed_at = 1650000000014;
+MATCH (u:User {id: $deleted_user}), (p:Post {id: "WOTPOSTDEL001"}) MERGE (u)-[:AUTHORED]->(p);
+MATCH (from:User {id: $d1}), (to:User {id: $deleted_user}) MERGE (from)-[:TAGGED {label: $packdeleted_tag, id: "WOTTAGDEL0001", indexed_at: 1224534096400}]->(to);
+
+// Second label on BTC4, the only `btc-dev` candidate, so a two-label pack has a real duplicate.
+MATCH (from:User {id: $d2}), (to:User {id: $btc4}) MERGE (from)-[:TAGGED {label: $packoverlap_tag, id: "WOTTAGOVER001", indexed_at: 1224534096500}]->(to);
 
 // ##############################
 // ##### Create follows #########
