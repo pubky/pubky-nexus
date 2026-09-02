@@ -124,7 +124,7 @@ impl TEventProcessorRunner for KeyBasedEventProcessorRunner {
             let hs_id = &individual_run_stat.hs_id;
             let duration = individual_run_stat.duration;
             let status = &individual_run_stat.status;
-            debug!(%hs_id, ?duration, ?status, "Event processor run completed");
+            debug!(homeserver = %hs_id, ?duration, ?status, "Event processor run completed");
         }
 
         let count_ok = stats.count_ok();
@@ -136,11 +136,25 @@ impl TEventProcessorRunner for KeyBasedEventProcessorRunner {
         let had_issues = count_error + count_panic + count_timeout + count_failed_to_build > 0;
 
         if had_issues {
-            warn!("Run result: {count_ok} ok, {count_skipped} skipped (backoff), {count_failed_to_build} failed to build, {count_error} error, {count_panic} panic, {count_timeout} timeout");
+            warn!(
+                hs_ok = count_ok,
+                hs_skipped = count_skipped,
+                hs_failed_to_build = count_failed_to_build,
+                hs_error = count_error,
+                hs_panic = count_panic,
+                hs_timeout = count_timeout,
+                "Key-based indexing finished with issues"
+            );
         } else if count_skipped > 0 {
-            info!("Run result: {count_ok} ok, {count_skipped} skipped (backoff)");
+            warn!(
+                hs_ok = count_ok,
+                hs_skipped = count_skipped,
+                "Key-based indexing finished; some homeservers skipped (backoff)"
+            );
+        } else if count_ok == 0 {
+            info!("Key-based indexing finished: no external homeservers");
         } else {
-            debug!("Run result: {count_ok} ok");
+            info!(hs_ok = count_ok, "Key-based indexing finished");
         }
 
         ProcessedStats(stats)

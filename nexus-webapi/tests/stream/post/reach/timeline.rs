@@ -1,6 +1,9 @@
-use super::utils::test_reach_filter_with_posts;
+use super::utils::{assert_excludes_author, test_reach_filter_with_posts};
 use crate::{
-    stream::post::{AMSTERDAM, BOGOTA, ROOT_PATH, TAG_LABEL_2, USER_ID},
+    stream::post::{
+        utils::{ids_in, verify_post_list},
+        AMSTERDAM, BOGOTA, ROOT_PATH, TAG_LABEL_2,
+    },
     utils::get_request,
 };
 use anyhow::Result;
@@ -8,42 +11,33 @@ use anyhow::Result;
 // User from posts.cypher mock
 const EIXAMPLE: &str = "8attbeo9ftu5nztqkcfw3gydksehr7jbspgfi64u4h8eo5e7dbiy";
 
-#[tokio_shared_rt::test(shared)]
-async fn test_stream_posts_following() -> Result<()> {
-    let path = format!("{ROOT_PATH}?observer_id={USER_ID}&source=following");
-    let body = get_request(&path).await?;
-
-    assert!(body.is_array());
-
-    for post in body.as_array().expect("Post stream should be an array") {
-        assert!(
-            post["details"]["author"].is_string(),
-            "author should be a string"
-        );
-    }
-
-    Ok(())
-}
-
-#[tokio_shared_rt::test(shared)]
-async fn test_stream_posts_followers() -> Result<()> {
-    let path = format!("{ROOT_PATH}?observer_id={USER_ID}&source=followers");
-    let body = get_request(&path).await?;
-
-    assert!(body.is_array());
-
-    for post in body.as_array().expect("Post stream should be an array") {
-        assert!(
-            post["details"]["author"].is_string(),
-            "author should be a string"
-        );
-    }
-
-    Ok(())
-}
-
 const START_TIME: usize = 1980477299321;
 const END_TIME: usize = 1980477299312;
+
+#[tokio_shared_rt::test(shared)]
+async fn test_stream_posts_following_excludes_observer_in_matching_window() -> Result<()> {
+    // This window contains Amsterdam's 00000039YD99Y / 00000039YD9B2 posts and
+    // posts by followed users. Before the fix, the observer injection returned
+    // both groups; now only followed-user posts remain.
+    let path = format!(
+        "{ROOT_PATH}?observer_id={AMSTERDAM}&source=following&viewer_id={AMSTERDAM}&start=1720000000000&end=1690000000000&limit=50"
+    );
+    let body = get_request(&path).await?;
+    let ids = ids_in(&body);
+
+    assert_excludes_author(&body, AMSTERDAM, "following");
+    assert!(
+        ids.iter().any(|id| id == "00000039YD9C0"),
+        "the regression window must retain a known followed-user post, got {ids:?}"
+    );
+    assert!(
+        !ids.iter()
+            .any(|id| matches!(id.as_str(), "00000039YD99Y" | "00000039YD9B2")),
+        "the regression window must exclude Amsterdam's posts, got {ids:?}"
+    );
+
+    Ok(())
+}
 
 #[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_following_with_start() -> Result<()> {
@@ -54,30 +48,16 @@ async fn test_stream_posts_following_with_start() -> Result<()> {
 
     assert!(body.is_array());
 
-    let post_array = [
-        "MLOW1TGL5BKH4",
-        "SIJW1TGL5BKG3",
-        "GJMW1TGL5BKG3",
-        "MLOW1TGL5BKH3",
-        "SIJW1TGL5BKG2",
-    ];
-
-    for (index, post) in body
-        .as_array()
-        .expect("Post stream should be an array")
-        .iter()
-        .enumerate()
-    {
-        assert!(
-            post["details"]["author"].is_string(),
-            "author should be a string"
-        );
-
-        assert_eq!(
-            post_array[index], post["details"]["id"],
-            "The post index does not match"
-        )
-    }
+    verify_post_list(
+        vec![
+            "MLOW1TGL5BKH4",
+            "SIJW1TGL5BKG3",
+            "GJMW1TGL5BKG3",
+            "MLOW1TGL5BKH3",
+            "SIJW1TGL5BKG2",
+        ],
+        body,
+    );
 
     Ok(())
 }
@@ -91,24 +71,10 @@ async fn test_stream_posts_following_with_start_and_end() -> Result<()> {
 
     assert!(body.is_array());
 
-    let post_array = ["MLOW1TGL5BKH4", "SIJW1TGL5BKG3", "GJMW1TGL5BKG3"];
-
-    for (index, post) in body
-        .as_array()
-        .expect("Post stream should be an array")
-        .iter()
-        .enumerate()
-    {
-        assert!(
-            post["details"]["author"].is_string(),
-            "author should be a string"
-        );
-
-        assert_eq!(
-            post_array[index], post["details"]["id"],
-            "The post index does not match"
-        )
-    }
+    verify_post_list(
+        vec!["MLOW1TGL5BKH4", "SIJW1TGL5BKG3", "GJMW1TGL5BKG3"],
+        body,
+    );
 
     Ok(())
 }
@@ -125,24 +91,7 @@ async fn test_stream_posts_followers_with_start() -> Result<()> {
 
     assert!(body.is_array());
 
-    let post_array = ["00000039YD9CE", "00000039YD9CY", "00000039YD9DA"];
-
-    for (index, post) in body
-        .as_array()
-        .expect("Post stream should be an array")
-        .iter()
-        .enumerate()
-    {
-        assert!(
-            post["details"]["author"].is_string(),
-            "author should be a string"
-        );
-
-        assert_eq!(
-            post_array[index], post["details"]["id"],
-            "The post index does not match"
-        )
-    }
+    verify_post_list(vec!["00000039YD9CY", "00000039YD9DA"], body);
 
     Ok(())
 }
@@ -156,24 +105,7 @@ async fn test_stream_posts_followers_with_start_and_end() -> Result<()> {
 
     assert!(body.is_array());
 
-    let post_array = ["00000039YD9CE", "00000039YD9CY"];
-
-    for (index, post) in body
-        .as_array()
-        .expect("Post stream should be an array")
-        .iter()
-        .enumerate()
-    {
-        assert!(
-            post["details"]["author"].is_string(),
-            "author should be a string"
-        );
-
-        assert_eq!(
-            post_array[index], post["details"]["id"],
-            "The post index does not match"
-        )
-    }
+    verify_post_list(vec!["00000039YD9CY"], body);
 
     Ok(())
 }
@@ -188,24 +120,7 @@ async fn test_stream_posts_friend_with_start() -> Result<()> {
 
     assert!(body.is_array());
 
-    let post_array = ["4ZCW1TGL5BKG7", "00000039YD9CY", "00000039YD9DA"];
-
-    for (index, post) in body
-        .as_array()
-        .expect("Post stream should be an array")
-        .iter()
-        .enumerate()
-    {
-        assert!(
-            post["details"]["author"].is_string(),
-            "author should be a string"
-        );
-
-        assert_eq!(
-            post_array[index], post["details"]["id"],
-            "The post index does not match"
-        )
-    }
+    verify_post_list(vec!["00000039YD9CY", "00000039YD9DA"], body);
 
     Ok(())
 }
@@ -220,24 +135,7 @@ async fn test_stream_posts_friend_with_start_and_end() -> Result<()> {
 
     assert!(body.is_array());
 
-    let post_array = ["4ZCW1TGL5BKG7", "00000039YD9CY"];
-
-    for (index, post) in body
-        .as_array()
-        .expect("Post stream should be an array")
-        .iter()
-        .enumerate()
-    {
-        assert!(
-            post["details"]["author"].is_string(),
-            "author should be a string"
-        );
-
-        assert_eq!(
-            post_array[index], post["details"]["id"],
-            "The post index does not match"
-        )
-    }
+    verify_post_list(vec!["00000039YD9CY"], body);
 
     Ok(())
 }
@@ -465,6 +363,23 @@ async fn test_stream_posts_by_timeline_reach_followers_with_tag_start_and_end() 
 // Post order by timeline
 pub const POST_TA_FR: &str = "00000039YD9CY";
 pub const POST_TB_FR: &str = "00000039YD9DA";
+const SELF_FOLLOW_GRAPH_TAG: &str = "reach-self-follow";
+
+#[tokio_shared_rt::test(shared)]
+async fn test_stream_posts_by_timeline_reach_friends_excludes_observer() -> Result<()> {
+    // Unique tag on Eixample's long post. The self-follow would put that post
+    // in friends unless the observer is excluded. Empty is the expected result;
+    // `test_reach_filter_with_posts` requires a non-empty list.
+    let path =
+        format!("{ROOT_PATH}?observer_id={EIXAMPLE}&source=friends&tags={SELF_FOLLOW_GRAPH_TAG}");
+    let body = get_request(&path).await?;
+    let posts = body.as_array().expect("Post stream should be an array");
+    assert!(
+        posts.is_empty(),
+        "eixample's self-follow must not surface its own tagged post in friends, got {posts:?}"
+    );
+    Ok(())
+}
 
 #[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_by_timeline_reach_friends_with_tag() -> Result<()> {

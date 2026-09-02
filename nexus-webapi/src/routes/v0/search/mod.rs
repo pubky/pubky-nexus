@@ -1,6 +1,6 @@
 use crate::routes::v0::endpoints::{
     SEARCH_POSTS_BY_CONTENT_ROUTE, SEARCH_POSTS_BY_TAG_ROUTE, SEARCH_TAGS_BY_PREFIX_ROUTE,
-    SEARCH_USERS_BY_ID_ROUTE, SEARCH_USERS_BY_NAME_ROUTE,
+    SEARCH_USERS_BY_ID_ROUTE, SEARCH_USERS_BY_NAME_ROUTE, SEARCH_USERS_BY_TAGS_ROUTE,
 };
 use crate::routes::AppState;
 use axum::routing::get;
@@ -14,10 +14,17 @@ mod users;
 pub use crate::models::user_id_prefix::USER_ID_SEARCH_MIN_PREFIX_LEN;
 
 pub fn expensive_routes() -> Router<AppState> {
-    Router::new().route(
-        SEARCH_POSTS_BY_CONTENT_ROUTE,
-        get(posts::search_posts_by_content_handler),
-    )
+    Router::new()
+        .route(
+            SEARCH_POSTS_BY_CONTENT_ROUTE,
+            get(posts::search_posts_by_content_handler),
+        )
+        // Multi-label requests aggregate in the graph, so the route starts in
+        // the expensive tier until production metrics justify loosening it
+        .route(
+            SEARCH_USERS_BY_TAGS_ROUTE,
+            get(users::search_users_by_tags_handler),
+        )
 }
 
 pub fn routes() -> Router<AppState> {

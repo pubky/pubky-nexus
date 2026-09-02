@@ -11,7 +11,7 @@ use nexus_common::models::tag::post::TagPost;
 use nexus_common::models::tag::search::TagSearch;
 use nexus_common::models::tag::traits::{TagCollection, TaggersCollection};
 use nexus_common::models::tag::user::TagUser;
-use nexus_common::models::user::{UserCounts, UserIngestor};
+use nexus_common::models::user::{UserCounts, UserIngestor, UsersByTagSearch};
 use nexus_common::types::Pagination;
 use nexus_common::universal_tag::normalize::{
     classify_uri, normalize_uri, resource_id, UriCategory,
@@ -37,7 +37,7 @@ pub async fn sync_put(
     tag_id: String,
     ingestor: &UserIngestor,
 ) -> Result<(), EventProcessorError> {
-    debug!("Indexing new tag: {} -> {}", tagger_id, tag_id);
+    debug!("Indexing tag");
 
     // Parse the embeded URI to extract author_id and post_id using parse_tagged_post_uri
     let parsed_uri = ParsedUri::try_from(tag.uri.as_str()).map_err(EventProcessorError::generic)?;
@@ -76,7 +76,7 @@ pub async fn sync_put_resource(
     app: String,
     ingestor: &UserIngestor,
 ) -> Result<(), EventProcessorError> {
-    debug!("Indexing resource tag: {tagger_id} -> {tag_id} (app={app})",);
+    debug!(%app, "Indexing resource tag");
 
     match classify_uri(&tag.uri) {
         UriCategory::InternalKnown => {
@@ -348,6 +348,8 @@ async fn put_sync_user(
             );
             idempotent_results.0?;
             idempotent_results.1?;
+
+            UsersByTagSearch::sync_index_score(&tagged_user_id, tag_label).await?;
             Ok(())
         }
         OperationOutcome::MissingDependency => {
@@ -395,6 +397,10 @@ async fn put_sync_user(
             indexing_results.4?;
             indexing_results.5?;
 
+            // After the taggers SADD settled: the users-by-tag score is derived
+            // from that set (SCARD), so first attempts and retries converge alike.
+            UsersByTagSearch::sync_index_score(&tagged_user_id, tag_label).await?;
+
             Ok(())
         }
     }
@@ -409,7 +415,7 @@ pub async fn del(tag_uri: &str) -> Result<(), EventProcessorError> {
     let arg_tag_id = tag_storage_uri.tag_id;
     let arg_app = tag_storage_uri.app;
 
-    debug!("Deleting tag: {arg_user_id} -> {arg_tag_id} (app={arg_app:?})");
+    debug!("Deleting tag");
 
     // 1. Read target from graph WITHOUT deleting the edge
     let row = match fetch_row_from_graph(queries::get::get_tag_target(
@@ -590,6 +596,10 @@ async fn del_sync_user(
     indexing_results.2?;
     indexing_results.3?;
     indexing_results.4?;
+
+    // After the taggers SREM settled: recompute the derived users-by-tag score,
+    // dropping the member once the last tagger is gone.
+    UsersByTagSearch::sync_index_score(tagged_id, tag_label).await?;
 
     Ok(())
 }

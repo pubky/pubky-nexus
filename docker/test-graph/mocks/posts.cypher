@@ -32,6 +32,11 @@ MATCH (u1:User {id: $detroit}), (u2:User {id: $cairo}) MERGE (u1)-[:FOLLOWS {ind
 MATCH (u1:User {id: $detroit}), (u2:User {id: $eixample}) MERGE (u1)-[:FOLLOWS {indexed_at: 1730475900000, id: "P73K44JG5SZT7"}]->(u2);
 MATCH (u1:User {id: $eixample}), (u2:User {id: $detroit}) MERGE (u1)-[:FOLLOWS {indexed_at: 1730475940000, id: "P73K85JG5DZT7"}]->(u2);
 
+// Historical self-follows exercise defensive filtering in all reach backends.
+MATCH (u:User {id: $amsterdam}) MERGE (u)-[:FOLLOWS {indexed_at: 1730475950000, id: "P73K85JGSELF1"}]->(u);
+MATCH (u:User {id: $bogota}) MERGE (u)-[:FOLLOWS {indexed_at: 1730475950001, id: "P73K85JGSELF2"}]->(u);
+MATCH (u:User {id: $eixample}) MERGE (u)-[:FOLLOWS {indexed_at: 1730475950002, id: "P73K85JGSELF3"}]->(u);
+
 // ###############################
 // ##### Posts related tags ######
 // ###############################
@@ -142,6 +147,12 @@ MERGE (p:Post {id: "4ZCW1TGL5BKG6"}) SET p.content = "Long post, article F", p.k
 MATCH (u:User {id: $bogota}), (p:Post {id: "4ZCW1TGL5BKG6"}) MERGE (u)-[:AUTHORED]->(p);
 MERGE (p:Post {id: "4ZCW1TGL5BKG7"}) SET p.content = "Long post, article G", p.kind = "long", p.indexed_at = 1819477230350;
 MATCH (u:User {id: $eixample}), (p:Post {id: "4ZCW1TGL5BKG7"}) MERGE (u)-[:AUTHORED]->(p);
+// Graph-path friends regression: unique label on an existing Eixample parent.
+// Eixample's self-follow would make this post a friends candidate unless the
+// query excludes the observer. Unique label (not `opensource`) so we do not
+// bump engagement on the opensource ranking fixtures; 2008 tag timestamp
+// keeps it out of hot-tags windows.
+MATCH (tagger:User {id: $amsterdam}), (post:Post {id: "4ZCW1TGL5BKG7"}) MERGE (tagger)-[:TAGGED {label: "reach-self-follow", id: "REACHSELFTAG1", indexed_at: 1224534096400}]->(post);
 MERGE (p:Post {id: "4ZCW1TGL5BKG8"}) SET p.content = "Long post, article H", p.kind = "long", p.indexed_at = 1819477230360;
 MATCH (u:User {id: $eixample}), (p:Post {id: "4ZCW1TGL5BKG8"}) MERGE (u)-[:AUTHORED]->(p);
 // Image posts

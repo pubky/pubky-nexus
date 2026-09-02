@@ -10,12 +10,14 @@ use nexus_common::models::traits::Collection;
 use nexus_common::models::user::{set_user_homeserver, user_hs_cursor_key, UserDetails};
 use nexus_common::types::DynError;
 use nexus_common::utils::test_utils::random_pubky_id;
+use nexus_common::WatcherConfig;
 use nexus_watcher::errors::EventProcessorError;
 use nexus_watcher::events::retry::{InitialBackoff, RetryScheduler};
 use nexus_watcher::events::Event;
 use nexus_watcher::events::EventHandler;
 use nexus_watcher::service::indexer::{KeyBasedEventProcessor, RunError, TEventProcessor};
 use nexus_watcher::service::runner::UserNotFoundBackoff;
+use nexus_watcher::service::{KeyBasedEventProcessorRunner, TEventProcessorRunner};
 use pubky::{Event as StreamEvent, EventCursor, EventType, Keypair, PubkyResource, PublicKey};
 use pubky_app_specs::PubkyId;
 use tokio::sync::watch;
@@ -75,6 +77,33 @@ async fn key_based_processor_skips_unrecognized_events() -> Result<(), DynError>
 
     // The processor fetched events only for the hosted user.
     assert_eq!(source.calls().await, vec![user_id]);
+
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn key_based_processor_rejects_unrecognized_event_for_mismatched_user() -> Result<(), DynError>
+{
+    setup().await?;
+
+    let (_hs_keypair, homeserver) = create_homeserver().await?;
+    let hs_id = homeserver.id.to_string();
+    let user_id = create_user_on_homeserver(&homeserver).await?;
+    let mismatched_user_id = random_pubky_id().to_string();
+    let cursor_key = user_hs_cursor_key(&user_id);
+    UserDetails::put_index_sorted_set(&cursor_key, &[(10.0, hs_id.as_str())], None, None).await?;
+
+    let source = Arc::new(MockKeyBasedEventSource::default().with_events(vec![vec![
+        stream_event(100, &mismatched_user_id, "/pub/other.app/profile.json")?,
+        stream_event(101, &user_id, "/pub/pubky.app/profile.json")?,
+    ]]));
+    let handler = create_mock_handler(Ok(()), None);
+    let processor = processor(homeserver, handler.clone(), source);
+
+    processor.run().await?;
+
+    assert_eq!(handler.get_handle_count(), 0);
+    assert_eq!(user_cursor(&user_id, &hs_id).await?, Some(10));
 
     Ok(())
 }
@@ -237,7 +266,7 @@ async fn key_based_processor_passes_stored_cursor_and_limit_to_source() -> Resul
     Ok(())
 }
 
-/// Verifies successful event processing persists the last stream cursor.
+/// Verifies successful event processing persists the latest stream cursor.
 #[tokio_shared_rt::test(shared)]
 async fn key_based_processor_persists_latest_cursor_after_success() -> Result<(), DynError> {
     setup().await?;
@@ -256,6 +285,153 @@ async fn key_based_processor_persists_latest_cursor_after_success() -> Result<()
 
     assert_eq!(handler.get_handle_count(), 2);
     assert_eq!(user_cursor(&user_id, &hs_id).await?, Some(4));
+
+    Ok(())
+}
+
+/// Verifies an out-of-order stream cursor rejects the whole batch before handling.
+#[tokio_shared_rt::test(shared)]
+async fn key_based_processor_rejects_out_of_order_batch() -> Result<(), DynError> {
+    setup().await?;
+
+    let (_hs_keypair, homeserver) = create_homeserver().await?;
+    let hs_id = homeserver.id.to_string();
+    let user_id = create_user_on_homeserver(&homeserver).await?;
+    let source = Arc::new(MockKeyBasedEventSource::default().with_events(vec![vec![
+        stream_event(4, &user_id, "/pub/pubky.app/profile.json")?,
+        stream_event(1, &user_id, "/pub/pubky.app/profile.json")?,
+    ]]));
+    let handler = create_mock_handler(Ok(()), None);
+    let processor = processor(homeserver, handler.clone(), source);
+
+    let err = processor
+        .run()
+        .await
+        .expect_err("out-of-order cursor must abort the homeserver run");
+
+    assert_internal_event_cursor_out_of_order(err);
+
+    assert_eq!(handler.get_handle_count(), 0);
+    assert_eq!(user_cursor(&user_id, &hs_id).await?, None);
+
+    Ok(())
+}
+
+/// Verifies an out-of-order cursor backs off the whole external homeserver, so
+/// the next runner pass skips it instead of fetching the malformed stream again.
+#[tokio_shared_rt::test(shared)]
+async fn key_based_runner_backs_off_homeserver_after_out_of_order_cursor() -> Result<(), DynError> {
+    setup().await?;
+
+    let (_hs_keypair, homeserver) = create_homeserver().await?;
+    let hs_id = homeserver.id.to_string();
+    let user_id = create_user_on_homeserver(&homeserver).await?;
+    let source = Arc::new(MockKeyBasedEventSource::default().with_user_events(vec![(
+        user_id.clone(),
+        vec![
+            stream_event(4, &user_id, "/pub/pubky.app/profile.json")?,
+            stream_event(1, &user_id, "/pub/pubky.app/profile.json")?,
+        ],
+    )]));
+    let mut runner = KeyBasedEventProcessorRunner::from_config(
+        &WatcherConfig::default(),
+        watch::channel(false).1,
+    );
+    runner.monitored_hs_limit = usize::MAX;
+    runner.event_handler = create_mock_handler(Ok(()), None);
+    runner.event_source = source.clone();
+    runner.primary_homeserver = random_pubky_id();
+
+    runner.run().await?;
+    assert!(runner.backoff.lock().await.should_skip(&hs_id));
+
+    runner.run().await?;
+    let target_fetches = source
+        .calls()
+        .await
+        .into_iter()
+        .filter(|called_user| called_user == &user_id)
+        .count();
+    assert_eq!(
+        target_fetches, 1,
+        "backed-off homeserver must not be fetched again"
+    );
+
+    Ok(())
+}
+
+/// Verifies a homeserver cannot rewind a stored per-user cursor.
+#[tokio_shared_rt::test(shared)]
+async fn key_based_processor_does_not_rewind_stored_cursor() -> Result<(), DynError> {
+    setup().await?;
+
+    let (_hs_keypair, homeserver) = create_homeserver().await?;
+    let hs_id = homeserver.id.to_string();
+    let user_id = create_user_on_homeserver(&homeserver).await?;
+    let cursor_key = user_hs_cursor_key(&user_id);
+    UserDetails::put_index_sorted_set(&cursor_key, &[(42.0, hs_id.as_str())], None, None).await?;
+
+    // A malformed or malicious homeserver could return an old event after being
+    // asked for cursor 42. The persisted cursor must remain at 42.
+    let source =
+        Arc::new(
+            MockKeyBasedEventSource::default().with_events(vec![vec![stream_event(
+                9,
+                &user_id,
+                "/pub/pubky.app/profile.json",
+            )?]]),
+        );
+    let handler = create_mock_handler(Ok(()), None);
+    let processor = processor(homeserver, handler.clone(), source);
+
+    let err = processor
+        .run()
+        .await
+        .expect_err("rewound cursor must abort the homeserver run");
+    assert_internal_event_cursor_out_of_order(err);
+
+    // The stale event must be rejected before the handler runs (not merely
+    // ignored at cursor-write time), and the persisted cursor stays at 42.
+    assert_eq!(handler.get_handle_count(), 0);
+    assert_eq!(user_cursor(&user_id, &hs_id).await?, Some(42));
+
+    Ok(())
+}
+
+/// Verifies an event whose cursor equals the stored one is rejected. Fetches are
+/// cursor-exclusive, so re-returning the boundary cursor is a replay, not progress.
+#[tokio_shared_rt::test(shared)]
+async fn key_based_processor_rejects_cursor_equal_to_stored() -> Result<(), DynError> {
+    setup().await?;
+
+    let (_hs_keypair, homeserver) = create_homeserver().await?;
+    let hs_id = homeserver.id.to_string();
+    let user_id = create_user_on_homeserver(&homeserver).await?;
+    let cursor_key = user_hs_cursor_key(&user_id);
+    UserDetails::put_index_sorted_set(&cursor_key, &[(42.0, hs_id.as_str())], None, None).await?;
+
+    // Asked to continue from 42, the homeserver re-returns the event at 42.
+    let source =
+        Arc::new(
+            MockKeyBasedEventSource::default().with_events(vec![vec![stream_event(
+                42,
+                &user_id,
+                "/pub/pubky.app/profile.json",
+            )?]]),
+        );
+    let handler = create_mock_handler(Ok(()), None);
+    let processor = processor(homeserver, handler.clone(), source);
+
+    let err = processor
+        .run()
+        .await
+        .expect_err("replayed boundary cursor must abort the homeserver run");
+    assert_internal_event_cursor_out_of_order(err);
+
+    // The boundary event must be rejected before the handler runs, and the
+    // persisted cursor stays at 42.
+    assert_eq!(handler.get_handle_count(), 0);
+    assert_eq!(user_cursor(&user_id, &hs_id).await?, Some(42));
 
     Ok(())
 }
@@ -284,25 +460,59 @@ async fn key_based_processor_persists_last_safe_cursor_before_mismatch() -> Resu
     Ok(())
 }
 
-/// Verifies fetch errors that should not be retried right now abort the homeserver run immediately.
+/// Verifies homeserver transport failures abort before fetching subsequent users.
 #[tokio_shared_rt::test(shared)]
-async fn key_based_processor_aborts_on_not_retry_now_fetch_error() -> Result<(), DynError> {
+async fn key_based_processor_aborts_on_homeserver_transport_failure() -> Result<(), DynError> {
     setup().await?;
 
     let (_hs_keypair, homeserver) = create_homeserver().await?;
     create_user_on_homeserver(&homeserver).await?;
     create_user_on_homeserver(&homeserver).await?;
-    let source = Arc::new(MockKeyBasedEventSource::default().with_results(vec![Err(
-        EventProcessorError::IndexOperationFailed(true, "redis unavailable".into()),
-    )]));
+    let source = Arc::new(
+        MockKeyBasedEventSource::default()
+            .with_results(vec![Err(homeserver_event_stream_transport_error())]),
+    );
     let handler = create_mock_handler(Ok(()), None);
     let processor = processor(homeserver, handler.clone(), source.clone());
 
     let err = processor.run().await.unwrap_err();
 
-    assert_internal_not_retry_now_index_operation_failed(err);
+    assert_internal_homeserver_transport_failed(err);
     assert_eq!(source.calls().await.len(), 1);
     assert_eq!(handler.get_handle_count(), 0);
+
+    Ok(())
+}
+
+/// Verifies a client error that merely reads like a connection problem stays per-user:
+/// only /events-stream transport failures abort the homeserver run.
+#[tokio_shared_rt::test(shared)]
+async fn key_based_processor_continues_after_retryable_client_error() -> Result<(), DynError> {
+    setup().await?;
+
+    let (_hs_keypair, homeserver) = create_homeserver().await?;
+    let user_a_id = create_user_on_homeserver(&homeserver).await?;
+    let user_b_id = create_user_on_homeserver(&homeserver).await?;
+    let source = Arc::new(MockKeyBasedEventSource::default().with_user_events(vec![
+        (
+            user_a_id.clone(),
+            vec![stream_event(1, &user_a_id, "/pub/pubky.app/profile.json")?],
+        ),
+        (
+            user_b_id.clone(),
+            vec![stream_event(1, &user_b_id, "/pub/pubky.app/profile.json")?],
+        ),
+    ]));
+    let handler = create_mock_handler(Err(retryable_client_error()), None);
+    let processor = processor(homeserver, handler.clone(), source.clone());
+
+    processor.run().await?;
+
+    let calls = source.calls().await;
+    assert_eq!(calls.len(), 2);
+    assert!(calls.contains(&user_a_id));
+    assert!(calls.contains(&user_b_id));
+    assert_eq!(handler.get_handle_count(), 2);
 
     Ok(())
 }
@@ -690,6 +900,16 @@ fn user_not_found_error() -> EventProcessorError {
     .into()
 }
 
+/// Transport error type, identified by its type
+fn homeserver_event_stream_transport_error() -> EventProcessorError {
+    EventProcessorError::HsEventsStreamTransportFailed("connection refused".into())
+}
+
+/// Non-transport error type, that happens to have a transport-error-like error message
+fn retryable_client_error() -> EventProcessorError {
+    EventProcessorError::client_error("connection refused".into())
+}
+
 fn processor(
     homeserver: Homeserver,
     handler: Arc<dyn EventHandler>,
@@ -803,6 +1023,13 @@ fn assert_internal_not_retry_now_index_operation_failed(err: RunError) {
     }
 }
 
+fn assert_internal_homeserver_transport_failed(err: RunError) {
+    match err {
+        RunError::Internal(EventProcessorError::HsEventsStreamTransportFailed(_)) => {}
+        other => panic!("expected internal homeserver transport failure, got {other:?}"),
+    }
+}
+
 fn assert_internal_homeserver_blacklisted(err: RunError) {
     match err {
         RunError::Internal(EventProcessorError::HsBlacklisted { .. }) => {}
@@ -816,6 +1043,13 @@ fn assert_internal_hs_rate_limit_exhausted(err: RunError) {
         other => {
             panic!("expected internal HsEventsStreamRateLimitExhausted error, got {other:?}")
         }
+    }
+}
+
+fn assert_internal_event_cursor_out_of_order(err: RunError) {
+    match err {
+        RunError::Internal(EventProcessorError::EventCursorOutOfOrder { .. }) => {}
+        other => panic!("expected internal EventCursorOutOfOrder error, got {other:?}"),
     }
 }
 
