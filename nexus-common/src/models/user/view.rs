@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use super::{Relationship, UserCounts, UserDetails};
+use super::{Relationship, SocialGraphStatus, UserCounts, UserDetails};
 use crate::db::RedisOps;
 use crate::models::error::{ModelError, ModelResult};
 use crate::models::tag::traits::TagCollection;
@@ -18,6 +18,9 @@ pub struct UserView {
     pub counts: UserCounts,
     pub tags: Vec<TagDetails>,
     pub relationship: Relationship,
+    /// How established the account is in the follow graph. `None` when no
+    /// ranking is available, which is not the same as ranking as new.
+    pub social_graph_status: Option<SocialGraphStatus>,
 }
 
 impl UserView {
@@ -28,10 +31,16 @@ impl UserView {
         depth: Option<u8>,
     ) -> ModelResult<Option<Self>> {
         // Perform all operations concurrently
-        let (details, counts, relationship) = tokio::try_join!(
+        let (details, counts, relationship, social_graph_status) = tokio::try_join!(
             UserDetails::get_by_id(user_id),
             UserCounts::get_by_id(user_id),
             Relationship::get_by_id(user_id, viewer_id),
+            // The others surface ModelError; this one is Redis-only.
+            async {
+                SocialGraphStatus::get_by_id(user_id)
+                    .await
+                    .map_err(ModelError::from)
+            },
         )?;
 
         let Some(details) = details else {
@@ -63,6 +72,7 @@ impl UserView {
             counts,
             relationship,
             tags,
+            social_graph_status,
         }))
     }
 
@@ -75,12 +85,17 @@ impl UserView {
         viewer_id: Option<&str>,
         depth: Option<u8>,
     ) -> ModelResult<Vec<Option<Self>>> {
-        // Use mget to fetch all user details and counts in bulk
-        let (details_list, counts_list): (Vec<Option<UserDetails>>, Vec<Option<UserCounts>>) =
-            tokio::try_join!(UserDetails::mget(user_ids), UserCounts::mget(user_ids))?;
-        // mget returns one slot per id; the positional zip below relies on it.
+        // Use mget to fetch all user details and counts in bulk. The social
+        // graph lookup belongs here, batched, not in the per-user fan-out below.
+        let (details_list, counts_list, social_graph_list) = tokio::try_join!(
+            UserDetails::mget(user_ids),
+            UserCounts::mget(user_ids),
+            SocialGraphStatus::get_by_ids(user_ids),
+        )?;
+        // Each returns one slot per id; the positional zip below relies on it.
         debug_assert_eq!(details_list.len(), user_ids.len());
         debug_assert_eq!(counts_list.len(), user_ids.len());
+        debug_assert_eq!(social_graph_list.len(), user_ids.len());
 
         // Bounded to protect the pool; `buffered` preserves order so results stay
         // aligned with `user_ids`; inputs owned so the future stays `Send`.
@@ -91,7 +106,8 @@ impl UserView {
                 .cloned()
                 .zip(details_list)
                 .zip(counts_list)
-                .map(|((user_id, details), counts)| {
+                .zip(social_graph_list)
+                .map(|(((user_id, details), counts), social_graph_status)| {
                     let viewer_id = viewer_id.clone();
                     async move {
                         let Some(details) = details else {
@@ -124,6 +140,7 @@ impl UserView {
                             counts,
                             relationship,
                             tags,
+                            social_graph_status,
                         }))
                     }
                 }),
