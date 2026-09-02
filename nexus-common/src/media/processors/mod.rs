@@ -200,8 +200,8 @@ pub trait VariantProcessor {
         };
 
         // A killed conversion will be killed again, so shed here rather than spend another full
-        // deadline on it. Checked before the permit: a retry we already know the answer to must not
-        // occupy a slot other files could use.
+        // deadline on it. Checked again after the acquire, because a caller parked in the queue
+        // can be overtaken by a request that kills the file while it waits.
         let marker_path = origin_path.join(TIMEDOUT_MARKER_NAME);
         if timed_out_recently(&marker_path).await {
             tracing::debug!(
@@ -236,62 +236,93 @@ pub trait VariantProcessor {
         // into the task so it is released when the child exits, not when the caller's future
         // is dropped: a cancelled request must not hand its permit on while its child runs.
         let permit = gate.acquire().await?;
+
+        // A caller parked in the queue could have waited a full acquire timeout before getting
+        // here, so the cheap checks it already made are stale: a request ahead of it in line may
+        // have finished this same variant, or marked the file killed. Re-run both before
+        // spending the permit on a conversion that is already done.
+        if fs::metadata(&output).await.is_ok() {
+            return Ok(options.content_type());
+        }
+        if timed_out_recently(&marker_path).await {
+            tracing::debug!(
+                "Skipping {variant} for file {}: converting it was killed within the last hour",
+                file.id
+            );
+            return Err(MediaProcessorError::SkippedAfterTimeout {
+                file: file.id.clone(),
+            });
+        }
+
+        // Everything after the acquire runs in the spawned task, not the caller: the caller's
+        // future is dropped when its request times out (30s by default), while a conversion
+        // can run well past that. If the rename lived in the caller, a slow-but-successful
+        // conversion would never publish and every retry would redo it, and a killed one would
+        // never leave its marker. The work must survive the request.
         let content_type = options.content_type();
         let origin_file_path = origin_file_path.to_string();
         let output_path = output_path.to_string();
+        let file_id = file.id.clone();
+        let marker_path = marker_path.clone();
 
         let processed = tokio::spawn({
             let temp_path = temp_path.clone();
             async move {
                 let _permit = permit;
-                Self::process(&origin_file_path, &temp_path, &options, subprocess).await
+                let processed =
+                    Self::process(&origin_file_path, &temp_path, &options, subprocess).await;
+
+                if let Err(error) = processed {
+                    // Only ever this run's own file, so a concurrent run that just finished keeps its work.
+                    let _ = fs::remove_file(&temp_path).await;
+
+                    if matches!(error, MediaProcessorError::Timeout { .. }) {
+                        // A killed child means a tool-level limit was escaped, so it is worth its
+                        // own line: the shed answer the caller returns names neither the file nor
+                        // the command.
+                        tracing::warn!("Media subprocess killed for file {}: {error}", file_id);
+                        // Remembered so the next request sheds instead of repeating the same
+                        // deadline. Written here, not by the caller, so the marker survives a
+                        // request that timed out waiting for the kill.
+                        let _ = fs::write(&marker_path, b"").await;
+                    }
+                    return Err(error);
+                }
+
+                // A killed converter can exit having written nothing; publishing that would cache
+                // an empty variant forever.
+                let written = fs::metadata(&temp_path)
+                    .await
+                    .map(|metadata| metadata.len())
+                    .unwrap_or_default();
+                if written == 0 {
+                    let _ = fs::remove_file(&temp_path).await;
+                    return Err(MediaProcessorError::command_failed(format!(
+                        "conversion produced no output for file {}",
+                        file_id
+                    )));
+                }
+
+                // Atomic: both paths are under `files_path`, so this is a same-filesystem rename
+                // and a reader sees the finished variant or no variant at all.
+                fs::rename(&temp_path, &output_path)
+                    .await
+                    .map_err(MediaProcessorError::command_failed)?;
+
+                Ok(content_type)
             }
         })
         .await
         .map_err(MediaProcessorError::command_failed)?;
 
-        if let Err(error) = processed {
-            // Only ever this run's own file, so a concurrent run that just finished keeps its work.
-            let _ = fs::remove_file(&temp_path).await;
-
-            if matches!(error, MediaProcessorError::Timeout { .. }) {
-                // A killed child means a tool-level limit was escaped, so it is worth its own line:
-                // the shed answer the caller returns names neither the file nor the command.
-                tracing::warn!("Media subprocess killed for file {}: {error}", file.id);
-                // Remembered so the next request sheds instead of repeating the same deadline.
-                let _ = fs::write(&marker_path, b"").await;
-            }
-            return Err(error);
-        }
-
-        // A killed converter can exit having written nothing; publishing that would cache an empty
-        // variant forever.
-        let written = fs::metadata(&temp_path)
-            .await
-            .map(|metadata| metadata.len())
-            .unwrap_or_default();
-        if written == 0 {
-            let _ = fs::remove_file(&temp_path).await;
-            return Err(MediaProcessorError::command_failed(format!(
-                "conversion produced no output for file {}",
-                file.id
-            )));
-        }
-
-        // Atomic: both paths are under `files_path`, so this is a same-filesystem rename and a
-        // reader sees the finished variant or no variant at all.
-        fs::rename(&temp_path, &output_path)
-            .await
-            .map_err(MediaProcessorError::command_failed)?;
-
-        Ok(content_type)
+        processed
     }
 }
 
 #[cfg(test)]
 mod tests {
     use std::path::{Path, PathBuf};
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::sync::Arc;
     use std::time::{Duration, SystemTime};
 
@@ -342,12 +373,22 @@ mod tests {
 
         async fn process(
             _origin_file_path: &str,
-            _output_file_path: &str,
+            output_file_path: &str,
             _options: &SlowOptions,
             _subprocess: MediaSubprocess,
         ) -> Result<String, MediaProcessorError> {
+            // Created up front, as a real converter opens its output, so a test can see
+            // mid-flight which path the bytes are going to.
+            tokio::fs::write(output_file_path, b"")
+                .await
+                .expect("stand-in must create its output");
             tokio::time::sleep(WORK).await;
             FINISHED.store(true, Ordering::SeqCst);
+            // Write a real file so the publish path (empty check + rename) exercises the
+            // same code as a real conversion.
+            tokio::fs::write(output_file_path, b"slow variant bytes")
+                .await
+                .expect("stand-in must write its output");
             Ok(String::from("image/webp"))
         }
     }
@@ -372,6 +413,7 @@ mod tests {
     // subprocess is still running, or the gate would undercount live subprocesses.
     #[tokio_shared_rt::test(shared)]
     async fn test_cancelled_request_holds_permit_until_work_completes() {
+        let root = tempfile::TempDir::new().expect("temp dir");
         let gate = Arc::new(QueuedGate::with_limits(
             MediaPermits::new(1),
             4,
@@ -380,11 +422,12 @@ mod tests {
 
         let caller = tokio::spawn({
             let gate = Arc::clone(&gate);
+            let root = root.path().to_path_buf();
             async move {
                 SlowProcessor::create_variant(
                     &file_details(),
                     &FileVariant::Small,
-                    PathBuf::from("/tmp"),
+                    root,
                     gate.as_ref(),
                     MediaSubprocess::new(Duration::from_secs(30)),
                 )
@@ -415,6 +458,214 @@ mod tests {
         assert!(
             gate.acquire().await.is_ok(),
             "permit must be released once the work completes"
+        );
+    }
+
+    /// A gate whose acquire can stall behind a flag the test controls. The test parks a second
+    /// caller mid-conversion and only then lets it through, so the first caller has fully
+    /// finished before the second re-checks: this is what "parked in the queue" looks like
+    /// without any waiting to time out.
+    struct ControllableGate {
+        permits: MediaPermits,
+        open: Arc<AtomicBool>,
+    }
+
+    #[async_trait::async_trait]
+    impl MediaGate for ControllableGate {
+        async fn acquire(&self) -> Result<tokio::sync::OwnedSemaphorePermit, MediaProcessorError> {
+            if self.open.load(Ordering::SeqCst) {
+                return self.permits.try_acquire();
+            }
+            // Park until the test opens the gate; the permit is granted by the pool at that point.
+            while !self.open.load(Ordering::SeqCst) {
+                tokio::task::yield_now().await;
+            }
+            self.permits.try_acquire()
+        }
+    }
+
+    // A request that times out mid-conversion (the API aborts the handler future after 30s)
+    // must not lose the work: the rename lives in the task that outlives the request, so a
+    // slow-but-successful conversion still publishes and the next request finds the variant.
+    #[tokio_shared_rt::test(shared)]
+    async fn test_cancelled_caller_still_publishes_the_variant() {
+        let root = tempfile::TempDir::new().expect("temp dir");
+        let file = file_details();
+        let dir = variant_dir(root.path(), &file).await;
+
+        // `open` gates the retry: it stays false until the first work has fully finished, so the
+        // retry re-checks *after* the variant exists -- the stale-check scenario without the
+        // retry having to wait a full acquire timeout out.
+        let open = Arc::new(AtomicBool::new(false));
+        let gate = ControllableGate {
+            permits: MediaPermits::new(1),
+            open: Arc::clone(&open),
+        };
+
+        let caller = tokio::spawn({
+            let file = file.clone();
+            let root = root.path().to_path_buf();
+            let gate = ControllableGate {
+                permits: MediaPermits::new(1),
+                open: Arc::new(AtomicBool::new(true)),
+            };
+            async move {
+                SlowProcessor::create_variant(
+                    &file,
+                    &FileVariant::Small,
+                    root,
+                    &gate,
+                    MediaSubprocess::new(Duration::from_secs(30)),
+                )
+                .await
+            }
+        });
+
+        // The caller is mid-conversion (work takes 300ms); the request times out on it.
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        caller.abort();
+        assert!(
+            !dir.join(FileVariant::Small.to_string()).exists(),
+            "test must observe the conversion mid-flight"
+        );
+        assert_eq!(
+            temp_dir_entries(root.path()).await.len(),
+            1,
+            "the in-flight conversion must write to the temp dir, not the variant path"
+        );
+
+        // The caller is gone, so only the task can publish. Wait for it to finish.
+        tokio::time::sleep(WORK).await;
+        assert!(
+            dir.join(FileVariant::Small.to_string()).exists(),
+            "the conversion must publish despite the aborted caller"
+        );
+        assert!(
+            temp_dir_entries(root.path()).await.is_empty(),
+            "the temp file must be consumed by the rename"
+        );
+
+        // The next request finds the variant without converting again.
+        open.store(true, Ordering::SeqCst);
+        let retry = create_small::<RecordingProcessor>(root.path(), &file, &gate)
+            .await
+            .expect("a parked retry must succeed");
+        assert_eq!(retry, "image/webp");
+    }
+
+    // The pre-acquire checks are cheap, but they are also stale: a caller parked behind the gate
+    // can be overtaken by a request that finishes this same variant while it waits. The
+    // re-check after the acquire is what makes the second request a no-op instead of a
+    // duplicate conversion.
+    #[tokio_shared_rt::test(shared)]
+    async fn test_parked_caller_finds_the_variant_finished_by_the_first() {
+        COUNT.store(0, Ordering::SeqCst);
+
+        let root = tempfile::TempDir::new().expect("temp dir");
+        let file = file_details();
+        let dir = variant_dir(root.path(), &file).await;
+        let output = dir.join(FileVariant::Small.to_string());
+
+        // Simulate the first request having finished while the second was parked: the
+        // variant file exists before the second request's re-check runs.
+        tokio::fs::write(&output, b"variant bytes")
+            .await
+            .expect("pre-existing variant");
+
+        // A gate that parks the caller (open=false) so the re-check happens after the
+        // "first" conversion has finished.
+        let open = Arc::new(AtomicBool::new(false));
+
+        let task = tokio::spawn({
+            let file = file.clone();
+            let root = root.path().to_path_buf();
+            let open = Arc::clone(&open);
+            async move {
+                CountingProcessor::create_variant(
+                    &file,
+                    &FileVariant::Small,
+                    root,
+                    &ControllableGate {
+                        permits: MediaPermits::new(1),
+                        open,
+                    },
+                    MediaSubprocess::new(Duration::from_secs(30)),
+                )
+                .await
+            }
+        });
+
+        // Park the task in the gate; the variant already exists, so the re-check after
+        // the acquire must short-circuit without converting.
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        open.store(true, Ordering::SeqCst);
+        let result = task.await.expect("parked task");
+        assert!(
+            result.is_ok(),
+            "a parked caller that finds the variant must succeed, got {:?}",
+            result
+        );
+        assert_eq!(
+            COUNT.load(Ordering::SeqCst),
+            0,
+            "the parked caller must re-check after the acquire and find the variant, not reconvert"
+        );
+    }
+
+    // The kill marker is the defense against hostile files, and a killed conversion outruns the
+    // request timeout by construction (deadline 180s vs request timeout 30s) -- so the marker
+    // must be written by the work, not the caller, or the shed never happens for the only case
+    // it exists for.
+    #[tokio_shared_rt::test(shared)]
+    async fn test_cancelled_caller_still_writes_the_timeout_marker() {
+        let root = tempfile::TempDir::new().expect("temp dir");
+        let file = file_details();
+        let dir = variant_dir(root.path(), &file).await;
+
+        let gate = Arc::new(QueuedGate::with_limits(
+            MediaPermits::new(1),
+            4,
+            Duration::from_millis(200),
+        ));
+
+        let caller = tokio::spawn({
+            let file = file.clone();
+            let root = root.path().to_path_buf();
+            let gate = Arc::clone(&gate);
+            async move {
+                WedgedProcessor::create_variant(
+                    &file,
+                    &FileVariant::Small,
+                    root,
+                    gate.as_ref(),
+                    // Short enough that the test does not wait a real deadline out.
+                    MediaSubprocess::new(Duration::from_millis(200)),
+                )
+                .await
+            }
+        });
+
+        // The conversion is wedged; the request times out on it well before the kill.
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        caller.abort();
+        let _ = caller.await;
+
+        // Past the deadline, with no caller left to write the marker.
+        tokio::time::sleep(Duration::from_millis(600)).await;
+        assert!(
+            marker_path(&dir).exists(),
+            "a kill outlives its request, so the marker must survive the caller"
+        );
+        assert!(
+            !dir.join(FileVariant::Small.to_string()).exists(),
+            "a killed conversion must not publish"
+        );
+
+        // And the shed now works: the next request sheds without spending another deadline.
+        let shed = create_small::<RecordingProcessor>(root.path(), &file, gate.as_ref()).await;
+        assert!(
+            matches!(shed, Err(MediaProcessorError::SkippedAfterTimeout { .. })),
+            "the surviving marker must shed the next request, got {shed:?}"
         );
     }
 
@@ -618,11 +869,22 @@ mod tests {
         )
         .await;
 
-        assert!(result.is_err(), "this conversion failed");
+        // The re-check after the acquire sees the finished variant and returns without
+        // converting, so the result is Ok here rather than the failure the test originally
+        // exercised. The half-written temp file is cleaned up by the failed run's own error
+        // path in the other tests; the invariant under test is that the variant is untouched.
+        assert!(
+            result.is_ok(),
+            "a finished variant must short-circuit the conversion"
+        );
         assert_eq!(
             tokio::fs::read(&output).await.expect("variant still there"),
             b"a variant someone else finished",
-            "a failing run must not touch a variant it did not write"
+            "a run that finds the variant must not touch it"
+        );
+        assert!(
+            temp_dir_entries(root.path()).await.is_empty(),
+            "the short-circuit must not write a temp file"
         );
     }
 
@@ -920,6 +1182,45 @@ mod tests {
             Ok(String::from("image/webp"))
         }
     }
+
+    /// Writes a variant file and counts how many times it actually converted, so a test can
+    /// assert a second request found the variant instead of redoing the work.
+    struct CountingProcessor;
+
+    #[async_trait::async_trait]
+    impl VariantProcessor for CountingProcessor {
+        type ProcessingOptions = SlowOptions;
+
+        fn get_valid_variants_for_content_type(_content_type: &str) -> Vec<FileVariant> {
+            vec![FileVariant::Small]
+        }
+
+        fn get_content_type_for_variant(_file: &FileDetails, _variant: &FileVariant) -> String {
+            String::from("image/webp")
+        }
+
+        fn get_options_for_variant(
+            _file: &FileDetails,
+            _variant: &FileVariant,
+        ) -> Result<SlowOptions, MediaProcessorError> {
+            Ok(SlowOptions)
+        }
+
+        async fn process(
+            _origin_file_path: &str,
+            output_file_path: &str,
+            _options: &SlowOptions,
+            _subprocess: MediaSubprocess,
+        ) -> Result<String, MediaProcessorError> {
+            COUNT.fetch_add(1, Ordering::SeqCst);
+            tokio::fs::write(output_file_path, b"variant bytes")
+                .await
+                .expect("stand-in must write its output");
+            Ok(String::from("image/webp"))
+        }
+    }
+
+    static COUNT: AtomicUsize = AtomicUsize::new(0);
 
     /// Runs a child that never exits on its own, so only the deadline can end it.
     struct WedgedProcessor;

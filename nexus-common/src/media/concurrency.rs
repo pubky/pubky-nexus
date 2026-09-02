@@ -34,7 +34,7 @@ impl MediaPermits {
     }
 
     /// Take a permit only if one is free right now.
-    fn try_acquire(&self) -> Result<OwnedSemaphorePermit, MediaProcessorError> {
+    pub(crate) fn try_acquire(&self) -> Result<OwnedSemaphorePermit, MediaProcessorError> {
         Arc::clone(&self.semaphore)
             .try_acquire_owned()
             .map_err(|_| MediaProcessorError::AtCapacity)
