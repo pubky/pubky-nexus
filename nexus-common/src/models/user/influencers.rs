@@ -1,12 +1,12 @@
 use crate::db::kv::RedisResult;
 use crate::db::kv::SortOrder;
-use crate::models::error::ModelResult;
+use crate::models::error::{ModelError, ModelResult};
 use crate::types::StreamReach;
 use crate::types::Timeframe;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::ops::Deref;
-use tracing::debug;
+use tracing::{debug, error, warn};
 use utoipa::ToSchema;
 
 use super::{UserDetails, USER_DELETED_SENTINEL, USER_INFLUENCERS_KEY_PARTS};
@@ -105,21 +105,53 @@ impl Influencers {
             return Ok(cached_influencers);
         }
 
-        let query = queries::get::get_global_influencers(0, 100, timeframe);
-        let result = fetch_key_from_graph::<Influencers>(query, "influencers").await?;
-
-        let influencers = match result {
-            Some(influencers) => influencers,
-            None => return Ok(None),
-        };
-
-        if !influencers.is_empty() {
-            Influencers::put_to_global_cache(influencers.clone(), timeframe).await?;
-        }
-
+        Influencers::fetch_and_cache(timeframe).await?;
         Influencers::get_from_global_cache(skip, limit, timeframe)
             .await
             .map_err(Into::into)
+    }
+
+    /// Fetch top-100 influencers from the graph and atomically replace the cache.
+    ///
+    /// A transient empty or `None` graph result must not evict a good ranking, so the
+    /// previous cache is preferred. The caller can retry on the next scheduled tick.
+    pub async fn fetch_and_cache(timeframe: &Timeframe) -> ModelResult<()> {
+        let query = queries::get::get_global_influencers(0, 100, timeframe);
+        let result = fetch_key_from_graph::<Influencers>(query, "influencers").await?;
+        Influencers::write_or_preserve_cache(result, timeframe).await
+    }
+
+    /// Writes a non-empty graph result to the cache, or preserves the existing cache
+    /// when the result is empty or missing. This is the production half of the
+    /// `fetch_and_cache` seam; tests drive it directly with injected results.
+    async fn write_or_preserve_cache(
+        result: Option<Influencers>,
+        timeframe: &Timeframe,
+    ) -> ModelResult<()> {
+        match result {
+            Some(influencers) if !influencers.is_empty() => {
+                debug!(
+                    ?timeframe,
+                    count = influencers.len(),
+                    "Writing influencer cache"
+                );
+                Influencers::put_to_global_cache(influencers, timeframe).await?;
+            }
+            Some(empty) => {
+                warn!(
+                    ?timeframe,
+                    count = empty.len(),
+                    "Graph returned empty influencer set — previous cache left untouched"
+                );
+            }
+            None => {
+                warn!(
+                    ?timeframe,
+                    "Graph returned no influencers — previous cache left untouched"
+                );
+            }
+        }
+        Ok(())
     }
 
     /// Retrieves a paginated list of global influencers from the cache for the given timeframe,
@@ -188,7 +220,7 @@ impl Influencers {
             key_parts.iter().map(|s| s.as_str()).collect::<Vec<&str>>();
 
         // store the ranking as sorted set in cache
-        Influencers::put_index_sorted_set(
+        Influencers::replace_index_sorted_set(
             key_parts_vector.as_slice(),
             result
                 .iter()
@@ -286,11 +318,226 @@ impl Influencers {
         vec![timeframe.to_string()]
     }
 
-    /// Rebuilds the global influencer cache for `AllTime` and `ThisMonth` timeframes
+    /// Run a per-timeframe refresh for `timeframes` and aggregate failures.
     ///
+    /// `refresh` is invoked once per timeframe with an owned `Timeframe` (a
+    /// clone; the slice is borrowed so callers can pass `&[Timeframe; N]`).
+    /// Callers may wrap the future in a timeout or inject test doubles.
+    ///
+    /// If any refresh fails, every failed timeframe is named in the returned
+    /// `ModelError::Generic` message, which also folds in the first failing
+    /// error. `ModelError` carries no `source`, so the cause has to be part of
+    /// the message; each failed timeframe's error is additionally logged above.
+    pub async fn refresh_timeframes_with<F, Fut>(
+        timeframes: &[Timeframe],
+        refresh: &F,
+    ) -> ModelResult<()>
+    where
+        F: Fn(Timeframe) -> Fut,
+        Fut: std::future::Future<Output = ModelResult<()>>,
+    {
+        let mut failures: Vec<(String, ModelError)> = Vec::new();
+
+        for tf in timeframes {
+            let tf = tf.clone();
+            let tf_label = tf.to_string();
+            if let Err(e) = refresh(tf).await {
+                error!(
+                    timeframe = %tf_label,
+                    error = ?e,
+                    "Influencer cache refresh failed"
+                );
+                failures.push((tf_label, e));
+            }
+        }
+
+        if failures.is_empty() {
+            Ok(())
+        } else {
+            let message = format!(
+                "{}/{} influencer cache refreshes failed: {}",
+                failures.len(),
+                timeframes.len(),
+                failures
+                    .iter()
+                    .map(|(label, _)| label.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+            let (_, first_error) = &failures[0];
+            Err(ModelError::from_generic(format!(
+                "{message} (first: {first_error})"
+            )))
+        }
+    }
+
+    /// Rebuilds the global influencer cache for `AllTime` and `ThisMonth` timeframes
     pub async fn reindex() -> ModelResult<()> {
         Influencers::get_global_influencers(0, 100, &Timeframe::AllTime).await?;
         Influencers::get_global_influencers(0, 100, &Timeframe::ThisMonth).await?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{types::DynError, StackConfig, StackManager};
+    use std::sync::{Arc, Mutex};
+
+    #[tokio::test]
+    async fn refresh_timeframes_with_refreshes_each_passed_timeframe_once() {
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let seen_ref = seen.clone();
+
+        Influencers::refresh_timeframes_with(
+            &[Timeframe::ThisWeek, Timeframe::ThisMonth],
+            &|tf: Timeframe| {
+                let seen_ref = seen_ref.clone();
+                async move {
+                    seen_ref.lock().unwrap().push(tf);
+                    Ok(())
+                }
+            },
+        )
+        .await
+        .expect("all refreshes should succeed");
+
+        assert_eq!(
+            *seen.lock().unwrap(),
+            vec![Timeframe::ThisWeek, Timeframe::ThisMonth],
+            "each passed timeframe must be refreshed exactly once, in order"
+        );
+    }
+
+    #[tokio::test]
+    async fn refresh_timeframes_with_aggregates_failures() {
+        let err = Influencers::refresh_timeframes_with(
+            &[Timeframe::Today],
+            &|tf: Timeframe| async move { Err(ModelError::from_generic(format!("boom {tf}"))) },
+        )
+        .await
+        .expect_err("a failing refresh should bubble up");
+
+        let text = err.to_string();
+        assert!(
+            text.contains("1/1 influencer cache refreshes failed"),
+            "error must report the failure ratio, got: {text}"
+        );
+        assert!(
+            text.contains("Today"),
+            "error must name the failing timeframe, got: {text}"
+        );
+    }
+
+    #[tokio::test]
+    async fn refresh_timeframes_with_names_all_failed_timeframes_and_preserves_first_error() {
+        let err = Influencers::refresh_timeframes_with(
+            &[Timeframe::Today, Timeframe::ThisMonth],
+            &|tf: Timeframe| async move { Err(ModelError::from_generic(format!("fail-{tf}"))) },
+        )
+        .await
+        .expect_err("all refreshes failed so the aggregate must error");
+
+        let text = err.to_string();
+        assert!(
+            text.contains("2/2 influencer cache refreshes failed"),
+            "error must report the failure ratio, got: {text}"
+        );
+        assert!(
+            text.contains("Today") && text.contains("ThisMonth"),
+            "error must name every failed timeframe, got: {text}"
+        );
+        assert!(
+            text.contains("first: Generic: fail-Today"),
+            "aggregate message must carry the first failing timeframe's error, got: {text}"
+        );
+    }
+
+    #[tokio_shared_rt::test(shared)]
+    async fn write_or_preserve_cache_keeps_existing_ranking_on_empty_graph_result(
+    ) -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+        let timeframe = Timeframe::Today;
+
+        let original = Influencers(vec![("alice".to_string(), 10.0), ("bob".to_string(), 5.0)]);
+        Influencers::put_to_global_cache(original, &timeframe).await?;
+
+        Influencers::write_or_preserve_cache(Some(Influencers(vec![])), &timeframe).await?;
+
+        let cached = read_raw_cache(&timeframe)
+            .await?
+            .expect("the previous cache must still exist after an empty graph result");
+        assert_eq!(
+            cached.len(),
+            2,
+            "empty graph result must not evict the previous ranking"
+        );
+        assert!(cached.iter().any(|(id, _)| id == "alice"));
+        assert!(cached.iter().any(|(id, _)| id == "bob"));
+        Ok(())
+    }
+
+    #[tokio_shared_rt::test(shared)]
+    async fn write_or_preserve_cache_keeps_existing_ranking_on_none_graph_result(
+    ) -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+        let timeframe = Timeframe::ThisWeek;
+
+        let original = Influencers(vec![("carol".to_string(), 20.0)]);
+        Influencers::put_to_global_cache(original, &timeframe).await?;
+
+        Influencers::write_or_preserve_cache(None, &timeframe).await?;
+
+        let cached = read_raw_cache(&timeframe)
+            .await?
+            .expect("the previous cache must still exist after a None graph result");
+        assert_eq!(
+            cached.len(),
+            1,
+            "None graph result must not evict the previous ranking"
+        );
+        assert!(cached.iter().any(|(id, _)| id == "carol"));
+        Ok(())
+    }
+
+    #[tokio_shared_rt::test(shared)]
+    async fn write_or_preserve_cache_replaces_existing_ranking_on_non_empty_graph_result(
+    ) -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+        let timeframe = Timeframe::ThisMonth;
+
+        let original = Influencers(vec![("dave".to_string(), 1.0)]);
+        Influencers::put_to_global_cache(original, &timeframe).await?;
+
+        let replacement = Influencers(vec![("erin".to_string(), 99.0)]);
+        Influencers::write_or_preserve_cache(Some(replacement), &timeframe).await?;
+
+        let cached = read_raw_cache(&timeframe)
+            .await?
+            .expect("a non-empty graph result must leave a cache");
+        assert_eq!(
+            cached.len(),
+            1,
+            "non-empty graph result must replace the previous ranking"
+        );
+        assert!(cached.iter().any(|(id, _)| id == "erin"));
+        assert!(!cached.iter().any(|(id, _)| id == "dave"));
+        Ok(())
+    }
+
+    async fn read_raw_cache(timeframe: &Timeframe) -> RedisResult<Option<Vec<(String, f64)>>> {
+        let key_parts = Influencers::get_cache_key_parts(timeframe);
+        let key_parts_ref: Vec<&str> = key_parts.iter().map(|s| s.as_str()).collect();
+        Influencers::try_from_index_sorted_set(
+            &key_parts_ref,
+            None,
+            None,
+            Some(0),
+            Some(100),
+            SortOrder::Descending,
+            Some(GLOBAL_INFLUENCERS_PREFIX),
+        )
+        .await
     }
 }

@@ -134,6 +134,12 @@ mod tests {
         assert_eq!(c.stack.db.redis, "redis://127.0.0.1:6379");
         assert_eq!(c.stack.db.neo4j.uri, "bolt://localhost:7687");
 
+        // Influencer cache jobs are opt-in, like trust-recompute.
+        assert!(
+            !c.jobs.keys().any(|k| k.starts_with("influencers_cache")),
+            "influencer cache jobs must be opt-in; found {:#?}",
+            c.jobs
+        );
         let trust_job = c
             .jobs
             .get("trust-recompute")
@@ -181,6 +187,37 @@ mod tests {
         assert_eq!(
             c.jobs["trust-recompute"].cron.as_deref(),
             Some("0 0 3 * * *")
+        );
+    }
+
+    /// Uncommenting the per-timeframe influencer cache sections yields three
+    /// distinct jobs, each with its own cron.
+    #[test]
+    fn test_influencer_job_crons_parse_verbatim() {
+        let toml = format!(
+            "{DEFAULT_CONFIG_TOML}\n\
+             [jobs.influencers_cache_today]\n\
+             cron = \"0 7 * * * *\"\n\
+             [jobs.influencers_cache_this_week]\n\
+             cron = \"0 17 */6 * * *\"\n\
+             [jobs.influencers_cache_this_month]\n\
+             cron = \"0 27 3 * * *\"\n"
+        );
+
+        let c = DaemonConfig::try_from_str(&toml)
+            .expect("config with per-timeframe influencer crons should parse");
+
+        assert_eq!(
+            c.jobs["influencers_cache_today"].cron.as_deref(),
+            Some("0 7 * * * *")
+        );
+        assert_eq!(
+            c.jobs["influencers_cache_this_week"].cron.as_deref(),
+            Some("0 17 */6 * * *")
+        );
+        assert_eq!(
+            c.jobs["influencers_cache_this_month"].cron.as_deref(),
+            Some("0 27 3 * * *")
         );
     }
 
