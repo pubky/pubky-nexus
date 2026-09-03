@@ -597,7 +597,10 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         sorted_sets::put(prefix, &key, elements, expiration).await
     }
 
-    /// Atomically replaces a sorted set (DEL + ZADD + EXPIRE).
+    /// Rebuilds a Redis sorted set from scratch, atomically.
+    ///
+    /// Unlike [`Self::put_index_sorted_set`], which only adds, this drops
+    /// members that are no longer present. Empty `elements` deletes the key.
     async fn replace_index_sorted_set(
         key_parts: &[&str],
         elements: &[(f64, &str)],
@@ -607,6 +610,18 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         let prefix = prefix.unwrap_or(SORTED_PREFIX);
         let key = key_parts.join(":");
         sorted_sets::replace(prefix, &key, elements, expiration).await
+    }
+
+    /// Reads a sorted set's size and the scores of `members` from one snapshot,
+    /// so the two cannot straddle a concurrent rewrite of the set.
+    async fn index_sorted_set_card_and_members(
+        key_parts: &[&str],
+        members: &[&str],
+        prefix: Option<&str>,
+    ) -> RedisResult<(usize, Vec<Option<isize>>)> {
+        let prefix = prefix.unwrap_or(SORTED_PREFIX);
+        let key = key_parts.join(":");
+        sorted_sets::card_and_members(prefix, &key, members).await
     }
 
     /// Seeds a member of a Redis sorted set, leaving an already-present one untouched.

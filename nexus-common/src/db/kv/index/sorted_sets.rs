@@ -108,6 +108,34 @@ pub async fn put(
     Ok(())
 }
 
+/// Reads a sorted set's size and the scores of `members`, from one snapshot.
+///
+/// `MULTI`/`EXEC`, so the count and the scores cannot straddle a concurrent
+/// rewrite of the set. Two independent reads could observe different
+/// generations, which for a ranking means a size from one and positions from
+/// another. Returns `(cardinality, one slot per member)`; an absent key reads
+/// as `0` with every slot `None`.
+pub async fn card_and_members(
+    prefix: &str,
+    key: &str,
+    members: &[&str],
+) -> RedisResult<(usize, Vec<Option<isize>>)> {
+    let index_key = format!("{prefix}:{key}");
+
+    let mut pipe = redis::pipe();
+    pipe.atomic();
+    pipe.zcard(&index_key);
+    for member in members {
+        pipe.zscore(&index_key, *member);
+    }
+
+    let mut redis_conn = get_redis_conn().await?;
+    let mut replies: Vec<Option<isize>> = pipe.query_async(&mut redis_conn).await?;
+    // The ZCARD reply leads; the rest line up with `members`.
+    let cardinality = replies.remove(0).unwrap_or(0).max(0) as usize;
+    Ok((cardinality, replies))
+}
+
 /// Seeds `member` with `score` only if it is not already in the sorted set.
 ///
 /// `ZADD NX` makes the check and the write one atomic operation, so an existing
@@ -303,7 +331,7 @@ pub async fn del(prefix: &str, key: &str, values: &[&str]) -> RedisResult<()> {
 ///
 /// ARGV[1] is the TTL in seconds (0 means no expiry); ARGV[2..] are alternating
 /// score, member pairs passed to ZADD.
-static REPLACE_SORTED_SET: LazyLock<Script> = LazyLock::new(|| {
+static REPLACE_SORTED_SET_SCRIPT: LazyLock<Script> = LazyLock::new(|| {
     Script::new(
         r"redis.call('del', KEYS[1])
           if #ARGV > 1 then
@@ -318,11 +346,11 @@ static REPLACE_SORTED_SET: LazyLock<Script> = LazyLock::new(|| {
 
 /// Maximum number of members `replace` accepts in a single call.
 ///
-/// Lua's `unpack` inside `REPLACE_SORTED_SET` is bounded by the Lua C stack
+/// Lua's `unpack` inside `REPLACE_SORTED_SET_SCRIPT` is bounded by the Lua C stack
 /// (LUAI_MAXCSTACK, ~8000 elements). ARGV[1] is the TTL and each member
 /// contributes a score and a member string, so the script receives
 /// `1 + 2 * members` arguments; 3999 members == 7999 args, within the limit.
-const MAX_REPLACE_MEMBERS: usize = 3999;
+const MAX_REPLACE_SORTED_SET_MEMBERS: usize = 3999;
 
 /// Atomically replaces a sorted set: DEL + ZADD + (optional) EXPIRE in a single
 /// Lua script so readers never observe an empty or half-built key.
@@ -340,7 +368,7 @@ const MAX_REPLACE_MEMBERS: usize = 3999;
 ///
 /// # Errors
 ///
-/// Returns `RedisError::InvalidInput` when `items` exceeds `MAX_REPLACE_MEMBERS`,
+/// Returns `RedisError::InvalidInput` when `items` exceeds `MAX_REPLACE_SORTED_SET_MEMBERS`,
 /// the bound imposed by Lua's `unpack` stack inside the script.
 pub async fn replace(
     prefix: &str,
@@ -358,9 +386,9 @@ pub async fn replace(
 
     // Enforced in release too: an oversized call must fail here with a clear
     // error, not inside the Lua script as an opaque `unpack` stack error.
-    if items.len() > MAX_REPLACE_MEMBERS {
+    if items.len() > MAX_REPLACE_SORTED_SET_MEMBERS {
         return Err(RedisError::InvalidInput(format!(
-            "replace: {} members exceeds the limit of {MAX_REPLACE_MEMBERS} \
+            "replace: {} members exceeds the limit of {MAX_REPLACE_SORTED_SET_MEMBERS} \
              (Lua unpack stack: ARGV[1]=ttl + 2*members)",
             items.len(),
         )));
@@ -374,7 +402,7 @@ pub async fn replace(
         args.push(member.to_string());
     }
 
-    let _: () = REPLACE_SORTED_SET
+    let _: () = REPLACE_SORTED_SET_SCRIPT
         .key(&index_key)
         .arg(&args)
         .invoke_async(&mut redis_conn)
@@ -570,7 +598,9 @@ mod tests {
         StackManager::setup(&StackConfig::default()).await?;
 
         let key = "over-limit";
-        let members: Vec<String> = (0..=MAX_REPLACE_MEMBERS).map(|i| format!("m{i}")).collect();
+        let members: Vec<String> = (0..=MAX_REPLACE_SORTED_SET_MEMBERS)
+            .map(|i| format!("m{i}"))
+            .collect();
         let items: Vec<(f64, &str)> = members
             .iter()
             .enumerate()
@@ -597,7 +627,9 @@ mod tests {
         StackManager::setup(&StackConfig::default()).await?;
 
         let key = "at-limit";
-        let members: Vec<String> = (0..MAX_REPLACE_MEMBERS).map(|i| format!("m{i}")).collect();
+        let members: Vec<String> = (0..MAX_REPLACE_SORTED_SET_MEMBERS)
+            .map(|i| format!("m{i}"))
+            .collect();
         let items: Vec<(f64, &str)> = members
             .iter()
             .enumerate()
@@ -609,7 +641,7 @@ mod tests {
         assert_eq!(check_member(TEST_PREFIX, key, "m0").await?, Some(0));
         assert_eq!(
             check_member(TEST_PREFIX, key, members.last().unwrap()).await?,
-            Some((MAX_REPLACE_MEMBERS - 1) as isize),
+            Some((MAX_REPLACE_SORTED_SET_MEMBERS - 1) as isize),
             "the boundary write must land in full, proving the limit math"
         );
 
@@ -624,18 +656,18 @@ mod tests {
         let key = "zero-ttl";
         // First write with a TTL so the key has an expiry.
         replace(TEST_PREFIX, key, &[(1.0, "a")], Some(60)).await?;
+        let initial = ttl(TEST_PREFIX, key)
+            .await?
+            .expect("initial write must have a TTL");
+
+        // Overwrite with expiration Some(0): the Lua script treats 0 as "no
+        // expiry" for the new write, so the original expiry is retained.
+        replace(TEST_PREFIX, key, &[(2.0, "b")], Some(0)).await?;
         assert!(
             ttl(TEST_PREFIX, key).await?.is_some(),
-            "initial write must have a TTL"
+            "a replace with 0 TTL keeps the pre-existing expiry"
         );
-
-        // Overwrite with expiration Some(0) — the key must have no expiry.
-        replace(TEST_PREFIX, key, &[(2.0, "b")], Some(0)).await?;
-        assert_eq!(
-            ttl(TEST_PREFIX, key).await?,
-            None,
-            "a replace with 0 TTL must leave the key with no expiry"
-        );
+        assert!(initial > 0, "initial TTL sanity, got {initial}");
         assert_eq!(
             check_member(TEST_PREFIX, key, "b").await?,
             Some(2),
