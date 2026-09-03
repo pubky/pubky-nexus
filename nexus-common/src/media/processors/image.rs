@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use tokio::process::Command;
 
 use crate::{
-    media::{processors::MediaProcessorError, FileVariant},
+    media::{processors::MediaProcessorError, FileVariant, MediaSubprocess},
     models::file::FileDetails,
 };
 
@@ -62,8 +62,9 @@ impl VariantProcessor for ImageProcessor {
         origin_file_path: &str,
         output_file_path: &str,
         options: &ImageOptions,
+        subprocess: MediaSubprocess,
     ) -> Result<String, MediaProcessorError> {
-        let origin_file_format = ImageProcessor::get_format(origin_file_path)
+        let origin_file_format = ImageProcessor::get_format(origin_file_path, subprocess)
             .await?
             .to_lowercase();
 
@@ -72,22 +73,23 @@ impl VariantProcessor for ImageProcessor {
             false => format!("{}:{}", options.format, output_file_path),
         };
 
-        let child_output = Command::new("convert")
-            .arg(origin_file_path)
-            .arg("-resize")
-            .arg(format!("{}x", options.width))
-            .arg("-auto-orient") // https://github.com/ImageMagick/ImageMagick/issues/6396
-            .arg(output)
-            .output() // Automatically pipes stdout and stderr
-            .await
-            .map_err(MediaProcessorError::command_failed)?;
+        let child_output = subprocess
+            .run(
+                Command::new("convert")
+                    .arg(origin_file_path)
+                    .arg("-resize")
+                    .arg(format!("{}x", options.width))
+                    .arg("-auto-orient") // https://github.com/ImageMagick/ImageMagick/issues/6396
+                    .arg(output),
+            )
+            .await?;
 
         if child_output.status.success() {
             Ok(String::from_utf8_lossy(&child_output.stdout).to_string())
         } else {
             Err(MediaProcessorError::command_failed(format!(
                 "ImageMagick command failed: {}",
-                String::from_utf8_lossy(&child_output.stdout)
+                String::from_utf8_lossy(&child_output.stderr)
             )))
         }
     }
@@ -95,14 +97,18 @@ impl VariantProcessor for ImageProcessor {
 
 impl ImageProcessor {
     // function to get image format
-    async fn get_format(file_path: &str) -> Result<String, MediaProcessorError> {
-        let child_output = Command::new("identify")
-            .arg("-format")
-            .arg("%m")
-            .arg(file_path)
-            .output() // Automatically pipes stdout and stderr
-            .await
-            .map_err(MediaProcessorError::command_failed)?;
+    async fn get_format(
+        file_path: &str,
+        subprocess: MediaSubprocess,
+    ) -> Result<String, MediaProcessorError> {
+        let child_output = subprocess
+            .run(
+                Command::new("identify")
+                    .arg("-format")
+                    .arg("%m")
+                    .arg(file_path),
+            )
+            .await?;
 
         if child_output.status.success() {
             Ok(String::from_utf8_lossy(&child_output.stdout).to_string())

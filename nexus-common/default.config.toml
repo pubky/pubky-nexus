@@ -117,6 +117,25 @@ slow_query_logging_threshold_ms = 100
 # Include the Cypher query text in slow query log entries
 #slow_query_logging_include_cypher = false
 
+[stack.media]
+# Maximum number of concurrent media processing subprocesses (ImageMagick/ffmpeg).
+# Defaults to the number of available CPU cores (minimum 4). Must be greater than 0.
+# ImageMagick and ffmpeg already thread internally, so on large hosts a high value oversubscribes
+# CPU (each concurrent convert can itself use several cores). cores/2 is a sensible starting point.
+# Image conversions run `identify` then `convert` under one permit, each with its own deadline, so
+# worst-case permit hold is 2x process_timeout_secs.
+#max_concurrency = 4
+# Wall-clock deadline (seconds) for a single ImageMagick/ffmpeg subprocess. Past it the process
+# group is killed and reaped so its concurrency slot is returned. Keep it above ImageMagick's own
+# time limit: it is a backstop for children that hang without burning CPU. Must be greater than 0.
+# Two upper bounds to respect:
+# - Keep it below the API request timeout (config [api] request_timeout_secs, default 30s) if
+#   clients of slow conversions should receive the result instead of a 408; work still publishes
+#   after a request timeout, but the caller of that request gets 408 either way.
+# - Keep it under the 1h temp-file sweep (stale files in .tmp are deleted after 1 hour); a longer
+#   deadline lets the sweep delete an in-flight conversion's temp file and fail its rename.
+#process_timeout_secs = 180
+
 # Cron scheduling, one section per registered job (see `nexusd jobs list`),
 # keyed by job name: `[jobs.<name>]`.
 #

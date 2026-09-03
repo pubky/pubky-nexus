@@ -1,5 +1,4 @@
 use crate::{
-    media::processors::MediaProcessorError,
     models::file::{FileDetails, FileUrls},
     types::DynError,
 };
@@ -9,11 +8,21 @@ use std::{
     fmt::Display,
     path::{Path, PathBuf},
     str::FromStr,
+    sync::Arc,
 };
 use tokio::fs;
 use utoipa::ToSchema;
 
+mod concurrency;
 pub mod processors;
+mod subprocess;
+
+/// Meter for everything under `media`, so its metrics group together wherever the crate is used.
+pub(crate) const METER_NAME: &str = "nexus.media";
+
+pub use concurrency::{FailFastGate, MediaGate, MediaPermits, QueuedGate};
+use processors::MediaProcessorError;
+pub use subprocess::MediaSubprocess;
 
 #[derive(Debug, PartialEq, Serialize, Deserialize, ToSchema, Clone)]
 #[serde(rename_all = "lowercase")]
@@ -47,20 +56,47 @@ impl Display for FileVariant {
     }
 }
 
-pub struct VariantController;
+#[derive(Clone)]
+pub struct VariantController {
+    gate: Arc<dyn MediaGate>,
+    /// Deadline every subprocess this controller starts runs under.
+    subprocess: MediaSubprocess,
+}
 
 impl VariantController {
+    pub fn new(gate: impl MediaGate + 'static, subprocess: MediaSubprocess) -> Self {
+        Self {
+            gate: Arc::new(gate),
+            subprocess,
+        }
+    }
+
     pub async fn create_file_variant(
+        &self,
         file: &FileDetails,
         variant: &FileVariant,
         file_path: PathBuf,
     ) -> Result<String, MediaProcessorError> {
         match &file.content_type {
             content_type if content_type.starts_with("image/") => {
-                ImageProcessor::create_variant(file, variant, file_path).await
+                ImageProcessor::create_variant(
+                    file,
+                    variant,
+                    file_path,
+                    self.gate.as_ref(),
+                    self.subprocess,
+                )
+                .await
             }
             content_type if content_type.starts_with("video/") => {
-                VideoProcessor::create_variant(file, variant, file_path).await
+                VideoProcessor::create_variant(
+                    file,
+                    variant,
+                    file_path,
+                    self.gate.as_ref(),
+                    self.subprocess,
+                )
+                .await
             }
             _ => Err(MediaProcessorError::UnsupportedContentType(
                 file.content_type.clone(),
