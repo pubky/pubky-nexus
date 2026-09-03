@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use clap::Parser;
-use nexus_common::types::DynError;
+use nexus_common::types::{DynError, Timeframe};
 use nexus_common::{DaemonConfig, StackManager, TrustRankConfig};
 use nexus_watcher::service::NexusWatcher;
 use nexus_webapi::mock::MockDb;
@@ -19,7 +19,11 @@ use nexusd::DaemonLauncher;
 /// callers (e.g. `jobs list`) can pass `TrustRankConfig::default()`.
 fn job_registry(trust_rank: &TrustRankConfig, lock_ttl_secs: u64) -> JobRegistry {
     JobRegistry::new(vec![
-        Arc::new(InfluencersCacheJob),
+        // One job per cache-backed timeframe so each refreshes on its own cadence
+        // matching its TTL (see `[jobs.influencers_cache_*]` config).
+        Arc::new(InfluencersCacheJob(Timeframe::Today)),
+        Arc::new(InfluencersCacheJob(Timeframe::ThisWeek)),
+        Arc::new(InfluencersCacheJob(Timeframe::ThisMonth)),
         Arc::new(TrustRecomputeJob::build(trust_rank, lock_ttl_secs)),
     ])
 }

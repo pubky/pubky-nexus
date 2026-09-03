@@ -392,7 +392,7 @@ pub async fn replace(
 ///
 /// * `prefix` - Prefix for the Redis keys.
 /// * `key` - Key to check.
-#[allow(dead_code)]
+#[cfg(test)]
 pub async fn ttl(prefix: &str, key: &str) -> RedisResult<Option<i64>> {
     let index_key = format!("{prefix}:{key}");
     let mut redis_conn = get_redis_conn().await?;

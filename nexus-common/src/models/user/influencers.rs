@@ -14,12 +14,6 @@ use crate::db::{fetch_key_from_graph, queries, RedisOps};
 
 const GLOBAL_INFLUENCERS_PREFIX: &str = "Cache:Influencers";
 
-/// Timeframes kept warm by the influencers cache job. `AllTime` is excluded on
-/// purpose: it is served from the incrementally maintained `Sorted:Users:Influencers`
-/// set and has no TTL. See the `AllTime` arm of `get_from_global_cache`.
-const REFRESH_TIMEFRAMES: [Timeframe; 3] =
-    [Timeframe::Today, Timeframe::ThisWeek, Timeframe::ThisMonth];
-
 #[derive(Serialize, Deserialize, Debug, ToSchema, Default, Clone)]
 pub struct Influencers(pub Vec<(String, f64)>); // (user_id, score)
 
@@ -315,18 +309,14 @@ impl Influencers {
         vec![timeframe.to_string()]
     }
 
-    pub async fn refresh_global_cache() -> ModelResult<()> {
-        Influencers::refresh_global_cache_with(&|tf| async move {
-            Influencers::fetch_and_cache(&tf).await
-        })
-        .await
-    }
-
-    /// Run a per-timeframe refresh for [`REFRESH_TIMEFRAMES`] and aggregate failures.
+    /// Run a per-timeframe refresh for `timeframes` and aggregate failures.
     ///
     /// `refresh` is invoked once per timeframe with an owned `Timeframe`. Callers may
     /// wrap the future in a timeout or inject test doubles before passing it in.
-    pub async fn refresh_global_cache_with<F, Fut>(refresh: &F) -> ModelResult<()>
+    pub async fn refresh_timeframes_with<F, Fut>(
+        timeframes: &[Timeframe],
+        refresh: &F,
+    ) -> ModelResult<()>
     where
         F: Fn(Timeframe) -> Fut,
         Fut: std::future::Future<Output = ModelResult<()>>,
@@ -334,7 +324,8 @@ impl Influencers {
         let mut failed: Vec<String> = Vec::new();
         let mut first_error: Option<ModelError> = None;
 
-        for tf in REFRESH_TIMEFRAMES {
+        for tf in timeframes {
+            let tf = tf.clone();
             let tf_label = tf.to_string();
             if let Err(e) = refresh(tf).await {
                 error!(
@@ -353,7 +344,7 @@ impl Influencers {
             let message = format!(
                 "{}/{} influencer cache refreshes failed: {}",
                 failed.len(),
-                REFRESH_TIMEFRAMES.len(),
+                timeframes.len(),
                 failed.join(", ")
             );
             Err(ModelError::from_generic_with_source(
@@ -368,5 +359,56 @@ impl Influencers {
         Influencers::get_global_influencers(0, 100, &Timeframe::AllTime).await?;
         Influencers::get_global_influencers(0, 100, &Timeframe::ThisMonth).await?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::{Arc, Mutex};
+
+    #[tokio::test]
+    async fn refresh_timeframes_with_refreshes_each_passed_timeframe_once() {
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let seen_ref = seen.clone();
+
+        Influencers::refresh_timeframes_with(
+            &[Timeframe::ThisWeek, Timeframe::ThisMonth],
+            &|tf: Timeframe| {
+                let seen_ref = seen_ref.clone();
+                async move {
+                    seen_ref.lock().unwrap().push(tf);
+                    Ok(())
+                }
+            },
+        )
+        .await
+        .expect("all refreshes should succeed");
+
+        assert_eq!(
+            *seen.lock().unwrap(),
+            vec![Timeframe::ThisWeek, Timeframe::ThisMonth],
+            "each passed timeframe must be refreshed exactly once, in order"
+        );
+    }
+
+    #[tokio::test]
+    async fn refresh_timeframes_with_aggregates_failures() {
+        let err = Influencers::refresh_timeframes_with(
+            &[Timeframe::Today],
+            &|tf: Timeframe| async move { Err(ModelError::from_generic(format!("boom {tf}"))) },
+        )
+        .await
+        .expect_err("a failing refresh should bubble up");
+
+        let text = err.to_string();
+        assert!(
+            text.contains("1/1 influencer cache refreshes failed"),
+            "error must report the failure ratio, got: {text}"
+        );
+        assert!(
+            text.contains("Today"),
+            "error must name the failing timeframe, got: {text}"
+        );
     }
 }

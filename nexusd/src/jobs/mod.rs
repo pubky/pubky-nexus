@@ -299,10 +299,12 @@ async fn supervise(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::jobs::test_support::{
-        AcquireOutcome, CountingJob, FakeLock, PanicJob, UnlockOutcome,
+    use crate::jobs::{
+        influencers::InfluencersCacheJob,
+        test_support::{AcquireOutcome, CountingJob, FakeLock, PanicJob, UnlockOutcome},
     };
     use lock::LockMetrics;
+    use nexus_common::types::Timeframe;
     use scheduler::virtual_now;
     use std::sync::Arc;
     use std::time::Duration;
@@ -449,6 +451,51 @@ mod tests {
         assert!(
             matches!(err, JobError::UnknownJobConfig { .. }),
             "an unknown [jobs.<name>] key must fail startup, got: {err:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn scheduled_jobs_resolves_per_timeframe_influencer_cadences() {
+        let extra = "\
+[jobs.influencers_cache_today]\n\
+cron = \"0 7 * * * *\"\n\
+[jobs.influencers_cache_this_week]\n\
+cron = \"0 17 */6 * * *\"\n\
+[jobs.influencers_cache_this_month]\n\
+cron = \"0 27 3 * * *\"\n";
+        let config = default_config_with(extra).await;
+        let registry = JobRegistry::new(vec![
+            Arc::new(InfluencersCacheJob(Timeframe::Today)),
+            Arc::new(InfluencersCacheJob(Timeframe::ThisWeek)),
+            Arc::new(InfluencersCacheJob(Timeframe::ThisMonth)),
+            Arc::new(CountingJob::new("trust-recompute")),
+        ]);
+
+        let jobs = registry
+            .scheduled_jobs(&config)
+            .expect("per-timeframe influencer crons should resolve");
+
+        let mut by_name: std::collections::HashMap<&str, String> = jobs
+            .iter()
+            .map(|sj| (sj.job.name(), sj.schedule.to_string()))
+            .collect();
+
+        assert_eq!(
+            by_name.len(),
+            3,
+            "each cache-backed timeframe must become its own scheduled job"
+        );
+        assert_eq!(
+            by_name.remove("influencers_cache_today").unwrap(),
+            "0 7 * * * *"
+        );
+        assert_eq!(
+            by_name.remove("influencers_cache_this_week").unwrap(),
+            "0 17 */6 * * *"
+        );
+        assert_eq!(
+            by_name.remove("influencers_cache_this_month").unwrap(),
+            "0 27 3 * * *"
         );
     }
 
