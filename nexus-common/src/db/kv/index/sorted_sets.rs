@@ -656,18 +656,19 @@ mod tests {
         let key = "zero-ttl";
         // First write with a TTL so the key has an expiry.
         replace(TEST_PREFIX, key, &[(1.0, "a")], Some(60)).await?;
-        let initial = ttl(TEST_PREFIX, key)
-            .await?
-            .expect("initial write must have a TTL");
-
-        // Overwrite with expiration Some(0): the Lua script treats 0 as "no
-        // expiry" for the new write, so the original expiry is retained.
-        replace(TEST_PREFIX, key, &[(2.0, "b")], Some(0)).await?;
         assert!(
             ttl(TEST_PREFIX, key).await?.is_some(),
-            "a replace with 0 TTL keeps the pre-existing expiry"
+            "initial write must have a TTL"
         );
-        assert!(initial > 0, "initial TTL sanity, got {initial}");
+
+        // Overwrite with expiration Some(0): the script DELs the key, dropping
+        // the old expiry, and skips EXPIRE, so no expiry is left behind.
+        replace(TEST_PREFIX, key, &[(2.0, "b")], Some(0)).await?;
+        assert_eq!(
+            ttl(TEST_PREFIX, key).await?,
+            None,
+            "a replace with 0 TTL must leave the key with no expiry"
+        );
         assert_eq!(
             check_member(TEST_PREFIX, key, "b").await?,
             Some(2),
