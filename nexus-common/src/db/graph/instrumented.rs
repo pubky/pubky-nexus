@@ -57,16 +57,6 @@ fn build_attrs(query: &Query) -> Vec<KeyValue> {
         .collect()
 }
 
-/// `key=value` pairs after the leading `query` attribute, for slow-query logs.
-fn format_attrs(attrs: &[KeyValue]) -> String {
-    attrs
-        .iter()
-        .skip(1)
-        .map(|kv| format!("{}={}", kv.key, kv.value))
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
 impl GraphMetrics {
     /// Create all instruments from the global OpenTelemetry meter provider.
     ///
@@ -208,7 +198,6 @@ impl Drop for InstrumentedStream {
                 fetch_ms = fetch_duration.as_millis(),
                 rows = self.row_count,
                 query = %self.label,
-                attrs = %format_attrs(attrs),
                 cypher = self.cypher.as_deref().unwrap_or(""),
                 "Slow Neo4j query"
             );
@@ -282,7 +271,6 @@ impl<G: GraphOps> InstrumentedGraph<G> {
                 warn!(
                     elapsed_ms = elapsed.as_millis(),
                     query = %label,
-                    attrs = %format_attrs(attrs),
                     cypher = cypher.unwrap_or(""),
                     "Slow Neo4j query{}",
                     suffix
@@ -341,7 +329,6 @@ impl<G: GraphOps> GraphOps for InstrumentedGraph<G> {
                 self.metrics
                     .execute_duration
                     .record(ms(execute_duration), attrs);
-                self.metrics.rows.record(0, attrs);
                 self.metrics.errors.add(1, attrs);
                 span.set_status(Status::error(e.to_string()));
                 span.end();
@@ -417,7 +404,7 @@ mod tests {
         vec![KeyValue::new("query", label)]
     }
 
-    // ── build_attrs / format_attrs ──────────────────────────────────
+    // ── build_attrs ────────────────────────────────────────────────
 
     #[test]
     fn build_attrs_prepends_query_label_and_converts_values() {
@@ -438,39 +425,6 @@ mod tests {
                 ("depth".into(), "2".into()),
             ]
         );
-    }
-
-    #[test]
-    fn format_attrs_skips_leading_query() {
-        let attrs = vec![
-            KeyValue::new("query", "post_stream"),
-            KeyValue::new("source", "wot"),
-            KeyValue::new("depth", 2_i64),
-        ];
-        assert_eq!(format_attrs(&attrs), "source=wot depth=2");
-        assert_eq!(format_attrs(&[KeyValue::new("query", "post_stream")]), "");
-    }
-
-    #[tokio::test]
-    #[traced_test]
-    async fn slow_warning_includes_telemetry_attrs() {
-        let q = Query::new("post_stream", "RETURN 1")
-            .telemetry_attr("source", "wot")
-            .telemetry_attr("depth", 2_u8);
-        let ts = InstrumentedStream::new(
-            stream::empty().boxed(),
-            q.label(),
-            build_attrs(&q),
-            None,
-            Duration::ZERO,
-            Some(Duration::ZERO),
-            GraphMetrics::new(),
-            None,
-        );
-        drop(ts);
-
-        assert!(logs_contain("Slow Neo4j query"));
-        assert!(logs_contain("source=wot depth=2"));
     }
 
     fn make_instrumented_stream(
