@@ -47,6 +47,7 @@ pub mod api_context;
 mod builder;
 pub mod error;
 mod key_republisher;
+#[cfg(feature = "mock")]
 pub mod mock;
 pub mod models;
 pub mod routes;

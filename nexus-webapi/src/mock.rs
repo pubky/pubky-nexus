@@ -1,10 +1,9 @@
 use clap::ValueEnum;
 use nexus_common::{
-    db::{get_neo4j_graph, get_redis_conn, graph::Query, reindex},
+    db::{get_neo4j_graph, graph::Query, kv::clear_redis, reindex},
     models::post::create_post_content_index,
-    DaemonConfig, StackManager,
+    StackConfig, StackManager,
 };
-use std::path::PathBuf;
 use std::process::Stdio;
 use tracing::info;
 
@@ -19,25 +18,24 @@ pub enum MockType {
 pub struct MockDb {}
 
 impl MockDb {
-    async fn init_stack(config_dir: PathBuf) {
-        let config = DaemonConfig::read_or_create_config_file(config_dir)
-            .await
-            .expect("Failed to load daemon config");
-        StackManager::setup(&config.stack)
+    async fn init_stack(config: &StackConfig) {
+        StackManager::setup(config)
             .await
             .expect("Failed to initialize stack");
     }
 
-    pub async fn clear_database(config_dir: PathBuf) {
-        Self::init_stack(config_dir).await;
+    /// Clears the Redis and Neo4j databases described by `config`
+    pub async fn clear_database(config: &StackConfig) {
+        Self::init_stack(config).await;
 
         Self::drop_cache().await;
         Self::drop_graph().await;
         info!("Both ddbb cleared successfully");
     }
 
-    pub async fn run(mock_type: Option<MockType>, config_dir: PathBuf) {
-        Self::init_stack(config_dir).await;
+    /// Mocks the Redis and/or Neo4j databases described by `config`
+    pub async fn run(mock_type: Option<MockType>, config: &StackConfig) {
+        Self::init_stack(config).await;
 
         match mock_type {
             Some(MockType::Redis) => Self::sync_redis().await,
@@ -63,15 +61,9 @@ impl MockDb {
 
     pub async fn drop_cache() {
         info!("Dropping Redis database...");
-        // Drop all keys in Redis
-        let mut redis_conn = get_redis_conn()
-            .await
-            .expect("Could not get the redis connection");
-
-        deadpool_redis::redis::cmd("FLUSHALL")
-            .exec_async(&mut redis_conn)
-            .await
-            .expect("Failed to flush Redis");
+        // FLUSHDB: drop all keys in the configured logical database only,
+        // other logical databases on the same Redis server are left untouched.
+        clear_redis().await.expect("Failed to flush Redis");
     }
 
     async fn sync_all() {

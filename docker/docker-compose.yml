@@ -42,7 +42,7 @@ services:
       # seeded PageRank trust scores over the follow graph.
       NEO4J_PLUGINS: '["graph-data-science"]'
       NEO4J_dbms_security_procedures_unrestricted: gds.*
-      NEO4J_dbms_security_procedures_allowlist: gds.graph.project,gds.graph.project.estimate,gds.graph.drop,gds.graph.list,gds.pageRank.write
+      NEO4J_dbms_security_procedures_allowlist: gds.graph.project,gds.graph.project.estimate,gds.graph.drop,gds.graph.list,gds.pageRank.mutate,gds.graph.nodeProperty.stream
   redis:
     image: redis:8.0.6-alpine
     container_name: redis
