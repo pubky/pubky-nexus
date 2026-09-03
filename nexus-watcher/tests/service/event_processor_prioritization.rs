@@ -172,6 +172,7 @@ async fn create_active_user_on_homeserver(hs_id: &PubkyId) -> Result<(), DynErro
         links: None,
         image: None,
         indexed_at: Utc::now().timestamp_millis(),
+        deleted: false,
     };
 
     user.put_to_graph().await?;
