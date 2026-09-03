@@ -80,7 +80,7 @@ async fn main() -> Result<(), DynError> {
                 }
             }
         },
-        None => {
+        None | Some(NexusCommands::Run) => {
             let config = DaemonConfig::read_or_create_config_file(config_dir.clone()).await?;
             DaemonLauncher::start(
                 config_dir,

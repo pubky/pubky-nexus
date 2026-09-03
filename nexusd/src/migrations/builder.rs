@@ -85,4 +85,25 @@ mod tests {
         // The written default config has no backfill_ready entries.
         assert!(builder.0.backfill_ready.is_empty());
     }
+
+    #[tokio::test]
+    async fn new_loads_user_supplied_config_from_config_dir() {
+        let config_dir = tempfile::tempdir().expect("tempdir should be created");
+        let migrations_dir = config_dir.path().join(MIGRATIONS_CONFIG_DIR);
+        std::fs::create_dir_all(&migrations_dir).expect("migrations dir should be created");
+        std::fs::write(
+            migrations_dir.join(MIGRATIONS_CONFIG_FILE_NAME),
+            DEFAULT_CONFIG_TOML.replace(
+                "backfill_ready = []",
+                "backfill_ready = [\"some_migration\"]",
+            ),
+        )
+        .expect("config file should be written");
+
+        let builder = MigrationBuilder::new(config_dir.path().to_path_buf())
+            .await
+            .expect("builder should load the config");
+
+        assert_eq!(builder.0.backfill_ready, vec!["some_migration".to_string()]);
+    }
 }

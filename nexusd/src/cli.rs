@@ -36,6 +36,10 @@ pub enum NexusCommands {
     /// Database operations
     #[command(subcommand)]
     Db(DbCommands),
+
+    /// Run the API, the Watcher and the scheduled Jobs (default when no arguments are given)
+    #[command(hide = true)]
+    Run,
 }
 
 #[derive(Subcommand, Debug)]
@@ -120,6 +124,7 @@ mod tests {
         const DIR: &str = "test-config-dir";
         let dir = PathBuf::from(DIR);
         let cases: &[&[&str]] = &[
+            &["run"],
             &["api"],
             &["watcher"],
             &["jobs", "run", "some-job"],
@@ -150,6 +155,12 @@ mod tests {
                 "flag after {subcommand:?} should set config_dir"
             );
         }
+    }
+
+    #[test]
+    fn run_subcommand_is_still_accepted() {
+        let cli = Cli::try_parse_from(["nexusd", "run"]).expect("`nexusd run` should parse");
+        assert!(matches!(cli.command, Some(NexusCommands::Run)));
     }
 
     #[test]
