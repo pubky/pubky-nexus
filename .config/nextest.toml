@@ -1,0 +1,14 @@
+# Minimal nextest configuration.
+#
+# test_global_influencers_alltime_cache_recovery deletes and reseeds the shared
+# Sorted:Users:Influencers Redis sorted set. nextest runs each test in its own
+# process, in parallel, against one shared Redis, so that test must never
+# interleave with the sibling tests that assert the exact member order of the
+# same sorted set. Put all three in a test group limited to one concurrent test.
+
+[test-groups]
+influencers-sorted-set = { max-threads = 1 }
+
+[[profile.default.overrides]]
+filter = 'test(=stream::user::influencers::test_global_influencers) | test(=stream::user::influencers::test_global_influencers_skip_limit) | test(=stream::user::influencers::test_global_influencers_alltime_cache_recovery)'
+test-group = 'influencers-sorted-set'
