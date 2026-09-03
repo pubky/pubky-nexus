@@ -320,8 +320,14 @@ impl Influencers {
 
     /// Run a per-timeframe refresh for `timeframes` and aggregate failures.
     ///
-    /// `refresh` is invoked once per timeframe with an owned `Timeframe`. Callers may
-    /// wrap the future in a timeout or inject test doubles before passing it in.
+    /// `refresh` is invoked once per timeframe with an owned `Timeframe` (a
+    /// clone; the slice is borrowed so callers can pass `&[Timeframe; N]`).
+    /// Callers may wrap the future in a timeout or inject test doubles.
+    ///
+    /// If any refresh fails, every failed timeframe is named in the returned
+    /// `ModelError::Generic` message, which also folds in the first failing
+    /// error. `ModelError` carries no `source`, so the cause has to be part of
+    /// the message; each failed timeframe's error is additionally logged above.
     pub async fn refresh_timeframes_with<F, Fut>(
         timeframes: &[Timeframe],
         refresh: &F,
@@ -330,8 +336,7 @@ impl Influencers {
         F: Fn(Timeframe) -> Fut,
         Fut: std::future::Future<Output = ModelResult<()>>,
     {
-        let mut failed: Vec<String> = Vec::new();
-        let mut first_error: Option<ModelError> = None;
+        let mut failures: Vec<(String, ModelError)> = Vec::new();
 
         for tf in timeframes {
             let tf = tf.clone();
@@ -342,24 +347,27 @@ impl Influencers {
                     error = ?e,
                     "Influencer cache refresh failed"
                 );
-                first_error.get_or_insert(e);
-                failed.push(tf_label);
+                failures.push((tf_label, e));
             }
         }
 
-        if failed.is_empty() {
+        if failures.is_empty() {
             Ok(())
         } else {
             let message = format!(
                 "{}/{} influencer cache refreshes failed: {}",
-                failed.len(),
+                failures.len(),
                 timeframes.len(),
-                failed.join(", ")
+                failures
+                    .iter()
+                    .map(|(label, _)| label.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
             );
-            Err(ModelError::from_generic_with_source(
-                message,
-                first_error.expect("first_error is Some when failed is not empty"),
-            ))
+            let (_, first_error) = &failures[0];
+            Err(ModelError::from_generic(format!(
+                "{message} (first: {first_error})"
+            )))
         }
     }
 
@@ -423,7 +431,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn refresh_timeframes_with_names_all_failed_timeframes_and_preserves_first_source() {
+    async fn refresh_timeframes_with_names_all_failed_timeframes_and_preserves_first_error() {
         let err = Influencers::refresh_timeframes_with(
             &[Timeframe::Today, Timeframe::ThisMonth],
             &|tf: Timeframe| async move { Err(ModelError::from_generic(format!("fail-{tf}"))) },
@@ -440,17 +448,9 @@ mod tests {
             text.contains("Today") && text.contains("ThisMonth"),
             "error must name every failed timeframe, got: {text}"
         );
-
-        let first_source = match err {
-            ModelError::Generic {
-                source: Some(source),
-                ..
-            } => source,
-            other => panic!("aggregate error must be Generic with a source, got: {other:?}"),
-        };
         assert!(
-            first_source.to_string().contains("fail-Today"),
-            "source chain must carry the first failing timeframe's error, got: {first_source}"
+            text.contains("first: Generic: fail-Today"),
+            "aggregate message must carry the first failing timeframe's error, got: {text}"
         );
     }
 
