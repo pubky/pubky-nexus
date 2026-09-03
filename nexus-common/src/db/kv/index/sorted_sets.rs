@@ -1,5 +1,5 @@
 use crate::db::get_redis_conn;
-use crate::db::kv::RedisResult;
+use crate::db::kv::{RedisError, RedisResult};
 use redis::{AsyncCommands, Script};
 use serde::Deserialize;
 use std::sync::LazyLock;
@@ -316,6 +316,14 @@ static REPLACE_SORTED_SET: LazyLock<Script> = LazyLock::new(|| {
     )
 });
 
+/// Maximum number of members `replace` accepts in a single call.
+///
+/// Lua's `unpack` inside `REPLACE_SORTED_SET` is bounded by the Lua C stack
+/// (LUAI_MAXCSTACK, ~8000 elements). ARGV[1] is the TTL and each member
+/// contributes a score and a member string, so the script receives
+/// `1 + 2 * members` arguments; 3999 members == 7999 args, within the limit.
+const MAX_REPLACE_MEMBERS: usize = 3999;
+
 /// Atomically replaces a sorted set: DEL + ZADD + (optional) EXPIRE in a single
 /// Lua script so readers never observe an empty or half-built key.
 ///
@@ -329,6 +337,11 @@ static REPLACE_SORTED_SET: LazyLock<Script> = LazyLock::new(|| {
 /// * `key` - Key under which the sorted set is stored.
 /// * `items` - `(score, member)` pairs to write.
 /// * `expiration` - Optional TTL in seconds.
+///
+/// # Errors
+///
+/// Returns `RedisError::InvalidInput` when `items` exceeds `MAX_REPLACE_MEMBERS`,
+/// the bound imposed by Lua's `unpack` stack inside the script.
 pub async fn replace(
     prefix: &str,
     key: &str,
@@ -343,14 +356,15 @@ pub async fn replace(
         return Ok(());
     }
 
-    // Lua's `unpack` is bounded by the Lua stack (~8000 args).
-    // ARGV[1] is the TTL, so 200 members == 201 args which is well within limits.
-    // Fail loudly if a future caller exceeds ~3999 members.
-    debug_assert!(
-        items.len() <= 3999,
-        "replace: {} members would exceed Lua's ~8000-arg stack limit (ARGV[1]=ttl + 2*members)",
-        items.len(),
-    );
+    // Enforced in release too: an oversized call must fail here with a clear
+    // error, not inside the Lua script as an opaque `unpack` stack error.
+    if items.len() > MAX_REPLACE_MEMBERS {
+        return Err(RedisError::InvalidInput(format!(
+            "replace: {} members exceeds the limit of {MAX_REPLACE_MEMBERS} \
+             (Lua unpack stack: ARGV[1]=ttl + 2*members)",
+            items.len(),
+        )));
+    }
 
     let ttl: i64 = expiration.unwrap_or(0);
     let mut args: Vec<String> = Vec::with_capacity(1 + items.len() * 2);
@@ -548,6 +562,58 @@ mod tests {
             None,
             "an empty replace must not leave a stale set behind"
         );
+        Ok(())
+    }
+
+    #[tokio_shared_rt::test(shared)]
+    async fn replace_rejects_more_members_than_lua_unpack_supports() -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+
+        let key = "over-limit";
+        let members: Vec<String> = (0..=MAX_REPLACE_MEMBERS).map(|i| format!("m{i}")).collect();
+        let items: Vec<(f64, &str)> = members
+            .iter()
+            .enumerate()
+            .map(|(i, m)| (i as f64, m.as_str()))
+            .collect();
+
+        let err = replace(TEST_PREFIX, key, &items, None)
+            .await
+            .expect_err("an oversized replace must be rejected with a typed error");
+        assert!(
+            matches!(err, RedisError::InvalidInput(_)),
+            "expected RedisError::InvalidInput, got {err:?}"
+        );
+        assert_eq!(
+            check_member(TEST_PREFIX, key, "m0").await?,
+            None,
+            "a rejected replace must not have written anything"
+        );
+        Ok(())
+    }
+
+    #[tokio_shared_rt::test(shared)]
+    async fn replace_accepts_exactly_the_member_limit() -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+
+        let key = "at-limit";
+        let members: Vec<String> = (0..MAX_REPLACE_MEMBERS).map(|i| format!("m{i}")).collect();
+        let items: Vec<(f64, &str)> = members
+            .iter()
+            .enumerate()
+            .map(|(i, m)| (i as f64, m.as_str()))
+            .collect();
+
+        replace(TEST_PREFIX, key, &items, None).await?;
+
+        assert_eq!(check_member(TEST_PREFIX, key, "m0").await?, Some(0));
+        assert_eq!(
+            check_member(TEST_PREFIX, key, members.last().unwrap()).await?,
+            Some((MAX_REPLACE_MEMBERS - 1) as isize),
+            "the boundary write must land in full, proving the limit math"
+        );
+
+        replace(TEST_PREFIX, key, &[], None).await?;
         Ok(())
     }
 
