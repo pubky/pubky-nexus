@@ -1,6 +1,6 @@
 use pubky::errors::{AuthError, BuildError, PkarrError, RequestError};
 use pubky::{Pubky, PubkyHttpClient, StatusCode};
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 use thiserror::Error;
 use tokio::sync::OnceCell;
 use tracing::debug;
@@ -70,24 +70,35 @@ impl PubkyConnector {
     ///
     /// - For mainnet, pass `None`.
     /// - For testnet, pass `Some(hostname)` (e.g., "localhost" or "homeserver").
-    pub async fn initialise(testnet_host: Option<&str>) -> PubkyClientResult<()> {
+    /// - `http_request_timeout` bounds every Pubky HTTP request, including response-body reads.
+    pub async fn initialise(
+        testnet_host: Option<&str>,
+        http_request_timeout: Duration,
+    ) -> PubkyClientResult<()> {
         PUBKY_SINGLETON
             .get_or_try_init(|| async {
                 let mode = testnet_host
                     .map(|host| format!("testnet with host '{host}'"))
                     .unwrap_or_else(|| "mainnet".to_string());
-                debug!("Initialising Pubky singleton in {mode} mode");
+                debug!(
+                    ?http_request_timeout,
+                    "Initialising Pubky singleton in {mode} mode"
+                );
 
-                let client = match testnet_host {
-                    Some(host) => PubkyHttpClient::builder()
+                let mut client_builder = PubkyHttpClient::builder();
+                client_builder.request_timeout(http_request_timeout);
+
+                if let Some(host) = testnet_host {
+                    client_builder
                         .testnet_with_host(host)
                         // Force pkarr/mainline DHT to bind an ephemeral local port instead of default behavior
                         // We do this to prevent the client DHT from competing with `StaticTestnet` for port 6881
-                        .pkarr(|p| p.dht(|d| d.port(0)))
-                        .build(),
-                    None => PubkyHttpClient::new(),
+                        .pkarr(|p| p.dht(|d| d.port(0)));
                 }
-                .map_err(|e| PubkyClientError::from(pubky::Error::from(e)))?;
+
+                let client = client_builder
+                    .build()
+                    .map_err(|e| PubkyClientError::from(pubky::Error::from(e)))?;
                 Ok(Arc::new(Pubky::with_client(client)))
             })
             .await
