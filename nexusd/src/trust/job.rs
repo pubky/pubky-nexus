@@ -2,6 +2,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use async_trait::async_trait;
+use nexus_common::models::user::SocialGraphStatus;
 use nexus_common::types::DynError;
 use nexus_common::TrustRankConfig;
 use opentelemetry::global;
@@ -16,6 +17,25 @@ use crate::jobs::Job;
 /// OpenTelemetry meter name for all trust-rank metrics.
 const METER_NAME: &str = "nexus.trust";
 
+/// Publishes a finished ranking to whatever serves it. Injected into the job
+/// for the same reason the engine is: so the unit tests can drive `run` without
+/// a database behind it.
+#[async_trait]
+pub(crate) trait TrustProjection: Send + Sync {
+    /// Republishes the read model from the scores just written to the graph.
+    async fn publish(&self) -> Result<(), DynError>;
+}
+
+/// Rebuilds the Redis ranking that backs the social graph badge.
+pub(crate) struct SocialGraphProjection;
+
+#[async_trait]
+impl TrustProjection for SocialGraphProjection {
+    async fn publish(&self) -> Result<(), DynError> {
+        SocialGraphStatus::reindex().await.map_err(Into::into)
+    }
+}
+
 /// The trust-rank recompute as a runnable [`Job`]: runs the seeded PageRank
 /// computation and, when a report dir is set, writes a CSV report of the run.
 /// Build from resolved inputs with [`TrustRecomputeJob::new`] or from config
@@ -24,6 +44,7 @@ const METER_NAME: &str = "nexus.trust";
 pub struct TrustRecomputeJob {
     params: TrustRankParams,
     engine: Box<dyn TrustRankEngine>,
+    projection: Box<dyn TrustProjection>,
     report_dir: Option<PathBuf>,
     report_limit: usize,
     /// Runs that exhausted `max_iterations` without converging, so the written
@@ -36,15 +57,17 @@ impl TrustRecomputeJob {
     /// Builds the job from inputs. `report_dir` is `Some` to write a CSV, `None` to skip;
     /// `report_limit` caps rows in the report. Instruments come from the global
     /// meter (no-ops until an `SdkMeterProvider` is installed).
-    pub fn new(
+    pub(crate) fn new(
         params: TrustRankParams,
         engine: Box<dyn TrustRankEngine>,
+        projection: Box<dyn TrustProjection>,
         report_dir: Option<PathBuf>,
         report_limit: usize,
     ) -> Self {
         Self::with_meter(
             params,
             engine,
+            projection,
             report_dir,
             report_limit,
             global::meter(METER_NAME),
@@ -56,6 +79,7 @@ impl TrustRecomputeJob {
     pub(crate) fn with_meter(
         params: TrustRankParams,
         engine: Box<dyn TrustRankEngine>,
+        projection: Box<dyn TrustProjection>,
         report_dir: Option<PathBuf>,
         report_limit: usize,
         meter: Meter,
@@ -67,6 +91,7 @@ impl TrustRecomputeJob {
         Self {
             params,
             engine,
+            projection,
             report_dir,
             report_limit,
             max_iterations_reached,
@@ -80,6 +105,7 @@ impl TrustRecomputeJob {
         Self::new(
             TrustRankParams::from(config),
             Box::new(GdsNeo4j::new(true, Duration::from_secs(2 * lock_ttl_secs))),
+            Box::new(SocialGraphProjection),
             config.report_enabled.then(|| config.report_dir.clone()),
             config.report_limit,
         )
@@ -119,6 +145,12 @@ impl Job for TrustRecomputeJob {
                 Err(e) => error!("Failed to read trust scores for report: {e:?}"),
             }
         }
+
+        // Last, so a Redis blip cannot cost the report of a compute that already
+        // succeeded. Still fatal: fresh scores nobody can read leave the badge on
+        // yesterday's ranking, and that should not pass as a clean run.
+        self.projection.publish().await?;
+
         Ok(())
     }
 }
@@ -134,6 +166,17 @@ mod tests {
 
     use super::super::engine::{TrustRankEngine, TrustRankParams, TrustRankStats};
     use super::*;
+
+    // The real projection needs Neo4j and Redis; these tests drive `run` with
+    // no infrastructure at all.
+    struct NoOpProjection;
+
+    #[async_trait]
+    impl TrustProjection for NoOpProjection {
+        async fn publish(&self) -> Result<(), DynError> {
+            Ok(())
+        }
+    }
 
     // Dumb stub: bumps a shared counter and replays a canned result. The counter
     // is shared so the test can inspect it after the engine moves into the job.
@@ -177,7 +220,14 @@ mod tests {
         let provider = SdkMeterProvider::builder()
             .with_periodic_exporter(exporter.clone())
             .build();
-        let job = TrustRecomputeJob::with_meter(params(), engine, None, 10, provider.meter("test"));
+        let job = TrustRecomputeJob::with_meter(
+            params(),
+            engine,
+            Box::new(NoOpProjection),
+            None,
+            10,
+            provider.meter("test"),
+        );
         (job, provider, exporter)
     }
 
@@ -212,7 +262,13 @@ mod tests {
     async fn run_without_report_computes_and_skips_report() {
         let calls = Arc::new(AtomicU32::new(0));
         let engine = MockEngine::new(&calls, false);
-        let job = TrustRecomputeJob::new(params(), Box::new(engine), None, 10);
+        let job = TrustRecomputeJob::new(
+            params(),
+            Box::new(engine),
+            Box::new(NoOpProjection),
+            None,
+            10,
+        );
 
         job.run().await.expect("run should succeed");
 
@@ -228,6 +284,7 @@ mod tests {
         let job = TrustRecomputeJob::new(
             params(),
             Box::new(engine),
+            Box::new(NoOpProjection),
             Some(PathBuf::from("/does-not-matter")),
             10,
         );

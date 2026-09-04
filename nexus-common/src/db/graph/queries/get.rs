@@ -298,6 +298,31 @@ pub fn get_user_tag_pairs() -> Query {
     .param("deleted", USER_DELETED_SENTINEL)
 }
 
+/// Users carrying positive trust, highest first: the ranked population behind
+/// the social graph badge.
+///
+/// A node unreachable from the seed set may carry `0.0` or no `trust` property
+/// at all, and `null > 0` is null, so both drop out here. Only positive scores
+/// are ranked: everyone at zero shares one value, so their order would be
+/// arbitrary and would reshuffle every run. Absence from the ranking is what
+/// marks them new.
+///
+/// `user_id ASC` breaks score ties deterministically, so two runs over the same
+/// graph agree.
+pub fn get_trust_ranked_user_ids() -> Query {
+    Query::new(
+        "get_trust_ranked_user_ids",
+        "
+        MATCH (u:User)
+        WHERE u.trust > 0
+          AND u.name <> $deleted AND NOT coalesce(u.deleted, false)
+        RETURN u.id AS user_id
+        ORDER BY u.trust DESC, user_id ASC
+        ",
+    )
+    .param("deleted", USER_DELETED_SENTINEL)
+}
+
 /// Users whose profile carries any of the given tag labels, scored by distinct
 /// tagger count summed across the searched labels.
 pub fn search_users_by_tags(labels: &[String], skip: Option<usize>, limit: Option<usize>) -> Query {
@@ -758,6 +783,13 @@ pub fn get_tags() -> Query {
     )
 }
 
+fn reach_attrs(query: Query, reach: &StreamReach) -> Query {
+    let (name, depth) = reach.telemetry_dimensions();
+    query
+        .telemetry_attr("reach", name)
+        .telemetry_attr_opt("depth", depth)
+}
+
 pub fn get_tag_taggers_by_reach(
     label: &str,
     user_id: &str,
@@ -785,7 +817,7 @@ pub fn get_tag_taggers_by_reach(
             ",
         stream_reach_to_graph_subquery(&reach)
     );
-    Query::new("get_tag_taggers_by_reach", &cypher)
+    reach_attrs(Query::new("get_tag_taggers_by_reach", &cypher), &reach)
         .param("label", label)
         .param("user_id", user_id)
         .param("skip", skip as i64)
@@ -827,7 +859,7 @@ pub fn get_hot_tags_by_reach(
         input_tagged_type,
         tags_query.taggers_limit
     );
-    Query::new("get_hot_tags_by_reach", &cypher)
+    reach_attrs(Query::new("get_hot_tags_by_reach", &cypher), &reach)
         .param("user_id", user_id)
         .param("skip", tags_query.skip as i64)
         .param("limit", tags_query.limit as i64)
@@ -911,7 +943,7 @@ pub fn get_influencers_by_reach(
     ",
         stream_reach_to_graph_subquery(&reach),
     );
-    Query::new("get_influencers_by_reach", &cypher)
+    reach_attrs(Query::new("get_influencers_by_reach", &cypher), &reach)
         .param("user_id", user_id)
         .param("skip", skip as i64)
         .param("limit", limit as i64)
@@ -1212,25 +1244,17 @@ pub fn post_stream(
         cypher.push_str(&format!("LIMIT {}\n", limit.min(MAX_QUERY_LIMIT)));
     }
 
-    let query_name = match &source {
-        StreamSource::Following { .. } => "post_stream_following",
-        StreamSource::Followers { .. } => "post_stream_followers",
-        StreamSource::Friends { .. } => "post_stream_friends",
-        StreamSource::Bookmarks { .. } => "post_stream_bookmarks",
-        StreamSource::Author { .. } => "post_stream_author",
-        StreamSource::AuthorReplies { .. } => "post_stream_author_replies",
-        StreamSource::PostReplies { .. } => "post_stream_post_replies",
-        // Short-circuited upstream in collect_post_keys.
-        StreamSource::Collection { .. } => {
-            return Err(GraphError::QueryBuildError(
-                "StreamSource::Collection must be served by collect_post_keys".to_string(),
-            ));
-        }
-        StreamSource::Wot { .. } => "post_stream_wot",
-        StreamSource::WotDomain { .. } => "post_stream_wot_domain",
-        StreamSource::All => "post_stream_all",
-    };
-    let query = Query::new(query_name, &cypher);
+    // Short-circuited upstream in collect_post_keys.
+    if matches!(&source, StreamSource::Collection { .. }) {
+        return Err(GraphError::QueryBuildError(
+            "StreamSource::Collection must be served by collect_post_keys".to_string(),
+        ));
+    }
+
+    let (source_attr, depth) = source.telemetry_dimensions();
+    let query = Query::new("post_stream", &cypher)
+        .telemetry_attr("source", source_attr)
+        .telemetry_attr_opt("depth", depth);
     Ok(build_query_with_params(
         query,
         &source,
@@ -1462,9 +1486,11 @@ pub fn get_tag_by_tagger_and_id(tagger_id: &str, tag_id: &str) -> Query {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::graph::query::TelemetryValue;
     use crate::types::WotDepth;
+    use TelemetryValue::{Int, Str};
 
-    fn build(source: StreamSource) -> String {
+    fn build_query(source: StreamSource) -> Query {
         post_stream(
             source,
             StreamSorting::Timeline,
@@ -1477,7 +1503,132 @@ mod tests {
             None,
         )
         .unwrap()
-        .to_cypher_populated()
+    }
+
+    fn build(source: StreamSource) -> String {
+        build_query(source).to_cypher_populated()
+    }
+
+    #[test]
+    fn reach_queries_use_base_label_with_reach_and_depth_attrs() {
+        let cases = [
+            (StreamReach::Followers, vec![("reach", Str("followers"))]),
+            (StreamReach::Following, vec![("reach", Str("following"))]),
+            (StreamReach::Friends, vec![("reach", Str("friends"))]),
+            (
+                StreamReach::Wot(WotDepth::new(1).unwrap()),
+                vec![("reach", Str("wot")), ("depth", Int(1))],
+            ),
+            (
+                StreamReach::Wot(WotDepth::new(2).unwrap()),
+                vec![("reach", Str("wot")), ("depth", Int(2))],
+            ),
+            (
+                StreamReach::Wot(WotDepth::new(3).unwrap()),
+                vec![("reach", Str("wot")), ("depth", Int(3))],
+            ),
+        ];
+        for (reach, expected) in cases {
+            let influencers =
+                get_influencers_by_reach("user", reach.clone(), 0, 10, &Timeframe::AllTime);
+            assert_eq!(influencers.label(), "get_influencers_by_reach");
+            assert_eq!(influencers.telemetry_attrs(), expected.as_slice());
+
+            let taggers = get_tag_taggers_by_reach("tag", "user", reach.clone(), 0, 10);
+            assert_eq!(taggers.label(), "get_tag_taggers_by_reach");
+            assert_eq!(taggers.telemetry_attrs(), expected.as_slice());
+
+            let hot_tags_input = HotTagsInputDTO::new(Timeframe::AllTime, 10, 0, 5, None);
+            let hot_tags = get_hot_tags_by_reach("user", reach, &hot_tags_input);
+            assert_eq!(hot_tags.label(), "get_hot_tags_by_reach");
+            assert_eq!(hot_tags.telemetry_attrs(), expected.as_slice());
+        }
+    }
+
+    #[test]
+    fn post_stream_uses_base_label_with_source_and_depth_attrs() {
+        let observer = || "obs".to_string();
+        let cases: Vec<(StreamSource, Vec<(&'static str, TelemetryValue)>)> = vec![
+            (StreamSource::All, vec![("source", Str("all"))]),
+            (
+                StreamSource::Following {
+                    observer_id: observer(),
+                },
+                vec![("source", Str("following"))],
+            ),
+            (
+                StreamSource::Followers {
+                    observer_id: observer(),
+                },
+                vec![("source", Str("followers"))],
+            ),
+            (
+                StreamSource::Friends {
+                    observer_id: observer(),
+                },
+                vec![("source", Str("friends"))],
+            ),
+            (
+                StreamSource::Bookmarks {
+                    observer_id: observer(),
+                },
+                vec![("source", Str("bookmarks"))],
+            ),
+            (
+                StreamSource::Author {
+                    author_id: observer(),
+                },
+                vec![("source", Str("author"))],
+            ),
+            (
+                StreamSource::AuthorReplies {
+                    author_id: observer(),
+                },
+                vec![("source", Str("author_replies"))],
+            ),
+            (
+                StreamSource::PostReplies {
+                    post_id: "post".to_string(),
+                    author_id: observer(),
+                },
+                vec![("source", Str("post_replies"))],
+            ),
+            (
+                StreamSource::Wot {
+                    observer_id: observer(),
+                    depth: WotDepth::new(1).unwrap(),
+                },
+                vec![("source", Str("wot")), ("depth", Int(1))],
+            ),
+            (
+                StreamSource::Wot {
+                    observer_id: observer(),
+                    depth: WotDepth::new(3).unwrap(),
+                },
+                vec![("source", Str("wot")), ("depth", Int(3))],
+            ),
+            (
+                StreamSource::WotDomain {
+                    observer_id: observer(),
+                    trust: DomainTrust::Me,
+                    domain_tags: vec!["bitcoin".to_string()],
+                },
+                vec![("source", Str("wot_domain")), ("depth", Int(0))],
+            ),
+            (
+                StreamSource::WotDomain {
+                    observer_id: observer(),
+                    trust: DomainTrust::Network(WotDepth::new(2).unwrap()),
+                    domain_tags: vec!["bitcoin".to_string()],
+                },
+                vec![("source", Str("wot_domain")), ("depth", Int(2))],
+            ),
+        ];
+        for (source, expected) in cases {
+            let query = build_query(source);
+            assert_eq!(query.label(), "post_stream");
+            assert_eq!(query.telemetry_attrs(), expected.as_slice());
+        }
     }
 
     /// The trust traversal must bind and dedupe authors before the posts MATCH.
