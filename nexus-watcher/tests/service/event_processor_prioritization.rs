@@ -30,6 +30,7 @@ async fn test_event_processor_runner_primary_homeserver_excluded() -> Result<(),
         default_moderation_tests(),
         default_ingestor_tests(),
         DEFAULT_MAX_FILE_SIZE,
+        true,
         PathBuf::from("/tmp/nexus-watcher-test"),
     ));
     let store: Arc<dyn RetryStore> = Arc::new(RedisRetryStore::new());
@@ -78,6 +79,7 @@ async fn test_event_processor_runner_blacklisted_homeserver_excluded() -> Result
         default_moderation_tests(),
         default_ingestor_tests(),
         DEFAULT_MAX_FILE_SIZE,
+        true,
         PathBuf::from("/tmp/nexus-watcher-test"),
     ));
     let store: Arc<dyn RetryStore> = Arc::new(RedisRetryStore::new());

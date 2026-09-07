@@ -34,6 +34,8 @@ pub const MAX_EVENTS_LIMIT: u16 = 1_000;
 pub const MAX_KEY_BASED_EVENTS_LIMIT: u16 = 100;
 /// Default for [WatcherConfig::max_file_size] — the blob size cap from pubky-app-specs
 pub const DEFAULT_MAX_FILE_SIZE: u64 = VALIDATION_LIMITS.max_blob_size_bytes as u64;
+/// Default for [WatcherConfig::mirror_blobs]
+pub const DEFAULT_MIRROR_BLOBS: bool = true;
 
 // Retry configuration defaults
 /// Default for [EventRetryConfig::max_retries]
@@ -163,6 +165,12 @@ pub struct WatcherConfig {
     #[serde(default = "default_max_file_size")]
     pub max_file_size: u64,
 
+    /// Download file blobs into `files_path` and serve them from `/static`.
+    /// Off means only the file metadata is indexed and clients fetch media from
+    /// whatever CDN they are configured with. Default: true.
+    #[serde(default = "default_mirror_blobs")]
+    pub mirror_blobs: bool,
+
     #[serde(default = "default_stack")]
     pub stack: StackConfig,
 
@@ -197,6 +205,7 @@ impl Default for WatcherConfig {
             max_backoff_secs: DEFAULT_MAX_BACKOFF_SECS,
             retry_processor_interval_ms: DEFAULT_RETRY_PROCESSOR_INTERVAL_MS,
             max_file_size: DEFAULT_MAX_FILE_SIZE,
+            mirror_blobs: DEFAULT_MIRROR_BLOBS,
             retry: EventRetryConfig::default(),
             moderation_id,
             moderated_tags: MODERATED_TAGS.iter().map(|s| s.to_string()).collect(),
@@ -274,4 +283,8 @@ fn default_retry_processor_interval_ms() -> u64 {
 
 fn default_max_file_size() -> u64 {
     DEFAULT_MAX_FILE_SIZE
+}
+
+fn default_mirror_blobs() -> bool {
+    DEFAULT_MIRROR_BLOBS
 }
