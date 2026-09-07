@@ -1,5 +1,5 @@
 use crate::db::get_redis_conn;
-use crate::db::kv::{RedisError, RedisResult};
+use crate::db::kv::RedisResult;
 use redis::{AsyncCommands, Script};
 use serde::Deserialize;
 use std::sync::LazyLock;
@@ -330,12 +330,14 @@ pub async fn del(prefix: &str, key: &str, values: &[&str]) -> RedisResult<()> {
 /// that MULTI/EXEC suffers when the scheduler cancels the job future.
 ///
 /// ARGV[1] is the TTL in seconds (0 means no expiry); ARGV[2..] are alternating
-/// score, member pairs passed to ZADD.
+/// score, member pairs. They are added one pair per ZADD call rather than via
+/// `unpack`, which is bounded by the Lua C stack; the script as a whole is still
+/// atomic, so the member count is unbounded.
 static REPLACE_SORTED_SET_SCRIPT: LazyLock<Script> = LazyLock::new(|| {
     Script::new(
         r"redis.call('del', KEYS[1])
-          if #ARGV > 1 then
-              redis.call('zadd', KEYS[1], unpack(ARGV, 2))
+          for i = 2, #ARGV, 2 do
+              redis.call('zadd', KEYS[1], ARGV[i], ARGV[i + 1])
           end
           if tonumber(ARGV[1]) > 0 then
               redis.call('expire', KEYS[1], tonumber(ARGV[1]))
@@ -343,14 +345,6 @@ static REPLACE_SORTED_SET_SCRIPT: LazyLock<Script> = LazyLock::new(|| {
           return 1",
     )
 });
-
-/// Maximum number of members `replace` accepts in a single call.
-///
-/// Lua's `unpack` inside `REPLACE_SORTED_SET_SCRIPT` is bounded by the Lua C stack
-/// (LUAI_MAXCSTACK, ~8000 elements). ARGV[1] is the TTL and each member
-/// contributes a score and a member string, so the script receives
-/// `1 + 2 * members` arguments; 3999 members == 7999 args, within the limit.
-const MAX_REPLACE_SORTED_SET_MEMBERS: usize = 3999;
 
 /// Atomically replaces a sorted set: DEL + ZADD + (optional) EXPIRE in a single
 /// Lua script so readers never observe an empty or half-built key.
@@ -365,11 +359,6 @@ const MAX_REPLACE_SORTED_SET_MEMBERS: usize = 3999;
 /// * `key` - Key under which the sorted set is stored.
 /// * `items` - `(score, member)` pairs to write.
 /// * `expiration` - Optional TTL in seconds.
-///
-/// # Errors
-///
-/// Returns `RedisError::InvalidInput` when `items` exceeds `MAX_REPLACE_SORTED_SET_MEMBERS`,
-/// the bound imposed by Lua's `unpack` stack inside the script.
 pub async fn replace(
     prefix: &str,
     key: &str,
@@ -382,16 +371,6 @@ pub async fn replace(
     if items.is_empty() {
         let _: () = redis_conn.del(&index_key).await?;
         return Ok(());
-    }
-
-    // Enforced in release too: an oversized call must fail here with a clear
-    // error, not inside the Lua script as an opaque `unpack` stack error.
-    if items.len() > MAX_REPLACE_SORTED_SET_MEMBERS {
-        return Err(RedisError::InvalidInput(format!(
-            "replace: {} members exceeds the limit of {MAX_REPLACE_SORTED_SET_MEMBERS} \
-             (Lua unpack stack: ARGV[1]=ttl + 2*members)",
-            items.len(),
-        )));
     }
 
     let ttl: i64 = expiration.unwrap_or(0);
@@ -594,42 +573,12 @@ mod tests {
     }
 
     #[tokio_shared_rt::test(shared)]
-    async fn replace_rejects_more_members_than_lua_unpack_supports() -> Result<(), DynError> {
+    async fn replace_is_not_bounded_by_the_lua_unpack_stack() -> Result<(), DynError> {
         StackManager::setup(&StackConfig::default()).await?;
 
-        let key = "over-limit";
-        let members: Vec<String> = (0..=MAX_REPLACE_SORTED_SET_MEMBERS)
-            .map(|i| format!("m{i}"))
-            .collect();
-        let items: Vec<(f64, &str)> = members
-            .iter()
-            .enumerate()
-            .map(|(i, m)| (i as f64, m.as_str()))
-            .collect();
-
-        let err = replace(TEST_PREFIX, key, &items, None)
-            .await
-            .expect_err("an oversized replace must be rejected with a typed error");
-        assert!(
-            matches!(err, RedisError::InvalidInput(_)),
-            "expected RedisError::InvalidInput, got {err:?}"
-        );
-        assert_eq!(
-            check_member(TEST_PREFIX, key, "m0").await?,
-            None,
-            "a rejected replace must not have written anything"
-        );
-        Ok(())
-    }
-
-    #[tokio_shared_rt::test(shared)]
-    async fn replace_accepts_exactly_the_member_limit() -> Result<(), DynError> {
-        StackManager::setup(&StackConfig::default()).await?;
-
-        let key = "at-limit";
-        let members: Vec<String> = (0..MAX_REPLACE_SORTED_SET_MEMBERS)
-            .map(|i| format!("m{i}"))
-            .collect();
+        // Well past LUAI_MAXCSTACK (~8000 values), which an `unpack(ARGV, 2)` would trip.
+        let key = "large";
+        let members: Vec<String> = (0..10_000).map(|i| format!("m{i}")).collect();
         let items: Vec<(f64, &str)> = members
             .iter()
             .enumerate()
@@ -641,8 +590,8 @@ mod tests {
         assert_eq!(check_member(TEST_PREFIX, key, "m0").await?, Some(0));
         assert_eq!(
             check_member(TEST_PREFIX, key, members.last().unwrap()).await?,
-            Some((MAX_REPLACE_SORTED_SET_MEMBERS - 1) as isize),
-            "the boundary write must land in full, proving the limit math"
+            Some(9_999),
+            "the whole set must land in one atomic replace"
         );
 
         replace(TEST_PREFIX, key, &[], None).await?;
