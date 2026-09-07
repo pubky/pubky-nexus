@@ -23,7 +23,7 @@ updates:
       prefix: "ci"
     cooldown:
       default-days: 7
-      groups:
-        github-actions:
-          patterns:
-            - "*"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
