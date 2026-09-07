@@ -9,7 +9,6 @@ license = "MIT"
 
 [dependencies]
 async-trait = { workspace = true }
-dirs = { workspace = true }
 chrono = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 cron = { workspace = true }
