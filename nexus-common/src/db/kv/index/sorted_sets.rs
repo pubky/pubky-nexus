@@ -1,5 +1,5 @@
 use crate::db::get_redis_conn;
-use crate::db::kv::RedisResult;
+use crate::db::kv::{RedisError, RedisResult};
 use redis::{AsyncCommands, Script};
 use serde::Deserialize;
 use std::sync::LazyLock;
@@ -358,7 +358,13 @@ static REPLACE_SORTED_SET_SCRIPT: LazyLock<Script> = LazyLock::new(|| {
 /// * `prefix` - Prefix for the Redis keys.
 /// * `key` - Key under which the sorted set is stored.
 /// * `items` - `(score, member)` pairs to write.
-/// * `expiration` - Optional TTL in seconds.
+/// * `expiration` - Optional TTL in seconds; `None` leaves the key without expiry.
+///
+/// # Errors
+///
+/// Returns `RedisError::InvalidInput` for `Some(n)` with `n <= 0`. The script
+/// treats 0 as "no expiry", whereas Redis `EXPIRE key 0` deletes the key, so a
+/// zero would silently mean something different from what the caller wrote.
 pub async fn replace(
     prefix: &str,
     key: &str,
@@ -373,7 +379,15 @@ pub async fn replace(
         return Ok(());
     }
 
-    let ttl: i64 = expiration.unwrap_or(0);
+    let ttl: i64 = match expiration {
+        Some(n) if n <= 0 => {
+            return Err(RedisError::InvalidInput(format!(
+                "replace: expiration must be positive, got {n}; pass None for no expiry"
+            )));
+        }
+        Some(n) => n,
+        None => 0,
+    };
     let mut args: Vec<String> = Vec::with_capacity(1 + items.len() * 2);
     args.push(ttl.to_string());
     for (score, member) in items {
@@ -599,29 +613,25 @@ mod tests {
     }
 
     #[tokio_shared_rt::test(shared)]
-    async fn replace_with_zero_ttl_leaves_no_expiry() -> Result<(), DynError> {
+    async fn replace_rejects_non_positive_ttl() -> Result<(), DynError> {
         StackManager::setup(&StackConfig::default()).await?;
 
-        let key = "zero-ttl";
-        // First write with a TTL so the key has an expiry.
+        let key = "non-positive-ttl";
         replace(TEST_PREFIX, key, &[(1.0, "a")], Some(60)).await?;
-        assert!(
-            ttl(TEST_PREFIX, key).await?.is_some(),
-            "initial write must have a TTL"
-        );
 
-        // Overwrite with expiration Some(0): the script DELs the key, dropping
-        // the old expiry, and skips EXPIRE, so no expiry is left behind.
-        replace(TEST_PREFIX, key, &[(2.0, "b")], Some(0)).await?;
+        for bad in [0, -1] {
+            let err = replace(TEST_PREFIX, key, &[(2.0, "b")], Some(bad))
+                .await
+                .expect_err("a non-positive TTL must be rejected");
+            assert!(
+                matches!(err, RedisError::InvalidInput(_)),
+                "expected RedisError::InvalidInput for ttl {bad}, got {err:?}"
+            );
+        }
         assert_eq!(
-            ttl(TEST_PREFIX, key).await?,
-            None,
-            "a replace with 0 TTL must leave the key with no expiry"
-        );
-        assert_eq!(
-            check_member(TEST_PREFIX, key, "b").await?,
-            Some(2),
-            "the data must still be written"
+            check_member(TEST_PREFIX, key, "a").await?,
+            Some(1),
+            "a rejected replace must leave the previous set untouched"
         );
 
         replace(TEST_PREFIX, key, &[], None).await?;
