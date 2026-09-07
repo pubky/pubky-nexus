@@ -13,6 +13,10 @@ use super::{UserDetails, USER_DELETED_SENTINEL, USER_INFLUENCERS_KEY_PARTS};
 use crate::db::{fetch_key_from_graph, queries, RedisOps};
 
 const GLOBAL_INFLUENCERS_PREFIX: &str = "Cache:Influencers";
+/// How many global influencers each cache-backed timeframe holds. Pages past this
+/// are empty by construction, so callers should reject skips beyond it rather than
+/// treat the empty page as a cache miss.
+pub const GLOBAL_INFLUENCERS_CACHE_SIZE: usize = 100;
 
 #[derive(Serialize, Deserialize, Debug, ToSchema, Default, Clone)]
 pub struct Influencers(pub Vec<(String, f64)>); // (user_id, score)
@@ -85,9 +89,12 @@ impl Influencers {
     }
 
     /// It first attempts to fetch a subset of global influencers from cache
-    /// based on the provided `skip` and `limit`. If the cache is empty or unavailable,
-    /// it queries the graph database for up to 100 global influencers, stores the result
-    /// in cache, and then retrieves the requested subset again from cache.
+    /// based on the provided `skip` and `limit`. Only a missing cache key counts as a
+    /// miss: then it queries the graph database for up to 100 global influencers,
+    /// stores the result in cache, and retrieves the requested subset again from cache.
+    /// An existing key whose window is empty (skip past the end, or every user in
+    /// the window deleted) is served as an empty page, since refetching would rebuild
+    /// the same ranking and rewrite the key on every such request.
     ///
     /// # Arguments
     ///
@@ -116,7 +123,8 @@ impl Influencers {
     /// A transient empty or `None` graph result must not evict a good ranking, so the
     /// previous cache is preferred. The caller can retry on the next scheduled tick.
     pub async fn fetch_and_cache(timeframe: &Timeframe) -> ModelResult<()> {
-        let query = queries::get::get_global_influencers(0, 100, timeframe);
+        let query =
+            queries::get::get_global_influencers(0, GLOBAL_INFLUENCERS_CACHE_SIZE, timeframe);
         let result = fetch_key_from_graph::<Influencers>(query, "influencers").await?;
         Influencers::write_or_preserve_cache(result, timeframe).await
     }
@@ -203,8 +211,12 @@ impl Influencers {
             }
         };
 
+        // `None` means the key is absent. An empty window on an existing key stays
+        // `Some`, so the caller does not mistake it for a miss and refetch.
         match ranking {
-            Some(r) => Influencers::filter_deleted(Influencers(r), Some(timeframe)).await,
+            Some(r) => Ok(Some(
+                Influencers::filter_deleted(Influencers(r), Some(timeframe)).await?,
+            )),
             None => Ok(None),
         }
     }
@@ -260,7 +272,7 @@ impl Influencers {
     async fn filter_deleted(
         influencers: Influencers,
         timeframe: Option<&Timeframe>,
-    ) -> RedisResult<Option<Influencers>> {
+    ) -> RedisResult<Influencers> {
         let ids: Vec<String> = influencers.iter().map(|(id, _)| id.clone()).collect();
         let details_list = UserDetails::mget(&ids).await?;
 
@@ -278,11 +290,7 @@ impl Influencers {
             Influencers::remove_deleted_from_global_cache(&deleted_ids, tf).await;
         }
 
-        Ok(if kept.is_empty() {
-            None
-        } else {
-            Some(Influencers(kept))
-        })
+        Ok(Influencers(kept))
     }
 
     /// Removes deleted user IDs from the global influencer sorted sets in Redis.
