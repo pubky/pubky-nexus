@@ -197,11 +197,11 @@ mod tests {
         let toml = format!(
             "{DEFAULT_CONFIG_TOML}\n\
              [jobs.influencers_cache_today]\n\
-             cron = \"0 7 * * * *\"\n\
+             cron = \"0 7,37 * * * *\"\n\
              [jobs.influencers_cache_this_week]\n\
-             cron = \"0 17 */6 * * *\"\n\
+             cron = \"0 17 */3 * * *\"\n\
              [jobs.influencers_cache_this_month]\n\
-             cron = \"0 27 3 * * *\"\n"
+             cron = \"0 27 3,15 * * *\"\n"
         );
 
         let c = DaemonConfig::try_from_str(&toml)
@@ -209,15 +209,15 @@ mod tests {
 
         assert_eq!(
             c.jobs["influencers_cache_today"].cron.as_deref(),
-            Some("0 7 * * * *")
+            Some("0 7,37 * * * *")
         );
         assert_eq!(
             c.jobs["influencers_cache_this_week"].cron.as_deref(),
-            Some("0 17 */6 * * *")
+            Some("0 17 */3 * * *")
         );
         assert_eq!(
             c.jobs["influencers_cache_this_month"].cron.as_deref(),
-            Some("0 27 3 * * *")
+            Some("0 27 3,15 * * *")
         );
     }
 

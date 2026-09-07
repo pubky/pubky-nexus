@@ -19,8 +19,8 @@ use nexusd::DaemonLauncher;
 /// callers (e.g. `jobs list`) can pass `TrustRankConfig::default()`.
 fn job_registry(trust_rank: &TrustRankConfig, lock_ttl_secs: u64) -> JobRegistry {
     JobRegistry::new(vec![
-        // One job per cache-backed timeframe so each refreshes on its own cadence
-        // matching its TTL (see `[jobs.influencers_cache_*]` config).
+        // One job per cache-backed timeframe so each refreshes on its own cadence,
+        // roughly half its TTL (see `[jobs.influencers_cache_*]` config).
         Arc::new(InfluencersCacheJob(Timeframe::Today)),
         Arc::new(InfluencersCacheJob(Timeframe::ThisWeek)),
         Arc::new(InfluencersCacheJob(Timeframe::ThisMonth)),

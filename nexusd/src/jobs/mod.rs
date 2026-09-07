@@ -458,11 +458,11 @@ mod tests {
     async fn scheduled_jobs_resolves_per_timeframe_influencer_cadences() {
         let extra = "\
 [jobs.influencers_cache_today]\n\
-cron = \"0 7 * * * *\"\n\
+cron = \"0 7,37 * * * *\"\n\
 [jobs.influencers_cache_this_week]\n\
-cron = \"0 17 */6 * * *\"\n\
+cron = \"0 17 */3 * * *\"\n\
 [jobs.influencers_cache_this_month]\n\
-cron = \"0 27 3 * * *\"\n";
+cron = \"0 27 3,15 * * *\"\n";
         let config = default_config_with(extra).await;
         let registry = JobRegistry::new(vec![
             Arc::new(InfluencersCacheJob(Timeframe::Today)),
@@ -487,15 +487,15 @@ cron = \"0 27 3 * * *\"\n";
         );
         assert_eq!(
             by_name.remove("influencers_cache_today").unwrap(),
-            "0 7 * * * *"
+            "0 7,37 * * * *"
         );
         assert_eq!(
             by_name.remove("influencers_cache_this_week").unwrap(),
-            "0 17 */6 * * *"
+            "0 17 */3 * * *"
         );
         assert_eq!(
             by_name.remove("influencers_cache_this_month").unwrap(),
-            "0 27 3 * * *"
+            "0 27 3,15 * * *"
         );
     }
 
