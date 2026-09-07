@@ -1,8 +1,7 @@
 use crate::db::kv::RedisResult;
 use crate::db::kv::SortOrder;
 use crate::models::error::ModelResult;
-use crate::types::StreamReach;
-use crate::types::Timeframe;
+use crate::types::{CacheTimeframe, StreamReach, Timeframe};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::ops::Deref;
@@ -112,7 +111,11 @@ impl Influencers {
             return Ok(cached_influencers);
         }
 
-        Influencers::fetch_and_cache(timeframe).await?;
+        // `AllTime` has no cache to warm: an absent index just means no influencers yet.
+        let Some(cache_timeframe) = CacheTimeframe::from_timeframe(timeframe) else {
+            return Ok(None);
+        };
+        Influencers::fetch_and_cache(cache_timeframe).await?;
         Influencers::get_from_global_cache(skip, limit, timeframe)
             .await
             .map_err(Into::into)
@@ -122,9 +125,12 @@ impl Influencers {
     ///
     /// A transient empty or `None` graph result must not evict a good ranking, so the
     /// previous cache is preferred. The caller can retry on the next scheduled tick.
-    pub async fn fetch_and_cache(timeframe: &Timeframe) -> ModelResult<()> {
-        let query =
-            queries::get::get_global_influencers(0, GLOBAL_INFLUENCERS_CACHE_SIZE, timeframe);
+    pub async fn fetch_and_cache(timeframe: CacheTimeframe) -> ModelResult<()> {
+        let query = queries::get::get_global_influencers(
+            0,
+            GLOBAL_INFLUENCERS_CACHE_SIZE,
+            &timeframe.timeframe(),
+        );
         let result = fetch_key_from_graph::<Influencers>(query, "influencers").await?;
         Influencers::write_or_preserve_cache(result, timeframe, GLOBAL_INFLUENCERS_PREFIX).await
     }
@@ -135,13 +141,13 @@ impl Influencers {
     /// their own `prefix` so they never touch the keys the API serves from.
     async fn write_or_preserve_cache(
         result: Option<Influencers>,
-        timeframe: &Timeframe,
+        timeframe: CacheTimeframe,
         prefix: &str,
     ) -> ModelResult<()> {
         match result {
             Some(influencers) if !influencers.is_empty() => {
                 debug!(
-                    ?timeframe,
+                    %timeframe,
                     count = influencers.len(),
                     "Writing influencer cache"
                 );
@@ -149,14 +155,14 @@ impl Influencers {
             }
             Some(empty) => {
                 warn!(
-                    ?timeframe,
+                    %timeframe,
                     count = empty.len(),
                     "Graph returned empty influencer set — previous cache left untouched"
                 );
             }
             None => {
                 warn!(
-                    ?timeframe,
+                    %timeframe,
                     "Graph returned no influencers — previous cache left untouched"
                 );
             }
@@ -197,7 +203,9 @@ impl Influencers {
 
             // For all other timeframes, we fallback to the cache with TTL (Cache::Influencers::Timeframe)
             _ => {
-                let key_parts = Influencers::get_cache_key_parts(timeframe);
+                let cache_timeframe = CacheTimeframe::from_timeframe(timeframe)
+                    .expect("every non-AllTime timeframe is cache-backed");
+                let key_parts = Influencers::get_cache_key_parts(cache_timeframe);
                 let key_parts_vector: Vec<&str> = key_parts.iter().map(|s| s.as_str()).collect();
 
                 Influencers::try_from_index_sorted_set(
@@ -231,7 +239,7 @@ impl Influencers {
     /// * `prefix` - Key prefix; production passes `GLOBAL_INFLUENCERS_PREFIX`
     async fn put_to_global_cache(
         result: Influencers,
-        timeframe: &Timeframe,
+        timeframe: CacheTimeframe,
         prefix: &str,
     ) -> ModelResult<()> {
         let key_parts = Influencers::get_cache_key_parts(timeframe);
@@ -317,7 +325,9 @@ impl Influencers {
                 .await;
             }
             _ => {
-                let key_parts = Influencers::get_cache_key_parts(timeframe);
+                let cache_timeframe = CacheTimeframe::from_timeframe(timeframe)
+                    .expect("every non-AllTime timeframe is cache-backed");
+                let key_parts = Influencers::get_cache_key_parts(cache_timeframe);
                 let key_parts_refs: Vec<&str> = key_parts.iter().map(|s| s.as_str()).collect();
                 let _ = Influencers::remove_from_index_sorted_set(
                     Some(GLOBAL_INFLUENCERS_PREFIX),
@@ -329,15 +339,16 @@ impl Influencers {
         }
     }
 
-    fn get_cache_key_parts(timeframe: &Timeframe) -> Vec<String> {
+    fn get_cache_key_parts(timeframe: CacheTimeframe) -> Vec<String> {
         vec![timeframe.to_string()]
     }
 
-    /// Rebuilds the global influencer cache for `AllTime` and `ThisMonth` timeframes
+    /// Rebuilds the global influencer cache for the `ThisMonth` timeframe.
+    ///
+    /// `AllTime` is not warmed here: it is served from the `Sorted:Users:Influencers`
+    /// index that the user reindex maintains, and has no cache key.
     pub async fn reindex() -> ModelResult<()> {
-        Influencers::get_global_influencers(0, 100, &Timeframe::AllTime).await?;
-        Influencers::get_global_influencers(0, 100, &Timeframe::ThisMonth).await?;
-        Ok(())
+        Influencers::fetch_and_cache(CacheTimeframe::ThisMonth).await
     }
 }
 
@@ -354,15 +365,15 @@ mod tests {
     async fn write_or_preserve_cache_keeps_existing_ranking_on_empty_graph_result(
     ) -> Result<(), DynError> {
         StackManager::setup(&StackConfig::default()).await?;
-        let timeframe = Timeframe::Today;
+        let timeframe = CacheTimeframe::Today;
 
         let original = Influencers(vec![("alice".to_string(), 10.0), ("bob".to_string(), 5.0)]);
-        Influencers::put_to_global_cache(original, &timeframe, TEST_PREFIX).await?;
+        Influencers::put_to_global_cache(original, timeframe, TEST_PREFIX).await?;
 
-        Influencers::write_or_preserve_cache(Some(Influencers(vec![])), &timeframe, TEST_PREFIX)
+        Influencers::write_or_preserve_cache(Some(Influencers(vec![])), timeframe, TEST_PREFIX)
             .await?;
 
-        let cached = read_raw_cache(&timeframe)
+        let cached = read_raw_cache(timeframe)
             .await?
             .expect("the previous cache must still exist after an empty graph result");
         assert_eq!(
@@ -373,7 +384,7 @@ mod tests {
         assert!(cached.iter().any(|(id, _)| id == "alice"));
         assert!(cached.iter().any(|(id, _)| id == "bob"));
 
-        clear_test_cache(&timeframe).await?;
+        clear_test_cache(timeframe).await?;
         Ok(())
     }
 
@@ -381,14 +392,14 @@ mod tests {
     async fn write_or_preserve_cache_keeps_existing_ranking_on_none_graph_result(
     ) -> Result<(), DynError> {
         StackManager::setup(&StackConfig::default()).await?;
-        let timeframe = Timeframe::ThisWeek;
+        let timeframe = CacheTimeframe::ThisWeek;
 
         let original = Influencers(vec![("carol".to_string(), 20.0)]);
-        Influencers::put_to_global_cache(original, &timeframe, TEST_PREFIX).await?;
+        Influencers::put_to_global_cache(original, timeframe, TEST_PREFIX).await?;
 
-        Influencers::write_or_preserve_cache(None, &timeframe, TEST_PREFIX).await?;
+        Influencers::write_or_preserve_cache(None, timeframe, TEST_PREFIX).await?;
 
-        let cached = read_raw_cache(&timeframe)
+        let cached = read_raw_cache(timeframe)
             .await?
             .expect("the previous cache must still exist after a None graph result");
         assert_eq!(
@@ -398,7 +409,7 @@ mod tests {
         );
         assert!(cached.iter().any(|(id, _)| id == "carol"));
 
-        clear_test_cache(&timeframe).await?;
+        clear_test_cache(timeframe).await?;
         Ok(())
     }
 
@@ -406,15 +417,15 @@ mod tests {
     async fn write_or_preserve_cache_replaces_existing_ranking_on_non_empty_graph_result(
     ) -> Result<(), DynError> {
         StackManager::setup(&StackConfig::default()).await?;
-        let timeframe = Timeframe::ThisMonth;
+        let timeframe = CacheTimeframe::ThisMonth;
 
         let original = Influencers(vec![("dave".to_string(), 1.0)]);
-        Influencers::put_to_global_cache(original, &timeframe, TEST_PREFIX).await?;
+        Influencers::put_to_global_cache(original, timeframe, TEST_PREFIX).await?;
 
         let replacement = Influencers(vec![("erin".to_string(), 99.0)]);
-        Influencers::write_or_preserve_cache(Some(replacement), &timeframe, TEST_PREFIX).await?;
+        Influencers::write_or_preserve_cache(Some(replacement), timeframe, TEST_PREFIX).await?;
 
-        let cached = read_raw_cache(&timeframe)
+        let cached = read_raw_cache(timeframe)
             .await?
             .expect("a non-empty graph result must leave a cache");
         assert_eq!(
@@ -425,11 +436,11 @@ mod tests {
         assert!(cached.iter().any(|(id, _)| id == "erin"));
         assert!(!cached.iter().any(|(id, _)| id == "dave"));
 
-        clear_test_cache(&timeframe).await?;
+        clear_test_cache(timeframe).await?;
         Ok(())
     }
 
-    async fn read_raw_cache(timeframe: &Timeframe) -> RedisResult<Option<Vec<(String, f64)>>> {
+    async fn read_raw_cache(timeframe: CacheTimeframe) -> RedisResult<Option<Vec<(String, f64)>>> {
         let key_parts = Influencers::get_cache_key_parts(timeframe);
         let key_parts_ref: Vec<&str> = key_parts.iter().map(|s| s.as_str()).collect();
         Influencers::try_from_index_sorted_set(
@@ -444,7 +455,7 @@ mod tests {
         .await
     }
 
-    async fn clear_test_cache(timeframe: &Timeframe) -> RedisResult<()> {
+    async fn clear_test_cache(timeframe: CacheTimeframe) -> RedisResult<()> {
         let key_parts = Influencers::get_cache_key_parts(timeframe);
         let key_parts_ref: Vec<&str> = key_parts.iter().map(|s| s.as_str()).collect();
         Influencers::replace_index_sorted_set(&key_parts_ref, &[], Some(TEST_PREFIX), None).await

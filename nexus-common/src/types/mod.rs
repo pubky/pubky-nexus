@@ -3,7 +3,7 @@ pub mod routes;
 mod timeframe;
 
 pub use pagination::Pagination;
-pub use timeframe::Timeframe;
+pub use timeframe::{CacheTimeframe, Timeframe};
 
 use serde::de::{self, Deserializer};
 use serde::{Deserialize, Serialize};

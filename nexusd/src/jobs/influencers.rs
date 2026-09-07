@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use nexus_common::models::user::Influencers;
-use nexus_common::types::Timeframe;
+use nexus_common::types::CacheTimeframe;
 use std::error::Error;
 use std::time::Duration;
 use tokio::time::timeout;
@@ -18,34 +18,39 @@ const REFRESH_TIMEOUT: Duration = Duration::from_secs(60);
 #[derive(Debug, thiserror::Error)]
 #[error("influencer cache refresh for {timeframe} timed out after {after:?}")]
 pub struct RefreshTimedOut {
-    pub timeframe: Timeframe,
+    pub timeframe: CacheTimeframe,
     pub after: Duration,
 }
 
-/// Refresh the global influencer cache for one `Timeframe` on a schedule.
+/// Refresh the global influencer cache for one `CacheTimeframe` on a schedule.
 ///
-/// `AllTime` is intentionally not represented: it is served from the
-/// incrementally maintained `Sorted:Users:Influencers` set and has no TTL.
-pub struct InfluencersCacheJob(pub Timeframe);
+/// `Timeframe::AllTime` is not constructible here: it is served from the
+/// incrementally maintained `Sorted:Users:Influencers` set, has no cache key,
+/// and a job for it would only ever write an orphan.
+pub struct InfluencersCacheJob(CacheTimeframe);
+
+impl InfluencersCacheJob {
+    pub fn new(timeframe: CacheTimeframe) -> Self {
+        Self(timeframe)
+    }
+}
 
 #[async_trait]
 impl Job for InfluencersCacheJob {
     fn name(&self) -> &'static str {
         match self.0 {
-            Timeframe::Today => "influencers_cache_today",
-            Timeframe::ThisWeek => "influencers_cache_this_week",
-            Timeframe::ThisMonth => "influencers_cache_this_month",
-            // Never registered; included only to keep the match exhaustive.
-            Timeframe::AllTime => "influencers_cache_all_time",
+            CacheTimeframe::Today => "influencers_cache_today",
+            CacheTimeframe::ThisWeek => "influencers_cache_this_week",
+            CacheTimeframe::ThisMonth => "influencers_cache_this_month",
         }
     }
 
     /// Errors propagate typed: the runner logs them once, as `JobError::Run`.
     async fn run(&self) -> Result<(), Box<dyn Error + Send + Sync>> {
-        match timeout(REFRESH_TIMEOUT, Influencers::fetch_and_cache(&self.0)).await {
+        match timeout(REFRESH_TIMEOUT, Influencers::fetch_and_cache(self.0)).await {
             Ok(result) => Ok(result?),
             Err(_elapsed) => Err(Box::new(RefreshTimedOut {
-                timeframe: self.0.clone(),
+                timeframe: self.0,
                 after: REFRESH_TIMEOUT,
             })),
         }
@@ -60,9 +65,9 @@ mod tests {
     #[test]
     fn job_names_are_distinct_per_timeframe() {
         let registry = super::super::JobRegistry::new(vec![
-            Arc::new(InfluencersCacheJob(Timeframe::Today)),
-            Arc::new(InfluencersCacheJob(Timeframe::ThisWeek)),
-            Arc::new(InfluencersCacheJob(Timeframe::ThisMonth)),
+            Arc::new(InfluencersCacheJob::new(CacheTimeframe::Today)),
+            Arc::new(InfluencersCacheJob::new(CacheTimeframe::ThisWeek)),
+            Arc::new(InfluencersCacheJob::new(CacheTimeframe::ThisMonth)),
         ]);
 
         let mut names = registry.job_names();

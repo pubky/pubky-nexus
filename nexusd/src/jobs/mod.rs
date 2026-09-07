@@ -304,7 +304,7 @@ mod tests {
         test_support::{AcquireOutcome, CountingJob, FakeLock, PanicJob, UnlockOutcome},
     };
     use lock::LockMetrics;
-    use nexus_common::types::Timeframe;
+    use nexus_common::types::CacheTimeframe;
     use scheduler::virtual_now;
     use std::sync::Arc;
     use std::time::Duration;
@@ -465,9 +465,9 @@ cron = \"0 17 */3 * * *\"\n\
 cron = \"0 27 3,15 * * *\"\n";
         let config = default_config_with(extra).await;
         let registry = JobRegistry::new(vec![
-            Arc::new(InfluencersCacheJob(Timeframe::Today)),
-            Arc::new(InfluencersCacheJob(Timeframe::ThisWeek)),
-            Arc::new(InfluencersCacheJob(Timeframe::ThisMonth)),
+            Arc::new(InfluencersCacheJob::new(CacheTimeframe::Today)),
+            Arc::new(InfluencersCacheJob::new(CacheTimeframe::ThisWeek)),
+            Arc::new(InfluencersCacheJob::new(CacheTimeframe::ThisMonth)),
             Arc::new(CountingJob::new("trust-recompute")),
         ]);
 
