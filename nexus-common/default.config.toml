@@ -135,7 +135,9 @@ slow_query_logging_threshold_ms = 100
 # after any skipped run). Off by default: uncomment to pre-warm the
 # caches. With no schedule, requests still fall back to demand-driven fetches
 # bounded by the same TTLs. Each job is also runnable on demand via
-# `nexusd jobs run <name>`.
+# `nexusd jobs run <name>`. Note that once a section is uncommented, a build
+# that predates these jobs refuses to start on it (unknown [jobs.<name>] key),
+# so comment them out again before rolling back.
 #[jobs.influencers_cache_today]
 # TTL 1h.
 #cron = "0 7,37 * * * *"    # twice hourly at :07 and :37
