@@ -55,29 +55,6 @@ pub(crate) async fn ft_create_post_content_index(prefix: &str) -> RedisResult<()
     }
 }
 
-/// Drops the post content index without deleting the underlying documents.
-/// Idempotent: swallows "Unknown index name" so repeated calls are safe.
-pub(crate) async fn drop_post_content_index() -> RedisResult<()> {
-    let mut conn = get_redis_conn().await?;
-
-    let result = deadpool_redis::redis::cmd("FT.DROPINDEX")
-        .arg("postContentIdx")
-        .query_async::<()>(&mut conn)
-        .await;
-
-    match result {
-        Ok(()) => Ok(()),
-        Err(e) => {
-            let msg = e.to_string().to_lowercase();
-            if msg.contains("unknown index name") || msg.contains("no such index") {
-                Ok(())
-            } else {
-                Err(RedisError::CommandFailed(e.to_string().into()))
-            }
-        }
-    }
-}
-
 /// Assembles the RediSearch query string from a content fragment, optional author
 /// filter, and optional kind filter.
 ///

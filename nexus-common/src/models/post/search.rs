@@ -160,14 +160,6 @@ pub async fn create_post_content_index() -> RedisResult<()> {
     Ok(())
 }
 
-/// Drops the post content index without deleting underlying JSON documents.
-/// Idempotent: swallows "Unknown index name" errors.
-pub async fn drop_post_content_index() -> RedisResult<()> {
-    search::drop_post_content_index().await?;
-    info!("RediSearch index '{POST_CONTENT_INDEX}' dropped or already absent");
-    Ok(())
-}
-
 // Results come from FT.SEARCH, not key-value lookups — no RedisOps impl.
 #[derive(Serialize, Deserialize, ToSchema, Default)]
 pub struct PostsByContentSearch {

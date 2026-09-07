@@ -1,4 +1,4 @@
-use crate::db::kv::{RedisError, RedisResult};
+use crate::db::kv::{setup_cache, RedisError, RedisResult};
 use crate::types::DynError;
 use deadpool_redis::{Config, Connection, Pool, Runtime};
 use std::fmt;
@@ -22,6 +22,9 @@ impl RedisConnector {
             Err(e) => debug!("RedisConnector was already set: {:?}", e),
             Ok(()) => info!("RedisConnector successfully set up on {}", redis_uri),
         }
+
+        // Set Redis search indexes
+        setup_cache().await?;
         Ok(())
     }
 
