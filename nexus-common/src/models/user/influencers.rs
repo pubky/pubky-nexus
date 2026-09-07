@@ -126,15 +126,17 @@ impl Influencers {
         let query =
             queries::get::get_global_influencers(0, GLOBAL_INFLUENCERS_CACHE_SIZE, timeframe);
         let result = fetch_key_from_graph::<Influencers>(query, "influencers").await?;
-        Influencers::write_or_preserve_cache(result, timeframe).await
+        Influencers::write_or_preserve_cache(result, timeframe, GLOBAL_INFLUENCERS_PREFIX).await
     }
 
     /// Writes a non-empty graph result to the cache, or preserves the existing cache
     /// when the result is empty or missing. This is the production half of the
-    /// `fetch_and_cache` seam; tests drive it directly with injected results.
+    /// `fetch_and_cache` seam; tests drive it directly with injected results, under
+    /// their own `prefix` so they never touch the keys the API serves from.
     async fn write_or_preserve_cache(
         result: Option<Influencers>,
         timeframe: &Timeframe,
+        prefix: &str,
     ) -> ModelResult<()> {
         match result {
             Some(influencers) if !influencers.is_empty() => {
@@ -143,7 +145,7 @@ impl Influencers {
                     count = influencers.len(),
                     "Writing influencer cache"
                 );
-                Influencers::put_to_global_cache(influencers, timeframe).await?;
+                Influencers::put_to_global_cache(influencers, timeframe, prefix).await?;
             }
             Some(empty) => {
                 warn!(
@@ -226,7 +228,12 @@ impl Influencers {
     /// # Arguments
     /// * `result` - The list of influencers with their scores to cache
     /// * `timeframe` - The timeframe used to generate the cache key and expiry
-    async fn put_to_global_cache(result: Influencers, timeframe: &Timeframe) -> ModelResult<()> {
+    /// * `prefix` - Key prefix; production passes `GLOBAL_INFLUENCERS_PREFIX`
+    async fn put_to_global_cache(
+        result: Influencers,
+        timeframe: &Timeframe,
+        prefix: &str,
+    ) -> ModelResult<()> {
         let key_parts = Influencers::get_cache_key_parts(timeframe);
         let key_parts_vector: Vec<&str> =
             key_parts.iter().map(|s| s.as_str()).collect::<Vec<&str>>();
@@ -239,7 +246,7 @@ impl Influencers {
                 .map(|influencer| (influencer.1, influencer.0.as_str()))
                 .collect::<Vec<(f64, &str)>>()
                 .as_slice(),
-            Some(GLOBAL_INFLUENCERS_PREFIX),
+            Some(prefix),
             Some(timeframe.to_cache_period()),
         )
         .await?;
@@ -393,6 +400,10 @@ mod tests {
     use crate::{types::DynError, StackConfig, StackManager};
     use std::sync::{Arc, Mutex};
 
+    /// Keeps the cache tests off `GLOBAL_INFLUENCERS_PREFIX`: the API tests run against
+    /// the same Redis and assert exact rankings under the production keys.
+    const TEST_PREFIX: &str = "InfluencersCacheTest";
+
     #[tokio::test]
     async fn refresh_timeframes_with_refreshes_each_passed_timeframe_once() {
         let seen = Arc::new(Mutex::new(Vec::new()));
@@ -469,9 +480,10 @@ mod tests {
         let timeframe = Timeframe::Today;
 
         let original = Influencers(vec![("alice".to_string(), 10.0), ("bob".to_string(), 5.0)]);
-        Influencers::put_to_global_cache(original, &timeframe).await?;
+        Influencers::put_to_global_cache(original, &timeframe, TEST_PREFIX).await?;
 
-        Influencers::write_or_preserve_cache(Some(Influencers(vec![])), &timeframe).await?;
+        Influencers::write_or_preserve_cache(Some(Influencers(vec![])), &timeframe, TEST_PREFIX)
+            .await?;
 
         let cached = read_raw_cache(&timeframe)
             .await?
@@ -483,6 +495,8 @@ mod tests {
         );
         assert!(cached.iter().any(|(id, _)| id == "alice"));
         assert!(cached.iter().any(|(id, _)| id == "bob"));
+
+        clear_test_cache(&timeframe).await?;
         Ok(())
     }
 
@@ -493,9 +507,9 @@ mod tests {
         let timeframe = Timeframe::ThisWeek;
 
         let original = Influencers(vec![("carol".to_string(), 20.0)]);
-        Influencers::put_to_global_cache(original, &timeframe).await?;
+        Influencers::put_to_global_cache(original, &timeframe, TEST_PREFIX).await?;
 
-        Influencers::write_or_preserve_cache(None, &timeframe).await?;
+        Influencers::write_or_preserve_cache(None, &timeframe, TEST_PREFIX).await?;
 
         let cached = read_raw_cache(&timeframe)
             .await?
@@ -506,6 +520,8 @@ mod tests {
             "None graph result must not evict the previous ranking"
         );
         assert!(cached.iter().any(|(id, _)| id == "carol"));
+
+        clear_test_cache(&timeframe).await?;
         Ok(())
     }
 
@@ -516,10 +532,10 @@ mod tests {
         let timeframe = Timeframe::ThisMonth;
 
         let original = Influencers(vec![("dave".to_string(), 1.0)]);
-        Influencers::put_to_global_cache(original, &timeframe).await?;
+        Influencers::put_to_global_cache(original, &timeframe, TEST_PREFIX).await?;
 
         let replacement = Influencers(vec![("erin".to_string(), 99.0)]);
-        Influencers::write_or_preserve_cache(Some(replacement), &timeframe).await?;
+        Influencers::write_or_preserve_cache(Some(replacement), &timeframe, TEST_PREFIX).await?;
 
         let cached = read_raw_cache(&timeframe)
             .await?
@@ -531,6 +547,8 @@ mod tests {
         );
         assert!(cached.iter().any(|(id, _)| id == "erin"));
         assert!(!cached.iter().any(|(id, _)| id == "dave"));
+
+        clear_test_cache(&timeframe).await?;
         Ok(())
     }
 
@@ -544,8 +562,14 @@ mod tests {
             Some(0),
             Some(100),
             SortOrder::Descending,
-            Some(GLOBAL_INFLUENCERS_PREFIX),
+            Some(TEST_PREFIX),
         )
         .await
+    }
+
+    async fn clear_test_cache(timeframe: &Timeframe) -> RedisResult<()> {
+        let key_parts = Influencers::get_cache_key_parts(timeframe);
+        let key_parts_ref: Vec<&str> = key_parts.iter().map(|s| s.as_str()).collect();
+        Influencers::replace_index_sorted_set(&key_parts_ref, &[], Some(TEST_PREFIX), None).await
     }
 }
