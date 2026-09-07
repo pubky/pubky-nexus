@@ -1,5 +1,4 @@
 use async_trait::async_trait;
-use nexus_common::models::error::ModelError;
 use nexus_common::models::user::Influencers;
 use nexus_common::types::Timeframe;
 use std::error::Error;
@@ -14,6 +13,14 @@ use super::Job;
 /// wall-clock discipline elsewhere exists so a run can't outlive its lease;
 /// a 60s I/O window is unaffected by host suspend.
 const REFRESH_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// The graph scan + cache write for one timeframe outran `REFRESH_TIMEOUT`.
+#[derive(Debug, thiserror::Error)]
+#[error("influencer cache refresh for {timeframe} timed out after {after:?}")]
+pub struct RefreshTimedOut {
+    pub timeframe: Timeframe,
+    pub after: Duration,
+}
 
 /// Refresh the global influencer cache for one `Timeframe` on a schedule.
 ///
@@ -33,17 +40,15 @@ impl Job for InfluencersCacheJob {
         }
     }
 
+    /// Errors propagate typed: the runner logs them once, as `JobError::Run`.
     async fn run(&self) -> Result<(), Box<dyn Error + Send + Sync>> {
-        Influencers::refresh_timeframes_with(std::slice::from_ref(&self.0), &|tf| async move {
-            match timeout(REFRESH_TIMEOUT, Influencers::fetch_and_cache(&tf)).await {
-                Ok(result) => result,
-                Err(_elapsed) => Err(ModelError::from_generic(format!(
-                    "{tf} refresh timed out after {REFRESH_TIMEOUT:?}"
-                ))),
-            }
-        })
-        .await?;
-        Ok(())
+        match timeout(REFRESH_TIMEOUT, Influencers::fetch_and_cache(&self.0)).await {
+            Ok(result) => Ok(result?),
+            Err(_elapsed) => Err(Box::new(RefreshTimedOut {
+                timeframe: self.0.clone(),
+                after: REFRESH_TIMEOUT,
+            })),
+        }
     }
 }
 

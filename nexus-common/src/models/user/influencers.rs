@@ -1,12 +1,12 @@
 use crate::db::kv::RedisResult;
 use crate::db::kv::SortOrder;
-use crate::models::error::{ModelError, ModelResult};
+use crate::models::error::ModelResult;
 use crate::types::StreamReach;
 use crate::types::Timeframe;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::ops::Deref;
-use tracing::{debug, error, warn};
+use tracing::{debug, warn};
 use utoipa::ToSchema;
 
 use super::{UserDetails, USER_DELETED_SENTINEL, USER_INFLUENCERS_KEY_PARTS};
@@ -333,59 +333,6 @@ impl Influencers {
         vec![timeframe.to_string()]
     }
 
-    /// Run a per-timeframe refresh for `timeframes` and aggregate failures.
-    ///
-    /// `refresh` is invoked once per timeframe with an owned `Timeframe` (a
-    /// clone; the slice is borrowed so callers can pass `&[Timeframe; N]`).
-    /// Callers may wrap the future in a timeout or inject test doubles.
-    ///
-    /// If any refresh fails, every failed timeframe is named in the returned
-    /// `ModelError::Generic` message, which also folds in the first failing
-    /// error. `ModelError` carries no `source`, so the cause has to be part of
-    /// the message; each failed timeframe's error is additionally logged above.
-    pub async fn refresh_timeframes_with<F, Fut>(
-        timeframes: &[Timeframe],
-        refresh: &F,
-    ) -> ModelResult<()>
-    where
-        F: Fn(Timeframe) -> Fut,
-        Fut: std::future::Future<Output = ModelResult<()>>,
-    {
-        let mut failures: Vec<(String, ModelError)> = Vec::new();
-
-        for tf in timeframes {
-            let tf = tf.clone();
-            let tf_label = tf.to_string();
-            if let Err(e) = refresh(tf).await {
-                error!(
-                    timeframe = %tf_label,
-                    error = ?e,
-                    "Influencer cache refresh failed"
-                );
-                failures.push((tf_label, e));
-            }
-        }
-
-        if failures.is_empty() {
-            Ok(())
-        } else {
-            let message = format!(
-                "{}/{} influencer cache refreshes failed: {}",
-                failures.len(),
-                timeframes.len(),
-                failures
-                    .iter()
-                    .map(|(label, _)| label.as_str())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            );
-            let (_, first_error) = &failures[0];
-            Err(ModelError::from_generic(format!(
-                "{message} (first: {first_error})"
-            )))
-        }
-    }
-
     /// Rebuilds the global influencer cache for `AllTime` and `ThisMonth` timeframes
     pub async fn reindex() -> ModelResult<()> {
         Influencers::get_global_influencers(0, 100, &Timeframe::AllTime).await?;
@@ -398,80 +345,10 @@ impl Influencers {
 mod tests {
     use super::*;
     use crate::{types::DynError, StackConfig, StackManager};
-    use std::sync::{Arc, Mutex};
 
     /// Keeps the cache tests off `GLOBAL_INFLUENCERS_PREFIX`: the API tests run against
     /// the same Redis and assert exact rankings under the production keys.
     const TEST_PREFIX: &str = "InfluencersCacheTest";
-
-    #[tokio::test]
-    async fn refresh_timeframes_with_refreshes_each_passed_timeframe_once() {
-        let seen = Arc::new(Mutex::new(Vec::new()));
-        let seen_ref = seen.clone();
-
-        Influencers::refresh_timeframes_with(
-            &[Timeframe::ThisWeek, Timeframe::ThisMonth],
-            &|tf: Timeframe| {
-                let seen_ref = seen_ref.clone();
-                async move {
-                    seen_ref.lock().unwrap().push(tf);
-                    Ok(())
-                }
-            },
-        )
-        .await
-        .expect("all refreshes should succeed");
-
-        assert_eq!(
-            *seen.lock().unwrap(),
-            vec![Timeframe::ThisWeek, Timeframe::ThisMonth],
-            "each passed timeframe must be refreshed exactly once, in order"
-        );
-    }
-
-    #[tokio::test]
-    async fn refresh_timeframes_with_aggregates_failures() {
-        let err = Influencers::refresh_timeframes_with(
-            &[Timeframe::Today],
-            &|tf: Timeframe| async move { Err(ModelError::from_generic(format!("boom {tf}"))) },
-        )
-        .await
-        .expect_err("a failing refresh should bubble up");
-
-        let text = err.to_string();
-        assert!(
-            text.contains("1/1 influencer cache refreshes failed"),
-            "error must report the failure ratio, got: {text}"
-        );
-        assert!(
-            text.contains("Today"),
-            "error must name the failing timeframe, got: {text}"
-        );
-    }
-
-    #[tokio::test]
-    async fn refresh_timeframes_with_names_all_failed_timeframes_and_preserves_first_error() {
-        let err = Influencers::refresh_timeframes_with(
-            &[Timeframe::Today, Timeframe::ThisMonth],
-            &|tf: Timeframe| async move { Err(ModelError::from_generic(format!("fail-{tf}"))) },
-        )
-        .await
-        .expect_err("all refreshes failed so the aggregate must error");
-
-        let text = err.to_string();
-        assert!(
-            text.contains("2/2 influencer cache refreshes failed"),
-            "error must report the failure ratio, got: {text}"
-        );
-        assert!(
-            text.contains("Today") && text.contains("ThisMonth"),
-            "error must name every failed timeframe, got: {text}"
-        );
-        assert!(
-            text.contains("first: Generic: fail-Today"),
-            "aggregate message must carry the first failing timeframe's error, got: {text}"
-        );
-    }
 
     #[tokio_shared_rt::test(shared)]
     async fn write_or_preserve_cache_keeps_existing_ranking_on_empty_graph_result(
