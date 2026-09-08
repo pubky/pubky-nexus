@@ -57,12 +57,6 @@ pub enum CacheTimeframe {
 }
 
 impl CacheTimeframe {
-    pub const ALL: [CacheTimeframe; 3] = [
-        CacheTimeframe::Today,
-        CacheTimeframe::ThisWeek,
-        CacheTimeframe::ThisMonth,
-    ];
-
     /// `None` for `AllTime`, which has no cache.
     pub fn from_timeframe(timeframe: &Timeframe) -> Option<Self> {
         match timeframe {
