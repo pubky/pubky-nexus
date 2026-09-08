@@ -371,14 +371,6 @@ pub async fn replace(
     items: &[(f64, &str)],
     expiration: Option<i64>,
 ) -> RedisResult<()> {
-    let index_key = format!("{prefix}:{key}");
-    let mut redis_conn = get_redis_conn().await?;
-
-    if items.is_empty() {
-        let _: () = redis_conn.del(&index_key).await?;
-        return Ok(());
-    }
-
     let ttl: i64 = match expiration {
         Some(n) if n <= 0 => {
             return Err(RedisError::InvalidInput(format!(
@@ -388,6 +380,14 @@ pub async fn replace(
         Some(n) => n,
         None => 0,
     };
+
+    let index_key = format!("{prefix}:{key}");
+    let mut redis_conn = get_redis_conn().await?;
+
+    if items.is_empty() {
+        let _: () = redis_conn.del(&index_key).await?;
+        return Ok(());
+    }
     let mut args: Vec<String> = Vec::with_capacity(1 + items.len() * 2);
     args.push(ttl.to_string());
     for (score, member) in items {
@@ -620,13 +620,16 @@ mod tests {
         replace(TEST_PREFIX, key, &[(1.0, "a")], Some(60)).await?;
 
         for bad in [0, -1] {
-            let err = replace(TEST_PREFIX, key, &[(2.0, "b")], Some(bad))
-                .await
-                .expect_err("a non-positive TTL must be rejected");
-            assert!(
-                matches!(err, RedisError::InvalidInput(_)),
-                "expected RedisError::InvalidInput for ttl {bad}, got {err:?}"
-            );
+            // Rejected before anything touches Redis, whether or not there are items.
+            for items in [&[(2.0, "b")][..], &[]] {
+                let err = replace(TEST_PREFIX, key, items, Some(bad))
+                    .await
+                    .expect_err("a non-positive TTL must be rejected");
+                assert!(
+                    matches!(err, RedisError::InvalidInput(_)),
+                    "expected RedisError::InvalidInput for ttl {bad}, got {err:?}"
+                );
+            }
         }
         assert_eq!(
             check_member(TEST_PREFIX, key, "a").await?,
