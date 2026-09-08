@@ -93,6 +93,18 @@ pub enum StreamReach {
     Wot(WotDepth),
 }
 
+impl StreamReach {
+    /// Low-cardinality reach value and optional WoT depth for telemetry.
+    pub(crate) fn telemetry_dimensions(&self) -> (&'static str, Option<u8>) {
+        match self {
+            StreamReach::Followers => ("followers", None),
+            StreamReach::Following => ("following", None),
+            StreamReach::Friends => ("friends", None),
+            StreamReach::Wot(depth) => ("wot", Some(depth.get())),
+        }
+    }
+}
+
 impl<'de> Deserialize<'de> for StreamReach {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where

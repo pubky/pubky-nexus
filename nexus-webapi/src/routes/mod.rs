@@ -168,6 +168,7 @@ pub fn build_app(
             Duration::from_secs(request_timeout_secs.max(1)),
         ))
         .layer(cors)
+        // Outer router only: a nested copy of this layer would see `unmatched`.
         .layer(axum::middleware::from_fn(
             middlewares::tracing::tracing_middleware,
         ))

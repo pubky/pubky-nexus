@@ -111,11 +111,12 @@ impl Influencers {
             return Ok(cached_influencers);
         }
 
-        // `AllTime` has no cache to warm: an absent index just means no influencers yet.
-        let Some(cache_timeframe) = CacheTimeframe::from_timeframe(timeframe) else {
-            return Ok(None);
-        };
-        Influencers::fetch_and_cache(cache_timeframe).await?;
+        match CacheTimeframe::from_timeframe(timeframe) {
+            Some(cache_timeframe) => Influencers::fetch_and_cache(cache_timeframe).await?,
+            // `AllTime` has no cache key: a miss means the live index itself is gone
+            // (e.g. after Redis data loss), so reseed it from the graph.
+            None => Influencers::seed_live_all_time_set().await?,
+        }
         Influencers::get_from_global_cache(skip, limit, timeframe)
             .await
             .map_err(Into::into)
@@ -133,6 +134,48 @@ impl Influencers {
         );
         let result = fetch_key_from_graph::<Influencers>(query, "influencers").await?;
         Influencers::write_or_preserve_cache(result, timeframe, GLOBAL_INFLUENCERS_PREFIX).await
+    }
+
+    /// Reseeds the live `Sorted:Users:Influencers` set from the graph after it was lost.
+    ///
+    /// That set is normally maintained incrementally by
+    /// `UserStream::add_to_influencers_sorted_set` and has no TTL. The graph query
+    /// counts the same tag edges as `UserCounts.tagged` (tags the user assigned to
+    /// posts and to users), so the seeded score matches the incremental one, except
+    /// for edges indexed at or after the query's `to` snapshot; per-user activity
+    /// rewrites each member's score on its next counts update. Members are added
+    /// rather than replaced so concurrent incremental writes are not discarded.
+    /// Only the top `GLOBAL_INFLUENCERS_CACHE_SIZE` are seeded; deeper pages stay
+    /// empty until organic activity repopulates the set.
+    async fn seed_live_all_time_set() -> ModelResult<()> {
+        let query = queries::get::get_global_influencers(
+            0,
+            GLOBAL_INFLUENCERS_CACHE_SIZE,
+            &Timeframe::AllTime,
+        );
+        let Some(influencers) = fetch_key_from_graph::<Influencers>(query, "influencers").await?
+        else {
+            return Ok(());
+        };
+        if influencers.is_empty() {
+            return Ok(());
+        }
+        debug!(
+            count = influencers.len(),
+            "Reseeding the live AllTime influencers set from the graph"
+        );
+        let elements: Vec<(f64, &str)> = influencers
+            .iter()
+            .map(|(id, score)| (*score, id.as_str()))
+            .collect();
+        Influencers::put_index_sorted_set(
+            USER_INFLUENCERS_KEY_PARTS.as_slice(),
+            elements.as_slice(),
+            None,
+            None,
+        )
+        .await?;
+        Ok(())
     }
 
     /// Writes a non-empty graph result to the cache, or preserves the existing cache
@@ -231,7 +274,11 @@ impl Influencers {
         }
     }
 
-    /// Stores a list of global influencers in the cache as a sorted set for the given timeframe
+    /// Stores a list of global influencers as a sorted set for the given timeframe.
+    ///
+    /// The target key must match the one `get_from_global_cache` reads for that timeframe:
+    /// `AllTime` reads the live `Sorted:Users:Influencers` set, every other timeframe reads
+    /// `Cache:Influencers:{timeframe}`.
     ///
     /// # Arguments
     /// * `result` - The list of influencers with their scores to cache

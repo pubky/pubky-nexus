@@ -70,24 +70,29 @@ pub fn count_matching_seeds(seed_ids: &[String]) -> Query {
     .param("seed_ids", seed_ids.to_vec())
 }
 
-/// Runs personalized PageRank over the projected follow graph in GDS **write
-/// mode**, storing each score on its `:User` node as the `trust` property.
+/// Rows per write-back transaction, matching `MockDb::drop_graph`.
+const WRITE_BACK_BATCH_ROWS: usize = 10_000;
+
+/// Runs personalized PageRank over the projected follow graph in GDS **mutate
+/// mode**, storing each score as `trust` on the in-memory projection only.
 /// Teleports uniformly across `seed_ids` (`v = 1/N`); GDS 2.13 (the only
 /// version on Neo4j 5.26) has no weighted `sourceNodes`.
+///
+/// Mutate, not write: write mode resolves `:User` by internal id and aborts on
+/// one deleted mid-run. [`write_back_trust_scores`] persists these scores.
 ///
 /// `scaler` picks the GDS output scaling: `L1Norm` (production) writes an
 /// L1-normalized distribution (summing to 1); `NONE` writes raw rank values.
 /// GDS drops — never teleport-redistributes — the mass of reachable dangling
 /// nodes, so raw single-seed scores sum to < 1; `L1Norm` rescales that back to a
-/// distribution, hiding the leak. Write mode overwrites `trust` on every
-/// projected `:User` each run; the projection is a snapshot, so users created
+/// distribution, hiding the leak. The projection is a snapshot, so users created
 /// after it carry no score until the next run picks them up (normal for a batch
 /// job).
 ///
 /// The `size(sourceNodes) > 0` guard makes the query produce no rows when no
 /// seed matches, so a raced seed deletion can never fall back to
 /// non-personalized PageRank — the caller's "no summary row" path fires instead.
-pub fn trust_rank_pagerank_write(
+pub fn trust_rank_pagerank_mutate(
     graph_name: &str,
     seed_ids: &[String],
     damping_factor: f64,
@@ -96,12 +101,12 @@ pub fn trust_rank_pagerank_write(
     scaler: &str,
 ) -> Query {
     Query::new(
-        "trust_rank_pagerank_write",
+        "trust_rank_pagerank_mutate",
         "MATCH (seed:User) WHERE seed.id IN $seed_ids
          WITH collect(seed) AS sourceNodes
          WHERE size(sourceNodes) > 0
-         CALL gds.pageRank.write($graph_name, {
-             writeProperty: 'trust',
+         CALL gds.pageRank.mutate($graph_name, {
+             mutateProperty: 'trust',
              sourceNodes: sourceNodes,
              dampingFactor: $damping_factor,
              maxIterations: $max_iterations,
@@ -117,6 +122,31 @@ pub fn trust_rank_pagerank_write(
     .param("max_iterations", max_iterations as i64)
     .param("tolerance", tolerance)
     .param("scaler", scaler.to_string())
+}
+
+/// Streams the mutated `trust` scores onto the matching `:User` nodes,
+/// returning how many landed.
+///
+/// `MATCH ... WHERE id(u) = nodeId` skips a user deleted since the projection,
+/// where `gds.pageRank.write` aborts the run. `id()`, not `elementId()`: that is
+/// what GDS yields.
+///
+/// `IN TRANSACTIONS` releases node locks between batches so watcher ingestion
+/// interleaves. Write-back is therefore not atomic; the next run overwrites
+/// every score anyway.
+pub fn write_back_trust_scores(graph_name: &str) -> Query {
+    let cypher = format!(
+        "CALL gds.graph.nodeProperty.stream($graph_name, 'trust')
+         YIELD nodeId, propertyValue
+         CALL {{
+             WITH nodeId, propertyValue
+             MATCH (u:User) WHERE id(u) = nodeId
+             SET u.trust = propertyValue
+             RETURN 1 AS persisted
+         }} IN TRANSACTIONS OF {WRITE_BACK_BATCH_ROWS} ROWS
+         RETURN sum(persisted) AS written"
+    );
+    Query::new("write_back_trust_scores", cypher).param("graph_name", graph_name.to_string())
 }
 
 /// Reads the top `limit` trust scores, highest first. `LIMIT` prevents scanning the entire user base.
@@ -157,9 +187,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn trust_rank_pagerank_write_populates_seed_ids() {
+    fn trust_rank_pagerank_mutate_populates_seed_ids() {
         let seed_ids = vec!["alice".to_string(), "bob".to_string()];
-        let q = trust_rank_pagerank_write(
+        let q = trust_rank_pagerank_mutate(
             "nexusTrustGraph-1-2",
             &seed_ids,
             0.65,
@@ -171,7 +201,10 @@ mod tests {
         assert!(populated.contains("['alice', 'bob']"));
         assert!(populated.contains("0.65"));
         assert!(populated.contains("'nexusTrustGraph-1-2'"));
-        assert!(populated.contains("writeProperty: 'trust'"));
+        // Mutate, not write: scores land in the projection, never on :User by id.
+        assert!(populated.contains("gds.pageRank.mutate"));
+        assert!(populated.contains("mutateProperty: 'trust'"));
+        assert!(!populated.contains("gds.pageRank.write"));
         // Scaler is parameterized (toggled between L1Norm and NONE), not hardcoded.
         assert!(populated.contains("'L1Norm'"));
         // Guard closing the seed-deletion race; empty match → no rows, not global PageRank.
