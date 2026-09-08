@@ -129,6 +129,27 @@ slow_query_logging_threshold_ms = 100
 #cron = "0 0 3 * * *"    # daily at 03:00 UTC
 #cron = "0 0 4 * * MON"  # Mondays at 04:00 UTC
 
+# Influencer cache warmers, one job per cache-backed timeframe so each refreshes
+# at roughly half its TTL. Running at the TTL itself would let the key expire
+# just as the next run starts, leaving a gap every period (and a full period
+# after any skipped run). Off by default: uncomment to pre-warm the
+# caches. With no schedule, requests still fall back to demand-driven fetches
+# bounded by the same TTLs. Each job is also runnable on demand via
+# `nexusd jobs run <name>`. Note that once a section is uncommented, a build
+# that predates these jobs refuses to start on it (unknown [jobs.<name>] key),
+# so comment them out again before rolling back.
+#[jobs.influencers-cache-today]
+# TTL 1h.
+#cron = "0 7,37 * * * *"    # twice hourly at :07 and :37
+
+#[jobs.influencers-cache-this-week]
+# TTL 6h.
+#cron = "0 17 */3 * * *"    # every 3 hours at :17
+
+#[jobs.influencers-cache-this-month]
+# TTL 24h.
+#cron = "0 27 3,15 * * *"   # at 03:27 and 15:27
+
 # Scheduling for the trust-rank recompute job. Set a cron for automatic
 # recomputes; omit it to leave the job on-demand only (`nexusd jobs run
 # trust-recompute` always works).

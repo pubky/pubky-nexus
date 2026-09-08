@@ -13,7 +13,7 @@ mod view;
 pub use counts::UserCounts;
 pub use cursor::{user_hs_cursor_key, UserHsCursor, UserHsCursorKey};
 pub use details::{set_user_homeserver, set_user_homeserver_stale, UserDetails};
-pub use influencers::Influencers;
+pub use influencers::{Influencers, GLOBAL_INFLUENCERS_CACHE_SIZE};
 pub use ingestor::UserIngestor;
 pub use relationship::Relationship;
 pub use search::{UserSearch, UsersByTagSearch, TAG_GLOBAL_USER_TAGGERS, USER_NAME_KEY_PARTS};

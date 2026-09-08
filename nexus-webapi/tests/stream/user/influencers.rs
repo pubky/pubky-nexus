@@ -319,3 +319,70 @@ async fn test_influencers_by_friends_reach() -> Result<()> {
 
     Ok(())
 }
+
+/// Ranged global influencers come from a 100-entry cache, so a skip past it can never
+/// fill a page. It is rejected up front instead of being served as a cache miss.
+#[tokio_shared_rt::test(shared)]
+async fn test_global_influencers_rejects_skip_past_cache() -> Result<()> {
+    let body = invalid_get_request(
+        "/v0/stream/users?source=influencers&timeframe=today&skip=101",
+        StatusCode::BAD_REQUEST,
+    )
+    .await?;
+    assert!(
+        body["error"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("skip must be at most 100"),
+        "unexpected error payload: {body}"
+    );
+
+    // Preview ignores skip, so the cap does not apply to it.
+    let body =
+        get_request("/v0/stream/users?source=influencers&timeframe=today&skip=101&preview=true")
+            .await?;
+    assert!(body.is_array());
+
+    // Only ranged global influencers are capped: the all-time index is not size-bound,
+    // and reach-scoped queries go to the graph with their own pagination.
+    let body = get_request("/v0/stream/users?source=influencers&skip=101").await?;
+    assert!(body.is_array());
+    let body = get_request(&format!(
+        "/v0/stream/users?source=influencers&timeframe=this_month&skip=101&user_id={USER_1}&reach=following"
+    ))
+    .await?;
+    assert!(body.is_array());
+
+    Ok(())
+}
+
+/// An in-range skip past the last cached entry is an empty page, not a cache miss. A miss
+/// would refetch from the graph and rewrite the key, which re-arms its TTL; so after the
+/// TTL is pinned low, an empty-window read must leave it low.
+#[tokio_shared_rt::test(shared)]
+async fn test_global_influencers_skip_to_cache_end_is_empty_page() -> Result<()> {
+    // Ensure the server is running, so the Redis pool is initialized
+    TestServiceServer::get_test_server().await;
+    let mut redis_conn = get_redis_conn().await?;
+    let key = "Cache:Influencers:Today";
+
+    // Warm the cache so the key exists, then pin its TTL well below the 1h cache period.
+    get_request("/v0/stream/users?source=influencers&timeframe=today&limit=1").await?;
+    let pinned_ttl = 600;
+    let _: () = redis_conn.expire(key, pinned_ttl).await?;
+
+    let body = get_request("/v0/stream/users?source=influencers&timeframe=today&skip=100").await?;
+    assert_eq!(
+        body.as_array().map(Vec::len),
+        Some(0),
+        "skip at the cache size must yield an empty page, got: {body}"
+    );
+
+    let ttl: i64 = redis_conn.ttl(key).await?;
+    assert!(
+        0 < ttl && ttl <= pinned_ttl,
+        "an empty window must not be treated as a cache miss and rewrite the key, ttl went to {ttl}"
+    );
+
+    Ok(())
+}

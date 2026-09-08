@@ -43,3 +43,46 @@ impl Timeframe {
         }
     }
 }
+
+/// The timeframes whose global ranking is served from a TTL cache.
+///
+/// `Timeframe::AllTime` is deliberately absent: it is served from the incrementally
+/// maintained `Sorted:Users:Influencers` index, which has no cache key and no TTL,
+/// so a cache write for it would be an orphan nobody reads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CacheTimeframe {
+    Today,
+    ThisWeek,
+    ThisMonth,
+}
+
+impl CacheTimeframe {
+    /// `None` for `AllTime`, which has no cache.
+    pub fn from_timeframe(timeframe: &Timeframe) -> Option<Self> {
+        match timeframe {
+            Timeframe::Today => Some(CacheTimeframe::Today),
+            Timeframe::ThisWeek => Some(CacheTimeframe::ThisWeek),
+            Timeframe::ThisMonth => Some(CacheTimeframe::ThisMonth),
+            Timeframe::AllTime => None,
+        }
+    }
+
+    pub fn timeframe(self) -> Timeframe {
+        match self {
+            CacheTimeframe::Today => Timeframe::Today,
+            CacheTimeframe::ThisWeek => Timeframe::ThisWeek,
+            CacheTimeframe::ThisMonth => Timeframe::ThisMonth,
+        }
+    }
+
+    /// TTL in seconds of the cache key for this timeframe.
+    pub fn to_cache_period(self) -> i64 {
+        self.timeframe().to_cache_period()
+    }
+}
+
+impl Display for CacheTimeframe {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.timeframe().fmt(f)
+    }
+}
