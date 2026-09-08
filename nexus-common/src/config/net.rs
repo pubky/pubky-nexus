@@ -6,7 +6,7 @@ use serde::{de::Error, Deserialize, Deserializer, Serialize};
 const DEFAULT_TESTNET_HOST: &str = "localhost";
 const DEFAULT_PUBKY_HTTP_REQUEST_TIMEOUT_SECS: u64 = 30;
 
-const fn default_pubky_http_request_timeout() -> u64 {
+const fn default_pubky_http_request_timeout_secs() -> u64 {
     DEFAULT_PUBKY_HTTP_REQUEST_TIMEOUT_SECS
 }
 
@@ -24,10 +24,10 @@ pub struct NetConfig {
     /// This includes reading the complete response body, so the default accommodates
     /// downloads up to [`crate::DEFAULT_MAX_FILE_SIZE`].
     #[serde(
-        default = "default_pubky_http_request_timeout",
-        deserialize_with = "deserialize_nonzero_pubky_http_request_timeout"
+        default = "default_pubky_http_request_timeout_secs",
+        deserialize_with = "deserialize_nonzero_pubky_http_request_timeout_secs"
     )]
-    pub pubky_http_request_timeout: u64,
+    pub pubky_http_request_timeout_secs: u64,
     /// External HS PKs which are forbidden from being indexed.
     #[serde(default)]
     pub external_hs_pk_blacklist: Vec<PubkyId>,
@@ -38,19 +38,21 @@ impl Default for NetConfig {
         Self {
             testnet: false,
             testnet_host: Self::default_testnet_host(),
-            pubky_http_request_timeout: DEFAULT_PUBKY_HTTP_REQUEST_TIMEOUT_SECS,
+            pubky_http_request_timeout_secs: DEFAULT_PUBKY_HTTP_REQUEST_TIMEOUT_SECS,
             external_hs_pk_blacklist: Vec::new(),
         }
     }
 }
 
-fn deserialize_nonzero_pubky_http_request_timeout<'de, D>(deserializer: D) -> Result<u64, D::Error>
+fn deserialize_nonzero_pubky_http_request_timeout_secs<'de, D>(
+    deserializer: D,
+) -> Result<u64, D::Error>
 where
     D: Deserializer<'de>,
 {
     match u64::deserialize(deserializer)? {
         0 => Err(D::Error::custom(
-            "pubky_http_request_timeout must be at least 1 second",
+            "pubky_http_request_timeout_secs must be at least 1 second",
         )),
         timeout => Ok(timeout),
     }
@@ -68,6 +70,6 @@ impl NetConfig {
 
     /// Returns the total request deadline used to initialize the shared Pubky client.
     pub fn pubky_client_http_request_timeout(&self) -> Duration {
-        Duration::from_secs(self.pubky_http_request_timeout)
+        Duration::from_secs(self.pubky_http_request_timeout_secs)
     }
 }
