@@ -39,9 +39,9 @@ impl InfluencersCacheJob {
 impl Job for InfluencersCacheJob {
     fn name(&self) -> &'static str {
         match self.0 {
-            CacheTimeframe::Today => "influencers_cache_today",
-            CacheTimeframe::ThisWeek => "influencers_cache_this_week",
-            CacheTimeframe::ThisMonth => "influencers_cache_this_month",
+            CacheTimeframe::Today => "influencers-cache-today",
+            CacheTimeframe::ThisWeek => "influencers-cache-this-week",
+            CacheTimeframe::ThisMonth => "influencers-cache-this-month",
         }
     }
 
@@ -75,9 +75,9 @@ mod tests {
         assert_eq!(
             names,
             vec![
-                "influencers_cache_this_month",
-                "influencers_cache_this_week",
-                "influencers_cache_today",
+                "influencers-cache-this-month",
+                "influencers-cache-this-week",
+                "influencers-cache-today",
             ],
             "each cache-backed timeframe must have a unique, deterministic job name"
         );

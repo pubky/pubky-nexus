@@ -457,11 +457,11 @@ mod tests {
     #[tokio::test]
     async fn scheduled_jobs_resolves_per_timeframe_influencer_cadences() {
         let extra = "\
-[jobs.influencers_cache_today]\n\
+[jobs.influencers-cache-today]\n\
 cron = \"0 7,37 * * * *\"\n\
-[jobs.influencers_cache_this_week]\n\
+[jobs.influencers-cache-this-week]\n\
 cron = \"0 17 */3 * * *\"\n\
-[jobs.influencers_cache_this_month]\n\
+[jobs.influencers-cache-this-month]\n\
 cron = \"0 27 3,15 * * *\"\n";
         let config = default_config_with(extra).await;
         let registry = JobRegistry::new(vec![
@@ -486,15 +486,15 @@ cron = \"0 27 3,15 * * *\"\n";
             "each cache-backed timeframe must become its own scheduled job"
         );
         assert_eq!(
-            by_name.remove("influencers_cache_today").unwrap(),
+            by_name.remove("influencers-cache-today").unwrap(),
             "0 7,37 * * * *"
         );
         assert_eq!(
-            by_name.remove("influencers_cache_this_week").unwrap(),
+            by_name.remove("influencers-cache-this-week").unwrap(),
             "0 17 */3 * * *"
         );
         assert_eq!(
-            by_name.remove("influencers_cache_this_month").unwrap(),
+            by_name.remove("influencers-cache-this-month").unwrap(),
             "0 27 3,15 * * *"
         );
     }
