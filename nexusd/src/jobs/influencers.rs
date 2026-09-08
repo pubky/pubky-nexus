@@ -7,12 +7,18 @@ use tokio::time::timeout;
 
 use super::Job;
 
-/// Per-timeframe ceiling for one graph scan + cache write. Sized to keep a
-/// single scan well inside the runner's MAX_RUN deadline.
+/// Per-timeframe ceiling for one graph scan + cache write. The scan walks every
+/// user with three counting subqueries each and cannot prune early, so on a
+/// large graph (or while a trust recompute loads Neo4j) it may run for minutes.
+/// The cap must stay well above the API's request timeout: this job is the only
+/// path that can finish a scan too slow for a request, and a timeout here writes
+/// nothing. Sized generously under the runner's MAX_RUN deadline; revisit once
+/// there is production timing data. A timeout is reported by the runner as
+/// `JobError::Run` at ERROR level, so no extra logging is done here.
 /// Monotonic on purpose: `tokio::time::timeout`, not `sleep_wall`. The
 /// wall-clock discipline elsewhere exists so a run can't outlive its lease;
-/// a 60s I/O window is unaffected by host suspend.
-const REFRESH_TIMEOUT: Duration = Duration::from_secs(60);
+/// an I/O window this short is unaffected by host suspend.
+const REFRESH_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 
 /// The graph scan + cache write for one timeframe outran `REFRESH_TIMEOUT`.
 #[derive(Debug, thiserror::Error)]
