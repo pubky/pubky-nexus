@@ -45,6 +45,8 @@ pub struct UserDetails {
     pub status: Option<String>,
     pub image: Option<String>,
     pub indexed_at: i64,
+    #[serde(deserialize_with = "deserialize_user_deleted", default)]
+    pub deleted: bool,
 }
 
 fn deserialize_user_links<'de, D>(
@@ -82,6 +84,19 @@ where
     }
 }
 
+fn deserialize_user_deleted<'de, D>(deserializer: D) -> Result<bool, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    // Neo4j drops null/missing properties, so pre-migration nodes will lack the
+    // `deleted` field entirely. Redis JSON cache entries written before the
+    // migration similarly lack this key. Deserialize through Option<bool> so a
+    // missing property yields None (→ false), while a present value is respected.
+    // Serializes as a plain non-optional `bool` for the API.
+    let value = Option::<bool>::deserialize(deserializer)?;
+    Ok(value.unwrap_or(false))
+}
+
 impl UserDetails {
     /// Retrieves details by user ID, first trying to get from Redis, then from Neo4j if not found.
     pub async fn get_by_id(user_id: &str) -> ModelResult<Option<Self>> {
@@ -101,6 +116,7 @@ impl UserDetails {
             links: None,
             status: None,
             image: None,
+            deleted: false,
         }
     }
 
@@ -113,6 +129,23 @@ impl UserDetails {
             image: homeserver_user.image,
             id: user_id.clone(),
             indexed_at: Utc::now().timestamp_millis(),
+            deleted: false,
+        }
+    }
+
+    /// Cleared profile written when a user with relationships is deleted.
+    /// Every field is wiped; `deleted` is the only signal. `name` is emptied
+    /// rather than dropped because it is not optional.
+    pub fn tombstone(user_id: &PubkyId) -> Self {
+        UserDetails {
+            name: String::new(),
+            bio: None,
+            id: user_id.clone(),
+            links: None,
+            status: None,
+            image: None,
+            indexed_at: Utc::now().timestamp_millis(),
+            deleted: true,
         }
     }
 
@@ -169,5 +202,34 @@ mod tests {
             .expect("should deserialize without links property (Neo4j drops null properties)");
         assert_eq!(details.name, "Dave");
         assert!(details.links.is_none());
+        assert!(
+            !details.deleted,
+            "missing 'deleted' property should deserialize as false (pre-migration compatibility)"
+        );
+    }
+
+    /// A present `deleted: true` deserializes as true — the other branch of the custom deserializer.
+    #[test]
+    fn deserialize_from_node_with_deleted_true() {
+        let mut props = BoltMap::new();
+        props.put(BoltString::from("name"), BoltType::from(""));
+        props.put(
+            BoltString::from("id"),
+            BoltType::from("uo7jgkykft4885n8cruizwy6khw71mnu5pq3ay9i8pw1ymcn85ko"),
+        );
+        props.put(
+            BoltString::from("indexed_at"),
+            BoltType::from(1724134095000_i64),
+        );
+        props.put(BoltString::from("deleted"), BoltType::from(true));
+
+        let node = Node::new(BoltNode::new(
+            BoltInteger::new(1),
+            BoltList::from(vec![BoltType::from("User")]),
+            props,
+        ));
+
+        let details: UserDetails = node.to().expect("should deserialize with deleted: true");
+        assert!(details.deleted);
     }
 }

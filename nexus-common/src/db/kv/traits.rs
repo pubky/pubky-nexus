@@ -672,7 +672,8 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     /// * `sorted_set_key_parts` - Key parts of the destination sorted set (under the `Sorted` prefix).
     /// * `member` - The sorted-set member to write or remove.
     /// * `removal_guard` - Optional `(json_key, json_path, value)` that forces
-    ///   removal when the JSON document matches, checked atomically with the write.
+    ///   removal when the JSON document holds `value` at that path, compared by
+    ///   text form (`"true"` for a boolean flag), checked atomically with the write.
     ///
     /// # Errors
     ///
