@@ -8,7 +8,7 @@ use axum::{
     response::Response,
 };
 use nexus_common::{
-    media::FileVariant,
+    media::{FileVariant, VariantController},
     models::file::{Blob, FileDetails},
 };
 use tower_http::services::{fs::ServeFileSystemResponseBody, ServeDir};
@@ -69,8 +69,9 @@ pub async fn serve_file_variant(
     variant: &FileVariant,
     files_path: PathBuf,
     download: bool,
+    controller: &VariantController,
 ) -> Result<Response<ServeFileSystemResponseBody>> {
-    let content_type = Blob::get_by_id(file, variant, files_path.clone()).await?;
+    let content_type = Blob::get_by_id(file, variant, files_path.clone(), controller).await?;
 
     let disk_path = format!("/{}/{}/{variant}", file.owner_id, file.id);
 

@@ -7,12 +7,16 @@ use crate::routes::AppState;
 use crate::routes::Path;
 use crate::{Error, Result};
 use axum::extract::{Request, State};
+use axum::http::{header, HeaderValue};
 use axum::response::Response;
 use nexus_common::media::FileVariant;
+use nexus_common::models::file::Blob;
 use nexus_common::models::{file::FileDetails, traits::Collection, user::UserDetails};
 use tower_http::services::fs::ServeFileSystemResponseBody;
-use tracing::{debug, error};
+use tracing::{debug, warn};
 use utoipa::OpenApi;
+
+const AVATAR_FALLBACK_CACHE_CONTROL: &str = "public, max-age=30";
 
 #[utoipa::path(
     get,
@@ -58,19 +62,48 @@ pub async fn user_avatar_handler(
         return Err(Error::FileNotFound {});
     };
 
-    serve_file_variant(
-        request,
+    // No permit free: serve the untouched `main` image instead of queueing for one.
+    // Queueing could still win a permit before the timeout, but that is not worth up to
+    // 5s of latency on an avatar — and `small` is only deferred, not lost: the short
+    // cache TTL brings the client back, and whichever request gets a permit writes the
+    // variant to disk for every request after it.
+    let controller = &app_state.fail_fast_variant_controller;
+    let variant = match Blob::get_by_id(
         &file_details,
         &FileVariant::Small,
         file_path.clone(),
-        false,
+        controller,
     )
     .await
-    .inspect_err(|_| {
-        error!(
-            "Error while processing small variant for user: {user_id} avatar with file: {file_id}"
-        )
-    })
+    {
+        Ok(_) => FileVariant::Small,
+        Err(ref e) if e.is_media_shed() => {
+            warn!("Media processing unavailable ({e}) for user: {user_id} avatar with file: {file_id}, falling back to main");
+            FileVariant::Main
+        }
+        Err(e) => return Err(e.into()),
+    };
+
+    let mut response = serve_file_variant(
+        request,
+        &file_details,
+        &variant,
+        file_path.clone(),
+        false,
+        controller,
+    )
+    .await?;
+
+    // A degraded `main` fallback must not outlive the capacity blip that caused it,
+    // so it gets a short TTL instead of the hour the real small variant earns.
+    if variant != FileVariant::Small {
+        response.headers_mut().insert(
+            header::CACHE_CONTROL,
+            HeaderValue::from_static(AVATAR_FALLBACK_CACHE_CONTROL),
+        );
+    }
+
+    Ok(response)
 }
 
 #[derive(OpenApi)]

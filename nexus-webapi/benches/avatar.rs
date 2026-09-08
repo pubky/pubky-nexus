@@ -1,4 +1,4 @@
-use std::{path::PathBuf, sync::Arc, time::Duration};
+use std::{path::PathBuf, time::Duration};
 
 use axum::{
     body::{Body, Bytes},
@@ -8,12 +8,13 @@ use axum::{
 };
 use criterion::{criterion_group, criterion_main, Criterion};
 use http_body_util::BodyExt;
+use nexus_common::media::MediaPermits;
 use nexus_common::models::{
     file::{FileDetails, FileUrls},
     traits::Collection,
     user::UserDetails,
 };
-use nexus_common::utils::test_utils::default_ingestor_tests;
+use nexus_common::utils::test_utils::{default_ingestor_tests, default_subprocess_tests};
 use nexus_webapi::{
     models::PubkyId,
     routes::{r#static::user_avatar_handler, AppState, Path},
@@ -54,10 +55,12 @@ impl AvatarBenchSetup {
 
         let setup = Self {
             _temp_dir: temp_dir,
-            app_state: AppState {
-                files_path: Arc::new(files_path),
-                ingestor: default_ingestor_tests(),
-            },
+            app_state: AppState::new(
+                files_path,
+                default_ingestor_tests(),
+                MediaPermits::new(1),
+                default_subprocess_tests(),
+            ),
             user_id,
         };
 
