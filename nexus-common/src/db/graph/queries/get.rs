@@ -551,6 +551,18 @@ pub fn get_user_homeserver(user_id: &str) -> Query {
     .param("user_id", user_id.to_string())
 }
 
+/// Counts users with a `HOSTED_BY` mapping, and how many of those mappings are
+/// marked `stale`. Deleted users are excluded from both counts.
+pub fn count_user_homeserver_mappings() -> Query {
+    Query::new(
+        "count_user_homeserver_mappings",
+        "MATCH (u:User)-[r:HOSTED_BY]->(:Homeserver)
+         WHERE u.name <> '[DELETED]'
+         RETURN count(r) AS mapped_users,
+                count(CASE WHEN r.stale = true THEN 1 END) AS stale_users",
+    )
+}
+
 /// Retrieves all user IDs actively hosted on a given homeserver.
 ///
 /// Excludes users whose mapping is marked `stale` — i.e. whose published

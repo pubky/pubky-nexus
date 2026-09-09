@@ -171,6 +171,59 @@ resolver run, preventing redundant PKDNS lookups.
 Higher → cheaper, but Nexus may keep pulling a user's events from an HS they have
 already left for up to ~`hs_resolver_ttl`.
 
+### Monitoring stale mappings
+
+When the resolver cannot reproduce a user's stored HS from PKDNS, it marks the
+`HOSTED_BY` edge `stale` and the watcher **stops indexing that user**. A
+resolution outage (DHT/relay unreachable, PKARR records not resolvable) therefore
+silently pauses indexing for every user the resolver visits until the mapping
+realigns. The resolver exports these metrics to catch this:
+
+| Metric | Type | Meaning |
+| --- | --- | --- |
+| `nexus.task.hs-resolver.resolutions` | counter, label `outcome` | One per user the resolver handled. `resolved`: PKDNS returned a HS. `unresolved`: PKDNS returned none. `error`: the lookup or graph update failed. |
+| `nexus.task.hs-resolver.marked_stale` | counter, label `reason` | Users whose mapping flipped from active to stale. `unresolved`: PKDNS returned no HS. `hs_changed`: PKDNS returned a different HS. Already-stale users are not counted again. |
+| `nexus.task.hs-resolver.mapped_users` | gauge | Non-deleted users with a `HOSTED_BY` mapping, refreshed after every run that processed users. |
+| `nexus.task.hs-resolver.stale_users` | gauge | Subset of `mapped_users` whose mapping is currently stale. |
+| `nexus.task.hs-resolver.heartbeat_timestamp` | gauge, unit `s` | Unix time of the resolver's most recent progress: a user handled or a run finished. |
+
+Suggested Prometheus alerts (names as translated by the Prometheus exporter;
+under SigNoz drop the `_total` / `_seconds` suffixes). The first two are ratios
+with an absolute floor, so they need no retuning as the user base grows and
+stay quiet on tiny deployments:
+
+```yaml
+# Onset: most of what the resolver touched in the last 15m could not be
+# resolved, whether PKDNS returned nothing or the lookup errored.
+- alert: NexusHsResolverUnresolvedRatio
+  expr: |
+    sum(increase(nexus_task_hs_resolver_resolutions_total{outcome!="resolved"}[15m]))
+      / sum(increase(nexus_task_hs_resolver_resolutions_total[15m])) > 0.5
+    and sum(increase(nexus_task_hs_resolver_resolutions_total[15m])) > 10
+  for: 0m
+
+# Blast radius: a meaningful share of mapped users is not being indexed.
+- alert: NexusHsResolverStaleRatio
+  expr: |
+    max(nexus_task_hs_resolver_stale_users) / max(nexus_task_hs_resolver_mapped_users) > 0.05
+    and max(nexus_task_hs_resolver_stale_users) > 10
+  for: 10m
+
+# Silent resolver: no progress recently. Gauges keep exporting their last
+# value while the process is alive, so only the heartbeat reveals a task that
+# hangs or stops ticking; the `absent` half covers a dead process. `for` keeps
+# it quiet during the first export interval after a restart. 900s is ~90 ticks
+# at the default `hs_resolver_interval_ms`; scale it if you raise the interval.
+- alert: NexusHsResolverSilent
+  expr: |
+    time() - max(nexus_task_hs_resolver_heartbeat_timestamp_seconds) > 900
+    or absent(nexus_task_hs_resolver_heartbeat_timestamp_seconds)
+  for: 2m
+```
+
+A burst of `marked_stale{reason="hs_changed"}` is usually a real migration, not
+an outage, and is worth a lower-severity notification.
+
 ---
 
 ## 5. Event retry & backoff — `[watcher.retry]`
