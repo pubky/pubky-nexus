@@ -18,6 +18,12 @@ use tracing::info;
 ///
 /// Safe to call during connector init: the key prefix is derived from the type
 /// name and needs no live connection beyond the one used to issue `FT.CREATE`.
+///
+/// Nexus requires a Redis that ships the query engine (`docker-compose` pins
+/// `redis:8.0.6-alpine`). A failed `FT.CREATE` is fatal at connector init, so a
+/// Redis without it stops every binary from starting instead of degrading
+/// search. This is deliberate: a missing index is a misconfigured environment,
+/// not a runtime condition to route around.
 pub async fn setup_cache() -> RedisResult<()> {
     create_post_content_index().await?;
 

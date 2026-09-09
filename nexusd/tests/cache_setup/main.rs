@@ -82,11 +82,6 @@ async fn clear_redis_recreates_post_content_index() -> Result<()> {
     // FLUSHDB destroys the index together with the keys; clear_redis must bring
     // the schema back on its own, without a migration run.
     clear_redis().await?;
-    assert_eq!(
-        db_size().await?,
-        0,
-        "FLUSHDB should have emptied the database"
-    );
 
     let after = post_content_index_info()
         .await

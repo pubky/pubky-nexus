@@ -21,6 +21,10 @@ fn ft_search_timeout_ms() -> usize {
 pub(crate) async fn ft_create_post_content_index(prefix: &str) -> RedisResult<()> {
     let mut conn = get_redis_conn().await?;
 
+    // Adding or changing a field here requires a matching index migration.
+    // PostContentIndexAuthorSetup1780531200 drops and recreates from a frozen
+    // v2 copy, so a fresh environment would boot on this schema and then be
+    // silently downgraded to v2 by `nexusd db migration run`. See issue #N.
     let result = deadpool_redis::redis::cmd("FT.CREATE")
         .arg("postContentIdx")
         .arg("ON")
