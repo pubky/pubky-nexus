@@ -121,10 +121,10 @@ mod tests {
             ]
         );
         assert!(c.stack.net.external_hs_pk_blacklist.is_empty());
-        assert_eq!(c.stack.net.pubky_http_request_timeout_secs, 30);
+        assert_eq!(c.stack.net.pubky_http_request_timeout_secs, 300);
         assert_eq!(
             c.stack.net.pubky_client_http_request_timeout(),
-            Duration::from_secs(30)
+            Duration::from_secs(300)
         );
 
         assert_eq!(c.stack.log_level, Level::Info);
@@ -384,7 +384,7 @@ mod tests {
     #[test]
     fn test_pubky_http_request_timeout_secs_rejects_zero() {
         let toml = DEFAULT_CONFIG_TOML.replace(
-            "pubky_http_request_timeout_secs = 30",
+            "pubky_http_request_timeout_secs = 300",
             "pubky_http_request_timeout_secs = 0",
         );
 
@@ -396,12 +396,12 @@ mod tests {
 
     #[test]
     fn test_pubky_http_request_timeout_secs_defaults_when_omitted() {
-        let toml = DEFAULT_CONFIG_TOML.replace("pubky_http_request_timeout_secs = 30\n", "");
+        let toml = DEFAULT_CONFIG_TOML.replace("pubky_http_request_timeout_secs = 300\n", "");
 
         let config = DaemonConfig::try_from_str(&toml)
             .expect("config without pubky_http_request_timeout_secs should use the default");
 
-        assert_eq!(config.stack.net.pubky_http_request_timeout_secs, 30);
+        assert_eq!(config.stack.net.pubky_http_request_timeout_secs, 300);
     }
 
     /// Legacy `watcher_sleep` / `hs_resolver_sleep` field names (renamed to

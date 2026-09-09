@@ -4,7 +4,7 @@ use pubky_app_specs::PubkyId;
 use serde::{de::Error, Deserialize, Deserializer, Serialize};
 
 const DEFAULT_TESTNET_HOST: &str = "localhost";
-const DEFAULT_PUBKY_HTTP_REQUEST_TIMEOUT_SECS: u64 = 30;
+const DEFAULT_PUBKY_HTTP_REQUEST_TIMEOUT_SECS: u64 = 300;
 
 const fn default_pubky_http_request_timeout_secs() -> u64 {
     DEFAULT_PUBKY_HTTP_REQUEST_TIMEOUT_SECS
