@@ -15,7 +15,8 @@
 //! in place for whatever runs next.
 
 use anyhow::{Context, Result};
-use nexus_common::db::{get_redis_conn, kv::clear_redis, reindex};
+use nexus_common::db::{get_redis_conn, kv::clear_redis, reindex, RedisOps};
+use nexus_common::models::post::PostDetails;
 use nexus_common::{StackConfig, StackManager};
 use redis::Value;
 
@@ -56,7 +57,7 @@ async fn db_size() -> Result<i64> {
     Ok(redis::cmd("DBSIZE").query_async(&mut conn).await?)
 }
 
-fn assert_post_content_schema(info: &[String], stage: &str) {
+fn assert_post_content_schema(info: &[String], prefix: &str, stage: &str) {
     for field in ["$.content", "$.author", "$.kind"] {
         assert!(
             info.iter().any(|s| s == field),
@@ -64,8 +65,8 @@ fn assert_post_content_schema(info: &[String], stage: &str) {
         );
     }
     assert!(
-        info.iter().any(|s| s == "Post:Details:"),
-        "{stage}: {POST_CONTENT_INDEX} should be scoped to the PostDetails prefix, got {info:?}"
+        info.iter().any(|s| s == prefix),
+        "{stage}: {POST_CONTENT_INDEX} should be scoped to the {prefix} prefix, got {info:?}"
     );
 }
 
@@ -75,9 +76,12 @@ async fn clear_redis_recreates_post_content_index() -> Result<()> {
         .await
         .map_err(|e| anyhow::anyhow!("could not initialise the stack: {e:?}"))?;
 
+    // Same derivation as setup_cache, so a rename of PostDetails moves both sides.
+    let prefix = format!("{}:", PostDetails::prefix().await);
+
     // Connector init already applied the schema.
     let before = post_content_index_info().await?;
-    assert_post_content_schema(&before, "after stack setup");
+    assert_post_content_schema(&before, &prefix, "after stack setup");
 
     // FLUSHDB destroys the index together with the keys; clear_redis must bring
     // the schema back on its own, without a migration run.
@@ -86,7 +90,7 @@ async fn clear_redis_recreates_post_content_index() -> Result<()> {
     let after = post_content_index_info()
         .await
         .context("post content index must survive clear_redis()")?;
-    assert_post_content_schema(&after, "after clear_redis");
+    assert_post_content_schema(&after, &prefix, "after clear_redis");
 
     // Restore the mock cache from the graph so the flush is not observable
     // by whatever runs after this test.

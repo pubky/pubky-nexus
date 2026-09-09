@@ -12,7 +12,9 @@ pub fn run_setup() {
                 log_level: Level::Error,
                 ..Default::default()
             };
-            let _ = StackManager::setup(&config).await;
+            StackManager::setup(&config)
+                .await
+                .expect("stack setup failed; benches need the docker stack up");
         });
     });
 }
