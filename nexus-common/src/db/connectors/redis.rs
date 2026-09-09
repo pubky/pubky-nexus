@@ -1,4 +1,5 @@
-use crate::db::kv::{setup_cache, RedisError, RedisResult};
+use crate::db::kv::setup::setup_cache_on;
+use crate::db::kv::{RedisError, RedisResult};
 use crate::types::DynError;
 use deadpool_redis::{Config, Connection, Pool, Runtime};
 use std::fmt;
@@ -18,13 +19,22 @@ impl RedisConnector {
 
         redis_connector.ping(redis_uri).await?;
 
+        // Apply the search schema on this pool before registering the connector,
+        // so a failed FT.CREATE leaves the global slot empty and a later init can
+        // still succeed with a different URI.
+        {
+            let mut conn = redis_connector
+                .pool()
+                .get()
+                .await
+                .map_err(|e| RedisError::ConnectionPoolError(Box::new(e)))?;
+            setup_cache_on(&mut conn).await?;
+        }
+
         match REDIS_CONNECTOR.set(redis_connector) {
             Err(e) => debug!("RedisConnector was already set: {:?}", e),
             Ok(()) => info!("RedisConnector successfully set up on {}", redis_uri),
         }
-
-        // Set Redis search indexes
-        setup_cache().await?;
         Ok(())
     }
 

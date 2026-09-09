@@ -12,3 +12,16 @@ influencers-sorted-set = { max-threads = 1 }
 [[profile.default.overrides]]
 filter = 'test(=stream::user::influencers::test_global_influencers) | test(=stream::user::influencers::test_global_influencers_skip_limit) | test(=stream::user::influencers::test_global_influencers_alltime_cache_recovery)'
 test-group = 'influencers-sorted-set'
+
+# nexusd/tests/cache_setup/main.rs calls clear_redis(), which issues FLUSHDB
+# against the shared Redis instance. It must not overlap with any other test in
+# the run, including nexus-webapi's search suite under --workspace, or that
+# test sees its keys and FT index vanish mid-flight. A [test-groups] entry
+# would not help: group limits only apply between members of the same group,
+# so a one-test group protects nothing. threads-required = 'num-test-threads'
+# is what gives global exclusivity: nextest waits for every running test to
+# finish, runs this binary alone, then resumes the rest.
+
+[[profile.default.overrides]]
+filter = 'package(nexusd) and binary(cache_setup)'
+threads-required = 'num-test-threads'

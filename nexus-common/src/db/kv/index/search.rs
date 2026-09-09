@@ -1,6 +1,7 @@
 use crate::db::config::FT_SEARCH_TIMEOUT_MS;
 use crate::db::get_redis_conn;
 use crate::db::kv::error::{RedisError, RedisResult};
+use deadpool_redis::Connection;
 use std::sync::OnceLock;
 use tracing::warn;
 
@@ -18,9 +19,13 @@ fn ft_search_timeout_ms() -> usize {
 /// Creates the post content index: $.content TEXT + $.author TAG CASESENSITIVE + $.kind TAG CASESENSITIVE.
 /// NOOFFSETS/NOHL kept; NOFIELDS dropped to allow field-targeted queries.
 /// Idempotent: short-circuits on "already exists".
-pub(crate) async fn ft_create_post_content_index(prefix: &str) -> RedisResult<()> {
-    let mut conn = get_redis_conn().await?;
-
+///
+/// Takes the connection explicitly so the connector can apply the schema on
+/// its own pool before registering itself globally.
+pub(crate) async fn ft_create_post_content_index(
+    conn: &mut Connection,
+    prefix: &str,
+) -> RedisResult<()> {
     // Adding or changing a field here requires a matching index migration.
     // PostContentIndexAuthorSetup1780531200 drops and recreates from a frozen
     // v2 copy, so a fresh environment would boot on this schema and then be
@@ -49,7 +54,7 @@ pub(crate) async fn ft_create_post_content_index(prefix: &str) -> RedisResult<()
         .arg("kind")
         .arg("TAG")
         .arg("CASESENSITIVE")
-        .query_async::<()>(&mut conn)
+        .query_async::<()>(conn)
         .await;
 
     match result {

@@ -9,10 +9,10 @@
 //! bench. This test pins that behavior.
 //!
 //! It lives in its own binary and is the only nexusd test that flushes Redis.
-//! The other nexusd integration tests assert on graph state, not Redis, so no
-//! nextest serialization is needed. The cache is rebuilt with
-//! `reindex::sync()` before returning so a local run leaves the mock data
-//! in place for whatever runs next.
+//! `.config/nextest.toml` gives this binary `threads-required =
+//! 'num-test-threads'` so it never overlaps with any other test in the run.
+//! The cache is rebuilt with `reindex::sync()` before returning so a local
+//! run leaves the mock data in place for whatever runs next.
 
 use anyhow::{Context, Result};
 use nexus_common::db::{get_redis_conn, kv::clear_redis, reindex, RedisOps};
@@ -79,7 +79,7 @@ async fn clear_redis_recreates_post_content_index() -> Result<()> {
     // Same derivation as setup_cache, so a rename of PostDetails moves both sides.
     let prefix = format!("{}:", PostDetails::prefix().await);
 
-    // Connector init already applied the schema.
+    // Connector init already applied the schema before registering the pool.
     let before = post_content_index_info().await?;
     assert_post_content_schema(&before, &prefix, "after stack setup");
 

@@ -1,7 +1,7 @@
 use crate::db::graph::Query;
 use crate::db::kv::{search, RedisResult, ScoreAction, SortOrder};
 use crate::db::queries::get::{global_tags_by_post, global_tags_by_post_engagement};
-use crate::db::{fetch_all_rows_from_graph, RedisOps};
+use crate::db::{fetch_all_rows_from_graph, get_redis_conn, RedisOps};
 use crate::models::error::ModelResult;
 use crate::models::post::PostDetails;
 use crate::models::tag::post::TagPost;
@@ -152,7 +152,8 @@ impl PostsByTagSearch {
 /// Idempotent: no-ops if the index already exists.
 pub async fn create_post_content_index() -> RedisResult<()> {
     let prefix = format!("{}:", PostDetails::prefix().await);
-    search::ft_create_post_content_index(&prefix).await?;
+    let mut conn = get_redis_conn().await?;
+    search::ft_create_post_content_index(&mut conn, &prefix).await?;
     Ok(())
 }
 

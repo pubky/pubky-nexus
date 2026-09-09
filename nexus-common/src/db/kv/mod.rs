@@ -3,7 +3,7 @@ mod flush;
 mod index;
 mod last_save;
 mod lock;
-mod setup;
+pub(crate) mod setup;
 mod traits;
 
 pub use error::{ensure_cursor_not_backwards, RedisError, RedisResult};
