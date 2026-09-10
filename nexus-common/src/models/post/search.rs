@@ -8,7 +8,6 @@ use crate::models::tag::post::TagPost;
 use crate::models::tag::traits::TaggersCollection;
 use crate::types::{Pagination, StreamSorting};
 use serde::{Deserialize, Serialize};
-use tracing::info;
 use utoipa::ToSchema;
 
 pub const TAG_GLOBAL_POST_TIMELINE: [&str; 4] = ["Tags", "Global", "Post", "Timeline"];
@@ -146,26 +145,6 @@ impl PostsByTagSearch {
         }
         Ok(())
     }
-}
-
-const POST_CONTENT_INDEX: &str = "postContentIdx";
-
-/// Creates the post content full-text index: $.content TEXT + $.author TAG CASESENSITIVE + $.kind TAG CASESENSITIVE.
-/// Includes NOOFFSETS/NOHL; NOFIELDS dropped to allow field-targeted queries.
-/// Idempotent: no-ops if the index already exists.
-pub async fn create_post_content_index() -> RedisResult<()> {
-    let prefix = format!("{}:", PostDetails::prefix().await);
-    search::ft_create_post_content_index(&prefix).await?;
-    info!("RediSearch index '{POST_CONTENT_INDEX}' created or already exists");
-    Ok(())
-}
-
-/// Drops the post content index without deleting underlying JSON documents.
-/// Idempotent: swallows "Unknown index name" errors.
-pub async fn drop_post_content_index() -> RedisResult<()> {
-    search::drop_post_content_index().await?;
-    info!("RediSearch index '{POST_CONTENT_INDEX}' dropped or already absent");
-    Ok(())
 }
 
 // Results come from FT.SEARCH, not key-value lookups — no RedisOps impl.
