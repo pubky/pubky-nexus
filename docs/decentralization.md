@@ -181,7 +181,7 @@ realigns. The resolver exports these metrics to catch this:
 
 | Metric | Type | Meaning |
 | --- | --- | --- |
-| `nexus.task.hs-resolver.resolutions` | counter, label `outcome` | One per user the resolver handled. `resolved`: PKDNS returned a HS. `unresolved`: PKDNS returned none. `error`: the lookup or graph update failed. |
+| `nexus.task.hs-resolver.resolutions` | counter, labels `outcome`, `mapping` | One per user the resolver handled. `outcome`: `resolved` (PKDNS returned a HS), `unresolved` (PKDNS returned none; on pubky 0.9.3 DHT and relay failures also surface this way), `error` (the lookup failed, pubky 0.10+, or the graph read/update failed). `mapping`: the stored mapping's state before the resolution, `unbound` / `active` / `stale`, or `unknown` when the graph read itself failed. |
 | `nexus.task.hs-resolver.marked_stale` | counter, label `reason` | Users whose mapping flipped from active to stale. `unresolved`: PKDNS returned no HS. `hs_changed`: PKDNS returned a different HS. Already-stale users are not counted again. |
 | `nexus.task.hs-resolver.mapped_users` | gauge | Non-deleted users with a `HOSTED_BY` mapping. Recorded on the first run after startup, then refreshed after every run that processed users. |
 | `nexus.task.hs-resolver.stale_users` | gauge | Subset of `mapped_users` whose mapping is currently stale. |
@@ -193,13 +193,16 @@ with an absolute floor, so they need no retuning as the user base grows and
 stay quiet on tiny deployments:
 
 ```yaml
-# Onset: most of what the resolver touched in the last 15m could not be
-# resolved, whether PKDNS returned nothing or the lookup errored.
+# Onset: most previously-active mappings the resolver touched in the last 15m
+# could not be resolved, whether PKDNS returned nothing or the lookup errored.
+# Scoped to mapping="active" because unbound users with no published record
+# are re-resolved on every tick and would otherwise dominate the ratio; active
+# mappings are visited once per TTL and are the ones whose flip pauses indexing.
 - alert: NexusHsResolverUnresolvedRatio
   expr: |
-    sum(increase(nexus_task_hs_resolver_resolutions_total{outcome!="resolved"}[15m]))
-      / sum(increase(nexus_task_hs_resolver_resolutions_total[15m])) > 0.5
-    and sum(increase(nexus_task_hs_resolver_resolutions_total[15m])) > 10
+    sum(increase(nexus_task_hs_resolver_resolutions_total{mapping="active",outcome!="resolved"}[15m]))
+      / sum(increase(nexus_task_hs_resolver_resolutions_total{mapping="active"}[15m])) > 0.5
+    and sum(increase(nexus_task_hs_resolver_resolutions_total{mapping="active"}[15m])) > 10
   for: 0m
 
 # Blast radius: a meaningful share of mapped users is not being indexed.
