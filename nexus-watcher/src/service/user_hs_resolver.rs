@@ -141,6 +141,7 @@ pub async fn run(
                 let user_id = user_pk.z32();
                 processed += 1;
                 let (outcome, mapping) = match result {
+                    // Graph read or write failed: a Neo4j problem, not a resolution one.
                     Err(e) => {
                         failed += 1;
                         warn!(%user_id, "Failed to resolve HS: {e}");
@@ -484,7 +485,9 @@ struct HsResolverMetrics {
     /// PKDNS resolutions, labelled by `outcome` in {resolved, unresolved, error}
     /// and `mapping` in {unbound, active, stale, unknown}. Incremented per user
     /// rather than per run so a failing share is visible while a long run is
-    /// still in progress. `mapping="unknown"` means the graph read itself failed.
+    /// still in progress. `mapping="unknown"` means a graph read or write failed;
+    /// those are Neo4j incidents, visible via `neo4j.query.errors`, and are kept
+    /// out of the `mapping="active"` onset ratio on purpose.
     resolutions: Counter<u64>,
     /// Users whose `HOSTED_BY` mapping flipped from active to stale, labelled
     /// by [`StaleReason`]. Only the transition is counted, so a sustained stale

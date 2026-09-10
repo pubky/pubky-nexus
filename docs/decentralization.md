@@ -181,7 +181,7 @@ realigns. The resolver exports these metrics to catch this:
 
 | Metric | Type | Meaning |
 | --- | --- | --- |
-| `nexus.task.hs-resolver.resolutions` | counter, labels `outcome`, `mapping` | One per user the resolver handled. `outcome`: `resolved` (PKDNS returned a HS), `unresolved` (PKDNS returned none; on pubky 0.9.3 DHT and relay failures also surface this way), `error` (the lookup failed, pubky 0.10+, or the graph read/update failed). `mapping`: the stored mapping's state before the resolution, `unbound` / `active` / `stale`, or `unknown` when the graph read itself failed. |
+| `nexus.task.hs-resolver.resolutions` | counter, labels `outcome`, `mapping` | One per user the resolver handled. `outcome`: `resolved` (PKDNS returned a HS), `unresolved` (PKDNS returned none; on pubky 0.9.3 DHT and relay failures also surface this way), `error` (the lookup failed, pubky 0.10+, or the graph read/update failed). `mapping`: the stored mapping's state before the resolution, `unbound` / `active` / `stale`, or `unknown` when a graph read or write failed (a Neo4j problem, also visible via `neo4j.query.errors`; deliberately outside the `mapping="active"` onset ratio). |
 | `nexus.task.hs-resolver.marked_stale` | counter, label `reason` | Users whose mapping flipped from active to stale. `unresolved`: PKDNS returned no HS. `hs_changed`: PKDNS returned a different HS. Already-stale users are not counted again. |
 | `nexus.task.hs-resolver.mapped_users` | gauge | Non-deleted users with a `HOSTED_BY` mapping. Recorded on the first run after startup, then refreshed after every run that processed users. |
 | `nexus.task.hs-resolver.stale_users` | gauge | Subset of `mapped_users` whose mapping is currently stale. |
