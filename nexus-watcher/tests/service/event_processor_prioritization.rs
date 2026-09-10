@@ -4,6 +4,8 @@ use crate::service::utils::{create_mock_event_processors, setup, MockEventProces
 
 use anyhow::Result;
 use chrono::Utc;
+use nexus_common::db::graph::exec::exec_single_row;
+use nexus_common::db::graph::Query;
 use nexus_common::models::homeserver::{Homeserver, HsBlacklist};
 use nexus_common::models::traits::Collection;
 use nexus_common::models::user::{set_user_homeserver, UserDetails};
@@ -160,9 +162,71 @@ async fn test_mock_event_processor_runner_primary_homeserver_excluded() -> Resul
     Ok(())
 }
 
+/// Ordering is by aggregate hosted trust, so a homeserver hosting a couple of
+/// well-connected users must outrank one hosting a crowd of unranked keys —
+/// otherwise minting keys buys polling priority, which is the whole point of
+/// ranking here.
+///
+/// The shared fixture cannot cover this: no fixture user has a `HOSTED_BY` edge,
+/// so every homeserver in it aggregates to 0.0 trust. This test builds its own
+/// graph on two fresh random homeservers instead.
+#[tokio_shared_rt::test(shared)]
+async fn test_event_processor_runner_orders_homeservers_by_hosted_trust() -> Result<(), DynError> {
+    setup().await?;
+
+    let trusted_hs = random_pubky_id();
+    let crowded_hs = random_pubky_id();
+    Homeserver::new(trusted_hs.clone()).put_to_graph().await?;
+    Homeserver::new(crowded_hs.clone()).put_to_graph().await?;
+
+    // Two ranked users against eight unranked ones: the crowded HS wins on raw
+    // count, so if it still sorts first the trust term is not being applied.
+    // Values deliberately far below the fixture's top score: these users are
+    // deleted below, but while they exist they must not reorder the shared
+    // ranking that other suites assert on.
+    let mut created = vec![
+        create_active_user_on_homeserver_with_trust(&trusted_hs, Some(0.05)).await?,
+        create_active_user_on_homeserver_with_trust(&trusted_hs, Some(0.02)).await?,
+    ];
+    for _ in 0..8 {
+        created.push(create_active_user_on_homeserver_with_trust(&crowded_hs, None).await?);
+    }
+
+    // Read before cleanup, assert after, so a failed assertion still cleans up.
+    let hs_ids = Homeserver::get_all_active_from_graph().await?;
+    delete_users(&created).await?;
+    let rank = |id: &PubkyId| {
+        hs_ids
+            .iter()
+            .position(|hs| hs == id.as_ref())
+            .unwrap_or_else(|| panic!("{id} should be active, got {hs_ids:?}"))
+    };
+
+    assert!(
+        rank(&trusted_hs) < rank(&crowded_hs),
+        "the HS hosting trust should be polled before the one hosting more keys, got {hs_ids:?}"
+    );
+
+    Ok(())
+}
+
 /// Creates a user node with a `HOSTED_BY` edge to `hs_id`, making the HS
 /// "active" for `get_all_active_from_graph`.
 async fn create_active_user_on_homeserver(hs_id: &PubkyId) -> Result<(), DynError> {
+    create_active_user_on_homeserver_with_trust(hs_id, None).await?;
+    Ok(())
+}
+
+/// As [`create_active_user_on_homeserver`], but optionally scores the user.
+///
+/// `None` leaves `trust` unset rather than writing 0.0, which is what an
+/// unranked account actually looks like: absent from the ranking, not scored
+/// zero. The query under test coalesces the two, and this keeps the test honest
+/// about which case it is exercising.
+async fn create_active_user_on_homeserver_with_trust(
+    hs_id: &PubkyId,
+    trust: Option<f64>,
+) -> Result<PubkyId, DynError> {
     let user_id = random_pubky_id();
     let user = UserDetails {
         id: user_id.clone(),
@@ -177,5 +241,31 @@ async fn create_active_user_on_homeserver(hs_id: &PubkyId) -> Result<(), DynErro
     user.put_to_graph().await?;
     set_user_homeserver(&user_id, hs_id).await?;
 
+    if let Some(trust) = trust {
+        let query = Query::new(
+            "prioritization_test_set_trust",
+            "MATCH (u:User {id: $id}) SET u.trust = $trust",
+        )
+        .param("id", user_id.to_string())
+        .param("trust", trust);
+        exec_single_row(query).await?;
+    }
+
+    Ok(user_id)
+}
+
+/// Removes users this file created, so a scored test user cannot leak into the
+/// global trust ranking. `Sorted:Users:SocialGraph` is one shared key built from
+/// `MATCH (u:User) WHERE u.trust > 0`, and `nexus-webapi`'s
+/// `test_social_graph_status` asserts on positions in it — a stray 0.4 here ties
+/// the fixture's top user and wins the `id ASC` tiebreak half the time.
+async fn delete_users(user_ids: &[PubkyId]) -> Result<(), DynError> {
+    let ids: Vec<String> = user_ids.iter().map(ToString::to_string).collect();
+    let query = Query::new(
+        "prioritization_test_delete_users",
+        "MATCH (u:User) WHERE u.id IN $ids DETACH DELETE u",
+    )
+    .param("ids", ids);
+    exec_single_row(query).await?;
     Ok(())
 }
