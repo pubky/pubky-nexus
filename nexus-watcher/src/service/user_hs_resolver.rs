@@ -100,8 +100,9 @@ pub async fn run(
         HS_RESOLVER_METRICS.run_failed.record(0, &[]);
         // Empty runs cannot change the mapping counts, but the gauges still
         // need a first value after startup, which may otherwise be up to a
-        // TTL away if every mapping is still fresh.
-        if !HS_RESOLVER_METRICS.gauges_populated() {
+        // TTL away if every mapping is still fresh. Skip it on shutdown, as
+        // the non-empty path does.
+        if !HS_RESOLVER_METRICS.gauges_populated() && !*shutdown_rx.borrow() {
             refresh_mapping_gauges().await;
         }
         HS_RESOLVER_METRICS.record_heartbeat();
