@@ -14,6 +14,7 @@ use opentelemetry::metrics::{Counter, Gauge, Histogram};
 use opentelemetry::{global, KeyValue};
 use pubky::PublicKey;
 use pubky_app_specs::PubkyId;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::LazyLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::watch::Receiver;
@@ -97,6 +98,12 @@ pub async fn run(
         debug!("No users need homeserver resolution");
         HS_RESOLVER_METRICS.run_total.record(0, &[]);
         HS_RESOLVER_METRICS.run_failed.record(0, &[]);
+        // Empty runs cannot change the mapping counts, but the gauges still
+        // need a first value after startup, which may otherwise be up to a
+        // TTL away if every mapping is still fresh.
+        if !HS_RESOLVER_METRICS.gauges_populated() {
+            refresh_mapping_gauges().await;
+        }
         HS_RESOLVER_METRICS.record_heartbeat();
         return Ok(());
     }
@@ -162,14 +169,22 @@ pub async fn run(
     HS_RESOLVER_METRICS.run_failed.record(failed, &[]);
     if !shutting_down {
         // Don't hold up shutdown with a graph scan; the next run refreshes the gauges.
-        match count_mappings().await {
-            Ok(counts) => HS_RESOLVER_METRICS.record_mapping_counts(counts),
-            Err(e) => warn!(error = %e, "Failed to count homeserver mappings"),
-        }
+        refresh_mapping_gauges().await;
     }
     HS_RESOLVER_METRICS.record_heartbeat();
 
     Ok(())
+}
+
+/// Refreshes the population gauges from the graph.
+///
+/// A failed count is logged but does not fail the run: the metrics are an
+/// observer of the resolver, not part of it.
+async fn refresh_mapping_gauges() {
+    match count_mappings().await {
+        Ok(counts) => HS_RESOLVER_METRICS.record_mapping_counts(counts),
+        Err(e) => warn!(error = %e, "Failed to count homeserver mappings"),
+    }
 }
 
 // Bisection ordering sorts the User PKs such that every new PK is as far as possible from all
@@ -365,6 +380,8 @@ struct HsResolverMetrics {
     /// Subset of `mapped_users` whose mapping is currently stale. Refreshed
     /// after every run that processed users, which are the runs that can change it.
     stale_users: Gauge<u64>,
+    /// Whether the population gauges have been recorded since startup.
+    gauges_populated: AtomicBool,
     /// Unix time of the last user handled or run finished. Stamped per user so
     /// a long run keeps reporting while a single hung lookup does not; gauges
     /// otherwise keep exporting their last value for as long as the process lives.
@@ -405,12 +422,18 @@ impl HsResolverMetrics {
                 .with_description("Unix time of the resolver's most recent progress")
                 .with_unit("s")
                 .build(),
+            gauges_populated: AtomicBool::new(false),
         }
     }
 
     fn record_mapping_counts(&self, counts: MappingCounts) {
         self.mapped_users.record(counts.mapped, &[]);
         self.stale_users.record(counts.stale, &[]);
+        self.gauges_populated.store(true, Ordering::Relaxed);
+    }
+
+    fn gauges_populated(&self) -> bool {
+        self.gauges_populated.load(Ordering::Relaxed)
     }
 
     fn record_heartbeat(&self) {

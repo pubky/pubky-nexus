@@ -183,7 +183,7 @@ realigns. The resolver exports these metrics to catch this:
 | --- | --- | --- |
 | `nexus.task.hs-resolver.resolutions` | counter, label `outcome` | One per user the resolver handled. `resolved`: PKDNS returned a HS. `unresolved`: PKDNS returned none. `error`: the lookup or graph update failed. |
 | `nexus.task.hs-resolver.marked_stale` | counter, label `reason` | Users whose mapping flipped from active to stale. `unresolved`: PKDNS returned no HS. `hs_changed`: PKDNS returned a different HS. Already-stale users are not counted again. |
-| `nexus.task.hs-resolver.mapped_users` | gauge | Non-deleted users with a `HOSTED_BY` mapping, refreshed after every run that processed users. |
+| `nexus.task.hs-resolver.mapped_users` | gauge | Non-deleted users with a `HOSTED_BY` mapping. Recorded on the first run after startup, then refreshed after every run that processed users. |
 | `nexus.task.hs-resolver.stale_users` | gauge | Subset of `mapped_users` whose mapping is currently stale. |
 | `nexus.task.hs-resolver.heartbeat_timestamp` | gauge, unit `s` | Unix time of the resolver's most recent progress: a user handled or a run finished. |
 
