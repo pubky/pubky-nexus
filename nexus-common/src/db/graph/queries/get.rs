@@ -514,8 +514,11 @@ pub fn get_homeserver_by_id(id: &str) -> Query {
 /// by id. The caller truncates this list, so the order decides which homeservers
 /// get polled at all: ranking by hosted trust spends a bounded polling budget on
 /// the homeservers whose users are expensive to fake, rather than on whichever
-/// one registered the most keys. This is resource allocation, not judgement — a
-/// homeserver that ranks low is polled later, never excluded.
+/// one registered the most keys. Be precise about what that means: because the
+/// caller truncates, ranking past the cut is exclusion rather than delay — such a
+/// homeserver is not polled on any run until its trust or user count changes. A
+/// round-robin floor in the caller would turn it back into delay; there is none
+/// today.
 ///
 /// `coalesce(u.trust, 0.0)` matters for the default install: `[trust_rank] seed`
 /// ships empty, so no user carries trust, every sum is 0.0, and the ordering
