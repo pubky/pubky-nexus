@@ -1,7 +1,7 @@
 use crate::db::graph::Query;
 use crate::db::kv::{search, RedisResult, ScoreAction, SortOrder};
 use crate::db::queries::get::{global_tags_by_post, global_tags_by_post_engagement};
-use crate::db::{fetch_all_rows_from_graph, get_redis_conn, RedisOps};
+use crate::db::{fetch_all_rows_from_graph, RedisOps};
 use crate::models::error::ModelResult;
 use crate::models::post::PostDetails;
 use crate::models::tag::post::TagPost;
@@ -145,16 +145,6 @@ impl PostsByTagSearch {
         }
         Ok(())
     }
-}
-
-/// Creates the post content full-text index: $.content TEXT + $.author TAG CASESENSITIVE + $.kind TAG CASESENSITIVE.
-/// Includes NOOFFSETS/NOHL; NOFIELDS dropped to allow field-targeted queries.
-/// Idempotent: no-ops if the index already exists.
-pub async fn create_post_content_index() -> RedisResult<()> {
-    let prefix = format!("{}:", PostDetails::prefix().await);
-    let mut conn = get_redis_conn().await?;
-    search::ft_create_post_content_index(&mut conn, &prefix).await?;
-    Ok(())
 }
 
 // Results come from FT.SEARCH, not key-value lookups — no RedisOps impl.
