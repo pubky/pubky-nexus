@@ -192,9 +192,12 @@ async fn test_event_processor_runner_orders_homeservers_by_hosted_trust() -> Res
         created.push(create_active_user_on_homeserver_with_trust(&crowded_hs, None).await?);
     }
 
-    // Read before cleanup, assert after, so a failed assertion still cleans up.
-    let hs_ids = Homeserver::get_all_active_from_graph().await?;
+    // Clean up before the `?` and before asserting: a failed read would otherwise
+    // skip cleanup and leak scored users into the shared graph, which is the one
+    // thing this test must not do.
+    let hs_ids = Homeserver::get_all_active_from_graph().await;
     delete_users(&created).await?;
+    let hs_ids = hs_ids?;
     let rank = |id: &PubkyId| {
         hs_ids
             .iter()
@@ -257,8 +260,16 @@ async fn create_active_user_on_homeserver_with_trust(
 /// Removes users this file created, so a scored test user cannot leak into the
 /// global trust ranking. `Sorted:Users:SocialGraph` is one shared key built from
 /// `MATCH (u:User) WHERE u.trust > 0`, and `nexus-webapi`'s
-/// `test_social_graph_status` asserts on positions in it — a stray 0.4 here ties
-/// the fixture's top user and wins the `id ASC` tiebreak half the time.
+/// `test_social_graph_status` asserts on positions in it.
+///
+/// At the scores this file writes (0.05 and 0.02, both below the fixture's lowest
+/// score of 0.1) a leak would not break that test today: the ranked population
+/// would go 3 → 5, `ceil(5 * 0.05)` still cuts `established` at rank 1, and the
+/// fixture's top user keeps it. The cleanup is here because that safety is a
+/// coincidence of the current values, not a property — a future score at or above
+/// the fixture's top of 0.4 would tie it and win the `id ASC` tiebreak, and one at
+/// or above 0.1 would reorder the ranks the test asserts on. Keeping the graph
+/// clean is cheaper than re-deriving that argument every time a value changes.
 async fn delete_users(user_ids: &[PubkyId]) -> Result<(), DynError> {
     let ids: Vec<String> = user_ids.iter().map(ToString::to_string).collect();
     let query = Query::new(
