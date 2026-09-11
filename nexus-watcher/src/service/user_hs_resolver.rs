@@ -4,16 +4,19 @@
 //! the `(:User)-[:HOSTED_BY]->(:Homeserver)` relationship in Neo4j.
 
 use nexus_common::db::{
-    fetch_key_from_graph, queries, GraphResult, PubkyClientResult, PubkyConnector,
+    fetch_key_from_graph, fetch_row_from_graph, queries, GraphResult, PubkyClientResult,
+    PubkyConnector,
 };
 use nexus_common::models::user::{set_user_homeserver, set_user_homeserver_stale};
 use nexus_common::types::DynError;
 use nexus_common::WatcherConfig;
-use opentelemetry::global;
-use opentelemetry::metrics::Histogram;
+use opentelemetry::metrics::{Counter, Gauge, Histogram};
+use opentelemetry::{global, KeyValue};
 use pubky::PublicKey;
 use pubky_app_specs::PubkyId;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::LazyLock;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::watch::Receiver;
 use tracing::{debug, error, info, warn};
 
@@ -95,6 +98,14 @@ pub async fn run(
         debug!("No users need homeserver resolution");
         HS_RESOLVER_METRICS.run_total.record(0, &[]);
         HS_RESOLVER_METRICS.run_failed.record(0, &[]);
+        // Empty runs cannot change the mapping counts, but the gauges still
+        // need a first value after startup, which may otherwise be up to a
+        // TTL away if every mapping is still fresh. Skip it on shutdown, as
+        // the non-empty path does.
+        if !HS_RESOLVER_METRICS.gauges_populated() && !*shutdown_rx.borrow() {
+            refresh_mapping_gauges().await;
+        }
+        HS_RESOLVER_METRICS.record_heartbeat();
         return Ok(());
     }
 
@@ -103,6 +114,7 @@ pub async fn run(
 
     let mut failed = 0u64;
     let mut processed = 0u64;
+    let mut shutting_down = false;
 
     // As of pubky 0.7.0 parallel resolution is possible but unreliable. This was tried:
     // - with the singleton Pubky client (up to 10% unresolved nodes with 10 req. in parallel)
@@ -122,31 +134,65 @@ pub async fn run(
             biased;
             _ = shutdown_rx.changed() => {
                 info!(processed, total, "Shutdown detected; HS resolver stopping");
+                shutting_down = true;
                 break;
             }
             result = resolve_user(resolver, &user_pk) => {
                 let user_id = user_pk.z32();
-                let user_hs_resolved = matches!(result, Ok(true));
-                if !user_hs_resolved {
-                    // Both resolve errors and finding no HS are treated as failures
-                    let err_msg = match result {
-                        Err(e) => format!("Failed to resolve HS: {e}"),
-                        Ok(_) => "PKDNS lookup found no HS".into()
-                    };
-
-                    failed += 1;
-                    warn!(%user_id, err_msg);
-                }
-
                 processed += 1;
+                let (outcome, mapping) = match result {
+                    // Graph read or write failed: a Neo4j problem, not a resolution one.
+                    Err(e) => {
+                        warn!(%user_id, error = %e, "Failed to read or update HS mapping");
+                        (Outcome::Error, None)
+                    }
+                    Ok(resolution) => {
+                        if let Some(reason) = resolution.newly_stale() {
+                            HS_RESOLVER_METRICS.marked_stale.add(1, &[reason.attribute()]);
+                        }
+                        let outcome = resolution.outcome();
+                        if outcome == Outcome::Unresolved {
+                            warn!(%user_id, "PKDNS lookup found no HS");
+                        }
+                        (outcome, Some(resolution.mapping()))
+                    }
+                };
+                // Anything short of a resolved HS is a failure for the run summary.
+                if outcome != Outcome::Resolved {
+                    failed += 1;
+                }
+                HS_RESOLVER_METRICS.resolutions.add(
+                    1,
+                    &[
+                        KeyValue::new("outcome", outcome.as_str()),
+                        mapping_attribute(mapping),
+                    ],
+                );
+                HS_RESOLVER_METRICS.record_heartbeat();
             }
         }
     }
 
     HS_RESOLVER_METRICS.run_total.record(total, &[]);
     HS_RESOLVER_METRICS.run_failed.record(failed, &[]);
+    if !shutting_down {
+        // Don't hold up shutdown with a graph scan; the next run refreshes the gauges.
+        refresh_mapping_gauges().await;
+    }
+    HS_RESOLVER_METRICS.record_heartbeat();
 
     Ok(())
+}
+
+/// Refreshes the population gauges from the graph.
+///
+/// A failed count is logged but does not fail the run: the metrics are an
+/// observer of the resolver, not part of it.
+async fn refresh_mapping_gauges() {
+    match count_mappings().await {
+        Ok(counts) => HS_RESOLVER_METRICS.record_mapping_counts(counts),
+        Err(e) => warn!(error = %e, "Failed to count homeserver mappings"),
+    }
 }
 
 // Bisection ordering sorts the User PKs such that every new PK is as far as possible from all
@@ -192,50 +238,264 @@ async fn get_users_needing_resolution(ttl_ms: u64) -> GraphResult<Vec<String>> {
     Ok(maybe_user_ids.unwrap_or_default())
 }
 
+/// Why a user's `HOSTED_BY` mapping was marked stale.
+///
+/// Exported as the `reason` attribute of the `marked_stale` counter so that a
+/// resolver outage (`unresolved`) can be told apart from users genuinely
+/// migrating to another homeserver (`hs_changed`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StaleReason {
+    /// PKDNS returned no homeserver for the user.
+    Unresolved,
+    /// PKDNS returned a homeserver different from the stored one.
+    HsChanged,
+}
+
+impl StaleReason {
+    fn attribute(self) -> KeyValue {
+        let reason = match self {
+            Self::Unresolved => "unresolved",
+            Self::HsChanged => "hs_changed",
+        };
+        KeyValue::new("reason", reason)
+    }
+}
+
+/// State of a user's stored `HOSTED_BY` mapping before a resolution.
+///
+/// Exported as the `mapping` attribute of the `resolutions` counter. Unbound
+/// users with no published record are re-resolved on every tick, so only
+/// resolutions of previously `active` mappings carry an outage signal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MappingState {
+    /// No `HOSTED_BY` edge yet.
+    Unbound,
+    /// Bound and not stale.
+    Active,
+    /// Bound and already marked stale.
+    Stale,
+}
+
+impl MappingState {
+    fn of(stored: &Option<UserHomeserverMapping>) -> Self {
+        match stored {
+            None => Self::Unbound,
+            Some(mapping) if mapping.stale => Self::Stale,
+            Some(_) => Self::Active,
+        }
+    }
+}
+
+/// `mapping` attribute of the `resolutions` counter. `None` is exported as
+/// `unknown`: the graph read or write failed before the state was known.
+fn mapping_attribute(mapping: Option<MappingState>) -> KeyValue {
+    let mapping = match mapping {
+        Some(MappingState::Unbound) => "unbound",
+        Some(MappingState::Active) => "active",
+        Some(MappingState::Stale) => "stale",
+        None => "unknown",
+    };
+    KeyValue::new("mapping", mapping)
+}
+
+/// How a resolution ended, as exported in the `outcome` attribute of the
+/// `resolutions` counter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Outcome {
+    /// PKDNS returned a homeserver.
+    Resolved,
+    /// PKDNS returned none; on pubky 0.9.3 DHT and relay failures surface this way too.
+    Unresolved,
+    /// The lookup failed (pubky 0.10+ surfaces transport errors) or the graph read/write failed.
+    Error,
+}
+
+impl Outcome {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Resolved => "resolved",
+            Self::Unresolved => "unresolved",
+            Self::Error => "error",
+        }
+    }
+}
+
+/// What resolving one user did to its `HOSTED_BY` mapping.
+///
+/// One variant per reachable case, so the metric labels below are exhaustive
+/// matches and a new case forces a labelling decision.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Resolution {
+    /// No edge and nothing published; graph untouched.
+    Unbound,
+    /// No edge before; bound to the published HS now.
+    Bound,
+    /// Published HS matches the stored one; stale flag cleared.
+    Confirmed { was_stale: bool },
+    /// Published HS missing or different; stale flag set.
+    Diverged {
+        reason: StaleReason,
+        was_stale: bool,
+    },
+    /// The lookup itself failed (pubky 0.10+ surfaces transport errors);
+    /// graph untouched.
+    LookupFailed { mapping: MappingState },
+}
+
+impl Resolution {
+    /// `outcome` label: whether PKDNS returned a homeserver.
+    fn outcome(self) -> Outcome {
+        match self {
+            Self::Bound | Self::Confirmed { .. } => Outcome::Resolved,
+            Self::Diverged {
+                reason: StaleReason::HsChanged,
+                ..
+            } => Outcome::Resolved,
+            Self::Unbound
+            | Self::Diverged {
+                reason: StaleReason::Unresolved,
+                ..
+            } => Outcome::Unresolved,
+            Self::LookupFailed { .. } => Outcome::Error,
+        }
+    }
+
+    /// `mapping` label: the stored mapping's state before this resolution.
+    fn mapping(self) -> MappingState {
+        match self {
+            Self::Unbound | Self::Bound => MappingState::Unbound,
+            Self::Confirmed { was_stale: true }
+            | Self::Diverged {
+                was_stale: true, ..
+            } => MappingState::Stale,
+            Self::Confirmed { was_stale: false }
+            | Self::Diverged {
+                was_stale: false, ..
+            } => MappingState::Active,
+            Self::LookupFailed { mapping } => mapping,
+        }
+    }
+
+    /// Set when the mapping flipped from active to stale in this resolution.
+    /// Users that were already stale do not count again, so a sustained stale
+    /// population does not mask a new wave of transitions.
+    fn newly_stale(self) -> Option<StaleReason> {
+        match self {
+            Self::Diverged {
+                reason,
+                was_stale: false,
+            } => Some(reason),
+            _ => None,
+        }
+    }
+}
+
 /// Resolves a single user's HS and persists the HOSTED_BY relationship.
 ///
-/// Returns whether or not a PKDNS HS mapping was found when resolving the PKDNS record.
+/// A failed lookup is reported as a [`Resolution`] and leaves the graph
+/// untouched; only graph errors are returned as `Err`.
 async fn resolve_user(
     resolver: &dyn PkdnsHomeserverResolver,
     user_pk: &PublicKey,
-) -> Result<bool, DynError> {
+) -> Result<Resolution, DynError> {
     let user_id = user_pk.z32();
 
-    let maybe_resolved_hs_id = resolver.resolve_homeserver(user_pk).await?;
-    let maybe_stored_hs_id = get_user_homeserver(&user_id).await?;
+    // Read the stored mapping first so a failed lookup can still be attributed
+    // to the mapping state it would have affected.
+    let stored_mapping = get_user_homeserver(&user_id).await?;
 
-    match (&maybe_stored_hs_id, &maybe_resolved_hs_id) {
-        (None, None) => warn!(%user_id, "User has no published homeserver"),
+    let maybe_resolved_hs_id = match resolver.resolve_homeserver(user_pk).await {
+        Ok(resolved) => resolved,
+        Err(e) => {
+            warn!(%user_id, error = %e, "PKDNS lookup failed");
+            return Ok(Resolution::LookupFailed {
+                mapping: MappingState::of(&stored_mapping),
+            });
+        }
+    };
+
+    let resolution = match (&stored_mapping, &maybe_resolved_hs_id) {
+        (None, None) => {
+            warn!(%user_id, "User has no published homeserver");
+            Resolution::Unbound
+        }
 
         (None, Some(resolved_hs_id)) => {
             set_user_homeserver(&user_id, resolved_hs_id).await?;
             debug!(%user_id, homeserver = %resolved_hs_id, "HS mapping created");
+            Resolution::Bound
         }
 
         // Already bound to a HS: toggle the stale flag instead of switching.
-        (Some(stored_hs_id), Some(resolved_hs_id)) if resolved_hs_id.as_ref() == stored_hs_id => {
+        (Some(stored), Some(resolved_hs_id)) if resolved_hs_id.as_ref() == stored.hs_id => {
             set_user_homeserver_stale(&user_id, false).await?;
-            debug!(%user_id, homeserver = %stored_hs_id, "HS mapping still active");
+            debug!(%user_id, homeserver = %stored.hs_id, "HS mapping still active");
+            Resolution::Confirmed {
+                was_stale: stored.stale,
+            }
         }
 
         // HS switching is not fully implemented, so the bound HS is never changed once set
-        (Some(stored_hs_id), _) => {
+        (Some(stored), resolved) => {
             set_user_homeserver_stale(&user_id, true).await?;
             warn!(
                 %user_id,
-                stored_homeserver = %stored_hs_id,
+                stored_homeserver = %stored.hs_id,
                 "User homeserver changed or was removed; switching unsupported, mapping marked stale"
             );
+            Resolution::Diverged {
+                reason: match resolved {
+                    None => StaleReason::Unresolved,
+                    Some(_) => StaleReason::HsChanged,
+                },
+                was_stale: stored.stale,
+            }
         }
-    }
+    };
 
-    Ok(maybe_resolved_hs_id.is_some())
+    Ok(resolution)
 }
 
-/// Returns the homeserver ID a user is currently assigned to, if any.
-async fn get_user_homeserver(user_id: &str) -> GraphResult<Option<String>> {
+/// A user's stored `HOSTED_BY` mapping, as returned by [`get_user_homeserver`].
+#[derive(Debug, PartialEq, Eq)]
+struct UserHomeserverMapping {
+    /// The homeserver ID bound to the user.
+    hs_id: String,
+    /// Whether the `HOSTED_BY` relationship is marked stale.
+    stale: bool,
+}
+
+/// Returns the user's stored homeserver mapping, if any.
+async fn get_user_homeserver(user_id: &str) -> GraphResult<Option<UserHomeserverMapping>> {
     let query = queries::get::get_user_homeserver(user_id);
-    fetch_key_from_graph(query, "homeserver_id").await
+    let Some(row) = fetch_row_from_graph(query).await? else {
+        return Ok(None);
+    };
+    Ok(Some(UserHomeserverMapping {
+        hs_id: row.get("homeserver_id")?,
+        stale: row.get("stale")?,
+    }))
+}
+
+/// Population counts over non-deleted users with a `HOSTED_BY` mapping.
+#[derive(Debug, Default)]
+struct MappingCounts {
+    /// Users bound to a homeserver.
+    mapped: u64,
+    /// Subset of `mapped` whose mapping is marked stale.
+    stale: u64,
+}
+
+/// Counts users with a `HOSTED_BY` mapping and how many of them are stale.
+async fn count_mappings() -> GraphResult<MappingCounts> {
+    let query = queries::get::count_user_homeserver_mappings();
+    let Some(row) = fetch_row_from_graph(query).await? else {
+        return Ok(MappingCounts::default());
+    };
+    Ok(MappingCounts {
+        mapped: row.get("mapped_users")?,
+        stale: row.get("stale_users")?,
+    })
 }
 
 /// Returns all user IDs hosted on a given homeserver.
@@ -248,6 +508,28 @@ pub async fn get_user_ids_by_homeserver(hs_id: &str) -> GraphResult<Vec<String>>
 struct HsResolverMetrics {
     run_total: Histogram<u64>,
     run_failed: Histogram<u64>,
+    /// PKDNS resolutions, labelled by `outcome` in {resolved, unresolved, error}
+    /// and `mapping` in {unbound, active, stale, unknown}. Incremented per user
+    /// rather than per run so a failing share is visible while a long run is
+    /// still in progress. `mapping="unknown"` means a graph read or write failed;
+    /// those are Neo4j incidents, visible via `neo4j.query.errors`, and are kept
+    /// out of the `mapping="active"` onset ratio on purpose.
+    resolutions: Counter<u64>,
+    /// Users whose `HOSTED_BY` mapping flipped from active to stale, labelled
+    /// by [`StaleReason`]. Only the transition is counted, so a sustained stale
+    /// population does not mask a new wave.
+    marked_stale: Counter<u64>,
+    /// Non-deleted users with a `HOSTED_BY` mapping; denominator for `stale_users`.
+    mapped_users: Gauge<u64>,
+    /// Subset of `mapped_users` whose mapping is currently stale. Refreshed
+    /// after every run that processed users, which are the runs that can change it.
+    stale_users: Gauge<u64>,
+    /// Whether the population gauges have been recorded since startup.
+    gauges_populated: AtomicBool,
+    /// Unix time of the last user handled or run finished. Stamped per user so
+    /// a long run keeps reporting while a single hung lookup does not; gauges
+    /// otherwise keep exporting their last value for as long as the process lives.
+    heartbeat: Gauge<u64>,
 }
 
 impl HsResolverMetrics {
@@ -263,7 +545,47 @@ impl HsResolverMetrics {
                 .u64_histogram("nexus.task.hs-resolver.failed")
                 .with_description("Number of failed HS resolutions in each resolver run")
                 .build(),
+            resolutions: meter
+                .u64_counter("nexus.task.hs-resolver.resolutions")
+                .with_description("PKDNS homeserver resolutions, by outcome")
+                .build(),
+            marked_stale: meter
+                .u64_counter("nexus.task.hs-resolver.marked_stale")
+                .with_description("Users whose homeserver mapping transitioned to stale, by reason")
+                .build(),
+            mapped_users: meter
+                .u64_gauge("nexus.task.hs-resolver.mapped_users")
+                .with_description("Users with a homeserver mapping")
+                .build(),
+            stale_users: meter
+                .u64_gauge("nexus.task.hs-resolver.stale_users")
+                .with_description("Users whose homeserver mapping is currently stale")
+                .build(),
+            heartbeat: meter
+                .u64_gauge("nexus.task.hs-resolver.heartbeat_timestamp")
+                .with_description("Unix time of the resolver's most recent progress")
+                .with_unit("s")
+                .build(),
+            gauges_populated: AtomicBool::new(false),
         }
+    }
+
+    fn record_mapping_counts(&self, counts: MappingCounts) {
+        self.mapped_users.record(counts.mapped, &[]);
+        self.stale_users.record(counts.stale, &[]);
+        self.gauges_populated.store(true, Ordering::Relaxed);
+    }
+
+    fn gauges_populated(&self) -> bool {
+        self.gauges_populated.load(Ordering::Relaxed)
+    }
+
+    fn record_heartbeat(&self) {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or_default();
+        self.heartbeat.record(now, &[]);
     }
 }
 
@@ -271,8 +593,8 @@ impl HsResolverMetrics {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nexus_common::db::exec_single_row;
     use nexus_common::db::graph::Query;
+    use nexus_common::db::{exec_single_row, PubkyClientError};
     use nexus_common::types::DynError;
     use nexus_common::utils::test_utils::{random_pk, random_pubky_id};
     use nexus_common::{StackConfig, StackManager};
@@ -294,6 +616,21 @@ mod tests {
             _user_pk: &PublicKey,
         ) -> PubkyClientResult<Option<PubkyId>> {
             Ok(self.result.clone())
+        }
+    }
+
+    /// Resolver stub whose lookups always fail, as transport errors do on pubky 0.10+.
+    struct FailingResolver;
+
+    #[async_trait::async_trait]
+    impl PkdnsHomeserverResolver for FailingResolver {
+        async fn resolve_homeserver(
+            &self,
+            _user_pk: &PublicKey,
+        ) -> PubkyClientResult<Option<PubkyId>> {
+            Err(PubkyClientError::RequestFailed {
+                message: "dht unreachable".into(),
+            })
         }
     }
 
@@ -469,11 +806,24 @@ mod tests {
         // No HOSTED_BY edge yet
         assert_eq!(get_user_homeserver(&user_id).await?, None);
 
-        // After assignment the current homeserver is returned
+        // After assignment the current homeserver is returned and not stale
         set_user_homeserver(&user_id, &hs_id).await?;
         assert_eq!(
             get_user_homeserver(&user_id).await?,
-            Some(hs_id.to_string())
+            Some(UserHomeserverMapping {
+                hs_id: hs_id.to_string(),
+                stale: false,
+            })
+        );
+
+        // Marking the mapping stale is reflected in the next lookup
+        set_user_homeserver_stale(&user_id, true).await?;
+        assert_eq!(
+            get_user_homeserver(&user_id).await?,
+            Some(UserHomeserverMapping {
+                hs_id: hs_id.to_string(),
+                stale: true,
+            })
         );
 
         cleanup_test_user(&user_id).await?;
@@ -495,11 +845,15 @@ mod tests {
         let resolver = MockResolver {
             result: Some(hs_id.clone()),
         };
-        resolve_user(&resolver, &user_pk).await?;
+        let outcome = resolve_user(&resolver, &user_pk).await?;
+        assert_eq!(outcome, Resolution::Bound);
 
         assert_eq!(
             get_user_homeserver(&user_id).await?,
-            Some(hs_id.to_string())
+            Some(UserHomeserverMapping {
+                hs_id: hs_id.to_string(),
+                stale: false,
+            })
         );
         assert!(get_user_ids_by_homeserver(&hs_id).await?.contains(&user_id));
 
@@ -519,7 +873,8 @@ mod tests {
         create_test_user(&user_id).await?;
 
         let resolver = MockResolver { result: None };
-        resolve_user(&resolver, &user_pk).await?;
+        let outcome = resolve_user(&resolver, &user_pk).await?;
+        assert_eq!(outcome, Resolution::Unbound);
 
         assert_eq!(get_user_homeserver(&user_id).await?, None);
         assert!(
@@ -552,12 +907,22 @@ mod tests {
         let resolver = MockResolver {
             result: Some(new_hs.clone()),
         };
-        resolve_user(&resolver, &user_pk).await?;
+        let outcome = resolve_user(&resolver, &user_pk).await?;
+        assert_eq!(
+            outcome,
+            Resolution::Diverged {
+                reason: StaleReason::HsChanged,
+                was_stale: false,
+            }
+        );
 
         // Binding unchanged, and the user is indexed on neither homeserver
         assert_eq!(
             get_user_homeserver(&user_id).await?,
-            Some(stored_hs.to_string())
+            Some(UserHomeserverMapping {
+                hs_id: stored_hs.to_string(),
+                stale: true,
+            })
         );
         assert!(!get_user_ids_by_homeserver(&stored_hs)
             .await?
@@ -585,11 +950,21 @@ mod tests {
 
         // DHT no longer publishes a homeserver
         let resolver = MockResolver { result: None };
-        resolve_user(&resolver, &user_pk).await?;
+        let outcome = resolve_user(&resolver, &user_pk).await?;
+        assert_eq!(
+            outcome,
+            Resolution::Diverged {
+                reason: StaleReason::Unresolved,
+                was_stale: false,
+            }
+        );
 
         assert_eq!(
             get_user_homeserver(&user_id).await?,
-            Some(stored_hs.to_string())
+            Some(UserHomeserverMapping {
+                hs_id: stored_hs.to_string(),
+                stale: true,
+            })
         );
         assert!(!get_user_ids_by_homeserver(&stored_hs)
             .await?
@@ -622,7 +997,8 @@ mod tests {
         let resolver = MockResolver {
             result: Some(stored_hs.clone()),
         };
-        resolve_user(&resolver, &user_pk).await?;
+        let outcome = resolve_user(&resolver, &user_pk).await?;
+        assert_eq!(outcome, Resolution::Confirmed { was_stale: true });
 
         assert!(get_user_ids_by_homeserver(&stored_hs)
             .await?
@@ -631,6 +1007,186 @@ mod tests {
         cleanup_test_user(&user_id).await?;
 
         Ok(())
+    }
+
+    /// A user that is already stale is not counted as a new stale transition
+    /// when the published homeserver keeps diverging. This keeps the metric
+    /// sensitive to real peaks rather than a sustained stale population.
+    #[tokio_shared_rt::test(shared)]
+    async fn test_resolve_user_already_stale_not_counted_again() -> Result<(), DynError> {
+        setup().await?;
+
+        let user_pk = random_pk();
+        let user_id = user_pk.z32();
+        let stored_hs = random_pubky_id();
+        let new_hs = random_pubky_id();
+
+        create_test_user(&user_id).await?;
+        set_user_homeserver(&user_id, &stored_hs).await?;
+        set_user_homeserver_stale(&user_id, true).await?;
+
+        let resolver = MockResolver {
+            result: Some(new_hs.clone()),
+        };
+        let outcome = resolve_user(&resolver, &user_pk).await?;
+        assert_eq!(
+            outcome,
+            Resolution::Diverged {
+                reason: StaleReason::HsChanged,
+                was_stale: true,
+            }
+        );
+
+        cleanup_test_user(&user_id).await?;
+
+        Ok(())
+    }
+
+    /// A failed lookup is attributed to the mapping it would have affected and
+    /// leaves the stored mapping untouched.
+    #[tokio_shared_rt::test(shared)]
+    async fn test_resolve_user_lookup_failure_leaves_mapping_untouched() -> Result<(), DynError> {
+        setup().await?;
+
+        let user_pk = random_pk();
+        let user_id = user_pk.z32();
+        let stored_hs = random_pubky_id();
+
+        create_test_user(&user_id).await?;
+        set_user_homeserver(&user_id, &stored_hs).await?;
+
+        // Backdate the mapping (2 hours ago) so the user is due for resolution
+        let backdate_query = Query::new(
+            "backdate_hs_mapping",
+            "MATCH (u:User {id: $user_id})-[r:HOSTED_BY]->(:Homeserver)
+             SET r.resolved_at = timestamp() - 7200000",
+        )
+        .param("user_id", user_id.as_str());
+        exec_single_row(backdate_query).await?;
+
+        let outcome = resolve_user(&FailingResolver, &user_pk).await?;
+        assert_eq!(
+            outcome,
+            Resolution::LookupFailed {
+                mapping: MappingState::Active
+            }
+        );
+
+        assert_eq!(
+            get_user_homeserver(&user_id).await?,
+            Some(UserHomeserverMapping {
+                hs_id: stored_hs.to_string(),
+                stale: false,
+            })
+        );
+        assert!(
+            get_users_needing_resolution(3_600_000)
+                .await?
+                .contains(&user_id),
+            "a failed lookup must not refresh resolved_at, or recovery waits a full TTL"
+        );
+
+        cleanup_test_user(&user_id).await?;
+
+        Ok(())
+    }
+
+    /// The mapping counts feeding the gauges include a freshly stale mapping.
+    ///
+    /// Other tests (in this and other test binaries) create mappings and flip
+    /// stale flags concurrently, so only lower bounds on the global counts and
+    /// the stale <= mapped invariant are stable.
+    #[tokio_shared_rt::test(shared)]
+    async fn test_count_mappings() -> Result<(), DynError> {
+        setup().await?;
+
+        let user_pk = random_pk();
+        let user_id = user_pk.z32();
+        let stored_hs = random_pubky_id();
+
+        create_test_user(&user_id).await?;
+        set_user_homeserver(&user_id, &stored_hs).await?;
+        set_user_homeserver_stale(&user_id, true).await?;
+
+        let counts = count_mappings().await?;
+        assert!(counts.stale >= 1);
+        assert!(counts.mapped >= counts.stale);
+
+        cleanup_test_user(&user_id).await?;
+
+        Ok(())
+    }
+
+    /// Every variant maps to a bounded, intended label set.
+    #[test]
+    fn test_resolution_labels() {
+        use MappingState::{Active, Stale, Unbound};
+        use StaleReason::{HsChanged, Unresolved};
+
+        let diverged = |reason, was_stale| Resolution::Diverged { reason, was_stale };
+        let cases = [
+            (Resolution::Unbound, Outcome::Unresolved, Unbound, None),
+            (Resolution::Bound, Outcome::Resolved, Unbound, None),
+            (
+                Resolution::Confirmed { was_stale: false },
+                Outcome::Resolved,
+                Active,
+                None,
+            ),
+            (
+                Resolution::Confirmed { was_stale: true },
+                Outcome::Resolved,
+                Stale,
+                None,
+            ),
+            (
+                diverged(Unresolved, false),
+                Outcome::Unresolved,
+                Active,
+                Some(Unresolved),
+            ),
+            (
+                diverged(HsChanged, false),
+                Outcome::Resolved,
+                Active,
+                Some(HsChanged),
+            ),
+            (diverged(Unresolved, true), Outcome::Unresolved, Stale, None),
+            (diverged(HsChanged, true), Outcome::Resolved, Stale, None),
+            (
+                Resolution::LookupFailed { mapping: Active },
+                Outcome::Error,
+                Active,
+                None,
+            ),
+            (
+                Resolution::LookupFailed { mapping: Unbound },
+                Outcome::Error,
+                Unbound,
+                None,
+            ),
+        ];
+
+        for (resolution, outcome, mapping, newly_stale) in cases {
+            assert_eq!(resolution.outcome(), outcome, "{resolution:?}");
+            assert_eq!(resolution.mapping(), mapping, "{resolution:?}");
+            assert_eq!(resolution.newly_stale(), newly_stale, "{resolution:?}");
+        }
+    }
+
+    /// The exported label strings are part of the alerting contract; pin them.
+    #[test]
+    fn test_outcome_and_mapping_label_strings() {
+        assert_eq!(Outcome::Resolved.as_str(), "resolved");
+        assert_eq!(Outcome::Unresolved.as_str(), "unresolved");
+        assert_eq!(Outcome::Error.as_str(), "error");
+
+        let label = |mapping| mapping_attribute(mapping).value.to_string();
+        assert_eq!(label(Some(MappingState::Unbound)), "unbound");
+        assert_eq!(label(Some(MappingState::Active)), "active");
+        assert_eq!(label(Some(MappingState::Stale)), "stale");
+        assert_eq!(label(None), "unknown");
+        assert_eq!(mapping_attribute(None).key.as_str(), "mapping");
     }
 
     #[test]

@@ -1,0 +1,86 @@
+# Prometheus alerting rules for the local observability stack.
+#
+# This file is mounted into the Prometheus container at /etc/prometheus/alerts.yaml
+# (see docker-compose.observability.yml). Override the host path with the
+# PROMETHEUS_ALERTS_FILE variable in docker/.env to use your own rules file.
+#
+# Metrics exported by Nexus arrive via the OpenTelemetry Collector's Prometheus
+# remote-write exporter. OTLP dot-separated names are translated to underscores
+# (e.g. `neo4j.query.errors` -> `neo4j_query_errors_total`) and `service.name`
+# becomes the `service_name` label.
+#
+# Reload without restarting the container:
+#   curl -X POST http://localhost:9090/-/reload
+groups:
+  - name: nexus
+    rules:
+      - alert: NexusNeo4jQueryErrors
+        expr: sum(rate(neo4j_query_errors_total[5m])) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Nexus is reporting Neo4j query errors"
+          description: "{{ $value | printf \"%.2f\" }} Neo4j query errors/s over the last 5 minutes."
+
+      - alert: NexusWatcherCursorStalled
+        expr: increase(watcher_primary_hs_cursor_stalled_total[15m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Nexus watcher cursor is stalled"
+          description: "The primary homeserver cursor did not advance during the last 15 minutes."
+
+      # Onset: most previously-active mappings the resolver touched in the last
+      # 15m could not be resolved, whether PKDNS returned nothing or the lookup
+      # errored. Scoped to mapping="active" because unbound users with no
+      # published record are re-resolved on every tick and would otherwise
+      # dominate the ratio; active mappings are visited once per TTL and are the
+      # ones whose flip pauses indexing. Marks onset, not duration: when the
+      # outage surfaces as `unresolved` each active mapping is flipped stale on
+      # its visit, so this clears once every active mapping has come due (one
+      # hs_resolver_ttl or more into the outage), not when PKDNS recovers.
+      # NexusHsResolverStaleRatio is the "still broken" signal.
+      - alert: NexusHsResolverUnresolvedRatio
+        expr: |
+          sum(increase(nexus_task_hs_resolver_resolutions_total{mapping="active",outcome!="resolved"}[15m]))
+            / sum(increase(nexus_task_hs_resolver_resolutions_total{mapping="active"}[15m])) > 0.5
+          and sum(increase(nexus_task_hs_resolver_resolutions_total{mapping="active"}[15m])) > 10
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Nexus HS resolver is failing to resolve active mappings"
+          description: "{{ $value | humanizePercentage }} of previously-active user->HS mappings visited in the last 15 minutes could not be resolved; affected users stop being indexed."
+
+      # Blast radius: a meaningful share of mapped users is not being indexed.
+      # Clears only as stale users are re-resolved, up to hs_resolver_ttl after
+      # PKDNS recovers.
+      - alert: NexusHsResolverStaleRatio
+        expr: |
+          max(nexus_task_hs_resolver_stale_users) / max(nexus_task_hs_resolver_mapped_users) > 0.05
+          and max(nexus_task_hs_resolver_stale_users) > 10
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Nexus HS resolver has marked many users stale"
+          description: "{{ $value | humanizePercentage }} of mapped users have a stale HS mapping and are not being indexed."
+
+      # Silent resolver: no progress recently. Gauges keep exporting their last
+      # value while the process is alive, so only the heartbeat reveals a task
+      # that hangs or stops ticking; the `absent` half covers a dead process.
+      # `for` keeps it quiet during the first export interval after a restart.
+      # 900s is ~90 ticks at the default hs_resolver_interval_ms; scale it if
+      # you raise the interval.
+      - alert: NexusHsResolverSilent
+        expr: |
+          time() - max(nexus_task_hs_resolver_heartbeat_timestamp_seconds) > 900
+          or absent(nexus_task_hs_resolver_heartbeat_timestamp_seconds)
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Nexus HS resolver has made no progress"
+          description: "The HS resolver heartbeat has not advanced for more than 15 minutes (or is absent); user->HS mappings are not being refreshed."
