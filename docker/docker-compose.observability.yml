@@ -50,8 +50,11 @@ services:
       - '--storage.tsdb.path=/prometheus'
       - '--storage.tsdb.retention.time=24h'
       - '--web.enable-remote-write-receiver'
+      - '--web.enable-lifecycle'
     volumes:
       - ./otel/prometheus.yaml:/etc/prometheus/prometheus.yml:ro
+      # Alerting rules; override the host path via PROMETHEUS_ALERTS_FILE in docker/.env
+      - ${PROMETHEUS_ALERTS_FILE:-./otel/alerts.yaml}:/etc/prometheus/alerts.yaml:ro
       - prometheus_data:/prometheus
     ports:
       - 127.0.0.1:9090:9090

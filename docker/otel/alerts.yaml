@@ -1,0 +1,33 @@
+# Prometheus alerting rules for the local observability stack.
+#
+# This file is mounted into the Prometheus container at /etc/prometheus/alerts.yaml
+# (see docker-compose.observability.yml). Override the host path with the
+# PROMETHEUS_ALERTS_FILE variable in docker/.env to use your own rules file.
+#
+# Metrics exported by Nexus arrive via the OpenTelemetry Collector's Prometheus
+# remote-write exporter. OTLP dot-separated names are translated to underscores
+# (e.g. `neo4j.query.errors` -> `neo4j_query_errors_total`) and `service.name`
+# becomes the `service_name` label.
+#
+# Reload without restarting the container:
+#   curl -X POST http://localhost:9090/-/reload
+groups:
+  - name: nexus
+    rules:
+      - alert: NexusNeo4jQueryErrors
+        expr: sum(rate(neo4j_query_errors_total[5m])) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Nexus is reporting Neo4j query errors"
+          description: "{{ $value | printf \"%.2f\" }} Neo4j query errors/s over the last 5 minutes."
+
+      - alert: NexusWatcherCursorStalled
+        expr: increase(watcher_primary_hs_cursor_stalled_total[15m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Nexus watcher cursor is stalled"
+          description: "The primary homeserver cursor did not advance during the last 15 minutes."
