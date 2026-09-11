@@ -1055,6 +1055,15 @@ mod tests {
         create_test_user(&user_id).await?;
         set_user_homeserver(&user_id, &stored_hs).await?;
 
+        // Backdate the mapping (2 hours ago) so the user is due for resolution
+        let backdate_query = Query::new(
+            "backdate_hs_mapping",
+            "MATCH (u:User {id: $user_id})-[r:HOSTED_BY]->(:Homeserver)
+             SET r.resolved_at = timestamp() - 7200000",
+        )
+        .param("user_id", user_id.as_str());
+        exec_single_row(backdate_query).await?;
+
         let outcome = resolve_user(&FailingResolver, &user_pk).await?;
         assert_eq!(
             outcome,
@@ -1069,6 +1078,12 @@ mod tests {
                 hs_id: stored_hs.to_string(),
                 stale: false,
             })
+        );
+        assert!(
+            get_users_needing_resolution(3_600_000)
+                .await?
+                .contains(&user_id),
+            "a failed lookup must not refresh resolved_at, or recovery waits a full TTL"
         );
 
         cleanup_test_user(&user_id).await?;
