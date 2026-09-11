@@ -198,6 +198,12 @@ stay quiet on tiny deployments:
 # Scoped to mapping="active" because unbound users with no published record
 # are re-resolved on every tick and would otherwise dominate the ratio; active
 # mappings are visited once per TTL and are the ones whose flip pauses indexing.
+# This alert marks onset, not duration. When the outage surfaces as
+# `unresolved` (always on pubky 0.9.3), each active mapping is flipped stale on
+# its visit, so the alert clears once every active mapping has come due (one
+# hs_resolver_ttl or more into the outage), not when PKDNS recovers.
+# NexusHsResolverStaleRatio is the "still broken" signal; it clears only as
+# stale users are re-resolved, up to hs_resolver_ttl after recovery.
 - alert: NexusHsResolverUnresolvedRatio
   expr: |
     sum(increase(nexus_task_hs_resolver_resolutions_total{mapping="active",outcome!="resolved"}[15m]))
