@@ -187,48 +187,30 @@ realigns. The resolver exports these metrics to catch this:
 | `nexus.task.hs-resolver.stale_users` | gauge | Subset of `mapped_users` whose mapping is currently stale. |
 | `nexus.task.hs-resolver.heartbeat_timestamp` | gauge, unit `s` | Unix time of the resolver's most recent progress: a user handled or a run finished. |
 
-Suggested Prometheus alerts (names as translated by the Prometheus exporter;
-under SigNoz drop the `_total` / `_seconds` suffixes). The first two are ratios
-with an absolute floor, so they need no retuning as the user base grows and
-stay quiet on tiny deployments:
+Prometheus alerting rules for these metrics live in
+[`docker/otel/alerts.yaml`](../docker/otel/alerts.yaml), loaded by the local
+observability stack (metric names as translated by the Prometheus exporter;
+under SigNoz drop the `_total` / `_seconds` suffixes):
 
-```yaml
-# Onset: most previously-active mappings the resolver touched in the last 15m
-# could not be resolved, whether PKDNS returned nothing or the lookup errored.
-# Scoped to mapping="active" because unbound users with no published record
-# are re-resolved on every tick and would otherwise dominate the ratio; active
-# mappings are visited once per TTL and are the ones whose flip pauses indexing.
-# This alert marks onset, not duration. When the outage surfaces as
-# `unresolved` (always on pubky 0.9.3), each active mapping is flipped stale on
-# its visit, so the alert clears once every active mapping has come due (one
-# hs_resolver_ttl or more into the outage), not when PKDNS recovers.
-# NexusHsResolverStaleRatio is the "still broken" signal; it clears only as
-# stale users are re-resolved, up to hs_resolver_ttl after recovery.
-- alert: NexusHsResolverUnresolvedRatio
-  expr: |
-    sum(increase(nexus_task_hs_resolver_resolutions_total{mapping="active",outcome!="resolved"}[15m]))
-      / sum(increase(nexus_task_hs_resolver_resolutions_total{mapping="active"}[15m])) > 0.5
-    and sum(increase(nexus_task_hs_resolver_resolutions_total{mapping="active"}[15m])) > 10
-  for: 0m
+- `NexusHsResolverUnresolvedRatio` — onset: most previously-active mappings the
+  resolver touched recently could not be resolved. Scoped to `mapping="active"`
+  because unbound users with no published record are re-resolved on every tick
+  and would otherwise dominate the ratio. It marks onset, not duration: when the
+  outage surfaces as `unresolved` (always on pubky 0.9.3), each active mapping
+  is flipped stale on its visit, so the alert clears once every active mapping
+  has come due (one `hs_resolver_ttl` or more into the outage), not when PKDNS
+  recovers.
+- `NexusHsResolverStaleRatio` — blast radius, the "still broken" signal: a
+  meaningful share of mapped users is not being indexed. Clears only as stale
+  users are re-resolved, up to `hs_resolver_ttl` after recovery.
+- `NexusHsResolverSilent` — no resolver progress. Gauges keep exporting their
+  last value while the process is alive, so only the heartbeat reveals a task
+  that hangs or stops ticking; the `absent` half covers a dead process. The
+  threshold assumes the default `hs_resolver_interval_ms`; scale it if you
+  raise the interval.
 
-# Blast radius: a meaningful share of mapped users is not being indexed.
-- alert: NexusHsResolverStaleRatio
-  expr: |
-    max(nexus_task_hs_resolver_stale_users) / max(nexus_task_hs_resolver_mapped_users) > 0.05
-    and max(nexus_task_hs_resolver_stale_users) > 10
-  for: 10m
-
-# Silent resolver: no progress recently. Gauges keep exporting their last
-# value while the process is alive, so only the heartbeat reveals a task that
-# hangs or stops ticking; the `absent` half covers a dead process. `for` keeps
-# it quiet during the first export interval after a restart. 900s is ~90 ticks
-# at the default `hs_resolver_interval_ms`; scale it if you raise the interval.
-- alert: NexusHsResolverSilent
-  expr: |
-    time() - max(nexus_task_hs_resolver_heartbeat_timestamp_seconds) > 900
-    or absent(nexus_task_hs_resolver_heartbeat_timestamp_seconds)
-  for: 2m
-```
+The two ratio alerts carry an absolute floor, so they need no retuning as the
+user base grows and stay quiet on tiny deployments.
 
 A burst of `marked_stale{reason="hs_changed"}` is usually a real migration, not
 an outage, and is worth a lower-severity notification.
