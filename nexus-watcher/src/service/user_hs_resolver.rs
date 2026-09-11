@@ -143,28 +143,31 @@ pub async fn run(
                 let (outcome, mapping) = match result {
                     // Graph read or write failed: a Neo4j problem, not a resolution one.
                     Err(e) => {
-                        failed += 1;
-                        warn!(%user_id, "Failed to resolve HS: {e}");
-                        ("error", KeyValue::new("mapping", "unknown"))
+                        warn!(%user_id, error = %e, "Failed to read or update HS mapping");
+                        (Outcome::Error, None)
                     }
                     Ok(resolution) => {
                         if let Some(reason) = resolution.newly_stale() {
                             HS_RESOLVER_METRICS.marked_stale.add(1, &[reason.attribute()]);
                         }
                         let outcome = resolution.outcome();
-                        // Anything short of a resolved HS is a failure for the run summary.
-                        if outcome != "resolved" {
-                            failed += 1;
-                        }
-                        if outcome == "unresolved" {
+                        if outcome == Outcome::Unresolved {
                             warn!(%user_id, "PKDNS lookup found no HS");
                         }
-                        (outcome, resolution.mapping().attribute())
+                        (outcome, Some(resolution.mapping()))
                     }
                 };
-                HS_RESOLVER_METRICS
-                    .resolutions
-                    .add(1, &[KeyValue::new("outcome", outcome), mapping]);
+                // Anything short of a resolved HS is a failure for the run summary.
+                if outcome != Outcome::Resolved {
+                    failed += 1;
+                }
+                HS_RESOLVER_METRICS.resolutions.add(
+                    1,
+                    &[
+                        KeyValue::new("outcome", outcome.as_str()),
+                        mapping_attribute(mapping),
+                    ],
+                );
                 HS_RESOLVER_METRICS.record_heartbeat();
             }
         }
@@ -281,14 +284,39 @@ impl MappingState {
             Some(_) => Self::Active,
         }
     }
+}
 
-    fn attribute(self) -> KeyValue {
-        let mapping = match self {
-            Self::Unbound => "unbound",
-            Self::Active => "active",
-            Self::Stale => "stale",
-        };
-        KeyValue::new("mapping", mapping)
+/// `mapping` attribute of the `resolutions` counter. `None` is exported as
+/// `unknown`: the graph read or write failed before the state was known.
+fn mapping_attribute(mapping: Option<MappingState>) -> KeyValue {
+    let mapping = match mapping {
+        Some(MappingState::Unbound) => "unbound",
+        Some(MappingState::Active) => "active",
+        Some(MappingState::Stale) => "stale",
+        None => "unknown",
+    };
+    KeyValue::new("mapping", mapping)
+}
+
+/// How a resolution ended, as exported in the `outcome` attribute of the
+/// `resolutions` counter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Outcome {
+    /// PKDNS returned a homeserver.
+    Resolved,
+    /// PKDNS returned none; on pubky 0.9.3 DHT and relay failures surface this way too.
+    Unresolved,
+    /// The lookup failed (pubky 0.10+ surfaces transport errors) or the graph read/write failed.
+    Error,
+}
+
+impl Outcome {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Resolved => "resolved",
+            Self::Unresolved => "unresolved",
+            Self::Error => "error",
+        }
     }
 }
 
@@ -315,22 +343,20 @@ enum Resolution {
 }
 
 impl Resolution {
-    /// `outcome` label: whether PKDNS returned a homeserver. On pubky 0.9.3
-    /// DHT and relay failures also surface as `unresolved`, since the client
-    /// swallows them into `None`.
-    fn outcome(self) -> &'static str {
+    /// `outcome` label: whether PKDNS returned a homeserver.
+    fn outcome(self) -> Outcome {
         match self {
-            Self::Bound | Self::Confirmed { .. } => "resolved",
+            Self::Bound | Self::Confirmed { .. } => Outcome::Resolved,
             Self::Diverged {
                 reason: StaleReason::HsChanged,
                 ..
-            } => "resolved",
+            } => Outcome::Resolved,
             Self::Unbound
             | Self::Diverged {
                 reason: StaleReason::Unresolved,
                 ..
-            } => "unresolved",
-            Self::LookupFailed { .. } => "error",
+            } => Outcome::Unresolved,
+            Self::LookupFailed { .. } => Outcome::Error,
         }
     }
 
@@ -381,7 +407,7 @@ async fn resolve_user(
     let maybe_resolved_hs_id = match resolver.resolve_homeserver(user_pk).await {
         Ok(resolved) => resolved,
         Err(e) => {
-            warn!(%user_id, "PKDNS lookup failed: {e}");
+            warn!(%user_id, error = %e, "PKDNS lookup failed");
             return Ok(Resolution::LookupFailed {
                 mapping: MappingState::of(&stored_mapping),
             });
@@ -1084,43 +1110,43 @@ mod tests {
 
         let diverged = |reason, was_stale| Resolution::Diverged { reason, was_stale };
         let cases = [
-            (Resolution::Unbound, "unresolved", Unbound, None),
-            (Resolution::Bound, "resolved", Unbound, None),
+            (Resolution::Unbound, Outcome::Unresolved, Unbound, None),
+            (Resolution::Bound, Outcome::Resolved, Unbound, None),
             (
                 Resolution::Confirmed { was_stale: false },
-                "resolved",
+                Outcome::Resolved,
                 Active,
                 None,
             ),
             (
                 Resolution::Confirmed { was_stale: true },
-                "resolved",
+                Outcome::Resolved,
                 Stale,
                 None,
             ),
             (
                 diverged(Unresolved, false),
-                "unresolved",
+                Outcome::Unresolved,
                 Active,
                 Some(Unresolved),
             ),
             (
                 diverged(HsChanged, false),
-                "resolved",
+                Outcome::Resolved,
                 Active,
                 Some(HsChanged),
             ),
-            (diverged(Unresolved, true), "unresolved", Stale, None),
-            (diverged(HsChanged, true), "resolved", Stale, None),
+            (diverged(Unresolved, true), Outcome::Unresolved, Stale, None),
+            (diverged(HsChanged, true), Outcome::Resolved, Stale, None),
             (
                 Resolution::LookupFailed { mapping: Active },
-                "error",
+                Outcome::Error,
                 Active,
                 None,
             ),
             (
                 Resolution::LookupFailed { mapping: Unbound },
-                "error",
+                Outcome::Error,
                 Unbound,
                 None,
             ),
@@ -1131,6 +1157,21 @@ mod tests {
             assert_eq!(resolution.mapping(), mapping, "{resolution:?}");
             assert_eq!(resolution.newly_stale(), newly_stale, "{resolution:?}");
         }
+    }
+
+    /// The exported label strings are part of the alerting contract; pin them.
+    #[test]
+    fn test_outcome_and_mapping_label_strings() {
+        assert_eq!(Outcome::Resolved.as_str(), "resolved");
+        assert_eq!(Outcome::Unresolved.as_str(), "unresolved");
+        assert_eq!(Outcome::Error.as_str(), "error");
+
+        let label = |mapping| mapping_attribute(mapping).value.to_string();
+        assert_eq!(label(Some(MappingState::Unbound)), "unbound");
+        assert_eq!(label(Some(MappingState::Active)), "active");
+        assert_eq!(label(Some(MappingState::Stale)), "stale");
+        assert_eq!(label(None), "unknown");
+        assert_eq!(mapping_attribute(None).key.as_str(), "mapping");
     }
 
     #[test]
