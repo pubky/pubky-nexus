@@ -510,24 +510,21 @@ pub fn get_homeserver_by_id(id: &str) -> Query {
 /// Retrieves all homeserver IDs that have at least one active user
 /// (incoming `HOSTED_BY` relationships from `User` nodes).
 ///
-/// Sorted by aggregate hosted trust descending, then by active user count, then
-/// by id. The caller truncates this list, so the order decides which homeservers
-/// get polled at all: ranking by hosted trust spends a bounded polling budget on
+/// Sorted by aggregate hosted trust descending, then by active user count.
+/// The caller truncates this list, so the order decides which homeservers get
+/// polled at all: ranking by hosted trust spends a bounded polling budget on
 /// the homeservers whose users are expensive to fake, rather than on whichever
-/// one registered the most keys. Be precise about what that means: because the
-/// caller truncates, ranking past the cut is exclusion rather than delay — such a
-/// homeserver is not polled on any run until its trust or user count changes. A
-/// round-robin floor in the caller would turn it back into delay; there is none
-/// today.
+/// one registered the most keys.
+///
+/// Homeservers with equal trust and equal user count are deliberately left in
+/// no particular order: with no tiebreak, which of them lands past the cut can
+/// vary from run to run, so a tie straddling the limit is shared out rather
+/// than always falling on the same homeserver.
 ///
 /// `coalesce(u.trust, 0.0)` matters for the default install: `[trust_rank] seed`
 /// ships empty, so no user carries trust, every sum is 0.0, and the ordering
 /// falls through to `active_users` — exactly today's behaviour. The trust term
 /// only starts doing work once an operator configures a seed set.
-///
-/// The `id` tiebreak is what makes truncation deterministic; without it two
-/// homeservers with equal trust and equal user counts could swap places between
-/// runs and change which ones fall outside the limit.
 ///
 /// Returns a single `homeservers_list` column containing the collected IDs.
 pub fn get_all_homeservers_with_active_users() -> Query {
@@ -538,7 +535,7 @@ pub fn get_all_homeservers_with_active_users() -> Query {
         WITH hs.id AS id,
              sum(coalesce(u.trust, 0.0)) AS hosted_trust,
              count(u) AS active_users
-        ORDER BY hosted_trust DESC, active_users DESC, id ASC
+        ORDER BY hosted_trust DESC, active_users DESC
         RETURN collect(id) AS homeservers_list",
     )
 }
