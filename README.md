@@ -158,7 +158,7 @@ Validate a rules file before mounting it:
 docker run --rm -v "$PWD/docker/otel:/rules:ro" --entrypoint promtool prom/prometheus:v2.55.1 check rules /rules/alerts.yaml
 ```
 
-Active alerts are listed at [http://localhost:9090/alerts](http://localhost:9090/alerts) and in Grafana under Alerting.
+Active alerts are listed at [http://localhost:9090/alerts](http://localhost:9090/alerts). Grafana also shows them under **Alerting > Alert rules** as data source-managed rules of the Prometheus datasource.
 
 ### SigNoz
 
