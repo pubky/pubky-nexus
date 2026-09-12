@@ -1027,6 +1027,311 @@ async fn key_based_batch_preserves_partial_progress_on_shutdown() -> Result<(), 
     Ok(())
 }
 
+/// Verifies a 404 on a single-user recovery fetch records the per-user backoff
+/// and returns empty events, leaving `backed_off_users` for the caller to skip
+/// `record_success`.
+#[tokio_shared_rt::test(shared)]
+async fn key_based_recovery_404_single_user_records_backoff() -> Result<(), DynError> {
+    setup().await?;
+
+    let (_hs_keypair, hs) = create_homeserver().await?;
+    let user_id = create_user_on_homeserver(&hs).await?;
+    let user_pk: PublicKey = user_id.parse()?;
+
+    let source = Arc::new(
+        MockKeyBasedEventSource::default().with_results(vec![Err(user_not_found_error())]),
+    );
+    let (processor, backoff) = recovery_processor(&hs, source.clone());
+
+    let fetch = processor
+        .fetch_events_with_404_recovery(
+            &hs.id.to_public_key(),
+            &[(&user_pk, Some(EventCursor::new(0)))],
+        )
+        .await?;
+
+    assert!(fetch.events.is_empty());
+    assert_eq!(fetch.backed_off_users, vec![user_pk.clone()]);
+    // Backoff was recorded: the user should be skipped on the next run.
+    assert!(backoff.consume_skip(&user_pk).await);
+    assert_eq!(source.calls().await.len(), 1);
+
+    Ok(())
+}
+
+/// Verifies a 404 on a multi-user batch is binary-split down to the single
+/// missing user: healthy sub-batches still return their events, and only the
+/// missing user is recorded into the backoff.
+#[tokio_shared_rt::test(shared)]
+async fn key_based_recovery_isolates_missing_user_in_batch() -> Result<(), DynError> {
+    setup().await?;
+
+    let (_hs_keypair, hs) = create_homeserver().await?;
+
+    // 10 users in the batch; the user at index 7 is missing on the HS.
+    let mut user_pks = Vec::new();
+    let mut user_ids = Vec::new();
+    for _ in 0..10 {
+        let user_id = create_user_on_homeserver(&hs).await?;
+        user_pks.push(user_id.parse::<PublicKey>()?);
+        user_ids.push(user_id);
+    }
+
+    // Depth-first fetch order of the split worklist for batch [0..10]:
+    //   [0..10] 404 -> [0..5] ok, then [5..10] 404 -> [5..7] ok,
+    //   then [7..10] 404 -> [7..8] 404 (leaf, missing), [8..10] ok.
+    let source = Arc::new(MockKeyBasedEventSource::default().with_results(vec![
+        Err(user_not_found_error()), // [0..10]
+        Ok(vec![
+            stream_event(1, &user_ids[0], "/pub/pubky.app/profile.json")?,
+            stream_event(2, &user_ids[4], "/pub/pubky.app/profile.json")?,
+        ]), // [0..5]
+        Err(user_not_found_error()), // [5..10]
+        Ok(vec![stream_event(
+            3,
+            &user_ids[5],
+            "/pub/pubky.app/profile.json",
+        )?]), // [5..7]
+        Err(user_not_found_error()), // [7..10]
+        Err(user_not_found_error()), // [7..8] — the missing user leaf
+        Ok(vec![stream_event(
+            4,
+            &user_ids[9],
+            "/pub/pubky.app/profile.json",
+        )?]), // [8..10]
+    ]));
+    let (processor, backoff) = recovery_processor(&hs, source.clone());
+
+    let user_entries: Vec<(&PublicKey, Option<EventCursor>)> = user_pks
+        .iter()
+        .map(|pk| (pk, Some(EventCursor::new(0))))
+        .collect();
+    let fetch = processor
+        .fetch_events_with_404_recovery(&hs.id.to_public_key(), &user_entries)
+        .await?;
+
+    // Only the missing user was isolated and recorded.
+    assert_eq!(fetch.backed_off_users, vec![user_pks[7].clone()]);
+    assert!(backoff.consume_skip(&user_pks[7]).await);
+    for (i, pk) in user_pks.iter().enumerate() {
+        if i != 7 {
+            assert!(
+                !backoff.consume_skip(pk).await,
+                "healthy user {i} must not be backed off"
+            );
+        }
+    }
+
+    // Events from all three healthy sub-batches were returned, in fetch order.
+    let handled_cursors: Vec<u64> = fetch.events.iter().map(|e| e.cursor.id()).collect();
+    assert_eq!(handled_cursors, vec![1, 2, 3, 4]);
+
+    // 7 fetches: full batch + 2 first-level halves + 2 second-level + 2 third-level leaves.
+    assert_eq!(source.batch_calls().await.len(), 7);
+
+    Ok(())
+}
+
+/// Verifies that successful split responses cannot include events owned by a
+/// user requested only by a different split sub-batch.
+#[tokio_shared_rt::test(shared)]
+async fn key_based_recovery_rejects_event_from_other_split_sub_batch() -> Result<(), DynError> {
+    setup().await?;
+
+    let (_hs_keypair, hs) = create_homeserver().await?;
+    let mut user_pks = Vec::new();
+    let mut user_ids = Vec::new();
+    for _ in 0..4 {
+        let user_id = create_user_on_homeserver(&hs).await?;
+        user_pks.push(user_id.parse::<PublicKey>()?);
+        user_ids.push(user_id);
+    }
+
+    // [A, B, C, D] 404s, then [A, B] incorrectly returns an event for C.
+    let source = Arc::new(MockKeyBasedEventSource::default().with_results(vec![
+        Err(user_not_found_error()),
+        Ok(vec![stream_event(
+            1,
+            &user_ids[2],
+            "/pub/pubky.app/profile.json",
+        )?]),
+    ]));
+    let (processor, _backoff) = recovery_processor(&hs, source.clone());
+    let user_entries: Vec<(&PublicKey, Option<EventCursor>)> = user_pks
+        .iter()
+        .map(|pk| (pk, Some(EventCursor::new(0))))
+        .collect();
+
+    let err = processor
+        .fetch_events_with_404_recovery(&hs.id.to_public_key(), &user_entries)
+        .await
+        .expect_err("an event owner outside the split request must reject recovery");
+
+    assert!(matches!(
+        err,
+        EventProcessorError::BatchProcessingError(BatchProcessingError::UnexpectedBatchUser { .. })
+    ));
+    // Recovery stops at the malformed [A, B] response rather than fetching [C, D].
+    assert_eq!(source.batch_calls().await.len(), 2);
+
+    Ok(())
+}
+
+/// Verifies every split `/events-stream` request keeps the configured limit,
+/// including one-user leaves, and that recovery retains every successful response.
+#[tokio_shared_rt::test(shared)]
+async fn key_based_recovery_keeps_per_request_limit_after_split() -> Result<(), DynError> {
+    setup().await?;
+
+    let (_hs_keypair, hs) = create_homeserver().await?;
+    let user_a_id = create_user_on_homeserver(&hs).await?;
+    let user_b_id = create_user_on_homeserver(&hs).await?;
+    let user_a_pk: PublicKey = user_a_id.parse()?;
+    let user_b_pk: PublicKey = user_b_id.parse()?;
+    let limit = 2;
+
+    // [A, B] 404s, then each one-user leaf returns its full per-request limit.
+    let source = Arc::new(MockKeyBasedEventSource::default().with_results(vec![
+        Err(user_not_found_error()),
+        Ok(vec![
+            stream_event(1, &user_a_id, "/pub/pubky.app/profile.json")?,
+            stream_event(2, &user_a_id, "/pub/pubky.app/profile.json")?,
+        ]),
+        Ok(vec![
+            stream_event(3, &user_b_id, "/pub/pubky.app/profile.json")?,
+            stream_event(4, &user_b_id, "/pub/pubky.app/profile.json")?,
+        ]),
+    ]));
+    let processor = processor_with_limit(
+        Homeserver::new(hs.id.clone()),
+        create_mock_handler(Ok(()), None),
+        source.clone(),
+        limit,
+    );
+
+    let fetch = processor
+        .fetch_events_with_404_recovery(
+            &hs.id.to_public_key(),
+            &[
+                (&user_a_pk, Some(EventCursor::new(0))),
+                (&user_b_pk, Some(EventCursor::new(0))),
+            ],
+        )
+        .await?;
+
+    let fetched_cursors: Vec<u64> = fetch.events.iter().map(|event| event.cursor.id()).collect();
+    assert_eq!(fetched_cursors, vec![1, 2, 3, 4]);
+    let calls = source.batch_calls().await;
+    assert_eq!(calls.len(), 3);
+    assert_eq!(
+        calls
+            .iter()
+            .map(|call| call.users.len())
+            .collect::<Vec<_>>(),
+        vec![2, 1, 1]
+    );
+    assert!(calls.iter().all(|call| call.limit == limit));
+
+    Ok(())
+}
+
+/// Verifies a batch where every user 404s: the split walks all leaves, records
+/// backoff for every user, and returns an empty event list without failing.
+#[tokio_shared_rt::test(shared)]
+async fn key_based_recovery_all_users_missing_records_all() -> Result<(), DynError> {
+    setup().await?;
+
+    let (_hs_keypair, hs) = create_homeserver().await?;
+
+    let mut user_pks = Vec::new();
+    for _ in 0..8 {
+        let user_id = create_user_on_homeserver(&hs).await?;
+        user_pks.push(user_id.parse::<PublicKey>()?);
+    }
+
+    // Full binary tree over 8 leaves: 8 + 4 + 2 + 1 = 15 fetches, all 404.
+    let source =
+        Arc::new(
+            MockKeyBasedEventSource::default().with_results(vec![Err(user_not_found_error()); 15]),
+        );
+    let (processor, backoff) = recovery_processor(&hs, source.clone());
+
+    let user_entries: Vec<(&PublicKey, Option<EventCursor>)> = user_pks
+        .iter()
+        .map(|pk| (pk, Some(EventCursor::new(0))))
+        .collect();
+    let fetch = processor
+        .fetch_events_with_404_recovery(&hs.id.to_public_key(), &user_entries)
+        .await?;
+
+    assert!(fetch.events.is_empty());
+    assert_eq!(fetch.backed_off_users.len(), 8);
+    for pk in &user_pks {
+        assert!(
+            backoff.consume_skip(pk).await,
+            "user {pk} must be backed off"
+        );
+    }
+    assert_eq!(source.batch_calls().await.len(), 15);
+
+    Ok(())
+}
+
+/// Verifies 429 exhaustion inside a split sub-batch propagates
+/// `HsEventsStreamRateLimitExhausted` and aborts without fetching further
+/// pending sub-batches.
+#[tokio_shared_rt::test(shared)]
+async fn key_based_recovery_429_exhaustion_aborts_pending_splits() -> Result<(), DynError> {
+    setup().await?;
+
+    let (_hs_keypair, hs) = create_homeserver().await?;
+
+    let user_a_id = create_user_on_homeserver(&hs).await?;
+    let user_b_id = create_user_on_homeserver(&hs).await?;
+    let user_a_pk: PublicKey = user_a_id.parse()?;
+    let user_b_pk: PublicKey = user_b_id.parse()?;
+
+    // [A,B] 404 -> split; [A] hits 429 four times (1 initial + 3 retries) and
+    // exhausts; [B] is never fetched because the error aborts the worklist.
+    let source = Arc::new(MockKeyBasedEventSource::default().with_results(vec![
+        Err(user_not_found_error()),    // [A,B] — triggers the split
+        Err(too_many_requests_error()), // [A] attempt 1
+        Err(too_many_requests_error()), // [A] retry after 1s
+        Err(too_many_requests_error()), // [A] retry after 2s
+        Err(too_many_requests_error()), // [A] retry after 3s — exhausted
+    ]));
+    let (processor, backoff) = recovery_processor(&hs, source.clone());
+
+    let err = processor
+        .fetch_events_with_404_recovery(
+            &hs.id.to_public_key(),
+            &[
+                (&user_a_pk, Some(EventCursor::new(0))),
+                (&user_b_pk, Some(EventCursor::new(0))),
+            ],
+        )
+        .await
+        .expect_err("429 exhaustion must abort the recovery fetch");
+
+    assert!(
+        matches!(err, EventProcessorError::HsEventsStreamRateLimitExhausted),
+        "expected HsEventsStreamRateLimitExhausted, got {err:?}"
+    );
+
+    // 1 batch fetch (404) + 4 attempts on [A]; [B] never fetched.
+    let batch_calls = source.batch_calls().await;
+    assert_eq!(batch_calls.len(), 5);
+    assert_eq!(batch_calls[0].users.len(), 2);
+    for call in &batch_calls[1..] {
+        assert_eq!(call.users.len(), 1);
+    }
+    // No user was recorded as 404: the only 404 was on a multi-user sub-batch.
+    assert!(!backoff.consume_skip(&user_a_pk).await);
+    assert!(!backoff.consume_skip(&user_b_pk).await);
+
+    Ok(())
+}
+
 async fn create_homeserver() -> Result<(Keypair, Homeserver), DynError> {
     let keypair = Keypair::random();
     let homeserver_id = PubkyId::try_from(keypair.public_key().to_z32().as_str())?;
@@ -1156,6 +1461,23 @@ fn processor_with_backoff(
         user_not_found_backoff,
         HsBlacklist::default(),
     )
+}
+
+/// Builds a processor with a fresh mock handler and 404 backoff for
+/// `fetch_events_with_404_recovery` tests, returning both the processor and
+/// the shared backoff so the test can assert recorded failures.
+fn recovery_processor(
+    hs: &Homeserver,
+    source: Arc<MockKeyBasedEventSource>,
+) -> (Arc<KeyBasedEventProcessor>, Arc<UserNotFoundBackoff>) {
+    let backoff = Arc::new(UserNotFoundBackoff::default());
+    let processor = processor_with_backoff(
+        Homeserver::new(hs.id.clone()),
+        create_mock_handler(Ok(()), None),
+        source,
+        backoff.clone(),
+    );
+    (processor, backoff)
 }
 
 fn processor_with_limit(
