@@ -31,8 +31,8 @@ burst = 5
 homeserver = "8um71us3fyw6h8wbcxb5ar3rwusy1a6u49956ikzojg3gcwd1dty"
 # Maximum number of events to fetch per run from the primary homeserver (max: 1000)
 events_limit = 50
-# Maximum events per user per run for key-based (third-party) homeservers (max: 100)
-key_based_events_limit = 50
+# Maximum events per /events-stream request for key-based (third-party) homeservers (max: 1000)
+key_based_events_limit = 500
 # Maximum number of monitored external homeservers.
 monitored_homeservers_limit = 50
 primary_hs_monitoring_interval_ms = 5000
