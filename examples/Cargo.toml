@@ -11,6 +11,11 @@ path = "./api/main.rs"
 name = "watcher_example"
 path = "./watcher/main.rs"
 
+# Query performance audit dumper (see docker/bench-graph/).
+[[bin]]
+name = "graph-audit"
+path = "./graph_audit/main.rs"
+
 [dependencies]
 tokio = { workspace = true }
 nexus-common = { path = "../nexus-common" }
