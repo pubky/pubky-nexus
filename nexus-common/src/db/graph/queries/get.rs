@@ -510,15 +510,32 @@ pub fn get_homeserver_by_id(id: &str) -> Query {
 /// Retrieves all homeserver IDs that have at least one active user
 /// (incoming `HOSTED_BY` relationships from `User` nodes).
 ///
-/// The results are sorted by the number of active users in descending order.
+/// Sorted by aggregate hosted trust descending, then by active user count.
+/// The caller truncates this list, so the order decides which homeservers get
+/// polled at all: ranking by hosted trust spends a bounded polling budget on
+/// the homeservers whose users are expensive to fake, rather than on whichever
+/// one registered the most keys.
+///
+/// Homeservers with equal trust and equal user count are deliberately left in
+/// no particular order: with no tiebreak, which of them lands past the cut can
+/// vary from run to run, so a tie straddling the limit is shared out rather
+/// than always falling on the same homeserver.
+///
+/// `coalesce(u.trust, 0.0)` matters for the default install: `[trust_rank] seed`
+/// ships empty, so no user carries trust, every sum is 0.0, and the ordering
+/// falls through to `active_users` — exactly today's behaviour. The trust term
+/// only starts doing work once an operator configures a seed set.
+///
 /// Returns a single `homeservers_list` column containing the collected IDs.
 pub fn get_all_homeservers_with_active_users() -> Query {
     Query::new(
         "get_all_homeservers_with_active_users",
         "MATCH (u:User)-[r:HOSTED_BY]->(hs:Homeserver)
         WHERE u.name <> '[DELETED]' AND NOT coalesce(r.stale, false)
-        WITH hs.id AS id, count(u) AS active_users
-        ORDER BY active_users DESC
+        WITH hs.id AS id,
+             sum(coalesce(u.trust, 0.0)) AS hosted_trust,
+             count(u) AS active_users
+        ORDER BY hosted_trust DESC, active_users DESC
         RETURN collect(id) AS homeservers_list",
     )
 }
