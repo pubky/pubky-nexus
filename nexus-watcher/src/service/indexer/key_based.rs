@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     sync::{Arc, LazyLock},
     time::Duration,
 };
@@ -25,6 +25,9 @@ use crate::service::runner::UserNotFoundBackoff;
 use crate::service::user_hs_resolver;
 
 const FETCH_EVENTS_429_BACKOFF_SECS: [u64; 3] = [1, 2, 3];
+
+/// Max users a single `/events-stream` request can carry (SDK-enforced).
+pub const MAX_BATCH_USERS: usize = 50;
 
 /// Counter for per-user stream events an External HS returned at or below the
 /// ordering floor — a replay of already-indexed data, or a regression against an
@@ -195,43 +198,37 @@ impl TEventProcessor for KeyBasedEventProcessor {
 
         info!(user_count = users.len(), "Found users");
 
-        for (user_pk, cursor) in &users {
+        // Filter out users whose event fetch previously returned 404; they are
+        // skipped for an increasing number of runs (see `UserNotFoundBackoff`).
+        let mut active_users = Vec::with_capacity(users.len());
+        for (user_pk, cursor) in users {
             if *self.shutdown_rx.borrow() {
-                debug!("Shutdown detected; stopping user iteration");
+                debug!("Shutdown detected; stopping user filtering");
                 break;
             }
-            let user_id = user_pk.z32();
-
-            // Users whose event fetch previously returned 404 are skipped for an
-            // increasing number of runs (see `UserNotFoundBackoff`).
-            if self.user_not_found_backoff.consume_skip(user_pk).await {
-                debug!(
-                    %user_id, action = "skip_user",
-                    "Skipping user due to prior 404 (NotFound404) backoff",
-                );
+            if self.user_not_found_backoff.consume_skip(&user_pk).await {
+                debug!(user_id = %user_pk.z32(), action = "skip_user", "Skipping user due to 404 backoff");
                 continue;
             }
+            active_users.push((user_pk, cursor));
+        }
 
-            match self.process_user(&hs_pk, user_pk, *cursor).await {
-                Ok(()) => self.user_not_found_backoff.record_success(user_pk).await,
-                Err(err) => {
-                    if err.should_not_retry_now() {
-                        error!(
-                            %user_id, action = "abort_hs", ?err,
-                            "Got should-not-retry-now error while processing user; aborting homeserver run",
-                        );
-                        return Err(err);
-                    }
+        // Chunk into batches of up to 50 users; one /events-stream call per chunk.
+        for chunk in active_users.chunks(MAX_BATCH_USERS) {
+            if *self.shutdown_rx.borrow() {
+                debug!("Shutdown detected; stopping user batch iteration");
+                break;
+            }
 
-                    if err.is_not_found() {
-                        self.record_user_not_found(user_pk, &err).await;
-                    } else {
-                        error!(
-                            %user_id, action = "skip_user", ?err,
-                            "Got error while processing user; continuing with next user",
-                        );
-                    }
+            if let Err(err) = self.process_users(&hs_pk, chunk).await {
+                if err.should_not_retry_now() {
+                    error!(?err, "Fatal error during batch processing; aborting HS run");
+                    return Err(err);
                 }
+                error!(
+                    ?err,
+                    "Recoverable error during batch processing; continuing with next batch"
+                );
             }
         }
 
@@ -270,48 +267,103 @@ impl KeyBasedEventProcessor {
         Ok(users)
     }
 
-    /// Subscribes to the event stream for a single user and processes incoming events.
-    ///
-    /// Each user gets their own `limit` budget, ensuring fair progress regardless
-    /// of how many events other users have produced.
-    #[tracing::instrument(name = "dx.user_events.process", skip_all, fields(user_id = %user_pk.z32()))]
-    async fn process_user(
+    /// Fetches and processes events for a batch of users in a single
+    /// `/events-stream` call, with 404 recovery and batch-wide 429 backoff.
+    /// - Fetches with [`Self::fetch_events_with_404_recovery`] (binary-splits
+    ///   any missing-user 404s down to the offending leaf user and records only
+    ///   those users into the per-user backoff).
+    /// - Fan-outs the interleaved events to per-user handlers via
+    ///   [`Self::process_batch_events`], persisting each user's cursor.
+    /// - Propagates batch-atomic validation errors before per-user bookkeeping;
+    ///   these errors are detected before any handler or cursor write runs.
+    /// - Records `record_success` for users that completed without fatal error,
+    ///   clearing any stale 404 backoff.
+    /// - After recording every user's safe progress, propagates the first
+    ///   `should_not_retry_now` error so the caller can abort the HS run;
+    ///   recoverable per-user errors are logged and skipped.
+    #[tracing::instrument(name = "dx.batch_events.process", skip_all, fields(user_count = users.len()))]
+    async fn process_users(
         &self,
         hs_pk: &PublicKey,
-        user_pk: &PublicKey,
-        cursor: EventCursor,
+        users: &[(PublicKey, EventCursor)],
     ) -> Result<(), EventProcessorError> {
         let hs_id: &str = self.homeserver_id.as_ref();
-        // Single-user fetch: no split is possible, so go through the 429-backoff
-        // layer directly and let any 404 propagate to the caller, which records
-        // the per-user backoff. `fetch_events_with_404_recovery` (with its
-        // leaf-level backoff recording) is reserved for the multi-user path.
-        let stream_events = self
-            .fetch_batch_events_with_429_backoff(hs_pk, &[(user_pk, Some(cursor))])
+        let user_entries: Vec<(&PublicKey, Option<EventCursor>)> = users
+            .iter()
+            .map(|(pk, cursor)| (pk, Some(*cursor)))
+            .collect();
+
+        let fetch = self
+            .fetch_events_with_404_recovery(hs_pk, &user_entries)
             .await?;
 
-        let user_id = user_pk.z32();
-        let (latest_cursor, result) = self
-            .process_user_events(hs_id, &user_id, cursor.id(), stream_events)
-            .await;
+        // Convert to the `(&PublicKey, cursor_floor)` format expected by
+        // `process_batch_events`, keeping references into `users` alive.
+        let batch_users: Vec<(&PublicKey, u64)> =
+            users.iter().map(|(pk, cursor)| (pk, cursor.id())).collect();
+        let batch_results = self
+            .process_batch_events(&batch_users, fetch.events)
+            .await?;
 
-        if let Some(cursor_val) = latest_cursor {
-            if let Err(write_err) = UserHsCursor::write(&user_id, hs_id, cursor_val).await {
-                error!(
-                    %user_id, %cursor_val, ?write_err,
-                    "Best-effort cursor persist failed; events may be re-processed on next run",
-                );
+        // Users whose fetch 404'd were already recorded into the backoff by
+        // `fetch_events_with_404_recovery`; do NOT record success for them, or
+        // their fresh skip budget would be wiped. O(1) membership via HashSet
+        // instead of a per-user Vec scan.
+        let backed_off: HashSet<&PublicKey> = fetch.backed_off_users.iter().collect();
+
+        // `process_batch_events` has already run every user's handlers. Record
+        // every safe cursor and success before propagating the first fatal
+        // result, otherwise users ordered after it would repeat completed work.
+        let mut fatal_error = None;
+        for res in batch_results {
+            if backed_off.contains(&res.user_pk) {
+                continue;
+            }
+
+            let user_id = res.user_pk.z32();
+            if let Some(cursor_val) = res.latest_cursor {
+                if let Err(write_err) = UserHsCursor::write(&user_id, hs_id, cursor_val).await {
+                    error!(
+                        %user_id, %cursor_val, ?write_err,
+                        "Best-effort cursor persist failed; events may be re-processed on next run",
+                    );
+                }
+            }
+
+            match res.result {
+                Ok(()) => {
+                    self.user_not_found_backoff
+                        .record_success(&res.user_pk)
+                        .await;
+                }
+                Err(err) => {
+                    if err.should_not_retry_now() {
+                        error!(%user_id, ?err, "Fatal error processing user events in batch");
+                        if fatal_error.is_none() {
+                            fatal_error = Some(err);
+                        }
+                        continue;
+                    }
+                    error!(%user_id, ?err, "Recoverable error processing user events in batch; continuing");
+                }
             }
         }
 
-        result
+        match fatal_error {
+            Some(err) => Err(err),
+            None => Ok(()),
+        }
     }
 
     /// Processes already-fetched events for a batch of users from a single
     /// merged, interleaved event stream.
     ///
-    /// The incoming `stream_events` are expected to be ordered by event ID across
-    /// all users in the batch. This function:
+    /// Ordering note: after a 404 split, the concatenated event list is only
+    /// per-sub-batch ordered, not globally ordered by event ID. Per-user cursor
+    /// validation is unaffected because each user's events live in exactly one
+    /// sub-batch.
+    ///
+    /// The incoming `stream_events` may be interleaved across users. This function:
     /// 1. Validates that every event's `resource.owner` is in `users`. An event from
     ///    an unexpected user rejects the whole batch with
     ///    [`BatchProcessingError::UnexpectedBatchUser`] before any cursor advances.
@@ -366,16 +418,6 @@ impl KeyBasedEventProcessor {
         Ok(results)
     }
 
-    /// Records a 404 for `user_pk` into the per-user skip backoff and logs it
-    /// with the file's conventional `action = "skip_user"` fields.
-    async fn record_user_not_found(&self, user_pk: &PublicKey, err: &EventProcessorError) {
-        self.user_not_found_backoff.record_failure(user_pk).await;
-        warn!(
-            user_id = %user_pk.z32(), action = "skip_user", ?err,
-            "User event fetch returned 404; backing off this user for future runs",
-        );
-    }
-
     /// Fetches events for a batch of users, retrying 429s with the internal
     /// backoff schedule [`FETCH_EVENTS_429_BACKOFF_SECS`].
     ///
@@ -425,8 +467,8 @@ impl KeyBasedEventProcessor {
     /// the offender. To keep the per-user 404 backoff fair without giving up
     /// batching, a 404 on a multi-user batch is split in half and each half
     /// retried independently. Once a 404 surfaces on a single-user leaf, the
-    /// user is recorded via [`Self::record_user_not_found`] and contributes an
-    /// empty event list so the healthy parts of the batch still proceed.
+    /// user's backoff is updated and it contributes an empty event list so the
+    /// healthy parts of the batch still proceed.
     ///
     /// Implemented iteratively with an explicit worklist — equivalent to the
     /// natural recursion but without pulling in an `async_recursion` macro
@@ -437,6 +479,12 @@ impl KeyBasedEventProcessor {
     ///
     /// Non-404 errors propagate immediately. 429 exhaustion inside a
     /// sub-batch also propagates, aborting the homeserver run.
+    ///
+    /// Shutdown is checked between worklist iterations; if signaled, the
+    /// already-fetched events and 404-recorded users are returned as partial
+    /// results (consistent with `process_batch_events`'s partial-progress-on-
+    /// shutdown semantics). Processed user cursors remain valid because the
+    /// per-user floor check is independent of other users' fetch order.
     pub async fn fetch_events_with_404_recovery(
         &self,
         hs_pk: &PublicKey,
@@ -455,6 +503,11 @@ impl KeyBasedEventProcessor {
         let mut pending: VecDeque<(usize, usize)> = VecDeque::from([(0, users.len())]);
 
         while let Some((start, end)) = pending.pop_front() {
+            if *self.shutdown_rx.borrow() {
+                debug!("Shutdown detected; aborting 404-recovery worklist and returning partial results");
+                break;
+            }
+
             let batch = &users[start..end];
 
             match self.fetch_batch_events_with_429_backoff(hs_pk, batch).await {
@@ -474,7 +527,11 @@ impl KeyBasedEventProcessor {
                 Err(err) if err.is_not_found() => {
                     if batch.len() == 1 {
                         let (user_pk, _) = batch[0];
-                        self.record_user_not_found(user_pk, &err).await;
+                        self.user_not_found_backoff.record_failure(user_pk).await;
+                        warn!(
+                            user_id = %user_pk.z32(), action = "skip_user", ?err,
+                            "User event fetch returned 404; backing off this user for future runs",
+                        );
                         // Missing user contributes no events; continue with the rest.
                         backed_off_users.push((*user_pk).clone());
                     } else {
@@ -510,8 +567,8 @@ impl KeyBasedEventProcessor {
     /// validated before any handler runs.
     ///
     /// Returns the latest cursor that is safe to persist, plus the processing
-    /// result. Cursor advancement is intentionally skipped for `UserIdMismatch`
-    /// and handler errors so those events are fetched again on the next run.
+    /// result. Cursor advancement is intentionally skipped for validation
+    /// errors and handler errors so those events are fetched again on the next run.
     async fn process_user_events(
         &self,
         hs_id: &str,
@@ -554,9 +611,13 @@ impl KeyBasedEventProcessor {
             let cursor_id = stream_event.cursor.id();
 
             // External homeservers must not index another user's URI.
-            // Validate the raw resource before [Event::from_stream_event],
-            // because a foreign user PK with an unsupported path would
-            // return Ok(None) thus skipping but also advancing latest_cursor.
+            // Defense-in-depth: after batch partitioning, events reach
+            // this check only via process_batch_events' owner-keyed buckets,
+            // so `owner == user_id` holds by construction — a foreign owner is
+            // already rejected as `BatchProcessingError::UnexpectedBatchUser`.
+            // The check stays deliberately (from the #997 hardening) as the last-resort guard
+            // against a foreign-user event silently advancing the cursor via
+            // the unsupported-path skip, before [Event::from_stream_event].
             if let Err(err) = Self::validate_user_id(hs_id, &stream_event, user_id) {
                 return (latest_cursor, Err(err));
             }
@@ -579,7 +640,7 @@ impl KeyBasedEventProcessor {
             }
 
             // Advance after successful handling, unsupported resources, or
-            // logged parse errors. UserIdMismatch and handler errors return
+            // logged parse errors. Validation errors and handler errors return
             // before this point, so their cursor is not persisted.
             latest_cursor = Some(cursor_id);
         }
