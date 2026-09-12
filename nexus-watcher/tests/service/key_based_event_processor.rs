@@ -11,7 +11,7 @@ use nexus_common::models::user::{set_user_homeserver, user_hs_cursor_key, UserDe
 use nexus_common::types::DynError;
 use nexus_common::utils::test_utils::random_pubky_id;
 use nexus_common::WatcherConfig;
-use nexus_watcher::errors::EventProcessorError;
+use nexus_watcher::errors::{BatchProcessingError, EventProcessorError};
 use nexus_watcher::events::retry::{InitialBackoff, RetryScheduler};
 use nexus_watcher::events::Event;
 use nexus_watcher::events::EventHandler;
@@ -812,6 +812,217 @@ async fn key_based_processor_aborts_blacklisted_homeserver() -> Result<(), DynEr
     assert_internal_homeserver_blacklisted(err);
     assert!(source.calls().await.is_empty());
     assert_eq!(handler.get_handle_count(), 0);
+
+    Ok(())
+}
+
+/// Verifies that interleaved events from multiple users are properly partitioned,
+/// validated, dispatched to the handler, and report per-user latest cursors.
+#[tokio_shared_rt::test(shared)]
+async fn key_based_batch_routes_interleaved_events_to_correct_users() -> Result<(), DynError> {
+    setup().await?;
+
+    let (_hs_keypair, hs) = create_homeserver().await?;
+    let user_a_id = create_user_on_homeserver(&hs).await?;
+    let user_b_id = create_user_on_homeserver(&hs).await?;
+    let user_c_id = create_user_on_homeserver(&hs).await?;
+
+    let user_a_pk: PublicKey = user_a_id.parse()?;
+    let user_b_pk: PublicKey = user_b_id.parse()?;
+    let user_c_pk: PublicKey = user_c_id.parse()?;
+
+    // Interleaved stream from three users with ascending cursors per user
+    let stream_events = vec![
+        stream_event(1, &user_a_id, "/pub/pubky.app/profile.json")?,
+        stream_event(2, &user_b_id, "/pub/pubky.app/profile.json")?,
+        stream_event(3, &user_a_id, "/pub/pubky.app/profile.json")?,
+        stream_event(4, &user_c_id, "/pub/pubky.app/profile.json")?,
+        stream_event(5, &user_b_id, "/pub/pubky.app/profile.json")?,
+    ];
+
+    let handler = create_mock_handler(Ok(()), None);
+    let processor = processor(
+        hs,
+        handler.clone(),
+        Arc::new(MockKeyBasedEventSource::default()),
+    );
+
+    let users = [(&user_a_pk, 0), (&user_b_pk, 0), (&user_c_pk, 0)];
+
+    let results = processor
+        .process_batch_events(&users, stream_events)
+        .await?;
+
+    assert_eq!(results.len(), 3);
+
+    // User A: latest cursor 3, Ok
+    assert_eq!(results[0].user_pk, user_a_pk);
+    assert_eq!(results[0].latest_cursor, Some(3));
+    assert!(results[0].result.is_ok());
+
+    // User B: latest cursor 5, Ok
+    assert_eq!(results[1].user_pk, user_b_pk);
+    assert_eq!(results[1].latest_cursor, Some(5));
+    assert!(results[1].result.is_ok());
+
+    // User C: latest cursor 4, Ok
+    assert_eq!(results[2].user_pk, user_c_pk);
+    assert_eq!(results[2].latest_cursor, Some(4));
+    assert!(results[2].result.is_ok());
+
+    assert_eq!(handler.get_handle_count(), 5);
+
+    Ok(())
+}
+
+/// Verifies that an event from an unexpected user (not in the requested batch)
+/// fails the whole batch without advancing any cursor.
+#[tokio_shared_rt::test(shared)]
+async fn key_based_batch_rejects_unexpected_user_in_stream() -> Result<(), DynError> {
+    setup().await?;
+
+    let (_hs_keypair, hs) = create_homeserver().await?;
+    let user_a_id = create_user_on_homeserver(&hs).await?;
+    let user_b_id = create_user_on_homeserver(&hs).await?;
+    let unexpected_user_id = random_pubky_id().to_string();
+
+    let user_a_pk: PublicKey = user_a_id.parse()?;
+    let user_b_pk: PublicKey = user_b_id.parse()?;
+
+    let stream_events = vec![
+        stream_event(1, &user_a_id, "/pub/pubky.app/profile.json")?,
+        stream_event(2, &unexpected_user_id, "/pub/pubky.app/profile.json")?,
+        stream_event(3, &user_b_id, "/pub/pubky.app/profile.json")?,
+    ];
+
+    let handler = create_mock_handler(Ok(()), None);
+    let processor = processor(
+        hs,
+        handler.clone(),
+        Arc::new(MockKeyBasedEventSource::default()),
+    );
+
+    let users = [(&user_a_pk, 0), (&user_b_pk, 0)];
+
+    let batch_err = match processor.process_batch_events(&users, stream_events).await {
+        Err(err @ BatchProcessingError::UnexpectedBatchUser { .. }) => err,
+        Ok(_) => panic!("expected UnexpectedBatchUser"),
+    };
+    let processor_err = EventProcessorError::from(batch_err);
+    assert!(matches!(
+        &processor_err,
+        EventProcessorError::BatchProcessingError(BatchProcessingError::UnexpectedBatchUser { .. })
+    ));
+    assert!(processor_err.should_not_retry_now());
+
+    assert_eq!(handler.get_handle_count(), 0);
+
+    Ok(())
+}
+
+/// Verifies that if one user in a batch has an out-of-order cursor, only that user
+/// fails while other users with valid sequences are processed and their cursors advanced.
+#[tokio_shared_rt::test(shared)]
+async fn key_based_batch_isolates_out_of_order_cursor_per_user() -> Result<(), DynError> {
+    setup().await?;
+
+    let (_hs_keypair, hs) = create_homeserver().await?;
+    let user_a_id = create_user_on_homeserver(&hs).await?;
+    let user_b_id = create_user_on_homeserver(&hs).await?;
+
+    let user_a_pk: PublicKey = user_a_id.parse()?;
+    let user_b_pk: PublicKey = user_b_id.parse()?;
+
+    // User A has out-of-order sequence (cursor 4 then 1).
+    // User B has valid ascending sequence (cursor 2 then 3).
+    let stream_events = vec![
+        stream_event(4, &user_a_id, "/pub/pubky.app/profile.json")?,
+        stream_event(2, &user_b_id, "/pub/pubky.app/profile.json")?,
+        stream_event(1, &user_a_id, "/pub/pubky.app/profile.json")?,
+        stream_event(3, &user_b_id, "/pub/pubky.app/profile.json")?,
+    ];
+
+    let handler = create_mock_handler(Ok(()), None);
+    let processor = processor(
+        hs,
+        handler.clone(),
+        Arc::new(MockKeyBasedEventSource::default()),
+    );
+
+    let users = [(&user_a_pk, 0), (&user_b_pk, 0)];
+
+    let results = processor
+        .process_batch_events(&users, stream_events)
+        .await?;
+
+    assert_eq!(results.len(), 2);
+
+    // User A: out of order error, no cursor advanced
+    assert_eq!(results[0].user_pk, user_a_pk);
+    assert_eq!(results[0].latest_cursor, None);
+    match &results[0].result {
+        Err(EventProcessorError::EventCursorOutOfOrder { .. }) => {}
+        other => panic!("expected EventCursorOutOfOrder for User A, got {other:?}"),
+    }
+
+    // User B: processed successfully, latest cursor 3
+    assert_eq!(results[1].user_pk, user_b_pk);
+    assert_eq!(results[1].latest_cursor, Some(3));
+    assert!(results[1].result.is_ok());
+
+    // Only User B's 2 events were handled
+    assert_eq!(handler.get_handle_count(), 2);
+
+    Ok(())
+}
+
+/// Verifies that if shutdown is signaled mid-batch, partial progress is returned
+/// cleanly with the latest cursor from before the shutdown.
+#[tokio_shared_rt::test(shared)]
+async fn key_based_batch_preserves_partial_progress_on_shutdown() -> Result<(), DynError> {
+    setup().await?;
+
+    let (_hs_keypair, hs) = create_homeserver().await?;
+    let user_a_id = create_user_on_homeserver(&hs).await?;
+    let user_b_id = create_user_on_homeserver(&hs).await?;
+
+    let user_a_pk: PublicKey = user_a_id.parse()?;
+    let user_b_pk: PublicKey = user_b_id.parse()?;
+
+    let stream_events = vec![
+        stream_event(1, &user_a_id, "/pub/pubky.app/profile.json")?,
+        stream_event(2, &user_a_id, "/pub/pubky.app/profile.json")?,
+        stream_event(1, &user_b_id, "/pub/pubky.app/profile.json")?,
+    ];
+
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let handler = Arc::new(ShutdownOnFirstHandle::new(shutdown_tx));
+    let processor = processor_with_shutdown(
+        hs,
+        handler.clone(),
+        Arc::new(MockKeyBasedEventSource::default()),
+        shutdown_rx,
+    );
+
+    let users = [(&user_a_pk, 0), (&user_b_pk, 0)];
+
+    let results = processor
+        .process_batch_events(&users, stream_events)
+        .await?;
+
+    assert_eq!(results.len(), 2);
+
+    // User A processed exactly one event before shutdown tripped
+    assert_eq!(results[0].user_pk, user_a_pk);
+    assert_eq!(results[0].latest_cursor, Some(1));
+    assert!(results[0].result.is_ok());
+
+    // User B was not processed because shutdown was already active
+    assert_eq!(results[1].user_pk, user_b_pk);
+    assert_eq!(results[1].latest_cursor, None);
+    assert!(results[1].result.is_ok());
+
+    assert_eq!(handler.handle_count(), 1);
 
     Ok(())
 }
