@@ -181,7 +181,13 @@ impl Homeserver {
         Ok(())
     }
 
-    /// Returns all HS IDs with at least one active user, sorted by user count descending.
+    /// Returns all HS IDs with at least one active user, ordered by aggregate
+    /// hosted trust descending, then by user count. Ties are in no particular
+    /// order.
+    ///
+    /// Callers truncate this list, so the order decides which homeservers are
+    /// polled at all. With no seed set configured nothing carries trust and the
+    /// order falls through to user count, which is what it has always been.
     ///
     /// # Returns
     /// A list of active homeserver IDs.
