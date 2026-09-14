@@ -65,7 +65,8 @@ pub fn post_counts(author_id: &str, post_id: &str) -> Query {
                 tags: tags_count,
                 unique_tags: unique_tags_count,
                 replies: COUNT { (p)<-[:REPLIED]-() },
-                reposts: COUNT { (p)<-[:REPOSTED]-() }
+                reposts: COUNT { (p)<-[:REPOSTED]-() },
+                collections: COUNT { (p)<-[:COLLECTED]-() }
             } AS counts,
             EXISTS { (p)-[:REPLIED]->(:Post) } AS is_reply
     ",
@@ -1007,6 +1008,17 @@ pub fn get_global_influencers(skip: usize, limit: usize, timeframe: &Timeframe) 
         .param("to", to)
 }
 
+/// Every Collection post with its author and envelope, for backfills.
+pub fn get_collection_posts() -> Query {
+    Query::new(
+        "get_collection_posts",
+        "
+        MATCH (u:User)-[:AUTHORED]->(c:Post {kind: 'collection'})
+        RETURN u.id AS author_id, c.id AS post_id, c.content AS content
+        ",
+    )
+}
+
 pub fn get_files_by_ids(key_pair: &[&[&str]]) -> Query {
     Query::new(
         "get_files_by_ids",
@@ -1092,6 +1104,13 @@ pub fn post_stream(
              WHERE endorsement.label IN $domain_tags\n\
              WITH DISTINCT author\n"
         )),
+        // Anchor on the item's unique id (see `post_counts`), then bind `p` to
+        // the collections that curate it; the posts MATCH below adds the curator.
+        StreamSource::PostCollections { .. } => cypher.push_str(
+            "MATCH (item:Post {id: $post_id})\n\
+             WHERE EXISTS { (:User {id: $author_id})-[:AUTHORED]->(item) }\n\
+             MATCH (item)<-[:COLLECTED]-(p:Post)\n",
+        ),
         _ => {}
     }
 
@@ -1321,6 +1340,11 @@ fn build_query_with_params(
     if let Some(author_id) = source.get_author() {
         query = query.param("author_id", author_id.to_string());
     }
+    if let Some((author_id, post_id)) = source.get_anchor_post() {
+        query = query
+            .param("author_id", author_id.to_string())
+            .param("post_id", post_id.to_string());
+    }
     match kind {
         Some(KindFilter::Kind(post_kind)) => {
             query = query.param("kind", post_kind.to_string());
@@ -1386,6 +1410,10 @@ pub fn post_is_safe_to_delete(author_id: &str, post_id: &str) -> Query {
                 OR
                 // 3. Outgoing REPLIED relationship to another post
                 (type(r) = 'REPLIED' AND startNode(r) = p)
+                OR
+                // 4. COLLECTED either way: a curated post drops out of its
+                // collections on deletion, and a collection may hold items.
+                type(r) = 'COLLECTED'
             )
         } AS flag
 ",

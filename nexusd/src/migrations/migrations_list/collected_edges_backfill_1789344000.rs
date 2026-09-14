@@ -1,0 +1,77 @@
+use async_trait::async_trait;
+use std::time::Instant;
+use tracing::{info, warn};
+
+use crate::migrations::manager::Migration;
+use nexus_common::{
+    db::{fetch_all_rows_from_graph, queries},
+    models::post::{collection_item_keys, sync_collected_edges},
+    types::DynError,
+};
+
+const PROGRESS_LOG_EVERY: u64 = 500;
+
+pub struct CollectedEdgesBackfill1789344000;
+
+#[async_trait]
+impl Migration for CollectedEdgesBackfill1789344000 {
+    fn id(&self) -> &'static str {
+        "CollectedEdgesBackfill1789344000"
+    }
+
+    fn is_multi_staged(&self) -> bool {
+        false
+    }
+
+    async fn dual_write(_data: Box<dyn std::any::Any + Send + 'static>) -> Result<(), DynError> {
+        Ok(())
+    }
+
+    async fn backfill(&self) -> Result<(), DynError> {
+        // Materializes COLLECTED edges for collections indexed before the
+        // watcher wrote them. Rows are collected up front instead of writing
+        // while a graph stream is open. Each sync is a full reconcile that also
+        // invalidates the items' cached counts, so a failed run is simply re-run.
+        let rows = fetch_all_rows_from_graph(queries::get::get_collection_posts()).await?;
+
+        let started = Instant::now();
+        let mut processed: u64 = 0;
+        for row in rows {
+            let author_id: String = row.get("author_id")?;
+            let post_id: String = row.get("post_id")?;
+            let content: String = row.get("content").unwrap_or_default();
+            let items = match collection_item_keys(&content) {
+                Ok(items) => items,
+                Err(e) => {
+                    warn!("Collection {author_id}:{post_id} envelope malformed, skipped: {e}");
+                    continue;
+                }
+            };
+            sync_collected_edges(&author_id, &post_id, &items).await?;
+
+            processed += 1;
+            if processed.is_multiple_of(PROGRESS_LOG_EVERY) {
+                info!(
+                    processed,
+                    elapsed_secs = format!("{:.1}", started.elapsed().as_secs_f64()),
+                    "CollectedEdgesBackfill progress"
+                );
+            }
+        }
+
+        info!(
+            processed,
+            elapsed_secs = format!("{:.1}", started.elapsed().as_secs_f64()),
+            "CollectedEdgesBackfill completed"
+        );
+        Ok(())
+    }
+
+    async fn cutover(&self) -> Result<(), DynError> {
+        Ok(())
+    }
+
+    async fn cleanup(&self) -> Result<(), DynError> {
+        Ok(())
+    }
+}
