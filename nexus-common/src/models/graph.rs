@@ -93,15 +93,11 @@ impl GraphDepth {
     pub const MAX: u8 = 2;
 
     /// Validates that `depth` is within `1..=2`.
-    pub fn new(depth: u8) -> Result<Self, String> {
+    pub fn new(depth: u8) -> Result<Self, GraphDepthError> {
         if (Self::MIN..=Self::MAX).contains(&depth) {
             Ok(GraphDepth(depth))
         } else {
-            Err(format!(
-                "'depth' must be between {} and {}",
-                Self::MIN,
-                Self::MAX
-            ))
+            Err(GraphDepthError { depth })
         }
     }
 
@@ -113,6 +109,17 @@ impl GraphDepth {
 
 // Deserialize through `new` so the `1..=2` invariant holds for every input.
 // Query params arrive as strings, so parse via String (as `BoundedLimit` does).
+/// A requested neighborhood depth outside `GraphDepth::MIN..=GraphDepth::MAX`.
+#[derive(thiserror::Error, Debug, Clone, Copy, PartialEq, Eq)]
+#[error(
+    "'depth' must be between {} and {}, got {depth}",
+    GraphDepth::MIN,
+    GraphDepth::MAX
+)]
+pub struct GraphDepthError {
+    pub depth: u8,
+}
+
 impl<'de> Deserialize<'de> for GraphDepth {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where

@@ -58,6 +58,9 @@ pub async fn sync() -> Result<(), DynError> {
         // Acquire before spawning so pending work queues here instead of as
         // parked tasks; live tasks (and their spans) stay capped at the bound
         let permit = semaphore.clone().acquire_owned().await?;
+        // Reap finished tasks as we go: a JoinSet keeps every completed task
+        // until joined, which on a production graph is one entry per entity
+        drain_finished(&mut user_tasks, &failures, "User");
         let failures = failures.clone();
         let span = tracing::info_span!("reindex.user", user_id = %user_id);
         user_tasks.spawn(
@@ -75,6 +78,7 @@ pub async fn sync() -> Result<(), DynError> {
     let post_ids = get_all_post_ids().await?;
     for (author_id, post_id) in post_ids {
         let permit = semaphore.clone().acquire_owned().await?;
+        drain_finished(&mut post_tasks, &failures, "Post");
         let failures = failures.clone();
         let span = tracing::info_span!("reindex.post", author_id = %author_id, post_id = %post_id);
         post_tasks.spawn(
@@ -90,17 +94,10 @@ pub async fn sync() -> Result<(), DynError> {
     }
 
     while let Some(res) = user_tasks.join_next().await {
-        if let Err(e) = res {
-            tracing::error!("User reindexing task failed: {:?}", e);
-            failures.fetch_add(1, Ordering::Relaxed);
-        }
+        record_join(res, &failures, "User");
     }
-
     while let Some(res) = post_tasks.join_next().await {
-        if let Err(e) = res {
-            tracing::error!("Post reindexing task failed: {:?}", e);
-            failures.fetch_add(1, Ordering::Relaxed);
-        }
+        record_join(res, &failures, "Post");
     }
 
     HotTags::reindex().await?;
@@ -118,6 +115,20 @@ pub async fn sync() -> Result<(), DynError> {
     }
     info!("Reindexing completed successfully.");
     Ok(())
+}
+
+/// Joins every task that has already finished without waiting for the rest.
+fn drain_finished(tasks: &mut JoinSet<()>, failures: &AtomicUsize, what: &str) {
+    while let Some(res) = tasks.try_join_next() {
+        record_join(res, failures, what);
+    }
+}
+
+fn record_join(res: Result<(), tokio::task::JoinError>, failures: &AtomicUsize, what: &str) {
+    if let Err(e) = res {
+        tracing::error!("{what} reindexing task failed: {:?}", e);
+        failures.fetch_add(1, Ordering::Relaxed);
+    }
 }
 
 pub async fn reindex_user(user_id: &str) -> Result<(), DynError> {

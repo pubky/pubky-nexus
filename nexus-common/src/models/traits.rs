@@ -146,7 +146,10 @@ where
                     Self::put_to_index(collection_ids, collection_details_list).await?;
                 }
             }
-            Err(e) => tracing::error!("Error: Could not find any element of the collection: {}", e),
+            Err(e) => {
+                tracing::error!("Error: Could not find any element of the collection: {}", e);
+                return Err(e.into());
+            }
         }
         Ok(())
     }
