@@ -1008,13 +1008,13 @@ pub fn get_global_influencers(skip: usize, limit: usize, timeframe: &Timeframe) 
         .param("to", to)
 }
 
-/// Every Collection post with its author and envelope, for backfills.
+/// Every Collection post key, for backfills.
 pub fn get_collection_posts() -> Query {
     Query::new(
         "get_collection_posts",
         "
         MATCH (u:User)-[:AUTHORED]->(c:Post {kind: 'collection'})
-        RETURN u.id AS author_id, c.id AS post_id, c.content AS content
+        RETURN u.id AS author_id, c.id AS post_id
         ",
     )
 }

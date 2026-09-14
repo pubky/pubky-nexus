@@ -87,7 +87,8 @@ pub async fn sync_put(
                 // this, and leave the old edges in the graph for good.
                 if was_collection || is_collection {
                     let items = curated_items(&author_id, &post_id, &post_details);
-                    sync_collected_edges(&author_id, &post_id, &items).await?;
+                    sync_collected_edges(&author_id, &post_id, &items, Some(&post_details.content))
+                        .await?;
                 }
                 if existing_details.is_different_than(&post_details) || kind_changed {
                     // A lock- or kind-only toggle refreshes the cache but must not notify.
@@ -146,7 +147,7 @@ pub async fn sync_put(
     ingest_collection_item_authors(&post, ingestor).await;
     if is_collection {
         let items = curated_items(&author_id, &post_id, &post_details);
-        sync_collected_edges(&author_id, &post_id, &items).await?;
+        sync_collected_edges(&author_id, &post_id, &items, Some(&post_details.content)).await?;
     }
 
     // SAVE TO INDEX - PHASE 1, update post counts
@@ -361,7 +362,7 @@ async fn recover_post_index_state(
 
     // Same for COLLECTED edges; a non-collection also clears edges left by a kind flip.
     let items = curated_items(author_id, post_id, &post_details);
-    sync_collected_edges(author_id, post_id, &items).await?;
+    sync_collected_edges(author_id, post_id, &items, Some(&post_details.content)).await?;
 
     // Reindex all Redis state from graph truth.
     let (details_result, relationships_result, counts_result) = nexus_common::traced_join!(
@@ -822,7 +823,7 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), EventPr
     // The COLLECTED edges go first, unconditionally: DETACH DELETE would drop
     // them silently and the items' cached counts would keep this post, and on a
     // retry the kind is no longer recoverable from the index.
-    sync_collected_edges(&author_id, &post_id, &[]).await?;
+    sync_collected_edges(&author_id, &post_id, &[], None).await?;
     exec_single_row(queries::del::delete_post(&author_id, &post_id))
         .instrument(tracing::info_span!("graph.delete", phase = "post_graph"))
         .await?;

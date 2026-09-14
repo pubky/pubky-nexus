@@ -1,11 +1,12 @@
 //! `?source=post_collections`: the Collection posts that curate a given post,
 //! served from the COLLECTED edges. Seeds (posts.cypher): COLW1TGL5BKG1 and the
-//! newer COLW1TGL5BKG2 curate SHORT_BOGOTA, NEST1TGL5BKG8 curates COLW1TGL5BKG1,
-//! Eixample bookmarks COLW1TGL5BKG1.
+//! newer COLW1TGL5BKG3 (Cairo's) curate SHORT_BOGOTA, NEST1TGL5BKG8 curates
+//! COLW1TGL5BKG1, Eixample bookmarks COLW1TGL5BKG1.
 
 use super::kind::{COL_BOGOTA_1, COL_BOGOTA_2, COL_BOGOTA_NEST, COL_CAIRO, EIXAMPLE, SHORT_BOGOTA};
 use super::utils::ids_in;
 use super::{BOGOTA, KEYS_ROOT_PATH, ROOT_PATH};
+use crate::post::CAIRO_USER;
 use crate::utils::{get_request, invalid_get_request};
 use anyhow::Result;
 use axum::http::StatusCode;
@@ -19,10 +20,10 @@ async fn test_source_post_collections_returns_curators_newest_first() -> Result<
     let body = get_request(&path(SHORT_BOGOTA, "")).await?;
     assert_eq!(
         ids_in(&body),
-        vec![COL_BOGOTA_2.to_string(), COL_BOGOTA_1.to_string()]
+        vec![COL_CAIRO.to_string(), COL_BOGOTA_1.to_string()]
     );
     assert_eq!(body[0]["details"]["kind"].as_str(), Some("collection"));
-    assert_eq!(body[0]["details"]["author"].as_str(), Some(BOGOTA));
+    assert_eq!(body[0]["details"]["author"].as_str(), Some(CAIRO_USER));
     Ok(())
 }
 
@@ -36,11 +37,11 @@ async fn test_source_post_collections_for_nested_collection() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_source_post_collections_for_uncurated_post_returns_empty() -> Result<()> {
-    let body = get_request(&path(COL_CAIRO, "")).await?;
+    let body = get_request(&path(COL_BOGOTA_2, "")).await?;
     let ids = ids_in(&body);
     assert!(
         ids.is_empty(),
-        "no collection curates COL_CAIRO, got: {ids:?}"
+        "no collection curates COL_BOGOTA_2, got: {ids:?}"
     );
     Ok(())
 }
@@ -73,7 +74,7 @@ async fn test_source_post_collections_with_wrong_author_returns_empty() -> Resul
 #[tokio_shared_rt::test(shared)]
 async fn test_source_post_collections_paginates_with_skip_limit() -> Result<()> {
     let body = get_request(&path(SHORT_BOGOTA, "&limit=1")).await?;
-    assert_eq!(ids_in(&body), vec![COL_BOGOTA_2.to_string()]);
+    assert_eq!(ids_in(&body), vec![COL_CAIRO.to_string()]);
     let body = get_request(&path(SHORT_BOGOTA, "&skip=1&limit=1")).await?;
     assert_eq!(ids_in(&body), vec![COL_BOGOTA_1.to_string()]);
     let body = get_request(&path(SHORT_BOGOTA, "&skip=2")).await?;
@@ -134,7 +135,7 @@ async fn test_source_post_collections_keys() -> Result<()> {
     assert_eq!(
         keys,
         vec![
-            format!("{BOGOTA}:{COL_BOGOTA_2}").as_str(),
+            format!("{CAIRO_USER}:{COL_CAIRO}").as_str(),
             format!("{BOGOTA}:{COL_BOGOTA_1}").as_str()
         ]
     );

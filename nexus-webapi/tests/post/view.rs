@@ -74,7 +74,7 @@ async fn test_get_post_counts() -> Result<()> {
     Ok(())
 }
 
-/// Seed: COLW1TGL5BKG1 and COLW1TGL5BKG2 curate SHORT_BOGOTA, NEST1TGL5BKG8 curates COLW1TGL5BKG1.
+/// Seed: COLW1TGL5BKG1 and COLW1TGL5BKG3 curate SHORT_BOGOTA, NEST1TGL5BKG8 curates COLW1TGL5BKG1.
 #[tokio_shared_rt::test(shared)]
 async fn test_get_post_counts_collections() -> Result<()> {
     let body = get_request(&format!("{ROOT_PATH}/{BOGOTA}/{SHORT_BOGOTA}/counts")).await?;

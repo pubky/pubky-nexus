@@ -5,7 +5,7 @@ use tracing::{info, warn};
 use crate::migrations::manager::Migration;
 use nexus_common::{
     db::{fetch_all_rows_from_graph, queries},
-    models::post::{collection_item_keys, sync_collected_edges},
+    models::post::{collection_item_keys, sync_collected_edges, PostDetails},
     types::DynError,
 };
 
@@ -29,9 +29,11 @@ impl Migration for CollectedEdgesBackfill1789344000 {
 
     async fn backfill(&self) -> Result<(), DynError> {
         // Materializes COLLECTED edges for collections indexed before the
-        // watcher wrote them. Rows are collected up front instead of writing
-        // while a graph stream is open. Each sync is a full reconcile that also
-        // invalidates the items' cached counts, so a failed run is simply re-run.
+        // watcher wrote them. Only the keys are snapshotted; each envelope is
+        // read from the graph right before its reconcile, and the reconcile is
+        // a no-op if the content moved on, so a concurrent edit is never
+        // overwritten. Each sync also invalidates the items' cached counts and
+        // is idempotent, so a failed run is simply re-run.
         let rows = fetch_all_rows_from_graph(queries::get::get_collection_posts()).await?;
 
         let started = Instant::now();
@@ -39,15 +41,18 @@ impl Migration for CollectedEdgesBackfill1789344000 {
         for row in rows {
             let author_id: String = row.get("author_id")?;
             let post_id: String = row.get("post_id")?;
-            let content: String = row.get("content").unwrap_or_default();
-            let items = match collection_item_keys(&content) {
+            let Some((details, _)) = PostDetails::get_from_graph(&author_id, &post_id).await?
+            else {
+                continue;
+            };
+            let items = match collection_item_keys(&details.content) {
                 Ok(items) => items,
                 Err(e) => {
                     warn!("Collection {author_id}:{post_id} envelope malformed, skipped: {e}");
                     continue;
                 }
             };
-            sync_collected_edges(&author_id, &post_id, &items).await?;
+            sync_collected_edges(&author_id, &post_id, &items, Some(&details.content)).await?;
 
             processed += 1;
             if processed.is_multiple_of(PROGRESS_LOG_EVERY) {

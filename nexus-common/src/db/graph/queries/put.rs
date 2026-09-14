@@ -170,7 +170,15 @@ pub fn create_mention_relationship(
 /// * `author_id` - The unique identifier of the user who authored the collection
 /// * `post_id` - The unique identifier of the collection post
 /// * `items` - `(author_id, post_id)` of the posts the collection curates
-pub fn sync_collection_items(author_id: &str, post_id: &str, items: &[(PubkyId, String)]) -> Query {
+/// * `envelope` - The content `items` were parsed from; the reconcile is a no-op
+///   when the graph holds a different content, so a stale reader (a backfill, a
+///   retried event) never overwrites a newer write. `None` skips the check.
+pub fn sync_collection_items(
+    author_id: &str,
+    post_id: &str,
+    items: &[(PubkyId, String)],
+    envelope: Option<&str>,
+) -> Query {
     let mut items: Vec<Vec<String>> = items
         .iter()
         .map(|(item_author_id, item_post_id)| {
@@ -185,6 +193,7 @@ pub fn sync_collection_items(author_id: &str, post_id: &str, items: &[(PubkyId, 
         "sync_collection_items",
         "
         MATCH (:User {id: $author_id})-[:AUTHORED]->(c:Post {id: $post_id})
+        WHERE $envelope IS NULL OR c.content = $envelope
         OPTIONAL MATCH (c)-[old:COLLECTED]->(prev:Post)<-[:AUTHORED]-(prev_author:User)
         DELETE old
         // collect() drops nulls but keeps [null, null], so map a miss to a bare null.
@@ -206,6 +215,7 @@ pub fn sync_collection_items(author_id: &str, post_id: &str, items: &[(PubkyId, 
     .param("author_id", author_id)
     .param("post_id", post_id)
     .param("items", items)
+    .param("envelope", envelope)
 }
 
 /// Create a follows relationship between two users. Before creating the relationship,
