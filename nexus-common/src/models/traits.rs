@@ -88,7 +88,16 @@ where
         let mut records = Vec::with_capacity(ids.len());
 
         for row in rows {
-            let record: Option<Self> = row.get("record").ok();
+            // A row that does not decode is reported as missing so one bad
+            // record cannot take a whole batch read down; it is logged because
+            // for a rebuild that means an entity silently left out of the index
+            let record: Option<Self> = match row.get("record") {
+                Ok(record) => record,
+                Err(e) => {
+                    tracing::error!("Could not decode a graph record, treating it as missing: {e}");
+                    None
+                }
+            };
             records.push(record);
         }
         Ok(records)

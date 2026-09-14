@@ -37,6 +37,8 @@ pub async fn rebuild() -> Result<(), DynError> {
 /// works on mock-sized datasets but a production graph fans out into thousands
 /// of simultaneous Cypher queries and exhausts memory on both ends.
 const REINDEX_CONCURRENCY: usize = 32;
+/// Users per batched details read during a rebuild.
+const REINDEX_DETAILS_BATCH: usize = 500;
 
 /// Reindex every entity from the graph. Per-entity failures are logged as they
 /// happen and reported once at the end, so a run with one broken user is still
@@ -49,9 +51,12 @@ pub async fn sync() -> Result<(), DynError> {
     let failures = Arc::new(AtomicUsize::new(0));
 
     let user_ids: Vec<String> = get_all_user_ids().await?;
-    let user_ids_refs: Vec<&str> = user_ids.iter().map(|id| id.as_str()).collect();
-
-    UserDetails::reindex(&user_ids_refs).await?;
+    // Details go in bounded batches: one query and one Redis pipeline for the
+    // whole user table would size the response with the database
+    for chunk in user_ids.chunks(REINDEX_DETAILS_BATCH) {
+        let refs: Vec<&str> = chunk.iter().map(|id| id.as_str()).collect();
+        UserDetails::reindex(&refs).await?;
+    }
     //TODO use collections for every other model
 
     for user_id in user_ids {
