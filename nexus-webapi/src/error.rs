@@ -32,6 +32,8 @@ pub enum Error {
     ResourceNotFound { resource_id: String },
     #[error("Forbidden: {message}")]
     Forbidden { message: String },
+    #[error("Service unavailable: {message}")]
+    ServiceUnavailable { message: String },
     // Add other custom errors here
 }
 
@@ -45,6 +47,12 @@ impl Error {
     pub fn resource_not_found(resource_id: impl Into<String>) -> Self {
         Error::ResourceNotFound {
             resource_id: resource_id.into(),
+        }
+    }
+
+    pub fn service_unavailable(message: impl Into<String>) -> Self {
+        Error::ServiceUnavailable {
+            message: message.into(),
         }
     }
 
@@ -75,6 +83,10 @@ impl From<ModelError> for Error {
             ModelError::HsBlacklisted { hs_id } => Error::Forbidden {
                 message: format!("Homeserver is blacklisted: {hs_id}"),
             },
+            // Load shed: the client-facing message stays generic, the cause is logged server-side.
+            other if other.is_media_shed() => {
+                Error::service_unavailable("service temporarily unavailable")
+            }
             other => Error::InternalServerError {
                 source: other.into(),
             },
@@ -133,6 +145,7 @@ impl IntoResponse for Error {
             Error::TagNotFound { .. } => StatusCode::NOT_FOUND,
             Error::ResourceNotFound { .. } => StatusCode::NOT_FOUND,
             Error::Forbidden { .. } => StatusCode::FORBIDDEN,
+            Error::ServiceUnavailable { .. } => StatusCode::SERVICE_UNAVAILABLE,
             // Map other errors to appropriate status codes
         };
 
@@ -162,11 +175,59 @@ impl IntoResponse for Error {
             Error::Forbidden { message } => {
                 warn!("Forbidden: {}", message)
             }
+            Error::ServiceUnavailable { message } => warn!("Service unavailable: {}", message),
             Error::InternalServerError { source } => error!("Internal server error: {:?}", source),
         };
 
         let body = ErrorResponsePayload::new(self.to_string());
 
         (status_code, axum::Json(body)).into_response()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use axum::http::StatusCode;
+    use std::time::Duration;
+
+    use axum::response::IntoResponse;
+    use nexus_common::media::processors::MediaProcessorError;
+    use nexus_common::models::error::ModelError;
+
+    use super::Error;
+
+    // A killed subprocess means "no variant right now", the same answer as a full gate, so it
+    // must degrade rather than surface as a server fault.
+    #[test]
+    fn test_media_shed_errors_map_to_503() {
+        let shed = [
+            MediaProcessorError::AtCapacity,
+            MediaProcessorError::Timeout {
+                command: String::from("convert"),
+                deadline: Duration::from_secs(180),
+            },
+        ];
+
+        for source in shed {
+            let error = Error::from(ModelError::MediaProcessorError(source));
+            assert!(matches!(error, Error::ServiceUnavailable { .. }));
+            assert_eq!(
+                error.into_response().status(),
+                StatusCode::SERVICE_UNAVAILABLE
+            );
+        }
+    }
+
+    // A genuine processing failure is still a server fault, not a shed.
+    #[test]
+    fn test_command_failure_maps_to_500() {
+        let error = Error::from(ModelError::MediaProcessorError(
+            MediaProcessorError::command_failed("boom"),
+        ));
+
+        assert_eq!(
+            error.into_response().status(),
+            StatusCode::INTERNAL_SERVER_ERROR
+        );
     }
 }

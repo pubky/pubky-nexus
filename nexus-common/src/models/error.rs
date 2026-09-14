@@ -39,6 +39,14 @@ impl ModelError {
     pub fn from_generic(source: impl std::fmt::Display) -> Self {
         Self::Generic(source.to_string())
     }
+
+    /// Returns true if media processing shed this request rather than failing on the file itself.
+    pub fn is_media_shed(&self) -> bool {
+        match self {
+            Self::MediaProcessorError(source) => source.is_load_shed(),
+            _ => false,
+        }
+    }
 }
 
 pub type ModelResult<T> = Result<T, ModelError>;
