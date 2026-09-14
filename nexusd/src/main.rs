@@ -56,7 +56,7 @@ async fn main() -> Result<(), DynError> {
             DbCommands::Reindex => {
                 let config = DaemonConfig::read_or_create_config_file(config_dir).await?;
                 StackManager::setup(&config.stack).await?;
-                nexus_common::db::reindex::rebuild().await;
+                nexus_common::db::reindex::rebuild().await?;
             }
             DbCommands::Migration(migration_command) => match migration_command {
                 MigrationCommands::New(args) => MigrationManager::new_migration(args.name).await?,

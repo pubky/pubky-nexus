@@ -110,7 +110,7 @@ pub async fn graph_handler(
 #[utoipa::path(
     get,
     path = GRAPH_PATH_ROUTE,
-    description = "Shortest FOLLOWS path between two users (undirected, max 6 hops). Nodes are path-ordered from `from` to `to`.",
+    description = "Shortest FOLLOWS path between two users (undirected, max 4 hops). Nodes are path-ordered from `from` to `to`.",
     tag = "Graph",
     params(
         ("from" = PubkyId, Path, description = "Starting user pubky"),
@@ -119,7 +119,7 @@ pub async fn graph_handler(
     responses(
         (status = 200, description = "Path graph, nodes ordered along the path", body = GraphView),
         (status = 400, description = "Invalid pubky"),
-        (status = 404, description = "Unknown user or no path within 6 hops"),
+        (status = 404, description = "Unknown user or no path within 4 hops"),
         (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error")
     )

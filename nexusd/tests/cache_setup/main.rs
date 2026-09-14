@@ -94,7 +94,7 @@ async fn clear_redis_recreates_post_content_index() -> Result<()> {
 
     // Restore the mock cache from the graph so the flush is not observable
     // by whatever runs after this test.
-    reindex::sync().await;
+    reindex::sync().await.expect("Failed to reindex");
     assert!(
         db_size().await? > 0,
         "reindex::sync should have repopulated Redis from the graph"

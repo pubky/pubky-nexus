@@ -16,6 +16,7 @@ use crate::{
     models::post::{PostCounts, PostDetails, PostRelationships},
     models::user::UserCounts,
 };
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
@@ -23,12 +24,13 @@ use tracing::{info, Instrument};
 
 /// Clean rebuild of the whole Redis index from the graph: flushes the logical
 /// database (which re-applies the RediSearch schema), then reindexes every
-/// entity via [`sync`].
-pub async fn rebuild() {
+/// entity via [`sync`]. Any entity that failed to reindex makes this an error:
+/// after a flush, a partial index must not pass as a finished rebuild.
+pub async fn rebuild() -> Result<(), DynError> {
     info!("Dropping Redis database...");
-    clear_redis().await.expect("Failed to flush Redis");
+    clear_redis().await?;
     info!("Starting reindexing process...");
-    sync().await;
+    sync().await
 }
 
 /// Upper bound on concurrently running entity reindex tasks. Unbounded spawning
@@ -36,53 +38,51 @@ pub async fn rebuild() {
 /// of simultaneous Cypher queries and exhausts memory on both ends.
 const REINDEX_CONCURRENCY: usize = 32;
 
+/// Reindex every entity from the graph. Per-entity failures are logged as they
+/// happen and reported once at the end, so a run with one broken user is still
+/// visible as a failure to the caller.
 #[tracing::instrument(name = "reindex.sync", skip_all)]
-pub async fn sync() {
+pub async fn sync() -> Result<(), DynError> {
     let mut user_tasks = JoinSet::new();
     let mut post_tasks = JoinSet::new();
     let semaphore = Arc::new(Semaphore::new(REINDEX_CONCURRENCY));
+    let failures = Arc::new(AtomicUsize::new(0));
 
-    let user_ids: Vec<String> = get_all_user_ids().await.expect("Failed to get user IDs");
+    let user_ids: Vec<String> = get_all_user_ids().await?;
     let user_ids_refs: Vec<&str> = user_ids.iter().map(|id| id.as_str()).collect();
 
-    UserDetails::reindex(&user_ids_refs)
-        .await
-        .expect("Failed indexing User Details");
+    UserDetails::reindex(&user_ids_refs).await?;
     //TODO use collections for every other model
 
     for user_id in user_ids {
         // Acquire before spawning so pending work queues here instead of as
         // parked tasks; live tasks (and their spans) stay capped at the bound
-        let permit = semaphore
-            .clone()
-            .acquire_owned()
-            .await
-            .expect("semaphore closed");
+        let permit = semaphore.clone().acquire_owned().await?;
+        let failures = failures.clone();
         let span = tracing::info_span!("reindex.user", user_id = %user_id);
         user_tasks.spawn(
             async move {
                 let _permit = permit;
                 if let Err(e) = reindex_user(&user_id).await {
                     tracing::error!("Failed to reindex user {}: {:?}", user_id, e);
+                    failures.fetch_add(1, Ordering::Relaxed);
                 }
             }
             .instrument(span),
         );
     }
 
-    let post_ids = get_all_post_ids().await.expect("Failed to get post IDs");
+    let post_ids = get_all_post_ids().await?;
     for (author_id, post_id) in post_ids {
-        let permit = semaphore
-            .clone()
-            .acquire_owned()
-            .await
-            .expect("semaphore closed");
+        let permit = semaphore.clone().acquire_owned().await?;
+        let failures = failures.clone();
         let span = tracing::info_span!("reindex.post", author_id = %author_id, post_id = %post_id);
         post_tasks.spawn(
             async move {
                 let _permit = permit;
                 if let Err(e) = reindex_post(&author_id, &post_id).await {
                     tracing::error!("Failed to reindex post {}: {:?}", post_id, e);
+                    failures.fetch_add(1, Ordering::Relaxed);
                 }
             }
             .instrument(span),
@@ -92,40 +92,32 @@ pub async fn sync() {
     while let Some(res) = user_tasks.join_next().await {
         if let Err(e) = res {
             tracing::error!("User reindexing task failed: {:?}", e);
+            failures.fetch_add(1, Ordering::Relaxed);
         }
     }
 
     while let Some(res) = post_tasks.join_next().await {
         if let Err(e) = res {
             tracing::error!("Post reindexing task failed: {:?}", e);
+            failures.fetch_add(1, Ordering::Relaxed);
         }
     }
 
-    HotTags::reindex()
-        .await
-        .expect("Failed to store the global hot tags");
+    HotTags::reindex().await?;
+    Influencers::reindex().await?;
+    SocialGraphStatus::reindex().await?;
+    PostsByTagSearch::reindex().await?;
+    UsersByTagSearch::reindex().await?;
+    TagSearch::reindex().await?;
 
-    Influencers::reindex()
-        .await
-        .expect("Failed to reindex influencers");
-
-    SocialGraphStatus::reindex()
-        .await
-        .expect("Failed to reindex the social graph ranking");
-
-    PostsByTagSearch::reindex()
-        .await
-        .expect("Failed to store the global post tags");
-
-    UsersByTagSearch::reindex()
-        .await
-        .expect("Failed to store the global user tags");
-
-    TagSearch::reindex()
-        .await
-        .expect("Failed to store the global tags");
-
+    let failed = failures.load(Ordering::Relaxed);
+    if failed > 0 {
+        return Err(
+            format!("Reindexing finished with {failed} failed entities, see the log").into(),
+        );
+    }
     info!("Reindexing completed successfully.");
+    Ok(())
 }
 
 pub async fn reindex_user(user_id: &str) -> Result<(), DynError> {

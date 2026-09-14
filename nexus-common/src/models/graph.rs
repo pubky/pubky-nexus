@@ -533,7 +533,7 @@ impl GraphView {
         Ok(Some(builder.build(kinds, &center_id, false)))
     }
 
-    /// Shortest undirected FOLLOWS path between two users (max 6 hops), nodes
+    /// Shortest undirected FOLLOWS path between two users (max 4 hops), nodes
     /// path-ordered from `from` to `to`. A user paired with themselves returns
     /// their single node. Returns `Ok(None)` when either user is unknown or no
     /// path exists within the cap.

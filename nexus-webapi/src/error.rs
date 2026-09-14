@@ -30,7 +30,7 @@ pub enum Error {
     TagNotFound { tag_id: String, tagger_id: String },
     #[error("Resource not found: {resource_id}")]
     ResourceNotFound { resource_id: String },
-    #[error("No follow path between {from} and {to} within 6 hops")]
+    #[error("No follow path between {from} and {to} within 4 hops")]
     PathNotFound { from: String, to: String },
     #[error("Forbidden: {message}")]
     Forbidden { message: String },
@@ -160,7 +160,7 @@ impl IntoResponse for Error {
                 debug!("Tag not found: {} of {}", tag_id, tagger_id)
             }
             Error::PathNotFound { from, to } => {
-                error!("No follow path between {} and {}", from, to)
+                debug!("No follow path between {} and {}", from, to)
             }
             Error::ResourceNotFound { resource_id } => {
                 debug!("Resource not found: {}", resource_id)

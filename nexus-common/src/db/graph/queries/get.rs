@@ -1499,9 +1499,9 @@ pub fn get_tag_by_tagger_and_id(tagger_id: &str, tag_id: &str) -> Query {
 // ---------------------------------------------------------------------------
 
 /// Cypher predicate excluding soft-deleted users, whose node survives with its
-/// name set to the deletion sentinel.
+/// name set to the deletion sentinel (older tombstones) or `deleted = true`.
 fn not_deleted(var: &str) -> String {
-    format!("{var}.name <> '{USER_DELETED_SENTINEL}'")
+    format!("({var}.name <> '{USER_DELETED_SENTINEL}' AND NOT coalesce({var}.deleted, false))")
 }
 
 /// Cypher map projection of a user's graph card.
@@ -1563,8 +1563,14 @@ pub fn graph_neighborhood_by_user(
         CALL {{
             WITH center, hop1
             UNWIND hop1 AS h
-            MATCH (h)-[:FOLLOWS]-(u2:User)
-            WHERE u2 <> center AND NOT u2 IN hop1 AND {hop2_ok}
+            // Per-node cap before the union: a hop-1 celebrity would otherwise
+            // expand its whole follow list just to be cut to hop2_limit below
+            CALL {{
+                WITH h, center, hop1
+                MATCH (h)-[:FOLLOWS]-(u2:User)
+                WHERE u2 <> center AND NOT u2 IN hop1 AND {hop2_ok}
+                RETURN u2 LIMIT $hop2_limit
+            }}
             WITH DISTINCT u2
             WITH u2, COUNT {{ (u2)<-[:FOLLOWS]-() }} AS popularity
             ORDER BY popularity DESC
@@ -1650,17 +1656,18 @@ pub fn graph_neighborhood_by_user(
 pub fn graph_neighborhood_by_tag(label: &str, limit: usize, posts_limit: usize) -> Query {
     let cypher = format!(
         "
-        MATCH (:User)-[t:TAGGED {{label: $label}}]->()
-        WITH count(t) AS total
-        WHERE total > 0
+        // One scan of the label's TAGGED edges yields both the ranking and the
+        // total; the top slice is taken after the aggregate
         CALL {{
             MATCH (tagger:User)-[t:TAGGED {{label: $label}}]->()
             WHERE {tagger_ok}
             WITH tagger, count(t) AS usages
             ORDER BY usages DESC
-            LIMIT $limit
-            RETURN collect(tagger) AS taggers
+            WITH collect(tagger) AS ranked, sum(usages) AS total
+            RETURN ranked[0..$limit] AS taggers, total
         }}
+        WITH taggers, total
+        WHERE total > 0
         CALL {{
             MATCH (tu:User)<-[:TAGGED {{label: $label}}]-(:User)
             WHERE {tagged_ok}
@@ -1670,6 +1677,7 @@ pub fn graph_neighborhood_by_tag(label: &str, limit: usize, posts_limit: usize) 
         }}
         CALL {{
             MATCH (author:User)-[:AUTHORED]->(p:Post)<-[:TAGGED {{label: $label}}]-(:User)
+            WHERE {author_ok}
             WITH DISTINCT p, author
             ORDER BY p.indexed_at DESC
             LIMIT $posts_limit
@@ -1690,6 +1698,7 @@ pub fn graph_neighborhood_by_tag(label: &str, limit: usize, posts_limit: usize) 
         ",
         tagger_ok = not_deleted("tagger"),
         tagged_ok = not_deleted("tu"),
+        author_ok = not_deleted("author"),
         post_f = authored_post_fields("p", "author"),
         user_proj = user_projection("u"),
     );
@@ -1714,10 +1723,11 @@ pub fn graph_neighborhood_by_post(
         // WITH barrier as in get_post_by_id: anchor on the post id, not the author
         MATCH (center:Post {{id: $post_id}})
         WITH center
-        MATCH (author:User {{id: $author_id}}) WHERE (author)-[:AUTHORED]->(center)
+        MATCH (author:User {{id: $author_id}}) WHERE (author)-[:AUTHORED]->(center) AND {author_ok}
         CALL {{
             WITH center
             MATCH (ra:User)-[:AUTHORED]->(reply:Post)-[:REPLIED]->(center)
+            WHERE {ra_ok}
             WITH reply, ra ORDER BY reply.indexed_at DESC
             LIMIT $limit
             RETURN collect({{{reply_f}}}) AS replies
@@ -1725,6 +1735,7 @@ pub fn graph_neighborhood_by_post(
         CALL {{
             WITH center
             MATCH (ra:User)-[:AUTHORED]->(rp:Post)-[:REPOSTED]->(center)
+            WHERE {ra_ok}
             WITH rp, ra ORDER BY rp.indexed_at DESC
             LIMIT $limit
             RETURN collect({{{repost_f}}}) AS reposts
@@ -1732,11 +1743,13 @@ pub fn graph_neighborhood_by_post(
         CALL {{
             WITH center
             MATCH (center)-[r:REPLIED|REPOSTED]->(parent:Post)<-[:AUTHORED]-(pa:User)
+            WHERE {pa_ok}
             RETURN collect({{rel: type(r), {parent_f}}}) AS parents
         }}
         CALL {{
             WITH center
             MATCH (center)-[:MENTIONED]->(m:User)
+            WHERE {m_ok}
             RETURN collect(m) AS mentioned
         }}
         CALL {{
@@ -1760,6 +1773,10 @@ pub fn graph_neighborhood_by_post(
         author_proj = user_projection("author"),
         center_f = post_fields("center"),
         mentioned_proj = user_projection("m"),
+        author_ok = not_deleted("author"),
+        ra_ok = not_deleted("ra"),
+        pa_ok = not_deleted("pa"),
+        m_ok = not_deleted("m"),
     );
     Query::new("graph_neighborhood_by_post", cypher)
         .param("author_id", author_id.to_string())
@@ -1768,20 +1785,33 @@ pub fn graph_neighborhood_by_post(
         .param("tags_limit", tags_limit as i64)
 }
 
-/// Shortest undirected FOLLOWS path between two users, capped at 6 hops.
+/// Shortest undirected FOLLOWS path between two users, capped at 4 hops.
 /// Nodes come back in path order (from first, to last); edges keep their true
 /// direction. Zero rows when either user is unknown or no path exists (404).
+///
+/// Four hops keeps the bidirectional search at two hops per side: with the
+/// follow graph's hubs, one more hop per side multiplies the frontier by the
+/// hub degree, and a "no path" answer has to exhaust that frontier.
+/// Deleted users are skipped as endpoints and mid-path (the per-node
+/// predicate is checked during traversal, so the fast path planner still
+/// applies).
 pub fn graph_shortest_path(from: &str, to: &str) -> Query {
     let cypher = format!(
         "
         MATCH (a:User {{id: $from}})
+        WHERE {a_ok}
         MATCH (b:User {{id: $to}})
-        MATCH p = shortestPath((a)-[:FOLLOWS*..6]-(b))
+        WHERE {b_ok}
+        MATCH p = shortestPath((a)-[:FOLLOWS*..4]-(b))
+        WHERE all(n IN nodes(p) WHERE {n_ok})
         RETURN
             [n IN nodes(p) | {user_proj}] AS path_nodes,
             [r IN relationships(p) | [startNode(r).id, endNode(r).id, r.indexed_at]] AS path_edges
         ",
         user_proj = user_projection("n"),
+        a_ok = not_deleted("a"),
+        b_ok = not_deleted("b"),
+        n_ok = not_deleted("n"),
     );
     Query::new("graph_shortest_path", cypher)
         .param("from", from.to_string())
