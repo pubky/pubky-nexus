@@ -8,6 +8,7 @@ use nexus_common::{
     models::post::{collection_item_keys, sync_collected_edges, PostDetails},
     types::DynError,
 };
+use pubky_app_specs::PubkyAppPostKind;
 
 const PROGRESS_LOG_EVERY: u64 = 500;
 
@@ -41,8 +42,12 @@ impl Migration for CollectedEdgesBackfill1789344000 {
         for row in rows {
             let author_id: String = row.get("author_id")?;
             let post_id: String = row.get("post_id")?;
-            let Some((details, _)) = PostDetails::get_from_graph(&author_id, &post_id).await?
-            else {
+            // Skip what stopped being a collection since the key snapshot; the
+            // content guard alone would pass a kind-only edit.
+            let fresh = PostDetails::get_from_graph(&author_id, &post_id)
+                .await?
+                .filter(|(details, _)| details.kind == PubkyAppPostKind::Collection);
+            let Some((details, _)) = fresh else {
                 continue;
             };
             let items = match collection_item_keys(&details.content) {
