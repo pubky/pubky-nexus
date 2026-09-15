@@ -1,4 +1,4 @@
-use super::PostCounts;
+use super::{PostCounts, PostDetails};
 use crate::db::{fetch_key_from_graph, queries};
 use crate::models::error::ModelResult;
 use pubky_app_specs::{ParsedUri, PubkyAppCollectionContent, PubkyId, Resource};
@@ -23,17 +23,17 @@ pub fn collection_item_keys(content: &str) -> Result<Vec<(PubkyId, String)>, ser
 
 /// Reconciles the COLLECTED edges of `author_id:post_id` with `items` and
 /// invalidates the counts of every item the graph reports as touched.
-/// Idempotent, so any retry path may call it freely. `envelope` is the content
-/// `items` came from; see [`queries::put::sync_collection_items`].
+/// Idempotent, so any retry path may call it freely. `derived_from` is the post
+/// state `items` came from; see [`queries::put::sync_collection_items`].
 pub async fn sync_collected_edges(
     author_id: &str,
     post_id: &str,
     items: &[(PubkyId, String)],
-    envelope: Option<&str>,
+    derived_from: Option<&PostDetails>,
 ) -> ModelResult<()> {
-    let query = queries::put::sync_collection_items(author_id, post_id, items, envelope);
-    // No row: the post is not in the graph, or its content moved on since
-    // `items` were parsed, so there is nothing to reconcile.
+    let query = queries::put::sync_collection_items(author_id, post_id, items, derived_from);
+    // No row: the post is not in the graph, or it moved on since `items` were
+    // parsed, so there is nothing to reconcile.
     let Some(touched) = fetch_key_from_graph::<Vec<Vec<String>>>(query, "touched").await? else {
         return Ok(());
     };

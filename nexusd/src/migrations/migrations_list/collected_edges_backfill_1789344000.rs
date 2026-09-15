@@ -42,8 +42,7 @@ impl Migration for CollectedEdgesBackfill1789344000 {
         for row in rows {
             let author_id: String = row.get("author_id")?;
             let post_id: String = row.get("post_id")?;
-            // Skip what stopped being a collection since the key snapshot; the
-            // content guard alone would pass a kind-only edit.
+            // Skip what stopped being a collection since the key snapshot.
             let fresh = PostDetails::get_from_graph(&author_id, &post_id)
                 .await?
                 .filter(|(details, _)| details.kind == PubkyAppPostKind::Collection);
@@ -57,7 +56,7 @@ impl Migration for CollectedEdgesBackfill1789344000 {
                     continue;
                 }
             };
-            sync_collected_edges(&author_id, &post_id, &items, Some(&details.content)).await?;
+            sync_collected_edges(&author_id, &post_id, &items, Some(&details)).await?;
 
             processed += 1;
             if processed.is_multiple_of(PROGRESS_LOG_EVERY) {

@@ -87,8 +87,7 @@ pub async fn sync_put(
                 // this, and leave the old edges in the graph for good.
                 if was_collection || is_collection {
                     let items = curated_items(&author_id, &post_id, &post_details);
-                    sync_collected_edges(&author_id, &post_id, &items, Some(&post_details.content))
-                        .await?;
+                    sync_collected_edges(&author_id, &post_id, &items, Some(&post_details)).await?;
                 }
                 if existing_details.is_different_than(&post_details) || kind_changed {
                     // A lock- or kind-only toggle refreshes the cache but must not notify.
@@ -147,7 +146,7 @@ pub async fn sync_put(
     ingest_collection_item_authors(&post, ingestor).await;
     if is_collection {
         let items = curated_items(&author_id, &post_id, &post_details);
-        sync_collected_edges(&author_id, &post_id, &items, Some(&post_details.content)).await?;
+        sync_collected_edges(&author_id, &post_id, &items, Some(&post_details)).await?;
     }
 
     // SAVE TO INDEX - PHASE 1, update post counts
@@ -362,7 +361,7 @@ async fn recover_post_index_state(
 
     // Same for COLLECTED edges; a non-collection also clears edges left by a kind flip.
     let items = curated_items(author_id, post_id, &post_details);
-    sync_collected_edges(author_id, post_id, &items, Some(&post_details.content)).await?;
+    sync_collected_edges(author_id, post_id, &items, Some(&post_details)).await?;
 
     // Reindex all Redis state from graph truth.
     let (details_result, relationships_result, counts_result) = nexus_common::traced_join!(
