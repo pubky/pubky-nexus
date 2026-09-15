@@ -59,8 +59,8 @@ impl ExternalHsMetrics {
 /// Exported on every external-HS run. A gauge keeps its last value while the
 /// process is alive, so `watcher.external_hs.indexed` over
 /// `watcher.external_hs.monitored_limit` is the saturation ratio: it reaches 1
-/// exactly when the cap is what stops the least trusted external homeservers
-/// from being indexed.
+/// when the eligible external homeservers fill the cap, which is when the limit
+/// binds coverage. Exactly-filled and truncated both export 1.
 static EXTERNAL_HS_METRICS: LazyLock<ExternalHsMetrics> = LazyLock::new(ExternalHsMetrics::new);
 
 /// Runner for [KeyBasedEventProcessor]
