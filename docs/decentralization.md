@@ -79,6 +79,21 @@ endpoint (hence "key-based" — keyed on each user's pubky). Configured in
 *Tuning:* each additional monitored HS adds HS requests (and, upstream, PKDNS
 resolutions) per tick. Raise deliberately as the network of indexed HSs grows.
 
+*Monitoring:* the runner exports two gauges on every external-HS run
+(`external_hs_monitoring_interval_ms`):
+
+| Metric | Type | Meaning |
+| --- | --- | --- |
+| `watcher.external_hs.monitored_limit` | gauge | The cap in force. |
+| `watcher.external_hs.indexed` | gauge | External HSs the last run selected for indexing: the active HSs, minus the primary HS and blacklisted ones, truncated to the limit. |
+
+`indexed / monitored_limit` is the saturation ratio: it reaches `1` when the
+eligible external HSs fill the cap, which is when the limit binds coverage. It
+does not separate a set that exactly fills the cap from one truncated by it, so
+treat `1` as "at capacity, raise the limit deliberately" rather than proof that
+homeservers were dropped. Gauges keep their last value while the process is
+alive, so a `monitored_homeservers_limit` of `0` exports a zero denominator.
+
 ### `external_hs_monitoring_interval_ms`
 
 > Scheduling interval[^1] for this `KeyBasedEventProcessorRunner` (the external-HS
