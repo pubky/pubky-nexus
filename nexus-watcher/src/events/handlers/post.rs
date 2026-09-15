@@ -5,7 +5,8 @@ use nexus_common::db::{exec_single_row, execute_graph_operation, OperationOutcom
 use nexus_common::db::{queries, RedisOps};
 use nexus_common::models::notification::{Notification, PostChangedSource, PostChangedType};
 use nexus_common::models::post::{
-    PostCounts, PostDetails, PostRelationships, PostStream, POST_TOTAL_ENGAGEMENT_KEY_PARTS,
+    collection_item_keys, sync_collected_edges, PostCounts, PostDetails, PostRelationships,
+    PostStream, POST_TOTAL_ENGAGEMENT_KEY_PARTS,
 };
 use nexus_common::models::user::{UserCounts, UserIngestor};
 use pubky_app_specs::{
@@ -81,6 +82,13 @@ pub async fn sync_put(
                 let collection_toggled = was_collection != is_collection;
                 // `is_different_than` ignores kind, so refresh on a kind-only edit too.
                 let kind_changed = existing_details.kind != post_details.kind;
+                // Before `sync_edit` overwrites the Redis details: a retry after a
+                // Collection -> Short flip would then read Short on both sides, skip
+                // this, and leave the old edges in the graph for good.
+                if was_collection || is_collection {
+                    let items = curated_items(&author_id, &post_id, &post_details);
+                    sync_collected_edges(&author_id, &post_id, &items, Some(&post_details)).await?;
+                }
                 if existing_details.is_different_than(&post_details) || kind_changed {
                     // A lock- or kind-only toggle refreshes the cache but must not notify.
                     let notify =
@@ -136,6 +144,10 @@ pub async fn sync_put(
     }
 
     ingest_collection_item_authors(&post, ingestor).await;
+    if is_collection {
+        let items = curated_items(&author_id, &post_id, &post_details);
+        sync_collected_edges(&author_id, &post_id, &items, Some(&post_details)).await?;
+    }
 
     // SAVE TO INDEX - PHASE 1, update post counts
     let indexing_results = nexus_common::traced_join!(
@@ -347,6 +359,10 @@ async fn recover_post_index_state(
     // didn't finish. Skips notifications (0 > N on retry).
     merge_mention_edges(author_id, post_id, &post_details.content).await?;
 
+    // Same for COLLECTED edges; a non-collection also clears edges left by a kind flip.
+    let items = curated_items(author_id, post_id, &post_details);
+    sync_collected_edges(author_id, post_id, &items, Some(&post_details)).await?;
+
     // Reindex all Redis state from graph truth.
     let (details_result, relationships_result, counts_result) = nexus_common::traced_join!(
         tracing::info_span!("index.write", phase = "post_recovery");
@@ -512,6 +528,22 @@ async fn merge_mention_edges(
         }
     }
     Ok(())
+}
+
+/// The post keys a Collection curates; none for any other kind.
+fn curated_items(
+    author_id: &PubkyId,
+    post_id: &str,
+    post_details: &PostDetails,
+) -> Vec<(PubkyId, String)> {
+    if post_details.kind != PubkyAppPostKind::Collection {
+        return Vec::new();
+    }
+    // PUTs are spec-validated, but recovery reads the graph, which may hold an
+    // envelope written under an older spec.
+    collection_item_keys(&post_details.content)
+        .inspect_err(|e| tracing::warn!("Collection {author_id}:{post_id} envelope malformed: {e}"))
+        .unwrap_or_default()
 }
 
 /// Best-effort ingestion of the user of every URI in a Collection's
@@ -787,6 +819,10 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), EventPr
     // PHASE 5: Graph deletion LAST — survives until all Redis cleanup completes,
     // so a partial failure leaves the graph node available for retry to re-enter
     // `post::del` -> `CreatedOrDeleted` -> `sync_del`.
+    // The COLLECTED edges go first, unconditionally: DETACH DELETE would drop
+    // them silently and the items' cached counts would keep this post, and on a
+    // retry the kind is no longer recoverable from the index.
+    sync_collected_edges(&author_id, &post_id, &[], None).await?;
     exec_single_row(queries::del::delete_post(&author_id, &post_id))
         .instrument(tracing::info_span!("graph.delete", phase = "post_graph"))
         .await?;

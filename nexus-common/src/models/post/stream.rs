@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use super::{Bookmark, PostCounts, PostDetails, PostView};
+use super::{collection_item_keys, Bookmark, PostCounts, PostDetails, PostView};
 use crate::db::kv::{RedisResult, ScoreAction, SortOrder};
 use crate::db::{get_neo4j_graph, queries, GraphError, GraphResult, RedisOps};
 use crate::models::error::ModelError;
@@ -12,7 +12,7 @@ use crate::models::{
 use crate::types::{DomainTrust, Pagination, StreamSorting, WotDepth};
 use futures::stream::{self, StreamExt};
 use futures::TryStreamExt;
-use pubky_app_specs::{ParsedUri, PubkyAppCollectionContent, PubkyAppPostKind, Resource};
+use pubky_app_specs::PubkyAppPostKind;
 use serde::{Deserialize, Serialize};
 use tokio::task::spawn;
 use tokio::time::{timeout, Duration};
@@ -55,6 +55,11 @@ pub enum StreamSource {
         author_id: String,
         post_id: String,
     },
+    /// Collection posts that contain the post `author_id:post_id` as an item.
+    PostCollections {
+        author_id: String,
+        post_id: String,
+    },
     /// Posts authored by users in the observer's Web of Trust (transitive FOLLOWS, 1..=depth).
     Wot {
         observer_id: String,
@@ -84,6 +89,7 @@ impl StreamSource {
             StreamSource::Author { .. } => ("author", None),
             StreamSource::AuthorReplies { .. } => ("author_replies", None),
             StreamSource::Collection { .. } => ("collection", None),
+            StreamSource::PostCollections { .. } => ("post_collections", None),
             StreamSource::Wot { depth, .. } => ("wot", Some(depth.get())),
             StreamSource::WotDomain { trust, .. } => (
                 "wot_domain",
@@ -116,8 +122,9 @@ impl StreamSource {
         }
     }
 
-    /// Author whose posts are streamed. Collection returns `None`: its
-    /// `author_id` is the curator, not the items' authors.
+    /// Author whose posts are streamed. Collection and PostCollections return
+    /// `None`: their `author_id` names the anchoring post, not the streamed
+    /// authors, and `post_stream` filters on `author.id` whenever this is `Some`.
     pub fn get_author(&self) -> Option<&str> {
         match self {
             StreamSource::PostReplies {
@@ -126,6 +133,14 @@ impl StreamSource {
             } => Some(author_id),
             StreamSource::Author { author_id } => Some(author_id),
             StreamSource::AuthorReplies { author_id } => Some(author_id),
+            _ => None,
+        }
+    }
+
+    /// Post the stream is anchored on; `None` unless the source is PostCollections.
+    pub fn get_anchor_post(&self) -> Option<(&str, &str)> {
+        match self {
+            StreamSource::PostCollections { author_id, post_id } => Some((author_id, post_id)),
             _ => None,
         }
     }
@@ -369,8 +384,8 @@ impl PostStream {
         if !matches!(details.kind, PubkyAppPostKind::Collection) {
             return Ok(PostKeyStream::default());
         }
-        let envelope: PubkyAppCollectionContent = match serde_json::from_str(&details.content) {
-            Ok(env) => env,
+        let items = match collection_item_keys(&details.content) {
+            Ok(items) => items,
             Err(e) => {
                 warn!("Collection {author_id}:{post_id} envelope malformed: {e}");
                 return Ok(PostKeyStream::default());
@@ -380,17 +395,10 @@ impl PostStream {
         let skip = skip.unwrap_or(0);
         let limit = limit.unwrap_or(usize::MAX);
 
-        // Filter before slicing so dead refs don't shorten pages.
-        let post_keys: Vec<String> = envelope
-            .items
-            .iter()
-            .filter_map(|uri| match ParsedUri::try_from(uri.as_str()) {
-                Ok(p) => match p.resource {
-                    Resource::Post(item_post_id) => Some(format!("{}:{}", p.user_id, item_post_id)),
-                    _ => None,
-                },
-                Err(_) => None,
-            })
+        // Dead refs were already dropped, so slicing cannot shorten a page.
+        let post_keys: Vec<String> = items
+            .into_iter()
+            .map(|(item_author_id, item_post_id)| format!("{item_author_id}:{item_post_id}"))
             .skip(skip)
             .take(limit)
             .collect();
@@ -896,6 +904,18 @@ impl PostStream {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// PostCollections is served from the graph only; no sorted set backs it.
+    #[test]
+    fn test_can_use_index_is_false_for_post_collections() {
+        let source = StreamSource::PostCollections {
+            author_id: "author".to_string(),
+            post_id: "post".to_string(),
+        };
+        for sorting in [StreamSorting::Timeline, StreamSorting::TotalEngagement] {
+            assert!(!PostStream::can_use_index(&sorting, &source, &None, &None));
+        }
+    }
 
     /// `can_use_index` short-circuits to the Cypher path whenever a kind filter
     /// is set, regardless of which kind — kind-filtered queries route via Cypher

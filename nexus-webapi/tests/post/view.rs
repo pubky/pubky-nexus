@@ -1,6 +1,9 @@
 use crate::{
     post::{CAIRO_USER, ENCRYPTION_TAG, ROOT_PATH},
-    stream::post::{kind::DETROIT, POST_H, TAG_LABEL_2},
+    stream::post::{
+        kind::{COL_BOGOTA_1, DETROIT, SHORT_BOGOTA},
+        BOGOTA, POST_H, TAG_LABEL_2,
+    },
     utils::{get_request, invalid_get_request},
 };
 use anyhow::Result;
@@ -34,6 +37,7 @@ async fn test_get_post_view() -> Result<()> {
     assert_eq!(body["counts"]["unique_tags"].as_u64(), Some(1));
     assert_eq!(body["counts"]["replies"].as_u64(), Some(2));
     assert_eq!(body["counts"]["reposts"].as_u64(), Some(1));
+    assert_eq!(body["counts"]["collections"].as_u64(), Some(0));
     assert_eq!(body["bookmark"]["indexed_at"].as_u64(), Some(1721764200000));
     assert_eq!(body["bookmark"]["id"], "2Z9PFGC3WWWW0");
 
@@ -65,6 +69,19 @@ async fn test_get_post_counts() -> Result<()> {
     assert_eq!(body["unique_tags"], 2);
     assert_eq!(body["replies"], 0);
     assert_eq!(body["reposts"], 0);
+    assert_eq!(body["collections"], 0);
+
+    Ok(())
+}
+
+/// Seed: COLW1TGL5BKG1 and COLW1TGL5BKG3 curate SHORT_BOGOTA, NEST1TGL5BKG8 curates COLW1TGL5BKG1.
+#[tokio_shared_rt::test(shared)]
+async fn test_get_post_counts_collections() -> Result<()> {
+    let body = get_request(&format!("{ROOT_PATH}/{BOGOTA}/{SHORT_BOGOTA}/counts")).await?;
+    assert_eq!(body["collections"], 2, "two collections curate the post");
+
+    let body = get_request(&format!("{ROOT_PATH}/{BOGOTA}/{COL_BOGOTA_1}/counts")).await?;
+    assert_eq!(body["collections"], 1, "a nested collection counts too");
 
     Ok(())
 }

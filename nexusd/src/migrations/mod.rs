@@ -9,6 +9,7 @@ mod utils;
 pub use builder::MigrationBuilder;
 pub use manager::MigrationManager;
 
+use crate::migrations::migrations_list::collected_edges_backfill_1789344000::CollectedEdgesBackfill1789344000;
 use crate::migrations::migrations_list::post_content_index_author_setup_1780531200::PostContentIndexAuthorSetup1780531200;
 use crate::migrations::migrations_list::post_content_index_setup_1780444800::PostContentIndexSetup1780444800;
 use crate::migrations::migrations_list::remove_muted_1771718400::RemoveMuted1771718400;
@@ -49,6 +50,7 @@ pub fn import_migrations(migration_manager: &mut MigrationManager) {
         Box::new(PostContentIndexSetup1780444800),
         Box::new(PostContentIndexAuthorSetup1780531200),
         Box::new(UsersByTagsIndexBackfill1786924800),
+        Box::new(CollectedEdgesBackfill1789344000),
     ];
     for migration in migrations {
         migration_manager.register(migration);

@@ -1,4 +1,5 @@
 mod attachments;
+mod collected_edges;
 mod collection_counts;
 mod del_reply_notification;
 mod del_reply_parent_notification;
