@@ -31,14 +31,3 @@ groups:
         annotations:
           summary: "Nexus watcher cursor is stalled"
           description: "The primary homeserver cursor did not advance during the last 15 minutes."
-
-      - alert: NexusExternalHomeserversNearMonitorLimit
-        expr: >-
-          (watcher_external_hs_indexed / watcher_external_hs_monitored_limit >= 0.9)
-          and watcher_external_hs_monitored_limit > 0
-        for: 15m
-        labels:
-          severity: warning
-        annotations:
-          summary: "Nexus is indexing at its external-homeserver limit"
-          description: "{{ $value | printf \"%.2f\" }} of monitored_homeservers_limit is in use: the least trusted external homeservers are no longer indexed. Raise monitored_homeservers_limit to cover the network, or accept the cap."

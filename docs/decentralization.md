@@ -90,17 +90,7 @@ resolutions) per tick. Raise deliberately as the network of indexed HSs grows.
 `indexed / monitored_limit` is the saturation ratio: it reaches `1` exactly when
 the cap is what stops the least trusted external HSs from being indexed, which is
 the moment to raise the limit. Gauges keep their last value while the process is
-alive, so a `monitored_homeservers_limit` of `0` exports a zero denominator; the
-alerting rule ignores that case.
-
-Prometheus alerting rules for these metrics live in
-[`docker/otel/alerts.yaml`](../docker/otel/alerts.yaml), loaded by the local
-observability stack (metric names as translated by the Prometheus exporter):
-
-- `NexusExternalHomeserversNearMonitorLimit` - the ratio has held at 0.9 or above
-  for the alert window: indexing coverage is bounded by the cap, not by the
-  number of HSs in the network. Raise `monitored_homeservers_limit` deliberately,
-  since each monitored HS adds requests per tick.
+alive, so a `monitored_homeservers_limit` of `0` exports a zero denominator.
 
 ### `external_hs_monitoring_interval_ms`
 
