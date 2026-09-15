@@ -1532,7 +1532,7 @@ fn authored_post_fields(post_var: &str, author_var: &str) -> String {
 /// Hop-1 is the center's *undirected* FOLLOWS neighborhood (followers hidden
 /// from an ego view would make it lie), friends first then most-followed,
 /// capped at `limit`. Hop-2 is a single globally-capped DISTINCT set
-/// (`hop2_limit`, 0 disables it), never a per-node fan-out, so payloads stay
+/// (`hop2_limit`, 0 disables it) built from a per-node slice, so payloads stay
 /// bounded by construction. Posts/tags attach to the center only; a limit of 0
 /// disables the class. The edge subqueries then collect every FOLLOWS, TAGGED,
 /// MENTIONED and REPLIED/REPOSTED relationship *among* the returned entities:

@@ -55,7 +55,12 @@ pub async fn sync() -> Result<(), DynError> {
     // whole user table would size the response with the database
     for chunk in user_ids.chunks(REINDEX_DETAILS_BATCH) {
         let refs: Vec<&str> = chunk.iter().map(|id| id.as_str()).collect();
-        UserDetails::reindex(&refs).await?;
+        // A batch with a missing record still writes the rest; the rebuild
+        // goes on and reports the failure at the end
+        if let Err(e) = UserDetails::reindex(&refs).await {
+            tracing::error!("Failed to reindex a user details batch: {e}");
+            failures.fetch_add(1, Ordering::Relaxed);
+        }
     }
     //TODO use collections for every other model
 
