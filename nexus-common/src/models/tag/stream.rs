@@ -6,6 +6,7 @@ use crate::types::{StreamReach, Timeframe};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::ops::Deref;
+use tracing::{debug, warn};
 use utoipa::ToSchema;
 
 use super::global::{HotTagsTaggers, Taggers};
@@ -13,6 +14,9 @@ use super::TaggedType;
 
 pub const HOT_TAGS_CACHE_PREFIX: &str = "Cache";
 pub const POST_HOT_TAGS: [&str; 3] = ["Tags", "Post", "Hot"];
+/// Snapshot size per timeframe. A skip past this cannot be filled from cache.
+pub const GLOBAL_HOT_TAGS_CACHE_SIZE: usize = 100;
+const GLOBAL_HOT_TAGS_TAGGERS_LIMIT: usize = 20;
 
 #[derive(Deserialize, Serialize, ToSchema, Debug, Clone)]
 pub struct HotTag {
@@ -90,66 +94,66 @@ impl HotTags {
             .map_err(Into::into)
     }
 
-    /// Retrieves global hot tags, checking the cache first before querying the database.
-    /// This function first attempts to fetch global hot tags from the cache. If the cached
-    /// data is unavailable, it queries the graph database to retrieve the latest hot tags.
-    /// If new data is found, it updates the cache before returning the results.
-    ///
-    /// # Arguments
-    ///
-    /// * `hot_tags_input` - The input parameters received from the API endpoint
+    /// Cache hit, including an empty page. On a missing key, refresh then re-read
+    /// so `skip`/`limit`/`taggers_limit` apply to the snapshot, not the graph result.
     async fn get_global_hot_tags(hot_tags_input: &HotTagsInputDTO) -> ModelResult<Option<HotTags>> {
-        let cached_hot_tags = HotTags::get_from_global_cache(hot_tags_input).await?;
-
-        if let Some(hot_tags) = &cached_hot_tags {
-            if hot_tags.0.is_empty() {
-                return Ok(None);
-            }
-            return Ok(cached_hot_tags);
+        if let Some(cached) = HotTags::get_from_global_cache(hot_tags_input).await? {
+            return Ok(Some(cached));
         }
 
-        let hot_tag_input = HotTagsInputDTO::new(
-            hot_tags_input.timeframe.clone(),
-            100,
-            0,
-            20,
-            hot_tags_input.tagged_type.clone(),
-        );
-        let query = queries::get::get_global_hot_tags(&hot_tag_input);
-        let result = fetch_key_from_graph::<HotTags>(query, "hot_tags").await?;
-
-        let hot_tags = match result {
-            Some(hot_tags) => hot_tags,
-            None => return Ok(None),
-        };
-        if !hot_tags.is_empty() {
-            HotTags::set_to_global_cache(hot_tags.clone(), hot_tags_input).await?;
-        }
-
+        HotTags::fetch_and_cache(&hot_tags_input.timeframe).await?;
         HotTags::get_from_global_cache(hot_tags_input)
             .await
             .map_err(Into::into)
     }
 
-    /// Retrieves hot tags from the global cache
-    ///
-    /// Fetches hot tags and their associated taggers from the cache, reconstructing
-    /// a list of hot tags from a stored JSON mapping and a hot tags SORTED SET. It applies filters
-    /// based on `hot_tags_input`, ensuring that only relevant tags and taggers are returned
-    ///
-    /// # Arguments
-    ///
-    /// * `hot_tags_input` - The input parameters received from the API endpoint
+    /// Scan the top 100 post tags and replace the cache. Empty/`None` leaves the
+    /// previous ranking in place.
+    pub async fn fetch_and_cache(timeframe: &Timeframe) -> ModelResult<()> {
+        let query_input = HotTagsInputDTO::new(
+            timeframe.clone(),
+            GLOBAL_HOT_TAGS_CACHE_SIZE,
+            0,
+            GLOBAL_HOT_TAGS_TAGGERS_LIMIT,
+            Some(TaggedType::Post),
+        );
+        let query = queries::get::get_global_hot_tags(&query_input);
+        let result = fetch_key_from_graph::<HotTags>(query, "hot_tags").await?;
+        HotTags::write_or_preserve_cache(result, timeframe, HOT_TAGS_CACHE_PREFIX).await
+    }
+
+    /// Non-empty result replaces both keys. Empty/`None` is a no-op.
+    /// Tests pass their own `prefix` so they never touch production keys.
+    async fn write_or_preserve_cache(
+        result: Option<HotTags>,
+        timeframe: &Timeframe,
+        prefix: &str,
+    ) -> ModelResult<()> {
+        match result {
+            Some(hot_tags) if !hot_tags.is_empty() => {
+                debug!(%timeframe, count = hot_tags.len(), "Writing hot tags cache");
+                HotTags::put_to_global_cache(hot_tags, timeframe, prefix).await?;
+            }
+            Some(_) => {
+                warn!(%timeframe, "Graph returned empty hot tags — previous cache left untouched");
+            }
+            None => {
+                warn!(%timeframe, "Graph returned no hot tags — previous cache left untouched");
+            }
+        }
+        Ok(())
+    }
+
+    /// `None` if either key is missing. `Some([])` if both exist but this window is empty.
     async fn get_from_global_cache(
         hot_tags_input: &HotTagsInputDTO,
     ) -> RedisResult<Option<HotTags>> {
         let timeframe = hot_tags_input.timeframe.to_string();
-        let hot_tag_key_parts = Self::build_hot_tags_key_parts(&timeframe);
+        let key_parts = Self::build_hot_tags_key_parts(&timeframe);
 
-        let hot_tag_taggers = Taggers::get_from_index(&timeframe).await?;
-
-        let hot_tags_score = HotTags::try_from_index_sorted_set(
-            &hot_tag_key_parts,
+        let taggers_by_label = Taggers::get_from_index(&timeframe, HOT_TAGS_CACHE_PREFIX).await?;
+        let scores = HotTags::try_from_index_sorted_set(
+            &key_parts,
             None,
             None,
             Some(hot_tags_input.skip),
@@ -159,92 +163,201 @@ impl HotTags {
         )
         .await?;
 
-        let (hot_tags_score, hot_tag_taggers) = match (hot_tags_score, hot_tag_taggers) {
-            (Some(score_list), Some(taggers)) => {
-                // Index exist but applyting the DTO filters, there is not records
-                if score_list.is_empty() {
-                    return Ok(Some(HotTags(Vec::new())));
-                }
-                (score_list, taggers)
-            }
-            _ => return Ok(None),
+        let (Some(scores), Some(taggers_by_label)) = (scores, taggers_by_label) else {
+            return Ok(None);
         };
+        if scores.is_empty() {
+            return Ok(Some(HotTags::default()));
+        }
 
-        let mut hot_tags = Vec::with_capacity(hot_tags_score.len());
-
-        for (label, score) in hot_tags_score {
-            if let Some(taggers) = hot_tag_taggers.get(&label) {
-                // Reduce taggers list
-                let taggers_id: Vec<String> =
-                    Taggers::get_taggers_by_pagination(taggers, 0, hot_tags_input.taggers_limit);
-                hot_tags.push(HotTag {
+        let hot_tags = scores
+            .into_iter()
+            .filter_map(|(label, score)| {
+                let taggers = taggers_by_label.get(&label)?;
+                Some(HotTag {
                     label,
-                    taggers_id: Taggers(taggers_id),
+                    taggers_id: Taggers(Taggers::get_taggers_by_pagination(
+                        taggers,
+                        0,
+                        hot_tags_input.taggers_limit,
+                    )),
                     tagged_count: score as u64,
                     taggers_count: taggers.len(),
-                });
-            }
-        }
-        Ok(Some(HotTags(hot_tags)))
-    }
-
-    /// Caches the global hot tags taggers and their scores
-    /// Gets hot tags and stores it in a global cache, both as a JSON
-    /// mapping of taggers and as a sorted set for score. It constructs cache keys dynamically
-    /// based on the provided timeframe
-    ///
-    /// # Arguments
-    ///
-    /// * `hot_tags_list` - A vector of `HotTag` elements
-    /// * `hot_tags_input` - The input parameters received from the API endpoint
-    async fn set_to_global_cache(
-        hot_tags_list: HotTags,
-        hot_tags_input: &HotTagsInputDTO,
-    ) -> RedisResult<()> {
-        let timeframe = hot_tags_input.timeframe.to_string();
-        let hot_tag_key_parts = Self::build_hot_tags_key_parts(&timeframe);
-
-        let mut hot_tags_score = Vec::with_capacity(hot_tags_list.len());
-
-        let taggers: HashMap<String, Taggers> = hot_tags_list
-            .iter()
-            .map(|tag| {
-                hot_tags_score.push((tag.tagged_count as f64, tag.label.as_str()));
-                (tag.label.clone(), tag.taggers_id.clone())
+                })
             })
             .collect();
-
-        Taggers::put_to_index(HotTagsTaggers(taggers), &hot_tags_input.timeframe).await?;
-
-        // Store the score as sorted set in cache
-        HotTags::put_index_sorted_set(
-            &hot_tag_key_parts,
-            &hot_tags_score,
-            Some(HOT_TAGS_CACHE_PREFIX),
-            Some(hot_tags_input.timeframe.to_cache_period()),
-        )
-        .await
+        Ok(Some(hot_tags))
     }
 
-    /// Builds key parts for hot tags based on the given timeframe
-    ///
-    /// # Arguments
-    /// * `timeframe` - A string slice representing the timeframe (e.g., "today", "this_month", "all_time")
+    /// Overwrite taggers JSON and atomically replace the score set.
+    async fn put_to_global_cache(
+        hot_tags_list: HotTags,
+        timeframe: &Timeframe,
+        prefix: &str,
+    ) -> ModelResult<()> {
+        let timeframe_str = timeframe.to_string();
+        let key_parts = Self::build_hot_tags_key_parts(&timeframe_str);
+        let scores: Vec<(f64, &str)> = hot_tags_list
+            .iter()
+            .map(|tag| (tag.tagged_count as f64, tag.label.as_str()))
+            .collect();
+        let taggers: HashMap<String, Taggers> = hot_tags_list
+            .iter()
+            .map(|tag| (tag.label.clone(), tag.taggers_id.clone()))
+            .collect();
+
+        Taggers::put_to_index(HotTagsTaggers(taggers), timeframe, prefix).await?;
+        HotTags::replace_index_sorted_set(
+            &key_parts,
+            &scores,
+            Some(prefix),
+            Some(timeframe.to_cache_period()),
+        )
+        .await?;
+        Ok(())
+    }
+
     fn build_hot_tags_key_parts(timeframe: &str) -> Vec<&str> {
         [&POST_HOT_TAGS[..], &[timeframe]].concat()
     }
 
-    /// Reindexes global hot tags
-    /// Retrieves and updates global hot tags for different timeframes. It fetches the top 100 hot tags
-    ///  with a taggers limit of 20 for both "all-time" and "this month" timeframes
+    /// Warm AllTime and ThisMonth from the graph.
     pub async fn reindex() -> ModelResult<()> {
-        let all_timeframe_input =
-            HotTagsInputDTO::new(Timeframe::AllTime, 100, 0, 20, Some(TaggedType::Post));
-        HotTags::get_global_hot_tags(&all_timeframe_input).await?;
+        HotTags::fetch_and_cache(&Timeframe::AllTime).await?;
+        HotTags::fetch_and_cache(&Timeframe::ThisMonth).await
+    }
+}
 
-        let month_timeframe_input =
-            HotTagsInputDTO::new(Timeframe::ThisMonth, 100, 0, 20, Some(TaggedType::Post));
-        HotTags::get_global_hot_tags(&month_timeframe_input).await?;
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{types::DynError, StackConfig, StackManager};
+
+    /// Off the production `HOT_TAGS_CACHE_PREFIX` keys the API tests share.
+    const TEST_PREFIX: &str = "HotTagsCacheTest";
+
+    #[tokio_shared_rt::test(shared)]
+    async fn write_or_preserve_cache_keeps_existing_ranking_on_empty_graph_result(
+    ) -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+        let timeframe = Timeframe::Today;
+        HotTags::put_to_global_cache(
+            HotTags(vec![
+                hot_tag("bitcoin", 10, &["alice"]),
+                hot_tag("nostr", 5, &["bob"]),
+            ]),
+            &timeframe,
+            TEST_PREFIX,
+        )
+        .await?;
+
+        HotTags::write_or_preserve_cache(Some(HotTags::default()), &timeframe, TEST_PREFIX).await?;
+        assert_cached_labels(&timeframe, &["bitcoin", "nostr"]).await?;
+
+        clear_test_cache(&timeframe).await?;
         Ok(())
+    }
+
+    #[tokio_shared_rt::test(shared)]
+    async fn write_or_preserve_cache_keeps_existing_ranking_on_none_graph_result(
+    ) -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+        let timeframe = Timeframe::ThisWeek;
+        HotTags::put_to_global_cache(
+            HotTags(vec![hot_tag("pubky", 20, &["carol"])]),
+            &timeframe,
+            TEST_PREFIX,
+        )
+        .await?;
+
+        HotTags::write_or_preserve_cache(None, &timeframe, TEST_PREFIX).await?;
+        assert_cached_labels(&timeframe, &["pubky"]).await?;
+
+        clear_test_cache(&timeframe).await?;
+        Ok(())
+    }
+
+    #[tokio_shared_rt::test(shared)]
+    async fn write_or_preserve_cache_replaces_existing_ranking_on_non_empty_graph_result(
+    ) -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+        let timeframe = Timeframe::ThisMonth;
+        HotTags::put_to_global_cache(
+            HotTags(vec![
+                hot_tag("stale", 1, &["dave"]),
+                hot_tag("dropped", 2, &["erin"]),
+            ]),
+            &timeframe,
+            TEST_PREFIX,
+        )
+        .await?;
+
+        HotTags::write_or_preserve_cache(
+            Some(HotTags(vec![hot_tag("fresh", 99, &["frank"])])),
+            &timeframe,
+            TEST_PREFIX,
+        )
+        .await?;
+        assert_cached_labels(&timeframe, &["fresh"]).await?;
+
+        clear_test_cache(&timeframe).await?;
+        Ok(())
+    }
+
+    fn hot_tag(label: &str, tagged_count: u64, taggers: &[&str]) -> HotTag {
+        HotTag {
+            label: label.to_string(),
+            taggers_id: Taggers(taggers.iter().map(|id| id.to_string()).collect()),
+            tagged_count,
+            taggers_count: taggers.len(),
+        }
+    }
+
+    async fn assert_cached_labels(
+        timeframe: &Timeframe,
+        expected: &[&str],
+    ) -> Result<(), DynError> {
+        let scores = read_raw_scores(timeframe)
+            .await?
+            .expect("cache scores must exist");
+        let taggers = read_raw_taggers(timeframe)
+            .await?
+            .expect("cache taggers must exist");
+        assert_eq!(scores.len(), expected.len());
+        assert_eq!(taggers.len(), expected.len());
+        for label in expected {
+            assert!(
+                scores.iter().any(|(cached, _)| cached == label),
+                "missing {label} in scores"
+            );
+            assert!(taggers.get(*label).is_some(), "missing {label} in taggers");
+        }
+        Ok(())
+    }
+
+    async fn read_raw_scores(timeframe: &Timeframe) -> RedisResult<Option<Vec<(String, f64)>>> {
+        let timeframe_str = timeframe.to_string();
+        let key_parts = HotTags::build_hot_tags_key_parts(&timeframe_str);
+        HotTags::try_from_index_sorted_set(
+            &key_parts,
+            None,
+            None,
+            Some(0),
+            Some(100),
+            SortOrder::Descending,
+            Some(TEST_PREFIX),
+        )
+        .await
+    }
+
+    async fn read_raw_taggers(timeframe: &Timeframe) -> RedisResult<Option<HotTagsTaggers>> {
+        Taggers::get_from_index(&timeframe.to_string(), TEST_PREFIX).await
+    }
+
+    async fn clear_test_cache(timeframe: &Timeframe) -> RedisResult<()> {
+        let timeframe_str = timeframe.to_string();
+        let key_parts = HotTags::build_hot_tags_key_parts(&timeframe_str);
+        HotTags::replace_index_sorted_set(&key_parts, &[], Some(TEST_PREFIX), None).await?;
+        Taggers::put_to_index(HotTagsTaggers(HashMap::new()), timeframe, TEST_PREFIX).await
     }
 }

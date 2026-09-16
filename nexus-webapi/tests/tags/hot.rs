@@ -147,6 +147,34 @@ async fn test_global_hot_tags_skip_limit() -> Result<()> {
     Ok(())
 }
 
+/// Global is a 100-entry cache, including AllTime. Reach is uncapped.
+#[tokio_shared_rt::test(shared)]
+async fn test_global_hot_tags_skip_past_cache() -> Result<()> {
+    let body = invalid_get_request("/v0/tags/hot?skip=101", StatusCode::BAD_REQUEST).await?;
+    assert!(
+        body["error"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("skip must be at most 100"),
+        "unexpected error payload: {body}"
+    );
+
+    let body = get_request("/v0/tags/hot?skip=100").await?;
+    assert_eq!(
+        body.as_array().map(Vec::len),
+        Some(0),
+        "skip at the cache size must yield an empty page, got: {body}"
+    );
+
+    let body = get_request(&format!(
+        "/v0/tags/hot?user_id={PEER_PUBKY}&reach=following&skip=101"
+    ))
+    .await?;
+    assert!(body.is_array());
+
+    Ok(())
+}
+
 #[tokio_shared_rt::test(shared)]
 async fn test_hot_tags_by_following_reach() -> Result<()> {
     let endpoint = &format!("/v0/tags/hot?user_id={PEER_PUBKY}&reach=following");

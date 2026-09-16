@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use clap::Parser;
-use nexus_common::types::{CacheTimeframe, DynError};
+use nexus_common::types::{CacheTimeframe, DynError, Timeframe};
 use nexus_common::{DaemonConfig, StackManager, TrustRankConfig};
 use nexus_watcher::service::NexusWatcher;
 use nexus_webapi::mock::MockDb;
@@ -10,7 +10,7 @@ use nexusd::cli::{
     ApiArgs, Cli, DbCommands, JobCommands, JobRunArgs, MigrationCommands, NexusCommands,
     WatcherArgs,
 };
-use nexusd::jobs::{InfluencersCacheJob, JobRegistry};
+use nexusd::jobs::{HotTagsCacheJob, InfluencersCacheJob, JobRegistry};
 use nexusd::migrations::{import_migrations, MigrationBuilder, MigrationManager};
 use nexusd::trust::TrustRecomputeJob;
 use nexusd::DaemonLauncher;
@@ -20,10 +20,14 @@ use nexusd::DaemonLauncher;
 fn job_registry(trust_rank: &TrustRankConfig, lock_ttl_secs: u64) -> JobRegistry {
     JobRegistry::new(vec![
         // One job per cache-backed timeframe so each refreshes on its own cadence,
-        // roughly half its TTL (see `[jobs.influencers-cache-*]` config).
+        // roughly half its TTL.
         Arc::new(InfluencersCacheJob::new(CacheTimeframe::Today)),
         Arc::new(InfluencersCacheJob::new(CacheTimeframe::ThisWeek)),
         Arc::new(InfluencersCacheJob::new(CacheTimeframe::ThisMonth)),
+        Arc::new(HotTagsCacheJob::new(Timeframe::Today)),
+        Arc::new(HotTagsCacheJob::new(Timeframe::ThisWeek)),
+        Arc::new(HotTagsCacheJob::new(Timeframe::ThisMonth)),
+        Arc::new(HotTagsCacheJob::new(Timeframe::AllTime)),
         Arc::new(TrustRecomputeJob::build(trust_rank, lock_ttl_secs)),
     ])
 }
