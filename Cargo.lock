@@ -3091,6 +3091,7 @@ dependencies = [
  "http",
  "nexus-common",
  "opentelemetry 0.32.0",
+ "opentelemetry_sdk 0.32.1",
  "pubky",
  "pubky-app-specs",
  "pubky-testnet",

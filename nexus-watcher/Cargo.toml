@@ -28,6 +28,7 @@ anyhow = { workspace = true }
 base32 = "0.5"
 http = "1"
 nexus-common = { path = "../nexus-common", features = ["test-utils"] }
+opentelemetry_sdk = { workspace = true, features = ["testing"] }
 pubky-testnet = { workspace = true }
 rand = "0.10.1"
 tempfile = { workspace = true }
