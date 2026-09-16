@@ -1105,9 +1105,12 @@ pub fn post_stream(
              WHERE author.id <> $observer_id\n",
         ),
         StreamSource::Bookmarks { .. } => cypher.push_str("MATCH (observer)-[:BOOKMARKED]->(p)\n"),
+        // My network: the observer binds as an author through the zero-length
+        // path, so the reach is "Me + my network" for every observer, cycles or
+        // not. A 1-hop minimum would only reach the observer back through a
+        // follow cycle, which most accounts do not have.
         StreamSource::Wot { depth, .. } => cypher.push_str(&format!(
-            "MATCH (observer)-[:FOLLOWS*1..{depth}]->(author:User)\n\
-             WHERE author.id <> $observer_id\n\
+            "MATCH (observer)-[:FOLLOWS*0..{depth}]->(author:User)\n\
              WITH DISTINCT author\n"
         )),
         // Me (depth-0): the observer is the sole tagger, so match their TAGGED

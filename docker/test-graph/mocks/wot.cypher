@@ -80,7 +80,8 @@ MATCH (u1:User {id: $o_obs}), (u2:User {id: $modbot}) MERGE (u1)-[:FOLLOWS {inde
 MATCH (u1:User {id: $d1}), (u2:User {id: $d2}) MERGE (u1)-[:FOLLOWS {indexed_at: 1230000000004, id: "WOTFOLLOW0004"}]->(u2);
 MATCH (u1:User {id: $d1b}), (u2:User {id: $d2}) MERGE (u1)-[:FOLLOWS {indexed_at: 1230000000005, id: "WOTFOLLOW0005"}]->(u2);
 // Cycle back to the observer: D1 follows O, so O is reachable as an author via
-// O->D1->O at depth 2. The stream must still exclude the observer's own posts.
+// O->D1->O at depth 2. O must appear exactly once; the zero-length path in the
+// reach traversal already puts the observer in their own network at any depth.
 MATCH (u1:User {id: $d1}), (u2:User {id: $o_obs}) MERGE (u1)-[:FOLLOWS {indexed_at: 1230000000006, id: "WOTFOLLOW0006"}]->(u2);
 
 // ##############################

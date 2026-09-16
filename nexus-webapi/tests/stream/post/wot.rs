@@ -60,28 +60,36 @@ fn count_id(body: &Value, id: &str) -> usize {
 }
 
 #[tokio_shared_rt::test(shared)]
-async fn test_wot_post_stream_excludes_spam_and_self() -> Result<()> {
+async fn test_wot_post_stream_includes_self_and_excludes_spam() -> Result<()> {
     let path = format!("{ROOT_PATH}?source=wot&observer_id={OBSERVER}&depth=2&limit=30");
     let body = get_request(&path).await?;
     assert!(body.is_array());
-    // Spammer (no inbound follows), the observer's own post (excluded even though
-    // the D1->O cycle makes O reachable at depth 2), and merely-tagged (not
-    // followed) bitcoiners/artists are all absent from the trust network.
-    assert_excludes(&body, &[P_S, P_O, P_BTC1, P_BTC5, P_ART1]);
+    // The reach is the observer plus their network: O's own post is present, and
+    // exactly once, even though the D1->O cycle is the only follow path back to
+    // them. The spammer (no inbound follows) and merely-tagged (not followed)
+    // bitcoiners/artists are all absent.
+    assert_exact_set(&body, &[P_O, P_D1, P_D1B, P_D2]);
+    assert_excludes(&body, &[P_S, P_BTC1, P_BTC5, P_ART1]);
+    assert_eq!(
+        count_id(&body, P_O),
+        1,
+        "the observer's own post must appear exactly once"
+    );
     Ok(())
 }
 
 #[tokio_shared_rt::test(shared)]
 async fn test_wot_post_stream_depth_matrix_and_dedup() -> Result<()> {
-    // depth 1: only directly-followed authors with posts (D1, D1B); D2 is at depth 2.
+    // depth 1: the observer's own post plus directly-followed authors with posts
+    // (D1, D1B); D2 is at depth 2.
     let path = format!("{ROOT_PATH}?source=wot&observer_id={OBSERVER}&depth=1&limit=30");
     let body = get_request(&path).await?;
-    assert_exact_set(&body, &[P_D1, P_D1B]);
+    assert_exact_set(&body, &[P_O, P_D1, P_D1B]);
 
     // depth 2: adds D2.
     let path = format!("{ROOT_PATH}?source=wot&observer_id={OBSERVER}&depth=2&limit=30");
     let body = get_request(&path).await?;
-    assert_exact_set(&body, &[P_D1, P_D1B, P_D2]);
+    assert_exact_set(&body, &[P_O, P_D1, P_D1B, P_D2]);
     // D2 is reachable via O->D1->D2 and O->D1B->D2 but must appear exactly once.
     assert_eq!(
         count_id(&body, P_D2),
@@ -261,13 +269,11 @@ async fn test_wot_validation_errors() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_wot_cold_start_and_backward_compat() -> Result<()> {
-    // Cold start: an observer with no follows yields an empty (but valid) stream.
+    // Cold start: an observer with no follows still sees their own posts, and
+    // nothing else.
     let path = format!("{ROOT_PATH}?source=wot&observer_id={SPAMMER}&depth=2");
     let body = get_request(&path).await?;
-    assert!(
-        body.as_array().expect("array").is_empty(),
-        "cold-start WoT stream should be empty"
-    );
+    assert_exact_set(&body, &[P_S]);
 
     // Backward-compat: `depth` on a non-wot source is ignored; global feed still works.
     let path = format!("{ROOT_PATH}?source=all&depth=2&limit=5");
@@ -298,7 +304,7 @@ async fn test_wot_post_keys_parity() -> Result<()> {
         posts.len(),
         "WoT post-keys and posts streams must align"
     );
-    assert_eq!(posts.len(), 3, "observer O has 3 WoT posts at depth 2");
+    assert_eq!(posts.len(), 4, "observer O has 4 WoT posts at depth 2");
     Ok(())
 }
 
@@ -311,7 +317,7 @@ async fn test_wot_post_stream_order_ascending() -> Result<()> {
     let ids = post_ids(&body);
     assert_eq!(
         ids.iter().map(String::as_str).collect::<Vec<_>>(),
-        vec![P_D1, P_D1B, P_D2],
+        vec![P_O, P_D1, P_D1B, P_D2],
         "order=ascending must return oldest-first"
     );
     Ok(())

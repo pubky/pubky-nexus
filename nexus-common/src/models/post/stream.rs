@@ -60,7 +60,8 @@ pub enum StreamSource {
         author_id: String,
         post_id: String,
     },
-    /// Posts authored by users in the observer's Web of Trust (transitive FOLLOWS, 1..=depth).
+    /// Posts authored by the observer and by users in their Web of Trust (transitive FOLLOWS,
+    /// 1..=depth): the reach is "Me + my network".
     Wot {
         observer_id: String,
         depth: WotDepth,
