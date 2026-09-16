@@ -5,7 +5,7 @@ use crate::routes::Query;
 use crate::{Error, Result};
 use axum::Json;
 use nexus_common::models::tag::global::Taggers;
-use nexus_common::models::tag::stream::{HotTag, HotTags, GLOBAL_HOT_TAGS_CACHE_SIZE};
+use nexus_common::models::tag::stream::{HotTag, HotTags};
 use nexus_common::models::tag::TaggedType;
 use nexus_common::models::tag::Taggers as TaggersType;
 use nexus_common::types::routes::HotTagsInputDTO;
@@ -94,7 +94,7 @@ pub async fn tag_taggers_handler(
         ("user_id" = Option<PubkyId>, Query, description = "User Pubky ID"),
         ("reach" = Option<String>, Query, example = "wot_2", description = "Reach type: `followers` | `following` | `friends` | `wot` | `wot_1`..`wot_3`. To apply that, user_id is required. Bare `wot` defaults to depth 2."),
         ("taggers_limit" = Option<BoundedLimit<20, 20>>, Query, description = "Retrieve N user_id for each tag. Defaults to `20`"),
-        ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Skip N tags (0–10 000, **default** 0; 100 for global)"),
+        ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Skip N tags (0–10 000, **default** 0)"),
         ("limit" = Option<BoundedLimit<40, 40>>, Query, description = "Retrieve N tag. Defaults to `40`"),
         ("timeframe" = Option<Timeframe>, Query, description = "Retrieve hot tags for this specific timeframe. Defaults to `all_time`"),
     ),
@@ -116,13 +116,6 @@ pub async fn hot_tags_handler(Query(query): Query<HotTagsQuery>) -> Result<Json<
     }
 
     let skip = query.pagination.skip_value();
-    // Global is a 100-entry cache, including AllTime.
-    if query.user_id.is_none() && skip > GLOBAL_HOT_TAGS_CACHE_SIZE {
-        return Err(Error::invalid_input(format!(
-            "skip must be at most {GLOBAL_HOT_TAGS_CACHE_SIZE} for global hot tags"
-        )));
-    }
-
     let limit = query.pagination.limit_value();
     let taggers_limit = query.taggers_limit.unwrap_or_default().value();
     let timeframe = query.timeframe.unwrap_or(Timeframe::AllTime);

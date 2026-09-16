@@ -101,6 +101,12 @@ impl HotTags {
             return Ok(Some(cached));
         }
 
+        // A skip past the snapshot is an empty page no matter what the graph holds,
+        // so refreshing for it would only let a caller walk `skip` to force scans.
+        if hot_tags_input.skip >= GLOBAL_HOT_TAGS_CACHE_SIZE {
+            return Ok(Some(HotTags::default()));
+        }
+
         HotTags::fetch_and_cache(&hot_tags_input.timeframe).await?;
         HotTags::get_from_global_cache(hot_tags_input)
             .await
