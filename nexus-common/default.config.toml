@@ -172,6 +172,24 @@ slow_query_logging_threshold_ms = 100
 # TTL 24h.
 #cron = "0 27 3,15 * * *"   # at 03:27 and 15:27
 
+# Hot-tags cache warmers. Minutes are offset so the two sets do not collide. 
+# AllTime is a TTL cache here, so it has its own job.
+#[jobs.hot-tags-cache-today]
+# TTL 1h.
+#cron = "0 12,42 * * * *"    # twice hourly at :12 and :42
+
+#[jobs.hot-tags-cache-this-week]
+# TTL 6h.
+#cron = "0 22 */3 * * *"     # every 3 hours at :22
+
+#[jobs.hot-tags-cache-this-month]
+# TTL 24h.
+#cron = "0 32 3,15 * * *"    # at 03:32 and 15:32
+
+#[jobs.hot-tags-cache-all-time]
+# TTL 24h.
+#cron = "0 47 3,15 * * *"    # at 03:47 and 15:47
+
 # Scheduling for the trust-rank recompute job. Set a cron for automatic
 # recomputes; omit it to leave the job on-demand only (`nexusd jobs run
 # trust-recompute` always works).

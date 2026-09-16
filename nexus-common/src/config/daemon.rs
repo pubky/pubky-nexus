@@ -139,10 +139,16 @@ mod tests {
         assert_eq!(c.stack.db.redis, "redis://127.0.0.1:6379");
         assert_eq!(c.stack.db.neo4j.uri, "bolt://localhost:7687");
 
-        // Influencer cache jobs are opt-in, like trust-recompute.
+        // Influencer job is opt-in
         assert!(
             !c.jobs.keys().any(|k| k.starts_with("influencers-cache")),
             "influencer cache jobs must be opt-in; found {:#?}",
+            c.jobs
+        );
+        // Hot-tags job is opt-in
+        assert!(
+            !c.jobs.keys().any(|k| k.starts_with("hot-tags-cache")),
+            "hot-tags cache jobs must be opt-in; found {:#?}",
             c.jobs
         );
         let trust_job = c
@@ -223,6 +229,43 @@ mod tests {
         assert_eq!(
             c.jobs["influencers-cache-this-month"].cron.as_deref(),
             Some("0 27 3,15 * * *")
+        );
+    }
+
+    /// Uncommenting the per-timeframe hot-tags cache sections yields four
+    /// distinct jobs, each with its own cron.
+    #[test]
+    fn test_hot_tags_job_crons_parse_verbatim() {
+        let toml = format!(
+            "{DEFAULT_CONFIG_TOML}\n\
+             [jobs.hot-tags-cache-today]\n\
+             cron = \"0 12,42 * * * *\"\n\
+             [jobs.hot-tags-cache-this-week]\n\
+             cron = \"0 22 */3 * * *\"\n\
+             [jobs.hot-tags-cache-this-month]\n\
+             cron = \"0 32 3,15 * * *\"\n\
+             [jobs.hot-tags-cache-all-time]\n\
+             cron = \"0 47 3,15 * * *\"\n"
+        );
+
+        let c = DaemonConfig::try_from_str(&toml)
+            .expect("config with per-timeframe hot-tags crons should parse");
+
+        assert_eq!(
+            c.jobs["hot-tags-cache-today"].cron.as_deref(),
+            Some("0 12,42 * * * *")
+        );
+        assert_eq!(
+            c.jobs["hot-tags-cache-this-week"].cron.as_deref(),
+            Some("0 22 */3 * * *")
+        );
+        assert_eq!(
+            c.jobs["hot-tags-cache-this-month"].cron.as_deref(),
+            Some("0 32 3,15 * * *")
+        );
+        assert_eq!(
+            c.jobs["hot-tags-cache-all-time"].cron.as_deref(),
+            Some("0 47 3,15 * * *")
         );
     }
 
