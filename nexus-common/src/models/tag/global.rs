@@ -10,7 +10,10 @@ use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, ops::Deref};
 use utoipa::ToSchema;
 
-const TAGGERS_INDEX: &str = "Taggers";
+/// Versioned: `Taggers` holds the pre-[`CachedTaggers`] shape, a bare id array per
+/// label, which this type cannot deserialize. A new segment lets those keys age out
+/// on their own TTL instead of erroring every read until they do.
+const TAGGERS_INDEX: &str = "TaggersV2";
 
 #[derive(Serialize, Deserialize, Debug, ToSchema, Clone)]
 pub struct Taggers(pub TaggersType);
@@ -32,13 +35,22 @@ impl AsRef<[String]> for Taggers {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, ToSchema, Default)]
-pub struct HotTagsTaggers(pub HashMap<String, Taggers>);
+/// One label's cached taggers. `total` is the graph's distinct tagger count, which
+/// can exceed `taggers.len()`: the list is a sample capped at write time, so it
+/// cannot stand in for the count.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct CachedTaggers {
+    pub taggers: Taggers,
+    pub total: usize,
+}
+
+#[derive(Serialize, Deserialize, Debug, Default)]
+pub struct HotTagsTaggers(pub HashMap<String, CachedTaggers>);
 
 impl RedisOps for HotTagsTaggers {}
 
 impl Deref for HotTagsTaggers {
-    type Target = HashMap<String, Taggers>;
+    type Target = HashMap<String, CachedTaggers>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -48,11 +60,15 @@ impl Deref for HotTagsTaggers {
 impl Taggers {
     /// Cached taggers map for one timeframe
     pub async fn get_from_index(
-        timeframe: &str,
+        timeframe: &Timeframe,
         prefix: &str,
     ) -> RedisResult<Option<HotTagsTaggers>> {
-        HotTagsTaggers::try_from_index_json(&Self::build_key_parts(timeframe), Some(prefix.into()))
-            .await
+        let timeframe_str = timeframe.to_string();
+        HotTagsTaggers::try_from_index_json(
+            &Self::build_key_parts(&timeframe_str),
+            Some(prefix.into()),
+        )
+        .await
     }
 
     /// Overwrites the timeframe's taggers JSON and arms its TTL.
@@ -103,14 +119,12 @@ impl Taggers {
         limit: usize,
         timeframe: &Timeframe,
     ) -> RedisResult<Option<TaggersType>> {
-        let Some(by_label) =
-            Self::get_from_index(&timeframe.to_string(), HOT_TAGS_CACHE_PREFIX).await?
-        else {
+        let Some(by_label) = Self::get_from_index(timeframe, HOT_TAGS_CACHE_PREFIX).await? else {
             return Ok(None);
         };
         Ok(by_label
             .get(label)
-            .map(|taggers| Self::get_taggers_by_pagination(taggers, skip, limit)))
+            .map(|cached| Self::get_taggers_by_pagination(&cached.taggers, skip, limit)))
     }
 
     /// Slice a cached tagger list. Used by both the taggers route and hot-tag reconstruction.

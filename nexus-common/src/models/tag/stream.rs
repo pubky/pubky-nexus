@@ -9,7 +9,7 @@ use std::ops::Deref;
 use tracing::{debug, warn};
 use utoipa::ToSchema;
 
-use super::global::{HotTagsTaggers, Taggers};
+use super::global::{CachedTaggers, HotTagsTaggers, Taggers};
 use super::TaggedType;
 
 pub const HOT_TAGS_CACHE_PREFIX: &str = "Cache";
@@ -97,7 +97,9 @@ impl HotTags {
     /// Cache hit, including an empty page. On a missing key, refresh then re-read
     /// so `skip`/`limit`/`taggers_limit` apply to the snapshot, not the graph result.
     async fn get_global_hot_tags(hot_tags_input: &HotTagsInputDTO) -> ModelResult<Option<HotTags>> {
-        if let Some(cached) = HotTags::get_from_global_cache(hot_tags_input).await? {
+        if let Some(cached) =
+            HotTags::get_from_global_cache(hot_tags_input, HOT_TAGS_CACHE_PREFIX).await?
+        {
             return Ok(Some(cached));
         }
 
@@ -108,13 +110,13 @@ impl HotTags {
         }
 
         HotTags::fetch_and_cache(&hot_tags_input.timeframe).await?;
-        HotTags::get_from_global_cache(hot_tags_input)
+        HotTags::get_from_global_cache(hot_tags_input, HOT_TAGS_CACHE_PREFIX)
             .await
             .map_err(Into::into)
     }
 
-    /// Scan the top 100 post tags and replace the cache. Empty/`None` leaves the
-    /// previous ranking in place.
+    /// Scan the top [`GLOBAL_HOT_TAGS_CACHE_SIZE`] post tags and replace the cache.
+    /// A result with no tags leaves the previous ranking in place.
     pub async fn fetch_and_cache(timeframe: &Timeframe) -> ModelResult<()> {
         let query_input = HotTagsInputDTO::new(
             timeframe.clone(),
@@ -128,7 +130,7 @@ impl HotTags {
         HotTags::write_or_preserve_cache(result, timeframe, HOT_TAGS_CACHE_PREFIX).await
     }
 
-    /// Non-empty result replaces both keys. Empty/`None` is a no-op.
+    /// A result with tags replaces both keys; anything else is a no-op.
     /// Tests pass their own `prefix` so they never touch production keys.
     async fn write_or_preserve_cache(
         result: Option<HotTags>,
@@ -140,12 +142,7 @@ impl HotTags {
                 debug!(%timeframe, count = hot_tags.len(), "Writing hot tags cache");
                 HotTags::put_to_global_cache(hot_tags, timeframe, prefix).await?;
             }
-            Some(_) => {
-                warn!(%timeframe, "Graph returned empty hot tags — previous cache left untouched");
-            }
-            None => {
-                warn!(%timeframe, "Graph returned no hot tags — previous cache left untouched");
-            }
+            _ => warn!(%timeframe, "Graph returned no hot tags — previous cache left untouched"),
         }
         Ok(())
     }
@@ -153,11 +150,12 @@ impl HotTags {
     /// `None` if either key is missing. `Some([])` if both exist but this window is empty.
     async fn get_from_global_cache(
         hot_tags_input: &HotTagsInputDTO,
+        prefix: &str,
     ) -> RedisResult<Option<HotTags>> {
         let timeframe = hot_tags_input.timeframe.to_string();
         let key_parts = Self::build_hot_tags_key_parts(&timeframe);
 
-        let taggers_by_label = Taggers::get_from_index(&timeframe, HOT_TAGS_CACHE_PREFIX).await?;
+        let taggers_by_label = Taggers::get_from_index(&hot_tags_input.timeframe, prefix).await?;
         let scores = HotTags::try_from_index_sorted_set(
             &key_parts,
             None,
@@ -165,30 +163,27 @@ impl HotTags {
             Some(hot_tags_input.skip),
             Some(hot_tags_input.limit),
             SortOrder::Descending,
-            Some(HOT_TAGS_CACHE_PREFIX),
+            Some(prefix),
         )
         .await?;
 
         let (Some(scores), Some(taggers_by_label)) = (scores, taggers_by_label) else {
             return Ok(None);
         };
-        if scores.is_empty() {
-            return Ok(Some(HotTags::default()));
-        }
 
         let hot_tags = scores
             .into_iter()
             .filter_map(|(label, score)| {
-                let taggers = taggers_by_label.get(&label)?;
+                let cached = taggers_by_label.get(&label)?;
                 Some(HotTag {
                     label,
                     taggers_id: Taggers(Taggers::get_taggers_by_pagination(
-                        taggers,
+                        &cached.taggers,
                         0,
                         hot_tags_input.taggers_limit,
                     )),
                     tagged_count: score as u64,
-                    taggers_count: taggers.len(),
+                    taggers_count: cached.total,
                 })
             })
             .collect();
@@ -200,16 +195,24 @@ impl HotTags {
         hot_tags_list: HotTags,
         timeframe: &Timeframe,
         prefix: &str,
-    ) -> ModelResult<()> {
+    ) -> RedisResult<()> {
         let timeframe_str = timeframe.to_string();
         let key_parts = Self::build_hot_tags_key_parts(&timeframe_str);
         let scores: Vec<(f64, &str)> = hot_tags_list
             .iter()
             .map(|tag| (tag.tagged_count as f64, tag.label.as_str()))
             .collect();
-        let taggers: HashMap<String, Taggers> = hot_tags_list
+        let taggers: HashMap<String, CachedTaggers> = hot_tags_list
             .iter()
-            .map(|tag| (tag.label.clone(), tag.taggers_id.clone()))
+            .map(|tag| {
+                (
+                    tag.label.clone(),
+                    CachedTaggers {
+                        taggers: tag.taggers_id.clone(),
+                        total: tag.taggers_count,
+                    },
+                )
+            })
             .collect();
 
         Taggers::put_to_index(HotTagsTaggers(taggers), timeframe, prefix).await?;
@@ -219,8 +222,7 @@ impl HotTags {
             Some(prefix),
             Some(timeframe.to_cache_period()),
         )
-        .await?;
-        Ok(())
+        .await
     }
 
     fn build_hot_tags_key_parts(timeframe: &str) -> Vec<&str> {
@@ -310,6 +312,52 @@ mod tests {
         Ok(())
     }
 
+    /// The graph caps `taggers_id` at `GLOBAL_HOT_TAGS_TAGGERS_LIMIT` but counts every
+    /// distinct tagger, so `taggers_count` has to round-trip the cache on its own. Read
+    /// back through `get_from_global_cache`, since deriving it from the stored sample is
+    /// the regression this guards.
+    #[tokio_shared_rt::test(shared)]
+    async fn tagger_total_round_trips_the_cache_apart_from_the_sample() -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+        let timeframe = Timeframe::AllTime;
+        let mut tag = hot_tag("bitcoin", 42, &["alice", "bob"]);
+        tag.taggers_count = 137;
+        HotTags::put_to_global_cache(HotTags(vec![tag]), &timeframe, TEST_PREFIX).await?;
+
+        let cached = read_raw_taggers(&timeframe)
+            .await?
+            .expect("cache taggers must exist");
+        let bitcoin = cached.get("bitcoin").expect("label must be cached");
+        assert_eq!(bitcoin.total, 137, "the write must persist the count");
+        assert_eq!(bitcoin.taggers.len(), 2, "the sample stays as written");
+
+        let input = HotTagsInputDTO::new(
+            timeframe.clone(),
+            GLOBAL_HOT_TAGS_CACHE_SIZE,
+            0,
+            GLOBAL_HOT_TAGS_TAGGERS_LIMIT,
+            Some(TaggedType::Post),
+        );
+        let hot_tags = HotTags::get_from_global_cache(&input, TEST_PREFIX)
+            .await?
+            .expect("the snapshot must be a cache hit");
+        let [read_back] = &hot_tags.0[..] else {
+            panic!("expected exactly one hot tag, got: {:?}", hot_tags.0);
+        };
+        assert_eq!(
+            read_back.taggers_count, 137,
+            "the read must report the graph's count, not the sample length"
+        );
+        assert_eq!(read_back.taggers_id.len(), 2, "the sample is unchanged");
+        assert_eq!(
+            read_back.tagged_count, 42,
+            "the score survives the sorted set"
+        );
+
+        clear_test_cache(&timeframe).await?;
+        Ok(())
+    }
+
     fn hot_tag(label: &str, tagged_count: u64, taggers: &[&str]) -> HotTag {
         HotTag {
             label: label.to_string(),
@@ -349,7 +397,7 @@ mod tests {
             None,
             None,
             Some(0),
-            Some(100),
+            Some(GLOBAL_HOT_TAGS_CACHE_SIZE),
             SortOrder::Descending,
             Some(TEST_PREFIX),
         )
@@ -357,7 +405,7 @@ mod tests {
     }
 
     async fn read_raw_taggers(timeframe: &Timeframe) -> RedisResult<Option<HotTagsTaggers>> {
-        Taggers::get_from_index(&timeframe.to_string(), TEST_PREFIX).await
+        Taggers::get_from_index(timeframe, TEST_PREFIX).await
     }
 
     async fn clear_test_cache(timeframe: &Timeframe) -> RedisResult<()> {
