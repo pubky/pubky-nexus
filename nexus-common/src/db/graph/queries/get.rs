@@ -1136,12 +1136,12 @@ pub fn post_stream(
     // posts.
     cypher.push_str("MATCH (p:Post)<-[:AUTHORED]-(author:User)\n");
 
-    // Apply tags
+    // Apply tags as a semi-join: a MATCH would emit one row per matching
+    // tagger, only for WITH DISTINCT to collapse them again
     if tags.is_some() {
-        cypher.push_str("MATCH (:User)-[tag:TAGGED]->(p)\n");
         append_condition(
             &mut cypher,
-            "tag.label IN $labels",
+            "EXISTS { MATCH (:User)-[tag:TAGGED]->(p) WHERE tag.label IN $labels }",
             &mut where_clause_applied,
         );
     }
@@ -1721,6 +1721,32 @@ mod tests {
                 "author dedup must precede the posts MATCH:\n{cypher}"
             );
         }
+    }
+
+    #[test]
+    fn tag_filter_is_a_semi_join() {
+        let cypher = post_stream(
+            StreamSource::Wot {
+                observer_id: "observer".to_string(),
+                depth: WotDepth::default(),
+            },
+            StreamSorting::Timeline,
+            SortOrder::Descending,
+            &Some(vec!["label".to_string()]),
+            Pagination::default(),
+            None,
+        )
+        .unwrap()
+        .to_cypher_populated();
+
+        assert!(
+            cypher.contains("EXISTS { MATCH (:User)-[tag:TAGGED]->(p) WHERE tag.label IN"),
+            "tags must filter through EXISTS:\n{cypher}"
+        );
+        assert!(
+            !cypher.contains("MATCH (:User)-[tag:TAGGED]->(p)\n"),
+            "a per-tagger MATCH multiplies rows before DISTINCT:\n{cypher}"
+        );
     }
 
     #[test]

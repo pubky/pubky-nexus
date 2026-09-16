@@ -4,10 +4,10 @@ use crate::models::{
 };
 use crate::routes::v0::endpoints::{SEARCH_POSTS_BY_CONTENT_ROUTE, SEARCH_POSTS_BY_TAG_ROUTE};
 use crate::routes::{Path, Query};
-use crate::Result;
+use crate::{Error, Result};
 use axum::Json;
 use nexus_common::models::post::search::{PostsByContentSearch, PostsByTagSearch};
-use nexus_common::types::StreamSorting;
+use nexus_common::types::{StreamReach, StreamSorting};
 use serde::Deserialize;
 use tracing::debug;
 use utoipa::OpenApi;
@@ -15,6 +15,8 @@ use utoipa::OpenApi;
 #[derive(Deserialize)]
 pub struct SearchPostsQuery {
     pub sorting: Option<StreamSorting>,
+    pub user_id: Option<PubkyId>,
+    pub reach: Option<StreamReach>,
     #[serde(flatten)]
     pub pagination: BoundedPagination<10_000, 20, 200>,
     pub start: Option<f64>,
@@ -24,13 +26,15 @@ pub struct SearchPostsQuery {
 #[utoipa::path(
     get,
     path = SEARCH_POSTS_BY_TAG_ROUTE,
-    description = "Search Posts by Tag",
+    description = "Search Posts by Tag. With `user_id` and `reach`, only parent posts authored by users in that reach are returned (the observer's own posts excluded), and the `total_engagement` score counts taggers, replies and reposts but not mentions. `start`/`end` cursors are not interchangeable between the reach and non-reach modes",
     tag = "Search",
     params(
         ("tag" = TagLabel, Path, description = "Tag name"),
         ("sorting" = Option<StreamSorting>, Query, description = "StreamSorting method"),
-        ("start" = Option<f64>, Query, description = "The start of the stream timeframe. Posts with a timestamp greater than this value will be excluded from the results"),
-        ("end" = Option<f64>, Query, description = "The end of the stream timeframe. Posts with a timestamp less than this value will be excluded from the results"),
+        ("user_id" = Option<PubkyId>, Query, description = "User ID to base reach on. Must be provided together with reach"),
+        ("reach" = Option<StreamReach>, Query, example = "wot_2", description = "Reach type: `followers` | `following` | `friends` | `wot` | `wot_1`..`wot_3`. To apply that, user_id is required. Bare `wot` defaults to depth 2."),
+        ("start" = Option<f64>, Query, description = "The start of the stream timeframe (score cursor for `total_engagement`). Posts with a score greater than this value will be excluded from the results"),
+        ("end" = Option<f64>, Query, description = "The end of the stream timeframe (score cursor for `total_engagement`). Posts with a score less than this value will be excluded from the results"),
         ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Skip N results (max 10000)"),
         ("limit" = Option<BoundedLimit<20, 200>>, Query, description = "Limit the number of results (1–200, default 20)")
     ),
@@ -48,12 +52,25 @@ pub async fn search_posts_by_tag_handler(
     let sorting = query.sorting;
 
     debug!(
-        "GET {SEARCH_POSTS_BY_TAG_ROUTE} tag:{}, sort_by: {:?}, start: {:?}, end: {:?}, skip: {}, limit: {}",
-        tag, sorting, query.start, query.end,
+        "GET {SEARCH_POSTS_BY_TAG_ROUTE} tag:{}, sort_by: {:?}, user_id: {:?}, reach: {:?}, start: {:?}, end: {:?}, skip: {}, limit: {}",
+        tag, sorting, query.user_id, query.reach, query.start, query.end,
         query.pagination.skip_value(), query.pagination.limit_value()
     );
 
+    if query.user_id.is_some() ^ query.reach.is_some() {
+        return Err(Error::invalid_input(
+            "user_id and reach should be both provided together",
+        ));
+    }
+
     let pagination = query.pagination.to_pagination(query.start, query.end);
+
+    if let (Some(user_id), Some(reach)) = (query.user_id, query.reach) {
+        let posts =
+            PostsByTagSearch::get_by_label_with_reach(&tag, sorting, &user_id, reach, pagination)
+                .await?;
+        return Ok(Json(posts));
+    }
 
     match PostsByTagSearch::get_by_label(&tag, sorting, pagination).await? {
         Some(posts_list) => Ok(Json(posts_list)),
@@ -120,7 +137,8 @@ pub async fn search_posts_by_content_handler(
         PostsByTagSearch,
         PostsByContentSearch,
         PostSearchQuery,
-        PubkyAppPostKind
+        PubkyAppPostKind,
+        StreamReach
     ))
 )]
 pub struct SearchPostsApiDocs;
