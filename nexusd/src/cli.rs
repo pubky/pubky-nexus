@@ -8,22 +8,11 @@ use std::path::PathBuf;
 #[command(about = "Pubky Nexus CLI", long_about = None)]
 pub struct Cli {
     /// Directory containing `config.toml`
-    #[arg(short, long, default_value_os_t = default_config_dir_path(), value_parser = validate_config_dir_path)]
+    #[arg(short, long, global = true, default_value_os_t = default_config_dir_path(), value_parser = validate_config_dir_path)]
     pub config_dir: PathBuf,
 
     #[command(subcommand)]
     pub command: Option<NexusCommands>,
-}
-
-impl Cli {
-    pub fn receive_command(cli: Cli) -> NexusCommands {
-        match cli.command {
-            None => NexusCommands::Run {
-                config_dir: cli.config_dir,
-            },
-            Some(command) => command,
-        }
-    }
 }
 
 /// Validate that the data_dir path is a directory.
@@ -35,10 +24,10 @@ fn validate_config_dir_path(path: &str) -> Result<PathBuf, String> {
 #[derive(Subcommand, Debug)]
 pub enum NexusCommands {
     /// Run the API service
-    Api(ApiArgs),
+    Api,
 
     /// Run the event watcher
-    Watcher(WatcherArgs),
+    Watcher,
 
     /// Run scheduled jobs on demand
     #[command(subcommand)]
@@ -50,25 +39,7 @@ pub enum NexusCommands {
 
     /// Run the API, the Watcher and the scheduled Jobs (default when no arguments are given)
     #[command(hide = true)]
-    Run {
-        /// Path to the configuration file
-        #[arg(short, long, default_value_os_t = default_config_dir_path(), value_parser = validate_config_dir_path)]
-        config_dir: PathBuf,
-    },
-}
-
-#[derive(Args, Debug)]
-pub struct ApiArgs {
-    /// Optional configuration file for the watcher
-    #[arg(short, long, default_value_os_t = default_config_dir_path(), value_parser = validate_config_dir_path)]
-    pub config_dir: PathBuf,
-}
-
-#[derive(Args, Debug)]
-pub struct WatcherArgs {
-    /// Optional configuration file for the watcher
-    #[arg(short, long, default_value_os_t = default_config_dir_path(), value_parser = validate_config_dir_path)]
-    pub config_dir: PathBuf,
+    Run,
 }
 
 #[derive(Subcommand, Debug)]
@@ -85,10 +56,6 @@ pub struct JobRunArgs {
     /// Name of the job to run (see `jobs list`)
     #[arg(required = true)]
     pub name: String,
-
-    /// Directory containing `config.toml`
-    #[arg(short, long, default_value_os_t = default_config_dir_path(), value_parser = validate_config_dir_path)]
-    pub config_dir: PathBuf,
 }
 
 #[derive(Subcommand, Debug)]
@@ -139,6 +106,73 @@ pub struct MigrationNewArgs {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use clap::{error::ErrorKind, CommandFactory};
+
+    #[test]
+    fn cli_definition_is_valid() {
+        // Panics on duplicate argument IDs, e.g. if a per-subcommand
+        // `config_dir` is ever re-introduced alongside the global one.
+        Cli::command().debug_assert();
+    }
+
+    #[test]
+    fn bare_invocation_defaults_to_running_everything() {
+        let cli = Cli::try_parse_from(["nexusd"]).expect("bare nexusd should parse");
+        assert!(cli.command.is_none());
+        assert_eq!(cli.config_dir, default_config_dir_path());
+    }
+
+    /// `-c/--config-dir` must be honored both before and after any subcommand
+    /// (clap globals are position-independent).
+    #[test]
+    fn config_dir_is_position_independent() {
+        const DIR: &str = "test-config-dir";
+        let dir = PathBuf::from(DIR);
+        let cases: &[&[&str]] = &[
+            &["run"],
+            &["api"],
+            &["watcher"],
+            &["jobs", "run", "some-job"],
+            &["db", "clear"],
+            &["db", "mock"],
+            &["db", "migration", "run"],
+            &["db", "migration", "check"],
+            &["db", "migration", "new", "some-migration"],
+        ];
+
+        for subcommand in cases {
+            let mut before = vec!["nexusd", "-c", DIR];
+            before.extend_from_slice(subcommand);
+            let cli = Cli::try_parse_from(before)
+                .unwrap_or_else(|e| panic!("flag before {subcommand:?} should parse: {e}"));
+            assert_eq!(
+                cli.config_dir, dir,
+                "flag before {subcommand:?} should set config_dir"
+            );
+
+            let mut after = vec!["nexusd"];
+            after.extend_from_slice(subcommand);
+            after.extend_from_slice(&["-c", DIR]);
+            let cli = Cli::try_parse_from(after)
+                .unwrap_or_else(|e| panic!("flag after {subcommand:?} should parse: {e}"));
+            assert_eq!(
+                cli.config_dir, dir,
+                "flag after {subcommand:?} should set config_dir"
+            );
+        }
+    }
+
+    #[test]
+    fn run_subcommand_is_still_accepted() {
+        let cli = Cli::try_parse_from(["nexusd", "run"]).expect("`nexusd run` should parse");
+        assert!(matches!(cli.command, Some(NexusCommands::Run)));
+    }
+
+    #[test]
+    fn unknown_flag_still_errors() {
+        let err = Cli::try_parse_from(["nexusd", "--definitely-not-a-flag"]).unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::UnknownArgument);
+    }
 
     #[test]
     fn db_clear_without_yes_parses_as_unconfirmed() {

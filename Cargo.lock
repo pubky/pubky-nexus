@@ -3152,7 +3152,6 @@ dependencies = [
  "chrono",
  "clap",
  "cron",
- "dirs 7.0.0",
  "futures",
  "nexus-common",
  "nexus-watcher",
