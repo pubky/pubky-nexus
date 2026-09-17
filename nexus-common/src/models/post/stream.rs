@@ -309,7 +309,7 @@ impl PostStream {
         tags: Option<Vec<String>>,
     ) -> ModelResult<Vec<(String, f64)>> {
         let wot = Self::wot_dimensions(&source)
-            .map(|(source, depth)| (super::metrics::search_source(source), depth));
+            .map(|(_, depth)| (super::metrics::SEARCH_WOT_SOURCE, depth));
         if let Some((source, depth)) = wot {
             super::metrics::record_wot_request(source, depth);
         }

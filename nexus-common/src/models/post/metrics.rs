@@ -11,8 +11,7 @@
 //! splitting into two metric names (the idiomatic low-cardinality OTel shape).
 //! For `source=wot_domain`, `depth=0` denotes the observer-only ("Me") trust set.
 //! The reach-filtered tag search runs the same query and records under
-//! `source=search_wot` (see [`search_source`]), so it never inflates the
-//! stream's series:
+//! [`SEARCH_WOT_SOURCE`], so it never inflates the stream's series:
 //!
 //! | Instrument                         | Spec metric                                |
 //! |------------------------------------|--------------------------------------------|
@@ -87,18 +86,14 @@ impl WotStreamMetrics {
 
 static METRICS: LazyLock<WotStreamMetrics> = LazyLock::new(WotStreamMetrics::new);
 
-/// The `source` label for a search that runs the WoT stream query, so search
-/// traffic stays out of the post stream's series.
-pub(super) fn search_source(source: &'static str) -> &'static str {
-    match source {
-        "wot" => "search_wot",
-        "wot_domain" => "search_wot_domain",
-        _ => "search",
-    }
-}
+/// The `source` label of a search that runs the WoT stream query, so search
+/// traffic stays out of the post stream's series. Searches only reach this
+/// through `StreamSource::from_reach`, whose only WoT-dimensioned source is
+/// `Wot`, so one label covers them.
+pub(super) const SEARCH_WOT_SOURCE: &str = "search_wot";
 
-/// Count one WoT post-stream request. `source` is `"wot"` or `"wot_domain"`,
-/// or its [`search_source`] label.
+/// Count one WoT post-stream request. `source` is `"wot"` or `"wot_domain"`
+/// for the stream, and [`SEARCH_WOT_SOURCE`] for the search.
 pub(super) fn record_wot_request(source: &'static str, depth: u8) {
     METRICS.requests.add(
         1,
@@ -136,14 +131,12 @@ pub(super) fn record_wot_result(
 
 #[cfg(test)]
 mod tests {
-    use super::search_source;
+    use super::SEARCH_WOT_SOURCE;
 
     #[test]
-    fn search_sources_never_reuse_stream_labels() {
-        assert_eq!(search_source("wot"), "search_wot");
-        assert_eq!(search_source("wot_domain"), "search_wot_domain");
+    fn search_source_never_reuses_a_stream_label() {
         for stream in ["wot", "wot_domain"] {
-            assert_ne!(search_source(stream), stream);
+            assert_ne!(SEARCH_WOT_SOURCE, stream);
         }
     }
 }
