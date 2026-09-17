@@ -44,6 +44,19 @@ fn test_v0_openapi_spec_valid() {
     validate_openapi_refs(&json);
 }
 
+/// `StreamReach` is a query string like `wot_2`, not the Rust enum shape.
+#[test]
+fn test_stream_reach_schema_is_its_string_form() {
+    let spec = serde_json::to_value(V0ApiDoc::merge_docs()).expect("serializable spec");
+    let schema = spec
+        .pointer("/components/schemas/StreamReach")
+        .expect("StreamReach schema");
+    assert_eq!(schema["type"], "string", "{schema}");
+    let values = schema["enum"].as_array().expect("enum values");
+    assert!(values.contains(&Value::from("wot_2")), "{schema}");
+    assert!(values.contains(&Value::from("followers")), "{schema}");
+}
+
 /// Test that the static OpenAPI spec is valid and all schema references are defined.
 #[test]
 fn test_static_openapi_spec_valid() {

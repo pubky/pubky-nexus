@@ -1148,14 +1148,26 @@ pub fn post_stream(
     // posts.
     cypher.push_str("MATCH (p:Post)<-[:AUTHORED]-(author:User)\n");
 
-    // Apply tags
+    // Apply tags. Observer-anchored streams already start from the observer,
+    // so a semi-join is cheaper there: a MATCH would emit one row per matching
+    // tagger, only for WITH DISTINCT to collapse them again. Without an
+    // observer the MATCH must stay: the planner can start it from the tag
+    // label index, but not a check inside EXISTS, which would scan every post.
     if tags.is_some() {
-        cypher.push_str("MATCH (:User)-[tag:TAGGED]->(p)\n");
-        append_condition(
-            &mut cypher,
-            "tag.label IN $labels",
-            &mut where_clause_applied,
-        );
+        if source.get_observer().is_some() {
+            append_condition(
+                &mut cypher,
+                "EXISTS { MATCH (:User)-[tag:TAGGED]->(p) WHERE tag.label IN $labels }",
+                &mut where_clause_applied,
+            );
+        } else {
+            cypher.push_str("MATCH (:User)-[tag:TAGGED]->(p)\n");
+            append_condition(
+                &mut cypher,
+                "tag.label IN $labels",
+                &mut where_clause_applied,
+            );
+        }
     }
 
     // If source has an author, add where clause. It is related with source pattern matching
@@ -1731,6 +1743,57 @@ mod tests {
             assert!(
                 dedup < posts,
                 "author dedup must precede the posts MATCH:\n{cypher}"
+            );
+        }
+    }
+
+    #[test]
+    fn tag_filter_is_a_semi_join_only_with_an_observer() {
+        let tagged = |source: StreamSource| {
+            post_stream(
+                source,
+                StreamSorting::Timeline,
+                SortOrder::Descending,
+                &Some(vec!["label".to_string()]),
+                Pagination::default(),
+                None,
+            )
+            .unwrap()
+            .to_cypher_populated()
+        };
+        let semi_join = "EXISTS { MATCH (:User)-[tag:TAGGED]->(p) WHERE tag.label IN";
+        let tag_match = "MATCH (:User)-[tag:TAGGED]->(p)\n";
+
+        let observed = [
+            StreamSource::Wot {
+                observer_id: "observer".to_string(),
+                depth: WotDepth::default(),
+            },
+            StreamSource::Following {
+                observer_id: "observer".to_string(),
+            },
+        ];
+        for source in observed {
+            let cypher = tagged(source);
+            assert!(
+                cypher.contains(semi_join) && !cypher.contains(tag_match),
+                "observer streams filter tags through EXISTS:\n{cypher}"
+            );
+        }
+
+        // Without an observer the tag MATCH lets the planner start from the
+        // tag label index instead of scanning every post
+        let unobserved = [
+            StreamSource::All,
+            StreamSource::Author {
+                author_id: "author".to_string(),
+            },
+        ];
+        for source in unobserved {
+            let cypher = tagged(source);
+            assert!(
+                cypher.contains(tag_match) && !cypher.contains(semi_join),
+                "streams without an observer keep the tag MATCH:\n{cypher}"
             );
         }
     }

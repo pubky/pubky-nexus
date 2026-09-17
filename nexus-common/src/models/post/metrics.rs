@@ -9,7 +9,9 @@
 //! `source` and `depth` attributes carry the spec's `{source}`/`{depth}`
 //! dimensions, so `wot` and `wot_domain` share one instrument rather than
 //! splitting into two metric names (the idiomatic low-cardinality OTel shape).
-//! For `source=wot_domain`, `depth=0` denotes the observer-only ("Me") trust set:
+//! For `source=wot_domain`, `depth=0` denotes the observer-only ("Me") trust set.
+//! The reach-filtered tag search runs the same query and records under
+//! [`SEARCH_WOT_SOURCE`], so it never inflates the stream's series:
 //!
 //! | Instrument                         | Spec metric                                |
 //! |------------------------------------|--------------------------------------------|
@@ -84,7 +86,14 @@ impl WotStreamMetrics {
 
 static METRICS: LazyLock<WotStreamMetrics> = LazyLock::new(WotStreamMetrics::new);
 
-/// Count one WoT post-stream request. `source` is `"wot"` or `"wot_domain"`.
+/// The `source` label of a search that runs the WoT stream query, so search
+/// traffic stays out of the post stream's series. Searches only reach this
+/// through `StreamSource::from_reach`, whose only WoT-dimensioned source is
+/// `Wot`, so one label covers them.
+pub(super) const SEARCH_WOT_SOURCE: &str = "search_wot";
+
+/// Count one WoT post-stream request. `source` is `"wot"` or `"wot_domain"`
+/// for the stream, and [`SEARCH_WOT_SOURCE`] for the search.
 pub(super) fn record_wot_request(source: &'static str, depth: u8) {
     METRICS.requests.add(
         1,
@@ -117,5 +126,17 @@ pub(super) fn record_wot_result(
             }
         }
         None => METRICS.errors.add(1, attrs),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SEARCH_WOT_SOURCE;
+
+    #[test]
+    fn search_source_never_reuses_a_stream_label() {
+        for stream in ["wot", "wot_domain"] {
+            assert_ne!(SEARCH_WOT_SOURCE, stream);
+        }
     }
 }
