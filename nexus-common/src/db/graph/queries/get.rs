@@ -351,6 +351,64 @@ pub fn search_users_by_tags(labels: &[String], skip: Option<usize>, limit: Optio
         .param("deleted", USER_DELETED_SENTINEL)
 }
 
+/// [`search_users_by_tags`] restricted to the users in `user_id`'s `reach`,
+/// excluding `user_id` itself. Pages inside the graph, so only the requested
+/// window leaves Neo4j.
+pub fn search_users_by_tags_with_reach(
+    labels: &[String],
+    user_id: &str,
+    reach: &StreamReach,
+    skip: Option<usize>,
+    limit: Option<usize>,
+) -> Query {
+    let reach_match = match reach {
+        // Followed users who follow back: an EXISTS check per followed user is
+        // far cheaper than matching both directions as one pattern
+        StreamReach::Friends => "MATCH (user)-[:FOLLOWS]->(reach:User)
+        WHERE EXISTS { (reach)-[:FOLLOWS]->(user) } AND reach.id <> $user_id"
+            .to_string(),
+        _ => format!(
+            "{}
+        WHERE reach.id <> $user_id",
+            stream_reach_to_graph_subquery(reach)
+        ),
+    };
+    let mut cypher = format!(
+        "
+        MATCH (user:User {{id: $user_id}})
+        {reach_match}
+        // The WoT traversal can loop back to the observer, so resolve the reach
+        // to distinct users before the tag join. DISTINCT right after the
+        // variable-length expand lets the planner use a pruning BFS, one row
+        // per reached user rather than per path. Starting from the tag with an
+        // EXISTS {{ (user)-[:FOLLOWS*1..d]->(u) }} check was slower: that check
+        // runs as an unpruned expand for every tagged user.
+        WITH DISTINCT reach AS u
+        MATCH (tagger:User)-[tag:TAGGED]->(u)
+        WHERE tag.label IN $labels AND u.name <> $deleted
+        WITH u, COUNT(tag) AS score
+        RETURN u.id AS user_id, score
+        // Same tie-break as search_users_by_tags and the single-label Redis path
+        ORDER BY score DESC, u.id DESC
+        "
+    );
+
+    if let Some(skip) = skip {
+        cypher.push_str(&format!("SKIP {}\n", skip.min(MAX_QUERY_SKIP)));
+    }
+    if let Some(limit) = limit {
+        cypher.push_str(&format!("LIMIT {}\n", limit.min(MAX_QUERY_LIMIT)));
+    }
+
+    reach_attrs(
+        Query::new("search_users_by_tags_with_reach", &cypher),
+        reach,
+    )
+    .param("labels", labels.to_vec())
+    .param("user_id", user_id)
+    .param("deleted", USER_DELETED_SENTINEL)
+}
+
 // Retrieve all the tags of the post
 pub fn post_tags(user_id: &str, post_id: &str) -> Query {
     Query::new(
@@ -1731,6 +1789,27 @@ mod tests {
             assert!(
                 dedup < posts,
                 "author dedup must precede the posts MATCH:\n{cypher}"
+            );
+        }
+    }
+
+    #[test]
+    fn user_tag_search_checks_friendship_with_exists() {
+        let labels = ["label".to_string()];
+        let friends =
+            search_users_by_tags_with_reach(&labels, "user", &StreamReach::Friends, None, None)
+                .to_cypher_populated();
+        assert!(
+            friends.contains("WHERE EXISTS { (reach)-[:FOLLOWS]->(user) }"),
+            "friends must check the follow-back per followed user:\n{friends}"
+        );
+        for reach in [StreamReach::Friends, StreamReach::Following] {
+            let cypher = search_users_by_tags_with_reach(&labels, "user", &reach, None, None)
+                .to_cypher_populated();
+            assert_eq!(
+                cypher.matches("WHERE").count(),
+                2,
+                "one WHERE for the reach, one for the tags:\n{cypher}"
             );
         }
     }
