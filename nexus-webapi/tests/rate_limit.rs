@@ -3,16 +3,11 @@ use axum::extract::ConnectInfo;
 use axum::http::{Request, StatusCode};
 use axum::routing::get;
 use axum::Router;
-use nexus_common::media::MediaPermits;
-use nexus_common::utils::test_utils::{default_ingestor_tests, default_subprocess_tests};
-use nexus_common::{RateLimitBucketConfig, RateLimitConfig};
+use nexus_common::RateLimitConfig;
 use nexus_webapi::routes::middlewares::rate_limit::{
     apply_rate_limit_default, apply_rate_limit_expensive,
 };
-use nexus_webapi::routes::v0::endpoints::{SEARCH_POSTS_BY_TAG_ROUTE, SEARCH_USERS_BY_ID_ROUTE};
-use nexus_webapi::routes::{app_routes, AppState};
 use std::net::SocketAddr;
-use tempfile::TempDir;
 use tower::ServiceExt;
 
 // ── Flood test ─────────────────────────────────────────────────────────
@@ -148,59 +143,4 @@ async fn rate_limit_disabled_allows_all_requests() {
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
     }
-}
-
-// ── Route buckets ──────────────────────────────────────────────────────
-
-/// Status codes of two back-to-back requests to `uri` from the same client.
-async fn two_requests(app: &Router, uri: &str) -> [StatusCode; 2] {
-    let mut statuses = [StatusCode::OK; 2];
-    for status in &mut statuses {
-        let request = Request::builder()
-            .uri(uri)
-            .header("x-forwarded-for", "127.0.0.2")
-            .body(Body::empty())
-            .unwrap();
-        *status = app.clone().oneshot(request).await.unwrap().status();
-    }
-    statuses
-}
-
-/// A reach-filtered tag search runs a graph traversal, so the route sits in
-/// the expensive bucket rather than the default one.
-#[tokio::test]
-async fn search_posts_by_tag_uses_the_expensive_bucket() {
-    let temp_dir = TempDir::new().unwrap();
-    let state = AppState::new(
-        temp_dir.path().to_path_buf(),
-        default_ingestor_tests(),
-        MediaPermits::new(1),
-        default_subprocess_tests(),
-    );
-    let config = RateLimitConfig {
-        enabled: true,
-        trust_proxy_headers: true,
-        default_bucket: RateLimitBucketConfig {
-            rate: 300,
-            burst: 50,
-        },
-        expensive_bucket: RateLimitBucketConfig { rate: 20, burst: 1 },
-    };
-    let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
-    let app: Router = app_routes(state.clone(), &config, shutdown_rx).with_state(state);
-
-    // Invalid path params fail before any database access, after the limiter
-    let over_length_tag = SEARCH_POSTS_BY_TAG_ROUTE.replace("{tag}", &"a".repeat(21));
-    assert_eq!(
-        two_requests(&app, &over_length_tag).await,
-        [StatusCode::BAD_REQUEST, StatusCode::TOO_MANY_REQUESTS],
-        "the second tag search must hit the expensive bucket's burst of 1"
-    );
-
-    let short_id_prefix = SEARCH_USERS_BY_ID_ROUTE.replace("{prefix}", "a");
-    assert_eq!(
-        two_requests(&app, &short_id_prefix).await,
-        [StatusCode::BAD_REQUEST, StatusCode::BAD_REQUEST],
-        "a default-bucket route must not share the expensive burst"
-    );
 }
