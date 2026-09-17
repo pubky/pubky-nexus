@@ -1,4 +1,5 @@
 // pub mod tag_counts_reset_1739459180;
+pub mod collected_edges_backfill_1789344000;
 pub mod post_content_index_author_setup_1780531200;
 pub mod post_content_index_setup_1780444800;
 pub mod remove_muted_1771718400;

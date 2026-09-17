@@ -3,7 +3,7 @@ pub mod routes;
 mod timeframe;
 
 pub use pagination::Pagination;
-pub use timeframe::Timeframe;
+pub use timeframe::{CacheTimeframe, Timeframe};
 
 use serde::de::{self, Deserializer};
 use serde::{Deserialize, Serialize};
@@ -91,6 +91,18 @@ pub enum StreamReach {
     Following,
     Friends,
     Wot(WotDepth),
+}
+
+impl StreamReach {
+    /// Low-cardinality reach value and optional WoT depth for telemetry.
+    pub(crate) fn telemetry_dimensions(&self) -> (&'static str, Option<u8>) {
+        match self {
+            StreamReach::Followers => ("followers", None),
+            StreamReach::Following => ("following", None),
+            StreamReach::Friends => ("friends", None),
+            StreamReach::Wot(depth) => ("wot", Some(depth.get())),
+        }
+    }
 }
 
 impl<'de> Deserialize<'de> for StreamReach {

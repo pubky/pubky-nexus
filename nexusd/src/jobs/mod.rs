@@ -1,8 +1,13 @@
 mod error;
+mod hot_tags;
+mod influencers;
 mod lock;
 mod scheduler;
 #[cfg(test)]
 mod test_support;
+
+pub use hot_tags::HotTagsCacheJob;
+pub use influencers::InfluencersCacheJob;
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -296,10 +301,13 @@ async fn supervise(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::jobs::test_support::{
-        AcquireOutcome, CountingJob, FakeLock, PanicJob, UnlockOutcome,
+    use crate::jobs::{
+        hot_tags::HotTagsCacheJob,
+        influencers::InfluencersCacheJob,
+        test_support::{AcquireOutcome, CountingJob, FakeLock, PanicJob, UnlockOutcome},
     };
     use lock::LockMetrics;
+    use nexus_common::types::{CacheTimeframe, Timeframe};
     use scheduler::virtual_now;
     use std::sync::Arc;
     use std::time::Duration;
@@ -446,6 +454,103 @@ mod tests {
         assert!(
             matches!(err, JobError::UnknownJobConfig { .. }),
             "an unknown [jobs.<name>] key must fail startup, got: {err:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn scheduled_jobs_resolves_per_timeframe_influencer_cadences() {
+        let extra = "\
+[jobs.influencers-cache-today]\n\
+cron = \"0 7,37 * * * *\"\n\
+[jobs.influencers-cache-this-week]\n\
+cron = \"0 17 */3 * * *\"\n\
+[jobs.influencers-cache-this-month]\n\
+cron = \"0 27 3,15 * * *\"\n";
+        let config = default_config_with(extra).await;
+        let registry = JobRegistry::new(vec![
+            Arc::new(InfluencersCacheJob::new(CacheTimeframe::Today)),
+            Arc::new(InfluencersCacheJob::new(CacheTimeframe::ThisWeek)),
+            Arc::new(InfluencersCacheJob::new(CacheTimeframe::ThisMonth)),
+            Arc::new(CountingJob::new("trust-recompute")),
+        ]);
+
+        let jobs = registry
+            .scheduled_jobs(&config)
+            .expect("per-timeframe influencer crons should resolve");
+
+        let mut by_name: std::collections::HashMap<&str, String> = jobs
+            .iter()
+            .map(|sj| (sj.job.name(), sj.schedule.to_string()))
+            .collect();
+
+        assert_eq!(
+            by_name.len(),
+            3,
+            "each cache-backed timeframe must become its own scheduled job"
+        );
+        assert_eq!(
+            by_name.remove("influencers-cache-today").unwrap(),
+            "0 7,37 * * * *"
+        );
+        assert_eq!(
+            by_name.remove("influencers-cache-this-week").unwrap(),
+            "0 17 */3 * * *"
+        );
+        assert_eq!(
+            by_name.remove("influencers-cache-this-month").unwrap(),
+            "0 27 3,15 * * *"
+        );
+    }
+
+    #[tokio::test]
+    async fn scheduled_jobs_resolves_per_timeframe_hot_tags_cadences() {
+        let extra = "\
+[jobs.hot-tags-cache-today]\n\
+cron = \"0 12,42 * * * *\"\n\
+[jobs.hot-tags-cache-this-week]\n\
+cron = \"0 22 */3 * * *\"\n\
+[jobs.hot-tags-cache-this-month]\n\
+cron = \"0 32 3,15 * * *\"\n\
+[jobs.hot-tags-cache-all-time]\n\
+cron = \"0 47 3,15 * * *\"\n";
+        let config = default_config_with(extra).await;
+        let registry = JobRegistry::new(vec![
+            Arc::new(HotTagsCacheJob::new(Timeframe::Today)),
+            Arc::new(HotTagsCacheJob::new(Timeframe::ThisWeek)),
+            Arc::new(HotTagsCacheJob::new(Timeframe::ThisMonth)),
+            Arc::new(HotTagsCacheJob::new(Timeframe::AllTime)),
+            Arc::new(CountingJob::new("trust-recompute")),
+        ]);
+
+        let jobs = registry
+            .scheduled_jobs(&config)
+            .expect("per-timeframe hot-tags crons should resolve");
+
+        let mut by_name: std::collections::HashMap<&str, String> = jobs
+            .iter()
+            .map(|sj| (sj.job.name(), sj.schedule.to_string()))
+            .collect();
+
+        assert_eq!(
+            by_name.len(),
+            4,
+            "each cache-backed timeframe must become its own scheduled job"
+        );
+        assert_eq!(
+            by_name.remove("hot-tags-cache-today").unwrap(),
+            "0 12,42 * * * *"
+        );
+        assert_eq!(
+            by_name.remove("hot-tags-cache-this-week").unwrap(),
+            "0 22 */3 * * *"
+        );
+        assert_eq!(
+            by_name.remove("hot-tags-cache-this-month").unwrap(),
+            "0 32 3,15 * * *"
+        );
+        assert_eq!(
+            by_name.remove("hot-tags-cache-all-time").unwrap(),
+            "0 47 3,15 * * *"
         );
     }
 

@@ -35,6 +35,7 @@ pub enum StreamSourceKind {
     Author,
     AuthorReplies,
     Collection,
+    PostCollections,
     Wot,
     WotDomain,
     #[default]
@@ -142,6 +143,18 @@ fn build_stream_source(
                 "source 'collection' requires 'post_id' parameter",
             )),
         },
+        StreamSourceKind::PostCollections => match (author_id, post_id) {
+            (Some(author_id), Some(post_id)) => Ok(StreamSource::PostCollections {
+                author_id: author_id.to_string(),
+                post_id: post_id.to_string(),
+            }),
+            (None, _) => Err(Error::invalid_input(
+                "source 'post_collections' requires 'author_id' parameter",
+            )),
+            (_, None) => Err(Error::invalid_input(
+                "source 'post_collections' requires 'post_id' parameter",
+            )),
+        },
         StreamSourceKind::Wot => match observer_id {
             Some(observer_id) => Ok(StreamSource::Wot {
                 observer_id: observer_id.to_string(),
@@ -246,6 +259,15 @@ impl PostStreamQuery {
                 "`kind` and `exclude_kinds` are not supported with `source=post_replies` or `source=author_replies`",
             ));
         }
+        // Every result is a Collection, so a kind filter can only no-op or
+        // silently empty the page.
+        if matches!(self.source, StreamSourceKind::PostCollections)
+            && (self.kind.is_some() || self.exclude_kinds.is_some())
+        {
+            return Err(Error::invalid_input(
+                "`kind` and `exclude_kinds` are not supported with `source=post_collections`",
+            ));
+        }
         if !matches!(self.source, StreamSourceKind::Collection) {
             return Ok(());
         }
@@ -272,7 +294,7 @@ impl PostStreamQuery {
     path = STREAM_POSTS_ROUTE,
     tag = "Stream",
     params(
-        ("source" = Option<StreamSourceKind>, Query, description = "Source of posts for streams with viewer (following, followers, friends, bookmarks, post_replies, author, author_replies, collection, wot, wot_domain, all). For `source=collection`: provide `author_id` + `post_id` of the Collection post; items are returned in curator order. `tags`, `kind`, `exclude_kinds`, `sorting`, `order`, `start`, `end` are all rejected with 400 (incompatible with the curator-ordered result set). Items whose underlying post is missing (deleted, not indexed) or whose URI is malformed/non-post are dropped during hydration; pages may be shorter than `limit`. Pagination via `skip`/`limit` is not stable across deletions, if an item is removed between page fetches, the same `skip` returns a different window. The FE can identify dropped items by diffing the response against the Collection envelope's `items[]`."),
+        ("source" = Option<StreamSourceKind>, Query, description = "Source of posts for streams with viewer (following, followers, friends, bookmarks, post_replies, author, author_replies, collection, post_collections, wot, wot_domain, all). For `source=post_collections`: provide `author_id` + `post_id` of a post; returns the Collection posts that curate it, newest first by default. `kind` and `exclude_kinds` are rejected with 400. Links are materialized when the Collection is written: an item indexed after the Collection that lists it is not linked until the Collection is edited. For `source=collection`: provide `author_id` + `post_id` of the Collection post; items are returned in curator order. `tags`, `kind`, `exclude_kinds`, `sorting`, `order`, `start`, `end` are all rejected with 400 (incompatible with the curator-ordered result set). Items whose underlying post is missing (deleted, not indexed) or whose URI is malformed/non-post are dropped during hydration; pages may be shorter than `limit`. Pagination via `skip`/`limit` is not stable across deletions, if an item is removed between page fetches, the same `skip` returns a different window. The FE can identify dropped items by diffing the response against the Collection envelope's `items[]`."),
         ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID"),
         ("observer_id" = Option<PubkyId>, Query, description = "Observer Pubky ID. The central point for streams with Reach"),
         ("author_id" = Option<PubkyId>, Query, description = "Filter posts by an specific author User ID"),
@@ -282,8 +304,8 @@ impl PostStreamQuery {
         ("tags" = Option<Tags>, Query, description = "Filter by a list of comma-separated tags (max 5). E.g.,`&tags=dev,free,opensource`. Only posts matching at least one of the tags will be returned."),
         ("depth" = Option<u8>, Query, description = "WoT traversal depth. For `source=wot`: 1-3, default 2. For `source=wot_domain`: 0-3, default 2, where `depth=0` is the observer-only (\"Me\") trust set (posts by authors the observer tagged directly, no follow traversal). `depth=0` is invalid for `source=wot`. Ignored for other sources."),
         ("domain_tags" = Option<Tags>, Query, description = "Required for `source=wot_domain`. Comma-separated tag labels (max 5); returns posts by authors tagged with any of these by the observer's WoT, or by the observer alone when `depth=0`. E.g. `&domain_tags=bitcoiner,btc-dev`. Ignored for other sources."),
-        ("kind" = Option<PubkyAppPostKind>, Query, description = "Filter by post kind: short, long, image, video, link, file, collection. Mutually exclusive with `exclude_kinds`; rejected for `source=post_replies` and `source=author_replies`."),
-        ("exclude_kinds" = Option<PostKinds>, Query, description = "Comma-separated post kinds to exclude server-side (1-7 items, duplicates ignored), e.g. `&exclude_kinds=collection,link`. Valid values: short, long, image, video, link, file, collection; anything else is rejected with 400. Mutually exclusive with `kind`; rejected for `source=collection`, `source=post_replies` and `source=author_replies`. Posts with a missing or unrecognized kind are never excluded."),
+        ("kind" = Option<PubkyAppPostKind>, Query, description = "Filter by post kind: short, long, image, video, link, file, collection. Mutually exclusive with `exclude_kinds`; rejected for `source=post_collections`, `source=post_replies` and `source=author_replies`."),
+        ("exclude_kinds" = Option<PostKinds>, Query, description = "Comma-separated post kinds to exclude server-side (1-7 items, duplicates ignored), e.g. `&exclude_kinds=collection,link`. Valid values: short, long, image, video, link, file, collection; anything else is rejected with 400. Mutually exclusive with `kind`; rejected for `source=collection`, `source=post_collections`, `source=post_replies` and `source=author_replies`. Posts with a missing or unrecognized kind are never excluded."),
         ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Skip N posts (max 10000)"),
         ("limit" = Option<BoundedLimit<10, 50>>, Query, description = "Retrieve N posts (1–50, default 10)"),
         ("start" = Option<f64>, Query, description = "The start of the stream timeframe or score. Posts with a timestamp/score greater than this value will be excluded from the results"),
@@ -306,6 +328,7 @@ The `source` parameter determines the type of stream. Depending on the `source`,
 - *author*:  Requires  **author_id** to filter posts by a specific author.
 - *author_replies*:  Requires  **author_id** to filter replies by a specific author.
 - *collection*: Requires **author_id** and **post_id** of the Collection post; items are returned in curator order.
+- *post_collections*: Requires **author_id** and **post_id** of a post; returns the Collection posts that contain it.
 
 - *wot*: Requires **observer_id**. Posts from users in the observer's Web of Trust (transitive follows, `depth` 1-3, default 2). Excludes the observer's own posts, including when a follow cycle reaches the observer again.
 - *wot_domain*: Requires **observer_id** and **domain_tags**. Posts by authors whom the observer's Web of Trust has tagged with any of `domain_tags`, all of those authors' posts, not only topic-tagged ones; combine with `tags=` for topic-scoped posts. With `depth=0` the trust set is the observer alone ("Me"): posts by authors the observer tagged directly. Includes the observer's own posts when they themselves are tagged with a matching label.
@@ -347,7 +370,7 @@ pub async fn stream_posts_handler(
     path = STREAM_POST_KEYS_ROUTE,
     tag = "Stream",
     params(
-        ("source" = Option<StreamSourceKind>, Query, description = "Source of posts for streams with viewer (following, followers, friends, bookmarks, post_replies, author, author_replies, collection, wot, wot_domain, all). For `source=collection`: provide `author_id` + `post_id` of the Collection post; keys are returned in curator order. `tags`, `kind`, `exclude_kinds`, `sorting`, `order`, `start`, `end` are all rejected with 400 (incompatible with the curator-ordered result set). Like every other source, the returned keys are a best-effort snapshot, they may reference posts that have since been deleted or are not yet indexed; callers should hydrate via `GET /v0/stream/posts?source=collection&author_id=...&post_id=...` (or `POST /v0/stream/posts/by_ids`) which drops unresolved refs. Pagination via `skip`/`limit` is not stable across deletions."),
+        ("source" = Option<StreamSourceKind>, Query, description = "Source of posts for streams with viewer (following, followers, friends, bookmarks, post_replies, author, author_replies, collection, post_collections, wot, wot_domain, all). For `source=post_collections`: provide `author_id` + `post_id` of a post; returns the Collection posts that curate it, newest first by default. `kind` and `exclude_kinds` are rejected with 400. Links are materialized when the Collection is written: an item indexed after the Collection that lists it is not linked until the Collection is edited. For `source=collection`: provide `author_id` + `post_id` of the Collection post; keys are returned in curator order. `tags`, `kind`, `exclude_kinds`, `sorting`, `order`, `start`, `end` are all rejected with 400 (incompatible with the curator-ordered result set). Like every other source, the returned keys are a best-effort snapshot, they may reference posts that have since been deleted or are not yet indexed; callers should hydrate via `GET /v0/stream/posts?source=collection&author_id=...&post_id=...` (or `POST /v0/stream/posts/by_ids`) which drops unresolved refs. Pagination via `skip`/`limit` is not stable across deletions."),
         ("observer_id" = Option<PubkyId>, Query, description = "Observer Pubky ID. The central point for streams with Reach"),
         ("author_id" = Option<PubkyId>, Query, description = "Filter posts by an specific author User ID"),
         ("post_id" = Option<PostId>, Query, description = "This parameter is needed when we want to retrieve the replies stream for a post"),
@@ -356,8 +379,8 @@ pub async fn stream_posts_handler(
         ("tags" = Option<Tags>, Query, description = "Filter by a list of comma-separated tags (max 5). E.g.,`&tags=dev,free,opensource`. Only posts matching at least one of the tags will be returned."),
         ("depth" = Option<u8>, Query, description = "WoT traversal depth. For `source=wot`: 1-3, default 2. For `source=wot_domain`: 0-3, default 2, where `depth=0` is the observer-only (\"Me\") trust set (posts by authors the observer tagged directly, no follow traversal). `depth=0` is invalid for `source=wot`. Ignored for other sources."),
         ("domain_tags" = Option<Tags>, Query, description = "Required for `source=wot_domain`. Comma-separated tag labels (max 5); returns posts by authors tagged with any of these by the observer's WoT, or by the observer alone when `depth=0`. E.g. `&domain_tags=bitcoiner,btc-dev`. Ignored for other sources."),
-        ("kind" = Option<PubkyAppPostKind>, Query, description = "Filter by post kind: short, long, image, video, link, file, collection. Mutually exclusive with `exclude_kinds`; rejected for `source=post_replies` and `source=author_replies`."),
-        ("exclude_kinds" = Option<PostKinds>, Query, description = "Comma-separated post kinds to exclude server-side (1-7 items, duplicates ignored), e.g. `&exclude_kinds=collection,link`. Valid values: short, long, image, video, link, file, collection; anything else is rejected with 400. Mutually exclusive with `kind`; rejected for `source=collection`, `source=post_replies` and `source=author_replies`. Posts with a missing or unrecognized kind are never excluded."),
+        ("kind" = Option<PubkyAppPostKind>, Query, description = "Filter by post kind: short, long, image, video, link, file, collection. Mutually exclusive with `exclude_kinds`; rejected for `source=post_collections`, `source=post_replies` and `source=author_replies`."),
+        ("exclude_kinds" = Option<PostKinds>, Query, description = "Comma-separated post kinds to exclude server-side (1-7 items, duplicates ignored), e.g. `&exclude_kinds=collection,link`. Valid values: short, long, image, video, link, file, collection; anything else is rejected with 400. Mutually exclusive with `kind`; rejected for `source=collection`, `source=post_collections`, `source=post_replies` and `source=author_replies`. Posts with a missing or unrecognized kind are never excluded."),
         ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Skip N posts (max 10000)"),
         ("limit" = Option<BoundedLimit<10, 50>>, Query, description = "Retrieve N posts (1–50, default 10)"),
         ("start" = Option<f64>, Query, description = "The start of the stream timeframe or score. Posts with a timestamp/score greater than this value will be excluded from the results"),
@@ -378,6 +401,7 @@ The `source` parameter determines the type of stream. Depending on the `source`,
 - *author*:  Requires  **author_id** to filter posts by a specific author.
 - *author_replies*:  Requires  **author_id** to filter replies by a specific author.
 - *collection*: Requires **author_id** and **post_id** of the Collection post; keys are returned in curator order.
+- *post_collections*: Requires **author_id** and **post_id** of a post; returns the keys of the Collection posts that contain it.
 
 - *wot*: Requires **observer_id**. Posts from users in the observer's Web of Trust (transitive follows, `depth` 1-3, default 2). Excludes the observer's own posts, including when a follow cycle reaches the observer again.
 - *wot_domain*: Requires **observer_id** and **domain_tags**. Posts by authors whom the observer's Web of Trust has tagged with any of `domain_tags`, all of those authors' posts, not only topic-tagged ones; combine with `tags=` for topic-scoped posts. With `depth=0` the trust set is the observer alone ("Me"): posts by authors the observer tagged directly. Includes the observer's own posts when they themselves are tagged with a matching label.

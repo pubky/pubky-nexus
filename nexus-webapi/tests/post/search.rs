@@ -182,7 +182,7 @@ async fn test_content_search_hyphenated_term() -> Result<()> {
 async fn test_content_search_collection_post() -> Result<()> {
     // Collection posts are indexed via their raw JSON content envelope, so searching
     // for a word from the collection name finds the collection.
-    // COLW1TGL5BKG3 has content {"name":"Cryptography classics","items":[]}.
+    // COLW1TGL5BKG3 has content {"name":"Cryptography classics","items":[...]}.
     let body = get_request(&content_search_url("cryptography")).await?;
     let results = body.as_array().expect("should be array");
     assert!(
