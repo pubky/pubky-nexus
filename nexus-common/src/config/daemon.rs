@@ -536,4 +536,16 @@ mod tests {
             );
         }
     }
+
+    /// Blob mirroring is on unless the operator turns it off, so an index that
+    /// only wants metadata can point its clients at another nexus' static files.
+    #[test]
+    fn test_mirror_blobs_defaults_on_and_parses_off() {
+        let c = DaemonConfig::try_from_str(DEFAULT_CONFIG_TOML).unwrap();
+        assert!(c.watcher.mirror_blobs, "mirror_blobs must default to true");
+
+        let toml = DEFAULT_CONFIG_TOML.replace("mirror_blobs = true", "mirror_blobs = false");
+        let c = DaemonConfig::try_from_str(&toml).unwrap();
+        assert!(!c.watcher.mirror_blobs, "mirror_blobs = false must parse");
+    }
 }
