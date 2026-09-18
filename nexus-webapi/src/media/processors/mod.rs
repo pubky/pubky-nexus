@@ -1,9 +1,8 @@
-use crate::{
-    media::{concurrency::MediaGate, FileVariant, MediaSubprocess},
-    models::file::FileDetails,
-};
+use crate::media::{concurrency::MediaGate, MediaSubprocess};
 use async_trait::async_trait;
-use std::path::{Path, PathBuf};
+use nexus_common::media::FileVariant;
+use nexus_common::models::file::FileDetails;
+use std::path::Path;
 use std::time::{Duration, SystemTime};
 use thiserror::Error;
 use tokio::fs;
@@ -139,17 +138,13 @@ async fn sweep_stale_temp_files(temp_dir: &Path) {
 pub trait VariantProcessor {
     type ProcessingOptions: BaseProcessingOptions + 'static;
 
-    /// Returns a list of valid variants for a given content type
-    /// If there are no valid variants for the content type, return an empty list
-    fn get_valid_variants_for_content_type(content_type: &str) -> Vec<FileVariant>;
-
-    /// Returns the content type for a given variant
-    fn get_content_type_for_variant(file: &FileDetails, variant: &FileVariant) -> String;
-
     /// Returns the processing options for a given variant
     /// If there are no options for this variant, return an error
+    ///
+    /// Takes the variant alone: a processor re-encodes every variant it derives to its own
+    /// single output format, so nothing about the source file changes the options. A processor
+    /// that needs the file has to say so by changing this signature.
     fn get_options_for_variant(
-        file: &FileDetails,
         variant: &FileVariant,
     ) -> Result<Self::ProcessingOptions, MediaProcessorError>;
 
@@ -167,7 +162,7 @@ pub trait VariantProcessor {
     async fn create_variant(
         file: &FileDetails,
         variant: &FileVariant,
-        file_path: PathBuf,
+        file_path: &Path,
         gate: &dyn MediaGate,
         subprocess: MediaSubprocess,
     ) -> Result<String, MediaProcessorError>
@@ -175,7 +170,7 @@ pub trait VariantProcessor {
         Self: Sized + 'static,
     {
         // if there are no options for this variant, return with the original content type
-        let options = match Self::get_options_for_variant(file, variant) {
+        let options = match Self::get_options_for_variant(variant) {
             Ok(options) => options,
             Err(_) => return Ok(file.content_type.clone()),
         };
@@ -328,9 +323,10 @@ mod tests {
 
     use crate::media::{
         concurrency::{MediaPermits, QueuedGate},
-        FileVariant, MediaGate, MediaSubprocess,
+        MediaGate, MediaSubprocess,
     };
-    use crate::models::file::{FileDetails, FileUrls};
+    use nexus_common::media::FileVariant;
+    use nexus_common::models::file::{FileDetails, FileUrls};
 
     use super::{
         sweep_stale_temp_files, timed_out_recently, BaseProcessingOptions, MediaProcessorError,
@@ -356,16 +352,7 @@ mod tests {
     impl VariantProcessor for SlowProcessor {
         type ProcessingOptions = SlowOptions;
 
-        fn get_valid_variants_for_content_type(_content_type: &str) -> Vec<FileVariant> {
-            vec![FileVariant::Small]
-        }
-
-        fn get_content_type_for_variant(_file: &FileDetails, _variant: &FileVariant) -> String {
-            String::from("image/webp")
-        }
-
         fn get_options_for_variant(
-            _file: &FileDetails,
             _variant: &FileVariant,
         ) -> Result<SlowOptions, MediaProcessorError> {
             Ok(SlowOptions)
@@ -427,7 +414,7 @@ mod tests {
                 SlowProcessor::create_variant(
                     &file_details(),
                     &FileVariant::Small,
-                    root,
+                    &root,
                     gate.as_ref(),
                     MediaSubprocess::new(Duration::from_secs(30)),
                 )
@@ -513,7 +500,7 @@ mod tests {
                 SlowProcessor::create_variant(
                     &file,
                     &FileVariant::Small,
-                    root,
+                    &root,
                     &gate,
                     MediaSubprocess::new(Duration::from_secs(30)),
                 )
@@ -584,7 +571,7 @@ mod tests {
                 CountingProcessor::create_variant(
                     &file,
                     &FileVariant::Small,
-                    root,
+                    &root,
                     &ControllableGate {
                         permits: MediaPermits::new(1),
                         open,
@@ -636,7 +623,7 @@ mod tests {
                 WedgedProcessor::create_variant(
                     &file,
                     &FileVariant::Small,
-                    root,
+                    &root,
                     gate.as_ref(),
                     // Short enough that the test does not wait a real deadline out.
                     MediaSubprocess::new(Duration::from_millis(200)),
@@ -676,16 +663,7 @@ mod tests {
     impl VariantProcessor for HalfWrittenProcessor {
         type ProcessingOptions = SlowOptions;
 
-        fn get_valid_variants_for_content_type(_content_type: &str) -> Vec<FileVariant> {
-            vec![FileVariant::Small]
-        }
-
-        fn get_content_type_for_variant(_file: &FileDetails, _variant: &FileVariant) -> String {
-            String::from("image/webp")
-        }
-
         fn get_options_for_variant(
-            _file: &FileDetails,
             _variant: &FileVariant,
         ) -> Result<SlowOptions, MediaProcessorError> {
             Ok(SlowOptions)
@@ -720,7 +698,7 @@ mod tests {
         let result = HalfWrittenProcessor::create_variant(
             &file,
             &FileVariant::Small,
-            root.path().to_path_buf(),
+            root.path(),
             &gate,
             MediaSubprocess::new(Duration::from_secs(30)),
         )
@@ -776,16 +754,7 @@ mod tests {
     impl VariantProcessor for ReportingProcessor {
         type ProcessingOptions = SlowOptions;
 
-        fn get_valid_variants_for_content_type(_content_type: &str) -> Vec<FileVariant> {
-            vec![FileVariant::Small]
-        }
-
-        fn get_content_type_for_variant(_file: &FileDetails, _variant: &FileVariant) -> String {
-            String::from("image/webp")
-        }
-
         fn get_options_for_variant(
-            _file: &FileDetails,
             _variant: &FileVariant,
         ) -> Result<SlowOptions, MediaProcessorError> {
             Ok(SlowOptions)
@@ -827,7 +796,7 @@ mod tests {
         ReportingProcessor::create_variant(
             &file,
             &FileVariant::Small,
-            root.path().to_path_buf(),
+            root.path(),
             &gate,
             MediaSubprocess::new(Duration::from_secs(30)),
         )
@@ -863,7 +832,7 @@ mod tests {
         let result = HalfWrittenProcessor::create_variant(
             &file,
             &FileVariant::Small,
-            root.path().to_path_buf(),
+            root.path(),
             &gate,
             MediaSubprocess::new(Duration::from_secs(30)),
         )
@@ -899,7 +868,7 @@ mod tests {
         let result = EmptyOutputProcessor::create_variant(
             &file,
             &FileVariant::Small,
-            root.path().to_path_buf(),
+            root.path(),
             &gate,
             MediaSubprocess::new(Duration::from_secs(30)),
         )
@@ -919,16 +888,7 @@ mod tests {
     impl VariantProcessor for RecordingProcessor {
         type ProcessingOptions = SlowOptions;
 
-        fn get_valid_variants_for_content_type(_content_type: &str) -> Vec<FileVariant> {
-            vec![FileVariant::Small]
-        }
-
-        fn get_content_type_for_variant(_file: &FileDetails, _variant: &FileVariant) -> String {
-            String::from("image/webp")
-        }
-
         fn get_options_for_variant(
-            _file: &FileDetails,
             _variant: &FileVariant,
         ) -> Result<SlowOptions, MediaProcessorError> {
             Ok(SlowOptions)
@@ -960,7 +920,7 @@ mod tests {
         P::create_variant(
             file,
             &FileVariant::Small,
-            root.to_path_buf(),
+            root,
             gate,
             MediaSubprocess::new(Duration::from_secs(30)),
         )
@@ -1014,7 +974,7 @@ mod tests {
         let feed = RecordingProcessor::create_variant(
             &file,
             &FileVariant::Feed,
-            root.path().to_path_buf(),
+            root.path(),
             &gate,
             MediaSubprocess::new(Duration::from_secs(30)),
         )
@@ -1155,16 +1115,7 @@ mod tests {
     impl VariantProcessor for EmptyOutputProcessor {
         type ProcessingOptions = SlowOptions;
 
-        fn get_valid_variants_for_content_type(_content_type: &str) -> Vec<FileVariant> {
-            vec![FileVariant::Small]
-        }
-
-        fn get_content_type_for_variant(_file: &FileDetails, _variant: &FileVariant) -> String {
-            String::from("image/webp")
-        }
-
         fn get_options_for_variant(
-            _file: &FileDetails,
             _variant: &FileVariant,
         ) -> Result<SlowOptions, MediaProcessorError> {
             Ok(SlowOptions)
@@ -1191,16 +1142,7 @@ mod tests {
     impl VariantProcessor for CountingProcessor {
         type ProcessingOptions = SlowOptions;
 
-        fn get_valid_variants_for_content_type(_content_type: &str) -> Vec<FileVariant> {
-            vec![FileVariant::Small]
-        }
-
-        fn get_content_type_for_variant(_file: &FileDetails, _variant: &FileVariant) -> String {
-            String::from("image/webp")
-        }
-
         fn get_options_for_variant(
-            _file: &FileDetails,
             _variant: &FileVariant,
         ) -> Result<SlowOptions, MediaProcessorError> {
             Ok(SlowOptions)
@@ -1229,16 +1171,7 @@ mod tests {
     impl VariantProcessor for WedgedProcessor {
         type ProcessingOptions = SlowOptions;
 
-        fn get_valid_variants_for_content_type(_content_type: &str) -> Vec<FileVariant> {
-            vec![FileVariant::Small]
-        }
-
-        fn get_content_type_for_variant(_file: &FileDetails, _variant: &FileVariant) -> String {
-            String::from("image/webp")
-        }
-
         fn get_options_for_variant(
-            _file: &FileDetails,
             _variant: &FileVariant,
         ) -> Result<SlowOptions, MediaProcessorError> {
             Ok(SlowOptions)
@@ -1271,7 +1204,7 @@ mod tests {
         let result = WedgedProcessor::create_variant(
             &file_details(),
             &FileVariant::Small,
-            PathBuf::from("/tmp"),
+            Path::new("/tmp"),
             &gate,
             MediaSubprocess::new(Duration::from_millis(100)),
         )

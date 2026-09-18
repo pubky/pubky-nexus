@@ -1,9 +1,6 @@
 use thiserror::Error;
 
-use crate::{
-    db::{kv::RedisError, GraphError},
-    media::processors::MediaProcessorError,
-};
+use crate::db::{kv::RedisError, GraphError};
 
 #[derive(Error, Debug)]
 pub enum ModelError {
@@ -14,9 +11,6 @@ pub enum ModelError {
     /// Failed to perform KV Operation
     #[error("KvOperationFailed")]
     KvOperationFailed(#[from] RedisError),
-
-    #[error("MediaProcessorError")]
-    MediaProcessorError(#[from] MediaProcessorError),
 
     #[error("FileOperationFailed")]
     FileOperationFailed(#[from] std::io::Error),
@@ -38,14 +32,6 @@ impl From<neo4rs::DeError> for ModelError {
 impl ModelError {
     pub fn from_generic(source: impl std::fmt::Display) -> Self {
         Self::Generic(source.to_string())
-    }
-
-    /// Returns true if media processing shed this request rather than failing on the file itself.
-    pub fn is_media_shed(&self) -> bool {
-        match self {
-            Self::MediaProcessorError(source) => source.is_load_shed(),
-            _ => false,
-        }
     }
 }
 

@@ -16,7 +16,7 @@ use crate::routes::AppState;
 use crate::routes::Path;
 use crate::{Error, Result};
 use nexus_common::{
-    media::{FileVariant, VariantController},
+    media::{validate_variant_for_content_type, FileVariant},
     models::{file::FileDetails, traits::Collection},
 };
 
@@ -90,7 +90,7 @@ pub async fn static_files_handler(
         .and_then(Clone::clone)
         .ok_or(Error::FileNotFound {})?;
 
-    if !VariantController::validate_variant_for_content_type(file.content_type.as_str(), &variant) {
+    if !validate_variant_for_content_type(file.content_type.as_str(), &variant) {
         return Err(Error::invalid_input(format!(
             "variant {} is not valid for content type {}",
             variant, file.content_type
