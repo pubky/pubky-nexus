@@ -18,8 +18,7 @@ pub struct ScheduledJob {
     pub(super) job: Arc<dyn Job>,
 }
 
-/// The single source of truth for what jobs exist — listing, on-demand runs, and
-/// scheduling all read from here.
+/// Jobs this process can run. The daemon uses [`Self::catalog`]; tests use [`Self::new`].
 pub struct JobRegistry {
     jobs: Vec<Arc<dyn Job>>,
 }
