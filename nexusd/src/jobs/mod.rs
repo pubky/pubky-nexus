@@ -1,6 +1,5 @@
+mod catalog;
 mod error;
-mod hot_tags;
-mod influencers;
 mod lock;
 mod registry;
 mod runner;
@@ -8,9 +7,8 @@ mod scheduler;
 #[cfg(test)]
 mod test_support;
 
+pub use catalog::{HotTagsCacheJob, InfluencersCacheJob};
 pub use error::{CronParseError, JobError};
-pub use hot_tags::HotTagsCacheJob;
-pub use influencers::InfluencersCacheJob;
 pub use lock::LOCK_TTL_SECS;
 pub use registry::{JobRegistry, ScheduledJob};
 pub use runner::run;

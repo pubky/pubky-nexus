@@ -5,7 +5,7 @@ use std::error::Error;
 use std::time::Duration;
 use tokio::time::timeout;
 
-use super::Job;
+use crate::jobs::Job;
 
 /// Per-timeframe ceiling for one graph scan + cache write. The scan walks every
 /// user with three counting subqueries each and cannot prune early, so on a
@@ -70,7 +70,7 @@ mod tests {
 
     #[test]
     fn job_names_are_distinct_per_timeframe() {
-        let registry = super::super::JobRegistry::new(vec![
+        let registry = crate::jobs::JobRegistry::new(vec![
             Arc::new(InfluencersCacheJob::new(CacheTimeframe::Today)),
             Arc::new(InfluencersCacheJob::new(CacheTimeframe::ThisWeek)),
             Arc::new(InfluencersCacheJob::new(CacheTimeframe::ThisMonth)),
