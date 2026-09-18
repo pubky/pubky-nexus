@@ -1,3 +1,4 @@
+use crate::media::MediaProcessorError;
 use crate::models::{ErrorResponsePayload, PostId, PubkyId};
 use axum::http::header::InvalidHeaderValue;
 use axum::http::uri::InvalidUri;
@@ -83,13 +84,33 @@ impl From<ModelError> for Error {
             ModelError::HsBlacklisted { hs_id } => Error::Forbidden {
                 message: format!("Homeserver is blacklisted: {hs_id}"),
             },
-            // Load shed: the client-facing message stays generic, the cause is logged server-side.
-            other if other.is_media_shed() => {
-                Error::service_unavailable("service temporarily unavailable")
-            }
             other => Error::InternalServerError {
                 source: other.into(),
             },
+        }
+    }
+}
+
+/// A media failure on its way to a client, carrying its cause but not showing it.
+///
+/// `InternalServerError` renders its source into the response body through `Display`, and a
+/// processor's own `Display` is deliberately verbose: `CommandFailed` interpolates the
+/// converter's stderr, and ImageMagick names the file it choked on, i.e. an absolute path under
+/// `files_path`. Any user can reach that by declaring a malformed blob `image/png` and asking
+/// for `/small`. So the client gets the variant name only -- what `ModelError`'s terse `Display`
+/// used to give it -- while `Debug` keeps the whole chain for the `{:?}` log line below.
+#[derive(Debug, Error)]
+#[error("MediaProcessorError")]
+struct RedactedMediaError(#[source] MediaProcessorError);
+
+impl From<MediaProcessorError> for Error {
+    fn from(source: MediaProcessorError) -> Self {
+        // Load shed: the client-facing message stays generic, the cause is logged server-side.
+        if source.is_load_shed() {
+            return Error::service_unavailable("service temporarily unavailable");
+        }
+        Error::InternalServerError {
+            source: Box::new(RedactedMediaError(source)),
         }
     }
 }
@@ -190,9 +211,8 @@ mod tests {
     use axum::http::StatusCode;
     use std::time::Duration;
 
+    use crate::media::MediaProcessorError;
     use axum::response::IntoResponse;
-    use nexus_common::media::processors::MediaProcessorError;
-    use nexus_common::models::error::ModelError;
 
     use super::Error;
 
@@ -209,7 +229,7 @@ mod tests {
         ];
 
         for source in shed {
-            let error = Error::from(ModelError::MediaProcessorError(source));
+            let error = Error::from(source);
             assert!(matches!(error, Error::ServiceUnavailable { .. }));
             assert_eq!(
                 error.into_response().status(),
@@ -218,12 +238,23 @@ mod tests {
         }
     }
 
-    // A genuine processing failure is still a server fault, not a shed.
+    // A genuine processing failure is still a server fault, not a shed -- and the converter's
+    // own words must not travel with it: ImageMagick's stderr names the file it choked on,
+    // which is an absolute path under `files_path`. The response body is `to_string()`, so
+    // asserting on it is asserting on what the client reads.
     #[test]
-    fn test_command_failure_maps_to_500() {
-        let error = Error::from(ModelError::MediaProcessorError(
-            MediaProcessorError::command_failed("boom"),
+    fn test_command_failure_maps_to_500_without_leaking_the_converter_message() {
+        let error = Error::from(MediaProcessorError::command_failed(
+            "ImageMagick format extraction failed: insufficient image data in file \
+             `/srv/nexus/static/files/o4dksqu3/0034A0X7NJ52G/main' @ error/png.c/ReadPNGImage/4201.",
         ));
+
+        assert_eq!(
+            error.to_string(),
+            "Internal server error: MediaProcessorError"
+        );
+        // The cause still has to reach the operator, via the `{:?}` line in `into_response`.
+        assert!(format!("{error:?}").contains("insufficient image data"));
 
         assert_eq!(
             error.into_response().status(),

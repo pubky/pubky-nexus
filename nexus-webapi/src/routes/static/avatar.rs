@@ -10,7 +10,6 @@ use axum::extract::{Request, State};
 use axum::http::{header, HeaderValue};
 use axum::response::Response;
 use nexus_common::media::FileVariant;
-use nexus_common::models::file::Blob;
 use nexus_common::models::{file::FileDetails, traits::Collection, user::UserDetails};
 use tower_http::services::fs::ServeFileSystemResponseBody;
 use tracing::{debug, warn};
@@ -68,16 +67,12 @@ pub async fn user_avatar_handler(
     // cache TTL brings the client back, and whichever request gets a permit writes the
     // variant to disk for every request after it.
     let controller = &app_state.fail_fast_variant_controller;
-    let variant = match Blob::get_by_id(
-        &file_details,
-        &FileVariant::Small,
-        file_path.clone(),
-        controller,
-    )
-    .await
+    let variant = match controller
+        .ensure_variant(&file_details, &FileVariant::Small, file_path)
+        .await
     {
         Ok(_) => FileVariant::Small,
-        Err(ref e) if e.is_media_shed() => {
+        Err(ref e) if e.is_load_shed() => {
             warn!("Media processing unavailable ({e}) for user: {user_id} avatar with file: {file_id}, falling back to main");
             FileVariant::Main
         }

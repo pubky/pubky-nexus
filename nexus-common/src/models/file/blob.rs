@@ -1,15 +1,10 @@
-use crate::{
-    media::{FileVariant, VariantController},
-    models::error::ModelResult,
-};
+use crate::models::error::ModelResult;
 use pubky_app_specs::PubkyAppBlob;
 use std::path::PathBuf;
 use tokio::{
     fs::{self, File},
     io::AsyncWriteExt,
 };
-
-use super::FileDetails;
 
 pub struct Blob;
 
@@ -31,27 +26,6 @@ impl Blob {
         static_file.write_all(&blob.0).await?;
 
         Ok(())
-    }
-
-    pub async fn get_by_id(
-        file: &FileDetails,
-        variant: &FileVariant,
-        file_path: PathBuf,
-        controller: &VariantController,
-    ) -> ModelResult<String> {
-        let file_variant_exists =
-            VariantController::check_variant_exists(file, variant.clone(), file_path.clone()).await;
-
-        if file_variant_exists {
-            Ok(VariantController::get_content_type_for_variant(
-                file, variant,
-            ))
-        } else {
-            controller
-                .create_file_variant(file, variant, file_path)
-                .await
-                .map_err(Into::into)
-        }
     }
 }
 

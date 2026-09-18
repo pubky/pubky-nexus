@@ -1,16 +1,14 @@
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
+use crate::media::VariantController;
 use crate::Result;
 use axum::{
     body::Body,
     http::{header, HeaderValue, Request, Uri},
     response::Response,
 };
-use nexus_common::{
-    media::{FileVariant, VariantController},
-    models::file::{Blob, FileDetails},
-};
+use nexus_common::{media::FileVariant, models::file::FileDetails};
 use tower_http::services::{fs::ServeFileSystemResponseBody, ServeDir};
 use tracing::error;
 
@@ -71,7 +69,9 @@ pub async fn serve_file_variant(
     download: bool,
     controller: &VariantController,
 ) -> Result<Response<ServeFileSystemResponseBody>> {
-    let content_type = Blob::get_by_id(file, variant, files_path.clone(), controller).await?;
+    let content_type = controller
+        .ensure_variant(file, variant, &files_path)
+        .await?;
 
     let disk_path = format!("/{}/{}/{variant}", file.owner_id, file.id);
 

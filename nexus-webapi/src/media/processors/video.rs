@@ -1,12 +1,21 @@
 use async_trait::async_trait;
 use tokio::process::Command;
 
-use crate::{
-    media::{processors::MediaProcessorError, FileVariant, MediaSubprocess},
-    models::file::FileDetails,
-};
+use crate::media::{processors::MediaProcessorError, MediaSubprocess};
+use nexus_common::media::FileVariant;
 
 use super::{BaseProcessingOptions, VariantProcessor};
+
+/// The container `process` passes to ffmpeg as `-f`. Unused until `get_options_for_variant` is
+/// implemented, which must set `VideoOptions::format` from it so the label keeps matching the
+/// bytes.
+const VIDEO_FORMAT: &str = "mp4";
+
+/// The content type a derived video variant is served under. Derived from [`VIDEO_FORMAT`] for
+/// the same reason as the image side.
+pub(crate) fn video_variant_content_type() -> String {
+    format!("video/{VIDEO_FORMAT}")
+}
 
 pub struct VideoOptions {
     width: String,
@@ -28,19 +37,7 @@ pub struct VideoProcessor;
 impl VariantProcessor for VideoProcessor {
     type ProcessingOptions = VideoOptions;
 
-    fn get_valid_variants_for_content_type(_content_type: &str) -> Vec<FileVariant> {
-        vec![FileVariant::Main]
-    }
-
-    fn get_content_type_for_variant(file: &FileDetails, variant: &FileVariant) -> String {
-        if variant.eq(&FileVariant::Main) {
-            return file.content_type.clone();
-        }
-        String::from("video/mp4")
-    }
-
     fn get_options_for_variant(
-        _file: &FileDetails,
         _variant: &FileVariant,
     ) -> Result<VideoOptions, MediaProcessorError> {
         // Return Err until we have a real implementation
@@ -86,24 +83,9 @@ impl VariantProcessor for VideoProcessor {
 mod tests {
     use super::*;
 
-    fn make_file(content_type: &str) -> FileDetails {
-        FileDetails {
-            content_type: content_type.to_string(),
-            ..Default::default()
-        }
-    }
-
     #[test]
-    fn test_main_variant_preserves_original_content_type() {
-        let file = make_file("video/webm");
-        let result = VideoProcessor::get_content_type_for_variant(&file, &FileVariant::Main);
-        assert_eq!(result, "video/webm");
-    }
-
-    #[test]
-    fn test_main_variant_preserves_mp4_content_type() {
-        let file = make_file("video/mp4");
-        let result = VideoProcessor::get_content_type_for_variant(&file, &FileVariant::Main);
-        assert_eq!(result, "video/mp4");
+    fn test_variant_content_type_tracks_the_output_format() {
+        assert_eq!(VIDEO_FORMAT, "mp4");
+        assert_eq!(video_variant_content_type(), "video/mp4");
     }
 }
