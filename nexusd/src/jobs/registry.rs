@@ -13,7 +13,7 @@ use super::{
 
 /// A [`Job`] bound to its cron schedule, with the [`Schedule`] pre-parsed. `Arc`
 /// shares one instance between the registry and the scheduler.
-pub struct ScheduledJob {
+pub(crate) struct ScheduledJob {
     pub(super) schedule: Schedule,
     pub(super) job: Arc<dyn Job>,
 }
@@ -79,7 +79,10 @@ impl JobRegistry {
 
     /// The scheduled jobs, resolved from config. Each job's schedule is validated
     /// here, so a misconfigured job fails fast rather than at its first fire.
-    pub fn scheduled_jobs(&self, config: &DaemonConfig) -> Result<Vec<ScheduledJob>, JobError> {
+    pub(crate) fn scheduled_jobs(
+        &self,
+        config: &DaemonConfig,
+    ) -> Result<Vec<ScheduledJob>, JobError> {
         let job_names = self.job_names();
 
         // Fail fast on a `[jobs.<name>]` section matching no registered job (typo).

@@ -10,9 +10,10 @@ mod test_support;
 pub use catalog::{HotTagsCacheJob, InfluencersCacheJob, TrustRecomputeJob};
 pub use error::{CronParseError, JobError};
 pub use lock::LOCK_TTL_SECS;
-pub use registry::{JobRegistry, ScheduledJob};
-pub use runner::run;
+pub use registry::JobRegistry;
 pub use scheduler::validate_cron;
+
+pub(crate) use runner::run;
 
 use async_trait::async_trait;
 use cron::Schedule;
