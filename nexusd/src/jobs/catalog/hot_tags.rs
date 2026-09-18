@@ -5,7 +5,7 @@ use std::error::Error;
 use std::time::Duration;
 use tokio::time::timeout;
 
-use super::Job;
+use crate::jobs::Job;
 
 /// Cap for one scan + write. Must outlast the API request timeout (a miss cannot
 /// finish a scan this long) and stay under the runner's MAX_RUN. `tokio::time::timeout`
@@ -58,7 +58,7 @@ mod tests {
 
     #[test]
     fn job_names_are_distinct_per_timeframe() {
-        let registry = super::super::JobRegistry::new(vec![
+        let registry = crate::jobs::JobRegistry::new(vec![
             Arc::new(HotTagsCacheJob::new(Timeframe::Today)),
             Arc::new(HotTagsCacheJob::new(Timeframe::ThisWeek)),
             Arc::new(HotTagsCacheJob::new(Timeframe::ThisMonth)),
