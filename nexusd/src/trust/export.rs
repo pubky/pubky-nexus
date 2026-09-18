@@ -112,7 +112,7 @@ async fn write_csv(path: &Path, scores: &[(String, f64)]) -> Result<(), DynError
 
 /// Writes a scheduled-run report into `dir` as `trust-report-<UTC timestamp>.csv`
 /// (columns per [`write_csv`]), creating `dir` if missing. Returns the path.
-pub(super) async fn write_timestamped_csv(
+pub(crate) async fn write_timestamped_csv(
     dir: &Path,
     scores: &[(String, f64)],
 ) -> Result<PathBuf, DynError> {

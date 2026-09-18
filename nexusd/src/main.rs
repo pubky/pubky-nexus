@@ -7,9 +7,8 @@ use nexus_watcher::service::NexusWatcher;
 use nexus_webapi::mock::MockDb;
 use nexus_webapi::NexusApi;
 use nexusd::cli::{Cli, DbCommands, JobCommands, JobRunArgs, MigrationCommands, NexusCommands};
-use nexusd::jobs::{HotTagsCacheJob, InfluencersCacheJob, JobRegistry};
+use nexusd::jobs::{HotTagsCacheJob, InfluencersCacheJob, JobRegistry, TrustRecomputeJob};
 use nexusd::migrations::{import_migrations, MigrationBuilder, MigrationManager};
-use nexusd::trust::TrustRecomputeJob;
 use nexusd::DaemonLauncher;
 
 /// The registry of jobs available to the daemon, built from config. Config-free

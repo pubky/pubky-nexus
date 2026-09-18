@@ -2,6 +2,8 @@
 
 mod hot_tags;
 mod influencers;
+mod trust_recompute;
 
 pub use hot_tags::HotTagsCacheJob;
 pub use influencers::InfluencersCacheJob;
+pub use trust_recompute::TrustRecomputeJob;

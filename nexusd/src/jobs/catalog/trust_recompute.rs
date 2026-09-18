@@ -9,10 +9,10 @@ use opentelemetry::global;
 use opentelemetry::metrics::{Counter, Meter};
 use tracing::{debug, error, info, warn};
 
-use super::engine::{TrustRankEngine, TrustRankParams};
-use super::export::{read_scores, write_timestamped_csv};
-use super::neo4j::GdsNeo4j;
 use crate::jobs::Job;
+use crate::trust::{
+    read_scores, write_timestamped_csv, GdsNeo4j, TrustRankEngine, TrustRankParams,
+};
 
 /// OpenTelemetry meter name for all trust-rank metrics.
 const METER_NAME: &str = "nexus.trust";
@@ -164,8 +164,9 @@ mod tests {
     use opentelemetry_sdk::metrics::data::{AggregatedMetrics, MetricData, ResourceMetrics};
     use opentelemetry_sdk::metrics::{InMemoryMetricExporter, SdkMeterProvider};
 
-    use super::super::engine::{TrustRankEngine, TrustRankParams, TrustRankStats};
     use super::*;
+    use crate::jobs::Job;
+    use crate::trust::{TrustRankEngine, TrustRankParams, TrustRankStats};
 
     // The real projection needs Neo4j and Redis; these tests drive `run` with
     // no infrastructure at all.

@@ -7,7 +7,7 @@ mod scheduler;
 #[cfg(test)]
 mod test_support;
 
-pub use catalog::{HotTagsCacheJob, InfluencersCacheJob};
+pub use catalog::{HotTagsCacheJob, InfluencersCacheJob, TrustRecomputeJob};
 pub use error::{CronParseError, JobError};
 pub use lock::LOCK_TTL_SECS;
 pub use registry::{JobRegistry, ScheduledJob};
