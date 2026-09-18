@@ -19,7 +19,7 @@ pub(super) const MAX_SLEEP: Duration = Duration::from_secs(30);
 pub type NowFn = Arc<dyn Fn() -> DateTime<Utc> + Send + Sync>;
 
 /// Drives scheduled jobs, owning the clock, run lock, and metrics. Cheap to
-/// clone (all `Arc`-backed), so [`supervise`](super::supervise) hands one clone
+/// clone (all `Arc`-backed), so [`run`](crate::jobs::run) hands one clone
 /// to each per-job task.
 #[derive(Clone)]
 pub struct Scheduler {
@@ -643,6 +643,30 @@ mod tests {
                 &[("job", "blocking"), ("outcome", "timed_out")],
             ) >= 1,
             "an abandoned-at-deadline run must record completed{{timed_out}}"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn run_job_fires_on_schedule() {
+        let job = CountingJob::new("mock");
+        let (tx, rx) = watch::channel(false);
+
+        // Fires every second; stop after ~1.5s (virtual) so it fires at least once.
+        let schedule = validate_cron("* * * * * *").unwrap();
+        let scheduler = Scheduler::new(
+            virtual_now(),
+            FakeLock::new(AcquireOutcome::Granted, UnlockOutcome::Succeeds),
+        );
+        let runner = scheduler.run_job(&schedule, &job, rx);
+        let stopper = async {
+            tokio::time::sleep(Duration::from_millis(1500)).await;
+            let _ = tx.send(true);
+        };
+        tokio::join!(runner, stopper);
+
+        assert!(
+            job.runs() >= 1,
+            "a per-second cron should fire at least once"
         );
     }
 
