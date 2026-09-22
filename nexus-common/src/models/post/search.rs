@@ -3,10 +3,10 @@ use crate::db::kv::{search, RedisResult, ScoreAction, SortOrder};
 use crate::db::queries::get::{global_tags_by_post, global_tags_by_post_engagement};
 use crate::db::{fetch_all_rows_from_graph, RedisOps};
 use crate::models::error::ModelResult;
-use crate::models::post::PostDetails;
+use crate::models::post::{PostDetails, PostStream, StreamSource};
 use crate::models::tag::post::TagPost;
 use crate::models::tag::traits::TaggersCollection;
-use crate::types::{Pagination, StreamSorting};
+use crate::types::{Pagination, StreamReach, StreamSorting};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -92,6 +92,42 @@ impl PostsByTagSearch {
             Some(list) => Ok(Some(list.into_iter().map(|t| t.into()).collect())),
             None => Ok(None),
         }
+    }
+
+    /// Posts tagged with `label` whose author is in `observer_id`'s `reach`,
+    /// served from the graph because the per-label sorted sets cannot be joined
+    /// against a reach. The observer's own posts are excluded, and an unknown
+    /// observer yields an empty list.
+    ///
+    /// Scores differ from [`Self::get_by_label`] in two ways: only parent posts
+    /// are returned (the index also carries tagged replies), and the engagement
+    /// score counts taggers, replies and reposts but not mentions. `start`/`end`
+    /// cursors are therefore not interchangeable between the two.
+    ///
+    /// The query walks the reach first and then every post its users authored,
+    /// so its cost grows with the reach's post count, not with the tag's
+    /// popularity, and grows fastest for `wot_2` and `wot_3`. Starting from the
+    /// tag instead was slower for every WoT depth.
+    ///
+    /// # Errors
+    /// Returns [`crate::models::error::ModelError::GraphOperationFailed`] on
+    /// graph failures, including `GraphError::QueryTimeout`.
+    pub async fn get_by_label_with_reach(
+        label: &str,
+        sort_by: Option<StreamSorting>,
+        observer_id: &str,
+        reach: StreamReach,
+        pagination: Pagination,
+    ) -> ModelResult<Vec<PostsByTagSearch>> {
+        let entries = PostStream::get_scored_post_keys(
+            StreamSource::from_reach(observer_id.to_string(), reach),
+            pagination,
+            SortOrder::Descending,
+            sort_by.unwrap_or_default(),
+            Some(vec![label.to_string()]),
+        )
+        .await?;
+        Ok(entries.into_iter().map(Into::into).collect())
     }
 
     pub async fn update_index_score(

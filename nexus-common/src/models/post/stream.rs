@@ -9,7 +9,7 @@ use crate::models::{
     follow::{Followers, Following, Friends, UserFollows},
     post::search::PostsByTagSearch,
 };
-use crate::types::{DomainTrust, Pagination, StreamSorting, WotDepth};
+use crate::types::{DomainTrust, Pagination, StreamReach, StreamSorting, WotDepth};
 use futures::stream::{self, StreamExt};
 use futures::TryStreamExt;
 use pubky_app_specs::PubkyAppPostKind;
@@ -78,6 +78,16 @@ pub enum StreamSource {
 }
 
 impl StreamSource {
+    /// The observer-anchored source that streams posts authored by `reach`.
+    pub fn from_reach(observer_id: String, reach: StreamReach) -> StreamSource {
+        match reach {
+            StreamReach::Followers => StreamSource::Followers { observer_id },
+            StreamReach::Following => StreamSource::Following { observer_id },
+            StreamReach::Friends => StreamSource::Friends { observer_id },
+            StreamReach::Wot(depth) => StreamSource::Wot { observer_id, depth },
+        }
+    }
+
     /// Low-cardinality source value and optional WoT depth for telemetry.
     pub(crate) fn telemetry_dimensions(&self) -> (&'static str, Option<u8>) {
         match self {
@@ -252,18 +262,7 @@ impl PostStream {
 
         // WoT sources emit observability metrics (spec v3.1). Capture the source
         // label and depth before `source` is consumed by the query below.
-        let wot = match &source {
-            StreamSource::Wot { depth, .. } => Some(("wot", depth.get())),
-            // depth-0 is the "Me" self trust set; 1..=3 is the follow-network reach.
-            StreamSource::WotDomain { trust, .. } => Some((
-                "wot_domain",
-                match trust {
-                    DomainTrust::Me => 0,
-                    DomainTrust::Network(depth) => depth.get(),
-                },
-            )),
-            _ => None,
-        };
+        let wot = Self::wot_dimensions(&source);
         if let Some((source, depth)) = wot {
             super::metrics::record_wot_request(source, depth);
         }
@@ -291,6 +290,62 @@ impl PostStream {
         }
 
         result
+    }
+
+    /// Serves `source` from the graph for the reach-filtered tag search and
+    /// returns every row with its sorting score (timestamp for timeline,
+    /// engagement count otherwise), skipping the sorted-set indexes even where
+    /// one exists. WoT metrics are recorded under the `search_*` sources, so
+    /// they stay apart from the post stream's.
+    ///
+    /// # Errors
+    /// Returns [`ModelError::GraphOperationFailed`] on graph failures, including
+    /// `GraphError::QueryTimeout` when the query exceeds its budget.
+    pub(crate) async fn get_scored_post_keys(
+        source: StreamSource,
+        pagination: Pagination,
+        order: SortOrder,
+        sorting: StreamSorting,
+        tags: Option<Vec<String>>,
+    ) -> ModelResult<Vec<(String, f64)>> {
+        let wot = Self::wot_dimensions(&source)
+            .map(|(_, depth)| (super::metrics::SEARCH_WOT_SOURCE, depth));
+        if let Some((source, depth)) = wot {
+            super::metrics::record_wot_request(source, depth);
+        }
+
+        let started = std::time::Instant::now();
+        let result: ModelResult<Vec<(String, f64)>> =
+            Self::get_scored_from_graph(source, sorting, order, &tags, pagination, None)
+                .await
+                .map_err(Into::into);
+
+        if let Some((source, depth)) = wot {
+            super::metrics::record_wot_result(
+                source,
+                depth,
+                started.elapsed(),
+                result.as_ref().ok().map(Vec::len),
+            );
+        }
+
+        result
+    }
+
+    /// WoT metric label and depth for `source`; `None` for non-WoT sources.
+    fn wot_dimensions(source: &StreamSource) -> Option<(&'static str, u8)> {
+        match source {
+            StreamSource::Wot { depth, .. } => Some(("wot", depth.get())),
+            // depth-0 is the "Me" self trust set; 1..=3 is the follow-network reach.
+            StreamSource::WotDomain { trust, .. } => Some((
+                "wot_domain",
+                match trust {
+                    DomainTrust::Me => 0,
+                    DomainTrust::Network(depth) => depth.get(),
+                },
+            )),
+            _ => None,
+        }
     }
 
     // Determine if we have a quick access sorted set for this combination
@@ -406,7 +461,7 @@ impl PostStream {
         Ok(PostKeyStream::new(post_keys, None))
     }
 
-    // Fetch posts from index
+    // Fetch posts from graph
     async fn get_from_graph(
         source: StreamSource,
         sorting: StreamSorting,
@@ -415,6 +470,19 @@ impl PostStream {
         pagination: Pagination,
         kind: Option<KindFilter>,
     ) -> GraphResult<PostKeyStream> {
+        Self::get_scored_from_graph(source, sorting, order, tags, pagination, kind)
+            .await
+            .map(PostKeyStream::from_scored_entries)
+    }
+
+    async fn get_scored_from_graph(
+        source: StreamSource,
+        sorting: StreamSorting,
+        order: SortOrder,
+        tags: &Option<Vec<String>>,
+        pagination: Pagination,
+        kind: Option<KindFilter>,
+    ) -> GraphResult<Vec<(String, f64)>> {
         let graph = get_neo4j_graph()?;
         let query = queries::get::post_stream(source, sorting, order, tags, pagination, kind)?;
 
@@ -425,23 +493,16 @@ impl PostStream {
         timeout(Duration::from_secs(10), async {
             let mut result = graph.execute(query).await?;
 
-            let mut post_keys = Vec::new();
-            // Last row's sorting score (timestamp for timeline, engagement otherwise),
-            // used as the pagination cursor.
-            let mut last_post_score: Option<i64> = None;
-
+            // Each row's sorting score (timestamp for timeline, engagement
+            // otherwise); the last one is the pagination cursor.
+            let mut entries = Vec::new();
             while let Some(row) = result.try_next().await? {
                 let author_id: String = row.get("author_id")?;
                 let post_id: String = row.get("post_id")?;
                 let score: i64 = row.get("score")?;
-                last_post_score = Some(score);
-                post_keys.push(format!("{author_id}:{post_id}"));
+                entries.push((format!("{author_id}:{post_id}"), score as f64));
             }
-
-            Ok(PostKeyStream::new(
-                post_keys,
-                last_post_score.map(|s| s as u64),
-            ))
+            Ok(entries)
         })
         .await
         .map_err(|_| GraphError::QueryTimeout)?
@@ -904,6 +965,45 @@ impl PostStream {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_from_reach_maps_every_reach_to_its_observer_source() {
+        let observer = || "observer".to_string();
+        let depth = WotDepth::new(3).expect("3 is a valid depth");
+        let cases = [
+            (
+                StreamReach::Followers,
+                StreamSource::Followers {
+                    observer_id: observer(),
+                },
+            ),
+            (
+                StreamReach::Following,
+                StreamSource::Following {
+                    observer_id: observer(),
+                },
+            ),
+            (
+                StreamReach::Friends,
+                StreamSource::Friends {
+                    observer_id: observer(),
+                },
+            ),
+            (
+                StreamReach::Wot(depth),
+                StreamSource::Wot {
+                    observer_id: observer(),
+                    depth,
+                },
+            ),
+        ];
+
+        for (reach, expected) in cases {
+            let source = StreamSource::from_reach(observer(), reach);
+            assert_eq!(source.get_observer(), Some("observer"));
+            assert_eq!(source, expected);
+        }
+    }
 
     /// PostCollections is served from the graph only; no sorted set backs it.
     #[test]
