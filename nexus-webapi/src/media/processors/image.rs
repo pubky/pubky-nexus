@@ -1,16 +1,22 @@
 use async_trait::async_trait;
 use tokio::process::Command;
 
-use crate::{
-    media::{processors::MediaProcessorError, FileVariant, MediaSubprocess},
-    models::file::FileDetails,
-};
+use crate::media::{processors::MediaProcessorError, MediaSubprocess};
+use nexus_common::media::FileVariant;
 
 use super::{BaseProcessingOptions, VariantProcessor};
 
 const SMALL_IMAGE_WIDTH: &str = "320";
 const FEED_IMAGE_WIDTH: &str = "720";
+/// The format `process` hands ImageMagick as its output format, i.e. the bytes a derived variant
+/// actually contains.
 const IMAGE_FORMAT: &str = "webp";
+
+/// The content type a derived image variant is served under. Derived from [`IMAGE_FORMAT`] rather
+/// than written out, so the label cannot name one format while the converter writes another.
+pub(crate) fn image_variant_content_type() -> String {
+    format!("image/{IMAGE_FORMAT}")
+}
 
 pub struct ImageOptions {
     width: String,
@@ -30,27 +36,14 @@ pub struct ImageProcessor;
 impl VariantProcessor for ImageProcessor {
     type ProcessingOptions = ImageOptions;
 
-    fn get_valid_variants_for_content_type(_content_type: &str) -> Vec<FileVariant> {
-        vec![FileVariant::Main, FileVariant::Small, FileVariant::Feed]
-    }
-
-    fn get_content_type_for_variant(file: &FileDetails, variant: &FileVariant) -> String {
-        if variant.eq(&FileVariant::Main) {
-            return file.content_type.clone();
-        }
-        String::from("image/webp")
-    }
-
-    fn get_options_for_variant(
-        file: &FileDetails,
-        variant: &FileVariant,
-    ) -> Result<ImageOptions, MediaProcessorError> {
+    fn get_options_for_variant(variant: &FileVariant) -> Result<ImageOptions, MediaProcessorError> {
         let width = match variant {
             FileVariant::Small => String::from(SMALL_IMAGE_WIDTH),
             FileVariant::Feed => String::from(FEED_IMAGE_WIDTH),
             _ => return Err(MediaProcessorError::UnsupportedFileVariant),
         };
-        let content_type = Self::get_content_type_for_variant(file, variant);
+        // `variant` is Small or Feed here: Main returned above.
+        let content_type = image_variant_content_type();
         Ok(ImageOptions {
             format: IMAGE_FORMAT.to_string(),
             width,
@@ -118,5 +111,18 @@ impl ImageProcessor {
                 String::from_utf8_lossy(&child_output.stderr)
             )))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // The label and the bytes are one fact. If `IMAGE_FORMAT` changes, this fails and whoever
+    // changed it has to confirm the served content type is meant to change with it.
+    #[test]
+    fn test_variant_content_type_tracks_the_output_format() {
+        assert_eq!(IMAGE_FORMAT, "webp");
+        assert_eq!(image_variant_content_type(), "image/webp");
     }
 }

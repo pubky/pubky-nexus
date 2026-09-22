@@ -5,7 +5,8 @@
 //! It is responsible for:
 //! - **Configuration Management:** Loading configuration from TOML files via a trait-based loader.
 //! - **Database Connectivity:** Providing connectors and helper functions for interacting with Neo4j and Redis.
-//! - **Media Processing:** Implementing image and video processors to generate different file variants.
+//! - **Media Vocabulary:** Naming file variants and the table of which ones a content type has
+//!   (deriving them lives in `nexus-webapi`, the only service that does it).
 //! - **Data Models:** Defining common models for files, users, posts, tags, notifications, and follow relationships.
 //! - **Indexing and Caching:** Offering utilities for indexing data in Redis and retrieving it using cache-first strategies.
 //! - **Shared Types and Traits:** Exposing common types (e.g. pagination, timeframe, stream sorting) and traits

@@ -8,13 +8,14 @@ use axum::{
 };
 use criterion::{criterion_group, criterion_main, Criterion};
 use http_body_util::BodyExt;
-use nexus_common::media::MediaPermits;
 use nexus_common::models::{
     file::{FileDetails, FileUrls},
     traits::Collection,
     user::UserDetails,
 };
-use nexus_common::utils::test_utils::{default_ingestor_tests, default_subprocess_tests};
+use nexus_common::utils::test_utils::default_ingestor_tests;
+use nexus_webapi::media::test_utils::default_subprocess_tests;
+use nexus_webapi::media::MediaPermits;
 use nexus_webapi::{
     models::PubkyId,
     routes::{r#static::user_avatar_handler, AppState, Path},
