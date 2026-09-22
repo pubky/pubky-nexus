@@ -70,6 +70,9 @@ impl VariantProcessor for ImageProcessor {
             .run(
                 Command::new("convert")
                     .arg(origin_file_path)
+                    // Frame-optimized GIFs store partial sub-frames; flatten each onto the
+                    // full canvas so resize scales complete frames instead of fragments.
+                    .arg("-coalesce")
                     .arg("-resize")
                     .arg(format!("{}x", options.width))
                     .arg("-auto-orient") // https://github.com/ImageMagick/ImageMagick/issues/6396
