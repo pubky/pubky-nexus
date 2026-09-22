@@ -331,7 +331,6 @@ mod tests {
 
         let (_shutdown_tx, shutdown_rx) = watch::channel(false);
         let processor = Arc::new(RetryProcessor {
-            files_path: PathBuf::from("/tmp/test"),
             event_handler: Arc::new(EnqueueNewerEventHandler {
                 store: store.clone(),
                 newer: e2,

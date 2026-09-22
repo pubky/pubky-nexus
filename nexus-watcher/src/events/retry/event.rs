@@ -111,6 +111,23 @@ static REMOVE_IF_NONCE_SCRIPT: LazyLock<Script> = LazyLock::new(|| {
     ))
 });
 
+/// Script for [`RetryEvent::remove_stale_index_entries`]. KEYS[1] is the
+/// events sorted set, KEYS[i+1] the state key for member ARGV[i]. Each member
+/// is removed only while its state is still absent, so an enqueue that lands
+/// between the fetch and this cleanup keeps its sorted-set member.
+static REMOVE_STALE_SCRIPT: LazyLock<Script> = LazyLock::new(|| {
+    Script::new(
+        r#"
+            for i, member in ipairs(ARGV) do
+                if redis.call('EXISTS', KEYS[i + 1]) == 0 then
+                    redis.call('ZREM', KEYS[1], member)
+                end
+            end
+            return 1
+        "#,
+    )
+});
+
 /// Script for [`RetryEvent::put_to_index_if_nonce`]. Static so the source
 /// string and its SHA1 are computed once, not on every call.
 static PUT_IF_NONCE_SCRIPT: LazyLock<Script> = LazyLock::new(|| {
@@ -313,17 +330,28 @@ impl RetryEvent {
 
     /// Removes multiple sorted-set index entries without touching JSON state.
     ///
-    /// Used for tombstone cleanup in the retry store: the JSON state is already
-    /// missing, so a single batched ZREM reconciles the index.
+    /// Used for tombstone cleanup in the retry store: the JSON state was
+    /// missing at fetch time. The check is repeated inside the script
+    /// ([`REMOVE_STALE_SCRIPT`]) because [`Self::put_to_index`] may have
+    /// re-created the entry since, and a blind ZREM would orphan that state.
     #[tracing::instrument(name = "retry.index.remove_stale", skip_all)]
     pub async fn remove_stale_index_entries(index_keys: &[IndexKey]) -> RedisResult<()> {
-        let keys: Vec<&str> = index_keys.iter().map(IndexKey::as_str).collect();
-        Self::remove_from_index_sorted_set(
-            Some(RETRY_MANAGER_PREFIX),
-            &RETRY_MANAGER_EVENTS_INDEX,
-            &keys,
-        )
-        .await
+        if index_keys.is_empty() {
+            return Ok(());
+        }
+        let mut redis_conn = get_redis_conn().await?;
+        let mut invocation = REMOVE_STALE_SCRIPT.prepare_invoke();
+        invocation.key(Self::events_sorted_set_key());
+        for index_key in index_keys {
+            invocation
+                .key(Self::state_json_key(index_key))
+                .arg(index_key.as_str());
+        }
+        invocation
+            .invoke_async::<i64>(&mut redis_conn)
+            .await
+            .map_err(RedisError::from)?;
+        Ok(())
     }
 
     /// Fetches events from the retry queue that are ready to be retried (next_retry_at <= now)

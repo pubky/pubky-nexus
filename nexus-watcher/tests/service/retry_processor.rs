@@ -739,6 +739,38 @@ async fn test_stale_sorted_set_entry_cleaned_up() -> Result<()> {
 }
 
 // ============================================================================
+// Tombstone cleanup must not remove a member an enqueue just re-created.
+// fetch_ready observes a sorted-set member with no JSON state and schedules a
+// cleanup; if a fresh enqueue for the same URI lands before that cleanup runs,
+// the ZREM must be skipped or the new entry is never fetched again.
+// ============================================================================
+
+#[tokio_shared_rt::test(shared)]
+async fn test_stale_cleanup_keeps_member_recreated_by_enqueue() -> Result<()> {
+    setup().await?;
+
+    let post_id = "stalerace1";
+    let resource_key = create_index_key(post_id);
+    let now = Utc::now().timestamp_millis();
+
+    // Between the fetch that saw a tombstone and its cleanup, a fresh enqueue
+    // lands for the same URI.
+    let event = create_test_retry_event(post_id, EventType::Put, 0, now - 1000);
+    RedisRetryStore::new().put(&event).await?;
+
+    // The deferred cleanup runs with the key it saw as stale.
+    RetryEvent::remove_stale_index_entries(std::slice::from_ref(&resource_key)).await?;
+
+    let ready = RedisRetryStore::new().fetch_ready(now, None).await?;
+    assert!(
+        ready.iter().any(|(key, _)| key == &resource_key),
+        "entry re-created by an enqueue must survive the stale cleanup"
+    );
+
+    Ok(())
+}
+
+// ============================================================================
 // Nonce guard survives an overwrite (Redis-backed)
 // Regression test: retry entries are keyed by hash(URI) only, so a
 // newer event enqueued for the same URI overwrites the entry while the retry
