@@ -327,28 +327,12 @@ pub fn get_trust_ranked_user_ids() -> Query {
 /// Users whose profile carries any of the given tag labels, scored by distinct
 /// tagger count summed across the searched labels.
 pub fn search_users_by_tags(labels: &[String], skip: Option<usize>, limit: Option<usize>) -> Query {
-    let mut cypher = String::from(
-        "
-        MATCH (tagger:User)-[tag:TAGGED]->(u:User)
-        WHERE tag.label IN $labels AND u.name <> $deleted
-        WITH u, COUNT(tag) AS score
-        RETURN u.id AS user_id, score
-        // id DESC matches how Redis breaks equal scores (reverse-lex member
-        // order), keeping pagination windows identical across both paths
-        ORDER BY score DESC, u.id DESC
-        ",
-    );
-
-    if let Some(skip) = skip {
-        cypher.push_str(&format!("SKIP {}\n", skip.min(MAX_QUERY_SKIP)));
-    }
-    if let Some(limit) = limit {
-        cypher.push_str(&format!("LIMIT {}\n", limit.min(MAX_QUERY_LIMIT)));
-    }
-
-    Query::new("search_users_by_tags", &cypher)
-        .param("labels", labels.to_vec())
-        .param("deleted", USER_DELETED_SENTINEL)
+    Query::new(
+        "search_users_by_tags",
+        users_by_tags_cypher("", skip, limit),
+    )
+    .param("labels", labels.to_vec())
+    .param("deleted", USER_DELETED_SENTINEL)
 }
 
 /// [`search_users_by_tags`] restricted to the users in `user_id`'s `reach`,
@@ -361,34 +345,43 @@ pub fn search_users_by_tags_with_reach(
     skip: Option<usize>,
     limit: Option<usize>,
 ) -> Query {
-    let reach_match = match reach {
-        // Followed users who follow back: an EXISTS check per followed user is
-        // far cheaper than matching both directions as one pattern
-        StreamReach::Friends => "MATCH (user)-[:FOLLOWS]->(reach:User)
-        WHERE EXISTS { (reach)-[:FOLLOWS]->(user) } AND reach.id <> $user_id"
-            .to_string(),
-        _ => format!(
-            "{}
-        WHERE reach.id <> $user_id",
-            stream_reach_to_graph_subquery(reach)
+    let reach_prefix = format!(
+        "MATCH (user:User {{id: $user_id}})
+        {}
+        WHERE reach.id <> $user_id
+        // A WoT expand yields one row per path, so dedupe the reach before the
+        // tag join, or a user's tags count once per path. DISTINCT right after
+        // the variable-length expand also lets the planner use a pruning BFS.
+        // Starting from the tag with an EXISTS {{ (user)-[:FOLLOWS*1..d]->(u) }}
+        // check was slower: it runs an unpruned expand per tagged user.
+        WITH DISTINCT reach AS u",
+        stream_reach_to_graph_subquery(reach)
+    );
+
+    reach_attrs(
+        Query::new(
+            "search_users_by_tags_with_reach",
+            users_by_tags_cypher(&reach_prefix, skip, limit),
         ),
-    };
+        reach,
+    )
+    .param("labels", labels.to_vec())
+    .param("user_id", user_id)
+    .param("deleted", USER_DELETED_SENTINEL)
+}
+
+/// Shared scoring for the user tag searches. `prefix` may bind `u` to narrow
+/// the tagged users; empty searches every user.
+fn users_by_tags_cypher(prefix: &str, skip: Option<usize>, limit: Option<usize>) -> String {
     let mut cypher = format!(
         "
-        MATCH (user:User {{id: $user_id}})
-        {reach_match}
-        // The WoT traversal can loop back to the observer, so resolve the reach
-        // to distinct users before the tag join. DISTINCT right after the
-        // variable-length expand lets the planner use a pruning BFS, one row
-        // per reached user rather than per path. Starting from the tag with an
-        // EXISTS {{ (user)-[:FOLLOWS*1..d]->(u) }} check was slower: that check
-        // runs as an unpruned expand for every tagged user.
-        WITH DISTINCT reach AS u
-        MATCH (tagger:User)-[tag:TAGGED]->(u)
+        {prefix}
+        MATCH (tagger:User)-[tag:TAGGED]->(u:User)
         WHERE tag.label IN $labels AND u.name <> $deleted
         WITH u, COUNT(tag) AS score
         RETURN u.id AS user_id, score
-        // Same tie-break as search_users_by_tags and the single-label Redis path
+        // id DESC matches how Redis breaks equal scores (reverse-lex member
+        // order), keeping pagination windows identical across both paths
         ORDER BY score DESC, u.id DESC
         "
     );
@@ -399,14 +392,7 @@ pub fn search_users_by_tags_with_reach(
     if let Some(limit) = limit {
         cypher.push_str(&format!("LIMIT {}\n", limit.min(MAX_QUERY_LIMIT)));
     }
-
-    reach_attrs(
-        Query::new("search_users_by_tags_with_reach", &cypher),
-        reach,
-    )
-    .param("labels", labels.to_vec())
-    .param("user_id", user_id)
-    .param("deleted", USER_DELETED_SENTINEL)
+    cypher
 }
 
 // Retrieve all the tags of the post
@@ -1794,15 +1780,8 @@ mod tests {
     }
 
     #[test]
-    fn user_tag_search_checks_friendship_with_exists() {
+    fn user_tag_search_filters_reach_and_tags_once() {
         let labels = ["label".to_string()];
-        let friends =
-            search_users_by_tags_with_reach(&labels, "user", &StreamReach::Friends, None, None)
-                .to_cypher_populated();
-        assert!(
-            friends.contains("WHERE EXISTS { (reach)-[:FOLLOWS]->(user) }"),
-            "friends must check the follow-back per followed user:\n{friends}"
-        );
         for reach in [StreamReach::Friends, StreamReach::Following] {
             let cypher = search_users_by_tags_with_reach(&labels, "user", &reach, None, None)
                 .to_cypher_populated();
