@@ -11,6 +11,7 @@ license = "MIT"
 async-trait = { workspace = true }
 bytes = "1"
 chrono = { workspace = true }
+deadpool-redis = { workspace = true }
 futures = { workspace = true }
 nexus-common = { path = "../nexus-common" }
 opentelemetry = { workspace = true }

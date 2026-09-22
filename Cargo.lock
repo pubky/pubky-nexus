@@ -3087,6 +3087,7 @@ dependencies = [
  "base32",
  "bytes",
  "chrono",
+ "deadpool-redis",
  "futures",
  "http",
  "nexus-common",
