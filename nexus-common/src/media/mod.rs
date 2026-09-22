@@ -1,21 +1,17 @@
-use crate::{
-    media::processors::MediaProcessorError,
-    models::file::{FileDetails, FileUrls},
-    types::DynError,
-};
-use processors::{ImageProcessor, VariantProcessor, VideoProcessor};
+//! Shared media vocabulary: the variant names, and the table of which variants a content type
+//! has.
+//!
+//! Deriving a variant lives in the API (`nexus-webapi`), the only service that does it, and so
+//! does the label a derived variant is served under -- that one belongs beside the processor
+//! that produces the bytes. What stays here is what both services must agree on: the watcher
+//! publishes a file's variant URLs from the same table the API validates requests against.
+
+use crate::{models::file::FileUrls, types::DynError};
 use serde::{Deserialize, Serialize};
-use std::{
-    fmt::Display,
-    path::{Path, PathBuf},
-    str::FromStr,
-};
-use tokio::fs;
+use std::{fmt::Display, path::Path, str::FromStr};
 use utoipa::ToSchema;
 
-pub mod processors;
-
-#[derive(Debug, PartialEq, Serialize, Deserialize, ToSchema, Clone)]
+#[derive(Debug, PartialEq, Serialize, Deserialize, ToSchema, Clone, Copy)]
 #[serde(rename_all = "lowercase")]
 pub enum FileVariant {
     Main,
@@ -47,81 +43,62 @@ impl Display for FileVariant {
     }
 }
 
-pub struct VariantController;
-
-impl VariantController {
-    pub async fn create_file_variant(
-        file: &FileDetails,
-        variant: &FileVariant,
-        file_path: PathBuf,
-    ) -> Result<String, MediaProcessorError> {
-        match &file.content_type {
-            content_type if content_type.starts_with("image/") => {
-                ImageProcessor::create_variant(file, variant, file_path).await
-            }
-            content_type if content_type.starts_with("video/") => {
-                VideoProcessor::create_variant(file, variant, file_path).await
-            }
-            _ => Err(MediaProcessorError::UnsupportedContentType(
-                file.content_type.clone(),
-            )),
+/// Variants a content type can be served as, `Main` included. Empty for a content type with no
+/// variants at all, which is also how an unsupported one answers.
+pub fn get_valid_variants_for_content_type(content_type: &str) -> Vec<FileVariant> {
+    match content_type {
+        value if value.starts_with("image") => {
+            vec![FileVariant::Main, FileVariant::Small, FileVariant::Feed]
         }
+        value if value.starts_with("video") => vec![FileVariant::Main],
+        _ => vec![],
+    }
+}
+
+/// The URLs to publish for a file, one per variant its content type has.
+pub fn get_file_urls_by_content_type(content_type: &str, path: &Path) -> FileUrls {
+    FileUrls::new(path, &get_valid_variants_for_content_type(content_type))
+}
+
+/// Whether this variant is one the content type has. `Main` always is: it is the upload itself.
+pub fn validate_variant_for_content_type(content_type: &str, variant: &FileVariant) -> bool {
+    if variant == &FileVariant::Main {
+        return true;
+    }
+    get_valid_variants_for_content_type(content_type).contains(variant)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_unsupported_content_type_has_no_variants() {
+        assert!(get_valid_variants_for_content_type("application/pdf").is_empty());
+        assert!(!validate_variant_for_content_type(
+            "application/pdf",
+            &FileVariant::Small
+        ));
+        // `main` is the upload itself, so it is valid even with nothing to derive from it.
+        assert!(validate_variant_for_content_type(
+            "application/pdf",
+            &FileVariant::Main
+        ));
     }
 
-    pub async fn check_variant_exists(
-        file: &FileDetails,
-        variant: FileVariant,
-        file_path: PathBuf,
-    ) -> bool {
-        // main variant always exists
-        if variant == FileVariant::Main {
-            return true;
-        }
-
-        // if file exists, variant has already been created
-        let path = file_path
-            .join(file.owner_id.as_str())
-            .join(file.id.as_str())
-            .join(variant.to_string());
-
-        fs::metadata(path).await.is_ok()
-    }
-
-    pub fn get_content_type_for_variant(file: &FileDetails, variant: &FileVariant) -> String {
-        match &file.content_type {
-            content_type if content_type.starts_with("image/") => {
-                ImageProcessor::get_content_type_for_variant(file, variant)
-            }
-            content_type if content_type.starts_with("video/") => {
-                VideoProcessor::get_content_type_for_variant(file, variant)
-            }
-            _ => file.content_type.clone(),
-        }
-    }
-
-    pub fn get_file_urls_by_content_type(content_type: &str, path: &Path) -> FileUrls {
-        let variants = Self::get_valid_variants_for_content_type(content_type);
-
-        FileUrls::new(path, &variants)
-    }
-
-    pub fn validate_variant_for_content_type(content_type: &str, variant: &FileVariant) -> bool {
-        if variant == &FileVariant::Main {
-            return true;
-        }
-        let valid_variants = Self::get_valid_variants_for_content_type(content_type);
-        valid_variants.contains(variant)
-    }
-
-    fn get_valid_variants_for_content_type(content_type: &str) -> Vec<FileVariant> {
-        match content_type {
-            value if value.starts_with("image") => {
-                ImageProcessor::get_valid_variants_for_content_type(content_type)
-            }
-            value if value.starts_with("video") => {
-                VideoProcessor::get_valid_variants_for_content_type(content_type)
-            }
-            _ => vec![],
-        }
+    #[test]
+    fn test_image_has_derived_variants_and_video_does_not() {
+        assert_eq!(
+            get_valid_variants_for_content_type("image/jpeg"),
+            vec![FileVariant::Main, FileVariant::Small, FileVariant::Feed]
+        );
+        assert_eq!(
+            get_valid_variants_for_content_type("video/mp4"),
+            vec![FileVariant::Main]
+        );
+        assert!(!validate_variant_for_content_type(
+            "video/mp4",
+            &FileVariant::Small
+        ));
     }
 }

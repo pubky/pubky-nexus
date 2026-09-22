@@ -59,6 +59,7 @@ async fn test_homeserver_mentions_notifications() -> Result<()> {
         parent: None,
         embed: None,
         attachments: None,
+        lock: None,
     };
 
     let (post_id, post_path) = test.create_post(&author_kp, &post).await?;
@@ -77,8 +78,14 @@ async fn test_homeserver_mentions_notifications() -> Result<()> {
     if let NotificationBody::Mention {
         mentioned_by,
         post_uri,
+        post_kind,
     } = &notification_1.body
     {
+        assert_eq!(
+            post_kind,
+            &PubkyAppPostKind::Short,
+            "A mention from a note should report post_kind = Short"
+        );
         assert_eq!(
             mentioned_by, &author_user_id,
             "Notification should contain the correct mentioner"
@@ -106,8 +113,14 @@ async fn test_homeserver_mentions_notifications() -> Result<()> {
     if let NotificationBody::Mention {
         mentioned_by,
         post_uri,
+        post_kind,
     } = &notification_2.body
     {
+        assert_eq!(
+            post_kind,
+            &PubkyAppPostKind::Short,
+            "A mention from a note should report post_kind = Short"
+        );
         assert_eq!(
             mentioned_by, &author_user_id,
             "Notification should contain the correct mentioner"

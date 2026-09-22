@@ -1,7 +1,8 @@
 use crate::db::get_redis_conn;
-use crate::db::kv::RedisResult;
-use redis::AsyncCommands;
+use crate::db::kv::{RedisError, RedisResult};
+use redis::{AsyncCommands, Script};
 use serde::Deserialize;
+use std::sync::LazyLock;
 use utoipa::ToSchema;
 
 #[derive(Clone, Deserialize, Debug, ToSchema, Default)]
@@ -104,6 +105,56 @@ pub async fn put(
     }
 
     let _: () = pipe.query_async(&mut redis_conn).await?;
+    Ok(())
+}
+
+/// Reads a sorted set's size and the scores of `members`, from one snapshot.
+///
+/// `MULTI`/`EXEC`, so the count and the scores cannot straddle a concurrent
+/// rewrite of the set. Two independent reads could observe different
+/// generations, which for a ranking means a size from one and positions from
+/// another. Returns `(cardinality, one slot per member)`; an absent key reads
+/// as `0` with every slot `None`.
+pub async fn card_and_members(
+    prefix: &str,
+    key: &str,
+    members: &[&str],
+) -> RedisResult<(usize, Vec<Option<isize>>)> {
+    let index_key = format!("{prefix}:{key}");
+
+    let mut pipe = redis::pipe();
+    pipe.atomic();
+    pipe.zcard(&index_key);
+    for member in members {
+        pipe.zscore(&index_key, *member);
+    }
+
+    let mut redis_conn = get_redis_conn().await?;
+    let mut replies: Vec<Option<isize>> = pipe.query_async(&mut redis_conn).await?;
+    // The ZCARD reply leads; the rest line up with `members`.
+    let cardinality = replies.remove(0).unwrap_or(0).max(0) as usize;
+    Ok((cardinality, replies))
+}
+
+/// Seeds `member` with `score` only if it is not already in the sorted set.
+///
+/// `ZADD NX` makes the check and the write one atomic operation, so an existing
+/// member keeps its score whatever concurrent writers are doing.
+pub async fn add_member_if_absent(
+    prefix: &str,
+    key: &str,
+    score: f64,
+    member: &str,
+) -> RedisResult<()> {
+    let index_key = format!("{prefix}:{key}");
+    let mut redis_conn = get_redis_conn().await?;
+    let _: () = redis::cmd("ZADD")
+        .arg(index_key)
+        .arg("NX")
+        .arg(score)
+        .arg(member)
+        .query_async(&mut redis_conn)
+        .await?;
     Ok(())
 }
 
@@ -270,4 +321,323 @@ pub async fn del(prefix: &str, key: &str, values: &[&str]) -> RedisResult<()> {
     // Remove the elements from the sorted set
     let _: () = redis_conn.zrem(index_key, values).await?;
     Ok(())
+}
+
+/// Lua script for atomically replacing a sorted set: DEL + ZADD + (optional) EXPIRE.
+///
+/// EVAL is atomic server-side and a single round trip, so a cancelled call cannot
+/// leave client-side transaction state on the pooled connection — the same hazard
+/// that MULTI/EXEC suffers when the scheduler cancels the job future.
+///
+/// ARGV[1] is the TTL in seconds (0 means no expiry); ARGV[2..] are alternating
+/// score, member pairs. They are added one pair per ZADD call rather than via
+/// `unpack`, which is bounded by the Lua C stack; the script as a whole is still
+/// atomic, so the member count is unbounded.
+static REPLACE_SORTED_SET_SCRIPT: LazyLock<Script> = LazyLock::new(|| {
+    Script::new(
+        r"redis.call('del', KEYS[1])
+          for i = 2, #ARGV, 2 do
+              redis.call('zadd', KEYS[1], ARGV[i], ARGV[i + 1])
+          end
+          if tonumber(ARGV[1]) > 0 then
+              redis.call('expire', KEYS[1], tonumber(ARGV[1]))
+          end
+          return 1",
+    )
+});
+
+/// Atomically replaces a sorted set: DEL + ZADD + (optional) EXPIRE in a single
+/// Lua script so readers never observe an empty or half-built key.
+///
+/// When `items` is empty the key is deleted. This is a caller-selected behaviour:
+/// the caller decides whether to invoke `replace` with an empty list (evict the key)
+/// or to skip the call entirely (leave the previous value intact).
+///
+/// # Arguments
+///
+/// * `prefix` - Prefix for the Redis keys.
+/// * `key` - Key under which the sorted set is stored.
+/// * `items` - `(score, member)` pairs to write.
+/// * `expiration` - Optional TTL in seconds; `None` leaves the key without expiry.
+///
+/// # Errors
+///
+/// Returns `RedisError::InvalidInput` for `Some(n)` with `n <= 0`. The script
+/// treats 0 as "no expiry", whereas Redis `EXPIRE key 0` deletes the key, so a
+/// zero would silently mean something different from what the caller wrote.
+pub async fn replace(
+    prefix: &str,
+    key: &str,
+    items: &[(f64, &str)],
+    expiration: Option<i64>,
+) -> RedisResult<()> {
+    let ttl: i64 = match expiration {
+        Some(n) if n <= 0 => {
+            return Err(RedisError::InvalidInput(format!(
+                "replace: expiration must be positive, got {n}; pass None for no expiry"
+            )));
+        }
+        Some(n) => n,
+        None => 0,
+    };
+
+    let index_key = format!("{prefix}:{key}");
+    let mut redis_conn = get_redis_conn().await?;
+
+    if items.is_empty() {
+        let _: () = redis_conn.del(&index_key).await?;
+        return Ok(());
+    }
+    let mut args: Vec<String> = Vec::with_capacity(1 + items.len() * 2);
+    args.push(ttl.to_string());
+    for (score, member) in items {
+        args.push(score.to_string());
+        args.push(member.to_string());
+    }
+
+    let _: () = REPLACE_SORTED_SET_SCRIPT
+        .key(&index_key)
+        .arg(&args)
+        .invoke_async(&mut redis_conn)
+        .await?;
+    Ok(())
+}
+
+/// Returns the remaining TTL (in seconds) for a key.
+///
+/// Redis TTL returns `-2` when the key does not exist and `-1` when the key
+/// exists but has no expiry. Both cases are mapped to `None`. A present key
+/// with an expiry returns `Some(remaining_seconds)`.
+///
+/// # Arguments
+///
+/// * `prefix` - Prefix for the Redis keys.
+/// * `key` - Key to check.
+#[cfg(test)]
+pub async fn ttl(prefix: &str, key: &str) -> RedisResult<Option<i64>> {
+    let index_key = format!("{prefix}:{key}");
+    let mut redis_conn = get_redis_conn().await?;
+    let raw: i64 = redis_conn.ttl(&index_key).await?;
+    match raw {
+        -2 | -1 => Ok(None),
+        n => Ok(Some(n)),
+    }
+}
+
+/// Atomically derives a sorted-set member's score from a set's cardinality:
+/// the member's score becomes `SCARD` of the source set, and the member is
+/// removed when the set is empty.
+///
+/// The read and the conditional write run as one Lua script, so concurrent
+/// writers cannot commit a stale cardinality between the two commands.
+///
+/// # Arguments
+///
+/// * `set_prefix` - Prefix of the source set key.
+/// * `set_key` - Key of the source set whose cardinality becomes the score.
+/// * `sorted_set_prefix` - Prefix of the destination sorted set key.
+/// * `sorted_set_key` - Key of the destination sorted set.
+/// * `member` - The sorted-set member to write or remove.
+/// * `removal_guard` - Optional `(json_key, json_path, value)`: when the JSON
+///   document at `json_key` holds `value` at `json_path`, the member is
+///   removed regardless of cardinality. Checked inside the same script, so
+///   the guard cannot race the write.
+///
+/// # Errors
+///
+/// Returns an error if the script execution fails.
+pub async fn sync_score_from_set_cardinality(
+    set_prefix: &str,
+    set_key: &str,
+    sorted_set_prefix: &str,
+    sorted_set_key: &str,
+    member: &str,
+    removal_guard: Option<(&str, &str, &str)>,
+) -> RedisResult<()> {
+    let set_index_key = format!("{set_prefix}:{set_key}");
+    let sorted_set_index_key = format!("{sorted_set_prefix}:{sorted_set_key}");
+    let mut redis_conn = get_redis_conn().await?;
+
+    let derive = r#"
+        local cardinality = redis.call('SCARD', KEYS[1])
+        if cardinality == 0 then
+            redis.call('ZREM', KEYS[2], ARGV[1])
+        else
+            redis.call('ZADD', KEYS[2], cardinality, ARGV[1])
+        end
+        return cardinality
+    "#;
+
+    let invocation = match removal_guard {
+        Some((json_key, json_path, value)) => {
+            let script = Script::new(&format!(
+                r#"
+                local guarded = redis.call('JSON.GET', KEYS[3], ARGV[2])
+                if guarded then
+                    local decoded = cjson.decode(guarded)
+                    if type(decoded) == 'table' and decoded[1] == ARGV[3] then
+                        redis.call('ZREM', KEYS[2], ARGV[1])
+                        return 0
+                    end
+                end
+                {derive}
+            "#
+            ));
+            script
+                .key(set_index_key)
+                .key(sorted_set_index_key)
+                .key(json_key)
+                .arg(member)
+                .arg(json_path)
+                .arg(value)
+                .invoke_async(&mut redis_conn)
+                .await
+        }
+        None => {
+            let script = Script::new(derive);
+            script
+                .key(set_index_key)
+                .key(sorted_set_index_key)
+                .arg(member)
+                .invoke_async(&mut redis_conn)
+                .await
+        }
+    };
+
+    let _: i64 = invocation?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{types::DynError, StackConfig, StackManager};
+
+    const TEST_PREFIX: &str = "SortedSetReplaceTest";
+
+    /// Each test owns its key: they share one Redis and run concurrently.
+    #[tokio_shared_rt::test(shared)]
+    async fn replace_evicts_members_missing_from_the_new_set() -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+
+        let key = "evicts";
+        put(
+            TEST_PREFIX,
+            key,
+            &[(10.0, "a"), (20.0, "b"), (30.0, "c")],
+            None,
+        )
+        .await?;
+
+        replace(TEST_PREFIX, key, &[(5.0, "b"), (40.0, "d")], None).await?;
+
+        assert_eq!(
+            check_member(TEST_PREFIX, key, "b").await?,
+            Some(5),
+            "a member present in both sets must take the new score"
+        );
+        assert_eq!(check_member(TEST_PREFIX, key, "d").await?, Some(40));
+        // An additive ZADD would leave these behind with their stale scores.
+        for evicted in ["a", "c"] {
+            assert_eq!(
+                check_member(TEST_PREFIX, key, evicted).await?,
+                None,
+                "{evicted} dropped out of the new set and must not survive the replace"
+            );
+        }
+
+        replace(TEST_PREFIX, key, &[], None).await?;
+        Ok(())
+    }
+
+    #[tokio_shared_rt::test(shared)]
+    async fn replace_arms_the_ttl() -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+
+        let key = "arms-ttl";
+        replace(TEST_PREFIX, key, &[(1.0, "a")], Some(60)).await?;
+
+        let remaining = ttl(TEST_PREFIX, key)
+            .await?
+            .expect("a replace with an expiration must leave a TTL on the key");
+        assert!(
+            remaining > 0 && remaining <= 60,
+            "TTL must sit inside the requested window, got {remaining}"
+        );
+
+        replace(TEST_PREFIX, key, &[], None).await?;
+        Ok(())
+    }
+
+    #[tokio_shared_rt::test(shared)]
+    async fn replace_without_items_deletes_the_key() -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+
+        let key = "empty-clears";
+        put(TEST_PREFIX, key, &[(1.0, "a")], Some(60)).await?;
+
+        replace(TEST_PREFIX, key, &[], None).await?;
+
+        assert_eq!(
+            check_member(TEST_PREFIX, key, "a").await?,
+            None,
+            "an empty replace must not leave a stale set behind"
+        );
+        Ok(())
+    }
+
+    #[tokio_shared_rt::test(shared)]
+    async fn replace_is_not_bounded_by_the_lua_unpack_stack() -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+
+        // Well past LUAI_MAXCSTACK (~8000 values), which an `unpack(ARGV, 2)` would trip.
+        let key = "large";
+        let members: Vec<String> = (0..10_000).map(|i| format!("m{i}")).collect();
+        let items: Vec<(f64, &str)> = members
+            .iter()
+            .enumerate()
+            .map(|(i, m)| (i as f64, m.as_str()))
+            .collect();
+
+        replace(TEST_PREFIX, key, &items, None).await?;
+
+        assert_eq!(check_member(TEST_PREFIX, key, "m0").await?, Some(0));
+        assert_eq!(
+            check_member(TEST_PREFIX, key, members.last().unwrap()).await?,
+            Some(9_999),
+            "the whole set must land in one atomic replace"
+        );
+
+        replace(TEST_PREFIX, key, &[], None).await?;
+        Ok(())
+    }
+
+    #[tokio_shared_rt::test(shared)]
+    async fn replace_rejects_non_positive_ttl() -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+
+        let key = "non-positive-ttl";
+        replace(TEST_PREFIX, key, &[(1.0, "a")], Some(60)).await?;
+
+        for bad in [0, -1] {
+            // Rejected before anything touches Redis, whether or not there are items.
+            for items in [&[(2.0, "b")][..], &[]] {
+                let err = replace(TEST_PREFIX, key, items, Some(bad))
+                    .await
+                    .expect_err("a non-positive TTL must be rejected");
+                assert!(
+                    matches!(err, RedisError::InvalidInput(_)),
+                    "expected RedisError::InvalidInput for ttl {bad}, got {err:?}"
+                );
+            }
+        }
+        assert_eq!(
+            check_member(TEST_PREFIX, key, "a").await?,
+            Some(1),
+            "a rejected replace must leave the previous set untouched"
+        );
+
+        replace(TEST_PREFIX, key, &[], None).await?;
+        Ok(())
+    }
 }

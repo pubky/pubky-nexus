@@ -32,6 +32,11 @@ MATCH (u1:User {id: $detroit}), (u2:User {id: $cairo}) MERGE (u1)-[:FOLLOWS {ind
 MATCH (u1:User {id: $detroit}), (u2:User {id: $eixample}) MERGE (u1)-[:FOLLOWS {indexed_at: 1730475900000, id: "P73K44JG5SZT7"}]->(u2);
 MATCH (u1:User {id: $eixample}), (u2:User {id: $detroit}) MERGE (u1)-[:FOLLOWS {indexed_at: 1730475940000, id: "P73K85JG5DZT7"}]->(u2);
 
+// Historical self-follows exercise defensive filtering in all reach backends.
+MATCH (u:User {id: $amsterdam}) MERGE (u)-[:FOLLOWS {indexed_at: 1730475950000, id: "P73K85JGSELF1"}]->(u);
+MATCH (u:User {id: $bogota}) MERGE (u)-[:FOLLOWS {indexed_at: 1730475950001, id: "P73K85JGSELF2"}]->(u);
+MATCH (u:User {id: $eixample}) MERGE (u)-[:FOLLOWS {indexed_at: 1730475950002, id: "P73K85JGSELF3"}]->(u);
+
 // ###############################
 // ##### Posts related tags ######
 // ###############################
@@ -142,6 +147,12 @@ MERGE (p:Post {id: "4ZCW1TGL5BKG6"}) SET p.content = "Long post, article F", p.k
 MATCH (u:User {id: $bogota}), (p:Post {id: "4ZCW1TGL5BKG6"}) MERGE (u)-[:AUTHORED]->(p);
 MERGE (p:Post {id: "4ZCW1TGL5BKG7"}) SET p.content = "Long post, article G", p.kind = "long", p.indexed_at = 1819477230350;
 MATCH (u:User {id: $eixample}), (p:Post {id: "4ZCW1TGL5BKG7"}) MERGE (u)-[:AUTHORED]->(p);
+// Graph-path friends regression: unique label on an existing Eixample parent.
+// Eixample's self-follow would make this post a friends candidate unless the
+// query excludes the observer. Unique label (not `opensource`) so we do not
+// bump engagement on the opensource ranking fixtures; 2008 tag timestamp
+// keeps it out of hot-tags windows.
+MATCH (tagger:User {id: $amsterdam}), (post:Post {id: "4ZCW1TGL5BKG7"}) MERGE (tagger)-[:TAGGED {label: "reach-self-follow", id: "REACHSELFTAG1", indexed_at: 1224534096400}]->(post);
 MERGE (p:Post {id: "4ZCW1TGL5BKG8"}) SET p.content = "Long post, article H", p.kind = "long", p.indexed_at = 1819477230360;
 MATCH (u:User {id: $eixample}), (p:Post {id: "4ZCW1TGL5BKG8"}) MERGE (u)-[:AUTHORED]->(p);
 // Image posts
@@ -239,7 +250,7 @@ MERGE (p:Post {id: "COLW1TGL5BKG1"}) SET p.content = "{\"name\":\"AI papers\",\"
 MATCH (u:User {id: $bogota}), (p:Post {id: "COLW1TGL5BKG1"}) MERGE (u)-[:AUTHORED]->(p);
 MERGE (p:Post {id: "COLW1TGL5BKG2"}) SET p.content = "{\"name\":\"Privacy reads\",\"items\":[]}", p.kind = "collection", p.indexed_at = 1980477299111;
 MATCH (u:User {id: $bogota}), (p:Post {id: "COLW1TGL5BKG2"}) MERGE (u)-[:AUTHORED]->(p);
-MERGE (p:Post {id: "COLW1TGL5BKG3"}) SET p.content = "{\"name\":\"Cryptography classics\",\"items\":[]}", p.kind = "collection", p.indexed_at = 1980477299121;
+MERGE (p:Post {id: "COLW1TGL5BKG3"}) SET p.content = "{\"name\":\"Cryptography classics\",\"items\":[\"pubky://ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny/pub/pubky.app/posts/00000039YD9BM\"]}", p.kind = "collection", p.indexed_at = 1980477299121;
 MATCH (u:User {id: $cairo}), (p:Post {id: "COLW1TGL5BKG3"}) MERGE (u)-[:AUTHORED]->(p);
 
 // Tag on a Collection (used by `?tags` stream tests). Bogota tags Cairo's
@@ -255,6 +266,23 @@ MATCH (u:User {id: $bogota}), (p:Post {id: "MALF1TGL5BKG7"}) MERGE (u)-[:AUTHORE
 MERGE (p:Post {id: "NEST1TGL5BKG8"}) SET p.content = "{\"name\":\"Meta\",\"items\":[\"pubky://ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny/pub/pubky.app/posts/COLW1TGL5BKG1\"]}", p.kind = "collection", p.indexed_at = 1980477299440;
 MATCH (u:User {id: $bogota}), (p:Post {id: "NEST1TGL5BKG8"}) MERGE (u)-[:AUTHORED]->(p);
 
+// COLLECTED edges, as the watcher materializes them from the envelopes above:
+// only items that exist as posts get one (the missing and non-post items of
+// COLW1TGL5BKG1 do not). Used by `?source=post_collections` and post counts.
+// COLW1TGL5BKG3 also curates 00000039YD9BM so that post has two curators, the
+// newer one first.
+MATCH (c:Post {id: "COLW1TGL5BKG1"}), (i:Post {id: "00000039YD9BM"}) MERGE (c)-[:COLLECTED]->(i);
+MATCH (c:Post {id: "COLW1TGL5BKG3"}), (i:Post {id: "00000039YD9BM"}) MERGE (c)-[:COLLECTED]->(i);
+MATCH (c:Post {id: "COLW1TGL5BKG1"}), (i:Post {id: "00000039YD9C0"}) MERGE (c)-[:COLLECTED]->(i);
+MATCH (c:Post {id: "COLW1TGL5BKG1"}), (i:Post {id: "00000039YD9CE"}) MERGE (c)-[:COLLECTED]->(i);
+MATCH (c:Post {id: "NEST1TGL5BKG8"}), (i:Post {id: "COLW1TGL5BKG1"}) MERGE (c)-[:COLLECTED]->(i);
+
 // Bookmarked collection (used by `?source=bookmarks` stream tests). Eixample
 // bookmarks Bogota's COLW1TGL5BKG1.
-MATCH (u:User {id: $eixample}), (p:Post {id: "COLW1TGL5BKG1"}) MERGE (u)-[:BOOKMARKED {id: "BKMK_COLW1TGL5BKG1", indexed_at: 1980477299500}]->(p)
+MATCH (u:User {id: $eixample}), (p:Post {id: "COLW1TGL5BKG1"}) MERGE (u)-[:BOOKMARKED {id: "BKMK_COLW1TGL5BKG1", indexed_at: 1980477299500}]->(p);
+
+// Bookmarked reply (used by `?source=bookmarks&exclude_kinds=...` test). Eixample
+// bookmarks Bogota's short reply 0000003A0BJWT (a reply to 1A1P4D8C9K0FF), to
+// prove kind filtering on bookmarks keeps bookmarked replies (the graph path
+// must not apply the parents-only filter for the bookmarks source).
+MATCH (u:User {id: $eixample}), (p:Post {id: "0000003A0BJWT"}) MERGE (u)-[:BOOKMARKED {id: "BKMK_REPLY_0BJWT", indexed_at: 1980477299510}]->(p);

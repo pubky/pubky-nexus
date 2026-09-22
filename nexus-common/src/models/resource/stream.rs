@@ -1,11 +1,12 @@
 use crate::db::graph::error::GraphError;
 use crate::db::kv::{RedisResult, ScoreAction, SortOrder};
 use crate::db::{queries, RedisOps};
-use crate::models::error::ModelResult;
+use crate::models::error::{ModelError, ModelResult};
 use crate::models::resource::tag::TagResource;
 use crate::models::resource::ResourceDetails;
 use crate::models::tag::traits::TagCollection;
 use crate::types::Pagination;
+use futures::stream::{self, StreamExt};
 use futures::TryStreamExt;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -294,28 +295,45 @@ impl ResourceStream {
             return Ok(None);
         }
 
-        let mut views = Vec::with_capacity(resource_ids.len());
+        // Bounded to protect the pool; `buffered` preserves order; inputs owned so
+        // the future stays `Send`.
+        let viewer_id = viewer_id.map(str::to_string);
+        let views: Vec<ResourceView> =
+            stream::iter(resource_ids.iter().cloned().map(|resource_id| {
+                let viewer_id = viewer_id.clone();
+                async move {
+                    let Some(details) = ResourceDetails::get_by_id(&resource_id).await? else {
+                        return Ok::<_, ModelError>(None);
+                    };
 
-        for resource_id in resource_ids {
-            let details = match ResourceDetails::get_by_id(resource_id).await? {
-                Some(d) => d,
-                None => continue, // Resource was deleted between query and load
-            };
-
-            // Load tags via TagResource
-            let tags =
-                TagResource::get_by_id(resource_id, None, None, Some(5), Some(3), viewer_id, None)
+                    // Load tags via TagResource
+                    let tags = TagResource::get_by_id(
+                        &resource_id,
+                        None,
+                        None,
+                        Some(5),
+                        Some(3),
+                        viewer_id.as_deref(),
+                        None,
+                    )
                     .await?
                     .unwrap_or_default();
 
-            let taggers_count = tags.iter().map(|t| t.taggers_count).sum();
+                    let taggers_count = tags.iter().map(|t| t.taggers_count).sum();
 
-            views.push(ResourceView {
-                details,
-                tags,
-                taggers_count,
-            });
-        }
+                    Ok(Some(ResourceView {
+                        details,
+                        tags,
+                        taggers_count,
+                    }))
+                }
+            }))
+            .buffered(8)
+            .try_collect::<Vec<Option<_>>>()
+            .await?
+            .into_iter()
+            .flatten()
+            .collect();
 
         if views.is_empty() {
             Ok(None)

@@ -2,7 +2,7 @@
 name = "nexus-watcher"
 version = "0.4.1"
 edition = "2021"
-description = "Nexus Watcher constructs a social graph out of all of the events on pubky-core homeservers"
+description = "Nexus Watcher constructs a social graph out of all of the events on Pubky homeservers"
 homepage = "https://github.com/pubky/pubky-nexus"
 repository = "https://github.com/pubky/pubky-nexus"
 license = "MIT"
@@ -28,6 +28,8 @@ tracing = { workspace = true }
 anyhow = { workspace = true }
 base32 = "0.5"
 http = "1"
+nexus-common = { path = "../nexus-common", features = ["test-utils"] }
+opentelemetry_sdk = { workspace = true, features = ["testing"] }
 pubky-testnet = { workspace = true }
 rand = "0.10.1"
 tempfile = { workspace = true }

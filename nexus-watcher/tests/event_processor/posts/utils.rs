@@ -15,10 +15,12 @@ use pubky_app_specs::{
 };
 
 pub async fn find_post_counts(user_id: &str, post_id: &str) -> PostCounts {
-    PostCounts::get_from_index(user_id, post_id)
+    // Read-through: counts are invalidated on write and recomputed from the
+    // graph on read, so go through get_by_id, not the index directly.
+    PostCounts::get_by_id(user_id, post_id)
         .await
         .unwrap()
-        .expect("The post count was not served from Nexus cache")
+        .expect("The post count was not found")
 }
 
 pub async fn find_post_details(user_id: &str, post_id: &str) -> Result<PostDetails> {
@@ -122,6 +124,22 @@ pub async fn find_repost_relationship_parent_uri(user_id: &str, post_id: &str) -
     anyhow::bail!("Post relationship not found in Nexus graph");
 }
 
+/// `(author_id, post_id)` of every Collection with a COLLECTED edge to the post.
+pub async fn find_collections_of(author_id: &str, post_id: &str) -> Vec<(String, String)> {
+    let query = Query::new(
+        "find_collections_of",
+        "MATCH (:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
+        MATCH (p)<-[:COLLECTED]-(c:Post)<-[:AUTHORED]-(curator:User)
+        RETURN collect([curator.id, c.id]) AS details",
+    )
+    .param("author_id", author_id)
+    .param("post_id", post_id);
+    fetch_key_from_graph(query, "details")
+        .await
+        .unwrap()
+        .unwrap_or_default()
+}
+
 pub fn post_reply_relationships(author_id: &str, post_id: &str) -> Query {
     Query::new(
         "post_reply_relationships",
@@ -160,6 +178,35 @@ pub fn short_post(content: impl Into<String>) -> PubkyAppPost {
         parent: None,
         embed: None,
         attachments: None,
+        lock: None,
+    }
+}
+
+/// Build a `Collection` post; content is the required `{name, items}` envelope.
+pub fn collection_post(name: &str) -> PubkyAppPost {
+    PubkyAppPost {
+        content: serde_json::json!({ "name": name, "items": [] }).to_string(),
+        kind: PubkyAppPostKind::Collection,
+        parent: None,
+        embed: None,
+        attachments: None,
+        lock: None,
+    }
+}
+
+/// Build a `Collection` post curating the given post URIs, in that order.
+pub fn collection_post_with_items(name: &str, items: &[String]) -> PubkyAppPost {
+    PubkyAppPost {
+        content: serde_json::json!({ "name": name, "items": items }).to_string(),
+        ..collection_post(name)
+    }
+}
+
+/// Build a `Long` (article) root post with the given content.
+pub fn long_post(content: &str) -> PubkyAppPost {
+    PubkyAppPost {
+        kind: PubkyAppPostKind::Long,
+        ..short_post(content)
     }
 }
 
@@ -220,7 +267,8 @@ pub fn get_post_details_by_id(user_id: &str, post_id: &str) -> Query {
             indexed_at: post.indexed_at,
             uri: 'pubky://' + user.id + '/pub/pubky.app/posts/' + post.id,
             author: user.id,
-            attachments: post.attachments
+            attachments: post.attachments,
+            lock: post.lock
         } AS details
         ",
     )

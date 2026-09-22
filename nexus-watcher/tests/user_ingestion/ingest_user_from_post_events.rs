@@ -26,6 +26,7 @@ async fn test_reply_to_post_on_unknown_homeserver() -> Result<()> {
         parent: None,
         embed: None,
         attachments: None,
+        lock: None,
     };
     let parent_post_id = parent_post.create_id();
     let parent_post_absolute_uri =
@@ -47,6 +48,7 @@ async fn test_reply_to_post_on_unknown_homeserver() -> Result<()> {
         parent: Some(parent_post_absolute_uri),
         embed: None,
         attachments: None,
+        lock: None,
     };
     let (_reply_id, reply_path) = test.create_post(&reply_author_kp, &reply).await?;
 
@@ -76,6 +78,7 @@ async fn test_repost_of_post_on_unknown_homeserver() -> Result<()> {
         parent: None,
         embed: None,
         attachments: None,
+        lock: None,
     };
     let original_post_id = original_post.create_id();
     let original_post_uri = post_uri_builder(original_author_id.clone(), original_post_id.clone());
@@ -99,6 +102,7 @@ async fn test_repost_of_post_on_unknown_homeserver() -> Result<()> {
             uri: original_post_uri,
         }),
         attachments: None,
+        lock: None,
     };
 
     let (_repost_id, repost_path) = test.create_post(&repost_author_kp, &repost).await?;
@@ -146,6 +150,7 @@ async fn test_post_and_mention_users_on_unknown_homeserver() -> Result<()> {
         parent: None,
         embed: None,
         attachments: None,
+        lock: None,
     };
     let (_post_id, post_path) = test.create_post(&post_author_kp, &post).await?;
 
@@ -187,6 +192,7 @@ async fn test_collection_ingests_each_item_author() -> Result<()> {
         parent: None,
         embed: None,
         attachments: None,
+        lock: None,
     };
     let item1_post_id = item1_post.create_id();
     let item1_uri = post_uri_builder(item1_id.clone(), item1_post_id.clone());
@@ -197,6 +203,7 @@ async fn test_collection_ingests_each_item_author() -> Result<()> {
         parent: None,
         embed: None,
         attachments: None,
+        lock: None,
     };
     let item2_post_id = item2_post.create_id();
     let item2_uri = post_uri_builder(item2_id.clone(), item2_post_id.clone());
@@ -214,9 +221,8 @@ async fn test_collection_ingests_each_item_author() -> Result<()> {
 
     let envelope = PubkyAppCollectionContent {
         name: "Curated".to_string(),
-        description: None,
         items: vec![item1_uri.clone(), item2_uri.clone()],
-        cover_image: None,
+        ..Default::default()
     };
     let collection = PubkyAppPost {
         content: serde_json::to_string(&envelope).unwrap(),
@@ -224,6 +230,7 @@ async fn test_collection_ingests_each_item_author() -> Result<()> {
         parent: None,
         embed: None,
         attachments: None,
+        lock: None,
     };
     let (_col_id, col_path) = test.create_post(&curator_kp, &collection).await?;
 

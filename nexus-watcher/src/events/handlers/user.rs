@@ -6,14 +6,14 @@ use nexus_common::db::{
 };
 use nexus_common::models::{
     traits::Collection,
-    user::{UserCounts, UserDetails, UserSearch, USER_DELETED_SENTINEL},
+    user::{UserCounts, UserDetails, UserSearch, UsersByTagSearch, USER_DELETED_SENTINEL},
 };
 use pubky_app_specs::{PubkyAppUser, PubkyId};
 use tracing::debug;
 
 #[tracing::instrument(name = "user.put", skip_all, fields(user_id = %user_id))]
 pub async fn sync_put(user: PubkyAppUser, user_id: PubkyId) -> Result<(), EventProcessorError> {
-    debug!("Indexing new user profile: {}", user_id);
+    debug!("Indexing user profile");
 
     // Step 1: Create `UserDetails` object
     let user_details = UserDetails::from_homeserver(user, &user_id);
@@ -46,12 +46,19 @@ pub async fn sync_put(user: PubkyAppUser, user_id: PubkyId) -> Result<(), EventP
     indexing_results.0?;
     indexing_results.1?;
     indexing_results.2?;
+
+    // Profile writes flip the tombstone state in both directions: deletion
+    // writes the sentinel, recreation clears it. Re-derive the user's
+    // per-label search entries afterwards, so tombstones are evicted and
+    // recreated profiles get their retained tags back.
+    UsersByTagSearch::sync_user_labels(&user_id).await?;
+
     Ok(())
 }
 
 #[tracing::instrument(name = "user.del", skip_all, fields(user_id = %user_id))]
 pub async fn del(user_id: PubkyId) -> Result<(), EventProcessorError> {
-    debug!("Deleting user profile:  {}", user_id);
+    debug!("Deleting user profile");
 
     // 1. Graph query to check if there is any edge at all to this user.
     let query = user_is_safe_to_delete(&user_id);
@@ -89,6 +96,8 @@ pub async fn del(user_id: PubkyId) -> Result<(), EventProcessorError> {
                 image: None,
             };
 
+            // sync_put re-derives the per-label search entries after writing
+            // the tombstone, which evicts the user from users-by-tag search
             sync_put(deleted_user, user_id).await?;
         }
         OperationOutcome::MissingDependency => return Err(EventProcessorError::SkipIndexing),

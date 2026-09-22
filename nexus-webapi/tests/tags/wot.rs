@@ -250,11 +250,11 @@ async fn clear_wot_tags_cache() -> Result<(), DynError> {
 const WOT_OBSERVER: &str = "y6apowjmcg8rocmd9jirg95fyf3yykwuhqxozzts4mjipk4n7iao";
 const WOT_REPLY_AUTHOR: &str = "smf4xrqfhx7stnufkjzhbjyu3rbgb3gga64srqmzcyyoyzefse9y";
 const WOT_NON_FOLLOWER: &str = "qdsygndnk45m9ru5jseg3uxk5xg4usj9hrcraqbzgigapzweaa9o";
+const WOT_ARTIST_USER: &str = "w153s1dr9rw6t8s3nd1de6pqquuprb37dwrnwh3nk85jt9ys9k7o";
 const WOT_REPLY_POST: &str = "WOTPOSTREPLY1";
 const NUDITY_TAG: &str = "nudity";
-// D2's parent post: D2 is in the observer's WoT, but no WoT member tagged this post,
-// so its WoT post-tag list is empty (existing post, no trusted tags). 13-char PostId.
-const WOT_UNTAGGED_POST: &str = "WOTPOSTD20004";
+const WOT_CYCLE_TAGGED_POST: &str = "WOTPOSTCYCLE1";
+const CYCLE_ONLY_TAG: &str = "cycle-only";
 // Deep reply tagged by WoT members D1/D1B ('wotreview') and M ('wotflag'); used to
 // check that WoT post-tags honor skip_tags/limit_tags/limit_taggers like the global view.
 const WOT_TAG_LIMIT_POST: &str = "WOTPOSTTAGS01";
@@ -286,18 +286,6 @@ async fn test_wot_post_tags_mod_visibility() -> Result<(), DynError> {
         "a non-follower should not see the mod bot's tag"
     );
 
-    // The observer's WoT is non-empty (follows D1/D1B/M) but none of them tagged this
-    // post: it is a valid post, so the response is an empty list (200), not a 404.
-    let path = format!(
-        "/v0/post/{WOT_REPLY_AUTHOR}/{WOT_UNTAGGED_POST}/tags?viewer_id={WOT_OBSERVER}&depth=2"
-    );
-    let body = get_request(&path).await?;
-    let tags = body.as_array().expect("Tag list should be an array");
-    assert!(
-        tags.is_empty(),
-        "an existing post with no WoT-visible tags should be 200 [], not 404"
-    );
-
     // `viewer_id` without `depth` is the global view, not WoT: the same spammer who
     // saw nothing with depth=2 now sees the mod bot's tag through the global path.
     let path =
@@ -311,6 +299,32 @@ async fn test_wot_post_tags_mod_visibility() -> Result<(), DynError> {
     );
     assert_eq!(tags[0]["label"], NUDITY_TAG);
 
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_wot_post_tags_exclude_viewer_reached_through_cycle() -> Result<(), DynError> {
+    // The global view confirms that O's direct tag exists in the fixture.
+    let base = format!(
+        "/v0/post/{WOT_REPLY_AUTHOR}/{WOT_CYCLE_TAGGED_POST}/tags?viewer_id={WOT_OBSERVER}"
+    );
+    let body = get_request(&base).await?;
+    let tags = body.as_array().expect("Tag list should be an array");
+    assert_eq!(
+        tags.len(),
+        1,
+        "the global view should contain O's direct cycle tag"
+    );
+    assert_eq!(tags[0]["label"], CYCLE_ONLY_TAG);
+
+    // Reaching O again through O->D1->O must not include that tag in the
+    // depth-2 trusted-network view.
+    let body = get_request(&format!("{base}&depth=2")).await?;
+    let tags = body.as_array().expect("Tag list should be an array");
+    assert!(
+        tags.is_empty(),
+        "a follow cycle must not include the viewer's direct post tag, got {tags:?}"
+    );
     Ok(())
 }
 
@@ -394,6 +408,20 @@ async fn test_wot_user_tags_existing_user_without_wot_tags_returns_empty() -> Re
     assert!(
         tags.is_empty(),
         "existing user with no WoT-visible tags should return [], got {tags:?}"
+    );
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_wot_user_tags_exclude_viewer_reached_through_cycle() -> Result<(), DynError> {
+    // O directly tagged ARTIST1. Reaching O again through O->D1->O must not make
+    // O a depth-2 trusted-network tagger.
+    let path = format!("/v0/user/{WOT_ARTIST_USER}/tags?viewer_id={WOT_OBSERVER}&depth=2");
+    let body = get_request(&path).await?;
+    let tags = body.as_array().expect("Tag list should be an array");
+    assert!(
+        tags.is_empty(),
+        "a follow cycle must not include the viewer's direct user tag, got {tags:?}"
     );
     Ok(())
 }

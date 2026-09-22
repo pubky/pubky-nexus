@@ -1,40 +1,15 @@
-use crate::stream::post::utils::verify_post_list_kind;
+use super::{
+    ALL_COLLECTIONS, COL_BOGOTA_1, COL_BOGOTA_2, COL_BOGOTA_MALF, COL_BOGOTA_NEST, COL_CAIRO,
+    EIXAMPLE, SHORT_BOGOTA,
+};
+use crate::stream::post::utils::{ids_in, verify_post_list_kind};
 use crate::stream::post::BOGOTA;
 use crate::stream::post::ROOT_PATH;
 use crate::utils::{get_request, invalid_get_request};
 use anyhow::Result;
 use axum::http::StatusCode;
-use serde_json::Value;
 
 const KIND: &str = "collection";
-
-const EIXAMPLE: &str = "8attbeo9ftu5nztqkcfw3gydksehr7jbspgfi64u4h8eo5e7dbiy";
-
-const COL_BOGOTA_1: &str = "COLW1TGL5BKG1";
-const COL_BOGOTA_2: &str = "COLW1TGL5BKG2";
-const COL_CAIRO: &str = "COLW1TGL5BKG3";
-// Debug-fixture Collections seeded for `?source=collection` tests below.
-// They participate in the global Collection set just like any other.
-const COL_BOGOTA_MALF: &str = "MALF1TGL5BKG7";
-const COL_BOGOTA_NEST: &str = "NEST1TGL5BKG8";
-const SHORT_BOGOTA: &str = "00000039YD9BM";
-
-const ALL_COLLECTIONS: &[&str] = &[
-    COL_BOGOTA_1,
-    COL_BOGOTA_2,
-    COL_CAIRO,
-    COL_BOGOTA_MALF,
-    COL_BOGOTA_NEST,
-];
-
-fn ids_in(response: &Value) -> Vec<String> {
-    response
-        .as_array()
-        .expect("Post stream should be an array")
-        .iter()
-        .map(|p| p["details"]["id"].as_str().unwrap_or_default().to_string())
-        .collect()
-}
 
 fn contains_any_collection(ids: &[String]) -> bool {
     ids.iter().any(|id| ALL_COLLECTIONS.contains(&id.as_str()))

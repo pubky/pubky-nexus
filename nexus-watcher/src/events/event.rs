@@ -1,10 +1,9 @@
 use crate::errors::EventProcessorError;
 use nexus_common::models::event::EventLine;
-use nexus_common::universal_tag::homeserver_parsed_uri::HomeserverParsedUri;
 use pubky::Event as StreamEvent;
-use pubky_app_specs::Resource;
+use pubky_app_specs::{ExtendedParsedUri, Resource};
 use serde::{Deserialize, Serialize};
-use std::{fmt, path::PathBuf};
+use std::fmt;
 use tracing::{debug, warn};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -69,10 +68,7 @@ pub struct Event {
     pub event_type: EventType,
 
     /// Parsed representation of [`Self::uri`].
-    pub parsed_uri: HomeserverParsedUri,
-
-    /// Local files directory on Nexus used for file-backed events.
-    pub files_path: PathBuf,
+    pub parsed_uri: ExtendedParsedUri,
 
     /// Original event line as received from the homeserver.
     event_line: String,
@@ -80,11 +76,7 @@ pub struct Event {
 
 impl Event {
     /// Parse event from a line returned by the homeserver's `/events` endpoint.
-    pub fn parse_event(
-        line: &str,
-        files_path: PathBuf,
-    ) -> Result<ParseResult, EventProcessorError> {
-        debug!("New event: {}", line);
+    pub fn parse_event(line: &str) -> Result<ParseResult, EventProcessorError> {
         let parts: Vec<&str> = line.split(' ').collect();
         if parts.len() != 2 {
             return Err(EventProcessorError::InvalidEventLine(format!(
@@ -103,26 +95,25 @@ impl Event {
         let uri = parts[1].to_string();
         let event_line = line.to_string();
 
-        Self::parse_event_parts(event_type, uri, event_line, files_path)
+        Self::parse_event_parts(event_type, uri, event_line)
     }
 
     /// Constructs a nexus [`Event`] directly from a [`StreamEvent`], avoiding
     /// the string round-trip through [`Self::parse_event`].
     pub fn from_stream_event(
         stream_event: &StreamEvent,
-        files_path: PathBuf,
     ) -> Result<Option<Self>, EventProcessorError> {
         let event_type: EventType = stream_event.event_type.clone().into();
 
         let uri = stream_event.resource.to_pubky_url();
-        debug!("New stream event: {event_type} {uri}");
+        debug!(%event_type, %uri, "New stream event");
 
         let event_line = format!("{event_type} {uri}");
-        match Self::parse_event_parts(event_type, uri, event_line, files_path)? {
+        match Self::parse_event_parts(event_type, uri, event_line)? {
             ParseResult::Parsed(event) => Ok(Some(event)),
             ParseResult::Skipped => Ok(None),
             ParseResult::UnrecognizedUri { reason, .. } => {
-                warn!("Unrecognized event URI: {reason}");
+                warn!(%reason, "Unrecognized event URI");
                 Ok(None)
             }
         }
@@ -132,16 +123,15 @@ impl Event {
         event_type: EventType,
         uri: String,
         event_line: String,
-        files_path: PathBuf,
     ) -> Result<ParseResult, EventProcessorError> {
-        // Validate and parse the URI using HomeserverParsedUri. This handles both
+        // Validate and parse the URI using ExtendedParsedUri. This handles both
         // standard pubky-app-specs URIs and universal tag URIs from other apps.
-        let parsed_uri = match HomeserverParsedUri::try_from(uri.as_str()) {
+        let parsed_uri = match ExtendedParsedUri::try_from(uri.as_str()) {
             Ok(parsed) => parsed,
             Err(e) => return Ok(ParseResult::unrecognized_uri(event_type, uri, e)),
         };
 
-        if let HomeserverParsedUri::AppSpec { resource, .. } = &parsed_uri {
+        if let ExtendedParsedUri::PubkyApp { resource, .. } = &parsed_uri {
             match resource {
                 Resource::Unknown => {
                     return Err(EventProcessorError::InvalidEventLine(format!(
@@ -159,7 +149,6 @@ impl Event {
             uri,
             event_type,
             parsed_uri,
-            files_path,
             event_line,
         }))
     }

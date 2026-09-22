@@ -1,6 +1,7 @@
 use crate::db::RedisOps;
 use crate::models::error::ModelResult;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use utoipa::ToSchema;
 
 use super::followers::Followers;
@@ -17,23 +18,24 @@ impl Friends {
         limit: Option<usize>,
     ) -> ModelResult<Option<Self>> {
         // Fetch following and followers, limit to 10K
-        let following = Following::get_by_id(user_id, None, Some(10000))
-            .await?
-            .unwrap_or_default()
-            .0;
+        let following_opt = Following::get_by_id(user_id, None, Some(10000)).await?;
+        let followers_opt = Followers::get_by_id(user_id, None, Some(10000)).await?;
 
-        let followers = Followers::get_by_id(user_id, None, Some(10000))
-            .await?
-            .unwrap_or_default()
-            .0;
+        // A `Some` (even if empty) from either side means the user exists; `None`
+        // from both means the user was not found. This lets an existing user with
+        // no mutual friends return `Some(empty)` (200 []) instead of a 404.
+        let user_exists = following_opt.is_some() || followers_opt.is_some();
 
-        // Find intersection of following and followers (mutual friends)
+        let following = following_opt.unwrap_or_default().0;
+        let followers: HashSet<String> = followers_opt.unwrap_or_default().0.into_iter().collect();
+
+        // Intersection of following and followers (mutual friends), O(n + m).
         let mut friends: Vec<String> = following
             .into_iter()
             .filter(|user_id| followers.contains(user_id))
             .collect();
 
-        if friends.is_empty() {
+        if friends.is_empty() && !user_exists {
             return Ok(None);
         }
 

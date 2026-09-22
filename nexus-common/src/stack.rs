@@ -1,3 +1,4 @@
+use crate::config::OtlpConfig;
 use crate::db::kv::search::set_ft_search_timeout_ms;
 use crate::db::{Neo4jConnector, RedisConnector};
 use crate::types::DynError;
@@ -31,9 +32,8 @@ impl StackManager {
     pub async fn setup(config: &StackConfig) -> Result<(), DynError> {
         let stored = STACK_CONFIG
             .get_or_try_init(|| async {
-                Self::setup_logging(&config.otlp.name, &config.otlp.endpoint, config.log_level)
-                    .await;
-                Self::setup_metrics(&config.otlp.name, &config.otlp.endpoint).await;
+                Self::setup_logging(&config.otlp, config.log_level).await;
+                Self::setup_metrics(&config.otlp).await;
 
                 RedisConnector::init(&config.db.redis).await?;
                 Neo4jConnector::init(&config.db.neo4j).await?;
@@ -49,26 +49,41 @@ impl StackManager {
         Ok(())
     }
 
-    async fn setup_logging(service_name: &str, otel_endpoint: &Option<String>, log_level: Level) {
-        match otel_endpoint {
+    async fn setup_logging(otlp: &OtlpConfig, log_level: Level) {
+        match &otlp.endpoint {
             None => Self::setup_local_logging(log_level),
-            Some(endpoint) => {
-                match Self::setup_otlp_logging(service_name, endpoint, log_level).await {
-                    Ok(()) => info!("OpenTelemetry Logging initialized for {service_name} service"),
-                    Err(e) => error!("Failed to initialize OpenTelemetry Logging: {:?}", e),
-                }
-            }
+            Some(_) => match Self::setup_otlp_logging(otlp, log_level).await {
+                Ok(()) => info!(
+                    "OpenTelemetry Logging initialized for {} service",
+                    otlp.name
+                ),
+                Err(e) => error!("Failed to initialize OpenTelemetry Logging: {:?}", e),
+            },
         }
     }
 
     /// Builds an [`EnvFilter`] at the given level with directives to suppress noisy dependencies.
+    ///
+    /// HTTP/TLS crates are always capped. Discovery crates (`mainline`, `pkarr`, `pubky`) are
+    /// capped unless the global level is [`Level::Trace`], so their detail only appears when
+    /// explicitly tracing.
     fn env_filter(log_level: Level) -> EnvFilter {
         EnvFilter::try_from_default_env().unwrap_or_else(|_| {
-            EnvFilter::new(log_level.as_str())
+            let mut filter = EnvFilter::new(log_level.as_str())
                 .add_directive("opentelemetry=error".parse().unwrap())
                 .add_directive("h2=error".parse().unwrap())
                 .add_directive("tower=info".parse().unwrap())
-                .add_directive("mainline=info".parse().unwrap())
+                .add_directive("reqwest=warn".parse().unwrap())
+                .add_directive("hyper_util=warn".parse().unwrap())
+                .add_directive("rustls=warn".parse().unwrap());
+
+            if log_level != Level::Trace {
+                for directive in ["mainline=info", "pkarr=warn", "pubky=warn"] {
+                    filter = filter.add_directive(directive.parse().unwrap());
+                }
+            }
+
+            filter
         })
     }
 
@@ -91,10 +106,14 @@ impl StackManager {
     }
 
     async fn setup_otlp_logging(
-        service_name: &str,
-        otel_endpoint: &str,
+        otlp: &OtlpConfig,
         log_level: Level,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        let otel_endpoint = otlp
+            .endpoint
+            .as_deref()
+            .expect("OTLP endpoint must be set in [stack.otlp]");
+
         // TODO: Add local tracer, https://github.com/pubky/pubky-nexus/issues/356
         // Set up OpenTelemetry Tracer (Spans)
         let tracing_exporter = SpanExporter::builder()
@@ -106,7 +125,7 @@ impl StackManager {
 
         // Collects spans in memory and sends them in batches
         let tracer_provider = SdkTracerProvider::builder()
-            .with_resource(Self::create_resource(service_name))
+            .with_resource(Self::create_resource(otlp))
             .with_batch_exporter(tracing_exporter)
             .build();
 
@@ -123,7 +142,7 @@ impl StackManager {
             .map_err(|e| format!("OTLP Logging Exporter Error: {e}"))?;
 
         let logging_provider = SdkLoggerProvider::builder()
-            .with_resource(Self::create_resource(service_name))
+            .with_resource(Self::create_resource(otlp))
             .with_batch_exporter(logging_exporter)
             .build();
 
@@ -141,9 +160,8 @@ impl StackManager {
         // Bridge tracing spans into OpenTelemetry trace spans.
         // This allows #[instrument] and info_span!() to produce OTel spans
         // that are exported alongside manually-created OTel spans.
-        let otel_trace_layer =
-            OpenTelemetryLayer::new(tracer_provider.tracer(service_name.to_string()))
-                .with_filter(Self::env_filter(log_level));
+        let otel_trace_layer = OpenTelemetryLayer::new(tracer_provider.tracer(otlp.name.clone()))
+            .with_filter(Self::env_filter(log_level));
 
         // Creates a tracing subscriber
         let subscriber = Registry::default()
@@ -164,8 +182,8 @@ impl StackManager {
         Ok(())
     }
 
-    async fn setup_metrics(service_name: &str, otel_endpoint: &Option<String>) {
-        match otel_endpoint {
+    async fn setup_metrics(otlp: &OtlpConfig) {
+        match &otlp.endpoint {
             None => info!("Metrics collection is disabled. No metrics will be exported"),
             Some(endpoint) => {
                 // Configure the exporter to collect and send metrics to an OTLP
@@ -178,29 +196,79 @@ impl StackManager {
 
                 // Create a periodic metrics reader that collects and exports metrics at a fixed interval
                 let reader = PeriodicReader::builder(metric_exporter)
-                    .with_interval(std::time::Duration::from_secs(30))
+                    .with_interval(Duration::from_secs(30))
                     .build();
 
                 // Createa Meter Provider, which is responsible for managing and exporting metrics
                 let provider = SdkMeterProvider::builder()
-                    .with_resource(Self::create_resource(service_name))
+                    .with_resource(Self::create_resource(otlp))
                     .with_reader(reader)
                     .build();
 
                 // Register globally the metrics
                 global::set_meter_provider(provider);
-
                 info!(
                     "OpenTelemetry Metrics initialized for {} service",
-                    service_name
+                    otlp.name
                 );
             }
         }
     }
 
-    fn create_resource(service_name: &str) -> Resource {
+    /// OTEL resource: `resource_attributes`, then `service.name` from `otlp.name` (wins on conflict).
+    fn create_resource(otlp: &OtlpConfig) -> Resource {
         Resource::builder_empty()
-            .with_attribute(KeyValue::new("service.name", String::from(service_name)))
+            .with_attributes(
+                otlp.resource_attributes
+                    .iter()
+                    .map(|(key, value)| KeyValue::new(key.clone(), value.clone())),
+            )
+            .with_service_name(otlp.name.clone())
             .build()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use opentelemetry::{Key, Value};
+    use std::collections::HashMap;
+
+    #[test]
+    fn create_resource_applies_attributes_and_service_name() {
+        let otlp = OtlpConfig {
+            name: "nexusd".into(),
+            endpoint: None,
+            resource_attributes: HashMap::from([
+                ("host".into(), "nexus-1".into()),
+                ("env".into(), "prod".into()),
+            ]),
+        };
+        let resource = StackManager::create_resource(&otlp);
+
+        assert_eq!(
+            resource.get(&Key::new("service.name")),
+            Some(Value::from("nexusd"))
+        );
+        assert_eq!(
+            resource.get(&Key::new("host")),
+            Some(Value::from("nexus-1"))
+        );
+        assert_eq!(resource.get(&Key::new("env")), Some(Value::from("prod")));
+    }
+
+    #[test]
+    fn create_resource_service_name_wins_over_attribute_map() {
+        let otlp = OtlpConfig {
+            name: "from-config".into(),
+            endpoint: None,
+            resource_attributes: HashMap::from([("service.name".into(), "from-map".into())]),
+        };
+        let resource = StackManager::create_resource(&otlp);
+
+        assert_eq!(
+            resource.get(&Key::new("service.name")),
+            Some(Value::from("from-config"))
+        );
     }
 }

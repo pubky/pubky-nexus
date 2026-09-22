@@ -1,11 +1,14 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::{fmt::Debug, path::PathBuf};
 use tracing::error;
 
 use crate::{file::CONFIG_FILE_NAME, types::DynError};
 
-use super::{file::ConfigLoader, ApiConfig, StackConfig, WatcherConfig};
+use super::{
+    file::ConfigLoader, ApiConfig, JobConfig, StackConfig, TrustRankConfig, WatcherConfig,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DaemonConfig {
@@ -14,6 +17,12 @@ pub struct DaemonConfig {
     #[serde(default)]
     pub watcher: WatcherConfig,
     pub stack: StackConfig,
+    /// Scheduling config per cron job, keyed by job name (`[jobs.<name>]`).
+    #[serde(default)]
+    pub jobs: HashMap<String, JobConfig>,
+    /// Trust-rank computation parameters (`[trust_rank]`).
+    #[serde(default)]
+    pub trust_rank: TrustRankConfig,
 }
 
 impl DaemonConfig {
@@ -60,13 +69,17 @@ impl ConfigLoader<DaemonConfig> for DaemonConfig {}
 
 #[cfg(test)]
 mod tests {
-    use std::{net::SocketAddr, path::PathBuf, str::FromStr};
+    use std::{collections::HashMap, net::SocketAddr, path::PathBuf, str::FromStr, time::Duration};
 
     use pubky_app_specs::PubkyId;
 
     use crate::config::file::{reader::DEFAULT_CONFIG_TOML, ConfigLoader};
     use crate::{
-        config::watcher::DEFAULT_MODERATION_ID, file::validate_and_expand_path, DaemonConfig, Level,
+        config::watcher::{DEFAULT_MAX_FILE_SIZE, DEFAULT_MODERATION_ID},
+        default_trust_report_dir,
+        file::validate_and_expand_path,
+        DaemonConfig, Level, DEFAULT_TRUST_ALPHA, DEFAULT_TRUST_MAX_ITERATIONS,
+        DEFAULT_TRUST_REPORT_LIMIT, DEFAULT_TRUST_TOLERANCE,
     };
 
     #[tokio_shared_rt::test(shared)]
@@ -79,15 +92,19 @@ mod tests {
 
         assert_eq!(c.api.public_addr, SocketAddr::from(([127, 0, 0, 1], 8080)));
 
-        assert!(!c.watcher.testnet);
+        assert!(!c.stack.net.testnet);
+        assert_eq!(c.stack.net.testnet_host, "localhost");
         assert_eq!(
             c.watcher.homeserver,
             PubkyId::try_from("8um71us3fyw6h8wbcxb5ar3rwusy1a6u49956ikzojg3gcwd1dty").unwrap()
         );
         assert_eq!(c.watcher.events_limit, 50);
         assert_eq!(c.watcher.key_based_events_limit, 50);
-        assert_eq!(c.watcher.watcher_sleep, 5_000);
-        assert_eq!(c.watcher.hs_resolver_sleep, 10_000);
+        assert_eq!(c.watcher.primary_hs_monitoring_interval_ms, 5_000);
+        assert_eq!(c.watcher.external_hs_monitoring_interval_ms, 5_000);
+        assert_eq!(c.watcher.hs_resolver_interval_ms, 10_000);
+        assert_eq!(c.watcher.retry_processor_interval_ms, 10_000);
+        assert_eq!(c.watcher.max_file_size, DEFAULT_MAX_FILE_SIZE);
         assert_eq!(
             c.watcher.moderation_id,
             PubkyId::try_from(DEFAULT_MODERATION_ID).unwrap()
@@ -103,7 +120,12 @@ mod tests {
                 "il_adult_nu_sex_act",
             ]
         );
-        assert!(c.stack.external_hs_pk_blacklist.is_empty());
+        assert!(c.stack.net.external_hs_pk_blacklist.is_empty());
+        assert_eq!(c.stack.net.pubky_http_request_timeout_secs, 300);
+        assert_eq!(
+            c.stack.net.pubky_client_http_request_timeout(),
+            Duration::from_secs(300)
+        );
 
         assert_eq!(c.stack.log_level, Level::Info);
         assert_eq!(
@@ -113,8 +135,290 @@ mod tests {
         );
         assert_eq!(c.stack.otlp.name, "nexusd");
         assert!(c.stack.otlp.endpoint.is_none());
+        assert!(c.stack.otlp.resource_attributes.is_empty());
         assert_eq!(c.stack.db.redis, "redis://127.0.0.1:6379");
         assert_eq!(c.stack.db.neo4j.uri, "bolt://localhost:7687");
+
+        // Influencer job is opt-in
+        assert!(
+            !c.jobs.keys().any(|k| k.starts_with("influencers-cache")),
+            "influencer cache jobs must be opt-in; found {:#?}",
+            c.jobs
+        );
+        // Hot-tags job is opt-in
+        assert!(
+            !c.jobs.keys().any(|k| k.starts_with("hot-tags-cache")),
+            "hot-tags cache jobs must be opt-in; found {:#?}",
+            c.jobs
+        );
+        let trust_job = c
+            .jobs
+            .get("trust-recompute")
+            .expect("[jobs.trust-recompute] should be present");
+        assert!(trust_job.cron.is_none());
+        assert!(c.trust_rank.seed.is_empty());
+        assert_eq!(c.trust_rank.alpha, DEFAULT_TRUST_ALPHA);
+        assert_eq!(c.trust_rank.max_iterations, DEFAULT_TRUST_MAX_ITERATIONS);
+        assert_eq!(c.trust_rank.tolerance, DEFAULT_TRUST_TOLERANCE);
+        assert!(!c.trust_rank.report_enabled);
+        assert_eq!(c.trust_rank.report_dir, default_trust_report_dir());
+        assert_eq!(c.trust_rank.report_limit, DEFAULT_TRUST_REPORT_LIMIT);
+    }
+
+    /// A `[jobs.<name>]` section parses into a keyed [`JobConfig`], with its cron
+    /// stored verbatim.
+    #[test]
+    fn test_job_config_parsing() {
+        let toml = format!("{DEFAULT_CONFIG_TOML}\n[jobs.example]\ncron = \"0 0 3 * * *\"\n");
+
+        let c = DaemonConfig::try_from_str(&toml).expect("config with a job section should parse");
+
+        assert_eq!(c.jobs["example"].cron.as_deref(), Some("0 0 3 * * *"));
+    }
+
+    /// An absent cron leaves the job unscheduled (the default).
+    #[test]
+    fn test_job_config_defaults_to_no_cron() {
+        let toml = format!("{DEFAULT_CONFIG_TOML}\n[jobs.example]\n");
+
+        let c = DaemonConfig::try_from_str(&toml)
+            .expect("config with an empty job section should parse");
+
+        assert!(c.jobs["example"].cron.is_none());
+    }
+
+    /// A valid `[jobs.trust-recompute] cron` expression parses and is stored verbatim.
+    #[test]
+    fn test_trust_job_cron_parsing() {
+        let toml =
+            DEFAULT_CONFIG_TOML.replace(r#"#cron = "0 0 3 * * *""#, r#"cron = "0 0 3 * * *""#);
+
+        let c = DaemonConfig::try_from_str(&toml).expect("config with a valid cron should parse");
+
+        assert_eq!(
+            c.jobs["trust-recompute"].cron.as_deref(),
+            Some("0 0 3 * * *")
+        );
+    }
+
+    /// Uncommenting the per-timeframe influencer cache sections yields three
+    /// distinct jobs, each with its own cron.
+    #[test]
+    fn test_influencer_job_crons_parse_verbatim() {
+        let toml = format!(
+            "{DEFAULT_CONFIG_TOML}\n\
+             [jobs.influencers-cache-today]\n\
+             cron = \"0 7,37 * * * *\"\n\
+             [jobs.influencers-cache-this-week]\n\
+             cron = \"0 17 */3 * * *\"\n\
+             [jobs.influencers-cache-this-month]\n\
+             cron = \"0 27 3,15 * * *\"\n"
+        );
+
+        let c = DaemonConfig::try_from_str(&toml)
+            .expect("config with per-timeframe influencer crons should parse");
+
+        assert_eq!(
+            c.jobs["influencers-cache-today"].cron.as_deref(),
+            Some("0 7,37 * * * *")
+        );
+        assert_eq!(
+            c.jobs["influencers-cache-this-week"].cron.as_deref(),
+            Some("0 17 */3 * * *")
+        );
+        assert_eq!(
+            c.jobs["influencers-cache-this-month"].cron.as_deref(),
+            Some("0 27 3,15 * * *")
+        );
+    }
+
+    /// Uncommenting the per-timeframe hot-tags cache sections yields four
+    /// distinct jobs, each with its own cron.
+    #[test]
+    fn test_hot_tags_job_crons_parse_verbatim() {
+        let toml = format!(
+            "{DEFAULT_CONFIG_TOML}\n\
+             [jobs.hot-tags-cache-today]\n\
+             cron = \"0 12,42 * * * *\"\n\
+             [jobs.hot-tags-cache-this-week]\n\
+             cron = \"0 22 */3 * * *\"\n\
+             [jobs.hot-tags-cache-this-month]\n\
+             cron = \"0 32 3,15 * * *\"\n\
+             [jobs.hot-tags-cache-all-time]\n\
+             cron = \"0 47 3,15 * * *\"\n"
+        );
+
+        let c = DaemonConfig::try_from_str(&toml)
+            .expect("config with per-timeframe hot-tags crons should parse");
+
+        assert_eq!(
+            c.jobs["hot-tags-cache-today"].cron.as_deref(),
+            Some("0 12,42 * * * *")
+        );
+        assert_eq!(
+            c.jobs["hot-tags-cache-this-week"].cron.as_deref(),
+            Some("0 22 */3 * * *")
+        );
+        assert_eq!(
+            c.jobs["hot-tags-cache-this-month"].cron.as_deref(),
+            Some("0 32 3,15 * * *")
+        );
+        assert_eq!(
+            c.jobs["hot-tags-cache-all-time"].cron.as_deref(),
+            Some("0 47 3,15 * * *")
+        );
+    }
+
+    /// `trust_rank.report_enabled` and `trust_rank.report_dir` parse, with `~` expanded.
+    #[test]
+    fn test_trust_report_config_parsing() {
+        let toml = DEFAULT_CONFIG_TOML
+            .replace("report_enabled = false", "report_enabled = true")
+            .replace(
+                r#"report_dir = "~/.pubky-nexus/trust-reports""#,
+                r#"report_dir = "~/custom/reports""#,
+            );
+
+        let c = DaemonConfig::try_from_str(&toml)
+            .expect("config with trust reports enabled should parse");
+
+        assert!(c.trust_rank.report_enabled);
+        assert_eq!(
+            c.trust_rank.report_dir,
+            validate_and_expand_path(PathBuf::from_str("~/custom/reports").unwrap()).unwrap()
+        );
+    }
+
+    /// A populated `trust_rank.seed` list parses into `PubkyId` entries, in order.
+    #[test]
+    fn test_trust_seed_parsing() {
+        let hs1 = "8um71us3fyw6h8wbcxb5ar3rwusy1a6u49956ikzojg3gcwd1dty";
+        let hs2 = "operrr8wsbpr3ue9d4qj41ge1kcc6r7fdiy6o3ugjrrhi4y77rdo";
+
+        let toml =
+            DEFAULT_CONFIG_TOML.replace("seed = []", &format!(r#"seed = ["{hs1}", "{hs2}"]"#));
+
+        let c = DaemonConfig::try_from_str(&toml).expect("config with a trust seed should parse");
+
+        assert_eq!(
+            c.trust_rank.seed,
+            vec![
+                PubkyId::try_from(hs1).unwrap(),
+                PubkyId::try_from(hs2).unwrap(),
+            ]
+        );
+    }
+
+    /// Duplicate `trust_rank.seed` ids are silently deduplicated, preserving
+    /// first-occurrence order.
+    #[test]
+    fn test_trust_seed_dedupes_duplicates() {
+        let hs1 = "8um71us3fyw6h8wbcxb5ar3rwusy1a6u49956ikzojg3gcwd1dty";
+        let hs2 = "operrr8wsbpr3ue9d4qj41ge1kcc6r7fdiy6o3ugjrrhi4y77rdo";
+
+        let toml = DEFAULT_CONFIG_TOML.replace(
+            "seed = []",
+            &format!(r#"seed = ["{hs1}", "{hs2}", "{hs1}"]"#),
+        );
+
+        let c =
+            DaemonConfig::try_from_str(&toml).expect("config with duplicated seeds should parse");
+
+        assert_eq!(
+            c.trust_rank.seed,
+            vec![
+                PubkyId::try_from(hs1).unwrap(),
+                PubkyId::try_from(hs2).unwrap(),
+            ],
+            "duplicate seed ids should be removed, keeping first-occurrence order"
+        );
+    }
+
+    /// `trust_rank.alpha` must be in `(0, 1]`; out-of-range values fail config parsing.
+    #[test]
+    fn test_trust_alpha_rejects_out_of_range() {
+        for bad_alpha in ["0.0", "1.5", "-0.1"] {
+            let toml = DEFAULT_CONFIG_TOML.replace("alpha = 0.35", &format!("alpha = {bad_alpha}"));
+            assert!(
+                DaemonConfig::try_from_str(&toml).is_err(),
+                "alpha = {bad_alpha} should be rejected"
+            );
+        }
+    }
+
+    /// An unknown key under `[trust_rank]` (e.g. a typo'd `report_enable`) must
+    /// fail config parsing rather than parse silently into no effect.
+    #[test]
+    fn test_trust_rank_rejects_unknown_key() {
+        let toml = format!("{DEFAULT_CONFIG_TOML}\nreport_enable = true\n");
+        assert!(
+            DaemonConfig::try_from_str(&toml).is_err(),
+            "an unknown [trust_rank] key must be rejected"
+        );
+    }
+
+    /// `trust_rank.max_iterations` must be at least 1; zero fails config parsing.
+    #[test]
+    fn test_trust_max_iterations_rejects_zero() {
+        let toml = DEFAULT_CONFIG_TOML.replace("max_iterations = 200", "max_iterations = 0");
+        assert!(
+            DaemonConfig::try_from_str(&toml).is_err(),
+            "max_iterations = 0 should be rejected"
+        );
+    }
+
+    /// `report_limit` must be ≥ 1; zero fails parsing.
+    #[test]
+    fn test_trust_report_limit_rejects_zero() {
+        let toml = DEFAULT_CONFIG_TOML.replace("report_limit = 10000", "report_limit = 0");
+        assert!(
+            DaemonConfig::try_from_str(&toml).is_err(),
+            "report_limit = 0 should be rejected"
+        );
+    }
+
+    /// `trust_rank.tolerance` must be finite and non-negative; bad values fail config parsing.
+    #[test]
+    fn test_trust_tolerance_rejects_invalid() {
+        for bad_tolerance in ["-0.1", "nan", "inf"] {
+            let toml = DEFAULT_CONFIG_TOML.replace(
+                "tolerance = 0.0000001",
+                &format!("tolerance = {bad_tolerance}"),
+            );
+            assert!(
+                DaemonConfig::try_from_str(&toml).is_err(),
+                "tolerance = {bad_tolerance} should be rejected"
+            );
+        }
+    }
+
+    /// Optional `[stack.otlp.resource_attributes]` parses into a string map.
+    #[test]
+    fn test_otlp_resource_attributes_parsing() {
+        let toml = format!(
+            "{DEFAULT_CONFIG_TOML}\n\
+             [stack.otlp.resource_attributes]\n\
+             host = \"nexus-1\"\n\
+             env = \"prod\"\n\
+             region = \"eu-central\"\n\
+             \"deployment.environment\" = \"production\"\n\
+             \"service.instance.id\" = \"nexusd-01\"\n"
+        );
+
+        let c = DaemonConfig::try_from_str(&toml)
+            .expect("config with otlp resource_attributes should parse");
+
+        let expected = HashMap::from([
+            ("host".to_string(), "nexus-1".to_string()),
+            ("env".to_string(), "prod".to_string()),
+            ("region".to_string(), "eu-central".to_string()),
+            (
+                "deployment.environment".to_string(),
+                "production".to_string(),
+            ),
+            ("service.instance.id".to_string(), "nexusd-01".to_string()),
+        ]);
+        assert_eq!(c.stack.otlp.resource_attributes, expected);
     }
 
     /// A populated `external_hs_pk_blacklist` is parsed into the expected
@@ -133,7 +437,7 @@ mod tests {
             .expect("config with a populated blacklist should parse");
 
         assert_eq!(
-            c.stack.external_hs_pk_blacklist,
+            c.stack.net.external_hs_pk_blacklist,
             vec![
                 PubkyId::try_from(hs1).unwrap(),
                 PubkyId::try_from(hs2).unwrap(),
@@ -155,5 +459,81 @@ mod tests {
             DaemonConfig::try_from_str(&toml).is_err(),
             "an invalid public key in the blacklist must fail config parsing"
         );
+    }
+
+    #[test]
+    fn test_pubky_http_request_timeout_secs_rejects_zero() {
+        let toml = DEFAULT_CONFIG_TOML.replace(
+            "pubky_http_request_timeout_secs = 300",
+            "pubky_http_request_timeout_secs = 0",
+        );
+
+        assert!(
+            DaemonConfig::try_from_str(&toml).is_err(),
+            "pubky_http_request_timeout_secs must be at least 1 second"
+        );
+    }
+
+    #[test]
+    fn test_pubky_http_request_timeout_secs_defaults_when_omitted() {
+        let toml = DEFAULT_CONFIG_TOML.replace("pubky_http_request_timeout_secs = 300\n", "");
+
+        let config = DaemonConfig::try_from_str(&toml)
+            .expect("config without pubky_http_request_timeout_secs should use the default");
+
+        assert_eq!(config.stack.net.pubky_http_request_timeout_secs, 300);
+    }
+
+    /// Legacy `watcher_sleep` / `hs_resolver_sleep` field names (renamed to
+    /// `*_interval_ms` to clarify they are scheduling intervals, not post-run
+    /// sleeps) must still parse via serde aliases.
+    #[test]
+    fn test_legacy_watcher_interval_aliases_still_parse() {
+        let toml = DEFAULT_CONFIG_TOML
+            .replace(
+                "primary_hs_monitoring_interval_ms = 5000",
+                "watcher_sleep = 7000",
+            )
+            .replace(
+                "hs_resolver_interval_ms = 10000",
+                "hs_resolver_sleep = 20000",
+            );
+
+        let c = DaemonConfig::try_from_str(&toml).expect(
+            "legacy watcher_sleep / hs_resolver_sleep field names must still parse via aliases",
+        );
+
+        assert_eq!(c.watcher.primary_hs_monitoring_interval_ms, 7_000);
+        assert_eq!(c.watcher.hs_resolver_interval_ms, 20_000);
+    }
+
+    #[test]
+    fn test_periodic_watcher_intervals_reject_zero() {
+        let zero_intervals = [
+            (
+                "primary_hs_monitoring_interval_ms = 5000",
+                "primary_hs_monitoring_interval_ms = 0",
+            ),
+            (
+                "external_hs_monitoring_interval_ms = 5000",
+                "external_hs_monitoring_interval_ms = 0",
+            ),
+            (
+                "hs_resolver_interval_ms = 10000",
+                "hs_resolver_interval_ms = 0",
+            ),
+            (
+                "retry_processor_interval_ms = 10000",
+                "retry_processor_interval_ms = 0",
+            ),
+        ];
+
+        for (configured_value, zero_value) in zero_intervals {
+            let toml = DEFAULT_CONFIG_TOML.replace(configured_value, zero_value);
+            assert!(
+                DaemonConfig::try_from_str(&toml).is_err(),
+                "{zero_value} must be rejected"
+            );
+        }
     }
 }

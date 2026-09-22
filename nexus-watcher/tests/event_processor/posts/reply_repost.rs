@@ -30,6 +30,7 @@ async fn test_homeserver_reply_repost() -> Result<()> {
         parent: None,
         embed: None,
         attachments: None,
+        lock: None,
     };
 
     let (parent_post_id, parent_post_path) = test.create_post(&user_kp, &parent_post).await?;
@@ -43,6 +44,7 @@ async fn test_homeserver_reply_repost() -> Result<()> {
         parent: Some(parent_absolute_uri.clone()),
         embed: None,
         attachments: None,
+        lock: None,
     };
 
     let (_reply_id, reply_path) = test.create_post(&user_kp, &reply).await?;
@@ -57,6 +59,7 @@ async fn test_homeserver_reply_repost() -> Result<()> {
             uri: parent_absolute_uri.clone(),
         }),
         attachments: None,
+        lock: None,
     };
 
     test.create_post(&user_kp, &repost).await?;

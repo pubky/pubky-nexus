@@ -7,7 +7,8 @@ use nexus_common::{
 };
 use pubky::Keypair;
 use pubky_app_specs::{
-    post_uri_builder, tag_uri_builder, traits::HashId, PubkyAppPost, PubkyAppTag, PubkyAppUser,
+    post_uri_builder, tag_uri_builder, traits::HashId, PubkyAppPost, PubkyAppPostKind, PubkyAppTag,
+    PubkyAppUser,
 };
 
 #[tokio_shared_rt::test(shared)]
@@ -43,6 +44,7 @@ async fn test_delete_tagged_post_notification() -> Result<()> {
         parent: None,
         embed: None,
         attachments: None,
+        lock: None,
     };
     let (post_id, post_path) = test.create_post(&user_a_kp, &post).await?;
 
@@ -79,8 +81,14 @@ async fn test_delete_tagged_post_notification() -> Result<()> {
         deleted_by,
         deleted_uri,
         linked_uri,
+        post_kind,
     } = &notifications[0].body
     {
+        assert_eq!(
+            post_kind,
+            &PubkyAppPostKind::Short,
+            "A deleted note should report post_kind = Short"
+        );
         assert_eq!(
             deleted_by, &user_a_id,
             "Notification should specify the correct user who deleted the post"

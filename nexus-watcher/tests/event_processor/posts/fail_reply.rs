@@ -28,6 +28,7 @@ async fn test_homeserver_post_reply_without_post_parent() -> Result<()> {
         parent: None,
         embed: None,
         attachments: None,
+        lock: None,
     };
 
     let (post_id, _post_path) = test.create_post(&author_user_kp, &post).await?;
@@ -41,6 +42,7 @@ async fn test_homeserver_post_reply_without_post_parent() -> Result<()> {
         parent: Some(parent_absolute_uri.clone()),
         embed: None,
         attachments: None,
+        lock: None,
     };
 
     let (reply_id, _reply_path) = test.create_post(&author_user_kp, &reply).await?;

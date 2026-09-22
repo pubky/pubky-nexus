@@ -26,6 +26,7 @@ async fn test_tag_post_on_unknown_homeserver() -> Result<()> {
         parent: None,
         embed: None,
         attachments: None,
+        lock: None,
     };
 
     let post_id = post.create_id();

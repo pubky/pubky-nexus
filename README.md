@@ -57,8 +57,15 @@ To get started with Nexus, first set up the required databases: Neo4j and Redis.
 ```bash
 cd docker
 cp .env-sample .env
+
+# Lean stack: Neo4j + Redis + Redis Insight
 docker compose up -d
+
+# With Postgres (for watcher tests)
+docker compose --profile tests up -d
 ```
+
+To always start Postgres without passing `--profile tests`, uncomment `COMPOSE_PROFILES=tests` in `.env`.
 
 3. Optionally, populate the Neo4j database with initial mock data. Follow [Running Tests](#-running-tests) section about setting up mock data.
 
@@ -71,7 +78,7 @@ cargo run -p nexusd
 cargo run -p nexusd -- --config-dir="custom/config/folder"
 # There is also an option to run services individually
 # Useful to run a database clear command before start running the watcher
-# cargo run -p nexusd -- db clear
+# cargo run -p nexusd -- db clear --yes
 cargo run -p nexusd -- watcher
 cargo run -p nexusd -- api
 ```
@@ -82,14 +89,80 @@ cargo run -p nexusd -- api
      - Note: on first run, an error popup is shown and a TOS popup. After you accept the TOS, the link will work.
    - Neo4J Browser: [http://localhost:7474/browser/](http://localhost:7474/browser/)
 
+## ⏰ Scheduled Jobs
+
+Nexusd can run background jobs on a cron schedule. Jobs are configured in `config.toml` under `[jobs.<name>]` sections:
+
+```toml
+[jobs.my_job]
+cron = "0 0 3 * * *"  # every day at 03:00 (UTC)
+```
+
+The `cron` expression is SECONDS-FIRST, not the standard 5-field crontab — always include the seconds field: `sec min hour day-of-month month day-of-week [year]`. The trailing year field is optional. The same format is used for every schedule, from coarse to per-second granularity:
+
+```toml
+[jobs.reindex]
+cron = "0 * * * * *"  # every minute at second 0
+```
+
+### Available Commands
+
+- **`nexusd jobs list`** — prints the names of all available jobs
+- **`nexusd jobs run <name>`** — runs a single job immediately (on demand), bypassing the schedule
+
+### Notes
+
+- A job with no `[jobs.<name>]` section or no `cron` key is unscheduled (won't run automatically) but can still be triggered on demand.
+- The `nexusd run` daemon validates all `[jobs.*]` sections at startup — a typo'd section name fails fast rather than being silently ignored.
+- Running a job on demand with `nexusd jobs run` also validates the config, so a typo'd `[jobs.<name>]` section is caught regardless of how you invoke it.
+
 ## 📈 Observability
 
-If you want to enable observability in Nexus, you can connect it to an OpenTelemetry exporter. Follow these steps:
+Nexus exports telemetry over OTLP. For local development, use either the bundled observability stack or a separately installed SigNoz instance.
 
-1. Install Signoz locally – Follow the Signoz installation [guide](https://signoz.io/docs/install)
-2. Configure the connection – In _config.toml_, set the `endpoint` under `[stack.otlp]` to point Nexus to the Signoz endpoint
-3. Run Nexus – Start nexusd using the configured settings
-4. Access the Signoz dashboard – Open http://localhost:3301 in your browser (allow some time for data to populate).
+Configure the OTLP endpoint in _config.toml_:
+
+```toml
+[stack.otlp]
+name = "nexusd"
+endpoint = "http://localhost:4317"
+```
+
+OTLP export is disabled when `endpoint` is omitted. When configured, Nexus exports logs, traces, and metrics using `name` as the OpenTelemetry `service.name`.
+
+### Local observability stack
+
+The bundled stack runs independently of the database services and combines the OpenTelemetry Collector with Grafana, Tempo, Prometheus, and Loki.
+
+```bash
+docker compose -f docker/docker-compose.observability.yml up -d
+```
+
+#### Alerting rules
+
+Prometheus loads alerting rules from `docker/otel/alerts.yaml`, which is mounted into the container at `/etc/prometheus/alerts.yaml`. To use your own rules file, set `PROMETHEUS_ALERTS_FILE` in `docker/.env` (paths are resolved relative to the `docker/` folder):
+
+```bash
+PROMETHEUS_ALERTS_FILE=./otel/my-alerts.yaml
+```
+
+After editing the rules, reload Prometheus without restarting the stack:
+
+```bash
+curl -X POST http://localhost:9090/-/reload
+```
+
+Validate a rules file before mounting it:
+
+```bash
+docker run --rm -v "$PWD/docker/otel:/rules:ro" --entrypoint promtool prom/prometheus:v2.55.1 check rules /rules/alerts.yaml
+```
+
+Active alerts are listed at [http://localhost:9090/alerts](http://localhost:9090/alerts). Grafana also shows them under **Alerting > Alert rules** as data source-managed rules of the Prometheus datasource.
+
+### SigNoz
+
+SigNoz remains supported as an alternative OpenTelemetry backend. Follow the [SigNoz installation guide](https://signoz.io/docs/install), then replace the local endpoint above with the SigNoz OTLP endpoint. Its local dashboard is available at [http://localhost:3301](http://localhost:3301).
 
 ## 📦 Data Migrations
 
@@ -117,11 +190,11 @@ The Migration Manager uses a phased approach to handle data migrations safely an
 cargo run -p nexusd -- db migration new TagCountsReset
 ```
 
-This will generate a new migration file in the `nexusd/src/migrations/migrations_list` directory.
+This will generate a new migration file in the `nexusd/src/migrations/catalog` directory.
 
-2. Next, register your migration in the `import_migrations` function in `nexusd/src/migrations/mod.rs` file, which ensures it is included in the migration lifecycle.
+2. Next, register your migration in the `import_migrations` function in `nexusd/src/migrations/catalog/mod.rs` file, which ensures it is included in the migration lifecycle.
 
-3. Once registered, implement the required phases (dual_write, backfill, cutover, and cleanup) in the generated file `nexusd/src/migrations/migrations_list/tag_counts_reset_1739459180.rs`. Each phase serves a specific purpose in safely transitioning data between the old and new sources.
+3. Once registered, implement the required phases (dual_write, backfill, cutover, and cleanup) in the generated file `nexusd/src/migrations/catalog/tag_counts_reset_1739459180.rs`. Each phase serves a specific purpose in safely transitioning data between the old and new sources.
 
 ### Run the migration
 
@@ -152,9 +225,14 @@ cargo nextest run -p nexus-common --no-fail-fast
 
 cargo nextest run -p nexus-webapi --no-fail-fast
 
-# nexus-watcher tests need the Postgres Connection URL as env variable, adjust it as needed
+# nexus-watcher tests need Postgres (docker compose --profile tests up -d) and
+# TEST_PUBKY_CONNECTION_STRING from docker/.env-sample
 # export TEST_PUBKY_CONNECTION_STRING=postgres://test_user:test_pass@localhost:5432/postgres?pubky-test=true
 cargo nextest run -p nexus-watcher --no-fail-fast
+
+# nexusd trust-rank tests require the GDS plugin baked into the neo4j image
+# (docker/neo4j/Dockerfile); the docker compose stack builds it automatically.
+cargo nextest run -p nexusd --no-fail-fast
 ```
 
 To test specific feature(s):

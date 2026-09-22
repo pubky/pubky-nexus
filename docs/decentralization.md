@@ -6,8 +6,8 @@ These are technical notes describing configuration fields related to Decentraliz
 
 ## 1. Background
 
-Originally the watcher pointed at one default HS and bulk-ingested all of
-its events. With decentralization, Nexus still bulk-indexes the default HS but
+Originally the watcher pointed at one primary HS and bulk-ingested all of
+its events. With decentralization, Nexus still bulk-indexes the primary HS but
 *also* indexes users hosted on other ("third-party") HSs on a per-user
 basis, using each HS's user-events endpoint. A separate task resolves each user's
 currently-published HS from PKDNS/DHT and records it as a
@@ -17,7 +17,7 @@ pull from which HS.
 These run as parallel tasks started in `NexusWatcher::start`, each driving one
 runner; the sections below group each config field under the runner it drives:
 
-- [Section 2: Bulk indexing of default HS](#2-indexing-the-default-hs-bulk)
+- [Section 2: Bulk indexing of primary HS](#2-indexing-the-primary-hs-bulk)
 - [Section 3: Key-based indexing of externally-hosted users](#3-indexing-externally-hosted-users-key-based)
 - [Section 4: User → HS resolution](#4-user--hs-resolution)
 - [Section 5: Event retry & backoff](#5-event-retry--backoff--watcherretry)
@@ -25,25 +25,25 @@ runner; the sections below group each config field under the runner it drives:
 
 ---
 
-## 2. Indexing the default HS (bulk)
+## 2. Indexing the primary HS (bulk)
 
-The baseline, pre-decentralization path: the default HS is indexed in *bulk* — all
+The baseline, pre-decentralization path: the primary HS is indexed in *bulk* — all
 of its events are pulled from the HS `/events` endpoint. Driven by `HsEventProcessorRunner`.
 
-The default HS is trusted, which implies a different event validation model.
+The primary HS is trusted, which implies a different event validation model.
 
 ### `homeserver`
 
-> The single default, prioritized HS. Its events are bulk-ingested.
+> The single primary, prioritized HS. Its events are bulk-ingested.
 
 It is explicitly *excluded* from the third-party (`KeyBasedEventProcessorRunner`)
 list so it is never double-indexed (`hs_by_priority`). Changing this re-points
-the entire default-HS pipeline; the HS is persisted to the graph on startup
+the entire primary-HS pipeline; the HS is persisted to the graph on startup
 (`Homeserver::persist_if_unknown`).
 
 ### `events_limit`
 
-> Maximum number of events fetched **per run** from the default HS.
+> Maximum number of events fetched **per run** from the primary HS.
 
 Validated at deserialize time (`deserialize_events_limit`): `0` is rejected, and
 values above the max are rejected rather than clamped.
@@ -51,11 +51,10 @@ values above the max are rejected rather than clamped.
 *Tuning:* higher → more throughput per tick but larger batches and longer
 per-run latency. Lower → smoother but slower to drain a backlog.
 
-### `watcher_sleep`
+### `primary_hs_monitoring_interval_ms`
 
-> Sleep between full runs for **both** event-processing runners
-> (`HsEventProcessorRunner` + `KeyBasedEventProcessorRunner`). It is the master tick
-> for indexing.
+> Scheduling interval[^1] for triggering runs of the **primary-HS** indexing runner
+> (`HsEventProcessorRunner`).
 
 *Tuning:* lower → fresher data, more load on HSs and DBs. Higher → less load,
 more lag between an event being published and indexed.
@@ -65,9 +64,9 @@ more lag between an event being published and indexed.
 ## 3. Indexing externally-hosted users (key-based)
 
 The core of decentralization. Driven by `KeyBasedEventProcessorRunner`, which
-indexes users hosted on **third-party** HSs — any HS other than the default
-(also called "external" or "non-default"). For every monitored HS *except* the
-default, it pulls each hosted user's events per user from the HS `/events-stream`
+indexes users hosted on **third-party** HSs — any HS other than the primary
+(also called "external" or "secondary"). For every monitored HS *except* the
+primary, it pulls each hosted user's events per user from the HS `/events-stream`
 endpoint (hence "key-based" — keyed on each user's pubky). Configured in
 `KeyBasedEventProcessorRunner::from_config`.
 
@@ -79,6 +78,31 @@ endpoint (hence "key-based" — keyed on each user's pubky). Configured in
 
 *Tuning:* each additional monitored HS adds HS requests (and, upstream, PKDNS
 resolutions) per tick. Raise deliberately as the network of indexed HSs grows.
+
+*Monitoring:* the runner exports two gauges on every external-HS run
+(`external_hs_monitoring_interval_ms`):
+
+| Metric | Type | Meaning |
+| --- | --- | --- |
+| `watcher.external_hs.monitored_limit` | gauge | The cap in force. |
+| `watcher.external_hs.indexed` | gauge | External HSs the last run selected for indexing: the active HSs, minus the primary HS and blacklisted ones, truncated to the limit. |
+
+`indexed / monitored_limit` is the saturation ratio: it reaches `1` when the
+eligible external HSs fill the cap, which is when the limit binds coverage. It
+does not separate a set that exactly fills the cap from one truncated by it, so
+treat `1` as "at capacity, raise the limit deliberately" rather than proof that
+homeservers were dropped. Gauges keep their last value while the process is
+alive, so a `monitored_homeservers_limit` of `0` exports a zero denominator.
+
+### `external_hs_monitoring_interval_ms`
+
+> Scheduling interval[^1] for this `KeyBasedEventProcessorRunner` (the external-HS
+> monitoring task). Independent of `primary_hs_monitoring_interval_ms` so the two
+> cadences can be tuned separately.
+
+*Tuning:* lower → fresher data from external HSs, more load on them and the DBs.
+Higher → less load, more lag. External-HS runs typically touch many users across
+many HSs, so this is often set larger than `primary_hs_monitoring_interval_ms`.
 
 ### `key_based_events_limit`
 
@@ -108,9 +132,10 @@ notice one coming back. Smaller → faster recovery, more retry traffic.
 
 ### `external_hs_pk_blacklist` — HS public-key blacklist
 
-> List of third-party HS PKs from which new events are not being indexed, for as long
-> as they are on this list. Consulted when indexing third-party HSs, and also checked
-> when ingesting new users (e.g. via the Nexus REST API).
+> Configured in `[stack.net]`. List of third-party HS PKs from which new events
+> are not being indexed, for as long as they are on this list. Consulted when
+> indexing third-party HSs, and also checked when ingesting new users (e.g. via
+> the Nexus REST API).
 
 Each entry is parsed as a `PubkyId` at deserialize time, so an invalid pubky in
 the list fails config load rather than being silently ignored
@@ -139,12 +164,12 @@ This is what tells the externally-hosted-user indexer
 ([Section 3](#3-indexing-externally-hosted-users-key-based)) which users
 belong to which HS.
 
-### `hs_resolver_sleep`
+### `hs_resolver_interval_ms`
 
-> Sleep between runs of the resolver task.
+> Scheduling interval[^1] for triggering runs of the resolver task.
 
-**Independent** of `watcher_sleep` — resolution and indexing tick on separate
-clocks.
+**Independent** of `primary_hs_monitoring_interval_ms` and
+`external_hs_monitoring_interval_ms` — resolution and indexing tick on separate clocks.
 
 *Tuning:* lower → mappings react faster to users migrating HSs, more PKDNS/DHT
 traffic. Higher → less traffic, slower to notice a user's HS change.
@@ -160,6 +185,50 @@ resolver run, preventing redundant PKDNS lookups.
 *Tuning:* lower → mappings stay fresher at the cost of far more PKDNS lookups.
 Higher → cheaper, but Nexus may keep pulling a user's events from an HS they have
 already left for up to ~`hs_resolver_ttl`.
+
+### Monitoring stale mappings
+
+When the resolver cannot reproduce a user's stored HS from PKDNS, it marks the
+`HOSTED_BY` edge `stale` and the watcher **stops indexing that user**. A
+resolution outage (DHT/relay unreachable, PKARR records not resolvable) therefore
+silently pauses indexing for every user the resolver visits until the mapping
+realigns. The resolver exports these metrics to catch this:
+
+| Metric | Type | Meaning |
+| --- | --- | --- |
+| `nexus.task.hs-resolver.resolutions` | counter, labels `outcome`, `mapping` | One per user the resolver handled. `outcome`: `resolved` (PKDNS returned a HS), `unresolved` (PKDNS returned none; on pubky 0.9.3 DHT and relay failures also surface this way), `error` (the lookup failed, pubky 0.10+, or the graph read/update failed). `mapping`: the stored mapping's state before the resolution, `unbound` / `active` / `stale`, or `unknown` when a graph read or write failed (a Neo4j problem, also visible via `neo4j.query.errors`; deliberately outside the `mapping="active"` onset ratio). |
+| `nexus.task.hs-resolver.marked_stale` | counter, label `reason` | Users whose mapping flipped from active to stale. `unresolved`: PKDNS returned no HS. `hs_changed`: PKDNS returned a different HS. Already-stale users are not counted again. |
+| `nexus.task.hs-resolver.mapped_users` | gauge | Non-deleted users with a `HOSTED_BY` mapping. Recorded on the first run after startup, then refreshed after every run that processed users. |
+| `nexus.task.hs-resolver.stale_users` | gauge | Subset of `mapped_users` whose mapping is currently stale. |
+| `nexus.task.hs-resolver.heartbeat_timestamp` | gauge, unit `s` | Unix time of the resolver's most recent progress: a user handled or a run finished. |
+
+Prometheus alerting rules for these metrics live in
+[`docker/otel/alerts.yaml`](../docker/otel/alerts.yaml), loaded by the local
+observability stack (metric names as translated by the Prometheus exporter;
+under SigNoz drop the `_total` / `_seconds` suffixes):
+
+- `NexusHsResolverUnresolvedRatio` — onset: most previously-active mappings the
+  resolver touched recently could not be resolved. Scoped to `mapping="active"`
+  because unbound users with no published record are re-resolved on every tick
+  and would otherwise dominate the ratio. It marks onset, not duration: when the
+  outage surfaces as `unresolved` (always on pubky 0.9.3), each active mapping
+  is flipped stale on its visit, so the alert clears once every active mapping
+  has come due (one `hs_resolver_ttl` or more into the outage), not when PKDNS
+  recovers.
+- `NexusHsResolverStaleRatio` — blast radius, the "still broken" signal: a
+  meaningful share of mapped users is not being indexed. Clears only as stale
+  users are re-resolved, up to `hs_resolver_ttl` after recovery.
+- `NexusHsResolverSilent` — no resolver progress. Gauges keep exporting their
+  last value while the process is alive, so only the heartbeat reveals a task
+  that hangs or stops ticking; the `absent` half covers a dead process. The
+  threshold assumes the default `hs_resolver_interval_ms`; scale it if you
+  raise the interval.
+
+The two ratio alerts carry an absolute floor, so they need no retuning as the
+user base grows and stay quiet on tiny deployments.
+
+A burst of `marked_stale{reason="hs_changed"}` is usually a real migration, not
+an outage, and is worth a lower-severity notification.
 
 ---
 
@@ -213,12 +282,13 @@ avoid hammering an HS for content that may not exist yet.
 |---|---|---|---|
 | `homeserver` | `[watcher]` | `PubkyId` | Synonym HS |
 | `events_limit` | `[watcher]` | `u16` | `50` (max `1000`; code default `1000`) |
-| `watcher_sleep` | `[watcher]` | `u64` ms | `5000` |
+| `primary_hs_monitoring_interval_ms` | `[watcher]` | `u64` ms | `5000` |
+| `external_hs_monitoring_interval_ms` | `[watcher]` | `u64` ms | `5000` |
 | `monitored_homeservers_limit` | `[watcher]` | `usize` | `50` |
 | `key_based_events_limit` | `[watcher]` | `u16` | `50` (max `100`) |
 | `initial_backoff_secs` | `[watcher]` | `u64` s | `60` |
 | `max_backoff_secs` | `[watcher]` | `u64` s | `3600` |
-| `hs_resolver_sleep` | `[watcher]` | `u64` ms | `10000` |
+| `hs_resolver_interval_ms` | `[watcher]` | `u64` ms | `10000` |
 | `hs_resolver_ttl` | `[watcher]` | `u64` ms | `3_600_000` |
 | `max_retries` | `[watcher.retry]` | `u32` | `10` |
 | `max_dependency_retries` | `[watcher.retry]` | `u32` | `50` |
@@ -226,4 +296,9 @@ avoid hammering an HS for content that may not exist yet.
 | `max_backoff_secs` | `[watcher.retry]` | `u64` s | `3600` |
 | `initial_missing_dep_backoff_secs` | `[watcher.retry]` | `u64` s | `60` |
 | `max_missing_dep_backoff_secs` | `[watcher.retry]` | `u64` s | `3600` |
-| `external_hs_pk_blacklist` | `[stack]` | `Vec<PubkyId>` | `[]` |
+| `external_hs_pk_blacklist` | `[stack.net]` | `Vec<PubkyId>` | `[]` |
+
+
+[^1]: This is the *interval* at which runs are *triggered*, not a sleep duration
+that starts only after a run finishes. If a run takes longer than the interval,
+the next run starts right after it returns.

@@ -356,7 +356,8 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     /// * `prefix` - An optional string representing the prefix for the Redis keys. If `Some(String)`, the prefix will be used
     /// # Returns
     ///
-    /// Returns a vector of deserialized elements if they exist, or an empty vector if no matching elements are found.
+    /// Returns `None` if the set does not exist, or `Some(vec)` with the requested window
+    /// otherwise. The vector may be empty when the window is past the end of the set.
     ///
     /// # Errors
     ///
@@ -596,6 +597,49 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         sorted_sets::put(prefix, &key, elements, expiration).await
     }
 
+    /// Rebuilds a Redis sorted set from scratch, atomically.
+    ///
+    /// Unlike [`Self::put_index_sorted_set`], which only adds, this drops
+    /// members that are no longer present. Empty `elements` deletes the key.
+    async fn replace_index_sorted_set(
+        key_parts: &[&str],
+        elements: &[(f64, &str)],
+        prefix: Option<&str>,
+        expiration: Option<i64>,
+    ) -> RedisResult<()> {
+        let prefix = prefix.unwrap_or(SORTED_PREFIX);
+        let key = key_parts.join(":");
+        sorted_sets::replace(prefix, &key, elements, expiration).await
+    }
+
+    /// Reads a sorted set's size and the scores of `members` from one snapshot,
+    /// so the two cannot straddle a concurrent rewrite of the set.
+    async fn index_sorted_set_card_and_members(
+        key_parts: &[&str],
+        members: &[&str],
+        prefix: Option<&str>,
+    ) -> RedisResult<(usize, Vec<Option<isize>>)> {
+        let prefix = prefix.unwrap_or(SORTED_PREFIX);
+        let key = key_parts.join(":");
+        sorted_sets::card_and_members(prefix, &key, members).await
+    }
+
+    /// Seeds a member of a Redis sorted set, leaving an already-present one untouched.
+    ///
+    /// Atomic (`ZADD NX`), unlike a `check_sorted_set_member` read followed by
+    /// [`Self::put_index_sorted_set`], which would clobber a member written
+    /// between the two calls.
+    async fn add_index_sorted_set_if_absent(
+        key_parts: &[&str],
+        score: f64,
+        member: &str,
+        prefix: Option<&str>,
+    ) -> RedisResult<()> {
+        let prefix = prefix.unwrap_or(SORTED_PREFIX);
+        let key = key_parts.join(":");
+        sorted_sets::add_member_if_absent(prefix, &key, score, member).await
+    }
+
     /// Updates the score of a member in a Redis sorted set.
     ///
     /// This method updates the score associated with a specific member in a Redis sorted set
@@ -614,6 +658,41 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         let key = key_parts.join(":");
         let member_key = member.join(":");
         sorted_sets::put_score(SORTED_PREFIX, &key, &member_key, score_mutation).await
+    }
+
+    /// Atomically derives a sorted-set member's score from a set's
+    /// cardinality: the score becomes `SCARD` of the source set, and the
+    /// member is removed when the set is empty. Runs as one Lua script, so
+    /// concurrent writers cannot commit a stale cardinality.
+    ///
+    /// # Arguments
+    ///
+    /// * `source_set_prefix` - Prefix of the source set key.
+    /// * `source_set_key_parts` - Key parts of the source set whose cardinality becomes the score.
+    /// * `sorted_set_key_parts` - Key parts of the destination sorted set (under the `Sorted` prefix).
+    /// * `member` - The sorted-set member to write or remove.
+    /// * `removal_guard` - Optional `(json_key, json_path, value)` that forces
+    ///   removal when the JSON document matches, checked atomically with the write.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the script execution fails.
+    async fn put_cardinality_index_sorted_set(
+        source_set_prefix: &str,
+        source_set_key_parts: &[&str],
+        sorted_set_key_parts: &[&str],
+        member: &str,
+        removal_guard: Option<(&str, &str, &str)>,
+    ) -> RedisResult<()> {
+        sorted_sets::sync_score_from_set_cardinality(
+            source_set_prefix,
+            &source_set_key_parts.join(":"),
+            SORTED_PREFIX,
+            &sorted_set_key_parts.join(":"),
+            member,
+            removal_guard,
+        )
+        .await
     }
 
     /// Increments the score of a member in a Redis sorted set by 1.0.

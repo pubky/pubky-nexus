@@ -1,12 +1,10 @@
 use super::file::ConfigLoader;
 use super::{default_stack, DaemonConfig, StackConfig};
 use async_trait::async_trait;
-use pubky_app_specs::PubkyId;
+use pubky_app_specs::{PubkyId, VALIDATION_LIMITS};
 use serde::{de::Error, Deserialize, Deserializer, Serialize};
 use std::fmt::Debug;
 
-pub const TESTNET: bool = false;
-pub const DEFAULT_TESTNET_HOST: &str = "localhost";
 // Testnet homeserver key
 pub const HOMESERVER_PUBKY: &str = "8pinxxgqs41n4aididenw5apqp1urfmzdztr8jt4abrkdn435ewo";
 /// Default for [WatcherConfig::events_limit]
@@ -15,12 +13,16 @@ pub const DEFAULT_EVENTS_LIMIT: u16 = 1_000;
 pub const DEFAULT_KEY_BASED_EVENTS_LIMIT: u16 = 50;
 /// Default for [WatcherConfig::monitored_homeservers_limit]
 pub const DEFAULT_MONITORED_HOMESERVERS_LIMIT: usize = 50;
-/// Default for [WatcherConfig::watcher_sleep]
-pub const DEFAULT_WATCHER_SLEEP: u64 = 5_000;
-/// Default for [WatcherConfig::hs_resolver_sleep]
-pub const DEFAULT_HS_RESOLVER_SLEEP: u64 = 10_000;
+/// Default for [WatcherConfig::primary_hs_monitoring_interval_ms]
+pub const DEFAULT_PRIMARY_HS_MONITORING_INTERVAL_MS: u64 = 5_000;
+/// Default for [WatcherConfig::external_hs_monitoring_interval_ms]
+pub const DEFAULT_EXTERNAL_HS_MONITORING_INTERVAL_MS: u64 = 5_000;
+/// Default for [WatcherConfig::hs_resolver_interval_ms]
+pub const DEFAULT_HS_RESOLVER_INTERVAL_MS: u64 = 10_000;
 /// Default for [WatcherConfig::hs_resolver_ttl]: 1 hour in milliseconds
 pub const DEFAULT_HS_RESOLVER_TTL: u64 = 3_600_000;
+/// Default for [WatcherConfig::retry_processor_interval_ms]
+pub const DEFAULT_RETRY_PROCESSOR_INTERVAL_MS: u64 = 10_000;
 /// Default for [WatcherConfig::initial_backoff_secs]
 pub const DEFAULT_INITIAL_BACKOFF_SECS: u64 = 60;
 /// Default for [WatcherConfig::max_backoff_secs]
@@ -30,8 +32,8 @@ pub const DEFAULT_MAX_BACKOFF_SECS: u64 = 3_600;
 pub const MAX_EVENTS_LIMIT: u16 = 1_000;
 /// Extra-safety check: Upper bound for [WatcherConfig::key_based_events_limit]
 pub const MAX_KEY_BASED_EVENTS_LIMIT: u16 = 100;
-/// Default for [WatcherConfig::max_file_size] — 50 MiB
-pub const DEFAULT_MAX_FILE_SIZE: u64 = 50 * 1024 * 1024;
+/// Default for [WatcherConfig::max_file_size] — the blob size cap from pubky-app-specs
+pub const DEFAULT_MAX_FILE_SIZE: u64 = VALIDATION_LIMITS.max_blob_size_bytes as u64;
 
 // Retry configuration defaults
 /// Default for [EventRetryConfig::max_retries]
@@ -93,18 +95,15 @@ impl Default for EventRetryConfig {
 /// Configuration settings for the Nexus Watcher service
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct WatcherConfig {
-    pub testnet: bool,
-    pub testnet_host: String,
-
     /// Default, prioritized homeserver
     pub homeserver: PubkyId,
 
-    /// Maximum number of events to fetch per run from the default homeserver.
+    /// Maximum number of events to fetch per run from the primary homeserver.
     /// Must not exceed [MAX_EVENTS_LIMIT].
     #[serde(deserialize_with = "deserialize_events_limit")]
     pub events_limit: u16,
 
-    /// Maximum events per user per run for key-based (non-default) homeservers.
+    /// Maximum events per user per run for key-based (external) homeservers.
     /// Must not exceed [MAX_KEY_BASED_EVENTS_LIMIT].
     #[serde(
         default = "default_key_based_events_limit",
@@ -115,12 +114,29 @@ pub struct WatcherConfig {
     /// Maximum number of monitored homeservers
     pub monitored_homeservers_limit: usize,
 
-    /// Sleep between every full run (over all monitored homeservers), in milliseconds
-    pub watcher_sleep: u64,
+    /// Scheduling interval (ms) at which the primary-HS monitoring task is triggered.
+    /// The alias `watcher_sleep` is kept for backward compatibility.
+    #[serde(
+        alias = "watcher_sleep",
+        deserialize_with = "deserialize_nonzero_interval_ms"
+    )]
+    pub primary_hs_monitoring_interval_ms: u64,
 
-    /// Sleep between every run of the user HS resolver periodic task, in milliseconds
-    #[serde(default = "default_hs_resolver_sleep")]
-    pub hs_resolver_sleep: u64,
+    /// Scheduling interval (ms) at which the key-based (external HS) monitoring task is triggered.
+    #[serde(
+        default = "default_external_hs_monitoring_interval_ms",
+        deserialize_with = "deserialize_nonzero_interval_ms"
+    )]
+    pub external_hs_monitoring_interval_ms: u64,
+
+    /// Scheduling interval (ms) at which the user HS resolver task is triggered.
+    /// The alias `hs_resolver_sleep` is kept for backward compatibility.
+    #[serde(
+        default = "default_hs_resolver_interval_ms",
+        alias = "hs_resolver_sleep",
+        deserialize_with = "deserialize_nonzero_interval_ms"
+    )]
+    pub hs_resolver_interval_ms: u64,
 
     /// Minimum time (ms) before a user's homeserver mapping is re-resolved.
     /// Users whose `HOSTED_BY.resolved_at` is newer than this TTL are skipped.
@@ -135,8 +151,15 @@ pub struct WatcherConfig {
     #[serde(default = "default_max_backoff_secs")]
     pub max_backoff_secs: u64,
 
+    /// Scheduling interval (ms) at which the retry processor task is triggered.
+    #[serde(
+        default = "default_retry_processor_interval_ms",
+        deserialize_with = "deserialize_nonzero_interval_ms"
+    )]
+    pub retry_processor_interval_ms: u64,
+
     /// Max file size in bytes (Content-Length check + streaming enforcement).
-    /// Rejected files are permanent failures (not retried). Default: 50 MiB.
+    /// Rejected files are permanent failures (not retried). Defaults to the pubky-app-specs blob cap.
     #[serde(default = "default_max_file_size")]
     pub max_file_size: u64,
 
@@ -162,17 +185,17 @@ impl Default for WatcherConfig {
             .expect("Hardcoded default moderation should be a valid pubky id");
         Self {
             stack: StackConfig::default(),
-            testnet: TESTNET,
-            testnet_host: DEFAULT_TESTNET_HOST.to_string(),
             homeserver,
             events_limit: DEFAULT_EVENTS_LIMIT,
             key_based_events_limit: DEFAULT_KEY_BASED_EVENTS_LIMIT,
             monitored_homeservers_limit: DEFAULT_MONITORED_HOMESERVERS_LIMIT,
-            watcher_sleep: DEFAULT_WATCHER_SLEEP,
-            hs_resolver_sleep: DEFAULT_HS_RESOLVER_SLEEP,
+            primary_hs_monitoring_interval_ms: DEFAULT_PRIMARY_HS_MONITORING_INTERVAL_MS,
+            external_hs_monitoring_interval_ms: DEFAULT_EXTERNAL_HS_MONITORING_INTERVAL_MS,
+            hs_resolver_interval_ms: DEFAULT_HS_RESOLVER_INTERVAL_MS,
             hs_resolver_ttl: DEFAULT_HS_RESOLVER_TTL,
             initial_backoff_secs: DEFAULT_INITIAL_BACKOFF_SECS,
             max_backoff_secs: DEFAULT_MAX_BACKOFF_SECS,
+            retry_processor_interval_ms: DEFAULT_RETRY_PROCESSOR_INTERVAL_MS,
             max_file_size: DEFAULT_MAX_FILE_SIZE,
             retry: EventRetryConfig::default(),
             moderation_id,
@@ -181,8 +204,12 @@ impl Default for WatcherConfig {
     }
 }
 
-fn default_hs_resolver_sleep() -> u64 {
-    DEFAULT_HS_RESOLVER_SLEEP
+fn default_hs_resolver_interval_ms() -> u64 {
+    DEFAULT_HS_RESOLVER_INTERVAL_MS
+}
+
+fn default_external_hs_monitoring_interval_ms() -> u64 {
+    DEFAULT_EXTERNAL_HS_MONITORING_INTERVAL_MS
 }
 
 fn default_key_based_events_limit() -> u16 {
@@ -199,6 +226,13 @@ fn deserialize_key_based_events_limit<'de, D: Deserializer<'de>>(d: D) -> Result
         "key_based_events_limit",
         MAX_KEY_BASED_EVENTS_LIMIT,
     )
+}
+
+fn deserialize_nonzero_interval_ms<'de, D: Deserializer<'de>>(d: D) -> Result<u64, D::Error> {
+    match u64::deserialize(d)? {
+        0 => Err(D::Error::custom("scheduling interval cannot be 0ms")),
+        value => Ok(value),
+    }
 }
 
 fn check_limit<E: Error>(val: u16, field: &str, max: u16) -> Result<u16, E> {
@@ -232,6 +266,10 @@ fn default_initial_backoff_secs() -> u64 {
 
 fn default_max_backoff_secs() -> u64 {
     DEFAULT_MAX_BACKOFF_SECS
+}
+
+fn default_retry_processor_interval_ms() -> u64 {
+    DEFAULT_RETRY_PROCESSOR_INTERVAL_MS
 }
 
 fn default_max_file_size() -> u64 {

@@ -1,18 +1,10 @@
-use crate::{
-    media::{
-        processors::{ImageProcessor, VariantProcessor, VideoProcessor},
-        FileVariant, VariantController,
-    },
-    models::error::{ModelError, ModelResult},
-};
+use crate::models::error::ModelResult;
 use pubky_app_specs::PubkyAppBlob;
 use std::path::PathBuf;
 use tokio::{
     fs::{self, File},
     io::AsyncWriteExt,
 };
-
-use super::FileDetails;
 
 pub struct Blob;
 
@@ -34,50 +26,6 @@ impl Blob {
         static_file.write_all(&blob.0).await?;
 
         Ok(())
-    }
-
-    pub async fn get_by_id(
-        file: &FileDetails,
-        variant: &FileVariant,
-        file_path: PathBuf,
-    ) -> ModelResult<String> {
-        let file_variant_exists =
-            VariantController::check_variant_exists(file, variant.clone(), file_path.clone()).await;
-
-        if file_variant_exists {
-            Ok(VariantController::get_content_type_for_variant(
-                file, variant,
-            ))
-        } else {
-            Self::put_variant(file, variant, file_path)
-                .await
-                .inspect_err(|e| {
-                    tracing::error!("Creating variant failed for file: {file:?} with error: {e}")
-                })
-        }
-    }
-
-    async fn put_variant(
-        file: &FileDetails,
-        variant: &FileVariant,
-        file_path: PathBuf,
-    ) -> ModelResult<String> {
-        match &file.content_type {
-            content_type if content_type.starts_with("image/") => {
-                ImageProcessor::create_variant(file, variant, file_path)
-                    .await
-                    .map_err(Into::into)
-            }
-            content_type if content_type.starts_with("video/") => {
-                VideoProcessor::create_variant(file, variant, file_path)
-                    .await
-                    .map_err(Into::into)
-            }
-            _ => Err(ModelError::from_generic(format!(
-                "Unsupported content type: {}",
-                file.content_type
-            ))),
-        }
     }
 }
 

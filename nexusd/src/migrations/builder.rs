@@ -6,8 +6,9 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::fmt::Debug;
 use std::path::PathBuf;
 
-/// Path to default migration config dir. Defaults to ~/.pubky-nexus/migrations
-pub const MIGRATIONS_CONFIG_DIR: &str = ".pubky-nexus/migrations";
+/// Migrations config subdirectory, resolved under the daemon config dir
+/// (defaults to ~/.pubky-nexus/migrations)
+pub const MIGRATIONS_CONFIG_DIR: &str = "migrations";
 pub const MIGRATIONS_CONFIG_FILE_NAME: &str = "config.toml";
 const DEFAULT_CONFIG_TOML: &str = include_str!("default.config.toml");
 
@@ -21,9 +22,8 @@ pub struct MigrationConfig {
 pub struct MigrationBuilder(pub(crate) MigrationConfig);
 
 impl MigrationBuilder {
-    pub async fn default() -> Result<MigrationBuilder, DynError> {
-        let config_file_path = dirs::home_dir()
-            .unwrap_or_default()
+    pub async fn new(config_dir: PathBuf) -> Result<MigrationBuilder, DynError> {
+        let config_file_path = config_dir
             .join(MIGRATIONS_CONFIG_DIR)
             .join(MIGRATIONS_CONFIG_FILE_NAME);
         Self::check_if_file_exists(&config_file_path)?;
@@ -61,3 +61,49 @@ impl MigrationBuilder {
 
 #[async_trait]
 impl<T> ConfigLoader<T> for MigrationConfig where T: DeserializeOwned + Send + Sync + Debug {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn new_resolves_config_under_supplied_config_dir() {
+        let config_dir = tempfile::tempdir().expect("tempdir should be created");
+
+        let builder = MigrationBuilder::new(config_dir.path().to_path_buf())
+            .await
+            .expect("builder should load the config");
+
+        let expected_path = config_dir
+            .path()
+            .join(MIGRATIONS_CONFIG_DIR)
+            .join(MIGRATIONS_CONFIG_FILE_NAME);
+        assert!(
+            expected_path.exists(),
+            "default migration config should be written under the supplied config dir"
+        );
+        // The written default config has no backfill_ready entries.
+        assert!(builder.0.backfill_ready.is_empty());
+    }
+
+    #[tokio::test]
+    async fn new_loads_user_supplied_config_from_config_dir() {
+        let config_dir = tempfile::tempdir().expect("tempdir should be created");
+        let migrations_dir = config_dir.path().join(MIGRATIONS_CONFIG_DIR);
+        std::fs::create_dir_all(&migrations_dir).expect("migrations dir should be created");
+        std::fs::write(
+            migrations_dir.join(MIGRATIONS_CONFIG_FILE_NAME),
+            DEFAULT_CONFIG_TOML.replace(
+                "backfill_ready = []",
+                "backfill_ready = [\"some_migration\"]",
+            ),
+        )
+        .expect("config file should be written");
+
+        let builder = MigrationBuilder::new(config_dir.path().to_path_buf())
+            .await
+            .expect("builder should load the config");
+
+        assert_eq!(builder.0.backfill_ready, vec!["some_migration".to_string()]);
+    }
+}

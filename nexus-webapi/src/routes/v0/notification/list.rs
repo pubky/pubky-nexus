@@ -5,6 +5,7 @@ use crate::routes::Query;
 use crate::Result;
 use axum::Json;
 use nexus_common::models::notification::{Notification, NotificationBody, PostChangedSource};
+use pubky_app_specs::PubkyAppPostKind;
 use serde::Deserialize;
 use tracing::debug;
 use utoipa::OpenApi;
@@ -50,6 +51,12 @@ pub async fn list_notifications_handler(
 #[derive(OpenApi)]
 #[openapi(
     paths(list_notifications_handler,),
-    components(schemas(Notification, NotificationBody, PostChangedSource, PubkyId))
+    components(schemas(
+        Notification,
+        NotificationBody,
+        PostChangedSource,
+        PubkyAppPostKind,
+        PubkyId
+    ))
 )]
 pub struct NotificationsApiDocs;

@@ -11,16 +11,17 @@ use nexus_common::models::tag::post::TagPost;
 use nexus_common::models::tag::search::TagSearch;
 use nexus_common::models::tag::traits::{TagCollection, TaggersCollection};
 use nexus_common::models::tag::user::TagUser;
-use nexus_common::models::user::{UserCounts, UserIngestor};
+use nexus_common::models::user::{UserCounts, UserIngestor, UsersByTagSearch};
 use nexus_common::types::Pagination;
-use nexus_common::universal_tag::app_tag_info::try_parse_app_tag_path;
 use nexus_common::universal_tag::normalize::{
     classify_uri, normalize_uri, resource_id, UriCategory,
 };
-use pubky_app_specs::{post_uri_builder, ParsedUri, PubkyAppTag, PubkyId, Resource};
+use pubky_app_specs::{
+    post_uri_builder, ExtendedParsedUri, ParsedUri, PubkyAppTag, PubkyId, Resource,
+};
 use tracing::debug;
 
-use super::utils::{fail_on_blacklisted_hs, post_relationships_is_reply};
+use super::utils::{fail_on_blacklisted_hs, post_kind, post_relationships_is_reply};
 
 #[derive(Debug)]
 struct TagStorageUri {
@@ -36,7 +37,7 @@ pub async fn sync_put(
     tag_id: String,
     ingestor: &UserIngestor,
 ) -> Result<(), EventProcessorError> {
-    debug!("Indexing new tag: {} -> {}", tagger_id, tag_id);
+    debug!("Indexing tag");
 
     // Parse the embeded URI to extract author_id and post_id using parse_tagged_post_uri
     let parsed_uri = ParsedUri::try_from(tag.uri.as_str()).map_err(EventProcessorError::generic)?;
@@ -75,7 +76,7 @@ pub async fn sync_put_resource(
     app: String,
     ingestor: &UserIngestor,
 ) -> Result<(), EventProcessorError> {
-    debug!("Indexing resource tag: {tagger_id} -> {tag_id} (app={app})",);
+    debug!(%app, "Indexing resource tag");
 
     match classify_uri(&tag.uri) {
         UriCategory::InternalKnown => {
@@ -147,6 +148,10 @@ async fn put_sync_resource(
                 ),
                 // Add tagger to Resource's label tagger set
                 TagResource::add_tagger_to_index(resource_id, None, &tagger_id, tag_label),
+                // Add tagger to the app-scoped tagger set. The TAGGED edge is
+                // keyed {label, app}, so this records one member per created
+                // edge; tag::del uses it as the retry gate for the decrements
+                TagResource::add_tagger_to_index(resource_id, Some(app), &tagger_id, tag_label),
                 // Add to global tag search index
                 TagSearch::put_to_index(tag_label_slice),
                 // ResourceStream sorted set maintenance
@@ -187,6 +192,7 @@ async fn put_sync_resource(
             indexing_results.8?;
             indexing_results.9?;
             indexing_results.10?;
+            indexing_results.11?;
 
             Ok(())
         }
@@ -217,15 +223,20 @@ async fn put_sync_post(
         OperationOutcome::Updated => {
             // Re-run idempotent ops to recover from partial failure (graph wrote, Redis didn't)
             let tag_label_slice = &[tag_label.to_string()];
+            let post_key_slice: &[&str] = &[&author_id, post_id];
             let idempotent_results = nexus_common::traced_join!(
                 tracing::info_span!("index.write", phase = "tag_post_retry");
                 TagPost::add_tagger_to_index(&author_id, Some(post_id), &tagger_user_id, tag_label),
                 PostsByTagSearch::put_to_index(&author_id, post_id, tag_label),
-                TagSearch::put_to_index(tag_label_slice)
+                TagSearch::put_to_index(tag_label_slice),
+                // TAGGED edge already durable; invalidate-only so the next read
+                // recomputes tags/unique_tags from graph. Safe on missing key.
+                PostCounts::invalidate(post_key_slice)
             );
             idempotent_results.0?;
             idempotent_results.1?;
             idempotent_results.2?;
+            idempotent_results.3?;
             Ok(())
         }
         OperationOutcome::MissingDependency => {
@@ -246,28 +257,15 @@ async fn put_sync_post(
                 tracing::info_span!("index.write", phase = "tag_post");
                 // Update user counts for tagger
                 UserCounts::increment(&tagger_user_id, "tagged", None),
-                // Increment in one the post tags
-                PostCounts::increment_index_field(post_key_slice, "tags", None),
-                async {
-                    // Increase unique_tags if the tag does not exist already
-                    // NOTE: To update that field, it cannot exist in TagPost SORTED SET the tag. Thats why it has to be executed
-                    // before TagPost operation
-                    PostCounts::increment_index_field(
-                        post_key_slice,
-                        "unique_tags",
-                        Some(tag_label),
-                    )
-                    .await?;
-                    // Increment the label count to post
-                    TagPost::update_index_score(
-                        &author_id,
-                        Some(post_id),
-                        tag_label,
-                        ScoreAction::Increment(1.0),
-                    )
-                    .await?;
-                    Ok::<(), EventProcessorError>(())
-                },
+                // Invalidate the cached post counts.
+                PostCounts::invalidate(post_key_slice),
+                // Increment the label count to post
+                TagPost::update_index_score(
+                    &author_id,
+                    Some(post_id),
+                    tag_label,
+                    ScoreAction::Increment(1.0),
+                ),
                 TagPost::add_tagger_to_index(&author_id, Some(post_id), &tagger_user_id, tag_label),
                 PostsByTagSearch::update_index_score(
                     &author_id,
@@ -287,8 +285,19 @@ async fn put_sync_post(
                     Ok::<(), EventProcessorError>(())
                 },
                 PostsByTagSearch::put_to_index(&author_id, post_id, tag_label),
-                // Save new notification
-                Notification::new_post_tag(&tagger_user_id, &author_id, tag_label, post_uri_str),
+                // Kind lookup rides the join, not the critical path before it.
+                async {
+                    let tagged_post_kind = post_kind(&author_id, post_id).await?;
+                    Notification::new_post_tag(
+                        &tagger_user_id,
+                        &author_id,
+                        tag_label,
+                        post_uri_str,
+                        tagged_post_kind,
+                    )
+                    .await?;
+                    Ok::<(), EventProcessorError>(())
+                },
                 // Add tag to search index
                 TagSearch::put_to_index(tag_label_slice)
             );
@@ -344,6 +353,8 @@ async fn put_sync_user(
             );
             idempotent_results.0?;
             idempotent_results.1?;
+
+            UsersByTagSearch::sync_index_score(&tagged_user_id, tag_label).await?;
             Ok(())
         }
         OperationOutcome::MissingDependency => {
@@ -391,6 +402,10 @@ async fn put_sync_user(
             indexing_results.4?;
             indexing_results.5?;
 
+            // After the taggers SADD settled: the users-by-tag score is derived
+            // from that set (SCARD), so first attempts and retries converge alike.
+            UsersByTagSearch::sync_index_score(&tagged_user_id, tag_label).await?;
+
             Ok(())
         }
     }
@@ -405,7 +420,7 @@ pub async fn del(tag_uri: &str) -> Result<(), EventProcessorError> {
     let arg_tag_id = tag_storage_uri.tag_id;
     let arg_app = tag_storage_uri.app;
 
-    debug!("Deleting tag: {arg_user_id} -> {arg_tag_id} (app={arg_app:?})");
+    debug!("Deleting tag");
 
     // 1. Read target from graph WITHOUT deleting the edge
     let row = match fetch_row_from_graph(queries::get::get_tag_target(
@@ -453,6 +468,9 @@ pub async fn del(tag_uri: &str) -> Result<(), EventProcessorError> {
     let app: Option<String> = row.get("app").unwrap_or(None);
 
     // 2. Redis cleanup (guarded by tagger_in_index where non-idempotent)
+    // Post-count cache to invalidate AFTER the graph edge is deleted (invalidating
+    // before it is gone lets a concurrent read recache the pre-delete tag count).
+    let mut post_counts_to_invalidate: Option<[String; 2]> = None;
     match (tagged_user_id, post_id, author_id, resource_id) {
         (Some(tagged_id), None, None, None) => {
             let tagger_in_index =
@@ -474,9 +492,35 @@ pub async fn del(tag_uri: &str) -> Result<(), EventProcessorError> {
                 tagger_in_index,
             )
             .await?;
+            post_counts_to_invalidate = Some([author_id, post_id]);
         }
         (None, None, None, Some(res_id)) => {
-            del_sync_resource(arg_user_id.clone(), &res_id, &label, app.as_deref()).await?;
+            // The put path runs its increments once per created TAGGED edge,
+            // and resource edges are keyed {label, app}: the same user tagging
+            // the same resource and label from two apps increments every count
+            // twice. The retry gate must therefore be app-scoped as well; the
+            // app-agnostic taggers set holds the member only once and would
+            // wrongly skip the decrements of the second app's delete
+            let tagger_in_index = match app.as_deref() {
+                Some(a) => {
+                    TagResource::check_set_member(&[&res_id, a, &label], arg_user_id.as_ref())
+                        .await?
+                        .1
+                }
+                None => {
+                    TagResource::check_set_member(&[&res_id, &label], arg_user_id.as_ref())
+                        .await?
+                        .1
+                }
+            };
+            del_sync_resource(
+                arg_user_id.clone(),
+                &res_id,
+                &label,
+                app.as_deref(),
+                tagger_in_index,
+            )
+            .await?;
         }
         _ => {
             debug!("DEL-Tag: Unexpected combination of tag details");
@@ -491,6 +535,12 @@ pub async fn del(tag_uri: &str) -> Result<(), EventProcessorError> {
     ))
     .await?;
 
+    // Now that the TAGGED edge is gone, invalidate the cached post counts so the
+    // next read recomputes the lower count instead of recaching the pre-delete one.
+    if let Some([author_id, post_id]) = post_counts_to_invalidate {
+        PostCounts::invalidate(&[&author_id, &post_id]).await?;
+    }
+
     Ok(())
 }
 
@@ -499,27 +549,28 @@ pub fn is_tag_storage_uri(tag_uri: &str) -> bool {
 }
 
 fn parse_tag_storage_uri(tag_uri: &str) -> Result<TagStorageUri, EventProcessorError> {
-    if let Ok(parsed_uri) = ParsedUri::try_from(tag_uri) {
-        return match parsed_uri.resource {
-            Resource::Tag(tag_id) => Ok(TagStorageUri {
-                user_id: parsed_uri.user_id,
-                tag_id,
-                app: None,
-            }),
-            other => Err(EventProcessorError::generic(format!(
-                "Expected tag URI, found resource: {other:?}"
-            ))),
-        };
+    match ExtendedParsedUri::try_from(tag_uri).map_err(EventProcessorError::generic)? {
+        ExtendedParsedUri::PubkyApp {
+            user_id,
+            resource: Resource::Tag(tag_id),
+        } => Ok(TagStorageUri {
+            user_id,
+            tag_id,
+            app: None,
+        }),
+        ExtendedParsedUri::UniversalTag {
+            user_id,
+            app,
+            resource: Resource::Tag(tag_id),
+        } => Ok(TagStorageUri {
+            user_id,
+            tag_id,
+            app: Some(app),
+        }),
+        other => Err(EventProcessorError::generic(format!(
+            "Expected tag URI, found: {other:?}"
+        ))),
     }
-
-    let info = try_parse_app_tag_path(tag_uri)
-        .ok_or_else(|| EventProcessorError::generic(format!("Invalid tag URI: {tag_uri}")))?;
-
-    Ok(TagStorageUri {
-        user_id: info.user_id,
-        tag_id: info.tag_id,
-        app: Some(info.app),
-    })
 }
 
 async fn del_sync_user(
@@ -576,6 +627,10 @@ async fn del_sync_user(
     indexing_results.3?;
     indexing_results.4?;
 
+    // After the taggers SREM settled: recompute the derived users-by-tag score,
+    // dropping the member once the last tagger is gone.
+    UsersByTagSearch::sync_index_score(tagged_id, tag_label).await?;
+
     Ok(())
 }
 
@@ -586,7 +641,6 @@ async fn del_sync_post(
     tag_label: &str,
     tagger_in_index: bool,
 ) -> Result<(), EventProcessorError> {
-    let post_key_slice: &[&str] = &[author_id, post_id];
     let tag_post = TagPost(vec![tagger_id.to_string()]);
     let post_uri = post_uri_builder(author_id.to_string(), post_id.to_string());
 
@@ -596,13 +650,6 @@ async fn del_sync_post(
         async {
             if tagger_in_index {
                 UserCounts::decrement(&tagger_id, "tagged", None).await?;
-            }
-            Ok::<(), EventProcessorError>(())
-        },
-        // Guarded: Decrement in one the post tags
-        async {
-            if tagger_in_index {
-                PostCounts::decrement_index_field(post_key_slice, "tags", None).await?;
             }
             Ok::<(), EventProcessorError>(())
         },
@@ -616,10 +663,6 @@ async fn del_sync_post(
                     ScoreAction::Decrement(1.0),
                 )
                 .await?;
-                // Decrease unique_tag
-                // NOTE: To update that field, we first need to decrement the value in the SORTED SET associated with that tag
-                PostCounts::decrement_index_field(post_key_slice, "unique_tags", Some(tag_label))
-                    .await?;
             }
             Ok::<(), EventProcessorError>(())
         },
@@ -643,30 +686,28 @@ async fn del_sync_post(
             }
             Ok::<(), EventProcessorError>(())
         },
-        async {
-            // Idempotent: Delete the tagger from the tag list (SREM)
-            tag_post
-                .del_from_index(author_id, Some(post_id), tag_label)
-                .await?;
-            // NOTE: The tag search index depends on the post taggers collection to delete
-            // Delete post from global label timeline
-            PostsByTagSearch::del_from_index(author_id, post_id, tag_label).await?;
-
-            let posts_by_tag =
-                PostsByTagSearch::get_by_label(tag_label, None, Pagination::default()).await?;
-            let posts_by_tag_found = posts_by_tag.is_some_and(|x| !x.is_empty());
-            if !posts_by_tag_found {
-                // If we just removed the last post using this tag, remove tag from autocomplete suggestion list
-                TagSearch::del_from_index(tag_label).await?;
-            }
-
-            Ok::<(), EventProcessorError>(())
-        },
         // Guarded: notification
         async {
             if tagger_in_index {
-                Notification::new_post_untag(&tagger_id, author_id, tag_label, &post_uri).await?;
+                let tagged_post_kind = post_kind(author_id, post_id).await?;
+                Notification::new_post_untag(
+                    &tagger_id,
+                    author_id,
+                    tag_label,
+                    &post_uri,
+                    tagged_post_kind,
+                )
+                .await?;
             }
+            Ok::<(), EventProcessorError>(())
+        },
+        // Idempotent SREM: drop the tagger from the post taggers set. Kept inside
+        // the join so it always clears the `tagger_in_index` gate even when another
+        // arm errors, so a retry cannot double-apply the guarded decrements above.
+        async {
+            tag_post
+                .del_from_index(author_id, Some(post_id), tag_label)
+                .await?;
             Ok::<(), EventProcessorError>(())
         }
     );
@@ -677,7 +718,19 @@ async fn del_sync_post(
     indexing_results.3?;
     indexing_results.4?;
     indexing_results.5?;
-    indexing_results.6?;
+
+    // Tag-search cleanup runs AFTER the join so the SREM above and the concurrent
+    // label-set ZINCRs have settled; otherwise `get_by_label` can see a phantom
+    // member and skip the TagSearch removal (flaky under load). The post-count
+    // cache is invalidated by the caller after the graph edge is deleted.
+    PostsByTagSearch::del_from_index(author_id, post_id, tag_label).await?;
+    let posts_by_tag =
+        PostsByTagSearch::get_by_label(tag_label, None, Pagination::default()).await?;
+    let posts_by_tag_found = posts_by_tag.is_some_and(|x| !x.is_empty());
+    if !posts_by_tag_found {
+        // Removed the last post using this tag: drop it from autocomplete suggestions.
+        TagSearch::del_from_index(tag_label).await?;
+    }
 
     Ok(())
 }
@@ -685,46 +738,91 @@ async fn del_sync_post(
 /// Cleans up Redis indexes when a Resource tag is deleted.
 /// Orphaned Resource node cleanup is handled by the delete_tag Cypher query.
 /// Timeline entries are only removed when taggers count reaches zero.
+/// Non-idempotent decrements are guarded by `tagger_in_index` so a retried
+/// event does not double-decrement the taggers counts. The gate comes from
+/// the app-scoped tagger set, which the put path fills once per created
+/// TAGGED edge (keyed {label, app}), matching the per-edge increments.
 async fn del_sync_resource(
     tagger_id: PubkyId,
     resource_id: &str,
     tag_label: &str,
     app: Option<&str>,
+    tagger_in_index: bool,
 ) -> Result<(), EventProcessorError> {
     // Step 1: Decrement scores and remove tagger from sets
     let score_results = tokio::join!(
-        TagResource::update_index_score(resource_id, None, tag_label, ScoreAction::Decrement(1.0)),
+        // Guarded: Decrement label score in the resource
         async {
+            if tagger_in_index {
+                TagResource::update_index_score(
+                    resource_id,
+                    None,
+                    tag_label,
+                    ScoreAction::Decrement(1.0),
+                )
+                .await?;
+            }
+            Ok::<(), EventProcessorError>(())
+        },
+        async {
+            // Idempotent: Delete the tagger from the tag list (SREM)
             TagResource(vec![tagger_id.to_string()])
                 .del_from_index(resource_id, None, tag_label)
                 .await?;
+            // Idempotent: Delete the tagger from the app-scoped tagger set
+            // that gates the decrements above (SREM)
+            if let Some(a) = app {
+                TagResource(vec![tagger_id.to_string()])
+                    .del_from_index(resource_id, Some(a), tag_label)
+                    .await?;
+            }
             Ok::<(), EventProcessorError>(())
         },
-        ResourceStream::update_global_taggers_count(resource_id, ScoreAction::Decrement(1.0)),
-        ResourceStream::update_tag_taggers_count(
-            tag_label,
-            resource_id,
-            ScoreAction::Decrement(1.0),
-        ),
+        // Guarded: Decrement global taggers count
         async {
-            if let Some(a) = app {
-                let (r1, r2) = tokio::join!(
-                    ResourceStream::update_app_taggers_count(
-                        a,
-                        resource_id,
-                        ScoreAction::Decrement(1.0),
-                    ),
-                    ResourceStream::update_app_tag_taggers_count(
-                        a,
-                        tag_label,
-                        resource_id,
-                        ScoreAction::Decrement(1.0),
-                    ),
-                );
-                r1?;
-                r2?;
+            if tagger_in_index {
+                ResourceStream::update_global_taggers_count(
+                    resource_id,
+                    ScoreAction::Decrement(1.0),
+                )
+                .await?;
             }
-            Ok::<(), nexus_common::db::kv::RedisError>(())
+            Ok::<(), EventProcessorError>(())
+        },
+        // Guarded: Decrement tag taggers count
+        async {
+            if tagger_in_index {
+                ResourceStream::update_tag_taggers_count(
+                    tag_label,
+                    resource_id,
+                    ScoreAction::Decrement(1.0),
+                )
+                .await?;
+            }
+            Ok::<(), EventProcessorError>(())
+        },
+        // Guarded: Decrement app and app-tag taggers counts
+        async {
+            if tagger_in_index {
+                if let Some(a) = app {
+                    let (r1, r2) = tokio::join!(
+                        ResourceStream::update_app_taggers_count(
+                            a,
+                            resource_id,
+                            ScoreAction::Decrement(1.0),
+                        ),
+                        ResourceStream::update_app_tag_taggers_count(
+                            a,
+                            tag_label,
+                            resource_id,
+                            ScoreAction::Decrement(1.0),
+                        ),
+                    );
+                    r1?;
+                    r2?;
+                }
+            }
+            Ok::<(), EventProcessorError>(())
         }
     );
 

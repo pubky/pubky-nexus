@@ -1,9 +1,6 @@
 use thiserror::Error;
 
-use crate::{
-    db::{kv::RedisError, GraphError},
-    media::processors::MediaProcessorError,
-};
+use crate::db::{kv::RedisError, GraphError};
 
 #[derive(Error, Debug)]
 pub enum ModelError {
@@ -14,9 +11,6 @@ pub enum ModelError {
     /// Failed to perform KV Operation
     #[error("KvOperationFailed")]
     KvOperationFailed(#[from] RedisError),
-
-    #[error("MediaProcessorError")]
-    MediaProcessorError(#[from] MediaProcessorError),
 
     #[error("FileOperationFailed")]
     FileOperationFailed(#[from] std::io::Error),

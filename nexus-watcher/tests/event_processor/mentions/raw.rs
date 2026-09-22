@@ -60,6 +60,7 @@ async fn test_homeserver_mentions() -> Result<()> {
         parent: None,
         embed: None,
         attachments: None,
+        lock: None,
     };
 
     let (post_id, post_path) = test.create_post(&author_user_kp, &post).await?;

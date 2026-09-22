@@ -4,6 +4,8 @@ use crate::service::utils::{create_mock_event_processors, setup, MockEventProces
 
 use anyhow::Result;
 use chrono::Utc;
+use nexus_common::db::graph::exec::exec_single_row;
+use nexus_common::db::graph::Query;
 use nexus_common::models::homeserver::{Homeserver, HsBlacklist};
 use nexus_common::models::traits::Collection;
 use nexus_common::models::user::{set_user_homeserver, UserDetails};
@@ -22,7 +24,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 #[tokio_shared_rt::test(shared)]
-async fn test_event_processor_runner_default_homeserver_excluded() -> Result<(), DynError> {
+async fn test_event_processor_runner_primary_homeserver_excluded() -> Result<(), DynError> {
     // Initialize the test
     setup().await?;
 
@@ -30,6 +32,7 @@ async fn test_event_processor_runner_default_homeserver_excluded() -> Result<(),
         default_moderation_tests(),
         default_ingestor_tests(),
         DEFAULT_MAX_FILE_SIZE,
+        PathBuf::from("/tmp/nexus-watcher-test"),
     ));
     let store: Arc<dyn RetryStore> = Arc::new(RedisRetryStore::new());
     let retry_scheduler = Arc::new(RetryScheduler::new(
@@ -42,11 +45,10 @@ async fn test_event_processor_runner_default_homeserver_excluded() -> Result<(),
     let runner = KeyBasedEventProcessorRunner {
         limit: 1000,
         monitored_hs_limit: HS_IDS.len(),
-        files_path: PathBuf::from("/tmp/nexus-watcher-test"),
         event_handler,
         event_source: Arc::new(PubkyKeyBasedEventSource),
         shutdown_rx: tokio::sync::watch::channel(false).1,
-        default_homeserver: PubkyId::try_from(HS_IDS[3]).unwrap(),
+        primary_homeserver: PubkyId::try_from(HS_IDS[3]).unwrap(),
         hs_blacklist: HsBlacklist::default(),
         backoff: Mutex::new(HomeserverBackoff::default()),
         user_not_found_backoff: Arc::new(UserNotFoundBackoff::default()),
@@ -59,11 +61,11 @@ async fn test_event_processor_runner_default_homeserver_excluded() -> Result<(),
         hs.put_to_graph().await.unwrap();
     }
 
-    // The default homeserver should be excluded from the list
+    // The primary homeserver should be excluded from the list
     let hs_ids = runner.pre_run().await?;
     assert!(
         !hs_ids.contains(&HS_IDS[3].to_string()),
-        "Default homeserver should be excluded from pre_run"
+        "Primary homeserver should be excluded from pre_run"
     );
 
     Ok(())
@@ -78,6 +80,7 @@ async fn test_event_processor_runner_blacklisted_homeserver_excluded() -> Result
         default_moderation_tests(),
         default_ingestor_tests(),
         DEFAULT_MAX_FILE_SIZE,
+        PathBuf::from("/tmp/nexus-watcher-test"),
     ));
     let store: Arc<dyn RetryStore> = Arc::new(RedisRetryStore::new());
     let retry_scheduler = Arc::new(RetryScheduler::new(
@@ -94,11 +97,10 @@ async fn test_event_processor_runner_blacklisted_homeserver_excluded() -> Result
     let runner = KeyBasedEventProcessorRunner {
         limit: 1000,
         monitored_hs_limit: 100,
-        files_path: PathBuf::from("/tmp/nexus-watcher-test"),
         event_handler,
         event_source: Arc::new(PubkyKeyBasedEventSource),
         shutdown_rx: tokio::sync::watch::channel(false).1,
-        default_homeserver: PubkyId::try_from(HS_IDS[3]).unwrap(),
+        primary_homeserver: PubkyId::try_from(HS_IDS[3]).unwrap(),
         hs_blacklist: HsBlacklist::new([blacklisted_hs.clone()]),
         backoff: Mutex::new(HomeserverBackoff::default()),
         user_not_found_backoff: Arc::new(UserNotFoundBackoff::default()),
@@ -129,7 +131,7 @@ async fn test_event_processor_runner_blacklisted_homeserver_excluded() -> Result
 }
 
 #[tokio_shared_rt::test(shared)]
-async fn test_mock_event_processor_runner_default_homeserver_excluded() -> Result<(), DynError> {
+async fn test_mock_event_processor_runner_primary_homeserver_excluded() -> Result<(), DynError> {
     // Initialize the test
     setup().await?;
 
@@ -150,11 +152,62 @@ async fn test_mock_event_processor_runner_default_homeserver_excluded() -> Resul
         hs.put_to_graph().await.unwrap();
     }
 
-    // The default homeserver (HS_IDS[0]) should be excluded from the list
+    // The primary homeserver (HS_IDS[0]) should be excluded from the list
     let hs_ids = runner.hs_by_priority().await?;
     assert!(
         !hs_ids.contains(&HS_IDS[0].to_string()),
-        "Default homeserver should be excluded from hs_by_priority"
+        "Primary homeserver should be excluded from hs_by_priority"
+    );
+
+    Ok(())
+}
+
+/// Ordering is by aggregate hosted trust, so a homeserver hosting a couple of
+/// well-connected users must outrank one hosting a crowd of unranked keys —
+/// otherwise minting keys buys polling priority, which is the whole point of
+/// ranking here.
+///
+/// The shared fixture cannot cover this: no fixture user has a `HOSTED_BY` edge,
+/// so every homeserver in it aggregates to 0.0 trust. This test builds its own
+/// graph on two fresh random homeservers instead.
+#[tokio_shared_rt::test(shared)]
+async fn test_event_processor_runner_orders_homeservers_by_hosted_trust() -> Result<(), DynError> {
+    setup().await?;
+
+    let trusted_hs = random_pubky_id();
+    let crowded_hs = random_pubky_id();
+    Homeserver::new(trusted_hs.clone()).put_to_graph().await?;
+    Homeserver::new(crowded_hs.clone()).put_to_graph().await?;
+
+    // Two ranked users against eight unranked ones: the crowded HS wins on raw
+    // count, so if it still sorts first the trust term is not being applied.
+    // Values deliberately far below the fixture's top score: these users are
+    // deleted below, but while they exist they must not reorder the shared
+    // ranking that other suites assert on.
+    let mut created = vec![
+        create_active_user_on_homeserver_with_trust(&trusted_hs, Some(0.05)).await?,
+        create_active_user_on_homeserver_with_trust(&trusted_hs, Some(0.02)).await?,
+    ];
+    for _ in 0..8 {
+        created.push(create_active_user_on_homeserver_with_trust(&crowded_hs, None).await?);
+    }
+
+    // Clean up before the `?` and before asserting: a failed read would otherwise
+    // skip cleanup and leak scored users into the shared graph, which is the one
+    // thing this test must not do.
+    let hs_ids = Homeserver::get_all_active_from_graph().await;
+    delete_users(&created).await?;
+    let hs_ids = hs_ids?;
+    let rank = |id: &PubkyId| {
+        hs_ids
+            .iter()
+            .position(|hs| hs == id.as_ref())
+            .unwrap_or_else(|| panic!("{id} should be active, got {hs_ids:?}"))
+    };
+
+    assert!(
+        rank(&trusted_hs) < rank(&crowded_hs),
+        "the HS hosting trust should be polled before the one hosting more keys, got {hs_ids:?}"
     );
 
     Ok(())
@@ -163,6 +216,20 @@ async fn test_mock_event_processor_runner_default_homeserver_excluded() -> Resul
 /// Creates a user node with a `HOSTED_BY` edge to `hs_id`, making the HS
 /// "active" for `get_all_active_from_graph`.
 async fn create_active_user_on_homeserver(hs_id: &PubkyId) -> Result<(), DynError> {
+    create_active_user_on_homeserver_with_trust(hs_id, None).await?;
+    Ok(())
+}
+
+/// As [`create_active_user_on_homeserver`], but optionally scores the user.
+///
+/// `None` leaves `trust` unset rather than writing 0.0, which is what an
+/// unranked account actually looks like: absent from the ranking, not scored
+/// zero. The query under test coalesces the two, and this keeps the test honest
+/// about which case it is exercising.
+async fn create_active_user_on_homeserver_with_trust(
+    hs_id: &PubkyId,
+    trust: Option<f64>,
+) -> Result<PubkyId, DynError> {
     let user_id = random_pubky_id();
     let user = UserDetails {
         id: user_id.clone(),
@@ -177,5 +244,39 @@ async fn create_active_user_on_homeserver(hs_id: &PubkyId) -> Result<(), DynErro
     user.put_to_graph().await?;
     set_user_homeserver(&user_id, hs_id).await?;
 
+    if let Some(trust) = trust {
+        let query = Query::new(
+            "prioritization_test_set_trust",
+            "MATCH (u:User {id: $id}) SET u.trust = $trust",
+        )
+        .param("id", user_id.to_string())
+        .param("trust", trust);
+        exec_single_row(query).await?;
+    }
+
+    Ok(user_id)
+}
+
+/// Removes users this file created, so a scored test user cannot leak into the
+/// global trust ranking. `Sorted:Users:SocialGraph` is one shared key built from
+/// `MATCH (u:User) WHERE u.trust > 0`, and `nexus-webapi`'s
+/// `test_social_graph_status` asserts on positions in it.
+///
+/// At the scores this file writes (0.05 and 0.02, both below the fixture's lowest
+/// score of 0.1) a leak would not break that test today: the ranked population
+/// would go 3 → 5, `ceil(5 * 0.05)` still cuts `established` at rank 1, and the
+/// fixture's top user keeps it. The cleanup is here because that safety is a
+/// coincidence of the current values, not a property — a future score at or above
+/// the fixture's top of 0.4 would tie it and win the `id ASC` tiebreak, and one at
+/// or above 0.1 would reorder the ranks the test asserts on. Keeping the graph
+/// clean is cheaper than re-deriving that argument every time a value changes.
+async fn delete_users(user_ids: &[PubkyId]) -> Result<(), DynError> {
+    let ids: Vec<String> = user_ids.iter().map(ToString::to_string).collect();
+    let query = Query::new(
+        "prioritization_test_delete_users",
+        "MATCH (u:User) WHERE u.id IN $ids DETACH DELETE u",
+    )
+    .param("ids", ids);
+    exec_single_row(query).await?;
     Ok(())
 }

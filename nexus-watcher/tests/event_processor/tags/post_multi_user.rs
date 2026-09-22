@@ -52,6 +52,7 @@ async fn test_homeserver_multi_user_posts_tags() -> Result<()> {
         parent: None,
         embed: None,
         attachments: None,
+        lock: None,
     };
     // Create a post for the current user
     let (post_id, _post_path) = test.create_post(author_kp, &post).await?;

@@ -35,6 +35,7 @@ async fn test_homeserver_post_reply() -> Result<()> {
         parent: None,
         embed: None,
         attachments: None,
+        lock: None,
     };
 
     let (parent_post_id, parent_post_path) = test.create_post(&user_kp, &parent_post).await?;
@@ -48,6 +49,7 @@ async fn test_homeserver_post_reply() -> Result<()> {
         parent: Some(parent_absolute_uri.clone()),
         embed: None,
         attachments: None,
+        lock: None,
     };
 
     let (reply_id, reply_path) = test.create_post(&user_kp, &reply_post).await?;
@@ -173,7 +175,7 @@ async fn test_homeserver_post_reply() -> Result<()> {
     );
 
     // Check that replies are NOT in the global total engagement sorted set
-    let reply_key = format!("{}:{}", user_id, &reply_id);
+    let reply_key = format!("{}:{}", user_id, reply_id);
     let global_total_engagement = check_member_total_engagement_user_posts(&[&reply_key])
         .await
         .unwrap_or_default();
@@ -224,6 +226,7 @@ async fn test_postcounts_get_by_id_does_not_leak_reply_into_engagement_on_cache_
         parent: None,
         embed: None,
         attachments: None,
+        lock: None,
     };
     let (parent_post_id, parent_post_path) = test.create_post(&user_kp, &parent_post).await?;
     let parent_uri = post_uri_builder(user_id.clone(), parent_post_id.clone());
@@ -235,6 +238,7 @@ async fn test_postcounts_get_by_id_does_not_leak_reply_into_engagement_on_cache_
         parent: Some(parent_uri),
         embed: None,
         attachments: None,
+        lock: None,
     };
     let (reply_id, reply_path) = test.create_post(&user_kp, &reply_post).await?;
 

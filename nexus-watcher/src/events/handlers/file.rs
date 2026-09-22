@@ -1,8 +1,7 @@
 use crate::events::{fetch_capped, EventProcessorError};
 
 use nexus_common::db::PubkyConnector;
-use nexus_common::media::FileVariant;
-use nexus_common::media::VariantController;
+use nexus_common::media::{get_file_urls_by_content_type, FileVariant};
 use nexus_common::models::file::Blob;
 use nexus_common::models::user::UserIngestor;
 use nexus_common::models::{
@@ -10,7 +9,7 @@ use nexus_common::models::{
     traits::Collection,
 };
 use pubky_app_specs::{ParsedUri, PubkyAppFile, PubkyAppObject, PubkyId};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use tokio::fs::remove_dir_all;
 use tracing::{debug, warn};
 
@@ -20,11 +19,11 @@ pub async fn sync_put(
     uri: String,
     user_id: PubkyId,
     file_id: String,
-    files_path: PathBuf,
+    files_path: &Path,
     max_file_size: u64,
     ingestor: &UserIngestor,
 ) -> Result<(), EventProcessorError> {
-    debug!("Indexing new file resource at {}/{}", user_id, file_id);
+    debug!("Indexing file");
 
     let file_meta = ingest(
         &user_id,
@@ -61,7 +60,7 @@ async fn ingest(
     user_id: &PubkyId,
     file_id: &str,
     pubkyapp_file: &PubkyAppFile,
-    files_path: PathBuf,
+    files_path: &Path,
     max_file_size: u64,
     ingestor: &UserIngestor,
 ) -> Result<FileMeta, EventProcessorError> {
@@ -80,7 +79,7 @@ async fn ingest(
     let response = pubky.public_storage().get(&pubkyapp_file.src).await?;
 
     let path = Path::new(&user_id.to_string()).join(file_id);
-    let full_path = files_path.join(path.clone());
+    let full_path = files_path.join(&path);
 
     let blob = fetch_capped(response, max_file_size).await?;
     let pubky_app_object = PubkyAppObject::from_resource(&parsed_source_uri.resource, &blob)
@@ -92,10 +91,7 @@ async fn ingest(
                 .await
                 .map_err(EventProcessorError::static_save_failed)?;
 
-            let urls = VariantController::get_file_urls_by_content_type(
-                pubkyapp_file.content_type.as_str(),
-                &path,
-            );
+            let urls = get_file_urls_by_content_type(pubkyapp_file.content_type.as_str(), &path);
             Ok(FileMeta { urls })
         }
         _ => Err(EventProcessorError::InvalidEventLine(format!(
@@ -109,9 +105,9 @@ async fn ingest(
 pub async fn del(
     user_id: &PubkyId,
     file_id: String,
-    files_path: PathBuf,
+    files_path: &Path,
 ) -> Result<(), EventProcessorError> {
-    debug!("Deleting File resource at {}/{}", user_id, file_id);
+    debug!("Deleting file");
     let result = FileDetails::get_by_ids(&[&[user_id, &file_id]]).await?;
 
     if result.is_empty() {

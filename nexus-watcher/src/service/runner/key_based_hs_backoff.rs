@@ -56,7 +56,7 @@ impl HomeserverBackoff {
         entry.backoff_until = Instant::now() + Duration::from_secs(backoff_secs);
         entry.next_backoff_secs = (backoff_secs * 2).min(max);
 
-        info!("Homeserver {hs_id} backed off for {backoff_secs}s");
+        info!(homeserver = %hs_id, backoff_secs, "Homeserver backed off");
     }
 }
 

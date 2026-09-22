@@ -13,7 +13,6 @@ use nexus_watcher::events::EventHandler;
 use nexus_watcher::events::EventType;
 use nexus_watcher::service::TEventProcessor;
 use pubky_app_specs::post_uri_builder;
-use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::watch;
 
@@ -72,7 +71,6 @@ fn build_processor(
     shutdown_rx: watch::Receiver<bool>,
 ) -> Arc<RetryProcessor> {
     Arc::new(RetryProcessor {
-        files_path: PathBuf::from("/tmp/test"),
         event_handler,
         shutdown_rx,
         config,

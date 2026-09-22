@@ -22,6 +22,10 @@ pub struct PostDetails {
     pub kind: PubkyAppPostKind,
     pub uri: String,
     pub attachments: Option<Vec<String>>,
+    /// `pubky://` URL of the lock server; `None` when the post is unlocked.
+    /// `default` keeps pre-lock cached JSON (no `lock` key) deserializing.
+    #[serde(default)]
+    pub lock: Option<String>,
 }
 
 impl RedisOps for PostDetails {}
@@ -116,6 +120,7 @@ impl PostDetails {
             author: author_id.to_string(),
             kind: homeserver_post.kind,
             attachments: homeserver_post.attachments,
+            lock: homeserver_post.lock,
         }
     }
 
@@ -168,9 +173,17 @@ impl PostDetails {
         Ok(())
     }
 
-    /// Determines whether or not a given [PostDetails] is different than (e.g. may be an edit of) this post.
-    pub fn is_different_than(&self, other: &PostDetails) -> bool {
+    /// True when the post's visible content (content or attachments) changed.
+    /// Deliberately excludes `lock` so a lock toggle is not treated as a content edit.
+    pub fn content_differs_from(&self, other: &PostDetails) -> bool {
         self.content != other.content || self.attachments != other.attachments
+    }
+
+    /// True when any cached field changed and the index needs refreshing. Unlike
+    /// [`Self::content_differs_from`] this includes `lock`, so a lock-only toggle
+    /// refreshes the cache without counting as a content edit.
+    pub fn is_different_than(&self, other: &PostDetails) -> bool {
+        self.content_differs_from(other) || self.lock != other.lock
     }
 }
 
@@ -190,6 +203,7 @@ mod tests {
             kind: PubkyAppPostKind::Short,
             uri: "uri1".into(),
             attachments: Some(vec!["image1.jpg".into(), "image2.jpg".into()]),
+            lock: None,
         };
 
         // Test with same content and attachments
@@ -223,5 +237,57 @@ mod tests {
             ..base_post.clone()
         };
         assert!(base_post.is_different_than(&no_attachments_post));
+
+        // Test with a different lock (lock toggle must count as an edit)
+        let locked_post = PostDetails {
+            lock: Some("pubky://lockserver.example/pub/pubky.app/lock".into()),
+            ..base_post.clone()
+        };
+        assert!(base_post.is_different_than(&locked_post));
+    }
+
+    #[test]
+    fn test_deserialize_legacy_json_without_lock() {
+        // A pre-lock cached PostDetails JSON has no `lock` key. It must still
+        // deserialize, with `lock` defaulting to None, so old Redis entries
+        // stay readable after deploy.
+        let legacy = r#"{
+            "content": "hi",
+            "id": "post1",
+            "indexed_at": 123456789,
+            "author": "author1",
+            "kind": "short",
+            "uri": "pubky://author1/pub/pubky.app/posts/post1",
+            "attachments": null
+        }"#;
+        let details: PostDetails = serde_json::from_str(legacy).unwrap();
+        assert_eq!(details.lock, None);
+    }
+
+    #[test]
+    fn test_content_differs_from_ignores_lock() {
+        let base = PostDetails {
+            content: "c".into(),
+            id: "p".into(),
+            indexed_at: 1,
+            author: "a".into(),
+            kind: PubkyAppPostKind::Short,
+            uri: "u".into(),
+            attachments: None,
+            lock: None,
+        };
+        let locked = PostDetails {
+            lock: Some("pubky://host/pub/lock".into()),
+            ..base.clone()
+        };
+        // A lock-only toggle is a cache difference but not a content edit.
+        assert!(base.is_different_than(&locked));
+        assert!(!base.content_differs_from(&locked));
+        // A content change is both.
+        let edited = PostDetails {
+            content: "c2".into(),
+            ..base.clone()
+        };
+        assert!(base.content_differs_from(&edited));
     }
 }

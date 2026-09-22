@@ -23,8 +23,8 @@ impl UserFollows for Following {
         Self(vec)
     }
 
-    fn get_query(user_id: &str, skip: Option<usize>, limit: Option<usize>) -> Query {
-        queries::get::get_user_following(user_id, skip, limit)
+    fn get_query(user_id: &str) -> Query {
+        queries::get::get_user_following(user_id)
     }
 
     fn get_ids_field_name() -> &'static str {

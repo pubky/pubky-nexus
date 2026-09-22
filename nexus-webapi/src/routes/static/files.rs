@@ -10,16 +10,14 @@ use tracing::{debug, error};
 use utoipa::OpenApi;
 
 use super::endpoints::STATIC_FILES_ROUTE;
+use super::serve_dir::serve_file_variant;
 use crate::models::{FileId, PubkyId};
+use crate::routes::AppState;
 use crate::routes::Path;
-use crate::routes::{r#static::PubkyServeDir, AppState};
 use crate::{Error, Result};
 use nexus_common::{
-    media::{FileVariant, VariantController},
-    models::{
-        file::{Blob, FileDetails},
-        traits::Collection,
-    },
+    media::{validate_variant_for_content_type, FileVariant},
+    models::{file::FileDetails, traits::Collection},
 };
 
 #[derive(Deserialize)]
@@ -40,6 +38,7 @@ pub struct FilePath {
 /// If the variant is not valid for the content type, a 400 Bad Request will be returned
 /// If the file does not exist, a 404 Not Found will be returned
 /// If the processing of the new variant fails, a 500 Internal Server Error will be returned
+/// If the service is temporarily overloaded, a 503 Service Unavailable will be returned
 #[utoipa::path(
     get,
     path = STATIC_FILES_ROUTE,
@@ -55,7 +54,8 @@ pub struct FilePath {
         (status = 200, description = "File's raw data"),
         (status = 404, description = "File not found"),
         (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
-        (status = 500, description = "Internal server error")
+        (status = 500, description = "Internal server error"),
+        (status = 503, description = "Service temporarily unavailable; retry later")
     )
 )]
 pub async fn static_files_handler(
@@ -90,53 +90,22 @@ pub async fn static_files_handler(
         .and_then(Clone::clone)
         .ok_or(Error::FileNotFound {})?;
 
-    if !VariantController::validate_variant_for_content_type(file.content_type.as_str(), &variant) {
+    if !validate_variant_for_content_type(file.content_type.as_str(), &variant) {
         return Err(Error::invalid_input(format!(
             "variant {} is not valid for content type {}",
             variant, file.content_type
         )));
     }
 
-    let file_variant_content_type = Blob::get_by_id(&file, &variant, file_path.clone())
-        .await
-        .inspect_err(|_| {
-            error!("Error while processing file variant for variant: {variant} and file: {file_id}")
-        })?;
-
-    let request_uri = request.uri().clone();
-
-    let mut response = PubkyServeDir::try_call(
+    serve_file_variant(
         request,
-        request_uri.path().replace("static/files", ""),
-        file_variant_content_type,
+        &file,
+        &variant,
         file_path.clone(),
+        params.dl.is_some(),
+        &app_state.queued_variant_controller,
     )
-    .await?;
-
-    // Remove any default "cache-control" header (which may be set to no-cache)
-    response.headers_mut().remove("cache-control");
-
-    // Set a new Cache-Control header to cache the file for 3600 seconds (1 hour)
-    let cache_control_header = "public, max-age=3600"
-        .parse()
-        .inspect_err(|err| error!("Failed to parse Cache-Control header value: {}", err))?;
-
-    // Insert our newly parsed Cache-Control header.
-    response
-        .headers_mut()
-        .insert("cache-control", cache_control_header);
-
-    // if dl parameter is passed, set content-disposition header to attachment to force download
-    if params.dl.is_some() {
-        let content_disposition_header = format!("attachment; filename=\"{}\"", file.name)
-            .parse()
-            .inspect_err(|_| error!("Invalid content disposition header: {}", file.name))?;
-        response
-            .headers_mut()
-            .insert("content-disposition", content_disposition_header);
-    }
-
-    Ok(response)
+    .await
 }
 
 #[derive(OpenApi)]

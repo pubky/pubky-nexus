@@ -27,31 +27,30 @@ rate = 20
 burst = 5
 
 [watcher]
-testnet = false
-# testnet host, leave as "localhost" for local development. Change only if the
-# testnet homeserver/relay are on another machine (e.g. Docker setups).
-testnet_host = "localhost"
 # Synonym homeserver pubky
 homeserver = "8um71us3fyw6h8wbcxb5ar3rwusy1a6u49956ikzojg3gcwd1dty"
-# Maximum number of events to fetch per run from the default homeserver (max: 1000)
+# Maximum number of events to fetch per run from the primary homeserver (max: 1000)
 events_limit = 50
-# Maximum events per user per run for key-based (non-default) homeservers (max: 100)
+# Maximum events per user per run for key-based (third-party) homeservers (max: 100)
 key_based_events_limit = 50
 # Maximum number of monitored external homeservers.
 monitored_homeservers_limit = 50
-watcher_sleep = 5000
-hs_resolver_sleep = 10000
+primary_hs_monitoring_interval_ms = 5000
+external_hs_monitoring_interval_ms = 5000
+hs_resolver_interval_ms = 10000
 # Minimum time (ms) before a user's homeserver mapping is considered stale and therefore eligible to be re-resolved (default: 1 hour)
 hs_resolver_ttl = 3600000
 # Initial backoff duration (in seconds) after the first failure of a homeserver
 initial_backoff_secs = 60
 # Maximum backoff duration (in seconds) for a failing homeserver
 max_backoff_secs = 3600
-# Maximum allowed file size (in bytes) for ingested files. Default: 52428800 (50 MiB).
+retry_processor_interval_ms = 10000
+# Maximum allowed file size (in bytes) for ingested files.
 # Responses with Content-Length exceeding this are rejected immediately.
 # Responses without a header are streamed with a running byte-count and aborted past the cap.
 # Rejected files are treated as permanent failures (not retried).
-max_file_size = 52428800
+# Unset, it defaults to the blob size cap declared by pubky-app-specs.
+# max_file_size = <bytes>
 # User public key to trust for moderating content (test user key, change as needed)
 moderation_id = "uo7jgkykft4885n8cruizwy6khw71mnu5pq3ay9i8pw1ymcn85ko"
 # Tags on content to de-index when placed by the trusted moderator above
@@ -83,14 +82,28 @@ max_missing_dep_backoff_secs = 3600
 # Logging, options: error, warn, info, debug and trace
 log_level = "info"
 files_path = "~/.pubky-nexus/static/files"
+
+[stack.net]
+testnet = false
+# testnet host, leave as "localhost" for local development. Change only if the
+# testnet homeserver/relay are on another machine (e.g. Docker setups).
+testnet_host = "localhost"
+# Total request timeout in seconds for all HTTP requests made by the shared Pubky client.
+# This includes response-body reads and should accommodate max_file_size blob downloads.
+pubky_http_request_timeout_secs = 300
 # External HS PKs which are forbidden from being indexed
 external_hs_pk_blacklist = []
 
 [stack.otlp]
 # Service name used for tracing, logging, and metrics in OpenTelemetry
 name = "nexusd"
-# OTLP endpoint is not set by default. If you want to enable tracing, set it to the OpenTelemetry Collector endpoint
+# OTLP endpoint is not set by default. To export logs, traces, and metrics,
+# set it to an OpenTelemetry Collector endpoint.
 #endpoint = "http://localhost:4317"
+# Optional resource attributes attached to all OTLP signals
+# [stack.otlp.resource_attributes]
+# "host.name" = "nexus-1"
+# "deployment.environment.name" = "local"
 
 [stack.db]
 redis = "redis://127.0.0.1:6379"
@@ -106,3 +119,104 @@ password = "12345678"
 slow_query_logging_threshold_ms = 100
 # Include the Cypher query text in slow query log entries
 #slow_query_logging_include_cypher = false
+
+[stack.media]
+# Maximum number of concurrent media processing subprocesses (ImageMagick/ffmpeg).
+# Defaults to the number of available CPU cores (minimum 4). Must be greater than 0.
+# ImageMagick and ffmpeg already thread internally, so on large hosts a high value oversubscribes
+# CPU (each concurrent convert can itself use several cores). cores/2 is a sensible starting point.
+# Image conversions run `identify` then `convert` under one permit, each with its own deadline, so
+# worst-case permit hold is 2x process_timeout_secs.
+#max_concurrency = 4
+# Wall-clock deadline (seconds) for a single ImageMagick/ffmpeg subprocess. Past it the process
+# group is killed and reaped so its concurrency slot is returned. Keep it above ImageMagick's own
+# time limit: it is a backstop for children that hang without burning CPU. Must be greater than 0.
+# Two upper bounds to respect:
+# - Keep it below the API request timeout (config [api] request_timeout_secs, default 30s) if
+#   clients of slow conversions should receive the result instead of a 408; work still publishes
+#   after a request timeout, but the caller of that request gets 408 either way.
+# - Keep it under the 1h temp-file sweep (stale files in .tmp are deleted after 1 hour); a longer
+#   deadline lets the sweep delete an in-flight conversion's temp file and fail its rename.
+#process_timeout_secs = 180
+
+# Cron scheduling, one section per registered job (see `nexusd jobs list`),
+# keyed by job name: `[jobs.<name>]`.
+#
+# `cron` is SECONDS-FIRST, not the standard 5-field crontab — always include the
+# seconds field: sec min hour day-of-month month day-of-week [year]
+#
+# No enable flag: an absent `cron` (or section) leaves the job unscheduled, but
+# still runnable on demand with `nexusd jobs run <name>`.
+#[jobs.example]
+#cron = "0 0 3 * * *"    # daily at 03:00 UTC
+#cron = "0 0 4 * * MON"  # Mondays at 04:00 UTC
+
+# Influencer cache warmers, one job per cache-backed timeframe so each refreshes
+# at roughly half its TTL. Running at the TTL itself would let the key expire
+# just as the next run starts, leaving a gap every period (and a full period
+# after any skipped run). Off by default: uncomment to pre-warm the
+# caches. With no schedule, requests still fall back to demand-driven fetches
+# bounded by the same TTLs. Each job is also runnable on demand via
+# `nexusd jobs run <name>`. Note that once a section is uncommented, a build
+# that predates these jobs refuses to start on it (unknown [jobs.<name>] key),
+# so comment them out again before rolling back.
+#[jobs.influencers-cache-today]
+# TTL 1h.
+#cron = "0 7,37 * * * *"    # twice hourly at :07 and :37
+
+#[jobs.influencers-cache-this-week]
+# TTL 6h.
+#cron = "0 17 */3 * * *"    # every 3 hours at :17
+
+#[jobs.influencers-cache-this-month]
+# TTL 24h.
+#cron = "0 27 3,15 * * *"   # at 03:27 and 15:27
+
+# Hot-tags cache warmers. Minutes are offset so the two sets do not collide. 
+# AllTime is a TTL cache here, so it has its own job.
+#[jobs.hot-tags-cache-today]
+# TTL 1h.
+#cron = "0 12,42 * * * *"    # twice hourly at :12 and :42
+
+#[jobs.hot-tags-cache-this-week]
+# TTL 6h.
+#cron = "0 22 */3 * * *"     # every 3 hours at :22
+
+#[jobs.hot-tags-cache-this-month]
+# TTL 24h.
+#cron = "0 32 3,15 * * *"    # at 03:32 and 15:32
+
+#[jobs.hot-tags-cache-all-time]
+# TTL 24h.
+#cron = "0 47 3,15 * * *"    # at 03:47 and 15:47
+
+# Scheduling for the trust-rank recompute job. Set a cron for automatic
+# recomputes; omit it to leave the job on-demand only (`nexusd jobs run
+# trust-recompute` always works).
+[jobs.trust-recompute]
+# Example: daily at 03:00:
+#cron = "0 0 3 * * *"
+
+# Trust-rank parameters (what the recompute does; when it runs is set under
+# [jobs.trust-recompute] above).
+[trust_rank]
+# Seeds for the personalized PageRank over the follow graph, each weighted
+# equally (v = 1/N). Empty by default: the job refuses to run until set.
+# Duplicate ids are silently deduplicated, keeping first-occurrence order. Example:
+# seed = ["8um71us3fyw6h8wbcxb5ar3rwusy1a6u49956ikzojg3gcwd1dty"]
+seed = []
+# Teleport weight `alpha` in `trust = alpha*v + (1-alpha)*M*trust` (GDS dampingFactor = 1-alpha)
+alpha = 0.35
+# Cap on power-iteration rounds
+max_iterations = 200
+# Convergence tolerance; kept low to run to convergence rather than early-stop
+tolerance = 0.0000001
+# When true, each recompute also writes a CSV report of the run to report_dir
+report_enabled = false
+# Directory recompute reports are written to, created if missing.
+# Files are named trust-report-<UTC timestamp>.csv
+report_dir = "~/.pubky-nexus/trust-reports"
+# Max rows in a report (top users by score).
+report_limit = 10000
+# Hard cap on GDS projection size (bytes). Prevents projection larger than Neo4j heap.
+# max_projection_bytes = 2147483648

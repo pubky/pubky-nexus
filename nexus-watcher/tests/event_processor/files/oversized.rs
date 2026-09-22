@@ -185,6 +185,7 @@ async fn test_ingestion_continues_after_rejection() -> Result<()> {
         parent: None,
         embed: None,
         attachments: None,
+        lock: None,
     };
     let (post_id, _) = test.create_post(&user_kp, &post).await?;
 

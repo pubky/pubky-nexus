@@ -32,6 +32,7 @@ async fn test_resource_tag_internal_known_delegates_to_post() -> Result<()> {
         parent: None,
         embed: None,
         attachments: None,
+        lock: None,
     };
     let (post_id, post_path) = test.create_post(&user_kp, &post).await?;
 

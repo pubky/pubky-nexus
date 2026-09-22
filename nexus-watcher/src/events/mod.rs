@@ -4,10 +4,12 @@ pub mod event;
 pub use event::{Event, EventType, ParseResult};
 
 use crate::errors::EventProcessorError;
-use nexus_common::universal_tag::homeserver_parsed_uri::HomeserverParsedUri;
 use nexus_common::WatcherConfig;
-use pubky_app_specs::{PubkyAppObject, Resource};
-use std::sync::Arc;
+use pubky_app_specs::{ExtendedParsedUri, PubkyAppObject, Resource};
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 use tracing::debug;
 
 mod fetch;
@@ -35,6 +37,9 @@ pub struct DefaultEventHandler {
     moderation: Arc<Moderation>,
     ingestor: Arc<UserIngestor>,
     max_file_size: u64,
+
+    /// Local files directory on Nexus used for file-backed events.
+    files_path: PathBuf,
 }
 
 impl DefaultEventHandler {
@@ -42,11 +47,13 @@ impl DefaultEventHandler {
         moderation: Arc<Moderation>,
         ingestor: Arc<UserIngestor>,
         max_file_size: u64,
+        files_path: PathBuf,
     ) -> Self {
         Self {
             moderation,
             ingestor,
             max_file_size,
+            files_path,
         }
     }
 
@@ -56,6 +63,7 @@ impl DefaultEventHandler {
             Moderation::from_config(config),
             Arc::new(UserIngestor::from_config(&config.stack)),
             config.max_file_size,
+            config.stack.files_path.clone(),
         )
     }
 }
@@ -68,12 +76,15 @@ impl EventHandler for DefaultEventHandler {
                 handle_put_event(
                     event,
                     self.max_file_size,
+                    self.files_path.as_path(),
                     self.moderation.clone(),
                     self.ingestor.clone(),
                 )
                 .await
             }
-            EventType::Del => handle_del_event(event, self.ingestor.clone()).await,
+            EventType::Del => {
+                handle_del_event(event, self.files_path.as_path(), self.ingestor.clone()).await
+            }
         }?;
 
         event.to_event_line().store().await?;
@@ -84,11 +95,10 @@ impl EventHandler for DefaultEventHandler {
 pub async fn handle_put_event(
     event: &Event,
     max_file_size: u64,
+    files_path: &Path,
     moderation: Arc<Moderation>,
     ingestor: Arc<UserIngestor>,
 ) -> Result<(), EventProcessorError> {
-    debug!("Handling PUT event for URI: {}", event.uri);
-
     let pubky = PubkyConnector::get()?;
     let response = pubky.public_storage().get(&event.uri).await?;
 
@@ -103,7 +113,7 @@ pub async fn handle_put_event(
             "Fetch resource failed {}: HTTP {status} - {body}",
             event.uri
         );
-        return Err(EventProcessorError::client_error(err_msg))?;
+        return Err(EventProcessorError::client_error(err_msg));
     }
 
     let blob = fetch_capped(response, MAX_RESOURCE_SIZE as u64).await?;
@@ -136,14 +146,14 @@ pub async fn handle_put_event(
             handlers::bookmark::sync_put(user_id, bookmark, bookmark_id).await?
         }
         (PubkyAppObject::Tag(tag), Resource::Tag(tag_id)) => {
-            if moderation.should_delete(&tag, user_id.clone()) {
+            if moderation.should_delete(&tag, &user_id) {
                 moderation
-                    .apply_moderation(tag, event.files_path.clone())
+                    .apply_moderation(tag, files_path, &ingestor)
                     .await?
             } else {
                 // Route universal tag events (non-pubky.app apps) to sync_put_resource
                 // which handles Resource nodes for InternalUnknown/InternalUnknown URIs.
-                if let HomeserverParsedUri::UniversalTag { app, .. } = &event.parsed_uri {
+                if let ExtendedParsedUri::UniversalTag { app, .. } = &event.parsed_uri {
                     handlers::tag::sync_put_resource(
                         tag,
                         user_id,
@@ -163,13 +173,13 @@ pub async fn handle_put_event(
                 event.uri.clone(),
                 user_id,
                 file_id,
-                event.files_path.clone(),
+                files_path,
                 max_file_size,
                 &ingestor,
             )
             .await?
         }
-        other => debug!("Event type not handled, Resource: {other:?}"),
+        other => debug!(?other, "Event type not handled"),
     }
     Ok(())
 }
@@ -177,10 +187,9 @@ pub async fn handle_put_event(
 /// Handles a DEL event by dispatching to the appropriate handler.
 pub async fn handle_del_event(
     event: &Event,
+    files_path: &Path,
     ingestor: Arc<UserIngestor>,
 ) -> Result<(), EventProcessorError> {
-    debug!("Handling DEL event for URI: {}", event.uri);
-
     let user_id = event.parsed_uri.user_id().clone();
     match event.parsed_uri.resource() {
         Resource::User => handlers::user::del(user_id).await?,
@@ -194,9 +203,9 @@ pub async fn handle_del_event(
         }
         Resource::Tag(_) => handlers::tag::del(&event.uri).await?,
         Resource::File(file_id) => {
-            handlers::file::del(&user_id, file_id.clone(), event.files_path.clone()).await?
+            handlers::file::del(&user_id, file_id.clone(), files_path).await?
         }
-        other => debug!("DEL event type not handled for resource: {other:?}"),
+        other => debug!(?other, "DEL event type not handled"),
     }
     Ok(())
 }

@@ -1,5 +1,4 @@
 use std::cmp::min;
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::errors::EventProcessorError;
@@ -22,7 +21,6 @@ const RETRY_BATCH_SIZE: usize = 100;
 
 /// Processor for retrying events that failed due to missing dependencies
 pub struct RetryProcessor {
-    pub files_path: PathBuf,
     pub event_handler: Arc<dyn EventHandler>,
     pub shutdown_rx: Receiver<bool>,
     pub config: EventRetryConfig,
@@ -33,16 +31,12 @@ pub struct RetryProcessor {
 
 #[async_trait::async_trait]
 impl TEventProcessor for RetryProcessor {
-    fn files_path(&self) -> &PathBuf {
-        &self.files_path
-    }
-
     fn event_handler(&self) -> &Arc<dyn EventHandler> {
         &self.event_handler
     }
 
-    fn instance_name(&self) -> String {
-        "RetryProcessor".to_string()
+    fn instance_name(&self) -> &'static str {
+        "RetryProcessor"
     }
 
     fn retry_scheduler(&self) -> Option<&Arc<RetryScheduler>> {
@@ -78,7 +72,6 @@ impl RetryProcessor {
     pub fn new(config: &WatcherConfig, shutdown_rx: Receiver<bool>) -> Self {
         let store: Arc<dyn RetryStore> = Arc::new(RedisRetryStore::new());
         Self {
-            files_path: config.stack.files_path.clone(),
             event_handler: Arc::new(DefaultEventHandler::from_config(config)),
             shutdown_rx,
             config: config.retry.clone(),
@@ -110,7 +103,7 @@ impl RetryProcessor {
         // The fetched RetryEvent deserialized fine (only the reconstructed event
         // line failed to parse), so its nonce is trustworthy and the cleanup can
         // be conditional too: a newer entry for the same URI must survive.
-        let event = match Event::parse_event(&event_line, self.files_path().clone()) {
+        let event = match Event::parse_event(&event_line) {
             Ok(ParseResult::Parsed(event)) => event,
             Ok(ParseResult::Skipped) | Err(_) => {
                 warn!("Corrupted retry entry for key {index_key}, removing: '{event_line}'");

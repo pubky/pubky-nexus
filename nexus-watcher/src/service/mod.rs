@@ -12,9 +12,6 @@ pub use runner::{HsEventProcessorRunner, KeyBasedEventProcessorRunner, TEventPro
 pub(crate) use task_runner::{run_periodic_tasks, PeriodicTask};
 pub use user_hs_resolver::UserHsResolverRunner;
 
-/// Sleep interval for the retry processor (10 seconds)
-const RETRY_PROCESSOR_SLEEP: u64 = 10_000;
-
 use crate::events::retry::RetryProcessor;
 use crate::service::task_runner::task_results_into_result;
 use crate::NexusWatcherBuilder;
@@ -75,13 +72,12 @@ impl NexusWatcher {
 
     /// Starts the Nexus Watcher with parallel periodic task loops.
     ///
-    /// Currently runs three tasks:
-    /// 1. **Default homeserver**: Processes events from the default homeserver defined in [`WatcherConfig`].
-    /// 2. **External homeservers**: Processes events from all external monitored homeservers, excluding the default.
-    /// 3. **User HS resolver**: Resolves each user's homeserver and persists `HOSTED_BY` relationships.
+    /// Currently runs four tasks, each on its own tick interval:
+    /// 1. **Primary homeserver** ([`WatcherConfig::primary_hs_monitoring_interval_ms`]).
+    /// 2. **External homeservers** ([`WatcherConfig::external_hs_monitoring_interval_ms`]).
+    /// 3. **User HS resolver** ([`WatcherConfig::hs_resolver_interval_ms`]).
+    /// 4. **Retry processor** ([`WatcherConfig::retry_processor_interval_ms`]).
     ///
-    /// The event-processing tasks share the same tick interval ([`WatcherConfig::watcher_sleep`]),
-    /// while the HS resolver uses its own interval ([`WatcherConfig::hs_resolver_sleep`]).
     /// All tasks listen for the shutdown signal to exit gracefully. If any task panics,
     /// an internal cancellation signal is sent so that sibling tasks can finish their
     /// current iteration and exit.
@@ -90,8 +86,10 @@ impl NexusWatcher {
 
         Homeserver::persist_if_unknown(config.homeserver.clone()).await?;
 
-        let watcher_sleep = config.watcher_sleep;
-        let hs_resolver_sleep = config.hs_resolver_sleep;
+        let primary_hs_monitoring_interval_ms = config.primary_hs_monitoring_interval_ms;
+        let external_hs_monitoring_interval_ms = config.external_hs_monitoring_interval_ms;
+        let hs_resolver_interval_ms = config.hs_resolver_interval_ms;
+        let retry_processor_interval_ms = config.retry_processor_interval_ms;
 
         let hs_runner = Arc::new(HsEventProcessorRunner::from_config(
             &config,
@@ -111,19 +109,27 @@ impl NexusWatcher {
         let retry_processor = Arc::new(RetryProcessor::new(&config, shutdown_rx.clone()));
 
         let tasks = vec![
-            PeriodicTask::new("default-homeserver", watcher_sleep, move || {
-                let runner = hs_runner.clone();
-                async move { runner.run().await.map(|_| ()) }
-            }),
-            PeriodicTask::new("external-homeservers", watcher_sleep, move || {
-                let runner = key_based_runner.clone();
-                async move { runner.run().await.map(|_| ()) }
-            }),
-            PeriodicTask::new("user-hs-resolver", hs_resolver_sleep, move || {
+            PeriodicTask::new(
+                "primary-homeserver",
+                primary_hs_monitoring_interval_ms,
+                move || {
+                    let runner = hs_runner.clone();
+                    async move { runner.run().await.map(|_| ()) }
+                },
+            ),
+            PeriodicTask::new(
+                "external-homeservers",
+                external_hs_monitoring_interval_ms,
+                move || {
+                    let runner = key_based_runner.clone();
+                    async move { runner.run().await.map(|_| ()) }
+                },
+            ),
+            PeriodicTask::new("user-hs-resolver", hs_resolver_interval_ms, move || {
                 let runner = user_hs_resolver_runner.clone();
                 async move { runner.run().await }
             }),
-            PeriodicTask::new("retry-processor", RETRY_PROCESSOR_SLEEP, move || {
+            PeriodicTask::new("retry-processor", retry_processor_interval_ms, move || {
                 let processor = retry_processor.clone();
                 async move { processor.run().await.map_err(DynError::from) }
             }),

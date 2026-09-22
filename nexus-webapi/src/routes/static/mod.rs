@@ -4,6 +4,7 @@ use axum::{routing::get, Router};
 use endpoints::{LEGACY_STATIC_FILES_ROUTE, STATIC_FILES_ROUTE, USER_AVATAR_ROUTE};
 use utoipa::OpenApi;
 
+pub use avatar::user_avatar_handler;
 pub use serve_dir::PubkyServeDir;
 
 mod avatar;

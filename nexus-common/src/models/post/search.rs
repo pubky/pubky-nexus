@@ -3,12 +3,11 @@ use crate::db::kv::{search, RedisResult, ScoreAction, SortOrder};
 use crate::db::queries::get::{global_tags_by_post, global_tags_by_post_engagement};
 use crate::db::{fetch_all_rows_from_graph, RedisOps};
 use crate::models::error::ModelResult;
-use crate::models::post::PostDetails;
+use crate::models::post::{PostDetails, PostStream, StreamSource};
 use crate::models::tag::post::TagPost;
 use crate::models::tag::traits::TaggersCollection;
-use crate::types::{Pagination, StreamSorting};
+use crate::types::{Pagination, StreamReach, StreamSorting};
 use serde::{Deserialize, Serialize};
-use tracing::info;
 use utoipa::ToSchema;
 
 pub const TAG_GLOBAL_POST_TIMELINE: [&str; 4] = ["Tags", "Global", "Post", "Timeline"];
@@ -95,6 +94,42 @@ impl PostsByTagSearch {
         }
     }
 
+    /// Posts tagged with `label` whose author is in `observer_id`'s `reach`,
+    /// served from the graph because the per-label sorted sets cannot be joined
+    /// against a reach. The observer's own posts are excluded, and an unknown
+    /// observer yields an empty list.
+    ///
+    /// Scores differ from [`Self::get_by_label`] in two ways: only parent posts
+    /// are returned (the index also carries tagged replies), and the engagement
+    /// score counts taggers, replies and reposts but not mentions. `start`/`end`
+    /// cursors are therefore not interchangeable between the two.
+    ///
+    /// The query walks the reach first and then every post its users authored,
+    /// so its cost grows with the reach's post count, not with the tag's
+    /// popularity, and grows fastest for `wot_2` and `wot_3`. Starting from the
+    /// tag instead was slower for every WoT depth.
+    ///
+    /// # Errors
+    /// Returns [`crate::models::error::ModelError::GraphOperationFailed`] on
+    /// graph failures, including `GraphError::QueryTimeout`.
+    pub async fn get_by_label_with_reach(
+        label: &str,
+        sort_by: Option<StreamSorting>,
+        observer_id: &str,
+        reach: StreamReach,
+        pagination: Pagination,
+    ) -> ModelResult<Vec<PostsByTagSearch>> {
+        let entries = PostStream::get_scored_post_keys(
+            StreamSource::from_reach(observer_id.to_string(), reach),
+            pagination,
+            SortOrder::Descending,
+            sort_by.unwrap_or_default(),
+            Some(vec![label.to_string()]),
+        )
+        .await?;
+        Ok(entries.into_iter().map(Into::into).collect())
+    }
+
     pub async fn update_index_score(
         author_id: &str,
         post_id: &str,
@@ -146,26 +181,6 @@ impl PostsByTagSearch {
         }
         Ok(())
     }
-}
-
-const POST_CONTENT_INDEX: &str = "postContentIdx";
-
-/// Creates the post content full-text index: $.content TEXT + $.author TAG CASESENSITIVE + $.kind TAG CASESENSITIVE.
-/// Includes NOOFFSETS/NOHL; NOFIELDS dropped to allow field-targeted queries.
-/// Idempotent: no-ops if the index already exists.
-pub async fn create_post_content_index() -> RedisResult<()> {
-    let prefix = format!("{}:", PostDetails::prefix().await);
-    search::ft_create_post_content_index(&prefix).await?;
-    info!("RediSearch index '{POST_CONTENT_INDEX}' created or already exists");
-    Ok(())
-}
-
-/// Drops the post content index without deleting underlying JSON documents.
-/// Idempotent: swallows "Unknown index name" errors.
-pub async fn drop_post_content_index() -> RedisResult<()> {
-    search::drop_post_content_index().await?;
-    info!("RediSearch index '{POST_CONTENT_INDEX}' dropped or already absent");
-    Ok(())
 }
 
 // Results come from FT.SEARCH, not key-value lookups — no RedisOps impl.

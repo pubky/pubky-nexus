@@ -48,6 +48,7 @@ async fn test_homeserver_del_tag_post() -> Result<()> {
         parent: None,
         embed: None,
         attachments: None,
+        lock: None,
     };
     let (post_id, post_path) = test.create_post(&author_kp, &post).await?;
 

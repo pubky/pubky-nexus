@@ -22,7 +22,7 @@ impl UserIngestor {
     }
 
     pub fn from_config(config: &StackConfig) -> Self {
-        Self::new(config.external_hs_pk_blacklist.iter().cloned())
+        Self::new(config.net.external_hs_pk_blacklist.iter().cloned())
     }
 
     /// Ingests the author of a referenced post, if unknown.
@@ -101,8 +101,8 @@ impl UserIngestor {
         // Bind the user to their HS (HOSTED_BY + resolved_at), since we just resolved the HS
         set_user_homeserver(&user_id_str, &hs_id).await?;
 
-        // Store the start point of the user's HS cursor
-        UserHsCursor::write(user_id, &hs_id, 0).await?;
+        // Seed the user's HS cursor floor (no-op if we're already tracking them).
+        UserHsCursor::init(user_id, &hs_id).await?;
 
         Ok(())
     }

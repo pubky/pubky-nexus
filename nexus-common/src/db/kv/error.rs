@@ -38,6 +38,18 @@ impl RedisError {
     }
 }
 
+/// Shared monotonicity rule for Primary HS global cursors and External HS user cursors:
+/// a cursor may hold or advance, but never rewind. Equal is allowed so an
+/// idempotent re-persist of a boundary event is not treated as an error.
+pub fn ensure_cursor_not_backwards(new_cursor: u64, stored_cursor: u64) -> RedisResult<()> {
+    if new_cursor < stored_cursor {
+        return Err(RedisError::InvalidInput(
+            "Cursor cannot move backwards".into(),
+        ));
+    }
+    Ok(())
+}
+
 impl From<redis::RedisError> for RedisError {
     fn from(e: redis::RedisError) -> Self {
         if e.is_connection_refusal() || e.is_timeout() || e.is_io_error() {

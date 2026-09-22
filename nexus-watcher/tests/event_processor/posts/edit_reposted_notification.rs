@@ -42,6 +42,7 @@ async fn test_edit_reposted_post_notification() -> Result<()> {
         parent: None,
         embed: None,
         attachments: None,
+        lock: None,
     };
     let (post_id, post_path) = test.create_post(&user_a_kp, &post).await?;
 
@@ -55,6 +56,7 @@ async fn test_edit_reposted_post_notification() -> Result<()> {
             uri: post_uri_builder(user_a_id.clone(), post_id.clone()),
         }),
         attachments: None,
+        lock: None,
     };
     let (repost_id, _repost_path) = test.create_post(&user_b_kp, &repost).await?;
 
@@ -80,8 +82,14 @@ async fn test_edit_reposted_post_notification() -> Result<()> {
         edited_by,
         edited_uri,
         linked_uri,
+        post_kind,
     } = &notifications[0].body
     {
+        assert_eq!(
+            post_kind,
+            &PubkyAppPostKind::Short,
+            "An edited note should report post_kind = Short"
+        );
         assert_eq!(
             edited_by, &user_a_id,
             "Notification should specify the correct user who edited the post"

@@ -41,6 +41,7 @@ async fn test_delete_post_without_relationships() -> Result<()> {
         parent: None,
         embed: None,
         attachments: None,
+        lock: None,
     };
     let (post_id, post_path) = test.create_post(&user_kp, &post).await?;
 
@@ -146,6 +147,7 @@ async fn test_delete_post_that_reposted() -> Result<()> {
         parent: None,
         embed: None,
         attachments: None,
+        lock: None,
     };
     let (post_id, _post_path) = test.create_post(&user_kp, &post).await?;
 
@@ -159,6 +161,7 @@ async fn test_delete_post_that_reposted() -> Result<()> {
             uri: post_uri_builder(user_id.clone(), post_id.clone()),
         }),
         attachments: None,
+        lock: None,
     };
     let (repost_id, repost_path) = test.create_post(&user_kp, &repost).await?;
 
@@ -277,6 +280,7 @@ async fn test_delete_post_that_replied() -> Result<()> {
         parent: None,
         embed: None,
         attachments: None,
+        lock: None,
     };
     let (post_id, _post_path) = test.create_post(&user_kp, &post).await?;
 
@@ -287,6 +291,7 @@ async fn test_delete_post_that_replied() -> Result<()> {
         parent: Some(post_uri_builder(user_id.clone(), post_id.clone())),
         embed: None,
         attachments: None,
+        lock: None,
     };
     let (reply_id, reply_path) = test.create_post(&user_kp, &reply).await?;
 

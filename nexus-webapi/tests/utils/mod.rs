@@ -2,6 +2,7 @@ use axum::http::{Method, StatusCode};
 use serde_json::Value;
 use server::TestServiceServer;
 
+pub mod search_reach;
 pub mod server;
 
 pub(crate) async fn host_url() -> String {

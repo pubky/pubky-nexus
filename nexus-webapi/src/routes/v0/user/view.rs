@@ -6,7 +6,7 @@ use crate::routes::Query;
 use crate::{Error, Result};
 use axum::Json;
 use nexus_common::models::tag::TagDetails;
-use nexus_common::models::user::UserView;
+use nexus_common::models::user::{SocialGraphStatus, UserView};
 use serde::Deserialize;
 use tracing::debug;
 use utoipa::OpenApi;
@@ -20,7 +20,13 @@ pub struct ProfileQuery {
 #[utoipa::path(
     get,
     path = USER_ROUTE,
-    description = "User profile",
+    description = "\
+User profile.
+
+**social_graph_status** says how established the account is in the follow graph, from a seeded \
+ranking recomputed on a schedule. `null` means no ranking is available and the badge should be \
+hidden, which is not the same as `new`. It is not an endorsement: a high value means an account is \
+expensive to fake, not that it is trustworthy.",
     tag = "User",
     params(
         ("user_id" = PubkyId, Path, description = "User Pubky ID"),
@@ -55,6 +61,6 @@ pub async fn user_view_handler(
 #[derive(OpenApi)]
 #[openapi(
     paths(user_view_handler),
-    components(schemas(UserView, TagDetails, PubkyId))
+    components(schemas(UserView, SocialGraphStatus, TagDetails, PubkyId))
 )]
 pub struct UserViewApiDoc;

@@ -40,6 +40,7 @@ async fn test_delete_post_that_replied_notification() -> Result<()> {
         parent: None,
         embed: None,
         attachments: None,
+        lock: None,
     };
     let (post_id, _post_path) = test.create_post(&poster_kp, &post).await?;
 
@@ -50,6 +51,7 @@ async fn test_delete_post_that_replied_notification() -> Result<()> {
         parent: Some(post_uri_builder(poster_id.clone(), post_id.clone())),
         embed: None,
         attachments: None,
+        lock: None,
     };
     let (reply_id, reply_path) = test.create_post(&replier_kp, &reply).await?;
 
@@ -73,8 +75,14 @@ async fn test_delete_post_that_replied_notification() -> Result<()> {
         deleted_by,
         deleted_uri,
         linked_uri,
+        post_kind,
     } = &notification.body
     {
+        assert_eq!(
+            post_kind,
+            &PubkyAppPostKind::Short,
+            "A deleted note should report post_kind = Short"
+        );
         assert_eq!(
             deleted_by, &replier_id,
             "Notification should contain the correct deleter"

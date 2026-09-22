@@ -32,6 +32,7 @@ async fn test_homeserver_post_reply_cannot_index() -> Result<()> {
         parent: Some(dependency_absolute_uri.clone()),
         embed: None,
         attachments: None,
+        lock: None,
     };
 
     let (reply_id, _reply_path) = test.create_post(&user_kp, &reply_post).await?;

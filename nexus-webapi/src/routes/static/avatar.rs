@@ -1,19 +1,21 @@
 use std::path::PathBuf;
 
 use super::endpoints::USER_AVATAR_ROUTE;
+use super::serve_dir::serve_file_variant;
 use crate::models::PubkyId;
-use crate::routes::r#static::PubkyServeDir;
 use crate::routes::AppState;
 use crate::routes::Path;
 use crate::{Error, Result};
 use axum::extract::{Request, State};
+use axum::http::{header, HeaderValue};
 use axum::response::Response;
 use nexus_common::media::FileVariant;
-use nexus_common::models::file::Blob;
 use nexus_common::models::{file::FileDetails, traits::Collection, user::UserDetails};
 use tower_http::services::fs::ServeFileSystemResponseBody;
-use tracing::{debug, error};
+use tracing::{debug, warn};
 use utoipa::OpenApi;
+
+const AVATAR_FALLBACK_CACHE_CONTROL: &str = "public, max-age=30";
 
 #[utoipa::path(
     get,
@@ -39,71 +41,62 @@ pub async fn user_avatar_handler(
 
     let file_path: &PathBuf = &app_state.files_path;
 
-    // 1. Get user details
     let details = match UserDetails::get_by_id(&user_id).await? {
         None => return Err(Error::user_not_found(user_id)),
         Some(d) => d,
     };
 
-    // 2. Check if user has image. If not, 404
     let Some(image_uri) = details.image else {
         return Err(Error::FileNotFound {});
     };
 
-    // 3. Parse user_id + file_id from the "pubky://owner_id/file_id" style URI
     let (owner_id, file_id) =
         FileDetails::file_key_from_uri(&image_uri).ok_or(Error::InternalServerError {
             source: format!("Invalid file URI: {image_uri}").into(),
         })?;
 
-    // 4. Look up FileDetails in Redis/Neo4j using get_by_ids
     let file_list = FileDetails::get_by_ids(&[&[&owner_id, &file_id]]).await?;
 
-    // We expect only one result in file_list, a Vec<Option<FileDetails>>
     let Some(file_details) = file_list.into_iter().flatten().next() else {
         return Err(Error::FileNotFound {});
     };
 
-    // 5. ensure small variant is created
-    let small_variant_content_type =
-        Blob::get_by_id(&file_details, &FileVariant::Small, file_path.clone())
-            .await
-            .inspect_err(|_| {
-                error!(
-            "Error while processing small variant for user: {user_id} avatar with file: {file_id}"
-        )
-            })?;
+    // No permit free: serve the untouched `main` image instead of queueing for one.
+    // Queueing could still win a permit before the timeout, but that is not worth up to
+    // 5s of latency on an avatar — and `small` is only deferred, not lost: the short
+    // cache TTL brings the client back, and whichever request gets a permit writes the
+    // variant to disk for every request after it.
+    let controller = &app_state.fail_fast_variant_controller;
+    let variant = match controller
+        .ensure_variant(&file_details, &FileVariant::Small, file_path)
+        .await
+    {
+        Ok(_) => FileVariant::Small,
+        Err(ref e) if e.is_load_shed() => {
+            warn!("Media processing unavailable ({e}) for user: {user_id} avatar with file: {file_id}, falling back to main");
+            FileVariant::Main
+        }
+        Err(e) => return Err(e.into()),
+    };
 
-    // serve the file using ServeDir
-    // Create a new request with a modified path to serve the file using ServeDir
-    // 6. Build the url using small variant
-    let file_uri_path = format!(
-        "/{}/{}/{}", // /{owner_id}/{file_id}/{variant}
-        user_id,
-        file_details.id,
-        FileVariant::Small,
-    );
-
-    // 7. Serve the file. Then remove/replace any default Cache-Control header.
-    let mut response = PubkyServeDir::try_call(
+    let mut response = serve_file_variant(
         request,
-        file_uri_path,
-        small_variant_content_type,
+        &file_details,
+        &variant,
         file_path.clone(),
+        false,
+        controller,
     )
     .await?;
 
-    // Remove any default "cache-control" header
-    response.headers_mut().remove("cache-control");
-
-    // Insert a new Cache-Control header (e.g., 1 hour)
-    let cache_control_header = "public, max-age=3600"
-        .parse()
-        .inspect_err(|err| error!("Failed to parse Cache-Control header value: {}", err))?;
-
-    response
-        .headers_mut()
-        .insert("cache-control", cache_control_header);
+    // A degraded `main` fallback must not outlive the capacity blip that caused it,
+    // so it gets a short TTL instead of the hour the real small variant earns.
+    if variant != FileVariant::Small {
+        response.headers_mut().insert(
+            header::CACHE_CONTROL,
+            HeaderValue::from_static(AVATAR_FALLBACK_CACHE_CONTROL),
+        );
+    }
 
     Ok(response)
 }

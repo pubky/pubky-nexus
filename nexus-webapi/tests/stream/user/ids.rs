@@ -88,6 +88,15 @@ async fn test_stream_user_ids_influencers_wot_1_align() -> Result<()> {
 }
 
 #[tokio_shared_rt::test(shared)]
+async fn test_stream_user_ids_starter_pack_align() -> Result<()> {
+    assert_user_ids_align(
+        "source=starter_pack&tags=bitcoiner,btc-dev&limit=20",
+        "for a starter pack built from interest tags",
+    )
+    .await
+}
+
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_user_ids_influencers_wot_5_invalid() -> Result<()> {
     let endpoint = format!(
         "{IDS_ROOT_PATH}?source=influencers&user_id={USER_ID}&timeframe=this_month&reach=wot_5&limit=5"

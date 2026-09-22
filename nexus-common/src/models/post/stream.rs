@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use super::{Bookmark, PostCounts, PostDetails, PostView};
+use super::{collection_item_keys, Bookmark, PostCounts, PostDetails, PostView};
 use crate::db::kv::{RedisResult, ScoreAction, SortOrder};
 use crate::db::{get_neo4j_graph, queries, GraphError, GraphResult, RedisOps};
 use crate::models::error::ModelError;
@@ -9,9 +9,10 @@ use crate::models::{
     follow::{Followers, Following, Friends, UserFollows},
     post::search::PostsByTagSearch,
 };
-use crate::types::{Pagination, StreamSorting, WotDepth};
+use crate::types::{DomainTrust, Pagination, StreamReach, StreamSorting, WotDepth};
+use futures::stream::{self, StreamExt};
 use futures::TryStreamExt;
-use pubky_app_specs::{ParsedUri, PubkyAppCollectionContent, PubkyAppPostKind, Resource};
+use pubky_app_specs::PubkyAppPostKind;
 use serde::{Deserialize, Serialize};
 use tokio::task::spawn;
 use tokio::time::{timeout, Duration};
@@ -54,15 +55,22 @@ pub enum StreamSource {
         author_id: String,
         post_id: String,
     },
+    /// Collection posts that contain the post `author_id:post_id` as an item.
+    PostCollections {
+        author_id: String,
+        post_id: String,
+    },
     /// Posts authored by users in the observer's Web of Trust (transitive FOLLOWS, 1..=depth).
     Wot {
         observer_id: String,
         depth: WotDepth,
     },
     /// Posts by users whom the observer's Web of Trust has tagged with a `domain_tags` label.
+    /// `trust = Me` restricts the taggers to the observer alone (depth-0 self set).
+    /// Includes the observer's own posts when they themselves carry a matching label.
     WotDomain {
         observer_id: String,
-        depth: WotDepth,
+        trust: DomainTrust,
         domain_tags: Vec<String>,
     },
     #[default]
@@ -70,6 +78,40 @@ pub enum StreamSource {
 }
 
 impl StreamSource {
+    /// The observer-anchored source that streams posts authored by `reach`.
+    pub fn from_reach(observer_id: String, reach: StreamReach) -> StreamSource {
+        match reach {
+            StreamReach::Followers => StreamSource::Followers { observer_id },
+            StreamReach::Following => StreamSource::Following { observer_id },
+            StreamReach::Friends => StreamSource::Friends { observer_id },
+            StreamReach::Wot(depth) => StreamSource::Wot { observer_id, depth },
+        }
+    }
+
+    /// Low-cardinality source value and optional WoT depth for telemetry.
+    pub(crate) fn telemetry_dimensions(&self) -> (&'static str, Option<u8>) {
+        match self {
+            StreamSource::PostReplies { .. } => ("post_replies", None),
+            StreamSource::Following { .. } => ("following", None),
+            StreamSource::Followers { .. } => ("followers", None),
+            StreamSource::Friends { .. } => ("friends", None),
+            StreamSource::Bookmarks { .. } => ("bookmarks", None),
+            StreamSource::Author { .. } => ("author", None),
+            StreamSource::AuthorReplies { .. } => ("author_replies", None),
+            StreamSource::Collection { .. } => ("collection", None),
+            StreamSource::PostCollections { .. } => ("post_collections", None),
+            StreamSource::Wot { depth, .. } => ("wot", Some(depth.get())),
+            StreamSource::WotDomain { trust, .. } => (
+                "wot_domain",
+                Some(match trust {
+                    DomainTrust::Me => 0,
+                    DomainTrust::Network(depth) => depth.get(),
+                }),
+            ),
+            StreamSource::All => ("all", None),
+        }
+    }
+
     pub fn get_observer(&self) -> Option<&str> {
         match self {
             StreamSource::Followers { observer_id }
@@ -90,8 +132,9 @@ impl StreamSource {
         }
     }
 
-    /// Author whose posts are streamed. Collection returns `None`: its
-    /// `author_id` is the curator, not the items' authors.
+    /// Author whose posts are streamed. Collection and PostCollections return
+    /// `None`: their `author_id` names the anchoring post, not the streamed
+    /// authors, and `post_stream` filters on `author.id` whenever this is `Some`.
     pub fn get_author(&self) -> Option<&str> {
         match self {
             StreamSource::PostReplies {
@@ -103,6 +146,25 @@ impl StreamSource {
             _ => None,
         }
     }
+
+    /// Post the stream is anchored on; `None` unless the source is PostCollections.
+    pub fn get_anchor_post(&self) -> Option<(&str, &str)> {
+        match self {
+            StreamSource::PostCollections { author_id, post_id } => Some((author_id, post_id)),
+            _ => None,
+        }
+    }
+}
+
+/// Post-kind filter for streams. Any filter routes the query to the Cypher
+/// path: the Redis sorted-set indexes carry no kind information.
+#[derive(Debug, Clone, PartialEq)]
+pub enum KindFilter {
+    /// Only posts of exactly this kind.
+    Kind(PubkyAppPostKind),
+    /// Posts of any kind except the listed ones. Posts with a missing (NULL)
+    /// or unrecognized ("unknown") kind are never excluded.
+    Exclude(Vec<PubkyAppPostKind>),
 }
 
 #[derive(Serialize, Deserialize, ToSchema, Debug, Default, Clone)]
@@ -148,7 +210,7 @@ impl PostStream {
         sorting: StreamSorting,
         viewer_id: Option<&str>,
         tags: Option<Vec<String>>,
-        kind: Option<PubkyAppPostKind>,
+        kind: Option<KindFilter>,
     ) -> ModelResult<Option<Self>> {
         let post_key_stream =
             Self::collect_post_keys(source, pagination, order, sorting, tags, kind).await?;
@@ -166,7 +228,7 @@ impl PostStream {
         order: SortOrder,
         sorting: StreamSorting,
         tags: Option<Vec<String>>,
-        kind: Option<PubkyAppPostKind>,
+        kind: Option<KindFilter>,
     ) -> ModelResult<Option<PostKeyStream>> {
         let post_key_stream =
             Self::collect_post_keys(source, pagination, order, sorting, tags, kind).await?;
@@ -184,7 +246,7 @@ impl PostStream {
         order: SortOrder,
         sorting: StreamSorting,
         tags: Option<Vec<String>>,
-        kind: Option<PubkyAppPostKind>,
+        kind: Option<KindFilter>,
     ) -> ModelResult<PostKeyStream> {
         // Collection has its own envelope-driven resolution path (neither
         // sorted-set index nor Cypher).
@@ -200,11 +262,7 @@ impl PostStream {
 
         // WoT sources emit observability metrics (spec v3.1). Capture the source
         // label and depth before `source` is consumed by the query below.
-        let wot = match &source {
-            StreamSource::Wot { depth, .. } => Some(("wot", depth.get())),
-            StreamSource::WotDomain { depth, .. } => Some(("wot_domain", depth.get())),
-            _ => None,
-        };
+        let wot = Self::wot_dimensions(&source);
         if let Some((source, depth)) = wot {
             super::metrics::record_wot_request(source, depth);
         }
@@ -234,12 +292,68 @@ impl PostStream {
         result
     }
 
+    /// Serves `source` from the graph for the reach-filtered tag search and
+    /// returns every row with its sorting score (timestamp for timeline,
+    /// engagement count otherwise), skipping the sorted-set indexes even where
+    /// one exists. WoT metrics are recorded under the `search_*` sources, so
+    /// they stay apart from the post stream's.
+    ///
+    /// # Errors
+    /// Returns [`ModelError::GraphOperationFailed`] on graph failures, including
+    /// `GraphError::QueryTimeout` when the query exceeds its budget.
+    pub(crate) async fn get_scored_post_keys(
+        source: StreamSource,
+        pagination: Pagination,
+        order: SortOrder,
+        sorting: StreamSorting,
+        tags: Option<Vec<String>>,
+    ) -> ModelResult<Vec<(String, f64)>> {
+        let wot = Self::wot_dimensions(&source)
+            .map(|(_, depth)| (super::metrics::SEARCH_WOT_SOURCE, depth));
+        if let Some((source, depth)) = wot {
+            super::metrics::record_wot_request(source, depth);
+        }
+
+        let started = std::time::Instant::now();
+        let result: ModelResult<Vec<(String, f64)>> =
+            Self::get_scored_from_graph(source, sorting, order, &tags, pagination, None)
+                .await
+                .map_err(Into::into);
+
+        if let Some((source, depth)) = wot {
+            super::metrics::record_wot_result(
+                source,
+                depth,
+                started.elapsed(),
+                result.as_ref().ok().map(Vec::len),
+            );
+        }
+
+        result
+    }
+
+    /// WoT metric label and depth for `source`; `None` for non-WoT sources.
+    fn wot_dimensions(source: &StreamSource) -> Option<(&'static str, u8)> {
+        match source {
+            StreamSource::Wot { depth, .. } => Some(("wot", depth.get())),
+            // depth-0 is the "Me" self trust set; 1..=3 is the follow-network reach.
+            StreamSource::WotDomain { trust, .. } => Some((
+                "wot_domain",
+                match trust {
+                    DomainTrust::Me => 0,
+                    DomainTrust::Network(depth) => depth.get(),
+                },
+            )),
+            _ => None,
+        }
+    }
+
     // Determine if we have a quick access sorted set for this combination
     fn can_use_index(
         sorting: &StreamSorting,
         source: &StreamSource,
         tags: &Option<Vec<String>>,
-        kind: &Option<PubkyAppPostKind>,
+        kind: &Option<KindFilter>,
     ) -> bool {
         if kind.is_some() {
             return false;
@@ -325,8 +439,8 @@ impl PostStream {
         if !matches!(details.kind, PubkyAppPostKind::Collection) {
             return Ok(PostKeyStream::default());
         }
-        let envelope: PubkyAppCollectionContent = match serde_json::from_str(&details.content) {
-            Ok(env) => env,
+        let items = match collection_item_keys(&details.content) {
+            Ok(items) => items,
             Err(e) => {
                 warn!("Collection {author_id}:{post_id} envelope malformed: {e}");
                 return Ok(PostKeyStream::default());
@@ -336,17 +450,10 @@ impl PostStream {
         let skip = skip.unwrap_or(0);
         let limit = limit.unwrap_or(usize::MAX);
 
-        // Filter before slicing so dead refs don't shorten pages.
-        let post_keys: Vec<String> = envelope
-            .items
-            .iter()
-            .filter_map(|uri| match ParsedUri::try_from(uri.as_str()) {
-                Ok(p) => match p.resource {
-                    Resource::Post(item_post_id) => Some(format!("{}:{}", p.user_id, item_post_id)),
-                    _ => None,
-                },
-                Err(_) => None,
-            })
+        // Dead refs were already dropped, so slicing cannot shorten a page.
+        let post_keys: Vec<String> = items
+            .into_iter()
+            .map(|(item_author_id, item_post_id)| format!("{item_author_id}:{item_post_id}"))
             .skip(skip)
             .take(limit)
             .collect();
@@ -354,45 +461,51 @@ impl PostStream {
         Ok(PostKeyStream::new(post_keys, None))
     }
 
-    // Fetch posts from index
+    // Fetch posts from graph
     async fn get_from_graph(
         source: StreamSource,
         sorting: StreamSorting,
         order: SortOrder,
         tags: &Option<Vec<String>>,
         pagination: Pagination,
-        kind: Option<PubkyAppPostKind>,
+        kind: Option<KindFilter>,
     ) -> GraphResult<PostKeyStream> {
-        let mut result;
-        {
-            let graph = get_neo4j_graph()?;
-            let query = queries::get::post_stream(source, sorting, order, tags, pagination, kind)?;
+        Self::get_scored_from_graph(source, sorting, order, tags, pagination, kind)
+            .await
+            .map(PostKeyStream::from_scored_entries)
+    }
 
-            // Set a 10-second timeout for the query execution
-            result = match timeout(Duration::from_secs(10), graph.execute(query)).await {
-                Ok(Ok(res)) => res, // Successfully executed within the timeout
-                Ok(Err(e)) => return Err(GraphError::QueryFailed(e)), // Query failed
-                Err(_) => return Err(GraphError::QueryTimeout), // Timeout error
-            };
-        }
+    async fn get_scored_from_graph(
+        source: StreamSource,
+        sorting: StreamSorting,
+        order: SortOrder,
+        tags: &Option<Vec<String>>,
+        pagination: Pagination,
+        kind: Option<KindFilter>,
+    ) -> GraphResult<Vec<(String, f64)>> {
+        let graph = get_neo4j_graph()?;
+        let query = queries::get::post_stream(source, sorting, order, tags, pagination, kind)?;
 
-        let mut post_keys = Vec::new();
-        // Last row's sorting score (timestamp for timeline, engagement otherwise),
-        // used as the pagination cursor.
-        let mut last_post_score: Option<i64> = None;
+        // The 10-second budget covers execution AND row streaming: execute()
+        // only submits the query and the heavy work (ORDER BY materializes at
+        // the first pull) happens while streaming, so a timeout on execute
+        // alone lets a slow query run until the HTTP layer's 408.
+        timeout(Duration::from_secs(10), async {
+            let mut result = graph.execute(query).await?;
 
-        while let Some(row) = result.try_next().await? {
-            let author_id: String = row.get("author_id")?;
-            let post_id: String = row.get("post_id")?;
-            let score: i64 = row.get("score")?;
-            last_post_score = Some(score);
-            post_keys.push(format!("{author_id}:{post_id}"));
-        }
-
-        Ok(PostKeyStream::new(
-            post_keys,
-            last_post_score.map(|s| s as u64),
-        ))
+            // Each row's sorting score (timestamp for timeline, engagement
+            // otherwise); the last one is the pagination cursor.
+            let mut entries = Vec::new();
+            while let Some(row) = result.try_next().await? {
+                let author_id: String = row.get("author_id")?;
+                let post_id: String = row.get("post_id")?;
+                let score: i64 = row.get("score")?;
+                entries.push((format!("{author_id}:{post_id}"), score as f64));
+            }
+            Ok(entries)
+        })
+        .await
+        .map_err(|_| GraphError::QueryTimeout)?
     }
 
     pub async fn get_global_posts_keys(
@@ -510,7 +623,8 @@ impl PostStream {
         limit: Option<usize>,
     ) -> ModelResult<PostKeyStream> {
         let custom_limit = Some(200);
-        let mut user_ids = match &source {
+        let observer_id = source.get_observer();
+        let user_ids = match &source {
             StreamSource::Following { observer_id } => {
                 Following::get_by_id(observer_id, None, custom_limit)
                     .await?
@@ -530,14 +644,12 @@ impl PostStream {
                     .0
             }
             _ => vec![],
-        };
+        }
+        .into_iter()
+        .filter(|user_id| Some(user_id.as_str()) != observer_id)
+        .collect::<Vec<_>>();
 
         if !user_ids.is_empty() {
-            // Include the observer in the post stream
-            if let Some(observer_id) = source.get_observer() {
-                user_ids.push(observer_id.to_string());
-            }
-
             let post_keys = Self::get_posts_for_user_ids(
                 &user_ids.iter().map(AsRef::as_ref).collect::<Vec<_>>(),
                 order,
@@ -600,32 +712,44 @@ impl PostStream {
         skip: Option<usize>,
         limit: Option<usize>,
     ) -> ModelResult<Vec<(String, f64)>> {
-        let mut post_keys = Vec::new();
         // Limit the number of user IDs to process to the first 200
         let max_user_ids = 200;
-        let truncated_user_ids: Vec<&str> = user_ids.iter().take(max_user_ids).cloned().collect();
+        let truncated_user_ids: Vec<String> = user_ids
+            .iter()
+            .take(max_user_ids)
+            .map(|s| s.to_string())
+            .collect();
 
-        // Retrieve posts for each user and collect them
-        for user_id in &truncated_user_ids {
-            let key_parts = [&POST_PER_USER_KEY_PARTS[..], &[user_id]].concat();
-            if let Some(post_ids) = Self::try_from_index_sorted_set(
-                &key_parts,
-                start,
-                end,
-                None, // We do not apply skip and limit here, as we need the full sorted set
-                None,
-                order.clone(),
-                None,
-            )
+        // Bounded to protect the pool; `buffered` keeps equal-score ties in input
+        // order through the stable re-sort below; items owned so the future stays `Send`.
+        let mut post_keys: Vec<(f64, String)> =
+            stream::iter(truncated_user_ids.into_iter().map(|user_id| {
+                let order = order.clone();
+                async move {
+                    let key_parts = [&POST_PER_USER_KEY_PARTS[..], &[user_id.as_str()]].concat();
+                    let post_ids = Self::try_from_index_sorted_set(
+                        &key_parts, start, end,
+                        None, // We do not apply skip and limit here, as we need the full sorted set
+                        None, order, None,
+                    )
+                    .await?;
+                    Ok::<_, ModelError>(
+                        post_ids
+                            .map(|ids| {
+                                ids.into_iter()
+                                    .map(|(post_id, score)| (score, format!("{user_id}:{post_id}")))
+                                    .collect::<Vec<_>>()
+                            })
+                            .unwrap_or_default(),
+                    )
+                }
+            }))
+            .buffered(8)
+            .try_collect::<Vec<Vec<_>>>()
             .await?
-            {
-                let user_post_keys: Vec<(f64, String)> = post_ids
-                    .into_iter()
-                    .map(|(post_id, score)| (score, format!("{user_id}:{post_id}")))
-                    .collect();
-                post_keys.extend(user_post_keys);
-            }
-        }
+            .into_iter()
+            .flatten()
+            .collect();
 
         // The selected user_ids does not have any post
         if post_keys.is_empty() {
@@ -842,6 +966,57 @@ impl PostStream {
 mod tests {
     use super::*;
 
+    #[test]
+    fn test_from_reach_maps_every_reach_to_its_observer_source() {
+        let observer = || "observer".to_string();
+        let depth = WotDepth::new(3).expect("3 is a valid depth");
+        let cases = [
+            (
+                StreamReach::Followers,
+                StreamSource::Followers {
+                    observer_id: observer(),
+                },
+            ),
+            (
+                StreamReach::Following,
+                StreamSource::Following {
+                    observer_id: observer(),
+                },
+            ),
+            (
+                StreamReach::Friends,
+                StreamSource::Friends {
+                    observer_id: observer(),
+                },
+            ),
+            (
+                StreamReach::Wot(depth),
+                StreamSource::Wot {
+                    observer_id: observer(),
+                    depth,
+                },
+            ),
+        ];
+
+        for (reach, expected) in cases {
+            let source = StreamSource::from_reach(observer(), reach);
+            assert_eq!(source.get_observer(), Some("observer"));
+            assert_eq!(source, expected);
+        }
+    }
+
+    /// PostCollections is served from the graph only; no sorted set backs it.
+    #[test]
+    fn test_can_use_index_is_false_for_post_collections() {
+        let source = StreamSource::PostCollections {
+            author_id: "author".to_string(),
+            post_id: "post".to_string(),
+        };
+        for sorting in [StreamSorting::Timeline, StreamSorting::TotalEngagement] {
+            assert!(!PostStream::can_use_index(&sorting, &source, &None, &None));
+        }
+    }
+
     /// `can_use_index` short-circuits to the Cypher path whenever a kind filter
     /// is set, regardless of which kind — kind-filtered queries route via Cypher
     /// where the kind-specific filter actually applies.
@@ -881,12 +1056,18 @@ mod tests {
 
         for kind in &kinds_to_test {
             for (sorting, source) in &index_eligible_combos {
-                let result = PostStream::can_use_index(sorting, source, &None, &Some(kind.clone()));
-                assert!(
-                    !result,
-                    "can_use_index({:?}, {:?}, None, Some({:?})) must return false",
-                    sorting, source, kind
-                );
+                for filter in [
+                    KindFilter::Kind(kind.clone()),
+                    KindFilter::Exclude(vec![kind.clone()]),
+                ] {
+                    assert!(
+                        !PostStream::can_use_index(sorting, source, &None, &Some(filter.clone())),
+                        "can_use_index({:?}, {:?}, None, Some({:?})) must return false",
+                        sorting,
+                        source,
+                        filter
+                    );
+                }
             }
         }
     }
