@@ -15,7 +15,7 @@ use utoipa::ToSchema;
 #[serde(rename_all = "lowercase")]
 pub enum FileVariant {
     Main,
-    Hero,
+    Large,
     Feed,
     Small,
 }
@@ -26,7 +26,7 @@ impl FromStr for FileVariant {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "main" => Ok(FileVariant::Main),
-            "hero" => Ok(FileVariant::Hero),
+            "large" => Ok(FileVariant::Large),
             "feed" => Ok(FileVariant::Feed),
             "small" => Ok(FileVariant::Small),
             _ => Err("Invalid file version".into()),
@@ -38,7 +38,7 @@ impl Display for FileVariant {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let version_string = match self {
             FileVariant::Main => "main",
-            FileVariant::Hero => "hero",
+            FileVariant::Large => "large",
             FileVariant::Feed => "feed",
             FileVariant::Small => "small",
         };
@@ -54,7 +54,7 @@ pub fn get_valid_variants_for_content_type(content_type: &str) -> Vec<FileVarian
         value if value.starts_with("image") => {
             vec![
                 FileVariant::Main,
-                FileVariant::Hero,
+                FileVariant::Large,
                 FileVariant::Feed,
                 FileVariant::Small,
             ]
@@ -101,7 +101,7 @@ mod tests {
             get_valid_variants_for_content_type("image/jpeg"),
             vec![
                 FileVariant::Main,
-                FileVariant::Hero,
+                FileVariant::Large,
                 FileVariant::Feed,
                 FileVariant::Small,
             ]

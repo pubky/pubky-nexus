@@ -109,7 +109,7 @@ async fn test_static_image_serving_feed() -> Result<()> {
 }
 
 #[tokio_shared_rt::test(shared)]
-async fn test_static_image_serving_hero() -> Result<()> {
+async fn test_static_image_serving_large() -> Result<()> {
     let client = httpc_test::new_client(host_url().await)?;
     let test_image_dir_path = TestServiceServer::get_test_server()
         .await
@@ -133,7 +133,7 @@ async fn test_static_image_serving_hero() -> Result<()> {
 
     let result_file = files[0].as_ref().expect("Created file was not found.");
 
-    let test_file_version_name = FileVariant::Hero.to_string();
+    let test_file_version_name = FileVariant::Large.to_string();
     let test_file_path = format!("static/files/{USER_PUBKY}/{FILE_ID}/{test_file_version_name}");
 
     let res = client
@@ -141,7 +141,7 @@ async fn test_static_image_serving_hero() -> Result<()> {
         .await?;
 
     assert_eq!(res.status(), 200);
-    // The hero is derived, so WebP whatever the upload was.
+    // The large variant is derived, so WebP whatever the upload was.
     assert_ne!(
         res.header("content-type")
             .unwrap()
