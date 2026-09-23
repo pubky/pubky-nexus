@@ -1780,15 +1780,28 @@ mod tests {
     }
 
     #[test]
-    fn user_tag_search_filters_reach_and_tags_once() {
+    fn user_tag_search_dedupes_reach_before_tag_join() {
         let labels = ["label".to_string()];
-        for reach in [StreamReach::Friends, StreamReach::Following] {
+        let reaches = [
+            StreamReach::Followers,
+            StreamReach::Following,
+            StreamReach::Friends,
+            StreamReach::Wot(WotDepth::new(1).unwrap()),
+            StreamReach::Wot(WotDepth::new(2).unwrap()),
+            StreamReach::Wot(WotDepth::new(3).unwrap()),
+        ];
+        for reach in reaches {
             let cypher = search_users_by_tags_with_reach(&labels, "user", &reach, None, None)
                 .to_cypher_populated();
-            assert_eq!(
-                cypher.matches("WHERE").count(),
-                2,
-                "one WHERE for the reach, one for the tags:\n{cypher}"
+            let dedupe = cypher
+                .find("WITH DISTINCT reach AS u")
+                .unwrap_or_else(|| panic!("{reach:?} must dedupe the reach:\n{cypher}"));
+            let tag_join = cypher
+                .find("MATCH (tagger:User)-[tag:TAGGED]->(u:User)")
+                .unwrap_or_else(|| panic!("{reach:?} must join tags on u:\n{cypher}"));
+            assert!(
+                dedupe < tag_join,
+                "{reach:?} must dedupe before the tag join, or tags count once per path:\n{cypher}"
             );
         }
     }
