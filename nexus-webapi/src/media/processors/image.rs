@@ -8,6 +8,10 @@ use super::{BaseProcessingOptions, VariantProcessor};
 
 const SMALL_IMAGE_WIDTH: &str = "320";
 const FEED_IMAGE_WIDTH: &str = "720";
+/// Full-width article cover. `feed` is what a feed card and a phone render, so a wide screen
+/// had to fall back to the untouched upload (a multi-megabyte PNG on the post in
+/// pubky/pubky-app#2633) to stay sharp.
+const HERO_IMAGE_WIDTH: &str = "1440";
 /// The format `process` hands ImageMagick as its output format, i.e. the bytes a derived variant
 /// actually contains.
 const IMAGE_FORMAT: &str = "webp";
@@ -40,9 +44,10 @@ impl VariantProcessor for ImageProcessor {
         let width = match variant {
             FileVariant::Small => String::from(SMALL_IMAGE_WIDTH),
             FileVariant::Feed => String::from(FEED_IMAGE_WIDTH),
+            FileVariant::Hero => String::from(HERO_IMAGE_WIDTH),
             _ => return Err(MediaProcessorError::UnsupportedFileVariant),
         };
-        // `variant` is Small or Feed here: Main returned above.
+        // `variant` is Small, Feed or Hero here: Main returned above.
         let content_type = image_variant_content_type();
         Ok(ImageOptions {
             format: IMAGE_FORMAT.to_string(),
@@ -124,5 +129,25 @@ mod tests {
     fn test_variant_content_type_tracks_the_output_format() {
         assert_eq!(IMAGE_FORMAT, "webp");
         assert_eq!(image_variant_content_type(), "image/webp");
+    }
+
+    // One assertion per variant, so a width can never be changed, or a variant added, without
+    // saying which surface it is for. `hero` is the full-width article cover: `feed` (720 px) is
+    // what the feed cards and a phone render, and the original upload is what a wide screen wants.
+    #[test]
+    fn test_variant_widths() {
+        let width = |variant: FileVariant| {
+            ImageProcessor::get_options_for_variant(&variant)
+                .expect("variant has image options")
+                .width
+        };
+
+        assert_eq!(width(FileVariant::Small), "320");
+        assert_eq!(width(FileVariant::Feed), "720");
+        assert_eq!(width(FileVariant::Hero), "1440");
+        assert!(matches!(
+            ImageProcessor::get_options_for_variant(&FileVariant::Main),
+            Err(MediaProcessorError::UnsupportedFileVariant)
+        ));
     }
 }

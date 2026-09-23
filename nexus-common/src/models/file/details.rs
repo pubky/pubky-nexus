@@ -15,6 +15,7 @@ use utoipa::ToSchema;
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema, Default)]
 pub struct FileUrls {
     pub main: String,
+    pub hero: Option<String>,
     pub feed: Option<String>,
     pub small: Option<String>,
 }
@@ -35,6 +36,9 @@ impl FileUrls {
 
         Self {
             main: build_url(&FileVariant::Main),
+            hero: variants
+                .contains(&FileVariant::Hero)
+                .then(|| build_url(&FileVariant::Hero)),
             feed: variants
                 .contains(&FileVariant::Feed)
                 .then(|| build_url(&FileVariant::Feed)),
