@@ -31,10 +31,16 @@ pub async fn file_details_handler(Path(file_uri): Path<String>) -> Result<Json<F
         .ok_or(Error::invalid_input("Malformed file URI"))?;
     let files = FileDetails::get_by_ids(&[&[&owner_id, &file_id]]).await?;
 
-    let file = &files[0];
-    match file {
+    match &files[0] {
         None => Err(Error::FileNotFound {}),
-        Some(value) => Ok(Json(value.clone())),
+        Some(value) => {
+            // `urls` is written at ingestion, so a file indexed before a variant existed has no
+            // entry for it; the static route would still serve that variant. Fill the derived
+            // ones here so a reader never has to know when the file was indexed.
+            let mut file = value.clone();
+            file.urls.fill_derived_variants(&file.content_type);
+            Ok(Json(file))
+        }
     }
 }
 

@@ -34,6 +34,15 @@ impl BaseProcessingOptions for ImageOptions {
     }
 }
 
+/// The `-resize` geometry for a derived variant: fit within `width`, and never enlarge.
+///
+/// The `>` is load bearing. Without it ImageMagick upscales any upload narrower than the variant,
+/// so `hero` (1440) would turn an 1188 px upload into a 1440x364 WebP, a larger and softer file
+/// than the source, and a small upload into a much larger one.
+fn resize_geometry(width: &str) -> String {
+    format!("{}x>", width)
+}
+
 pub struct ImageProcessor;
 
 #[async_trait]
@@ -76,7 +85,7 @@ impl VariantProcessor for ImageProcessor {
                 Command::new("convert")
                     .arg(origin_file_path)
                     .arg("-resize")
-                    .arg(format!("{}x", options.width))
+                    .arg(resize_geometry(&options.width))
                     .arg("-auto-orient") // https://github.com/ImageMagick/ImageMagick/issues/6396
                     .arg(output),
             )
@@ -134,6 +143,13 @@ mod tests {
     // One assertion per variant, so a width can never be changed, or a variant added, without
     // saying which surface it is for. `hero` is the full-width article cover: `feed` (720 px) is
     // what the feed cards and a phone render, and the original upload is what a wide screen wants.
+    #[test]
+    fn test_resize_geometry_never_enlarges() {
+        assert_eq!(resize_geometry("320"), "320x>");
+        assert_eq!(resize_geometry("720"), "720x>");
+        assert_eq!(resize_geometry("1440"), "1440x>");
+    }
+
     #[test]
     fn test_variant_widths() {
         let width = |variant: FileVariant| {
