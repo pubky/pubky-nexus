@@ -134,7 +134,6 @@ mod tests {
         assert_eq!(image_variant_content_type(), "image/webp");
     }
 
-    // One assertion per variant, so a width cannot change, or a variant appear, unlisted.
     #[test]
     fn test_resize_geometry_never_enlarges() {
         assert_eq!(resize_geometry("320"), "320x>");
@@ -142,6 +141,7 @@ mod tests {
         assert_eq!(resize_geometry("1440"), "1440x>");
     }
 
+    // One assertion per variant, so a width cannot change, or a variant appear, unlisted.
     #[test]
     fn test_variant_widths() {
         let width = |variant: FileVariant| {
