@@ -8,9 +8,7 @@ use super::{BaseProcessingOptions, VariantProcessor};
 
 const SMALL_IMAGE_WIDTH: &str = "320";
 const FEED_IMAGE_WIDTH: &str = "720";
-/// Full-width article cover. `feed` is what a feed card and a phone render, so a wide screen
-/// had to fall back to the untouched upload (a multi-megabyte PNG on the post in
-/// pubky/pubky-app#2633) to stay sharp.
+/// Full-width cover on wide screens.
 const HERO_IMAGE_WIDTH: &str = "1440";
 /// The format `process` hands ImageMagick as its output format, i.e. the bytes a derived variant
 /// actually contains.
@@ -34,11 +32,7 @@ impl BaseProcessingOptions for ImageOptions {
     }
 }
 
-/// The `-resize` geometry for a derived variant: fit within `width`, and never enlarge.
-///
-/// The `>` is load bearing. Without it ImageMagick upscales any upload narrower than the variant,
-/// so `hero` (1440) would turn an 1188 px upload into a 1440x364 WebP, a larger and softer file
-/// than the source, and a small upload into a much larger one.
+/// The `-resize` geometry for a derived variant: fit within `width`, never enlarge (`>`).
 fn resize_geometry(width: &str) -> String {
     format!("{}x>", width)
 }
@@ -140,9 +134,7 @@ mod tests {
         assert_eq!(image_variant_content_type(), "image/webp");
     }
 
-    // One assertion per variant, so a width can never be changed, or a variant added, without
-    // saying which surface it is for. `hero` is the full-width article cover: `feed` (720 px) is
-    // what the feed cards and a phone render, and the original upload is what a wide screen wants.
+    // One assertion per variant, so a width cannot change, or a variant appear, unlisted.
     #[test]
     fn test_resize_geometry_never_enlarges() {
         assert_eq!(resize_geometry("320"), "320x>");

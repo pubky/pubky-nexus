@@ -50,8 +50,7 @@ impl Display for FileVariant {
 /// variants at all, which is also how an unsupported one answers.
 pub fn get_valid_variants_for_content_type(content_type: &str) -> Vec<FileVariant> {
     match content_type {
-        // Largest to smallest: `main` is the untouched upload, `hero` the full-width article
-        // cover, `feed` a feed card and a phone, `small` an avatar.
+        // Largest to smallest.
         value if value.starts_with("image") => {
             vec![
                 FileVariant::Main,

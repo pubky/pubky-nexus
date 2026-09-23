@@ -99,7 +99,6 @@ impl AvatarBenchSetup {
             content_type: "image/png".to_string(),
             urls: FileUrls {
                 main: format!("{USER_PUBKY}/{FILE_ID}"),
-                hero: None,
                 feed: None,
                 small: None,
             },

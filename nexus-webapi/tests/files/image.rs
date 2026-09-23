@@ -141,8 +141,7 @@ async fn test_static_image_serving_hero() -> Result<()> {
         .await?;
 
     assert_eq!(res.status(), 200);
-    // The hero is a derived variant, so it is WebP whatever the upload was, and it is not the
-    // untouched upload the wide screens had to take before this existed.
+    // The hero is derived, so WebP whatever the upload was.
     assert_ne!(
         res.header("content-type")
             .unwrap()

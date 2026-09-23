@@ -1,7 +1,7 @@
 use crate::db::graph::{GraphResult, Query};
 use crate::db::kv::RedisResult;
 use crate::db::{exec_single_row, queries, RedisOps};
-use crate::media::{get_valid_variants_for_content_type, FileVariant};
+use crate::media::FileVariant;
 use crate::models::error::ModelResult;
 use crate::models::traits::Collection;
 use async_trait::async_trait;
@@ -15,7 +15,6 @@ use utoipa::ToSchema;
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema, Default)]
 pub struct FileUrls {
     pub main: String,
-    pub hero: Option<String>,
     pub feed: Option<String>,
     pub small: Option<String>,
 }
@@ -36,9 +35,6 @@ impl FileUrls {
 
         Self {
             main: build_url(&FileVariant::Main),
-            hero: variants
-                .contains(&FileVariant::Hero)
-                .then(|| build_url(&FileVariant::Hero)),
             feed: variants
                 .contains(&FileVariant::Feed)
                 .then(|| build_url(&FileVariant::Feed)),
@@ -46,37 +42,6 @@ impl FileUrls {
                 .contains(&FileVariant::Small)
                 .then(|| build_url(&FileVariant::Small)),
         }
-    }
-
-    /// Fills in the derived variants a stored record predates.
-    ///
-    /// This list is written once, at ingestion, so a file indexed before a variant existed keeps
-    /// the list it was written with: every file indexed before `hero` returns `hero: null`, even
-    /// though the static route derives that variant on demand. Every variant of a file lives in
-    /// the same directory as `main`, so a missing URL is `main` with its last segment swapped.
-    ///
-    /// Called on the way out of a read, never on the way in: the stored record is left alone.
-    pub fn fill_derived_variants(&mut self, content_type: &str) {
-        for variant in get_valid_variants_for_content_type(content_type) {
-            let slot = match variant {
-                FileVariant::Main => continue,
-                FileVariant::Hero => &mut self.hero,
-                FileVariant::Feed => &mut self.feed,
-                FileVariant::Small => &mut self.small,
-            };
-            if slot.is_none() {
-                *slot = Some(replace_last_path_segment(&self.main, &variant.to_string()));
-            }
-        }
-    }
-}
-
-/// Swaps the last path segment of a variant URL: `.../0035R8SA18DE0/main` becomes `.../hero`.
-/// A URL with no separator is returned unchanged, so a malformed record cannot panic a read.
-fn replace_last_path_segment(url: &str, segment: &str) -> String {
-    match url.rfind('/') {
-        Some(index) => format!("{}/{}", &url[..index], segment),
-        None => url.to_string(),
     }
 }
 
@@ -180,48 +145,5 @@ impl FileDetails {
         } else {
             None
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// A record written before `hero` existed: `main` and `feed`, nothing else.
-    fn legacy_image_urls() -> FileUrls {
-        FileUrls {
-            main: "/static/files/user/file/main".to_string(),
-            hero: None,
-            feed: Some("/static/files/user/file/feed".to_string()),
-            small: None,
-        }
-    }
-
-    #[test]
-    fn test_fill_derived_variants_backfills_what_a_legacy_record_predates() {
-        let mut urls = legacy_image_urls();
-        urls.fill_derived_variants("image/png");
-
-        assert_eq!(urls.hero.as_deref(), Some("/static/files/user/file/hero"));
-        assert_eq!(urls.small.as_deref(), Some("/static/files/user/file/small"));
-        // A variant the record already carries keeps the URL it was written with.
-        assert_eq!(urls.feed.as_deref(), Some("/static/files/user/file/feed"));
-        assert_eq!(urls.main, "/static/files/user/file/main");
-    }
-
-    #[test]
-    fn test_fill_derived_variants_leaves_a_content_type_without_variants_alone() {
-        let mut urls = FileUrls {
-            main: "/static/files/user/file/main".to_string(),
-            ..Default::default()
-        };
-        urls.fill_derived_variants("video/mp4");
-
-        assert!(urls.hero.is_none() && urls.feed.is_none() && urls.small.is_none());
-    }
-
-    #[test]
-    fn test_replace_last_path_segment_without_a_separator_is_a_no_op() {
-        assert_eq!(replace_last_path_segment("main", "hero"), "main");
     }
 }
