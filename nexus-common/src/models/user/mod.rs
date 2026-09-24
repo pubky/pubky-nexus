@@ -23,8 +23,3 @@ pub use stream::{
     STARTER_PACK_MAX_SKIP, USER_INFLUENCERS_KEY_PARTS, USER_MOSTFOLLOWED_KEY_PARTS,
 };
 pub use view::UserView;
-
-/// Sentinel value used to mark deleted users in the system.
-/// When a user with relationships is deleted, their name field is set to this value
-/// instead of fully removing their profile data.
-pub const USER_DELETED_SENTINEL: &str = "[DELETED]";

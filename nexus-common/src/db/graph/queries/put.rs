@@ -12,7 +12,7 @@ pub fn create_user(user: &UserDetails) -> GraphResult<Query> {
     let query = Query::new(
         "create_user",
         "MERGE (u:User {id: $id})
-         SET u.name = $name, u.bio = $bio, u.status = $status, u.links = $links, u.image = $image, u.indexed_at = $indexed_at;",
+         SET u.name = $name, u.bio = $bio, u.status = $status, u.links = $links, u.image = $image, u.indexed_at = $indexed_at, u.deleted = $deleted;",
     )
     .param("id", user.id.to_string())
     .param("name", user.name.clone())
@@ -20,7 +20,8 @@ pub fn create_user(user: &UserDetails) -> GraphResult<Query> {
     .param("status", user.status.clone())
     .param("links", links)
     .param("image", user.image.clone())
-    .param("indexed_at", user.indexed_at);
+    .param("indexed_at", user.indexed_at)
+    .param("deleted", user.deleted);
 
     Ok(query)
 }
