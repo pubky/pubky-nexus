@@ -98,11 +98,7 @@ impl AvatarBenchSetup {
             name: AVATAR_BLOB_NAME.to_string(),
             size: source_size as i64,
             content_type: "image/png".to_string(),
-            urls: FileUrls {
-                main: format!("{USER_PUBKY}/{FILE_ID}"),
-                feed: None,
-                small: None,
-            },
+            urls: FileUrls::new(USER_PUBKY, FILE_ID, "image/png"),
             metadata: None,
         };
 

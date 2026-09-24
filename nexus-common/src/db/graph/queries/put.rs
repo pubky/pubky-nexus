@@ -396,16 +396,13 @@ pub fn create_resource_tag(
     .param("indexed_at", indexed_at)
 }
 
-/// Create a file node
+/// Create a file node. Its variant URLs are not stored: they are rebuilt on read.
 pub fn create_file(file: &FileDetails) -> GraphResult<Query> {
-    let urls = serde_json::to_string(&file.urls)
-        .map_err(|e| GraphError::SerializationFailed(Box::new(e)))?;
-
     let query = Query::new(
         "create_file",
         "MERGE (f:File {id: $id, owner_id: $owner_id})
          SET f.uri = $uri, f.indexed_at = $indexed_at, f.created_at = $created_at, f.size = $size,
-            f.src = $src, f.name = $name, f.content_type = $content_type, f.urls = $urls;",
+            f.src = $src, f.name = $name, f.content_type = $content_type;",
     )
     .param("id", file.id.to_string())
     .param("owner_id", file.owner_id.to_string())
@@ -415,8 +412,7 @@ pub fn create_file(file: &FileDetails) -> GraphResult<Query> {
     .param("size", file.size)
     .param("src", file.src.to_string())
     .param("name", file.name.to_string())
-    .param("content_type", file.content_type.to_string())
-    .param("urls", urls);
+    .param("content_type", file.content_type.to_string());
 
     Ok(query)
 }
