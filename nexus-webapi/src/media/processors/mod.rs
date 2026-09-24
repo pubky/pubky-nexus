@@ -334,8 +334,8 @@ mod tests {
         TIMEDOUT_MARKER_TTL,
     };
 
-    static FINISHED: AtomicBool = AtomicBool::new(false);
-    const WORK: Duration = Duration::from_millis(300);
+    /// Dropped beside a file's variants to let a `SlowProcessor` converting it finish.
+    const RELEASE_NAME: &str = "release";
 
     struct SlowOptions;
 
@@ -345,7 +345,8 @@ mod tests {
         }
     }
 
-    /// Stands in for ImageMagick/ffmpeg: slow, and it records that it ran to completion.
+    /// Stands in for ImageMagick/ffmpeg: runs until the test drops `RELEASE_NAME` beside the
+    /// file's variants, so a test decides when the work ends instead of racing a timer.
     struct SlowProcessor;
 
     #[async_trait::async_trait]
@@ -359,7 +360,7 @@ mod tests {
         }
 
         async fn process(
-            _origin_file_path: &str,
+            origin_file_path: &str,
             output_file_path: &str,
             _options: &SlowOptions,
             _subprocess: MediaSubprocess,
@@ -369,8 +370,10 @@ mod tests {
             tokio::fs::write(output_file_path, b"")
                 .await
                 .expect("stand-in must create its output");
-            tokio::time::sleep(WORK).await;
-            FINISHED.store(true, Ordering::SeqCst);
+            let release = Path::new(origin_file_path).with_file_name(RELEASE_NAME);
+            while !release.exists() {
+                tokio::time::sleep(POLL).await;
+            }
             // Write a real file so the publish path (empty check + rename) exercises the
             // same code as a real conversion.
             tokio::fs::write(output_file_path, b"slow variant bytes")
@@ -378,6 +381,31 @@ mod tests {
                 .expect("stand-in must write its output");
             Ok(String::from("image/webp"))
         }
+    }
+
+    const POLL: Duration = Duration::from_millis(5);
+
+    /// Waits until `check` holds. The deadline only bounds a broken run: a passing one returns as
+    /// soon as the state is reached, however slow the machine.
+    async fn eventually<F, Fut>(what: &str, mut check: F)
+    where
+        F: FnMut() -> Fut,
+        Fut: std::future::Future<Output = bool>,
+    {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+        while !check().await {
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "timed out waiting for: {what}"
+            );
+            tokio::time::sleep(POLL).await;
+        }
+    }
+
+    async fn release(dir: &Path) {
+        tokio::fs::write(dir.join(RELEASE_NAME), b"")
+            .await
+            .expect("release the stand-in");
     }
 
     fn file_details() -> FileDetails {
@@ -401,6 +429,9 @@ mod tests {
     #[tokio_shared_rt::test(shared)]
     async fn test_cancelled_request_holds_permit_until_work_completes() {
         let root = tempfile::TempDir::new().expect("temp dir");
+        let file = file_details();
+        let dir = variant_dir(root.path(), &file).await;
+        let variant = dir.join(FileVariant::Small.to_string());
         let gate = Arc::new(QueuedGate::with_limits(
             MediaPermits::new(1),
             4,
@@ -412,7 +443,7 @@ mod tests {
             let root = root.path().to_path_buf();
             async move {
                 SlowProcessor::create_variant(
-                    &file_details(),
+                    &file,
                     &FileVariant::Small,
                     &root,
                     gate.as_ref(),
@@ -422,8 +453,12 @@ mod tests {
             }
         });
 
-        // Let the caller take the only permit, then cancel it mid-work.
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        // The temp file appears only after the acquire, so the caller holds the only permit.
+        let root_path = root.path();
+        eventually("the conversion to start", move || async move {
+            temp_dir_entries(root_path).await.len() == 1
+        })
+        .await;
         caller.abort();
         let _ = caller.await;
 
@@ -431,21 +466,19 @@ mod tests {
             gate.acquire().await.is_err(),
             "permit must stay held while the abandoned subprocess runs"
         );
-        assert!(
-            !FINISHED.load(Ordering::SeqCst),
-            "test must observe the gate before the work completes"
-        );
 
         // Once the work finishes the permit is released and capacity returns.
-        tokio::time::sleep(WORK).await;
-        assert!(
-            FINISHED.load(Ordering::SeqCst),
-            "cancelling the caller must not cancel the subprocess"
-        );
-        assert!(
-            gate.acquire().await.is_ok(),
-            "permit must be released once the work completes"
-        );
+        release(&dir).await;
+        let variant = variant.as_path();
+        eventually("the abandoned work to publish", move || async move {
+            variant.exists()
+        })
+        .await;
+        let gate: &QueuedGate = &gate;
+        eventually("the permit to return", move || async move {
+            gate.acquire().await.is_ok()
+        })
+        .await;
     }
 
     /// A gate whose acquire can stall behind a flag the test controls. The test parks a second
@@ -508,8 +541,12 @@ mod tests {
             }
         });
 
-        // The caller is mid-conversion (work takes 300ms); the request times out on it.
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        // The caller is mid-conversion, and the request times out on it.
+        let root_path = root.path();
+        eventually("the conversion to start", move || async move {
+            temp_dir_entries(root_path).await.len() == 1
+        })
+        .await;
         caller.abort();
         assert!(
             !dir.join(FileVariant::Small.to_string()).exists(),
@@ -521,12 +558,15 @@ mod tests {
             "the in-flight conversion must write to the temp dir, not the variant path"
         );
 
-        // The caller is gone, so only the task can publish. Wait for it to finish.
-        tokio::time::sleep(WORK).await;
-        assert!(
-            dir.join(FileVariant::Small.to_string()).exists(),
-            "the conversion must publish despite the aborted caller"
-        );
+        // The caller is gone, so only the task can publish.
+        release(&dir).await;
+        let variant = dir.join(FileVariant::Small.to_string());
+        let variant = variant.as_path();
+        eventually(
+            "the conversion to publish despite the aborted caller",
+            move || async move { variant.exists() },
+        )
+        .await;
         assert!(
             temp_dir_entries(root.path()).await.is_empty(),
             "the temp file must be consumed by the rename"
@@ -632,17 +672,23 @@ mod tests {
             }
         });
 
-        // The conversion is wedged; the request times out on it well before the kill.
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        // The conversion is wedged, and the request times out on it. A slow machine may reach
+        // the kill first, which is why a marker also counts as started.
+        let (root_path, marker) = (root.path(), marker_path(&dir));
+        let marker = marker.as_path();
+        eventually("the conversion to start", move || async move {
+            marker.exists() || !temp_dir_entries(root_path).await.is_empty()
+        })
+        .await;
         caller.abort();
         let _ = caller.await;
 
         // Past the deadline, with no caller left to write the marker.
-        tokio::time::sleep(Duration::from_millis(600)).await;
-        assert!(
-            marker_path(&dir).exists(),
-            "a kill outlives its request, so the marker must survive the caller"
-        );
+        eventually(
+            "the marker, since a kill outlives its request",
+            move || async move { marker.exists() },
+        )
+        .await;
         assert!(
             !dir.join(FileVariant::Small.to_string()).exists(),
             "a killed conversion must not publish"
@@ -1179,10 +1225,14 @@ mod tests {
 
         async fn process(
             _origin_file_path: &str,
-            _output_file_path: &str,
+            output_file_path: &str,
             _options: &SlowOptions,
             subprocess: MediaSubprocess,
         ) -> Result<String, MediaProcessorError> {
+            // Opened up front like a real converter, so a test can see the work has started.
+            tokio::fs::write(output_file_path, b"")
+                .await
+                .expect("stand-in must create its output");
             subprocess
                 .run(tokio::process::Command::new("sleep").arg("30"))
                 .await?;
