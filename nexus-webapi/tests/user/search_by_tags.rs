@@ -1,3 +1,6 @@
+use crate::utils::search_reach::{
+    D2, FOLLOWED, FOLLOWER, FRIEND, OBS, STRANGER, UNKNOWN_USER, USER_TAG, USER_TAG_2,
+};
 use crate::utils::{get_request, invalid_get_request};
 use anyhow::Result;
 use axum::http::StatusCode;
@@ -136,5 +139,179 @@ async fn test_user_search_by_tags_rejects_invalid() -> Result<()> {
     // Missing tags param
     invalid_get_request(SEARCH_USERS_BY_TAGS_ROUTE, StatusCode::BAD_REQUEST).await?;
 
+    Ok(())
+}
+
+// ── Reach-filtered search ─────────────────────────────────────────────────────
+
+fn user_ids(body: &Value) -> Vec<&str> {
+    result_rows(body)
+        .iter()
+        .map(|row| row["user_id"].as_str().expect("user_id should be a string"))
+        .collect()
+}
+
+fn reach_query(tags: &str, observer: &str, reach: &str) -> String {
+    search_users_by_tags(&format!("tags={tags}&user_id={observer}&reach={reach}"))
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_user_search_by_tags_reach_single_label() -> Result<()> {
+    let unfiltered =
+        scores_by_user(&get_request(&search_users_by_tags(&format!("tags={USER_TAG}"))).await?);
+
+    // Equal scores break ties by user id descending
+    let cases = [
+        ("following", vec![FRIEND, FOLLOWED]),
+        ("followers", vec![FOLLOWER, FRIEND]),
+        // One-directional follows are not friends
+        ("friends", vec![FRIEND]),
+    ];
+    for (reach, expected) in cases {
+        let body = get_request(&reach_query(USER_TAG, OBS, reach)).await?;
+        assert_eq!(user_ids(&body), expected, "reach={reach}");
+        for (user_id, score) in scores_by_user(&body) {
+            assert_eq!(
+                unfiltered.get(&user_id),
+                Some(&score),
+                "reach={reach} must keep the unfiltered score of {user_id}"
+            );
+        }
+    }
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_user_search_by_tags_reach_wot() -> Result<()> {
+    // Single-label WoT goes to the graph. D2 is only reachable at depth 2, and
+    // OBS, reachable through FRIEND's follow back, is excluded
+    let body = get_request(&reach_query(USER_TAG, OBS, "wot_2")).await?;
+    assert_eq!(user_ids(&body), vec![FRIEND, D2, FOLLOWED]);
+    assert_eq!(
+        scores_by_user(&body),
+        HashMap::from([
+            (FRIEND.to_string(), 2),
+            (D2.to_string(), 1),
+            (FOLLOWED.to_string(), 1)
+        ])
+    );
+
+    let body = get_request(&reach_query(USER_TAG, OBS, "wot_1")).await?;
+    assert_eq!(user_ids(&body), vec![FRIEND, FOLLOWED]);
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_user_search_by_tags_reach_multi_label() -> Result<()> {
+    // FOLLOWED carries both labels (1 + 1), STRANGER is out of reach
+    let tags = format!("{USER_TAG},{USER_TAG_2}");
+    let body = get_request(&reach_query(&tags, OBS, "following")).await?;
+    assert_eq!(user_ids(&body), vec![FOLLOWED, FRIEND]);
+    assert_eq!(
+        scores_by_user(&body),
+        HashMap::from([(FOLLOWED.to_string(), 2), (FRIEND.to_string(), 2)])
+    );
+
+    let body = get_request(&reach_query(&tags, OBS, "wot_2")).await?;
+    assert_eq!(user_ids(&body), vec![FOLLOWED, FRIEND, D2]);
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_user_search_by_tags_reach_excludes_observer() -> Result<()> {
+    let unfiltered =
+        scores_by_user(&get_request(&search_users_by_tags(&format!("tags={USER_TAG}"))).await?);
+    assert!(unfiltered.contains_key(OBS), "fixture tags the observer");
+
+    // FRIEND's followers and following both contain OBS
+    for reach in [
+        "following",
+        "followers",
+        "friends",
+        "wot_1",
+        "wot_2",
+        "wot_3",
+    ] {
+        let body = get_request(&reach_query(USER_TAG, OBS, reach)).await?;
+        let ids = user_ids(&body);
+        assert!(!ids.contains(&OBS), "reach={reach} returned the observer");
+        assert!(
+            !ids.contains(&STRANGER),
+            "reach={reach} returned a stranger"
+        );
+
+        let body = get_request(&reach_query(USER_TAG, FRIEND, reach)).await?;
+        assert!(
+            !user_ids(&body).contains(&FRIEND),
+            "reach={reach} returned the observer"
+        );
+    }
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_user_search_by_tags_reach_other_observers() -> Result<()> {
+    // FOLLOWED follows D2 only
+    let body = get_request(&reach_query(USER_TAG, FOLLOWED, "following")).await?;
+    assert_eq!(user_ids(&body), vec![D2]);
+
+    // FRIEND and OBS follow each other
+    let body = get_request(&reach_query(USER_TAG, FRIEND, "friends")).await?;
+    assert_eq!(user_ids(&body), vec![OBS]);
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_user_search_by_tags_reach_pagination() -> Result<()> {
+    for reach in ["following", "followers", "wot_2"] {
+        let full = get_request(&format!("{}&limit=200", reach_query(USER_TAG, OBS, reach))).await?;
+        let full = result_rows(&full).clone();
+        assert!(full.len() >= 2, "reach={reach} needs two rows to page");
+
+        for (skip, limit) in [(0, 1), (1, 1), (1, 5), (full.len(), 5)] {
+            let page = get_request(&format!(
+                "{}&skip={skip}&limit={limit}",
+                reach_query(USER_TAG, OBS, reach)
+            ))
+            .await?;
+            let end = (skip + limit).min(full.len());
+            assert_eq!(
+                result_rows(&page).as_slice(),
+                &full[skip.min(end)..end],
+                "reach={reach} skip={skip} limit={limit}"
+            );
+        }
+    }
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_user_search_by_tags_reach_unknown_user() -> Result<()> {
+    for reach in ["following", "followers", "friends", "wot_2"] {
+        let body = get_request(&reach_query(USER_TAG, UNKNOWN_USER, reach)).await?;
+        assert!(result_rows(&body).is_empty(), "reach={reach}");
+    }
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_user_search_by_tags_reach_requires_both_params() -> Result<()> {
+    invalid_get_request(
+        &search_users_by_tags(&format!("tags={USER_TAG}&reach=following")),
+        StatusCode::BAD_REQUEST,
+    )
+    .await?;
+    invalid_get_request(
+        &search_users_by_tags(&format!("tags={USER_TAG}&user_id={OBS}")),
+        StatusCode::BAD_REQUEST,
+    )
+    .await?;
+    invalid_get_request(
+        &search_users_by_tags(&format!(
+            "tags={USER_TAG}&user_id=not-a-pubky&reach=following"
+        )),
+        StatusCode::BAD_REQUEST,
+    )
+    .await?;
     Ok(())
 }

@@ -327,8 +327,55 @@ pub fn get_trust_ranked_user_ids() -> Query {
 /// Users whose profile carries any of the given tag labels, scored by distinct
 /// tagger count summed across the searched labels.
 pub fn search_users_by_tags(labels: &[String], skip: Option<usize>, limit: Option<usize>) -> Query {
-    let mut cypher = String::from(
+    Query::new(
+        "search_users_by_tags",
+        users_by_tags_cypher("", skip, limit),
+    )
+    .param("labels", labels.to_vec())
+    .param("deleted", USER_DELETED_SENTINEL)
+}
+
+/// [`search_users_by_tags`] restricted to the users in `user_id`'s `reach`,
+/// excluding `user_id` itself. Pages inside the graph, so only the requested
+/// window leaves Neo4j.
+pub fn search_users_by_tags_with_reach(
+    labels: &[String],
+    user_id: &str,
+    reach: &StreamReach,
+    skip: Option<usize>,
+    limit: Option<usize>,
+) -> Query {
+    let reach_prefix = format!(
+        "MATCH (user:User {{id: $user_id}})
+        {}
+        WHERE reach.id <> $user_id
+        // A WoT expand yields one row per path, so dedupe the reach before the
+        // tag join, or a user's tags count once per path. DISTINCT right after
+        // the variable-length expand also lets the planner use a pruning BFS.
+        // Starting from the tag with an EXISTS {{ (user)-[:FOLLOWS*1..d]->(u) }}
+        // check was slower: it runs an unpruned expand per tagged user.
+        WITH DISTINCT reach AS u",
+        stream_reach_to_graph_subquery(reach)
+    );
+
+    reach_attrs(
+        Query::new(
+            "search_users_by_tags_with_reach",
+            users_by_tags_cypher(&reach_prefix, skip, limit),
+        ),
+        reach,
+    )
+    .param("labels", labels.to_vec())
+    .param("user_id", user_id)
+    .param("deleted", USER_DELETED_SENTINEL)
+}
+
+/// Shared scoring for the user tag searches. `prefix` may bind `u` to narrow
+/// the tagged users; empty searches every user.
+fn users_by_tags_cypher(prefix: &str, skip: Option<usize>, limit: Option<usize>) -> String {
+    let mut cypher = format!(
         "
+        {prefix}
         MATCH (tagger:User)-[tag:TAGGED]->(u:User)
         WHERE tag.label IN $labels AND u.name <> $deleted
         WITH u, COUNT(tag) AS score
@@ -336,7 +383,7 @@ pub fn search_users_by_tags(labels: &[String], skip: Option<usize>, limit: Optio
         // id DESC matches how Redis breaks equal scores (reverse-lex member
         // order), keeping pagination windows identical across both paths
         ORDER BY score DESC, u.id DESC
-        ",
+        "
     );
 
     if let Some(skip) = skip {
@@ -345,10 +392,7 @@ pub fn search_users_by_tags(labels: &[String], skip: Option<usize>, limit: Optio
     if let Some(limit) = limit {
         cypher.push_str(&format!("LIMIT {}\n", limit.min(MAX_QUERY_LIMIT)));
     }
-
-    Query::new("search_users_by_tags", &cypher)
-        .param("labels", labels.to_vec())
-        .param("deleted", USER_DELETED_SENTINEL)
+    cypher
 }
 
 // Retrieve all the tags of the post
@@ -1731,6 +1775,33 @@ mod tests {
             assert!(
                 dedup < posts,
                 "author dedup must precede the posts MATCH:\n{cypher}"
+            );
+        }
+    }
+
+    #[test]
+    fn user_tag_search_dedupes_reach_before_tag_join() {
+        let labels = ["label".to_string()];
+        let reaches = [
+            StreamReach::Followers,
+            StreamReach::Following,
+            StreamReach::Friends,
+            StreamReach::Wot(WotDepth::new(1).unwrap()),
+            StreamReach::Wot(WotDepth::new(2).unwrap()),
+            StreamReach::Wot(WotDepth::new(3).unwrap()),
+        ];
+        for reach in reaches {
+            let cypher = search_users_by_tags_with_reach(&labels, "user", &reach, None, None)
+                .to_cypher_populated();
+            let dedupe = cypher
+                .find("WITH DISTINCT reach AS u")
+                .unwrap_or_else(|| panic!("{reach:?} must dedupe the reach:\n{cypher}"));
+            let tag_join = cypher
+                .find("MATCH (tagger:User)-[tag:TAGGED]->(u:User)")
+                .unwrap_or_else(|| panic!("{reach:?} must join tags on u:\n{cypher}"));
+            assert!(
+                dedupe < tag_join,
+                "{reach:?} must dedupe before the tag join, or tags count once per path:\n{cypher}"
             );
         }
     }
