@@ -1550,8 +1550,7 @@ pub fn starter_pack_users(
                  sum(coalesce(tagger.trust, 0.0)) AS trust_score,
                  count(DISTINCT tagger) AS endorsers
             // Cheaper here than against every endorsement row.
-            // TODO: drop the name check once nothing writes the [DELETED] sentinel.
-            WHERE candidate.name <> '[DELETED]' AND NOT coalesce(candidate.deleted, false)
+            WHERE NOT coalesce(candidate.deleted, false)
               AND (user IS NULL OR (candidate <> user AND NOT (user)-[:FOLLOWS]->(candidate)))
               AND EXISTS { MATCH (candidate)-[:AUTHORED]->(p:Post) WHERE p.indexed_at >= $since }
             WITH candidate.id AS id, trust_score, endorsers
