@@ -8,6 +8,8 @@ use super::{BaseProcessingOptions, VariantProcessor};
 
 const SMALL_IMAGE_WIDTH: &str = "320";
 const FEED_IMAGE_WIDTH: &str = "720";
+/// Full-width cover on wide screens.
+const LARGE_IMAGE_WIDTH: &str = "1440";
 /// The format `process` hands ImageMagick as its output format, i.e. the bytes a derived variant
 /// actually contains.
 const IMAGE_FORMAT: &str = "webp";
@@ -30,6 +32,11 @@ impl BaseProcessingOptions for ImageOptions {
     }
 }
 
+/// The `-resize` geometry for a derived variant: fit within `width`, never enlarge (`>`).
+fn resize_geometry(width: &str) -> String {
+    format!("{}x>", width)
+}
+
 pub struct ImageProcessor;
 
 #[async_trait]
@@ -40,9 +47,10 @@ impl VariantProcessor for ImageProcessor {
         let width = match variant {
             FileVariant::Small => String::from(SMALL_IMAGE_WIDTH),
             FileVariant::Feed => String::from(FEED_IMAGE_WIDTH),
+            FileVariant::Large => String::from(LARGE_IMAGE_WIDTH),
             _ => return Err(MediaProcessorError::UnsupportedFileVariant),
         };
-        // `variant` is Small or Feed here: Main returned above.
+        // `variant` is Small, Feed or Large here: Main returned above.
         let content_type = image_variant_content_type();
         Ok(ImageOptions {
             format: IMAGE_FORMAT.to_string(),
@@ -71,7 +79,7 @@ impl VariantProcessor for ImageProcessor {
                 Command::new("convert")
                     .arg(origin_file_path)
                     .arg("-resize")
-                    .arg(format!("{}x", options.width))
+                    .arg(resize_geometry(&options.width))
                     .arg("-auto-orient") // https://github.com/ImageMagick/ImageMagick/issues/6396
                     .arg(output),
             )
@@ -124,5 +132,30 @@ mod tests {
     fn test_variant_content_type_tracks_the_output_format() {
         assert_eq!(IMAGE_FORMAT, "webp");
         assert_eq!(image_variant_content_type(), "image/webp");
+    }
+
+    #[test]
+    fn test_resize_geometry_never_enlarges() {
+        assert_eq!(resize_geometry("320"), "320x>");
+        assert_eq!(resize_geometry("720"), "720x>");
+        assert_eq!(resize_geometry("1440"), "1440x>");
+    }
+
+    // One assertion per variant, so a width cannot change, or a variant appear, unlisted.
+    #[test]
+    fn test_variant_widths() {
+        let width = |variant: FileVariant| {
+            ImageProcessor::get_options_for_variant(&variant)
+                .expect("variant has image options")
+                .width
+        };
+
+        assert_eq!(width(FileVariant::Small), "320");
+        assert_eq!(width(FileVariant::Feed), "720");
+        assert_eq!(width(FileVariant::Large), "1440");
+        assert!(matches!(
+            ImageProcessor::get_options_for_variant(&FileVariant::Main),
+            Err(MediaProcessorError::UnsupportedFileVariant)
+        ));
     }
 }

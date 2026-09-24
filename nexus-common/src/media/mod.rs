@@ -15,6 +15,7 @@ use utoipa::ToSchema;
 #[serde(rename_all = "lowercase")]
 pub enum FileVariant {
     Main,
+    Large,
     Feed,
     Small,
 }
@@ -25,6 +26,7 @@ impl FromStr for FileVariant {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "main" => Ok(FileVariant::Main),
+            "large" => Ok(FileVariant::Large),
             "feed" => Ok(FileVariant::Feed),
             "small" => Ok(FileVariant::Small),
             _ => Err("Invalid file version".into()),
@@ -36,6 +38,7 @@ impl Display for FileVariant {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let version_string = match self {
             FileVariant::Main => "main",
+            FileVariant::Large => "large",
             FileVariant::Feed => "feed",
             FileVariant::Small => "small",
         };
@@ -47,8 +50,14 @@ impl Display for FileVariant {
 /// variants at all, which is also how an unsupported one answers.
 pub fn get_valid_variants_for_content_type(content_type: &str) -> Vec<FileVariant> {
     match content_type {
+        // Largest to smallest.
         value if value.starts_with("image") => {
-            vec![FileVariant::Main, FileVariant::Small, FileVariant::Feed]
+            vec![
+                FileVariant::Main,
+                FileVariant::Large,
+                FileVariant::Feed,
+                FileVariant::Small,
+            ]
         }
         value if value.starts_with("video") => vec![FileVariant::Main],
         _ => vec![],
@@ -90,7 +99,12 @@ mod tests {
     fn test_image_has_derived_variants_and_video_does_not() {
         assert_eq!(
             get_valid_variants_for_content_type("image/jpeg"),
-            vec![FileVariant::Main, FileVariant::Small, FileVariant::Feed]
+            vec![
+                FileVariant::Main,
+                FileVariant::Large,
+                FileVariant::Feed,
+                FileVariant::Small,
+            ]
         );
         assert_eq!(
             get_valid_variants_for_content_type("video/mp4"),
