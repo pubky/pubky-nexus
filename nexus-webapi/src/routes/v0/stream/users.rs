@@ -11,7 +11,8 @@ use crate::{Error, Result};
 use axum::Json;
 use nexus_common::config::watcher::MODERATED_TAGS;
 use nexus_common::models::user::{
-    UserIdStream, UserStream, UserStreamInput, UserStreamSource, STARTER_PACK_MAX_SKIP,
+    UserIdStream, UserStream, UserStreamInput, UserStreamSource, GLOBAL_INFLUENCERS_CACHE_SIZE,
+    STARTER_PACK_MAX_SKIP,
 };
 use nexus_common::types::{StreamReach, Timeframe};
 use serde::Deserialize;
@@ -49,7 +50,7 @@ pub struct UserStreamQuery {
         ("preview" = Option<bool>, Query, description = "Provide a random selection of size 3 for sources supporting preview. Passing preview ignores skip and limit parameters."),
         ("depth" = Option<u8>, Query, description = "User trusted network depth, user following users distance. Numbers bigger than 3 will be ignored"),
         ("tags" = Option<Tags>, Query, example = "bitcoin,travel,music", description = "Comma-separated interest labels (1-5) for source 'starter_pack'. Rejected with 400 for every other source, and for moderation labels."),
-        ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Skip N users (max 10000, or 100 for source 'starter_pack')"),
+        ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Skip N users (max 10000; 100 for source 'starter_pack', and for global 'influencers' with a timeframe other than 'all_time')"),
         ("limit" = Option<BoundedLimit<5, 20>>, Query, description = "Retrieve N users (1–20, default 5)")
     ),
     responses(
@@ -100,7 +101,7 @@ pub async fn stream_users_handler(
         ("preview" = Option<bool>, Query, description = "Provide a random selection of size 3 for sources supporting preview. Passing preview ignores skip and limit parameters."),
         ("depth" = Option<u8>, Query, description = "User trusted network depth, user following users distance. Numbers bigger than 3 will be ignored"),
         ("tags" = Option<Tags>, Query, example = "bitcoin,travel,music", description = "Comma-separated interest labels (1-5) for source 'starter_pack'. Rejected with 400 for every other source, and for moderation labels."),
-        ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Skip N users (max 10000, or 100 for source 'starter_pack')"),
+        ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Skip N users (max 10000; 100 for source 'starter_pack', and for global 'influencers' with a timeframe other than 'all_time')"),
         ("limit" = Option<BoundedLimit<5, 20>>, Query, description = "Retrieve N users (1–20, default 5)")
     ),
     responses(
@@ -273,6 +274,19 @@ fn build_user_stream_input(
         }
         (_, None) => None,
     };
+
+    // Global influencers for a ranged timeframe come from a fixed-size cache, so any page
+    // past its end is empty by construction. Preview ignores skip, so it is exempt.
+    if source == UserStreamSource::Influencers
+        && user_id.is_none()
+        && timeframe != Timeframe::AllTime
+        && preview != Some(true)
+        && skip > GLOBAL_INFLUENCERS_CACHE_SIZE
+    {
+        return Err(Error::invalid_input(format!(
+            "skip must be at most {GLOBAL_INFLUENCERS_CACHE_SIZE} for source 'influencers' without user_id and a timeframe other than 'all_time'"
+        )));
+    }
 
     if user_id.is_none() {
         match source {

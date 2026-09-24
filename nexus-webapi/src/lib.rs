@@ -9,6 +9,8 @@
 //!   ensuring high performance and scalability.
 //! - **Database interactions:** Integrates with underlying data stores such as Neo4j for
 //!   graph-based data and Redis for caching and key-value storage.
+//! - **Media processing:** Derives file variants (resized images, and eventually video) on
+//!   demand, bounded by a shared permit pool so conversions cannot swamp the server.
 //! - **Middleware and observability:** Provides middleware for logging and tracing (via OpenTelemetry)
 //!   to monitor API activity and performance.
 //! - **OpenAPI Documentation:** Automatically generates API documentation using the `utoipa` crate,
@@ -47,6 +49,8 @@ pub mod api_context;
 mod builder;
 pub mod error;
 mod key_republisher;
+pub mod media;
+#[cfg(feature = "mock")]
 pub mod mock;
 pub mod models;
 pub mod routes;

@@ -1,8 +1,7 @@
 use crate::events::{fetch_capped, EventProcessorError};
 
 use nexus_common::db::PubkyConnector;
-use nexus_common::media::FileVariant;
-use nexus_common::media::VariantController;
+use nexus_common::media::{get_file_urls_by_content_type, FileVariant};
 use nexus_common::models::file::Blob;
 use nexus_common::models::user::UserIngestor;
 use nexus_common::models::{
@@ -92,10 +91,7 @@ async fn ingest(
                 .await
                 .map_err(EventProcessorError::static_save_failed)?;
 
-            let urls = VariantController::get_file_urls_by_content_type(
-                pubkyapp_file.content_type.as_str(),
-                &path,
-            );
+            let urls = get_file_urls_by_content_type(pubkyapp_file.content_type.as_str(), &path);
             Ok(FileMeta { urls })
         }
         _ => Err(EventProcessorError::InvalidEventLine(format!(

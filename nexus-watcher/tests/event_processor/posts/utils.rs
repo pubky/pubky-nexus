@@ -124,6 +124,22 @@ pub async fn find_repost_relationship_parent_uri(user_id: &str, post_id: &str) -
     anyhow::bail!("Post relationship not found in Nexus graph");
 }
 
+/// `(author_id, post_id)` of every Collection with a COLLECTED edge to the post.
+pub async fn find_collections_of(author_id: &str, post_id: &str) -> Vec<(String, String)> {
+    let query = Query::new(
+        "find_collections_of",
+        "MATCH (:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
+        MATCH (p)<-[:COLLECTED]-(c:Post)<-[:AUTHORED]-(curator:User)
+        RETURN collect([curator.id, c.id]) AS details",
+    )
+    .param("author_id", author_id)
+    .param("post_id", post_id);
+    fetch_key_from_graph(query, "details")
+        .await
+        .unwrap()
+        .unwrap_or_default()
+}
+
 pub fn post_reply_relationships(author_id: &str, post_id: &str) -> Query {
     Query::new(
         "post_reply_relationships",
@@ -175,6 +191,14 @@ pub fn collection_post(name: &str) -> PubkyAppPost {
         embed: None,
         attachments: None,
         lock: None,
+    }
+}
+
+/// Build a `Collection` post curating the given post URIs, in that order.
+pub fn collection_post_with_items(name: &str, items: &[String]) -> PubkyAppPost {
+    PubkyAppPost {
+        content: serde_json::json!({ "name": name, "items": items }).to_string(),
+        ..collection_post(name)
     }
 }
 

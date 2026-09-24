@@ -78,7 +78,7 @@ cargo run -p nexusd
 cargo run -p nexusd -- --config-dir="custom/config/folder"
 # There is also an option to run services individually
 # Useful to run a database clear command before start running the watcher
-# cargo run -p nexusd -- db clear
+# cargo run -p nexusd -- db clear --yes
 cargo run -p nexusd -- watcher
 cargo run -p nexusd -- api
 ```
@@ -138,6 +138,28 @@ The bundled stack runs independently of the database services and combines the O
 docker compose -f docker/docker-compose.observability.yml up -d
 ```
 
+#### Alerting rules
+
+Prometheus loads alerting rules from `docker/otel/alerts.yaml`, which is mounted into the container at `/etc/prometheus/alerts.yaml`. To use your own rules file, set `PROMETHEUS_ALERTS_FILE` in `docker/.env` (paths are resolved relative to the `docker/` folder):
+
+```bash
+PROMETHEUS_ALERTS_FILE=./otel/my-alerts.yaml
+```
+
+After editing the rules, reload Prometheus without restarting the stack:
+
+```bash
+curl -X POST http://localhost:9090/-/reload
+```
+
+Validate a rules file before mounting it:
+
+```bash
+docker run --rm -v "$PWD/docker/otel:/rules:ro" --entrypoint promtool prom/prometheus:v2.55.1 check rules /rules/alerts.yaml
+```
+
+Active alerts are listed at [http://localhost:9090/alerts](http://localhost:9090/alerts). Grafana also shows them under **Alerting > Alert rules** as data source-managed rules of the Prometheus datasource.
+
 ### SigNoz
 
 SigNoz remains supported as an alternative OpenTelemetry backend. Follow the [SigNoz installation guide](https://signoz.io/docs/install), then replace the local endpoint above with the SigNoz OTLP endpoint. Its local dashboard is available at [http://localhost:3301](http://localhost:3301).
@@ -168,11 +190,11 @@ The Migration Manager uses a phased approach to handle data migrations safely an
 cargo run -p nexusd -- db migration new TagCountsReset
 ```
 
-This will generate a new migration file in the `nexusd/src/migrations/migrations_list` directory.
+This will generate a new migration file in the `nexusd/src/migrations/catalog` directory.
 
-2. Next, register your migration in the `import_migrations` function in `nexusd/src/migrations/mod.rs` file, which ensures it is included in the migration lifecycle.
+2. Next, register your migration in the `import_migrations` function in `nexusd/src/migrations/catalog/mod.rs` file, which ensures it is included in the migration lifecycle.
 
-3. Once registered, implement the required phases (dual_write, backfill, cutover, and cleanup) in the generated file `nexusd/src/migrations/migrations_list/tag_counts_reset_1739459180.rs`. Each phase serves a specific purpose in safely transitioning data between the old and new sources.
+3. Once registered, implement the required phases (dual_write, backfill, cutover, and cleanup) in the generated file `nexusd/src/migrations/catalog/tag_counts_reset_1739459180.rs`. Each phase serves a specific purpose in safely transitioning data between the old and new sources.
 
 ### Run the migration
 

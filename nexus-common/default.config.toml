@@ -88,6 +88,9 @@ testnet = false
 # testnet host, leave as "localhost" for local development. Change only if the
 # testnet homeserver/relay are on another machine (e.g. Docker setups).
 testnet_host = "localhost"
+# Total request timeout in seconds for all HTTP requests made by the shared Pubky client.
+# This includes response-body reads and should accommodate max_file_size blob downloads.
+pubky_http_request_timeout_secs = 300
 # External HS PKs which are forbidden from being indexed
 external_hs_pk_blacklist = []
 
@@ -117,6 +120,25 @@ slow_query_logging_threshold_ms = 100
 # Include the Cypher query text in slow query log entries
 #slow_query_logging_include_cypher = false
 
+[stack.media]
+# Maximum number of concurrent media processing subprocesses (ImageMagick/ffmpeg).
+# Defaults to the number of available CPU cores (minimum 4). Must be greater than 0.
+# ImageMagick and ffmpeg already thread internally, so on large hosts a high value oversubscribes
+# CPU (each concurrent convert can itself use several cores). cores/2 is a sensible starting point.
+# Image conversions run `identify` then `convert` under one permit, each with its own deadline, so
+# worst-case permit hold is 2x process_timeout_secs.
+#max_concurrency = 4
+# Wall-clock deadline (seconds) for a single ImageMagick/ffmpeg subprocess. Past it the process
+# group is killed and reaped so its concurrency slot is returned. Keep it above ImageMagick's own
+# time limit: it is a backstop for children that hang without burning CPU. Must be greater than 0.
+# Two upper bounds to respect:
+# - Keep it below the API request timeout (config [api] request_timeout_secs, default 30s) if
+#   clients of slow conversions should receive the result instead of a 408; work still publishes
+#   after a request timeout, but the caller of that request gets 408 either way.
+# - Keep it under the 1h temp-file sweep (stale files in .tmp are deleted after 1 hour); a longer
+#   deadline lets the sweep delete an in-flight conversion's temp file and fail its rename.
+#process_timeout_secs = 180
+
 # Cron scheduling, one section per registered job (see `nexusd jobs list`),
 # keyed by job name: `[jobs.<name>]`.
 #
@@ -128,6 +150,45 @@ slow_query_logging_threshold_ms = 100
 #[jobs.example]
 #cron = "0 0 3 * * *"    # daily at 03:00 UTC
 #cron = "0 0 4 * * MON"  # Mondays at 04:00 UTC
+
+# Influencer cache warmers, one job per cache-backed timeframe so each refreshes
+# at roughly half its TTL. Running at the TTL itself would let the key expire
+# just as the next run starts, leaving a gap every period (and a full period
+# after any skipped run). Off by default: uncomment to pre-warm the
+# caches. With no schedule, requests still fall back to demand-driven fetches
+# bounded by the same TTLs. Each job is also runnable on demand via
+# `nexusd jobs run <name>`. Note that once a section is uncommented, a build
+# that predates these jobs refuses to start on it (unknown [jobs.<name>] key),
+# so comment them out again before rolling back.
+#[jobs.influencers-cache-today]
+# TTL 1h.
+#cron = "0 7,37 * * * *"    # twice hourly at :07 and :37
+
+#[jobs.influencers-cache-this-week]
+# TTL 6h.
+#cron = "0 17 */3 * * *"    # every 3 hours at :17
+
+#[jobs.influencers-cache-this-month]
+# TTL 24h.
+#cron = "0 27 3,15 * * *"   # at 03:27 and 15:27
+
+# Hot-tags cache warmers. Minutes are offset so the two sets do not collide. 
+# AllTime is a TTL cache here, so it has its own job.
+#[jobs.hot-tags-cache-today]
+# TTL 1h.
+#cron = "0 12,42 * * * *"    # twice hourly at :12 and :42
+
+#[jobs.hot-tags-cache-this-week]
+# TTL 6h.
+#cron = "0 22 */3 * * *"     # every 3 hours at :22
+
+#[jobs.hot-tags-cache-this-month]
+# TTL 24h.
+#cron = "0 32 3,15 * * *"    # at 03:32 and 15:32
+
+#[jobs.hot-tags-cache-all-time]
+# TTL 24h.
+#cron = "0 47 3,15 * * *"    # at 03:47 and 15:47
 
 # Scheduling for the trust-rank recompute job. Set a cron for automatic
 # recomputes; omit it to leave the job on-demand only (`nexusd jobs run

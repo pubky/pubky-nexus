@@ -2,7 +2,7 @@ use crate::db::graph::error::{GraphError, GraphResult};
 use crate::db::graph::Query;
 use crate::models::post::PostRelationships;
 use crate::models::{file::FileDetails, post::PostDetails, user::UserDetails};
-use pubky_app_specs::{ParsedUri, Resource};
+use pubky_app_specs::{ParsedUri, PubkyId, Resource};
 
 /// Create a user node
 pub fn create_user(user: &UserDetails) -> GraphResult<Query> {
@@ -157,6 +157,68 @@ pub fn create_mention_relationship(
     .param("author_id", author_id)
     .param("post_id", post_id)
     .param("mentioned_user_id", mentioned_user_id)
+}
+
+/// Reconciles the `COLLECTED` edges of a Collection post with its item list:
+/// every existing edge is dropped and one is merged per item that exists in
+/// the graph. Items that are not indexed get no edge. Returns `touched`, the
+/// `[author_id, post_id]` pairs whose edges were removed or merged (a key may
+/// repeat), so the caller can invalidate those post counts without knowing the
+/// old envelope. Idempotent. Removed edges are only reported by the run that
+/// removes them, so a failure between this query and the caller's invalidation
+/// leaves the removed items' cached counts stale until the `PostCounts` TTL.
+/// # Arguments
+/// * `author_id` - The unique identifier of the user who authored the collection
+/// * `post_id` - The unique identifier of the collection post
+/// * `items` - `(author_id, post_id)` of the posts the collection curates
+/// * `derived_from` - The post state `items` were parsed from; the reconcile is
+///   a no-op when the graph holds a different kind or content, so a stale reader
+///   (a backfill, a retried event) never overwrites a newer write. `None` skips
+///   the check.
+pub fn sync_collection_items(
+    author_id: &str,
+    post_id: &str,
+    items: &[(PubkyId, String)],
+    derived_from: Option<&PostDetails>,
+) -> Query {
+    let mut items: Vec<Vec<String>> = items
+        .iter()
+        .map(|(item_author_id, item_post_id)| {
+            vec![item_author_id.to_string(), item_post_id.clone()]
+        })
+        .collect();
+    // MERGE locks the item nodes in list order; a global order avoids deadlocks
+    // between collections that share items.
+    items.sort();
+    items.dedup();
+    Query::new(
+        "sync_collection_items",
+        "
+        MATCH (:User {id: $author_id})-[:AUTHORED]->(c:Post {id: $post_id})
+        WHERE $kind IS NULL OR (c.kind = $kind AND c.content = $content)
+        OPTIONAL MATCH (c)-[old:COLLECTED]->(prev:Post)<-[:AUTHORED]-(prev_author:User)
+        DELETE old
+        // collect() drops nulls but keeps [null, null], so map a miss to a bare null.
+        WITH c, collect(CASE WHEN prev IS NULL THEN NULL ELSE [prev_author.id, prev.id] END) AS previous
+        // Aggregating subquery: yields one row even when $items is empty, so
+        // `previous` survives a teardown.
+        CALL {
+            WITH c
+            UNWIND $items AS item
+            MATCH (:User {id: item[0]})-[:AUTHORED]->(p:Post {id: item[1]})
+            // The spec validates URI shape only; a collection may list itself.
+            WHERE p <> c
+            MERGE (c)-[:COLLECTED]->(p)
+            RETURN collect(item) AS current
+        }
+        RETURN previous + current AS touched
+        ",
+    )
+    .param("author_id", author_id)
+    .param("post_id", post_id)
+    .param("items", items)
+    .param("kind", derived_from.map(|post| post.kind.to_string()))
+    .param("content", derived_from.map(|post| post.content.clone()))
 }
 
 /// Create a follows relationship between two users. Before creating the relationship,

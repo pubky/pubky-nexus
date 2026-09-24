@@ -16,7 +16,7 @@ use crate::routes::AppState;
 use crate::routes::Path;
 use crate::{Error, Result};
 use nexus_common::{
-    media::{FileVariant, VariantController},
+    media::{validate_variant_for_content_type, FileVariant},
     models::{file::FileDetails, traits::Collection},
 };
 
@@ -38,6 +38,7 @@ pub struct FilePath {
 /// If the variant is not valid for the content type, a 400 Bad Request will be returned
 /// If the file does not exist, a 404 Not Found will be returned
 /// If the processing of the new variant fails, a 500 Internal Server Error will be returned
+/// If the service is temporarily overloaded, a 503 Service Unavailable will be returned
 #[utoipa::path(
     get,
     path = STATIC_FILES_ROUTE,
@@ -53,7 +54,8 @@ pub struct FilePath {
         (status = 200, description = "File's raw data"),
         (status = 404, description = "File not found"),
         (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
-        (status = 500, description = "Internal server error")
+        (status = 500, description = "Internal server error"),
+        (status = 503, description = "Service temporarily unavailable; retry later")
     )
 )]
 pub async fn static_files_handler(
@@ -88,7 +90,7 @@ pub async fn static_files_handler(
         .and_then(Clone::clone)
         .ok_or(Error::FileNotFound {})?;
 
-    if !VariantController::validate_variant_for_content_type(file.content_type.as_str(), &variant) {
+    if !validate_variant_for_content_type(file.content_type.as_str(), &variant) {
         return Err(Error::invalid_input(format!(
             "variant {} is not valid for content type {}",
             variant, file.content_type
@@ -101,11 +103,9 @@ pub async fn static_files_handler(
         &variant,
         file_path.clone(),
         params.dl.is_some(),
+        &app_state.queued_variant_controller,
     )
     .await
-    .inspect_err(|_| {
-        error!("Error while processing file variant for variant: {variant} and file: {file_id}")
-    })
 }
 
 #[derive(OpenApi)]

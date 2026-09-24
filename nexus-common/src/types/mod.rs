@@ -3,7 +3,7 @@ pub mod routes;
 mod timeframe;
 
 pub use pagination::Pagination;
-pub use timeframe::Timeframe;
+pub use timeframe::{CacheTimeframe, Timeframe};
 
 use serde::de::{self, Deserializer};
 use serde::{Deserialize, Serialize};
@@ -85,13 +85,56 @@ pub enum DomainTrust {
     Network(WotDepth),
 }
 
-#[derive(Debug, ToSchema, Clone, PartialEq)]
+/// Every string [`StreamReach`] deserializes from.
+const STREAM_REACH_VALUES: [&str; 7] = [
+    "followers",
+    "following",
+    "friends",
+    "wot",
+    "wot_1",
+    "wot_2",
+    "wot_3",
+];
+
+/// A user's reach, as the query string spells it: `followers`, `following`,
+/// `friends`, `wot` (depth 2) or `wot_1`..`wot_3`.
+#[derive(Debug, Clone, PartialEq)]
 pub enum StreamReach {
     Followers,
     Following,
     Friends,
     Wot(WotDepth),
 }
+
+impl StreamReach {
+    /// Low-cardinality reach value and optional WoT depth for telemetry.
+    pub(crate) fn telemetry_dimensions(&self) -> (&'static str, Option<u8>) {
+        match self {
+            StreamReach::Followers => ("followers", None),
+            StreamReach::Following => ("following", None),
+            StreamReach::Friends => ("friends", None),
+            StreamReach::Wot(depth) => ("wot", Some(depth.get())),
+        }
+    }
+}
+
+// Documents the string form the deserializer accepts; a derived schema would
+// describe the Rust enum (`{"Wot": 2}`) instead.
+impl utoipa::PartialSchema for StreamReach {
+    fn schema() -> utoipa::openapi::RefOr<utoipa::openapi::schema::Schema> {
+        use utoipa::openapi::schema::{ObjectBuilder, SchemaType, Type};
+        ObjectBuilder::new()
+            .schema_type(SchemaType::new(Type::String))
+            .enum_values(Some(STREAM_REACH_VALUES))
+            .description(Some(
+                "Reach of a user. Bare `wot` is the web of trust at depth 2, `wot_1`..`wot_3` set the depth.",
+            ))
+            .examples([serde_json::json!("wot_2")])
+            .into()
+    }
+}
+
+impl ToSchema for StreamReach {}
 
 impl<'de> Deserialize<'de> for StreamReach {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
@@ -116,18 +159,7 @@ impl<'de> Deserialize<'de> for StreamReach {
                     let depth = WotDepth::new(depth).map_err(de::Error::custom)?;
                     Ok(StreamReach::Wot(depth))
                 } else {
-                    Err(de::Error::unknown_variant(
-                        &s,
-                        &[
-                            "followers",
-                            "following",
-                            "friends",
-                            "wot",
-                            "wot_1",
-                            "wot_2",
-                            "wot_3",
-                        ],
-                    ))
+                    Err(de::Error::unknown_variant(&s, &STREAM_REACH_VALUES))
                 }
             }
         }
@@ -137,6 +169,27 @@ impl<'de> Deserialize<'de> for StreamReach {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn schema_documents_exactly_the_accepted_strings() {
+        use utoipa::openapi::RefOr;
+        let schema = match <StreamReach as utoipa::PartialSchema>::schema() {
+            RefOr::T(schema) => serde_json::to_value(schema).unwrap(),
+            RefOr::Ref(_) => panic!("StreamReach schema must be inline"),
+        };
+        assert_eq!(schema["type"], "string");
+        let values: Vec<&str> = schema["enum"]
+            .as_array()
+            .expect("enum values")
+            .iter()
+            .map(|v| v.as_str().unwrap())
+            .collect();
+        assert_eq!(values, STREAM_REACH_VALUES);
+        for value in values {
+            serde_json::from_value::<StreamReach>(serde_json::json!(value))
+                .unwrap_or_else(|e| panic!("documented value {value} must parse: {e}"));
+        }
+    }
 
     #[test]
     fn bare_wot_defaults_to_depth_2() {

@@ -1,9 +1,8 @@
 mod engine;
 mod export;
-mod job;
-mod neo4j;
+pub mod neo4j;
 
 pub use engine::{TrustRankEngine, TrustRankParams, TrustRankStats};
 pub use export::read_scores;
-pub use job::TrustRecomputeJob;
+pub(crate) use export::write_timestamped_csv;
 pub use neo4j::GdsNeo4j;

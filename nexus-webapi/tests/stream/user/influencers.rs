@@ -2,12 +2,14 @@ use std::time::Duration;
 
 use anyhow::Result;
 use axum::http::StatusCode;
+use deadpool_redis::redis::AsyncCommands;
+use nexus_common::db::get_redis_conn;
 use tokio::time::sleep;
 use tracing::debug;
 
 use crate::{
     tags::hot::USER_1,
-    utils::{get_request, invalid_get_request},
+    utils::{get_request, invalid_get_request, server::TestServiceServer},
 };
 
 #[tokio_shared_rt::test(shared)]
@@ -36,6 +38,63 @@ async fn test_global_influencers() -> Result<()> {
     ];
 
     assert!(influencer_ids == expected_user_ids);
+
+    Ok(())
+}
+
+/// Recovery path for the AllTime influencers stream: if the live
+/// `Sorted:Users:Influencers` set is lost (e.g. after Redis data loss), the next request
+/// must fall back to the graph, reseed that same key, and still return results.
+#[tokio_shared_rt::test(shared)]
+async fn test_global_influencers_alltime_cache_recovery() -> Result<()> {
+    // Ensure the server is running, so the Redis pool is initialized
+    TestServiceServer::get_test_server().await;
+    let mut redis_conn = get_redis_conn().await?;
+
+    let sorted_set_key = "Sorted:Users:Influencers";
+
+    // Snapshot the live sorted set (members + scores) so it can be restored afterwards.
+    // The graph-derived fallback scores only approximate the counts-derived ones, and
+    // sibling tests assert on the exact original ordering.
+    let snapshot: Vec<(String, f64)> = redis_conn.zrange_withscores(sorted_set_key, 0, -1).await?;
+
+    // Simulate data loss of the live AllTime influencers sorted set
+    let _: () = redis_conn.del(sorted_set_key).await?;
+
+    // The timeframe defaults to AllTime, so this request exercises the graph fallback.
+    // Defer the `?` until after the restore below so a failed request cannot leave the
+    // shared sorted set poisoned for sibling tests.
+    let body_result = get_request("/v0/stream/users?source=influencers").await;
+
+    // The fallback must have reseeded the same key the AllTime read path uses
+    let reseeded: bool = redis_conn.exists(sorted_set_key).await?;
+
+    // Restore the original sorted set exactly (DEL then ZADD of the snapshot) before
+    // asserting, so any later test observes the original counts-derived scores.
+    let _: () = redis_conn.del(sorted_set_key).await?;
+    if !snapshot.is_empty() {
+        let items: Vec<(f64, &str)> = snapshot
+            .iter()
+            .map(|(member, score)| (*score, member.as_str()))
+            .collect();
+        let _: () = redis_conn.zadd_multiple(sorted_set_key, &items).await?;
+    }
+
+    let body = body_result?;
+    assert!(body.is_array());
+
+    let influencers = body
+        .as_array()
+        .expect("Stream influencers should be an array");
+    assert!(
+        !influencers.is_empty(),
+        "Influencers should be repopulated from the graph after the sorted set is lost"
+    );
+
+    assert!(
+        reseeded,
+        "The graph fallback should rewrite the Sorted:Users:Influencers sorted set"
+    );
 
     Ok(())
 }
@@ -257,6 +316,73 @@ async fn test_influencers_by_friends_reach() -> Result<()> {
     // List of expected user IDs
     let expected_user_ids = vec!["tkpeqpx3ywoawiw6q8e6kuo9o3egr7fnhx83rudznbrrmqgdmomo"];
     assert!(influencer_ids == expected_user_ids);
+
+    Ok(())
+}
+
+/// Ranged global influencers come from a 100-entry cache, so a skip past it can never
+/// fill a page. It is rejected up front instead of being served as a cache miss.
+#[tokio_shared_rt::test(shared)]
+async fn test_global_influencers_rejects_skip_past_cache() -> Result<()> {
+    let body = invalid_get_request(
+        "/v0/stream/users?source=influencers&timeframe=today&skip=101",
+        StatusCode::BAD_REQUEST,
+    )
+    .await?;
+    assert!(
+        body["error"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("skip must be at most 100"),
+        "unexpected error payload: {body}"
+    );
+
+    // Preview ignores skip, so the cap does not apply to it.
+    let body =
+        get_request("/v0/stream/users?source=influencers&timeframe=today&skip=101&preview=true")
+            .await?;
+    assert!(body.is_array());
+
+    // Only ranged global influencers are capped: the all-time index is not size-bound,
+    // and reach-scoped queries go to the graph with their own pagination.
+    let body = get_request("/v0/stream/users?source=influencers&skip=101").await?;
+    assert!(body.is_array());
+    let body = get_request(&format!(
+        "/v0/stream/users?source=influencers&timeframe=this_month&skip=101&user_id={USER_1}&reach=following"
+    ))
+    .await?;
+    assert!(body.is_array());
+
+    Ok(())
+}
+
+/// An in-range skip past the last cached entry is an empty page, not a cache miss. A miss
+/// would refetch from the graph and rewrite the key, which re-arms its TTL; so after the
+/// TTL is pinned low, an empty-window read must leave it low.
+#[tokio_shared_rt::test(shared)]
+async fn test_global_influencers_skip_to_cache_end_is_empty_page() -> Result<()> {
+    // Ensure the server is running, so the Redis pool is initialized
+    TestServiceServer::get_test_server().await;
+    let mut redis_conn = get_redis_conn().await?;
+    let key = "Cache:Influencers:Today";
+
+    // Warm the cache so the key exists, then pin its TTL well below the 1h cache period.
+    get_request("/v0/stream/users?source=influencers&timeframe=today&limit=1").await?;
+    let pinned_ttl = 600;
+    let _: () = redis_conn.expire(key, pinned_ttl).await?;
+
+    let body = get_request("/v0/stream/users?source=influencers&timeframe=today&skip=100").await?;
+    assert_eq!(
+        body.as_array().map(Vec::len),
+        Some(0),
+        "skip at the cache size must yield an empty page, got: {body}"
+    );
+
+    let ttl: i64 = redis_conn.ttl(key).await?;
+    assert!(
+        0 < ttl && ttl <= pinned_ttl,
+        "an empty window must not be treated as a cache miss and rewrite the key, ttl went to {ttl}"
+    );
 
     Ok(())
 }

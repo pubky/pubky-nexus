@@ -79,6 +79,21 @@ endpoint (hence "key-based" — keyed on each user's pubky). Configured in
 *Tuning:* each additional monitored HS adds HS requests (and, upstream, PKDNS
 resolutions) per tick. Raise deliberately as the network of indexed HSs grows.
 
+*Monitoring:* the runner exports two gauges on every external-HS run
+(`external_hs_monitoring_interval_ms`):
+
+| Metric | Type | Meaning |
+| --- | --- | --- |
+| `watcher.external_hs.monitored_limit` | gauge | The cap in force. |
+| `watcher.external_hs.indexed` | gauge | External HSs the last run selected for indexing: the active HSs, minus the primary HS and blacklisted ones, truncated to the limit. |
+
+`indexed / monitored_limit` is the saturation ratio: it reaches `1` when the
+eligible external HSs fill the cap, which is when the limit binds coverage. It
+does not separate a set that exactly fills the cap from one truncated by it, so
+treat `1` as "at capacity, raise the limit deliberately" rather than proof that
+homeservers were dropped. Gauges keep their last value while the process is
+alive, so a `monitored_homeservers_limit` of `0` exports a zero denominator.
+
 ### `external_hs_monitoring_interval_ms`
 
 > Scheduling interval[^1] for this `KeyBasedEventProcessorRunner` (the external-HS
@@ -170,6 +185,50 @@ resolver run, preventing redundant PKDNS lookups.
 *Tuning:* lower → mappings stay fresher at the cost of far more PKDNS lookups.
 Higher → cheaper, but Nexus may keep pulling a user's events from an HS they have
 already left for up to ~`hs_resolver_ttl`.
+
+### Monitoring stale mappings
+
+When the resolver cannot reproduce a user's stored HS from PKDNS, it marks the
+`HOSTED_BY` edge `stale` and the watcher **stops indexing that user**. A
+resolution outage (DHT/relay unreachable, PKARR records not resolvable) therefore
+silently pauses indexing for every user the resolver visits until the mapping
+realigns. The resolver exports these metrics to catch this:
+
+| Metric | Type | Meaning |
+| --- | --- | --- |
+| `nexus.task.hs-resolver.resolutions` | counter, labels `outcome`, `mapping` | One per user the resolver handled. `outcome`: `resolved` (PKDNS returned a HS), `unresolved` (PKDNS returned none; on pubky 0.9.3 DHT and relay failures also surface this way), `error` (the lookup failed, pubky 0.10+, or the graph read/update failed). `mapping`: the stored mapping's state before the resolution, `unbound` / `active` / `stale`, or `unknown` when a graph read or write failed (a Neo4j problem, also visible via `neo4j.query.errors`; deliberately outside the `mapping="active"` onset ratio). |
+| `nexus.task.hs-resolver.marked_stale` | counter, label `reason` | Users whose mapping flipped from active to stale. `unresolved`: PKDNS returned no HS. `hs_changed`: PKDNS returned a different HS. Already-stale users are not counted again. |
+| `nexus.task.hs-resolver.mapped_users` | gauge | Non-deleted users with a `HOSTED_BY` mapping. Recorded on the first run after startup, then refreshed after every run that processed users. |
+| `nexus.task.hs-resolver.stale_users` | gauge | Subset of `mapped_users` whose mapping is currently stale. |
+| `nexus.task.hs-resolver.heartbeat_timestamp` | gauge, unit `s` | Unix time of the resolver's most recent progress: a user handled or a run finished. |
+
+Prometheus alerting rules for these metrics live in
+[`docker/otel/alerts.yaml`](../docker/otel/alerts.yaml), loaded by the local
+observability stack (metric names as translated by the Prometheus exporter;
+under SigNoz drop the `_total` / `_seconds` suffixes):
+
+- `NexusHsResolverUnresolvedRatio` — onset: most previously-active mappings the
+  resolver touched recently could not be resolved. Scoped to `mapping="active"`
+  because unbound users with no published record are re-resolved on every tick
+  and would otherwise dominate the ratio. It marks onset, not duration: when the
+  outage surfaces as `unresolved` (always on pubky 0.9.3), each active mapping
+  is flipped stale on its visit, so the alert clears once every active mapping
+  has come due (one `hs_resolver_ttl` or more into the outage), not when PKDNS
+  recovers.
+- `NexusHsResolverStaleRatio` — blast radius, the "still broken" signal: a
+  meaningful share of mapped users is not being indexed. Clears only as stale
+  users are re-resolved, up to `hs_resolver_ttl` after recovery.
+- `NexusHsResolverSilent` — no resolver progress. Gauges keep exporting their
+  last value while the process is alive, so only the heartbeat reveals a task
+  that hangs or stops ticking; the `absent` half covers a dead process. The
+  threshold assumes the default `hs_resolver_interval_ms`; scale it if you
+  raise the interval.
+
+The two ratio alerts carry an absolute floor, so they need no retuning as the
+user base grows and stay quiet on tiny deployments.
+
+A burst of `marked_stale{reason="hs_changed"}` is usually a real migration, not
+an outage, and is worth a lower-severity notification.
 
 ---
 

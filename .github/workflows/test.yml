@@ -18,7 +18,7 @@ jobs:
       cancel-in-progress: true
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Load environment variables from .env-sample
         working-directory: docker
@@ -46,14 +46,14 @@ jobs:
           tool: cargo-nextest
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       # Pre-build the neo4j+GDS image with the GHA layer cache: after the
       # first run, the ~62MB GDS jar layer is restored from cache instead of
       # downloaded from graphdatascience.ninja. `docker compose up` below
       # finds the image under this tag and skips its own build.
       - name: Build Neo4j image with GDS plugin (cached)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: docker/neo4j
           tags: pubky-nexus/neo4j:5.26.27-gds2.13.10

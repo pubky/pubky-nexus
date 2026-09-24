@@ -9,7 +9,14 @@ use serde_json::Value;
 
 use crate::{
     stream::post::TAG_LABEL_2,
-    utils::{get_request, invalid_get_request},
+    utils::{
+        get_request, invalid_get_request,
+        search_reach::{
+            post_key, D2, FOLLOWED, FOLLOWER, FRIEND, OBS, POST_D2, POST_FOLLOWED, POST_FOLLOWER,
+            POST_FRIEND, POST_FRIEND_REPLY, POST_OBS, POST_STRANGER, POST_TAG, STRANGER,
+            UNKNOWN_USER,
+        },
+    },
 };
 
 const POST_A: &str = "2VDW8YBDZJ02";
@@ -182,7 +189,7 @@ async fn test_content_search_hyphenated_term() -> Result<()> {
 async fn test_content_search_collection_post() -> Result<()> {
     // Collection posts are indexed via their raw JSON content envelope, so searching
     // for a word from the collection name finds the collection.
-    // COLW1TGL5BKG3 has content {"name":"Cryptography classics","items":[]}.
+    // COLW1TGL5BKG3 has content {"name":"Cryptography classics","items":[...]}.
     let body = get_request(&content_search_url("cryptography")).await?;
     let results = body.as_array().expect("should be array");
     assert!(
@@ -421,5 +428,182 @@ async fn test_post_search_skip_beyond_range() -> Result<()> {
     assert!(body.is_array());
     assert!(body.as_array().unwrap().is_empty());
 
+    Ok(())
+}
+
+// ── Reach-filtered tag search tests ───────────────────────────────────────────
+
+fn tag_reach_url(query: &str) -> String {
+    format!("{}?{query}", format_search_posts_by_tag(POST_TAG))
+}
+
+fn post_keys(body: &Value) -> Vec<String> {
+    body.as_array()
+        .expect("Search results should be an array")
+        .iter()
+        .map(|row| {
+            row["post_key"]
+                .as_str()
+                .expect("post_key should be a string")
+                .to_string()
+        })
+        .collect()
+}
+
+fn scores(body: &Value) -> Vec<u64> {
+    body.as_array()
+        .expect("Search results should be an array")
+        .iter()
+        .map(|row| row["score"].as_u64().expect("score should be a number"))
+        .collect()
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_post_search_by_tag_reach_following() -> Result<()> {
+    let body = get_request(&tag_reach_url(&format!("user_id={OBS}&reach=following"))).await?;
+    // STRANGER and FOLLOWER tagged posts are out of reach; timeline is newest first
+    assert_eq!(
+        post_keys(&body),
+        vec![
+            post_key(FOLLOWED, POST_FOLLOWED),
+            post_key(FRIEND, POST_FRIEND)
+        ]
+    );
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_post_search_by_tag_reach_followers() -> Result<()> {
+    let body = get_request(&tag_reach_url(&format!("user_id={OBS}&reach=followers"))).await?;
+    assert_eq!(
+        post_keys(&body),
+        vec![
+            post_key(FOLLOWER, POST_FOLLOWER),
+            post_key(FRIEND, POST_FRIEND)
+        ]
+    );
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_post_search_by_tag_reach_friends() -> Result<()> {
+    let body = get_request(&tag_reach_url(&format!("user_id={OBS}&reach=friends"))).await?;
+    // FRIEND's tagged reply is indexed for the tag but reach results are parents only
+    assert_eq!(post_keys(&body), vec![post_key(FRIEND, POST_FRIEND)]);
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_post_search_by_tag_reach_wot() -> Result<()> {
+    let wot_1 = get_request(&tag_reach_url(&format!("user_id={OBS}&reach=wot_1"))).await?;
+    assert_eq!(
+        post_keys(&wot_1),
+        vec![
+            post_key(FOLLOWED, POST_FOLLOWED),
+            post_key(FRIEND, POST_FRIEND)
+        ]
+    );
+
+    // D2 is only reachable at depth 2. FRIEND follows OBS back, so OBS is also
+    // reachable at depth 2 and must still be excluded
+    let wot_2 = get_request(&tag_reach_url(&format!("user_id={OBS}&reach=wot_2"))).await?;
+    let expected = vec![
+        post_key(D2, POST_D2),
+        post_key(FOLLOWED, POST_FOLLOWED),
+        post_key(FRIEND, POST_FRIEND),
+    ];
+    assert_eq!(post_keys(&wot_2), expected);
+
+    // Bare `wot` is depth 2
+    let wot = get_request(&tag_reach_url(&format!("user_id={OBS}&reach=wot"))).await?;
+    assert_eq!(post_keys(&wot), expected);
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_post_search_by_tag_reach_excludes_observer() -> Result<()> {
+    // The unfiltered search carries the observer's post and the tagged reply
+    let unfiltered = post_keys(&get_request(&tag_reach_url("limit=200")).await?);
+    assert!(unfiltered.contains(&post_key(OBS, POST_OBS)));
+    assert!(unfiltered.contains(&post_key(FRIEND, POST_FRIEND_REPLY)));
+    assert!(unfiltered.contains(&post_key(STRANGER, POST_STRANGER)));
+
+    for reach in [
+        "following",
+        "followers",
+        "friends",
+        "wot_1",
+        "wot_2",
+        "wot_3",
+    ] {
+        let body = get_request(&tag_reach_url(&format!("user_id={OBS}&reach={reach}"))).await?;
+        let keys = post_keys(&body);
+        assert!(
+            !keys.contains(&post_key(OBS, POST_OBS)),
+            "reach={reach} must not return the observer's own post: {keys:?}"
+        );
+        assert!(
+            !keys.contains(&post_key(STRANGER, POST_STRANGER)),
+            "reach={reach} must not return an out-of-reach post: {keys:?}"
+        );
+    }
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_post_search_by_tag_reach_engagement_pagination() -> Result<()> {
+    let base = format!("user_id={OBS}&reach=wot_2&sorting=total_engagement");
+
+    // FOLLOWED's post has two taggers; equal scores break ties by post id descending
+    let body = get_request(&tag_reach_url(&base)).await?;
+    assert_eq!(
+        post_keys(&body),
+        vec![
+            post_key(FOLLOWED, POST_FOLLOWED),
+            post_key(FRIEND, POST_FRIEND),
+            post_key(D2, POST_D2),
+        ]
+    );
+    assert_eq!(scores(&body), vec![2, 1, 1]);
+
+    // `start` is the score cursor: resume from the last page's score downwards
+    let body = get_request(&tag_reach_url(&format!("{base}&start=1"))).await?;
+    assert_eq!(
+        post_keys(&body),
+        vec![post_key(FRIEND, POST_FRIEND), post_key(D2, POST_D2)]
+    );
+
+    // `end` is the score floor
+    let body = get_request(&tag_reach_url(&format!("{base}&end=2"))).await?;
+    assert_eq!(post_keys(&body), vec![post_key(FOLLOWED, POST_FOLLOWED)]);
+
+    let body = get_request(&tag_reach_url(&format!("{base}&skip=1&limit=1"))).await?;
+    assert_eq!(post_keys(&body), vec![post_key(FRIEND, POST_FRIEND)]);
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_post_search_by_tag_reach_unknown_user() -> Result<()> {
+    let body = get_request(&tag_reach_url(&format!(
+        "user_id={UNKNOWN_USER}&reach=following"
+    )))
+    .await?;
+    assert!(post_keys(&body).is_empty());
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_post_search_by_tag_reach_requires_both_params() -> Result<()> {
+    invalid_get_request(&tag_reach_url("reach=following"), StatusCode::BAD_REQUEST).await?;
+    invalid_get_request(
+        &tag_reach_url(&format!("user_id={OBS}")),
+        StatusCode::BAD_REQUEST,
+    )
+    .await?;
+    invalid_get_request(
+        &tag_reach_url(&format!("user_id={OBS}&reach=wot_4")),
+        StatusCode::BAD_REQUEST,
+    )
+    .await?;
     Ok(())
 }

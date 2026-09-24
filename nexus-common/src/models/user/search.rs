@@ -1,11 +1,12 @@
 use super::UserDetails;
+use crate::db::graph::Query;
 use crate::db::kv::{RedisResult, SortOrder};
 use crate::db::{get_neo4j_graph, queries, GraphError, GraphResult, RedisOps};
 use crate::models::create_zero_score_tuples;
 use crate::models::error::ModelResult;
 use crate::models::tag::user::{TagUser, USER_TAGS_KEY_PARTS};
 use crate::models::traits::Collection;
-use crate::types::Pagination;
+use crate::types::{Pagination, StreamReach};
 use futures::TryStreamExt;
 use serde::{Deserialize, Serialize};
 use tokio::time::{timeout, Duration};
@@ -102,19 +103,43 @@ impl UsersByTagSearch {
             }
             // Union across labels needs an aggregation over multiple sorted sets,
             // so it goes to the graph instead
-            _ => Self::get_from_graph(labels, pagination.skip, pagination.limit)
-                .await
-                .map_err(Into::into),
+            _ => Self::get_from_graph(queries::get::search_users_by_tags(
+                labels,
+                pagination.skip,
+                pagination.limit,
+            ))
+            .await
+            .map_err(Into::into),
         }
     }
 
-    async fn get_from_graph(
+    /// [`Self::get_by_labels`] restricted to the users in `user_id`'s
+    /// `reach`, excluding `user_id`. Scores are the same as unfiltered, and an
+    /// unknown user yields an empty list. Always served from the graph, which
+    /// pages the result itself, under the same 10-second budget.
+    ///
+    /// # Errors
+    /// Returns [`crate::models::error::ModelError::GraphOperationFailed`] on
+    /// graph failures, including `GraphError::QueryTimeout`.
+    pub async fn get_by_labels_with_reach(
         labels: &[String],
-        skip: Option<usize>,
-        limit: Option<usize>,
-    ) -> GraphResult<Vec<UsersByTagSearch>> {
+        user_id: &str,
+        reach: StreamReach,
+        pagination: Pagination,
+    ) -> ModelResult<Vec<UsersByTagSearch>> {
+        Self::get_from_graph(queries::get::search_users_by_tags_with_reach(
+            labels,
+            user_id,
+            &reach,
+            pagination.skip,
+            pagination.limit,
+        ))
+        .await
+        .map_err(Into::into)
+    }
+
+    async fn get_from_graph(query: Query) -> GraphResult<Vec<UsersByTagSearch>> {
         let graph = get_neo4j_graph()?;
-        let query = queries::get::search_users_by_tags(labels, skip, limit);
 
         // The 10-second budget covers execution AND row streaming: execute()
         // only submits the query and the heavy work (ORDER BY materializes at

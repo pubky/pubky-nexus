@@ -250,7 +250,7 @@ MERGE (p:Post {id: "COLW1TGL5BKG1"}) SET p.content = "{\"name\":\"AI papers\",\"
 MATCH (u:User {id: $bogota}), (p:Post {id: "COLW1TGL5BKG1"}) MERGE (u)-[:AUTHORED]->(p);
 MERGE (p:Post {id: "COLW1TGL5BKG2"}) SET p.content = "{\"name\":\"Privacy reads\",\"items\":[]}", p.kind = "collection", p.indexed_at = 1980477299111;
 MATCH (u:User {id: $bogota}), (p:Post {id: "COLW1TGL5BKG2"}) MERGE (u)-[:AUTHORED]->(p);
-MERGE (p:Post {id: "COLW1TGL5BKG3"}) SET p.content = "{\"name\":\"Cryptography classics\",\"items\":[]}", p.kind = "collection", p.indexed_at = 1980477299121;
+MERGE (p:Post {id: "COLW1TGL5BKG3"}) SET p.content = "{\"name\":\"Cryptography classics\",\"items\":[\"pubky://ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny/pub/pubky.app/posts/00000039YD9BM\"]}", p.kind = "collection", p.indexed_at = 1980477299121;
 MATCH (u:User {id: $cairo}), (p:Post {id: "COLW1TGL5BKG3"}) MERGE (u)-[:AUTHORED]->(p);
 
 // Tag on a Collection (used by `?tags` stream tests). Bogota tags Cairo's
@@ -265,6 +265,17 @@ MATCH (u:User {id: $bogota}), (p:Post {id: "MALF1TGL5BKG7"}) MERGE (u)-[:AUTHORE
 // Collection-of-Collections: items[] references another Collection's post URI.
 MERGE (p:Post {id: "NEST1TGL5BKG8"}) SET p.content = "{\"name\":\"Meta\",\"items\":[\"pubky://ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny/pub/pubky.app/posts/COLW1TGL5BKG1\"]}", p.kind = "collection", p.indexed_at = 1980477299440;
 MATCH (u:User {id: $bogota}), (p:Post {id: "NEST1TGL5BKG8"}) MERGE (u)-[:AUTHORED]->(p);
+
+// COLLECTED edges, as the watcher materializes them from the envelopes above:
+// only items that exist as posts get one (the missing and non-post items of
+// COLW1TGL5BKG1 do not). Used by `?source=post_collections` and post counts.
+// COLW1TGL5BKG3 also curates 00000039YD9BM so that post has two curators, the
+// newer one first.
+MATCH (c:Post {id: "COLW1TGL5BKG1"}), (i:Post {id: "00000039YD9BM"}) MERGE (c)-[:COLLECTED]->(i);
+MATCH (c:Post {id: "COLW1TGL5BKG3"}), (i:Post {id: "00000039YD9BM"}) MERGE (c)-[:COLLECTED]->(i);
+MATCH (c:Post {id: "COLW1TGL5BKG1"}), (i:Post {id: "00000039YD9C0"}) MERGE (c)-[:COLLECTED]->(i);
+MATCH (c:Post {id: "COLW1TGL5BKG1"}), (i:Post {id: "00000039YD9CE"}) MERGE (c)-[:COLLECTED]->(i);
+MATCH (c:Post {id: "NEST1TGL5BKG8"}), (i:Post {id: "COLW1TGL5BKG1"}) MERGE (c)-[:COLLECTED]->(i);
 
 // Bookmarked collection (used by `?source=bookmarks` stream tests). Eixample
 // bookmarks Bogota's COLW1TGL5BKG1.
