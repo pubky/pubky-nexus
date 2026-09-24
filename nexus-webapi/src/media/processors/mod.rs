@@ -365,15 +365,7 @@ mod tests {
             _options: &SlowOptions,
             _subprocess: MediaSubprocess,
         ) -> Result<String, MediaProcessorError> {
-            // Created up front, as a real converter opens its output, so a test can see
-            // mid-flight which path the bytes are going to.
-            tokio::fs::write(output_file_path, b"")
-                .await
-                .expect("stand-in must create its output");
-            let release = Path::new(origin_file_path).with_file_name(RELEASE_NAME);
-            while !release.exists() {
-                tokio::time::sleep(POLL).await;
-            }
+            start_and_wait_for_release(origin_file_path, output_file_path).await;
             // Write a real file so the publish path (empty check + rename) exercises the
             // same code as a real conversion.
             tokio::fs::write(output_file_path, b"slow variant bytes")
@@ -400,6 +392,21 @@ mod tests {
             );
             tokio::time::sleep(POLL).await;
         }
+    }
+
+    /// Opens the output up front, as a real converter does, so a test can see the work started
+    /// and which path the bytes go to. Then holds until the test drops `RELEASE_NAME` beside the
+    /// file's variants. Bounded, so a test that fails before releasing does not strand the task.
+    async fn start_and_wait_for_release(origin_file_path: &str, output_file_path: &str) {
+        tokio::fs::write(output_file_path, b"")
+            .await
+            .expect("stand-in must create its output");
+        let release = Path::new(origin_file_path).with_file_name(RELEASE_NAME);
+        let release = release.as_path();
+        eventually("the test to release the stand-in", move || async move {
+            release.exists()
+        })
+        .await;
     }
 
     async fn release(dir: &Path) {
@@ -660,7 +667,7 @@ mod tests {
             let root = root.path().to_path_buf();
             let gate = Arc::clone(&gate);
             async move {
-                WedgedProcessor::create_variant(
+                HeldWedgedProcessor::create_variant(
                     &file,
                     &FileVariant::Small,
                     &root,
@@ -672,18 +679,20 @@ mod tests {
             }
         });
 
-        // The conversion is wedged, and the request times out on it. A slow machine may reach
-        // the kill first, which is why a marker also counts as started.
-        let (root_path, marker) = (root.path(), marker_path(&dir));
-        let marker = marker.as_path();
+        // The work has started but its child has not, so the request times out on it before the
+        // deadline can fire.
+        let root_path = root.path();
         eventually("the conversion to start", move || async move {
-            marker.exists() || !temp_dir_entries(root_path).await.is_empty()
+            temp_dir_entries(root_path).await.len() == 1
         })
         .await;
         caller.abort();
         let _ = caller.await;
 
-        // Past the deadline, with no caller left to write the marker.
+        // Only now does the child run into its deadline, with no caller left to write the marker.
+        release(&dir).await;
+        let marker = marker_path(&dir);
+        let marker = marker.as_path();
         eventually(
             "the marker, since a kill outlives its request",
             move || async move { marker.exists() },
@@ -1225,18 +1234,39 @@ mod tests {
 
         async fn process(
             _origin_file_path: &str,
-            output_file_path: &str,
+            _output_file_path: &str,
             _options: &SlowOptions,
             subprocess: MediaSubprocess,
         ) -> Result<String, MediaProcessorError> {
-            // Opened up front like a real converter, so a test can see the work has started.
-            tokio::fs::write(output_file_path, b"")
-                .await
-                .expect("stand-in must create its output");
             subprocess
                 .run(tokio::process::Command::new("sleep").arg("30"))
                 .await?;
             Ok(String::from("image/webp"))
+        }
+    }
+
+    /// `WedgedProcessor`, but its child only starts once the test releases it, so the test can
+    /// cancel the caller before the deadline has any chance to fire.
+    struct HeldWedgedProcessor;
+
+    #[async_trait::async_trait]
+    impl VariantProcessor for HeldWedgedProcessor {
+        type ProcessingOptions = SlowOptions;
+
+        fn get_options_for_variant(
+            _variant: &FileVariant,
+        ) -> Result<SlowOptions, MediaProcessorError> {
+            Ok(SlowOptions)
+        }
+
+        async fn process(
+            origin_file_path: &str,
+            output_file_path: &str,
+            options: &SlowOptions,
+            subprocess: MediaSubprocess,
+        ) -> Result<String, MediaProcessorError> {
+            start_and_wait_for_release(origin_file_path, output_file_path).await;
+            WedgedProcessor::process(origin_file_path, output_file_path, options, subprocess).await
         }
     }
 
