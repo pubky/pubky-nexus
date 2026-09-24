@@ -3,12 +3,12 @@
 //!
 //! Deriving a variant lives in the API (`nexus-webapi`), the only service that does it, and so
 //! does the label a derived variant is served under -- that one belongs beside the processor
-//! that produces the bytes. What stays here is what both services must agree on: the watcher
-//! publishes a file's variant URLs from the same table the API validates requests against.
+//! that produces the bytes. What stays here is what both services must agree on: a file's variant
+//! URLs are built from the same table the API validates requests against.
 
-use crate::{models::file::FileUrls, types::DynError};
+use crate::types::DynError;
 use serde::{Deserialize, Serialize};
-use std::{fmt::Display, path::Path, str::FromStr};
+use std::{fmt::Display, str::FromStr};
 use utoipa::ToSchema;
 
 #[derive(Debug, PartialEq, Serialize, Deserialize, ToSchema, Clone, Copy)]
@@ -62,11 +62,6 @@ pub fn get_valid_variants_for_content_type(content_type: &str) -> Vec<FileVarian
         value if value.starts_with("video") => vec![FileVariant::Main],
         _ => vec![],
     }
-}
-
-/// The URLs to publish for a file, one per variant its content type has.
-pub fn get_file_urls_by_content_type(content_type: &str, path: &Path) -> FileUrls {
-    FileUrls::new(path, &get_valid_variants_for_content_type(content_type))
 }
 
 /// Whether this variant is one the content type has. `Main` always is: it is the upload itself.

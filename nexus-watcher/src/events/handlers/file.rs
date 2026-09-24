@@ -1,12 +1,9 @@
 use crate::events::{fetch_capped, EventProcessorError};
 
 use nexus_common::db::PubkyConnector;
-use nexus_common::media::{get_file_urls_by_content_type, FileVariant};
+use nexus_common::media::FileVariant;
 use nexus_common::models::user::UserIngestor;
-use nexus_common::models::{
-    file::{FileDetails, FileMeta},
-    traits::Collection,
-};
+use nexus_common::models::{file::FileDetails, traits::Collection};
 use pubky_app_specs::{ParsedUri, PubkyAppBlob, PubkyAppFile, PubkyAppObject, PubkyId};
 use std::path::Path;
 use tokio::fs::{self, remove_dir_all};
@@ -24,7 +21,7 @@ pub async fn sync_put(
 ) -> Result<(), EventProcessorError> {
     debug!("Indexing file");
 
-    let file_meta = ingest(
+    ingest(
         &user_id,
         file_id.as_str(),
         &file,
@@ -35,8 +32,7 @@ pub async fn sync_put(
     .await?;
 
     // Create FileDetails object
-    let file_details =
-        FileDetails::from_homeserver(&file, uri, user_id.to_string(), file_id, file_meta);
+    let file_details = FileDetails::from_homeserver(&file, uri, user_id.to_string(), file_id);
 
     // SAVE TO GRAPH
     file_details.put_to_graph().await?;
@@ -62,7 +58,7 @@ async fn ingest(
     files_path: &Path,
     max_file_size: u64,
     ingestor: &UserIngestor,
-) -> Result<FileMeta, EventProcessorError> {
+) -> Result<(), EventProcessorError> {
     let file_src = &pubkyapp_file.src;
     let parsed_source_uri = ParsedUri::try_from(file_src.to_string()).map_err(|e| {
         EventProcessorError::generic(format!("Invalid file source URI {file_src}: {e}"))
@@ -89,9 +85,7 @@ async fn ingest(
             write_main_variant(&full_path, blob)
                 .await
                 .map_err(EventProcessorError::static_save_failed)?;
-
-            let urls = get_file_urls_by_content_type(pubkyapp_file.content_type.as_str(), &path);
-            Ok(FileMeta { urls })
+            Ok(())
         }
         _ => Err(EventProcessorError::InvalidEventLine(format!(
             "The file has a source uri that is not a blob path: {}",

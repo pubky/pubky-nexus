@@ -391,7 +391,7 @@ mod tests {
             name: String::new(),
             size: 0,
             content_type: String::from("image/png"),
-            urls: FileUrls::new(Path::new("/"), &[]),
+            urls: FileUrls::new("owner", "file", "image/png"),
             metadata: None,
         }
     }
