@@ -17,6 +17,25 @@ const GLOBAL_INFLUENCERS_PREFIX: &str = "Cache:Influencers";
 /// treat the empty page as a cache miss.
 pub const GLOBAL_INFLUENCERS_CACHE_SIZE: usize = 100;
 
+/// How many influencers a `preview` response returns.
+pub const GLOBAL_INFLUENCERS_PREVIEW_LIMIT: usize = 3;
+
+/// How many offsets a `preview` response can start at: the cached ranking minus the
+/// entries a full window needs, so every offset still yields a complete window.
+pub const GLOBAL_INFLUENCERS_PREVIEW_OFFSETS: u32 =
+    (GLOBAL_INFLUENCERS_CACHE_SIZE - GLOBAL_INFLUENCERS_PREVIEW_LIMIT + 1) as u32;
+
+/// Offset of a `preview` window for a clock sample; production passes
+/// `Utc::now().timestamp_subsec_micros()`.
+///
+/// Pure so the mapping is testable without the clock. Two samples collide whenever they
+/// differ by a multiple of `GLOBAL_INFLUENCERS_PREVIEW_OFFSETS` microseconds (98), e.g.
+/// samples 4998 us apart land on the same offset. Two consecutive preview requests are
+/// therefore NOT guaranteed to return different influencers.
+pub fn preview_skip(micros: u32) -> usize {
+    (micros % GLOBAL_INFLUENCERS_PREVIEW_OFFSETS) as usize
+}
+
 #[derive(Serialize, Deserialize, Debug, ToSchema, Default, Clone)]
 pub struct Influencers(pub Vec<(String, f64)>); // (user_id, score)
 
@@ -65,12 +84,12 @@ impl Influencers {
         preview: bool,
     ) -> ModelResult<Option<Influencers>> {
         let (skip, limit) = if preview {
-            // Generate a pseudo-random number between 0 and 97
-            // We cache 100 influencers, and pick 3 starting from this number
-            // Using modulo 98 ensures we always have room for 3 without going out of bounds
-            let skip = Utc::now().timestamp_subsec_micros() % 98;
+            // The offset is derived from the clock, so two requests made within the same
+            // microsecond, or a multiple of `GLOBAL_INFLUENCERS_PREVIEW_OFFSETS`
+            // microseconds apart, return the same window.
+            let skip = preview_skip(Utc::now().timestamp_subsec_micros());
             debug!("Influencer preview active: skip number {}", skip);
-            (skip as usize, 3)
+            (skip, GLOBAL_INFLUENCERS_PREVIEW_LIMIT)
         } else {
             (skip, limit)
         };
@@ -407,6 +426,27 @@ mod tests {
     /// Keeps the cache tests off `GLOBAL_INFLUENCERS_PREFIX`: the API tests run against
     /// the same Redis and assert exact rankings under the production keys.
     const TEST_PREFIX: &str = "InfluencersCacheTest";
+
+    /// The preview offset comes from the clock, so the mapping is the only thing a test
+    /// may assert: never that two consecutive preview requests return different users.
+    #[test]
+    fn preview_skip_keeps_a_full_window_inside_the_cached_ranking() {
+        assert_eq!(preview_skip(0), 0);
+        assert_eq!(preview_skip(97), 97);
+        // The offset count leaves room for `GLOBAL_INFLUENCERS_PREVIEW_LIMIT` entries.
+        assert_eq!(preview_skip(98), 0);
+
+        for micros in [0u32, 1, 97, 98, 999_999] {
+            let skip = preview_skip(micros);
+            assert!(skip + GLOBAL_INFLUENCERS_PREVIEW_LIMIT <= GLOBAL_INFLUENCERS_CACHE_SIZE);
+        }
+
+        // Clock samples a multiple of 98 us apart share an offset. This is the collision
+        // that made `test_global_influencers_preview` fail intermittently (~1% of runs,
+        // a 5 ms sleep plus request overhead can land exactly 4998 us after the first
+        // sample): the two responses were then the same window.
+        assert_eq!(preview_skip(1_000_000), preview_skip(1_000_000 - 4998));
+    }
 
     #[tokio_shared_rt::test(shared)]
     async fn write_or_preserve_cache_keeps_existing_ranking_on_empty_graph_result(
