@@ -9,7 +9,7 @@
 
 use std::{path::Path, sync::Arc};
 
-use nexus_common::media::FileVariant;
+use nexus_common::media::{FileVariant, MediaKind};
 use nexus_common::models::file::FileDetails;
 use processors::{
     image_variant_content_type, video_variant_content_type, ImageProcessor, VariantProcessor,
@@ -47,15 +47,16 @@ impl VariantController {
 
     /// The content type a variant is served as. `Main` is the untouched upload, so it keeps the
     /// file's own type; a derived variant carries the type its processor produces, which is why
-    /// this dispatches to them rather than restating their formats.
+    /// this dispatches to them rather than restating their formats. A kind without a processor
+    /// keeps the file's own type too: there is nothing to derive.
     fn get_content_type_for_variant(file: &FileDetails, variant: &FileVariant) -> String {
         if variant == &FileVariant::Main {
             return file.content_type.clone();
         }
-        match &file.content_type {
-            content_type if content_type.starts_with("image/") => image_variant_content_type(),
-            content_type if content_type.starts_with("video/") => video_variant_content_type(),
-            content_type => content_type.clone(),
+        match MediaKind::from_content_type(&file.content_type) {
+            Some(MediaKind::Image) => image_variant_content_type(),
+            Some(MediaKind::Video) => video_variant_content_type(),
+            None => file.content_type.clone(),
         }
     }
 
@@ -83,8 +84,11 @@ impl VariantController {
         variant: &FileVariant,
         file_path: &Path,
     ) -> Result<String, MediaProcessorError> {
-        match &file.content_type {
-            content_type if content_type.starts_with("image/") => {
+        // Keyed on the same `MediaKind` as the variant table in `nexus_common::media`: a content
+        // type granted a derived variant there always has a processor here, and one refused
+        // here was never granted one.
+        match MediaKind::from_content_type(&file.content_type) {
+            Some(MediaKind::Image) => {
                 ImageProcessor::create_variant(
                     file,
                     variant,
@@ -94,7 +98,7 @@ impl VariantController {
                 )
                 .await
             }
-            content_type if content_type.starts_with("video/") => {
+            Some(MediaKind::Video) => {
                 VideoProcessor::create_variant(
                     file,
                     variant,
@@ -104,7 +108,7 @@ impl VariantController {
                 )
                 .await
             }
-            _ => Err(MediaProcessorError::UnsupportedContentType(
+            None => Err(MediaProcessorError::UnsupportedContentType(
                 file.content_type.clone(),
             )),
         }
@@ -133,6 +137,7 @@ impl VariantController {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nexus_common::media::get_valid_variants_for_content_type;
 
     fn make_file(content_type: &str) -> FileDetails {
         FileDetails {
@@ -152,26 +157,70 @@ mod tests {
         }
     }
 
+    // The stored type is whatever the client sent, and the spec lets a mixed-case one through, so
+    // the label must match ignoring case (RFC 2045) or `Image/png` would keep its own type.
     #[test]
     fn test_derived_image_variants_carry_the_processor_format() {
-        let file = make_file("image/png");
-        for variant in [FileVariant::Small, FileVariant::Feed] {
-            assert_eq!(
-                VariantController::get_content_type_for_variant(&file, &variant),
-                "image/webp"
-            );
+        for content_type in ["image/png", "Image/png"] {
+            let file = make_file(content_type);
+            for variant in [FileVariant::Small, FileVariant::Feed] {
+                assert_eq!(
+                    VariantController::get_content_type_for_variant(&file, &variant),
+                    "image/webp",
+                    "{content_type}"
+                );
+            }
         }
     }
 
     // A content type with no processor keeps its own label; `create_file_variant` is what
-    // refuses it, with `UnsupportedContentType`.
+    // refuses it, with `UnsupportedContentType`. `imagefoo` is one: the kind is the top-level
+    // type, not a prefix.
     #[test]
     fn test_content_type_without_a_processor_is_passed_through() {
-        let file = make_file("application/pdf");
-        assert_eq!(
-            VariantController::get_content_type_for_variant(&file, &FileVariant::Small),
-            "application/pdf"
+        for content_type in ["application/pdf", "imagefoo"] {
+            let file = make_file(content_type);
+            assert_eq!(
+                VariantController::get_content_type_for_variant(&file, &FileVariant::Small),
+                content_type
+            );
+        }
+    }
+
+    // The dispatcher and the variant table in `nexus_common::media` must agree on every content
+    // type the spec lets through, on a type that merely starts with `image`/`video`, and on a
+    // mixed-case type (the spec lowercases before validating, but the file keeps the type as
+    // sent): a type with no variants at all is exactly the one the dispatcher refuses. Anything
+    // granted a variant reaches a processor -- the gate has no permits, so an image sheds with
+    // `AtCapacity` before any subprocess starts, and a video answers with its own type because
+    // nothing derives yet; neither is `UnsupportedContentType`, which a request would turn into
+    // a 500.
+    #[tokio_shared_rt::test(shared)]
+    async fn test_dispatcher_refuses_exactly_the_content_types_without_variants() {
+        let root = tempfile::TempDir::new().expect("temp dir");
+        let controller = VariantController::new(
+            FailFastGate::new(MediaPermits::new(0)),
+            test_utils::default_subprocess_tests(),
         );
+
+        let content_types = pubky_app_specs::VALID_MIME_TYPES.iter().copied().chain([
+            "imagefoo",
+            "videofoo",
+            "Image/png",
+            "VIDEO/MP4",
+        ]);
+        for content_type in content_types {
+            let file = make_file(content_type);
+            let result = controller
+                .create_file_variant(&file, &FileVariant::Small, root.path())
+                .await;
+            let refused = matches!(result, Err(MediaProcessorError::UnsupportedContentType(_)));
+            let has_variants = !get_valid_variants_for_content_type(content_type).is_empty();
+            assert_ne!(
+                refused, has_variants,
+                "{content_type}: variants {has_variants}, dispatcher answered {result:?}"
+            );
+        }
     }
 }
 
