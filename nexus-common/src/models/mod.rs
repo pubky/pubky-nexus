@@ -3,6 +3,7 @@ pub mod error;
 pub mod event;
 pub mod file;
 pub mod follow;
+pub mod graph;
 pub mod homeserver;
 pub mod notification;
 pub mod post;

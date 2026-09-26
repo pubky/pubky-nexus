@@ -70,6 +70,7 @@ async fn test_file_ingest_aborts_on_blacklisted_source_homeserver() -> Result<()
         file_id.clone(),
         test.temp_dir.path(),
         DEFAULT_MAX_FILE_SIZE,
+        true,
         &ingestor,
     )
     .await
@@ -130,6 +131,7 @@ async fn test_file_ingest_aborts_when_source_is_blacklisted_hs_pk_directly() -> 
         file_id.clone(),
         test.temp_dir.path(),
         DEFAULT_MAX_FILE_SIZE,
+        true,
         &ingestor,
     )
     .await
@@ -179,6 +181,7 @@ async fn test_file_ingest_proceeds_when_source_homeserver_not_blacklisted() -> R
         file_id.clone(),
         test.temp_dir.path(),
         DEFAULT_MAX_FILE_SIZE,
+        true,
         &ingestor,
     )
     .await

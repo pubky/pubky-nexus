@@ -1,7 +1,7 @@
 use crate::db::graph::Query;
 use crate::db::kv::RedisResult;
 use crate::db::{exec_single_row, fetch_all_rows_from_graph, GraphResult, RedisOps};
-use crate::models::error::ModelResult;
+use crate::models::error::{ModelError, ModelResult};
 use async_trait::async_trait;
 use core::fmt;
 use std::fmt::Debug;
@@ -87,8 +87,21 @@ where
 
         let mut records = Vec::with_capacity(ids.len());
 
-        for row in rows {
-            let record: Option<Self> = row.get("record").ok();
+        for (position, row) in rows.into_iter().enumerate() {
+            // A row that does not decode is reported as missing so one bad
+            // record cannot take a whole batch read down; it is logged with the
+            // requested id because for a rebuild that means an entity silently
+            // left out of the index
+            let record: Option<Self> = match row.get("record") {
+                Ok(record) => record,
+                Err(e) => {
+                    tracing::error!(
+                        "Could not decode graph record {:?}, treating it as missing: {e}",
+                        ids.get(position)
+                    );
+                    None
+                }
+            };
             records.push(record);
         }
         Ok(records)
@@ -139,14 +152,28 @@ where
         exec_single_row(self.put_graph_query()?).await
     }
 
+    /// Rebuilds the index entries for `collection_ids` from the graph. Every id
+    /// was enumerated from the graph moments ago, so a record that comes back
+    /// missing (absent or undecodable) is a failure: the ones that did decode
+    /// are still written, then the call errors so a rebuild cannot report a
+    /// partial index as complete.
     async fn reindex(collection_ids: &[T]) -> ModelResult<()> {
-        match Self::get_from_graph(collection_ids).await {
-            Ok(collection_details_list) => {
-                if !collection_details_list.is_empty() {
-                    Self::put_to_index(collection_ids, collection_details_list).await?;
-                }
+        let records = match Self::get_from_graph(collection_ids).await {
+            Ok(records) => records,
+            Err(e) => {
+                tracing::error!("Error: Could not find any element of the collection: {}", e);
+                return Err(e.into());
             }
-            Err(e) => tracing::error!("Error: Could not find any element of the collection: {}", e),
+        };
+        let missing = records.iter().filter(|record| record.is_none()).count();
+        if !records.is_empty() {
+            Self::put_to_index(collection_ids, records).await?;
+        }
+        if missing > 0 {
+            return Err(ModelError::Generic(format!(
+                "{missing} of {} records missing or undecodable in the graph",
+                collection_ids.len()
+            )));
         }
         Ok(())
     }

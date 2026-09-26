@@ -71,6 +71,11 @@ pub enum DbCommands {
     /// Mock the database (optional redis/graph). Usually for tests
     Mock(MockArgs),
 
+    /// Flush Redis and rebuild the index from the graph (connection settings
+    /// from `config.toml` in the config dir). Needed after restoring a Neo4j
+    /// backup.
+    Reindex,
+
     /// Manage database migrations
     #[command(subcommand)]
     Migration(MigrationCommands),

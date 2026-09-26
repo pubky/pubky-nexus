@@ -37,6 +37,8 @@ pub struct DefaultEventHandler {
     moderation: Arc<Moderation>,
     ingestor: Arc<UserIngestor>,
     max_file_size: u64,
+    /// Download blobs into `files_path`; off indexes file metadata only.
+    mirror_blobs: bool,
 
     /// Local files directory on Nexus used for file-backed events.
     files_path: PathBuf,
@@ -47,12 +49,14 @@ impl DefaultEventHandler {
         moderation: Arc<Moderation>,
         ingestor: Arc<UserIngestor>,
         max_file_size: u64,
+        mirror_blobs: bool,
         files_path: PathBuf,
     ) -> Self {
         Self {
             moderation,
             ingestor,
             max_file_size,
+            mirror_blobs,
             files_path,
         }
     }
@@ -63,6 +67,7 @@ impl DefaultEventHandler {
             Moderation::from_config(config),
             Arc::new(UserIngestor::from_config(&config.stack)),
             config.max_file_size,
+            config.mirror_blobs,
             config.stack.files_path.clone(),
         )
     }
@@ -76,6 +81,7 @@ impl EventHandler for DefaultEventHandler {
                 handle_put_event(
                     event,
                     self.max_file_size,
+                    self.mirror_blobs,
                     self.files_path.as_path(),
                     self.moderation.clone(),
                     self.ingestor.clone(),
@@ -95,6 +101,7 @@ impl EventHandler for DefaultEventHandler {
 pub async fn handle_put_event(
     event: &Event,
     max_file_size: u64,
+    mirror_blobs: bool,
     files_path: &Path,
     moderation: Arc<Moderation>,
     ingestor: Arc<UserIngestor>,
@@ -175,6 +182,7 @@ pub async fn handle_put_event(
                 file_id,
                 files_path,
                 max_file_size,
+                mirror_blobs,
                 &ingestor,
             )
             .await?
