@@ -212,6 +212,89 @@ async fn test_resource_stream_timeline_follows_latest_tag() -> Result<()> {
     Ok(())
 }
 
+/// Under a label filter only the matching tags place a resource: a newer tag
+/// with another label neither moves it up nor hides it from a cursor walk.
+#[tokio_shared_rt::test(shared)]
+async fn test_resource_stream_timeline_ignores_non_matching_newer_tag() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let suffix = Utc::now().timestamp_millis();
+    let app = &format!("streamflt{suffix}");
+    // Labels are capped at 20 chars; a short unique suffix keeps them valid
+    let short = suffix % 1_000_000;
+    let label = &format!("flt-{short}");
+    let other_label = &format!("flto-{short}");
+    let labels: Vec<String> = vec![label.clone()];
+
+    let (kp, _) = create_user(&mut test, "Filtered").await?;
+
+    let uri_a = format!("https://example.com/{app}/a");
+    let uri_b = format!("https://example.com/{app}/b");
+    let a = compute_resource_id(&uri_a);
+    let b = compute_resource_id(&uri_b);
+
+    // A then B under the filtered label, then a newer tag on A under another
+    let path_a1 = put_tag(&mut test, &kp, app, &uri_a, label).await?;
+    let a_matching_tag = latest_tag_indexed_at(&a, Some(app)).await?.unwrap();
+    let path_b = put_tag(&mut test, &kp, app, &uri_b, label).await?;
+    let b_tag = latest_tag_indexed_at(&b, Some(app)).await?.unwrap();
+    let path_a2 = put_tag(&mut test, &kp, app, &uri_a, other_label).await?;
+    let a_newest_tag = latest_tag_indexed_at(&a, Some(app)).await?.unwrap();
+    assert!(a_matching_tag < b_tag && b_tag < a_newest_tag);
+
+    let label_timeline = |pagination| {
+        stream(
+            Some(app),
+            Some(&labels),
+            ResourceSorting::Timeline,
+            SortOrder::Descending,
+            pagination,
+        )
+    };
+
+    // Without the label filter the newer tag puts A first
+    let keys = app_timeline(app, page(10)).await?;
+    assert_eq!(keys.resource_ids, vec![a.clone(), b.clone()]);
+
+    // With it, A sits at its latest matching tag, behind B
+    let keys = label_timeline(page(10)).await?;
+    assert_eq!(keys.resource_ids, vec![b.clone(), a.clone()]);
+    assert_eq!(keys.last_score, Some(a_matching_tag as u64));
+
+    // A cursor at B's tag: A's newest tag is past it, so the app timeline has
+    // served A already, while the label timeline still has A to come
+    let from_b = Pagination {
+        start: Some(b_tag as f64),
+        limit: Some(10),
+        ..Default::default()
+    };
+    let keys = app_timeline(app, from_b).await?;
+    assert_eq!(keys.resource_ids, vec![b.clone()]);
+    let keys = label_timeline(from_b).await?;
+    assert_eq!(keys.resource_ids, vec![b.clone(), a.clone()]);
+
+    // One per page under the filter: B, then A, and B does not come back
+    let first = label_timeline(page(1)).await?;
+    assert_eq!(first.resource_ids, vec![b.clone()]);
+    assert_eq!(first.last_score, Some(b_tag as u64));
+    let second = label_timeline(Pagination {
+        start: first.last_score.map(|s| s as f64),
+        skip: Some(1),
+        limit: Some(1),
+        end: None,
+    })
+    .await?;
+    assert_eq!(second.resource_ids, vec![a.clone()]);
+    assert_eq!(second.last_score, Some(a_matching_tag as u64));
+
+    // Cleanup
+    test.del(&kp, &path_a1).await?;
+    test.del(&kp, &path_a2).await?;
+    test.del(&kp, &path_b).await?;
+    test.cleanup_user(&kp).await?;
+
+    Ok(())
+}
+
 /// The taggers count is the number of distinct taggers among the tags that
 /// match the filters. One person counts once however many labels or apps they
 /// tagged from; a second person counts. It is not the per-label sum a
