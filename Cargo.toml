@@ -21,8 +21,8 @@ deadpool-redis = "0.23"
 dirs = "7.0.0"
 neo4rs = "0.8.0"
 redis = "1.0.4"
-opentelemetry = "0.32"
-opentelemetry_sdk = { version = "0.32", features = ["rt-tokio"] }
+opentelemetry = "0.33"
+opentelemetry_sdk = { version = "0.33", features = ["rt-tokio"] }
 pubky = "0.9.3"
 pubky-app-specs = { version = "0.7.0", features = ["openapi"] }
 pubky-testnet = "0.9.3"
