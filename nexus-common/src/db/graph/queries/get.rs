@@ -479,23 +479,41 @@ pub fn resource_tags(resource_id: &str) -> Query {
 }
 
 /// Query a stream of Resources with optional app and tag filters.
-/// Falls back to this when Redis sorted sets can't satisfy the query.
+///
+/// Ordering:
+/// - `Timeline` sorts by the newest matching TAGGED edge (`MAX(t.indexed_at)`),
+///   not by when the Resource node was created. Adding a newer tag moves the
+///   resource up; removing it drops the resource back to its latest remaining
+///   tag. With an app or label filter, only the matching edges count.
+/// - `TaggersCount` sorts by the number of distinct taggers among the
+///   matching edges. One person counts once no matter how many labels or apps
+///   they tagged from, so the score can be lower than the `taggers_count` a
+///   `ResourceView` shows (that one sums the per-label taggers counts).
+///
+/// `score` is the sort value (timestamp or count), so callers can hand it
+/// back as a cursor. `start` is the resume cursor and `end` the hard limit,
+/// both inclusive and following the sort direction (`post_stream` uses the
+/// same rule). `r.id` breaks ties deterministically within a response, but
+/// paging across ties is still best-effort: the cursor carries only the score,
+/// not the id, so resuming from inside a tie group takes a `skip` covering
+/// every already-served row with that score. `TaggersCount` ties at small
+/// counts constantly, so the model hands out no cursor for it and that
+/// sorting is paged with `SKIP`/`LIMIT` alone.
 pub fn resource_stream(
     app: Option<&str>,
     labels: Option<&[String]>,
     sorting: &ResourceSorting,
     order: &SortOrder,
-    skip: usize,
-    limit: usize,
+    pagination: &Pagination,
 ) -> Query {
     // Map enums to safe Cypher literals — prevents injection
-    let sorting_field = match sorting {
-        ResourceSorting::Timeline => "r.indexed_at",
-        ResourceSorting::TaggersCount => "taggers_count",
-    };
     let order_direction = match order {
         SortOrder::Ascending => "ASC",
         SortOrder::Descending => "DESC",
+    };
+    let (start_op, end_op) = match order {
+        SortOrder::Descending => ("<=", ">="),
+        SortOrder::Ascending => (">=", "<="),
     };
 
     let mut cypher = String::from("MATCH (tagger:User)-[t:TAGGED]->(r:Resource)\n");
@@ -513,16 +531,36 @@ pub fn resource_stream(
         cypher.push('\n');
     }
 
+    let score_expr = match sorting {
+        ResourceSorting::Timeline => "MAX(t.indexed_at)",
+        ResourceSorting::TaggersCount => "COUNT(DISTINCT tagger)",
+    };
+    cypher.push_str(&format!("WITH r, {score_expr} AS score\n"));
+
+    // Cursor bounds apply to the aggregated score, so they live after the WITH.
+    let mut cursor_clauses = Vec::new();
+    if pagination.start.is_some() {
+        cursor_clauses.push(format!("score {start_op} $start"));
+    }
+    if pagination.end.is_some() {
+        cursor_clauses.push(format!("score {end_op} $end"));
+    }
+    if !cursor_clauses.is_empty() {
+        cypher.push_str("WHERE ");
+        cypher.push_str(&cursor_clauses.join(" AND "));
+        cypher.push('\n');
+    }
+
     cypher.push_str(&format!(
-        "WITH DISTINCT r, COUNT(DISTINCT tagger) AS taggers_count
-         ORDER BY {sorting_field} {order_direction}
-         SKIP $skip LIMIT $limit
-         RETURN r.id AS resource_id, r.indexed_at AS indexed_at, taggers_count"
+        "RETURN r.id AS resource_id, score\nORDER BY score {order_direction}, r.id {order_direction}\n"
+    ));
+    cypher.push_str(&format!(
+        "SKIP {}\nLIMIT {}\n",
+        pagination.skip.unwrap_or(0).min(MAX_QUERY_SKIP),
+        pagination.limit.unwrap_or(10).min(MAX_QUERY_LIMIT)
     ));
 
-    let mut query = Query::new("resource_stream", &cypher)
-        .param("skip", skip as i64)
-        .param("limit", limit as i64);
+    let mut query = Query::new("resource_stream", &cypher);
 
     if let Some(a) = app {
         query = query.param("app", a);
@@ -530,6 +568,12 @@ pub fn resource_stream(
     if let Some(l) = labels {
         let label_strings: Vec<String> = l.iter().map(|s| s.to_string()).collect();
         query = query.param("labels", label_strings);
+    }
+    if let Some(start) = pagination.start {
+        query = query.param("start", start);
+    }
+    if let Some(end) = pagination.end {
+        query = query.param("end", end);
     }
 
     query
@@ -1822,5 +1866,109 @@ mod tests {
                 "trusted-network tag queries must exclude a viewer reached through a follow cycle:\n{cypher}"
             );
         }
+    }
+
+    fn build_resource_stream(
+        app: Option<&str>,
+        labels: Option<&[String]>,
+        sorting: ResourceSorting,
+        order: SortOrder,
+        pagination: Pagination,
+    ) -> String {
+        resource_stream(app, labels, &sorting, &order, &pagination).to_cypher_populated()
+    }
+
+    #[test]
+    fn resource_stream_timeline_orders_by_latest_matching_tag() {
+        let cypher = build_resource_stream(
+            None,
+            None,
+            ResourceSorting::Timeline,
+            SortOrder::Descending,
+            Pagination::default(),
+        );
+        assert!(cypher.contains("WITH r, MAX(t.indexed_at) AS score"));
+        assert!(
+            !cypher.contains("r.indexed_at"),
+            "the resource node timestamp must not decide the timeline: {cypher}"
+        );
+        assert!(cypher.contains("ORDER BY score DESC, r.id DESC"));
+        assert!(
+            !cypher.contains("WHERE"),
+            "no filter without app/labels: {cypher}"
+        );
+        assert!(cypher.contains("SKIP 0\nLIMIT 10"));
+    }
+
+    #[test]
+    fn resource_stream_taggers_count_counts_distinct_taggers() {
+        let cypher = build_resource_stream(
+            None,
+            None,
+            ResourceSorting::TaggersCount,
+            SortOrder::Descending,
+            Pagination::default(),
+        );
+        assert!(cypher.contains("WITH r, COUNT(DISTINCT tagger) AS score"));
+    }
+
+    #[test]
+    fn resource_stream_applies_app_and_label_filters_to_the_edges() {
+        let labels = vec!["bitcoin".to_string(), "nostr".to_string()];
+        let cypher = build_resource_stream(
+            Some("mapky"),
+            Some(&labels),
+            ResourceSorting::Timeline,
+            SortOrder::Descending,
+            Pagination::default(),
+        );
+        assert!(cypher.contains("MATCH (tagger:User)-[t:TAGGED]->(r:Resource)\nWHERE t.app = 'mapky' AND t.label IN ['bitcoin', 'nostr']\n"));
+    }
+
+    #[test]
+    fn resource_stream_cursor_bounds_follow_the_sort_direction() {
+        let pagination = Pagination {
+            skip: Some(5),
+            limit: Some(7),
+            start: Some(200.0),
+            end: Some(100.0),
+        };
+        let desc = build_resource_stream(
+            None,
+            None,
+            ResourceSorting::Timeline,
+            SortOrder::Descending,
+            pagination,
+        );
+        assert!(desc.contains("AS score\nWHERE score <= 200"));
+        assert!(desc.contains("AND score >= 100\n"));
+        assert!(desc.contains("ORDER BY score DESC, r.id DESC\nSKIP 5\nLIMIT 7"));
+
+        let asc = build_resource_stream(
+            None,
+            None,
+            ResourceSorting::TaggersCount,
+            SortOrder::Ascending,
+            pagination,
+        );
+        assert!(asc.contains("AS score\nWHERE score >= 200"));
+        assert!(asc.contains("AND score <= 100\n"));
+        assert!(asc.contains("ORDER BY score ASC, r.id ASC\nSKIP 5\nLIMIT 7"));
+    }
+
+    #[test]
+    fn resource_stream_caps_skip_and_limit() {
+        let cypher = build_resource_stream(
+            None,
+            None,
+            ResourceSorting::Timeline,
+            SortOrder::Descending,
+            Pagination {
+                skip: Some(MAX_QUERY_SKIP + 1),
+                limit: Some(MAX_QUERY_LIMIT + 1),
+                ..Default::default()
+            },
+        );
+        assert!(cypher.contains(&format!("SKIP {MAX_QUERY_SKIP}\nLIMIT {MAX_QUERY_LIMIT}")));
     }
 }

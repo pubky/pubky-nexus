@@ -1,11 +1,11 @@
 use super::resource_utils::{
-    check_resource_in_sorted_set, compute_resource_id, count_resource_tags,
+    compute_resource_id, count_resource_tags, resource_exists_in_graph, resource_label_score,
+    resource_taggers_count,
 };
 use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
 use chrono::Utc;
 use nexus_common::db::kv::ScoreAction;
-use nexus_common::models::resource::stream::ResourceStream;
 use nexus_common::models::resource::tag::TagResource;
 use nexus_common::models::tag::traits::{TagCollection, TaggersCollection};
 use nexus_watcher::events::handlers;
@@ -14,18 +14,25 @@ use pubky::ResourcePath;
 use pubky_app_specs::traits::HashId;
 use pubky_app_specs::{PubkyAppTag, PubkyAppUser};
 
+/// `(resource id, taggers count)` pairs the graph-served stream returns for one
+/// app namespace
+async fn app_stream_by_taggers_count(app: &str) -> Result<Vec<(String, i64)>> {
+    resource_taggers_count(Some(app), None).await
+}
+
 /// Simulate a retry of a resource tag del after a partial failure where the
-/// Redis cleanup succeeded but the graph deletion failed. On retry, the
-/// taggers counts must NOT be decremented again (guarded by the app-scoped
-/// tagger set membership check), so a still-tagged resource must keep count 1
-/// and stay in the resource timelines.
+/// Redis cleanup succeeded but the graph deletion failed. On retry, the label
+/// score must NOT be decremented again (guarded by the app-scoped tagger set
+/// membership check), so a still-tagged resource must keep count 1. The
+/// stream is served from the graph, so the resource stays listed for as long
+/// as a TAGGED edge remains, whatever Redis says.
 #[tokio_shared_rt::test(shared)]
 async fn test_resource_tag_del_retry_no_double_decrement() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
 
     let target_uri = "https://example.com/del-retry-test";
     let label = "retry-res-label";
-    let app = "mapky";
+    let app = &format!("delretry{}", Utc::now().timestamp_millis());
     let resource_id = compute_resource_id(target_uri);
 
     // Two users tag the same external URI with the same label from the same app
@@ -67,16 +74,17 @@ async fn test_resource_tag_del_retry_no_double_decrement() -> Result<()> {
     let path2: ResourcePath = format!("/pub/{app}/tags/{tag2_id}").parse()?;
     test.put(&user2_kp, &path2, &tag2).await?;
 
-    // Verify initial state: 2 TAGGED edges, taggers counts at 2
+    // Verify initial state: 2 TAGGED edges, label score at 2
     assert_eq!(count_resource_tags(&resource_id).await?, 2);
-    let global_count =
-        check_resource_in_sorted_set(&["Resources", "Global", "TaggersCount"], &resource_id)
-            .await?;
-    assert_eq!(global_count, Some(2));
+    assert_eq!(resource_label_score(&resource_id, label).await?, Some(2));
+    assert_eq!(
+        app_stream_by_taggers_count(app).await?,
+        vec![(resource_id.clone(), 2)]
+    );
 
     // Simulate partial completion of a previous del attempt for user1's tag:
-    // the Redis cleanup (SREMs + all decrements) completed, but the graph
-    // deletion failed, so the TAGGED edge is still present
+    // the Redis cleanup (SREMs + label score decrement) completed, but the
+    // graph deletion failed, so the TAGGED edge is still present
     TagResource(vec![user1_id.clone()])
         .del_from_index(&resource_id, None, label)
         .await?;
@@ -84,28 +92,13 @@ async fn test_resource_tag_del_retry_no_double_decrement() -> Result<()> {
         .del_from_index(&resource_id, Some(app), label)
         .await?;
     TagResource::update_index_score(&resource_id, None, label, ScoreAction::Decrement(1.0)).await?;
-    ResourceStream::update_global_taggers_count(&resource_id, ScoreAction::Decrement(1.0)).await?;
-    ResourceStream::update_tag_taggers_count(label, &resource_id, ScoreAction::Decrement(1.0))
-        .await?;
-    ResourceStream::update_app_taggers_count(app, &resource_id, ScoreAction::Decrement(1.0))
-        .await?;
-    ResourceStream::update_app_tag_taggers_count(
-        app,
-        label,
-        &resource_id,
-        ScoreAction::Decrement(1.0),
-    )
-    .await?;
 
-    // Verify simulated state: graph still has both edges, counts already at 1
+    // Verify simulated state: graph still has both edges, score already at 1
     assert_eq!(count_resource_tags(&resource_id).await?, 2);
-    let global_count =
-        check_resource_in_sorted_set(&["Resources", "Global", "TaggersCount"], &resource_id)
-            .await?;
-    assert_eq!(global_count, Some(1));
+    assert_eq!(resource_label_score(&resource_id, label).await?, Some(1));
 
     // Retry: re-run the same delete event by calling the del handler directly.
-    // It must delete the graph edge without decrementing the counts again
+    // It must delete the graph edge without decrementing the score again
     let tag_uri = format!("pubky://{user1_id}/pub/{app}/tags/{tag1_id}");
     handlers::tag::del(&tag_uri).await?;
 
@@ -131,34 +124,12 @@ async fn test_resource_tag_del_retry_no_double_decrement() -> Result<()> {
         "Taggers count must be 1 after retry, not double-decremented to 0"
     );
 
-    // All taggers counts must be 1 (not 0)
-    for count_key_parts in [
-        vec!["Resources", "Global", "TaggersCount"],
-        vec!["Resources", "Tag", label, "TaggersCount"],
-        vec!["Resources", "App", app, "TaggersCount"],
-        vec!["Resources", "App", app, "Tag", label, "TaggersCount"],
-    ] {
-        let count = check_resource_in_sorted_set(&count_key_parts, &resource_id).await?;
-        assert_eq!(
-            count,
-            Some(1),
-            "Taggers count {count_key_parts:?} must be 1 after retry"
-        );
-    }
-
-    // The still-tagged resource must NOT be evicted from the timelines
-    for timeline_key_parts in [
-        vec!["Resources", "Global", "Timeline"],
-        vec!["Resources", "Tag", label, "Timeline"],
-        vec!["Resources", "App", app, "Timeline"],
-        vec!["Resources", "App", app, "Tag", label, "Timeline"],
-    ] {
-        let member = check_resource_in_sorted_set(&timeline_key_parts, &resource_id).await?;
-        assert!(
-            member.is_some(),
-            "Resource must remain in timeline {timeline_key_parts:?} after retry"
-        );
-    }
+    // The still-tagged resource stays in the graph-served stream, now with
+    // the one remaining tagger
+    assert_eq!(
+        app_stream_by_taggers_count(app).await?,
+        vec![(resource_id.clone(), 1)]
+    );
 
     // Cleanup: user1's homeserver file still exists (graph edge already gone,
     // the DEL event is an idempotent no-op), then really delete user2's tag
@@ -172,18 +143,20 @@ async fn test_resource_tag_del_retry_no_double_decrement() -> Result<()> {
 
 /// The same user tags the same external URI with the same label from TWO
 /// different app namespaces, creating two app-scoped TAGGED edges whose put
-/// events each incremented all five taggers counts. The retry gate must be
+/// events each incremented the label score. The retry gate must be
 /// app-scoped: a retry of the first app's delete must not double-decrement,
-/// and the second app's delete must still run its decrements so that every
-/// count reaches zero and the resource is evicted from all timelines.
+/// and the second app's delete must still run its decrement so the score
+/// reaches zero. The stream follows the graph: the resource is listed under
+/// each app while its edge exists and vanishes with the last edge.
 #[tokio_shared_rt::test(shared)]
 async fn test_resource_tag_del_multi_app_full_cleanup() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
 
     let target_uri = "https://example.com/multi-app-del-test";
     let label = "multi-app-res-label";
-    let app1 = "mapky";
-    let app2 = "eventky";
+    let suffix = Utc::now().timestamp_millis();
+    let app1 = &format!("multiappa{suffix}");
+    let app2 = &format!("multiappb{suffix}");
     let resource_id = compute_resource_id(target_uri);
 
     let user_kp = Keypair::random();
@@ -216,33 +189,20 @@ async fn test_resource_tag_del_multi_app_full_cleanup() -> Result<()> {
     let path2: ResourcePath = format!("/pub/{app2}/tags/{tag2_id}").parse()?;
     test.put(&user_kp, &path2, &tag2).await?;
 
-    // Two app-scoped TAGGED edges; the per-edge increments ran twice for the
-    // app-agnostic counts and once for each app-scoped count
+    // Two app-scoped TAGGED edges; the per-edge label score ran twice
     assert_eq!(count_resource_tags(&resource_id).await?, 2);
-    for (count_key_parts, expected) in [
-        (vec!["Resources", "Global", "TaggersCount"], 2),
-        (vec!["Resources", "Tag", label, "TaggersCount"], 2),
-        (vec!["Resources", "App", app1, "TaggersCount"], 1),
-        (
-            vec!["Resources", "App", app1, "Tag", label, "TaggersCount"],
-            1,
-        ),
-        (vec!["Resources", "App", app2, "TaggersCount"], 1),
-        (
-            vec!["Resources", "App", app2, "Tag", label, "TaggersCount"],
-            1,
-        ),
-    ] {
-        let count = check_resource_in_sorted_set(&count_key_parts, &resource_id).await?;
+    assert_eq!(resource_label_score(&resource_id, label).await?, Some(2));
+    for app in [app1, app2] {
+        // One tagger, one label: the stream counts the pair once per app
         assert_eq!(
-            count,
-            Some(expected),
-            "Taggers count {count_key_parts:?} after both puts"
+            app_stream_by_taggers_count(app).await?,
+            vec![(resource_id.clone(), 1)],
+            "resource must be listed under {app}"
         );
     }
 
     // Simulate partial completion of a del attempt for the app1 tag: the
-    // Redis cleanup (SREMs + all decrements) completed, but the graph
+    // Redis cleanup (SREMs + label score decrement) completed, but the graph
     // deletion failed, so the app1 TAGGED edge is still present
     TagResource(vec![user_id.clone()])
         .del_from_index(&resource_id, None, label)
@@ -251,18 +211,6 @@ async fn test_resource_tag_del_multi_app_full_cleanup() -> Result<()> {
         .del_from_index(&resource_id, Some(app1), label)
         .await?;
     TagResource::update_index_score(&resource_id, None, label, ScoreAction::Decrement(1.0)).await?;
-    ResourceStream::update_global_taggers_count(&resource_id, ScoreAction::Decrement(1.0)).await?;
-    ResourceStream::update_tag_taggers_count(label, &resource_id, ScoreAction::Decrement(1.0))
-        .await?;
-    ResourceStream::update_app_taggers_count(app1, &resource_id, ScoreAction::Decrement(1.0))
-        .await?;
-    ResourceStream::update_app_tag_taggers_count(
-        app1,
-        label,
-        &resource_id,
-        ScoreAction::Decrement(1.0),
-    )
-    .await?;
 
     // Retry the app1 delete: it must not decrement anything again, only
     // finish the pending graph deletion
@@ -270,66 +218,45 @@ async fn test_resource_tag_del_multi_app_full_cleanup() -> Result<()> {
     handlers::tag::del(&tag1_uri).await?;
 
     // Only the app2 TAGGED edge remains, and the retry did not
-    // double-decrement the app-agnostic counts
+    // double-decrement the label score
     assert_eq!(count_resource_tags(&resource_id).await?, 1);
-    for count_key_parts in [
-        vec!["Resources", "Global", "TaggersCount"],
-        vec!["Resources", "Tag", label, "TaggersCount"],
-        vec!["Resources", "App", app2, "TaggersCount"],
-        vec!["Resources", "App", app2, "Tag", label, "TaggersCount"],
-    ] {
-        let count = check_resource_in_sorted_set(&count_key_parts, &resource_id).await?;
-        assert_eq!(
-            count,
-            Some(1),
-            "Taggers count {count_key_parts:?} must be 1 after the app1 retry"
-        );
-    }
-    for timeline_key_parts in [
-        vec!["Resources", "Global", "Timeline"],
-        vec!["Resources", "Tag", label, "Timeline"],
-        vec!["Resources", "App", app2, "Timeline"],
-        vec!["Resources", "App", app2, "Tag", label, "Timeline"],
-    ] {
-        let member = check_resource_in_sorted_set(&timeline_key_parts, &resource_id).await?;
-        assert!(
-            member.is_some(),
-            "Resource must remain in timeline {timeline_key_parts:?} after the app1 retry"
-        );
-    }
+    assert_eq!(
+        resource_label_score(&resource_id, label).await?,
+        Some(1),
+        "label score must be 1 after the app1 retry"
+    );
+    assert_eq!(
+        app_stream_by_taggers_count(app1).await?,
+        vec![],
+        "the app1 stream follows the deleted edge"
+    );
+    assert_eq!(
+        app_stream_by_taggers_count(app2).await?,
+        vec![(resource_id.clone(), 1)],
+        "the app2 stream still lists the resource"
+    );
 
     // Delete the app2 tag: its app-scoped tagger set still holds the member,
-    // so all five decrements must run and zero out every count
+    // so the decrement must run and zero out the score
     test.del(&user_kp, &path2).await?;
 
     assert_eq!(count_resource_tags(&resource_id).await?, 0);
-    for count_key_parts in [
-        vec!["Resources", "Global", "TaggersCount"],
-        vec!["Resources", "Tag", label, "TaggersCount"],
-        vec!["Resources", "App", app1, "TaggersCount"],
-        vec!["Resources", "App", app1, "Tag", label, "TaggersCount"],
-        vec!["Resources", "App", app2, "TaggersCount"],
-        vec!["Resources", "App", app2, "Tag", label, "TaggersCount"],
-    ] {
-        let count = check_resource_in_sorted_set(&count_key_parts, &resource_id).await?;
+    assert!(
+        !resource_exists_in_graph(&resource_id).await?,
+        "orphaned Resource node must be removed with its last tag"
+    );
+    assert_eq!(
+        resource_label_score(&resource_id, label)
+            .await?
+            .unwrap_or(0),
+        0,
+        "label score must be 0 after both deletes"
+    );
+    for app in [app1, app2] {
         assert_eq!(
-            count.unwrap_or(0),
-            0,
-            "Taggers count {count_key_parts:?} must be 0 after both deletes"
-        );
-    }
-    for timeline_key_parts in [
-        vec!["Resources", "Global", "Timeline"],
-        vec!["Resources", "Tag", label, "Timeline"],
-        vec!["Resources", "App", app1, "Timeline"],
-        vec!["Resources", "App", app1, "Tag", label, "Timeline"],
-        vec!["Resources", "App", app2, "Timeline"],
-        vec!["Resources", "App", app2, "Tag", label, "Timeline"],
-    ] {
-        let member = check_resource_in_sorted_set(&timeline_key_parts, &resource_id).await?;
-        assert!(
-            member.is_none(),
-            "Resource must be evicted from timeline {timeline_key_parts:?} after both deletes"
+            app_stream_by_taggers_count(app).await?,
+            vec![],
+            "resource must be gone from the {app} stream"
         );
     }
 
