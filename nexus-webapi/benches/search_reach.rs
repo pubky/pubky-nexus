@@ -103,16 +103,21 @@ async fn print_reach_sizes(observers: &[String]) {
 
 /// `size` authors for the FT.SEARCH curve: the stored authors the widest reach
 /// of `observer` resolves to, the most prolific first, topped up with ids that
-/// match no post, so the author list has the benched length on any dataset.
+/// match no post when the reach holds fewer than `size` authors, so the author
+/// list has the benched length on any dataset.
+///
+/// # Panics
+///
+/// When the reach fails to resolve: an author list of unstored ids alone would
+/// time a different workload.
 async fn author_set(observer: &str, size: usize) -> Vec<PubkyId> {
     let widest = StreamReach::Wot(WotDepth::new(3).unwrap());
-    let mut authors = match reach_authors(observer, &widest, size).await {
-        Ok(authors) => authors.author_ids,
-        Err(e) => {
-            println!("No stored authors in the author sets: {e}");
-            Vec::new()
-        }
-    };
+    let mut authors = reach_authors(observer, &widest, size)
+        .await
+        .unwrap_or_else(|e| {
+            panic!("Could not resolve the reach of {observer} for the author sets: {e}")
+        })
+        .author_ids;
     println!("Author sets hold {} stored authors", authors.len());
     authors.extend((authors.len()..size).map(unstored_author));
     authors
