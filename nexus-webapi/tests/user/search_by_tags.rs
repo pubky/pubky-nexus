@@ -183,8 +183,8 @@ async fn test_user_search_by_tags_reach_single_label() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_user_search_by_tags_reach_wot() -> Result<()> {
-    // Single-label WoT goes to the graph. D2 is only reachable at depth 2, and
-    // OBS, reachable through FRIEND's follow back, is excluded
+    // D2 is only reachable at depth 2, and OBS, reachable through FRIEND's
+    // follow back, is excluded
     let body = get_request(&reach_query(USER_TAG, OBS, "wot_2")).await?;
     assert_eq!(user_ids(&body), vec![FRIEND, D2, FOLLOWED]);
     assert_eq!(
@@ -198,6 +198,21 @@ async fn test_user_search_by_tags_reach_wot() -> Result<()> {
 
     let body = get_request(&reach_query(USER_TAG, OBS, "wot_1")).await?;
     assert_eq!(user_ids(&body), vec![FRIEND, FOLLOWED]);
+
+    // Depth 3 reaches FOLLOWED twice: OBS -> FOLLOWED and, over three distinct
+    // FOLLOWS edges, OBS -> FRIEND -> OBS -> FOLLOWED. The deduped reach keeps
+    // its score at 1; counting it once per path would score it 2 and lead the
+    // page ahead of FRIEND
+    let body = get_request(&reach_query(USER_TAG, OBS, "wot_3")).await?;
+    assert_eq!(user_ids(&body), vec![FRIEND, D2, FOLLOWED]);
+    assert_eq!(
+        scores_by_user(&body),
+        HashMap::from([
+            (FRIEND.to_string(), 2),
+            (D2.to_string(), 1),
+            (FOLLOWED.to_string(), 1)
+        ])
+    );
     Ok(())
 }
 

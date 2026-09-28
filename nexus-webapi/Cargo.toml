@@ -52,6 +52,8 @@ nexus-common = { path = "../nexus-common", features = ["test-utils"] }
 # Self dev-dependency so the crate's own tests and benches get the `mock`
 # feature without needing extra flags on `cargo test` or `cargo bench`.
 nexus-webapi = { path = ".", features = ["mock"] }
+# `testing` adds the in-memory metric exporter the telemetry tests read points from
+opentelemetry_sdk = { workspace = true, features = ["testing"] }
 pubky-testnet = { workspace = true }
 serde_urlencoded = "0.7"
 tempfile = { workspace = true }
@@ -90,6 +92,10 @@ harness = false
 
 [[bench]]
 name = "search"
+harness = false
+
+[[bench]]
+name = "search_reach"
 harness = false
 
 [[bench]]

@@ -1,5 +1,5 @@
 use crate::db::graph::Query;
-use crate::db::kv::{search, RedisResult, ScoreAction, SortOrder};
+use crate::db::kv::{search, AuthorFilter, RedisResult, ScoreAction, SortOrder};
 use crate::db::queries::get::{global_tags_by_post, global_tags_by_post_engagement};
 use crate::db::{fetch_all_rows_from_graph, RedisOps};
 use crate::models::error::ModelResult;
@@ -12,6 +12,17 @@ use utoipa::ToSchema;
 
 pub const TAG_GLOBAL_POST_TIMELINE: [&str; 4] = ["Tags", "Global", "Post", "Timeline"];
 pub const TAG_GLOBAL_POST_ENGAGEMENT: [&str; 4] = ["Tags", "Global", "Post", "TotalEngagement"];
+
+/// Largest reach a content search injects into `FT.SEARCH` as an author set.
+/// Larger reaches are trimmed to the authors with the most posts.
+///
+/// Keep this at or below 2,500–5,000. Query parsing grows with every id and
+/// runs on the Redis main thread even with `search-workers` enabled, so it
+/// blocks every other Redis command, and the `TIMEOUT` argument doesn't bound
+/// it. Search time grows with the list too, towards the configured search
+/// timeout. Search larger reaches by over-fetching and filtering instead of
+/// growing this list; `benches/search_reach.rs` measures the trade-off.
+pub const MAX_REACH_AUTHORS_FT: usize = 1_000;
 
 /// Represents a single search result of a "posts by tag" search, returning the post keys (`author_id:post_id`) and score
 #[derive(Serialize, Deserialize, ToSchema, Default)]
@@ -193,7 +204,7 @@ pub struct PostsByContentSearch {
 impl PostsByContentSearch {
     pub async fn search(
         query: &str,
-        author: Option<&str>,
+        author: Option<AuthorFilter<'_>>,
         kind: Option<&str>,
         skip: usize,
         limit: usize,
