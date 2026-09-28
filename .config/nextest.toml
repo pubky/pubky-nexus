@@ -4,13 +4,15 @@
 # Sorted:Users:Influencers Redis sorted set. nextest runs each test in its own
 # process, in parallel, against one shared Redis, so that test must never
 # interleave with the sibling tests that assert the exact member order of the
-# same sorted set. Put all three in a test group limited to one concurrent test.
+# same sorted set. test_global_influencers_preview reads that set five times and asserts
+# each preview is a contiguous window of it, so a reseed landing mid-read breaks it too.
+# Put all four in a test group limited to one concurrent test.
 
 [test-groups]
 influencers-sorted-set = { max-threads = 1 }
 
 [[profile.default.overrides]]
-filter = 'test(=stream::user::influencers::test_global_influencers) | test(=stream::user::influencers::test_global_influencers_skip_limit) | test(=stream::user::influencers::test_global_influencers_alltime_cache_recovery)'
+filter = 'test(=stream::user::influencers::test_global_influencers) | test(=stream::user::influencers::test_global_influencers_skip_limit) | test(=stream::user::influencers::test_global_influencers_alltime_cache_recovery) | test(=stream::user::influencers::test_global_influencers_preview)'
 test-group = 'influencers-sorted-set'
 
 # nexusd/tests/cache_setup/main.rs calls clear_redis(), which issues FLUSHDB
