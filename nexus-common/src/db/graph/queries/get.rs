@@ -3,7 +3,6 @@ use crate::db::graph::Query;
 use crate::db::kv::SortOrder;
 use crate::models::post::{KindFilter, StreamSource};
 use crate::models::resource::stream::ResourceSorting;
-use crate::models::user::USER_DELETED_SENTINEL;
 use crate::types::routes::HotTagsInputDTO;
 use crate::types::DomainTrust;
 use crate::types::Pagination;
@@ -275,13 +274,12 @@ pub fn global_tags_by_user() -> Query {
         // create_user_tag MERGEs one TAGGED edge per (tagger, tagged, label),
         // so COUNT(t) is the distinct tagger count.
         MATCH (tagger:User)-[t:TAGGED]->(u:User)
-        WHERE u.name <> $deleted
+        WHERE NOT coalesce(u.deleted, false)
         WITH t.label AS label, u.id AS user_id, COUNT(t) AS score
         WITH label, COLLECT([toFloat(score), user_id]) AS sorted_set
         RETURN label, sorted_set
         ",
     )
-    .param("deleted", USER_DELETED_SENTINEL)
 }
 
 /// Enumerates the distinct (tagged user, label) pairs carried by user
@@ -292,11 +290,10 @@ pub fn get_user_tag_pairs() -> Query {
         "get_user_tag_pairs",
         "
         MATCH (:User)-[t:TAGGED]->(u:User)
-        WHERE u.name <> $deleted
+        WHERE NOT coalesce(u.deleted, false)
         RETURN DISTINCT u.id AS user_id, t.label AS label
         ",
     )
-    .param("deleted", USER_DELETED_SENTINEL)
 }
 
 /// Users carrying positive trust, highest first: the ranked population behind
@@ -316,27 +313,71 @@ pub fn get_trust_ranked_user_ids() -> Query {
         "
         MATCH (u:User)
         WHERE u.trust > 0
-          AND u.name <> $deleted AND NOT coalesce(u.deleted, false)
+          AND NOT coalesce(u.deleted, false)
         RETURN u.id AS user_id
         ORDER BY u.trust DESC, user_id ASC
         ",
     )
-    .param("deleted", USER_DELETED_SENTINEL)
 }
 
 /// Users whose profile carries any of the given tag labels, scored by distinct
 /// tagger count summed across the searched labels.
 pub fn search_users_by_tags(labels: &[String], skip: Option<usize>, limit: Option<usize>) -> Query {
-    let mut cypher = String::from(
+    Query::new(
+        "search_users_by_tags",
+        users_by_tags_cypher("", skip, limit),
+    )
+    .param("labels", labels.to_vec())
+}
+
+/// [`search_users_by_tags`] restricted to the users in `user_id`'s `reach`,
+/// excluding `user_id` itself. Pages inside the graph, so only the requested
+/// window leaves Neo4j.
+pub fn search_users_by_tags_with_reach(
+    labels: &[String],
+    user_id: &str,
+    reach: &StreamReach,
+    skip: Option<usize>,
+    limit: Option<usize>,
+) -> Query {
+    let reach_prefix = format!(
+        "MATCH (user:User {{id: $user_id}})
+        {}
+        WHERE reach.id <> $user_id
+        // A WoT expand yields one row per path, so dedupe the reach before the
+        // tag join, or a user's tags count once per path. DISTINCT right after
+        // the variable-length expand also lets the planner use a pruning BFS.
+        // Starting from the tag with an EXISTS {{ (user)-[:FOLLOWS*1..d]->(u) }}
+        // check was slower: it runs an unpruned expand per tagged user.
+        WITH DISTINCT reach AS u",
+        stream_reach_to_graph_subquery(reach)
+    );
+
+    reach_attrs(
+        Query::new(
+            "search_users_by_tags_with_reach",
+            users_by_tags_cypher(&reach_prefix, skip, limit),
+        ),
+        reach,
+    )
+    .param("labels", labels.to_vec())
+    .param("user_id", user_id)
+}
+
+/// Shared scoring for the user tag searches. `prefix` may bind `u` to narrow
+/// the tagged users; empty searches every user.
+fn users_by_tags_cypher(prefix: &str, skip: Option<usize>, limit: Option<usize>) -> String {
+    let mut cypher = format!(
         "
+        {prefix}
         MATCH (tagger:User)-[tag:TAGGED]->(u:User)
-        WHERE tag.label IN $labels AND u.name <> $deleted
+        WHERE tag.label IN $labels AND NOT coalesce(u.deleted, false)
         WITH u, COUNT(tag) AS score
         RETURN u.id AS user_id, score
         // id DESC matches how Redis breaks equal scores (reverse-lex member
         // order), keeping pagination windows identical across both paths
         ORDER BY score DESC, u.id DESC
-        ",
+        "
     );
 
     if let Some(skip) = skip {
@@ -345,10 +386,7 @@ pub fn search_users_by_tags(labels: &[String], skip: Option<usize>, limit: Optio
     if let Some(limit) = limit {
         cypher.push_str(&format!("LIMIT {}\n", limit.min(MAX_QUERY_LIMIT)));
     }
-
-    Query::new("search_users_by_tags", &cypher)
-        .param("labels", labels.to_vec())
-        .param("deleted", USER_DELETED_SENTINEL)
+    cypher
 }
 
 // Retrieve all the tags of the post
@@ -532,7 +570,7 @@ pub fn get_all_homeservers_with_active_users() -> Query {
     Query::new(
         "get_all_homeservers_with_active_users",
         "MATCH (u:User)-[r:HOSTED_BY]->(hs:Homeserver)
-        WHERE u.name <> '[DELETED]' AND NOT coalesce(r.stale, false)
+        WHERE NOT coalesce(u.deleted, false) AND NOT coalesce(r.stale, false)
         WITH hs.id AS id,
              sum(coalesce(u.trust, 0.0)) AS hosted_trust,
              count(u) AS active_users
@@ -547,7 +585,7 @@ pub fn get_users_needing_hs_resolution(ttl_ms: u64) -> Query {
     Query::new(
         "get_users_needing_hs_resolution",
         "MATCH (u:User)
-         WHERE u.name <> '[DELETED]'
+         WHERE NOT coalesce(u.deleted, false)
          OPTIONAL MATCH (u)-[r:HOSTED_BY]->(:Homeserver)
          WITH u, r
          WHERE r IS NULL
@@ -575,7 +613,7 @@ pub fn count_user_homeserver_mappings() -> Query {
     Query::new(
         "count_user_homeserver_mappings",
         "MATCH (u:User)-[r:HOSTED_BY]->(:Homeserver)
-         WHERE u.name <> '[DELETED]'
+         WHERE NOT coalesce(u.deleted, false)
          RETURN count(r) AS mapped_users,
                 count(CASE WHEN r.stale = true THEN 1 END) AS stale_users",
     )
@@ -590,7 +628,7 @@ pub fn get_active_users_by_homeserver(hs_id: &str) -> Query {
     Query::new(
         "get_active_users_by_homeserver",
         "MATCH (u:User)-[r:HOSTED_BY]->(:Homeserver {id: $hs_id})
-         WHERE u.name <> '[DELETED]' AND NOT coalesce(r.stale, false)
+         WHERE NOT coalesce(u.deleted, false) AND NOT coalesce(r.stale, false)
          RETURN collect(u.id) AS user_ids",
     )
     .param("hs_id", hs_id.to_string())
@@ -791,6 +829,62 @@ fn stream_reach_to_graph_subquery(reach: &StreamReach) -> String {
     }
 }
 
+/// Up to `limit` distinct users in `user_id`'s `reach` who authored at least
+/// one post, excluding `user_id`, the most prolific first. Users without posts
+/// are left out: they cannot match a post search, so keeping them would spend
+/// `limit` on authors that match nothing. The post count matches
+/// `UserCounts::posts` (every authored post, replies included); equal counts
+/// break ties by id descending.
+pub fn get_reach_authors_by_posts(user_id: &str, reach: &StreamReach, limit: usize) -> Query {
+    let cypher = format!(
+        "
+        MATCH (user:User {{id: $user_id}})
+        {}
+        WHERE reach.id <> $user_id
+        WITH DISTINCT reach
+        // AUTHORED only ever points at posts, so the unlabelled pattern is a
+        // degree lookup rather than an expansion
+        WITH reach, COUNT {{ (reach)-[:AUTHORED]->() }} AS posts
+        WHERE posts > 0
+        RETURN reach.id AS author_id
+        ORDER BY posts DESC, author_id DESC
+        LIMIT $limit
+        ",
+        stream_reach_to_graph_subquery(reach)
+    );
+    reach_attrs(Query::new("get_reach_authors_by_posts", &cypher), reach)
+        .param("user_id", user_id)
+        .param("limit", i64::try_from(limit).unwrap_or(i64::MAX))
+}
+
+/// Whether `target_id` is in `user_id`'s `reach`. `false` for the user itself
+/// and for unknown users.
+pub fn reach_contains_user(user_id: &str, target_id: &str, reach: &StreamReach) -> Query {
+    let check = match reach {
+        StreamReach::Following => "EXISTS { (user)-[:FOLLOWS]->(target) }".to_string(),
+        StreamReach::Followers => "EXISTS { (target)-[:FOLLOWS]->(user) }".to_string(),
+        StreamReach::Friends => {
+            "EXISTS { (user)-[:FOLLOWS]->(target) } AND EXISTS { (target)-[:FOLLOWS]->(user) }"
+                .to_string()
+        }
+        // shortestPath searches from both ends; a variable-length EXISTS runs
+        // as an unpruned expand
+        StreamReach::Wot(depth) => {
+            format!("EXISTS {{ MATCH shortestPath((user)-[:FOLLOWS*1..{depth}]->(target)) }}")
+        }
+    };
+    let cypher = format!(
+        "
+        MATCH (user:User {{id: $user_id}}), (target:User {{id: $target_id}})
+        WHERE target.id <> $user_id
+        RETURN {check} AS reached
+        "
+    );
+    reach_attrs(Query::new("reach_contains_user", &cypher), reach)
+        .param("user_id", user_id)
+        .param("target_id", target_id)
+}
+
 pub fn get_tags_by_label_prefix(label_prefix: &str) -> Query {
     Query::new(
         "get_tags_by_label_prefix",
@@ -944,7 +1038,7 @@ pub fn get_influencers_by_reach(
         {}
         WHERE user.id = $user_id
         WITH DISTINCT reach
-        WHERE reach.name <> '[DELETED]'
+        WHERE NOT coalesce(reach.deleted, false)
 
         CALL (reach) {{
             MATCH (others:User)-[follow:FOLLOWS]->(reach)
@@ -994,7 +1088,7 @@ pub fn get_global_influencers(skip: usize, limit: usize, timeframe: &Timeframe) 
     let query_string = format!(
         "
         MATCH (user:User)
-        WHERE user.name <> '[DELETED]'
+        WHERE NOT coalesce(user.deleted, false)
         WITH DISTINCT user
 
         // Each count is a scoped CALL(user){{}} subquery so it stays per-user
@@ -1452,7 +1546,8 @@ pub fn post_is_safe_to_delete(author_id: &str, post_id: &str) -> Query {
 }
 
 /// Find user recommendations: active users (with 5+ posts) who are 1-3 degrees of separation away
-/// from the given user, but not directly followed by them
+/// from the given user, but not directly followed by them.
+/// Deleted users are filtered in Cypher; only the user ID is projected (no name column).
 pub fn recommend_users(user_id: &str, limit: usize) -> Query {
     Query::new(
         "recommend_users",
@@ -1461,11 +1556,12 @@ pub fn recommend_users(user_id: &str, limit: usize) -> Query {
         MATCH (user)-[:FOLLOWS*1..3]->(potential:User)
         WHERE NOT (user)-[:FOLLOWS]->(potential)
         AND potential.id <> $user_id
+        AND NOT coalesce(potential.deleted, false)
         WITH DISTINCT potential
         MATCH (potential)-[:AUTHORED]->(post:Post)
         WITH potential, COUNT(post) AS post_count
         WHERE post_count >= 5
-        RETURN potential.id AS recommended_user_id, potential.name AS recommended_user_name
+        RETURN potential.id AS recommended_user_id
         LIMIT $limit
     ",
     )
@@ -1510,8 +1606,7 @@ pub fn starter_pack_users(
                  sum(coalesce(tagger.trust, 0.0)) AS trust_score,
                  count(DISTINCT tagger) AS endorsers
             // Cheaper here than against every endorsement row.
-            // TODO: drop the name check once nothing writes the [DELETED] sentinel.
-            WHERE candidate.name <> '[DELETED]' AND NOT coalesce(candidate.deleted, false)
+            WHERE NOT coalesce(candidate.deleted, false)
               AND (user IS NULL OR (candidate <> user AND NOT (user)-[:FOLLOWS]->(candidate)))
               AND EXISTS { MATCH (candidate)-[:AUTHORED]->(p:Post) WHERE p.indexed_at >= $since }
             WITH candidate.id AS id, trust_score, endorsers
@@ -1605,6 +1700,19 @@ mod tests {
             let taggers = get_tag_taggers_by_reach("tag", "user", reach.clone(), 0, 10);
             assert_eq!(taggers.label(), "get_tag_taggers_by_reach");
             assert_eq!(taggers.telemetry_attrs(), expected.as_slice());
+
+            let user_tag_search =
+                search_users_by_tags_with_reach(&["label".into()], "user", &reach, None, None);
+            assert_eq!(user_tag_search.label(), "search_users_by_tags_with_reach");
+            assert_eq!(user_tag_search.telemetry_attrs(), expected.as_slice());
+
+            let reach_authors = get_reach_authors_by_posts("user", &reach, 10);
+            assert_eq!(reach_authors.label(), "get_reach_authors_by_posts");
+            assert_eq!(reach_authors.telemetry_attrs(), expected.as_slice());
+
+            let reach_contains = reach_contains_user("user", "target", &reach);
+            assert_eq!(reach_contains.label(), "reach_contains_user");
+            assert_eq!(reach_contains.telemetry_attrs(), expected.as_slice());
 
             let hot_tags_input = HotTagsInputDTO::new(Timeframe::AllTime, 10, 0, 5, None);
             let hot_tags = get_hot_tags_by_reach("user", reach, &hot_tags_input);
@@ -1733,6 +1841,54 @@ mod tests {
                 "author dedup must precede the posts MATCH:\n{cypher}"
             );
         }
+    }
+
+    #[test]
+    fn user_tag_search_dedupes_reach_before_tag_join() {
+        let labels = ["label".to_string()];
+        let reaches = [
+            StreamReach::Followers,
+            StreamReach::Following,
+            StreamReach::Friends,
+            StreamReach::Wot(WotDepth::new(1).unwrap()),
+            StreamReach::Wot(WotDepth::new(2).unwrap()),
+            StreamReach::Wot(WotDepth::new(3).unwrap()),
+        ];
+        for reach in reaches {
+            let cypher = search_users_by_tags_with_reach(&labels, "user", &reach, None, None)
+                .to_cypher_populated();
+            let dedupe = cypher
+                .find("WITH DISTINCT reach AS u")
+                .unwrap_or_else(|| panic!("{reach:?} must dedupe the reach:\n{cypher}"));
+            let tag_join = cypher
+                .find("MATCH (tagger:User)-[tag:TAGGED]->(u:User)")
+                .unwrap_or_else(|| panic!("{reach:?} must join tags on u:\n{cypher}"));
+            assert!(
+                dedupe < tag_join,
+                "{reach:?} must dedupe before the tag join, or tags count once per path:\n{cypher}"
+            );
+        }
+    }
+
+    #[test]
+    fn reach_membership_uses_shortest_path_for_wot() {
+        let wot = reach_contains_user(
+            "user",
+            "target",
+            &StreamReach::Wot(WotDepth::new(3).unwrap()),
+        )
+        .to_cypher_populated();
+        assert!(
+            wot.contains("EXISTS { MATCH shortestPath((user)-[:FOLLOWS*1..3]->(target)) }"),
+            "WoT membership must use shortestPath:\n{wot}"
+        );
+        let friends =
+            reach_contains_user("user", "target", &StreamReach::Friends).to_cypher_populated();
+        assert!(
+            friends.contains("(user)-[:FOLLOWS]->(target)")
+                && friends.contains("(target)-[:FOLLOWS]->(user)"),
+            "friends must check both directions:\n{friends}"
+        );
     }
 
     #[test]

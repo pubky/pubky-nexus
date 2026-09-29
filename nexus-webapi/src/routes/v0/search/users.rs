@@ -1,5 +1,5 @@
 use crate::models::{
-    BoundedLimit, BoundedPagination, BoundedSkip, Tags, UserIdPrefix, UsernamePrefix,
+    BoundedLimit, BoundedPagination, BoundedSkip, PubkyId, Tags, UserIdPrefix, UsernamePrefix,
 };
 use crate::routes::v0::endpoints::{
     SEARCH_USERS_BY_ID_ROUTE, SEARCH_USERS_BY_NAME_ROUTE, SEARCH_USERS_BY_TAGS_ROUTE,
@@ -7,9 +7,10 @@ use crate::routes::v0::endpoints::{
 use crate::routes::v0::search::USER_ID_SEARCH_MIN_PREFIX_LEN;
 use crate::routes::Path;
 use crate::routes::Query;
-use crate::Result;
+use crate::{Error, Result};
 use axum::Json;
 use nexus_common::models::user::{UserSearch, UsersByTagSearch};
+use nexus_common::types::StreamReach;
 use serde::Deserialize;
 use tracing::debug;
 use utoipa::OpenApi;
@@ -85,6 +86,8 @@ pub async fn search_users_by_id_handler(
 #[derive(Deserialize)]
 pub struct SearchUsersByTagsQuery {
     pub tags: Tags,
+    pub user_id: Option<PubkyId>,
+    pub reach: Option<StreamReach>,
     #[serde(flatten)]
     pub pagination: BoundedPagination<10_000, 20, 200>,
 }
@@ -92,10 +95,12 @@ pub struct SearchUsersByTagsQuery {
 #[utoipa::path(
     get,
     path = SEARCH_USERS_BY_TAGS_ROUTE,
-    description = "Search users by profile tags, scored by how many taggers applied the searched labels. Equal scores break ties by user id descending",
+    description = "Search users by profile tags, scored by how many taggers applied the searched labels. Equal scores break ties by user id descending. With `user_id` and `reach`, only users in that reach are returned (never `user_id` itself), with unchanged scores",
     tag = "Search",
     params(
         ("tags" = Tags, Query, description = "Comma-separated tag labels (1-5). Users tagged with any of them are returned"),
+        ("user_id" = Option<PubkyId>, Query, description = "User ID to base reach on. Must be provided together with reach"),
+        ("reach" = Option<StreamReach>, Query, example = "wot_2", description = "Reach type: `followers` | `following` | `friends` | `wot` | `wot_1`..`wot_3`. To apply that, user_id is required. Bare `wot` defaults to depth 2."),
         ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Skip N results (max 10000)"),
         ("limit" = Option<BoundedLimit<20, 200>>, Query, description = "Limit the number of results (1-200, default 20)")
     ),
@@ -110,15 +115,29 @@ pub async fn search_users_by_tags_handler(
     Query(query): Query<SearchUsersByTagsQuery>,
 ) -> Result<Json<Vec<UsersByTagSearch>>> {
     debug!(
-        "GET {SEARCH_USERS_BY_TAGS_ROUTE} tags:{:?}, skip: {}, limit: {}",
+        "GET {SEARCH_USERS_BY_TAGS_ROUTE} tags:{:?}, user_id: {:?}, reach: {:?}, skip: {}, limit: {}",
         query.tags,
+        query.user_id,
+        query.reach,
         query.pagination.skip_value(),
         query.pagination.limit_value()
     );
 
-    let pagination = query.pagination.to_pagination(None, None);
+    if query.user_id.is_some() ^ query.reach.is_some() {
+        return Err(Error::invalid_input(
+            "user_id and reach should be both provided together",
+        ));
+    }
 
-    let users = UsersByTagSearch::get_by_labels(&query.tags.to_string_vec(), pagination).await?;
+    let pagination = query.pagination.to_pagination(None, None);
+    let labels = query.tags.to_string_vec();
+
+    let users = match (query.user_id, query.reach) {
+        (Some(user_id), Some(reach)) => {
+            UsersByTagSearch::get_by_labels_with_reach(&labels, &user_id, reach, pagination).await?
+        }
+        _ => UsersByTagSearch::get_by_labels(&labels, pagination).await?,
+    };
     Ok(Json(users))
 }
 
@@ -129,7 +148,14 @@ pub async fn search_users_by_tags_handler(
         search_users_by_id_handler,
         search_users_by_tags_handler
     ),
-    components(schemas(UserSearch, UsersByTagSearch, Tags, UsernamePrefix, UserIdPrefix))
+    components(schemas(
+        UserSearch,
+        UsersByTagSearch,
+        Tags,
+        UsernamePrefix,
+        UserIdPrefix,
+        StreamReach
+    ))
 )]
 pub struct SearchUsersApiDocs;
 

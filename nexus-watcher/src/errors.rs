@@ -94,9 +94,6 @@ impl From<ModelError> for EventProcessorError {
                 let should_not_retry_now = source.should_not_retry_now();
                 EventProcessorError::IndexOperationFailed(should_not_retry_now, source.to_string())
             }
-            ModelError::FileOperationFailed(source) => {
-                EventProcessorError::InternalError(source.to_string())
-            }
             ModelError::HsBlacklisted { hs_id } => EventProcessorError::HsBlacklisted { hs_id },
             ModelError::Generic(message) => EventProcessorError::Generic(message),
         }

@@ -1,7 +1,7 @@
 use crate::db::graph::{GraphResult, Query};
 use crate::db::kv::RedisResult;
 use crate::db::{exec_single_row, queries, RedisOps};
-use crate::media::FileVariant;
+use crate::media::{get_valid_variants_for_content_type, FileVariant};
 use crate::models::error::ModelResult;
 use crate::models::traits::Collection;
 use async_trait::async_trait;
@@ -9,44 +9,36 @@ use chrono::Utc;
 use pubky_app_specs::{ParsedUri, PubkyAppFile, Resource};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::Path;
 use utoipa::ToSchema;
 
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema, Default)]
 pub struct FileUrls {
     pub main: String,
+    pub large: Option<String>,
     pub feed: Option<String>,
     pub small: Option<String>,
 }
 
 impl FileUrls {
-    /// Creates a new instance by constructing URLs for file variants
-    ///
-    /// # Arguments
-    /// * `base_path` - A reference to a `PathBuf` representing the base directory where files are stored
-    /// * `variants` - A slice of `FileVariant` values representing the available file variants
-    pub fn new(base_path: &Path, variants: &[FileVariant]) -> Self {
-        let build_url = |variant: &FileVariant| {
-            base_path
-                .join(variant.to_string())
-                .to_string_lossy()
-                .into_owned()
-        };
+    /// Every variant URL a file has. They depend only on the owner, the id and the content type,
+    /// so they are rebuilt on each read rather than trusted from storage, where a list written
+    /// before a variant existed would go stale.
+    pub fn new(owner_id: &str, file_id: &str, content_type: &str) -> Self {
+        let variants = get_valid_variants_for_content_type(content_type);
+        let url = |variant: FileVariant| format!("{owner_id}/{file_id}/{variant}");
+        let derived = |variant: FileVariant| variants.contains(&variant).then(|| url(variant));
 
         Self {
-            main: build_url(&FileVariant::Main),
-            feed: variants
-                .contains(&FileVariant::Feed)
-                .then(|| build_url(&FileVariant::Feed)),
-            small: variants
-                .contains(&FileVariant::Small)
-                .then(|| build_url(&FileVariant::Small)),
+            main: url(FileVariant::Main),
+            large: derived(FileVariant::Large),
+            feed: derived(FileVariant::Feed),
+            small: derived(FileVariant::Small),
         }
     }
 }
 
 mod json_string {
-    use serde::{self, Deserialize, Deserializer, Serializer};
+    use serde::{self, Serializer};
 
     pub fn serialize<S, T>(value: &T, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -56,19 +48,11 @@ mod json_string {
         let json_string = serde_json::to_string(value).map_err(serde::ser::Error::custom)?;
         serializer.serialize_str(&json_string)
     }
-
-    pub fn deserialize<'de, D, T>(deserializer: D) -> Result<T, D::Error>
-    where
-        D: Deserializer<'de>,
-        T: serde::de::DeserializeOwned,
-    {
-        let json_string = String::deserialize(deserializer)?;
-        serde_json::from_str(&json_string).map_err(serde::de::Error::custom)
-    }
 }
 
 /// Represents a file and its metadata, including links to the actual binary of the file.
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema, Default)]
+#[serde(from = "StoredFileDetails")]
 pub struct FileDetails {
     pub id: String,
     pub uri: String,
@@ -79,13 +63,43 @@ pub struct FileDetails {
     pub name: String,
     pub size: i64,
     pub content_type: String,
-    #[serde(with = "json_string")]
+    #[serde(serialize_with = "json_string::serialize")]
     pub urls: FileUrls,
     pub metadata: Option<HashMap<String, String>>,
 }
 
-pub struct FileMeta {
-    pub urls: FileUrls,
+/// A file as the graph and the index hold it. Any stored `urls` is ignored: every read rebuilds
+/// them, so all readers agree and a new variant needs no backfill.
+#[derive(Deserialize)]
+struct StoredFileDetails {
+    id: String,
+    uri: String,
+    owner_id: String,
+    indexed_at: i64,
+    created_at: i64,
+    src: String,
+    name: String,
+    size: i64,
+    content_type: String,
+    metadata: Option<HashMap<String, String>>,
+}
+
+impl From<StoredFileDetails> for FileDetails {
+    fn from(stored: StoredFileDetails) -> Self {
+        Self {
+            urls: FileUrls::new(&stored.owner_id, &stored.id, &stored.content_type),
+            id: stored.id,
+            uri: stored.uri,
+            owner_id: stored.owner_id,
+            indexed_at: stored.indexed_at,
+            created_at: stored.created_at,
+            src: stored.src,
+            name: stored.name,
+            size: stored.size,
+            content_type: stored.content_type,
+            metadata: stored.metadata,
+        }
+    }
 }
 
 impl RedisOps for FileDetails {}
@@ -111,9 +125,9 @@ impl FileDetails {
         uri: String,
         user_id: String,
         file_id: String,
-        meta: FileMeta,
     ) -> Self {
         Self {
+            urls: FileUrls::new(&user_id, &file_id, &pubkyapp_file.content_type),
             name: pubkyapp_file.name.clone(),
             src: pubkyapp_file.src.clone(),
             content_type: pubkyapp_file.content_type.clone(),
@@ -123,7 +137,6 @@ impl FileDetails {
             indexed_at: Utc::now().timestamp_millis(),
             owner_id: user_id.to_string(),
             size: pubkyapp_file.size as i64,
-            urls: meta.urls,
             metadata: None,
         }
     }
@@ -145,5 +158,48 @@ impl FileDetails {
         } else {
             None
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn stored(content_type: &str, urls: &str) -> serde_json::Value {
+        serde_json::json!({
+            "id": "file",
+            "uri": "",
+            "owner_id": "owner",
+            "indexed_at": 0,
+            "created_at": 0,
+            "src": "",
+            "name": "",
+            "size": 0,
+            "content_type": content_type,
+            "urls": urls,
+            "metadata": null,
+        })
+    }
+
+    // A record indexed before `large` existed, with the legacy variant-less `main`.
+    #[test]
+    fn test_stored_urls_are_rebuilt_on_read() {
+        let file: FileDetails =
+            serde_json::from_value(stored("image/png", r#"{"main":"owner/file"}"#))
+                .expect("stored file");
+
+        assert_eq!(file.urls.main, "owner/file/main");
+        assert_eq!(file.urls.large.as_deref(), Some("owner/file/large"));
+        assert_eq!(file.urls.feed.as_deref(), Some("owner/file/feed"));
+        assert_eq!(file.urls.small.as_deref(), Some("owner/file/small"));
+    }
+
+    #[test]
+    fn test_a_video_has_only_main() {
+        let file: FileDetails =
+            serde_json::from_value(stored("video/mp4", "{}")).expect("stored file");
+
+        assert_eq!(file.urls.main, "owner/file/main");
+        assert!(file.urls.large.is_none() && file.urls.feed.is_none() && file.urls.small.is_none());
     }
 }

@@ -8,6 +8,8 @@ use super::{BaseProcessingOptions, VariantProcessor};
 
 const SMALL_IMAGE_WIDTH: &str = "320";
 const FEED_IMAGE_WIDTH: &str = "720";
+/// Full-width cover on wide screens.
+const LARGE_IMAGE_WIDTH: &str = "1440";
 /// The format `process` hands ImageMagick as its output format, i.e. the bytes a derived variant
 /// actually contains.
 const IMAGE_FORMAT: &str = "webp";
@@ -30,6 +32,11 @@ impl BaseProcessingOptions for ImageOptions {
     }
 }
 
+/// The `-resize` geometry for a derived variant: fit within `width`, never enlarge (`>`).
+fn resize_geometry(width: &str) -> String {
+    format!("{}x>", width)
+}
+
 pub struct ImageProcessor;
 
 #[async_trait]
@@ -40,9 +47,10 @@ impl VariantProcessor for ImageProcessor {
         let width = match variant {
             FileVariant::Small => String::from(SMALL_IMAGE_WIDTH),
             FileVariant::Feed => String::from(FEED_IMAGE_WIDTH),
+            FileVariant::Large => String::from(LARGE_IMAGE_WIDTH),
             _ => return Err(MediaProcessorError::UnsupportedFileVariant),
         };
-        // `variant` is Small or Feed here: Main returned above.
+        // `variant` is Small, Feed or Large here: Main returned above.
         let content_type = image_variant_content_type();
         Ok(ImageOptions {
             format: IMAGE_FORMAT.to_string(),
@@ -75,7 +83,7 @@ impl VariantProcessor for ImageProcessor {
         }
         command
             .arg("-resize")
-            .arg(format!("{}x", options.width))
+            .arg(resize_geometry(&options.width))
             .arg("-auto-orient") // https://github.com/ImageMagick/ImageMagick/issues/6396
             .arg(output);
 
@@ -156,6 +164,31 @@ mod tests {
     fn test_variant_content_type_tracks_the_output_format() {
         assert_eq!(IMAGE_FORMAT, "webp");
         assert_eq!(image_variant_content_type(), "image/webp");
+    }
+
+    #[test]
+    fn test_resize_geometry_never_enlarges() {
+        assert_eq!(resize_geometry("320"), "320x>");
+        assert_eq!(resize_geometry("720"), "720x>");
+        assert_eq!(resize_geometry("1440"), "1440x>");
+    }
+
+    // One assertion per variant, so a width cannot change, or a variant appear, unlisted.
+    #[test]
+    fn test_variant_widths() {
+        let width = |variant: FileVariant| {
+            ImageProcessor::get_options_for_variant(&variant)
+                .expect("variant has image options")
+                .width
+        };
+
+        assert_eq!(width(FileVariant::Small), "320");
+        assert_eq!(width(FileVariant::Feed), "720");
+        assert_eq!(width(FileVariant::Large), "1440");
+        assert!(matches!(
+            ImageProcessor::get_options_for_variant(&FileVariant::Main),
+            Err(MediaProcessorError::UnsupportedFileVariant)
+        ));
     }
 
     #[test]
@@ -369,13 +402,13 @@ mod tests {
         }
     }
 
-    /// Writes a 40x20 red PNG that keeps a page geometry of `page`, the shape `-crop` leaves
+    /// Writes a 640x320 red PNG that keeps a page geometry of `page`, the shape `-crop` leaves
     /// behind when it is not followed by `+repage`. Browsers ignore the stored page and show the
-    /// 40x20 image as it is.
+    /// 640x320 image as it is.
     async fn write_paged_png(runner: MediaSubprocess, path: &Path, page: &str) {
         let mut command = Command::new("convert");
         command
-            .args(["-size", "40x20", "xc:red", "-page", page])
+            .args(["-size", "640x320", "xc:red", "-page", page])
             .arg(path);
         magick(runner, &mut command).await;
     }
@@ -389,8 +422,9 @@ mod tests {
         let options = ImageProcessor::get_options_for_variant(&FileVariant::Small)
             .expect("Small is a supported image variant");
 
-        // `100x100+20+30` is what `-crop 40x20+20+30` leaves on a 100x100 image.
-        for page in ["100x100+20+30", "100x100-10-10"] {
+        // `1600x1600+320+480` is what `-crop 640x320+320+480` leaves on a 1600x1600 image. The
+        // image is wider than the Small width so the resize has to shrink it.
+        for page in ["1600x1600+320+480", "1600x1600-160-160"] {
             let dir = tempfile::TempDir::new().expect("temp dir");
             let origin = dir.path().join("paged.png");
             let output = dir.path().join("small.webp");
@@ -398,8 +432,8 @@ mod tests {
             write_paged_png(runner, &origin, page).await;
             assert_eq!(
                 frame_sizes(runner, &origin).await,
-                vec![(40, 20)],
-                "the {page} fixture must be a single 40x20 frame"
+                vec![(640, 320)],
+                "the {page} fixture must be a single 640x320 frame"
             );
 
             ImageProcessor::process(
@@ -414,7 +448,7 @@ mod tests {
             assert_eq!(
                 frame_sizes(runner, &output).await,
                 vec![(320, 160)],
-                "a 40x20 image on page {page} must resize to 320x160"
+                "a 640x320 image on page {page} must resize to 320x160"
             );
 
             // Every corner must still be the image's red, not canvas padding or a clipped edge.

@@ -109,6 +109,58 @@ async fn test_static_image_serving_feed() -> Result<()> {
 }
 
 #[tokio_shared_rt::test(shared)]
+async fn test_static_image_serving_large() -> Result<()> {
+    let client = httpc_test::new_client(host_url().await)?;
+    let test_image_dir_path = TestServiceServer::get_test_server()
+        .await
+        .temp_dir
+        .path()
+        .join(USER_PUBKY)
+        .join(FILE_ID);
+    let full_image_path = test_image_dir_path.join("main");
+
+    create_dir_all(&test_image_dir_path).await?;
+    // copy the image from mocks folder to static folder
+    copy(
+        PathBuf::from(BLOB_PATH).join(IMAGE_BLOB_NAME),
+        &full_image_path,
+    )
+    .await?;
+
+    let files = FileDetails::get_by_ids(vec![vec![USER_PUBKY, FILE_ID].as_slice()].as_slice())
+        .await
+        .expect("Failed to fetch files from Nexus");
+
+    let result_file = files[0].as_ref().expect("Created file was not found.");
+
+    let test_file_version_name = FileVariant::Large.to_string();
+    let test_file_path = format!("static/files/{USER_PUBKY}/{FILE_ID}/{test_file_version_name}");
+
+    let res = client
+        .do_get(format!("/{}", test_file_path.as_str()).as_str())
+        .await?;
+
+    assert_eq!(res.status(), 200);
+    // The large variant is derived, so WebP whatever the upload was.
+    assert_ne!(
+        res.header("content-type")
+            .unwrap()
+            .parse::<String>()
+            .unwrap(),
+        result_file.content_type
+    );
+    assert_eq!(
+        res.header("content-type")
+            .unwrap()
+            .parse::<String>()
+            .unwrap(),
+        "image/webp"
+    );
+
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
 async fn test_static_image_serving_small() -> Result<()> {
     let client = httpc_test::new_client(host_url().await)?;
     let test_image_dir_path = TestServiceServer::get_test_server()

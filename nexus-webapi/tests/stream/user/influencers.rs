@@ -1,10 +1,8 @@
-use std::time::Duration;
-
 use anyhow::Result;
 use axum::http::StatusCode;
 use deadpool_redis::redis::AsyncCommands;
 use nexus_common::db::get_redis_conn;
-use tokio::time::sleep;
+use nexus_common::models::user::GLOBAL_INFLUENCERS_CACHE_SIZE;
 use tracing::debug;
 
 use crate::{
@@ -99,8 +97,52 @@ async fn test_global_influencers_alltime_cache_recovery() -> Result<()> {
     Ok(())
 }
 
+/// How many preview requests the test samples before giving up on seeing two distinct
+/// windows. A fixed offset repeats on every request and fails; a clock-derived offset
+/// would have to repeat 20 times in a row to fail, which is about 98^-19.
+const PREVIEW_PROBES: usize = 20;
+
+/// The users stream caps a page at 20 entries: `BoundedPagination<10_000, 5, 20>` on the
+/// route in `nexus-webapi/src/routes/v0/stream/users.rs`.
+const USERS_PAGE_MAX: usize = 20;
+
 #[tokio_shared_rt::test(shared)]
 async fn test_global_influencers_preview() -> Result<()> {
+    let ranking_ids = global_influencers_ranking().await?;
+
+    // The offset a preview starts at comes from the clock (`preview_skip` in
+    // nexus-common, unit tested there), so no single response can be asserted to be
+    // random: two clock samples collide whenever they are a multiple of 98 us apart and
+    // then return the same window. What is deterministic is the shape of one response,
+    // and that the offset is not a constant. So sample a bounded number of previews,
+    // require each one to be a contiguous window of the ranking, and require at least
+    // two different windows.
+    let mut windows: Vec<Vec<String>> = Vec::new();
+
+    for _ in 0..PREVIEW_PROBES {
+        let preview_ids = preview_window_ids().await?;
+        assert_contiguous_window(&ranking_ids, &preview_ids);
+
+        if !windows.contains(&preview_ids) {
+            windows.push(preview_ids);
+        }
+
+        if windows.len() > 1 {
+            break;
+        }
+    }
+
+    assert!(
+        windows.len() > 1,
+        "preview returned the same window on all {PREVIEW_PROBES} requests: the offset \
+         looks constant rather than derived from the clock"
+    );
+
+    Ok(())
+}
+
+/// The ids of one preview response, in order.
+async fn preview_window_ids() -> Result<Vec<String>> {
     let body = get_request("/v0/stream/users?source=influencers&preview=true").await?;
     assert!(body.is_array());
 
@@ -114,34 +156,55 @@ async fn test_global_influencers_preview() -> Result<()> {
     assert!(influencers.len() <= 3);
     debug!("Influencers length: {:?}", influencers.len());
 
-    let first_influencer_ids: Vec<&str> = influencers
+    Ok(influencers
         .iter()
-        .map(|f| f["details"]["id"].as_str().unwrap())
-        .collect();
+        .map(|f| f["details"]["id"].as_str().unwrap().to_string())
+        .collect())
+}
 
-    // Sleep to ensure the second request gets a different timestamp_subsec_micros() value,
-    // which determines the random skip offset for preview mode (see Influencers::get_influencers()).
-    sleep(Duration::from_millis(5)).await;
-
-    // Make a second request to verify preview returns different results
-    let body = get_request("/v0/stream/users?source=influencers&preview=true").await?;
-    assert!(body.is_array());
-
-    let influencers = body
-        .as_array()
-        .expect("Stream influencers should be an array");
-
-    assert!(!influencers.is_empty(), "Influencers should not be empty");
-    assert!(influencers.len() <= 3);
-
-    let second_influencer_ids: Vec<&str> = influencers
+/// A preview is a contiguous window of the global ranking: the same entries, in the same
+/// order, with nothing skipped in between.
+fn assert_contiguous_window(ranking_ids: &[String], preview_ids: &[String]) {
+    let start = ranking_ids
         .iter()
-        .map(|f| f["details"]["id"].as_str().unwrap())
-        .collect();
+        .position(|id| *id == preview_ids[0])
+        .expect("The first preview influencer must appear in the global ranking");
 
-    assert!(first_influencer_ids != second_influencer_ids);
+    assert_eq!(
+        ranking_ids.get(start..start + preview_ids.len()),
+        Some(preview_ids),
+        "A preview must be a contiguous window of the global ranking"
+    );
+}
 
-    Ok(())
+/// The global influencers ranking as the API serves it: the cached top
+/// `GLOBAL_INFLUENCERS_CACHE_SIZE` entries, read as pages of at most `USERS_PAGE_MAX`.
+/// A preview window can start at the last offset of the cache, so the whole cache is read.
+async fn global_influencers_ranking() -> Result<Vec<String>> {
+    let mut ranking = Vec::new();
+
+    for skip in (0..GLOBAL_INFLUENCERS_CACHE_SIZE).step_by(USERS_PAGE_MAX) {
+        let body = get_request(&format!(
+            "/v0/stream/users?source=influencers&skip={skip}&limit={USERS_PAGE_MAX}"
+        ))
+        .await?;
+        let page = body
+            .as_array()
+            .expect("Stream influencers should be an array");
+        assert!(
+            !page.is_empty(),
+            "the mock fixture must seed at least GLOBAL_INFLUENCERS_CACHE_SIZE \
+             ({GLOBAL_INFLUENCERS_CACHE_SIZE}) ranked users, but the page at skip {skip} \
+             was empty"
+        );
+
+        ranking.extend(
+            page.iter()
+                .map(|f| f["details"]["id"].as_str().unwrap().to_string()),
+        );
+    }
+
+    Ok(ranking)
 }
 
 #[tokio_shared_rt::test(shared)]

@@ -12,9 +12,6 @@ pub enum ModelError {
     #[error("KvOperationFailed")]
     KvOperationFailed(#[from] RedisError),
 
-    #[error("FileOperationFailed")]
-    FileOperationFailed(#[from] std::io::Error),
-
     #[error("HsBlacklisted: {hs_id}")]
     HsBlacklisted { hs_id: String },
 

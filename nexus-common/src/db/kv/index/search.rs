@@ -2,6 +2,7 @@ use crate::db::config::FT_SEARCH_TIMEOUT_MS;
 use crate::db::get_redis_conn;
 use crate::db::kv::error::{RedisError, RedisResult};
 use deadpool_redis::Connection;
+use pubky_app_specs::PubkyId;
 use std::sync::OnceLock;
 use tracing::warn;
 
@@ -64,19 +65,38 @@ pub(crate) async fn ft_create_post_content_index(
     }
 }
 
+/// Author scope of a content search. Both variants take `PubkyId`s, so every
+/// value is a valid z-base32 id, which carries no TAG syntax characters and is
+/// safe to inline unescaped.
+#[derive(Debug, Clone, Copy)]
+pub enum AuthorFilter<'a> {
+    /// Posts by this author only.
+    One(&'a PubkyId),
+    /// Posts by any of these authors. An empty list matches nothing.
+    AnyOf(&'a [PubkyId]),
+}
+
 /// Assembles the RediSearch query string from a content fragment, optional author
 /// filter, and optional kind filter.
 ///
 /// * The **content** half runs through `sanitize_query` → `fuzzy_token` as before.
-/// * The **author** half is assembled raw as `@author:{<id>}` and must NOT pass
+/// * The **author** half is assembled raw as `@author:{<id>}` (or
+///   `@author:{<id1>|<id2>|...}` for [`AuthorFilter::AnyOf`]) and must NOT pass
 ///   through `sanitize_query` (which would turn `@` and `{` into spaces) or
-///   `fuzzy_token` (which would %-escape the author id).
+///   `fuzzy_token` (which would %-escape the author id). Author ids are
+///   validated z-base32 Pubky ids, so they carry no TAG special characters.
 /// * The **kind** half is assembled raw as `@kind:{<kind>}` — the kind value is
 ///   the serde-serialized enum variant (e.g. "short", "long").
 ///
 /// Returns `None` when the content half is empty — author/kind filters alone
-/// must not degenerate into listing endpoints.
-fn build_ft_query(content: &str, author: Option<&str>, kind: Option<&str>) -> Option<String> {
+/// must not degenerate into listing endpoints — and when the author filter is
+/// an empty [`AuthorFilter::AnyOf`], which must match nothing rather than fall
+/// back to an unscoped search.
+fn build_ft_query(
+    content: &str,
+    author: Option<AuthorFilter<'_>>,
+    kind: Option<&str>,
+) -> Option<String> {
     let sanitized = sanitize_query(content);
     if sanitized.is_empty() {
         return None;
@@ -89,8 +109,14 @@ fn build_ft_query(content: &str, author: Option<&str>, kind: Option<&str>) -> Op
         .join(" ");
 
     let mut parts = Vec::with_capacity(3);
-    if let Some(a) = author {
-        parts.push(format!("@author:{{{a}}}"));
+    match author {
+        Some(AuthorFilter::One(a)) => parts.push(format!("@author:{{{a}}}")),
+        Some(AuthorFilter::AnyOf([])) => return None,
+        Some(AuthorFilter::AnyOf(ids)) => {
+            let ids: Vec<&str> = ids.iter().map(AsRef::as_ref).collect();
+            parts.push(format!("@author:{{{}}}", ids.join("|")));
+        }
+        None => {}
     }
     if let Some(k) = kind {
         parts.push(format!("@kind:{{{k}}}"));
@@ -103,11 +129,11 @@ fn build_ft_query(content: &str, author: Option<&str>, kind: Option<&str>) -> Op
 /// Full-text search on `postContentIdx` returning `(redis_key, score)` pairs ordered by relevance.
 /// Keys are returned as-is (including any Redis prefix); the caller strips the prefix.
 ///
-/// When `author` is `Some`, results are scoped to posts by that author.
+/// When `author` is `Some`, results are scoped to posts by those authors.
 /// When `kind` is `Some`, results are further filtered to that post kind.
 pub(crate) async fn ft_search_scored(
     query: &str,
-    author: Option<&str>,
+    author: Option<AuthorFilter<'_>>,
     kind: Option<&str>,
     skip: usize,
     limit: usize,
@@ -214,7 +240,21 @@ fn parse_ft_search_response(raw: deadpool_redis::redis::Value) -> RedisResult<Ve
 
 #[cfg(test)]
 mod tests {
-    use super::{build_ft_query, sanitize_query};
+    use super::{build_ft_query, sanitize_query, AuthorFilter};
+    use pubky_app_specs::PubkyId;
+
+    const ALICE: &str = "x4rt7xeww7k48jwoomu8gwhsa3t775okm9onhc9dzmwpm8mzupay";
+    const BOB: &str = "xbmdh5bobi9593poakgdy8yao7c3z6yjwsbikcw3qmwpa5aonwsy";
+
+    fn id(id: &str) -> PubkyId {
+        PubkyId::try_from(id).expect("valid Pubky id")
+    }
+
+    fn ids(ids: &[&str]) -> Vec<PubkyId> {
+        ids.iter()
+            .map(|id| PubkyId::try_from(id).expect("valid Pubky id"))
+            .collect()
+    }
 
     #[test]
     fn punctuation_becomes_separator_not_glue() {
@@ -252,18 +292,23 @@ mod tests {
 
     #[test]
     fn author_some_appends_braced_tag_filter() {
-        let q = build_ft_query("hello", Some("user123"), None);
-        // @author:{user123} must use double-{{ }} to produce single braces.
+        let alice = id(ALICE);
+        let q = build_ft_query("hello", Some(AuthorFilter::One(&alice)), None);
+        // @author:{<id>} must use double-{{ }} to produce single braces.
         // "hello" (5 chars) → %hello%
-        assert_eq!(q.as_deref(), Some("@author:{user123} %hello%"));
+        assert_eq!(
+            q.as_deref(),
+            Some(format!("@author:{{{ALICE}}} %hello%").as_str())
+        );
     }
 
     #[test]
     fn author_only_empty_content_returns_none() {
         // Scoped search with empty content → None, not an author listing.
-        // If this returned Some("@author:{alice}"), it would act as an
+        // If this returned Some("@author:{<id>}"), it would act as an
         // unbounded author-listing endpoint rather than a search.
-        let q = build_ft_query("", Some("alice"), None);
+        let alice = id(ALICE);
+        let q = build_ft_query("", Some(AuthorFilter::One(&alice)), None);
         assert!(q.is_none());
     }
 
@@ -271,7 +316,8 @@ mod tests {
     fn author_only_all_punctuation_returns_none() {
         // q=".." passes PostSearchQuery validation (2 chars, 1 term) but
         // sanitize_query strips to empty. Must not become an author listing.
-        let q = build_ft_query("..", Some("alice"), None);
+        let alice = id(ALICE);
+        let q = build_ft_query("..", Some(AuthorFilter::One(&alice)), None);
         assert!(q.is_none());
     }
 
@@ -286,7 +332,8 @@ mod tests {
         // CRITICAL: if the author clause ever routes through sanitize_query,
         // "@author:{alice}" becomes "author alice" and the query degrades to garbage.
         // This test asserts the braces survive intact.
-        let q = build_ft_query("test", Some("alice"), None);
+        let alice = id(ALICE);
+        let q = build_ft_query("test", Some(AuthorFilter::One(&alice)), None);
         assert!(
             q.as_deref().map(|s| s.contains('@')).unwrap_or(false),
             "author clause must contain @"
@@ -309,13 +356,68 @@ mod tests {
 
     #[test]
     fn author_and_kind_both_set() {
-        let q = build_ft_query("hello", Some("user123"), Some("long"));
-        assert_eq!(q.as_deref(), Some("@author:{user123} @kind:{long} %hello%"));
+        let alice = id(ALICE);
+        let q = build_ft_query("hello", Some(AuthorFilter::One(&alice)), Some("long"));
+        assert_eq!(
+            q.as_deref(),
+            Some(format!("@author:{{{ALICE}}} @kind:{{long}} %hello%").as_str())
+        );
     }
 
     #[test]
     fn kind_only_empty_content_returns_none() {
         let q = build_ft_query("", None, Some("short"));
+        assert!(q.is_none());
+    }
+
+    #[test]
+    fn author_any_of_renders_pipe_separated_tag_filter() {
+        let ids = ids(&[ALICE, BOB]);
+        let q = build_ft_query("hello", Some(AuthorFilter::AnyOf(&ids)), None);
+        assert_eq!(
+            q.as_deref(),
+            Some(format!("@author:{{{ALICE}|{BOB}}} %hello%").as_str())
+        );
+    }
+
+    #[test]
+    fn author_any_of_single_id_matches_one() {
+        let ids = ids(&[ALICE]);
+        assert_eq!(
+            build_ft_query("hello", Some(AuthorFilter::AnyOf(&ids)), None),
+            build_ft_query("hello", Some(AuthorFilter::One(&ids[0])), None)
+        );
+    }
+
+    #[test]
+    fn author_any_of_empty_returns_none() {
+        // An empty reach matches nothing; it must never degrade to an
+        // unscoped search.
+        let q = build_ft_query("hello", Some(AuthorFilter::AnyOf(&[])), None);
+        assert!(q.is_none());
+    }
+
+    #[test]
+    fn author_any_of_with_kind_and_fuzzy_tokens() {
+        let ids = ids(&[ALICE, BOB]);
+        let q = build_ft_query(
+            "api transparency",
+            Some(AuthorFilter::AnyOf(&ids)),
+            Some("short"),
+        );
+        // "api" (3 chars) stays exact, "transparency" (12 chars) gets distance 2
+        assert_eq!(
+            q.as_deref(),
+            Some(
+                format!("@author:{{{ALICE}|{BOB}}} @kind:{{short}} api %%transparency%%").as_str()
+            )
+        );
+    }
+
+    #[test]
+    fn author_any_of_empty_content_returns_none() {
+        let ids = ids(&[ALICE]);
+        let q = build_ft_query("..", Some(AuthorFilter::AnyOf(&ids)), None);
         assert!(q.is_none());
     }
 }

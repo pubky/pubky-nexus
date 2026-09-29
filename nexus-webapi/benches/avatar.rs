@@ -81,6 +81,7 @@ impl AvatarBenchSetup {
             status: None,
             image: Some(avatar_uri.clone()),
             indexed_at: 1_724_134_095_000,
+            deleted: false,
         };
 
         UserDetails::put_to_index(&[USER_PUBKY], vec![Some(user)])
@@ -97,11 +98,7 @@ impl AvatarBenchSetup {
             name: AVATAR_BLOB_NAME.to_string(),
             size: source_size as i64,
             content_type: "image/png".to_string(),
-            urls: FileUrls {
-                main: format!("{USER_PUBKY}/{FILE_ID}"),
-                feed: None,
-                small: None,
-            },
+            urls: FileUrls::new(USER_PUBKY, FILE_ID, "image/png"),
             metadata: None,
         };
 
