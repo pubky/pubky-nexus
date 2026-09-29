@@ -1,6 +1,6 @@
 //! The resource stream is served from the graph. These tests pin down what a
 //! resource tag put/del means for it: a resource's timeline position is its
-//! latest matching tag, and paging is stable.
+//! latest matching tag.
 //!
 //! Every test isolates itself in a fresh app namespace, so the shared graph
 //! can hold anything else without affecting the assertions.
@@ -23,31 +23,18 @@ use std::time::Duration;
 /// Watcher timestamps have millisecond resolution; keep consecutive tags apart
 const TAG_GAP: Duration = Duration::from_millis(10);
 
-async fn stream(
-    app: Option<&str>,
-    tags: Option<&[String]>,
-    sorting: ResourceSorting,
-    order: SortOrder,
-    pagination: Pagination,
-) -> Result<ResourceKeyStream> {
-    let source = match app {
-        Some(app) => ResourceStreamSource::App {
-            app: app.to_string(),
-        },
-        None => ResourceStreamSource::All,
-    };
-    Ok(ResourceStream::get_resource_keys(&source, pagination, order, &sorting, tags).await?)
-}
-
 async fn app_timeline(app: &str, pagination: Pagination) -> Result<ResourceKeyStream> {
-    stream(
-        Some(app),
-        None,
-        ResourceSorting::Timeline,
-        SortOrder::Descending,
+    let source = ResourceStreamSource::App {
+        app: app.to_string(),
+    };
+    Ok(ResourceStream::get_resource_keys(
+        &source,
         pagination,
+        SortOrder::Descending,
+        &ResourceSorting::Timeline,
+        None,
     )
-    .await
+    .await?)
 }
 
 fn page(limit: usize) -> Pagination {
@@ -90,8 +77,8 @@ async fn create_user(test: &mut WatcherTest, name: &str) -> Result<(Keypair, Str
 }
 
 /// Adding a newer tag moves a resource up the timeline; removing it drops the
-/// resource back to the time of its latest remaining tag. Cursor and offset
-/// paging walk the same order.
+/// resource back to the time of its latest remaining tag; removing the last
+/// tag removes it from the stream.
 #[tokio_shared_rt::test(shared)]
 async fn test_resource_stream_timeline_follows_latest_tag() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
@@ -124,70 +111,6 @@ async fn test_resource_stream_timeline_follows_latest_tag() -> Result<()> {
     let keys = app_timeline(app, page(10)).await?;
     assert_eq!(keys.resource_ids, vec![x.clone(), y.clone()]);
     assert_eq!(keys.last_score, Some(y_tag as u64));
-
-    // Paging: one per page, resume from the last score (cursor + skip past
-    // the row the inclusive cursor repeats), or by plain offset
-    let first = app_timeline(app, page(1)).await?;
-    assert_eq!(first.resource_ids, vec![x.clone()]);
-    assert_eq!(first.last_score, Some(x_second_tag as u64));
-
-    let by_cursor = app_timeline(
-        app,
-        Pagination {
-            start: first.last_score.map(|s| s as f64),
-            skip: Some(1),
-            limit: Some(1),
-            end: None,
-        },
-    )
-    .await?;
-    assert_eq!(by_cursor.resource_ids, vec![y.clone()]);
-    assert_eq!(by_cursor.last_score, Some(y_tag as u64));
-
-    let by_offset = app_timeline(
-        app,
-        Pagination {
-            skip: Some(1),
-            limit: Some(1),
-            ..Default::default()
-        },
-    )
-    .await?;
-    assert_eq!(by_offset.resource_ids, vec![y.clone()]);
-
-    // `end` is the hard limit: nothing older than Y's tag
-    let bounded = app_timeline(
-        app,
-        Pagination {
-            end: Some(y_tag as f64),
-            limit: Some(10),
-            ..Default::default()
-        },
-    )
-    .await?;
-    assert_eq!(bounded.resource_ids, vec![x.clone(), y.clone()]);
-    let bounded = app_timeline(
-        app,
-        Pagination {
-            end: Some((y_tag + 1) as f64),
-            limit: Some(10),
-            ..Default::default()
-        },
-    )
-    .await?;
-    assert_eq!(bounded.resource_ids, vec![x.clone()]);
-
-    // Ascending walks the same order backwards
-    let ascending = stream(
-        Some(app),
-        None,
-        ResourceSorting::Timeline,
-        SortOrder::Ascending,
-        page(10),
-    )
-    .await?;
-    assert_eq!(ascending.resource_ids, vec![y.clone(), x.clone()]);
-    assert_eq!(ascending.last_score, Some(x_second_tag as u64));
 
     // Removing the newer tag recomputes X from its remaining tag: Y leads again
     test.del(&kp, &path_x2).await?;

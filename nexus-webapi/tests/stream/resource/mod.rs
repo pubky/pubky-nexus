@@ -10,6 +10,8 @@ use serde_json::Value;
 //            interesting by amsterdam (eventky, ..095002)
 // - EVENT:   calendar by bogota (eventky, ..095003)
 // - VIDEO:   bitcoin by amsterdam (mapky, ..095004)
+// - TIE_A:   tie by amsterdam (tiedky, ..095010)
+// - TIE_B:   tie by bogota (tiedky, ..095010), the same timestamp as TIE_A
 //
 // Watcher tests share the graph and may add resources of their own, so the
 // assertions are about the seeded IDs: their presence, relative order and
@@ -21,6 +23,11 @@ const IDS_PATH: &str = "/v0/stream/resources/ids";
 const ARTICLE: &str = "450a72e3da164bfc3ac5f4056f9e5c7c";
 const EVENT: &str = "fb4155a2295ff3a8a8fe02e28229c021";
 const VIDEO: &str = "e23f778c4f2a84606f350e4df1a918e9";
+
+// The tie group: both resources carry one tag, at the same timestamp
+const TIE_A: &str = "f3ea0c8e7e7f84365e2a7da7e282c992";
+const TIE_B: &str = "b8fd38694cfe853c7aed179c9912618d";
+const TIE_TAG: u64 = 1724544095010;
 
 const ARTICLE_LATEST_TAG: u64 = 1724544095002;
 const EVENT_LATEST_TAG: u64 = 1724544095003;
@@ -238,6 +245,38 @@ async fn test_stream_resource_ids_cursor_pagination() -> Result<()> {
     let (ascending, last) = get_ids(&format!("{filter}&order=ascending&limit=10")).await?;
     assert_eq!(ascending, vec![ARTICLE.to_string(), EVENT.to_string()]);
     assert_eq!(last, Some(EVENT_LATEST_TAG));
+
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_stream_resource_ids_timeline_tie_group() -> Result<()> {
+    // `tiedky` restricted to its one seeded label holds exactly the two
+    // resources tagged at the same timestamp, so the pages below are exact.
+    let filter = "app=tiedky&tags=tie&sorting=timeline";
+
+    // Equal scores fall back to the resource id, in the sort direction
+    let (both, last) = get_ids(&format!("{filter}&limit=10")).await?;
+    assert_eq!(both, vec![TIE_A.to_string(), TIE_B.to_string()]);
+    assert_eq!(last, Some(TIE_TAG));
+
+    let (ascending, _) = get_ids(&format!("{filter}&order=ascending&limit=10")).await?;
+    assert_eq!(ascending, vec![TIE_B.to_string(), TIE_A.to_string()]);
+
+    let (page1, cursor) = get_ids(&format!("{filter}&limit=1")).await?;
+    assert_eq!(page1, vec![TIE_A.to_string()]);
+    assert_eq!(cursor, Some(TIE_TAG));
+
+    // The inclusive cursor re-selects the whole tie group: `skip` covering
+    // the served row reaches the second one
+    let (page2, cursor2) = get_ids(&format!("{filter}&limit=1&start={TIE_TAG}&skip=1")).await?;
+    assert_eq!(page2, vec![TIE_B.to_string()]);
+    assert_eq!(cursor2, Some(TIE_TAG));
+
+    // Known limitation: the cursor carries the score only, so resuming
+    // without `skip` serves the first row of the tie group again
+    let (repeated, _) = get_ids(&format!("{filter}&limit=1&start={TIE_TAG}")).await?;
+    assert_eq!(repeated, vec![TIE_A.to_string()]);
 
     Ok(())
 }
