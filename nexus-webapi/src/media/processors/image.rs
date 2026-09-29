@@ -57,28 +57,29 @@ impl VariantProcessor for ImageProcessor {
         options: &ImageOptions,
         subprocess: MediaSubprocess,
     ) -> Result<String, MediaProcessorError> {
-        let origin_file_format = ImageProcessor::get_format(origin_file_path, subprocess)
-            .await?
-            .to_lowercase();
+        let origin = ImageProcessor::identify(origin_file_path, subprocess).await?;
 
-        let output = match origin_file_format == options.format {
+        let output = match origin.format == options.format {
             true => output_file_path.to_string(),
             false => format!("{}:{}", options.format, output_file_path),
         };
 
-        let child_output = subprocess
-            .run(
-                Command::new("convert")
-                    .arg(origin_file_path)
-                    // Frame-optimized GIFs store partial sub-frames; flatten each onto the
-                    // full canvas so resize scales complete frames instead of fragments.
-                    .arg("-coalesce")
-                    .arg("-resize")
-                    .arg(format!("{}x", options.width))
-                    .arg("-auto-orient") // https://github.com/ImageMagick/ImageMagick/issues/6396
-                    .arg(output),
-            )
-            .await?;
+        let mut command = Command::new("convert");
+        command.arg(origin_file_path);
+        // Frame-optimized animations store partial sub-frames; flatten each onto the full canvas
+        // so resize scales complete frames instead of fragments. Only for animations: coalescing
+        // a still image composes it onto its stored page canvas, so a cropped PNG that kept its
+        // page offset would come out padded to the page size instead of its visible size.
+        if origin.frames > 1 {
+            command.arg("-coalesce");
+        }
+        command
+            .arg("-resize")
+            .arg(format!("{}x", options.width))
+            .arg("-auto-orient") // https://github.com/ImageMagick/ImageMagick/issues/6396
+            .arg(output);
+
+        let child_output = subprocess.run(&mut command).await?;
 
         if child_output.status.success() {
             Ok(String::from_utf8_lossy(&child_output.stdout).to_string())
@@ -91,29 +92,54 @@ impl VariantProcessor for ImageProcessor {
     }
 }
 
+/// What `identify` reports about a source image.
+#[derive(Debug, PartialEq)]
+struct SourceImage {
+    /// The ImageMagick format name, lowercased (e.g. `gif`, `webp`).
+    format: String,
+    /// How many frames the image stores: 1 for a still image, more for an animation.
+    frames: u32,
+}
+
+impl SourceImage {
+    /// Parses `identify -format "%m %n\n"` output. `identify` prints the line once per frame, so
+    /// only the first is read.
+    fn parse(listing: &str) -> Option<Self> {
+        let (format, frames) = listing.lines().next()?.trim().split_once(' ')?;
+        Some(SourceImage {
+            format: format.to_lowercase(),
+            frames: frames.parse().ok()?,
+        })
+    }
+}
+
 impl ImageProcessor {
-    // function to get image format
-    async fn get_format(
+    async fn identify(
         file_path: &str,
         subprocess: MediaSubprocess,
-    ) -> Result<String, MediaProcessorError> {
+    ) -> Result<SourceImage, MediaProcessorError> {
         let child_output = subprocess
             .run(
                 Command::new("identify")
                     .arg("-format")
-                    .arg("%m")
+                    .arg("%m %n\\n")
                     .arg(file_path),
             )
             .await?;
 
-        if child_output.status.success() {
-            Ok(String::from_utf8_lossy(&child_output.stdout).to_string())
-        } else {
-            Err(MediaProcessorError::command_failed(format!(
+        if !child_output.status.success() {
+            return Err(MediaProcessorError::command_failed(format!(
                 "ImageMagick format extraction failed: {}",
                 String::from_utf8_lossy(&child_output.stderr)
-            )))
+            )));
         }
+
+        let listing = String::from_utf8_lossy(&child_output.stdout);
+        SourceImage::parse(&listing).ok_or_else(|| {
+            MediaProcessorError::command_failed(format!(
+                "ImageMagick format extraction returned unexpected output: {listing:?}"
+            ))
+        })
     }
 }
 
@@ -130,6 +156,28 @@ mod tests {
     fn test_variant_content_type_tracks_the_output_format() {
         assert_eq!(IMAGE_FORMAT, "webp");
         assert_eq!(image_variant_content_type(), "image/webp");
+    }
+
+    #[test]
+    fn test_source_image_reads_format_and_frame_count_from_the_first_frame() {
+        // `identify` repeats the line for every frame of an animation.
+        assert_eq!(
+            SourceImage::parse("GIF 3\nGIF 3\nGIF 3\n"),
+            Some(SourceImage {
+                format: "gif".into(),
+                frames: 3
+            })
+        );
+        assert_eq!(
+            SourceImage::parse("PNG 1\n"),
+            Some(SourceImage {
+                format: "png".into(),
+                frames: 1
+            })
+        );
+        assert_eq!(SourceImage::parse(""), None);
+        assert_eq!(SourceImage::parse("PNG\n"), None);
+        assert_eq!(SourceImage::parse("PNG x\n"), None);
     }
 
     /// Runs an ImageMagick command through the media runner and returns its stdout, failing the
@@ -318,6 +366,65 @@ mod tests {
                 "{} has background pixel srgb({r},_,{b}) at (5,78): expected red, so the frame was resized off its canvas",
                 frame.display()
             );
+        }
+    }
+
+    /// Writes a 40x20 red PNG that keeps a page geometry of `page`, the shape `-crop` leaves
+    /// behind when it is not followed by `+repage`. Browsers ignore the stored page and show the
+    /// 40x20 image as it is.
+    async fn write_paged_png(runner: MediaSubprocess, path: &Path, page: &str) {
+        let mut command = Command::new("convert");
+        command
+            .args(["-size", "40x20", "xc:red", "-page", page])
+            .arg(path);
+        magick(runner, &mut command).await;
+    }
+
+    // Regression test for gating `-coalesce` on the frame count. Coalescing a still image composes
+    // it onto its stored page canvas: a positive offset pads the output out to the page size, and
+    // a negative one clips visible pixels off. A still image must resize as the pixels it holds.
+    #[tokio_shared_rt::test(shared)]
+    async fn test_process_resizes_a_still_image_by_its_pixels_not_its_page_canvas() {
+        let runner = MediaSubprocess::new(Duration::from_secs(30));
+        let options = ImageProcessor::get_options_for_variant(&FileVariant::Small)
+            .expect("Small is a supported image variant");
+
+        // `100x100+20+30` is what `-crop 40x20+20+30` leaves on a 100x100 image.
+        for page in ["100x100+20+30", "100x100-10-10"] {
+            let dir = tempfile::TempDir::new().expect("temp dir");
+            let origin = dir.path().join("paged.png");
+            let output = dir.path().join("small.webp");
+
+            write_paged_png(runner, &origin, page).await;
+            assert_eq!(
+                frame_sizes(runner, &origin).await,
+                vec![(40, 20)],
+                "the {page} fixture must be a single 40x20 frame"
+            );
+
+            ImageProcessor::process(
+                origin.to_str().expect("utf-8 origin path"),
+                output.to_str().expect("utf-8 output path"),
+                &options,
+                runner,
+            )
+            .await
+            .expect("the resize must succeed");
+
+            assert_eq!(
+                frame_sizes(runner, &output).await,
+                vec![(320, 160)],
+                "a 40x20 image on page {page} must resize to 320x160"
+            );
+
+            // Every corner must still be the image's red, not canvas padding or a clipped edge.
+            for (x, y) in [(2, 2), (317, 2), (2, 157), (317, 157)] {
+                let (r, g, b) = pixel_at(runner, &output, x, y).await;
+                assert!(
+                    r > 200 && g < 50 && b < 50,
+                    "page {page}: pixel ({x},{y}) is srgb({r},{g},{b}), expected red"
+                );
+            }
         }
     }
 }
