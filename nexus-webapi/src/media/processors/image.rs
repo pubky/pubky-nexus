@@ -228,18 +228,24 @@ mod tests {
         String::from_utf8_lossy(&output.stdout).into_owned()
     }
 
-    /// Writes a three-frame animated GIF: a red 400x400 canvas with a blue square that moves
-    /// diagonally between frames. `-layers Optimize` stores frames 1 and 2 as sub-frames covering
-    /// only the region that changed, which is the shape of input the `-coalesce` fix exists for.
-    async fn write_frame_optimized_gif(runner: MediaSubprocess, path: &Path) {
+    /// Writes a three-frame animated GIF: a red `size`x`size` canvas with a blue square, an eighth
+    /// of the canvas wide, that moves diagonally between frames. `-layers Optimize` stores frames 1
+    /// and 2 as sub-frames covering only the region that changed, which is the shape of input the
+    /// `-coalesce` fix exists for.
+    async fn write_frame_optimized_gif(runner: MediaSubprocess, path: &Path, size: u32) {
+        let canvas = format!("{size}x{size}");
+        let square = |start: u32| {
+            let end = start + size / 8;
+            format!("rectangle {start},{start} {end},{end}")
+        };
         let mut command = Command::new("convert");
         command
-            .args(["-size", "400x400", "xc:red", "-fill", "blue"])
-            .args(["-draw", "rectangle 0,0 50,50"])
-            .args(["(", "-size", "400x400", "xc:red", "-fill", "blue"])
-            .args(["-draw", "rectangle 100,100 150,150", ")"])
-            .args(["(", "-size", "400x400", "xc:red", "-fill", "blue"])
-            .args(["-draw", "rectangle 200,200 250,250", ")"])
+            .args(["-size", &canvas, "xc:red", "-fill", "blue"])
+            .args(["-draw", &square(0)])
+            .args(["(", "-size", &canvas, "xc:red", "-fill", "blue"])
+            .args(["-draw", &square(size / 4), ")"])
+            .args(["(", "-size", &canvas, "xc:red", "-fill", "blue"])
+            .args(["-draw", &square(size / 2), ")"])
             .args(["-set", "delay", "20", "-loop", "0", "-layers", "Optimize"])
             .arg(path);
         magick(runner, &mut command).await;
@@ -357,7 +363,7 @@ mod tests {
         let origin = dir.path().join("anim.gif");
         let output = dir.path().join("small.webp");
 
-        write_frame_optimized_gif(runner, &origin).await;
+        write_frame_optimized_gif(runner, &origin, 400).await;
 
         // The fixture must really be frame-optimized, or the test would pass without the fix.
         let input_sizes = frame_sizes(runner, &origin).await;
@@ -469,6 +475,58 @@ mod tests {
                 assert!(
                     r > 200 && g < 50 && b < 50,
                     "page {page}: pixel ({x},{y}) is srgb({r},{g},{b}), expected red"
+                );
+            }
+        }
+    }
+
+    // A derived variant never enlarges its source, and coalescing must not change that for an
+    // animation: every frame of a GIF narrower than the variant width keeps the canvas size.
+    #[tokio_shared_rt::test(shared)]
+    async fn test_process_never_enlarges_a_frame_optimized_gif() {
+        let runner = MediaSubprocess::new(Duration::from_secs(30));
+        let dir = tempfile::TempDir::new().expect("temp dir");
+        let origin = dir.path().join("anim.gif");
+
+        // 200px is narrower than the smallest variant width, Small's 320px.
+        write_frame_optimized_gif(runner, &origin, 200).await;
+        let input_sizes = frame_sizes(runner, &origin).await;
+        assert_eq!(input_sizes.len(), 3, "the fixture must have three frames");
+        for (index, (width, height)) in input_sizes.iter().enumerate().skip(1) {
+            assert!(
+                *width < 200 && *height < 200,
+                "fixture frame {index} is {width}x{height}: it must be a sub-frame of the 200x200 canvas"
+            );
+        }
+
+        for variant in [FileVariant::Small, FileVariant::Feed, FileVariant::Large] {
+            let output = dir.path().join(format!("{variant}.webp"));
+            let options = ImageProcessor::get_options_for_variant(&variant)
+                .expect("variant has image options");
+            ImageProcessor::process(
+                origin.to_str().expect("utf-8 origin path"),
+                output.to_str().expect("utf-8 output path"),
+                &options,
+                runner,
+            )
+            .await
+            .expect("the resize must succeed");
+
+            // The stored WebP frames are re-optimized sub-frames, so read the composed frames.
+            let frames_dir = dir.path().join(format!("{variant}-frames"));
+            std::fs::create_dir(&frames_dir).expect("create the frames dir");
+            let frames = coalesced_frames(runner, &output, &frames_dir).await;
+            assert_eq!(
+                frames.len(),
+                input_sizes.len(),
+                "the {variant} variant must keep every input frame"
+            );
+            for frame in &frames {
+                assert_eq!(
+                    frame_sizes(runner, frame).await,
+                    vec![(200, 200)],
+                    "{} must keep the 200x200 canvas, not be enlarged to the {variant} width",
+                    frame.display()
                 );
             }
         }
