@@ -1545,7 +1545,7 @@ pub fn post_is_safe_to_delete(author_id: &str, post_id: &str) -> Query {
     .param("post_id", post_id)
 }
 
-/// Find user recommendations: active users (with 5+ posts) who are 1-3 degrees of separation away
+/// Find user recommendations: active users (with 5+ posts) who are 2-3 degrees of separation away
 /// from the given user, but not directly followed by them.
 /// Deleted users are filtered in Cypher; only the user ID is projected (no name column).
 pub fn recommend_users(user_id: &str, limit: usize) -> Query {
@@ -1553,14 +1553,16 @@ pub fn recommend_users(user_id: &str, limit: usize) -> Query {
         "recommend_users",
         "
         MATCH (user:User {id: $user_id})
-        MATCH (user)-[:FOLLOWS*1..3]->(potential:User)
-        WHERE NOT (user)-[:FOLLOWS]->(potential)
-        AND potential.id <> $user_id
-        AND NOT coalesce(potential.deleted, false)
-        WITH DISTINCT potential
-        MATCH (potential)-[:AUTHORED]->(post:Post)
-        WITH potential, COUNT(post) AS post_count
-        WHERE post_count >= 5
+        // Depth 1 is always directly followed, hence excluded below: start at 2.
+        // DISTINCT right after the expand lets the planner prune (one row per reached
+        // node, not per path), so the filters below run once per candidate.
+        MATCH (user)-[:FOLLOWS*2..3]->(potential:User)
+        WITH DISTINCT user, potential
+        WHERE potential <> user
+          AND NOT coalesce(potential.deleted, false)
+          AND NOT (user)-[:FOLLOWS]->(potential)
+          // Degree lookup instead of expand + aggregate; keeps LIMIT lazy.
+          AND COUNT { (potential)-[:AUTHORED]->() } >= 5
         RETURN potential.id AS recommended_user_id
         LIMIT $limit
     ",
