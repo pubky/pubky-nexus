@@ -485,20 +485,14 @@ pub fn resource_tags(resource_id: &str) -> Query {
 ///   not by when the Resource node was created. Adding a newer tag moves the
 ///   resource up; removing it drops the resource back to its latest remaining
 ///   tag. With an app or label filter, only the matching edges count.
-/// - `TaggersCount` sorts by the number of distinct taggers among the
-///   matching edges. One person counts once no matter how many labels or apps
-///   they tagged from, so the score can be lower than the `taggers_count` a
-///   `ResourceView` shows (that one sums the per-label taggers counts).
 ///
-/// `score` is the sort value (timestamp or count), so callers can hand it
+/// `score` is the sort value (the timestamp), so callers can hand it
 /// back as a cursor. `start` is the resume cursor and `end` the hard limit,
 /// both inclusive and following the sort direction (`post_stream` uses the
 /// same rule). `r.id` breaks ties deterministically within a response, but
 /// paging across ties is still best-effort: the cursor carries only the score,
 /// not the id, so resuming from inside a tie group takes a `skip` covering
-/// every already-served row with that score. `TaggersCount` ties at small
-/// counts constantly, so the model hands out no cursor for it and that
-/// sorting is paged with `SKIP`/`LIMIT` alone.
+/// every already-served row with that score.
 pub fn resource_stream(
     app: Option<&str>,
     labels: Option<&[String]>,
@@ -533,7 +527,6 @@ pub fn resource_stream(
 
     let score_expr = match sorting {
         ResourceSorting::Timeline => "MAX(t.indexed_at)",
-        ResourceSorting::TaggersCount => "COUNT(DISTINCT tagger)",
     };
     cypher.push_str(&format!("WITH r, {score_expr} AS score\n"));
 
@@ -1901,18 +1894,6 @@ mod tests {
     }
 
     #[test]
-    fn resource_stream_taggers_count_counts_distinct_taggers() {
-        let cypher = build_resource_stream(
-            None,
-            None,
-            ResourceSorting::TaggersCount,
-            SortOrder::Descending,
-            Pagination::default(),
-        );
-        assert!(cypher.contains("WITH r, COUNT(DISTINCT tagger) AS score"));
-    }
-
-    #[test]
     fn resource_stream_applies_app_and_label_filters_to_the_edges() {
         let labels = vec!["bitcoin".to_string(), "nostr".to_string()];
         let cypher = build_resource_stream(
@@ -1947,7 +1928,7 @@ mod tests {
         let asc = build_resource_stream(
             None,
             None,
-            ResourceSorting::TaggersCount,
+            ResourceSorting::Timeline,
             SortOrder::Ascending,
             pagination,
         );

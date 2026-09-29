@@ -63,16 +63,6 @@ pub fn bench_stream_resources_all_timeline(c: &mut Criterion) {
     );
 }
 
-pub fn bench_stream_resources_all_taggers_count(c: &mut Criterion) {
-    bench_resource_keys(
-        c,
-        "stream_resources_all_taggers_count",
-        None,
-        None,
-        ResourceSorting::TaggersCount,
-    );
-}
-
 pub fn bench_stream_resources_app_timeline(c: &mut Criterion) {
     bench_resource_keys(
         c,
@@ -80,16 +70,6 @@ pub fn bench_stream_resources_app_timeline(c: &mut Criterion) {
         Some(APP),
         None,
         ResourceSorting::Timeline,
-    );
-}
-
-pub fn bench_stream_resources_app_taggers_count(c: &mut Criterion) {
-    bench_resource_keys(
-        c,
-        "stream_resources_app_taggers_count",
-        Some(APP),
-        None,
-        ResourceSorting::TaggersCount,
     );
 }
 
@@ -103,16 +83,6 @@ pub fn bench_stream_resources_tag_timeline(c: &mut Criterion) {
     );
 }
 
-pub fn bench_stream_resources_tag_taggers_count(c: &mut Criterion) {
-    bench_resource_keys(
-        c,
-        "stream_resources_tag_taggers_count",
-        None,
-        Some(TAG),
-        ResourceSorting::TaggersCount,
-    );
-}
-
 pub fn bench_stream_resources_app_tag_timeline(c: &mut Criterion) {
     bench_resource_keys(
         c,
@@ -120,15 +90,5 @@ pub fn bench_stream_resources_app_tag_timeline(c: &mut Criterion) {
         Some(APP),
         Some(TAG),
         ResourceSorting::Timeline,
-    );
-}
-
-pub fn bench_stream_resources_app_tag_taggers_count(c: &mut Criterion) {
-    bench_resource_keys(
-        c,
-        "stream_resources_app_tag_taggers_count",
-        Some(APP),
-        Some(TAG),
-        ResourceSorting::TaggersCount,
     );
 }

@@ -29,24 +29,18 @@ pub enum ResourceStreamSource {
 pub enum ResourceSorting {
     #[default]
     Timeline,
-    TaggersCount,
 }
 
 #[derive(Serialize, Deserialize, ToSchema, Debug, Default, Clone)]
 pub struct ResourceKeyStream {
     pub resource_ids: Vec<String>,
-    /// Latest tag timestamp of the last entry under `timeline`, usable as the
-    /// `start` cursor for the next page. `None` when the page is empty, and
-    /// always `None` under `taggers_count`: page that sorting with
-    /// `skip`/`limit`.
+    /// Latest tag timestamp of the last entry, usable as the `start` cursor for
+    /// the next page. `None` when the page is empty.
     ///
     /// The cursor carries only the score, not the id, and `start` is
     /// inclusive, so a resume re-selects every row sharing the cursor score and
     /// takes a `skip` covering the served ones. Timestamps rarely tie, so
-    /// `skip=1` resumes a timeline walk. Taggers counts tie as a rule (most
-    /// resources score 1): there the same recipe repeats served rows and, once
-    /// a tie group is a page wide, returns the same page forever, so no cursor
-    /// is handed out.
+    /// `skip=1` resumes a timeline walk.
     pub last_score: Option<u64>,
 }
 
@@ -74,7 +68,6 @@ pub struct ResourceStream(pub Vec<ResourceView>);
 
 impl ResourceStream {
     /// Get a page of resource IDs for the given source, filters and sorting.
-    /// `last_score` is set for `timeline` only (see [`ResourceKeyStream`]).
     ///
     /// # Errors
     /// Returns [`ModelError::GraphOperationFailed`] on graph failures, including
@@ -86,28 +79,6 @@ impl ResourceStream {
         sorting: &ResourceSorting,
         tags: Option<&[String]>,
     ) -> ModelResult<ResourceKeyStream> {
-        let entries =
-            Self::get_scored_resource_keys(source, pagination, order, sorting, tags).await?;
-        let keys = ResourceKeyStream::from_scored_entries(entries);
-        Ok(match sorting {
-            ResourceSorting::Timeline => keys,
-            // Taggers counts tie too often to resume a walk from
-            ResourceSorting::TaggersCount => ResourceKeyStream::new(keys.resource_ids, None),
-        })
-    }
-
-    /// Get a page of `(resource id, score)` pairs for the given source, filters
-    /// and sorting, the score being what the page is ordered by.
-    ///
-    /// # Errors
-    /// Same as [`Self::get_resource_keys`].
-    pub async fn get_scored_resource_keys(
-        source: &ResourceStreamSource,
-        pagination: Pagination,
-        order: SortOrder,
-        sorting: &ResourceSorting,
-        tags: Option<&[String]>,
-    ) -> ModelResult<Vec<(String, i64)>> {
         let app = match source {
             ResourceStreamSource::App { app } => Some(app.as_str()),
             ResourceStreamSource::All => None,
@@ -135,7 +106,7 @@ impl ResourceStream {
         .await
         .map_err(|_| GraphError::QueryTimeout)??;
 
-        Ok(entries)
+        Ok(ResourceKeyStream::from_scored_entries(entries))
     }
 
     // -----------------------------------------------------------------------
@@ -197,5 +168,21 @@ impl ResourceStream {
         } else {
             Ok(Some(ResourceStream(views)))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resource_sorting_accepts_timeline_only() {
+        let sorting: ResourceSorting = serde_json::from_str("\"timeline\"").unwrap();
+        assert!(matches!(sorting, ResourceSorting::Timeline));
+
+        assert!(
+            serde_json::from_str::<ResourceSorting>("\"taggers_count\"").is_err(),
+            "the stream no longer sorts by taggers count"
+        );
     }
 }

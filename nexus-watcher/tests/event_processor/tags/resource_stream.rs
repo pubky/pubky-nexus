@@ -1,12 +1,11 @@
 //! The resource stream is served from the graph. These tests pin down what a
 //! resource tag put/del means for it: a resource's timeline position is its
-//! latest matching tag, its taggers count is the number of distinct taggers
-//! among the matching tags, and paging is stable.
+//! latest matching tag, and paging is stable.
 //!
 //! Every test isolates itself in a fresh app namespace, so the shared graph
 //! can hold anything else without affecting the assertions.
 
-use super::resource_utils::{compute_resource_id, latest_tag_indexed_at, resource_taggers_count};
+use super::resource_utils::{compute_resource_id, latest_tag_indexed_at};
 use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
 use chrono::Utc;
@@ -208,105 +207,6 @@ async fn test_resource_stream_timeline_follows_latest_tag() -> Result<()> {
     // Cleanup
     test.del(&kp, &path_y).await?;
     test.cleanup_user(&kp).await?;
-
-    Ok(())
-}
-
-/// The taggers count is the number of distinct taggers among the tags that
-/// match the filters. One person counts once however many labels or apps they
-/// tagged from; a second person counts. It is not the per-label sum a
-/// ResourceView displays.
-#[tokio_shared_rt::test(shared)]
-async fn test_resource_stream_taggers_count_semantics() -> Result<()> {
-    let mut test = WatcherTest::setup(None).await?;
-    let suffix = Utc::now().timestamp_millis();
-    let app_a = &format!("streamsca{suffix}");
-    let app_b = &format!("streamscb{suffix}");
-    // Labels are capped at 20 chars; a short unique suffix keeps them valid
-    let short = suffix % 1_000_000;
-    let label_1 = &format!("sc1-{short}");
-    let label_2 = &format!("sc2-{short}");
-    let labels_1: Vec<String> = vec![label_1.clone()];
-
-    let (kp_alice, _) = create_user(&mut test, "Alice").await?;
-    let (kp_bob, _) = create_user(&mut test, "Bob").await?;
-
-    let uri = format!("https://example.com/{suffix}/scored");
-    let resource = compute_resource_id(&uri);
-
-    // Alice tags with two labels from app A: still one tagger
-    let path_a1 = put_tag(&mut test, &kp_alice, app_a, &uri, label_1).await?;
-    let path_a2 = put_tag(&mut test, &kp_alice, app_a, &uri, label_2).await?;
-    assert_eq!(
-        resource_taggers_count(Some(app_a), None).await?,
-        vec![(resource.clone(), 1)],
-        "two labels by one person count once"
-    );
-
-    // The count is the sort key only: no cursor is handed out for it
-    let keys = stream(
-        Some(app_a),
-        None,
-        ResourceSorting::TaggersCount,
-        SortOrder::Descending,
-        page(10),
-    )
-    .await?;
-    assert_eq!(keys.resource_ids, vec![resource.clone()]);
-    assert_eq!(keys.last_score, None);
-
-    // Alice repeats label 1 from app B: one more TAGGED edge, but the same
-    // tagger, so the count across apps does not move
-    let path_b1 = put_tag(&mut test, &kp_alice, app_b, &uri, label_1).await?;
-    assert_eq!(
-        resource_taggers_count(None, Some(&labels_1)).await?,
-        vec![(resource.clone(), 1)],
-        "the same person from two apps counts once"
-    );
-    // Under app B alone it is the same single tagger
-    assert_eq!(
-        resource_taggers_count(Some(app_b), None).await?,
-        vec![(resource.clone(), 1)]
-    );
-
-    // Bob tags label 1 from app A: a second person counts
-    let path_bob = put_tag(&mut test, &kp_bob, app_a, &uri, label_1).await?;
-    assert_eq!(
-        resource_taggers_count(Some(app_a), None).await?,
-        vec![(resource.clone(), 2)]
-    );
-    assert_eq!(
-        resource_taggers_count(None, Some(&labels_1)).await?,
-        vec![(resource.clone(), 2)]
-    );
-
-    // Combined app + label filter counts the taggers on the matching edges only
-    assert_eq!(
-        resource_taggers_count(Some(app_a), Some(&labels_1)).await?,
-        vec![(resource.clone(), 2)]
-    );
-
-    // The ranking counts people, so it stays below the per-label sum the view
-    // displays (label 1 has two taggers, label 2 has one)
-    let view = ResourceStream::from_listed_resource_ids(None, std::slice::from_ref(&resource))
-        .await?
-        .expect("resource view");
-    assert_eq!(view.0.len(), 1);
-    assert_eq!(view.0[0].taggers_count, 3);
-
-    // Removing Bob's tag recomputes the count
-    test.del(&kp_bob, &path_bob).await?;
-    assert_eq!(
-        resource_taggers_count(Some(app_a), None).await?,
-        vec![(resource.clone(), 1)]
-    );
-
-    // Cleanup
-    test.del(&kp_alice, &path_a1).await?;
-    test.del(&kp_alice, &path_a2).await?;
-    test.del(&kp_alice, &path_b1).await?;
-    test.cleanup_user(&kp_alice).await?;
-    test.cleanup_user(&kp_bob).await?;
 
     Ok(())
 }

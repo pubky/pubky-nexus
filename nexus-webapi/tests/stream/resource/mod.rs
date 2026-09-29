@@ -1,5 +1,6 @@
-use crate::utils::get_request;
+use crate::utils::{get_request, invalid_get_request};
 use anyhow::Result;
+use axum::http::StatusCode;
 use serde_json::Value;
 
 // The resource stream is served from the graph. These tests pin the seeded
@@ -175,45 +176,14 @@ async fn test_stream_resources_combined_app_and_tag() -> Result<()> {
 }
 
 #[tokio_shared_rt::test(shared)]
-async fn test_stream_resources_sorting_taggers_count() -> Result<()> {
-    // Two distinct taggers on the article (amsterdam and bogota), one each on
-    // the others
-    let (ids, _) = get_ids("sorting=taggers_count&limit=100").await?;
-    assert_before(&ids, ARTICLE, EVENT);
-    assert_before(&ids, ARTICLE, VIDEO);
-
-    // The ranking counts people, not (tagger, label) pairs: the article's
-    // three tags are two taggers, while the view sums the per-label counts to
-    // three. Only the seeded labels can join this filter, so the bounds are
-    // exact.
-    let bitcoin_or_interesting = "tags=bitcoin,interesting&sorting=taggers_count&limit=100";
-    let (ids, _) = get_ids(&format!("{bitcoin_or_interesting}&start=2&end=2")).await?;
-    position(&ids, ARTICLE);
-    let (ids, _) = get_ids(&format!("{bitcoin_or_interesting}&start=3&end=3")).await?;
-    assert!(
-        !ids.contains(&ARTICLE.to_string()),
-        "the article has two taggers, not three: {ids:?}"
-    );
-
-    let views = get_views("sorting=taggers_count&limit=100").await?;
-    let article = views
-        .iter()
-        .find(|v| v["details"]["id"] == ARTICLE)
-        .expect("article view");
-    assert_eq!(article["taggers_count"], 3);
-
-    // Filtered by label, only the matching tags count: bitcoin has two
-    // taggers on the article and one on the video, so the article ranks first
-    let (ids, _) = get_ids("tags=bitcoin&sorting=taggers_count&limit=100").await?;
-    assert_before(&ids, ARTICLE, VIDEO);
-
-    // Pin the scores themselves: the bounds select the rows scoring exactly 2
-    let (ids, _) = get_ids("tags=bitcoin&sorting=taggers_count&limit=100&start=2&end=2").await?;
-    position(&ids, ARTICLE);
-    assert!(
-        !ids.contains(&VIDEO.to_string()),
-        "the video has a single bitcoin tagger: {ids:?}"
-    );
+async fn test_stream_resources_rejects_taggers_count_sorting() -> Result<()> {
+    for path in [ROOT_PATH, IDS_PATH] {
+        invalid_get_request(
+            &format!("{path}?sorting=taggers_count"),
+            StatusCode::BAD_REQUEST,
+        )
+        .await?;
+    }
 
     Ok(())
 }
@@ -268,30 +238,6 @@ async fn test_stream_resource_ids_cursor_pagination() -> Result<()> {
     let (ascending, last) = get_ids(&format!("{filter}&order=ascending&limit=10")).await?;
     assert_eq!(ascending, vec![ARTICLE.to_string(), EVENT.to_string()]);
     assert_eq!(last, Some(EVENT_LATEST_TAG));
-
-    Ok(())
-}
-
-/// `taggers_count` hands out no cursor: counts tie as a rule, and a score-only
-/// cursor with an inclusive `start` cannot resume from inside a tie group (the
-/// walk would repeat its page forever). Under the same filter as above both
-/// seeded resources score 1, and `skip`/`limit` walks them to the end.
-#[tokio_shared_rt::test(shared)]
-async fn test_stream_resource_ids_taggers_count_pages_by_offset() -> Result<()> {
-    let filter = "app=eventky&tags=calendar,interesting&sorting=taggers_count";
-
-    // One tagger each under this filter: bogota tagged "calendar" on the event,
-    // amsterdam "interesting" on the article. Tied at 1, ordered by id
-    let (all, last) = get_ids(&format!("{filter}&limit=10")).await?;
-    assert_eq!(all, vec![EVENT.to_string(), ARTICLE.to_string()]);
-    assert_eq!(last, None, "no cursor under taggers_count");
-
-    let (page1, _) = get_ids(&format!("{filter}&limit=1")).await?;
-    assert_eq!(page1, vec![EVENT.to_string()]);
-    let (page2, _) = get_ids(&format!("{filter}&limit=1&skip=1")).await?;
-    assert_eq!(page2, vec![ARTICLE.to_string()]);
-    let (page3, _) = get_ids(&format!("{filter}&limit=1&skip=2")).await?;
-    assert!(page3.is_empty(), "the walk ends");
 
     Ok(())
 }

@@ -1,6 +1,6 @@
 use super::resource_utils::{
-    compute_resource_id, count_resource_tags, resource_exists_in_graph, resource_label_score,
-    resource_taggers_count,
+    app_stream_resource_ids, compute_resource_id, count_resource_tags, resource_exists_in_graph,
+    resource_label_score,
 };
 use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
@@ -13,12 +13,6 @@ use pubky::Keypair;
 use pubky::ResourcePath;
 use pubky_app_specs::traits::HashId;
 use pubky_app_specs::{PubkyAppTag, PubkyAppUser};
-
-/// `(resource id, taggers count)` pairs the graph-served stream returns for one
-/// app namespace
-async fn app_stream_by_taggers_count(app: &str) -> Result<Vec<(String, i64)>> {
-    resource_taggers_count(Some(app), None).await
-}
 
 /// Simulate a retry of a resource tag del after a partial failure where the
 /// Redis cleanup succeeded but the graph deletion failed. On retry, the label
@@ -78,8 +72,8 @@ async fn test_resource_tag_del_retry_no_double_decrement() -> Result<()> {
     assert_eq!(count_resource_tags(&resource_id).await?, 2);
     assert_eq!(resource_label_score(&resource_id, label).await?, Some(2));
     assert_eq!(
-        app_stream_by_taggers_count(app).await?,
-        vec![(resource_id.clone(), 2)]
+        app_stream_resource_ids(app).await?,
+        vec![resource_id.clone()]
     );
 
     // Simulate partial completion of a previous del attempt for user1's tag:
@@ -124,11 +118,10 @@ async fn test_resource_tag_del_retry_no_double_decrement() -> Result<()> {
         "Taggers count must be 1 after retry, not double-decremented to 0"
     );
 
-    // The still-tagged resource stays in the graph-served stream, now with
-    // the one remaining tagger
+    // The still-tagged resource stays in the graph-served stream
     assert_eq!(
-        app_stream_by_taggers_count(app).await?,
-        vec![(resource_id.clone(), 1)]
+        app_stream_resource_ids(app).await?,
+        vec![resource_id.clone()]
     );
 
     // Cleanup: user1's homeserver file still exists (graph edge already gone,
@@ -193,10 +186,9 @@ async fn test_resource_tag_del_multi_app_full_cleanup() -> Result<()> {
     assert_eq!(count_resource_tags(&resource_id).await?, 2);
     assert_eq!(resource_label_score(&resource_id, label).await?, Some(2));
     for app in [app1, app2] {
-        // One tagger, one label: the stream counts the pair once per app
         assert_eq!(
-            app_stream_by_taggers_count(app).await?,
-            vec![(resource_id.clone(), 1)],
+            app_stream_resource_ids(app).await?,
+            vec![resource_id.clone()],
             "resource must be listed under {app}"
         );
     }
@@ -226,13 +218,13 @@ async fn test_resource_tag_del_multi_app_full_cleanup() -> Result<()> {
         "label score must be 1 after the app1 retry"
     );
     assert_eq!(
-        app_stream_by_taggers_count(app1).await?,
-        vec![],
+        app_stream_resource_ids(app1).await?,
+        Vec::<String>::new(),
         "the app1 stream follows the deleted edge"
     );
     assert_eq!(
-        app_stream_by_taggers_count(app2).await?,
-        vec![(resource_id.clone(), 1)],
+        app_stream_resource_ids(app2).await?,
+        vec![resource_id.clone()],
         "the app2 stream still lists the resource"
     );
 
@@ -254,8 +246,8 @@ async fn test_resource_tag_del_multi_app_full_cleanup() -> Result<()> {
     );
     for app in [app1, app2] {
         assert_eq!(
-            app_stream_by_taggers_count(app).await?,
-            vec![],
+            app_stream_resource_ids(app).await?,
+            Vec::<String>::new(),
             "resource must be gone from the {app} stream"
         );
     }

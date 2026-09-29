@@ -79,32 +79,24 @@ pub async fn latest_tag_indexed_at(resource_id: &str, app: Option<&str>) -> Resu
     Ok(result)
 }
 
-/// `(resource id, taggers count)` pairs the graph-served stream returns for the
-/// given app namespace and labels, ordered by taggers count. Read through
-/// `get_scored_resource_keys`, because `last_score` carries no count under that
-/// sorting.
-pub async fn resource_taggers_count(
-    app: Option<&str>,
-    tags: Option<&[String]>,
-) -> Result<Vec<(String, i64)>> {
-    let source = match app {
-        Some(app) => ResourceStreamSource::App {
-            app: app.to_string(),
-        },
-        None => ResourceStreamSource::All,
+/// Resource ids the graph-served stream returns for one app namespace
+pub async fn app_stream_resource_ids(app: &str) -> Result<Vec<String>> {
+    let source = ResourceStreamSource::App {
+        app: app.to_string(),
     };
     let pagination = Pagination {
         limit: Some(100),
         ..Default::default()
     };
-    Ok(ResourceStream::get_scored_resource_keys(
+    let keys = ResourceStream::get_resource_keys(
         &source,
         pagination,
         SortOrder::Descending,
-        &ResourceSorting::TaggersCount,
-        tags,
+        &ResourceSorting::Timeline,
+        None,
     )
-    .await?)
+    .await?;
+    Ok(keys.resource_ids)
 }
 
 /// Score of `label` in the resource's label-score sorted set, `None` when
