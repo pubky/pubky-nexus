@@ -8,6 +8,7 @@
 //   OBS  -> FOLLOWED      following only, wot_1
 //   FOLLOWER -> OBS       follower only
 //   FOLLOWED -> D2        D2 is reachable only at wot depth 2
+//   OBS <-> LURKER        in every reach of OBS, but authored nothing
 //   STRANGER              outside every reach
 // TAGGER1 and TAGGER2 only tag; nobody follows them.
 
@@ -17,6 +18,7 @@
 :param follower => 'xu1n8qam7zjwpg4qtormzjezszs6k9m9hqdp9gsktkzw5dboijcy';
 :param d2 => 'xzujjk4ubtxcmqcb18itbcgmxf3qyobb7nwi7g88byq3bm1udcqo';
 :param stranger => 'y8cjhsxigtj5oc3nuxx75rudprw98za6o9rbah84u1j4mzprbydo';
+:param lurker => 'zy8gjbx3xoi4j7cgudcajwxg3y6ybc7if8zwiznn4mfy84t5yjco';
 :param tagger1 => 'yotutfhyeze8486ga9rrz31nnx4h58mqiy3oqmdnn8wbkem9t5xy';
 :param tagger2 => 'yuquj9be39per9efya4b59139y8y6f3cf3imwduxsqw8q7uocdpo';
 
@@ -33,6 +35,7 @@ MERGE (u:User {id: $followed}) SET u.name = "reach_followed", u.bio = "", u.stat
 MERGE (u:User {id: $follower}) SET u.name = "reach_follower", u.bio = "", u.status = "undefined", u.indexed_at = 1650000000000, u.links = "[]";
 MERGE (u:User {id: $d2}) SET u.name = "reach_d2", u.bio = "", u.status = "undefined", u.indexed_at = 1650000000000, u.links = "[]";
 MERGE (u:User {id: $stranger}) SET u.name = "reach_stranger", u.bio = "", u.status = "undefined", u.indexed_at = 1650000000000, u.links = "[]";
+MERGE (u:User {id: $lurker}) SET u.name = "reach_lurker", u.bio = "", u.status = "undefined", u.indexed_at = 1650000000000, u.links = "[]";
 MERGE (u:User {id: $tagger1}) SET u.name = "reach_tagger1", u.bio = "", u.status = "undefined", u.indexed_at = 1650000000000, u.links = "[]";
 MERGE (u:User {id: $tagger2}) SET u.name = "reach_tagger2", u.bio = "", u.status = "undefined", u.indexed_at = 1650000000000, u.links = "[]";
 
@@ -44,6 +47,10 @@ MATCH (u1:User {id: $friend}), (u2:User {id: $obs}) MERGE (u1)-[:FOLLOWS {indexe
 MATCH (u1:User {id: $obs}), (u2:User {id: $followed}) MERGE (u1)-[:FOLLOWS {indexed_at: 1230000001003, id: "SRCHFOLLOW003"}]->(u2);
 MATCH (u1:User {id: $follower}), (u2:User {id: $obs}) MERGE (u1)-[:FOLLOWS {indexed_at: 1230000001004, id: "SRCHFOLLOW004"}]->(u2);
 MATCH (u1:User {id: $followed}), (u2:User {id: $d2}) MERGE (u1)-[:FOLLOWS {indexed_at: 1230000001005, id: "SRCHFOLLOW005"}]->(u2);
+// LURKER is in every reach of OBS and authors nothing, so a reach listing that
+// keeps users without posts shows it.
+MATCH (u1:User {id: $obs}), (u2:User {id: $lurker}) MERGE (u1)-[:FOLLOWS {indexed_at: 1230000001006, id: "SRCHFOLLOW006"}]->(u2);
+MATCH (u1:User {id: $lurker}), (u2:User {id: $obs}) MERGE (u1)-[:FOLLOWS {indexed_at: 1230000001007, id: "SRCHFOLLOW007"}]->(u2);
 
 // ##############################
 // ##### Create posts ###########

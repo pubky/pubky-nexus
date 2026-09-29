@@ -108,7 +108,7 @@ pub enum StreamReach {
 
 impl StreamReach {
     /// Low-cardinality reach value and optional WoT depth for telemetry.
-    pub(crate) fn telemetry_dimensions(&self) -> (&'static str, Option<u8>) {
+    pub fn telemetry_dimensions(&self) -> (&'static str, Option<u8>) {
         match self {
             StreamReach::Followers => ("followers", None),
             StreamReach::Following => ("following", None),
