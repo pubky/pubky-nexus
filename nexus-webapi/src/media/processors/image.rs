@@ -389,6 +389,18 @@ mod tests {
             "the resized animation must keep every input frame"
         );
 
+        // Coalescing expands every frame to the 400x400 canvas, so each resized frame is the whole
+        // canvas scaled to 320px. The stored WebP frames are re-optimized sub-frames again, so the
+        // size is read off the composed frames.
+        for frame in &frames {
+            assert_eq!(
+                frame_sizes(runner, frame).await,
+                vec![(320, 320)],
+                "{} must be the 400x400 canvas resized to 320x320",
+                frame.display()
+            );
+        }
+
         // (5, 78) at 320px is background in every frame: left of the frame-0 square's column and
         // below its row, and outside the later squares entirely. Red survives WebP's lossy
         // encoding with a little noise, hence thresholds rather than exact channel values.
