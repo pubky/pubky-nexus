@@ -10,6 +10,7 @@ use tokio::fs::{self, remove_dir_all};
 use tracing::{debug, warn};
 
 #[tracing::instrument(name = "file.put", skip_all, fields(user_id = %user_id, file_id = %file_id))]
+#[allow(clippy::too_many_arguments)]
 pub async fn sync_put(
     file: PubkyAppFile,
     uri: String,
@@ -17,6 +18,7 @@ pub async fn sync_put(
     file_id: String,
     files_path: &Path,
     max_file_size: u64,
+    mirror_blobs: bool,
     ingestor: &UserIngestor,
 ) -> Result<(), EventProcessorError> {
     debug!("Indexing file");
@@ -27,6 +29,7 @@ pub async fn sync_put(
         &file,
         files_path,
         max_file_size,
+        mirror_blobs,
         ingestor,
     )
     .await?;
@@ -57,6 +60,7 @@ async fn ingest(
     pubkyapp_file: &PubkyAppFile,
     files_path: &Path,
     max_file_size: u64,
+    mirror_blobs: bool,
     ingestor: &UserIngestor,
 ) -> Result<(), EventProcessorError> {
     let file_src = &pubkyapp_file.src;
@@ -70,10 +74,21 @@ async fn ingest(
         .await
         .inspect_err(|e| warn!("Aborting file ingest: source {file_src}: {e}"))?;
 
+    let path = Path::new(&user_id.to_string()).join(file_id);
+
+    // Variant URLs depend only on the content type and the path, so a
+    // metadata-only index records the same FileDetails without the download.
+    if !mirror_blobs {
+        let urls = VariantController::get_file_urls_by_content_type(
+            pubkyapp_file.content_type.as_str(),
+            &path,
+        );
+        return Ok(FileMeta { urls });
+    }
+
     let pubky = PubkyConnector::get()?;
     let response = pubky.public_storage().get(&pubkyapp_file.src).await?;
 
-    let path = Path::new(&user_id.to_string()).join(file_id);
     let full_path = files_path.join(&path);
 
     let blob = fetch_capped(response, max_file_size).await?;

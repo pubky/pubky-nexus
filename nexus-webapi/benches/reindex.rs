@@ -19,7 +19,7 @@ fn bench_reindex(c: &mut Criterion) {
     c.bench_function("reindex", |b| {
         b.to_async(&rt).iter(|| async {
             MockDb::drop_cache().await;
-            reindex::sync().await;
+            reindex::sync().await.expect("Failed to reindex");
         });
     });
 }

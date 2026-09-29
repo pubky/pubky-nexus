@@ -51,6 +51,9 @@ retry_processor_interval_ms = 10000
 # Rejected files are treated as permanent failures (not retried).
 # Unset, it defaults to the blob size cap declared by pubky-app-specs.
 # max_file_size = <bytes>
+# Download file blobs into files_path and serve them from /static. Set to false to index only
+# file metadata and let clients fetch media from the CDN they are configured with.
+mirror_blobs = true
 # User public key to trust for moderating content (test user key, change as needed)
 moderation_id = "uo7jgkykft4885n8cruizwy6khw71mnu5pq3ay9i8pw1ymcn85ko"
 # Tags on content to de-index when placed by the trusted moderator above
