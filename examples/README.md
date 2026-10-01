@@ -29,4 +29,4 @@ cargo run --bin api_example -- --config=test_path
 cargo run --bin watcher_example -- --config=test_path
 ```
 
-If the `test_path` contains no valid config file, a default `config.toml` will be created and used instead.
+If the config file in `test_path` is missing or invalid, the binary exits with the load error.

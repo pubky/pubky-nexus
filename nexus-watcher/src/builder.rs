@@ -3,7 +3,7 @@ use nexus_common::db::{DatabaseConfig, PubkyConnector};
 use nexus_common::types::DynError;
 use nexus_common::utils::create_shutdown_rx;
 use nexus_common::WatcherConfig;
-use nexus_common::{Level, StackConfig, StackManager};
+use nexus_common::{Level, StackManager};
 use pubky_app_specs::PubkyId;
 use std::path::PathBuf;
 use tokio::sync::watch::Receiver;
@@ -12,12 +12,6 @@ use tokio::sync::watch::Receiver;
 pub struct NexusWatcherBuilder(pub WatcherConfig);
 
 impl NexusWatcherBuilder {
-    /// Creates a `NexusWatcherBuilder` instance with the given configuration and stack settings.
-    pub fn with_stack(mut config: WatcherConfig, stack: &StackConfig) -> Self {
-        config.stack = stack.clone();
-        Self(config)
-    }
-
     /// Configures the logging level for the service, determining verbosity and log output
     pub fn log_level(&mut self, log_level: Level) -> &mut Self {
         self.0.stack.log_level = log_level;
