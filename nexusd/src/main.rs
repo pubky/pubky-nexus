@@ -1,8 +1,9 @@
 use clap::Parser;
 use nexus_common::types::DynError;
-use nexus_common::{DaemonConfig, StackManager, TrustRankConfig};
+use nexus_common::{StackManager, TrustRankConfig};
 use nexus_webapi::mock::MockDb;
 use nexusd::cli::{Cli, DbCommands, JobCommands, JobRunArgs, MigrationCommands, NexusCommands};
+use nexusd::config::DaemonConfig;
 use nexusd::jobs::JobRegistry;
 use nexusd::migrations::{import_migrations, MigrationBuilder, MigrationManager};
 use nexusd::DaemonLauncher;

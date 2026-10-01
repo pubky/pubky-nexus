@@ -1,11 +1,12 @@
 use std::{fmt::Debug, path::PathBuf};
 
-use nexus_common::{types::DynError, utils::create_shutdown_rx, DaemonConfig};
+use nexus_common::{types::DynError, utils::create_shutdown_rx};
 use nexus_watcher::NexusWatcherBuilder;
 use nexus_webapi::{api_context::ApiContextBuilder, NexusApiBuilder};
 use serde::{Deserialize, Serialize};
 use tokio::{sync::watch::Receiver, try_join};
 
+use crate::config::DaemonConfig;
 use crate::jobs::{run, JobRegistry};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

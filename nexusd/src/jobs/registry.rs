@@ -3,13 +3,13 @@ use std::sync::Arc;
 
 use chrono::Utc;
 use cron::Schedule;
-use nexus_common::DaemonConfig;
 
 use super::{
     job_cron,
     lock::{self, LockMetrics, RedisRunLock},
     runner, scheduler, Job, JobError,
 };
+use crate::config::DaemonConfig;
 
 /// A [`Job`] bound to its cron schedule, with the [`Schedule`] pre-parsed. `Arc`
 /// shares one instance between the registry and the scheduler.
@@ -133,7 +133,8 @@ mod tests {
     /// Builds a [`DaemonConfig`] from the canonical default config with `extra`
     /// TOML appended (e.g. a `[jobs.<name>]` section).
     async fn default_config_with(extra: &str) -> DaemonConfig {
-        use nexus_common::file::{ConfigLoader, CONFIG_FILE_NAME};
+        use crate::config::CONFIG_FILE_NAME;
+        use nexus_common::file::ConfigLoader;
 
         let dir = tempfile::TempDir::new().unwrap();
         DaemonConfig::read_or_create_config_file(dir.path().to_path_buf())

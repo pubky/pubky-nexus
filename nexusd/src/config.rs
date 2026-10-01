@@ -1,14 +1,14 @@
 use async_trait::async_trait;
+use nexus_common::{file::ConfigLoader, types::DynError};
+use nexus_common::{ApiConfig, JobConfig, StackConfig, TrustRankConfig, WatcherConfig};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::{fmt::Debug, path::PathBuf};
 use tracing::error;
 
-use crate::{file::CONFIG_FILE_NAME, types::DynError};
-
-use super::{
-    file::ConfigLoader, ApiConfig, JobConfig, StackConfig, TrustRankConfig, WatcherConfig,
-};
+/// The sole configuration file name recognized by nexusd
+pub const CONFIG_FILE_NAME: &str = "config.toml";
+const DEFAULT_CONFIG_TOML: &str = include_str!("../default.config.toml");
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DaemonConfig {
@@ -42,7 +42,7 @@ impl DaemonConfig {
             std::fs::create_dir_all(parent)?;
         }
         // Create the file
-        std::fs::write(config_file_path, super::file::reader::DEFAULT_CONFIG_TOML)?;
+        std::fs::write(config_file_path, DEFAULT_CONFIG_TOML)?;
         Ok(())
     }
 
@@ -87,16 +87,15 @@ impl ConfigLoader<DaemonConfig> for DaemonConfig {}
 mod tests {
     use std::{collections::HashMap, net::SocketAddr, path::PathBuf, str::FromStr, time::Duration};
 
-    use pubky_app_specs::PubkyId;
-
-    use crate::config::file::{reader::DEFAULT_CONFIG_TOML, ConfigLoader};
-    use crate::{
+    use nexus_common::file::{validate_and_expand_path, ConfigLoader};
+    use nexus_common::{
         config::watcher::{DEFAULT_MAX_FILE_SIZE, DEFAULT_MODERATION_ID},
-        default_trust_report_dir,
-        file::validate_and_expand_path,
-        DaemonConfig, Level, DEFAULT_TRUST_ALPHA, DEFAULT_TRUST_MAX_ITERATIONS,
+        default_trust_report_dir, Level, DEFAULT_TRUST_ALPHA, DEFAULT_TRUST_MAX_ITERATIONS,
         DEFAULT_TRUST_REPORT_LIMIT, DEFAULT_TRUST_TOLERANCE,
     };
+    use pubky_app_specs::PubkyId;
+
+    use super::{DaemonConfig, DEFAULT_CONFIG_TOML};
 
     #[tokio_shared_rt::test(shared)]
     async fn test_toml_parsing() {
