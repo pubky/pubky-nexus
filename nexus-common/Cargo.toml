@@ -39,6 +39,5 @@ url = { workspace = true }
 utoipa = { workspace = true }
 
 [dev-dependencies]
-tempfile = { workspace = true }
 tokio-shared-rt = { workspace = true }
 tracing-test = { workspace = true }

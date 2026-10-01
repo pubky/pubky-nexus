@@ -37,7 +37,8 @@ impl JobRegistry {
 #[cfg(test)]
 mod tests {
     use super::JobRegistry;
-    use nexus_common::{DaemonConfig, TrustRankConfig};
+    use crate::config::DaemonConfig;
+    use nexus_common::TrustRankConfig;
 
     #[test]
     fn catalog_names_are_the_eight_jobs() {
