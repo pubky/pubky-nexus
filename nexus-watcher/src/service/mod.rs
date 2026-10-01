@@ -18,8 +18,7 @@ use crate::NexusWatcherBuilder;
 use nexus_common::file::ConfigLoader;
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::types::DynError;
-use nexus_common::utils::create_shutdown_rx;
-use nexus_common::{DaemonConfig, WatcherConfig};
+use nexus_common::WatcherConfig;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::watch::Receiver;
@@ -35,8 +34,6 @@ impl NexusWatcher {
 
     /// Loads the [WatcherConfig] from [WATCHER_CONFIG_FILE_NAME] in the given path and starts the Nexus Watcher.
     ///
-    /// If no [WatcherConfig] file is found, it defaults to [NexusWatcher::start_from_daemon].
-    ///
     /// ### Arguments
     ///
     /// - `config_dir`: the directory where the config file is expected to be
@@ -45,29 +42,8 @@ impl NexusWatcher {
         config_dir: PathBuf,
         shutdown_rx: Option<Receiver<bool>>,
     ) -> Result<(), DynError> {
-        let shutdown_rx = shutdown_rx.unwrap_or_else(create_shutdown_rx);
-
-        match WatcherConfig::load(config_dir.join(WATCHER_CONFIG_FILE_NAME)).await {
-            Ok(config) => NexusWatcherBuilder(config).start(Some(shutdown_rx)).await,
-            Err(_) => NexusWatcher::start_from_daemon(config_dir, Some(shutdown_rx)).await,
-        }
-    }
-
-    /// Derives the [WatcherConfig] from [DaemonConfig] (nexusd service config), loads it and starts the Watcher.
-    ///
-    /// If a [DaemonConfig] is not found, a new one is created in the given path with the default contents.
-    ///
-    /// ### Arguments
-    ///
-    /// - `config_dir`: the directory where the config file is expected to be
-    /// - `shutdown_rx`: optional shutdown signal. If none is provided, a default one will be created, listening for Ctrl-C.
-    pub async fn start_from_daemon(
-        config_dir: PathBuf,
-        shutdown_rx: Option<Receiver<bool>>,
-    ) -> Result<(), DynError> {
-        let daemon_config = DaemonConfig::read_or_create_config_file(config_dir).await?;
-        let watcher_config = WatcherConfig::from(daemon_config);
-        NexusWatcherBuilder(watcher_config).start(shutdown_rx).await
+        let config = WatcherConfig::load(config_dir.join(WATCHER_CONFIG_FILE_NAME)).await?;
+        NexusWatcherBuilder(config).start(shutdown_rx).await
     }
 
     /// Starts the Nexus Watcher with parallel periodic task loops.

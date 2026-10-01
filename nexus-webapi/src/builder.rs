@@ -128,48 +128,18 @@ pub struct NexusApi {
 impl NexusApi {
     /// Loads the [ApiConfig] from [API_CONFIG_FILE_NAME] in the given path and starts the Nexus API.
     ///
-    /// If no [ApiConfig] file is found, it defaults to [NexusApi::start_from_daemon].
-    ///
     /// ### Arguments
     ///
-    /// - `config_dir`: the directory where the config file is expected to be
+    /// - `config_dir`: the directory where the config file is expected to be. It also holds the `secret` key file.
     /// - `shutdown_rx`: optional shutdown signal. If none is provided, a default one will be created, listening for Ctrl-C.
     pub async fn start_from_path(
         config_dir: PathBuf,
         shutdown_rx: Option<Receiver<bool>>,
     ) -> Result<Self, DynError> {
-        match ApiConfig::load(config_dir.join(API_CONFIG_FILE_NAME)).await {
-            Ok(api_config) => {
-                let api_context = ApiContextBuilder::from_config_dir(config_dir)
-                    .api_config(api_config)
-                    .try_build()
-                    .await?;
+        let api_config = ApiConfig::load(config_dir.join(API_CONFIG_FILE_NAME)).await?;
+        let api_context = ApiContextBuilder::new(api_config, config_dir).try_build()?;
 
-                NexusApiBuilder::new(api_context).start(shutdown_rx).await
-            }
-            Err(_) => NexusApi::start_from_daemon(config_dir, shutdown_rx).await,
-        }
-    }
-
-    /// Loads the [ApiConfig] from the [DaemonConfig] in the given path and starts the Nexus API.
-    ///
-    /// ### Arguments
-    ///
-    /// - `config_dir`: the directory where the config file is expected to be
-    /// - `shutdown_rx`: optional shutdown signal. If none is provided, a default one will be created, listening for Ctrl-C.
-    pub async fn start_from_daemon(
-        config_dir: PathBuf,
-        shutdown_rx: Option<Receiver<bool>>,
-    ) -> Result<Self, DynError> {
-        let shutdown_rx = shutdown_rx.unwrap_or_else(create_shutdown_rx);
-
-        let api_context = ApiContextBuilder::from_config_dir(config_dir)
-            .try_build()
-            .await?;
-
-        NexusApiBuilder::new(api_context)
-            .start(Some(shutdown_rx))
-            .await
+        NexusApiBuilder::new(api_context).start(shutdown_rx).await
     }
 
     /// It sets up the necessary routes, binds to the specified address, and starts the Axum server

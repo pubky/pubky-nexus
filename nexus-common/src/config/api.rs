@@ -2,7 +2,7 @@ use std::net::{IpAddr, Ipv4Addr};
 use std::{fmt::Debug, net::SocketAddr};
 
 use super::file::ConfigLoader;
-use super::{default_stack, DaemonConfig, StackConfig};
+use super::{default_stack, StackConfig};
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -105,17 +105,6 @@ impl Default for ApiConfig {
             max_body_size_bytes: DEFAULT_MAX_BODY_SIZE_BYTES,
             stack: StackConfig::default(),
             rate_limit: RateLimitConfig::default(),
-        }
-    }
-}
-
-/// Converts a [`DaemonConfig`] into an [`ApiConfig`], extracting only the API-related settings
-/// and the shared application stack
-impl From<DaemonConfig> for ApiConfig {
-    fn from(daemon_config: DaemonConfig) -> Self {
-        ApiConfig {
-            stack: daemon_config.stack,
-            ..daemon_config.api
         }
     }
 }

@@ -62,6 +62,22 @@ impl DaemonConfig {
             error!("Failed to load config file: {e}");
         })
     }
+
+    /// Returns the `[api]` settings with the shared `[stack]`
+    pub fn api_config(&self) -> ApiConfig {
+        ApiConfig {
+            stack: self.stack.clone(),
+            ..self.api.clone()
+        }
+    }
+
+    /// Returns the `[watcher]` settings with the shared `[stack]`
+    pub fn watcher_config(&self) -> WatcherConfig {
+        WatcherConfig {
+            stack: self.stack.clone(),
+            ..self.watcher.clone()
+        }
+    }
 }
 
 #[async_trait]
@@ -163,6 +179,20 @@ mod tests {
         assert!(!c.trust_rank.report_enabled);
         assert_eq!(c.trust_rank.report_dir, default_trust_report_dir());
         assert_eq!(c.trust_rank.report_limit, DEFAULT_TRUST_REPORT_LIMIT);
+    }
+
+    /// `[api]` and `[watcher]` carry no stack of their own, so the service
+    /// configs must take the shared `[stack]`.
+    #[test]
+    fn test_service_configs_take_the_shared_stack() {
+        let toml = DEFAULT_CONFIG_TOML.replace(r#"log_level = "info""#, r#"log_level = "debug""#);
+
+        let c =
+            DaemonConfig::try_from_str(&toml).expect("config with a debug log level should parse");
+
+        assert_eq!(c.stack.log_level, Level::Debug);
+        assert_eq!(c.api_config().stack, c.stack);
+        assert_eq!(c.watcher_config().stack, c.stack);
     }
 
     /// A `[jobs.<name>]` section parses into a keyed [`JobConfig`], with its cron
