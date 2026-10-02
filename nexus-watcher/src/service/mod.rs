@@ -34,6 +34,8 @@ impl NexusWatcher {
 
     /// Loads the [WatcherConfig] from [WATCHER_CONFIG_FILE_NAME] in the given path and starts the Nexus Watcher.
     ///
+    /// Returns an error if the file is missing or invalid.
+    ///
     /// ### Arguments
     ///
     /// - `config_dir`: the directory where the config file is expected to be
@@ -115,5 +117,48 @@ impl NexusWatcher {
 
         info!("Nexus Watcher shut down gracefully");
         task_results_into_result(task_results)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{NexusWatcher, WATCHER_CONFIG_FILE_NAME};
+
+    /// A missing or invalid config file is an error, and nothing is written next to it:
+    /// no fallback config.
+    #[tokio::test]
+    async fn test_start_from_path_rejects_a_missing_or_invalid_config() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_dir = dir.path().to_path_buf();
+        // Already signalled, so a start that wrongly succeeds returns instead of waiting for Ctrl-C
+        let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+        shutdown_tx.send(true).unwrap();
+
+        let missing = NexusWatcher::start_from_path(config_dir.clone(), Some(shutdown_rx.clone()))
+            .await
+            .expect_err("a missing config file must be an error");
+        assert!(
+            missing.to_string().contains(WATCHER_CONFIG_FILE_NAME),
+            "{missing}"
+        );
+
+        std::fs::write(config_dir.join(WATCHER_CONFIG_FILE_NAME), "homeserver = 1").unwrap();
+        let invalid = NexusWatcher::start_from_path(config_dir.clone(), Some(shutdown_rx))
+            .await
+            .expect_err("an invalid config file must be an error");
+        assert!(
+            invalid.to_string().contains(WATCHER_CONFIG_FILE_NAME),
+            "{invalid}"
+        );
+
+        let files: Vec<_> = std::fs::read_dir(&config_dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        assert_eq!(
+            files,
+            [WATCHER_CONFIG_FILE_NAME],
+            "nothing else may be written"
+        );
     }
 }

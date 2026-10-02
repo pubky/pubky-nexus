@@ -15,16 +15,16 @@ pub struct ApiContext {
 
 pub struct ApiContextBuilder {
     api_config: ApiConfig,
-    config_dir: PathBuf,
+    secret_dir: PathBuf,
     pkarr_builder: Option<pkarr::ClientBuilder>,
 }
 
 impl ApiContextBuilder {
-    /// `config_dir` holds the API's `secret` key file, which is created if missing
-    pub fn new(api_config: ApiConfig, config_dir: PathBuf) -> Self {
+    /// `secret_dir` holds the API's `secret` key file, which is created if missing
+    pub fn new(api_config: ApiConfig, secret_dir: PathBuf) -> Self {
         Self {
             api_config,
-            config_dir,
+            secret_dir,
             pkarr_builder: None,
         }
     }
@@ -36,8 +36,8 @@ impl ApiContextBuilder {
     }
 
     pub fn try_build(&self) -> Result<ApiContext, DynError> {
-        // Ensure the config dir exists, so the secret file can be created in it
-        std::fs::create_dir_all(self.config_dir.clone())?;
+        // Ensure the dir exists, so a missing secret file can be created in it
+        std::fs::create_dir_all(self.secret_dir.clone())?;
 
         let ingestor = UserIngestor::from_config(&self.api_config.stack);
 
@@ -56,7 +56,7 @@ impl ApiContextBuilder {
 
     /// Reads the secret file. Creates a new secret file if it doesn't exist.
     fn read_or_create_keypair(&self) -> Result<Keypair, DynError> {
-        let secret_file_path = self.config_dir.join("secret");
+        let secret_file_path = self.secret_dir.join("secret");
 
         if !secret_file_path.exists() {
             Keypair::random().write_secret_key_file(&secret_file_path)?;
