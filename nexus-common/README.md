@@ -6,7 +6,7 @@ Nexus Common is a foundational crate that provides shared configuration, databas
 
 The `nexus-common` crate offers:
 
-- **Configuration Management:** TOML-based loader with home‑dir expansion and asynchronous loading
+- **Configuration Management:** TOML-based loader with default file generation, home‑dir expansion, and asynchronous loading
 
 - **Database Connectivity:**  
   Connect to Neo4j and Redis using dedicated connectors. Use functions such as `get_neo4j_graph()` and `get_redis_conn()` to obtain connections for executing queries and handling errors.
@@ -29,7 +29,7 @@ This crate is designed as a backbone for other services (e.g, homeserver watcher
 
 ### Configuration Management
 - Module: `config/`
-- Features: `ConfigLoader`, home-dir expansion, async loading
+- Features: `ConfigLoader`, default file generation, home-dir expansion, async loading
 
 ### Database Connectivity
 - Module: `db/`
