@@ -1,4 +1,4 @@
-use super::resource_utils::{check_resource_in_sorted_set, compute_resource_id, find_resource_tag};
+use super::resource_utils::{compute_resource_id, find_resource_tag};
 use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
 use chrono::Utc;
@@ -76,47 +76,6 @@ async fn test_homeserver_put_resource_tag_external_uri() -> Result<()> {
         "Should have at least one tag label"
     );
     assert_eq!(tag_details[0].label, label);
-
-    // =============================================
-    // LAYER 3: Verify Redis ResourceStream Sorted Sets
-    // =============================================
-
-    // Global timeline
-    let global_timeline =
-        check_resource_in_sorted_set(&["Resources", "Global", "Timeline"], &resource_id).await?;
-    assert!(
-        global_timeline.is_some(),
-        "Resource should be in global timeline"
-    );
-
-    // Per-app timeline
-    let app_timeline =
-        check_resource_in_sorted_set(&["Resources", "App", "mapky", "Timeline"], &resource_id)
-            .await?;
-    assert!(
-        app_timeline.is_some(),
-        "Resource should be in mapky app timeline"
-    );
-
-    // Per-tag timeline
-    let tag_timeline =
-        check_resource_in_sorted_set(&["Resources", "Tag", "bitcoin", "Timeline"], &resource_id)
-            .await?;
-    assert!(
-        tag_timeline.is_some(),
-        "Resource should be in bitcoin tag timeline"
-    );
-
-    // Combined app+tag timeline
-    let app_tag_timeline = check_resource_in_sorted_set(
-        &["Resources", "App", "mapky", "Tag", "bitcoin", "Timeline"],
-        &resource_id,
-    )
-    .await?;
-    assert!(
-        app_tag_timeline.is_some(),
-        "Resource should be in mapky+bitcoin combined timeline"
-    );
 
     // Global tag search index should contain the label
     let tag_search = TagSearch::get_by_label(label, &Pagination::default()).await?;

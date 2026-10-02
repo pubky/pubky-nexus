@@ -1,11 +1,10 @@
 use crate::events::EventProcessorError;
 use chrono::Utc;
-use nexus_common::db::kv::{RedisResult, ScoreAction};
+use nexus_common::db::kv::ScoreAction;
 use nexus_common::db::{fetch_row_from_graph, queries, OperationOutcome, RedisOps};
 use nexus_common::models::notification::Notification;
 use nexus_common::models::post::search::PostsByTagSearch;
 use nexus_common::models::post::{PostCounts, PostStream};
-use nexus_common::models::resource::stream::ResourceStream;
 use nexus_common::models::resource::tag::TagResource;
 use nexus_common::models::tag::post::TagPost;
 use nexus_common::models::tag::search::TagSearch;
@@ -150,49 +149,16 @@ async fn put_sync_resource(
                 TagResource::add_tagger_to_index(resource_id, None, &tagger_id, tag_label),
                 // Add tagger to the app-scoped tagger set. The TAGGED edge is
                 // keyed {label, app}, so this records one member per created
-                // edge; tag::del uses it as the retry gate for the decrements
+                // edge; tag::del uses it as the retry gate for the decrement
                 TagResource::add_tagger_to_index(resource_id, Some(app), &tagger_id, tag_label),
                 // Add to global tag search index
-                TagSearch::put_to_index(tag_label_slice),
-                // ResourceStream sorted set maintenance
-                ResourceStream::put_to_global_timeline(resource_id, indexed_at),
-                ResourceStream::update_global_taggers_count(
-                    resource_id,
-                    ScoreAction::Increment(1.0),
-                ),
-                ResourceStream::put_to_app_timeline(app, resource_id, indexed_at),
-                ResourceStream::update_app_taggers_count(
-                    app,
-                    resource_id,
-                    ScoreAction::Increment(1.0),
-                ),
-                ResourceStream::put_to_tag_timeline(tag_label, resource_id, indexed_at),
-                ResourceStream::update_tag_taggers_count(
-                    tag_label,
-                    resource_id,
-                    ScoreAction::Increment(1.0),
-                ),
-                ResourceStream::put_to_app_tag_timeline(app, tag_label, resource_id, indexed_at),
-                ResourceStream::update_app_tag_taggers_count(
-                    app,
-                    tag_label,
-                    resource_id,
-                    ScoreAction::Increment(1.0),
-                )
+                TagSearch::put_to_index(tag_label_slice)
             );
 
             indexing_results.0?;
             indexing_results.1?;
             indexing_results.2?;
             indexing_results.3?;
-            indexing_results.4?;
-            indexing_results.5?;
-            indexing_results.6?;
-            indexing_results.7?;
-            indexing_results.8?;
-            indexing_results.9?;
-            indexing_results.10?;
-            indexing_results.11?;
 
             Ok(())
         }
@@ -737,11 +703,10 @@ async fn del_sync_post(
 
 /// Cleans up Redis indexes when a Resource tag is deleted.
 /// Orphaned Resource node cleanup is handled by the delete_tag Cypher query.
-/// Timeline entries are only removed when taggers count reaches zero.
-/// Non-idempotent decrements are guarded by `tagger_in_index` so a retried
-/// event does not double-decrement the taggers counts. The gate comes from
-/// the app-scoped tagger set, which the put path fills once per created
-/// TAGGED edge (keyed {label, app}), matching the per-edge increments.
+/// The non-idempotent label-score decrement is guarded by `tagger_in_index`
+/// so a retried event does not double-decrement it. The gate comes from the
+/// app-scoped tagger set, which the put path fills once per created TAGGED
+/// edge (keyed {label, app}), matching the per-edge increment.
 async fn del_sync_resource(
     tagger_id: PubkyId,
     resource_id: &str,
@@ -749,7 +714,6 @@ async fn del_sync_resource(
     app: Option<&str>,
     tagger_in_index: bool,
 ) -> Result<(), EventProcessorError> {
-    // Step 1: Decrement scores and remove tagger from sets
     let score_results = tokio::join!(
         // Guarded: Decrement label score in the resource
         async {
@@ -770,57 +734,11 @@ async fn del_sync_resource(
                 .del_from_index(resource_id, None, tag_label)
                 .await?;
             // Idempotent: Delete the tagger from the app-scoped tagger set
-            // that gates the decrements above (SREM)
+            // that gates the decrement above (SREM)
             if let Some(a) = app {
                 TagResource(vec![tagger_id.to_string()])
                     .del_from_index(resource_id, Some(a), tag_label)
                     .await?;
-            }
-            Ok::<(), EventProcessorError>(())
-        },
-        // Guarded: Decrement global taggers count
-        async {
-            if tagger_in_index {
-                ResourceStream::update_global_taggers_count(
-                    resource_id,
-                    ScoreAction::Decrement(1.0),
-                )
-                .await?;
-            }
-            Ok::<(), EventProcessorError>(())
-        },
-        // Guarded: Decrement tag taggers count
-        async {
-            if tagger_in_index {
-                ResourceStream::update_tag_taggers_count(
-                    tag_label,
-                    resource_id,
-                    ScoreAction::Decrement(1.0),
-                )
-                .await?;
-            }
-            Ok::<(), EventProcessorError>(())
-        },
-        // Guarded: Decrement app and app-tag taggers counts
-        async {
-            if tagger_in_index {
-                if let Some(a) = app {
-                    let (r1, r2) = tokio::join!(
-                        ResourceStream::update_app_taggers_count(
-                            a,
-                            resource_id,
-                            ScoreAction::Decrement(1.0),
-                        ),
-                        ResourceStream::update_app_tag_taggers_count(
-                            a,
-                            tag_label,
-                            resource_id,
-                            ScoreAction::Decrement(1.0),
-                        ),
-                    );
-                    r1?;
-                    r2?;
-                }
             }
             Ok::<(), EventProcessorError>(())
         }
@@ -828,55 +746,6 @@ async fn del_sync_resource(
 
     score_results.0?;
     score_results.1?;
-    score_results.2?;
-    score_results.3?;
-    score_results.4?;
 
-    // Step 2: Check remaining scores and remove from timelines only when zero.
-    remove_timeline_if_empty(
-        &["Resources", "Global", "TaggersCount"],
-        resource_id,
-        ResourceStream::del_from_global_timeline(resource_id),
-    )
-    .await?;
-
-    remove_timeline_if_empty(
-        &["Resources", "Tag", tag_label, "TaggersCount"],
-        resource_id,
-        ResourceStream::del_from_tag_timeline(tag_label, resource_id),
-    )
-    .await?;
-
-    if let Some(a) = app {
-        remove_timeline_if_empty(
-            &["Resources", "App", a, "TaggersCount"],
-            resource_id,
-            ResourceStream::del_from_app_timeline(a, resource_id),
-        )
-        .await?;
-
-        remove_timeline_if_empty(
-            &["Resources", "App", a, "Tag", tag_label, "TaggersCount"],
-            resource_id,
-            ResourceStream::del_from_app_tag_timeline(a, tag_label, resource_id),
-        )
-        .await?;
-    }
-
-    Ok(())
-}
-
-/// Checks if a resource's score in a taggers-count sorted set is zero or absent,
-/// and if so, removes it from the corresponding timeline.
-async fn remove_timeline_if_empty(
-    count_key_parts: &[&str],
-    resource_id: &str,
-    delete_fn: impl std::future::Future<Output = RedisResult<()>>,
-) -> Result<(), EventProcessorError> {
-    let score =
-        ResourceStream::check_sorted_set_member(None, count_key_parts, &[resource_id]).await?;
-    if score.is_none_or(|s| s <= 0) {
-        delete_fn.await?;
-    }
     Ok(())
 }
