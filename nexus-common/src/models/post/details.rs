@@ -26,6 +26,11 @@ pub struct PostDetails {
     /// `default` keeps pre-lock cached JSON (no `lock` key) deserializing.
     #[serde(default)]
     pub lock: Option<String>,
+    /// Set on the cleared node left behind when a post with relationships is
+    /// deleted. `default` keeps cached JSON written before the flag (no
+    /// `deleted` key) deserializing as a live post.
+    #[serde(default)]
+    pub deleted: bool,
 }
 
 impl RedisOps for PostDetails {}
@@ -121,6 +126,7 @@ impl PostDetails {
             kind: homeserver_post.kind,
             attachments: homeserver_post.attachments,
             lock: homeserver_post.lock,
+            deleted: false,
         }
     }
 
@@ -173,10 +179,14 @@ impl PostDetails {
         Ok(())
     }
 
-    /// True when the post's visible content (content or attachments) changed.
+    /// True when what the post shows changed: its content, its attachments, or
+    /// whether it is deleted. The flag counts on its own: deleting a repost with
+    /// no content or attachments changes neither.
     /// Deliberately excludes `lock` so a lock toggle is not treated as a content edit.
     pub fn content_differs_from(&self, other: &PostDetails) -> bool {
-        self.content != other.content || self.attachments != other.attachments
+        self.content != other.content
+            || self.attachments != other.attachments
+            || self.deleted != other.deleted
     }
 
     /// True when any cached field changed and the index needs refreshing. Unlike
@@ -204,6 +214,7 @@ mod tests {
             uri: "uri1".into(),
             attachments: Some(vec!["image1.jpg".into(), "image2.jpg".into()]),
             lock: None,
+            deleted: false,
         };
 
         // Test with same content and attachments
@@ -265,6 +276,30 @@ mod tests {
     }
 
     #[test]
+    fn test_deserialize_deleted_flag() {
+        // Cached JSON written before the flag has no `deleted` key and must
+        // read as a live post; a present `deleted: true` is kept.
+        let legacy = r#"{
+            "content": "hi",
+            "id": "post1",
+            "indexed_at": 123456789,
+            "author": "author1",
+            "kind": "short",
+            "uri": "pubky://author1/pub/pubky.app/posts/post1",
+            "attachments": null,
+            "lock": null
+        }"#;
+        let details: PostDetails = serde_json::from_str(legacy).unwrap();
+        assert!(!details.deleted);
+
+        let mut tombstone: serde_json::Value = serde_json::from_str(legacy).unwrap();
+        tombstone["content"] = "".into();
+        tombstone["deleted"] = true.into();
+        let details: PostDetails = serde_json::from_value(tombstone).unwrap();
+        assert!(details.deleted);
+    }
+
+    #[test]
     fn test_content_differs_from_ignores_lock() {
         let base = PostDetails {
             content: "c".into(),
@@ -275,6 +310,7 @@ mod tests {
             uri: "u".into(),
             attachments: None,
             lock: None,
+            deleted: false,
         };
         let locked = PostDetails {
             lock: Some("pubky://host/pub/lock".into()),
@@ -289,5 +325,17 @@ mod tests {
             ..base.clone()
         };
         assert!(base.content_differs_from(&edited));
+        // So is the deleted flag alone: a tombstone of an empty post changes
+        // no other compared field.
+        let empty = PostDetails {
+            content: String::new(),
+            ..base.clone()
+        };
+        let tombstone = PostDetails {
+            deleted: true,
+            ..empty.clone()
+        };
+        assert!(empty.content_differs_from(&tombstone));
+        assert!(empty.is_different_than(&tombstone));
     }
 }

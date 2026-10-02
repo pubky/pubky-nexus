@@ -56,6 +56,38 @@ async fn test_get_post_view() -> Result<()> {
     Ok(())
 }
 
+/// Assert that the `deleted` field appears on both the `/details` and the post
+/// view responses and is serialized as a plain bool.
+#[tokio_shared_rt::test(shared)]
+async fn test_deleted_flag_in_details_and_view() -> Result<()> {
+    let author_id = "y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy";
+    let post_id = "2ZCW1TGR5BKG0";
+
+    // /v0/post/{author_id}/{post_id}/details
+    let details = get_request(&format!("{ROOT_PATH}/{author_id}/{post_id}/details")).await?;
+    assert!(
+        details["deleted"].is_boolean(),
+        "details response must serialize deleted as a boolean"
+    );
+    assert_eq!(
+        details["deleted"], false,
+        "live post must report deleted: false"
+    );
+
+    // /v0/post/{author_id}/{post_id} (PostView embeds PostDetails)
+    let view = get_request(&format!("{ROOT_PATH}/{author_id}/{post_id}")).await?;
+    assert!(
+        view["details"]["deleted"].is_boolean(),
+        "view response must serialize deleted as a boolean"
+    );
+    assert_eq!(
+        view["details"]["deleted"], false,
+        "live post must report deleted: false in view response"
+    );
+
+    Ok(())
+}
+
 #[tokio_shared_rt::test(shared)]
 async fn test_get_post_counts() -> Result<()> {
     let path = format!("{ROOT_PATH}/{CAIRO_USER}/{POST_H}/counts");
