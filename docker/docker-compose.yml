@@ -31,6 +31,10 @@ services:
       NEO4J_server_memory_pagecache_size: 1G
       NEO4J_server_memory_heap_initial__size: 2G
       NEO4J_server_memory_heap_max__size: 2G
+      # Server-wide backstop for transactions the client has abandoned.
+      # A batched `CALL {} IN TRANSACTIONS` run counts as one transaction and is capped as a whole.
+      # https://neo4j.com/docs/operations-manual/5/configuration/configuration-settings/#config_db.transaction.timeout
+      NEO4J_db_transaction_timeout: 15m
       # Disable telemetry (server-side)
       # https://neo4j.com/docs/operations-manual/current/configuration/configuration-settings/#config_dbms.usage_report.enabled
       NEO4J_dbms_usage__report_enabled: false
