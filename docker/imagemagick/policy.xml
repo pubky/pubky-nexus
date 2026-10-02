@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ImageMagick resource limits for the media variant pipeline (nexus-webapi/src/media/processors/image.rs).
+
+  Loaded by every convert/identify nexusd spawns via MAGICK_CONFIGURE_PATH (set in the Dockerfile).
+  The coalesce step materialises every frame of an animation at full canvas size before the resize, so a
+  small file can demand a lot of memory; these caps bound that: a 6000x6000 frame is ~576 MiB of
+  pixel cache on the Q16-HDRI build Alpine ships (16 bytes/pixel), and disk is the ceiling for a
+  coalesced animation spilling out of RAM. Sources over a limit fail fast, before pixels are allocated.
+
+  Check the effective values inside the container with: convert -list resource
+  (no backticks in this comment: the ImageMagick policy parser reads them as quotes and drops the file).
+-->
+<policymap>
+  <policy domain="resource" name="width"  value="6000"/>
+  <policy domain="resource" name="height" value="6000"/>
+  <policy domain="resource" name="list-length" value="300"/>
+  <policy domain="resource" name="memory" value="1GiB"/>
+  <policy domain="resource" name="map"    value="1GiB"/>
+  <policy domain="resource" name="disk"   value="1GiB"/>
+  <policy domain="resource" name="time"   value="30"/>
+</policymap>
