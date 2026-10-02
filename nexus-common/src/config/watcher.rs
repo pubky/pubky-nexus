@@ -1,5 +1,5 @@
 use super::file::ConfigLoader;
-use super::{default_stack, DaemonConfig, StackConfig};
+use super::{default_stack, StackConfig};
 use async_trait::async_trait;
 use pubky_app_specs::{PubkyId, VALIDATION_LIMITS};
 use serde::{de::Error, Deserialize, Deserializer, Serialize};
@@ -245,16 +245,6 @@ fn check_limit<E: Error>(val: u16, field: &str, max: u16) -> Result<u16, E> {
 
 fn default_hs_resolver_ttl() -> u64 {
     DEFAULT_HS_RESOLVER_TTL
-}
-
-/// Extracts [`WatcherConfig`] from [`DaemonConfig`]
-impl From<DaemonConfig> for WatcherConfig {
-    fn from(daemon_config: DaemonConfig) -> Self {
-        WatcherConfig {
-            stack: daemon_config.stack,
-            ..daemon_config.watcher
-        }
-    }
 }
 
 #[async_trait]
