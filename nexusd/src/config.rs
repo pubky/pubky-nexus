@@ -12,10 +12,12 @@ const DEFAULT_CONFIG_TOML: &str = include_str!("../default.config.toml");
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DaemonConfig {
+    /// `[api]`, without the shared `[stack]`: read it through [Self::api_config]
     #[serde(default)]
-    pub api: ApiConfig,
+    api: ApiConfig,
+    /// `[watcher]`, without the shared `[stack]`: read it through [Self::watcher_config]
     #[serde(default)]
-    pub watcher: WatcherConfig,
+    watcher: WatcherConfig,
     pub stack: StackConfig,
     /// Scheduling config per cron job, keyed by job name (`[jobs.<name>]`).
     #[serde(default)]

@@ -128,6 +128,8 @@ pub struct NexusApi {
 impl NexusApi {
     /// Loads the [ApiConfig] from [API_CONFIG_FILE_NAME] in the given path and starts the Nexus API.
     ///
+    /// Returns an error if the file is missing or invalid.
+    ///
     /// ### Arguments
     ///
     /// - `config_dir`: the directory where the config file is expected to be. It also holds the `secret` key file.
@@ -285,5 +287,46 @@ fn derive_key_publisher_context(
         public_pubky_tls_port: local_pubky_tls_port,
         keypair: ctx.keypair.clone(),
         pkarr_client: ctx.pkarr_client.clone(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{NexusApi, API_CONFIG_FILE_NAME};
+
+    /// A missing or invalid config file is an error, and nothing is written next to it:
+    /// no fallback config, no `secret`.
+    #[tokio::test]
+    async fn test_start_from_path_rejects_a_missing_or_invalid_config() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_dir = dir.path().to_path_buf();
+        // Already signalled, so a start that wrongly succeeds returns instead of waiting for Ctrl-C
+        let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+        shutdown_tx.send(true).unwrap();
+
+        let missing = NexusApi::start_from_path(config_dir.clone(), Some(shutdown_rx.clone()))
+            .await
+            .err()
+            .expect("a missing config file must be an error");
+        assert!(
+            missing.to_string().contains(API_CONFIG_FILE_NAME),
+            "{missing}"
+        );
+
+        std::fs::write(config_dir.join(API_CONFIG_FILE_NAME), "public_addr = 1").unwrap();
+        let invalid = NexusApi::start_from_path(config_dir.clone(), Some(shutdown_rx))
+            .await
+            .err()
+            .expect("an invalid config file must be an error");
+        assert!(
+            invalid.to_string().contains(API_CONFIG_FILE_NAME),
+            "{invalid}"
+        );
+
+        let files: Vec<_> = std::fs::read_dir(&config_dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        assert_eq!(files, [API_CONFIG_FILE_NAME], "nothing else may be written");
     }
 }
