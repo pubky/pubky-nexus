@@ -1,0 +1,92 @@
+# Synonym homeserver pubky
+homeserver = "8um71us3fyw6h8wbcxb5ar3rwusy1a6u49956ikzojg3gcwd1dty"
+# Maximum number of events to fetch per run from the primary homeserver (max: 1000)
+events_limit = 50
+# Maximum events per user per run for key-based (third-party) homeservers (max: 100)
+key_based_events_limit = 50
+# Maximum number of monitored external homeservers.
+monitored_homeservers_limit = 50
+primary_hs_monitoring_interval_ms = 5000
+external_hs_monitoring_interval_ms = 5000
+hs_resolver_interval_ms = 10000
+# Minimum time (ms) before a user's homeserver mapping is considered stale and therefore eligible to be re-resolved (default: 1 hour)
+hs_resolver_ttl = 3600000
+# Initial backoff duration (in seconds) after the first failure of a homeserver
+initial_backoff_secs = 60
+# Maximum backoff duration (in seconds) for a failing homeserver
+max_backoff_secs = 3600
+retry_processor_interval_ms = 10000
+# Maximum allowed file size (in bytes) for ingested files.
+# Responses with Content-Length exceeding this are rejected immediately.
+# Responses without a header are streamed with a running byte-count and aborted past the cap.
+# Rejected files are treated as permanent failures (not retried).
+# Unset, it defaults to the blob size cap declared by pubky-app-specs.
+# max_file_size = <bytes>
+# User public key to trust for moderating content (test user key, change as needed)
+moderation_id = "uo7jgkykft4885n8cruizwy6khw71mnu5pq3ay9i8pw1ymcn85ko"
+# Tags on content to de-index when placed by the trusted moderator above
+moderated_tags = [
+    "hatespeech",
+    "harassement",
+    "terrorism",
+    "violence",
+    "illegal_activities",
+    "il_adult_nu_sex_act",
+]
+
+# Event retry configuration
+[retry]
+# Transient error retry limit before dead-letter
+max_retries = 10
+# Safety net for homeservers that disappear silently
+max_dependency_retries = 50
+# Base for exponential backoff on transient retries (seconds)
+initial_backoff_secs = 10
+# Backoff ceiling for transient retries (seconds)
+max_backoff_secs = 3600
+# Base for MissingDependency polling backoff (seconds)
+initial_missing_dep_backoff_secs = 60
+# Backoff ceiling for MissingDependency (seconds)
+max_missing_dep_backoff_secs = 3600
+
+[stack]
+# Logging, options: error, warn, info, debug and trace
+log_level = "info"
+files_path = "~/.pubky-nexus/static/files"
+
+[stack.net]
+testnet = false
+# testnet host, leave as "localhost" for local development. Change only if the
+# testnet homeserver/relay are on another machine (e.g. Docker setups).
+testnet_host = "localhost"
+# Total request timeout in seconds for all HTTP requests made by the shared Pubky client.
+# This includes response-body reads and should accommodate max_file_size blob downloads.
+pubky_http_request_timeout_secs = 300
+# External HS PKs which are forbidden from being indexed
+external_hs_pk_blacklist = []
+
+[stack.otlp]
+# Service name used for tracing, logging, and metrics in OpenTelemetry
+name = "nexus-watcher"
+# OTLP endpoint is not set by default. To export logs, traces, and metrics,
+# set it to an OpenTelemetry Collector endpoint.
+#endpoint = "http://localhost:4317"
+# Optional resource attributes attached to all OTLP signals
+# [stack.otlp.resource_attributes]
+# "host.name" = "nexus-1"
+# "deployment.environment.name" = "local"
+
+[stack.db]
+redis = "redis://127.0.0.1:6379"
+# Maximum time (ms) RediSearch spends on a single FT.SEARCH before returning partial results
+#ft_search_timeout_ms = 50
+
+[stack.db.neo4j]
+uri = "bolt://localhost:7687"
+# Not needed in the Community Edition the profile username, just the password
+#user = "neo4j"
+password = "12345678"
+# Queries taking longer than this (ms) will be logged as warnings. Remove or comment out this line to disable.
+slow_query_logging_threshold_ms = 100
+# Include the Cypher query text in slow query log entries
+#slow_query_logging_include_cypher = false

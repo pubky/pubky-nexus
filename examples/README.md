@@ -29,4 +29,4 @@ cargo run --bin api_example -- --config=test_path
 cargo run --bin watcher_example -- --config=test_path
 ```
 
-If the config file in `test_path` is missing or invalid, the binary exits with the load error.
+If `test_path` has no config file, the default one is written there first. An invalid config file is an error.

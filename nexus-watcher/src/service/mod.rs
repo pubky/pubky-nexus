@@ -13,13 +13,14 @@ pub(crate) use task_runner::{run_periodic_tasks, PeriodicTask};
 pub use user_hs_resolver::UserHsResolverRunner;
 
 use crate::events::retry::RetryProcessor;
+use crate::service::constants::DEFAULT_WATCHER_CONFIG_TOML;
 use crate::service::task_runner::task_results_into_result;
 use crate::NexusWatcherBuilder;
 use nexus_common::file::ConfigLoader;
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::types::DynError;
 use nexus_common::WatcherConfig;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::watch::Receiver;
 use tracing::{debug, info};
@@ -34,7 +35,7 @@ impl NexusWatcher {
 
     /// Loads the [WatcherConfig] from [WATCHER_CONFIG_FILE_NAME] in the given path and starts the Nexus Watcher.
     ///
-    /// Returns an error if the file is missing or invalid.
+    /// If the file is missing, the default config is written to it first. An invalid file is an error.
     ///
     /// ### Arguments
     ///
@@ -44,8 +45,14 @@ impl NexusWatcher {
         config_dir: PathBuf,
         shutdown_rx: Option<Receiver<bool>>,
     ) -> Result<(), DynError> {
-        let config = WatcherConfig::load(config_dir.join(WATCHER_CONFIG_FILE_NAME)).await?;
+        let config = Self::load_or_create_config(&config_dir).await?;
         NexusWatcherBuilder(config).start(shutdown_rx).await
+    }
+
+    /// Loads [WATCHER_CONFIG_FILE_NAME] from `config_dir`, first writing the default config to it if it's missing
+    async fn load_or_create_config(config_dir: &Path) -> Result<WatcherConfig, DynError> {
+        let config_file_path = config_dir.join(WATCHER_CONFIG_FILE_NAME);
+        WatcherConfig::load_or_create(config_file_path, DEFAULT_WATCHER_CONFIG_TOML).await
     }
 
     /// Starts the Nexus Watcher with parallel periodic task loops.
@@ -122,35 +129,41 @@ impl NexusWatcher {
 
 #[cfg(test)]
 mod tests {
-    use super::{NexusWatcher, WATCHER_CONFIG_FILE_NAME};
+    use super::{NexusWatcher, DEFAULT_WATCHER_CONFIG_TOML, WATCHER_CONFIG_FILE_NAME};
 
-    /// A missing or invalid config file is an error, and nothing is written next to it:
-    /// no fallback config.
+    /// A missing config file is written from the default config, which loads.
     #[tokio::test]
-    async fn test_start_from_path_rejects_a_missing_or_invalid_config() {
+    async fn test_load_or_create_config_writes_the_default() {
+        let dir = tempfile::tempdir().unwrap();
+
+        NexusWatcher::load_or_create_config(dir.path())
+            .await
+            .expect("the default config should load");
+
+        let written = std::fs::read_to_string(dir.path().join(WATCHER_CONFIG_FILE_NAME)).unwrap();
+        assert_eq!(written, DEFAULT_WATCHER_CONFIG_TOML);
+    }
+
+    /// An invalid config file is an error. It's left as it is, and nothing else is written next to it.
+    #[tokio::test]
+    async fn test_start_from_path_rejects_an_invalid_config() {
         let dir = tempfile::tempdir().unwrap();
         let config_dir = dir.path().to_path_buf();
+        let config_file_path = config_dir.join(WATCHER_CONFIG_FILE_NAME);
         // Already signalled, so a start that wrongly succeeds returns instead of waiting for Ctrl-C
         let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
         shutdown_tx.send(true).unwrap();
 
-        let missing = NexusWatcher::start_from_path(config_dir.clone(), Some(shutdown_rx.clone()))
-            .await
-            .expect_err("a missing config file must be an error");
-        assert!(
-            missing.to_string().contains(WATCHER_CONFIG_FILE_NAME),
-            "{missing}"
-        );
-
-        std::fs::write(config_dir.join(WATCHER_CONFIG_FILE_NAME), "homeserver = 1").unwrap();
-        let invalid = NexusWatcher::start_from_path(config_dir.clone(), Some(shutdown_rx))
+        std::fs::write(&config_file_path, "homeserver = 1").unwrap();
+        let err = NexusWatcher::start_from_path(config_dir.clone(), Some(shutdown_rx))
             .await
             .expect_err("an invalid config file must be an error");
-        assert!(
-            invalid.to_string().contains(WATCHER_CONFIG_FILE_NAME),
-            "{invalid}"
-        );
+        assert!(err.to_string().contains(WATCHER_CONFIG_FILE_NAME), "{err}");
 
+        assert_eq!(
+            std::fs::read_to_string(&config_file_path).unwrap(),
+            "homeserver = 1"
+        );
         let files: Vec<_> = std::fs::read_dir(&config_dir)
             .unwrap()
             .map(|entry| entry.unwrap().file_name())
