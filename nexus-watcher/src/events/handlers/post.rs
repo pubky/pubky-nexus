@@ -102,8 +102,11 @@ async fn sync_put_details(
                 }
                 if existing_details.is_different_than(&post_details) || kind_changed {
                     // A lock- or kind-only toggle refreshes the cache but must not notify.
-                    let notify =
-                        existing_details.content_differs_from(&post_details) || collection_toggled;
+                    // A deletion must, even of a repost with no content to clear.
+                    let deleted_toggled = existing_details.deleted != post_details.deleted;
+                    let notify = existing_details.content_differs_from(&post_details)
+                        || collection_toggled
+                        || deleted_toggled;
                     sync_edit(
                         &post,
                         author_id.clone(),

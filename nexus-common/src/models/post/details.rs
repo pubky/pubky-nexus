@@ -179,21 +179,17 @@ impl PostDetails {
         Ok(())
     }
 
-    /// True when what the post shows changed: its content, its attachments, or
-    /// whether it is deleted. The flag counts on its own: deleting a repost with
-    /// no content or attachments changes neither.
+    /// True when the post's visible content (content or attachments) changed.
     /// Deliberately excludes `lock` so a lock toggle is not treated as a content edit.
     pub fn content_differs_from(&self, other: &PostDetails) -> bool {
-        self.content != other.content
-            || self.attachments != other.attachments
-            || self.deleted != other.deleted
+        self.content != other.content || self.attachments != other.attachments
     }
 
     /// True when any cached field changed and the index needs refreshing. Unlike
-    /// [`Self::content_differs_from`] this includes `lock`, so a lock-only toggle
-    /// refreshes the cache without counting as a content edit.
+    /// [`Self::content_differs_from`] this includes `lock` and `deleted`, so a
+    /// lock-only toggle refreshes the cache without counting as a content edit.
     pub fn is_different_than(&self, other: &PostDetails) -> bool {
-        self.content_differs_from(other) || self.lock != other.lock
+        self.content_differs_from(other) || self.lock != other.lock || self.deleted != other.deleted
     }
 }
 
@@ -325,17 +321,18 @@ mod tests {
             ..base.clone()
         };
         assert!(base.content_differs_from(&edited));
-        // So is the deleted flag alone: a tombstone of an empty post changes
-        // no other compared field.
-        let empty = PostDetails {
-            content: String::new(),
-            ..base.clone()
-        };
+    }
+
+    #[test]
+    fn test_deleted_flag_is_not_content() {
+        // Deleting a repost with no content or attachments changes no content,
+        // but the cache still has to pick up the flag.
+        let live = PostDetails::default();
         let tombstone = PostDetails {
             deleted: true,
-            ..empty.clone()
+            ..PostDetails::default()
         };
-        assert!(empty.content_differs_from(&tombstone));
-        assert!(empty.is_different_than(&tombstone));
+        assert!(!live.content_differs_from(&tombstone));
+        assert!(live.is_different_than(&tombstone));
     }
 }
