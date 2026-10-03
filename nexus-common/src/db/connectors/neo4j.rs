@@ -7,7 +7,7 @@ use tracing::{debug, info};
 use crate::db::graph::error::{GraphError, GraphResult};
 use crate::db::graph::{Graph, GraphOps, InstrumentedGraph};
 use crate::db::setup::setup_graph;
-use crate::db::Neo4JConfig;
+use crate::db::{redact_url, Neo4JConfig};
 use crate::types::DynError;
 
 pub struct Neo4jConnector {
@@ -19,11 +19,13 @@ impl Neo4jConnector {
     pub async fn init(neo4j_config: &Neo4JConfig) -> Result<(), DynError> {
         let neo4j_connector = Neo4jConnector::new_connection(neo4j_config).await?;
 
-        neo4j_connector.ping(&neo4j_config.uri).await?;
+        // Only the redacted URI may reach logs and errors
+        let neo4j_uri = redact_url(&neo4j_config.uri);
+        neo4j_connector.ping(&neo4j_uri).await?;
 
         match NEO4J_CONNECTOR.set(neo4j_connector) {
             Err(e) => debug!("Neo4jConnector was already set: {:?}", e),
-            Ok(()) => info!("Neo4jConnector successfully set up on {}", neo4j_config.uri),
+            Ok(()) => info!("Neo4jConnector successfully set up on {}", neo4j_uri),
         }
 
         // Set Neo4J graph data constraints

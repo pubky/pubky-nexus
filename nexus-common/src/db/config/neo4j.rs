@@ -1,10 +1,12 @@
+use super::{redact_url, REDACTED};
 use serde::{Deserialize, Serialize};
+use std::fmt;
 
 pub const NEO4J_URI: &str = "bolt://localhost:7687";
 pub const NEO4J_USER: &str = "neo4j";
 pub const NEO4J_PASS: &str = "12345678";
 // Create temporal struct to wrap database config
-#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub struct Neo4JConfig {
     pub uri: String,
 
@@ -29,6 +31,32 @@ pub struct Neo4JConfig {
 
 fn default_neo4j_user() -> String {
     String::from("neo4j")
+}
+
+/// Redacts the password and the URI credentials, since the config is logged at startup
+impl fmt::Debug for Neo4JConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Self {
+            uri,
+            user,
+            password: _,
+            slow_query_logging_threshold_ms,
+            slow_query_logging_include_cypher,
+        } = self;
+        f.debug_struct("Neo4JConfig")
+            .field("uri", &redact_url(uri))
+            .field("user", user)
+            .field("password", &REDACTED)
+            .field(
+                "slow_query_logging_threshold_ms",
+                slow_query_logging_threshold_ms,
+            )
+            .field(
+                "slow_query_logging_include_cypher",
+                slow_query_logging_include_cypher,
+            )
+            .finish()
+    }
 }
 
 impl Default for Neo4JConfig {

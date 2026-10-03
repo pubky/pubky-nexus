@@ -1,5 +1,6 @@
 use crate::db::kv::setup::setup_cache_on;
 use crate::db::kv::{RedisError, RedisResult};
+use crate::db::redact_url;
 use crate::types::DynError;
 use deadpool_redis::{Config, Connection, Pool, Runtime};
 use std::fmt;
@@ -17,6 +18,8 @@ impl RedisConnector {
             .await
             .expect("Failed to connect to Redis");
 
+        // Only the redacted URI may reach logs and errors
+        let redis_uri = &redact_url(redis_uri);
         redis_connector.ping(redis_uri).await?;
 
         // Apply the search schema on this pool before registering the connector,
@@ -90,4 +93,21 @@ pub async fn get_redis_conn() -> RedisResult<Connection> {
         .get()
         .await
         .map_err(|e| RedisError::ConnectionPoolError(Box::new(e)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn init_error_does_not_leak_the_credentials() {
+        // Nothing listens on port 1, so the health-check PING fails
+        let err = RedisConnector::init("redis://default:s3cret@127.0.0.1:1")
+            .await
+            .unwrap_err()
+            .to_string();
+
+        assert!(!err.contains("s3cret"), "credentials leaked: {err}");
+        assert!(err.contains("redis://***@127.0.0.1:1"), "got: {err}");
+    }
 }
