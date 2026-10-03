@@ -38,7 +38,9 @@ pub fn get_post_by_id(author_id: &str, post_id: &str) -> Query {
                 // Avoids enum deserialization ERROR
                 kind: COALESCE(p.kind, 'short'),
                 attachments: p.attachments,
-                lock: p.lock
+                lock: p.lock,
+                // Posts written before the flag lack the property and are live
+                deleted: COALESCE(p.deleted, false)
             } as details,
             COLLECT([author.id, parent_post.id]) AS reply
 

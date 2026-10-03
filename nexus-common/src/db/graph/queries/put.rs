@@ -71,7 +71,8 @@ pub fn create_post(
         SET new_post.content = $content,
             new_post.kind = $kind,
             new_post.attachments = $attachments,
-            new_post.lock = $lock
+            new_post.lock = $lock,
+            new_post.deleted = $deleted
         RETURN existing_post IS NOT NULL AS flag",
     );
 
@@ -86,7 +87,8 @@ pub fn create_post(
         .param("kind", kind.trim_matches('"'))
         .param("attachments", post.attachments.clone().unwrap_or_default())
         // Pass Option directly so None clears the property; "" would read back as Some("").
-        .param("lock", post.lock.clone());
+        .param("lock", post.lock.clone())
+        .param("deleted", post.deleted);
 
     // Handle "replied" relationship
     cypher_query = add_relationship_params(
