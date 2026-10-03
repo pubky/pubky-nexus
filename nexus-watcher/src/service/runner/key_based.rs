@@ -18,7 +18,7 @@ use tokio::sync::{watch::Receiver, Mutex};
 use tracing::{debug, info, warn};
 
 /// Metrics for the external-HS monitoring loop, recorded once per run in
-/// [`KeyBasedEventProcessorRunner::pre_run`].
+/// [`KeyBasedEventProcessorRunner::post_run`].
 ///
 /// Instruments come from the global meter, so they are no-ops until an
 /// `SdkMeterProvider` is installed.
@@ -149,14 +149,11 @@ impl TEventProcessorRunner for KeyBasedEventProcessorRunner {
     }
 
     async fn pre_run(&self) -> Result<Vec<String>, DynError> {
-        let mut hs_ids = self.hs_by_priority().await?;
-        hs_ids.truncate(self.monitored_hs_limit);
+        self.hs_by_priority().await
+    }
 
-        // Recorded on every run, including an empty one, so the saturation ratio
-        // always has a denominator in force.
-        EXTERNAL_HS_METRICS.record_run(self.monitored_hs_limit, hs_ids.len());
-
-        Ok(hs_ids)
+    fn poll_limit(&self) -> usize {
+        self.monitored_hs_limit
     }
 
     async fn backoff_hs_should_skip(&self, hs_id: &str) -> bool {
@@ -187,6 +184,11 @@ impl TEventProcessorRunner for KeyBasedEventProcessorRunner {
         let count_timeout = stats.count_timeout();
         let count_failed_to_build = stats.count_failed_to_build();
         let count_skipped = stats.count_skipped();
+
+        // Recorded on every run, including an empty one, so the saturation ratio
+        // always has a denominator in force.
+        EXTERNAL_HS_METRICS.record_run(self.monitored_hs_limit, stats.stats.len() - count_skipped);
+
         let had_issues = count_error + count_panic + count_timeout + count_failed_to_build > 0;
 
         if had_issues {
