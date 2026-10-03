@@ -4,7 +4,10 @@ use crate::{
         kind::{COL_BOGOTA_1, DETROIT, SHORT_BOGOTA},
         BOGOTA, POST_H, TAG_LABEL_2,
     },
-    utils::{get_request, invalid_get_request},
+    utils::{
+        get_request, invalid_get_request,
+        recommended::{DELETED, TOMBSTONE_POST},
+    },
 };
 use anyhow::Result;
 use axum::http::StatusCode;
@@ -57,33 +60,40 @@ async fn test_get_post_view() -> Result<()> {
 }
 
 /// Assert that the `deleted` field appears on both the `/details` and the post
-/// view responses and is serialized as a plain bool.
+/// view responses, serialized as a plain bool: false for a live post and true
+/// for a tombstone.
 #[tokio_shared_rt::test(shared)]
 async fn test_deleted_flag_in_details_and_view() -> Result<()> {
-    let author_id = "y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy";
-    let post_id = "2ZCW1TGR5BKG0";
+    let live = (
+        "y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy",
+        "2ZCW1TGR5BKG0",
+        false,
+    );
+    let tombstone = (DELETED, TOMBSTONE_POST, true);
 
-    // /v0/post/{author_id}/{post_id}/details
-    let details = get_request(&format!("{ROOT_PATH}/{author_id}/{post_id}/details")).await?;
-    assert!(
-        details["deleted"].is_boolean(),
-        "details response must serialize deleted as a boolean"
-    );
-    assert_eq!(
-        details["deleted"], false,
-        "live post must report deleted: false"
-    );
+    for (author_id, post_id, deleted) in [live, tombstone] {
+        // /v0/post/{author_id}/{post_id}/details
+        let details = get_request(&format!("{ROOT_PATH}/{author_id}/{post_id}/details")).await?;
+        assert!(
+            details["deleted"].is_boolean(),
+            "details response must serialize deleted as a boolean"
+        );
+        assert_eq!(
+            details["deleted"], deleted,
+            "{post_id} must report deleted: {deleted}"
+        );
 
-    // /v0/post/{author_id}/{post_id} (PostView embeds PostDetails)
-    let view = get_request(&format!("{ROOT_PATH}/{author_id}/{post_id}")).await?;
-    assert!(
-        view["details"]["deleted"].is_boolean(),
-        "view response must serialize deleted as a boolean"
-    );
-    assert_eq!(
-        view["details"]["deleted"], false,
-        "live post must report deleted: false in view response"
-    );
+        // /v0/post/{author_id}/{post_id} (PostView embeds PostDetails)
+        let view = get_request(&format!("{ROOT_PATH}/{author_id}/{post_id}")).await?;
+        assert!(
+            view["details"]["deleted"].is_boolean(),
+            "view response must serialize deleted as a boolean"
+        );
+        assert_eq!(
+            view["details"]["deleted"], deleted,
+            "{post_id} must report deleted: {deleted} in view response"
+        );
+    }
 
     Ok(())
 }
