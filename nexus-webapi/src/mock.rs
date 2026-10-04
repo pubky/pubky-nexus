@@ -90,6 +90,6 @@ impl MockDb {
     async fn sync_redis() {
         Self::drop_cache().await;
         info!("Starting reindexing process...");
-        reindex::sync().await;
+        reindex::sync().await.expect("Failed to reindex");
     }
 }

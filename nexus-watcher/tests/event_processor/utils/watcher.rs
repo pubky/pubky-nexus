@@ -90,6 +90,7 @@ impl WatcherTest {
             default_moderation_tests(),
             default_ingestor_tests(),
             max_file_size,
+            true,
             files_path,
         ));
 
