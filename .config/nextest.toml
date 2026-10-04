@@ -15,6 +15,15 @@ influencers-sorted-set = { max-threads = 1 }
 filter = 'test(=stream::user::influencers::test_global_influencers) | test(=stream::user::influencers::test_global_influencers_skip_limit) | test(=stream::user::influencers::test_global_influencers_alltime_cache_recovery) | test(=stream::user::influencers::test_global_influencers_preview)'
 test-group = 'influencers-sorted-set'
 
+# test_social_graph_status deletes and rebuilds the shared Sorted:Users:SocialGraph
+# ranking, and the ranked-set tests in nexus-common park it, delete the ready
+# marker and rebuild every ranked set. Any test reading a
+# filtered stream or a social graph status would see that mid-flight, so these
+# run alone, as cache_setup does below; the tests that only read need no entry.
+[[profile.default.overrides]]
+filter = 'test(=user::views::test_social_graph_status) | test(/^models::post::ranked::tests::live::/)'
+threads-required = 'num-test-threads'
+
 # nexusd/tests/cache_setup/main.rs calls clear_redis(), which issues FLUSHDB
 # against the shared Redis instance. It must not overlap with any other test in
 # the run, including nexus-webapi's search suite under --workspace, or that

@@ -31,6 +31,7 @@ pub fn bench_stream_post_kind_short(c: &mut Criterion) {
                 None,
                 None,
                 Some(KindFilter::Kind(PubkyAppPostKind::Short)),
+                None,
             )
             .await
             .unwrap();
@@ -62,6 +63,7 @@ pub fn bench_stream_post_kind_long(c: &mut Criterion) {
                 None,
                 None,
                 Some(KindFilter::Kind(PubkyAppPostKind::Long)),
+                None,
             )
             .await
             .unwrap();
@@ -93,6 +95,7 @@ pub fn bench_stream_post_kind_image(c: &mut Criterion) {
                 None,
                 None,
                 Some(KindFilter::Kind(PubkyAppPostKind::Image)),
+                None,
             )
             .await
             .unwrap();
@@ -124,6 +127,7 @@ pub fn bench_stream_post_kind_video(c: &mut Criterion) {
                 None,
                 None,
                 Some(KindFilter::Kind(PubkyAppPostKind::Video)),
+                None,
             )
             .await
             .unwrap();
@@ -155,6 +159,7 @@ pub fn bench_stream_post_kind_link(c: &mut Criterion) {
                 None,
                 None,
                 Some(KindFilter::Kind(PubkyAppPostKind::Link)),
+                None,
             )
             .await
             .unwrap();
@@ -186,6 +191,7 @@ pub fn bench_stream_post_kind_file(c: &mut Criterion) {
                 None,
                 None,
                 Some(KindFilter::Kind(PubkyAppPostKind::File)),
+                None,
             )
             .await
             .unwrap();
@@ -217,6 +223,7 @@ pub fn bench_stream_post_exclude_kinds(c: &mut Criterion) {
                 None,
                 None,
                 Some(KindFilter::Exclude(vec![PubkyAppPostKind::Collection])),
+                None,
             )
             .await
             .unwrap();

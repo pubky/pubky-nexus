@@ -2,7 +2,7 @@ use crate::db::graph::exec::fetch_all_rows_from_graph;
 use crate::db::graph::Query;
 use crate::models::follow::{Followers, Following, UserFollows};
 use crate::models::post::search::PostsByTagSearch;
-use crate::models::post::Bookmark;
+use crate::models::post::{Bookmark, PostStream};
 use crate::models::tag::post::TagPost;
 use crate::models::tag::search::TagSearch;
 use crate::models::tag::stream::HotTags;
@@ -91,6 +91,12 @@ pub async fn sync() {
     TagSearch::reindex()
         .await
         .expect("Failed to store the global tags");
+
+    // Last: the ranked sets are copies of the timelines rebuilt above, filtered by
+    // the ranking.
+    PostStream::rebuild_ranked_sets()
+        .await
+        .expect("Failed to rebuild the ranked timeline sets");
 
     info!("Reindexing completed successfully.");
 }

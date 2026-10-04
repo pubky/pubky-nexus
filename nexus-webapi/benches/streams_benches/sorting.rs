@@ -29,6 +29,7 @@ pub fn bench_stream_all_timeline(c: &mut Criterion) {
                 None,
                 None,
                 None,
+                None,
             )
             .await
             .unwrap();
@@ -57,6 +58,7 @@ pub fn bench_stream_all_total_engagement(c: &mut Criterion) {
                 LIMIT_20,
                 SortOrder::Descending,
                 StreamSorting::TotalEngagement,
+                None,
                 None,
                 None,
                 None,
