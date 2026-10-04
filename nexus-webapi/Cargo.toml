@@ -41,7 +41,7 @@ tower-http = { version = "0.7.0", features = [
 tower_governor = { version = "0.8", default-features = false, features = ["axum"] }
 tracing = { workspace = true }
 utoipa = { workspace = true }
-utoipa-swagger-ui = { version = "9.0.2", features = ["axum"] }
+utoipa-swagger-ui = { version = "10.0.1", features = ["axum"] }
 
 [dev-dependencies]
 anyhow = { workspace = true }
