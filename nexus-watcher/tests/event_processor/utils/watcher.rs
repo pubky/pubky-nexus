@@ -21,9 +21,9 @@ use pubky::ClientId;
 use pubky::Keypair;
 use pubky::PublicKey;
 use pubky::ResourcePath;
-use pubky_app_specs::file_uri_builder;
-use pubky_app_specs::traits::HashId;
-use pubky_app_specs::{
+use pubky_social_specs::legacy_v0::file_uri_builder;
+use pubky_social_specs::legacy_v0::traits::HashId;
+use pubky_social_specs::legacy_v0::{
     traits::{HasIdPath, HasPath, TimestampId},
     PubkyAppFile, PubkyAppFollow, PubkyAppPost, PubkyAppUser, PubkyId,
 };
@@ -287,7 +287,10 @@ impl WatcherTest {
         let pubky = PubkyConnector::get()?;
 
         let signer = pubky.signer(user_kp.clone());
-        let hs_pk = self.homeserver_id.to_public_key();
+        let hs_pk = self
+            .homeserver_id
+            .to_public_key()
+            .expect("the test homeserver id is a real public key");
         signer.signup(&hs_pk, None).await?;
 
         Ok(())

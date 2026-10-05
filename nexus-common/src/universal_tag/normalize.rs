@@ -1,4 +1,4 @@
-use pubky_app_specs::{ParsedUri, Resource};
+use pubky_social_specs::legacy_v0::{ParsedUri, Resource};
 use url::Url;
 
 /// Normalizes a URI for deterministic Resource identification.

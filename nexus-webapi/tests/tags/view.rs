@@ -1,6 +1,6 @@
 use anyhow::Result;
 use axum::http::StatusCode;
-use pubky_app_specs::post_uri_builder;
+use pubky_social_specs::legacy_v0::post_uri_builder;
 
 use crate::utils::{get_request, invalid_get_request};
 

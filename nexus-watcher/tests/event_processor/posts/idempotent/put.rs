@@ -11,7 +11,7 @@ use nexus_common::models::post::{PostCounts, PostDetails, PostRelationships};
 use nexus_common::utils::test_utils::default_ingestor_tests;
 use nexus_watcher::events::handlers;
 use pubky::Keypair;
-use pubky_app_specs::post_uri_builder;
+use pubky_social_specs::legacy_v0::post_uri_builder;
 
 use super::{
     assert_root_post_fully_indexed, delete_mention_edge, simulate_partial_put_failure_reply,

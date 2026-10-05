@@ -1,7 +1,7 @@
 use super::{PostCounts, PostDetails};
 use crate::db::{fetch_key_from_graph, queries};
 use crate::models::error::ModelResult;
-use pubky_app_specs::{ParsedUri, PubkyAppCollectionContent, PubkyId, Resource};
+use pubky_social_specs::legacy_v0::{ParsedUri, PubkyAppCollectionContent, PubkyId, Resource};
 
 /// Post keys `(author_id, post_id)` referenced by a Collection envelope, in
 /// curator order. Malformed and non-post URIs are dropped. Errors when

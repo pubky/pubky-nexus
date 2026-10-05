@@ -4,7 +4,7 @@ use criterion::Criterion;
 use nexus_common::db::kv::SortOrder;
 use nexus_common::models::post::{KindFilter, PostStream, StreamSource};
 use nexus_common::types::StreamSorting;
-use pubky_app_specs::PubkyAppPostKind;
+use pubky_social_specs::legacy_v0::PubkyAppPostKind;
 use tokio::runtime::Runtime;
 
 /// POST KIND RELATED STREAMS BENCHMARKS

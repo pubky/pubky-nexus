@@ -15,7 +15,9 @@ use nexus_common::types::Pagination;
 use nexus_common::universal_tag::normalize::{
     classify_uri, normalize_uri, resource_id, UriCategory,
 };
-use pubky_app_specs::{ExtendedParsedUri, ParsedUri, PubkyAppTag, PubkyId, Resource};
+use pubky_social_specs::legacy_v0::{
+    user_uri_builder, ExtendedParsedUri, ParsedUri, PubkyAppTag, PubkyId, Resource,
+};
 use tracing::debug;
 
 use super::utils::{fail_on_blacklisted_hs, post_kind, post_relationships_is_reply};
@@ -336,10 +338,7 @@ async fn put_sync_user(
             // Drop the tag (non-retryable) if the tagged user is on a blacklisted HS.
             fail_on_blacklisted_hs(ingestor.maybe_ingest_user(&tagged_user_id).await)?;
 
-            let tagged_uri = tagged_user_id
-                .to_uri()
-                .try_to_uri_str()
-                .map_err(EventProcessorError::generic)?;
+            let tagged_uri = user_uri_builder(tagged_user_id.to_string());
             let dependency = vec![tagged_uri];
             Err(EventProcessorError::MissingDependency { dependency })
         }

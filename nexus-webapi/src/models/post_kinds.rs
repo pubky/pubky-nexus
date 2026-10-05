@@ -2,7 +2,7 @@ use serde::Deserialize;
 use utoipa::ToSchema;
 
 use crate::models::bounded_vec;
-use pubky_app_specs::PubkyAppPostKind;
+use pubky_social_specs::legacy_v0::PubkyAppPostKind;
 
 /// Comma-separated list of post kinds (min=1, max=7 tokens; duplicates are
 /// dropped, order preserved). Parsing is strict: values outside the known

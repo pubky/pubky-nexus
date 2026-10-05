@@ -11,8 +11,8 @@ use nexus_common::models::tag::traits::{TagCollection, TaggersCollection};
 use nexus_watcher::events::handlers;
 use pubky::Keypair;
 use pubky::ResourcePath;
-use pubky_app_specs::traits::HashId;
-use pubky_app_specs::{PubkyAppTag, PubkyAppUser};
+use pubky_social_specs::legacy_v0::traits::HashId;
+use pubky_social_specs::legacy_v0::{PubkyAppTag, PubkyAppUser};
 
 /// Simulate a retry of a resource tag del after a partial failure where the
 /// Redis cleanup succeeded but the graph deletion failed. On retry, the label

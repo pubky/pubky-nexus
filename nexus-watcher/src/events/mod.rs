@@ -5,7 +5,7 @@ pub use event::{Event, EventType, ParseResult};
 
 use crate::errors::EventProcessorError;
 use nexus_common::WatcherConfig;
-use pubky_app_specs::{ExtendedParsedUri, PubkyAppObject, Resource};
+use pubky_social_specs::legacy_v0::{ExtendedParsedUri, PubkyAppObject, Resource};
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
@@ -120,11 +120,11 @@ pub async fn handle_put_event(
 
     let resource = event.parsed_uri.resource().clone();
 
-    // Use the new importer from pubky-app-specs.
+    // Use the importer from the v0 reader in `pubky-social-specs`.
     // `from_resource` runs spec validation; failures are deterministic and must
     // not be retried (a re-run produces the same error). Classify them as
     // `SpecValidation` so the retry queue stays clean — the load-bearing
-    // counterpart to the `Unknown` forwards-compat variant in pubky-app-specs.
+    // counterpart to the `Unknown` forwards-compat variant in the v0 reader.
     let pubky_object = PubkyAppObject::from_resource(&resource, blob.as_slice())
         .map_err(|e| EventProcessorError::SpecValidation(e.to_string()))?;
 

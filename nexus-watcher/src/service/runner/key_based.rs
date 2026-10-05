@@ -12,7 +12,7 @@ use nexus_common::types::DynError;
 use nexus_common::WatcherConfig;
 use opentelemetry::global;
 use opentelemetry::metrics::{Gauge, Meter};
-use pubky_app_specs::PubkyId;
+use pubky_social_specs::legacy_v0::PubkyId;
 use std::sync::{Arc, LazyLock};
 use tokio::sync::{watch::Receiver, Mutex};
 use tracing::{debug, info, warn};

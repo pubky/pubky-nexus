@@ -4,7 +4,7 @@ use anyhow::Result;
 use nexus_common::models::notification::{Notification, NotificationBody};
 use nexus_common::types::Pagination;
 use pubky::Keypair;
-use pubky_app_specs::{
+use pubky_social_specs::legacy_v0::{
     post_uri_builder, PubkyAppPost, PubkyAppPostEmbed, PubkyAppPostKind, PubkyAppUser,
 };
 

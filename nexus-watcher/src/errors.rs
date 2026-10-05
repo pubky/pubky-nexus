@@ -45,7 +45,7 @@ pub enum EventProcessorError {
         cursor_floor: u64,
     },
 
-    /// The event payload deserialized but failed `pubky-app-specs` validation
+    /// The event payload deserialized but failed `pubky-social-specs` v0 validation
     /// (e.g. unknown post kind, malformed Collection envelope, oversized field).
     /// Non-retryable: re-running the same payload will produce the same error.
     #[error("SpecValidation: {0}")]
@@ -95,6 +95,7 @@ impl From<ModelError> for EventProcessorError {
                 EventProcessorError::IndexOperationFailed(should_not_retry_now, source.to_string())
             }
             ModelError::HsBlacklisted { hs_id } => EventProcessorError::HsBlacklisted { hs_id },
+            ModelError::InvalidInput(message) => EventProcessorError::SpecValidation(message),
             ModelError::Generic(message) => EventProcessorError::Generic(message),
         }
     }

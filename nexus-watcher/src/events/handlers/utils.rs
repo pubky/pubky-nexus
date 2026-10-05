@@ -3,7 +3,7 @@ use nexus_common::models::{
     error::{ModelError, ModelResult},
     post::{PostDetails, PostRelationships},
 };
-use pubky_app_specs::PubkyAppPostKind;
+use pubky_social_specs::legacy_v0::PubkyAppPostKind;
 
 /// Classifies the outcome of a best-effort user ingestion attempted while
 /// handling an [`OperationOutcome::MissingDependency`](nexus_common::db::OperationOutcome::MissingDependency).

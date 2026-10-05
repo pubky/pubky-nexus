@@ -11,7 +11,9 @@ use nexus_common::{
     models::post::{PostCounts, PostDetails, PostRelationships, PostStream},
 };
 use pubky::Keypair;
-use pubky_app_specs::{post_uri_builder, PubkyAppPost, PubkyAppPostKind, PubkyAppUser};
+use pubky_social_specs::legacy_v0::{
+    post_uri_builder, PubkyAppPost, PubkyAppPostKind, PubkyAppUser,
+};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_post_reply() -> Result<()> {

@@ -19,7 +19,7 @@ use nexus_watcher::service::indexer::{KeyBasedEventProcessor, RunError, TEventPr
 use nexus_watcher::service::runner::UserNotFoundBackoff;
 use nexus_watcher::service::{KeyBasedEventProcessorRunner, TEventProcessorRunner};
 use pubky::{Event as StreamEvent, EventCursor, EventType, Keypair, PubkyResource, PublicKey};
-use pubky_app_specs::PubkyId;
+use pubky_social_specs::legacy_v0::PubkyId;
 use tokio::sync::watch;
 
 use crate::service::utils::{

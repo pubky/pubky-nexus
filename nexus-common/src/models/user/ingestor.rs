@@ -1,4 +1,4 @@
-use pubky_app_specs::{ParsedUri, PubkyId};
+use pubky_social_specs::legacy_v0::{ParsedUri, PubkyId};
 
 use crate::db::PubkyConnector;
 use crate::models::error::{ModelError, ModelResult};
@@ -39,6 +39,7 @@ impl UserIngestor {
     /// - `Ok(Some(hs_id))` if the user's HS resolved and is not blacklisted
     /// - `Ok(None)` if the user has no published HS or is an HS PK itself
     /// - [`ModelError::HsBlacklisted`] if the resolved HS is blacklisted
+    /// - [`ModelError::InvalidInput`] if `user_id` is well-formed but not a public key
     /// - [`ModelError::Generic`] if the lookup itself failed (DHT or network). A failed
     ///   lookup is not "no HS": callers must not proceed as if the HS were known to be clean.
     pub async fn ensure_hs_not_blacklisted(
@@ -57,8 +58,13 @@ impl UserIngestor {
 
         let pubky = PubkyConnector::get().map_err(ModelError::from_generic)?;
 
+        // A format-valid id need not be a curve point. That never changes, so it is not retryable.
+        let user_pk = user_id.to_public_key().map_err(|e| {
+            ModelError::InvalidInput(format!("{user_id} is not a valid public key: {e}"))
+        })?;
+
         let Some(hs_pk) = pubky
-            .get_homeserver_of(&user_id.to_public_key())
+            .get_homeserver_of(&user_pk)
             .await
             .map_err(ModelError::from_generic)?
         else {

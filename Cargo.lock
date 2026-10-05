@@ -2960,7 +2960,7 @@ dependencies = [
  "opentelemetry-otlp",
  "opentelemetry_sdk 0.33.0",
  "pubky",
- "pubky-app-specs",
+ "pubky-social-specs",
  "redis",
  "serde",
  "serde_json",
@@ -3005,7 +3005,7 @@ dependencies = [
  "opentelemetry 0.33.0",
  "opentelemetry_sdk 0.33.0",
  "pubky",
- "pubky-app-specs",
+ "pubky-social-specs",
  "pubky-testnet",
  "rand 0.10.3",
  "reqwest 0.13.5",
@@ -3039,7 +3039,7 @@ dependencies = [
  "opentelemetry 0.33.0",
  "opentelemetry_sdk 0.33.0",
  "pubky",
- "pubky-app-specs",
+ "pubky-social-specs",
  "pubky-testnet",
  "serde",
  "serde_json",
@@ -3072,7 +3072,7 @@ dependencies = [
  "nexus-webapi",
  "opentelemetry 0.33.0",
  "opentelemetry_sdk 0.33.0",
- "pubky-app-specs",
+ "pubky-social-specs",
  "redis",
  "serde",
  "tempfile",
@@ -3936,27 +3936,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "pubky-app-specs"
-version = "0.8.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5e1caa913bcc6162471069e5cb9cf6325ccb5b41195c4ce74697801ba0dd9f22"
-dependencies = [
- "base32",
- "blake3",
- "js-sys",
- "mime",
- "pubky",
- "serde",
- "serde-wasm-bindgen",
- "serde_json",
- "tsify-next",
- "url",
- "utoipa",
- "wasm-bindgen",
- "web-sys",
-]
-
-[[package]]
 name = "pubky-common"
 version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4040,6 +4019,25 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "uuid",
+]
+
+[[package]]
+name = "pubky-social-specs"
+version = "1.0.0-alpha.5"
+source = "git+https://github.com/pubky/pubky-social-specs?rev=6714eac958d89c8d1e41a48d9ee8eaf48a7023e4#6714eac958d89c8d1e41a48d9ee8eaf48a7023e4"
+dependencies = [
+ "base32",
+ "base64 0.22.1",
+ "blake3",
+ "js-sys",
+ "mime",
+ "pubky",
+ "serde",
+ "serde_json",
+ "tsify-next",
+ "url",
+ "utoipa",
+ "wasm-bindgen",
 ]
 
 [[package]]

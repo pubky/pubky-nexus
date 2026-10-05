@@ -4,8 +4,8 @@ use anyhow::Result;
 use nexus_common::models::post::PostDetails;
 use nexus_watcher::events::retry::{IndexKey, RetryEvent};
 use pubky::{Keypair, ResourcePath};
-use pubky_app_specs::traits::HasIdPath;
-use pubky_app_specs::{post_uri_builder, PubkyAppPost};
+use pubky_social_specs::legacy_v0::traits::HasIdPath;
+use pubky_social_specs::legacy_v0::{post_uri_builder, PubkyAppPost};
 
 /// A post PUT stores the event path as the post's `uri`.
 #[tokio_shared_rt::test(shared)]
