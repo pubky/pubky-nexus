@@ -39,6 +39,8 @@ impl UserIngestor {
     /// - `Ok(Some(hs_id))` if the user's HS resolved and is not blacklisted
     /// - `Ok(None)` if the user has no published HS or is an HS PK itself
     /// - [`ModelError::HsBlacklisted`] if the resolved HS is blacklisted
+    /// - [`ModelError::Generic`] if the lookup itself failed (DHT or network). A failed
+    ///   lookup is not "no HS": callers must not proceed as if the HS were known to be clean.
     pub async fn ensure_hs_not_blacklisted(
         &self,
         user_id: &PubkyId,
@@ -55,11 +57,15 @@ impl UserIngestor {
 
         let pubky = PubkyConnector::get().map_err(ModelError::from_generic)?;
 
-        let Some(hs_pk) = pubky.get_homeserver_of(&user_id.to_public_key()).await else {
+        let Some(hs_pk) = pubky
+            .get_homeserver_of(&user_id.to_public_key())
+            .await
+            .map_err(ModelError::from_generic)?
+        else {
             return Ok(None);
         };
 
-        let hs_id = hs_pk.into_inner().to_z32();
+        let hs_id = hs_pk.to_z32();
         if self.hs_blacklist.is_blacklisted(&hs_id) {
             return Err(ModelError::HsBlacklisted { hs_id });
         }

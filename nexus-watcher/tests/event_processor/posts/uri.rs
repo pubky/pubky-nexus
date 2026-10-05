@@ -95,7 +95,8 @@ async fn test_post_graph_read_returns_stored_uri() -> Result<()> {
 }
 
 /// A file at an alias path (`posts/ID/shadow`) parses to the same post, but its PUT and DEL are
-/// skipped: the post keeps its content and canonical `uri`, and is not deleted.
+/// skipped: the post keeps its content and canonical `uri`, and is not deleted. Since pubky 0.10
+/// only the admin can write a path under a file, as in data written before that rule.
 #[tokio_shared_rt::test(shared)]
 async fn test_post_alias_path_events_are_skipped() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
@@ -115,8 +116,8 @@ async fn test_post_alias_path_events_are_skipped() -> Result<()> {
     // PUT at the alias path, with different content
     let alias_path: ResourcePath =
         format!("{}/shadow", PubkyAppPost::create_path(&post_id)).parse()?;
-    test.put(
-        &user_kp,
+    test.put_as_admin(
+        &user_id,
         &alias_path,
         short_post("Watcher:PostUri:Alias:Shadow"),
     )
