@@ -60,6 +60,11 @@ RUN apk add --no-cache ca-certificates \
 # Copy the compiled binaries from the builder stage
 COPY --from=builder /usr/src/app/target/release/nexusd /usr/local/bin/nexusd
 
+# ImageMagick resource limits for media variant generation. MAGICK_CONFIGURE_PATH is inherited by
+# the convert/identify processes nexusd spawns, which load this policy ahead of the system one.
+COPY docker/imagemagick/policy.xml /etc/nexus/imagemagick/policy.xml
+ENV MAGICK_CONFIGURE_PATH=/etc/nexus/imagemagick
+
 # Set the working directory
 WORKDIR /usr/local/bin
 
