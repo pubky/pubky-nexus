@@ -5,7 +5,11 @@ use crate::routes;
 use std::net::TcpListener;
 use std::sync::Arc;
 use std::time::Duration;
-use std::{fmt::Debug, net::SocketAddr, path::PathBuf};
+use std::{
+    fmt::Debug,
+    net::SocketAddr,
+    path::{Path, PathBuf},
+};
 
 use axum::Router;
 use axum_server::tls_rustls::{RustlsAcceptor, RustlsConfig};
@@ -22,6 +26,8 @@ use tokio::sync::watch::Receiver;
 use tracing::{debug, error, info};
 
 pub const API_CONFIG_FILE_NAME: &str = "api-config.toml";
+/// Written to [API_CONFIG_FILE_NAME] by [NexusApi::start_from_path] when the file is missing
+const DEFAULT_API_CONFIG_TOML: &str = include_str!("../default.api-config.toml");
 
 type ServerHandle = Handle<SocketAddr>;
 
@@ -128,48 +134,26 @@ pub struct NexusApi {
 impl NexusApi {
     /// Loads the [ApiConfig] from [API_CONFIG_FILE_NAME] in the given path and starts the Nexus API.
     ///
-    /// If no [ApiConfig] file is found, it defaults to [NexusApi::start_from_daemon].
+    /// If the file is missing, the default config is written to it first. An invalid file is an error.
     ///
     /// ### Arguments
     ///
-    /// - `config_dir`: the directory where the config file is expected to be
+    /// - `config_dir`: the directory where the config file is expected to be. It also holds the `secret` key file.
     /// - `shutdown_rx`: optional shutdown signal. If none is provided, a default one will be created, listening for Ctrl-C.
     pub async fn start_from_path(
         config_dir: PathBuf,
         shutdown_rx: Option<Receiver<bool>>,
     ) -> Result<Self, DynError> {
-        match ApiConfig::load(config_dir.join(API_CONFIG_FILE_NAME)).await {
-            Ok(api_config) => {
-                let api_context = ApiContextBuilder::from_config_dir(config_dir)
-                    .api_config(api_config)
-                    .try_build()
-                    .await?;
+        let api_config = Self::load_or_create_config(&config_dir).await?;
+        let api_context = ApiContextBuilder::new(api_config, config_dir).try_build()?;
 
-                NexusApiBuilder::new(api_context).start(shutdown_rx).await
-            }
-            Err(_) => NexusApi::start_from_daemon(config_dir, shutdown_rx).await,
-        }
+        NexusApiBuilder::new(api_context).start(shutdown_rx).await
     }
 
-    /// Loads the [ApiConfig] from the [DaemonConfig] in the given path and starts the Nexus API.
-    ///
-    /// ### Arguments
-    ///
-    /// - `config_dir`: the directory where the config file is expected to be
-    /// - `shutdown_rx`: optional shutdown signal. If none is provided, a default one will be created, listening for Ctrl-C.
-    pub async fn start_from_daemon(
-        config_dir: PathBuf,
-        shutdown_rx: Option<Receiver<bool>>,
-    ) -> Result<Self, DynError> {
-        let shutdown_rx = shutdown_rx.unwrap_or_else(create_shutdown_rx);
-
-        let api_context = ApiContextBuilder::from_config_dir(config_dir)
-            .try_build()
-            .await?;
-
-        NexusApiBuilder::new(api_context)
-            .start(Some(shutdown_rx))
-            .await
+    /// Loads [API_CONFIG_FILE_NAME] from `config_dir`, first writing the default config to it if it's missing
+    async fn load_or_create_config(config_dir: &Path) -> Result<ApiConfig, DynError> {
+        let config_file_path = config_dir.join(API_CONFIG_FILE_NAME);
+        ApiConfig::load_or_create(config_file_path, DEFAULT_API_CONFIG_TOML).await
     }
 
     /// It sets up the necessary routes, binds to the specified address, and starts the Axum server
@@ -315,5 +299,51 @@ fn derive_key_publisher_context(
         public_pubky_tls_port: local_pubky_tls_port,
         keypair: ctx.keypair.clone(),
         pkarr_client: ctx.pkarr_client.clone(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{NexusApi, API_CONFIG_FILE_NAME, DEFAULT_API_CONFIG_TOML};
+
+    /// A missing config file is written from the default config, which loads.
+    #[tokio::test]
+    async fn test_load_or_create_config_writes_the_default() {
+        let dir = tempfile::tempdir().unwrap();
+
+        NexusApi::load_or_create_config(dir.path())
+            .await
+            .expect("the default config should load");
+
+        let written = std::fs::read_to_string(dir.path().join(API_CONFIG_FILE_NAME)).unwrap();
+        assert_eq!(written, DEFAULT_API_CONFIG_TOML);
+    }
+
+    /// An invalid config file is an error. It's left as it is, and nothing else is written next to it.
+    #[tokio::test]
+    async fn test_start_from_path_rejects_an_invalid_config() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_dir = dir.path().to_path_buf();
+        let config_file_path = config_dir.join(API_CONFIG_FILE_NAME);
+        // Already signalled, so a start that wrongly succeeds returns instead of waiting for Ctrl-C
+        let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+        shutdown_tx.send(true).unwrap();
+
+        std::fs::write(&config_file_path, "public_addr = 1").unwrap();
+        let err = NexusApi::start_from_path(config_dir.clone(), Some(shutdown_rx))
+            .await
+            .err()
+            .expect("an invalid config file must be an error");
+        assert!(err.to_string().contains(API_CONFIG_FILE_NAME), "{err}");
+
+        assert_eq!(
+            std::fs::read_to_string(&config_file_path).unwrap(),
+            "public_addr = 1"
+        );
+        let files: Vec<_> = std::fs::read_dir(&config_dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        assert_eq!(files, [API_CONFIG_FILE_NAME], "nothing else may be written");
     }
 }
