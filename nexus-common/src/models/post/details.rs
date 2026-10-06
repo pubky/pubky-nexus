@@ -5,7 +5,7 @@ use crate::db::{
 };
 use crate::models::error::ModelResult;
 use chrono::Utc;
-use pubky_app_specs::{post_uri_builder, PubkyAppPost, PubkyAppPostKind, PubkyId};
+use pubky_app_specs::{PubkyAppPost, PubkyAppPostKind, PubkyId};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -112,13 +112,15 @@ impl PostDetails {
         Ok(())
     }
 
+    /// `uri` is the address the post was read from: the event path.
     pub fn from_homeserver(
         homeserver_post: PubkyAppPost,
+        uri: String,
         author_id: &PubkyId,
         post_id: &str,
     ) -> Self {
         PostDetails {
-            uri: post_uri_builder(author_id.to_string(), post_id.into()),
+            uri,
             content: homeserver_post.content,
             id: post_id.to_string(),
             indexed_at: Utc::now().timestamp_millis(),

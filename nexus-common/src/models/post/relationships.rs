@@ -1,7 +1,7 @@
 use crate::db::kv::RedisResult;
 use crate::db::{fetch_row_from_graph, queries, GraphResult, RedisOps};
 use crate::models::error::ModelResult;
-use pubky_app_specs::{post_uri_builder, ParsedUri, PubkyAppPost, PubkyId, Resource};
+use pubky_app_specs::{ParsedUri, PubkyAppPost, PubkyId, Resource};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use utoipa::ToSchema;
 
@@ -28,6 +28,9 @@ mod parsed_uri_option {
     }
 }
 
+// TODO(specs-migration): `ParsedUri` only parses and renders `pubky.app`, so a parent stored
+// under `social/v1` is dropped when read from the graph. The specs migration needs an internal
+// function that reads the owner and post id from an address in either epoch.
 #[derive(Serialize, Deserialize, ToSchema, Default, Debug)]
 pub struct PostRelationships {
     /// If set, URI of the post this is a reply to
@@ -84,20 +87,14 @@ impl PostRelationships {
             return Ok(None);
         };
 
-        let replied_post_id: Option<String> = row.get("replied_post_id").unwrap_or(None);
-        let replied_author_id: Option<String> = row.get("replied_author_id").unwrap_or(None);
-        let reposted_post_id: Option<String> = row.get("reposted_post_id").unwrap_or(None);
-        let reposted_author_id: Option<String> = row.get("reposted_author_id").unwrap_or(None);
+        let parent = |column: &str| {
+            row.get::<Option<String>>(column)
+                .unwrap_or(None)
+                .and_then(|uri| ParsedUri::try_from(uri).ok())
+        };
+        let replied = parent("replied_uri");
+        let reposted = parent("reposted_uri");
         let mentioned: Vec<PubkyId> = row.get("mentioned_user_ids").unwrap_or(Vec::new());
-
-        let replied = replied_author_id
-            .zip(replied_post_id)
-            .map(|(author_id, post_id)| post_uri_builder(author_id, post_id))
-            .and_then(|uri| ParsedUri::try_from(uri).ok());
-        let reposted = reposted_author_id
-            .zip(reposted_post_id)
-            .map(|(author_id, post_id)| post_uri_builder(author_id, post_id))
-            .and_then(|uri| ParsedUri::try_from(uri).ok());
 
         Ok(Some(Self {
             replied,
@@ -147,7 +144,9 @@ impl PostRelationships {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pubky_app_specs::{file_uri_builder, PubkyAppPostEmbed, PubkyAppPostKind};
+    use pubky_app_specs::{
+        file_uri_builder, post_uri_builder, PubkyAppPostEmbed, PubkyAppPostKind,
+    };
 
     const AUTHOR: &str = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
 

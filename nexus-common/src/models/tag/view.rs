@@ -1,4 +1,3 @@
-use pubky_app_specs::{post_uri_builder, user_uri_builder};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -6,6 +5,7 @@ use crate::db::fetch_row_from_graph;
 use crate::db::queries;
 use crate::models::error::ModelError;
 use crate::models::error::ModelResult;
+use crate::models::user::fallback_user_uri;
 
 /// Represents a Pubky tag with uri, label, indexed at timestamp.
 #[derive(Serialize, Deserialize, ToSchema, Default, Debug)]
@@ -26,14 +26,12 @@ impl TagView {
         };
 
         let tagged_labels: Vec<String> = row.get("tagged_labels")?;
-        let tagged_id = row.get("tagged_id")?;
+        let tagged_uri: Option<String> = row.get("tagged_uri")?;
         let uri = if tagged_labels.iter().any(|label| label == "Post") {
-            let Some(author_id) = row.get("author_id")? else {
-                return Err(ModelError::from_generic("Tagged post missing author id"));
-            };
-            post_uri_builder(author_id, tagged_id)
+            tagged_uri.ok_or_else(|| ModelError::from_generic("Tagged post has no uri"))?
         } else if tagged_labels.iter().any(|label| label == "User") {
-            user_uri_builder(tagged_id)
+            let tagged_id: String = row.get("tagged_id")?;
+            tagged_uri.unwrap_or_else(|| fallback_user_uri(&tagged_id))
         } else {
             return Err(ModelError::from_generic(format!(
                 "Tagged resource has unsupported labels: {:?}",

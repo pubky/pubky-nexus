@@ -4,9 +4,7 @@ use crate::models::error::ModelResult;
 use crate::types::Pagination;
 use chrono::Utc;
 use neo4rs::Row;
-use pubky_app_specs::{
-    bookmark_uri_builder, post_uri_builder, tag_uri_builder, PubkyAppPostKind, PubkyId,
-};
+use pubky_app_specs::{bookmark_uri_builder, PubkyAppPostKind, PubkyId};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -310,7 +308,7 @@ impl Notification {
     pub async fn new_mention(
         user_id: &PubkyId,
         mentioned_id: &PubkyId,
-        post_id: &str,
+        post_uri: &str,
         post_kind: PubkyAppPostKind,
     ) -> RedisResult<Option<PubkyId>> {
         if user_id == mentioned_id {
@@ -318,7 +316,7 @@ impl Notification {
         }
         let body = NotificationBody::Mention {
             mentioned_by: user_id.to_string(),
-            post_uri: post_uri_builder(user_id.to_string(), post_id.to_string()),
+            post_uri: post_uri.to_string(),
             post_kind,
         };
         let notification = Notification::new(body);
@@ -396,8 +394,7 @@ impl Notification {
                 PostChangedSource::ReplyParent,
                 Box::new(|row: &Row| {
                     let replier_id: &str = row.get("replier_id").unwrap_or_default();
-                    let reply_id: &str = row.get("reply_id").unwrap_or_default();
-                    let linked_uri = post_uri_builder(replier_id.into(), reply_id.into());
+                    let linked_uri: String = row.get("reply_uri").unwrap_or_default();
                     (replier_id.to_string(), linked_uri)
                 }),
             ),
@@ -406,8 +403,7 @@ impl Notification {
                 PostChangedSource::TaggedPost,
                 Box::new(|row: &Row| {
                     let tagger_id: &str = row.get("tagger_id").unwrap_or_default();
-                    let tag_id: &str = row.get("tag_id").unwrap_or_default();
-                    let linked_uri = tag_uri_builder(tagger_id.into(), tag_id.into());
+                    let linked_uri: String = row.get("tag_uri").unwrap_or_default();
                     (tagger_id.to_string(), linked_uri)
                 }),
             ),
@@ -426,8 +422,7 @@ impl Notification {
                 PostChangedSource::RepostEmbed,
                 Box::new(|row: &Row| {
                     let reposter_id: &str = row.get("reposter_id").unwrap_or_default();
-                    let repost_id: &str = row.get("repost_id").unwrap_or_default();
-                    let linked_uri = post_uri_builder(reposter_id.into(), repost_id.into());
+                    let linked_uri: String = row.get("repost_uri").unwrap_or_default();
                     (reposter_id.to_string(), linked_uri)
                 }),
             ),

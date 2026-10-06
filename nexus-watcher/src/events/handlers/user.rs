@@ -11,15 +11,20 @@ use nexus_common::models::{
 use pubky_app_specs::{PubkyAppUser, PubkyId};
 use tracing::debug;
 
+/// `uri` is the address the profile was read from: the event path.
 #[tracing::instrument(name = "user.put", skip_all, fields(user_id = %user_id))]
-pub async fn sync_put(user: PubkyAppUser, user_id: PubkyId) -> Result<(), EventProcessorError> {
+pub async fn sync_put(
+    user: PubkyAppUser,
+    uri: String,
+    user_id: PubkyId,
+) -> Result<(), EventProcessorError> {
     debug!("Indexing user profile");
 
     // Step 1: Create `UserDetails` object
     let user_details = UserDetails::from_homeserver(user, &user_id);
 
-    // Step 2: Save to graph
-    user_details.put_to_graph().await?;
+    // Step 2: Save to graph, with the address the profile was read from
+    user_details.put_profile_to_graph(&uri).await?;
 
     // Step 3: Reindex search BEFORE refreshing the details cache. `put_to_index`
     // resolves the stale `name:id` member from the cached JSON, so a concurrent
@@ -94,6 +99,7 @@ pub async fn del(user_id: PubkyId) -> Result<(), EventProcessorError> {
             // 2. Graph-first: write the tombstone before the cache. Collection::get_by_ids
             // repopulates the cache from the graph on a miss, so writing the cache first
             // would let a concurrent read cache the live profile again afterwards.
+            // The tombstone keeps the stored `uri`.
             let tombstone = UserDetails::tombstone(&user_id);
             tombstone.put_to_graph().await?;
 

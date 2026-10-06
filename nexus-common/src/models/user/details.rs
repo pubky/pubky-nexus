@@ -21,7 +21,7 @@ impl Collection<&str> for UserDetails {
     }
 
     fn put_graph_query(&self) -> GraphResult<Query> {
-        queries::put::create_user(self)
+        queries::put::create_user(self, None)
     }
 
     async fn extend_on_index_miss(details: &[std::option::Option<Self>]) -> RedisResult<()> {
@@ -149,6 +149,12 @@ impl UserDetails {
         }
     }
 
+    /// Writes a profile read from the homeserver, storing `uri` (its event path) on the node.
+    /// `put_to_graph` writes no `uri` and keeps the stored one: stubs and tombstones use it.
+    pub async fn put_profile_to_graph(&self, uri: &str) -> GraphResult<()> {
+        exec_single_row(queries::put::create_user(self, Some(uri))?).await
+    }
+
     pub async fn delete(user_id: &str) -> ModelResult<()> {
         // Delete user_details on Redis
         Self::remove_from_index_multiple_json(&[&[user_id]]).await?;
@@ -157,6 +163,14 @@ impl UserDetails {
 
         Ok(())
     }
+}
+
+/// Address of a user whose node stores no `uri`: a stub never read from a profile.json, or a
+/// profile indexed before the watcher stored it and missing from the event log.
+// TODO(specs-migration): hard-codes the `pubky.app` folder. Once profiles can live under
+// `social/v1`, a user with no stored `uri` has no single address; decide what this returns.
+pub(crate) fn fallback_user_uri(user_id: &str) -> String {
+    format!("pubky://{user_id}/pub/pubky.app/profile.json")
 }
 
 /// Binds a user to their homeserver, recording the `HOSTED_BY` relationship and `resolved_at`.

@@ -270,6 +270,7 @@ async fn test_live_post_with_sentinel_content_is_not_tombstoned() -> Result<()> 
     // the cache are written in production order
     handlers::post::sync_put(
         short_post("[DELETED]"),
+        post_uri_builder(author_id.clone(), post_id.clone()),
         pubky_id(&author_id)?,
         post_id.clone(),
         &default_ingestor_tests(),

@@ -4,17 +4,22 @@ use crate::models::post::PostRelationships;
 use crate::models::{file::FileDetails, post::PostDetails, user::UserDetails};
 use pubky_app_specs::{ParsedUri, PubkyId, Resource};
 
-/// Create a user node
-pub fn create_user(user: &UserDetails) -> GraphResult<Query> {
+/// Creates or overwrites a `User` node.
+///
+/// `uri` is the address the profile was read from (its event path). `None` keeps the stored
+/// `uri`, so a tombstone retains it and a stub node gets none.
+pub fn create_user(user: &UserDetails, uri: Option<&str>) -> GraphResult<Query> {
     let links = serde_json::to_string(&user.links)
         .map_err(|e| GraphError::SerializationFailed(Box::new(e)))?;
 
     let query = Query::new(
         "create_user",
         "MERGE (u:User {id: $id})
-         SET u.name = $name, u.bio = $bio, u.status = $status, u.links = $links, u.image = $image, u.indexed_at = $indexed_at, u.deleted = $deleted;",
+         SET u.name = $name, u.bio = $bio, u.status = $status, u.links = $links, u.image = $image, u.indexed_at = $indexed_at, u.deleted = $deleted,
+             u.uri = coalesce($uri, u.uri);",
     )
     .param("id", user.id.to_string())
+    .param("uri", uri.map(str::to_string))
     .param("name", user.name.clone())
     .param("bio", user.bio.clone())
     .param("status", user.status.clone())
@@ -68,7 +73,8 @@ pub fn create_post(
         // Set indexed_at only on creation
         ON CREATE SET
             new_post.indexed_at = $indexed_at
-        SET new_post.content = $content,
+        SET new_post.uri = $uri,
+            new_post.content = $content,
             new_post.kind = $kind,
             new_post.attachments = $attachments,
             new_post.lock = $lock,
@@ -82,6 +88,7 @@ pub fn create_post(
     let mut cypher_query = Query::new("create_post", &cypher)
         .param("author_id", post.author.to_string())
         .param("post_id", post.id.to_string())
+        .param("uri", post.uri.to_string())
         .param("content", post.content.to_string())
         .param("indexed_at", post.indexed_at)
         .param("kind", kind.trim_matches('"'))
@@ -287,6 +294,7 @@ pub fn create_post_bookmark(
 /// * `author_id` - The unique identifier of the user who authored the post.
 /// * `post_id` - The unique identifier of the post being tagged.
 /// * `tag_id` - A unique identifier for the tagging relationship.
+/// * `tag_uri` - The address of the tag file (its event path), stored as the edge `uri`.
 /// * `label` - A string representing the label of the tag.
 /// * `indexed_at` - A timestamp representing when the tagging relationship was created or last updated.
 ///
@@ -295,6 +303,7 @@ pub fn create_post_tag(
     author_id: &str,
     post_id: &str,
     tag_id: &str,
+    tag_uri: &str,
     label: &str,
     indexed_at: i64,
 ) -> Query {
@@ -308,6 +317,7 @@ pub fn create_post_tag(
         MERGE (user)-[t:TAGGED {label: $label}]->(post)
         ON CREATE SET t.indexed_at = $indexed_at,
                       t.id = $tag_id
+        SET t.uri = $tag_uri
         // Returns true if the post tag relationship already existed
         RETURN existing IS NOT NULL AS flag;",
     )
@@ -315,6 +325,7 @@ pub fn create_post_tag(
     .param("author_id", author_id)
     .param("post_id", post_id)
     .param("tag_id", tag_id)
+    .param("tag_uri", tag_uri)
     .param("label", label)
     .param("indexed_at", indexed_at)
 }
@@ -324,12 +335,14 @@ pub fn create_post_tag(
 /// * `tagger_user_id` - The unique identifier of the user creating the tag.
 /// * `tagged_user_id` - The unique identifier of the user being tagged.
 /// * `tag_id` - A unique identifier for the tagging relationship.
+/// * `tag_uri` - The address of the tag file (its event path), stored as the edge `uri`.
 /// * `label` - A string representing the label of the tag.
 /// * `indexed_at` - A timestamp indicating when the tagging relationship was created or last updated.
 pub fn create_user_tag(
     tagger_user_id: &str,
     tagged_user_id: &str,
     tag_id: &str,
+    tag_uri: &str,
     label: &str,
     indexed_at: i64,
 ) -> Query {
@@ -342,12 +355,14 @@ pub fn create_user_tag(
         MERGE (tagger)-[t:TAGGED {label: $label}]->(tagged_used)
         ON CREATE SET t.indexed_at = $indexed_at,
                       t.id = $tag_id
+        SET t.uri = $tag_uri
         // Returns true if the user tag relationship already existed
         RETURN existing IS NOT NULL AS flag;",
     )
     .param("tagger_user_id", tagger_user_id)
     .param("tagged_user_id", tagged_user_id)
     .param("tag_id", tag_id)
+    .param("tag_uri", tag_uri)
     .param("label", label)
     .param("indexed_at", indexed_at)
 }
@@ -361,6 +376,7 @@ pub fn create_user_tag(
 /// * `scheme` - The URI scheme (https, pubky, nostr, etc.)
 /// * `app` - The app namespace the tag was created from (e.g., "mapky", "eventky").
 /// * `tag_id` - A unique identifier for the tagging relationship.
+/// * `tag_uri` - The address of the tag file (its event path), stored as the edge `uri`.
 /// * `label` - The tag label.
 /// * `indexed_at` - Timestamp when the tag was indexed.
 #[allow(clippy::too_many_arguments)]
@@ -371,6 +387,7 @@ pub fn create_resource_tag(
     scheme: &str,
     app: &str,
     tag_id: &str,
+    tag_uri: &str,
     label: &str,
     indexed_at: i64,
 ) -> Query {
@@ -386,6 +403,7 @@ pub fn create_resource_tag(
         OPTIONAL MATCH (tagger)-[existing:TAGGED {label: $label, app: $app}]->(resource)
         MERGE (tagger)-[t:TAGGED {label: $label, app: $app}]->(resource)
         ON CREATE SET t.id = $tag_id, t.indexed_at = $indexed_at
+        SET t.uri = $tag_uri
         RETURN existing IS NOT NULL AS flag;",
     )
     .param("tagger_id", tagger_id)
@@ -394,6 +412,7 @@ pub fn create_resource_tag(
     .param("scheme", scheme)
     .param("app", app)
     .param("tag_id", tag_id)
+    .param("tag_uri", tag_uri)
     .param("label", label)
     .param("indexed_at", indexed_at)
 }

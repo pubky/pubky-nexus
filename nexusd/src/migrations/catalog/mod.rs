@@ -8,6 +8,7 @@ use post_content_index_setup_1780444800::PostContentIndexSetup1780444800;
 use post_deleted_flag_1790899200::PostDeletedFlag1790899200;
 use remove_muted_1771718400::RemoveMuted1771718400;
 use resource_node_setup_1774000000::ResourceNodeSetup1774000000;
+use uri_backfill_1791196997::UriBackfill1791196997;
 use user_deleted_flag_1780617600::UserDeletedFlag1780617600;
 use users_by_pk_reindex_1751635096::UsersByPkReindex1751635096;
 use users_by_tags_index_backfill_1786924800::UsersByTagsIndexBackfill1786924800;
@@ -27,6 +28,9 @@ pub fn import_migrations(migration_manager: &mut MigrationManager) {
         // filters tombstones by `deleted`, which only this migration sets.
         Box::new(UserDeletedFlag1780617600),
         Box::new(UsersByTagsIndexBackfill1786924800),
+        // UriBackfill must precede the collected-edges backfill: that one re-reads posts from
+        // the graph, and the post reader needs `uri`, which only this migration fills.
+        Box::new(UriBackfill1791196997),
         Box::new(CollectedEdgesBackfill1789344000),
         Box::new(PostDeletedFlag1790899200),
     ];
@@ -43,6 +47,7 @@ pub mod post_content_index_setup_1780444800;
 pub mod post_deleted_flag_1790899200;
 pub mod remove_muted_1771718400;
 pub mod resource_node_setup_1774000000;
+pub mod uri_backfill_1791196997;
 pub mod user_deleted_flag_1780617600;
 pub mod users_by_pk_reindex_1751635096;
 pub mod users_by_tags_index_backfill_1786924800;

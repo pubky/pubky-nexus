@@ -29,7 +29,7 @@ pub fn get_post_by_id(author_id: &str, post_id: &str) -> Query {
             OPTIONAL MATCH (p)-[replied:REPLIED]->(parent_post:Post)<-[:AUTHORED]-(author:User)
             WITH u, p, parent_post, author
             RETURN {
-                uri: 'pubky://' + u.id + '/pub/pubky.app/posts/' + p.id,
+                uri: p.uri,
                 content: p.content,
                 id: p.id,
                 indexed_at: p.indexed_at,
@@ -127,7 +127,7 @@ pub fn get_post_reposts(author_id: &str, post_id: &str) -> Query {
     Query::new(
         "get_post_reposts",
         "MATCH (reposter:User)-[:AUTHORED]->(repost:Post)-[:REPOSTED]->(p:Post {id: $post_id})<-[:AUTHORED]-(author:User {id: $author_id})
-         RETURN reposter.id AS reposter_id, repost.id AS repost_id",
+         RETURN reposter.id AS reposter_id, repost.uri AS repost_uri",
     )
     .param("author_id", author_id)
     .param("post_id", post_id)
@@ -138,7 +138,7 @@ pub fn get_post_replies(author_id: &str, post_id: &str) -> Query {
     Query::new(
         "get_post_replies",
         "MATCH (replier:User)-[:AUTHORED]->(reply:Post)-[:REPLIED]->(p:Post {id: $post_id})<-[:AUTHORED]-(author:User {id: $author_id})
-         RETURN replier.id AS replier_id, reply.id AS reply_id",
+         RETURN replier.id AS replier_id, reply.uri AS reply_uri",
     )
     .param("author_id", author_id)
     .param("post_id", post_id)
@@ -158,10 +158,11 @@ pub fn get_tag_target(user_id: &str, tag_id: &str, app: Option<&str>) -> Query {
          WITH CASE WHEN target:User THEN target.id ELSE null END AS user_id,
               CASE WHEN target:Post THEN target.id ELSE null END AS post_id,
               CASE WHEN target:Post THEN author.id ELSE null END AS author_id,
+              CASE WHEN target:Post THEN target.uri ELSE null END AS post_uri,
               CASE WHEN target:Resource THEN target.id ELSE null END AS resource_id,
               tag.label AS label,
               tag.app AS app
-         RETURN user_id, post_id, author_id, resource_id, label, app"
+         RETURN user_id, post_id, author_id, post_uri, resource_id, label, app"
     );
 
     let mut query = Query::new("get_tag_target", &cypher)
@@ -182,7 +183,7 @@ pub fn get_post_tags(author_id: &str, post_id: &str) -> Query {
         "MATCH (p:Post {id: $post_id})
          WHERE EXISTS { (:User {id: $author_id})-[:AUTHORED]->(p) }
          MATCH (tagger:User)-[t:TAGGED]->(p)
-         RETURN tagger.id AS tagger_id, t.id AS tag_id",
+         RETURN tagger.id AS tagger_id, t.uri AS tag_uri",
     )
     .param("author_id", author_id)
     .param("post_id", post_id)
@@ -197,10 +198,8 @@ pub fn post_relationships(author_id: &str, post_id: &str) -> Query {
         OPTIONAL MATCH (p)-[:REPOSTED]->(reposted_post:Post)<-[:AUTHORED]-(reposted_author:User)
         OPTIONAL MATCH (p)-[:MENTIONED]->(mentioned_user:User)
         RETURN
-          replied_post.id AS replied_post_id,
-          replied_author.id AS replied_author_id,
-          reposted_post.id AS reposted_post_id,
-          reposted_author.id AS reposted_author_id,
+          replied_post.uri AS replied_uri,
+          reposted_post.uri AS reposted_uri,
           COLLECT(mentioned_user.id) AS mentioned_user_ids",
     )
     .param("author_id", author_id)
@@ -1636,11 +1635,10 @@ pub fn get_tag_by_tagger_and_id(tagger_id: &str, tag_id: &str) -> Query {
         "get_tag_by_tagger_and_id",
         "
         MATCH (tagger:User { id: $tagger_id})-[tag:TAGGED {id: $tag_id }]->(tagged)
-        OPTIONAL MATCH (author:User)-[:AUTHORED]->(tagged)
         RETURN
             labels(tagged) as tagged_labels,
             tagged.id as tagged_id,
-            author.id as author_id,
+            CASE WHEN tagged:Post OR tagged:User THEN tagged.uri END as tagged_uri,
             tag.id as id,
             tag.indexed_at as indexed_at,
             tag.label as label
