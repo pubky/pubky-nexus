@@ -7,7 +7,9 @@ use nexus_common::db::{
     fetch_key_from_graph, fetch_row_from_graph, queries, GraphResult, PubkyClientResult,
     PubkyConnector,
 };
-use nexus_common::models::user::{set_user_homeserver, set_user_homeserver_stale};
+use nexus_common::models::user::{
+    mark_user_hs_resolution_attempted, set_user_homeserver, set_user_homeserver_stale,
+};
 use nexus_common::types::DynError;
 use nexus_common::WatcherConfig;
 use opentelemetry::metrics::{Counter, Gauge, Histogram};
@@ -231,7 +233,8 @@ fn bisection_order_user_pks(unsorted_pks: Vec<PublicKey>) -> Vec<PublicKey> {
 /// Fetches user IDs whose homeserver mapping is stale or missing.
 ///
 /// A mapping is considered stale when its `resolved_at` timestamp is older
-/// than `ttl_ms` milliseconds ago.
+/// than `ttl_ms` milliseconds ago. A user without a mapping is due when it was
+/// never attempted or its last attempt is older than `ttl_ms`.
 async fn get_users_needing_resolution(ttl_ms: u64) -> GraphResult<Vec<String>> {
     let query = queries::get::get_users_needing_hs_resolution(ttl_ms);
     let maybe_user_ids = fetch_key_from_graph(query, "user_ids").await?;
@@ -326,7 +329,7 @@ impl Outcome {
 /// matches and a new case forces a labelling decision.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Resolution {
-    /// No edge and nothing published; graph untouched.
+    /// No edge and nothing published; only the attempt time is recorded.
     Unbound,
     /// No edge before; bound to the published HS now.
     Bound,
@@ -394,6 +397,8 @@ impl Resolution {
 ///
 /// A failed lookup is reported as a [`Resolution`] and leaves the graph
 /// untouched; only graph errors are returned as `Err`.
+/// A user with nothing published gets `hs_resolution_attempted_at` set, so the
+/// TTL in [`get_users_needing_resolution`] applies to them too.
 async fn resolve_user(
     resolver: &dyn PkdnsHomeserverResolver,
     user_pk: &PublicKey,
@@ -415,8 +420,10 @@ async fn resolve_user(
     };
 
     let resolution = match (&stored_mapping, &maybe_resolved_hs_id) {
+        // Nothing published: record the attempt so the user waits out the TTL
+        // before the next lookup. The caller logs the unresolved outcome.
         (None, None) => {
-            warn!(%user_id, "User has no published homeserver");
+            mark_user_hs_resolution_attempted(&user_id).await?;
             Resolution::Unbound
         }
 
@@ -862,26 +869,50 @@ mod tests {
         Ok(())
     }
 
-    /// A user with no published homeserver and no stored mapping is left alone.
+    /// A user with no published homeserver stays unbound, and the attempt is
+    /// recorded so the user is not looked up again until the TTL has passed.
     #[tokio_shared_rt::test(shared)]
-    async fn test_resolve_user_first_time_no_homeserver_noop() -> Result<(), DynError> {
+    async fn test_resolve_user_no_homeserver_waits_for_ttl() -> Result<(), DynError> {
         setup().await?;
 
+        let ttl_ms = 3_600_000;
         let user_pk = random_pk();
         let user_id = user_pk.z32();
 
         create_test_user(&user_id).await?;
+        assert!(
+            get_users_needing_resolution(ttl_ms)
+                .await?
+                .contains(&user_id),
+            "a never-attempted user without HOSTED_BY should need resolution"
+        );
 
         let resolver = MockResolver { result: None };
         let outcome = resolve_user(&resolver, &user_pk).await?;
         assert_eq!(outcome, Resolution::Unbound);
-
         assert_eq!(get_user_homeserver(&user_id).await?, None);
+
         assert!(
-            get_users_needing_resolution(3_600_000)
+            !get_users_needing_resolution(ttl_ms)
                 .await?
                 .contains(&user_id),
-            "users with no HS PKDNS mapping found should be retried on every resolver run"
+            "a user with no published HS should not be retried before the TTL has passed"
+        );
+
+        // Age the recorded attempt past the TTL: the user is due again.
+        let backdate = Query::new(
+            "backdate_hs_resolution_attempt",
+            "MATCH (u:User {id: $user_id})
+             SET u.hs_resolution_attempted_at = timestamp() - $age_ms",
+        )
+        .param("user_id", user_id.clone())
+        .param("age_ms", 2 * ttl_ms as i64);
+        exec_single_row(backdate).await?;
+        assert!(
+            get_users_needing_resolution(ttl_ms)
+                .await?
+                .contains(&user_id),
+            "a user with no published HS should be retried once the TTL has passed"
         );
 
         cleanup_test_user(&user_id).await?;
