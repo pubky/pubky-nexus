@@ -26,6 +26,11 @@ pub struct PostDetails {
     /// `default` keeps pre-lock cached JSON (no `lock` key) deserializing.
     #[serde(default)]
     pub lock: Option<String>,
+    /// Set on the cleared node left behind when a post with relationships is
+    /// deleted. `default` keeps cached JSON written before the flag (no
+    /// `deleted` key) deserializing as a live post.
+    #[serde(default)]
+    pub deleted: bool,
 }
 
 impl RedisOps for PostDetails {}
@@ -121,6 +126,7 @@ impl PostDetails {
             kind: homeserver_post.kind,
             attachments: homeserver_post.attachments,
             lock: homeserver_post.lock,
+            deleted: false,
         }
     }
 
@@ -180,10 +186,10 @@ impl PostDetails {
     }
 
     /// True when any cached field changed and the index needs refreshing. Unlike
-    /// [`Self::content_differs_from`] this includes `lock`, so a lock-only toggle
-    /// refreshes the cache without counting as a content edit.
+    /// [`Self::content_differs_from`] this includes `lock` and `deleted`, so a
+    /// lock-only toggle refreshes the cache without counting as a content edit.
     pub fn is_different_than(&self, other: &PostDetails) -> bool {
-        self.content_differs_from(other) || self.lock != other.lock
+        self.content_differs_from(other) || self.lock != other.lock || self.deleted != other.deleted
     }
 }
 
@@ -204,6 +210,7 @@ mod tests {
             uri: "uri1".into(),
             attachments: Some(vec!["image1.jpg".into(), "image2.jpg".into()]),
             lock: None,
+            deleted: false,
         };
 
         // Test with same content and attachments
@@ -265,6 +272,30 @@ mod tests {
     }
 
     #[test]
+    fn test_deserialize_deleted_flag() {
+        // Cached JSON written before the flag has no `deleted` key and must
+        // read as a live post; a present `deleted: true` is kept.
+        let legacy = r#"{
+            "content": "hi",
+            "id": "post1",
+            "indexed_at": 123456789,
+            "author": "author1",
+            "kind": "short",
+            "uri": "pubky://author1/pub/pubky.app/posts/post1",
+            "attachments": null,
+            "lock": null
+        }"#;
+        let details: PostDetails = serde_json::from_str(legacy).unwrap();
+        assert!(!details.deleted);
+
+        let mut tombstone: serde_json::Value = serde_json::from_str(legacy).unwrap();
+        tombstone["content"] = "".into();
+        tombstone["deleted"] = true.into();
+        let details: PostDetails = serde_json::from_value(tombstone).unwrap();
+        assert!(details.deleted);
+    }
+
+    #[test]
     fn test_content_differs_from_ignores_lock() {
         let base = PostDetails {
             content: "c".into(),
@@ -275,6 +306,7 @@ mod tests {
             uri: "u".into(),
             attachments: None,
             lock: None,
+            deleted: false,
         };
         let locked = PostDetails {
             lock: Some("pubky://host/pub/lock".into()),
@@ -289,5 +321,18 @@ mod tests {
             ..base.clone()
         };
         assert!(base.content_differs_from(&edited));
+    }
+
+    #[test]
+    fn test_deleted_flag_is_not_content() {
+        // Deleting a repost with no content or attachments changes no content,
+        // but the cache still has to pick up the flag.
+        let live = PostDetails::default();
+        let tombstone = PostDetails {
+            deleted: true,
+            ..PostDetails::default()
+        };
+        assert!(!live.content_differs_from(&tombstone));
+        assert!(live.is_different_than(&tombstone));
     }
 }

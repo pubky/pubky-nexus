@@ -2,7 +2,8 @@
 // against the global suites the same way wot.cypher is: post indexed_at far below
 // every window start, no tags, and user ids that sort high.
 //
-// Topology (OBS = observer), everyone but HOP and SHORT has 5 posts:
+// Topology (OBS = observer), everyone but HOP and SHORT has 5 posts (DELETED has a
+// sixth, a post tombstone):
 //   OBS <-> HOP           follow cycle: OBS reaches itself at depth 2
 //   OBS  -> FOLLOWED      directly followed, also reachable at depth 2 over HOP
 //   HOP  -> FOLLOWED
@@ -121,3 +122,8 @@ MERGE (p:Post {id: "RECPOSTDEL004"}) SET p.content = "recommended fixture entry"
 MATCH (u:User {id: $deleted}), (p:Post {id: "RECPOSTDEL004"}) MERGE (u)-[:AUTHORED]->(p);
 MERGE (p:Post {id: "RECPOSTDEL005"}) SET p.content = "recommended fixture entry", p.kind = "short", p.indexed_at = 1600000001034;
 MATCH (u:User {id: $deleted}), (p:Post {id: "RECPOSTDEL005"}) MERGE (u)-[:AUTHORED]->(p);
+// A post tombstone for the post /details and view tests: the shape `post::del` leaves
+// when a deleted post still has relationships. A sixth post, so DELETED keeps five live
+// ones if tombstones ever stop counting toward the threshold.
+MERGE (p:Post {id: "RECPOSTDEL006"}) SET p.content = "", p.kind = "short", p.deleted = true, p.indexed_at = 1600000001035;
+MATCH (u:User {id: $deleted}), (p:Post {id: "RECPOSTDEL006"}) MERGE (u)-[:AUTHORED]->(p);
