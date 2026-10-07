@@ -45,61 +45,61 @@ MERGE (u)-[:AUTHORED]->(p) SET p.uri = "pubky://qumq6fady4bmw4w5tpsrj1tg36g3qo4t
 // Today
 WITH datetime().epochMillis AS today_millis
 MATCH (u:User { id: $user2 }), (p:Post {id: $post1})
-MERGE (u)-[:TAGGED { label: $tag1, id: "0032GZRVBRB30", indexed_at: today_millis, uri: "pubky://qumq6fady4bmw4w5tpsrj1tg36g3qo4tcfedga9p4bg4so4ikyzy/pub/pubky.app/tags/0032GZRVBRB30" }]->(p);
+MERGE (u)-[rel:TAGGED { label: $tag1, id: "0032GZRVBRB30", indexed_at: today_millis }]->(p) SET rel.uri = "pubky://qumq6fady4bmw4w5tpsrj1tg36g3qo4tcfedga9p4bg4so4ikyzy/pub/pubky.app/tags/0032GZRVBRB30";
 
 WITH datetime().epochMillis AS today_millis
 MATCH (u:User { id: $user3 }), (p:Post {id: $post1})
-MERGE (u)-[:TAGGED { label: $tag1, id: "0032GZRVBRAR8", indexed_at: today_millis, uri: "pubky://r4irb481b8qspaixq1brwre8o87cxybsbk9iwe1f6f9ukrxxs7bo/pub/pubky.app/tags/0032GZRVBRAR8" }]->(p);
+MERGE (u)-[rel:TAGGED { label: $tag1, id: "0032GZRVBRAR8", indexed_at: today_millis }]->(p) SET rel.uri = "pubky://r4irb481b8qspaixq1brwre8o87cxybsbk9iwe1f6f9ukrxxs7bo/pub/pubky.app/tags/0032GZRVBRAR8";
 
 WITH datetime().epochMillis AS today_millis
 MATCH (u:User { id: $user4 }), (p:Post {id: $post1})
-MERGE (u)-[:TAGGED { label: $tag1, id: "0032GZRSZTRA8", indexed_at: today_millis, uri: "pubky://r91hi8kc3x6761gwfiigr7yn6nca1z47wm6jadhw1jbx1co93r9y/pub/pubky.app/tags/0032GZRSZTRA8" }]->(p);
+MERGE (u)-[rel:TAGGED { label: $tag1, id: "0032GZRSZTRA8", indexed_at: today_millis }]->(p) SET rel.uri = "pubky://r91hi8kc3x6761gwfiigr7yn6nca1z47wm6jadhw1jbx1co93r9y/pub/pubky.app/tags/0032GZRSZTRA8";
 
 WITH datetime().epochMillis AS today_millis
 MATCH (u:User { id: $user4 }), (p:Post {id: $post1})
-MERGE (u)-[:TAGGED { label: $tag2, id: "0032GZRSZTV00", indexed_at: today_millis, uri: "pubky://r91hi8kc3x6761gwfiigr7yn6nca1z47wm6jadhw1jbx1co93r9y/pub/pubky.app/tags/0032GZRSZTV00" }]->(p);
+MERGE (u)-[rel:TAGGED { label: $tag2, id: "0032GZRSZTV00", indexed_at: today_millis }]->(p) SET rel.uri = "pubky://r91hi8kc3x6761gwfiigr7yn6nca1z47wm6jadhw1jbx1co93r9y/pub/pubky.app/tags/0032GZRSZTV00";
 
 WITH datetime().epochMillis AS today_millis
 MATCH (u:User { id: $user5 }), (p:Post {id: $post1})
-MERGE (u)-[:TAGGED { label: $tag2, id: "0032GZS4DWEGM", indexed_at: today_millis, uri: "pubky://tkpeqpx3ywoawiw6q8e6kuo9o3egr7fnhx83rudznbrrmqgdmomo/pub/pubky.app/tags/0032GZS4DWEGM" }]->(p);
+MERGE (u)-[rel:TAGGED { label: $tag2, id: "0032GZS4DWEGM", indexed_at: today_millis }]->(p) SET rel.uri = "pubky://tkpeqpx3ywoawiw6q8e6kuo9o3egr7fnhx83rudznbrrmqgdmomo/pub/pubky.app/tags/0032GZS4DWEGM";
 
 // This month
 WITH (datetime() - duration({ days: 10 })).epochMillis AS this_month_millis
 MATCH (u:User { id: $user1 }), (p:Post {id: $post2})
-MERGE (u)-[:TAGGED { label: $tag1, id: "0032GZR6TQTSG", indexed_at: this_month_millis, uri: "pubky://pyc598poqkdgtx1wc4aeptx67mqg71mmywyh7uzkffzittjmbiuo/pub/pubky.app/tags/0032GZR6TQTSG" }]->(p);
+MERGE (u)-[rel:TAGGED { label: $tag1, id: "0032GZR6TQTSG", indexed_at: this_month_millis }]->(p) SET rel.uri = "pubky://pyc598poqkdgtx1wc4aeptx67mqg71mmywyh7uzkffzittjmbiuo/pub/pubky.app/tags/0032GZR6TQTSG";
 
 WITH (datetime() - duration({ days: 10 })).epochMillis AS this_month_millis
 MATCH (u:User { id: $user1 }), (p:Post {id: $post2})
-MERGE (u)-[:TAGGED { label: $tag2, id: "0032GZRVBRC3M", indexed_at: this_month_millis, uri: "pubky://pyc598poqkdgtx1wc4aeptx67mqg71mmywyh7uzkffzittjmbiuo/pub/pubky.app/tags/0032GZRVBRC3M" }]->(p);
+MERGE (u)-[rel:TAGGED { label: $tag2, id: "0032GZRVBRC3M", indexed_at: this_month_millis }]->(p) SET rel.uri = "pubky://pyc598poqkdgtx1wc4aeptx67mqg71mmywyh7uzkffzittjmbiuo/pub/pubky.app/tags/0032GZRVBRC3M";
 
 WITH (datetime() - duration({ days: 10 })).epochMillis AS this_month_millis
 MATCH (u:User { id: $user3 }), (p:Post {id: $post2})
-MERGE (u)-[:TAGGED { label: $tag3, id: "0032GZR6TQTT6", indexed_at: this_month_millis, uri: "pubky://r4irb481b8qspaixq1brwre8o87cxybsbk9iwe1f6f9ukrxxs7bo/pub/pubky.app/tags/0032GZR6TQTT6" }]->(p);
+MERGE (u)-[rel:TAGGED { label: $tag3, id: "0032GZR6TQTT6", indexed_at: this_month_millis }]->(p) SET rel.uri = "pubky://r4irb481b8qspaixq1brwre8o87cxybsbk9iwe1f6f9ukrxxs7bo/pub/pubky.app/tags/0032GZR6TQTT6";
 
 WITH (datetime() - duration({ days: 10 })).epochMillis AS this_month_millis
 MATCH (u:User { id: $user4 }), (p:Post {id: $post2})
-MERGE (u)-[:TAGGED { label: $tag3, id: "0032GZR6TQV4P", indexed_at: this_month_millis, uri: "pubky://r91hi8kc3x6761gwfiigr7yn6nca1z47wm6jadhw1jbx1co93r9y/pub/pubky.app/tags/0032GZR6TQV4P" }]->(p);
+MERGE (u)-[rel:TAGGED { label: $tag3, id: "0032GZR6TQV4P", indexed_at: this_month_millis }]->(p) SET rel.uri = "pubky://r91hi8kc3x6761gwfiigr7yn6nca1z47wm6jadhw1jbx1co93r9y/pub/pubky.app/tags/0032GZR6TQV4P";
 
 WITH (datetime() - duration({ days: 10 })).epochMillis AS this_month_millis
 MATCH (u:User { id: $user5 }), (p:Post {id: $post2})
-MERGE (u)-[:TAGGED { label: $tag3, id: "0032GZS4DWF62", indexed_at: this_month_millis, uri: "pubky://tkpeqpx3ywoawiw6q8e6kuo9o3egr7fnhx83rudznbrrmqgdmomo/pub/pubky.app/tags/0032GZS4DWF62" }]->(p);
+MERGE (u)-[rel:TAGGED { label: $tag3, id: "0032GZS4DWF62", indexed_at: this_month_millis }]->(p) SET rel.uri = "pubky://tkpeqpx3ywoawiw6q8e6kuo9o3egr7fnhx83rudznbrrmqgdmomo/pub/pubky.app/tags/0032GZS4DWF62";
 
 // All time (outside this month period)
 WITH (datetime() - duration({ days: 40 })).epochMillis AS all_time_millis
 MATCH (u:User { id: $user1 }), (p:Post {id: $post2})
-MERGE (u)-[:TAGGED { label: $tag3, id: "0032GZRG46YPY", indexed_at: all_time_millis, uri: "pubky://pyc598poqkdgtx1wc4aeptx67mqg71mmywyh7uzkffzittjmbiuo/pub/pubky.app/tags/0032GZRG46YPY" }]->(p);
+MERGE (u)-[rel:TAGGED { label: $tag3, id: "0032GZRG46YPY", indexed_at: all_time_millis }]->(p) SET rel.uri = "pubky://pyc598poqkdgtx1wc4aeptx67mqg71mmywyh7uzkffzittjmbiuo/pub/pubky.app/tags/0032GZRG46YPY";
 
 WITH (datetime() - duration({ days: 40 })).epochMillis AS all_time_millis
 MATCH (u:User { id: $user3 }), (p:Post {id: $post2})
-MERGE (u)-[:TAGGED { label: $tag2, id: "0032GZRG46ZH0", indexed_at: all_time_millis, uri: "pubky://r4irb481b8qspaixq1brwre8o87cxybsbk9iwe1f6f9ukrxxs7bo/pub/pubky.app/tags/0032GZRG46ZH0" }]->(p);
+MERGE (u)-[rel:TAGGED { label: $tag2, id: "0032GZRG46ZH0", indexed_at: all_time_millis }]->(p) SET rel.uri = "pubky://r4irb481b8qspaixq1brwre8o87cxybsbk9iwe1f6f9ukrxxs7bo/pub/pubky.app/tags/0032GZRG46ZH0";
 
 WITH (datetime() - duration({ days: 40 })).epochMillis AS all_time_millis
 MATCH (u:User { id: $user4 }), (p:Post {id: $post2})
-MERGE (u)-[:TAGGED { label: $tag1, id: "0032GZRG46ZH6", indexed_at: all_time_millis, uri: "pubky://r91hi8kc3x6761gwfiigr7yn6nca1z47wm6jadhw1jbx1co93r9y/pub/pubky.app/tags/0032GZRG46ZH6" }]->(p);
+MERGE (u)-[rel:TAGGED { label: $tag1, id: "0032GZRG46ZH6", indexed_at: all_time_millis }]->(p) SET rel.uri = "pubky://r91hi8kc3x6761gwfiigr7yn6nca1z47wm6jadhw1jbx1co93r9y/pub/pubky.app/tags/0032GZRG46ZH6";
 
 WITH (datetime() - duration({ days: 40 })).epochMillis AS all_time_millis
 MATCH (u:User { id: $user5 }), (p:Post {id: $post2})
-MERGE (u)-[:TAGGED { label: $tag1, id: "0032GZRG46ZH6", indexed_at: all_time_millis, uri: "pubky://tkpeqpx3ywoawiw6q8e6kuo9o3egr7fnhx83rudznbrrmqgdmomo/pub/pubky.app/tags/0032GZRG46ZH6" }]->(p);
+MERGE (u)-[rel:TAGGED { label: $tag1, id: "0032GZRG46ZH6", indexed_at: all_time_millis }]->(p) SET rel.uri = "pubky://tkpeqpx3ywoawiw6q8e6kuo9o3egr7fnhx83rudznbrrmqgdmomo/pub/pubky.app/tags/0032GZRG46ZH6";
 
 // ###################################################
 // ##### Lets start connecting all the users #########
@@ -162,85 +162,85 @@ MERGE (u)-[:AUTHORED]->(p) SET p.uri = "pubky://6xejaazm58f5dca3aj6o4is3k55wxy86
 // Today timeframe
 WITH datetime().epochMillis AS today_millis
 MATCH (u:User { id: $user2 }), (p:Post {id: $post3})
-MERGE (u)-[:TAGGED { label: $today, id: "2B6X94BZQVS9QQCMF69JX92H3C", indexed_at: today_millis, uri: "pubky://qumq6fady4bmw4w5tpsrj1tg36g3qo4tcfedga9p4bg4so4ikyzy/pub/pubky.app/tags/2B6X94BZQVS9QQCMF69JX92H3C" }]->(p);
+MERGE (u)-[rel:TAGGED { label: $today, id: "2B6X94BZQVS9QQCMF69JX92H3C", indexed_at: today_millis }]->(p) SET rel.uri = "pubky://qumq6fady4bmw4w5tpsrj1tg36g3qo4tcfedga9p4bg4so4ikyzy/pub/pubky.app/tags/2B6X94BZQVS9QQCMF69JX92H3C";
 
 WITH datetime().epochMillis AS today_millis
 MATCH (u:User { id: $user5 }), (p:Post {id: $post3})
-MERGE (u)-[:TAGGED { label: $today, id: "2B6X94BZQVS9QQCMF69JX92H3D", indexed_at: today_millis, uri: "pubky://tkpeqpx3ywoawiw6q8e6kuo9o3egr7fnhx83rudznbrrmqgdmomo/pub/pubky.app/tags/2B6X94BZQVS9QQCMF69JX92H3D" }]->(p);
+MERGE (u)-[rel:TAGGED { label: $today, id: "2B6X94BZQVS9QQCMF69JX92H3D", indexed_at: today_millis }]->(p) SET rel.uri = "pubky://tkpeqpx3ywoawiw6q8e6kuo9o3egr7fnhx83rudznbrrmqgdmomo/pub/pubky.app/tags/2B6X94BZQVS9QQCMF69JX92H3D";
 
 // Month tags timeframe
 WITH (datetime() - duration({ days: 10 })).epochMillis AS this_month_millis
 MATCH (u:User { id: $user2 }), (p:Post {id: $post3})
-MERGE (u)-[:TAGGED { label: $month, id: "2B6X94BZQVS9QQCMF69JX92H3H", indexed_at: this_month_millis, uri: "pubky://qumq6fady4bmw4w5tpsrj1tg36g3qo4tcfedga9p4bg4so4ikyzy/pub/pubky.app/tags/2B6X94BZQVS9QQCMF69JX92H3H" }]->(p);
+MERGE (u)-[rel:TAGGED { label: $month, id: "2B6X94BZQVS9QQCMF69JX92H3H", indexed_at: this_month_millis }]->(p) SET rel.uri = "pubky://qumq6fady4bmw4w5tpsrj1tg36g3qo4tcfedga9p4bg4so4ikyzy/pub/pubky.app/tags/2B6X94BZQVS9QQCMF69JX92H3H";
 
 WITH (datetime() - duration({ days: 10 })).epochMillis AS this_month_millis
 MATCH (u:User { id: $user3 }), (p:Post {id: $post3})
-MERGE (u)-[:TAGGED { label: $month, id: "2B6X94BZQVS9QQCMF69JX92H3I", indexed_at: this_month_millis, uri: "pubky://r4irb481b8qspaixq1brwre8o87cxybsbk9iwe1f6f9ukrxxs7bo/pub/pubky.app/tags/2B6X94BZQVS9QQCMF69JX92H3I" }]->(p);
+MERGE (u)-[rel:TAGGED { label: $month, id: "2B6X94BZQVS9QQCMF69JX92H3I", indexed_at: this_month_millis }]->(p) SET rel.uri = "pubky://r4irb481b8qspaixq1brwre8o87cxybsbk9iwe1f6f9ukrxxs7bo/pub/pubky.app/tags/2B6X94BZQVS9QQCMF69JX92H3I";
 
 WITH (datetime() - duration({ days: 10 })).epochMillis AS this_month_millis
 MATCH (u:User { id: $user4 }), (p:Post {id: $post3})
-MERGE (u)-[:TAGGED { label: $month, id: "2B6X94BZQVS9QQCMF69JX92H3J", indexed_at: this_month_millis, uri: "pubky://r91hi8kc3x6761gwfiigr7yn6nca1z47wm6jadhw1jbx1co93r9y/pub/pubky.app/tags/2B6X94BZQVS9QQCMF69JX92H3J" }]->(p);
+MERGE (u)-[rel:TAGGED { label: $month, id: "2B6X94BZQVS9QQCMF69JX92H3J", indexed_at: this_month_millis }]->(p) SET rel.uri = "pubky://r91hi8kc3x6761gwfiigr7yn6nca1z47wm6jadhw1jbx1co93r9y/pub/pubky.app/tags/2B6X94BZQVS9QQCMF69JX92H3J";
 
 // All tags timeframe
 WITH (datetime() - duration({ days: 40 })).epochMillis AS all_time_millis
 MATCH (u:User { id: $user2 }), (p:Post {id: $post3})
-MERGE (u)-[:TAGGED { label: $all, id: "2B6X94BZQVS9QQCMF69JX92H3L", indexed_at: all_time_millis, uri: "pubky://qumq6fady4bmw4w5tpsrj1tg36g3qo4tcfedga9p4bg4so4ikyzy/pub/pubky.app/tags/2B6X94BZQVS9QQCMF69JX92H3L" }]->(p);
+MERGE (u)-[rel:TAGGED { label: $all, id: "2B6X94BZQVS9QQCMF69JX92H3L", indexed_at: all_time_millis }]->(p) SET rel.uri = "pubky://qumq6fady4bmw4w5tpsrj1tg36g3qo4tcfedga9p4bg4so4ikyzy/pub/pubky.app/tags/2B6X94BZQVS9QQCMF69JX92H3L";
 
 WITH (datetime() - duration({ days: 40 })).epochMillis AS all_time_millis
 MATCH (u:User { id: $user3 }), (p:Post {id: $post3})
-MERGE (u)-[:TAGGED { label: $all, id: "2B6X94BZQVS9QQCMF69JX92H3M", indexed_at: all_time_millis, uri: "pubky://r4irb481b8qspaixq1brwre8o87cxybsbk9iwe1f6f9ukrxxs7bo/pub/pubky.app/tags/2B6X94BZQVS9QQCMF69JX92H3M" }]->(p);
+MERGE (u)-[rel:TAGGED { label: $all, id: "2B6X94BZQVS9QQCMF69JX92H3M", indexed_at: all_time_millis }]->(p) SET rel.uri = "pubky://r4irb481b8qspaixq1brwre8o87cxybsbk9iwe1f6f9ukrxxs7bo/pub/pubky.app/tags/2B6X94BZQVS9QQCMF69JX92H3M";
 
 WITH (datetime() - duration({ days: 40 })).epochMillis AS all_time_millis
 MATCH (u:User { id: $user4 }), (p:Post {id: $post3})
-MERGE (u)-[:TAGGED { label: $all, id: "2B6X94BZQVS9QQCMF69JX92H3N", indexed_at: all_time_millis, uri: "pubky://r91hi8kc3x6761gwfiigr7yn6nca1z47wm6jadhw1jbx1co93r9y/pub/pubky.app/tags/2B6X94BZQVS9QQCMF69JX92H3N" }]->(p);
+MERGE (u)-[rel:TAGGED { label: $all, id: "2B6X94BZQVS9QQCMF69JX92H3N", indexed_at: all_time_millis }]->(p) SET rel.uri = "pubky://r91hi8kc3x6761gwfiigr7yn6nca1z47wm6jadhw1jbx1co93r9y/pub/pubky.app/tags/2B6X94BZQVS9QQCMF69JX92H3N";
 
 WITH (datetime() - duration({ days: 40 })).epochMillis AS all_time_millis
 MATCH (u:User { id: $user5 }), (p:Post {id: $post3})
-MERGE (u)-[:TAGGED { label: $all, id: "2B6X94BZQVS9QQCMF69JX92H3O", indexed_at: all_time_millis, uri: "pubky://tkpeqpx3ywoawiw6q8e6kuo9o3egr7fnhx83rudznbrrmqgdmomo/pub/pubky.app/tags/2B6X94BZQVS9QQCMF69JX92H3O" }]->(p);
+MERGE (u)-[rel:TAGGED { label: $all, id: "2B6X94BZQVS9QQCMF69JX92H3O", indexed_at: all_time_millis }]->(p) SET rel.uri = "pubky://tkpeqpx3ywoawiw6q8e6kuo9o3egr7fnhx83rudznbrrmqgdmomo/pub/pubky.app/tags/2B6X94BZQVS9QQCMF69JX92H3O";
 
 // #### Add tags to Post 4. reach=followers&timeframe=x ####
 // Today timeframe
 WITH datetime().epochMillis AS today_millis
 MATCH (u:User { id: $user2 }), (p:Post {id: $post4})
-MERGE (u)-[:TAGGED { label: $today, id: "53EYM1KZ1JGCHFXWG8RP0J67K0", indexed_at: today_millis, uri: "pubky://qumq6fady4bmw4w5tpsrj1tg36g3qo4tcfedga9p4bg4so4ikyzy/pub/pubky.app/tags/53EYM1KZ1JGCHFXWG8RP0J67K0" }]->(p);
+MERGE (u)-[rel:TAGGED { label: $today, id: "53EYM1KZ1JGCHFXWG8RP0J67K0", indexed_at: today_millis }]->(p) SET rel.uri = "pubky://qumq6fady4bmw4w5tpsrj1tg36g3qo4tcfedga9p4bg4so4ikyzy/pub/pubky.app/tags/53EYM1KZ1JGCHFXWG8RP0J67K0";
 
 // Month timeframe
 WITH (datetime() - duration({ days: 10 })).epochMillis AS this_month_millis
 MATCH (u:User { id: $user2 }), (p:Post {id: $post4})
-MERGE (u)-[:TAGGED { label: $month, id: "53EYM1KZ1JGCHFXWG8RP0J67K3", indexed_at: this_month_millis, uri: "pubky://qumq6fady4bmw4w5tpsrj1tg36g3qo4tcfedga9p4bg4so4ikyzy/pub/pubky.app/tags/53EYM1KZ1JGCHFXWG8RP0J67K3" }]->(p);
+MERGE (u)-[rel:TAGGED { label: $month, id: "53EYM1KZ1JGCHFXWG8RP0J67K3", indexed_at: this_month_millis }]->(p) SET rel.uri = "pubky://qumq6fady4bmw4w5tpsrj1tg36g3qo4tcfedga9p4bg4so4ikyzy/pub/pubky.app/tags/53EYM1KZ1JGCHFXWG8RP0J67K3";
 
 WITH (datetime() - duration({ days: 10 })).epochMillis AS this_month_millis
 MATCH (u:User { id: $user3 }), (p:Post {id: $post4})
-MERGE (u)-[:TAGGED { label: $month, id: "53EYM1KZ1JGCHFXWG8RP0J67K4", indexed_at: this_month_millis, uri: "pubky://r4irb481b8qspaixq1brwre8o87cxybsbk9iwe1f6f9ukrxxs7bo/pub/pubky.app/tags/53EYM1KZ1JGCHFXWG8RP0J67K4" }]->(p);
+MERGE (u)-[rel:TAGGED { label: $month, id: "53EYM1KZ1JGCHFXWG8RP0J67K4", indexed_at: this_month_millis }]->(p) SET rel.uri = "pubky://r4irb481b8qspaixq1brwre8o87cxybsbk9iwe1f6f9ukrxxs7bo/pub/pubky.app/tags/53EYM1KZ1JGCHFXWG8RP0J67K4";
 
 // All timeframe
 WITH (datetime() - duration({ days: 40 })).epochMillis AS all_time_millis
 MATCH (u:User { id: $user2 }), (p:Post {id: $post4})
-MERGE (u)-[:TAGGED { label: $all, id: "53EYM1KZ1JGCHFXWG8RP0J67K6", indexed_at: all_time_millis, uri: "pubky://qumq6fady4bmw4w5tpsrj1tg36g3qo4tcfedga9p4bg4so4ikyzy/pub/pubky.app/tags/53EYM1KZ1JGCHFXWG8RP0J67K6" }]->(p);
+MERGE (u)-[rel:TAGGED { label: $all, id: "53EYM1KZ1JGCHFXWG8RP0J67K6", indexed_at: all_time_millis }]->(p) SET rel.uri = "pubky://qumq6fady4bmw4w5tpsrj1tg36g3qo4tcfedga9p4bg4so4ikyzy/pub/pubky.app/tags/53EYM1KZ1JGCHFXWG8RP0J67K6";
 
 WITH (datetime() - duration({ days: 40 })).epochMillis AS all_time_millis
 MATCH (u:User { id: $user3 }), (p:Post {id: $post4})
-MERGE (u)-[:TAGGED { label: $all, id: "53EYM1KZ1JGCHFXWG8RP0J67K7", indexed_at: all_time_millis, uri: "pubky://r4irb481b8qspaixq1brwre8o87cxybsbk9iwe1f6f9ukrxxs7bo/pub/pubky.app/tags/53EYM1KZ1JGCHFXWG8RP0J67K7" }]->(p);
+MERGE (u)-[rel:TAGGED { label: $all, id: "53EYM1KZ1JGCHFXWG8RP0J67K7", indexed_at: all_time_millis }]->(p) SET rel.uri = "pubky://r4irb481b8qspaixq1brwre8o87cxybsbk9iwe1f6f9ukrxxs7bo/pub/pubky.app/tags/53EYM1KZ1JGCHFXWG8RP0J67K7";
 
 WITH (datetime() - duration({ days: 40 })).epochMillis AS all_time_millis
 MATCH (u:User { id: $user5 }), (p:Post {id: $post4})
-MERGE (u)-[:TAGGED { label: $all, id: "53EYM1KZ1JGCHFXWG8RP0J67K8", indexed_at: all_time_millis, uri: "pubky://tkpeqpx3ywoawiw6q8e6kuo9o3egr7fnhx83rudznbrrmqgdmomo/pub/pubky.app/tags/53EYM1KZ1JGCHFXWG8RP0J67K8" }]->(p);
+MERGE (u)-[rel:TAGGED { label: $all, id: "53EYM1KZ1JGCHFXWG8RP0J67K8", indexed_at: all_time_millis }]->(p) SET rel.uri = "pubky://tkpeqpx3ywoawiw6q8e6kuo9o3egr7fnhx83rudznbrrmqgdmomo/pub/pubky.app/tags/53EYM1KZ1JGCHFXWG8RP0J67K8";
 
 // #### Add tags to Post 5. reach=friends&timeframe=x ####
 // Today timeframe
 WITH datetime().epochMillis AS today_millis
 MATCH (u:User { id: $user1 }), (p:Post {id: $post5})
-MERGE (u)-[:TAGGED { label: $today, id: "53EYM1KZ1JGCHFXWG8RP0J67J0", indexed_at: today_millis, uri: "pubky://pyc598poqkdgtx1wc4aeptx67mqg71mmywyh7uzkffzittjmbiuo/pub/pubky.app/tags/53EYM1KZ1JGCHFXWG8RP0J67J0" }]->(p);
+MERGE (u)-[rel:TAGGED { label: $today, id: "53EYM1KZ1JGCHFXWG8RP0J67J0", indexed_at: today_millis }]->(p) SET rel.uri = "pubky://pyc598poqkdgtx1wc4aeptx67mqg71mmywyh7uzkffzittjmbiuo/pub/pubky.app/tags/53EYM1KZ1JGCHFXWG8RP0J67J0";
 
 // Month timeframe
 WITH (datetime() - duration({ days: 10 })).epochMillis AS this_month_millis
 MATCH (u:User { id: $user1 }), (p:Post {id: $post5})
-MERGE (u)-[:TAGGED { label: $month, id: "53EYM1KZ1JGCHFXWG8RP0J67J2", indexed_at: this_month_millis, uri: "pubky://pyc598poqkdgtx1wc4aeptx67mqg71mmywyh7uzkffzittjmbiuo/pub/pubky.app/tags/53EYM1KZ1JGCHFXWG8RP0J67J2" }]->(p)
+MERGE (u)-[rel:TAGGED { label: $month, id: "53EYM1KZ1JGCHFXWG8RP0J67J2", indexed_at: this_month_millis }]->(p) SET rel.uri = "pubky://pyc598poqkdgtx1wc4aeptx67mqg71mmywyh7uzkffzittjmbiuo/pub/pubky.app/tags/53EYM1KZ1JGCHFXWG8RP0J67J2"
 
 // All timeframe
 WITH (datetime() - duration({ days: 40 })).epochMillis AS all_time_millis
 MATCH (u:User { id: $user1 }), (p:Post {id: $post5})
-MERGE (u)-[:TAGGED { label: $all, id: "53EYM1KZ1JGCHFXWG8RP0J67J5", indexed_at: all_time_millis, uri: "pubky://pyc598poqkdgtx1wc4aeptx67mqg71mmywyh7uzkffzittjmbiuo/pub/pubky.app/tags/53EYM1KZ1JGCHFXWG8RP0J67J5" }]->(p);
+MERGE (u)-[rel:TAGGED { label: $all, id: "53EYM1KZ1JGCHFXWG8RP0J67J5", indexed_at: all_time_millis }]->(p) SET rel.uri = "pubky://pyc598poqkdgtx1wc4aeptx67mqg71mmywyh7uzkffzittjmbiuo/pub/pubky.app/tags/53EYM1KZ1JGCHFXWG8RP0J67J5";
 
 // Add some Replies
 :param reply_1 => '0032BZ3YFDGMG';

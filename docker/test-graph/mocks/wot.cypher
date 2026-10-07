@@ -66,10 +66,10 @@ MATCH (u:User {id: $d2}) SET u.trust = 0.2;
 MERGE (u:User {id: $deleted_user}) SET u.name = "[DELETED]", u.deleted = true, u.bio = "", u.status = "undefined", u.indexed_at = 1650000000000, u.links = "[]", u.uri = "pubky://z4e8s17cou9qmuwen8p1556jzhf1wktmzo6ijsfnri9c4hnrdfty/pub/pubky.app/profile.json";
 MERGE (p:Post {id: "WOTPOSTDEL001"}) SET p.content = "post by a deleted account", p.kind = "short", p.indexed_at = 1650000000014;
 MATCH (u:User {id: $deleted_user}), (p:Post {id: "WOTPOSTDEL001"}) MERGE (u)-[:AUTHORED]->(p) SET p.uri = "pubky://z4e8s17cou9qmuwen8p1556jzhf1wktmzo6ijsfnri9c4hnrdfty/pub/pubky.app/posts/WOTPOSTDEL001";
-MATCH (from:User {id: $d1}), (to:User {id: $deleted_user}) MERGE (from)-[:TAGGED {label: $packdeleted_tag, id: "WOTTAGDEL0001", indexed_at: 1224534096400, uri: "pubky://qjftuwjog819ki1wktuy5tndebce36bmxxwtjjm3z1fr97jk9yuo/pub/pubky.app/tags/WOTTAGDEL0001"}]->(to);
+MATCH (from:User {id: $d1}), (to:User {id: $deleted_user}) MERGE (from)-[rel:TAGGED {label: $packdeleted_tag, id: "WOTTAGDEL0001", indexed_at: 1224534096400}]->(to) SET rel.uri = "pubky://qjftuwjog819ki1wktuy5tndebce36bmxxwtjjm3z1fr97jk9yuo/pub/pubky.app/tags/WOTTAGDEL0001";
 
 // Second label on BTC4, the only `btc-dev` candidate, so a two-label pack has a real duplicate.
-MATCH (from:User {id: $d2}), (to:User {id: $btc4}) MERGE (from)-[:TAGGED {label: $packoverlap_tag, id: "WOTTAGOVER001", indexed_at: 1224534096500, uri: "pubky://smf4xrqfhx7stnufkjzhbjyu3rbgb3gga64srqmzcyyoyzefse9y/pub/pubky.app/tags/WOTTAGOVER001"}]->(to);
+MATCH (from:User {id: $d2}), (to:User {id: $btc4}) MERGE (from)-[rel:TAGGED {label: $packoverlap_tag, id: "WOTTAGOVER001", indexed_at: 1224534096500}]->(to) SET rel.uri = "pubky://smf4xrqfhx7stnufkjzhbjyu3rbgb3gga64srqmzcyyoyzefse9y/pub/pubky.app/tags/WOTTAGOVER001";
 
 // ##############################
 // ##### Create follows #########
@@ -126,7 +126,7 @@ MATCH (u:User {id: $artist1}), (p:Post {id: "WOTPOSTART1A"}) MERGE (u)-[:AUTHORE
 MERGE (p:Post {id: "WOTPOSTREPLY1"}) SET p.content = "reply needing moderation", p.kind = "short", p.indexed_at = 1650000000005;
 MATCH (u:User {id: $d2}), (p:Post {id: "WOTPOSTREPLY1"}) MERGE (u)-[:AUTHORED]->(p) SET p.uri = "pubky://smf4xrqfhx7stnufkjzhbjyu3rbgb3gga64srqmzcyyoyzefse9y/pub/pubky.app/posts/WOTPOSTREPLY1";
 MATCH (parent:Post {id: "WOTPOSTD10002"}), (reply:Post {id: "WOTPOSTREPLY1"}) MERGE (reply)-[:REPLIED]->(parent);
-MATCH (u:User {id: $modbot}), (p:Post {id: "WOTPOSTREPLY1"}) MERGE (u)-[:TAGGED {label: $nudity_tag, id: "WOTTAGNUDITY1", indexed_at: 1224534095000, uri: "pubky://qsfngw6xm9kk7yp99xustjfj8mu9auufkixas5f8goeujuxt45ao/pub/pubky.app/tags/WOTTAGNUDITY1"}]->(p);
+MATCH (u:User {id: $modbot}), (p:Post {id: "WOTPOSTREPLY1"}) MERGE (u)-[rel:TAGGED {label: $nudity_tag, id: "WOTTAGNUDITY1", indexed_at: 1224534095000}]->(p) SET rel.uri = "pubky://qsfngw6xm9kk7yp99xustjfj8mu9auufkixas5f8goeujuxt45ao/pub/pubky.app/tags/WOTTAGNUDITY1";
 
 // WoT post-tag limit/pagination fixture: a deep reply (reply-to-a-reply, so it is
 // excluded from parent streams AND from the engagement index, keeping its tags out
@@ -135,9 +135,9 @@ MATCH (u:User {id: $modbot}), (p:Post {id: "WOTPOSTREPLY1"}) MERGE (u)-[:TAGGED 
 MERGE (p:Post {id: "WOTPOSTTAGS01"}) SET p.content = "wot tag limit fixture", p.kind = "short", p.indexed_at = 1650000000007;
 MATCH (u:User {id: $d2}), (p:Post {id: "WOTPOSTTAGS01"}) MERGE (u)-[:AUTHORED]->(p) SET p.uri = "pubky://smf4xrqfhx7stnufkjzhbjyu3rbgb3gga64srqmzcyyoyzefse9y/pub/pubky.app/posts/WOTPOSTTAGS01";
 MATCH (parent:Post {id: "WOTPOSTREPLY1"}), (reply:Post {id: "WOTPOSTTAGS01"}) MERGE (reply)-[:REPLIED]->(parent);
-MATCH (u:User {id: $d1}), (p:Post {id: "WOTPOSTTAGS01"}) MERGE (u)-[:TAGGED {label: "wotreview", id: "WOTTAGREV0001", indexed_at: 1224534095800, uri: "pubky://qjftuwjog819ki1wktuy5tndebce36bmxxwtjjm3z1fr97jk9yuo/pub/pubky.app/tags/WOTTAGREV0001"}]->(p);
-MATCH (u:User {id: $d1b}), (p:Post {id: "WOTPOSTTAGS01"}) MERGE (u)-[:TAGGED {label: "wotreview", id: "WOTTAGREV0002", indexed_at: 1224534095900, uri: "pubky://t5ixbtatg4tq5q5ixg16qqrg1bmem75ksg6cweuftuydwzw91pzy/pub/pubky.app/tags/WOTTAGREV0002"}]->(p);
-MATCH (u:User {id: $modbot}), (p:Post {id: "WOTPOSTTAGS01"}) MERGE (u)-[:TAGGED {label: "wotflag", id: "WOTTAGFLAG001", indexed_at: 1224534096000, uri: "pubky://qsfngw6xm9kk7yp99xustjfj8mu9auufkixas5f8goeujuxt45ao/pub/pubky.app/tags/WOTTAGFLAG001"}]->(p);
+MATCH (u:User {id: $d1}), (p:Post {id: "WOTPOSTTAGS01"}) MERGE (u)-[rel:TAGGED {label: "wotreview", id: "WOTTAGREV0001", indexed_at: 1224534095800}]->(p) SET rel.uri = "pubky://qjftuwjog819ki1wktuy5tndebce36bmxxwtjjm3z1fr97jk9yuo/pub/pubky.app/tags/WOTTAGREV0001";
+MATCH (u:User {id: $d1b}), (p:Post {id: "WOTPOSTTAGS01"}) MERGE (u)-[rel:TAGGED {label: "wotreview", id: "WOTTAGREV0002", indexed_at: 1224534095900}]->(p) SET rel.uri = "pubky://t5ixbtatg4tq5q5ixg16qqrg1bmem75ksg6cweuftuydwzw91pzy/pub/pubky.app/tags/WOTTAGREV0002";
+MATCH (u:User {id: $modbot}), (p:Post {id: "WOTPOSTTAGS01"}) MERGE (u)-[rel:TAGGED {label: "wotflag", id: "WOTTAGFLAG001", indexed_at: 1224534096000}]->(p) SET rel.uri = "pubky://qsfngw6xm9kk7yp99xustjfj8mu9auufkixas5f8goeujuxt45ao/pub/pubky.app/tags/WOTTAGFLAG001";
 
 // Regression fixture for the O->D1->O follow cycle. O tags this deep reply
 // directly; returning to O through the cycle must not make O a trusted tagger.
@@ -145,32 +145,32 @@ MATCH (u:User {id: $modbot}), (p:Post {id: "WOTPOSTTAGS01"}) MERGE (u)-[:TAGGED 
 MERGE (p:Post {id: "WOTPOSTCYCLE1"}) SET p.content = "follow-cycle tag fixture", p.kind = "short", p.indexed_at = 1650000000008;
 MATCH (u:User {id: $d2}), (p:Post {id: "WOTPOSTCYCLE1"}) MERGE (u)-[:AUTHORED]->(p) SET p.uri = "pubky://smf4xrqfhx7stnufkjzhbjyu3rbgb3gga64srqmzcyyoyzefse9y/pub/pubky.app/posts/WOTPOSTCYCLE1";
 MATCH (parent:Post {id: "WOTPOSTTAGS01"}), (reply:Post {id: "WOTPOSTCYCLE1"}) MERGE (reply)-[:REPLIED]->(parent);
-MATCH (from:User {id: $o_obs}), (to:Post {id: "WOTPOSTCYCLE1"}) MERGE (from)-[:TAGGED {label: "cycle-only", id: "WOTTAGCYCLE02", indexed_at: 1224534096201, uri: "pubky://y6apowjmcg8rocmd9jirg95fyf3yykwuhqxozzts4mjipk4n7iao/pub/pubky.app/tags/WOTTAGCYCLE02"}]->(to);
+MATCH (from:User {id: $o_obs}), (to:Post {id: "WOTPOSTCYCLE1"}) MERGE (from)-[rel:TAGGED {label: "cycle-only", id: "WOTTAGCYCLE02", indexed_at: 1224534096201}]->(to) SET rel.uri = "pubky://y6apowjmcg8rocmd9jirg95fyf3yykwuhqxozzts4mjipk4n7iao/pub/pubky.app/tags/WOTTAGCYCLE02";
 
 // ##############################
 // ##### Domain user->user tags #
 // ##############################
 // Endorsed by O's WoT (bitcoiner): D1->BTC1, D1->BTC2, D1B->BTC3, D1B->BTC1 (dedup)
-MATCH (from:User {id: $d1}), (to:User {id: $btc1}) MERGE (from)-[:TAGGED {label: $bitcoiner_tag, id: "WOTTAGBTC0001", indexed_at: 1224534095100, uri: "pubky://qjftuwjog819ki1wktuy5tndebce36bmxxwtjjm3z1fr97jk9yuo/pub/pubky.app/tags/WOTTAGBTC0001"}]->(to);
-MATCH (from:User {id: $d1}), (to:User {id: $btc2}) MERGE (from)-[:TAGGED {label: $bitcoiner_tag, id: "WOTTAGBTC0002", indexed_at: 1224534095200, uri: "pubky://qjftuwjog819ki1wktuy5tndebce36bmxxwtjjm3z1fr97jk9yuo/pub/pubky.app/tags/WOTTAGBTC0002"}]->(to);
-MATCH (from:User {id: $d1b}), (to:User {id: $btc3}) MERGE (from)-[:TAGGED {label: $bitcoiner_tag, id: "WOTTAGBTC0003", indexed_at: 1224534095300, uri: "pubky://t5ixbtatg4tq5q5ixg16qqrg1bmem75ksg6cweuftuydwzw91pzy/pub/pubky.app/tags/WOTTAGBTC0003"}]->(to);
-MATCH (from:User {id: $d1b}), (to:User {id: $btc1}) MERGE (from)-[:TAGGED {label: $bitcoiner_tag, id: "WOTTAGBTC0004", indexed_at: 1224534095400, uri: "pubky://t5ixbtatg4tq5q5ixg16qqrg1bmem75ksg6cweuftuydwzw91pzy/pub/pubky.app/tags/WOTTAGBTC0004"}]->(to);
+MATCH (from:User {id: $d1}), (to:User {id: $btc1}) MERGE (from)-[rel:TAGGED {label: $bitcoiner_tag, id: "WOTTAGBTC0001", indexed_at: 1224534095100}]->(to) SET rel.uri = "pubky://qjftuwjog819ki1wktuy5tndebce36bmxxwtjjm3z1fr97jk9yuo/pub/pubky.app/tags/WOTTAGBTC0001";
+MATCH (from:User {id: $d1}), (to:User {id: $btc2}) MERGE (from)-[rel:TAGGED {label: $bitcoiner_tag, id: "WOTTAGBTC0002", indexed_at: 1224534095200}]->(to) SET rel.uri = "pubky://qjftuwjog819ki1wktuy5tndebce36bmxxwtjjm3z1fr97jk9yuo/pub/pubky.app/tags/WOTTAGBTC0002";
+MATCH (from:User {id: $d1b}), (to:User {id: $btc3}) MERGE (from)-[rel:TAGGED {label: $bitcoiner_tag, id: "WOTTAGBTC0003", indexed_at: 1224534095300}]->(to) SET rel.uri = "pubky://t5ixbtatg4tq5q5ixg16qqrg1bmem75ksg6cweuftuydwzw91pzy/pub/pubky.app/tags/WOTTAGBTC0003";
+MATCH (from:User {id: $d1b}), (to:User {id: $btc1}) MERGE (from)-[rel:TAGGED {label: $bitcoiner_tag, id: "WOTTAGBTC0004", indexed_at: 1224534095400}]->(to) SET rel.uri = "pubky://t5ixbtatg4tq5q5ixg16qqrg1bmem75ksg6cweuftuydwzw91pzy/pub/pubky.app/tags/WOTTAGBTC0004";
 // Endorsed via btc-dev by depth-2 rater D2 -> BTC4
-MATCH (from:User {id: $d2}), (to:User {id: $btc4}) MERGE (from)-[:TAGGED {label: $btcdev_tag, id: "WOTTAGBTC0005", indexed_at: 1224534095500, uri: "pubky://smf4xrqfhx7stnufkjzhbjyu3rbgb3gga64srqmzcyyoyzefse9y/pub/pubky.app/tags/WOTTAGBTC0005"}]->(to);
+MATCH (from:User {id: $d2}), (to:User {id: $btc4}) MERGE (from)-[rel:TAGGED {label: $btcdev_tag, id: "WOTTAGBTC0005", indexed_at: 1224534095500}]->(to) SET rel.uri = "pubky://smf4xrqfhx7stnufkjzhbjyu3rbgb3gga64srqmzcyyoyzefse9y/pub/pubky.app/tags/WOTTAGBTC0005";
 // Out of WoT: SPAMMER endorses BTC5 (bitcoiner) and ARTIST1 (artist) -> not visible to O.
 // These double as SPAMMER's own (depth-0 "Me") domain endorsements: a wot_domain
 // stream for SPAMMER at depth=0 surfaces BTC5/ARTIST1's posts (its follow-network is
 // empty, so only its own TAGGED edges count).
-MATCH (from:User {id: $spammer}), (to:User {id: $btc5}) MERGE (from)-[:TAGGED {label: $bitcoiner_tag, id: "WOTTAGBTC0006", indexed_at: 1224534095600, uri: "pubky://qdsygndnk45m9ru5jseg3uxk5xg4usj9hrcraqbzgigapzweaa9o/pub/pubky.app/tags/WOTTAGBTC0006"}]->(to);
-MATCH (from:User {id: $spammer}), (to:User {id: $artist1}) MERGE (from)-[:TAGGED {label: $artist_tag, id: "WOTTAGART0001", indexed_at: 1224534095700, uri: "pubky://qdsygndnk45m9ru5jseg3uxk5xg4usj9hrcraqbzgigapzweaa9o/pub/pubky.app/tags/WOTTAGART0001"}]->(to);
+MATCH (from:User {id: $spammer}), (to:User {id: $btc5}) MERGE (from)-[rel:TAGGED {label: $bitcoiner_tag, id: "WOTTAGBTC0006", indexed_at: 1224534095600}]->(to) SET rel.uri = "pubky://qdsygndnk45m9ru5jseg3uxk5xg4usj9hrcraqbzgigapzweaa9o/pub/pubky.app/tags/WOTTAGBTC0006";
+MATCH (from:User {id: $spammer}), (to:User {id: $artist1}) MERGE (from)-[rel:TAGGED {label: $artist_tag, id: "WOTTAGART0001", indexed_at: 1224534095700}]->(to) SET rel.uri = "pubky://qdsygndnk45m9ru5jseg3uxk5xg4usj9hrcraqbzgigapzweaa9o/pub/pubky.app/tags/WOTTAGART0001";
 // SPAMMER self-tags as bitcoiner: its own post qualifies for its depth-0
 // Tagged-as feed.
-MATCH (from:User {id: $spammer}), (to:User {id: $spammer}) MERGE (from)-[:TAGGED {label: $bitcoiner_tag, id: "WOTTAGSELF002", indexed_at: 1224534096300, uri: "pubky://qdsygndnk45m9ru5jseg3uxk5xg4usj9hrcraqbzgigapzweaa9o/pub/pubky.app/tags/WOTTAGSELF002"}]->(to);
+MATCH (from:User {id: $spammer}), (to:User {id: $spammer}) MERGE (from)-[rel:TAGGED {label: $bitcoiner_tag, id: "WOTTAGSELF002", indexed_at: 1224534096300}]->(to) SET rel.uri = "pubky://qdsygndnk45m9ru5jseg3uxk5xg4usj9hrcraqbzgigapzweaa9o/pub/pubky.app/tags/WOTTAGSELF002";
 // D1 (in O's WoT) tags the OBSERVER as bitcoiner, so O's own posts qualify for
 // O's network Tagged-as feed.
-MATCH (from:User {id: $d1}), (to:User {id: $o_obs}) MERGE (from)-[:TAGGED {label: $bitcoiner_tag, id: "WOTTAGSELF001", indexed_at: 1224534096100, uri: "pubky://qjftuwjog819ki1wktuy5tndebce36bmxxwtjjm3z1fr97jk9yuo/pub/pubky.app/tags/WOTTAGSELF001"}]->(to);
+MATCH (from:User {id: $d1}), (to:User {id: $o_obs}) MERGE (from)-[rel:TAGGED {label: $bitcoiner_tag, id: "WOTTAGSELF001", indexed_at: 1224534096100}]->(to) SET rel.uri = "pubky://qjftuwjog819ki1wktuy5tndebce36bmxxwtjjm3z1fr97jk9yuo/pub/pubky.app/tags/WOTTAGSELF001";
 // O's direct tag must not leak into network depth through the O->D1->O cycle.
-MATCH (from:User {id: $o_obs}), (to:User {id: $artist1}) MERGE (from)-[:TAGGED {label: $artist_tag, id: "WOTTAGCYCLE01", indexed_at: 1224534096200, uri: "pubky://y6apowjmcg8rocmd9jirg95fyf3yykwuhqxozzts4mjipk4n7iao/pub/pubky.app/tags/WOTTAGCYCLE01"}]->(to);
+MATCH (from:User {id: $o_obs}), (to:User {id: $artist1}) MERGE (from)-[rel:TAGGED {label: $artist_tag, id: "WOTTAGCYCLE01", indexed_at: 1224534096200}]->(to) SET rel.uri = "pubky://y6apowjmcg8rocmd9jirg95fyf3yykwuhqxozzts4mjipk4n7iao/pub/pubky.app/tags/WOTTAGCYCLE01";
 
 // ##################################
 // ##### WoT post-tag pagination ####
@@ -184,9 +184,9 @@ MATCH (from:User {id: $o_obs}), (to:User {id: $artist1}) MERGE (from)-[:TAGGED {
 MERGE (p:Post {id: "WOTPOSTMODF01"}) SET p.content = "heavily flagged reply", p.kind = "short", p.indexed_at = 1650000000013;
 MATCH (u:User {id: $spammer}), (p:Post {id: "WOTPOSTMODF01"}) MERGE (u)-[:AUTHORED]->(p) SET p.uri = "pubky://qdsygndnk45m9ru5jseg3uxk5xg4usj9hrcraqbzgigapzweaa9o/pub/pubky.app/posts/WOTPOSTMODF01";
 MATCH (parent:Post {id: "WOTPOSTTAGS01"}), (reply:Post {id: "WOTPOSTMODF01"}) MERGE (reply)-[:REPLIED]->(parent);
-MATCH (u:User {id: $d1}), (p:Post {id: "WOTPOSTMODF01"}) MERGE (u)-[:TAGGED {label: "wmtag1", id: "WOTTAGMOD0001", indexed_at: 1224534096200, uri: "pubky://qjftuwjog819ki1wktuy5tndebce36bmxxwtjjm3z1fr97jk9yuo/pub/pubky.app/tags/WOTTAGMOD0001"}]->(p);
-MATCH (u:User {id: $d1}), (p:Post {id: "WOTPOSTMODF01"}) MERGE (u)-[:TAGGED {label: "wmtag2", id: "WOTTAGMOD0002", indexed_at: 1224534096201, uri: "pubky://qjftuwjog819ki1wktuy5tndebce36bmxxwtjjm3z1fr97jk9yuo/pub/pubky.app/tags/WOTTAGMOD0002"}]->(p);
-MATCH (u:User {id: $d1b}), (p:Post {id: "WOTPOSTMODF01"}) MERGE (u)-[:TAGGED {label: "wmtag3", id: "WOTTAGMOD0003", indexed_at: 1224534096202, uri: "pubky://t5ixbtatg4tq5q5ixg16qqrg1bmem75ksg6cweuftuydwzw91pzy/pub/pubky.app/tags/WOTTAGMOD0003"}]->(p);
-MATCH (u:User {id: $d1b}), (p:Post {id: "WOTPOSTMODF01"}) MERGE (u)-[:TAGGED {label: "wmtag4", id: "WOTTAGMOD0004", indexed_at: 1224534096203, uri: "pubky://t5ixbtatg4tq5q5ixg16qqrg1bmem75ksg6cweuftuydwzw91pzy/pub/pubky.app/tags/WOTTAGMOD0004"}]->(p);
-MATCH (u:User {id: $d2}), (p:Post {id: "WOTPOSTMODF01"}) MERGE (u)-[:TAGGED {label: "wmtag5", id: "WOTTAGMOD0005", indexed_at: 1224534096204, uri: "pubky://smf4xrqfhx7stnufkjzhbjyu3rbgb3gga64srqmzcyyoyzefse9y/pub/pubky.app/tags/WOTTAGMOD0005"}]->(p);
-MATCH (u:User {id: $modbot}), (p:Post {id: "WOTPOSTMODF01"}) MERGE (u)-[:TAGGED {label: "wmtagflag", id: "WOTTAGMOD0006", indexed_at: 1224534096205, uri: "pubky://qsfngw6xm9kk7yp99xustjfj8mu9auufkixas5f8goeujuxt45ao/pub/pubky.app/tags/WOTTAGMOD0006"}]->(p);
+MATCH (u:User {id: $d1}), (p:Post {id: "WOTPOSTMODF01"}) MERGE (u)-[rel:TAGGED {label: "wmtag1", id: "WOTTAGMOD0001", indexed_at: 1224534096200}]->(p) SET rel.uri = "pubky://qjftuwjog819ki1wktuy5tndebce36bmxxwtjjm3z1fr97jk9yuo/pub/pubky.app/tags/WOTTAGMOD0001";
+MATCH (u:User {id: $d1}), (p:Post {id: "WOTPOSTMODF01"}) MERGE (u)-[rel:TAGGED {label: "wmtag2", id: "WOTTAGMOD0002", indexed_at: 1224534096201}]->(p) SET rel.uri = "pubky://qjftuwjog819ki1wktuy5tndebce36bmxxwtjjm3z1fr97jk9yuo/pub/pubky.app/tags/WOTTAGMOD0002";
+MATCH (u:User {id: $d1b}), (p:Post {id: "WOTPOSTMODF01"}) MERGE (u)-[rel:TAGGED {label: "wmtag3", id: "WOTTAGMOD0003", indexed_at: 1224534096202}]->(p) SET rel.uri = "pubky://t5ixbtatg4tq5q5ixg16qqrg1bmem75ksg6cweuftuydwzw91pzy/pub/pubky.app/tags/WOTTAGMOD0003";
+MATCH (u:User {id: $d1b}), (p:Post {id: "WOTPOSTMODF01"}) MERGE (u)-[rel:TAGGED {label: "wmtag4", id: "WOTTAGMOD0004", indexed_at: 1224534096203}]->(p) SET rel.uri = "pubky://t5ixbtatg4tq5q5ixg16qqrg1bmem75ksg6cweuftuydwzw91pzy/pub/pubky.app/tags/WOTTAGMOD0004";
+MATCH (u:User {id: $d2}), (p:Post {id: "WOTPOSTMODF01"}) MERGE (u)-[rel:TAGGED {label: "wmtag5", id: "WOTTAGMOD0005", indexed_at: 1224534096204}]->(p) SET rel.uri = "pubky://smf4xrqfhx7stnufkjzhbjyu3rbgb3gga64srqmzcyyoyzefse9y/pub/pubky.app/tags/WOTTAGMOD0005";
+MATCH (u:User {id: $modbot}), (p:Post {id: "WOTPOSTMODF01"}) MERGE (u)-[rel:TAGGED {label: "wmtagflag", id: "WOTTAGMOD0006", indexed_at: 1224534096205}]->(p) SET rel.uri = "pubky://qsfngw6xm9kk7yp99xustjfj8mu9auufkixas5f8goeujuxt45ao/pub/pubky.app/tags/WOTTAGMOD0006";

@@ -42,59 +42,59 @@ MATCH (u:User {id: $eixample}) MERGE (u)-[:FOLLOWS {indexed_at: 1730475950002, i
 // ###############################
 MERGE (p:Post {id: "00000039YD99Y"}) SET p.content = "API security is crucial for ensuring user privacy and data protection", p.kind = "short", p.indexed_at = 1709308315917;
 MATCH (u:User {id: $amsterdam}), (p:Post {id: "00000039YD99Y"}) MERGE (u)-[:AUTHORED]->(p) SET p.uri = "pubky://emq37ky6fbnaun7q1ris6rx3mqmw3a33so1txfesg9jj3ak9ryoy/pub/pubky.app/posts/00000039YD99Y";
-MATCH (u:User {id: $bogota}), (p:Post {id: "00000039YD99Y"}) MERGE (u)-[:TAGGED {label: $api_tag, id: "6JDN8B3W4F5M", indexed_at: 1724544095000, uri: "pubky://ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny/pub/pubky.app/tags/6JDN8B3W4F5M"}]->(p);
-MATCH (u:User {id: $cairo}), (p:Post {id: "00000039YD99Y"}) MERGE (u)-[:TAGGED {label: $api_tag, id: "7T0R9X6A2E1L", indexed_at: 1724134080000, uri: "pubky://f5tcy5gtgzshipr6pag6cn9uski3s8tjare7wd3n7enmyokgjk1o/pub/pubky.app/tags/7T0R9X6A2E1L"}]->(p);
-MATCH (u:User {id: $detroit}), (p:Post {id: "00000039YD99Y"}) MERGE (u)-[:TAGGED {label: $opensource_tag, id: "8G7Q5N4W1Z3P", indexed_at: 1724134092000, uri: "pubky://7w4hmktqa7gia5thmk7zki8px7ttwpwjtgaaaou4tbqx64re8d1o/pub/pubky.app/tags/8G7Q5N4W1Z3P"}]->(p);
-MATCH (u:User {id: $eixample}), (p:Post {id: "00000039YD99Y"}) MERGE (u)-[:TAGGED {label: $api_tag, id: "9B4M8L0X2K7F", indexed_at: 1724334095000, uri: "pubky://8attbeo9ftu5nztqkcfw3gydksehr7jbspgfi64u4h8eo5e7dbiy/pub/pubky.app/tags/9B4M8L0X2K7F"}]->(p);
-MATCH (u:User {id: $eixample}), (p:Post {id: "00000039YD99Y"}) MERGE (u)-[:TAGGED {label: $encryption_tag, id: "A5S6P9V3Q0T", indexed_at: 1724134080000, uri: "pubky://8attbeo9ftu5nztqkcfw3gydksehr7jbspgfi64u4h8eo5e7dbiy/pub/pubky.app/tags/A5S6P9V3Q0T"}]->(p);
-MATCH (u:User {id: $detroit}), (p:Post {id: "00000039YD99Y"}) MERGE (u)-[:TAGGED {label: $encryption_tag, id: "B7X8N2F4W1J9", indexed_at: 1724134092000, uri: "pubky://7w4hmktqa7gia5thmk7zki8px7ttwpwjtgaaaou4tbqx64re8d1o/pub/pubky.app/tags/B7X8N2F4W1J9"}]->(p);
-MATCH (u:User {id: $cairo}), (p:Post {id: "00000039YD99Y"}) MERGE (u)-[:TAGGED {label: $encryption_tag, id: "C1L2P4M7Q8R", indexed_at: 1724334095000, uri: "pubky://f5tcy5gtgzshipr6pag6cn9uski3s8tjare7wd3n7enmyokgjk1o/pub/pubky.app/tags/C1L2P4M7Q8R"}]->(p);
-MATCH (u:User {id: $bogota}), (p:Post {id: "00000039YD99Y"}) MERGE (u)-[:TAGGED {label: $opensource_tag, id: "D3W5K8X2J9N", indexed_at: 1724334095000, uri: "pubky://ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny/pub/pubky.app/tags/D3W5K8X2J9N"}]->(p);
+MATCH (u:User {id: $bogota}), (p:Post {id: "00000039YD99Y"}) MERGE (u)-[rel:TAGGED {label: $api_tag, id: "6JDN8B3W4F5M", indexed_at: 1724544095000}]->(p) SET rel.uri = "pubky://ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny/pub/pubky.app/tags/6JDN8B3W4F5M";
+MATCH (u:User {id: $cairo}), (p:Post {id: "00000039YD99Y"}) MERGE (u)-[rel:TAGGED {label: $api_tag, id: "7T0R9X6A2E1L", indexed_at: 1724134080000}]->(p) SET rel.uri = "pubky://f5tcy5gtgzshipr6pag6cn9uski3s8tjare7wd3n7enmyokgjk1o/pub/pubky.app/tags/7T0R9X6A2E1L";
+MATCH (u:User {id: $detroit}), (p:Post {id: "00000039YD99Y"}) MERGE (u)-[rel:TAGGED {label: $opensource_tag, id: "8G7Q5N4W1Z3P", indexed_at: 1724134092000}]->(p) SET rel.uri = "pubky://7w4hmktqa7gia5thmk7zki8px7ttwpwjtgaaaou4tbqx64re8d1o/pub/pubky.app/tags/8G7Q5N4W1Z3P";
+MATCH (u:User {id: $eixample}), (p:Post {id: "00000039YD99Y"}) MERGE (u)-[rel:TAGGED {label: $api_tag, id: "9B4M8L0X2K7F", indexed_at: 1724334095000}]->(p) SET rel.uri = "pubky://8attbeo9ftu5nztqkcfw3gydksehr7jbspgfi64u4h8eo5e7dbiy/pub/pubky.app/tags/9B4M8L0X2K7F";
+MATCH (u:User {id: $eixample}), (p:Post {id: "00000039YD99Y"}) MERGE (u)-[rel:TAGGED {label: $encryption_tag, id: "A5S6P9V3Q0T", indexed_at: 1724134080000}]->(p) SET rel.uri = "pubky://8attbeo9ftu5nztqkcfw3gydksehr7jbspgfi64u4h8eo5e7dbiy/pub/pubky.app/tags/A5S6P9V3Q0T";
+MATCH (u:User {id: $detroit}), (p:Post {id: "00000039YD99Y"}) MERGE (u)-[rel:TAGGED {label: $encryption_tag, id: "B7X8N2F4W1J9", indexed_at: 1724134092000}]->(p) SET rel.uri = "pubky://7w4hmktqa7gia5thmk7zki8px7ttwpwjtgaaaou4tbqx64re8d1o/pub/pubky.app/tags/B7X8N2F4W1J9";
+MATCH (u:User {id: $cairo}), (p:Post {id: "00000039YD99Y"}) MERGE (u)-[rel:TAGGED {label: $encryption_tag, id: "C1L2P4M7Q8R", indexed_at: 1724334095000}]->(p) SET rel.uri = "pubky://f5tcy5gtgzshipr6pag6cn9uski3s8tjare7wd3n7enmyokgjk1o/pub/pubky.app/tags/C1L2P4M7Q8R";
+MATCH (u:User {id: $bogota}), (p:Post {id: "00000039YD99Y"}) MERGE (u)-[rel:TAGGED {label: $opensource_tag, id: "D3W5K8X2J9N", indexed_at: 1724334095000}]->(p) SET rel.uri = "pubky://ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny/pub/pubky.app/tags/D3W5K8X2J9N";
 
 
 MERGE (p2:Post {id: "00000039YD9B2"}) SET p2.content = "Open-source software promotes transparency and enhances user trust in digital privacy", p2.kind = "short", p2.indexed_at = 1719308316921;
 MATCH (u2:User {id: $amsterdam}), (p2:Post {id: "00000039YD9B2"}) MERGE (u2)-[:AUTHORED]->(p2) SET p2.uri = "pubky://emq37ky6fbnaun7q1ris6rx3mqmw3a33so1txfesg9jj3ak9ryoy/pub/pubky.app/posts/00000039YD9B2";
-MATCH (u:User {id: $bogota}), (p:Post {id: "00000039YD9B2"}) MERGE (u)-[:TAGGED {label:$opensource_tag, id: "E4F6M1P0Q2R7", indexed_at: 1724544095000, uri: "pubky://ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny/pub/pubky.app/tags/E4F6M1P0Q2R7"}]->(p);
-MATCH (u:User {id: $detroit}), (p:Post {id: "00000039YD9B2"}) MERGE (u)-[:TAGGED {label: $api_tag, id: "F8N2W3X9J4L", indexed_at: 1724134080000, uri: "pubky://7w4hmktqa7gia5thmk7zki8px7ttwpwjtgaaaou4tbqx64re8d1o/pub/pubky.app/tags/F8N2W3X9J4L"}]->(p);
-MATCH (u:User {id: $cairo}), (p:Post {id: "00000039YD9B2"}) MERGE (u)-[:TAGGED {label: $opensource_tag, id: "G5P7Q8L0X1D", indexed_at: 1724134092000, uri: "pubky://f5tcy5gtgzshipr6pag6cn9uski3s8tjare7wd3n7enmyokgjk1o/pub/pubky.app/tags/G5P7Q8L0X1D"}]->(p);
-MATCH (u:User {id: $eixample}), (p:Post {id: "00000039YD9B2"}) MERGE (u)-[:TAGGED {label: $encryption_tag, id: "H9X2M4F7N3J", indexed_at: 1724134096000, uri: "pubky://8attbeo9ftu5nztqkcfw3gydksehr7jbspgfi64u4h8eo5e7dbiy/pub/pubky.app/tags/H9X2M4F7N3J"}]->(p);
+MATCH (u:User {id: $bogota}), (p:Post {id: "00000039YD9B2"}) MERGE (u)-[rel:TAGGED {label:$opensource_tag, id: "E4F6M1P0Q2R7", indexed_at: 1724544095000}]->(p) SET rel.uri = "pubky://ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny/pub/pubky.app/tags/E4F6M1P0Q2R7";
+MATCH (u:User {id: $detroit}), (p:Post {id: "00000039YD9B2"}) MERGE (u)-[rel:TAGGED {label: $api_tag, id: "F8N2W3X9J4L", indexed_at: 1724134080000}]->(p) SET rel.uri = "pubky://7w4hmktqa7gia5thmk7zki8px7ttwpwjtgaaaou4tbqx64re8d1o/pub/pubky.app/tags/F8N2W3X9J4L";
+MATCH (u:User {id: $cairo}), (p:Post {id: "00000039YD9B2"}) MERGE (u)-[rel:TAGGED {label: $opensource_tag, id: "G5P7Q8L0X1D", indexed_at: 1724134092000}]->(p) SET rel.uri = "pubky://f5tcy5gtgzshipr6pag6cn9uski3s8tjare7wd3n7enmyokgjk1o/pub/pubky.app/tags/G5P7Q8L0X1D";
+MATCH (u:User {id: $eixample}), (p:Post {id: "00000039YD9B2"}) MERGE (u)-[rel:TAGGED {label: $encryption_tag, id: "H9X2M4F7N3J", indexed_at: 1724134096000}]->(p) SET rel.uri = "pubky://8attbeo9ftu5nztqkcfw3gydksehr7jbspgfi64u4h8eo5e7dbiy/pub/pubky.app/tags/H9X2M4F7N3J";
 
 MERGE (p3:Post {id: "00000039YD9BM"}) SET p3.content = "Encryption standards are vital for securing communications and preserving user privacy", p3.kind = "short", p3.indexed_at = 1729308318234;
 MATCH (u3:User {id: $bogota}), (p3:Post {id: "00000039YD9BM"}) MERGE (u3)-[:AUTHORED]->(p3) SET p3.uri = "pubky://ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny/pub/pubky.app/posts/00000039YD9BM";
-MATCH (u:User {id: $amsterdam}), (p:Post {id: "00000039YD9BM"}) MERGE (u)-[:TAGGED {label: $encryption_tag, id: "J0L8Q1P5W4K", indexed_at: 1724134080000, uri: "pubky://emq37ky6fbnaun7q1ris6rx3mqmw3a33so1txfesg9jj3ak9ryoy/pub/pubky.app/tags/J0L8Q1P5W4K"}]->(p);
-MATCH (u:User {id: $detroit}), (p:Post {id: "00000039YD9BM"}) MERGE (u)-[:TAGGED {label: $encryption_tag, id: "K2N7W9F4X1D", indexed_at: 1724134092000, uri: "pubky://7w4hmktqa7gia5thmk7zki8px7ttwpwjtgaaaou4tbqx64re8d1o/pub/pubky.app/tags/K2N7W9F4X1D"}]->(p);
-MATCH (u:User {id: $cairo}), (p:Post {id: "00000039YD9BM"}) MERGE (u)-[:TAGGED {label: $encryption_tag, id: "L3P8X0J2Q7M", indexed_at: 1724134092000, uri: "pubky://f5tcy5gtgzshipr6pag6cn9uski3s8tjare7wd3n7enmyokgjk1o/pub/pubky.app/tags/L3P8X0J2Q7M"}]->(p);
-MATCH (u:User {id: $eixample}), (p:Post {id: "00000039YD9BM"}) MERGE (u)-[:TAGGED {label: $opensource_tag, id: "M4W1N9F2X8J", indexed_at: 1724134092000, uri: "pubky://8attbeo9ftu5nztqkcfw3gydksehr7jbspgfi64u4h8eo5e7dbiy/pub/pubky.app/tags/M4W1N9F2X8J"}]->(p);
+MATCH (u:User {id: $amsterdam}), (p:Post {id: "00000039YD9BM"}) MERGE (u)-[rel:TAGGED {label: $encryption_tag, id: "J0L8Q1P5W4K", indexed_at: 1724134080000}]->(p) SET rel.uri = "pubky://emq37ky6fbnaun7q1ris6rx3mqmw3a33so1txfesg9jj3ak9ryoy/pub/pubky.app/tags/J0L8Q1P5W4K";
+MATCH (u:User {id: $detroit}), (p:Post {id: "00000039YD9BM"}) MERGE (u)-[rel:TAGGED {label: $encryption_tag, id: "K2N7W9F4X1D", indexed_at: 1724134092000}]->(p) SET rel.uri = "pubky://7w4hmktqa7gia5thmk7zki8px7ttwpwjtgaaaou4tbqx64re8d1o/pub/pubky.app/tags/K2N7W9F4X1D";
+MATCH (u:User {id: $cairo}), (p:Post {id: "00000039YD9BM"}) MERGE (u)-[rel:TAGGED {label: $encryption_tag, id: "L3P8X0J2Q7M", indexed_at: 1724134092000}]->(p) SET rel.uri = "pubky://f5tcy5gtgzshipr6pag6cn9uski3s8tjare7wd3n7enmyokgjk1o/pub/pubky.app/tags/L3P8X0J2Q7M";
+MATCH (u:User {id: $eixample}), (p:Post {id: "00000039YD9BM"}) MERGE (u)-[rel:TAGGED {label: $opensource_tag, id: "M4W1N9F2X8J", indexed_at: 1724134092000}]->(p) SET rel.uri = "pubky://8attbeo9ftu5nztqkcfw3gydksehr7jbspgfi64u4h8eo5e7dbiy/pub/pubky.app/tags/M4W1N9F2X8J";
 MATCH (u:User {id: $eixample}), (p:Post {id: "00000039YD9BM"}) MERGE (u)-[:BOOKMARKED {id: "A9G7F2L4Q1W3", indexed_at: 1721764200000}]->(p);
 
 MERGE (p3:Post {id: "00000039YD9C0"}) SET p3.content = "Open-source projects often lead the way in implementing cutting-edge privacy tech innovations", p3.kind = "short", p3.indexed_at = 1693824823456;
 MATCH (u3:User {id: $bogota}), (p3:Post {id: "00000039YD9C0"}) MERGE (u3)-[:AUTHORED]->(p3) SET p3.uri = "pubky://ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny/pub/pubky.app/posts/00000039YD9C0";
-MATCH (u:User {id: $amsterdam}), (p:Post {id: "00000039YD9C0"}) MERGE (u)-[:TAGGED {label: $opensource_tag, id: "D2X5P9M1J7L0", indexed_at: 1724134080000, uri: "pubky://emq37ky6fbnaun7q1ris6rx3mqmw3a33so1txfesg9jj3ak9ryoy/pub/pubky.app/tags/D2X5P9M1J7L0"}]->(p);
-MATCH (u:User {id: $detroit}), (p:Post {id: "00000039YD9C0"}) MERGE (u)-[:TAGGED {label: $opensource_tag, id: "E4N8Q1W2F6J3", indexed_at: 1724134092000, uri: "pubky://7w4hmktqa7gia5thmk7zki8px7ttwpwjtgaaaou4tbqx64re8d1o/pub/pubky.app/tags/E4N8Q1W2F6J3"}]->(p);
+MATCH (u:User {id: $amsterdam}), (p:Post {id: "00000039YD9C0"}) MERGE (u)-[rel:TAGGED {label: $opensource_tag, id: "D2X5P9M1J7L0", indexed_at: 1724134080000}]->(p) SET rel.uri = "pubky://emq37ky6fbnaun7q1ris6rx3mqmw3a33so1txfesg9jj3ak9ryoy/pub/pubky.app/tags/D2X5P9M1J7L0";
+MATCH (u:User {id: $detroit}), (p:Post {id: "00000039YD9C0"}) MERGE (u)-[rel:TAGGED {label: $opensource_tag, id: "E4N8Q1W2F6J3", indexed_at: 1724134092000}]->(p) SET rel.uri = "pubky://7w4hmktqa7gia5thmk7zki8px7ttwpwjtgaaaou4tbqx64re8d1o/pub/pubky.app/tags/E4N8Q1W2F6J3";
 
 MERGE (p3:Post {id: "00000039YD9CE"}) SET p3.content = "Open-source code supports transparency", p3.kind = "short", p3.indexed_at = 1693824190123;
 MATCH (u3:User {id: $bogota}), (p3:Post {id: "00000039YD9CE"}) MERGE (u3)-[:AUTHORED]->(p3) SET p3.uri = "pubky://ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny/pub/pubky.app/posts/00000039YD9CE";
-MATCH (u:User {id: $amsterdam}), (p:Post {id: "00000039YD9CE"}) MERGE (u)-[:TAGGED {label: $opensource_tag, id: "P8M1X4L2Q9J7", indexed_at: 1724134080000, uri: "pubky://emq37ky6fbnaun7q1ris6rx3mqmw3a33so1txfesg9jj3ak9ryoy/pub/pubky.app/tags/P8M1X4L2Q9J7"}]->(p);
-MATCH (u:User {id: $detroit}), (p:Post {id: "00000039YD9CE"}) MERGE (u)-[:TAGGED {label: $opensource_tag, id: "Q9N2W5F0J8K1", indexed_at: 1724134092000, uri: "pubky://7w4hmktqa7gia5thmk7zki8px7ttwpwjtgaaaou4tbqx64re8d1o/pub/pubky.app/tags/Q9N2W5F0J8K1"}]->(p);
+MATCH (u:User {id: $amsterdam}), (p:Post {id: "00000039YD9CE"}) MERGE (u)-[rel:TAGGED {label: $opensource_tag, id: "P8M1X4L2Q9J7", indexed_at: 1724134080000}]->(p) SET rel.uri = "pubky://emq37ky6fbnaun7q1ris6rx3mqmw3a33so1txfesg9jj3ak9ryoy/pub/pubky.app/tags/P8M1X4L2Q9J7";
+MATCH (u:User {id: $detroit}), (p:Post {id: "00000039YD9CE"}) MERGE (u)-[rel:TAGGED {label: $opensource_tag, id: "Q9N2W5F0J8K1", indexed_at: 1724134092000}]->(p) SET rel.uri = "pubky://7w4hmktqa7gia5thmk7zki8px7ttwpwjtgaaaou4tbqx64re8d1o/pub/pubky.app/tags/Q9N2W5F0J8K1";
 
 MERGE (p3:Post {id: "00000039YD9CY"}) SET p3.content = "Open-source solutions build trusty", p3.kind = "short", p3.indexed_at = 1693823567890;
 MATCH (u3:User {id: $detroit}), (p3:Post {id: "00000039YD9CY"}) MERGE (u3)-[:AUTHORED]->(p3) SET p3.uri = "pubky://7w4hmktqa7gia5thmk7zki8px7ttwpwjtgaaaou4tbqx64re8d1o/pub/pubky.app/posts/00000039YD9CY";
-MATCH (u:User {id: $amsterdam}), (p:Post {id: "00000039YD9CY"}) MERGE (u)-[:TAGGED {label: $opensource_tag, id: "R1L3X7P2F9J8", indexed_at: 1724134080000, uri: "pubky://emq37ky6fbnaun7q1ris6rx3mqmw3a33so1txfesg9jj3ak9ryoy/pub/pubky.app/tags/R1L3X7P2F9J8"}]->(p);
-MATCH (u:User {id: $bogota}), (p:Post {id: "00000039YD9CY"}) MERGE (u)-[:TAGGED {label: $opensource_tag, id: "S4M0Q2N6F1J9", indexed_at: 1724134092000, uri: "pubky://ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny/pub/pubky.app/tags/S4M0Q2N6F1J9"}]->(p);
+MATCH (u:User {id: $amsterdam}), (p:Post {id: "00000039YD9CY"}) MERGE (u)-[rel:TAGGED {label: $opensource_tag, id: "R1L3X7P2F9J8", indexed_at: 1724134080000}]->(p) SET rel.uri = "pubky://emq37ky6fbnaun7q1ris6rx3mqmw3a33so1txfesg9jj3ak9ryoy/pub/pubky.app/tags/R1L3X7P2F9J8";
+MATCH (u:User {id: $bogota}), (p:Post {id: "00000039YD9CY"}) MERGE (u)-[rel:TAGGED {label: $opensource_tag, id: "S4M0Q2N6F1J9", indexed_at: 1724134092000}]->(p) SET rel.uri = "pubky://ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny/pub/pubky.app/tags/S4M0Q2N6F1J9";
 
 MERGE (p3:Post {id: "00000039YD9DA"}) SET p3.content = "Open-source enables security auditing via e-mail notifications", p3.kind = "short", p3.indexed_at = 1693822934567;
 MATCH (u3:User {id: $detroit}), (p3:Post {id: "00000039YD9DA"}) MERGE (u3)-[:AUTHORED]->(p3) SET p3.uri = "pubky://7w4hmktqa7gia5thmk7zki8px7ttwpwjtgaaaou4tbqx64re8d1o/pub/pubky.app/posts/00000039YD9DA";
-MATCH (u:User {id: $amsterdam}), (p:Post {id: "00000039YD9DA"}) MERGE (u)-[:TAGGED {label: $opensource_tag, id: "T5X8L1P3J4N2", indexed_at: 1724134080000, uri: "pubky://emq37ky6fbnaun7q1ris6rx3mqmw3a33so1txfesg9jj3ak9ryoy/pub/pubky.app/tags/T5X8L1P3J4N2"}]->(p);
-MATCH (u:User {id: $bogota}), (p:Post {id: "00000039YD9DA"}) MERGE (u)-[:TAGGED {label: $opensource_tag, id: "U6Q7F0M2X1J8", indexed_at: 1724134092000, uri: "pubky://ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny/pub/pubky.app/tags/U6Q7F0M2X1J8"}]->(p);
+MATCH (u:User {id: $amsterdam}), (p:Post {id: "00000039YD9DA"}) MERGE (u)-[rel:TAGGED {label: $opensource_tag, id: "T5X8L1P3J4N2", indexed_at: 1724134080000}]->(p) SET rel.uri = "pubky://emq37ky6fbnaun7q1ris6rx3mqmw3a33so1txfesg9jj3ak9ryoy/pub/pubky.app/tags/T5X8L1P3J4N2";
+MATCH (u:User {id: $bogota}), (p:Post {id: "00000039YD9DA"}) MERGE (u)-[rel:TAGGED {label: $opensource_tag, id: "U6Q7F0M2X1J8", indexed_at: 1724134092000}]->(p) SET rel.uri = "pubky://ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny/pub/pubky.app/tags/U6Q7F0M2X1J8";
 
 MERGE (p3:Post {id: "00000039YD9DP"}) SET p3.content = "Open-source drives innovation forward", p3.kind = "short", p3.indexed_at = 1693822331234, p3.attachments = ["pubky://f5tcy5gtgzshipr6pag6cn9uski3s8tjare7wd3n7enmyokgjk1o/pub/pubky.app/files/2ZK3A1B2C3D40", "pubky://f5tcy5gtgzshipr6pag6cn9uski3s8tjare7wd3n7enmyokgjk1o/pub/pubky.app/files/2ZK3E5F6G7H80"];
 MATCH (u3:User {id: $cairo}), (p3:Post {id: "00000039YD9DP"}) MERGE (u3)-[:AUTHORED]->(p3) SET p3.uri = "pubky://f5tcy5gtgzshipr6pag6cn9uski3s8tjare7wd3n7enmyokgjk1o/pub/pubky.app/posts/00000039YD9DP";
-MATCH (u:User {id: $amsterdam}), (p:Post {id: "00000039YD9DP"}) MERGE (u)-[:TAGGED {label: $opensource_tag, id: "00000039YD99Y", indexed_at: 1724134080000, uri: "pubky://emq37ky6fbnaun7q1ris6rx3mqmw3a33so1txfesg9jj3ak9ryoy/pub/pubky.app/tags/00000039YD99Y"}]->(p);
-MATCH (u:User {id: $bogota}), (p:Post {id: "00000039YD9DP"}) MERGE (u)-[:TAGGED {label: $opensource_tag, id: "J4N8Q1W2F6J3", indexed_at: 1724134092000, uri: "pubky://ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny/pub/pubky.app/tags/J4N8Q1W2F6J3"}]->(p);
-MATCH (u:User {id: $detroit}), (p:Post {id: "00000039YD9DP"}) MERGE (u)-[:TAGGED {label: $opensource_tag, id: "V8N1P3L9J45R", indexed_at: 1724134080000, uri: "pubky://7w4hmktqa7gia5thmk7zki8px7ttwpwjtgaaaou4tbqx64re8d1o/pub/pubky.app/tags/V8N1P3L9J45R"}]->(p);
-MATCH (u:User {id: $eixample}), (p:Post {id: "00000039YD9DP"}) MERGE (u)-[:TAGGED {label: $opensource_tag, id: "J4N8Q1W2F6K8", indexed_at: 1724134092000, uri: "pubky://8attbeo9ftu5nztqkcfw3gydksehr7jbspgfi64u4h8eo5e7dbiy/pub/pubky.app/tags/J4N8Q1W2F6K8"}]->(p);
-MATCH (u:User {id: $amsterdam}), (p:Post {id: "00000039YD9DP"}) MERGE (u)-[:TAGGED {label: $encryption_tag, id: "V8N1P3L9J421", indexed_at: 1724134095000, uri: "pubky://emq37ky6fbnaun7q1ris6rx3mqmw3a33so1txfesg9jj3ak9ryoy/pub/pubky.app/tags/V8N1P3L9J421"}]->(p);
-MATCH (u:User {id: $eixample}), (p:Post {id: "00000039YD9DP"}) MERGE (u)-[:TAGGED {label: $encryption_tag, id: "J4N8Q1W2F6LJ", indexed_at: 1724134077000, uri: "pubky://8attbeo9ftu5nztqkcfw3gydksehr7jbspgfi64u4h8eo5e7dbiy/pub/pubky.app/tags/J4N8Q1W2F6LJ"}]->(p);
+MATCH (u:User {id: $amsterdam}), (p:Post {id: "00000039YD9DP"}) MERGE (u)-[rel:TAGGED {label: $opensource_tag, id: "00000039YD99Y", indexed_at: 1724134080000}]->(p) SET rel.uri = "pubky://emq37ky6fbnaun7q1ris6rx3mqmw3a33so1txfesg9jj3ak9ryoy/pub/pubky.app/tags/00000039YD99Y";
+MATCH (u:User {id: $bogota}), (p:Post {id: "00000039YD9DP"}) MERGE (u)-[rel:TAGGED {label: $opensource_tag, id: "J4N8Q1W2F6J3", indexed_at: 1724134092000}]->(p) SET rel.uri = "pubky://ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny/pub/pubky.app/tags/J4N8Q1W2F6J3";
+MATCH (u:User {id: $detroit}), (p:Post {id: "00000039YD9DP"}) MERGE (u)-[rel:TAGGED {label: $opensource_tag, id: "V8N1P3L9J45R", indexed_at: 1724134080000}]->(p) SET rel.uri = "pubky://7w4hmktqa7gia5thmk7zki8px7ttwpwjtgaaaou4tbqx64re8d1o/pub/pubky.app/tags/V8N1P3L9J45R";
+MATCH (u:User {id: $eixample}), (p:Post {id: "00000039YD9DP"}) MERGE (u)-[rel:TAGGED {label: $opensource_tag, id: "J4N8Q1W2F6K8", indexed_at: 1724134092000}]->(p) SET rel.uri = "pubky://8attbeo9ftu5nztqkcfw3gydksehr7jbspgfi64u4h8eo5e7dbiy/pub/pubky.app/tags/J4N8Q1W2F6K8";
+MATCH (u:User {id: $amsterdam}), (p:Post {id: "00000039YD9DP"}) MERGE (u)-[rel:TAGGED {label: $encryption_tag, id: "V8N1P3L9J421", indexed_at: 1724134095000}]->(p) SET rel.uri = "pubky://emq37ky6fbnaun7q1ris6rx3mqmw3a33so1txfesg9jj3ak9ryoy/pub/pubky.app/tags/V8N1P3L9J421";
+MATCH (u:User {id: $eixample}), (p:Post {id: "00000039YD9DP"}) MERGE (u)-[rel:TAGGED {label: $encryption_tag, id: "J4N8Q1W2F6LJ", indexed_at: 1724134077000}]->(p) SET rel.uri = "pubky://8attbeo9ftu5nztqkcfw3gydksehr7jbspgfi64u4h8eo5e7dbiy/pub/pubky.app/tags/J4N8Q1W2F6LJ";
 
 // ##################################
 // ##### Posts related replies ######
@@ -133,8 +133,8 @@ MATCH (p1:Post {id: "1A1P4D8C9K0FF"}), (p7:Post {id: "0000003A0BK7P"}) MERGE (p7
 // Long posts
 MERGE (p:Post {id: "4ZCW1TGL5BKG1"}) SET p.content = "Long post, article A", p.kind = "long", p.indexed_at = 1819477230300;
 MATCH (u:User {id: $bogota}), (p:Post {id: "4ZCW1TGL5BKG1"}) MERGE (u)-[:AUTHORED]->(p) SET p.uri = "pubky://ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny/pub/pubky.app/posts/4ZCW1TGL5BKG1";
-MATCH (u:User {id: $detroit}), (p:Post {id: "4ZCW1TGL5BKG1"}) MERGE (u)-[:TAGGED {label: $pubky_tag, id: "K2N7W9F4XRT", indexed_at: 1724934008000, uri: "pubky://7w4hmktqa7gia5thmk7zki8px7ttwpwjtgaaaou4tbqx64re8d1o/pub/pubky.app/tags/K2N7W9F4XRT"}]->(p);
-MATCH (u:User {id: $amsterdam}), (p:Post {id: "4ZCW1TGL5BKG1"}) MERGE (u)-[:TAGGED {label: $pubky_tag, id: "K2N7Z9F4XKO", indexed_at: 1724664008000, uri: "pubky://emq37ky6fbnaun7q1ris6rx3mqmw3a33so1txfesg9jj3ak9ryoy/pub/pubky.app/tags/K2N7Z9F4XKO"}]->(p);
+MATCH (u:User {id: $detroit}), (p:Post {id: "4ZCW1TGL5BKG1"}) MERGE (u)-[rel:TAGGED {label: $pubky_tag, id: "K2N7W9F4XRT", indexed_at: 1724934008000}]->(p) SET rel.uri = "pubky://7w4hmktqa7gia5thmk7zki8px7ttwpwjtgaaaou4tbqx64re8d1o/pub/pubky.app/tags/K2N7W9F4XRT";
+MATCH (u:User {id: $amsterdam}), (p:Post {id: "4ZCW1TGL5BKG1"}) MERGE (u)-[rel:TAGGED {label: $pubky_tag, id: "K2N7Z9F4XKO", indexed_at: 1724664008000}]->(p) SET rel.uri = "pubky://emq37ky6fbnaun7q1ris6rx3mqmw3a33so1txfesg9jj3ak9ryoy/pub/pubky.app/tags/K2N7Z9F4XKO";
 MERGE (p:Post {id: "4ZCW1TGL5BKG2"}) SET p.content = "Long post, article B", p.kind = "long", p.indexed_at = 1819477230305;
 MATCH (u:User {id: $cairo}), (p:Post {id: "4ZCW1TGL5BKG2"}) MERGE (u)-[:AUTHORED]->(p) SET p.uri = "pubky://f5tcy5gtgzshipr6pag6cn9uski3s8tjare7wd3n7enmyokgjk1o/pub/pubky.app/posts/4ZCW1TGL5BKG2";
 MERGE (p:Post {id: "4ZCW1TGL5BKG3"}) SET p.content = "Long post, article C", p.kind = "long", p.indexed_at = 1819477230310;
@@ -152,20 +152,20 @@ MATCH (u:User {id: $eixample}), (p:Post {id: "4ZCW1TGL5BKG7"}) MERGE (u)-[:AUTHO
 // query excludes the observer. Unique label (not `opensource`) so we do not
 // bump engagement on the opensource ranking fixtures; 2008 tag timestamp
 // keeps it out of hot-tags windows.
-MATCH (tagger:User {id: $amsterdam}), (post:Post {id: "4ZCW1TGL5BKG7"}) MERGE (tagger)-[:TAGGED {label: "reach-self-follow", id: "REACHSELFTAG1", indexed_at: 1224534096400, uri: "pubky://emq37ky6fbnaun7q1ris6rx3mqmw3a33so1txfesg9jj3ak9ryoy/pub/pubky.app/tags/REACHSELFTAG1"}]->(post);
+MATCH (tagger:User {id: $amsterdam}), (post:Post {id: "4ZCW1TGL5BKG7"}) MERGE (tagger)-[rel:TAGGED {label: "reach-self-follow", id: "REACHSELFTAG1", indexed_at: 1224534096400}]->(post) SET rel.uri = "pubky://emq37ky6fbnaun7q1ris6rx3mqmw3a33so1txfesg9jj3ak9ryoy/pub/pubky.app/tags/REACHSELFTAG1";
 MERGE (p:Post {id: "4ZCW1TGL5BKG8"}) SET p.content = "Long post, article H", p.kind = "long", p.indexed_at = 1819477230360;
 MATCH (u:User {id: $eixample}), (p:Post {id: "4ZCW1TGL5BKG8"}) MERGE (u)-[:AUTHORED]->(p) SET p.uri = "pubky://8attbeo9ftu5nztqkcfw3gydksehr7jbspgfi64u4h8eo5e7dbiy/pub/pubky.app/posts/4ZCW1TGL5BKG8";
 // Image posts
 MERGE (p:Post {id: "5YCW1TGL5BKG1"}) SET p.content = "IMAGE post, SVG A", p.kind = "image", p.indexed_at = 1820477299300;
 MATCH (u:User {id: $bogota}), (p:Post {id: "5YCW1TGL5BKG1"}) MERGE (u)-[:AUTHORED]->(p) SET p.uri = "pubky://ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny/pub/pubky.app/posts/5YCW1TGL5BKG1";
-MATCH (u:User {id: $detroit}), (p:Post {id: "5YCW1TGL5BKG1"}) MERGE (u)-[:TAGGED {label: $pubky_tag, id: "K2N7W9F4DE3", indexed_at: 1724934072000, uri: "pubky://7w4hmktqa7gia5thmk7zki8px7ttwpwjtgaaaou4tbqx64re8d1o/pub/pubky.app/tags/K2N7W9F4DE3"}]->(p);
-MATCH (u:User {id: $amsterdam}), (p:Post {id: "5YCW1TGL5BKG1"}) MERGE (u)-[:TAGGED {label: $pubky_tag, id: "K2N7Z9F4KX0", indexed_at: 1724665008050, uri: "pubky://emq37ky6fbnaun7q1ris6rx3mqmw3a33so1txfesg9jj3ak9ryoy/pub/pubky.app/tags/K2N7Z9F4KX0"}]->(p);
+MATCH (u:User {id: $detroit}), (p:Post {id: "5YCW1TGL5BKG1"}) MERGE (u)-[rel:TAGGED {label: $pubky_tag, id: "K2N7W9F4DE3", indexed_at: 1724934072000}]->(p) SET rel.uri = "pubky://7w4hmktqa7gia5thmk7zki8px7ttwpwjtgaaaou4tbqx64re8d1o/pub/pubky.app/tags/K2N7W9F4DE3";
+MATCH (u:User {id: $amsterdam}), (p:Post {id: "5YCW1TGL5BKG1"}) MERGE (u)-[rel:TAGGED {label: $pubky_tag, id: "K2N7Z9F4KX0", indexed_at: 1724665008050}]->(p) SET rel.uri = "pubky://emq37ky6fbnaun7q1ris6rx3mqmw3a33so1txfesg9jj3ak9ryoy/pub/pubky.app/tags/K2N7Z9F4KX0";
 MERGE (p:Post {id: "5YCW1TGL5BKG2"}) SET p.content = "IMAGE post, SVG B", p.kind = "image", p.indexed_at = 1820477299305;
 MATCH (u:User {id: $cairo}), (p:Post {id: "5YCW1TGL5BKG2"}) MERGE (u)-[:AUTHORED]->(p) SET p.uri = "pubky://f5tcy5gtgzshipr6pag6cn9uski3s8tjare7wd3n7enmyokgjk1o/pub/pubky.app/posts/5YCW1TGL5BKG2";
 MERGE (p:Post {id: "5YCW1TGL5BKG3"}) SET p.content = "IMAGE post, SVG C", p.kind = "image", p.indexed_at = 1820477299310;
 MATCH (u:User {id: $cairo}), (p:Post {id: "5YCW1TGL5BKG3"}) MERGE (u)-[:AUTHORED]->(p) SET p.uri = "pubky://f5tcy5gtgzshipr6pag6cn9uski3s8tjare7wd3n7enmyokgjk1o/pub/pubky.app/posts/5YCW1TGL5BKG3";
-MATCH (u:User {id: $detroit}), (p:Post {id: "5YCW1TGL5BKG3"}) MERGE (u)-[:TAGGED {label: $pubky_tag, id: "K2N7W9F8KE3", indexed_at: 1724934005020, uri: "pubky://7w4hmktqa7gia5thmk7zki8px7ttwpwjtgaaaou4tbqx64re8d1o/pub/pubky.app/tags/K2N7W9F8KE3"}]->(p);
-MATCH (u:User {id: $amsterdam}), (p:Post {id: "5YCW1TGL5BKG3"}) MERGE (u)-[:TAGGED {label: $pubky_tag, id: "K2N7Z3P4KXC", indexed_at: 1724623009700, uri: "pubky://emq37ky6fbnaun7q1ris6rx3mqmw3a33so1txfesg9jj3ak9ryoy/pub/pubky.app/tags/K2N7Z3P4KXC"}]->(p);
+MATCH (u:User {id: $detroit}), (p:Post {id: "5YCW1TGL5BKG3"}) MERGE (u)-[rel:TAGGED {label: $pubky_tag, id: "K2N7W9F8KE3", indexed_at: 1724934005020}]->(p) SET rel.uri = "pubky://7w4hmktqa7gia5thmk7zki8px7ttwpwjtgaaaou4tbqx64re8d1o/pub/pubky.app/tags/K2N7W9F8KE3";
+MATCH (u:User {id: $amsterdam}), (p:Post {id: "5YCW1TGL5BKG3"}) MERGE (u)-[rel:TAGGED {label: $pubky_tag, id: "K2N7Z3P4KXC", indexed_at: 1724623009700}]->(p) SET rel.uri = "pubky://emq37ky6fbnaun7q1ris6rx3mqmw3a33so1txfesg9jj3ak9ryoy/pub/pubky.app/tags/K2N7Z3P4KXC";
 MERGE (p:Post {id: "5YCW1TGL5BKG4"}) SET p.content = "IMAGE post, SVG D", p.kind = "image", p.indexed_at = 1820477299320;
 MATCH (u:User {id: $bogota}), (p:Post {id: "5YCW1TGL5BKG4"}) MERGE (u)-[:AUTHORED]->(p) SET p.uri = "pubky://ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny/pub/pubky.app/posts/5YCW1TGL5BKG4";
 MERGE (p:Post {id: "5YCW1TGL5BKG5"}) SET p.content = "IMAGE post, SVG E", p.kind = "image", p.indexed_at = 1820477299330;
@@ -179,8 +179,8 @@ MATCH (u:User {id: $eixample}), (p:Post {id: "5YCW1TGL5BKG8"}) MERGE (u)-[:AUTHO
 // Video posts
 MERGE (p:Post {id: "MLOW1TGL5BKH1"}) SET p.content = "VIDEO post, mkv A", p.kind = "video", p.indexed_at = 1980477299300;
 MATCH (u:User {id: $bogota}), (p:Post {id: "MLOW1TGL5BKH1"}) MERGE (u)-[:AUTHORED]->(p) SET p.uri = "pubky://ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny/pub/pubky.app/posts/MLOW1TGL5BKH1";
-MATCH (u:User {id: $detroit}), (p:Post {id: "MLOW1TGL5BKH1"}) MERGE (u)-[:TAGGED {label: $pubky_tag, id: "K2N7W9333E3", indexed_at: 1724934125485, uri: "pubky://7w4hmktqa7gia5thmk7zki8px7ttwpwjtgaaaou4tbqx64re8d1o/pub/pubky.app/tags/K2N7W9333E3"}]->(p);
-MATCH (u:User {id: $eixample}), (p:Post {id: "MLOW1TGL5BKH1"}) MERGE (u)-[:TAGGED {label: $Fk_tag, id: "K2N7Z3SQKXT", indexed_at: 1724623009842, uri: "pubky://8attbeo9ftu5nztqkcfw3gydksehr7jbspgfi64u4h8eo5e7dbiy/pub/pubky.app/tags/K2N7Z3SQKXT"}]->(p);
+MATCH (u:User {id: $detroit}), (p:Post {id: "MLOW1TGL5BKH1"}) MERGE (u)-[rel:TAGGED {label: $pubky_tag, id: "K2N7W9333E3", indexed_at: 1724934125485}]->(p) SET rel.uri = "pubky://7w4hmktqa7gia5thmk7zki8px7ttwpwjtgaaaou4tbqx64re8d1o/pub/pubky.app/tags/K2N7W9333E3";
+MATCH (u:User {id: $eixample}), (p:Post {id: "MLOW1TGL5BKH1"}) MERGE (u)-[rel:TAGGED {label: $Fk_tag, id: "K2N7Z3SQKXT", indexed_at: 1724623009842}]->(p) SET rel.uri = "pubky://8attbeo9ftu5nztqkcfw3gydksehr7jbspgfi64u4h8eo5e7dbiy/pub/pubky.app/tags/K2N7Z3SQKXT";
 MERGE (p:Post {id: "MLOW1TGL5BKH2"}) SET p.content = "VIDEO post, mkv B", p.kind = "video", p.indexed_at = 1980477299305;
 MATCH (u:User {id: $cairo}), (p:Post {id: "MLOW1TGL5BKH2"}) MERGE (u)-[:AUTHORED]->(p) SET p.uri = "pubky://f5tcy5gtgzshipr6pag6cn9uski3s8tjare7wd3n7enmyokgjk1o/pub/pubky.app/posts/MLOW1TGL5BKH2";
 MERGE (p:Post {id: "MLOW1TGL5BKH3"}) SET p.content = "VIDEO post, mkv C", p.kind = "video", p.indexed_at = 1980477299310;
@@ -193,8 +193,8 @@ MERGE (p:Post {id: "MLOW1TGL5BKH6"}) SET p.content = "VIDEO post, mkv F", p.kind
 MATCH (u:User {id: $bogota}), (p:Post {id: "MLOW1TGL5BKH6"}) MERGE (u)-[:AUTHORED]->(p) SET p.uri = "pubky://ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny/pub/pubky.app/posts/MLOW1TGL5BKH6";
 MERGE (p:Post {id: "MLOW1TGL5BKH7"}) SET p.content = "VIDEO post, mkv G", p.kind = "video", p.indexed_at = 1980477299350;
 MATCH (u:User {id: $eixample}), (p:Post {id: "MLOW1TGL5BKH7"}) MERGE (u)-[:AUTHORED]->(p) SET p.uri = "pubky://8attbeo9ftu5nztqkcfw3gydksehr7jbspgfi64u4h8eo5e7dbiy/pub/pubky.app/posts/MLOW1TGL5BKH7";
-MATCH (u:User {id: $detroit}), (p:Post {id: "MLOW1TGL5BKH7"}) MERGE (u)-[:TAGGED {label: $pubky_tag, id: "K2N7W933JI3", indexed_at: 1724934965485, uri: "pubky://7w4hmktqa7gia5thmk7zki8px7ttwpwjtgaaaou4tbqx64re8d1o/pub/pubky.app/tags/K2N7W933JI3"}]->(p);
-MATCH (u:User {id: $eixample}), (p:Post {id: "MLOW1TGL5BKH7"}) MERGE (u)-[:TAGGED {label: $Fk_tag, id: "K2N7ZEPMKXT", indexed_at: 1724642209842, uri: "pubky://8attbeo9ftu5nztqkcfw3gydksehr7jbspgfi64u4h8eo5e7dbiy/pub/pubky.app/tags/K2N7ZEPMKXT"}]->(p);
+MATCH (u:User {id: $detroit}), (p:Post {id: "MLOW1TGL5BKH7"}) MERGE (u)-[rel:TAGGED {label: $pubky_tag, id: "K2N7W933JI3", indexed_at: 1724934965485}]->(p) SET rel.uri = "pubky://7w4hmktqa7gia5thmk7zki8px7ttwpwjtgaaaou4tbqx64re8d1o/pub/pubky.app/tags/K2N7W933JI3";
+MATCH (u:User {id: $eixample}), (p:Post {id: "MLOW1TGL5BKH7"}) MERGE (u)-[rel:TAGGED {label: $Fk_tag, id: "K2N7ZEPMKXT", indexed_at: 1724642209842}]->(p) SET rel.uri = "pubky://8attbeo9ftu5nztqkcfw3gydksehr7jbspgfi64u4h8eo5e7dbiy/pub/pubky.app/tags/K2N7ZEPMKXT";
 MERGE (p:Post {id: "MLOW1TGL5BKH8"}) SET p.content = "VIDEO post, mkv H", p.kind = "video", p.indexed_at = 1980477299360;
 MATCH (u:User {id: $eixample}), (p:Post {id: "MLOW1TGL5BKH8"}) MERGE (u)-[:AUTHORED]->(p) SET p.uri = "pubky://8attbeo9ftu5nztqkcfw3gydksehr7jbspgfi64u4h8eo5e7dbiy/pub/pubky.app/posts/MLOW1TGL5BKH8";
 // File posts
@@ -208,8 +208,8 @@ MERGE (p:Post {id: "GJMW1TGL5BKG4"}) SET p.content = "FILE post, pdf D", p.kind 
 MATCH (u:User {id: $bogota}), (p:Post {id: "GJMW1TGL5BKG4"}) MERGE (u)-[:AUTHORED]->(p) SET p.uri = "pubky://ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny/pub/pubky.app/posts/GJMW1TGL5BKG4";
 MERGE (p:Post {id: "GJMW1TGL5BKG5"}) SET p.content = "FILE post, pdf E", p.kind = "file", p.indexed_at = 1980477299332;
 MATCH (u:User {id: $cairo}), (p:Post {id: "GJMW1TGL5BKG5"}) MERGE (u)-[:AUTHORED]->(p) SET p.uri = "pubky://f5tcy5gtgzshipr6pag6cn9uski3s8tjare7wd3n7enmyokgjk1o/pub/pubky.app/posts/GJMW1TGL5BKG5";
-MATCH (u:User {id: $detroit}), (p:Post {id: "GJMW1TGL5BKG5"}) MERGE (u)-[:TAGGED {label: $pubky_tag, id: "K2N7WKK8KEP", indexed_at: 1724934267420, uri: "pubky://7w4hmktqa7gia5thmk7zki8px7ttwpwjtgaaaou4tbqx64re8d1o/pub/pubky.app/tags/K2N7WKK8KEP"}]->(p);
-MATCH (u:User {id: $amsterdam}), (p:Post {id: "GJMW1TGL5BKG5"}) MERGE (u)-[:TAGGED {label: $pubky_tag, id: "K2N7Z3ZZKXT", indexed_at: 1724626114700, uri: "pubky://emq37ky6fbnaun7q1ris6rx3mqmw3a33so1txfesg9jj3ak9ryoy/pub/pubky.app/tags/K2N7Z3ZZKXT"}]->(p);
+MATCH (u:User {id: $detroit}), (p:Post {id: "GJMW1TGL5BKG5"}) MERGE (u)-[rel:TAGGED {label: $pubky_tag, id: "K2N7WKK8KEP", indexed_at: 1724934267420}]->(p) SET rel.uri = "pubky://7w4hmktqa7gia5thmk7zki8px7ttwpwjtgaaaou4tbqx64re8d1o/pub/pubky.app/tags/K2N7WKK8KEP";
+MATCH (u:User {id: $amsterdam}), (p:Post {id: "GJMW1TGL5BKG5"}) MERGE (u)-[rel:TAGGED {label: $pubky_tag, id: "K2N7Z3ZZKXT", indexed_at: 1724626114700}]->(p) SET rel.uri = "pubky://emq37ky6fbnaun7q1ris6rx3mqmw3a33so1txfesg9jj3ak9ryoy/pub/pubky.app/tags/K2N7Z3ZZKXT";
 MERGE (p:Post {id: "GJMW1TGL5BKG6"}) SET p.content = "FILE post, pdf F", p.kind = "file", p.indexed_at = 1980477299342;
 MATCH (u:User {id: $bogota}), (p:Post {id: "GJMW1TGL5BKG6"}) MERGE (u)-[:AUTHORED]->(p) SET p.uri = "pubky://ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny/pub/pubky.app/posts/GJMW1TGL5BKG6";
 MERGE (p:Post {id: "GJMW1TGL5BKG7"}) SET p.content = "FILE post, pdf G", p.kind = "file", p.indexed_at = 1980477299352;
@@ -225,8 +225,8 @@ MERGE (p:Post {id: "SIJW1TGL5BKG3"}) SET p.content = "LINK post, pubky C", p.kin
 MATCH (u:User {id: $cairo}), (p:Post {id: "SIJW1TGL5BKG3"}) MERGE (u)-[:AUTHORED]->(p) SET p.uri = "pubky://f5tcy5gtgzshipr6pag6cn9uski3s8tjare7wd3n7enmyokgjk1o/pub/pubky.app/posts/SIJW1TGL5BKG3";
 MERGE (p:Post {id: "SIJW1TGL5BKG4"}) SET p.content = "LINK post, pubky D", p.kind = "link", p.indexed_at = 1980477299328;
 MATCH (u:User {id: $bogota}), (p:Post {id: "SIJW1TGL5BKG4"}) MERGE (u)-[:AUTHORED]->(p) SET p.uri = "pubky://ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny/pub/pubky.app/posts/SIJW1TGL5BKG4";
-MATCH (u:User {id: $detroit}), (p:Post {id: "SIJW1TGL5BKG4"}) MERGE (u)-[:TAGGED {label: $pubky_tag, id: "K2N7WKKSWDR", indexed_at: 1724935214520, uri: "pubky://7w4hmktqa7gia5thmk7zki8px7ttwpwjtgaaaou4tbqx64re8d1o/pub/pubky.app/tags/K2N7WKKSWDR"}]->(p);
-MATCH (u:User {id: $amsterdam}), (p:Post {id: "SIJW1TGL5BKG4"}) MERGE (u)-[:TAGGED {label: $pubky_tag, id: "K2N7Z3ZZKOO", indexed_at: 1724626669700, uri: "pubky://emq37ky6fbnaun7q1ris6rx3mqmw3a33so1txfesg9jj3ak9ryoy/pub/pubky.app/tags/K2N7Z3ZZKOO"}]->(p);
+MATCH (u:User {id: $detroit}), (p:Post {id: "SIJW1TGL5BKG4"}) MERGE (u)-[rel:TAGGED {label: $pubky_tag, id: "K2N7WKKSWDR", indexed_at: 1724935214520}]->(p) SET rel.uri = "pubky://7w4hmktqa7gia5thmk7zki8px7ttwpwjtgaaaou4tbqx64re8d1o/pub/pubky.app/tags/K2N7WKKSWDR";
+MATCH (u:User {id: $amsterdam}), (p:Post {id: "SIJW1TGL5BKG4"}) MERGE (u)-[rel:TAGGED {label: $pubky_tag, id: "K2N7Z3ZZKOO", indexed_at: 1724626669700}]->(p) SET rel.uri = "pubky://emq37ky6fbnaun7q1ris6rx3mqmw3a33so1txfesg9jj3ak9ryoy/pub/pubky.app/tags/K2N7Z3ZZKOO";
 MERGE (p:Post {id: "SIJW1TGL5BKG5"}) SET p.content = "LINK post, pubky E", p.kind = "link", p.indexed_at = 1980477299338;
 MATCH (u:User {id: $cairo}), (p:Post {id: "SIJW1TGL5BKG5"}) MERGE (u)-[:AUTHORED]->(p) SET p.uri = "pubky://f5tcy5gtgzshipr6pag6cn9uski3s8tjare7wd3n7enmyokgjk1o/pub/pubky.app/posts/SIJW1TGL5BKG5";
 MERGE (p:Post {id: "SIJW1TGL5BKG6"}) SET p.content = "LINK post, pubky F", p.kind = "link", p.indexed_at = 1980477299348;
@@ -255,7 +255,7 @@ MATCH (u:User {id: $cairo}), (p:Post {id: "COLW1TGL5BKG3"}) MERGE (u)-[:AUTHORED
 
 // Tag on a Collection (used by `?tags` stream tests). Bogota tags Cairo's
 // Collection with the `api` label.
-MATCH (u:User {id: $bogota}), (p:Post {id: "COLW1TGL5BKG3"}) MERGE (u)-[:TAGGED {label: $api_tag, id: "7APICOLBKG3Z", indexed_at: 1980477299130, uri: "pubky://ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny/pub/pubky.app/tags/7APICOLBKG3Z"}]->(p);
+MATCH (u:User {id: $bogota}), (p:Post {id: "COLW1TGL5BKG3"}) MERGE (u)-[rel:TAGGED {label: $api_tag, id: "7APICOLBKG3Z", indexed_at: 1980477299130}]->(p) SET rel.uri = "pubky://ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny/pub/pubky.app/tags/7APICOLBKG3Z";
 
 // Defensive seed: malformed envelope JSON. The resolver must `warn!` and
 // return an empty stream rather than 500 on corrupt graph state.
