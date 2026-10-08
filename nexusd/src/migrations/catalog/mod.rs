@@ -28,11 +28,9 @@ pub fn import_migrations(migration_manager: &mut MigrationManager) {
         // filters tombstones by `deleted`, which only this migration sets.
         Box::new(UserDeletedFlag1780617600),
         Box::new(UsersByTagsIndexBackfill1786924800),
-        // UriBackfill must precede the collected-edges backfill: that one re-reads posts from
-        // the graph, and the post reader needs `uri`, which only this migration fills.
-        Box::new(UriBackfill1791196997),
         Box::new(CollectedEdgesBackfill1789344000),
         Box::new(PostDeletedFlag1790899200),
+        Box::new(UriBackfill1791196997),
     ];
     for migration in migrations {
         migration_manager.register(migration);

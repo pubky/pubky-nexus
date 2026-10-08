@@ -25,8 +25,8 @@ use tracing::info;
 ///
 /// Afterwards every post with an author and every tag edge has a `uri`, and readers read it
 /// directly: no address is built at read time. A user with no profile.json line (a stub never
-/// read from a profile, or a profile older than the log) keeps no `uri`; readers fall back to
-/// its `pubky.app` address.
+/// read from a profile, or a profile older than the log) keeps no `uri`; readers return an
+/// empty one.
 ///
 /// # Step 2
 /// One tag file, one edge: the edge's address is its file's path, as the watcher stores it on
@@ -46,7 +46,7 @@ use tracing::info;
 /// # Deploy ordering
 /// Stop every instance, run `nexusd db migration run`, then start the new binaries. The new
 /// readers need every `uri` in place: a post without one fails to load. Users are the
-/// exception: a user without one reads as its `pubky.app` address.
+/// exception: a user without one reads with an empty `uri`.
 pub struct UriBackfill1791196997;
 
 /// Event lines read per `LRANGE` page.

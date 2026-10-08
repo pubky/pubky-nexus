@@ -165,14 +165,6 @@ impl UserDetails {
     }
 }
 
-/// Address of a user whose node stores no `uri`: a stub never read from a profile.json, or a
-/// profile indexed before the watcher stored it and missing from the event log.
-// TODO(specs-migration): hard-codes the `pubky.app` folder. Once profiles can live under
-// `social/v1`, a user with no stored `uri` has no single address; decide what this returns.
-pub(crate) fn fallback_user_uri(user_id: &str) -> String {
-    format!("pubky://{user_id}/pub/pubky.app/profile.json")
-}
-
 /// Binds a user to their homeserver, recording the `HOSTED_BY` relationship and `resolved_at`.
 pub async fn set_user_homeserver(user_id: &str, homeserver_id: &str) -> GraphResult<()> {
     exec_single_row(queries::put::set_user_homeserver(user_id, homeserver_id)).await

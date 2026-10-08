@@ -127,9 +127,9 @@ async fn test_stub_user_stores_no_uri() -> Result<()> {
     Ok(())
 }
 
-/// A tag view on a user with no stored `uri` falls back to the `pubky.app` address.
+/// A tag view on a user with no stored `uri` has an empty `uri`.
 #[tokio_shared_rt::test(shared)]
-async fn test_tag_view_on_user_without_uri_falls_back_to_pubky_app() -> Result<()> {
+async fn test_tag_view_on_user_without_uri_is_empty() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
 
     let tagged_kp = Keypair::random();
@@ -158,7 +158,7 @@ async fn test_tag_view_on_user_without_uri_falls_back_to_pubky_app() -> Result<(
     let view = TagView::get_by_tagger_and_id(&tagger_id, &tag_id)
         .await?
         .expect("tag view");
-    assert_eq!(view.uri, user_uri_builder(tagged_id));
+    assert_eq!(view.uri, "");
 
     test.del(&tagger_kp, &tag_path).await?;
     test.cleanup_user(&tagger_kp).await?;
