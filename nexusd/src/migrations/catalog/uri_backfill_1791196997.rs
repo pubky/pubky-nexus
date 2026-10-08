@@ -324,6 +324,27 @@ mod tests {
         assert_eq!(page, PageUris::default());
     }
 
+    /// An alias path parses to the same edge, but the parser rejects it, so it can't give the
+    /// edge an address that isn't its file's.
+    #[test]
+    fn alias_paths_are_skipped() {
+        let alias = tag_id("alias");
+        let universal = tag_id("universal");
+        let page = fold_page(&[
+            format!("PUT {}/extra", tag_uri("pubky.app", &alias)),
+            format!("PUT {}?x=1", tag_uri("mapky", &alias)),
+            format!("PUT pubky://{TAGGER}/pub/pubky.app/profile.json?x=1"),
+            format!("PUT {}", tag_uri("mapky", &universal)),
+        ]);
+        assert_eq!(
+            page,
+            PageUris {
+                edges: BTreeMap::from([(key(&universal), tag_uri("mapky", &universal))]),
+                profiles: BTreeMap::new(),
+            }
+        );
+    }
+
     #[test]
     fn profile_put_gives_its_user_the_file_path() {
         let profile = format!("pubky://{TAGGER}/pub/pubky.app/profile.json");
