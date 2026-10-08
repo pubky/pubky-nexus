@@ -457,6 +457,19 @@ pub fn set_user_homeserver(user_id: &str, homeserver_id: &str) -> Query {
     .param("hs_id", homeserver_id.to_string())
 }
 
+/// Records that the user's homeserver was looked up and none was published.
+///
+/// Users without a `HOSTED_BY` relationship have no `resolved_at` to gate on,
+/// so this timestamp lets the resolution TTL apply to them as well.
+pub fn mark_user_hs_resolution_attempted(user_id: &str) -> Query {
+    Query::new(
+        "mark_user_hs_resolution_attempted",
+        "MATCH (u:User {id: $user_id})
+         SET u.hs_resolution_attempted_at = timestamp()",
+    )
+    .param("user_id", user_id.to_string())
+}
+
 /// Toggles the `stale` flag on a user's existing `HOSTED_BY` relationship and
 /// refreshes `resolved_at`.
 ///
