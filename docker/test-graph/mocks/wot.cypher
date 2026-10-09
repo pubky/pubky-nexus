@@ -128,6 +128,10 @@ MATCH (u:User {id: $d2}), (p:Post {id: "WOTPOSTREPLY1"}) MERGE (u)-[:AUTHORED]->
 MATCH (parent:Post {id: "WOTPOSTD10002"}), (reply:Post {id: "WOTPOSTREPLY1"}) MERGE (reply)-[:REPLIED]->(parent);
 MATCH (u:User {id: $modbot}), (p:Post {id: "WOTPOSTREPLY1"}) MERGE (u)-[rel:TAGGED {label: $nudity_tag, id: "WOTTAGNUDITY1", indexed_at: 1224534095000}]->(p) SET rel.uri = "pubky://qsfngw6xm9kk7yp99xustjfj8mu9auufkixas5f8goeujuxt45ao/pub/pubky.app/tags/WOTTAGNUDITY1";
 
+// The unranked mod bot tags D2's root post, which nothing else engages with: its
+// engagement stays 0 on the trust-filtered hot feeds. Unique label, year-2008 timestamp.
+MATCH (u:User {id: $modbot}), (p:Post {id: "WOTPOSTD20004"}) MERGE (u)-[rel:TAGGED {label: "wotunranked", id: "WOTTAGUNRANK1", indexed_at: 1224534095950}]->(p) SET rel.uri = "pubky://qsfngw6xm9kk7yp99xustjfj8mu9auufkixas5f8goeujuxt45ao/pub/pubky.app/tags/WOTTAGUNRANK1";
+
 // WoT post-tag limit/pagination fixture: a deep reply (reply-to-a-reply, so it is
 // excluded from parent streams AND from the engagement index, keeping its tags out
 // of the global streams) tagged by WoT members D1, D1B ('wotreview') and M

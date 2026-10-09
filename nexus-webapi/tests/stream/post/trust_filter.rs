@@ -274,6 +274,22 @@ async fn test_engagement_feed_hides_unranked_authors() -> Result<()> {
     Ok(())
 }
 
+/// Unranked users' engagement doesn't lift a ranked post on the hot feed,
+/// served from the global engagement set or from Cypher (`kind=short`): the
+/// mod bot's tag leaves D2's post with no engagement.
+#[tokio_shared_rt::test(shared)]
+async fn test_engagement_feed_skips_unranked_engagement() -> Result<()> {
+    let d2_post = format!("{WOT_D2}:{D2_POST}");
+    for shape in ["", "&kind=short"] {
+        let unengaged = walk(&format!(
+            "source=all&sorting=total_engagement&start=0{shape}"
+        ))
+        .await?;
+        assert!(unengaged.contains(&d2_post), "{shape}");
+    }
+    Ok(())
+}
+
 /// A tag's streams hide unranked authors on both sortings: D2's tagged reply
 /// stays (tag streams carry replies), the spammer's tagged reply goes.
 #[tokio_shared_rt::test(shared)]
