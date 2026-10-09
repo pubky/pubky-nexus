@@ -89,6 +89,43 @@ cargo run -p nexusd -- api
      - Note: on first run, an error popup is shown and a TOS popup. After you accept the TOS, the link will work.
    - Neo4J Browser: [http://localhost:7474/browser/](http://localhost:7474/browser/)
 
+## 🪶 Light Mode
+
+A Nexus can run in one of two modes, set under `[stack]` in `config.toml`:
+
+```toml
+[stack]
+mode = "light" # default: "full"
+```
+
+- **full** (default) indexes and serves everything: post content, profiles, files and their resized variants.
+- **light** indexes the same social graph (follows, tags, replies, reposts, mentions, bookmarks, counts, streams and search by tag) but keeps none of the content people wrote or uploaded. Clients fetch that content from each owner's homeserver. A light Nexus needs no file storage and a much smaller Redis, and does not host other people's text or media.
+
+What a light Nexus serves:
+
+- **Posts** come without `content`, with `content_hash` (blake3 of the content), so a client can cache what it fetched until the hash changes. Collection posts are indexed, but collection feeds are not served.
+- **Users** come without `name`, `bio`, `links` and `status`, with `image` (a link) and `profile_hash`.
+- **Files** come as slim records: `src`, `content_type`, `size`, and `blocked` when `src` is on a blacklisted homeserver. No name, no bytes, no variants.
+- **Post and user views** carry the author's homeserver (`author_homeserver` / `homeserver`): its key, `stale` when the mapping may be out of date, and `status`, whether it answered the watcher's last poll (`ok` or `unreachable`).
+- `/v0/info` reports `mode`, so a client can pick its strategy when it connects.
+
+These endpoints answer `501 Not Implemented` with `{"error": "unavailable in light mode"}`: `/v0/search/posts/by_content`, `/v0/search/users/by_name/{prefix}`, `/v0/stream/users/username`, `/v0/stream/posts` and `/v0/stream/posts/keys` with `source=collection` or `source=post_collections`, and every `/static/...` route.
+
+### Switching modes
+
+A database is locked to the mode it was first indexed in: the API and the watcher refuse to start when `mode` disagrees with it. A database that predates the lock is full. Switching is a wipe and a re-index, in either direction, because a light database never had the content and a full one would keep it:
+
+1. Stop the API, the watcher and the jobs.
+2. Run `cargo run -p nexusd -- db clear --yes`, which also removes the lock.
+3. Set `mode`. When going light, delete the files directory (`files_path`).
+4. Start Nexus. The watcher re-reads every homeserver's event log from the start.
+
+Migrations are recorded in the database too, so `db clear` leaves them all pending. Check `nexusd db migration check` before running them on a re-indexed database.
+
+### Testing light mode
+
+The mode is process-wide, so light-mode tests set up their own stack (`WatcherTest::setup_light` in nexus-watcher, `tests/light` in nexus-webapi). They rely on `cargo nextest`, which runs every test in its own process.
+
 ## ⏰ Scheduled Jobs
 
 Nexusd can run background jobs on a cron schedule. Jobs are configured in `config.toml` under `[jobs.<name>]` sections:
