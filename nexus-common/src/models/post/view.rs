@@ -6,6 +6,8 @@ use crate::models::error::ModelResult;
 use crate::models::tag::post::TagPost;
 use crate::models::tag::traits::TagCollection;
 use crate::models::tag::TagDetails;
+use crate::models::user::UserHomeserver;
+use crate::StackManager;
 
 /// Represents a Pubky user with relational data including tags, counts, and relationship with a viewer.
 #[derive(Serialize, Deserialize, ToSchema, Default, Debug)]
@@ -15,6 +17,10 @@ pub struct PostView {
     pub tags: Vec<TagDetails>,
     pub relationships: PostRelationships,
     pub bookmark: Option<Bookmark>,
+    /// Light mode only: the author's homeserver, where a client fetches the content this
+    /// Nexus does not keep. Absent in full mode, and when the author has no known one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author_homeserver: Option<UserHomeserver>,
 }
 
 impl PostView {
@@ -62,12 +68,21 @@ impl PostView {
             }
         };
 
+        let author_homeserver = match StackManager::mode().is_light() {
+            true => UserHomeserver::get_by_user_ids(&[author_id])
+                .await?
+                .pop()
+                .flatten(),
+            false => None,
+        };
+
         Ok(Some(Self {
             details,
             counts,
             bookmark,
             relationships,
             tags,
+            author_homeserver,
         }))
     }
 }

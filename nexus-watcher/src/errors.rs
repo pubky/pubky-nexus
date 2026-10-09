@@ -131,6 +131,19 @@ impl From<GraphError> for EventProcessorError {
 }
 
 impl EventProcessorError {
+    /// The homeserver itself did not answer: the request to it failed in transport, or it
+    /// answered 5xx. Errors of Nexus's own (graph, index) or of a single event are not.
+    pub fn is_homeserver_unreachable(&self) -> bool {
+        match self {
+            EventProcessorError::HsEventsStreamTransportFailed(_) => true,
+            EventProcessorError::PubkyClientError(error) => matches!(
+                **error,
+                PubkyClientError::RequestFailed { .. } | PubkyClientError::ServerError5xx { .. }
+            ),
+            _ => false,
+        }
+    }
+
     pub fn missing_dependencies(dependency_uris: Vec<String>) -> Self {
         Self::MissingDependency {
             dependency: dependency_uris,

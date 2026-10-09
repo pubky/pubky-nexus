@@ -237,6 +237,21 @@ pub fn post_relationships(author_id: &str, post_id: &str) -> Query {
 
 // Retrieve many users by id
 // We return also id if not we will not get not found users
+/// The homeserver each of `user_ids` is hosted by, and whether that mapping is stale.
+/// One row per id; `homeserver_id` is null for a user with no mapping.
+pub fn get_users_homeservers(user_ids: &[&str]) -> Query {
+    Query::new(
+        "get_users_homeservers",
+        "
+        UNWIND $ids AS id
+        OPTIONAL MATCH (:User {id: id})-[h:HOSTED_BY]->(hs:Homeserver)
+        WITH id, head(collect([hs.id, coalesce(h.stale, false)])) AS mapping
+        RETURN id AS user_id, mapping[0] AS homeserver_id, coalesce(mapping[1], false) AS stale
+        ",
+    )
+    .param("ids", user_ids)
+}
+
 pub fn get_users_details_by_ids(user_ids: &[&str]) -> Query {
     Query::new(
         "get_users_details_by_ids",

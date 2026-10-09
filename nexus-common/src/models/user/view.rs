@@ -1,13 +1,14 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use super::{Relationship, SocialGraphStatus, UserCounts, UserDetails};
+use super::{Relationship, SocialGraphStatus, UserCounts, UserDetails, UserHomeserver};
 use crate::db::RedisOps;
 use crate::models::error::{ModelError, ModelResult};
 use crate::models::tag::traits::TagCollection;
 use crate::models::tag::user::TagUser;
 use crate::models::tag::TagDetails;
 use crate::types::WotDepth;
+use crate::StackManager;
 use futures::stream::{self, StreamExt};
 use futures::TryStreamExt;
 
@@ -21,6 +22,10 @@ pub struct UserView {
     /// How established the account is in the follow graph. `None` when no
     /// ranking is available, which is not the same as ranking as new.
     pub social_graph_status: Option<SocialGraphStatus>,
+    /// Light mode only: the user's homeserver, where a client fetches the profile this
+    /// Nexus does not keep. Absent in full mode, and when the user has no known one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub homeserver: Option<UserHomeserver>,
 }
 
 impl UserView {
@@ -67,12 +72,21 @@ impl UserView {
             .unwrap_or_default(),
         };
 
+        let homeserver = match StackManager::mode().is_light() {
+            true => UserHomeserver::get_by_user_ids(&[user_id])
+                .await?
+                .pop()
+                .flatten(),
+            false => None,
+        };
+
         Ok(Some(Self {
             details,
             counts,
             relationship,
             tags,
             social_graph_status,
+            homeserver,
         }))
     }
 
@@ -92,10 +106,19 @@ impl UserView {
             UserCounts::mget(user_ids),
             SocialGraphStatus::get_by_ids(user_ids),
         )?;
+        // Light mode only, one graph query for the whole list.
+        let homeserver_list = match StackManager::mode().is_light() {
+            true => {
+                let ids: Vec<&str> = user_ids.iter().map(String::as_str).collect();
+                UserHomeserver::get_by_user_ids(&ids).await?
+            }
+            false => vec![None; user_ids.len()],
+        };
         // Each returns one slot per id; the positional zip below relies on it.
         debug_assert_eq!(details_list.len(), user_ids.len());
         debug_assert_eq!(counts_list.len(), user_ids.len());
         debug_assert_eq!(social_graph_list.len(), user_ids.len());
+        debug_assert_eq!(homeserver_list.len(), user_ids.len());
 
         // Bounded to protect the pool; `buffered` preserves order so results stay
         // aligned with `user_ids`; inputs owned so the future stays `Send`.
@@ -107,43 +130,48 @@ impl UserView {
                 .zip(details_list)
                 .zip(counts_list)
                 .zip(social_graph_list)
-                .map(|(((user_id, details), counts), social_graph_status)| {
-                    let viewer_id = viewer_id.clone();
-                    async move {
-                        let Some(details) = details else {
-                            return Ok::<_, ModelError>(None);
-                        };
+                .zip(homeserver_list)
+                .map(
+                    |((((user_id, details), counts), social_graph_status), homeserver)| {
+                        let viewer_id = viewer_id.clone();
+                        async move {
+                            let Some(details) = details else {
+                                return Ok::<_, ModelError>(None);
+                            };
 
-                        let counts = counts.unwrap_or_default();
-                        let relationship = Relationship::get_by_id(&user_id, viewer_id.as_deref())
-                            .await?
-                            .unwrap_or_default();
+                            let counts = counts.unwrap_or_default();
+                            let relationship =
+                                Relationship::get_by_id(&user_id, viewer_id.as_deref())
+                                    .await?
+                                    .unwrap_or_default();
 
-                        // Before fetching post tags, check if the post has any tags
-                        let tags = match counts.tags {
-                            0 => Vec::new(),
-                            _ => TagUser::get_by_id(
-                                &user_id,
-                                None,
-                                None,
-                                None,
-                                None,
-                                viewer_id.as_deref(),
-                                depth.and_then(|d| WotDepth::new(d).ok()),
-                            )
-                            .await?
-                            .unwrap_or_default(),
-                        };
+                            // Before fetching post tags, check if the post has any tags
+                            let tags = match counts.tags {
+                                0 => Vec::new(),
+                                _ => TagUser::get_by_id(
+                                    &user_id,
+                                    None,
+                                    None,
+                                    None,
+                                    None,
+                                    viewer_id.as_deref(),
+                                    depth.and_then(|d| WotDepth::new(d).ok()),
+                                )
+                                .await?
+                                .unwrap_or_default(),
+                            };
 
-                        Ok(Some(Self {
-                            details,
-                            counts,
-                            relationship,
-                            tags,
-                            social_graph_status,
-                        }))
-                    }
-                }),
+                            Ok(Some(Self {
+                                details,
+                                counts,
+                                relationship,
+                                tags,
+                                social_graph_status,
+                                homeserver,
+                            }))
+                        }
+                    },
+                ),
         )
         .buffered(8)
         .try_collect()

@@ -6,5 +6,6 @@
 //! [`WatcherTest::setup_light`]: crate::event_processor::utils::watcher::WatcherTest::setup_light
 
 mod files;
+mod homeserver;
 mod posts;
 mod users;
