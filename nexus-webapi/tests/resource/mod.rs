@@ -1,6 +1,7 @@
 use crate::utils::{get_request, invalid_get_request};
 use anyhow::Result;
 use axum::http::StatusCode;
+use serde_json::{json, Value};
 
 // Resource IDs from docker/test-graph/mocks/resources.cypher
 // Computed as hex(BLAKE3(normalized_uri)[0..16])
@@ -103,12 +104,13 @@ async fn test_resource_taggers() -> Result<()> {
     let path = format!("/v0/resource/{RESOURCE_1_ID}/tags/bitcoin/taggers");
     let body = get_request(&path).await?;
 
-    // TaggersCollection is Redis-only (no graph fallback), so with Neo4j seed data
+    // TaggersCollection reads taggers from Redis only (no graph fallback), so with Neo4j seed data
     // the tagger sets are empty. Verify the endpoint returns valid structure.
     assert!(body["users"].is_array(), "Should have users array");
-    assert!(
-        body["relationship"].is_boolean(),
-        "Should have relationship field"
+    assert_eq!(
+        (&body["relationship"], &body["tag_uri"]),
+        (&json!(false), &Value::Null),
+        "Should be untagged without a viewer"
     );
 
     Ok(())
@@ -134,9 +136,10 @@ async fn test_resource_taggers_structure() -> Result<()> {
 
     // Verify response structure (Redis cache may be empty for seed data)
     assert!(body["users"].is_array(), "Should have users array");
-    assert!(
-        body["relationship"].is_boolean(),
-        "Should have relationship bool"
+    assert_eq!(
+        (&body["relationship"], &body["tag_uri"]),
+        (&json!(false), &Value::Null),
+        "Should be untagged without a viewer"
     );
 
     Ok(())

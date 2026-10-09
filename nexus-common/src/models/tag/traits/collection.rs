@@ -1,12 +1,14 @@
 use crate::db::graph::Query;
 use crate::db::kv::{RedisResult, ScoreAction, SortOrder};
 use crate::db::{
-    execute_graph_operation, fetch_row_from_graph, queries, GraphResult, OperationOutcome, RedisOps,
+    execute_graph_operation, fetch_all_rows_from_graph, fetch_row_from_graph, queries, GraphResult,
+    OperationOutcome, RedisOps,
 };
 use crate::models::error::ModelResult;
 use crate::types::WotDepth;
 use async_trait::async_trait;
-use tracing::error;
+use std::collections::HashMap;
+use tracing::{error, warn};
 
 use crate::models::tag::{post::POST_TAGS_KEY_PARTS, user::USER_TAGS_KEY_PARTS};
 
@@ -29,11 +31,32 @@ pub(crate) async fn fetch_tag_details(query: Query) -> GraphResult<Option<Vec<Ta
         if exists {
             // A decode failure on an existing post/user is a real error, not a
             // "not found": surface it instead of masking it as `None`.
-            let tags = row.get::<Vec<TagDetails>>("tags")?;
+            let mut tags = row.get::<Vec<TagDetails>>("tags")?;
+            // The queries return only `tag_uri`
+            for tag in &mut tags {
+                tag.relationship = tag.tag_uri.is_some();
+            }
             return Ok(Some(tags));
         }
     }
     Ok(None)
+}
+
+/// Logs a cache drift: the index lists the viewer as a tagger of the label, but the
+/// graph has no edge with a tag address for it.
+fn warn_missing_viewer_tag_uri(
+    viewer_id: &str,
+    user_id: &str,
+    extra_param: Option<&str>,
+    label: &str,
+) {
+    warn!(
+        "Index flags viewer {} on {}:{}:{}, but the graph has no tag address",
+        viewer_id,
+        user_id,
+        extra_param.unwrap_or_default(),
+        label
+    );
 }
 
 /// Trait for managing a collection of tags
@@ -73,7 +96,7 @@ where
     ) -> ModelResult<Option<Vec<TagDetails>>> {
         // Query for the tags that are in its WoT
         // Actually we just apply that search to User node
-        if viewer_id.is_some() && depth.is_some() {
+        if let (Some(wot_viewer_id), Some(depth)) = (viewer_id, depth) {
             match Self::get_from_index(
                 user_id,
                 viewer_id,
@@ -85,9 +108,27 @@ where
             )
             .await?
             {
-                Some(tag_details) => return Ok(Some(tag_details)),
+                // The WoT cache leaves the viewer out of the taggers, so ask the global
+                // taggers sets instead. A missing set can't tell.
+                Some(tag_details) => {
+                    let keys: Vec<String> = tag_details
+                        .iter()
+                        .map(|tag| Self::create_label_index(user_id, None, &tag.label, false))
+                        .collect();
+                    let keys: Vec<&str> = keys.iter().map(String::as_str).collect();
+                    let membership = Self::check_set_member_multiple(&keys, wot_viewer_id).await?;
+                    let tags = tag_details
+                        .into_iter()
+                        .zip(membership)
+                        .map(|(tag, (exists, is_member))| (tag, exists.then_some(is_member)))
+                        .collect();
+                    return Ok(Some(
+                        Self::with_viewer_tag_uris(user_id, None, viewer_id, tags).await?,
+                    ));
+                }
                 None => {
-                    let graph_response = Self::get_from_graph(user_id, viewer_id, depth).await?;
+                    let graph_response =
+                        Self::get_from_graph(user_id, None, viewer_id, Some(depth)).await?;
                     if let Some(tag_details) = graph_response {
                         // Don't cache an empty WoT result: avoids an empty index
                         // write and a stale-empty window if a trusted tagger tags
@@ -102,7 +143,7 @@ where
             }
         }
         // Get global tags for that user/post
-        match Self::get_from_index(
+        match Self::get_from_index_with_viewer_flags(
             user_id,
             extra_param,
             viewer_id,
@@ -113,9 +154,18 @@ where
         )
         .await?
         {
-            Some(tag_details) => Ok(Some(tag_details)),
+            Some(tags) => {
+                let tags = tags
+                    .into_iter()
+                    .map(|(tag, is_viewer_tagger)| (tag, Some(is_viewer_tagger)))
+                    .collect();
+                Ok(Some(
+                    Self::with_viewer_tag_uris(user_id, extra_param, viewer_id, tags).await?,
+                ))
+            }
             None => {
-                let graph_response = Self::get_from_graph(user_id, extra_param, None).await?;
+                let graph_response =
+                    Self::get_from_graph(user_id, extra_param, viewer_id, None).await?;
                 if let Some(tag_details) = graph_response {
                     Self::put_to_index(user_id, extra_param, &tag_details, false).await?;
                     return Ok(Some(tag_details));
@@ -126,6 +176,31 @@ where
     }
 
     /// Tries to retrieve the tag collection from multiple index in Redis.
+    /// Same arguments as [`Self::get_from_index_with_viewer_flags`]; the viewer's tag is left unset.
+    async fn get_from_index(
+        user_id: &str,
+        extra_param: Option<&str>,
+        viewer_id: Option<&str>,
+        skip_tags: Option<usize>,
+        limit_tags: Option<usize>,
+        limit_taggers: Option<usize>,
+        is_cache: bool,
+    ) -> RedisResult<Option<Vec<TagDetails>>> {
+        let tags = Self::get_from_index_with_viewer_flags(
+            user_id,
+            extra_param,
+            viewer_id,
+            skip_tags,
+            limit_tags,
+            limit_taggers,
+            is_cache,
+        )
+        .await?;
+        Ok(tags.map(|tags| tags.into_iter().map(|(tag, _)| tag).collect()))
+    }
+
+    /// Tries to retrieve the tag collection from multiple index in Redis,
+    /// flagging the tags `viewer_id` is a tagger of.
     /// # Arguments
     /// * user_id - The key of the user for whom to retrieve tags.
     /// * extra_param - An optional parameter for specifying additional constraints: post_id, viewer_id (for WoT search)
@@ -136,8 +211,9 @@ where
     ///   - `true`: Searches in the cache (e.g., temporary or recently accessed tags).
     ///   - `false`: Searches in the primary index for more persistent data.
     /// # Returns
-    /// A Result containing an optional vector of TagDetails, or an error.
-    async fn get_from_index(
+    /// A Result containing an optional vector of TagDetails, each paired with whether
+    /// `viewer_id` is one of its taggers, or an error.
+    async fn get_from_index_with_viewer_flags(
         user_id: &str,
         extra_param: Option<&str>,
         viewer_id: Option<&str>,
@@ -145,7 +221,7 @@ where
         limit_tags: Option<usize>,
         limit_taggers: Option<usize>,
         is_cache: bool,
-    ) -> RedisResult<Option<Vec<TagDetails>>> {
+    ) -> RedisResult<Option<Vec<(TagDetails, bool)>>> {
         let limit_tags = limit_tags.unwrap_or(5).min(MAX_TAG_PAGE);
         let skip_tags = skip_tags.unwrap_or(0);
         let limit_taggers = limit_taggers.unwrap_or(5).min(MAX_TAG_PAGE);
@@ -204,26 +280,103 @@ where
         }
     }
 
+    /// Sets the viewer's stored tag address on each tag, given what the
+    /// index says about the viewer (see [`Self::flagged_viewer_tag_uris`]).
+    async fn with_viewer_tag_uris(
+        user_id: &str,
+        extra_param: Option<&str>,
+        viewer_id: Option<&str>,
+        tags: Vec<(TagDetails, Option<bool>)>,
+    ) -> GraphResult<Vec<TagDetails>> {
+        let mut uris = match viewer_id {
+            Some(viewer_id) => {
+                let labels = tags
+                    .iter()
+                    .map(|(tag, is_viewer_tagger)| (tag.label.clone(), *is_viewer_tagger))
+                    .collect();
+                Self::flagged_viewer_tag_uris(user_id, extra_param, viewer_id, labels).await?
+            }
+            None => HashMap::new(),
+        };
+        Ok(tags
+            .into_iter()
+            .map(|(mut tag, _)| {
+                tag.tag_uri = uris.remove(&tag.label);
+                tag.relationship = tag.tag_uri.is_some();
+                tag
+            })
+            .collect())
+    }
+
+    /// The viewer's stored tag address per label, read from the graph only for the labels
+    /// the index doesn't rule out. Each label comes with what the index says:
+    /// - `Some(true)`: the viewer is a tagger. A missing address is logged as a cache drift.
+    /// - `Some(false)`: the viewer isn't a tagger, so no graph read.
+    /// - `None`: the index can't tell (its set is missing), so the graph decides.
+    ///
+    /// One graph read for all the labels; none if every label is ruled out.
+    async fn flagged_viewer_tag_uris(
+        user_id: &str,
+        extra_param: Option<&str>,
+        viewer_id: &str,
+        labels: Vec<(String, Option<bool>)>,
+    ) -> GraphResult<HashMap<String, String>> {
+        let to_read = labels
+            .iter()
+            .filter(|(_, is_viewer_tagger)| *is_viewer_tagger != Some(false))
+            .map(|(label, _)| label.clone())
+            .collect();
+        let uris = Self::viewer_tag_uris(user_id, extra_param, viewer_id, to_read).await?;
+        for (label, is_viewer_tagger) in &labels {
+            if *is_viewer_tagger == Some(true) && !uris.contains_key(label) {
+                warn_missing_viewer_tag_uri(viewer_id, user_id, extra_param, label);
+            }
+        }
+        Ok(uris)
+    }
+
+    /// The viewer's stored tag address on the target, per label. Labels the viewer hasn't
+    /// tagged, or whose edge has no address, are left out. No graph read for no labels.
+    async fn viewer_tag_uris(
+        user_id: &str,
+        extra_param: Option<&str>,
+        viewer_id: &str,
+        labels: Vec<String>,
+    ) -> GraphResult<HashMap<String, String>> {
+        if labels.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let query = Self::viewer_tag_uris_query(user_id, extra_param, viewer_id, labels);
+        Ok(fetch_all_rows_from_graph(query)
+            .await?
+            .into_iter()
+            .filter_map(|row| Some((row.get("label").ok()?, row.get("uri").ok()?)))
+            .collect())
+    }
+
     /// Retrieves the tag collection from the graph database if it is not found in the index.
     /// # Arguments
     /// * user_id - The key of the user for whom to retrieve tags.
-    /// * extra_param - An optional parameter for specifying additional constraints (e.g., post_id, viewer_id (for WoT search) )
+    /// * extra_param - An optional parameter for specifying additional constraints: post_id
+    /// * viewer_id - The viewer: whose Web of Trust filters the tags with `depth`, and whose
+    ///   tag addresses fill `tag_uri` and `relationship` without it.
     /// * `depth` - An optional validated `WotDepth` for filtering tags within the viewer's Web of Trust.
     /// # Returns
     /// A Result containing an optional vector of TagDetails, or an error.
     async fn get_from_graph(
         user_id: &str,
         extra_param: Option<&str>,
+        viewer_id: Option<&str>,
         depth: Option<WotDepth>,
     ) -> GraphResult<Option<Vec<TagDetails>>> {
         // We cannot use LIMIT clause because we need all data related
         let query = match depth {
             Some(depth) => queries::get::get_viewer_trusted_network_tags(
                 user_id,
-                extra_param.unwrap_or_default(),
+                viewer_id.unwrap_or_default(),
                 depth,
             ),
-            None => Self::read_graph_query(user_id, extra_param),
+            None => Self::read_graph_query(user_id, extra_param, viewer_id),
         };
 
         fetch_tag_details(query).await
@@ -371,7 +524,7 @@ where
     ///   If `Some`, the function retrieves and reindexes tags specific to the post;
     ///   if `None`, it reindexes tags globally for the author.
     async fn reindex(author_id: &str, extra_param: Option<&str>) -> ModelResult<()> {
-        match Self::get_from_graph(author_id, extra_param, None).await? {
+        match Self::get_from_graph(author_id, extra_param, None, None).await? {
             Some(tag_user) => Self::put_to_index(author_id, extra_param, &tag_user, false).await?,
             None => error!(
                 "{}:{} Could not found tags in the graph",
@@ -425,12 +578,38 @@ where
     /// # Arguments
     /// * user_id - The key of the user for whom to start the retrieval of the tag.
     /// * extra_param - An optional parameter for specifying additional constraints on the query. Options: post_id
+    /// * viewer_id - Whose tag address fills each tag's `tag_uri` and `relationship`; `None`
+    ///   leaves them unset.
     /// # Returns
     /// A query object representing the query to execute in Neo4j.
-    fn read_graph_query(user_id: &str, extra_param: Option<&str>) -> Query {
+    fn read_graph_query(
+        user_id: &str,
+        extra_param: Option<&str>,
+        viewer_id: Option<&str>,
+    ) -> Query {
         match extra_param {
-            Some(extra_id) => queries::get::post_tags(user_id, extra_id),
-            None => queries::get::user_tags(user_id),
+            Some(extra_id) => queries::get::post_tags(user_id, extra_id, viewer_id),
+            None => queries::get::user_tags(user_id, viewer_id),
+        }
+    }
+
+    /// Creates a Neo4j query returning the viewer's tag addresses (`label`, `uri`) on the target
+    /// # Arguments
+    /// * user_id - The key of the target user, or the author of the target post.
+    /// * extra_param - An optional parameter for specifying the target. Options: post_id
+    /// * viewer_id - The tagger whose addresses are read.
+    /// * labels - The labels to read.
+    fn viewer_tag_uris_query(
+        user_id: &str,
+        extra_param: Option<&str>,
+        viewer_id: &str,
+        labels: Vec<String>,
+    ) -> Query {
+        match extra_param {
+            Some(post_id) => {
+                queries::get::viewer_post_tag_uris(user_id, post_id, viewer_id, labels)
+            }
+            None => queries::get::viewer_user_tag_uris(user_id, viewer_id, labels),
         }
     }
 

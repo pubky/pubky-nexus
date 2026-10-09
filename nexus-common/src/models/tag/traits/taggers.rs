@@ -1,17 +1,19 @@
 use crate::db::kv::RedisResult;
 use crate::db::RedisOps;
+use crate::models::error::ModelResult;
 use crate::models::tag::Taggers;
 use crate::types::{Pagination, WotDepth};
 use async_trait::async_trait;
 
-use super::collection::{CACHE_SET_PREFIX, MAX_TAG_PAGE};
+use super::collection::{TagCollection, CACHE_SET_PREFIX, MAX_TAG_PAGE};
 
-pub type TaggersTuple = (Taggers, bool);
+/// The taggers of a label, and the address of the viewer's tag file for it.
+pub type TaggersTuple = (Taggers, Option<String>);
 
 #[async_trait]
 pub trait TaggersCollection
 where
-    Self: RedisOps + AsRef<[String]>,
+    Self: RedisOps + AsRef<[String]> + TagCollection,
 {
     /// Retrieves taggers associated with a given user ID and label.
     ///
@@ -24,14 +26,15 @@ where
     /// * `label` - The tag label used to filter the taggers.
     /// * `pagination` - A struct containing optional pagination parameters (`skip` and `limit`).
     /// * `viewer_id` - An optional viewer ID, used for two purposes:
-    ///   1. **Checking if the viewer is in the taggers list**.
+    ///   1. **Reading the viewer's tag address** for the label.
     ///   2. **Retrieving Web of Trust (WoT) tags** when combined with `depth`.
     /// * `depth` - An optional validated `WotDepth`; its presence (with `viewer_id`) selects the WoT-tagger index.
     ///
     /// # Returns
-    /// A result containing `(Taggers, bool)`:
+    /// A result containing `(Taggers, Option<String>)`:
     /// - `taggers` is the retrieved list of taggers (empty if no taggers are available).
-    /// - `is_member` is `true` if `viewer_id` is in the taggers list, otherwise `false`.
+    /// - `tag_uri` is the stored `uri` of the viewer's tag on the label, or `None` if
+    ///   they haven't tagged it or there is no viewer.
     /// - An error if the retrieval process fails.
     async fn get_tagger_by_id(
         user_id: &str,
@@ -40,23 +43,55 @@ where
         pagination: Pagination,
         viewer_id: Option<&str>,
         depth: Option<WotDepth>,
-    ) -> RedisResult<TaggersTuple> {
+    ) -> ModelResult<TaggersTuple> {
         // Set default params for pagination
         let skip = pagination.skip.unwrap_or(0);
         let limit = pagination.limit.unwrap_or(40).min(MAX_TAG_PAGE);
-        let mut prefix = None;
-        let key_parts;
+        let is_wot = viewer_id.is_some() && depth.is_some() && extra_param.is_none();
         // Get WoT tags. If we do not first hit the graph using `TagUser::get_by_id` function
         // for example using, user/{user_id}/tags?viewer_id={viewer_id}&depth={distance} endpoint
-        // we get empty array because it was not cached the WoT tags
-        if viewer_id.is_some() && depth.is_some() && extra_param.is_none() {
-            prefix = Some(CACHE_SET_PREFIX.to_string());
-            key_parts = Self::create_label_index(user_id, viewer_id, label, true);
+        // we get empty array because it was not cached the WoT tags.
+        // The WoT taggers sets leave the viewer out, so the membership is checked below
+        // against the global taggers set instead.
+        let (key_param, prefix, member) = if is_wot {
+            (viewer_id, Some(CACHE_SET_PREFIX.to_string()), None)
         } else {
-            key_parts = Self::create_label_index(user_id, extra_param, label, false);
-        }
+            (extra_param, None, viewer_id)
+        };
+        let key_parts =
+            <Self as TaggersCollection>::create_label_index(user_id, key_param, label, is_wot);
+        let (taggers, is_member) = <Self as TaggersCollection>::get_from_index(
+            key_parts,
+            member,
+            Some(skip),
+            Some(limit),
+            prefix,
+        )
+        .await?;
 
-        Self::get_from_index(key_parts, viewer_id, Some(skip), Some(limit), prefix).await
+        let tag_uri = match viewer_id {
+            Some(viewer_id) => {
+                let is_viewer_tagger = if is_wot {
+                    let global_key = <Self as TaggersCollection>::create_label_index(
+                        user_id,
+                        extra_param,
+                        label,
+                        false,
+                    );
+                    let (exists, is_member) =
+                        Self::check_set_member(&global_key, viewer_id).await?;
+                    exists.then_some(is_member)
+                } else {
+                    Some(is_member)
+                };
+                let labels = vec![(label.to_string(), is_viewer_tagger)];
+                Self::flagged_viewer_tag_uris(user_id, extra_param, viewer_id, labels)
+                    .await?
+                    .remove(label)
+            }
+            None => None,
+        };
+        Ok((taggers, tag_uri))
     }
 
     async fn get_from_index(
@@ -65,7 +100,7 @@ where
         skip: Option<usize>,
         limit: Option<usize>,
         prefix: Option<String>,
-    ) -> RedisResult<TaggersTuple> {
+    ) -> RedisResult<(Taggers, bool)> {
         let taggers = Self::try_from_index_set(&key_parts, skip, limit, prefix).await?;
         let is_member = match viewer_id {
             Some(member) => Self::check_set_member(&key_parts, member).await?.1,
