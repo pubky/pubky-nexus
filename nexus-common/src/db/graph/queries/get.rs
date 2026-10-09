@@ -1291,34 +1291,6 @@ impl TrustRule<'_> {
     }
 }
 
-/// Sums each post's tags, replies and reposts as `total_engagement`. Each is its
-/// own COUNT{} subquery, so they don't multiply into a cartesian product per
-/// post. With the trust rule only ranked users and the post's author (`author`,
-/// bound by then) count, as in the Redis engagement sets.
-fn total_engagement(ranked_only: bool) -> String {
-    let (tagger, post) = match ranked_only {
-        true => {
-            let counted = format!(
-                "WHERE engager.id = author.id OR ({})",
-                ranked_user("engager")
-            );
-            (
-                format!("(engager:User) {counted}"),
-                format!("(:Post)<-[:AUTHORED]-(engager:User) {counted}"),
-            )
-        }
-        false => ("(:User)".to_string(), "(:Post)".to_string()),
-    };
-    format!(
-        "
-        WITH p, author,
-            COUNT {{ (p)<-[:TAGGED]-{tagger} }}
-            + COUNT {{ (p)<-[:REPLIED]-{post} }}
-            + COUNT {{ (p)<-[:REPOSTED]-{post} }} AS total_engagement
-        "
-    )
-}
-
 // Build the graph query based on parameters
 pub fn post_stream(
     source: StreamSource,
@@ -1530,7 +1502,16 @@ pub fn post_stream(
             format!("ORDER BY p.indexed_at {order_dir}, p.id {order_dir}"),
         ),
         StreamSorting::TotalEngagement => {
-            cypher.push_str(&total_engagement(author_rule.is_some()));
+            // Each engagement count is its own COUNT{} subquery, so they don't
+            // multiply into a cartesian product per post.
+            cypher.push_str(
+                "
+                WITH p, author,
+                    COUNT { (p)<-[:TAGGED]-(:User) }
+                    + COUNT { (p)<-[:REPLIED]-(:Post) }
+                    + COUNT { (p)<-[:REPOSTED]-(:Post) } AS total_engagement
+                ",
+            );
 
             // Initialise again
             where_clause_applied = false;
@@ -1903,29 +1884,16 @@ mod tests {
         assert_in_order(&cypher, &clauses);
     }
 
-    /// Engagement sorting drops hidden authors before counting engagement, and
-    /// counts only the engagement of ranked users and the post's author.
+    /// Engagement sorting drops hidden authors before counting engagement.
     #[test]
     fn post_stream_trust_rule_filters_engagement_streams() {
         let kind = Some(KindFilter::Kind(pubky_app_specs::PubkyAppPostKind::Short));
         let ranked = Some(TrustRule::Ranked);
         let cypher = all_stream(StreamSorting::TotalEngagement, &None, kind, ranked);
         let rule = format!("WHERE {}", ranked_user("author"));
-        let counted = format!(
-            "WHERE engager.id = author.id OR ({}) }}",
-            ranked_user("engager")
-        );
-        let tags = format!("COUNT {{ (p)<-[:TAGGED]-(engager:User) {counted}");
-        let replies =
-            format!("COUNT {{ (p)<-[:REPLIED]-(:Post)<-[:AUTHORED]-(engager:User) {counted}");
-        let reposts =
-            format!("COUNT {{ (p)<-[:REPOSTED]-(:Post)<-[:AUTHORED]-(engager:User) {counted}");
         let clauses = [
             "WITH DISTINCT p\nMATCH (p)<-[:AUTHORED]-(author:User)",
             &rule,
-            &tags,
-            &replies,
-            &reposts,
             "AS total_engagement",
             "ORDER BY total_engagement DESC",
         ];
