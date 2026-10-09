@@ -1,6 +1,7 @@
 use crate::db::kv::RedisResult;
-use crate::db::{fetch_row_from_graph, queries, GraphResult, RedisOps};
+use crate::db::{fetch_row_from_graph, queries, RedisOps};
 use crate::models::error::ModelResult;
+use crate::models::post::trust_filter;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -46,12 +47,14 @@ impl PostCounts {
         Self::try_from_index_json(&[author_id, post_id], None).await
     }
 
-    /// Retrieves the counts from Neo4j.
+    /// Retrieves the counts from Neo4j. Once a ranking is applied, engagement
+    /// from users the trust filter hides doesn't count.
     pub async fn get_from_graph(
         author_id: &str,
         post_id: &str,
-    ) -> GraphResult<Option<(PostCounts, bool)>> {
-        let query = queries::get::post_counts(author_id, post_id);
+    ) -> ModelResult<Option<(PostCounts, bool)>> {
+        let ranked_only = trust_filter::is_ranking_applied().await?;
+        let query = queries::get::post_counts(author_id, post_id, ranked_only);
         let maybe_row = fetch_row_from_graph(query).await?;
 
         if let Some(row) = maybe_row {

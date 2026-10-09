@@ -20,6 +20,11 @@ pub enum ScoreAction {
 
 pub const SORTED_PREFIX: &str = "Sorted";
 
+/// The full key of the sorted set at `key_parts`.
+pub fn sorted_key(key_parts: &[&str]) -> String {
+    format!("{SORTED_PREFIX}:{}", key_parts.join(":"))
+}
+
 /// Checks if a member exists in a Redis sorted set and retrieves its score.
 ///
 /// This function checks whether a specified member exists in a Redis sorted set

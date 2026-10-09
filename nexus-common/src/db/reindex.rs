@@ -76,7 +76,7 @@ pub async fn sync() {
         .await
         .expect("Failed to reindex influencers");
 
-    SocialGraphStatus::reindex()
+    SocialGraphStatus::publish()
         .await
         .expect("Failed to reindex the social graph ranking");
 
@@ -91,6 +91,11 @@ pub async fn sync() {
     TagSearch::reindex()
         .await
         .expect("Failed to store the global tags");
+
+    // Last: the rebuilds above count everyone's engagement.
+    crate::models::post::trust_filter::rescore_all()
+        .await
+        .expect("Failed to rescore the shared post sets");
 
     info!("Reindexing completed successfully.");
 }

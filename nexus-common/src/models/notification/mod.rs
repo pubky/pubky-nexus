@@ -1,6 +1,8 @@
 use crate::db::kv::{RedisError, RedisResult, SortOrder};
 use crate::db::{fetch_all_rows_from_graph, queries, RedisOps};
 use crate::models::error::ModelResult;
+use crate::models::follow::{Following, UserFollows};
+use crate::models::post::trust_filter;
 use crate::types::Pagination;
 use chrono::Utc;
 use neo4rs::Row;
@@ -117,6 +119,25 @@ impl Default for NotificationBody {
     }
 }
 
+impl NotificationBody {
+    /// The user whose action the notification reports.
+    pub fn actor(&self) -> &str {
+        match self {
+            Self::Follow { followed_by } | Self::NewFriend { followed_by } => followed_by,
+            Self::LostFriend { unfollowed_by } => unfollowed_by,
+            Self::TagPost { tagged_by, .. } | Self::TagProfile { tagged_by, .. } => tagged_by,
+            Self::UntagPost { untagged_by, .. } | Self::UntagProfile { untagged_by, .. } => {
+                untagged_by
+            }
+            Self::Reply { replied_by, .. } => replied_by,
+            Self::Repost { reposted_by, .. } => reposted_by,
+            Self::Mention { mentioned_by, .. } => mentioned_by,
+            Self::PostDeleted { deleted_by, .. } => deleted_by,
+            Self::PostEdited { edited_by, .. } => edited_by,
+        }
+    }
+}
+
 impl RedisOps for Notification {}
 
 impl Notification {
@@ -128,7 +149,11 @@ impl Notification {
     }
 
     /// Stores the `NotificationBody` in the sorted set for the user using the timestamp as the score.
+    /// Nothing is stored unless [`Self::reaches`] the user.
     async fn put_to_index(&self, user_id: &str) -> RedisResult<()> {
+        if !self.reaches(user_id).await? {
+            return Ok(());
+        }
         let notification_body_json = serde_json::to_string(&self.body)
             .map_err(|e| RedisError::SerializationFailed(Box::new(e)))?;
         let score = self.timestamp as f64;
@@ -140,6 +165,17 @@ impl Notification {
             None,
         )
         .await
+    }
+
+    /// Whether `user_id` gets it: the trust filter admits the actor, or, for a
+    /// reply, `user_id` follows the replier, as their threads do.
+    async fn reaches(&self, user_id: &str) -> RedisResult<bool> {
+        let actor = self.body.actor();
+        if trust_filter::admits(actor).await? {
+            return Ok(true);
+        }
+        let is_reply = matches!(self.body, NotificationBody::Reply { .. });
+        Ok(is_reply && Following::check_in_index(user_id, actor).await?)
     }
 
     /// Lists notifications from the sorted set for the user, based on skip and limit, or timestamp range.

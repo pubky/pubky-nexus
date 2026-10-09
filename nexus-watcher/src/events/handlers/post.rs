@@ -1,12 +1,13 @@
 use crate::events::EventProcessorError;
 
+use nexus_common::db::kv::ScoreAction;
+use nexus_common::db::queries;
 use nexus_common::db::queries::get::post_is_safe_to_delete;
 use nexus_common::db::{exec_single_row, execute_graph_operation, OperationOutcome};
-use nexus_common::db::{queries, RedisOps};
 use nexus_common::models::notification::{Notification, PostChangedSource, PostChangedType};
 use nexus_common::models::post::{
     collection_item_keys, sync_collected_edges, PostCounts, PostDetails, PostRelationships,
-    PostStream, POST_TOTAL_ENGAGEMENT_KEY_PARTS,
+    PostStream,
 };
 use nexus_common::models::user::{UserCounts, UserIngestor};
 use pubky_app_specs::{
@@ -228,9 +229,11 @@ async fn sync_put_details(
                 // Replies must not enter POST_TOTAL_ENGAGEMENT — ZINCRBY
                 // would create the member if absent.
                 if !post_relationships_is_reply(&parent_author_id, &parent_post_id).await? {
-                    PostStream::increment_score_index_sorted_set(
-                        &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
-                        parent_post_key_parts,
+                    PostStream::update_index_score(
+                        &parent_author_id,
+                        &parent_post_id,
+                        &author_id,
+                        ScoreAction::Increment(1.0),
                     )
                     .await?;
                 }
@@ -286,9 +289,11 @@ async fn sync_put_details(
                 // Replies must not enter POST_TOTAL_ENGAGEMENT — ZINCRBY
                 // would create the member if absent.
                 if !post_relationships_is_reply(&parent_author_id, &parent_post_id).await? {
-                    PostStream::increment_score_index_sorted_set(
-                        &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
-                        parent_post_key_parts,
+                    PostStream::update_index_score(
+                        &parent_author_id,
+                        &parent_post_id,
+                        &author_id,
+                        ScoreAction::Increment(1.0),
                     )
                     .await?;
                 }
@@ -740,7 +745,6 @@ pub async fn sync_del(
                 .try_to_uri_str()
                 .map_err(EventProcessorError::generic)?;
 
-            let parent_post_key_parts: [&str; 2] = [&parent_user_id, &parent_post_id];
             reply_parent_post_key_wrapper =
                 Some((parent_user_id.to_string(), parent_post_id.clone()));
             // Parent reply count changes; invalidated after the graph delete below.
@@ -755,9 +759,11 @@ pub async fn sync_del(
                     if post_in_index
                         && !post_relationships_is_reply(&parent_user_id, &parent_post_id).await?
                     {
-                        PostStream::decrement_score_index_sorted_set(
-                            &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
-                            &parent_post_key_parts,
+                        PostStream::update_index_score(
+                            &parent_user_id,
+                            &parent_post_id,
+                            &author_id,
+                            ScoreAction::Decrement(1.0),
                         )
                         .await?;
                     }
@@ -800,7 +806,6 @@ pub async fn sync_del(
                 .try_to_uri_str()
                 .map_err(EventProcessorError::generic)?;
 
-            let parent_post_key_parts: &[&str] = &[&reposted_uri.user_id, &parent_post_id];
             // Parent repost count changes; invalidated after the graph delete below.
             parents_to_invalidate.push([reposted_uri.user_id.to_string(), parent_post_id.clone()]);
 
@@ -813,9 +818,11 @@ pub async fn sync_del(
                     if post_in_index
                         && !post_relationships_is_reply(&reposted_uri.user_id, &parent_post_id).await?
                     {
-                        PostStream::decrement_score_index_sorted_set(
-                            &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
-                            parent_post_key_parts,
+                        PostStream::update_index_score(
+                            &reposted_uri.user_id,
+                            &parent_post_id,
+                            &author_id,
+                            ScoreAction::Decrement(1.0),
                         )
                         .await?;
                     }

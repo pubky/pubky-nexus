@@ -15,6 +15,13 @@ influencers-sorted-set = { max-threads = 1 }
 filter = 'test(=stream::user::influencers::test_global_influencers) | test(=stream::user::influencers::test_global_influencers_skip_limit) | test(=stream::user::influencers::test_global_influencers_alltime_cache_recovery) | test(=stream::user::influencers::test_global_influencers_preview)'
 test-group = 'influencers-sorted-set'
 
+# These tests change the shared trust ranking (Sorted:Users:SocialGraph) and the
+# posts it hides, which every filtered stream and social graph status reads, so
+# they run alone, as cache_setup does below.
+[[profile.default.overrides]]
+filter = 'test(=user::views::test_social_graph_status) | test(/^models::post::trust_filter::tests::live::/)'
+threads-required = 'num-test-threads'
+
 # nexusd/tests/cache_setup/main.rs calls clear_redis(), which issues FLUSHDB
 # against the shared Redis instance. It must not overlap with any other test in
 # the run, including nexus-webapi's search suite under --workspace, or that

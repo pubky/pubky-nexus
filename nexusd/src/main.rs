@@ -29,6 +29,7 @@ async fn main() -> Result<(), DynError> {
             }
             DbCommands::Mock(args) => {
                 let config = DaemonConfig::read_or_create_config_file(config_dir).await?;
+                config.features.apply();
                 MockDb::run(args.mock_type, &config.stack).await
             }
             DbCommands::Migration(migration_command) => match migration_command {

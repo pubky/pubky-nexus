@@ -10,6 +10,7 @@ pub mod post_replies;
 pub mod posts;
 pub mod reach;
 pub mod tags;
+pub mod trust_filter;
 pub mod utils;
 pub mod wot;
 

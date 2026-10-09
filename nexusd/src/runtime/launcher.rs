@@ -1,6 +1,6 @@
 use std::{fmt::Debug, path::PathBuf};
 
-use nexus_common::{types::DynError, utils::create_shutdown_rx};
+use nexus_common::{types::DynError, utils::create_shutdown_rx, StackManager};
 use nexus_watcher::NexusWatcherBuilder;
 use nexus_webapi::{api_context::ApiContextBuilder, NexusApiBuilder};
 use serde::{Deserialize, Serialize};
@@ -42,13 +42,21 @@ impl DaemonLauncher {
 
         try_join!(
             nexus_webapi_builder.start(Some(shutdown_rx.clone())),
-            nexus_watcher_builder.start(Some(shutdown_rx.clone())),
-            // Erase JobError to DynError so it unifies with the webapi/watcher
-            // arms (try_join! needs one error type).
+            // The API serves at once; the watcher's catch-up and the scheduled jobs
+            // wait until the stored data is in line with the features.
             async {
-                run(jobs, &config.stack, shutdown_rx)
-                    .await
-                    .map_err(DynError::from)
+                StackManager::setup(&config.stack).await?;
+                config.features.toggle().await;
+                try_join!(
+                    nexus_watcher_builder.start(Some(shutdown_rx.clone())),
+                    // Erase JobError to DynError so it unifies with the webapi/watcher
+                    // arms (try_join! needs one error type).
+                    async {
+                        run(jobs, &config.stack, shutdown_rx.clone())
+                            .await
+                            .map_err(DynError::from)
+                    },
+                )
             },
         )?;
         Ok(())

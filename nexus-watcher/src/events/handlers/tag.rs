@@ -278,6 +278,7 @@ async fn put_sync_post(
                     &author_id,
                     post_id,
                     tag_label,
+                    &tagger_user_id,
                     ScoreAction::Increment(1.0),
                 ),
                 async {
@@ -285,6 +286,7 @@ async fn put_sync_post(
                         PostStream::update_index_score(
                             &author_id,
                             post_id,
+                            &tagger_user_id,
                             ScoreAction::Increment(1.0),
                         )
                         .await?;
@@ -689,6 +691,7 @@ async fn del_sync_post(
                     author_id,
                     post_id,
                     tag_label,
+                    &tagger_id,
                     ScoreAction::Decrement(1.0),
                 )
                 .await?;
@@ -697,7 +700,12 @@ async fn del_sync_post(
         },
         async {
             if tagger_in_index && !post_relationships_is_reply(author_id, post_id).await? {
-                PostStream::update_index_score(author_id, post_id, ScoreAction::Decrement(1.0))
+                PostStream::update_index_score(
+                    author_id,
+                    post_id,
+                    &tagger_id,
+                    ScoreAction::Decrement(1.0),
+                )
                     .await?;
             }
             Ok::<(), EventProcessorError>(())

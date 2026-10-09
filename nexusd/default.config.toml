@@ -78,6 +78,12 @@ initial_missing_dep_backoff_secs = 60
 # Backoff ceiling for MissingDependency (seconds)
 max_missing_dep_backoff_secs = 3600
 
+# App features. Keep them the same in every service.
+[features]
+# Hide posts by authors outside the trust ranking from the streams every viewer
+# shares. A change applies when nexusd starts, or at the next trust recompute.
+hide_unranked_authors = true
+
 [stack]
 # Logging, options: error, warn, info, debug and trace
 log_level = "info"
