@@ -964,11 +964,14 @@ pub fn get_hot_tags_by_reach(
         {}
         MATCH (reach)-[tag:TAGGED]->(tagged:{})
         WHERE user.id = $user_id AND tag.indexed_at >= $from AND tag.indexed_at < $to
+        // COLLECT keeps its input order, so the cut keeps the lowest tagger ids
+        WITH tag.label AS label, reach.id AS tagger_id, tagged
+        ORDER BY tagger_id ASC
         WITH
-            tag.label AS label,
-            COLLECT(DISTINCT reach.id)[..{}] AS taggers,
+            label,
+            COLLECT(DISTINCT tagger_id)[..{}] AS taggers,
             COUNT(DISTINCT tagged) AS uniqueTaggedCount,
-            COUNT(DISTINCT reach.id) AS taggers_count
+            COUNT(DISTINCT tagger_id) AS taggers_count
         WITH {{
             label: label,
             taggers_id: taggers,
@@ -1001,11 +1004,14 @@ pub fn get_global_hot_tags(tags_query: &HotTagsInputDTO) -> Query {
         "
         MATCH (user: User)-[tag:TAGGED]->(tagged:{})
         WHERE tag.indexed_at >= $from AND tag.indexed_at < $to
+        // COLLECT keeps its input order, so the cut keeps the lowest tagger ids
+        WITH tag.label AS label, user.id AS tagger_id, tagged
+        ORDER BY tagger_id ASC
         WITH
-            tag.label AS label,
-            COLLECT(DISTINCT user.id)[..{}] AS taggers,
+            label,
+            COLLECT(DISTINCT tagger_id)[..{}] AS taggers,
             COUNT(DISTINCT tagged) AS uniqueTaggedCount,
-            COUNT(DISTINCT user.id) AS taggers_count
+            COUNT(DISTINCT tagger_id) AS taggers_count
         WITH {{
             label: label,
             taggers_id: taggers,
