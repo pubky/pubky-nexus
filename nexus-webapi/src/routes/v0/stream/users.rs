@@ -160,12 +160,14 @@ pub struct UserStreamSearchQuery {
         (status = 200, description = "Username search stream", body = UserStream),
         (status = 400, description = "Bad Request"),
         (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
-        (status = 500, description = "Internal server error")
+        (status = 500, description = "Internal server error"),
+        (status = 501, description = "Unavailable in light mode, which keeps no names")
     )
 )]
 pub async fn stream_username_search_handler(
     Query(query): Query<UserStreamSearchQuery>,
 ) -> Result<Json<UserStream>> {
+    Error::require_full_mode()?;
     let skip = query.pagination.skip_value();
     let limit = query.pagination.limit_value();
 

@@ -82,6 +82,7 @@ impl AvatarBenchSetup {
             image: Some(avatar_uri.clone()),
             indexed_at: 1_724_134_095_000,
             deleted: false,
+            profile_hash: None,
         };
 
         UserDetails::put_to_index(&[USER_PUBKY], vec![Some(user)])

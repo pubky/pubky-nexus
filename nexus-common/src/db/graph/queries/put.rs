@@ -10,20 +10,28 @@ use pubky_app_specs::{ParsedUri, PubkyId, Resource};
 /// `uri` is the address the profile was read from (its event path). `None` keeps the stored
 /// `uri`, so a tombstone retains it and a stub node gets none.
 pub fn create_user(user: &UserDetails, uri: Option<&str>) -> GraphResult<Query> {
-    let links = serde_json::to_string(&user.links)
-        .map_err(|e| GraphError::SerializationFailed(Box::new(e)))?;
+    // A light Nexus keeps none of what the user wrote (see `UserDetails`).
+    let light = StackManager::mode().is_light();
+    let links = match light {
+        true => None,
+        false => user.links.clone(),
+    };
+    let links =
+        serde_json::to_string(&links).map_err(|e| GraphError::SerializationFailed(Box::new(e)))?;
 
     let query = Query::new(
         "create_user",
         "MERGE (u:User {id: $id})
          SET u.name = $name, u.bio = $bio, u.status = $status, u.links = $links, u.image = $image, u.indexed_at = $indexed_at, u.deleted = $deleted,
+             u.profile_hash = $profile_hash,
              u.uri = coalesce($uri, u.uri);",
     )
     .param("id", user.id.to_string())
     .param("uri", uri.map(str::to_string))
-    .param("name", user.name.clone())
-    .param("bio", user.bio.clone())
-    .param("status", user.status.clone())
+    .param("name", light_mode_blank(&user.name))
+    .param("bio", user.bio.clone().filter(|_| !light))
+    .param("status", user.status.clone().filter(|_| !light))
+    .param("profile_hash", user.profile_hash.clone())
     .param("links", links)
     .param("image", user.image.clone())
     .param("indexed_at", user.indexed_at)

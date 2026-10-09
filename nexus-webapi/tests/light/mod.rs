@@ -6,6 +6,7 @@
 //! what a light API serves too: it leaves out the content it does not keep.
 
 mod files;
+mod users;
 
 use anyhow::Result;
 use axum::body::Body;

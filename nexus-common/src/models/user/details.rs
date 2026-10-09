@@ -35,18 +35,34 @@ impl Collection<&str> for UserDetails {
 }
 
 /// Represents user data with name, bio, image, links, and status.
+///
+/// A light Nexus keeps none of what the user wrote (name, bio, links, status): those fields
+/// are left out of the cached JSON and of API responses, and blanked in the graph. `image`
+/// is a link to a file, so it is kept like a post's attachments.
 #[derive(Serialize, Deserialize, ToSchema, Clone, Debug)]
 pub struct UserDetails {
+    #[serde(default, skip_serializing_if = "crate::omit_in_light_mode")]
     pub name: String,
+    #[serde(default, skip_serializing_if = "crate::omit_in_light_mode")]
     pub bio: Option<String>,
     pub id: PubkyId,
-    #[serde(deserialize_with = "deserialize_user_links")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_user_links",
+        skip_serializing_if = "crate::omit_in_light_mode"
+    )]
     pub links: Option<Vec<PubkyAppUserLink>>,
+    #[serde(default, skip_serializing_if = "crate::omit_in_light_mode")]
     pub status: Option<String>,
     pub image: Option<String>,
     pub indexed_at: i64,
     #[serde(deserialize_with = "deserialize_user_deleted", default)]
     pub deleted: bool,
+    /// blake3 of the profile as read from the homeserver, hex encoded. Changes whenever
+    /// the profile does, so a client can cache the profile it fetched until it changes.
+    /// `None` for stub users, tombstones and profiles stored before the hash existed.
+    #[serde(default)]
+    pub profile_hash: Option<String>,
 }
 
 fn deserialize_user_links<'de, D>(
@@ -117,11 +133,13 @@ impl UserDetails {
             status: None,
             image: None,
             deleted: false,
+            profile_hash: None,
         }
     }
 
     pub fn from_homeserver(homeserver_user: PubkyAppUser, user_id: &PubkyId) -> Self {
         UserDetails {
+            profile_hash: Some(Self::hash_profile(&homeserver_user)),
             name: homeserver_user.name,
             bio: homeserver_user.bio,
             status: homeserver_user.status,
@@ -131,6 +149,13 @@ impl UserDetails {
             indexed_at: Utc::now().timestamp_millis(),
             deleted: false,
         }
+    }
+
+    /// The `profile_hash` of a profile: blake3 of its JSON, hex encoded.
+    pub fn hash_profile(profile: &PubkyAppUser) -> String {
+        // Serializing a struct of strings and string vectors cannot fail.
+        let json = serde_json::to_vec(profile).unwrap_or_default();
+        blake3::hash(&json).to_hex().to_string()
     }
 
     /// Cleared profile written when a user with relationships is deleted.
@@ -146,6 +171,7 @@ impl UserDetails {
             image: None,
             indexed_at: Utc::now().timestamp_millis(),
             deleted: true,
+            profile_hash: None,
         }
     }
 

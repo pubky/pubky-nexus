@@ -835,6 +835,7 @@ async fn create_user_on_homeserver(homeserver: &Homeserver) -> Result<String, Dy
         image: None,
         indexed_at: Utc::now().timestamp_millis(),
         deleted: false,
+        profile_hash: None,
     };
 
     user.put_to_graph().await?;
@@ -871,6 +872,7 @@ fn test_user_details(user_id: &str) -> Result<UserDetails, DynError> {
         image: None,
         indexed_at: Utc::now().timestamp_millis(),
         deleted: false,
+        profile_hash: None,
     })
 }
 

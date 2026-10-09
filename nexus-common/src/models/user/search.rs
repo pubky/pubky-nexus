@@ -7,6 +7,7 @@ use crate::models::error::ModelResult;
 use crate::models::tag::user::{TagUser, USER_TAGS_KEY_PARTS};
 use crate::models::traits::Collection;
 use crate::types::{Pagination, StreamReach};
+use crate::StackManager;
 use futures::TryStreamExt;
 use serde::{Deserialize, Serialize};
 use tokio::time::{timeout, Duration};
@@ -321,12 +322,15 @@ impl UserSearch {
 
         // Tombstoned users are removed from the index by `delete`; never re-add them
         // here, or the next cache-miss read would resurrect the entry.
+        // A light Nexus keeps no names, so it indexes ids only and has no name search.
+        let index_names = !StackManager::mode().is_light();
         for details in details_list.iter().filter(|d| !d.deleted) {
-            // Convert the username to lowercase before storing
-            let username = details.name.to_lowercase();
             let user_id = &details.id;
-
-            pairs.push(format!("{username}:{user_id}"));
+            if index_names {
+                // Convert the username to lowercase before storing
+                let username = details.name.to_lowercase();
+                pairs.push(format!("{username}:{user_id}"));
+            }
             ids.push(user_id.to_string());
         }
 

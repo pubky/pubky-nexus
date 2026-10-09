@@ -103,6 +103,7 @@ pub async fn create_random_homeservers_and_persist(
                 image: None,
                 indexed_at: Utc::now().timestamp_millis(),
                 deleted: false,
+                profile_hash: None,
             };
             user.put_to_graph().await.unwrap();
             set_user_homeserver(&user_id, &homeserver_id).await.unwrap();

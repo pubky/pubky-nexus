@@ -240,6 +240,7 @@ async fn create_active_user_on_homeserver_with_trust(
         image: None,
         indexed_at: Utc::now().timestamp_millis(),
         deleted: false,
+        profile_hash: None,
     };
 
     user.put_to_graph().await?;

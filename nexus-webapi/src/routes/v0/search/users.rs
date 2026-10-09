@@ -35,13 +35,15 @@ pub struct SearchQuery {
         (status = 200, description = "Search results", body = UserSearch),
         (status = 400, description = "Invalid parameters"),
         (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
-        (status = 500, description = "Internal server error")
+        (status = 500, description = "Internal server error"),
+        (status = 501, description = "Unavailable in light mode, which keeps no names")
     )
 )]
 pub async fn search_users_by_name_handler(
     Path(prefix): Path<UsernamePrefix>,
     Query(query): Query<SearchQuery>,
 ) -> Result<Json<UserSearch>> {
+    Error::require_full_mode()?;
     debug!("GET {SEARCH_USERS_BY_NAME_ROUTE} username:{}", prefix);
 
     let pagination = query.pagination.to_pagination(None, None);
