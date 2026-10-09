@@ -149,7 +149,7 @@ impl Notification {
     }
 
     /// Stores the `NotificationBody` in the sorted set for the user using the timestamp as the score.
-    /// Nothing is stored unless [`Self::reaches`] the user.
+    /// A reply is stored only if it [`Self::reaches`] the user.
     async fn put_to_index(&self, user_id: &str) -> RedisResult<()> {
         if !self.reaches(user_id).await? {
             return Ok(());
@@ -167,15 +167,16 @@ impl Notification {
         .await
     }
 
-    /// Whether `user_id` gets it: the trust filter admits the actor, or, for a
-    /// reply, `user_id` follows the replier, as their threads do.
+    /// Whether `user_id` gets it: everything but a reply, which reaches them
+    /// only when it reaches their thread, from a replier the trust filter
+    /// admits or one they follow.
     async fn reaches(&self, user_id: &str) -> RedisResult<bool> {
-        let actor = self.body.actor();
-        if trust_filter::admits(actor).await? {
+        if !matches!(self.body, NotificationBody::Reply { .. }) {
             return Ok(true);
         }
-        let is_reply = matches!(self.body, NotificationBody::Reply { .. });
-        Ok(is_reply && Following::check_in_index(user_id, actor).await?)
+        let replier = self.body.actor();
+        Ok(trust_filter::admits(replier).await?
+            || Following::check_in_index(user_id, replier).await?)
     }
 
     /// Lists notifications from the sorted set for the user, based on skip and limit, or timestamp range.

@@ -173,10 +173,10 @@ async fn test_threads_keep_the_authors_own_replies() -> Result<()> {
     Ok(())
 }
 
-/// Notifications from an unranked user are never written; a ranked user's
-/// reply and follow still notify.
+/// An unranked user's reply, hidden from the thread, sends no notification;
+/// their follow still does, like a ranked user's reply and follow.
 #[tokio_shared_rt::test(shared)]
-async fn test_unranked_users_send_no_notifications() -> Result<()> {
+async fn test_unranked_replies_send_no_notifications() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
 
     let owner_kp = Keypair::random();
@@ -212,7 +212,7 @@ async fn test_unranked_users_send_no_notifications() -> Result<()> {
             .iter()
             .filter(|notification| notification.body.actor() == user_id)
             .count();
-        let expected = if ranked { 2 } else { 0 };
+        let expected = if ranked { 2 } else { 1 };
         assert_eq!(sent, expected, "{user_id}: a reply and a follow");
     }
     Ok(())
