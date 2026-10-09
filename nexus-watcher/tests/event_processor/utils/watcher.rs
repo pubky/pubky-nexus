@@ -2,10 +2,13 @@ use crate::event_processor::utils::default_moderation_tests;
 use anyhow::{anyhow, Error, Result};
 use base32::{encode, Alphabet};
 use chrono::Utc;
-use nexus_common::db::PubkyConnector;
+use nexus_common::db::graph::Query;
+use nexus_common::db::{exec_single_row, PubkyConnector, RedisOps};
 use nexus_common::models::file::FileDetails;
 use nexus_common::models::homeserver::Homeserver;
+use nexus_common::models::post::PostStream;
 use nexus_common::models::traits::Collection;
+use nexus_common::models::user::USER_SOCIAL_GRAPH_KEY_PARTS;
 use nexus_common::utils::test_utils::default_ingestor_tests;
 use nexus_common::{StackConfig, StackManager};
 use nexus_watcher::errors::EventProcessorError;
@@ -269,6 +272,10 @@ impl WatcherTest {
         let user_path = PubkyAppUser::hs_path();
         self.put(user_kp, &user_path, &user).await?;
 
+        // Ranked, as most authors are, so the user's posts reach the sorted sets
+        // every viewer shares. posts/trust_filter.rs unranks the authors it hides.
+        rank_user(&user_id).await?;
+
         Ok(user_id)
     }
 
@@ -466,4 +473,28 @@ impl HomeserverPathForPubkyId for PubkyAppFollow {
     fn hs_path(&self, pubky_id: &str) -> ResourcePath {
         Self::create_path(pubky_id).parse().unwrap()
     }
+}
+
+/// Puts `user_id` in the trust ranking, below every fixture user, so the
+/// fixture's positions are untouched. Both places the ranking is read from
+/// change: the Redis ranking the gate checks, and the graph `trust` that post
+/// counts and the Cypher-served streams check.
+pub async fn rank_user(user_id: &str) -> Result<()> {
+    PostStream::put_index_sorted_set(&USER_SOCIAL_GRAPH_KEY_PARTS, &[(1e9, user_id)], None, None)
+        .await?;
+    set_trust(user_id, "SET u.trust = 1e-9").await
+}
+
+/// Takes `user_id` out of the trust ranking, in Redis and the graph: their
+/// posts and engagement no longer reach what every viewer shares.
+pub async fn unrank_user(user_id: &str) -> Result<()> {
+    PostStream::remove_from_index_sorted_set(None, &USER_SOCIAL_GRAPH_KEY_PARTS, &[user_id])
+        .await?;
+    set_trust(user_id, "REMOVE u.trust").await
+}
+
+async fn set_trust(user_id: &str, change: &str) -> Result<()> {
+    let cypher = format!("MATCH (u:User {{id: $id}}) {change}");
+    exec_single_row(Query::new("set_test_user_trust", &cypher).param("id", user_id)).await?;
+    Ok(())
 }

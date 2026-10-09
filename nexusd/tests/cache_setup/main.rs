@@ -14,6 +14,8 @@
 //! The cache is rebuilt with `reindex::sync()` before returning so a local
 //! run leaves the mock data in place for whatever runs next.
 
+use std::collections::BTreeSet;
+
 use anyhow::{Context, Result};
 use nexus_common::db::{get_redis_conn, kv::clear_redis, reindex, RedisOps};
 use nexus_common::models::post::PostDetails;
@@ -99,6 +101,16 @@ async fn clear_redis_recreates_post_content_index() -> Result<()> {
         db_size().await? > 0,
         "reindex::sync should have repopulated Redis from the graph"
     );
+    // The ranking is published and applied to the shared sets. The fixture
+    // scores its users, so an empty one means a trust recompute rewrote them.
+    let mut conn = get_redis_conn().await?;
+    let (ranking, applied): (BTreeSet<String>, BTreeSet<String>) = redis::pipe()
+        .zrange("Sorted:Users:SocialGraph", 0, -1)
+        .zrange("Sorted:TrustFilter:Applied", 0, -1)
+        .query_async(&mut conn)
+        .await?;
+    assert!(!ranking.is_empty(), "reindex::sync published no ranking");
+    assert_eq!(applied, ranking, "reindex::sync should apply the ranking");
 
     Ok(())
 }

@@ -1,8 +1,12 @@
 use std::sync::Arc;
 
+use super::trust_filter::{self, AuthorPost};
 use super::{collection_item_keys, Bookmark, PostCounts, PostDetails, PostView};
 use crate::db::kv::{RedisResult, ScoreAction, SortOrder};
-use crate::db::{get_neo4j_graph, queries, GraphError, GraphResult, RedisOps};
+use crate::db::queries::get::TrustRule;
+use crate::db::{
+    fetch_all_rows_from_graph, get_neo4j_graph, queries, GraphError, GraphResult, RedisOps,
+};
 use crate::models::error::ModelError;
 use crate::models::error::ModelResult;
 use crate::models::{
@@ -213,7 +217,8 @@ impl PostStream {
         kind: Option<KindFilter>,
     ) -> ModelResult<Option<Self>> {
         let post_key_stream =
-            Self::collect_post_keys(source, pagination, order, sorting, tags, kind).await?;
+            Self::collect_post_keys(source, pagination, order, sorting, viewer_id, tags, kind)
+                .await?;
 
         if post_key_stream.is_empty() {
             return Ok(None);
@@ -227,11 +232,13 @@ impl PostStream {
         pagination: Pagination,
         order: SortOrder,
         sorting: StreamSorting,
+        viewer_id: Option<&str>,
         tags: Option<Vec<String>>,
         kind: Option<KindFilter>,
     ) -> ModelResult<Option<PostKeyStream>> {
         let post_key_stream =
-            Self::collect_post_keys(source, pagination, order, sorting, tags, kind).await?;
+            Self::collect_post_keys(source, pagination, order, sorting, viewer_id, tags, kind)
+                .await?;
 
         if post_key_stream.is_empty() {
             return Ok(None);
@@ -245,6 +252,7 @@ impl PostStream {
         pagination: Pagination,
         order: SortOrder,
         sorting: StreamSorting,
+        viewer_id: Option<&str>,
         tags: Option<Vec<String>>,
         kind: Option<KindFilter>,
     ) -> ModelResult<PostKeyStream> {
@@ -269,11 +277,23 @@ impl PostStream {
 
         // Decide whether to use index or fallback to graph query
         let use_index = Self::can_use_index(&sorting, &source, &tags, &kind);
+        // The trust filter hides an unranked author's posts from everyone, so
+        // their own ALL timeline gets them back.
+        let own_posts_viewer = match (&source, &sorting, &tags) {
+            (StreamSource::All, StreamSorting::Timeline, None) if trust_filter::is_enabled() => {
+                viewer_id
+            }
+            _ => None,
+        };
+        let rule = Self::trust_rule(&source, use_index, own_posts_viewer).await?;
 
         let started = std::time::Instant::now();
         let result: ModelResult<PostKeyStream> = match use_index {
-            true => Self::get_from_index(source, sorting, order, &tags, pagination).await,
-            false => Self::get_from_graph(source, sorting, order, &tags, pagination, kind)
+            true => {
+                Self::get_from_index(source, sorting, order, &tags, pagination, own_posts_viewer)
+                    .await
+            }
+            false => Self::get_from_graph(source, sorting, order, &tags, pagination, kind, rule)
                 .await
                 .map_err(Into::into),
         };
@@ -316,7 +336,7 @@ impl PostStream {
 
         let started = std::time::Instant::now();
         let result: ModelResult<Vec<(String, f64)>> =
-            Self::get_scored_from_graph(source, sorting, order, &tags, pagination, None)
+            Self::get_scored_from_graph(source, sorting, order, &tags, pagination, None, None)
                 .await
                 .map_err(Into::into);
 
@@ -346,6 +366,61 @@ impl PostStream {
             )),
             _ => None,
         }
+    }
+
+    /// A `source=all` stream served from the graph hides the authors the shared
+    /// sorted sets hide, once a ranking has been applied to them.
+    async fn trust_rule<'a>(
+        source: &StreamSource,
+        use_index: bool,
+        own_posts_viewer: Option<&'a str>,
+    ) -> RedisResult<Option<TrustRule<'a>>> {
+        if use_index
+            || !matches!(source, StreamSource::All)
+            || !trust_filter::is_ranking_applied().await?
+        {
+            return Ok(None);
+        }
+        let rule = own_posts_viewer.map_or(TrustRule::Ranked, TrustRule::RankedAndViewer);
+        Ok(Some(rule))
+    }
+
+    /// The global timeline with the viewer's own root posts merged in, paged as
+    /// one sorted set would page them.
+    async fn get_merged_timeline(
+        viewer_id: &str,
+        order: SortOrder,
+        pagination: Pagination,
+    ) -> RedisResult<PostKeyStream> {
+        // Each set yields at most the whole window up to the page's end, so the
+        // merged list can be skipped and limited like one set.
+        let skip = pagination.skip.unwrap_or(0);
+        let window = pagination.limit.map(|limit| skip + limit);
+        let own_key_parts = [&POST_PER_USER_KEY_PARTS[..], &[viewer_id]].concat();
+        let read = |key_parts| {
+            Self::try_from_index_sorted_set(
+                key_parts,
+                pagination.start,
+                pagination.end,
+                Some(0),
+                window,
+                order.clone(),
+                None,
+            )
+        };
+        let (global, own) = tokio::try_join!(read(&POST_TIMELINE_KEY_PARTS), read(&own_key_parts))?;
+        let own = own
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(post_id, score)| (format!("{viewer_id}:{post_id}"), score));
+        let entries = global.unwrap_or_default().into_iter().chain(own).collect();
+
+        let page = merge_scored(entries, &order)
+            .into_iter()
+            .skip(skip)
+            .take(pagination.limit.unwrap_or(usize::MAX))
+            .collect();
+        Ok(PostKeyStream::from_scored_entries(page))
     }
 
     // Determine if we have a quick access sorted set for this combination
@@ -387,6 +462,7 @@ impl PostStream {
         order: SortOrder,
         tags: &Option<Vec<String>>,
         pagination: Pagination,
+        own_posts_viewer: Option<&str>,
     ) -> ModelResult<PostKeyStream> {
         let start = pagination.start;
         let end = pagination.end;
@@ -395,9 +471,12 @@ impl PostStream {
 
         let result = match (source, tags) {
             // Global post streams
-            (StreamSource::All, None) => {
-                Self::get_global_posts_keys(sorting, order, start, end, skip, limit).await?
-            }
+            (StreamSource::All, None) => match own_posts_viewer {
+                Some(viewer) => Self::get_merged_timeline(viewer, order, pagination).await?,
+                None => {
+                    Self::get_global_posts_keys(sorting, order, start, end, skip, limit).await?
+                }
+            },
             // Streams by tags
             (StreamSource::All, Some(tags)) if tags.len() == 1 => {
                 Self::get_posts_keys_by_tag(&tags[0], sorting, start, end, skip, limit).await?
@@ -469,8 +548,9 @@ impl PostStream {
         tags: &Option<Vec<String>>,
         pagination: Pagination,
         kind: Option<KindFilter>,
+        trust_rule: Option<TrustRule<'_>>,
     ) -> GraphResult<PostKeyStream> {
-        Self::get_scored_from_graph(source, sorting, order, tags, pagination, kind)
+        Self::get_scored_from_graph(source, sorting, order, tags, pagination, kind, trust_rule)
             .await
             .map(PostKeyStream::from_scored_entries)
     }
@@ -482,9 +562,11 @@ impl PostStream {
         tags: &Option<Vec<String>>,
         pagination: Pagination,
         kind: Option<KindFilter>,
+        trust_rule: Option<TrustRule<'_>>,
     ) -> GraphResult<Vec<(String, f64)>> {
         let graph = get_neo4j_graph()?;
-        let query = queries::get::post_stream(source, sorting, order, tags, pagination, kind)?;
+        let query =
+            queries::get::post_stream(source, sorting, order, tags, pagination, kind, trust_rule)?;
 
         // The 10-second budget covers execution AND row streaming: execute()
         // only submits the query and the heavy work (ORDER BY materializes at
@@ -814,13 +896,7 @@ impl PostStream {
     pub async fn add_to_timeline_sorted_set(details: &PostDetails) -> RedisResult<()> {
         let element = format!("{}:{}", details.author, details.id);
         let score = details.indexed_at as f64;
-        Self::put_index_sorted_set(
-            &POST_TIMELINE_KEY_PARTS,
-            &[(score, element.as_str())],
-            None,
-            None,
-        )
-        .await
+        trust_filter::add(&POST_TIMELINE_KEY_PARTS, &[(score, element.as_str())]).await
     }
 
     /// Adds the post to a Redis sorted set using the `indexed_at` timestamp as the score.
@@ -861,7 +937,14 @@ impl PostStream {
         let key_parts = [&POST_REPLIES_PER_POST_KEY_PARTS[..], parent_post_key_parts].concat();
         let score = indexed_at as f64;
         let element = format!("{author_id}:{reply_id}");
-        Self::put_index_sorted_set(&key_parts, &[(score, element.as_str())], None, None).await
+        let entry = [(score, element.as_str())];
+        // The thread is the parent's author's own: their replies, and those of
+        // the users they follow, always get in.
+        let owner = parent_post_key_parts[0];
+        if author_id == owner || Following::check_in_index(owner, author_id).await? {
+            return trust_filter::add_always(&key_parts, &entry).await;
+        }
+        trust_filter::add(&key_parts, &entry).await
     }
 
     /// Adds the post response to a Redis sorted set using the `indexed_at` timestamp as the score.
@@ -921,19 +1004,16 @@ impl PostStream {
 
     /// Adds the post to a Redis sorted set using the total engagement as the score.
     pub async fn add_to_engagement_sorted_set(
-        counts: &PostCounts,
+        engagement: u32,
         author_id: &str,
         post_id: &str,
     ) -> RedisResult<()> {
         let element = format!("{author_id}:{post_id}");
-        let score = counts.tags + counts.replies + counts.reposts;
-        let score = score as f64;
+        let score = engagement as f64;
 
-        Self::put_index_sorted_set(
+        trust_filter::add(
             &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
             &[(score, element.as_str())],
-            None,
-            None,
         )
         .await
     }
@@ -947,13 +1027,74 @@ impl PostStream {
             .await
     }
 
+    /// The shared sets `post` belongs in, as joined key parts and score, as a full
+    /// reindex places it. A reply its thread's owner wrote, or whose author the
+    /// owner follows, gets none: the thread keeps it whatever the ranking.
+    pub(crate) fn shared_set_entries(post: &AuthorPost) -> Vec<(String, f64)> {
+        let indexed_at = post.indexed_at as f64;
+        match &post.parent {
+            Some((parent_author, _))
+                if *parent_author == post.author || post.followed_by_parent_author =>
+            {
+                Vec::new()
+            }
+            Some((parent_author, parent_post)) => {
+                let key = [
+                    &POST_REPLIES_PER_POST_KEY_PARTS[..],
+                    &[parent_author, parent_post],
+                ];
+                vec![(key.concat().join(":"), indexed_at)]
+            }
+            None => vec![
+                (POST_TIMELINE_KEY_PARTS.join(":"), indexed_at),
+                (
+                    POST_TOTAL_ENGAGEMENT_KEY_PARTS.join(":"),
+                    post.engagement as f64,
+                ),
+            ],
+        }
+    }
+
+    /// Brings `replier_id`'s replies in `owner_id`'s threads, and the threads'
+    /// reply counts, in line with whether the owner follows them: written back
+    /// when they do, taken out when they don't. Nothing changes for a replier
+    /// the trust filter admits anyway. Run it after the follow's graph write.
+    pub async fn sync_followed_replies(owner_id: &str, replier_id: &str) -> ModelResult<()> {
+        if trust_filter::admits(replier_id).await? {
+            return Ok(());
+        }
+        let followed = Following::check_in_index(owner_id, replier_id).await?;
+        let rows =
+            fetch_all_rows_from_graph(queries::get::replies_in_threads(owner_id, replier_id))
+                .await?;
+        for row in rows {
+            let reply_id: String = row.get("reply_id").map_err(GraphError::from)?;
+            let parent_id: String = row.get("parent_id").map_err(GraphError::from)?;
+            let parent: [&str; 2] = [owner_id, &parent_id];
+            match followed {
+                true => {
+                    let indexed_at: i64 = row.get("indexed_at").map_err(GraphError::from)?;
+                    let key_parts = [&POST_REPLIES_PER_POST_KEY_PARTS[..], &parent].concat();
+                    let member = format!("{replier_id}:{reply_id}");
+                    let entry = [(indexed_at as f64, member.as_str())];
+                    trust_filter::add_always(&key_parts, &entry).await?;
+                }
+                false => {
+                    Self::remove_from_post_reply_sorted_set(&parent, replier_id, &reply_id).await?
+                }
+            }
+            PostCounts::invalidate(&parent).await?;
+        }
+        Ok(())
+    }
+
     pub async fn update_index_score(
         author_id: &str,
         post_id: &str,
         score_action: ScoreAction,
     ) -> RedisResult<()> {
         let post_key_slice = &[author_id, post_id];
-        Self::put_score_index_sorted_set(
+        trust_filter::incr(
             &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
             post_key_slice,
             score_action,
@@ -962,9 +1103,43 @@ impl PostStream {
     }
 }
 
+/// Orders entries as one sorted set would: by score, ties by member, each
+/// member once.
+fn merge_scored(mut merged: Vec<(String, f64)>, order: &SortOrder) -> Vec<(String, f64)> {
+    merged.sort_by(|x, y| {
+        let ascending = x.1.total_cmp(&y.1).then_with(|| x.0.cmp(&y.0));
+        match order {
+            SortOrder::Ascending => ascending,
+            SortOrder::Descending => ascending.reverse(),
+        }
+    });
+    merged.dedup_by(|x, y| x.0 == y.0);
+    merged
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_merge_scored_orders_like_one_sorted_set() {
+        let entries = |list: &[(&str, f64)]| -> Vec<(String, f64)> {
+            list.iter().map(|(m, s)| (m.to_string(), *s)).collect()
+        };
+        let global = entries(&[("a:1", 5.0), ("b:2", 3.0), ("c:3", 3.0)]);
+        // The viewer's own posts, one of them already in the global list.
+        let own = entries(&[("v:9", 4.0), ("b:2", 3.0)]);
+
+        let both = [global, own].concat();
+        let descending = merge_scored(both.clone(), &SortOrder::Descending);
+        let expected = entries(&[("a:1", 5.0), ("v:9", 4.0), ("c:3", 3.0), ("b:2", 3.0)]);
+        assert_eq!(descending, expected);
+
+        let ascending = merge_scored(both, &SortOrder::Ascending);
+        let mut expected = expected;
+        expected.reverse();
+        assert_eq!(ascending, expected);
+    }
 
     #[test]
     fn test_from_reach_maps_every_reach_to_its_observer_source() {

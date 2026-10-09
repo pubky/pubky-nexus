@@ -264,8 +264,8 @@ async fn create_active_user_on_homeserver_with_trust(
 /// `test_social_graph_status` asserts on positions in it.
 ///
 /// At the scores this file writes (0.05 and 0.02, both below the fixture's lowest
-/// score of 0.1) a leak would not break that test today: the ranked population
-/// would go 3 → 5, `ceil(5 * 0.05)` still cuts `established` at rank 1, and the
+/// score of 0.1) a leak would not break that test today: the leaked users would
+/// rank below every user it asserts on, and the
 /// fixture's top user keeps it. The cleanup is here because that safety is a
 /// coincidence of the current values, not a property — a future score at or above
 /// the fixture's top of 0.4 would tie it and win the `id ASC` tiebreak, and one at

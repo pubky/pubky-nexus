@@ -63,8 +63,8 @@ pub async fn compute_counts(list: Vec<(String, Option<String>)>) -> Result<(), D
         if let Some(id) = post_id {
             // Processing post counts
             match PostCounts::get_from_graph(&pubky, &id).await {
-                Ok(Some((post_counts, _))) => {
-                    if let Err(e) = post_counts.put_index_json(&[&pubky, &id], None, None).await {
+                Ok(Some(graph)) => {
+                    if let Err(e) = graph.counts.put_index_json(&[&pubky, &id], None, None).await {
                         error!("Failed to add Post:Counts:{pubky}:{id}, {e}");
                         error_count += 1;
                     } else {

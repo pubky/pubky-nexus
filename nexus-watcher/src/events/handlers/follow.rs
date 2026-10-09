@@ -4,6 +4,7 @@ use nexus_common::db::kv::JsonAction;
 use nexus_common::db::OperationOutcome;
 use nexus_common::models::follow::{Followers, Following, Friends, UserFollows};
 use nexus_common::models::notification::Notification;
+use nexus_common::models::post::PostStream;
 use nexus_common::models::user::{UserCounts, UserIngestor};
 use pubky_app_specs::PubkyId;
 use tracing::debug;
@@ -39,6 +40,7 @@ pub async fn sync_put(
             );
             indexing_results.0?;
             indexing_results.1?;
+            PostStream::sync_followed_replies(&follower_id, &followee_id).await?;
             return Ok(());
         }
         OperationOutcome::MissingDependency => {
@@ -82,6 +84,8 @@ pub async fn sync_put(
             indexing_results.1?;
             indexing_results.2?;
             indexing_results.3?;
+            // The follower's threads now take the followee's replies.
+            PostStream::sync_followed_replies(&follower_id, &followee_id).await?;
         }
     };
 
@@ -130,9 +134,14 @@ pub async fn sync_del(
         Notification::lost_follow(&follower_id, &followee_id, were_friends).await?;
     }
 
-    // Graph deletion LAST — on retry, we re-enter here with indexes already clean.
+    // Graph deletion after the guarded ops — on retry, we re-enter here with indexes already clean.
     // MissingDependency means the resource is already gone — deletion is complete.
     Followers::del_from_graph(&follower_id, &followee_id).await?;
+
+    // The follower's threads drop the followee's replies, unless they're ranked.
+    // After the graph delete, so the reply counts it refreshes no longer take
+    // the follow; safe to re-run, as the retry finds the follow already gone.
+    PostStream::sync_followed_replies(&follower_id, &followee_id).await?;
     Ok(())
 }
 

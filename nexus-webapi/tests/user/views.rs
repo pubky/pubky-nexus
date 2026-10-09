@@ -219,13 +219,13 @@ async fn test_deleted_flag_in_details_and_view() -> Result<()> {
 }
 
 // ##### Social graph status #####
-// Fixture (docker/test-graph/mocks/wot.cypher): D1 0.4, D2 0.2, D1B 0.1, and no
-// other user carries a trust score, so the ranking is exactly three deep and
-// `ceil(3 * 0.05)` puts only its top in `established`.
+// Fixture: wot.cypher scores D1 0.4, D2 0.2, D1B 0.1, and trust.cypher every other
+// user but the wot on-ramp accounts 0.3: D1 tops the ranking, D2 and D1B sit below
+// the `established` cut, and the spammer is unranked.
 const WOT_D1: &str = "qjftuwjog819ki1wktuy5tndebce36bmxxwtjjm3z1fr97jk9yuo";
 const WOT_D2: &str = "smf4xrqfhx7stnufkjzhbjyu3rbgb3gga64srqmzcyyoyzefse9y";
 const WOT_D1B: &str = "t5ixbtatg4tq5q5ixg16qqrg1bmem75ksg6cweuftuydwzw91pzy";
-const UNRANKED_USER: &str = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
+const UNRANKED_USER: &str = "qdsygndnk45m9ru5jseg3uxk5xg4usj9hrcraqbzgigapzweaa9o";
 
 /// Returns the field itself rather than the whole body, so a caller can tell an
 /// explicit `null` from a field that was omitted: `Value` indexing answers
@@ -242,6 +242,10 @@ async fn social_graph_status(user_id: &str) -> Result<serde_json::Value> {
 /// so a separate test that dropped it could race this one and see its own null.
 #[tokio_shared_rt::test(shared)]
 async fn test_social_graph_status() -> Result<()> {
+    // Published from the fixture first: the watcher tests rank the users they
+    // create, which grows the population the `established` cut is sized from.
+    TestServiceServer::get_test_server().await;
+    SocialGraphStatus::publish().await?;
     assert_eq!(social_graph_status(WOT_D1).await?, "established");
     assert_eq!(social_graph_status(WOT_D2).await?, "networked");
     assert_eq!(social_graph_status(WOT_D1B).await?, "networked");
@@ -251,7 +255,6 @@ async fn test_social_graph_status() -> Result<()> {
     // With no ranking at all the field must be null, never "new". Production
     // ships with an empty seed set, so a non-optional field would hang a NEW
     // badge on every profile in the app.
-    TestServiceServer::get_test_server().await;
     let mut redis_conn = get_redis_conn().await?;
     let key = format!("Sorted:{}", USER_SOCIAL_GRAPH_KEY_PARTS.join(":"));
     let _: () = redis_conn.del(&key).await?;
