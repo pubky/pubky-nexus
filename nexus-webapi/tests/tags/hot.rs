@@ -784,3 +784,86 @@ async fn test_hot_tags_label_taggers_with_reach_friends_skip_and_limit() -> Resu
 
     Ok(())
 }
+
+fn tagger_ids(tag: &Value) -> Vec<String> {
+    tag["taggers_id"]
+        .as_array()
+        .expect("taggers_id should be an array")
+        .iter()
+        .map(|id| {
+            id.as_str()
+                .expect("tagger id should be a string")
+                .to_owned()
+        })
+        .collect()
+}
+
+fn assert_taggers_in_id_order(tags: &[Value]) {
+    for tag in tags {
+        let ids = tagger_ids(tag);
+        let mut sorted = ids.clone();
+        sorted.sort();
+        assert_eq!(
+            ids, sorted,
+            "taggers of {} are not in user id order",
+            tag["label"]
+        );
+    }
+}
+
+fn find_tag<'a>(tags: &'a [Value], label: &str) -> &'a Value {
+    tags.iter()
+        .find(|tag| tag["label"] == label)
+        .unwrap_or_else(|| panic!("hot tag {label} missing"))
+}
+
+/// `taggers_id` is cut to `taggers_limit` after collecting, so without an order the
+/// kept taggers depend on graph storage order and can change between snapshots.
+#[tokio_shared_rt::test(shared)]
+async fn test_global_hot_tags_taggers_in_id_order() -> Result<()> {
+    let body = get_request("/v0/tags/hot").await?;
+    let tags = body.as_array().expect("Stream tags should be an array");
+    assert!(!tags.is_empty());
+
+    assert_taggers_in_id_order(tags);
+
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_hot_tags_by_reach_taggers_in_id_order() -> Result<()> {
+    for reach in ["following", "followers", "friends"] {
+        let endpoint = format!("/v0/tags/hot?user_id={PEER_PUBKY}&reach={reach}");
+        let body = get_request(&endpoint).await?;
+        let tags = body.as_array().expect("Stream tags should be an array");
+        assert!(!tags.is_empty(), "{reach} returned no hot tags");
+
+        assert_taggers_in_id_order(tags);
+    }
+
+    Ok(())
+}
+
+/// A truncated taggers list is the first `taggers_limit` ids of the full list.
+#[tokio_shared_rt::test(shared)]
+async fn test_hot_tags_by_reach_taggers_limit_keeps_lowest_ids() -> Result<()> {
+    let full = get_request(&format!(
+        "/v0/tags/hot?user_id={PEER_PUBKY}&reach=following"
+    ))
+    .await?;
+    let cut = get_request(&format!(
+        "/v0/tags/hot?user_id={PEER_PUBKY}&reach=following&taggers_limit=3"
+    ))
+    .await?;
+
+    let full_ids = tagger_ids(find_tag(full.as_array().unwrap(), "pubky"));
+    let cut_ids = tagger_ids(find_tag(cut.as_array().unwrap(), "pubky"));
+    assert_eq!(full_ids.len(), 4);
+    assert_eq!(cut_ids, full_ids[..3]);
+
+    let mut sorted = full_ids.clone();
+    sorted.sort();
+    assert_eq!(full_ids, sorted);
+
+    Ok(())
+}
