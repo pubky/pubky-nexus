@@ -71,3 +71,34 @@ fn test_static_openapi_spec_valid() {
     // Validate all $ref references are defined
     validate_openapi_refs(&json);
 }
+
+/// Clients learn how to use a light Nexus from the spec: the guide in its description, the
+/// `mode` in `/v0/info`, and the 501 on every endpoint a light Nexus does not serve.
+#[test]
+fn test_v0_openapi_spec_documents_light_mode() {
+    let spec = serde_json::to_value(V0ApiDoc::merge_docs()).expect("serializable spec");
+    let description = spec["info"]["description"].as_str().expect("a description");
+    assert!(description.contains("## Light mode"), "{description}");
+    assert_eq!(
+        spec.pointer("/components/schemas/NexusMode/enum"),
+        Some(&serde_json::json!(["full", "light"]))
+    );
+
+    let static_spec = serde_json::to_value(StaticApiDoc::merge_docs()).expect("serializable");
+    let unavailable = [
+        (&spec, "/v0/search/posts/by_content"),
+        (&spec, "/v0/search/users/by_name/{prefix}"),
+        (&spec, "/v0/stream/users/username"),
+        (&spec, "/v0/stream/posts"),
+        (&spec, "/v0/stream/posts/keys"),
+        (&static_spec, "/static/avatar/{user_id}"),
+        (&static_spec, "/static/files/{owner_id}/{file_id}"),
+        (&static_spec, "/static/files/{owner_id}/{file_id}/{variant}"),
+    ];
+    for (spec, path) in unavailable {
+        assert!(
+            spec["paths"][path]["get"]["responses"]["501"].is_object(),
+            "{path} documents no 501"
+        );
+    }
+}

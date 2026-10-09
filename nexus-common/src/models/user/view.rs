@@ -22,8 +22,8 @@ pub struct UserView {
     /// How established the account is in the follow graph. `None` when no
     /// ranking is available, which is not the same as ranking as new.
     pub social_graph_status: Option<SocialGraphStatus>,
-    /// Light mode only: the user's homeserver, where a client fetches the profile this
-    /// Nexus does not keep. Absent in full mode, and when the user has no known one.
+    /// Light mode only: the user's homeserver, to fetch the profile from. Absent in full
+    /// mode, and when the user's homeserver is not known.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub homeserver: Option<UserHomeserver>,
 }

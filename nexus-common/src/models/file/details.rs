@@ -60,21 +60,22 @@ pub struct FileDetails {
     pub indexed_at: i64,
     pub created_at: i64,
     pub src: String,
-    /// Written by a person, so a light Nexus keeps it neither in storage nor in responses.
+    /// The file's name. Absent when this Nexus runs in light mode.
+    // Light mode keeps it nowhere: blanked in the graph, left out of the cached JSON.
     #[serde(skip_serializing_if = "crate::omit_in_light_mode")]
     pub name: String,
     pub size: i64,
     pub content_type: String,
-    /// Where this Nexus serves the file's variants. A light Nexus serves none, so it leaves
-    /// them out; clients fetch `src` from the owner's homeserver.
+    /// Where this Nexus serves the file and its resized variants. Absent when this Nexus
+    /// runs in light mode, which serves no files: fetch `src` from its homeserver.
     #[serde(
         serialize_with = "json_string::serialize",
         skip_serializing_if = "crate::omit_in_light_mode"
     )]
     pub urls: FileUrls,
     pub metadata: Option<HashMap<String, String>>,
-    /// `src` is hosted on a blacklisted homeserver, so clients should not fetch it. Only a
-    /// light Nexus stores such files; a full one refuses to index them.
+    /// `src` is on a homeserver this Nexus blocks: do not fetch it. Only ever `true` in
+    /// light mode; a full Nexus does not index such files at all.
     #[serde(default)]
     pub blocked: bool,
 }

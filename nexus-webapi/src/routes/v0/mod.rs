@@ -79,6 +79,35 @@ impl ApiDoc {
         combined.merge(events::EventsApiDoc::openapi());
         combined.merge(ApiDoc::openapi());
 
+        let description = combined.info.description.take().unwrap_or_default();
+        combined.info.description = Some(format!("{description}\n\n{LIGHT_MODE_GUIDE}"));
         combined
     }
 }
+
+/// How a client uses a light Nexus; appended to the API description shown in Swagger UI.
+const LIGHT_MODE_GUIDE: &str = "\
+## Light mode
+
+A Nexus runs in `full` or `light` mode; `GET /v0/info` reports which in `mode`.
+
+A **full** Nexus serves everything it indexes, content included.
+
+A **light** Nexus serves the same social graph (follows, tags, replies, reposts, mentions, \
+bookmarks, counts, streams) but none of the content people wrote or uploaded. A client \
+fetches that content from each owner's homeserver:
+
+- Posts come without `content`. Fetch the post at its `uri` from the author's homeserver, \
+given in `author_homeserver` on post views. Reuse a copy you fetched while `content_hash` \
+is unchanged.
+- Users come without `name`, `bio`, `links` and `status`. Fetch the profile from the \
+user's homeserver, given in `homeserver` on user views. Reuse a copy while \
+`profile_hash` is unchanged.
+- Files come as records without `name` or `urls`. Fetch `src` from its homeserver, \
+unless `blocked` is `true`.
+- A homeserver whose `status` is `unreachable` did not answer Nexus's last poll; one \
+marked `stale` may no longer host the user, so confirm it through pkarr.
+
+Endpoints that need content a light Nexus does not keep answer `501` with \
+`{\"error\": \"unavailable in light mode\"}`: post content search, both name searches, \
+the `collection` and `post_collections` post streams, and every `/static` route.";

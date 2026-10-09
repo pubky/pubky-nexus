@@ -20,6 +20,17 @@ It polls for events from the `/events` endpoint of a homeserver and processes th
 - **Comprehensive Testing:**  
   Comes with an extensive test suite covering all event types and error conditions
 
+## Light Mode
+
+With `mode = "light"` under `[stack]` (see the [root README](../README.md#-light-mode)), the watcher still downloads and validates every event, but stores only links:
+
+- **Posts:** the content is read to index mentions and detect edits (by `content_hash`), then dropped. Collection posts are indexed without COLLECTED edges.
+- **Profiles:** name, bio, links and status are dropped, and names are not indexed for search. `image` and `profile_hash` are kept.
+- **Files:** the bytes are never downloaded. A slim record is kept: `src`, content type, size, and `blocked` when `src` is on a blacklisted homeserver.
+- **Homeservers:** after each poll, whether the homeserver answered is recorded at `Hs:Reachability:<id>` for the API to serve.
+
+On start, `NexusWatcherBuilder::start` refuses a database indexed in the other mode (`StackManager::ensure_mode_lock`). Light-mode tests live in `tests/event_processor/light` and use `WatcherTest::setup_light`; they need `cargo nextest`, which runs each test in its own process.
+
 ## Quick Examples
 
 The main entry point is available via the builder in the `nexus_watcher::service` module. For example, you can start the watcher using:

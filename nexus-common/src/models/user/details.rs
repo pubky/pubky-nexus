@@ -34,11 +34,11 @@ impl Collection<&str> for UserDetails {
     }
 }
 
-/// Represents user data with name, bio, image, links, and status.
+/// A user's profile: name, bio, image, links and status.
 ///
-/// A light Nexus keeps none of what the user wrote (name, bio, links, status): those fields
-/// are left out of the cached JSON and of API responses, and blanked in the graph. `image`
-/// is a link to a file, so it is kept like a post's attachments.
+/// When this Nexus runs in light mode, `name`, `bio`, `links` and `status` are absent:
+/// fetch the profile from the user's homeserver. `image` is a link to a file and is kept.
+// Light mode keeps those four nowhere: blanked in the graph, left out of the cached JSON.
 #[derive(Serialize, Deserialize, ToSchema, Clone, Debug)]
 pub struct UserDetails {
     #[serde(default, skip_serializing_if = "crate::omit_in_light_mode")]
@@ -58,9 +58,10 @@ pub struct UserDetails {
     pub indexed_at: i64,
     #[serde(deserialize_with = "deserialize_user_deleted", default)]
     pub deleted: bool,
-    /// blake3 of the profile as read from the homeserver, hex encoded. Changes whenever
-    /// the profile does, so a client can cache the profile it fetched until it changes.
-    /// `None` for stub users, tombstones and profiles stored before the hash existed.
+    /// blake3 of the profile, hex encoded. It changes whenever the profile does, so a
+    /// client can reuse a copy of the profile it fetched while the hash is unchanged.
+    /// `null` for users whose profile was never indexed, deleted users, and profiles
+    /// indexed before the hash existed.
     #[serde(default)]
     pub profile_hash: Option<String>,
 }

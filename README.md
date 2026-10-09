@@ -111,6 +111,29 @@ What a light Nexus serves:
 
 These endpoints answer `501 Not Implemented` with `{"error": "unavailable in light mode"}`: `/v0/search/posts/by_content`, `/v0/search/users/by_name/{prefix}`, `/v0/stream/users/username`, `/v0/stream/posts` and `/v0/stream/posts/keys` with `source=collection` or `source=post_collections`, and every `/static/...` route.
 
+### For app developers
+
+Check `mode` in `GET /v0/info` when you connect. On a light Nexus, the same post view looks like this:
+
+```jsonc
+// full                                    // light
+{                                          {
+  "details": {                               "details": {
+    "content": "Hello Pubky!",                 "content_hash": "9f86d08…",
+    "content_hash": "9f86d08…",                "uri": "pubky://<author>/pub/pubky.app/posts/<id>",
+    "uri": "pubky://<author>/pub/…",           …
+    …                                        },
+  },                                         "author_homeserver": {
+  …                                            "id": "8pinxx…",
+}                                              "stale": false,
+                                               "status": "ok"
+                                             },
+                                             …
+                                           }
+```
+
+To show the post, fetch its `uri` from the author's homeserver (`author_homeserver.id`), and reuse your copy while `content_hash` is unchanged. Skip homeservers whose `status` is `unreachable`; confirm `stale` ones through pkarr first. User views work the same way with `homeserver` and `profile_hash`, and file records with `src` and `blocked`. The Swagger UI (`/swagger-ui`) describes every field and the endpoints that answer 501.
+
 ### Switching modes
 
 A database is locked to the mode it was first indexed in: the API and the watcher refuse to start when `mode` disagrees with it. A database that predates the lock is full. Switching is a wipe and a re-index, in either direction, because a light database never had the content and a full one would keep it:

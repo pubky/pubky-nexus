@@ -17,8 +17,8 @@ pub struct PostView {
     pub tags: Vec<TagDetails>,
     pub relationships: PostRelationships,
     pub bookmark: Option<Bookmark>,
-    /// Light mode only: the author's homeserver, where a client fetches the content this
-    /// Nexus does not keep. Absent in full mode, and when the author has no known one.
+    /// Light mode only: the author's homeserver, to fetch the post's content from. Absent
+    /// in full mode, and when the author's homeserver is not known.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub author_homeserver: Option<UserHomeserver>,
 }

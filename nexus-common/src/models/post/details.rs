@@ -15,8 +15,9 @@ use utoipa::ToSchema;
 // NOTE: Might not be necessary the default values for serde because before PUT a PostDetails node
 // we do sanity check
 pub struct PostDetails {
-    /// Written by a person, so a light Nexus keeps it nowhere: it is blanked in the graph
-    /// and left out of the cached JSON and of API responses. `content_hash` stays.
+    /// The post's text. Absent when this Nexus runs in light mode: fetch the post from
+    /// the author's homeserver at `uri`.
+    // Light mode keeps it nowhere: blanked in the graph, left out of the cached JSON.
     #[serde(default, skip_serializing_if = "crate::omit_in_light_mode")]
     pub content: String,
     pub id: String,
@@ -34,9 +35,11 @@ pub struct PostDetails {
     /// `deleted` key) deserializing as a live post.
     #[serde(default)]
     pub deleted: bool,
-    /// blake3 of `content`, hex encoded. Lets an edit be detected without the
-    /// stored content. `default` keeps posts written before the hash (no
-    /// `content_hash` key or property) deserializing as `None`.
+    /// blake3 of the post's text, hex encoded. It changes whenever the text does, so a
+    /// client can reuse a copy of the post it fetched while the hash is unchanged. `null`
+    /// for posts indexed before the hash existed.
+    // Also how edits are detected when the stored side holds no content. `default` keeps
+    // posts written before the hash deserializing as `None`.
     #[serde(default)]
     pub content_hash: Option<String>,
 }

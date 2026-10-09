@@ -59,6 +59,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 }
 ```
 
+## Light Mode
+
+With `mode = "light"` under `[stack]` (see the [root README](../README.md#-light-mode)), the API serves the social graph but none of the content people wrote or uploaded:
+
+- Posts are served without `content`, users without `name`, `bio`, `links` and `status`, files without `name` or `urls`. Each carries what a client needs to fetch the content from its homeserver: `content_hash` and `author_homeserver` on posts, `profile_hash` and `homeserver` on users, `src` and `blocked` on files.
+- Endpoints that need that content answer `501` with `{"error": "unavailable in light mode"}`: `/v0/search/posts/by_content`, `/v0/search/users/by_name/{prefix}`, `/v0/stream/users/username`, `/v0/stream/posts` and `/v0/stream/posts/keys` with `source=collection` or `source=post_collections`, and every `/static/...` route. Call `Error::require_full_mode()` first in a new endpoint that needs content.
+- `/v0/info` reports the `mode`, and the Swagger UI opens with a guide for light clients.
+- On start, `NexusApiBuilder::start` refuses a database indexed in the other mode (`StackManager::ensure_mode_lock`).
+
+Light-mode tests live in `tests/light`. They set up a light stack and drive a standalone router, so they need `cargo nextest`, which runs each test in its own process.
+
 ## Advanced Configuration
 
 For more advanced scenarios, use the builder pattern via `NexusApi::builder()` to adjust parameters such as the public address, logging level, file paths, and database settings

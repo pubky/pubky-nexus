@@ -46,6 +46,14 @@ The data models cover the core domain entities and their graph/cache operations:
 - **Follows:** Handling follower, following, and friends relationships
 - **Notifications:** Representing user notifications
 
+### Indexing Mode
+
+A Nexus runs in `full` or `light` mode (`StackConfig::mode`, see the [root README](../README.md#-light-mode)); a light Nexus keeps the social graph but none of the content people wrote or uploaded.
+
+- `NexusMode` is the setting, and `StackManager::mode()` returns the mode the stack was set up with.
+- `StackManager::ensure_mode_lock()` locks a database to the mode it was first indexed in, through a `(:NexusMode)` node, and refuses a different one. The API and the watcher run it at start.
+- `omit_in_light_mode` is the `skip_serializing_if` that leaves a content field out of the cached JSON and of API responses in light mode; the graph writes blank the same fields. Fields using it need `#[serde(default)]`.
+
 ### Shared Types
 
 The crate provides common types and utilities (`types/`) that are used across different modules, such as:

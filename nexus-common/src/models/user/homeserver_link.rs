@@ -61,10 +61,10 @@ impl HsReachability {
 pub struct UserHomeserver {
     /// The homeserver's public key.
     pub id: String,
-    /// The mapping may be out of date (the resolver could not confirm it lately). A client
-    /// should confirm it through pkarr before relying on it.
+    /// The user may have moved: Nexus could not confirm this homeserver lately. Confirm it
+    /// through pkarr before relying on it.
     pub stale: bool,
-    /// Whether the homeserver answered the watcher's last poll; `None` when the watcher has
+    /// Whether the homeserver answered when Nexus last polled it; `null` when Nexus has
     /// not polled it.
     pub status: Option<HomeserverReachability>,
 }
