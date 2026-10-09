@@ -37,3 +37,19 @@ MERGE (u)-[rel:TAGGED {label: "calendar", id: "RES_TAG_004", indexed_at: 1724544
 // Tags on Resource 3 (video): 1 user tags "bitcoin" from mapky
 MATCH (u:User {id: $amsterdam}), (r:Resource {id: "e23f778c4f2a84606f350e4df1a918e9"})
 MERGE (u)-[rel:TAGGED {label: "bitcoin", id: "RES_TAG_005", indexed_at: 1724544095004, app: "mapky"}]->(r) SET rel.uri = "pubky://emq37ky6fbnaun7q1ris6rx3mqmw3a33so1txfesg9jj3ak9ryoy/pub/mapky/tags/RES_TAG_005";
+
+// Timeline tie group: two resources whose only tags share one indexed_at,
+// under a dedicated app so no other stream assertion sees them as a pair
+// https://example.com/tie-a -> f3ea0c8e7e7f84365e2a7da7e282c992
+// https://example.com/tie-b -> b8fd38694cfe853c7aed179c9912618d
+MERGE (r4:Resource {id: "f3ea0c8e7e7f84365e2a7da7e282c992"})
+SET r4.uri = "https://example.com/tie-a", r4.scheme = "https", r4.indexed_at = 1724434095000;
+
+MERGE (r5:Resource {id: "b8fd38694cfe853c7aed179c9912618d"})
+SET r5.uri = "https://example.com/tie-b", r5.scheme = "https", r5.indexed_at = 1724434095000;
+
+MATCH (u:User {id: $amsterdam}), (r:Resource {id: "f3ea0c8e7e7f84365e2a7da7e282c992"})
+MERGE (u)-[rel:TAGGED {label: "tie", id: "RES_TAG_006", indexed_at: 1724544095010, app: "tiedky"}]->(r) SET rel.uri = "pubky://emq37ky6fbnaun7q1ris6rx3mqmw3a33so1txfesg9jj3ak9ryoy/pub/tiedky/tags/RES_TAG_006";
+
+MATCH (u:User {id: $bogota}), (r:Resource {id: "b8fd38694cfe853c7aed179c9912618d"})
+MERGE (u)-[rel:TAGGED {label: "tie", id: "RES_TAG_007", indexed_at: 1724544095010, app: "tiedky"}]->(r) SET rel.uri = "pubky://ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny/pub/tiedky/tags/RES_TAG_007";
