@@ -51,20 +51,18 @@ pub(super) static ADD: LazyLock<Script> = LazyLock::new(|| {
     )
 });
 
-/// Adds `ARGV[2]` to the score of `ARGV[3]` in the shared set `KEYS[1]` for
-/// the engagement of `ARGV[4]`, which only counts when that actor is admitted
-/// or wrote the post. A member that isn't there yet is created only by an
-/// increment, and only when its author is admitted. `ARGV[1]` = `1` admits
-/// everyone. Returns 1 when it wrote.
+/// Adds `ARGV[2]` to the score of `ARGV[3]` in the shared set `KEYS[1]`. A
+/// member that isn't there yet is created only by an increment, and only when
+/// its author is admitted or `ARGV[1]` is `1`: an increment cannot let a
+/// hidden post in, and a decrement never leaves a negative entry behind.
+/// Returns 1 when it wrote.
 pub(super) static INCR: LazyLock<Script> = LazyLock::new(|| {
     Script::new(
         &[
             HELPERS,
-            r"local always, delta, member, actor = ARGV[1] == '1', tonumber(ARGV[2]), ARGV[3], ARGV[4]
-              local author = author_of(member)
-              if not always and actor ~= author and not admitted({actor})[1] then return 0 end
+            r"local always, delta, member = ARGV[1] == '1', tonumber(ARGV[2]), ARGV[3]
               if redis.call('ZSCORE', KEYS[1], member)
-                  or (delta > 0 and (always or admitted({author})[1])) then
+                  or (delta > 0 and (always or admitted({author_of(member)})[1])) then
                   redis.call('ZINCRBY', KEYS[1], ARGV[2], member)
                   return 1
               end

@@ -26,6 +26,14 @@ pub struct PostCounts {
 
 impl RedisOps for PostCounts {}
 
+/// A post's counts as the graph has them.
+pub struct GraphPostCounts {
+    pub counts: PostCounts,
+    pub is_reply: bool,
+    /// Every tag, reply and repost, the score of the post's engagement entries.
+    pub engagement: u32,
+}
+
 impl PostCounts {
     /// Retrieves counts by user ID, first trying to get from Redis, then from Neo4j if not found.
     pub async fn get_by_id(author_id: &str, post_id: &str) -> ModelResult<Option<PostCounts>> {
@@ -33,10 +41,10 @@ impl PostCounts {
             Some(counts) => Ok(Some(counts)),
             None => {
                 let graph_response = Self::get_from_graph(author_id, post_id).await?;
-                if let Some((post_counts, _is_reply)) = graph_response {
+                if let Some(GraphPostCounts { counts, .. }) = graph_response {
                     // Cache miss: populate from the graph via cache_json (JSON only).
-                    post_counts.cache_json(author_id, post_id).await?;
-                    return Ok(Some(post_counts));
+                    counts.cache_json(author_id, post_id).await?;
+                    return Ok(Some(counts));
                 }
                 Ok(None)
             }
@@ -47,12 +55,12 @@ impl PostCounts {
         Self::try_from_index_json(&[author_id, post_id], None).await
     }
 
-    /// Retrieves the counts from Neo4j. Once a ranking is applied, engagement
-    /// from users the trust filter hides doesn't count.
+    /// Retrieves the counts from Neo4j. Once a ranking is applied, replies and
+    /// reposts from users the trust filter hides don't count.
     pub async fn get_from_graph(
         author_id: &str,
         post_id: &str,
-    ) -> ModelResult<Option<(PostCounts, bool)>> {
+    ) -> ModelResult<Option<GraphPostCounts>> {
         let ranked_only = trust_filter::is_ranking_applied().await?;
         let query = queries::get::post_counts(author_id, post_id, ranked_only);
         let maybe_row = fetch_row_from_graph(query).await?;
@@ -60,27 +68,31 @@ impl PostCounts {
         if let Some(row) = maybe_row {
             let post_exists: bool = row.get("exists").unwrap_or(false);
             if post_exists {
-                let counts: PostCounts = row.get("counts")?;
-                let is_reply: bool = row.get("is_reply").unwrap_or(false);
-
-                return Ok(Some((counts, is_reply)));
+                return Ok(Some(GraphPostCounts {
+                    counts: row.get("counts")?,
+                    is_reply: row.get("is_reply").unwrap_or(false),
+                    engagement: row.get("engagement")?,
+                }));
             }
         }
         Ok(None)
     }
 
+    /// Caches the counts and, for a root post, scores it `engagement` in the
+    /// global engagement set.
     pub async fn put_to_index(
         &self,
         author_id: &str,
         post_id: &str,
         is_reply: bool,
+        engagement: u32,
     ) -> RedisResult<()> {
         self.cache_json(author_id, post_id).await?;
 
         // Skip the global engagement sorted set for replies. They're tracked
         // via POST_REPLIES sets instead.
         if !is_reply {
-            PostStream::add_to_engagement_sorted_set(self, author_id, post_id).await?;
+            PostStream::add_to_engagement_sorted_set(engagement, author_id, post_id).await?;
         }
         Ok(())
     }
@@ -109,7 +121,12 @@ impl PostCounts {
 
     pub async fn reindex(author_id: &str, post_id: &str) -> ModelResult<()> {
         match Self::get_from_graph(author_id, post_id).await? {
-            Some((counts, is_reply)) => counts.put_to_index(author_id, post_id, is_reply).await?,
+            Some(graph) => {
+                let counts = &graph.counts;
+                counts
+                    .put_to_index(author_id, post_id, graph.is_reply, graph.engagement)
+                    .await?
+            }
             None => tracing::error!(
                 "{}:{} Could not found post counts in the graph",
                 author_id,

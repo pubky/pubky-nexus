@@ -92,11 +92,6 @@ pub async fn sync() {
         .await
         .expect("Failed to store the global tags");
 
-    // Last: the rebuilds above count everyone's engagement.
-    crate::models::post::trust_filter::rescore_all()
-        .await
-        .expect("Failed to rescore the shared post sets");
-
     info!("Reindexing completed successfully.");
 }
 

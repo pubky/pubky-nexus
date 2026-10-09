@@ -1004,13 +1004,12 @@ impl PostStream {
 
     /// Adds the post to a Redis sorted set using the total engagement as the score.
     pub async fn add_to_engagement_sorted_set(
-        counts: &PostCounts,
+        engagement: u32,
         author_id: &str,
         post_id: &str,
     ) -> RedisResult<()> {
         let element = format!("{author_id}:{post_id}");
-        let score = counts.tags + counts.replies + counts.reposts;
-        let score = score as f64;
+        let score = engagement as f64;
 
         trust_filter::add(
             &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
@@ -1089,19 +1088,15 @@ impl PostStream {
         Ok(())
     }
 
-    /// Moves the post's engagement score for `actor_id`'s engagement, which
-    /// doesn't count when the trust filter hides the actor.
     pub async fn update_index_score(
         author_id: &str,
         post_id: &str,
-        actor_id: &str,
         score_action: ScoreAction,
     ) -> RedisResult<()> {
         let post_key_slice = &[author_id, post_id];
         trust_filter::incr(
             &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
             post_key_slice,
-            actor_id,
             score_action,
         )
         .await

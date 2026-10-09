@@ -11,7 +11,7 @@ mod view;
 
 pub use bookmark::Bookmark;
 pub use collection::{collection_item_keys, sync_collected_edges};
-pub use counts::PostCounts;
+pub use counts::{GraphPostCounts, PostCounts};
 pub use details::PostDetails;
 pub use relationships::PostRelationships;
 pub use search::PostsByContentSearch;

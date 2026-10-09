@@ -9,7 +9,7 @@ mod scripts;
 #[cfg(test)]
 mod tests;
 
-pub(crate) use reconcile::{reconcile, rescore_all, AuthorPost};
+pub(crate) use reconcile::{reconcile, AuthorPost};
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -55,31 +55,20 @@ pub(crate) async fn is_ranking_applied() -> RedisResult<bool> {
     Ok(conn.exists(applied_key()).await?)
 }
 
-/// Whether the filter lets `user` through: everyone with the filter off or no
-/// ranking, otherwise only ranked users.
-pub(crate) async fn admits(user: &str) -> RedisResult<bool> {
-    Ok(admitted(&[user])
-        .await?
-        .into_iter()
-        .all(|admitted| admitted))
-}
-
-/// [`admits`] for each of `users`, in one round trip.
-pub(crate) async fn admitted(users: &[&str]) -> RedisResult<Vec<bool>> {
-    if !is_enabled() || users.is_empty() {
-        return Ok(vec![true; users.len()]);
+/// Whether the filter lets `author` through: everyone with the filter off or
+/// no ranking, otherwise only ranked authors.
+pub(crate) async fn admits(author: &str) -> RedisResult<bool> {
+    if !is_enabled() {
+        return Ok(true);
     }
     let ranking = SocialGraphStatus::ranking_key();
     let mut conn = get_redis_conn().await?;
-    let (has_ranking, ranks): (bool, Vec<Option<f64>>) = redis::pipe()
+    let (has_ranking, rank): (bool, Option<f64>) = redis::pipe()
         .exists(&ranking)
-        .zscore_multiple(&ranking, users)
+        .zscore(&ranking, author)
         .query_async(&mut conn)
         .await?;
-    Ok(ranks
-        .iter()
-        .map(|rank| !has_ranking || rank.is_some())
-        .collect())
+    Ok(!has_ranking || rank.is_some())
 }
 
 /// Adds `entries` (`(score, "author:post")`) to the shared sorted set at
@@ -104,13 +93,11 @@ async fn add_batches(key: &str, entries: &[(f64, &str)], always: bool) -> RedisR
 }
 
 /// Moves the score of `member` (`[author, post]`) in the shared sorted set at
-/// `key_parts` by `action`, `actor`'s engagement. Nothing moves for an actor the
-/// filter hides, the post's author aside. A member that isn't there yet is
-/// created only by an increment, and only when the filter lets its author in.
+/// `key_parts` by `action`. A member that isn't there yet is created only by
+/// an increment, and only when the filter lets its author in.
 pub(crate) async fn incr(
     key_parts: &[&str],
     member: &[&str],
-    actor: &str,
     action: ScoreAction,
 ) -> RedisResult<()> {
     let delta = match action {
@@ -124,7 +111,6 @@ pub(crate) async fn incr(
         .arg(u8::from(!is_enabled()))
         .arg(delta)
         .arg(member.join(":"))
-        .arg(actor)
         .invoke_async(&mut conn)
         .await?;
     Ok(())

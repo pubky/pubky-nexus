@@ -175,7 +175,7 @@ async fn sync_put_details(
                 .is_none()
             {
                 PostCounts::default()
-                    .put_to_index(&author_id, &post_id, is_reply)
+                    .put_to_index(&author_id, &post_id, is_reply, 0)
                     .await?
             }
             Ok::<(), EventProcessorError>(())
@@ -232,7 +232,6 @@ async fn sync_put_details(
                     PostStream::update_index_score(
                         &parent_author_id,
                         &parent_post_id,
-                        &author_id,
                         ScoreAction::Increment(1.0),
                     )
                     .await?;
@@ -292,7 +291,6 @@ async fn sync_put_details(
                     PostStream::update_index_score(
                         &parent_author_id,
                         &parent_post_id,
-                        &author_id,
                         ScoreAction::Increment(1.0),
                     )
                     .await?;
@@ -762,7 +760,6 @@ pub async fn sync_del(
                         PostStream::update_index_score(
                             &parent_user_id,
                             &parent_post_id,
-                            &author_id,
                             ScoreAction::Decrement(1.0),
                         )
                         .await?;
@@ -821,7 +818,6 @@ pub async fn sync_del(
                         PostStream::update_index_score(
                             &reposted_uri.user_id,
                             &parent_post_id,
-                            &author_id,
                             ScoreAction::Decrement(1.0),
                         )
                         .await?;

@@ -218,10 +218,11 @@ async fn test_unranked_users_send_no_notifications() -> Result<()> {
     Ok(())
 }
 
-/// A reply, repost and tag from an unranked user leave the post's engagement
-/// scores where they were; a ranked user's move them.
+/// A reply, repost and tag from an unranked user move the post's engagement
+/// scores like anyone's, but its counts leave out the reply and repost, which
+/// every feed hides; a ranked user's count in full.
 #[tokio_shared_rt::test(shared)]
-async fn test_unranked_engagement_scores_nothing() -> Result<()> {
+async fn test_unranked_engagement_scores_but_counts_only_tags() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
     let label = "watchergatescore";
 
@@ -235,7 +236,7 @@ async fn test_unranked_engagement_scores_nothing() -> Result<()> {
     let uri = post_uri_builder(owner_id.clone(), post_id.clone());
     let post_key: &[&str] = &[&owner_id, &post_id];
 
-    let mut scores = Vec::new();
+    let mut seen = Vec::new();
     for (name, ranked) in [
         ("Watcher:Gate:UnrankedEngager", false),
         ("Watcher:Gate:RankedEngager", true),
@@ -264,14 +265,22 @@ async fn test_unranked_engagement_scores_nothing() -> Result<()> {
         test.create_post(&kp, &reply).await?;
         test.create_post(&kp, &repost).await?;
         test.put(&kp, &tag.hs_path(), tag).await?;
-        scores.push((
+        let counts = PostCounts::get_by_id(&owner_id, &post_id)
+            .await?
+            .expect("the post's counts");
+        seen.push((
             check_member_total_engagement_user_posts(post_key).await?,
             check_member_total_engagement_post_tag(post_key, label).await?,
+            (counts.tags, counts.replies, counts.reposts),
         ));
     }
 
-    let unranked_then_ranked = vec![(Some(0), None), (Some(3), Some(1))];
-    assert_eq!(scores, unranked_then_ranked, "(global, tag) engagement");
+    // A label's engagement moves only with that label's tags.
+    let unranked_then_ranked = vec![(Some(3), Some(1), (1, 0, 0)), (Some(6), Some(2), (2, 1, 1))];
+    assert_eq!(
+        seen, unranked_then_ranked,
+        "(global, tag) engagement and (tags, replies, reposts)"
+    );
     Ok(())
 }
 

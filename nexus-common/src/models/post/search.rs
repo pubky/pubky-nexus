@@ -142,13 +142,10 @@ impl PostsByTagSearch {
         Ok(entries.into_iter().map(Into::into).collect())
     }
 
-    /// Moves the post's score in the label's engagement set for `actor_id`'s
-    /// engagement, which doesn't count when the trust filter hides the actor.
     pub async fn update_index_score(
         author_id: &str,
         post_id: &str,
         label: &str,
-        actor_id: &str,
         score_action: ScoreAction,
     ) -> RedisResult<()> {
         let tag_global_engagement_key_parts = [&TAG_GLOBAL_POST_ENGAGEMENT[..], &[label]].concat();
@@ -156,7 +153,6 @@ impl PostsByTagSearch {
         trust_filter::incr(
             &tag_global_engagement_key_parts,
             post_key_slice,
-            actor_id,
             score_action,
         )
         .await

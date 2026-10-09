@@ -50,16 +50,16 @@ pub fn get_post_by_id(author_id: &str, post_id: &str) -> Query {
     .param("post_id", post_id)
 }
 
-/// With `ranked_only`, tags, replies and reposts count only when they come from
-/// a ranked user or the post's own author. Replies also count from users the
-/// post's author follows, as the thread lists them too.
+/// With `ranked_only`, replies and reposts count only when they come from a
+/// ranked user or the post's own author, as hidden ones are out of every feed;
+/// replies also from users the post's author follows, as the thread lists
+/// them. `engagement` counts every tag, reply and repost, as the engagement
+/// sets score the post.
 pub fn post_counts(author_id: &str, post_id: &str, ranked_only: bool) -> Query {
-    let counted = |user: &str| {
-        format!(
-            "NOT $ranked_only OR {user}.id = $author_id OR ({})",
-            ranked_user(user)
-        )
-    };
+    let counted = format!(
+        "NOT $ranked_only OR u.id = $author_id OR ({})",
+        ranked_user("u")
+    );
     Query::new(
         "post_counts",
         format!(
@@ -69,8 +69,7 @@ pub fn post_counts(author_id: &str, post_id: &str, ranked_only: bool) -> Query {
         MATCH (p:Post {{id: $post_id}})
         WHERE EXISTS {{ (:User {{id: $author_id}})-[:AUTHORED]->(p) }}
         WITH p
-        OPTIONAL MATCH (p)<-[t:TAGGED]-(tagger:User)
-        WHERE {tagger}
+        OPTIONAL MATCH (p)<-[t:TAGGED]-()
         WITH p, COUNT (t) AS tags_count, COUNT(DISTINCT t.label) AS unique_tags_count
         RETURN p IS NOT NULL AS exists,
             {{
@@ -78,15 +77,14 @@ pub fn post_counts(author_id: &str, post_id: &str, ranked_only: bool) -> Query {
                 unique_tags: unique_tags_count,
                 replies: COUNT {{
                     (p)<-[:REPLIED]-(:Post)<-[:AUTHORED]-(u:User)
-                    WHERE {user} OR EXISTS {{ (:User {{id: $author_id}})-[:FOLLOWS]->(u) }}
+                    WHERE {counted} OR EXISTS {{ (:User {{id: $author_id}})-[:FOLLOWS]->(u) }}
                 }},
-                reposts: COUNT {{ (p)<-[:REPOSTED]-(:Post)<-[:AUTHORED]-(u:User) WHERE {user} }},
+                reposts: COUNT {{ (p)<-[:REPOSTED]-(:Post)<-[:AUTHORED]-(u:User) WHERE {counted} }},
                 collections: COUNT {{ (p)<-[:COLLECTED]-() }}
             }} AS counts,
+            tags_count + COUNT {{ (p)<-[:REPLIED]-() }} + COUNT {{ (p)<-[:REPOSTED]-() }} AS engagement,
             EXISTS {{ (p)-[:REPLIED]->(:Post) }} AS is_reply
     ",
-            tagger = counted("tagger"),
-            user = counted("u"),
         ),
     )
     .param("author_id", author_id)
@@ -364,33 +362,25 @@ pub fn post_author_ids() -> Query {
 pub enum PostEntries<'a> {
     /// The posts this user wrote.
     WrittenBy(&'a str),
-    /// The posts this user tagged, replied to or reposted.
-    EngagedBy(&'a str),
-    /// Every post.
-    All,
+    /// The posts this user replied to or reposted, whose counts depend on
+    /// the user's rank.
+    RepliedOrRepostedBy(&'a str),
 }
 
 /// Up to `limit` of the selected posts after the `(indexed_at, id)` cursor
-/// `after`, oldest first, with what the shared sorted sets index them by: the
-/// user behind each tag, reply and repost, so engagement can be counted the
-/// way the trust filter allows, and the post's mentions.
+/// `after`, oldest first, with what the shared sorted sets index them by,
+/// scored as a full reindex scores them.
 pub fn post_entries(posts: PostEntries, after: (i64, &str), limit: usize) -> Query {
     let (select, user_id) = match posts {
         PostEntries::WrittenBy(user_id) => (
             "MATCH (author:User {id: $user_id})-[:AUTHORED]->(p:Post)",
             user_id,
         ),
-        PostEntries::EngagedBy(user_id) => (
-            "CALL {
-                MATCH (:User {id: $user_id})-[:TAGGED]->(p:Post) RETURN p
-                UNION
-                MATCH (:User {id: $user_id})-[:AUTHORED]->(:Post)-[:REPLIED|REPOSTED]->(p:Post)
-                RETURN p
-            }
-            MATCH (author:User)-[:AUTHORED]->(p)",
+        PostEntries::RepliedOrRepostedBy(user_id) => (
+            "MATCH (:User {id: $user_id})-[:AUTHORED]->(:Post)-[:REPLIED|REPOSTED]->(p:Post)
+                  <-[:AUTHORED]-(author:User)",
             user_id,
         ),
-        PostEntries::All => ("MATCH (author:User)-[:AUTHORED]->(p:Post)", ""),
     };
     Query::new(
         "post_entries",
@@ -399,7 +389,7 @@ pub fn post_entries(posts: PostEntries, after: (i64, &str), limit: usize) -> Que
         {select}
         WHERE p.indexed_at > $after_indexed_at
            OR (p.indexed_at = $after_indexed_at AND p.id > $after_id)
-        WITH author, p
+        WITH DISTINCT author, p
         ORDER BY p.indexed_at, p.id
         LIMIT $limit
         OPTIONAL MATCH (p)-[:REPLIED]->(parent:Post)<-[:AUTHORED]-(parent_author:User)
@@ -410,10 +400,9 @@ pub fn post_entries(posts: PostEntries, after: (i64, &str), limit: usize) -> Que
             parent.id AS parent_post_id,
             EXISTS {{ (parent_author)-[:FOLLOWS]->(author) }} AS followed_by_parent_author,
             COLLECT {{ MATCH (p)<-[tag:TAGGED]-(:User) RETURN DISTINCT tag.label }} AS labels,
-            COLLECT {{ MATCH (p)<-[:TAGGED]-(u:User) RETURN u.id }}
-                + COLLECT {{ MATCH (p)<-[:REPLIED]-(:Post)<-[:AUTHORED]-(u:User) RETURN u.id }}
-                + COLLECT {{ MATCH (p)<-[:REPOSTED]-(:Post)<-[:AUTHORED]-(u:User) RETURN u.id }}
-                AS engagers,
+            COUNT {{ (p)<-[:TAGGED]-() }}
+                + COUNT {{ (p)<-[:REPLIED]-() }}
+                + COUNT {{ (p)<-[:REPOSTED]-() }} AS engagement,
             COUNT {{ (p)-[:MENTIONED]->() }} AS mentions
         "
         ),

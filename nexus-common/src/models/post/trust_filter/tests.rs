@@ -45,7 +45,6 @@ fn shared_entries_cover_every_set_an_author_reaches() {
             parent: parent.map(|(a, p)| (a.to_string(), p.to_string())),
             followed_by_parent_author: false,
             labels: labels.iter().map(ToString::to_string).collect(),
-            engagers: Vec::new(),
             engagement,
             mentions: 1,
         }
@@ -92,9 +91,7 @@ fn shared_entries_cover_every_set_an_author_reaches() {
 mod live {
     use redis::AsyncCommands;
 
-    use super::super::reconcile::{
-        count_engagement, shared_entries, write_pages, AuthorPost, Write,
-    };
+    use super::super::reconcile::{shared_entries, write_pages, AuthorPost, Write};
     use super::super::*;
     use super::{
         engagement_key, ranking_key, replies_key, tag_engagement_key, tag_timeline_key,
@@ -102,7 +99,7 @@ mod live {
     };
     use crate::db::graph::Query;
     use crate::db::queries::get::PostEntries;
-    use crate::db::{fetch_all_rows_from_graph, fetch_key_from_graph, queries};
+    use crate::db::{exec_single_row, fetch_all_rows_from_graph, fetch_key_from_graph, queries};
     use crate::models::bootstrap::{Bootstrap, ViewType};
     use crate::models::post::PostCounts;
     use crate::types::DynError;
@@ -120,18 +117,9 @@ mod live {
     const SPAMMER: &str = "qdsygndnk45m9ru5jseg3uxk5xg4usj9hrcraqbzgigapzweaa9o";
     const D2: &str = "smf4xrqfhx7stnufkjzhbjyu3rbgb3gga64srqmzcyyoyzefse9y";
 
-    /// The reply's tag engagement: six tags, the unranked moderation bot's
-    /// (`wmtagflag`) aside.
-    const RANKED_TAGS: f64 = 5.0;
-
     /// Every entry the spammer's posts would have in the shared sets, with
-    /// the scores a full reindex gives them.
+    /// the scores a full reindex gives them. The reply has six tags.
     fn spammer_entries() -> Vec<(String, String, f64)> {
-        spammer_entries_with(RANKED_TAGS)
-    }
-
-    /// [`spammer_entries`], with the reply's tag engagement at `tags`.
-    fn spammer_entries_with(tags: f64) -> Vec<(String, String, f64)> {
         let root = format!("{SPAMMER}:WOTPOSTS00006");
         let reply = format!("{SPAMMER}:WOTPOSTMODF01");
         let mut entries = vec![
@@ -152,7 +140,7 @@ mod live {
             "wmtagflag",
         ] {
             entries.push((tag_timeline_key(label), reply.clone(), 1650000000013.0));
-            entries.push((tag_engagement_key(label), reply.clone(), tags));
+            entries.push((tag_engagement_key(label), reply.clone(), 6.0));
         }
         entries
     }
@@ -178,11 +166,10 @@ mod live {
         let query =
             queries::get::post_entries(PostEntries::WrittenBy(author), (i64::MIN, ""), 1_000);
         let rows = fetch_all_rows_from_graph(query).await?;
-        let mut posts = rows
+        let posts = rows
             .iter()
             .map(AuthorPost::from_row)
             .collect::<Result<Vec<_>, _>>()?;
-        count_engagement(&mut posts).await?;
         let entries = shared_entries(&posts)
             .into_iter()
             .flat_map(|(key, entries)| {
@@ -224,7 +211,15 @@ mod live {
             let _: () = conn.unlink(keys).await?;
         }
         let _: () = conn.zrem(ranking_key(), &[ALICE, BOB, SPAMMER]).await?;
+        set_spammer_trust("REMOVE u.trust").await?;
         reconcile().await?;
+        Ok(())
+    }
+
+    /// Applies `change` to the spammer's graph trust, which post counts read.
+    async fn set_spammer_trust(change: &str) -> TestResult {
+        let cypher = format!("MATCH (u:User {{id: $id}}) {change}");
+        exec_single_row(Query::new("test_spammer_trust", &cypher).param("id", SPAMMER)).await?;
         Ok(())
     }
 
@@ -318,8 +313,7 @@ mod live {
     }
 
     /// An increment moves a member that is there, whoever wrote it, and creates
-    /// one only for a ranked author; a decrement never creates one. An unranked
-    /// actor's engagement moves nothing on someone else's post.
+    /// one only for a ranked author; a decrement never creates one.
     #[tokio_shared_rt::test(shared)]
     async fn incr_never_creates_a_hidden_or_negative_entry() -> TestResult {
         let (parts, key) = tag_set(TAG_GLOBAL_POST_ENGAGEMENT, "test-filter-incr");
@@ -328,11 +322,10 @@ mod live {
         let mut conn = get_redis_conn().await?;
         let _: () = conn.zadd(&key, "test-filter-bob:there", 5.0).await?;
 
-        incr(&parts, &[BOB, "new"], BOB, ScoreAction::Increment(1.0)).await?;
-        incr(&parts, &[ALICE, "new"], ALICE, ScoreAction::Increment(1.0)).await?;
-        incr(&parts, &[ALICE, "new"], BOB, ScoreAction::Increment(1.0)).await?;
-        incr(&parts, &[ALICE, "gone"], ALICE, ScoreAction::Decrement(1.0)).await?;
-        incr(&parts, &[BOB, "there"], BOB, ScoreAction::Decrement(1.0)).await?;
+        incr(&parts, &[BOB, "new"], ScoreAction::Increment(1.0)).await?;
+        incr(&parts, &[ALICE, "new"], ScoreAction::Increment(1.0)).await?;
+        incr(&parts, &[ALICE, "gone"], ScoreAction::Decrement(1.0)).await?;
+        incr(&parts, &[BOB, "there"], ScoreAction::Decrement(1.0)).await?;
         let scores = members(&key).await?;
 
         cleanup(&[&key]).await?;
@@ -356,7 +349,7 @@ mod live {
 
         set_enabled(false);
         let added = add(&parts, &[(1.0, "test-filter-bob:p1")]).await;
-        let counted = incr(&parts, &[BOB, "p2"], BOB, ScoreAction::Increment(1.0)).await;
+        let counted = incr(&parts, &[BOB, "p2"], ScoreAction::Increment(1.0)).await;
         let opened = reconcile().await;
         let open_scores = spammer_scores().await;
         let open_applied = is_ranking_applied().await;
@@ -374,12 +367,7 @@ mod live {
             written?,
             owned(&[("test-filter-bob:p1", 1.0), ("test-filter-bob:p2", 1.0)])
         );
-        // With the filter off every tag counts, the moderation bot's too.
-        let everyone: Vec<Option<f64>> = spammer_entries_with(RANKED_TAGS + 1.0)
-            .into_iter()
-            .map(|(_, _, score)| Some(score))
-            .collect();
-        assert_eq!(open_scores?, everyone);
+        assert_eq!(open_scores?, all_present());
         assert!(!open_applied?);
         assert_eq!(closed_scores?, all_absent());
         Ok(())
@@ -508,58 +496,63 @@ mod live {
         Ok(())
     }
 
-    /// The score of `member` in the `wotreview` tag engagement set, `None`
-    /// when absent.
-    async fn engagement_score(member: &str) -> Result<Option<f64>, DynError> {
-        let mut conn = get_redis_conn().await?;
-        Ok(conn.zscore(tag_engagement_key("wotreview"), member).await?)
+    /// The replies D2's post counts, cached by the read.
+    async fn d2_post_replies() -> Result<u32, DynError> {
+        let counts = PostCounts::get_by_id(D2, "WOTPOSTTAGS01").await?;
+        Ok(counts.ok_or("D2's post")?.replies)
     }
 
-    /// A rank change rescores the posts the author engaged with: the spammer's
-    /// reply under D2's post (a tagged reply, so scored in its labels' sets)
-    /// counts toward its engagement only while ranked.
+    /// A rank change drops the cached counts of the posts the author replied
+    /// to: the spammer's reply to D2's post counts only while they're ranked.
     #[tokio_shared_rt::test(shared)]
-    async fn rank_changes_rescore_engaged_posts() -> TestResult {
+    async fn rank_changes_recount_replied_posts() -> TestResult {
         setup(&[]).await?;
-        let d2_post = format!("{D2}:WOTPOSTTAGS01");
-        let before = engagement_score(&d2_post).await?;
+        let before = d2_post_replies().await;
 
+        set_spammer_trust("SET u.trust = 1e-9").await?;
         rank(SPAMMER).await?;
         let shown = reconcile().await;
-        let ranked = engagement_score(&d2_post).await;
+        let ranked = d2_post_replies().await;
+        set_spammer_trust("REMOVE u.trust").await?;
         unrank(SPAMMER).await?;
         let hidden = reconcile().await;
-        let unranked = engagement_score(&d2_post).await;
+        let unranked = d2_post_replies().await;
 
         cleanup(&[]).await?;
         shown?;
         hidden?;
-        let before = before.ok_or("D2's post is in the wotreview engagement set")?;
-        assert_eq!(ranked?, Some(before + 1.0), "the spammer's reply counts");
-        assert_eq!(unranked?, Some(before));
+        let before = before?;
+        assert_eq!(ranked?, before + 1, "the spammer's reply counts");
+        assert_eq!(unranked?, before);
         Ok(())
     }
 
-    /// Post counts leave out engagement from unranked users once a ranking is
-    /// applied: of the replies to D2's post, the spammer's doesn't count.
+    /// Once a ranking is applied, post counts leave out unranked users'
+    /// replies but keep every tag: of the replies to D2's post the spammer's
+    /// doesn't count, while the unranked moderation bot's tag does, and the
+    /// engagement score counts both.
     #[tokio_shared_rt::test(shared)]
-    async fn counts_leave_out_unranked_engagement() -> TestResult {
+    async fn counts_leave_out_unranked_replies_only() -> TestResult {
         setup(&[]).await?;
-        let (counts, _) = PostCounts::get_from_graph(D2, "WOTPOSTTAGS01")
+        let graph = PostCounts::get_from_graph(D2, "WOTPOSTTAGS01")
             .await?
             .ok_or("D2's post")?;
         let query = Query::new(
-            "test_raw_reply_count",
-            "MATCH (:Post {id: 'WOTPOSTTAGS01'})<-[:REPLIED]-(reply:Post) RETURN count(reply) AS replies",
+            "test_raw_post_counts",
+            "MATCH (p:Post {id: 'WOTPOSTTAGS01'})
+             RETURN [COUNT { (p)<-[:REPLIED]-() }, COUNT { (p)<-[:TAGGED]-() }] AS counts",
         );
-        let replies: i64 = fetch_key_from_graph(query, "replies")
+        let raw: Vec<i64> = fetch_key_from_graph(query, "counts")
             .await?
             .unwrap_or_default();
         assert!(
             is_ranking_applied().await?,
             "the fixture's ranking is applied"
         );
-        assert_eq!(i64::from(counts.replies), replies - 1);
+        let (replies, tags) = (raw[0], raw[1]);
+        assert_eq!(i64::from(graph.counts.replies), replies - 1);
+        assert_eq!(i64::from(graph.counts.tags), tags);
+        assert_eq!(i64::from(graph.engagement), replies + tags);
         Ok(())
     }
 }
