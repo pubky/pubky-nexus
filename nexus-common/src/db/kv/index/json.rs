@@ -70,8 +70,10 @@ pub async fn put<T: Serialize + Send + Sync>(
 /// Modifies a numeric field in a Redis JSON object by either incrementing or decrementing it.
 /// Uses LUA to ensure the value is never negative
 ///
-/// This function uses the RedisJSON `JSON.NUMINCRBY` command to either increment or decrement a numeric field at a given path
-/// based on the `JsonAction` provided.
+/// A Lua script reads the field with `JSON.GET`, applies the increment or decrement given by the
+/// `JsonAction`, clamps the result to the `ValueRange` and writes it back with `JSON.SET`, atomically.
+/// A missing field is treated as 0 and created. A missing key is left untouched: the call is a
+/// no-op and returns `Ok`, so no partial document is created.
 ///
 /// # Arguments
 ///
@@ -82,7 +84,7 @@ pub async fn put<T: Serialize + Send + Sync>(
 ///
 /// # Errors
 ///
-/// Returns an error if the operation fails or if the field does not exist or is not numeric.
+/// Returns an error if the Redis connection or the script fails.
 pub async fn modify_json_field(
     prefix: &str,
     key: &str,
@@ -112,34 +114,34 @@ pub async fn modify_json_field(
         local max_value = tonumber(ARGV[4])
         local current = 0
 
-        -- Fetch the current value as a JSON string
+        -- The counts index is a cache of the graph: with no document there is nothing to
+        -- modify, and writing one field here would create a partial document that fails to
+        -- deserialize on the next read (UserCounts fields are not optional). A Redis nil
+        -- reply reaches Lua as `false`, so test existence explicitly.
+        if redis.call('EXISTS', KEYS[1]) == 0 then
+            return 0
+        end
+
         local current_value = redis.call('JSON.GET', KEYS[1], path)
-
-        if current_value ~= nil then
-            -- Decode the JSON string into a Lua table
+        if type(current_value) == 'string' then
             local decoded = cjson.decode(current_value)
-
             if type(decoded) == 'table' then
-                -- If the decoded value is an array, extract the first element
                 if #decoded > 0 then
                     current = tonumber(decoded[1]) or 0
                 end
             elseif type(decoded) == 'number' then
-                -- If the decoded value is a number, use it directly
                 current = decoded
             end
         end
 
         local new_value = current + amount
 
-        -- Enforce min and max boundaries
         if new_value < min_value then
             new_value = min_value
         elseif new_value > max_value then
             new_value = max_value
         end
 
-        -- Set the new value
         redis.call('JSON.SET', KEYS[1], path, new_value)
         return new_value
     "#,
@@ -513,6 +515,100 @@ mod tests {
         );
 
         del_multiple(TEST_PREFIX, &[key]).await?;
+        Ok(())
+    }
+
+    const MODIFY_PREFIX: &str = "JsonModifyTest";
+
+    // Regression test for #1110: incrementing a field of a counts document that
+    // is absent from Redis must neither fail (a Redis nil reply reaches Lua as
+    // `false`, which `cjson.decode` rejects) nor create a partial document.
+    #[tokio_shared_rt::test(shared)]
+    async fn test_modify_json_field_missing_key_is_noop() -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+
+        let key = "missing-key";
+        del_multiple(MODIFY_PREFIX, &[key]).await?;
+
+        let result = modify_json_field(
+            MODIFY_PREFIX,
+            key,
+            "followers",
+            JsonAction::Increment(1),
+            None,
+        )
+        .await;
+        assert!(
+            result.is_ok(),
+            "expected Ok on a missing key, got {result:?}"
+        );
+
+        let mut conn = get_redis_conn().await?;
+        let exists: bool = conn.exists(format!("{MODIFY_PREFIX}:{key}")).await?;
+        assert!(!exists, "modify_json_field must not create a missing key");
+
+        Ok(())
+    }
+
+    #[tokio_shared_rt::test(shared)]
+    async fn test_modify_json_field_creates_missing_field() -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+
+        let key = "missing-field";
+        del_multiple(MODIFY_PREFIX, &[key]).await?;
+        put(
+            MODIFY_PREFIX,
+            key,
+            &serde_json::json!({ "posts": 3 }),
+            None,
+            None,
+        )
+        .await?;
+
+        modify_json_field(
+            MODIFY_PREFIX,
+            key,
+            "followers",
+            JsonAction::Increment(2),
+            None,
+        )
+        .await?;
+
+        let doc: Option<serde_json::Value> = get(MODIFY_PREFIX, key, None).await?;
+        assert_eq!(doc, Some(serde_json::json!({ "posts": 3, "followers": 2 })));
+
+        del_multiple(MODIFY_PREFIX, &[key]).await?;
+        Ok(())
+    }
+
+    #[tokio_shared_rt::test(shared)]
+    async fn test_modify_json_field_increments_existing_field() -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+
+        let key = "existing-field";
+        del_multiple(MODIFY_PREFIX, &[key]).await?;
+        put(
+            MODIFY_PREFIX,
+            key,
+            &serde_json::json!({ "posts": 3, "followers": 5 }),
+            None,
+            None,
+        )
+        .await?;
+
+        modify_json_field(
+            MODIFY_PREFIX,
+            key,
+            "followers",
+            JsonAction::Increment(1),
+            None,
+        )
+        .await?;
+
+        let doc: Option<serde_json::Value> = get(MODIFY_PREFIX, key, None).await?;
+        assert_eq!(doc, Some(serde_json::json!({ "posts": 3, "followers": 6 })));
+
+        del_multiple(MODIFY_PREFIX, &[key]).await?;
         Ok(())
     }
 }
