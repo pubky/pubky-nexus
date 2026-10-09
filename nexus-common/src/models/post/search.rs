@@ -3,7 +3,6 @@ use crate::db::kv::{search, AuthorFilter, RedisResult, ScoreAction, SortOrder};
 use crate::db::queries::get::{global_tags_by_post, global_tags_by_post_engagement};
 use crate::db::{fetch_all_rows_from_graph, RedisOps};
 use crate::models::error::ModelResult;
-use crate::models::post::ranked::{self, RankedSet};
 use crate::models::post::{PostDetails, PostStream, StreamSource};
 use crate::models::tag::post::TagPost;
 use crate::models::tag::traits::TaggersCollection;
@@ -45,9 +44,7 @@ impl RedisOps for PostsByTagSearch {}
 
 impl PostsByTagSearch {
     /// Indexes post tags into global sorted sets for timeline and engagement metrics.
-    /// Writes the per-label timelines directly, skipping their ranked copies, so a
-    /// full rebuild must follow, as `reindex::sync` runs one last.
-    pub(crate) async fn reindex() -> ModelResult<()> {
+    pub async fn reindex() -> ModelResult<()> {
         Self::add_to_global_sorted_set(global_tags_by_post(), TAG_GLOBAL_POST_TIMELINE).await?;
         Self::add_to_global_sorted_set(global_tags_by_post_engagement(), TAG_GLOBAL_POST_ENGAGEMENT)
             .await
@@ -160,8 +157,6 @@ impl PostsByTagSearch {
         .await
     }
 
-    /// Adds the post to the label's timeline, and to its ranked copy when the
-    /// author is in the trust ranking.
     pub async fn put_to_index(author_id: &str, post_id: &str, tag_label: &str) -> RedisResult<()> {
         let post_key_slice: &[&str] = &[author_id, post_id];
         let key_parts = [&TAG_GLOBAL_POST_TIMELINE[..], &[tag_label]].concat();
@@ -170,8 +165,13 @@ impl PostsByTagSearch {
             let option = PostDetails::try_from_index_json(post_key_slice, None).await?;
             if let Some(post_details) = option {
                 let member_key = post_key_slice.join(":");
-                let score = post_details.indexed_at as f64;
-                ranked::add(&RankedSet::tag(tag_label), &member_key, score).await?;
+                Self::put_index_sorted_set(
+                    &key_parts,
+                    &[(post_details.indexed_at as f64, &member_key)],
+                    None,
+                    None,
+                )
+                .await?;
             }
         }
         Ok(())
@@ -186,8 +186,9 @@ impl PostsByTagSearch {
         let (taggers, _) = TagPost::get_from_index(post_label_key, None, None, None, None).await?;
         // Make sure that post does not have more taggers with that tag. Post:Taggers:user_id:post_id:label
         if taggers.is_empty() {
+            let key_parts = [&TAG_GLOBAL_POST_TIMELINE[..], &[tag_label]].concat();
             let post_key = format!("{author_id}:{post_id}");
-            ranked::remove(&RankedSet::tag(tag_label), &post_key).await?;
+            Self::remove_from_index_sorted_set(None, &key_parts, &[&post_key]).await?;
         }
         Ok(())
     }

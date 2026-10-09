@@ -99,18 +99,6 @@ async fn clear_redis_recreates_post_content_index() -> Result<()> {
         db_size().await? > 0,
         "reindex::sync should have repopulated Redis from the graph"
     );
-    // The ranked timeline sets are rebuilt last, from the ranking reindexed above.
-    let mut conn = get_redis_conn().await?;
-    let (ranking, built, ranked_posts): (bool, bool, i64) = redis::pipe()
-        .exists("Sorted:Users:SocialGraph")
-        .exists("Ranked:Timeline:BuiltAt")
-        .zcard("Sorted:Posts:Ranked:Timeline")
-        .query_async(&mut conn)
-        .await?;
-    assert!(
-        !ranking || (built && ranked_posts > 0),
-        "reindex::sync should rebuild the ranked timeline sets from the ranking"
-    );
 
     Ok(())
 }

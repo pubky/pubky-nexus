@@ -34,7 +34,6 @@ pub fn bench_stream_followers_timeline(c: &mut Criterion) {
                 None,
                 None,
                 None,
-                None,
             )
             .await
             .unwrap();
@@ -65,7 +64,6 @@ pub fn bench_stream_following_timeline(c: &mut Criterion) {
                 LIMIT_20,
                 SortOrder::Descending,
                 StreamSorting::Timeline,
-                None,
                 None,
                 None,
                 None,
@@ -102,7 +100,6 @@ pub fn bench_stream_friends_timeline(c: &mut Criterion) {
                 None,
                 None,
                 None,
-                None,
             )
             .await
             .unwrap();
@@ -133,7 +130,6 @@ pub fn bench_stream_followers_total_engagement(c: &mut Criterion) {
                 LIMIT_20,
                 SortOrder::Descending,
                 StreamSorting::TotalEngagement,
-                None,
                 None,
                 None,
                 None,
@@ -170,7 +166,6 @@ pub fn bench_stream_following_total_engagement(c: &mut Criterion) {
                 None,
                 None,
                 None,
-                None,
             )
             .await
             .unwrap();
@@ -201,7 +196,6 @@ pub fn bench_stream_friends_total_engagement(c: &mut Criterion) {
                 LIMIT_20,
                 SortOrder::Descending,
                 StreamSorting::TotalEngagement,
-                None,
                 None,
                 None,
                 None,

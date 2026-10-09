@@ -12,7 +12,7 @@ use super::error::ModelResult;
 
 use crate::models::{
     file::FileDetails,
-    post::{PostStream, StreamSource, TrustFilter},
+    post::{PostStream, StreamSource},
     traits::Collection,
     user::{Influencers, UserStream},
 };
@@ -86,12 +86,8 @@ impl Bootstrap {
 
         let is_full_view_type = view_type == ViewType::Full;
 
-        // Decided on the requested user even before it is indexed, so a brand-new
-        // account sees the timeline the stream routes would show it.
-        let trust_filter = Some(TrustFilter::for_viewer(Some(user_id)));
         let post_stream_by_timeline =
-            Self::get_post_stream_timeline(maybe_viewer_id, StreamSource::All, 20, trust_filter)
-                .await?;
+            Self::get_post_stream_timeline(maybe_viewer_id, StreamSource::All, 20).await?;
 
         let post_replies = bootstrap.handle_post_stream(
             post_stream_by_timeline,
@@ -231,7 +227,6 @@ impl Bootstrap {
                     viewer_id_clone.as_deref(),
                     StreamSource::PostReplies { author_id, post_id },
                     3,
-                    None,
                 )
                 .await
             }
@@ -254,13 +249,10 @@ impl Bootstrap {
     ///   The source of the post stream
     /// - `limit: usize`
     ///   The limit of the post stream
-    /// - `trust_filter: Option<TrustFilter>`
-    ///   Hides posts by authors outside the trust ranking (see [`TrustFilter`])
     async fn get_post_stream_timeline(
         maybe_viewer_id: Option<&str>,
         source: StreamSource,
         limit: usize,
-        trust_filter: Option<TrustFilter>,
     ) -> ModelResult<PostStream> {
         let pagination = Pagination {
             skip: Some(0),
@@ -276,7 +268,6 @@ impl Bootstrap {
             maybe_viewer_id,
             None,
             None,
-            trust_filter,
         )
         .await?
         .unwrap_or_default())

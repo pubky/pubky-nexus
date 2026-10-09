@@ -8,7 +8,6 @@ pub mod post_collections;
 pub mod post_keys;
 pub mod post_replies;
 pub mod posts;
-pub mod ranked;
 pub mod reach;
 pub mod tags;
 pub mod utils;
