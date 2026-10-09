@@ -85,7 +85,7 @@ resolutions) per tick. Raise deliberately as the network of indexed HSs grows.
 | Metric | Type | Meaning |
 | --- | --- | --- |
 | `watcher.external_hs.monitored_limit` | gauge | The cap in force. |
-| `watcher.external_hs.indexed` | gauge | External HSs the last run selected for indexing: the active HSs, minus the primary HS and blacklisted ones, truncated to the limit. |
+| `watcher.external_hs.indexed` | gauge | External HSs the last run selected for indexing: the active HSs, minus the primary HS, blacklisted ones and ones in backoff, truncated to the limit. |
 
 `indexed / monitored_limit` is the saturation ratio: it reaches `1` when the
 eligible external HSs fill the cap, which is when the limit binds coverage. It
@@ -119,6 +119,8 @@ kept small to bound total work and per-HS request size.
 > Per-HS exponential backoff for third-party HSs found to be **offline/unreachable**
 > (`HomeserverBackoff`). After a failure the HS is skipped for `initial_backoff_secs`;
 > the skip interval doubles on each consecutive failure, capped at `max_backoff_secs`.
+> A skipped HS does not count towards `monitored_homeservers_limit`, so the next
+> eligible HS in priority order takes its slot.
 
 *Constraint:* `initial_backoff_secs` must not exceed `max_backoff_secs`
 (`HomeserverBackoff::new`).
