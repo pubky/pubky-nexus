@@ -29,7 +29,7 @@ pub fn get_post_by_id(author_id: &str, post_id: &str) -> Query {
             OPTIONAL MATCH (p)-[replied:REPLIED]->(parent_post:Post)<-[:AUTHORED]-(author:User)
             WITH u, p, parent_post, author
             RETURN {
-                uri: 'pubky://' + u.id + '/pub/pubky.app/posts/' + p.id,
+                uri: p.uri,
                 content: p.content,
                 id: p.id,
                 indexed_at: p.indexed_at,
@@ -38,7 +38,9 @@ pub fn get_post_by_id(author_id: &str, post_id: &str) -> Query {
                 // Avoids enum deserialization ERROR
                 kind: COALESCE(p.kind, 'short'),
                 attachments: p.attachments,
-                lock: p.lock
+                lock: p.lock,
+                // Posts written before the flag lack the property and are live
+                deleted: COALESCE(p.deleted, false)
             } as details,
             COLLECT([author.id, parent_post.id]) AS reply
 
@@ -125,7 +127,7 @@ pub fn get_post_reposts(author_id: &str, post_id: &str) -> Query {
     Query::new(
         "get_post_reposts",
         "MATCH (reposter:User)-[:AUTHORED]->(repost:Post)-[:REPOSTED]->(p:Post {id: $post_id})<-[:AUTHORED]-(author:User {id: $author_id})
-         RETURN reposter.id AS reposter_id, repost.id AS repost_id",
+         RETURN reposter.id AS reposter_id, repost.uri AS repost_uri",
     )
     .param("author_id", author_id)
     .param("post_id", post_id)
@@ -136,7 +138,7 @@ pub fn get_post_replies(author_id: &str, post_id: &str) -> Query {
     Query::new(
         "get_post_replies",
         "MATCH (replier:User)-[:AUTHORED]->(reply:Post)-[:REPLIED]->(p:Post {id: $post_id})<-[:AUTHORED]-(author:User {id: $author_id})
-         RETURN replier.id AS replier_id, reply.id AS reply_id",
+         RETURN replier.id AS replier_id, reply.uri AS reply_uri",
     )
     .param("author_id", author_id)
     .param("post_id", post_id)
@@ -156,10 +158,11 @@ pub fn get_tag_target(user_id: &str, tag_id: &str, app: Option<&str>) -> Query {
          WITH CASE WHEN target:User THEN target.id ELSE null END AS user_id,
               CASE WHEN target:Post THEN target.id ELSE null END AS post_id,
               CASE WHEN target:Post THEN author.id ELSE null END AS author_id,
+              CASE WHEN target:Post THEN target.uri ELSE null END AS post_uri,
               CASE WHEN target:Resource THEN target.id ELSE null END AS resource_id,
               tag.label AS label,
               tag.app AS app
-         RETURN user_id, post_id, author_id, resource_id, label, app"
+         RETURN user_id, post_id, author_id, post_uri, resource_id, label, app"
     );
 
     let mut query = Query::new("get_tag_target", &cypher)
@@ -180,7 +183,7 @@ pub fn get_post_tags(author_id: &str, post_id: &str) -> Query {
         "MATCH (p:Post {id: $post_id})
          WHERE EXISTS { (:User {id: $author_id})-[:AUTHORED]->(p) }
          MATCH (tagger:User)-[t:TAGGED]->(p)
-         RETURN tagger.id AS tagger_id, t.id AS tag_id",
+         RETURN tagger.id AS tagger_id, t.uri AS tag_uri",
     )
     .param("author_id", author_id)
     .param("post_id", post_id)
@@ -195,10 +198,8 @@ pub fn post_relationships(author_id: &str, post_id: &str) -> Query {
         OPTIONAL MATCH (p)-[:REPOSTED]->(reposted_post:Post)<-[:AUTHORED]-(reposted_author:User)
         OPTIONAL MATCH (p)-[:MENTIONED]->(mentioned_user:User)
         RETURN
-          replied_post.id AS replied_post_id,
-          replied_author.id AS replied_author_id,
-          reposted_post.id AS reposted_post_id,
-          reposted_author.id AS reposted_author_id,
+          replied_post.uri AS replied_uri,
+          reposted_post.uri AS reposted_uri,
           COLLECT(mentioned_user.id) AS mentioned_user_ids",
     )
     .param("author_id", author_id)
@@ -866,6 +867,62 @@ fn stream_reach_to_graph_subquery(reach: &StreamReach) -> String {
     }
 }
 
+/// Up to `limit` distinct users in `user_id`'s `reach` who authored at least
+/// one post, excluding `user_id`, the most prolific first. Users without posts
+/// are left out: they cannot match a post search, so keeping them would spend
+/// `limit` on authors that match nothing. The post count matches
+/// `UserCounts::posts` (every authored post, replies included); equal counts
+/// break ties by id descending.
+pub fn get_reach_authors_by_posts(user_id: &str, reach: &StreamReach, limit: usize) -> Query {
+    let cypher = format!(
+        "
+        MATCH (user:User {{id: $user_id}})
+        {}
+        WHERE reach.id <> $user_id
+        WITH DISTINCT reach
+        // AUTHORED only ever points at posts, so the unlabelled pattern is a
+        // degree lookup rather than an expansion
+        WITH reach, COUNT {{ (reach)-[:AUTHORED]->() }} AS posts
+        WHERE posts > 0
+        RETURN reach.id AS author_id
+        ORDER BY posts DESC, author_id DESC
+        LIMIT $limit
+        ",
+        stream_reach_to_graph_subquery(reach)
+    );
+    reach_attrs(Query::new("get_reach_authors_by_posts", &cypher), reach)
+        .param("user_id", user_id)
+        .param("limit", i64::try_from(limit).unwrap_or(i64::MAX))
+}
+
+/// Whether `target_id` is in `user_id`'s `reach`. `false` for the user itself
+/// and for unknown users.
+pub fn reach_contains_user(user_id: &str, target_id: &str, reach: &StreamReach) -> Query {
+    let check = match reach {
+        StreamReach::Following => "EXISTS { (user)-[:FOLLOWS]->(target) }".to_string(),
+        StreamReach::Followers => "EXISTS { (target)-[:FOLLOWS]->(user) }".to_string(),
+        StreamReach::Friends => {
+            "EXISTS { (user)-[:FOLLOWS]->(target) } AND EXISTS { (target)-[:FOLLOWS]->(user) }"
+                .to_string()
+        }
+        // shortestPath searches from both ends; a variable-length EXISTS runs
+        // as an unpruned expand
+        StreamReach::Wot(depth) => {
+            format!("EXISTS {{ MATCH shortestPath((user)-[:FOLLOWS*1..{depth}]->(target)) }}")
+        }
+    };
+    let cypher = format!(
+        "
+        MATCH (user:User {{id: $user_id}}), (target:User {{id: $target_id}})
+        WHERE target.id <> $user_id
+        RETURN {check} AS reached
+        "
+    );
+    reach_attrs(Query::new("reach_contains_user", &cypher), reach)
+        .param("user_id", user_id)
+        .param("target_id", target_id)
+}
+
 pub fn get_tags_by_label_prefix(label_prefix: &str) -> Query {
     Query::new(
         "get_tags_by_label_prefix",
@@ -1526,7 +1583,7 @@ pub fn post_is_safe_to_delete(author_id: &str, post_id: &str) -> Query {
     .param("post_id", post_id)
 }
 
-/// Find user recommendations: active users (with 5+ posts) who are 1-3 degrees of separation away
+/// Find user recommendations: active users (with 5+ posts) who are 2-3 degrees of separation away
 /// from the given user, but not directly followed by them.
 /// Deleted users are filtered in Cypher; only the user ID is projected (no name column).
 pub fn recommend_users(user_id: &str, limit: usize) -> Query {
@@ -1534,14 +1591,16 @@ pub fn recommend_users(user_id: &str, limit: usize) -> Query {
         "recommend_users",
         "
         MATCH (user:User {id: $user_id})
-        MATCH (user)-[:FOLLOWS*1..3]->(potential:User)
-        WHERE NOT (user)-[:FOLLOWS]->(potential)
-        AND potential.id <> $user_id
-        AND NOT coalesce(potential.deleted, false)
-        WITH DISTINCT potential
-        MATCH (potential)-[:AUTHORED]->(post:Post)
-        WITH potential, COUNT(post) AS post_count
-        WHERE post_count >= 5
+        // Depth 1 is always directly followed, hence excluded below: start at 2.
+        // DISTINCT right after the expand lets the planner prune (one row per reached
+        // node, not per path), so the filters below run once per candidate.
+        MATCH (user)-[:FOLLOWS*2..3]->(potential:User)
+        WITH DISTINCT user, potential
+        WHERE potential <> user
+          AND NOT coalesce(potential.deleted, false)
+          AND NOT (user)-[:FOLLOWS]->(potential)
+          // Degree lookup instead of expand + aggregate; keeps LIMIT lazy.
+          AND COUNT { (potential)-[:AUTHORED]->() } >= 5
         RETURN potential.id AS recommended_user_id
         LIMIT $limit
     ",
@@ -1613,11 +1672,9 @@ pub fn get_tag_by_tagger_and_id(tagger_id: &str, tag_id: &str) -> Query {
         "get_tag_by_tagger_and_id",
         "
         MATCH (tagger:User { id: $tagger_id})-[tag:TAGGED {id: $tag_id }]->(tagged)
-        OPTIONAL MATCH (author:User)-[:AUTHORED]->(tagged)
         RETURN
             labels(tagged) as tagged_labels,
-            tagged.id as tagged_id,
-            author.id as author_id,
+            CASE WHEN tagged:Post OR tagged:User THEN tagged.uri END as tagged_uri,
             tag.id as id,
             tag.indexed_at as indexed_at,
             tag.label as label
@@ -1681,6 +1738,19 @@ mod tests {
             let taggers = get_tag_taggers_by_reach("tag", "user", reach.clone(), 0, 10);
             assert_eq!(taggers.label(), "get_tag_taggers_by_reach");
             assert_eq!(taggers.telemetry_attrs(), expected.as_slice());
+
+            let user_tag_search =
+                search_users_by_tags_with_reach(&["label".into()], "user", &reach, None, None);
+            assert_eq!(user_tag_search.label(), "search_users_by_tags_with_reach");
+            assert_eq!(user_tag_search.telemetry_attrs(), expected.as_slice());
+
+            let reach_authors = get_reach_authors_by_posts("user", &reach, 10);
+            assert_eq!(reach_authors.label(), "get_reach_authors_by_posts");
+            assert_eq!(reach_authors.telemetry_attrs(), expected.as_slice());
+
+            let reach_contains = reach_contains_user("user", "target", &reach);
+            assert_eq!(reach_contains.label(), "reach_contains_user");
+            assert_eq!(reach_contains.telemetry_attrs(), expected.as_slice());
 
             let hot_tags_input = HotTagsInputDTO::new(Timeframe::AllTime, 10, 0, 5, None);
             let hot_tags = get_hot_tags_by_reach("user", reach, &hot_tags_input);
@@ -1836,6 +1906,27 @@ mod tests {
                 "{reach:?} must dedupe before the tag join, or tags count once per path:\n{cypher}"
             );
         }
+    }
+
+    #[test]
+    fn reach_membership_uses_shortest_path_for_wot() {
+        let wot = reach_contains_user(
+            "user",
+            "target",
+            &StreamReach::Wot(WotDepth::new(3).unwrap()),
+        )
+        .to_cypher_populated();
+        assert!(
+            wot.contains("EXISTS { MATCH shortestPath((user)-[:FOLLOWS*1..3]->(target)) }"),
+            "WoT membership must use shortestPath:\n{wot}"
+        );
+        let friends =
+            reach_contains_user("user", "target", &StreamReach::Friends).to_cypher_populated();
+        assert!(
+            friends.contains("(user)-[:FOLLOWS]->(target)")
+                && friends.contains("(target)-[:FOLLOWS]->(user)"),
+            "friends must check both directions:\n{friends}"
+        );
     }
 
     #[test]

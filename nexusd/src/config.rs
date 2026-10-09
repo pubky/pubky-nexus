@@ -1,21 +1,23 @@
 use async_trait::async_trait;
+use nexus_common::{file::ConfigLoader, types::DynError};
+use nexus_common::{ApiConfig, JobConfig, StackConfig, TrustRankConfig, WatcherConfig};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::{fmt::Debug, path::PathBuf};
 use tracing::error;
 
-use crate::{file::CONFIG_FILE_NAME, types::DynError};
-
-use super::{
-    file::ConfigLoader, ApiConfig, JobConfig, StackConfig, TrustRankConfig, WatcherConfig,
-};
+/// The sole configuration file name recognized by nexusd
+pub const CONFIG_FILE_NAME: &str = "config.toml";
+const DEFAULT_CONFIG_TOML: &str = include_str!("../default.config.toml");
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DaemonConfig {
+    /// `[api]`, without the shared `[stack]`: read it through [Self::api_config]
     #[serde(default)]
-    pub api: ApiConfig,
+    api: ApiConfig,
+    /// `[watcher]`, without the shared `[stack]`: read it through [Self::watcher_config]
     #[serde(default)]
-    pub watcher: WatcherConfig,
+    watcher: WatcherConfig,
     pub stack: StackConfig,
     /// Scheduling config per cron job, keyed by job name (`[jobs.<name>]`).
     #[serde(default)]
@@ -26,41 +28,35 @@ pub struct DaemonConfig {
 }
 
 impl DaemonConfig {
-    /// Returns the config file path in this directory
-    fn get_config_file_path(expanded_path: PathBuf) -> PathBuf {
-        expanded_path.join(CONFIG_FILE_NAME)
-    }
-
-    /// Writes the default [DaemonConfig] config file into the specified path
-    fn write_default_config_file(config_file_path: PathBuf) -> std::io::Result<()> {
-        // Make sure before write the file, the directory path exists
-        if let Some(parent) = config_file_path.parent() {
-            println!(
-                "Validating existence of '{}' and creating it if missing before copying '{CONFIG_FILE_NAME}' file…",
-                parent.display()
-            );
-            std::fs::create_dir_all(parent)?;
-        }
-        // Create the file
-        std::fs::write(config_file_path, super::file::reader::DEFAULT_CONFIG_TOML)?;
-        Ok(())
-    }
-
-    /// Given a directory path, ensures the directory exists, writes a default
-    /// [DaemonConfig] file if absent, then parses and returns the loaded config
+    /// Given a directory path, writes the default [DaemonConfig] file into it if absent,
+    /// then parses and returns the loaded config
     pub async fn read_or_create_config_file(
         expanded_path: PathBuf,
     ) -> Result<DaemonConfig, DynError> {
-        let config_file_path = Self::get_config_file_path(expanded_path);
-
-        if !config_file_path.exists() {
-            Self::write_default_config_file(config_file_path.clone())?;
-        }
+        let config_file_path = expanded_path.join(CONFIG_FILE_NAME);
 
         println!("nexusd loading config file {}", config_file_path.display());
-        Self::load(&config_file_path).await.inspect_err(|e| {
-            error!("Failed to load config file: {e}");
-        })
+        Self::load_or_create(&config_file_path, DEFAULT_CONFIG_TOML)
+            .await
+            .inspect_err(|e| {
+                error!("Failed to load config file: {e}");
+            })
+    }
+
+    /// Returns the `[api]` settings with the shared `[stack]`
+    pub fn api_config(&self) -> ApiConfig {
+        ApiConfig {
+            stack: self.stack.clone(),
+            ..self.api.clone()
+        }
+    }
+
+    /// Returns the `[watcher]` settings with the shared `[stack]`
+    pub fn watcher_config(&self) -> WatcherConfig {
+        WatcherConfig {
+            stack: self.stack.clone(),
+            ..self.watcher.clone()
+        }
     }
 }
 
@@ -71,16 +67,15 @@ impl ConfigLoader<DaemonConfig> for DaemonConfig {}
 mod tests {
     use std::{collections::HashMap, net::SocketAddr, path::PathBuf, str::FromStr, time::Duration};
 
-    use pubky_app_specs::PubkyId;
-
-    use crate::config::file::{reader::DEFAULT_CONFIG_TOML, ConfigLoader};
-    use crate::{
+    use nexus_common::file::{validate_and_expand_path, ConfigLoader};
+    use nexus_common::{
         config::watcher::{DEFAULT_MAX_FILE_SIZE, DEFAULT_MODERATION_ID},
-        default_trust_report_dir,
-        file::validate_and_expand_path,
-        DaemonConfig, Level, DEFAULT_TRUST_ALPHA, DEFAULT_TRUST_MAX_ITERATIONS,
+        default_trust_report_dir, Level, DEFAULT_TRUST_ALPHA, DEFAULT_TRUST_MAX_ITERATIONS,
         DEFAULT_TRUST_REPORT_LIMIT, DEFAULT_TRUST_TOLERANCE,
     };
+    use pubky_app_specs::PubkyId;
+
+    use super::{DaemonConfig, DEFAULT_CONFIG_TOML};
 
     #[tokio_shared_rt::test(shared)]
     async fn test_toml_parsing() {
@@ -163,6 +158,20 @@ mod tests {
         assert!(!c.trust_rank.report_enabled);
         assert_eq!(c.trust_rank.report_dir, default_trust_report_dir());
         assert_eq!(c.trust_rank.report_limit, DEFAULT_TRUST_REPORT_LIMIT);
+    }
+
+    /// `[api]` and `[watcher]` carry no stack of their own, so the service
+    /// configs must take the shared `[stack]`.
+    #[test]
+    fn test_service_configs_take_the_shared_stack() {
+        let toml = DEFAULT_CONFIG_TOML.replace(r#"log_level = "info""#, r#"log_level = "debug""#);
+
+        let c =
+            DaemonConfig::try_from_str(&toml).expect("config with a debug log level should parse");
+
+        assert_eq!(c.stack.log_level, Level::Debug);
+        assert_eq!(c.api_config().stack, c.stack);
+        assert_eq!(c.watcher_config().stack, c.stack);
     }
 
     /// A `[jobs.<name>]` section parses into a keyed [`JobConfig`], with its cron

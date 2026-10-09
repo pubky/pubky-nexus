@@ -56,7 +56,7 @@ async fn create_user_hosted_on(user_id: &str, hs_id: Option<&str>) {
         indexed_at: Utc::now().timestamp_millis(),
         deleted: false,
     };
-    exec_single_row(queries::put::create_user(&user).expect("create_user query"))
+    exec_single_row(queries::put::create_user(&user, None).expect("create_user query"))
         .await
         .expect("create user node");
 

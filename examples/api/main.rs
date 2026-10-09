@@ -1,12 +1,13 @@
 use clap::Parser;
-use nexus_common::{file::validate_and_expand_path, types::DynError, ApiConfig};
+use nexus_common::file::{default_config_dir_path, validate_and_expand_path};
+use nexus_common::{types::DynError, ApiConfig};
 use nexus_webapi::{api_context::ApiContextBuilder, NexusApi, NexusApiBuilder};
 use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(about = "Example Nexus API server", long_about = None)]
 struct Opt {
-    /// Path to a directory containing `api-config.toml`
+    /// Path to a directory containing `api-config.toml`, which is created with the defaults if missing
     /// If omitted, runs the built-in default API config
     #[arg(short, long, value_name = "DIR")]
     config: Option<PathBuf>,
@@ -21,11 +22,9 @@ async fn main() -> Result<(), DynError> {
             NexusApi::start_from_path(expanded_path, None).await?
         }
         None => {
-            let api_config = ApiConfig::default();
-            let api_context = ApiContextBuilder::from_default_config_dir()
-                .api_config(api_config)
-                .try_build()
-                .await?;
+            let api_context =
+                ApiContextBuilder::new(ApiConfig::default(), default_config_dir_path())
+                    .try_build()?;
             NexusApiBuilder::new(api_context).start(None).await?
         }
     };

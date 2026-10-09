@@ -154,7 +154,7 @@ async fn test_collection_hard_delete_uncounts_items() -> Result<()> {
     Ok(())
 }
 
-/// A bookmarked collection soft-deletes into a `[DELETED]` Short placeholder,
+/// A bookmarked collection soft-deletes into a cleared, `deleted` Short placeholder,
 /// which goes through the edit path and must drop the edges the same way.
 #[tokio_shared_rt::test(shared)]
 async fn test_collection_soft_delete_uncounts_items() -> Result<()> {
@@ -186,7 +186,8 @@ async fn test_collection_soft_delete_uncounts_items() -> Result<()> {
         .await?
         .expect("soft-deleted placeholder still present");
     assert_eq!(placeholder.kind, PubkyAppPostKind::Short);
-    assert_eq!(placeholder.content, "[DELETED]");
+    assert!(placeholder.deleted);
+    assert_eq!(placeholder.content, "");
     assert_eq!(collections_count(&f, &f.item_a).await, 0);
     assert!(curators(&f, &f.item_a).await.is_empty());
 

@@ -46,21 +46,48 @@ impl Display for FileVariant {
     }
 }
 
+/// The family of media a content type belongs to: the one thing every table keyed on a content
+/// type -- which variants it has, what a derived variant is served as, which processor derives
+/// it -- agrees on. Answered here once so the tables cannot drift apart on what counts as an
+/// image. Matching is on the top-level type only (`image/…`, `video/…`) and ASCII
+/// case-insensitive, as RFC 2045 requires, so `imagefoo` is no kind and `Image/png` is an image.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum MediaKind {
+    Image,
+    Video,
+}
+
+impl MediaKind {
+    /// The kind a content type names, by its top-level type (`image/…`, `video/…`). `None` for
+    /// anything else: nothing derives from it.
+    ///
+    /// Content types are compared case-insensitively, as RFC 2045 requires, so `Image/png` is an
+    /// image.
+    pub fn from_content_type(content_type: &str) -> Option<Self> {
+        let (top_level, _subtype) = content_type.split_once('/')?;
+        if top_level.eq_ignore_ascii_case("image") {
+            Some(Self::Image)
+        } else if top_level.eq_ignore_ascii_case("video") {
+            Some(Self::Video)
+        } else {
+            None
+        }
+    }
+}
+
 /// Variants a content type can be served as, `Main` included. Empty for a content type with no
 /// variants at all, which is also how an unsupported one answers.
 pub fn get_valid_variants_for_content_type(content_type: &str) -> Vec<FileVariant> {
-    match content_type {
+    match MediaKind::from_content_type(content_type) {
         // Largest to smallest.
-        value if value.starts_with("image") => {
-            vec![
-                FileVariant::Main,
-                FileVariant::Large,
-                FileVariant::Feed,
-                FileVariant::Small,
-            ]
-        }
-        value if value.starts_with("video") => vec![FileVariant::Main],
-        _ => vec![],
+        Some(MediaKind::Image) => vec![
+            FileVariant::Main,
+            FileVariant::Large,
+            FileVariant::Feed,
+            FileVariant::Small,
+        ],
+        Some(MediaKind::Video) => vec![FileVariant::Main],
+        None => vec![],
     }
 }
 
@@ -75,6 +102,44 @@ pub fn validate_variant_for_content_type(content_type: &str, variant: &FileVaria
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // The kind is read off the top-level type, so a content type that only starts with the word
+    // is not an image: it must get no derived variants, or the API would be asked for one it
+    // has no processor for. The type is compared ignoring case (RFC 2045), so `Image/png` is
+    // still an image.
+    #[test]
+    fn test_media_kind_matches_the_top_level_type_only_ignoring_case() {
+        for content_type in ["image/png", "Image/png", "IMAGE/PNG"] {
+            assert_eq!(
+                MediaKind::from_content_type(content_type),
+                Some(MediaKind::Image),
+                "{content_type}"
+            );
+            assert!(validate_variant_for_content_type(
+                content_type,
+                &FileVariant::Small
+            ));
+        }
+        for content_type in ["video/mp4", "Video/mp4", "VIDEO/MP4"] {
+            assert_eq!(
+                MediaKind::from_content_type(content_type),
+                Some(MediaKind::Video),
+                "{content_type}"
+            );
+            assert_eq!(
+                get_valid_variants_for_content_type(content_type),
+                vec![FileVariant::Main]
+            );
+        }
+        for content_type in ["imagefoo", "videofoo", "image", "application/pdf", ""] {
+            assert_eq!(MediaKind::from_content_type(content_type), None);
+            assert!(get_valid_variants_for_content_type(content_type).is_empty());
+            assert!(!validate_variant_for_content_type(
+                content_type,
+                &FileVariant::Small
+            ));
+        }
+    }
 
     #[test]
     fn test_unsupported_content_type_has_no_variants() {

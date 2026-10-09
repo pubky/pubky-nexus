@@ -327,6 +327,7 @@ where
     ///   If `Some`, the function creates a tag relationship associated with a specific post;
     ///   otherwise, it creates a tag relationship between users.
     /// - `tag_id` - A string slice representing the unique identifier of the tag being created.
+    /// - `tag_uri` - The address of the tag file (its event path), stored as the edge `uri`.
     /// - `label` - A string slice representing the label of the tag.
     /// - `indexed_at` - A 64-bit integer representing the timestamp (milliseconds)
     ///   when the tag was indexed.
@@ -335,6 +336,7 @@ where
         tagged_user_id: &str,
         extra_param: Option<&str>,
         tag_id: &str,
+        tag_uri: &str,
         label: &str,
         indexed_at: i64,
     ) -> GraphResult<OperationOutcome> {
@@ -344,6 +346,7 @@ where
                 tagged_user_id,
                 post_id,
                 tag_id,
+                tag_uri,
                 label,
                 indexed_at,
             ),
@@ -351,6 +354,7 @@ where
                 tagger_user_id,
                 tagged_user_id,
                 tag_id,
+                tag_uri,
                 label,
                 indexed_at,
             ),

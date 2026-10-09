@@ -17,7 +17,6 @@ pub fn get_files_dir_pathbuf() -> PathBuf {
 }
 
 mod api;
-mod daemon;
 pub mod file;
 mod job;
 mod net;
@@ -26,7 +25,6 @@ mod trust;
 pub mod watcher;
 
 pub use api::{ApiConfig, RateLimitBucketConfig, RateLimitConfig};
-pub use daemon::DaemonConfig;
 pub use job::JobConfig;
 pub use net::NetConfig;
 pub use stack::{default_stack, MediaConfig, OtlpConfig, StackConfig};

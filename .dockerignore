@@ -4,6 +4,7 @@
 /docs
 /.github
 /docker
+!/docker/imagemagick
 /tests
 README.md
 print_files.sh

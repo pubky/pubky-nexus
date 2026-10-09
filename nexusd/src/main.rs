@@ -1,10 +1,9 @@
 use clap::Parser;
 use nexus_common::types::DynError;
-use nexus_common::{DaemonConfig, StackManager, TrustRankConfig};
-use nexus_watcher::service::NexusWatcher;
+use nexus_common::{StackManager, TrustRankConfig};
 use nexus_webapi::mock::MockDb;
-use nexus_webapi::NexusApi;
 use nexusd::cli::{Cli, DbCommands, JobCommands, JobRunArgs, MigrationCommands, NexusCommands};
+use nexusd::config::DaemonConfig;
 use nexusd::jobs::JobRegistry;
 use nexusd::migrations::{import_migrations, MigrationBuilder, MigrationManager};
 use nexusd::DaemonLauncher;
@@ -60,10 +59,10 @@ async fn main() -> Result<(), DynError> {
             },
         },
         Some(NexusCommands::Api) => {
-            NexusApi::start_from_daemon(config_dir, None).await?;
+            DaemonLauncher::start_api(config_dir, None).await?;
         }
         Some(NexusCommands::Watcher) => {
-            NexusWatcher::start_from_daemon(config_dir, None).await?;
+            DaemonLauncher::start_watcher(config_dir, None).await?;
         }
         Some(NexusCommands::Jobs(job_command)) => match job_command {
             JobCommands::Run(JobRunArgs { name }) => {

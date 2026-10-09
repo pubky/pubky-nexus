@@ -10,23 +10,34 @@ use nexus_common::models::post::{
 };
 use nexus_common::models::user::{UserCounts, UserIngestor};
 use pubky_app_specs::{
-    post_uri_builder, ParsedUri, PubkyAppCollectionContent, PubkyAppPost, PubkyAppPostKind,
-    PubkyId, Resource,
+    ParsedUri, PubkyAppCollectionContent, PubkyAppPost, PubkyAppPostKind, PubkyId, Resource,
 };
 use tracing::{debug, Instrument};
 
 use super::utils::{fail_on_blacklisted_hs, post_kind, post_relationships_is_reply};
 
-#[tracing::instrument(name = "post.put", skip_all, fields(user_id = %author_id, post_id = %post_id))]
 pub async fn sync_put(
     post: PubkyAppPost,
+    uri: String,
+    author_id: PubkyId,
+    post_id: String,
+    ingestor: &UserIngestor,
+) -> Result<(), EventProcessorError> {
+    let post_details = PostDetails::from_homeserver(post.clone(), uri, &author_id, &post_id);
+    sync_put_details(post, post_details, author_id, post_id, ingestor).await
+}
+
+/// [`sync_put`] with the details built by the caller, so [`del`] can write a
+/// tombstone through the same edit path.
+#[tracing::instrument(name = "post.put", skip_all, fields(user_id = %author_id, post_id = %post_id))]
+async fn sync_put_details(
+    post: PubkyAppPost,
+    post_details: PostDetails,
     author_id: PubkyId,
     post_id: String,
     ingestor: &UserIngestor,
 ) -> Result<(), EventProcessorError> {
     debug!("Indexing post");
-    // Create PostDetails object
-    let post_details = PostDetails::from_homeserver(post.clone(), &author_id, &post_id);
     // We avoid indexing replies into global feed sorted sets
     let is_reply = post.parent.is_some();
     let is_collection = post.kind == PubkyAppPostKind::Collection;
@@ -91,8 +102,11 @@ pub async fn sync_put(
                 }
                 if existing_details.is_different_than(&post_details) || kind_changed {
                     // A lock- or kind-only toggle refreshes the cache but must not notify.
-                    let notify =
-                        existing_details.content_differs_from(&post_details) || collection_toggled;
+                    // A deletion must, even of a repost with no content to clear.
+                    let deleted_toggled = existing_details.deleted != post_details.deleted;
+                    let notify = existing_details.content_differs_from(&post_details)
+                        || collection_toggled
+                        || deleted_toggled;
                     sync_edit(
                         &post,
                         author_id.clone(),
@@ -127,6 +141,7 @@ pub async fn sync_put(
     put_mentioned_relationships(
         &author_id,
         &post_id,
+        &post_details.uri,
         &post_details.content,
         &mut post_relationships,
         post.kind.clone(),
@@ -399,9 +414,8 @@ async fn sync_edit(
     }
 
     // Notifications
-    let changed_uri = post_uri_builder(author_id.to_string(), post_id.clone());
     // Determine the change type
-    let change_type = if post_details.content == *"[DELETED]" {
+    let change_type = if post_details.deleted {
         PostChangedType::Deleted
     } else {
         PostChangedType::Edited
@@ -417,7 +431,7 @@ async fn sync_edit(
     Notification::changed_post(
         &author_id,
         &post_id,
-        &changed_uri,
+        &post_details.uri,
         &change_type,
         changed_kind.clone(),
     )
@@ -431,7 +445,7 @@ async fn sync_edit(
             &author_id,
             parent,
             &parsed_parent.user_id,
-            &changed_uri,
+            &post_details.uri,
             PostChangedSource::Reply,
             &change_type,
             changed_kind,
@@ -446,6 +460,7 @@ async fn sync_edit(
 pub async fn put_mentioned_relationships(
     author_id: &PubkyId,
     post_id: &str,
+    post_uri: &str,
     content: &str,
     relationships: &mut PostRelationships,
     post_kind: PubkyAppPostKind,
@@ -455,6 +470,7 @@ pub async fn put_mentioned_relationships(
     put_mentioned_relationships_for_prefix(
         author_id,
         post_id,
+        post_uri,
         content,
         relationships,
         "pk:",
@@ -466,6 +482,7 @@ pub async fn put_mentioned_relationships(
     put_mentioned_relationships_for_prefix(
         author_id,
         post_id,
+        post_uri,
         content,
         relationships,
         "pubky",
@@ -479,6 +496,7 @@ pub async fn put_mentioned_relationships(
 async fn put_mentioned_relationships_for_prefix(
     author_id: &PubkyId,
     post_id: &str,
+    post_uri: &str,
     content: &str,
     relationships: &mut PostRelationships,
     prefix: &str,
@@ -490,7 +508,7 @@ async fn put_mentioned_relationships_for_prefix(
         exec_single_row(query).await?;
 
         let maybe_mentioned_id =
-            Notification::new_mention(author_id, &pubky_id, post_id, post_kind.clone()).await?;
+            Notification::new_mention(author_id, &pubky_id, post_uri, post_kind.clone()).await?;
         if let Some(mentioned_user_id) = maybe_mentioned_id {
             relationships.mentioned.push(mentioned_user_id);
         }
@@ -580,33 +598,45 @@ pub async fn del(
 ) -> Result<(), EventProcessorError> {
     debug!("Deleting post");
 
+    // The post's stored address: a tombstone keeps it, and a hard delete reports it.
+    // A post missing from the graph has nothing to delete.
+    let Some((PostDetails { uri, .. }, _)) =
+        PostDetails::get_from_graph(&author_id, &post_id).await?
+    else {
+        return Err(EventProcessorError::SkipIndexing);
+    };
+
     // Graph query to check if there is any edge at all to this post other than AUTHORED, is a reply or is a repost.
     let query = post_is_safe_to_delete(&author_id, &post_id);
 
     // If there is none other relationship (OperationOutcome::CreatedOrDeleted), we delete from graph and redis.
-    // But if there is any (OperationOutcome::Updated), then we simply update the post with keyword content [DELETED].
-    // A deleted post is a post whose content is EXACTLY `"[DELETED]"`
+    // If there is any (OperationOutcome::Updated), we overwrite the post with a cleared tombstone
+    // carrying `deleted = true`. The node survives so its edges stay intact.
     match execute_graph_operation(query).await? {
-        OperationOutcome::CreatedOrDeleted => sync_del(author_id, post_id).await?,
+        OperationOutcome::CreatedOrDeleted => sync_del(author_id, post_id, uri).await?,
         OperationOutcome::Updated => {
             let existing_relationships = PostRelationships::get_by_id(&author_id, &post_id).await?;
             let parent = existing_relationships
                 .and_then(|rel| rel.replied)
                 .and_then(|replied_uri| replied_uri.try_to_uri_str().ok());
 
-            // We store a dummy that is still a reply if it was one already.
-            let dummy_deleted_post = PubkyAppPost {
-                content: "[DELETED]".to_string(),
+            // A cleared Short flagged `deleted`, still a reply if it was one already.
+            let tombstone = PubkyAppPost {
+                content: String::new(),
                 parent,
                 embed: None,
                 kind: PubkyAppPostKind::Short,
                 attachments: None,
                 lock: None,
             };
+            let tombstone_details = PostDetails {
+                deleted: true,
+                ..PostDetails::from_homeserver(tombstone.clone(), uri, &author_id, &post_id)
+            };
 
             // The tombstone keeps the `parent` of a deleted reply, so re-PUT may
             // still ingest the parent's author; pass on ingestor to enforce the real blacklist.
-            sync_put(dummy_deleted_post, author_id, post_id, ingestor).await?;
+            sync_put_details(tombstone, tombstone_details, author_id, post_id, ingestor).await?;
         }
         OperationOutcome::MissingDependency => return Err(EventProcessorError::SkipIndexing),
     };
@@ -614,9 +644,12 @@ pub async fn del(
     Ok(())
 }
 
-pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), EventProcessorError> {
-    let deleted_uri = post_uri_builder(author_id.to_string(), post_id.clone());
-
+/// `deleted_uri` is the post's stored address, read by the caller before the graph delete below.
+pub async fn sync_del(
+    author_id: PubkyId,
+    post_id: String,
+    deleted_uri: String,
+) -> Result<(), EventProcessorError> {
     // 1. Read PostRelationships from index — captures both the gate and the
     //    parent (replied/reposted) URIs needed for parent cleanup.
     //    NOTE: deliberately NOT using `get_by_id`, which would re-populate the

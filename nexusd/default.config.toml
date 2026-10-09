@@ -130,7 +130,8 @@ slow_query_logging_threshold_ms = 100
 #max_concurrency = 4
 # Wall-clock deadline (seconds) for a single ImageMagick/ffmpeg subprocess. Past it the process
 # group is killed and reaped so its concurrency slot is returned. Keep it above ImageMagick's own
-# time limit: it is a backstop for children that hang without burning CPU. Must be greater than 0.
+# time limit (30s in the Docker image, see docker/imagemagick/policy.xml): it is a backstop for
+# children that hang without burning CPU. Must be greater than 0.
 # Two upper bounds to respect:
 # - Keep it below the API request timeout (config [api] request_timeout_secs, default 30s) if
 #   clients of slow conversions should receive the result instead of a 408; work still publishes

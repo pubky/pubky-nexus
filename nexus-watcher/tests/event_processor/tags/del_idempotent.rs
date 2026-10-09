@@ -60,6 +60,7 @@ async fn test_tag_post_del_retry_no_double_decrement() -> Result<()> {
         &author_id,
         Some(&post_id),
         tag_id,
+        &tag_uri_builder(tagger_id.clone(), tag_id.to_string()),
         label,
         OLD_INDEXED_AT,
     )
@@ -146,6 +147,7 @@ async fn test_tag_post_del_replay_after_success_skips() -> Result<()> {
         &author_id,
         Some(&post_id),
         tag_id,
+        &tag_uri_builder(tagger_id.clone(), tag_id.to_string()),
         label,
         OLD_INDEXED_AT,
     )
