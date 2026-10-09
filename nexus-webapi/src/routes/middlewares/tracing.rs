@@ -50,8 +50,10 @@ impl HttpMetrics {
 static METRICS: LazyLock<HttpMetrics> = LazyLock::new(HttpMetrics::new);
 
 /// 5xx, plus 408 (our timeout). Used to mark the span ERROR; metrics use status labels.
+/// 501 is excluded: it is a light Nexus answering an endpoint it does not serve, which is
+/// expected and must not raise error alerts.
 fn is_failed_request(status: u16) -> bool {
-    matches!(status, 408 | 500..=599)
+    matches!(status, 408 | 500 | 502..=599)
 }
 
 /// Matched route template, or `unmatched`. Never the raw URI (cardinality).
@@ -169,5 +171,6 @@ mod tests {
         assert!(!is_failed_request(404));
         assert!(!is_failed_request(413));
         assert!(!is_failed_request(429));
+        assert!(!is_failed_request(501), "light mode's 501 is not a failure");
     }
 }

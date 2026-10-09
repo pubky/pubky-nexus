@@ -1,8 +1,9 @@
 use crate::config::OtlpConfig;
 use crate::db::kv::search::set_ft_search_timeout_ms;
+use crate::db::{fetch_key_from_graph, fetch_row_from_graph, queries};
 use crate::db::{Neo4jConnector, RedisConnector};
 use crate::types::DynError;
-use crate::{Level, StackConfig};
+use crate::{Level, ModeMismatch, NexusMode, StackConfig};
 use opentelemetry::trace::TracerProvider;
 use opentelemetry::{global, KeyValue};
 use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
@@ -47,6 +48,58 @@ impl StackManager {
         }
 
         Ok(())
+    }
+
+    /// The mode this process was set up with. [`NexusMode::Full`] before
+    /// [`StackManager::setup`] has run.
+    pub fn mode() -> NexusMode {
+        STACK_CONFIG
+            .get()
+            .map(|config| config.mode)
+            .unwrap_or_default()
+    }
+
+    /// Checks that the database was indexed in the configured mode, and locks an empty
+    /// database to it. Run by the API and the watcher at start, after [`Self::setup`].
+    ///
+    /// The lock is a `(:NexusMode)` node in the graph, so `nexusd db clear` removes it with
+    /// everything else. A graph that holds users but no lock predates it and is treated as
+    /// full. Light and full data must never mix, so a mismatch is an error, not a warning.
+    pub async fn ensure_mode_lock() -> Result<NexusMode, DynError> {
+        let configured = Self::mode();
+        let row = fetch_row_from_graph(queries::get::get_mode_lock())
+            .await?
+            .ok_or("mode lock query returned no row")?;
+        let stored = match row.get::<Option<String>>("mode")? {
+            Some(value) => Some(
+                NexusMode::from_stored(&value)
+                    .ok_or_else(|| format!("unknown mode in the mode lock: {value}"))?,
+            ),
+            None => None,
+        };
+        let has_data: bool = row.get("has_data")?;
+
+        let locked = NexusMode::resolve_lock(stored, has_data, configured)?;
+        if stored.is_none() {
+            // Another process may lock the database between the read and this write. The
+            // `uniqueNexusMode` constraint makes concurrent writes merge into one node, and
+            // the write returns that node's mode, the first writer's, so check it again.
+            let written: String =
+                fetch_key_from_graph(queries::put::set_mode_lock(locked.as_str()), "mode")
+                    .await?
+                    .ok_or("mode lock write returned no row")?;
+            let written = NexusMode::from_stored(&written)
+                .ok_or_else(|| format!("unknown mode in the mode lock: {written}"))?;
+            if written != configured {
+                return Err(ModeMismatch {
+                    locked: written,
+                    configured,
+                }
+                .into());
+            }
+            info!("Locked the database to {locked} mode");
+        }
+        Ok(locked)
     }
 
     async fn setup_logging(otlp: &OtlpConfig, log_level: Level) {
@@ -270,5 +323,86 @@ mod tests {
             resource.get(&Key::new("service.name")),
             Some(Value::from("from-config"))
         );
+    }
+}
+
+#[cfg(test)]
+mod mode_lock_tests {
+    use super::StackManager;
+    use crate::db::graph::setup::setup_mode_lock_constraint;
+    use crate::db::{exec_single_row, fetch_all_rows_from_graph, graph::Query};
+    use crate::types::DynError;
+    use crate::{NexusMode, StackConfig};
+
+    /// The lock nodes, oldest first, as `(mode, created_at)`.
+    async fn lock_nodes() -> Result<Vec<(String, i64)>, DynError> {
+        let rows = fetch_all_rows_from_graph(Query::new(
+            "test_read_mode_locks",
+            "MATCH (lock:NexusMode) RETURN lock.mode AS mode, lock.created_at AS created_at
+             ORDER BY created_at",
+        ))
+        .await?;
+        rows.iter()
+            .map(|row| Ok((row.get("mode")?, row.get("created_at")?)))
+            .collect()
+    }
+
+    async fn drop_locks() -> Result<(), DynError> {
+        exec_single_row(Query::new(
+            "test_drop_mode_locks",
+            "MATCH (lock:NexusMode) DETACH DELETE lock",
+        ))
+        .await?;
+        Ok(())
+    }
+
+    /// One test, run in order, because every step reads and writes the same lock node.
+    #[tokio_shared_rt::test(shared)]
+    async fn test_mode_lock() -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+
+        // Duplicates written before the constraint existed are reduced to the oldest, and
+        // the constraint is then created over the survivor.
+        exec_single_row(Query::new(
+            "test_drop_mode_lock_constraint",
+            "DROP CONSTRAINT uniqueNexusMode IF EXISTS",
+        ))
+        .await?;
+        drop_locks().await?;
+        exec_single_row(Query::new(
+            "test_duplicate_mode_locks",
+            "UNWIND [3, 1, 2] AS created_at
+             CREATE (:NexusMode {id: 'mode', mode: 'full', created_at: created_at})",
+        ))
+        .await?;
+        setup_mode_lock_constraint().await?;
+        assert_eq!(lock_nodes().await?, vec![("full".to_string(), 1)]);
+        let duplicate = exec_single_row(Query::new(
+            "test_duplicate_after_constraint",
+            "CREATE (:NexusMode {id: 'mode', mode: 'full'})",
+        ))
+        .await;
+        assert!(duplicate.is_err(), "the constraint refuses a second lock");
+
+        // Concurrent starts against the mock graph (users, no lock) write one lock, and all
+        // of them agree on it: the graph predates the lock, so it is full.
+        drop_locks().await?;
+        let starts: Vec<_> = (0..8)
+            .map(|_| tokio::spawn(StackManager::ensure_mode_lock()))
+            .collect();
+        for start in starts {
+            let locked = start.await?.map_err(|e| e.to_string())?;
+            assert_eq!(locked, NexusMode::Full);
+        }
+        let locks = lock_nodes().await?;
+        assert_eq!(locks.len(), 1, "one lock node: {locks:?}");
+        assert_eq!(locks[0].0, "full");
+
+        // Idempotent once locked.
+        assert_eq!(StackManager::ensure_mode_lock().await?, NexusMode::Full);
+        assert_eq!(lock_nodes().await?.len(), 1);
+
+        drop_locks().await?;
+        Ok(())
     }
 }

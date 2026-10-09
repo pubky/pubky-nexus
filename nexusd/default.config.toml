@@ -82,6 +82,11 @@ max_missing_dep_backoff_secs = 3600
 # Logging, options: error, warn, info, debug and trace
 log_level = "info"
 files_path = "~/.pubky-nexus/static/files"
+# What this Nexus stores: "full" (default) keeps post content, profiles and files;
+# "light" keeps the social graph and every link but none of that content, which
+# clients fetch from each owner's homeserver. A database is locked to the mode it
+# was first indexed in: switching means `nexusd db clear --yes` and a re-index.
+# mode = "full"
 
 [stack.net]
 testnet = false

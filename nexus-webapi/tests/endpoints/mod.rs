@@ -45,6 +45,10 @@ async fn test_info_endpoint() -> Result<()> {
     println!("body: {body:?}");
     assert_eq!(body["name"], env!("CARGO_PKG_NAME"));
     assert_eq!(body["version"], env!("CARGO_PKG_VERSION"));
+    assert_eq!(
+        body["mode"], "full",
+        "the test server runs in the default mode"
+    );
 
     Ok(())
 }

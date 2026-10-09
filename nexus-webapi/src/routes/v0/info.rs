@@ -33,5 +33,8 @@ pub fn routes(app_state: AppState) -> Router<AppState> {
 }
 
 #[derive(OpenApi)]
-#[openapi(paths(info_handler), components(schemas(ServerInfo)))]
+#[openapi(
+    paths(info_handler),
+    components(schemas(ServerInfo, nexus_common::NexusMode))
+)]
 pub struct InfoApiDoc;

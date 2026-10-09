@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::{fmt::Debug, path::PathBuf};
 
 use super::net::NetConfig;
-use super::{file::validate_and_expand_path, Level, LOG_LEVEL};
+use super::{file::validate_and_expand_path, Level, NexusMode, LOG_LEVEL};
 
 /// Media processing concurrency configuration.
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
@@ -122,6 +122,9 @@ pub struct StackConfig {
     pub net: NetConfig,
     #[serde(default)]
     pub media: MediaConfig,
+    /// What this Nexus stores; see [`NexusMode`]. Defaults to `full`.
+    #[serde(default)]
+    pub mode: NexusMode,
 }
 
 /// Utility function
@@ -138,6 +141,7 @@ impl Default for StackConfig {
             db: DatabaseConfig::default(),
             net: NetConfig::default(),
             media: MediaConfig::default(),
+            mode: NexusMode::default(),
         }
     }
 }

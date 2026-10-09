@@ -7,6 +7,7 @@ use axum::response::{IntoResponse, Response};
 use nexus_common::db::kv::RedisError;
 use nexus_common::models::error::ModelError;
 use nexus_common::types::DynError;
+use nexus_common::StackManager;
 use std::io;
 use thiserror::Error;
 use tracing::{debug, error, warn};
@@ -35,10 +36,23 @@ pub enum Error {
     Forbidden { message: String },
     #[error("Service unavailable: {message}")]
     ServiceUnavailable { message: String },
+    /// The endpoint needs content a light Nexus does not store. A client should fetch
+    /// the content from the owner's homeserver instead (`/v0/info` reports the mode).
+    #[error("unavailable in light mode")]
+    UnavailableInLightMode,
     // Add other custom errors here
 }
 
 impl Error {
+    /// Fails with [`Error::UnavailableInLightMode`] when this Nexus runs in light mode.
+    /// Called first by every endpoint that serves content light mode does not store.
+    pub fn require_full_mode() -> Result<()> {
+        if StackManager::mode().is_light() {
+            return Err(Error::UnavailableInLightMode);
+        }
+        Ok(())
+    }
+
     pub fn invalid_input(message: impl Into<String>) -> Self {
         Error::InvalidInput {
             message: message.into(),
@@ -167,6 +181,7 @@ impl IntoResponse for Error {
             Error::ResourceNotFound { .. } => StatusCode::NOT_FOUND,
             Error::Forbidden { .. } => StatusCode::FORBIDDEN,
             Error::ServiceUnavailable { .. } => StatusCode::SERVICE_UNAVAILABLE,
+            Error::UnavailableInLightMode => StatusCode::NOT_IMPLEMENTED,
             // Map other errors to appropriate status codes
         };
 
@@ -197,6 +212,8 @@ impl IntoResponse for Error {
                 warn!("Forbidden: {}", message)
             }
             Error::ServiceUnavailable { message } => warn!("Service unavailable: {}", message),
+            // Expected in light mode, not a failure: never ERROR.
+            Error::UnavailableInLightMode => debug!("Unavailable in light mode"),
             Error::InternalServerError { source } => error!("Internal server error: {:?}", source),
         };
 
@@ -215,6 +232,23 @@ mod tests {
     use axum::response::IntoResponse;
 
     use super::Error;
+
+    #[tokio::test]
+    async fn test_light_mode_error_is_501_with_a_stable_body() {
+        let response = Error::UnavailableInLightMode.into_response();
+        assert_eq!(response.status(), StatusCode::NOT_IMPLEMENTED);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body["error"], "unavailable in light mode");
+    }
+
+    #[test]
+    fn test_require_full_mode_passes_in_full_mode() {
+        // No stack is set up in unit tests, which reads as the default, full mode.
+        assert!(Error::require_full_mode().is_ok());
+    }
 
     // A killed subprocess means "no variant right now", the same answer as a full gate, so it
     // must degrade rather than surface as a server fault.

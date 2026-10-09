@@ -31,6 +31,19 @@ pub fn create_user(user: &UserDetails, uri: Option<&str>) -> GraphResult<Query> 
     Ok(query)
 }
 
+/// Writes the mode the database is locked to, unless a lock already exists, and returns
+/// the stored mode. The `uniqueNexusMode` constraint (see `setup_mode_lock_constraint`)
+/// makes concurrent starts (API and watcher) merge into one lock: the first writer wins.
+pub fn set_mode_lock(mode: &str) -> Query {
+    Query::new(
+        "set_mode_lock",
+        "MERGE (lock:NexusMode {id: 'mode'})
+         ON CREATE SET lock.mode = $mode, lock.created_at = timestamp()
+         RETURN lock.mode AS mode",
+    )
+    .param("mode", mode)
+}
+
 /// Creates a Cypher query to add or edit a post to the graph database and handles its relationships.
 /// # Arguments
 /// * `post` - A reference to a `PostDetails` struct containing information about the post to be created or edited

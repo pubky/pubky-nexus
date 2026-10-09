@@ -86,6 +86,7 @@ impl NexusApiBuilder {
     ///
     /// Calls [`StackManager::setup`] to initialize the shared infrastructure (logging, metrics, databases).
     /// If the stack was already initialized (e.g. by another builder), verifies the config matches.
+    /// Then [`StackManager::ensure_mode_lock`] refuses a database indexed in another mode.
     ///
     /// This method is blocking and only returns after the shutdown signal is received and the [NexusApi] shut down.
     ///
@@ -94,6 +95,7 @@ impl NexusApiBuilder {
     /// - `shutdown_rx`: optional shutdown signal. If none is provided, a default one will be created, listening for Ctrl-C.
     pub async fn start(self, shutdown_rx: Option<Receiver<bool>>) -> Result<NexusApi, DynError> {
         StackManager::setup(&self.api_context.api_config.stack).await?;
+        StackManager::ensure_mode_lock().await?;
         let mut shutdown_rx = shutdown_rx.unwrap_or_else(create_shutdown_rx);
 
         let nexus_api = NexusApi::start(

@@ -16,6 +16,18 @@ use crate::types::WotDepth;
 const MAX_QUERY_SKIP: usize = 10_000;
 const MAX_QUERY_LIMIT: usize = 1_000;
 
+/// The mode the database is locked to (`null` when no lock was written yet) and whether
+/// the graph already holds any user.
+pub fn get_mode_lock() -> Query {
+    Query::new(
+        "get_mode_lock",
+        "
+        OPTIONAL MATCH (lock:NexusMode {id: 'mode'})
+        RETURN lock.mode AS mode, EXISTS { MATCH (:User) } AS has_data
+        ",
+    )
+}
+
 // Retrieve post node by post id and author id
 pub fn get_post_by_id(author_id: &str, post_id: &str) -> Query {
     Query::new(

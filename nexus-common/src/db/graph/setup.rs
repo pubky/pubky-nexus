@@ -18,6 +18,8 @@ pub async fn setup_graph() -> GraphResult<()> {
 }
 
 async fn setup_graph_inner() -> GraphResult<()> {
+    setup_mode_lock_constraint().await?;
+
     // Define unique constraints
     let constraints = [
         "CREATE CONSTRAINT uniqueUserId IF NOT EXISTS FOR (u:User) REQUIRE u.id IS UNIQUE",
@@ -52,5 +54,37 @@ async fn setup_graph_inner() -> GraphResult<()> {
 
     info!("Neo4j graph constraints and indexes have been applied successfully");
 
+    Ok(())
+}
+
+/// Makes the mode lock (`StackManager::ensure_mode_lock`) a single node.
+///
+/// `MERGE (:NexusMode {id: 'mode'})` only creates one node under concurrent starts (API and
+/// watcher together) when a uniqueness constraint backs it. Locks written before the
+/// constraint existed may have been duplicated that way, and the constraint cannot be
+/// created over duplicates, so the duplicates go first: the oldest lock, the first writer,
+/// is kept.
+pub(crate) async fn setup_mode_lock_constraint() -> GraphResult<()> {
+    let graph = get_neo4j_graph()?;
+    let steps = [
+        (
+            "dedupe_mode_locks",
+            "MATCH (lock:NexusMode)
+             WITH lock ORDER BY lock.created_at ASC
+             WITH lock.id AS id, collect(lock) AS locks
+             WHERE size(locks) > 1
+             UNWIND tail(locks) AS duplicate
+             DETACH DELETE duplicate",
+        ),
+        (
+            "setup_ddl",
+            "CREATE CONSTRAINT uniqueNexusMode IF NOT EXISTS FOR (n:NexusMode) REQUIRE n.id IS UNIQUE",
+        ),
+    ];
+    for (label, cypher) in steps {
+        graph.run(Query::new(label, cypher)).await.map_err(|e| {
+            GraphError::Generic(format!("Failed to set up the mode lock constraint: {e}"))
+        })?;
+    }
     Ok(())
 }

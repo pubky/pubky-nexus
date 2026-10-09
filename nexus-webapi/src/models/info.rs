@@ -5,6 +5,7 @@ use serde::Serialize;
 use utoipa::ToSchema;
 
 use nexus_common::db::kv::get_last_rdb_save_time;
+use nexus_common::{NexusMode, StackManager};
 
 #[derive(Serialize, ToSchema)]
 pub struct ServerInfo {
@@ -17,6 +18,8 @@ pub struct ServerInfo {
     pub commit_hash: String,
     pub last_index_snapshot: String,
     pub base_file_url: String,
+    /// `full` or `light`: whether this Nexus serves content or only links to it.
+    pub mode: NexusMode,
 }
 
 impl ServerInfo {
@@ -35,6 +38,7 @@ impl ServerInfo {
                 .to_string(),
             last_index_snapshot,
             base_file_url: base_file_path.to_string_lossy().into_owned(),
+            mode: StackManager::mode(),
         }
     }
 
