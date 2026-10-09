@@ -17,6 +17,7 @@ mod resource_put;
 mod resource_utils;
 mod retry_post_tag;
 mod retry_user_tag;
+mod uri;
 mod user_del_notification;
 mod user_del_self_notification;
 mod user_notification;

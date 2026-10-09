@@ -22,18 +22,18 @@ SET r3.uri = "https://example.com/video", r3.scheme = "https", r3.indexed_at = 1
 
 // Tags on Resource 1 (article): 2 users tag "bitcoin" from mapky, 1 tags "interesting" from eventky
 MATCH (u:User {id: $amsterdam}), (r:Resource {id: "450a72e3da164bfc3ac5f4056f9e5c7c"})
-MERGE (u)-[:TAGGED {label: "bitcoin", id: "RES_TAG_001", indexed_at: 1724544095000, app: "mapky"}]->(r);
+MERGE (u)-[rel:TAGGED {label: "bitcoin", id: "RES_TAG_001", indexed_at: 1724544095000, app: "mapky"}]->(r) SET rel.uri = "pubky://emq37ky6fbnaun7q1ris6rx3mqmw3a33so1txfesg9jj3ak9ryoy/pub/mapky/tags/RES_TAG_001";
 
 MATCH (u:User {id: $bogota}), (r:Resource {id: "450a72e3da164bfc3ac5f4056f9e5c7c"})
-MERGE (u)-[:TAGGED {label: "bitcoin", id: "RES_TAG_002", indexed_at: 1724544095001, app: "mapky"}]->(r);
+MERGE (u)-[rel:TAGGED {label: "bitcoin", id: "RES_TAG_002", indexed_at: 1724544095001, app: "mapky"}]->(r) SET rel.uri = "pubky://ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny/pub/mapky/tags/RES_TAG_002";
 
 MATCH (u:User {id: $amsterdam}), (r:Resource {id: "450a72e3da164bfc3ac5f4056f9e5c7c"})
-MERGE (u)-[:TAGGED {label: "interesting", id: "RES_TAG_003", indexed_at: 1724544095002, app: "eventky"}]->(r);
+MERGE (u)-[rel:TAGGED {label: "interesting", id: "RES_TAG_003", indexed_at: 1724544095002, app: "eventky"}]->(r) SET rel.uri = "pubky://emq37ky6fbnaun7q1ris6rx3mqmw3a33so1txfesg9jj3ak9ryoy/pub/eventky/tags/RES_TAG_003";
 
 // Tags on Resource 2 (eventky event): 1 user tags "calendar" from eventky
 MATCH (u:User {id: $bogota}), (r:Resource {id: "fb4155a2295ff3a8a8fe02e28229c021"})
-MERGE (u)-[:TAGGED {label: "calendar", id: "RES_TAG_004", indexed_at: 1724544095003, app: "eventky"}]->(r);
+MERGE (u)-[rel:TAGGED {label: "calendar", id: "RES_TAG_004", indexed_at: 1724544095003, app: "eventky"}]->(r) SET rel.uri = "pubky://ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny/pub/eventky/tags/RES_TAG_004";
 
 // Tags on Resource 3 (video): 1 user tags "bitcoin" from mapky
 MATCH (u:User {id: $amsterdam}), (r:Resource {id: "e23f778c4f2a84606f350e4df1a918e9"})
-MERGE (u)-[:TAGGED {label: "bitcoin", id: "RES_TAG_005", indexed_at: 1724544095004, app: "mapky"}]->(r);
+MERGE (u)-[rel:TAGGED {label: "bitcoin", id: "RES_TAG_005", indexed_at: 1724544095004, app: "mapky"}]->(r) SET rel.uri = "pubky://emq37ky6fbnaun7q1ris6rx3mqmw3a33so1txfesg9jj3ak9ryoy/pub/mapky/tags/RES_TAG_005";

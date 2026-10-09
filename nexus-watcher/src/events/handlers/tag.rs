@@ -16,9 +16,7 @@ use nexus_common::types::Pagination;
 use nexus_common::universal_tag::normalize::{
     classify_uri, normalize_uri, resource_id, UriCategory,
 };
-use pubky_app_specs::{
-    post_uri_builder, ExtendedParsedUri, ParsedUri, PubkyAppTag, PubkyId, Resource,
-};
+use pubky_app_specs::{ExtendedParsedUri, ParsedUri, PubkyAppTag, PubkyId, Resource};
 use tracing::debug;
 
 use super::utils::{fail_on_blacklisted_hs, post_kind, post_relationships_is_reply};
@@ -30,9 +28,11 @@ struct TagStorageUri {
     app: Option<String>,
 }
 
+/// `event_uri` is the address of the tag file, stored as the edge `uri`; `tag.uri` is its target.
 #[tracing::instrument(name = "tag.put", skip_all, fields(user_id = %tagger_id, tag_id = %tag_id))]
 pub async fn sync_put(
     tag: PubkyAppTag,
+    event_uri: String,
     tagger_id: PubkyId,
     tag_id: String,
     ingestor: &UserIngestor,
@@ -49,14 +49,15 @@ pub async fn sync_put(
         Resource::Post(post_id) => {
             // Place the tag on post
             put_sync_post(
-                tagger_id, user_id, &post_id, &tag_id, &tag.label, &tag.uri, indexed_at, ingestor,
+                tagger_id, user_id, &post_id, &tag_id, &event_uri, &tag.label, &tag.uri,
+                indexed_at, ingestor,
             )
             .await
         }
         // If no post_id in the tagged URI, we place tag to a user.
         Resource::User => {
             put_sync_user(
-                tagger_id, user_id, &tag_id, &tag.label, indexed_at, ingestor,
+                tagger_id, user_id, &tag_id, &event_uri, &tag.label, indexed_at, ingestor,
             )
             .await
         }
@@ -71,6 +72,7 @@ pub async fn sync_put(
 /// to the existing flow. Otherwise creates/updates a generic Resource node.
 pub async fn sync_put_resource(
     tag: PubkyAppTag,
+    event_uri: String,
     tagger_id: PubkyId,
     tag_id: String,
     app: String,
@@ -81,7 +83,7 @@ pub async fn sync_put_resource(
     match classify_uri(&tag.uri) {
         UriCategory::InternalKnown => {
             // The tagged URI is a known Post/User — delegate to existing flow
-            sync_put(tag, tagger_id, tag_id, ingestor).await
+            sync_put(tag, event_uri, tagger_id, tag_id, ingestor).await
         }
         UriCategory::InternalUnknown | UriCategory::External => {
             let (normalized, scheme) =
@@ -96,6 +98,7 @@ pub async fn sync_put_resource(
                 &scheme,
                 &app,
                 &tag_id,
+                &event_uri,
                 &tag.label,
                 indexed_at,
             )
@@ -113,6 +116,7 @@ async fn put_sync_resource(
     scheme: &str,
     app: &str,
     tag_id: &str,
+    tag_uri: &str,
     tag_label: &str,
     indexed_at: i64,
 ) -> Result<(), EventProcessorError> {
@@ -123,6 +127,7 @@ async fn put_sync_resource(
         scheme,
         app,
         tag_id,
+        tag_uri,
         tag_label,
         indexed_at,
     )
@@ -205,6 +210,7 @@ async fn put_sync_post(
     author_id: PubkyId,
     post_id: &str,
     tag_id: &str,
+    tag_uri: &str,
     tag_label: &str,
     post_uri_str: &str,
     indexed_at: i64,
@@ -215,6 +221,7 @@ async fn put_sync_post(
         &author_id,
         Some(post_id),
         tag_id,
+        tag_uri,
         tag_label,
         indexed_at,
     )
@@ -329,6 +336,7 @@ async fn put_sync_user(
     tagger_user_id: PubkyId,
     tagged_user_id: PubkyId,
     tag_id: &str,
+    tag_uri: &str,
     tag_label: &str,
     indexed_at: i64,
     ingestor: &UserIngestor,
@@ -338,6 +346,7 @@ async fn put_sync_user(
         &tagged_user_id,
         None,
         tag_id,
+        tag_uri,
         tag_label,
         indexed_at,
     )
@@ -461,6 +470,7 @@ pub async fn del(tag_uri: &str) -> Result<(), EventProcessorError> {
     let tagged_user_id: Option<String> = row.get("user_id").unwrap_or(None);
     let post_id: Option<String> = row.get("post_id").unwrap_or(None);
     let author_id: Option<String> = row.get("author_id").unwrap_or(None);
+    let post_uri: Option<String> = row.get("post_uri").unwrap_or(None);
     let resource_id: Option<String> = row.get("resource_id").unwrap_or(None);
     let label: String = row
         .get("label")
@@ -484,10 +494,16 @@ pub async fn del(tag_uri: &str) -> Result<(), EventProcessorError> {
                 TagPost::check_set_member(&[&author_id, &post_id, &label], arg_user_id.as_ref())
                     .await?
                     .1;
+            let post_uri = post_uri.ok_or_else(|| {
+                EventProcessorError::generic(format!(
+                    "Post {author_id}:{post_id} has no stored uri"
+                ))
+            })?;
             del_sync_post(
                 arg_user_id.clone(),
                 &post_id,
                 &author_id,
+                &post_uri,
                 &label,
                 tagger_in_index,
             )
@@ -638,11 +654,11 @@ async fn del_sync_post(
     tagger_id: PubkyId,
     post_id: &str,
     author_id: &str,
+    post_uri: &str,
     tag_label: &str,
     tagger_in_index: bool,
 ) -> Result<(), EventProcessorError> {
     let tag_post = TagPost(vec![tagger_id.to_string()]);
-    let post_uri = post_uri_builder(author_id.to_string(), post_id.to_string());
 
     let indexing_results = nexus_common::traced_join!(
         tracing::info_span!("index.delete", phase = "tag_post");
@@ -694,7 +710,7 @@ async fn del_sync_post(
                     &tagger_id,
                     author_id,
                     tag_label,
-                    &post_uri,
+                    post_uri,
                     tagged_post_kind,
                 )
                 .await?;

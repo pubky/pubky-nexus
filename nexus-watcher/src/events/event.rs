@@ -40,7 +40,8 @@ pub enum ParseResult {
     /// Known resource type that Nexus does not handle (e.g. LastRead, Feed, Blob).
     Skipped,
     /// URI was not recognised by pubky-app-specs. This may be an app-specific
-    /// path (e.g. `/pub/mapky/tags/...`) or a genuinely malformed URI.
+    /// path (e.g. `/pub/mapky/tags/...`), a genuinely malformed URI, or a path that parses but
+    /// is not the canonical address of its resource (e.g. `/pub/pubky.app/posts/ID/extra`).
     /// Callers should attempt fallback handling and log `reason` if no handler claims it.
     UnrecognizedUri {
         event_type: EventType,
@@ -145,6 +146,20 @@ impl Event {
             }
         }
 
+        // The parser ignores segments past the resource id, so `posts/ID/extra` reads as
+        // `posts/ID`. Accept only the address the specs render for the parsed resource, so an
+        // alias path can neither overwrite nor delete the resource it parses to.
+        match parsed_uri.try_to_uri_str() {
+            Ok(canonical) if canonical == uri => {}
+            _ => {
+                return Ok(ParseResult::unrecognized_uri(
+                    event_type,
+                    uri,
+                    "non-canonical path".to_string(),
+                ))
+            }
+        }
+
         Ok(ParseResult::Parsed(Event {
             uri,
             event_type,
@@ -155,5 +170,92 @@ impl Event {
 
     pub fn to_event_line(&self) -> EventLine {
         EventLine::new(self.event_line.clone())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const USER: &str = "operrr8wsbpr3ue9d4qj41ge1kcc6r7fdiy6o3ugjrrhi4y77rdo";
+    const POST_ID: &str = "0032SSN7Q4EVG";
+    const TAG_ID: &str = "ABCDEFGHJK";
+
+    fn uri(path: &str) -> String {
+        format!("pubky://{USER}/pub/{path}")
+    }
+
+    fn parse(line: String) -> ParseResult {
+        Event::parse_event(&line).expect("event line parses")
+    }
+
+    fn assert_parsed(path: &str) {
+        let uri = uri(path);
+        for kind in ["PUT", "DEL"] {
+            match parse(format!("{kind} {uri}")) {
+                ParseResult::Parsed(event) => assert_eq!(event.uri, uri),
+                other => panic!("{kind} {uri}: expected Parsed, got {other:?}"),
+            }
+        }
+    }
+
+    fn assert_non_canonical(path: &str) {
+        let uri = uri(path);
+        for kind in ["PUT", "DEL"] {
+            match parse(format!("{kind} {uri}")) {
+                ParseResult::UnrecognizedUri { reason, .. } => {
+                    assert_eq!(reason, "non-canonical path", "{kind} {uri}")
+                }
+                other => panic!("{kind} {uri}: expected UnrecognizedUri, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn canonical_addresses_are_parsed() {
+        assert_parsed(&format!("pubky.app/posts/{POST_ID}"));
+        assert_parsed("pubky.app/profile.json");
+        assert_parsed(&format!("pubky.app/tags/{TAG_ID}"));
+        assert_parsed(&format!("pubky.app/follows/{USER}"));
+        assert_parsed(&format!("mapky/tags/{TAG_ID}"));
+    }
+
+    #[test]
+    fn extra_segments_are_rejected() {
+        assert_non_canonical(&format!("pubky.app/posts/{POST_ID}/shadow"));
+        assert_non_canonical(&format!("pubky.app/posts/{POST_ID}/"));
+        assert_non_canonical(&format!("pubky.app/tags/{TAG_ID}/extra/more"));
+    }
+
+    #[test]
+    fn query_and_fragment_are_rejected() {
+        assert_non_canonical(&format!("pubky.app/posts/{POST_ID}?x=1"));
+        assert_non_canonical(&format!("pubky.app/posts/{POST_ID}#frag"));
+        assert_non_canonical(&format!("mapky/tags/{TAG_ID}?x=1"));
+        assert_non_canonical(&format!("mapky/tags/{TAG_ID}#frag"));
+    }
+
+    #[test]
+    fn uppercase_scheme_is_rejected() {
+        let line = format!("PUT PUBKY://{USER}/pub/pubky.app/posts/{POST_ID}");
+        assert!(
+            matches!(parse(line), ParseResult::UnrecognizedUri { reason, .. } if reason == "non-canonical path")
+        );
+    }
+
+    /// Unknown and skipped resources are classified before the canonical check, as before it.
+    #[test]
+    fn unknown_and_skipped_resources_keep_their_outcome() {
+        for path in ["pubky.app/foo/bar", "pubky.app/profile.json/extra"] {
+            let result = Event::parse_event(&format!("PUT {}", uri(path)));
+            assert!(
+                matches!(result, Err(EventProcessorError::InvalidEventLine(_))),
+                "{path}: {result:?}"
+            );
+        }
+        assert!(matches!(
+            parse(format!("PUT {}", uri("pubky.app/last_read"))),
+            ParseResult::Skipped
+        ));
     }
 }

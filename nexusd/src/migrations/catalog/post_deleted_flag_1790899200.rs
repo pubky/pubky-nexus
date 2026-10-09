@@ -248,12 +248,20 @@ mod tests {
             Query::new(
                 "post_deleted_flag_test_seed",
                 "CREATE (u:User {id: $author, name: 'migration test'})
-                 CREATE (u)-[:AUTHORED]->(:Post {id: $tombstone, content: '[DELETED]', kind: 'short', attachments: [], indexed_at: 1})
-                 CREATE (u)-[:AUTHORED]->(:Post {id: $live, content: 'still here', kind: 'short', indexed_at: 1})",
+                 CREATE (u)-[:AUTHORED]->(:Post {id: $tombstone, uri: $tombstone_uri, content: '[DELETED]', kind: 'short', attachments: [], indexed_at: 1})
+                 CREATE (u)-[:AUTHORED]->(:Post {id: $live, uri: $live_uri, content: 'still here', kind: 'short', indexed_at: 1})",
             )
             .param("author", AUTHOR_ID)
             .param("tombstone", TOMBSTONE_ID)
-            .param("live", LIVE_ID),
+            .param("live", LIVE_ID)
+            .param(
+                "tombstone_uri",
+                format!("pubky://{AUTHOR_ID}/pub/pubky.app/posts/{TOMBSTONE_ID}"),
+            )
+            .param(
+                "live_uri",
+                format!("pubky://{AUTHOR_ID}/pub/pubky.app/posts/{LIVE_ID}"),
+            ),
         )
         .await?;
         let cached = PostDetails {

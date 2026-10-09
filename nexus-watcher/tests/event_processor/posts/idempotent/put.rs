@@ -53,6 +53,7 @@ async fn test_post_put_recovers_after_partial_redis_write() -> Result<()> {
     // takes the recovery path and rebuilds the Redis state from the graph.
     handlers::post::sync_put(
         post.clone(),
+        post_uri_builder(user_id.clone(), post_id.clone()),
         pubky_id(&user_id)?,
         post_id.clone(),
         &default_ingestor_tests(),
@@ -110,6 +111,7 @@ async fn test_post_put_replay_after_full_success_is_noop() -> Result<()> {
     // `existed == Some(matching)` branch and early-return.
     handlers::post::sync_put(
         post.clone(),
+        post_uri_builder(user_id.clone(), post_id.clone()),
         pubky_id(&user_id)?,
         post_id.clone(),
         &default_ingestor_tests(),
@@ -202,6 +204,7 @@ async fn test_post_put_recovers_mention_edge() -> Result<()> {
     // calls merge_mention_edges and then reindexes Redis state.
     handlers::post::sync_put(
         post.clone(),
+        post_uri_builder(alice_id.clone(), post_id.clone()),
         pubky_id(&alice_id)?,
         post_id.clone(),
         &default_ingestor_tests(),
@@ -303,6 +306,7 @@ async fn test_post_put_recovers_reply_preserves_parent_sorted_sets() -> Result<(
     // sorted set.
     handlers::post::sync_put(
         reply_post.clone(),
+        post_uri_builder(bob_id.clone(), reply_id.clone()),
         pubky_id(&bob_id)?,
         reply_id.clone(),
         &default_ingestor_tests(),
@@ -432,6 +436,7 @@ async fn test_post_put_recovers_repost_preserves_parent_state() -> Result<()> {
     // the engagement sorted set (is_reply = false from graph).
     handlers::post::sync_put(
         repost.clone(),
+        post_uri_builder(bob_id.clone(), repost_id.clone()),
         pubky_id(&bob_id)?,
         repost_id.clone(),
         &default_ingestor_tests(),

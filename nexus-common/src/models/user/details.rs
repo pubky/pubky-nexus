@@ -21,7 +21,7 @@ impl Collection<&str> for UserDetails {
     }
 
     fn put_graph_query(&self) -> GraphResult<Query> {
-        queries::put::create_user(self)
+        queries::put::create_user(self, None)
     }
 
     async fn extend_on_index_miss(details: &[std::option::Option<Self>]) -> RedisResult<()> {
@@ -147,6 +147,12 @@ impl UserDetails {
             indexed_at: Utc::now().timestamp_millis(),
             deleted: true,
         }
+    }
+
+    /// Writes a profile read from the homeserver, storing `uri` (its event path) on the node.
+    /// `put_to_graph` writes no `uri` and keeps the stored one: stubs and tombstones use it.
+    pub async fn put_profile_to_graph(&self, uri: &str) -> GraphResult<()> {
+        exec_single_row(queries::put::create_user(self, Some(uri))?).await
     }
 
     pub async fn delete(user_id: &str) -> ModelResult<()> {

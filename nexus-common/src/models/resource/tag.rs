@@ -64,6 +64,7 @@ impl TagResource {
         scheme: &str,
         app: &str,
         tag_id: &str,
+        tag_uri: &str,
         label: &str,
         indexed_at: i64,
     ) -> GraphResult<OperationOutcome> {
@@ -74,6 +75,7 @@ impl TagResource {
             scheme,
             app,
             tag_id,
+            tag_uri,
             label,
             indexed_at,
         );
