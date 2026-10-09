@@ -60,12 +60,23 @@ pub struct FileDetails {
     pub indexed_at: i64,
     pub created_at: i64,
     pub src: String,
+    /// Written by a person, so a light Nexus keeps it neither in storage nor in responses.
+    #[serde(skip_serializing_if = "crate::omit_in_light_mode")]
     pub name: String,
     pub size: i64,
     pub content_type: String,
-    #[serde(serialize_with = "json_string::serialize")]
+    /// Where this Nexus serves the file's variants. A light Nexus serves none, so it leaves
+    /// them out; clients fetch `src` from the owner's homeserver.
+    #[serde(
+        serialize_with = "json_string::serialize",
+        skip_serializing_if = "crate::omit_in_light_mode"
+    )]
     pub urls: FileUrls,
     pub metadata: Option<HashMap<String, String>>,
+    /// `src` is hosted on a blacklisted homeserver, so clients should not fetch it. Only a
+    /// light Nexus stores such files; a full one refuses to index them.
+    #[serde(default)]
+    pub blocked: bool,
 }
 
 /// A file as the graph and the index hold it. Any stored `urls` is ignored: every read rebuilds
@@ -78,10 +89,23 @@ struct StoredFileDetails {
     indexed_at: i64,
     created_at: i64,
     src: String,
+    #[serde(default)]
     name: String,
     size: i64,
     content_type: String,
     metadata: Option<HashMap<String, String>>,
+    #[serde(default, deserialize_with = "deserialize_missing_as_false")]
+    blocked: bool,
+}
+
+/// Reads a bool that File nodes and cached JSON written before it existed lack. neo4rs
+/// hands serde a missing property through a deserializer that only answers
+/// `deserialize_option`, so `#[serde(default)]` alone is not enough: read an `Option`.
+fn deserialize_missing_as_false<'de, D>(deserializer: D) -> Result<bool, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Ok(Option::<bool>::deserialize(deserializer)?.unwrap_or(false))
 }
 
 impl From<StoredFileDetails> for FileDetails {
@@ -98,6 +122,7 @@ impl From<StoredFileDetails> for FileDetails {
             size: stored.size,
             content_type: stored.content_type,
             metadata: stored.metadata,
+            blocked: stored.blocked,
         }
     }
 }
@@ -138,6 +163,7 @@ impl FileDetails {
             owner_id: user_id.to_string(),
             size: pubkyapp_file.size as i64,
             metadata: None,
+            blocked: false,
         }
     }
 

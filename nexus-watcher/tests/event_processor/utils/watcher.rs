@@ -7,7 +7,7 @@ use nexus_common::models::file::FileDetails;
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::traits::Collection;
 use nexus_common::utils::test_utils::default_ingestor_tests;
-use nexus_common::{StackConfig, StackManager};
+use nexus_common::{NexusMode, StackConfig, StackManager};
 use nexus_watcher::errors::EventProcessorError;
 use nexus_watcher::events::retry::event::RetryEvent;
 use nexus_watcher::events::retry::{
@@ -127,7 +127,24 @@ impl WatcherTest {
     /// Returns an instance of `Self` containing the configuration, homeserver,
     /// event processor, and other test setup details, including the shutdown receiver.
     pub async fn setup(max_file_size: Option<u64>) -> Result<Self> {
-        if let Err(e) = StackManager::setup(&StackConfig::default()).await {
+        Self::setup_with_stack(max_file_size, StackConfig::default()).await
+    }
+
+    /// [`Self::setup`] for a light Nexus (`mode = "light"`).
+    ///
+    /// The mode is process-wide and the stack can only be set up once per process, so a
+    /// light test cannot share its process with a full one. nextest runs every test in its
+    /// own process, which is how these suites are run.
+    pub async fn setup_light(max_file_size: Option<u64>) -> Result<Self> {
+        let stack = StackConfig {
+            mode: NexusMode::Light,
+            ..StackConfig::default()
+        };
+        Self::setup_with_stack(max_file_size, stack).await
+    }
+
+    async fn setup_with_stack(max_file_size: Option<u64>, stack: StackConfig) -> Result<Self> {
+        if let Err(e) = StackManager::setup(&stack).await {
             return Err(Error::msg(format!("could not initialise the stack, {e:?}")));
         }
 

@@ -2,6 +2,7 @@ use crate::db::graph::error::{GraphError, GraphResult};
 use crate::db::graph::Query;
 use crate::models::post::{collection_item_uris, mentioned_ids, PostRelationships};
 use crate::models::{file::FileDetails, post::PostDetails, user::UserDetails};
+use crate::StackManager;
 use pubky_app_specs::{ParsedUri, PubkyId, Resource};
 
 /// Creates or overwrites a `User` node.
@@ -29,6 +30,16 @@ pub fn create_user(user: &UserDetails, uri: Option<&str>) -> GraphResult<Query> 
     .param("deleted", user.deleted);
 
     Ok(query)
+}
+
+/// `value` in full mode, `""` in light mode: for graph properties holding content a light
+/// Nexus does not keep. The property stays a string so readers deserialize it unchanged.
+fn light_mode_blank(value: &str) -> String {
+    if StackManager::mode().is_light() {
+        String::new()
+    } else {
+        value.to_string()
+    }
 }
 
 /// Writes the mode the database is locked to, unless a lock already exists, and returns
@@ -444,7 +455,7 @@ pub fn create_file(file: &FileDetails) -> GraphResult<Query> {
         "create_file",
         "MERGE (f:File {id: $id, owner_id: $owner_id})
          SET f.uri = $uri, f.indexed_at = $indexed_at, f.created_at = $created_at, f.size = $size,
-            f.src = $src, f.name = $name, f.content_type = $content_type;",
+            f.src = $src, f.name = $name, f.content_type = $content_type, f.blocked = $blocked;",
     )
     .param("id", file.id.to_string())
     .param("owner_id", file.owner_id.to_string())
@@ -453,8 +464,10 @@ pub fn create_file(file: &FileDetails) -> GraphResult<Query> {
     .param("created_at", file.created_at)
     .param("size", file.size)
     .param("src", file.src.to_string())
-    .param("name", file.name.to_string())
-    .param("content_type", file.content_type.to_string());
+    // A light Nexus keeps no names (see `FileDetails::name`).
+    .param("name", light_mode_blank(&file.name))
+    .param("content_type", file.content_type.to_string())
+    .param("blocked", file.blocked);
 
     Ok(query)
 }

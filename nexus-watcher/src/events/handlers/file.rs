@@ -2,8 +2,10 @@ use crate::events::{fetch_capped, EventProcessorError};
 
 use nexus_common::db::PubkyConnector;
 use nexus_common::media::FileVariant;
+use nexus_common::models::error::ModelError;
 use nexus_common::models::user::UserIngestor;
 use nexus_common::models::{file::FileDetails, traits::Collection};
+use nexus_common::StackManager;
 use pubky_app_specs::{ParsedUri, PubkyAppBlob, PubkyAppFile, PubkyAppObject, PubkyId};
 use std::path::Path;
 use tokio::fs::{self, remove_dir_all};
@@ -21,18 +23,28 @@ pub async fn sync_put(
 ) -> Result<(), EventProcessorError> {
     debug!("Indexing file");
 
-    ingest(
-        &user_id,
-        file_id.as_str(),
-        &file,
-        files_path,
-        max_file_size,
-        ingestor,
-    )
-    .await?;
+    // A light Nexus never downloads the bytes: it keeps the record, so clients know `src`,
+    // type and size, and whether `src` is on a blacklisted homeserver.
+    let blocked = if StackManager::mode().is_light() {
+        source_is_blacklisted(&file, ingestor).await?
+    } else {
+        ingest(
+            &user_id,
+            file_id.as_str(),
+            &file,
+            files_path,
+            max_file_size,
+            ingestor,
+        )
+        .await?;
+        false
+    };
 
     // Create FileDetails object
-    let file_details = FileDetails::from_homeserver(&file, uri, user_id.to_string(), file_id);
+    let file_details = FileDetails {
+        blocked,
+        ..FileDetails::from_homeserver(&file, uri, user_id.to_string(), file_id)
+    };
 
     // SAVE TO GRAPH
     file_details.put_to_graph().await?;
@@ -47,6 +59,30 @@ pub async fn sync_put(
     .await?;
 
     Ok(())
+}
+
+/// Whether the file's `src` is hosted on a blacklisted homeserver. Errors other than the
+/// blacklist (an invalid `src`, a failed lookup) are returned, so the event is retried or
+/// dropped as it would be when downloading.
+async fn source_is_blacklisted(
+    pubkyapp_file: &PubkyAppFile,
+    ingestor: &UserIngestor,
+) -> Result<bool, EventProcessorError> {
+    let file_src = &pubkyapp_file.src;
+    let parsed_source_uri = ParsedUri::try_from(file_src.to_string()).map_err(|e| {
+        EventProcessorError::generic(format!("Invalid file source URI {file_src}: {e}"))
+    })?;
+    match ingestor
+        .ensure_hs_not_blacklisted(&parsed_source_uri.user_id)
+        .await
+    {
+        Ok(_) => Ok(false),
+        Err(ModelError::HsBlacklisted { hs_id }) => {
+            debug!("File source {file_src} is on blacklisted homeserver {hs_id}");
+            Ok(true)
+        }
+        Err(e) => Err(e.into()),
+    }
 }
 
 // TODO: Move it into its own process, server, etc

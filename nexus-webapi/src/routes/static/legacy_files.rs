@@ -1,4 +1,4 @@
-use crate::Result;
+use crate::{Error, Result};
 use axum::{
     extract::Request,
     response::{IntoResponse, Redirect, Response},
@@ -23,10 +23,13 @@ use super::endpoints::LEGACY_STATIC_FILES_ROUTE;
         (status = 200, description = "File's raw data"),
         (status = 404, description = "File not found"),
         (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
-        (status = 500, description = "Internal server error")
+        (status = 500, description = "Internal server error"),
+        (status = 501, description = "Unavailable in light mode: fetch the file from its owner's homeserver")
     )
 )]
 pub async fn legacy_files_handler(request: Request) -> Result<Response> {
+    // A light Nexus stores no file bytes, so the redirect would lead to a 501 anyway.
+    Error::require_full_mode()?;
     // Construct the new path
     let new_path = format!("{}/{}", request.uri().path(), FileVariant::Main);
 

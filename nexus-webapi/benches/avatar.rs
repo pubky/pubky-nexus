@@ -100,6 +100,7 @@ impl AvatarBenchSetup {
             content_type: "image/png".to_string(),
             urls: FileUrls::new(USER_PUBKY, FILE_ID, "image/png"),
             metadata: None,
+            blocked: false,
         };
 
         FileDetails::put_to_index(&[&[USER_PUBKY, FILE_ID]], vec![Some(file)])

@@ -29,7 +29,8 @@ const AVATAR_FALLBACK_CACHE_CONTROL: &str = "public, max-age=30";
         (status = 200, description = "Avatar image"),
         (status = 404, description = "User or avatar not found"),
         (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
-        (status = 500, description = "Internal error retrieving avatar")
+        (status = 500, description = "Internal error retrieving avatar"),
+        (status = 501, description = "Unavailable in light mode: fetch the file from its owner's homeserver")
     )
 )]
 pub async fn user_avatar_handler(
@@ -37,6 +38,8 @@ pub async fn user_avatar_handler(
     State(app_state): State<AppState>,
     request: Request,
 ) -> Result<Response<ServeFileSystemResponseBody>> {
+    // A light Nexus stores no file bytes.
+    Error::require_full_mode()?;
     debug!("GET {USER_AVATAR_ROUTE} user_id:{}", user_id);
 
     let file_path: &PathBuf = &app_state.files_path;

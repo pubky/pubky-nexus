@@ -428,6 +428,7 @@ mod tests {
             content_type: String::from("image/png"),
             urls: FileUrls::new("owner", "file", "image/png"),
             metadata: None,
+            blocked: false,
         }
     }
 

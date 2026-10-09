@@ -27,7 +27,7 @@ pub mod watcher;
 
 pub use api::{ApiConfig, RateLimitBucketConfig, RateLimitConfig};
 pub use job::JobConfig;
-pub use mode::{ModeMismatch, NexusMode};
+pub use mode::{omit_in_light_mode, ModeMismatch, NexusMode};
 pub use net::NetConfig;
 pub use stack::{default_stack, MediaConfig, OtlpConfig, StackConfig};
 pub use trust::{

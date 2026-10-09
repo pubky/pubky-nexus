@@ -64,6 +64,15 @@ impl NexusMode {
     }
 }
 
+/// `skip_serializing_if` for a field holding content a light Nexus does not keep.
+///
+/// In light mode the field is left out of everything serialized: the JSON cached in Redis
+/// and the API responses. The field needs `#[serde(default)]` so the cached JSON still reads
+/// back. Full mode serializes it as before.
+pub fn omit_in_light_mode<T: ?Sized>(_: &T) -> bool {
+    crate::StackManager::mode().is_light()
+}
+
 impl fmt::Display for NexusMode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.as_str())

@@ -1,6 +1,7 @@
 mod bookmarks;
 mod files;
 mod follows;
+mod light;
 mod mentions;
 mod network;
 mod posts;

@@ -55,7 +55,8 @@ pub struct FilePath {
         (status = 404, description = "File not found"),
         (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error"),
-        (status = 503, description = "Service temporarily unavailable; retry later")
+        (status = 503, description = "Service temporarily unavailable; retry later"),
+        (status = 501, description = "Unavailable in light mode: fetch the file from its owner's homeserver")
     )
 )]
 pub async fn static_files_handler(
@@ -68,6 +69,8 @@ pub async fn static_files_handler(
     params: Query<FileParams>,
     request: Request,
 ) -> Result<Response<ServeFileSystemResponseBody>> {
+    // A light Nexus stores no file bytes.
+    Error::require_full_mode()?;
     debug!(
         "Serving file for user: {} and file: {} with variant: {:?}",
         owner_id, file_id, variant
