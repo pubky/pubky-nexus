@@ -31,6 +31,11 @@ pub struct PostDetails {
     /// `deleted` key) deserializing as a live post.
     #[serde(default)]
     pub deleted: bool,
+    /// blake3 of `content`, hex encoded. Lets an edit be detected without the
+    /// stored content. `default` keeps posts written before the hash (no
+    /// `content_hash` key or property) deserializing as `None`.
+    #[serde(default)]
+    pub content_hash: Option<String>,
 }
 
 impl RedisOps for PostDetails {}
@@ -79,6 +84,24 @@ impl PostDetails {
         Ok(Some((post, reply_key)))
     }
 
+    /// The links stored on the post node: `(mentioned_ids, collection_items)`. They are
+    /// written with the post and let its MENTIONED and COLLECTED edges be rebuilt without
+    /// the content. `None` when the post is not in the graph; a list is `None` on a post
+    /// written before the lists existed.
+    pub async fn get_link_lists_from_graph(
+        author_id: &str,
+        post_id: &str,
+    ) -> GraphResult<Option<(Option<Vec<String>>, Option<Vec<String>>)>> {
+        let query = queries::get::get_post_link_lists(author_id, post_id);
+        let Some(row) = fetch_row_from_graph(query).await? else {
+            return Ok(None);
+        };
+        Ok(Some((
+            row.get("mentioned_ids")?,
+            row.get("collection_items")?,
+        )))
+    }
+
     pub async fn put_to_index(
         &self,
         author_id: &str,
@@ -121,6 +144,7 @@ impl PostDetails {
     ) -> Self {
         PostDetails {
             uri,
+            content_hash: Some(Self::hash_content(&homeserver_post.content)),
             content: homeserver_post.content,
             id: post_id.to_string(),
             indexed_at: Utc::now().timestamp_millis(),
@@ -130,6 +154,11 @@ impl PostDetails {
             lock: homeserver_post.lock,
             deleted: false,
         }
+    }
+
+    /// The `content_hash` of `content`: its full blake3 digest, hex encoded.
+    pub fn hash_content(content: &str) -> String {
+        blake3::hash(content.as_bytes()).to_hex().to_string()
     }
 
     pub async fn reindex(author_id: &str, post_id: &str) -> ModelResult<()> {
@@ -183,8 +212,16 @@ impl PostDetails {
 
     /// True when the post's visible content (content or attachments) changed.
     /// Deliberately excludes `lock` so a lock toggle is not treated as a content edit.
+    ///
+    /// Content is compared by `content_hash` when both sides have one, so the
+    /// check works when the stored side holds no content. A post stored before
+    /// the hash existed has none and falls back to comparing the content.
     pub fn content_differs_from(&self, other: &PostDetails) -> bool {
-        self.content != other.content || self.attachments != other.attachments
+        let content_changed = match (&self.content_hash, &other.content_hash) {
+            (Some(own), Some(other_hash)) => own != other_hash,
+            _ => self.content != other.content,
+        };
+        content_changed || self.attachments != other.attachments
     }
 
     /// True when any cached field changed and the index needs refreshing. Unlike
@@ -213,6 +250,7 @@ mod tests {
             attachments: Some(vec!["image1.jpg".into(), "image2.jpg".into()]),
             lock: None,
             deleted: false,
+            content_hash: None,
         };
 
         // Test with same content and attachments
@@ -309,6 +347,7 @@ mod tests {
             attachments: None,
             lock: None,
             deleted: false,
+            content_hash: None,
         };
         let locked = PostDetails {
             lock: Some("pubky://host/pub/lock".into()),
@@ -323,6 +362,67 @@ mod tests {
             ..base.clone()
         };
         assert!(base.content_differs_from(&edited));
+    }
+
+    #[test]
+    fn test_content_differs_from_compares_hashes() {
+        let stored = PostDetails {
+            content_hash: Some(PostDetails::hash_content("hello")),
+            ..PostDetails::default()
+        };
+        // The stored side holds no content, only its hash: same hash, no edit.
+        let same = PostDetails {
+            content: "hello".into(),
+            content_hash: Some(PostDetails::hash_content("hello")),
+            ..PostDetails::default()
+        };
+        assert!(!stored.content_differs_from(&same));
+        let edited = PostDetails {
+            content: "hello!".into(),
+            content_hash: Some(PostDetails::hash_content("hello!")),
+            ..PostDetails::default()
+        };
+        assert!(stored.content_differs_from(&edited));
+    }
+
+    #[test]
+    fn test_content_differs_from_falls_back_without_hash() {
+        // A post stored before the hash existed is compared by content.
+        let legacy = PostDetails {
+            content: "hello".into(),
+            ..PostDetails::default()
+        };
+        let incoming = PostDetails {
+            content: "hello".into(),
+            content_hash: Some(PostDetails::hash_content("hello")),
+            ..PostDetails::default()
+        };
+        assert!(!legacy.content_differs_from(&incoming));
+        let edited = PostDetails {
+            content: "bye".into(),
+            content_hash: Some(PostDetails::hash_content("bye")),
+            ..PostDetails::default()
+        };
+        assert!(legacy.content_differs_from(&edited));
+    }
+
+    #[test]
+    fn test_from_homeserver_sets_content_hash() {
+        let post = PubkyAppPost {
+            content: "hello".into(),
+            kind: PubkyAppPostKind::Short,
+            parent: None,
+            embed: None,
+            attachments: None,
+            lock: None,
+        };
+        let author = PubkyId::try_from("ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny")
+            .expect("valid pubky id");
+        let details = PostDetails::from_homeserver(post, "uri".into(), &author, "post1");
+        assert_eq!(
+            details.content_hash.as_deref(),
+            Some(PostDetails::hash_content("hello").as_str())
+        );
     }
 
     #[test]

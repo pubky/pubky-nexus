@@ -1,7 +1,9 @@
 use super::{PostCounts, PostDetails};
 use crate::db::{fetch_key_from_graph, queries};
 use crate::models::error::ModelResult;
-use pubky_app_specs::{ParsedUri, PubkyAppCollectionContent, PubkyId, Resource};
+use pubky_app_specs::{
+    post_uri_builder, ParsedUri, PubkyAppCollectionContent, PubkyAppPostKind, PubkyId, Resource,
+};
 
 /// Post keys `(author_id, post_id)` referenced by a Collection envelope, in
 /// curator order. Malformed and non-post URIs are dropped. Errors when
@@ -19,6 +21,19 @@ pub fn collection_item_keys(content: &str) -> Result<Vec<(PubkyId, String)>, ser
             Err(_) => None,
         })
         .collect())
+}
+
+/// The post URIs a Collection post curates, in curator order: the `collection_items`
+/// stored on its node. Empty for any other kind, and for a malformed envelope.
+pub fn collection_item_uris(post: &PostDetails) -> Vec<String> {
+    if post.kind != PubkyAppPostKind::Collection {
+        return Vec::new();
+    }
+    collection_item_keys(&post.content)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|(author_id, post_id)| post_uri_builder(author_id.to_string(), post_id))
+        .collect()
 }
 
 /// Reconciles the COLLECTED edges of `author_id:post_id` with `items` and

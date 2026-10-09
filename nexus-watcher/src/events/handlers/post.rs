@@ -5,8 +5,8 @@ use nexus_common::db::{exec_single_row, execute_graph_operation, OperationOutcom
 use nexus_common::db::{queries, RedisOps};
 use nexus_common::models::notification::{Notification, PostChangedSource, PostChangedType};
 use nexus_common::models::post::{
-    collection_item_keys, sync_collected_edges, PostCounts, PostDetails, PostRelationships,
-    PostStream, POST_TOTAL_ENGAGEMENT_KEY_PARTS,
+    collection_item_keys, find_mentioned_ids, mentioned_ids, sync_collected_edges, PostCounts,
+    PostDetails, PostRelationships, PostStream, POST_TOTAL_ENGAGEMENT_KEY_PARTS,
 };
 use nexus_common::models::user::{UserCounts, UserIngestor};
 use pubky_app_specs::{
@@ -130,7 +130,7 @@ async fn sync_put_details(
                 // but failed before completing the index writes. Re-run idempotent
                 // index writes only — counters/scores/notifications are intentionally
                 // skipped (prefer drift over duplicates).
-                recover_post_index_state(&author_id, &post_id).await?;
+                recover_post_index_state(&author_id, &post_id, &post_details.content).await?;
             }
         }
         return Ok(());
@@ -338,15 +338,19 @@ async fn sync_put_details(
 /// already reflected.
 ///
 /// Notifications are intentionally NOT re-run (0 > N duplicates on retry).
+///
+/// `content` is the content of the post being re-PUT, used for a node written
+/// before the post's `mentioned_ids` were stored.
 async fn recover_post_index_state(
     author_id: &PubkyId,
     post_id: &str,
+    content: &str,
 ) -> Result<(), EventProcessorError> {
     debug!("Recovering post index state from graph");
 
-    // Fetch post details from the graph once — used both to drive mention
-    // edge recovery (needs the content) and to re-populate the PostDetails
-    // index below (avoids a second round-trip through `PostDetails::reindex`).
+    // Fetch post details from the graph once — used to re-populate the
+    // PostDetails index below (avoids a second round-trip through
+    // `PostDetails::reindex`).
     let (post_details, reply) = PostDetails::get_from_graph(author_id, post_id)
         .await?
         .ok_or_else(|| {
@@ -372,7 +376,14 @@ async fn recover_post_index_state(
 
     // Re-merge any MENTIONED graph edges that the original mention loop
     // didn't finish. Skips notifications (0 > N on retry).
-    merge_mention_edges(author_id, post_id, &post_details.content).await?;
+    // Rebuilt from the `mentioned_ids` stored on the node, which need not hold
+    // the content. A node written before the list existed falls back to the
+    // content of the post being re-PUT.
+    let mentioned = match PostDetails::get_link_lists_from_graph(author_id, post_id).await? {
+        Some((Some(ids), _)) => ids,
+        _ => mentioned_ids(content),
+    };
+    merge_mention_edges(author_id, post_id, &mentioned).await?;
 
     // Same for COLLECTED edges; a non-collection also clears edges left by a kind flip.
     let items = curated_items(author_id, post_id, &post_details);
@@ -517,33 +528,16 @@ async fn put_mentioned_relationships_for_prefix(
     Ok(())
 }
 
-fn find_mentioned_ids(content: &str, prefix: &str) -> Vec<PubkyId> {
-    let user_id_len = 52;
-    let mut seen = std::collections::HashSet::new();
-    content
-        .match_indices(prefix)
-        .filter_map(|(start_idx, _)| {
-            let user_id_start = start_idx + prefix.len();
-            content
-                .get(user_id_start..user_id_start + user_id_len)
-                .and_then(|candidate| PubkyId::try_from(candidate).ok())
-        })
-        .filter(|id| seen.insert(id.to_string()))
-        .collect()
-}
-
-/// Idempotent MERGE of every MENTIONED edge for the post. No notifications,
-/// no Redis — safe to re-run from recovery.
+/// Idempotent MERGE of a MENTIONED edge to each of `mentioned_ids`. No
+/// notifications, no Redis — safe to re-run from recovery.
 async fn merge_mention_edges(
     author_id: &PubkyId,
     post_id: &str,
-    content: &str,
+    mentioned_ids: &[String],
 ) -> Result<(), EventProcessorError> {
-    for prefix in ["pk:", "pubky"] {
-        for pubky_id in find_mentioned_ids(content, prefix) {
-            let query = queries::put::create_mention_relationship(author_id, post_id, &pubky_id);
-            exec_single_row(query).await?
-        }
+    for mentioned_id in mentioned_ids {
+        let query = queries::put::create_mention_relationship(author_id, post_id, mentioned_id);
+        exec_single_row(query).await?
     }
     Ok(())
 }

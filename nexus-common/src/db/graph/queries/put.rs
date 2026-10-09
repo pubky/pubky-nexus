@@ -1,6 +1,6 @@
 use crate::db::graph::error::{GraphError, GraphResult};
 use crate::db::graph::Query;
-use crate::models::post::PostRelationships;
+use crate::models::post::{collection_item_uris, mentioned_ids, PostRelationships};
 use crate::models::{file::FileDetails, post::PostDetails, user::UserDetails};
 use pubky_app_specs::{ParsedUri, PubkyId, Resource};
 
@@ -78,7 +78,10 @@ pub fn create_post(
             new_post.kind = $kind,
             new_post.attachments = $attachments,
             new_post.lock = $lock,
-            new_post.deleted = $deleted
+            new_post.deleted = $deleted,
+            new_post.content_hash = $content_hash,
+            new_post.mentioned_ids = $mentioned_ids,
+            new_post.collection_items = $collection_items
         RETURN existing_post IS NOT NULL AS flag",
     );
 
@@ -95,7 +98,12 @@ pub fn create_post(
         .param("attachments", post.attachments.clone().unwrap_or_default())
         // Pass Option directly so None clears the property; "" would read back as Some("").
         .param("lock", post.lock.clone())
-        .param("deleted", post.deleted);
+        .param("deleted", post.deleted)
+        .param("content_hash", post.content_hash.clone())
+        // The links the content carries, stored so they can be rebuilt from the node alone,
+        // without the content (which a light Nexus does not keep).
+        .param("mentioned_ids", mentioned_ids(&post.content))
+        .param("collection_items", collection_item_uris(post));
 
     // Handle "replied" relationship
     cypher_query = add_relationship_params(

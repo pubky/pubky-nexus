@@ -1,6 +1,7 @@
 mod attachments;
 mod collected_edges;
 mod collection_counts;
+mod content_hash;
 mod del_reply_notification;
 mod del_reply_parent_notification;
 mod forwards_compat;

@@ -40,10 +40,27 @@ pub fn get_post_by_id(author_id: &str, post_id: &str) -> Query {
                 attachments: p.attachments,
                 lock: p.lock,
                 // Posts written before the flag lack the property and are live
-                deleted: COALESCE(p.deleted, false)
+                deleted: COALESCE(p.deleted, false),
+                // Null for posts written before the hash
+                content_hash: p.content_hash
             } as details,
             COLLECT([author.id, parent_post.id]) AS reply
 
+        ",
+    )
+    .param("author_id", author_id)
+    .param("post_id", post_id)
+}
+
+/// The `mentioned_ids` and `collection_items` stored on a post node. No row when the post
+/// is not in the graph; a list is null on a post written before the lists existed.
+pub fn get_post_link_lists(author_id: &str, post_id: &str) -> Query {
+    Query::new(
+        "get_post_link_lists",
+        "
+        MATCH (p:Post {id: $post_id})
+        WHERE EXISTS { (:User {id: $author_id})-[:AUTHORED]->(p) }
+        RETURN p.mentioned_ids AS mentioned_ids, p.collection_items AS collection_items
         ",
     )
     .param("author_id", author_id)

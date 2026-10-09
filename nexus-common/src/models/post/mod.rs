@@ -2,6 +2,7 @@ mod bookmark;
 mod collection;
 mod counts;
 mod details;
+mod mentions;
 mod metrics;
 mod relationships;
 pub mod search;
@@ -9,9 +10,10 @@ mod stream;
 mod view;
 
 pub use bookmark::Bookmark;
-pub use collection::{collection_item_keys, sync_collected_edges};
+pub use collection::{collection_item_keys, collection_item_uris, sync_collected_edges};
 pub use counts::PostCounts;
 pub use details::PostDetails;
+pub use mentions::{find_mentioned_ids, mentioned_ids, MENTION_PREFIXES};
 pub use relationships::PostRelationships;
 pub use search::PostsByContentSearch;
 pub use stream::{
