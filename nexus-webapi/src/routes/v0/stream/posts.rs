@@ -13,7 +13,7 @@ use axum::Json;
 use nexus_common::db::kv::SortOrder;
 use nexus_common::types::StreamSorting;
 use nexus_common::{
-    models::post::{KindFilter, PostKeyStream, PostStream, StreamSource, TrustFilter},
+    models::post::{KindFilter, PostKeyStream, PostStream, StreamSource},
     types::{DomainTrust, WotDepth},
 };
 use pubky_app_specs::PubkyAppPostKind;
@@ -355,7 +355,6 @@ pub async fn stream_posts_handler(
         query.viewer_id.as_deref(),
         tags,
         query.kind_filter(),
-        Some(TrustFilter::for_viewer(query.viewer_id.as_deref())),
     )
     .await?
     {
@@ -427,7 +426,6 @@ pub async fn stream_post_keys_handler(
         sorting,
         tags,
         query.kind_filter(),
-        Some(TrustFilter::for_viewer(query.viewer_id.as_deref())),
     )
     .await?
     {

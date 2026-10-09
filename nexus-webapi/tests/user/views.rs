@@ -219,14 +219,13 @@ async fn test_deleted_flag_in_details_and_view() -> Result<()> {
 }
 
 // ##### Social graph status #####
-// Fixture: wot.cypher scores D1 0.4, D2 0.2, D1B 0.1 and trust.cypher gives every
-// other user 0.3, except the wot on-ramp accounts. D1 therefore tops the ranking,
-// D2 and D1B sit at its bottom, below the `established` cut, and the spammer is
-// absent from it.
+// Fixture (docker/test-graph/mocks/wot.cypher): D1 0.4, D2 0.2, D1B 0.1, and no
+// other user carries a trust score, so the ranking is exactly three deep and
+// `ceil(3 * 0.05)` puts only its top in `established`.
 const WOT_D1: &str = "qjftuwjog819ki1wktuy5tndebce36bmxxwtjjm3z1fr97jk9yuo";
 const WOT_D2: &str = "smf4xrqfhx7stnufkjzhbjyu3rbgb3gga64srqmzcyyoyzefse9y";
 const WOT_D1B: &str = "t5ixbtatg4tq5q5ixg16qqrg1bmem75ksg6cweuftuydwzw91pzy";
-const UNRANKED_USER: &str = "qdsygndnk45m9ru5jseg3uxk5xg4usj9hrcraqbzgigapzweaa9o";
+const UNRANKED_USER: &str = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
 
 /// Returns the field itself rather than the whole body, so a caller can tell an
 /// explicit `null` from a field that was omitted: `Value` indexing answers
@@ -241,8 +240,6 @@ async fn social_graph_status(user_id: &str) -> Result<serde_json::Value> {
 
 /// Both halves live in one test on purpose: the ranking is a single global key,
 /// so a separate test that dropped it could race this one and see its own null.
-/// For the same reason `.config/nextest.toml` runs it alone: the `source=all`
-/// filter tests, among others, need the key to exist.
 #[tokio_shared_rt::test(shared)]
 async fn test_social_graph_status() -> Result<()> {
     assert_eq!(social_graph_status(WOT_D1).await?, "established");
@@ -267,22 +264,15 @@ async fn test_social_graph_status() -> Result<()> {
         // ranking, or the positional zip in `UserView::get_by_ids` truncates and
         // every user stream comes back empty.
         let stream = get_request("/v0/stream/users?source=most_followed&limit=5").await?;
-        // Without a ranking, `source=all` hides nobody: the unranked spammer's
-        // post (wot window) is served again.
-        let posts = get_request(
-            "/v0/stream/posts/keys?source=all&sorting=timeline&start=1650000000014&end=1650000000001&limit=50",
-        )
-        .await?;
         anyhow::Ok((
             unavailable,
             stream.as_array().map(Vec::len).unwrap_or_default(),
-            posts,
         ))
     }
     .await;
 
     SocialGraphStatus::reindex().await?;
-    let (unavailable, streamed, posts) = probe?;
+    let (unavailable, streamed) = probe?;
 
     // Present and null, never omitted: the frontend branches on the field
     // existing, and `is_null` alone would also pass for a missing key.
@@ -291,13 +281,6 @@ async fn test_social_graph_status() -> Result<()> {
         "expected null without a ranking, got {unavailable}"
     );
     assert_eq!(streamed, 5, "a missing ranking must not empty user streams");
-    let unranked_post = format!("{UNRANKED_USER}:WOTPOSTS00006");
-    assert!(
-        posts["post_keys"]
-            .as_array()
-            .is_some_and(|keys| keys.iter().any(|key| key == &unranked_post)),
-        "without a ranking source=all must not hide anyone: {posts}"
-    );
     assert_eq!(social_graph_status(WOT_D1).await?, "established");
 
     Ok(())

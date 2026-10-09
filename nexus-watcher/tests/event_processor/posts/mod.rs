@@ -27,7 +27,6 @@ mod idempotent;
 mod influencer;
 mod lock;
 mod moderated;
-mod ranked;
 mod raw;
 mod reply;
 mod reply_collection_notification;
