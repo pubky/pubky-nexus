@@ -58,6 +58,7 @@ fn run_tag_stream(
                 None,
                 Some(tags.clone()),
                 None,
+                None,
             )
             .await
             .unwrap();

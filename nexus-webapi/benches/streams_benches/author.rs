@@ -35,6 +35,7 @@ pub fn bench_stream_author_timeline(c: &mut Criterion) {
                 None,
                 None,
                 None,
+                None,
             )
             .await
             .unwrap();
@@ -68,6 +69,7 @@ pub fn bench_stream_author_total_engagement(c: &mut Criterion) {
                 None,
                 None,
                 None,
+                None,
             )
             .await
             .unwrap();
@@ -98,6 +100,7 @@ pub fn bench_stream_author_replies_timeline(c: &mut Criterion) {
                 LIMIT_20,
                 SortOrder::Descending,
                 StreamSorting::Timeline,
+                None,
                 None,
                 None,
                 None,

@@ -34,6 +34,7 @@ fn run_wot_depth(depth: u8, label: &str, c: &mut Criterion) {
                 None,
                 None,
                 None,
+                None,
             )
             .await
             .unwrap();
@@ -76,6 +77,7 @@ pub fn bench_stream_wot_domain_depth2(c: &mut Criterion) {
                 LIMIT_20,
                 SortOrder::Descending,
                 StreamSorting::Timeline,
+                None,
                 None,
                 None,
                 None,
