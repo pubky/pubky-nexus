@@ -15,6 +15,9 @@ use utoipa::ToSchema;
 // NOTE: Might not be necessary the default values for serde because before PUT a PostDetails node
 // we do sanity check
 pub struct PostDetails {
+    /// Written by a person, so a light Nexus keeps it nowhere: it is blanked in the graph
+    /// and left out of the cached JSON and of API responses. `content_hash` stays.
+    #[serde(default, skip_serializing_if = "crate::omit_in_light_mode")]
     pub content: String,
     pub id: String,
     pub indexed_at: i64,

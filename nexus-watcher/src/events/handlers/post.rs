@@ -9,6 +9,7 @@ use nexus_common::models::post::{
     PostDetails, PostRelationships, PostStream, POST_TOTAL_ENGAGEMENT_KEY_PARTS,
 };
 use nexus_common::models::user::{UserCounts, UserIngestor};
+use nexus_common::StackManager;
 use pubky_app_specs::{
     ParsedUri, PubkyAppCollectionContent, PubkyAppPost, PubkyAppPostKind, PubkyId, Resource,
 };
@@ -97,8 +98,7 @@ async fn sync_put_details(
                 // Collection -> Short flip would then read Short on both sides, skip
                 // this, and leave the old edges in the graph for good.
                 if was_collection || is_collection {
-                    let items = curated_items(&author_id, &post_id, &post_details);
-                    sync_collected_edges(&author_id, &post_id, &items, Some(&post_details)).await?;
+                    sync_collection_edges(&author_id, &post_id, &post_details).await?;
                 }
                 if existing_details.is_different_than(&post_details) || kind_changed {
                     // A lock- or kind-only toggle refreshes the cache but must not notify.
@@ -160,8 +160,7 @@ async fn sync_put_details(
 
     ingest_collection_item_authors(&post, ingestor).await;
     if is_collection {
-        let items = curated_items(&author_id, &post_id, &post_details);
-        sync_collected_edges(&author_id, &post_id, &items, Some(&post_details)).await?;
+        sync_collection_edges(&author_id, &post_id, &post_details).await?;
     }
 
     // SAVE TO INDEX - PHASE 1, update post counts
@@ -386,8 +385,7 @@ async fn recover_post_index_state(
     merge_mention_edges(author_id, post_id, &mentioned).await?;
 
     // Same for COLLECTED edges; a non-collection also clears edges left by a kind flip.
-    let items = curated_items(author_id, post_id, &post_details);
-    sync_collected_edges(author_id, post_id, &items, Some(&post_details)).await?;
+    sync_collection_edges(author_id, post_id, &post_details).await?;
 
     // Reindex all Redis state from graph truth.
     let (details_result, relationships_result, counts_result) = nexus_common::traced_join!(
@@ -539,6 +537,23 @@ async fn merge_mention_edges(
         let query = queries::put::create_mention_relationship(author_id, post_id, mentioned_id);
         exec_single_row(query).await?
     }
+    Ok(())
+}
+
+/// Reconciles the COLLECTED edges of a post with the items its content curates.
+///
+/// Collections are out of scope in light mode (#190): a light Nexus keeps no content to
+/// read item lists back from, so it writes no edges and serves no collection feeds.
+async fn sync_collection_edges(
+    author_id: &PubkyId,
+    post_id: &str,
+    post_details: &PostDetails,
+) -> Result<(), EventProcessorError> {
+    if StackManager::mode().is_light() {
+        return Ok(());
+    }
+    let items = curated_items(author_id, post_id, post_details);
+    sync_collected_edges(author_id, post_id, &items, Some(post_details)).await?;
     Ok(())
 }
 

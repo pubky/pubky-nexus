@@ -124,7 +124,8 @@ pub fn create_post(
         .param("author_id", post.author.to_string())
         .param("post_id", post.id.to_string())
         .param("uri", post.uri.to_string())
-        .param("content", post.content.to_string())
+        // A light Nexus keeps no post content (see `PostDetails::content`).
+        .param("content", light_mode_blank(&post.content))
         .param("indexed_at", post.indexed_at)
         .param("kind", kind.trim_matches('"'))
         .param("attachments", post.attachments.clone().unwrap_or_default())

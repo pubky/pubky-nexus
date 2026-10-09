@@ -217,12 +217,14 @@ pub struct SearchPostsByContentQuery {
         (status = 200, description = "Search results ordered by relevance score", body = Vec<PostsByContentSearch>),
         (status = 400, description = "Invalid query or limit parameter"),
         (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
-        (status = 500, description = "Internal server error")
+        (status = 500, description = "Internal server error"),
+        (status = 501, description = "Unavailable in light mode, which keeps no post content")
     )
 )]
 pub async fn search_posts_by_content_handler(
     Query(query): Query<SearchPostsByContentQuery>,
 ) -> Result<Json<Vec<PostsByContentSearch>>> {
+    Error::require_full_mode()?;
     let skip = query.pagination.skip_value();
     let limit = query.pagination.limit_value();
 

@@ -242,6 +242,14 @@ impl PostStreamQuery {
     /// Must run before `initialize_defaults()` — otherwise `sorting` would
     /// always read as `Some` and reject every collection request.
     pub fn validate_source_compat(&self) -> AppResult<()> {
+        // Collections are out of scope in light mode (#190): a light Nexus keeps no
+        // content to read item lists from, so it has no collection feeds.
+        if matches!(
+            self.source,
+            StreamSourceKind::Collection | StreamSourceKind::PostCollections
+        ) {
+            Error::require_full_mode()?;
+        }
         if self.kind.is_some() && self.exclude_kinds.is_some() {
             return Err(Error::invalid_input(
                 "`kind` and `exclude_kinds` are mutually exclusive",
@@ -316,7 +324,8 @@ impl PostStreamQuery {
         (status = 200, description = "Posts stream", body = PostStreamDetailed),
         (status = 400, description = "Invalid parameters"),
         (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
-        (status = 500, description = "Internal server error")
+        (status = 500, description = "Internal server error"),
+        (status = 501, description = "`source=collection` or `source=post_collections` in light mode, which has no collection feeds")
     ),
     description = r#"Stream Posts: Retrieve a stream of posts.
 
@@ -390,7 +399,8 @@ pub async fn stream_posts_handler(
         (status = 200, description = "Post key stream", body = PostKeyStream),
         (status = 400, description = "Invalid parameters"),
         (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
-        (status = 500, description = "Internal server error")
+        (status = 500, description = "Internal server error"),
+        (status = 501, description = "`source=collection` or `source=post_collections` in light mode, which has no collection feeds")
     ),
     description = r#"Stream Post Keys: Retrieve a stream of post keys
 
