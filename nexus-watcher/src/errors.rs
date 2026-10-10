@@ -173,6 +173,9 @@ impl EventProcessorError {
     /// - The retry processor reschedules the event without consuming its retry
     ///   allowance, then stops its current batch.
     ///
+    /// A 5xx from the Pubky client is per-homeserver, not per-user, so it aborts
+    /// the run and lets the runner apply per-HS backoff instead of re-asking once per hosted user.
+    ///
     /// `false` does not necessarily mean the error will be retried; the caller may
     /// skip it, enqueue it, or continue processing.
     pub fn should_not_retry_now(&self) -> bool {
@@ -187,7 +190,7 @@ impl EventProcessorError {
                 // has a temporary glitch or is malicious. Including it here to
                 // abort this run and let the runner apply per-HS backoff.
                 | Self::EventCursorOutOfOrder { .. }
-        )
+        ) || self.is_server_error()
     }
 
     /// Returns whether this error is a 404 from the Pubky client.
@@ -195,6 +198,15 @@ impl EventProcessorError {
         matches!(
             self,
             Self::PubkyClientError(e) if matches!(e.as_ref(), PubkyClientError::NotFound404 { .. })
+        )
+    }
+
+    /// Returns whether this error is a 5xx from the Pubky client, i.e. the homeserver
+    /// itself failing rather than this user's fetch.
+    pub fn is_server_error(&self) -> bool {
+        matches!(
+            self,
+            Self::PubkyClientError(e) if matches!(e.as_ref(), PubkyClientError::ServerError5xx { .. })
         )
     }
 
@@ -207,5 +219,32 @@ impl EventProcessorError {
 
     pub fn is_missing_dependency(&self) -> bool {
         matches!(self, Self::MissingDependency { .. })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hs_server_error_5xx_is_not_retry_now() {
+        let err = EventProcessorError::from(PubkyClientError::ServerError5xx {
+            message: "Event stream request failed with status 530".to_string(),
+        });
+        assert!(
+            err.should_not_retry_now(),
+            "a homeserver 5xx must abort the run so the per-HS backoff applies"
+        );
+    }
+
+    #[test]
+    fn hs_not_found_404_stays_retryable_per_user() {
+        let err = EventProcessorError::from(PubkyClientError::NotFound404 {
+            message: "Not found".to_string(),
+        });
+        assert!(
+            !err.should_not_retry_now(),
+            "a 404 is per-user and must not abort the run"
+        );
     }
 }
