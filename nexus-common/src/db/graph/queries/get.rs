@@ -962,10 +962,14 @@ pub fn get_tag_taggers_by_reach(
     let cypher = format!(
         "
             {}
+            WHERE user.id = $user_id
+            // One row per reached user: without it a WoT reach yields one row per
+            // follow path and re-reads that user's tags for each of them
+            WITH DISTINCT reach
             // The tagged node can be generic, representing either a Post, a User, or both.
             // For now, it will be a Post to align with UX requirements.
             MATCH (reach)-[tag:TAGGED]->(tagged:Post)
-            WHERE user.id = $user_id AND tag.label = $label
+            WHERE tag.label = $label
 
             // Get the latest tagged timestamp per `reach` user
             WITH DISTINCT reach, MAX(tag.indexed_at) AS latest_tag_time
@@ -2042,5 +2046,38 @@ mod tests {
             },
         );
         assert!(cypher.contains(&format!("SKIP {MAX_QUERY_SKIP}\nLIMIT {MAX_QUERY_LIMIT}")));
+    }
+
+    #[test]
+    fn tag_taggers_by_reach_dedups_reach_before_matching_tags() {
+        let reaches = [
+            StreamReach::Followers,
+            StreamReach::Following,
+            StreamReach::Friends,
+            StreamReach::Wot(WotDepth::new(1).unwrap()),
+            StreamReach::Wot(WotDepth::new(2).unwrap()),
+            StreamReach::Wot(WotDepth::new(3).unwrap()),
+        ];
+        for reach in reaches {
+            let cypher = get_tag_taggers_by_reach("bitcoin", "user_id_x", reach, 0, 20)
+                .to_cypher_populated();
+            let tag_match = cypher
+                .find("MATCH (reach)-[tag:TAGGED]")
+                .unwrap_or_else(|| panic!("no TAGGED match: {cypher}"));
+            let distinct = cypher
+                .find("WITH DISTINCT reach")
+                .unwrap_or_else(|| panic!("no WITH DISTINCT reach: {cypher}"));
+            let user_filter = cypher
+                .find("WHERE user.id")
+                .unwrap_or_else(|| panic!("no user filter: {cypher}"));
+            assert!(
+                distinct < tag_match,
+                "reach must be deduplicated before matching tags: {cypher}"
+            );
+            assert!(
+                user_filter < tag_match,
+                "the user filter must apply before matching tags: {cypher}"
+            );
+        }
     }
 }
