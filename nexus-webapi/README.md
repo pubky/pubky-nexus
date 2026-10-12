@@ -36,8 +36,10 @@ A filtered request scans at most 10,000 log lines, so a page can hold fewer than
 
 Two headers tell a follower when its stored cursor no longer fits the log, in which case it restarts from 0:
 
-- `x-events-epoch` identifies the log. It is created with the first stored event and changes when the log is recreated (e.g. after `db clear`).
-- `x-events-length` is the log's length when the request started. A stored cursor past it means the log was truncated or restored from an older backup.
+- `x-events-epoch` identifies the log. It is created with the first stored event and changes when the log is recreated (e.g. after `db clear`). A change from one value to another means restart; an epoch appearing where there was none (an older log, before its next event) is not a change.
+- `x-events-length` is the log's length when the request started. If the cursor you **sent** is past it, the log was truncated or restored from an older backup. Don't compare it with the returned cursor: events appended during the request can make the returned cursor larger.
+
+Operators restoring Redis from a backup should delete `Event:Epoch` afterwards, so the next stored event creates a new epoch and every follower restarts.
 
 ## Installation
 

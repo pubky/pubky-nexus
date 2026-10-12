@@ -1,7 +1,6 @@
 use crate::db::get_redis_conn;
 use crate::db::kv::lists;
 use crate::db::{kv::RedisResult, RedisOps};
-use deadpool_redis::redis::AsyncCommands;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use tracing::error;
@@ -49,12 +48,24 @@ pub struct FilteredEvents {
 }
 
 impl EventLine {
-    /// Appends the line to the event log, first creating the log's epoch if this
-    /// log has none yet (a new or flushed Redis).
+    /// Appends the line to the event log, creating the log's epoch if it has none
+    /// yet (a new or flushed Redis). One atomic round trip, so no line is ever
+    /// stored without an epoch.
     #[tracing::instrument(name = "event.index.write", skip_all)]
     pub async fn store(&self) -> RedisResult<()> {
-        ensure_epoch().await?;
-        self.put_index_list(&[EVENTS_KEY]).await
+        let mut redis_conn = get_redis_conn().await?;
+        let () = deadpool_redis::redis::pipe()
+            .atomic()
+            .cmd("SET")
+            .arg(EVENTS_EPOCH_KEY)
+            .arg(new_epoch())
+            .arg("NX")
+            .ignore()
+            .rpush(events_list_key(), &self.0)
+            .ignore()
+            .query_async(&mut redis_conn)
+            .await?;
+        Ok(())
     }
 
     pub async fn get_from_index(
@@ -103,31 +114,42 @@ impl EventLine {
     /// stored cursor points into a different history. Read-only; `None` until the
     /// first line is stored.
     pub async fn epoch() -> RedisResult<Option<String>> {
-        let mut redis_conn = get_redis_conn().await?;
-        Ok(redis_conn.get(EVENTS_EPOCH_KEY).await?)
+        Ok(Self::log_state().await?.epoch)
     }
 
     /// Number of lines in the event log. A follower whose cursor is past it knows the
     /// log was truncated or restored and must restart.
     pub async fn log_len() -> RedisResult<u64> {
+        Ok(Self::log_state().await?.len)
+    }
+
+    /// The log's epoch and length, read together in one round trip.
+    pub async fn log_state() -> RedisResult<EventLogState> {
         let mut redis_conn = get_redis_conn().await?;
-        Ok(redis_conn
-            .llen(format!("{EVENTS_PREFIX}:{EVENTS_KEY}"))
-            .await?)
+        let (epoch, len): (Option<String>, u64) = deadpool_redis::redis::pipe()
+            .get(EVENTS_EPOCH_KEY)
+            .llen(events_list_key())
+            .query_async(&mut redis_conn)
+            .await?;
+        Ok(EventLogState { epoch, len })
     }
 }
 
-/// Sets the log's epoch unless it already has one.
-async fn ensure_epoch() -> RedisResult<()> {
-    let mut redis_conn = get_redis_conn().await?;
-    let now_ms = chrono::Utc::now().timestamp_millis().to_string();
-    let _: Option<String> = deadpool_redis::redis::cmd("SET")
-        .arg(EVENTS_EPOCH_KEY)
-        .arg(now_ms)
-        .arg("NX")
-        .query_async(&mut redis_conn)
-        .await?;
-    Ok(())
+/// What identifies the event log at one moment.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EventLogState {
+    /// See [`EventLine::epoch`].
+    pub epoch: Option<String>,
+    /// See [`EventLine::log_len`].
+    pub len: u64,
+}
+
+fn events_list_key() -> String {
+    format!("{EVENTS_PREFIX}:{EVENTS_KEY}")
+}
+
+fn new_epoch() -> String {
+    chrono::Utc::now().timestamp_millis().to_string()
 }
 
 /// The author of an event line: `PUT pubky://<author>/pub/...` -> `<author>`.
@@ -211,6 +233,7 @@ mod scan_tests {
     use super::*;
     use crate::db::kv::lists;
     use crate::{StackConfig, StackManager};
+    use deadpool_redis::redis::AsyncCommands;
 
     const PREFIX: &str = "Test:EventScan";
 
@@ -333,12 +356,26 @@ mod scan_tests {
     }
 
     #[tokio_shared_rt::test(shared)]
-    async fn storing_a_line_creates_a_stable_epoch() {
+    async fn storing_lines_keeps_one_epoch_and_grows_the_log() {
         StackManager::setup(&StackConfig::default()).await.unwrap();
-        ensure_epoch().await.unwrap();
-        let first = EventLine::epoch().await.unwrap();
-        assert!(first.is_some(), "an epoch exists once a line can be stored");
-        ensure_epoch().await.unwrap();
-        assert_eq!(EventLine::epoch().await.unwrap(), first, "set only once");
+        let author = format!("epoch-test-{}", new_epoch());
+
+        EventLine::new(line(&author, 0)).store().await.unwrap();
+        let first = EventLine::log_state().await.unwrap();
+        assert!(first.epoch.is_some(), "storing a line creates the epoch");
+
+        EventLine::new(line(&author, 1)).store().await.unwrap();
+        let second = EventLine::log_state().await.unwrap();
+        assert_eq!(second.epoch, first.epoch, "the epoch is set only once");
+        assert!(second.len > first.len, "the line was appended");
+
+        // Leave the shared log as it was.
+        let mut redis_conn = get_redis_conn().await.unwrap();
+        for i in 0..2 {
+            let _: i64 = redis_conn
+                .lrem(events_list_key(), 0, line(&author, i))
+                .await
+                .unwrap();
+        }
     }
 }
