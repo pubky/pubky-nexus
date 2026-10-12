@@ -58,6 +58,9 @@ MATCH (u:User {id: $trel_tagger}), (p:Post {id: "2ZRT8G4VXQ0N0"}) MERGE (u)-[:TA
 MATCH (u:User {id: $trel_viewer}), (t:User {id: $trel_miss_user}) MERGE (u)-[:TAGGED {label: "trel-shared", id: "TRELMISSUV01", indexed_at: 1724134098012, uri: "pubky://xcb38btb3ioaoxtinmwtmizfum1akeg5yajju67o6rrcxq47n76o/pub/mapky/tags/TRELMISSUV01"}]->(t);
 MATCH (u:User {id: $trel_tagger}), (t:User {id: $trel_miss_user}) MERGE (u)-[:TAGGED {label: "trel-other", id: "TRELMISSUT01", indexed_at: 1724134098013, uri: "pubky://ww9hfpxrbq6hg8b34gg57irnhfk1iz9b8px9o7biy1d1dz1xep8o/pub/pubky.app/tags/TRELMISSUT01"}]->(t);
 MATCH (u:User {id: $trel_viewer}), (r:Resource {id: "7a6e1c0de5f0a11ce0ffee0000000002"}) MERGE (u)-[:TAGGED {label: "trel-shared", id: "TRELMISSRV01", indexed_at: 1724134098014, app: "mapky", uri: "pubky://xcb38btb3ioaoxtinmwtmizfum1akeg5yajju67o6rrcxq47n76o/pub/mapky/tags/TRELMISSRV01"}]->(r);
+// The viewer tagged `trel-shared` from a second app too: both reads must pick the same address
+// (the lowest, mapky's). Older than the resource's newest tag, so the resource streams don't move.
+MATCH (u:User {id: $trel_viewer}), (r:Resource {id: "7a6e1c0de5f0a11ce0ffee0000000002"}) MERGE (u)-[:TAGGED {label: "trel-shared", id: "TRELMISSRV02", indexed_at: 1724134098014, app: "pubky.app", uri: "pubky://xcb38btb3ioaoxtinmwtmizfum1akeg5yajju67o6rrcxq47n76o/pub/pubky.app/tags/TRELMISSRV02"}]->(r);
 MATCH (u:User {id: $trel_tagger}), (r:Resource {id: "7a6e1c0de5f0a11ce0ffee0000000002"}) MERGE (u)-[:TAGGED {label: "trel-other", id: "TRELMISSRT01", indexed_at: 1724134098015, app: "mapky", uri: "pubky://ww9hfpxrbq6hg8b34gg57irnhfk1iz9b8px9o7biy1d1dz1xep8o/pub/mapky/tags/TRELMISSRT01"}]->(r);
 
 // Web of Trust targets: the viewer follows a WoT tagger who tags them, so their labels show

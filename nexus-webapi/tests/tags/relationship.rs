@@ -307,6 +307,8 @@ async fn test_user_tags_viewer_tag_on_cache_miss() -> Result<()> {
     .await
 }
 
+/// The viewer tagged `trel-shared` from two apps: the miss, the hit and the taggers
+/// read all pick the same one of the two addresses.
 #[tokio_shared_rt::test(shared)]
 async fn test_resource_tags_viewer_tag_on_cache_miss() -> Result<()> {
     assert_viewer_tag_across_cache_miss(
@@ -315,6 +317,11 @@ async fn test_resource_tags_viewer_tag_on_cache_miss() -> Result<()> {
         VIEWER_MISS_RESOURCE_TAG_URI,
         &format!("Sorted:Resources:Tag:{MISS_RESOURCE}"),
         &format!("Resource:Taggers:{MISS_RESOURCE}"),
+    )
+    .await?;
+    assert_taggers_viewer_tag(
+        |label| format!("/v0/resource/{MISS_RESOURCE}/tags/{label}/taggers"),
+        VIEWER_MISS_RESOURCE_TAG_URI,
     )
     .await
 }

@@ -405,7 +405,7 @@ pub fn post_tags(user_id: &str, post_id: &str, viewer_id: Option<&str>) -> Query
             WITH p
             MATCH (tagger:User)-[tag:TAGGED]->(p)
             WITH tag.label AS name, collect(DISTINCT tagger.id) AS tagger_ids,
-                 head(collect(CASE WHEN tagger.id = $viewer_id THEN tag.uri END)) AS viewer_uri
+                 min(CASE WHEN tagger.id = $viewer_id THEN tag.uri END) AS viewer_uri
             RETURN collect({
                 label: name,
                 taggers: tagger_ids,
@@ -434,7 +434,7 @@ pub fn user_tags(user_id: &str, viewer_id: Option<&str>) -> Query {
             WITH u
             MATCH (p:User)-[t:TAGGED]->(u)
             WITH t.label AS name, collect(DISTINCT p.id) AS tagger_ids,
-                 head(collect(CASE WHEN p.id = $viewer_id THEN t.uri END)) AS viewer_uri
+                 min(CASE WHEN p.id = $viewer_id THEN t.uri END) AS viewer_uri
             RETURN collect({
                 label: name,
                 taggers: tagger_ids,
@@ -465,7 +465,7 @@ pub fn viewer_post_tag_uris(
         WHERE EXISTS { (:User {id: $author_id})-[:AUTHORED]->(p) }
         MATCH (:User {id: $viewer_id})-[t:TAGGED]->(p)
         WHERE t.label IN $labels AND t.uri IS NOT NULL
-        RETURN t.label AS label, t.uri AS uri
+        RETURN t.label AS label, min(t.uri) AS uri
     ",
     )
     .param("author_id", author_id)
@@ -481,7 +481,7 @@ pub fn viewer_user_tag_uris(user_id: &str, viewer_id: &str, labels: Vec<String>)
         "
         MATCH (:User {id: $viewer_id})-[t:TAGGED]->(:User {id: $user_id})
         WHERE t.label IN $labels AND t.uri IS NOT NULL
-        RETURN t.label AS label, t.uri AS uri
+        RETURN t.label AS label, min(t.uri) AS uri
     ",
     )
     .param("user_id", user_id)
@@ -489,14 +489,16 @@ pub fn viewer_user_tag_uris(user_id: &str, viewer_id: &str, labels: Vec<String>)
     .param("labels", labels)
 }
 
-/// The viewer's tag addresses (`t.uri`) on a Resource node, for the given labels
+/// The viewer's tag addresses (`t.uri`) on a Resource node, for the given labels.
+/// Resource edges are keyed `{label, app}`, so a label tagged from two apps has two
+/// addresses: `min` picks the same one as `resource_tags`.
 pub fn viewer_resource_tag_uris(resource_id: &str, viewer_id: &str, labels: Vec<String>) -> Query {
     Query::new(
         "viewer_resource_tag_uris",
         "
         MATCH (:User {id: $viewer_id})-[t:TAGGED]->(:Resource {id: $resource_id})
         WHERE t.label IN $labels AND t.uri IS NOT NULL
-        RETURN t.label AS label, t.uri AS uri
+        RETURN t.label AS label, min(t.uri) AS uri
     ",
     )
     .param("resource_id", resource_id)
@@ -517,7 +519,8 @@ pub fn get_resource_by_id(resource_id: &str) -> Query {
 }
 
 /// Retrieve all tags on a Resource node.
-/// `tag_uri` is the viewer's tag address per label, null without a viewer
+/// `tag_uri` is the viewer's tag address per label, null without a viewer. With one
+/// edge per app, `min` picks the same address as `viewer_resource_tag_uris`.
 pub fn resource_tags(resource_id: &str, viewer_id: Option<&str>) -> Query {
     Query::new(
         "resource_tags",
@@ -527,7 +530,7 @@ pub fn resource_tags(resource_id: &str, viewer_id: Option<&str>) -> Query {
             WITH r
             MATCH (tagger:User)-[tag:TAGGED]->(r)
             WITH tag.label AS name, collect(DISTINCT tagger.id) AS tagger_ids,
-                 head(collect(CASE WHEN tagger.id = $viewer_id THEN tag.uri END)) AS viewer_uri
+                 min(CASE WHEN tagger.id = $viewer_id THEN tag.uri END) AS viewer_uri
             RETURN collect({
                 label: name,
                 taggers: tagger_ids,
