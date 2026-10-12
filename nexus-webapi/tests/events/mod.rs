@@ -152,7 +152,10 @@ async fn test_events_get_rejects_users_and_points_to_post() -> Result<()> {
         .do_get(&format!("{url}/v0/events?users={}", fresh_author()))
         .await?;
     assert_eq!(res.status(), 400);
-    assert!(res.json_body()?.to_string().contains("POST /v0/events/by_users"));
+    assert!(res
+        .json_body()?
+        .to_string()
+        .contains("POST /v0/events/by_users"));
     Ok(())
 }
 
