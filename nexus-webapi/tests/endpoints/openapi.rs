@@ -72,29 +72,26 @@ fn test_static_openapi_spec_valid() {
     validate_openapi_refs(&json);
 }
 
-/// The events filter is documented: the `users` parameter, the by-users route
-/// and the log identity headers.
+/// The author filter is documented on its `POST` route, and both event routes
+/// document the log identity headers.
 #[test]
 fn test_events_filter_is_documented() {
     let json = serde_json::to_value(V0ApiDoc::merge_docs()).expect("serialize v0 spec");
 
     let get = &json["paths"]["/v0/events"]["get"];
-    let params = get["parameters"].as_array().expect("events parameters");
-    assert!(
-        params.iter().any(|p| p["name"] == "users"),
-        "GET /v0/events documents `users`"
-    );
-    for header in ["x-events-epoch", "x-events-length"] {
-        assert!(
-            get["responses"]["200"]["headers"][header].is_object(),
-            "GET /v0/events documents {header}"
-        );
-    }
-
     let post = &json["paths"]["/v0/events/by_users"]["post"];
     assert!(post.is_object(), "POST /v0/events/by_users is documented");
     assert!(
         post["requestBody"].is_object(),
         "by_users documents its body"
     );
+
+    for (route, op) in [("GET /v0/events", get), ("POST /v0/events/by_users", post)] {
+        for header in ["x-events-epoch", "x-events-length"] {
+            assert!(
+                op["responses"]["200"]["headers"][header].is_object(),
+                "{route} documents {header}"
+            );
+        }
+    }
 }

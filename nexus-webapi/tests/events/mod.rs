@@ -92,16 +92,17 @@ fn parse(body: &str) -> (Vec<String>, u64) {
     (lines, cursor)
 }
 
-/// Pages `GET /v0/events?users=` from 0 to the end of the log.
-async fn collect_get(users: &str, limit: usize) -> Result<Vec<String>> {
+/// Pages `POST /v0/events/by_users` from 0 to the end of the log.
+async fn collect(users: &[&str], limit: usize) -> Result<Vec<String>> {
     let url = host_url().await;
     let client = httpc_test::new_client("")?;
     let (mut all, mut cursor) = (Vec::new(), 0u64);
     for _ in 0..10_000 {
         let res = client
-            .do_get(&format!(
-                "{url}/v0/events?users={users}&limit={limit}&cursor={cursor}"
-            ))
+            .do_post(
+                &format!("{url}/v0/events/by_users"),
+                json!({ "users": users, "cursor": cursor, "limit": limit }),
+            )
             .await?;
         assert_eq!(res.status(), 200);
         let (lines, next) = parse(&res.text_body()?);
@@ -115,77 +116,43 @@ async fn collect_get(users: &str, limit: usize) -> Result<Vec<String>> {
 }
 
 #[tokio_shared_rt::test(shared)]
-async fn test_events_filter_returns_only_listed_authors_in_order() -> Result<()> {
+async fn test_events_by_users_returns_only_listed_authors_in_order() -> Result<()> {
     let (a, b, c) = (fresh_author(), fresh_author(), fresh_author());
     append(vec![line(&a, 1), line(&b, 2), line(&c, 3), line(&a, 4)]).await?;
 
-    let only_a = collect_get(&a, 500).await?;
-    assert_eq!(only_a, vec![line(&a, 1), line(&a, 4)]);
-
-    let a_and_b = collect_get(&format!("{a},{b}"), 500).await?;
-    assert_eq!(a_and_b, vec![line(&a, 1), line(&b, 2), line(&a, 4)]);
-
+    assert_eq!(collect(&[&a], 500).await?, vec![line(&a, 1), line(&a, 4)]);
+    assert_eq!(
+        collect(&[&a, &b], 500).await?,
+        vec![line(&a, 1), line(&b, 2), line(&a, 4)]
+    );
     Ok(())
 }
 
 #[tokio_shared_rt::test(shared)]
-async fn test_events_filter_small_limit_pages_without_gaps_or_repeats() -> Result<()> {
+async fn test_events_by_users_small_limit_pages_without_gaps_or_repeats() -> Result<()> {
     let a = fresh_author();
     let lines = append((0..5).map(|n| line(&a, n)).collect()).await?;
 
-    let paged = collect_get(&a, 2).await?;
-    assert_eq!(paged, lines);
-
+    assert_eq!(collect(&[&a], 1).await?, lines);
+    assert_eq!(collect(&[&a], 2).await?, lines);
     Ok(())
 }
 
 #[tokio_shared_rt::test(shared)]
-async fn test_events_filter_unknown_author_reaches_the_end_empty() -> Result<()> {
-    assert!(collect_get(&fresh_author(), 10).await?.is_empty());
+async fn test_events_by_users_unknown_author_reaches_the_end_empty() -> Result<()> {
+    assert!(collect(&[&fresh_author()], 10).await?.is_empty());
     Ok(())
 }
 
 #[tokio_shared_rt::test(shared)]
-async fn test_events_filter_rejects_invalid_users() -> Result<()> {
+async fn test_events_get_rejects_users_and_points_to_post() -> Result<()> {
     let url = host_url().await;
     let client = httpc_test::new_client("")?;
-    let too_many = vec![fresh_author(); 101].join(",");
-    for users in ["not-a-key", "", too_many.as_str()] {
-        let res = client
-            .do_get(&format!("{url}/v0/events?users={users}"))
-            .await?;
-        assert_eq!(res.status(), 400, "users={users:.40}");
-    }
-    Ok(())
-}
-
-#[tokio_shared_rt::test(shared)]
-async fn test_events_by_users_post_matches_get() -> Result<()> {
-    let (a, b) = (fresh_author(), fresh_author());
-    append(vec![line(&a, 1), line(&b, 2), line(&a, 3)]).await?;
-    let url = host_url().await;
-    let client = httpc_test::new_client("")?;
-
-    let (mut via_post, mut cursor) = (Vec::new(), 0u64);
-    loop {
-        let res = client
-            .do_post(
-                &format!("{url}/v0/events/by_users"),
-                json!({ "users": [a.clone()], "cursor": cursor, "limit": 1 }),
-            )
-            .await?;
-        assert_eq!(res.status(), 200);
-        assert!(res.header(EPOCH_HEADER).is_some());
-        let (page, next) = parse(&res.text_body()?);
-        via_post.extend(page);
-        if next == cursor {
-            break;
-        }
-        cursor = next;
-    }
-    assert_eq!(via_post, collect_get(&a, 1).await?);
-    assert_eq!(via_post, vec![line(&a, 1), line(&a, 3)]);
-
+    let res = client
+        .do_get(&format!("{url}/v0/events?users={}", fresh_author()))
+        .await?;
+    assert_eq!(res.status(), 400);
+    assert!(res.json_body()?.to_string().contains("POST /v0/events/by_users"));
     Ok(())
 }
 
@@ -217,7 +184,10 @@ async fn test_events_identity_headers_are_present_and_consistent() -> Result<()>
     let client = httpc_test::new_client("")?;
     let first = client.do_get(&format!("{url}/v0/events?limit=1")).await?;
     let second = client
-        .do_get(&format!("{url}/v0/events?limit=1&users={}", fresh_author()))
+        .do_post(
+            &format!("{url}/v0/events/by_users"),
+            json!({ "users": [fresh_author()], "limit": 1 }),
+        )
         .await?;
 
     let epoch = first.header(EPOCH_HEADER).expect("epoch header");

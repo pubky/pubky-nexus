@@ -26,7 +26,7 @@ pub use bounded_pagination::BoundedPagination;
 pub use bounded_skip::BoundedSkip;
 pub use crockford_id::{FileId, FileUris, PostId};
 pub use error_response::ErrorResponsePayload;
-pub use event_users::{EventUsers, EventUsersQuery};
+pub use event_users::EventUsers;
 pub use global_post_id::{GlobalPostId, GlobalPostIds};
 pub use info::ServerInfo;
 pub use post::{PostStreamDetailed, PostViewDetailed};

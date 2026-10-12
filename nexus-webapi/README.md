@@ -27,12 +27,9 @@ The crate leverages the shared `nexus_common` library for database interactions 
 
 `GET /v0/events` replays every event this Nexus has indexed, in order, as plain text: one `PUT|DEL pubky://<author>/<path>` line per event, then `cursor: <n>`. Another indexer can follow it to learn which records exist, then fetch each record from its author's homeserver.
 
-To follow only some authors (e.g. a Nexus that indexes part of the network), filter by author:
+To follow only some authors (e.g. a Nexus that indexes part of the network), use `POST /v0/events/by_users` with `{"users": ["<pk>", ...], "cursor": 0, "limit": 500}` (up to 1,000 Pubky ids). `GET /v0/events` rejects a `users` parameter with a 400 pointing here.
 
-- `GET /v0/events?users=<pk>,<pk>&cursor=<n>&limit=<n>`: up to 100 Pubky ids.
-- `POST /v0/events/by_users` with `{"users": ["<pk>", ...], "cursor": 0, "limit": 500}`: up to 1,000 Pubky ids.
-
-A filtered request scans at most 10,000 log lines, so a page can hold fewer than `limit` lines, even none, before the log ends. Keep paging with the returned `cursor` (the position after the last line scanned); the end is reached when it equals the cursor you sent. `POST /v0/events/by_users` is in the expensive rate-limit bucket.
+A filtered request scans at most 10,000 log lines, so a page can hold fewer than `limit` lines, even none, before the log ends. Keep paging with the returned `cursor` (the position after the last line scanned); the end is reached when it equals the cursor you sent. The route is in the expensive rate-limit bucket.
 
 Two headers tell a follower when its stored cursor no longer fits the log, in which case it restarts from 0:
 

@@ -1,4 +1,4 @@
-use crate::models::{BoundedLimit, EventUsers, EventUsersQuery};
+use crate::models::{BoundedLimit, EventUsers};
 use crate::routes::AppState;
 use nexus_common::models::event::{EventLine, EventLogState};
 use serde::{Deserialize, Serialize};
@@ -46,7 +46,9 @@ impl std::fmt::Display for EventsList {
 pub struct EventsQuery {
     cursor: Option<u64>,
     limit: Option<EventsLimit>,
-    users: Option<EventUsersQuery>,
+    /// Not supported here: filtering by author is `POST /v0/events/by_users`. Kept as a
+    /// field only to reject it, rather than silently returning the whole log.
+    users: Option<String>,
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -62,25 +64,31 @@ pub struct EventsByUsersRequest {
     limit: Option<usize>,
 }
 
-const PAGING_RULES: &str = formatcp!(
-    "Filtered by author when `users` is given (once). A filtered request scans at most \
-{EVENTS_FILTER_SCAN_BUDGET} lines, so a page can hold fewer than `limit` lines, even none, \
-before the log ends: keep paging with the returned `cursor` (the position after the last \
-line scanned) until it equals the one you sent. Restart from cursor 0 when `x-events-epoch` \
-changes from one value to another (keep your stored epoch while it is absent) or when the \
-cursor you sent is past `x-events-length`. Never compare the returned cursor with \
-`x-events-length`."
+/// How a follower detects that its stored cursor no longer fits the log.
+const RESTART_RULES: &str = "Restart from cursor 0 when `x-events-epoch` changes from one \
+value to another (keep your stored epoch while it is absent) or when the cursor you sent is \
+past `x-events-length`. Never compare the returned cursor with `x-events-length`.";
+
+const GET_DESCRIPTION: &str = formatcp!(
+    "Every indexed event, in order. To follow only some authors, use \
+`POST /v0/events/by_users`. {RESTART_RULES}"
+);
+
+const POST_DESCRIPTION: &str = formatcp!(
+    "Events by up to 1,000 authors, in the same plain-text format as `GET /v0/events`. A \
+request scans at most {EVENTS_FILTER_SCAN_BUDGET} lines, so a page can hold fewer than \
+`limit` lines, even none, before the log ends: keep paging with the returned `cursor` (the \
+position after the last line scanned) until it equals the one you sent. {RESTART_RULES}"
 );
 
 #[utoipa::path(
     get,
     path = EVENTS_ROUTE,
     tag = "Events",
-    description = PAGING_RULES,
+    description = GET_DESCRIPTION,
     params(
         ("cursor" = u64, Query, description = "Cursor"),
-        ("limit" = Option<BoundedLimit<500, 1000>>, Query, description = "Number of events to return (1–1000, **default** 500)"),
-        ("users" = Option<EventUsersQuery>, Query, description = "Only return events by these authors: comma-separated Pubky ids (1–100). For longer lists use `POST /v0/events/by_users`")
+        ("limit" = Option<BoundedLimit<500, 1000>>, Query, description = "Number of events to return (1–1000, **default** 500)")
     ),
     responses(
         (
@@ -102,24 +110,22 @@ cursor you sent is past `x-events-length`. Never compare the returned cursor wit
     )
 )]
 pub async fn get_events_handler(Query(q): Query<EventsQuery>) -> Result<Response, Error> {
-    let limit = q.limit.as_ref().map_or(DEFAULT_EVENTS_LIMIT, |l| l.value());
-    match q.users {
-        None => {
-            let log = read_log_state().await;
-            let (events, next_cursor) = EventLine::get_from_index(q.cursor, limit).await?;
-            Ok(events_response(events, next_cursor, log))
-        }
-        Some(users) => filtered_events_response(q.cursor, limit, &users.0).await,
+    if q.users.is_some() {
+        return Err(Error::invalid_input(
+            "filtering by author is not supported here: use POST /v0/events/by_users",
+        ));
     }
+    let limit = q.limit.as_ref().map_or(DEFAULT_EVENTS_LIMIT, |l| l.value());
+    let log = read_log_state().await;
+    let (events, next_cursor) = EventLine::get_from_index(q.cursor, limit).await?;
+    Ok(events_response(events, next_cursor, log))
 }
 
 #[utoipa::path(
     post,
     path = EVENTS_BY_USERS_ROUTE,
     tag = "Events",
-    description = "Events by a list of authors, for lists too long for `GET /v0/events?users=`. \
-                   This is a POST request because the list of authors can hold up to 1,000 Pubky ids. \
-                   Same plain-text response and paging rules as `GET /v0/events` with `users`.",
+    description = POST_DESCRIPTION,
     request_body = EventsByUsersRequest,
     responses(
         (
@@ -143,16 +149,8 @@ pub async fn post_events_by_users_handler(
 ) -> Result<Response, Error> {
     let limit = request.limit.unwrap_or(DEFAULT_EVENTS_LIMIT);
     EventsLimit::validate(limit)?;
-    filtered_events_response(request.cursor, limit, &request.users.0).await
-}
-
-async fn filtered_events_response(
-    cursor: Option<u64>,
-    limit: usize,
-    authors: &std::collections::HashSet<String>,
-) -> Result<Response, Error> {
     let log = read_log_state().await;
-    let page = EventLine::get_filtered_from_index(cursor, limit, authors).await?;
+    let page = EventLine::get_filtered_from_index(request.cursor, limit, &request.users.0).await?;
     Ok(events_response(page.lines, page.next_cursor, log))
 }
 
@@ -184,8 +182,8 @@ pub fn routes() -> Router<AppState> {
     Router::new().route(EVENTS_ROUTE, get(get_events_handler))
 }
 
-/// Filtering by up to 1,000 authors scans the whole budget per request, so the
-/// `POST` route sits in the expensive rate-limit bucket.
+/// Filtering scans up to the whole budget per request, so it is only offered as this
+/// `POST` route, in the expensive rate-limit bucket.
 pub fn expensive_routes() -> Router<AppState> {
     Router::new().route(EVENTS_BY_USERS_ROUTE, post(post_events_by_users_handler))
 }
@@ -193,6 +191,6 @@ pub fn expensive_routes() -> Router<AppState> {
 #[derive(OpenApi)]
 #[openapi(
     paths(get_events_handler, post_events_by_users_handler),
-    components(schemas(EventsList, EventsByUsersRequest, EventUsers, EventUsersQuery))
+    components(schemas(EventsList, EventsByUsersRequest, EventUsers))
 )]
 pub struct EventsApiDoc;
