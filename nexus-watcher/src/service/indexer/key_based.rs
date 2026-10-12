@@ -301,6 +301,13 @@ impl KeyBasedEventProcessor {
                 .await
             {
                 Ok(events) => return Ok(events),
+                // The event stream is the homeserver itself: a 5xx there is a
+                // per-HS failure, not this user's, so it aborts the run.
+                Err(err) if err.is_server_error() => {
+                    return Err(EventProcessorError::HsEventsStreamServerError(
+                        err.to_string(),
+                    ));
+                }
                 Err(err) if err.is_too_many_requests() => {
                     let Some(backoff_secs) = FETCH_EVENTS_429_BACKOFF_SECS.get(retry_index) else {
                         return Err(EventProcessorError::HsEventsStreamRateLimitExhausted);

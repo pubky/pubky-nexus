@@ -67,6 +67,9 @@ pub enum EventProcessorError {
     /// Transport to an external homeserver's /events-stream failed.
     #[error("HsEventsStreamTransportFailed: {0}")]
     HsEventsStreamTransportFailed(String),
+    /// An external homeserver's /events-stream answered with a 5xx.
+    #[error("HsEventsStreamServerError: {0}")]
+    HsEventsStreamServerError(String),
 
     /// The HS is blacklisted and must not be indexed.
     #[error("HsBlacklisted: {hs_id}")]
@@ -173,9 +176,6 @@ impl EventProcessorError {
     /// - The retry processor reschedules the event without consuming its retry
     ///   allowance, then stops its current batch.
     ///
-    /// A 5xx from the Pubky client is per-homeserver, not per-user, so it aborts
-    /// the run and lets the runner apply per-HS backoff instead of re-asking once per hosted user.
-    ///
     /// `false` does not necessarily mean the error will be retried; the caller may
     /// skip it, enqueue it, or continue processing.
     pub fn should_not_retry_now(&self) -> bool {
@@ -185,12 +185,16 @@ impl EventProcessorError {
                 | Self::IndexOperationFailed(true, _)
                 | Self::HsEventsStreamRateLimitExhausted
                 | Self::HsEventsStreamTransportFailed(_)
+                // Only the /events-stream request maps a 5xx to this variant. A 5xx
+                // on any other fetch (a file a user can point at any host) stays a
+                // per-event error, or one such file would stall the whole run.
+                | Self::HsEventsStreamServerError(_)
 
                 // For a key-based runner, this indicates the external HS either
                 // has a temporary glitch or is malicious. Including it here to
                 // abort this run and let the runner apply per-HS backoff.
                 | Self::EventCursorOutOfOrder { .. }
-        ) || self.is_server_error()
+        )
     }
 
     /// Returns whether this error is a 404 from the Pubky client.
@@ -227,13 +231,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn hs_server_error_5xx_is_not_retry_now() {
-        let err = EventProcessorError::from(PubkyClientError::ServerError5xx {
-            message: "Event stream request failed with status 530".to_string(),
-        });
+    fn event_stream_5xx_is_not_retry_now() {
+        let err = EventProcessorError::HsEventsStreamServerError("status 530".to_string());
         assert!(
             err.should_not_retry_now(),
-            "a homeserver 5xx must abort the run so the per-HS backoff applies"
+            "an /events-stream 5xx must abort the run so the per-HS backoff applies"
+        );
+    }
+
+    #[test]
+    fn client_5xx_stays_per_event() {
+        let err = EventProcessorError::from(PubkyClientError::ServerError5xx {
+            message: "File request failed with status 500".to_string(),
+        });
+        assert!(
+            !err.should_not_retry_now(),
+            "a 5xx outside the event stream is per-event and must not abort the run"
         );
     }
 

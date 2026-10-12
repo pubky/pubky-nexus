@@ -484,6 +484,103 @@ async fn key_based_processor_aborts_on_homeserver_transport_failure() -> Result<
     Ok(())
 }
 
+/// Verifies a 5xx from the homeserver's event stream aborts the run before
+/// fetching the next user, so the runner backs the homeserver off as a whole.
+#[tokio_shared_rt::test(shared)]
+async fn key_based_processor_aborts_on_event_stream_5xx() -> Result<(), DynError> {
+    setup().await?;
+
+    let (_hs_keypair, homeserver) = create_homeserver().await?;
+    create_user_on_homeserver(&homeserver).await?;
+    create_user_on_homeserver(&homeserver).await?;
+    let source =
+        Arc::new(MockKeyBasedEventSource::default().with_results(vec![Err(server_error_5xx())]));
+    let handler = create_mock_handler(Ok(()), None);
+    let processor = processor(homeserver, handler.clone(), source.clone());
+
+    let err = processor.run().await.unwrap_err();
+
+    assert_internal_event_stream_server_error(err);
+    assert_eq!(source.calls().await.len(), 1);
+    assert_eq!(handler.get_handle_count(), 0);
+
+    Ok(())
+}
+
+/// Verifies a 5xx met while handling an event (a file fetch, which a user can
+/// point at any homeserver) stays per-event: it must not abort the run, or one
+/// file on a host that always answers 500 would stall the whole homeserver.
+#[tokio_shared_rt::test(shared)]
+async fn key_based_processor_continues_after_5xx_from_event_handler() -> Result<(), DynError> {
+    setup().await?;
+
+    let (_hs_keypair, homeserver) = create_homeserver().await?;
+    let user_a_id = create_user_on_homeserver(&homeserver).await?;
+    let user_b_id = create_user_on_homeserver(&homeserver).await?;
+    let source = Arc::new(MockKeyBasedEventSource::default().with_user_events(vec![
+        (
+            user_a_id.clone(),
+            vec![stream_event(1, &user_a_id, "/pub/pubky.app/profile.json")?],
+        ),
+        (
+            user_b_id.clone(),
+            vec![stream_event(1, &user_b_id, "/pub/pubky.app/profile.json")?],
+        ),
+    ]));
+    let handler = create_mock_handler(Err(server_error_5xx()), None);
+    let processor = processor(homeserver, handler.clone(), source.clone());
+
+    processor.run().await?;
+
+    let calls = source.calls().await;
+    assert_eq!(calls.len(), 2);
+    assert!(calls.contains(&user_a_id));
+    assert!(calls.contains(&user_b_id));
+    assert_eq!(handler.get_handle_count(), 2);
+
+    Ok(())
+}
+
+/// Verifies an event-stream 5xx backs off the whole external homeserver, so the
+/// next runner pass skips it instead of asking again once per hosted user.
+#[tokio_shared_rt::test(shared)]
+async fn key_based_runner_backs_off_homeserver_after_event_stream_5xx() -> Result<(), DynError> {
+    setup().await?;
+
+    let (_hs_keypair, homeserver) = create_homeserver().await?;
+    let hs_id = homeserver.id.to_string();
+    let user_id = create_user_on_homeserver(&homeserver).await?;
+    let source = Arc::new(
+        MockKeyBasedEventSource::default()
+            .with_user_results(vec![(user_id.clone(), Err(server_error_5xx()))]),
+    );
+    let mut runner = KeyBasedEventProcessorRunner::from_config(
+        &WatcherConfig::default(),
+        watch::channel(false).1,
+    );
+    runner.monitored_hs_limit = usize::MAX;
+    runner.event_handler = create_mock_handler(Ok(()), None);
+    runner.event_source = source.clone();
+    runner.primary_homeserver = random_pubky_id();
+
+    runner.run().await?;
+    assert!(runner.backoff.lock().await.should_skip(&hs_id));
+
+    runner.run().await?;
+    let target_fetches = source
+        .calls()
+        .await
+        .into_iter()
+        .filter(|called_user| called_user == &user_id)
+        .count();
+    assert_eq!(
+        target_fetches, 1,
+        "backed-off homeserver must not be fetched again"
+    );
+
+    Ok(())
+}
+
 /// Verifies a client error that merely reads like a connection problem stays per-user:
 /// only /events-stream transport failures abort the homeserver run.
 #[tokio_shared_rt::test(shared)]
@@ -907,6 +1004,13 @@ fn homeserver_event_stream_transport_error() -> EventProcessorError {
     EventProcessorError::HsEventsStreamTransportFailed("connection refused".into())
 }
 
+fn server_error_5xx() -> EventProcessorError {
+    PubkyClientError::ServerError5xx {
+        message: "Event stream request failed with status 530".into(),
+    }
+    .into()
+}
+
 /// Non-transport error type, that happens to have a transport-error-like error message
 fn retryable_client_error() -> EventProcessorError {
     EventProcessorError::client_error("connection refused".into())
@@ -1029,6 +1133,13 @@ fn assert_internal_homeserver_transport_failed(err: RunError) {
     match err {
         RunError::Internal(EventProcessorError::HsEventsStreamTransportFailed(_)) => {}
         other => panic!("expected internal homeserver transport failure, got {other:?}"),
+    }
+}
+
+fn assert_internal_event_stream_server_error(err: RunError) {
+    match err {
+        RunError::Internal(EventProcessorError::HsEventsStreamServerError(_)) => {}
+        other => panic!("expected internal event-stream server error, got {other:?}"),
     }
 }
 
