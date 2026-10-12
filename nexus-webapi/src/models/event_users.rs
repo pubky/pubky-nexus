@@ -7,9 +7,9 @@ use utoipa::ToSchema;
 use super::bounded_vec;
 
 /// Most authors `GET /v0/events?users=` accepts.
-pub const MAX_EVENT_USERS_QUERY: usize = 100;
+const MAX_EVENT_USERS_QUERY: usize = 100;
 /// Most authors `POST /v0/events/by_users` accepts.
-pub const MAX_EVENT_USERS_BODY: usize = 1_000;
+const MAX_EVENT_USERS_BODY: usize = 1_000;
 
 /// Comma-separated Pubky ids for `GET /v0/events?users=` (1–100).
 #[derive(Debug, ToSchema)]

@@ -37,7 +37,7 @@ impl AsRef<[String]> for EventLine {
 }
 
 /// A page of the event log filtered by author.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug)]
 pub struct FilteredEvents {
     /// Matching lines, in log order.
     pub lines: Vec<String>,
@@ -119,7 +119,7 @@ impl EventLine {
 }
 
 /// What identifies the event log at one moment.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug)]
 pub struct EventLogState {
     /// Created with the log's first line and recreated after Redis is flushed (e.g. by
     /// `db clear`), so a follower can tell that its cursor points into a different
@@ -217,7 +217,6 @@ mod tests {
 #[cfg(test)]
 mod scan_tests {
     use super::*;
-    use crate::db::kv::lists;
     use crate::{StackConfig, StackManager};
     use deadpool_redis::redis::AsyncCommands;
 
