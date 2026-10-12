@@ -347,11 +347,13 @@ where
             return Ok(HashMap::new());
         }
         let query = Self::viewer_tag_uris_query(user_id, extra_param, viewer_id, labels);
-        Ok(fetch_all_rows_from_graph(query)
+        // The queries drop null addresses, so a decode failure is a real error:
+        // surface it instead of reading it as "untagged".
+        fetch_all_rows_from_graph(query)
             .await?
             .into_iter()
-            .filter_map(|row| Some((row.get("label").ok()?, row.get("uri").ok()?)))
-            .collect())
+            .map(|row| Ok((row.get("label")?, row.get("uri")?)))
+            .collect()
     }
 
     /// Retrieves the tag collection from the graph database if it is not found in the index.
