@@ -5,7 +5,7 @@ use crate::service::utils::{MockEventProcessorResult, HS_IDS};
 use chrono::Utc;
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::traits::Collection;
-use nexus_common::models::user::{set_user_homeserver, UserDetails};
+use nexus_common::models::user::{set_user_homeserver, Epoch, UserDetails};
 use nexus_watcher::errors::EventProcessorError;
 use nexus_watcher::events::retry::RetryScheduler;
 use nexus_watcher::events::EventHandler;
@@ -103,6 +103,7 @@ pub async fn create_random_homeservers_and_persist(
                 image: None,
                 indexed_at: Utc::now().timestamp_millis(),
                 deleted: false,
+                epoch: Epoch::V0,
             };
             user.put_to_graph().await.unwrap();
             set_user_homeserver(&user_id, &homeserver_id).await.unwrap();

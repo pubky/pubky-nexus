@@ -4,7 +4,7 @@ use anyhow::Result;
 use chrono::Utc;
 use nexus_common::db::{exec_single_row, queries};
 use nexus_common::models::homeserver::Homeserver;
-use nexus_common::models::user::UserDetails;
+use nexus_common::models::user::{Epoch, UserDetails};
 use nexus_common::utils::test_utils::{random_pk, random_pubky_id};
 use nexus_watcher::errors::EventProcessorError;
 use nexus_watcher::events::retry::{IndexKey, InitialBackoff, RetryScheduler, RetryStore};
@@ -55,6 +55,7 @@ async fn create_user_hosted_on(user_id: &str, hs_id: Option<&str>) {
         image: None,
         indexed_at: Utc::now().timestamp_millis(),
         deleted: false,
+        epoch: Epoch::V0,
     };
     exec_single_row(queries::put::create_user(&user, None).expect("create_user query"))
         .await

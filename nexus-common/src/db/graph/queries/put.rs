@@ -8,6 +8,8 @@ use pubky_app_specs::{ParsedUri, PubkyId, Resource};
 ///
 /// `uri` is the address the profile was read from (its event path). `None` keeps the stored
 /// `uri`, so a tombstone retains it and a stub node gets none.
+///
+/// `epoch` is set to `v0` only on a node that has none; a stored one is kept.
 pub fn create_user(user: &UserDetails, uri: Option<&str>) -> GraphResult<Query> {
     let links = serde_json::to_string(&user.links)
         .map_err(|e| GraphError::SerializationFailed(Box::new(e)))?;
@@ -16,7 +18,7 @@ pub fn create_user(user: &UserDetails, uri: Option<&str>) -> GraphResult<Query> 
         "create_user",
         "MERGE (u:User {id: $id})
          SET u.name = $name, u.bio = $bio, u.status = $status, u.links = $links, u.image = $image, u.indexed_at = $indexed_at, u.deleted = $deleted,
-             u.uri = coalesce($uri, u.uri);",
+             u.uri = coalesce($uri, u.uri), u.epoch = coalesce(u.epoch, 'v0');",
     )
     .param("id", user.id.to_string())
     .param("uri", uri.map(str::to_string))
@@ -29,6 +31,19 @@ pub fn create_user(user: &UserDetails, uri: Option<&str>) -> GraphResult<Query> 
     .param("deleted", user.deleted);
 
     Ok(query)
+}
+
+/// Sets `epoch` to `v0` on an existing `:User` that has none and returns the
+/// stored value; a stored epoch is kept. No row when there is no `:User` node:
+/// it never creates one.
+pub fn init_user_epoch(user_id: &str) -> Query {
+    Query::new(
+        "init_user_epoch",
+        "MATCH (u:User {id: $user_id})
+         SET u.epoch = coalesce(u.epoch, 'v0')
+         RETURN u.epoch AS epoch",
+    )
+    .param("user_id", user_id)
 }
 
 /// Creates a Cypher query to add or edit a post to the graph database and handles its relationships.

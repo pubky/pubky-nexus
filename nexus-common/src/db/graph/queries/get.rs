@@ -371,6 +371,37 @@ pub fn author_post_entries(author_id: &str, after: (i64, &str), limit: usize) ->
     .param("limit", limit as i64)
 }
 
+/// A user's stored epoch: no row when there is no `:User` node, and a null
+/// `epoch` when the node has none.
+pub fn get_user_epoch(user_id: &str) -> Query {
+    Query::new(
+        "get_user_epoch",
+        "MATCH (u:User {id: $user_id}) RETURN u.epoch AS epoch",
+    )
+    .param("user_id", user_id)
+}
+
+/// One keyset page of every `:User`'s epoch, ordered by id: up to `limit` users
+/// whose id sorts after `after_id`. Pass `""` for the first page and the last id
+/// returned for the next; an empty page means the end.
+///
+/// Tombstoned users are included, since they keep their epoch. A node without
+/// an `epoch` property reads as `v0`.
+pub fn get_user_epochs_page(after_id: &str, limit: usize) -> Query {
+    Query::new(
+        "get_user_epochs_page",
+        "
+        MATCH (u:User)
+        WHERE u.id > $after_id
+        RETURN u.id AS id, coalesce(u.epoch, 'v0') AS epoch
+        ORDER BY u.id ASC
+        LIMIT $limit
+        ",
+    )
+    .param("after_id", after_id.to_string())
+    .param("limit", limit.min(MAX_QUERY_LIMIT) as i64)
+}
+
 /// Users whose profile carries any of the given tag labels, scored by distinct
 /// tagger count summed across the searched labels.
 pub fn search_users_by_tags(labels: &[String], skip: Option<usize>, limit: Option<usize>) -> Query {

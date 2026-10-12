@@ -6,7 +6,7 @@ use nexus_common::db::{
 };
 use nexus_common::models::{
     traits::Collection,
-    user::{UserCounts, UserDetails, UserSearch, UsersByTagSearch},
+    user::{UserCounts, UserDetails, UserEpoch, UserSearch, UsersByTagSearch},
 };
 use pubky_app_specs::{PubkyAppUser, PubkyId};
 use tracing::debug;
@@ -44,6 +44,7 @@ pub async fn sync_put(
             Ok::<(), EventProcessorError>(())
         },
         async {
+            // TODO(flip): caches `V0`, not the epoch stored in the graph.
             UserDetails::put_to_index(&[&user_details.id], vec![Some(user_details.clone())])
                 .await?;
             Ok::<(), EventProcessorError>(())
@@ -76,17 +77,20 @@ pub async fn del(user_id: PubkyId) -> Result<(), EventProcessorError> {
             // 1. UserSearch reads UserDetails — must run before UserDetails Redis is removed
             UserSearch::delete(&user_id).await?;
 
-            // 2. Redis cleanup (parallel, all idempotent DEL/ZREM)
+            // 2. Redis cleanup (parallel, all idempotent DEL/ZREM/HDEL). The epoch
+            // field goes with the node, so the index holds nothing the graph can't back.
             let user_id_str: &str = user_id.as_ref();
             let key_parts: &[&str] = &[user_id_str];
             let key_parts_list = [key_parts];
             let indexing_results = nexus_common::traced_join!(
                 tracing::info_span!("index.delete");
                 UserDetails::remove_from_index_multiple_json(&key_parts_list),
-                UserCounts::delete(&user_id)
+                UserCounts::delete(&user_id),
+                UserEpoch::del_from_index(&user_id)
             );
             indexing_results.0?;
             indexing_results.1?;
+            indexing_results.2?;
 
             // 3. Graph deletion LAST
             exec_single_row(queries::del::delete_user(&user_id)).await?;
@@ -99,13 +103,15 @@ pub async fn del(user_id: PubkyId) -> Result<(), EventProcessorError> {
             // 2. Graph-first: write the tombstone before the cache. Collection::get_by_ids
             // repopulates the cache from the graph on a miss, so writing the cache first
             // would let a concurrent read cache the live profile again afterwards.
-            // The tombstone keeps the stored `uri`.
+            // The tombstone keeps the stored `uri`, and its epoch in the graph
+            // and in `User:Epoch`.
             let tombstone = UserDetails::tombstone(&user_id);
             tombstone.put_to_graph().await?;
 
             // 3. Cache the tombstone rather than invalidating: the users-by-tag removal
             // guard reads `$.deleted` from this document and a missing key reads as
             // live, so a concurrent tag event would re-add the user.
+            // TODO(flip): caches `V0`, not the epoch stored in the graph.
             UserDetails::put_to_index(&[&tombstone.id], vec![Some(tombstone.clone())]).await?;
 
             // 4. Evict the user from every per-label users-by-tag sorted set.

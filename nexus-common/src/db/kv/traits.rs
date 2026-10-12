@@ -542,6 +542,68 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     }
 
     // ############################################################
+    // ################# HASH related functions ###################
+    // ############################################################
+
+    /// Reads one field of a Redis HASH using the provided key parts.
+    ///
+    /// Empty `key_parts` address the HASH named by the prefix alone.
+    ///
+    /// # Arguments
+    ///
+    /// * `key_parts` - A slice of string slices that represent the parts used to form the key under which the HASH is stored.
+    /// * `field` - The field to read.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(None)` if the HASH or the field does not exist.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the operation fails, such as if the Redis connection is unavailable.
+    async fn try_from_index_hash(key_parts: &[&str], field: &str) -> RedisResult<Option<String>> {
+        let prefix = Self::prefix().await;
+        let key = key_parts.join(":");
+        hashes::get(&prefix, &key, field).await
+    }
+
+    /// Sets several fields of a Redis HASH in one command using the provided key parts.
+    ///
+    /// Empty `key_parts` address the HASH named by the prefix alone.
+    ///
+    /// # Arguments
+    ///
+    /// * `key_parts` - A slice of string slices that represent the parts used to form the key under which the HASH is stored.
+    /// * `entries` - A slice of `(field, value)` pairs to store.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the operation fails, such as if the Redis connection is unavailable.
+    async fn put_index_hash(key_parts: &[&str], entries: &[(&str, &str)]) -> RedisResult<()> {
+        let prefix = Self::prefix().await;
+        let key = key_parts.join(":");
+        hashes::put(&prefix, &key, entries).await
+    }
+
+    /// Removes fields from a Redis HASH using the provided key parts. Missing fields are ignored.
+    ///
+    /// Empty `key_parts` address the HASH named by the prefix alone.
+    ///
+    /// # Arguments
+    ///
+    /// * `key_parts` - A slice of string slices that represent the parts used to form the key under which the HASH is stored.
+    /// * `fields` - A slice of string slices representing the fields to remove.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the operation fails, such as if the Redis connection is unavailable.
+    async fn remove_from_index_hash(key_parts: &[&str], fields: &[&str]) -> RedisResult<()> {
+        let prefix = Self::prefix().await;
+        let key = key_parts.join(":");
+        hashes::del(&prefix, &key, fields).await
+    }
+
+    // ############################################################
     // ########### SORTED SET related functions ###################
     // ############################################################
 
