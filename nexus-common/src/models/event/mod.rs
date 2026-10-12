@@ -369,7 +369,9 @@ mod scan_tests {
         assert_eq!(second.epoch, first.epoch, "the epoch is set only once");
         assert!(second.len > first.len, "the line was appended");
 
-        // Leave the shared log as it was.
+        // Leave the shared log as it was. Removing lines shifts positions, which is
+        // safe here: nothing else in nexus-common pages `Event:Events`, and CI runs each
+        // crate's tests separately. (The webapi tests, which do page it, keep their lines.)
         let mut redis_conn = get_redis_conn().await.unwrap();
         for i in 0..2 {
             let _: i64 = redis_conn

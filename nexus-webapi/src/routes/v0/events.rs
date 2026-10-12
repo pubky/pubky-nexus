@@ -70,7 +70,8 @@ the position after the last line scanned. The end of the log is reached when the
 cursor equals the requested one. Two headers let a follower detect a different log; \
 compare them with what it stored, and the cursor it sent: `x-events-epoch` identifies \
 the log, and a change from one value to another means it was recreated (an epoch \
-appearing where there was none is not a change); `x-events-length` is the log's length \
+appearing where there was none is not a change, and while it is absent the stored epoch \
+is kept); `x-events-length` is the log's length \
 when the request started, and a sent cursor past it means the log was truncated or \
 restored. The returned cursor can exceed `x-events-length` when events are appended \
 during the request, so those two are not compared. In either case restart from cursor 0."
