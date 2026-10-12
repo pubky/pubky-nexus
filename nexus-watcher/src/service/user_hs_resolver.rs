@@ -14,9 +14,10 @@ use opentelemetry::metrics::{Counter, Gauge, Histogram};
 use opentelemetry::{global, KeyValue};
 use pubky::PublicKey;
 use pubky_app_specs::PubkyId;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::LazyLock;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::{LazyLock, Mutex};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::watch::Receiver;
 use tracing::{debug, error, info, warn};
 
@@ -33,6 +34,75 @@ pub trait PkdnsHomeserverResolver: Send + Sync {
 }
 
 /// Production resolver backed by the shared [`PubkyConnector`].
+/// First wait before an unbound user is looked up again. Doubles per
+/// consecutive empty lookup, capped at the resolution TTL.
+const UNBOUND_RETRY_INITIAL: Duration = Duration::from_secs(60);
+
+/// In-memory backoff for users with no `HOSTED_BY` edge whose lookup returned
+/// nothing published.
+///
+/// The graph TTL (`HOSTED_BY.resolved_at`) only gates bound users, so without
+/// this an unbound user is looked up on every tick. An empty answer can also be
+/// a transient DHT or relay miss, so the wait starts short and doubles per
+/// consecutive empty lookup up to the TTL: a miss costs a minute, a key that
+/// publishes nothing settles at one lookup per TTL. Kept in memory so the
+/// resolver writes nothing for users it could not resolve; a restart only costs
+/// one extra round of lookups.
+#[derive(Default)]
+pub struct UnboundBackoff {
+    entries: Mutex<HashMap<String, UnboundEntry>>,
+}
+
+struct UnboundEntry {
+    next_attempt: Instant,
+    wait: Duration,
+}
+
+impl UnboundBackoff {
+    /// Keeps the users whose next lookup is due, and forgets entries for users
+    /// no longer in `user_ids` (bound or deleted since), so the map never
+    /// outgrows the unbound population.
+    fn retain_due(&self, user_ids: Vec<String>, now: Instant) -> Vec<String> {
+        let mut entries = self.entries.lock().unwrap_or_else(|e| e.into_inner());
+        let present: HashSet<&str> = user_ids.iter().map(String::as_str).collect();
+        entries.retain(|user_id, _| present.contains(user_id.as_str()));
+        user_ids
+            .into_iter()
+            .filter(|user_id| {
+                entries
+                    .get(user_id)
+                    .is_none_or(|entry| entry.next_attempt <= now)
+            })
+            .collect()
+    }
+
+    /// Records an empty lookup: the user waits twice as long as last time,
+    /// starting at [`UNBOUND_RETRY_INITIAL`] and capped at `ttl`.
+    fn record_unbound(&self, user_id: &str, now: Instant, ttl: Duration) {
+        let mut entries = self.entries.lock().unwrap_or_else(|e| e.into_inner());
+        let wait = match entries.get(user_id) {
+            Some(entry) => entry.wait.saturating_mul(2),
+            None => UNBOUND_RETRY_INITIAL,
+        }
+        .min(ttl);
+        entries.insert(
+            user_id.to_string(),
+            UnboundEntry {
+                next_attempt: now + wait,
+                wait,
+            },
+        );
+    }
+
+    /// Clears the user's backoff after a lookup that returned a homeserver.
+    fn clear(&self, user_id: &str) {
+        self.entries
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(user_id);
+    }
+}
+
 pub struct PubkyConnectorResolver;
 
 #[async_trait::async_trait]
@@ -49,6 +119,7 @@ impl PkdnsHomeserverResolver for PubkyConnectorResolver {
 pub struct UserHsResolverRunner {
     resolver: Box<dyn PkdnsHomeserverResolver>,
     ttl_ms: u64,
+    unbound_backoff: UnboundBackoff,
     shutdown_rx: Receiver<bool>,
 }
 
@@ -61,29 +132,39 @@ impl UserHsResolverRunner {
         Self {
             resolver,
             ttl_ms: config.hs_resolver_ttl,
+            unbound_backoff: UnboundBackoff::default(),
             shutdown_rx,
         }
     }
 
     pub async fn run(&self) -> Result<(), DynError> {
         let mut shutdown_rx = self.shutdown_rx.clone();
-        run(self.resolver.as_ref(), self.ttl_ms, &mut shutdown_rx).await
+        run(
+            self.resolver.as_ref(),
+            self.ttl_ms,
+            &self.unbound_backoff,
+            &mut shutdown_rx,
+        )
+        .await
     }
 }
 
 /// Main entry point for one cycle of the periodic task.
 ///
 /// `ttl_ms` controls the minimum time before a user's mapping is re-resolved.
-/// Users whose `HOSTED_BY.resolved_at` is newer than `ttl_ms` are skipped.
+/// Users whose `HOSTED_BY.resolved_at` is newer than `ttl_ms` are skipped, and
+/// so are unbound users still waiting out their `unbound_backoff`.
 ///
 /// `shutdown_rx` cancels the in-flight resolution on shutdown; cancelled users
 /// get re-picked-up on the next run via TTL.
 pub async fn run(
     resolver: &dyn PkdnsHomeserverResolver,
     ttl_ms: u64,
+    unbound_backoff: &UnboundBackoff,
     shutdown_rx: &mut Receiver<bool>,
 ) -> Result<(), DynError> {
     let user_ids = get_users_needing_resolution(ttl_ms).await?;
+    let user_ids = unbound_backoff.retain_due(user_ids, Instant::now());
     let user_pks: Vec<PublicKey> = user_ids
         .iter()
         .filter_map(|user_id| {
@@ -147,6 +228,15 @@ pub async fn run(
                         (Outcome::Error, None)
                     }
                     Ok(resolution) => {
+                        match resolution {
+                            Resolution::Unbound => unbound_backoff.record_unbound(
+                                &user_id,
+                                Instant::now(),
+                                Duration::from_millis(ttl_ms),
+                            ),
+                            Resolution::LookupFailed { .. } => {}
+                            _ => unbound_backoff.clear(&user_id),
+                        }
                         if let Some(reason) = resolution.newly_stale() {
                             HS_RESOLVER_METRICS.marked_stale.add(1, &[reason.attribute()]);
                         }
@@ -415,10 +505,8 @@ async fn resolve_user(
     };
 
     let resolution = match (&stored_mapping, &maybe_resolved_hs_id) {
-        (None, None) => {
-            warn!(%user_id, "User has no published homeserver");
-            Resolution::Unbound
-        }
+        // Nothing published. The caller logs it and applies the unbound backoff.
+        (None, None) => Resolution::Unbound,
 
         (None, Some(resolved_hs_id)) => {
             set_user_homeserver(&user_id, resolved_hs_id).await?;
@@ -891,6 +979,128 @@ mod tests {
 
     /// When the published homeserver changes, the binding is kept but marked
     /// stale so the user stops being indexed; the new homeserver is never set.
+    /// A user with no published homeserver is not looked up again on the next
+    /// tick, while a user with a published one is unaffected.
+    #[tokio_shared_rt::test(shared)]
+    async fn test_run_backs_off_unbound_user() -> Result<(), DynError> {
+        setup().await?;
+
+        let user_pk = random_pk();
+        let user_id = user_pk.z32();
+        create_test_user(&user_id).await?;
+
+        let resolver = CountingResolver {
+            target: user_id.clone(),
+            calls: Mutex::new(HashMap::new()),
+        };
+        let backoff = UnboundBackoff::default();
+        let (_tx, mut rx) = tokio::sync::watch::channel(false);
+
+        run(&resolver, 3_600_000, &backoff, &mut rx).await?;
+        run(&resolver, 3_600_000, &backoff, &mut rx).await?;
+
+        assert_eq!(
+            resolver.calls_for(&user_pk),
+            1,
+            "an unbound user must wait out its backoff, not be looked up every tick"
+        );
+
+        cleanup_test_user(&user_id).await?;
+        Ok(())
+    }
+
+    /// Resolver stub that publishes nothing for `target` and counts lookups per
+    /// user. Every other user in the shared test graph gets a lookup error,
+    /// which leaves its mapping untouched.
+    struct CountingResolver {
+        target: String,
+        calls: Mutex<HashMap<String, usize>>,
+    }
+
+    impl CountingResolver {
+        fn calls_for(&self, user_pk: &PublicKey) -> usize {
+            *self.calls.lock().unwrap().get(&user_pk.z32()).unwrap_or(&0)
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl PkdnsHomeserverResolver for CountingResolver {
+        async fn resolve_homeserver(
+            &self,
+            user_pk: &PublicKey,
+        ) -> PubkyClientResult<Option<PubkyId>> {
+            let user_id = user_pk.z32();
+            *self
+                .calls
+                .lock()
+                .unwrap()
+                .entry(user_id.clone())
+                .or_default() += 1;
+            if user_id == self.target {
+                Ok(None)
+            } else {
+                Err(PubkyClientError::RequestFailed {
+                    message: "not the user under test".into(),
+                })
+            }
+        }
+    }
+
+    #[test]
+    fn test_unbound_backoff_doubles_and_caps_at_ttl() {
+        let backoff = UnboundBackoff::default();
+        let ttl = Duration::from_secs(300);
+        let t0 = Instant::now();
+        let ids = || vec!["u".to_string()];
+
+        assert_eq!(backoff.retain_due(ids(), t0), ids(), "never seen: due");
+
+        backoff.record_unbound("u", t0, ttl);
+        assert!(backoff
+            .retain_due(ids(), t0 + Duration::from_secs(59))
+            .is_empty());
+        let t1 = t0 + Duration::from_secs(60);
+        assert_eq!(backoff.retain_due(ids(), t1), ids(), "due after 60 s");
+
+        backoff.record_unbound("u", t1, ttl);
+        assert!(backoff
+            .retain_due(ids(), t1 + Duration::from_secs(119))
+            .is_empty());
+        let t2 = t1 + Duration::from_secs(120);
+        assert_eq!(backoff.retain_due(ids(), t2), ids(), "doubled to 120 s");
+
+        backoff.record_unbound("u", t2, ttl);
+        let t3 = t2 + Duration::from_secs(240);
+        backoff.record_unbound("u", t3, ttl);
+        assert!(backoff
+            .retain_due(ids(), t3 + Duration::from_secs(299))
+            .is_empty());
+        assert_eq!(
+            backoff.retain_due(ids(), t3 + ttl),
+            ids(),
+            "capped at the TTL, not 480 s"
+        );
+
+        backoff.clear("u");
+        backoff.record_unbound("u", t3, ttl);
+        assert_eq!(
+            backoff.retain_due(ids(), t3 + Duration::from_secs(60)),
+            ids(),
+            "a resolved lookup resets the wait"
+        );
+    }
+
+    #[test]
+    fn test_unbound_backoff_forgets_users_no_longer_unbound() {
+        let backoff = UnboundBackoff::default();
+        let t0 = Instant::now();
+        backoff.record_unbound("u", t0, Duration::from_secs(300));
+
+        // "u" got bound (or deleted) elsewhere and is no longer selected.
+        assert!(backoff.retain_due(vec![], t0).is_empty());
+        assert!(backoff.entries.lock().unwrap().is_empty());
+    }
+
     #[tokio_shared_rt::test(shared)]
     async fn test_resolve_user_change_keeps_binding_and_marks_stale() -> Result<(), DynError> {
         setup().await?;
