@@ -1,15 +1,20 @@
 use super::TEventProcessor;
 use crate::errors::EventProcessorError;
 use crate::events::retry::RetryScheduler;
-use crate::events::{read_stream_capped, Event, EventHandler, MAX_EVENTS_BODY};
+use crate::events::{
+    format_error_body, read_stream_capped, Event, EventHandler, MAX_ERROR_BODY, MAX_EVENTS_BODY,
+};
 use nexus_common::db::kv::RedisError;
-use nexus_common::db::{fetch_row_from_graph, queries, GraphResult, PubkyConnector};
+use nexus_common::db::{
+    fetch_row_from_graph, queries, GraphResult, PubkyClientError, PubkyConnector,
+};
 use nexus_common::models::error::ModelError;
 use nexus_common::models::homeserver::Homeserver;
 use opentelemetry::metrics::Counter;
 use opentelemetry::{global, KeyValue};
 use pubky::Method;
 use pubky_app_specs::PubkyId;
+use reqwest::StatusCode;
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock};
 use tokio::sync::watch::Receiver;
@@ -44,6 +49,10 @@ static INVALID_CURSOR_PRIMARY_HS: LazyLock<Counter<u64>> = LazyLock::new(|| {
 /// it would make the next poll re-request and re-process the identical batch, so
 /// the batch is skipped instead. Any non-zero count means the HS stream cannot
 /// make progress and needs operator attention.
+///
+/// Only successful (2xx) responses reach the batch checks: a non-2xx poll fails
+/// the run in [`event_lines_from_response`] with its status and body instead,
+/// so an HS outage is recorded as a failed poll, not as a stalled cursor.
 static STALLED_CURSOR_PRIMARY_HS: LazyLock<Counter<u64>> = LazyLock::new(|| {
     global::meter(super::METER_NAME)
         .u64_counter("watcher.primary_hs.cursor.stalled")
@@ -247,47 +256,26 @@ impl HsEventProcessor {
     /// It sends a GET request to the homeserver's events endpoint
     /// using the current cursor and a specified limit. It retrieves new event
     /// URIs in a newline-separated format, processes it into a vector of strings,
-    /// and returns the result.
+    /// and returns the result. See [`event_lines_from_response`] for how the
+    /// response is admitted.
     #[tracing::instrument(name = "events.poll", skip_all)]
     async fn poll_events(&self) -> Result<Option<Vec<String>>, EventProcessorError> {
         debug!(cursor = %self.homeserver.cursor, "Polling events");
 
-        let response_text = {
-            let pubky = PubkyConnector::get()?;
-            let url = format!(
-                "https://{}/events/?cursor={}&limit={}",
-                self.homeserver.id, self.homeserver.cursor, self.limit
-            );
+        let pubky = PubkyConnector::get()?;
+        let url = format!(
+            "https://{}/events/?cursor={}&limit={}",
+            self.homeserver.id, self.homeserver.cursor, self.limit
+        );
 
-            let response = pubky
-                .client()
-                .request(Method::GET, &url)
-                .send()
-                .await
-                .map_err(|e| EventProcessorError::client_error(e.to_string()))?;
+        let response = pubky
+            .client()
+            .request(Method::GET, &url)
+            .send()
+            .await
+            .map_err(|e| EventProcessorError::client_error(e.to_string()))?;
 
-            let (buf, exceeded) = read_stream_capped(response.bytes_stream(), MAX_EVENTS_BODY)
-                .await
-                .map_err(|e| EventProcessorError::client_error(e.to_string()))?;
-            if exceeded {
-                REJECTED.add(1, &[KeyValue::new("reason", "size_exceeded")]);
-
-                return Err(EventProcessorError::FetchSizeExceeded(
-                    buf.len() as u64,
-                    MAX_EVENTS_BODY as u64,
-                ));
-            }
-            String::from_utf8_lossy(&buf).into_owned()
-        };
-
-        let lines: Vec<String> = response_text.trim().lines().map(String::from).collect();
-        trace!(?lines, "Homeserver response lines");
-
-        if lines.is_empty() || (lines.len() == 1 && lines[0].is_empty()) {
-            return Ok(None);
-        }
-
-        Ok(Some(lines))
+        event_lines_from_response(&self.homeserver.id, response).await
     }
 
     /// Processes a batch of event lines retrieved from the homeserver.
@@ -330,7 +318,8 @@ impl HsEventProcessor {
             // re-fetches and re-processes this same batch — the same stall,
             // reached by omission rather than by repetition. A homeserver
             // sending events always sends the cursor that closes them, so this
-            // is a truncated or malformed response.
+            // is a truncated or malformed response. Non-2xx bodies (error
+            // pages) never get here: `poll_events` fails the run on them.
             None if batch.has_events() => {
                 self.reject_batch(
                     &CursorRejection::Stalled,
@@ -436,13 +425,238 @@ impl HsEventProcessor {
     }
 }
 
+/// Turns a `/events/` response into the event lines it carries.
+///
+/// The status is checked before the body is read as events. A non-2xx body is
+/// an error page, not an event batch: it has lines and no `cursor:` line, so
+/// handed to [`HsEventProcessor::process_event_lines`] it would be rejected as
+/// a stalled cursor, counting an HS outage as a cursor anomaly while the real
+/// status and body were dropped. Instead the poll fails with both, the way
+/// [`handle_put_event`](crate::events::handle_put_event) fails a resource fetch,
+/// and the cursor stays put for the next tick to retry.
+async fn event_lines_from_response(
+    hs_id: &PubkyId,
+    response: reqwest::Response,
+) -> Result<Option<Vec<String>>, EventProcessorError> {
+    let status = response.status();
+    if !status.is_success() {
+        let (body, _exceeded) = read_stream_capped(response.bytes_stream(), MAX_ERROR_BODY)
+            .await
+            .unwrap_or_default();
+        let body = format_error_body(&body, MAX_ERROR_BODY);
+
+        let message = format!("Polling events failed {hs_id}: HTTP {status} - {body}");
+        return Err(client_error_for_status(status, message));
+    }
+
+    let (buf, exceeded) = read_stream_capped(response.bytes_stream(), MAX_EVENTS_BODY)
+        .await
+        .map_err(|e| EventProcessorError::client_error(e.to_string()))?;
+    if exceeded {
+        REJECTED.add(1, &[KeyValue::new("reason", "size_exceeded")]);
+
+        return Err(EventProcessorError::FetchSizeExceeded(
+            buf.len() as u64,
+            MAX_EVENTS_BODY as u64,
+        ));
+    }
+    let response_text = String::from_utf8_lossy(&buf);
+
+    let lines: Vec<String> = response_text.trim().lines().map(String::from).collect();
+    trace!(?lines, "Homeserver response lines");
+
+    if lines.is_empty() || (lines.len() == 1 && lines[0].is_empty()) {
+        return Ok(None);
+    }
+
+    Ok(Some(lines))
+}
+
+/// Classifies a non-2xx status the same way
+/// [`PubkyClientError::from(pubky::Error)`](PubkyClientError) classifies the
+/// SDK's own errors, so a raw-client poll surfaces as the same variants as the
+/// SDK-driven fetches do.
+fn client_error_for_status(status: StatusCode, message: String) -> EventProcessorError {
+    let error = match status {
+        StatusCode::NOT_FOUND => PubkyClientError::NotFound404 { message },
+        StatusCode::TOO_MANY_REQUESTS => PubkyClientError::TooManyRequests429 { message },
+        s if s.is_server_error() => PubkyClientError::ServerError5xx { message },
+        _ => PubkyClientError::RequestFailed { message },
+    };
+    error.into()
+}
+
 #[cfg(test)]
 mod tests {
-    use super::EventBatch;
+    use super::{event_lines_from_response, EventBatch};
+    use crate::errors::EventProcessorError;
+    use crate::events::MAX_ERROR_BODY;
+    use nexus_common::db::PubkyClientError;
+    use pubky_app_specs::PubkyId;
+    use std::sync::Arc;
+
+    const HS_ID: &str = "1hb71xx9km3f4pw5izsy1gn19ff1uuuqonw4mcygzobwkryujoiy";
+
+    fn hs_id() -> PubkyId {
+        PubkyId::try_from(HS_ID).expect("valid test Pubky ID")
+    }
+
+    fn response(status: u16, body: impl Into<reqwest::Body>) -> reqwest::Response {
+        let response = http::Response::builder()
+            .status(status)
+            .body(body.into())
+            .expect("valid response");
+        reqwest::Response::from(response)
+    }
+
+    /// Unwraps the `PubkyClientError` a failed poll is classified as.
+    fn client_error(error: EventProcessorError) -> Arc<PubkyClientError> {
+        match error {
+            EventProcessorError::PubkyClientError(e) => e,
+            other => panic!("expected PubkyClientError, got {other:?}"),
+        }
+    }
 
     fn lines(raw: &[&str]) -> Vec<String> {
         raw.iter().map(|l| l.to_string()).collect()
     }
+
+    // --- event_lines_from_response ---
+
+    /// The incident shape: a proxy error page. Before the status check this
+    /// read as "events with no cursor line" and was counted as a stalled cursor.
+    #[tokio::test]
+    async fn error_page_fails_the_poll_with_status_and_body() {
+        let html = "<html>\n<head><title>502 Bad Gateway</title></head>\n<body>bad gateway</body>\n</html>";
+
+        let error = event_lines_from_response(&hs_id(), response(502, html))
+            .await
+            .unwrap_err();
+
+        match client_error(error).as_ref() {
+            PubkyClientError::ServerError5xx { message } => {
+                assert!(message.contains(HS_ID), "names the HS: {message}");
+                assert!(
+                    message.contains("HTTP 502"),
+                    "carries the status: {message}"
+                );
+                assert!(
+                    message.contains("502 Bad Gateway"),
+                    "carries the body: {message}"
+                );
+            }
+            other => panic!("expected ServerError5xx, got {other:?}"),
+        }
+    }
+
+    /// Each status lands on the same variant the SDK would map it to.
+    #[tokio::test]
+    async fn non_2xx_statuses_are_classified() {
+        for status in [404u16, 429, 503, 400] {
+            let error = event_lines_from_response(&hs_id(), response(status, "nope"))
+                .await
+                .unwrap_err();
+            let error = client_error(error);
+
+            let classified_right = matches!(
+                (status, error.as_ref()),
+                (404, PubkyClientError::NotFound404 { .. })
+                    | (429, PubkyClientError::TooManyRequests429 { .. })
+                    | (503, PubkyClientError::ServerError5xx { .. })
+                    | (400, PubkyClientError::RequestFailed { .. })
+            );
+            assert!(classified_right, "HTTP {status} classified as {error:?}");
+        }
+    }
+
+    /// A 429 must be recognisable to callers that back off on rate limiting.
+    #[tokio::test]
+    async fn too_many_requests_is_detectable() {
+        let error = event_lines_from_response(&hs_id(), response(429, "slow down"))
+            .await
+            .unwrap_err();
+
+        assert!(error.is_too_many_requests());
+    }
+
+    /// An oversized error body is truncated into the message, not rejected as
+    /// a size violation: the size cap exists for event batches.
+    #[tokio::test]
+    async fn error_body_is_capped() {
+        let body = "x".repeat(MAX_ERROR_BODY * 4);
+
+        let error = event_lines_from_response(&hs_id(), response(500, body))
+            .await
+            .unwrap_err();
+
+        match client_error(error).as_ref() {
+            PubkyClientError::ServerError5xx { message } => {
+                assert!(message.ends_with("… (truncated)"), "{message}");
+                assert!(message.len() < MAX_ERROR_BODY * 2, "{}", message.len());
+            }
+            other => panic!("expected ServerError5xx, got {other:?}"),
+        }
+    }
+
+    /// A non-2xx response whose body cannot be read still fails on the status.
+    #[tokio::test]
+    async fn unreadable_error_body_still_fails_on_status() {
+        let body = reqwest::Body::wrap_stream(futures::stream::iter(vec![Err::<bytes::Bytes, _>(
+            std::io::Error::other("connection reset"),
+        )]));
+
+        let error = event_lines_from_response(&hs_id(), response(502, body))
+            .await
+            .unwrap_err();
+
+        assert!(matches!(
+            client_error(error).as_ref(),
+            PubkyClientError::ServerError5xx { .. }
+        ));
+    }
+
+    /// The happy path is unchanged: a 2xx body is split into lines as before.
+    #[tokio::test]
+    async fn success_body_is_split_into_lines() {
+        let body = "PUT pubky://a/pub/x\nDEL pubky://b/pub/y\ncursor: 42\n";
+
+        let lines = event_lines_from_response(&hs_id(), response(200, body))
+            .await
+            .unwrap();
+
+        assert_eq!(
+            lines,
+            Some(vec![
+                "PUT pubky://a/pub/x".to_string(),
+                "DEL pubky://b/pub/y".to_string(),
+                "cursor: 42".to_string(),
+            ])
+        );
+    }
+
+    /// An idle poll answers 2xx with nothing in it.
+    #[tokio::test]
+    async fn empty_success_body_is_no_events() {
+        let lines = event_lines_from_response(&hs_id(), response(200, ""))
+            .await
+            .unwrap();
+
+        assert_eq!(lines, None);
+    }
+
+    /// A 2xx body over the events cap is still a size violation.
+    #[tokio::test]
+    async fn oversized_success_body_is_rejected() {
+        let body = "x".repeat(crate::events::MAX_EVENTS_BODY + 1);
+
+        let error = event_lines_from_response(&hs_id(), response(200, body))
+            .await
+            .unwrap_err();
+
+        assert!(matches!(error, EventProcessorError::FetchSizeExceeded(..)));
+    }
+
+    // --- EventBatch::split ---
 
     /// The usual shape: events followed by the cursor that closes the batch.
     #[test]
