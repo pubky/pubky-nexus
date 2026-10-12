@@ -963,17 +963,20 @@ pub fn get_tag_taggers_by_reach(
         "
             {}
             WHERE user.id = $user_id
-            // One row per reached user: without it a WoT reach yields one row per
-            // follow path and re-reads that user's tags for each of them
-            WITH DISTINCT reach
+            // One list of reached users: a WoT reach is walked once per user instead
+            // of once per follow path, and the label index below is read once.
+            // Deduplicating into rows instead makes the planner re-read the label
+            // index for every reached user
+            WITH COLLECT(DISTINCT reach) AS reached
             // The tagged node can be generic, representing either a Post, a User, or both.
             // For now, it will be a Post to align with UX requirements.
-            MATCH (reach)-[tag:TAGGED]->(tagged:Post)
-            WHERE tag.label = $label
+            MATCH (reach:User)-[tag:TAGGED]->(tagged:Post)
+            WHERE tag.label = $label AND reach IN reached
 
             // Get the latest tagged timestamp per `reach` user
             WITH DISTINCT reach, MAX(tag.indexed_at) AS latest_tag_time
-            ORDER BY latest_tag_time DESC
+            // Taggers with the same timestamp are ordered by id so the pages are stable
+            ORDER BY latest_tag_time DESC, reach.id ASC
 
             // Use slice notation instead of SKIP and LIMIT
             WITH COLLECT({{ reach_id: reach.id }})[$skip..$skip + $limit] AS paginated
@@ -2062,11 +2065,11 @@ mod tests {
             let cypher = get_tag_taggers_by_reach("bitcoin", "user_id_x", reach, 0, 20)
                 .to_cypher_populated();
             let tag_match = cypher
-                .find("MATCH (reach)-[tag:TAGGED]")
+                .find("MATCH (reach:User)-[tag:TAGGED]")
                 .unwrap_or_else(|| panic!("no TAGGED match: {cypher}"));
             let distinct = cypher
-                .find("WITH DISTINCT reach")
-                .unwrap_or_else(|| panic!("no WITH DISTINCT reach: {cypher}"));
+                .find("WITH COLLECT(DISTINCT reach) AS reached")
+                .unwrap_or_else(|| panic!("no collected reach: {cypher}"));
             let user_filter = cypher
                 .find("WHERE user.id")
                 .unwrap_or_else(|| panic!("no user filter: {cypher}"));
@@ -2077,6 +2080,14 @@ mod tests {
             assert!(
                 user_filter < tag_match,
                 "the user filter must apply before matching tags: {cypher}"
+            );
+            assert!(
+                cypher.contains("reach IN reached"),
+                "tags must be limited to the collected reach: {cypher}"
+            );
+            assert!(
+                cypher.contains("ORDER BY latest_tag_time DESC, reach.id ASC"),
+                "pages need a stable tie-break: {cypher}"
             );
         }
     }

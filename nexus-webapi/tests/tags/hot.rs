@@ -689,7 +689,7 @@ async fn test_hot_tags_label_taggers_with_reach_following_skip_and_limit() -> Re
 
     assert_eq!(
         &taggers[0],
-        "y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy"
+        "omynbjw4ksjc4at5gretyoatw1g5h53tkee5z55fh69sng1d3jpy"
     );
 
     assert_eq!(
@@ -712,12 +712,12 @@ async fn test_hot_tags_label_taggers_with_reach_followers() -> Result<()> {
 
     assert_eq!(
         &taggers[0],
-        "y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy"
+        "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro"
     );
 
     assert_eq!(
         &taggers[1],
-        "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro"
+        "y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy"
     );
 
     Ok(())
@@ -737,7 +737,7 @@ async fn test_hot_tags_label_taggers_with_reach_followers_skip_and_limit() -> Re
 
     assert_eq!(
         &taggers[0],
-        "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro"
+        "y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy"
     );
 
     Ok(())
@@ -755,12 +755,12 @@ async fn test_hot_tags_label_taggers_with_reach_friends() -> Result<()> {
 
     assert_eq!(
         &taggers[0],
-        "y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy"
+        "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro"
     );
 
     assert_eq!(
         &taggers[1],
-        "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro"
+        "y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy"
     );
 
     Ok(())
@@ -779,7 +779,7 @@ async fn test_hot_tags_label_taggers_with_reach_friends_skip_and_limit() -> Resu
 
     assert_eq!(
         &taggers[0],
-        "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro"
+        "y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy"
     );
 
     Ok(())
