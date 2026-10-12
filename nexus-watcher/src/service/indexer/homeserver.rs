@@ -256,8 +256,7 @@ impl HsEventProcessor {
     /// It sends a GET request to the homeserver's events endpoint
     /// using the current cursor and a specified limit. It retrieves new event
     /// URIs in a newline-separated format, processes it into a vector of strings,
-    /// and returns the result. See [`event_lines_from_response`] for how the
-    /// response is admitted.
+    /// and returns the result.
     #[tracing::instrument(name = "events.poll", skip_all)]
     async fn poll_events(&self) -> Result<Option<Vec<String>>, EventProcessorError> {
         debug!(cursor = %self.homeserver.cursor, "Polling events");
@@ -318,8 +317,8 @@ impl HsEventProcessor {
             // re-fetches and re-processes this same batch — the same stall,
             // reached by omission rather than by repetition. A homeserver
             // sending events always sends the cursor that closes them, so this
-            // is a truncated or malformed response. Non-2xx bodies (error
-            // pages) never get here: `poll_events` fails the run on them.
+            // is a truncated or malformed response (error pages never get
+            // here: `poll_events` fails the run on a non-2xx).
             None if batch.has_events() => {
                 self.reject_batch(
                     &CursorRejection::Stalled,
@@ -425,22 +424,20 @@ impl HsEventProcessor {
     }
 }
 
-/// Turns a `/events/` response into the event lines it carries.
+/// Turns a `/events/` response into the event lines it carries, or `None` for
+/// an empty body.
 ///
-/// The status is checked before the body is read as events. A non-2xx body is
-/// an error page, not an event batch: it has lines and no `cursor:` line, so
-/// handed to [`HsEventProcessor::process_event_lines`] it would be rejected as
-/// a stalled cursor, counting an HS outage as a cursor anomaly while the real
-/// status and body were dropped. Instead the poll fails with both, the way
-/// [`handle_put_event`](crate::events::handle_put_event) fails a resource fetch,
-/// and the cursor stays put for the next tick to retry.
+/// The status is checked before the body is read: an error page has lines and
+/// no `cursor:` line, so parsed as events it would be rejected as a stalled
+/// cursor. A non-2xx instead fails the poll with the status and a capped body,
+/// the way [`handle_put_event`](crate::events::handle_put_event) fails a fetch.
 async fn event_lines_from_response(
     hs_id: &PubkyId,
     response: reqwest::Response,
 ) -> Result<Option<Vec<String>>, EventProcessorError> {
     let status = response.status();
     if !status.is_success() {
-        let (body, _exceeded) = read_stream_capped(response.bytes_stream(), MAX_ERROR_BODY)
+        let (body, _) = read_stream_capped(response.bytes_stream(), MAX_ERROR_BODY)
             .await
             .unwrap_or_default();
         let body = format_error_body(&body, MAX_ERROR_BODY);
@@ -460,16 +457,15 @@ async fn event_lines_from_response(
             MAX_EVENTS_BODY as u64,
         ));
     }
-    let response_text = String::from_utf8_lossy(&buf);
 
-    let lines: Vec<String> = response_text.trim().lines().map(String::from).collect();
+    let lines: Vec<String> = String::from_utf8_lossy(&buf)
+        .trim()
+        .lines()
+        .map(String::from)
+        .collect();
     trace!(?lines, "Homeserver response lines");
 
-    if lines.is_empty() || (lines.len() == 1 && lines[0].is_empty()) {
-        return Ok(None);
-    }
-
-    Ok(Some(lines))
+    Ok((!lines.is_empty()).then_some(lines))
 }
 
 /// Classifies a non-2xx status the same way
@@ -490,7 +486,7 @@ fn client_error_for_status(status: StatusCode, message: String) -> EventProcesso
 mod tests {
     use super::{event_lines_from_response, EventBatch};
     use crate::errors::EventProcessorError;
-    use crate::events::MAX_ERROR_BODY;
+    use crate::events::{MAX_ERROR_BODY, MAX_EVENTS_BODY};
     use nexus_common::db::PubkyClientError;
     use pubky_app_specs::PubkyId;
     use std::sync::Arc;
@@ -549,13 +545,16 @@ mod tests {
         }
     }
 
-    /// Each status lands on the same variant the SDK would map it to.
+    /// Each status lands on the same variant the SDK would map it to, so a 429
+    /// is recognisable to callers that back off on rate limiting.
     #[tokio::test]
     async fn non_2xx_statuses_are_classified() {
         for status in [404u16, 429, 503, 400] {
             let error = event_lines_from_response(&hs_id(), response(status, "nope"))
                 .await
                 .unwrap_err();
+            assert_eq!(error.is_too_many_requests(), status == 429);
+
             let error = client_error(error);
 
             let classified_right = matches!(
@@ -567,16 +566,6 @@ mod tests {
             );
             assert!(classified_right, "HTTP {status} classified as {error:?}");
         }
-    }
-
-    /// A 429 must be recognisable to callers that back off on rate limiting.
-    #[tokio::test]
-    async fn too_many_requests_is_detectable() {
-        let error = event_lines_from_response(&hs_id(), response(429, "slow down"))
-            .await
-            .unwrap_err();
-
-        assert!(error.is_too_many_requests());
     }
 
     /// An oversized error body is truncated into the message, not rejected as
@@ -647,7 +636,7 @@ mod tests {
     /// A 2xx body over the events cap is still a size violation.
     #[tokio::test]
     async fn oversized_success_body_is_rejected() {
-        let body = "x".repeat(crate::events::MAX_EVENTS_BODY + 1);
+        let body = "x".repeat(MAX_EVENTS_BODY + 1);
 
         let error = event_lines_from_response(&hs_id(), response(200, body))
             .await
