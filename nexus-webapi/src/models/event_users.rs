@@ -14,12 +14,12 @@ pub const MAX_EVENT_USERS_BODY: usize = 1_000;
 /// Comma-separated Pubky ids for `GET /v0/events?users=` (1–100).
 #[derive(Debug, ToSchema)]
 #[schema(value_type = String, example = "ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny,f5tcy5gtgzshipr6pag6cn9uski3s8tjare7wd3n7enmyokgjk1o")]
-pub struct EventUsersQuery(pub Vec<PubkyId>);
+pub struct EventUsersQuery(pub HashSet<String>);
 
 /// JSON array of Pubky ids for `POST /v0/events/by_users` (1–1,000).
 #[derive(Debug, ToSchema)]
 #[schema(value_type = Vec<String>)]
-pub struct EventUsers(pub Vec<PubkyId>);
+pub struct EventUsers(pub HashSet<String>);
 
 /// A `PubkyId` parsed from one token of a comma-separated list.
 struct CsvPubkyId(PubkyId);
@@ -37,29 +37,14 @@ impl TryFrom<String> for CsvPubkyId {
 impl<'de> Deserialize<'de> for EventUsersQuery {
     fn deserialize<D: serde::de::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
         bounded_vec::deserialize_csv::<CsvPubkyId, D, 1, MAX_EVENT_USERS_QUERY>(d)
-            .map(|ids| Self(ids.into_iter().map(|id| id.0).collect()))
+            .map(|ids| Self(ids.into_iter().map(|id| id.0.to_string()).collect()))
     }
 }
 
 impl<'de> Deserialize<'de> for EventUsers {
     fn deserialize<D: serde::de::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        bounded_vec::deserialize_json_array::<PubkyId, D, 1, MAX_EVENT_USERS_BODY>(d).map(Self)
-    }
-}
-
-fn to_author_set(ids: &[PubkyId]) -> HashSet<String> {
-    ids.iter().map(|id| id.to_string()).collect()
-}
-
-impl EventUsersQuery {
-    pub fn to_author_set(&self) -> HashSet<String> {
-        to_author_set(&self.0)
-    }
-}
-
-impl EventUsers {
-    pub fn to_author_set(&self) -> HashSet<String> {
-        to_author_set(&self.0)
+        bounded_vec::deserialize_json_array::<PubkyId, D, 1, MAX_EVENT_USERS_BODY>(d)
+            .map(|ids| Self(ids.iter().map(PubkyId::to_string).collect()))
     }
 }
 
@@ -83,7 +68,7 @@ mod tests {
     fn query_parses_comma_separated_ids() {
         let parsed = query(&format!("{ALICE},{BOB}")).unwrap();
         assert_eq!(
-            parsed.users.to_author_set(),
+            parsed.users.0,
             HashSet::from([ALICE.to_string(), BOB.to_string()])
         );
     }

@@ -54,18 +54,15 @@ impl EventLine {
     #[tracing::instrument(name = "event.index.write", skip_all)]
     pub async fn store(&self) -> RedisResult<()> {
         let mut redis_conn = get_redis_conn().await?;
-        let () = deadpool_redis::redis::pipe()
+        Ok(deadpool_redis::redis::pipe()
             .atomic()
             .cmd("SET")
             .arg(EVENTS_EPOCH_KEY)
             .arg(new_epoch())
             .arg("NX")
-            .ignore()
             .rpush(events_list_key(), &self.0)
-            .ignore()
-            .query_async(&mut redis_conn)
-            .await?;
-        Ok(())
+            .exec_async(&mut redis_conn)
+            .await?)
     }
 
     pub async fn get_from_index(
@@ -109,20 +106,6 @@ impl EventLine {
         .inspect_err(|e| error!("IndexReadFailed: Failed to scan the event log: {e}"))
     }
 
-    /// Identifies the current event log: created with its first line and recreated
-    /// after Redis is flushed (e.g. by `db clear`), so a follower can tell that its
-    /// stored cursor points into a different history. Read-only; `None` until the
-    /// first line is stored.
-    pub async fn epoch() -> RedisResult<Option<String>> {
-        Ok(Self::log_state().await?.epoch)
-    }
-
-    /// Number of lines in the event log. A follower whose cursor is past it knows the
-    /// log was truncated or restored and must restart.
-    pub async fn log_len() -> RedisResult<u64> {
-        Ok(Self::log_state().await?.len)
-    }
-
     /// The log's epoch and length, read together in one round trip.
     pub async fn log_state() -> RedisResult<EventLogState> {
         let mut redis_conn = get_redis_conn().await?;
@@ -138,9 +121,12 @@ impl EventLine {
 /// What identifies the event log at one moment.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EventLogState {
-    /// See [`EventLine::epoch`].
+    /// Created with the log's first line and recreated after Redis is flushed (e.g. by
+    /// `db clear`), so a follower can tell that its cursor points into a different
+    /// history. `None` until the first line is stored.
     pub epoch: Option<String>,
-    /// See [`EventLine::log_len`].
+    /// Number of lines. A follower whose sent cursor is past it knows the log was
+    /// truncated or restored.
     pub len: u64,
 }
 

@@ -1,6 +1,6 @@
 use crate::models::{BoundedLimit, EventUsers, EventUsersQuery};
 use crate::routes::AppState;
-use nexus_common::models::event::EventLine;
+use nexus_common::models::event::{EventLine, EventLogState};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -9,7 +9,7 @@ use super::endpoints::{EVENTS_BY_USERS_ROUTE, EVENTS_ROUTE};
 use crate::routes::Json as RequestJson;
 use crate::routes::Query;
 use crate::Error;
-use axum::http::{HeaderName, HeaderValue};
+use axum::http::HeaderValue;
 use axum::routing::{get, post};
 use axum::{response::IntoResponse, response::Response, Router};
 use const_format::formatcp;
@@ -24,6 +24,7 @@ pub const EVENTS_LENGTH_HEADER: &str = "x-events-length";
 
 const DEFAULT_EVENTS_LIMIT: usize = 500;
 const MAX_EVENTS_LIMIT: usize = 1000;
+type EventsLimit = BoundedLimit<DEFAULT_EVENTS_LIMIT, MAX_EVENTS_LIMIT>;
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, utoipa::ToResponse)]
 #[schema(as = String)]
@@ -44,7 +45,7 @@ impl std::fmt::Display for EventsList {
 #[derive(Deserialize)]
 pub struct EventsQuery {
     cursor: Option<u64>,
-    limit: Option<BoundedLimit<DEFAULT_EVENTS_LIMIT, MAX_EVENTS_LIMIT>>,
+    limit: Option<EventsLimit>,
     users: Option<EventUsersQuery>,
 }
 
@@ -62,19 +63,13 @@ pub struct EventsByUsersRequest {
 }
 
 const PAGING_RULES: &str = formatcp!(
-    "Filtered by author when `users` is given: only lines whose URI author \
-(`pubky://<author>/...`) is listed are returned; `users` may appear once. A filtered request \
-scans at most {EVENTS_FILTER_SCAN_BUDGET} log lines, so a page can hold fewer than `limit` \
-lines, even none, while the log continues: keep paging with the returned `cursor`, which is \
-the position after the last line scanned. The end of the log is reached when the returned \
-cursor equals the requested one. Two headers let a follower detect a different log; \
-compare them with what it stored, and the cursor it sent: `x-events-epoch` identifies \
-the log, and a change from one value to another means it was recreated (an epoch \
-appearing where there was none is not a change, and while it is absent the stored epoch \
-is kept); `x-events-length` is the log's length \
-when the request started, and a sent cursor past it means the log was truncated or \
-restored. The returned cursor can exceed `x-events-length` when events are appended \
-during the request, so those two are not compared. In either case restart from cursor 0."
+    "Filtered by author when `users` is given (once). A filtered request scans at most \
+{EVENTS_FILTER_SCAN_BUDGET} lines, so a page can hold fewer than `limit` lines, even none, \
+before the log ends: keep paging with the returned `cursor` (the position after the last \
+line scanned) until it equals the one you sent. Restart from cursor 0 when `x-events-epoch` \
+changes from one value to another (keep your stored epoch while it is absent) or when the \
+cursor you sent is past `x-events-length`. Never compare the returned cursor with \
+`x-events-length`."
 );
 
 #[utoipa::path(
@@ -96,7 +91,7 @@ during the request, so those two are not compared. In either case restart from c
             content_type = "text/plain",
             headers(
                 ("x-events-epoch" = String, description = "Identifies the event log; a change means the log was recreated. Absent until the first event is stored"),
-                ("x-events-length" = u64, description = "Lines in the event log when the request started; a stored cursor past it means the log was truncated or restored")
+                ("x-events-length" = u64, description = "Lines in the event log when the request started; a sent cursor past it means the log was truncated or restored")
             ),
             example = "PUT pubky://<pk>/<path>\nDEL pubky://<pk>/<path>\nPUT pubky://<pk>/<path>\ncursor: 2"
         ),
@@ -110,11 +105,11 @@ pub async fn get_events_handler(Query(q): Query<EventsQuery>) -> Result<Response
     let limit = q.limit.as_ref().map_or(DEFAULT_EVENTS_LIMIT, |l| l.value());
     match q.users {
         None => {
-            let log = LogState::read().await;
+            let log = read_log_state().await;
             let (events, next_cursor) = EventLine::get_from_index(q.cursor, limit).await?;
             Ok(events_response(events, next_cursor, log))
         }
-        Some(users) => filtered_events_response(q.cursor, limit, &users.to_author_set()).await,
+        Some(users) => filtered_events_response(q.cursor, limit, &users.0).await,
     }
 }
 
@@ -134,7 +129,7 @@ pub async fn get_events_handler(Query(q): Query<EventsQuery>) -> Result<Response
             content_type = "text/plain",
             headers(
                 ("x-events-epoch" = String, description = "Identifies the event log; a change means the log was recreated. Absent until the first event is stored"),
-                ("x-events-length" = u64, description = "Lines in the event log when the request started; a stored cursor past it means the log was truncated or restored")
+                ("x-events-length" = u64, description = "Lines in the event log when the request started; a sent cursor past it means the log was truncated or restored")
             ),
             example = "PUT pubky://<pk>/<path>\ncursor: 2"
         ),
@@ -146,17 +141,9 @@ pub async fn get_events_handler(Query(q): Query<EventsQuery>) -> Result<Response
 pub async fn post_events_by_users_handler(
     RequestJson(request): RequestJson<EventsByUsersRequest>,
 ) -> Result<Response, Error> {
-    let limit = match request.limit {
-        None => DEFAULT_EVENTS_LIMIT,
-        Some(0) => return Err(Error::invalid_input("limit must be at least 1")),
-        Some(n) if n > MAX_EVENTS_LIMIT => {
-            return Err(Error::invalid_input(format!(
-                "limit exceeds maximum of {MAX_EVENTS_LIMIT}"
-            )))
-        }
-        Some(n) => n,
-    };
-    filtered_events_response(request.cursor, limit, &request.users.to_author_set()).await
+    let limit = request.limit.unwrap_or(DEFAULT_EVENTS_LIMIT);
+    EventsLimit::validate(limit)?;
+    filtered_events_response(request.cursor, limit, &request.users.0).await
 }
 
 async fn filtered_events_response(
@@ -164,48 +151,31 @@ async fn filtered_events_response(
     limit: usize,
     authors: &std::collections::HashSet<String>,
 ) -> Result<Response, Error> {
-    let log = LogState::read().await;
+    let log = read_log_state().await;
     let page = EventLine::get_filtered_from_index(cursor, limit, authors).await?;
     Ok(events_response(page.lines, page.next_cursor, log))
 }
 
-/// The log's identity, read before the events so that a log recreated mid-request
-/// is reported with the old identity and the follower notices on its next page.
-struct LogState {
-    epoch: Option<String>,
-    len: Option<u64>,
-}
-
-impl LogState {
-    /// One round trip. Never fails the request: if Redis can't answer, the headers
-    /// are left out.
-    async fn read() -> Self {
-        match EventLine::log_state().await {
-            Ok(state) => Self {
-                epoch: state.epoch,
-                len: Some(state.len),
-            },
-            Err(e) => {
-                warn!("Could not read the event log epoch and length: {e}");
-                Self {
-                    epoch: None,
-                    len: None,
-                }
-            }
-        }
-    }
+/// The log's epoch and length, read before the events so that a log recreated
+/// mid-request is reported with the old identity and the follower notices on its
+/// next page. Never fails the request: if Redis can't answer, the headers are left out.
+async fn read_log_state() -> Option<EventLogState> {
+    EventLine::log_state()
+        .await
+        .inspect_err(|e| warn!("Could not read the event log epoch and length: {e}"))
+        .ok()
 }
 
 /// The plain-text event list, with the log's epoch and length headers.
-fn events_response(events: Vec<String>, cursor: u64, log: LogState) -> Response {
+fn events_response(events: Vec<String>, cursor: u64, log: Option<EventLogState>) -> Response {
     let body = EventsList { events, cursor }.to_string();
     let mut response = body.into_response();
-    let headers = response.headers_mut();
-    if let Some(value) = log.epoch.and_then(|e| HeaderValue::from_str(&e).ok()) {
-        headers.insert(HeaderName::from_static(EVENTS_EPOCH_HEADER), value);
-    }
-    if let Some(len) = log.len {
-        headers.insert(HeaderName::from_static(EVENTS_LENGTH_HEADER), len.into());
+    if let Some(log) = log {
+        let headers = response.headers_mut();
+        if let Some(epoch) = log.epoch.and_then(|e| HeaderValue::from_str(&e).ok()) {
+            headers.insert(EVENTS_EPOCH_HEADER, epoch);
+        }
+        headers.insert(EVENTS_LENGTH_HEADER, log.len.into());
     }
     response
 }

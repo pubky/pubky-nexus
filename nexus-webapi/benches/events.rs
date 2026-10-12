@@ -44,7 +44,7 @@ fn bench_events_filtered(c: &mut Criterion) {
 
     let rt = Runtime::new().unwrap();
     let (first_page, _) = rt.block_on(EventLine::get_from_index(None, 1)).unwrap();
-    let log_len = rt.block_on(EventLine::log_len()).unwrap();
+    let log_len = rt.block_on(EventLine::log_state()).unwrap().len;
     println!("Event log length: {log_len}");
 
     // Worst case per request: an author with no lines scans the whole budget.

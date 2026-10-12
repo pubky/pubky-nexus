@@ -56,8 +56,9 @@ async fn test_events_large_cursor_with_limit() -> Result<()> {
 use nexus_common::models::event::EventLine;
 use serde_json::json;
 
-const EPOCH_HEADER: &str = "x-events-epoch";
-const LENGTH_HEADER: &str = "x-events-length";
+use nexus_webapi::routes::v0::events::{
+    EVENTS_EPOCH_HEADER as EPOCH_HEADER, EVENTS_LENGTH_HEADER as LENGTH_HEADER,
+};
 
 /// A fresh author key, so this test's lines are the only ones by it in the log.
 fn fresh_author() -> String {
