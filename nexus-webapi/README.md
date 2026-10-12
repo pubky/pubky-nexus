@@ -32,7 +32,12 @@ To follow only some authors (e.g. a Nexus that indexes part of the network), fil
 - `GET /v0/events?users=<pk>,<pk>&cursor=<n>&limit=<n>`: up to 100 Pubky ids.
 - `POST /v0/events/by_users` with `{"users": ["<pk>", ...], "cursor": 0, "limit": 500}`: up to 1,000 Pubky ids.
 
-A filtered request scans at most 10,000 log lines, so a page can hold fewer than `limit` lines, even none, before the log ends. Keep paging with the returned `cursor` (the position after the last line scanned); the end is reached when it equals the cursor you sent. Every response carries an `x-events-epoch` header: if it changes, the log was recreated and a stored cursor must restart from 0.
+A filtered request scans at most 10,000 log lines, so a page can hold fewer than `limit` lines, even none, before the log ends. Keep paging with the returned `cursor` (the position after the last line scanned); the end is reached when it equals the cursor you sent. `POST /v0/events/by_users` is in the expensive rate-limit bucket.
+
+Two headers tell a follower when its stored cursor no longer fits the log, in which case it restarts from 0:
+
+- `x-events-epoch` identifies the log. It is created with the first stored event and changes when the log is recreated (e.g. after `db clear`).
+- `x-events-length` is the log's length when the request started. A stored cursor past it means the log was truncated or restored from an older backup.
 
 ## Installation
 

@@ -53,12 +53,11 @@ async fn test_events_large_cursor_with_limit() -> Result<()> {
 
 // ---- Filtering by author (`users`, `POST /v0/events/by_users`) ----
 
-use deadpool_redis::redis::AsyncCommands;
-use nexus_common::db::get_redis_conn;
 use nexus_common::models::event::EventLine;
 use serde_json::json;
 
 const EPOCH_HEADER: &str = "x-events-epoch";
+const LENGTH_HEADER: &str = "x-events-length";
 
 /// A fresh author key, so this test's lines are the only ones by it in the log.
 fn fresh_author() -> String {
@@ -69,21 +68,15 @@ fn line(author: &str, n: usize) -> String {
     format!("PUT pubky://{author}/pub/pubky.app/posts/{n:013}")
 }
 
-/// Appends `lines` to the shared event log; returns them for cleanup.
+/// Appends `lines` to the shared event log. They are left in place: removing them
+/// would shift positions under tests paging the same log, and their fresh authors
+/// already keep them out of every other test's results.
 async fn append(lines: Vec<String>) -> Result<Vec<String>> {
     host_url().await; // the test server sets up the stack
     for l in &lines {
         EventLine::new(l.clone()).store().await?;
     }
     Ok(lines)
-}
-
-async fn remove(lines: &[String]) -> Result<()> {
-    let mut redis_conn = get_redis_conn().await?;
-    for l in lines {
-        let _: i64 = redis_conn.lrem("Event:Events", 0, l).await?;
-    }
-    Ok(())
 }
 
 /// Splits a plain-text events body into its lines and its cursor.
@@ -123,7 +116,7 @@ async fn collect_get(users: &str, limit: usize) -> Result<Vec<String>> {
 #[tokio_shared_rt::test(shared)]
 async fn test_events_filter_returns_only_listed_authors_in_order() -> Result<()> {
     let (a, b, c) = (fresh_author(), fresh_author(), fresh_author());
-    let lines = append(vec![line(&a, 1), line(&b, 2), line(&c, 3), line(&a, 4)]).await?;
+    append(vec![line(&a, 1), line(&b, 2), line(&c, 3), line(&a, 4)]).await?;
 
     let only_a = collect_get(&a, 500).await?;
     assert_eq!(only_a, vec![line(&a, 1), line(&a, 4)]);
@@ -131,7 +124,7 @@ async fn test_events_filter_returns_only_listed_authors_in_order() -> Result<()>
     let a_and_b = collect_get(&format!("{a},{b}"), 500).await?;
     assert_eq!(a_and_b, vec![line(&a, 1), line(&b, 2), line(&a, 4)]);
 
-    remove(&lines).await
+    Ok(())
 }
 
 #[tokio_shared_rt::test(shared)]
@@ -142,7 +135,7 @@ async fn test_events_filter_small_limit_pages_without_gaps_or_repeats() -> Resul
     let paged = collect_get(&a, 2).await?;
     assert_eq!(paged, lines);
 
-    remove(&lines).await
+    Ok(())
 }
 
 #[tokio_shared_rt::test(shared)]
@@ -168,7 +161,7 @@ async fn test_events_filter_rejects_invalid_users() -> Result<()> {
 #[tokio_shared_rt::test(shared)]
 async fn test_events_by_users_post_matches_get() -> Result<()> {
     let (a, b) = (fresh_author(), fresh_author());
-    let lines = append(vec![line(&a, 1), line(&b, 2), line(&a, 3)]).await?;
+    append(vec![line(&a, 1), line(&b, 2), line(&a, 3)]).await?;
     let url = host_url().await;
     let client = httpc_test::new_client("")?;
 
@@ -192,7 +185,7 @@ async fn test_events_by_users_post_matches_get() -> Result<()> {
     assert_eq!(via_post, collect_get(&a, 1).await?);
     assert_eq!(via_post, vec![line(&a, 1), line(&a, 3)]);
 
-    remove(&lines).await
+    Ok(())
 }
 
 #[tokio_shared_rt::test(shared)]
@@ -208,6 +201,7 @@ async fn test_events_by_users_post_rejects_invalid_requests() -> Result<()> {
         json!({ "users": too_many }),
         json!({ "users": [a.clone()], "limit": 0 }),
         json!({ "users": [a.clone()], "limit": 1001 }),
+        json!({ "users": [a.clone()], "cursr": 5 }),
     ] {
         let res = client.do_post(&endpoint, body.clone()).await?;
         assert_eq!(res.status(), 400, "body={body:.60}");
@@ -216,15 +210,26 @@ async fn test_events_by_users_post_rejects_invalid_requests() -> Result<()> {
 }
 
 #[tokio_shared_rt::test(shared)]
-async fn test_events_epoch_header_is_present_and_stable() -> Result<()> {
+async fn test_events_identity_headers_are_present_and_consistent() -> Result<()> {
+    append(vec![line(&fresh_author(), 1)]).await?; // the epoch exists once a line is stored
     let url = host_url().await;
     let client = httpc_test::new_client("")?;
     let first = client.do_get(&format!("{url}/v0/events?limit=1")).await?;
     let second = client
         .do_get(&format!("{url}/v0/events?limit=1&users={}", fresh_author()))
         .await?;
+
     let epoch = first.header(EPOCH_HEADER).expect("epoch header");
     assert!(!epoch.is_empty());
     assert_eq!(second.header(EPOCH_HEADER), Some(epoch));
+
+    let len: u64 = first
+        .header(LENGTH_HEADER)
+        .expect("length header")
+        .parse()
+        .expect("numeric length");
+    assert!(len >= 1);
+    let later: u64 = second.header(LENGTH_HEADER).unwrap().parse().unwrap();
+    assert!(later >= len, "the log only grows between requests");
     Ok(())
 }

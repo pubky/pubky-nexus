@@ -49,8 +49,11 @@ pub struct FilteredEvents {
 }
 
 impl EventLine {
+    /// Appends the line to the event log, first creating the log's epoch if this
+    /// log has none yet (a new or flushed Redis).
     #[tracing::instrument(name = "event.index.write", skip_all)]
     pub async fn store(&self) -> RedisResult<()> {
+        ensure_epoch().await?;
         self.put_index_list(&[EVENTS_KEY]).await
     }
 
@@ -95,21 +98,36 @@ impl EventLine {
         .inspect_err(|e| error!("IndexReadFailed: Failed to scan the event log: {e}"))
     }
 
-    /// Identifies the current event log. It changes whenever the log is recreated
-    /// (e.g. Redis is flushed by `db clear`), so a follower can tell that its stored
-    /// cursor no longer points into the same history.
-    pub async fn epoch() -> RedisResult<String> {
+    /// Identifies the current event log: created with its first line and recreated
+    /// after Redis is flushed (e.g. by `db clear`), so a follower can tell that its
+    /// stored cursor points into a different history. Read-only; `None` until the
+    /// first line is stored.
+    pub async fn epoch() -> RedisResult<Option<String>> {
         let mut redis_conn = get_redis_conn().await?;
-        let now_ms = chrono::Utc::now().timestamp_millis().to_string();
-        let _: Option<String> = deadpool_redis::redis::cmd("SET")
-            .arg(EVENTS_EPOCH_KEY)
-            .arg(&now_ms)
-            .arg("NX")
-            .query_async(&mut redis_conn)
-            .await?;
-        let epoch: Option<String> = redis_conn.get(EVENTS_EPOCH_KEY).await?;
-        Ok(epoch.unwrap_or(now_ms))
+        Ok(redis_conn.get(EVENTS_EPOCH_KEY).await?)
     }
+
+    /// Number of lines in the event log. A follower whose cursor is past it knows the
+    /// log was truncated or restored and must restart.
+    pub async fn log_len() -> RedisResult<u64> {
+        let mut redis_conn = get_redis_conn().await?;
+        Ok(redis_conn
+            .llen(format!("{EVENTS_PREFIX}:{EVENTS_KEY}"))
+            .await?)
+    }
+}
+
+/// Sets the log's epoch unless it already has one.
+async fn ensure_epoch() -> RedisResult<()> {
+    let mut redis_conn = get_redis_conn().await?;
+    let now_ms = chrono::Utc::now().timestamp_millis().to_string();
+    let _: Option<String> = deadpool_redis::redis::cmd("SET")
+        .arg(EVENTS_EPOCH_KEY)
+        .arg(now_ms)
+        .arg("NX")
+        .query_async(&mut redis_conn)
+        .await?;
+    Ok(())
 }
 
 /// The author of an event line: `PUT pubky://<author>/pub/...` -> `<author>`.
@@ -315,9 +333,12 @@ mod scan_tests {
     }
 
     #[tokio_shared_rt::test(shared)]
-    async fn epoch_is_stable_across_reads() {
+    async fn storing_a_line_creates_a_stable_epoch() {
         StackManager::setup(&StackConfig::default()).await.unwrap();
+        ensure_epoch().await.unwrap();
         let first = EventLine::epoch().await.unwrap();
-        assert_eq!(EventLine::epoch().await.unwrap(), first);
+        assert!(first.is_some(), "an epoch exists once a line can be stored");
+        ensure_epoch().await.unwrap();
+        assert_eq!(EventLine::epoch().await.unwrap(), first, "set only once");
     }
 }
