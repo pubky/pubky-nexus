@@ -70,6 +70,7 @@ impl JobRegistry {
         nexus_common::StackManager::setup(&config.stack)
             .await
             .map_err(JobError::Stack)?;
+        config.features.apply();
 
         let lock: Arc<dyn lock::RunLock> = Arc::new(RedisRunLock::new());
         let now_fn = Arc::new(Utc::now) as scheduler::NowFn;

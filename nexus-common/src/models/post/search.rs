@@ -3,6 +3,7 @@ use crate::db::kv::{search, AuthorFilter, RedisResult, ScoreAction, SortOrder};
 use crate::db::queries::get::{global_tags_by_post, global_tags_by_post_engagement};
 use crate::db::{fetch_all_rows_from_graph, RedisOps};
 use crate::models::error::ModelResult;
+use crate::models::post::trust_filter::{self, AuthorPost};
 use crate::models::post::{PostDetails, PostStream, StreamSource};
 use crate::models::tag::post::TagPost;
 use crate::models::tag::traits::TaggersCollection;
@@ -60,7 +61,7 @@ impl PostsByTagSearch {
             let sorted_set: Vec<(f64, &str)> = row.get("sorted_set").unwrap_or(Vec::new());
             if !label.is_empty() && !sorted_set.is_empty() {
                 let key_parts = [&index_key[..], &[label]].concat();
-                Self::put_index_sorted_set(&key_parts, &sorted_set, None, None).await?;
+                trust_filter::add(&key_parts, &sorted_set).await?;
             }
         }
         Ok(())
@@ -149,12 +150,28 @@ impl PostsByTagSearch {
     ) -> RedisResult<()> {
         let tag_global_engagement_key_parts = [&TAG_GLOBAL_POST_ENGAGEMENT[..], &[label]].concat();
         let post_key_slice: &[&str] = &[author_id, post_id];
-        Self::put_score_index_sorted_set(
+        trust_filter::incr(
             &tag_global_engagement_key_parts,
             post_key_slice,
             score_action,
         )
         .await
+    }
+
+    /// The label sets `post` belongs in, as joined key parts and score, as
+    /// [`Self::reindex`] places it.
+    pub(crate) fn shared_set_entries(post: &AuthorPost) -> Vec<(String, f64)> {
+        let engagement = (post.engagement + post.mentions) as f64;
+        let key = |family: [&str; 4], label: &str| format!("{}:{label}", family.join(":"));
+        post.labels
+            .iter()
+            .flat_map(|label| {
+                [
+                    (key(TAG_GLOBAL_POST_TIMELINE, label), post.indexed_at as f64),
+                    (key(TAG_GLOBAL_POST_ENGAGEMENT, label), engagement),
+                ]
+            })
+            .collect()
     }
 
     pub async fn put_to_index(author_id: &str, post_id: &str, tag_label: &str) -> RedisResult<()> {
@@ -165,13 +182,8 @@ impl PostsByTagSearch {
             let option = PostDetails::try_from_index_json(post_key_slice, None).await?;
             if let Some(post_details) = option {
                 let member_key = post_key_slice.join(":");
-                Self::put_index_sorted_set(
-                    &key_parts,
-                    &[(post_details.indexed_at as f64, &member_key)],
-                    None,
-                    None,
-                )
-                .await?;
+                trust_filter::add(&key_parts, &[(post_details.indexed_at as f64, &member_key)])
+                    .await?;
             }
         }
         Ok(())

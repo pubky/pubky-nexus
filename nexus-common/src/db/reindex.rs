@@ -76,7 +76,7 @@ pub async fn sync() {
         .await
         .expect("Failed to reindex influencers");
 
-    SocialGraphStatus::reindex()
+    SocialGraphStatus::publish()
         .await
         .expect("Failed to reindex the social graph ranking");
 

@@ -6,6 +6,7 @@ mod metrics;
 mod relationships;
 pub mod search;
 mod stream;
+pub(crate) mod trust_filter;
 mod view;
 
 pub use bookmark::Bookmark;
