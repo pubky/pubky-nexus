@@ -45,6 +45,8 @@ async fn test_info_endpoint() -> Result<()> {
     println!("body: {body:?}");
     assert_eq!(body["name"], env!("CARGO_PKG_NAME"));
     assert_eq!(body["version"], env!("CARGO_PKG_VERSION"));
+    // The test server runs with the default scope, which indexes everyone.
+    assert_eq!(body["scope"], serde_json::json!({ "kind": "everything" }));
 
     Ok(())
 }
