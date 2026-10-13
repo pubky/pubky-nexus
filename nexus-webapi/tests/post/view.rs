@@ -285,14 +285,19 @@ async fn test_get_post_view_with_viewer() -> Result<()> {
     // Check the total posts using that tag
     assert_eq!(tags.len(), 2);
 
-    assert!(
-        tags[0]["relationship"].as_bool().unwrap(),
+    assert_eq!(
+        tags[0]["relationship"], true,
         "Expected to be part of the taggers"
     );
-    assert!(
-        !tags[1]["relationship"].as_bool().unwrap(),
+    assert_eq!(
+        tags[0]["tag_uri"], "pubky://7w4hmktqa7gia5thmk7zki8px7ttwpwjtgaaaou4tbqx64re8d1o/pub/pubky.app/tags/V8N1P3L9J45R",
+        "Expected the viewer's tag address"
+    );
+    assert_eq!(
+        tags[1]["relationship"], false,
         "Expected not to be part of the taggers"
     );
+    assert!(tags[1]["tag_uri"].is_null(), "Expected no tag address");
 
     Ok(())
 }

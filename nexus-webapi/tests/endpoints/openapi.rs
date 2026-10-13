@@ -71,3 +71,37 @@ fn test_static_openapi_spec_valid() {
     // Validate all $ref references are defined
     validate_openapi_refs(&json);
 }
+
+/// `relationship` is a boolean and `tag_uri`, the viewer's tag address, a nullable string.
+fn assert_relationship_and_tag_uri(schema: &str) {
+    let spec = serde_json::to_value(V0ApiDoc::merge_docs()).expect("serializable spec");
+    let properties = spec
+        .pointer(&format!("/components/schemas/{schema}/properties"))
+        .unwrap_or_else(|| panic!("{schema} properties"));
+    assert_eq!(
+        properties["relationship"]["type"], "boolean",
+        "{schema}: {properties}"
+    );
+    let tag_uri = &properties["tag_uri"];
+    assert_eq!(
+        tag_uri["type"],
+        serde_json::json!(["string", "null"]),
+        "{schema}: {tag_uri}"
+    );
+    assert!(
+        tag_uri["example"]
+            .as_str()
+            .is_some_and(|example| example.starts_with("pubky://")),
+        "{schema}: {tag_uri}"
+    );
+}
+
+#[test]
+fn test_tag_details_relationship_and_tag_uri() {
+    assert_relationship_and_tag_uri("TagDetails");
+}
+
+#[test]
+fn test_taggers_relationship_and_tag_uri() {
+    assert_relationship_and_tag_uri("TaggersInfoResponse");
+}
