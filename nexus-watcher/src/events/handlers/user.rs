@@ -6,7 +6,7 @@ use nexus_common::db::{
 };
 use nexus_common::models::{
     traits::Collection,
-    user::{UserCounts, UserDetails, UserEpoch, UserSearch, UsersByTagSearch},
+    user::{UserCounts, UserDetails, UserSearch, UsersByTagSearch},
 };
 use pubky_app_specs::{PubkyAppUser, PubkyId};
 use tracing::debug;
@@ -77,20 +77,17 @@ pub async fn del(user_id: PubkyId) -> Result<(), EventProcessorError> {
             // 1. UserSearch reads UserDetails — must run before UserDetails Redis is removed
             UserSearch::delete(&user_id).await?;
 
-            // 2. Redis cleanup (parallel, all idempotent DEL/ZREM/HDEL). The epoch
-            // field goes with the node, so the index holds nothing the graph can't back.
+            // 2. Redis cleanup (parallel, all idempotent DEL/ZREM)
             let user_id_str: &str = user_id.as_ref();
             let key_parts: &[&str] = &[user_id_str];
             let key_parts_list = [key_parts];
             let indexing_results = nexus_common::traced_join!(
                 tracing::info_span!("index.delete");
                 UserDetails::remove_from_index_multiple_json(&key_parts_list),
-                UserCounts::delete(&user_id),
-                UserEpoch::del_from_index(&user_id)
+                UserCounts::delete(&user_id)
             );
             indexing_results.0?;
             indexing_results.1?;
-            indexing_results.2?;
 
             // 3. Graph deletion LAST
             exec_single_row(queries::del::delete_user(&user_id)).await?;
@@ -103,8 +100,7 @@ pub async fn del(user_id: PubkyId) -> Result<(), EventProcessorError> {
             // 2. Graph-first: write the tombstone before the cache. Collection::get_by_ids
             // repopulates the cache from the graph on a miss, so writing the cache first
             // would let a concurrent read cache the live profile again afterwards.
-            // The tombstone keeps the stored `uri`, and its epoch in the graph
-            // and in `User:Epoch`.
+            // The tombstone keeps the stored `uri` and its epoch in the graph.
             let tombstone = UserDetails::tombstone(&user_id);
             tombstone.put_to_graph().await?;
 

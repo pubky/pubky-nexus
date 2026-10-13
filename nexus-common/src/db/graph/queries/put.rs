@@ -33,19 +33,6 @@ pub fn create_user(user: &UserDetails, uri: Option<&str>) -> GraphResult<Query> 
     Ok(query)
 }
 
-/// Sets `epoch` to `v0` on an existing `:User` that has none and returns the
-/// stored value; a stored epoch is kept. No row when there is no `:User` node:
-/// it never creates one.
-pub fn init_user_epoch(user_id: &str) -> Query {
-    Query::new(
-        "init_user_epoch",
-        "MATCH (u:User {id: $user_id})
-         SET u.epoch = coalesce(u.epoch, 'v0')
-         RETURN u.epoch AS epoch",
-    )
-    .param("user_id", user_id)
-}
-
 /// Creates a Cypher query to add or edit a post to the graph database and handles its relationships.
 /// # Arguments
 /// * `post` - A reference to a `PostDetails` struct containing information about the post to be created or edited

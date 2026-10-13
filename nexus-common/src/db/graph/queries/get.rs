@@ -371,29 +371,18 @@ pub fn author_post_entries(author_id: &str, after: (i64, &str), limit: usize) ->
     .param("limit", limit as i64)
 }
 
-/// A user's stored epoch: no row when there is no `:User` node, and a null
-/// `epoch` when the node has none.
-pub fn get_user_epoch(user_id: &str) -> Query {
-    Query::new(
-        "get_user_epoch",
-        "MATCH (u:User {id: $user_id}) RETURN u.epoch AS epoch",
-    )
-    .param("user_id", user_id)
-}
-
-/// One keyset page of every `:User`'s epoch, ordered by id: up to `limit` users
-/// whose id sorts after `after_id`. Pass `""` for the first page and the last id
-/// returned for the next; an empty page means the end.
+/// One keyset page of user ids, ordered by `id`, strictly after `after_id`
+/// (`""` for the first page). Feed the last id of a page back as `after_id`
+/// for the next; an empty page means the end.
 ///
-/// Tombstoned users are included, since they keep their epoch. A node without
-/// an `epoch` property reads as `v0`.
-pub fn get_user_epochs_page(after_id: &str, limit: usize) -> Query {
+/// Tombstoned users and stubs are included: every `:User` node counts.
+pub fn get_user_ids_page(after_id: &str, limit: usize) -> Query {
     Query::new(
-        "get_user_epochs_page",
+        "get_user_ids_page",
         "
         MATCH (u:User)
         WHERE u.id > $after_id
-        RETURN u.id AS id, coalesce(u.epoch, 'v0') AS epoch
+        RETURN u.id AS id
         ORDER BY u.id ASC
         LIMIT $limit
         ",

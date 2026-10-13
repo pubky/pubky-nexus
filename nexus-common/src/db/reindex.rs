@@ -9,9 +9,7 @@ use crate::models::tag::stream::HotTags;
 use crate::models::tag::traits::TagCollection;
 use crate::models::tag::user::TagUser;
 use crate::models::traits::Collection;
-use crate::models::user::{
-    Influencers, SocialGraphStatus, UserDetails, UserEpoch, UsersByTagSearch,
-};
+use crate::models::user::{Influencers, SocialGraphStatus, UserDetails, UsersByTagSearch};
 use crate::types::DynError;
 use crate::{
     models::post::{PostCounts, PostDetails, PostRelationships},
@@ -32,10 +30,6 @@ pub async fn sync() {
         .await
         .expect("Failed indexing User Details");
     //TODO use collections for every other model
-
-    UserEpoch::reindex()
-        .await
-        .expect("Failed to reindex user epochs");
 
     for user_id in user_ids {
         let span = tracing::info_span!("reindex.user", user_id = %user_id);

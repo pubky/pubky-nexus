@@ -1,7 +1,4 @@
-use nexus_common::{
-    db::PubkyConnector,
-    models::user::{UserEpoch, UserIngestor},
-};
+use nexus_common::{db::PubkyConnector, models::user::UserIngestor};
 pub mod event;
 
 pub use event::{Event, EventType, ParseResult};
@@ -13,7 +10,7 @@ use std::{
     path::{Path, PathBuf},
     sync::Arc,
 };
-use tracing::{debug, warn};
+use tracing::debug;
 
 mod fetch;
 pub mod handlers;
@@ -74,8 +71,6 @@ impl DefaultEventHandler {
 #[async_trait::async_trait]
 impl EventHandler for DefaultEventHandler {
     async fn handle(&self, event: &Event) -> Result<(), EventProcessorError> {
-        index_owner_epoch(event).await;
-
         match event.event_type {
             EventType::Put => {
                 handle_put_event(
@@ -94,21 +89,6 @@ impl EventHandler for DefaultEventHandler {
 
         event.to_event_line().store().await?;
         Ok(())
-    }
-}
-
-/// Makes sure the owner of a pubky.app event has an epoch in the graph and in
-/// `User:Epoch`, for PUT and DEL alike. Other apps' tag folders and
-/// referenced users are left alone.
-///
-/// It decides nothing: a failure is logged, never returned, and the
-/// event goes on to its handler.
-async fn index_owner_epoch(event: &Event) {
-    let ExtendedParsedUri::PubkyApp { user_id, .. } = &event.parsed_uri else {
-        return;
-    };
-    if let Err(e) = UserEpoch::get_by_id(user_id).await {
-        warn!(%user_id, error = ?e, "Failed to index the event owner's epoch");
     }
 }
 

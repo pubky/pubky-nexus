@@ -4,7 +4,7 @@ use nexus_common::db::graph::Query;
 use nexus_common::db::{
     fetch_all_rows_from_graph, fetch_key_from_graph, get_redis_conn, queries, RedisOps,
 };
-use nexus_common::models::user::{Epoch, UserDetails, UserEpoch};
+use nexus_common::models::user::{Epoch, UserDetails};
 use nexus_common::types::DynError;
 use redis::Script;
 use tracing::info;
@@ -15,14 +15,12 @@ use tracing::info;
 /// # What this does
 /// 1. Graph: sets `epoch = 'v0'` on every `:User` without one, tombstones and stubs included,
 ///    then fails if any `:User` is still without one.
-/// 2. Redis, one keyset page of user ids at a time:
-///    - `User:Epoch` gets a `v0` field for every user;
-///    - `$.epoch` is set to `"v0"` in the `User:Details` documents that exist. A missing
-///      document is never created.
+/// 2. Redis: sets `$.epoch` to `"v0"` in every cached `User:Details` document, one keyset
+///    page of user ids at a time. A missing document is never created.
 ///
-/// The cached JSON is rewritten in place, never deleted: the user streams read Redis with no
-/// graph fallback, so deleting the documents would drop users from the streams until the
-/// caches refill.
+/// The cached JSON is rewritten in place, never deleted: the user streams and the recommended,
+/// most-followed and influencers caches read `User:Details` with no graph fallback and treat a
+/// missing document as a deleted user.
 ///
 /// # Batching
 /// Nothing indexes `:User(epoch)`, so the graph step scans once and lets the server commit per
@@ -30,28 +28,22 @@ use tracing::info;
 /// the `:User(id)` index by keyset; `SKIP`/`LIMIT` would re-read every earlier row.
 ///
 /// # Why `v0` is hard-coded
-/// No user can be on any other epoch until the flip ships, so every user is `v0` and the Redis
-/// step needs no read of the graph's value. **It must not be rerun once the flip has shipped**:
-/// a rerun would reset the flipped users to `v0` in `User:Epoch` and in their cached
-/// `User:Details`, out of step with the graph.
+/// No user can be on any other epoch until the flip ships, so the Redis step needs no read of
+/// the graph's value. **It must not be rerun once the flip has shipped**: it would reset the
+/// flipped users' cached `User:Details` to `v0`, out of step with the graph.
 ///
 /// # Idempotency
-/// Every step writes the same value again: the graph step only matches users without an
-/// epoch, `HSET` and `JSON.SET` overwrite with `v0`. A failed run leaves the migration not Done
-/// and is safe to repeat. `is_multi_staged()` is `false`, so the manager marks this Done after
-/// one backfill; running it again needs the id in `migrations_backfill_ready`.
+/// The graph step only matches users without an epoch and `JSON.SET` overwrites with `v0`, so
+/// a failed run is safe to repeat. `is_multi_staged()` is `false`, so the manager marks this
+/// Done after one backfill; running it again needs the id in `migrations_backfill_ready`.
 ///
 /// # Deploy ordering
-/// Run it after the binaries that give users an epoch are deployed, and before the flip ships.
-/// Stop every watcher while it runs, and start them again after it finishes:
-/// - a pre-epoch watcher that creates a user after the graph step leaves that user without an
-///   epoch. The verify fails the run if the user lands before the check, but it is a guard,
-///   not a guarantee;
-/// - any watcher can hard-delete a user between a page read and its `User:Epoch` write,
-///   leaving a field for a user that no longer exists.
+/// Run it after the binaries that give users an epoch are deployed, and before the flip ships,
+/// with every watcher stopped: a pre-epoch watcher could create a user after the graph step,
+/// and the verify only catches that if the user lands before the check.
 pub struct UserEpochBackfill1791812997;
 
-/// User ids written to Redis per keyset page.
+/// User ids rewritten in Redis per keyset page.
 const USER_PAGE_SIZE: usize = 1_000;
 
 /// Fails when a `:User` is still without an epoch, so a partial graph step can't pass unnoticed.
@@ -147,28 +139,25 @@ impl Migration for UserEpochBackfill1791812997 {
 
         loop {
             // Only the ids are read: see # Why `v0` is hard-coded
-            let query = queries::get::get_user_epochs_page(&after_id, USER_PAGE_SIZE);
+            let query = queries::get::get_user_ids_page(&after_id, USER_PAGE_SIZE);
             let mut user_ids: Vec<String> = Vec::with_capacity(USER_PAGE_SIZE);
             for row in fetch_all_rows_from_graph(query).await? {
                 user_ids.push(row.get("id")?);
             }
 
-            // Empty page: past the last user. A short page isn't the end: the query clamps
-            // its limit, so only an empty one is.
+            // Only an empty page is the end: the query clamps its limit, so a short page
+            // may not be.
             let Some(last_id) = user_ids.last().cloned() else {
                 break;
             };
             after_id = last_id;
-
-            UserEpoch::put_multiple_to_index(user_ids.iter().map(|id| (id.as_str(), Epoch::V0)))
-                .await?;
 
             let rewritten = set_cached_details_epoch_v0(&user_ids).await?;
 
             total_users += user_ids.len();
             total_rewritten += rewritten;
             info!(
-                "UserEpochBackfill migration: indexed {} users ({total_users} total), \
+                "UserEpochBackfill migration: walked {} users ({total_users} total), \
                  rewrote {rewritten} cached details ({total_rewritten} total)",
                 user_ids.len()
             );
@@ -176,7 +165,7 @@ impl Migration for UserEpochBackfill1791812997 {
 
         info!(
             "UserEpochBackfill migration: complete — {processed} users set to v0 in the graph, \
-             {total_users} indexed, {total_rewritten} cached details rewritten"
+             {total_users} walked, {total_rewritten} cached details rewritten"
         );
 
         Ok(())
@@ -251,9 +240,6 @@ mod tests {
             .arg(&keys)
             .query_async::<()>(&mut conn)
             .await?;
-        for user_id in user_ids {
-            UserEpoch::del_from_index(user_id).await?;
-        }
         Ok(())
     }
 
@@ -272,7 +258,11 @@ mod tests {
     }
 
     async fn graph_epoch(user_id: &str) -> Result<Option<String>, DynError> {
-        let query = queries::get::get_user_epoch(user_id);
+        let query = Query::new(
+            "user_epoch_backfill_test_epoch",
+            "MATCH (u:User {id: $user_id}) RETURN u.epoch AS epoch",
+        )
+        .param("user_id", user_id);
         Ok(fetch_key_from_graph::<Option<String>>(query, "epoch")
             .await?
             .flatten())
@@ -287,31 +277,6 @@ mod tests {
         Ok(raw.map(|raw| serde_json::from_str(&raw)).transpose()?)
     }
 
-    /// Ids of the `:User` nodes without an epoch: the mock graph seeds some.
-    async fn users_without_epoch() -> Result<Vec<String>, DynError> {
-        let query = Query::new(
-            "user_epoch_backfill_test_without_epoch",
-            "MATCH (u:User) WHERE u.epoch IS NULL RETURN u.id AS id",
-        );
-        let mut ids = Vec::new();
-        for row in fetch_all_rows_from_graph(query).await? {
-            ids.push(row.get("id")?);
-        }
-        Ok(ids)
-    }
-
-    async fn remove_epochs(user_ids: &[String]) -> Result<(), DynError> {
-        exec_single_row(
-            Query::new(
-                "user_epoch_backfill_test_remove_epochs",
-                "MATCH (u:User) WHERE u.id IN $ids REMOVE u.epoch",
-            )
-            .param("ids", user_ids.to_vec()),
-        )
-        .await?;
-        Ok(())
-    }
-
     /// Runs the backfill twice and checks the seeded users after each run.
     async fn backfill_twice_and_check() -> Result<(), DynError> {
         for run in 1..=2 {
@@ -322,11 +287,6 @@ mod tests {
                     graph_epoch(user_id).await?.as_deref(),
                     Some("v0"),
                     "run {run}: {user_id} graph epoch"
-                );
-                assert_eq!(
-                    UserEpoch::get_from_index(user_id).await?,
-                    Some(Epoch::V0),
-                    "run {run}: {user_id} index field"
                 );
             }
             for user_id in CACHED_IDS {
@@ -349,14 +309,14 @@ mod tests {
         Ok(())
     }
 
-    /// Every seeded user gets `v0` in the graph and in `User:Epoch`; the cached documents
-    /// get `$.epoch` and keep every other field, and no document is created. A second run
-    /// changes nothing.
+    /// Every seeded user gets `v0` in the graph; the cached documents get `$.epoch` and keep
+    /// every other field, and no document is created. A second run changes nothing.
+    ///
+    /// The backfill also sets `v0` on the mock users without an epoch, which reads the same.
     #[tokio_shared_rt::test(shared)]
     async fn test_backfill_marks_every_user_v0() -> Result<(), DynError> {
         StackManager::setup(&StackConfig::default()).await?;
         delete_fixture(&all_ids()).await?;
-        let mock_without_epoch = users_without_epoch().await?;
 
         seed_pre_epoch_users(&all_ids()).await?;
         let mut conn = get_redis_conn().await?;
@@ -373,10 +333,6 @@ mod tests {
             .catch_unwind()
             .await;
 
-        // The backfill sets every :User; give the mock users back their missing epoch, which
-        // the cache_setup suite relies on. Their index fields and cached `v0` match what a
-        // node without an epoch reads as.
-        remove_epochs(&mock_without_epoch).await?;
         delete_fixture(&all_ids()).await?;
         outcome.unwrap_or_else(|panic| std::panic::resume_unwind(panic))
     }

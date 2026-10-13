@@ -17,19 +17,14 @@
 use std::collections::BTreeSet;
 
 use anyhow::{Context, Result};
-use nexus_common::db::graph::Query;
-use nexus_common::db::{
-    fetch_all_rows_from_graph, get_redis_conn, kv::clear_redis, reindex, RedisOps,
-};
+use nexus_common::db::{get_redis_conn, kv::clear_redis, reindex, RedisOps};
 use nexus_common::models::post::trust_filter::APPLIED_KEY_PARTS;
 use nexus_common::models::post::PostDetails;
 use nexus_common::models::user::USER_SOCIAL_GRAPH_KEY_PARTS;
 use nexus_common::{FeaturesConfig, StackConfig, StackManager};
-use redis::{AsyncCommands, Value};
-use std::collections::HashMap;
+use redis::Value;
 
 const POST_CONTENT_INDEX: &str = "postContentIdx";
-const USER_EPOCH: &str = "User:Epoch";
 
 /// Flattens an FT.INFO reply into its leaf strings so assertions don't depend
 /// on the exact nesting RediSearch uses for the `attributes` section.
@@ -59,18 +54,6 @@ async fn post_content_index_info() -> Result<Vec<String>> {
     let mut leaves = Vec::new();
     flatten(raw, &mut leaves);
     Ok(leaves)
-}
-
-/// Every `:User` id with its raw `epoch` property, `None` where the node has none.
-async fn graph_user_epochs() -> Result<Vec<(String, Option<String>)>> {
-    let query = Query::new(
-        "cache_setup_user_epochs",
-        "MATCH (u:User) RETURN u.id AS id, u.epoch AS epoch",
-    );
-    let rows = fetch_all_rows_from_graph(query).await?;
-    rows.into_iter()
-        .map(|row| Ok((row.get("id")?, row.get("epoch")?)))
-        .collect()
 }
 
 async fn db_size() -> Result<i64> {
@@ -136,29 +119,6 @@ async fn clear_redis_recreates_post_content_index() -> Result<()> {
         .await?;
     assert!(!ranking.is_empty(), "reindex::sync published no ranking");
     assert_eq!(applied, ranking, "reindex::sync should apply the ranking");
-
-    // User:Epoch is a derived index: the rebuild leaves one field per
-    // :User, valued from the node's epoch, or v0 when the node has none.
-    let users = graph_user_epochs().await?;
-    assert!(
-        users.iter().any(|(_, epoch)| epoch.is_none()),
-        "the mock seeds should include users without an epoch property"
-    );
-    let mut conn = get_redis_conn().await?;
-    let index: HashMap<String, String> = conn.hgetall(USER_EPOCH).await?;
-    assert_eq!(
-        index.len(),
-        users.len(),
-        "{USER_EPOCH} should hold a field for every :User"
-    );
-    for (id, epoch) in &users {
-        let expected = epoch.as_deref().unwrap_or("v0");
-        assert_eq!(
-            index.get(id).map(String::as_str),
-            Some(expected),
-            "{USER_EPOCH} field for {id}"
-        );
-    }
 
     Ok(())
 }
