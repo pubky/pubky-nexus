@@ -1,9 +1,10 @@
 use serde::{Deserialize, Serialize};
 
 /// App feature switches (`[features]`), all off by default, read by the watcher
-/// and the jobs. The API doesn't read them: its streams follow the ranking copy
-/// the watcher applied, and the posts it adds to the shared sets on a cache miss
-/// are gated as with the switch on.
+/// and the jobs. A standalone API (`nexusd api`) doesn't read them: its streams
+/// follow the ranking copy the watcher applied, and the posts it adds to the
+/// shared sets on a cache miss are gated as with the switch on. Under `nexusd
+/// run` the API shares the watcher's process, and so its switches.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct FeaturesConfig {

@@ -32,8 +32,9 @@ const BATCH: usize = 500;
 
 /// Whether this process hides unranked authors, from `[features]
 /// hide_unranked_authors`. On until [`FeaturesConfig::apply`] says otherwise.
-/// The API never sets it, so its streams follow the applied copy alone and
-/// its cache-miss writes to the shared sets stay gated.
+/// A standalone API never sets it, so its streams follow the applied copy alone
+/// and its cache-miss writes to the shared sets stay gated, even with the
+/// switch off. Under `nexusd run` the API shares the watcher's setting.
 ///
 /// [`FeaturesConfig::apply`]: crate::FeaturesConfig::apply
 static ENABLED: AtomicBool = AtomicBool::new(true);
