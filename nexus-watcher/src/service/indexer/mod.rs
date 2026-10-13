@@ -77,6 +77,9 @@ pub trait TEventProcessor: Send + Sync + 'static {
         None
     }
 
+    /// Runs [`Self::run_internal`] on its own task, under [`Self::custom_timeout`].
+    ///
+    /// A run that times out is cancelled before this returns, so it never overlaps the next one.
     async fn run(self: Arc<Self>) -> Result<(), RunError> {
         let timeout = self
             .custom_timeout()
@@ -90,21 +93,32 @@ pub trait TEventProcessor: Send + Sync + 'static {
             service = %instance_name,
             homeserver,
         );
-        let handle = tokio::spawn(self.run_internal().instrument(span));
+        let mut handle = tokio::spawn(self.run_internal().instrument(span));
 
-        let join_result = tokio::time::timeout(timeout, handle)
-            .await
-            .inspect_err(
-                |_| error!(service = %instance_name, homeserver, "Event processor timed out"),
-            )
-            .map_err(|_| RunError::TimedOut)?;
+        let join_result = match tokio::time::timeout(timeout, &mut handle).await {
+            Ok(join_result) => join_result,
+            Err(_) => {
+                // Dropping the handle would only detach the task: the run would go on in
+                // the background, and the next tick would start another one from the same
+                // cursor next to it. Cancel it, and wait until it is gone.
+                handle.abort();
+                let _ = handle.await;
+                error!(
+                    service = %instance_name,
+                    homeserver,
+                    aborted = true,
+                    "Event processor timed out"
+                );
+                return Err(RunError::TimedOut);
+            }
+        };
 
         // The JoinError can be:
         // - join_error.is_panic() => panic by the inner future
         // - join_error.is_cancelled() => inner future was abruptly interrupted, for example
         //   - JoinHandle::abort() is called on the handle
         //   - the Tokio runtime is shut down
-        // In our model, we don't trigger such interruptions. Instead we use the shutdown signal
+        // The only abort is the timeout's, handled above. Otherwise we use the shutdown signal
         // to gracefully stop the event processing loop. Therefore we consider all JoinErrors as panics.
         let run_internal_result = join_result
             .inspect_err(|je| {

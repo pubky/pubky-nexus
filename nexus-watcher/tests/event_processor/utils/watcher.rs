@@ -110,6 +110,7 @@ impl WatcherTest {
             shutdown_rx,
             primary_homeserver,
             retry_scheduler,
+            in_flight: Default::default(),
         }
     }
 

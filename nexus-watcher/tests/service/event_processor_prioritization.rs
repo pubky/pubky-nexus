@@ -53,6 +53,7 @@ async fn test_event_processor_runner_primary_homeserver_excluded() -> Result<(),
         backoff: Mutex::new(HomeserverBackoff::default()),
         user_not_found_backoff: Arc::new(UserNotFoundBackoff::default()),
         retry_scheduler,
+        in_flight: Default::default(),
     };
 
     // Persist the homeservers
@@ -105,6 +106,7 @@ async fn test_event_processor_runner_blacklisted_homeserver_excluded() -> Result
         backoff: Mutex::new(HomeserverBackoff::default()),
         user_not_found_backoff: Arc::new(UserNotFoundBackoff::default()),
         retry_scheduler,
+        in_flight: Default::default(),
     };
 
     // Both HSs need a hosted user to count as "active" in `get_all_active_from_graph`.
@@ -144,6 +146,7 @@ async fn test_mock_event_processor_runner_primary_homeserver_excluded() -> Resul
         event_processors,
         monitored_hs_limit: 100,
         shutdown_rx: tokio::sync::watch::channel(false).1,
+        in_flight: Default::default(),
     };
 
     // Persist the homeservers

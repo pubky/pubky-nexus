@@ -1,4 +1,4 @@
-use super::{TEventProcessorRunner, UserNotFoundBackoff};
+use super::{InFlightRuns, TEventProcessorRunner, UserNotFoundBackoff};
 use crate::events::retry::RetryScheduler;
 use crate::events::{DefaultEventHandler, EventHandler};
 use crate::service::indexer::{
@@ -89,6 +89,9 @@ pub struct KeyBasedEventProcessorRunner {
 
     /// Scheduler shared with every processor this runner builds
     pub retry_scheduler: Arc<RetryScheduler>,
+
+    /// See [TEventProcessorRunner::in_flight]
+    pub in_flight: InFlightRuns,
 }
 
 impl KeyBasedEventProcessorRunner {
@@ -108,6 +111,7 @@ impl KeyBasedEventProcessorRunner {
             )),
             user_not_found_backoff: Arc::new(UserNotFoundBackoff::default()),
             retry_scheduler: Arc::new(RetryScheduler::from_config(config)),
+            in_flight: InFlightRuns::default(),
         }
     }
 
@@ -131,6 +135,10 @@ impl KeyBasedEventProcessorRunner {
 impl TEventProcessorRunner for KeyBasedEventProcessorRunner {
     fn shutdown_rx(&self) -> Receiver<bool> {
         self.shutdown_rx.clone()
+    }
+
+    fn in_flight(&self) -> &InFlightRuns {
+        &self.in_flight
     }
 
     async fn build(&self, hs_id: &str) -> Result<Arc<dyn TEventProcessor>, DynError> {
