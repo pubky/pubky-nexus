@@ -134,8 +134,10 @@ fn events_list_key() -> String {
     format!("{EVENTS_PREFIX}:{EVENTS_KEY}")
 }
 
+/// A random id rather than a timestamp: a clock that steps back could hand a recreated
+/// log its old epoch, and followers would miss the restart.
 fn new_epoch() -> String {
-    chrono::Utc::now().timestamp_millis().to_string()
+    uuid::Uuid::new_v4().simple().to_string()
 }
 
 /// The author of an event line: `PUT pubky://<author>/pub/...` -> `<author>`.
