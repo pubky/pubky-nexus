@@ -20,6 +20,7 @@ mod api;
 pub mod file;
 mod job;
 mod net;
+mod scope;
 mod stack;
 mod trust;
 pub mod watcher;
@@ -27,6 +28,7 @@ pub mod watcher;
 pub use api::{ApiConfig, RateLimitBucketConfig, RateLimitConfig};
 pub use job::JobConfig;
 pub use net::NetConfig;
+pub use scope::{ScopeConfig, MAX_SCOPE_HOPS};
 pub use stack::{default_stack, MediaConfig, OtlpConfig, StackConfig};
 pub use trust::{
     default_trust_report_dir, TrustRankConfig, DEFAULT_TRUST_ALPHA, DEFAULT_TRUST_MAX_ITERATIONS,

@@ -41,6 +41,17 @@ pubky_http_request_timeout_secs = 300
 # External HS PKs which are forbidden from being indexed
 external_hs_pk_blacklist = []
 
+# Which users this Nexus indexes. Omit the section to index everyone.
+# Users outside the scope are kept as stubs: other records can point at them,
+# but their own content is never read. The watcher and the API must use the same scope.
+# [stack.scope]
+# kind = "everything"                     # default: every user Nexus can discover
+# kind = "homeservers"                    # users hosted on these homeservers
+# homeservers = ["<homeserver pubky>"]    # each one's whole event feed is read
+# kind = "seed"                           # a user and who it follows, up to `hops` away
+# seed = "<user pubky>"
+# hops = 2                                # 1 to 3
+
 [stack.otlp]
 # Service name used for tracing, logging, and metrics in OpenTelemetry
 name = "nexus-webapi"
