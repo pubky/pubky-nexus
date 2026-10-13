@@ -43,10 +43,12 @@ use tracing::info;
 ///
 /// # Deploy ordering
 /// Run it after the binaries that give users an epoch are deployed, and before the flip ships.
-/// Stop every pre-epoch watcher before running it: one that creates a user after the graph
-/// step leaves that user without an epoch. The verify fails the run if the user lands before
-/// the check, but it is a guard, not a guarantee. New watchers may run alongside, since they
-/// write `v0` too.
+/// Stop every watcher while it runs, and start them again after it finishes:
+/// - a pre-epoch watcher that creates a user after the graph step leaves that user without an
+///   epoch. The verify fails the run if the user lands before the check, but it is a guard,
+///   not a guarantee;
+/// - any watcher can hard-delete a user between a page read and its `User:Epoch` write,
+///   leaving a field for a user that no longer exists.
 pub struct UserEpochBackfill1791812997;
 
 /// User ids written to Redis per keyset page.
