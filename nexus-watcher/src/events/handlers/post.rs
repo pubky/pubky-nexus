@@ -751,12 +751,9 @@ pub async fn sync_del(
             let indexing_results = nexus_common::traced_join!(
                 tracing::info_span!("index.delete", phase = "reply_parent");
                 async {
-                    // Symmetric DEL gate: ZINCRBY -1 would create the member
-                    // if absent, leaking a reply parent into POST_TOTAL_ENGAGEMENT
-                    // with a negative score.
-                    if post_in_index
-                        && !post_relationships_is_reply(&parent_user_id, &parent_post_id).await?
-                    {
+                    // A decrement never creates a member, so a reply parent,
+                    // which has none in POST_TOTAL_ENGAGEMENT, is left alone.
+                    if post_in_index {
                         PostStream::update_index_score(
                             &parent_user_id,
                             &parent_post_id,
@@ -809,12 +806,9 @@ pub async fn sync_del(
             let indexing_results = nexus_common::traced_join!(
                 tracing::info_span!("index.delete", phase = "repost_parent");
                 async {
-                    // Symmetric DEL gate: ZINCRBY -1 would create the member
-                    // if absent, leaking a reply parent into POST_TOTAL_ENGAGEMENT
-                    // with a negative score.
-                    if post_in_index
-                        && !post_relationships_is_reply(&reposted_uri.user_id, &parent_post_id).await?
-                    {
+                    // A decrement never creates a member, so a reply parent,
+                    // which has none in POST_TOTAL_ENGAGEMENT, is left alone.
+                    if post_in_index {
                         PostStream::update_index_score(
                             &reposted_uri.user_id,
                             &parent_post_id,

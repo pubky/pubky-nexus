@@ -77,10 +77,13 @@ mod live {
         engagement_key, ranking_key, tag_engagement_key, tag_timeline_key, timeline_key,
         TAG_GLOBAL_POST_ENGAGEMENT, TAG_GLOBAL_POST_TIMELINE,
     };
+    use crate::db::kv::SortOrder;
     use crate::db::{fetch_all_rows_from_graph, queries};
     use crate::models::bootstrap::{Bootstrap, ViewType};
-    use crate::types::DynError;
+    use crate::models::post::{KindFilter, PostStream, StreamSource};
+    use crate::types::{DynError, Pagination, StreamSorting};
     use crate::{StackConfig, StackManager};
+    use pubky_app_specs::PubkyAppPostKind;
 
     type TestResult = Result<(), DynError>;
 
@@ -93,6 +96,8 @@ mod live {
     /// post that ranked users tagged.
     const SPAMMER: &str = "qdsygndnk45m9ru5jseg3uxk5xg4usj9hrcraqbzgigapzweaa9o";
     const D2: &str = "smf4xrqfhx7stnufkjzhbjyu3rbgb3gga64srqmzcyyoyzefse9y";
+    /// A ranked skunk.cypher author whose tagged posts mention users.
+    const MENTIONER: &str = "h3fghnb3x59oh7r53x8y6a5x38oatqyjym9b31ybss17zqdnhcoy";
 
     /// Every entry the spammer's posts would have in the shared sets, with
     /// the scores a full reindex gives them. The reply has six tags.
@@ -152,11 +157,13 @@ mod live {
         Ok(entries)
     }
 
+    /// The scores of `entries`, each one present.
+    fn present(entries: &[(String, String, f64)]) -> Vec<Option<f64>> {
+        entries.iter().map(|(_, _, score)| Some(*score)).collect()
+    }
+
     fn all_present() -> Vec<Option<f64>> {
-        spammer_entries()
-            .into_iter()
-            .map(|(_, _, score)| Some(score))
-            .collect()
+        present(&spammer_entries())
     }
 
     fn all_absent() -> Vec<Option<f64>> {
@@ -443,14 +450,97 @@ mod live {
 
         failed_run?;
         published?;
-        let present: Vec<Option<f64>> = entries.iter().map(|(_, _, s)| Some(*s)).collect();
         assert!(!entries.is_empty(), "the fixture gives D2 shared entries");
         assert!(before.iter().all(Option::is_some), "the fixture shows D2");
         assert_eq!(hidden?, vec![None; entries.len()]);
         assert_eq!(
-            after?, present,
+            after?,
+            present(&entries),
             "the publish should give D2 their posts back"
         );
+        Ok(())
+    }
+
+    /// A reconcile writes posts back at the scores the full reindex gave them:
+    /// D2's posts have replies, and the mentioner's tagged posts mention users,
+    /// which their label engagement counts.
+    #[tokio_shared_rt::test(shared)]
+    async fn reconcile_scores_posts_as_the_reindex_does() -> TestResult {
+        setup(&[]).await?;
+        for author in [D2, MENTIONER] {
+            let entries = author_entries(author).await?;
+            assert!(!entries.is_empty(), "{author} has shared entries");
+            assert_eq!(scores(&entries).await?, present(&entries), "{author}");
+        }
+        Ok(())
+    }
+
+    /// A hide spares an author the live ranking admits, so a reconcile that
+    /// lost a race with a newer publish can't take a ranked author's posts out.
+    #[tokio_shared_rt::test(shared)]
+    async fn hide_spares_an_author_the_live_ranking_admits() -> TestResult {
+        setup(&[]).await?;
+        let entries = author_entries(D2).await?;
+        let mut conn = get_redis_conn().await?;
+
+        let hidden = write_pages(&mut conn, D2, Write::Hide, 1_000).await;
+        let after = scores(&entries).await;
+        // Puts back whatever a hide that ignored the ranking took out.
+        write_pages(&mut conn, D2, Write::Show, 1_000).await?;
+        cleanup(&[]).await?;
+
+        hidden?;
+        assert!(!entries.is_empty(), "the fixture gives D2 shared entries");
+        assert_eq!(after?, present(&entries), "D2 is ranked, so nothing goes");
+        Ok(())
+    }
+
+    /// The keys of the wot window's short posts, which Cypher serves.
+    async fn short_posts_in_wot_window() -> Result<Vec<String>, DynError> {
+        let pagination = Pagination {
+            start: Some(1650000000014.0),
+            end: Some(1650000000001.0),
+            limit: Some(50),
+            ..Default::default()
+        };
+        let kind = Some(KindFilter::Kind(PubkyAppPostKind::Short));
+        let stream = PostStream::get_post_keys(
+            StreamSource::All,
+            pagination,
+            SortOrder::Descending,
+            StreamSorting::Timeline,
+            None,
+            None,
+            kind,
+        )
+        .await?;
+        Ok(stream.map(|stream| stream.post_keys).unwrap_or_default())
+    }
+
+    /// Cypher-served `source=all` streams hide unranked authors only while a
+    /// ranking is applied and the switch is on. With no ranking, as in
+    /// production today, the rule would match nobody and empty them.
+    #[tokio_shared_rt::test(shared)]
+    async fn cypher_streams_filter_only_while_a_ranking_is_applied() -> TestResult {
+        setup(&[]).await?;
+        let spammer_post = format!("{SPAMMER}:WOTPOSTS00006");
+
+        let applied = short_posts_in_wot_window().await;
+        set_enabled(false);
+        let switched_off = short_posts_in_wot_window().await;
+        set_enabled(true);
+        let mut conn = get_redis_conn().await?;
+        let _: () = conn.del(applied_key()).await?;
+        let unapplied = short_posts_in_wot_window().await;
+        // Its reconcile records the copy again.
+        cleanup(&[]).await?;
+
+        assert!(!applied?.contains(&spammer_post), "hidden while applied");
+        assert!(
+            switched_off?.contains(&spammer_post),
+            "shown with the switch off"
+        );
+        assert!(unapplied?.contains(&spammer_post), "shown without the copy");
         Ok(())
     }
 }

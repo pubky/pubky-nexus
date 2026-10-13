@@ -35,6 +35,7 @@ pub(crate) async fn reconcile() -> ModelResult<()> {
     };
     let applied = members(&mut conn, &applied_key()).await?;
     if applied == ranking {
+        tracing::info!("Shared post sets already match the ranking");
         return Ok(());
     }
 

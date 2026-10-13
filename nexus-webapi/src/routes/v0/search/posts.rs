@@ -33,7 +33,7 @@ pub struct SearchPostsQuery {
 #[utoipa::path(
     get,
     path = SEARCH_POSTS_BY_TAG_ROUTE,
-    description = "Search Posts by Tag. With `user_id` and `reach`, only parent posts authored by users in that reach are returned (the observer's own posts excluded), and the `total_engagement` score counts taggers, replies and reposts but not mentions. `start`/`end` cursors are not interchangeable between the reach and non-reach modes",
+    description = "Search Posts by Tag. With `user_id` and `reach`, only parent posts authored by users in that reach are returned (the observer's own posts excluded), and the `total_engagement` score counts taggers, replies and reposts but not mentions. `start`/`end` cursors are not interchangeable between the reach and non-reach modes. When the instance filters by trust, the non-reach mode leaves out posts by authors outside its trust ranking, as `source=all` tag streams do",
     tag = "Search",
     params(
         ("tag" = TagLabel, Path, description = "Tag name"),

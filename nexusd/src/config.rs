@@ -286,8 +286,9 @@ mod tests {
         );
     }
 
-    /// The trust filter switch parses, a config that predates it keeps the filter
-    /// on, and a misspelled switch fails rather than leaving the filter on.
+    /// The trust filter switch parses and reaches both services' configs, a
+    /// config that predates it keeps the filter on, and a misspelled switch
+    /// fails rather than leaving the filter on.
     #[test]
     fn test_hide_unranked_authors_parsing() {
         let off = DEFAULT_CONFIG_TOML.replace(
@@ -296,9 +297,15 @@ mod tests {
         );
         let c = DaemonConfig::try_from_str(&off).expect("switch off should parse");
         assert!(!c.features.hide_unranked_authors);
+        assert!(!c.api_config().features.hide_unranked_authors);
+        assert!(!c.watcher_config().features.hide_unranked_authors);
 
-        let absent = DEFAULT_CONFIG_TOML.replace("hide_unranked_authors = true", "");
-        let c = DaemonConfig::try_from_str(&absent).expect("missing switch should parse");
+        let absent = DEFAULT_CONFIG_TOML
+            .replace("[features]\n", "")
+            .replace("hide_unranked_authors = true\n", "");
+        assert!(!absent.contains("[features]"));
+        let c =
+            DaemonConfig::try_from_str(&absent).expect("a config without [features] should parse");
         assert!(c.features.hide_unranked_authors);
 
         let typo = DEFAULT_CONFIG_TOML.replace("hide_unranked_authors", "hide_unranked_author");

@@ -10,6 +10,7 @@
 //! (006), D2 (004), D1B (003), D1 (002) and OBSERVER (001).
 use std::collections::HashSet;
 
+use crate::post::search::format_search_posts_by_tag;
 use crate::utils::get_request;
 use crate::utils::recommended::{D4, DELETED};
 use crate::utils::search_reach::UNKNOWN_USER;
@@ -181,11 +182,13 @@ async fn test_unranked_viewer_gets_own_posts_back() -> Result<()> {
         spammer_window
     );
 
+    // Each set is read down to `skip + limit`: reading only `limit` would end
+    // this page after D1B.
     let page = keys(&format!(
-        "{WINDOW}&start={WINDOW_START}&skip=1&limit=2&{viewer}"
+        "{WINDOW}&start={WINDOW_START}&skip=2&limit=2&{viewer}"
     ))
     .await?;
-    assert_eq!(post_keys_in(&page), spammer_window[1..3].to_vec());
+    assert_eq!(post_keys_in(&page), spammer_window[2..4].to_vec());
 
     let page = keys(&format!(
         "{WINDOW}&start={WINDOW_START}&order=ascending&limit=50&{viewer}"
@@ -287,6 +290,27 @@ async fn test_tag_streams_hide_unranked_authors() -> Result<()> {
         assert!(post_keys_in(&page).is_empty(), "{sorting}: {page}");
         let page = posts(&query).await?;
         assert!(ids_in(&page).is_empty(), "{sorting}: {page}");
+    }
+    Ok(())
+}
+
+/// Searching posts by tag reads the same label sets, so it hides the same
+/// authors: D2's tagged reply stays, the spammer's goes.
+#[tokio_shared_rt::test(shared)]
+async fn test_tag_search_hides_unranked_authors() -> Result<()> {
+    let d2_reply = format!("{WOT_D2}:WOTPOSTREPLY1");
+    for (label, expected) in [("nudity", vec![d2_reply]), ("wmtag1", vec![])] {
+        for sorting in ["timeline", "total_engagement"] {
+            let path = format!("{}?sorting={sorting}", format_search_posts_by_tag(label));
+            let results = get_request(&path).await?;
+            let keys: Vec<String> = results
+                .as_array()
+                .expect("search results array")
+                .iter()
+                .map(|result| result["post_key"].as_str().unwrap_or_default().to_string())
+                .collect();
+            assert_eq!(keys, expected, "{label}, {sorting}");
+        }
     }
     Ok(())
 }

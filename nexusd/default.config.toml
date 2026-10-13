@@ -81,7 +81,9 @@ max_missing_dep_backoff_secs = 3600
 # App features. Keep them the same in every service.
 [features]
 # Hide posts by authors outside the trust ranking from the streams every viewer
-# shares. A change applies when nexusd starts, or at the next trust recompute.
+# shares. Read at startup: restart the services to apply a change. The watcher
+# then updates the shared post sets, and the next trust recompute retries that
+# if it fails.
 hide_unranked_authors = true
 
 [stack]
