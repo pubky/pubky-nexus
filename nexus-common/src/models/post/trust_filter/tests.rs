@@ -96,7 +96,10 @@ mod live {
     /// post that ranked users tagged.
     const SPAMMER: &str = "qdsygndnk45m9ru5jseg3uxk5xg4usj9hrcraqbzgigapzweaa9o";
     const D2: &str = "smf4xrqfhx7stnufkjzhbjyu3rbgb3gga64srqmzcyyoyzefse9y";
-    /// A ranked skunk.cypher author whose tagged posts mention users.
+    /// Ranked skunk.cypher authors whose shared entries no test rewrites. The
+    /// engaged author's posts have replies, reposts and tags; the mentioner's
+    /// tagged posts mention users.
+    const ENGAGED: &str = "o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo";
     const MENTIONER: &str = "h3fghnb3x59oh7r53x8y6a5x38oatqyjym9b31ybss17zqdnhcoy";
 
     /// Every entry the spammer's posts would have in the shared sets, with
@@ -461,13 +464,14 @@ mod live {
         Ok(())
     }
 
-    /// A reconcile writes posts back at the scores the full reindex gave them:
-    /// D2's posts have replies, and the mentioner's tagged posts mention users,
-    /// which their label engagement counts.
+    /// A reconcile writes posts back at the scores the full reindex gave them,
+    /// every term included: tags, replies and reposts, and mentions on label
+    /// sets. Not D2: other tests here rewrite D2's entries with the code under
+    /// test.
     #[tokio_shared_rt::test(shared)]
     async fn reconcile_scores_posts_as_the_reindex_does() -> TestResult {
         setup(&[]).await?;
-        for author in [D2, MENTIONER] {
+        for author in [ENGAGED, MENTIONER] {
             let entries = author_entries(author).await?;
             assert!(!entries.is_empty(), "{author} has shared entries");
             assert_eq!(scores(&entries).await?, present(&entries), "{author}");
