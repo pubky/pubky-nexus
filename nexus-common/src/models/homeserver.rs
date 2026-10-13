@@ -407,6 +407,24 @@ mod tests {
         Ok(())
     }
 
+    /// The Redis key [`Homeserver::put_to_index`] writes `id` under.
+    async fn index_key(id: &PubkyId) -> String {
+        format!("{}:{id}", Homeserver::prefix().await)
+    }
+
+    /// Stores `json` as homeserver `id`'s entry with a raw `JSON.SET`, the way older
+    /// writers or a corruption may have left it.
+    async fn put_raw_entry(id: &PubkyId, json: &str) -> Result<(), DynError> {
+        let mut redis_conn = get_redis_conn().await?;
+        let _: () = deadpool_redis::redis::cmd("JSON.SET")
+            .arg(index_key(id).await)
+            .arg("$")
+            .arg(json)
+            .query_async(&mut redis_conn)
+            .await?;
+        Ok(())
+    }
+
     /// Entries written before cursors were stored as numbers hold a zero-padded string,
     /// which the cursor check still reads and compares by value.
     #[tokio_shared_rt::test(shared)]
@@ -414,14 +432,7 @@ mod tests {
         StackManager::setup(&StackConfig::default()).await?;
 
         let id = PubkyId::from(Keypair::random().public_key());
-        let mut redis_conn = get_redis_conn().await?;
-        let legacy = format!(r#"{{"id":"{id}","cursor":"0000000000420"}}"#);
-        let _: () = deadpool_redis::redis::cmd("JSON.SET")
-            .arg(format!("Homeserver:{id}"))
-            .arg("$")
-            .arg(legacy)
-            .query_async(&mut redis_conn)
-            .await?;
+        put_raw_entry(&id, &format!(r#"{{"id":"{id}","cursor":"0000000000420"}}"#)).await?;
 
         let err = Homeserver {
             id: id.clone(),
@@ -444,6 +455,42 @@ mod tests {
             .await?
             .expect("homeserver should be in the index");
         assert_eq!(homeserver.cursor, 1_000);
+
+        Ok(())
+    }
+
+    /// A stored cursor that is not a number refuses the write, as it did when the check
+    /// deserialized the entry, rather than being silently overwritten.
+    #[tokio_shared_rt::test(shared)]
+    async fn test_unreadable_stored_cursor_refuses_the_write() -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+
+        let id = PubkyId::from(Keypair::random().public_key());
+        put_raw_entry(&id, &format!(r#"{{"id":"{id}","cursor":"abc"}}"#)).await?;
+        let stored_entry = || async {
+            let mut redis_conn = get_redis_conn().await?;
+            let entry: String = deadpool_redis::redis::cmd("JSON.GET")
+                .arg(index_key(&id).await)
+                .query_async(&mut redis_conn)
+                .await?;
+            Ok::<_, DynError>(entry)
+        };
+        let before = stored_entry().await?;
+
+        let err = Homeserver {
+            id: id.clone(),
+            cursor: 100,
+        }
+        .put_to_index()
+        .await
+        .expect_err("an unreadable stored cursor must refuse the write");
+
+        assert!(matches!(err, RedisError::DeserializationFailed(_)), "{err}");
+        assert_eq!(
+            stored_entry().await?,
+            before,
+            "the entry must be left as it was"
+        );
 
         Ok(())
     }
