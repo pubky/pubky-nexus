@@ -7,7 +7,7 @@ use neo4rs::Row;
 use redis::{AsyncCommands, Script, ScriptInvocation};
 
 use super::scripts::{add_call, remove_call, ADD, REMOVE};
-use super::{applied_key, is_enabled, sorted_key, APPLIED_KEY_PARTS, BATCH};
+use super::{applied_key, is_enabled, sorted_key, ALL_SHOWN_KEY, APPLIED_KEY_PARTS, BATCH};
 use crate::db::kv::{RedisError, RedisResult};
 use crate::db::{
     fetch_all_rows_from_graph, fetch_key_from_graph, get_redis_conn, queries, GraphResult, RedisOps,
@@ -20,26 +20,70 @@ use crate::models::user::SocialGraphStatus;
 /// Posts read from the graph, and written, per page.
 const POSTS_PAGE: usize = 1_000;
 
-/// Brings the shared sets in line with the published ranking, then records it
-/// as applied: the changed authors' posts go out or back. With the filter off
-/// the ranking counts as absent, which writes every hidden author back. Takes no
-/// lock: [`REMOVE`] spares an author the live ranking admits and [`ADD`] skips
-/// one it doesn't, so overlapping runs converge. A post shown back is written
-/// at the score read from the graph, so an engagement landing between that
-/// read and the write is lost until the post's next full reindex.
+/// Brings the shared sets in line with the published ranking, or with the
+/// filter switched off. Takes no lock: [`REMOVE`] spares an author the live
+/// ranking admits and [`ADD`] skips one it doesn't, so overlapping runs
+/// converge. A post shown back is written at the score read from the graph, so
+/// an engagement landing between that read and the write is lost until the
+/// post's next full reindex.
 pub(crate) async fn reconcile() -> ModelResult<()> {
     let mut conn = get_redis_conn().await?;
-    let ranking = match is_enabled() {
-        true => members(&mut conn, &SocialGraphStatus::ranking_key()).await?,
-        false => None,
-    };
-    let applied = members(&mut conn, &applied_key()).await?;
+    match is_enabled() {
+        true => apply_ranking(&mut conn).await,
+        false => show_all(&mut conn).await,
+    }
+}
+
+/// Moves the posts of the authors whose rank changed out or back, then records
+/// the ranking as applied.
+async fn apply_ranking(conn: &mut Connection) -> ModelResult<()> {
+    // Cleared first, so a run cut short leaves no record that all is shown.
+    let _: () = conn.del(ALL_SHOWN_KEY).await.map_err(RedisError::from)?;
+    let ranking = members(conn, &SocialGraphStatus::ranking_key()).await?;
+    let applied = members(conn, &applied_key()).await?;
     if applied == ranking {
         tracing::info!("Shared post sets already match the ranking");
         return Ok(());
     }
-
     let (hide, show) = rank_changes(applied.as_ref(), ranking.as_ref()).await?;
+    write_authors(conn, &hide, &show).await?;
+    // Last, so a run that fails keeps the old copy and the next one redoes the diff.
+    record_applied(ranking.as_ref()).await?;
+    tracing::info!("Rank change applied to the shared post sets");
+    Ok(())
+}
+
+/// With the filter off, writes back every author the shared sets may still
+/// hide: those outside both the applied copy and the live ranking, which the
+/// gate filtered writes on. A missing copy counts as the live ranking, since a
+/// first application cut short leaves none. Then drops the copy and records
+/// that all is shown, so later runs return at once.
+async fn show_all(conn: &mut Connection) -> ModelResult<()> {
+    let shown: bool = conn.exists(ALL_SHOWN_KEY).await.map_err(RedisError::from)?;
+    if shown {
+        tracing::info!("Shared post sets already match the ranking");
+        return Ok(());
+    }
+    let applied = members(conn, &applied_key()).await?;
+    let ranking = members(conn, &SocialGraphStatus::ranking_key()).await?;
+    let admitted = match (applied, ranking) {
+        (Some(applied), Some(ranking)) => Some(&applied & &ranking),
+        (applied, ranking) => applied.or(ranking),
+    };
+    let show = match admitted {
+        Some(admitted) => authors_outside(&admitted).await?,
+        None => Vec::new(),
+    };
+    write_authors(conn, &[], &show).await?;
+    record_applied(None).await?;
+    let _: () = conn.set(ALL_SHOWN_KEY, 1).await.map_err(RedisError::from)?;
+    tracing::info!("Rank change applied to the shared post sets");
+    Ok(())
+}
+
+/// Takes the `hide` authors' entries out of the shared sets, then writes the
+/// `show` authors' entries back.
+async fn write_authors(conn: &mut Connection, hide: &[String], show: &[String]) -> ModelResult<()> {
     tracing::info!(
         hide = hide.len(),
         show = show.len(),
@@ -48,15 +92,12 @@ pub(crate) async fn reconcile() -> ModelResult<()> {
     let hides = hide.iter().map(|author| (author, Write::Hide));
     let shows = show.iter().map(|author| (author, Write::Show));
     for (author, write) in hides.chain(shows) {
-        write_pages(&mut conn, author, write, POSTS_PAGE)
+        write_pages(conn, author, write, POSTS_PAGE)
             .await
             .inspect_err(|error| {
                 tracing::error!(author, ?write, %error, "Failed to update an author's shared post entries")
             })?;
     }
-    // Last, so a run that fails keeps the old copy and the next one redoes the diff.
-    record_applied(ranking.as_ref()).await?;
-    tracing::info!("Rank change applied to the shared post sets");
     Ok(())
 }
 

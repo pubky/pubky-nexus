@@ -23,6 +23,10 @@ use scripts::{add_call, INCR};
 /// A copy of the ranking the shared sets were last reconciled with. Absent
 /// while nothing is filtered.
 pub const APPLIED_KEY_PARTS: [&str; 2] = ["TrustFilter", "Applied"];
+/// Set once the filter is off and every author it may have hidden is shown
+/// again. While the filter stays off the gate drops nothing, so this holds
+/// until it is turned on.
+const ALL_SHOWN_KEY: &str = "TrustFilter:AllShown";
 /// The most entries one script call writes or removes.
 const BATCH: usize = 500;
 

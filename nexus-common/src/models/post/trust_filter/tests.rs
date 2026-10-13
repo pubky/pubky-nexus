@@ -342,6 +342,49 @@ mod live {
         Ok(())
     }
 
+    /// Switching off shows every author the ranking may have hidden, even when
+    /// its first reconcile was cut short and left no copy. It records that all
+    /// is shown, and switching back on clears that record.
+    #[tokio_shared_rt::test(shared)]
+    async fn switching_off_shows_what_an_unfinished_apply_hid() -> TestResult {
+        setup(&[]).await?;
+        let mut conn = get_redis_conn().await?;
+        let _: () = conn.del(applied_key()).await?;
+
+        set_enabled(false);
+        let shown = reconcile().await;
+        let scores = spammer_scores().await;
+        let recorded: bool = conn.exists(ALL_SHOWN_KEY).await?;
+        set_enabled(true);
+        cleanup(&[]).await?;
+        let left: bool = conn.exists(ALL_SHOWN_KEY).await?;
+
+        shown?;
+        assert_eq!(scores?, all_present());
+        assert!(recorded, "switching off records that all is shown");
+        assert!(!left, "switching on clears the record");
+        Ok(())
+    }
+
+    /// Switching off also shows an author a stale copy still ranks but the live
+    /// ranking dropped, whose writes the gate has been filtering.
+    #[tokio_shared_rt::test(shared)]
+    async fn switching_off_shows_authors_only_a_stale_copy_ranks() -> TestResult {
+        setup(&[]).await?;
+        let mut conn = get_redis_conn().await?;
+        let _: () = conn.zadd(applied_key(), SPAMMER, 0).await?;
+
+        set_enabled(false);
+        let shown = reconcile().await;
+        let scores = spammer_scores().await;
+        set_enabled(true);
+        cleanup(&[]).await?;
+
+        shown?;
+        assert_eq!(scores?, all_present());
+        Ok(())
+    }
+
     /// Bootstrap's timeline keeps a user's own posts when the ranking hides
     /// them from everyone else. The author of the newest post on the global
     /// timeline is taken out of the ranking for the test.
