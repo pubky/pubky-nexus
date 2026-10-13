@@ -18,7 +18,9 @@ use std::collections::BTreeSet;
 
 use anyhow::{Context, Result};
 use nexus_common::db::{get_redis_conn, kv::clear_redis, reindex, RedisOps};
+use nexus_common::models::post::trust_filter::APPLIED_KEY_PARTS;
 use nexus_common::models::post::PostDetails;
+use nexus_common::models::user::USER_SOCIAL_GRAPH_KEY_PARTS;
 use nexus_common::{StackConfig, StackManager};
 use redis::Value;
 
@@ -103,10 +105,11 @@ async fn clear_redis_recreates_post_content_index() -> Result<()> {
     );
     // The ranking is published and applied to the shared sets. The fixture
     // scores its users, so an empty one means a trust recompute rewrote them.
+    let sorted_key = |key_parts: &[&str]| format!("Sorted:{}", key_parts.join(":"));
     let mut conn = get_redis_conn().await?;
     let (ranking, applied): (BTreeSet<String>, BTreeSet<String>) = redis::pipe()
-        .zrange("Sorted:Users:SocialGraph", 0, -1)
-        .zrange("Sorted:TrustFilter:Applied", 0, -1)
+        .zrange(sorted_key(&USER_SOCIAL_GRAPH_KEY_PARTS), 0, -1)
+        .zrange(sorted_key(&APPLIED_KEY_PARTS), 0, -1)
         .query_async(&mut conn)
         .await?;
     assert!(!ranking.is_empty(), "reindex::sync published no ranking");

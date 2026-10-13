@@ -22,7 +22,7 @@ use scripts::{add_call, INCR};
 
 /// A copy of the ranking the shared sets were last reconciled with. Absent
 /// while nothing is filtered.
-const APPLIED_KEY_PARTS: [&str; 2] = ["TrustFilter", "Applied"];
+pub const APPLIED_KEY_PARTS: [&str; 2] = ["TrustFilter", "Applied"];
 /// The most entries one script call writes or removes.
 const BATCH: usize = 500;
 
