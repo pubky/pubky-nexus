@@ -18,6 +18,8 @@ use crate::models::error::ModelResult;
 /// Prefix of a seed scope's member set: a Redis sorted set of the members, scored
 /// by their hop distance from the seed.
 const MEMBERS_PREFIX: &str = "Scope:Members";
+/// Prefix of the flag a seed scope sets once its members were bootstrapped.
+const BOOTSTRAPPED_PREFIX: &str = "Scope:Bootstrapped";
 
 /// The answers every scope gives the watcher.
 #[async_trait::async_trait]
@@ -124,6 +126,7 @@ pub struct SeedHopsScope {
     seed: PubkyId,
     hops: u8,
     members_key: String,
+    bootstrapped_key: String,
 }
 
 impl SeedHopsScope {
@@ -134,6 +137,7 @@ impl SeedHopsScope {
                 hops,
             },
             members_key: format!("{MEMBERS_PREFIX}:{seed}:{hops}"),
+            bootstrapped_key: format!("{BOOTSTRAPPED_PREFIX}:{seed}:{hops}"),
             seed,
             hops,
         }
@@ -150,14 +154,43 @@ impl SeedHopsScope {
         Ok(score.map(|hop| hop as u8))
     }
 
+    pub fn seed(&self) -> &PubkyId {
+        &self.seed
+    }
+
+    pub fn hops(&self) -> u8 {
+        self.hops
+    }
+
     /// Adds the member at `hop`, or moves it closer if it is already further away.
-    async fn add_member(&self, user_id: &str, hop: u8) -> RedisResult<()> {
+    pub async fn add_member(&self, user_id: &str, hop: u8) -> RedisResult<()> {
         let mut redis_conn = get_redis_conn().await?;
         let () = redis::cmd("ZADD")
             .arg(&self.members_key)
             .arg("LT")
             .arg(hop)
             .arg(user_id)
+            .query_async(&mut redis_conn)
+            .await?;
+        Ok(())
+    }
+
+    /// Whether this scope's members were already worked out from a big Nexus.
+    pub async fn is_bootstrapped(&self) -> RedisResult<bool> {
+        let mut redis_conn = get_redis_conn().await?;
+        let exists: bool = redis::cmd("EXISTS")
+            .arg(&self.bootstrapped_key)
+            .query_async(&mut redis_conn)
+            .await?;
+        Ok(exists)
+    }
+
+    /// Records that the members were bootstrapped, so a restart doesn't do it again.
+    pub async fn mark_bootstrapped(&self) -> RedisResult<()> {
+        let mut redis_conn = get_redis_conn().await?;
+        let () = redis::cmd("SET")
+            .arg(&self.bootstrapped_key)
+            .arg(chrono::Utc::now().timestamp_millis())
             .query_async(&mut redis_conn)
             .await?;
         Ok(())

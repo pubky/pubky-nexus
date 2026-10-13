@@ -34,6 +34,14 @@ moderated_tags = [
     "il_adult_nu_sex_act",
 ]
 
+# How a seed scope ([stack.scope] kind = "seed") finds its members at start.
+# "crawl" (default) finds them hop by hop as their follows are read. "nexus" works
+# them all out from a big Nexus's /v0/events log, then reads each one from its own
+# homeserver; if that Nexus can't be read, it falls back to crawling.
+# [scope_bootstrap]
+# source = "nexus"
+# nexus_url = "https://nexus.pubky.app"
+
 # Event retry configuration
 [retry]
 # Transient error retry limit before dead-letter

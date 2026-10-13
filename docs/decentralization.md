@@ -315,6 +315,18 @@ startup. When a member closer than `hops` follows someone, the followee joins at
 once (a stub is promoted and read from the start of its stream). Changing `seed` or
 `hops` starts a new member set.
 
+*Seed bootstrap — `[watcher.scope_bootstrap]`:* by default (`source = "crawl"`) a
+new seed scope finds its members hop by hop, as each member's follows are read.
+With `source = "nexus"` and a `nexus_url`, the watcher reads that Nexus's
+`/v0/events` log once at start, rebuilds the follow graph from it and adds every
+member within `hops` at once, so they are all polled in parallel. Only membership
+comes from that Nexus: every member's content is still read from its own
+homeserver, so a Nexus that lags or leaves events out can't hide content, and a
+member it misses still joins later through the crawl. It runs once per seed and hop
+count (`Scope:Bootstrapped:<seed>:<hops>`), in the background, restarts the read if
+the log is recreated under it (`x-events-epoch`, `x-events-length` when served), and
+falls back to crawling after 3 failed reads.
+
 *Effect on existing data:* changing the scope does not remove anything already
 indexed, and users bound to an HS under the old scope keep being polled. Freezing
 and cleaning up users who leave the scope is not implemented yet.
@@ -343,6 +355,7 @@ and cleaning up users who leave the scope is not implemented yet.
 | `max_missing_dep_backoff_secs` | `[watcher.retry]` | `u64` s | `3600` |
 | `external_hs_pk_blacklist` | `[stack.net]` | `Vec<PubkyId>` | `[]` |
 | `kind`, `homeservers`, `seed`, `hops` | `[stack.scope]` | see [Section 6](#6-indexing-scope--stackscope) | `kind = "everything"` |
+| `source`, `nexus_url` | `[watcher.scope_bootstrap]` | see [Section 6](#6-indexing-scope--stackscope) | `source = "crawl"` |
 
 
 [^1]: This is the *interval* at which runs are *triggered*, not a sleep duration

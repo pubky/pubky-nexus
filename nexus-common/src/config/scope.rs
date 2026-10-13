@@ -85,6 +85,60 @@ impl TryFrom<RawScopeConfig> for ScopeConfig {
     }
 }
 
+/// How a new seed-scoped Nexus finds its members, set in the watcher's
+/// `[scope_bootstrap]` (`[watcher.scope_bootstrap]` in a combined config).
+///
+/// Either way, every member's content is read from its own homeserver: a big Nexus
+/// only tells the new one who the members are, so it can't hide or delay content.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(
+    tag = "source",
+    rename_all = "snake_case",
+    try_from = "RawScopeBootstrapConfig"
+)]
+pub enum ScopeBootstrapConfig {
+    /// Discover members hop by hop, as their follow events are read.
+    #[default]
+    Crawl,
+    /// Work out every member at start from a big Nexus's `/v0/events` log, then read
+    /// them all in parallel. Falls back to crawling if that Nexus can't be read.
+    Nexus { nexus_url: String },
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawScopeBootstrapConfig {
+    source: String,
+    nexus_url: Option<String>,
+}
+
+impl TryFrom<RawScopeBootstrapConfig> for ScopeBootstrapConfig {
+    type Error = String;
+
+    fn try_from(raw: RawScopeBootstrapConfig) -> Result<Self, Self::Error> {
+        match (raw.source.as_str(), raw.nexus_url) {
+            ("crawl", None) => Ok(Self::Crawl),
+            ("crawl", Some(_)) => {
+                Err("scope_bootstrap.nexus_url is only valid with source = \"nexus\"".into())
+            }
+            ("nexus", Some(nexus_url)) => match url::Url::parse(&nexus_url) {
+                Ok(url) if matches!(url.scheme(), "http" | "https") => Ok(Self::Nexus {
+                    nexus_url: nexus_url.trim_end_matches('/').to_string(),
+                }),
+                _ => Err(format!(
+                    "scope_bootstrap.nexus_url is not an http(s) URL: {nexus_url}"
+                )),
+            },
+            ("nexus", None) => {
+                Err("scope_bootstrap.nexus_url is required with source = \"nexus\"".into())
+            }
+            (other, _) => Err(format!(
+                "unknown scope_bootstrap.source \"{other}\": expected \"crawl\" or \"nexus\""
+            )),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -185,5 +239,40 @@ mod tests {
             serde_json::to_value(ScopeConfig::Everything).unwrap(),
             serde_json::json!({ "kind": "everything" })
         );
+    }
+
+    #[test]
+    fn bootstrap_reads_each_source_and_rejects_invalid_ones() {
+        let parse = |toml_text: &str| {
+            toml::from_str::<ScopeBootstrapConfig>(toml_text).map_err(|e| e.message().to_string())
+        };
+
+        assert_eq!(
+            parse(r#"source = "crawl""#),
+            Ok(ScopeBootstrapConfig::Crawl)
+        );
+        assert_eq!(
+            parse("source = \"nexus\"\nnexus_url = \"https://nexus.pubky.app/\""),
+            Ok(ScopeBootstrapConfig::Nexus {
+                nexus_url: "https://nexus.pubky.app".into()
+            })
+        );
+
+        let cases = [
+            ("source = \"nexus\"", "is required"),
+            (
+                "source = \"nexus\"\nnexus_url = \"ftp://x\"",
+                "not an http(s) URL",
+            ),
+            (
+                "source = \"crawl\"\nnexus_url = \"https://x\"",
+                "only valid with",
+            ),
+            ("source = \"peers\"", "unknown scope_bootstrap.source"),
+        ];
+        for (toml_text, expected) in cases {
+            let error = parse(toml_text).expect_err(toml_text);
+            assert!(error.contains(expected), "{toml_text:?} gave {error:?}");
+        }
     }
 }

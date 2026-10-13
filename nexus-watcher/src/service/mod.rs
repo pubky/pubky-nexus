@@ -1,6 +1,7 @@
 mod constants;
 pub mod indexer;
 pub mod runner;
+pub mod scope_bootstrap;
 pub mod stats;
 mod task_runner;
 pub mod user_hs_resolver;
@@ -18,11 +19,12 @@ use crate::service::task_runner::task_results_into_result;
 use crate::NexusWatcherBuilder;
 use nexus_common::file::ConfigLoader;
 use nexus_common::models::homeserver::Homeserver;
-use nexus_common::models::scope::scope_from_config;
+use nexus_common::models::scope::{scope_from_config, SeedHopsScope};
 use nexus_common::models::user::UserIngestor;
 use nexus_common::types::DynError;
-use nexus_common::ScopeConfig;
 use nexus_common::WatcherConfig;
+use nexus_common::{ScopeBootstrapConfig, ScopeConfig};
+use scope_bootstrap::NexusEventLog;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::watch::Receiver;
@@ -143,10 +145,21 @@ async fn prepare_scope(config: &WatcherConfig) -> Result<(), DynError> {
     scope.prepare().await?;
 
     match &config.stack.scope {
-        ScopeConfig::Seed { seed, .. } => {
-            UserIngestor::from_config(&config.stack)
-                .ensure_in_scope(seed)
-                .await?;
+        ScopeConfig::Seed { seed, hops } => {
+            let ingestor = UserIngestor::from_config(&config.stack);
+            ingestor.ensure_in_scope(seed).await?;
+
+            if let ScopeBootstrapConfig::Nexus { nexus_url } = &config.scope_bootstrap {
+                // In the background: the seed's own stream is polled meanwhile, and if the
+                // big Nexus can't be read, crawling finds the members anyway.
+                let scope = SeedHopsScope::new(seed.clone(), *hops);
+                let source = NexusEventLog {
+                    nexus_url: nexus_url.clone(),
+                };
+                tokio::spawn(async move {
+                    scope_bootstrap::bootstrap_seed_scope(&scope, &ingestor, &source).await;
+                });
+            }
         }
         ScopeConfig::Homeservers { homeservers } if !homeservers.contains(&config.homeserver) => {
             warn!(
@@ -155,6 +168,12 @@ async fn prepare_scope(config: &WatcherConfig) -> Result<(), DynError> {
             );
         }
         _ => {}
+    }
+
+    if config.scope_bootstrap != ScopeBootstrapConfig::Crawl
+        && !matches!(config.stack.scope, ScopeConfig::Seed { .. })
+    {
+        warn!("scope_bootstrap only applies to a seed scope; ignoring it");
     }
 
     Ok(())

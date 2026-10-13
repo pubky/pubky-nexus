@@ -8,10 +8,12 @@ use nexus_common::db::{fetch_key_from_graph, fetch_row_from_graph, queries};
 use nexus_common::models::post::PostDetails;
 use nexus_common::models::scope::{HomeserverListScope, Scope, SeedHopsScope};
 use nexus_common::models::user::{is_stub, user_hs_cursor_key, UserDetails, UserIngestor};
+use nexus_common::types::DynError;
 use nexus_common::utils::test_utils::random_pubky_id;
 use nexus_common::DEFAULT_MAX_FILE_SIZE;
 use nexus_watcher::events::handlers;
 use nexus_watcher::events::{DefaultEventHandler, Event, EventHandler, ParseResult};
+use nexus_watcher::service::scope_bootstrap::{bootstrap_seed_scope, EventLogSource, LogPage};
 use nexus_watcher::EventProcessorError;
 use pubky::Keypair;
 use pubky_app_specs::traits::TimestampId;
@@ -255,5 +257,86 @@ async fn test_reply_to_a_post_outside_the_scope_fetches_only_that_post() -> Resu
         "nothing else of the outsider's is read"
     );
     assert_user_is_stub(&outsider_id).await;
+    Ok(())
+}
+
+/// A big Nexus's log served from memory, read once; `None` fails every read.
+struct FakeNexusLog(Option<Vec<String>>, std::sync::Mutex<u32>);
+
+#[async_trait::async_trait]
+impl EventLogSource for FakeNexusLog {
+    async fn page(&self, cursor: u64) -> Result<LogPage, DynError> {
+        *self.1.lock().unwrap() += 1;
+        let lines = self.0.as_ref().ok_or("the big Nexus is down")?;
+        let rest: Vec<String> = lines.iter().skip(cursor as usize).cloned().collect();
+        Ok(LogPage {
+            next_cursor: cursor + rest.len() as u64,
+            lines: rest,
+            ..LogPage::default()
+        })
+    }
+}
+
+fn follow_line(follower: &PubkyId, followee: &PubkyId) -> String {
+    format!("PUT pubky://{follower}/pub/pubky.app/follows/{followee}")
+}
+
+/// The big Nexus's follows give every member at start: each one within the hops is
+/// added and bound to its homeserver, so it is polled at once. It runs only once.
+#[tokio_shared_rt::test(shared)]
+async fn test_bootstrap_adds_every_member_the_big_nexus_knows() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let hs_pk = create_external_test_homeserver(&mut test).await?;
+    let seed = user_on(&test, &hs_pk).await?;
+    let (hop1, hop2, hop3) = (
+        user_on(&test, &hs_pk).await?,
+        user_on(&test, &hs_pk).await?,
+        user_on(&test, &hs_pk).await?,
+    );
+
+    let scope = SeedHopsScope::new(seed.clone(), 2);
+    scope.prepare().await?;
+    let ingestor = scoped_ingestor(Arc::new(SeedHopsScope::new(seed.clone(), 2)));
+    let log = FakeNexusLog(
+        Some(vec![
+            follow_line(&seed, &hop1),
+            follow_line(&hop1, &hop2),
+            follow_line(&hop2, &hop3),
+        ]),
+        Default::default(),
+    );
+
+    bootstrap_seed_scope(&scope, &ingestor, &log).await;
+
+    assert_eq!(scope.hop_of(&hop1).await?, Some(1));
+    assert_eq!(scope.hop_of(&hop2).await?, Some(2));
+    assert_eq!(scope.hop_of(&hop3).await?, None, "beyond the hops");
+    assert_user_ingested(&hop1, &hs_pk).await;
+    assert_user_ingested(&hop2, &hs_pk).await;
+    assert!(scope.is_bootstrapped().await?);
+
+    let reads = *log.1.lock().unwrap();
+    bootstrap_seed_scope(&scope, &ingestor, &log).await;
+    assert_eq!(
+        *log.1.lock().unwrap(),
+        reads,
+        "a second start doesn't read the log again"
+    );
+    Ok(())
+}
+
+/// If the big Nexus can't be read, nothing is added and the bootstrap isn't marked
+/// done: crawling finds the members, and the next start tries again.
+#[tokio_shared_rt::test(shared)]
+async fn test_bootstrap_falls_back_to_crawling_when_the_big_nexus_fails() -> Result<()> {
+    WatcherTest::setup(None).await?;
+    let seed = random_pubky_id();
+    let scope = SeedHopsScope::new(seed.clone(), 2);
+    scope.prepare().await?;
+    let ingestor = scoped_ingestor(Arc::new(SeedHopsScope::new(seed, 2)));
+
+    bootstrap_seed_scope(&scope, &ingestor, &FakeNexusLog(None, Default::default())).await;
+
+    assert!(!scope.is_bootstrapped().await?);
     Ok(())
 }
