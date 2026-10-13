@@ -175,6 +175,11 @@ pub async fn set_user_homeserver_stale(user_id: &str, stale: bool) -> GraphResul
     exec_single_row(queries::put::set_user_homeserver_stale(user_id, stale)).await
 }
 
+/// Refreshes `resolved_at` on a user's existing homeserver mapping, keeping its stale flag.
+pub async fn refresh_user_homeserver_resolved_at(user_id: &str) -> GraphResult<()> {
+    exec_single_row(queries::put::refresh_user_homeserver_resolved_at(user_id)).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
