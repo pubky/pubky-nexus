@@ -27,6 +27,7 @@ const AVATAR_FALLBACK_CACHE_CONTROL: &str = "public, max-age=30";
     ),
     responses(
         (status = 200, description = "Avatar image"),
+        (status = 400, description = "Invalid parameters"),
         (status = 404, description = "User or avatar not found"),
         (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal error retrieving avatar")

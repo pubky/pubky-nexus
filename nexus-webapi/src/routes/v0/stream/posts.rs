@@ -449,6 +449,7 @@ pub struct PostStreamByIdsRequest {
     request_body = PostStreamByIdsRequest,
     responses(
         (status = 200, description = "Post stream", body = PostStreamDetailed),
+        (status = 400, description = "Invalid request body"),
         (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error")
     )

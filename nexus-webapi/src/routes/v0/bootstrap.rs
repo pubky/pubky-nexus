@@ -23,6 +23,7 @@ use utoipa::OpenApi;
     ),
     responses(
         (status = 200, description = "Initial payload to bootstrap the client", body = Bootstrap),
+        (status = 400, description = "Invalid parameters"),
         (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error")
     )
@@ -42,6 +43,7 @@ pub async fn bootstrap_handler(Path(user_id): Path<PubkyId>) -> Result<Json<Boot
     ),
     responses(
         (status = 200, description = "User successfully ingested (or already known)"),
+        (status = 400, description = "Invalid parameters"),
         (status = 403, description = "User is hosted on a blacklisted HS"),
         (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error")
