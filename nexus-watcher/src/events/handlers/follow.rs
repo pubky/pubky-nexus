@@ -22,6 +22,10 @@ pub async fn sync_put(
     }
 
     debug!("Indexing follow");
+    // Before anything is written, so a followee this follow brings into the scope is
+    // ingested (or promoted from stub) as an in-scope user.
+    ingestor.on_follow(&follower_id, &followee_id).await?;
+
     // SAVE TO GRAPH
     // (follower_id)-[:FOLLOWS]->(followee_id)
     match Followers::put_to_graph(&follower_id, &followee_id).await? {

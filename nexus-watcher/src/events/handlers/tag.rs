@@ -18,6 +18,7 @@ use nexus_common::universal_tag::normalize::{
 use pubky_app_specs::{ExtendedParsedUri, ParsedUri, PubkyAppTag, PubkyId, Resource};
 use tracing::debug;
 
+use super::scope::index_out_of_scope_post;
 use super::utils::{fail_on_blacklisted_hs, post_kind, post_relationships_is_reply};
 
 #[derive(Debug)]
@@ -216,6 +217,22 @@ async fn put_sync_post(
             if let Ok(post_uri) = ParsedUri::try_from(post_uri_str) {
                 // Drop the tag (non-retryable) if the tagged post's author is on a blacklisted HS.
                 fail_on_blacklisted_hs(ingestor.maybe_ingest_author_of_post(&post_uri).await)?;
+
+                if index_out_of_scope_post(&post_uri, ingestor).await? {
+                    // At most once: the post is indexed now, so it is never fetched again.
+                    return Box::pin(put_sync_post(
+                        tagger_user_id,
+                        author_id,
+                        post_id,
+                        tag_id,
+                        tag_uri,
+                        tag_label,
+                        post_uri_str,
+                        indexed_at,
+                        ingestor,
+                    ))
+                    .await;
+                }
             }
             Err(EventProcessorError::MissingDependency {
                 dependency: vec![post_uri_str.to_owned()],

@@ -455,6 +455,20 @@ pub fn create_homeserver(homeserver_id: &str) -> Query {
 /// If the user is already on the target homeserver, refreshes `resolved_at`.
 /// If the user is on a different homeserver, replaces the old relationship.
 /// MERGEs the target homeserver node if it doesn't exist yet.
+/// Sets a user's `scope_state`, or removes it with `None` (the user is in scope).
+///
+/// `"stub"` marks a user this Nexus knows but does not index: its node exists so
+/// in-scope records can point at it, and it is never resolved or polled.
+pub fn set_user_scope_state(user_id: &str, scope_state: Option<&str>) -> Query {
+    Query::new(
+        "set_user_scope_state",
+        "MATCH (u:User {id: $user_id})
+         SET u.scope_state = $scope_state",
+    )
+    .param("user_id", user_id.to_string())
+    .param("scope_state", scope_state.map(str::to_string))
+}
+
 pub fn set_user_homeserver(user_id: &str, homeserver_id: &str) -> Query {
     Query::new(
         "set_user_homeserver",

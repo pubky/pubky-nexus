@@ -21,7 +21,8 @@ runner; the sections below group each config field under the runner it drives:
 - [Section 3: Key-based indexing of externally-hosted users](#3-indexing-externally-hosted-users-key-based)
 - [Section 4: User → HS resolution](#4-user--hs-resolution)
 - [Section 5: Event retry & backoff](#5-event-retry--backoff--watcherretry)
-- [Section 6: Quick reference](#6-quick-reference)
+- [Section 6: Indexing scope](#6-indexing-scope--stackscope)
+- [Section 7: Quick reference](#7-quick-reference)
 
 ---
 
@@ -278,7 +279,49 @@ avoid hammering an HS for content that may not exist yet.
 
 ---
 
-## 6. Quick reference
+## 6. Indexing scope — `[stack.scope]`
+
+> Which users this Nexus indexes. Set in `[stack]` so the watcher and the API read
+> the same value; omit it to index everyone. `/v0/info` publishes it.
+
+| `kind` | Indexes | Feeds read whole | Users read one by one |
+|---|---|---|---|
+| `everything` (default) | Every user Nexus can discover | The primary HS (`homeserver`) | Users on every other HS |
+| `homeservers` | Users hosted on the listed HSs | Each listed HS | None |
+| `seed` | `seed`, and who it follows up to `hops` follows away (1–3, default 2) | None | Every member, including members on the primary HS |
+
+```toml
+[stack.scope]
+kind = "seed"
+seed = "<user pubky>"
+hops = 2
+```
+
+The settings are validated on load: `homeservers` must list at least one HS, `hops`
+must be between 1 and 3, and a field that doesn't belong to the `kind` is an error.
+
+*Users outside the scope* are kept as stubs: a `User` node with
+`scope_state = "stub"` and zeroed counts, but no `HOSTED_BY` edge and no cursor, so
+the resolver and the indexers never touch them. Follows, tags and mentions of them
+by in-scope users are still indexed. When an in-scope user replies to, reposts,
+tags or bookmarks a stub's post, that one post is fetched and indexed (following up
+to 8 out-of-scope parents); nothing else of the stub's is read. Events that still
+reach the handler from an out-of-scope author are skipped and counted in
+`watcher.events.out_of_scope`.
+
+*Seed scope:* members are kept in the Redis sorted set
+`Scope:Members:<seed>:<hops>`, scored by hop distance. The seed is ingested on
+startup. When a member closer than `hops` follows someone, the followee joins at
+once (a stub is promoted and read from the start of its stream). Changing `seed` or
+`hops` starts a new member set.
+
+*Effect on existing data:* changing the scope does not remove anything already
+indexed, and users bound to an HS under the old scope keep being polled. Freezing
+and cleaning up users who leave the scope is not implemented yet.
+
+---
+
+## 7. Quick reference
 
 | Field | TOML path | Type | Default |
 |---|---|---|---|
@@ -299,6 +342,7 @@ avoid hammering an HS for content that may not exist yet.
 | `initial_missing_dep_backoff_secs` | `[watcher.retry]` | `u64` s | `60` |
 | `max_missing_dep_backoff_secs` | `[watcher.retry]` | `u64` s | `3600` |
 | `external_hs_pk_blacklist` | `[stack.net]` | `Vec<PubkyId>` | `[]` |
+| `kind`, `homeservers`, `seed`, `hops` | `[stack.scope]` | see [Section 6](#6-indexing-scope--stackscope) | `kind = "everything"` |
 
 
 [^1]: This is the *interval* at which runs are *triggered*, not a sleep duration

@@ -677,6 +677,7 @@ pub fn get_all_homeservers_with_active_users() -> Query {
         "get_all_homeservers_with_active_users",
         "MATCH (u:User)-[r:HOSTED_BY]->(hs:Homeserver)
         WHERE NOT coalesce(u.deleted, false) AND NOT coalesce(r.stale, false)
+          AND u.scope_state IS NULL
         WITH hs.id AS id,
              sum(coalesce(u.trust, 0.0)) AS hosted_trust,
              count(u) AS active_users
@@ -687,11 +688,12 @@ pub fn get_all_homeservers_with_active_users() -> Query {
 
 /// Retrieves user IDs whose homeserver mapping is stale
 /// (`resolved_at` is older than `ttl_ms`) or missing (no `HOSTED_BY` edge).
+/// Users outside the scope (any `scope_state`) are never resolved.
 pub fn get_users_needing_hs_resolution(ttl_ms: u64) -> Query {
     Query::new(
         "get_users_needing_hs_resolution",
         "MATCH (u:User)
-         WHERE NOT coalesce(u.deleted, false)
+         WHERE NOT coalesce(u.deleted, false) AND u.scope_state IS NULL
          OPTIONAL MATCH (u)-[r:HOSTED_BY]->(:Homeserver)
          WITH u, r
          WHERE r IS NULL
@@ -700,6 +702,17 @@ pub fn get_users_needing_hs_resolution(ttl_ms: u64) -> Query {
          RETURN collect(u.id) AS user_ids",
     )
     .param("ttl_ms", ttl_ms as i64)
+}
+
+/// Retrieves a user's `scope_state`: a row with `null` for an in-scope user, no row
+/// for an unknown one.
+pub fn get_user_scope_state(user_id: &str) -> Query {
+    Query::new(
+        "get_user_scope_state",
+        "MATCH (u:User {id: $user_id})
+         RETURN u.scope_state AS scope_state",
+    )
+    .param("user_id", user_id.to_string())
 }
 
 /// Retrieves the homeserver ID a user is currently hosted on, if any, along with
@@ -729,12 +742,13 @@ pub fn count_user_homeserver_mappings() -> Query {
 ///
 /// Excludes users whose mapping is marked `stale` — i.e. whose published
 /// homeserver has diverged from the stored one — so the watcher stops
-/// indexing them until the mapping realigns.
+/// indexing them until the mapping realigns, and users outside the scope.
 pub fn get_active_users_by_homeserver(hs_id: &str) -> Query {
     Query::new(
         "get_active_users_by_homeserver",
         "MATCH (u:User)-[r:HOSTED_BY]->(:Homeserver {id: $hs_id})
          WHERE NOT coalesce(u.deleted, false) AND NOT coalesce(r.stale, false)
+           AND u.scope_state IS NULL
          RETURN collect(u.id) AS user_ids",
     )
     .param("hs_id", hs_id.to_string())

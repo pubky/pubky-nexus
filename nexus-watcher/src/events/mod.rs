@@ -4,13 +4,26 @@ pub mod event;
 pub use event::{Event, EventType, ParseResult};
 
 use crate::errors::EventProcessorError;
+use crate::service::indexer::METER_NAME;
 use nexus_common::WatcherConfig;
+use opentelemetry::{global, metrics::Counter};
 use pubky_app_specs::{ExtendedParsedUri, PubkyAppObject, Resource};
 use std::{
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, LazyLock},
 };
 use tracing::debug;
+
+/// Counter for events skipped because their author is outside the scope.
+///
+/// The runners only read in-scope users, so this stays near zero; a steady
+/// count means events of out-of-scope users are still reaching dispatch.
+static OUT_OF_SCOPE: LazyLock<Counter<u64>> = LazyLock::new(|| {
+    global::meter(METER_NAME)
+        .u64_counter("watcher.events.out_of_scope")
+        .with_description("Events skipped because their author is outside the scope")
+        .build()
+});
 
 mod fetch;
 pub mod handlers;
@@ -71,6 +84,16 @@ impl DefaultEventHandler {
 #[async_trait::async_trait]
 impl EventHandler for DefaultEventHandler {
     async fn handle(&self, event: &Event) -> Result<(), EventProcessorError> {
+        // A safety net: the runners only read in-scope users, but an event queued for
+        // retry before the scope changed, or a feed shared with others, can still bring
+        // an out-of-scope author here. Its event is neither indexed nor logged.
+        let author_id = event.parsed_uri.user_id();
+        if !self.ingestor.scope().is_in_scope(author_id, None).await? {
+            OUT_OF_SCOPE.add(1, &[]);
+            debug!(event.uri = %event.uri, "Author is outside the scope; skipping event");
+            return Ok(());
+        }
+
         match event.event_type {
             EventType::Put => {
                 handle_put_event(
@@ -99,34 +122,8 @@ pub async fn handle_put_event(
     moderation: Arc<Moderation>,
     ingestor: Arc<UserIngestor>,
 ) -> Result<(), EventProcessorError> {
-    let pubky = PubkyConnector::get()?;
-    let response = pubky.public_storage().get(&event.uri).await?;
-
-    if !response.status().is_success() {
-        let status = response.status();
-        let (body, _exceeded) = read_stream_capped(response.bytes_stream(), MAX_ERROR_BODY)
-            .await
-            .unwrap_or_default();
-        let body = format_error_body(&body, MAX_ERROR_BODY);
-
-        let err_msg = format!(
-            "Fetch resource failed {}: HTTP {status} - {body}",
-            event.uri
-        );
-        return Err(EventProcessorError::client_error(err_msg));
-    }
-
-    let blob = fetch_capped(response, MAX_RESOURCE_SIZE as u64).await?;
-
     let resource = event.parsed_uri.resource().clone();
-
-    // Use the new importer from pubky-app-specs.
-    // `from_resource` runs spec validation; failures are deterministic and must
-    // not be retried (a re-run produces the same error). Classify them as
-    // `SpecValidation` so the retry queue stays clean — the load-bearing
-    // counterpart to the `Unknown` forwards-compat variant in pubky-app-specs.
-    let pubky_object = PubkyAppObject::from_resource(&resource, blob.as_slice())
-        .map_err(|e| EventProcessorError::SpecValidation(e.to_string()))?;
+    let pubky_object = fetch_object(&event.uri, &resource).await?;
 
     let user_id = event.parsed_uri.user_id().clone();
     match (pubky_object, resource) {
@@ -143,7 +140,7 @@ pub async fn handle_put_event(
             debug!("Mute events are no longer handled by nexus");
         }
         (PubkyAppObject::Bookmark(bookmark), Resource::Bookmark(bookmark_id)) => {
-            handlers::bookmark::sync_put(user_id, bookmark, bookmark_id).await?
+            handlers::bookmark::sync_put(user_id, bookmark, bookmark_id, &ingestor).await?
         }
         (PubkyAppObject::Tag(tag), Resource::Tag(tag_id)) => {
             if moderation.should_delete(&tag, &user_id) {
@@ -190,6 +187,36 @@ pub async fn handle_put_event(
         other => debug!(?other, "Event type not handled"),
     }
     Ok(())
+}
+
+/// Fetches the record at `uri` from its homeserver and validates it as `resource`.
+pub(crate) async fn fetch_object(
+    uri: &str,
+    resource: &Resource,
+) -> Result<PubkyAppObject, EventProcessorError> {
+    let pubky = PubkyConnector::get()?;
+    let response = pubky.public_storage().get(uri).await?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let (body, _exceeded) = read_stream_capped(response.bytes_stream(), MAX_ERROR_BODY)
+            .await
+            .unwrap_or_default();
+        let body = format_error_body(&body, MAX_ERROR_BODY);
+
+        let err_msg = format!("Fetch resource failed {uri}: HTTP {status} - {body}");
+        return Err(EventProcessorError::client_error(err_msg));
+    }
+
+    let blob = fetch_capped(response, MAX_RESOURCE_SIZE as u64).await?;
+
+    // Use the new importer from pubky-app-specs.
+    // `from_resource` runs spec validation; failures are deterministic and must
+    // not be retried (a re-run produces the same error). Classify them as
+    // `SpecValidation` so the retry queue stays clean — the load-bearing
+    // counterpart to the `Unknown` forwards-compat variant in pubky-app-specs.
+    PubkyAppObject::from_resource(resource, blob.as_slice())
+        .map_err(|e| EventProcessorError::SpecValidation(e.to_string()))
 }
 
 /// Handles a DEL event by dispatching to the appropriate handler.

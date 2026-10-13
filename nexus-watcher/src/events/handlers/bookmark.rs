@@ -1,10 +1,11 @@
 use chrono::Utc;
 use nexus_common::db::OperationOutcome;
 use nexus_common::models::post::Bookmark;
-use nexus_common::models::user::UserCounts;
+use nexus_common::models::user::{UserCounts, UserIngestor};
 use pubky_app_specs::{ParsedUri, PubkyAppBookmark, PubkyId, Resource};
 use tracing::debug;
 
+use super::scope::index_out_of_scope_post;
 use super::utils::post_is_collection;
 use crate::events::EventProcessorError;
 
@@ -13,14 +14,15 @@ pub async fn sync_put(
     user_id: PubkyId,
     bookmark: PubkyAppBookmark,
     id: String,
+    ingestor: &UserIngestor,
 ) -> Result<(), EventProcessorError> {
     debug!("Indexing bookmark");
     // Parse the URI to extract author_id and post_id using the updated parse_post_uri
     let parsed_uri =
         ParsedUri::try_from(bookmark.uri.as_str()).map_err(EventProcessorError::generic)?;
-    let author_id = parsed_uri.user_id;
-    let post_id = match parsed_uri.resource {
-        Resource::Post(id) => id,
+    let author_id = parsed_uri.user_id.clone();
+    let post_id = match &parsed_uri.resource {
+        Resource::Post(id) => id.clone(),
         _ => {
             return Err(EventProcessorError::generic(
                 "Bookmarked uri is not a Post resource",
@@ -40,6 +42,12 @@ pub async fn sync_put(
             OperationOutcome::CreatedOrDeleted => false,
             OperationOutcome::Updated => true,
             OperationOutcome::MissingDependency => {
+                // The bookmark doesn't ingest the post's author, so only a post by a
+                // stub (an author other records already pointed at) can be fetched here.
+                if index_out_of_scope_post(&parsed_uri, ingestor).await? {
+                    // At most once: the post is indexed now, so it is never fetched again.
+                    return Box::pin(sync_put(user_id, bookmark, id, ingestor)).await;
+                }
                 let dependency = vec![format!("{author_id}:posts:{post_id}")];
                 return Err(EventProcessorError::MissingDependency { dependency });
             }
