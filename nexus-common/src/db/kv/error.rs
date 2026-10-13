@@ -43,11 +43,14 @@ impl RedisError {
 /// idempotent re-persist of a boundary event is not treated as an error.
 pub fn ensure_cursor_not_backwards(new_cursor: u64, stored_cursor: u64) -> RedisResult<()> {
     if new_cursor < stored_cursor {
-        return Err(RedisError::InvalidInput(
-            "Cursor cannot move backwards".into(),
-        ));
+        return Err(cursor_backwards_error());
     }
     Ok(())
+}
+
+/// The error for a cursor write that [`ensure_cursor_not_backwards`]'s rule rejects.
+pub(crate) fn cursor_backwards_error() -> RedisError {
+    RedisError::InvalidInput("Cursor cannot move backwards".into())
 }
 
 impl From<redis::RedisError> for RedisError {

@@ -1,15 +1,45 @@
 use crate::db::exec_single_row;
 use crate::db::fetch_key_from_graph;
+use crate::db::get_redis_conn;
 use crate::db::kv::ensure_cursor_not_backwards;
-use crate::db::kv::RedisResult;
+use crate::db::kv::{cursor_backwards_error, RedisError, RedisResult};
 use crate::db::queries;
 use crate::db::GraphResult;
 use crate::db::RedisOps;
 use crate::models::error::ModelError;
 use crate::models::error::ModelResult;
+use deadpool_redis::redis::Script;
 use pubky_app_specs::PubkyId;
 use serde::{Deserialize, Deserializer, Serialize};
+use std::sync::LazyLock;
 use tracing::{info, warn};
+
+/// Script for [`Homeserver::put_to_index`]. KEYS[1] is the homeserver's JSON key, ARGV[1] the
+/// new cursor and ARGV[2] the homeserver JSON to store. Returns -1 without writing when the new
+/// cursor is below the stored one, -2 when the stored cursor is not a number, else writes and
+/// returns 1.
+///
+/// The cursors are compared as decimal strings rather than as Lua numbers, which are doubles
+/// and lose precision past 2^53. The stored cursor is a JSON number, or a zero-padded string in
+/// older entries (see `deserialize_cursor`).
+static PUT_SCRIPT: LazyLock<Script> = LazyLock::new(|| {
+    Script::new(
+        r#"local stored = redis.call('JSON.GET', KEYS[1], '$.cursor')
+          if stored then
+              local digits = string.match(stored, '^%["?(%d+)"?%]$')
+              if not digits then
+                  return -2
+              end
+              local old = string.gsub(digits, '^0+(%d)', '%1')
+              local new = ARGV[1]
+              if #new < #old or (#new == #old and new < old) then
+                  return -1
+              end
+          end
+          redis.call('JSON.SET', KEYS[1], '$', ARGV[2])
+          return 1"#,
+    )
+});
 
 /// A set of homeserver public keys forbidden from indexing and ingestion.
 #[derive(Debug, Default, Clone)]
@@ -110,14 +140,36 @@ impl Homeserver {
         Self::try_from_index_json(&[id], None).await
     }
 
-    /// Stores this homeserver in Redis.
+    /// Stores this homeserver in Redis, rejecting a cursor that would move backward.
+    ///
+    /// The compare and the write run as one script ([`PUT_SCRIPT`]), so writers racing on
+    /// the same homeserver cannot rewind its cursor: whichever lands second, the lower value
+    /// is rejected.
     pub async fn put_to_index(&self) -> RedisResult<()> {
-        Self::validate_cursor_change(&self.id, self.cursor).await?;
-        self.put_index_json(&[&self.id], None, None).await
+        let payload = serde_json::to_string(self)
+            .map_err(|e| RedisError::SerializationFailed(Box::new(e)))?;
+        let key = format!("{}:{}", Self::prefix().await, self.id);
+
+        let mut redis_conn = get_redis_conn().await?;
+        let written: i64 = PUT_SCRIPT
+            .key(key)
+            .arg(self.cursor)
+            .arg(payload)
+            .invoke_async(&mut redis_conn)
+            .await?;
+
+        match written {
+            1 => Ok(()),
+            -1 => Err(cursor_backwards_error()),
+            _ => Err(RedisError::DeserializationFailed(
+                format!("stored cursor of homeserver {} is not a number", self.id).into(),
+            )),
+        }
     }
 
+    /// Early check for [`Self::try_from_cursor`]. Not atomic with any write:
+    /// [`Self::put_to_index`] repeats it in the same script as the write.
     async fn validate_cursor_change(id: &PubkyId, new_cursor: u64) -> RedisResult<()> {
-        // Read-then-write is non-atomic but race-free: a given HS is only ever written by one processor run at a time.
         if let Some(existing) = Self::get_from_index(id).await? {
             ensure_cursor_not_backwards(new_cursor, existing.cursor)?;
         }
@@ -321,6 +373,77 @@ mod tests {
             .await?
             .expect("homeserver should remain in the index");
         assert_eq!(homeserver.cursor, 500);
+
+        Ok(())
+    }
+
+    /// Two writers racing on one homeserver never rewind its cursor: whichever lands
+    /// second, the lower value is rejected. A read-then-write lets both read the old
+    /// value and the last write win.
+    #[tokio_shared_rt::test(shared)]
+    async fn test_racing_cursor_writes_never_rewind() -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+
+        for _ in 0..20 {
+            let id = PubkyId::from(Keypair::random().public_key());
+            let at = |cursor| Homeserver {
+                id: id.clone(),
+                cursor,
+            };
+            let (at_10, at_5) = (at(10), at(5));
+
+            let (high, low) = tokio::join!(at_10.put_to_index(), at_5.put_to_index());
+
+            high?;
+            if let Err(err) = low {
+                assert!(matches!(err, RedisError::InvalidInput(_)), "{err}");
+            }
+            let homeserver = Homeserver::get_from_index(&id)
+                .await?
+                .expect("homeserver should be in the index");
+            assert_eq!(homeserver.cursor, 10);
+        }
+
+        Ok(())
+    }
+
+    /// Entries written before cursors were stored as numbers hold a zero-padded string,
+    /// which the cursor check still reads and compares by value.
+    #[tokio_shared_rt::test(shared)]
+    async fn test_cursor_check_reads_a_zero_padded_string() -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+
+        let id = PubkyId::from(Keypair::random().public_key());
+        let mut redis_conn = get_redis_conn().await?;
+        let legacy = format!(r#"{{"id":"{id}","cursor":"0000000000420"}}"#);
+        let _: () = deadpool_redis::redis::cmd("JSON.SET")
+            .arg(format!("Homeserver:{id}"))
+            .arg("$")
+            .arg(legacy)
+            .query_async(&mut redis_conn)
+            .await?;
+
+        let err = Homeserver {
+            id: id.clone(),
+            cursor: 100,
+        }
+        .put_to_index()
+        .await
+        .expect_err("a cursor below the stored 420 must be rejected");
+        assert!(matches!(err, RedisError::InvalidInput(_)));
+
+        for cursor in [420, 1_000] {
+            Homeserver {
+                id: id.clone(),
+                cursor,
+            }
+            .put_to_index()
+            .await?;
+        }
+        let homeserver = Homeserver::get_from_index(&id)
+            .await?
+            .expect("homeserver should be in the index");
+        assert_eq!(homeserver.cursor, 1_000);
 
         Ok(())
     }

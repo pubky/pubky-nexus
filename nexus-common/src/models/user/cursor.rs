@@ -1,9 +1,27 @@
+use std::sync::LazyLock;
+
+use deadpool_redis::redis::Script;
 use serde::{Deserialize, Serialize};
 
-use crate::db::kv::{ensure_cursor_not_backwards, RedisError, RedisResult};
+use crate::db::get_redis_conn;
+use crate::db::kv::{cursor_backwards_error, RedisError, RedisResult, SORTED_PREFIX};
 use crate::db::RedisOps;
 
 const USER_HS_CURSOR: [&str; 2] = ["Users", "Homeservers"];
+
+/// Script for [`UserHsCursor::write`]. KEYS[1] is the user's cursor sorted set, ARGV[1] the
+/// new cursor and ARGV[2] the homeserver ID, its member. Returns -1 without writing when the
+/// new cursor is below the stored one, else writes it and returns 1.
+static WRITE_SCRIPT: LazyLock<Script> = LazyLock::new(|| {
+    Script::new(
+        r"local stored = redis.call('ZSCORE', KEYS[1], ARGV[2])
+          if stored and tonumber(ARGV[1]) < tonumber(stored) then
+              return -1
+          end
+          redis.call('ZADD', KEYS[1], ARGV[1], ARGV[2])
+          return 1",
+    )
+});
 
 /// Redis key parts for per-user homeserver cursor storage: `["Users", "Homeservers", <user_id>]`.
 pub type UserHsCursorKey<'a> = [&'a str; 3];
@@ -62,28 +80,30 @@ impl UserHsCursor {
     /// move it backward. Mirrors `Homeserver::put_to_index` so both cursor types
     /// share one monotonicity rule.
     ///
-    /// Read-then-write is not atomic but is race-free in practice: the external-HS
-    /// event processor is its only caller, and it writes a given `(user_id, hs_id)`
-    /// pair from one run at a time (users are processed sequentially within a poll
-    /// cycle, and cycles for the same homeserver do not overlap). Per-process only:
-    /// the invariant would not survive running the watcher as several replicas.
+    /// The compare and the write run as one script ([`WRITE_SCRIPT`]), so writers
+    /// racing on the same `(user_id, hs_id)` cannot rewind it: whichever lands
+    /// second, the lower value is rejected.
     pub async fn write(user_id: &str, hs_id: &str, cursor: u64) -> RedisResult<()> {
-        let stored_cursor = Self::read(&[user_id], hs_id)
-            .await?
-            .into_iter()
-            .next()
-            .unwrap_or_default();
-        ensure_cursor_not_backwards(cursor, stored_cursor)?;
-        let key = user_hs_cursor_key(user_id);
-        Self::put_index_sorted_set(&key, &[(cursor as f64, hs_id)], None, None).await
+        let key = format!("{SORTED_PREFIX}:{}", user_hs_cursor_key(user_id).join(":"));
+        let mut redis_conn = get_redis_conn().await?;
+        let written: i64 = WRITE_SCRIPT
+            .key(key)
+            .arg(cursor)
+            .arg(hs_id)
+            .invoke_async(&mut redis_conn)
+            .await?;
+
+        match written {
+            1 => Ok(()),
+            _ => Err(cursor_backwards_error()),
+        }
     }
 
     /// Seeds the user's cursor to `0` the first time we track them on `hs_id`,
     /// and no-ops if one already exists (e.g. re-ingestion after it advanced),
     /// establishing the floor without ever rewinding it.
     ///
-    /// Seeded atomically (`ZADD NX`) rather than under [`Self::write`]'s
-    /// single-writer invariant, which does not reach here: the caller is the user
+    /// Seeded atomically (`ZADD NX`), and silently: the caller is the user
     /// ingestor, running on the primary-HS and retry-processor tasks, and it
     /// publishes the user's `HOSTED_BY` edge before seeding — so the concurrent
     /// external-HS task can fetch, index and `write` a real cursor in between. A
@@ -129,6 +149,9 @@ mod tests {
         let cursors = UserHsCursor::read(&[user_with_cursor.as_str()], &hs_id).await?;
         assert_eq!(cursors, vec![100]);
 
+        // Re-writing the same cursor is accepted.
+        UserHsCursor::write(&user_with_cursor, &hs_id, 100).await?;
+
         // Writing a lower cursor is rejected and leaves the existing value intact.
         let err = UserHsCursor::write(&user_with_cursor, &hs_id, 50)
             .await
@@ -136,6 +159,33 @@ mod tests {
         assert!(matches!(err, RedisError::InvalidInput(_)));
         let cursors = UserHsCursor::read(&[user_with_cursor.as_str()], &hs_id).await?;
         assert_eq!(cursors, vec![100]);
+
+        Ok(())
+    }
+
+    /// Two writers racing on one cursor never rewind it: whichever lands second,
+    /// the lower value is rejected. A read-then-write lets both read the old value
+    /// and the last write win.
+    #[tokio_shared_rt::test(shared)]
+    async fn test_hs_cursor_racing_writes_never_rewind() -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+
+        for _ in 0..20 {
+            let user_id = random_pubky_id().to_string();
+            let hs_id = random_pubky_id().to_string();
+
+            let (high, low) = tokio::join!(
+                UserHsCursor::write(&user_id, &hs_id, 10),
+                UserHsCursor::write(&user_id, &hs_id, 5),
+            );
+
+            high?;
+            if let Err(err) = low {
+                assert!(matches!(err, RedisError::InvalidInput(_)), "{err}");
+            }
+            let cursors = UserHsCursor::read(&[user_id.as_str()], &hs_id).await?;
+            assert_eq!(cursors, vec![10]);
+        }
 
         Ok(())
     }
