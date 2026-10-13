@@ -52,7 +52,6 @@ impl DaemonConfig {
     pub fn api_config(&self) -> ApiConfig {
         ApiConfig {
             stack: self.stack.clone(),
-            features: self.features.clone(),
             ..self.api.clone()
         }
     }
@@ -286,7 +285,7 @@ mod tests {
         );
     }
 
-    /// The trust filter switch parses and reaches both services' configs, a
+    /// The trust filter switch parses and reaches the watcher's config, a
     /// config that predates it keeps the filter on, and a misspelled switch
     /// fails rather than leaving the filter on.
     #[test]
@@ -297,7 +296,6 @@ mod tests {
         );
         let c = DaemonConfig::try_from_str(&off).expect("switch off should parse");
         assert!(!c.features.hide_unranked_authors);
-        assert!(!c.api_config().features.hide_unranked_authors);
         assert!(!c.watcher_config().features.hide_unranked_authors);
 
         let absent = DEFAULT_CONFIG_TOML

@@ -27,7 +27,8 @@ const APPLIED_KEY_PARTS: [&str; 2] = ["TrustFilter", "Applied"];
 const BATCH: usize = 500;
 
 /// Whether this process hides unranked authors, from `[features]
-/// hide_unranked_authors`. On until [`FeaturesConfig::apply`] says otherwise.
+/// hide_unranked_authors`. On until [`FeaturesConfig::apply`] says otherwise,
+/// so the API, which never sets it, follows the applied copy alone.
 ///
 /// [`FeaturesConfig::apply`]: crate::FeaturesConfig::apply
 static ENABLED: AtomicBool = AtomicBool::new(true);

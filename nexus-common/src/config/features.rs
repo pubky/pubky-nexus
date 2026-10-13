@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 
-/// App features that can be switched off (`[features]`). Every service reads
-/// it, so keep it the same in each one's config.
+/// App features that can be switched off (`[features]`). The processes that
+/// write the shared post sets read it: the watcher, the jobs and `db mock`.
+/// The API doesn't: it follows the ranking copy the watcher applied.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct FeaturesConfig {

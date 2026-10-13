@@ -2,7 +2,7 @@ use std::net::{IpAddr, Ipv4Addr};
 use std::{fmt::Debug, net::SocketAddr};
 
 use super::file::ConfigLoader;
-use super::{default_stack, FeaturesConfig, StackConfig};
+use super::{default_stack, StackConfig};
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -92,8 +92,6 @@ pub struct ApiConfig {
     #[serde(default = "default_stack")]
     pub stack: StackConfig,
     #[serde(default)]
-    pub features: FeaturesConfig,
-    #[serde(default)]
     pub rate_limit: RateLimitConfig,
 }
 
@@ -106,7 +104,6 @@ impl Default for ApiConfig {
             request_timeout_secs: DEFAULT_REQUEST_TIMEOUT_SECS,
             max_body_size_bytes: DEFAULT_MAX_BODY_SIZE_BYTES,
             stack: StackConfig::default(),
-            features: FeaturesConfig::default(),
             rate_limit: RateLimitConfig::default(),
         }
     }
