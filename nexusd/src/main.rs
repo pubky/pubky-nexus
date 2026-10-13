@@ -1,6 +1,6 @@
 use clap::Parser;
 use nexus_common::types::DynError;
-use nexus_common::{StackManager, TrustRankConfig};
+use nexus_common::{FeaturesConfig, StackManager, TrustRankConfig};
 use nexus_webapi::mock::MockDb;
 use nexusd::cli::{Cli, DbCommands, JobCommands, JobRunArgs, MigrationCommands, NexusCommands};
 use nexusd::config::DaemonConfig;
@@ -29,7 +29,12 @@ async fn main() -> Result<(), DynError> {
             }
             DbCommands::Mock(args) => {
                 let config = DaemonConfig::read_or_create_config_file(config_dir).await?;
-                config.features.apply();
+                // The mock data and its tests expect the trust filter on,
+                // whatever the config says.
+                let features = FeaturesConfig {
+                    hide_unranked_authors: true,
+                };
+                features.apply();
                 MockDb::run(args.mock_type, &config.stack).await
             }
             DbCommands::Migration(migration_command) => match migration_command {

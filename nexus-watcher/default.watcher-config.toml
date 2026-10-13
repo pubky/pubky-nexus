@@ -55,7 +55,7 @@ max_missing_dep_backoff_secs = 3600
 # shares. Read at startup: restart the services to apply a change. The watcher
 # then updates the shared post sets, and the next trust recompute retries that
 # if it fails.
-hide_unranked_authors = true
+hide_unranked_authors = false
 
 [stack]
 # Logging, options: error, warn, info, debug and trace

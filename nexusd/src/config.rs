@@ -157,7 +157,7 @@ mod tests {
             .get("trust-recompute")
             .expect("[jobs.trust-recompute] should be present");
         assert!(trust_job.cron.is_none());
-        assert!(c.features.hide_unranked_authors);
+        assert!(!c.features.hide_unranked_authors);
         assert!(c.trust_rank.seed.is_empty());
         assert_eq!(c.trust_rank.alpha, DEFAULT_TRUST_ALPHA);
         assert_eq!(c.trust_rank.max_iterations, DEFAULT_TRUST_MAX_ITERATIONS);
@@ -286,25 +286,25 @@ mod tests {
     }
 
     /// The trust filter switch parses and reaches the watcher's config, a
-    /// config that predates it keeps the filter on, and a misspelled switch
-    /// fails rather than leaving the filter on.
+    /// config that predates it keeps the filter off, and a misspelled switch
+    /// fails to parse instead of being ignored.
     #[test]
     fn test_hide_unranked_authors_parsing() {
-        let off = DEFAULT_CONFIG_TOML.replace(
-            "hide_unranked_authors = true",
+        let on = DEFAULT_CONFIG_TOML.replace(
             "hide_unranked_authors = false",
+            "hide_unranked_authors = true",
         );
-        let c = DaemonConfig::try_from_str(&off).expect("switch off should parse");
-        assert!(!c.features.hide_unranked_authors);
-        assert!(!c.watcher_config().features.hide_unranked_authors);
+        let c = DaemonConfig::try_from_str(&on).expect("switch on should parse");
+        assert!(c.features.hide_unranked_authors);
+        assert!(c.watcher_config().features.hide_unranked_authors);
 
         let absent = DEFAULT_CONFIG_TOML
             .replace("[features]\n", "")
-            .replace("hide_unranked_authors = true\n", "");
+            .replace("hide_unranked_authors = false\n", "");
         assert!(!absent.contains("[features]"));
         let c =
             DaemonConfig::try_from_str(&absent).expect("a config without [features] should parse");
-        assert!(c.features.hide_unranked_authors);
+        assert!(!c.features.hide_unranked_authors);
 
         let typo = DEFAULT_CONFIG_TOML.replace("hide_unranked_authors", "hide_unranked_author");
         assert!(DaemonConfig::try_from_str(&typo).is_err());

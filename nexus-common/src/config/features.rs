@@ -1,23 +1,15 @@
 use serde::{Deserialize, Serialize};
 
-/// App features that can be switched off (`[features]`), read by the watcher,
-/// the jobs and `db mock`. The API doesn't read it: its streams follow the
-/// ranking copy the watcher applied, and the posts it adds to the shared sets
-/// on a cache miss are gated as with the switch on.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// App feature switches (`[features]`), all off by default, read by the watcher
+/// and the jobs. The API doesn't read them: its streams follow the ranking copy
+/// the watcher applied, and the posts it adds to the shared sets on a cache miss
+/// are gated as with the switch on.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct FeaturesConfig {
     /// Hide posts by authors outside the trust ranking from the streams every
     /// viewer shares.
     pub hide_unranked_authors: bool,
-}
-
-impl Default for FeaturesConfig {
-    fn default() -> Self {
-        Self {
-            hide_unranked_authors: true,
-        }
-    }
 }
 
 impl FeaturesConfig {
