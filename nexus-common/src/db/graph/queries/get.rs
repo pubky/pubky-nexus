@@ -962,8 +962,10 @@ pub fn get_hot_tags_by_reach(
     let cypher = format!(
         "
         {}
+        WHERE user.id = $user_id
+        WITH DISTINCT reach
         MATCH (reach)-[tag:TAGGED]->(tagged:{})
-        WHERE user.id = $user_id AND tag.indexed_at >= $from AND tag.indexed_at < $to
+        WHERE tag.indexed_at >= $from AND tag.indexed_at < $to
         // COLLECT keeps its input order, so the cut keeps the lowest tagger ids
         WITH tag.label AS label, reach.id AS tagger_id, tagged
         ORDER BY tagger_id ASC
