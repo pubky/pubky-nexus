@@ -9,7 +9,7 @@ use nexus_common::utils::test_utils::default_ingestor_tests;
 use nexus_watcher::errors::EventProcessorError;
 use nexus_watcher::events::handlers;
 use pubky::Keypair;
-use pubky_app_specs::post_uri_builder;
+use pubky_social_specs::legacy_v0::post_uri_builder;
 
 use super::{simulate_partial_del_cleanup_child, simulate_partial_del_cleanup_root, ChildKind};
 

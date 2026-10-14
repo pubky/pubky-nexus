@@ -7,7 +7,9 @@ use nexus_common::{
     types::Pagination,
 };
 use pubky::Keypair;
-use pubky_app_specs::{post_uri_builder, PubkyAppPostKind, PubkyAppTag, PubkyAppUser};
+use pubky_social_specs::legacy_v0::{
+    post_uri_builder, PubkyAppPostKind, PubkyAppTag, PubkyAppUser,
+};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_tag_untag_collection_notification() -> Result<()> {

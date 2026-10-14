@@ -8,7 +8,7 @@ use nexus_common::{
     models::post::{collection_item_keys, sync_collected_edges, PostDetails},
     types::DynError,
 };
-use pubky_app_specs::PubkyAppPostKind;
+use pubky_social_specs::legacy_v0::PubkyAppPostKind;
 
 const PROGRESS_LOG_EVERY: u64 = 500;
 

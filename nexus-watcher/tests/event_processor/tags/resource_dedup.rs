@@ -6,8 +6,8 @@ use nexus_common::models::resource::tag::TagResource;
 use nexus_common::models::tag::traits::TagCollection;
 use pubky::Keypair;
 use pubky::ResourcePath;
-use pubky_app_specs::traits::HashId;
-use pubky_app_specs::{PubkyAppTag, PubkyAppUser};
+use pubky_social_specs::legacy_v0::traits::HashId;
+use pubky_social_specs::legacy_v0::{PubkyAppTag, PubkyAppUser};
 
 /// Two different users tag the same external URI with the same label
 /// from different app paths. Verifies:

@@ -5,8 +5,8 @@ use anyhow::Result;
 use chrono::Utc;
 use nexus_watcher::events::retry::{IndexKey, RetryEvent};
 use pubky::Keypair;
-use pubky_app_specs::{tag_uri_builder, user_uri_builder};
-use pubky_app_specs::{traits::HashId, PubkyAppTag, PubkyAppUser};
+use pubky_social_specs::legacy_v0::{tag_uri_builder, user_uri_builder};
+use pubky_social_specs::legacy_v0::{traits::HashId, PubkyAppTag, PubkyAppUser};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_user_tag_event_to_queue() -> Result<()> {

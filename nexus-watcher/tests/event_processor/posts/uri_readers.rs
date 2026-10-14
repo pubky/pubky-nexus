@@ -7,8 +7,10 @@ use nexus_common::models::post::PostRelationships;
 use nexus_common::models::tag::view::TagView;
 use nexus_common::types::Pagination;
 use pubky::Keypair;
-use pubky_app_specs::traits::HashId;
-use pubky_app_specs::{post_uri_builder, PubkyAppPostEmbed, PubkyAppPostKind, PubkyAppTag};
+use pubky_social_specs::legacy_v0::traits::HashId;
+use pubky_social_specs::legacy_v0::{
+    post_uri_builder, PubkyAppPostEmbed, PubkyAppPostKind, PubkyAppTag,
+};
 
 async fn notifications_of(user_id: &str) -> Vec<NotificationBody> {
     Notification::get_by_id(user_id, Pagination::default())

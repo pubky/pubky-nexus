@@ -8,7 +8,7 @@ use nexus_common::models::{
     traits::Collection,
     user::{UserCounts, UserDetails, UserSearch, UsersByTagSearch},
 };
-use pubky_app_specs::{PubkyAppUser, PubkyId};
+use pubky_social_specs::legacy_v0::{PubkyAppUser, PubkyId};
 use tracing::debug;
 
 /// `uri` is the address the profile was read from: the event path.

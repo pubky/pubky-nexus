@@ -7,7 +7,7 @@ use anyhow::Result;
 use nexus_common::models::event::EventLine;
 use nexus_common::models::post::{Bookmark, PostStream};
 use pubky::Keypair;
-use pubky_app_specs::{
+use pubky_social_specs::legacy_v0::{
     post_uri_builder, traits::HashId, PubkyAppBookmark, PubkyAppPost, PubkyAppUser,
 };
 
