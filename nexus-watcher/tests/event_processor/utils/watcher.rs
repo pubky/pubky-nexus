@@ -5,6 +5,7 @@ use chrono::Utc;
 use nexus_common::db::PubkyConnector;
 use nexus_common::models::file::FileDetails;
 use nexus_common::models::homeserver::Homeserver;
+use nexus_common::models::scope::EverythingScope;
 use nexus_common::models::traits::Collection;
 use nexus_common::utils::test_utils::default_ingestor_tests;
 use nexus_common::{StackConfig, StackManager};
@@ -109,6 +110,7 @@ impl WatcherTest {
             event_handler,
             shutdown_rx,
             primary_homeserver,
+            scope: Arc::new(EverythingScope),
             retry_scheduler,
         }
     }

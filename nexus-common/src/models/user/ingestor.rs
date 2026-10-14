@@ -1,28 +1,61 @@
+use std::sync::Arc;
+
 use pubky_app_specs::{ParsedUri, PubkyId};
 
 use crate::db::PubkyConnector;
 use crate::models::error::{ModelError, ModelResult};
 use crate::models::homeserver::HsBlacklist;
+use crate::models::scope::{scope_from_config, EverythingScope, Scope};
 use crate::models::traits::Collection;
 use crate::models::user::{set_user_homeserver, UserDetails, UserHsCursor};
 use crate::StackConfig;
 
 /// Ingests previously-unknown users unless their HS is blacklisted.
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 pub struct UserIngestor {
     hs_blacklist: HsBlacklist,
+    scope: Arc<dyn Scope>,
+}
+
+impl Default for UserIngestor {
+    fn default() -> Self {
+        Self {
+            hs_blacklist: HsBlacklist::default(),
+            scope: Arc::new(EverythingScope),
+        }
+    }
 }
 
 impl UserIngestor {
-    /// Builds an ingestor enforcing the given HS blacklist.
+    /// Builds an ingestor enforcing the given HS blacklist, indexing everyone.
     pub fn new(external_hs_pk_blacklist: impl IntoIterator<Item = PubkyId>) -> Self {
         Self {
             hs_blacklist: HsBlacklist::new(external_hs_pk_blacklist),
+            ..Self::default()
+        }
+    }
+
+    /// Builds an ingestor enforcing the given HS blacklist and scope.
+    pub fn with_scope(
+        external_hs_pk_blacklist: impl IntoIterator<Item = PubkyId>,
+        scope: Arc<dyn Scope>,
+    ) -> Self {
+        Self {
+            hs_blacklist: HsBlacklist::new(external_hs_pk_blacklist),
+            scope,
         }
     }
 
     pub fn from_config(config: &StackConfig) -> Self {
-        Self::new(config.net.external_hs_pk_blacklist.iter().cloned())
+        Self::with_scope(
+            config.net.external_hs_pk_blacklist.iter().cloned(),
+            scope_from_config(&config.scope),
+        )
+    }
+
+    /// The scope deciding which users are indexed.
+    pub fn scope(&self) -> &Arc<dyn Scope> {
+        &self.scope
     }
 
     /// Ingests the author of a referenced post, if unknown.

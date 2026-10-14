@@ -7,6 +7,7 @@ use chrono::Utc;
 use nexus_common::db::graph::exec::exec_single_row;
 use nexus_common::db::graph::Query;
 use nexus_common::models::homeserver::{Homeserver, HsBlacklist};
+use nexus_common::models::scope::{EverythingScope, HomeserverListScope, Scope};
 use nexus_common::models::traits::Collection;
 use nexus_common::models::user::{set_user_homeserver, UserDetails};
 use nexus_common::types::DynError;
@@ -49,6 +50,7 @@ async fn test_event_processor_runner_primary_homeserver_excluded() -> Result<(),
         event_source: Arc::new(PubkyKeyBasedEventSource),
         shutdown_rx: tokio::sync::watch::channel(false).1,
         primary_homeserver: PubkyId::try_from(HS_IDS[3]).unwrap(),
+        scope: Arc::new(EverythingScope),
         hs_blacklist: HsBlacklist::default(),
         backoff: Mutex::new(HomeserverBackoff::default()),
         user_not_found_backoff: Arc::new(UserNotFoundBackoff::default()),
@@ -101,6 +103,7 @@ async fn test_event_processor_runner_blacklisted_homeserver_excluded() -> Result
         event_source: Arc::new(PubkyKeyBasedEventSource),
         shutdown_rx: tokio::sync::watch::channel(false).1,
         primary_homeserver: PubkyId::try_from(HS_IDS[3]).unwrap(),
+        scope: Arc::new(EverythingScope),
         hs_blacklist: HsBlacklist::new([blacklisted_hs.clone()]),
         backoff: Mutex::new(HomeserverBackoff::default()),
         user_not_found_backoff: Arc::new(UserNotFoundBackoff::default()),
@@ -279,5 +282,70 @@ async fn delete_users(user_ids: &[PubkyId]) -> Result<(), DynError> {
     )
     .param("ids", ids);
     exec_single_row(query).await?;
+    Ok(())
+}
+
+/// A key-based runner for `primary`, reading feeds as `scope` says.
+fn key_based_runner(primary: &PubkyId, scope: Arc<dyn Scope>) -> KeyBasedEventProcessorRunner {
+    let event_handler: Arc<dyn EventHandler> = Arc::new(DefaultEventHandler::new(
+        default_moderation_tests(),
+        default_ingestor_tests(),
+        DEFAULT_MAX_FILE_SIZE,
+        PathBuf::from("/tmp/nexus-watcher-test"),
+    ));
+    let store: Arc<dyn RetryStore> = Arc::new(RedisRetryStore::new());
+    let retry_scheduler = Arc::new(RetryScheduler::new(
+        store,
+        InitialBackoff {
+            missing_dep_ms: 60_000,
+            transient_ms: 10_000,
+        },
+    ));
+    KeyBasedEventProcessorRunner {
+        limit: 1000,
+        monitored_hs_limit: 100,
+        event_handler,
+        event_source: Arc::new(PubkyKeyBasedEventSource),
+        shutdown_rx: tokio::sync::watch::channel(false).1,
+        primary_homeserver: primary.clone(),
+        scope,
+        hs_blacklist: HsBlacklist::default(),
+        backoff: Mutex::new(HomeserverBackoff::default()),
+        user_not_found_backoff: Arc::new(UserNotFoundBackoff::default()),
+        retry_scheduler,
+    }
+}
+
+/// Persists `count` homeservers, each with an active user, so the key-based runner sees them.
+async fn active_homeservers(count: usize) -> Result<Vec<PubkyId>, DynError> {
+    let mut homeservers = Vec::with_capacity(count);
+    for _ in 0..count {
+        let hs = random_pubky_id();
+        Homeserver::new(hs.clone()).put_to_graph().await?;
+        create_active_user_on_homeserver(&hs).await?;
+        homeservers.push(hs);
+    }
+    Ok(homeservers)
+}
+
+/// A homeserver scope reads its listed homeservers as whole feeds, so the key-based
+/// runner leaves them out; the primary homeserver is polled per user like any other.
+#[tokio_shared_rt::test(shared)]
+async fn test_key_based_runner_skips_the_homeservers_a_scope_reads_whole() -> Result<(), DynError> {
+    setup().await?;
+    let [primary, listed, other] = active_homeservers(3).await?.try_into().unwrap();
+
+    let scope = Arc::new(HomeserverListScope::new(std::slice::from_ref(&listed)));
+    let hs_ids = key_based_runner(&primary, scope).pre_run().await?;
+
+    assert!(
+        !hs_ids.contains(&listed.to_string()),
+        "a listed HS is read whole"
+    );
+    assert!(
+        hs_ids.contains(&primary.to_string()),
+        "the primary HS is not read whole"
+    );
+    assert!(hs_ids.contains(&other.to_string()));
     Ok(())
 }

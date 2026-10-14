@@ -18,12 +18,14 @@ use crate::service::task_runner::task_results_into_result;
 use crate::NexusWatcherBuilder;
 use nexus_common::file::ConfigLoader;
 use nexus_common::models::homeserver::Homeserver;
+use nexus_common::models::scope::scope_from_config;
 use nexus_common::types::DynError;
+use nexus_common::ScopeConfig;
 use nexus_common::WatcherConfig;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::watch::Receiver;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 pub struct NexusWatcher {}
 
@@ -69,7 +71,7 @@ impl NexusWatcher {
     pub async fn start(shutdown_rx: Receiver<bool>, config: WatcherConfig) -> Result<(), DynError> {
         debug!(?config, "Running NexusWatcher with ");
 
-        Homeserver::persist_if_unknown(config.homeserver.clone()).await?;
+        prepare_scope(&config).await?;
 
         let primary_hs_monitoring_interval_ms = config.primary_hs_monitoring_interval_ms;
         let external_hs_monitoring_interval_ms = config.external_hs_monitoring_interval_ms;
@@ -125,6 +127,28 @@ impl NexusWatcher {
         info!("Nexus Watcher shut down gracefully");
         task_results_into_result(task_results)
     }
+}
+
+/// Gets the scope ready before any event is read: the homeservers read as a whole
+/// feed are persisted, so their cursors exist.
+async fn prepare_scope(config: &WatcherConfig) -> Result<(), DynError> {
+    let scope = scope_from_config(&config.stack.scope);
+    info!(scope = ?config.stack.scope, "Indexing scope");
+
+    for homeserver in scope.full_feed_homeservers(&config.homeserver) {
+        Homeserver::persist_if_unknown(homeserver).await?;
+    }
+    scope.prepare().await?;
+
+    if let ScopeConfig::Homeservers { homeservers } = &config.stack.scope {
+        if !homeservers.contains(&config.homeserver) {
+            warn!(
+                primary = %config.homeserver,
+                "The primary homeserver is not in scope.homeservers: only the listed homeservers are read"
+            );
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]

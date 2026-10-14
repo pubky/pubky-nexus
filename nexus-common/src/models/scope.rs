@@ -1,0 +1,176 @@
+//! Which users this Nexus indexes.
+//!
+//! The watcher asks one [`Scope`], built from [`ScopeConfig`], at every point where
+//! it decides whose content to read: which homeservers it reads as a whole feed,
+//! whether a newly discovered user is indexed or kept as a stub, and whether an
+//! event's author is indexed.
+
+use std::collections::HashSet;
+use std::sync::Arc;
+
+use pubky_app_specs::PubkyId;
+
+use crate::config::ScopeConfig;
+use crate::db::{fetch_row_from_graph, queries};
+use crate::models::error::ModelResult;
+
+/// The answers every scope gives the watcher.
+#[async_trait::async_trait]
+pub trait Scope: Send + Sync + std::fmt::Debug {
+    /// The settings this scope was built from, as `/v0/info` publishes them.
+    fn config(&self) -> &ScopeConfig;
+
+    /// Whether the user's own content is indexed.
+    ///
+    /// `hs_id` is the user's homeserver when the caller knows it; otherwise the scope
+    /// looks up the homeserver the user is bound to, if it needs one.
+    async fn is_in_scope(&self, user_id: &str, hs_id: Option<&str>) -> ModelResult<bool>;
+
+    /// Homeservers whose whole `/events` feed is read. Users on any other homeserver
+    /// are read one by one through their own event stream, if they are in scope.
+    fn full_feed_homeservers(&self, primary: &PubkyId) -> Vec<PubkyId>;
+
+    /// Runs once when the watcher starts, before any event is read.
+    async fn prepare(&self) -> ModelResult<()> {
+        Ok(())
+    }
+}
+
+/// Builds the scope the configuration describes.
+pub fn scope_from_config(config: &ScopeConfig) -> Arc<dyn Scope> {
+    match config {
+        ScopeConfig::Everything => Arc::new(EverythingScope),
+        ScopeConfig::Homeservers { homeservers } => Arc::new(HomeserverListScope::new(homeservers)),
+    }
+}
+
+/// Every user Nexus can discover: the primary homeserver's feed is read whole and
+/// everyone else is read through their own stream, as before scopes existed.
+#[derive(Debug)]
+pub struct EverythingScope;
+
+#[async_trait::async_trait]
+impl Scope for EverythingScope {
+    fn config(&self) -> &ScopeConfig {
+        &ScopeConfig::Everything
+    }
+
+    async fn is_in_scope(&self, _user_id: &str, _hs_id: Option<&str>) -> ModelResult<bool> {
+        Ok(true)
+    }
+
+    fn full_feed_homeservers(&self, primary: &PubkyId) -> Vec<PubkyId> {
+        vec![primary.clone()]
+    }
+}
+
+/// Users hosted on a fixed list of homeservers, each read through its whole feed.
+#[derive(Debug)]
+pub struct HomeserverListScope {
+    config: ScopeConfig,
+    homeservers: Vec<PubkyId>,
+    hs_ids: HashSet<String>,
+}
+
+impl HomeserverListScope {
+    pub fn new(homeservers: &[PubkyId]) -> Self {
+        Self {
+            config: ScopeConfig::Homeservers {
+                homeservers: homeservers.to_vec(),
+            },
+            homeservers: homeservers.to_vec(),
+            hs_ids: homeservers.iter().map(ToString::to_string).collect(),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl Scope for HomeserverListScope {
+    fn config(&self) -> &ScopeConfig {
+        &self.config
+    }
+
+    /// In scope if the user's homeserver is listed. Without a homeserver from the
+    /// caller, the user's `HOSTED_BY` decides; a user not bound yet is in scope, since
+    /// the only feeds this scope reads are its listed homeservers'.
+    async fn is_in_scope(&self, user_id: &str, hs_id: Option<&str>) -> ModelResult<bool> {
+        if let Some(hs_id) = hs_id {
+            return Ok(self.hs_ids.contains(hs_id));
+        }
+        let query = queries::get::get_user_homeserver(user_id);
+        match fetch_row_from_graph(query).await? {
+            None => Ok(true),
+            Some(row) => {
+                let bound_to: String = row.get("homeserver_id")?;
+                Ok(self.hs_ids.contains(&bound_to))
+            }
+        }
+    }
+
+    fn full_feed_homeservers(&self, _primary: &PubkyId) -> Vec<PubkyId> {
+        self.homeservers.clone()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const HS_A: &str = "8um71us3fyw6h8wbcxb5ar3rwusy1a6u49956ikzojg3gcwd1dty";
+    const HS_B: &str = "1hb71xx9km3f4pw5izsy1gn19ff1uuuqonw4mcygzobwkryujoiy";
+
+    fn pk(id: &str) -> PubkyId {
+        PubkyId::try_from(id).unwrap()
+    }
+
+    #[tokio::test]
+    async fn everything_reads_the_primary_feed_and_indexes_everyone() {
+        let scope = scope_from_config(&ScopeConfig::Everything);
+
+        assert_eq!(scope.full_feed_homeservers(&pk(HS_A)), vec![pk(HS_A)]);
+        assert!(scope.is_in_scope("anyone", None).await.unwrap());
+        assert!(scope.is_in_scope("anyone", Some(HS_B)).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn homeserver_list_reads_its_feeds_and_indexes_their_users() {
+        let scope = scope_from_config(&ScopeConfig::Homeservers {
+            homeservers: vec![pk(HS_B)],
+        });
+
+        // The primary homeserver is replaced by the list.
+        assert_eq!(scope.full_feed_homeservers(&pk(HS_A)), vec![pk(HS_B)]);
+        assert!(scope.is_in_scope("user", Some(HS_B)).await.unwrap());
+        assert!(!scope.is_in_scope("user", Some(HS_A)).await.unwrap());
+    }
+
+    /// Without a homeserver from the caller, the user's binding decides.
+    #[tokio_shared_rt::test(shared)]
+    async fn homeserver_list_looks_up_the_binding_when_not_told(
+    ) -> Result<(), crate::types::DynError> {
+        use crate::models::traits::Collection;
+
+        crate::StackManager::setup(&crate::StackConfig::default()).await?;
+        let scope = HomeserverListScope::new(&[pk(HS_B)]);
+
+        let unbound = PubkyId::from(pubky::Keypair::random().public_key());
+        assert!(
+            scope.is_in_scope(&unbound, None).await?,
+            "unbound: from a listed feed"
+        );
+
+        for (hs, in_scope) in [(HS_B, true), (HS_A, false)] {
+            let user = PubkyId::from(pubky::Keypair::random().public_key());
+            crate::models::user::UserDetails::from_pubky(user.clone())
+                .put_to_graph()
+                .await?;
+            crate::models::user::set_user_homeserver(&user, hs).await?;
+            assert_eq!(
+                scope.is_in_scope(&user, None).await?,
+                in_scope,
+                "bound to {hs}"
+            );
+        }
+        Ok(())
+    }
+}
