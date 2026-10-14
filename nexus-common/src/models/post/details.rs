@@ -43,13 +43,6 @@ impl PostDetails {
             None => {
                 let graph_response = Self::get_from_graph(author_id, post_id).await?;
                 if let Some((post_details, reply)) = graph_response {
-                    // Known gap: a standalone API (`nexusd api`) never applies
-                    // `[features]`, so this write passes the trust filter's gate as if
-                    // the switch were on. With the switch off and a ranking published,
-                    // a post cached here before the watcher retries a failed index
-                    // write stays off the shared sets: the retry finds it cached and
-                    // skips its recovery. Under `nexusd run` the API shares the
-                    // watcher's switch and follows it.
                     post_details.put_to_index(author_id, reply, false).await?;
                     return Ok(Some(post_details));
                 }

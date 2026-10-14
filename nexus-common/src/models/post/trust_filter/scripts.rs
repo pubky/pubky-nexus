@@ -5,20 +5,22 @@ use std::sync::LazyLock;
 
 use redis::{Script, ScriptInvocation};
 
+use super::ON_KEY;
 use crate::models::user::SocialGraphStatus;
 
-/// Lua shared by the scripts below, which all take the ranking as `KEYS[2]`.
+/// Lua shared by the scripts below, which all take the ranking as `KEYS[2]` and
+/// the switch as `KEYS[3]`.
 /// - `author_of(member)`: the author of an `author:post` member.
 /// - `admitted(authors)`: for each author, whether the shared sets take their
-///   posts. Everyone while there is no ranking, otherwise the ranked authors,
-///   read with one `ZMSCORE` for the whole list.
+///   posts. Everyone while the filter is off or there is no ranking, otherwise
+///   the ranked authors, read with one `ZMSCORE` for the whole list.
 const HELPERS: &str = r"
 local function author_of(member)
     local sep = string.find(member, ':', 1, true)
     return sep and string.sub(member, 1, sep - 1) or ''
 end
 local function admitted(authors)
-    if redis.call('EXISTS', KEYS[2]) == 0 then
+    if redis.call('EXISTS', KEYS[2], KEYS[3]) < 2 then
         local all = {}
         for i = 1, #authors do all[i] = true end
         return all
@@ -27,21 +29,20 @@ local function admitted(authors)
 end
 ";
 
-/// Adds the score/member pairs in `ARGV[2..]` to the shared set `KEYS[1]`,
-/// keeping only the members whose author is admitted, or all of them when
-/// `ARGV[1]` is `1`. Returns how many it kept.
+/// Adds the score/member pairs in `ARGV` to the shared set `KEYS[1]`, keeping
+/// only the members whose author is admitted. Returns how many it kept.
 pub(super) static ADD: LazyLock<Script> = LazyLock::new(|| {
     Script::new(
         &[
             HELPERS,
-            r"local always, authors = ARGV[1] == '1', {}
-              for i = 3, #ARGV, 2 do authors[#authors + 1] = author_of(ARGV[i]) end
-              local ok = always and {} or admitted(authors)
+            r"local authors = {}
+              for i = 2, #ARGV, 2 do authors[#authors + 1] = author_of(ARGV[i]) end
+              local ok = admitted(authors)
               local keep = {}
               for j = 1, #authors do
-                  if always or ok[j] then
+                  if ok[j] then
+                      keep[#keep + 1] = ARGV[2 * j - 1]
                       keep[#keep + 1] = ARGV[2 * j]
-                      keep[#keep + 1] = ARGV[2 * j + 1]
                   end
               end
               if #keep > 0 then redis.call('ZADD', KEYS[1], unpack(keep)) end
@@ -51,19 +52,18 @@ pub(super) static ADD: LazyLock<Script> = LazyLock::new(|| {
     )
 });
 
-/// Adds `ARGV[2]` to the score of `ARGV[3]` in the shared set `KEYS[1]`. A
+/// Adds `ARGV[1]` to the score of `ARGV[2]` in the shared set `KEYS[1]`. A
 /// member that isn't there yet is created only by an increment, and only when
-/// its author is admitted or `ARGV[1]` is `1`: an increment cannot let a
-/// hidden post in, and a decrement never leaves a negative entry behind.
-/// Returns 1 when it wrote.
+/// its author is admitted: an increment cannot let a hidden post in, and a
+/// decrement never leaves a negative entry behind. Returns 1 when it wrote.
 pub(super) static INCR: LazyLock<Script> = LazyLock::new(|| {
     Script::new(
         &[
             HELPERS,
-            r"local always, delta, member = ARGV[1] == '1', tonumber(ARGV[2]), ARGV[3]
+            r"local delta, member = tonumber(ARGV[1]), ARGV[2]
               if redis.call('ZSCORE', KEYS[1], member)
-                  or (delta > 0 and (always or admitted({author_of(member)})[1])) then
-                  redis.call('ZINCRBY', KEYS[1], ARGV[2], member)
+                  or (delta > 0 and admitted({author_of(member)})[1]) then
+                  redis.call('ZINCRBY', KEYS[1], ARGV[1], member)
                   return 1
               end
               return 0",
@@ -74,7 +74,8 @@ pub(super) static INCR: LazyLock<Script> = LazyLock::new(|| {
 
 /// Removes from the shared set `KEYS[1]` the members in `ARGV` whose author
 /// isn't admitted by the time it runs: a hide that lost a race with a newer
-/// publish leaves the posts alone. Returns how many it removed.
+/// publish, or with switching off, leaves the posts alone. Returns how many it
+/// removed.
 pub(super) static REMOVE: LazyLock<Script> = LazyLock::new(|| {
     Script::new(
         &[
@@ -92,16 +93,20 @@ pub(super) static REMOVE: LazyLock<Script> = LazyLock::new(|| {
     )
 });
 
-/// One [`ADD`] call writing `entries` to the shared set `key`, all of them
-/// when `always` is set.
+/// A call of the gate `script` on the shared set `key`, given the ranking and
+/// the switch it checks authors against.
+pub(super) fn gate_call(script: &'static Script, key: &str) -> ScriptInvocation<'static> {
+    let mut call = script.key(key);
+    call.key(SocialGraphStatus::ranking_key()).key(ON_KEY);
+    call
+}
+
+/// One [`ADD`] call writing `entries` to the shared set `key`.
 pub(super) fn add_call<'a>(
     key: &str,
-    always: bool,
     entries: impl IntoIterator<Item = (f64, &'a str)>,
 ) -> ScriptInvocation<'static> {
-    let mut call = ADD.key(key);
-    call.key(SocialGraphStatus::ranking_key())
-        .arg(u8::from(always));
+    let mut call = gate_call(&ADD, key);
     for (score, member) in entries {
         call.arg(score).arg(member);
     }
@@ -113,8 +118,7 @@ pub(super) fn remove_call<'a>(
     key: &str,
     members: impl IntoIterator<Item = &'a str>,
 ) -> ScriptInvocation<'static> {
-    let mut call = REMOVE.key(key);
-    call.key(SocialGraphStatus::ranking_key());
+    let mut call = gate_call(&REMOVE, key);
     for member in members {
         call.arg(member);
     }

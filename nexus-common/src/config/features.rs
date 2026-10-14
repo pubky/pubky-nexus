@@ -1,10 +1,11 @@
 use serde::{Deserialize, Serialize};
 
-/// App feature switches (`[features]`), all off by default, read by the watcher
-/// and the jobs. A standalone API (`nexusd api`) doesn't read them: its streams
-/// follow the ranking copy the watcher applied, and the posts it adds to the
-/// shared sets on a cache miss are gated as with the switch on. Under `nexusd
-/// run` the API shares the watcher's process, and so its switches.
+use crate::db::kv::RedisResult;
+use crate::models::post::trust_filter;
+
+/// App feature switches (`[features]`), all off by default. The watcher reads
+/// them at startup and stores them in Redis, where every service follows them:
+/// the API and the jobs don't read `[features]`.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct FeaturesConfig {
@@ -14,19 +15,20 @@ pub struct FeaturesConfig {
 }
 
 impl FeaturesConfig {
-    /// Switches the features on or off for this process.
-    pub fn apply(&self) {
-        crate::models::post::trust_filter::set_enabled(self.hide_unranked_authors);
+    /// Stores the switches in Redis, where every service reads them.
+    pub async fn store(&self) -> RedisResult<()> {
+        trust_filter::switch(self.hide_unranked_authors).await
     }
 
-    /// Switches the features on or off, then brings the stored data in line
-    /// with them, so a feature toggled since the last start takes effect now.
-    /// Needs the stack set up. A failure is logged and left to the next trust
-    /// recompute, which retries it.
-    pub async fn toggle(&self) {
-        self.apply();
-        if let Err(error) = crate::models::post::trust_filter::reconcile().await {
+    /// Stores the switches, then brings the stored data in line with them, so a
+    /// feature toggled since the last start takes effect now. Needs the stack
+    /// set up. Fails only if the switches can't be stored: a failed update is
+    /// logged and left to the next trust recompute, which retries it.
+    pub async fn toggle(&self) -> RedisResult<()> {
+        self.store().await?;
+        if let Err(error) = trust_filter::reconcile().await {
             tracing::error!(%error, "Failed to bring the shared post sets in line with the features");
         }
+        Ok(())
     }
 }

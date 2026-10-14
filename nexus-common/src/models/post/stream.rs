@@ -277,9 +277,9 @@ impl PostStream {
         let use_index = Self::can_use_index(&sorting, &source, &tags, &kind);
         // The trust filter hides an unranked author's posts from everyone, so
         // their own ALL timeline gets them back.
-        let own_posts_viewer = match (&source, &sorting, &tags) {
-            (StreamSource::All, StreamSorting::Timeline, None) if trust_filter::is_enabled() => {
-                viewer_id
+        let own_posts_viewer = match (&source, &sorting, &tags, viewer_id) {
+            (StreamSource::All, StreamSorting::Timeline, None, Some(viewer)) => {
+                trust_filter::may_hide_posts().await?.then_some(viewer)
             }
             _ => None,
         };

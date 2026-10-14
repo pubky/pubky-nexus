@@ -81,8 +81,9 @@ mod live {
     use crate::db::{fetch_all_rows_from_graph, queries};
     use crate::models::bootstrap::{Bootstrap, ViewType};
     use crate::models::post::{KindFilter, PostStream, StreamSource};
+    use crate::models::user::SocialGraphStatus;
     use crate::types::{DynError, Pagination, StreamSorting};
-    use crate::{StackConfig, StackManager};
+    use crate::{FeaturesConfig, StackConfig, StackManager};
     use pubky_app_specs::PubkyAppPostKind;
 
     type TestResult = Result<(), DynError>;
@@ -174,8 +175,8 @@ mod live {
     }
 
     /// Connects, and puts back what an earlier failed run may have left: a
-    /// parked ranking, test authors in the ranking, the spammer ranked, or the
-    /// shared sets out of step with the ranking.
+    /// parked ranking, test authors in the ranking, the spammer ranked, the
+    /// switch off, or the shared sets out of step with the ranking.
     async fn setup(keys: &[&str]) -> TestResult {
         StackManager::setup(&StackConfig::default()).await?;
         let mut conn = get_redis_conn().await?;
@@ -192,6 +193,7 @@ mod live {
             let _: () = conn.unlink(keys).await?;
         }
         let _: () = conn.zrem(ranking_key(), &[ALICE, BOB, SPAMMER]).await?;
+        switch(true).await?;
         reconcile().await?;
         Ok(())
     }
@@ -316,13 +318,13 @@ mod live {
         let (parts, key) = tag_set(TAG_GLOBAL_POST_TIMELINE, "test-filter-switch");
         setup(&[&key]).await?;
 
-        set_enabled(false);
+        switch(false).await?;
         let added = add(&parts, &[(1.0, "test-filter-bob:p1")]).await;
         let counted = incr(&parts, &[BOB, "p2"], ScoreAction::Increment(1.0)).await;
         let opened = reconcile().await;
         let open_scores = spammer_scores().await;
         let open_applied = is_ranking_applied().await;
-        set_enabled(true);
+        switch(true).await?;
         let closed = reconcile().await;
         let closed_scores = spammer_scores().await;
         let written = members(&key).await;
@@ -352,11 +354,10 @@ mod live {
         let mut conn = get_redis_conn().await?;
         let _: () = conn.del(applied_key()).await?;
 
-        set_enabled(false);
+        switch(false).await?;
         let shown = reconcile().await;
         let scores = spammer_scores().await;
         let left: bool = conn.exists(&[FILTERED_KEY, SHOWING_KEY]).await?;
-        set_enabled(true);
         cleanup(&[]).await?;
         let restored: bool = conn.exists(FILTERED_KEY).await?;
 
@@ -377,9 +378,9 @@ mod live {
         // A switch-off cut short: it marked itself and showed the spammer, but
         // never dropped the copy.
         let _: () = conn.set(SHOWING_KEY, 1).await?;
-        set_enabled(false);
+        switch(false).await?;
         let shown = write_pages(&mut conn, SPAMMER, Write::Show, 1_000).await;
-        set_enabled(true);
+        switch(true).await?;
 
         let hidden = reconcile().await;
         let scores = spammer_scores().await;
@@ -422,9 +423,8 @@ mod live {
         park_ranking().await?;
         let _: () = conn.set(ranking_key(), "not a sorted set").await?;
 
-        set_enabled(false);
+        switch(false).await?;
         let shown = reconcile().await;
-        set_enabled(true);
         let marked: bool = conn.exists(SHOWING_KEY).await?;
         let _: () = conn.del(ranking_key()).await?;
         restore_ranking().await?;
@@ -432,6 +432,73 @@ mod live {
 
         assert!(shown.is_err(), "the ranking can't be read");
         assert!(marked, "the marker is set before the failure");
+        Ok(())
+    }
+
+    /// The watcher's startup toggle stores the switch every service follows,
+    /// then applies it: off shows the hidden authors, on hides them again.
+    #[tokio_shared_rt::test(shared)]
+    async fn toggle_stores_the_switch_and_applies_it() -> TestResult {
+        setup(&[]).await?;
+        let mut conn = get_redis_conn().await?;
+        let features = |on| FeaturesConfig {
+            hide_unranked_authors: on,
+        };
+
+        let off = features(false).toggle().await;
+        let stored_off: bool = conn.exists(ON_KEY).await?;
+        let off_scores = spammer_scores().await;
+        let on = features(true).toggle().await;
+        let stored_on: bool = conn.exists(ON_KEY).await?;
+        let on_scores = spammer_scores().await;
+        cleanup(&[]).await?;
+
+        off?;
+        on?;
+        assert!(!stored_off, "switched off");
+        assert_eq!(off_scores?, all_present());
+        assert!(stored_on, "switched on");
+        assert_eq!(on_scores?, all_absent());
+        Ok(())
+    }
+
+    /// Switching on records that posts may be hidden in the same step, before
+    /// the gate or a reconcile hides anything.
+    #[tokio_shared_rt::test(shared)]
+    async fn switching_on_records_that_posts_may_be_hidden() -> TestResult {
+        setup(&[]).await?;
+        let mut conn = get_redis_conn().await?;
+        let _: () = conn.del(FILTERED_KEY).await?;
+
+        let switched = switch(true).await;
+        let recorded: bool = conn.exists(FILTERED_KEY).await?;
+        cleanup(&[]).await?;
+
+        switched?;
+        assert!(recorded);
+        Ok(())
+    }
+
+    /// With the switch off a hide takes nothing out, so a reconcile still
+    /// hiding authors when the switch goes off can't undo the switch-off.
+    #[tokio_shared_rt::test(shared)]
+    async fn hide_spares_everyone_while_the_switch_is_off() -> TestResult {
+        setup(&[]).await?;
+        let mut conn = get_redis_conn().await?;
+        switch(false).await?;
+
+        let shown = write_pages(&mut conn, SPAMMER, Write::Show, 1_000).await;
+        let hidden = write_pages(&mut conn, SPAMMER, Write::Hide, 1_000).await;
+        let scores = spammer_scores().await;
+        // The copy still matches the ranking, so the reconcile in cleanup
+        // wouldn't hide the spammer again.
+        switch(true).await?;
+        write_pages(&mut conn, SPAMMER, Write::Hide, 1_000).await?;
+        cleanup(&[]).await?;
+
+        shown?;
+        hidden?;
+        assert_eq!(scores?, all_present());
         Ok(())
     }
 
@@ -444,10 +511,9 @@ mod live {
         let mut conn = get_redis_conn().await?;
         let _: () = conn.del(&[applied_key(), FILTERED_KEY.to_string()]).await?;
 
-        set_enabled(false);
+        switch(false).await?;
         let skipped = reconcile().await;
         let scores = spammer_scores().await;
-        set_enabled(true);
         cleanup(&[]).await?;
 
         skipped?;
@@ -503,10 +569,9 @@ mod live {
         setup(&[]).await?;
         park_ranking().await?;
 
-        set_enabled(false);
+        switch(false).await?;
         let shown = reconcile().await;
         let scores = spammer_scores().await;
-        set_enabled(true);
         restore_ranking().await?;
         cleanup(&[]).await?;
 
@@ -523,10 +588,9 @@ mod live {
         setup(&[]).await?;
         rank(SPAMMER).await?;
 
-        set_enabled(false);
+        switch(false).await?;
         let shown = reconcile().await;
         let scores = spammer_scores().await;
-        set_enabled(true);
         cleanup(&[]).await?;
 
         shown?;
@@ -542,10 +606,9 @@ mod live {
         let mut conn = get_redis_conn().await?;
         let _: () = conn.zadd(applied_key(), SPAMMER, 0).await?;
 
-        set_enabled(false);
+        switch(false).await?;
         let shown = reconcile().await;
         let scores = spammer_scores().await;
-        set_enabled(true);
         cleanup(&[]).await?;
 
         shown?;
@@ -741,9 +804,9 @@ mod live {
         let spammer_post = format!("{SPAMMER}:WOTPOSTS00006");
 
         let applied = short_posts_in_wot_window().await;
-        set_enabled(false);
+        switch(false).await?;
         let switched_off = short_posts_in_wot_window().await;
-        set_enabled(true);
+        switch(true).await?;
         let mut conn = get_redis_conn().await?;
         let _: () = conn.del(applied_key()).await?;
         let unapplied = short_posts_in_wot_window().await;

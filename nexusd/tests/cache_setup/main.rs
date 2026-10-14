@@ -21,7 +21,7 @@ use nexus_common::db::{get_redis_conn, kv::clear_redis, reindex, RedisOps};
 use nexus_common::models::post::trust_filter::APPLIED_KEY_PARTS;
 use nexus_common::models::post::PostDetails;
 use nexus_common::models::user::USER_SOCIAL_GRAPH_KEY_PARTS;
-use nexus_common::{StackConfig, StackManager};
+use nexus_common::{FeaturesConfig, StackConfig, StackManager};
 use redis::Value;
 
 const POST_CONTENT_INDEX: &str = "postContentIdx";
@@ -97,7 +97,12 @@ async fn clear_redis_recreates_post_content_index() -> Result<()> {
     assert_post_content_schema(&after, &prefix, "after clear_redis");
 
     // Restore the mock cache from the graph so the flush is not observable
-    // by whatever runs after this test.
+    // by whatever runs after this test, with the trust filter switched on as
+    // the mock data has it: the flush dropped the stored switch.
+    let features = FeaturesConfig {
+        hide_unranked_authors: true,
+    };
+    features.store().await?;
     reindex::sync().await;
     assert!(
         db_size().await? > 0,

@@ -7,9 +7,7 @@ use neo4rs::Row;
 use redis::{AsyncCommands, Script, ScriptInvocation};
 
 use super::scripts::{add_call, remove_call, ADD, REMOVE};
-use super::{
-    applied_key, is_enabled, sorted_key, APPLIED_KEY_PARTS, BATCH, FILTERED_KEY, SHOWING_KEY,
-};
+use super::{applied_key, sorted_key, APPLIED_KEY_PARTS, BATCH, FILTERED_KEY, ON_KEY, SHOWING_KEY};
 use crate::db::kv::{RedisError, RedisResult};
 use crate::db::{
     fetch_all_rows_from_graph, fetch_key_from_graph, get_redis_conn, queries, GraphResult, RedisOps,
@@ -23,14 +21,15 @@ use crate::models::user::SocialGraphStatus;
 const POSTS_PAGE: usize = 1_000;
 
 /// Brings the shared sets in line with the published ranking, or with the
-/// filter switched off. Takes no lock: [`REMOVE`] spares an author the live
-/// ranking admits and [`ADD`] skips one it doesn't, so overlapping runs
-/// converge. A post shown back is written at the score read from the graph, so
-/// an engagement landing between that read and the write is lost until the
-/// post's next full reindex.
+/// filter switched off, as the stored switch says. Takes no lock: [`REMOVE`]
+/// spares an author the gate admits and [`ADD`] skips one it doesn't, so
+/// overlapping runs converge. A post shown back is written at the score read
+/// from the graph, so an engagement landing between that read and the write is
+/// lost until the post's next full reindex.
 pub(crate) async fn reconcile() -> ModelResult<()> {
     let mut conn = get_redis_conn().await?;
-    match is_enabled() {
+    let on: bool = conn.exists(ON_KEY).await.map_err(RedisError::from)?;
+    match on {
         true => apply_ranking(&mut conn).await,
         false => show_all(&mut conn).await,
     }
@@ -199,7 +198,7 @@ impl Write {
             .map(|(score, member)| (*score, member.as_str()));
         match self {
             Write::Hide => remove_call(key, entries.map(|(_, member)| member)),
-            Write::Show => add_call(key, !is_enabled(), entries),
+            Write::Show => add_call(key, entries),
         }
     }
 }
