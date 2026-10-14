@@ -311,8 +311,18 @@ mod tests {
 
         processor.run().await.unwrap();
 
-        assert!(logs_contain("running_for_secs=180"));
-        assert!(logs_contain("running_for_secs=240"));
+        logs_assert(|lines| {
+            for secs in [180, 240] {
+                let field = format!("running_for_secs={secs}");
+                if !lines
+                    .iter()
+                    .any(|line| line.contains(" WARN ") && line.contains(&field))
+                {
+                    return Err(format!("no WARN line with {field}"));
+                }
+            }
+            Ok(())
+        });
     }
 
     /// Pins a known limitation: the tick waits for every run, so a run that never returns

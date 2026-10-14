@@ -499,6 +499,36 @@ async fn key_based_processor_stops_at_its_budget() -> Result<(), DynError> {
     Ok(())
 }
 
+/// Verifies a run whose budget cuts its last user's batch short reports the spent budget
+/// too, so a single-user homeserver whose batches never fit is backed off like any other.
+#[tokio_shared_rt::test(shared)]
+async fn key_based_processor_reports_a_budget_spent_on_its_last_user() -> Result<(), DynError> {
+    setup().await?;
+
+    let (_hs_keypair, homeserver) = create_homeserver().await?;
+    let hs_id = homeserver.id.to_string();
+    let user_id = create_user_on_homeserver(&homeserver).await?;
+    let events = (1..=10)
+        .map(|cursor| stream_event(cursor, &user_id, "/pub/pubky.app/profile.json"))
+        .collect::<Result<Vec<_>, _>>()?;
+    let source = Arc::new(
+        MockKeyBasedEventSource::default().with_user_events(vec![(user_id.clone(), events)]),
+    );
+    let processor = Arc::new(processor_with_budget(
+        homeserver,
+        create_mock_handler(Ok(()), None),
+        source,
+        Duration::ZERO,
+    ));
+
+    let err = processor.run().await.unwrap_err();
+
+    assert!(matches!(err, RunError::BudgetSpent), "got {err:?}");
+    assert_eq!(user_cursor(&user_id, &hs_id).await?, Some(1));
+
+    Ok(())
+}
+
 /// Verifies runs that stop at their budget take turns over the users: each run starts from
 /// the user the last one stopped at, so a homeserver whose full pass never fits the budget
 /// still has every user reached.

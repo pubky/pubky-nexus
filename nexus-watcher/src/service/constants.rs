@@ -15,6 +15,7 @@ pub const SLOW_RUN_THRESHOLD: Duration = Duration::from_secs(3_600);
 /// doubling up to `max_backoff_secs`: one whose pass keeps needing more gets one budget per
 /// `max_backoff_secs` (1 h by default).
 pub const KEY_BASED_RUN_BUDGET: Duration = Duration::from_secs(8 * 60);
-/// How long an external homeserver's run may take before it is logged as slow: two minutes
-/// over [KEY_BASED_RUN_BUDGET], which a run only overshoots by the fetch or event in progress
-pub const KEY_BASED_SLOW_RUN_THRESHOLD: Duration = Duration::from_secs(10 * 60);
+/// How far past its budget an external homeserver's run may go before it is logged as slow.
+/// A run overshoots its budget by the events fetch and the event in progress, each bounded by
+/// `pubky_http_request_timeout_secs`, so this is twice its default (300 s)
+pub const KEY_BASED_SLOW_RUN_MARGIN: Duration = Duration::from_secs(2 * 300);
