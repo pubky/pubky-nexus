@@ -410,6 +410,43 @@ mod live {
         Ok(())
     }
 
+    /// A ranking that disappears after one was applied, as when a recompute ranks
+    /// nobody, puts every author the copy left out back, and drops the copy.
+    #[tokio_shared_rt::test(shared)]
+    async fn reconcile_shows_everyone_once_the_ranking_is_gone() -> TestResult {
+        setup(&[]).await?;
+        park_ranking().await?;
+
+        let shown = reconcile().await;
+        let scores = spammer_scores().await;
+        let applied = is_ranking_applied().await;
+        restore_ranking().await?;
+        cleanup(&[]).await?;
+
+        shown?;
+        assert_eq!(scores?, all_present());
+        assert!(!applied?, "the copy is dropped");
+        Ok(())
+    }
+
+    /// Switching off with the ranking gone shows every author the copy left out.
+    #[tokio_shared_rt::test(shared)]
+    async fn switching_off_shows_everyone_once_the_ranking_is_gone() -> TestResult {
+        setup(&[]).await?;
+        park_ranking().await?;
+
+        set_enabled(false);
+        let shown = reconcile().await;
+        let scores = spammer_scores().await;
+        set_enabled(true);
+        restore_ranking().await?;
+        cleanup(&[]).await?;
+
+        shown?;
+        assert_eq!(scores?, all_present());
+        Ok(())
+    }
+
     /// Switching off also shows an author the live ranking admits but the copy
     /// leaves out: a recompute ranked them, but its reconcile never applied it,
     /// so their posts are still hidden.
