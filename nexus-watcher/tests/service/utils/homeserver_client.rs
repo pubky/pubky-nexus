@@ -36,6 +36,9 @@ pub struct MockHomeserverClient {
     /// Bodies served by `get_resource`, by URI. Any other URI is a 404.
     resources: HashMap<String, Vec<u8>>,
 
+    /// The homeserver every user resolves to. None by default.
+    homeserver_of: Option<PubkyId>,
+
     health: HomeserverHealth,
 }
 
@@ -68,6 +71,11 @@ impl MockHomeserverClient {
         self
     }
 
+    pub fn with_homeserver_of(mut self, hs: PubkyId) -> Self {
+        self.homeserver_of = Some(hs);
+        self
+    }
+
     pub fn with_resource(mut self, uri: impl Into<String>, body: impl Into<Vec<u8>>) -> Self {
         self.resources.insert(uri.into(), body.into());
         self
@@ -97,11 +105,10 @@ fn not_found(resource: &PubkyResource, op: HsOp) -> HsError {
     HsError::new(&owner, op, HsErrorKind::NotFound(resource.to_pubky_url()))
 }
 
-/// Resolves no user's homeserver: tests that need one use the network-backed client.
 #[async_trait::async_trait]
 impl PkdnsHomeserverResolver for MockHomeserverClient {
     async fn resolve_homeserver(&self, _user_pk: &PublicKey) -> PubkyClientResult<Option<PubkyId>> {
-        Ok(None)
+        Ok(self.homeserver_of.clone())
     }
 }
 

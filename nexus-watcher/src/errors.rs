@@ -77,8 +77,8 @@ pub enum EventProcessorError {
     #[error("HsBlacklisted: {hs_id}")]
     HsBlacklisted { hs_id: String },
 
-    /// A homeserver call failed in a way the other variants have no counterpart for,
-    /// classified by the [`HsError`] itself.
+    /// A homeserver request that could not be built or whose response cannot be used as is
+    /// ([`HsErrorKind::Malformed`]). Permanent: the event is not retried, and the run goes on.
     #[error("{0}")]
     Homeserver(HsError),
 
@@ -209,10 +209,6 @@ impl EventProcessorError {
     /// `false` does not necessarily mean the error will be retried; the caller may
     /// skip it, enqueue it, or continue processing.
     pub fn should_not_retry_now(&self) -> bool {
-        if let Self::Homeserver(error) = self {
-            return error.should_not_retry_now();
-        }
-
         matches!(
             self,
             Self::GraphQueryFailed(true, _)

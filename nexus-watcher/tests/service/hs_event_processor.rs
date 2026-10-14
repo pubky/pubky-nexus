@@ -6,11 +6,16 @@ use nexus_common::db::{exec_single_row, queries};
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::user::{Epoch, UserDetails};
 use nexus_common::utils::test_utils::{default_ingestor_tests, random_pk, random_pubky_id};
+use nexus_common::WatcherConfig;
 use nexus_watcher::errors::EventProcessorError;
 use nexus_watcher::events::retry::{IndexKey, InitialBackoff, RetryScheduler, RetryStore};
-use nexus_watcher::events::{DefaultEventHandler, EventHandler};
+use nexus_watcher::events::{DefaultEventHandler, Event, EventHandler, ParseResult};
 use nexus_watcher::service::{HsEventProcessor, TEventProcessor};
-use pubky_app_specs::{post_uri_builder, PubkyAppUser, PubkyId};
+use pubky_app_specs::traits::{HashId, TimestampId};
+use pubky_app_specs::{
+    blob_uri_builder, file_uri_builder, post_uri_builder, PubkyAppBlob, PubkyAppFile, PubkyAppUser,
+    PubkyId,
+};
 use tokio::sync::watch;
 
 use crate::event_processor::utils::default_moderation_tests;
@@ -843,6 +848,51 @@ async fn test_run_polls_and_fetches_through_the_client() -> Result<()> {
         .expect("the profile should be indexed");
     assert_eq!(user.name, "client-seam");
     assert_eq!(stored_cursor(&hs_id).await?, 1);
+
+    Ok(())
+}
+
+/// The handler [`DefaultEventHandler::from_config`] builds resolves users' homeservers
+/// through its client: a file whose source user the client resolves to a blacklisted
+/// homeserver is refused, without any network.
+#[tokio_shared_rt::test(shared)]
+async fn test_handler_from_config_resolves_homeservers_through_its_client() -> Result<()> {
+    setup().await?;
+
+    let blacklisted_hs = random_pubky_id();
+    let user_id = random_pubky_id();
+    let blob_uri = blob_uri_builder(
+        random_user_id(),
+        PubkyAppBlob::new(b"blob".to_vec()).create_id(),
+    );
+    let file = PubkyAppFile {
+        name: "file".to_string(),
+        content_type: "text/plain".to_string(),
+        src: blob_uri,
+        size: 4,
+        created_at: Utc::now().timestamp_millis(),
+    };
+    let file_uri = file_uri_builder(user_id.to_string(), file.create_id());
+    let client = Arc::new(
+        MockHomeserverClient::default()
+            .with_homeserver_of(blacklisted_hs.clone())
+            .with_resource(&file_uri, serde_json::to_vec(&file)?),
+    );
+    let mut config = WatcherConfig::default();
+    config.stack.net.external_hs_pk_blacklist = vec![blacklisted_hs.clone()];
+    let files = tempfile::TempDir::new()?;
+    config.stack.files_path = files.path().to_path_buf();
+    let handler = DefaultEventHandler::from_config(&config, client);
+
+    let ParseResult::Parsed(event) = Event::parse_event(&format!("PUT {file_uri}"))? else {
+        panic!("the file event should parse");
+    };
+    let err = handler.handle(&event).await.unwrap_err();
+
+    assert!(
+        matches!(&err, EventProcessorError::HsBlacklisted { hs_id } if *hs_id == blacklisted_hs.to_string()),
+        "{err:?}"
+    );
 
     Ok(())
 }

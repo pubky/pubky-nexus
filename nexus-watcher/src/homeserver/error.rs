@@ -26,31 +26,6 @@ impl HsError {
             kind,
         }
     }
-
-    /// Whether the run should stop here rather than count this as one event's or one
-    /// user's failure. The `/events-stream` request is the homeserver itself, so a failure
-    /// there stops the run, and so does running out of time.
-    pub fn should_not_retry_now(&self) -> bool {
-        match self.kind {
-            HsErrorKind::ServerError(..)
-            | HsErrorKind::Transport(_)
-            | HsErrorKind::Timeout
-            | HsErrorKind::RateLimited(_) => self.op == HsOp::UserEvents,
-            _ => false,
-        }
-    }
-
-    /// Whether the event behind this failure is worth retrying later.
-    pub fn should_retry(&self) -> bool {
-        matches!(
-            self.kind,
-            HsErrorKind::RateLimited(_)
-                | HsErrorKind::ServerError(..)
-                | HsErrorKind::Rejected(..)
-                | HsErrorKind::Timeout
-                | HsErrorKind::Transport(_)
-        )
-    }
 }
 
 /// The [`HomeserverClient`](super::HomeserverClient) operation a call made.

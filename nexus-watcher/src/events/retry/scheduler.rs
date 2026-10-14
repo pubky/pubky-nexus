@@ -51,8 +51,6 @@ impl RetryScheduler {
     /// When in doubt we enqueue (bounded by `max_retries`) rather than drop data.
     pub fn should_enqueue_related_event(error: &EventProcessorError) -> bool {
         match error {
-            EventProcessorError::Homeserver(error) => error.should_retry(),
-
             EventProcessorError::PubkyClientError(err) => match err.as_ref() {
                 PubkyClientError::NotInitialized
                 | PubkyClientError::TooManyRequests429 { .. }
@@ -70,6 +68,7 @@ impl RetryScheduler {
             | EventProcessorError::SkipIndexing
             | EventProcessorError::SpecValidation(..)
             | EventProcessorError::HsBlacklisted { .. }
+            | EventProcessorError::Homeserver(_)
             | EventProcessorError::HsEventsStreamRateLimitExhausted
             | EventProcessorError::FetchSizeExceeded(_, _)
             | EventProcessorError::UserIdMismatch { .. }
