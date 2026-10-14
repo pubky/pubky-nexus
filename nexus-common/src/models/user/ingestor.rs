@@ -3,12 +3,14 @@ use std::sync::Arc;
 use pubky_app_specs::{ParsedUri, PubkyId};
 
 use crate::db::PubkyConnector;
+use crate::db::{exec_single_row, fetch_key_from_graph, queries};
 use crate::models::error::{ModelError, ModelResult};
 use crate::models::homeserver::HsBlacklist;
-use crate::models::scope::{scope_from_config, EverythingScope, Scope};
+use crate::models::scope::{scope_from_config, watcher_scope, EverythingScope, Scope};
 use crate::models::traits::Collection;
-use crate::models::user::{set_user_homeserver, UserDetails, UserHsCursor};
-use crate::StackConfig;
+use crate::models::user::stub::{is_stub, mark_stub, unmark_stub};
+use crate::models::user::{set_user_homeserver, UserCounts, UserDetails, UserHsCursor};
+use crate::{StackConfig, WatcherConfig};
 
 /// Ingests previously-unknown users unless their HS is blacklisted.
 #[derive(Debug, Clone)]
@@ -50,6 +52,15 @@ impl UserIngestor {
         Self::with_scope(
             config.net.external_hs_pk_blacklist.iter().cloned(),
             scope_from_config(&config.scope),
+        )
+    }
+
+    /// The watcher's ingestor: like [`Self::from_config`], with the moderator always in
+    /// scope.
+    pub fn from_watcher_config(config: &WatcherConfig) -> Self {
+        Self::with_scope(
+            config.stack.net.external_hs_pk_blacklist.iter().cloned(),
+            watcher_scope(config),
         )
     }
 
@@ -102,6 +113,9 @@ impl UserIngestor {
 
     /// Resolves and persists a previously-unknown user.
     ///
+    /// A user in the scope is bound to its HS and gets a cursor, so it is polled. A user
+    /// outside it is kept as a stub; see [`crate::models::user::stub`].
+    ///
     /// Returns [`ModelError::HsBlacklisted`] if the user's resolved HS is blacklisted.
     #[tracing::instrument(name = "user.ingest", skip_all)]
     pub async fn maybe_ingest_user(&self, user_id: &PubkyId) -> ModelResult<()> {
@@ -121,6 +135,8 @@ impl UserIngestor {
             return Ok(());
         };
 
+        let in_scope = self.scope.is_in_scope(&user_id_str, Some(&hs_id)).await?;
+
         let user_details = UserDetails::from_pubky(user_id.clone());
 
         // Do not add to index, as this would affect the timeline of events for this user.
@@ -128,14 +144,75 @@ impl UserIngestor {
         user_details
             .put_to_graph()
             .await
-            .inspect(|_| tracing::info!("Ingested user {user_id} from HS {hs_id}"))
+            .inspect(|_| tracing::info!(in_scope, "Ingested user {user_id} from HS {hs_id}"))
             .inspect_err(|e| tracing::error!("Failed to ingest user {user_id}: {e}"))?;
 
-        // Bind the user to their HS (HOSTED_BY + resolved_at), since we just resolved the HS
-        set_user_homeserver(&user_id_str, &hs_id).await?;
+        if !in_scope {
+            mark_stub(&user_id_str).await?;
+            // A stub's own profile is never read, so it never gets the counts its profile
+            // would create. In-scope records still move them (a follow, a fetched post),
+            // and the counter updates need them to exist. Stubs stay out of the rankings.
+            UserCounts::default().put_to_index(&user_id_str).await?;
+            return Ok(());
+        }
+
+        Self::bind_to_homeserver(&user_id_str, &hs_id).await
+    }
+
+    /// Makes sure a user that must be in the scope (the moderator, a seed) is known and
+    /// polled.
+    ///
+    /// If its HS can't be resolved right now, the bare node is still created: the HS
+    /// resolver binds it on a later run, and polling starts from there.
+    pub async fn ensure_in_scope(&self, user_id: &PubkyId) -> ModelResult<()> {
+        self.maybe_ingest_user(user_id).await?;
+        if UserDetails::get_by_id(user_id).await?.is_none() {
+            UserDetails::from_pubky(user_id.clone())
+                .put_to_graph()
+                .await?;
+        }
+        self.promote(user_id).await
+    }
+
+    /// Brings a user kept outside the scope (a stub, or a member that left) back in:
+    /// binds it to its HS with a cursor at 0, so it is read from the start of its
+    /// stream, and adds it to the rankings. A no-op for a user already in scope.
+    pub async fn promote(&self, user_id: &PubkyId) -> ModelResult<()> {
+        let query = queries::get::get_user_scope_state(user_id);
+        let scope_state: Option<Option<String>> =
+            fetch_key_from_graph(query, "scope_state").await?;
+        if scope_state.flatten().is_none() {
+            return Ok(());
+        }
+
+        let Some(hs_id) = self.ensure_hs_not_blacklisted(user_id).await? else {
+            tracing::warn!("Not promoting {user_id}: no published HS");
+            return Ok(());
+        };
+
+        // Bind first: if clearing the state fails, the user is still out of scope and
+        // the next promotion retries the whole of it.
+        Self::bind_to_homeserver(user_id, &hs_id).await?;
+        exec_single_row(queries::put::set_user_scope_state(user_id, None)).await?;
+        let was_stub = is_stub(user_id).await?;
+        unmark_stub(user_id).await?;
+        if was_stub {
+            // Stubs were kept out of the rankings; their counts go in now.
+            if let Some(counts) = UserCounts::get_from_index(user_id).await? {
+                counts.put_to_index(user_id).await?;
+            }
+        }
+        tracing::info!("Brought {user_id} into the scope");
+        Ok(())
+    }
+
+    /// Binds the user to its HS (HOSTED_BY + resolved_at) and seeds its cursor, which is
+    /// what makes the watcher poll it.
+    async fn bind_to_homeserver(user_id: &str, hs_id: &str) -> ModelResult<()> {
+        set_user_homeserver(user_id, hs_id).await?;
 
         // Seed the user's HS cursor floor (no-op if we're already tracking them).
-        UserHsCursor::init(user_id, &hs_id).await?;
+        UserHsCursor::init(user_id, hs_id).await?;
 
         Ok(())
     }

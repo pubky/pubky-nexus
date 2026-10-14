@@ -14,7 +14,7 @@ use crate::service::PROCESSING_TIMEOUT_SECS;
 use tracing::{debug, error, trace, warn, Instrument};
 
 /// OpenTelemetry meter name shared by all watcher indexer metrics.
-pub(super) const METER_NAME: &str = "nexus.watcher";
+pub(crate) const METER_NAME: &str = "nexus.watcher";
 
 /// Possible error types of an event processor run
 #[derive(Debug)]

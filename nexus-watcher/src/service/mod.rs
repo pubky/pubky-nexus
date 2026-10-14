@@ -19,6 +19,9 @@ use crate::NexusWatcherBuilder;
 use nexus_common::file::ConfigLoader;
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::scope::scope_from_config;
+use nexus_common::models::takedown::rebuild_takedown_index;
+use nexus_common::models::user::stub::rebuild_stub_index;
+use nexus_common::models::user::UserIngestor;
 use nexus_common::types::DynError;
 use nexus_common::ScopeConfig;
 use nexus_common::WatcherConfig;
@@ -130,7 +133,8 @@ impl NexusWatcher {
 }
 
 /// Gets the scope ready before any event is read: the homeservers read as a whole
-/// feed are persisted, so their cursors exist.
+/// feed are persisted, so their cursors exist, and Redis's copy of the stubs is
+/// rebuilt from the graph.
 async fn prepare_scope(config: &WatcherConfig) -> Result<(), DynError> {
     let scope = scope_from_config(&config.stack.scope);
     info!(scope = ?config.stack.scope, "Indexing scope");
@@ -139,6 +143,18 @@ async fn prepare_scope(config: &WatcherConfig) -> Result<(), DynError> {
         Homeserver::persist_if_unknown(homeserver).await?;
     }
     scope.prepare().await?;
+
+    // The graph is the source of truth for stubs and takedowns; Redis only mirrors it.
+    let stubs = rebuild_stub_index().await?;
+    let takedowns = rebuild_takedown_index().await?;
+    debug!(stubs, takedowns, "Rebuilt the scope indexes from the graph");
+
+    // The moderator's tags take content down, so a scoped Nexus must read it too.
+    if config.stack.scope != ScopeConfig::Everything {
+        UserIngestor::from_watcher_config(config)
+            .ensure_in_scope(&config.moderation_id)
+            .await?;
+    }
 
     if let ScopeConfig::Homeservers { homeservers } = &config.stack.scope {
         if !homeservers.contains(&config.homeserver) {

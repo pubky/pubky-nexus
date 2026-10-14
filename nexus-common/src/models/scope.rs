@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use pubky_app_specs::PubkyId;
 
-use crate::config::ScopeConfig;
+use crate::config::{ScopeConfig, WatcherConfig};
 use crate::db::{fetch_row_from_graph, queries};
 use crate::models::error::ModelResult;
 
@@ -42,6 +42,54 @@ pub fn scope_from_config(config: &ScopeConfig) -> Arc<dyn Scope> {
         ScopeConfig::Everything => Arc::new(EverythingScope),
         ScopeConfig::Homeservers { homeservers } => Arc::new(HomeserverListScope::new(homeservers)),
     }
+}
+
+/// A scope that also always includes some users, whatever the setting: the moderator,
+/// whose tags take content down, must be read on every Nexus. Pinned users never
+/// widen the scope themselves; who they follow doesn't matter.
+#[derive(Debug)]
+pub struct PinnedScope {
+    inner: Arc<dyn Scope>,
+    pinned: HashSet<String>,
+}
+
+impl PinnedScope {
+    pub fn new(inner: Arc<dyn Scope>, pinned: impl IntoIterator<Item = PubkyId>) -> Self {
+        Self {
+            inner,
+            pinned: pinned.into_iter().map(|id| id.to_string()).collect(),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl Scope for PinnedScope {
+    fn config(&self) -> &ScopeConfig {
+        self.inner.config()
+    }
+
+    async fn is_in_scope(&self, user_id: &str, hs_id: Option<&str>) -> ModelResult<bool> {
+        if self.pinned.contains(user_id) {
+            return Ok(true);
+        }
+        self.inner.is_in_scope(user_id, hs_id).await
+    }
+
+    fn full_feed_homeservers(&self, primary: &PubkyId) -> Vec<PubkyId> {
+        self.inner.full_feed_homeservers(primary)
+    }
+
+    async fn prepare(&self) -> ModelResult<()> {
+        self.inner.prepare().await
+    }
+}
+
+/// The watcher's scope: the configured one, with the moderator always in it.
+pub fn watcher_scope(config: &WatcherConfig) -> Arc<dyn Scope> {
+    Arc::new(PinnedScope::new(
+        scope_from_config(&config.stack.scope),
+        [config.moderation_id.clone()],
+    ))
 }
 
 /// Every user Nexus can discover: the primary homeserver's feed is read whole and
@@ -142,6 +190,18 @@ mod tests {
         assert_eq!(scope.full_feed_homeservers(&pk(HS_A)), vec![pk(HS_B)]);
         assert!(scope.is_in_scope("user", Some(HS_B)).await.unwrap());
         assert!(!scope.is_in_scope("user", Some(HS_A)).await.unwrap());
+    }
+
+    /// The moderator is in scope whatever the setting, so its takedowns are read.
+    #[tokio::test]
+    async fn pinned_users_are_always_in_scope() {
+        let moderator = pk(HS_A);
+        let homeservers: Arc<dyn Scope> = Arc::new(HomeserverListScope::new(&[pk(HS_B)]));
+        let scope = PinnedScope::new(homeservers, [moderator.clone()]);
+
+        assert!(scope.is_in_scope(&moderator, Some(HS_A)).await.unwrap());
+        assert!(!scope.is_in_scope("someone", Some(HS_A)).await.unwrap());
+        assert_eq!(scope.full_feed_homeservers(&pk(HS_A)), vec![pk(HS_B)]);
     }
 
     /// Without a homeserver from the caller, the user's binding decides.

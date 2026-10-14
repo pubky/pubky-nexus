@@ -8,6 +8,7 @@ mod relationship;
 mod search;
 mod social_graph;
 mod stream;
+pub mod stub;
 mod view;
 
 pub use counts::UserCounts;
@@ -22,4 +23,5 @@ pub use stream::{
     UserIdStream, UserStream, UserStreamInput, UserStreamSource, CACHE_USER_RECOMMENDED_KEY_PARTS,
     STARTER_PACK_MAX_SKIP, USER_INFLUENCERS_KEY_PARTS, USER_MOSTFOLLOWED_KEY_PARTS,
 };
+pub use stub::{is_stub, SCOPE_STATE_STUB};
 pub use view::UserView;
