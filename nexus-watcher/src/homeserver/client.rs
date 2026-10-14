@@ -574,6 +574,42 @@ mod tests {
         }
     }
 
+    /// A rate-limited `/events-stream` request is retried, and only a 429 that outlasts the
+    /// retries stops the homeserver's run.
+    #[tokio::test(start_paused = true)]
+    async fn user_events_retry_a_rate_limited_stream_request() {
+        let user = pubky::Keypair::random().public_key();
+        let fetch_failing = |failures: usize, calls: &AtomicUsize| {
+            let call = calls.fetch_add(1, Ordering::SeqCst);
+            let outcome = if call < failures {
+                Err(rate_limited())
+            } else {
+                Ok(vec![])
+            };
+            async move { outcome }
+        };
+
+        let calls = AtomicUsize::new(0);
+        let result = user_events_with(&hs_id(), &user, || fetch_failing(2, &calls)).await;
+        assert!(result.is_ok(), "{result:?}");
+        assert_eq!(calls.load(Ordering::SeqCst), 3);
+
+        let calls = AtomicUsize::new(0);
+        let error = user_events_with(&hs_id(), &user, || fetch_failing(usize::MAX, &calls))
+            .await
+            .unwrap_err();
+        assert_eq!(calls.load(Ordering::SeqCst), 4);
+        let error = crate::errors::EventProcessorError::from(error);
+        assert!(
+            matches!(
+                error,
+                crate::errors::EventProcessorError::HsEventsStreamRateLimitExhausted
+            ),
+            "{error:?}"
+        );
+        assert!(error.should_not_retry_now());
+    }
+
     // --- retry_rate_limited ---
 
     /// Calls `retry_rate_limited` over a fetch that fails with `failures` in order,
