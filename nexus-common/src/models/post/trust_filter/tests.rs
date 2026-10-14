@@ -393,6 +393,48 @@ mod live {
         Ok(())
     }
 
+    /// After a switch-off cut short, switching on also shows an author the
+    /// ranking admits beyond the copy, whom the run cut short may not have
+    /// reached.
+    #[tokio_shared_rt::test(shared)]
+    async fn switching_on_after_an_unfinished_switch_off_shows_newly_ranked() -> TestResult {
+        setup(&[]).await?;
+        let mut conn = get_redis_conn().await?;
+        let _: () = conn.set(SHOWING_KEY, 1).await?;
+        rank(SPAMMER).await?;
+
+        let applied = reconcile().await;
+        let scores = spammer_scores().await;
+        cleanup(&[]).await?;
+
+        applied?;
+        assert_eq!(scores?, all_present());
+        Ok(())
+    }
+
+    /// Switching off marks itself before it reads the ranking or shows anyone,
+    /// so a run cut short leaves the marker for the next switch-on. Here the
+    /// ranking can't be read.
+    #[tokio_shared_rt::test(shared)]
+    async fn a_failed_switch_off_leaves_the_showing_marker() -> TestResult {
+        setup(&[]).await?;
+        let mut conn = get_redis_conn().await?;
+        park_ranking().await?;
+        let _: () = conn.set(ranking_key(), "not a sorted set").await?;
+
+        set_enabled(false);
+        let shown = reconcile().await;
+        set_enabled(true);
+        let marked: bool = conn.exists(SHOWING_KEY).await?;
+        let _: () = conn.del(ranking_key()).await?;
+        restore_ranking().await?;
+        cleanup(&[]).await?;
+
+        assert!(shown.is_err(), "the ranking can't be read");
+        assert!(marked, "the marker is set before the failure");
+        Ok(())
+    }
+
     /// Sets that were never filtered have neither the record nor a copy, so
     /// switching off leaves them alone, however many authors the ranking
     /// leaves out.
