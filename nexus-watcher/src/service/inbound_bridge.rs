@@ -1,47 +1,37 @@
-//! Brings a seed scope the interactions of users outside it.
-//!
-//! A seed scope never reads users outside it, so when one of them replies to the seed,
-//! mentions it, reposts or tags its posts, or follows it, the record sits on that user's
-//! homeserver and is never seen. The bridge asks big Nexus instances for the seed's
-//! notifications, turns each into the one record it is about, and fetches that record
-//! from its author's homeserver: a big Nexus only says where to look, never what is
-//! there, so it can leave things out but can't invent or change them.
-//!
-//! Each record is indexed through the normal handlers (its author kept as a stub), or
-//! deleted if its homeserver no longer has it (an untag, a deleted post). Each source
-//! keeps its own position, so several sources can be used and one being down changes
-//! nothing for the others.
+//! Brings a seed scope the interactions of users outside it: their replies, mentions,
+//! reposts, tags and follows of the seed. Big Nexus instances say where those records
+//! are (the seed's notifications); each is fetched from its author's homeserver, so a big
+//! Nexus can leave things out but can't invent or change them (see
+//! `docs/decentralization.md`).
 
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, LazyLock};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use deadpool_redis::redis;
-use nexus_common::db::{get_redis_conn, PubkyConnector};
+use deadpool_redis::redis::AsyncCommands;
+use nexus_common::db::get_redis_conn;
 use nexus_common::models::notification::{Notification, NotificationBody};
-use nexus_common::models::takedown::is_taken_down;
 use nexus_common::models::user::UserIngestor;
 use nexus_common::types::DynError;
 use nexus_common::{ScopeConfig, WatcherConfig};
 use opentelemetry::metrics::{Counter, Gauge};
 use opentelemetry::{global, KeyValue};
-use pubky::Method;
 use pubky_app_specs::traits::HashId;
 use pubky_app_specs::{tag_uri_builder, ParsedUri, PubkyAppTag, PubkyId};
 use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
 
 use crate::errors::EventProcessorError;
-use crate::events::{handle_del_event, handle_put_event, Event, Moderation, ParseResult};
+use crate::events::{
+    get_nexus_json, handle_del_event, handle_put_event, Event, Moderation, ParseResult,
+};
 use crate::service::indexer::METER_NAME;
+use crate::service::runner::HomeserverBackoff;
 
 /// Notifications asked for per page, the most `/v0/user/{id}/notifications` serves.
 const PAGE_LIMIT: usize = 100;
 /// Prefix of each source's position: the newest notification timestamp handled.
 const POSITION_PREFIX: &str = "Scope:Bridge";
-const MIN_BACKOFF: Duration = Duration::from_secs(60);
-const MAX_BACKOFF: Duration = Duration::from_secs(3_600);
 
 struct BridgeMetrics {
     records: Counter<u64>,
@@ -112,25 +102,14 @@ impl NotificationSource for NexusNotifications {
         if let Some(end) = end {
             url.push_str(&format!("&end={end}"));
         }
-        let response = PubkyConnector::get()?
-            .client()
-            .request(Method::GET, &url)
-            .send()
-            .await?;
-        match response.status() {
-            status if status.is_success() => Ok(response.json().await?),
-            reqwest::StatusCode::NOT_FOUND => Ok(Vec::new()),
-            status => Err(format!("GET {url}: HTTP {status}").into()),
-        }
+        Ok(get_nexus_json(&url).await?.unwrap_or_default())
     }
 }
 
-/// The record a notification of `seed` is about, or `None` for one with no record of
-/// its own. Tags and follows are rebuilt from who made them and what they target: their
-/// addresses are derived from those.
-pub fn record_of(body: &NotificationBody, seed: &str) -> Option<String> {
-    let profile_uri = || format!("pubky://{seed}/pub/pubky.app/profile.json");
-    let follow_uri = |follower: &str| format!("pubky://{follower}/pub/pubky.app/follows/{seed}");
+/// The record a notification of `seed` is about. Tags and follows are rebuilt from who
+/// made them and what they target, which is what their addresses are derived from.
+pub fn record_of(body: &NotificationBody, seed: &str) -> String {
+    use NotificationBody::*;
     let tag_uri = |tagger: &str, tagged: String, label: &str| {
         let tag = PubkyAppTag {
             uri: tagged,
@@ -139,49 +118,56 @@ pub fn record_of(body: &NotificationBody, seed: &str) -> Option<String> {
         };
         tag_uri_builder(tagger.to_string(), tag.create_id())
     };
+    let profile_uri = || format!("pubky://{seed}/pub/pubky.app/profile.json");
 
     match body {
-        NotificationBody::Follow { followed_by } | NotificationBody::NewFriend { followed_by } => {
-            Some(follow_uri(followed_by))
+        Follow { followed_by: by }
+        | NewFriend { followed_by: by }
+        | LostFriend { unfollowed_by: by } => format!("pubky://{by}/pub/pubky.app/follows/{seed}"),
+        TagPost {
+            tagged_by: by,
+            tag_label,
+            post_uri,
+            ..
         }
-        NotificationBody::LostFriend { unfollowed_by } => Some(follow_uri(unfollowed_by)),
-        NotificationBody::TagPost {
-            tagged_by,
+        | UntagPost {
+            untagged_by: by,
             tag_label,
             post_uri,
             ..
-        } => Some(tag_uri(tagged_by, post_uri.clone(), tag_label)),
-        NotificationBody::UntagPost {
-            untagged_by,
+        } => tag_uri(by, post_uri.clone(), tag_label),
+        TagProfile {
+            tagged_by: by,
             tag_label,
-            post_uri,
-            ..
-        } => Some(tag_uri(untagged_by, post_uri.clone(), tag_label)),
-        NotificationBody::TagProfile {
-            tagged_by,
+        }
+        | UntagProfile {
+            untagged_by: by,
             tag_label,
-        } => Some(tag_uri(tagged_by, profile_uri(), tag_label)),
-        NotificationBody::UntagProfile {
-            untagged_by,
-            tag_label,
-        } => Some(tag_uri(untagged_by, profile_uri(), tag_label)),
-        NotificationBody::Reply { reply_uri, .. } => Some(reply_uri.clone()),
-        NotificationBody::Repost { repost_uri, .. } => Some(repost_uri.clone()),
-        NotificationBody::Mention { post_uri, .. } => Some(post_uri.clone()),
-        NotificationBody::PostEdited { edited_uri, .. } => Some(edited_uri.clone()),
-        NotificationBody::PostDeleted { deleted_uri, .. } => Some(deleted_uri.clone()),
+        } => tag_uri(by, profile_uri(), tag_label),
+        Reply { reply_uri: uri, .. }
+        | Repost {
+            repost_uri: uri, ..
+        }
+        | Mention { post_uri: uri, .. }
+        | PostEdited {
+            edited_uri: uri, ..
+        }
+        | PostDeleted {
+            deleted_uri: uri, ..
+        } => uri.clone(),
     }
 }
 
 /// What happened to one bridged record.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Outcome {
-    /// Fetched from its author's homeserver and indexed.
+    /// Handed to the indexing handlers, which fetch it from its author's homeserver (or
+    /// drop it if the moderator took it down, counted in `watcher.events.taken_down`).
     Indexed,
     /// Gone from its author's homeserver, so removed here too.
     Removed,
-    /// Not bridged: its author is in scope (its own stream covers it), it was taken
-    /// down, or it can't be read as a record.
+    /// Not bridged: its author is in scope (its own stream covers it), or it can't be
+    /// read as a record.
     Skipped,
     /// Couldn't be indexed (e.g. invalid); logged and left.
     Failed,
@@ -207,8 +193,8 @@ pub struct InboundBridge {
     files_path: PathBuf,
     max_file_size: u64,
     lookback: Option<Duration>,
-    /// Sources failing recently: skipped until the instant, with their failure count.
-    backoff: Mutex<HashMap<String, (Instant, u32)>>,
+    /// Sources failing recently are skipped for a while, as failing homeservers are.
+    backoff: Mutex<HomeserverBackoff>,
 }
 
 impl InboundBridge {
@@ -261,7 +247,7 @@ impl InboundBridge {
             max_file_size,
             lookback: (lookback_days > 0)
                 .then(|| Duration::from_secs(u64::from(lookback_days) * 86_400)),
-            backoff: Mutex::new(HashMap::new()),
+            backoff: Mutex::new(HomeserverBackoff::default()),
         }
     }
 
@@ -270,13 +256,13 @@ impl InboundBridge {
     pub async fn poll(&self) -> Result<(), DynError> {
         let mut failed = 0;
         for source in &self.sources {
-            if self.in_backoff(source.name()).await {
+            if self.backoff.lock().await.should_skip(source.name()) {
                 debug!(source = source.name(), "Skipping a big Nexus in backoff");
                 continue;
             }
             match self.poll_source(source.as_ref()).await {
                 Ok(handled) => {
-                    self.backoff.lock().await.remove(source.name());
+                    self.backoff.lock().await.record_success(source.name());
                     if handled > 0 {
                         info!(source = source.name(), handled, "Bridged inbound records");
                     }
@@ -287,7 +273,7 @@ impl InboundBridge {
                         .source_errors
                         .add(1, &[KeyValue::new("source", source.name().to_string())]);
                     warn!(source = source.name(), error = %e, "Inbound bridge poll failed");
-                    self.back_off(source.name()).await;
+                    self.backoff.lock().await.record_failure(source.name());
                 }
             }
         }
@@ -317,21 +303,20 @@ impl InboundBridge {
         let mut handled = 0;
         let mut newest = None;
         for notification in &notifications {
-            if let Some(uri) = record_of(&notification.body, &self.seed) {
-                let outcome = match self.bridge_record(&uri).await {
-                    Ok(outcome) => outcome,
-                    Err(e) => {
-                        if let Some(newest) = newest {
-                            write_position(&position_key, newest).await?;
-                        }
-                        return Err(format!("bridging {uri}: {e}").into());
+            let uri = record_of(&notification.body, &self.seed);
+            let outcome = match self.bridge_record(&uri).await {
+                Ok(outcome) => outcome,
+                Err(e) => {
+                    if let Some(newest) = newest {
+                        write_position(&position_key, newest).await?;
                     }
-                };
-                METRICS
-                    .records
-                    .add(1, &[KeyValue::new("outcome", outcome.label())]);
-                handled += 1;
-            }
+                    return Err(format!("bridging {uri}: {e}").into());
+                }
+            };
+            METRICS
+                .records
+                .add(1, &[KeyValue::new("outcome", outcome.label())]);
+            handled += 1;
             newest = Some(notification.timestamp);
         }
 
@@ -354,7 +339,8 @@ impl InboundBridge {
             return Ok(Outcome::Skipped);
         };
         let author = &parsed.user_id;
-        if self.ingestor.scope().is_in_scope(author, None).await? || is_taken_down(uri).await? {
+        // Taken-down records are dropped by `handle_put_event`.
+        if self.ingestor.scope().is_in_scope(author, None).await? {
             return Ok(Outcome::Skipped);
         }
         match self.ingestor.maybe_ingest_user(author).await {
@@ -390,23 +376,6 @@ impl InboundBridge {
                 Ok(Outcome::Failed)
             }
         }
-    }
-
-    async fn in_backoff(&self, source: &str) -> bool {
-        self.backoff
-            .lock()
-            .await
-            .get(source)
-            .is_some_and(|(until, _)| Instant::now() < *until)
-    }
-
-    async fn back_off(&self, source: &str) {
-        let mut backoff = self.backoff.lock().await;
-        let failures = backoff.get(source).map_or(0, |(_, failures)| *failures) + 1;
-        let delay = MIN_BACKOFF
-            .saturating_mul(2u32.saturating_pow(failures - 1))
-            .min(MAX_BACKOFF);
-        backoff.insert(source.to_string(), (Instant::now() + delay, failures));
     }
 }
 
@@ -456,20 +425,12 @@ async fn read_since(
 
 async fn read_position(key: &str) -> Result<Option<i64>, DynError> {
     let mut redis_conn = get_redis_conn().await?;
-    let position: Option<i64> = redis::cmd("GET")
-        .arg(key)
-        .query_async(&mut redis_conn)
-        .await?;
-    Ok(position)
+    Ok(redis_conn.get(key).await?)
 }
 
 async fn write_position(key: &str, timestamp: i64) -> Result<(), DynError> {
     let mut redis_conn = get_redis_conn().await?;
-    let () = redis::cmd("SET")
-        .arg(key)
-        .arg(timestamp)
-        .query_async(&mut redis_conn)
-        .await?;
+    let () = redis_conn.set(key, timestamp).await?;
     Ok(())
 }
 
@@ -550,7 +511,7 @@ mod tests {
             ),
         ];
         for (body, record) in cases {
-            assert_eq!(record_of(&body, SEED), Some(record), "{body:?}");
+            assert_eq!(record_of(&body, SEED), record, "{body:?}");
         }
     }
 

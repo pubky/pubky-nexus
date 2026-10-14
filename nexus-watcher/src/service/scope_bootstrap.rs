@@ -1,28 +1,18 @@
-//! Finds a new seed scope's members at start from a big Nexus.
-//!
-//! Without it, a seed scope finds its members hop by hop: the seed's follows are only
-//! known once the seed's stream is read, theirs once theirs are, and so on. A big Nexus
-//! already knows who follows whom, so asking it "who does the seed follow?", then "who
-//! do they follow?", up to the hop limit, gives every likely member at once, and they
-//! are all polled in parallel from the start.
-//!
-//! The answer is only a suggestion. Suggested users are admitted for a while (see
-//! [`SeedHopsScope::suggest_members`]) so their own follows get read from their
-//! homeservers; the members recomputed from the graph then confirm them or let them go.
-//! Content always comes from each member's homeserver, never from the big Nexus. The
-//! requests grow with the scope, not with the network: about one per member.
+//! Finds a new seed scope's members at start by asking a big Nexus who the seed follows,
+//! and who they follow, up to the hops, so they are all polled at once instead of hop by
+//! hop. Only a suggestion: content always comes from homeservers, and the members worked
+//! out from the graph confirm or drop each suggested user (see `docs/decentralization.md`).
 
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
-use nexus_common::db::PubkyConnector;
-use nexus_common::models::scope::SeedHopsScope;
+use futures::{stream, StreamExt, TryStreamExt};
 use nexus_common::types::DynError;
-use pubky::Method;
 use pubky_app_specs::PubkyId;
 use tracing::{info, warn};
 
 use super::scope_maintenance::ScopeMaintainer;
+use crate::events::get_nexus_json;
 
 /// Follows asked for per page, the most `/v0/user/{id}/following` serves.
 const PAGE_LIMIT: usize = 200;
@@ -30,6 +20,8 @@ const PAGE_LIMIT: usize = 200;
 const MAX_FOLLOWS_PER_USER: usize = 10_000;
 /// Tries per request before the bootstrap gives up and the crawl takes over.
 const MAX_ATTEMPTS: u32 = 3;
+/// Requests to the big Nexus in flight at once.
+const CONCURRENT_REQUESTS: usize = 8;
 
 /// Where "who does this user follow?" is asked: a big Nexus over HTTP, or a fake in tests.
 #[async_trait::async_trait]
@@ -50,16 +42,7 @@ impl FollowingSource for NexusFollowing {
             "{}/v0/user/{user_id}/following?skip={skip}&limit={PAGE_LIMIT}",
             self.nexus_url
         );
-        let response = PubkyConnector::get()?
-            .client()
-            .request(Method::GET, &url)
-            .send()
-            .await?;
-        match response.status() {
-            status if status.is_success() => Ok(Some(response.json().await?)),
-            reqwest::StatusCode::NOT_FOUND => Ok(None),
-            status => Err(format!("GET {url}: HTTP {status}").into()),
-        }
+        get_nexus_json(&url).await
     }
 }
 
@@ -75,13 +58,18 @@ pub async fn suggested_members(
     let mut frontier = vec![seed.to_string()];
 
     for hop in 1..=hops {
+        // A hop's users are asked about concurrently; the answers are merged in frontier
+        // order, so the result is the same as asking one at a time.
+        let followees: Vec<Vec<String>> = stream::iter(frontier)
+            .map(|user_id| async move { all_following(&user_id, source).await })
+            .buffered(CONCURRENT_REQUESTS)
+            .try_collect()
+            .await?;
         let mut next = Vec::new();
-        for user_id in &frontier {
-            for followee in all_following(user_id, source).await? {
-                if seen.insert(followee.clone()) {
-                    suggested.insert(followee.clone(), hop);
-                    next.push(followee);
-                }
+        for followee in followees.into_iter().flatten() {
+            if seen.insert(followee.clone()) {
+                suggested.insert(followee.clone(), hop);
+                next.push(followee);
             }
         }
         frontier = next;
@@ -131,11 +119,10 @@ where
 ///
 /// Errors are logged, never returned: crawling finds the members anyway, more slowly,
 /// and the next start tries again.
-pub async fn bootstrap_seed_scope(
-    scope: &SeedHopsScope,
-    maintainer: &ScopeMaintainer,
-    source: &dyn FollowingSource,
-) {
+pub async fn bootstrap_seed_scope(maintainer: &ScopeMaintainer, source: &dyn FollowingSource) {
+    let Some(scope) = maintainer.seed_scope() else {
+        return;
+    };
     match scope.is_bootstrapped().await {
         Ok(false) => {}
         Ok(true) => return,

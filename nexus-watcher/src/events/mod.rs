@@ -41,8 +41,8 @@ mod moderation;
 pub mod retry;
 
 pub(crate) use fetch::{
-    fetch_capped, format_error_body, read_stream_capped, MAX_ERROR_BODY, MAX_EVENTS_BODY,
-    MAX_RESOURCE_SIZE,
+    fetch_capped, format_error_body, get_nexus_json, read_stream_capped, MAX_ERROR_BODY,
+    MAX_EVENTS_BODY, MAX_RESOURCE_SIZE,
 };
 pub use moderation::Moderation;
 
@@ -94,14 +94,12 @@ impl DefaultEventHandler {
 #[async_trait::async_trait]
 impl EventHandler for DefaultEventHandler {
     async fn handle(&self, event: &Event) -> Result<(), EventProcessorError> {
-        // A safety net: the runners only read in-scope users, but an event queued for
-        // retry before the scope changed, or a feed shared with others, can still bring
-        // an out-of-scope author here. Its event is neither indexed nor logged.
+        // Safety net for events of authors outside the scope (queued for retry before the
+        // scope changed, or from a shared feed): skipped, neither indexed nor logged. An
+        // author still bound and polled means the scope's records are being rebuilt (e.g.
+        // after losing Redis): retried instead, so the event isn't lost.
         let author_id = event.parsed_uri.user_id();
         if !self.ingestor.scope().is_in_scope(author_id, None).await? {
-            // Still bound and polled as in scope: the scope's own records are being
-            // rebuilt (e.g. after losing Redis). Retried rather than skipped, so the event
-            // isn't lost.
             let query = queries::get::is_user_bound_in_scope(author_id);
             if fetch_key_from_graph::<bool>(query, "bound")
                 .await?

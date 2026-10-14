@@ -22,7 +22,7 @@ use crate::NexusWatcherBuilder;
 use inbound_bridge::InboundBridge;
 use nexus_common::file::ConfigLoader;
 use nexus_common::models::homeserver::Homeserver;
-use nexus_common::models::scope::{scope_from_config, SeedHopsScope};
+use nexus_common::models::scope::scope_from_config;
 use nexus_common::models::takedown::rebuild_takedown_index;
 use nexus_common::models::user::stub::rebuild_stub_index;
 use nexus_common::models::user::UserIngestor;
@@ -80,7 +80,8 @@ impl NexusWatcher {
     pub async fn start(shutdown_rx: Receiver<bool>, config: WatcherConfig) -> Result<(), DynError> {
         debug!(?config, "Running NexusWatcher with ");
 
-        prepare_scope(&config).await?;
+        let scope_maintainer = Arc::new(ScopeMaintainer::from_config(&config));
+        prepare_scope(&config, &scope_maintainer).await?;
 
         let primary_hs_monitoring_interval_ms = config.primary_hs_monitoring_interval_ms;
         let external_hs_monitoring_interval_ms = config.external_hs_monitoring_interval_ms;
@@ -103,8 +104,6 @@ impl NexusWatcher {
 
         // Create retry processor
         let retry_processor = Arc::new(RetryProcessor::new(&config, shutdown_rx.clone()));
-
-        let scope_maintainer = Arc::new(ScopeMaintainer::from_config(&config));
 
         let mut tasks = vec![
             PeriodicTask::new(
@@ -162,17 +161,19 @@ impl NexusWatcher {
     }
 }
 
-/// Gets the scope ready before any event is read: the homeservers read as a whole
-/// feed are persisted, so their cursors exist, and Redis's copy of the stubs is
-/// rebuilt from the graph.
-async fn prepare_scope(config: &WatcherConfig) -> Result<(), DynError> {
+/// Gets the scope ready before any event is read: the homeservers read whole are
+/// persisted so their cursors exist, Redis's copies of the stubs and takedowns are
+/// rebuilt from the graph, and who is in scope is settled.
+async fn prepare_scope(
+    config: &WatcherConfig,
+    maintainer: &Arc<ScopeMaintainer>,
+) -> Result<(), DynError> {
     let scope = scope_from_config(&config.stack.scope);
     info!(scope = ?config.stack.scope, "Indexing scope");
 
     for homeserver in scope.full_feed_homeservers(&config.homeserver) {
         Homeserver::persist_if_unknown(homeserver).await?;
     }
-    scope.prepare().await?;
 
     // The graph is the source of truth for stubs and takedowns; Redis only mirrors it.
     let stubs = rebuild_stub_index().await?;
@@ -191,21 +192,20 @@ async fn prepare_scope(config: &WatcherConfig) -> Result<(), DynError> {
 
     // Who is in scope, before anything is polled: members recomputed from the graph,
     // users of a narrower or wider previous scope moved out or back in.
-    ScopeMaintainer::from_config(config).at_start().await?;
+    maintainer.at_start().await?;
 
     // A big Nexus can suggest a new seed scope's members, so they are all polled at once.
     // In the background: the seed's own stream is polled meanwhile, and if that Nexus
     // can't be read, crawling finds the members anyway.
-    if let (ScopeConfig::Seed { seed, hops }, ScopeBootstrapConfig::Nexus { nexus_url }) =
-        (&config.stack.scope, &config.scope_bootstrap)
+    if let (Some(_), ScopeBootstrapConfig::Nexus { nexus_url }) =
+        (maintainer.seed_scope(), &config.scope_bootstrap)
     {
-        let scope = SeedHopsScope::new(seed.clone(), *hops);
-        let maintainer = ScopeMaintainer::from_config(config);
+        let maintainer = maintainer.clone();
         let source = NexusFollowing {
             nexus_url: nexus_url.clone(),
         };
         tokio::spawn(async move {
-            scope_bootstrap::bootstrap_seed_scope(&scope, &maintainer, &source).await;
+            scope_bootstrap::bootstrap_seed_scope(&maintainer, &source).await;
         });
     } else if config.scope_bootstrap != ScopeBootstrapConfig::Crawl {
         warn!("scope_bootstrap only applies to a seed scope; ignoring it");

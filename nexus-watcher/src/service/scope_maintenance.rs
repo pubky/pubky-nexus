@@ -16,12 +16,13 @@
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
-use deadpool_redis::redis;
+use deadpool_redis::redis::AsyncCommands;
+use nexus_common::db::kv::RedisError;
 use nexus_common::db::{fetch_key_from_graph, get_redis_conn, queries};
 use nexus_common::models::error::ModelResult;
 use nexus_common::models::scope::SeedHopsScope;
-use nexus_common::models::user::stub::{is_stub, rebuild_stub_index, SCOPE_STATE_STUB};
-use nexus_common::models::user::{UserCounts, UserIngestor};
+use nexus_common::models::user::stub::{unstub, SCOPE_STATE_STUB};
+use nexus_common::models::user::UserIngestor;
 use nexus_common::types::DynError;
 use nexus_common::{ScopeConfig, WatcherConfig};
 use pubky_app_specs::PubkyId;
@@ -41,12 +42,20 @@ pub struct ScopeChange {
     pub left: usize,
 }
 
+/// What there is to maintain for each kind of scope.
+enum Kind {
+    Everything,
+    Homeservers(Vec<PubkyId>),
+    Seed(Box<SeedHopsScope>),
+}
+
 /// Keeps the scope's members up to date for the watcher.
 pub struct ScopeMaintainer {
-    scope: ScopeConfig,
-    seed_scope: Option<SeedHopsScope>,
-    /// Always in scope, never leave (the moderator).
-    pinned: HashSet<String>,
+    kind: Kind,
+    /// The scope as configured, to notice a change between starts.
+    scope_json: String,
+    /// Always in scope and never let go, whatever the scope.
+    moderator: PubkyId,
     ingestor: UserIngestor,
     interval: Duration,
     /// Narrows every graph-wide search to these users; `None` in production.
@@ -65,14 +74,17 @@ impl ScopeMaintainer {
         ingestor: UserIngestor,
         limit_to: Option<Vec<String>>,
     ) -> Self {
-        let seed_scope = match &config.stack.scope {
-            ScopeConfig::Seed { seed, hops } => Some(SeedHopsScope::new(seed.clone(), *hops)),
-            _ => None,
+        let kind = match &config.stack.scope {
+            ScopeConfig::Everything => Kind::Everything,
+            ScopeConfig::Homeservers { homeservers } => Kind::Homeservers(homeservers.clone()),
+            ScopeConfig::Seed { seed, hops } => {
+                Kind::Seed(Box::new(SeedHopsScope::new(seed.clone(), *hops)))
+            }
         };
         Self {
-            scope: config.stack.scope.clone(),
-            seed_scope,
-            pinned: HashSet::from([config.moderation_id.to_string()]),
+            kind,
+            scope_json: serde_json::to_string(&config.stack.scope).unwrap_or_default(),
+            moderator: config.moderation_id.clone(),
             ingestor,
             interval: Duration::from_millis(config.scope_maintenance.interval_ms),
             limit_to,
@@ -80,23 +92,31 @@ impl ScopeMaintainer {
         }
     }
 
+    /// The seed scope this maintainer keeps, if it is one.
+    pub fn seed_scope(&self) -> Option<&SeedHopsScope> {
+        match &self.kind {
+            Kind::Seed(seed_scope) => Some(seed_scope),
+            _ => None,
+        }
+    }
+
     /// Whether the periodic task is needed: everything has nothing to maintain after start.
     pub fn is_periodic(&self) -> bool {
-        self.scope != ScopeConfig::Everything
+        !matches!(self.kind, Kind::Everything)
     }
 
     /// The run at start, before any event is read.
     pub async fn at_start(&self) -> ModelResult<ScopeChange> {
-        let change = match &self.scope {
-            ScopeConfig::Everything => self.let_everyone_in().await?,
-            ScopeConfig::Homeservers { homeservers } => {
+        let change = match &self.kind {
+            Kind::Everything => self.let_everyone_in().await?,
+            Kind::Homeservers(homeservers) => {
                 let mut change = self.drop_users_bound_outside(homeservers).await?;
                 if self.scope_changed().await? {
                     change.joined += self.admit_stubs_on(homeservers).await?;
                 }
                 change
             }
-            ScopeConfig::Seed { .. } => self.recompute_members(true).await?,
+            Kind::Seed(seed_scope) => self.recompute_members(seed_scope, true).await?,
         };
         self.remember_scope().await?;
         info!(?change, "Scope settled at start");
@@ -109,16 +129,16 @@ impl ScopeMaintainer {
         let mut last_run = self.last_run.lock().await;
         let interval_passed = last_run.elapsed() >= self.interval;
 
-        let change = match (&self.scope, &self.seed_scope) {
-            (ScopeConfig::Seed { .. }, Some(seed_scope)) => {
+        let change = match &self.kind {
+            Kind::Seed(seed_scope) => {
                 // Taken first, so a change after this point asks for the next run.
                 let stale = seed_scope.take_stale().await?;
                 if !stale && !interval_passed {
                     return Ok(ScopeChange::default());
                 }
-                self.recompute_members(false).await?
+                self.recompute_members(seed_scope, false).await?
             }
-            (ScopeConfig::Homeservers { homeservers }, _) if interval_passed => {
+            Kind::Homeservers(homeservers) if interval_passed => {
                 self.drop_users_bound_outside(homeservers).await?
             }
             _ => return Ok(ScopeChange::default()),
@@ -132,20 +152,24 @@ impl ScopeMaintainer {
 
     /// Recomputes a seed scope's members now, e.g. right after a big Nexus suggested some.
     pub async fn recompute_now(&self) -> ModelResult<ScopeChange> {
+        let Some(seed_scope) = self.seed_scope() else {
+            return Ok(ScopeChange::default());
+        };
         let mut last_run = self.last_run.lock().await;
-        let change = self.recompute_members(false).await?;
+        let change = self.recompute_members(seed_scope, false).await?;
         *last_run = Instant::now();
         Ok(change)
     }
 
-    /// Works out the seed scope's members from the graph and compares them with the last
-    /// result: who is new joins, who is gone leaves. Without a last result (first run,
-    /// or Redis lost), `at_start` compares with every in-scope user in the graph, so a
-    /// scope narrowed from a wider one lets the others go.
-    async fn recompute_members(&self, at_start: bool) -> ModelResult<ScopeChange> {
-        let Some(seed_scope) = &self.seed_scope else {
-            return Ok(ScopeChange::default());
-        };
+    /// Works out the seed scope's members and compares them with the last result: who is
+    /// new joins, who is gone leaves. Without a last result (first run, or Redis lost),
+    /// `at_start` compares with every in-scope user in the graph, so a scope narrowed from
+    /// a wider one lets the others go.
+    async fn recompute_members(
+        &self,
+        seed_scope: &SeedHopsScope,
+        at_start: bool,
+    ) -> ModelResult<ScopeChange> {
         let members = seed_scope.members().await?;
         let previous = match seed_scope.cached_members().await? {
             Some(previous) => previous,
@@ -154,56 +178,66 @@ impl ScopeMaintainer {
         };
         // Cached first, so the per-event check already agrees while users are moved.
         seed_scope.cache_members(&members).await?;
-        self.apply(&members, &previous).await
+        let (change, not_admitted) = self.apply(&members, &previous).await;
+        // Out of the cache again, so the next recompute sees them as new and retries. Not
+        // forced sooner: a user that keeps failing (no published homeserver) is tried
+        // again at the next follow change or interval, not every tick.
+        seed_scope.forget_members(&not_admitted).await?;
+        Ok(change)
     }
 
+    /// Brings in who is new and lets go who is gone. One user failing (a lookup timing
+    /// out, no published homeserver) is logged and doesn't stop the others; it is
+    /// returned, so the caller can have it tried again.
     async fn apply(
         &self,
         members: &HashMap<String, u8>,
         previous: &HashSet<String>,
-    ) -> ModelResult<ScopeChange> {
+    ) -> (ScopeChange, Vec<String>) {
         let mut change = ScopeChange::default();
-        // One user failing (a blacklisted homeserver, a lookup timing out) doesn't stop the
-        // others: it is logged, and the next run tries it again.
+        let mut not_admitted = Vec::new();
         for user_id in members.keys().filter(|id| !previous.contains(*id)) {
             match self.admit(user_id).await {
-                Ok(()) => change.joined += 1,
-                Err(e) => warn!(%user_id, error = %e, "Could not bring a member in"),
+                Ok(true) => change.joined += 1,
+                Ok(false) => {
+                    warn!(%user_id, "Could not bring a member in: no published homeserver");
+                    not_admitted.push(user_id.clone());
+                }
+                Err(e) => {
+                    warn!(%user_id, error = %e, "Could not bring a member in");
+                    not_admitted.push(user_id.clone());
+                }
             }
         }
-        for user_id in previous
+        let gone = previous
             .iter()
-            .filter(|id| !members.contains_key(*id) && !self.pinned.contains(*id))
-        {
+            .filter(|id| !members.contains_key(*id) && **id != self.moderator.as_ref());
+        for user_id in gone {
             match self.ingestor.demote(user_id).await {
                 Ok(()) => change.left += 1,
                 Err(e) => warn!(%user_id, error = %e, "Could not let a member go"),
             }
         }
-        Ok(change)
+        (change, not_admitted)
     }
 
     /// Brings a member in: ingested if new (in scope now, so bound and polled), promoted
-    /// if it was kept out.
-    async fn admit(&self, user_id: &str) -> Result<(), DynError> {
+    /// if it was kept out. Returns whether it is in scope now.
+    async fn admit(&self, user_id: &str) -> Result<bool, DynError> {
         let user_id = PubkyId::try_from(user_id)?;
         self.ingestor.maybe_ingest_user(&user_id).await?;
-        self.ingestor.promote(&user_id).await?;
-        Ok(())
+        Ok(self.ingestor.promote(&user_id).await?)
     }
 
-    /// For "everything": clears every user's scope state. Former stubs go back into the
-    /// rankings; the HS resolver binds all of them, so they are polled again.
+    /// For "everything": clears every user's scope state, and former stubs go back into
+    /// the rankings; the HS resolver binds them all, so they are polled again.
     async fn let_everyone_in(&self) -> ModelResult<ScopeChange> {
         let query = queries::put::clear_scope_states(self.limit_to.as_deref());
         let stub_ids: Vec<String> = fetch_key_from_graph(query, "stub_ids")
             .await?
             .unwrap_or_default();
-        rebuild_stub_index().await?;
         for user_id in &stub_ids {
-            if let Some(counts) = UserCounts::get_from_index(user_id).await? {
-                counts.put_to_index(user_id).await?;
-            }
+            unstub(user_id).await?;
         }
         Ok(ScopeChange {
             joined: stub_ids.len(),
@@ -219,7 +253,7 @@ impl ScopeMaintainer {
             .await?
             .unwrap_or_default();
         let mut change = ScopeChange::default();
-        for user_id in outside.iter().filter(|id| !self.pinned.contains(*id)) {
+        for user_id in outside.iter().filter(|id| **id != self.moderator.as_ref()) {
             self.ingestor.demote(user_id).await?;
             change.left += 1;
         }
@@ -235,20 +269,22 @@ impl ScopeMaintainer {
             .unwrap_or_default();
         let mut joined = 0;
         for user_id in &stubs {
-            if let Some(limit_to) = &self.limit_to {
-                if !limit_to.contains(user_id) {
-                    continue;
-                }
+            if self
+                .limit_to
+                .as_ref()
+                .is_some_and(|limit| !limit.contains(user_id))
+            {
+                continue;
             }
             let Ok(user_id) = PubkyId::try_from(user_id.as_str()) else {
                 continue;
             };
-            let hs_id = match self.ingestor.ensure_hs_not_blacklisted(&user_id).await {
-                Ok(Some(hs_id)) => hs_id,
-                _ => continue,
+            let Ok(Some(hs_id)) = self.ingestor.ensure_hs_not_blacklisted(&user_id).await else {
+                continue;
             };
-            if homeservers.iter().any(|hs| hs.as_ref() == hs_id) && is_stub(&user_id).await? {
-                self.ingestor.promote(&user_id).await?;
+            if homeservers.iter().any(|hs| hs.as_ref() == hs_id)
+                && self.ingestor.promote(&user_id).await?
+            {
                 joined += 1;
             }
         }
@@ -266,29 +302,24 @@ impl ScopeMaintainer {
     /// Whether the scope differs from the one the last start ran with.
     async fn scope_changed(&self) -> ModelResult<bool> {
         let mut redis_conn = get_redis_conn().await?;
-        let active: Option<String> = redis::cmd("GET")
-            .arg(ACTIVE_SCOPE_KEY)
-            .query_async(&mut redis_conn)
+        let active: Option<String> = redis_conn
+            .get(ACTIVE_SCOPE_KEY)
             .await
-            .map_err(nexus_common::db::kv::RedisError::from)?;
-        Ok(active != Some(self.scope_json()))
+            .map_err(RedisError::from)?;
+        Ok(active.as_deref() != Some(self.scope_json.as_str()))
     }
 
+    /// Records the scope this start ran with. Tests (`limit_to`) leave it alone, as they
+    /// don't run the whole graph's scope.
     async fn remember_scope(&self) -> ModelResult<()> {
         if self.limit_to.is_some() {
             return Ok(());
         }
         let mut redis_conn = get_redis_conn().await?;
-        let () = redis::cmd("SET")
-            .arg(ACTIVE_SCOPE_KEY)
-            .arg(self.scope_json())
-            .query_async(&mut redis_conn)
+        let () = redis_conn
+            .set(ACTIVE_SCOPE_KEY, &self.scope_json)
             .await
-            .map_err(nexus_common::db::kv::RedisError::from)?;
+            .map_err(RedisError::from)?;
         Ok(())
-    }
-
-    fn scope_json(&self) -> String {
-        serde_json::to_string(&self.scope).unwrap_or_default()
     }
 }

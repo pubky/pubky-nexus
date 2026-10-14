@@ -1,4 +1,4 @@
-use super::utils::{assert_user_ingested, create_external_test_homeserver};
+use super::utils::{assert_user_ingested, create_external_test_homeserver, short_post, user_on};
 use crate::event_processor::utils::watcher::WatcherTest;
 use crate::utils::default_moderation_tests;
 use anyhow::Result;
@@ -19,7 +19,7 @@ use nexus_watcher::events::{DefaultEventHandler, Event, EventHandler, ParseResul
 use nexus_watcher::EventProcessorError;
 use pubky::Keypair;
 use pubky_app_specs::traits::TimestampId;
-use pubky_app_specs::{post_uri_builder, PubkyAppPost, PubkyAppPostKind, PubkyAppUser, PubkyId};
+use pubky_app_specs::{post_uri_builder, PubkyAppPost, PubkyAppUser, PubkyId};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -30,14 +30,6 @@ fn scoped_ingestor(test: &WatcherTest) -> UserIngestor {
         &test.homeserver_id,
     )));
     UserIngestor::with_scope(Vec::<PubkyId>::new(), scope)
-}
-
-/// Registers a fresh user on `hs_pk` and returns its id.
-async fn user_on(test: &WatcherTest, hs_pk: &pubky::PublicKey) -> Result<(Keypair, PubkyId)> {
-    let user_kp = Keypair::random();
-    test.register_user_in_hs(&user_kp, hs_pk).await?;
-    let user_id = PubkyId::from(user_kp.public_key());
-    Ok((user_kp, user_id))
 }
 
 /// A user created on the test's homeserver, so in scope.
@@ -52,17 +44,6 @@ async fn member(test: &mut WatcherTest, name: &str) -> Result<PubkyId> {
     };
     test.create_user(&user_kp, &user).await?;
     Ok(PubkyId::from(user_kp.public_key()))
-}
-
-fn post(content: &str, parent: Option<String>) -> PubkyAppPost {
-    PubkyAppPost {
-        content: format!("Watcher:Scope:{content}"),
-        kind: PubkyAppPostKind::Short,
-        parent,
-        embed: None,
-        attachments: None,
-        lock: None,
-    }
 }
 
 /// Asserts the user is known but kept outside the scope: a node marked as a stub,
@@ -198,17 +179,19 @@ async fn test_reply_to_a_stub_post_fetches_only_that_post() -> Result<()> {
     let (outsider_kp, outsider_id) = user_on(&test, &hs_pk).await?;
     // Written to the outsider's homeserver, which the test never indexes.
     let (parent_id, _) = test
-        .create_post(&outsider_kp, &post("Parent", None))
+        .create_post(&outsider_kp, &short_post("Watcher:Scope:Parent", None))
         .await?;
-    let (other_id, _) = test.create_post(&outsider_kp, &post("Other", None)).await?;
+    let (other_id, _) = test
+        .create_post(&outsider_kp, &short_post("Watcher:Scope:Other", None))
+        .await?;
 
     let replier_id = member(&mut test, "Replier").await?;
     let ingestor = scoped_ingestor(&test);
     ingestor.maybe_ingest_user(&outsider_id).await?;
     assert_user_is_stub(&outsider_id).await;
 
-    let reply = post(
-        "Reply",
+    let reply = short_post(
+        "Watcher:Scope:Reply",
         Some(post_uri_builder(outsider_id.to_string(), parent_id.clone())),
     );
     let reply_id = reply.create_id();
@@ -293,7 +276,7 @@ async fn test_a_reply_under_a_long_stub_thread_lands_over_retries() -> Result<()
         let (post_id, _) = test
             .create_post(
                 &outsider_kp,
-                &post(&format!("Thread:{depth}"), parent.take()),
+                &short_post(&format!("Watcher:Scope:Thread:{depth}"), parent.take()),
             )
             .await?;
         parent = Some(post_uri_builder(outsider_id.to_string(), post_id.clone()));
@@ -304,7 +287,7 @@ async fn test_a_reply_under_a_long_stub_thread_lands_over_retries() -> Result<()
     let ingestor = scoped_ingestor(&test);
     ingestor.maybe_ingest_user(&outsider_id).await?;
 
-    let reply = post("DeepReply", parent);
+    let reply = short_post("Watcher:Scope:DeepReply", parent);
     let reply_id = reply.create_id();
     let reply_uri = post_uri_builder(replier_id.to_string(), reply_id.clone());
 

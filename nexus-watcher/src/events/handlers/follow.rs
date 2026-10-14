@@ -100,8 +100,8 @@ async fn put_follow(
     Ok(())
 }
 
-#[tracing::instrument(name = "follow.del", skip_all, fields(follower_id = %follower_id, followee_id = %followee_id))]
 /// Deletes a follow, then tells the scope: a member's unfollow can take the followee out.
+#[tracing::instrument(name = "follow.del", skip_all, fields(follower_id = %follower_id, followee_id = %followee_id))]
 pub async fn del(
     follower_id: PubkyId,
     followee_id: PubkyId,

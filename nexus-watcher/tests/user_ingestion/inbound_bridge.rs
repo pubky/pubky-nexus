@@ -2,7 +2,7 @@
 //! notification's record is fetched from its author's homeserver, never from the big
 //! Nexus, and removed when its homeserver no longer has it.
 
-use super::utils::create_external_test_homeserver;
+use super::utils::{create_external_test_homeserver, short_post, user_on};
 use crate::event_processor::utils::watcher::{HomeserverHashIdPath, WatcherTest};
 use crate::utils::default_moderation_tests;
 use anyhow::Result;
@@ -18,9 +18,7 @@ use nexus_common::types::DynError;
 use nexus_common::DEFAULT_MAX_FILE_SIZE;
 use nexus_watcher::service::inbound_bridge::{InboundBridge, NotificationSource, Outcome};
 use pubky::Keypair;
-use pubky_app_specs::{
-    post_uri_builder, PubkyAppPost, PubkyAppPostKind, PubkyAppTag, PubkyAppUser, PubkyId,
-};
+use pubky_app_specs::{post_uri_builder, PubkyAppPostKind, PubkyAppTag, PubkyAppUser, PubkyId};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
@@ -104,12 +102,12 @@ async fn setup() -> Result<Setup> {
     };
     test.create_user(&seed_kp, &user).await?;
     let seed = PubkyId::from(seed_kp.public_key());
-    let (seed_post_id, _) = test.create_post(&seed_kp, &post("SeedPost", None)).await?;
+    let (seed_post_id, _) = test
+        .create_post(&seed_kp, &short_post("Watcher:Bridge:SeedPost", None))
+        .await?;
 
     let hs_pk = create_external_test_homeserver(&mut test).await?;
-    let outsider_kp = Keypair::random();
-    test.register_user_in_hs(&outsider_kp, &hs_pk).await?;
-    let outsider = PubkyId::from(outsider_kp.public_key());
+    let (outsider_kp, outsider) = user_on(&test, &hs_pk).await?;
 
     Ok(Setup {
         test,
@@ -118,17 +116,6 @@ async fn setup() -> Result<Setup> {
         outsider_kp,
         outsider,
     })
-}
-
-fn post(content: &str, parent: Option<String>) -> PubkyAppPost {
-    PubkyAppPost {
-        content: format!("Watcher:Bridge:{content}"),
-        kind: PubkyAppPostKind::Short,
-        parent,
-        embed: None,
-        attachments: None,
-        lock: None,
-    }
 }
 
 fn bridge(seed: &PubkyId, sources: Vec<Arc<FakeBigNexus>>) -> InboundBridge {
@@ -165,7 +152,10 @@ async fn test_an_outsiders_reply_to_the_seed_is_bridged_once() -> Result<()> {
     let seed_post_uri = post_uri_builder(seed.to_string(), seed_post_id.clone());
     // Written to the outsider's homeserver, which nothing polls.
     let (reply_id, _) = test
-        .create_post(&outsider_kp, &post("Reply", Some(seed_post_uri.clone())))
+        .create_post(
+            &outsider_kp,
+            &short_post("Watcher:Bridge:Reply", Some(seed_post_uri.clone())),
+        )
         .await?;
     let reply_uri = post_uri_builder(outsider.to_string(), reply_id.clone());
 
@@ -284,7 +274,7 @@ async fn test_members_are_left_to_their_streams_and_a_down_source_waits() -> Res
     let (reply_id, _) = test
         .create_post(
             &outsider_kp,
-            &post("LateReply", Some(seed_post_uri.clone())),
+            &short_post("Watcher:Bridge:LateReply", Some(seed_post_uri.clone())),
         )
         .await?;
     let source = Arc::new(FakeBigNexus::new("flaky"));

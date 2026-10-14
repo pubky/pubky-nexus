@@ -75,6 +75,25 @@ pub(crate) async fn fetch_capped(
     Ok(buf)
 }
 
+/// Reads JSON from another Nexus's API, capped like any remote body. `None` for a 404.
+pub(crate) async fn get_nexus_json<T: serde::de::DeserializeOwned>(
+    url: &str,
+) -> Result<Option<T>, nexus_common::types::DynError> {
+    let response = nexus_common::db::PubkyConnector::get()?
+        .client()
+        .request(pubky::Method::GET, &url.to_owned())
+        .send()
+        .await?;
+    match response.status() {
+        reqwest::StatusCode::NOT_FOUND => Ok(None),
+        status if !status.is_success() => Err(format!("GET {url}: HTTP {status}").into()),
+        _ => {
+            let body = fetch_capped(response, MAX_EVENTS_BODY as u64).await?;
+            Ok(Some(serde_json::from_slice(&body)?))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

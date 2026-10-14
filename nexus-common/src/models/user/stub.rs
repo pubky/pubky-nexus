@@ -1,78 +1,55 @@
 //! Stubs: users this Nexus knows but keeps outside its scope.
 //!
-//! A stub's node exists so in-scope records (a follow, a tag, a reply) can point at
-//! it, but its own content is never read. It has no `HOSTED_BY` edge and no cursor,
-//! so the HS resolver and the indexers never touch it, and it is kept out of the
-//! global rankings and feeds, where a user whose profile was never read would show
-//! up as a blank card.
+//! A stub's node exists so in-scope records (a follow, a tag, a reply) can point at it,
+//! but its own content is never read: it has no `HOSTED_BY` and no cursor. It has
+//! counts, which in-scope records move, but is kept out of the rankings and its posts
+//! out of the global feeds, where a profile never read would show as a blank card.
 //!
-//! The graph's `scope_state` is the source of truth. A Redis set mirrors it so the
-//! checks on every count and feed write are one lookup; it is rebuilt from the graph
-//! when the watcher starts.
+//! The graph's `scope_state` is the source of truth; `Scope:Stubs` mirrors it for the
+//! per-write check and is rebuilt from the graph at start.
 
-use crate::db::get_redis_conn;
-use crate::db::kv::{RedisError, RedisResult};
-use crate::db::{exec_single_row, fetch_key_from_graph, queries};
+use crate::db::kv::{sets, RedisResult};
+use crate::db::{exec_single_row, fetch_key_from_graph, queries, RedisOps};
 use crate::models::error::ModelResult;
+use crate::models::user::UserCounts;
 
 /// `scope_state` of a user known to this Nexus but outside its scope.
 pub const SCOPE_STATE_STUB: &str = "stub";
-/// Redis set of the stubs' ids, mirroring their `scope_state` in the graph.
-const STUBS_KEY: &str = "Scope:Stubs";
+const STUBS: (&str, &str) = ("Scope", "Stubs");
 
-/// Whether the user is a stub. One Redis lookup.
 pub async fn is_stub(user_id: &str) -> RedisResult<bool> {
-    let mut redis_conn = get_redis_conn().await?;
-    let is_member: bool = redis::cmd("SISMEMBER")
-        .arg(STUBS_KEY)
-        .arg(user_id)
-        .query_async(&mut redis_conn)
-        .await?;
-    Ok(is_member)
+    sets::is_member(STUBS.0, STUBS.1, user_id).await
 }
 
-/// Marks an existing user node as a stub, in the graph and in Redis.
+/// Makes an existing user node a stub, with zeroed counts outside the rankings.
 pub async fn mark_stub(user_id: &str) -> ModelResult<()> {
     let query = queries::put::set_user_scope_state(user_id, Some(SCOPE_STATE_STUB));
     exec_single_row(query).await?;
-    let mut redis_conn = get_redis_conn().await?;
-    let () = redis::cmd("SADD")
-        .arg(STUBS_KEY)
-        .arg(user_id)
-        .query_async(&mut redis_conn)
-        .await
-        .map_err(RedisError::from)?;
-    Ok(())
-}
-
-/// Removes the user's stub mark from Redis. The caller sets its new `scope_state`.
-pub async fn unmark_stub(user_id: &str) -> RedisResult<()> {
-    let mut redis_conn = get_redis_conn().await?;
-    let () = redis::cmd("SREM")
-        .arg(STUBS_KEY)
-        .arg(user_id)
-        .query_async(&mut redis_conn)
+    sets::put(STUBS.0, STUBS.1, &[user_id], None).await?;
+    UserCounts::default()
+        .put_index_json(&[user_id], None, None)
         .await?;
     Ok(())
 }
 
-/// Rebuilds the Redis set from the graph, so a Redis wipe or restore loses no stub.
-/// Returns how many stubs the graph holds.
+/// Stops treating the user as a stub in Redis and puts its counts into the rankings.
+/// Returns whether it was a stub. The caller clears its `scope_state`.
+pub async fn unstub(user_id: &str) -> ModelResult<bool> {
+    if !sets::take(STUBS.0, STUBS.1, user_id).await? {
+        return Ok(false);
+    }
+    if let Some(counts) = UserCounts::get_from_index(user_id).await? {
+        counts.put_to_index(user_id).await?;
+    }
+    Ok(true)
+}
+
+/// Rebuilds `Scope:Stubs` from the graph. Returns how many stubs the graph holds.
 pub async fn rebuild_stub_index() -> ModelResult<usize> {
     let query = queries::get::get_user_ids_by_scope_state(SCOPE_STATE_STUB);
     let stubs: Vec<String> = fetch_key_from_graph(query, "user_ids")
         .await?
         .unwrap_or_default();
-
-    let mut pipe = redis::pipe();
-    pipe.atomic().del(STUBS_KEY).ignore();
-    for chunk in stubs.chunks(1_000) {
-        pipe.sadd(STUBS_KEY, chunk).ignore();
-    }
-    let mut redis_conn = get_redis_conn().await?;
-    let () = pipe
-        .query_async(&mut redis_conn)
-        .await
-        .map_err(RedisError::from)?;
+    sets::replace(STUBS.0, STUBS.1, &stubs).await?;
     Ok(stubs.len())
 }

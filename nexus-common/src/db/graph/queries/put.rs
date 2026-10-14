@@ -450,11 +450,16 @@ pub fn create_homeserver(homeserver_id: &str) -> Query {
     .param("id", homeserver_id)
 }
 
-/// Sets the `HOSTED_BY` relationship between a user and a homeserver.
-///
-/// If the user is already on the target homeserver, refreshes `resolved_at`.
-/// If the user is on a different homeserver, replaces the old relationship.
-/// MERGEs the target homeserver node if it doesn't exist yet.
+/// Records an address the moderator took down; see [`crate::models::takedown`].
+pub fn record_takedown(uri: &str) -> Query {
+    Query::new(
+        "record_takedown",
+        "MERGE (t:Takedown {uri: $uri})
+         ON CREATE SET t.indexed_at = timestamp()",
+    )
+    .param("uri", uri.to_string())
+}
+
 /// Sets a user's `scope_state`, or removes it with `None` (the user is in scope).
 ///
 /// Any `scope_state` keeps the user from being resolved or polled; see
@@ -499,6 +504,11 @@ pub fn clear_scope_states(limit_to: Option<&[String]>) -> Query {
     .param("limit_to", limit_to.map(<[String]>::to_vec))
 }
 
+/// Sets the `HOSTED_BY` relationship between a user and a homeserver.
+///
+/// If the user is already on the target homeserver, refreshes `resolved_at`.
+/// If the user is on a different homeserver, replaces the old relationship.
+/// MERGEs the target homeserver node if it doesn't exist yet.
 pub fn set_user_homeserver(user_id: &str, homeserver_id: &str) -> Query {
     Query::new(
         "set_user_homeserver",

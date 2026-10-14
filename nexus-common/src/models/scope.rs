@@ -8,11 +8,13 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+use deadpool_redis::redis::AsyncCommands;
 use pubky_app_specs::PubkyId;
+use serde::{Deserialize, Serialize};
 
 use crate::config::{ScopeConfig, WatcherConfig};
-use crate::db::kv::{RedisError, RedisResult};
-use crate::db::{fetch_key_from_graph, fetch_row_from_graph, get_redis_conn, queries};
+use crate::db::kv::{RedisResult, SortOrder};
+use crate::db::{fetch_key_from_graph, fetch_row_from_graph, get_redis_conn, queries, RedisOps};
 use crate::models::error::ModelResult;
 
 /// The answers every scope gives the watcher.
@@ -21,20 +23,13 @@ pub trait Scope: Send + Sync + std::fmt::Debug {
     /// The settings this scope was built from, as `/v0/info` publishes them.
     fn config(&self) -> &ScopeConfig;
 
-    /// Whether the user's own content is indexed.
-    ///
-    /// `hs_id` is the user's homeserver when the caller knows it; otherwise the scope
-    /// looks up the homeserver the user is bound to, if it needs one.
+    /// Whether the user's own content is indexed. `hs_id` is the user's homeserver when
+    /// the caller knows it; otherwise the scope looks it up if it needs one.
     async fn is_in_scope(&self, user_id: &str, hs_id: Option<&str>) -> ModelResult<bool>;
 
     /// Homeservers whose whole `/events` feed is read. Users on any other homeserver
     /// are read one by one through their own event stream, if they are in scope.
     fn full_feed_homeservers(&self, primary: &PubkyId) -> Vec<PubkyId>;
-
-    /// Runs once when the watcher starts, before any event is read.
-    async fn prepare(&self) -> ModelResult<()> {
-        Ok(())
-    }
 
     /// Called after a follow or unfollow by `follower` is indexed. A seed scope asks
     /// for its members to be worked out again when the follower is one of them.
@@ -87,10 +82,6 @@ impl Scope for PinnedScope {
         self.inner.full_feed_homeservers(primary)
     }
 
-    async fn prepare(&self) -> ModelResult<()> {
-        self.inner.prepare().await
-    }
-
     async fn on_follow_changed(&self, follower: &str) -> ModelResult<()> {
         self.inner.on_follow_changed(follower).await
     }
@@ -128,8 +119,6 @@ impl Scope for EverythingScope {
 #[derive(Debug)]
 pub struct HomeserverListScope {
     config: ScopeConfig,
-    homeservers: Vec<PubkyId>,
-    hs_ids: HashSet<String>,
 }
 
 impl HomeserverListScope {
@@ -138,9 +127,20 @@ impl HomeserverListScope {
             config: ScopeConfig::Homeservers {
                 homeservers: homeservers.to_vec(),
             },
-            homeservers: homeservers.to_vec(),
-            hs_ids: homeservers.iter().map(ToString::to_string).collect(),
         }
+    }
+
+    fn homeservers(&self) -> &[PubkyId] {
+        match &self.config {
+            ScopeConfig::Homeservers { homeservers } => homeservers,
+            _ => &[],
+        }
+    }
+
+    fn is_listed(&self, hs_id: &str) -> bool {
+        self.homeservers()
+            .iter()
+            .any(|listed| listed.as_ref() == hs_id)
     }
 }
 
@@ -150,13 +150,12 @@ impl Scope for HomeserverListScope {
         &self.config
     }
 
-    /// In scope if the user's homeserver is listed. Without a homeserver from the
-    /// caller, the graph decides: a user kept out (a stub, or one that left) is out; one
-    /// bound to a homeserver is in if that homeserver is listed; one not bound yet is in,
-    /// since the only feeds this scope reads are its listed homeservers'.
+    /// Without `hs_id`, the graph decides: a user kept out (any `scope_state`) is out,
+    /// a bound user is in if its homeserver is listed, and an unbound one is in, since
+    /// the only feeds this scope reads are its listed homeservers'.
     async fn is_in_scope(&self, user_id: &str, hs_id: Option<&str>) -> ModelResult<bool> {
         if let Some(hs_id) = hs_id {
-            return Ok(self.hs_ids.contains(hs_id));
+            return Ok(self.is_listed(hs_id));
         }
         let query = queries::get::get_user_scope_and_homeserver(user_id);
         let Some(row) = fetch_row_from_graph(query).await? else {
@@ -166,45 +165,37 @@ impl Scope for HomeserverListScope {
         let bound_to: Option<String> = row.get("homeserver_id")?;
         Ok(match (scope_state, bound_to) {
             (Some(_), _) => false,
-            (None, Some(bound_to)) => self.hs_ids.contains(&bound_to),
+            (None, Some(bound_to)) => self.is_listed(&bound_to),
             (None, None) => true,
         })
     }
 
     fn full_feed_homeservers(&self, _primary: &PubkyId) -> Vec<PubkyId> {
-        self.homeservers.clone()
+        self.homeservers().to_vec()
     }
 }
 
-/// Prefix of a seed scope's member set: a Redis sorted set of the members, scored by
-/// their hop distance from the seed.
-const MEMBERS_PREFIX: &str = "Scope:Members";
-/// Prefix of the flag a member's follow or unfollow sets, asking for a recompute.
-const STALE_PREFIX: &str = "Scope:Stale";
-/// Prefix of the users a big Nexus suggested, scored by when the suggestion expires.
-const SUGGESTED_PREFIX: &str = "Scope:Suggested";
-/// Prefix of the flag set once a big Nexus suggested the members for a seed and hops.
-const BOOTSTRAPPED_PREFIX: &str = "Scope:Bootstrapped";
 /// How long a suggested user is a member without the graph confirming it: time for its
 /// followers' streams to be read, so their follows of it land in the graph.
 const SUGGESTION_TTL_MS: i64 = 24 * 60 * 60 * 1_000;
+
+/// The Redis keys of a seed scope, all under `Scope:`.
+#[derive(Serialize, Deserialize)]
+struct ScopeIndex;
+
+impl RedisOps for ScopeIndex {}
 
 /// The seed user and everyone it reaches by following, up to `hops` follows away.
 ///
 /// Members are worked out from the graph, which holds every follow every member made,
 /// whatever order they were read in, so the same follows always give the same members.
-/// The result is cached in Redis (`Scope:Members:<seed>`) for the per-event check, and
-/// worked out again at start, after members' follows change, and periodically. No
-/// homeserver is read whole: each member is read from its own stream.
+/// The result is cached in `Scope:Members:<seed>` (scored by hop) for the per-event
+/// check. No homeserver is read whole: each member is read from its own stream.
 #[derive(Debug)]
 pub struct SeedHopsScope {
     config: ScopeConfig,
     seed: PubkyId,
     hops: u8,
-    members_key: String,
-    stale_key: String,
-    suggested_key: String,
-    bootstrapped_key: String,
 }
 
 impl SeedHopsScope {
@@ -214,10 +205,6 @@ impl SeedHopsScope {
                 seed: seed.clone(),
                 hops,
             },
-            members_key: format!("{MEMBERS_PREFIX}:{seed}"),
-            stale_key: format!("{STALE_PREFIX}:{seed}"),
-            suggested_key: format!("{SUGGESTED_PREFIX}:{seed}"),
-            bootstrapped_key: format!("{BOOTSTRAPPED_PREFIX}:{seed}:{hops}"),
             seed,
             hops,
         }
@@ -229,6 +216,10 @@ impl SeedHopsScope {
 
     pub fn hops(&self) -> u8 {
         self.hops
+    }
+
+    fn key(&self, name: &str) -> String {
+        format!("Scope:{name}:{}", self.seed)
     }
 
     /// The members according to the graph: the seed at hop 0 and everyone it reaches
@@ -268,86 +259,79 @@ impl SeedHopsScope {
 
     /// Admits users a big Nexus suggested as members, until the suggestion expires.
     pub async fn suggest_members(&self, user_ids: &[PubkyId]) -> RedisResult<()> {
-        let expires_at = chrono::Utc::now().timestamp_millis() + SUGGESTION_TTL_MS;
-        let mut pipe = redis::pipe();
-        for chunk in user_ids.chunks(1_000) {
-            let scored: Vec<(i64, &str)> =
-                chunk.iter().map(|id| (expires_at, id.as_ref())).collect();
-            pipe.zadd_multiple(&self.suggested_key, &scored).ignore();
-        }
-        let mut redis_conn = get_redis_conn().await?;
-        let () = pipe.query_async(&mut redis_conn).await?;
-        Ok(())
+        let expires_at = chrono::Utc::now().timestamp_millis() as f64 + SUGGESTION_TTL_MS as f64;
+        let scored: Vec<(f64, &str)> = user_ids
+            .iter()
+            .map(|id| (expires_at, id.as_ref()))
+            .collect();
+        ScopeIndex::put_index_sorted_set(&["Suggested", &self.seed], &scored, Some("Scope"), None)
+            .await
     }
 
     /// The suggested users whose suggestion hasn't expired; expired ones are dropped.
     async fn suggested_members(&self) -> RedisResult<Vec<String>> {
         let now = chrono::Utc::now().timestamp_millis();
+        let key = self.key("Suggested");
         let mut redis_conn = get_redis_conn().await?;
-        let (suggested,): (Vec<String>,) = redis::pipe()
-            .zrembyscore(&self.suggested_key, "-inf", now)
-            .ignore()
-            .zrangebyscore(&self.suggested_key, now, "+inf")
-            .query_async(&mut redis_conn)
-            .await?;
-        Ok(suggested)
+        let () = redis_conn.zrembyscore(&key, "-inf", now).await?;
+        Ok(redis_conn.zrangebyscore(&key, now, "+inf").await?)
     }
 
     /// Whether a big Nexus already suggested the members for this seed and hop count.
     pub async fn is_bootstrapped(&self) -> RedisResult<bool> {
         let mut redis_conn = get_redis_conn().await?;
-        let exists: bool = redis::cmd("EXISTS")
-            .arg(&self.bootstrapped_key)
-            .query_async(&mut redis_conn)
-            .await?;
-        Ok(exists)
+        Ok(redis_conn.exists(self.bootstrapped_key()).await?)
     }
 
     /// Records the bootstrap, so a restart doesn't ask the big Nexus again.
     pub async fn mark_bootstrapped(&self) -> RedisResult<()> {
+        let now = chrono::Utc::now().timestamp_millis();
         let mut redis_conn = get_redis_conn().await?;
-        let () = redis::cmd("SET")
-            .arg(&self.bootstrapped_key)
-            .arg(chrono::Utc::now().timestamp_millis())
-            .query_async(&mut redis_conn)
-            .await?;
-        Ok(())
+        Ok(redis_conn.set(self.bootstrapped_key(), now).await?)
+    }
+
+    fn bootstrapped_key(&self) -> String {
+        format!("{}:{}", self.key("Bootstrapped"), self.hops)
     }
 
     /// The members cached in Redis, or `None` if there is no cache (never worked out,
-    /// or lost with Redis).
+    /// or lost with Redis). The cache always holds the seed, so it is never empty.
     pub async fn cached_members(&self) -> RedisResult<Option<HashSet<String>>> {
-        let mut redis_conn = get_redis_conn().await?;
-        let (exists, members): (bool, Vec<String>) = redis::pipe()
-            .exists(&self.members_key)
-            .zrange(&self.members_key, 0, -1)
-            .query_async(&mut redis_conn)
-            .await?;
-        Ok(exists.then(|| members.into_iter().collect()))
+        let members = ScopeIndex::try_from_index_sorted_set(
+            &["Members", &self.seed],
+            None,
+            None,
+            None,
+            None,
+            SortOrder::Ascending,
+            Some("Scope"),
+        )
+        .await?;
+        Ok(members.map(|members| members.into_iter().map(|(id, _)| id).collect()))
     }
 
-    /// Replaces the cached members in one step.
+    /// Replaces the cached members atomically.
     pub async fn cache_members(&self, members: &HashMap<String, u8>) -> RedisResult<()> {
-        let staging_key = format!("{}:Staging", self.members_key);
-        let mut pipe = redis::pipe();
-        pipe.atomic().del(&staging_key).ignore();
-        let scored: Vec<(u8, &String)> = members.iter().map(|(id, hop)| (*hop, id)).collect();
-        for chunk in scored.chunks(1_000) {
-            pipe.zadd_multiple(&staging_key, chunk).ignore();
-        }
-        pipe.rename(&staging_key, &self.members_key).ignore();
-        let mut redis_conn = get_redis_conn().await?;
-        let () = pipe.query_async(&mut redis_conn).await?;
-        Ok(())
+        let scored: Vec<(f64, &str)> = members
+            .iter()
+            .map(|(id, hop)| (f64::from(*hop), id.as_str()))
+            .collect();
+        ScopeIndex::replace_index_sorted_set(&["Members", &self.seed], &scored, Some("Scope"), None)
+            .await
+    }
+
+    /// Drops users from the cached members, so the next recompute sees them as new and
+    /// tries to bring them in again.
+    pub async fn forget_members(&self, user_ids: &[String]) -> RedisResult<()> {
+        let user_ids: Vec<&str> = user_ids.iter().map(String::as_str).collect();
+        ScopeIndex::remove_from_index_sorted_set(Some("Scope"), &["Members", &self.seed], &user_ids)
+            .await
     }
 
     /// Clears and returns the flag a member's follow change sets.
     pub async fn take_stale(&self) -> RedisResult<bool> {
         let mut redis_conn = get_redis_conn().await?;
-        let flag: Option<String> = redis::cmd("GETDEL")
-            .arg(&self.stale_key)
-            .query_async(&mut redis_conn)
-            .await?;
+        let flag: Option<String> = redis_conn.get_del(self.key("Stale")).await?;
         Ok(flag.is_some())
     }
 }
@@ -362,13 +346,12 @@ impl Scope for SeedHopsScope {
         if user_id == self.seed.as_ref() {
             return Ok(true);
         }
-        let mut redis_conn = get_redis_conn().await?;
-        let hop: Option<f64> = redis::cmd("ZSCORE")
-            .arg(&self.members_key)
-            .arg(user_id)
-            .query_async(&mut redis_conn)
-            .await
-            .map_err(RedisError::from)?;
+        let hop = ScopeIndex::check_sorted_set_member(
+            Some("Scope"),
+            &["Members", &self.seed],
+            &[user_id],
+        )
+        .await?;
         Ok(hop.is_some())
     }
 
@@ -379,12 +362,10 @@ impl Scope for SeedHopsScope {
     async fn on_follow_changed(&self, follower: &str) -> ModelResult<()> {
         if self.is_in_scope(follower, None).await? {
             let mut redis_conn = get_redis_conn().await?;
-            let () = redis::cmd("SET")
-                .arg(&self.stale_key)
-                .arg(1)
-                .query_async(&mut redis_conn)
+            let () = redis_conn
+                .set(self.key("Stale"), 1)
                 .await
-                .map_err(RedisError::from)?;
+                .map_err(crate::db::kv::RedisError::from)?;
         }
         Ok(())
     }

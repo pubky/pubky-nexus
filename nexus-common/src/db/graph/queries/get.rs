@@ -232,6 +232,8 @@ pub fn global_tags_by_post() -> Query {
         "global_tags_by_post",
         "
         MATCH (tagger:User)-[t:TAGGED]->(post:Post)<-[:AUTHORED]-(author:User)
+        // A stub's posts stay out of the global feeds, as on the incremental path.
+        WHERE coalesce(author.scope_state, '') <> 'stub'
         WITH t.label AS label, author.id + ':' + post.id AS post_id, post.indexed_at AS score
         WITH DISTINCT post_id, label, score
         WITH label, COLLECT([toFloat(score), post_id ]) AS sorted_set
@@ -249,6 +251,7 @@ pub fn global_tags_by_post_engagement() -> Query {
         "global_tags_by_post_engagement",
         "
         MATCH (author:User)-[:AUTHORED]->(post:Post)<-[tag:TAGGED]-(tagger:User)
+        WHERE coalesce(author.scope_state, '') <> 'stub'
         WITH post, COUNT(tag) AS tags_count, tag.label AS label, author.id + ':' + post.id AS key
         WITH DISTINCT key, label, post, tags_count
         WHERE tags_count > 0
@@ -778,6 +781,14 @@ pub fn get_user_scope_state(user_id: &str) -> Query {
     .param("user_id", user_id.to_string())
 }
 
+/// Retrieves every address the moderator took down.
+pub fn get_takedown_uris() -> Query {
+    Query::new(
+        "get_takedown_uris",
+        "MATCH (t:Takedown) RETURN collect(t.uri) AS uris",
+    )
+}
+
 /// Retrieves the ids of the users with the given `scope_state`.
 pub fn get_user_ids_by_scope_state(scope_state: &str) -> Query {
     Query::new(
@@ -1294,7 +1305,7 @@ pub fn get_global_influencers(skip: usize, limit: usize, timeframe: &Timeframe) 
     let query_string = format!(
         "
         MATCH (user:User)
-        WHERE NOT coalesce(user.deleted, false)
+        WHERE NOT coalesce(user.deleted, false) AND coalesce(user.scope_state, '') <> 'stub'
         WITH DISTINCT user
 
         // Each count is a scoped CALL(user){{}} subquery so it stays per-user

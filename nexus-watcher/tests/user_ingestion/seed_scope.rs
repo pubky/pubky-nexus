@@ -2,14 +2,16 @@
 //! order follows were read in, members leave when follows go, a narrower setting lets
 //! users go, and losing Redis loses nothing.
 
-use super::utils::create_external_test_homeserver;
+use super::utils::{create_external_test_homeserver, user_on};
 use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
 use nexus_common::db::graph::Query;
 use nexus_common::db::{fetch_row_from_graph, get_redis_conn};
 use nexus_common::models::follow::{Followers, UserFollows};
 use nexus_common::models::scope::{PinnedScope, Scope, SeedHopsScope};
-use nexus_common::models::user::{is_stub, UserIngestor};
+use nexus_common::models::traits::Collection;
+use nexus_common::models::user::stub::mark_stub;
+use nexus_common::models::user::{is_stub, UserDetails, UserIngestor};
 use nexus_common::types::DynError;
 use nexus_common::{ScopeConfig, WatcherConfig};
 use nexus_watcher::service::scope_bootstrap::{bootstrap_seed_scope, FollowingSource};
@@ -24,9 +26,7 @@ async fn users(test: &mut WatcherTest) -> Result<[PubkyId; 4]> {
     let hs_pk = create_external_test_homeserver(test).await?;
     let mut ids = Vec::new();
     for _ in 0..4 {
-        let kp = Keypair::random();
-        test.register_user_in_hs(&kp, &hs_pk).await?;
-        ids.push(PubkyId::from(kp.public_key()));
+        ids.push(user_on(test, &hs_pk).await?.1);
     }
     Ok(ids.try_into().unwrap())
 }
@@ -265,7 +265,7 @@ async fn test_bootstrap_admits_the_members_a_big_nexus_suggests() -> Result<()> 
         Default::default(),
     );
     let scope = SeedHopsScope::new(seed.clone(), 2);
-    bootstrap_seed_scope(&scope, &maintainer, &big_nexus).await;
+    bootstrap_seed_scope(&maintainer, &big_nexus).await;
 
     assert!(
         is_polled(&b).await? && is_polled(&c).await?,
@@ -275,7 +275,7 @@ async fn test_bootstrap_admits_the_members_a_big_nexus_suggests() -> Result<()> 
     assert!(scope.is_bootstrapped().await?);
 
     let requests = *big_nexus.1.lock().unwrap();
-    bootstrap_seed_scope(&scope, &maintainer, &big_nexus).await;
+    bootstrap_seed_scope(&maintainer, &big_nexus).await;
     assert_eq!(*big_nexus.1.lock().unwrap(), requests, "not asked again");
     Ok(())
 }
@@ -289,8 +289,40 @@ async fn test_bootstrap_falls_back_to_crawling_when_the_big_nexus_fails() -> Res
     let (_, maintainer) = seed_scope(&seed, 2, &[seed.clone(), b, c, d]);
 
     let scope = SeedHopsScope::new(seed.clone(), 2);
-    bootstrap_seed_scope(&scope, &maintainer, &FakeBigNexus(None, Default::default())).await;
+    bootstrap_seed_scope(&maintainer, &FakeBigNexus(None, Default::default())).await;
 
     assert!(!scope.is_bootstrapped().await?);
+    Ok(())
+}
+
+/// A member that can't be brought in yet (here: no published homeserver) isn't counted
+/// as joined and is tried again by a later recompute, which brings it in once it can.
+#[tokio_shared_rt::test(shared)]
+async fn test_a_member_that_failed_to_join_is_retried() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let hs_pk = create_external_test_homeserver(&mut test).await?;
+    let (_, seed) = user_on(&test, &hs_pk).await?;
+    // Known as a stub, but not on any homeserver yet: it can't be bound.
+    let late_kp = Keypair::random();
+    let late = PubkyId::from(late_kp.public_key());
+    let (ingestor, maintainer) = seed_scope(&seed, 1, &[seed.clone(), late.clone()]);
+    ingestor.ensure_in_scope(&seed).await?;
+    UserDetails::from_pubky(late.clone()).put_to_graph().await?;
+    mark_stub(&late).await?;
+    follow(&seed, &late).await?;
+
+    let change = maintainer.at_start().await?;
+    assert_eq!(change.joined, 0, "not counted: it couldn't be bound");
+    assert!(is_stub(&late).await?);
+    assert!(
+        !ingestor.scope().is_in_scope(&late, None).await?,
+        "left out of the cache"
+    );
+
+    test.register_user_in_hs(&late_kp, &hs_pk).await?;
+    let change = maintainer.recompute_now().await?;
+
+    assert_eq!(change.joined, 1, "tried again and brought in");
+    assert!(is_polled(&late).await?);
     Ok(())
 }

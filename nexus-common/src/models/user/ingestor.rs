@@ -8,8 +8,8 @@ use crate::models::error::{ModelError, ModelResult};
 use crate::models::homeserver::HsBlacklist;
 use crate::models::scope::{scope_from_config, watcher_scope, EverythingScope, Scope};
 use crate::models::traits::Collection;
-use crate::models::user::stub::{is_stub, mark_stub, unmark_stub};
-use crate::models::user::{set_user_homeserver, UserCounts, UserDetails, UserHsCursor};
+use crate::models::user::stub::{mark_stub, unstub};
+use crate::models::user::{set_user_homeserver, UserDetails, UserHsCursor};
 use crate::{StackConfig, WatcherConfig};
 
 /// `scope_state` of a member that left the scope: no longer polled, content kept.
@@ -151,12 +151,7 @@ impl UserIngestor {
             .inspect_err(|e| tracing::error!("Failed to ingest user {user_id}: {e}"))?;
 
         if !in_scope {
-            mark_stub(&user_id_str).await?;
-            // A stub's own profile is never read, so it never gets the counts its profile
-            // would create. In-scope records still move them (a follow, a fetched post),
-            // and the counter updates need them to exist. Stubs stay out of the rankings.
-            UserCounts::default().put_to_index(&user_id_str).await?;
-            return Ok(());
+            return mark_stub(&user_id_str).await;
         }
 
         Self::bind_to_homeserver(&user_id_str, &hs_id).await
@@ -174,39 +169,38 @@ impl UserIngestor {
                 .put_to_graph()
                 .await?;
         }
-        self.promote(user_id).await
+        self.promote(user_id).await?;
+        Ok(())
     }
 
     /// Brings a user kept outside the scope (a stub, or a member that left) back in:
     /// binds it to its HS with a cursor at 0, so it is read from the start of its
-    /// stream, and adds it to the rankings. A no-op for a user already in scope.
-    pub async fn promote(&self, user_id: &PubkyId) -> ModelResult<()> {
+    /// stream, and adds it to the rankings.
+    ///
+    /// Returns whether the user is in scope now: `true` if it was promoted or already in,
+    /// `false` if it is unknown or has no published HS, so it couldn't be bound.
+    pub async fn promote(&self, user_id: &PubkyId) -> ModelResult<bool> {
         let query = queries::get::get_user_scope_state(user_id);
         let scope_state: Option<Option<String>> =
             fetch_key_from_graph(query, "scope_state").await?;
-        if scope_state.flatten().is_none() {
-            return Ok(());
+        match scope_state {
+            None => return Ok(false),
+            Some(None) => return Ok(true),
+            Some(Some(_)) => {}
         }
 
         let Some(hs_id) = self.ensure_hs_not_blacklisted(user_id).await? else {
             tracing::warn!("Not promoting {user_id}: no published HS");
-            return Ok(());
+            return Ok(false);
         };
 
         // Bind first: if clearing the state fails, the user is still out of scope and
         // the next promotion retries the whole of it.
         Self::bind_to_homeserver(user_id, &hs_id).await?;
         exec_single_row(queries::put::set_user_scope_state(user_id, None)).await?;
-        let was_stub = is_stub(user_id).await?;
-        unmark_stub(user_id).await?;
-        if was_stub {
-            // Stubs were kept out of the rankings; their counts go in now.
-            if let Some(counts) = UserCounts::get_from_index(user_id).await? {
-                counts.put_to_index(user_id).await?;
-            }
-        }
+        unstub(user_id).await?;
         tracing::info!("Brought {user_id} into the scope");
-        Ok(())
+        Ok(true)
     }
 
     /// Takes a member that left the scope out of it: marks it `left`, unbinds it from its
