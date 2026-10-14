@@ -21,7 +21,8 @@ runner; the sections below group each config field under the runner it drives:
 - [Section 3: Key-based indexing of externally-hosted users](#3-indexing-externally-hosted-users-key-based)
 - [Section 4: User → HS resolution](#4-user--hs-resolution)
 - [Section 5: Event retry & backoff](#5-event-retry--backoff--watcherretry)
-- [Section 6: Quick reference](#6-quick-reference)
+- [Section 6: Indexing scope](#6-indexing-scope--stackscope)
+- [Section 7: Quick reference](#7-quick-reference)
 
 ---
 
@@ -278,7 +279,93 @@ avoid hammering an HS for content that may not exist yet.
 
 ---
 
-## 6. Quick reference
+## 6. Indexing scope — `[stack.scope]`
+
+> Which users this Nexus indexes. Set in `[stack]` so the watcher and the API read the
+> same value; omit it to index everyone. `/v0/info` publishes it.
+
+| `kind` | Indexes | Feeds read whole | Users read one by one |
+|---|---|---|---|
+| `everything` (default) | Every user Nexus can discover | The primary HS (`homeserver`) | Users on every other HS |
+| `homeservers` | Users bound to a listed HS | Each listed HS | None |
+| `seed` | `seed` and everyone it reaches in up to `hops` follows (1–3, default 2) | None | Every member, including members on the primary HS |
+
+```toml
+[stack.scope]
+kind = "seed"
+seed = "<user pubky>"
+hops = 2
+```
+
+The settings are validated on load: `homeservers` must list at least one HS, `hops` must
+be between 1 and 3, and a field that doesn't belong to the `kind` is an error.
+
+**The moderator is always in scope.** `moderation_id` is read whatever the scope, since
+its tags take content down. Its own follows never add members.
+
+**Users outside the scope are stubs**: a `User` node with `scope_state = "stub"` and
+counts, but no `HOSTED_BY` and no cursor, so the resolver and the indexers never touch
+it. Follows, tags and mentions of stubs by in-scope users are indexed. Stubs are kept out
+of the most-followed and influencer rankings, and their posts out of the global feeds
+(timeline, engagement, tag streams): they appear where they meet the scope, in threads,
+counts, notifications and their own profile. A Redis set (`Scope:Stubs`) mirrors the
+graph for the per-write check and is rebuilt at start.
+
+**Out-of-scope targets.** When an in-scope reply, repost, tag or bookmark targets a stub's
+post, the chain of out-of-scope posts it depends on is fetched from their homeservers and
+saved oldest first, up to 20 fetches per attempt; a longer chain resumes on the record's
+next retry from where it stopped (`Scope:FetchResume`). Nothing else of the stubs' is read.
+
+**Takedowns are remembered.** Posts, tags and files the moderator takes down are recorded
+(`:Takedown` nodes, mirrored in `Moderation:Removed`), and an event for one is dropped
+however late it arrives, also with `everything`. Profiles are not: a moderated user may
+come back by writing a new profile, as before.
+
+**Seed membership is worked out from the graph**, which holds every follow every member
+made whatever order it was read in, so the same follows always give the same members. It
+is cached in `Scope:Members:<seed>` for the per-event check and recomputed at start,
+within seconds of a member's follow or unfollow, and every
+`[watcher.scope_maintenance] interval_ms` (default 5 min). Each recompute compares with
+the last: new members are bound with a cursor at 0 and read from the start of their
+stream; members who are gone are marked `left`, unbound and their cursor dropped, so they
+stop being polled. **Their content stays**; removing it is not implemented yet.
+
+**Changing the scope** works both ways at the next start: a narrower scope lets the
+others go; `everything` lets every stub and `left` user back in (the resolver binds
+them); a changed homeserver list admits stubs now on a listed HS. A homeserver scope
+also lets go of users who moved off its homeservers, every interval.
+
+An event by a user still bound and polled but not counted in scope (e.g. right after
+losing Redis) fails with the retryable `ScopeUnsettled` instead of being skipped, so it
+isn't lost.
+
+**Seed bootstrap — `[watcher.scope_bootstrap]`.** By default (`source = "crawl"`) a new
+seed scope finds its members hop by hop. With `source = "nexus"` and a `nexus_url`, the
+watcher asks that Nexus who the seed follows, and who they follow, up to `hops`
+(`GET /v0/user/{id}/following`, about one request per member). Suggested users are
+members for 24 hours, so their own follows get read from their homeservers; the graph
+then confirms them or lets them go. Content always comes from homeservers. It runs once
+per seed and hop count (`Scope:Bootstrapped:<seed>:<hops>`), in the background, and falls
+back to crawling after 3 failed requests.
+
+**Inbound bridge — `[watcher.inbound_bridge]`** (seed scope only). Users outside the
+scope are never read, so their replies, mentions, reposts, tags and follows of the seed
+would never be seen. With `nexus_urls` set, the watcher polls each Nexus's
+`/v0/user/{seed}/notifications` every `interval_ms` (default 5 min), turns each
+notification into the record it is about, and fetches that record from its author's
+homeserver: indexed if there, deleted if gone (untags, deleted posts). A Nexus only says
+where to look, never what is there. Members' records are left to their own streams. Each
+source keeps its own position (`Scope:Bridge:<seed>:<url>`) and backoff; the first run
+reads `lookback_days` back (0 = all). It sees only what the seed is notified of: not
+bookmarks, not outsiders replying to each other, and not an outsider's plain unfollow.
+
+Metrics: `watcher.events.out_of_scope`, `watcher.events.taken_down`,
+`watcher.bridge.records` (by outcome), `watcher.bridge.source_errors`,
+`watcher.bridge.lag_ms`.
+
+---
+
+## 7. Quick reference
 
 | Field | TOML path | Type | Default |
 |---|---|---|---|
@@ -299,6 +386,10 @@ avoid hammering an HS for content that may not exist yet.
 | `initial_missing_dep_backoff_secs` | `[watcher.retry]` | `u64` s | `60` |
 | `max_missing_dep_backoff_secs` | `[watcher.retry]` | `u64` s | `3600` |
 | `external_hs_pk_blacklist` | `[stack.net]` | `Vec<PubkyId>` | `[]` |
+| `kind`, `homeservers`, `seed`, `hops` | `[stack.scope]` | see [Section 6](#6-indexing-scope--stackscope) | `kind = "everything"` |
+| `interval_ms` | `[watcher.scope_maintenance]` | `u64` ms | `300000` |
+| `source`, `nexus_url` | `[watcher.scope_bootstrap]` | see [Section 6](#6-indexing-scope--stackscope) | `source = "crawl"` |
+| `nexus_urls`, `interval_ms`, `lookback_days` | `[watcher.inbound_bridge]` | see [Section 6](#6-indexing-scope--stackscope) | off |
 
 
 [^1]: This is the *interval* at which runs are *triggered*, not a sleep duration

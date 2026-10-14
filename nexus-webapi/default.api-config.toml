@@ -48,6 +48,9 @@ external_hs_pk_blacklist = []
 # kind = "everything"                     # default: every user Nexus can discover
 # kind = "homeservers"                    # users hosted on these homeservers
 # homeservers = ["<homeserver pubky>"]    # each one's whole event feed is read
+# kind = "seed"                           # a user and who it follows, up to `hops` away
+# seed = "<user pubky>"
+# hops = 2                                # 1 to 3; members are worked out from the graph
 
 [stack.otlp]
 # Service name used for tracing, logging, and metrics in OpenTelemetry
