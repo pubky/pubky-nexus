@@ -108,10 +108,11 @@ pub trait TEventProcessorRunner: Send + Sync {
     /// Determines the list of target HS IDs to process in this run cycle, ordered by priority.
     ///
     /// The list is not truncated here: [`Self::poll_limit`] is applied in [`Self::run`], after
-    /// the HS IDs in backoff are skipped.
+    /// the HS IDs in backoff, or with a run still going, are skipped.
     async fn pre_run(&self) -> Result<Vec<String>, DynError>;
 
-    /// Maximum number of HS IDs built and run per cycle. HS IDs skipped by backoff don't count.
+    /// Maximum number of HS IDs built and run per cycle. HS IDs skipped, in backoff or with a
+    /// run still going, don't count.
     ///
     /// No limit by default. Runners that cap the targets per run should overwrite this.
     fn poll_limit(&self) -> usize {
@@ -288,6 +289,38 @@ mod tests {
         assert_eq!(*runner.built.lock().await, ["hs3", "hs4"]);
         assert_eq!(stats.count_skipped(), 2);
         assert_eq!(stats.count_failed_to_build(), 2);
+    }
+
+    /// A homeserver skipped behind its still-running timed-out run does not use up a poll
+    /// slot either, so it cannot push a lower-priority homeserver out of the cycle.
+    #[tokio::test]
+    async fn in_flight_homeservers_do_not_use_up_the_poll_limit() {
+        let runner = RecordingRunner::new(&["hs1", "hs2", "hs3"], 2);
+        let _running = runner.in_flight.try_start("hs1").expect("nothing runs yet");
+
+        let ProcessedStats(stats) = runner.run().await.unwrap();
+
+        assert_eq!(*runner.built.lock().await, ["hs2", "hs3"]);
+        assert_eq!(stats.count_skipped(), 1);
+    }
+
+    /// A skip learns how long the run in progress has been going, counted from its start
+    /// rather than from the previous skip, which is what the warning reports.
+    #[test]
+    fn try_start_reports_how_long_the_run_has_been_going() {
+        let runs = InFlightRuns::default();
+        let run = runs.try_start("hs1").expect("nothing runs yet");
+
+        std::thread::sleep(Duration::from_millis(100));
+        let first = runs.try_start("hs1").err().expect("hs1 is running");
+        assert!(first >= Duration::from_millis(100), "{first:?}");
+
+        std::thread::sleep(Duration::from_millis(100));
+        let second = runs.try_start("hs1").err().expect("hs1 is still running");
+        assert!(second >= Duration::from_millis(200), "{second:?}");
+
+        drop(run);
+        assert!(runs.try_start("hs1").is_ok());
     }
 
     /// A run that outlives its timeout goes on in the background, and its homeserver is
