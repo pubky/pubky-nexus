@@ -10,12 +10,13 @@ use nexus_common::models::post::{
     PostStream,
 };
 use nexus_common::models::user::{UserCounts, UserIngestor};
-use pubky_app_specs::{
-    ParsedUri, PubkyAppCollectionContent, PubkyAppPost, PubkyAppPostKind, PubkyId, Resource,
+use pubky_social_specs::legacy_v0::{
+    user_uri_builder, ParsedUri, PubkyAppCollectionContent, PubkyAppPost, PubkyAppPostKind,
+    PubkyId, Resource,
 };
 use tracing::{debug, Instrument};
 
-use super::utils::{fail_on_blacklisted_hs, post_kind, post_relationships_is_reply};
+use super::utils::{fail_on_permanent_ingest_error, post_kind, post_relationships_is_reply};
 
 pub async fn sync_put(
     post: PubkyAppPost,
@@ -57,7 +58,9 @@ async fn sync_put_details(
                 dependency_event_keys.push(replied_uri_str);
 
                 // Drop the reply (non-retryable) if the replied-to post's author is on a blacklisted HS.
-                fail_on_blacklisted_hs(ingestor.maybe_ingest_author_of_post(replied_to_uri).await)?;
+                fail_on_permanent_ingest_error(
+                    ingestor.maybe_ingest_author_of_post(replied_to_uri).await,
+                )?;
             }
             if let Some(reposted_uri) = &post_relationships.reposted {
                 let reposted_uri_str = reposted_uri
@@ -66,14 +69,12 @@ async fn sync_put_details(
                 dependency_event_keys.push(reposted_uri_str);
 
                 // Drop the repost (non-retryable) if the reposted post's author is on a blacklisted HS.
-                fail_on_blacklisted_hs(ingestor.maybe_ingest_author_of_post(reposted_uri).await)?;
+                fail_on_permanent_ingest_error(
+                    ingestor.maybe_ingest_author_of_post(reposted_uri).await,
+                )?;
             }
             if dependency_event_keys.is_empty() {
-                let author_uri = author_id
-                    .to_uri()
-                    .try_to_uri_str()
-                    .map_err(EventProcessorError::generic)?;
-                dependency_event_keys.push(author_uri);
+                dependency_event_keys.push(user_uri_builder(author_id.to_string()));
             }
             return Err(EventProcessorError::missing_dependencies(
                 dependency_event_keys,

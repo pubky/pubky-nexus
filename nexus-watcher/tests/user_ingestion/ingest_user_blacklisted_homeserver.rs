@@ -8,7 +8,7 @@ use nexus_common::utils::test_utils::random_pubky_id;
 use nexus_watcher::events::handlers;
 use nexus_watcher::EventProcessorError;
 use pubky::Keypair;
-use pubky_app_specs::{
+use pubky_social_specs::legacy_v0::{
     post_uri_builder, tag_uri_builder,
     traits::{HashId, TimestampId},
     user_uri_builder, PubkyAppPost, PubkyAppPostEmbed, PubkyAppPostKind, PubkyAppTag, PubkyAppUser,

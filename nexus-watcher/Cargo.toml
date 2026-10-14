@@ -16,7 +16,7 @@ futures = { workspace = true }
 nexus-common = { path = "../nexus-common" }
 opentelemetry = { workspace = true }
 pubky = { workspace = true }
-pubky-app-specs = { workspace = true }
+pubky-social-specs = { workspace = true }
 reqwest = { version = "0.13", default-features = false, features = ["stream"] }
 serde = { workspace = true }
 serde_json = { workspace = true }

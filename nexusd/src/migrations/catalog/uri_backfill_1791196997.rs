@@ -6,7 +6,7 @@ use nexus_common::db::graph::Query;
 use nexus_common::models::event::EventLine;
 use nexus_common::types::DynError;
 use nexus_watcher::events::event::{Event, EventType, ParseResult};
-use pubky_app_specs::Resource;
+use pubky_social_specs::legacy_v0::Resource;
 use std::collections::BTreeMap;
 use tracing::info;
 
@@ -260,8 +260,8 @@ impl Migration for UriBackfill1791196997 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pubky_app_specs::traits::HashId;
-    use pubky_app_specs::PubkyAppTag;
+    use pubky_social_specs::legacy_v0::traits::HashId;
+    use pubky_social_specs::legacy_v0::PubkyAppTag;
 
     const TAGGER: &str = "pxnu33x7jtpx9ar1ytsi4yxbp6a5o36gwhffs8zoxmbuptici1jy";
     const AUTHOR: &str = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";

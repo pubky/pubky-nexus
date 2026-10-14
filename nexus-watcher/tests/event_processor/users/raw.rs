@@ -11,7 +11,7 @@ use nexus_common::{
     models::user::{UserCounts, UserSearch, USER_NAME_KEY_PARTS},
 };
 use pubky::Keypair;
-use pubky_app_specs::{file_uri_builder, PubkyAppUser, PubkyAppUserLink};
+use pubky_social_specs::legacy_v0::{file_uri_builder, PubkyAppUser, PubkyAppUserLink};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_user_put_event() -> Result<()> {

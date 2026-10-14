@@ -7,7 +7,7 @@ use chrono::Utc;
 use nexus_common::models::user::{UserCounts, UserSearch, UserStream, UserView};
 use nexus_watcher::events::handlers;
 use pubky::Keypair;
-use pubky_app_specs::{
+use pubky_social_specs::legacy_v0::{
     traits::{HasIdPath, HashId},
     user_uri_builder, PubkyAppBlob, PubkyAppFile, PubkyAppPost, PubkyAppPostKind, PubkyAppUser,
     PubkyAppUserLink, PubkyId,

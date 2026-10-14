@@ -6,7 +6,7 @@ use crate::models::error::ModelResult;
 use crate::models::traits::Collection;
 use async_trait::async_trait;
 use chrono::Utc;
-use pubky_app_specs::{ParsedUri, PubkyAppFile, Resource};
+use pubky_social_specs::legacy_v0::{ParsedUri, PubkyAppFile, Resource};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use utoipa::ToSchema;

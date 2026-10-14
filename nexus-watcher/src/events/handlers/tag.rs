@@ -15,10 +15,12 @@ use nexus_common::types::Pagination;
 use nexus_common::universal_tag::normalize::{
     classify_uri, normalize_uri, resource_id, UriCategory,
 };
-use pubky_app_specs::{ExtendedParsedUri, ParsedUri, PubkyAppTag, PubkyId, Resource};
+use pubky_social_specs::legacy_v0::{
+    user_uri_builder, ExtendedParsedUri, ParsedUri, PubkyAppTag, PubkyId, Resource,
+};
 use tracing::{debug, Instrument};
 
-use super::utils::{fail_on_blacklisted_hs, post_kind, post_relationships_is_reply};
+use super::utils::{fail_on_permanent_ingest_error, post_kind, post_relationships_is_reply};
 
 #[derive(Debug)]
 struct TagStorageUri {
@@ -193,7 +195,9 @@ async fn put_sync_post(
         OperationOutcome::MissingDependency => {
             if let Ok(post_uri) = ParsedUri::try_from(post_uri_str) {
                 // Drop the tag (non-retryable) if the tagged post's author is on a blacklisted HS.
-                fail_on_blacklisted_hs(ingestor.maybe_ingest_author_of_post(&post_uri).await)?;
+                fail_on_permanent_ingest_error(
+                    ingestor.maybe_ingest_author_of_post(&post_uri).await,
+                )?;
             }
             Err(EventProcessorError::MissingDependency {
                 dependency: vec![post_uri_str.to_owned()],
@@ -312,12 +316,9 @@ async fn put_sync_user(
         }
         OperationOutcome::MissingDependency => {
             // Drop the tag (non-retryable) if the tagged user is on a blacklisted HS.
-            fail_on_blacklisted_hs(ingestor.maybe_ingest_user(&tagged_user_id).await)?;
+            fail_on_permanent_ingest_error(ingestor.maybe_ingest_user(&tagged_user_id).await)?;
 
-            let tagged_uri = tagged_user_id
-                .to_uri()
-                .try_to_uri_str()
-                .map_err(EventProcessorError::generic)?;
+            let tagged_uri = user_uri_builder(tagged_user_id.to_string());
             let dependency = vec![tagged_uri];
             Err(EventProcessorError::MissingDependency { dependency })
         }

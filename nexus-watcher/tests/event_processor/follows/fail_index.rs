@@ -1,7 +1,7 @@
 use crate::event_processor::utils::watcher::{retrieve_and_handle_event_line, WatcherTest};
 use anyhow::Result;
 use pubky::Keypair;
-use pubky_app_specs::{follow_uri_builder, PubkyAppUser};
+use pubky_social_specs::legacy_v0::{follow_uri_builder, PubkyAppUser};
 use tracing::error;
 
 /// Verifies that a follow fails with MissingDependency when either party is not yet indexed.

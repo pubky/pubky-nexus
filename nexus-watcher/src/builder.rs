@@ -4,7 +4,7 @@ use nexus_common::types::DynError;
 use nexus_common::utils::create_shutdown_rx;
 use nexus_common::WatcherConfig;
 use nexus_common::{Level, StackManager};
-use pubky_app_specs::PubkyId;
+use pubky_social_specs::legacy_v0::PubkyId;
 use std::path::PathBuf;
 use tokio::sync::watch::Receiver;
 

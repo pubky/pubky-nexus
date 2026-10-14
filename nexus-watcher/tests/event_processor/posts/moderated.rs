@@ -16,8 +16,8 @@ use nexus_watcher::events::remove_if_taken_down;
 use nexus_watcher::EventProcessorError;
 use pubky::ResourcePath;
 use pubky::{recovery_file, Keypair};
-use pubky_app_specs::traits::HasIdPath;
-use pubky_app_specs::{
+use pubky_social_specs::legacy_v0::traits::HasIdPath;
+use pubky_social_specs::legacy_v0::{
     post_uri_builder, PubkyAppPost, PubkyAppPostKind, PubkyAppTag, PubkyAppUser,
 };
 use std::path::Path;

@@ -2,7 +2,9 @@ use crate::event_processor::utils::watcher::{assert_eventually_exists, WatcherTe
 use anyhow::Result;
 use nexus_watcher::events::retry::{IndexKey, RetryEvent};
 use pubky::Keypair;
-use pubky_app_specs::{post_uri_builder, PubkyAppPost, PubkyAppPostKind, PubkyAppUser};
+use pubky_social_specs::legacy_v0::{
+    post_uri_builder, PubkyAppPost, PubkyAppPostKind, PubkyAppUser,
+};
 
 /// The user profile is stored in the homeserver. Missing the post to connect the new one
 #[tokio_shared_rt::test(shared)]

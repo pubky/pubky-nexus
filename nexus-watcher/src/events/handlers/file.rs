@@ -4,7 +4,9 @@ use nexus_common::db::PubkyConnector;
 use nexus_common::media::FileVariant;
 use nexus_common::models::user::UserIngestor;
 use nexus_common::models::{file::FileDetails, traits::Collection};
-use pubky_app_specs::{ParsedUri, PubkyAppBlob, PubkyAppFile, PubkyAppObject, PubkyId};
+use pubky_social_specs::legacy_v0::{
+    ParsedUri, PubkyAppBlob, PubkyAppFile, PubkyAppObject, PubkyId,
+};
 use std::path::Path;
 use tokio::fs::{self, remove_dir_all};
 use tracing::{debug, warn};

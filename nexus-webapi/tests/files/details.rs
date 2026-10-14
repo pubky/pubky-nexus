@@ -4,7 +4,7 @@ use anyhow::Result;
 use chrono::Utc;
 use futures_util::FutureExt;
 use nexus_common::models::{file::FileDetails, traits::Collection};
-use pubky_app_specs::file_uri_builder;
+use pubky_social_specs::legacy_v0::file_uri_builder;
 
 use crate::utils::get_request;
 
