@@ -1,4 +1,5 @@
 mod constants;
+pub mod inbound_bridge;
 pub mod indexer;
 pub mod runner;
 pub mod scope_bootstrap;
@@ -18,6 +19,7 @@ use crate::events::retry::RetryProcessor;
 use crate::service::constants::DEFAULT_WATCHER_CONFIG_TOML;
 use crate::service::task_runner::task_results_into_result;
 use crate::NexusWatcherBuilder;
+use inbound_bridge::InboundBridge;
 use nexus_common::file::ConfigLoader;
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::scope::{scope_from_config, SeedHopsScope};
@@ -130,6 +132,17 @@ impl NexusWatcher {
                 async move { processor.run().await.map_err(DynError::from) }
             }),
         ];
+
+        if let Some(bridge) = InboundBridge::from_config(&config).map(Arc::new) {
+            tasks.push(PeriodicTask::new(
+                "inbound-bridge",
+                config.inbound_bridge.interval_ms,
+                move || {
+                    let bridge = bridge.clone();
+                    async move { bridge.poll().await }
+                },
+            ));
+        }
 
         if scope_maintainer.is_periodic() {
             tasks.push(PeriodicTask::new(

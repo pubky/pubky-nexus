@@ -134,6 +134,75 @@ impl TryFrom<RawScopeBootstrapConfig> for ScopeBootstrapConfig {
     }
 }
 
+/// The inbound bridge of a seed scope, set in the watcher's `[inbound_bridge]`
+/// (`[watcher.inbound_bridge]` in a combined config).
+///
+/// A seed scope never reads users outside it, so their replies, mentions, tags and
+/// follows of the seed would never be seen. The bridge asks big Nexus instances for the
+/// seed's notifications and fetches each record they point at from its author's
+/// homeserver. With no `nexus_urls`, it is off.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, try_from = "RawInboundBridgeConfig")]
+pub struct InboundBridgeConfig {
+    pub nexus_urls: Vec<String>,
+    pub interval_ms: u64,
+    /// How far back the first run reads, in days; 0 reads the whole history.
+    pub lookback_days: u32,
+}
+
+const DEFAULT_INBOUND_BRIDGE_INTERVAL_MS: u64 = 300_000;
+
+impl Default for InboundBridgeConfig {
+    fn default() -> Self {
+        Self {
+            nexus_urls: Vec::new(),
+            interval_ms: DEFAULT_INBOUND_BRIDGE_INTERVAL_MS,
+            lookback_days: 0,
+        }
+    }
+}
+
+impl InboundBridgeConfig {
+    pub fn is_on(&self) -> bool {
+        !self.nexus_urls.is_empty()
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawInboundBridgeConfig {
+    #[serde(default)]
+    nexus_urls: Vec<String>,
+    #[serde(default = "default_inbound_bridge_interval_ms")]
+    interval_ms: u64,
+    #[serde(default)]
+    lookback_days: u32,
+}
+
+fn default_inbound_bridge_interval_ms() -> u64 {
+    DEFAULT_INBOUND_BRIDGE_INTERVAL_MS
+}
+
+impl TryFrom<RawInboundBridgeConfig> for InboundBridgeConfig {
+    type Error = String;
+
+    fn try_from(raw: RawInboundBridgeConfig) -> Result<Self, Self::Error> {
+        if raw.interval_ms == 0 {
+            return Err("inbound_bridge.interval_ms cannot be 0".into());
+        }
+        let nexus_urls = raw
+            .nexus_urls
+            .iter()
+            .map(|url| http_url(url, "inbound_bridge.nexus_urls"))
+            .collect::<Result<_, _>>()?;
+        Ok(Self {
+            nexus_urls,
+            interval_ms: raw.interval_ms,
+            lookback_days: raw.lookback_days,
+        })
+    }
+}
+
 /// Checks `value` is an http(s) URL and drops its trailing slash.
 pub(crate) fn http_url(value: &str, field: &str) -> Result<String, String> {
     match url::Url::parse(value) {
@@ -243,6 +312,22 @@ mod tests {
             let error = parse(toml_text).expect_err(toml_text);
             assert!(error.contains(expected), "{toml_text:?} gave {error:?}");
         }
+    }
+
+    #[test]
+    fn inbound_bridge_is_off_by_default_and_checks_its_urls() {
+        let parse = |toml_text: &str| {
+            toml::from_str::<InboundBridgeConfig>(toml_text).map_err(|e| e.message().to_string())
+        };
+        assert!(!InboundBridgeConfig::default().is_on());
+        let on = parse("nexus_urls = [\"https://nexus.pubky.app/\"]").unwrap();
+        assert!(on.is_on());
+        assert_eq!(on.nexus_urls, vec!["https://nexus.pubky.app"]);
+        assert_eq!(on.interval_ms, 300_000);
+
+        assert!(parse("nexus_urls = [\"nexus.pubky.app\"]").is_err());
+        assert!(parse("interval_ms = 0").is_err());
+        assert!(parse("nexus_url = \"https://x\"").is_err(), "unknown field");
     }
 
     #[test]
