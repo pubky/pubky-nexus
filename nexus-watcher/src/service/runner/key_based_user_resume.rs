@@ -15,6 +15,8 @@ pub struct UserResumePoints {
 
 impl UserResumePoints {
     /// Orders `users` by key, starting from the homeserver's resume point and wrapping around.
+    /// If the user at the resume point has left the homeserver, the run starts from the next
+    /// user in key order.
     pub async fn order(&self, hs_id: &str, users: &mut [(PublicKey, EventCursor)]) {
         users.sort_by_cached_key(|(user_pk, _)| user_pk.z32());
         let Some(resume_at) = self.inner.lock().await.get(hs_id).cloned() else {
@@ -96,6 +98,19 @@ mod tests {
         let mut next = sorted.clone();
         points.order("hs", &mut next).await;
         assert_eq!(keys(&next)[0], sorted[2].0.z32());
+    }
+
+    #[tokio::test]
+    async fn starts_from_the_next_user_when_the_resume_user_left() {
+        let sorted = sorted_users(3);
+        let points = UserResumePoints::default();
+        points.record_stop_after("hs", &sorted, 0).await;
+
+        let mut users = vec![sorted[0].clone(), sorted[2].clone()];
+        points.order("hs", &mut users).await;
+
+        let expected = [&sorted[2], &sorted[0]].map(|(user_pk, _)| user_pk.z32());
+        assert_eq!(keys(&users), expected);
     }
 
     #[tokio::test]
