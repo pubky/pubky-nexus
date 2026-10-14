@@ -30,6 +30,7 @@ const OBSERVER: &str = "y6apowjmcg8rocmd9jirg95fyf3yykwuhqxozzts4mjipk4n7iao";
 const WOT_D1B: &str = "t5ixbtatg4tq5q5ixg16qqrg1bmem75ksg6cweuftuydwzw91pzy";
 const WOT_D2: &str = "smf4xrqfhx7stnufkjzhbjyu3rbgb3gga64srqmzcyyoyzefse9y";
 const SPAMMER: &str = "qdsygndnk45m9ru5jseg3uxk5xg4usj9hrcraqbzgigapzweaa9o";
+const BTC1: &str = "tfqnfppxtr8xei6n3zrfa1b7mmc6gqn41szgutgcccea33pqf3yo";
 
 const D1_POST: &str = "WOTPOSTD10002";
 const OBSERVER_POST: &str = "WOTPOSTO00001";
@@ -144,10 +145,14 @@ async fn test_all_timeline_hides_unranked_authors_from_others() -> Result<()> {
         }
     }
 
-    // Several tags go to Cypher too: the rule composes with the tag MATCH
-    // rather than emptying the stream.
-    let tagged = walk("source=all&sorting=timeline&tags=bitcoin,opensource").await?;
+    // Several tags go to Cypher too: the rule composes with the tag MATCH,
+    // keeping ranked authors' posts and dropping btc1's (wot.cypher tags it).
+    let tagged = walk("source=all&sorting=timeline&tags=wotmultitag,opensource").await?;
     assert!(!tagged.is_empty());
+    assert!(
+        !tagged.contains(&format!("{BTC1}:WOTPOSTBTC1A")),
+        "{tagged:?}"
+    );
     assert!(unranked_keys(&tagged).await?.is_empty(), "{tagged:?}");
     Ok(())
 }

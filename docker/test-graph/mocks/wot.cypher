@@ -138,6 +138,8 @@ MATCH (parent:Post {id: "WOTPOSTREPLY1"}), (reply:Post {id: "WOTPOSTTAGS01"}) ME
 MATCH (u:User {id: $d1}), (p:Post {id: "WOTPOSTTAGS01"}) MERGE (u)-[rel:TAGGED {label: "wotreview", id: "WOTTAGREV0001", indexed_at: 1224534095800}]->(p) SET rel.uri = "pubky://qjftuwjog819ki1wktuy5tndebce36bmxxwtjjm3z1fr97jk9yuo/pub/pubky.app/tags/WOTTAGREV0001";
 MATCH (u:User {id: $d1b}), (p:Post {id: "WOTPOSTTAGS01"}) MERGE (u)-[rel:TAGGED {label: "wotreview", id: "WOTTAGREV0002", indexed_at: 1224534095900}]->(p) SET rel.uri = "pubky://t5ixbtatg4tq5q5ixg16qqrg1bmem75ksg6cweuftuydwzw91pzy/pub/pubky.app/tags/WOTTAGREV0002";
 MATCH (u:User {id: $modbot}), (p:Post {id: "WOTPOSTTAGS01"}) MERGE (u)-[rel:TAGGED {label: "wotflag", id: "WOTTAGFLAG001", indexed_at: 1224534096000}]->(p) SET rel.uri = "pubky://qsfngw6xm9kk7yp99xustjfj8mu9auufkixas5f8goeujuxt45ao/pub/pubky.app/tags/WOTTAGFLAG001";
+// btc1 is unranked: a tagged root post of theirs that multi-tag source=all streams must hide.
+MATCH (u:User {id: $d1b}), (p:Post {id: "WOTPOSTBTC1A"}) MERGE (u)-[rel:TAGGED {label: "wotmultitag", id: "WOTTAGMULTI01", indexed_at: 1224534096600}]->(p) SET rel.uri = "pubky://t5ixbtatg4tq5q5ixg16qqrg1bmem75ksg6cweuftuydwzw91pzy/pub/pubky.app/tags/WOTTAGMULTI01";
 
 // Regression fixture for the O->D1->O follow cycle. O tags this deep reply
 // directly; returning to O through the cycle must not make O a trusted tagger.
