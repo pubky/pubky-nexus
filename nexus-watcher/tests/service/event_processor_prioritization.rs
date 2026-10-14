@@ -7,7 +7,7 @@ use chrono::Utc;
 use nexus_common::db::graph::exec::exec_single_row;
 use nexus_common::db::graph::Query;
 use nexus_common::models::homeserver::{Homeserver, HsBlacklist};
-use nexus_common::models::scope::{EverythingScope, HomeserverListScope, Scope};
+use nexus_common::models::scope::{EverythingScope, HomeserverListScope, Scope, SeedHopsScope};
 use nexus_common::models::traits::Collection;
 use nexus_common::models::user::{set_user_homeserver, UserDetails};
 use nexus_common::types::DynError;
@@ -347,5 +347,22 @@ async fn test_key_based_runner_skips_the_homeservers_a_scope_reads_whole() -> Re
         "the primary HS is not read whole"
     );
     assert!(hs_ids.contains(&other.to_string()));
+    Ok(())
+}
+
+/// A seed scope reads no feed whole: members on the primary homeserver are polled
+/// through their own streams too.
+#[tokio_shared_rt::test(shared)]
+async fn test_key_based_runner_polls_the_primary_homeserver_for_a_seed_scope(
+) -> Result<(), DynError> {
+    setup().await?;
+    let [primary] = active_homeservers(1).await?.try_into().unwrap();
+
+    let everything = key_based_runner(&primary, Arc::new(EverythingScope));
+    assert!(!everything.pre_run().await?.contains(&primary.to_string()));
+
+    let seed = Arc::new(SeedHopsScope::new(random_pubky_id(), 2));
+    let hs_ids = key_based_runner(&primary, seed).pre_run().await?;
+    assert!(hs_ids.contains(&primary.to_string()));
     Ok(())
 }

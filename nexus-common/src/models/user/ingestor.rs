@@ -12,6 +12,9 @@ use crate::models::user::stub::{is_stub, mark_stub, unmark_stub};
 use crate::models::user::{set_user_homeserver, UserCounts, UserDetails, UserHsCursor};
 use crate::{StackConfig, WatcherConfig};
 
+/// `scope_state` of a member that left the scope: no longer polled, content kept.
+pub const SCOPE_STATE_LEFT: &str = "left";
+
 /// Ingests previously-unknown users unless their HS is blacklisted.
 #[derive(Debug, Clone)]
 pub struct UserIngestor {
@@ -203,6 +206,20 @@ impl UserIngestor {
             }
         }
         tracing::info!("Brought {user_id} into the scope");
+        Ok(())
+    }
+
+    /// Takes a member that left the scope out of it: marks it `left`, unbinds it from its
+    /// HS and forgets its cursor, so it is no longer polled. Its content stays; if it
+    /// comes back, it is promoted and read from the start of its stream again.
+    pub async fn demote(&self, user_id: &str) -> ModelResult<()> {
+        exec_single_row(queries::put::unbind_user_from_scope(
+            user_id,
+            SCOPE_STATE_LEFT,
+        ))
+        .await?;
+        UserHsCursor::remove_all(user_id).await?;
+        tracing::info!("{user_id} left the scope");
         Ok(())
     }
 

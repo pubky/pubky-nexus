@@ -1,3 +1,4 @@
+use nexus_common::db::{fetch_key_from_graph, queries};
 use nexus_common::models::takedown::is_taken_down;
 use nexus_common::{db::PubkyConnector, models::user::UserIngestor};
 pub mod event;
@@ -98,6 +99,16 @@ impl EventHandler for DefaultEventHandler {
         // an out-of-scope author here. Its event is neither indexed nor logged.
         let author_id = event.parsed_uri.user_id();
         if !self.ingestor.scope().is_in_scope(author_id, None).await? {
+            // Still bound and polled as in scope: the scope's own records are being
+            // rebuilt (e.g. after losing Redis). Retried rather than skipped, so the event
+            // isn't lost.
+            let query = queries::get::is_user_bound_in_scope(author_id);
+            if fetch_key_from_graph::<bool>(query, "bound")
+                .await?
+                .unwrap_or(false)
+            {
+                return Err(EventProcessorError::ScopeUnsettled(author_id.to_string()));
+            }
             OUT_OF_SCOPE.add(1, &[]);
             debug!(event.uri = %event.uri, "Author is outside the scope; skipping event");
             return Ok(());
@@ -246,7 +257,7 @@ pub async fn handle_del_event(
         Resource::User => handlers::user::del(user_id).await?,
         Resource::Post(post_id) => handlers::post::del(user_id, post_id.clone(), &ingestor).await?,
         Resource::Follow(followee_id) => {
-            handlers::follow::del(user_id, followee_id.clone()).await?
+            handlers::follow::del(user_id, followee_id.clone(), &ingestor).await?
         }
         Resource::Mute(_) => debug!("Mute events are no longer handled by nexus"),
         Resource::Bookmark(bookmark_id) => {

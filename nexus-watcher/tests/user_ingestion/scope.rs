@@ -144,8 +144,9 @@ async fn test_user_inside_the_scope_is_ingested_as_before() -> Result<()> {
     Ok(())
 }
 
-/// The handler skips an event whose author is bound to a homeserver outside the
-/// list, before fetching it: nothing is indexed and the event doesn't fail.
+/// An author bound to a homeserver outside the list is retried, not skipped, until
+/// scope maintenance takes it out; after that its events are skipped before they are
+/// fetched: nothing is indexed and the event doesn't fail.
 #[tokio_shared_rt::test(shared)]
 async fn test_event_by_an_author_outside_the_scope_is_skipped() -> Result<()> {
     let test = WatcherTest::setup(None).await?;
@@ -172,6 +173,13 @@ async fn test_event_by_an_author_outside_the_scope_is_skipped() -> Result<()> {
         panic!("a post line parses");
     };
 
+    let unsettled = handler.handle(&event).await;
+    assert!(
+        matches!(unsettled, Err(EventProcessorError::ScopeUnsettled(_))),
+        "still bound and polled: retried, not lost ({unsettled:?})"
+    );
+
+    scoped_ingestor(&test).demote(&author_id).await?;
     handler.handle(&event).await?;
 
     assert!(PostDetails::get_by_id(&author_id, &post_id)

@@ -1,6 +1,7 @@
 mod constants;
 pub mod indexer;
 pub mod runner;
+pub mod scope_maintenance;
 pub mod stats;
 mod task_runner;
 pub mod user_hs_resolver;
@@ -25,6 +26,7 @@ use nexus_common::models::user::UserIngestor;
 use nexus_common::types::DynError;
 use nexus_common::ScopeConfig;
 use nexus_common::WatcherConfig;
+use scope_maintenance::{ScopeMaintainer, SCOPE_MAINTENANCE_TICK_MS};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::watch::Receiver;
@@ -98,7 +100,9 @@ impl NexusWatcher {
         // Create retry processor
         let retry_processor = Arc::new(RetryProcessor::new(&config, shutdown_rx.clone()));
 
-        let tasks = vec![
+        let scope_maintainer = Arc::new(ScopeMaintainer::from_config(&config));
+
+        let mut tasks = vec![
             PeriodicTask::new(
                 "primary-homeserver",
                 primary_hs_monitoring_interval_ms,
@@ -125,6 +129,17 @@ impl NexusWatcher {
             }),
         ];
 
+        if scope_maintainer.is_periodic() {
+            tasks.push(PeriodicTask::new(
+                "scope-maintenance",
+                SCOPE_MAINTENANCE_TICK_MS,
+                move || {
+                    let maintainer = scope_maintainer.clone();
+                    async move { maintainer.tick().await.map(|_| ()).map_err(DynError::from) }
+                },
+            ));
+        }
+
         let task_results = run_periodic_tasks(tasks, shutdown_rx).await;
 
         info!("Nexus Watcher shut down gracefully");
@@ -149,12 +164,19 @@ async fn prepare_scope(config: &WatcherConfig) -> Result<(), DynError> {
     let takedowns = rebuild_takedown_index().await?;
     debug!(stubs, takedowns, "Rebuilt the scope indexes from the graph");
 
-    // The moderator's tags take content down, so a scoped Nexus must read it too.
+    // The moderator's tags take content down, so a scoped Nexus must read it too; and a
+    // seed scope grows from the seed's own follows, so the seed is read from the start.
+    let ingestor = UserIngestor::from_watcher_config(config);
     if config.stack.scope != ScopeConfig::Everything {
-        UserIngestor::from_watcher_config(config)
-            .ensure_in_scope(&config.moderation_id)
-            .await?;
+        ingestor.ensure_in_scope(&config.moderation_id).await?;
     }
+    if let ScopeConfig::Seed { seed, .. } = &config.stack.scope {
+        ingestor.ensure_in_scope(seed).await?;
+    }
+
+    // Who is in scope, before anything is polled: members recomputed from the graph,
+    // users of a narrower or wider previous scope moved out or back in.
+    ScopeMaintainer::from_config(config).at_start().await?;
 
     if let ScopeConfig::Homeservers { homeservers } = &config.stack.scope {
         if !homeservers.contains(&config.homeserver) {

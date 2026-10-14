@@ -704,6 +704,69 @@ pub fn get_users_needing_hs_resolution(ttl_ms: u64) -> Query {
     .param("ttl_ms", ttl_ms as i64)
 }
 
+/// Retrieves the users in scope: no `scope_state`, not deleted. `limit_to` narrows the
+/// search to those users (tests share one graph); `None` searches every user.
+pub fn get_in_scope_user_ids(limit_to: Option<&[String]>) -> Query {
+    Query::new(
+        "get_in_scope_user_ids",
+        "MATCH (u:User)
+         WHERE u.scope_state IS NULL AND NOT coalesce(u.deleted, false)
+           AND ($limit_to IS NULL OR u.id IN $limit_to)
+         RETURN collect(u.id) AS user_ids",
+    )
+    .param("limit_to", limit_to.map(<[String]>::to_vec))
+}
+
+/// Retrieves the in-scope users bound to a homeserver that isn't listed: users who moved
+/// away from a homeserver scope. `limit_to` as in [`get_in_scope_user_ids`].
+pub fn get_user_ids_bound_outside(listed: &[String], limit_to: Option<&[String]>) -> Query {
+    Query::new(
+        "get_user_ids_bound_outside",
+        "MATCH (u:User)-[:HOSTED_BY]->(hs:Homeserver)
+         WHERE u.scope_state IS NULL AND NOT hs.id IN $listed
+           AND ($limit_to IS NULL OR u.id IN $limit_to)
+         RETURN collect(u.id) AS user_ids",
+    )
+    .param("listed", listed.to_vec())
+    .param("limit_to", limit_to.map(<[String]>::to_vec))
+}
+
+/// Whether the user is bound to a homeserver and has no `scope_state`: polled as in
+/// scope, whatever the scope's own records say.
+pub fn is_user_bound_in_scope(user_id: &str) -> Query {
+    Query::new(
+        "is_user_bound_in_scope",
+        "MATCH (u:User {id: $user_id})-[:HOSTED_BY]->(:Homeserver)
+         WHERE u.scope_state IS NULL
+         RETURN count(u) > 0 AS bound",
+    )
+    .param("user_id", user_id.to_string())
+}
+
+/// Retrieves a user's `scope_state` and the homeserver it is bound to, either `null`.
+/// No row for an unknown user.
+pub fn get_user_scope_and_homeserver(user_id: &str) -> Query {
+    Query::new(
+        "get_user_scope_and_homeserver",
+        "MATCH (u:User {id: $user_id})
+         OPTIONAL MATCH (u)-[:HOSTED_BY]->(hs:Homeserver)
+         RETURN u.scope_state AS scope_state, hs.id AS homeserver_id
+         LIMIT 1",
+    )
+    .param("user_id", user_id.to_string())
+}
+
+/// Retrieves everyone the given users follow, once each.
+pub fn get_followees_of(user_ids: &[String]) -> Query {
+    Query::new(
+        "get_followees_of",
+        "MATCH (u:User)-[:FOLLOWS]->(v:User)
+         WHERE u.id IN $user_ids AND NOT coalesce(v.deleted, false)
+         RETURN collect(DISTINCT v.id) AS user_ids",
+    )
+    .param("user_ids", user_ids.to_vec())
+}
+
 /// Retrieves a user's `scope_state`: a row with `null` for an in-scope user, no row
 /// for an unknown one.
 pub fn get_user_scope_state(user_id: &str) -> Query {

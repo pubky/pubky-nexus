@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 
+use crate::db::kv::SORTED_PREFIX;
 use crate::db::kv::{ensure_cursor_not_backwards, RedisError, RedisResult};
-use crate::db::RedisOps;
+use crate::db::{get_redis_conn, RedisOps};
 
 const USER_HS_CURSOR: [&str; 2] = ["Users", "Homeservers"];
 
@@ -91,6 +92,18 @@ impl UserHsCursor {
     pub async fn init(user_id: &str, hs_id: &str) -> RedisResult<()> {
         let key = user_hs_cursor_key(user_id);
         Self::add_index_sorted_set_if_absent(&key, 0.0, hs_id, None).await
+    }
+
+    /// Forgets every cursor of the user, for a user leaving the scope: if it comes back,
+    /// it is read from the start of its stream again.
+    pub async fn remove_all(user_id: &str) -> RedisResult<()> {
+        let key = format!("{SORTED_PREFIX}:{}", user_hs_cursor_key(user_id).join(":"));
+        let mut redis_conn = get_redis_conn().await?;
+        let () = redis::cmd("DEL")
+            .arg(key)
+            .query_async(&mut redis_conn)
+            .await?;
+        Ok(())
     }
 }
 
