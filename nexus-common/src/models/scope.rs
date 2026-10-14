@@ -441,6 +441,14 @@ mod tests {
                 in_scope,
                 "bound to {hs}"
             );
+            // Other suites share this graph: a new user left behind lands in their
+            // "today" windows (e.g. the influencers) and shifts what they expect.
+            let delete = crate::db::graph::Query::new(
+                "delete_test_user",
+                "MATCH (u:User {id: $id}) DETACH DELETE u",
+            )
+            .param("id", user.to_string());
+            crate::db::exec_single_row(delete).await?;
         }
         Ok(())
     }
