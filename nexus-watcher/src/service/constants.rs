@@ -12,3 +12,6 @@ pub const SLOW_RUN_THRESHOLD: Duration = Duration::from_secs(3_600);
 /// How long a run of the external loop may spend on one homeserver before it stops, keeping
 /// the cursors it reached, so one homeserver cannot hold up the others
 pub const KEY_BASED_RUN_BUDGET: Duration = Duration::from_secs(8 * 60);
+/// How long an external homeserver's run may take before it is logged as slow: two minutes
+/// over [KEY_BASED_RUN_BUDGET], which a run only overshoots by the fetch or event in progress
+pub const KEY_BASED_SLOW_RUN_THRESHOLD: Duration = Duration::from_secs(10 * 60);

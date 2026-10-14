@@ -2,11 +2,13 @@ mod homeserver;
 mod key_based;
 mod key_based_hs_backoff;
 mod key_based_user_backoff;
+mod key_based_user_resume;
 
 pub use homeserver::HsEventProcessorRunner;
 pub use key_based::KeyBasedEventProcessorRunner;
 pub use key_based_hs_backoff::HomeserverBackoff;
 pub use key_based_user_backoff::UserNotFoundBackoff;
+pub use key_based_user_resume::UserResumePoints;
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -25,6 +27,7 @@ pub fn status_from_run_result(result: Result<(), RunError>) -> ProcessorRunStatu
         Ok(_) => ProcessorRunStatus::Ok,
         Err(RunError::Internal(_)) => ProcessorRunStatus::Error,
         Err(RunError::Panicked) => ProcessorRunStatus::Panic,
+        Err(RunError::BudgetSpent) => ProcessorRunStatus::BudgetSpent,
     }
 }
 
@@ -294,5 +297,18 @@ mod tests {
             2,
             "both runs finished"
         );
+    }
+
+    /// Pins a known limitation: the tick waits for every run, so a run that never returns
+    /// holds up the homeservers after it for good. Bounding the calls a run makes fixes it.
+    #[tokio::test(start_paused = true)]
+    async fn a_run_that_never_returns_holds_up_the_homeservers_after_it() {
+        let runner = RecordingRunner::new(&["hs1", "hs2"], usize::MAX)
+            .with_processors_taking(Duration::MAX, Duration::from_secs(60));
+
+        let tick = tokio::time::timeout(Duration::from_secs(24 * 3600), runner.run()).await;
+
+        assert!(tick.is_err(), "the tick ended");
+        assert_eq!(*runner.built.lock().await, ["hs1"]);
     }
 }

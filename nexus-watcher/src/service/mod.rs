@@ -6,7 +6,10 @@ mod task_runner;
 pub mod user_hs_resolver;
 
 /// Module exports
-pub use constants::{KEY_BASED_RUN_BUDGET, SLOW_RUN_THRESHOLD, WATCHER_CONFIG_FILE_NAME};
+pub use constants::{
+    KEY_BASED_RUN_BUDGET, KEY_BASED_SLOW_RUN_THRESHOLD, SLOW_RUN_THRESHOLD,
+    WATCHER_CONFIG_FILE_NAME,
+};
 pub use indexer::{HsEventProcessor, KeyBasedEventProcessor, RunError, TEventProcessor};
 pub use runner::{HsEventProcessorRunner, KeyBasedEventProcessorRunner, TEventProcessorRunner};
 pub(crate) use task_runner::{run_periodic_tasks, PeriodicTask};

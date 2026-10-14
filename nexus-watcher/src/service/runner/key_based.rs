@@ -1,4 +1,4 @@
-use super::{TEventProcessorRunner, UserNotFoundBackoff};
+use super::{TEventProcessorRunner, UserNotFoundBackoff, UserResumePoints};
 use crate::events::retry::RetryScheduler;
 use crate::events::{DefaultEventHandler, EventHandler};
 use crate::service::indexer::{
@@ -15,6 +15,7 @@ use opentelemetry::global;
 use opentelemetry::metrics::{Gauge, Meter};
 use pubky_app_specs::PubkyId;
 use std::sync::{Arc, LazyLock};
+use std::time::Duration;
 use tokio::sync::{watch::Receiver, Mutex};
 use tracing::{debug, info, warn};
 
@@ -88,6 +89,12 @@ pub struct KeyBasedEventProcessorRunner {
 
     pub user_not_found_backoff: Arc<UserNotFoundBackoff>,
 
+    pub user_resume_points: Arc<UserResumePoints>,
+
+    /// How long each processor run may spend on its homeserver, see
+    /// [`KeyBasedEventProcessor::budget`]
+    pub budget: Duration,
+
     /// Scheduler shared with every processor this runner builds
     pub retry_scheduler: Arc<RetryScheduler>,
 }
@@ -108,6 +115,8 @@ impl KeyBasedEventProcessorRunner {
                 config.max_backoff_secs,
             )),
             user_not_found_backoff: Arc::new(UserNotFoundBackoff::default()),
+            user_resume_points: Arc::new(UserResumePoints::default()),
+            budget: KEY_BASED_RUN_BUDGET,
             retry_scheduler: Arc::new(RetryScheduler::from_config(config)),
         }
     }
@@ -143,10 +152,11 @@ impl TEventProcessorRunner for KeyBasedEventProcessorRunner {
             event_handler: self.event_handler.clone(),
             event_source: self.event_source.clone(),
             user_not_found_backoff: self.user_not_found_backoff.clone(),
+            user_resume_points: self.user_resume_points.clone(),
             retry_scheduler: self.retry_scheduler.clone(),
             hs_blacklist: self.hs_blacklist.clone(),
             shutdown_rx: self.shutdown_rx.clone(),
-            budget: KEY_BASED_RUN_BUDGET,
+            budget: self.budget,
         }))
     }
 
@@ -183,6 +193,7 @@ impl TEventProcessorRunner for KeyBasedEventProcessorRunner {
         let count_ok = stats.count_ok();
         let count_error = stats.count_error();
         let count_panic = stats.count_panic();
+        let count_budget_spent = stats.count_budget_spent();
         let count_failed_to_build = stats.count_failed_to_build();
         let count_skipped = stats.count_skipped();
 
@@ -190,7 +201,7 @@ impl TEventProcessorRunner for KeyBasedEventProcessorRunner {
         // always has a denominator in force.
         EXTERNAL_HS_METRICS.record_run(self.monitored_hs_limit, stats.stats.len() - count_skipped);
 
-        let had_issues = count_error + count_panic + count_failed_to_build > 0;
+        let had_issues = count_error + count_panic + count_budget_spent + count_failed_to_build > 0;
 
         if had_issues {
             warn!(
@@ -199,6 +210,7 @@ impl TEventProcessorRunner for KeyBasedEventProcessorRunner {
                 hs_failed_to_build = count_failed_to_build,
                 hs_error = count_error,
                 hs_panic = count_panic,
+                hs_budget_spent = count_budget_spent,
                 "Key-based indexing finished with issues"
             );
         } else if count_skipped > 0 {

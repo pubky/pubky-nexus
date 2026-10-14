@@ -21,6 +21,8 @@ pub(super) const METER_NAME: &str = "nexus.watcher";
 pub enum RunError {
     Internal(EventProcessorError),
     Panicked,
+    /// The run stopped at its budget, see [`EventProcessorError::RunBudgetSpent`]
+    BudgetSpent,
 }
 
 impl RunError {
@@ -36,6 +38,7 @@ impl Display for RunError {
         match self {
             RunError::Internal(err) => write!(f, "Internal error: {err}"),
             RunError::Panicked => write!(f, "Execution panicked"),
+            RunError::BudgetSpent => write!(f, "Run budget spent"),
         }
     }
 }
@@ -73,8 +76,9 @@ pub trait TEventProcessor: Send + Sync + 'static {
 
     /// Runs [`Self::run_internal`] on its own task, and waits for it to end.
     ///
-    /// A run that takes longer than [`Self::slow_run_threshold`] is logged as slow, once, and
-    /// still waited for: it is not stopped, so the next run cannot start next to it.
+    /// A run that takes longer than [`Self::slow_run_threshold`] is logged as slow, again after
+    /// each further threshold, and still waited for: it is not stopped, so the next run cannot
+    /// start next to it. A run that never returns therefore holds up its loop for good.
     async fn run(self: Arc<Self>) -> Result<(), RunError> {
         let slow_run_threshold = self.slow_run_threshold().unwrap_or(SLOW_RUN_THRESHOLD);
 
@@ -86,18 +90,18 @@ pub trait TEventProcessor: Send + Sync + 'static {
             service = %instance_name,
             homeserver,
         );
+        let started = tokio::time::Instant::now();
         let mut handle = tokio::spawn(self.run_internal().instrument(span));
 
-        let join_result = match tokio::time::timeout(slow_run_threshold, &mut handle).await {
-            Ok(join_result) => join_result,
-            Err(_) => {
-                warn!(
+        let join_result = loop {
+            match tokio::time::timeout(slow_run_threshold, &mut handle).await {
+                Ok(join_result) => break join_result,
+                Err(_) => warn!(
                     service = %instance_name,
                     homeserver,
-                    threshold_secs = slow_run_threshold.as_secs(),
+                    running_for_secs = started.elapsed().as_secs(),
                     "Event processor run is slow; waiting for it to finish"
-                );
-                handle.await
+                ),
             }
         };
 
@@ -119,16 +123,18 @@ pub trait TEventProcessor: Send + Sync + 'static {
             })
             .map_err(|_| RunError::Panicked)?;
 
-        run_internal_result
-            .inspect_err(|e| {
+        run_internal_result.map_err(|e| match e {
+            EventProcessorError::RunBudgetSpent => RunError::BudgetSpent,
+            e => {
                 error!(
                     service = %instance_name,
                     homeserver,
                     error = ?e,
                     "Event processor failed"
-                )
-            })
-            .map_err(RunError::Internal)
+                );
+                RunError::Internal(e)
+            }
+        })
     }
 
     /// Runs the event processor asynchronously.

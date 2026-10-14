@@ -22,8 +22,9 @@ use tracing::{debug, error, info, warn};
 use super::TEventProcessor;
 use crate::events::retry::RetryScheduler;
 use crate::events::EventHandler;
-use crate::service::runner::UserNotFoundBackoff;
+use crate::service::runner::{UserNotFoundBackoff, UserResumePoints};
 use crate::service::user_hs_resolver;
+use crate::service::KEY_BASED_SLOW_RUN_THRESHOLD;
 
 const FETCH_EVENTS_429_BACKOFF_SECS: [u64; 3] = [1, 2, 3];
 
@@ -128,9 +129,14 @@ pub struct KeyBasedEventProcessor {
 
     pub shutdown_rx: Receiver<bool>,
 
+    /// Where this homeserver's runs start, so a run that stops at its budget leaves the next
+    /// run the users it did not reach
+    pub user_resume_points: Arc<UserResumePoints>,
+
     /// How long a run may spend on this homeserver, so it cannot hold up the other
     /// homeservers of the external loop. Once spent, the run stops after the event in
-    /// progress, keeps the cursors it reached, and starts no other user; it still ends `Ok`.
+    /// progress, keeps the cursors it reached, starts no other user, and ends with
+    /// [`EventProcessorError::RunBudgetSpent`].
     pub budget: Duration,
 }
 
@@ -165,7 +171,7 @@ impl TEventProcessor for KeyBasedEventProcessor {
         let hs_pk = self.homeserver_id.to_public_key();
         let deadline = Instant::now() + self.budget;
 
-        let users = self
+        let mut users = self
             .resolve_users_with_cursors()
             .await
             .inspect_err(|e| error!(error = ?e, "Failed to resolve users"))?;
@@ -176,11 +182,12 @@ impl TEventProcessor for KeyBasedEventProcessor {
         }
 
         info!(user_count = users.len(), "Found users");
+        self.user_resume_points.order(&hs_id, &mut users).await;
 
         for (index, (user_pk, cursor)) in users.iter().enumerate() {
             if *self.shutdown_rx.borrow() {
                 debug!("Shutdown detected; stopping user iteration");
-                break;
+                return Ok(());
             }
             // Checked from the second user on, so a run makes progress even when finding its
             // users spent the budget.
@@ -189,9 +196,10 @@ impl TEventProcessor for KeyBasedEventProcessor {
                     action = "stop_hs",
                     budget_secs = self.budget.as_secs(),
                     users_left = users.len() - index,
-                    "Run budget spent; leaving the remaining users to the next run",
+                    "Run budget spent; the next run starts from this user",
                 );
-                break;
+                self.user_resume_points.record_stop(&hs_id, user_pk).await;
+                return Err(EventProcessorError::RunBudgetSpent);
             }
             let user_id = user_pk.z32();
 
@@ -232,7 +240,12 @@ impl TEventProcessor for KeyBasedEventProcessor {
             }
         }
 
+        self.user_resume_points.record_full_pass(&hs_id).await;
         Ok(())
+    }
+
+    fn slow_run_threshold(&self) -> Option<Duration> {
+        Some(KEY_BASED_SLOW_RUN_THRESHOLD)
     }
 }
 

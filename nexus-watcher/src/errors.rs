@@ -71,6 +71,11 @@ pub enum EventProcessorError {
     #[error("HsEventsStreamServerError: {0}")]
     HsEventsStreamServerError(String),
 
+    /// Not a failure: an external homeserver's run spent its budget and stopped, keeping the
+    /// cursors it reached. The runner reports it apart, and backs the homeserver off.
+    #[error("RunBudgetSpent")]
+    RunBudgetSpent,
+
     /// The HS is blacklisted and must not be indexed.
     #[error("HsBlacklisted: {hs_id}")]
     HsBlacklisted { hs_id: String },
