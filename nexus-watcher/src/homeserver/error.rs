@@ -8,10 +8,11 @@ use super::fetch::{format_error_body, MAX_ERROR_BODY};
 
 /// A failed [`HomeserverClient`](super::HomeserverClient) call.
 #[derive(Debug, Clone, thiserror::Error)]
-#[error("homeserver {hs} {op:?}: {kind}")]
+#[error("{op:?} {hs}: {kind}")]
 pub struct HsError {
-    /// ID of the homeserver the call was charged to. Not a [`PubkyId`], which also holds
-    /// the decoded key and would make every error several times larger.
+    /// ID of the homeserver the call went to, or for a resource or blob, its owner's key.
+    /// Not a [`PubkyId`], which also holds the decoded key and would make every error
+    /// several times larger.
     pub hs: String,
     pub op: HsOp,
     pub kind: HsErrorKind,

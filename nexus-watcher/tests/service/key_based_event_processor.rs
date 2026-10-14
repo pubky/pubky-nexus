@@ -756,7 +756,7 @@ async fn key_based_processor_continues_after_retryable_fetch_error() -> Result<(
     let source = Arc::new(MockHomeserverClient::default().with_user_results(vec![
         (
             user_a_id.clone(),
-            Err(HsErrorKind::malformed("bad user stream")),
+            Err(HsErrorKind::Rejected(400, "bad request".into())),
         ),
         (
             user_b_id.clone(),

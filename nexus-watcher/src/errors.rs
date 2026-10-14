@@ -197,10 +197,6 @@ impl EventProcessorError {
         Self::InternalError(source.to_string())
     }
 
-    pub fn hs_transport_failed(source: impl Display) -> Self {
-        Self::HsEventsStreamTransportFailed(source.to_string())
-    }
-
     /// Returns whether processing should stop and this error should be propagated
     /// to the caller instead of being handled as an isolated event.
     ///
@@ -243,22 +239,6 @@ impl EventProcessorError {
         matches!(
             self,
             Self::PubkyClientError(e) if matches!(e.as_ref(), PubkyClientError::NotFound404 { .. })
-        )
-    }
-
-    /// Returns whether this error is a 5xx from the Pubky client, i.e. the homeserver
-    /// itself failing rather than this user's fetch.
-    pub fn is_server_error(&self) -> bool {
-        matches!(
-            self,
-            Self::PubkyClientError(e) if matches!(e.as_ref(), PubkyClientError::ServerError5xx { .. })
-        )
-    }
-
-    pub fn is_too_many_requests(&self) -> bool {
-        matches!(
-            self,
-            Self::PubkyClientError(e) if matches!(e.as_ref(), PubkyClientError::TooManyRequests429 { .. })
         )
     }
 
@@ -348,11 +328,15 @@ mod tests {
             assert!(RetryScheduler::should_enqueue_related_event(&err) || err.is_not_found());
         }
 
+        let server_error = hs_error(HsOp::GetResource, HsErrorKind::ServerError(500, "".into()));
         assert!(
-            hs_error(HsOp::GetResource, HsErrorKind::ServerError(500, "".into())).is_server_error()
+            matches!(&server_error, EventProcessorError::PubkyClientError(e) if matches!(e.as_ref(), PubkyClientError::ServerError5xx { .. })),
+            "{server_error:?}"
         );
+        let rate_limited = hs_error(HsOp::PollEvents, HsErrorKind::RateLimited("".into()));
         assert!(
-            hs_error(HsOp::PollEvents, HsErrorKind::RateLimited("".into())).is_too_many_requests()
+            matches!(&rate_limited, EventProcessorError::PubkyClientError(e) if matches!(e.as_ref(), PubkyClientError::TooManyRequests429 { .. })),
+            "{rate_limited:?}"
         );
         assert!(hs_error(HsOp::UserEvents, HsErrorKind::NotFound("".into())).is_not_found());
     }
@@ -370,7 +354,7 @@ mod tests {
     #[test]
     fn message_names_the_homeserver_and_the_status() {
         let err = hs_error(
-            HsOp::GetResource,
+            HsOp::PollEvents,
             HsErrorKind::ServerError(502, "bad gateway".into()),
         );
 

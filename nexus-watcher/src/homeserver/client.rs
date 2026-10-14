@@ -79,9 +79,9 @@ impl Deadline {
 
 /// Every HTTP call the watcher makes to a homeserver.
 ///
-/// A call is charged to one homeserver: `hs`, the one the caller polls, or for a resource
-/// or blob, the one its owner publishes. `deadline` is absolute. [`PubkyHomeserverClient`]
-/// does not enforce it yet.
+/// A failure is labelled with `hs`, the homeserver the caller polls, or for a resource or
+/// blob with its owner's key, until the health work charges such calls to a homeserver.
+/// `deadline` is absolute. [`PubkyHomeserverClient`] does not enforce it yet.
 #[async_trait::async_trait]
 pub trait HomeserverClient: Send + Sync + 'static {
     /// Primary-style `GET /events/?cursor=&limit=`. Returns the raw lines, the
@@ -263,9 +263,7 @@ impl HomeserverClient for PubkyHomeserverClient {
         limit: u16,
         _deadline: Instant,
     ) -> Result<Vec<HsStreamEvent>, HsError> {
-        retry_rate_limited(user, || self.fetch_user_events(hs, user, cursor, limit))
-            .await
-            .map_err(|kind| HsError::new(hs, HsOp::UserEvents, kind))
+        user_events_with(hs, user, || self.fetch_user_events(hs, user, cursor, limit)).await
     }
 
     async fn get_resource(
@@ -289,6 +287,22 @@ impl HomeserverClient for PubkyHomeserverClient {
     fn health(&self) -> &HomeserverHealth {
         &self.health
     }
+}
+
+/// Fetches a user's events with `fetch`, retrying while rate limited, and labels a failure
+/// as the `/events-stream` request's, which decides that it stops the homeserver's run.
+async fn user_events_with<F, Fut>(
+    hs: &PubkyId,
+    user: &PublicKey,
+    fetch: F,
+) -> Result<Vec<HsStreamEvent>, HsError>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<Vec<HsStreamEvent>, HsErrorKind>>,
+{
+    retry_rate_limited(user, fetch)
+        .await
+        .map_err(|kind| HsError::new(hs, HsOp::UserEvents, kind))
 }
 
 /// Calls `fetch` and, while it is rate limited, again after each of
@@ -527,6 +541,37 @@ mod tests {
             .unwrap_err();
 
         assert!(matches!(kind, HsErrorKind::Transport(_)), "{kind:?}");
+    }
+
+    // --- user_events_with ---
+
+    /// A 5xx or a transport failure on the `/events-stream` request stops the homeserver's
+    /// run, unlike the same failure on a file fetch.
+    #[tokio::test]
+    async fn user_event_stream_failures_stop_the_run() {
+        let user = pubky::Keypair::random().public_key();
+        for kind in [
+            HsErrorKind::ServerError(530, "".into()),
+            HsErrorKind::transport("connection reset"),
+        ] {
+            let error = user_events_with(&hs_id(), &user, || {
+                let kind = kind.clone();
+                async move { Err(kind) }
+            })
+            .await
+            .unwrap_err();
+
+            let error = crate::errors::EventProcessorError::from(error);
+            assert!(
+                matches!(
+                    error,
+                    crate::errors::EventProcessorError::HsEventsStreamServerError(_)
+                        | crate::errors::EventProcessorError::HsEventsStreamTransportFailed(_)
+                ),
+                "{error:?}"
+            );
+            assert!(error.should_not_retry_now(), "{error:?}");
+        }
     }
 
     // --- retry_rate_limited ---
