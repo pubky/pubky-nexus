@@ -1,9 +1,10 @@
 // Web of Trust test fixture. Kept inert against the global timeline/engagement/
 // hot-tags/influencer suites: post indexed_at far below every window start, zero
-// engagement on stream posts (except btc1's WOTPOSTBTC1A, tagged for the trust
-// filter tests: the filter keeps it out of the global sets while trust.cypher
-// leaves btc1 unranked), the mod-bot post is a reply, tag labels unique with
-// year-2008 timestamps. Topology is in the MERGE blocks below (O = observer;
+// engagement on stream posts (except D1's WOTPOSTD10002, which D2's reply
+// engages, and btc1's WOTPOSTBTC1A, tagged for the trust filter tests: the
+// filter keeps it out of the global sets while trust.cypher leaves btc1
+// unranked), the mod-bot post is a reply, tag labels unique with year-2008
+// timestamps. Topology is in the MERGE blocks below (O = observer;
 // S = spammer with no inbound follows; M = mod bot; BTC*/ART1 = domain-tag targets).
 // Fixture user ids deliberately sort high so they stay out of the zero-score,
 // id-ordered window the global-influencer suite asserts over (lower ids would evict
