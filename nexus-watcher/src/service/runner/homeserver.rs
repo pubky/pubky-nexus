@@ -1,4 +1,4 @@
-use super::{InFlightRuns, TEventProcessorRunner};
+use super::TEventProcessorRunner;
 use crate::events::retry::RetryScheduler;
 use crate::events::{DefaultEventHandler, EventHandler};
 use crate::service::indexer::{HsEventProcessor, TEventProcessor};
@@ -23,9 +23,6 @@ pub struct HsEventProcessorRunner {
 
     /// Scheduler shared with every processor this runner builds
     pub retry_scheduler: Arc<RetryScheduler>,
-
-    /// See [TEventProcessorRunner::in_flight]
-    pub in_flight: InFlightRuns,
 }
 
 impl HsEventProcessorRunner {
@@ -37,7 +34,6 @@ impl HsEventProcessorRunner {
             shutdown_rx,
             primary_homeserver: config.homeserver.clone(),
             retry_scheduler: Arc::new(RetryScheduler::from_config(config)),
-            in_flight: InFlightRuns::default(),
         }
     }
 
@@ -50,10 +46,6 @@ impl HsEventProcessorRunner {
 impl TEventProcessorRunner for HsEventProcessorRunner {
     fn shutdown_rx(&self) -> Receiver<bool> {
         self.shutdown_rx.clone()
-    }
-
-    fn in_flight(&self) -> &InFlightRuns {
-        &self.in_flight
     }
 
     /// Creates and returns a new event processor instance for the specified homeserver

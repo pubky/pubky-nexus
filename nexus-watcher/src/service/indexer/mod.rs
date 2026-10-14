@@ -10,7 +10,6 @@ use crate::errors::EventProcessorError;
 use crate::events::retry::RetryScheduler;
 use crate::events::EventHandler;
 use crate::events::{Event, ParseResult};
-use crate::service::runner::InFlightRun;
 use crate::service::PROCESSING_TIMEOUT_SECS;
 use tracing::{debug, error, trace, warn, Instrument};
 
@@ -22,16 +21,11 @@ pub(super) const METER_NAME: &str = "nexus.watcher";
 pub enum RunError {
     Internal(EventProcessorError),
     Panicked,
-    TimedOut,
 }
 
 impl RunError {
     pub fn is_panic(&self) -> bool {
         matches!(self, RunError::Panicked)
-    }
-
-    pub fn is_timeout(&self) -> bool {
-        matches!(self, RunError::TimedOut)
     }
 }
 
@@ -42,7 +36,6 @@ impl Display for RunError {
         match self {
             RunError::Internal(err) => write!(f, "Internal error: {err}"),
             RunError::Panicked => write!(f, "Execution panicked"),
-            RunError::TimedOut => write!(f, "Execution timed out"),
         }
     }
 }
@@ -78,18 +71,11 @@ pub trait TEventProcessor: Send + Sync + 'static {
         None
     }
 
-    /// Runs [`Self::run_internal`] on its own task, under [`Self::custom_timeout`].
+    /// Runs [`Self::run_internal`] on its own task, and waits for it to end.
     ///
-    /// A run that times out is not cancelled: its task goes on, and this returns
-    /// [`RunError::TimedOut`] at once. See [`Self::run_holding`] to keep the next run from
-    /// starting next to it.
+    /// A run that takes longer than [`Self::custom_timeout`] is logged as slow, once, and still
+    /// waited for: it is not stopped, so the next run cannot start next to it.
     async fn run(self: Arc<Self>) -> Result<(), RunError> {
-        self.run_holding(None).await
-    }
-
-    /// Like [`Self::run`], with `mark` held by the run's task. It is released when the run
-    /// ends, which for a timed-out run is after this returns.
-    async fn run_holding(self: Arc<Self>, mark: Option<InFlightRun>) -> Result<(), RunError> {
         let timeout = self
             .custom_timeout()
             .unwrap_or(Duration::from_secs(PROCESSING_TIMEOUT_SECS));
@@ -102,22 +88,20 @@ pub trait TEventProcessor: Send + Sync + 'static {
             service = %instance_name,
             homeserver,
         );
-        let run = self.run_internal().instrument(span);
-        let handle = tokio::spawn(async move {
-            let _mark = mark;
-            run.await
-        });
+        let mut handle = tokio::spawn(self.run_internal().instrument(span));
 
-        let join_result = tokio::time::timeout(timeout, handle)
-            .await
-            .inspect_err(|_| {
-                error!(
+        let join_result = match tokio::time::timeout(timeout, &mut handle).await {
+            Ok(join_result) => join_result,
+            Err(_) => {
+                warn!(
                     service = %instance_name,
                     homeserver,
-                    "Event processor timed out; the run goes on in the background"
-                )
-            })
-            .map_err(|_| RunError::TimedOut)?;
+                    timeout_secs = timeout.as_secs(),
+                    "Event processor run is past its timeout; waiting for it to finish"
+                );
+                handle.await
+            }
+        };
 
         // The JoinError can be:
         // - join_error.is_panic() => panic by the inner future
@@ -154,9 +138,10 @@ pub trait TEventProcessor: Send + Sync + 'static {
     /// Returns `Ok(())` on a clean exit, or `Err(EventProcessorError)` on failure.
     async fn run_internal(self: Arc<Self>) -> Result<(), EventProcessorError>;
 
-    /// Optional custom timeout for this event processor.
+    /// How long a run of this event processor may take before it is logged as slow.
     ///
-    /// If not set, the [`PROCESSING_TIMEOUT_SECS`] is applied.
+    /// If not set, the [`PROCESSING_TIMEOUT_SECS`] is applied. The run is not stopped: the
+    /// caller waits for it to finish.
     fn custom_timeout(&self) -> Option<Duration> {
         None
     }

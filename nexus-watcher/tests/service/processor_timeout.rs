@@ -1,5 +1,4 @@
-//! A processor run that exceeds its timeout is not cancelled: it finishes in the background,
-//! holding its in-flight mark until it does.
+//! A processor run that outlives its timeout is waited for, not left running in the background.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -8,12 +7,12 @@ use std::time::Duration;
 use anyhow::Result;
 use nexus_watcher::errors::EventProcessorError;
 use nexus_watcher::events::EventHandler;
-use nexus_watcher::service::indexer::{RunError, TEventProcessor};
-use nexus_watcher::service::runner::InFlightRuns;
+use nexus_watcher::service::indexer::TEventProcessor;
+use tokio::time::Instant;
 
 use crate::service::utils::create_mock_handler;
 
-/// Processor that takes `work` to process its batch, under a deadline of `timeout`.
+/// Processor that takes `work` to process its batch, under a timeout of `timeout`.
 struct SlowBatch {
     handler: Arc<dyn EventHandler>,
     work: Duration,
@@ -42,12 +41,11 @@ impl TEventProcessor for SlowBatch {
     }
 }
 
-/// A timed-out run returns `TimedOut` at once, then finishes its work in the background, so
-/// a batch that takes longer than the deadline still completes. Its mark is held until then,
-/// which keeps the next run for its homeserver from starting next to it.
-#[tokio_shared_rt::test(shared)]
-async fn test_timed_out_run_finishes_in_the_background() -> Result<()> {
-    let runs = InFlightRuns::default();
+/// `run` returns only once the run has finished its work, with its result, even when the
+/// work takes longer than the timeout. A caller that starts the next run after `run`
+/// returned therefore never runs a homeserver twice at once.
+#[tokio::test(start_paused = true)]
+async fn test_run_past_its_timeout_is_waited_for() -> Result<()> {
     let finished = Arc::new(AtomicUsize::new(0));
     let processor = Arc::new(SlowBatch {
         handler: create_mock_handler(Ok(()), None),
@@ -56,26 +54,15 @@ async fn test_timed_out_run_finishes_in_the_background() -> Result<()> {
         finished: finished.clone(),
     });
 
-    let mark = runs.try_start("hs").expect("nothing runs yet");
-    let result = processor.run_holding(Some(mark)).await;
+    let started = Instant::now();
+    let result = processor.run().await;
 
-    assert!(matches!(result, Err(RunError::TimedOut)), "got {result:?}");
-    assert_eq!(finished.load(Ordering::SeqCst), 0);
-    assert!(
-        runs.try_start("hs").is_err(),
-        "the timed-out run must still hold its mark"
-    );
-
-    // Long enough for the run to finish its work.
-    tokio::time::sleep(Duration::from_millis(600)).await;
+    assert!(result.is_ok(), "got {result:?}");
     assert_eq!(
         finished.load(Ordering::SeqCst),
         1,
-        "the timed-out run must finish its work"
+        "run must return only once the work is done"
     );
-    assert!(
-        runs.try_start("hs").is_ok(),
-        "the mark must be released once the run ends"
-    );
+    assert!(started.elapsed() >= Duration::from_millis(400));
     Ok(())
 }

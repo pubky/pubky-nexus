@@ -8,13 +8,12 @@ pub use key_based::KeyBasedEventProcessorRunner;
 pub use key_based_hs_backoff::HomeserverBackoff;
 pub use key_based_user_backoff::UserNotFoundBackoff;
 
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use nexus_common::types::DynError;
 use tokio::sync::watch::Receiver;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info};
 
 use crate::service::{
     indexer::{RunError, TEventProcessor},
@@ -26,54 +25,6 @@ pub fn status_from_run_result(result: Result<(), RunError>) -> ProcessorRunStatu
         Ok(_) => ProcessorRunStatus::Ok,
         Err(RunError::Internal(_)) => ProcessorRunStatus::Error,
         Err(RunError::Panicked) => ProcessorRunStatus::Panic,
-        Err(RunError::TimedOut) => ProcessorRunStatus::Timeout,
-    }
-}
-
-/// Runs in progress, by homeserver ID.
-///
-/// A processor run that outlives its timeout is left to finish on its own task, and the mark
-/// [`Self::try_start`] hands out goes with it (see [`TEventProcessor::run_holding`]). So
-/// [`TEventProcessorRunner::run`] skips a homeserver until its previous run has ended, rather
-/// than starting a second one from the same cursor next to it.
-///
-/// Nothing ends a run past its timeout, so a run that never returns keeps its homeserver
-/// skipped until restart. The skip is logged at warn level with how long the run has been
-/// going, to make that visible.
-#[derive(Default, Clone)]
-pub struct InFlightRuns(Arc<Mutex<HashMap<String, Instant>>>);
-
-impl InFlightRuns {
-    /// Marks a run for `key` as started. If one is still in progress, returns how long it
-    /// has been going instead. The mark is cleared when the returned [`InFlightRun`] is
-    /// dropped.
-    pub fn try_start(&self, key: &str) -> Result<InFlightRun, Duration> {
-        let mut runs = self.0.lock().unwrap_or_else(PoisonError::into_inner);
-        if let Some(started) = runs.get(key) {
-            return Err(started.elapsed());
-        }
-        runs.insert(key.to_string(), Instant::now());
-
-        Ok(InFlightRun {
-            runs: self.clone(),
-            key: key.to_string(),
-        })
-    }
-}
-
-/// A run in progress, see [`InFlightRuns::try_start`].
-pub struct InFlightRun {
-    runs: InFlightRuns,
-    key: String,
-}
-
-impl Drop for InFlightRun {
-    fn drop(&mut self) {
-        self.runs
-            .0
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .remove(&self.key);
     }
 }
 
@@ -86,9 +37,6 @@ impl Drop for InFlightRun {
 pub trait TEventProcessorRunner: Send + Sync {
     /// Returns the shutdown signal receiver
     fn shutdown_rx(&self) -> Receiver<bool>;
-
-    /// Returns the homeservers this runner has a run in progress for
-    fn in_flight(&self) -> &InFlightRuns;
 
     /// Creates and returns a new event processor instance for the specified homeserver.
     ///
@@ -108,11 +56,10 @@ pub trait TEventProcessorRunner: Send + Sync {
     /// Determines the list of target HS IDs to process in this run cycle, ordered by priority.
     ///
     /// The list is not truncated here: [`Self::poll_limit`] is applied in [`Self::run`], after
-    /// the HS IDs in backoff, or with a run still going, are skipped.
+    /// the HS IDs in backoff are skipped.
     async fn pre_run(&self) -> Result<Vec<String>, DynError>;
 
-    /// Maximum number of HS IDs built and run per cycle. HS IDs skipped, in backoff or with a
-    /// run still going, don't count.
+    /// Maximum number of HS IDs built and run per cycle. HS IDs skipped by backoff don't count.
     ///
     /// No limit by default. Runners that cap the targets per run should overwrite this.
     fn poll_limit(&self) -> usize {
@@ -152,27 +99,10 @@ pub trait TEventProcessorRunner: Send + Sync {
                 continue;
             }
 
-            // A run is still going only once it outlived its timeout: until then, this loop
-            // waits for it.
-            let in_flight = match self.in_flight().try_start(&hs_id) {
-                Ok(in_flight) => in_flight,
-                Err(running_for) => {
-                    warn!(
-                        homeserver = %hs_id,
-                        running_for_secs = running_for.as_secs(),
-                        "Skipping homeserver: its timed-out run is still going"
-                    );
-                    run_stats.add_run_result(hs_id, Duration::ZERO, ProcessorRunStatus::Skipped);
-                    continue;
-                }
-            };
-
             polled += 1;
             let t0 = Instant::now();
             let status = match self.build(&hs_id).await {
-                Ok(event_processor) => {
-                    status_from_run_result(event_processor.run_holding(Some(in_flight)).await)
-                }
+                Ok(event_processor) => status_from_run_result(event_processor.run().await),
                 Err(e) => {
                     error!(homeserver = %hs_id, error = %e, "Failed to build event processor");
                     ProcessorRunStatus::FailedToBuild
@@ -215,7 +145,6 @@ mod tests {
         built: Mutex<Vec<String>>,
         /// The processor every build returns. Builds fail unless it is set.
         processor: Option<Arc<SlowProcessor>>,
-        in_flight: InFlightRuns,
         shutdown_rx: Receiver<bool>,
     }
 
@@ -227,14 +156,12 @@ mod tests {
                 backoff: Mutex::new(HomeserverBackoff::default()),
                 built: Mutex::new(vec![]),
                 processor: None,
-                in_flight: InFlightRuns::default(),
                 shutdown_rx: tokio::sync::watch::channel(false).1,
             }
         }
 
-        /// Builds return one processor, whose runs take `work` (forever if `None`) under a
-        /// deadline of `timeout`.
-        fn with_processors_taking(mut self, work: Option<Duration>, timeout: Duration) -> Self {
+        /// Builds return one processor, whose runs take `work` under a timeout of `timeout`.
+        fn with_processors_taking(mut self, work: Duration, timeout: Duration) -> Self {
             self.processor = Some(Arc::new(SlowProcessor::new(work, timeout)));
             self
         }
@@ -244,10 +171,6 @@ mod tests {
     impl TEventProcessorRunner for RecordingRunner {
         fn shutdown_rx(&self) -> Receiver<bool> {
             self.shutdown_rx.clone()
-        }
-
-        fn in_flight(&self) -> &InFlightRuns {
-            &self.in_flight
         }
 
         async fn build(&self, hs_id: &str) -> Result<Arc<dyn TEventProcessor>, DynError> {
@@ -292,100 +215,22 @@ mod tests {
         assert_eq!(stats.count_failed_to_build(), 2);
     }
 
-    /// A homeserver skipped behind its still-running timed-out run does not use up a poll
-    /// slot either, so it cannot push a lower-priority homeserver out of the cycle.
-    #[tokio::test]
-    async fn in_flight_homeservers_do_not_use_up_the_poll_limit() {
-        let runner = RecordingRunner::new(&["hs1", "hs2", "hs3"], 2);
-        let _running = runner.in_flight.try_start("hs1").expect("nothing runs yet");
-
-        let ProcessedStats(stats) = runner.run().await.unwrap();
-
-        assert_eq!(*runner.built.lock().await, ["hs2", "hs3"]);
-        assert_eq!(stats.count_skipped(), 1);
-    }
-
-    /// A skip learns how long the run in progress has been going, counted from its start
-    /// rather than from the previous skip, which is what the warning reports.
-    #[test]
-    fn try_start_reports_how_long_the_run_has_been_going() {
-        let runs = InFlightRuns::default();
-        let run = runs.try_start("hs1").expect("nothing runs yet");
-
-        std::thread::sleep(Duration::from_millis(100));
-        let first = runs.try_start("hs1").err().expect("hs1 is running");
-        assert!(first >= Duration::from_millis(100), "{first:?}");
-
-        std::thread::sleep(Duration::from_millis(100));
-        let second = runs.try_start("hs1").err().expect("hs1 is still running");
-        assert!(second >= Duration::from_millis(200), "{second:?}");
-
-        drop(run);
-        assert!(runs.try_start("hs1").is_ok());
-    }
-
     /// Back-to-back ticks, as the periodic task runs them, never run one homeserver twice at
-    /// once, even when its run outlives the timeout: the second tick must not start a run next
-    /// to the timed-out one.
-    #[tokio::test]
+    /// once, even when its run outlives the timeout: the tick waits for the run to end.
+    #[tokio::test(start_paused = true)]
     async fn a_homeserver_never_runs_twice_at_once() {
         let runner = RecordingRunner::new(&["hs1"], usize::MAX)
-            .with_processors_taking(Some(Duration::from_millis(300)), Duration::from_millis(50));
+            .with_processors_taking(Duration::from_millis(300), Duration::from_millis(50));
 
-        runner.run().await.unwrap();
-        runner.run().await.unwrap();
-        // Long enough for every run to finish.
-        tokio::time::sleep(Duration::from_millis(700)).await;
+        let ProcessedStats(first) = runner.run().await.unwrap();
+        let ProcessedStats(second) = runner.run().await.unwrap();
 
         let processor = runner.processor.as_ref().expect("set above");
         assert_eq!(processor.peak(), 1, "two runs of hs1 were going at once");
-    }
-
-    /// A run that outlives its timeout goes on in the background, and its homeserver is
-    /// skipped until that run ends, rather than run a second time next to it.
-    #[tokio::test]
-    async fn homeserver_is_skipped_until_its_timed_out_run_ends() {
-        let runner = RecordingRunner::new(&["hs1"], usize::MAX)
-            .with_processors_taking(Some(Duration::from_millis(300)), Duration::from_millis(50));
-
-        let ProcessedStats(first) = runner.run().await.unwrap();
-        assert_eq!(first.count_timeout(), 1);
-
-        let ProcessedStats(second) = runner.run().await.unwrap();
         assert_eq!(
-            second.count_skipped(),
-            1,
-            "the timed-out run is still going"
+            first.count_ok() + second.count_ok(),
+            2,
+            "both runs finished"
         );
-        assert_eq!(*runner.built.lock().await, ["hs1"]);
-
-        tokio::time::sleep(Duration::from_millis(400)).await;
-        let ProcessedStats(third) = runner.run().await.unwrap();
-        assert_eq!(
-            third.count_timeout(),
-            1,
-            "the homeserver runs once that run ended"
-        );
-        assert_eq!(*runner.built.lock().await, ["hs1", "hs1"]);
-    }
-
-    /// Nothing ends a run past its timeout, so a run that never returns keeps its homeserver
-    /// skipped, well after the deadline.
-    #[tokio::test]
-    async fn homeserver_stays_skipped_while_its_run_never_returns() {
-        let runner = RecordingRunner::new(&["hs1"], usize::MAX)
-            .with_processors_taking(None, Duration::from_millis(50));
-
-        let ProcessedStats(first) = runner.run().await.unwrap();
-        assert_eq!(first.count_timeout(), 1);
-
-        tokio::time::sleep(Duration::from_millis(200)).await;
-        let ProcessedStats(later) = runner.run().await.unwrap();
-        assert_eq!(
-            later.count_skipped(),
-            1,
-            "the run that never returns still holds its mark"
-        );
-        assert_eq!(*runner.built.lock().await, ["hs1"]);
     }
 }

@@ -25,16 +25,15 @@ async fn test_mock_event_processors() -> Result<(), DynError> {
     let ev_processor_2_res = ev_processor_2.run().await;
     assert!(ev_processor_2_res.is_err() && ev_processor_2_res.unwrap_err().is_panic());
 
-    // Test timeout scenarios
+    // A run past its timeout is waited for, and succeeds
     let ev_processor_3 = runner.build(HS_IDS[3]).await?;
-    let ev_processor_3_res = ev_processor_3.run().await;
-    assert!(ev_processor_3_res.is_err() && ev_processor_3_res.unwrap_err().is_timeout());
+    assert!(
+        ev_processor_3.run().await.is_ok(),
+        "Event processor should be waited for past its timeout"
+    );
 
     let ev_processor_4 = runner.build(HS_IDS[4]).await?;
-    assert!(
-        ev_processor_4.run().await.is_ok(),
-        "Event processor should not timeout"
-    );
+    assert!(ev_processor_4.run().await.is_ok());
 
     Ok(())
 }

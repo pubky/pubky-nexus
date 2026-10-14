@@ -6,7 +6,6 @@ pub enum ProcessorRunStatus {
     Ok,
     Error,
     Panic,
-    Timeout,
     Skipped,
 }
 
@@ -55,17 +54,12 @@ impl RunAllProcessorsStats {
         self.count(ProcessorRunStatus::Panic)
     }
 
-    /// Number of homeservers where processing timed out
-    pub fn count_timeout(&self) -> usize {
-        self.count(ProcessorRunStatus::Timeout)
-    }
-
     /// Number of homeservers where processing failed to start
     pub fn count_failed_to_build(&self) -> usize {
         self.count(ProcessorRunStatus::FailedToBuild)
     }
 
-    /// Number of homeservers skipped: in backoff, or with their previous run still going
+    /// Number of homeservers skipped due to backoff
     pub fn count_skipped(&self) -> usize {
         self.count(ProcessorRunStatus::Skipped)
     }

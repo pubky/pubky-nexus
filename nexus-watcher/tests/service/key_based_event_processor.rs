@@ -27,9 +27,10 @@ use crate::service::utils::{
     MockEventProcessorResult, MockKeyBasedEventSource,
 };
 
-/// Verifies `TEventProcessor::run` maps elapsed execution to a timeout error.
+/// Verifies `TEventProcessor::run` waits for a run that outlives its timeout, and returns
+/// its result.
 #[tokio_shared_rt::test(shared)]
-async fn processor_run_returns_timeout_error() -> Result<(), DynError> {
+async fn processor_run_waits_past_its_timeout() -> Result<(), DynError> {
     setup().await?;
 
     let (_shutdown_tx, shutdown_rx) = watch::channel(false);
@@ -44,12 +45,10 @@ async fn processor_run_returns_timeout_error() -> Result<(), DynError> {
     )
     .await;
 
-    let err = Arc::new(processors.pop().expect("processor should be created"))
+    Arc::new(processors.pop().expect("processor should be created"))
         .run()
-        .await
-        .unwrap_err();
+        .await?;
 
-    assert!(err.is_timeout(), "expected timeout, got {err:?}");
     Ok(())
 }
 

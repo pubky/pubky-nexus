@@ -1,7 +1,6 @@
 use crate::service::utils::processor::MockEventProcessor;
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::types::DynError;
-use nexus_watcher::service::runner::InFlightRuns;
 use nexus_watcher::service::{TEventProcessor, TEventProcessorRunner};
 use std::sync::Arc;
 use tokio::sync::watch::Receiver;
@@ -13,7 +12,6 @@ pub struct MockEventProcessorRunner {
     pub event_processors: Vec<Arc<MockEventProcessor>>,
     pub monitored_hs_limit: usize,
     pub shutdown_rx: Receiver<bool>,
-    pub in_flight: InFlightRuns,
 }
 
 impl MockEventProcessorRunner {
@@ -30,7 +28,6 @@ impl MockEventProcessorRunner {
             event_processors: arcs,
             monitored_hs_limit,
             shutdown_rx,
-            in_flight: InFlightRuns::default(),
         }
     }
     pub async fn hs_by_priority(&self) -> Result<Vec<String>, DynError> {
@@ -61,10 +58,6 @@ impl MockEventProcessorRunner {
 impl TEventProcessorRunner for MockEventProcessorRunner {
     fn shutdown_rx(&self) -> Receiver<bool> {
         self.shutdown_rx.clone()
-    }
-
-    fn in_flight(&self) -> &InFlightRuns {
-        &self.in_flight
     }
 
     /// Returns the event processor for the specified homeserver.

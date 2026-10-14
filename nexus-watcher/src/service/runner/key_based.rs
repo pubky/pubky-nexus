@@ -1,4 +1,4 @@
-use super::{InFlightRuns, TEventProcessorRunner, UserNotFoundBackoff};
+use super::{TEventProcessorRunner, UserNotFoundBackoff};
 use crate::events::retry::RetryScheduler;
 use crate::events::{DefaultEventHandler, EventHandler};
 use crate::service::indexer::{
@@ -89,9 +89,6 @@ pub struct KeyBasedEventProcessorRunner {
 
     /// Scheduler shared with every processor this runner builds
     pub retry_scheduler: Arc<RetryScheduler>,
-
-    /// See [TEventProcessorRunner::in_flight]
-    pub in_flight: InFlightRuns,
 }
 
 impl KeyBasedEventProcessorRunner {
@@ -111,7 +108,6 @@ impl KeyBasedEventProcessorRunner {
             )),
             user_not_found_backoff: Arc::new(UserNotFoundBackoff::default()),
             retry_scheduler: Arc::new(RetryScheduler::from_config(config)),
-            in_flight: InFlightRuns::default(),
         }
     }
 
@@ -135,10 +131,6 @@ impl KeyBasedEventProcessorRunner {
 impl TEventProcessorRunner for KeyBasedEventProcessorRunner {
     fn shutdown_rx(&self) -> Receiver<bool> {
         self.shutdown_rx.clone()
-    }
-
-    fn in_flight(&self) -> &InFlightRuns {
-        &self.in_flight
     }
 
     async fn build(&self, hs_id: &str) -> Result<Arc<dyn TEventProcessor>, DynError> {
@@ -189,7 +181,6 @@ impl TEventProcessorRunner for KeyBasedEventProcessorRunner {
         let count_ok = stats.count_ok();
         let count_error = stats.count_error();
         let count_panic = stats.count_panic();
-        let count_timeout = stats.count_timeout();
         let count_failed_to_build = stats.count_failed_to_build();
         let count_skipped = stats.count_skipped();
 
@@ -197,7 +188,7 @@ impl TEventProcessorRunner for KeyBasedEventProcessorRunner {
         // always has a denominator in force.
         EXTERNAL_HS_METRICS.record_run(self.monitored_hs_limit, stats.stats.len() - count_skipped);
 
-        let had_issues = count_error + count_panic + count_timeout + count_failed_to_build > 0;
+        let had_issues = count_error + count_panic + count_failed_to_build > 0;
 
         if had_issues {
             warn!(
@@ -206,14 +197,13 @@ impl TEventProcessorRunner for KeyBasedEventProcessorRunner {
                 hs_failed_to_build = count_failed_to_build,
                 hs_error = count_error,
                 hs_panic = count_panic,
-                hs_timeout = count_timeout,
                 "Key-based indexing finished with issues"
             );
         } else if count_skipped > 0 {
             warn!(
                 hs_ok = count_ok,
                 hs_skipped = count_skipped,
-                "Key-based indexing finished; some homeservers skipped (backoff or previous run still going)"
+                "Key-based indexing finished; some homeservers skipped (backoff)"
             );
         } else if count_ok == 0 {
             info!("Key-based indexing finished: no external homeservers");

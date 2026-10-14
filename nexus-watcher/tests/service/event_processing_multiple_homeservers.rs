@@ -45,7 +45,6 @@ async fn test_multiple_homeserver_event_processing() -> Result<()> {
     assert_eq!(stats.count_ok(), 2);
     assert_eq!(stats.count_error(), 1);
     assert_eq!(stats.count_panic(), 0);
-    assert_eq!(stats.count_timeout(), 0);
 
     Ok(())
 }
@@ -77,7 +76,6 @@ async fn test_multi_hs_event_processing_with_homeserver_limit() -> Result<()> {
     let stats = runner.run().await.unwrap().0;
 
     assert_eq!(stats.count_ok(), 3); // 3 successful ones, due to the limit
-    assert_eq!(stats.count_timeout(), 0);
     assert_eq!(stats.count_error(), 0);
     assert_eq!(stats.count_panic(), 0);
 
@@ -118,7 +116,6 @@ async fn test_multi_hs_event_processing_with_homeserver_limit_one() -> Result<()
 
     let stats_one = runner_one.run().await.unwrap().0;
     assert_eq!(stats_one.count_ok(), 1); // 1 successful, due to the limit
-    assert_eq!(stats_one.count_timeout(), 0);
     assert_eq!(stats_one.count_error(), 0);
     assert_eq!(stats_one.count_panic(), 0);
 
@@ -126,13 +123,13 @@ async fn test_multi_hs_event_processing_with_homeserver_limit_one() -> Result<()
 }
 
 #[tokio_shared_rt::test(shared)]
-async fn test_multi_hs_event_processing_with_timeout() -> Result<()> {
+async fn test_multi_hs_event_processing_waits_past_the_timeout() -> Result<()> {
     const EVENT_PROCESSOR_TIMEOUT: Option<Duration> = Some(Duration::from_secs(1));
     // Initialize the test
     let mut event_processor_list = setup().await?;
     let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
 
-    // Create 3 random homeservers with timeout limit
+    // Create 3 random homeservers whose runs take longer than the timeout
     // Index 0: 0s sleep (primary, excluded from run)
     // Index 1: 2s sleep
     // Index 2: 4s sleep
@@ -152,10 +149,9 @@ async fn test_multi_hs_event_processing_with_timeout() -> Result<()> {
     let runner = MockEventProcessorRunner::new(event_processor_list, 3, shutdown_rx);
 
     // run excludes the primary HS (0s sleep), so only index 1 and 2 are processed.
-    // Both have sleep durations exceeding the 1s timeout.
+    // Both have sleep durations exceeding the 1s timeout: they are waited for, and succeed.
     let stats = runner.run().await.unwrap().0;
-    assert_eq!(stats.count_ok(), 0); // no successes
-    assert_eq!(stats.count_timeout(), 2); // 2 failures due to timeout
+    assert_eq!(stats.count_ok(), 2);
     assert_eq!(stats.count_error(), 0);
     assert_eq!(stats.count_panic(), 0);
 
@@ -201,7 +197,6 @@ async fn test_multi_hs_event_processing_with_panic() -> Result<()> {
     // run excludes the primary HS (first success), so 2 success + 2 panic are processed
     let stats = runner.run().await.unwrap().0;
     assert_eq!(stats.count_ok(), 2); // 2 expected to succeed (3 - 1 primary)
-    assert_eq!(stats.count_timeout(), 0);
     assert_eq!(stats.count_error(), 0);
     assert_eq!(stats.count_panic(), 2); // 2 expected to panic
 
