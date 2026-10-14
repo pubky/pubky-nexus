@@ -231,7 +231,10 @@ impl TEventProcessorRunner for KeyBasedEventProcessorRunner {
 
 #[cfg(test)]
 mod tests {
-    use super::ExternalHsMetrics;
+    use super::{ExternalHsMetrics, KeyBasedEventProcessorRunner};
+    use crate::service::stats::ProcessorRunStatus;
+    use crate::service::TEventProcessorRunner;
+    use nexus_common::WatcherConfig;
     use opentelemetry::metrics::MeterProvider;
     use opentelemetry_sdk::metrics::data::{AggregatedMetrics, MetricData, ResourceMetrics};
     use opentelemetry_sdk::metrics::{InMemoryMetricExporter, SdkMeterProvider};
@@ -284,5 +287,25 @@ mod tests {
             Some(47),
             "the homeservers the run selected must be exported"
         );
+    }
+
+    /// A homeserver should not need more than one budget, so each spent budget backs it off
+    /// further, as a failure does.
+    #[tokio::test]
+    async fn spent_budgets_in_a_row_double_the_backoff() {
+        let config = WatcherConfig::default();
+        let runner = KeyBasedEventProcessorRunner::from_config(
+            &config,
+            tokio::sync::watch::channel(false).1,
+        );
+
+        for _ in 0..2 {
+            runner
+                .backoff_hs_record_result("hs1", &ProcessorRunStatus::BudgetSpent)
+                .await;
+        }
+
+        let next_backoff_secs = runner.backoff.lock().await.next_backoff_secs_for("hs1");
+        assert_eq!(next_backoff_secs, Some(config.initial_backoff_secs * 4));
     }
 }
