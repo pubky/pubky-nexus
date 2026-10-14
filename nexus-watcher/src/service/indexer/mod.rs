@@ -10,6 +10,7 @@ use crate::errors::EventProcessorError;
 use crate::events::retry::RetryScheduler;
 use crate::events::EventHandler;
 use crate::events::{Event, ParseResult};
+use crate::service::runner::InFlightRun;
 use crate::service::PROCESSING_TIMEOUT_SECS;
 use tracing::{debug, error, trace, warn, Instrument};
 
@@ -79,8 +80,16 @@ pub trait TEventProcessor: Send + Sync + 'static {
 
     /// Runs [`Self::run_internal`] on its own task, under [`Self::custom_timeout`].
     ///
-    /// A run that times out is cancelled before this returns, so it never overlaps the next one.
+    /// A run that times out is not cancelled: its task goes on, and this returns
+    /// [`RunError::TimedOut`] at once. See [`Self::run_holding`] to keep the next run from
+    /// starting next to it.
     async fn run(self: Arc<Self>) -> Result<(), RunError> {
+        self.run_holding(None).await
+    }
+
+    /// Like [`Self::run`], with `mark` held by the run's task. It is released when the run
+    /// ends, which for a timed-out run is after this returns.
+    async fn run_holding(self: Arc<Self>, mark: Option<InFlightRun>) -> Result<(), RunError> {
         let timeout = self
             .custom_timeout()
             .unwrap_or(Duration::from_secs(PROCESSING_TIMEOUT_SECS));
@@ -93,32 +102,29 @@ pub trait TEventProcessor: Send + Sync + 'static {
             service = %instance_name,
             homeserver,
         );
-        let mut handle = tokio::spawn(self.run_internal().instrument(span));
+        let run = self.run_internal().instrument(span);
+        let handle = tokio::spawn(async move {
+            let _mark = mark;
+            run.await
+        });
 
-        let join_result = match tokio::time::timeout(timeout, &mut handle).await {
-            Ok(join_result) => join_result,
-            Err(_) => {
-                // Dropping the handle would only detach the task: the run would go on in
-                // the background, and the next tick would start another one from the same
-                // cursor next to it. Cancel it, and wait until it is gone.
-                handle.abort();
-                let _ = handle.await;
+        let join_result = tokio::time::timeout(timeout, handle)
+            .await
+            .inspect_err(|_| {
                 error!(
                     service = %instance_name,
                     homeserver,
-                    aborted = true,
-                    "Event processor timed out"
-                );
-                return Err(RunError::TimedOut);
-            }
-        };
+                    "Event processor timed out; the run goes on in the background"
+                )
+            })
+            .map_err(|_| RunError::TimedOut)?;
 
         // The JoinError can be:
         // - join_error.is_panic() => panic by the inner future
         // - join_error.is_cancelled() => inner future was abruptly interrupted, for example
         //   - JoinHandle::abort() is called on the handle
         //   - the Tokio runtime is shut down
-        // The only abort is the timeout's, handled above. Otherwise we use the shutdown signal
+        // In our model, we don't trigger such interruptions. Instead we use the shutdown signal
         // to gracefully stop the event processing loop. Therefore we consider all JoinErrors as panics.
         let run_internal_result = join_result
             .inspect_err(|je| {

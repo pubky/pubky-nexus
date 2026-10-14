@@ -14,6 +14,7 @@ pub use user_hs_resolver::UserHsResolverRunner;
 
 use crate::events::retry::RetryProcessor;
 use crate::service::constants::DEFAULT_WATCHER_CONFIG_TOML;
+use crate::service::runner::InFlightRuns;
 use crate::service::task_runner::task_results_into_result;
 use crate::NexusWatcherBuilder;
 use nexus_common::file::ConfigLoader;
@@ -90,8 +91,10 @@ impl NexusWatcher {
             shutdown_rx.clone(),
         ));
 
-        // Create retry processor
+        // Create retry processor. It is not driven by a runner, so it keeps its own mark
+        // against a timed-out run overlapping the next one.
         let retry_processor = Arc::new(RetryProcessor::new(&config, shutdown_rx.clone()));
+        let retry_runs = InFlightRuns::default();
 
         let tasks = vec![
             PeriodicTask::new(
@@ -116,7 +119,17 @@ impl NexusWatcher {
             }),
             PeriodicTask::new("retry-processor", retry_processor_interval_ms, move || {
                 let processor = retry_processor.clone();
-                async move { processor.run().await.map_err(DynError::from) }
+                let run = retry_runs.try_start("retry-processor");
+                async move {
+                    let Some(run) = run else {
+                        debug!("Skipping retry processing: the previous run is still going");
+                        return Ok(());
+                    };
+                    processor
+                        .run_holding(Some(run))
+                        .await
+                        .map_err(DynError::from)
+                }
             }),
         ];
 
