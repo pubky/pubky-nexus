@@ -21,7 +21,7 @@ pub struct MockEventProcessor {
     processor_status: MockEventProcessorResult,
     /// If set, this mock processor will return successfully after waiting for this amount of time
     sleep_duration: Option<Duration>,
-    custom_timeout: Option<Duration>,
+    slow_run_threshold: Option<Duration>,
     shutdown_rx: Receiver<bool>,
     event_handler: Arc<dyn EventHandler>,
 }
@@ -32,8 +32,8 @@ impl TEventProcessor for MockEventProcessor {
         &self.event_handler
     }
 
-    fn custom_timeout(&self) -> Option<Duration> {
-        self.custom_timeout
+    fn slow_run_threshold(&self) -> Option<Duration> {
+        self.slow_run_threshold
     }
 
     fn instance_name(&self) -> &'static str {
@@ -77,7 +77,7 @@ pub async fn create_random_homeservers_and_persist(
     event_processor_list: &mut Vec<MockEventProcessor>,
     sleep_duration: Option<Duration>,
     processor_status: MockEventProcessorResult,
-    custom_timeout: Option<Duration>,
+    slow_run_threshold: Option<Duration>,
     shutdown_rx: Receiver<bool>,
     create_active_users: Option<u64>,
 ) {
@@ -113,7 +113,7 @@ pub async fn create_random_homeservers_and_persist(
         homeserver_id,
         sleep_duration,
         processor_status,
-        custom_timeout,
+        slow_run_threshold,
         shutdown_rx,
         event_handler: create_mock_handler(Ok(()), None),
     };
@@ -122,7 +122,7 @@ pub async fn create_random_homeservers_and_persist(
 
 /// Create a list of mock event processors
 pub fn create_mock_event_processors(
-    custom_timeout: Option<Duration>,
+    slow_run_threshold: Option<Duration>,
     shutdown_rx: Receiver<bool>,
 ) -> Vec<MockEventProcessor> {
     use MockEventProcessorResult::*;
@@ -140,7 +140,7 @@ pub fn create_mock_event_processors(
             homeserver_id: PubkyId::try_from(homeserver_id).unwrap(),
             sleep_duration: sleep_duration_sec.map(Duration::from_secs),
             processor_status: status,
-            custom_timeout,
+            slow_run_threshold,
             shutdown_rx: shutdown_rx.clone(),
             event_handler: event_handler.clone(),
         },

@@ -6,10 +6,9 @@ pub const WATCHER_CONFIG_FILE_NAME: &str = "watcher-config.toml";
 /// when the file is missing
 pub(crate) const DEFAULT_WATCHER_CONFIG_TOML: &str =
     include_str!("../../default.watcher-config.toml");
-/// How long a processor run may take before it is logged as slow (seconds). The run is not
-/// stopped: the caller waits for it to finish.
-// TODO: Set timeout maybe from the config file
-pub const PROCESSING_TIMEOUT_SECS: u64 = 3_600;
+/// How long a processor run may take before it is logged as slow
+// TODO(#1014): read it, and the run budget, from the config file
+pub const SLOW_RUN_THRESHOLD: Duration = Duration::from_secs(3_600);
 /// How long a run of the external loop may spend on one homeserver before it stops, keeping
 /// the cursors it reached, so one homeserver cannot hold up the others
 pub const KEY_BASED_RUN_BUDGET: Duration = Duration::from_secs(8 * 60);

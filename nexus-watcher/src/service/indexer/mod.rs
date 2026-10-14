@@ -10,7 +10,7 @@ use crate::errors::EventProcessorError;
 use crate::events::retry::RetryScheduler;
 use crate::events::EventHandler;
 use crate::events::{Event, ParseResult};
-use crate::service::PROCESSING_TIMEOUT_SECS;
+use crate::service::SLOW_RUN_THRESHOLD;
 use tracing::{debug, error, trace, warn, Instrument};
 
 /// OpenTelemetry meter name shared by all watcher indexer metrics.
@@ -73,12 +73,10 @@ pub trait TEventProcessor: Send + Sync + 'static {
 
     /// Runs [`Self::run_internal`] on its own task, and waits for it to end.
     ///
-    /// A run that takes longer than [`Self::custom_timeout`] is logged as slow, once, and still
-    /// waited for: it is not stopped, so the next run cannot start next to it.
+    /// A run that takes longer than [`Self::slow_run_threshold`] is logged as slow, once, and
+    /// still waited for: it is not stopped, so the next run cannot start next to it.
     async fn run(self: Arc<Self>) -> Result<(), RunError> {
-        let timeout = self
-            .custom_timeout()
-            .unwrap_or(Duration::from_secs(PROCESSING_TIMEOUT_SECS));
+        let slow_run_threshold = self.slow_run_threshold().unwrap_or(SLOW_RUN_THRESHOLD);
 
         let instance_name = self.instance_name();
         let homeserver_id = self.homeserver_id().map(str::to_owned);
@@ -90,14 +88,14 @@ pub trait TEventProcessor: Send + Sync + 'static {
         );
         let mut handle = tokio::spawn(self.run_internal().instrument(span));
 
-        let join_result = match tokio::time::timeout(timeout, &mut handle).await {
+        let join_result = match tokio::time::timeout(slow_run_threshold, &mut handle).await {
             Ok(join_result) => join_result,
             Err(_) => {
                 warn!(
                     service = %instance_name,
                     homeserver,
-                    timeout_secs = timeout.as_secs(),
-                    "Event processor run is past its timeout; waiting for it to finish"
+                    threshold_secs = slow_run_threshold.as_secs(),
+                    "Event processor run is slow; waiting for it to finish"
                 );
                 handle.await
             }
@@ -140,9 +138,8 @@ pub trait TEventProcessor: Send + Sync + 'static {
 
     /// How long a run of this event processor may take before it is logged as slow.
     ///
-    /// If not set, the [`PROCESSING_TIMEOUT_SECS`] is applied. The run is not stopped: the
-    /// caller waits for it to finish.
-    fn custom_timeout(&self) -> Option<Duration> {
+    /// If not set, the [`SLOW_RUN_THRESHOLD`] is applied.
+    fn slow_run_threshold(&self) -> Option<Duration> {
         None
     }
 

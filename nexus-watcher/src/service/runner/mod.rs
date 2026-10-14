@@ -134,8 +134,69 @@ pub trait TEventProcessorRunner: Send + Sync {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::service::test_utils::SlowProcessor;
+    use crate::errors::EventProcessorError;
+    use crate::events::{Event, EventHandler};
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use tokio::sync::Mutex;
+
+    struct NoopHandler;
+
+    #[async_trait::async_trait]
+    impl EventHandler for NoopHandler {
+        async fn handle(&self, _event: &Event) -> Result<(), EventProcessorError> {
+            Ok(())
+        }
+    }
+
+    /// Processor whose run takes `work`, and is slow past `slow_run_threshold`. It counts the most
+    /// of its runs going at once.
+    struct SlowProcessor {
+        handler: Arc<dyn EventHandler>,
+        work: Duration,
+        slow_run_threshold: Duration,
+        running: AtomicUsize,
+        peak: AtomicUsize,
+    }
+
+    impl SlowProcessor {
+        fn new(work: Duration, slow_run_threshold: Duration) -> Self {
+            Self {
+                handler: Arc::new(NoopHandler),
+                work,
+                slow_run_threshold,
+                running: AtomicUsize::new(0),
+                peak: AtomicUsize::new(0),
+            }
+        }
+
+        /// The most runs that were going at once.
+        fn peak(&self) -> usize {
+            self.peak.load(Ordering::SeqCst)
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl TEventProcessor for SlowProcessor {
+        fn event_handler(&self) -> &Arc<dyn EventHandler> {
+            &self.handler
+        }
+
+        fn instance_name(&self) -> &'static str {
+            "SlowProcessor"
+        }
+
+        fn slow_run_threshold(&self) -> Option<Duration> {
+            Some(self.slow_run_threshold)
+        }
+
+        async fn run_internal(self: Arc<Self>) -> Result<(), EventProcessorError> {
+            let running = self.running.fetch_add(1, Ordering::SeqCst) + 1;
+            self.peak.fetch_max(running, Ordering::SeqCst);
+            tokio::time::sleep(self.work).await;
+            self.running.fetch_sub(1, Ordering::SeqCst);
+            Ok(())
+        }
+    }
 
     /// Runner over fixed HS IDs that records which ones it was asked to build.
     struct RecordingRunner {
@@ -160,9 +221,10 @@ mod tests {
             }
         }
 
-        /// Builds return one processor, whose runs take `work` under a timeout of `timeout`.
-        fn with_processors_taking(mut self, work: Duration, timeout: Duration) -> Self {
-            self.processor = Some(Arc::new(SlowProcessor::new(work, timeout)));
+        /// Builds return one processor, whose runs take `work` and are slow past
+        /// `slow_run_threshold`.
+        fn with_processors_taking(mut self, work: Duration, slow_run_threshold: Duration) -> Self {
+            self.processor = Some(Arc::new(SlowProcessor::new(work, slow_run_threshold)));
             self
         }
     }
@@ -216,7 +278,7 @@ mod tests {
     }
 
     /// Back-to-back ticks, as the periodic task runs them, never run one homeserver twice at
-    /// once, even when its run outlives the timeout: the tick waits for the run to end.
+    /// once, even when its run is slow: the tick waits for the run to end.
     #[tokio::test(start_paused = true)]
     async fn a_homeserver_never_runs_twice_at_once() {
         let runner = RecordingRunner::new(&["hs1"], usize::MAX)

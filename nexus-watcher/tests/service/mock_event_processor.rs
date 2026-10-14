@@ -4,12 +4,13 @@ use nexus_common::types::DynError;
 use nexus_watcher::service::TEventProcessorRunner;
 use std::time::Duration;
 
-const TIMEOUT: Duration = Duration::from_secs(2);
+const SLOW_RUN_THRESHOLD: Duration = Duration::from_secs(2);
 
 #[tokio_shared_rt::test(shared)]
 async fn test_mock_event_processors() -> Result<(), DynError> {
     let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
-    let mock_processors = create_mock_event_processors(Some(TIMEOUT), shutdown_rx.clone());
+    let mock_processors =
+        create_mock_event_processors(Some(SLOW_RUN_THRESHOLD), shutdown_rx.clone());
     let runner = MockEventProcessorRunner::new(mock_processors, HS_IDS.len(), shutdown_rx);
 
     // Test successful event processor
@@ -25,11 +26,11 @@ async fn test_mock_event_processors() -> Result<(), DynError> {
     let ev_processor_2_res = ev_processor_2.run().await;
     assert!(ev_processor_2_res.is_err() && ev_processor_2_res.unwrap_err().is_panic());
 
-    // A run past its timeout is waited for, and succeeds
+    // A slow run is waited for, and succeeds
     let ev_processor_3 = runner.build(HS_IDS[3]).await?;
     assert!(
         ev_processor_3.run().await.is_ok(),
-        "Event processor should be waited for past its timeout"
+        "A slow event processor run should be waited for"
     );
 
     let ev_processor_4 = runner.build(HS_IDS[4]).await?;

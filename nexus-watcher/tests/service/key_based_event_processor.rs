@@ -25,34 +25,8 @@ use pubky_app_specs::PubkyId;
 use tokio::sync::watch;
 
 use crate::service::utils::{
-    create_mock_handler, create_random_homeservers_and_persist, new_in_memory_store, setup,
-    MockEventProcessorResult, MockKeyBasedEventSource,
+    create_mock_handler, new_in_memory_store, setup, MockKeyBasedEventSource,
 };
-
-/// Verifies `TEventProcessor::run` waits for a run that outlives its timeout, and returns
-/// its result.
-#[tokio_shared_rt::test(shared)]
-async fn processor_run_waits_past_its_timeout() -> Result<(), DynError> {
-    setup().await?;
-
-    let (_shutdown_tx, shutdown_rx) = watch::channel(false);
-    let mut processors = Vec::new();
-    create_random_homeservers_and_persist(
-        &mut processors,
-        Some(Duration::from_millis(50)),
-        MockEventProcessorResult::Success,
-        Some(Duration::from_millis(1)),
-        shutdown_rx,
-        None,
-    )
-    .await;
-
-    Arc::new(processors.pop().expect("processor should be created"))
-        .run()
-        .await?;
-
-    Ok(())
-}
 
 #[tokio_shared_rt::test(shared)]
 async fn key_based_processor_skips_unrecognized_events() -> Result<(), DynError> {

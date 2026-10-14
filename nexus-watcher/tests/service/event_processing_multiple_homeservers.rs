@@ -123,13 +123,13 @@ async fn test_multi_hs_event_processing_with_homeserver_limit_one() -> Result<()
 }
 
 #[tokio_shared_rt::test(shared)]
-async fn test_multi_hs_event_processing_waits_past_the_timeout() -> Result<()> {
-    const EVENT_PROCESSOR_TIMEOUT: Option<Duration> = Some(Duration::from_secs(1));
+async fn test_multi_hs_event_processing_waits_for_slow_runs() -> Result<()> {
+    const SLOW_RUN_THRESHOLD: Option<Duration> = Some(Duration::from_secs(1));
     // Initialize the test
     let mut event_processor_list = setup().await?;
     let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
 
-    // Create 3 random homeservers whose runs take longer than the timeout
+    // Create 3 random homeservers whose runs are slow
     // Index 0: 0s sleep (primary, excluded from run)
     // Index 1: 2s sleep
     // Index 2: 4s sleep
@@ -139,7 +139,7 @@ async fn test_multi_hs_event_processing_waits_past_the_timeout() -> Result<()> {
             &mut event_processor_list,
             Some(Duration::from_secs(index * 2)),
             processor_status,
-            EVENT_PROCESSOR_TIMEOUT,
+            SLOW_RUN_THRESHOLD,
             shutdown_rx.clone(),
             Some(1),
         )
@@ -149,7 +149,7 @@ async fn test_multi_hs_event_processing_waits_past_the_timeout() -> Result<()> {
     let runner = MockEventProcessorRunner::new(event_processor_list, 3, shutdown_rx);
 
     // run excludes the primary HS (0s sleep), so only index 1 and 2 are processed.
-    // Both have sleep durations exceeding the 1s timeout: they are waited for, and succeed.
+    // Both sleep past the 1s threshold: they are waited for, and succeed.
     let stats = runner.run().await.unwrap().0;
     assert_eq!(stats.count_ok(), 2);
     assert_eq!(stats.count_error(), 0);
