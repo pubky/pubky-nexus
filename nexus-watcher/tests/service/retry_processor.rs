@@ -1325,3 +1325,61 @@ async fn test_future_events_not_picked_up() -> Result<()> {
     let _ = shutdown_tx.send(true);
     Ok(())
 }
+
+// ============================================================================
+// Skipped-by-design entry is removed without a handler call
+// A `social/v1` line left in the queue from before the epoch router re-parses
+// to `Skipped`: the processor drops it and still handles the v0 line next to it.
+// ============================================================================
+
+#[tokio_shared_rt::test(shared)]
+async fn test_skipped_entry_is_removed_without_handler_call() -> Result<()> {
+    setup().await?;
+
+    let store = new_in_memory_store();
+    let now = Utc::now().timestamp_millis();
+
+    // A v0 post line and, next to it, a `social/v1` post line as a processor
+    // without the epoch router stored it; both ready now.
+    let post_id = "skipnextv0";
+    let v0_event = create_test_retry_event(post_id, EventType::Put, 0, now - 1000);
+    let v0_uri = v0_event.event_uri.clone();
+    let v1_uri = format!("pubky://{TEST_USER_ID}/pub/social/v1/posts/0032SSN7Q4EVG");
+    let v1_event = RetryEvent {
+        event_uri: v1_uri.clone(),
+        ..v0_event.clone()
+    };
+    store.put(&v0_event).await?;
+    store.put(&v1_event).await?;
+
+    let handler = create_mock_handler(Ok(()), None);
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let processor = build_processor(
+        store.clone(),
+        create_test_config(10, 50, 60, 3600, 60, 3600),
+        handler.clone(),
+        shutdown_rx,
+    );
+
+    processor
+        .run_internal()
+        .await
+        .expect("a skipped entry must not fail the batch");
+
+    assert_eq!(
+        handler.get_handled_uris(),
+        vec![v0_uri],
+        "Handler must see the v0 line only"
+    );
+    assert!(
+        store.get(&IndexKey::for_uri(&v1_uri)).await?.is_none(),
+        "Skipped entry must be removed from the queue"
+    );
+    assert!(
+        store.get(&create_index_key(post_id)).await?.is_none(),
+        "Handled v0 entry must be removed from the queue"
+    );
+
+    let _ = shutdown_tx.send(true);
+    Ok(())
+}

@@ -9,6 +9,7 @@ mod post_del_self_notification;
 mod post_multi_user;
 mod post_notification;
 mod post_put;
+mod reserved_social_namespace;
 mod resource_dedup;
 mod resource_del;
 mod resource_del_retry;

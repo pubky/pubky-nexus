@@ -5,7 +5,7 @@ use nexus_common::db::get_neo4j_graph;
 use nexus_common::db::graph::Query;
 use nexus_common::models::event::EventLine;
 use nexus_common::types::DynError;
-use nexus_watcher::events::event::{Event, EventType, ParseResult};
+use nexus_watcher::events::{Event, EventTarget, EventType, ParseResult};
 use pubky_social_specs::legacy_v0::Resource;
 use std::collections::BTreeMap;
 use tracing::info;
@@ -75,8 +75,9 @@ fn fold_page(lines: &[String]) -> PageUris {
         if event.event_type != EventType::Put {
             continue;
         }
-        let user_id = event.parsed_uri.user_id().to_string();
-        match event.parsed_uri.resource() {
+        let EventTarget::Legacy(parsed_uri) = &event.target;
+        let user_id = parsed_uri.user_id().to_string();
+        match parsed_uri.resource() {
             Resource::Tag(tag_id) => {
                 page.edges.insert((user_id, tag_id.clone()), event.uri);
             }

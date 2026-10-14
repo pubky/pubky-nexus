@@ -14,7 +14,7 @@ use crate::service::PROCESSING_TIMEOUT_SECS;
 use tracing::{debug, error, trace, warn, Instrument};
 
 /// OpenTelemetry meter name shared by all watcher indexer metrics.
-pub(super) const METER_NAME: &str = "nexus.watcher";
+pub(crate) const METER_NAME: &str = "nexus.watcher";
 
 /// Possible error types of an event processor run
 #[derive(Debug)]
@@ -142,13 +142,12 @@ pub trait TEventProcessor: Send + Sync + 'static {
     }
 
     /// Parses a single event line and dispatches to [`Self::handle_event`].
-    /// Universal tag events are handled via `ExtendedParsedUri::UniversalTag` →
-    /// `DefaultEventHandler` → `tag::sync_put_resource`.
+    /// Universal tag events reach `tag::sync_put_resource` through `DefaultEventHandler`.
     async fn process_event_line(&self, line: &str) -> Result<(), EventProcessorError> {
         match Event::parse_event(line) {
             // Invalid event lines come from untrusted homeservers; treat as bad peer data, not Nexus errors.
             Err(e) => warn!(error = %e, "Invalid event line"),
-            Ok(ParseResult::Skipped) => {}
+            Ok(ParseResult::Skipped(_)) => {}
             Ok(ParseResult::UnrecognizedUri { reason, .. }) => {
                 warn!(%reason, "Unrecognized event URI");
             }
@@ -223,11 +222,11 @@ pub trait TEventProcessor: Send + Sync + 'static {
         name = "event.process",
         skip_all,
         fields(
-            event.resource = %event.parsed_uri.resource(),
+            event.resource = %event.target.resource_name(),
             event.uri = %event.uri,
             event.r#type = %event.event_type,
-            event.user_id = %event.parsed_uri.user_id(),
-            event.resource_id = event.parsed_uri.resource().id().unwrap_or_default(),
+            event.user_id = %event.target.user_id(),
+            event.resource_id = event.target.resource_id(),
             otel.status_code = tracing::field::Empty,
             otel.status_message = tracing::field::Empty,
         )

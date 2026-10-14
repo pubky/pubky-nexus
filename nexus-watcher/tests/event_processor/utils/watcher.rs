@@ -424,7 +424,7 @@ pub async fn retrieve_and_handle_event_line(
 ) -> Result<(), EventProcessorError> {
     match Event::parse_event(event_line)? {
         ParseResult::Parsed(event) => event_handler.handle(&event).await,
-        ParseResult::Skipped | ParseResult::UnrecognizedUri { .. } => Ok(()),
+        ParseResult::Skipped(_) | ParseResult::UnrecognizedUri { .. } => Ok(()),
     }
 }
 
