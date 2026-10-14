@@ -299,6 +299,22 @@ mod tests {
         );
     }
 
+    /// The warning is the only sign of a run that never returns, so it repeats after every
+    /// threshold, with how long the run has been going.
+    #[tokio::test(start_paused = true)]
+    #[tracing_test::traced_test]
+    async fn a_slow_run_is_logged_at_every_threshold() {
+        let processor = Arc::new(SlowProcessor::new(
+            Duration::from_secs(250),
+            Duration::from_secs(60),
+        ));
+
+        processor.run().await.unwrap();
+
+        assert!(logs_contain("running_for_secs=180"));
+        assert!(logs_contain("running_for_secs=240"));
+    }
+
     /// Pins a known limitation: the tick waits for every run, so a run that never returns
     /// holds up the homeservers after it for good. Bounding the calls a run makes fixes it.
     #[tokio::test(start_paused = true)]

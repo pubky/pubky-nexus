@@ -35,3 +35,4 @@ rand = "0.10.1"
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }
 tokio-shared-rt = { workspace = true }
+tracing-test = { workspace = true }

@@ -483,12 +483,11 @@ async fn key_based_processor_stops_at_its_budget() -> Result<(), DynError> {
 
     assert!(matches!(err, RunError::BudgetSpent), "got {err:?}");
 
-    // Users come in no set order: whichever came first was fetched, the other never was.
     let calls = source.calls().await;
     assert_eq!(
-        calls.len(),
-        1,
-        "no user may start once the budget is spent: {calls:?}"
+        calls,
+        [user_a_id.clone().min(user_b_id.clone())],
+        "the run starts from the first user in key order, and no other may start once the budget is spent"
     );
     assert_eq!(handler.handled.load(Ordering::SeqCst), 1);
     assert_eq!(
