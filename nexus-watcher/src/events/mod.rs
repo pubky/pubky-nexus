@@ -1,10 +1,12 @@
-use nexus_common::{db::PubkyConnector, models::user::UserIngestor};
+use nexus_common::models::user::UserIngestor;
 pub mod event;
 
 pub use event::{Event, EventType, ParseResult};
 
 use crate::errors::EventProcessorError;
+use crate::homeserver::{Deadline, HomeserverClient};
 use nexus_common::WatcherConfig;
+use pubky::PubkyResource;
 use pubky_app_specs::{ExtendedParsedUri, PubkyAppObject, Resource};
 use std::{
     path::{Path, PathBuf},
@@ -12,15 +14,10 @@ use std::{
 };
 use tracing::debug;
 
-mod fetch;
 pub mod handlers;
 mod moderation;
 pub mod retry;
 
-pub(crate) use fetch::{
-    fetch_capped, format_error_body, read_stream_capped, MAX_ERROR_BODY, MAX_EVENTS_BODY,
-    MAX_RESOURCE_SIZE,
-};
 pub use moderation::Moderation;
 
 /// Trait for handling events.
@@ -36,7 +33,7 @@ pub trait EventHandler: Send + Sync {
 pub struct DefaultEventHandler {
     moderation: Arc<Moderation>,
     ingestor: Arc<UserIngestor>,
-    max_file_size: u64,
+    client: Arc<dyn HomeserverClient>,
 
     /// Local files directory on Nexus used for file-backed events.
     files_path: PathBuf,
@@ -46,23 +43,24 @@ impl DefaultEventHandler {
     pub fn new(
         moderation: Arc<Moderation>,
         ingestor: Arc<UserIngestor>,
-        max_file_size: u64,
+        client: Arc<dyn HomeserverClient>,
         files_path: PathBuf,
     ) -> Self {
         Self {
             moderation,
             ingestor,
-            max_file_size,
+            client,
             files_path,
         }
     }
 
-    /// Builds a handler, deriving its moderation rules and user ingestor from config.
-    pub fn from_config(config: &WatcherConfig) -> Self {
+    /// Builds a handler that fetches through `client`, deriving its moderation rules
+    /// and user ingestor from config.
+    pub fn from_config(config: &WatcherConfig, client: Arc<dyn HomeserverClient>) -> Self {
         Self::new(
             Moderation::from_config(config),
             Arc::new(UserIngestor::from_config(&config.stack)),
-            config.max_file_size,
+            client,
             config.stack.files_path.clone(),
         )
     }
@@ -75,10 +73,10 @@ impl EventHandler for DefaultEventHandler {
             EventType::Put => {
                 handle_put_event(
                     event,
-                    self.max_file_size,
                     self.files_path.as_path(),
                     self.moderation.clone(),
                     self.ingestor.clone(),
+                    self.client.as_ref(),
                 )
                 .await
             }
@@ -92,31 +90,17 @@ impl EventHandler for DefaultEventHandler {
     }
 }
 
+/// Handles a PUT event: fetches its resource through `client` and dispatches it to the
+/// matching handler.
 pub async fn handle_put_event(
     event: &Event,
-    max_file_size: u64,
     files_path: &Path,
     moderation: Arc<Moderation>,
     ingestor: Arc<UserIngestor>,
+    client: &dyn HomeserverClient,
 ) -> Result<(), EventProcessorError> {
-    let pubky = PubkyConnector::get()?;
-    let response = pubky.public_storage().get(&event.uri).await?;
-
-    if !response.status().is_success() {
-        let status = response.status();
-        let (body, _exceeded) = read_stream_capped(response.bytes_stream(), MAX_ERROR_BODY)
-            .await
-            .unwrap_or_default();
-        let body = format_error_body(&body, MAX_ERROR_BODY);
-
-        let err_msg = format!(
-            "Fetch resource failed {}: HTTP {status} - {body}",
-            event.uri
-        );
-        return Err(EventProcessorError::client_error(err_msg));
-    }
-
-    let blob = fetch_capped(response, MAX_RESOURCE_SIZE as u64).await?;
+    let resource_uri: PubkyResource = event.uri.parse()?;
+    let blob = client.get_resource(&resource_uri, Deadline::none()).await?;
 
     let resource = event.parsed_uri.resource().clone();
 
@@ -182,8 +166,8 @@ pub async fn handle_put_event(
                 user_id,
                 file_id,
                 files_path,
-                max_file_size,
                 &ingestor,
+                client,
             )
             .await?
         }

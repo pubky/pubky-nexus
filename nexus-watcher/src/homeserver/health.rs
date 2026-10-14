@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use tracing::info;
@@ -9,13 +10,16 @@ struct BackoffState {
 }
 
 /// Tracks per-HS failure counts and exponential backoff windows.
-pub struct HomeserverBackoff {
+///
+/// One instance is shared by every loop that talks to homeservers, through
+/// [`HomeserverClient::health`](super::HomeserverClient::health).
+pub struct HomeserverHealth {
     initial_backoff_secs: u64,
     max_backoff_secs: u64,
-    state: HashMap<String, BackoffState>,
+    state: Mutex<HashMap<String, BackoffState>>,
 }
 
-impl HomeserverBackoff {
+impl HomeserverHealth {
     pub fn new(initial_backoff_secs: u64, max_backoff_secs: u64) -> Self {
         if initial_backoff_secs > max_backoff_secs {
             panic!("Invalid config: initial_backoff_secs > max_backoff_secs");
@@ -24,30 +28,35 @@ impl HomeserverBackoff {
         Self {
             initial_backoff_secs,
             max_backoff_secs,
-            state: HashMap::new(),
+            state: Mutex::new(HashMap::new()),
         }
+    }
+
+    fn state(&self) -> std::sync::MutexGuard<'_, HashMap<String, BackoffState>> {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     /// Returns `true` if the homeserver is currently in a backoff window and should be skipped.
     pub fn should_skip(&self, hs_id: &str) -> bool {
-        match self.state.get(hs_id) {
+        match self.state().get(hs_id) {
             Some(bs) => Instant::now() < bs.backoff_until,
             None => false,
         }
     }
 
     /// Resets backoff state for a homeserver after a successful run.
-    pub fn record_success(&mut self, hs_id: &str) {
-        self.state.remove(hs_id);
+    pub fn record_success(&self, hs_id: &str) {
+        self.state().remove(hs_id);
     }
 
     /// Increments the failure counter and sets the next backoff window.
     ///
     /// Backoff duration: `min(BASE * 2^failures, MAX)` — i.e. 60s, 120s, 240s, … up to 1 hour.
-    pub fn record_failure(&mut self, hs_id: &str) {
+    pub fn record_failure(&self, hs_id: &str) {
         let initial = self.initial_backoff_secs;
         let max = self.max_backoff_secs;
-        let entry = self.state.entry(hs_id.to_string()).or_insert(BackoffState {
+        let mut state = self.state();
+        let entry = state.entry(hs_id.to_string()).or_insert(BackoffState {
             next_backoff_secs: initial,
             backoff_until: Instant::now(),
         });
@@ -60,7 +69,7 @@ impl HomeserverBackoff {
     }
 }
 
-impl Default for HomeserverBackoff {
+impl Default for HomeserverHealth {
     fn default() -> Self {
         use nexus_common::{DEFAULT_INITIAL_BACKOFF_SECS, DEFAULT_MAX_BACKOFF_SECS};
         Self::new(DEFAULT_INITIAL_BACKOFF_SECS, DEFAULT_MAX_BACKOFF_SECS)
@@ -68,9 +77,9 @@ impl Default for HomeserverBackoff {
 }
 
 #[cfg(test)]
-impl HomeserverBackoff {
+impl HomeserverHealth {
     pub(crate) fn next_backoff_secs_for(&self, hs_id: &str) -> Option<u64> {
-        self.state.get(hs_id).map(|bs| bs.next_backoff_secs)
+        self.state().get(hs_id).map(|bs| bs.next_backoff_secs)
     }
 }
 
@@ -80,40 +89,40 @@ mod tests {
 
     #[test]
     fn new_homeserver_is_not_skipped() {
-        let backoff = HomeserverBackoff::default();
-        assert!(!backoff.should_skip("hs1"));
+        let health = HomeserverHealth::default();
+        assert!(!health.should_skip("hs1"));
     }
 
     #[test]
     fn skipped_after_failure() {
-        let mut backoff = HomeserverBackoff::default();
-        backoff.record_failure("hs1");
-        assert!(backoff.should_skip("hs1"));
+        let health = HomeserverHealth::default();
+        health.record_failure("hs1");
+        assert!(health.should_skip("hs1"));
     }
 
     #[test]
     fn reset_after_success() {
-        let mut backoff = HomeserverBackoff::default();
-        backoff.record_failure("hs1");
-        backoff.record_success("hs1");
-        assert!(!backoff.should_skip("hs1"));
+        let health = HomeserverHealth::default();
+        health.record_failure("hs1");
+        health.record_success("hs1");
+        assert!(!health.should_skip("hs1"));
     }
 
     #[test]
     fn independent_homeservers() {
-        let mut backoff = HomeserverBackoff::default();
-        backoff.record_failure("hs1");
-        assert!(!backoff.should_skip("hs2"));
+        let health = HomeserverHealth::default();
+        health.record_failure("hs1");
+        assert!(!health.should_skip("hs2"));
     }
 
     #[test]
     fn failures_are_capped() {
-        let mut backoff = HomeserverBackoff::default();
+        let health = HomeserverHealth::default();
         for _ in 0..20 {
-            backoff.record_failure("hs1");
+            health.record_failure("hs1");
         }
         // Should not panic or overflow, and should still be skipped
-        assert!(backoff.should_skip("hs1"));
+        assert!(health.should_skip("hs1"));
     }
 
     /// Verifies the backoff duration doubles on each failure and is capped at max_backoff_secs.
@@ -121,20 +130,20 @@ mod tests {
     /// it is already 2× the initial value.
     #[test]
     fn backoff_duration_sequence() {
-        let mut backoff = HomeserverBackoff::new(2, 16);
+        let health = HomeserverHealth::new(2, 16);
 
-        backoff.record_failure("hs1");
-        assert_eq!(backoff.next_backoff_secs_for("hs1"), Some(4));
+        health.record_failure("hs1");
+        assert_eq!(health.next_backoff_secs_for("hs1"), Some(4));
 
-        backoff.record_failure("hs1");
-        assert_eq!(backoff.next_backoff_secs_for("hs1"), Some(8));
+        health.record_failure("hs1");
+        assert_eq!(health.next_backoff_secs_for("hs1"), Some(8));
 
-        backoff.record_failure("hs1");
-        assert_eq!(backoff.next_backoff_secs_for("hs1"), Some(16));
+        health.record_failure("hs1");
+        assert_eq!(health.next_backoff_secs_for("hs1"), Some(16));
 
         // Further failures must stay at the cap, never exceed it
-        backoff.record_failure("hs1");
-        assert_eq!(backoff.next_backoff_secs_for("hs1"), Some(16));
+        health.record_failure("hs1");
+        assert_eq!(health.next_backoff_secs_for("hs1"), Some(16));
     }
 
     /// Verifies that a successful run fully resets backoff state so the next failure
@@ -142,19 +151,19 @@ mod tests {
     /// it left off before the success.
     #[test]
     fn success_resets_backoff_to_initial() {
-        let mut backoff = HomeserverBackoff::new(2, 32);
+        let health = HomeserverHealth::new(2, 32);
 
         // Two failures advance next_backoff_secs to 8
-        backoff.record_failure("hs1");
-        backoff.record_failure("hs1");
-        assert_eq!(backoff.next_backoff_secs_for("hs1"), Some(8));
+        health.record_failure("hs1");
+        health.record_failure("hs1");
+        assert_eq!(health.next_backoff_secs_for("hs1"), Some(8));
 
         // Success clears all state
-        backoff.record_success("hs1");
-        assert_eq!(backoff.next_backoff_secs_for("hs1"), None);
+        health.record_success("hs1");
+        assert_eq!(health.next_backoff_secs_for("hs1"), None);
 
         // First failure after reset must use the initial duration, not the previous 8
-        backoff.record_failure("hs1");
-        assert_eq!(backoff.next_backoff_secs_for("hs1"), Some(4)); // 2*2, not 8
+        health.record_failure("hs1");
+        assert_eq!(health.next_backoff_secs_for("hs1"), Some(4)); // 2*2, not 8
     }
 }

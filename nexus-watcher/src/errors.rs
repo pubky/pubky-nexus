@@ -6,6 +6,8 @@ use nexus_common::db::{GraphError, PubkyClientError};
 use nexus_common::models::error::ModelError;
 use thiserror::Error;
 
+use crate::homeserver::{HsError, HsErrorKind, HsOp};
+
 #[derive(Error, Debug, Clone)]
 pub enum EventProcessorError {
     /// Failed to execute query in the graph database
@@ -112,6 +114,36 @@ impl From<PubkyClientError> for EventProcessorError {
 impl From<pubky::Error> for EventProcessorError {
     fn from(e: pubky::Error) -> Self {
         PubkyClientError::from(e).into()
+    }
+}
+
+/// Maps a homeserver call's failure onto the variants the processors classify.
+///
+/// The `/events-stream` request is the homeserver itself, so a 5xx, a transport
+/// failure or an exhausted 429 there fails the whole run. On any other request
+/// (a file a user can point at any host) they stay per-event.
+impl From<HsError> for EventProcessorError {
+    fn from(error: HsError) -> Self {
+        let on_stream = error.op == HsOp::UserEvents;
+        let message = error.to_string();
+        match error.kind {
+            HsErrorKind::TooLarge { got, max } => Self::FetchSizeExceeded(got, max),
+            HsErrorKind::Quarantined => Self::HsBlacklisted { hs_id: error.hs },
+            HsErrorKind::RateLimited(_) if on_stream => Self::HsEventsStreamRateLimitExhausted,
+            HsErrorKind::ServerError(..) if on_stream => Self::HsEventsStreamServerError(message),
+            HsErrorKind::Transport(_) | HsErrorKind::Timeout if on_stream => {
+                Self::HsEventsStreamTransportFailed(message)
+            }
+            HsErrorKind::NotFound(_) => PubkyClientError::NotFound404 { message }.into(),
+            HsErrorKind::RateLimited(_) => PubkyClientError::TooManyRequests429 { message }.into(),
+            HsErrorKind::ServerError(..) => PubkyClientError::ServerError5xx { message }.into(),
+            HsErrorKind::Rejected(..)
+            | HsErrorKind::Transport(_)
+            | HsErrorKind::Timeout
+            | HsErrorKind::Malformed(_)
+            | HsErrorKind::CircuitOpen
+            | HsErrorKind::BudgetExhausted => PubkyClientError::RequestFailed { message }.into(),
+        }
     }
 }
 
@@ -229,6 +261,7 @@ impl EventProcessorError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::events::retry::RetryScheduler;
 
     #[test]
     fn event_stream_5xx_is_not_retry_now() {
@@ -248,6 +281,96 @@ mod tests {
             !err.should_not_retry_now(),
             "a 5xx outside the event stream is per-event and must not abort the run"
         );
+    }
+
+    fn hs_error(op: HsOp, kind: HsErrorKind) -> EventProcessorError {
+        let hs = pubky_app_specs::PubkyId::try_from(
+            "1hb71xx9km3f4pw5izsy1gn19ff1uuuqonw4mcygzobwkryujoiy",
+        )
+        .unwrap();
+        HsError::new(&hs, op, kind).into()
+    }
+
+    /// On the event stream, a 5xx, a transport failure or an exhausted 429 fail the
+    /// whole homeserver run, so the runner backs it off.
+    #[test]
+    fn event_stream_failures_abort_the_run() {
+        let server_error = hs_error(HsOp::UserEvents, HsErrorKind::ServerError(530, "".into()));
+        let transport = hs_error(
+            HsOp::UserEvents,
+            HsErrorKind::transport("connection refused"),
+        );
+        let timeout = hs_error(HsOp::UserEvents, HsErrorKind::Timeout);
+        let rate_limited = hs_error(HsOp::UserEvents, HsErrorKind::RateLimited("".into()));
+
+        assert!(matches!(
+            server_error,
+            EventProcessorError::HsEventsStreamServerError(_)
+        ));
+        assert!(matches!(
+            transport,
+            EventProcessorError::HsEventsStreamTransportFailed(_)
+        ));
+        assert!(matches!(
+            timeout,
+            EventProcessorError::HsEventsStreamTransportFailed(_)
+        ));
+        assert!(matches!(
+            rate_limited,
+            EventProcessorError::HsEventsStreamRateLimitExhausted
+        ));
+        for err in [server_error, transport, timeout, rate_limited] {
+            assert!(err.should_not_retry_now(), "{err}");
+        }
+    }
+
+    /// The same failures on a resource or blob fetch stay per-event, and a 404 on
+    /// the event stream stays per-user.
+    #[test]
+    fn other_failures_stay_per_event() {
+        for (op, kind) in [
+            (HsOp::GetResource, HsErrorKind::ServerError(500, "".into())),
+            (HsOp::GetBlob, HsErrorKind::transport("connection refused")),
+            (HsOp::PollEvents, HsErrorKind::RateLimited("".into())),
+            (HsOp::UserEvents, HsErrorKind::NotFound("".into())),
+        ] {
+            let err = hs_error(op, kind);
+            assert!(!err.should_not_retry_now(), "{err}");
+            assert!(RetryScheduler::should_enqueue_related_event(&err) || err.is_not_found());
+        }
+
+        assert!(
+            hs_error(HsOp::GetResource, HsErrorKind::ServerError(500, "".into())).is_server_error()
+        );
+        assert!(
+            hs_error(HsOp::PollEvents, HsErrorKind::RateLimited("".into())).is_too_many_requests()
+        );
+        assert!(hs_error(HsOp::UserEvents, HsErrorKind::NotFound("".into())).is_not_found());
+    }
+
+    /// An oversized body is the permanent size failure it was before, not retried.
+    #[test]
+    fn too_large_is_a_size_failure() {
+        let err = hs_error(HsOp::GetBlob, HsErrorKind::TooLarge { got: 10, max: 5 });
+
+        assert!(matches!(err, EventProcessorError::FetchSizeExceeded(10, 5)));
+        assert!(!RetryScheduler::should_enqueue_related_event(&err));
+    }
+
+    /// The message names the homeserver and carries the homeserver's answer.
+    #[test]
+    fn message_names_the_homeserver_and_the_status() {
+        let err = hs_error(
+            HsOp::GetResource,
+            HsErrorKind::ServerError(502, "bad gateway".into()),
+        );
+
+        let message = err.to_string();
+        assert!(
+            message.contains("1hb71xx9km3f4pw5izsy1gn19ff1uuuqonw4mcygzobwkryujoiy"),
+            "{message}"
+        );
+        assert!(message.contains("HTTP 502: bad gateway"), "{message}");
     }
 
     #[test]

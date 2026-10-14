@@ -1,6 +1,6 @@
 use futures::StreamExt;
 
-use crate::EventProcessorError;
+use super::HsErrorKind;
 
 /// Max bytes to read from an error response body.
 pub(crate) const MAX_ERROR_BODY: usize = 4 * 1024;
@@ -52,25 +52,24 @@ where
 /// 2. Otherwise, streams through [read_stream_capped] to catch lying/missing
 ///    `Content-Length` headers.
 ///
-/// Returns [EventProcessorError::FetchSizeExceeded] on size violation,
-/// [EventProcessorError::ClientError] on stream failure.
+/// Returns [HsErrorKind::TooLarge] on size violation, a transport error on stream failure.
 pub(crate) async fn fetch_capped(
     resp: reqwest::Response,
     max: u64,
-) -> Result<Vec<u8>, EventProcessorError> {
+) -> Result<Vec<u8>, HsErrorKind> {
     if let Some(cl) = resp.content_length() {
         if cl > max {
-            return Err(EventProcessorError::FetchSizeExceeded(cl, max));
+            return Err(HsErrorKind::TooLarge { got: cl, max });
         }
     }
     let (buf, exceeded) = read_stream_capped(resp.bytes_stream(), max as usize)
         .await
-        .map_err(|e| EventProcessorError::client_error(e.to_string()))?;
+        .map_err(|e| HsErrorKind::from_reqwest(&e))?;
     if exceeded {
-        return Err(EventProcessorError::FetchSizeExceeded(
-            buf.len() as u64,
+        return Err(HsErrorKind::TooLarge {
+            got: buf.len() as u64,
             max,
-        ));
+        });
     }
     Ok(buf)
 }
@@ -171,7 +170,10 @@ mod tests {
         let err = fetch_capped(resp, 100).await.unwrap_err();
         assert!(matches!(
             err,
-            EventProcessorError::FetchSizeExceeded(10_000, 100)
+            HsErrorKind::TooLarge {
+                got: 10_000,
+                max: 100
+            }
         ));
     }
 
@@ -183,10 +185,7 @@ mod tests {
             "guard: else this re-tests the pre-check"
         );
         let err = fetch_capped(r, 100).await.unwrap_err();
-        assert!(matches!(
-            err,
-            EventProcessorError::FetchSizeExceeded(_, 100)
-        ));
+        assert!(matches!(err, HsErrorKind::TooLarge { max: 100, .. }));
     }
 
     #[tokio::test]

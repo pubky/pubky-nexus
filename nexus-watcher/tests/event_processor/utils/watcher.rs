@@ -17,6 +17,7 @@ use nexus_watcher::events::retry::{
 };
 use nexus_watcher::events::{DefaultEventHandler, EventHandler};
 use nexus_watcher::events::{Event, ParseResult};
+use nexus_watcher::homeserver::{HomeserverClient, HomeserverHealth, PubkyHomeserverClient};
 use nexus_watcher::service::HsEventProcessorRunner;
 use nexus_watcher::service::TEventProcessorRunner;
 use pubky::Keypair;
@@ -88,10 +89,16 @@ impl WatcherTest {
         files_path: PathBuf,
         max_file_size: u64,
     ) -> HsEventProcessorRunner {
+        let pubky = PubkyConnector::get().expect("PubkyConnector is initialised by setup");
+        let client: Arc<dyn HomeserverClient> = Arc::new(PubkyHomeserverClient::new(
+            pubky,
+            HomeserverHealth::default(),
+            max_file_size,
+        ));
         let event_handler: Arc<dyn EventHandler> = Arc::new(DefaultEventHandler::new(
             default_moderation_tests(),
             default_ingestor_tests(),
-            max_file_size,
+            client.clone(),
             files_path,
         ));
 
@@ -109,6 +116,7 @@ impl WatcherTest {
         HsEventProcessorRunner {
             limit: 1000,
             event_handler,
+            client,
             shutdown_rx,
             primary_homeserver,
             retry_scheduler,

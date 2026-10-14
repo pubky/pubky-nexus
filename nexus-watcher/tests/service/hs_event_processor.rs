@@ -5,16 +5,17 @@ use chrono::Utc;
 use nexus_common::db::{exec_single_row, queries};
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::user::{Epoch, UserDetails};
-use nexus_common::utils::test_utils::{random_pk, random_pubky_id};
+use nexus_common::utils::test_utils::{default_ingestor_tests, random_pk, random_pubky_id};
 use nexus_watcher::errors::EventProcessorError;
 use nexus_watcher::events::retry::{IndexKey, InitialBackoff, RetryScheduler, RetryStore};
-use nexus_watcher::events::EventHandler;
-use nexus_watcher::service::HsEventProcessor;
-use pubky_app_specs::{post_uri_builder, PubkyId};
+use nexus_watcher::events::{DefaultEventHandler, EventHandler};
+use nexus_watcher::service::{HsEventProcessor, TEventProcessor};
+use pubky_app_specs::{post_uri_builder, PubkyAppUser, PubkyId};
 use tokio::sync::watch;
 
+use crate::event_processor::utils::default_moderation_tests;
 use crate::service::utils::common::create_mock_handler;
-use crate::service::utils::{new_in_memory_store, setup};
+use crate::service::utils::{new_in_memory_store, setup, MockHomeserverClient};
 
 const TEST_HS_ID: &str = "1hb71xx9km3f4pw5izsy1gn19ff1uuuqonw4mcygzobwkryujoiy";
 
@@ -88,6 +89,7 @@ fn build_processor(
         homeserver: Homeserver::new(hs_id),
         limit: 100,
         event_handler,
+        client: Arc::new(MockHomeserverClient::default()),
         shutdown_rx,
         retry_scheduler,
         hs_mapping_cache: Default::default(),
@@ -122,6 +124,7 @@ async fn build_processor_at_cursor(
         homeserver,
         limit: 100,
         event_handler,
+        client: Arc::new(MockHomeserverClient::default()),
         shutdown_rx,
         retry_scheduler,
         hs_mapping_cache: Default::default(),
@@ -766,5 +769,70 @@ async fn test_cursor_not_persisted_when_batch_stops() -> Result<()> {
     );
 
     let _ = shutdown_tx.send(true);
+    Ok(())
+}
+
+// ============================================================================
+// The processor reaches the homeserver only through its client
+// ============================================================================
+
+/// The primary processor polls and fetches through its client: with one serving a
+/// scripted batch and resource, a run indexes the event without any homeserver.
+#[tokio_shared_rt::test(shared)]
+async fn test_run_polls_and_fetches_through_the_client() -> Result<()> {
+    setup().await?;
+
+    let user_id = random_user_id();
+    let profile_uri = format!("pubky://{user_id}/pub/pubky.app/profile.json");
+    let profile = PubkyAppUser {
+        bio: None,
+        image: None,
+        links: None,
+        name: "client-seam".to_string(),
+        status: None,
+    };
+    let client = Arc::new(
+        MockHomeserverClient::default()
+            .with_lines(batch([format!("PUT {profile_uri}")]))
+            .with_resource(&profile_uri, serde_json::to_vec(&profile)?),
+    );
+    let files = tempfile::TempDir::new()?;
+    let event_handler: Arc<dyn EventHandler> = Arc::new(DefaultEventHandler::new(
+        default_moderation_tests(),
+        default_ingestor_tests(),
+        client.clone(),
+        files.path().to_path_buf(),
+    ));
+
+    let homeserver = Homeserver {
+        id: random_pubky_id(),
+        cursor: 0,
+    };
+    homeserver.put_to_index().await?;
+    let hs_id = homeserver.id.to_string();
+    let processor = Arc::new(HsEventProcessor {
+        homeserver,
+        limit: 100,
+        event_handler,
+        client,
+        shutdown_rx: watch::channel(false).1,
+        retry_scheduler: Arc::new(RetryScheduler::new(
+            new_in_memory_store(),
+            InitialBackoff {
+                missing_dep_ms: 60_000,
+                transient_ms: 10_000,
+            },
+        )),
+        hs_mapping_cache: Default::default(),
+    });
+
+    processor.run().await?;
+
+    let user = UserDetails::get_by_id(&user_id)
+        .await?
+        .expect("the profile should be indexed");
+    assert_eq!(user.name, "client-seam");
+    assert_eq!(stored_cursor(&hs_id).await?, 1);
+
     Ok(())
 }

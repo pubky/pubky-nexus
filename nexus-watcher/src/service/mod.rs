@@ -16,10 +16,13 @@ pub use runner::{HsEventProcessorRunner, KeyBasedEventProcessorRunner, TEventPro
 pub(crate) use task_runner::{run_periodic_tasks, PeriodicTask};
 pub use user_hs_resolver::UserHsResolverRunner;
 
-use crate::events::retry::RetryProcessor;
+use crate::events::retry::{RetryProcessor, RetryScheduler};
+use crate::events::{DefaultEventHandler, EventHandler};
+use crate::homeserver::{HomeserverClient, PubkyHomeserverClient};
 use crate::service::constants::DEFAULT_WATCHER_CONFIG_TOML;
 use crate::service::task_runner::task_results_into_result;
 use crate::NexusWatcherBuilder;
+use nexus_common::db::PubkyConnector;
 use nexus_common::file::ConfigLoader;
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::types::DynError;
@@ -70,6 +73,11 @@ impl NexusWatcher {
     /// All tasks listen for the shutdown signal to exit gracefully. If any task panics,
     /// an internal cancellation signal is sent so that sibling tasks can finish their
     /// current iteration and exit.
+    ///
+    /// The tasks share one [`HomeserverClient`], so what one learns about a homeserver's
+    /// health the others see, and one event handler and retry scheduler.
+    ///
+    /// Expects [`PubkyConnector`] to be initialised.
     pub async fn start(shutdown_rx: Receiver<bool>, config: WatcherConfig) -> Result<(), DynError> {
         debug!(?config, "Running NexusWatcher with ");
 
@@ -80,12 +88,26 @@ impl NexusWatcher {
         let hs_resolver_interval_ms = config.hs_resolver_interval_ms;
         let retry_processor_interval_ms = config.retry_processor_interval_ms;
 
-        let hs_runner = Arc::new(HsEventProcessorRunner::from_config(
+        let client: Arc<dyn HomeserverClient> = Arc::new(PubkyHomeserverClient::from_config(
+            PubkyConnector::get()?,
             &config,
+        ));
+        let event_handler: Arc<dyn EventHandler> =
+            Arc::new(DefaultEventHandler::from_config(&config, client.clone()));
+        let retry_scheduler = Arc::new(RetryScheduler::from_config(&config));
+
+        let hs_runner = Arc::new(HsEventProcessorRunner::new(
+            &config,
+            client.clone(),
+            event_handler.clone(),
+            retry_scheduler.clone(),
             shutdown_rx.clone(),
         ));
-        let key_based_runner = Arc::new(KeyBasedEventProcessorRunner::from_config(
+        let key_based_runner = Arc::new(KeyBasedEventProcessorRunner::new(
             &config,
+            client,
+            event_handler.clone(),
+            retry_scheduler,
             shutdown_rx.clone(),
         ));
         let user_hs_resolver_runner = Arc::new(UserHsResolverRunner::from_config(
@@ -95,7 +117,11 @@ impl NexusWatcher {
         ));
 
         // Create retry processor
-        let retry_processor = Arc::new(RetryProcessor::new(&config, shutdown_rx.clone()));
+        let retry_processor = Arc::new(RetryProcessor::new(
+            &config,
+            event_handler,
+            shutdown_rx.clone(),
+        ));
 
         let tasks = vec![
             PeriodicTask::new(

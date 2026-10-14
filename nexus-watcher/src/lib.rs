@@ -17,6 +17,7 @@
 mod builder;
 pub mod errors;
 pub mod events;
+pub mod homeserver;
 pub mod service;
 
 pub use builder::NexusWatcherBuilder;

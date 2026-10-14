@@ -1,6 +1,6 @@
 use crate::errors::EventProcessorError;
+use crate::homeserver::HsStreamEvent;
 use nexus_common::models::event::EventLine;
-use pubky::Event as StreamEvent;
 use pubky_app_specs::{ExtendedParsedUri, Resource};
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -99,14 +99,14 @@ impl Event {
         Self::parse_event_parts(event_type, uri, event_line)
     }
 
-    /// Constructs a nexus [`Event`] directly from a [`StreamEvent`], avoiding
+    /// Constructs a nexus [`Event`] directly from a [`HsStreamEvent`], avoiding
     /// the string round-trip through [`Self::parse_event`].
     pub fn from_stream_event(
-        stream_event: &StreamEvent,
+        stream_event: &HsStreamEvent,
     ) -> Result<Option<Self>, EventProcessorError> {
-        let event_type: EventType = stream_event.event_type.clone().into();
+        let event_type = stream_event.event_type.clone();
 
-        let uri = stream_event.resource.to_pubky_url();
+        let uri = stream_event.uri.clone();
         debug!(%event_type, %uri, "New stream event");
 
         let event_line = format!("{event_type} {uri}");
