@@ -18,12 +18,14 @@ impl EventHandler for NoopHandler {
 }
 
 /// Processor whose run takes `work` (forever if `None`), under a deadline of `timeout`.
-/// It counts the runs it started.
+/// It counts the runs it started, and the most of them going at once.
 pub(crate) struct SlowProcessor {
     handler: Arc<dyn EventHandler>,
     work: Option<Duration>,
     timeout: Duration,
     starts: AtomicUsize,
+    running: AtomicUsize,
+    peak: AtomicUsize,
 }
 
 impl SlowProcessor {
@@ -33,11 +35,18 @@ impl SlowProcessor {
             work,
             timeout,
             starts: AtomicUsize::new(0),
+            running: AtomicUsize::new(0),
+            peak: AtomicUsize::new(0),
         }
     }
 
     pub(crate) fn starts(&self) -> usize {
         self.starts.load(Ordering::SeqCst)
+    }
+
+    /// The most runs that were going at once.
+    pub(crate) fn peak(&self) -> usize {
+        self.peak.load(Ordering::SeqCst)
     }
 }
 
@@ -57,10 +66,13 @@ impl TEventProcessor for SlowProcessor {
 
     async fn run_internal(self: Arc<Self>) -> Result<(), EventProcessorError> {
         self.starts.fetch_add(1, Ordering::SeqCst);
+        let running = self.running.fetch_add(1, Ordering::SeqCst) + 1;
+        self.peak.fetch_max(running, Ordering::SeqCst);
         match self.work {
             Some(work) => tokio::time::sleep(work).await,
             None => std::future::pending().await,
         }
+        self.running.fetch_sub(1, Ordering::SeqCst);
         Ok(())
     }
 }

@@ -213,9 +213,8 @@ mod tests {
         poll_limit: usize,
         backoff: Mutex<HomeserverBackoff>,
         built: Mutex<Vec<String>>,
-        /// How long the processors it builds take to run (forever if `None`), and their
-        /// timeout. Builds fail unless it is set.
-        processor_work: Option<(Option<Duration>, Duration)>,
+        /// The processor every build returns. Builds fail unless it is set.
+        processor: Option<Arc<SlowProcessor>>,
         in_flight: InFlightRuns,
         shutdown_rx: Receiver<bool>,
     }
@@ -227,14 +226,16 @@ mod tests {
                 poll_limit,
                 backoff: Mutex::new(HomeserverBackoff::default()),
                 built: Mutex::new(vec![]),
-                processor_work: None,
+                processor: None,
                 in_flight: InFlightRuns::default(),
                 shutdown_rx: tokio::sync::watch::channel(false).1,
             }
         }
 
+        /// Builds return one processor, whose runs take `work` (forever if `None`) under a
+        /// deadline of `timeout`.
         fn with_processors_taking(mut self, work: Option<Duration>, timeout: Duration) -> Self {
-            self.processor_work = Some((work, timeout));
+            self.processor = Some(Arc::new(SlowProcessor::new(work, timeout)));
             self
         }
     }
@@ -251,8 +252,8 @@ mod tests {
 
         async fn build(&self, hs_id: &str) -> Result<Arc<dyn TEventProcessor>, DynError> {
             self.built.lock().await.push(hs_id.to_string());
-            let (work, timeout) = self.processor_work.ok_or("not built in this test")?;
-            Ok(Arc::new(SlowProcessor::new(work, timeout)))
+            let processor = self.processor.clone().ok_or("not built in this test")?;
+            Ok(processor)
         }
 
         async fn pre_run(&self) -> Result<Vec<String>, DynError> {
@@ -321,6 +322,23 @@ mod tests {
 
         drop(run);
         assert!(runs.try_start("hs1").is_ok());
+    }
+
+    /// Back-to-back ticks, as the periodic task runs them, never run one homeserver twice at
+    /// once, even when its run outlives the timeout: the second tick must not start a run next
+    /// to the timed-out one.
+    #[tokio::test]
+    async fn a_homeserver_never_runs_twice_at_once() {
+        let runner = RecordingRunner::new(&["hs1"], usize::MAX)
+            .with_processors_taking(Some(Duration::from_millis(300)), Duration::from_millis(50));
+
+        runner.run().await.unwrap();
+        runner.run().await.unwrap();
+        // Long enough for every run to finish.
+        tokio::time::sleep(Duration::from_millis(700)).await;
+
+        let processor = runner.processor.as_ref().expect("set above");
+        assert_eq!(processor.peak(), 1, "two runs of hs1 were going at once");
     }
 
     /// A run that outlives its timeout goes on in the background, and its homeserver is
