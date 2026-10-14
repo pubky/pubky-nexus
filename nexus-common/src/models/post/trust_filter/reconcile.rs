@@ -7,7 +7,7 @@ use neo4rs::Row;
 use redis::{AsyncCommands, Script, ScriptInvocation};
 
 use super::scripts::{add_call, remove_call, ADD, REMOVE};
-use super::{applied_key, is_enabled, sorted_key, ALL_SHOWN_KEY, APPLIED_KEY_PARTS, BATCH};
+use super::{applied_key, is_enabled, sorted_key, APPLIED_KEY_PARTS, BATCH, FILTERED_KEY};
 use crate::db::kv::{RedisError, RedisResult};
 use crate::db::{
     fetch_all_rows_from_graph, fetch_key_from_graph, get_redis_conn, queries, GraphResult, RedisOps,
@@ -37,8 +37,8 @@ pub(crate) async fn reconcile() -> ModelResult<()> {
 /// Moves the posts of the authors whose rank changed out or back, then records
 /// the ranking as applied.
 async fn apply_ranking(conn: &mut Connection) -> ModelResult<()> {
-    // Cleared first, so a run cut short leaves no record that all is shown.
-    let _: () = conn.del(ALL_SHOWN_KEY).await.map_err(RedisError::from)?;
+    // Set first, so a run cut short still records that posts may be hidden.
+    let _: () = conn.set(FILTERED_KEY, 1).await.map_err(RedisError::from)?;
     let ranking = members(conn, &SocialGraphStatus::ranking_key()).await?;
     let applied = members(conn, &applied_key()).await?;
     if applied == ranking {
@@ -54,17 +54,18 @@ async fn apply_ranking(conn: &mut Connection) -> ModelResult<()> {
 }
 
 /// With the filter off, writes back every author the shared sets may still
-/// hide: those outside both the applied copy and the live ranking, which the
-/// gate filtered writes on. A missing copy counts as the live ranking, since a
-/// first application cut short leaves none. Then drops the copy and records
-/// that all is shown, so later runs return at once.
+/// hide: anyone the applied copy or the live ranking leaves out, since the gate
+/// filtered writes on the live one. A missing copy counts as the live ranking,
+/// as a first application cut short leaves none. Nothing is done when neither
+/// a copy nor the filtered record exists: the sets were never filtered. Then
+/// drops the copy and the record, so later runs return at once.
 async fn show_all(conn: &mut Connection) -> ModelResult<()> {
-    let shown: bool = conn.exists(ALL_SHOWN_KEY).await.map_err(RedisError::from)?;
-    if shown {
+    let filtered: bool = conn.exists(FILTERED_KEY).await.map_err(RedisError::from)?;
+    let applied = members(conn, &applied_key()).await?;
+    if !filtered && applied.is_none() {
         tracing::info!("Shared post sets already match the ranking");
         return Ok(());
     }
-    let applied = members(conn, &applied_key()).await?;
     let ranking = members(conn, &SocialGraphStatus::ranking_key()).await?;
     let admitted = match (applied, ranking) {
         (Some(applied), Some(ranking)) => Some(&applied & &ranking),
@@ -76,7 +77,8 @@ async fn show_all(conn: &mut Connection) -> ModelResult<()> {
     };
     write_authors(conn, &[], &show).await?;
     record_applied(None).await?;
-    let _: () = conn.set(ALL_SHOWN_KEY, 1).await.map_err(RedisError::from)?;
+    // Last, so a run that fails is redone by the next one.
+    let _: () = conn.del(FILTERED_KEY).await.map_err(RedisError::from)?;
     tracing::info!("Rank change applied to the shared post sets");
     Ok(())
 }

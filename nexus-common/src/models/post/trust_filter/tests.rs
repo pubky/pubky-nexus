@@ -343,8 +343,9 @@ mod live {
     }
 
     /// Switching off shows every author the ranking may have hidden, even when
-    /// its first reconcile was cut short and left no copy. It records that all
-    /// is shown, and switching back on clears that record.
+    /// its first reconcile was cut short: the filtered record it set first is
+    /// there, but no copy. Switching off clears the record, and switching back
+    /// on sets it again.
     #[tokio_shared_rt::test(shared)]
     async fn switching_off_shows_what_an_unfinished_apply_hid() -> TestResult {
         setup(&[]).await?;
@@ -354,15 +355,58 @@ mod live {
         set_enabled(false);
         let shown = reconcile().await;
         let scores = spammer_scores().await;
-        let recorded: bool = conn.exists(ALL_SHOWN_KEY).await?;
+        let left: bool = conn.exists(FILTERED_KEY).await?;
         set_enabled(true);
         cleanup(&[]).await?;
-        let left: bool = conn.exists(ALL_SHOWN_KEY).await?;
+        let restored: bool = conn.exists(FILTERED_KEY).await?;
 
         shown?;
         assert_eq!(scores?, all_present());
-        assert!(recorded, "switching off records that all is shown");
-        assert!(!left, "switching on clears the record");
+        assert!(!left, "switching off clears the filtered record");
+        assert!(restored, "switching on sets it again");
+        Ok(())
+    }
+
+    /// Sets that were never filtered have neither the record nor a copy, so
+    /// switching off leaves them alone, however many authors the ranking
+    /// leaves out.
+    #[tokio_shared_rt::test(shared)]
+    async fn switching_off_skips_sets_never_filtered() -> TestResult {
+        setup(&[]).await?;
+        let mut conn = get_redis_conn().await?;
+        let _: () = conn.del(&[applied_key(), FILTERED_KEY.to_string()]).await?;
+
+        set_enabled(false);
+        let skipped = reconcile().await;
+        let scores = spammer_scores().await;
+        set_enabled(true);
+        cleanup(&[]).await?;
+
+        skipped?;
+        // The fixture hides the spammer, so a pass would have shown them.
+        assert_eq!(scores?, all_absent());
+        Ok(())
+    }
+
+    /// Switching on records that posts may be hidden before it reads anything,
+    /// so a run that fails part way leaves the record for switching off to act
+    /// on. Here the ranking can't be read.
+    #[tokio_shared_rt::test(shared)]
+    async fn a_failed_apply_leaves_the_filtered_record() -> TestResult {
+        setup(&[]).await?;
+        let mut conn = get_redis_conn().await?;
+        let _: () = conn.del(FILTERED_KEY).await?;
+        park_ranking().await?;
+        let _: () = conn.set(ranking_key(), "not a sorted set").await?;
+
+        let applied = reconcile().await;
+        let recorded: bool = conn.exists(FILTERED_KEY).await?;
+        let _: () = conn.del(ranking_key()).await?;
+        restore_ranking().await?;
+        cleanup(&[]).await?;
+
+        assert!(applied.is_err(), "the ranking can't be read");
+        assert!(recorded, "the record is set before the failure");
         Ok(())
     }
 

@@ -23,10 +23,10 @@ use scripts::{add_call, INCR};
 /// A copy of the ranking the shared sets were last reconciled with. Absent
 /// while nothing is filtered.
 pub const APPLIED_KEY_PARTS: [&str; 2] = ["TrustFilter", "Applied"];
-/// Set once the filter is off and every author it may have hidden is shown
-/// again. While the filter stays off the gate drops nothing, so this holds
-/// until it is turned on.
-const ALL_SHOWN_KEY: &str = "TrustFilter:AllShown";
+/// Set before switching on hides anything, and cleared once switching off has
+/// shown every author again: while it exists the shared sets may hide posts,
+/// even with no applied copy.
+const FILTERED_KEY: &str = "TrustFilter:Filtered";
 /// The most entries one script call writes or removes.
 const BATCH: usize = 500;
 
