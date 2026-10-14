@@ -65,7 +65,7 @@ impl RunAllProcessorsStats {
         self.count(ProcessorRunStatus::FailedToBuild)
     }
 
-    /// Number of homeservers skipped due to backoff
+    /// Number of homeservers skipped: in backoff, or with their previous run still going
     pub fn count_skipped(&self) -> usize {
         self.count(ProcessorRunStatus::Skipped)
     }

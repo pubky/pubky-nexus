@@ -3,6 +3,8 @@ pub mod indexer;
 pub mod runner;
 pub mod stats;
 mod task_runner;
+#[cfg(test)]
+mod test_utils;
 pub mod user_hs_resolver;
 
 /// Module exports
@@ -24,7 +26,7 @@ use nexus_common::WatcherConfig;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::watch::Receiver;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 pub struct NexusWatcher {}
 
@@ -119,17 +121,8 @@ impl NexusWatcher {
             }),
             PeriodicTask::new("retry-processor", retry_processor_interval_ms, move || {
                 let processor = retry_processor.clone();
-                let run = retry_runs.try_start("retry-processor");
-                async move {
-                    let Some(run) = run else {
-                        debug!("Skipping retry processing: the previous run is still going");
-                        return Ok(());
-                    };
-                    processor
-                        .run_holding(Some(run))
-                        .await
-                        .map_err(DynError::from)
-                }
+                let runs = retry_runs.clone();
+                async move { run_retry_tick(processor, &runs).await }
             }),
         ];
 
@@ -140,9 +133,64 @@ impl NexusWatcher {
     }
 }
 
+/// One tick of the retry processor: a run, unless the previous one is still going, which
+/// happens when it outlived its timeout.
+async fn run_retry_tick(
+    processor: Arc<dyn TEventProcessor>,
+    runs: &InFlightRuns,
+) -> Result<(), DynError> {
+    let run = match runs.try_start("retry-processor") {
+        Ok(run) => run,
+        Err(running_for) => {
+            warn!(
+                running_for_secs = running_for.as_secs(),
+                "Skipping retry processing: the timed-out previous run is still going"
+            );
+            return Ok(());
+        }
+    };
+
+    processor
+        .run_holding(Some(run))
+        .await
+        .map_err(DynError::from)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{NexusWatcher, DEFAULT_WATCHER_CONFIG_TOML, WATCHER_CONFIG_FILE_NAME};
+    use super::{
+        run_retry_tick, InFlightRuns, NexusWatcher, DEFAULT_WATCHER_CONFIG_TOML,
+        WATCHER_CONFIG_FILE_NAME,
+    };
+    use crate::service::test_utils::SlowProcessor;
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    /// A retry tick skips while the previous run, past its timeout, is still going, and runs
+    /// again once that run ended.
+    #[tokio::test]
+    async fn retry_tick_skips_while_the_previous_run_is_going() {
+        let processor = Arc::new(SlowProcessor::new(
+            Some(Duration::from_millis(300)),
+            Duration::from_millis(50),
+        ));
+        let runs = InFlightRuns::default();
+
+        let first = run_retry_tick(processor.clone(), &runs).await;
+        assert!(first.is_err(), "the first run times out");
+
+        let second = run_retry_tick(processor.clone(), &runs).await;
+        assert!(second.is_ok(), "{second:?}");
+        assert_eq!(processor.starts(), 1, "no second run next to the first");
+
+        tokio::time::sleep(Duration::from_millis(400)).await;
+        let _ = run_retry_tick(processor.clone(), &runs).await;
+        assert_eq!(
+            processor.starts(),
+            2,
+            "a run starts once the previous one ended"
+        );
+    }
 
     /// A missing config file is written from the default config, which loads.
     #[tokio::test]

@@ -62,7 +62,7 @@ async fn test_timed_out_run_finishes_in_the_background() -> Result<()> {
     assert!(matches!(result, Err(RunError::TimedOut)), "got {result:?}");
     assert_eq!(finished.load(Ordering::SeqCst), 0);
     assert!(
-        runs.try_start("hs").is_none(),
+        runs.try_start("hs").is_err(),
         "the timed-out run must still hold its mark"
     );
 
@@ -74,7 +74,7 @@ async fn test_timed_out_run_finishes_in_the_background() -> Result<()> {
         "the timed-out run must finish its work"
     );
     assert!(
-        runs.try_start("hs").is_some(),
+        runs.try_start("hs").is_ok(),
         "the mark must be released once the run ends"
     );
     Ok(())

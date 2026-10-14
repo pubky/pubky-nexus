@@ -213,7 +213,7 @@ impl TEventProcessorRunner for KeyBasedEventProcessorRunner {
             warn!(
                 hs_ok = count_ok,
                 hs_skipped = count_skipped,
-                "Key-based indexing finished; some homeservers skipped (backoff)"
+                "Key-based indexing finished; some homeservers skipped (backoff or previous run still going)"
             );
         } else if count_ok == 0 {
             info!("Key-based indexing finished: no external homeservers");
