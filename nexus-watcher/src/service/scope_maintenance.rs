@@ -22,6 +22,7 @@ use nexus_common::models::error::ModelResult;
 use nexus_common::models::scope::SeedHopsScope;
 use nexus_common::models::user::stub::{is_stub, rebuild_stub_index, SCOPE_STATE_STUB};
 use nexus_common::models::user::{UserCounts, UserIngestor};
+use nexus_common::types::DynError;
 use nexus_common::{ScopeConfig, WatcherConfig};
 use pubky_app_specs::PubkyId;
 use tokio::sync::Mutex;
@@ -129,6 +130,14 @@ impl ScopeMaintainer {
         Ok(change)
     }
 
+    /// Recomputes a seed scope's members now, e.g. right after a big Nexus suggested some.
+    pub async fn recompute_now(&self) -> ModelResult<ScopeChange> {
+        let mut last_run = self.last_run.lock().await;
+        let change = self.recompute_members(false).await?;
+        *last_run = Instant::now();
+        Ok(change)
+    }
+
     /// Works out the seed scope's members from the graph and compares them with the last
     /// result: who is new joins, who is gone leaves. Without a last result (first run,
     /// or Redis lost), `at_start` compares with every in-scope user in the graph, so a
@@ -137,7 +146,7 @@ impl ScopeMaintainer {
         let Some(seed_scope) = &self.seed_scope else {
             return Ok(ScopeChange::default());
         };
-        let members = seed_scope.members_from_graph().await?;
+        let members = seed_scope.members().await?;
         let previous = match seed_scope.cached_members().await? {
             Some(previous) => previous,
             None if at_start => self.in_scope_users().await?,
@@ -154,23 +163,33 @@ impl ScopeMaintainer {
         previous: &HashSet<String>,
     ) -> ModelResult<ScopeChange> {
         let mut change = ScopeChange::default();
+        // One user failing (a blacklisted homeserver, a lookup timing out) doesn't stop the
+        // others: it is logged, and the next run tries it again.
         for user_id in members.keys().filter(|id| !previous.contains(*id)) {
-            match PubkyId::try_from(user_id.as_str()) {
-                Ok(user_id) => {
-                    self.ingestor.promote(&user_id).await?;
-                    change.joined += 1;
-                }
-                Err(e) => warn!(%user_id, error = %e, "Skipping a member with an invalid id"),
+            match self.admit(user_id).await {
+                Ok(()) => change.joined += 1,
+                Err(e) => warn!(%user_id, error = %e, "Could not bring a member in"),
             }
         }
         for user_id in previous
             .iter()
             .filter(|id| !members.contains_key(*id) && !self.pinned.contains(*id))
         {
-            self.ingestor.demote(user_id).await?;
-            change.left += 1;
+            match self.ingestor.demote(user_id).await {
+                Ok(()) => change.left += 1,
+                Err(e) => warn!(%user_id, error = %e, "Could not let a member go"),
+            }
         }
         Ok(change)
+    }
+
+    /// Brings a member in: ingested if new (in scope now, so bound and polled), promoted
+    /// if it was kept out.
+    async fn admit(&self, user_id: &str) -> Result<(), DynError> {
+        let user_id = PubkyId::try_from(user_id)?;
+        self.ingestor.maybe_ingest_user(&user_id).await?;
+        self.ingestor.promote(&user_id).await?;
+        Ok(())
     }
 
     /// For "everything": clears every user's scope state. Former stubs go back into the

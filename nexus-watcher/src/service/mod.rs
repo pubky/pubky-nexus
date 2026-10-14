@@ -1,6 +1,7 @@
 mod constants;
 pub mod indexer;
 pub mod runner;
+pub mod scope_bootstrap;
 pub mod scope_maintenance;
 pub mod stats;
 mod task_runner;
@@ -19,13 +20,14 @@ use crate::service::task_runner::task_results_into_result;
 use crate::NexusWatcherBuilder;
 use nexus_common::file::ConfigLoader;
 use nexus_common::models::homeserver::Homeserver;
-use nexus_common::models::scope::scope_from_config;
+use nexus_common::models::scope::{scope_from_config, SeedHopsScope};
 use nexus_common::models::takedown::rebuild_takedown_index;
 use nexus_common::models::user::stub::rebuild_stub_index;
 use nexus_common::models::user::UserIngestor;
 use nexus_common::types::DynError;
-use nexus_common::ScopeConfig;
 use nexus_common::WatcherConfig;
+use nexus_common::{ScopeBootstrapConfig, ScopeConfig};
+use scope_bootstrap::NexusFollowing;
 use scope_maintenance::{ScopeMaintainer, SCOPE_MAINTENANCE_TICK_MS};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -177,6 +179,24 @@ async fn prepare_scope(config: &WatcherConfig) -> Result<(), DynError> {
     // Who is in scope, before anything is polled: members recomputed from the graph,
     // users of a narrower or wider previous scope moved out or back in.
     ScopeMaintainer::from_config(config).at_start().await?;
+
+    // A big Nexus can suggest a new seed scope's members, so they are all polled at once.
+    // In the background: the seed's own stream is polled meanwhile, and if that Nexus
+    // can't be read, crawling finds the members anyway.
+    if let (ScopeConfig::Seed { seed, hops }, ScopeBootstrapConfig::Nexus { nexus_url }) =
+        (&config.stack.scope, &config.scope_bootstrap)
+    {
+        let scope = SeedHopsScope::new(seed.clone(), *hops);
+        let maintainer = ScopeMaintainer::from_config(config);
+        let source = NexusFollowing {
+            nexus_url: nexus_url.clone(),
+        };
+        tokio::spawn(async move {
+            scope_bootstrap::bootstrap_seed_scope(&scope, &maintainer, &source).await;
+        });
+    } else if config.scope_bootstrap != ScopeBootstrapConfig::Crawl {
+        warn!("scope_bootstrap only applies to a seed scope; ignoring it");
+    }
 
     if let ScopeConfig::Homeservers { homeservers } = &config.stack.scope {
         if !homeservers.contains(&config.homeserver) {

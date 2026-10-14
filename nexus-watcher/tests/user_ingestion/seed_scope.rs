@@ -10,10 +10,13 @@ use nexus_common::db::{fetch_row_from_graph, get_redis_conn};
 use nexus_common::models::follow::{Followers, UserFollows};
 use nexus_common::models::scope::{PinnedScope, Scope, SeedHopsScope};
 use nexus_common::models::user::{is_stub, UserIngestor};
+use nexus_common::types::DynError;
 use nexus_common::{ScopeConfig, WatcherConfig};
+use nexus_watcher::service::scope_bootstrap::{bootstrap_seed_scope, FollowingSource};
 use nexus_watcher::service::scope_maintenance::{ScopeChange, ScopeMaintainer};
 use pubky::Keypair;
 use pubky_app_specs::PubkyId;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Users registered on one test homeserver: `[seed, b, c, d]`.
@@ -225,5 +228,69 @@ async fn test_widening_to_everything_lets_everyone_back_in() -> Result<()> {
         assert_eq!(scope_state(user).await?, None, "{user} is back in scope");
     }
     assert!(!is_stub(&c).await?);
+    Ok(())
+}
+
+/// Who follows whom on a fake big Nexus; `None` fails every request.
+struct FakeBigNexus(Option<HashMap<String, Vec<String>>>, std::sync::Mutex<u32>);
+
+#[async_trait::async_trait]
+impl FollowingSource for FakeBigNexus {
+    async fn following(&self, user_id: &str, skip: usize) -> Result<Option<Vec<String>>, DynError> {
+        *self.1.lock().unwrap() += 1;
+        let graph = self.0.as_ref().ok_or("the big Nexus is down")?;
+        Ok(graph
+            .get(user_id)
+            .map(|followees| followees.iter().skip(skip).cloned().collect()))
+    }
+}
+
+/// A big Nexus's follows suggest every member at start, so all of them are polled at
+/// once instead of hop by hop; the bootstrap runs once per seed and hop count.
+#[tokio_shared_rt::test(shared)]
+async fn test_bootstrap_admits_the_members_a_big_nexus_suggests() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let [seed, b, c, d] = users(&mut test).await?;
+    let (ingestor, maintainer) =
+        seed_scope(&seed, 2, &[seed.clone(), b.clone(), c.clone(), d.clone()]);
+    ingestor.ensure_in_scope(&seed).await?;
+    maintainer.at_start().await?;
+
+    let big_nexus = FakeBigNexus(
+        Some(HashMap::from([
+            (seed.to_string(), vec![b.to_string()]),
+            (b.to_string(), vec![c.to_string()]),
+            (c.to_string(), vec![d.to_string()]),
+        ])),
+        Default::default(),
+    );
+    let scope = SeedHopsScope::new(seed.clone(), 2);
+    bootstrap_seed_scope(&scope, &maintainer, &big_nexus).await;
+
+    assert!(
+        is_polled(&b).await? && is_polled(&c).await?,
+        "suggested and polled at once"
+    );
+    assert!(!is_polled(&d).await?, "3 follows away");
+    assert!(scope.is_bootstrapped().await?);
+
+    let requests = *big_nexus.1.lock().unwrap();
+    bootstrap_seed_scope(&scope, &maintainer, &big_nexus).await;
+    assert_eq!(*big_nexus.1.lock().unwrap(), requests, "not asked again");
+    Ok(())
+}
+
+/// If the big Nexus can't be read, nothing is suggested and the bootstrap isn't marked
+/// done: crawling finds the members, and the next start tries again.
+#[tokio_shared_rt::test(shared)]
+async fn test_bootstrap_falls_back_to_crawling_when_the_big_nexus_fails() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let [seed, b, c, d] = users(&mut test).await?;
+    let (_, maintainer) = seed_scope(&seed, 2, &[seed.clone(), b, c, d]);
+
+    let scope = SeedHopsScope::new(seed.clone(), 2);
+    bootstrap_seed_scope(&scope, &maintainer, &FakeBigNexus(None, Default::default())).await;
+
+    assert!(!scope.is_bootstrapped().await?);
     Ok(())
 }

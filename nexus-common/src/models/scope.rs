@@ -181,6 +181,13 @@ impl Scope for HomeserverListScope {
 const MEMBERS_PREFIX: &str = "Scope:Members";
 /// Prefix of the flag a member's follow or unfollow sets, asking for a recompute.
 const STALE_PREFIX: &str = "Scope:Stale";
+/// Prefix of the users a big Nexus suggested, scored by when the suggestion expires.
+const SUGGESTED_PREFIX: &str = "Scope:Suggested";
+/// Prefix of the flag set once a big Nexus suggested the members for a seed and hops.
+const BOOTSTRAPPED_PREFIX: &str = "Scope:Bootstrapped";
+/// How long a suggested user is a member without the graph confirming it: time for its
+/// followers' streams to be read, so their follows of it land in the graph.
+const SUGGESTION_TTL_MS: i64 = 24 * 60 * 60 * 1_000;
 
 /// The seed user and everyone it reaches by following, up to `hops` follows away.
 ///
@@ -196,6 +203,8 @@ pub struct SeedHopsScope {
     hops: u8,
     members_key: String,
     stale_key: String,
+    suggested_key: String,
+    bootstrapped_key: String,
 }
 
 impl SeedHopsScope {
@@ -207,6 +216,8 @@ impl SeedHopsScope {
             },
             members_key: format!("{MEMBERS_PREFIX}:{seed}"),
             stale_key: format!("{STALE_PREFIX}:{seed}"),
+            suggested_key: format!("{SUGGESTED_PREFIX}:{seed}"),
+            bootstrapped_key: format!("{BOOTSTRAPPED_PREFIX}:{seed}:{hops}"),
             seed,
             hops,
         }
@@ -243,6 +254,64 @@ impl SeedHopsScope {
             }
         }
         Ok(members)
+    }
+
+    /// The members: those the graph gives, plus users a big Nexus suggested whose
+    /// suggestion hasn't expired (counted at the last hop, as their distance is unknown).
+    pub async fn members(&self) -> ModelResult<HashMap<String, u8>> {
+        let mut members = self.members_from_graph().await?;
+        for suggested in self.suggested_members().await? {
+            members.entry(suggested).or_insert(self.hops);
+        }
+        Ok(members)
+    }
+
+    /// Admits users a big Nexus suggested as members, until the suggestion expires.
+    pub async fn suggest_members(&self, user_ids: &[PubkyId]) -> RedisResult<()> {
+        let expires_at = chrono::Utc::now().timestamp_millis() + SUGGESTION_TTL_MS;
+        let mut pipe = redis::pipe();
+        for chunk in user_ids.chunks(1_000) {
+            let scored: Vec<(i64, &str)> =
+                chunk.iter().map(|id| (expires_at, id.as_ref())).collect();
+            pipe.zadd_multiple(&self.suggested_key, &scored).ignore();
+        }
+        let mut redis_conn = get_redis_conn().await?;
+        let () = pipe.query_async(&mut redis_conn).await?;
+        Ok(())
+    }
+
+    /// The suggested users whose suggestion hasn't expired; expired ones are dropped.
+    async fn suggested_members(&self) -> RedisResult<Vec<String>> {
+        let now = chrono::Utc::now().timestamp_millis();
+        let mut redis_conn = get_redis_conn().await?;
+        let (suggested,): (Vec<String>,) = redis::pipe()
+            .zrembyscore(&self.suggested_key, "-inf", now)
+            .ignore()
+            .zrangebyscore(&self.suggested_key, now, "+inf")
+            .query_async(&mut redis_conn)
+            .await?;
+        Ok(suggested)
+    }
+
+    /// Whether a big Nexus already suggested the members for this seed and hop count.
+    pub async fn is_bootstrapped(&self) -> RedisResult<bool> {
+        let mut redis_conn = get_redis_conn().await?;
+        let exists: bool = redis::cmd("EXISTS")
+            .arg(&self.bootstrapped_key)
+            .query_async(&mut redis_conn)
+            .await?;
+        Ok(exists)
+    }
+
+    /// Records the bootstrap, so a restart doesn't ask the big Nexus again.
+    pub async fn mark_bootstrapped(&self) -> RedisResult<()> {
+        let mut redis_conn = get_redis_conn().await?;
+        let () = redis::cmd("SET")
+            .arg(&self.bootstrapped_key)
+            .arg(chrono::Utc::now().timestamp_millis())
+            .query_async(&mut redis_conn)
+            .await?;
+        Ok(())
     }
 
     /// The members cached in Redis, or `None` if there is no cache (never worked out,
