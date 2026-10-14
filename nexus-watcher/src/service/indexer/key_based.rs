@@ -182,7 +182,9 @@ impl TEventProcessor for KeyBasedEventProcessor {
                 debug!("Shutdown detected; stopping user iteration");
                 break;
             }
-            if Instant::now() >= deadline {
+            // Checked from the second user on, so a run makes progress even when finding its
+            // users spent the budget.
+            if index > 0 && Instant::now() >= deadline {
                 info!(
                     action = "stop_hs",
                     budget_secs = self.budget.as_secs(),

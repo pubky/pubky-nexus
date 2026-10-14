@@ -435,23 +435,22 @@ async fn key_based_processor_persists_last_safe_cursor_before_mismatch() -> Resu
     Ok(())
 }
 
-/// Handler that takes 100 ms per event and counts the events it handled.
-struct SlowCountingHandler {
+/// Handler that counts the events it handled.
+struct CountingHandler {
     handled: AtomicUsize,
 }
 
 #[async_trait::async_trait]
-impl EventHandler for SlowCountingHandler {
+impl EventHandler for CountingHandler {
     async fn handle(&self, _event: &Event) -> Result<(), EventProcessorError> {
-        tokio::time::sleep(Duration::from_millis(100)).await;
         self.handled.fetch_add(1, Ordering::SeqCst);
         Ok(())
     }
 }
 
 /// Verifies a run stops once its budget is spent, so one homeserver cannot hold up the
-/// external loop: it ends `Ok` after the event in progress, keeps the cursor of the last
-/// event it handled, and starts no other user.
+/// external loop: it still makes progress, ends `Ok` after the event in progress, keeps the
+/// cursor of the last event it handled, and starts no other user.
 #[tokio_shared_rt::test(shared)]
 async fn key_based_processor_stops_at_its_budget() -> Result<(), DynError> {
     setup().await?;
@@ -469,15 +468,11 @@ async fn key_based_processor_stops_at_its_budget() -> Result<(), DynError> {
         (user_a_id.clone(), batch(&user_a_id)?),
         (user_b_id.clone(), batch(&user_b_id)?),
     ]));
-    let handler = Arc::new(SlowCountingHandler {
+    let handler = Arc::new(CountingHandler {
         handled: AtomicUsize::new(0),
     });
-    let processor = processor_with_budget(
-        homeserver,
-        handler.clone(),
-        source.clone(),
-        Duration::from_millis(250),
-    );
+    let processor =
+        processor_with_budget(homeserver, handler.clone(), source.clone(), Duration::ZERO);
 
     processor.run().await?;
 
@@ -488,14 +483,10 @@ async fn key_based_processor_stops_at_its_budget() -> Result<(), DynError> {
         1,
         "no user may start once the budget is spent: {calls:?}"
     );
-    let handled = handler.handled.load(Ordering::SeqCst);
-    assert!(
-        (1..10).contains(&handled),
-        "the batch must stop part-way, handled {handled}"
-    );
+    assert_eq!(handler.handled.load(Ordering::SeqCst), 1);
     assert_eq!(
         user_cursor(&calls[0], &hs_id).await?,
-        Some(handled as isize),
+        Some(1),
         "the cursor of the last handled event must be kept"
     );
 
