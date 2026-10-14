@@ -4,7 +4,7 @@ use crate::event_processor::utils::watcher::{
 use anyhow::Result;
 use nexus_watcher::events::retry::{IndexKey, RetryEvent};
 use pubky::Keypair;
-use pubky_app_specs::{
+use pubky_social_specs::legacy_v0::{
     bookmark_uri_builder, post_uri_builder, traits::HashId, PubkyAppBookmark, PubkyAppUser,
 };
 

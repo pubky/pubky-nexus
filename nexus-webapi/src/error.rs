@@ -84,6 +84,7 @@ impl From<ModelError> for Error {
             ModelError::HsBlacklisted { hs_id } => Error::Forbidden {
                 message: format!("Homeserver is blacklisted: {hs_id}"),
             },
+            ModelError::InvalidInput(message) => Error::InvalidInput { message },
             other => Error::InternalServerError {
                 source: other.into(),
             },

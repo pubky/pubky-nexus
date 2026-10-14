@@ -8,7 +8,7 @@ use nexus_common::models::post::Bookmark;
 use nexus_common::models::user::UserCounts;
 use nexus_watcher::events::handlers;
 use pubky::Keypair;
-use pubky_app_specs::{
+use pubky_social_specs::legacy_v0::{
     post_uri_builder, traits::HashId, PubkyAppBookmark, PubkyAppPost, PubkyAppUser, PubkyId,
 };
 

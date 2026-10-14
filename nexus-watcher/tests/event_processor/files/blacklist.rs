@@ -9,8 +9,8 @@ use nexus_common::DEFAULT_MAX_FILE_SIZE;
 use nexus_watcher::events::handlers::file::sync_put;
 use nexus_watcher::EventProcessorError;
 use pubky::Keypair;
-use pubky_app_specs::traits::{HasIdPath, HashId, TimestampId};
-use pubky_app_specs::{
+use pubky_social_specs::legacy_v0::traits::{HasIdPath, HashId, TimestampId};
+use pubky_social_specs::legacy_v0::{
     blob_uri_builder, file_uri_builder, PubkyAppBlob, PubkyAppFile, PubkyAppUser, PubkyId,
 };
 

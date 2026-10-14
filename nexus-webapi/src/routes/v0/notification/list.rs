@@ -5,7 +5,7 @@ use crate::routes::Query;
 use crate::Result;
 use axum::Json;
 use nexus_common::models::notification::{Notification, NotificationBody, PostChangedSource};
-use pubky_app_specs::PubkyAppPostKind;
+use pubky_social_specs::legacy_v0::PubkyAppPostKind;
 use serde::Deserialize;
 use tracing::debug;
 use utoipa::OpenApi;

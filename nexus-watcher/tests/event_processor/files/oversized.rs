@@ -4,8 +4,8 @@ use chrono::Utc;
 use nexus_common::models::file::FileDetails;
 use nexus_common::models::traits::Collection;
 use pubky::Keypair;
-use pubky_app_specs::traits::{HasIdPath, HashId};
-use pubky_app_specs::{blob_uri_builder, PubkyAppBlob, PubkyAppFile, PubkyAppUser};
+use pubky_social_specs::legacy_v0::traits::{HasIdPath, HashId};
+use pubky_social_specs::legacy_v0::{blob_uri_builder, PubkyAppBlob, PubkyAppFile, PubkyAppUser};
 
 use super::super::posts::utils::find_post_details;
 
@@ -179,9 +179,9 @@ async fn test_ingestion_continues_after_rejection() -> Result<()> {
     let (file_id, _) = test.create_file(&user_kp, &file).await?;
 
     // 2) Create a valid post event
-    let post = pubky_app_specs::PubkyAppPost {
+    let post = pubky_social_specs::legacy_v0::PubkyAppPost {
         content: "after rejection".to_string(),
-        kind: pubky_app_specs::PubkyAppPost::default().kind,
+        kind: pubky_social_specs::legacy_v0::PubkyAppPost::default().kind,
         parent: None,
         embed: None,
         attachments: None,

@@ -308,7 +308,7 @@ async fn test_notification_post_kind_wire_and_backcompat() -> Result<()> {
         tagged_by: TAGGER.to_string(),
         tag_label: "curated".to_string(),
         post_uri: format!("pubky://{TEST_USER}/pub/pubky.app/posts/0000000000000"),
-        post_kind: pubky_app_specs::PubkyAppPostKind::Collection,
+        post_kind: pubky_social_specs::legacy_v0::PubkyAppPostKind::Collection,
     };
     Notification::put_index_sorted_set(
         &["Notification", TEST_USER],

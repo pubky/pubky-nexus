@@ -5,8 +5,8 @@ use anyhow::Result;
 use chrono::Utc;
 use pubky::Keypair;
 use pubky::ResourcePath;
-use pubky_app_specs::traits::HashId;
-use pubky_app_specs::{post_uri_builder, PubkyAppPost, PubkyAppTag, PubkyAppUser};
+use pubky_social_specs::legacy_v0::traits::HashId;
+use pubky_social_specs::legacy_v0::{post_uri_builder, PubkyAppPost, PubkyAppTag, PubkyAppUser};
 
 /// When a tag at an app-specific path (/pub/mapky/tags/) targets a KNOWN Post URI,
 /// the classify_uri logic should delegate to the existing Post tag flow.

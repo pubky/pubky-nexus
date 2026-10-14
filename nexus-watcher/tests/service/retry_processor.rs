@@ -13,7 +13,7 @@ use nexus_watcher::events::EventHandler;
 use nexus_watcher::events::EventType;
 use nexus_watcher::service::RunOutcome;
 use nexus_watcher::service::TEventProcessor;
-use pubky_app_specs::post_uri_builder;
+use pubky_social_specs::legacy_v0::post_uri_builder;
 use std::sync::Arc;
 use tokio::sync::watch;
 
