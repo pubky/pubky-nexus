@@ -230,8 +230,6 @@ impl TEventProcessor for KeyBasedEventProcessor {
             // Checked after a user, not before, so a run makes progress even when finding its
             // users spent the budget. A batch the budget cut short also ends here.
             if Instant::now() >= deadline {
-                // Users are in turn order from the resume point, so the next one wraps around
-                let (next_user_pk, _) = users.get(index + 1).unwrap_or(&users[0]);
                 info!(
                     action = "stop_hs",
                     budget_secs = self.budget.as_secs(),
@@ -239,7 +237,7 @@ impl TEventProcessor for KeyBasedEventProcessor {
                     "Run budget spent; the next run starts from the next user",
                 );
                 self.user_resume_points
-                    .record_stop(&hs_id, next_user_pk)
+                    .record_stop_after(&hs_id, &users, index)
                     .await;
                 return Err(EventProcessorError::RunBudgetSpent);
             }
