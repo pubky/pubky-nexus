@@ -4,7 +4,7 @@ use crate::{
 use anyhow::Result;
 use nexus_common::models::user::{UserCounts, UserSearch, UserView};
 use pubky::Keypair;
-use pubky_app_specs::PubkyAppUser;
+use pubky_social_specs::legacy_v0::PubkyAppUser;
 
 #[tokio_shared_rt::test(shared)]
 async fn test_delete_user_without_relationships() -> Result<()> {

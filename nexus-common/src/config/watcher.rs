@@ -1,7 +1,7 @@
 use super::file::ConfigLoader;
 use super::{default_stack, StackConfig};
 use async_trait::async_trait;
-use pubky_app_specs::{PubkyId, VALIDATION_LIMITS};
+use pubky_social_specs::legacy_v0::{PubkyId, VALIDATION_LIMITS};
 use serde::{de::Error, Deserialize, Deserializer, Serialize};
 use std::fmt::Debug;
 
@@ -32,7 +32,7 @@ pub const DEFAULT_MAX_BACKOFF_SECS: u64 = 3_600;
 pub const MAX_EVENTS_LIMIT: u16 = 1_000;
 /// Extra-safety check: Upper bound for [WatcherConfig::key_based_events_limit]
 pub const MAX_KEY_BASED_EVENTS_LIMIT: u16 = 100;
-/// Default for [WatcherConfig::max_file_size] — the blob size cap from pubky-app-specs
+/// Default for [WatcherConfig::max_file_size] — the v0 blob size cap from `pubky-social-specs`
 pub const DEFAULT_MAX_FILE_SIZE: u64 = VALIDATION_LIMITS.max_blob_size_bytes as u64;
 
 // Retry configuration defaults
@@ -159,7 +159,7 @@ pub struct WatcherConfig {
     pub retry_processor_interval_ms: u64,
 
     /// Max file size in bytes (Content-Length check + streaming enforcement).
-    /// Rejected files are permanent failures (not retried). Defaults to the pubky-app-specs blob cap.
+    /// Rejected files are permanent failures (not retried). Defaults to the v0 blob cap of `pubky-social-specs`.
     #[serde(default = "default_max_file_size")]
     pub max_file_size: u64,
 

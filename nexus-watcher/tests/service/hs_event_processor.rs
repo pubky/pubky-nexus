@@ -10,7 +10,7 @@ use nexus_watcher::errors::EventProcessorError;
 use nexus_watcher::events::retry::{IndexKey, InitialBackoff, RetryScheduler, RetryStore};
 use nexus_watcher::events::EventHandler;
 use nexus_watcher::service::HsEventProcessor;
-use pubky_app_specs::{post_uri_builder, PubkyId};
+use pubky_social_specs::legacy_v0::{post_uri_builder, PubkyId};
 use tokio::sync::watch;
 
 use crate::service::utils::common::create_mock_handler;

@@ -10,7 +10,7 @@ use crate::event_processor::utils::watcher::{generate_post_id, HomeserverHashIdP
 use anyhow::Result;
 use nexus_common::models::post::PostDetails;
 use pubky::{Keypair, ResourcePath};
-use pubky_app_specs::{
+use pubky_social_specs::legacy_v0::{
     post_uri_builder, traits::HasIdPath, PubkyAppBookmark, PubkyAppPost, PubkyAppPostKind,
 };
 

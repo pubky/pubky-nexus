@@ -7,7 +7,7 @@ use crate::db::GraphResult;
 use crate::db::RedisOps;
 use crate::models::error::ModelError;
 use crate::models::error::ModelResult;
-use pubky_app_specs::PubkyId;
+use pubky_social_specs::legacy_v0::PubkyId;
 use serde::{Deserialize, Deserializer, Serialize};
 use tracing::{info, warn};
 
@@ -201,7 +201,7 @@ impl Homeserver {
 #[cfg(test)]
 mod tests {
     use pubky::Keypair;
-    use pubky_app_specs::PubkyId;
+    use pubky_social_specs::legacy_v0::PubkyId;
 
     use crate::db::kv::RedisError;
     use crate::{types::DynError, StackConfig, StackManager};

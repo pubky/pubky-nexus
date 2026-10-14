@@ -11,7 +11,7 @@ use nexus_watcher::events::retry::RetryScheduler;
 use nexus_watcher::events::EventHandler;
 use nexus_watcher::service::TEventProcessor;
 use pubky::Keypair;
-use pubky_app_specs::PubkyId;
+use pubky_social_specs::legacy_v0::PubkyId;
 use tokio::sync::watch::Receiver;
 use tokio::time::Duration;
 

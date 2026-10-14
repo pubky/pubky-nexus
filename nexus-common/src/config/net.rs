@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use pubky_app_specs::PubkyId;
+use pubky_social_specs::legacy_v0::PubkyId;
 use serde::{de::Error, Deserialize, Deserializer, Serialize};
 
 const DEFAULT_TESTNET_HOST: &str = "localhost";

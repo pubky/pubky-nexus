@@ -4,7 +4,7 @@ use crate::models::error::ModelResult;
 use crate::types::Pagination;
 use chrono::Utc;
 use neo4rs::Row;
-use pubky_app_specs::{bookmark_uri_builder, PubkyAppPostKind, PubkyId};
+use pubky_social_specs::legacy_v0::{bookmark_uri_builder, PubkyAppPostKind, PubkyId};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 

@@ -30,7 +30,7 @@ pub use info::ServerInfo;
 pub use post::{PostStreamDetailed, PostViewDetailed};
 pub use post_kinds::PostKinds;
 pub use post_search_query::PostSearchQuery;
-pub use pubky_app_specs::{PubkyAppPostKind, PubkyId};
+pub use pubky_social_specs::legacy_v0::{PubkyAppPostKind, PubkyId};
 pub use resource_id::ResourceId;
 pub use tag_label::TagLabel;
 pub use user_id_prefix::UserIdPrefix;

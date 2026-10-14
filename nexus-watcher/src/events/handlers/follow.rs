@@ -5,10 +5,10 @@ use nexus_common::db::OperationOutcome;
 use nexus_common::models::follow::{Followers, Following, Friends, UserFollows};
 use nexus_common::models::notification::Notification;
 use nexus_common::models::user::{UserCounts, UserIngestor};
-use pubky_app_specs::PubkyId;
+use pubky_social_specs::legacy_v0::{user_uri_builder, PubkyId};
 use tracing::debug;
 
-use super::utils::fail_on_blacklisted_hs;
+use super::utils::fail_on_permanent_ingest_error;
 
 #[tracing::instrument(name = "follow.put", skip_all, fields(follower_id = %follower_id, followee_id = %followee_id))]
 pub async fn sync_put(
@@ -43,12 +43,9 @@ pub async fn sync_put(
         }
         OperationOutcome::MissingDependency => {
             // Drop the follow (non-retryable) if the followee's HS is blacklisted.
-            fail_on_blacklisted_hs(ingestor.maybe_ingest_user(&followee_id).await)?;
+            fail_on_permanent_ingest_error(ingestor.maybe_ingest_user(&followee_id).await)?;
 
-            let followee_uri = followee_id
-                .to_uri()
-                .try_to_uri_str()
-                .map_err(EventProcessorError::generic)?;
+            let followee_uri = user_uri_builder(followee_id.to_string());
             let dependency = vec![followee_uri];
             return Err(EventProcessorError::MissingDependency { dependency });
         }

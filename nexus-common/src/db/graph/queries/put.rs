@@ -2,7 +2,7 @@ use crate::db::graph::error::{GraphError, GraphResult};
 use crate::db::graph::Query;
 use crate::models::post::PostRelationships;
 use crate::models::{file::FileDetails, post::PostDetails, user::UserDetails};
-use pubky_app_specs::{ParsedUri, PubkyId, Resource};
+use pubky_social_specs::legacy_v0::{ParsedUri, PubkyId, Resource};
 
 /// Creates or overwrites a `User` node.
 ///
@@ -491,4 +491,18 @@ pub fn set_user_homeserver_stale(user_id: &str, stale: bool) -> Query {
     )
     .param("user_id", user_id.to_string())
     .param("stale", stale)
+}
+
+/// Refreshes `resolved_at` on a user's existing `HOSTED_BY` relationship and
+/// leaves the `stale` flag as it is.
+///
+/// Backs off a lookup that will fail again until the user republishes, such as
+/// a malformed record, without changing whether the mapping is indexed.
+pub fn refresh_user_homeserver_resolved_at(user_id: &str) -> Query {
+    Query::new(
+        "refresh_user_homeserver_resolved_at",
+        "MATCH (u:User {id: $user_id})-[r:HOSTED_BY]->(:Homeserver)
+         SET r.resolved_at = timestamp()",
+    )
+    .param("user_id", user_id.to_string())
 }

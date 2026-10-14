@@ -1,7 +1,7 @@
 use crate::db::kv::RedisResult;
 use crate::db::{fetch_row_from_graph, queries, GraphResult, RedisOps};
 use crate::models::error::ModelResult;
-use pubky_app_specs::{ParsedUri, PubkyAppPost, PubkyId, Resource};
+use pubky_social_specs::legacy_v0::{ParsedUri, PubkyAppPost, PubkyId, Resource};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use utoipa::ToSchema;
 
@@ -144,7 +144,7 @@ impl PostRelationships {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pubky_app_specs::{
+    use pubky_social_specs::legacy_v0::{
         file_uri_builder, post_uri_builder, PubkyAppPostEmbed, PubkyAppPostKind,
     };
 

@@ -8,7 +8,7 @@ use nexus_common::models::tag::traits::{TagCollection, TaggersCollection};
 use nexus_common::models::user::UserCounts;
 use nexus_watcher::events::handlers;
 use pubky::Keypair;
-use pubky_app_specs::{tag_uri_builder, PubkyAppPost, PubkyAppUser};
+use pubky_social_specs::legacy_v0::{tag_uri_builder, PubkyAppPost, PubkyAppUser};
 
 /// Use indexed_at far in the past so TAGGED edges don't interfere with
 /// hot-tags tests that query this_month/today timeframes.

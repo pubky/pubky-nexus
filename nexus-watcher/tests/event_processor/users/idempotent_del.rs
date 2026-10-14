@@ -6,7 +6,7 @@ use nexus_common::models::user::{UserCounts, UserDetails, UserSearch};
 use nexus_watcher::errors::EventProcessorError;
 use nexus_watcher::events::handlers::user;
 use pubky::Keypair;
-use pubky_app_specs::{PubkyAppUser, PubkyId};
+use pubky_social_specs::legacy_v0::{PubkyAppUser, PubkyId};
 
 /// Test that calling del() after a successful deletion returns Ok
 /// and leaves no stale data behind.

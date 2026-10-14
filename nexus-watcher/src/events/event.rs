@@ -1,7 +1,7 @@
 use crate::errors::EventProcessorError;
 use nexus_common::models::event::EventLine;
 use pubky::Event as StreamEvent;
-use pubky_app_specs::{ExtendedParsedUri, Resource};
+use pubky_social_specs::legacy_v0::{ExtendedParsedUri, Resource};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use tracing::{debug, warn};
@@ -39,7 +39,7 @@ pub enum ParseResult {
     Parsed(Event),
     /// Known resource type that Nexus does not handle (e.g. LastRead, Feed, Blob).
     Skipped,
-    /// URI was not recognised by pubky-app-specs. This may be an app-specific
+    /// URI was not recognised by the `pubky-social-specs` v0 reader. This may be an app-specific
     /// path (e.g. `/pub/mapky/tags/...`), a genuinely malformed URI, or a path that parses but
     /// is not the canonical address of its resource (e.g. `/pub/pubky.app/posts/ID/extra`).
     /// Callers should attempt fallback handling and log `reason` if no handler claims it.
@@ -126,7 +126,7 @@ impl Event {
         event_line: String,
     ) -> Result<ParseResult, EventProcessorError> {
         // Validate and parse the URI using ExtendedParsedUri. This handles both
-        // standard pubky-app-specs URIs and universal tag URIs from other apps.
+        // standard v0 `pubky.app` URIs and universal tag URIs from other apps.
         let parsed_uri = match ExtendedParsedUri::try_from(uri.as_str()) {
             Ok(parsed) => parsed,
             Err(e) => return Ok(ParseResult::unrecognized_uri(event_type, uri, e)),
