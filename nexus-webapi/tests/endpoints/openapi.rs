@@ -72,6 +72,36 @@ fn test_static_openapi_spec_valid() {
     validate_openapi_refs(&json);
 }
 
+/// The `Path`, `Query` and `Json` extractors turn every rejection into a 400, so every
+/// operation that takes input must list one.
+#[test]
+fn test_every_operation_documents_400() {
+    let exempt = [
+        // Takes no input.
+        "get /v0/info",
+        // The legacy redirect never extracts its parameters.
+        "get /static/files/{owner_id}/{file_id}",
+    ];
+
+    let mut missing = Vec::new();
+    for spec in [V0ApiDoc::merge_docs(), StaticApiDoc::merge_docs()] {
+        let spec = serde_json::to_value(spec).expect("serializable spec");
+        let paths = spec["paths"].as_object().expect("paths");
+        for (path, item) in paths {
+            for (method, operation) in item.as_object().expect("path item") {
+                let operation_name = format!("{method} {path}");
+                if operation["responses"].get("400").is_none()
+                    && !exempt.contains(&operation_name.as_str())
+                {
+                    missing.push(operation_name);
+                }
+            }
+        }
+    }
+
+    assert!(missing.is_empty(), "operations without a 400: {missing:?}");
+}
+
 /// `relationship` is a boolean and `tag_uri`, the viewer's tag address, a nullable string.
 fn assert_relationship_and_tag_uri(schema: &str) {
     let spec = serde_json::to_value(V0ApiDoc::merge_docs()).expect("serializable spec");
