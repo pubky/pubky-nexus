@@ -4,7 +4,7 @@ pub mod event;
 pub use event::{Event, EventType, ParseResult};
 
 use crate::errors::EventProcessorError;
-use crate::homeserver::{Deadline, HomeserverClient};
+use crate::homeserver::HomeserverClient;
 use nexus_common::WatcherConfig;
 use pubky::PubkyResource;
 use pubky_app_specs::{ExtendedParsedUri, PubkyAppObject, Resource};
@@ -99,8 +99,8 @@ pub async fn handle_put_event(
     ingestor: Arc<UserIngestor>,
     client: &dyn HomeserverClient,
 ) -> Result<(), EventProcessorError> {
-    let resource_uri: PubkyResource = event.uri.parse()?;
-    let blob = client.get_resource(&resource_uri, Deadline::none()).await?;
+    let pubky_resource: PubkyResource = event.uri.parse()?;
+    let blob = client.get_resource(&pubky_resource).await?;
 
     let resource = event.parsed_uri.resource().clone();
 

@@ -133,7 +133,6 @@ impl From<HsError> for EventProcessorError {
         let message = error.to_string();
         match error.kind {
             HsErrorKind::TooLarge { got, max } => Self::FetchSizeExceeded(got, max),
-            HsErrorKind::Quarantined => Self::HsBlacklisted { hs_id: error.hs },
             HsErrorKind::RateLimited(_) if on_stream => Self::HsEventsStreamRateLimitExhausted,
             HsErrorKind::ServerError(..) if on_stream => Self::HsEventsStreamServerError(message),
             HsErrorKind::Transport(_) | HsErrorKind::Timeout if on_stream => {
@@ -145,9 +144,7 @@ impl From<HsError> for EventProcessorError {
             HsErrorKind::Rejected(..) | HsErrorKind::Transport(_) | HsErrorKind::Timeout => {
                 PubkyClientError::RequestFailed { message }.into()
             }
-            HsErrorKind::Malformed(_) | HsErrorKind::CircuitOpen | HsErrorKind::BudgetExhausted => {
-                Self::Homeserver(error)
-            }
+            HsErrorKind::Malformed(_) => Self::Homeserver(error),
         }
     }
 }

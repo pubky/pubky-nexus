@@ -32,12 +32,10 @@ impl HsError {
     /// there stops the run, and so does running out of time.
     pub fn should_not_retry_now(&self) -> bool {
         match self.kind {
-            HsErrorKind::BudgetExhausted => true,
             HsErrorKind::ServerError(..)
             | HsErrorKind::Transport(_)
             | HsErrorKind::Timeout
-            | HsErrorKind::RateLimited(_)
-            | HsErrorKind::CircuitOpen => self.op == HsOp::UserEvents,
+            | HsErrorKind::RateLimited(_) => self.op == HsOp::UserEvents,
             _ => false,
         }
     }
@@ -51,7 +49,6 @@ impl HsError {
                 | HsErrorKind::Rejected(..)
                 | HsErrorKind::Timeout
                 | HsErrorKind::Transport(_)
-                | HsErrorKind::CircuitOpen
         )
     }
 }
@@ -90,14 +87,6 @@ pub enum HsErrorKind {
     /// A response, or a request built from homeserver data, that cannot be used as is.
     #[error("malformed: {0}")]
     Malformed(String),
-    /// The homeserver's health says to skip it; nothing was sent.
-    #[error("circuit open")]
-    CircuitOpen,
-    #[error("homeserver is blacklisted")]
-    Quarantined,
-    /// The caller's deadline passed before anything was sent.
-    #[error("budget exhausted")]
-    BudgetExhausted,
 }
 
 impl HsErrorKind {

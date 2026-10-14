@@ -7,7 +7,7 @@ use tokio::time::Instant;
 
 use crate::errors::EventProcessorError;
 use crate::events::Event;
-use crate::homeserver::{Deadline, HomeserverClient, HsStreamEvent};
+use crate::homeserver::{HomeserverClient, HsStreamEvent};
 use nexus_common::models::homeserver::HsBlacklist;
 use nexus_common::models::user::UserHsCursor;
 use opentelemetry::metrics::Counter;
@@ -29,7 +29,7 @@ use crate::service::KEY_BASED_SLOW_RUN_MARGIN;
 /// earlier event in the same batch. The whole batch is rejected before any handler
 /// runs. Labelled by `hs_id` only to avoid per-user metric cardinality.
 static OUT_OF_ORDER_CURSOR_EXTERNAL_HS: LazyLock<Counter<u64>> = LazyLock::new(|| {
-    global::meter(super::METER_NAME)
+    global::meter(crate::METER_NAME)
         .u64_counter("watcher.external_hs.cursor.out_of_order")
         .with_description("Per-user stream events a homeserver returned out of cursor order")
         .build()
@@ -226,13 +226,7 @@ impl KeyBasedEventProcessor {
         let hs_id: &str = self.homeserver_id.as_ref();
         let stream_events = self
             .client
-            .user_events(
-                &self.homeserver_id,
-                user_pk,
-                cursor.id(),
-                self.limit,
-                Deadline::none(),
-            )
+            .user_events(&self.homeserver_id, user_pk, cursor.id(), self.limit)
             .await?;
 
         let user_id = user_pk.z32();

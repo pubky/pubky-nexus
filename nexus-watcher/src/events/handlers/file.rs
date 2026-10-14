@@ -1,5 +1,5 @@
 use crate::events::EventProcessorError;
-use crate::homeserver::{Deadline, HomeserverClient};
+use crate::homeserver::HomeserverClient;
 
 use nexus_common::media::FileVariant;
 use nexus_common::models::user::UserIngestor;
@@ -72,7 +72,7 @@ async fn ingest(
         .inspect_err(|e| warn!("Aborting file ingest: source {file_src}: {e}"))?;
 
     let source: PubkyResource = file_src.parse()?;
-    let blob = client.get_blob(&source, Deadline::none()).await?;
+    let blob = client.get_blob(&source).await?;
 
     let path = Path::new(&user_id.to_string()).join(file_id);
     let full_path = files_path.join(&path);

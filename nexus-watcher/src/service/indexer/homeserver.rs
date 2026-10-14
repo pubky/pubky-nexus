@@ -2,7 +2,7 @@ use super::{RunOutcome, TEventProcessor};
 use crate::errors::EventProcessorError;
 use crate::events::retry::RetryScheduler;
 use crate::events::{Event, EventHandler};
-use crate::homeserver::{Deadline, HomeserverClient};
+use crate::homeserver::HomeserverClient;
 use nexus_common::db::kv::RedisError;
 use nexus_common::db::{fetch_row_from_graph, queries, GraphResult};
 use nexus_common::models::error::ModelError;
@@ -23,7 +23,7 @@ use tracing::{debug, error, info, warn};
 /// The cursor is not advanced and the same position is fetched on the next poll.
 /// A sustained non-zero rate for one HS indicates it needs operator attention.
 static INVALID_CURSOR_PRIMARY_HS: LazyLock<Counter<u64>> = LazyLock::new(|| {
-    global::meter(super::METER_NAME)
+    global::meter(crate::METER_NAME)
         .u64_counter("watcher.primary_hs.cursor.invalid")
         .with_description("Cursor lines from the Primary HS that could not be applied")
         .build()
@@ -41,7 +41,7 @@ static INVALID_CURSOR_PRIMARY_HS: LazyLock<Counter<u64>> = LazyLock::new(|| {
 /// non-2xx poll with its status and body instead, so an HS outage is recorded
 /// as a failed poll, not as a stalled cursor.
 static STALLED_CURSOR_PRIMARY_HS: LazyLock<Counter<u64>> = LazyLock::new(|| {
-    global::meter(super::METER_NAME)
+    global::meter(crate::METER_NAME)
         .u64_counter("watcher.primary_hs.cursor.stalled")
         .with_description("Primary HS batches whose cursor did not advance past the requested one")
         .build()
@@ -246,17 +246,10 @@ impl HsEventProcessor {
     async fn poll_events(&self) -> Result<Vec<String>, EventProcessorError> {
         debug!(cursor = %self.homeserver.cursor, "Polling events");
 
-        let lines = self
+        Ok(self
             .client
-            .poll_events(
-                &self.homeserver.id,
-                self.homeserver.cursor,
-                self.limit,
-                Deadline::none(),
-            )
-            .await?;
-
-        Ok(lines)
+            .poll_events(&self.homeserver.id, self.homeserver.cursor, self.limit)
+            .await?)
     }
 
     /// Processes a batch of event lines retrieved from the homeserver.

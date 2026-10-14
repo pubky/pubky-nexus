@@ -1,7 +1,6 @@
 use std::collections::{HashMap, VecDeque};
 
 use tokio::sync::Mutex;
-use tokio::time::Instant;
 
 use nexus_watcher::homeserver::{
     HomeserverClient, HomeserverHealth, HsError, HsErrorKind, HsOp, HsStreamEvent,
@@ -103,7 +102,6 @@ impl HomeserverClient for MockHomeserverClient {
         hs: &PubkyId,
         cursor: u64,
         limit: u16,
-        _deadline: Instant,
     ) -> Result<Vec<String>, HsError> {
         self.polls
             .lock()
@@ -118,7 +116,6 @@ impl HomeserverClient for MockHomeserverClient {
         user: &PublicKey,
         cursor: u64,
         limit: u16,
-        _deadline: Instant,
     ) -> Result<Vec<HsStreamEvent>, HsError> {
         let user_id = user.z32();
         self.calls
@@ -142,22 +139,14 @@ impl HomeserverClient for MockHomeserverClient {
         result.map_err(|kind| HsError::new(hs, HsOp::UserEvents, kind))
     }
 
-    async fn get_resource(
-        &self,
-        resource: &PubkyResource,
-        _deadline: Instant,
-    ) -> Result<Vec<u8>, HsError> {
+    async fn get_resource(&self, resource: &PubkyResource) -> Result<Vec<u8>, HsError> {
         self.resources
             .get(&resource.to_pubky_url())
             .cloned()
             .ok_or_else(|| not_found(resource, HsOp::GetResource))
     }
 
-    async fn get_blob(
-        &self,
-        resource: &PubkyResource,
-        _deadline: Instant,
-    ) -> Result<Vec<u8>, HsError> {
+    async fn get_blob(&self, resource: &PubkyResource) -> Result<Vec<u8>, HsError> {
         Err(not_found(resource, HsOp::GetBlob))
     }
 

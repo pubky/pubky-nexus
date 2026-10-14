@@ -8,7 +8,6 @@ use opentelemetry::metrics::Counter;
 use opentelemetry::{global, KeyValue};
 use pubky::{EventCursor, Method, Pubky, PubkyResource, PublicKey};
 use pubky_app_specs::PubkyId;
-use tokio::time::Instant;
 use tracing::{error, trace, warn};
 
 use super::fetch::{
@@ -16,7 +15,7 @@ use super::fetch::{
 };
 use super::{HomeserverHealth, HsError, HsErrorKind, HsOp};
 use crate::events::EventType;
-use crate::service::indexer::METER_NAME;
+use crate::METER_NAME;
 
 /// Waits between the retries of a rate-limited `/events-stream` request.
 const USER_EVENTS_429_BACKOFF_SECS: [u64; 3] = [1, 2, 3];
@@ -67,21 +66,10 @@ impl From<pubky::Event> for HsStreamEvent {
     }
 }
 
-/// Deadlines for [`HomeserverClient`] calls, which take an absolute [`Instant`].
-pub struct Deadline;
-
-impl Deadline {
-    /// A deadline far enough away never to bind, for callers that have no budget.
-    pub fn none() -> Instant {
-        Instant::now() + Duration::from_secs(365 * 24 * 60 * 60)
-    }
-}
-
 /// Every HTTP call the watcher makes to a homeserver.
 ///
 /// A failure is labelled with `hs`, the homeserver the caller polls, or for a resource or
-/// blob with its owner's key, until the health work charges such calls to a homeserver.
-/// `deadline` is absolute. [`PubkyHomeserverClient`] does not enforce it yet.
+/// blob with its owner's key.
 #[async_trait::async_trait]
 pub trait HomeserverClient: Send + Sync + 'static {
     /// Primary-style `GET /events/?cursor=&limit=`. Returns the raw lines, the
@@ -91,7 +79,6 @@ pub trait HomeserverClient: Send + Sync + 'static {
         hs: &PubkyId,
         cursor: u64,
         limit: u16,
-        deadline: Instant,
     ) -> Result<Vec<String>, HsError>;
 
     /// Per-user `GET /events-stream?user=<pk>:<cursor>&limit=&path=/pub/`, not live.
@@ -102,24 +89,15 @@ pub trait HomeserverClient: Send + Sync + 'static {
         user: &PublicKey,
         cursor: u64,
         limit: u16,
-        deadline: Instant,
     ) -> Result<Vec<HsStreamEvent>, HsError>;
 
     /// The JSON resource at `resource`, capped at [`MAX_RESOURCE_SIZE`], from the homeserver
     /// its owner publishes.
-    async fn get_resource(
-        &self,
-        resource: &PubkyResource,
-        deadline: Instant,
-    ) -> Result<Vec<u8>, HsError>;
+    async fn get_resource(&self, resource: &PubkyResource) -> Result<Vec<u8>, HsError>;
 
     /// The blob at `resource`, capped at the configured `max_file_size`, from the homeserver
     /// its owner publishes.
-    async fn get_blob(
-        &self,
-        resource: &PubkyResource,
-        deadline: Instant,
-    ) -> Result<Vec<u8>, HsError>;
+    async fn get_blob(&self, resource: &PubkyResource) -> Result<Vec<u8>, HsError>;
 
     /// Per-homeserver health, shared by every caller of this client.
     fn health(&self) -> &HomeserverHealth;
@@ -239,7 +217,6 @@ impl HomeserverClient for PubkyHomeserverClient {
         hs: &PubkyId,
         cursor: u64,
         limit: u16,
-        _deadline: Instant,
     ) -> Result<Vec<String>, HsError> {
         let error = |kind| HsError::new(hs, HsOp::PollEvents, kind);
 
@@ -261,25 +238,16 @@ impl HomeserverClient for PubkyHomeserverClient {
         user: &PublicKey,
         cursor: u64,
         limit: u16,
-        _deadline: Instant,
     ) -> Result<Vec<HsStreamEvent>, HsError> {
         user_events_with(hs, user, || self.fetch_user_events(hs, user, cursor, limit)).await
     }
 
-    async fn get_resource(
-        &self,
-        resource: &PubkyResource,
-        _deadline: Instant,
-    ) -> Result<Vec<u8>, HsError> {
+    async fn get_resource(&self, resource: &PubkyResource) -> Result<Vec<u8>, HsError> {
         self.get_capped(resource, HsOp::GetResource, MAX_RESOURCE_SIZE as u64)
             .await
     }
 
-    async fn get_blob(
-        &self,
-        resource: &PubkyResource,
-        _deadline: Instant,
-    ) -> Result<Vec<u8>, HsError> {
+    async fn get_blob(&self, resource: &PubkyResource) -> Result<Vec<u8>, HsError> {
         self.get_capped(resource, HsOp::GetBlob, self.max_file_size)
             .await
     }
@@ -372,6 +340,7 @@ async fn event_lines_from_response(
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use tokio::time::Instant;
 
     const HS_ID: &str = "1hb71xx9km3f4pw5izsy1gn19ff1uuuqonw4mcygzobwkryujoiy";
 
