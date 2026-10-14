@@ -99,10 +99,38 @@ async fn test_user_view_tags() -> Result<()> {
     let viewer_id = "58jc5bujzoj35g55pqjo6ykfdu9t156j8cxkh5ubdwgsnch1qagy";
     let res = get_request(&format!("/v0/user/{user_id}?viewer_id={viewer_id}")).await?;
 
-    assert!(res["tags"][0]["relationship"].as_bool().unwrap());
-    assert!(res["tags"][1]["relationship"].as_bool().unwrap());
-    assert!(!res["tags"][2]["relationship"].as_bool().unwrap());
-    assert!(!res["tags"][3]["relationship"].as_bool().unwrap());
+    assert_eq!(
+        res["tags"][0]["relationship"], true,
+        "Expected to be part of the taggers"
+    );
+    assert_eq!(
+        res["tags"][0]["tag_uri"], "pubky://58jc5bujzoj35g55pqjo6ykfdu9t156j8cxkh5ubdwgsnch1qagy/pub/pubky.app/tags/7UVWXY8ZABCDE9",
+        "Expected the viewer's tag address"
+    );
+    assert_eq!(
+        res["tags"][1]["relationship"], true,
+        "Expected to be part of the taggers"
+    );
+    assert_eq!(
+        res["tags"][1]["tag_uri"], "pubky://58jc5bujzoj35g55pqjo6ykfdu9t156j8cxkh5ubdwgsnch1qagy/pub/pubky.app/tags/3STUV456WXYZ678",
+        "Expected the viewer's tag address"
+    );
+    assert_eq!(
+        res["tags"][2]["relationship"], false,
+        "Expected not to be part of the taggers"
+    );
+    assert!(
+        res["tags"][2]["tag_uri"].is_null(),
+        "Expected no tag address"
+    );
+    assert_eq!(
+        res["tags"][3]["relationship"], false,
+        "Expected not to be part of the taggers"
+    );
+    assert!(
+        res["tags"][3]["tag_uri"].is_null(),
+        "Expected no tag address"
+    );
 
     Ok(())
 }

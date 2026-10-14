@@ -391,7 +391,8 @@ fn users_by_tags_cypher(prefix: &str, skip: Option<usize>, limit: Option<usize>)
 }
 
 // Retrieve all the tags of the post
-pub fn post_tags(user_id: &str, post_id: &str) -> Query {
+// `tag_uri` is the viewer's tag address per label, null without a viewer
+pub fn post_tags(user_id: &str, post_id: &str, viewer_id: Option<&str>) -> Query {
     Query::new(
         "post_tags",
         "
@@ -403,11 +404,13 @@ pub fn post_tags(user_id: &str, post_id: &str) -> Query {
         CALL {
             WITH p
             MATCH (tagger:User)-[tag:TAGGED]->(p)
-            WITH tag.label AS name, collect(DISTINCT tagger.id) AS tagger_ids
+            WITH tag.label AS name, collect(DISTINCT tagger.id) AS tagger_ids,
+                 min(CASE WHEN tagger.id = $viewer_id THEN tag.uri END) AS viewer_uri
             RETURN collect({
                 label: name,
                 taggers: tagger_ids,
-                taggers_count: SIZE(tagger_ids)
+                taggers_count: SIZE(tagger_ids),
+                tag_uri: viewer_uri
             }) AS tags
         }
         RETURN
@@ -417,10 +420,12 @@ pub fn post_tags(user_id: &str, post_id: &str) -> Query {
     )
     .param("user_id", user_id)
     .param("post_id", post_id)
+    .param("viewer_id", viewer_id.map(str::to_string))
 }
 
 // Retrieve all the tags of the user
-pub fn user_tags(user_id: &str) -> Query {
+// `tag_uri` is the viewer's tag address per label, null without a viewer
+pub fn user_tags(user_id: &str, viewer_id: Option<&str>) -> Query {
     Query::new(
         "user_tags",
         "
@@ -428,11 +433,13 @@ pub fn user_tags(user_id: &str) -> Query {
         CALL {
             WITH u
             MATCH (p:User)-[t:TAGGED]->(u)
-            WITH t.label AS name, collect(DISTINCT p.id) AS tagger_ids
+            WITH t.label AS name, collect(DISTINCT p.id) AS tagger_ids,
+                 min(CASE WHEN p.id = $viewer_id THEN t.uri END) AS viewer_uri
             RETURN collect({
                 label: name,
                 taggers: tagger_ids,
-                taggers_count: SIZE(tagger_ids)
+                taggers_count: SIZE(tagger_ids),
+                tag_uri: viewer_uri
             }) AS tags
         }
         RETURN
@@ -441,6 +448,62 @@ pub fn user_tags(user_id: &str) -> Query {
     ",
     )
     .param("user_id", user_id)
+    .param("viewer_id", viewer_id.map(str::to_string))
+}
+
+/// The viewer's tag addresses (`t.uri`) on a post, for the given labels
+pub fn viewer_post_tag_uris(
+    author_id: &str,
+    post_id: &str,
+    viewer_id: &str,
+    labels: Vec<String>,
+) -> Query {
+    Query::new(
+        "viewer_post_tag_uris",
+        "
+        MATCH (p:Post {id: $post_id})
+        WHERE EXISTS { (:User {id: $author_id})-[:AUTHORED]->(p) }
+        MATCH (:User {id: $viewer_id})-[t:TAGGED]->(p)
+        WHERE t.label IN $labels AND t.uri IS NOT NULL
+        RETURN t.label AS label, min(t.uri) AS uri
+    ",
+    )
+    .param("author_id", author_id)
+    .param("post_id", post_id)
+    .param("viewer_id", viewer_id)
+    .param("labels", labels)
+}
+
+/// The viewer's tag addresses (`t.uri`) on a user, for the given labels
+pub fn viewer_user_tag_uris(user_id: &str, viewer_id: &str, labels: Vec<String>) -> Query {
+    Query::new(
+        "viewer_user_tag_uris",
+        "
+        MATCH (:User {id: $viewer_id})-[t:TAGGED]->(:User {id: $user_id})
+        WHERE t.label IN $labels AND t.uri IS NOT NULL
+        RETURN t.label AS label, min(t.uri) AS uri
+    ",
+    )
+    .param("user_id", user_id)
+    .param("viewer_id", viewer_id)
+    .param("labels", labels)
+}
+
+/// The viewer's tag addresses (`t.uri`) on a Resource node, for the given labels.
+/// Resource edges are keyed `{label, app}`, so a label tagged from two apps has two
+/// addresses: `min` picks the same one as `resource_tags`.
+pub fn viewer_resource_tag_uris(resource_id: &str, viewer_id: &str, labels: Vec<String>) -> Query {
+    Query::new(
+        "viewer_resource_tag_uris",
+        "
+        MATCH (:User {id: $viewer_id})-[t:TAGGED]->(:Resource {id: $resource_id})
+        WHERE t.label IN $labels AND t.uri IS NOT NULL
+        RETURN t.label AS label, min(t.uri) AS uri
+    ",
+    )
+    .param("resource_id", resource_id)
+    .param("viewer_id", viewer_id)
+    .param("labels", labels)
 }
 
 /// Retrieve Resource node details by ID
@@ -455,8 +518,10 @@ pub fn get_resource_by_id(resource_id: &str) -> Query {
     .param("resource_id", resource_id)
 }
 
-/// Retrieve all tags on a Resource node
-pub fn resource_tags(resource_id: &str) -> Query {
+/// Retrieve all tags on a Resource node.
+/// `tag_uri` is the viewer's tag address per label, null without a viewer. With one
+/// edge per app, `min` picks the same address as `viewer_resource_tag_uris`.
+pub fn resource_tags(resource_id: &str, viewer_id: Option<&str>) -> Query {
     Query::new(
         "resource_tags",
         "
@@ -464,11 +529,13 @@ pub fn resource_tags(resource_id: &str) -> Query {
         CALL {
             WITH r
             MATCH (tagger:User)-[tag:TAGGED]->(r)
-            WITH tag.label AS name, collect(DISTINCT tagger.id) AS tagger_ids
+            WITH tag.label AS name, collect(DISTINCT tagger.id) AS tagger_ids,
+                 min(CASE WHEN tagger.id = $viewer_id THEN tag.uri END) AS viewer_uri
             RETURN collect({
                 label: name,
                 taggers: tagger_ids,
-                taggers_count: SIZE(tagger_ids)
+                taggers_count: SIZE(tagger_ids),
+                tag_uri: viewer_uri
             }) AS tags
         }
         RETURN
@@ -477,6 +544,7 @@ pub fn resource_tags(resource_id: &str) -> Query {
     ",
     )
     .param("resource_id", resource_id)
+    .param("viewer_id", viewer_id.map(str::to_string))
 }
 
 /// Query a stream of Resources with optional app and tag filters.
@@ -678,7 +746,7 @@ pub fn get_active_users_by_homeserver(hs_id: &str) -> Query {
 /// is matched first and the viewer with `OPTIONAL MATCH`, so an existing user
 /// always returns one row with `tags` (`[]` when no trusted tagger tagged them,
 /// or the viewer is unknown) for an empty/normal 200; only a missing user returns
-/// zero rows (404).
+/// zero rows (404). `tag_uri` is the viewer's tag address per label, null where they haven't tagged it.
 /// Mirrors `get_viewer_trusted_network_post_tags`.
 pub fn get_viewer_trusted_network_tags(user_id: &str, viewer_id: &str, depth: WotDepth) -> Query {
     let graph_query = format!(
@@ -692,11 +760,13 @@ pub fn get_viewer_trusted_network_tags(user_id: &str, viewer_id: &str, depth: Wo
             WITH viewer, tagged
             MATCH (viewer)-[:FOLLOWS*1..{depth}]->(tagger:User)-[tag:TAGGED]->(tagged)
             WHERE tagger.id <> viewer.id
-            WITH tag.label AS label, collect(DISTINCT tagger.id) AS taggerIds
+            WITH viewer, tagged, tag.label AS label, collect(DISTINCT tagger.id) AS taggerIds
             RETURN collect({{
                 label: label,
                 taggers: taggerIds,
-                taggers_count: SIZE(taggerIds)
+                taggers_count: SIZE(taggerIds),
+                tag_uri: head([(viewer)-[vt:TAGGED]->(tagged)
+                    WHERE vt.label = label AND vt.uri IS NOT NULL | vt.uri])
             }}) AS tags
         }}
         RETURN tagged IS NOT NULL AS exists, tags
@@ -718,6 +788,7 @@ pub fn get_viewer_trusted_network_tags(user_id: &str, viewer_id: &str, depth: Wo
 /// missing post returns zero rows (404). Labels are ordered by tagger count and
 /// paginated with `skip_tags`/`limit_tags`; each label's taggers are capped at
 /// `limit_taggers`, mirroring the global tag endpoint so the response stays bounded.
+/// `tag_uri` is the viewer's tag address per label, null where they haven't tagged it.
 pub fn get_viewer_trusted_network_post_tags(
     author_id: &str,
     post_id: &str,
@@ -735,15 +806,17 @@ pub fn get_viewer_trusted_network_post_tags(
             WITH viewer, p
             MATCH (viewer)-[:FOLLOWS*1..{depth}]->(tagger:User)-[tag:TAGGED]->(p)
             WHERE tagger.id <> viewer.id
-            WITH tag.label AS label, collect(DISTINCT tagger.id) AS taggerIds
-            WITH label, taggerIds, SIZE(taggerIds) AS taggersCount
+            WITH viewer, p, tag.label AS label, collect(DISTINCT tagger.id) AS taggerIds
+            WITH viewer, p, label, taggerIds, SIZE(taggerIds) AS taggersCount
             ORDER BY taggersCount DESC, label ASC
             SKIP $skip_tags
             LIMIT $limit_tags
             RETURN collect({{
                 label: label,
                 taggers: taggerIds[0..$limit_taggers],
-                taggers_count: taggersCount
+                taggers_count: taggersCount,
+                tag_uri: head([(viewer)-[vt:TAGGED]->(p)
+                    WHERE vt.label = label AND vt.uri IS NOT NULL | vt.uri])
             }}) AS tags
         }}
         RETURN p IS NOT NULL AS exists, tags
@@ -1000,13 +1073,18 @@ pub fn get_hot_tags_by_reach(
     let cypher = format!(
         "
         {}
+        WHERE user.id = $user_id
+        WITH DISTINCT reach
         MATCH (reach)-[tag:TAGGED]->(tagged:{})
-        WHERE user.id = $user_id AND tag.indexed_at >= $from AND tag.indexed_at < $to
+        WHERE tag.indexed_at >= $from AND tag.indexed_at < $to
+        // COLLECT keeps its input order, so the cut keeps the lowest tagger ids
+        WITH tag.label AS label, reach.id AS tagger_id, tagged
+        ORDER BY tagger_id ASC
         WITH
-            tag.label AS label,
-            COLLECT(DISTINCT reach.id)[..{}] AS taggers,
+            label,
+            COLLECT(DISTINCT tagger_id)[..{}] AS taggers,
             COUNT(DISTINCT tagged) AS uniqueTaggedCount,
-            COUNT(DISTINCT reach.id) AS taggers_count
+            COUNT(DISTINCT tagger_id) AS taggers_count
         WITH {{
             label: label,
             taggers_id: taggers,
@@ -1039,11 +1117,14 @@ pub fn get_global_hot_tags(tags_query: &HotTagsInputDTO) -> Query {
         "
         MATCH (user: User)-[tag:TAGGED]->(tagged:{})
         WHERE tag.indexed_at >= $from AND tag.indexed_at < $to
+        // COLLECT keeps its input order, so the cut keeps the lowest tagger ids
+        WITH tag.label AS label, user.id AS tagger_id, tagged
+        ORDER BY tagger_id ASC
         WITH
-            tag.label AS label,
-            COLLECT(DISTINCT user.id)[..{}] AS taggers,
+            label,
+            COLLECT(DISTINCT tagger_id)[..{}] AS taggers,
             COUNT(DISTINCT tagged) AS uniqueTaggedCount,
-            COUNT(DISTINCT user.id) AS taggers_count
+            COUNT(DISTINCT tagger_id) AS taggers_count
         WITH {{
             label: label,
             taggers_id: taggers,

@@ -52,6 +52,7 @@ pub struct FilePath {
     ),
     responses(
         (status = 200, description = "File's raw data"),
+        (status = 400, description = "Invalid parameters, or variant not valid for the file's content type"),
         (status = 404, description = "File not found"),
         (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error"),

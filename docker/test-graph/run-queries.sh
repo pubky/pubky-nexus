@@ -11,6 +11,7 @@ RESOURCES_TEST_FILE="/test-graph/mocks/resources.cypher"
 WOT_TEST_FILE="/test-graph/mocks/wot.cypher"
 SEARCH_REACH_TEST_FILE="/test-graph/mocks/search-reach.cypher"
 RECOMMENDED_TEST_FILE="/test-graph/mocks/recommended.cypher"
+TAG_RELATIONSHIP_TEST_FILE="/test-graph/mocks/tag-relationship.cypher"
 
 echo "Starting Cypher query execution..."
 
@@ -38,6 +39,8 @@ echo "Importing reach search test graph..."
 time cypher-shell -u neo4j -p 12345678 -f "$SEARCH_REACH_TEST_FILE"
 echo "Importing recommended users test graph..."
 time cypher-shell -u neo4j -p 12345678 -f "$RECOMMENDED_TEST_FILE"
+echo "Importing tag relationship test graph..."
+time cypher-shell -u neo4j -p 12345678 -f "$TAG_RELATIONSHIP_TEST_FILE"
 
 if [[ $? -eq 0 ]]; then
     echo "Queries executed successfully."

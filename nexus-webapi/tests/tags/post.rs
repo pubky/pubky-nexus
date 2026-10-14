@@ -72,17 +72,26 @@ async fn test_user_tags_viewer_filter_active() -> Result<()> {
     // Validate that the posts belong to the specified user's bookmarks
     analyse_tag_details_structure(tags);
 
-    assert!(
-        tags[0]["relationship"].as_bool().unwrap(),
+    assert_eq!(
+        tags[0]["relationship"], true,
         "Expected to be part of the taggers"
     );
-    assert!(
-        !tags[1]["relationship"].as_bool().unwrap(),
+    assert_eq!(
+        tags[0]["tag_uri"], "pubky://5f4e8eoogmkhqeyo5ijdix3ma6rw9byj8m36yrjp78pnxxc379to/pub/pubky.app/tags/0RDVNJ0XR560",
+        "Expected the viewer's tag address"
+    );
+    assert_eq!(
+        tags[1]["relationship"], false,
         "Expected not to be part of the taggers"
     );
-    assert!(
-        tags[2]["relationship"].as_bool().unwrap(),
+    assert!(tags[1]["tag_uri"].is_null(), "Expected no tag address");
+    assert_eq!(
+        tags[2]["relationship"], true,
         "Expected to be part of the taggers"
+    );
+    assert_eq!(
+        tags[2]["tag_uri"], "pubky://5f4e8eoogmkhqeyo5ijdix3ma6rw9byj8m36yrjp78pnxxc379to/pub/pubky.app/tags/HTDX9ZSTNQ47",
+        "Expected the viewer's tag address"
     );
 
     Ok(())
@@ -238,6 +247,10 @@ async fn test_post_specific_tag_with_viewer_id() -> Result<()> {
     assert_eq!(taggers_info.users.len(), 3);
 
     assert!(taggers_info.relationship);
+    assert_eq!(
+        taggers_info.tag_uri.as_deref(),
+        Some("pubky://mwsnc3qzej8hks6motdeyj8ag7gzaf3ft5emcjzk9wn5erxg968y/pub/pubky.app/tags/GRDW8ZSRMPC1")
+    );
 
     Ok(())
 }

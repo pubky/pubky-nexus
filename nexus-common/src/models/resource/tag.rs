@@ -32,8 +32,21 @@ impl TagCollection for TagResource {
         RESOURCE_TAGS_KEY_PARTS
     }
 
-    fn read_graph_query(resource_id: &str, _extra_param: Option<&str>) -> Query {
-        queries::get::resource_tags(resource_id)
+    fn read_graph_query(
+        resource_id: &str,
+        _extra_param: Option<&str>,
+        viewer_id: Option<&str>,
+    ) -> Query {
+        queries::get::resource_tags(resource_id, viewer_id)
+    }
+
+    fn viewer_tag_uris_query(
+        resource_id: &str,
+        _extra_param: Option<&str>,
+        viewer_id: &str,
+        labels: Vec<String>,
+    ) -> Query {
+        queries::get::viewer_resource_tag_uris(resource_id, viewer_id, labels)
     }
 
     /// Override: use RESOURCE_TAGS_KEY_PARTS instead of hardcoded USER/POST keys.

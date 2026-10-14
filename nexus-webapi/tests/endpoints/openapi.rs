@@ -95,3 +95,67 @@ fn test_events_filter_is_documented() {
         }
     }
 }
+
+/// The `Path`, `Query` and `Json` extractors turn every rejection into a 400, so every
+/// operation that takes input must list one.
+#[test]
+fn test_every_operation_documents_400() {
+    let exempt = [
+        // Takes no input.
+        "get /v0/info",
+        // The legacy redirect never extracts its parameters.
+        "get /static/files/{owner_id}/{file_id}",
+    ];
+
+    let mut missing = Vec::new();
+    for spec in [V0ApiDoc::merge_docs(), StaticApiDoc::merge_docs()] {
+        let spec = serde_json::to_value(spec).expect("serializable spec");
+        let paths = spec["paths"].as_object().expect("paths");
+        for (path, item) in paths {
+            for (method, operation) in item.as_object().expect("path item") {
+                let operation_name = format!("{method} {path}");
+                if operation["responses"].get("400").is_none()
+                    && !exempt.contains(&operation_name.as_str())
+                {
+                    missing.push(operation_name);
+                }
+            }
+        }
+    }
+
+    assert!(missing.is_empty(), "operations without a 400: {missing:?}");
+}
+
+/// `relationship` is a boolean and `tag_uri`, the viewer's tag address, a nullable string.
+fn assert_relationship_and_tag_uri(schema: &str) {
+    let spec = serde_json::to_value(V0ApiDoc::merge_docs()).expect("serializable spec");
+    let properties = spec
+        .pointer(&format!("/components/schemas/{schema}/properties"))
+        .unwrap_or_else(|| panic!("{schema} properties"));
+    assert_eq!(
+        properties["relationship"]["type"], "boolean",
+        "{schema}: {properties}"
+    );
+    let tag_uri = &properties["tag_uri"];
+    assert_eq!(
+        tag_uri["type"],
+        serde_json::json!(["string", "null"]),
+        "{schema}: {tag_uri}"
+    );
+    assert!(
+        tag_uri["example"]
+            .as_str()
+            .is_some_and(|example| example.starts_with("pubky://")),
+        "{schema}: {tag_uri}"
+    );
+}
+
+#[test]
+fn test_tag_details_relationship_and_tag_uri() {
+    assert_relationship_and_tag_uri("TagDetails");
+}
+
+#[test]
+fn test_taggers_relationship_and_tag_uri() {
+    assert_relationship_and_tag_uri("TaggersInfoResponse");
+}
