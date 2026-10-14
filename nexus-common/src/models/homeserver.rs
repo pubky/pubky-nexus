@@ -459,6 +459,34 @@ mod tests {
         Ok(())
     }
 
+    /// The check compares cursors exactly past 2^53, where Lua numbers (doubles) would read
+    /// 9007199254740992 and 9007199254740993 as the same value and let the rewind through.
+    #[tokio_shared_rt::test(shared)]
+    async fn test_cursor_check_is_exact_past_2_pow_53() -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+
+        let id = PubkyId::from(Keypair::random().public_key());
+        let at = |cursor| Homeserver {
+            id: id.clone(),
+            cursor,
+        };
+        at(9_007_199_254_740_993).put_to_index().await?;
+
+        let err = at(9_007_199_254_740_992)
+            .put_to_index()
+            .await
+            .expect_err("a cursor one below the stored one must be rejected");
+        assert!(matches!(err, RedisError::InvalidInput(_)), "{err}");
+        let homeserver = Homeserver::get_from_index(&id)
+            .await?
+            .expect("homeserver should be in the index");
+        assert_eq!(homeserver.cursor, 9_007_199_254_740_993);
+
+        at(9_007_199_254_740_993).put_to_index().await?;
+
+        Ok(())
+    }
+
     /// A stored cursor that is not a number refuses the write, as it did when the check
     /// deserialized the entry, rather than being silently overwritten.
     #[tokio_shared_rt::test(shared)]

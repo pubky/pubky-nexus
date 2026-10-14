@@ -38,9 +38,14 @@ impl RedisError {
     }
 }
 
-/// Shared monotonicity rule for Primary HS global cursors and External HS user cursors:
+/// Monotonicity rule for Primary HS global cursors and External HS user cursors:
 /// a cursor may hold or advance, but never rewind. Equal is allowed so an
 /// idempotent re-persist of a boundary event is not treated as an error.
+///
+/// The writes apply this rule in their own Lua scripts, `PUT_SCRIPT` in
+/// `Homeserver::put_to_index` and `WRITE_SCRIPT` in `UserHsCursor::write`, which
+/// must change with it. This function is the read-only early check behind
+/// `Homeserver::try_from_cursor`.
 pub fn ensure_cursor_not_backwards(new_cursor: u64, stored_cursor: u64) -> RedisResult<()> {
     if new_cursor < stored_cursor {
         return Err(cursor_backwards_error());
