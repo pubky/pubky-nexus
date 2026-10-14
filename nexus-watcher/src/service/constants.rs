@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 /// Name of the watcher config file
 pub const WATCHER_CONFIG_FILE_NAME: &str = "watcher-config.toml";
 /// Written to [WATCHER_CONFIG_FILE_NAME] by [NexusWatcher::start_from_path](super::NexusWatcher::start_from_path)
@@ -8,3 +10,6 @@ pub(crate) const DEFAULT_WATCHER_CONFIG_TOML: &str =
 /// stopped: the caller waits for it to finish.
 // TODO: Set timeout maybe from the config file
 pub const PROCESSING_TIMEOUT_SECS: u64 = 3_600;
+/// How long a run of the external loop may spend on one homeserver before it stops, keeping
+/// the cursors it reached, so one homeserver cannot hold up the others
+pub const KEY_BASED_RUN_BUDGET: Duration = Duration::from_secs(8 * 60);

@@ -3,6 +3,8 @@ use std::{
     time::Duration,
 };
 
+use tokio::time::Instant;
+
 use crate::errors::EventProcessorError;
 use crate::events::Event;
 use futures::StreamExt;
@@ -125,6 +127,11 @@ pub struct KeyBasedEventProcessor {
     pub retry_scheduler: Arc<RetryScheduler>,
 
     pub shutdown_rx: Receiver<bool>,
+
+    /// How long a run may spend on this homeserver, so it cannot hold up the other
+    /// homeservers of the external loop. Once spent, the run stops after the event in
+    /// progress, keeps the cursors it reached, and starts no other user; it still ends `Ok`.
+    pub budget: Duration,
 }
 
 #[async_trait::async_trait]
@@ -145,10 +152,6 @@ impl TEventProcessor for KeyBasedEventProcessor {
         Some(self.homeserver_id.as_ref())
     }
 
-    fn custom_timeout(&self) -> Option<Duration> {
-        Some(Duration::from_mins(8))
-    }
-
     async fn run_internal(self: Arc<Self>) -> Result<(), EventProcessorError> {
         let hs_id = self.homeserver_id.to_string();
 
@@ -160,6 +163,7 @@ impl TEventProcessor for KeyBasedEventProcessor {
         }
 
         let hs_pk = self.homeserver_id.to_public_key();
+        let deadline = Instant::now() + self.budget;
 
         let users = self
             .resolve_users_with_cursors()
@@ -173,9 +177,18 @@ impl TEventProcessor for KeyBasedEventProcessor {
 
         info!(user_count = users.len(), "Found users");
 
-        for (user_pk, cursor) in &users {
+        for (index, (user_pk, cursor)) in users.iter().enumerate() {
             if *self.shutdown_rx.borrow() {
                 debug!("Shutdown detected; stopping user iteration");
+                break;
+            }
+            if Instant::now() >= deadline {
+                info!(
+                    action = "stop_hs",
+                    budget_secs = self.budget.as_secs(),
+                    users_left = users.len() - index,
+                    "Run budget spent; leaving the remaining users to the next run",
+                );
                 break;
             }
             let user_id = user_pk.z32();
@@ -190,7 +203,7 @@ impl TEventProcessor for KeyBasedEventProcessor {
                 continue;
             }
 
-            match self.process_user(&hs_pk, user_pk, *cursor).await {
+            match self.process_user(&hs_pk, user_pk, *cursor, deadline).await {
                 Ok(()) => self.user_not_found_backoff.record_success(user_pk).await,
                 Err(err) => {
                     if err.should_not_retry_now() {
@@ -262,6 +275,7 @@ impl KeyBasedEventProcessor {
         hs_pk: &PublicKey,
         user_pk: &PublicKey,
         cursor: EventCursor,
+        deadline: Instant,
     ) -> Result<(), EventProcessorError> {
         let hs_id: &str = self.homeserver_id.as_ref();
         let stream_events = self
@@ -270,7 +284,7 @@ impl KeyBasedEventProcessor {
 
         let user_id = user_pk.z32();
         let (latest_cursor, result) = self
-            .process_user_events(hs_id, &user_id, cursor.id(), stream_events)
+            .process_user_events(hs_id, &user_id, cursor.id(), stream_events, deadline)
             .await;
 
         if let Some(cursor_val) = latest_cursor {
@@ -342,6 +356,7 @@ impl KeyBasedEventProcessor {
         user_id: &str,
         persisted_cursor: u64,
         stream_events: Vec<StreamEvent>,
+        deadline: Instant,
     ) -> (Option<u64>, Result<(), EventProcessorError>) {
         if *self.shutdown_rx.borrow() {
             debug!(%user_id, "Shutdown detected; exiting event loop");
@@ -406,6 +421,13 @@ impl KeyBasedEventProcessor {
             // logged parse errors. UserIdMismatch and handler errors return
             // before this point, so their cursor is not persisted.
             latest_cursor = Some(cursor_id);
+
+            // Checked after an event, not before, so every fetched batch makes progress even
+            // when the fetch alone spent the budget.
+            if Instant::now() >= deadline {
+                debug!(%user_id, "Run budget spent; leaving the rest of the batch to the next run");
+                break;
+            }
         }
 
         (latest_cursor, Ok(()))

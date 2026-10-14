@@ -8,7 +8,7 @@ mod test_utils;
 pub mod user_hs_resolver;
 
 /// Module exports
-pub use constants::{PROCESSING_TIMEOUT_SECS, WATCHER_CONFIG_FILE_NAME};
+pub use constants::{KEY_BASED_RUN_BUDGET, PROCESSING_TIMEOUT_SECS, WATCHER_CONFIG_FILE_NAME};
 pub use indexer::{HsEventProcessor, KeyBasedEventProcessor, RunError, TEventProcessor};
 pub use runner::{HsEventProcessorRunner, KeyBasedEventProcessorRunner, TEventProcessorRunner};
 pub(crate) use task_runner::{run_periodic_tasks, PeriodicTask};

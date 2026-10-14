@@ -7,6 +7,7 @@ use crate::service::indexer::{
 };
 use crate::service::runner::key_based_hs_backoff::HomeserverBackoff;
 use crate::service::stats::{ProcessedStats, ProcessorRunStatus, RunAllProcessorsStats};
+use crate::service::KEY_BASED_RUN_BUDGET;
 use nexus_common::models::homeserver::{Homeserver, HsBlacklist};
 use nexus_common::types::DynError;
 use nexus_common::WatcherConfig;
@@ -145,6 +146,7 @@ impl TEventProcessorRunner for KeyBasedEventProcessorRunner {
             retry_scheduler: self.retry_scheduler.clone(),
             hs_blacklist: self.hs_blacklist.clone(),
             shutdown_rx: self.shutdown_rx.clone(),
+            budget: KEY_BASED_RUN_BUDGET,
         }))
     }
 
