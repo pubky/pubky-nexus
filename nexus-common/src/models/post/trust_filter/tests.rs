@@ -410,6 +410,25 @@ mod live {
         Ok(())
     }
 
+    /// Switching off also shows an author the live ranking admits but the copy
+    /// leaves out: a recompute ranked them, but its reconcile never applied it,
+    /// so their posts are still hidden.
+    #[tokio_shared_rt::test(shared)]
+    async fn switching_off_shows_authors_only_the_live_ranking_admits() -> TestResult {
+        setup(&[]).await?;
+        rank(SPAMMER).await?;
+
+        set_enabled(false);
+        let shown = reconcile().await;
+        let scores = spammer_scores().await;
+        set_enabled(true);
+        cleanup(&[]).await?;
+
+        shown?;
+        assert_eq!(scores?, all_present());
+        Ok(())
+    }
+
     /// Switching off also shows an author a stale copy still ranks but the live
     /// ranking dropped, whose writes the gate has been filtering.
     #[tokio_shared_rt::test(shared)]
