@@ -355,15 +355,41 @@ mod live {
         set_enabled(false);
         let shown = reconcile().await;
         let scores = spammer_scores().await;
-        let left: bool = conn.exists(FILTERED_KEY).await?;
+        let left: bool = conn.exists(&[FILTERED_KEY, SHOWING_KEY]).await?;
         set_enabled(true);
         cleanup(&[]).await?;
         let restored: bool = conn.exists(FILTERED_KEY).await?;
 
         shown?;
         assert_eq!(scores?, all_present());
-        assert!(!left, "switching off clears the filtered record");
+        assert!(!left, "switching off clears its records");
         assert!(restored, "switching on sets it again");
+        Ok(())
+    }
+
+    /// Switching back on after a switch-off was cut short hides every author the
+    /// ranking leaves out, though the copy still matches the ranking: the run
+    /// cut short may already have shown some of them.
+    #[tokio_shared_rt::test(shared)]
+    async fn switching_on_after_an_unfinished_switch_off_hides_again() -> TestResult {
+        setup(&[]).await?;
+        let mut conn = get_redis_conn().await?;
+        // A switch-off cut short: it marked itself and showed the spammer, but
+        // never dropped the copy.
+        let _: () = conn.set(SHOWING_KEY, 1).await?;
+        set_enabled(false);
+        let shown = write_pages(&mut conn, SPAMMER, Write::Show, 1_000).await;
+        set_enabled(true);
+
+        let hidden = reconcile().await;
+        let scores = spammer_scores().await;
+        let left: bool = conn.exists(SHOWING_KEY).await?;
+        cleanup(&[]).await?;
+
+        shown?;
+        hidden?;
+        assert_eq!(scores?, all_absent());
+        assert!(!left, "switching on clears the marker");
         Ok(())
     }
 

@@ -27,6 +27,10 @@ pub const APPLIED_KEY_PARTS: [&str; 2] = ["TrustFilter", "Applied"];
 /// shown every author again: while it exists the shared sets may hide posts,
 /// even with no applied copy.
 const FILTERED_KEY: &str = "TrustFilter:Filtered";
+/// Set while switching off writes authors back, until it finishes. A switch-on
+/// that finds it can't diff against the copy: authors outside the ranking may
+/// already be back.
+const SHOWING_KEY: &str = "TrustFilter:Showing";
 /// The most entries one script call writes or removes.
 const BATCH: usize = 500;
 

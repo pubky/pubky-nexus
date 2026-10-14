@@ -7,7 +7,9 @@ use neo4rs::Row;
 use redis::{AsyncCommands, Script, ScriptInvocation};
 
 use super::scripts::{add_call, remove_call, ADD, REMOVE};
-use super::{applied_key, is_enabled, sorted_key, APPLIED_KEY_PARTS, BATCH, FILTERED_KEY};
+use super::{
+    applied_key, is_enabled, sorted_key, APPLIED_KEY_PARTS, BATCH, FILTERED_KEY, SHOWING_KEY,
+};
 use crate::db::kv::{RedisError, RedisResult};
 use crate::db::{
     fetch_all_rows_from_graph, fetch_key_from_graph, get_redis_conn, queries, GraphResult, RedisOps,
@@ -41,16 +43,34 @@ async fn apply_ranking(conn: &mut Connection) -> ModelResult<()> {
     let _: () = conn.set(FILTERED_KEY, 1).await.map_err(RedisError::from)?;
     let ranking = members(conn, &SocialGraphStatus::ranking_key()).await?;
     let applied = members(conn, &applied_key()).await?;
-    if applied == ranking {
+    let showing: bool = conn.exists(SHOWING_KEY).await.map_err(RedisError::from)?;
+    if applied == ranking && !showing {
         tracing::info!("Shared post sets already match the ranking");
         return Ok(());
     }
-    let (hide, show) = rank_changes(applied.as_ref(), ranking.as_ref()).await?;
+    let (hide, show) = match (showing, &ranking) {
+        (true, Some(ranking)) => changes_after_showing(applied.as_ref(), ranking).await?,
+        _ => rank_changes(applied.as_ref(), ranking.as_ref()).await?,
+    };
     write_authors(conn, &hide, &show).await?;
     // Last, so a run that fails keeps the old copy and the next one redoes the diff.
     record_applied(ranking.as_ref()).await?;
+    let _: () = conn.del(SHOWING_KEY).await.map_err(RedisError::from)?;
     tracing::info!("Rank change applied to the shared post sets");
     Ok(())
+}
+
+/// The authors to hide and to show when switching on after a switch-off was cut
+/// short. It may have shown anyone, so every author outside `ranking` goes, and
+/// those it admits beyond the `applied` copy come back.
+async fn changes_after_showing(
+    applied: Option<&BTreeSet<String>>,
+    ranking: &BTreeSet<String>,
+) -> ModelResult<(Vec<String>, Vec<String>)> {
+    let show = applied.map_or_else(Vec::new, |applied| {
+        ranking.difference(applied).cloned().collect()
+    });
+    Ok((authors_outside(ranking).await?, show))
 }
 
 /// With the filter off, writes back every author the shared sets may still
@@ -66,6 +86,9 @@ async fn show_all(conn: &mut Connection) -> ModelResult<()> {
         tracing::info!("Shared post sets already match the ranking");
         return Ok(());
     }
+    // Set before anything is shown, so a switch-on after a run cut short knows
+    // the copy no longer says what the sets hide.
+    let _: () = conn.set(SHOWING_KEY, 1).await.map_err(RedisError::from)?;
     let ranking = members(conn, &SocialGraphStatus::ranking_key()).await?;
     let admitted = match (applied, ranking) {
         (Some(applied), Some(ranking)) => Some(&applied & &ranking),
@@ -78,7 +101,10 @@ async fn show_all(conn: &mut Connection) -> ModelResult<()> {
     write_authors(conn, &[], &show).await?;
     record_applied(None).await?;
     // Last, so a run that fails is redone by the next one.
-    let _: () = conn.del(FILTERED_KEY).await.map_err(RedisError::from)?;
+    let _: () = conn
+        .del(&[FILTERED_KEY, SHOWING_KEY])
+        .await
+        .map_err(RedisError::from)?;
     tracing::info!("Rank change applied to the shared post sets");
     Ok(())
 }
