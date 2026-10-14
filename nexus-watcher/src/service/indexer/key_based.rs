@@ -350,7 +350,7 @@ impl KeyBasedEventProcessor {
         stream_event: &HsStreamEvent,
         expected_user_id: &str,
     ) -> Result<(), EventProcessorError> {
-        let event_user_id = stream_event.owner.z32();
+        let event_user_id = stream_event.owner().z32();
         if event_user_id != expected_user_id {
             return Err(EventProcessorError::UserIdMismatch {
                 hs_id: hs_id.into(),

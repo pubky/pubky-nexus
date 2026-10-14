@@ -131,6 +131,30 @@ async fn build_processor_at_cursor(
     }))
 }
 
+/// Assembles an [`HsEventProcessor`] for `homeserver`, reaching it through `client`, with
+/// a limit of 100.
+fn processor_with_client(
+    homeserver: Homeserver,
+    event_handler: Arc<dyn EventHandler>,
+    client: Arc<MockHomeserverClient>,
+) -> Arc<HsEventProcessor> {
+    Arc::new(HsEventProcessor {
+        homeserver,
+        limit: 100,
+        event_handler,
+        client,
+        shutdown_rx: watch::channel(false).1,
+        retry_scheduler: Arc::new(RetryScheduler::new(
+            new_in_memory_store(),
+            InitialBackoff {
+                missing_dep_ms: 60_000,
+                transient_ms: 10_000,
+            },
+        )),
+        hs_mapping_cache: Default::default(),
+    })
+}
+
 /// Reads a homeserver's currently stored cursor.
 async fn stored_cursor(hs_id: &str) -> Result<u64> {
     Ok(Homeserver::get_from_index(hs_id)
@@ -810,21 +834,7 @@ async fn test_run_polls_and_fetches_through_the_client() -> Result<()> {
     };
     homeserver.put_to_index().await?;
     let hs_id = homeserver.id.to_string();
-    let processor = Arc::new(HsEventProcessor {
-        homeserver,
-        limit: 100,
-        event_handler,
-        client,
-        shutdown_rx: watch::channel(false).1,
-        retry_scheduler: Arc::new(RetryScheduler::new(
-            new_in_memory_store(),
-            InitialBackoff {
-                missing_dep_ms: 60_000,
-                transient_ms: 10_000,
-            },
-        )),
-        hs_mapping_cache: Default::default(),
-    });
+    let processor = processor_with_client(homeserver, event_handler, client);
 
     processor.run().await?;
 
@@ -833,6 +843,31 @@ async fn test_run_polls_and_fetches_through_the_client() -> Result<()> {
         .expect("the profile should be indexed");
     assert_eq!(user.name, "client-seam");
     assert_eq!(stored_cursor(&hs_id).await?, 1);
+
+    Ok(())
+}
+
+/// The processor polls its own homeserver, from the cursor it was built with, for its limit.
+#[tokio_shared_rt::test(shared)]
+async fn test_run_polls_its_homeserver_from_the_stored_cursor() -> Result<()> {
+    setup().await?;
+
+    let client = Arc::new(MockHomeserverClient::default());
+    let homeserver = Homeserver {
+        id: random_pubky_id(),
+        cursor: 42,
+    };
+    homeserver.put_to_index().await?;
+    let hs_id = homeserver.id.to_string();
+    let processor = processor_with_client(
+        homeserver,
+        create_mock_handler(Ok(()), None),
+        client.clone(),
+    );
+
+    processor.run().await?;
+
+    assert_eq!(client.polls().await, vec![(hs_id, 42, 100)]);
 
     Ok(())
 }

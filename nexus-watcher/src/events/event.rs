@@ -106,7 +106,7 @@ impl Event {
     ) -> Result<Option<Self>, EventProcessorError> {
         let event_type = stream_event.event_type.clone();
 
-        let uri = stream_event.uri.clone();
+        let uri = stream_event.uri().to_string();
         debug!(%event_type, %uri, "New stream event");
 
         let event_line = format!("{event_type} {uri}");

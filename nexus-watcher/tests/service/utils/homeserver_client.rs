@@ -17,6 +17,9 @@ pub struct MockHomeserverClient {
     /// Lines the first `poll_events` returns. Later polls return none.
     lines: Mutex<Vec<String>>,
 
+    /// Homeserver IDs, cursors, and limits polled, in order.
+    polls: Mutex<Vec<(String, u64, u16)>>,
+
     /// User event batches returned in fetch order.
     /// Useful when user ordering is not important and tests only care about processor flow.
     events: Mutex<VecDeque<UserEventsResult>>,
@@ -69,6 +72,10 @@ impl MockHomeserverClient {
         self
     }
 
+    pub async fn polls(&self) -> Vec<(String, u64, u16)> {
+        self.polls.lock().await.clone()
+    }
+
     pub async fn calls(&self) -> Vec<String> {
         self.calls
             .lock()
@@ -93,11 +100,15 @@ fn not_found(resource: &PubkyResource, op: HsOp) -> HsError {
 impl HomeserverClient for MockHomeserverClient {
     async fn poll_events(
         &self,
-        _hs: &PubkyId,
-        _cursor: u64,
-        _limit: u16,
+        hs: &PubkyId,
+        cursor: u64,
+        limit: u16,
         _deadline: Instant,
     ) -> Result<Vec<String>, HsError> {
+        self.polls
+            .lock()
+            .await
+            .push((hs.to_string(), cursor, limit));
         Ok(std::mem::take(&mut *self.lines.lock().await))
     }
 

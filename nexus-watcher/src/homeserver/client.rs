@@ -2,7 +2,7 @@ use std::future::Future;
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
-use futures::StreamExt;
+use futures::{Stream, StreamExt};
 use nexus_common::WatcherConfig;
 use opentelemetry::metrics::Counter;
 use opentelemetry::{global, KeyValue};
@@ -34,21 +34,30 @@ static REJECTED: LazyLock<Counter<u64>> = LazyLock::new(|| {
 #[derive(Debug, Clone)]
 pub struct HsStreamEvent {
     pub event_type: EventType,
-    /// Owner of [`Self::uri`], checked against the user whose stream the event is on.
-    pub owner: PublicKey,
-    /// The resource's `pubky://` URI.
-    pub uri: String,
     pub cursor: u64,
+    owner: PublicKey,
+    uri: String,
 }
 
 impl HsStreamEvent {
     pub fn new(event_type: EventType, resource: &PubkyResource, cursor: u64) -> Self {
         Self {
             event_type,
+            cursor,
             owner: resource.owner.clone(),
             uri: resource.to_pubky_url(),
-            cursor,
         }
+    }
+
+    /// Owner of [`Self::uri`], checked against the user whose stream the event is on.
+    /// Both come from one resource, so they cannot disagree.
+    pub fn owner(&self) -> &PublicKey {
+        &self.owner
+    }
+
+    /// The resource's `pubky://` URI.
+    pub fn uri(&self) -> &str {
+        &self.uri
     }
 }
 
@@ -138,8 +147,13 @@ impl PubkyHomeserverClient {
         Self::new(pubky, health, config.max_file_size)
     }
 
-    /// GETs `resource`, reading at most `max` bytes of the body. A failure is charged to
-    /// the homeserver its owner publishes.
+    /// GETs `resource`, reading at most `max` bytes of the body.
+    ///
+    /// A failure is labelled with the owner's key: nothing is charged to a homeserver yet,
+    /// and resolving the one the owner publishes would cost a PKARR query on every failure.
+    ///
+    /// The SDK reads a non-2xx body whole, before [`HsErrorKind::from_sdk`] keeps 4 KiB of
+    /// it, so for resources and blobs that cap limits what is kept, not what is read.
     async fn get_capped(
         &self,
         resource: &PubkyResource,
@@ -151,20 +165,10 @@ impl PubkyHomeserverClient {
             Err(e) => Err(HsErrorKind::from_sdk(e)),
         };
 
-        match fetched {
-            Ok(body) => Ok(body),
-            Err(kind) => {
-                let hs = self.homeserver_of(&resource.owner).await;
-                Err(HsError::new(&hs, op, kind))
-            }
-        }
-    }
-
-    /// The homeserver `owner` publishes, which their data is fetched from, or their own key
-    /// when they publish none.
-    async fn homeserver_of(&self, owner: &PublicKey) -> PubkyId {
-        let hs = self.pubky.get_homeserver_of(owner).await;
-        PubkyId::from(hs.unwrap_or_else(|| owner.clone()))
+        fetched.map_err(|kind| {
+            let owner = PubkyId::from(resource.owner.clone());
+            HsError::new(&owner, op, kind)
+        })
     }
 
     /// One `/events-stream` request, without retries.
@@ -189,29 +193,43 @@ impl PubkyHomeserverClient {
             .map_err(HsErrorKind::from_sdk)
             .inspect_err(|e| error!(error = %e, "Failed to subscribe to event stream"))?;
 
-        // The HS is asked for at most `limit` events, but a misbehaving one could return more
-        let limit = limit as usize;
-        let mut events = Vec::with_capacity(limit);
-        while let Some(result) = stream.next().await {
-            // Read at most `limit` events. If the stream still has more, log an error and drop the rest.
-            if events.len() >= limit {
-                error!(
-                    user_pk = %user.z32(),
-                    hs_pk = %hs,
-                    limit,
-                    "Event stream returned more than the requested limit; ignoring the excess"
-                );
-                break;
-            }
+        read_user_events(&mut stream, limit, hs, user).await
+    }
+}
 
-            // Pubky uses SSE framing regardless of EventStreamBuilder::live().
-            // Failures after response headers are emitted as stream item errors.
-            let event = result.map_err(HsErrorKind::transport)?;
-            events.push(HsStreamEvent::from(event));
+/// Reads the events of an `/events-stream` response, at most `limit` of them.
+///
+/// The HS is asked for at most `limit` events, but a misbehaving one could return more:
+/// the excess is logged and dropped. Pubky uses SSE framing regardless of
+/// `EventStreamBuilder::live()`, so a failure after the response headers arrives as a
+/// stream item, which fails the read as a transport error.
+async fn read_user_events<S>(
+    stream: &mut S,
+    limit: u16,
+    hs: &PubkyId,
+    user: &PublicKey,
+) -> Result<Vec<HsStreamEvent>, HsErrorKind>
+where
+    S: Stream<Item = pubky::Result<pubky::Event>> + Unpin,
+{
+    let limit = limit as usize;
+    let mut events = Vec::with_capacity(limit);
+    while let Some(result) = stream.next().await {
+        if events.len() >= limit {
+            error!(
+                user_pk = %user.z32(),
+                hs_pk = %hs,
+                limit,
+                "Event stream returned more than the requested limit; ignoring the excess"
+            );
+            break;
         }
 
-        Ok(events)
+        let event = result.map_err(HsErrorKind::transport)?;
+        events.push(HsStreamEvent::from(event));
     }
+
+    Ok(events)
 }
 
 #[async_trait::async_trait]
@@ -467,6 +485,48 @@ mod tests {
             .unwrap_err();
 
         assert!(matches!(kind, HsErrorKind::TooLarge { .. }), "{kind:?}");
+    }
+
+    // --- read_user_events ---
+
+    fn stream_event(cursor: u64) -> pubky::Result<pubky::Event> {
+        let owner = pubky::Keypair::random().public_key();
+        Ok(pubky::Event {
+            event_type: pubky::EventType::Delete,
+            resource: PubkyResource::new(owner, "/pub/pubky.app/profile.json").expect("valid path"),
+            cursor: EventCursor::new(cursor),
+        })
+    }
+
+    /// A homeserver that sends more than the `limit` asked for has the excess dropped.
+    #[tokio::test]
+    async fn user_events_past_the_limit_are_dropped() {
+        let user = pubky::Keypair::random().public_key();
+        let mut stream = futures::stream::iter([stream_event(1), stream_event(2), stream_event(3)]);
+
+        let events = read_user_events(&mut stream, 2, &hs_id(), &user)
+            .await
+            .unwrap();
+
+        let cursors: Vec<u64> = events.iter().map(|event| event.cursor).collect();
+        assert_eq!(cursors, [1, 2]);
+    }
+
+    /// A failure after the response headers fails the read as a transport error, which
+    /// aborts the homeserver's run.
+    #[tokio::test]
+    async fn user_event_stream_error_is_a_transport_failure() {
+        let user = pubky::Keypair::random().public_key();
+        let error = pubky::Error::from(pubky::errors::RequestError::Validation {
+            message: "SSE stream error: unexpected EOF".into(),
+        });
+        let mut stream = futures::stream::iter([stream_event(1), Err(error)]);
+
+        let kind = read_user_events(&mut stream, 10, &hs_id(), &user)
+            .await
+            .unwrap_err();
+
+        assert!(matches!(kind, HsErrorKind::Transport(_)), "{kind:?}");
     }
 
     // --- retry_rate_limited ---

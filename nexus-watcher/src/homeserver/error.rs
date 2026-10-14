@@ -25,6 +25,34 @@ impl HsError {
             kind,
         }
     }
+
+    /// Whether the run should stop here rather than count this as one event's or one
+    /// user's failure. The `/events-stream` request is the homeserver itself, so a failure
+    /// there stops the run, and so does running out of time.
+    pub fn should_not_retry_now(&self) -> bool {
+        match self.kind {
+            HsErrorKind::BudgetExhausted => true,
+            HsErrorKind::ServerError(..)
+            | HsErrorKind::Transport(_)
+            | HsErrorKind::Timeout
+            | HsErrorKind::RateLimited(_)
+            | HsErrorKind::CircuitOpen => self.op == HsOp::UserEvents,
+            _ => false,
+        }
+    }
+
+    /// Whether the event behind this failure is worth retrying later.
+    pub fn should_retry(&self) -> bool {
+        matches!(
+            self.kind,
+            HsErrorKind::RateLimited(_)
+                | HsErrorKind::ServerError(..)
+                | HsErrorKind::Rejected(..)
+                | HsErrorKind::Timeout
+                | HsErrorKind::Transport(_)
+                | HsErrorKind::CircuitOpen
+        )
+    }
 }
 
 /// The [`HomeserverClient`](super::HomeserverClient) operation a call made.
@@ -99,14 +127,22 @@ impl HsErrorKind {
         }
     }
 
-    /// Classifies an SDK error the way `PubkyClientError::from(pubky::Error)` does.
+    /// Classifies an SDK error so it is retried, or not, as `PubkyClientError::from` had it.
+    ///
+    /// A status lands by its code. A transport, PKARR or validation failure, which that
+    /// conversion turned into a retried `RequestFailed`, is a transport failure. An error
+    /// building the request (`Parse`, `Build`, `Authentication`) is malformed, and stays
+    /// permanent.
     pub fn from_sdk(error: pubky::Error) -> Self {
         match error {
             pubky::Error::Request(RequestError::Server { status, message }) => {
                 Self::from_status(status, message.as_bytes())
             }
             pubky::Error::Request(RequestError::Transport(e)) => Self::from_reqwest(&e),
-            pubky::Error::Pkarr(e) => Self::transport(e),
+            pubky::Error::Request(
+                RequestError::Validation { .. } | RequestError::DecodeJson { .. },
+            )
+            | pubky::Error::Pkarr(_) => Self::transport(error),
             other => Self::malformed(other),
         }
     }
@@ -120,6 +156,43 @@ fn capped(error: impl Display) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::errors::EventProcessorError;
+    use crate::events::retry::RetryScheduler;
+
+    /// SDK errors are retried as they were: statuses by their code, validation failures as
+    /// transport errors, and errors building the request never.
+    #[test]
+    fn sdk_errors_are_classified() {
+        let server = |status: u16| {
+            HsErrorKind::from_sdk(pubky::Error::from(RequestError::Server {
+                status: StatusCode::from_u16(status).unwrap(),
+                message: "nope".into(),
+            }))
+        };
+        assert!(matches!(server(404), HsErrorKind::NotFound(_)));
+        assert!(matches!(server(429), HsErrorKind::RateLimited(_)));
+        assert!(matches!(server(503), HsErrorKind::ServerError(503, _)));
+        assert!(matches!(server(400), HsErrorKind::Rejected(400, _)));
+
+        let validation = HsErrorKind::from_sdk(pubky::Error::from(RequestError::Validation {
+            message: "SSE stream error".into(),
+        }));
+        assert!(
+            matches!(validation, HsErrorKind::Transport(_)),
+            "{validation:?}"
+        );
+
+        let parse_error = reqwest::Url::parse("https://").unwrap_err();
+        let parse = HsErrorKind::from_sdk(pubky::Error::from(parse_error));
+        assert!(matches!(parse, HsErrorKind::Malformed(_)), "{parse:?}");
+
+        let hs = PubkyId::try_from("1hb71xx9km3f4pw5izsy1gn19ff1uuuqonw4mcygzobwkryujoiy").unwrap();
+        let retried: EventProcessorError = HsError::new(&hs, HsOp::GetResource, validation).into();
+        let dropped: EventProcessorError = HsError::new(&hs, HsOp::GetResource, parse).into();
+        assert!(RetryScheduler::should_enqueue_related_event(&retried));
+        assert!(!RetryScheduler::should_enqueue_related_event(&dropped));
+        assert!(!dropped.should_not_retry_now());
+    }
 
     #[test]
     fn statuses_are_classified() {

@@ -77,6 +77,11 @@ pub enum EventProcessorError {
     #[error("HsBlacklisted: {hs_id}")]
     HsBlacklisted { hs_id: String },
 
+    /// A homeserver call failed in a way the other variants have no counterpart for,
+    /// classified by the [`HsError`] itself.
+    #[error("{0}")]
+    Homeserver(HsError),
+
     #[error("Internal error: {0}")]
     InternalError(String),
 
@@ -137,12 +142,12 @@ impl From<HsError> for EventProcessorError {
             HsErrorKind::NotFound(_) => PubkyClientError::NotFound404 { message }.into(),
             HsErrorKind::RateLimited(_) => PubkyClientError::TooManyRequests429 { message }.into(),
             HsErrorKind::ServerError(..) => PubkyClientError::ServerError5xx { message }.into(),
-            HsErrorKind::Rejected(..)
-            | HsErrorKind::Transport(_)
-            | HsErrorKind::Timeout
-            | HsErrorKind::Malformed(_)
-            | HsErrorKind::CircuitOpen
-            | HsErrorKind::BudgetExhausted => PubkyClientError::RequestFailed { message }.into(),
+            HsErrorKind::Rejected(..) | HsErrorKind::Transport(_) | HsErrorKind::Timeout => {
+                PubkyClientError::RequestFailed { message }.into()
+            }
+            HsErrorKind::Malformed(_) | HsErrorKind::CircuitOpen | HsErrorKind::BudgetExhausted => {
+                Self::Homeserver(error)
+            }
         }
     }
 }
@@ -211,6 +216,10 @@ impl EventProcessorError {
     /// `false` does not necessarily mean the error will be retried; the caller may
     /// skip it, enqueue it, or continue processing.
     pub fn should_not_retry_now(&self) -> bool {
+        if let Self::Homeserver(error) = self {
+            return error.should_not_retry_now();
+        }
+
         matches!(
             self,
             Self::GraphQueryFailed(true, _)
