@@ -1,5 +1,6 @@
-//! Every HTTP call the watcher makes to a homeserver goes through [`HomeserverClient`],
-//! built once and shared by all the watcher's loops.
+//! Every call the watcher makes to a homeserver, and every lookup of the homeserver a user
+//! publishes, goes through [`HomeserverClient`], built once and shared by all the watcher's
+//! loops.
 
 mod client;
 mod error;

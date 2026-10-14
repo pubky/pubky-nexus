@@ -2,6 +2,8 @@ use std::collections::{HashMap, VecDeque};
 
 use tokio::sync::Mutex;
 
+use nexus_common::db::PubkyClientResult;
+use nexus_common::models::user::PkdnsHomeserverResolver;
 use nexus_watcher::homeserver::{
     HomeserverClient, HomeserverHealth, HsError, HsErrorKind, HsOp, HsStreamEvent,
 };
@@ -93,6 +95,14 @@ impl MockHomeserverClient {
 fn not_found(resource: &PubkyResource, op: HsOp) -> HsError {
     let owner = PubkyId::from(resource.owner.clone());
     HsError::new(&owner, op, HsErrorKind::NotFound(resource.to_pubky_url()))
+}
+
+/// Resolves no user's homeserver: tests that need one use the network-backed client.
+#[async_trait::async_trait]
+impl PkdnsHomeserverResolver for MockHomeserverClient {
+    async fn resolve_homeserver(&self, _user_pk: &PublicKey) -> PubkyClientResult<Option<PubkyId>> {
+        Ok(None)
+    }
 }
 
 #[async_trait::async_trait]

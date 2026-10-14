@@ -3,6 +3,8 @@ use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
 use futures::{Stream, StreamExt};
+use nexus_common::db::PubkyClientResult;
+use nexus_common::models::user::PkdnsHomeserverResolver;
 use nexus_common::WatcherConfig;
 use opentelemetry::metrics::Counter;
 use opentelemetry::{global, KeyValue};
@@ -70,8 +72,11 @@ impl From<pubky::Event> for HsStreamEvent {
 ///
 /// A failure is labelled with `hs`, the homeserver the caller polls, or for a resource or
 /// blob with its owner's key.
+///
+/// It also resolves the homeserver a user publishes ([`PkdnsHomeserverResolver`]), for the
+/// user ingestor and the periodic user-to-homeserver resolver.
 #[async_trait::async_trait]
-pub trait HomeserverClient: Send + Sync + 'static {
+pub trait HomeserverClient: PkdnsHomeserverResolver + Send + Sync + 'static {
     /// Primary-style `GET /events/?cursor=&limit=`. Returns the raw lines, the
     /// cursor line included; an empty body has none.
     async fn poll_events(
@@ -127,26 +132,13 @@ impl PubkyHomeserverClient {
 
     /// GETs `resource`, reading at most `max` bytes of the body.
     ///
-    /// A failure is labelled with the owner's key: nothing is charged to a homeserver yet,
-    /// and resolving the one the owner publishes would cost a PKARR query on every failure.
-    ///
     /// The SDK reads a non-2xx body whole, before [`HsErrorKind::from_sdk`] keeps 4 KiB of
     /// it, so for resources and blobs that cap limits what is kept, not what is read.
-    async fn get_capped(
-        &self,
-        resource: &PubkyResource,
-        op: HsOp,
-        max: u64,
-    ) -> Result<Vec<u8>, HsError> {
-        let fetched = match self.pubky.public_storage().get(resource).await {
+    async fn get_capped(&self, resource: &PubkyResource, max: u64) -> Result<Vec<u8>, HsErrorKind> {
+        match self.pubky.public_storage().get(resource).await {
             Ok(response) => fetch_capped(response, max).await,
             Err(e) => Err(HsErrorKind::from_sdk(e)),
-        };
-
-        fetched.map_err(|kind| {
-            let owner = PubkyId::from(resource.owner.clone());
-            HsError::new(&owner, op, kind)
-        })
+        }
     }
 
     /// One `/events-stream` request, without retries.
@@ -211,6 +203,17 @@ where
 }
 
 #[async_trait::async_trait]
+impl PkdnsHomeserverResolver for PubkyHomeserverClient {
+    async fn resolve_homeserver(&self, user_pk: &PublicKey) -> PubkyClientResult<Option<PubkyId>> {
+        Ok(self
+            .pubky
+            .get_homeserver_of(user_pk)
+            .await
+            .map(PubkyId::from))
+    }
+}
+
+#[async_trait::async_trait]
 impl HomeserverClient for PubkyHomeserverClient {
     async fn poll_events(
         &self,
@@ -243,13 +246,15 @@ impl HomeserverClient for PubkyHomeserverClient {
     }
 
     async fn get_resource(&self, resource: &PubkyResource) -> Result<Vec<u8>, HsError> {
-        self.get_capped(resource, HsOp::GetResource, MAX_RESOURCE_SIZE as u64)
-            .await
+        get_resource_with(
+            resource,
+            self.get_capped(resource, MAX_RESOURCE_SIZE as u64),
+        )
+        .await
     }
 
     async fn get_blob(&self, resource: &PubkyResource) -> Result<Vec<u8>, HsError> {
-        self.get_capped(resource, HsOp::GetBlob, self.max_file_size)
-            .await
+        get_blob_with(resource, self.get_capped(resource, self.max_file_size)).await
     }
 
     fn health(&self) -> &HomeserverHealth {
@@ -271,6 +276,34 @@ where
     retry_rate_limited(user, fetch)
         .await
         .map_err(|kind| HsError::new(hs, HsOp::UserEvents, kind))
+}
+
+/// Awaits a resource fetch, labelling a failure as a resource's, which keeps it one event's
+/// failure.
+async fn get_resource_with(
+    resource: &PubkyResource,
+    fetch: impl Future<Output = Result<Vec<u8>, HsErrorKind>>,
+) -> Result<Vec<u8>, HsError> {
+    fetch
+        .await
+        .map_err(|kind| owner_error(resource, HsOp::GetResource, kind))
+}
+
+/// Awaits a blob fetch, labelling a failure as a blob's, which keeps it one event's failure.
+async fn get_blob_with(
+    resource: &PubkyResource,
+    fetch: impl Future<Output = Result<Vec<u8>, HsErrorKind>>,
+) -> Result<Vec<u8>, HsError> {
+    fetch
+        .await
+        .map_err(|kind| owner_error(resource, HsOp::GetBlob, kind))
+}
+
+/// A failed resource or blob fetch, labelled with the owner's key: nothing is charged to a
+/// homeserver yet, and resolving the one the owner publishes would cost a PKARR query on
+/// every failure.
+fn owner_error(resource: &PubkyResource, op: HsOp, kind: HsErrorKind) -> HsError {
+    HsError::new(&PubkyId::from(resource.owner.clone()), op, kind)
 }
 
 /// Calls `fetch` and, while it is rate limited, again after each of
@@ -577,6 +610,50 @@ mod tests {
             "{error:?}"
         );
         assert!(error.should_not_retry_now());
+    }
+
+    // --- get_resource_with / get_blob_with ---
+
+    /// A 5xx or a transport failure fetching a resource or a blob, which any user can point
+    /// at any host, stays one event's failure and does not stop the run.
+    #[tokio::test]
+    async fn resource_and_blob_failures_stay_per_event() {
+        use crate::errors::EventProcessorError;
+        use nexus_common::db::PubkyClientError;
+
+        let owner = pubky::Keypair::random().public_key();
+        let resource: PubkyResource = format!("pubky{}/pub/pubky.app/files/0001", owner.z32())
+            .parse()
+            .expect("valid resource");
+        let failures = || {
+            [
+                HsErrorKind::ServerError(500, "".into()),
+                HsErrorKind::transport("connection refused"),
+            ]
+        };
+
+        let mut errors = Vec::new();
+        for kind in failures() {
+            errors.push(get_resource_with(&resource, async { Err(kind) }).await);
+        }
+        for kind in failures() {
+            errors.push(get_blob_with(&resource, async { Err(kind) }).await);
+        }
+
+        for error in errors {
+            let error = EventProcessorError::from(error.unwrap_err());
+            assert!(
+                matches!(
+                    &error,
+                    EventProcessorError::PubkyClientError(e) if matches!(
+                        e.as_ref(),
+                        PubkyClientError::ServerError5xx { .. } | PubkyClientError::RequestFailed { .. }
+                    )
+                ),
+                "{error:?}"
+            );
+            assert!(!error.should_not_retry_now(), "{error:?}");
+        }
     }
 
     // --- retry_rate_limited ---

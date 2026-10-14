@@ -55,11 +55,13 @@ impl DefaultEventHandler {
     }
 
     /// Builds a handler that fetches through `client`, deriving its moderation rules
-    /// and user ingestor from config.
+    /// and user ingestor from config. The ingestor resolves users' homeservers through
+    /// `client` too.
     pub fn from_config(config: &WatcherConfig, client: Arc<dyn HomeserverClient>) -> Self {
+        let ingestor = UserIngestor::from_config(&config.stack).with_resolver(client.clone());
         Self::new(
             Moderation::from_config(config),
-            Arc::new(UserIngestor::from_config(&config.stack)),
+            Arc::new(ingestor),
             client,
             config.stack.files_path.clone(),
         )

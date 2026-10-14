@@ -105,14 +105,14 @@ impl NexusWatcher {
         ));
         let key_based_runner = Arc::new(KeyBasedEventProcessorRunner::new(
             &config,
-            client,
+            client.clone(),
             event_handler.clone(),
             retry_scheduler,
             shutdown_rx.clone(),
         ));
         let user_hs_resolver_runner = Arc::new(UserHsResolverRunner::from_config(
             &config,
-            Box::new(user_hs_resolver::PubkyConnectorResolver),
+            client,
             shutdown_rx.clone(),
         ));
 
