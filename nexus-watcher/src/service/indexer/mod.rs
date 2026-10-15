@@ -10,27 +10,35 @@ use crate::errors::EventProcessorError;
 use crate::events::retry::RetryScheduler;
 use crate::events::EventHandler;
 use crate::events::{Event, ParseResult};
-use crate::service::PROCESSING_TIMEOUT_SECS;
+use crate::service::SLOW_RUN_THRESHOLD;
 use tracing::{debug, error, trace, warn, Instrument};
 
 /// OpenTelemetry meter name shared by all watcher indexer metrics.
 pub(crate) const METER_NAME: &str = "nexus.watcher";
+
+/// How a run of an event processor ended when it did not fail.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RunOutcome {
+    /// The run ended without failing or spending its budget: it did the work it found, or
+    /// stopped early for shutdown.
+    Completed,
+    /// The run stopped at its budget with work left, keeping the cursors it reached. Not an
+    /// event failure: nothing is retried. See [`KeyBasedEventProcessor::budget`].
+    BudgetSpent,
+}
 
 /// Possible error types of an event processor run
 #[derive(Debug)]
 pub enum RunError {
     Internal(EventProcessorError),
     Panicked,
-    TimedOut,
+    /// The run stopped at its budget, see [`RunOutcome::BudgetSpent`]
+    BudgetSpent,
 }
 
 impl RunError {
     pub fn is_panic(&self) -> bool {
         matches!(self, RunError::Panicked)
-    }
-
-    pub fn is_timeout(&self) -> bool {
-        matches!(self, RunError::TimedOut)
     }
 }
 
@@ -41,7 +49,7 @@ impl Display for RunError {
         match self {
             RunError::Internal(err) => write!(f, "Internal error: {err}"),
             RunError::Panicked => write!(f, "Execution panicked"),
-            RunError::TimedOut => write!(f, "Execution timed out"),
+            RunError::BudgetSpent => write!(f, "Run budget spent"),
         }
     }
 }
@@ -77,10 +85,13 @@ pub trait TEventProcessor: Send + Sync + 'static {
         None
     }
 
+    /// Runs [`Self::run_internal`] on its own task, and waits for it to end.
+    ///
+    /// A run that takes longer than [`Self::slow_run_threshold`] is logged as slow, again after
+    /// each further threshold, and still waited for: it is not stopped, so the next run cannot
+    /// start next to it. A run that never returns therefore holds up its loop for good.
     async fn run(self: Arc<Self>) -> Result<(), RunError> {
-        let timeout = self
-            .custom_timeout()
-            .unwrap_or(Duration::from_secs(PROCESSING_TIMEOUT_SECS));
+        let slow_run_threshold = self.slow_run_threshold().unwrap_or(SLOW_RUN_THRESHOLD);
 
         let instance_name = self.instance_name();
         let homeserver_id = self.homeserver_id().map(str::to_owned);
@@ -90,14 +101,20 @@ pub trait TEventProcessor: Send + Sync + 'static {
             service = %instance_name,
             homeserver,
         );
-        let handle = tokio::spawn(self.run_internal().instrument(span));
+        let started = tokio::time::Instant::now();
+        let mut handle = tokio::spawn(self.run_internal().instrument(span));
 
-        let join_result = tokio::time::timeout(timeout, handle)
-            .await
-            .inspect_err(
-                |_| error!(service = %instance_name, homeserver, "Event processor timed out"),
-            )
-            .map_err(|_| RunError::TimedOut)?;
+        let join_result = loop {
+            match tokio::time::timeout(slow_run_threshold, &mut handle).await {
+                Ok(join_result) => break join_result,
+                Err(_) => warn!(
+                    service = %instance_name,
+                    homeserver,
+                    running_for_secs = started.elapsed().as_secs(),
+                    "Event processor run is slow; waiting for it to finish"
+                ),
+            }
+        };
 
         // The JoinError can be:
         // - join_error.is_panic() => panic by the inner future
@@ -117,27 +134,30 @@ pub trait TEventProcessor: Send + Sync + 'static {
             })
             .map_err(|_| RunError::Panicked)?;
 
-        run_internal_result
-            .inspect_err(|e| {
+        match run_internal_result {
+            Ok(RunOutcome::Completed) => Ok(()),
+            Ok(RunOutcome::BudgetSpent) => Err(RunError::BudgetSpent),
+            Err(e) => {
                 error!(
                     service = %instance_name,
                     homeserver,
                     error = ?e,
                     "Event processor failed"
-                )
-            })
-            .map_err(RunError::Internal)
+                );
+                Err(RunError::Internal(e))
+            }
+        }
     }
 
     /// Runs the event processor asynchronously.
     ///
-    /// Returns `Ok(())` on a clean exit, or `Err(EventProcessorError)` on failure.
-    async fn run_internal(self: Arc<Self>) -> Result<(), EventProcessorError>;
+    /// Returns how the run ended, or `Err(EventProcessorError)` on failure.
+    async fn run_internal(self: Arc<Self>) -> Result<RunOutcome, EventProcessorError>;
 
-    /// Optional custom timeout for this event processor.
+    /// How long a run of this event processor may take before it is logged as slow.
     ///
-    /// If not set, the [`PROCESSING_TIMEOUT_SECS`] is applied.
-    fn custom_timeout(&self) -> Option<Duration> {
+    /// If not set, the [`SLOW_RUN_THRESHOLD`] is applied.
+    fn slow_run_threshold(&self) -> Option<Duration> {
         None
     }
 

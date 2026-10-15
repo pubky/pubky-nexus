@@ -122,6 +122,9 @@ kept small to bound total work and per-HS request size.
 > the skip interval doubles on each consecutive failure, capped at `max_backoff_secs`.
 > A skipped HS does not count towards `monitored_homeservers_limit`, so the next
 > eligible HS in priority order takes its slot.
+> A run that spends its 8-minute budget counts as a failure too, so a homeserver whose
+> pass keeps needing more than one budget is indexed about once per `max_backoff_secs`;
+> a larger cap slows it further.
 
 *Constraint:* `initial_backoff_secs` must not exceed `max_backoff_secs`
 (`HomeserverBackoff::new`).
@@ -270,7 +273,9 @@ avoid hammering an HS for content that may not exist yet.
 >
 > - **`[watcher].initial_backoff_secs` / `max_backoff_secs`**
 >   ([Section 3](#3-indexing-externally-hosted-users-key-based)) — skips
->   an **entire HS** found to be **offline/unreachable**.
+>   an **entire HS** found to be **offline/unreachable**, or whose run spent its 8-minute
+>   budget: a homeserver whose pass keeps needing more than one budget is indexed about
+>   once per `max_backoff_secs`, and a larger cap slows it further.
 > - **`[watcher.retry].initial_backoff_secs` / `max_backoff_secs`** — retries an
 >   **individual event** that hit a **transient processing error**.
 >

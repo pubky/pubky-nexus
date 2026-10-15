@@ -16,42 +16,18 @@ use nexus_watcher::events::retry::{InitialBackoff, RetryScheduler};
 use nexus_watcher::events::Event;
 use nexus_watcher::events::EventHandler;
 use nexus_watcher::service::indexer::{KeyBasedEventProcessor, RunError, TEventProcessor};
-use nexus_watcher::service::runner::UserNotFoundBackoff;
-use nexus_watcher::service::{KeyBasedEventProcessorRunner, TEventProcessorRunner};
+use nexus_watcher::service::runner::{UserNotFoundBackoff, UserResumePoints};
+use nexus_watcher::service::stats::ProcessorRunStatus;
+use nexus_watcher::service::{
+    KeyBasedEventProcessorRunner, TEventProcessorRunner, KEY_BASED_RUN_BUDGET,
+};
 use pubky::{Event as StreamEvent, EventCursor, EventType, Keypair, PubkyResource, PublicKey};
 use pubky_app_specs::PubkyId;
 use tokio::sync::watch;
 
 use crate::service::utils::{
-    create_mock_handler, create_random_homeservers_and_persist, new_in_memory_store, setup,
-    MockEventProcessorResult, MockKeyBasedEventSource,
+    create_mock_handler, new_in_memory_store, setup, MockKeyBasedEventSource,
 };
-
-/// Verifies `TEventProcessor::run` maps elapsed execution to a timeout error.
-#[tokio_shared_rt::test(shared)]
-async fn processor_run_returns_timeout_error() -> Result<(), DynError> {
-    setup().await?;
-
-    let (_shutdown_tx, shutdown_rx) = watch::channel(false);
-    let mut processors = Vec::new();
-    create_random_homeservers_and_persist(
-        &mut processors,
-        Some(Duration::from_millis(50)),
-        MockEventProcessorResult::Success,
-        Some(Duration::from_millis(1)),
-        shutdown_rx,
-        None,
-    )
-    .await;
-
-    let err = Arc::new(processors.pop().expect("processor should be created"))
-        .run()
-        .await
-        .unwrap_err();
-
-    assert!(err.is_timeout(), "expected timeout, got {err:?}");
-    Ok(())
-}
 
 #[tokio_shared_rt::test(shared)]
 async fn key_based_processor_skips_unrecognized_events() -> Result<(), DynError> {
@@ -456,6 +432,184 @@ async fn key_based_processor_persists_last_safe_cursor_before_mismatch() -> Resu
 
     assert_eq!(handler.get_handle_count(), 1);
     assert_eq!(user_cursor(&user_id, &hs_id).await?, Some(5));
+
+    Ok(())
+}
+
+/// Handler that counts the events it handled.
+struct CountingHandler {
+    handled: AtomicUsize,
+}
+
+#[async_trait::async_trait]
+impl EventHandler for CountingHandler {
+    async fn handle(&self, _event: &Event) -> Result<(), EventProcessorError> {
+        self.handled.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    }
+}
+
+/// Verifies a run stops once its budget is spent, so one homeserver cannot hold up the
+/// external loop: it still makes progress, stops after the event in progress, keeps the
+/// cursor of the last event it handled, and starts no other user.
+#[tokio_shared_rt::test(shared)]
+async fn key_based_processor_stops_at_its_budget() -> Result<(), DynError> {
+    setup().await?;
+
+    let (_hs_keypair, homeserver) = create_homeserver().await?;
+    let hs_id = homeserver.id.to_string();
+    let user_a_id = create_user_on_homeserver(&homeserver).await?;
+    let user_b_id = create_user_on_homeserver(&homeserver).await?;
+    let batch = |user_id: &str| -> Result<Vec<StreamEvent>, DynError> {
+        (1..=10)
+            .map(|cursor| stream_event(cursor, user_id, "/pub/pubky.app/profile.json"))
+            .collect()
+    };
+    let source = Arc::new(MockKeyBasedEventSource::default().with_user_events(vec![
+        (user_a_id.clone(), batch(&user_a_id)?),
+        (user_b_id.clone(), batch(&user_b_id)?),
+    ]));
+    let handler = Arc::new(CountingHandler {
+        handled: AtomicUsize::new(0),
+    });
+    let processor = Arc::new(processor_with_budget(
+        homeserver,
+        handler.clone(),
+        source.clone(),
+        Duration::ZERO,
+    ));
+
+    let err = processor.run().await.unwrap_err();
+
+    assert!(matches!(err, RunError::BudgetSpent), "got {err:?}");
+
+    let calls = source.calls().await;
+    assert_eq!(
+        calls,
+        [user_a_id.clone().min(user_b_id.clone())],
+        "the run starts from the first user in key order, and no other may start once the budget is spent"
+    );
+    assert_eq!(handler.handled.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        user_cursor(&calls[0], &hs_id).await?,
+        Some(1),
+        "the cursor of the last handled event must be kept"
+    );
+
+    Ok(())
+}
+
+/// Verifies a run whose budget cuts its last user's batch short reports the spent budget
+/// too, so a single-user homeserver whose batches never fit is backed off like any other.
+#[tokio_shared_rt::test(shared)]
+async fn key_based_processor_reports_a_budget_spent_on_its_last_user() -> Result<(), DynError> {
+    setup().await?;
+
+    let (_hs_keypair, homeserver) = create_homeserver().await?;
+    let hs_id = homeserver.id.to_string();
+    let user_id = create_user_on_homeserver(&homeserver).await?;
+    let events = (1..=10)
+        .map(|cursor| stream_event(cursor, &user_id, "/pub/pubky.app/profile.json"))
+        .collect::<Result<Vec<_>, _>>()?;
+    let source = Arc::new(
+        MockKeyBasedEventSource::default().with_user_events(vec![(user_id.clone(), events)]),
+    );
+    let processor = Arc::new(processor_with_budget(
+        homeserver,
+        create_mock_handler(Ok(()), None),
+        source,
+        Duration::ZERO,
+    ));
+
+    let err = processor.run().await.unwrap_err();
+
+    assert!(matches!(err, RunError::BudgetSpent), "got {err:?}");
+    assert_eq!(user_cursor(&user_id, &hs_id).await?, Some(1));
+
+    Ok(())
+}
+
+/// Verifies runs that stop at their budget take turns over the users: each run starts from
+/// the user the last one stopped at, so a homeserver whose full pass never fits the budget
+/// still has every user reached.
+#[tokio_shared_rt::test(shared)]
+async fn key_based_runs_resume_where_the_last_run_stopped() -> Result<(), DynError> {
+    setup().await?;
+
+    let (_hs_keypair, homeserver) = create_homeserver().await?;
+    let user_a_id = create_user_on_homeserver(&homeserver).await?;
+    let user_b_id = create_user_on_homeserver(&homeserver).await?;
+    let source = Arc::new(MockKeyBasedEventSource::default().with_user_events(vec![
+        (
+            user_a_id.clone(),
+            vec![stream_event(1, &user_a_id, "/pub/pubky.app/profile.json")?],
+        ),
+        (
+            user_b_id.clone(),
+            vec![stream_event(1, &user_b_id, "/pub/pubky.app/profile.json")?],
+        ),
+    ]));
+    let user_resume_points = Arc::new(UserResumePoints::default());
+
+    for _ in 0..2 {
+        let processor = Arc::new(KeyBasedEventProcessor {
+            user_resume_points: user_resume_points.clone(),
+            ..processor_with_budget(
+                Homeserver::new(homeserver.id.clone()),
+                create_mock_handler(Ok(()), None),
+                source.clone(),
+                Duration::ZERO,
+            )
+        });
+        let err = processor.run().await.unwrap_err();
+        assert!(matches!(err, RunError::BudgetSpent), "got {err:?}");
+    }
+
+    let mut calls = source.calls().await;
+    calls.sort();
+    let mut expected = vec![user_a_id, user_b_id];
+    expected.sort();
+    assert_eq!(
+        calls, expected,
+        "each run must fetch the user the last one left"
+    );
+
+    Ok(())
+}
+
+/// Verifies a run that spends its budget backs its homeserver off, so a homeserver whose
+/// full pass never fits the budget does not take the budget out of every external tick.
+#[tokio_shared_rt::test(shared)]
+async fn key_based_runner_backs_off_homeserver_after_spent_budget() -> Result<(), DynError> {
+    setup().await?;
+
+    let (_hs_keypair, homeserver) = create_homeserver().await?;
+    let hs_id = homeserver.id.to_string();
+    let user_a_id = create_user_on_homeserver(&homeserver).await?;
+    let user_b_id = create_user_on_homeserver(&homeserver).await?;
+    let source = Arc::new(
+        MockKeyBasedEventSource::default()
+            .with_user_events(vec![(user_a_id, vec![]), (user_b_id, vec![])]),
+    );
+    let mut runner = KeyBasedEventProcessorRunner::from_config(
+        &WatcherConfig::default(),
+        watch::channel(false).1,
+    );
+    runner.monitored_hs_limit = usize::MAX;
+    runner.event_handler = create_mock_handler(Ok(()), None);
+    runner.event_source = source;
+    runner.primary_homeserver = random_pubky_id();
+    runner.budget = Duration::ZERO;
+
+    let stats = runner.run().await?.0;
+
+    let run = stats
+        .stats
+        .iter()
+        .find(|run| run.hs_id == hs_id)
+        .expect("the homeserver was run");
+    assert_eq!(run.status, ProcessorRunStatus::BudgetSpent);
+    assert!(runner.backoff.lock().await.should_skip(&hs_id));
 
     Ok(())
 }
@@ -894,7 +1048,7 @@ async fn key_based_processor_aborts_blacklisted_homeserver() -> Result<(), DynEr
     let handler = create_mock_handler(Ok(()), None);
     let (_shutdown_tx, shutdown_rx) = watch::channel(false);
     let blacklist = HsBlacklist::new([homeserver.id.clone()]);
-    let processor = processor_with_options(
+    let processor = Arc::new(processor_with_options(
         homeserver,
         handler.clone(),
         source.clone(),
@@ -902,7 +1056,7 @@ async fn key_based_processor_aborts_blacklisted_homeserver() -> Result<(), DynEr
         shutdown_rx,
         Arc::new(UserNotFoundBackoff::default()),
         blacklist,
-    );
+    ));
 
     let err = processor.run().await.unwrap_err();
 
@@ -1022,7 +1176,7 @@ fn processor(
     source: Arc<MockKeyBasedEventSource>,
 ) -> Arc<KeyBasedEventProcessor> {
     let (_shutdown_tx, shutdown_rx) = watch::channel(false);
-    processor_with_options(
+    Arc::new(processor_with_options(
         homeserver,
         handler,
         source,
@@ -1030,7 +1184,7 @@ fn processor(
         shutdown_rx,
         Arc::new(UserNotFoundBackoff::default()),
         HsBlacklist::default(),
-    )
+    ))
 }
 
 /// Builds a processor sharing the given 404 backoff, so its state survives across
@@ -1042,7 +1196,7 @@ fn processor_with_backoff(
     user_not_found_backoff: Arc<UserNotFoundBackoff>,
 ) -> Arc<KeyBasedEventProcessor> {
     let (_shutdown_tx, shutdown_rx) = watch::channel(false);
-    processor_with_options(
+    Arc::new(processor_with_options(
         homeserver,
         handler,
         source,
@@ -1050,7 +1204,7 @@ fn processor_with_backoff(
         shutdown_rx,
         user_not_found_backoff,
         HsBlacklist::default(),
-    )
+    ))
 }
 
 fn processor_with_limit(
@@ -1060,7 +1214,7 @@ fn processor_with_limit(
     limit: u16,
 ) -> Arc<KeyBasedEventProcessor> {
     let (_shutdown_tx, shutdown_rx) = watch::channel(false);
-    processor_with_options(
+    Arc::new(processor_with_options(
         homeserver,
         handler,
         source,
@@ -1068,7 +1222,7 @@ fn processor_with_limit(
         shutdown_rx,
         Arc::new(UserNotFoundBackoff::default()),
         HsBlacklist::default(),
-    )
+    ))
 }
 
 fn processor_with_shutdown(
@@ -1077,7 +1231,7 @@ fn processor_with_shutdown(
     source: Arc<MockKeyBasedEventSource>,
     shutdown_rx: watch::Receiver<bool>,
 ) -> Arc<KeyBasedEventProcessor> {
-    processor_with_options(
+    Arc::new(processor_with_options(
         homeserver,
         handler,
         source,
@@ -1085,7 +1239,28 @@ fn processor_with_shutdown(
         shutdown_rx,
         Arc::new(UserNotFoundBackoff::default()),
         HsBlacklist::default(),
-    )
+    ))
+}
+
+fn processor_with_budget(
+    homeserver: Homeserver,
+    handler: Arc<dyn EventHandler>,
+    source: Arc<MockKeyBasedEventSource>,
+    budget: Duration,
+) -> KeyBasedEventProcessor {
+    let (_shutdown_tx, shutdown_rx) = watch::channel(false);
+    KeyBasedEventProcessor {
+        budget,
+        ..processor_with_options(
+            homeserver,
+            handler,
+            source,
+            100,
+            shutdown_rx,
+            Arc::new(UserNotFoundBackoff::default()),
+            HsBlacklist::default(),
+        )
+    }
 }
 
 fn processor_with_options(
@@ -1096,8 +1271,8 @@ fn processor_with_options(
     shutdown_rx: watch::Receiver<bool>,
     user_not_found_backoff: Arc<UserNotFoundBackoff>,
     hs_blacklist: HsBlacklist,
-) -> Arc<KeyBasedEventProcessor> {
-    Arc::new(KeyBasedEventProcessor {
+) -> KeyBasedEventProcessor {
+    KeyBasedEventProcessor {
         homeserver_id: homeserver.id,
         limit,
         event_handler: handler,
@@ -1112,7 +1287,9 @@ fn processor_with_options(
             },
         )),
         shutdown_rx,
-    })
+        user_resume_points: Arc::new(UserResumePoints::default()),
+        budget: KEY_BASED_RUN_BUDGET,
+    }
 }
 
 fn assert_internal_index_operation_failed(err: RunError) {

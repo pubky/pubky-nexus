@@ -64,9 +64,10 @@ impl UserHsCursor {
     ///
     /// Read-then-write is not atomic but is race-free in practice: the external-HS
     /// event processor is its only caller, and it writes a given `(user_id, hs_id)`
-    /// pair from one run at a time (users are processed sequentially within a poll
-    /// cycle, and cycles for the same homeserver do not overlap). Per-process only:
-    /// the invariant would not survive running the watcher as several replicas.
+    /// pair from one run at a time (users are processed sequentially within a run,
+    /// and the watcher waits for each run to end before starting the next).
+    /// Per-process only: the invariant would not survive running the watcher as
+    /// several replicas.
     pub async fn write(user_id: &str, hs_id: &str, cursor: u64) -> RedisResult<()> {
         let stored_cursor = Self::read(&[user_id], hs_id)
             .await?

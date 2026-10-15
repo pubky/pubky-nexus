@@ -68,14 +68,15 @@ impl Default for HomeserverBackoff {
 }
 
 #[cfg(test)]
+impl HomeserverBackoff {
+    pub(crate) fn next_backoff_secs_for(&self, hs_id: &str) -> Option<u64> {
+        self.state.get(hs_id).map(|bs| bs.next_backoff_secs)
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
-
-    impl HomeserverBackoff {
-        fn next_backoff_secs_for(&self, hs_id: &str) -> Option<u64> {
-            self.state.get(hs_id).map(|bs| bs.next_backoff_secs)
-        }
-    }
 
     #[test]
     fn new_homeserver_is_not_skipped() {

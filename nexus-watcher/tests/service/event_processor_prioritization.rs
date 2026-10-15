@@ -17,8 +17,10 @@ use nexus_watcher::events::retry::{InitialBackoff, RedisRetryStore, RetrySchedul
 use nexus_watcher::events::{DefaultEventHandler, EventHandler};
 use nexus_watcher::service::indexer::PubkyKeyBasedEventSource;
 use nexus_watcher::service::runner::HomeserverBackoff;
-use nexus_watcher::service::runner::UserNotFoundBackoff;
-use nexus_watcher::service::{KeyBasedEventProcessorRunner, TEventProcessorRunner};
+use nexus_watcher::service::runner::{UserNotFoundBackoff, UserResumePoints};
+use nexus_watcher::service::{
+    KeyBasedEventProcessorRunner, TEventProcessorRunner, KEY_BASED_RUN_BUDGET,
+};
 use pubky_app_specs::PubkyId;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -54,6 +56,8 @@ async fn test_event_processor_runner_primary_homeserver_excluded() -> Result<(),
         hs_blacklist: HsBlacklist::default(),
         backoff: Mutex::new(HomeserverBackoff::default()),
         user_not_found_backoff: Arc::new(UserNotFoundBackoff::default()),
+        user_resume_points: Arc::new(UserResumePoints::default()),
+        budget: KEY_BASED_RUN_BUDGET,
         retry_scheduler,
     };
 
@@ -107,6 +111,8 @@ async fn test_event_processor_runner_blacklisted_homeserver_excluded() -> Result
         hs_blacklist: HsBlacklist::new([blacklisted_hs.clone()]),
         backoff: Mutex::new(HomeserverBackoff::default()),
         user_not_found_backoff: Arc::new(UserNotFoundBackoff::default()),
+        user_resume_points: Arc::new(UserResumePoints::default()),
+        budget: KEY_BASED_RUN_BUDGET,
         retry_scheduler,
     };
 
