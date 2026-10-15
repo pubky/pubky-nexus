@@ -72,8 +72,11 @@ pub async fn put<T: Serialize + Send + Sync>(
 ///
 /// A Lua script reads the field with `JSON.GET`, applies the increment or decrement given by the
 /// `JsonAction`, clamps the result to the `ValueRange` and writes it back with `JSON.SET`, atomically.
-/// A missing field is treated as 0 and created. A missing key is left untouched: the call is a
-/// no-op and returns `Ok`, so no partial document is created.
+/// A missing field is treated as 0 and created. A missing key is left untouched: no partial
+/// document is created, the call returns `Ok(None)` and logs a warning, so a no-op update stays
+/// observable.
+///
+/// Returns the new value of the field, or `None` when the key does not exist.
 ///
 /// # Arguments
 ///
@@ -91,7 +94,7 @@ pub async fn modify_json_field(
     field: &str,
     action: JsonAction,
     range: Option<ValueRange>,
-) -> RedisResult<()> {
+) -> RedisResult<Option<i64>> {
     let mut redis_conn = get_redis_conn().await?;
     let index_key = format!("{prefix}:{key}");
     let json_path = format!("$.{field}"); // Access the field using JSON path
@@ -119,7 +122,7 @@ pub async fn modify_json_field(
         -- deserialize on the next read (UserCounts fields are not optional). A Redis nil
         -- reply reaches Lua as `false`, so test existence explicitly.
         if redis.call('EXISTS', KEYS[1]) == 0 then
-            return 0
+            return nil
         end
 
         local current_value = redis.call('JSON.GET', KEYS[1], path)
@@ -154,8 +157,8 @@ pub async fn modify_json_field(
         amount
     );
 
-    let _: i64 = script
-        .key(index_key)
+    let applied: Option<i64> = script
+        .key(&index_key)
         .arg(json_path)
         .arg(amount.to_string())
         .arg(range.min.to_string())
@@ -163,7 +166,11 @@ pub async fn modify_json_field(
         .invoke_async(&mut redis_conn)
         .await?;
 
-    Ok(())
+    if applied.is_none() {
+        warn!("{index_key}: no document, skipped {field} {amount:+}");
+    }
+
+    Ok(applied)
 }
 
 /// Handles storing a boolean value in Redis with an optional expiration.
@@ -539,8 +546,8 @@ mod tests {
         )
         .await;
         assert!(
-            result.is_ok(),
-            "expected Ok on a missing key, got {result:?}"
+            matches!(result, Ok(None)),
+            "expected Ok(None), a reported no-op, on a missing key, got {result:?}"
         );
 
         let mut conn = get_redis_conn().await?;
@@ -596,7 +603,7 @@ mod tests {
         )
         .await?;
 
-        modify_json_field(
+        let applied = modify_json_field(
             MODIFY_PREFIX,
             key,
             "followers",
@@ -604,6 +611,7 @@ mod tests {
             None,
         )
         .await?;
+        assert_eq!(applied, Some(6), "an applied update reports the new value");
 
         let doc: Option<serde_json::Value> = get(MODIFY_PREFIX, key, None).await?;
         assert_eq!(doc, Some(serde_json::json!({ "posts": 3, "followers": 6 })));

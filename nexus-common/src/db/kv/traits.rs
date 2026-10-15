@@ -216,7 +216,9 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     ) -> RedisResult<()> {
         let prefix = Self::prefix().await;
         let key = key_parts.join(":");
-        json::modify_json_field(&prefix, &key, field, action, None).await
+        json::modify_json_field(&prefix, &key, field, action, None)
+            .await
+            .map(|_| ())
     }
 
     // ############################################################
