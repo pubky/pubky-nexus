@@ -13,7 +13,7 @@ use pubky_app_specs::PubkyId;
 use serde::{Deserialize, Serialize};
 
 use crate::config::{ScopeConfig, WatcherConfig};
-use crate::db::kv::{RedisResult, SortOrder};
+use crate::db::kv::RedisResult;
 use crate::db::{fetch_key_from_graph, fetch_row_from_graph, get_redis_conn, queries, RedisOps};
 use crate::models::error::ModelResult;
 
@@ -296,18 +296,13 @@ impl SeedHopsScope {
 
     /// The members cached in Redis, or `None` if there is no cache (never worked out,
     /// or lost with Redis). The cache always holds the seed, so it is never empty.
+    ///
+    /// Read whole, not through the paged sorted-set helpers (capped at 1,000): every
+    /// member has to be compared to see who left.
     pub async fn cached_members(&self) -> RedisResult<Option<HashSet<String>>> {
-        let members = ScopeIndex::try_from_index_sorted_set(
-            &["Members", &self.seed],
-            None,
-            None,
-            None,
-            None,
-            SortOrder::Ascending,
-            Some("Scope"),
-        )
-        .await?;
-        Ok(members.map(|members| members.into_iter().map(|(id, _)| id).collect()))
+        let mut redis_conn = get_redis_conn().await?;
+        let members: Vec<String> = redis_conn.zrange(self.key("Members"), 0, -1).await?;
+        Ok((!members.is_empty()).then(|| members.into_iter().collect()))
     }
 
     /// Replaces the cached members atomically.
@@ -450,6 +445,26 @@ mod tests {
             .param("id", user.to_string());
             crate::db::exec_single_row(delete).await?;
         }
+        Ok(())
+    }
+
+    /// Every cached member is read back, however many there are, so members past the
+    /// first page can still be let go.
+    #[tokio_shared_rt::test(shared)]
+    async fn cached_members_are_read_whole() -> Result<(), crate::types::DynError> {
+        crate::StackManager::setup(&crate::StackConfig::default()).await?;
+        let seed = PubkyId::from(pubky::Keypair::random().public_key());
+        let scope = SeedHopsScope::new(seed.clone(), 2);
+
+        let mut members: HashMap<String, u8> =
+            (0..1_500).map(|i| (format!("member{i}"), 2)).collect();
+        members.insert(seed.to_string(), 0);
+        scope.cache_members(&members).await?;
+
+        let cached = scope.cached_members().await?.expect("cached");
+        assert_eq!(cached.len(), 1_501);
+
+        scope.cache_members(&HashMap::new()).await?;
         Ok(())
     }
 }
