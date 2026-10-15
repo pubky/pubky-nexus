@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
+use nexus_common::WatcherConfig;
 use tracing::info;
 
 struct BackoffState {
@@ -30,6 +31,11 @@ impl HomeserverHealth {
             max_backoff_secs,
             state: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// The backoff `config` sets: `initial_backoff_secs` doubling up to `max_backoff_secs`.
+    pub fn from_config(config: &WatcherConfig) -> Self {
+        Self::new(config.initial_backoff_secs, config.max_backoff_secs)
     }
 
     fn state(&self) -> std::sync::MutexGuard<'_, HashMap<String, BackoffState>> {
@@ -86,6 +92,23 @@ impl HomeserverHealth {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn from_config_uses_the_configured_backoff() {
+        let config = WatcherConfig {
+            initial_backoff_secs: 2,
+            max_backoff_secs: 16,
+            ..WatcherConfig::default()
+        };
+        let health = HomeserverHealth::from_config(&config);
+
+        health.record_failure("hs1");
+        assert_eq!(health.next_backoff_secs_for("hs1"), Some(4));
+        for _ in 0..3 {
+            health.record_failure("hs1");
+        }
+        assert_eq!(health.next_backoff_secs_for("hs1"), Some(16));
+    }
 
     #[test]
     fn new_homeserver_is_not_skipped() {

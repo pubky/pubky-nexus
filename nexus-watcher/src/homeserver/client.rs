@@ -126,8 +126,11 @@ impl PubkyHomeserverClient {
 
     /// Builds a client over `pubky`, with the backoff and file size limits of `config`.
     pub fn from_config(pubky: Arc<Pubky>, config: &WatcherConfig) -> Self {
-        let health = HomeserverHealth::new(config.initial_backoff_secs, config.max_backoff_secs);
-        Self::new(pubky, health, config.max_file_size)
+        Self::new(
+            pubky,
+            HomeserverHealth::from_config(config),
+            config.max_file_size,
+        )
     }
 
     /// GETs `resource`, returning the response for the caller to read under its cap.
