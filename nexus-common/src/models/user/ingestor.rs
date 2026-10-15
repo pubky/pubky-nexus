@@ -2,18 +2,23 @@ use std::sync::Arc;
 
 use pubky_app_specs::{ParsedUri, PubkyId};
 
+use crate::db::kv::RedisError;
 use crate::db::PubkyConnector;
-use crate::db::{exec_single_row, fetch_key_from_graph, queries};
+use crate::db::{exec_single_row, fetch_key_from_graph, get_redis_conn, queries};
 use crate::models::error::{ModelError, ModelResult};
 use crate::models::homeserver::HsBlacklist;
 use crate::models::scope::{scope_from_config, watcher_scope, EverythingScope, Scope};
 use crate::models::traits::Collection;
 use crate::models::user::stub::{mark_stub, unstub};
 use crate::models::user::{set_user_homeserver, UserDetails, UserHsCursor};
-use crate::{StackConfig, WatcherConfig};
+use crate::{ScopeConfig, StackConfig, WatcherConfig};
 
 /// `scope_state` of a member that left the scope: no longer polled, content kept.
 pub const SCOPE_STATE_LEFT: &str = "left";
+
+/// Marks a user outside the scope whose homeserver was rechecked lately.
+const RECHECKED_PREFIX: &str = "Scope:Rechecked:";
+const RECHECK_EVERY_S: u64 = 15 * 60;
 
 /// Ingests previously-unknown users unless their HS is blacklisted.
 #[derive(Debug, Clone)]
@@ -202,6 +207,43 @@ impl UserIngestor {
         exec_single_row(queries::put::set_user_scope_state(user_id, None)).await?;
         tracing::info!("Brought {user_id} into the scope");
         Ok(true)
+    }
+
+    /// An event from a listed homeserver's feed by a stub or a former member means it
+    /// may have moved onto a listed homeserver. Checked at most once per 15 minutes per
+    /// user; promote reads its stream from the start, so skipped events come back.
+    ///
+    /// Returns whether the user is in scope now. A failed lookup is logged, not returned.
+    pub async fn admit_if_moved_in(&self, user_id: &PubkyId) -> ModelResult<bool> {
+        // A seed scope decides by follows; everything has no outsiders.
+        if !matches!(self.scope.config(), ScopeConfig::Homeservers { .. }) {
+            return Ok(false);
+        }
+
+        let mut redis_conn = get_redis_conn().await?;
+        let first: Option<String> = redis::cmd("SET")
+            .arg(format!("{RECHECKED_PREFIX}{user_id}"))
+            .arg(1)
+            .arg("NX")
+            .arg("EX")
+            .arg(RECHECK_EVERY_S)
+            .query_async(&mut redis_conn)
+            .await
+            .map_err(RedisError::from)?;
+        if first.is_none() {
+            return Ok(false);
+        }
+
+        match self.ensure_hs_not_blacklisted(user_id).await {
+            Ok(Some(hs_id)) if self.scope.is_in_scope(user_id, Some(&hs_id)).await? => {
+                self.promote(user_id).await
+            }
+            Ok(_) | Err(ModelError::HsBlacklisted { .. }) => Ok(false),
+            Err(e) => {
+                tracing::warn!("Could not recheck the homeserver of {user_id}: {e}");
+                Ok(false)
+            }
+        }
     }
 
     /// Takes a member that left the scope out of it: marks it `left`, unbinds it from its

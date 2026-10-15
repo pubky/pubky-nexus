@@ -4,7 +4,7 @@ use crate::utils::default_moderation_tests;
 use anyhow::Result;
 use nexus_common::db::graph::Query;
 use nexus_common::db::kv::RedisOps;
-use nexus_common::db::{fetch_key_from_graph, fetch_row_from_graph, queries};
+use nexus_common::db::{fetch_key_from_graph, fetch_row_from_graph, queries, PubkyConnector};
 use nexus_common::models::post::{PostDetails, POST_TIMELINE_KEY_PARTS};
 use nexus_common::models::scope::{HomeserverListScope, Scope};
 use nexus_common::models::traits::Collection;
@@ -19,7 +19,7 @@ use nexus_watcher::events::handlers;
 use nexus_watcher::events::{DefaultEventHandler, Event, EventHandler, ParseResult};
 use nexus_watcher::EventProcessorError;
 use pubky::Keypair;
-use pubky_app_specs::traits::{HashId, TimestampId};
+use pubky_app_specs::traits::{HasIdPath, HashId, TimestampId};
 use pubky_app_specs::{post_uri_builder, PubkyAppBookmark, PubkyAppPost, PubkyAppUser, PubkyId};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -167,6 +167,54 @@ async fn test_event_by_an_author_outside_the_scope_is_skipped() -> Result<()> {
     assert!(PostDetails::get_by_id(&author_id, &post_id)
         .await?
         .is_none());
+    Ok(())
+}
+
+/// A stub whose event comes in from a listed homeserver's feed may have moved there:
+/// it is let in, and the event is indexed rather than skipped.
+#[tokio_shared_rt::test(shared)]
+async fn test_a_stub_that_moved_onto_a_listed_homeserver_is_let_in() -> Result<()> {
+    let test = WatcherTest::setup(None).await?;
+    let handler = DefaultEventHandler::new(
+        default_moderation_tests(),
+        Arc::new(scoped_ingestor(&test)),
+        DEFAULT_MAX_FILE_SIZE,
+        PathBuf::from("/tmp/nexus-watcher-test"),
+    );
+
+    let (user_kp, user_id) = user_on(&test, &test.homeserver_id.to_public_key()).await?;
+    UserDetails::from_pubky(user_id.clone())
+        .put_to_graph()
+        .await?;
+    mark_stub(&user_id).await?;
+
+    // Written straight to the homeserver, so no event is processed yet.
+    let post_id = PubkyAppPost::default().create_id();
+    let post_path: pubky::ResourcePath = PubkyAppPost::create_path(&post_id).parse()?;
+    let session = PubkyConnector::get()?
+        .signer(user_kp.clone())
+        .signin()
+        .await?;
+    let post = short_post("moved in", None);
+    session
+        .storage()
+        .put(post_path, serde_json::to_string(&post)?)
+        .await?;
+
+    let line = format!(
+        "PUT {}",
+        post_uri_builder(user_id.to_string(), post_id.clone())
+    );
+    let ParseResult::Parsed(event) = Event::parse_event(&line)? else {
+        panic!("a post line parses");
+    };
+    handler.handle(&event).await?;
+
+    let query = queries::get::get_user_scope_state(&user_id);
+    let scope_state: Option<Option<String>> = fetch_key_from_graph(query, "scope_state").await?;
+    assert!(PostDetails::get_by_id(&user_id, &post_id).await?.is_some());
+    assert!(!is_stub(&user_id).await?);
+    assert_eq!(scope_state.flatten(), None, "in scope");
     Ok(())
 }
 

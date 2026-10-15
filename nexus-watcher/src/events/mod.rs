@@ -9,7 +9,7 @@ use crate::errors::EventProcessorError;
 use crate::service::indexer::METER_NAME;
 use nexus_common::WatcherConfig;
 use opentelemetry::{global, metrics::Counter};
-use pubky_app_specs::{ExtendedParsedUri, PubkyAppObject, Resource};
+use pubky_app_specs::{ExtendedParsedUri, PubkyAppObject, PubkyId, Resource};
 use std::{
     path::{Path, PathBuf},
     sync::{Arc, LazyLock},
@@ -97,7 +97,8 @@ impl EventHandler for DefaultEventHandler {
         // Safety net for events of authors outside the scope (queued for retry before the
         // scope changed, or from a shared feed): skipped, neither indexed nor logged. An
         // author still bound and polled means the scope's records are being rebuilt (e.g.
-        // after losing Redis): retried instead, so the event isn't lost.
+        // after losing Redis): retried instead, so the event isn't lost. A stub or former
+        // member that moved onto a listed homeserver is let in first.
         let author_id = event.parsed_uri.user_id();
         if !self.ingestor.scope().is_in_scope(author_id, None).await? {
             let query = queries::get::is_user_bound_in_scope(author_id);
@@ -107,9 +108,15 @@ impl EventHandler for DefaultEventHandler {
             {
                 return Err(EventProcessorError::ScopeUnsettled(author_id.to_string()));
             }
-            OUT_OF_SCOPE.add(1, &[]);
-            debug!(event.uri = %event.uri, "Author is outside the scope; skipping event");
-            return Ok(());
+            let admitted = match PubkyId::try_from(author_id.as_ref()) {
+                Ok(author) => self.ingestor.admit_if_moved_in(&author).await?,
+                Err(_) => false,
+            };
+            if !admitted {
+                OUT_OF_SCOPE.add(1, &[]);
+                debug!(event.uri = %event.uri, "Author is outside the scope; skipping event");
+                return Ok(());
+            }
         }
 
         match event.event_type {
