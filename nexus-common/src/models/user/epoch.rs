@@ -5,8 +5,9 @@ use utoipa::ToSchema;
 
 /// A user's indexing epoch: Nexus indexing state, not app data. Users are born `V0`.
 ///
-/// Stored as `epoch` on the `:User` node and carried by [`super::UserDetails`]:
-/// read it with `UserDetails::get_by_id`. It has no index of its own.
+/// Stored as `epoch` on the `:User` node (a node without one reads as `V0`) and
+/// carried by [`super::UserDetails`]: read it with `UserDetails::get_by_id`. It
+/// has no index of its own.
 #[derive(Serialize, Deserialize, ToSchema, Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum Epoch {

@@ -8,8 +8,6 @@ use pubky_app_specs::{ParsedUri, PubkyId, Resource};
 ///
 /// `uri` is the address the profile was read from (its event path). `None` keeps the stored
 /// `uri`, so a tombstone retains it and a stub node gets none.
-///
-/// `epoch` is set to `v0` only on a node that has none; a stored one is kept.
 pub fn create_user(user: &UserDetails, uri: Option<&str>) -> GraphResult<Query> {
     let links = serde_json::to_string(&user.links)
         .map_err(|e| GraphError::SerializationFailed(Box::new(e)))?;
@@ -18,7 +16,7 @@ pub fn create_user(user: &UserDetails, uri: Option<&str>) -> GraphResult<Query> 
         "create_user",
         "MERGE (u:User {id: $id})
          SET u.name = $name, u.bio = $bio, u.status = $status, u.links = $links, u.image = $image, u.indexed_at = $indexed_at, u.deleted = $deleted,
-             u.uri = coalesce($uri, u.uri), u.epoch = coalesce(u.epoch, 'v0');",
+             u.uri = coalesce($uri, u.uri);",
     )
     .param("id", user.id.to_string())
     .param("uri", uri.map(str::to_string))

@@ -103,7 +103,7 @@ fn deserialize_user_epoch<'de, D>(deserializer: D) -> Result<Epoch, D::Error>
 where
     D: Deserializer<'de>,
 {
-    // Nodes and cached JSON written before epochs existed lack the field. neo4rs
+    // Nodes and cached JSON without an epoch lack the field. neo4rs
     // hands a missing node property to a deserializer that only accepts `Option`,
     // so `#[serde(default)]` alone is not enough.
     let value = Option::<Epoch>::deserialize(deserializer)?;
@@ -255,7 +255,7 @@ mod tests {
         assert!(details.deleted);
     }
 
-    /// A node written before epochs existed reads as `V0`; a stored `epoch` is respected.
+    /// A node without an epoch reads as `V0`; a stored `epoch` is respected.
     #[test]
     fn deserialize_epoch_from_node() {
         let node = |epoch: Option<&str>| {
