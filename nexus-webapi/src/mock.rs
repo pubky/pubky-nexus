@@ -1,7 +1,7 @@
 use clap::ValueEnum;
 use nexus_common::{
     db::{get_neo4j_graph, graph::Query, kv::clear_redis, reindex},
-    StackConfig, StackManager,
+    FeaturesConfig, StackConfig, StackManager,
 };
 use std::process::Stdio;
 use tracing::info;
@@ -87,8 +87,18 @@ impl MockDb {
             .expect("Failed to run run-queries.sh");
     }
 
-    async fn sync_redis() {
+    /// Rebuilds Redis from the graph, with the trust filter on: the mock data
+    /// and its tests expect it, whatever the config says. Stored before the
+    /// reindex, whose ranking publish applies it.
+    pub async fn sync_redis() {
         Self::drop_cache().await;
+        let features = FeaturesConfig {
+            hide_unranked_authors: true,
+        };
+        features
+            .store()
+            .await
+            .expect("Failed to store the features");
         info!("Starting reindexing process...");
         reindex::sync().await;
     }

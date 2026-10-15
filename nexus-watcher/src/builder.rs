@@ -56,6 +56,10 @@ impl NexusWatcherBuilder {
     /// - `shutdown_rx`: optional shutdown signal. If none is provided, a default one will be created, listening for Ctrl-C.
     pub async fn start(self, shutdown_rx: Option<Receiver<bool>>) -> Result<(), DynError> {
         StackManager::setup(&self.0.stack).await?;
+        // The watcher owns the feature switches: it stores them for every
+        // service and brings the shared sets in line with a feature toggled
+        // since the last start, before it processes events.
+        self.0.features.toggle().await?;
         let shutdown_rx = shutdown_rx.unwrap_or_else(create_shutdown_rx);
 
         PubkyConnector::initialise(

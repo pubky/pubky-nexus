@@ -40,6 +40,7 @@ mod retry_all;
 mod retry_post;
 mod retry_reply;
 mod retry_repost;
+mod trust_filter;
 mod uri;
 mod uri_readers;
 pub mod utils;

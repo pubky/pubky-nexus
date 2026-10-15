@@ -78,6 +78,15 @@ initial_missing_dep_backoff_secs = 60
 # Backoff ceiling for MissingDependency (seconds)
 max_missing_dep_backoff_secs = 3600
 
+# App features. The watcher reads them at startup and stores them in Redis,
+# where every service follows them.
+[features]
+# Hide posts by authors outside the trust ranking from the streams every viewer
+# shares. Restart the watcher (or `nexusd run`) to apply a change: it then
+# updates the shared post sets, and the next trust recompute retries that if it
+# fails. Wiping Redis switches it off until the watcher's next start.
+hide_unranked_authors = false
+
 [stack]
 # Logging, options: error, warn, info, debug and trace
 log_level = "info"
