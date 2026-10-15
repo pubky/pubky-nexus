@@ -128,7 +128,11 @@ impl UserCounts {
         // Just update influencer and most followed indexes, when that fields are updated
         let ranked_field = field == "followers" || field == "tags" || field == "posts";
         if ranked_field && !is_stub(user_id).await? {
-            let exist_count = Self::get_by_id(user_id).await?;
+            // Index only, never a read-through: a caller may still be mid-change in the graph
+            // (an unfollow deletes its edge after this), and a graph read here would cache the
+            // pre-change counts. With no counts key there is nothing to rank yet; the next
+            // read rebuilds both from the graph.
+            let exist_count = Self::get_from_index(user_id).await?;
             if let Some(user_counts) = exist_count {
                 UserStream::add_to_influencers_sorted_set(user_id, &user_counts).await?;
                 // Increment followers

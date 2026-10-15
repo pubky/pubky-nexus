@@ -56,6 +56,11 @@ pub enum EventProcessorError {
     #[error("SpecValidation: {0}")]
     SpecValidation(String),
 
+    /// The event is valid but targets a resource kind this handler does not index (e.g. a tag on
+    /// something that is neither a Post nor a User). Non-retryable: the target kind will not change.
+    #[error("UnsupportedTarget: {0}")]
+    UnsupportedTarget(String),
+
     /// Fetch exceeded size cap (non-retryable).
     #[error("FetchSizeExceeded: {0} bytes (limit: {1} bytes)")]
     FetchSizeExceeded(u64, u64),
