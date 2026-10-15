@@ -59,7 +59,7 @@ pub enum HsErrorKind {
     Transport(String),
     #[error("{got} bytes, over the {max} byte limit")]
     TooLarge { got: u64, max: u64 },
-    /// A response, or a request built from homeserver data, that cannot be used as is.
+    /// A request that could not be built, e.g. from a malformed homeserver URL.
     #[error("malformed: {0}")]
     Malformed(String),
 }

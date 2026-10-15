@@ -77,8 +77,8 @@ pub enum EventProcessorError {
     #[error("HsBlacklisted: {hs_id}")]
     HsBlacklisted { hs_id: String },
 
-    /// A homeserver request that could not be built or whose response cannot be used as is
-    /// ([`HsErrorKind::Malformed`]). Permanent: the event is not retried, and the run goes on.
+    /// A homeserver request that could not be built ([`HsErrorKind::Malformed`]). Permanent:
+    /// the event is not retried, and the run goes on.
     #[error("{0}")]
     Homeserver(HsError),
 

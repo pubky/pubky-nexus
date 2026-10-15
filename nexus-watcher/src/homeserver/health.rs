@@ -11,8 +11,8 @@ struct BackoffState {
 
 /// Tracks per-HS failure counts and exponential backoff windows.
 ///
-/// One instance is shared by every loop that talks to homeservers, through
-/// [`HomeserverClient::health`](super::HomeserverClient::health).
+/// Held by the shared [`HomeserverClient`](super::HomeserverClient). Only the external loop
+/// consults and records it, through [`HomeserverClient::health`](super::HomeserverClient::health).
 pub struct HomeserverHealth {
     initial_backoff_secs: u64,
     max_backoff_secs: u64,

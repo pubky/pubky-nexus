@@ -74,8 +74,8 @@ impl NexusWatcher {
     /// an internal cancellation signal is sent so that sibling tasks can finish their
     /// current iteration and exit.
     ///
-    /// The tasks share one [`HomeserverClient`], so what one learns about a homeserver's
-    /// health the others see, and one event handler and retry scheduler.
+    /// The tasks share one [`HomeserverClient`], which also holds the external loop's
+    /// per-homeserver backoff, and one event handler and retry scheduler.
     ///
     /// Expects [`PubkyConnector`] to be initialised.
     pub async fn start(shutdown_rx: Receiver<bool>, config: WatcherConfig) -> Result<(), DynError> {

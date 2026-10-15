@@ -99,7 +99,8 @@ impl MockHomeserverClient {
     }
 }
 
-/// A 404 for `resource`, charged to its owner's key: the mock resolves no homeservers.
+/// A 404 for `resource`, labelled with its owner's key, as the real client labels a failed
+/// resource or blob fetch.
 fn not_found(resource: &PubkyResource, op: HsOp) -> HsError {
     let owner = PubkyId::from(resource.owner.clone());
     HsError::new(&owner, op, HsErrorKind::NotFound(resource.to_pubky_url()))
