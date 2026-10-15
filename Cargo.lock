@@ -3111,6 +3111,7 @@ dependencies = [
  "tokio",
  "tokio-shared-rt",
  "tracing",
+ "tracing-test",
 ]
 
 [[package]]
