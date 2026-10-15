@@ -334,6 +334,27 @@ mod tests {
         assert!(hs_error(HsOp::UserEvents, HsErrorKind::NotFound("".into())).is_not_found());
     }
 
+    /// A 4xx other than 404/429, or a timeout off the event stream, is the retried
+    /// `RequestFailed` it was before, not a permanent failure.
+    #[test]
+    fn rejected_and_timed_out_fetches_are_retried() {
+        for (op, kind) in [
+            (HsOp::GetResource, HsErrorKind::Rejected(403, "".into())),
+            (HsOp::GetBlob, HsErrorKind::Timeout),
+        ] {
+            let err = hs_error(op, kind);
+            assert!(
+                matches!(&err, EventProcessorError::PubkyClientError(e) if matches!(e.as_ref(), PubkyClientError::RequestFailed { .. })),
+                "{err:?}"
+            );
+            assert!(
+                RetryScheduler::should_enqueue_related_event(&err),
+                "{err:?}"
+            );
+            assert!(!err.should_not_retry_now(), "{err:?}");
+        }
+    }
+
     /// An oversized body is the permanent size failure it was before, not retried.
     #[test]
     fn too_large_is_a_size_failure() {
