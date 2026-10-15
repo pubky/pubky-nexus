@@ -7,7 +7,7 @@
 //!   back in, and the HS resolver binds them.
 //! - **homeservers**: users who moved off the listed homeservers leave; at start after
 //!   the list changed, users kept out (stubs, users that left) now on a listed
-//!   homeserver join.
+//!   homeserver join; those that couldn't be resolved or bound are retried each interval.
 //! - **seed**: members are worked out from the graph and compared with who is in scope:
 //!   who is new joins, who is gone leaves.
 //!
@@ -20,7 +20,7 @@ use std::time::{Duration, Instant};
 use deadpool_redis::redis::AsyncCommands;
 use nexus_common::db::kv::RedisError;
 use nexus_common::db::{fetch_key_from_graph, get_redis_conn, queries};
-use nexus_common::models::error::ModelResult;
+use nexus_common::models::error::{ModelError, ModelResult};
 use nexus_common::models::scope::SeedHopsScope;
 use nexus_common::models::user::stub::{unstub, SCOPE_STATE_STUB};
 use nexus_common::models::user::{UserIngestor, SCOPE_STATE_LEFT};
@@ -72,6 +72,8 @@ pub struct ScopeMaintainer {
     /// Tests share one graph, so they pass their own users.
     limit_to: Option<Vec<String>>,
     last_run: Mutex<Instant>,
+    /// Homeserver scope: users whose admission failed, retried each interval.
+    pending: Mutex<Vec<String>>,
 }
 
 impl ScopeMaintainer {
@@ -99,6 +101,7 @@ impl ScopeMaintainer {
             interval: Duration::from_millis(config.scope_maintenance.interval_ms),
             limit_to,
             last_run: Mutex::new(Instant::now()),
+            pending: Mutex::new(Vec::new()),
         }
     }
 
@@ -121,14 +124,21 @@ impl ScopeMaintainer {
             Kind::Everything => self.let_everyone_in().await?,
             Kind::Homeservers(homeservers) => {
                 let mut change = self.drop_users_bound_outside(homeservers).await?;
+                let mut pending = self.pending.lock().await;
                 if self.scope_changed().await? {
-                    change.joined += self.admit_outsiders_on(homeservers).await?;
+                    let (joined, still_pending) =
+                        self.admit_outsiders_on(homeservers, None).await?;
+                    change.joined += joined;
+                    *pending = still_pending;
                 }
                 change
             }
             Kind::Seed(seed_scope) => self.recompute_members(seed_scope, true).await?,
         };
-        self.remember_scope().await?;
+        // Not while admissions are pending, so a restart redoes the whole admission.
+        if self.pending.lock().await.is_empty() {
+            self.remember_scope().await?;
+        }
         info!(?change, "Scope settled at start");
         Ok(change)
     }
@@ -149,7 +159,19 @@ impl ScopeMaintainer {
                 self.recompute_members(seed_scope, false).await?
             }
             Kind::Homeservers(homeservers) if interval_passed => {
-                self.drop_users_bound_outside(homeservers).await?
+                let mut change = self.drop_users_bound_outside(homeservers).await?;
+                let mut pending = self.pending.lock().await;
+                if !pending.is_empty() {
+                    let retry = std::mem::take(&mut *pending);
+                    let (joined, still_pending) =
+                        self.admit_outsiders_on(homeservers, Some(retry)).await?;
+                    change.joined += joined;
+                    *pending = still_pending;
+                    if pending.is_empty() {
+                        self.remember_scope().await?;
+                    }
+                }
+                change
             }
             _ => return Ok(ScopeChange::default()),
         };
@@ -291,15 +313,29 @@ impl ScopeMaintainer {
 
     /// For a homeserver list that changed: users kept out (stubs, and users that left
     /// when the list was narrowed) whose homeserver is now listed join. Each one's
-    /// homeserver is resolved, so this runs only when the list changed.
-    async fn admit_outsiders_on(&self, homeservers: &[PubkyId]) -> ModelResult<usize> {
-        let mut outsiders: Vec<String> = Vec::new();
-        for scope_state in [SCOPE_STATE_STUB, SCOPE_STATE_LEFT] {
-            let query = queries::get::get_user_ids_by_scope_state(scope_state);
-            let user_ids: Option<Vec<String>> = fetch_key_from_graph(query, "user_ids").await?;
-            outsiders.extend(user_ids.unwrap_or_default());
-        }
+    /// homeserver is resolved, so this runs only when the list changed, or over `retry`
+    /// alone. Returns how many joined, and who is pending: not resolved (a lookup
+    /// error, no published homeserver yet) or not bound.
+    async fn admit_outsiders_on(
+        &self,
+        homeservers: &[PubkyId],
+        retry: Option<Vec<String>>,
+    ) -> ModelResult<(usize, Vec<String>)> {
+        let outsiders = match retry {
+            Some(user_ids) => user_ids,
+            None => {
+                let mut outsiders: Vec<String> = Vec::new();
+                for scope_state in [SCOPE_STATE_STUB, SCOPE_STATE_LEFT] {
+                    let query = queries::get::get_user_ids_by_scope_state(scope_state);
+                    let user_ids: Option<Vec<String>> =
+                        fetch_key_from_graph(query, "user_ids").await?;
+                    outsiders.extend(user_ids.unwrap_or_default());
+                }
+                outsiders
+            }
+        };
         let mut joined = 0;
+        let mut pending = Vec::new();
         for user_id in &outsiders {
             if self
                 .limit_to
@@ -311,16 +347,37 @@ impl ScopeMaintainer {
             let Ok(user_id) = PubkyId::try_from(user_id.as_str()) else {
                 continue;
             };
-            let Ok(Some(hs_id)) = self.ingestor.ensure_hs_not_blacklisted(&user_id).await else {
-                continue;
+            let hs_id = match self.ingestor.ensure_hs_not_blacklisted(&user_id).await {
+                Ok(Some(hs_id)) => hs_id,
+                // Final: a blacklisted homeserver is never read.
+                Err(ModelError::HsBlacklisted { .. }) => continue,
+                Ok(None) => {
+                    warn!(%user_id, "Could not bring a user in: no published homeserver");
+                    pending.push(user_id.to_string());
+                    continue;
+                }
+                Err(e) => {
+                    warn!(%user_id, error = %e, "Could not look up a user's homeserver");
+                    pending.push(user_id.to_string());
+                    continue;
+                }
             };
-            if homeservers.iter().any(|hs| hs.as_ref() == hs_id)
-                && self.ingestor.promote(&user_id).await?
-            {
-                joined += 1;
+            if !homeservers.iter().any(|hs| hs.as_ref() == hs_id) {
+                continue;
+            }
+            match self.ingestor.promote(&user_id).await {
+                Ok(true) => joined += 1,
+                Ok(false) => {
+                    warn!(%user_id, "Could not bring a user in: not bound");
+                    pending.push(user_id.to_string());
+                }
+                Err(e) => {
+                    warn!(%user_id, error = %e, "Could not bring a user in");
+                    pending.push(user_id.to_string());
+                }
             }
         }
-        Ok(joined)
+        Ok((joined, pending))
     }
 
     async fn in_scope_users(&self) -> ModelResult<HashSet<String>> {

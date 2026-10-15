@@ -8,6 +8,7 @@ use nexus_common::db::{fetch_key_from_graph, fetch_row_from_graph, queries};
 use nexus_common::models::post::{PostDetails, POST_TIMELINE_KEY_PARTS};
 use nexus_common::models::scope::{HomeserverListScope, Scope};
 use nexus_common::models::traits::Collection;
+use nexus_common::models::user::stub::mark_stub;
 use nexus_common::models::user::{
     is_stub, set_user_homeserver, user_hs_cursor_key, UserCounts, UserDetails, UserIngestor,
     SCOPE_STATE_LEFT, USER_MOSTFOLLOWED_KEY_PARTS,
@@ -437,5 +438,47 @@ async fn test_listing_a_homeserver_again_brings_its_users_back() -> Result<()> {
     let change = wide.at_start().await?;
     assert_eq!(change.joined, 1);
     assert_eq!(scope_state().await?, None, "back in scope");
+    Ok(())
+}
+
+/// A user that couldn't be admitted at start (no published homeserver yet) is tried
+/// again by the next tick, not left out until the list changes.
+#[tokio_shared_rt::test(shared)]
+async fn test_an_admission_that_failed_at_start_is_retried() -> Result<()> {
+    let test = WatcherTest::setup(None).await?;
+    let late_kp = Keypair::random();
+    let late = PubkyId::from(late_kp.public_key());
+    UserDetails::from_pubky(late.clone()).put_to_graph().await?;
+    mark_stub(&late).await?;
+
+    let homeservers = vec![test.homeserver_id.clone()];
+    let mut config = nexus_common::WatcherConfig::default();
+    config.stack.scope = nexus_common::ScopeConfig::Homeservers {
+        homeservers: homeservers.clone(),
+    };
+    config.scope_maintenance.interval_ms = 0;
+    let scope: Arc<dyn Scope> = Arc::new(HomeserverListScope::new(&homeservers));
+    let ingestor = UserIngestor::with_scope(Vec::<PubkyId>::new(), scope);
+    let maintainer = nexus_watcher::service::scope_maintenance::ScopeMaintainer::new(
+        &config,
+        ingestor,
+        Some(vec![late.to_string()]),
+    );
+    let scope_state = || async {
+        let query = queries::get::get_user_scope_state(&late);
+        let state: Option<Option<String>> = fetch_key_from_graph(query, "scope_state").await?;
+        Ok::<_, anyhow::Error>(state.flatten())
+    };
+
+    let change = maintainer.at_start().await?;
+    assert_eq!(change.joined, 0, "no published homeserver yet");
+    assert!(is_stub(&late).await?);
+
+    test.register_user_in_hs(&late_kp, &test.homeserver_id.to_public_key())
+        .await?;
+    let change = maintainer.tick().await?;
+
+    assert_eq!(change.joined, 1, "tried again and brought in");
+    assert_eq!(scope_state().await?, None, "in scope");
     Ok(())
 }
