@@ -55,7 +55,7 @@ async fn test_tag_unknown_target_is_not_retried() -> Result<()> {
         !RetryScheduler::should_enqueue_related_event(&err),
         "deterministic rejection must not be retried, got {err:?}"
     );
-    assert!(matches!(err, EventProcessorError::SpecValidation(_)));
+    assert!(matches!(err, EventProcessorError::UnsupportedTarget(_)));
 
     Ok(())
 }
