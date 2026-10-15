@@ -34,7 +34,8 @@ use tracing::{info, warn};
 const ACTIVE_SCOPE_KEY: &str = "Scope:Active";
 /// Users a homeserver scope may admit whose homeserver couldn't be found (user id ->
 /// attempts): tried again each interval, up to [`MAX_ADMIT_ATTEMPTS`] times. A lookup
-/// that times out looks the same as no published homeserver, so both are retried.
+/// that times out looks the same as no published homeserver, so both are retried. Past
+/// that, or if Redis loses the list, the user is admitted at the next list change.
 const ADMIT_RETRY_KEY: &str = "Scope:AdmitRetry";
 const MAX_ADMIT_ATTEMPTS: u32 = 12;
 /// How often [`ScopeMaintainer::tick`] runs: the delay before a member's follow change

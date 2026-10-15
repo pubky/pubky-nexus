@@ -344,7 +344,9 @@ content stays**; removing it is not implemented yet.
 others go; `everything` lets every stub and `left` user back in (the resolver binds
 them); a changed homeserver list admits stubs and `left` users now on a listed HS. A
 user whose homeserver isn't found (not published yet, or the lookup timed out) is tried
-again each interval, up to 12 times (`Scope:AdmitRetry`). A homeserver scope
+again each interval, up to 12 times (`Scope:AdmitRetry`, about an hour at the default
+interval). Past that, or if Redis is wiped while users wait, they are admitted at the next
+change of the homeserver list. A homeserver scope
 also lets go of users who moved off its homeservers, every interval.
 
 An event by a user still bound and polled but not counted in scope (e.g. right after
