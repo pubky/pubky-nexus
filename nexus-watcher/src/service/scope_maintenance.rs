@@ -353,24 +353,23 @@ impl ScopeMaintainer {
                 Ok(Some(hs_id)) => Some(hs_id),
                 Err(ModelError::HsBlacklisted { .. }) => None,
                 Ok(None) | Err(_) => {
-                    let attempts: u32 = redis_conn
-                        .hincr(ADMIT_RETRY_KEY, user_id, 1)
-                        .await
-                        .map_err(RedisError::from)?;
-                    if attempts > MAX_ADMIT_ATTEMPTS {
-                        warn!(%user_id, "No homeserver found for a user the scope may admit; giving up");
-                        let () = redis_conn
-                            .hdel(ADMIT_RETRY_KEY, user_id)
-                            .await
-                            .map_err(RedisError::from)?;
-                    }
+                    self.retry_admission_later(&mut redis_conn, user_id).await?;
                     continue;
                 }
             };
             let listed =
                 hs_id.is_some_and(|hs_id| homeservers.iter().any(|hs| hs.as_ref() == hs_id));
-            if listed && self.ingestor.promote(&id).await? {
-                joined += 1;
+            if listed {
+                // One user failing doesn't stop the others: it is tried again.
+                match self.ingestor.promote(&id).await {
+                    Ok(true) => joined += 1,
+                    result => {
+                        let error = result.err().map(|e| e.to_string());
+                        warn!(%user_id, ?error, "Could not bring a user in; trying again next interval");
+                        self.retry_admission_later(&mut redis_conn, user_id).await?;
+                        continue;
+                    }
+                }
             }
             let () = redis_conn
                 .hdel(ADMIT_RETRY_KEY, user_id)
@@ -378,6 +377,27 @@ impl ScopeMaintainer {
                 .map_err(RedisError::from)?;
         }
         Ok(joined)
+    }
+
+    /// Counts one more attempt to admit the user, and gives up past
+    /// [`MAX_ADMIT_ATTEMPTS`].
+    async fn retry_admission_later(
+        &self,
+        redis_conn: &mut deadpool_redis::Connection,
+        user_id: &str,
+    ) -> ModelResult<()> {
+        let attempts: u32 = redis_conn
+            .hincr(ADMIT_RETRY_KEY, user_id, 1)
+            .await
+            .map_err(RedisError::from)?;
+        if attempts > MAX_ADMIT_ATTEMPTS {
+            warn!(%user_id, "Could not bring a user the scope may admit in; giving up");
+            let () = redis_conn
+                .hdel(ADMIT_RETRY_KEY, user_id)
+                .await
+                .map_err(RedisError::from)?;
+        }
+        Ok(())
     }
 
     /// `user_ids` narrowed to [`Self::limit_to`], if set.
