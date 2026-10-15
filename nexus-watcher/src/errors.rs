@@ -174,10 +174,6 @@ impl EventProcessorError {
         }
     }
 
-    pub fn client_error(message: String) -> Self {
-        PubkyClientError::RequestFailed { message }.into()
-    }
-
     pub fn client_error_404(message: String) -> Self {
         PubkyClientError::NotFound404 { message }.into()
     }

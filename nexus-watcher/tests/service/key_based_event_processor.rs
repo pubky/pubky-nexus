@@ -1110,7 +1110,10 @@ fn server_error_5xx() -> EventProcessorError {
 
 /// Non-transport error type, that happens to have a transport-error-like error message
 fn retryable_client_error() -> EventProcessorError {
-    EventProcessorError::client_error("connection refused".into())
+    PubkyClientError::RequestFailed {
+        message: "connection refused".into(),
+    }
+    .into()
 }
 
 /// A runner over every active homeserver but a random primary one, fetching from `source`.
