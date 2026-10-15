@@ -11,6 +11,7 @@ use nexus_watcher::events::retry::{
 };
 use nexus_watcher::events::EventHandler;
 use nexus_watcher::events::EventType;
+use nexus_watcher::service::RunOutcome;
 use nexus_watcher::service::TEventProcessor;
 use pubky_app_specs::post_uri_builder;
 use std::sync::Arc;
@@ -902,7 +903,7 @@ async fn test_shutdown_interrupts_batch() -> Result<()> {
     shutdown_tx.send(true)?;
 
     // Run the processor - should return Ok(()) immediately due to shutdown
-    let result: Result<(), EventProcessorError> = processor.run_internal().await;
+    let result: Result<RunOutcome, EventProcessorError> = processor.run_internal().await;
 
     assert!(
         result.is_ok(),
@@ -979,7 +980,7 @@ async fn test_infrastructure_error_stops_batch() -> Result<()> {
     );
 
     // Run the processor - should propagate should_not_retry_now error
-    let result: Result<(), EventProcessorError> = processor.run_internal().await;
+    let result: Result<RunOutcome, EventProcessorError> = processor.run_internal().await;
 
     // Verify the error propagated up
     assert!(
@@ -1059,7 +1060,7 @@ async fn test_empty_batch_returns_ok() -> Result<()> {
     );
 
     // No events in queue - should return Ok(())
-    let result: Result<(), EventProcessorError> = processor.run_internal().await;
+    let result: Result<RunOutcome, EventProcessorError> = processor.run_internal().await;
     assert!(result.is_ok(), "Empty batch should return Ok(())");
 
     // No events, handler must never be called.

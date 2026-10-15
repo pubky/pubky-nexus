@@ -71,7 +71,7 @@ async fn test_moderated_post_lifecycle() -> Result<()> {
 }
 
 /// Moderating a post that still has a tag from another user must tombstone the
-/// post (content becomes "[DELETED]") instead of DETACH DELETEing the node,
+/// post (cleared and flagged `deleted`) instead of DETACH DELETEing the node,
 /// so the tagger's counts and the tag timeline index stay consistent.
 #[tokio_shared_rt::test(shared)]
 async fn test_moderated_post_with_tag_is_tombstoned() -> Result<()> {
@@ -117,13 +117,17 @@ async fn test_moderated_post_with_tag_is_tombstoned() -> Result<()> {
     let moderator_kp = create_moderator(&mut test).await?;
     moderate_post(&mut test, &moderator_kp, &author_id, &post_id).await?;
 
-    // The post node survives as a tombstone with its content replaced
+    // The post node survives as a tombstone with its content cleared
     let post_details = find_post_details(&author_id, &post_id)
         .await
         .expect("moderated post with edges should still exist as a tombstone");
+    assert!(
+        post_details.deleted,
+        "moderated post should be flagged deleted"
+    );
     assert_eq!(
-        post_details.content, "[DELETED]",
-        "moderated post content should exactly be [DELETED]"
+        post_details.content, "",
+        "moderated post content should be cleared"
     );
 
     // The tagger's state stays intact: counts and tag timeline are untouched

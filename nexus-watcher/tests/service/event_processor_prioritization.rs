@@ -8,7 +8,7 @@ use nexus_common::db::graph::exec::exec_single_row;
 use nexus_common::db::graph::Query;
 use nexus_common::models::homeserver::{Homeserver, HsBlacklist};
 use nexus_common::models::traits::Collection;
-use nexus_common::models::user::{set_user_homeserver, UserDetails};
+use nexus_common::models::user::{set_user_homeserver, Epoch, UserDetails};
 use nexus_common::types::DynError;
 use nexus_common::utils::test_utils::{default_ingestor_tests, random_pubky_id};
 use nexus_common::DEFAULT_MAX_FILE_SIZE;
@@ -16,8 +16,10 @@ use nexus_watcher::events::retry::{InitialBackoff, RedisRetryStore, RetrySchedul
 use nexus_watcher::events::{DefaultEventHandler, EventHandler};
 use nexus_watcher::service::indexer::PubkyKeyBasedEventSource;
 use nexus_watcher::service::runner::HomeserverBackoff;
-use nexus_watcher::service::runner::UserNotFoundBackoff;
-use nexus_watcher::service::{KeyBasedEventProcessorRunner, TEventProcessorRunner};
+use nexus_watcher::service::runner::{UserNotFoundBackoff, UserResumePoints};
+use nexus_watcher::service::{
+    KeyBasedEventProcessorRunner, TEventProcessorRunner, KEY_BASED_RUN_BUDGET,
+};
 use pubky_app_specs::PubkyId;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -52,6 +54,8 @@ async fn test_event_processor_runner_primary_homeserver_excluded() -> Result<(),
         hs_blacklist: HsBlacklist::default(),
         backoff: Mutex::new(HomeserverBackoff::default()),
         user_not_found_backoff: Arc::new(UserNotFoundBackoff::default()),
+        user_resume_points: Arc::new(UserResumePoints::default()),
+        budget: KEY_BASED_RUN_BUDGET,
         retry_scheduler,
     };
 
@@ -104,6 +108,8 @@ async fn test_event_processor_runner_blacklisted_homeserver_excluded() -> Result
         hs_blacklist: HsBlacklist::new([blacklisted_hs.clone()]),
         backoff: Mutex::new(HomeserverBackoff::default()),
         user_not_found_backoff: Arc::new(UserNotFoundBackoff::default()),
+        user_resume_points: Arc::new(UserResumePoints::default()),
+        budget: KEY_BASED_RUN_BUDGET,
         retry_scheduler,
     };
 
@@ -240,6 +246,7 @@ async fn create_active_user_on_homeserver_with_trust(
         image: None,
         indexed_at: Utc::now().timestamp_millis(),
         deleted: false,
+        epoch: Epoch::V0,
     };
 
     user.put_to_graph().await?;
@@ -264,8 +271,8 @@ async fn create_active_user_on_homeserver_with_trust(
 /// `test_social_graph_status` asserts on positions in it.
 ///
 /// At the scores this file writes (0.05 and 0.02, both below the fixture's lowest
-/// score of 0.1) a leak would not break that test today: the ranked population
-/// would go 3 → 5, `ceil(5 * 0.05)` still cuts `established` at rank 1, and the
+/// score of 0.1) a leak would not break that test today: the leaked users would
+/// rank below every user it asserts on, and the
 /// fixture's top user keeps it. The cleanup is here because that safety is a
 /// coincidence of the current values, not a property — a future score at or above
 /// the fixture's top of 0.4 would tie it and win the `id ASC` tiebreak, and one at

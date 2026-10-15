@@ -205,6 +205,7 @@ pub struct UserStreamByIdsRequest {
     request_body = UserStreamByIdsRequest,
     responses(
         (status = 200, description = "Users stream", body = UserStream),
+        (status = 400, description = "Invalid request body"),
         (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error")
     )

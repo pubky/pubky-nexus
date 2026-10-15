@@ -1,5 +1,4 @@
 use criterion::{criterion_group, criterion_main, Criterion};
-use nexus_common::db::reindex;
 use nexus_webapi::mock::MockDb;
 use setup::run_setup;
 use std::time::Duration;
@@ -18,8 +17,7 @@ fn bench_reindex(c: &mut Criterion) {
 
     c.bench_function("reindex", |b| {
         b.to_async(&rt).iter(|| async {
-            MockDb::drop_cache().await;
-            reindex::sync().await;
+            MockDb::sync_redis().await;
         });
     });
 }

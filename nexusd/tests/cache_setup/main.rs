@@ -14,10 +14,14 @@
 //! The cache is rebuilt with `reindex::sync()` before returning so a local
 //! run leaves the mock data in place for whatever runs next.
 
+use std::collections::BTreeSet;
+
 use anyhow::{Context, Result};
 use nexus_common::db::{get_redis_conn, kv::clear_redis, reindex, RedisOps};
+use nexus_common::models::post::trust_filter::APPLIED_KEY_PARTS;
 use nexus_common::models::post::PostDetails;
-use nexus_common::{StackConfig, StackManager};
+use nexus_common::models::user::USER_SOCIAL_GRAPH_KEY_PARTS;
+use nexus_common::{FeaturesConfig, StackConfig, StackManager};
 use redis::Value;
 
 const POST_CONTENT_INDEX: &str = "postContentIdx";
@@ -93,12 +97,28 @@ async fn clear_redis_recreates_post_content_index() -> Result<()> {
     assert_post_content_schema(&after, &prefix, "after clear_redis");
 
     // Restore the mock cache from the graph so the flush is not observable
-    // by whatever runs after this test.
+    // by whatever runs after this test, with the trust filter switched on as
+    // the mock data has it: the flush dropped the stored switch.
+    let features = FeaturesConfig {
+        hide_unranked_authors: true,
+    };
+    features.store().await?;
     reindex::sync().await;
     assert!(
         db_size().await? > 0,
         "reindex::sync should have repopulated Redis from the graph"
     );
+    // The ranking is published and applied to the shared sets. The fixture
+    // scores its users, so an empty one means a trust recompute rewrote them.
+    let sorted_key = |key_parts: &[&str]| format!("Sorted:{}", key_parts.join(":"));
+    let mut conn = get_redis_conn().await?;
+    let (ranking, applied): (BTreeSet<String>, BTreeSet<String>) = redis::pipe()
+        .zrange(sorted_key(&USER_SOCIAL_GRAPH_KEY_PARTS), 0, -1)
+        .zrange(sorted_key(&APPLIED_KEY_PARTS), 0, -1)
+        .query_async(&mut conn)
+        .await?;
+    assert!(!ranking.is_empty(), "reindex::sync published no ranking");
+    assert_eq!(applied, ranking, "reindex::sync should apply the ranking");
 
     Ok(())
 }

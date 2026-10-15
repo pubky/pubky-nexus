@@ -35,9 +35,12 @@ pub struct ResourceStreamQuery {
     params(
         ("app" = Option<String>, Query, description = "Filter by app namespace (e.g., mapky, eventky)"),
         ("tags" = Option<Tags>, Query, description = "Comma-separated tag labels (max 5, OR logic)"),
-        ("sorting" = Option<String>, Query, description = "timeline or taggers_count"),
+        ("sorting" = Option<String>, Query, description = "timeline (the only sorting, and the default)"),
+        ("order" = Option<SortOrder>, Query, description = "Ordering of response list. Either 'ascending' or 'descending'. Defaults to descending."),
         ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Pagination skip (max 10000)"),
         ("limit" = Option<BoundedLimit<10, 100>>, Query, description = "Pagination limit (1–100, default 10)"),
+        ("start" = Option<f64>, Query, description = "Inclusive score bound the page starts from, following `order`: the latest tag timestamp. Hand back `last_score` with `skip=1` to resume the walk"),
+        ("end" = Option<f64>, Query, description = "Inclusive score bound the page stops at, following `order`. Resources scoring past it are excluded"),
     ),
     responses(
         (status = 200, description = "Resource IDs with cursor", body = ResourceKeyStream),
@@ -83,9 +86,12 @@ pub async fn stream_resource_ids_handler(
     params(
         ("app" = Option<String>, Query, description = "Filter by app namespace"),
         ("tags" = Option<Tags>, Query, description = "Comma-separated tag labels (max 5, OR logic)"),
-        ("sorting" = Option<String>, Query, description = "timeline or taggers_count"),
+        ("sorting" = Option<String>, Query, description = "timeline (the only sorting, and the default)"),
+        ("order" = Option<SortOrder>, Query, description = "Ordering of response list. Either 'ascending' or 'descending'. Defaults to descending."),
         ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Pagination skip (max 10000)"),
         ("limit" = Option<BoundedLimit<10, 100>>, Query, description = "Pagination limit (1–100, default 10)"),
+        ("start" = Option<f64>, Query, description = "Inclusive score bound the page starts from, following `order`: the latest tag timestamp. This route returns no cursor: page it with `skip`/`limit`, or take `last_score` from `/v0/stream/resources/ids`. A view's `details.indexed_at` is the resource's creation time, not the latest tag timestamp the stream sorts on, so passing it here skips resources"),
+        ("end" = Option<f64>, Query, description = "Inclusive score bound the page stops at, following `order`. Resources scoring past it are excluded"),
         ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID for relationship checks"),
     ),
     responses(
@@ -135,6 +141,6 @@ pub async fn stream_resources_handler(
 #[derive(OpenApi)]
 #[openapi(
     paths(stream_resource_ids_handler, stream_resources_handler),
-    components(schemas(ResourceKeyStream, PubkyId, Tags))
+    components(schemas(ResourceKeyStream, SortOrder, PubkyId, Tags))
 )]
 pub struct StreamResourcesApiDocs;

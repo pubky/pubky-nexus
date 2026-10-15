@@ -1,5 +1,5 @@
 use super::file::ConfigLoader;
-use super::{default_stack, StackConfig};
+use super::{default_stack, FeaturesConfig, StackConfig};
 use async_trait::async_trait;
 use pubky_app_specs::{PubkyId, VALIDATION_LIMITS};
 use serde::{de::Error, Deserialize, Deserializer, Serialize};
@@ -167,6 +167,9 @@ pub struct WatcherConfig {
     pub stack: StackConfig,
 
     #[serde(default)]
+    pub features: FeaturesConfig,
+
+    #[serde(default)]
     pub retry: EventRetryConfig,
 
     // Moderation
@@ -185,6 +188,7 @@ impl Default for WatcherConfig {
             .expect("Hardcoded default moderation should be a valid pubky id");
         Self {
             stack: StackConfig::default(),
+            features: FeaturesConfig::default(),
             homeserver,
             events_limit: DEFAULT_EVENTS_LIMIT,
             key_based_events_limit: DEFAULT_KEY_BASED_EVENTS_LIMIT,

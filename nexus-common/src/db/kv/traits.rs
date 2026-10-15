@@ -401,6 +401,24 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         sets::check_member(&prefix, &key, member).await
     }
 
+    /// Checks one member against multiple Redis sets in a single pipeline round-trip.
+    ///
+    /// # Arguments
+    ///
+    /// * `keys` - The set keys, each already joined, without the prefix.
+    /// * `member` - The member to look for in every set.
+    ///
+    /// # Returns
+    ///
+    /// One `(exists, is_member)` pair per key, in the same order, as [`Self::check_set_member`] returns.
+    async fn check_set_member_multiple(
+        keys: &[&str],
+        member: &str,
+    ) -> RedisResult<Vec<(bool, bool)>> {
+        let prefix = Self::prefix().await;
+        sets::check_member_multiple_sets(&prefix, keys, member).await
+    }
+
     /// Retrieves the size of a Redis set using the provided key parts.
     ///
     /// This method retrieves the number of elements in a Redis set stored under the key generated from the provided `key_parts`.

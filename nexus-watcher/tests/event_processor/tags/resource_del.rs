@@ -1,6 +1,4 @@
-use super::resource_utils::{
-    check_resource_in_sorted_set, compute_resource_id, find_resource_tag, resource_exists_in_graph,
-};
+use super::resource_utils::{compute_resource_id, find_resource_tag, resource_exists_in_graph};
 use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
 use chrono::Utc;
@@ -66,13 +64,6 @@ async fn test_homeserver_del_resource_tag() -> Result<()> {
     // Should be None or empty
     let is_empty = cache_tags.is_none_or(|v| v.is_empty() || v[0].taggers_count == 0);
     assert!(is_empty, "TagResource cache should be empty after DEL");
-
-    // Verify global taggers count decremented
-    let global_count =
-        check_resource_in_sorted_set(&["Resources", "Global", "TaggersCount"], &resource_id)
-            .await?;
-    let is_zero = global_count.is_none_or(|s| s <= 0);
-    assert!(is_zero, "Global taggers count should be 0 after DEL");
 
     // Cleanup user
     test.cleanup_user(&user_kp).await?;

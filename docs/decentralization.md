@@ -85,7 +85,7 @@ resolutions) per tick. Raise deliberately as the network of indexed HSs grows.
 | Metric | Type | Meaning |
 | --- | --- | --- |
 | `watcher.external_hs.monitored_limit` | gauge | The cap in force. |
-| `watcher.external_hs.indexed` | gauge | External HSs the last run selected for indexing: the active HSs, minus the primary HS and blacklisted ones, truncated to the limit. |
+| `watcher.external_hs.indexed` | gauge | External HSs the last run selected for indexing: the active HSs, minus the primary HS, blacklisted ones and ones in backoff, truncated to the limit. |
 
 `indexed / monitored_limit` is the saturation ratio: it reaches `1` when the
 eligible external HSs fill the cap, which is when the limit binds coverage. It
@@ -119,6 +119,11 @@ kept small to bound total work and per-HS request size.
 > Per-HS exponential backoff for third-party HSs found to be **offline/unreachable**
 > (`HomeserverBackoff`). After a failure the HS is skipped for `initial_backoff_secs`;
 > the skip interval doubles on each consecutive failure, capped at `max_backoff_secs`.
+> A skipped HS does not count towards `monitored_homeservers_limit`, so the next
+> eligible HS in priority order takes its slot.
+> A run that spends its 8-minute budget counts as a failure too, so a homeserver whose
+> pass keeps needing more than one budget is indexed about once per `max_backoff_secs`;
+> a larger cap slows it further.
 
 *Constraint:* `initial_backoff_secs` must not exceed `max_backoff_secs`
 (`HomeserverBackoff::new`).
@@ -267,7 +272,9 @@ avoid hammering an HS for content that may not exist yet.
 >
 > - **`[watcher].initial_backoff_secs` / `max_backoff_secs`**
 >   ([Section 3](#3-indexing-externally-hosted-users-key-based)) — skips
->   an **entire HS** found to be **offline/unreachable**.
+>   an **entire HS** found to be **offline/unreachable**, or whose run spent its 8-minute
+>   budget: a homeserver whose pass keeps needing more than one budget is indexed about
+>   once per `max_backoff_secs`, and a larger cap slows it further.
 > - **`[watcher.retry].initial_backoff_secs` / `max_backoff_secs`** — retries an
 >   **individual event** that hit a **transient processing error**.
 >

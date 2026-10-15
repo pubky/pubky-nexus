@@ -1,15 +1,16 @@
 use std::{fs::File, io::Write};
 
-use crate::utils::host_url;
 use crate::utils::server::TestServiceServer;
+use crate::utils::{host_url, invalid_get_request};
 use anyhow::Result;
 use axum::body::Body;
-use axum::http::Request;
+use axum::http::{Request, StatusCode};
 use nexus_common::models::{file::FileDetails, traits::Collection};
 use nexus_common::utils::test_utils::default_ingestor_tests;
 use nexus_common::RateLimitConfig;
 use nexus_webapi::media::test_utils::default_subprocess_tests;
 use nexus_webapi::media::MediaPermits;
+use nexus_webapi::models::ErrorResponsePayload;
 use nexus_webapi::routes::{app_routes, build_app, AppState};
 use tempfile::TempDir;
 use tokio::fs::{create_dir_all, write};
@@ -157,6 +158,31 @@ async fn test_static_serving_at_capacity_returns_503() -> Result<()> {
         res.status(),
         503,
         "At capacity the requested variant must shed with 503, not fall back or 500"
+    );
+
+    Ok(())
+}
+
+// A variant that is not valid for the file's content type is a 400 from the handler's own
+// check, which runs before any disk access. The message tells it apart from an extractor 400.
+#[tokio_shared_rt::test(shared)]
+async fn test_static_serving_invalid_variant_returns_400() -> Result<()> {
+    // The mock `text/plain` file `test_static_serving` serves; it has no `small` variant.
+    let test_file_id = "2ZK2H8P2T5NG0";
+    let test_file_user = "y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy";
+
+    let res = invalid_get_request(
+        &format!("/static/files/{test_file_user}/{test_file_id}/small"),
+        StatusCode::BAD_REQUEST,
+    )
+    .await?;
+
+    let payload: ErrorResponsePayload =
+        serde_json::from_value(res).expect("Response should be a valid ErrorResponsePayload");
+    assert!(
+        payload.error.contains("not valid for content type"),
+        "Expected the variant check's error, got: {}",
+        payload.error
     );
 
     Ok(())

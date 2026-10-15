@@ -11,7 +11,7 @@ use http_body_util::BodyExt;
 use nexus_common::models::{
     file::{FileDetails, FileUrls},
     traits::Collection,
-    user::UserDetails,
+    user::{Epoch, UserDetails},
 };
 use nexus_common::utils::test_utils::default_ingestor_tests;
 use nexus_webapi::media::test_utils::default_subprocess_tests;
@@ -82,6 +82,7 @@ impl AvatarBenchSetup {
             image: Some(avatar_uri.clone()),
             indexed_at: 1_724_134_095_000,
             deleted: false,
+            epoch: Epoch::V0,
         };
 
         UserDetails::put_to_index(&[USER_PUBKY], vec![Some(user)])

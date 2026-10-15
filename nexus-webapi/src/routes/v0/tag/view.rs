@@ -25,6 +25,7 @@ pub struct TagPath {
     ),
     responses(
         (status = 200, description = "Tag", body = TagView),
+        (status = 400, description = "Invalid parameters"),
         (status = 404, description = "Tag not found"),
         (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error")

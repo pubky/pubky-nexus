@@ -4,7 +4,10 @@ use crate::{
         kind::{COL_BOGOTA_1, DETROIT, SHORT_BOGOTA},
         BOGOTA, POST_H, TAG_LABEL_2,
     },
-    utils::{get_request, invalid_get_request},
+    utils::{
+        get_request, invalid_get_request,
+        recommended::{DELETED, TOMBSTONE_POST},
+    },
 };
 use anyhow::Result;
 use axum::http::StatusCode;
@@ -52,6 +55,45 @@ async fn test_get_post_view() -> Result<()> {
         StatusCode::NOT_FOUND,
     )
     .await?;
+
+    Ok(())
+}
+
+/// Assert that the `deleted` field appears on both the `/details` and the post
+/// view responses, serialized as a plain bool: false for a live post and true
+/// for a tombstone.
+#[tokio_shared_rt::test(shared)]
+async fn test_deleted_flag_in_details_and_view() -> Result<()> {
+    let live = (
+        "y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy",
+        "2ZCW1TGR5BKG0",
+        false,
+    );
+    let tombstone = (DELETED, TOMBSTONE_POST, true);
+
+    for (author_id, post_id, deleted) in [live, tombstone] {
+        // /v0/post/{author_id}/{post_id}/details
+        let details = get_request(&format!("{ROOT_PATH}/{author_id}/{post_id}/details")).await?;
+        assert!(
+            details["deleted"].is_boolean(),
+            "details response must serialize deleted as a boolean"
+        );
+        assert_eq!(
+            details["deleted"], deleted,
+            "{post_id} must report deleted: {deleted}"
+        );
+
+        // /v0/post/{author_id}/{post_id} (PostView embeds PostDetails)
+        let view = get_request(&format!("{ROOT_PATH}/{author_id}/{post_id}")).await?;
+        assert!(
+            view["details"]["deleted"].is_boolean(),
+            "view response must serialize deleted as a boolean"
+        );
+        assert_eq!(
+            view["details"]["deleted"], deleted,
+            "{post_id} must report deleted: {deleted} in view response"
+        );
+    }
 
     Ok(())
 }
@@ -243,14 +285,19 @@ async fn test_get_post_view_with_viewer() -> Result<()> {
     // Check the total posts using that tag
     assert_eq!(tags.len(), 2);
 
-    assert!(
-        tags[0]["relationship"].as_bool().unwrap(),
+    assert_eq!(
+        tags[0]["relationship"], true,
         "Expected to be part of the taggers"
     );
-    assert!(
-        !tags[1]["relationship"].as_bool().unwrap(),
+    assert_eq!(
+        tags[0]["tag_uri"], "pubky://7w4hmktqa7gia5thmk7zki8px7ttwpwjtgaaaou4tbqx64re8d1o/pub/pubky.app/tags/V8N1P3L9J45R",
+        "Expected the viewer's tag address"
+    );
+    assert_eq!(
+        tags[1]["relationship"], false,
         "Expected not to be part of the taggers"
     );
+    assert!(tags[1]["tag_uri"].is_null(), "Expected no tag address");
 
     Ok(())
 }

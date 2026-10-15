@@ -11,6 +11,8 @@ pub const D2: &str = "ya4cjt3j6b58hqf4sujfuj954pymkd6j8ukrbb8pqud5dyguigio";
 pub const D3: &str = "ywpwmrrndzumk68oszuieigct5bap68oobbdkou8ks1djxyh3w5o";
 pub const D4: &str = "yx8ztwc65s1djkoy518n5p6m67kjbcj1wmmjn7jrhzb1yx9mzwcy";
 pub const DELETED: &str = "z48xiqc4mcfiicwi1ewgn7swkhuem86wbkyoudt9yqidcxadt4to";
+/// A post tombstone by DELETED: `deleted = true`, content cleared.
+pub const TOMBSTONE_POST: &str = "RECPOSTDEL006";
 
 /// The Redis key caching the recommendations of `user_id`.
 pub fn recommended_cache_key(user_id: &str) -> String {

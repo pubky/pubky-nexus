@@ -157,7 +157,7 @@ async fn test_editing_post_kind_moves_collections_counter() -> Result<()> {
 }
 
 /// Deleting a collection that still has relationships soft-deletes it (rewrites
-/// it as a `[DELETED]` Short via the edit path). The author's `collections` must
+/// it as a cleared, `deleted` Short via the edit path). The author's `collections` must
 /// drop by exactly one, and the kind transition must persist.
 #[tokio_shared_rt::test(shared)]
 async fn test_soft_deleting_a_bookmarked_collection_decrements_collections_once() -> Result<()> {
@@ -202,7 +202,8 @@ async fn test_soft_deleting_a_bookmarked_collection_decrements_collections_once(
         .await?
         .expect("soft-deleted placeholder still present");
     assert_eq!(details.kind, PubkyAppPostKind::Short);
-    assert_eq!(details.content, "[DELETED]");
+    assert!(details.deleted);
+    assert_eq!(details.content, "");
 
     test.cleanup_user(&author_kp).await?;
     test.cleanup_user(&follower_kp).await?;
