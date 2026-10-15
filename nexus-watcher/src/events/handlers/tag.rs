@@ -60,7 +60,7 @@ pub async fn sync_put(
             )
             .await
         }
-        other => Err(EventProcessorError::generic(format!(
+        other => Err(EventProcessorError::SpecValidation(format!(
             "The tagged resource is not Post or User, instead is: {other:?}"
         ))),
     }
