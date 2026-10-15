@@ -130,15 +130,16 @@ impl PubkyHomeserverClient {
         Self::new(pubky, health, config.max_file_size)
     }
 
-    /// GETs `resource`, reading at most `max` bytes of the body.
+    /// GETs `resource`, returning the response for the caller to read under its cap.
     ///
     /// The SDK reads a non-2xx body whole, before [`HsErrorKind::from_sdk`] keeps 4 KiB of
     /// it, so for resources and blobs that cap limits what is kept, not what is read.
-    async fn get_capped(&self, resource: &PubkyResource, max: u64) -> Result<Vec<u8>, HsErrorKind> {
-        match self.pubky.public_storage().get(resource).await {
-            Ok(response) => fetch_capped(response, max).await,
-            Err(e) => Err(HsErrorKind::from_sdk(e)),
-        }
+    async fn get(&self, resource: &PubkyResource) -> Result<reqwest::Response, HsErrorKind> {
+        self.pubky
+            .public_storage()
+            .get(resource)
+            .await
+            .map_err(HsErrorKind::from_sdk)
     }
 
     /// One `/events-stream` request, without retries.
@@ -245,15 +246,11 @@ impl HomeserverClient for PubkyHomeserverClient {
     }
 
     async fn get_resource(&self, resource: &PubkyResource) -> Result<Vec<u8>, HsError> {
-        get_resource_with(
-            resource,
-            self.get_capped(resource, MAX_RESOURCE_SIZE as u64),
-        )
-        .await
+        get_resource_with(resource, self.get(resource)).await
     }
 
     async fn get_blob(&self, resource: &PubkyResource) -> Result<Vec<u8>, HsError> {
-        get_blob_with(resource, self.get_capped(resource, self.max_file_size)).await
+        get_blob_with(resource, self.max_file_size, self.get(resource)).await
     }
 
     fn health(&self) -> &HomeserverHealth {
@@ -277,25 +274,34 @@ where
         .map_err(|kind| HsError::new(hs, HsOp::UserEvents, kind))
 }
 
-/// Awaits a resource fetch, labelling a failure as a resource's, which keeps it one event's
-/// failure.
+/// Reads a resource fetch's body, at most [`MAX_RESOURCE_SIZE`], labelling a failure as a
+/// resource's, which keeps it one event's failure.
 async fn get_resource_with(
     resource: &PubkyResource,
-    fetch: impl Future<Output = Result<Vec<u8>, HsErrorKind>>,
+    fetch: impl Future<Output = Result<reqwest::Response, HsErrorKind>>,
 ) -> Result<Vec<u8>, HsError> {
-    fetch
+    read_capped(fetch, MAX_RESOURCE_SIZE as u64)
         .await
         .map_err(|kind| owner_error(resource, HsOp::GetResource, kind))
 }
 
-/// Awaits a blob fetch, labelling a failure as a blob's, which keeps it one event's failure.
+/// Reads a blob fetch's body, at most `max` bytes, labelling a failure as a blob's, which
+/// keeps it one event's failure.
 async fn get_blob_with(
     resource: &PubkyResource,
-    fetch: impl Future<Output = Result<Vec<u8>, HsErrorKind>>,
+    max: u64,
+    fetch: impl Future<Output = Result<reqwest::Response, HsErrorKind>>,
 ) -> Result<Vec<u8>, HsError> {
-    fetch
+    read_capped(fetch, max)
         .await
         .map_err(|kind| owner_error(resource, HsOp::GetBlob, kind))
+}
+
+async fn read_capped(
+    fetch: impl Future<Output = Result<reqwest::Response, HsErrorKind>>,
+    max: u64,
+) -> Result<Vec<u8>, HsErrorKind> {
+    fetch_capped(fetch.await?, max).await
 }
 
 /// A failed resource or blob fetch, labelled with the owner's key: nothing is charged to a
@@ -651,7 +657,7 @@ mod tests {
             errors.push(get_resource_with(&resource, async { Err(kind) }).await);
         }
         for kind in failures() {
-            errors.push(get_blob_with(&resource, async { Err(kind) }).await);
+            errors.push(get_blob_with(&resource, 1024, async { Err(kind) }).await);
         }
 
         for error in errors {
@@ -668,6 +674,33 @@ mod tests {
             );
             assert!(!error.should_not_retry_now(), "{error:?}");
         }
+    }
+
+    /// A JSON resource is read up to [`MAX_RESOURCE_SIZE`] bytes and no further.
+    #[tokio::test]
+    async fn resources_are_capped_at_max_resource_size() {
+        use crate::errors::EventProcessorError;
+
+        let owner = pubky::Keypair::random().public_key();
+        let resource: PubkyResource = format!("pubky://{}/pub/pubky.app/posts/0001", owner.z32())
+            .parse()
+            .expect("valid resource");
+
+        let at_cap = response(200, vec![0u8; MAX_RESOURCE_SIZE]);
+        let body = get_resource_with(&resource, async { Ok(at_cap) })
+            .await
+            .expect("a body at the cap is accepted");
+        assert_eq!(body.len(), MAX_RESOURCE_SIZE);
+
+        let over_cap = response(200, vec![0u8; MAX_RESOURCE_SIZE + 1]);
+        let error = get_resource_with(&resource, async { Ok(over_cap) })
+            .await
+            .unwrap_err();
+        let error = EventProcessorError::from(error);
+        assert!(
+            matches!(error, EventProcessorError::FetchSizeExceeded(_, max) if max == MAX_RESOURCE_SIZE as u64),
+            "{error:?}"
+        );
     }
 
     // --- retry_rate_limited ---
