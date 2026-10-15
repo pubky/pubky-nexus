@@ -1,4 +1,4 @@
-use super::{Epoch, UserSearch};
+use super::{Epoch, UserCounts, UserSearch};
 use crate::db::graph::Query;
 use crate::db::kv::RedisResult;
 use crate::db::{exec_single_row, queries, GraphResult, RedisOps};
@@ -165,10 +165,16 @@ impl UserDetails {
         }
     }
 
-    /// Writes a profile read from the homeserver, storing `uri` (its event path) on the node.
-    /// `put_to_graph` writes no `uri` and keeps the stored one: stubs and tombstones use it.
-    pub async fn put_profile_to_graph(&self, uri: &str) -> GraphResult<()> {
-        exec_single_row(queries::put::create_user(self, Some(uri))?).await
+    /// The one place a user is created: writes the `User` node and initializes what every
+    /// user needs in the index, whether it is a stub or a profile read from the homeserver.
+    ///
+    /// `uri` is the address the profile was read from (its event path); a stub passes `None`.
+    /// Counts are kept if already indexed, else built from the graph, so a user that gained
+    /// edges before this call (an older stub, a lost key) is not reset to zero.
+    pub async fn create(&self, uri: Option<&str>) -> ModelResult<()> {
+        exec_single_row(queries::put::create_user(self, uri)?).await?;
+        UserCounts::get_by_id(&self.id).await?;
+        Ok(())
     }
 
     pub async fn delete(user_id: &str) -> ModelResult<()> {

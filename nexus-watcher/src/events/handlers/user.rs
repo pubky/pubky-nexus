@@ -23,8 +23,9 @@ pub async fn sync_put(
     // Step 1: Create `UserDetails` object
     let user_details = UserDetails::from_homeserver(user, &user_id);
 
-    // Step 2: Save to graph, with the address the profile was read from
-    user_details.put_profile_to_graph(&uri).await?;
+    // Step 2: Save to graph, with the address the profile was read from, and initialize
+    // the user's counts
+    user_details.create(Some(&uri)).await?;
 
     // Step 3: Reindex search BEFORE refreshing the details cache. `put_to_index`
     // resolves the stale `name:id` member from the cached JSON, so a concurrent
@@ -32,27 +33,9 @@ pub async fn sync_put(
     // leak the old member forever.
     UserSearch::put_to_index(&[&user_details]).await?;
 
-    // Step 4: Run in parallel the remaining cache writes: SAVE TO INDEX
-    let indexing_results = nexus_common::traced_join!(
-        tracing::info_span!("index.write");
-        async {
-            // TODO: Use SCARD on a set for unique tag count to avoid race conditions in parallel processing
-            // If new user (no existing counts), save a new `UserCounts`
-            if UserCounts::get_from_index(&user_id).await?.is_none() {
-                UserCounts::default().put_to_index(&user_id).await?;
-            }
-            Ok::<(), EventProcessorError>(())
-        },
-        async {
-            // TODO(flip): caches `V0`, not the epoch stored in the graph.
-            UserDetails::put_to_index(&[&user_details.id], vec![Some(user_details.clone())])
-                .await?;
-            Ok::<(), EventProcessorError>(())
-        }
-    );
-
-    indexing_results.0?;
-    indexing_results.1?;
+    // Step 4: Refresh the details cache
+    // TODO(flip): caches `V0`, not the epoch stored in the graph.
+    UserDetails::put_to_index(&[&user_details.id], vec![Some(user_details.clone())]).await?;
 
     // A profile write always clears the tombstone, so re-derive the user's
     // per-label search entries afterwards: a recreated profile gets its
