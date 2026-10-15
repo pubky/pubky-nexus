@@ -92,13 +92,13 @@ impl HsErrorKind {
         }
     }
 
-    /// Classifies an SDK error so it is retried, or not, as `PubkyClientError::from` had it.
+    /// Classifies an SDK error so it is retried, or not, as `PubkyClientError::from`
+    /// classifies it.
     ///
     /// A status lands by its code. A transport, PKARR or validation failure, which that
-    /// conversion turned into a retried `RequestFailed` (`PkarrFailed` for PKARR), is a
-    /// transport failure. An error
-    /// building the request (`Parse`, `Build`, `Authentication`) is malformed, and stays
-    /// permanent.
+    /// conversion makes a retried `RequestFailed` (`PkarrFailed` for PKARR), is a transport
+    /// failure. An error building the request (`Parse`, `Build`, `Authentication`) is
+    /// malformed, and permanent.
     pub fn from_sdk(error: pubky::Error) -> Self {
         match error {
             pubky::Error::Request(RequestError::Server { status, message }) => {
@@ -125,8 +125,8 @@ mod tests {
     use crate::errors::EventProcessorError;
     use crate::events::retry::RetryScheduler;
 
-    /// SDK errors are retried as they were: statuses by their code, validation failures as
-    /// transport errors, and errors building the request never.
+    /// SDK errors are classified so that statuses are retried by their code, validation
+    /// failures as transport errors, and errors building the request never.
     #[test]
     fn sdk_errors_are_classified() {
         let server = |status: u16| {
