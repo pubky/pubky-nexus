@@ -53,7 +53,10 @@ async fn test_homeserver_follow_cannot_complete() -> Result<()> {
         "Follow indexing should fail: followee is not yet indexed"
     );
 
-    // Opposite direction: followee follows follower (follower IS indexed, followee is NOT)
+    // The failed attempt above ingests the followee (MissingDependency triggers
+    // maybe_ingest_user), so both users are indexed by now and the opposite follow
+    // completes. It used to fail only because the followee had no counts document
+    // yet and the counts script raised on the missing key (#1110).
     let _opposite_follow_path = test.create_follow(&followee_kp, &follower_id).await?;
 
     let opposite_follow_event = format!(
@@ -62,14 +65,11 @@ async fn test_homeserver_follow_cannot_complete() -> Result<()> {
     );
 
     let event_handler = test.event_processor_runner.event_handler.clone();
-    let sync_fail = retrieve_and_handle_event_line(&opposite_follow_event, event_handler)
-        .await
-        .map_err(|e| error!("SYNC ERROR: {:?}", e))
-        .is_err();
+    let opposite = retrieve_and_handle_event_line(&opposite_follow_event, event_handler).await;
 
     assert!(
-        sync_fail,
-        "Follow indexing should fail: follower (shadow) is not yet indexed"
+        opposite.is_ok(),
+        "Follow from the now-ingested followee should index: {opposite:?}"
     );
 
     Ok(())
