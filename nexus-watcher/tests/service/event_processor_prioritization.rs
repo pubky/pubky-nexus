@@ -318,6 +318,8 @@ fn key_based_runner(primary: &PubkyId, scope: Arc<dyn Scope>) -> KeyBasedEventPr
         hs_blacklist: HsBlacklist::default(),
         backoff: Mutex::new(HomeserverBackoff::default()),
         user_not_found_backoff: Arc::new(UserNotFoundBackoff::default()),
+        user_resume_points: Arc::new(UserResumePoints::default()),
+        budget: KEY_BASED_RUN_BUDGET,
         retry_scheduler,
     }
 }
