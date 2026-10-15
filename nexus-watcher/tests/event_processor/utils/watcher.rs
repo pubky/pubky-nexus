@@ -9,6 +9,7 @@ use nexus_common::models::post::PostStream;
 use nexus_common::models::traits::Collection;
 use nexus_common::models::user::USER_SOCIAL_GRAPH_KEY_PARTS;
 use nexus_common::utils::test_utils::default_ingestor_tests;
+use nexus_common::WatcherConfig;
 use nexus_common::{StackConfig, StackManager};
 use nexus_watcher::errors::EventProcessorError;
 use nexus_watcher::events::retry::event::RetryEvent;
@@ -17,7 +18,7 @@ use nexus_watcher::events::retry::{
 };
 use nexus_watcher::events::{DefaultEventHandler, EventHandler};
 use nexus_watcher::events::{Event, ParseResult};
-use nexus_watcher::homeserver::{HomeserverClient, HomeserverHealth, PubkyHomeserverClient};
+use nexus_watcher::homeserver::{HomeserverClient, PubkyHomeserverClient};
 use nexus_watcher::service::HsEventProcessorRunner;
 use nexus_watcher::service::TEventProcessorRunner;
 use pubky::Keypair;
@@ -90,11 +91,14 @@ impl WatcherTest {
         max_file_size: u64,
     ) -> HsEventProcessorRunner {
         let pubky = PubkyConnector::get().expect("PubkyConnector is initialised by setup");
-        let client: Arc<dyn HomeserverClient> = Arc::new(PubkyHomeserverClient::new(
-            pubky,
-            HomeserverHealth::default(),
+        // Through `from_config`, as the watcher builds it, so the blob cap it reads is the one
+        // the oversized-file tests set.
+        let config = WatcherConfig {
             max_file_size,
-        ));
+            ..WatcherConfig::default()
+        };
+        let client: Arc<dyn HomeserverClient> =
+            Arc::new(PubkyHomeserverClient::from_config(pubky, &config));
         let event_handler: Arc<dyn EventHandler> = Arc::new(DefaultEventHandler::new(
             default_moderation_tests(),
             default_ingestor_tests(),
