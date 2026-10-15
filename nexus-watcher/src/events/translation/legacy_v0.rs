@@ -1,13 +1,9 @@
 //! The `pubky.app` (epoch v0) translator, over the frozen v0 reader.
 //!
-//! Two pure steps turn a fetched resource into a handler call: [`classify`] decides at parse
-//! time whether an address is indexed at all, and [`translate_put`] / [`translate_del`] turn an
-//! indexed address (and, for a PUT, its bytes) into one variant per handler call. Both read the
-//! same table of indexed resources, [`Indexed`], so a resource skipped at parse time can never
-//! translate.
+//! [`translate_put`] turns a v0 address and its fetched bytes into one variant per PUT handler
+//! call; [`translate_del`] turns a v0 address into one variant per DEL handler call.
 
 use crate::errors::EventProcessorError;
-use crate::events::classify::{Classified, SkipReason};
 use crate::events::target::EventTarget;
 use pubky_social_specs::legacy_v0::traits::Validatable;
 use pubky_social_specs::legacy_v0::{
@@ -15,7 +11,6 @@ use pubky_social_specs::legacy_v0::{
     PubkyAppUser, Resource,
 };
 use pubky_social_specs::PubkyId;
-use std::fmt;
 
 /// A fetched `pubky.app` object with the ids its path carries, one variant per PUT handler.
 ///
@@ -81,169 +76,102 @@ pub enum TranslatedDel {
     },
 }
 
-/// Index, skip or reject a v0 address; the resources Nexus never indexed are skipped.
-pub fn classify(parsed: ExtendedParsedUri) -> Classified {
-    match Indexed::try_from(parsed.resource()) {
-        Ok(_) => Classified::Index(EventTarget::Legacy(parsed)),
-        Err(NotIndexed::Skipped(resource)) => {
-            Classified::Skip(SkipReason::LegacyNotIndexed { resource })
-        }
-        Err(unknown @ NotIndexed::Unknown) => Classified::Invalid(unknown.to_string()),
-    }
-}
-
 /// Reads `bytes` with the frozen v0 reader for the resource `target` names and pairs the
 /// object with the ids from the path.
 ///
-/// Every error is deterministic and never retried: a resource that is skipped at parse time
-/// or unknown is [`EventProcessorError::InvalidEventLine`], a pipeline bug surfacing as a
-/// dropped, logged event; bytes the reader rejects are
+/// Every error is deterministic and never retried: a resource with no handler is
+/// [`EventProcessorError::InvalidEventLine`], a pipeline bug surfacing as a dropped, logged
+/// event, since parsing skips or rejects those first; bytes the reader rejects are
 /// [`EventProcessorError::SpecValidation`].
 pub fn translate_put(
     target: &EventTarget,
     bytes: &[u8],
 ) -> Result<TranslatedPut, EventProcessorError> {
     let EventTarget::Legacy(parsed) = target;
-    let app = match parsed {
-        ExtendedParsedUri::PubkyApp { .. } => None,
-        ExtendedParsedUri::UniversalTag { app, .. } => Some(app.as_str()),
-    };
-    Indexed::try_from(parsed.resource())?.put(parsed.user_id(), app, bytes)
+    let user_id = parsed.user_id().clone();
+    Ok(match parsed.resource() {
+        Resource::User => TranslatedPut::User {
+            user_id,
+            user: read(bytes, "")?,
+        },
+        Resource::Post(post_id) => TranslatedPut::Post {
+            author_id: user_id,
+            post_id: post_id.clone(),
+            post: read(bytes, post_id)?,
+        },
+        Resource::Follow(followee_id) => {
+            read::<PubkyAppFollow>(bytes, followee_id)?;
+            TranslatedPut::Follow {
+                user_id,
+                followee_id: followee_id.clone(),
+            }
+        }
+        Resource::Bookmark(bookmark_id) => TranslatedPut::Bookmark {
+            user_id,
+            bookmark_id: bookmark_id.clone(),
+            bookmark: read(bytes, bookmark_id)?,
+        },
+        Resource::Tag(tag_id) => TranslatedPut::Tag {
+            tagger_id: user_id,
+            tag_id: tag_id.clone(),
+            tag: read(bytes, tag_id)?,
+            app: match parsed {
+                ExtendedParsedUri::PubkyApp { .. } => None,
+                ExtendedParsedUri::UniversalTag { app, .. } => Some(app.clone()),
+            },
+        },
+        Resource::File(file_id) => TranslatedPut::File {
+            user_id,
+            file_id: file_id.clone(),
+            file: read(bytes, file_id)?,
+        },
+        resource @ (Resource::LastRead
+        | Resource::Feed(_)
+        | Resource::Blob(_)
+        | Resource::Mute(_)
+        | Resource::Unknown) => return Err(no_handler(resource)),
+    })
 }
 
 /// Maps the ids `target` names to the matching delete variant.
 ///
-/// A resource that is skipped at parse time or unknown is
-/// [`EventProcessorError::InvalidEventLine`], as in [`translate_put`].
+/// A resource with no handler is [`EventProcessorError::InvalidEventLine`], as in
+/// [`translate_put`].
 pub fn translate_del(target: &EventTarget) -> Result<TranslatedDel, EventProcessorError> {
     let EventTarget::Legacy(parsed) = target;
-    Ok(Indexed::try_from(parsed.resource())?.del(parsed.user_id()))
+    let user_id = parsed.user_id().clone();
+    Ok(match parsed.resource() {
+        Resource::User => TranslatedDel::User { user_id },
+        Resource::Post(post_id) => TranslatedDel::Post {
+            author_id: user_id,
+            post_id: post_id.clone(),
+        },
+        Resource::Follow(followee_id) => TranslatedDel::Follow {
+            user_id,
+            followee_id: followee_id.clone(),
+        },
+        Resource::Bookmark(bookmark_id) => TranslatedDel::Bookmark {
+            user_id,
+            bookmark_id: bookmark_id.clone(),
+        },
+        Resource::Tag(_) => TranslatedDel::Tag,
+        Resource::File(file_id) => TranslatedDel::File {
+            user_id,
+            file_id: file_id.clone(),
+        },
+        resource @ (Resource::LastRead
+        | Resource::Feed(_)
+        | Resource::Blob(_)
+        | Resource::Mute(_)
+        | Resource::Unknown) => return Err(no_handler(resource)),
+    })
 }
 
-/// The v0 resources Nexus indexes, with the ids their paths carry.
-enum Indexed<'a> {
-    User,
-    Post(&'a str),
-    Follow(&'a PubkyId),
-    Bookmark(&'a str),
-    Tag(&'a str),
-    File(&'a str),
-}
-
-/// Why a v0 resource is not indexed.
-enum NotIndexed {
-    /// Skipped at parse time: last-read, feed, blob or mute. Carries the resource name.
-    Skipped(String),
-    /// A `pubky.app` path naming no resource the frozen reader knows.
-    Unknown,
-}
-
-impl<'a> TryFrom<&'a Resource> for Indexed<'a> {
-    type Error = NotIndexed;
-
-    fn try_from(resource: &'a Resource) -> Result<Self, NotIndexed> {
-        match resource {
-            Resource::User => Ok(Self::User),
-            Resource::Post(post_id) => Ok(Self::Post(post_id)),
-            Resource::Follow(followee_id) => Ok(Self::Follow(followee_id)),
-            Resource::Bookmark(bookmark_id) => Ok(Self::Bookmark(bookmark_id)),
-            Resource::Tag(tag_id) => Ok(Self::Tag(tag_id)),
-            Resource::File(file_id) => Ok(Self::File(file_id)),
-            Resource::LastRead | Resource::Feed(_) | Resource::Blob(_) | Resource::Mute(_) => {
-                Err(NotIndexed::Skipped(resource.to_string()))
-            }
-            Resource::Unknown => Err(NotIndexed::Unknown),
-        }
-    }
-}
-
-impl fmt::Display for NotIndexed {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Skipped(resource) => write!(
-                f,
-                "Resource `{resource}` is skipped at parse time and must not reach translation"
-            ),
-            Self::Unknown => f.write_str("Unknown resource in URI"),
-        }
-    }
-}
-
-impl From<NotIndexed> for EventProcessorError {
-    fn from(not_indexed: NotIndexed) -> Self {
-        Self::InvalidEventLine(not_indexed.to_string())
-    }
-}
-
-impl Indexed<'_> {
-    /// Reads `bytes` as this resource's object and pairs it with the ids from the path.
-    fn put(
-        self,
-        user_id: &PubkyId,
-        app: Option<&str>,
-        bytes: &[u8],
-    ) -> Result<TranslatedPut, EventProcessorError> {
-        let user_id = user_id.clone();
-        Ok(match self {
-            Self::User => TranslatedPut::User {
-                user_id,
-                user: read(bytes, "")?,
-            },
-            Self::Post(post_id) => TranslatedPut::Post {
-                author_id: user_id,
-                post_id: post_id.to_string(),
-                post: read(bytes, post_id)?,
-            },
-            Self::Follow(followee_id) => {
-                read::<PubkyAppFollow>(bytes, followee_id)?;
-                TranslatedPut::Follow {
-                    user_id,
-                    followee_id: followee_id.clone(),
-                }
-            }
-            Self::Bookmark(bookmark_id) => TranslatedPut::Bookmark {
-                user_id,
-                bookmark_id: bookmark_id.to_string(),
-                bookmark: read(bytes, bookmark_id)?,
-            },
-            Self::Tag(tag_id) => TranslatedPut::Tag {
-                tagger_id: user_id,
-                tag_id: tag_id.to_string(),
-                tag: read(bytes, tag_id)?,
-                app: app.map(str::to_owned),
-            },
-            Self::File(file_id) => TranslatedPut::File {
-                user_id,
-                file_id: file_id.to_string(),
-                file: read(bytes, file_id)?,
-            },
-        })
-    }
-
-    /// The delete variant for this resource.
-    fn del(self, user_id: &PubkyId) -> TranslatedDel {
-        let user_id = user_id.clone();
-        match self {
-            Self::User => TranslatedDel::User { user_id },
-            Self::Post(post_id) => TranslatedDel::Post {
-                author_id: user_id,
-                post_id: post_id.to_string(),
-            },
-            Self::Follow(followee_id) => TranslatedDel::Follow {
-                user_id,
-                followee_id: followee_id.clone(),
-            },
-            Self::Bookmark(bookmark_id) => TranslatedDel::Bookmark {
-                user_id,
-                bookmark_id: bookmark_id.to_string(),
-            },
-            Self::Tag(_) => TranslatedDel::Tag,
-            Self::File(file_id) => TranslatedDel::File {
-                user_id,
-                file_id: file_id.to_string(),
-            },
-        }
-    }
+/// A resource no handler takes; parsing skips or rejects it before translation.
+fn no_handler(resource: &Resource) -> EventProcessorError {
+    EventProcessorError::InvalidEventLine(format!(
+        "Resource `{resource}` has no handler and must not reach translation"
+    ))
 }
 
 /// Runs the frozen v0 reader for one object type; a rejection is spec validation.
