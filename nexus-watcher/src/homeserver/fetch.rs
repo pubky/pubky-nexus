@@ -189,6 +189,18 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn fetch_capped_read_error_is_a_transport_failure() {
+        let body = reqwest::Body::wrap_stream(stream::iter(vec![Err::<bytes::Bytes, _>(
+            std::io::Error::other("connection reset"),
+        )]));
+        let resp = reqwest::Response::from(http::Response::new(body));
+
+        let err = fetch_capped(resp, 100).await.unwrap_err();
+
+        assert!(matches!(err, HsErrorKind::Transport(_)), "{err:?}");
+    }
+
+    #[tokio::test]
     async fn fetch_capped_accepts_under_cap_stream() {
         assert!(fetch_capped(no_cl_oversized(50), 100).await.is_ok());
     }

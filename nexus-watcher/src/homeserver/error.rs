@@ -191,4 +191,33 @@ mod tests {
             assert!(message.len() < MAX_ERROR_BODY + 64, "{}", message.len());
         }
     }
+
+    /// A failing body read gives a non-timeout `reqwest::Error`, as an unreachable homeserver
+    /// or a reset connection does.
+    async fn transport_error() -> reqwest::Error {
+        let body = reqwest::Body::wrap_stream(futures::stream::iter(vec![Err::<bytes::Bytes, _>(
+            std::io::Error::other("connection reset"),
+        )]));
+        reqwest::Response::from(http::Response::new(body))
+            .bytes()
+            .await
+            .unwrap_err()
+    }
+
+    /// A transport failure stops the run on the event stream, and is retried on a fetch.
+    #[tokio::test]
+    async fn transport_failures_stop_the_stream_and_retry_fetches() {
+        let error = pubky::Error::from(RequestError::Transport(transport_error().await));
+        let kind = HsErrorKind::from_sdk(error);
+        assert!(matches!(kind, HsErrorKind::Transport(_)), "{kind:?}");
+
+        let hs = PubkyId::try_from("1hb71xx9km3f4pw5izsy1gn19ff1uuuqonw4mcygzobwkryujoiy").unwrap();
+        let on_stream: EventProcessorError =
+            HsError::new(&hs, HsOp::UserEvents, kind.clone()).into();
+        assert!(on_stream.should_not_retry_now(), "{on_stream:?}");
+
+        let on_blob: EventProcessorError = HsError::new(&hs, HsOp::GetBlob, kind).into();
+        assert!(!on_blob.should_not_retry_now(), "{on_blob:?}");
+        assert!(RetryScheduler::should_enqueue_related_event(&on_blob));
+    }
 }
