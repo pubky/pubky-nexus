@@ -19,7 +19,8 @@ pub(super) const METER_NAME: &str = "nexus.watcher";
 /// How a run of an event processor ended when it did not fail.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RunOutcome {
-    /// The run did all the work it found.
+    /// The run ended without failing or spending its budget: it did the work it found, or
+    /// stopped early for shutdown.
     Completed,
     /// The run stopped at its budget with work left, keeping the cursors it reached. Not an
     /// event failure: nothing is retried. See [`KeyBasedEventProcessor::budget`].
