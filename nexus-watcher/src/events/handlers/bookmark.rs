@@ -6,7 +6,7 @@ use pubky_app_specs::{ParsedUri, PubkyAppBookmark, PubkyId, Resource};
 use tracing::debug;
 
 use super::scope::index_out_of_scope_post;
-use super::utils::post_is_collection;
+use super::utils::{fail_on_blacklisted_hs, post_is_collection};
 use crate::events::EventProcessorError;
 
 #[tracing::instrument(name = "bookmark.put", skip_all, fields(user_id = %user_id, bookmark_id = %id))]
@@ -42,8 +42,9 @@ pub async fn sync_put(
             OperationOutcome::CreatedOrDeleted => false,
             OperationOutcome::Updated => true,
             OperationOutcome::MissingDependency => {
-                // The bookmark doesn't ingest the post's author, so only a post by a
-                // stub (an author other records already pointed at) can be fetched here.
+                // Ingest the post's author first, so a post by an author nexus has
+                // never seen can be fetched too. A blacklisted author drops the bookmark.
+                fail_on_blacklisted_hs(ingestor.maybe_ingest_author_of_post(&parsed_uri).await)?;
                 if index_out_of_scope_post(&parsed_uri, ingestor).await? {
                     // At most once: the post is indexed now, so it is never fetched again.
                     return Box::pin(sync_put(user_id, bookmark, id, ingestor)).await;

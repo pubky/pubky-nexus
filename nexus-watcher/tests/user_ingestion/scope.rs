@@ -18,8 +18,8 @@ use nexus_watcher::events::handlers;
 use nexus_watcher::events::{DefaultEventHandler, Event, EventHandler, ParseResult};
 use nexus_watcher::EventProcessorError;
 use pubky::Keypair;
-use pubky_app_specs::traits::TimestampId;
-use pubky_app_specs::{post_uri_builder, PubkyAppPost, PubkyAppUser, PubkyId};
+use pubky_app_specs::traits::{HashId, TimestampId};
+use pubky_app_specs::{post_uri_builder, PubkyAppBookmark, PubkyAppPost, PubkyAppUser, PubkyId};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -235,6 +235,37 @@ async fn test_reply_to_a_stub_post_fetches_only_that_post() -> Result<()> {
         in_timeline.is_none(),
         "a stub's post stays out of the global timeline"
     );
+    Ok(())
+}
+
+/// A member's bookmark of a post by an author nexus has never seen lands: the
+/// author is ingested as a stub and that one post is fetched.
+#[tokio_shared_rt::test(shared)]
+async fn test_bookmark_of_an_unknown_outsider_post_lands() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let hs_pk = create_external_test_homeserver(&mut test).await?;
+    let (outsider_kp, outsider_id) = user_on(&test, &hs_pk).await?;
+    let (post_id, _) = test
+        .create_post(&outsider_kp, &short_post("Watcher:Scope:Bookmarked", None))
+        .await?;
+
+    let bookmarker_id = member(&mut test, "Bookmarker").await?;
+    let ingestor = scoped_ingestor(&test);
+
+    let bookmark = PubkyAppBookmark {
+        uri: post_uri_builder(outsider_id.to_string(), post_id.clone()),
+        created_at: chrono::Utc::now().timestamp_millis(),
+    };
+    let bookmark_id = bookmark.create_id();
+    handlers::bookmark::sync_put(bookmarker_id, bookmark, bookmark_id, &ingestor).await?;
+
+    assert!(
+        PostDetails::get_by_id(&outsider_id, &post_id)
+            .await?
+            .is_some(),
+        "the bookmarked post is fetched"
+    );
+    assert_user_is_stub(&outsider_id).await;
     Ok(())
 }
 
