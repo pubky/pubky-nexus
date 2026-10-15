@@ -178,10 +178,14 @@ mod tests {
         let huge = "x".repeat(MAX_ERROR_BODY * 4);
 
         let status = HsErrorKind::from_status(StatusCode::BAD_GATEWAY, huge.as_bytes());
+        let sdk_status = HsErrorKind::from_sdk(pubky::Error::from(RequestError::Server {
+            status: StatusCode::BAD_GATEWAY,
+            message: huge.clone(),
+        }));
         let transport = HsErrorKind::transport(&huge);
         let malformed = HsErrorKind::malformed(&huge);
 
-        for kind in [status, transport, malformed] {
+        for kind in [status, sdk_status, transport, malformed] {
             let message = kind.to_string();
             assert!(message.ends_with("… (truncated)"), "{message}");
             assert!(message.len() < MAX_ERROR_BODY + 64, "{}", message.len());
