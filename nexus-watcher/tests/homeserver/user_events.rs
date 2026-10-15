@@ -1,6 +1,7 @@
 //! The `/events-stream` request the client builds: which homeserver and user it asks, from
-//! which cursor, and under which path. The count is capped by the client itself
-//! (`read_user_events`), so it is covered by a unit test instead.
+//! which cursor. The count is capped by the client itself (`read_user_events`), so it is
+//! covered by a unit test instead, and the `/pub/` path filter cannot be observed, because
+//! the homeserver accepts writes only under `/pub/`.
 
 use crate::event_processor::utils::watcher::WatcherTest;
 use nexus_common::types::DynError;
@@ -17,14 +18,18 @@ fn profile(name: &str) -> PubkyAppUser {
     }
 }
 
-/// A user's events come from the homeserver they are asked of, under `/pub/`, and a later
-/// request from the last cursor returns only the events after it.
+/// A user's events come from the homeserver they are asked of, not the one their PKARR
+/// record names, and a later request from the last cursor returns only the events after it.
 #[tokio_shared_rt::test(shared)]
 async fn test_user_events_come_from_the_homeserver_after_the_cursor() -> Result<(), DynError> {
     let mut test = WatcherTest::setup(None).await?;
     let user_kp = Keypair::random();
     let user_id = test.create_user(&user_kp, &profile("first")).await?;
     test.create_profile(&user_kp, &profile("second")).await?;
+    // The user's PKARR record now names another homeserver, so only a request to the one
+    // asked finds these events.
+    let other_hs = test.testnet.create_random_homeserver().await?.public_key();
+    test.register_user_in_hs(&user_kp, &other_hs).await?;
     let client = &test.event_processor_runner.client;
     let user_pk = user_kp.public_key();
 
@@ -34,7 +39,6 @@ async fn test_user_events_come_from_the_homeserver_after_the_cursor() -> Result<
 
     assert_eq!(first.len(), 1, "{first:?}");
     assert_eq!(first[0].owner().z32(), user_id);
-    assert!(first[0].uri().contains("/pub/"), "{}", first[0].uri());
 
     let cursor = first[0].cursor;
     let rest = client
