@@ -290,6 +290,18 @@ mod tests {
         );
     }
 
+    /// An `Ok` run ends a homeserver's backoff, so it is polled again at once.
+    #[test]
+    fn ok_run_resets_the_backoff() {
+        let health = HomeserverHealth::new(60, 3600);
+        record_run_status(&health, "hs1", &ProcessorRunStatus::Error);
+
+        record_run_status(&health, "hs1", &ProcessorRunStatus::Ok);
+
+        assert_eq!(health.next_backoff_secs_for("hs1"), None);
+        assert!(!health.should_skip("hs1"));
+    }
+
     /// A homeserver should not need more than one budget, so each spent budget backs it off
     /// further, as a failure does.
     #[test]
