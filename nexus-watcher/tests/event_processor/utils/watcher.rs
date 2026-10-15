@@ -114,6 +114,8 @@ impl WatcherTest {
             primary_homeserver,
             scope: Arc::new(EverythingScope),
             retry_scheduler,
+            catch_up_resume_points: Default::default(),
+            catch_up_not_found: Default::default(),
         }
     }
 

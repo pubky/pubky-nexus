@@ -9,13 +9,16 @@ use deadpool_redis::redis::AsyncCommands;
 use nexus_common::db::get_redis_conn;
 use nexus_common::db::graph::exec::exec_single_row;
 use nexus_common::db::graph::Query;
+use nexus_common::db::RedisOps;
 use nexus_common::models::homeserver::{Homeserver, HsBlacklist};
 use nexus_common::models::post::PostDetails;
 use nexus_common::models::scope::{EverythingScope, HomeserverListScope, Scope, SeedHopsScope};
 use nexus_common::models::traits::Collection;
 use nexus_common::models::user::catch_up::{catching_up, caught_up, start_catch_up};
 use nexus_common::models::user::stub::mark_stub;
-use nexus_common::models::user::{set_user_homeserver, Epoch, UserDetails, UserIngestor};
+use nexus_common::models::user::{
+    set_user_homeserver, user_hs_cursor_key, Epoch, UserDetails, UserHsCursor, UserIngestor,
+};
 use nexus_common::types::DynError;
 use nexus_common::utils::test_utils::{default_ingestor_tests, random_pubky_id};
 use nexus_common::DEFAULT_MAX_FILE_SIZE;
@@ -469,6 +472,8 @@ async fn test_a_user_let_in_on_a_whole_feed_homeserver_catches_up() -> Result<()
         primary_homeserver: hs.clone(),
         scope,
         retry_scheduler,
+        catch_up_resume_points: Default::default(),
+        catch_up_not_found: Default::default(),
     };
     let run = || async {
         let processor = feed
@@ -492,5 +497,92 @@ async fn test_a_user_let_in_on_a_whole_feed_homeserver_catches_up() -> Result<()
 
     assert!(indexed, "the post written while it was out is read");
     assert_eq!(still_catching_up, vec![false]);
+    Ok(())
+}
+
+/// A catch-up that fails (here: a catching-up user's stored cursor is corrupt) doesn't
+/// hold up the whole feed: the feed's new records are still read.
+#[tokio_shared_rt::test(shared)]
+async fn test_a_failed_catch_up_doesnt_hold_up_the_feed() -> Result<()> {
+    let mut test = WatcherTest::setup(None)
+        .await?
+        .remove_event_processing()
+        .await;
+    let hs = test.homeserver_id.clone();
+
+    // A user catching up whose cursor can't be read.
+    let stuck = random_pubky_id();
+    UserDetails::from_pubky(stuck.clone())
+        .put_to_graph()
+        .await?;
+    set_user_homeserver(&stuck, &hs).await?;
+    start_catch_up(&stuck, &hs).await?;
+    let cursor_key = user_hs_cursor_key(&stuck);
+    UserHsCursor::put_index_sorted_set(&cursor_key, &[(-1.0, hs.as_ref())], None, None).await?;
+
+    // A member's new post, in the feed.
+    let member_kp = Keypair::random();
+    let member = PubkyAppUser {
+        bio: None,
+        image: None,
+        links: None,
+        name: "Watcher:CatchUp:Member".to_string(),
+        status: None,
+    };
+    test.create_user(&member_kp, &member).await?;
+    let post = PubkyAppPost {
+        content: "Watcher:CatchUp:FeedPost".to_string(),
+        kind: PubkyAppPostKind::Short,
+        parent: None,
+        embed: None,
+        attachments: None,
+        lock: None,
+    };
+    let (post_id, _) = test.create_post(&member_kp, &post).await?;
+    let member_id = PubkyId::from(member_kp.public_key());
+
+    let scope: Arc<dyn Scope> = Arc::new(HomeserverListScope::new(std::slice::from_ref(&hs)));
+    let ingestor = Arc::new(UserIngestor::with_scope(
+        Vec::<PubkyId>::new(),
+        scope.clone(),
+    ));
+    let event_handler: Arc<dyn EventHandler> = Arc::new(DefaultEventHandler::new(
+        default_moderation_tests(),
+        ingestor,
+        DEFAULT_MAX_FILE_SIZE,
+        PathBuf::from("/tmp/nexus-watcher-test"),
+    ));
+    let store: Arc<dyn RetryStore> = Arc::new(RedisRetryStore::new());
+    let feed = HsEventProcessorRunner {
+        limit: 1000,
+        event_handler,
+        shutdown_rx: tokio::sync::watch::channel(false).1,
+        primary_homeserver: hs.clone(),
+        scope,
+        retry_scheduler: Arc::new(RetryScheduler::new(
+            store,
+            InitialBackoff {
+                missing_dep_ms: 60_000,
+                transient_ms: 10_000,
+            },
+        )),
+        catch_up_resume_points: Default::default(),
+        catch_up_not_found: Default::default(),
+    };
+    let processor = feed
+        .build(hs.as_ref())
+        .await
+        .map_err(|e| anyhow::anyhow!(e))?;
+    let run = processor.run().await;
+    caught_up(&stuck).await?;
+    UserHsCursor::remove_all(&stuck).await?;
+
+    run.map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    assert!(
+        PostDetails::get_by_id(&member_id, &post_id)
+            .await?
+            .is_some(),
+        "the feed is read although the catch-up failed"
+    );
     Ok(())
 }

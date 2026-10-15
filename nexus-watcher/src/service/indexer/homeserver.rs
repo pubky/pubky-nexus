@@ -142,6 +142,12 @@ pub struct HsEventProcessor {
     /// Scheduler used to enqueue failed events onto the retry queue
     pub retry_scheduler: Arc<RetryScheduler>,
 
+    /// Where catch-up runs start, shared across polls by the runner
+    pub catch_up_resume_points: Arc<UserResumePoints>,
+
+    /// Catching-up users whose stream returned 404, shared across polls by the runner
+    pub catch_up_not_found: Arc<UserNotFoundBackoff>,
+
     /// Per-run cache of users' `HOSTED_BY` mappings. For a given user's events in
     /// the events list, only the 1st one results in a graph lookup, the rest read from this cache.
     ///
@@ -207,7 +213,12 @@ impl TEventProcessor for HsEventProcessor {
     }
 
     async fn run_internal(self: Arc<Self>) -> Result<RunOutcome, EventProcessorError> {
-        self.catch_up_users().await?;
+        // Before the feed, in the same task, so a record is never handled twice at once. A
+        // failure here (a user's stream down while the feed works) doesn't hold the feed
+        // up: the next poll tries the catch-up again.
+        if let Err(e) = self.catch_up_users().await {
+            warn!(error = ?e, "Catching users up failed; reading the feed anyway");
+        }
 
         let maybe_event_lines = self
             .poll_events()
@@ -241,11 +252,11 @@ impl HsEventProcessor {
             limit: self.limit,
             event_handler: self.event_handler.clone(),
             event_source: Arc::new(PubkyKeyBasedEventSource),
-            user_not_found_backoff: Arc::new(UserNotFoundBackoff::default()),
+            user_not_found_backoff: self.catch_up_not_found.clone(),
             hs_blacklist: HsBlacklist::default(),
             retry_scheduler: self.retry_scheduler.clone(),
             shutdown_rx: self.shutdown_rx.clone(),
-            user_resume_points: Arc::new(UserResumePoints::default()),
+            user_resume_points: self.catch_up_resume_points.clone(),
             budget: KEY_BASED_RUN_BUDGET,
         });
         users.run_internal().await?;

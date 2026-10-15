@@ -90,6 +90,8 @@ fn build_processor(
         event_handler,
         shutdown_rx,
         retry_scheduler,
+        catch_up_resume_points: Default::default(),
+        catch_up_not_found: Default::default(),
         hs_mapping_cache: Default::default(),
     })
 }
@@ -124,6 +126,8 @@ async fn build_processor_at_cursor(
         event_handler,
         shutdown_rx,
         retry_scheduler,
+        catch_up_resume_points: Default::default(),
+        catch_up_not_found: Default::default(),
         hs_mapping_cache: Default::default(),
     }))
 }
