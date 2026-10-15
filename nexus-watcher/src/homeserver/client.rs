@@ -223,11 +223,10 @@ impl HomeserverClient for PubkyHomeserverClient {
     ) -> Result<Vec<String>, HsError> {
         let error = |kind| HsError::new(hs, HsOp::PollEvents, kind);
 
-        let url = format!("https://{hs}/events/?cursor={cursor}&limit={limit}");
         let response = self
             .pubky
             .client()
-            .request(Method::GET, &url)
+            .request(Method::GET, &events_url(hs, cursor, limit))
             .send()
             .await
             .map_err(|e| error(HsErrorKind::from_reqwest(&e)))?;
@@ -331,6 +330,11 @@ where
     }
 }
 
+/// The primary-style `/events/` URL of `hs`, from `cursor` on, for at most `limit` events.
+fn events_url(hs: &PubkyId, cursor: u64, limit: u16) -> String {
+    format!("https://{hs}/events/?cursor={cursor}&limit={limit}")
+}
+
 /// Turns a `/events/` response into the lines it carries.
 ///
 /// The status is checked before the body is read: an error page has lines and
@@ -387,6 +391,16 @@ mod tests {
             .body(body.into())
             .expect("valid response");
         reqwest::Response::from(response)
+    }
+
+    // --- events_url ---
+
+    #[test]
+    fn events_url_carries_the_cursor_and_limit() {
+        assert_eq!(
+            events_url(&hs_id(), 42, 17),
+            format!("https://{HS_ID}/events/?cursor=42&limit=17")
+        );
     }
 
     // --- event_lines_from_response ---

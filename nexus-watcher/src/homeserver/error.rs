@@ -95,7 +95,8 @@ impl HsErrorKind {
     /// Classifies an SDK error so it is retried, or not, as `PubkyClientError::from` had it.
     ///
     /// A status lands by its code. A transport, PKARR or validation failure, which that
-    /// conversion turned into a retried `RequestFailed`, is a transport failure. An error
+    /// conversion turned into a retried `RequestFailed` (`PkarrFailed` for PKARR), is a
+    /// transport failure. An error
     /// building the request (`Parse`, `Build`, `Authentication`) is malformed, and stays
     /// permanent.
     pub fn from_sdk(error: pubky::Error) -> Self {
