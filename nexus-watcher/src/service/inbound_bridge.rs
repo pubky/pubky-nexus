@@ -32,6 +32,14 @@ use crate::service::runner::HomeserverBackoff;
 const PAGE_LIMIT: usize = 100;
 /// Prefix of each source's position: the newest notification timestamp handled.
 const POSITION_PREFIX: &str = "Scope:Bridge";
+/// Prefix of the records waiting for something they point at (record uri -> attempts).
+const PENDING_PREFIX: &str = "Scope:BridgePending";
+/// Polls a record waits for what it points at before it is given up.
+const MAX_PENDING_ATTEMPTS: u32 = 20;
+/// Records that may wait at once; past this, a new one is given up at once.
+const MAX_PENDING: usize = 10_000;
+/// Pages read from one source in one poll. The rest is read on the next poll.
+const MAX_PAGES: usize = 50;
 
 struct BridgeMetrics {
     records: Counter<u64>,
@@ -169,6 +177,9 @@ pub enum Outcome {
     /// Not bridged: its author is in scope (its own stream covers it), or it can't be
     /// read as a record.
     Skipped,
+    /// Points at something not indexed yet (e.g. the seed's post it replies to); kept
+    /// and tried again on the next polls.
+    Waiting,
     /// Couldn't be indexed (e.g. invalid); logged and left.
     Failed,
 }
@@ -179,6 +190,7 @@ impl Outcome {
             Self::Indexed => "indexed",
             Self::Removed => "removed",
             Self::Skipped => "skipped",
+            Self::Waiting => "waiting",
             Self::Failed => "failed",
         }
     }
@@ -251,9 +263,11 @@ impl InboundBridge {
         }
     }
 
-    /// Polls every source not in backoff. A failing source is backed off and the others
-    /// still run; the run fails only if every source failed.
+    /// Retries the records waiting from earlier polls, then polls every source not in
+    /// backoff. A failing source is backed off and the others still run; the run fails
+    /// only if every source failed.
     pub async fn poll(&self) -> Result<(), DynError> {
+        self.retry_pending().await?;
         let mut failed = 0;
         for source in &self.sources {
             if self.backoff.lock().await.should_skip(source.name()) {
@@ -287,9 +301,17 @@ impl InboundBridge {
     /// bridges each one's record. The position moves forward only past records that
     /// were handled: a record that couldn't be fetched for a passing reason stops the
     /// run there, and the next poll starts from it.
+    ///
+    /// One poll reads at most [`MAX_PAGES`] pages, newest first. If there is more, what
+    /// was read is handled but the position stays: a catch-up point (the oldest
+    /// notification read) is kept, the next polls page on down from it, and the position
+    /// moves once they reach it.
     pub async fn poll_source(&self, source: &dyn NotificationSource) -> Result<usize, DynError> {
         let position_key = format!("{POSITION_PREFIX}:{}:{}", self.seed, source.name());
+        let catch_up_key = format!("{position_key}:CatchUp");
         let position = read_position(&position_key).await?;
+        // (oldest read, newest handled) of a read the page budget cut short.
+        let catch_up: Option<(i64, i64)> = read_catch_up(&catch_up_key).await?;
         // At least the position, not past it: a notification sharing its timestamp is
         // read again (bridging is idempotent) rather than possibly missed.
         let end = position.or_else(|| {
@@ -297,17 +319,27 @@ impl InboundBridge {
                 .map(|lookback| chrono::Utc::now().timestamp_millis() - lookback.as_millis() as i64)
         });
 
-        let mut notifications = read_since(source, &self.seed, end).await?;
+        let start = catch_up.map(|(oldest_read, _)| oldest_read);
+        let Read {
+            mut notifications,
+            cut_short,
+        } = read_since(source, &self.seed, start, end).await?;
         notifications.sort_by_key(|notification| notification.timestamp);
 
         let mut handled = 0;
         let mut newest = None;
         for notification in &notifications {
             let uri = record_of(&notification.body, &self.seed);
-            let outcome = match self.bridge_record(&uri).await {
+            let outcome = // Boxed: the handlers make the future too large for a stack.
+            match Box::pin(self.bridge_record(&uri)).await {
+                Ok(Outcome::Waiting) => {
+                    self.start_waiting(&uri).await?;
+                    Outcome::Waiting
+                }
                 Ok(outcome) => outcome,
                 Err(e) => {
-                    if let Some(newest) = newest {
+                    // Past the handled records only if nothing older is still unread.
+                    if let (Some(newest), false, None) = (newest, cut_short, catch_up) {
                         write_position(&position_key, newest).await?;
                     }
                     return Err(format!("bridging {uri}: {e}").into());
@@ -320,10 +352,19 @@ impl InboundBridge {
             newest = Some(notification.timestamp);
         }
 
-        if let Some(newest) = newest {
-            write_position(&position_key, newest).await?;
-            let lag = chrono::Utc::now().timestamp_millis() - newest;
-            METRICS.lag_ms.record(lag.max(0) as u64, &[]);
+        // The newest notification handled, in this read or the reads it continues.
+        let newest = newest.max(catch_up.map(|(_, newest)| newest));
+        match (newest, notifications.first()) {
+            (Some(newest), Some(oldest)) if cut_short => {
+                write_catch_up(&catch_up_key, oldest.timestamp, newest).await?;
+            }
+            (Some(newest), _) => {
+                write_position(&position_key, newest).await?;
+                clear_catch_up(&catch_up_key).await?;
+                let lag = chrono::Utc::now().timestamp_millis() - newest;
+                METRICS.lag_ms.record(lag.max(0) as u64, &[]);
+            }
+            (None, _) => {}
         }
         Ok(handled)
     }
@@ -370,12 +411,74 @@ impl InboundBridge {
                     Err(e) => Err(e),
                 }
             }
+            Err(e) if e.is_missing_dependency() => Ok(Outcome::Waiting),
             Err(e) if is_passing(&e) => Err(e),
             Err(e) => {
                 debug!(%uri, error = %e, "Bridged record not indexed");
                 Ok(Outcome::Failed)
             }
         }
+    }
+}
+
+impl InboundBridge {
+    fn pending_key(&self) -> String {
+        format!("{PENDING_PREFIX}:{}", self.seed)
+    }
+
+    /// Keeps a record that waits for something it points at, to try it on the next
+    /// polls. One already waiting keeps its count, so a source repeating it can't keep it
+    /// waiting forever. Given up at once when too many records are waiting.
+    async fn start_waiting(&self, uri: &str) -> Result<(), DynError> {
+        let mut redis_conn = get_redis_conn().await?;
+        let key = self.pending_key();
+        let waiting: usize = redis_conn.hlen(&key).await?;
+        if waiting >= MAX_PENDING {
+            warn!(%uri, waiting, "Too many bridged records waiting; giving this one up");
+            return Ok(());
+        }
+        let _: bool = redis_conn.hset_nx(&key, uri, 0).await?;
+        Ok(())
+    }
+
+    /// Counts one more poll a record waited, and gives it up once it waited too long.
+    async fn keep_waiting(&self, uri: &str, attempts: u32) -> Result<(), DynError> {
+        let mut redis_conn = get_redis_conn().await?;
+        let key = self.pending_key();
+        if attempts >= MAX_PENDING_ATTEMPTS {
+            warn!(%uri, attempts, "Giving up a bridged record still waiting for what it points at");
+            let () = redis_conn.hdel(&key, uri).await?;
+        } else {
+            let () = redis_conn.hset(&key, uri, attempts).await?;
+        }
+        Ok(())
+    }
+
+    /// Tries again the records that waited on earlier polls. A passing failure stops the
+    /// round; what is left is tried on the next poll.
+    async fn retry_pending(&self) -> Result<(), DynError> {
+        let pending: Vec<(String, u32)> = {
+            let mut redis_conn = get_redis_conn().await?;
+            redis_conn.hgetall(self.pending_key()).await?
+        };
+        for (uri, attempts) in pending {
+            // Boxed: the handlers make the future too large for a stack.
+            match Box::pin(self.bridge_record(&uri)).await {
+                Ok(Outcome::Waiting) => self.keep_waiting(&uri, attempts + 1).await?,
+                Ok(outcome) => {
+                    METRICS
+                        .records
+                        .add(1, &[KeyValue::new("outcome", outcome.label())]);
+                    let mut redis_conn = get_redis_conn().await?;
+                    let () = redis_conn.hdel(self.pending_key(), &uri).await?;
+                }
+                Err(e) => {
+                    warn!(%uri, error = %e, "Retrying a waiting bridged record failed; next poll");
+                    break;
+                }
+            }
+        }
+        Ok(())
     }
 }
 
@@ -389,23 +492,41 @@ fn is_passing(error: &EventProcessorError) -> bool {
     )
 }
 
-/// Every notification of `user_id` from `source` at least as recent as `end`, paging
-/// newest first. Pages are chained by timestamp, not by an ever-growing skip, so a long
-/// history isn't capped by the endpoint's skip limit.
+/// What one [`read_since`] read.
+struct Read {
+    /// Newest first.
+    notifications: Vec<Notification>,
+    /// Whether the page budget ran out before the end was reached.
+    cut_short: bool,
+}
+
+/// The notifications of `user_id` from `source` at most as recent as `start` and at
+/// least as recent as `end`, paging newest first, at most [`MAX_PAGES`] pages. Pages are
+/// chained by timestamp, not by an ever-growing skip, so a long history isn't capped by
+/// the endpoint's skip limit. A page that doesn't go back in time (a source repeating
+/// itself) fails the read, so the source is backed off.
 async fn read_since(
     source: &dyn NotificationSource,
     user_id: &str,
+    mut start: Option<i64>,
     end: Option<i64>,
-) -> Result<Vec<Notification>, DynError> {
-    let mut notifications = Vec::new();
-    let mut start = None;
+) -> Result<Read, DynError> {
+    let mut notifications: Vec<Notification> = Vec::new();
     let mut skip = 0;
-    loop {
+    for _ in 0..MAX_PAGES {
         let page = source.page(user_id, start, end, skip).await?;
-        let full_page = page.len() == PAGE_LIMIT;
         let Some(oldest) = page.last().map(|notification| notification.timestamp) else {
-            break;
+            return Ok(Read {
+                notifications,
+                cut_short: false,
+            });
         };
+        let newest_first = page.windows(2).all(|w| w[0].timestamp >= w[1].timestamp);
+        let goes_back = start.is_none_or(|start| page[0].timestamp <= start);
+        if page.len() > PAGE_LIMIT || !newest_first || !goes_back {
+            return Err(format!("{} sent a page out of order", source.name()).into());
+        }
+        let full_page = page.len() == PAGE_LIMIT;
         // The next page starts at the oldest timestamp seen, skipping the notifications
         // already read at exactly that timestamp.
         let at_oldest = page.iter().filter(|n| n.timestamp == oldest).count();
@@ -417,10 +538,39 @@ async fn read_since(
         start = Some(oldest);
         notifications.extend(page);
         if !full_page {
-            break;
+            return Ok(Read {
+                notifications,
+                cut_short: false,
+            });
         }
     }
-    Ok(notifications)
+    Ok(Read {
+        notifications,
+        cut_short: true,
+    })
+}
+
+async fn read_catch_up(key: &str) -> Result<Option<(i64, i64)>, DynError> {
+    let mut redis_conn = get_redis_conn().await?;
+    let value: Option<String> = redis_conn.get(key).await?;
+    Ok(value.and_then(|value| {
+        let (oldest, newest) = value.split_once(':')?;
+        Some((oldest.parse().ok()?, newest.parse().ok()?))
+    }))
+}
+
+async fn write_catch_up(key: &str, oldest_read: i64, newest: i64) -> Result<(), DynError> {
+    let mut redis_conn = get_redis_conn().await?;
+    let () = redis_conn
+        .set(key, format!("{oldest_read}:{newest}"))
+        .await?;
+    Ok(())
+}
+
+async fn clear_catch_up(key: &str) -> Result<(), DynError> {
+    let mut redis_conn = get_redis_conn().await?;
+    let () = redis_conn.del(key).await?;
+    Ok(())
 }
 
 async fn read_position(key: &str) -> Result<Option<i64>, DynError> {
@@ -566,10 +716,56 @@ mod tests {
         all.extend((0..150).map(|_| follow_at(300)));
         let source = FakeSource(all);
 
-        assert_eq!(read_since(&source, SEED, None).await.unwrap().len(), 400);
+        let read = |end| read_since(&source, SEED, None, end);
+        assert_eq!(read(None).await.unwrap().notifications.len(), 400);
+        assert_eq!(read(Some(200)).await.unwrap().notifications.len(), 200);
+    }
+
+    /// A source repeating one full page fails the read instead of growing it forever.
+    #[tokio::test]
+    async fn a_source_repeating_a_page_fails_the_read() {
+        struct Repeating;
+
+        #[async_trait::async_trait]
+        impl NotificationSource for Repeating {
+            fn name(&self) -> &str {
+                "repeating"
+            }
+
+            async fn page(
+                &self,
+                _user_id: &str,
+                _start: Option<i64>,
+                _end: Option<i64>,
+                _skip: usize,
+            ) -> Result<Vec<Notification>, DynError> {
+                Ok((0..PAGE_LIMIT as i64).rev().map(follow_at).collect())
+            }
+        }
+
+        assert!(read_since(&Repeating, SEED, None, None).await.is_err());
+    }
+
+    /// One read stops at the page budget and says so; a read from where it stopped
+    /// reads on to the end.
+    #[tokio::test]
+    async fn a_long_history_is_read_over_several_polls() {
+        let total = (MAX_PAGES + 10) * PAGE_LIMIT;
+        let source = FakeSource((0..total as i64).map(follow_at).collect());
+
+        let first = read_since(&source, SEED, None, None).await.unwrap();
+        assert!(first.cut_short);
+        assert_eq!(first.notifications.len(), MAX_PAGES * PAGE_LIMIT);
+
+        let oldest_read = first.notifications.last().unwrap().timestamp;
+        let rest = read_since(&source, SEED, Some(oldest_read), None)
+            .await
+            .unwrap();
+        assert!(!rest.cut_short);
         assert_eq!(
-            read_since(&source, SEED, Some(200)).await.unwrap().len(),
-            200
+            rest.notifications.len(),
+            10 * PAGE_LIMIT + 1,
+            "from the oldest read on"
         );
     }
 }

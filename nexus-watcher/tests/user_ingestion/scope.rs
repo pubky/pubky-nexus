@@ -10,7 +10,7 @@ use nexus_common::models::scope::{HomeserverListScope, Scope};
 use nexus_common::models::traits::Collection;
 use nexus_common::models::user::{
     is_stub, set_user_homeserver, user_hs_cursor_key, UserCounts, UserDetails, UserIngestor,
-    USER_MOSTFOLLOWED_KEY_PARTS,
+    SCOPE_STATE_LEFT, USER_MOSTFOLLOWED_KEY_PARTS,
 };
 use nexus_common::utils::test_utils::random_pubky_id;
 use nexus_common::DEFAULT_MAX_FILE_SIZE;
@@ -318,5 +318,49 @@ async fn test_a_reply_under_a_long_stub_thread_lands_over_retries() -> Result<()
     assert!(PostDetails::get_by_id(&replier_id, &reply_id)
         .await?
         .is_some());
+    Ok(())
+}
+
+/// Narrowing a homeserver list lets the users on the dropped homeserver go; listing it
+/// again brings them back, although they left rather than being stubs.
+#[tokio_shared_rt::test(shared)]
+async fn test_listing_a_homeserver_again_brings_its_users_back() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let hs_pk = create_external_test_homeserver(&mut test).await?;
+    let (_, user_id) = user_on(&test, &hs_pk).await?;
+    let other_hs = PubkyId::from(hs_pk);
+    let maintainer = |homeservers: Vec<PubkyId>| {
+        let mut config = nexus_common::WatcherConfig::default();
+        config.stack.scope = nexus_common::ScopeConfig::Homeservers {
+            homeservers: homeservers.clone(),
+        };
+        let scope: Arc<dyn Scope> = Arc::new(HomeserverListScope::new(&homeservers));
+        let ingestor = UserIngestor::with_scope(Vec::<PubkyId>::new(), scope);
+        let limit_to = Some(vec![user_id.to_string()]);
+        (
+            ingestor.clone(),
+            nexus_watcher::service::scope_maintenance::ScopeMaintainer::new(
+                &config, ingestor, limit_to,
+            ),
+        )
+    };
+    let scope_state = || async {
+        let query = queries::get::get_user_scope_state(&user_id);
+        let state: Option<Option<String>> = fetch_key_from_graph(query, "scope_state").await?;
+        Ok::<_, anyhow::Error>(state.flatten())
+    };
+
+    let both = vec![test.homeserver_id.clone(), other_hs.clone()];
+    let (ingestor, wide) = maintainer(both.clone());
+    ingestor.maybe_ingest_user(&user_id).await?;
+    assert_eq!(scope_state().await?, None, "in scope");
+
+    let (_, narrow) = maintainer(vec![test.homeserver_id.clone()]);
+    narrow.at_start().await?;
+    assert_eq!(scope_state().await?.as_deref(), Some(SCOPE_STATE_LEFT));
+
+    let change = wide.at_start().await?;
+    assert_eq!(change.joined, 1);
+    assert_eq!(scope_state().await?, None, "back in scope");
     Ok(())
 }

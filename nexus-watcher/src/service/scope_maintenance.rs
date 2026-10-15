@@ -6,8 +6,9 @@
 //! - **everything**: at start, every user kept out of a previous, narrower scope is let
 //!   back in, and the HS resolver binds them.
 //! - **homeservers**: users who moved off the listed homeservers leave; at start after
-//!   the list changed, stubs now on a listed homeserver join.
-//! - **seed**: members are worked out from the graph and compared with the last result:
+//!   the list changed, users kept out (stubs, users that left) now on a listed
+//!   homeserver join.
+//! - **seed**: members are worked out from the graph and compared with who is in scope:
 //!   who is new joins, who is gone leaves.
 //!
 //! Joining binds a user to its homeserver with a cursor at 0; leaving unbinds it so it
@@ -22,7 +23,7 @@ use nexus_common::db::{fetch_key_from_graph, get_redis_conn, queries};
 use nexus_common::models::error::ModelResult;
 use nexus_common::models::scope::SeedHopsScope;
 use nexus_common::models::user::stub::{unstub, SCOPE_STATE_STUB};
-use nexus_common::models::user::UserIngestor;
+use nexus_common::models::user::{UserIngestor, SCOPE_STATE_LEFT};
 use nexus_common::types::DynError;
 use nexus_common::{ScopeConfig, WatcherConfig};
 use pubky_app_specs::PubkyId;
@@ -40,6 +41,15 @@ pub const SCOPE_MAINTENANCE_TICK_MS: u64 = 5_000;
 pub struct ScopeChange {
     pub joined: usize,
     pub left: usize,
+}
+
+/// What one [`ScopeMaintainer::apply`] did.
+struct Applied {
+    change: ScopeChange,
+    /// Users that left the scope.
+    left: Vec<String>,
+    /// New members that couldn't be brought in.
+    not_admitted: Vec<String>,
 }
 
 /// What there is to maintain for each kind of scope.
@@ -112,7 +122,7 @@ impl ScopeMaintainer {
             Kind::Homeservers(homeservers) => {
                 let mut change = self.drop_users_bound_outside(homeservers).await?;
                 if self.scope_changed().await? {
-                    change.joined += self.admit_stubs_on(homeservers).await?;
+                    change.joined += self.admit_outsiders_on(homeservers).await?;
                 }
                 change
             }
@@ -161,10 +171,14 @@ impl ScopeMaintainer {
         Ok(change)
     }
 
-    /// Works out the seed scope's members and compares them with the last result: who is
-    /// new joins, who is gone leaves. Without a last result (first run, or Redis lost),
-    /// `at_start` compares with every in-scope user in the graph, so a scope narrowed from
-    /// a wider one lets the others go.
+    /// Works out the seed scope's members and compares them with who is in scope now:
+    /// who is new joins, who is gone leaves.
+    ///
+    /// At start, and whenever there is no cached result, "in scope now" comes from the
+    /// graph, which records what was actually applied. The cache can be from another
+    /// scope (seed, then everything, then the same seed again) or hold changes a crash
+    /// interrupted. Between starts, the cache is used and kept true: a user only leaves it
+    /// once it has left, and joins it only once it has joined.
     async fn recompute_members(
         &self,
         seed_scope: &SeedHopsScope,
@@ -172,29 +186,37 @@ impl ScopeMaintainer {
     ) -> ModelResult<ScopeChange> {
         let members = seed_scope.members().await?;
         let previous = match seed_scope.cached_members().await? {
-            Some(previous) => previous,
-            None if at_start => self.in_scope_users().await?,
-            None => HashSet::new(),
+            Some(cached) if !at_start => cached,
+            _ => self.in_scope_users().await?,
         };
-        // Cached first, so the per-event check already agrees while users are moved.
-        seed_scope.cache_members(&members).await?;
-        let (change, not_admitted) = self.apply(&members, &previous).await;
-        // Out of the cache again, so the next recompute sees them as new and retries. Not
-        // forced sooner: a user that keeps failing (no published homeserver) is tried
-        // again at the next follow change or interval, not every tick.
-        seed_scope.forget_members(&not_admitted).await?;
-        Ok(change)
+        // Cached first, so the per-event check already agrees while users are moved. Users
+        // on their way out stay cached until they have left: they are still polled.
+        let mut cached = members.clone();
+        for user_id in previous.iter().filter(|id| !members.contains_key(*id)) {
+            cached.insert(user_id.clone(), seed_scope.hops());
+        }
+        seed_scope.cache_members(&cached).await?;
+        let applied = self.apply(&members, &previous).await;
+        // Out of the cache: the users that left, and the users that couldn't join, so the
+        // next recompute sees them as new and retries. Not forced sooner: a user that
+        // keeps failing (no published homeserver) is tried again at the next follow
+        // change or interval, not every tick. A user that couldn't leave stays cached, so
+        // the next recompute tries again.
+        let settled: Vec<String> = applied
+            .left
+            .into_iter()
+            .chain(applied.not_admitted)
+            .collect();
+        seed_scope.forget_members(&settled).await?;
+        Ok(applied.change)
     }
 
     /// Brings in who is new and lets go who is gone. One user failing (a lookup timing
-    /// out, no published homeserver) is logged and doesn't stop the others; it is
-    /// returned, so the caller can have it tried again.
-    async fn apply(
-        &self,
-        members: &HashMap<String, u8>,
-        previous: &HashSet<String>,
-    ) -> (ScopeChange, Vec<String>) {
+    /// out, no published homeserver) is logged and doesn't stop the others; the caller
+    /// is told who left and who couldn't join, and keeps the rest to try again.
+    async fn apply(&self, members: &HashMap<String, u8>, previous: &HashSet<String>) -> Applied {
         let mut change = ScopeChange::default();
+        let mut left = Vec::new();
         let mut not_admitted = Vec::new();
         for user_id in members.keys().filter(|id| !previous.contains(*id)) {
             match self.admit(user_id).await {
@@ -214,11 +236,18 @@ impl ScopeMaintainer {
             .filter(|id| !members.contains_key(*id) && **id != self.moderator.as_ref());
         for user_id in gone {
             match self.ingestor.demote(user_id).await {
-                Ok(()) => change.left += 1,
+                Ok(()) => {
+                    change.left += 1;
+                    left.push(user_id.clone());
+                }
                 Err(e) => warn!(%user_id, error = %e, "Could not let a member go"),
             }
         }
-        (change, not_admitted)
+        Applied {
+            change,
+            left,
+            not_admitted,
+        }
     }
 
     /// Brings a member in: ingested if new (in scope now, so bound and polled), promoted
@@ -260,15 +289,18 @@ impl ScopeMaintainer {
         Ok(change)
     }
 
-    /// For a homeserver list that changed: stubs whose homeserver is now listed join.
-    /// Each stub's homeserver is resolved, so this runs only when the list changed.
-    async fn admit_stubs_on(&self, homeservers: &[PubkyId]) -> ModelResult<usize> {
-        let query = queries::get::get_user_ids_by_scope_state(SCOPE_STATE_STUB);
-        let stubs: Vec<String> = fetch_key_from_graph(query, "user_ids")
-            .await?
-            .unwrap_or_default();
+    /// For a homeserver list that changed: users kept out (stubs, and users that left
+    /// when the list was narrowed) whose homeserver is now listed join. Each one's
+    /// homeserver is resolved, so this runs only when the list changed.
+    async fn admit_outsiders_on(&self, homeservers: &[PubkyId]) -> ModelResult<usize> {
+        let mut outsiders: Vec<String> = Vec::new();
+        for scope_state in [SCOPE_STATE_STUB, SCOPE_STATE_LEFT] {
+            let query = queries::get::get_user_ids_by_scope_state(scope_state);
+            let user_ids: Option<Vec<String>> = fetch_key_from_graph(query, "user_ids").await?;
+            outsiders.extend(user_ids.unwrap_or_default());
+        }
         let mut joined = 0;
-        for user_id in &stubs {
+        for user_id in &outsiders {
             if self
                 .limit_to
                 .as_ref()

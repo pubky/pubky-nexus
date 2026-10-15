@@ -16,8 +16,10 @@ use nexus_common::models::scope::{PinnedScope, Scope, SeedHopsScope};
 use nexus_common::models::user::{is_stub, UserIngestor};
 use nexus_common::types::DynError;
 use nexus_common::DEFAULT_MAX_FILE_SIZE;
+use nexus_watcher::events::handlers;
 use nexus_watcher::service::inbound_bridge::{InboundBridge, NotificationSource, Outcome};
 use pubky::Keypair;
+use pubky_app_specs::traits::TimestampId;
 use pubky_app_specs::{post_uri_builder, PubkyAppPostKind, PubkyAppTag, PubkyAppUser, PubkyId};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -316,4 +318,65 @@ async fn is_tagged(tagger: &str, post_id: &str, label: &str) -> Result<bool> {
     .param("label", label.to_string())
     .param("post_id", post_id.to_string());
     Ok(fetch_row_from_graph(query).await?.is_some())
+}
+
+/// An outsider's reply to a post of the seed's not indexed yet waits instead of being
+/// lost, although the position moves past it: a later poll lands it once the post is in.
+#[tokio_shared_rt::test(shared)]
+async fn test_a_reply_arriving_before_its_parent_waits_for_it() -> Result<()> {
+    let Setup {
+        mut test,
+        seed,
+        outsider_kp,
+        outsider,
+        ..
+    } = setup().await?;
+    // The seed's post, not indexed yet.
+    let parent = short_post("Watcher:Bridge:LateParent", None);
+    let parent_id = parent.create_id();
+    let parent_uri = post_uri_builder(seed.to_string(), parent_id.clone());
+    let (reply_id, _) = test
+        .create_post(
+            &outsider_kp,
+            &short_post("Watcher:Bridge:EarlyReply", Some(parent_uri.clone())),
+        )
+        .await?;
+
+    let source = Arc::new(FakeBigNexus::new("early"));
+    source.notify(NotificationBody::Reply {
+        replied_by: outsider.to_string(),
+        parent_post_uri: parent_uri.clone(),
+        reply_uri: post_uri_builder(outsider.to_string(), reply_id.clone()),
+        post_kind: PubkyAppPostKind::Short,
+    });
+    bridge(&seed, vec![source])
+        .poll()
+        .await
+        .map_err(|e| anyhow::anyhow!(e))?;
+    assert!(PostDetails::get_by_id(&outsider, &reply_id)
+        .await?
+        .is_none());
+
+    handlers::post::sync_put(
+        parent,
+        parent_uri,
+        seed.clone(),
+        parent_id,
+        &UserIngestor::default(),
+    )
+    .await
+    .map_err(|e| anyhow::anyhow!(e))?;
+    // No sources: only the waiting records are tried.
+    bridge(&seed, Vec::new())
+        .poll()
+        .await
+        .map_err(|e| anyhow::anyhow!(e))?;
+
+    assert!(
+        PostDetails::get_by_id(&outsider, &reply_id)
+            .await?
+            .is_some(),
+        "the reply lands once its parent is in"
+    );
+    Ok(())
 }

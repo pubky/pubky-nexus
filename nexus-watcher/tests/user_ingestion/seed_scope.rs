@@ -2,22 +2,25 @@
 //! order follows were read in, members leave when follows go, a narrower setting lets
 //! users go, and losing Redis loses nothing.
 
-use super::utils::{create_external_test_homeserver, user_on};
+use super::utils::{create_external_test_homeserver, short_post, user_on};
 use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
 use nexus_common::db::graph::Query;
 use nexus_common::db::{fetch_row_from_graph, get_redis_conn};
 use nexus_common::models::follow::{Followers, UserFollows};
+use nexus_common::models::post::PostDetails;
 use nexus_common::models::scope::{PinnedScope, Scope, SeedHopsScope};
 use nexus_common::models::traits::Collection;
 use nexus_common::models::user::stub::mark_stub;
-use nexus_common::models::user::{is_stub, UserDetails, UserIngestor};
+use nexus_common::models::user::{is_stub, set_user_homeserver, UserDetails, UserIngestor};
 use nexus_common::types::DynError;
 use nexus_common::{ScopeConfig, WatcherConfig};
+use nexus_watcher::events::handlers;
 use nexus_watcher::service::scope_bootstrap::{bootstrap_seed_scope, FollowingSource};
 use nexus_watcher::service::scope_maintenance::{ScopeChange, ScopeMaintainer};
 use pubky::Keypair;
-use pubky_app_specs::PubkyId;
+use pubky_app_specs::traits::TimestampId;
+use pubky_app_specs::{post_uri_builder, PubkyAppUser, PubkyId};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -324,5 +327,122 @@ async fn test_a_member_that_failed_to_join_is_retried() -> Result<()> {
 
     assert_eq!(change.joined, 1, "tried again and brought in");
     assert!(is_polled(&late).await?);
+    Ok(())
+}
+
+/// A seed scope, then "everything", then the same seed again: the users "everything" let
+/// in are let go, although the members cached by the first run look unchanged. Start
+/// compares with the graph, not with a cache that may be from another scope.
+#[tokio_shared_rt::test(shared)]
+async fn test_returning_to_a_seed_lets_go_who_joined_meanwhile() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let [seed, b, c, d] = users(&mut test).await?;
+    let all = [seed.clone(), b.clone(), c.clone(), d.clone()];
+    let (ingestor, maintainer) = seed_scope(&seed, 1, &all);
+
+    ingestor.ensure_in_scope(&seed).await?;
+    for user in [&b, &c] {
+        ingestor.maybe_ingest_user(user).await?;
+    }
+    follow(&seed, &b).await?;
+    maintainer.at_start().await?;
+    assert!(is_stub(&c).await?);
+
+    let mut everything = WatcherConfig::default();
+    everything.stack.scope = ScopeConfig::Everything;
+    let limit_to = all.iter().map(ToString::to_string).collect();
+    let widened = ScopeMaintainer::new(&everything, UserIngestor::default(), Some(limit_to));
+    widened.at_start().await?;
+    // What the HS resolver does for everyone under "everything": binds them.
+    let hs_id = UserIngestor::default()
+        .ensure_hs_not_blacklisted(&c)
+        .await?
+        .expect("c is on a homeserver");
+    set_user_homeserver(&c, &hs_id).await?;
+    assert!(is_polled(&c).await?);
+
+    let (_, maintainer) = seed_scope(&seed, 1, &all);
+    let change = maintainer.at_start().await?;
+
+    assert_eq!(change.left, 1);
+    assert_eq!(scope_state(&c).await?.as_deref(), Some("left"));
+    assert!(!is_polled(&c).await?, "no longer polled");
+    assert!(is_polled(&b).await?, "the member stays");
+    Ok(())
+}
+
+/// A start that cached a member but stopped before bringing it in (a crash) leaves a
+/// cache claiming a member that isn't polled. The next start goes by the graph and brings
+/// it in.
+#[tokio_shared_rt::test(shared)]
+async fn test_a_member_cached_but_never_brought_in_joins_at_the_next_start() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let [seed, b, c, d] = users(&mut test).await?;
+    let (ingestor, maintainer) = seed_scope(&seed, 1, &[seed.clone(), b.clone(), c, d]);
+    ingestor.ensure_in_scope(&seed).await?;
+    ingestor.maybe_ingest_user(&b).await?;
+    assert!(is_stub(&b).await?);
+    follow(&seed, &b).await?;
+
+    // What the interrupted start left: the cache says b is a member, the graph doesn't.
+    let seed_scope = SeedHopsScope::new(seed.clone(), 1);
+    seed_scope
+        .cache_members(&HashMap::from([(seed.to_string(), 0), (b.to_string(), 1)]))
+        .await?;
+
+    let change = maintainer.at_start().await?;
+
+    assert_eq!(change.joined, 1);
+    assert!(is_polled(&b).await?);
+    Ok(())
+}
+
+/// A member that left is no longer polled, so a new post of theirs is only read when an
+/// in-scope record needs it: a member's reply to it fetches it and lands at once.
+#[tokio_shared_rt::test(shared)]
+async fn test_a_reply_to_a_former_members_new_post_lands() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let hs_pk = create_external_test_homeserver(&mut test).await?;
+    // With a profile, so it has the counts its reply moves.
+    let seed_kp = Keypair::random();
+    let profile = PubkyAppUser {
+        bio: None,
+        image: None,
+        links: None,
+        name: "Watcher:Seed:Replier".to_string(),
+        status: None,
+    };
+    test.create_user(&seed_kp, &profile).await?;
+    let seed = PubkyId::from(seed_kp.public_key());
+    let (former_kp, former) = user_on(&test, &hs_pk).await?;
+    let (ingestor, maintainer) = seed_scope(&seed, 1, &[seed.clone(), former.clone()]);
+    ingestor.ensure_in_scope(&seed).await?;
+    ingestor.maybe_ingest_user(&former).await?;
+    follow(&seed, &former).await?;
+    maintainer.at_start().await?;
+    Followers::del_from_graph(&seed, &former).await?;
+    ingestor.scope().on_follow_changed(&seed).await?;
+    maintainer.tick().await?;
+    assert_eq!(scope_state(&former).await?.as_deref(), Some("left"));
+
+    // On the former member's homeserver, which nothing polls now.
+    let (post_id, _) = test
+        .create_post(&former_kp, &short_post("Watcher:Seed:FormerPost", None))
+        .await?;
+    let reply = short_post(
+        "Watcher:Seed:ReplyToFormer",
+        Some(post_uri_builder(former.to_string(), post_id.clone())),
+    );
+    let reply_id = reply.create_id();
+    let reply_uri = post_uri_builder(seed.to_string(), reply_id.clone());
+    handlers::post::sync_put(reply, reply_uri, seed.clone(), reply_id.clone(), &ingestor)
+        .await
+        .map_err(|e| anyhow::anyhow!(e))?;
+
+    assert!(PostDetails::get_by_id(&seed, &reply_id).await?.is_some());
+    assert!(
+        PostDetails::get_by_id(&former, &post_id).await?.is_some(),
+        "the former member's post was fetched for it"
+    );
     Ok(())
 }

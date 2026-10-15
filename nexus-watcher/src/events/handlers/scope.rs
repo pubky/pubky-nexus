@@ -1,9 +1,9 @@
 //! In-scope records that point at a post outside the scope.
 //!
 //! A reply, repost, tag or bookmark by an in-scope user can target a post whose author
-//! is a stub. That post is never read through its author's stream, so the record would
-//! wait for it forever. Instead, that post is fetched from its author's homeserver and
-//! indexed, with the out-of-scope parents it needs; nothing else of the stubs' is read.
+//! is a stub, or a former member that left the scope. That post is never read through
+//! its author's stream, so the record would wait for it forever. Instead, that post is fetched from its author's homeserver and
+//! indexed, with the out-of-scope parents it needs; nothing else of those authors' is read.
 
 use std::collections::HashSet;
 
@@ -11,7 +11,8 @@ use deadpool_redis::redis::AsyncCommands;
 use nexus_common::db::get_redis_conn;
 use nexus_common::models::post::{PostDetails, PostRelationships};
 use nexus_common::models::takedown::is_taken_down;
-use nexus_common::models::user::{is_stub, UserIngestor};
+use nexus_common::models::user::stub::is_unread;
+use nexus_common::models::user::UserIngestor;
 use pubky_app_specs::{ParsedUri, PubkyAppObject, PubkyAppPost, PubkyId, Resource};
 use tracing::{debug, warn};
 
@@ -39,7 +40,7 @@ struct Fetched {
 }
 
 /// Indexes the post at `post_uri`, and the out-of-scope posts it depends on, if its
-/// author is a stub and it isn't indexed yet.
+/// author's stream is unread (a stub, or a member that left) and it isn't indexed yet.
 ///
 /// The chain is collected by walking up through parents and reposted posts, then saved
 /// oldest first, so every post's targets exist when it is saved. If the budget runs
@@ -52,7 +53,7 @@ pub(super) async fn index_out_of_scope_post(
     post_uri: &ParsedUri,
     ingestor: &UserIngestor,
 ) -> Result<bool, EventProcessorError> {
-    if WALKING.try_with(|_| ()).is_ok() || !is_stub(&post_uri.user_id).await? {
+    if WALKING.try_with(|_| ()).is_ok() || !is_unread(&post_uri.user_id).await? {
         return Ok(false);
     }
     let target = post_uri
@@ -115,7 +116,7 @@ async fn collect_chain(
             .map_err(EventProcessorError::generic)?;
         if !seen.insert(uri.clone())
             || is_taken_down(&uri).await?
-            || !is_stub(author_id).await?
+            || !is_unread(author_id).await?
             || PostDetails::get_by_id(author_id, post_id).await?.is_some()
         {
             continue;

@@ -307,14 +307,16 @@ its tags take content down. Its own follows never add members.
 counts, but no `HOSTED_BY` and no cursor, so the resolver and the indexers never touch
 it. Follows, tags and mentions of stubs by in-scope users are indexed. Stubs are kept out
 of the most-followed and influencer rankings, and their posts out of the global feeds
-(timeline, engagement, tag streams): they appear where they meet the scope, in threads,
+(timeline, engagement, tag streams, and the `source=all` shapes served from the graph,
+such as a kind filter or several tags): they appear where they meet the scope, in threads,
 counts, notifications and their own profile. A Redis set (`Scope:Stubs`) mirrors the
 graph for the per-write check and is rebuilt at start.
 
-**Out-of-scope targets.** When an in-scope reply, repost, tag or bookmark targets a stub's
-post, the chain of out-of-scope posts it depends on is fetched from their homeservers and
+**Out-of-scope targets.** When an in-scope reply, repost, tag or bookmark targets a post
+nobody's stream reads (a stub's, or a `left` member's), the chain of out-of-scope posts it depends on is fetched from their homeservers and
 saved oldest first, up to 20 fetches per attempt; a longer chain resumes on the record's
-next retry from where it stopped (`Scope:FetchResume`). Nothing else of the stubs' is read.
+next retry from where it stopped (`Scope:FetchResume`). Nothing else of those authors' is
+read.
 
 **Takedowns are remembered.** Posts, tags and files the moderator takes down are recorded
 (`:Takedown` nodes, mirrored in `Moderation:Removed`), and an event for one is dropped
@@ -325,14 +327,16 @@ come back by writing a new profile, as before.
 made whatever order it was read in, so the same follows always give the same members. It
 is cached in `Scope:Members:<seed>` for the per-event check and recomputed at start,
 within seconds of a member's follow or unfollow, and every
-`[watcher.scope_maintenance] interval_ms` (default 5 min). Each recompute compares with
-the last: new members are bound with a cursor at 0 and read from the start of their
+`[watcher.scope_maintenance] interval_ms` (default 5 min). A recompute compares with who
+is in scope: the cache between starts, the graph at start (the cache may be from another
+scope, or hold changes a crash interrupted). New members are bound with a cursor at 0 and read from the start of their
 stream; members who are gone are marked `left`, unbound and their cursor dropped, so they
-stop being polled. **Their content stays**; removing it is not implemented yet.
+stop being polled; one that couldn't be let go stays cached and is tried again. **Their
+content stays**; removing it is not implemented yet.
 
 **Changing the scope** works both ways at the next start: a narrower scope lets the
 others go; `everything` lets every stub and `left` user back in (the resolver binds
-them); a changed homeserver list admits stubs now on a listed HS. A homeserver scope
+them); a changed homeserver list admits stubs and `left` users now on a listed HS. A homeserver scope
 also lets go of users who moved off its homeservers, every interval.
 
 An event by a user still bound and polled but not counted in scope (e.g. right after
@@ -346,7 +350,8 @@ watcher asks that Nexus who the seed follows, and who they follow, up to `hops`
 members for 24 hours, so their own follows get read from their homeservers; the graph
 then confirms them or lets them go. Content always comes from homeservers. It runs once
 per seed and hop count (`Scope:Bootstrapped:<seed>:<hops>`), in the background, and falls
-back to crawling after 3 failed requests.
+back to crawling after 3 failed requests. It is bounded whatever the Nexus answers: at most
+20,000 requests and 50,000 suggested users, past which crawling finds the rest.
 
 **Inbound bridge — `[watcher.inbound_bridge]`** (seed scope only). Users outside the
 scope are never read, so their replies, mentions, reposts, tags and follows of the seed
@@ -356,7 +361,11 @@ notification into the record it is about, and fetches that record from its autho
 homeserver: indexed if there, deleted if gone (untags, deleted posts). A Nexus only says
 where to look, never what is there. Members' records are left to their own streams. Each
 source keeps its own position (`Scope:Bridge:<seed>:<url>`) and backoff; the first run
-reads `lookback_days` back (0 = all). It sees only what the seed is notified of: not
+reads `lookback_days` back (0 = all). One poll reads at most 50 pages; a longer backlog is
+read over the next polls (`Scope:Bridge:<seed>:<url>:CatchUp`), and a source sending pages
+out of order is backed off. A record whose target isn't indexed yet (e.g. the seed's post
+it replies to) waits in `Scope:BridgePending:<seed>` and is tried again each poll, for up
+to 20 polls, with at most 10,000 waiting. It sees only what the seed is notified of: not
 bookmarks, not outsiders replying to each other, and not an outsider's plain unfollow.
 
 Metrics: `watcher.events.out_of_scope`, `watcher.events.taken_down`,

@@ -4,6 +4,7 @@
 //! out from the graph confirm or drop each suggested user (see `docs/decentralization.md`).
 
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use futures::{stream, StreamExt, TryStreamExt};
@@ -22,6 +23,11 @@ const MAX_FOLLOWS_PER_USER: usize = 10_000;
 const MAX_ATTEMPTS: u32 = 3;
 /// Requests to the big Nexus in flight at once.
 const CONCURRENT_REQUESTS: usize = 8;
+/// Requests to the big Nexus in one bootstrap. Past it, the bootstrap stops with what
+/// it found and crawling finds the rest.
+const MAX_REQUESTS: usize = 20_000;
+/// Users suggested in one bootstrap, for the same reason.
+const MAX_SUGGESTED: usize = 50_000;
 
 /// Where "who does this user follow?" is asked: a big Nexus over HTTP, or a fake in tests.
 #[async_trait::async_trait]
@@ -48,6 +54,10 @@ impl FollowingSource for NexusFollowing {
 
 /// Everyone the seed reaches in at most `hops` follows according to `source`, with their
 /// distance. The seed itself is left out: it is always a member.
+///
+/// Bounded whatever the source answers: each answer is merged as it arrives, and the
+/// bootstrap stops at [`MAX_REQUESTS`] requests or [`MAX_SUGGESTED`] users with what it
+/// found so far.
 pub async fn suggested_members(
     seed: &str,
     hops: u8,
@@ -56,37 +66,63 @@ pub async fn suggested_members(
     let mut seen = HashSet::from([seed.to_string()]);
     let mut suggested = HashMap::new();
     let mut frontier = vec![seed.to_string()];
+    let requests = AtomicUsize::new(0);
 
-    for hop in 1..=hops {
+    'hops: for hop in 1..=hops {
         // A hop's users are asked about concurrently; the answers are merged in frontier
         // order, so the result is the same as asking one at a time.
-        let followees: Vec<Vec<String>> = stream::iter(frontier)
-            .map(|user_id| async move { all_following(&user_id, source).await })
-            .buffered(CONCURRENT_REQUESTS)
-            .try_collect()
-            .await?;
+        let mut answers = stream::iter(frontier)
+            .map(|user_id| {
+                let requests = &requests;
+                async move { all_following(&user_id, source, requests).await }
+            })
+            .buffered(CONCURRENT_REQUESTS);
         let mut next = Vec::new();
-        for followee in followees.into_iter().flatten() {
-            if seen.insert(followee.clone()) {
-                suggested.insert(followee.clone(), hop);
-                next.push(followee);
+        while let Some(followees) = answers.try_next().await? {
+            for followee in followees {
+                if suggested.len() >= MAX_SUGGESTED {
+                    warn!(
+                        MAX_SUGGESTED,
+                        "Bootstrap suggested as many users as it may; crawling finds the rest"
+                    );
+                    break 'hops;
+                }
+                if seen.insert(followee.clone()) {
+                    suggested.insert(followee.clone(), hop);
+                    next.push(followee);
+                }
             }
+        }
+        if requests.load(Ordering::Relaxed) >= MAX_REQUESTS {
+            warn!(
+                MAX_REQUESTS,
+                "Bootstrap made as many requests as it may; crawling finds the rest"
+            );
+            break;
         }
         frontier = next;
     }
     Ok(suggested)
 }
 
+/// Who the user follows, at most [`MAX_FOLLOWS_PER_USER`]; less once the bootstrap's
+/// requests run out.
 async fn all_following(
     user_id: &str,
     source: &dyn FollowingSource,
+    requests: &AtomicUsize,
 ) -> Result<Vec<String>, DynError> {
     let mut followees = Vec::new();
     while followees.len() < MAX_FOLLOWS_PER_USER {
-        let Some(page) = with_retries(|| source.following(user_id, followees.len())).await? else {
+        if requests.fetch_add(1, Ordering::Relaxed) >= MAX_REQUESTS {
+            break;
+        }
+        let Some(mut page) = with_retries(|| source.following(user_id, followees.len())).await?
+        else {
             break;
         };
-        let full_page = page.len() == PAGE_LIMIT;
+        let full_page = page.len() >= PAGE_LIMIT;
+        page.truncate(PAGE_LIMIT);
         followees.extend(page);
         if !full_page {
             break;
@@ -221,5 +257,31 @@ mod tests {
 
         assert_eq!(suggested.len(), 450);
         assert_eq!(*source.1.lock().unwrap(), 3, "200 + 200 + 50");
+    }
+
+    /// A source where everyone follows 10,000 users no one else follows, and pages are
+    /// oversized: the bootstrap still stops at its bounds.
+    #[tokio::test]
+    async fn a_huge_follow_graph_is_read_within_bounds() {
+        struct Endless(Mutex<usize>);
+
+        #[async_trait::async_trait]
+        impl FollowingSource for Endless {
+            async fn following(
+                &self,
+                user_id: &str,
+                skip: usize,
+            ) -> Result<Option<Vec<String>>, DynError> {
+                *self.0.lock().unwrap() += 1;
+                let followees = (skip..skip + PAGE_LIMIT * 2).map(|i| format!("{user_id}/{i}"));
+                Ok(Some(followees.collect()))
+            }
+        }
+
+        let source = Endless(Mutex::new(0));
+        let suggested = suggested_members("seed", 3, &source).await.unwrap();
+
+        assert_eq!(suggested.len(), MAX_SUGGESTED);
+        assert!(*source.0.lock().unwrap() <= MAX_REQUESTS);
     }
 }

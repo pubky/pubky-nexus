@@ -11,7 +11,7 @@
 use crate::db::kv::{sets, RedisResult};
 use crate::db::{exec_single_row, fetch_key_from_graph, queries, RedisOps};
 use crate::models::error::ModelResult;
-use crate::models::user::UserCounts;
+use crate::models::user::{UserCounts, SCOPE_STATE_LEFT};
 
 /// `scope_state` of a user known to this Nexus but outside its scope.
 pub const SCOPE_STATE_STUB: &str = "stub";
@@ -19,6 +19,17 @@ const STUBS: (&str, &str) = ("Scope", "Stubs");
 
 pub async fn is_stub(user_id: &str) -> RedisResult<bool> {
     sets::is_member(STUBS.0, STUBS.1, user_id).await
+}
+
+/// Whether nothing reads the user's stream: a stub, or a former member that left the
+/// scope. A post of theirs that an in-scope record needs has to be fetched for it.
+pub async fn is_unread(user_id: &str) -> ModelResult<bool> {
+    if is_stub(user_id).await? {
+        return Ok(true);
+    }
+    let query = queries::get::get_user_scope_state(user_id);
+    let scope_state: Option<Option<String>> = fetch_key_from_graph(query, "scope_state").await?;
+    Ok(scope_state.flatten().as_deref() == Some(SCOPE_STATE_LEFT))
 }
 
 /// Makes an existing user node a stub, with zeroed counts outside the rankings.
