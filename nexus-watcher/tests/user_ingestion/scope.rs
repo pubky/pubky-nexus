@@ -515,3 +515,107 @@ async fn test_an_admission_whose_homeserver_was_not_found_is_retried() -> Result
     assert!(!is_stub(&late).await?);
     Ok(())
 }
+
+/// A member's reply to a post by a known stub whose homeserver is now blacklisted doesn't
+/// fetch that post: the blacklist is checked for every direct fetch, not only on ingestion.
+#[tokio_shared_rt::test(shared)]
+async fn test_a_known_stub_on_a_blacklisted_homeserver_is_not_fetched() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let hs_pk = create_external_test_homeserver(&mut test).await?;
+    let (outsider_kp, outsider_id) = user_on(&test, &hs_pk).await?;
+    let (parent_id, _) = test
+        .create_post(
+            &outsider_kp,
+            &short_post("Watcher:Scope:BlacklistedParent", None),
+        )
+        .await?;
+    let replier_id = member(&mut test, "BlacklistReplier").await?;
+    // Known as a stub before its homeserver was blacklisted.
+    scoped_ingestor(&test)
+        .maybe_ingest_user(&outsider_id)
+        .await?;
+    assert_user_is_stub(&outsider_id).await;
+
+    let scope: Arc<dyn Scope> = Arc::new(HomeserverListScope::new(std::slice::from_ref(
+        &test.homeserver_id,
+    )));
+    let blacklisting = UserIngestor::with_scope([PubkyId::from(hs_pk)], scope);
+    let reply = short_post(
+        "Watcher:Scope:ReplyToBlacklisted",
+        Some(post_uri_builder(outsider_id.to_string(), parent_id.clone())),
+    );
+    let reply_id = reply.create_id();
+    let reply_uri = post_uri_builder(replier_id.to_string(), reply_id.clone());
+    let result =
+        handlers::post::sync_put(reply, reply_uri, replier_id, reply_id, &blacklisting).await;
+
+    assert!(result.is_err(), "the reply can't land without its parent");
+    assert!(
+        PostDetails::get_by_id(&outsider_id, &parent_id)
+            .await?
+            .is_none(),
+        "nothing is read from a blacklisted homeserver"
+    );
+    Ok(())
+}
+
+/// A stub whose Redis entry is missing (the Redis half of marking it failed) is still
+/// treated as one: a member's reply to its post fetches the post, and the entry is put
+/// back.
+#[tokio_shared_rt::test(shared)]
+async fn test_a_stub_missing_from_redis_is_repaired_by_a_targeted_fetch() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let hs_pk = create_external_test_homeserver(&mut test).await?;
+    let (outsider_kp, outsider_id) = user_on(&test, &hs_pk).await?;
+    let (parent_id, _) = test
+        .create_post(
+            &outsider_kp,
+            &short_post("Watcher:Scope:RepairParent", None),
+        )
+        .await?;
+    let replier_id = member(&mut test, "RepairReplier").await?;
+    // A stub in the graph only.
+    UserDetails::from_pubky(outsider_id.clone())
+        .put_to_graph()
+        .await?;
+    let query = queries::put::set_user_scope_state(&outsider_id, Some("stub"));
+    nexus_common::db::exec_single_row(query).await?;
+    assert!(!is_stub(&outsider_id).await?);
+
+    let ingestor = scoped_ingestor(&test);
+    let reply = short_post(
+        "Watcher:Scope:ReplyToRepaired",
+        Some(post_uri_builder(outsider_id.to_string(), parent_id.clone())),
+    );
+    let reply_id = reply.create_id();
+    let reply_uri = post_uri_builder(replier_id.to_string(), reply_id.clone());
+    handlers::post::sync_put(reply, reply_uri, replier_id, reply_id, &ingestor).await?;
+
+    assert!(PostDetails::get_by_id(&outsider_id, &parent_id)
+        .await?
+        .is_some());
+    assert!(is_stub(&outsider_id).await?, "back in Scope:Stubs");
+    Ok(())
+}
+
+/// A user let back in is read from the start, even if a poll still running when it left
+/// wrote a cursor after its cursors were removed.
+#[tokio_shared_rt::test(shared)]
+async fn test_a_user_let_back_in_is_read_from_the_start() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let hs_pk = create_external_test_homeserver(&mut test).await?;
+    let (_, user_id) = user_on(&test, &hs_pk).await?;
+    let hs_id = PubkyId::from(hs_pk).to_string();
+    let ingestor = UserIngestor::default();
+    ingestor.maybe_ingest_user(&user_id).await?;
+    ingestor.demote(&user_id).await?;
+    // What a poll still running when the user left writes back.
+    nexus_common::models::user::UserHsCursor::write(&user_id, &hs_id, 500).await?;
+
+    assert!(ingestor.promote(&user_id).await?);
+
+    let cursors =
+        nexus_common::models::user::UserHsCursor::read(&[user_id.as_ref()], &hs_id).await?;
+    assert_eq!(cursors, vec![0], "read from the start");
+    Ok(())
+}

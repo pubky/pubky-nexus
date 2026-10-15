@@ -1,3 +1,4 @@
+pub mod catch_up;
 mod counts;
 mod cursor;
 mod details;

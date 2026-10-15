@@ -2,14 +2,18 @@ use crate::event_processor::utils::default_moderation_tests;
 use crate::service::utils::HS_IDS;
 use crate::service::utils::{create_mock_event_processors, setup, MockEventProcessorRunner};
 
+use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
 use chrono::Utc;
 use nexus_common::db::graph::exec::exec_single_row;
 use nexus_common::db::graph::Query;
 use nexus_common::models::homeserver::{Homeserver, HsBlacklist};
+use nexus_common::models::post::PostDetails;
 use nexus_common::models::scope::{EverythingScope, HomeserverListScope, Scope, SeedHopsScope};
 use nexus_common::models::traits::Collection;
-use nexus_common::models::user::{set_user_homeserver, Epoch, UserDetails};
+use nexus_common::models::user::catch_up::{catching_up, caught_up, start_catch_up};
+use nexus_common::models::user::stub::mark_stub;
+use nexus_common::models::user::{set_user_homeserver, Epoch, UserDetails, UserIngestor};
 use nexus_common::types::DynError;
 use nexus_common::utils::test_utils::{default_ingestor_tests, random_pubky_id};
 use nexus_common::DEFAULT_MAX_FILE_SIZE;
@@ -21,7 +25,9 @@ use nexus_watcher::service::runner::{UserNotFoundBackoff, UserResumePoints};
 use nexus_watcher::service::{
     KeyBasedEventProcessorRunner, TEventProcessorRunner, KEY_BASED_RUN_BUDGET,
 };
+use pubky::Keypair;
 use pubky_app_specs::PubkyId;
+use pubky_app_specs::{PubkyAppPost, PubkyAppPostKind, PubkyAppUser};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -373,5 +379,94 @@ async fn test_key_based_runner_polls_the_primary_homeserver_for_a_seed_scope(
     let seed = Arc::new(SeedHopsScope::new(random_pubky_id(), 2));
     let hs_ids = key_based_runner(&primary, seed).pre_run().await?;
     assert!(hs_ids.contains(&primary.to_string()));
+    Ok(())
+}
+
+/// A homeserver read whole is read user by user only for users catching up there.
+#[tokio_shared_rt::test(shared)]
+async fn test_key_based_runner_reads_a_whole_feed_homeserver_for_users_catching_up(
+) -> Result<(), DynError> {
+    setup().await?;
+    let [primary, listed] = active_homeservers(2).await?.try_into().unwrap();
+    let scope = Arc::new(HomeserverListScope::new(std::slice::from_ref(&listed)));
+    let runner = key_based_runner(&primary, scope);
+    assert!(!runner.pre_run().await?.contains(&listed.to_string()));
+
+    let user_id = random_pubky_id().to_string();
+    start_catch_up(&user_id, &listed).await?;
+    let while_catching_up = runner.pre_run().await;
+    caught_up(&user_id).await?;
+
+    assert!(while_catching_up?.contains(&listed.to_string()));
+    assert!(!runner.pre_run().await?.contains(&listed.to_string()));
+    Ok(())
+}
+
+/// A user let into a homeserver scope gets the records it wrote while it was out, although
+/// its homeserver's feed is read whole and moved past them: its own stream is read from the
+/// start until it is empty.
+#[tokio_shared_rt::test(shared)]
+async fn test_a_user_let_in_on_a_whole_feed_homeserver_catches_up() -> Result<()> {
+    // Nothing indexed as it is written: the user's records are skipped, as while it was out.
+    let mut test = WatcherTest::setup(None)
+        .await?
+        .remove_event_processing()
+        .await;
+    let user_kp = Keypair::random();
+    let user = PubkyAppUser {
+        bio: None,
+        image: None,
+        links: None,
+        name: "Watcher:CatchUp:User".to_string(),
+        status: None,
+    };
+    test.create_user(&user_kp, &user).await?;
+    let post = PubkyAppPost {
+        content: "Watcher:CatchUp:Post".to_string(),
+        kind: PubkyAppPostKind::Short,
+        parent: None,
+        embed: None,
+        attachments: None,
+        lock: None,
+    };
+    let (post_id, _) = test.create_post(&user_kp, &post).await?;
+    let user_id = PubkyId::from(user_kp.public_key());
+    UserDetails::from_pubky(user_id.clone())
+        .put_to_graph()
+        .await?;
+    mark_stub(&user_id).await?;
+
+    let hs = test.homeserver_id.clone();
+    let scope: Arc<dyn Scope> = Arc::new(HomeserverListScope::new(std::slice::from_ref(&hs)));
+    let ingestor = UserIngestor::with_scope(Vec::<PubkyId>::new(), scope.clone());
+    assert!(ingestor.promote(&user_id).await?);
+
+    let runner = key_based_runner(&hs, scope);
+    assert!(runner
+        .pre_run()
+        .await
+        .map_err(|e| anyhow::anyhow!(e))?
+        .contains(&hs.to_string()));
+    runner
+        .build(hs.as_ref())
+        .await
+        .map_err(|e| anyhow::anyhow!(e))?
+        .run()
+        .await
+        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    assert!(
+        PostDetails::get_by_id(&user_id, &post_id).await?.is_some(),
+        "the post written while it was out is read"
+    );
+
+    // Its stream has nothing left: caught up, and its homeserver is read whole only again.
+    runner
+        .build(hs.as_ref())
+        .await
+        .map_err(|e| anyhow::anyhow!(e))?
+        .run()
+        .await
+        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    assert_eq!(catching_up(&[user_id.as_ref()]).await?, vec![false]);
     Ok(())
 }

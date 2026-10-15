@@ -24,13 +24,24 @@ pub async fn is_stub(user_id: &str) -> RedisResult<bool> {
 
 /// Whether nothing reads the user's stream: a stub, or a former member that left the
 /// scope. A post of theirs that an in-scope record needs has to be fetched for it.
+///
+/// Goes by the graph, the source of truth: a stub whose `Scope:Stubs` entry is missing (the
+/// Redis half of [`mark_stub`] failed) is put back in the set, so the rest of the watcher
+/// treats it as a stub too.
 pub async fn is_unread(user_id: &str) -> ModelResult<bool> {
     if is_stub(user_id).await? {
         return Ok(true);
     }
     let query = queries::get::get_user_scope_state(user_id);
     let scope_state: Option<Option<String>> = fetch_key_from_graph(query, "scope_state").await?;
-    Ok(scope_state.flatten().as_deref() == Some(SCOPE_STATE_LEFT))
+    match scope_state.flatten().as_deref() {
+        Some(SCOPE_STATE_STUB) => {
+            sets::put(STUBS.0, STUBS.1, &[user_id], None).await?;
+            Ok(true)
+        }
+        Some(SCOPE_STATE_LEFT) => Ok(true),
+        _ => Ok(false),
+    }
 }
 
 /// Makes an existing user node a stub, with zeroed counts outside the rankings.

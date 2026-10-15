@@ -9,6 +9,7 @@ use crate::models::error::{ModelError, ModelResult};
 use crate::models::homeserver::HsBlacklist;
 use crate::models::scope::{scope_from_config, watcher_scope, EverythingScope, Scope};
 use crate::models::traits::Collection;
+use crate::models::user::catch_up::start_catch_up;
 use crate::models::user::stub::{mark_stub, unstub};
 use crate::models::user::{set_user_homeserver, UserDetails, UserHsCursor};
 use crate::{ScopeConfig, StackConfig, WatcherConfig};
@@ -203,6 +204,11 @@ impl UserIngestor {
         // out of scope there and the next promotion retries the whole of it (the stub set
         // is rebuilt from the graph at start).
         Self::bind_to_homeserver(user_id, &hs_id).await?;
+        // Read from the start: its records were skipped while it was out, also in the
+        // feeds of the homeservers read whole, and a poll still running when it left may
+        // have written a cursor back.
+        UserHsCursor::reset(user_id, &hs_id).await?;
+        start_catch_up(user_id, &hs_id).await?;
         unstub(user_id).await?;
         exec_single_row(queries::put::set_user_scope_state(user_id, None)).await?;
         tracing::info!("Brought {user_id} into the scope");

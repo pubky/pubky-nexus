@@ -322,7 +322,8 @@ its counts back into the rankings and its already-indexed posts into the global 
 nobody's stream reads (a stub's, or a `left` member's), the chain of out-of-scope posts it depends on is fetched from their homeservers and
 saved oldest first, up to 20 fetches per attempt; a longer chain resumes on the record's
 next retry from where it stopped (`Scope:FetchResume`). Nothing else of those authors' is
-read.
+read. Every direct fetch checks the author's homeserver against the blacklist,
+also for an author already known.
 
 **Takedowns are remembered.** Posts, tags and files the moderator takes down are recorded
 (`:Takedown` nodes, mirrored in `Moderation:Removed`), and an event for one is dropped
@@ -336,7 +337,9 @@ within seconds of a member's follow or unfollow, and every
 `[watcher.scope_maintenance] interval_ms` (default 5 min). A recompute compares with who
 is in scope: the cache between starts, the graph at start (the cache may be from another
 scope, or hold changes a crash interrupted). New members are bound with a cursor at 0 and read from the start of their
-stream; members who are gone are marked `left`, unbound and their cursor dropped, so they
+stream (also on a homeserver whose feed is read whole: its own stream is read until
+it is empty, `Scope:CatchUp`, as the feed has moved past what was skipped); members who are
+gone are marked `left`, unbound and their cursor dropped, so they
 stop being polled; one that couldn't be let go stays cached and is tried again. **Their
 content stays**; removing it is not implemented yet.
 

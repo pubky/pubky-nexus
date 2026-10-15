@@ -10,6 +10,7 @@ use std::time::Duration;
 
 use deadpool_redis::redis::AsyncCommands;
 use nexus_common::db::get_redis_conn;
+use nexus_common::models::error::ModelError;
 use nexus_common::models::notification::{Notification, NotificationBody};
 use nexus_common::models::user::UserIngestor;
 use nexus_common::types::DynError;
@@ -386,9 +387,14 @@ impl InboundBridge {
         }
         match self.ingestor.maybe_ingest_user(author).await {
             Ok(()) => {}
-            Err(nexus_common::models::error::ModelError::HsBlacklisted { .. }) => {
-                return Ok(Outcome::Skipped)
-            }
+            Err(ModelError::HsBlacklisted { .. }) => return Ok(Outcome::Skipped),
+            Err(e) => return Err(e.into()),
+        }
+        // Also for an author already known, which `maybe_ingest_user` doesn't look up: its
+        // homeserver may have been blacklisted since.
+        match self.ingestor.ensure_hs_not_blacklisted(author).await {
+            Ok(_) => {}
+            Err(ModelError::HsBlacklisted { .. }) => return Ok(Outcome::Skipped),
             Err(e) => return Err(e.into()),
         }
 

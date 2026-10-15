@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::{
     sync::{Arc, LazyLock},
     time::Duration,
@@ -10,7 +11,7 @@ use crate::events::Event;
 use futures::StreamExt;
 use nexus_common::db::PubkyConnector;
 use nexus_common::models::homeserver::HsBlacklist;
-use nexus_common::models::user::UserHsCursor;
+use nexus_common::models::user::{catch_up, UserHsCursor};
 use opentelemetry::metrics::Counter;
 use opentelemetry::{global, KeyValue};
 use pubky::errors::RequestError;
@@ -105,11 +106,18 @@ impl KeyBasedEventSource for PubkyKeyBasedEventSource {
     }
 }
 
+/// The users of a run with their cursors, and those of them catching up.
+type ResolvedUsers = (Vec<(PublicKey, EventCursor)>, HashSet<PublicKey>);
+
 /// Event processor for third-party (external) HSs, where the user-specific `/events-stream`
 /// endpoint is used
 pub struct KeyBasedEventProcessor {
     /// The HS endpoint this processor fetches events from
     pub homeserver_id: PubkyId,
+
+    /// Whether this homeserver's whole feed is read elsewhere: only its users catching up
+    /// (let into the scope, see `catch_up`) have their own stream read here.
+    pub catch_up_only: bool,
 
     /// Max events the homeserver will send before closing the stream.
     /// Bounds execution time per user, preventing timeout and starvation.
@@ -171,7 +179,7 @@ impl TEventProcessor for KeyBasedEventProcessor {
         let hs_pk = self.homeserver_id.to_public_key();
         let deadline = Instant::now() + self.budget;
 
-        let mut users = self
+        let (mut users, catching_up) = self
             .resolve_users_with_cursors()
             .await
             .inspect_err(|e| error!(error = ?e, "Failed to resolve users"))?;
@@ -201,7 +209,16 @@ impl TEventProcessor for KeyBasedEventProcessor {
                 continue;
             }
 
-            match self.process_user(&hs_pk, user_pk, *cursor, deadline).await {
+            match self
+                .process_user(
+                    &hs_pk,
+                    user_pk,
+                    *cursor,
+                    catching_up.contains(user_pk),
+                    deadline,
+                )
+                .await
+            {
                 Ok(()) => self.user_not_found_backoff.record_success(user_pk).await,
                 Err(err) => {
                     if err.should_not_retry_now() {
@@ -253,11 +270,10 @@ impl TEventProcessor for KeyBasedEventProcessor {
 }
 
 impl KeyBasedEventProcessor {
-    /// Resolves monitored users on this homeserver and reads their cursors from Redis.
+    /// Resolves monitored users on this homeserver, reads their cursors from Redis, and
+    /// whether each is catching up. With [`Self::catch_up_only`], only those catching up.
     #[tracing::instrument(name = "dx.users.resolve", skip_all)]
-    async fn resolve_users_with_cursors(
-        &self,
-    ) -> Result<Vec<(PublicKey, EventCursor)>, EventProcessorError> {
+    async fn resolve_users_with_cursors(&self) -> Result<ResolvedUsers, EventProcessorError> {
         let hs_id: &str = self.homeserver_id.as_ref();
         let user_ids = user_hs_resolver::get_user_ids_by_homeserver(hs_id).await?;
         debug!(user_count = user_ids.len(), "Resolved users");
@@ -272,15 +288,28 @@ impl KeyBasedEventProcessor {
         }
 
         let user_id_strs: Vec<&str> = valid_users.iter().map(|(_, id)| *id).collect();
+        let catching_up = catch_up::catching_up(&user_id_strs).await?;
+        let (valid_users, catching_up): (Vec<_>, Vec<_>) = valid_users
+            .into_iter()
+            .zip(catching_up)
+            .filter(|(_, catching_up)| *catching_up || !self.catch_up_only)
+            .unzip();
+        let user_id_strs: Vec<&str> = valid_users.iter().map(|(_, id)| *id).collect();
         let cursors = UserHsCursor::read(&user_id_strs, hs_id).await?;
 
+        let catching_up = valid_users
+            .iter()
+            .zip(catching_up)
+            .filter(|(_, catching_up)| *catching_up)
+            .map(|((pk, _), _)| pk.clone())
+            .collect();
         let users = valid_users
             .into_iter()
             .zip(cursors)
             .map(|((pk, _), cursor)| (pk, EventCursor::new(cursor)))
             .collect();
 
-        Ok(users)
+        Ok((users, catching_up))
     }
 
     /// Subscribes to the event stream for a single user and processes incoming events.
@@ -293,12 +322,17 @@ impl KeyBasedEventProcessor {
         hs_pk: &PublicKey,
         user_pk: &PublicKey,
         cursor: EventCursor,
+        catching_up: bool,
         deadline: Instant,
     ) -> Result<(), EventProcessorError> {
         let hs_id: &str = self.homeserver_id.as_ref();
         let stream_events = self
             .fetch_user_events_with_429_backoff(hs_pk, user_pk, cursor)
             .await?;
+        // A user catching up whose stream has nothing left has caught up.
+        if catching_up && stream_events.is_empty() {
+            catch_up::caught_up(&user_pk.z32()).await?;
+        }
 
         let user_id = user_pk.z32();
         let (latest_cursor, result) = self

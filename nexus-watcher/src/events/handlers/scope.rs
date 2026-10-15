@@ -9,6 +9,7 @@ use std::collections::HashSet;
 
 use deadpool_redis::redis::AsyncCommands;
 use nexus_common::db::get_redis_conn;
+use nexus_common::models::error::ModelError;
 use nexus_common::models::post::{PostDetails, PostRelationships};
 use nexus_common::models::takedown::is_taken_down;
 use nexus_common::models::user::stub::is_unread;
@@ -124,6 +125,19 @@ async fn collect_chain(
         if *budget == 0 {
             stopped_at.get_or_insert(uri);
             continue;
+        }
+        // Checked for every fetch, also for an author already known: its homeserver may
+        // have been blacklisted since, or it may have moved onto a blacklisted one.
+        match ingestor.ensure_hs_not_blacklisted(author_id).await {
+            Ok(_) => {}
+            Err(ModelError::HsBlacklisted { hs_id }) => {
+                debug!(%uri, %hs_id, "Not fetching an out-of-scope post from a blacklisted homeserver");
+                continue;
+            }
+            Err(e) => {
+                warn!(%uri, error = %e, "Could not check the homeserver of an out-of-scope post");
+                continue;
+            }
         }
         *budget -= 1;
 
