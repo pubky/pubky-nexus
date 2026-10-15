@@ -652,12 +652,14 @@ mod tests {
             ]
         };
 
+        // The fetch fails before any body is read, so the blob cap plays no part.
+        let unused_cap = 1024;
         let mut errors = Vec::new();
         for kind in failures() {
             errors.push(get_resource_with(&resource, async { Err(kind) }).await);
         }
         for kind in failures() {
-            errors.push(get_blob_with(&resource, 1024, async { Err(kind) }).await);
+            errors.push(get_blob_with(&resource, unused_cap, async { Err(kind) }).await);
         }
 
         for error in errors {
