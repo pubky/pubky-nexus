@@ -1,5 +1,5 @@
 use super::utils::{assert_user_ingested, create_external_test_homeserver, short_post, user_on};
-use crate::event_processor::utils::watcher::WatcherTest;
+use crate::event_processor::utils::watcher::{rank_user, WatcherTest};
 use crate::utils::default_moderation_tests;
 use anyhow::Result;
 use nexus_common::db::graph::Query;
@@ -266,6 +266,50 @@ async fn test_bookmark_of_an_unknown_outsider_post_lands() -> Result<()> {
         "the bookmarked post is fetched"
     );
     assert_user_is_stub(&outsider_id).await;
+    Ok(())
+}
+
+/// A stub's post fetched for a member's reply joins the global timeline once its
+/// author is promoted into scope.
+#[tokio_shared_rt::test(shared)]
+async fn test_a_promoted_stub_posts_join_the_timeline() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let hs_pk = create_external_test_homeserver(&mut test).await?;
+    let (outsider_kp, outsider_id) = user_on(&test, &hs_pk).await?;
+    let (parent_id, _) = test
+        .create_post(
+            &outsider_kp,
+            &short_post("Watcher:Scope:PromotedParent", None),
+        )
+        .await?;
+
+    let replier_id = member(&mut test, "PromoteReplier").await?;
+    let ingestor = scoped_ingestor(&test);
+    ingestor.maybe_ingest_user(&outsider_id).await?;
+
+    let reply = short_post(
+        "Watcher:Scope:PromotedReply",
+        Some(post_uri_builder(outsider_id.to_string(), parent_id.clone())),
+    );
+    let reply_id = reply.create_id();
+    let reply_uri = post_uri_builder(replier_id.to_string(), reply_id.clone());
+    handlers::post::sync_put(reply, reply_uri, replier_id, reply_id, &ingestor).await?;
+    let member_parts: [&str; 2] = [&outsider_id, &parent_id];
+    let in_timeline =
+        || PostDetails::check_sorted_set_member(None, &POST_TIMELINE_KEY_PARTS, &member_parts);
+    assert!(in_timeline().await?.is_none(), "kept out while a stub");
+
+    // `user_on` leaves the outsider out of the trust ranking, which hides its posts
+    // while the filter is on. Rank it as `WatcherTest::create_user` does.
+    rank_user(&outsider_id).await?;
+    assert!(
+        ingestor.promote(&outsider_id).await?,
+        "bound to its homeserver"
+    );
+    assert!(
+        in_timeline().await?.is_some(),
+        "the promoted user's post joins the global timeline"
+    );
     Ok(())
 }
 

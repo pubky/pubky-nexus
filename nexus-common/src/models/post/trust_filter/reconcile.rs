@@ -174,6 +174,13 @@ async fn authors_outside(set: &BTreeSet<String>) -> ModelResult<Vec<String>> {
     Ok(authors)
 }
 
+/// Writes `author`'s posts into every shared set the live ranking admits them to.
+/// A stub's posts were kept out of the global feeds, so its promotion puts them back.
+pub(crate) async fn show_author(author: &str) -> ModelResult<()> {
+    let mut conn = get_redis_conn().await?;
+    write_pages(&mut conn, author, Write::Show, POSTS_PAGE).await
+}
+
 #[derive(Debug, Clone, Copy)]
 pub(super) enum Write {
     /// Remove the author's entries, unless the live ranking admits them.
