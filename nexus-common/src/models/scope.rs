@@ -264,17 +264,23 @@ impl SeedHopsScope {
             .iter()
             .map(|id| (expires_at, id.as_ref()))
             .collect();
-        ScopeIndex::put_index_sorted_set(&["Suggested", &self.seed], &scored, Some("Scope"), None)
-            .await
+        let hops = self.hops.to_string();
+        let key_parts = ["Suggested", self.seed.as_ref(), &hops];
+        ScopeIndex::put_index_sorted_set(&key_parts, &scored, Some("Scope"), None).await
     }
 
     /// The suggested users whose suggestion hasn't expired; expired ones are dropped.
     async fn suggested_members(&self) -> RedisResult<Vec<String>> {
         let now = chrono::Utc::now().timestamp_millis();
-        let key = self.key("Suggested");
+        let key = self.suggested_key();
         let mut redis_conn = get_redis_conn().await?;
         let () = redis_conn.zrembyscore(&key, "-inf", now).await?;
         Ok(redis_conn.zrangebyscore(&key, now, "+inf").await?)
+    }
+
+    /// Per hop count, so narrowing `hops` drops what was suggested for more.
+    fn suggested_key(&self) -> String {
+        format!("{}:{}", self.key("Suggested"), self.hops)
     }
 
     /// Whether a big Nexus already suggested the members for this seed and hop count.
@@ -445,6 +451,33 @@ mod tests {
             .param("id", user.to_string());
             crate::db::exec_single_row(delete).await?;
         }
+        Ok(())
+    }
+
+    /// A suggestion made for more hops doesn't admit anyone to a narrower scope.
+    #[tokio_shared_rt::test(shared)]
+    async fn suggestions_are_kept_per_hop_count() -> Result<(), crate::types::DynError> {
+        crate::StackManager::setup(&crate::StackConfig::default()).await?;
+        let seed = PubkyId::from(pubky::Keypair::random().public_key());
+        let suggested = PubkyId::from(pubky::Keypair::random().public_key());
+        let wide = SeedHopsScope::new(seed.clone(), 3);
+        let narrow = SeedHopsScope::new(seed.clone(), 1);
+
+        wide.suggest_members(std::slice::from_ref(&suggested))
+            .await?;
+        let wide_members = wide.members().await?;
+        let narrow_members = narrow.members().await?;
+
+        // Clean up before asserting, under the old and the new key, so nothing leaks.
+        let mut redis_conn = get_redis_conn().await?;
+        let suggested_keys = [
+            format!("Scope:Suggested:{seed}"),
+            format!("Scope:Suggested:{seed}:3"),
+        ];
+        let () = redis_conn.del(&suggested_keys).await?;
+
+        assert!(wide_members.contains_key(suggested.as_ref()), "3 hops");
+        assert!(!narrow_members.contains_key(suggested.as_ref()), "1 hop");
         Ok(())
     }
 
