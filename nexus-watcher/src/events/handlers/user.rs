@@ -44,6 +44,7 @@ pub async fn sync_put(
             Ok::<(), EventProcessorError>(())
         },
         async {
+            // TODO(flip): caches `V0`, not the epoch stored in the graph.
             UserDetails::put_to_index(&[&user_details.id], vec![Some(user_details.clone())])
                 .await?;
             Ok::<(), EventProcessorError>(())
@@ -99,13 +100,14 @@ pub async fn del(user_id: PubkyId) -> Result<(), EventProcessorError> {
             // 2. Graph-first: write the tombstone before the cache. Collection::get_by_ids
             // repopulates the cache from the graph on a miss, so writing the cache first
             // would let a concurrent read cache the live profile again afterwards.
-            // The tombstone keeps the stored `uri`.
+            // The tombstone keeps the stored `uri` and its epoch in the graph.
             let tombstone = UserDetails::tombstone(&user_id);
             tombstone.put_to_graph().await?;
 
             // 3. Cache the tombstone rather than invalidating: the users-by-tag removal
             // guard reads `$.deleted` from this document and a missing key reads as
             // live, so a concurrent tag event would re-add the user.
+            // TODO(flip): caches `V0`, not the epoch stored in the graph.
             UserDetails::put_to_index(&[&tombstone.id], vec![Some(tombstone.clone())]).await?;
 
             // 4. Evict the user from every per-label users-by-tag sorted set.

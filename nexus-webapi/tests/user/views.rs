@@ -246,6 +246,26 @@ async fn test_deleted_flag_in_details_and_view() -> Result<()> {
     Ok(())
 }
 
+/// Assert that `epoch` appears on both the `/details` and `/user` (view) responses
+/// as the string `v0`. Seeded users carry no `epoch` property, so they read as `v0`.
+#[tokio_shared_rt::test(shared)]
+async fn test_epoch_in_details_and_view() -> Result<()> {
+    let user_id = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
+
+    // /v0/user/{id}/details
+    let details = get_request(&format!("/v0/user/{user_id}/details")).await?;
+    assert_eq!(details["epoch"], "v0", "seeded user must report epoch: v0");
+
+    // /v0/user/{id} (UserView embeds UserDetails)
+    let view = get_request(&format!("/v0/user/{user_id}")).await?;
+    assert_eq!(
+        view["details"]["epoch"], "v0",
+        "seeded user must report epoch: v0 in view response"
+    );
+
+    Ok(())
+}
+
 // ##### Social graph status #####
 // Fixture: wot.cypher scores D1 0.4, D2 0.2, D1B 0.1, and trust.cypher every other
 // user but the wot on-ramp accounts 0.3: D1 tops the ranking, D2 and D1B sit below
