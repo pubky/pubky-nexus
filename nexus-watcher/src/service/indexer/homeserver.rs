@@ -174,7 +174,7 @@ impl TEventProcessor for HsEventProcessor {
     ///   diverged): log a warning and skip until the resolver realigns it.
     /// - An edge to a different homeserver: log a warning and skip.
     async fn should_process_event(&self, event: &Event) -> Result<bool, EventProcessorError> {
-        let user_id = event.parsed_uri.user_id();
+        let user_id = event.target.user_id();
 
         match self.user_hs_mapping(user_id).await? {
             // No mapping yet (graceful fallback) or actively bound here: process.
