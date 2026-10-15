@@ -29,9 +29,9 @@ pub struct MockHomeserverClient {
     /// Useful when graph user ordering is intentionally not part of the assertion.
     user_events: Mutex<HashMap<String, UserEventsResult>>,
 
-    /// User IDs, cursors, and limits requested from the mock, in fetch order.
+    /// Homeservers, user IDs, cursors, and limits requested from the mock, in fetch order.
     /// Useful for asserting the processor continued to, or stopped before, specific users.
-    calls: Mutex<Vec<(String, u64, u16)>>,
+    calls: Mutex<Vec<(String, String, u64, u16)>>,
 
     /// Bodies served by `get_resource`, by URI. Any other URI is a 404.
     resources: HashMap<String, Vec<u8>>,
@@ -90,11 +90,11 @@ impl MockHomeserverClient {
             .lock()
             .await
             .iter()
-            .map(|(user_id, _, _)| user_id.clone())
+            .map(|(_, user_id, _, _)| user_id.clone())
             .collect()
     }
 
-    pub async fn call_details(&self) -> Vec<(String, u64, u16)> {
+    pub async fn call_details(&self) -> Vec<(String, String, u64, u16)> {
         self.calls.lock().await.clone()
     }
 }
@@ -139,7 +139,7 @@ impl HomeserverClient for MockHomeserverClient {
         self.calls
             .lock()
             .await
-            .push((user_id.clone(), cursor, limit));
+            .push((hs.to_string(), user_id.clone(), cursor, limit));
 
         let result = match self.user_events.lock().await.remove(&user_id) {
             Some(result) => result,
