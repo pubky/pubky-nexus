@@ -622,7 +622,7 @@ mod tests {
         use nexus_common::db::PubkyClientError;
 
         let owner = pubky::Keypair::random().public_key();
-        let resource: PubkyResource = format!("pubky{}/pub/pubky.app/files/0001", owner.z32())
+        let resource: PubkyResource = format!("pubky://{}/pub/pubky.app/files/0001", owner.z32())
             .parse()
             .expect("valid resource");
         let failures = || {

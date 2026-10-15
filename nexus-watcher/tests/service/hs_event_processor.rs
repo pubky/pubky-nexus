@@ -860,7 +860,6 @@ async fn test_handler_from_config_resolves_homeservers_through_its_client() -> R
     setup().await?;
 
     let blacklisted_hs = random_pubky_id();
-    let user_id = random_pubky_id();
     let blob_uri = blob_uri_builder(
         random_user_id(),
         PubkyAppBlob::new(b"blob".to_vec()).create_id(),
@@ -872,7 +871,7 @@ async fn test_handler_from_config_resolves_homeservers_through_its_client() -> R
         size: 4,
         created_at: Utc::now().timestamp_millis(),
     };
-    let file_uri = file_uri_builder(user_id.to_string(), file.create_id());
+    let file_uri = file_uri_builder(random_user_id(), file.create_id());
     let client = Arc::new(
         MockHomeserverClient::default()
             .with_homeserver_of(blacklisted_hs.clone())

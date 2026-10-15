@@ -24,6 +24,7 @@ impl Default for UserIngestor {
     }
 }
 
+/// Names the blacklist only: the resolver is a trait object.
 impl std::fmt::Debug for UserIngestor {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("UserIngestor")
