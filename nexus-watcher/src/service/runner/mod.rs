@@ -139,6 +139,7 @@ mod tests {
     use super::*;
     use crate::errors::EventProcessorError;
     use crate::events::{Event, EventHandler};
+    use crate::service::indexer::RunOutcome;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use tokio::sync::Mutex;
 
@@ -192,12 +193,12 @@ mod tests {
             Some(self.slow_run_threshold)
         }
 
-        async fn run_internal(self: Arc<Self>) -> Result<(), EventProcessorError> {
+        async fn run_internal(self: Arc<Self>) -> Result<RunOutcome, EventProcessorError> {
             let running = self.running.fetch_add(1, Ordering::SeqCst) + 1;
             self.peak.fetch_max(running, Ordering::SeqCst);
             tokio::time::sleep(self.work).await;
             self.running.fetch_sub(1, Ordering::SeqCst);
-            Ok(())
+            Ok(RunOutcome::Completed)
         }
     }
 
@@ -323,6 +324,42 @@ mod tests {
             }
             Ok(())
         });
+    }
+
+    /// Processor whose every run stops at its budget.
+    struct BudgetProcessor {
+        handler: Arc<dyn EventHandler>,
+    }
+
+    #[async_trait::async_trait]
+    impl TEventProcessor for BudgetProcessor {
+        fn event_handler(&self) -> &Arc<dyn EventHandler> {
+            &self.handler
+        }
+
+        fn instance_name(&self) -> &'static str {
+            "BudgetProcessor"
+        }
+
+        async fn run_internal(self: Arc<Self>) -> Result<RunOutcome, EventProcessorError> {
+            Ok(RunOutcome::BudgetSpent)
+        }
+    }
+
+    /// A run that stops at its budget is reported as such, apart from success and failure.
+    #[tokio::test]
+    async fn a_spent_budget_is_its_own_run_status() {
+        let processor = Arc::new(BudgetProcessor {
+            handler: Arc::new(NoopHandler),
+        });
+
+        let result = processor.run().await;
+
+        assert!(matches!(result, Err(RunError::BudgetSpent)), "{result:?}");
+        assert_eq!(
+            status_from_run_result(result),
+            ProcessorRunStatus::BudgetSpent
+        );
     }
 
     /// Pins a known limitation: the tick waits for every run, so a run that never returns

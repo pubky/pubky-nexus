@@ -9,7 +9,7 @@ use nexus_common::models::user::{set_user_homeserver, UserDetails};
 use nexus_watcher::errors::EventProcessorError;
 use nexus_watcher::events::retry::RetryScheduler;
 use nexus_watcher::events::EventHandler;
-use nexus_watcher::service::TEventProcessor;
+use nexus_watcher::service::{RunOutcome, TEventProcessor};
 use pubky::Keypair;
 use pubky_app_specs::PubkyId;
 use tokio::sync::watch::Receiver;
@@ -48,7 +48,7 @@ impl TEventProcessor for MockEventProcessor {
         None
     }
 
-    async fn run_internal(self: Arc<Self>) -> Result<(), EventProcessorError> {
+    async fn run_internal(self: Arc<Self>) -> Result<RunOutcome, EventProcessorError> {
         // Simulate a long-running task if needed, but be responsive to shutdown
         // This simulates the processing of event lines, which can take a while but can be interrupted by the shutdown signal
         if let Some(sleep_duration) = self.sleep_duration {
@@ -56,13 +56,13 @@ impl TEventProcessor for MockEventProcessor {
             tokio::select! {
                 _ = tokio::time::sleep(sleep_duration) => {},
                 _ = shutdown_rx.changed() => {
-                    return Ok(());
+                    return Ok(RunOutcome::Completed);
                 }
             }
         }
 
         match &self.processor_status {
-            MockEventProcessorResult::Success => Ok(()),
+            MockEventProcessorResult::Success => Ok(RunOutcome::Completed),
             MockEventProcessorResult::Error(e) => Err(EventProcessorError::Generic(e.clone())),
             MockEventProcessorResult::Panic => panic!("Event processor panicked: unknown error"),
         }

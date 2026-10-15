@@ -16,12 +16,22 @@ use tracing::{debug, error, trace, warn, Instrument};
 /// OpenTelemetry meter name shared by all watcher indexer metrics.
 pub(super) const METER_NAME: &str = "nexus.watcher";
 
+/// How a run of an event processor ended when it did not fail.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RunOutcome {
+    /// The run did all the work it found.
+    Completed,
+    /// The run stopped at its budget with work left, keeping the cursors it reached. Not an
+    /// event failure: nothing is retried. See [`KeyBasedEventProcessor::budget`].
+    BudgetSpent,
+}
+
 /// Possible error types of an event processor run
 #[derive(Debug)]
 pub enum RunError {
     Internal(EventProcessorError),
     Panicked,
-    /// The run stopped at its budget, see [`EventProcessorError::RunBudgetSpent`]
+    /// The run stopped at its budget, see [`RunOutcome::BudgetSpent`]
     BudgetSpent,
 }
 
@@ -123,24 +133,25 @@ pub trait TEventProcessor: Send + Sync + 'static {
             })
             .map_err(|_| RunError::Panicked)?;
 
-        run_internal_result.map_err(|e| match e {
-            EventProcessorError::RunBudgetSpent => RunError::BudgetSpent,
-            e => {
+        match run_internal_result {
+            Ok(RunOutcome::Completed) => Ok(()),
+            Ok(RunOutcome::BudgetSpent) => Err(RunError::BudgetSpent),
+            Err(e) => {
                 error!(
                     service = %instance_name,
                     homeserver,
                     error = ?e,
                     "Event processor failed"
                 );
-                RunError::Internal(e)
+                Err(RunError::Internal(e))
             }
-        })
+        }
     }
 
     /// Runs the event processor asynchronously.
     ///
-    /// Returns `Ok(())` on a clean exit, or `Err(EventProcessorError)` on failure.
-    async fn run_internal(self: Arc<Self>) -> Result<(), EventProcessorError>;
+    /// Returns how the run ended, or `Err(EventProcessorError)` on failure.
+    async fn run_internal(self: Arc<Self>) -> Result<RunOutcome, EventProcessorError>;
 
     /// How long a run of this event processor may take before it is logged as slow.
     ///

@@ -19,7 +19,7 @@ use pubky_app_specs::PubkyId;
 use tokio::sync::watch::Receiver;
 use tracing::{debug, error, info, warn};
 
-use super::TEventProcessor;
+use super::{RunOutcome, TEventProcessor};
 use crate::events::retry::RetryScheduler;
 use crate::events::EventHandler;
 use crate::service::runner::{UserNotFoundBackoff, UserResumePoints};
@@ -136,7 +136,7 @@ pub struct KeyBasedEventProcessor {
     /// How long a run may spend on this homeserver, so it cannot hold up the other
     /// homeservers of the external loop. Once spent, the run stops after the event in
     /// progress, keeps the cursors it reached, starts no other user, and ends with
-    /// [`EventProcessorError::RunBudgetSpent`].
+    /// [`RunOutcome::BudgetSpent`].
     pub budget: Duration,
 }
 
@@ -158,7 +158,7 @@ impl TEventProcessor for KeyBasedEventProcessor {
         Some(self.homeserver_id.as_ref())
     }
 
-    async fn run_internal(self: Arc<Self>) -> Result<(), EventProcessorError> {
+    async fn run_internal(self: Arc<Self>) -> Result<RunOutcome, EventProcessorError> {
         let hs_id = self.homeserver_id.to_string();
 
         // Blacklisted HSs must never be indexed. The runner already excludes
@@ -178,7 +178,7 @@ impl TEventProcessor for KeyBasedEventProcessor {
 
         if users.is_empty() {
             debug!("No users, skipping");
-            return Ok(());
+            return Ok(RunOutcome::Completed);
         }
 
         info!(user_count = users.len(), "Found users");
@@ -187,7 +187,7 @@ impl TEventProcessor for KeyBasedEventProcessor {
         for (index, (user_pk, cursor)) in users.iter().enumerate() {
             if *self.shutdown_rx.borrow() {
                 debug!("Shutdown detected; stopping user iteration");
-                return Ok(());
+                return Ok(RunOutcome::Completed);
             }
             let user_id = user_pk.z32();
 
@@ -239,12 +239,12 @@ impl TEventProcessor for KeyBasedEventProcessor {
                 self.user_resume_points
                     .record_stop_after(&hs_id, &users, index)
                     .await;
-                return Err(EventProcessorError::RunBudgetSpent);
+                return Ok(RunOutcome::BudgetSpent);
             }
         }
 
         self.user_resume_points.record_full_pass(&hs_id).await;
-        Ok(())
+        Ok(RunOutcome::Completed)
     }
 
     fn slow_run_threshold(&self) -> Option<Duration> {
