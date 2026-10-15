@@ -374,6 +374,26 @@ pub fn author_post_entries(author_id: &str, after: (i64, &str), limit: usize) ->
     .param("limit", limit as i64)
 }
 
+/// One keyset page of user ids, ordered by `id`, strictly after `after_id`
+/// (`""` for the first page). Feed the last id of a page back as `after_id`
+/// for the next; an empty page means the end.
+///
+/// Tombstoned users and stubs are included: every `:User` node counts.
+pub fn get_user_ids_page(after_id: &str, limit: usize) -> Query {
+    Query::new(
+        "get_user_ids_page",
+        "
+        MATCH (u:User)
+        WHERE u.id > $after_id
+        RETURN u.id AS id
+        ORDER BY u.id ASC
+        LIMIT $limit
+        ",
+    )
+    .param("after_id", after_id.to_string())
+    .param("limit", limit.min(MAX_QUERY_LIMIT) as i64)
+}
+
 /// Users whose profile carries any of the given tag labels, scored by distinct
 /// tagger count summed across the searched labels.
 pub fn search_users_by_tags(labels: &[String], skip: Option<usize>, limit: Option<usize>) -> Query {

@@ -70,3 +70,28 @@ pub async fn set_user_uri(user_id: &str, uri: Option<&str>) -> Result<()> {
     exec_single_row(query).await?;
     Ok(())
 }
+
+/// The `epoch` property stored on the `User` node, `None` when it is unset.
+pub async fn find_user_epoch(user_id: &str) -> Option<String> {
+    let query = Query::new(
+        "find_user_epoch",
+        "MATCH (u:User {id: $user_id}) RETURN u.epoch AS epoch",
+    )
+    .param("user_id", user_id);
+    fetch_key_from_graph::<Option<String>>(query, "epoch")
+        .await
+        .unwrap()
+        .flatten()
+}
+
+/// Overwrite the `epoch` property of a `User` node, standing in for the flip.
+pub async fn set_user_epoch(user_id: &str, epoch: &str) -> Result<()> {
+    let query = Query::new(
+        "set_user_epoch",
+        "MATCH (u:User {id: $user_id}) SET u.epoch = $epoch",
+    )
+    .param("user_id", user_id)
+    .param("epoch", epoch);
+    exec_single_row(query).await?;
+    Ok(())
+}

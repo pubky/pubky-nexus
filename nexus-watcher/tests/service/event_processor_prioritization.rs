@@ -9,7 +9,7 @@ use nexus_common::db::graph::Query;
 use nexus_common::models::homeserver::{Homeserver, HsBlacklist};
 use nexus_common::models::scope::{EverythingScope, HomeserverListScope, Scope, SeedHopsScope};
 use nexus_common::models::traits::Collection;
-use nexus_common::models::user::{set_user_homeserver, UserDetails};
+use nexus_common::models::user::{set_user_homeserver, Epoch, UserDetails};
 use nexus_common::types::DynError;
 use nexus_common::utils::test_utils::{default_ingestor_tests, random_pubky_id};
 use nexus_common::DEFAULT_MAX_FILE_SIZE;
@@ -249,6 +249,7 @@ async fn create_active_user_on_homeserver_with_trust(
         image: None,
         indexed_at: Utc::now().timestamp_millis(),
         deleted: false,
+        epoch: Epoch::V0,
     };
 
     user.put_to_graph().await?;

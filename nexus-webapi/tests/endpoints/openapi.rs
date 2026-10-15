@@ -57,6 +57,21 @@ fn test_stream_reach_schema_is_its_string_form() {
     assert!(values.contains(&Value::from("followers")), "{schema}");
 }
 
+/// `UserDetails.epoch` is the string enum `["v0", "v1"]`.
+#[test]
+fn test_user_details_epoch_schema_is_a_string_enum() {
+    let spec = serde_json::to_value(V0ApiDoc::merge_docs()).expect("serializable spec");
+    let field = spec
+        .pointer("/components/schemas/UserDetails/properties/epoch/$ref")
+        .expect("UserDetails.epoch references a schema");
+    assert_eq!(field, "#/components/schemas/Epoch");
+    let schema = spec
+        .pointer("/components/schemas/Epoch")
+        .expect("Epoch schema");
+    assert_eq!(schema["type"], "string", "{schema}");
+    assert_eq!(schema["enum"], serde_json::json!(["v0", "v1"]), "{schema}");
+}
+
 /// Test that the static OpenAPI spec is valid and all schema references are defined.
 #[test]
 fn test_static_openapi_spec_valid() {
