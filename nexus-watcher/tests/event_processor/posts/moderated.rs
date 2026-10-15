@@ -268,7 +268,8 @@ async fn test_post_taken_down_before_it_is_read_stays_out() -> Result<()> {
     // reports the post as unindexed, as it did before takedowns were remembered.
     let result = default_moderation_tests()
         .apply_moderation(
-            tag,
+            &tag.label,
+            &tag.uri,
             MODERATOR_TAG_URI,
             Path::new("/tmp/nexus-watcher-test"),
             &default_ingestor_tests(),
@@ -361,7 +362,8 @@ async fn test_post_taken_down_with_a_trailing_slash_stays_out() -> Result<()> {
     };
     let _ = default_moderation_tests()
         .apply_moderation(
-            tag,
+            &tag.label,
+            &tag.uri,
             MODERATOR_TAG_URI,
             Path::new("/tmp/nexus-watcher-test"),
             &default_ingestor_tests(),
@@ -408,7 +410,8 @@ async fn test_reply_taken_down_before_it_is_read_notifies_no_one() -> Result<()>
     };
     let _ = default_moderation_tests()
         .apply_moderation(
-            tag,
+            &tag.label,
+            &tag.uri,
             MODERATOR_TAG_URI,
             Path::new("/tmp/nexus-watcher-test"),
             &default_ingestor_tests(),
