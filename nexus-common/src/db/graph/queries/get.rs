@@ -1441,6 +1441,9 @@ impl TrustRule<'_> {
 }
 
 // Build the graph query based on parameters
+/// An author whose posts may appear in shared feeds: anyone but a stub.
+const NOT_A_STUB: &str = "coalesce(author.scope_state, '') <> 'stub'";
+
 pub fn post_stream(
     source: StreamSource,
     sorting: StreamSorting,
@@ -1530,6 +1533,10 @@ pub fn post_stream(
     let author_rule = trust_rule
         .filter(|_| matches!(source, StreamSource::All))
         .map(TrustRule::condition);
+    // A stub's posts appear where they meet the scope (threads, the stub's own
+    // posts), never in the shared all-posts feed: the same rule the Redis-served feed
+    // and the reindex apply.
+    let hide_stubs = matches!(source, StreamSource::All);
     match author_rule {
         // With the trust rule the author is matched after sorting, below.
         Some(_) => cypher.push_str("MATCH (p:Post)\n"),
@@ -1544,6 +1551,10 @@ pub fn post_stream(
             "tag.label IN $labels",
             &mut where_clause_applied,
         );
+    }
+
+    if hide_stubs && author_rule.is_none() {
+        append_condition(&mut cypher, NOT_A_STUB, &mut where_clause_applied);
     }
 
     // If source has an author, add where clause. It is related with source pattern matching
@@ -1632,10 +1643,10 @@ pub fn post_stream(
     // fewer DB hits on `exclude_kinds` and multi-tag streams).
     match (&author_rule, &sorting) {
         (Some(rule), StreamSorting::Timeline) => cypher.push_str(&format!(
-            "WITH DISTINCT p\nORDER BY p.indexed_at {order_dir}, p.id {order_dir}\nMATCH (p)<-[:AUTHORED]-(author:User)\nWHERE {rule}\n"
+            "WITH DISTINCT p\nORDER BY p.indexed_at {order_dir}, p.id {order_dir}\nMATCH (p)<-[:AUTHORED]-(author:User)\nWHERE ({rule}) AND {NOT_A_STUB}\n"
         )),
         (Some(rule), StreamSorting::TotalEngagement) => cypher.push_str(&format!(
-            "WITH DISTINCT p\nMATCH (p)<-[:AUTHORED]-(author:User)\nWHERE {rule}\n"
+            "WITH DISTINCT p\nMATCH (p)<-[:AUTHORED]-(author:User)\nWHERE ({rule}) AND {NOT_A_STUB}\n"
         )),
         (None, _) => cypher.push_str("WITH DISTINCT p, author\n"),
     }
@@ -2020,7 +2031,7 @@ mod tests {
             Some(TrustRule::Ranked),
         );
         assert!(cypher.starts_with("MATCH (p:Post)\n"), "{cypher}");
-        let rule = format!("WHERE {}", ranked_user("author"));
+        let rule = format!("WHERE ({}) AND {NOT_A_STUB}", ranked_user("author"));
         let clauses = [
             "MATCH (:User)-[tag:TAGGED]->(p)",
             "p.kind = 'short'",
@@ -2039,7 +2050,7 @@ mod tests {
         let kind = Some(KindFilter::Kind(pubky_app_specs::PubkyAppPostKind::Short));
         let ranked = Some(TrustRule::Ranked);
         let cypher = all_stream(StreamSorting::TotalEngagement, &None, kind, ranked);
-        let rule = format!("WHERE {}", ranked_user("author"));
+        let rule = format!("WHERE ({}) AND {NOT_A_STUB}", ranked_user("author"));
         let clauses = [
             "WITH DISTINCT p\nMATCH (p)<-[:AUTHORED]-(author:User)",
             &rule,
@@ -2047,6 +2058,36 @@ mod tests {
             "ORDER BY total_engagement DESC",
         ];
         assert_in_order(&cypher, &clauses);
+    }
+
+    /// A stub's posts stay out of the all-posts feed served from the graph, with or
+    /// without the trust rule, and the rule's own OR stays bracketed.
+    #[test]
+    fn post_stream_all_hides_stubs() {
+        let kind = || Some(KindFilter::Kind(pubky_app_specs::PubkyAppPostKind::Short));
+
+        let without_rule = all_stream(StreamSorting::Timeline, &None, kind(), None);
+        assert!(without_rule.contains(NOT_A_STUB), "{without_rule}");
+
+        let viewer = Some(TrustRule::RankedAndViewer("viewer"));
+        let with_viewer = all_stream(StreamSorting::Timeline, &None, kind(), viewer);
+        // Populated, as the helper renders it.
+        let rule = TrustRule::RankedAndViewer("viewer")
+            .condition()
+            .replace("$viewer_id", "'viewer'");
+        assert!(
+            with_viewer.contains(&format!("WHERE ({rule}) AND {NOT_A_STUB}")),
+            "{with_viewer}"
+        );
+    }
+
+    /// A stub's own posts, e.g. on its profile, are still served.
+    #[test]
+    fn post_stream_by_author_keeps_stubs() {
+        let source = StreamSource::Author {
+            author_id: "author".to_string(),
+        };
+        assert!(!build(source).contains(NOT_A_STUB));
     }
 
     fn build(source: StreamSource) -> String {

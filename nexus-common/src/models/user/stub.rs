@@ -53,3 +53,86 @@ pub async fn rebuild_stub_index() -> ModelResult<usize> {
     sets::replace(STUBS.0, STUBS.1, &stubs).await?;
     Ok(stubs.len())
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::db::graph::Query;
+    use crate::db::kv::SortOrder;
+    use crate::db::{exec_single_row, queries};
+    use crate::models::post::{KindFilter, PostStream, StreamSource};
+    use crate::types::{DynError, Pagination, StreamSorting};
+    use crate::{StackConfig, StackManager};
+    use pubky_app_specs::PubkyAppPostKind;
+
+    use super::SCOPE_STATE_STUB;
+
+    /// The all-posts feed served from the graph (a kind filter) leaves a stub's posts
+    /// out, as the feed served from Redis does; its author coming into scope lets them
+    /// back in.
+    #[tokio_shared_rt::test(shared)]
+    async fn the_graph_served_feed_leaves_stubs_posts_out() -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+        let author = pubky::Keypair::random().public_key().to_z32();
+        // Far in the future, so the window holds this post alone.
+        let indexed_at = 4_000_000_000_000_i64 + rand_suffix();
+        let post_id = format!("STUB{indexed_at}");
+        let create = Query::new(
+            "test_stub_author_with_post",
+            "CREATE (u:User {id: $author, trust: 1.0, scope_state: $stub})
+                 -[:AUTHORED]->(:Post {id: $post_id, kind: 'short', indexed_at: $at})",
+        )
+        .param("author", author.clone())
+        .param("stub", SCOPE_STATE_STUB)
+        .param("post_id", post_id.clone())
+        .param("at", indexed_at);
+        exec_single_row(create).await?;
+
+        let in_feed = || async {
+            let pagination = Pagination {
+                // Not start == end: Neo4j then seeks the bound itself and returns the
+                // float bound in place of the stored integer.
+                start: Some(indexed_at as f64),
+                end: Some((indexed_at - 1) as f64),
+                limit: Some(10),
+                ..Default::default()
+            };
+            let stream = PostStream::get_post_keys(
+                StreamSource::All,
+                pagination,
+                SortOrder::Descending,
+                StreamSorting::Timeline,
+                None,
+                None,
+                Some(KindFilter::Kind(PubkyAppPostKind::Short)),
+            )
+            .await?;
+            let keys = stream.map(|stream| stream.post_keys).unwrap_or_default();
+            Ok::<_, DynError>(keys.contains(&format!("{author}:{post_id}")))
+        };
+
+        let while_stub = in_feed().await;
+        let cleared = exec_single_row(queries::put::set_user_scope_state(&author, None)).await;
+        let in_scope = in_feed().await;
+
+        let delete = Query::new(
+            "test_delete_stub_author",
+            "MATCH (u:User {id: $author}) OPTIONAL MATCH (u)-[:AUTHORED]->(p:Post) DETACH DELETE u, p",
+        )
+        .param("author", author);
+        exec_single_row(delete).await?;
+
+        cleared?;
+        assert!(!while_stub?, "a stub's post stays out of the shared feed");
+        assert!(in_scope?, "control: in scope, the same post is served");
+        Ok(())
+    }
+
+    /// Keeps parallel runs of the test in distinct windows.
+    fn rand_suffix() -> i64 {
+        (std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .subsec_nanos()
+            % 1_000_000) as i64
+    }
+}
