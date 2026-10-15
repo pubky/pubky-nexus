@@ -314,14 +314,64 @@ pub fn get_user_tag_pairs() -> Query {
 pub fn get_trust_ranked_user_ids() -> Query {
     Query::new(
         "get_trust_ranked_user_ids",
-        "
+        format!(
+            "
         MATCH (u:User)
-        WHERE u.trust > 0
-          AND NOT coalesce(u.deleted, false)
+        WHERE {}
         RETURN u.id AS user_id
         ORDER BY u.trust DESC, user_id ASC
         ",
+            ranked_user("u")
+        ),
     )
+}
+
+/// Who counts as ranked, for the user bound to `var`: the ranking and the
+/// `source=all` stream rule share it, so both hide the same authors.
+fn ranked_user(var: &str) -> String {
+    format!("{var}.trust > 0 AND NOT coalesce({var}.deleted, false)")
+}
+
+/// Ids of the users who wrote at least one post.
+pub fn post_author_ids() -> Query {
+    Query::new(
+        "post_author_ids",
+        "
+        MATCH (u:User)
+        WHERE EXISTS { (u)-[:AUTHORED]->(:Post) }
+        RETURN collect(u.id) AS user_ids
+        ",
+    )
+}
+
+/// Up to `limit` posts `author_id` wrote after the `(indexed_at, id)` cursor
+/// `after`, oldest first, with what the shared sorted sets index them by,
+/// scored as a full reindex scores them.
+pub fn author_post_entries(author_id: &str, after: (i64, &str), limit: usize) -> Query {
+    Query::new(
+        "author_post_entries",
+        "
+        MATCH (author:User {id: $author_id})-[:AUTHORED]->(p:Post)
+        WHERE p.indexed_at > $after_indexed_at
+           OR (p.indexed_at = $after_indexed_at AND p.id > $after_id)
+        WITH author, p
+        ORDER BY p.indexed_at, p.id
+        LIMIT $limit
+        RETURN author.id AS author_id,
+            p.id AS post_id,
+            p.indexed_at AS indexed_at,
+            EXISTS { (p)-[:REPLIED]->(:Post) } AS is_reply,
+            COLLECT { MATCH (p)<-[tag:TAGGED]-(:User) RETURN DISTINCT tag.label } AS labels,
+            COUNT { (p)<-[:TAGGED]-() }
+                + COUNT { (p)<-[:REPLIED]-() }
+                + COUNT { (p)<-[:REPOSTED]-() } AS engagement,
+            COUNT { (p)-[:MENTIONED]->() } AS mentions
+        ",
+    )
+    .param("author_id", author_id)
+    .param("after_indexed_at", after.0)
+    .param("after_id", after.1)
+    .param("limit", limit as i64)
 }
 
 /// Users whose profile carries any of the given tag labels, scored by distinct
@@ -1371,6 +1421,25 @@ pub fn get_files_by_ids(key_pair: &[&[&str]]) -> Query {
     .param("pairs", key_pair)
 }
 
+/// Which authors a `source=all` stream served from the graph keeps.
+#[derive(Debug, Clone, Copy)]
+pub enum TrustRule<'a> {
+    Ranked,
+    /// Ranked authors and the viewer: their own posts stay on their timeline.
+    RankedAndViewer(&'a str),
+}
+
+impl TrustRule<'_> {
+    fn condition(self) -> String {
+        match self {
+            TrustRule::Ranked => ranked_user("author"),
+            TrustRule::RankedAndViewer(_) => {
+                format!("({}) OR author.id = $viewer_id", ranked_user("author"))
+            }
+        }
+    }
+}
+
 // Build the graph query based on parameters
 pub fn post_stream(
     source: StreamSource,
@@ -1379,6 +1448,7 @@ pub fn post_stream(
     tags: &Option<Vec<String>>,
     pagination: Pagination,
     kind: Option<KindFilter>,
+    trust_rule: Option<TrustRule>,
 ) -> GraphResult<Query> {
     // Initialize the cypher query
     let mut cypher = String::new();
@@ -1457,7 +1527,14 @@ pub fn post_stream(
     // Base match for posts and authors. For observer-anchored sources `author`
     // is already bound, so this expands their posts instead of enumerating all
     // posts.
-    cypher.push_str("MATCH (p:Post)<-[:AUTHORED]-(author:User)\n");
+    let author_rule = trust_rule
+        .filter(|_| matches!(source, StreamSource::All))
+        .map(TrustRule::condition);
+    match author_rule {
+        // With the trust rule the author is matched after sorting, below.
+        Some(_) => cypher.push_str("MATCH (p:Post)\n"),
+        None => cypher.push_str("MATCH (p:Post)<-[:AUTHORED]-(author:User)\n"),
+    }
 
     // Apply tags
     if tags.is_some() {
@@ -1545,13 +1622,23 @@ pub fn post_stream(
         }
     }
 
-    // Make unique the posts, cannot be repeated
-    cypher.push_str("WITH DISTINCT p, author\n");
-
     let order_dir = match order {
         SortOrder::Ascending => "ASC",
         SortOrder::Descending => "DESC",
     };
+
+    // Make unique the posts, cannot be repeated. With the trust rule, sorting the
+    // posts before matching their authors lets the planner stop at LIMIT (37-49%
+    // fewer DB hits on `exclude_kinds` and multi-tag streams).
+    match (&author_rule, &sorting) {
+        (Some(rule), StreamSorting::Timeline) => cypher.push_str(&format!(
+            "WITH DISTINCT p\nORDER BY p.indexed_at {order_dir}, p.id {order_dir}\nMATCH (p)<-[:AUTHORED]-(author:User)\nWHERE {rule}\n"
+        )),
+        (Some(rule), StreamSorting::TotalEngagement) => cypher.push_str(&format!(
+            "WITH DISTINCT p\nMATCH (p)<-[:AUTHORED]-(author:User)\nWHERE {rule}\n"
+        )),
+        (None, _) => cypher.push_str("WITH DISTINCT p, author\n"),
+    }
 
     // Apply StreamSorting. `score` is the value the cursor (`last_post_score`) pages
     // on: the post timestamp for Timeline, the engagement count for TotalEngagement.
@@ -1625,6 +1712,10 @@ pub fn post_stream(
     let query = Query::new("post_stream", &cypher)
         .telemetry_attr("source", source_attr)
         .telemetry_attr_opt("depth", depth);
+    let query = match trust_rule {
+        Some(TrustRule::RankedAndViewer(viewer_id)) => query.param("viewer_id", viewer_id),
+        _ => query,
+    };
     Ok(build_query_with_params(
         query,
         &source,
@@ -1881,8 +1972,81 @@ mod tests {
                 ..Default::default()
             },
             None,
+            None,
         )
         .unwrap()
+    }
+
+    fn all_stream(
+        sorting: StreamSorting,
+        tags: &Option<Vec<String>>,
+        kind: Option<KindFilter>,
+        rule: Option<TrustRule>,
+    ) -> String {
+        let pagination = Pagination {
+            limit: Some(10),
+            ..Default::default()
+        };
+        let order = SortOrder::Descending;
+        post_stream(
+            StreamSource::All,
+            sorting,
+            order,
+            tags,
+            pagination,
+            kind,
+            rule,
+        )
+        .unwrap()
+        .to_cypher_populated()
+    }
+
+    fn assert_in_order(cypher: &str, clauses: &[&str]) {
+        let positions: Vec<Option<usize>> = clauses.iter().map(|c| cypher.find(c)).collect();
+        assert!(positions.iter().all(Option::is_some), "{cypher}");
+        assert!(positions.windows(2).all(|w| w[0] < w[1]), "{cypher}");
+    }
+
+    /// The posts are filtered and sorted before the author is matched, so the
+    /// planner checks authors lazily in sort order and stops at LIMIT.
+    #[test]
+    fn post_stream_trust_rule_matches_authors_after_sorting_posts() {
+        let tags = Some(vec!["a".to_string(), "b".to_string()]);
+        let kind = Some(KindFilter::Kind(pubky_app_specs::PubkyAppPostKind::Short));
+        let cypher = all_stream(
+            StreamSorting::Timeline,
+            &tags,
+            kind,
+            Some(TrustRule::Ranked),
+        );
+        assert!(cypher.starts_with("MATCH (p:Post)\n"), "{cypher}");
+        let rule = format!("WHERE {}", ranked_user("author"));
+        let clauses = [
+            "MATCH (:User)-[tag:TAGGED]->(p)",
+            "p.kind = 'short'",
+            "NOT ( (p)-[:REPLIED]->(:Post) )",
+            "WITH DISTINCT p\nORDER BY p.indexed_at DESC, p.id DESC",
+            "MATCH (p)<-[:AUTHORED]-(author:User)",
+            &rule,
+            "RETURN author.id AS author_id",
+        ];
+        assert_in_order(&cypher, &clauses);
+    }
+
+    /// Engagement sorting drops hidden authors before counting engagement.
+    #[test]
+    fn post_stream_trust_rule_filters_engagement_streams() {
+        let kind = Some(KindFilter::Kind(pubky_app_specs::PubkyAppPostKind::Short));
+        let ranked = Some(TrustRule::Ranked);
+        let cypher = all_stream(StreamSorting::TotalEngagement, &None, kind, ranked);
+        let rule = format!("WHERE {}", ranked_user("author"));
+        let clauses = [
+            "WITH DISTINCT p\nMATCH (p)<-[:AUTHORED]-(author:User)",
+            &rule,
+            "AS total_engagement",
+            "ORDER BY total_engagement DESC",
+        ];
+        assert_in_order(&cypher, &clauses);
     }
 
     fn build(source: StreamSource) -> String {

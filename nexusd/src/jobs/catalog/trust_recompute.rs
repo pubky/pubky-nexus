@@ -32,7 +32,7 @@ pub(crate) struct SocialGraphProjection;
 #[async_trait]
 impl TrustProjection for SocialGraphProjection {
     async fn publish(&self) -> Result<(), DynError> {
-        SocialGraphStatus::reindex().await.map_err(Into::into)
+        SocialGraphStatus::publish().await.map_err(Into::into)
     }
 }
 

@@ -1,14 +1,15 @@
 use crate::events::EventProcessorError;
 
+use nexus_common::db::kv::ScoreAction;
+use nexus_common::db::queries;
 use nexus_common::db::queries::get::post_is_safe_to_delete;
 use nexus_common::db::{exec_single_row, execute_graph_operation, OperationOutcome};
-use nexus_common::db::{queries, RedisOps};
 use nexus_common::models::notification::{Notification, PostChangedSource, PostChangedType};
 use nexus_common::models::post::{
     collection_item_keys, sync_collected_edges, PostCounts, PostDetails, PostRelationships,
-    PostStream, POST_TOTAL_ENGAGEMENT_KEY_PARTS,
+    PostStream,
 };
-use nexus_common::models::user::{is_stub, UserCounts, UserIngestor};
+use nexus_common::models::user::{UserCounts, UserIngestor};
 use pubky_app_specs::{
     ParsedUri, PubkyAppCollectionContent, PubkyAppPost, PubkyAppPostKind, PubkyId, Resource,
 };
@@ -241,14 +242,14 @@ async fn sync_put_details(
             tracing::info_span!("index.write", phase = "reply_parent");
             PostCounts::invalidate(parent_post_key_parts),
             async {
-                // Replies, and stubs' posts, must not enter POST_TOTAL_ENGAGEMENT —
-                // ZINCRBY would create the member if absent.
-                if !post_relationships_is_reply(&parent_author_id, &parent_post_id).await?
-                    && !is_stub(&parent_author_id).await?
-                {
-                    PostStream::increment_score_index_sorted_set(
-                        &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
-                        parent_post_key_parts,
+                // Replies must not enter POST_TOTAL_ENGAGEMENT — ZINCRBY
+                // would create the member if absent. Stubs' posts and unranked
+                // authors' posts are kept out by update_index_score.
+                if !post_relationships_is_reply(&parent_author_id, &parent_post_id).await? {
+                    PostStream::update_index_score(
+                        &parent_author_id,
+                        &parent_post_id,
+                        ScoreAction::Increment(1.0),
                     )
                     .await?;
                 }
@@ -301,14 +302,14 @@ async fn sync_put_details(
             tracing::info_span!("index.write", phase = "repost_parent");
             PostCounts::invalidate(parent_post_key_parts),
             async {
-                // Replies, and stubs' posts, must not enter POST_TOTAL_ENGAGEMENT —
-                // ZINCRBY would create the member if absent.
-                if !post_relationships_is_reply(&parent_author_id, &parent_post_id).await?
-                    && !is_stub(&parent_author_id).await?
-                {
-                    PostStream::increment_score_index_sorted_set(
-                        &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
-                        parent_post_key_parts,
+                // Replies must not enter POST_TOTAL_ENGAGEMENT — ZINCRBY
+                // would create the member if absent. Stubs' posts and unranked
+                // authors' posts are kept out by update_index_score.
+                if !post_relationships_is_reply(&parent_author_id, &parent_post_id).await? {
+                    PostStream::update_index_score(
+                        &parent_author_id,
+                        &parent_post_id,
+                        ScoreAction::Increment(1.0),
                     )
                     .await?;
                 }
@@ -760,7 +761,6 @@ pub async fn sync_del(
                 .try_to_uri_str()
                 .map_err(EventProcessorError::generic)?;
 
-            let parent_post_key_parts: [&str; 2] = [&parent_user_id, &parent_post_id];
             reply_parent_post_key_wrapper =
                 Some((parent_user_id.to_string(), parent_post_id.clone()));
             // Parent reply count changes; invalidated after the graph delete below.
@@ -769,15 +769,13 @@ pub async fn sync_del(
             let indexing_results = nexus_common::traced_join!(
                 tracing::info_span!("index.delete", phase = "reply_parent");
                 async {
-                    // Symmetric DEL gate: ZINCRBY -1 would create the member
-                    // if absent, leaking a reply parent into POST_TOTAL_ENGAGEMENT
-                    // with a negative score.
-                    if post_in_index
-                        && !post_relationships_is_reply(&parent_user_id, &parent_post_id).await?
-                    {
-                        PostStream::decrement_score_index_sorted_set(
-                            &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
-                            &parent_post_key_parts,
+                    // A decrement never creates a member, so a reply parent,
+                    // which has none in POST_TOTAL_ENGAGEMENT, is left alone.
+                    if post_in_index {
+                        PostStream::update_index_score(
+                            &parent_user_id,
+                            &parent_post_id,
+                            ScoreAction::Decrement(1.0),
                         )
                         .await?;
                     }
@@ -820,22 +818,19 @@ pub async fn sync_del(
                 .try_to_uri_str()
                 .map_err(EventProcessorError::generic)?;
 
-            let parent_post_key_parts: &[&str] = &[&reposted_uri.user_id, &parent_post_id];
             // Parent repost count changes; invalidated after the graph delete below.
             parents_to_invalidate.push([reposted_uri.user_id.to_string(), parent_post_id.clone()]);
 
             let indexing_results = nexus_common::traced_join!(
                 tracing::info_span!("index.delete", phase = "repost_parent");
                 async {
-                    // Symmetric DEL gate: ZINCRBY -1 would create the member
-                    // if absent, leaking a reply parent into POST_TOTAL_ENGAGEMENT
-                    // with a negative score.
-                    if post_in_index
-                        && !post_relationships_is_reply(&reposted_uri.user_id, &parent_post_id).await?
-                    {
-                        PostStream::decrement_score_index_sorted_set(
-                            &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
-                            parent_post_key_parts,
+                    // A decrement never creates a member, so a reply parent,
+                    // which has none in POST_TOTAL_ENGAGEMENT, is left alone.
+                    if post_in_index {
+                        PostStream::update_index_score(
+                            &reposted_uri.user_id,
+                            &parent_post_id,
+                            ScoreAction::Decrement(1.0),
                         )
                         .await?;
                     }
