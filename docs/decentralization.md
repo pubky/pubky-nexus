@@ -315,7 +315,8 @@ of the most-followed and influencer rankings, and their posts out of the global 
 (timeline, engagement, tag streams, and the `source=all` shapes served from the graph,
 such as a kind filter or several tags): they appear where they meet the scope, in threads,
 counts, notifications and their own profile. A Redis set (`Scope:Stubs`) mirrors the
-graph for the per-write check and is rebuilt at start.
+graph for the per-write check and is rebuilt at start. A stub brought into the scope gets
+its counts back into the rankings and its already-indexed posts into the global feeds.
 
 **Out-of-scope targets.** When an in-scope reply, repost, tag or bookmark targets a post
 nobody's stream reads (a stub's, or a `left` member's), the chain of out-of-scope posts it depends on is fetched from their homeservers and
@@ -341,7 +342,9 @@ content stays**; removing it is not implemented yet.
 
 **Changing the scope** works both ways at the next start: a narrower scope lets the
 others go; `everything` lets every stub and `left` user back in (the resolver binds
-them); a changed homeserver list admits stubs and `left` users now on a listed HS. A homeserver scope
+them); a changed homeserver list admits stubs and `left` users now on a listed HS. A
+user whose homeserver isn't found (not published yet, or the lookup timed out) is tried
+again each interval, up to 12 times (`Scope:AdmitRetry`). A homeserver scope
 also lets go of users who moved off its homeservers, every interval.
 
 An event by a user still bound and polled but not counted in scope (e.g. right after
@@ -352,7 +355,8 @@ isn't lost.
 seed scope finds its members hop by hop. With `source = "nexus"` and a `nexus_url`, the
 watcher asks that Nexus who the seed follows, and who they follow, up to `hops`
 (`GET /v0/user/{id}/following`, about one request per member). Suggested users are
-members for 24 hours, so their own follows get read from their homeservers; the graph
+members for 24 hours (kept per seed and hop count, so a narrower scope never inherits
+them), so their own follows get read from their homeservers; the graph
 then confirms them or lets them go. Content always comes from homeservers. It runs once
 per seed and hop count (`Scope:Bootstrapped:<seed>:<hops>`), in the background, and falls
 back to crawling after 3 failed requests. It is bounded whatever the Nexus answers: at most

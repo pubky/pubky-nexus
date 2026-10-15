@@ -446,3 +446,27 @@ async fn test_a_reply_to_a_former_members_new_post_lands() -> Result<()> {
     );
     Ok(())
 }
+
+/// Suggestions are kept per hop count: users a big Nexus suggested for a wider scope are
+/// not members when the same seed runs with fewer hops.
+#[tokio_shared_rt::test(shared)]
+async fn test_a_narrower_scope_ignores_a_wider_scopes_suggestions() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let [seed, b, _, _] = users(&mut test).await?;
+
+    SeedHopsScope::new(seed.clone(), 3)
+        .suggest_members(std::slice::from_ref(&b))
+        .await?;
+
+    let narrow = SeedHopsScope::new(seed.clone(), 1).members().await?;
+    let wide = SeedHopsScope::new(seed, 3).members().await?;
+    assert!(
+        !narrow.contains_key(b.as_ref()),
+        "not a member with one hop"
+    );
+    assert!(
+        wide.contains_key(b.as_ref()),
+        "control: still suggested for three"
+    );
+    Ok(())
+}

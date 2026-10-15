@@ -1,5 +1,5 @@
 use super::utils::{assert_user_ingested, create_external_test_homeserver, short_post, user_on};
-use crate::event_processor::utils::watcher::WatcherTest;
+use crate::event_processor::utils::watcher::{rank_user, unrank_user, WatcherTest};
 use crate::utils::default_moderation_tests;
 use anyhow::Result;
 use nexus_common::db::graph::Query;
@@ -8,6 +8,7 @@ use nexus_common::db::{fetch_key_from_graph, fetch_row_from_graph, queries};
 use nexus_common::models::post::{PostDetails, POST_TIMELINE_KEY_PARTS};
 use nexus_common::models::scope::{HomeserverListScope, Scope};
 use nexus_common::models::traits::Collection;
+use nexus_common::models::user::stub::mark_stub;
 use nexus_common::models::user::{
     is_stub, set_user_homeserver, user_hs_cursor_key, UserCounts, UserDetails, UserIngestor,
     SCOPE_STATE_LEFT, USER_MOSTFOLLOWED_KEY_PARTS,
@@ -18,8 +19,8 @@ use nexus_watcher::events::handlers;
 use nexus_watcher::events::{DefaultEventHandler, Event, EventHandler, ParseResult};
 use nexus_watcher::EventProcessorError;
 use pubky::Keypair;
-use pubky_app_specs::traits::TimestampId;
-use pubky_app_specs::{post_uri_builder, PubkyAppPost, PubkyAppUser, PubkyId};
+use pubky_app_specs::traits::{HashId, TimestampId};
+use pubky_app_specs::{post_uri_builder, PubkyAppBookmark, PubkyAppPost, PubkyAppUser, PubkyId};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -362,5 +363,107 @@ async fn test_listing_a_homeserver_again_brings_its_users_back() -> Result<()> {
     let change = wide.at_start().await?;
     assert_eq!(change.joined, 1);
     assert_eq!(scope_state().await?, None, "back in scope");
+    Ok(())
+}
+
+/// A member's bookmark of a post by an outsider this Nexus doesn't know yet lands: the
+/// outsider is kept as a stub and that one post is fetched.
+#[tokio_shared_rt::test(shared)]
+async fn test_a_bookmark_of_an_unknown_outsiders_post_lands() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let hs_pk = create_external_test_homeserver(&mut test).await?;
+    let (outsider_kp, outsider_id) = user_on(&test, &hs_pk).await?;
+    let (post_id, _) = test
+        .create_post(&outsider_kp, &short_post("Watcher:Scope:Bookmarked", None))
+        .await?;
+    let member_id = member(&mut test, "Bookmarker").await?;
+    let ingestor = scoped_ingestor(&test);
+
+    let bookmark = PubkyAppBookmark {
+        uri: post_uri_builder(outsider_id.to_string(), post_id.clone()),
+        created_at: chrono::Utc::now().timestamp_millis(),
+    };
+    let bookmark_id = bookmark.create_id();
+    handlers::bookmark::sync_put(member_id, bookmark, bookmark_id, &ingestor).await?;
+
+    assert!(
+        PostDetails::get_by_id(&outsider_id, &post_id)
+            .await?
+            .is_some(),
+        "the bookmarked post is fetched"
+    );
+    assert_user_is_stub(&outsider_id).await;
+    Ok(())
+}
+
+/// A stub brought into the scope gets its posts indexed while it was a stub into the
+/// global timeline: reading its stream again wouldn't, as they are already indexed.
+#[tokio_shared_rt::test(shared)]
+async fn test_a_promoted_stubs_posts_join_the_global_feeds() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let hs_pk = create_external_test_homeserver(&mut test).await?;
+    let (outsider_kp, outsider_id) = user_on(&test, &hs_pk).await?;
+    let (parent_id, _) = test
+        .create_post(&outsider_kp, &short_post("Watcher:Scope:StubParent", None))
+        .await?;
+    let replier_id = member(&mut test, "PromoteReplier").await?;
+    let ingestor = scoped_ingestor(&test);
+    ingestor.maybe_ingest_user(&outsider_id).await?;
+    let reply = short_post(
+        "Watcher:Scope:ReplyToStub",
+        Some(post_uri_builder(outsider_id.to_string(), parent_id.clone())),
+    );
+    let reply_id = reply.create_id();
+    let reply_uri = post_uri_builder(replier_id.to_string(), reply_id.clone());
+    handlers::post::sync_put(reply, reply_uri, replier_id, reply_id, &ingestor).await?;
+    let member = [outsider_id.as_ref(), parent_id.as_str()];
+    let in_timeline =
+        || PostDetails::check_sorted_set_member(None, &POST_TIMELINE_KEY_PARTS, &member);
+    assert!(in_timeline().await?.is_none(), "kept out while a stub");
+
+    // Ranked, so the trust filter doesn't keep its posts out for its own reason.
+    rank_user(&outsider_id).await?;
+    let promoted = UserIngestor::default().promote(&outsider_id).await;
+    let after = in_timeline().await;
+    unrank_user(&outsider_id).await?;
+
+    assert!(promoted?);
+    assert!(after?.is_some(), "in the global timeline once in scope");
+    Ok(())
+}
+
+/// A homeserver scope that couldn't find a user's homeserver at start (not published
+/// yet, or the lookup timed out) tries again each interval and admits it once found.
+#[tokio_shared_rt::test(shared)]
+async fn test_an_admission_whose_homeserver_was_not_found_is_retried() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let hs_pk = create_external_test_homeserver(&mut test).await?;
+    let late_kp = Keypair::random();
+    let late = PubkyId::from(late_kp.public_key());
+    UserDetails::from_pubky(late.clone()).put_to_graph().await?;
+    mark_stub(&late).await?;
+
+    let homeservers = vec![test.homeserver_id.clone(), PubkyId::from(hs_pk.clone())];
+    let mut config = nexus_common::WatcherConfig::default();
+    config.stack.scope = nexus_common::ScopeConfig::Homeservers {
+        homeservers: homeservers.clone(),
+    };
+    config.scope_maintenance.interval_ms = 0;
+    let scope: Arc<dyn Scope> = Arc::new(HomeserverListScope::new(&homeservers));
+    let ingestor = UserIngestor::with_scope(Vec::<PubkyId>::new(), scope);
+    let maintainer = nexus_watcher::service::scope_maintenance::ScopeMaintainer::new(
+        &config,
+        ingestor,
+        Some(vec![late.to_string()]),
+    );
+
+    let change = maintainer.at_start().await?;
+    assert_eq!(change.joined, 0, "no homeserver found yet");
+
+    test.register_user_in_hs(&late_kp, &hs_pk).await?;
+    let change = maintainer.tick().await?;
+
+    assert_eq!(change.joined, 1, "found and admitted on the next interval");
+    assert!(!is_stub(&late).await?);
     Ok(())
 }

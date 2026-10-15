@@ -11,6 +11,7 @@
 use crate::db::kv::{sets, RedisResult};
 use crate::db::{exec_single_row, fetch_key_from_graph, queries, RedisOps};
 use crate::models::error::ModelResult;
+use crate::models::post::trust_filter;
 use crate::models::user::{UserCounts, SCOPE_STATE_LEFT};
 
 /// `scope_state` of a user known to this Nexus but outside its scope.
@@ -43,14 +44,29 @@ pub async fn mark_stub(user_id: &str) -> ModelResult<()> {
     Ok(())
 }
 
-/// Stops treating the user as a stub in Redis and puts its counts into the rankings.
-/// Returns whether it was a stub. The caller clears its `scope_state`.
+/// Stops treating the user as a stub in Redis, puts its counts into the rankings and its
+/// posts into the global feeds. Returns whether it was a stub. The caller clears its
+/// `scope_state`.
+///
+/// Its posts indexed while it was a stub (fetched for in-scope records) were kept out
+/// of the global feeds, and reading its stream again doesn't put them back: a post
+/// already indexed takes the edit path. Writing them back is idempotent, so a retry
+/// after a failure here is safe.
 pub async fn unstub(user_id: &str) -> ModelResult<bool> {
+    // Out of the set first: the rankings and the feed writes skip a stub.
     if !sets::take(STUBS.0, STUBS.1, user_id).await? {
         return Ok(false);
     }
-    if let Some(counts) = UserCounts::get_from_index(user_id).await? {
-        counts.put_to_index(user_id).await?;
+    let restored = async {
+        if let Some(counts) = UserCounts::get_from_index(user_id).await? {
+            counts.put_to_index(user_id).await?;
+        }
+        trust_filter::show_author(user_id).await
+    };
+    if let Err(e) = restored.await {
+        // Back in the set, so the next promotion retries the whole of it.
+        sets::put(STUBS.0, STUBS.1, &[user_id], None).await?;
+        return Err(e);
     }
     Ok(true)
 }

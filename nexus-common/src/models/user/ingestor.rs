@@ -194,11 +194,12 @@ impl UserIngestor {
             return Ok(false);
         };
 
-        // Bind first: if clearing the state fails, the user is still out of scope and
-        // the next promotion retries the whole of it.
+        // The graph's state is cleared last: if anything before fails, the user is still
+        // out of scope there and the next promotion retries the whole of it (the stub set
+        // is rebuilt from the graph at start).
         Self::bind_to_homeserver(user_id, &hs_id).await?;
-        exec_single_row(queries::put::set_user_scope_state(user_id, None)).await?;
         unstub(user_id).await?;
+        exec_single_row(queries::put::set_user_scope_state(user_id, None)).await?;
         tracing::info!("Brought {user_id} into the scope");
         Ok(true)
     }

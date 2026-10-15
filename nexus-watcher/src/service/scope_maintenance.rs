@@ -20,7 +20,7 @@ use std::time::{Duration, Instant};
 use deadpool_redis::redis::AsyncCommands;
 use nexus_common::db::kv::RedisError;
 use nexus_common::db::{fetch_key_from_graph, get_redis_conn, queries};
-use nexus_common::models::error::ModelResult;
+use nexus_common::models::error::{ModelError, ModelResult};
 use nexus_common::models::scope::SeedHopsScope;
 use nexus_common::models::user::stub::{unstub, SCOPE_STATE_STUB};
 use nexus_common::models::user::{UserIngestor, SCOPE_STATE_LEFT};
@@ -32,6 +32,11 @@ use tracing::{info, warn};
 
 /// The scope the last start ran with, to notice a homeserver list that changed.
 const ACTIVE_SCOPE_KEY: &str = "Scope:Active";
+/// Users a homeserver scope may admit whose homeserver couldn't be found (user id ->
+/// attempts): tried again each interval, up to [`MAX_ADMIT_ATTEMPTS`] times. A lookup
+/// that times out looks the same as no published homeserver, so both are retried.
+const ADMIT_RETRY_KEY: &str = "Scope:AdmitRetry";
+const MAX_ADMIT_ATTEMPTS: u32 = 12;
 /// How often [`ScopeMaintainer::tick`] runs: the delay before a member's follow change
 /// takes effect.
 pub const SCOPE_MAINTENANCE_TICK_MS: u64 = 5_000;
@@ -149,7 +154,9 @@ impl ScopeMaintainer {
                 self.recompute_members(seed_scope, false).await?
             }
             Kind::Homeservers(homeservers) if interval_passed => {
-                self.drop_users_bound_outside(homeservers).await?
+                let mut change = self.drop_users_bound_outside(homeservers).await?;
+                change.joined += self.retry_admissions(homeservers).await?;
+                change
             }
             _ => return Ok(ScopeChange::default()),
         };
@@ -260,14 +267,27 @@ impl ScopeMaintainer {
 
     /// For "everything": clears every user's scope state, and former stubs go back into
     /// the rankings; the HS resolver binds them all, so they are polled again.
+    ///
+    /// Stubs are brought into the rankings and feeds before the graph's states are
+    /// cleared, so a start that fails partway finds them still marked and tries again.
     async fn let_everyone_in(&self) -> ModelResult<ScopeChange> {
-        let query = queries::put::clear_scope_states(self.limit_to.as_deref());
-        let stub_ids: Vec<String> = fetch_key_from_graph(query, "stub_ids")
+        let query = queries::get::get_user_ids_by_scope_state(SCOPE_STATE_STUB);
+        let stub_ids: Vec<String> = fetch_key_from_graph(query, "user_ids")
             .await?
             .unwrap_or_default();
+        let stub_ids: Vec<String> = stub_ids
+            .into_iter()
+            .filter(|id| {
+                self.limit_to
+                    .as_ref()
+                    .is_none_or(|limit| limit.contains(id))
+            })
+            .collect();
         for user_id in &stub_ids {
             unstub(user_id).await?;
         }
+        let query = queries::put::clear_scope_states(self.limit_to.as_deref());
+        let _: Option<Vec<String>> = fetch_key_from_graph(query, "stub_ids").await?;
         Ok(ScopeChange {
             joined: stub_ids.len(),
             left: 0,
@@ -299,28 +319,76 @@ impl ScopeMaintainer {
             let user_ids: Option<Vec<String>> = fetch_key_from_graph(query, "user_ids").await?;
             outsiders.extend(user_ids.unwrap_or_default());
         }
+        self.admit_if_listed(homeservers, &self.limited(outsiders))
+            .await
+    }
+
+    /// Tries again the admissions whose homeserver lookup failed.
+    async fn retry_admissions(&self, homeservers: &[PubkyId]) -> ModelResult<usize> {
+        let mut redis_conn = get_redis_conn().await?;
+        let waiting: Vec<String> = redis_conn
+            .hkeys(ADMIT_RETRY_KEY)
+            .await
+            .map_err(RedisError::from)?;
+        self.admit_if_listed(homeservers, &self.limited(waiting))
+            .await
+    }
+
+    /// Admits each user whose homeserver is listed, and returns how many joined. A user
+    /// whose homeserver couldn't be found is kept in [`ADMIT_RETRY_KEY`] to try again; one
+    /// on a blacklisted homeserver is not eligible.
+    async fn admit_if_listed(
+        &self,
+        homeservers: &[PubkyId],
+        user_ids: &[String],
+    ) -> ModelResult<usize> {
+        let mut redis_conn = get_redis_conn().await?;
         let mut joined = 0;
-        for user_id in &outsiders {
-            if self
-                .limit_to
-                .as_ref()
-                .is_some_and(|limit| !limit.contains(user_id))
-            {
-                continue;
-            }
-            let Ok(user_id) = PubkyId::try_from(user_id.as_str()) else {
+        for user_id in user_ids {
+            let Ok(id) = PubkyId::try_from(user_id.as_str()) else {
                 continue;
             };
-            let Ok(Some(hs_id)) = self.ingestor.ensure_hs_not_blacklisted(&user_id).await else {
-                continue;
+            // `None`: on a blacklisted homeserver, so never admitted.
+            let hs_id = match self.ingestor.ensure_hs_not_blacklisted(&id).await {
+                Ok(Some(hs_id)) => Some(hs_id),
+                Err(ModelError::HsBlacklisted { .. }) => None,
+                Ok(None) | Err(_) => {
+                    let attempts: u32 = redis_conn
+                        .hincr(ADMIT_RETRY_KEY, user_id, 1)
+                        .await
+                        .map_err(RedisError::from)?;
+                    if attempts > MAX_ADMIT_ATTEMPTS {
+                        warn!(%user_id, "No homeserver found for a user the scope may admit; giving up");
+                        let () = redis_conn
+                            .hdel(ADMIT_RETRY_KEY, user_id)
+                            .await
+                            .map_err(RedisError::from)?;
+                    }
+                    continue;
+                }
             };
-            if homeservers.iter().any(|hs| hs.as_ref() == hs_id)
-                && self.ingestor.promote(&user_id).await?
-            {
+            let listed =
+                hs_id.is_some_and(|hs_id| homeservers.iter().any(|hs| hs.as_ref() == hs_id));
+            if listed && self.ingestor.promote(&id).await? {
                 joined += 1;
             }
+            let () = redis_conn
+                .hdel(ADMIT_RETRY_KEY, user_id)
+                .await
+                .map_err(RedisError::from)?;
         }
         Ok(joined)
+    }
+
+    /// `user_ids` narrowed to [`Self::limit_to`], if set.
+    fn limited(&self, user_ids: Vec<String>) -> Vec<String> {
+        match &self.limit_to {
+            Some(limit) => user_ids
+                .into_iter()
+                .filter(|id| limit.contains(id))
+                .collect(),
+            None => user_ids,
+        }
     }
 
     async fn in_scope_users(&self) -> ModelResult<HashSet<String>> {

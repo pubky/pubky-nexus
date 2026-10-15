@@ -258,20 +258,23 @@ impl SeedHopsScope {
     }
 
     /// Admits users a big Nexus suggested as members, until the suggestion expires.
+    /// Kept per hop count, like the bootstrap: users suggested for a wider scope are
+    /// never members of a narrower one.
     pub async fn suggest_members(&self, user_ids: &[PubkyId]) -> RedisResult<()> {
         let expires_at = chrono::Utc::now().timestamp_millis() as f64 + SUGGESTION_TTL_MS as f64;
         let scored: Vec<(f64, &str)> = user_ids
             .iter()
             .map(|id| (expires_at, id.as_ref()))
             .collect();
-        ScopeIndex::put_index_sorted_set(&["Suggested", &self.seed], &scored, Some("Scope"), None)
-            .await
+        let hops = self.hops.to_string();
+        let key_parts = ["Suggested", &self.seed, &hops];
+        ScopeIndex::put_index_sorted_set(&key_parts, &scored, Some("Scope"), None).await
     }
 
     /// The suggested users whose suggestion hasn't expired; expired ones are dropped.
     async fn suggested_members(&self) -> RedisResult<Vec<String>> {
         let now = chrono::Utc::now().timestamp_millis();
-        let key = self.key("Suggested");
+        let key = self.suggested_key();
         let mut redis_conn = get_redis_conn().await?;
         let () = redis_conn.zrembyscore(&key, "-inf", now).await?;
         Ok(redis_conn.zrangebyscore(&key, now, "+inf").await?)
@@ -288,6 +291,10 @@ impl SeedHopsScope {
         let now = chrono::Utc::now().timestamp_millis();
         let mut redis_conn = get_redis_conn().await?;
         Ok(redis_conn.set(self.bootstrapped_key(), now).await?)
+    }
+
+    fn suggested_key(&self) -> String {
+        format!("{}:{}", self.key("Suggested"), self.hops)
     }
 
     fn bootstrapped_key(&self) -> String {
