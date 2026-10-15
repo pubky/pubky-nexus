@@ -338,7 +338,8 @@ within seconds of a member's follow or unfollow, and every
 is in scope: the cache between starts, the graph at start (the cache may be from another
 scope, or hold changes a crash interrupted). New members are bound with a cursor at 0 and read from the start of their
 stream (also on a homeserver whose feed is read whole: its own stream is read until
-it is empty, `Scope:CatchUp`, as the feed has moved past what was skipped); members who are
+it is empty, `Scope:CatchUp`, as the feed has moved past what was skipped; the
+whole-feed reader does it before its feed, so no record is handled twice at once); members who are
 gone are marked `left`, unbound and their cursor dropped, so they
 stop being polled; one that couldn't be let go stays cached and is tried again. **Their
 content stays**; removing it is not implemented yet.

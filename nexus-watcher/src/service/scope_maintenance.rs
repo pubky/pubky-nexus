@@ -22,7 +22,7 @@ use nexus_common::db::kv::RedisError;
 use nexus_common::db::{fetch_key_from_graph, get_redis_conn, queries};
 use nexus_common::models::error::{ModelError, ModelResult};
 use nexus_common::models::scope::SeedHopsScope;
-use nexus_common::models::user::stub::{unstub, SCOPE_STATE_STUB};
+use nexus_common::models::user::stub::{drop_stub_entry, unstub, SCOPE_STATE_STUB};
 use nexus_common::models::user::{UserIngestor, SCOPE_STATE_LEFT};
 use nexus_common::types::DynError;
 use nexus_common::{ScopeConfig, WatcherConfig};
@@ -289,6 +289,10 @@ impl ScopeMaintainer {
         }
         let query = queries::put::clear_scope_states(self.limit_to.as_deref());
         let _: Option<Vec<String>> = fetch_key_from_graph(query, "stub_ids").await?;
+        // A concurrent `is_unread` may have put an entry back from the graph's old state.
+        for user_id in &stub_ids {
+            drop_stub_entry(user_id).await?;
+        }
         Ok(ScopeChange {
             joined: stub_ids.len(),
             left: 0,

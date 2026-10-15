@@ -10,7 +10,6 @@ use crate::service::stats::{ProcessedStats, ProcessorRunStatus, RunAllProcessors
 use crate::service::KEY_BASED_RUN_BUDGET;
 use nexus_common::models::homeserver::{Homeserver, HsBlacklist};
 use nexus_common::models::scope::{scope_from_config, Scope};
-use nexus_common::models::user::catch_up::homeservers_catching_up;
 use nexus_common::types::DynError;
 use nexus_common::WatcherConfig;
 use opentelemetry::global;
@@ -131,19 +130,15 @@ impl KeyBasedEventProcessorRunner {
     async fn hs_by_priority(&self) -> Result<Vec<String>, DynError> {
         let active_hs_ids = Homeserver::get_all_active_from_graph().await?;
         let full_feeds = self.scope.full_feed_homeservers(&self.primary_homeserver);
-        // Users let into the scope have their own stream read, also on a homeserver read
-        // whole, until they caught up with what was skipped (see `catch_up`).
-        let catching_up = homeservers_catching_up().await?;
 
         let result_hs_ids: Vec<String> = active_hs_ids
             .into_iter()
-            // Exclude the HSs whose whole feed is read, as they are processed separately,
-            // unless users there are catching up
+            // Exclude the HSs whose whole feed is read, as they are processed separately
+            // (also the users there catching up, see `HsEventProcessor`)
             .filter(|hs_id| {
-                catching_up.contains(hs_id)
-                    || !full_feeds
-                        .iter()
-                        .any(|full_feed| full_feed.as_ref() == hs_id)
+                !full_feeds
+                    .iter()
+                    .any(|full_feed| full_feed.as_ref() == hs_id)
             })
             // Exclude any blacklisted HS
             .filter(|hs_id| !self.hs_blacklist.is_blacklisted(hs_id))
@@ -161,15 +156,10 @@ impl TEventProcessorRunner for KeyBasedEventProcessorRunner {
 
     async fn build(&self, hs_id: &str) -> Result<Arc<dyn TEventProcessor>, DynError> {
         let homeserver_id = PubkyId::try_from(hs_id)?;
-        let catch_up_only = self
-            .scope
-            .full_feed_homeservers(&self.primary_homeserver)
-            .iter()
-            .any(|full_feed| full_feed.as_ref() == hs_id);
 
         Ok(Arc::new(KeyBasedEventProcessor {
             homeserver_id,
-            catch_up_only,
+            catch_up_only: false,
             limit: self.limit,
             event_handler: self.event_handler.clone(),
             event_source: self.event_source.clone(),

@@ -1,15 +1,18 @@
-use super::{RunOutcome, TEventProcessor};
+use super::{KeyBasedEventProcessor, PubkyKeyBasedEventSource, RunOutcome, TEventProcessor};
 use crate::errors::EventProcessorError;
 use crate::events::retry::RetryScheduler;
 use crate::events::{
     format_error_body, read_stream_capped, Event, EventHandler, MAX_ERROR_BODY, MAX_EVENTS_BODY,
 };
+use crate::service::runner::{UserNotFoundBackoff, UserResumePoints};
+use crate::service::KEY_BASED_RUN_BUDGET;
 use nexus_common::db::kv::RedisError;
 use nexus_common::db::{
     fetch_row_from_graph, queries, GraphResult, PubkyClientError, PubkyConnector,
 };
 use nexus_common::models::error::ModelError;
-use nexus_common::models::homeserver::Homeserver;
+use nexus_common::models::homeserver::{Homeserver, HsBlacklist};
+use nexus_common::models::user::catch_up::homeservers_catching_up;
 use opentelemetry::metrics::Counter;
 use opentelemetry::{global, KeyValue};
 use pubky::Method;
@@ -204,6 +207,8 @@ impl TEventProcessor for HsEventProcessor {
     }
 
     async fn run_internal(self: Arc<Self>) -> Result<RunOutcome, EventProcessorError> {
+        self.catch_up_users().await?;
+
         let maybe_event_lines = self
             .poll_events()
             .await
@@ -222,6 +227,31 @@ impl TEventProcessor for HsEventProcessor {
 }
 
 impl HsEventProcessor {
+    /// Reads the own streams of this homeserver's users catching up (let into the scope,
+    /// see `catch_up`): the feed moved past the records they wrote while out. Done here,
+    /// before the feed, so the same records are never handled by two tasks at once.
+    async fn catch_up_users(&self) -> Result<(), EventProcessorError> {
+        let hs_id: &str = self.homeserver.id.as_ref();
+        if !homeservers_catching_up().await?.contains(hs_id) {
+            return Ok(());
+        }
+        let users = Arc::new(KeyBasedEventProcessor {
+            homeserver_id: self.homeserver.id.clone(),
+            catch_up_only: true,
+            limit: self.limit,
+            event_handler: self.event_handler.clone(),
+            event_source: Arc::new(PubkyKeyBasedEventSource),
+            user_not_found_backoff: Arc::new(UserNotFoundBackoff::default()),
+            hs_blacklist: HsBlacklist::default(),
+            retry_scheduler: self.retry_scheduler.clone(),
+            shutdown_rx: self.shutdown_rx.clone(),
+            user_resume_points: Arc::new(UserResumePoints::default()),
+            budget: KEY_BASED_RUN_BUDGET,
+        });
+        users.run_internal().await?;
+        Ok(())
+    }
+
     /// Resolves and caches a user's `HOSTED_BY` mapping relative to this processor's HS
     async fn user_hs_mapping(&self, user_id: &PubkyId) -> GraphResult<HsMapping> {
         if let Some(hs_mapping) = self.hs_mapping_cache.lock().await.get(user_id.as_ref()) {

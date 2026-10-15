@@ -5,6 +5,8 @@ use crate::service::utils::{create_mock_event_processors, setup, MockEventProces
 use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
 use chrono::Utc;
+use deadpool_redis::redis::AsyncCommands;
+use nexus_common::db::get_redis_conn;
 use nexus_common::db::graph::exec::exec_single_row;
 use nexus_common::db::graph::Query;
 use nexus_common::models::homeserver::{Homeserver, HsBlacklist};
@@ -23,7 +25,8 @@ use nexus_watcher::service::indexer::PubkyKeyBasedEventSource;
 use nexus_watcher::service::runner::HomeserverBackoff;
 use nexus_watcher::service::runner::{UserNotFoundBackoff, UserResumePoints};
 use nexus_watcher::service::{
-    KeyBasedEventProcessorRunner, TEventProcessorRunner, KEY_BASED_RUN_BUDGET,
+    HsEventProcessorRunner, KeyBasedEventProcessorRunner, TEventProcessorRunner,
+    KEY_BASED_RUN_BUDGET,
 };
 use pubky::Keypair;
 use pubky_app_specs::PubkyId;
@@ -382,32 +385,31 @@ async fn test_key_based_runner_polls_the_primary_homeserver_for_a_seed_scope(
     Ok(())
 }
 
-/// A homeserver read whole is read user by user only for users catching up there.
+/// The key-based runner never reads a homeserver read whole, also while users there are
+/// catching up: the whole-feed processor reads their streams, so no record is handled by
+/// two tasks at once.
 #[tokio_shared_rt::test(shared)]
-async fn test_key_based_runner_reads_a_whole_feed_homeserver_for_users_catching_up(
+async fn test_key_based_runner_leaves_users_catching_up_to_the_whole_feed_reader(
 ) -> Result<(), DynError> {
     setup().await?;
     let [primary, listed] = active_homeservers(2).await?.try_into().unwrap();
     let scope = Arc::new(HomeserverListScope::new(std::slice::from_ref(&listed)));
     let runner = key_based_runner(&primary, scope);
-    assert!(!runner.pre_run().await?.contains(&listed.to_string()));
 
     let user_id = random_pubky_id().to_string();
     start_catch_up(&user_id, &listed).await?;
     let while_catching_up = runner.pre_run().await;
     caught_up(&user_id).await?;
 
-    assert!(while_catching_up?.contains(&listed.to_string()));
-    assert!(!runner.pre_run().await?.contains(&listed.to_string()));
+    assert!(!while_catching_up?.contains(&listed.to_string()));
     Ok(())
 }
 
 /// A user let into a homeserver scope gets the records it wrote while it was out, although
-/// its homeserver's feed is read whole and moved past them: its own stream is read from the
-/// start until it is empty.
+/// the feed of its homeserver, read whole, moved past them: the whole-feed processor reads
+/// the user's own stream from the start until it is empty.
 #[tokio_shared_rt::test(shared)]
 async fn test_a_user_let_in_on_a_whole_feed_homeserver_catches_up() -> Result<()> {
-    // Nothing indexed as it is written: the user's records are skipped, as while it was out.
     let mut test = WatcherTest::setup(None)
         .await?
         .remove_event_processing()
@@ -435,38 +437,60 @@ async fn test_a_user_let_in_on_a_whole_feed_homeserver_catches_up() -> Result<()
         .put_to_graph()
         .await?;
     mark_stub(&user_id).await?;
+    // Its homeserver was just checked, so its events are skipped as an outsider's.
+    let rechecked = format!("Scope:Rechecked:{user_id}");
+    let mut redis_conn = get_redis_conn().await?;
+    let () = redis_conn.set_ex(&rechecked, 1, 900).await?;
 
     let hs = test.homeserver_id.clone();
     let scope: Arc<dyn Scope> = Arc::new(HomeserverListScope::new(std::slice::from_ref(&hs)));
-    let ingestor = UserIngestor::with_scope(Vec::<PubkyId>::new(), scope.clone());
+    let ingestor = Arc::new(UserIngestor::with_scope(
+        Vec::<PubkyId>::new(),
+        scope.clone(),
+    ));
+    let event_handler: Arc<dyn EventHandler> = Arc::new(DefaultEventHandler::new(
+        default_moderation_tests(),
+        ingestor.clone(),
+        DEFAULT_MAX_FILE_SIZE,
+        PathBuf::from("/tmp/nexus-watcher-test"),
+    ));
+    let store: Arc<dyn RetryStore> = Arc::new(RedisRetryStore::new());
+    let retry_scheduler = Arc::new(RetryScheduler::new(
+        store,
+        InitialBackoff {
+            missing_dep_ms: 60_000,
+            transient_ms: 10_000,
+        },
+    ));
+    let feed = HsEventProcessorRunner {
+        limit: 1000,
+        event_handler,
+        shutdown_rx: tokio::sync::watch::channel(false).1,
+        primary_homeserver: hs.clone(),
+        scope,
+        retry_scheduler,
+    };
+    let run = || async {
+        let processor = feed
+            .build(hs.as_ref())
+            .await
+            .map_err(|e| anyhow::anyhow!(e))?;
+        processor.run().await.map_err(|e| anyhow::anyhow!("{e:?}"))
+    };
+
+    // The feed moves past the user's records while it is out.
+    run().await?;
+    assert!(PostDetails::get_by_id(&user_id, &post_id).await?.is_none());
+
     assert!(ingestor.promote(&user_id).await?);
+    run().await?;
+    let indexed = PostDetails::get_by_id(&user_id, &post_id).await?.is_some();
+    // Its stream has nothing left now: caught up.
+    run().await?;
+    let still_catching_up = catching_up(&[user_id.as_ref()]).await?;
+    let () = redis_conn.del(&rechecked).await?;
 
-    let runner = key_based_runner(&hs, scope);
-    assert!(runner
-        .pre_run()
-        .await
-        .map_err(|e| anyhow::anyhow!(e))?
-        .contains(&hs.to_string()));
-    runner
-        .build(hs.as_ref())
-        .await
-        .map_err(|e| anyhow::anyhow!(e))?
-        .run()
-        .await
-        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
-    assert!(
-        PostDetails::get_by_id(&user_id, &post_id).await?.is_some(),
-        "the post written while it was out is read"
-    );
-
-    // Its stream has nothing left: caught up, and its homeserver is read whole only again.
-    runner
-        .build(hs.as_ref())
-        .await
-        .map_err(|e| anyhow::anyhow!(e))?
-        .run()
-        .await
-        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
-    assert_eq!(catching_up(&[user_id.as_ref()]).await?, vec![false]);
+    assert!(indexed, "the post written while it was out is read");
+    assert_eq!(still_catching_up, vec![false]);
     Ok(())
 }

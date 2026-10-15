@@ -28,6 +28,11 @@ pub async fn is_stub(user_id: &str) -> RedisResult<bool> {
 /// Goes by the graph, the source of truth: a stub whose `Scope:Stubs` entry is missing (the
 /// Redis half of [`mark_stub`] failed) is put back in the set, so the rest of the watcher
 /// treats it as a stub too.
+///
+/// The repair can race a promotion, which takes the entry out before it clears the
+/// graph's state. So the graph is read again after the repair, and the repair undone if
+/// the user was promoted meanwhile; a promotion also drops the entry once more after
+/// clearing the graph ([`drop_stub_entry`]). Whichever runs last, no entry is left behind.
 pub async fn is_unread(user_id: &str) -> ModelResult<bool> {
     if is_stub(user_id).await? {
         return Ok(true);
@@ -37,7 +42,13 @@ pub async fn is_unread(user_id: &str) -> ModelResult<bool> {
     match scope_state.flatten().as_deref() {
         Some(SCOPE_STATE_STUB) => {
             sets::put(STUBS.0, STUBS.1, &[user_id], None).await?;
-            Ok(true)
+            let query = queries::get::get_user_scope_state(user_id);
+            let now: Option<Option<String>> = fetch_key_from_graph(query, "scope_state").await?;
+            if now.flatten().as_deref() == Some(SCOPE_STATE_STUB) {
+                return Ok(true);
+            }
+            drop_stub_entry(user_id).await?;
+            Ok(false)
         }
         Some(SCOPE_STATE_LEFT) => Ok(true),
         _ => Ok(false),
@@ -80,6 +91,13 @@ pub async fn unstub(user_id: &str) -> ModelResult<bool> {
         return Err(e);
     }
     Ok(true)
+}
+
+/// Drops the user's `Scope:Stubs` entry, for a user whose graph state was just cleared: a
+/// concurrent [`is_unread`] may have put it back from the state before.
+pub async fn drop_stub_entry(user_id: &str) -> ModelResult<()> {
+    sets::del(STUBS.0, STUBS.1, &[user_id]).await?;
+    Ok(())
 }
 
 /// Rebuilds `Scope:Stubs` from the graph. Returns how many stubs the graph holds.
