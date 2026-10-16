@@ -28,7 +28,8 @@ pub fn routes(app_state: AppState) -> (Router<AppState>, Router<AppState>) {
         .merge(tag::expensive_routes())
         .merge(search::expensive_routes())
         .merge(file::expensive_routes())
-        .merge(bootstrap::expensive_routes());
+        .merge(bootstrap::expensive_routes())
+        .merge(events::expensive_routes());
 
     let default = Router::new()
         .merge(info::routes(app_state.clone()))
