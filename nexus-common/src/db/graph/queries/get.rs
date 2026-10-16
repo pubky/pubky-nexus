@@ -423,6 +423,24 @@ pub fn get_user_ids_page(after_id: &str, limit: usize) -> Query {
     .param("limit", limit.min(MAX_QUERY_LIMIT) as i64)
 }
 
+/// One keyset page of `:User` nodes as `record`, with their `id`, ordered by
+/// `id`, strictly after `after_id` (`""` for the first page); an empty page
+/// means the end. Tombstoned users and stubs are included.
+pub fn get_users_page(after_id: &str, limit: usize) -> Query {
+    Query::new(
+        "get_users_page",
+        "
+        MATCH (record:User)
+        WHERE record.id > $after_id
+        RETURN record.id AS id, record
+        ORDER BY id ASC
+        LIMIT $limit
+        ",
+    )
+    .param("after_id", after_id.to_string())
+    .param("limit", limit.min(MAX_QUERY_LIMIT) as i64)
+}
+
 /// Users whose profile carries any of the given tag labels, scored by distinct
 /// tagger count summed across the searched labels.
 pub fn search_users_by_tags(labels: &[String], skip: Option<usize>, limit: Option<usize>) -> Query {

@@ -33,3 +33,4 @@ tempfile = { workspace = true }
 tracing-test = { workspace = true }
 opentelemetry_sdk = { workspace = true, features = ["testing"] }
 serde_json = { workspace = true }
+nexus-common = { path = "../nexus-common", features = ["test-utils"] }
