@@ -8,28 +8,65 @@
 //! The graph's `scope_state` is the source of truth; `Scope:Stubs` mirrors it for the
 //! per-write check and is rebuilt from the graph at start.
 
-use crate::db::kv::{sets, RedisError, RedisResult};
-use crate::db::{exec_single_row, fetch_key_from_graph, queries, RedisOps};
+use std::sync::LazyLock;
+
+use deadpool_redis::redis::{self, AsyncCommands, Script};
+
+use crate::db::kv::{RedisError, RedisResult};
+use crate::db::{exec_single_row, fetch_key_from_graph, get_redis_conn, queries, RedisOps};
 use crate::models::error::ModelResult;
 use crate::models::user::{UserCounts, UserDetails};
 
 /// `scope_state` of a user known to this Nexus but outside its scope.
 pub const SCOPE_STATE_STUB: &str = "stub";
-const STUBS: (&str, &str) = ("Scope", "Stubs");
+const STUBS_KEY: &str = "Scope:Stubs";
+/// Counts the writes to `Scope:Stubs`, so a rebuild can tell whether one landed after it
+/// read the graph.
+const WRITES_KEY: &str = "Scope:StubWrites";
 /// A member every rebuilt `Scope:Stubs` holds (not a valid user id), so a set lost with
 /// Redis reads as not built yet rather than as "no stubs".
 const BUILT: &str = "*built*";
+/// Rebuilds that lost to a stub write and read the graph again, before giving up.
+const REBUILD_ATTEMPTS: usize = 5;
+
+/// Replaces `Scope:Stubs` (KEYS[1]) with ARGV[2..], unless the write count (KEYS[2]) is no
+/// longer ARGV[1]: a stub written since the graph was read would be lost.
+static REPLACE_IF_UNCHANGED: LazyLock<Script> = LazyLock::new(|| {
+    Script::new(
+        "if (redis.call('get', KEYS[2]) or '0') ~= ARGV[1] then return 0 end
+         redis.call('del', KEYS[1])
+         for i = 2, #ARGV, 1000 do
+             redis.call('sadd', KEYS[1], unpack(ARGV, i, math.min(i + 999, #ARGV)))
+         end
+         return 1",
+    )
+});
 
 /// Whether the user is a stub. If `Scope:Stubs` was lost (Redis restarted or flushed
 /// while the watcher or the API kept running), it is rebuilt from the graph first, so
 /// stubs are never taken for members and ranked.
 pub async fn is_stub(user_id: &str) -> RedisResult<bool> {
-    let found = sets::are_members(STUBS.0, STUBS.1, &[user_id, BUILT]).await?;
+    let mut conn = get_redis_conn().await?;
+    let found: Vec<bool> = conn.smismember(STUBS_KEY, &[user_id, BUILT]).await?;
     if found.get(1).copied().unwrap_or(false) {
         return Ok(found.first().copied().unwrap_or(false));
     }
     rebuild().await?;
-    sets::is_member(STUBS.0, STUBS.1, user_id).await
+    Ok(conn.sismember(STUBS_KEY, user_id).await?)
+}
+
+/// Adds (`true`) or removes the user's `Scope:Stubs` entry, counting the write in the
+/// same step. Returns whether the set changed.
+async fn write_entry(user_id: &str, stub: bool) -> RedisResult<bool> {
+    let mut conn = get_redis_conn().await?;
+    let mut pipe = redis::pipe();
+    pipe.atomic();
+    match stub {
+        true => pipe.sadd(STUBS_KEY, user_id),
+        false => pipe.srem(STUBS_KEY, user_id),
+    };
+    let (changed, _): (usize, i64) = pipe.incr(WRITES_KEY, 1).query_async(&mut conn).await?;
+    Ok(changed > 0)
 }
 
 /// Creates the node of a user met outside the scope, already a stub, with zeroed
@@ -38,15 +75,15 @@ pub async fn is_stub(user_id: &str) -> RedisResult<bool> {
 /// The node and its `scope_state` are written in one graph write, so no node exists
 /// without its state for the HS resolver to bind. Redis is written first, so a failure
 /// leaves no node and the retry ingests the user from scratch; and again after the
-/// graph write, in case a rebuild of `Scope:Stubs` ran in between.
+/// graph write, which also makes a rebuild that read the graph before it read again.
 pub async fn create_stub(details: &UserDetails) -> ModelResult<()> {
     let user_id = details.id.to_string();
-    sets::put(STUBS.0, STUBS.1, &[&user_id], None).await?;
+    write_entry(&user_id, true).await?;
     UserCounts::default()
         .put_index_json(&[&user_id], None, None)
         .await?;
     exec_single_row(queries::put::create_stub_user(details)?).await?;
-    sets::put(STUBS.0, STUBS.1, &[&user_id], None).await?;
+    write_entry(&user_id, true).await?;
     Ok(())
 }
 
@@ -55,7 +92,7 @@ pub async fn create_stub(details: &UserDetails) -> ModelResult<()> {
 /// [`drop_stub_entry`].
 pub async fn unstub(user_id: &str) -> ModelResult<bool> {
     // Out of the set first: the rankings skip a stub.
-    if !sets::take(STUBS.0, STUBS.1, user_id).await? {
+    if !write_entry(user_id, false).await? {
         return Ok(false);
     }
     if let Some(counts) = UserCounts::get_from_index(user_id).await? {
@@ -67,7 +104,7 @@ pub async fn unstub(user_id: &str) -> ModelResult<bool> {
 /// Drops the user's `Scope:Stubs` entry, for a user whose graph state was just cleared:
 /// a rebuild may have put it back from the state before.
 pub async fn drop_stub_entry(user_id: &str) -> ModelResult<()> {
-    sets::del(STUBS.0, STUBS.1, &[user_id]).await?;
+    write_entry(user_id, false).await?;
     Ok(())
 }
 
@@ -76,18 +113,32 @@ pub async fn rebuild_stub_index() -> ModelResult<usize> {
     Ok(rebuild().await?)
 }
 
+/// Replaces `Scope:Stubs` with the graph's stubs, unless a stub write landed after the
+/// graph was read; then it reads the graph again.
 async fn rebuild() -> RedisResult<usize> {
-    let query = queries::get::get_user_ids_by_scope_state(SCOPE_STATE_STUB);
-    let mut members: Vec<String> = fetch_key_from_graph(query, "user_ids")
-        .await
-        .map_err(|e| {
-            RedisError::CommandFailed(format!("reading the stubs from the graph: {e}").into())
-        })?
-        .unwrap_or_default();
-    let stubs = members.len();
-    members.push(BUILT.to_string());
-    sets::replace(STUBS.0, STUBS.1, &members).await?;
-    Ok(stubs)
+    for _ in 0..REBUILD_ATTEMPTS {
+        let mut conn = get_redis_conn().await?;
+        let writes: Option<String> = conn.get(WRITES_KEY).await?;
+        let query = queries::get::get_user_ids_by_scope_state(SCOPE_STATE_STUB);
+        let stubs: Vec<String> = fetch_key_from_graph(query, "user_ids")
+            .await
+            .map_err(|e| RedisError::CommandFailed(format!("reading the stubs: {e}").into()))?
+            .unwrap_or_default();
+        let replaced: i64 = REPLACE_IF_UNCHANGED
+            .key(STUBS_KEY)
+            .key(WRITES_KEY)
+            .arg(writes.as_deref().unwrap_or("0"))
+            .arg(&stubs)
+            .arg(BUILT)
+            .invoke_async(&mut conn)
+            .await?;
+        if replaced == 1 {
+            return Ok(stubs.len());
+        }
+    }
+    Err(RedisError::CommandFailed(
+        "Scope:Stubs kept changing while it was rebuilt".into(),
+    ))
 }
 
 #[cfg(test)]
@@ -98,6 +149,7 @@ mod tests {
     use crate::models::post::{KindFilter, PostStream, StreamSource};
     use crate::types::{DynError, Pagination, StreamSorting};
     use crate::{StackConfig, StackManager};
+    use deadpool_redis::redis::AsyncCommands;
     use pubky_app_specs::PubkyAppPostKind;
 
     use super::SCOPE_STATE_STUB;
@@ -191,6 +243,31 @@ mod tests {
         super::rebuild_stub_index().await?;
 
         assert!(after_loss?, "rebuilt from the graph, not read as empty");
+        Ok(())
+    }
+
+    /// A rebuild doesn't overwrite a stub written after it read the graph: its
+    /// replacement is refused, so the next rebuild reads the graph again.
+    #[tokio_shared_rt::test(shared)]
+    async fn a_rebuild_keeps_a_stub_written_after_its_graph_read() -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+        let user_id = pubky::Keypair::random().public_key().to_z32();
+        let mut conn = crate::db::get_redis_conn().await?;
+        let read_at: Option<String> = conn.get(super::WRITES_KEY).await?;
+
+        super::write_entry(&user_id, true).await?;
+        let replaced: i64 = super::REPLACE_IF_UNCHANGED
+            .key(super::STUBS_KEY)
+            .key(super::WRITES_KEY)
+            .arg(read_at.as_deref().unwrap_or("0"))
+            .arg(super::BUILT)
+            .invoke_async(&mut conn)
+            .await?;
+        let kept: bool = conn.sismember(super::STUBS_KEY, &user_id).await?;
+        super::write_entry(&user_id, false).await?;
+
+        assert_eq!(replaced, 0, "the replacement is refused");
+        assert!(kept, "the stub written after the graph read stays");
         Ok(())
     }
 
