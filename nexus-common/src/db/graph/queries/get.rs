@@ -1951,6 +1951,15 @@ pub fn get_tag_by_tagger_and_id(tagger_id: &str, tag_id: &str) -> Query {
     .param("tag_id", tag_id)
 }
 
+/// Whether the moderator took down an address; the `:Takedown(uri)` constraint indexes it.
+pub fn is_taken_down(uri: &str) -> Query {
+    Query::new(
+        "is_taken_down",
+        "RETURN EXISTS { MATCH (:Takedown {uri: $uri}) } AS taken_down",
+    )
+    .param("uri", uri.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
