@@ -380,6 +380,21 @@ pub async fn is_member(prefix: &str, key: &str, member: &str) -> RedisResult<boo
     Ok(redis_conn.sismember(index_key, member).await?)
 }
 
+/// Whether each of `members` is in the set, in order: one `SMISMEMBER`.
+pub async fn are_members(prefix: &str, key: &str, members: &[&str]) -> RedisResult<Vec<bool>> {
+    let index_key = format!("{prefix}:{key}");
+    let mut redis_conn = get_redis_conn().await?;
+    Ok(redis_conn.smismember(index_key, members).await?)
+}
+
+/// Removes `member` from the set, returning whether it was there.
+pub async fn take(prefix: &str, key: &str, member: &str) -> RedisResult<bool> {
+    let index_key = format!("{prefix}:{key}");
+    let mut redis_conn = get_redis_conn().await?;
+    let removed: usize = redis_conn.srem(index_key, member).await?;
+    Ok(removed > 0)
+}
+
 static REPLACE_SET_SCRIPT: LazyLock<Script> = LazyLock::new(|| {
     Script::new(
         "redis.call('del', KEYS[1])

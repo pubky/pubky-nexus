@@ -179,3 +179,24 @@ async fn test_a_followed_stub_stays_out_of_the_rankings() -> Result<()> {
     assert!(ranked.is_none(), "a stub stays out of most followed");
     Ok(())
 }
+
+/// A user that must always be read (the moderator), kept as a stub elsewhere (the API
+/// ingests with the plain scope), is brought back into the scope and bound at start.
+#[tokio_shared_rt::test(shared)]
+async fn test_ensure_in_scope_brings_a_stubbed_moderator_back() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let hs_pk = create_external_test_homeserver(&mut test).await?;
+    let (_, moderator_id) = user_on(&test, &hs_pk).await?;
+    let ingestor = scoped_ingestor(&test);
+    ingestor.maybe_ingest_user(&moderator_id).await?;
+    assert_user_is_stub(&moderator_id).await;
+
+    ingestor.ensure_in_scope(&moderator_id).await?;
+
+    assert!(!is_stub(&moderator_id).await?);
+    assert_user_ingested(&moderator_id, &hs_pk).await;
+    let query = queries::get::get_user_scope_state(&moderator_id);
+    let scope_state: Option<Option<String>> = fetch_key_from_graph(query, "scope_state").await?;
+    assert_eq!(scope_state, Some(None), "no scope_state left in the graph");
+    Ok(())
+}

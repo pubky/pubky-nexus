@@ -790,6 +790,17 @@ pub fn get_user_scope_and_homeserver(user_id: &str) -> Query {
     .param("user_id", user_id.to_string())
 }
 
+/// Retrieves a user's `scope_state`: a row with `null` for an in-scope user, no row
+/// for an unknown one.
+pub fn get_user_scope_state(user_id: &str) -> Query {
+    Query::new(
+        "get_user_scope_state",
+        "MATCH (u:User {id: $user_id})
+         RETURN u.scope_state AS scope_state",
+    )
+    .param("user_id", user_id.to_string())
+}
+
 /// Retrieves the ids of the users with the given `scope_state`.
 pub fn get_user_ids_by_scope_state(scope_state: &str) -> Query {
     Query::new(
