@@ -1,11 +1,10 @@
 use anyhow::Result;
+use nexus_common::db::fetch_key_from_graph;
 use nexus_common::db::graph::Query;
 use nexus_common::db::kv::SortOrder;
-use nexus_common::db::{fetch_key_from_graph, RedisOps};
 use nexus_common::models::resource::stream::{
     ResourceSorting, ResourceStream, ResourceStreamSource,
 };
-use nexus_common::models::resource::tag::{TagResource, RESOURCE_TAGS_KEY_PARTS};
 use nexus_common::types::Pagination;
 use serde::{Deserialize, Serialize};
 
@@ -97,19 +96,6 @@ pub async fn app_stream_resource_ids(app: &str) -> Result<Vec<String>> {
     )
     .await?;
     Ok(keys.resource_ids)
-}
-
-/// Score of `label` in the resource's label-score sorted set, `None` when
-/// absent. Read through `TagResource`, which writes the key in
-/// `update_index_score`, and from the same key parts, so a key change breaks
-/// the tests at compile time. The sorted-set helpers key off `Sorted:`, not
-/// `TagResource::prefix()`.
-pub async fn resource_label_score(resource_id: &str, label: &str) -> Result<Option<isize>> {
-    let key_parts: Vec<&str> = [&RESOURCE_TAGS_KEY_PARTS[..], &[resource_id]].concat();
-    let score = TagResource::check_sorted_set_member(None, &key_parts, &[label])
-        .await
-        .unwrap();
-    Ok(score)
 }
 
 /// Compute the resource_id for a given URI (for test assertions)

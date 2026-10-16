@@ -1,10 +1,7 @@
 use crate::db::graph::error::GraphError;
 use crate::db::kv::SortOrder;
 use crate::db::queries;
-use crate::models::error::{ModelError, ModelResult};
-use crate::models::resource::tag::TagResource;
-use crate::models::resource::ResourceDetails;
-use crate::models::tag::traits::TagCollection;
+use crate::models::error::ModelResult;
 use crate::types::Pagination;
 use futures::stream::{self, StreamExt};
 use futures::TryStreamExt;
@@ -72,6 +69,8 @@ impl ResourceStream {
     /// # Errors
     /// Returns [`ModelError::GraphOperationFailed`] on graph failures, including
     /// `GraphError::QueryTimeout` when the query exceeds its budget.
+    ///
+    /// [`ModelError::GraphOperationFailed`]: crate::models::error::ModelError::GraphOperationFailed
     pub async fn get_resource_keys(
         source: &ResourceStreamSource,
         pagination: Pagination,
@@ -113,8 +112,9 @@ impl ResourceStream {
     // Full ResourceView loading from IDs
     // -----------------------------------------------------------------------
 
-    /// Loads full ResourceView objects from a list of resource IDs.
-    // TODO Batch queries:`get_resource_by_id`, `TagResource::get_by_id`
+    /// Loads full ResourceView objects from a list of resource IDs, one graph
+    /// read per resource.
+    // TODO Batch the page into one query
     pub async fn from_listed_resource_ids(
         viewer_id: Option<&str>,
         resource_ids: &[String],
@@ -130,30 +130,14 @@ impl ResourceStream {
             stream::iter(resource_ids.iter().cloned().map(|resource_id| {
                 let viewer_id = viewer_id.clone();
                 async move {
-                    let Some(details) = ResourceDetails::get_by_id(&resource_id).await? else {
-                        return Ok::<_, ModelError>(None);
-                    };
-
-                    // Load tags via TagResource
-                    let tags = TagResource::get_by_id(
+                    ResourceView::get_by_id(
                         &resource_id,
-                        None,
                         None,
                         Some(5),
                         Some(3),
                         viewer_id.as_deref(),
-                        None,
                     )
-                    .await?
-                    .unwrap_or_default();
-
-                    let taggers_count = tags.iter().map(|t| t.taggers_count).sum();
-
-                    Ok(Some(ResourceView {
-                        details,
-                        tags,
-                        taggers_count,
-                    }))
+                    .await
                 }
             }))
             .buffered(8)
