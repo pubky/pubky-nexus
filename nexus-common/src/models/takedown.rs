@@ -7,59 +7,64 @@
 //! address drops that event. Profiles aren't remembered: a moderated user may come back
 //! with a new profile at the same address.
 //!
-//! The graph (`:Takedown` nodes) is the source of truth; `Moderation:Removed` mirrors it
-//! for the per-event check and is rebuilt from the graph at start.
+//! Each takedown is a `:Takedown {uri, tag_uri}` node: the canonical address taken down,
+//! and the address of the moderator tag that took it down. A takedown is permanent for
+//! now: lifting one is not implemented. `tag_uri` is kept so it can be, by matching the
+//! DEL of that moderator tag to its takedown.
 
-use crate::db::kv::{sets, RedisResult};
 use crate::db::{exec_single_row, fetch_key_from_graph, queries};
 use crate::models::error::ModelResult;
 
-const TAKEDOWNS: (&str, &str) = ("Moderation", "Removed");
-
-/// Remembers that the moderator took down `uri`.
-pub async fn record_takedown(uri: &str) -> ModelResult<()> {
-    exec_single_row(queries::put::record_takedown(uri)).await?;
-    sets::put(TAKEDOWNS.0, TAKEDOWNS.1, &[uri], None).await?;
+/// Remembers that the moderator tag at `tag_uri` took down `uri`, a canonical address.
+pub async fn record_takedown(uri: &str, tag_uri: &str) -> ModelResult<()> {
+    exec_single_row(queries::put::record_takedown(uri, tag_uri)).await?;
     Ok(())
 }
 
-pub async fn is_taken_down(uri: &str) -> RedisResult<bool> {
-    sets::is_member(TAKEDOWNS.0, TAKEDOWNS.1, uri).await
-}
-
-/// Rebuilds `Moderation:Removed` from the graph. Returns how many takedowns it holds.
-pub async fn rebuild_takedown_index() -> ModelResult<usize> {
-    let uris: Vec<String> = fetch_key_from_graph(queries::get::get_takedown_uris(), "uris")
+/// Whether the moderator took down `uri`, a canonical address.
+pub async fn is_taken_down(uri: &str) -> ModelResult<bool> {
+    let query = queries::get::is_taken_down(uri);
+    Ok(fetch_key_from_graph(query, "taken_down")
         .await?
-        .unwrap_or_default();
-    sets::replace(TAKEDOWNS.0, TAKEDOWNS.1, &uris).await?;
-    Ok(uris.len())
+        .unwrap_or(false))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::fetch_row_from_graph;
+    use crate::db::graph::Query;
     use crate::types::DynError;
     use crate::{StackConfig, StackManager};
 
-    /// A takedown survives losing Redis: it is rebuilt from the graph.
+    /// A takedown is remembered with the moderator tag that made it.
     #[tokio_shared_rt::test(shared)]
-    async fn takedowns_are_remembered_and_rebuilt_from_the_graph() -> Result<(), DynError> {
+    async fn takedowns_are_remembered_with_their_moderator_tag() -> Result<(), DynError> {
         StackManager::setup(&StackConfig::default()).await?;
-        let uri = format!(
-            "pubky://{}/pub/pubky.app/posts/0034FJVRPG4V0",
-            pubky::Keypair::random().public_key().to_z32()
-        );
+        let user = pubky::Keypair::random().public_key().to_z32();
+        let uri = format!("pubky://{user}/pub/pubky.app/posts/0034FJVRPG4V0");
+        let tag_uri = format!("pubky://{user}/pub/pubky.app/tags/MODERATORTAG");
 
         assert!(!is_taken_down(&uri).await?);
-        record_takedown(&uri).await?;
+        record_takedown(&uri, &tag_uri).await?;
         assert!(is_taken_down(&uri).await?);
 
-        sets::del(TAKEDOWNS.0, TAKEDOWNS.1, &[&uri]).await?;
-        assert!(!is_taken_down(&uri).await?, "lost from Redis");
+        let query = Query::new(
+            "test_takedown_tag_uri",
+            "MATCH (t:Takedown {uri: $uri}) RETURN t.tag_uri AS tag_uri",
+        )
+        .param("uri", uri.clone());
+        let row = fetch_row_from_graph(query).await?.expect("the takedown");
+        let stored: String = row.get("tag_uri")?;
 
-        rebuild_takedown_index().await?;
-        assert!(is_taken_down(&uri).await?, "rebuilt from the graph");
+        let delete = Query::new(
+            "test_delete_takedown",
+            "MATCH (t:Takedown {uri: $uri}) DELETE t",
+        )
+        .param("uri", uri);
+        exec_single_row(delete).await?;
+
+        assert_eq!(stored, tag_uri);
         Ok(())
     }
 }

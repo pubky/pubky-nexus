@@ -110,8 +110,9 @@ pub async fn handle_put_event(
     moderation: Arc<Moderation>,
     ingestor: Arc<UserIngestor>,
 ) -> Result<(), EventProcessorError> {
-    // Whatever order events arrive in, a record the moderator took down stays down.
-    if is_taken_down(&event.uri).await? {
+    // Whatever order events arrive in, a record the moderator took down stays down. A
+    // copy left behind by an earlier attempt whose removal failed is removed here too.
+    if remove_if_taken_down(&event.uri, files_path, &ingestor).await? {
         TAKEN_DOWN.add(1, &[]);
         debug!(event.uri = %event.uri, "Record was taken down by the moderator; skipping event");
         return Ok(());
@@ -166,7 +167,7 @@ pub async fn handle_put_event(
         (PubkyAppObject::Tag(tag), Resource::Tag(tag_id)) => {
             if moderation.should_delete(&tag, &user_id) {
                 moderation
-                    .apply_moderation(tag, files_path, &ingestor)
+                    .apply_moderation(tag, &event.uri, files_path, &ingestor)
                     .await?
             } else {
                 // Route universal tag events (non-pubky.app apps) to sync_put_resource
@@ -213,24 +214,25 @@ pub async fn handle_put_event(
     Ok(())
 }
 
-/// Removes the record at `uri` if the moderator took it down, for a record just written.
+/// Removes the record at `uri` if the moderator took it down, and returns whether it did.
 ///
-/// The moderator's tag may have been read by another loop (primary, external, retry) while
-/// this record was being fetched, and found nothing to delete yet. If the takedown is
-/// recorded by now, the record is removed here; if it is recorded later, the moderator's
-/// own delete runs after this write and removes it. Either way it doesn't stay.
+/// Run before a record is fetched and again once it is written. The moderator's tag may
+/// have been read by another loop (primary, external, retry) while the record was being
+/// fetched, and found nothing to delete yet: if the takedown is recorded by the second
+/// check, the record is removed there; if later, the moderator's own delete runs after
+/// the write and removes it. A removal that failed is finished on the event's retry, by
+/// the first check. Removing what is already gone does nothing.
 pub async fn remove_if_taken_down(
     uri: &str,
     files_path: &Path,
     ingestor: &UserIngestor,
-) -> Result<(), EventProcessorError> {
+) -> Result<bool, EventProcessorError> {
     if !is_taken_down(uri).await? {
-        return Ok(());
+        return Ok(false);
     }
-    TAKEN_DOWN.add(1, &[]);
-    debug!(%uri, "Record was taken down while it was written; removing it");
-    match Moderation::remove_taken_down(uri, files_path, ingestor).await {
-        Ok(()) | Err(EventProcessorError::SkipIndexing) => Ok(()),
+    // Boxed: the delete handlers' futures would otherwise nest inside every PUT's.
+    match Box::pin(Moderation::remove_taken_down(uri, files_path, ingestor)).await {
+        Ok(()) | Err(EventProcessorError::SkipIndexing) => Ok(true),
         Err(e) => Err(e),
     }
 }
