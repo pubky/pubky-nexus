@@ -129,9 +129,7 @@ where
 
         let keys: Vec<&[&str]> = keys_refs.iter().map(|arr| &arr[..]).collect();
 
-        Self::put_multiple_json_indexes(&keys, found_records).await?;
-        Self::extend_on_index_miss(&records).await?;
-        Ok(())
+        Self::put_multiple_json_indexes(&keys, found_records).await
     }
 
     // Save new graph node
@@ -157,6 +155,4 @@ where
 
     /// Returns the neo4j query to put a record into the graph.
     fn put_graph_query(&self) -> GraphResult<Query>;
-
-    async fn extend_on_index_miss(elements: &[std::option::Option<Self>]) -> RedisResult<()>;
 }

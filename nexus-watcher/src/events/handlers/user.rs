@@ -4,10 +4,7 @@ use nexus_common::db::queries::get::user_is_safe_to_delete;
 use nexus_common::db::{
     exec_single_row, execute_graph_operation, queries, OperationOutcome, RedisOps,
 };
-use nexus_common::models::{
-    traits::Collection,
-    user::{UserCounts, UserDetails, UserSearch, UsersByTagSearch},
-};
+use nexus_common::models::user::{UserCounts, UserDetails, UserSearch, UsersByTagSearch};
 use pubky_app_specs::{PubkyAppUser, PubkyId};
 use tracing::debug;
 
@@ -44,8 +41,7 @@ pub async fn sync_put(
         },
         async {
             // TODO(flip): caches `V0`, not the epoch stored in the graph.
-            UserDetails::put_to_index(&[&user_details.id], vec![Some(user_details.clone())])
-                .await?;
+            user_details.put_to_index().await?;
             Ok::<(), EventProcessorError>(())
         }
     );
@@ -92,10 +88,7 @@ pub async fn del(user_id: PubkyId) -> Result<(), EventProcessorError> {
             exec_single_row(queries::del::delete_user(&user_id)).await?;
         }
         OperationOutcome::Updated => {
-            // 1. Graph-first: write the tombstone before the cache. Collection::get_by_ids
-            // repopulates the cache from the graph on a miss, so writing the cache first
-            // would let a concurrent read cache the live profile again afterwards.
-            // The tombstone keeps the stored `uri` and its epoch in the graph.
+            // 1. Graph-first: the tombstone keeps the stored `uri` and its epoch.
             let tombstone = UserDetails::tombstone(&user_id);
             tombstone.put_to_graph().await?;
 
@@ -104,10 +97,9 @@ pub async fn del(user_id: PubkyId) -> Result<(), EventProcessorError> {
             // cannot re-add them. A retry finds the same state and changes nothing.
             UserSearch::put_to_index(&[&tombstone]).await?;
 
-            // 3. Cache the tombstone rather than invalidating, so a read cannot
-            // revive the live profile from a stale document.
+            // 3. Cache the tombstone.
             // TODO(flip): caches `V0`, not the epoch stored in the graph.
-            UserDetails::put_to_index(&[&tombstone.id], vec![Some(tombstone.clone())]).await?;
+            tombstone.put_to_index().await?;
 
             // 4. Evict the user from every per-label users-by-tag sorted set.
             UsersByTagSearch::sync_user_labels(&user_id).await?;

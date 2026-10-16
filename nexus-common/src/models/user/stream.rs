@@ -152,7 +152,7 @@ impl UserStream {
         // Attempt to get cached data from Redis
         if let Some(cached_ids) = Self::try_get_cached_recommended(user_id, count).await? {
             // Filter out deleted users from cached IDs
-            let details_list = UserDetails::mget(&cached_ids).await?;
+            let details_list = UserDetails::get_by_ids(&cached_ids).await?;
 
             // Collect both filtered IDs and deleted IDs in one pass
             let mut filtered_ids: Vec<String> = Vec::new();
@@ -282,7 +282,7 @@ impl UserStream {
     async fn get_most_followed(
         skip: Option<usize>,
         limit: Option<usize>,
-    ) -> RedisResult<Option<Vec<String>>> {
+    ) -> ModelResult<Option<Vec<String>>> {
         let result = Self::try_from_index_sorted_set(
             &USER_MOSTFOLLOWED_KEY_PARTS,
             None,
@@ -299,7 +299,7 @@ impl UserStream {
         };
 
         let ids: Vec<String> = set.iter().map(|(id, _)| id.clone()).collect();
-        let details_list = UserDetails::mget(&ids).await?;
+        let details_list = UserDetails::get_by_ids(&ids).await?;
 
         let mut filtered_ids = Vec::new();
         let mut deleted_ids = Vec::new();

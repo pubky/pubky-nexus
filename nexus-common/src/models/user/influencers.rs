@@ -1,4 +1,3 @@
-use crate::db::kv::RedisResult;
 use crate::db::kv::SortOrder;
 use crate::models::error::ModelResult;
 use crate::types::{CacheTimeframe, StreamReach, Timeframe};
@@ -136,9 +135,7 @@ impl Influencers {
             // (e.g. after Redis data loss), so reseed it from the graph.
             None => Influencers::seed_live_all_time_set().await?,
         }
-        Influencers::get_from_global_cache(skip, limit, timeframe)
-            .await
-            .map_err(Into::into)
+        Influencers::get_from_global_cache(skip, limit, timeframe).await
     }
 
     /// Fetch top-100 influencers from the graph and atomically replace the cache.
@@ -244,7 +241,7 @@ impl Influencers {
         skip: usize,
         limit: usize,
         timeframe: &Timeframe,
-    ) -> RedisResult<Option<Influencers>> {
+    ) -> ModelResult<Option<Influencers>> {
         let ranking = match timeframe {
             // When timeframe is AllTime, we get the influencer list directly from Sorted::Users::Influencers,
             // which is dynamically updated with each user action and therefore needs no TTL.
@@ -353,9 +350,9 @@ impl Influencers {
     async fn filter_deleted(
         influencers: Influencers,
         timeframe: Option<&Timeframe>,
-    ) -> RedisResult<Influencers> {
+    ) -> ModelResult<Influencers> {
         let ids: Vec<String> = influencers.iter().map(|(id, _)| id.clone()).collect();
-        let details_list = UserDetails::mget(&ids).await?;
+        let details_list = UserDetails::get_by_ids(&ids).await?;
 
         let mut kept = Vec::new();
         let mut deleted_ids = Vec::new();
@@ -421,6 +418,7 @@ impl Influencers {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::kv::RedisResult;
     use crate::{types::DynError, StackConfig, StackManager};
 
     /// Keeps the cache tests off `GLOBAL_INFLUENCERS_PREFIX`: the API tests run against

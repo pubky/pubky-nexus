@@ -1,9 +1,10 @@
-use super::{Epoch, UserSearch};
-use crate::db::graph::Query;
+use super::Epoch;
 use crate::db::kv::RedisResult;
-use crate::db::{exec_single_row, fetch_key_from_graph, queries, GraphResult, RedisOps};
+use crate::db::{
+    exec_single_row, fetch_all_rows_from_graph, fetch_key_from_graph, queries, GraphResult,
+    RedisOps,
+};
 use crate::models::error::ModelResult;
-use crate::models::traits::Collection;
 use async_trait::async_trait;
 use chrono::Utc;
 use pubky_app_specs::{PubkyAppUser, PubkyAppUserLink, PubkyId};
@@ -13,26 +14,6 @@ use utoipa::ToSchema;
 
 #[async_trait]
 impl RedisOps for UserDetails {}
-
-#[async_trait]
-impl Collection<&str> for UserDetails {
-    fn collection_details_graph_query(id_list: &[&str]) -> Query {
-        queries::get::get_users_details_by_ids(id_list)
-    }
-
-    fn put_graph_query(&self) -> GraphResult<Query> {
-        queries::put::create_user(self, None)
-    }
-
-    async fn extend_on_index_miss(details: &[std::option::Option<Self>]) -> RedisResult<()> {
-        let user_details_refs: Vec<&UserDetails> = details
-            .iter()
-            .filter_map(|detail| detail.as_ref())
-            .collect();
-
-        UserSearch::put_to_index(&user_details_refs).await
-    }
-}
 
 /// Represents user data with name, bio, image, links, and status.
 #[derive(Serialize, Deserialize, ToSchema, Clone, Debug)]
@@ -111,11 +92,32 @@ where
 }
 
 impl UserDetails {
-    /// Retrieves details by user ID, first trying to get from Redis, then from Neo4j if not found.
+    /// Reads the user's details from the graph, `None` when there is no such node.
     pub async fn get_by_id(user_id: &str) -> ModelResult<Option<Self>> {
-        // Delegate to UserDetailsCollection::get_by_ids for single item retrieval
-        let details_collection = Self::get_by_ids(&[user_id]).await?;
-        Ok(details_collection.into_iter().flatten().next())
+        Ok(Self::get_by_ids(&[user_id]).await?.pop().flatten())
+    }
+
+    /// Reads each user's details from the graph: one slot per id, in order,
+    /// `None` where there is no such node.
+    pub async fn get_by_ids(user_ids: &[impl AsRef<str>]) -> ModelResult<Vec<Option<Self>>> {
+        if user_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let ids: Vec<&str> = user_ids.iter().map(AsRef::as_ref).collect();
+        let rows = fetch_all_rows_from_graph(queries::get::get_users_details_by_ids(&ids)).await?;
+        Ok(rows.iter().map(|row| row.get("record").ok()).collect())
+    }
+
+    /// Writes the node without a `uri`, keeping the stored one: for stubs and tombstones.
+    pub async fn put_to_graph(&self) -> GraphResult<()> {
+        exec_single_row(queries::put::create_user(self, None)?).await
+    }
+
+    /// A node created by key discovery and never read from a profile: it is
+    /// named after its id. A profile name is at most 50 characters and an id
+    /// 52, so no profile can take this shape.
+    pub fn is_stub(&self) -> bool {
+        self.name == self.id.as_ref()
     }
 
     /// Creates a minimal `UserDetails` with only the public key.
@@ -166,18 +168,13 @@ impl UserDetails {
     }
 
     /// Writes a profile read from the homeserver, storing `uri` (its event path) on the node.
-    /// `put_to_graph` writes no `uri` and keeps the stored one: stubs and tombstones use it.
     pub async fn put_profile_to_graph(&self, uri: &str) -> GraphResult<()> {
         exec_single_row(queries::put::create_user(self, Some(uri))?).await
     }
 
-    pub async fn delete(user_id: &str) -> ModelResult<()> {
-        // Delete user_details on Redis
-        Self::remove_from_index_multiple_json(&[&[user_id]]).await?;
-        // Delete user graph node;
-        exec_single_row(queries::del::delete_user(user_id)).await?;
-
-        Ok(())
+    /// Caches the details in Redis under the user's id.
+    pub async fn put_to_index(&self) -> RedisResult<()> {
+        self.put_index_json(&[self.id.as_ref()], None, None).await
     }
 }
 

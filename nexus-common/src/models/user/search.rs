@@ -363,9 +363,10 @@ impl UserSearch {
     }
 
     /// Rebuilds the search state of every user from the graph, one keyset page
-    /// at a time, and evicts each tombstone from the users-by-tag index. Safe
-    /// on a live Redis: the names hash drops the member of a user renamed
-    /// since the last sync.
+    /// at a time, and evicts each tombstone from the users-by-tag index. Stubs
+    /// are skipped, as the watcher skips them: nothing to search for. Safe on
+    /// a live Redis: the names hash drops the member of a user renamed since
+    /// the last sync.
     ///
     /// # Errors
     /// Returns an error when a graph page or a Redis write fails.
@@ -385,6 +386,7 @@ impl UserSearch {
             let page: Vec<UserDetails> = rows
                 .iter()
                 .filter_map(|row| row.get::<UserDetails>("record").ok())
+                .filter(|details| !details.is_stub())
                 .collect();
             Self::put_to_index(&page.iter().collect::<Vec<_>>()).await?;
             for tombstone in page.iter().filter(|details| details.deleted) {

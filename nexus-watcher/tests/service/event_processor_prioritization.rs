@@ -7,7 +7,6 @@ use chrono::Utc;
 use nexus_common::db::graph::exec::exec_single_row;
 use nexus_common::db::graph::Query;
 use nexus_common::models::homeserver::{Homeserver, HsBlacklist};
-use nexus_common::models::traits::Collection;
 use nexus_common::models::user::{set_user_homeserver, Epoch, UserDetails};
 use nexus_common::types::DynError;
 use nexus_common::utils::test_utils::{default_ingestor_tests, random_pubky_id};

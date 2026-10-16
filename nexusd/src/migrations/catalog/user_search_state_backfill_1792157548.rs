@@ -143,7 +143,6 @@ mod tests {
     use nexus_common::db::{exec_single_row, graph::Query, RedisOps};
     use nexus_common::models::tag::traits::{TagCollection, TaggersCollection};
     use nexus_common::models::tag::user::TagUser;
-    use nexus_common::models::traits::Collection;
     use nexus_common::models::user::{UserDetails, UsersByTagSearch, TAG_GLOBAL_USER_TAGGERS};
     use nexus_common::utils::test_utils::random_pubky_id;
     use nexus_common::{StackConfig, StackManager};

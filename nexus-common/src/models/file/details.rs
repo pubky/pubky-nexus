@@ -1,5 +1,4 @@
 use crate::db::graph::{GraphResult, Query};
-use crate::db::kv::RedisResult;
 use crate::db::{exec_single_row, queries, RedisOps};
 use crate::media::{get_valid_variants_for_content_type, FileVariant};
 use crate::models::error::ModelResult;
@@ -121,10 +120,6 @@ impl<'a, 'b> Collection<&'a [&'b str]> for FileDetails {
 
     fn put_graph_query(&self) -> GraphResult<Query> {
         queries::put::create_file(self)
-    }
-
-    async fn extend_on_index_miss(_: &[std::option::Option<Self>]) -> RedisResult<()> {
-        Ok(())
     }
 }
 

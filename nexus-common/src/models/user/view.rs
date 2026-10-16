@@ -2,7 +2,6 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use super::{users_exist, Relationship, SocialGraphStatus, UserCounts, UserDetails};
-use crate::db::RedisOps;
 use crate::models::error::{ModelError, ModelResult};
 use crate::models::tag::traits::TagCollection;
 use crate::models::tag::user::TagUser;
@@ -82,11 +81,11 @@ impl UserView {
         viewer_id: Option<&str>,
         depth: Option<u8>,
     ) -> ModelResult<Vec<Option<Self>>> {
-        // Details and social graph come from Redis in bulk, counts from one
-        // graph query, and the viewer is resolved once for the page. The social
-        // graph lookup belongs here, batched, not in the per-user fan-out below.
+        // Details and counts come from one graph query each, the social graph
+        // from Redis in bulk, and the viewer is resolved once for the page. The
+        // social graph lookup belongs here, batched, not in the per-user fan-out below.
         let (details_list, counts_list, social_graph_list, viewer_exists) = tokio::try_join!(
-            async { UserDetails::mget(user_ids).await.map_err(ModelError::from) },
+            UserDetails::get_by_ids(user_ids),
             UserCounts::get_by_ids(user_ids),
             async {
                 SocialGraphStatus::get_by_ids(user_ids)

@@ -3,7 +3,6 @@ use pubky_app_specs::{ParsedUri, PubkyId};
 use crate::db::PubkyConnector;
 use crate::models::error::{ModelError, ModelResult};
 use crate::models::homeserver::HsBlacklist;
-use crate::models::traits::Collection;
 use crate::models::user::{set_user_homeserver, UserDetails, UserHsCursor};
 use crate::StackConfig;
 

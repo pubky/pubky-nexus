@@ -1,5 +1,4 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
-use nexus_common::models::traits::Collection;
 use nexus_common::models::user::{Relationship, UserCounts, UserDetails, UserView};
 use setup::run_setup;
 use std::time::Duration;
@@ -134,31 +133,9 @@ fn bench_get_counts_by_id(c: &mut Criterion) {
     }
 }
 
-fn bench_get_details_from_graph(c: &mut Criterion) {
-    println!("*********************************************************************************************************");
-    println!("Test the performance of getting user details from the graph database.");
-    println!("*********************************************************************************************************");
-
-    run_setup();
-
-    let user_id = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
-    let rt = Runtime::new().unwrap();
-
-    c.bench_with_input(
-        BenchmarkId::new("get_details_from_graph", user_id),
-        &user_id,
-        |b, &id| {
-            b.to_async(&rt).iter(|| async {
-                let details = UserDetails::get_from_graph(&[id]).await.unwrap();
-                std::hint::black_box(details);
-            });
-        },
-    );
-}
-
 fn bench_get_details_by_id(c: &mut Criterion) {
     println!("*********************************************************************************************************");
-    println!("Test the performance of getting user details by ID, checking both index and graph.");
+    println!("Test the performance of getting user details by ID from the graph.");
     println!("*********************************************************************************************************");
 
     run_setup();
@@ -180,7 +157,7 @@ fn bench_get_details_by_id(c: &mut Criterion) {
 
 fn bench_get_details_by_ids_list(c: &mut Criterion) {
     println!("*********************************************************************************************************");
-    println!("Test the performance of getting user details by a list of IDs, checking both index and graph.");
+    println!("Test the performance of getting user details by a list of IDs from the graph.");
     println!("*********************************************************************************************************");
 
     run_setup();
@@ -189,29 +166,6 @@ fn bench_get_details_by_ids_list(c: &mut Criterion) {
 
     c.bench_with_input(
         BenchmarkId::new("get_details_by_ids_list", "25_users"),
-        &USER_IDS,
-        |b, &user_ids| {
-            b.to_async(&rt).iter(|| async {
-                let user_details = UserDetails::get_by_ids(&user_ids).await.unwrap();
-                std::hint::black_box(user_details);
-            });
-        },
-    );
-}
-
-fn bench_get_details_by_ids_list_from_graph(c: &mut Criterion) {
-    println!("*********************************************************************************************************");
-    println!(
-        "Test the performance of getting user details by a list of IDs from the graph database."
-    );
-    println!("*********************************************************************************************************");
-
-    run_setup();
-
-    let rt = Runtime::new().unwrap();
-
-    c.bench_with_input(
-        BenchmarkId::new("get_details_by_ids_list_from_graph", "25_users"),
         &USER_IDS,
         |b, &user_ids| {
             b.to_async(&rt).iter(|| async {
@@ -236,10 +190,8 @@ criterion_group! {
               bench_get_full_by_ids,
               bench_get_relationship_by_id,
               bench_get_counts_by_id,
-              bench_get_details_from_graph,
               bench_get_details_by_id,
-              bench_get_details_by_ids_list,
-              bench_get_details_by_ids_list_from_graph
+              bench_get_details_by_ids_list
 }
 
 criterion_main!(benches);
