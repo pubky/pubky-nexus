@@ -22,12 +22,16 @@ use crate::service::task_runner::task_results_into_result;
 use crate::NexusWatcherBuilder;
 use nexus_common::file::ConfigLoader;
 use nexus_common::models::homeserver::Homeserver;
+use nexus_common::models::scope::scope_from_config;
+use nexus_common::models::user::stub::rebuild_stub_index;
+use nexus_common::models::user::UserIngestor;
 use nexus_common::types::DynError;
+use nexus_common::ScopeConfig;
 use nexus_common::WatcherConfig;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::watch::Receiver;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 pub struct NexusWatcher {}
 
@@ -73,7 +77,7 @@ impl NexusWatcher {
     pub async fn start(shutdown_rx: Receiver<bool>, config: WatcherConfig) -> Result<(), DynError> {
         debug!(?config, "Running NexusWatcher with ");
 
-        Homeserver::persist_if_unknown(config.homeserver.clone()).await?;
+        prepare_scope(&config).await?;
 
         let primary_hs_monitoring_interval_ms = config.primary_hs_monitoring_interval_ms;
         let external_hs_monitoring_interval_ms = config.external_hs_monitoring_interval_ms;
@@ -129,6 +133,43 @@ impl NexusWatcher {
         info!("Nexus Watcher shut down gracefully");
         task_results_into_result(task_results)
     }
+}
+
+/// Gets the scope ready before any event is read: the homeservers read whole are
+/// persisted so their cursors exist, Redis's copy of the stubs is rebuilt from the
+/// graph, and the moderator is made sure to be read.
+async fn prepare_scope(config: &WatcherConfig) -> Result<(), DynError> {
+    let scope = scope_from_config(&config.stack.scope);
+    info!(scope = ?config.stack.scope, "Indexing scope");
+
+    for homeserver in scope.full_feed_homeservers(&config.homeserver) {
+        Homeserver::persist_if_unknown(homeserver).await?;
+    }
+
+    // The graph is the source of truth for stubs; Redis only mirrors it.
+    let stubs = rebuild_stub_index().await?;
+    debug!(stubs, "Rebuilt the stub index from the graph");
+
+    // The moderator's tags take content down, so a scoped Nexus must read it too.
+    if config.stack.scope != ScopeConfig::Everything {
+        UserIngestor::from_watcher_config(config)
+            .ensure_in_scope(&config.moderation_id)
+            .await?;
+    }
+
+    if let ScopeConfig::Homeservers { homeservers } = &config.stack.scope {
+        let blacklist = &config.stack.net.external_hs_pk_blacklist;
+        for listed in homeservers.iter().filter(|hs| blacklist.contains(hs)) {
+            warn!(homeserver = %listed, "A listed homeserver is blacklisted: it is not read");
+        }
+        if !homeservers.contains(&config.homeserver) {
+            warn!(
+                primary = %config.homeserver,
+                "The primary homeserver is not in scope.homeservers: only the listed homeservers are read"
+            );
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]

@@ -5,7 +5,7 @@ use crate::models::tag::user::USER_TAGS_KEY_PARTS;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use super::UserStream;
+use super::{is_stub, UserStream};
 
 /// Represents total counts of relationships of a user.
 #[derive(Serialize, Deserialize, ToSchema, Debug, Default, Clone)]
@@ -71,6 +71,10 @@ impl UserCounts {
 
     pub async fn put_to_index(&self, user_id: &str) -> RedisResult<()> {
         self.put_index_json(&[user_id], None, None).await?;
+        // A stub's profile is never read: ranked, it would show as a blank card.
+        if is_stub(user_id).await? {
+            return Ok(());
+        }
         UserStream::add_to_most_followed_sorted_set(user_id, self).await?;
         UserStream::add_to_influencers_sorted_set(user_id, self).await
     }
@@ -122,7 +126,8 @@ impl UserCounts {
         // Update user counts index
         Self::update_index_field(user_id, field, action).await?;
         // Just update influencer and most followed indexes, when that fields are updated
-        if field == "followers" || field == "tags" || field == "posts" {
+        let ranked_field = field == "followers" || field == "tags" || field == "posts";
+        if ranked_field && !is_stub(user_id).await? {
             // Index only, never a read-through: a caller may still be mid-change in the graph
             // (an unfollow deletes its edge after this), and a graph read here would cache the
             // pre-change counts. With no counts key there is nothing to rank yet; the next

@@ -21,7 +21,8 @@ runner; the sections below group each config field under the runner it drives:
 - [Section 3: Key-based indexing of externally-hosted users](#3-indexing-externally-hosted-users-key-based)
 - [Section 4: User → HS resolution](#4-user--hs-resolution)
 - [Section 5: Event retry & backoff](#5-event-retry--backoff--watcherretry)
-- [Section 6: Quick reference](#6-quick-reference)
+- [Section 6: Indexing scope](#6-indexing-scope--stackscope)
+- [Section 7: Quick reference](#7-quick-reference)
 
 ---
 
@@ -283,7 +284,47 @@ avoid hammering an HS for content that may not exist yet.
 
 ---
 
-## 6. Quick reference
+## 6. Indexing scope — `[stack.scope]`
+
+> Which users this Nexus indexes. Set in `[stack]` so the watcher and the API read the
+> same value; omit it to index everyone. `/v0/info` publishes it.
+
+| `kind` | Indexes | Feeds read whole | Users read one by one |
+|---|---|---|---|
+| `everything` (default) | Every user Nexus can discover | The primary HS (`homeserver`) | Users on every other HS |
+| `homeservers` | Users bound to a listed HS | Each listed HS | None |
+
+```toml
+[stack.scope]
+kind = "homeservers"
+homeservers = ["<homeserver pubky>"]
+```
+
+The settings are validated on load: `homeservers` must list at least one HS, and a field
+that doesn't belong to the `kind` is an error.
+
+**Set the scope before the first run.** It decides, as each user is first met, whether
+the user is indexed or kept as a stub. Changing it on an existing database doesn't move
+users already known.
+
+**The moderator is always in scope.** `moderation_id` is read whatever the scope, since
+its tags take content down.
+
+**Users outside the scope are stubs**: a `User` node with `scope_state = "stub"` and
+counts, but no `HOSTED_BY` and no cursor, so the resolver and the indexers never touch
+it. Follows, tags and mentions of stubs by in-scope users are indexed. Stubs are kept out
+of the most-followed and influencer rankings, and their posts out of the global feeds
+(timeline, engagement, tag streams, and the `source=all` shapes served from the graph,
+such as a kind filter or several tags): they appear where they meet the scope, in threads,
+counts, notifications and their own profile. A Redis set (`Scope:Stubs`) mirrors the
+graph for the per-write check and is rebuilt at start.
+
+An event whose author is outside the scope is skipped before it is fetched, counted in
+`watcher.events.out_of_scope`.
+
+---
+
+## 7. Quick reference
 
 | Field | TOML path | Type | Default |
 |---|---|---|---|
@@ -304,6 +345,7 @@ avoid hammering an HS for content that may not exist yet.
 | `initial_missing_dep_backoff_secs` | `[watcher.retry]` | `u64` s | `60` |
 | `max_missing_dep_backoff_secs` | `[watcher.retry]` | `u64` s | `3600` |
 | `external_hs_pk_blacklist` | `[stack.net]` | `Vec<PubkyId>` | `[]` |
+| `kind`, `homeservers` | `[stack.scope]` | see [Section 6](#6-indexing-scope--stackscope) | `kind = "everything"` |
 
 
 [^1]: This is the *interval* at which runs are *triggered*, not a sleep duration

@@ -1,28 +1,72 @@
+use std::sync::Arc;
+
 use pubky_app_specs::{ParsedUri, PubkyId};
 
 use crate::db::PubkyConnector;
+use crate::db::{exec_single_row, fetch_key_from_graph, queries};
 use crate::models::error::{ModelError, ModelResult};
 use crate::models::homeserver::HsBlacklist;
+use crate::models::scope::{scope_from_config, watcher_scope, EverythingScope, Scope};
 use crate::models::traits::Collection;
+use crate::models::user::stub::{create_stub, drop_stub_entry, unstub};
 use crate::models::user::{set_user_homeserver, UserDetails, UserHsCursor};
-use crate::StackConfig;
+use crate::{StackConfig, WatcherConfig};
 
 /// Ingests previously-unknown users unless their HS is blacklisted.
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 pub struct UserIngestor {
     hs_blacklist: HsBlacklist,
+    scope: Arc<dyn Scope>,
+}
+
+impl Default for UserIngestor {
+    fn default() -> Self {
+        Self {
+            hs_blacklist: HsBlacklist::default(),
+            scope: Arc::new(EverythingScope),
+        }
+    }
 }
 
 impl UserIngestor {
-    /// Builds an ingestor enforcing the given HS blacklist.
+    /// Builds an ingestor enforcing the given HS blacklist, indexing everyone.
     pub fn new(external_hs_pk_blacklist: impl IntoIterator<Item = PubkyId>) -> Self {
         Self {
             hs_blacklist: HsBlacklist::new(external_hs_pk_blacklist),
+            ..Self::default()
+        }
+    }
+
+    /// Builds an ingestor enforcing the given HS blacklist and scope.
+    pub fn with_scope(
+        external_hs_pk_blacklist: impl IntoIterator<Item = PubkyId>,
+        scope: Arc<dyn Scope>,
+    ) -> Self {
+        Self {
+            hs_blacklist: HsBlacklist::new(external_hs_pk_blacklist),
+            scope,
         }
     }
 
     pub fn from_config(config: &StackConfig) -> Self {
-        Self::new(config.net.external_hs_pk_blacklist.iter().cloned())
+        Self::with_scope(
+            config.net.external_hs_pk_blacklist.iter().cloned(),
+            scope_from_config(&config.scope),
+        )
+    }
+
+    /// The watcher's ingestor: like [`Self::from_config`], with the moderator always in
+    /// scope.
+    pub fn from_watcher_config(config: &WatcherConfig) -> Self {
+        Self::with_scope(
+            config.stack.net.external_hs_pk_blacklist.iter().cloned(),
+            watcher_scope(config),
+        )
+    }
+
+    /// The scope deciding which users are indexed.
+    pub fn scope(&self) -> &Arc<dyn Scope> {
+        &self.scope
     }
 
     /// Ingests the author of a referenced post, if unknown.
@@ -69,6 +113,9 @@ impl UserIngestor {
 
     /// Resolves and persists a previously-unknown user.
     ///
+    /// A user in the scope is bound to its HS and gets a cursor, so it is polled. A user
+    /// outside it is kept as a stub; see [`crate::models::user::stub`].
+    ///
     /// Returns [`ModelError::HsBlacklisted`] if the user's resolved HS is blacklisted.
     #[tracing::instrument(name = "user.ingest", skip_all)]
     pub async fn maybe_ingest_user(&self, user_id: &PubkyId) -> ModelResult<()> {
@@ -88,7 +135,14 @@ impl UserIngestor {
             return Ok(());
         };
 
+        let in_scope = self.scope.is_in_scope(&user_id_str, Some(&hs_id)).await?;
+
         let user_details = UserDetails::from_pubky(user_id.clone());
+
+        if !in_scope {
+            tracing::info!("Kept {user_id} from HS {hs_id} as a stub: outside the scope");
+            return create_stub(&user_details).await;
+        }
 
         // Do not add to index, as this would affect the timeline of events for this user.
         // Only create stub graph node for HS-resolver to store user-HS mapping.
@@ -104,6 +158,39 @@ impl UserIngestor {
         // Seed the user's HS cursor floor (no-op if we're already tracking them).
         UserHsCursor::init(user_id, &hs_id).await?;
 
+        Ok(())
+    }
+
+    /// Makes sure a user that must be in the scope (the moderator) is known and polled.
+    ///
+    /// If its HS can't be resolved right now, the bare node is still created: the HS
+    /// resolver binds it on a later run, and polling starts from there. A node kept as a
+    /// stub (the API ingests with the plain scope, which doesn't pin the moderator) is
+    /// brought back into the scope.
+    pub async fn ensure_in_scope(&self, user_id: &PubkyId) -> ModelResult<()> {
+        self.maybe_ingest_user(user_id).await?;
+        if UserDetails::get_by_id(user_id).await?.is_none() {
+            UserDetails::from_pubky(user_id.clone())
+                .put_to_graph()
+                .await?;
+        }
+
+        let query = queries::get::get_user_scope_state(user_id);
+        let scope_state: Option<Option<String>> =
+            fetch_key_from_graph(query, "scope_state").await?;
+        if scope_state.flatten().is_none() {
+            return Ok(());
+        }
+        // The graph's state is cleared last, so a failure before leaves it a stub there
+        // and the next start retries the whole of it.
+        unstub(user_id).await?;
+        exec_single_row(queries::put::set_user_scope_state(user_id, None)).await?;
+        drop_stub_entry(user_id).await?;
+        if let Some(hs_id) = self.ensure_hs_not_blacklisted(user_id).await? {
+            set_user_homeserver(user_id, &hs_id).await?;
+            UserHsCursor::init(user_id, &hs_id).await?;
+        }
+        tracing::info!("Brought {user_id} back into the scope: it must always be read");
         Ok(())
     }
 }

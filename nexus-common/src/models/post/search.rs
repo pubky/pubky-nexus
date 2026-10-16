@@ -7,6 +7,7 @@ use crate::models::post::trust_filter::{self, AuthorPost};
 use crate::models::post::{PostDetails, PostStream, StreamSource};
 use crate::models::tag::post::TagPost;
 use crate::models::tag::traits::TaggersCollection;
+use crate::models::user::is_stub;
 use crate::types::{Pagination, StreamReach, StreamSorting};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -148,6 +149,10 @@ impl PostsByTagSearch {
         label: &str,
         score_action: ScoreAction,
     ) -> RedisResult<()> {
+        // A stub's posts appear only where they meet the scope, not in global feeds.
+        if is_stub(author_id).await? {
+            return Ok(());
+        }
         let tag_global_engagement_key_parts = [&TAG_GLOBAL_POST_ENGAGEMENT[..], &[label]].concat();
         let post_key_slice: &[&str] = &[author_id, post_id];
         trust_filter::incr(
@@ -175,6 +180,9 @@ impl PostsByTagSearch {
     }
 
     pub async fn put_to_index(author_id: &str, post_id: &str, tag_label: &str) -> RedisResult<()> {
+        if is_stub(author_id).await? {
+            return Ok(());
+        }
         let post_key_slice: &[&str] = &[author_id, post_id];
         let key_parts = [&TAG_GLOBAL_POST_TIMELINE[..], &[tag_label]].concat();
         let tag_search = Self::check_sorted_set_member(None, &key_parts, post_key_slice).await?;
