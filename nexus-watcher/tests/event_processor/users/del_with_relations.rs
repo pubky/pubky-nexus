@@ -379,8 +379,9 @@ async fn test_user_resurrection() -> Result<()> {
     Ok(())
 }
 
-/// A tombstoned user must drop out of both search indexes, and stay out: the
-/// `deleted` filter in `put_to_index` stops a cache-miss read from re-adding them.
+/// A tombstoned user must drop out of both search indexes, and stay out:
+/// `put_to_index` unindexes a tombstone and records it in the deleted set,
+/// and only a new profile indexes them again.
 #[tokio_shared_rt::test(shared)]
 async fn test_deleted_user_removed_from_search() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
