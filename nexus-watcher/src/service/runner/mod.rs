@@ -1,12 +1,10 @@
 mod homeserver;
 mod key_based;
-mod key_based_hs_backoff;
 mod key_based_user_backoff;
 mod key_based_user_resume;
 
 pub use homeserver::HsEventProcessorRunner;
 pub use key_based::KeyBasedEventProcessorRunner;
-pub use key_based_hs_backoff::HomeserverBackoff;
 pub use key_based_user_backoff::UserNotFoundBackoff;
 pub use key_based_user_resume::UserResumePoints;
 
@@ -139,6 +137,7 @@ mod tests {
     use super::*;
     use crate::errors::EventProcessorError;
     use crate::events::{Event, EventHandler};
+    use crate::homeserver::HomeserverHealth;
     use crate::service::indexer::RunOutcome;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use tokio::sync::Mutex;
@@ -206,7 +205,7 @@ mod tests {
     struct RecordingRunner {
         hs_ids: Vec<String>,
         poll_limit: usize,
-        backoff: Mutex<HomeserverBackoff>,
+        health: HomeserverHealth,
         built: Mutex<Vec<String>>,
         /// The processor every build returns. Builds fail unless it is set.
         processor: Option<Arc<SlowProcessor>>,
@@ -218,7 +217,7 @@ mod tests {
             Self {
                 hs_ids: hs_ids.iter().map(|id| id.to_string()).collect(),
                 poll_limit,
-                backoff: Mutex::new(HomeserverBackoff::default()),
+                health: HomeserverHealth::default(),
                 built: Mutex::new(vec![]),
                 processor: None,
                 shutdown_rx: tokio::sync::watch::channel(false).1,
@@ -254,7 +253,7 @@ mod tests {
         }
 
         async fn backoff_hs_should_skip(&self, hs_id: &str) -> bool {
-            self.backoff.lock().await.should_skip(hs_id)
+            self.health.should_skip(hs_id)
         }
     }
 
@@ -270,8 +269,8 @@ mod tests {
     #[tokio::test]
     async fn backed_off_homeservers_do_not_use_up_the_poll_limit() {
         let runner = RecordingRunner::new(&["hs1", "hs2", "hs3", "hs4", "hs5"], 2);
-        runner.backoff.lock().await.record_failure("hs1");
-        runner.backoff.lock().await.record_failure("hs2");
+        runner.health.record_failure("hs1");
+        runner.health.record_failure("hs2");
 
         let ProcessedStats(stats) = runner.run().await.unwrap();
 

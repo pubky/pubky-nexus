@@ -5,7 +5,6 @@ use nexus_common::models::file::FileDetails;
 use nexus_common::models::traits::Collection;
 use nexus_common::models::user::UserIngestor;
 use nexus_common::utils::test_utils::random_pubky_id;
-use nexus_common::DEFAULT_MAX_FILE_SIZE;
 use nexus_watcher::events::handlers::file::sync_put;
 use nexus_watcher::EventProcessorError;
 use pubky::Keypair;
@@ -69,8 +68,8 @@ async fn test_file_ingest_aborts_on_blacklisted_source_homeserver() -> Result<()
         user_pubky_id,
         file_id.clone(),
         test.temp_dir.path(),
-        DEFAULT_MAX_FILE_SIZE,
         &ingestor,
+        test.event_processor_runner.client.as_ref(),
     )
     .await
     .expect_err("file ingest should be refused for a blacklisted source HS");
@@ -129,8 +128,8 @@ async fn test_file_ingest_aborts_when_source_is_blacklisted_hs_pk_directly() -> 
         owner_id.clone(),
         file_id.clone(),
         test.temp_dir.path(),
-        DEFAULT_MAX_FILE_SIZE,
         &ingestor,
+        test.event_processor_runner.client.as_ref(),
     )
     .await
     .expect_err("file ingest should be refused when src addresses a blacklisted HS PK directly");
@@ -178,8 +177,8 @@ async fn test_file_ingest_proceeds_when_source_homeserver_not_blacklisted() -> R
         user_pubky_id,
         file_id.clone(),
         test.temp_dir.path(),
-        DEFAULT_MAX_FILE_SIZE,
         &ingestor,
+        test.event_processor_runner.client.as_ref(),
     )
     .await
     .expect("file ingest should proceed when the source HS is not blacklisted");
