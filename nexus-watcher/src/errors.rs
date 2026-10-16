@@ -12,6 +12,11 @@ pub enum EventProcessorError {
     #[error("GraphQueryFailed (should_not_retry_now: {0}): {1}")]
     GraphQueryFailed(bool, String),
 
+    /// The author is polled as in scope but the scope doesn't count it in yet: the
+    /// scope's own records are being rebuilt. Retried, so the event isn't lost.
+    #[error("ScopeUnsettled: {0} is bound to a homeserver but not settled in the scope")]
+    ScopeUnsettled(String),
+
     /// The event could not be indexed due to missing graph dependencies
     #[error("MissingDependency: Could not be indexed")]
     MissingDependency { dependency: Vec<String> },

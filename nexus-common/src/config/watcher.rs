@@ -1,5 +1,8 @@
 use super::file::ConfigLoader;
-use super::{default_stack, FeaturesConfig, StackConfig};
+use super::{
+    default_stack, FeaturesConfig, InboundBridgeConfig, ScopeBootstrapConfig,
+    ScopeMaintenanceConfig, StackConfig,
+};
 use async_trait::async_trait;
 use pubky_app_specs::{PubkyId, VALIDATION_LIMITS};
 use serde::{de::Error, Deserialize, Deserializer, Serialize};
@@ -172,6 +175,18 @@ pub struct WatcherConfig {
     #[serde(default)]
     pub retry: EventRetryConfig,
 
+    /// How often the watcher re-checks who is in scope. See [ScopeMaintenanceConfig].
+    #[serde(default)]
+    pub scope_maintenance: ScopeMaintenanceConfig,
+
+    /// How a seed scope finds its members at start. See [ScopeBootstrapConfig].
+    #[serde(default)]
+    pub scope_bootstrap: ScopeBootstrapConfig,
+
+    /// Brings a seed scope interactions from outside it. See [InboundBridgeConfig].
+    #[serde(default)]
+    pub inbound_bridge: InboundBridgeConfig,
+
     // Moderation
     pub moderation_id: PubkyId,
     pub moderated_tags: Vec<String>,
@@ -202,6 +217,9 @@ impl Default for WatcherConfig {
             retry_processor_interval_ms: DEFAULT_RETRY_PROCESSOR_INTERVAL_MS,
             max_file_size: DEFAULT_MAX_FILE_SIZE,
             retry: EventRetryConfig::default(),
+            scope_maintenance: ScopeMaintenanceConfig::default(),
+            scope_bootstrap: ScopeBootstrapConfig::default(),
+            inbound_bridge: InboundBridgeConfig::default(),
             moderation_id,
             moderated_tags: MODERATED_TAGS.iter().map(|s| s.to_string()).collect(),
         }

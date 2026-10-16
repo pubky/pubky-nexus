@@ -1,9 +1,10 @@
-use super::TEventProcessorRunner;
+use super::{TEventProcessorRunner, UserNotFoundBackoff, UserResumePoints};
 use crate::events::retry::RetryScheduler;
 use crate::events::{DefaultEventHandler, EventHandler};
 use crate::service::indexer::{HsEventProcessor, TEventProcessor};
 use crate::service::stats::{ProcessedStats, RunAllProcessorsStats};
 use nexus_common::models::homeserver::Homeserver;
+use nexus_common::models::scope::{scope_from_config, Scope};
 use nexus_common::types::DynError;
 use nexus_common::WatcherConfig;
 use pubky_app_specs::PubkyId;
@@ -21,8 +22,18 @@ pub struct HsEventProcessorRunner {
     /// See [WatcherConfig::homeserver]
     pub primary_homeserver: PubkyId,
 
+    /// Decides which homeservers' whole feeds are read
+    pub scope: Arc<dyn Scope>,
+
     /// Scheduler shared with every processor this runner builds
     pub retry_scheduler: Arc<RetryScheduler>,
+
+    /// Where catch-up runs start (see `HsEventProcessor::catch_up_users`), kept across
+    /// polls so a run that stops at its budget leaves the next one the users it didn't reach
+    pub catch_up_resume_points: Arc<UserResumePoints>,
+
+    /// Catching-up users whose stream returned 404, kept across polls like the resume points
+    pub catch_up_not_found: Arc<UserNotFoundBackoff>,
 }
 
 impl HsEventProcessorRunner {
@@ -33,7 +44,10 @@ impl HsEventProcessorRunner {
             event_handler: Arc::new(DefaultEventHandler::from_config(config)),
             shutdown_rx,
             primary_homeserver: config.homeserver.clone(),
+            scope: scope_from_config(&config.stack.scope),
             retry_scheduler: Arc::new(RetryScheduler::from_config(config)),
+            catch_up_resume_points: Arc::new(UserResumePoints::default()),
+            catch_up_not_found: Arc::new(UserNotFoundBackoff::default()),
         }
     }
 
@@ -61,12 +75,17 @@ impl TEventProcessorRunner for HsEventProcessorRunner {
             event_handler: self.event_handler.clone(),
             shutdown_rx: self.shutdown_rx.clone(),
             retry_scheduler: self.retry_scheduler.clone(),
+            catch_up_resume_points: self.catch_up_resume_points.clone(),
+            catch_up_not_found: self.catch_up_not_found.clone(),
             hs_mapping_cache: Default::default(),
         }))
     }
 
+    /// The homeservers read as a whole feed: the primary one, unless the scope
+    /// replaces it with a list or reads every user through its own stream.
     async fn pre_run(&self) -> Result<Vec<String>, DynError> {
-        Ok(vec![self.primary_homeserver.to_string()])
+        let homeservers = self.scope.full_feed_homeservers(&self.primary_homeserver);
+        Ok(homeservers.iter().map(ToString::to_string).collect())
     }
 
     async fn post_run(&self, stats: RunAllProcessorsStats) -> ProcessedStats {

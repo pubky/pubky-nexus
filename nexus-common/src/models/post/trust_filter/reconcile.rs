@@ -15,7 +15,7 @@ use crate::db::{
 use crate::models::error::ModelResult;
 use crate::models::post::search::PostsByTagSearch;
 use crate::models::post::PostStream;
-use crate::models::user::SocialGraphStatus;
+use crate::models::user::{is_stub, SocialGraphStatus};
 
 /// Posts read from the graph, and written, per page.
 const POSTS_PAGE: usize = 1_000;
@@ -119,6 +119,10 @@ async fn write_authors(conn: &mut Connection, hide: &[String], show: &[String]) 
     let hides = hide.iter().map(|author| (author, Write::Hide));
     let shows = show.iter().map(|author| (author, Write::Show));
     for (author, write) in hides.chain(shows) {
+        // A stub's posts stay out of the global feeds whatever the filter says.
+        if matches!(write, Write::Show) && is_stub(author).await? {
+            continue;
+        }
         write_pages(conn, author, write, POSTS_PAGE)
             .await
             .inspect_err(|error| {
@@ -201,6 +205,14 @@ impl Write {
             Write::Show => add_call(key, entries),
         }
     }
+}
+
+/// Writes `author`'s posts into the shared sets, as a reindex would place them, where
+/// the ranking admits them. For an author whose posts were kept out for another reason
+/// (a stub brought into the scope).
+pub(crate) async fn show_author(author: &str) -> ModelResult<()> {
+    let mut conn = get_redis_conn().await?;
+    write_pages(&mut conn, author, Write::Show, POSTS_PAGE).await
 }
 
 /// Applies `write` to `author`'s entries `page_size` posts at a time, oldest

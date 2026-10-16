@@ -450,6 +450,60 @@ pub fn create_homeserver(homeserver_id: &str) -> Query {
     .param("id", homeserver_id)
 }
 
+/// Records an address the moderator took down; see [`crate::models::takedown`].
+pub fn record_takedown(uri: &str) -> Query {
+    Query::new(
+        "record_takedown",
+        "MERGE (t:Takedown {uri: $uri})
+         ON CREATE SET t.indexed_at = timestamp()",
+    )
+    .param("uri", uri.to_string())
+}
+
+/// Sets a user's `scope_state`, or removes it with `None` (the user is in scope).
+///
+/// Any `scope_state` keeps the user from being resolved or polled; see
+/// [`crate::models::user::stub`].
+pub fn set_user_scope_state(user_id: &str, scope_state: Option<&str>) -> Query {
+    Query::new(
+        "set_user_scope_state",
+        "MATCH (u:User {id: $user_id})
+         SET u.scope_state = $scope_state",
+    )
+    .param("user_id", user_id.to_string())
+    .param("scope_state", scope_state.map(str::to_string))
+}
+
+/// Takes a user out of the scope: sets its `scope_state` and removes its `HOSTED_BY`,
+/// so it is no longer resolved or polled. Its content stays.
+pub fn unbind_user_from_scope(user_id: &str, scope_state: &str) -> Query {
+    Query::new(
+        "unbind_user_from_scope",
+        "MATCH (u:User {id: $user_id})
+         SET u.scope_state = $scope_state
+         WITH u
+         OPTIONAL MATCH (u)-[r:HOSTED_BY]->(:Homeserver)
+         DELETE r",
+    )
+    .param("user_id", user_id.to_string())
+    .param("scope_state", scope_state.to_string())
+}
+
+/// Clears every user's `scope_state`, for a scope that now includes everyone, and
+/// returns the ids of those who were stubs. `limit_to` narrows it to those users
+/// (tests share one graph); `None` clears every user.
+pub fn clear_scope_states(limit_to: Option<&[String]>) -> Query {
+    Query::new(
+        "clear_scope_states",
+        "MATCH (u:User)
+         WHERE u.scope_state IS NOT NULL AND ($limit_to IS NULL OR u.id IN $limit_to)
+         WITH u, u.scope_state AS previous
+         REMOVE u.scope_state
+         RETURN collect(CASE WHEN previous = 'stub' THEN u.id END) AS stub_ids",
+    )
+    .param("limit_to", limit_to.map(<[String]>::to_vec))
+}
+
 /// Sets the `HOSTED_BY` relationship between a user and a homeserver.
 ///
 /// If the user is already on the target homeserver, refreshes `resolved_at`.

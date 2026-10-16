@@ -63,6 +63,26 @@ moderated_tags = [
     "il_adult_nu_sex_act",
 ]
 
+# Seed and homeserver scopes ([stack.scope]): how often who is in scope is re-checked.
+# A seed scope also re-checks within seconds of a member's follow or unfollow.
+# [watcher.scope_maintenance]
+# interval_ms = 300000
+
+# Seed scope: how a new instance finds its members. "crawl" (default) finds them hop by
+# hop; "nexus" asks a big Nexus who the seed follows, up to the hops, and polls them all
+# at once. Content always comes from each member's homeserver.
+# [watcher.scope_bootstrap]
+# source = "nexus"
+# nexus_url = "https://nexus.pubky.app"
+
+# Seed scope: interactions from users outside the scope (replies, mentions, reposts,
+# tags, follows of the seed), found through big Nexus notifications and fetched from
+# their authors' homeservers. Omit nexus_urls to turn it off.
+# [watcher.inbound_bridge]
+# nexus_urls = ["https://nexus.pubky.app"]
+# interval_ms = 300000
+# lookback_days = 0                       # first run: 0 reads the whole history
+
 # Event retry configuration
 [watcher.retry]
 # Transient error retry limit before dead-letter
@@ -102,6 +122,17 @@ testnet_host = "localhost"
 pubky_http_request_timeout_secs = 300
 # External HS PKs which are forbidden from being indexed
 external_hs_pk_blacklist = []
+
+# Which users this Nexus indexes. Omit the section to index everyone.
+# Users outside the scope are kept as stubs: other records can point at them,
+# but their own content is never read. The watcher and the API must use the same scope.
+# [stack.scope]
+# kind = "everything"                     # default: every user Nexus can discover
+# kind = "homeservers"                    # users hosted on these homeservers
+# homeservers = ["<homeserver pubky>"]    # each one's whole event feed is read
+# kind = "seed"                           # a user and who it follows, up to `hops` away
+# seed = "<user pubky>"
+# hops = 2                                # 1 to 3; members are worked out from the graph
 
 [stack.otlp]
 # Service name used for tracing, logging, and metrics in OpenTelemetry

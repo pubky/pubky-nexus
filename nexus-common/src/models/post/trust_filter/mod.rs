@@ -10,7 +10,7 @@ mod scripts;
 #[cfg(test)]
 mod tests;
 
-pub(crate) use reconcile::{reconcile, AuthorPost};
+pub(crate) use reconcile::{reconcile, show_author, AuthorPost};
 
 use redis::AsyncCommands;
 

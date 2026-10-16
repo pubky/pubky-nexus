@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use crate::errors::EventProcessorError;
 use crate::events::handlers;
+use nexus_common::models::takedown::record_takedown;
 use nexus_common::models::user::UserIngestor;
 use nexus_common::WatcherConfig;
 use pubky_app_specs::{ParsedUri, PubkyAppTag, PubkyId, Resource};
@@ -49,6 +50,7 @@ impl Moderation {
         // ParsedUri does not handle app-specific tag storage paths (Universal Tags), so they must be intercepted first.
         if handlers::tag::is_tag_storage_uri(&moderator_tag.uri) {
             info!("Moderation tag '{lahel}' detected. Deleting moderated tag {moderated_uri}",);
+            record_takedown(moderated_uri).await?;
             return handlers::tag::del(moderated_uri).await;
         }
 
@@ -56,6 +58,17 @@ impl Moderation {
         let parsed_uri = ParsedUri::try_from(moderator_tag.uri.as_str())
             .map_err(EventProcessorError::generic)?;
         let user_id = parsed_uri.user_id;
+
+        // Posts, tags and files are remembered before they are deleted, so they stay down
+        // even if their own event is read only later, or again: each has an address of
+        // its own. A profile is not: its address is the user's, and a moderated user may
+        // come back by writing a new profile.
+        if matches!(
+            parsed_uri.resource,
+            Resource::Post(_) | Resource::Tag(_) | Resource::File(_)
+        ) {
+            record_takedown(moderated_uri).await?;
+        }
 
         match parsed_uri.resource {
             Resource::Post(post_id) => {

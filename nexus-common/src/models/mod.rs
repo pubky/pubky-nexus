@@ -7,7 +7,9 @@ pub mod homeserver;
 pub mod notification;
 pub mod post;
 pub mod resource;
+pub mod scope;
 pub mod tag;
+pub mod takedown;
 pub mod traits;
 pub mod user;
 

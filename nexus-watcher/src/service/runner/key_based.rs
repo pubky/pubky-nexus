@@ -9,6 +9,7 @@ use crate::service::runner::key_based_hs_backoff::HomeserverBackoff;
 use crate::service::stats::{ProcessedStats, ProcessorRunStatus, RunAllProcessorsStats};
 use crate::service::KEY_BASED_RUN_BUDGET;
 use nexus_common::models::homeserver::{Homeserver, HsBlacklist};
+use nexus_common::models::scope::{scope_from_config, Scope};
 use nexus_common::types::DynError;
 use nexus_common::WatcherConfig;
 use opentelemetry::global;
@@ -77,8 +78,11 @@ pub struct KeyBasedEventProcessorRunner {
     pub event_source: Arc<dyn KeyBasedEventSource>,
     pub shutdown_rx: Receiver<bool>,
 
-    /// Primary homeserver ID, excluded from the external targets list
+    /// Primary homeserver ID, see [WatcherConfig::homeserver]
     pub primary_homeserver: PubkyId,
+
+    /// Homeservers it reads as a whole feed are excluded from the targets list
+    pub scope: Arc<dyn Scope>,
 
     /// HS PKs that must never be indexed. Excluded from `pre_run` and re-checked
     /// by each [`KeyBasedEventProcessor`] this runner builds.
@@ -109,6 +113,7 @@ impl KeyBasedEventProcessorRunner {
             event_source: Arc::new(PubkyKeyBasedEventSource),
             shutdown_rx,
             primary_homeserver: config.homeserver.clone(),
+            scope: scope_from_config(&config.stack.scope),
             hs_blacklist: HsBlacklist::from_config(&config.stack),
             backoff: Mutex::new(HomeserverBackoff::new(
                 config.initial_backoff_secs,
@@ -124,11 +129,17 @@ impl KeyBasedEventProcessorRunner {
     /// Returns the HS IDs relevant for this run, ordered by their priority.
     async fn hs_by_priority(&self) -> Result<Vec<String>, DynError> {
         let active_hs_ids = Homeserver::get_all_active_from_graph().await?;
+        let full_feeds = self.scope.full_feed_homeservers(&self.primary_homeserver);
 
         let result_hs_ids: Vec<String> = active_hs_ids
             .into_iter()
-            // Exclude the primary HS, as it is processed separately
-            .filter(|hs_id| hs_id != self.primary_homeserver.as_ref())
+            // Exclude the HSs whose whole feed is read, as they are processed separately
+            // (also the users there catching up, see `HsEventProcessor`)
+            .filter(|hs_id| {
+                !full_feeds
+                    .iter()
+                    .any(|full_feed| full_feed.as_ref() == hs_id)
+            })
             // Exclude any blacklisted HS
             .filter(|hs_id| !self.hs_blacklist.is_blacklisted(hs_id))
             .collect();
@@ -148,6 +159,7 @@ impl TEventProcessorRunner for KeyBasedEventProcessorRunner {
 
         Ok(Arc::new(KeyBasedEventProcessor {
             homeserver_id,
+            catch_up_only: false,
             limit: self.limit,
             event_handler: self.event_handler.clone(),
             event_source: self.event_source.clone(),

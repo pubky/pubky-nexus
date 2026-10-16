@@ -15,6 +15,7 @@ use pubky_app_specs::{
 };
 use tracing::{debug, Instrument};
 
+use super::scope::index_out_of_scope_post;
 use super::utils::{fail_on_blacklisted_hs, post_kind, post_relationships_is_reply};
 
 pub async fn sync_put(
@@ -50,6 +51,8 @@ async fn sync_put_details(
         OperationOutcome::Updated => true,
         OperationOutcome::MissingDependency => {
             let mut dependency_event_keys = Vec::new();
+            // Whether a target outside the scope was just indexed, so this post can land now.
+            let mut fetched = false;
             if let Some(replied_to_uri) = &post_relationships.replied {
                 let replied_uri_str = replied_to_uri
                     .try_to_uri_str()
@@ -58,6 +61,7 @@ async fn sync_put_details(
 
                 // Drop the reply (non-retryable) if the replied-to post's author is on a blacklisted HS.
                 fail_on_blacklisted_hs(ingestor.maybe_ingest_author_of_post(replied_to_uri).await)?;
+                fetched |= index_out_of_scope_post(replied_to_uri, ingestor).await?;
             }
             if let Some(reposted_uri) = &post_relationships.reposted {
                 let reposted_uri_str = reposted_uri
@@ -67,6 +71,18 @@ async fn sync_put_details(
 
                 // Drop the repost (non-retryable) if the reposted post's author is on a blacklisted HS.
                 fail_on_blacklisted_hs(ingestor.maybe_ingest_author_of_post(reposted_uri).await)?;
+                fetched |= index_out_of_scope_post(reposted_uri, ingestor).await?;
+            }
+            if fetched {
+                // At most once: the targets are indexed now, so they are never fetched again.
+                return Box::pin(sync_put_details(
+                    post,
+                    post_details,
+                    author_id,
+                    post_id,
+                    ingestor,
+                ))
+                .await;
             }
             if dependency_event_keys.is_empty() {
                 let author_uri = author_id
@@ -227,7 +243,8 @@ async fn sync_put_details(
             PostCounts::invalidate(parent_post_key_parts),
             async {
                 // Replies must not enter POST_TOTAL_ENGAGEMENT — ZINCRBY
-                // would create the member if absent.
+                // would create the member if absent. Stubs' posts and unranked
+                // authors' posts are kept out by update_index_score.
                 if !post_relationships_is_reply(&parent_author_id, &parent_post_id).await? {
                     PostStream::update_index_score(
                         &parent_author_id,
@@ -286,7 +303,8 @@ async fn sync_put_details(
             PostCounts::invalidate(parent_post_key_parts),
             async {
                 // Replies must not enter POST_TOTAL_ENGAGEMENT — ZINCRBY
-                // would create the member if absent.
+                // would create the member if absent. Stubs' posts and unranked
+                // authors' posts are kept out by update_index_score.
                 if !post_relationships_is_reply(&parent_author_id, &parent_post_id).await? {
                     PostStream::update_index_score(
                         &parent_author_id,

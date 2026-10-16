@@ -2,13 +2,23 @@ use crate::event_processor::utils::default_moderation_tests;
 use crate::service::utils::HS_IDS;
 use crate::service::utils::{create_mock_event_processors, setup, MockEventProcessorRunner};
 
+use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
 use chrono::Utc;
+use deadpool_redis::redis::AsyncCommands;
+use nexus_common::db::get_redis_conn;
 use nexus_common::db::graph::exec::exec_single_row;
 use nexus_common::db::graph::Query;
+use nexus_common::db::RedisOps;
 use nexus_common::models::homeserver::{Homeserver, HsBlacklist};
+use nexus_common::models::post::PostDetails;
+use nexus_common::models::scope::{EverythingScope, HomeserverListScope, Scope, SeedHopsScope};
 use nexus_common::models::traits::Collection;
-use nexus_common::models::user::{set_user_homeserver, Epoch, UserDetails};
+use nexus_common::models::user::catch_up::{catching_up, caught_up, start_catch_up};
+use nexus_common::models::user::stub::mark_stub;
+use nexus_common::models::user::{
+    set_user_homeserver, user_hs_cursor_key, Epoch, UserDetails, UserHsCursor, UserIngestor,
+};
 use nexus_common::types::DynError;
 use nexus_common::utils::test_utils::{default_ingestor_tests, random_pubky_id};
 use nexus_common::DEFAULT_MAX_FILE_SIZE;
@@ -18,9 +28,12 @@ use nexus_watcher::service::indexer::PubkyKeyBasedEventSource;
 use nexus_watcher::service::runner::HomeserverBackoff;
 use nexus_watcher::service::runner::{UserNotFoundBackoff, UserResumePoints};
 use nexus_watcher::service::{
-    KeyBasedEventProcessorRunner, TEventProcessorRunner, KEY_BASED_RUN_BUDGET,
+    HsEventProcessorRunner, KeyBasedEventProcessorRunner, TEventProcessorRunner,
+    KEY_BASED_RUN_BUDGET,
 };
+use pubky::Keypair;
 use pubky_app_specs::PubkyId;
+use pubky_app_specs::{PubkyAppPost, PubkyAppPostKind, PubkyAppUser};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -51,6 +64,7 @@ async fn test_event_processor_runner_primary_homeserver_excluded() -> Result<(),
         event_source: Arc::new(PubkyKeyBasedEventSource),
         shutdown_rx: tokio::sync::watch::channel(false).1,
         primary_homeserver: PubkyId::try_from(HS_IDS[3]).unwrap(),
+        scope: Arc::new(EverythingScope),
         hs_blacklist: HsBlacklist::default(),
         backoff: Mutex::new(HomeserverBackoff::default()),
         user_not_found_backoff: Arc::new(UserNotFoundBackoff::default()),
@@ -105,6 +119,7 @@ async fn test_event_processor_runner_blacklisted_homeserver_excluded() -> Result
         event_source: Arc::new(PubkyKeyBasedEventSource),
         shutdown_rx: tokio::sync::watch::channel(false).1,
         primary_homeserver: PubkyId::try_from(HS_IDS[3]).unwrap(),
+        scope: Arc::new(EverythingScope),
         hs_blacklist: HsBlacklist::new([blacklisted_hs.clone()]),
         backoff: Mutex::new(HomeserverBackoff::default()),
         user_not_found_backoff: Arc::new(UserNotFoundBackoff::default()),
@@ -286,5 +301,288 @@ async fn delete_users(user_ids: &[PubkyId]) -> Result<(), DynError> {
     )
     .param("ids", ids);
     exec_single_row(query).await?;
+    Ok(())
+}
+
+/// A key-based runner for `primary`, reading feeds as `scope` says.
+fn key_based_runner(primary: &PubkyId, scope: Arc<dyn Scope>) -> KeyBasedEventProcessorRunner {
+    let event_handler: Arc<dyn EventHandler> = Arc::new(DefaultEventHandler::new(
+        default_moderation_tests(),
+        default_ingestor_tests(),
+        DEFAULT_MAX_FILE_SIZE,
+        PathBuf::from("/tmp/nexus-watcher-test"),
+    ));
+    let store: Arc<dyn RetryStore> = Arc::new(RedisRetryStore::new());
+    let retry_scheduler = Arc::new(RetryScheduler::new(
+        store,
+        InitialBackoff {
+            missing_dep_ms: 60_000,
+            transient_ms: 10_000,
+        },
+    ));
+    KeyBasedEventProcessorRunner {
+        limit: 1000,
+        monitored_hs_limit: 100,
+        event_handler,
+        event_source: Arc::new(PubkyKeyBasedEventSource),
+        shutdown_rx: tokio::sync::watch::channel(false).1,
+        primary_homeserver: primary.clone(),
+        scope,
+        hs_blacklist: HsBlacklist::default(),
+        backoff: Mutex::new(HomeserverBackoff::default()),
+        user_not_found_backoff: Arc::new(UserNotFoundBackoff::default()),
+        user_resume_points: Arc::new(UserResumePoints::default()),
+        budget: KEY_BASED_RUN_BUDGET,
+        retry_scheduler,
+    }
+}
+
+/// Persists `count` homeservers, each with an active user, so the key-based runner sees them.
+async fn active_homeservers(count: usize) -> Result<Vec<PubkyId>, DynError> {
+    let mut homeservers = Vec::with_capacity(count);
+    for _ in 0..count {
+        let hs = random_pubky_id();
+        Homeserver::new(hs.clone()).put_to_graph().await?;
+        create_active_user_on_homeserver(&hs).await?;
+        homeservers.push(hs);
+    }
+    Ok(homeservers)
+}
+
+/// A homeserver scope reads its listed homeservers as whole feeds, so the key-based
+/// runner leaves them out; the primary homeserver is polled per user like any other.
+#[tokio_shared_rt::test(shared)]
+async fn test_key_based_runner_skips_the_homeservers_a_scope_reads_whole() -> Result<(), DynError> {
+    setup().await?;
+    let [primary, listed, other] = active_homeservers(3).await?.try_into().unwrap();
+
+    let scope = Arc::new(HomeserverListScope::new(std::slice::from_ref(&listed)));
+    let hs_ids = key_based_runner(&primary, scope).pre_run().await?;
+
+    assert!(
+        !hs_ids.contains(&listed.to_string()),
+        "a listed HS is read whole"
+    );
+    assert!(
+        hs_ids.contains(&primary.to_string()),
+        "the primary HS is not read whole"
+    );
+    assert!(hs_ids.contains(&other.to_string()));
+    Ok(())
+}
+
+/// A seed scope reads no feed whole: members on the primary homeserver are polled
+/// through their own streams too.
+#[tokio_shared_rt::test(shared)]
+async fn test_key_based_runner_polls_the_primary_homeserver_for_a_seed_scope(
+) -> Result<(), DynError> {
+    setup().await?;
+    let [primary] = active_homeservers(1).await?.try_into().unwrap();
+
+    let everything = key_based_runner(&primary, Arc::new(EverythingScope));
+    assert!(!everything.pre_run().await?.contains(&primary.to_string()));
+
+    let seed = Arc::new(SeedHopsScope::new(random_pubky_id(), 2));
+    let hs_ids = key_based_runner(&primary, seed).pre_run().await?;
+    assert!(hs_ids.contains(&primary.to_string()));
+    Ok(())
+}
+
+/// The key-based runner never reads a homeserver read whole, also while users there are
+/// catching up: the whole-feed processor reads their streams, so no record is handled by
+/// two tasks at once.
+#[tokio_shared_rt::test(shared)]
+async fn test_key_based_runner_leaves_users_catching_up_to_the_whole_feed_reader(
+) -> Result<(), DynError> {
+    setup().await?;
+    let [primary, listed] = active_homeservers(2).await?.try_into().unwrap();
+    let scope = Arc::new(HomeserverListScope::new(std::slice::from_ref(&listed)));
+    let runner = key_based_runner(&primary, scope);
+
+    let user_id = random_pubky_id().to_string();
+    start_catch_up(&user_id, &listed).await?;
+    let while_catching_up = runner.pre_run().await;
+    caught_up(&user_id).await?;
+
+    assert!(!while_catching_up?.contains(&listed.to_string()));
+    Ok(())
+}
+
+/// A user let into a homeserver scope gets the records it wrote while it was out, although
+/// the feed of its homeserver, read whole, moved past them: the whole-feed processor reads
+/// the user's own stream from the start until it is empty.
+#[tokio_shared_rt::test(shared)]
+async fn test_a_user_let_in_on_a_whole_feed_homeserver_catches_up() -> Result<()> {
+    let mut test = WatcherTest::setup(None)
+        .await?
+        .remove_event_processing()
+        .await;
+    let user_kp = Keypair::random();
+    let user = PubkyAppUser {
+        bio: None,
+        image: None,
+        links: None,
+        name: "Watcher:CatchUp:User".to_string(),
+        status: None,
+    };
+    test.create_user(&user_kp, &user).await?;
+    let post = PubkyAppPost {
+        content: "Watcher:CatchUp:Post".to_string(),
+        kind: PubkyAppPostKind::Short,
+        parent: None,
+        embed: None,
+        attachments: None,
+        lock: None,
+    };
+    let (post_id, _) = test.create_post(&user_kp, &post).await?;
+    let user_id = PubkyId::from(user_kp.public_key());
+    UserDetails::from_pubky(user_id.clone())
+        .put_to_graph()
+        .await?;
+    mark_stub(&user_id).await?;
+    // Its homeserver was just checked, so its events are skipped as an outsider's.
+    let rechecked = format!("Scope:Rechecked:{user_id}");
+    let mut redis_conn = get_redis_conn().await?;
+    let () = redis_conn.set_ex(&rechecked, 1, 900).await?;
+
+    let hs = test.homeserver_id.clone();
+    let scope: Arc<dyn Scope> = Arc::new(HomeserverListScope::new(std::slice::from_ref(&hs)));
+    let ingestor = Arc::new(UserIngestor::with_scope(
+        Vec::<PubkyId>::new(),
+        scope.clone(),
+    ));
+    let event_handler: Arc<dyn EventHandler> = Arc::new(DefaultEventHandler::new(
+        default_moderation_tests(),
+        ingestor.clone(),
+        DEFAULT_MAX_FILE_SIZE,
+        PathBuf::from("/tmp/nexus-watcher-test"),
+    ));
+    let store: Arc<dyn RetryStore> = Arc::new(RedisRetryStore::new());
+    let retry_scheduler = Arc::new(RetryScheduler::new(
+        store,
+        InitialBackoff {
+            missing_dep_ms: 60_000,
+            transient_ms: 10_000,
+        },
+    ));
+    let feed = HsEventProcessorRunner {
+        limit: 1000,
+        event_handler,
+        shutdown_rx: tokio::sync::watch::channel(false).1,
+        primary_homeserver: hs.clone(),
+        scope,
+        retry_scheduler,
+        catch_up_resume_points: Default::default(),
+        catch_up_not_found: Default::default(),
+    };
+    let run = || async {
+        let processor = feed
+            .build(hs.as_ref())
+            .await
+            .map_err(|e| anyhow::anyhow!(e))?;
+        processor.run().await.map_err(|e| anyhow::anyhow!("{e:?}"))
+    };
+
+    // The feed moves past the user's records while it is out.
+    run().await?;
+    assert!(PostDetails::get_by_id(&user_id, &post_id).await?.is_none());
+
+    assert!(ingestor.promote(&user_id).await?);
+    run().await?;
+    let indexed = PostDetails::get_by_id(&user_id, &post_id).await?.is_some();
+    // Its stream has nothing left now: caught up.
+    run().await?;
+    let still_catching_up = catching_up(&[user_id.as_ref()]).await?;
+    let () = redis_conn.del(&rechecked).await?;
+
+    assert!(indexed, "the post written while it was out is read");
+    assert_eq!(still_catching_up, vec![false]);
+    Ok(())
+}
+
+/// A catch-up that fails (here: a catching-up user's stored cursor is corrupt) doesn't
+/// hold up the whole feed: the feed's new records are still read.
+#[tokio_shared_rt::test(shared)]
+async fn test_a_failed_catch_up_doesnt_hold_up_the_feed() -> Result<()> {
+    let mut test = WatcherTest::setup(None)
+        .await?
+        .remove_event_processing()
+        .await;
+    let hs = test.homeserver_id.clone();
+
+    // A user catching up whose cursor can't be read.
+    let stuck = random_pubky_id();
+    UserDetails::from_pubky(stuck.clone())
+        .put_to_graph()
+        .await?;
+    set_user_homeserver(&stuck, &hs).await?;
+    start_catch_up(&stuck, &hs).await?;
+    let cursor_key = user_hs_cursor_key(&stuck);
+    UserHsCursor::put_index_sorted_set(&cursor_key, &[(-1.0, hs.as_ref())], None, None).await?;
+
+    // A member's new post, in the feed.
+    let member_kp = Keypair::random();
+    let member = PubkyAppUser {
+        bio: None,
+        image: None,
+        links: None,
+        name: "Watcher:CatchUp:Member".to_string(),
+        status: None,
+    };
+    test.create_user(&member_kp, &member).await?;
+    let post = PubkyAppPost {
+        content: "Watcher:CatchUp:FeedPost".to_string(),
+        kind: PubkyAppPostKind::Short,
+        parent: None,
+        embed: None,
+        attachments: None,
+        lock: None,
+    };
+    let (post_id, _) = test.create_post(&member_kp, &post).await?;
+    let member_id = PubkyId::from(member_kp.public_key());
+
+    let scope: Arc<dyn Scope> = Arc::new(HomeserverListScope::new(std::slice::from_ref(&hs)));
+    let ingestor = Arc::new(UserIngestor::with_scope(
+        Vec::<PubkyId>::new(),
+        scope.clone(),
+    ));
+    let event_handler: Arc<dyn EventHandler> = Arc::new(DefaultEventHandler::new(
+        default_moderation_tests(),
+        ingestor,
+        DEFAULT_MAX_FILE_SIZE,
+        PathBuf::from("/tmp/nexus-watcher-test"),
+    ));
+    let store: Arc<dyn RetryStore> = Arc::new(RedisRetryStore::new());
+    let feed = HsEventProcessorRunner {
+        limit: 1000,
+        event_handler,
+        shutdown_rx: tokio::sync::watch::channel(false).1,
+        primary_homeserver: hs.clone(),
+        scope,
+        retry_scheduler: Arc::new(RetryScheduler::new(
+            store,
+            InitialBackoff {
+                missing_dep_ms: 60_000,
+                transient_ms: 10_000,
+            },
+        )),
+        catch_up_resume_points: Default::default(),
+        catch_up_not_found: Default::default(),
+    };
+    let processor = feed
+        .build(hs.as_ref())
+        .await
+        .map_err(|e| anyhow::anyhow!(e))?;
+    let run = processor.run().await;
+    caught_up(&stuck).await?;
+    UserHsCursor::remove_all(&stuck).await?;
+
+    run.map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    assert!(
+        PostDetails::get_by_id(&member_id, &post_id)
+            .await?
+            .is_some(),
+        "the feed is read although the catch-up failed"
+    );
     Ok(())
 }

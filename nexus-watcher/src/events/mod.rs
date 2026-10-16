@@ -1,16 +1,39 @@
+use nexus_common::db::{fetch_key_from_graph, queries};
+use nexus_common::models::takedown::is_taken_down;
 use nexus_common::{db::PubkyConnector, models::user::UserIngestor};
 pub mod event;
 
 pub use event::{Event, EventType, ParseResult};
 
 use crate::errors::EventProcessorError;
+use crate::service::indexer::METER_NAME;
 use nexus_common::WatcherConfig;
-use pubky_app_specs::{ExtendedParsedUri, PubkyAppObject, Resource};
+use opentelemetry::{global, metrics::Counter};
+use pubky_app_specs::{ExtendedParsedUri, PubkyAppObject, PubkyId, Resource};
 use std::{
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, LazyLock},
 };
 use tracing::debug;
+
+/// Counter for events skipped because the moderator took their record down.
+static TAKEN_DOWN: LazyLock<Counter<u64>> = LazyLock::new(|| {
+    global::meter(METER_NAME)
+        .u64_counter("watcher.events.taken_down")
+        .with_description("Events skipped because the moderator took their record down")
+        .build()
+});
+
+/// Counter for events skipped because their author is outside the scope.
+///
+/// The runners only read in-scope users, so this stays near zero; a steady
+/// count means events of out-of-scope users are still reaching dispatch.
+static OUT_OF_SCOPE: LazyLock<Counter<u64>> = LazyLock::new(|| {
+    global::meter(METER_NAME)
+        .u64_counter("watcher.events.out_of_scope")
+        .with_description("Events skipped because their author is outside the scope")
+        .build()
+});
 
 mod fetch;
 pub mod handlers;
@@ -18,8 +41,8 @@ mod moderation;
 pub mod retry;
 
 pub(crate) use fetch::{
-    fetch_capped, format_error_body, read_stream_capped, MAX_ERROR_BODY, MAX_EVENTS_BODY,
-    MAX_RESOURCE_SIZE,
+    fetch_capped, format_error_body, get_nexus_json, read_stream_capped, MAX_ERROR_BODY,
+    MAX_EVENTS_BODY, MAX_RESOURCE_SIZE,
 };
 pub use moderation::Moderation;
 
@@ -61,7 +84,7 @@ impl DefaultEventHandler {
     pub fn from_config(config: &WatcherConfig) -> Self {
         Self::new(
             Moderation::from_config(config),
-            Arc::new(UserIngestor::from_config(&config.stack)),
+            Arc::new(UserIngestor::from_watcher_config(config)),
             config.max_file_size,
             config.stack.files_path.clone(),
         )
@@ -71,6 +94,31 @@ impl DefaultEventHandler {
 #[async_trait::async_trait]
 impl EventHandler for DefaultEventHandler {
     async fn handle(&self, event: &Event) -> Result<(), EventProcessorError> {
+        // Safety net for events of authors outside the scope (queued for retry before the
+        // scope changed, or from a shared feed): skipped, neither indexed nor logged. An
+        // author still bound and polled means the scope's records are being rebuilt (e.g.
+        // after losing Redis): retried instead, so the event isn't lost. A stub or former
+        // member that moved onto a listed homeserver is let in first.
+        let author_id = event.parsed_uri.user_id();
+        if !self.ingestor.scope().is_in_scope(author_id, None).await? {
+            let query = queries::get::is_user_bound_in_scope(author_id);
+            if fetch_key_from_graph::<bool>(query, "bound")
+                .await?
+                .unwrap_or(false)
+            {
+                return Err(EventProcessorError::ScopeUnsettled(author_id.to_string()));
+            }
+            let admitted = match PubkyId::try_from(author_id.as_ref()) {
+                Ok(author) => self.ingestor.admit_if_moved_in(&author).await?,
+                Err(_) => false,
+            };
+            if !admitted {
+                OUT_OF_SCOPE.add(1, &[]);
+                debug!(event.uri = %event.uri, "Author is outside the scope; skipping event");
+                return Ok(());
+            }
+        }
+
         match event.event_type {
             EventType::Put => {
                 handle_put_event(
@@ -99,34 +147,15 @@ pub async fn handle_put_event(
     moderation: Arc<Moderation>,
     ingestor: Arc<UserIngestor>,
 ) -> Result<(), EventProcessorError> {
-    let pubky = PubkyConnector::get()?;
-    let response = pubky.public_storage().get(&event.uri).await?;
-
-    if !response.status().is_success() {
-        let status = response.status();
-        let (body, _exceeded) = read_stream_capped(response.bytes_stream(), MAX_ERROR_BODY)
-            .await
-            .unwrap_or_default();
-        let body = format_error_body(&body, MAX_ERROR_BODY);
-
-        let err_msg = format!(
-            "Fetch resource failed {}: HTTP {status} - {body}",
-            event.uri
-        );
-        return Err(EventProcessorError::client_error(err_msg));
+    // Whatever order events arrive in, a record the moderator took down stays down.
+    if is_taken_down(&event.uri).await? {
+        TAKEN_DOWN.add(1, &[]);
+        debug!(event.uri = %event.uri, "Record was taken down by the moderator; skipping event");
+        return Ok(());
     }
 
-    let blob = fetch_capped(response, MAX_RESOURCE_SIZE as u64).await?;
-
     let resource = event.parsed_uri.resource().clone();
-
-    // Use the new importer from pubky-app-specs.
-    // `from_resource` runs spec validation; failures are deterministic and must
-    // not be retried (a re-run produces the same error). Classify them as
-    // `SpecValidation` so the retry queue stays clean — the load-bearing
-    // counterpart to the `Unknown` forwards-compat variant in pubky-app-specs.
-    let pubky_object = PubkyAppObject::from_resource(&resource, blob.as_slice())
-        .map_err(|e| EventProcessorError::SpecValidation(e.to_string()))?;
+    let pubky_object = fetch_object(&event.uri, &resource).await?;
 
     let user_id = event.parsed_uri.user_id().clone();
     match (pubky_object, resource) {
@@ -143,7 +172,7 @@ pub async fn handle_put_event(
             debug!("Mute events are no longer handled by nexus");
         }
         (PubkyAppObject::Bookmark(bookmark), Resource::Bookmark(bookmark_id)) => {
-            handlers::bookmark::sync_put(user_id, bookmark, bookmark_id).await?
+            handlers::bookmark::sync_put(user_id, bookmark, bookmark_id, &ingestor).await?
         }
         (PubkyAppObject::Tag(tag), Resource::Tag(tag_id)) => {
             if moderation.should_delete(&tag, &user_id) {
@@ -192,6 +221,36 @@ pub async fn handle_put_event(
     Ok(())
 }
 
+/// Fetches the record at `uri` from its homeserver and validates it as `resource`.
+pub(crate) async fn fetch_object(
+    uri: &str,
+    resource: &Resource,
+) -> Result<PubkyAppObject, EventProcessorError> {
+    let pubky = PubkyConnector::get()?;
+    let response = pubky.public_storage().get(uri).await?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let (body, _exceeded) = read_stream_capped(response.bytes_stream(), MAX_ERROR_BODY)
+            .await
+            .unwrap_or_default();
+        let body = format_error_body(&body, MAX_ERROR_BODY);
+
+        let err_msg = format!("Fetch resource failed {uri}: HTTP {status} - {body}");
+        return Err(EventProcessorError::client_error(err_msg));
+    }
+
+    let blob = fetch_capped(response, MAX_RESOURCE_SIZE as u64).await?;
+
+    // Use the new importer from pubky-app-specs.
+    // `from_resource` runs spec validation; failures are deterministic and must
+    // not be retried (a re-run produces the same error). Classify them as
+    // `SpecValidation` so the retry queue stays clean — the load-bearing
+    // counterpart to the `Unknown` forwards-compat variant in pubky-app-specs.
+    PubkyAppObject::from_resource(resource, blob.as_slice())
+        .map_err(|e| EventProcessorError::SpecValidation(e.to_string()))
+}
+
 /// Handles a DEL event by dispatching to the appropriate handler.
 pub async fn handle_del_event(
     event: &Event,
@@ -203,7 +262,7 @@ pub async fn handle_del_event(
         Resource::User => handlers::user::del(user_id).await?,
         Resource::Post(post_id) => handlers::post::del(user_id, post_id.clone(), &ingestor).await?,
         Resource::Follow(followee_id) => {
-            handlers::follow::del(user_id, followee_id.clone()).await?
+            handlers::follow::del(user_id, followee_id.clone(), &ingestor).await?
         }
         Resource::Mute(_) => debug!("Mute events are no longer handled by nexus"),
         Resource::Bookmark(bookmark_id) => {

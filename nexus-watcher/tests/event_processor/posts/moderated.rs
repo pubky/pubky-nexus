@@ -2,15 +2,21 @@ use crate::event_processor::{
     posts::utils::{find_post_details, short_post, test_user},
     tags::utils::check_member_post_tag_global_timeline,
     users::utils::find_user_counts,
-    utils::watcher::{HomeserverHashIdPath, WatcherTest},
+    utils::default_moderation_tests,
+    utils::watcher::{generate_post_id, HomeserverHashIdPath, WatcherTest},
 };
 use anyhow::Result;
 use chrono::Utc;
 use nexus_common::models::post::PostCounts;
+use nexus_common::utils::test_utils::default_ingestor_tests;
+use nexus_watcher::EventProcessorError;
+use pubky::ResourcePath;
 use pubky::{recovery_file, Keypair};
+use pubky_app_specs::traits::HasIdPath;
 use pubky_app_specs::{
     post_uri_builder, PubkyAppPost, PubkyAppPostKind, PubkyAppTag, PubkyAppUser,
 };
+use std::path::Path;
 use tokio::fs;
 
 const MODERATION_LABEL: &str = "label_to_moderate";
@@ -225,4 +231,59 @@ async fn moderate_post(
     };
     let tag_path = tag.hs_path();
     test.put(moderator_kp, &tag_path, tag).await
+}
+
+/// A takedown read before the post it targets keeps that post out: a new Nexus reads
+/// everyone's history in no particular order, so the moderator's tag can come first.
+#[tokio_shared_rt::test(shared)]
+async fn test_post_taken_down_before_it_is_read_stays_out() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+
+    let user_kp = Keypair::random();
+    let user = PubkyAppUser {
+        bio: None,
+        image: None,
+        links: None,
+        name: "Watcher:PostModerate:Early".to_string(),
+        status: None,
+    };
+    let user_id = test.create_user(&user_kp, &user).await?;
+
+    let post_id = generate_post_id();
+    let post_path: ResourcePath = PubkyAppPost::create_path(&post_id).parse()?;
+    let tag = PubkyAppTag {
+        uri: post_uri_builder(user_id.clone(), post_id.clone()),
+        label: MODERATION_LABEL.to_string(),
+        created_at: Utc::now().timestamp_millis(),
+    };
+
+    // The moderator's tag is read first, while there is no post to delete: deleting
+    // reports the post as unindexed, as it did before takedowns were remembered.
+    let result = default_moderation_tests()
+        .apply_moderation(
+            tag,
+            Path::new("/tmp/nexus-watcher-test"),
+            &default_ingestor_tests(),
+        )
+        .await;
+    assert!(
+        matches!(result, Err(EventProcessorError::SkipIndexing)),
+        "{result:?}"
+    );
+
+    let post = PubkyAppPost {
+        content: "Watcher:PostModerate:Early:Post".to_string(),
+        kind: PubkyAppPostKind::Short,
+        parent: None,
+        embed: None,
+        attachments: None,
+        lock: None,
+    };
+    test.put(&user_kp, &post_path, post).await?;
+
+    assert!(
+        find_post_details(&user_id, &post_id).await.is_err(),
+        "the taken-down post stays out when its event comes later"
+    );
+    Ok(())
 }

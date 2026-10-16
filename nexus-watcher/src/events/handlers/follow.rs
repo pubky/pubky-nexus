@@ -10,8 +10,20 @@ use tracing::debug;
 
 use super::utils::fail_on_blacklisted_hs;
 
+/// Indexes a follow, then tells the scope: a member's new follow can bring the
+/// followee in.
 #[tracing::instrument(name = "follow.put", skip_all, fields(follower_id = %follower_id, followee_id = %followee_id))]
 pub async fn sync_put(
+    follower_id: PubkyId,
+    followee_id: PubkyId,
+    ingestor: &UserIngestor,
+) -> Result<(), EventProcessorError> {
+    put_follow(follower_id.clone(), followee_id, ingestor).await?;
+    ingestor.scope().on_follow_changed(&follower_id).await?;
+    Ok(())
+}
+
+async fn put_follow(
     follower_id: PubkyId,
     followee_id: PubkyId,
     ingestor: &UserIngestor,
@@ -88,11 +100,18 @@ pub async fn sync_put(
     Ok(())
 }
 
+/// Deletes a follow, then tells the scope: a member's unfollow can take the followee out.
 #[tracing::instrument(name = "follow.del", skip_all, fields(follower_id = %follower_id, followee_id = %followee_id))]
-pub async fn del(follower_id: PubkyId, followee_id: PubkyId) -> Result<(), EventProcessorError> {
+pub async fn del(
+    follower_id: PubkyId,
+    followee_id: PubkyId,
+    ingestor: &UserIngestor,
+) -> Result<(), EventProcessorError> {
     debug!("Deleting follow");
     // Maybe we could do it here but lets follow the naming convention
-    sync_del(follower_id, followee_id).await
+    sync_del(follower_id.clone(), followee_id).await?;
+    ingestor.scope().on_follow_changed(&follower_id).await?;
+    Ok(())
 }
 
 pub async fn sync_del(
