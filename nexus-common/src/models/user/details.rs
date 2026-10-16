@@ -6,7 +6,8 @@ use crate::models::error::ModelResult;
 use crate::models::traits::Collection;
 use async_trait::async_trait;
 use chrono::Utc;
-use pubky_social_specs::legacy_v0::{PubkyAppUser, PubkyAppUserLink, PubkyId};
+use pubky_social_specs::legacy_v0::PubkyAppUserLink;
+use pubky_social_specs::PubkyId;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json;
 use utoipa::ToSchema;
@@ -129,20 +130,6 @@ impl UserDetails {
             links: None,
             status: None,
             image: None,
-            deleted: false,
-            epoch: Epoch::V0,
-        }
-    }
-
-    pub fn from_homeserver(homeserver_user: PubkyAppUser, user_id: &PubkyId) -> Self {
-        UserDetails {
-            name: homeserver_user.name,
-            bio: homeserver_user.bio,
-            status: homeserver_user.status,
-            links: homeserver_user.links,
-            image: homeserver_user.image,
-            id: user_id.clone(),
-            indexed_at: Utc::now().timestamp_millis(),
             deleted: false,
             epoch: Epoch::V0,
         }

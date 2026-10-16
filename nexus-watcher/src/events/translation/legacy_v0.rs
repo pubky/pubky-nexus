@@ -4,6 +4,9 @@
 //! call; [`translate_del`] turns a v0 address into one variant per DEL handler call.
 
 use crate::errors::EventProcessorError;
+use crate::events::inputs::{
+    BookmarkInput, FileInput, PostInput, ResourceKey, TagInput, UserInput,
+};
 use crate::events::target::EventTarget;
 use pubky_social_specs::legacy_v0::traits::Validatable;
 use pubky_social_specs::legacy_v0::{
@@ -14,18 +17,17 @@ use pubky_social_specs::PubkyId;
 
 /// A fetched `pubky.app` object with the ids its path carries, one variant per PUT handler.
 ///
-/// The variants carry the frozen v0 spec types, so the handlers keep their signatures. None
-/// carries the event URI: the dispatcher has it.
+/// Every variant but `Follow`, which reads nothing from the bytes, carries its handler's input.
+/// None carries the event URI: the dispatcher has it.
 #[derive(Debug)]
 pub enum TranslatedPut {
     User {
         user_id: PubkyId,
-        user: PubkyAppUser,
+        user: UserInput,
     },
     Post {
-        author_id: PubkyId,
-        post_id: String,
-        post: PubkyAppPost,
+        key: ResourceKey,
+        post: PostInput,
     },
     Follow {
         user_id: PubkyId,
@@ -33,20 +35,17 @@ pub enum TranslatedPut {
     },
     /// `app` is set only for another app's universal tag (`/pub/mapky/tags/…`).
     Tag {
-        tagger_id: PubkyId,
-        tag_id: String,
-        tag: PubkyAppTag,
+        key: ResourceKey,
+        tag: TagInput,
         app: Option<String>,
     },
     Bookmark {
-        user_id: PubkyId,
-        bookmark_id: String,
-        bookmark: PubkyAppBookmark,
+        key: ResourceKey,
+        bookmark: BookmarkInput,
     },
     File {
-        user_id: PubkyId,
-        file_id: String,
-        file: PubkyAppFile,
+        key: ResourceKey,
+        file: FileInput,
     },
 }
 
@@ -56,24 +55,15 @@ pub enum TranslatedDel {
     User {
         user_id: PubkyId,
     },
-    Post {
-        author_id: PubkyId,
-        post_id: String,
-    },
+    Post(ResourceKey),
     Follow {
         user_id: PubkyId,
         followee_id: PubkyId,
     },
     /// The tag handler keys its delete by the event URI, which the dispatcher has.
     Tag,
-    Bookmark {
-        user_id: PubkyId,
-        bookmark_id: String,
-    },
-    File {
-        user_id: PubkyId,
-        file_id: String,
-    },
+    Bookmark(ResourceKey),
+    File(ResourceKey),
 }
 
 /// Reads `bytes` with the frozen v0 reader for the resource `target` names and pairs the
@@ -92,12 +82,14 @@ pub fn translate_put(
     Ok(match parsed.resource() {
         Resource::User => TranslatedPut::User {
             user_id,
-            user: read(bytes, "")?,
+            user: read::<PubkyAppUser>(bytes, "")?.into(),
         },
         Resource::Post(post_id) => TranslatedPut::Post {
-            author_id: user_id,
-            post_id: post_id.clone(),
-            post: read(bytes, post_id)?,
+            post: read::<PubkyAppPost>(bytes, post_id)?.into(),
+            key: ResourceKey {
+                owner_id: user_id,
+                resource_id: post_id.clone(),
+            },
         },
         Resource::Follow(followee_id) => {
             read::<PubkyAppFollow>(bytes, followee_id)?;
@@ -107,23 +99,29 @@ pub fn translate_put(
             }
         }
         Resource::Bookmark(bookmark_id) => TranslatedPut::Bookmark {
-            user_id,
-            bookmark_id: bookmark_id.clone(),
-            bookmark: read(bytes, bookmark_id)?,
+            bookmark: read::<PubkyAppBookmark>(bytes, bookmark_id)?.into(),
+            key: ResourceKey {
+                owner_id: user_id,
+                resource_id: bookmark_id.clone(),
+            },
         },
         Resource::Tag(tag_id) => TranslatedPut::Tag {
-            tagger_id: user_id,
-            tag_id: tag_id.clone(),
-            tag: read(bytes, tag_id)?,
+            tag: read::<PubkyAppTag>(bytes, tag_id)?.into(),
+            key: ResourceKey {
+                owner_id: user_id,
+                resource_id: tag_id.clone(),
+            },
             app: match parsed {
                 ExtendedParsedUri::PubkyApp { .. } => None,
                 ExtendedParsedUri::UniversalTag { app, .. } => Some(app.clone()),
             },
         },
         Resource::File(file_id) => TranslatedPut::File {
-            user_id,
-            file_id: file_id.clone(),
-            file: read(bytes, file_id)?,
+            file: read::<PubkyAppFile>(bytes, file_id)?.into(),
+            key: ResourceKey {
+                owner_id: user_id,
+                resource_id: file_id.clone(),
+            },
         },
         resource @ (Resource::LastRead
         | Resource::Feed(_)
@@ -142,23 +140,23 @@ pub fn translate_del(target: &EventTarget) -> Result<TranslatedDel, EventProcess
     let user_id = parsed.user_id().clone();
     Ok(match parsed.resource() {
         Resource::User => TranslatedDel::User { user_id },
-        Resource::Post(post_id) => TranslatedDel::Post {
-            author_id: user_id,
-            post_id: post_id.clone(),
-        },
+        Resource::Post(post_id) => TranslatedDel::Post(ResourceKey {
+            owner_id: user_id,
+            resource_id: post_id.clone(),
+        }),
         Resource::Follow(followee_id) => TranslatedDel::Follow {
             user_id,
             followee_id: followee_id.clone(),
         },
-        Resource::Bookmark(bookmark_id) => TranslatedDel::Bookmark {
-            user_id,
-            bookmark_id: bookmark_id.clone(),
-        },
+        Resource::Bookmark(bookmark_id) => TranslatedDel::Bookmark(ResourceKey {
+            owner_id: user_id,
+            resource_id: bookmark_id.clone(),
+        }),
         Resource::Tag(_) => TranslatedDel::Tag,
-        Resource::File(file_id) => TranslatedDel::File {
-            user_id,
-            file_id: file_id.clone(),
-        },
+        Resource::File(file_id) => TranslatedDel::File(ResourceKey {
+            owner_id: user_id,
+            resource_id: file_id.clone(),
+        }),
         resource @ (Resource::LastRead
         | Resource::Feed(_)
         | Resource::Blob(_)
@@ -174,6 +172,58 @@ fn no_handler(resource: &Resource) -> EventProcessorError {
     ))
 }
 
+impl From<PubkyAppUser> for UserInput {
+    fn from(user: PubkyAppUser) -> Self {
+        Self {
+            name: user.name,
+            bio: user.bio,
+            image: user.image,
+            links: user.links,
+            status: user.status,
+        }
+    }
+}
+
+impl From<PubkyAppPost> for PostInput {
+    fn from(post: PubkyAppPost) -> Self {
+        Self {
+            content: post.content,
+            kind: post.kind,
+            parent: post.parent,
+            embed_uri: post.embed.map(|embed| embed.uri),
+            attachments: post.attachments,
+            lock: post.lock,
+        }
+    }
+}
+
+impl From<PubkyAppBookmark> for BookmarkInput {
+    fn from(bookmark: PubkyAppBookmark) -> Self {
+        Self { uri: bookmark.uri }
+    }
+}
+
+impl From<PubkyAppFile> for FileInput {
+    fn from(file: PubkyAppFile) -> Self {
+        Self {
+            name: file.name,
+            src: file.src,
+            content_type: file.content_type,
+            size: file.size,
+            created_at: file.created_at,
+        }
+    }
+}
+
+impl From<PubkyAppTag> for TagInput {
+    fn from(tag: PubkyAppTag) -> Self {
+        Self {
+            uri: tag.uri,
+            label: tag.label,
+        }
+    }
+}
+
 /// Runs the frozen v0 reader for one object type; a rejection is spec validation.
 fn read<T: Validatable>(bytes: &[u8], id: &str) -> Result<T, EventProcessorError> {
     T::try_from(bytes, id).map_err(EventProcessorError::SpecValidation)
@@ -183,7 +233,7 @@ fn read<T: Validatable>(bytes: &[u8], id: &str) -> Result<T, EventProcessorError
 mod tests {
     use super::*;
     use pubky_social_specs::legacy_v0::traits::{HashId, TimestampId};
-    use pubky_social_specs::legacy_v0::PubkyAppPostKind;
+    use pubky_social_specs::legacy_v0::{PubkyAppPostEmbed, PubkyAppPostKind, PubkyAppUserLink};
 
     const USER: &str = "operrr8wsbpr3ue9d4qj41ge1kcc6r7fdiy6o3ugjrrhi4y77rdo";
     const OTHER_USER: &str = "1hb71xx9km3f4pw5izsy1gn19ff1uuuqonw4mcygzobwkryujoiy";
@@ -207,21 +257,76 @@ mod tests {
     }
 
     fn user_fixture() -> PubkyAppUser {
-        PubkyAppUser::new("Alice".to_string(), None, None, None, None)
+        PubkyAppUser::new(
+            "Alice".to_string(),
+            Some("Indexing the social graph".to_string()),
+            Some(format!("pubky://{USER}/pub/pubky.app/files/{POST_ID}")),
+            Some(vec![PubkyAppUserLink::new(
+                "site".to_string(),
+                "https://example.com/alice".to_string(),
+            )]),
+            Some("online".to_string()),
+        )
+    }
+
+    fn links(links: &Option<Vec<PubkyAppUserLink>>) -> Option<Vec<(String, String)>> {
+        links.as_ref().map(|links| {
+            links
+                .iter()
+                .map(|link| (link.title.clone(), link.url.clone()))
+                .collect()
+        })
     }
 
     fn post_fixture() -> PubkyAppPost {
-        PubkyAppPost::new(
+        PubkyAppPost::new_with_lock(
             "hello".to_string(),
+            PubkyAppPostKind::Image,
+            Some(post_uri()),
+            None,
+            Some(vec![format!(
+                "pubky://{USER}/pub/pubky.app/files/{POST_ID}"
+            )]),
+            Some(format!("pubky://{OTHER_USER}/pub/lock")),
+        )
+    }
+
+    fn repost_fixture() -> PubkyAppPost {
+        PubkyAppPost::new(
+            String::new(),
             PubkyAppPostKind::Short,
             None,
-            None,
+            Some(PubkyAppPostEmbed {
+                kind: PubkyAppPostKind::Long,
+                uri: post_uri(),
+            }),
             None,
         )
     }
 
+    fn post_key() -> ResourceKey {
+        owned_key(POST_ID.to_string())
+    }
+
+    fn translate_post(post: &PubkyAppPost) -> (ResourceKey, PostInput) {
+        let target = target(&format!("pubky.app/posts/{POST_ID}"));
+        let translated = translate_put(&target, &bytes(post)).unwrap();
+        let TranslatedPut::Post { key, post } = translated else {
+            panic!("expected Post, got {translated:?}");
+        };
+        (key, post)
+    }
+
     fn tag_fixture() -> PubkyAppTag {
         PubkyAppTag::new(post_uri(), "nexus".to_string())
+    }
+
+    /// A resource of the path user, keyed by its id.
+    fn owned_key(resource_id: String) -> ResourceKey {
+        ResourceKey {
+            owner_id: pubky_id(USER),
+            resource_id,
+        }
     }
 
     fn bookmark_fixture() -> PubkyAppBookmark {
@@ -240,36 +345,65 @@ mod tests {
     // ---- one fixture per v0 object kind ---------------------------------------------------
 
     #[test]
-    fn put_user_translates_with_the_path_user() {
+    fn put_user_translates_to_its_input_with_the_path_user() {
         let user = user_fixture();
         let translated = translate_put(&target("pubky.app/profile.json"), &bytes(&user)).unwrap();
         let TranslatedPut::User {
             user_id,
-            user: read,
+            user: input,
         } = translated
         else {
             panic!("expected User, got {translated:?}");
         };
         assert_eq!(user_id, pubky_id(USER));
-        assert_eq!(read.name, user.name);
+        assert_eq!(input.name, user.name);
+        assert_eq!(input.bio, user.bio);
+        assert_eq!(input.image, user.image);
+        assert_eq!(links(&input.links), links(&user.links));
+        assert_eq!(input.status, user.status);
     }
 
     #[test]
-    fn put_post_translates_with_the_path_ids() {
+    fn put_user_keeps_empty_links_apart_from_missing_ones() {
+        for links_written in [None, Some(Vec::new())] {
+            let user = PubkyAppUser::new("Alice".to_string(), None, None, links_written, None);
+            let translated =
+                translate_put(&target("pubky.app/profile.json"), &bytes(&user)).unwrap();
+            let TranslatedPut::User { user: input, .. } = translated else {
+                panic!("expected User, got {translated:?}");
+            };
+            assert_eq!(links(&input.links), links(&user.links));
+        }
+    }
+
+    #[test]
+    fn put_post_translates_to_its_input_with_the_path_ids() {
         let post = post_fixture();
-        let target = target(&format!("pubky.app/posts/{POST_ID}"));
-        let translated = translate_put(&target, &bytes(&post)).unwrap();
-        let TranslatedPut::Post {
-            author_id,
-            post_id,
-            post: read,
-        } = translated
-        else {
-            panic!("expected Post, got {translated:?}");
-        };
-        assert_eq!(author_id, pubky_id(USER));
-        assert_eq!(post_id, POST_ID);
-        assert_eq!(read.content, post.content);
+        let (key, input) = translate_post(&post);
+        assert_eq!(key, post_key());
+        assert_eq!(input.content, post.content);
+        assert_eq!(input.kind, post.kind);
+        assert_eq!(input.parent, post.parent);
+        assert_eq!(input.embed_uri, None);
+        assert_eq!(input.attachments, post.attachments);
+        assert_eq!(input.lock, post.lock);
+    }
+
+    #[test]
+    fn put_post_with_an_embed_carries_only_the_embed_uri() {
+        let post = repost_fixture();
+        let (_, input) = translate_post(&post);
+        assert_eq!(
+            input,
+            PostInput {
+                content: String::new(),
+                kind: PubkyAppPostKind::Short,
+                parent: None,
+                embed_uri: Some(post_uri()),
+                attachments: None,
+                lock: None,
+            }
+        );
     }
 
     #[test]
@@ -288,82 +422,92 @@ mod tests {
     }
 
     #[test]
-    fn put_pubky_app_tag_translates_without_an_app() {
+    fn put_pubky_app_tag_translates_to_its_input_without_an_app() {
         let tag = tag_fixture();
         let id = tag.create_id();
         let target = target(&format!("pubky.app/tags/{id}"));
         let translated = translate_put(&target, &bytes(&tag)).unwrap();
         let TranslatedPut::Tag {
-            tagger_id,
-            tag_id,
-            tag: read,
+            key,
+            tag: input,
             app,
         } = translated
         else {
             panic!("expected Tag, got {translated:?}");
         };
-        assert_eq!(tagger_id, pubky_id(USER));
-        assert_eq!(tag_id, id);
-        assert_eq!(read.label, tag.label);
+        assert_eq!(key, owned_key(id));
+        assert_eq!(
+            input,
+            TagInput {
+                uri: tag.uri,
+                label: tag.label,
+            }
+        );
         assert_eq!(app, None);
     }
 
     #[test]
-    fn put_universal_tag_translates_with_its_app() {
+    fn put_universal_tag_translates_to_its_input_with_its_app() {
         let tag = tag_fixture();
         let id = tag.create_id();
         let target = target(&format!("mapky/tags/{id}"));
         let translated = translate_put(&target, &bytes(&tag)).unwrap();
         let TranslatedPut::Tag {
-            tagger_id,
-            tag_id,
+            key,
+            tag: input,
             app,
-            ..
         } = translated
         else {
             panic!("expected Tag, got {translated:?}");
         };
-        assert_eq!(tagger_id, pubky_id(USER));
-        assert_eq!(tag_id, id);
+        assert_eq!(key, owned_key(id));
+        assert_eq!(
+            input,
+            TagInput {
+                uri: tag.uri,
+                label: tag.label,
+            }
+        );
         assert_eq!(app.as_deref(), Some("mapky"));
     }
 
     #[test]
-    fn put_bookmark_translates_with_the_path_ids() {
+    fn put_bookmark_translates_to_its_input_with_the_path_ids() {
         let bookmark = bookmark_fixture();
         let id = bookmark.create_id();
         let target = target(&format!("pubky.app/bookmarks/{id}"));
         let translated = translate_put(&target, &bytes(&bookmark)).unwrap();
         let TranslatedPut::Bookmark {
-            user_id,
-            bookmark_id,
-            bookmark: read,
+            key,
+            bookmark: input,
         } = translated
         else {
             panic!("expected Bookmark, got {translated:?}");
         };
-        assert_eq!(user_id, pubky_id(USER));
-        assert_eq!(bookmark_id, id);
-        assert_eq!(read.uri, bookmark.uri);
+        assert_eq!(key, owned_key(id));
+        assert_eq!(input, BookmarkInput { uri: bookmark.uri });
     }
 
     #[test]
-    fn put_file_translates_with_the_path_ids() {
+    fn put_file_translates_to_its_input_with_the_path_ids() {
         let file = file_fixture();
         let id = file.create_id();
         let target = target(&format!("pubky.app/files/{id}"));
         let translated = translate_put(&target, &bytes(&file)).unwrap();
-        let TranslatedPut::File {
-            user_id,
-            file_id,
-            file: read,
-        } = translated
-        else {
+        let TranslatedPut::File { key, file: input } = translated else {
             panic!("expected File, got {translated:?}");
         };
-        assert_eq!(user_id, pubky_id(USER));
-        assert_eq!(file_id, id);
-        assert_eq!(read.name, file.name);
+        assert_eq!(key, owned_key(id));
+        assert_eq!(
+            input,
+            FileInput {
+                name: file.name,
+                src: file.src,
+                content_type: file.content_type,
+                size: file.size,
+                created_at: file.created_at,
+            }
+        );
     }
 
     // ---- error classes ------------------------------------------------------------------
@@ -444,15 +588,12 @@ mod tests {
             ),
             (
                 format!("pubky.app/posts/{POST_ID}"),
-                TranslatedDel::Post {
-                    author_id: user.clone(),
-                    post_id: POST_ID.to_string(),
-                },
+                TranslatedDel::Post(post_key()),
             ),
             (
                 format!("pubky.app/follows/{OTHER_USER}"),
                 TranslatedDel::Follow {
-                    user_id: user.clone(),
+                    user_id: user,
                     followee_id: other,
                 },
             ),
@@ -460,17 +601,11 @@ mod tests {
             (format!("mapky/tags/{tag_id}"), TranslatedDel::Tag),
             (
                 format!("pubky.app/bookmarks/{bookmark_id}"),
-                TranslatedDel::Bookmark {
-                    user_id: user.clone(),
-                    bookmark_id,
-                },
+                TranslatedDel::Bookmark(owned_key(bookmark_id)),
             ),
             (
                 format!("pubky.app/files/{file_id}"),
-                TranslatedDel::File {
-                    user_id: user,
-                    file_id,
-                },
+                TranslatedDel::File(owned_key(file_id)),
             ),
         ];
         for (path, expected) in cases {

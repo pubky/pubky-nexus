@@ -1,7 +1,7 @@
 use nexus_watcher::errors::EventProcessorError;
 use nexus_watcher::events::Event;
 use nexus_watcher::events::{EventHandler, Moderation};
-use pubky_social_specs::legacy_v0::PubkyId;
+use pubky_social_specs::PubkyId;
 use std::sync::Arc;
 use std::sync::Mutex;
 

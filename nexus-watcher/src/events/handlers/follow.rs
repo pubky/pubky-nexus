@@ -5,7 +5,8 @@ use nexus_common::db::OperationOutcome;
 use nexus_common::models::follow::{Followers, Following, Friends, UserFollows};
 use nexus_common::models::notification::Notification;
 use nexus_common::models::user::{UserCounts, UserIngestor};
-use pubky_social_specs::legacy_v0::{user_uri_builder, PubkyId};
+use pubky_social_specs::legacy_v0::user_uri_builder;
+use pubky_social_specs::PubkyId;
 use tracing::debug;
 
 use super::utils::fail_on_permanent_ingest_error;

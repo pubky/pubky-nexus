@@ -4,8 +4,7 @@ use crate::db::{
     execute_graph_operation, fetch_row_from_graph, queries, GraphResult, OperationOutcome, RedisOps,
 };
 use crate::models::error::ModelResult;
-use chrono::Utc;
-use pubky_social_specs::legacy_v0::{PubkyAppPost, PubkyAppPostKind, PubkyId};
+use pubky_social_specs::legacy_v0::PubkyAppPostKind;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -110,26 +109,6 @@ impl PostDetails {
             }
         }
         Ok(())
-    }
-
-    /// `uri` is the address the post was read from: the event path.
-    pub fn from_homeserver(
-        homeserver_post: PubkyAppPost,
-        uri: String,
-        author_id: &PubkyId,
-        post_id: &str,
-    ) -> Self {
-        PostDetails {
-            uri,
-            content: homeserver_post.content,
-            id: post_id.to_string(),
-            indexed_at: Utc::now().timestamp_millis(),
-            author: author_id.to_string(),
-            kind: homeserver_post.kind,
-            attachments: homeserver_post.attachments,
-            lock: homeserver_post.lock,
-            deleted: false,
-        }
     }
 
     pub async fn reindex(author_id: &str, post_id: &str) -> ModelResult<()> {

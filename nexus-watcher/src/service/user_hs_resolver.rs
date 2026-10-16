@@ -16,7 +16,7 @@ use opentelemetry::metrics::{Counter, Gauge, Histogram};
 use opentelemetry::{global, KeyValue};
 use pubky::errors::PkarrError;
 use pubky::PublicKey;
-use pubky_social_specs::legacy_v0::PubkyId;
+use pubky_social_specs::PubkyId;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{LazyLock, Mutex};

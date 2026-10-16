@@ -11,21 +11,25 @@ use nexus_common::models::post::{
 };
 use nexus_common::models::user::{UserCounts, UserIngestor};
 use pubky_social_specs::legacy_v0::{
-    user_uri_builder, ParsedUri, PubkyAppCollectionContent, PubkyAppPost, PubkyAppPostKind,
-    PubkyId, Resource,
+    user_uri_builder, ParsedUri, PubkyAppCollectionContent, PubkyAppPostKind, Resource,
 };
+use pubky_social_specs::PubkyId;
 use tracing::{debug, Instrument};
 
 use super::utils::{fail_on_permanent_ingest_error, post_kind, post_relationships_is_reply};
+use crate::events::inputs::{PostInput, ResourceKey};
 
 pub async fn sync_put(
-    post: PubkyAppPost,
+    post: PostInput,
+    key: ResourceKey,
     uri: String,
-    author_id: PubkyId,
-    post_id: String,
     ingestor: &UserIngestor,
 ) -> Result<(), EventProcessorError> {
-    let post_details = PostDetails::from_homeserver(post.clone(), uri, &author_id, &post_id);
+    let post_details = post.clone().into_details(uri, &key);
+    let ResourceKey {
+        owner_id: author_id,
+        resource_id: post_id,
+    } = key;
     sync_put_details(post, post_details, author_id, post_id, ingestor).await
 }
 
@@ -33,7 +37,7 @@ pub async fn sync_put(
 /// tombstone through the same edit path.
 #[tracing::instrument(name = "post.put", skip_all, fields(user_id = %author_id, post_id = %post_id))]
 async fn sync_put_details(
-    post: PubkyAppPost,
+    post: PostInput,
     post_details: PostDetails,
     author_id: PubkyId,
     post_id: String,
@@ -44,7 +48,7 @@ async fn sync_put_details(
     let is_reply = post.parent.is_some();
     let is_collection = post.kind == PubkyAppPostKind::Collection;
     // PRE-INDEX operation, identify the post relationship
-    let mut post_relationships = PostRelationships::from_homeserver(&post);
+    let mut post_relationships = post.relationships();
 
     let existed = match post_details.put_to_graph(&post_relationships).await? {
         OperationOutcome::CreatedOrDeleted => false,
@@ -397,7 +401,7 @@ async fn recover_post_index_state(
 }
 
 async fn sync_edit(
-    post: &PubkyAppPost,
+    post: &PostInput,
     author_id: PubkyId,
     post_id: String,
     post_details: PostDetails,
@@ -571,7 +575,7 @@ fn curated_items(
 /// Best-effort ingestion of the user of every URI in a Collection's
 /// `items` envelope. No-op for non-Collection posts; failures (malformed URI,
 /// blacklisted HS) are logged and skipped so the Collection is still indexed.
-async fn ingest_collection_item_authors(post: &PubkyAppPost, ingestor: &UserIngestor) {
+async fn ingest_collection_item_authors(post: &PostInput, ingestor: &UserIngestor) {
     if post.kind != PubkyAppPostKind::Collection {
         return;
     }
@@ -594,53 +598,57 @@ async fn ingest_collection_item_authors(post: &PubkyAppPost, ingestor: &UserInge
     }
 }
 
-#[tracing::instrument(name = "post.del", skip_all, fields(user_id = %author_id, post_id = %post_id))]
-pub async fn del(
-    author_id: PubkyId,
-    post_id: String,
-    ingestor: &UserIngestor,
-) -> Result<(), EventProcessorError> {
+#[tracing::instrument(name = "post.del", skip_all, fields(user_id = %key.owner_id, post_id = %key.resource_id))]
+pub async fn del(key: ResourceKey, ingestor: &UserIngestor) -> Result<(), EventProcessorError> {
     debug!("Deleting post");
 
     // The post's stored address: a tombstone keeps it, and a hard delete reports it.
     // A post missing from the graph has nothing to delete.
     let Some((PostDetails { uri, .. }, _)) =
-        PostDetails::get_from_graph(&author_id, &post_id).await?
+        PostDetails::get_from_graph(&key.owner_id, &key.resource_id).await?
     else {
         return Err(EventProcessorError::SkipIndexing);
     };
 
     // Graph query to check if there is any edge at all to this post other than AUTHORED, is a reply or is a repost.
-    let query = post_is_safe_to_delete(&author_id, &post_id);
+    let query = post_is_safe_to_delete(&key.owner_id, &key.resource_id);
 
     // If there is none other relationship (OperationOutcome::CreatedOrDeleted), we delete from graph and redis.
     // If there is any (OperationOutcome::Updated), we overwrite the post with a cleared tombstone
     // carrying `deleted = true`. The node survives so its edges stay intact.
     match execute_graph_operation(query).await? {
-        OperationOutcome::CreatedOrDeleted => sync_del(author_id, post_id, uri).await?,
+        OperationOutcome::CreatedOrDeleted => sync_del(key.owner_id, key.resource_id, uri).await?,
         OperationOutcome::Updated => {
-            let existing_relationships = PostRelationships::get_by_id(&author_id, &post_id).await?;
+            let existing_relationships =
+                PostRelationships::get_by_id(&key.owner_id, &key.resource_id).await?;
             let parent = existing_relationships
                 .and_then(|rel| rel.replied)
                 .and_then(|replied_uri| replied_uri.try_to_uri_str().ok());
 
             // A cleared Short flagged `deleted`, still a reply if it was one already.
-            let tombstone = PubkyAppPost {
+            let tombstone = PostInput {
                 content: String::new(),
                 parent,
-                embed: None,
+                embed_uri: None,
                 kind: PubkyAppPostKind::Short,
                 attachments: None,
                 lock: None,
             };
             let tombstone_details = PostDetails {
                 deleted: true,
-                ..PostDetails::from_homeserver(tombstone.clone(), uri, &author_id, &post_id)
+                ..tombstone.clone().into_details(uri, &key)
             };
 
             // The tombstone keeps the `parent` of a deleted reply, so re-PUT may
             // still ingest the parent's author; pass on ingestor to enforce the real blacklist.
-            sync_put_details(tombstone, tombstone_details, author_id, post_id, ingestor).await?;
+            sync_put_details(
+                tombstone,
+                tombstone_details,
+                key.owner_id,
+                key.resource_id,
+                ingestor,
+            )
+            .await?;
         }
         OperationOutcome::MissingDependency => return Err(EventProcessorError::SkipIndexing),
     };

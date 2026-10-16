@@ -2,7 +2,8 @@ use crate::db::graph::error::{GraphError, GraphResult};
 use crate::db::graph::Query;
 use crate::models::post::PostRelationships;
 use crate::models::{file::FileDetails, post::PostDetails, user::UserDetails};
-use pubky_social_specs::legacy_v0::{ParsedUri, PubkyId, Resource};
+use pubky_social_specs::legacy_v0::{ParsedUri, Resource};
+use pubky_social_specs::PubkyId;
 
 /// Creates or overwrites a `User` node.
 ///

@@ -5,7 +5,7 @@
 use std::sync::Arc;
 
 use pubky::{Keypair, PublicKey};
-use pubky_social_specs::legacy_v0::PubkyId;
+use pubky_social_specs::PubkyId;
 
 use crate::models::user::UserIngestor;
 
