@@ -903,7 +903,7 @@ pub fn get_viewer_trusted_network_post_tags(
 }
 
 /// Per-user count fields, as `(alias, COUNT {} subquery)` pairs bound to the
-/// node variable `u`. Single source of truth shared by [`user_counts`] (map
+/// node variable `u`. Single source of truth shared by [`user_counts_by_ids`] (map
 /// form) and the trust report (column form), so their filters — especially the
 /// collection/bookmark rules — can't drift between the two queries.
 const USER_COUNT_FIELDS: &[(&str, &str)] = &[
@@ -957,20 +957,35 @@ pub fn user_count_fields_columns() -> String {
         .join(", ")
 }
 
-pub fn user_counts(user_id: &str) -> Query {
+/// One row per id, in no guaranteed order: `exists` is false for ids with no
+/// `User` node and `counts` holds every [`USER_COUNT_FIELDS`] entry.
+pub fn user_counts_by_ids(user_ids: &[&str]) -> Query {
     // Each field is an independent COUNT { } subquery off the single (u) row.
     // Do NOT precede this with a row-multiplying OPTIONAL MATCH (e.g. over
     // received tags): that makes every subquery a per-row grouping key, so the
     // whole block runs once per received tag, i.e. O(received_tags x authored_posts)
     // and hangs on heavy users. See issue #935.
     let cypher = format!(
-        "MATCH (u:User {{id: $user_id}})
+        "UNWIND $user_ids AS id
+         OPTIONAL MATCH (u:User {{id: id}})
          RETURN
+             id,
              u IS NOT NULL AS exists,
              {{ {fields} }} AS counts;",
         fields = user_count_fields_map()
     );
-    Query::new("user_counts", cypher).param("user_id", user_id)
+    Query::new("user_counts_by_ids", cypher).param("user_ids", user_ids)
+}
+
+/// `all_exist` is true only when every id has a `User` node.
+pub fn users_exist(user_ids: &[&str]) -> Query {
+    Query::new(
+        "users_exist",
+        "UNWIND $user_ids AS id
+         OPTIONAL MATCH (u:User {id: id})
+         RETURN COUNT(u) = SIZE($user_ids) AS all_exist",
+    )
+    .param("user_ids", user_ids)
 }
 
 // These queries aggregate into a single row, so SKIP/LIMIT cannot paginate the

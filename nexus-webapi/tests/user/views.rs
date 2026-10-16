@@ -8,7 +8,10 @@ use axum::http::StatusCode;
 use deadpool_redis::redis::AsyncCommands;
 use nexus_common::db::get_redis_conn;
 use nexus_common::db::RedisOps;
-use nexus_common::models::user::{SocialGraphStatus, USER_SOCIAL_GRAPH_KEY_PARTS};
+use nexus_common::models::user::{SocialGraphStatus, UserCounts, USER_SOCIAL_GRAPH_KEY_PARTS};
+
+/// From `docker/test-graph/skunk.cypher`: a `User` node with no edges at all.
+const NO_EDGES_USER: &str = "18a49r4bu7zgu9p8wjcfhcs7q97q7u898ogs8m7k6375y8ixp17o";
 
 #[tokio_shared_rt::test(shared)]
 async fn test_user_endpoint() -> Result<()> {
@@ -81,6 +84,19 @@ async fn test_get_relationship() -> Result<()> {
     assert!(res["following"].is_boolean());
     assert!(res["followed_by"].is_boolean());
 
+    // Either side missing from the graph reads as no relationship.
+    let missing_id = "qca6wzjg4okp6g1hwr9g8hmx1po1jpoirjfau9ejsws1qz3t7iiy";
+    invalid_get_request(
+        &format!("/v0/user/{user_id}/relationship/{missing_id}"),
+        StatusCode::NOT_FOUND,
+    )
+    .await?;
+    invalid_get_request(
+        &format!("/v0/user/{missing_id}/relationship/{viewer_id}"),
+        StatusCode::NOT_FOUND,
+    )
+    .await?;
+
     // Test non-existing relationship
     let user_id = "qca6wzjg4okp6g1hwr9g8hmx1po1jpoirjfau9ejsws1qz3t7iiy";
     let viewer_id = "q5ef4o3jqxnpadzuk1h3qgqi1kefwf6zs7yuofmr6ynymt593ieo";
@@ -90,6 +106,76 @@ async fn test_get_relationship() -> Result<()> {
     )
     .await?;
 
+    Ok(())
+}
+
+/// User existence comes from the graph, so a relationship resolves with no
+/// `User:Counts` key on either side.
+#[tokio_shared_rt::test(shared)]
+async fn test_get_relationship_without_counts_keys() -> Result<()> {
+    // Redis is reachable only once the server has set its connectors up.
+    TestServiceServer::get_test_server().await;
+    let user_id = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
+    let viewer_id = "5g3fwnue819wfdjwiwm8qr35ww6uxxgbzrigrtdgmbi19ksioeoy";
+    let cached = [
+        (user_id, UserCounts::get_from_index(user_id).await?),
+        (viewer_id, UserCounts::get_from_index(viewer_id).await?),
+    ];
+    UserCounts::delete(user_id).await?;
+    UserCounts::delete(viewer_id).await?;
+
+    let res = get_request(&format!("/v0/user/{user_id}/relationship/{viewer_id}")).await;
+
+    for (id, counts) in cached {
+        if let Some(counts) = counts {
+            counts.put_index_json(&[id], None, None).await?;
+        }
+    }
+    let res = res?;
+    assert_eq!(res["followed_by"], true, "Aldert should follow Flavio");
+    assert_eq!(res["following"], false, "Flavio should not follow Aldert");
+
+    Ok(())
+}
+
+/// Counts are a graph COUNT: stale or absent `User:Counts` JSON is ignored and
+/// a read never writes it back.
+#[tokio_shared_rt::test(shared)]
+async fn test_get_counts_ignores_redis_json() -> Result<()> {
+    TestServiceServer::get_test_server().await;
+    let endpoint = format!("/v0/user/{NO_EDGES_USER}/counts");
+    let zeros = serde_json::to_value(UserCounts::default())?;
+
+    let stale = UserCounts {
+        posts: 99,
+        followers: 7,
+        ..Default::default()
+    };
+    stale.put_index_json(&[NO_EDGES_USER], None, None).await?;
+    let res = get_request(&endpoint).await?;
+    assert_eq!(
+        res, zeros,
+        "stale Redis JSON is ignored; a user with no edges counts zero"
+    );
+
+    UserCounts::delete(NO_EDGES_USER).await?;
+    let res = get_request(&endpoint).await?;
+    assert_eq!(res, zeros, "counts resolve with no Redis key");
+    assert!(
+        UserCounts::get_from_index(NO_EDGES_USER).await?.is_none(),
+        "a counts read must not refill User:Counts"
+    );
+
+    let res = get_request(&format!("/v0/user/{NO_EDGES_USER}")).await?;
+    assert_eq!(
+        res["counts"], zeros,
+        "the user view carries the same counts"
+    );
+
+    // Leave the key as the seed left it.
+    UserCounts::default()
+        .put_index_json(&[NO_EDGES_USER], None, None)
+        .await?;
     Ok(())
 }
 

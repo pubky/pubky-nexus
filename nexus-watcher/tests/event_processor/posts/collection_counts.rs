@@ -64,7 +64,7 @@ async fn test_collection_post_increments_collections_not_replies() -> Result<()>
     assert_eq!(counts.replies, 0, "a collection is not a reply");
 
     // Graph backfill must match the live counters.
-    let graph_counts = UserCounts::get_from_graph(&user_id)
+    let graph_counts = UserCounts::get_by_id(&user_id)
         .await?
         .expect("user counts present in graph");
     assert_eq!(graph_counts.posts, 2);
@@ -147,7 +147,7 @@ async fn test_editing_post_kind_moves_collections_counter() -> Result<()> {
     );
 
     // Graph backfill agrees with the final live state.
-    let graph = UserCounts::get_from_graph(&user_id)
+    let graph = UserCounts::get_by_id(&user_id)
         .await?
         .expect("user counts present in graph");
     assert_eq!(graph.collections, 0);
@@ -238,7 +238,7 @@ async fn test_bookmarking_a_collection_is_excluded_from_bookmarks() -> Result<()
         "only the real post bookmark counts, not the collection-follow"
     );
 
-    let graph_counts = UserCounts::get_from_graph(&user_id)
+    let graph_counts = UserCounts::get_by_id(&user_id)
         .await?
         .expect("user counts present in graph");
     assert_eq!(graph_counts.bookmarks, 1);

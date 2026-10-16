@@ -1,8 +1,7 @@
-use crate::db::kv::RedisResult;
+use crate::db::{fetch_key_from_graph, queries};
 use crate::models::error::ModelResult;
 use crate::models::follow::{Followers, UserFollows};
 
-use super::UserCounts;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -14,29 +13,22 @@ pub struct Relationship {
 }
 
 impl Relationship {
-    // Retrieves user-viewer relationship
+    /// `None` without a viewer or when either user has no graph node.
     pub async fn get_by_id(user_id: &str, viewer_id: Option<&str>) -> ModelResult<Option<Self>> {
-        match viewer_id {
-            None => Ok(None),
-            Some(v_id) => Self::get_from_index(user_id, v_id)
-                .await
-                .map_err(Into::into),
-        }
-    }
-
-    /// Retrieves relationship from Followers/Following Redis index sets.
-    pub async fn get_from_index(
-        user_id: &str,
-        viewer_id: &str,
-    ) -> RedisResult<Option<Relationship>> {
-        let user_exist = UserCounts::get_from_index(user_id).await?;
-        let viewer_exist = UserCounts::get_from_index(viewer_id).await?;
-
-        // Make sure users exist before get their relationship
-        if user_exist.is_none() || viewer_exist.is_none() {
+        let Some(viewer_id) = viewer_id else {
+            return Ok(None);
+        };
+        let both_exist = fetch_key_from_graph(
+            queries::get::users_exist(&[user_id, viewer_id]),
+            "all_exist",
+        )
+        .await?
+        .unwrap_or(false);
+        if !both_exist {
             return Ok(None);
         }
 
+        // Follow membership still comes from the Followers sets.
         let (following, followed_by) = tokio::try_join!(
             Followers::check_in_index(user_id, viewer_id),
             Followers::check_in_index(viewer_id, user_id),
