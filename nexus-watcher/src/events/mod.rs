@@ -2,6 +2,7 @@ use nexus_common::{db::PubkyConnector, models::user::UserIngestor};
 mod classify;
 mod epoch_metrics;
 pub mod event;
+pub mod inputs;
 mod route;
 pub mod target;
 mod translation;
@@ -129,58 +130,36 @@ pub async fn handle_put_event(
 
     match translate_put(&event.target, &blob)? {
         TranslatedPut::User { user_id, user } => {
-            handlers::user::sync_put(user, event.uri.clone(), user_id).await
+            handlers::user::sync_put(user, user_id, event.uri.clone()).await
         }
-        TranslatedPut::Post {
-            author_id,
-            post_id,
-            post,
-        } => handlers::post::sync_put(post, event.uri.clone(), author_id, post_id, &ingestor).await,
+        TranslatedPut::Post { key, post } => {
+            handlers::post::sync_put(post, key, event.uri.clone(), &ingestor).await
+        }
         TranslatedPut::Follow {
             user_id,
             followee_id,
         } => handlers::follow::sync_put(user_id, followee_id, &ingestor).await,
-        TranslatedPut::Bookmark {
-            user_id,
-            bookmark_id,
-            bookmark,
-        } => handlers::bookmark::sync_put(user_id, bookmark, bookmark_id).await,
-        TranslatedPut::Tag {
-            tagger_id,
-            tag_id,
-            tag,
-            app,
-        } => {
-            if moderation.should_delete(&tag.label, &tagger_id) {
+        TranslatedPut::Bookmark { key, bookmark } => {
+            handlers::bookmark::sync_put(bookmark, key).await
+        }
+        TranslatedPut::Tag { key, tag, app } => {
+            if moderation.should_delete(&tag.label, &key.owner_id) {
                 moderation
                     .apply_moderation(&tag.label, &tag.uri, files_path, &ingestor)
                     .await
             } else if let Some(app) = app {
                 // Another app's universal tag: `sync_put_resource` also handles Resource
                 // nodes for InternalUnknown/External tagged URIs.
-                handlers::tag::sync_put_resource(
-                    tag,
-                    event.uri.clone(),
-                    tagger_id,
-                    tag_id,
-                    app,
-                    &ingestor,
-                )
-                .await
+                handlers::tag::sync_put_resource(tag, key, event.uri.clone(), app, &ingestor).await
             } else {
-                handlers::tag::sync_put(tag, event.uri.clone(), tagger_id, tag_id, &ingestor).await
+                handlers::tag::sync_put(tag, key, event.uri.clone(), &ingestor).await
             }
         }
-        TranslatedPut::File {
-            user_id,
-            file_id,
-            file,
-        } => {
+        TranslatedPut::File { key, file } => {
             handlers::file::sync_put(
                 file,
+                key,
                 event.uri.clone(),
-                user_id,
-                file_id,
                 files_path,
                 max_file_size,
                 &ingestor,
@@ -198,20 +177,13 @@ pub async fn handle_del_event(
 ) -> Result<(), EventProcessorError> {
     match translate_del(&event.target)? {
         TranslatedDel::User { user_id } => handlers::user::del(user_id).await,
-        TranslatedDel::Post { author_id, post_id } => {
-            handlers::post::del(author_id, post_id, &ingestor).await
-        }
+        TranslatedDel::Post(key) => handlers::post::del(key, &ingestor).await,
         TranslatedDel::Follow {
             user_id,
             followee_id,
         } => handlers::follow::del(user_id, followee_id).await,
         TranslatedDel::Tag => handlers::tag::del(&event.uri).await,
-        TranslatedDel::Bookmark {
-            user_id,
-            bookmark_id,
-        } => handlers::bookmark::del(user_id, bookmark_id).await,
-        TranslatedDel::File { user_id, file_id } => {
-            handlers::file::del(&user_id, file_id, files_path).await
-        }
+        TranslatedDel::Bookmark(key) => handlers::bookmark::del(key).await,
+        TranslatedDel::File(key) => handlers::file::del(key, files_path).await,
     }
 }

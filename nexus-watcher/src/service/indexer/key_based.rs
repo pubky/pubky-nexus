@@ -15,7 +15,7 @@ use opentelemetry::metrics::Counter;
 use opentelemetry::{global, KeyValue};
 use pubky::errors::RequestError;
 use pubky::{Event as StreamEvent, EventCursor, PublicKey};
-use pubky_social_specs::legacy_v0::PubkyId;
+use pubky_social_specs::PubkyId;
 use tokio::sync::watch::Receiver;
 use tracing::{debug, error, info, warn};
 

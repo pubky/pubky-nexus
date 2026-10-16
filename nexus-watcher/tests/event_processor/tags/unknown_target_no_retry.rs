@@ -6,7 +6,9 @@ use chrono::Utc;
 use nexus_watcher::events::retry::RetryScheduler;
 use nexus_watcher::EventProcessorError;
 use pubky::Keypair;
-use pubky_app_specs::{traits::HashId, ParsedUri, PubkyAppTag, PubkyAppUser, Resource};
+use pubky_social_specs::legacy_v0::{
+    traits::HashId, ParsedUri, PubkyAppTag, PubkyAppUser, Resource,
+};
 
 /// A pubky.app tag whose target parses to neither a Post nor a User is rejected
 /// deterministically, so it must not be queued for retry.

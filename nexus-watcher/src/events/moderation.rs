@@ -3,9 +3,11 @@ use std::sync::Arc;
 
 use crate::errors::EventProcessorError;
 use crate::events::handlers;
+use crate::events::inputs::ResourceKey;
 use nexus_common::models::user::UserIngestor;
 use nexus_common::WatcherConfig;
-use pubky_social_specs::legacy_v0::{ParsedUri, PubkyId, Resource};
+use pubky_social_specs::legacy_v0::{ParsedUri, Resource};
+use pubky_social_specs::PubkyId;
 use tracing::info;
 
 pub struct Moderation {
@@ -60,7 +62,11 @@ impl Moderation {
                 info!("Moderation tag '{label}' detected. Deleting post {user_id}:{post_id}");
                 // Same gate as user-issued DEL events: hard-delete when edge-free, tombstone
                 // when any engagement edge remains (tags, bookmarks, replies, reposts, mentions).
-                handlers::post::del(user_id, post_id, ingestor).await
+                let key = ResourceKey {
+                    owner_id: user_id,
+                    resource_id: post_id,
+                };
+                handlers::post::del(key, ingestor).await
             }
             Resource::Tag(tag_id) => {
                 info!("Moderation tag '{label}' detected. Deleting tag {user_id}:{tag_id}");
@@ -72,7 +78,11 @@ impl Moderation {
             }
             Resource::File(file_id) => {
                 info!("Moderation tag '{label}' detected. Deleting file {user_id}:{file_id}");
-                handlers::file::del(&user_id, file_id, files_path).await
+                let key = ResourceKey {
+                    owner_id: user_id,
+                    resource_id: file_id,
+                };
+                handlers::file::del(key, files_path).await
             }
             _ => Ok(()),
         }

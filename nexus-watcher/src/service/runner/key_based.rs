@@ -13,7 +13,7 @@ use nexus_common::types::DynError;
 use nexus_common::WatcherConfig;
 use opentelemetry::global;
 use opentelemetry::metrics::{Gauge, Meter};
-use pubky_social_specs::legacy_v0::PubkyId;
+use pubky_social_specs::PubkyId;
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 use tokio::sync::{watch::Receiver, Mutex};

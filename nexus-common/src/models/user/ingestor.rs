@@ -1,4 +1,5 @@
-use pubky_social_specs::legacy_v0::{ParsedUri, PubkyId};
+use pubky_social_specs::legacy_v0::ParsedUri;
+use pubky_social_specs::PubkyId;
 
 use crate::db::PubkyConnector;
 use crate::models::error::{ModelError, ModelResult};
