@@ -56,7 +56,8 @@ pub enum EventProcessorError {
     DataAnomaly(String),
 
     /// The event is valid but targets a resource kind this handler does not index (e.g. a tag on
-    /// something that is neither a Post nor a User). Non-retryable: the target kind will not change.
+    /// something that is neither a Post nor a User, or a bookmark of something that is not a
+    /// Post). Non-retryable: the target kind will not change.
     #[error("UnsupportedTarget: {0}")]
     UnsupportedTarget(String),
 

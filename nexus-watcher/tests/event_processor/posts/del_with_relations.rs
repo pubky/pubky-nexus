@@ -10,6 +10,7 @@ use nexus_common::models::post::{PostCounts, PostDetails, PostView};
 use nexus_common::types::Pagination;
 use nexus_common::utils::test_utils::default_ingestor_tests;
 use nexus_watcher::events::handlers;
+use nexus_watcher::events::inputs::PostInput;
 use pubky::Keypair;
 use pubky_social_specs::legacy_v0::{
     post_uri_builder, PubkyAppBookmark, PubkyAppPost, PubkyAppPostKind, PubkyAppTag, PubkyAppUser,
@@ -361,9 +362,11 @@ async fn test_live_post_with_sentinel_content_is_not_tombstoned() -> Result<()> 
     // Edit to the legacy sentinel through the real handler, so the graph and
     // the cache are written in production order
     handlers::post::sync_put(
-        short_post("[DELETED]").into(),
+        PostInput::from_v0(
+            short_post("[DELETED]"),
+            post_uri_builder(author_id.clone(), post_id.clone()),
+        ),
         resource_key(&author_id, &post_id)?,
-        post_uri_builder(author_id.clone(), post_id.clone()),
         &default_ingestor_tests(),
     )
     .await?;

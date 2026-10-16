@@ -1,44 +1,86 @@
 //! The handlers' inputs: one plain struct per resource, holding exactly the fetched data its
-//! handler reads, and the [`ResourceKey`] the event's path names.
+//! handler reads, the address the object is stored under, and a [`Reference`] for each address
+//! the object holds. The [`ResourceKey`] the event's path names travels beside the input.
 //!
 //! A translator fills them from a validated spec object, so the handlers never see the spec's
-//! object layout. A few field types (`PubkyAppPostKind`, `PubkyAppUserLink`) still come from the
-//! spec, as they do in the stored models.
+//! object layout, and translation alone decides each object's stored address. A few field types
+//! (`PubkyAppPostKind`, `PubkyAppUserLink`) still come from the spec, as they do in the stored
+//! models.
 
 use chrono::Utc;
 use nexus_common::models::file::{FileDetails, FileUrls};
-use nexus_common::models::post::{PostDetails, PostRelationships};
+use nexus_common::models::post::{PostDetails, PostParent, PostParents};
 use nexus_common::models::user::{Epoch, UserDetails};
-use pubky_social_specs::legacy_v0::{ParsedUri, PubkyAppPostKind, PubkyAppUserLink, Resource};
+use pubky_social_specs::legacy_v0::{PubkyAppPostKind, PubkyAppUserLink};
 use pubky_social_specs::PubkyId;
 
-/// Which resource an event names: the user whose storage holds it and its id there, however the
-/// epoch spells the address.
+pub use nexus_common::models::ResourceKey;
+
+/// An address one object holds to another: the address as written and what it names.
+///
+/// The translator resolves it once (`resolve_reference`, next to the event router), so a handler
+/// routes on [`Reference::target`] and never parses the address.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ResourceKey {
-    pub owner_id: PubkyId,
-    pub resource_id: String,
+pub struct Reference {
+    /// The address exactly as the author wrote it.
+    pub uri: String,
+    pub target: ReferenceTarget,
+}
+
+/// What a [`Reference`] names.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ReferenceTarget {
+    /// A post: its author and post id.
+    Post(ResourceKey),
+    /// A user's profile.
+    User(PubkyId),
+    /// A file: its owner and file id.
+    File(ResourceKey),
+    /// A tag: its tagger and tag id; `app` is set when the tag lives in another app's folder.
+    Tag {
+        key: ResourceKey,
+        app: Option<String>,
+    },
+    /// Anything else: a URL, another app's object, a resource Nexus never references (a follow,
+    /// a bookmark, a blob, …), an address that doesn't parse, or one of an epoch the resolver
+    /// doesn't read yet.
+    Other,
+}
+
+impl ReferenceTarget {
+    /// The user who owns what the reference names; `None` for [`ReferenceTarget::Other`].
+    pub fn owner_id(&self) -> Option<&PubkyId> {
+        match self {
+            Self::Post(key) | Self::File(key) | Self::Tag { key, .. } => Some(&key.owner_id),
+            Self::User(user_id) => Some(user_id),
+            Self::Other => None,
+        }
+    }
 }
 
 /// A post, as the post handler reads it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PostInput {
+    /// The address the post is stored under.
+    pub uri: String,
     pub content: String,
     pub kind: PubkyAppPostKind,
-    /// If a reply, the URI of the parent post, as the author wrote it.
-    pub parent: Option<String>,
-    /// The URI of the embedded object, as the author wrote it.
-    pub embed_uri: Option<String>,
+    /// If a reply, the parent the author named.
+    pub parent: Option<Reference>,
+    /// The embedded object the author named.
+    pub embed: Option<Reference>,
+    /// A collection post's items, in order; empty for any other kind. Only author ingestion
+    /// reads them: the collected edges still come from the stored content.
+    pub collection_items: Vec<Reference>,
     pub attachments: Option<Vec<String>>,
     /// `pubky://` URL of the lock server; `None` when the post is unlocked.
     pub lock: Option<String>,
 }
 
 impl PostInput {
-    /// `uri` is the address the post was read from: the event path.
-    pub fn into_details(self, uri: String, key: &ResourceKey) -> PostDetails {
+    pub fn into_details(self, key: &ResourceKey) -> PostDetails {
         PostDetails {
-            uri,
+            uri: self.uri,
             content: self.content,
             id: key.resource_id.clone(),
             indexed_at: Utc::now().timestamp_millis(),
@@ -50,21 +92,25 @@ impl PostInput {
         }
     }
 
-    /// The reply and repost relationships the post's parent and embed URIs name.
-    pub fn relationships(&self) -> PostRelationships {
-        let mut relationship = PostRelationships::default();
-
-        if let Some(parent_uri) = &self.parent {
-            relationship.replied = ParsedUri::try_from(parent_uri.as_str()).ok()
+    /// The posts the parent and embed name, each with the address as written.
+    ///
+    /// The address is not the parent's stored one: the post handler writes the edges from the
+    /// keys and reads the stored addresses back from the graph. Only a post parent gives a reply
+    /// edge: the post handler rejects a reply to a file, profile or tag, and a reply to anything
+    /// else stays a reply with no edge. Only a post can be reposted; other embed targets stay
+    /// plain embeds.
+    pub fn parents(&self) -> PostParents {
+        let post_parent = |reference: &Reference| match &reference.target {
+            ReferenceTarget::Post(key) => Some(PostParent {
+                uri: reference.uri.clone(),
+                key: key.clone(),
+            }),
+            _ => None,
+        };
+        PostParents {
+            replied: self.parent.as_ref().and_then(post_parent),
+            reposted: self.embed.as_ref().and_then(post_parent),
         }
-
-        // Only a post can be reposted; other embed targets stay plain embeds.
-        if let Some(embed_uri) = &self.embed_uri {
-            relationship.reposted = ParsedUri::try_from(embed_uri.as_str())
-                .ok()
-                .filter(|uri| matches!(uri.resource, Resource::Post(_)));
-        }
-        relationship
     }
 }
 
@@ -73,6 +119,8 @@ impl PostInput {
 /// No `PartialEq`: the v0 `PubkyAppUserLink` it carries has none.
 #[derive(Clone, Debug)]
 pub struct UserInput {
+    /// The address the profile is stored under.
+    pub uri: String,
     pub name: String,
     pub bio: Option<String>,
     pub image: Option<String>,
@@ -83,6 +131,7 @@ pub struct UserInput {
 }
 
 impl UserInput {
+    /// The details cached for the profile; [`UserInput::uri`] goes to the graph only.
     pub fn into_details(self, user_id: &PubkyId) -> UserDetails {
         UserDetails {
             name: self.name,
@@ -101,21 +150,25 @@ impl UserInput {
 /// A tag, as the tag handlers and moderation read it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TagInput {
-    /// The URI of the tagged object, as the author wrote it.
+    /// The address the tag is stored under, kept on its edge.
     pub uri: String,
+    /// The tagged object.
+    pub tagged: Reference,
     pub label: String,
 }
 
 /// A bookmark, as the bookmark handler reads it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BookmarkInput {
-    /// The URI of the bookmarked post, as the author wrote it.
-    pub uri: String,
+    /// The bookmarked object; only a post is indexed.
+    pub bookmarked: Reference,
 }
 
 /// A file's metadata, as the file handler reads it. The handler downloads the blob from `src`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FileInput {
+    /// The address the file's metadata is stored under.
+    pub uri: String,
     pub name: String,
     /// The URI of the blob, as the author wrote it.
     pub src: String,
@@ -125,8 +178,7 @@ pub struct FileInput {
 }
 
 impl FileInput {
-    /// `uri` is the address the file was read from: the event path.
-    pub fn into_details(self, uri: String, key: &ResourceKey) -> FileDetails {
+    pub fn into_details(self, key: &ResourceKey) -> FileDetails {
         let user_id = key.owner_id.to_string();
         let file_id = key.resource_id.clone();
         FileDetails {
@@ -134,7 +186,7 @@ impl FileInput {
             name: self.name,
             src: self.src,
             content_type: self.content_type,
-            uri,
+            uri: self.uri,
             id: file_id,
             created_at: self.created_at,
             indexed_at: Utc::now().timestamp_millis(),
@@ -148,39 +200,64 @@ impl FileInput {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pubky_social_specs::legacy_v0::{file_uri_builder, post_uri_builder};
 
     const AUTHOR: &str = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
+    const POST_ID: &str = "003286NSMY490";
 
-    fn post_embedding(uri: String) -> PostInput {
+    fn key() -> ResourceKey {
+        ResourceKey {
+            owner_id: PubkyId::try_from(AUTHOR).unwrap(),
+            resource_id: POST_ID.into(),
+        }
+    }
+
+    fn reference(address: &str, target: ReferenceTarget) -> Reference {
+        Reference {
+            uri: address.to_string(),
+            target,
+        }
+    }
+
+    fn post(parent: Option<Reference>, embed: Option<Reference>) -> PostInput {
         PostInput {
+            uri: format!("pubky://{AUTHOR}/pub/pubky.app/posts/{POST_ID}"),
             content: "x".into(),
             kind: PubkyAppPostKind::Short,
-            parent: None,
-            embed_uri: Some(uri),
+            parent,
+            embed,
+            collection_items: Vec::new(),
             attachments: None,
             lock: None,
         }
     }
 
     #[test]
-    fn post_embed_becomes_a_repost() {
-        let uri = post_uri_builder(AUTHOR.into(), "003286NSMY490".into());
-        let rel = post_embedding(uri).relationships();
-        assert!(
-            matches!(rel.reposted.as_ref(), Some(u) if matches!(u.resource, Resource::Post(_))),
-            "a post embed should become a reposted relationship"
+    fn post_parent_and_embed_become_reply_and_repost() {
+        let address = format!("pubky://{AUTHOR}/pub/pubky.app/posts/{POST_ID}");
+        let parent = reference(&address, ReferenceTarget::Post(key()));
+        let parents = post(Some(parent.clone()), Some(parent)).parents();
+        let expected = Some(PostParent {
+            uri: address,
+            key: key(),
+        });
+        assert_eq!(parents.replied, expected, "a post parent should be replied");
+        assert_eq!(
+            parents.reposted, expected,
+            "a post embed should be reposted"
         );
     }
 
     #[test]
-    fn non_post_embed_is_not_a_repost() {
-        // A non-post embed (file URI) must not become a repost.
-        let uri = file_uri_builder(AUTHOR.into(), "003286NSMY490".into());
-        let rel = post_embedding(uri).relationships();
-        assert!(
-            rel.reposted.is_none(),
-            "a non-post embed must not become a repost"
+    fn non_post_parent_and_embed_give_no_edges() {
+        // A file and an unresolved address: neither is a reply nor a repost edge.
+        let file = reference(
+            "pubky://x/pub/pubky.app/files/1",
+            ReferenceTarget::File(key()),
         );
+        let other = reference("https://example.com", ReferenceTarget::Other);
+        for target in [file, other] {
+            let parents = post(Some(target.clone()), Some(target)).parents();
+            assert_eq!(parents, PostParents::default());
+        }
     }
 }

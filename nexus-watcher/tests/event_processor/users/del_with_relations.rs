@@ -6,6 +6,7 @@ use anyhow::Result;
 use chrono::Utc;
 use nexus_common::models::user::{UserCounts, UserSearch, UserStream, UserView};
 use nexus_watcher::events::handlers;
+use nexus_watcher::events::inputs::UserInput;
 use pubky::Keypair;
 use pubky_social_specs::legacy_v0::{
     traits::{HasIdPath, HashId},
@@ -474,9 +475,8 @@ async fn test_live_user_with_sentinel_name_is_not_tombstoned() -> Result<()> {
     };
     let user_pubky_id = PubkyId::try_from(user_id.as_str()).map_err(anyhow::Error::msg)?;
     handlers::user::sync_put(
-        renamed.into(),
+        UserInput::from_v0(renamed, user_uri_builder(user_id.clone())),
         user_pubky_id,
-        user_uri_builder(user_id.clone()),
     )
     .await?;
 

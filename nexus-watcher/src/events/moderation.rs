@@ -3,12 +3,11 @@ use std::sync::Arc;
 
 use crate::errors::EventProcessorError;
 use crate::events::handlers;
-use crate::events::inputs::ResourceKey;
+use crate::events::inputs::{Reference, ReferenceTarget};
 use nexus_common::models::user::UserIngestor;
 use nexus_common::WatcherConfig;
-use pubky_social_specs::legacy_v0::{ParsedUri, Resource};
 use pubky_social_specs::PubkyId;
-use tracing::info;
+use tracing::{debug, info};
 
 pub struct Moderation {
     /// Moderator trusted user id
@@ -35,56 +34,41 @@ impl Moderation {
 
     /// Apply moderation to the resource a moderator tag points at.
     ///
-    /// `label` is the moderator tag's label and `moderated_uri` the URI it
-    /// tags. Removes the corresponding resource (tag, user, or file). Posts are
-    /// hard-deleted when edge-free or tombstoned when engagement edges remain.
+    /// `label` is the moderator tag's label and `moderated` the reference it tags. Removes the
+    /// resource its key names (post, tag, user or file). Posts are hard-deleted when edge-free
+    /// or tombstoned when engagement edges remain. Any other target is a no-op.
     #[tracing::instrument(name = "moderation.apply", skip_all)]
     pub async fn apply_moderation(
         &self,
         label: &str,
-        moderated_uri: &str,
+        moderated: Reference,
         files_path: &Path,
         ingestor: &UserIngestor,
     ) -> Result<(), EventProcessorError> {
-        // ParsedUri does not handle app-specific tag storage paths (Universal Tags), so they must be intercepted first.
-        if handlers::tag::is_tag_storage_uri(moderated_uri) {
-            info!("Moderation tag '{label}' detected. Deleting moderated tag {moderated_uri}",);
-            return handlers::tag::del(moderated_uri).await;
-        }
-
-        // Parse the embeded URI to extract author_id and post_id using parse_tagged_post_uri
-        let parsed_uri =
-            ParsedUri::try_from(moderated_uri).map_err(EventProcessorError::generic)?;
-        let user_id = parsed_uri.user_id;
-
-        match parsed_uri.resource {
-            Resource::Post(post_id) => {
-                info!("Moderation tag '{label}' detected. Deleting post {user_id}:{post_id}");
+        let Reference { uri, target } = moderated;
+        match target {
+            ReferenceTarget::Post(key) => {
+                info!("Moderation tag '{label}' detected. Deleting post {uri}");
                 // Same gate as user-issued DEL events: hard-delete when edge-free, tombstone
                 // when any engagement edge remains (tags, bookmarks, replies, reposts, mentions).
-                let key = ResourceKey {
-                    owner_id: user_id,
-                    resource_id: post_id,
-                };
                 handlers::post::del(key, ingestor).await
             }
-            Resource::Tag(tag_id) => {
-                info!("Moderation tag '{label}' detected. Deleting tag {user_id}:{tag_id}");
-                handlers::tag::del(moderated_uri).await
+            ReferenceTarget::Tag { key, app } => {
+                info!("Moderation tag '{label}' detected. Deleting tag {uri}");
+                handlers::tag::del(key, app).await
             }
-            Resource::User => {
+            ReferenceTarget::User(user_id) => {
                 info!("Moderation tag '{label}' detected. Deleting user profile {user_id}");
                 handlers::user::del(user_id).await
             }
-            Resource::File(file_id) => {
-                info!("Moderation tag '{label}' detected. Deleting file {user_id}:{file_id}");
-                let key = ResourceKey {
-                    owner_id: user_id,
-                    resource_id: file_id,
-                };
+            ReferenceTarget::File(key) => {
+                info!("Moderation tag '{label}' detected. Deleting file {uri}");
                 handlers::file::del(key, files_path).await
             }
-            _ => Ok(()),
+            ReferenceTarget::Other => {
+                debug!("Moderation tag '{label}' on {uri} names nothing Nexus deletes");
+                Ok(())
+            }
         }
     }
 }

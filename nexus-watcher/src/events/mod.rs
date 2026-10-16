@@ -128,13 +128,9 @@ pub async fn handle_put_event(
 ) -> Result<(), EventProcessorError> {
     let blob = fetch_resource(&event.uri).await?;
 
-    match translate_put(&event.target, &blob)? {
-        TranslatedPut::User { user_id, user } => {
-            handlers::user::sync_put(user, user_id, event.uri.clone()).await
-        }
-        TranslatedPut::Post { key, post } => {
-            handlers::post::sync_put(post, key, event.uri.clone(), &ingestor).await
-        }
+    match translate_put(&event.uri, &event.target, &blob)? {
+        TranslatedPut::User { user_id, user } => handlers::user::sync_put(user, user_id).await,
+        TranslatedPut::Post { key, post } => handlers::post::sync_put(post, key, &ingestor).await,
         TranslatedPut::Follow {
             user_id,
             followee_id,
@@ -145,26 +141,18 @@ pub async fn handle_put_event(
         TranslatedPut::Tag { key, tag, app } => {
             if moderation.should_delete(&tag.label, &key.owner_id) {
                 moderation
-                    .apply_moderation(&tag.label, &tag.uri, files_path, &ingestor)
+                    .apply_moderation(&tag.label, tag.tagged, files_path, &ingestor)
                     .await
             } else if let Some(app) = app {
-                // Another app's universal tag: `sync_put_resource` also handles Resource
-                // nodes for InternalUnknown/External tagged URIs.
-                handlers::tag::sync_put_resource(tag, key, event.uri.clone(), app, &ingestor).await
+                // Another app's universal tag: `sync_put_resource` also makes Resource nodes
+                // for targets that are neither a post nor a user.
+                handlers::tag::sync_put_resource(tag, key, app, &ingestor).await
             } else {
-                handlers::tag::sync_put(tag, key, event.uri.clone(), &ingestor).await
+                handlers::tag::sync_put(tag, key, &ingestor).await
             }
         }
         TranslatedPut::File { key, file } => {
-            handlers::file::sync_put(
-                file,
-                key,
-                event.uri.clone(),
-                files_path,
-                max_file_size,
-                &ingestor,
-            )
-            .await
+            handlers::file::sync_put(file, key, files_path, max_file_size, &ingestor).await
         }
     }
 }
@@ -182,7 +170,7 @@ pub async fn handle_del_event(
             user_id,
             followee_id,
         } => handlers::follow::del(user_id, followee_id).await,
-        TranslatedDel::Tag => handlers::tag::del(&event.uri).await,
+        TranslatedDel::Tag { key, app } => handlers::tag::del(key, app).await,
         TranslatedDel::Bookmark(key) => handlers::bookmark::del(key).await,
         TranslatedDel::File(key) => handlers::file::del(key, files_path).await,
     }

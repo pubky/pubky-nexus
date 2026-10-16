@@ -125,7 +125,7 @@ async fn test_homeserver_post_repost() -> Result<()> {
         "Repost should have parent post URI"
     );
     assert_eq!(
-        relationships.reposted.unwrap().try_to_uri_str().unwrap(),
+        relationships.reposted.unwrap(),
         parent_absolute_uri,
         "The parent URIs does not match"
     );

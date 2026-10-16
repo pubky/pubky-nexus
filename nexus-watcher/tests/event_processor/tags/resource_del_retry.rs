@@ -2,6 +2,7 @@ use super::resource_utils::{
     app_stream_resource_ids, compute_resource_id, count_resource_tags, resource_exists_in_graph,
     resource_label_score,
 };
+use crate::event_processor::posts::utils::resource_key;
 use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
 use chrono::Utc;
@@ -93,8 +94,7 @@ async fn test_resource_tag_del_retry_no_double_decrement() -> Result<()> {
 
     // Retry: re-run the same delete event by calling the del handler directly.
     // It must delete the graph edge without decrementing the score again
-    let tag_uri = format!("pubky://{user1_id}/pub/{app}/tags/{tag1_id}");
-    handlers::tag::del(&tag_uri).await?;
+    handlers::tag::del(resource_key(&user1_id, &tag1_id)?, Some(app.to_string())).await?;
 
     // Only user2's TAGGED edge should remain in the graph
     assert_eq!(count_resource_tags(&resource_id).await?, 1);
@@ -206,8 +206,7 @@ async fn test_resource_tag_del_multi_app_full_cleanup() -> Result<()> {
 
     // Retry the app1 delete: it must not decrement anything again, only
     // finish the pending graph deletion
-    let tag1_uri = format!("pubky://{user_id}/pub/{app1}/tags/{tag1_id}");
-    handlers::tag::del(&tag1_uri).await?;
+    handlers::tag::del(resource_key(&user_id, &tag1_id)?, Some(app1.to_string())).await?;
 
     // Only the app2 TAGGED edge remains, and the retry did not
     // double-decrement the label score

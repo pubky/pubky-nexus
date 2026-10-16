@@ -1,9 +1,10 @@
-use super::{PostRelationships, PostStream};
+use super::PostStream;
 use crate::db::kv::RedisResult;
 use crate::db::{
     execute_graph_operation, fetch_row_from_graph, queries, GraphResult, OperationOutcome, RedisOps,
 };
 use crate::models::error::ModelResult;
+use crate::models::ResourceKey;
 use pubky_social_specs::legacy_v0::PubkyAppPostKind;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -121,12 +122,13 @@ impl PostDetails {
         Ok(())
     }
 
-    // Save new graph node
+    /// Saves the post node with its `REPLIED` and `REPOSTED` edges to the posts these keys name.
     pub async fn put_to_graph(
         &self,
-        post_relationships: &PostRelationships,
+        replied: Option<&ResourceKey>,
+        reposted: Option<&ResourceKey>,
     ) -> GraphResult<OperationOutcome> {
-        let query = queries::put::create_post(self, post_relationships)?;
+        let query = queries::put::create_post(self, replied, reposted)?;
         execute_graph_operation(query).await
     }
 

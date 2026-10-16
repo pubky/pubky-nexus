@@ -34,6 +34,7 @@ mod reply_collection_notification;
 mod reply_engagement;
 mod reply_notification;
 mod reply_repost;
+mod reply_to_non_post;
 mod repost;
 mod repost_collection_notification;
 mod repost_notification;
