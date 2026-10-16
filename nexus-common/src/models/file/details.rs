@@ -68,8 +68,8 @@ pub struct FileDetails {
     pub metadata: Option<HashMap<String, String>>,
 }
 
-/// A file as the graph and the index hold it. Any stored `urls` is ignored: every read rebuilds
-/// them, so all readers agree and a new variant needs no backfill.
+/// A file as the graph holds it. Any stored `urls` is ignored: every read rebuilds them, so all
+/// readers agree and a new variant needs no backfill.
 #[derive(Deserialize)]
 struct StoredFileDetails {
     id: String,
@@ -104,9 +104,18 @@ impl From<StoredFileDetails> for FileDetails {
 
 impl RedisOps for FileDetails {}
 
+/// File details live in the graph only. Reads go there on every call, so an update is visible
+/// at once and nothing is refilled on a miss.
 #[async_trait]
-impl Collection<&[&str]> for FileDetails {
-    fn collection_details_graph_query(id_list: &[&[&str]]) -> Query {
+impl<'a, 'b> Collection<&'a [&'b str]> for FileDetails {
+    async fn get_by_ids(ids: &[&'a [&'b str]]) -> ModelResult<Vec<Option<Self>>> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        Ok(Self::get_from_graph(ids).await?)
+    }
+
+    fn collection_details_graph_query(id_list: &[&'a [&'b str]]) -> Query {
         queries::get::get_files_by_ids(id_list)
     }
 
@@ -145,9 +154,6 @@ impl FileDetails {
         exec_single_row(queries::del::delete_file(&self.owner_id, &self.id))
             .await
             .inspect_err(|e| tracing::error!("Graph file deletion, {}: {:?}", self.id, e))?;
-        Self::remove_from_index_multiple_json(&[&[&self.owner_id, &self.id]])
-            .await
-            .inspect_err(|e| tracing::error!("Index file deletion, {}: {:?}", self.id, e))?;
         Ok(())
     }
 
