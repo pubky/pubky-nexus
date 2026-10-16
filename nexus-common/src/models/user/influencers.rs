@@ -353,18 +353,10 @@ impl Influencers {
     ) -> ModelResult<Influencers> {
         let ids: Vec<String> = influencers.iter().map(|(id, _)| id.clone()).collect();
         let details_list = UserDetails::get_by_ids(&ids).await?;
-
-        let mut kept = Vec::new();
-        let mut deleted_ids = Vec::new();
-
-        for ((id, score), details) in influencers.0.into_iter().zip(details_list) {
-            match details {
-                Some(ref d) if !d.deleted => kept.push((id, score)),
-                _ => deleted_ids.push(id),
-            }
-        }
+        let (kept, deleted) = UserDetails::split_live(influencers.0, details_list);
 
         if let Some(tf) = timeframe {
+            let deleted_ids: Vec<String> = deleted.into_iter().map(|(id, _)| id).collect();
             Influencers::remove_deleted_from_global_cache(&deleted_ids, tf).await;
         }
 

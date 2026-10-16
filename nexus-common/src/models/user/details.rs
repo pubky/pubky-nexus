@@ -4,9 +4,11 @@ use crate::db::{
 };
 use crate::models::error::ModelResult;
 use chrono::Utc;
+use neo4rs::Row;
 use pubky_app_specs::{PubkyAppUser, PubkyAppUserLink, PubkyId};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json;
+use tracing::warn;
 use utoipa::ToSchema;
 
 /// Represents user data with name, bio, image, links, and status. Read from
@@ -99,7 +101,35 @@ impl UserDetails {
         }
         let ids: Vec<&str> = user_ids.iter().map(AsRef::as_ref).collect();
         let rows = fetch_all_rows_from_graph(queries::get::get_users_details_by_ids(&ids)).await?;
-        Ok(rows.iter().map(|row| row.get("record").ok()).collect())
+        Ok(rows.iter().map(Self::from_row).collect())
+    }
+
+    /// The `record` node of a row with an `id` column: `None` for a missing
+    /// node, and for a node that does not deserialize, which is logged with
+    /// its id rather than failing the whole read.
+    pub fn from_row(row: &Row) -> Option<Self> {
+        match row.get::<Option<Self>>("record") {
+            Ok(record) => record,
+            Err(error) => {
+                let id: String = row.get("id").unwrap_or_default();
+                warn!(user_id = %id, %error, "Skipping a user node that does not deserialize");
+                None
+            }
+        }
+    }
+
+    /// Splits `items` by the details read for them, in order: the ones whose
+    /// user is live, and the ones to evict, whose user is tombstoned or gone.
+    pub fn split_live<T>(items: Vec<T>, details: Vec<Option<Self>>) -> (Vec<T>, Vec<T>) {
+        let mut live = Vec::with_capacity(items.len());
+        let mut evicted = Vec::new();
+        for (item, details) in items.into_iter().zip(details) {
+            match details {
+                Some(details) if !details.deleted => live.push(item),
+                _ => evicted.push(item),
+            }
+        }
+        (live, evicted)
     }
 
     /// Writes the node without a `uri`, keeping the stored one: for stubs and tombstones.
@@ -244,6 +274,36 @@ mod tests {
 
         let details: UserDetails = node.to().expect("should deserialize with deleted: true");
         assert!(details.deleted);
+    }
+
+    /// Only a key-discovery node is a stub: a profile cannot be named after its id.
+    #[test]
+    fn only_a_discovery_node_is_a_stub() {
+        let id = PubkyId::try_from("uo7jgkykft4885n8cruizwy6khw71mnu5pq3ay9i8pw1ymcn85ko").unwrap();
+        assert!(UserDetails::from_pubky(id.clone()).is_stub());
+        assert!(!UserDetails::tombstone(&id).is_stub());
+        let profile = PubkyAppUser {
+            name: "Dave".to_string(),
+            bio: None,
+            image: None,
+            links: None,
+            status: None,
+        };
+        assert!(!UserDetails::from_homeserver(profile, &id).is_stub());
+    }
+
+    /// A live user is kept; a tombstone and a missing node are evicted.
+    #[test]
+    fn split_live_keeps_live_users_only() {
+        let id = PubkyId::try_from("uo7jgkykft4885n8cruizwy6khw71mnu5pq3ay9i8pw1ymcn85ko").unwrap();
+        let details = vec![
+            Some(UserDetails::from_pubky(id.clone())),
+            Some(UserDetails::tombstone(&id)),
+            None,
+        ];
+        let (live, evicted) = UserDetails::split_live(vec!["live", "tombstone", "gone"], details);
+        assert_eq!(live, vec!["live"]);
+        assert_eq!(evicted, vec!["tombstone", "gone"]);
     }
 
     /// A node without an epoch reads as `V0`; a stored `epoch` is respected.

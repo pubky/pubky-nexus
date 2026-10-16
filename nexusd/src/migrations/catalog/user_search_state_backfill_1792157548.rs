@@ -197,37 +197,53 @@ mod tests {
         Ok(())
     }
 
-    /// A live user keeps only their current name, a leaked previous name and
-    /// a user gone from the graph are dropped, and a tagged tombstone joins the
-    /// deleted set and leaves the users-by-tag index. A second run changes
-    /// nothing.
+    /// A live user keeps only their current name; a leaked previous name, a
+    /// user gone from the graph and a stub indexed under its id are dropped;
+    /// a tagged tombstone joins the deleted set and leaves the users-by-tag
+    /// index. A second run changes nothing.
     #[tokio_shared_rt::test(shared)]
     async fn test_backfill_rebuilds_state_and_drops_stale_members() -> Result<(), DynError> {
         StackManager::setup(&StackConfig::default()).await?;
         let live_id = random_pubky_id();
         let tombstone_id = random_pubky_id();
+        let stub_id = random_pubky_id();
         let gone_id = random_pubky_id().to_string();
         let tagger_id = random_pubky_id().to_string();
         let live = live_id.to_string();
         let tombstone = tombstone_id.to_string();
+        let stub = stub_id.to_string();
         let current = format!("backfill current:{live}");
         let previous = format!("backfill previous:{live}");
         let gone_member = format!("backfill gone:{gone_id}");
-        let ids = [live.as_str(), tombstone.as_str(), gone_id.as_str()];
-        let members = [current.as_str(), previous.as_str(), gone_member.as_str()];
+        let stub_member = format!("{stub}:{stub}");
+        let ids = [
+            live.as_str(),
+            tombstone.as_str(),
+            stub.as_str(),
+            gone_id.as_str(),
+        ];
+        let members = [
+            current.as_str(),
+            previous.as_str(),
+            gone_member.as_str(),
+            stub_member.as_str(),
+        ];
         delete_fixture(&ids, &members).await?;
 
         live_user(&live_id, "Backfill Current")
             .put_to_graph()
             .await?;
         UserDetails::tombstone(&tombstone_id).put_to_graph().await?;
-        // Legacy index state: no hash, a leaked previous name, a user without a node
+        UserDetails::from_pubky(stub_id).put_to_graph().await?;
+        // Legacy index state: no hash, a leaked previous name, a user without
+        // a node, a stub indexed under its id by a cache-miss read
         UserSearch::put_index_sorted_set(
             &USER_NAME_KEY_PARTS,
             &[
                 (0.0, current.as_str()),
                 (0.0, previous.as_str()),
                 (0.0, gone_member.as_str()),
+                (0.0, stub_member.as_str()),
             ],
             None,
             None,
@@ -235,7 +251,11 @@ mod tests {
         .await?;
         UserSearch::put_index_sorted_set(
             &USER_ID_KEY_PARTS,
-            &[(0.0, live.as_str()), (0.0, gone_id.as_str())],
+            &[
+                (0.0, live.as_str()),
+                (0.0, gone_id.as_str()),
+                (0.0, stub.as_str()),
+            ],
             None,
             None,
         )
@@ -250,8 +270,8 @@ mod tests {
                 UserSearchStateBackfill1792157548.backfill().await?;
 
                 assert_eq!(
-                    UserSearch::indexed_names(&[&live, &tombstone, &gone_id]).await?,
-                    vec![Some("backfill current".to_string()), None, None],
+                    UserSearch::indexed_names(&[&live, &tombstone, &stub, &gone_id]).await?,
+                    vec![Some("backfill current".to_string()), None, None, None],
                     "run {run}: the hash records the live user's current name only"
                 );
                 assert!(name_member(&current).await?, "run {run}: current name kept");
@@ -263,8 +283,13 @@ mod tests {
                     !name_member(&gone_member).await?,
                     "run {run}: gone user dropped"
                 );
+                assert!(
+                    !name_member(&stub_member).await?,
+                    "run {run}: stub name dropped"
+                );
                 assert!(id_member(&live).await?, "run {run}: live id kept");
                 assert!(!id_member(&gone_id).await?, "run {run}: gone id dropped");
+                assert!(!id_member(&stub).await?, "run {run}: stub id dropped");
                 assert!(
                     UserSearch::check_set_member(&["Deleted"], &tombstone)
                         .await?

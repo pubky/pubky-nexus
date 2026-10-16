@@ -153,17 +153,7 @@ impl UserStream {
         if let Some(cached_ids) = Self::try_get_cached_recommended(user_id, count).await? {
             // Filter out deleted users from cached IDs
             let details_list = UserDetails::get_by_ids(&cached_ids).await?;
-
-            // Collect both filtered IDs and deleted IDs in one pass
-            let mut filtered_ids: Vec<String> = Vec::new();
-            let mut deleted_ids: Vec<String> = Vec::new();
-
-            for (id, details) in cached_ids.into_iter().zip(details_list) {
-                match details {
-                    Some(ref d) if !d.deleted => filtered_ids.push(id),
-                    _ => deleted_ids.push(id),
-                }
-            }
+            let (filtered_ids, deleted_ids) = UserDetails::split_live(cached_ids, details_list);
 
             // Remove deleted users from the cache set to improve cache quality
             Self::remove_from_cached_recommended(user_id, &deleted_ids).await;
@@ -298,18 +288,9 @@ impl UserStream {
             return Ok(None);
         };
 
-        let ids: Vec<String> = set.iter().map(|(id, _)| id.clone()).collect();
+        let ids: Vec<String> = set.into_iter().map(|(id, _score)| id).collect();
         let details_list = UserDetails::get_by_ids(&ids).await?;
-
-        let mut filtered_ids = Vec::new();
-        let mut deleted_ids = Vec::new();
-
-        for ((id, _score), details) in set.into_iter().zip(details_list) {
-            match details {
-                Some(ref d) if !d.deleted => filtered_ids.push(id),
-                _ => deleted_ids.push(id),
-            }
-        }
+        let (filtered_ids, deleted_ids) = UserDetails::split_live(ids, details_list);
 
         if !deleted_ids.is_empty() {
             let refs: Vec<&str> = deleted_ids.iter().map(|s| s.as_str()).collect();

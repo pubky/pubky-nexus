@@ -24,7 +24,7 @@ pub const TAG_GLOBAL_USER_TAGGERS: [&str; 4] = ["Tags", "Global", "User", "Tagge
 const SEARCH_NAMES_KEY_PARTS: [&str; 1] = ["Names"];
 /// `User:Search:Deleted`, the set of tombstoned user ids: the Redis mirror of
 /// the graph's `deleted` flag, read atomically by the users-by-tag sync.
-const SEARCH_DELETED_KEY_PARTS: [&str; 1] = ["Deleted"];
+pub const SEARCH_DELETED_KEY_PARTS: [&str; 1] = ["Deleted"];
 const EVICT_PAGE_SIZE: usize = 500;
 const REINDEX_PAGE_SIZE: usize = 1_000;
 
@@ -364,9 +364,12 @@ impl UserSearch {
 
     /// Rebuilds the search state of every user from the graph, one keyset page
     /// at a time, and evicts each tombstone from the users-by-tag index. Stubs
-    /// are skipped, as the watcher skips them: nothing to search for. Safe on
-    /// a live Redis: the names hash drops the member of a user renamed since
-    /// the last sync.
+    /// are skipped, as the watcher skips them: nothing to search for.
+    ///
+    /// Run with the watcher stopped: a profile event between a page's read and
+    /// its write is overwritten with the page's older state. Existing state is
+    /// fine: the names hash drops the member of a user renamed since the last
+    /// sync.
     ///
     /// # Errors
     /// Returns an error when a graph page or a Redis write fails.
@@ -385,7 +388,7 @@ impl UserSearch {
 
             let page: Vec<UserDetails> = rows
                 .iter()
-                .filter_map(|row| row.get::<UserDetails>("record").ok())
+                .filter_map(UserDetails::from_row)
                 .filter(|details| !details.is_stub())
                 .collect();
             Self::put_to_index(&page.iter().collect::<Vec<_>>()).await?;

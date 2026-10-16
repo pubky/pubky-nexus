@@ -112,9 +112,10 @@ async fn test_search_recovers_after_a_failed_sync_following_the_graph_write() ->
 }
 
 /// A tombstone that failed after its graph write is not yet in the deleted
-/// set, so a tag event racing it can re-add the user to the users-by-tag
-/// index. The retry marks the user deleted and evicts them, later tag events
-/// cannot bring them back, and a recreated profile restores them.
+/// set, so a tag event racing it can add the user to another label's
+/// users-by-tag index. The retry marks the user deleted and evicts every
+/// label, later tag events cannot bring them back, and a recreated profile
+/// restores them all.
 #[tokio_shared_rt::test(shared)]
 async fn test_tag_event_racing_a_tombstone_is_evicted_by_the_retry() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
@@ -129,16 +130,16 @@ async fn test_tag_event_racing_a_tombstone_is_evicted_by_the_retry() -> Result<(
     test.create_post(&tagged_kp, &short_post("Watcher:SearchState:Post"))
         .await?;
 
-    let label = "racetag";
-    let tag = PubkyAppTag {
+    let labels = ["racetag", "racetag2"];
+    let profile_tag = |label: &str| PubkyAppTag {
         uri: format!("pubky://{tagged_id}/pub/pubky.app/profile.json"),
         label: label.to_string(),
         created_at: Utc::now().timestamp_millis(),
     };
-    let tag_path = tag.hs_path();
-    test.put(&tagger_kp, &tag_path, tag.clone()).await?;
+    let first = profile_tag(labels[0]);
+    test.put(&tagger_kp, &first.hs_path(), first).await?;
     assert_eq!(
-        check_member_user_tag_taggers(&tagged_id, label).await?,
+        check_member_user_tag_taggers(&tagged_id, labels[0]).await?,
         Some(1)
     );
 
@@ -148,28 +149,32 @@ async fn test_tag_event_racing_a_tombstone_is_evicted_by_the_retry() -> Result<(
         .put_to_graph()
         .await?;
 
-    // A tag event races it: the deleted set does not know yet
-    test.put(&tagger_kp, &tag_path, tag.clone()).await?;
+    // A tag event with a new label races it: the deleted set does not know yet
+    let racing = profile_tag(labels[1]);
+    let racing_path = racing.hs_path();
+    test.put(&tagger_kp, &racing_path, racing.clone()).await?;
     assert_eq!(
-        check_member_user_tag_taggers(&tagged_id, label).await?,
+        check_member_user_tag_taggers(&tagged_id, labels[1]).await?,
         Some(1),
-        "before the retry the user is still in the users-by-tag index"
+        "the racing event added the user to the new label's index"
     );
 
-    // The retry of the delete
+    // The retry of the delete reads the user's labels at retry time
     user::del(tagged_pubky_id).await?;
-    assert!(
-        check_member_user_tag_taggers(&tagged_id, label)
-            .await?
-            .is_none(),
-        "the retry evicts the user"
-    );
+    for label in labels {
+        assert!(
+            check_member_user_tag_taggers(&tagged_id, label)
+                .await?
+                .is_none(),
+            "the retry evicts the user from {label}"
+        );
+    }
     assert!(!found_by_name("Watcher:SearchState:Tagged", &tagged_id).await?);
     assert!(!found_by_id(&tagged_id).await?);
 
-    test.put(&tagger_kp, &tag_path, tag).await?;
+    test.put(&tagger_kp, &racing_path, racing).await?;
     assert!(
-        check_member_user_tag_taggers(&tagged_id, label)
+        check_member_user_tag_taggers(&tagged_id, labels[1])
             .await?
             .is_none(),
         "a tag event after the tombstone cannot re-add the user"
@@ -180,11 +185,13 @@ async fn test_tag_event_racing_a_tombstone_is_evicted_by_the_retry() -> Result<(
         &test_user("Watcher:SearchState:TaggedBack", "race"),
     )
     .await?;
-    assert_eq!(
-        check_member_user_tag_taggers(&tagged_id, label).await?,
-        Some(1),
-        "a recreated profile restores the retained tag"
-    );
+    for label in labels {
+        assert_eq!(
+            check_member_user_tag_taggers(&tagged_id, label).await?,
+            Some(1),
+            "a recreated profile restores the retained tag {label}"
+        );
+    }
     assert!(found_by_name("Watcher:SearchState:TaggedBack", &tagged_id).await?);
 
     test.cleanup_user(&tagger_kp).await?;
