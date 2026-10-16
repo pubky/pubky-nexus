@@ -11,8 +11,8 @@ use serde_json;
 use tracing::warn;
 use utoipa::ToSchema;
 
-/// Represents user data with name, bio, image, links, and status. Read from
-/// the graph, never cached.
+/// Represents user data with name, bio, image, links, and status.
+// Read from the graph, never cached: see `get_by_ids`.
 #[derive(Serialize, Deserialize, ToSchema, Clone, Debug)]
 pub struct UserDetails {
     pub name: String,

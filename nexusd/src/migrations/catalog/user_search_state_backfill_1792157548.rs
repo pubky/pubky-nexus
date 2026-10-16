@@ -143,7 +143,9 @@ mod tests {
     use nexus_common::db::{exec_single_row, graph::Query, RedisOps};
     use nexus_common::models::tag::traits::{TagCollection, TaggersCollection};
     use nexus_common::models::tag::user::TagUser;
-    use nexus_common::models::user::{UserDetails, UsersByTagSearch, TAG_GLOBAL_USER_TAGGERS};
+    use nexus_common::models::user::{
+        UserDetails, UsersByTagSearch, SEARCH_DELETED_KEY_PARTS, TAG_GLOBAL_USER_TAGGERS,
+    };
     use nexus_common::utils::test_utils::random_pubky_id;
     use nexus_common::{StackConfig, StackManager};
     use pubky_app_specs::{PubkyAppUser, PubkyId};
@@ -291,7 +293,7 @@ mod tests {
                 assert!(!id_member(&gone_id).await?, "run {run}: gone id dropped");
                 assert!(!id_member(&stub).await?, "run {run}: stub id dropped");
                 assert!(
-                    UserSearch::check_set_member(&["Deleted"], &tombstone)
+                    UserSearch::check_set_member(&SEARCH_DELETED_KEY_PARTS, &tombstone)
                         .await?
                         .1,
                     "run {run}: the tombstone is in the deleted set"
