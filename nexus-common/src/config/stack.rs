@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::{fmt::Debug, path::PathBuf};
 
 use super::net::NetConfig;
+use super::scope::ScopeConfig;
 use super::{file::validate_and_expand_path, Level, LOG_LEVEL};
 
 /// Media processing concurrency configuration.
@@ -122,6 +123,9 @@ pub struct StackConfig {
     pub net: NetConfig,
     #[serde(default)]
     pub media: MediaConfig,
+    /// Which users this Nexus indexes. See [ScopeConfig].
+    #[serde(default)]
+    pub scope: ScopeConfig,
 }
 
 /// Utility function
@@ -138,6 +142,7 @@ impl Default for StackConfig {
             db: DatabaseConfig::default(),
             net: NetConfig::default(),
             media: MediaConfig::default(),
+            scope: ScopeConfig::default(),
         }
     }
 }

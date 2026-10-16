@@ -32,6 +32,7 @@ async fn setup_graph_inner() -> GraphResult<()> {
     let indexes = [
         "CREATE INDEX postTimestampIndex IF NOT EXISTS FOR (p:Post) ON (p.indexed_at)",
         "CREATE INDEX postKindIndex IF NOT EXISTS FOR (p:Post) ON (p.kind)",
+        "CREATE INDEX userScopeStateIndex IF NOT EXISTS FOR (u:User) ON (u.scope_state)",
         "CREATE INDEX taggedLabelIndex IF NOT EXISTS FOR ()-[r:TAGGED]-() ON (r.label)",
         "CREATE INDEX taggedTimestampIndex IF NOT EXISTS FOR ()-[r:TAGGED]-() ON (r.indexed_at)",
         "CREATE INDEX resourceSchemeIndex IF NOT EXISTS FOR (r:Resource) ON (r.scheme)",
