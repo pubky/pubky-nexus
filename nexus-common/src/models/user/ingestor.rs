@@ -3,11 +3,12 @@ use std::sync::Arc;
 use pubky_app_specs::{ParsedUri, PubkyId};
 
 use crate::db::PubkyConnector;
+use crate::db::{exec_single_row, fetch_key_from_graph, queries};
 use crate::models::error::{ModelError, ModelResult};
 use crate::models::homeserver::HsBlacklist;
 use crate::models::scope::{scope_from_config, watcher_scope, EverythingScope, Scope};
 use crate::models::traits::Collection;
-use crate::models::user::stub::mark_stub;
+use crate::models::user::stub::{create_stub, drop_stub_entry, unstub};
 use crate::models::user::{set_user_homeserver, UserDetails, UserHsCursor};
 use crate::{StackConfig, WatcherConfig};
 
@@ -138,17 +139,18 @@ impl UserIngestor {
 
         let user_details = UserDetails::from_pubky(user_id.clone());
 
+        if !in_scope {
+            tracing::info!("Kept {user_id} from HS {hs_id} as a stub: outside the scope");
+            return create_stub(&user_details).await;
+        }
+
         // Do not add to index, as this would affect the timeline of events for this user.
         // Only create stub graph node for HS-resolver to store user-HS mapping.
         user_details
             .put_to_graph()
             .await
-            .inspect(|_| tracing::info!(in_scope, "Ingested user {user_id} from HS {hs_id}"))
+            .inspect(|_| tracing::info!("Ingested user {user_id} from HS {hs_id}"))
             .inspect_err(|e| tracing::error!("Failed to ingest user {user_id}: {e}"))?;
-
-        if !in_scope {
-            return mark_stub(&user_id_str).await;
-        }
 
         // Bind the user to their HS (HOSTED_BY + resolved_at), since we just resolved the HS
         set_user_homeserver(&user_id_str, &hs_id).await?;
@@ -162,7 +164,9 @@ impl UserIngestor {
     /// Makes sure a user that must be in the scope (the moderator) is known and polled.
     ///
     /// If its HS can't be resolved right now, the bare node is still created: the HS
-    /// resolver binds it on a later run, and polling starts from there.
+    /// resolver binds it on a later run, and polling starts from there. A node kept as a
+    /// stub (the API ingests with the plain scope, which doesn't pin the moderator) is
+    /// brought back into the scope.
     pub async fn ensure_in_scope(&self, user_id: &PubkyId) -> ModelResult<()> {
         self.maybe_ingest_user(user_id).await?;
         if UserDetails::get_by_id(user_id).await?.is_none() {
@@ -170,6 +174,23 @@ impl UserIngestor {
                 .put_to_graph()
                 .await?;
         }
+
+        let query = queries::get::get_user_scope_state(user_id);
+        let scope_state: Option<Option<String>> =
+            fetch_key_from_graph(query, "scope_state").await?;
+        if scope_state.flatten().is_none() {
+            return Ok(());
+        }
+        // The graph's state is cleared last, so a failure before leaves it a stub there
+        // and the next start retries the whole of it.
+        unstub(user_id).await?;
+        exec_single_row(queries::put::set_user_scope_state(user_id, None)).await?;
+        drop_stub_entry(user_id).await?;
+        if let Some(hs_id) = self.ensure_hs_not_blacklisted(user_id).await? {
+            set_user_homeserver(user_id, &hs_id).await?;
+            UserHsCursor::init(user_id, &hs_id).await?;
+        }
+        tracing::info!("Brought {user_id} back into the scope: it must always be read");
         Ok(())
     }
 }

@@ -158,6 +158,10 @@ async fn prepare_scope(config: &WatcherConfig) -> Result<(), DynError> {
     }
 
     if let ScopeConfig::Homeservers { homeservers } = &config.stack.scope {
+        let blacklist = &config.stack.net.external_hs_pk_blacklist;
+        for listed in homeservers.iter().filter(|hs| blacklist.contains(hs)) {
+            warn!(homeserver = %listed, "A listed homeserver is blacklisted: it is not read");
+        }
         if !homeservers.contains(&config.homeserver) {
             warn!(
                 primary = %config.homeserver,

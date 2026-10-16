@@ -113,6 +113,7 @@ impl WatcherTest {
             shutdown_rx,
             primary_homeserver,
             scope: Arc::new(EverythingScope),
+            hs_blacklist: Default::default(),
             retry_scheduler,
         }
     }

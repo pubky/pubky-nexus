@@ -19,7 +19,8 @@ use nexus_watcher::service::indexer::PubkyKeyBasedEventSource;
 use nexus_watcher::service::runner::HomeserverBackoff;
 use nexus_watcher::service::runner::{UserNotFoundBackoff, UserResumePoints};
 use nexus_watcher::service::{
-    KeyBasedEventProcessorRunner, TEventProcessorRunner, KEY_BASED_RUN_BUDGET,
+    HsEventProcessorRunner, KeyBasedEventProcessorRunner, TEventProcessorRunner,
+    KEY_BASED_RUN_BUDGET,
 };
 use pubky_app_specs::PubkyId;
 use std::path::PathBuf;
@@ -356,5 +357,44 @@ async fn test_key_based_runner_skips_the_homeservers_a_scope_reads_whole() -> Re
         "the primary HS is not read whole"
     );
     assert!(hs_ids.contains(&other.to_string()));
+    Ok(())
+}
+
+/// A listed homeserver that is also blacklisted isn't read as a whole feed; the primary
+/// is read as it always was.
+#[tokio_shared_rt::test(shared)]
+async fn test_hs_runner_skips_a_blacklisted_listed_homeserver() -> Result<(), DynError> {
+    setup().await?;
+    let [primary, listed, blacklisted] = [random_pubky_id(), random_pubky_id(), random_pubky_id()];
+    let event_handler: Arc<dyn EventHandler> = Arc::new(DefaultEventHandler::new(
+        default_moderation_tests(),
+        default_ingestor_tests(),
+        DEFAULT_MAX_FILE_SIZE,
+        PathBuf::from("/tmp/nexus-watcher-test"),
+    ));
+    let store: Arc<dyn RetryStore> = Arc::new(RedisRetryStore::new());
+    let runner = HsEventProcessorRunner {
+        limit: 1000,
+        event_handler,
+        shutdown_rx: tokio::sync::watch::channel(false).1,
+        primary_homeserver: primary.clone(),
+        scope: Arc::new(HomeserverListScope::new(&[
+            primary.clone(),
+            listed.clone(),
+            blacklisted.clone(),
+        ])),
+        hs_blacklist: HsBlacklist::new([blacklisted.clone(), primary.clone()]),
+        retry_scheduler: Arc::new(RetryScheduler::new(
+            store,
+            InitialBackoff {
+                missing_dep_ms: 60_000,
+                transient_ms: 10_000,
+            },
+        )),
+    };
+
+    let hs_ids = runner.pre_run().await?;
+
+    assert_eq!(hs_ids, vec![primary.to_string(), listed.to_string()]);
     Ok(())
 }

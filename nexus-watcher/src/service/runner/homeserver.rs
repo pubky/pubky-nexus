@@ -3,7 +3,7 @@ use crate::events::retry::RetryScheduler;
 use crate::events::{DefaultEventHandler, EventHandler};
 use crate::service::indexer::{HsEventProcessor, TEventProcessor};
 use crate::service::stats::{ProcessedStats, RunAllProcessorsStats};
-use nexus_common::models::homeserver::Homeserver;
+use nexus_common::models::homeserver::{Homeserver, HsBlacklist};
 use nexus_common::models::scope::{scope_from_config, Scope};
 use nexus_common::types::DynError;
 use nexus_common::WatcherConfig;
@@ -25,6 +25,9 @@ pub struct HsEventProcessorRunner {
     /// Decides which homeservers' whole feeds are read
     pub scope: Arc<dyn Scope>,
 
+    /// HS PKs that must never be indexed: a listed homeserver on it isn't read
+    pub hs_blacklist: HsBlacklist,
+
     /// Scheduler shared with every processor this runner builds
     pub retry_scheduler: Arc<RetryScheduler>,
 }
@@ -38,6 +41,7 @@ impl HsEventProcessorRunner {
             shutdown_rx,
             primary_homeserver: config.homeserver.clone(),
             scope: scope_from_config(&config.stack.scope),
+            hs_blacklist: HsBlacklist::from_config(&config.stack),
             retry_scheduler: Arc::new(RetryScheduler::from_config(config)),
         }
     }
@@ -71,10 +75,17 @@ impl TEventProcessorRunner for HsEventProcessorRunner {
     }
 
     /// The homeservers read as a whole feed: the primary one, unless the scope
-    /// replaces it with a list.
+    /// replaces it with a list. A blacklisted homeserver in the list is left out, as the
+    /// key-based runner leaves it out; the primary is read as it always was.
     async fn pre_run(&self) -> Result<Vec<String>, DynError> {
         let homeservers = self.scope.full_feed_homeservers(&self.primary_homeserver);
-        Ok(homeservers.iter().map(ToString::to_string).collect())
+        Ok(homeservers
+            .iter()
+            .filter(|hs| {
+                **hs == self.primary_homeserver || !self.hs_blacklist.is_blacklisted(hs.as_ref())
+            })
+            .map(ToString::to_string)
+            .collect())
     }
 
     async fn post_run(&self, stats: RunAllProcessorsStats) -> ProcessedStats {
