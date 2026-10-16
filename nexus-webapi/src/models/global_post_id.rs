@@ -7,7 +7,7 @@ use utoipa::ToSchema;
 
 use super::bounded_vec;
 use super::PostId;
-use pubky_social_specs::legacy_v0::PubkyId;
+use pubky_social_specs::PubkyId;
 
 /// Composite post identifier in the format `{PubkyId}:{PostId}`.
 #[derive(Debug, ToSchema)]

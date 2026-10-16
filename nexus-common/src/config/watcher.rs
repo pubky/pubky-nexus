@@ -1,7 +1,8 @@
 use super::file::ConfigLoader;
 use super::{default_stack, FeaturesConfig, StackConfig};
 use async_trait::async_trait;
-use pubky_social_specs::legacy_v0::{PubkyId, VALIDATION_LIMITS};
+use pubky_social_specs::legacy_v0::VALIDATION_LIMITS;
+use pubky_social_specs::PubkyId;
 use serde::{de::Error, Deserialize, Deserializer, Serialize};
 use std::fmt::Debug;
 

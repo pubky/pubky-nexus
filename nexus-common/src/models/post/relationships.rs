@@ -1,7 +1,8 @@
 use crate::db::kv::RedisResult;
 use crate::db::{fetch_row_from_graph, queries, GraphResult, RedisOps};
 use crate::models::error::ModelResult;
-use pubky_social_specs::legacy_v0::{ParsedUri, PubkyAppPost, PubkyId, Resource};
+use pubky_social_specs::legacy_v0::ParsedUri;
+use pubky_social_specs::PubkyId;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use utoipa::ToSchema;
 
@@ -103,23 +104,6 @@ impl PostRelationships {
         }))
     }
 
-    /// Constructs a `Self` instance by extracting relationships from a `PubkyAppPost` object
-    pub fn from_homeserver(post: &PubkyAppPost) -> Self {
-        let mut relationship = Self::default();
-
-        if let Some(parent_uri) = &post.parent {
-            relationship.replied = ParsedUri::try_from(parent_uri.as_str()).ok()
-        }
-
-        // Only a post can be reposted; other embed targets stay plain embeds.
-        if let Some(embed) = &post.embed {
-            relationship.reposted = ParsedUri::try_from(embed.uri.as_str())
-                .ok()
-                .filter(|uri| matches!(uri.resource, Resource::Post(_)));
-        }
-        relationship
-    }
-
     pub async fn put_to_index(&self, author_id: &str, post_id: &str) -> RedisResult<()> {
         self.put_index_json(&[author_id, post_id], None, None).await
     }
@@ -138,50 +122,5 @@ impl PostRelationships {
             ),
         }
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use pubky_social_specs::legacy_v0::{
-        file_uri_builder, post_uri_builder, PubkyAppPostEmbed, PubkyAppPostKind,
-    };
-
-    const AUTHOR: &str = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
-
-    fn post_embedding(uri: String) -> PubkyAppPost {
-        PubkyAppPost {
-            content: "x".into(),
-            kind: PubkyAppPostKind::Short,
-            parent: None,
-            embed: Some(PubkyAppPostEmbed {
-                kind: PubkyAppPostKind::Short,
-                uri,
-            }),
-            attachments: None,
-            lock: None,
-        }
-    }
-
-    #[test]
-    fn post_embed_becomes_a_repost() {
-        let uri = post_uri_builder(AUTHOR.into(), "003286NSMY490".into());
-        let rel = PostRelationships::from_homeserver(&post_embedding(uri));
-        assert!(
-            matches!(rel.reposted.as_ref(), Some(u) if matches!(u.resource, Resource::Post(_))),
-            "a post embed should become a reposted relationship"
-        );
-    }
-
-    #[test]
-    fn non_post_embed_is_not_a_repost() {
-        // A non-post embed (file URI) must not become a repost.
-        let uri = file_uri_builder(AUTHOR.into(), "003286NSMY490".into());
-        let rel = PostRelationships::from_homeserver(&post_embedding(uri));
-        assert!(
-            rel.reposted.is_none(),
-            "a non-post embed must not become a repost"
-        );
     }
 }

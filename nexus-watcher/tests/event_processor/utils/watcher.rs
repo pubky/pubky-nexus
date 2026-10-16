@@ -27,8 +27,9 @@ use pubky_social_specs::legacy_v0::file_uri_builder;
 use pubky_social_specs::legacy_v0::traits::HashId;
 use pubky_social_specs::legacy_v0::{
     traits::{HasIdPath, HasPath, TimestampId},
-    PubkyAppFile, PubkyAppFollow, PubkyAppPost, PubkyAppUser, PubkyId,
+    PubkyAppFile, PubkyAppFollow, PubkyAppPost, PubkyAppUser,
 };
+use pubky_social_specs::PubkyId;
 use pubky_testnet::Testnet;
 use std::net::SocketAddr;
 use std::path::PathBuf;

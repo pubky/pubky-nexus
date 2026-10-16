@@ -2,7 +2,7 @@ use crate::db::config::FT_SEARCH_TIMEOUT_MS;
 use crate::db::get_redis_conn;
 use crate::db::kv::error::{RedisError, RedisResult};
 use deadpool_redis::Connection;
-use pubky_social_specs::legacy_v0::PubkyId;
+use pubky_social_specs::PubkyId;
 use std::sync::OnceLock;
 use tracing::warn;
 
@@ -241,7 +241,7 @@ fn parse_ft_search_response(raw: deadpool_redis::redis::Value) -> RedisResult<Ve
 #[cfg(test)]
 mod tests {
     use super::{build_ft_query, sanitize_query, AuthorFilter};
-    use pubky_social_specs::legacy_v0::PubkyId;
+    use pubky_social_specs::PubkyId;
 
     const ALICE: &str = "x4rt7xeww7k48jwoomu8gwhsa3t775okm9onhc9dzmwpm8mzupay";
     const BOB: &str = "xbmdh5bobi9593poakgdy8yao7c3z6yjwsbikcw3qmwpa5aonwsy";

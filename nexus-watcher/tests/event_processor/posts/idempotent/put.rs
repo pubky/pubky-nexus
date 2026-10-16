@@ -1,7 +1,7 @@
 use crate::event_processor::mentions::utils::find_post_mentions;
 use crate::event_processor::posts::utils::{
     assert_notification_count, check_member_post_replies, check_member_total_engagement_user_posts,
-    find_post_counts, pubky_id, short_post, short_reply, short_repost, test_user,
+    find_post_counts, resource_key, short_post, short_reply, short_repost, test_user,
 };
 use crate::event_processor::users::utils::find_user_counts;
 use crate::event_processor::utils::watcher::WatcherTest;
@@ -52,10 +52,9 @@ async fn test_post_put_recovers_after_partial_redis_write() -> Result<()> {
     // Retry: invoke sync_put directly. Graph reports `Updated`, the handler
     // takes the recovery path and rebuilds the Redis state from the graph.
     handlers::post::sync_put(
-        post.clone(),
+        post.clone().into(),
+        resource_key(&user_id, &post_id)?,
         post_uri_builder(user_id.clone(), post_id.clone()),
-        pubky_id(&user_id)?,
-        post_id.clone(),
         &default_ingestor_tests(),
     )
     .await?;
@@ -110,10 +109,9 @@ async fn test_post_put_replay_after_full_success_is_noop() -> Result<()> {
     // Replay sync_put with identical content. Handler must hit the
     // `existed == Some(matching)` branch and early-return.
     handlers::post::sync_put(
-        post.clone(),
+        post.clone().into(),
+        resource_key(&user_id, &post_id)?,
         post_uri_builder(user_id.clone(), post_id.clone()),
-        pubky_id(&user_id)?,
-        post_id.clone(),
         &default_ingestor_tests(),
     )
     .await?;
@@ -203,10 +201,9 @@ async fn test_post_put_recovers_mention_edge() -> Result<()> {
     // Retry: graph reports Updated, handler enters recovery path, which
     // calls merge_mention_edges and then reindexes Redis state.
     handlers::post::sync_put(
-        post.clone(),
+        post.clone().into(),
+        resource_key(&alice_id, &post_id)?,
         post_uri_builder(alice_id.clone(), post_id.clone()),
-        pubky_id(&alice_id)?,
-        post_id.clone(),
         &default_ingestor_tests(),
     )
     .await?;
@@ -305,10 +302,9 @@ async fn test_post_put_recovers_reply_preserves_parent_sorted_sets() -> Result<(
     // Some(parent) branch that re-adds the reply to the parent's post-reply
     // sorted set.
     handlers::post::sync_put(
-        reply_post.clone(),
+        reply_post.clone().into(),
+        resource_key(&bob_id, &reply_id)?,
         post_uri_builder(bob_id.clone(), reply_id.clone()),
-        pubky_id(&bob_id)?,
-        reply_id.clone(),
         &default_ingestor_tests(),
     )
     .await?;
@@ -435,10 +431,9 @@ async fn test_post_put_recovers_repost_preserves_parent_state() -> Result<()> {
     // `reposted` field, and PostCounts::reindex must put the repost back in
     // the engagement sorted set (is_reply = false from graph).
     handlers::post::sync_put(
-        repost.clone(),
+        repost.clone().into(),
+        resource_key(&bob_id, &repost_id)?,
         post_uri_builder(bob_id.clone(), repost_id.clone()),
-        pubky_id(&bob_id)?,
-        repost_id.clone(),
         &default_ingestor_tests(),
     )
     .await?;
