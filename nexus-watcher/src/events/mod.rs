@@ -207,7 +207,32 @@ pub async fn handle_put_event(
         }
         other => debug!(?other, "Event type not handled"),
     }
+
+    // Checked again once written: see `remove_if_taken_down`.
+    remove_if_taken_down(&event.uri, files_path, &ingestor).await?;
     Ok(())
+}
+
+/// Removes the record at `uri` if the moderator took it down, for a record just written.
+///
+/// The moderator's tag may have been read by another loop (primary, external, retry) while
+/// this record was being fetched, and found nothing to delete yet. If the takedown is
+/// recorded by now, the record is removed here; if it is recorded later, the moderator's
+/// own delete runs after this write and removes it. Either way it doesn't stay.
+pub async fn remove_if_taken_down(
+    uri: &str,
+    files_path: &Path,
+    ingestor: &UserIngestor,
+) -> Result<(), EventProcessorError> {
+    if !is_taken_down(uri).await? {
+        return Ok(());
+    }
+    TAKEN_DOWN.add(1, &[]);
+    debug!(%uri, "Record was taken down while it was written; removing it");
+    match Moderation::remove_taken_down(uri, files_path, ingestor).await {
+        Ok(()) | Err(EventProcessorError::SkipIndexing) => Ok(()),
+        Err(e) => Err(e),
+    }
 }
 
 /// Handles a DEL event by dispatching to the appropriate handler.

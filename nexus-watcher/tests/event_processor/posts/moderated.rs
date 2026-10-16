@@ -8,7 +8,9 @@ use crate::event_processor::{
 use anyhow::Result;
 use chrono::Utc;
 use nexus_common::models::post::PostCounts;
+use nexus_common::models::takedown::record_takedown;
 use nexus_common::utils::test_utils::default_ingestor_tests;
+use nexus_watcher::events::remove_if_taken_down;
 use nexus_watcher::EventProcessorError;
 use pubky::ResourcePath;
 use pubky::{recovery_file, Keypair};
@@ -284,6 +286,51 @@ async fn test_post_taken_down_before_it_is_read_stays_out() -> Result<()> {
     assert!(
         find_post_details(&user_id, &post_id).await.is_err(),
         "the taken-down post stays out when its event comes later"
+    );
+    Ok(())
+}
+
+/// A post written while the moderator's tag was being read elsewhere (another loop, the
+/// fetch in flight) doesn't stay: once written, a recorded takedown removes it.
+#[tokio_shared_rt::test(shared)]
+async fn test_post_written_after_its_takedown_was_recorded_is_removed() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+
+    let user_kp = Keypair::random();
+    let user = PubkyAppUser {
+        bio: None,
+        image: None,
+        links: None,
+        name: "Watcher:PostModerate:Race".to_string(),
+        status: None,
+    };
+    let user_id = test.create_user(&user_kp, &user).await?;
+    let post = PubkyAppPost {
+        content: "Watcher:PostModerate:Race:Post".to_string(),
+        kind: PubkyAppPostKind::Short,
+        parent: None,
+        embed: None,
+        attachments: None,
+        lock: None,
+    };
+    // The write that passed the first check before the takedown was recorded.
+    let (post_id, _) = test.create_post(&user_kp, &post).await?;
+    assert!(find_post_details(&user_id, &post_id).await.is_ok());
+
+    // The takedown, recorded by another loop that found nothing to delete yet.
+    let post_uri = post_uri_builder(user_id.clone(), post_id.clone());
+    record_takedown(&post_uri).await?;
+
+    remove_if_taken_down(
+        &post_uri,
+        Path::new("/tmp/nexus-watcher-test"),
+        &default_ingestor_tests(),
+    )
+    .await?;
+
+    assert!(
+        find_post_details(&user_id, &post_id).await.is_err(),
+        "the post written before the takedown was recorded doesn't stay"
     );
     Ok(())
 }
