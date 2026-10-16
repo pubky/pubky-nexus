@@ -88,13 +88,15 @@ where
 }
 
 impl UserDetails {
-    /// Reads the user's details from the graph, `None` when there is no such node.
+    /// Reads the user's details from the graph: `None` when there is no such
+    /// node, or when the node does not deserialize (see [`Self::from_row`]).
     pub async fn get_by_id(user_id: &str) -> ModelResult<Option<Self>> {
         Ok(Self::get_by_ids(&[user_id]).await?.pop().flatten())
     }
 
     /// Reads each user's details from the graph: one slot per id, in order,
-    /// `None` where there is no such node.
+    /// `None` where there is no such node or it does not deserialize (see
+    /// [`Self::from_row`]); callers that filter rankings evict on `None`.
     pub async fn get_by_ids(user_ids: &[impl AsRef<str>]) -> ModelResult<Vec<Option<Self>>> {
         if user_ids.is_empty() {
             return Ok(Vec::new());
@@ -216,6 +218,7 @@ pub async fn users_exist(user_ids: &[&str]) -> GraphResult<bool> {
 mod tests {
     use super::*;
     use neo4rs::{BoltInteger, BoltList, BoltMap, BoltNode, BoltString, BoltType, Node};
+    use tracing_test::traced_test;
 
     /// Deserializing a UserDetails from a BoltNode without the links property
     /// should succeed with links: None. Neo4j drops null properties from nodes,
@@ -304,6 +307,44 @@ mod tests {
         let (live, evicted) = UserDetails::split_live(vec!["live", "tombstone", "gone"], details);
         assert_eq!(live, vec!["live"]);
         assert_eq!(evicted, vec!["tombstone", "gone"]);
+    }
+
+    /// A null record is a missing node and logs nothing, a valid node reads,
+    /// and a node that does not deserialize is skipped with its id logged.
+    #[traced_test]
+    #[test]
+    fn from_row_tells_a_missing_node_from_a_malformed_one() {
+        let id = "uo7jgkykft4885n8cruizwy6khw71mnu5pq3ay9i8pw1ymcn85ko";
+        let node = |indexed_at: Option<i64>| {
+            let mut props = BoltMap::new();
+            props.put(BoltString::from("name"), BoltType::from("Dave"));
+            props.put(BoltString::from("id"), BoltType::from(id));
+            if let Some(indexed_at) = indexed_at {
+                props.put(BoltString::from("indexed_at"), BoltType::from(indexed_at));
+            }
+            BoltType::Node(BoltNode::new(
+                BoltInteger::new(1),
+                BoltList::from(vec![BoltType::from("User")]),
+                props,
+            ))
+        };
+        let row = |record: BoltType| {
+            let fields = BoltList::from(vec![BoltType::from("id"), BoltType::from("record")]);
+            let data = BoltList::from(vec![BoltType::from(id), record]);
+            Row::new(fields, data)
+        };
+
+        assert!(UserDetails::from_row(&row(BoltType::Null(neo4rs::BoltNull))).is_none());
+        assert!(!logs_contain("does not deserialize"));
+
+        let details = UserDetails::from_row(&row(node(Some(1724134095000)))).expect("a valid node");
+        assert_eq!(details.name, "Dave");
+
+        assert!(UserDetails::from_row(&row(node(None))).is_none());
+        assert!(logs_contain(
+            "Skipping a user node that does not deserialize"
+        ));
+        assert!(logs_contain(id));
     }
 
     /// A node without an epoch reads as `V0`; a stored `epoch` is respected.
