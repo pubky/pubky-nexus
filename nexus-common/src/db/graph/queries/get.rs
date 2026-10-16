@@ -559,62 +559,98 @@ pub fn viewer_user_tag_uris(user_id: &str, viewer_id: &str, labels: Vec<String>)
     .param("labels", labels)
 }
 
-/// The viewer's tag addresses (`t.uri`) on a Resource node, for the given labels.
-/// Resource edges are keyed `{label, app}`, so a label tagged from two apps has two
-/// addresses: `min` picks the same one as `resource_tags`.
-pub fn viewer_resource_tag_uris(resource_id: &str, viewer_id: &str, labels: Vec<String>) -> Query {
+/// A Resource node's details and a page of its tags, in one read. Labels are
+/// ordered by tagger count, then label, and paginated with `skip_tags`/`limit_tags`.
+/// Each label carries its full `taggers_count`, at most `limit_taggers` tagger ids,
+/// and `tag_uri`, the viewer's tag address, looked up among all of its taggers, not
+/// only the listed ones; null without a viewer. With one edge per app, `min` picks
+/// the same address as `resource_label_taggers`. A missing Resource returns
+/// `details = null`; an existing one without tags returns `tags = []`.
+pub fn resource_view(
+    resource_id: &str,
+    viewer_id: Option<&str>,
+    skip_tags: usize,
+    limit_tags: usize,
+    limit_taggers: usize,
+) -> Query {
     Query::new(
-        "viewer_resource_tag_uris",
-        "
-        MATCH (:User {id: $viewer_id})-[t:TAGGED]->(:Resource {id: $resource_id})
-        WHERE t.label IN $labels AND t.uri IS NOT NULL
-        RETURN t.label AS label, min(t.uri) AS uri
-    ",
-    )
-    .param("resource_id", resource_id)
-    .param("viewer_id", viewer_id)
-    .param("labels", labels)
-}
-
-/// Retrieve Resource node details by ID
-pub fn get_resource_by_id(resource_id: &str) -> Query {
-    Query::new(
-        "get_resource_by_id",
-        "
-        MATCH (r:Resource {id: $resource_id})
-        RETURN r.id AS id, r.uri AS uri, r.scheme AS scheme, r.indexed_at AS indexed_at
-    ",
-    )
-    .param("resource_id", resource_id)
-}
-
-/// Retrieve all tags on a Resource node.
-/// `tag_uri` is the viewer's tag address per label, null without a viewer. With one
-/// edge per app, `min` picks the same address as `viewer_resource_tag_uris`.
-pub fn resource_tags(resource_id: &str, viewer_id: Option<&str>) -> Query {
-    Query::new(
-        "resource_tags",
+        "resource_view",
         "
         OPTIONAL MATCH (r:Resource {id: $resource_id})
+        OPTIONAL MATCH (viewer:User {id: $viewer_id})
         CALL {
-            WITH r
+            WITH r, viewer
             MATCH (tagger:User)-[tag:TAGGED]->(r)
-            WITH tag.label AS name, collect(DISTINCT tagger.id) AS tagger_ids,
-                 min(CASE WHEN tagger.id = $viewer_id THEN tag.uri END) AS viewer_uri
+            // Collect nodes, not ids: only the listed taggers' ids are read,
+            // and the viewer's edges are found by comparing nodes
+            WITH tag.label AS name, collect(DISTINCT tagger) AS taggers,
+                 min(CASE WHEN tagger = viewer THEN tag.uri END) AS viewer_uri
+            WITH name, taggers, viewer_uri, SIZE(taggers) AS taggers_count
+            ORDER BY taggers_count DESC, name ASC
+            SKIP $skip_tags
+            LIMIT $limit_tags
             RETURN collect({
                 label: name,
-                taggers: tagger_ids,
-                taggers_count: SIZE(tagger_ids),
+                taggers: [tagger IN taggers[0..$limit_taggers] | tagger.id],
+                taggers_count: taggers_count,
                 tag_uri: viewer_uri
             }) AS tags
         }
-        RETURN
-            r IS NOT NULL AS exists,
-            tags
+        RETURN r {.id, .uri, .scheme, .indexed_at} AS details, tags
     ",
     )
     .param("resource_id", resource_id)
     .param("viewer_id", viewer_id.map(str::to_string))
+    .param("skip_tags", skip_tags as i64)
+    .param("limit_tags", limit_tags as i64)
+    .param("limit_taggers", limit_taggers as i64)
+}
+
+/// Taggers of `label` on a Resource node, sorted by user id and paged with
+/// `skip`/`limit`. A user who tagged the label from two apps is listed once.
+/// `tag_uri` is the viewer's tag address on the label, null without a viewer or
+/// their tag; with one edge per app, `min` picks the same address as
+/// `resource_view`. A missing Resource has no taggers.
+///
+/// The index hint makes both matches start from the Resource, so the cost follows
+/// the resource's own tags. Left to itself, the planner can seek every TAGGED edge
+/// with the label through `taggedLabelIndex`, across posts and users too.
+pub fn resource_label_taggers(
+    resource_id: &str,
+    label: &str,
+    viewer_id: Option<&str>,
+    skip: usize,
+    limit: usize,
+) -> Query {
+    Query::new(
+        "resource_label_taggers",
+        "
+        OPTIONAL MATCH (viewer:User {id: $viewer_id})
+        CALL {
+            MATCH (tagger:User)-[tag:TAGGED]->(r:Resource {id: $resource_id})
+            USING INDEX r:Resource(id)
+            WHERE tag.label = $label
+            WITH DISTINCT tagger.id AS tagger_id
+            ORDER BY tagger_id
+            SKIP $skip
+            LIMIT $limit
+            RETURN collect(tagger_id) AS taggers
+        }
+        CALL {
+            WITH viewer
+            OPTIONAL MATCH (viewer)-[tag:TAGGED]->(r:Resource {id: $resource_id})
+            USING INDEX r:Resource(id)
+            WHERE tag.label = $label
+            RETURN min(tag.uri) AS tag_uri
+        }
+        RETURN taggers, tag_uri
+    ",
+    )
+    .param("resource_id", resource_id)
+    .param("label", label)
+    .param("viewer_id", viewer_id.map(str::to_string))
+    .param("skip", skip as i64)
+    .param("limit", limit as i64)
 }
 
 /// Query a stream of Resources with optional app and tag filters.

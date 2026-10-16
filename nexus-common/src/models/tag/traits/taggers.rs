@@ -5,7 +5,7 @@ use crate::models::tag::Taggers;
 use crate::types::{Pagination, WotDepth};
 use async_trait::async_trait;
 
-use super::collection::{TagCollection, CACHE_SET_PREFIX, MAX_TAG_PAGE};
+use super::collection::{taggers_page, TagCollection, CACHE_SET_PREFIX};
 
 /// The taggers of a label, and the address of the viewer's tag file for it.
 pub type TaggersTuple = (Taggers, Option<String>);
@@ -44,9 +44,7 @@ where
         viewer_id: Option<&str>,
         depth: Option<WotDepth>,
     ) -> ModelResult<TaggersTuple> {
-        // Set default params for pagination
-        let skip = pagination.skip.unwrap_or(0);
-        let limit = pagination.limit.unwrap_or(40).min(MAX_TAG_PAGE);
+        let (skip, limit) = taggers_page(&pagination);
         let is_wot = viewer_id.is_some() && depth.is_some() && extra_param.is_none();
         // Get WoT tags. If we do not first hit the graph using `TagUser::get_by_id` function
         // for example using, user/{user_id}/tags?viewer_id={viewer_id}&depth={distance} endpoint
