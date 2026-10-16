@@ -8,10 +8,6 @@ use axum::{
 };
 use criterion::{criterion_group, criterion_main, Criterion};
 use http_body_util::BodyExt;
-use nexus_common::models::{
-    traits::Collection,
-    user::{Epoch, UserDetails},
-};
 use nexus_common::utils::test_utils::default_ingestor_tests;
 use nexus_webapi::media::test_utils::default_subprocess_tests;
 use nexus_webapi::media::MediaPermits;
@@ -51,8 +47,6 @@ impl AvatarBenchSetup {
         let source_path = PathBuf::from(BLOB_PATH).join(AVATAR_BLOB_NAME);
         fs::copy(source_path, image_dir.join("main")).await.unwrap();
 
-        Self::seed_avatar_records(&user_id).await;
-
         let setup = Self {
             _temp_dir: temp_dir,
             app_state: AppState::new(
@@ -67,27 +61,6 @@ impl AvatarBenchSetup {
         let response = setup.call_avatar_handler().await.unwrap();
         std::hint::black_box(consume_avatar_response(response).await);
         setup
-    }
-
-    /// Points the user at the mock graph's file `FILE_ID`, whose details are read from the graph.
-    async fn seed_avatar_records(user_id: &PubkyId) {
-        let avatar_uri = format!("pubky://{USER_PUBKY}/pub/pubky.app/files/{FILE_ID}");
-
-        let user = UserDetails {
-            name: "Avatar Bench User".to_string(),
-            bio: None,
-            id: user_id.clone(),
-            links: None,
-            status: None,
-            image: Some(avatar_uri.clone()),
-            indexed_at: 1_724_134_095_000,
-            deleted: false,
-            epoch: Epoch::V0,
-        };
-
-        UserDetails::put_to_index(&[USER_PUBKY], vec![Some(user)])
-            .await
-            .unwrap();
     }
 
     fn small_variant_path(&self) -> PathBuf {
