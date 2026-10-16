@@ -14,7 +14,7 @@ use crate::service::SLOW_RUN_THRESHOLD;
 use tracing::{debug, error, trace, warn, Instrument};
 
 /// OpenTelemetry meter name shared by all watcher indexer metrics.
-pub(super) const METER_NAME: &str = "nexus.watcher";
+pub(crate) const METER_NAME: &str = "nexus.watcher";
 
 /// How a run of an event processor ended when it did not fail.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

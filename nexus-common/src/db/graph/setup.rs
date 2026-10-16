@@ -25,6 +25,7 @@ async fn setup_graph_inner() -> GraphResult<()> {
         "CREATE CONSTRAINT uniqueFileId IF NOT EXISTS FOR (f:File) REQUIRE (f.owner_id, f.id) IS UNIQUE",
         "CREATE CONSTRAINT uniqueHomeserverId IF NOT EXISTS FOR (hs:Homeserver) REQUIRE hs.id IS UNIQUE",
         "CREATE CONSTRAINT uniqueResourceId IF NOT EXISTS FOR (r:Resource) REQUIRE r.id IS UNIQUE",
+        "CREATE CONSTRAINT uniqueTakedownUri IF NOT EXISTS FOR (t:Takedown) REQUIRE t.uri IS UNIQUE",
     ];
 
     // User.id / Post.id / File.(owner_id,id) / Homeserver.id need no CREATE INDEX:

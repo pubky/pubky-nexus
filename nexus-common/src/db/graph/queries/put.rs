@@ -450,6 +450,16 @@ pub fn create_homeserver(homeserver_id: &str) -> Query {
     .param("id", homeserver_id)
 }
 
+/// Records an address the moderator took down; see [`crate::models::takedown`].
+pub fn record_takedown(uri: &str) -> Query {
+    Query::new(
+        "record_takedown",
+        "MERGE (t:Takedown {uri: $uri})
+         ON CREATE SET t.indexed_at = timestamp()",
+    )
+    .param("uri", uri.to_string())
+}
+
 /// Sets the `HOSTED_BY` relationship between a user and a homeserver.
 ///
 /// If the user is already on the target homeserver, refreshes `resolved_at`.

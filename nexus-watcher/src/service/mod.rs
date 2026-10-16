@@ -22,6 +22,7 @@ use crate::service::task_runner::task_results_into_result;
 use crate::NexusWatcherBuilder;
 use nexus_common::file::ConfigLoader;
 use nexus_common::models::homeserver::Homeserver;
+use nexus_common::models::takedown::rebuild_takedown_index;
 use nexus_common::types::DynError;
 use nexus_common::WatcherConfig;
 use std::path::{Path, PathBuf};
@@ -74,6 +75,10 @@ impl NexusWatcher {
         debug!(?config, "Running NexusWatcher with ");
 
         Homeserver::persist_if_unknown(config.homeserver.clone()).await?;
+
+        // The graph is the source of truth for takedowns; Redis only mirrors it.
+        let takedowns = rebuild_takedown_index().await?;
+        debug!(takedowns, "Rebuilt the takedown index from the graph");
 
         let primary_hs_monitoring_interval_ms = config.primary_hs_monitoring_interval_ms;
         let external_hs_monitoring_interval_ms = config.external_hs_monitoring_interval_ms;

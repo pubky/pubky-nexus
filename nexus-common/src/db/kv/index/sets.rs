@@ -1,6 +1,7 @@
 use crate::db::get_redis_conn;
 use crate::db::kv::RedisResult;
-use deadpool_redis::redis::AsyncCommands;
+use deadpool_redis::redis::{AsyncCommands, Script};
+use std::sync::LazyLock;
 
 /// Adds elements to a Redis set.
 ///
@@ -368,6 +369,41 @@ pub async fn del(prefix: &str, key: &str, values: &[&str]) -> RedisResult<()> {
 
     // Remove the elements from the set
     let _: () = redis_conn.srem(index_key, values).await?;
+    Ok(())
+}
+
+/// Whether `member` is in the set: one `SISMEMBER`. Unlike [`check_member`], it doesn't
+/// tell a missing set from a missing member, so it needs no extra round trip.
+pub async fn is_member(prefix: &str, key: &str, member: &str) -> RedisResult<bool> {
+    let index_key = format!("{prefix}:{key}");
+    let mut redis_conn = get_redis_conn().await?;
+    Ok(redis_conn.sismember(index_key, member).await?)
+}
+
+static REPLACE_SET_SCRIPT: LazyLock<Script> = LazyLock::new(|| {
+    Script::new(
+        "redis.call('del', KEYS[1])
+         for i = 1, #ARGV, 1000 do
+             redis.call('sadd', KEYS[1], unpack(ARGV, i, math.min(i + 999, #ARGV)))
+         end
+         return 1",
+    )
+});
+
+/// Atomically replaces a set's members (DEL + SADD in one Lua script), so readers never
+/// see it empty or half-built. With no `members` the set is deleted.
+pub async fn replace(prefix: &str, key: &str, members: &[String]) -> RedisResult<()> {
+    let index_key = format!("{prefix}:{key}");
+    let mut redis_conn = get_redis_conn().await?;
+    if members.is_empty() {
+        let _: () = redis_conn.del(&index_key).await?;
+        return Ok(());
+    }
+    let _: () = REPLACE_SET_SCRIPT
+        .key(&index_key)
+        .arg(members)
+        .invoke_async(&mut redis_conn)
+        .await?;
     Ok(())
 }
 
