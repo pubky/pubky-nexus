@@ -1,7 +1,7 @@
 use crate::{
     tags::user::PUBKY_PEER,
     utils::server::TestServiceServer,
-    utils::{get_request, invalid_get_request},
+    utils::{get_request, invalid_get_request, post_request},
 };
 use anyhow::Result;
 use axum::http::StatusCode;
@@ -157,6 +157,26 @@ async fn test_get_counts_ignores_redis_json() -> Result<()> {
         res, zeros,
         "stale Redis JSON is ignored; a user with no edges counts zero"
     );
+
+    // The batched stream path reads the same graph counts, one slot per id.
+    let aldert = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
+    let missing = "qca6wzjg4okp6g1hwr9g8hmx1po1jpoirjfau9ejsws1qz3t7iiy";
+    let page = post_request(
+        "/v0/stream/users/by_ids",
+        serde_json::json!({ "user_ids": [missing, NO_EDGES_USER, aldert], "viewer_id": null }),
+    )
+    .await?;
+    let page = page.as_array().expect("user stream is an array");
+    assert_eq!(page.len(), 2, "the missing id has no slot in the page");
+    assert_eq!(page[0]["details"]["id"], NO_EDGES_USER);
+    assert_eq!(
+        page[0]["counts"], zeros,
+        "stale JSON ignored in the page too"
+    );
+    assert_eq!(page[1]["details"]["id"], aldert);
+    assert_eq!(page[1]["counts"]["followers"], 10);
+    assert_eq!(page[1]["counts"]["following"], 15);
+    assert_eq!(page[1]["counts"]["posts"], 4);
 
     UserCounts::delete(NO_EDGES_USER).await?;
     let res = get_request(&endpoint).await?;

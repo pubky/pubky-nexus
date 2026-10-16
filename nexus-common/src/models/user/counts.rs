@@ -114,8 +114,8 @@ impl UserCounts {
         if field == "followers" || field == "tags" || field == "posts" {
             // Index only, never a read-through: a caller may still be mid-change in the graph
             // (an unfollow deletes its edge after this), and a graph read here would cache the
-            // pre-change counts. With no counts key there is nothing to rank yet; the next
-            // read rebuilds both from the graph.
+            // pre-change counts. With no counts key there is nothing to rank yet; reads
+            // never refill it, only `UserCounts::reindex` rebuilds the key and both ranks.
             let exist_count = Self::get_from_index(user_id).await?;
             if let Some(user_counts) = exist_count {
                 UserStream::add_to_influencers_sorted_set(user_id, &user_counts).await?;
