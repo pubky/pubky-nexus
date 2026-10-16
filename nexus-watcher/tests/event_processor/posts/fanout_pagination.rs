@@ -4,7 +4,7 @@ use nexus_common::db::graph::keyset_scan_composite;
 use nexus_common::db::{fetch_all_rows_from_graph, queries::get};
 use nexus_common::models::error::ModelError;
 use pubky::Keypair;
-use pubky_app_specs::{
+use pubky_social_specs::legacy_v0::{
     post_uri_builder, PubkyAppBookmark, PubkyAppPost, PubkyAppPostEmbed, PubkyAppPostKind,
     PubkyAppUser,
 };
