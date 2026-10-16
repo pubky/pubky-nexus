@@ -175,6 +175,8 @@ async fn test_get_counts_ignores_redis_json() -> Result<()> {
         res, zeros,
         "stale Redis JSON is ignored; a user with no edges counts zero"
     );
+    let res = get_request(&format!("/v0/user/{NO_EDGES_USER}")).await?;
+    assert_eq!(res["counts"], zeros, "the user view ignores it too");
 
     // The batched stream path reads the same graph counts, one slot per id.
     let aldert = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
@@ -203,11 +205,10 @@ async fn test_get_counts_ignores_redis_json() -> Result<()> {
         UserCounts::get_from_index(NO_EDGES_USER).await?.is_none(),
         "a counts read must not refill User:Counts"
     );
-
-    let res = get_request(&format!("/v0/user/{NO_EDGES_USER}")).await?;
-    assert_eq!(
-        res["counts"], zeros,
-        "the user view carries the same counts"
+    get_request(&format!("/v0/user/{NO_EDGES_USER}")).await?;
+    assert!(
+        UserCounts::get_from_index(NO_EDGES_USER).await?.is_none(),
+        "a user view read must not refill User:Counts"
     );
 
     // Leave the key as the seed left it.
