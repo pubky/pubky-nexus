@@ -4,13 +4,26 @@ pub mod event;
 pub use event::{Event, EventType, ParseResult};
 
 use crate::errors::EventProcessorError;
+use crate::service::indexer::METER_NAME;
 use nexus_common::WatcherConfig;
+use opentelemetry::{global, metrics::Counter};
 use pubky_app_specs::{ExtendedParsedUri, PubkyAppObject, Resource};
 use std::{
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, LazyLock},
 };
 use tracing::debug;
+
+/// Counter for events skipped because their author is outside the scope.
+///
+/// The runners only read in-scope users, so this stays near zero; a steady
+/// count means events of out-of-scope users are still reaching dispatch.
+static OUT_OF_SCOPE: LazyLock<Counter<u64>> = LazyLock::new(|| {
+    global::meter(METER_NAME)
+        .u64_counter("watcher.events.out_of_scope")
+        .with_description("Events skipped because their author is outside the scope")
+        .build()
+});
 
 mod fetch;
 pub mod handlers;
@@ -61,7 +74,7 @@ impl DefaultEventHandler {
     pub fn from_config(config: &WatcherConfig) -> Self {
         Self::new(
             Moderation::from_config(config),
-            Arc::new(UserIngestor::from_config(&config.stack)),
+            Arc::new(UserIngestor::from_watcher_config(config)),
             config.max_file_size,
             config.stack.files_path.clone(),
         )
@@ -71,6 +84,15 @@ impl DefaultEventHandler {
 #[async_trait::async_trait]
 impl EventHandler for DefaultEventHandler {
     async fn handle(&self, event: &Event) -> Result<(), EventProcessorError> {
+        // Safety net for events of authors outside the scope (queued for retry, or read
+        // from a homeserver's whole feed): skipped, neither indexed nor retried.
+        let author_id = event.parsed_uri.user_id();
+        if !self.ingestor.scope().is_in_scope(author_id, None).await? {
+            OUT_OF_SCOPE.add(1, &[]);
+            debug!(event.uri = %event.uri, "Author is outside the scope; skipping event");
+            return Ok(());
+        }
+
         match event.event_type {
             EventType::Put => {
                 handle_put_event(

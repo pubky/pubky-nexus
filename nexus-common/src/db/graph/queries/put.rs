@@ -450,6 +450,20 @@ pub fn create_homeserver(homeserver_id: &str) -> Query {
     .param("id", homeserver_id)
 }
 
+/// Sets a user's `scope_state`, or removes it with `None` (the user is in scope).
+///
+/// Any `scope_state` keeps the user from being resolved or polled; see
+/// [`crate::models::user::stub`].
+pub fn set_user_scope_state(user_id: &str, scope_state: Option<&str>) -> Query {
+    Query::new(
+        "set_user_scope_state",
+        "MATCH (u:User {id: $user_id})
+         SET u.scope_state = $scope_state",
+    )
+    .param("user_id", user_id.to_string())
+    .param("scope_state", scope_state.map(str::to_string))
+}
+
 /// Sets the `HOSTED_BY` relationship between a user and a homeserver.
 ///
 /// If the user is already on the target homeserver, refreshes `resolved_at`.

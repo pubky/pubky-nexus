@@ -4,7 +4,8 @@ use nexus_common::db::fetch_row_from_graph;
 use nexus_common::db::graph::Query;
 use nexus_common::db::kv::RedisOps;
 use nexus_common::models::user::{user_hs_cursor_key, UserDetails};
-use pubky::PublicKey;
+use pubky::{Keypair, PublicKey};
+use pubky_app_specs::PubkyId;
 
 pub async fn create_external_test_homeserver(test: &mut WatcherTest) -> Result<PublicKey> {
     let homeserver_id = test.testnet.create_random_homeserver().await?.public_key();
@@ -52,4 +53,12 @@ pub async fn assert_user_ingested(user_id: &str, hs_pk: &PublicKey) {
         resolved_at > 0,
         "resolved_at should be positive, got {resolved_at}"
     );
+}
+
+/// Registers a fresh user on `hs_pk`, which the test doesn't index.
+pub async fn user_on(test: &WatcherTest, hs_pk: &PublicKey) -> Result<(Keypair, PubkyId)> {
+    let user_kp = Keypair::random();
+    test.register_user_in_hs(&user_kp, hs_pk).await?;
+    let user_id = PubkyId::from(user_kp.public_key());
+    Ok((user_kp, user_id))
 }
