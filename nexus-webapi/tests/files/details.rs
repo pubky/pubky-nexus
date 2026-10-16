@@ -1,5 +1,8 @@
+use std::panic::{resume_unwind, AssertUnwindSafe};
+
 use anyhow::Result;
 use chrono::Utc;
+use futures_util::FutureExt;
 use nexus_common::models::{file::FileDetails, traits::Collection};
 use pubky_app_specs::file_uri_builder;
 
@@ -50,12 +53,14 @@ async fn test_file_details_follow_graph_updates() -> Result<()> {
     file.name = renamed.clone();
     file.put_to_graph().await?;
 
-    let body = get_request(&path).await?;
+    // Catch a failed request, error or status panic, so it cannot skip the restore below.
+    let read = AssertUnwindSafe(get_request(&path)).catch_unwind().await;
 
-    // Put the fixture back before asserting, so a failure does not leave it renamed.
+    // Put the fixture back before checking the read, so a failure does not leave it renamed.
     file.name = GRAPH_UPDATE_FILE_NAME.to_string();
     file.put_to_graph().await?;
 
+    let body = read.unwrap_or_else(|panic| resume_unwind(panic))?;
     assert_eq!(body["name"], renamed);
 
     Ok(())
