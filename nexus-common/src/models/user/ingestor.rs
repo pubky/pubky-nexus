@@ -1,4 +1,3 @@
-use pubky_social_specs::legacy_v0::ParsedUri;
 use pubky_social_specs::PubkyId;
 
 use crate::db::PubkyConnector;
@@ -24,14 +23,6 @@ impl UserIngestor {
 
     pub fn from_config(config: &StackConfig) -> Self {
         Self::new(config.net.external_hs_pk_blacklist.iter().cloned())
-    }
-
-    /// Ingests the author of a referenced post, if unknown.
-    pub async fn maybe_ingest_author_of_post(
-        &self,
-        referenced_post_uri: &ParsedUri,
-    ) -> ModelResult<()> {
-        self.maybe_ingest_user(&referenced_post_uri.user_id).await
     }
 
     /// Resolves the HS hosting `user_id` and refuses it if blacklisted.

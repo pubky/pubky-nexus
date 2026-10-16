@@ -16,7 +16,6 @@ use crate::events::inputs::{FileInput, ResourceKey};
 pub async fn sync_put(
     file: FileInput,
     key: ResourceKey,
-    uri: String,
     files_path: &Path,
     max_file_size: u64,
     ingestor: &UserIngestor,
@@ -34,7 +33,7 @@ pub async fn sync_put(
     .await?;
 
     // Create FileDetails object
-    let file_details = file.into_details(uri, &key);
+    let file_details = file.into_details(&key);
 
     // SAVE TO GRAPH
     file_details.put_to_graph().await?;
@@ -61,6 +60,8 @@ async fn ingest(
     max_file_size: u64,
     ingestor: &UserIngestor,
 ) -> Result<(), EventProcessorError> {
+    // TODO(specs-migration): the v0 blob read (the `src` parse and `PubkyAppObject`) stays here
+    // until the file work moves it into translation.
     let file_src = &file.src;
     let parsed_source_uri = ParsedUri::try_from(file_src.to_string()).map_err(|e| {
         EventProcessorError::generic(format!("Invalid file source URI {file_src}: {e}"))

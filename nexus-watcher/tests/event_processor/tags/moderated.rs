@@ -1,6 +1,10 @@
 use super::resource_utils::{compute_resource_id, find_resource_tag};
 use super::utils::find_post_tag;
-use crate::event_processor::utils::watcher::{HomeserverHashIdPath, WatcherTest};
+use crate::event_processor::posts::utils::find_post_details;
+use crate::event_processor::users::utils::find_user_counts;
+use crate::event_processor::utils::watcher::{
+    retrieve_and_handle_event_line, HomeserverHashIdPath, WatcherTest,
+};
 use anyhow::Result;
 use chrono::Utc;
 use pubky::{recovery_file, Keypair, ResourcePath};
@@ -178,6 +182,55 @@ async fn test_moderation_keeps_same_label_pubky_app_tag_from_different_user() ->
         .expect("same-label pubky.app tag from another user should remain");
     assert_eq!(post_tag.taggers_count, 1);
     assert!(post_tag.taggers.contains(&pubky_tagger_id));
+
+    Ok(())
+}
+
+/// A moderator tag whose target names nothing Nexus deletes (a URL, or a `social/v1` address
+/// the resolver doesn't read yet) is a no-op that succeeds: nothing is deleted or indexed.
+#[tokio_shared_rt::test(shared)]
+async fn test_moderation_of_an_unresolved_target_is_a_no_op() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let moderator_kp = create_moderator(&mut test).await?;
+    let moderator_id = moderator_kp.public_key().to_z32();
+    let (_author_kp, author_id, post_id) = create_author_and_post(&mut test).await?;
+    let tagged_before = find_user_counts(&moderator_id).await.tagged;
+
+    // Switch OFF event processing so each tag is handled only by the call below
+    test = test.remove_event_processing().await;
+
+    let url = format!("https://example.com/moderate-other/{author_id}");
+    // The v1 address of the indexed v0 post: it must not reach that post.
+    let social_v1_post = format!("pubky://{author_id}/pub/social/v1/posts/{post_id}");
+    for target_uri in [url.clone(), social_v1_post] {
+        let tag = PubkyAppTag {
+            uri: target_uri.clone(),
+            label: MODERATION_LABEL.to_string(),
+            created_at: Utc::now().timestamp_millis(),
+        };
+        let tag_id = tag.create_id();
+        test.put(&moderator_kp, &tag.hs_path(), &tag).await?;
+
+        let tag_event = format!("PUT pubky://{moderator_id}/pub/pubky.app/tags/{tag_id}");
+        let event_handler = test.event_processor_runner.event_handler.clone();
+        retrieve_and_handle_event_line(&tag_event, event_handler)
+            .await
+            .unwrap_or_else(|err| panic!("moderating {target_uri} should succeed: {err:?}"));
+    }
+
+    let post = find_post_details(&author_id, &post_id).await?;
+    assert!(!post.deleted, "the v0 post must not be moderated");
+    assert!(
+        find_resource_tag(&compute_resource_id(&url), MODERATION_LABEL)
+            .await?
+            .is_none(),
+        "the moderator tag must not be indexed on the URL"
+    );
+    assert_eq!(
+        find_user_counts(&moderator_id).await.tagged,
+        tagged_before,
+        "the moderator tag must not be indexed"
+    );
 
     Ok(())
 }

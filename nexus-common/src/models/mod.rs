@@ -4,12 +4,15 @@ pub mod event;
 pub mod file;
 pub mod follow;
 pub mod homeserver;
+mod key;
 pub mod notification;
 pub mod post;
 pub mod resource;
 pub mod tag;
 pub mod traits;
 pub mod user;
+
+pub use key::ResourceKey;
 
 /// Create tuples with a 0.0 score for each element, forcing the sorted set to support lexicographical search
 fn create_zero_score_tuples(strings: &[String]) -> Vec<(f64, &str)> {

@@ -13,19 +13,15 @@ use tracing::debug;
 
 use crate::events::inputs::UserInput;
 
-/// `uri` is the address the profile was read from: the event path.
 #[tracing::instrument(name = "user.put", skip_all, fields(user_id = %user_id))]
-pub async fn sync_put(
-    user: UserInput,
-    user_id: PubkyId,
-    uri: String,
-) -> Result<(), EventProcessorError> {
+pub async fn sync_put(user: UserInput, user_id: PubkyId) -> Result<(), EventProcessorError> {
     debug!("Indexing user profile");
 
     // Step 1: Create `UserDetails` object
+    let uri = user.uri.clone();
     let user_details = user.into_details(&user_id);
 
-    // Step 2: Save to graph, with the address the profile was read from
+    // Step 2: Save to graph, with the address the profile is stored under
     user_details.put_profile_to_graph(&uri).await?;
 
     // Step 3: Reindex search BEFORE refreshing the details cache. `put_to_index`

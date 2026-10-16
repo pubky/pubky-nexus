@@ -9,7 +9,7 @@ use pubky_social_specs::legacy_v0::traits::HashId;
 use pubky_social_specs::legacy_v0::{post_uri_builder, PubkyAppPost, PubkyAppTag, PubkyAppUser};
 
 /// When a tag at an app-specific path (/pub/mapky/tags/) targets a KNOWN Post URI,
-/// the classify_uri logic should delegate to the existing Post tag flow.
+/// a target that resolves to a post takes the existing Post tag flow.
 /// This means the tag creates a (:User)-[:TAGGED]->(:Post) relationship, NOT a (:Resource).
 #[tokio_shared_rt::test(shared)]
 async fn test_resource_tag_internal_known_delegates_to_post() -> Result<()> {
