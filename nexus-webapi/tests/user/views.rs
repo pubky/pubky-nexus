@@ -125,6 +125,13 @@ async fn test_get_relationship_without_counts_keys() -> Result<()> {
     UserCounts::delete(viewer_id).await?;
 
     let res = get_request(&format!("/v0/user/{user_id}/relationship/{viewer_id}")).await;
+    // The stream path resolves the viewer once per page and the row from its
+    // counts slot, so it must agree inside the same delete window.
+    let page = post_request(
+        "/v0/stream/users/by_ids",
+        serde_json::json!({ "user_ids": [user_id], "viewer_id": viewer_id }),
+    )
+    .await;
 
     for (id, counts) in cached {
         if let Some(counts) = counts {
@@ -134,6 +141,17 @@ async fn test_get_relationship_without_counts_keys() -> Result<()> {
     let res = res?;
     assert_eq!(res["followed_by"], true, "Aldert should follow Flavio");
     assert_eq!(res["following"], false, "Flavio should not follow Aldert");
+
+    let page = page?;
+    assert_eq!(page[0]["details"]["id"], user_id);
+    assert_eq!(
+        page[0]["relationship"]["followed_by"], true,
+        "stream: Aldert follows Flavio"
+    );
+    assert_eq!(
+        page[0]["relationship"]["following"], false,
+        "stream: Flavio does not follow Aldert"
+    );
 
     Ok(())
 }
