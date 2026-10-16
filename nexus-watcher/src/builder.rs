@@ -3,7 +3,7 @@ use nexus_common::db::{DatabaseConfig, PubkyConnector};
 use nexus_common::types::DynError;
 use nexus_common::utils::create_shutdown_rx;
 use nexus_common::WatcherConfig;
-use nexus_common::{Level, StackConfig, StackManager};
+use nexus_common::{Level, StackManager};
 use pubky_app_specs::PubkyId;
 use std::path::PathBuf;
 use tokio::sync::watch::Receiver;
@@ -12,12 +12,6 @@ use tokio::sync::watch::Receiver;
 pub struct NexusWatcherBuilder(pub WatcherConfig);
 
 impl NexusWatcherBuilder {
-    /// Creates a `NexusWatcherBuilder` instance with the given configuration and stack settings.
-    pub fn with_stack(mut config: WatcherConfig, stack: &StackConfig) -> Self {
-        config.stack = stack.clone();
-        Self(config)
-    }
-
     /// Configures the logging level for the service, determining verbosity and log output
     pub fn log_level(&mut self, log_level: Level) -> &mut Self {
         self.0.stack.log_level = log_level;
@@ -62,9 +56,17 @@ impl NexusWatcherBuilder {
     /// - `shutdown_rx`: optional shutdown signal. If none is provided, a default one will be created, listening for Ctrl-C.
     pub async fn start(self, shutdown_rx: Option<Receiver<bool>>) -> Result<(), DynError> {
         StackManager::setup(&self.0.stack).await?;
+        // The watcher owns the feature switches: it stores them for every
+        // service and brings the shared sets in line with a feature toggled
+        // since the last start, before it processes events.
+        self.0.features.toggle().await?;
         let shutdown_rx = shutdown_rx.unwrap_or_else(create_shutdown_rx);
 
-        let _ = PubkyConnector::initialise(self.0.stack.net.pubky_client_testnet_host()).await;
+        PubkyConnector::initialise(
+            self.0.stack.net.pubky_client_testnet_host(),
+            self.0.stack.net.pubky_client_http_request_timeout(),
+        )
+        .await?;
 
         NexusWatcher::start(shutdown_rx, self.0).await
     }

@@ -1,0 +1,54 @@
+# Minimal nextest configuration.
+#
+# test_global_influencers_alltime_cache_recovery deletes and reseeds the shared
+# Sorted:Users:Influencers Redis sorted set. nextest runs each test in its own
+# process, in parallel, against one shared Redis, so that test must never
+# interleave with the sibling tests that assert the exact member order of the
+# same sorted set. test_global_influencers_preview reads that set five times and asserts
+# each preview is a contiguous window of it, so a reseed landing mid-read breaks it too.
+# Put all four in a test group limited to one concurrent test.
+
+[test-groups]
+influencers-sorted-set = { max-threads = 1 }
+resource-tag-index = { max-threads = 1 }
+
+[[profile.default.overrides]]
+filter = 'test(=stream::user::influencers::test_global_influencers) | test(=stream::user::influencers::test_global_influencers_skip_limit) | test(=stream::user::influencers::test_global_influencers_alltime_cache_recovery) | test(=stream::user::influencers::test_global_influencers_preview)'
+test-group = 'influencers-sorted-set'
+
+# These tests change the shared trust ranking (Sorted:Users:SocialGraph) and the
+# posts it hides, which every filtered stream and social graph status reads, so
+# they run alone, as cache_setup does below.
+[[profile.default.overrides]]
+filter = 'test(=user::views::test_social_graph_status) | test(/^models::post::trust_filter::tests::live::/)'
+threads-required = 'num-test-threads'
+
+# nexusd/tests/cache_setup/main.rs calls clear_redis(), which issues FLUSHDB
+# against the shared Redis instance. It must not overlap with any other test in
+# the run, including nexus-webapi's search suite under --workspace, or that
+# test sees its keys and FT index vanish mid-flight. A [test-groups] entry
+# would not help: group limits only apply between members of the same group,
+# so a one-test group protects nothing. threads-required = 'num-test-threads'
+# is what gives global exclusivity: nextest waits for every running test to
+# finish, runs this binary alone, then resumes the rest.
+
+[[profile.default.overrides]]
+filter = 'package(nexusd) and binary(cache_setup)'
+threads-required = 'num-test-threads'
+
+# test_resource_tags_viewer_tag_on_cache_miss deletes the tag index of its fixture
+# resource to force a cache miss. The resource streams (stream::resource, and the one in
+# test_views_and_streams_carry_viewer_tag_uri) load their resources' tags, which refills
+# that index mid-test. Keep them from overlapping.
+
+[[profile.default.overrides]]
+filter = 'test(=tags::relationship::test_resource_tags_viewer_tag_on_cache_miss) | test(=tags::relationship::test_views_and_streams_carry_viewer_tag_uri) | test(/^stream::resource::/)'
+test-group = 'resource-tag-index'
+
+# The user-epoch backfill touches every :User and every cached `User:Details`,
+# and its verify fails on any :User without an epoch. Run alone, no other test
+# seeds a node without one mid-run.
+
+[[profile.default.overrides]]
+filter = 'package(nexusd) and test(/^migrations::catalog::user_epoch_backfill_1791812997::tests::/)'
+threads-required = 'num-test-threads'

@@ -9,7 +9,7 @@ use crate::models::tag::stream::HotTags;
 use crate::models::tag::traits::TagCollection;
 use crate::models::tag::user::TagUser;
 use crate::models::traits::Collection;
-use crate::models::user::{Influencers, UserDetails, UsersByTagSearch};
+use crate::models::user::{Influencers, SocialGraphStatus, UserDetails, UsersByTagSearch};
 use crate::types::DynError;
 use crate::{
     models::post::{PostCounts, PostDetails, PostRelationships},
@@ -36,6 +36,10 @@ pub async fn sync() {
     Influencers::reindex()
         .await
         .expect("Failed to reindex influencers");
+
+    SocialGraphStatus::publish()
+        .await
+        .expect("Failed to reindex the social graph ranking");
 
     PostsByTagSearch::reindex()
         .await

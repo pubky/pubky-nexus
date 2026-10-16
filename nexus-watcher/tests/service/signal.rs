@@ -50,7 +50,6 @@ async fn test_shutdown_signal() -> Result<()> {
     assert_eq!(stats.count_ok(), 1); // 1 processor exited gracefully
     assert_eq!(stats.count_error(), 0);
     assert_eq!(stats.count_panic(), 0);
-    assert_eq!(stats.count_timeout(), 0);
 
     Ok(())
 }

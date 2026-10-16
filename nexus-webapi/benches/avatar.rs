@@ -1,4 +1,4 @@
-use std::{path::PathBuf, sync::Arc, time::Duration};
+use std::{path::PathBuf, time::Duration};
 
 use axum::{
     body::{Body, Bytes},
@@ -11,9 +11,11 @@ use http_body_util::BodyExt;
 use nexus_common::models::{
     file::{FileDetails, FileUrls},
     traits::Collection,
-    user::UserDetails,
+    user::{Epoch, UserDetails},
 };
 use nexus_common::utils::test_utils::default_ingestor_tests;
+use nexus_webapi::media::test_utils::default_subprocess_tests;
+use nexus_webapi::media::MediaPermits;
 use nexus_webapi::{
     models::PubkyId,
     routes::{r#static::user_avatar_handler, AppState, Path},
@@ -54,10 +56,12 @@ impl AvatarBenchSetup {
 
         let setup = Self {
             _temp_dir: temp_dir,
-            app_state: AppState {
-                files_path: Arc::new(files_path),
-                ingestor: default_ingestor_tests(),
-            },
+            app_state: AppState::new(
+                files_path,
+                default_ingestor_tests(),
+                MediaPermits::new(1),
+                default_subprocess_tests(),
+            ),
             user_id,
         };
 
@@ -77,6 +81,8 @@ impl AvatarBenchSetup {
             status: None,
             image: Some(avatar_uri.clone()),
             indexed_at: 1_724_134_095_000,
+            deleted: false,
+            epoch: Epoch::V0,
         };
 
         UserDetails::put_to_index(&[USER_PUBKY], vec![Some(user)])
@@ -93,11 +99,7 @@ impl AvatarBenchSetup {
             name: AVATAR_BLOB_NAME.to_string(),
             size: source_size as i64,
             content_type: "image/png".to_string(),
-            urls: FileUrls {
-                main: format!("{USER_PUBKY}/{FILE_ID}"),
-                feed: None,
-                small: None,
-            },
+            urls: FileUrls::new(USER_PUBKY, FILE_ID, "image/png"),
             metadata: None,
         };
 

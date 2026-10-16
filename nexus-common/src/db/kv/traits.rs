@@ -216,7 +216,9 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     ) -> RedisResult<()> {
         let prefix = Self::prefix().await;
         let key = key_parts.join(":");
-        json::modify_json_field(&prefix, &key, field, action, None).await
+        json::modify_json_field(&prefix, &key, field, action, None)
+            .await
+            .map(|_| ())
     }
 
     // ############################################################
@@ -399,6 +401,24 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         let prefix = Self::prefix().await;
         let key = key_parts.join(":");
         sets::check_member(&prefix, &key, member).await
+    }
+
+    /// Checks one member against multiple Redis sets in a single pipeline round-trip.
+    ///
+    /// # Arguments
+    ///
+    /// * `keys` - The set keys, each already joined, without the prefix.
+    /// * `member` - The member to look for in every set.
+    ///
+    /// # Returns
+    ///
+    /// One `(exists, is_member)` pair per key, in the same order, as [`Self::check_set_member`] returns.
+    async fn check_set_member_multiple(
+        keys: &[&str],
+        member: &str,
+    ) -> RedisResult<Vec<(bool, bool)>> {
+        let prefix = Self::prefix().await;
+        sets::check_member_multiple_sets(&prefix, keys, member).await
     }
 
     /// Retrieves the size of a Redis set using the provided key parts.
@@ -597,6 +617,33 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         sorted_sets::put(prefix, &key, elements, expiration).await
     }
 
+    /// Rebuilds a Redis sorted set from scratch, atomically.
+    ///
+    /// Unlike [`Self::put_index_sorted_set`], which only adds, this drops
+    /// members that are no longer present. Empty `elements` deletes the key.
+    async fn replace_index_sorted_set(
+        key_parts: &[&str],
+        elements: &[(f64, &str)],
+        prefix: Option<&str>,
+        expiration: Option<i64>,
+    ) -> RedisResult<()> {
+        let prefix = prefix.unwrap_or(SORTED_PREFIX);
+        let key = key_parts.join(":");
+        sorted_sets::replace(prefix, &key, elements, expiration).await
+    }
+
+    /// Reads a sorted set's size and the scores of `members` from one snapshot,
+    /// so the two cannot straddle a concurrent rewrite of the set.
+    async fn index_sorted_set_card_and_members(
+        key_parts: &[&str],
+        members: &[&str],
+        prefix: Option<&str>,
+    ) -> RedisResult<(usize, Vec<Option<isize>>)> {
+        let prefix = prefix.unwrap_or(SORTED_PREFIX);
+        let key = key_parts.join(":");
+        sorted_sets::card_and_members(prefix, &key, members).await
+    }
+
     /// Seeds a member of a Redis sorted set, leaving an already-present one untouched.
     ///
     /// Atomic (`ZADD NX`), unlike a `check_sorted_set_member` read followed by
@@ -645,7 +692,8 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     /// * `sorted_set_key_parts` - Key parts of the destination sorted set (under the `Sorted` prefix).
     /// * `member` - The sorted-set member to write or remove.
     /// * `removal_guard` - Optional `(json_key, json_path, value)` that forces
-    ///   removal when the JSON document matches, checked atomically with the write.
+    ///   removal when the JSON document holds `value` at that path, compared by
+    ///   text form (`"true"` for a boolean flag), checked atomically with the write.
     ///
     /// # Errors
     ///

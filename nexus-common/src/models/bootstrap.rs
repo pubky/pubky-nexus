@@ -3,6 +3,7 @@ use std::collections::HashSet;
 use crate::db::kv::SortOrder;
 use crate::models::notification::Notification;
 use crate::models::tag::stream::{HotTag, HotTags};
+use crate::models::tag::TaggedType;
 use crate::types::routes::HotTagsInputDTO;
 use crate::types::{Pagination, StreamSorting, Timeframe};
 use futures::stream::{self, StreamExt};
@@ -329,8 +330,13 @@ impl Bootstrap {
     /// # Parameters
     /// - `user_ids: &mut HashSet<String>` A mutable reference to a set of user IDs
     async fn add_global_hot_tags(&mut self, user_ids: &mut HashSet<String>) -> ModelResult<()> {
-        let hot_tag_filter =
-            HotTagsInputDTO::new(Timeframe::Today, BOOTSTRAP_HOT_TAGS_LIMIT, 0, 5, None);
+        let hot_tag_filter = HotTagsInputDTO::new(
+            Timeframe::Today,
+            BOOTSTRAP_HOT_TAGS_LIMIT,
+            0,
+            5,
+            Some(TaggedType::Post),
+        );
         if let Some(today_hot_tags) = HotTags::get_hot_tags(None, None, &hot_tag_filter).await? {
             today_hot_tags.iter().for_each(|tag| {
                 self.ids.hot_tags.push(tag.clone());

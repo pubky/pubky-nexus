@@ -7,8 +7,8 @@ use nexus_watcher::{service::NexusWatcher, NexusWatcherBuilder};
 #[derive(Parser)]
 #[command(about = "Example Nexus Watcher server", long_about = None)]
 struct Opt {
-    /// Path to a directory containing `watcher-config.toml`
-    /// If omitted, runs the built-in default API config
+    /// Path to a directory containing `watcher-config.toml`, which is created with the defaults if missing
+    /// If omitted, runs the built-in default watcher config
     #[arg(short, long, value_name = "DIR")]
     config: Option<PathBuf>,
 }

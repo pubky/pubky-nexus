@@ -2,26 +2,73 @@ use std::fmt::Write;
 
 use neo4rs::{BoltList, BoltMap, BoltString, BoltType};
 
-/// Our own `Query` type that mirrors `neo4rs::Query` but exposes
-/// `cypher()` and `params_map()` for logging and tracing.
+/// Bounded telemetry value: `'static` strings and `u8` (WoT depth). Wider
+/// types would let request data become metric dimensions.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum TelemetryValue {
+    Str(&'static str),
+    Int(u8),
+}
+
+impl From<&'static str> for TelemetryValue {
+    fn from(value: &'static str) -> Self {
+        Self::Str(value)
+    }
+}
+
+impl From<u8> for TelemetryValue {
+    fn from(value: u8) -> Self {
+        Self::Int(value)
+    }
+}
+
+/// Query builder with a stable telemetry label and bounded attributes.
 #[derive(Clone)]
 pub struct Query {
-    label: Option<&'static str>,
+    label: &'static str,
     cypher: String,
     params: BoltMap,
+    /// Telemetry-only attributes; never sent to Neo4j.
+    telemetry_attrs: Vec<(&'static str, TelemetryValue)>,
 }
 
 impl Query {
     pub fn new(label: &'static str, cypher: impl Into<String>) -> Self {
         Self {
-            label: Some(label),
+            label,
             cypher: cypher.into(),
             params: BoltMap::default(),
+            telemetry_attrs: Vec::new(),
         }
     }
 
-    pub fn label(&self) -> Option<&'static str> {
+    pub fn label(&self) -> &'static str {
         self.label
+    }
+
+    /// Attach a telemetry dimension. Never sent to Neo4j.
+    pub(crate) fn telemetry_attr(
+        mut self,
+        key: &'static str,
+        value: impl Into<TelemetryValue>,
+    ) -> Self {
+        self.telemetry_attrs.push((key, value.into()));
+        self
+    }
+
+    pub(crate) fn telemetry_attr_opt(
+        self,
+        key: &'static str,
+        value: Option<impl Into<TelemetryValue>>,
+    ) -> Self {
+        match value {
+            Some(value) => self.telemetry_attr(key, value),
+            None => self,
+        }
+    }
+
+    pub(crate) fn telemetry_attrs(&self) -> &[(&'static str, TelemetryValue)] {
+        &self.telemetry_attrs
     }
 
     pub fn param<T: Into<BoltType>>(mut self, key: &str, value: T) -> Self {
@@ -49,22 +96,27 @@ impl Query {
 
 /// Replaces `$param` placeholders in `cypher` with literal values from `params`.
 pub fn populate_cypher(cypher: &str, params: &BoltMap) -> String {
-    let mut out = cypher.to_owned();
-    // Sort keys by length descending so `$skip` is replaced before a
-    // hypothetical `$s`, avoiding partial substitutions.
-    //
-    // NOTE: There is still a potential issue with this approach: if a
-    // parameter *value* happens to contain text matching another parameter
-    // name (e.g. param "a" has value "$b"), a later replacement pass will
-    // substitute inside the already-replaced value. A proper fix would
-    // require single-pass replacement or placeholder-based substitution.
-    let mut entries: Vec<_> = params.value.iter().collect();
-    entries.sort_by_key(|b| std::cmp::Reverse(b.0.value.len()));
-    for (k, v) in entries {
-        let placeholder = format!("${}", k.value);
-        let literal = bolt_to_cypher_literal(v);
-        out = out.replace(&placeholder, &literal);
+    let mut out = String::with_capacity(cypher.len());
+    let mut rest = cypher;
+    while let Some(i) = rest.find('$') {
+        out.push_str(&rest[..i]);
+        rest = &rest[i + 1..];
+        let len = rest
+            .find(|c: char| c != '_' && !c.is_alphanumeric())
+            .unwrap_or(rest.len());
+        let name = &rest[..len];
+        rest = &rest[len..];
+        match params.value.iter().find(|(key, _)| key.value == name) {
+            Some((_, value)) if !name.is_empty() => {
+                out.push_str(&bolt_to_cypher_literal(value));
+            }
+            _ => {
+                out.push('$');
+                out.push_str(name);
+            }
+        }
     }
+    out.push_str(rest);
     out
 }
 
@@ -126,11 +178,7 @@ impl From<Query> for neo4rs::Query {
 
 #[cfg(test)]
 fn query(cypher: impl Into<String>) -> Query {
-    Query {
-        label: None,
-        cypher: cypher.into(),
-        params: BoltMap::default(),
-    }
+    Query::new("test", cypher)
 }
 
 #[cfg(test)]
@@ -290,6 +338,20 @@ mod tests {
         assert_eq!(result, "SET u.bio = 'it\\'s a\\nnew \"line\"'");
     }
 
+    #[test]
+    fn populate_does_not_rescan_inserted_literals() {
+        let q = query("RETURN $a AS a, $b AS b")
+            .param("a", "$b")
+            .param("b", "secret");
+        assert_eq!(q.to_cypher_populated(), "RETURN '$b' AS a, 'secret' AS b");
+    }
+
+    #[test]
+    fn populate_preserves_unknown_parameters() {
+        let q = query("RETURN $known, $unknown").param("known", 1_i64);
+        assert_eq!(q.to_cypher_populated(), "RETURN 1, $unknown");
+    }
+
     // ── From<Query> for neo4rs::Query ───────────────────────────────
 
     #[test]
@@ -299,6 +361,36 @@ mod tests {
         // neo4rs::Query doesn't expose cypher publicly, but if the
         // conversion compiles and doesn't panic, the basic contract holds.
         let _ = nq;
+    }
+
+    // ── Telemetry attributes ────────────────────────────────────────
+
+    #[test]
+    fn telemetry_attrs_are_exposed_in_insertion_order() {
+        let q = Query::new("test", "RETURN 1")
+            .telemetry_attr("reach", "wot")
+            .telemetry_attr("depth", 2_u8);
+        assert_eq!(
+            q.telemetry_attrs(),
+            &[
+                ("reach", TelemetryValue::Str("wot")),
+                ("depth", TelemetryValue::Int(2)),
+            ]
+        );
+    }
+
+    #[test]
+    fn telemetry_attrs_are_not_query_params() {
+        let q = Query::new(
+            "test",
+            "MATCH (n) WHERE n.r = $reach AND n.d = $depth RETURN n",
+        )
+        .telemetry_attr("reach", "wot")
+        .telemetry_attr("depth", 2_u8);
+
+        let populated = q.to_cypher_populated();
+        assert!(populated.contains("$reach"));
+        assert!(populated.contains("$depth"));
     }
 
     // ── Query builder ───────────────────────────────────────────────

@@ -1,5 +1,6 @@
 use crate::models::{BoundedLimit, BoundedSkip, PubkyId};
 use crate::{Error, Result as AppResult};
+use nexus_common::models::tag::traits::taggers::TaggersTuple;
 use nexus_common::models::tag::Taggers;
 use nexus_common::types::WotDepth;
 use serde::de::{self, Deserializer};
@@ -64,14 +65,23 @@ where
 #[derive(Serialize, ToSchema, Deserialize)]
 pub struct TaggersInfoResponse {
     pub users: Taggers,
+    /// Whether the viewer tagged the label: exactly when `tag_uri` is set.
     pub relationship: bool,
+    /// The address of the viewer's tag file for this label: the stored `uri`
+    /// of their `TAGGED` edge. `None` if the viewer hasn't tagged the label,
+    /// or there is no viewer.
+    #[schema(
+        example = "pubky://db6w58pd5h63fbhtd88y8zz7pai9rkjwqt9omg6i7dz31dynrgcy/pub/pubky.app/tags/7T0R9X6A2E1L"
+    )]
+    pub tag_uri: Option<String>,
 }
 
-impl From<(Taggers, bool)> for TaggersInfoResponse {
-    fn from(tuple: (Taggers, bool)) -> Self {
+impl From<TaggersTuple> for TaggersInfoResponse {
+    fn from((users, tag_uri): TaggersTuple) -> Self {
         Self {
-            users: tuple.0,
-            relationship: tuple.1,
+            users,
+            relationship: tag_uri.is_some(),
+            tag_uri,
         }
     }
 }

@@ -1,18 +1,29 @@
 use crate::db::graph::Query;
-use crate::db::kv::{search, RedisResult, ScoreAction, SortOrder};
+use crate::db::kv::{search, AuthorFilter, RedisResult, ScoreAction, SortOrder};
 use crate::db::queries::get::{global_tags_by_post, global_tags_by_post_engagement};
 use crate::db::{fetch_all_rows_from_graph, RedisOps};
 use crate::models::error::ModelResult;
-use crate::models::post::PostDetails;
+use crate::models::post::trust_filter::{self, AuthorPost};
+use crate::models::post::{PostDetails, PostStream, StreamSource};
 use crate::models::tag::post::TagPost;
 use crate::models::tag::traits::TaggersCollection;
-use crate::types::{Pagination, StreamSorting};
+use crate::types::{Pagination, StreamReach, StreamSorting};
 use serde::{Deserialize, Serialize};
-use tracing::info;
 use utoipa::ToSchema;
 
 pub const TAG_GLOBAL_POST_TIMELINE: [&str; 4] = ["Tags", "Global", "Post", "Timeline"];
 pub const TAG_GLOBAL_POST_ENGAGEMENT: [&str; 4] = ["Tags", "Global", "Post", "TotalEngagement"];
+
+/// Largest reach a content search injects into `FT.SEARCH` as an author set.
+/// Larger reaches are trimmed to the authors with the most posts.
+///
+/// Keep this at or below 2,500–5,000. Query parsing grows with every id and
+/// runs on the Redis main thread even with `search-workers` enabled, so it
+/// blocks every other Redis command, and the `TIMEOUT` argument doesn't bound
+/// it. Search time grows with the list too, towards the configured search
+/// timeout. Search larger reaches by over-fetching and filtering instead of
+/// growing this list; `benches/search_reach.rs` measures the trade-off.
+pub const MAX_REACH_AUTHORS_FT: usize = 1_000;
 
 /// Represents a single search result of a "posts by tag" search, returning the post keys (`author_id:post_id`) and score
 #[derive(Serialize, Deserialize, ToSchema, Default)]
@@ -50,7 +61,7 @@ impl PostsByTagSearch {
             let sorted_set: Vec<(f64, &str)> = row.get("sorted_set").unwrap_or(Vec::new());
             if !label.is_empty() && !sorted_set.is_empty() {
                 let key_parts = [&index_key[..], &[label]].concat();
-                Self::put_index_sorted_set(&key_parts, &sorted_set, None, None).await?;
+                trust_filter::add(&key_parts, &sorted_set).await?;
             }
         }
         Ok(())
@@ -95,6 +106,42 @@ impl PostsByTagSearch {
         }
     }
 
+    /// Posts tagged with `label` whose author is in `observer_id`'s `reach`,
+    /// served from the graph because the per-label sorted sets cannot be joined
+    /// against a reach. The observer's own posts are excluded, and an unknown
+    /// observer yields an empty list.
+    ///
+    /// Scores differ from [`Self::get_by_label`] in two ways: only parent posts
+    /// are returned (the index also carries tagged replies), and the engagement
+    /// score counts taggers, replies and reposts but not mentions. `start`/`end`
+    /// cursors are therefore not interchangeable between the two.
+    ///
+    /// The query walks the reach first and then every post its users authored,
+    /// so its cost grows with the reach's post count, not with the tag's
+    /// popularity, and grows fastest for `wot_2` and `wot_3`. Starting from the
+    /// tag instead was slower for every WoT depth.
+    ///
+    /// # Errors
+    /// Returns [`crate::models::error::ModelError::GraphOperationFailed`] on
+    /// graph failures, including `GraphError::QueryTimeout`.
+    pub async fn get_by_label_with_reach(
+        label: &str,
+        sort_by: Option<StreamSorting>,
+        observer_id: &str,
+        reach: StreamReach,
+        pagination: Pagination,
+    ) -> ModelResult<Vec<PostsByTagSearch>> {
+        let entries = PostStream::get_scored_post_keys(
+            StreamSource::from_reach(observer_id.to_string(), reach),
+            pagination,
+            SortOrder::Descending,
+            sort_by.unwrap_or_default(),
+            Some(vec![label.to_string()]),
+        )
+        .await?;
+        Ok(entries.into_iter().map(Into::into).collect())
+    }
+
     pub async fn update_index_score(
         author_id: &str,
         post_id: &str,
@@ -103,12 +150,28 @@ impl PostsByTagSearch {
     ) -> RedisResult<()> {
         let tag_global_engagement_key_parts = [&TAG_GLOBAL_POST_ENGAGEMENT[..], &[label]].concat();
         let post_key_slice: &[&str] = &[author_id, post_id];
-        Self::put_score_index_sorted_set(
+        trust_filter::incr(
             &tag_global_engagement_key_parts,
             post_key_slice,
             score_action,
         )
         .await
+    }
+
+    /// The label sets `post` belongs in, as joined key parts and score, as
+    /// [`Self::reindex`] places it.
+    pub(crate) fn shared_set_entries(post: &AuthorPost) -> Vec<(String, f64)> {
+        let engagement = (post.engagement + post.mentions) as f64;
+        let key = |family: [&str; 4], label: &str| format!("{}:{label}", family.join(":"));
+        post.labels
+            .iter()
+            .flat_map(|label| {
+                [
+                    (key(TAG_GLOBAL_POST_TIMELINE, label), post.indexed_at as f64),
+                    (key(TAG_GLOBAL_POST_ENGAGEMENT, label), engagement),
+                ]
+            })
+            .collect()
     }
 
     pub async fn put_to_index(author_id: &str, post_id: &str, tag_label: &str) -> RedisResult<()> {
@@ -119,13 +182,8 @@ impl PostsByTagSearch {
             let option = PostDetails::try_from_index_json(post_key_slice, None).await?;
             if let Some(post_details) = option {
                 let member_key = post_key_slice.join(":");
-                Self::put_index_sorted_set(
-                    &key_parts,
-                    &[(post_details.indexed_at as f64, &member_key)],
-                    None,
-                    None,
-                )
-                .await?;
+                trust_filter::add(&key_parts, &[(post_details.indexed_at as f64, &member_key)])
+                    .await?;
             }
         }
         Ok(())
@@ -148,26 +206,6 @@ impl PostsByTagSearch {
     }
 }
 
-const POST_CONTENT_INDEX: &str = "postContentIdx";
-
-/// Creates the post content full-text index: $.content TEXT + $.author TAG CASESENSITIVE + $.kind TAG CASESENSITIVE.
-/// Includes NOOFFSETS/NOHL; NOFIELDS dropped to allow field-targeted queries.
-/// Idempotent: no-ops if the index already exists.
-pub async fn create_post_content_index() -> RedisResult<()> {
-    let prefix = format!("{}:", PostDetails::prefix().await);
-    search::ft_create_post_content_index(&prefix).await?;
-    info!("RediSearch index '{POST_CONTENT_INDEX}' created or already exists");
-    Ok(())
-}
-
-/// Drops the post content index without deleting underlying JSON documents.
-/// Idempotent: swallows "Unknown index name" errors.
-pub async fn drop_post_content_index() -> RedisResult<()> {
-    search::drop_post_content_index().await?;
-    info!("RediSearch index '{POST_CONTENT_INDEX}' dropped or already absent");
-    Ok(())
-}
-
 // Results come from FT.SEARCH, not key-value lookups — no RedisOps impl.
 #[derive(Serialize, Deserialize, ToSchema, Default)]
 pub struct PostsByContentSearch {
@@ -178,7 +216,7 @@ pub struct PostsByContentSearch {
 impl PostsByContentSearch {
     pub async fn search(
         query: &str,
-        author: Option<&str>,
+        author: Option<AuthorFilter<'_>>,
         kind: Option<&str>,
         skip: usize,
         limit: usize,

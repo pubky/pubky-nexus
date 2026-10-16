@@ -18,6 +18,9 @@ pub struct PostCounts {
     pub unique_tags: u32,
     pub replies: u32,
     pub reposts: u32,
+    // Defaulted so counts cached before this field existed still deserialize.
+    #[serde(default)]
+    pub collections: u32,
 }
 
 impl RedisOps for PostCounts {}
@@ -90,6 +93,15 @@ impl PostCounts {
     /// graph (read-your-writes). Does NOT touch the engagement sorted set.
     pub async fn invalidate(index_key: &[&str]) -> RedisResult<()> {
         Self::remove_from_index_multiple_json(&[index_key]).await
+    }
+
+    /// Same as [`Self::invalidate`] for many posts in one round trip.
+    pub async fn invalidate_many(index_keys: &[&[&str]]) -> RedisResult<()> {
+        // Redis rejects DEL with no keys.
+        if index_keys.is_empty() {
+            return Ok(());
+        }
+        Self::remove_from_index_multiple_json(index_keys).await
     }
 
     pub async fn reindex(author_id: &str, post_id: &str) -> ModelResult<()> {

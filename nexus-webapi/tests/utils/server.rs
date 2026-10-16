@@ -66,16 +66,15 @@ impl TestServiceServer {
             ..Default::default()
         };
 
-        // Separate temp directories: one for config (keypair), one for static files
-        let temp_config_dir = TempDir::new()?;
+        // Separate temp directories: one for the secret key, one for static files
+        let temp_secret_dir = TempDir::new()?;
         let temp_dir = TempDir::new()?;
 
-        let api_context = ApiContextBuilder::from_config_dir(temp_config_dir.path().to_path_buf())
-            .api_config(test_api_config)
-            .pkarr_builder(testnet.pkarr_client_builder())
-            .try_build()
-            .await
-            .expect("Failed to create ApiContext");
+        let api_context =
+            ApiContextBuilder::new(test_api_config, temp_secret_dir.path().to_path_buf())
+                .pkarr_builder(testnet.pkarr_client_builder())
+                .try_build()
+                .expect("Failed to create ApiContext");
         let nexus_builder = NexusApiBuilder::new(api_context)
             .files_path(temp_dir.path().to_path_buf())
             .enable_key_republisher(enable_key_republisher);

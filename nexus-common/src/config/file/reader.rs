@@ -2,13 +2,10 @@ use crate::types::DynError;
 use std::ffi::OsStr;
 use std::path::{Component, PathBuf};
 
-/// Path to default nexusd config file. Defaults to ~/.pubky-nexus
+/// Default directory for Nexus config and data, relative to the home directory: `~/.pubky-nexus`
 ///
 /// See [default_config_dir_path] to use this as [PathBuf]
 pub const DEFAULT_HOME_DIR: &str = ".pubky-nexus";
-pub(crate) const DEFAULT_CONFIG_TOML: &str = include_str!("../../../default.config.toml");
-/// The sole configuration file name recognized by nexus
-pub const CONFIG_FILE_NAME: &str = "config.toml";
 
 /// Returns [DEFAULT_HOME_DIR] as [PathBuf], relative to the home directory
 pub fn default_config_dir_path() -> PathBuf {

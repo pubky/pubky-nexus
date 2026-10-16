@@ -10,7 +10,7 @@ pub mod video;
 pub const DETROIT: &str = "7w4hmktqa7gia5thmk7zki8px7ttwpwjtgaaaou4tbqx64re8d1o";
 pub const EIXAMPLE: &str = "8attbeo9ftu5nztqkcfw3gydksehr7jbspgfi64u4h8eo5e7dbiy";
 
-// Collection fixtures shared by collection.rs and exclude.rs.
+// Collection fixtures shared across the stream and post tests.
 pub const COL_BOGOTA_1: &str = "COLW1TGL5BKG1";
 pub const COL_BOGOTA_2: &str = "COLW1TGL5BKG2";
 pub const COL_CAIRO: &str = "COLW1TGL5BKG3";

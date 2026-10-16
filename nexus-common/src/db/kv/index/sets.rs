@@ -163,6 +163,36 @@ pub async fn check_member(prefix: &str, key: &str, member: &str) -> RedisResult<
     }
 }
 
+/// Checks one member against multiple Redis sets using a single pipeline of `EXISTS`
+/// and `SISMEMBER` commands.
+///
+/// Returns one `(exists, is_member)` pair per key, in the same order, with the same
+/// meaning as [`check_member`].
+pub async fn check_member_multiple_sets(
+    prefix: &str,
+    keys: &[&str],
+    member: &str,
+) -> RedisResult<Vec<(bool, bool)>> {
+    if keys.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut pipe = redis::pipe();
+    for key in keys {
+        let index_key = format!("{prefix}:{key}");
+        pipe.exists(&index_key).sismember(&index_key, member);
+    }
+
+    let mut redis_conn = get_redis_conn().await?;
+    let results: Vec<bool> = pipe.query_async(&mut redis_conn).await?;
+    Ok(results
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|&[exists, is_member]| (exists, exists && is_member))
+        .collect())
+}
+
 /// Retrieves the size of a Redis set.
 ///
 /// This function returns the number of elements in the set identified by the combined `prefix` and `key`.

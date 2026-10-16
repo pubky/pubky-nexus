@@ -1,6 +1,8 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use std::time::Duration;
-use streams_benches::{author, bookmarks, kind, post_keys, reach, sorting, tag, user, wot};
+use streams_benches::{
+    author, bookmarks, kind, post_keys, reach, resource, sorting, tag, user, wot,
+};
 
 mod setup;
 mod streams_benches;
@@ -32,6 +34,28 @@ criterion_group! {
               post_keys::bench_stream_post_keys_all_timeline,
               tag::bench_stream_tag_timeline,
               tag::bench_stream_tag_total_engagement,
+              tag::bench_stream_multi_tag_timeline,
+              tag::bench_stream_multi_tag_total_engagement,
+              tag::bench_stream_following_tag_timeline,
+              tag::bench_stream_following_tag_total_engagement,
+              tag::bench_stream_followers_tag_timeline,
+              tag::bench_stream_followers_tag_total_engagement,
+              tag::bench_stream_friends_tag_timeline,
+              tag::bench_stream_friends_tag_total_engagement,
+              tag::bench_stream_wot_depth1_tag_timeline,
+              tag::bench_stream_wot_depth1_tag_total_engagement,
+              tag::bench_stream_wot_depth2_tag_timeline,
+              tag::bench_stream_wot_depth2_tag_total_engagement,
+              tag::bench_stream_wot_depth3_tag_timeline,
+              tag::bench_stream_wot_depth3_tag_total_engagement,
+              tag::bench_stream_bookmarks_tag_timeline,
+              tag::bench_stream_bookmarks_tag_total_engagement,
+              tag::bench_stream_wot_domain_me_tag_timeline,
+              tag::bench_stream_wot_domain_me_tag_total_engagement,
+              tag::bench_stream_wot_domain_depth2_tag_timeline,
+              tag::bench_stream_wot_domain_depth2_tag_total_engagement,
+              tag::bench_stream_author_tag_timeline,
+              tag::bench_stream_author_tag_total_engagement,
               user::bench_stream_users_by_username_search,
               user::bench_stream_influencers,
               user::bench_stream_following,
@@ -48,7 +72,11 @@ criterion_group! {
               wot::bench_stream_wot_depth1_timeline,
               wot::bench_stream_wot_depth2_timeline,
               wot::bench_stream_wot_depth3_timeline,
-              wot::bench_stream_wot_domain_depth2
+              wot::bench_stream_wot_domain_depth2,
+              resource::bench_stream_resources_all_timeline,
+              resource::bench_stream_resources_app_timeline,
+              resource::bench_stream_resources_tag_timeline,
+              resource::bench_stream_resources_app_tag_timeline
 }
 
 criterion_main!(streams);

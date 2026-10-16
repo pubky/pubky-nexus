@@ -44,21 +44,31 @@ async fn test_user_tags_with_viewer_id() -> Result<()> {
     let tags = body.as_array().expect("Tag list should be an array");
     assert_eq!(tags.len(), 4);
 
-    assert!(
-        tags[0]["relationship"].as_bool().unwrap(),
+    assert_eq!(
+        tags[0]["relationship"], true,
         "Expected to be part of the taggers"
     );
-    assert!(
-        !tags[1]["relationship"].as_bool().unwrap(),
+    assert_eq!(
+        tags[0]["tag_uri"], "pubky://rz6oe4yda9em9b4m7ymttgym3r9g5gfa51su3rgdj9oszyz787ny/pub/pubky.app/tags/8KLMNO2PQR345S",
+        "Expected the viewer's tag address"
+    );
+    assert_eq!(
+        tags[1]["relationship"], false,
         "Expected not to be part of the taggers"
     );
-    assert!(
-        !tags[2]["relationship"].as_bool().unwrap(),
+    assert!(tags[1]["tag_uri"].is_null(), "Expected no tag address");
+    assert_eq!(
+        tags[2]["relationship"], false,
+        "Expected not to be part of the taggers"
+    );
+    assert!(tags[2]["tag_uri"].is_null(), "Expected no tag address");
+    assert_eq!(
+        tags[3]["relationship"], true,
         "Expected to be part of the taggers"
     );
-    assert!(
-        tags[3]["relationship"].as_bool().unwrap(),
-        "Expected to be part of the taggers"
+    assert_eq!(
+        tags[3]["tag_uri"], "pubky://rz6oe4yda9em9b4m7ymttgym3r9g5gfa51su3rgdj9oszyz787ny/pub/pubky.app/tags/2HIJK345LMNOPQR",
+        "Expected the viewer's tag address"
     );
 
     Ok(())

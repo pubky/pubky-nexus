@@ -131,10 +131,10 @@ pub async fn handle_put_event(
     let user_id = event.parsed_uri.user_id().clone();
     match (pubky_object, resource) {
         (PubkyAppObject::User(user), Resource::User) => {
-            handlers::user::sync_put(user, user_id).await?
+            handlers::user::sync_put(user, event.uri.clone(), user_id).await?
         }
         (PubkyAppObject::Post(post), Resource::Post(post_id)) => {
-            handlers::post::sync_put(post, user_id, post_id, &ingestor).await?
+            handlers::post::sync_put(post, event.uri.clone(), user_id, post_id, &ingestor).await?
         }
         (PubkyAppObject::Follow(_follow), Resource::Follow(followee_id)) => {
             handlers::follow::sync_put(user_id, followee_id, &ingestor).await?
@@ -147,13 +147,16 @@ pub async fn handle_put_event(
         }
         (PubkyAppObject::Tag(tag), Resource::Tag(tag_id)) => {
             if moderation.should_delete(&tag, &user_id) {
-                moderation.apply_moderation(tag, files_path).await?
+                moderation
+                    .apply_moderation(tag, files_path, &ingestor)
+                    .await?
             } else {
                 // Route universal tag events (non-pubky.app apps) to sync_put_resource
                 // which handles Resource nodes for InternalUnknown/InternalUnknown URIs.
                 if let ExtendedParsedUri::UniversalTag { app, .. } = &event.parsed_uri {
                     handlers::tag::sync_put_resource(
                         tag,
+                        event.uri.clone(),
                         user_id,
                         tag_id.to_string(),
                         app.clone(),
@@ -161,7 +164,14 @@ pub async fn handle_put_event(
                     )
                     .await?
                 } else {
-                    handlers::tag::sync_put(tag, user_id, tag_id.to_string(), &ingestor).await?
+                    handlers::tag::sync_put(
+                        tag,
+                        event.uri.clone(),
+                        user_id,
+                        tag_id.to_string(),
+                        &ingestor,
+                    )
+                    .await?
                 }
             }
         }

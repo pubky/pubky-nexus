@@ -4,6 +4,18 @@ pub async fn delete_keys_by_pattern(
     pattern: &str,
     count: usize,
 ) -> Result<usize, nexus_common::db::kv::RedisError> {
+    delete_keys_by_pattern_where(pattern, count, |_| true).await
+}
+
+/// Deletes the Redis keys that match the SCAN `pattern` AND satisfy
+/// `should_delete`. Use it when a glob alone cannot separate the keys to
+/// retire from live keys sharing the same prefix. Uses SCAN to avoid blocking
+/// Redis on large keyspaces.
+pub async fn delete_keys_by_pattern_where(
+    pattern: &str,
+    count: usize,
+    should_delete: impl Fn(&str) -> bool,
+) -> Result<usize, nexus_common::db::kv::RedisError> {
     use nexus_common::db::get_redis_conn;
 
     let mut redis_conn = get_redis_conn().await?;
@@ -20,6 +32,7 @@ pub async fn delete_keys_by_pattern(
             .query_async(&mut redis_conn)
             .await?;
 
+        let keys: Vec<String> = keys.into_iter().filter(|key| should_delete(key)).collect();
         if !keys.is_empty() {
             let count = keys.len();
             redis::cmd("DEL")

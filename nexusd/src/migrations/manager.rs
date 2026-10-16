@@ -87,7 +87,7 @@ pub struct MigrationNode {
     updated_at: i64,
 }
 
-const MIGRATION_PATH: &str = "nexusd/src/migrations/migrations_list/";
+const MIGRATION_PATH: &str = "nexusd/src/migrations/catalog/";
 
 pub struct MigrationManager {
     graph: Arc<dyn GraphOps>,
@@ -128,7 +128,7 @@ impl MigrationManager {
                 )
             })?;
 
-        // append to migrations_list/mod.rs
+        // append to catalog/mod.rs
         let mod_file_path = format!("{MIGRATION_PATH}mod.rs");
         let mod_file_content = format!("pub mod {migration_file_name};\n");
         let mut mod_file = tokio::fs::OpenOptions::new()

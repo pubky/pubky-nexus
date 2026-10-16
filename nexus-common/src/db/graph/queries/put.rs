@@ -2,25 +2,31 @@ use crate::db::graph::error::{GraphError, GraphResult};
 use crate::db::graph::Query;
 use crate::models::post::PostRelationships;
 use crate::models::{file::FileDetails, post::PostDetails, user::UserDetails};
-use pubky_app_specs::{ParsedUri, Resource};
+use pubky_app_specs::{ParsedUri, PubkyId, Resource};
 
-/// Create a user node
-pub fn create_user(user: &UserDetails) -> GraphResult<Query> {
+/// Creates or overwrites a `User` node.
+///
+/// `uri` is the address the profile was read from (its event path). `None` keeps the stored
+/// `uri`, so a tombstone retains it and a stub node gets none.
+pub fn create_user(user: &UserDetails, uri: Option<&str>) -> GraphResult<Query> {
     let links = serde_json::to_string(&user.links)
         .map_err(|e| GraphError::SerializationFailed(Box::new(e)))?;
 
     let query = Query::new(
         "create_user",
         "MERGE (u:User {id: $id})
-         SET u.name = $name, u.bio = $bio, u.status = $status, u.links = $links, u.image = $image, u.indexed_at = $indexed_at;",
+         SET u.name = $name, u.bio = $bio, u.status = $status, u.links = $links, u.image = $image, u.indexed_at = $indexed_at, u.deleted = $deleted,
+             u.uri = coalesce($uri, u.uri);",
     )
     .param("id", user.id.to_string())
+    .param("uri", uri.map(str::to_string))
     .param("name", user.name.clone())
     .param("bio", user.bio.clone())
     .param("status", user.status.clone())
     .param("links", links)
     .param("image", user.image.clone())
-    .param("indexed_at", user.indexed_at);
+    .param("indexed_at", user.indexed_at)
+    .param("deleted", user.deleted);
 
     Ok(query)
 }
@@ -67,10 +73,12 @@ pub fn create_post(
         // Set indexed_at only on creation
         ON CREATE SET
             new_post.indexed_at = $indexed_at
-        SET new_post.content = $content,
+        SET new_post.uri = $uri,
+            new_post.content = $content,
             new_post.kind = $kind,
             new_post.attachments = $attachments,
-            new_post.lock = $lock
+            new_post.lock = $lock,
+            new_post.deleted = $deleted
         RETURN existing_post IS NOT NULL AS flag",
     );
 
@@ -80,12 +88,14 @@ pub fn create_post(
     let mut cypher_query = Query::new("create_post", &cypher)
         .param("author_id", post.author.to_string())
         .param("post_id", post.id.to_string())
+        .param("uri", post.uri.to_string())
         .param("content", post.content.to_string())
         .param("indexed_at", post.indexed_at)
         .param("kind", kind.trim_matches('"'))
         .param("attachments", post.attachments.clone().unwrap_or_default())
         // Pass Option directly so None clears the property; "" would read back as Some("").
-        .param("lock", post.lock.clone());
+        .param("lock", post.lock.clone())
+        .param("deleted", post.deleted);
 
     // Handle "replied" relationship
     cypher_query = add_relationship_params(
@@ -158,6 +168,68 @@ pub fn create_mention_relationship(
     .param("mentioned_user_id", mentioned_user_id)
 }
 
+/// Reconciles the `COLLECTED` edges of a Collection post with its item list:
+/// every existing edge is dropped and one is merged per item that exists in
+/// the graph. Items that are not indexed get no edge. Returns `touched`, the
+/// `[author_id, post_id]` pairs whose edges were removed or merged (a key may
+/// repeat), so the caller can invalidate those post counts without knowing the
+/// old envelope. Idempotent. Removed edges are only reported by the run that
+/// removes them, so a failure between this query and the caller's invalidation
+/// leaves the removed items' cached counts stale until the `PostCounts` TTL.
+/// # Arguments
+/// * `author_id` - The unique identifier of the user who authored the collection
+/// * `post_id` - The unique identifier of the collection post
+/// * `items` - `(author_id, post_id)` of the posts the collection curates
+/// * `derived_from` - The post state `items` were parsed from; the reconcile is
+///   a no-op when the graph holds a different kind or content, so a stale reader
+///   (a backfill, a retried event) never overwrites a newer write. `None` skips
+///   the check.
+pub fn sync_collection_items(
+    author_id: &str,
+    post_id: &str,
+    items: &[(PubkyId, String)],
+    derived_from: Option<&PostDetails>,
+) -> Query {
+    let mut items: Vec<Vec<String>> = items
+        .iter()
+        .map(|(item_author_id, item_post_id)| {
+            vec![item_author_id.to_string(), item_post_id.clone()]
+        })
+        .collect();
+    // MERGE locks the item nodes in list order; a global order avoids deadlocks
+    // between collections that share items.
+    items.sort();
+    items.dedup();
+    Query::new(
+        "sync_collection_items",
+        "
+        MATCH (:User {id: $author_id})-[:AUTHORED]->(c:Post {id: $post_id})
+        WHERE $kind IS NULL OR (c.kind = $kind AND c.content = $content)
+        OPTIONAL MATCH (c)-[old:COLLECTED]->(prev:Post)<-[:AUTHORED]-(prev_author:User)
+        DELETE old
+        // collect() drops nulls but keeps [null, null], so map a miss to a bare null.
+        WITH c, collect(CASE WHEN prev IS NULL THEN NULL ELSE [prev_author.id, prev.id] END) AS previous
+        // Aggregating subquery: yields one row even when $items is empty, so
+        // `previous` survives a teardown.
+        CALL {
+            WITH c
+            UNWIND $items AS item
+            MATCH (:User {id: item[0]})-[:AUTHORED]->(p:Post {id: item[1]})
+            // The spec validates URI shape only; a collection may list itself.
+            WHERE p <> c
+            MERGE (c)-[:COLLECTED]->(p)
+            RETURN collect(item) AS current
+        }
+        RETURN previous + current AS touched
+        ",
+    )
+    .param("author_id", author_id)
+    .param("post_id", post_id)
+    .param("items", items)
+    .param("kind", derived_from.map(|post| post.kind.to_string()))
+    .param("content", derived_from.map(|post| post.content.clone()))
+}
+
 /// Create a follows relationship between two users. Before creating the relationship,
 /// it validates that both users exist in the database
 /// Validates that both users exist before creating the relationship
@@ -222,6 +294,7 @@ pub fn create_post_bookmark(
 /// * `author_id` - The unique identifier of the user who authored the post.
 /// * `post_id` - The unique identifier of the post being tagged.
 /// * `tag_id` - A unique identifier for the tagging relationship.
+/// * `tag_uri` - The address of the tag file (its event path), stored as the edge `uri`.
 /// * `label` - A string representing the label of the tag.
 /// * `indexed_at` - A timestamp representing when the tagging relationship was created or last updated.
 ///
@@ -230,6 +303,7 @@ pub fn create_post_tag(
     author_id: &str,
     post_id: &str,
     tag_id: &str,
+    tag_uri: &str,
     label: &str,
     indexed_at: i64,
 ) -> Query {
@@ -243,6 +317,7 @@ pub fn create_post_tag(
         MERGE (user)-[t:TAGGED {label: $label}]->(post)
         ON CREATE SET t.indexed_at = $indexed_at,
                       t.id = $tag_id
+        SET t.uri = $tag_uri
         // Returns true if the post tag relationship already existed
         RETURN existing IS NOT NULL AS flag;",
     )
@@ -250,6 +325,7 @@ pub fn create_post_tag(
     .param("author_id", author_id)
     .param("post_id", post_id)
     .param("tag_id", tag_id)
+    .param("tag_uri", tag_uri)
     .param("label", label)
     .param("indexed_at", indexed_at)
 }
@@ -259,12 +335,14 @@ pub fn create_post_tag(
 /// * `tagger_user_id` - The unique identifier of the user creating the tag.
 /// * `tagged_user_id` - The unique identifier of the user being tagged.
 /// * `tag_id` - A unique identifier for the tagging relationship.
+/// * `tag_uri` - The address of the tag file (its event path), stored as the edge `uri`.
 /// * `label` - A string representing the label of the tag.
 /// * `indexed_at` - A timestamp indicating when the tagging relationship was created or last updated.
 pub fn create_user_tag(
     tagger_user_id: &str,
     tagged_user_id: &str,
     tag_id: &str,
+    tag_uri: &str,
     label: &str,
     indexed_at: i64,
 ) -> Query {
@@ -277,12 +355,14 @@ pub fn create_user_tag(
         MERGE (tagger)-[t:TAGGED {label: $label}]->(tagged_used)
         ON CREATE SET t.indexed_at = $indexed_at,
                       t.id = $tag_id
+        SET t.uri = $tag_uri
         // Returns true if the user tag relationship already existed
         RETURN existing IS NOT NULL AS flag;",
     )
     .param("tagger_user_id", tagger_user_id)
     .param("tagged_user_id", tagged_user_id)
     .param("tag_id", tag_id)
+    .param("tag_uri", tag_uri)
     .param("label", label)
     .param("indexed_at", indexed_at)
 }
@@ -296,6 +376,7 @@ pub fn create_user_tag(
 /// * `scheme` - The URI scheme (https, pubky, nostr, etc.)
 /// * `app` - The app namespace the tag was created from (e.g., "mapky", "eventky").
 /// * `tag_id` - A unique identifier for the tagging relationship.
+/// * `tag_uri` - The address of the tag file (its event path), stored as the edge `uri`.
 /// * `label` - The tag label.
 /// * `indexed_at` - Timestamp when the tag was indexed.
 #[allow(clippy::too_many_arguments)]
@@ -306,6 +387,7 @@ pub fn create_resource_tag(
     scheme: &str,
     app: &str,
     tag_id: &str,
+    tag_uri: &str,
     label: &str,
     indexed_at: i64,
 ) -> Query {
@@ -321,6 +403,7 @@ pub fn create_resource_tag(
         OPTIONAL MATCH (tagger)-[existing:TAGGED {label: $label, app: $app}]->(resource)
         MERGE (tagger)-[t:TAGGED {label: $label, app: $app}]->(resource)
         ON CREATE SET t.id = $tag_id, t.indexed_at = $indexed_at
+        SET t.uri = $tag_uri
         RETURN existing IS NOT NULL AS flag;",
     )
     .param("tagger_id", tagger_id)
@@ -329,20 +412,18 @@ pub fn create_resource_tag(
     .param("scheme", scheme)
     .param("app", app)
     .param("tag_id", tag_id)
+    .param("tag_uri", tag_uri)
     .param("label", label)
     .param("indexed_at", indexed_at)
 }
 
-/// Create a file node
+/// Create a file node. Its variant URLs are not stored: they are rebuilt on read.
 pub fn create_file(file: &FileDetails) -> GraphResult<Query> {
-    let urls = serde_json::to_string(&file.urls)
-        .map_err(|e| GraphError::SerializationFailed(Box::new(e)))?;
-
     let query = Query::new(
         "create_file",
         "MERGE (f:File {id: $id, owner_id: $owner_id})
          SET f.uri = $uri, f.indexed_at = $indexed_at, f.created_at = $created_at, f.size = $size,
-            f.src = $src, f.name = $name, f.content_type = $content_type, f.urls = $urls;",
+            f.src = $src, f.name = $name, f.content_type = $content_type;",
     )
     .param("id", file.id.to_string())
     .param("owner_id", file.owner_id.to_string())
@@ -352,8 +433,7 @@ pub fn create_file(file: &FileDetails) -> GraphResult<Query> {
     .param("size", file.size)
     .param("src", file.src.to_string())
     .param("name", file.name.to_string())
-    .param("content_type", file.content_type.to_string())
-    .param("urls", urls);
+    .param("content_type", file.content_type.to_string());
 
     Ok(query)
 }

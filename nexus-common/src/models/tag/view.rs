@@ -1,4 +1,3 @@
-use pubky_app_specs::{post_uri_builder, user_uri_builder};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -26,14 +25,11 @@ impl TagView {
         };
 
         let tagged_labels: Vec<String> = row.get("tagged_labels")?;
-        let tagged_id = row.get("tagged_id")?;
+        let tagged_uri: Option<String> = row.get("tagged_uri")?;
         let uri = if tagged_labels.iter().any(|label| label == "Post") {
-            let Some(author_id) = row.get("author_id")? else {
-                return Err(ModelError::from_generic("Tagged post missing author id"));
-            };
-            post_uri_builder(author_id, tagged_id)
+            tagged_uri.ok_or_else(|| ModelError::from_generic("Tagged post has no uri"))?
         } else if tagged_labels.iter().any(|label| label == "User") {
-            user_uri_builder(tagged_id)
+            tagged_uri.unwrap_or_default()
         } else {
             return Err(ModelError::from_generic(format!(
                 "Tagged resource has unsupported labels: {:?}",

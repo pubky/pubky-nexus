@@ -20,6 +20,21 @@ pub async fn find_post_tag(
     Ok(maybe_tag_details)
 }
 
+/// The `uri` stored on the tagger's `TAGGED` edge with this tag id, `None` when unset.
+pub async fn find_tag_uri(tagger_id: &str, tag_id: &str) -> Option<String> {
+    let query = Query::new(
+        "find_tag_uri",
+        "MATCH (:User {id: $tagger_id})-[t:TAGGED {id: $tag_id}]->()
+        RETURN t.uri AS uri",
+    )
+    .param("tagger_id", tagger_id)
+    .param("tag_id", tag_id);
+    fetch_key_from_graph::<Option<String>>(query, "uri")
+        .await
+        .unwrap()
+        .flatten()
+}
+
 pub async fn find_user_tag(user_id: &str, tag_name: &str) -> Result<Option<TagDetails>> {
     let query = user_tag_query(user_id, tag_name);
     let maybe_tag_details = fetch_key_from_graph(query, "tag_details").await.unwrap();

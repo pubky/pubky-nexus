@@ -3,7 +3,7 @@ use nexus_common::db::graph::Query;
 use nexus_common::models::notification::Notification;
 use nexus_common::types::Pagination;
 use nexus_common::{
-    db::{fetch_key_from_graph, RedisOps},
+    db::{exec_single_row, fetch_key_from_graph, RedisOps},
     models::post::{
         PostCounts, PostDetails, PostStream, POST_PER_USER_KEY_PARTS,
         POST_REPLIES_PER_POST_KEY_PARTS, POST_REPLIES_PER_USER_KEY_PARTS, POST_TIMELINE_KEY_PARTS,
@@ -124,6 +124,22 @@ pub async fn find_repost_relationship_parent_uri(user_id: &str, post_id: &str) -
     anyhow::bail!("Post relationship not found in Nexus graph");
 }
 
+/// `(author_id, post_id)` of every Collection with a COLLECTED edge to the post.
+pub async fn find_collections_of(author_id: &str, post_id: &str) -> Vec<(String, String)> {
+    let query = Query::new(
+        "find_collections_of",
+        "MATCH (:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
+        MATCH (p)<-[:COLLECTED]-(c:Post)<-[:AUTHORED]-(curator:User)
+        RETURN collect([curator.id, c.id]) AS details",
+    )
+    .param("author_id", author_id)
+    .param("post_id", post_id);
+    fetch_key_from_graph(query, "details")
+        .await
+        .unwrap()
+        .unwrap_or_default()
+}
+
 pub fn post_reply_relationships(author_id: &str, post_id: &str) -> Query {
     Query::new(
         "post_reply_relationships",
@@ -175,6 +191,14 @@ pub fn collection_post(name: &str) -> PubkyAppPost {
         embed: None,
         attachments: None,
         lock: None,
+    }
+}
+
+/// Build a `Collection` post curating the given post URIs, in that order.
+pub fn collection_post_with_items(name: &str, items: &[String]) -> PubkyAppPost {
+    PubkyAppPost {
+        content: serde_json::json!({ "name": name, "items": items }).to_string(),
+        ..collection_post(name)
     }
 }
 
@@ -244,10 +268,40 @@ pub fn get_post_details_by_id(user_id: &str, post_id: &str) -> Query {
             uri: 'pubky://' + user.id + '/pub/pubky.app/posts/' + post.id,
             author: user.id,
             attachments: post.attachments,
-            lock: post.lock
+            lock: post.lock,
+            deleted: coalesce(post.deleted, false)
         } AS details
         ",
     )
     .param("user_id", user_id)
     .param("post_id", post_id)
+}
+
+/// The `uri` property stored on the `Post` node, `None` when it is unset.
+pub async fn find_post_uri(author_id: &str, post_id: &str) -> Option<String> {
+    let query = Query::new(
+        "find_post_uri",
+        "MATCH (:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
+        RETURN p.uri AS uri",
+    )
+    .param("author_id", author_id)
+    .param("post_id", post_id);
+    fetch_key_from_graph::<Option<String>>(query, "uri")
+        .await
+        .unwrap()
+        .flatten()
+}
+
+/// Overwrite (or remove, with `None`) the `uri` property of a `Post` node.
+pub async fn set_post_uri(author_id: &str, post_id: &str, uri: Option<&str>) -> Result<()> {
+    let query = Query::new(
+        "set_post_uri",
+        "MATCH (:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
+        SET p.uri = $uri",
+    )
+    .param("author_id", author_id)
+    .param("post_id", post_id)
+    .param("uri", uri.map(str::to_string));
+    exec_single_row(query).await?;
+    Ok(())
 }

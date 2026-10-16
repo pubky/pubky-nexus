@@ -37,6 +37,9 @@ pub fn routes() -> Router<AppState> {
             SEARCH_USERS_BY_ID_ROUTE,
             get(users::search_users_by_id_handler),
         )
+        // A reach turns this into the same graph traversal `stream/posts`
+        // runs, and that route is in the default bucket too; bucket them
+        // together if the traversal proves costly
         .route(
             SEARCH_POSTS_BY_TAG_ROUTE,
             get(posts::search_posts_by_tag_handler),

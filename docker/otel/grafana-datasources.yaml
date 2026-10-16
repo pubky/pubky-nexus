@@ -7,6 +7,9 @@ datasources:
     access: proxy
     url: http://prometheus:9090
     isDefault: true
+    jsonData:
+      # Surface Prometheus-managed alerting rules under Alerting > Alert rules
+      manageAlerts: true
 
   - name: Tempo
     type: tempo

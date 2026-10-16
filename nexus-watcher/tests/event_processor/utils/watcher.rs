@@ -2,10 +2,12 @@ use crate::event_processor::utils::default_moderation_tests;
 use anyhow::{anyhow, Error, Result};
 use base32::{encode, Alphabet};
 use chrono::Utc;
-use nexus_common::db::PubkyConnector;
+use nexus_common::db::{PubkyConnector, RedisOps};
 use nexus_common::models::file::FileDetails;
 use nexus_common::models::homeserver::Homeserver;
+use nexus_common::models::post::PostStream;
 use nexus_common::models::traits::Collection;
+use nexus_common::models::user::USER_SOCIAL_GRAPH_KEY_PARTS;
 use nexus_common::utils::test_utils::default_ingestor_tests;
 use nexus_common::{StackConfig, StackManager};
 use nexus_watcher::errors::EventProcessorError;
@@ -17,7 +19,6 @@ use nexus_watcher::events::{DefaultEventHandler, EventHandler};
 use nexus_watcher::events::{Event, ParseResult};
 use nexus_watcher::service::HsEventProcessorRunner;
 use nexus_watcher::service::TEventProcessorRunner;
-use pubky::ClientId;
 use pubky::Keypair;
 use pubky::PublicKey;
 use pubky::ResourcePath;
@@ -36,11 +37,6 @@ use tempfile::TempDir;
 use tracing::debug;
 
 static COUNTER: AtomicU64 = AtomicU64::new(0);
-
-/// Client ID used for grant-based test sessions (pubky 0.10+).
-fn test_client_id() -> ClientId {
-    ClientId::new("nexus-watcher.test").expect("static test client id is valid")
-}
 
 /// Generate a unique post ID for tests.
 /// Uses PID-based offset for inter-process uniqueness and atomic counter
@@ -218,7 +214,7 @@ impl WatcherTest {
         let pubky = PubkyConnector::get()?;
 
         let signer = pubky.signer(user_keypair.clone());
-        let session = signer.signin(test_client_id()).await?;
+        let session = signer.signin().await?;
         session
             .storage()
             .put(hs_path, serde_json::to_string(&object)?)
@@ -241,7 +237,7 @@ impl WatcherTest {
         let pubky = PubkyConnector::get()?;
 
         let signer = pubky.signer(user_keypair.clone());
-        let session = signer.signin(test_client_id()).await?;
+        let session = signer.signin().await?;
         session.storage().delete(hs_path).await?;
         self.ensure_event_processing_complete().await?;
         Ok(())
@@ -274,6 +270,10 @@ impl WatcherTest {
         // Write the user profile in the pubky.app repository
         let user_path = PubkyAppUser::hs_path();
         self.put(user_kp, &user_path, &user).await?;
+
+        // Ranked, as most authors are, so the user's posts reach the sorted sets
+        // every viewer shares. posts/trust_filter.rs unranks the authors it hides.
+        rank_user(&user_id).await?;
 
         Ok(user_id)
     }
@@ -344,7 +344,7 @@ impl WatcherTest {
         let pubky = PubkyConnector::get()?;
 
         let signer = pubky.signer(user_kp.clone());
-        let session = signer.signin(test_client_id()).await?;
+        let session = signer.signin().await?;
         session.storage().put(homeserver_uri, object).await?;
         Ok(())
     }
@@ -472,4 +472,20 @@ impl HomeserverPathForPubkyId for PubkyAppFollow {
     fn hs_path(&self, pubky_id: &str) -> ResourcePath {
         Self::create_path(pubky_id).parse().unwrap()
     }
+}
+
+/// Puts `user_id` in the trust ranking, below every fixture user, so the
+/// fixture's positions are untouched.
+pub async fn rank_user(user_id: &str) -> Result<()> {
+    PostStream::put_index_sorted_set(&USER_SOCIAL_GRAPH_KEY_PARTS, &[(1e9, user_id)], None, None)
+        .await?;
+    Ok(())
+}
+
+/// Takes `user_id` out of the trust ranking: their posts no longer reach the
+/// sorted sets every viewer shares.
+pub async fn unrank_user(user_id: &str) -> Result<()> {
+    PostStream::remove_from_index_sorted_set(None, &USER_SOCIAL_GRAPH_KEY_PARTS, &[user_id])
+        .await?;
+    Ok(())
 }

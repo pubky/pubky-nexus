@@ -26,6 +26,7 @@ pub fn bench_stream_post_keys_all_timeline(c: &mut Criterion) {
                 StreamSorting::Timeline,
                 None,
                 None,
+                None,
             )
             .await
             .unwrap()

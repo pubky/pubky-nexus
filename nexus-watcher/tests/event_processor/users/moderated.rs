@@ -78,6 +78,8 @@ async fn test_moderated_user_lifecycle() -> Result<()> {
     // 9. Confirm the user does exist but the profile has been cleaned
     let details = find_user_details(&target_id).await?;
     assert_eq!(details.bio, None);
+    assert_eq!(details.name, "");
+    assert!(details.deleted, "Moderated user should be flagged deleted");
 
     Ok(())
 }

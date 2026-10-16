@@ -29,7 +29,7 @@ This crate is designed as a backbone for other services (e.g, homeserver watcher
 
 ### Configuration Management
 - Module: `config/`
-- Features: `ConfigLoader`, default templates, home-dir expansion, async loading
+- Features: `ConfigLoader`, default file generation, home-dir expansion, async loading
 
 ### Database Connectivity
 - Module: `db/`
@@ -75,15 +75,13 @@ cargo add nexus-common
 Below is an example demonstrating how to load a configuration using the provided loader trait:
 
 ```rust
-use nexus_common::config::{ConfigLoader, DaemonConfig};
-use std::path::Path;
+use nexus_common::file::ConfigLoader;
 use nexus_common::types::DynError;
+use nexus_common::ApiConfig;
 
 #[tokio::main]
 async fn main() -> Result<(), DynError> {
-    let cfg: DaemonConfig = DaemonConfig::read_config_file(
-        config::expand_home_dir("~/.pubky-nexus".into())
-    ).await?;
+    let cfg = ApiConfig::load("path/to/api-config.toml").await?;
     println!("Loaded config: {:#?}", cfg);
     Ok(())
 }

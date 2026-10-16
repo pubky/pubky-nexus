@@ -117,7 +117,8 @@ impl Homeserver {
     }
 
     async fn validate_cursor_change(id: &PubkyId, new_cursor: u64) -> RedisResult<()> {
-        // Read-then-write is non-atomic but race-free: a given HS is only ever written by one processor run at a time.
+        // Read-then-write is non-atomic but race-free: a given HS is only ever written by one
+        // processor run at a time, as the watcher waits for each run to end before the next.
         if let Some(existing) = Self::get_from_index(id).await? {
             ensure_cursor_not_backwards(new_cursor, existing.cursor)?;
         }
@@ -181,7 +182,13 @@ impl Homeserver {
         Ok(())
     }
 
-    /// Returns all HS IDs with at least one active user, sorted by user count descending.
+    /// Returns all HS IDs with at least one active user, ordered by aggregate
+    /// hosted trust descending, then by user count. Ties are in no particular
+    /// order.
+    ///
+    /// Callers truncate this list, so the order decides which homeservers are
+    /// polled at all. With no seed set configured nothing carries trust and the
+    /// order falls through to user count, which is what it has always been.
     ///
     /// # Returns
     /// A list of active homeserver IDs.

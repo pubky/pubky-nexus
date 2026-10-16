@@ -1,10 +1,21 @@
 use std::{fs::File, io::Write};
 
-use crate::utils::host_url;
 use crate::utils::server::TestServiceServer;
+use crate::utils::{host_url, invalid_get_request};
 use anyhow::Result;
+use axum::body::Body;
+use axum::http::{Request, StatusCode};
 use nexus_common::models::{file::FileDetails, traits::Collection};
-use tokio::fs::create_dir_all;
+use nexus_common::utils::test_utils::default_ingestor_tests;
+use nexus_common::RateLimitConfig;
+use nexus_webapi::media::test_utils::default_subprocess_tests;
+use nexus_webapi::media::MediaPermits;
+use nexus_webapi::models::ErrorResponsePayload;
+use nexus_webapi::routes::{app_routes, build_app, AppState};
+use tempfile::TempDir;
+use tokio::fs::{create_dir_all, write};
+use tokio::sync::watch;
+use tower::ServiceExt;
 
 #[tokio_shared_rt::test(shared)]
 async fn test_static_serving() -> Result<()> {
@@ -96,6 +107,82 @@ async fn test_static_serving_dl_param() -> Result<()> {
             .parse::<String>()
             .unwrap(),
         format!("attachment; filename=\"{}\"", result_file.name)
+    );
+
+    Ok(())
+}
+
+// Requesting a variant that must be generated while the media gate is at capacity
+// must shed with 503 — the explicitly requested variant is not silently substituted.
+#[tokio_shared_rt::test(shared)]
+async fn test_static_serving_at_capacity_returns_503() -> Result<()> {
+    // Ensure the shared stack (DB connectors) and test-graph data are initialized.
+    // We drive a standalone router so we don't disturb the shared server's gate.
+    let _ = TestServiceServer::get_test_server().await;
+
+    // An image file from the mock graph (content_type image/png) that supports the feed variant.
+    let test_file_id = "2ZKH7K7M9G3G0";
+    let test_file_user = "y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy";
+
+    let files_dir = TempDir::new()?;
+    let image_dir = files_dir.path().join(test_file_user).join(test_file_id);
+    create_dir_all(&image_dir).await?;
+    write(
+        image_dir.join("main"),
+        b"not a real image, gate sheds first",
+    )
+    .await?;
+
+    // Zero permits: a pool that can never grant one sheds with AtCapacity immediately.
+    let state = AppState::new(
+        files_dir.path().to_path_buf(),
+        default_ingestor_tests(),
+        MediaPermits::new(0),
+        default_subprocess_tests(),
+    );
+    let (_tx, rx) = watch::channel(false);
+    let routes = app_routes(state.clone(), &RateLimitConfig::default(), rx);
+    let app = build_app(routes, state, 30, 10 * 1024 * 1024);
+
+    let res = app
+        .oneshot(
+            Request::builder()
+                .uri(format!(
+                    "/static/files/{test_file_user}/{test_file_id}/feed"
+                ))
+                .body(Body::empty())?,
+        )
+        .await?;
+
+    assert_eq!(
+        res.status(),
+        503,
+        "At capacity the requested variant must shed with 503, not fall back or 500"
+    );
+
+    Ok(())
+}
+
+// A variant that is not valid for the file's content type is a 400 from the handler's own
+// check, which runs before any disk access. The message tells it apart from an extractor 400.
+#[tokio_shared_rt::test(shared)]
+async fn test_static_serving_invalid_variant_returns_400() -> Result<()> {
+    // The mock `text/plain` file `test_static_serving` serves; it has no `small` variant.
+    let test_file_id = "2ZK2H8P2T5NG0";
+    let test_file_user = "y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy";
+
+    let res = invalid_get_request(
+        &format!("/static/files/{test_file_user}/{test_file_id}/small"),
+        StatusCode::BAD_REQUEST,
+    )
+    .await?;
+
+    let payload: ErrorResponsePayload =
+        serde_json::from_value(res).expect("Response should be a valid ErrorResponsePayload");
+    assert!(
+        payload.error.contains("not valid for content type"),
+        "Expected the variant check's error, got: {}",
+        payload.error
     );
 
     Ok(())
