@@ -450,14 +450,16 @@ pub fn create_homeserver(homeserver_id: &str) -> Query {
     .param("id", homeserver_id)
 }
 
-/// Records an address the moderator took down; see [`crate::models::takedown`].
-pub fn record_takedown(uri: &str) -> Query {
+/// Records an address the moderator took down, and the moderator tag that took it down;
+/// see [`crate::models::takedown`]. A second tag on the same address keeps the first.
+pub fn record_takedown(uri: &str, tag_uri: &str) -> Query {
     Query::new(
         "record_takedown",
         "MERGE (t:Takedown {uri: $uri})
-         ON CREATE SET t.indexed_at = timestamp()",
+         ON CREATE SET t.tag_uri = $tag_uri, t.indexed_at = timestamp()",
     )
     .param("uri", uri.to_string())
+    .param("tag_uri", tag_uri.to_string())
 }
 
 /// Sets the `HOSTED_BY` relationship between a user and a homeserver.
