@@ -5,8 +5,8 @@ use nexus_common::db::get_neo4j_graph;
 use nexus_common::db::graph::Query;
 use nexus_common::models::event::EventLine;
 use nexus_common::types::DynError;
-use nexus_watcher::events::event::{Event, EventType, ParseResult};
-use pubky_app_specs::Resource;
+use nexus_watcher::events::{Event, EventTarget, EventType, ParseResult};
+use pubky_social_specs::legacy_v0::Resource;
 use std::collections::BTreeMap;
 use tracing::info;
 
@@ -75,8 +75,9 @@ fn fold_page(lines: &[String]) -> PageUris {
         if event.event_type != EventType::Put {
             continue;
         }
-        let user_id = event.parsed_uri.user_id().to_string();
-        match event.parsed_uri.resource() {
+        let EventTarget::Legacy(parsed_uri) = &event.target;
+        let user_id = parsed_uri.user_id().to_string();
+        match parsed_uri.resource() {
             Resource::Tag(tag_id) => {
                 page.edges.insert((user_id, tag_id.clone()), event.uri);
             }
@@ -260,8 +261,8 @@ impl Migration for UriBackfill1791196997 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pubky_app_specs::traits::HashId;
-    use pubky_app_specs::PubkyAppTag;
+    use pubky_social_specs::legacy_v0::traits::HashId;
+    use pubky_social_specs::legacy_v0::PubkyAppTag;
 
     const TAGGER: &str = "pxnu33x7jtpx9ar1ytsi4yxbp6a5o36gwhffs8zoxmbuptici1jy";
     const AUTHOR: &str = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";

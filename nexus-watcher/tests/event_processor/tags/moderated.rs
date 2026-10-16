@@ -4,8 +4,10 @@ use crate::event_processor::utils::watcher::{HomeserverHashIdPath, WatcherTest};
 use anyhow::Result;
 use chrono::Utc;
 use pubky::{recovery_file, Keypair, ResourcePath};
-use pubky_app_specs::traits::HashId;
-use pubky_app_specs::{post_uri_builder, tag_uri_builder, PubkyAppPost, PubkyAppTag, PubkyAppUser};
+use pubky_social_specs::legacy_v0::traits::HashId;
+use pubky_social_specs::legacy_v0::{
+    post_uri_builder, tag_uri_builder, PubkyAppPost, PubkyAppTag, PubkyAppUser,
+};
 use tokio::fs;
 
 const MODERATION_LABEL: &str = "label_to_moderate";

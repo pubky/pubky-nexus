@@ -4,7 +4,7 @@ use crate::routes::Path;
 use crate::{Error, Result};
 use axum::Json;
 use nexus_common::models::user::UserDetails;
-use pubky_app_specs::PubkyAppUserLink;
+use pubky_social_specs::legacy_v0::PubkyAppUserLink;
 use tracing::debug;
 use utoipa::OpenApi;
 

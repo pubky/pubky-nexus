@@ -8,8 +8,8 @@ use nexus_common::models::tag::traits::TagCollection;
 use nexus_common::types::Pagination;
 use pubky::Keypair;
 use pubky::ResourcePath;
-use pubky_app_specs::traits::HashId;
-use pubky_app_specs::{PubkyAppTag, PubkyAppUser};
+use pubky_social_specs::legacy_v0::traits::HashId;
+use pubky_social_specs::legacy_v0::{PubkyAppTag, PubkyAppUser};
 
 /// Full cycle test: PUT a tag at an app-specific path (/pub/mapky/tags/TAG_ID)
 /// and verify the Resource node is created in Neo4j with correct Redis indexes.

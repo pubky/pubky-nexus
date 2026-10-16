@@ -16,7 +16,7 @@ use nexus_common::{
     models::post::{KindFilter, PostKeyStream, PostStream, StreamSource},
     types::{DomainTrust, WotDepth},
 };
-use pubky_app_specs::PubkyAppPostKind;
+use pubky_social_specs::legacy_v0::PubkyAppPostKind;
 use serde::Deserialize;
 use tracing::debug;
 use utoipa::{OpenApi, ToSchema};

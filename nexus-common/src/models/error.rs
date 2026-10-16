@@ -15,6 +15,10 @@ pub enum ModelError {
     #[error("HsBlacklisted: {hs_id}")]
     HsBlacklisted { hs_id: String },
 
+    /// The input is invalid and will stay invalid: retrying cannot help.
+    #[error("InvalidInput: {0}")]
+    InvalidInput(String),
+
     #[error("Generic: {0}")]
     Generic(String),
 }

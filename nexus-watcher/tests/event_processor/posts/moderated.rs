@@ -8,7 +8,7 @@ use anyhow::Result;
 use chrono::Utc;
 use nexus_common::models::post::PostCounts;
 use pubky::{recovery_file, Keypair};
-use pubky_app_specs::{
+use pubky_social_specs::legacy_v0::{
     post_uri_builder, PubkyAppPost, PubkyAppPostKind, PubkyAppTag, PubkyAppUser,
 };
 use tokio::fs;

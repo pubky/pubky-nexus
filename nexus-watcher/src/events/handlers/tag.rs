@@ -15,10 +15,12 @@ use nexus_common::types::Pagination;
 use nexus_common::universal_tag::normalize::{
     classify_uri, normalize_uri, resource_id, UriCategory,
 };
-use pubky_app_specs::{ExtendedParsedUri, ParsedUri, PubkyAppTag, PubkyId, Resource};
+use pubky_social_specs::legacy_v0::{user_uri_builder, ExtendedParsedUri, ParsedUri, Resource};
+use pubky_social_specs::PubkyId;
 use tracing::debug;
 
-use super::utils::{fail_on_blacklisted_hs, post_kind, post_relationships_is_reply};
+use super::utils::{fail_on_permanent_ingest_error, post_kind, post_relationships_is_reply};
+use crate::events::inputs::{ResourceKey, TagInput};
 
 #[derive(Debug)]
 struct TagStorageUri {
@@ -28,15 +30,22 @@ struct TagStorageUri {
 }
 
 /// `event_uri` is the address of the tag file, stored as the edge `uri`; `tag.uri` is its target.
-#[tracing::instrument(name = "tag.put", skip_all, fields(user_id = %tagger_id, tag_id = %tag_id))]
+#[tracing::instrument(
+    name = "tag.put",
+    skip_all,
+    fields(user_id = %key.owner_id, tag_id = %key.resource_id)
+)]
 pub async fn sync_put(
-    tag: PubkyAppTag,
+    tag: TagInput,
+    key: ResourceKey,
     event_uri: String,
-    tagger_id: PubkyId,
-    tag_id: String,
     ingestor: &UserIngestor,
 ) -> Result<(), EventProcessorError> {
     debug!("Indexing tag");
+    let ResourceKey {
+        owner_id: tagger_id,
+        resource_id: tag_id,
+    } = key;
 
     // Parse the embeded URI to extract author_id and post_id using parse_tagged_post_uri
     let parsed_uri = ParsedUri::try_from(tag.uri.as_str()).map_err(EventProcessorError::generic)?;
@@ -70,10 +79,9 @@ pub async fn sync_put(
 /// Classifies the tagged URI: if it's an Internal-Known resource (Post/User), delegates
 /// to the existing flow. Otherwise creates/updates a generic Resource node.
 pub async fn sync_put_resource(
-    tag: PubkyAppTag,
+    tag: TagInput,
+    key: ResourceKey,
     event_uri: String,
-    tagger_id: PubkyId,
-    tag_id: String,
     app: String,
     ingestor: &UserIngestor,
 ) -> Result<(), EventProcessorError> {
@@ -82,9 +90,13 @@ pub async fn sync_put_resource(
     match classify_uri(&tag.uri) {
         UriCategory::InternalKnown => {
             // The tagged URI is a known Post/User — delegate to existing flow
-            sync_put(tag, event_uri, tagger_id, tag_id, ingestor).await
+            sync_put(tag, key, event_uri, ingestor).await
         }
         UriCategory::InternalUnknown | UriCategory::External => {
+            let ResourceKey {
+                owner_id: tagger_id,
+                resource_id: tag_id,
+            } = key;
             let (normalized, scheme) =
                 normalize_uri(&tag.uri).map_err(EventProcessorError::generic)?;
             let res_id = resource_id(&normalized);
@@ -215,7 +227,9 @@ async fn put_sync_post(
         OperationOutcome::MissingDependency => {
             if let Ok(post_uri) = ParsedUri::try_from(post_uri_str) {
                 // Drop the tag (non-retryable) if the tagged post's author is on a blacklisted HS.
-                fail_on_blacklisted_hs(ingestor.maybe_ingest_author_of_post(&post_uri).await)?;
+                fail_on_permanent_ingest_error(
+                    ingestor.maybe_ingest_author_of_post(&post_uri).await,
+                )?;
             }
             Err(EventProcessorError::MissingDependency {
                 dependency: vec![post_uri_str.to_owned()],
@@ -334,12 +348,9 @@ async fn put_sync_user(
         }
         OperationOutcome::MissingDependency => {
             // Drop the tag (non-retryable) if the tagged user is on a blacklisted HS.
-            fail_on_blacklisted_hs(ingestor.maybe_ingest_user(&tagged_user_id).await)?;
+            fail_on_permanent_ingest_error(ingestor.maybe_ingest_user(&tagged_user_id).await)?;
 
-            let tagged_uri = tagged_user_id
-                .to_uri()
-                .try_to_uri_str()
-                .map_err(EventProcessorError::generic)?;
+            let tagged_uri = user_uri_builder(tagged_user_id.to_string());
             let dependency = vec![tagged_uri];
             Err(EventProcessorError::MissingDependency { dependency })
         }

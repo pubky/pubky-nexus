@@ -1973,7 +1973,9 @@ mod tests {
     #[test]
     fn post_stream_trust_rule_matches_authors_after_sorting_posts() {
         let tags = Some(vec!["a".to_string(), "b".to_string()]);
-        let kind = Some(KindFilter::Kind(pubky_app_specs::PubkyAppPostKind::Short));
+        let kind = Some(KindFilter::Kind(
+            pubky_social_specs::legacy_v0::PubkyAppPostKind::Short,
+        ));
         let cypher = all_stream(
             StreamSorting::Timeline,
             &tags,
@@ -1997,7 +1999,9 @@ mod tests {
     /// Engagement sorting drops hidden authors before counting engagement.
     #[test]
     fn post_stream_trust_rule_filters_engagement_streams() {
-        let kind = Some(KindFilter::Kind(pubky_app_specs::PubkyAppPostKind::Short));
+        let kind = Some(KindFilter::Kind(
+            pubky_social_specs::legacy_v0::PubkyAppPostKind::Short,
+        ));
         let ranked = Some(TrustRule::Ranked);
         let cypher = all_stream(StreamSorting::TotalEngagement, &None, kind, ranked);
         let rule = format!("WHERE {}", ranked_user("author"));

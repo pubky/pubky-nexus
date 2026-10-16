@@ -1,7 +1,7 @@
 use crate::db::{fetch_all_rows_from_graph, fetch_key_from_graph, queries, GraphError};
 use crate::models::error::ModelResult;
 use crate::types::StreamReach;
-use pubky_app_specs::PubkyId;
+use pubky_social_specs::PubkyId;
 use tokio::time::{timeout, Duration};
 use tracing::warn;
 

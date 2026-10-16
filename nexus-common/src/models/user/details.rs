@@ -6,7 +6,8 @@ use crate::models::error::ModelResult;
 use crate::models::traits::Collection;
 use async_trait::async_trait;
 use chrono::Utc;
-use pubky_app_specs::{PubkyAppUser, PubkyAppUserLink, PubkyId};
+use pubky_social_specs::legacy_v0::PubkyAppUserLink;
+use pubky_social_specs::PubkyId;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json;
 use utoipa::ToSchema;
@@ -134,20 +135,6 @@ impl UserDetails {
         }
     }
 
-    pub fn from_homeserver(homeserver_user: PubkyAppUser, user_id: &PubkyId) -> Self {
-        UserDetails {
-            name: homeserver_user.name,
-            bio: homeserver_user.bio,
-            status: homeserver_user.status,
-            links: homeserver_user.links,
-            image: homeserver_user.image,
-            id: user_id.clone(),
-            indexed_at: Utc::now().timestamp_millis(),
-            deleted: false,
-            epoch: Epoch::V0,
-        }
-    }
-
     /// Cleared profile written when a user with relationships is deleted.
     /// Every field is wiped; `deleted` is the only signal. `name` is emptied
     /// rather than dropped because it is not optional.
@@ -189,6 +176,11 @@ pub async fn set_user_homeserver(user_id: &str, homeserver_id: &str) -> GraphRes
 /// Toggles the stale flag on a user's existing homeserver mapping.
 pub async fn set_user_homeserver_stale(user_id: &str, stale: bool) -> GraphResult<()> {
     exec_single_row(queries::put::set_user_homeserver_stale(user_id, stale)).await
+}
+
+/// Refreshes `resolved_at` on a user's existing homeserver mapping, keeping its stale flag.
+pub async fn refresh_user_homeserver_resolved_at(user_id: &str) -> GraphResult<()> {
+    exec_single_row(queries::put::refresh_user_homeserver_resolved_at(user_id)).await
 }
 
 #[cfg(test)]

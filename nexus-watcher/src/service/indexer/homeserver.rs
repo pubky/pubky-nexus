@@ -13,7 +13,7 @@ use nexus_common::models::homeserver::Homeserver;
 use opentelemetry::metrics::Counter;
 use opentelemetry::{global, KeyValue};
 use pubky::Method;
-use pubky_app_specs::PubkyId;
+use pubky_social_specs::PubkyId;
 use reqwest::StatusCode;
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock};
@@ -174,7 +174,7 @@ impl TEventProcessor for HsEventProcessor {
     ///   diverged): log a warning and skip until the resolver realigns it.
     /// - An edge to a different homeserver: log a warning and skip.
     async fn should_process_event(&self, event: &Event) -> Result<bool, EventProcessorError> {
-        let user_id = event.parsed_uri.user_id();
+        let user_id = event.target.user_id();
 
         match self.user_hs_mapping(user_id).await? {
             // No mapping yet (graceful fallback) or actively bound here: process.
@@ -488,7 +488,7 @@ mod tests {
     use crate::errors::EventProcessorError;
     use crate::events::{MAX_ERROR_BODY, MAX_EVENTS_BODY};
     use nexus_common::db::PubkyClientError;
-    use pubky_app_specs::PubkyId;
+    use pubky_social_specs::PubkyId;
     use std::sync::Arc;
 
     const HS_ID: &str = "1hb71xx9km3f4pw5izsy1gn19ff1uuuqonw4mcygzobwkryujoiy";

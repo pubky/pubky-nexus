@@ -6,7 +6,7 @@ use crate::service::stats::{ProcessedStats, RunAllProcessorsStats};
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::types::DynError;
 use nexus_common::WatcherConfig;
-use pubky_app_specs::PubkyId;
+use pubky_social_specs::PubkyId;
 use std::sync::Arc;
 use tokio::sync::watch::Receiver;
 use tracing::debug;

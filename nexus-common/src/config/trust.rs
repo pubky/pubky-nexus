@@ -1,4 +1,4 @@
-use pubky_app_specs::PubkyId;
+use pubky_social_specs::PubkyId;
 use serde::{de::Error, Deserialize, Deserializer, Serialize};
 use std::collections::HashSet;
 use std::path::PathBuf;

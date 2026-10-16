@@ -1,5 +1,6 @@
 use crate::event_processor::posts::utils::{
-    find_post_details, pubky_id, short_post, short_repost, test_user,
+    find_post_counts, find_post_details, find_reply_relationship_parent_uri, resource_key,
+    short_post, short_reply, short_repost, test_user,
 };
 use crate::event_processor::utils::watcher::{HomeserverHashIdPath, WatcherTest};
 use anyhow::Result;
@@ -10,7 +11,7 @@ use nexus_common::types::Pagination;
 use nexus_common::utils::test_utils::default_ingestor_tests;
 use nexus_watcher::events::handlers;
 use pubky::Keypair;
-use pubky_app_specs::{
+use pubky_social_specs::legacy_v0::{
     post_uri_builder, PubkyAppBookmark, PubkyAppPost, PubkyAppPostKind, PubkyAppTag, PubkyAppUser,
 };
 
@@ -170,6 +171,97 @@ async fn test_delete_empty_repost_with_relationships() -> Result<()> {
     Ok(())
 }
 
+/// A tombstoned reply keeps its parent: the reply stays linked to the parent post,
+/// the parent's reply count holds, and the parent's author is told the reply was deleted.
+#[tokio_shared_rt::test(shared)]
+async fn test_delete_reply_with_relationships_keeps_parent() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+
+    let alice_kp = Keypair::random();
+    let alice_id = test
+        .create_user(
+            &alice_kp,
+            &test_user("Watcher:PostDelete:TombstonedReply:Alice", "alice"),
+        )
+        .await?;
+    let (post_id, _) = test
+        .create_post(
+            &alice_kp,
+            &short_post("Watcher:PostDelete:TombstonedReply:Post"),
+        )
+        .await?;
+    let post_uri = post_uri_builder(alice_id.clone(), post_id.clone());
+
+    let bob_kp = Keypair::random();
+    let bob_id = test
+        .create_user(
+            &bob_kp,
+            &test_user("Watcher:PostDelete:TombstonedReply:Bob", "bob"),
+        )
+        .await?;
+    let reply = short_reply("Watcher:PostDelete:TombstonedReply:Reply", post_uri.clone());
+    let (reply_id, reply_path) = test.create_post(&bob_kp, &reply).await?;
+    let reply_uri = post_uri_builder(bob_id.clone(), reply_id.clone());
+
+    // Carol's tag keeps the reply from being hard-deleted
+    let carol_kp = Keypair::random();
+    test.create_user(
+        &carol_kp,
+        &test_user("Watcher:PostDelete:TombstonedReply:Carol", "carol"),
+    )
+    .await?;
+    let tag = PubkyAppTag {
+        uri: reply_uri.clone(),
+        label: "tombstone".to_string(),
+        created_at: Utc::now().timestamp_millis(),
+    };
+    test.put(&carol_kp, &tag.hs_path(), tag).await?;
+
+    let replies_before = find_post_counts(&alice_id, &post_id).await.replies;
+
+    test.cleanup_post(&bob_kp, &reply_path).await?;
+
+    assert!(
+        find_post_details(&bob_id, &reply_id).await?.deleted,
+        "The tagged reply should survive as a tombstone"
+    );
+    assert_eq!(
+        find_reply_relationship_parent_uri(&bob_id, &reply_id).await?,
+        post_uri,
+        "The tombstone should still reply to Alice's post"
+    );
+    assert_eq!(
+        find_post_counts(&alice_id, &post_id).await.replies,
+        replies_before,
+        "Alice's post should keep its reply count"
+    );
+
+    // Newest first: the deletion, then the reply itself
+    let notifications = Notification::get_by_id(&alice_id, Pagination::default()).await?;
+    assert_eq!(
+        notifications.len(),
+        2,
+        "Alice should have the reply and the deletion notifications"
+    );
+    match &notifications[0].body {
+        NotificationBody::PostDeleted {
+            delete_source,
+            deleted_by,
+            deleted_uri,
+            linked_uri,
+            ..
+        } => {
+            assert_eq!(delete_source, &PostChangedSource::Reply);
+            assert_eq!(deleted_by, &bob_id);
+            assert_eq!(deleted_uri, &reply_uri);
+            assert_eq!(linked_uri, &post_uri);
+        }
+        other => panic!("Expected a PostDeleted reply notification, got {other:?}"),
+    }
+
+    Ok(())
+}
+
 /// Resurrection: delete a post with relationships, re-PUT it at the same path,
 /// and assert deleted == false with the new content.
 #[tokio_shared_rt::test(shared)]
@@ -269,10 +361,9 @@ async fn test_live_post_with_sentinel_content_is_not_tombstoned() -> Result<()> 
     // Edit to the legacy sentinel through the real handler, so the graph and
     // the cache are written in production order
     handlers::post::sync_put(
-        short_post("[DELETED]"),
+        short_post("[DELETED]").into(),
+        resource_key(&author_id, &post_id)?,
         post_uri_builder(author_id.clone(), post_id.clone()),
-        pubky_id(&author_id)?,
-        post_id.clone(),
         &default_ingestor_tests(),
     )
     .await?;

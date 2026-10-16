@@ -84,7 +84,7 @@ mod live {
     use crate::models::user::SocialGraphStatus;
     use crate::types::{DynError, Pagination, StreamSorting};
     use crate::{FeaturesConfig, StackConfig, StackManager};
-    use pubky_app_specs::PubkyAppPostKind;
+    use pubky_social_specs::legacy_v0::PubkyAppPostKind;
 
     type TestResult = Result<(), DynError>;
 

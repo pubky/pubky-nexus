@@ -7,12 +7,14 @@ use nexus_common::models::user::UserIngestor;
 use nexus_common::utils::test_utils::random_pubky_id;
 use nexus_common::DEFAULT_MAX_FILE_SIZE;
 use nexus_watcher::events::handlers::file::sync_put;
+use nexus_watcher::events::inputs::ResourceKey;
 use nexus_watcher::EventProcessorError;
 use pubky::Keypair;
-use pubky_app_specs::traits::{HasIdPath, HashId, TimestampId};
-use pubky_app_specs::{
-    blob_uri_builder, file_uri_builder, PubkyAppBlob, PubkyAppFile, PubkyAppUser, PubkyId,
+use pubky_social_specs::legacy_v0::traits::{HasIdPath, HashId, TimestampId};
+use pubky_social_specs::legacy_v0::{
+    blob_uri_builder, file_uri_builder, PubkyAppBlob, PubkyAppFile, PubkyAppUser,
 };
+use pubky_social_specs::PubkyId;
 
 /// Creates a user on the test homeserver, uploads a blob and returns the
 /// `PubkyAppFile` pointing at it, along with the ids needed for `sync_put`.
@@ -63,11 +65,14 @@ async fn test_file_ingest_aborts_on_blacklisted_source_homeserver() -> Result<()
     // Ingestor blacklisting the HS that hosts the blob source (the test homeserver)
     let ingestor = UserIngestor::new([test.homeserver_id.clone()]);
 
+    let key = ResourceKey {
+        owner_id: user_pubky_id,
+        resource_id: file_id.clone(),
+    };
     let err = sync_put(
-        file,
+        file.into(),
+        key,
         file_uri,
-        user_pubky_id,
-        file_id.clone(),
         test.temp_dir.path(),
         DEFAULT_MAX_FILE_SIZE,
         &ingestor,
@@ -123,11 +128,14 @@ async fn test_file_ingest_aborts_when_source_is_blacklisted_hs_pk_directly() -> 
     // Ingestor blacklisting the HS PK used as the direct blob source.
     let ingestor = UserIngestor::new([test.homeserver_id.clone()]);
 
+    let key = ResourceKey {
+        owner_id: owner_id.clone(),
+        resource_id: file_id.clone(),
+    };
     let err = sync_put(
-        file,
+        file.into(),
+        key,
         file_uri,
-        owner_id.clone(),
-        file_id.clone(),
         test.temp_dir.path(),
         DEFAULT_MAX_FILE_SIZE,
         &ingestor,
@@ -172,11 +180,14 @@ async fn test_file_ingest_proceeds_when_source_homeserver_not_blacklisted() -> R
     // Ingestor blacklisting an unrelated HS; the source HS is not in the list
     let ingestor = UserIngestor::new([random_pubky_id()]);
 
+    let key = ResourceKey {
+        owner_id: user_pubky_id,
+        resource_id: file_id.clone(),
+    };
     sync_put(
-        file.clone(),
+        file.clone().into(),
+        key,
         file_uri,
-        user_pubky_id,
-        file_id.clone(),
         test.temp_dir.path(),
         DEFAULT_MAX_FILE_SIZE,
         &ingestor,
