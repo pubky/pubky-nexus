@@ -4,13 +4,24 @@ pub mod event;
 pub use event::{Event, EventType, ParseResult};
 
 use crate::errors::EventProcessorError;
+use crate::service::indexer::METER_NAME;
+use nexus_common::models::takedown::is_taken_down;
 use nexus_common::WatcherConfig;
+use opentelemetry::{global, metrics::Counter};
 use pubky_app_specs::{ExtendedParsedUri, PubkyAppObject, Resource};
 use std::{
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, LazyLock},
 };
 use tracing::debug;
+
+/// Counter for events skipped because the moderator took their record down.
+static TAKEN_DOWN: LazyLock<Counter<u64>> = LazyLock::new(|| {
+    global::meter(METER_NAME)
+        .u64_counter("watcher.events.taken_down")
+        .with_description("Events skipped because the moderator took their record down")
+        .build()
+});
 
 mod fetch;
 pub mod handlers;
@@ -99,6 +110,13 @@ pub async fn handle_put_event(
     moderation: Arc<Moderation>,
     ingestor: Arc<UserIngestor>,
 ) -> Result<(), EventProcessorError> {
+    // Whatever order events arrive in, a record the moderator took down stays down.
+    if is_taken_down(&event.uri).await? {
+        TAKEN_DOWN.add(1, &[]);
+        debug!(event.uri = %event.uri, "Record was taken down by the moderator; skipping event");
+        return Ok(());
+    }
+
     let pubky = PubkyConnector::get()?;
     let response = pubky.public_storage().get(&event.uri).await?;
 

@@ -1883,6 +1883,14 @@ pub fn get_tag_by_tagger_and_id(tagger_id: &str, tag_id: &str) -> Query {
     .param("tag_id", tag_id)
 }
 
+/// Retrieves every address the moderator took down.
+pub fn get_takedown_uris() -> Query {
+    Query::new(
+        "get_takedown_uris",
+        "MATCH (t:Takedown) RETURN collect(t.uri) AS uris",
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
