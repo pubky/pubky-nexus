@@ -1,9 +1,8 @@
 use crate::migrations::manager::Migration;
 use async_trait::async_trait;
 use futures::StreamExt;
+use nexus_common::db::get_neo4j_graph;
 use nexus_common::db::graph::Query;
-use nexus_common::db::{get_neo4j_graph, RedisOps};
-use nexus_common::models::user::UserDetails;
 use nexus_common::types::DynError;
 use tracing::info;
 
@@ -20,14 +19,10 @@ use tracing::info;
 ///   The filters keep their `coalesce()` — dropping it would make a missing property read
 ///   as deleted, which silently drops the user from `get_active_users_by_homeserver` and
 ///   stops the watcher indexing them.
-/// - Invalidates cached tombstone JSON per page. Live users' pre-migration entries lack
-///   the key and deserialize to `false`, which is already correct.
 ///
 /// # Batching
 /// Nothing indexes `:User(deleted)` or `:User(name)`, so the backfill scans once and lets
 /// the server commit per batch via `IN TRANSACTIONS`, instead of re-scanning per batch.
-/// Tombstone IDs use keyset pagination over the `uniqueUserId` index; `SKIP`/`LIMIT`
-/// replans as a label scan with `Limit $limit + $skip`, re-reading every earlier row.
 ///
 /// # Why the name is authoritative here
 /// Only for the legacy rows this runs against: `PubkyAppUser::sanitize` rewrites a
@@ -61,9 +56,6 @@ use tracing::info;
 /// migration now sees every tombstone as a live user with an empty profile, where it used
 /// to still filter them by name.
 pub struct UserDeletedFlag1780617600;
-
-/// Tombstone IDs invalidated per keyset page.
-const TOMBSTONE_PAGE_SIZE: usize = 10_000;
 
 #[async_trait]
 impl Migration for UserDeletedFlag1780617600 {
@@ -130,55 +122,7 @@ impl Migration for UserDeletedFlag1780617600 {
             .into());
         }
 
-        // Tombstones only: live users' missing key already deserializes to false. This pass
-        // is also what propagates the cleared name — cached JSON still holds '[DELETED]'.
-        let mut cursor = String::new();
-        let mut total_tombstoned: usize = 0;
-
-        loop {
-            let page = Query::new(
-                "user_deleted_flag_tombstones",
-                "MATCH (u:User)
-                 WHERE u.deleted = true AND u.id > $cursor
-                 RETURN u.id AS id
-                 ORDER BY id
-                 LIMIT $limit",
-            )
-            .param("cursor", cursor.clone())
-            .param("limit", TOMBSTONE_PAGE_SIZE as i64);
-
-            let mut rows = graph.execute(page).await?;
-            let mut ids: Vec<String> = Vec::with_capacity(TOMBSTONE_PAGE_SIZE);
-            while let Some(row) = rows.next().await {
-                ids.push(row?.get::<String>("id")?);
-            }
-
-            // Empty page: past the last tombstone.
-            let Some(last_id) = ids.last().cloned() else {
-                break;
-            };
-            cursor = last_id;
-
-            let owned: Vec<Vec<&str>> = ids.iter().map(|id| vec![id.as_str()]).collect();
-            let key_parts_list: Vec<&[&str]> = owned.iter().map(|k| k.as_slice()).collect();
-            UserDetails::remove_from_index_multiple_json(&key_parts_list).await?;
-
-            total_tombstoned += ids.len();
-            info!(
-                "UserDeletedFlag migration: invalidated {} tombstone cache entries ({} total)",
-                ids.len(),
-                total_tombstoned
-            );
-
-            if ids.len() < TOMBSTONE_PAGE_SIZE {
-                break;
-            }
-        }
-
-        info!(
-            "UserDeletedFlag migration: complete — {} tombstones flagged and cleared, {} cache entries invalidated",
-            processed, total_tombstoned
-        );
+        info!("UserDeletedFlag migration: complete — {processed} tombstones flagged and cleared");
 
         Ok(())
     }

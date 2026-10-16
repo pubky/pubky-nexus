@@ -6,7 +6,9 @@ use anyhow::Result;
 use chrono::Utc;
 use nexus_common::db::{exec_single_row, graph::Query, PubkyClientError, RedisOps};
 use nexus_common::models::homeserver::{Homeserver, HsBlacklist};
-use nexus_common::models::user::{set_user_homeserver, user_hs_cursor_key, Epoch, UserDetails};
+use nexus_common::models::user::{
+    set_user_homeserver, user_hs_cursor_key, Epoch, UserDetails, UserHsCursor,
+};
 use nexus_common::types::DynError;
 use nexus_common::utils::test_utils::random_pubky_id;
 use nexus_common::WatcherConfig;
@@ -66,7 +68,7 @@ async fn key_based_processor_rejects_unrecognized_event_for_mismatched_user() ->
     let user_id = create_user_on_homeserver(&homeserver).await?;
     let mismatched_user_id = random_pubky_id().to_string();
     let cursor_key = user_hs_cursor_key(&user_id);
-    UserDetails::put_index_sorted_set(&cursor_key, &[(10.0, hs_id.as_str())], None, None).await?;
+    UserHsCursor::put_index_sorted_set(&cursor_key, &[(10.0, hs_id.as_str())], None, None).await?;
 
     let source = Arc::new(MockKeyBasedEventSource::default().with_events(vec![vec![
         stream_event(100, &mismatched_user_id, "/pub/other.app/profile.json")?,
@@ -138,7 +140,7 @@ async fn key_based_processor_stops_mismatched_user_stream_but_continues_other_us
     // The mismatched user's cursor must not be persisted: the bad event is the first in the
     // batch, so `latest_cursor` is never set and no write to the USER_HS_CURSOR set should occur.
     let cursor_a =
-        UserDetails::check_sorted_set_member(None, &user_hs_cursor_key(&user_a_id), &[&hs_id])
+        UserHsCursor::check_sorted_set_member(None, &user_hs_cursor_key(&user_a_id), &[&hs_id])
             .await?;
     assert!(
         cursor_a.is_none(),
@@ -203,7 +205,8 @@ async fn key_based_processor_propagates_cursor_read_errors() -> Result<(), DynEr
     let (_hs_keypair, homeserver) = create_homeserver().await?;
     let user_id = create_user_on_homeserver(&homeserver).await?;
     let cursor_key = user_hs_cursor_key(&user_id);
-    test_user_details(&user_id)?
+    // A JSON document where the cursor sorted set should be
+    UserHsCursor
         .put_index_json(&cursor_key, Some("Sorted".into()), None)
         .await?;
 
@@ -228,7 +231,7 @@ async fn key_based_processor_passes_stored_cursor_and_limit_to_source() -> Resul
     let hs_id = homeserver.id.to_string();
     let user_id = create_user_on_homeserver(&homeserver).await?;
     let cursor_key = user_hs_cursor_key(&user_id);
-    UserDetails::put_index_sorted_set(&cursor_key, &[(42.0, hs_id.as_str())], None, None).await?;
+    UserHsCursor::put_index_sorted_set(&cursor_key, &[(42.0, hs_id.as_str())], None, None).await?;
 
     let source = Arc::new(MockKeyBasedEventSource::default());
     let handler = create_mock_handler(Ok(()), None);
@@ -344,7 +347,7 @@ async fn key_based_processor_does_not_rewind_stored_cursor() -> Result<(), DynEr
     let hs_id = homeserver.id.to_string();
     let user_id = create_user_on_homeserver(&homeserver).await?;
     let cursor_key = user_hs_cursor_key(&user_id);
-    UserDetails::put_index_sorted_set(&cursor_key, &[(42.0, hs_id.as_str())], None, None).await?;
+    UserHsCursor::put_index_sorted_set(&cursor_key, &[(42.0, hs_id.as_str())], None, None).await?;
 
     // A malformed or malicious homeserver could return an old event after being
     // asked for cursor 42. The persisted cursor must remain at 42.
@@ -383,7 +386,7 @@ async fn key_based_processor_rejects_cursor_equal_to_stored() -> Result<(), DynE
     let hs_id = homeserver.id.to_string();
     let user_id = create_user_on_homeserver(&homeserver).await?;
     let cursor_key = user_hs_cursor_key(&user_id);
-    UserDetails::put_index_sorted_set(&cursor_key, &[(42.0, hs_id.as_str())], None, None).await?;
+    UserHsCursor::put_index_sorted_set(&cursor_key, &[(42.0, hs_id.as_str())], None, None).await?;
 
     // Asked to continue from 42, the homeserver re-returns the event at 42.
     let source =
@@ -1112,22 +1115,8 @@ async fn create_invalid_user_on_homeserver(
     Ok(())
 }
 
-fn test_user_details(user_id: &str) -> Result<UserDetails, DynError> {
-    Ok(UserDetails {
-        id: PubkyId::try_from(user_id)?,
-        name: "key-based-processor-test-user".into(),
-        bio: None,
-        status: None,
-        links: None,
-        image: None,
-        indexed_at: Utc::now().timestamp_millis(),
-        deleted: false,
-        epoch: Epoch::V0,
-    })
-}
-
 async fn user_cursor(user_id: &str, hs_id: &str) -> Result<Option<isize>, DynError> {
-    Ok(UserDetails::check_sorted_set_member(None, &user_hs_cursor_key(user_id), &[hs_id]).await?)
+    Ok(UserHsCursor::check_sorted_set_member(None, &user_hs_cursor_key(user_id), &[hs_id]).await?)
 }
 
 fn stream_event(cursor: u64, user_id: &str, path: &str) -> Result<StreamEvent, DynError> {

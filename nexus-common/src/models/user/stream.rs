@@ -104,7 +104,7 @@ impl UserStream {
         viewer_id: Option<&str>,
         depth: Option<u8>,
     ) -> ModelResult<Option<Self>> {
-        // Use the new mget batch operation to retrieve all user views efficiently
+        // One bulk read for every user view
         let user_views_result = UserView::get_by_ids(user_ids, viewer_id, depth).await?;
 
         let mut user_views = Vec::with_capacity(user_ids.len());

@@ -1,21 +1,16 @@
 use super::Epoch;
-use crate::db::kv::RedisResult;
 use crate::db::{
     exec_single_row, fetch_all_rows_from_graph, fetch_key_from_graph, queries, GraphResult,
-    RedisOps,
 };
 use crate::models::error::ModelResult;
-use async_trait::async_trait;
 use chrono::Utc;
 use pubky_app_specs::{PubkyAppUser, PubkyAppUserLink, PubkyId};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json;
 use utoipa::ToSchema;
 
-#[async_trait]
-impl RedisOps for UserDetails {}
-
-/// Represents user data with name, bio, image, links, and status.
+/// Represents user data with name, bio, image, links, and status. Read from
+/// the graph, never cached.
 #[derive(Serialize, Deserialize, ToSchema, Clone, Debug)]
 pub struct UserDetails {
     pub name: String,
@@ -72,9 +67,8 @@ where
     D: Deserializer<'de>,
 {
     // Neo4j drops null/missing properties, so pre-migration nodes will lack the
-    // `deleted` field entirely. Redis JSON cache entries written before the
-    // migration similarly lack this key. Deserialize through Option<bool> so a
-    // missing property yields None (→ false), while a present value is respected.
+    // `deleted` field entirely. Deserialize through Option<bool> so a missing
+    // property yields None (→ false), while a present value is respected.
     // Serializes as a plain non-optional `bool` for the API.
     let value = Option::<bool>::deserialize(deserializer)?;
     Ok(value.unwrap_or(false))
@@ -84,9 +78,9 @@ fn deserialize_user_epoch<'de, D>(deserializer: D) -> Result<Epoch, D::Error>
 where
     D: Deserializer<'de>,
 {
-    // Nodes and cached JSON without an epoch lack the field. neo4rs
-    // hands a missing node property to a deserializer that only accepts `Option`,
-    // so `#[serde(default)]` alone is not enough.
+    // Nodes without an epoch lack the field. neo4rs hands a missing node
+    // property to a deserializer that only accepts `Option`, so
+    // `#[serde(default)]` alone is not enough.
     let value = Option::<Epoch>::deserialize(deserializer)?;
     Ok(value.unwrap_or_default())
 }
@@ -170,11 +164,6 @@ impl UserDetails {
     /// Writes a profile read from the homeserver, storing `uri` (its event path) on the node.
     pub async fn put_profile_to_graph(&self, uri: &str) -> GraphResult<()> {
         exec_single_row(queries::put::create_user(self, Some(uri))?).await
-    }
-
-    /// Caches the details in Redis under the user's id.
-    pub async fn put_to_index(&self) -> RedisResult<()> {
-        self.put_index_json(&[self.id.as_ref()], None, None).await
     }
 }
 
@@ -285,24 +274,5 @@ mod tests {
             let details: UserDetails = node(stored).to().expect("should deserialize");
             assert_eq!(details.epoch, expected, "stored epoch {stored:?}");
         }
-    }
-
-    /// A `User:Details` JSON document cached before epochs existed reads as `V0`.
-    #[test]
-    fn deserialize_from_json_without_epoch() {
-        let json = serde_json::json!({
-            "name": "Dave",
-            "bio": null,
-            "id": "uo7jgkykft4885n8cruizwy6khw71mnu5pq3ay9i8pw1ymcn85ko",
-            "links": null,
-            "status": null,
-            "image": null,
-            "indexed_at": 1724134095000_i64,
-            "deleted": false
-        });
-
-        let details: UserDetails =
-            serde_json::from_value(json).expect("should deserialize without epoch");
-        assert_eq!(details.epoch, Epoch::V0);
     }
 }
