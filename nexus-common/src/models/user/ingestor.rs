@@ -3,7 +3,6 @@ use pubky_app_specs::{ParsedUri, PubkyId};
 use crate::db::PubkyConnector;
 use crate::models::error::{ModelError, ModelResult};
 use crate::models::homeserver::HsBlacklist;
-use crate::models::traits::Collection;
 use crate::models::user::{set_user_homeserver, UserDetails, UserHsCursor};
 use crate::StackConfig;
 
@@ -90,10 +89,10 @@ impl UserIngestor {
 
         let user_details = UserDetails::from_pubky(user_id.clone());
 
-        // Do not add to index, as this would affect the timeline of events for this user.
-        // Only create stub graph node for HS-resolver to store user-HS mapping.
+        // Stub node for the HS-resolver to store the user-HS mapping. Profile indexes
+        // (details, search) wait for the profile event; counts are created with the node.
         user_details
-            .put_to_graph()
+            .create(None)
             .await
             .inspect(|_| tracing::info!("Ingested user {user_id} from HS {hs_id}"))
             .inspect_err(|e| tracing::error!("Failed to ingest user {user_id}: {e}"))?;
