@@ -45,7 +45,7 @@ async fn test_delete_user_without_relationships() -> Result<()> {
     );
 
     // Attempt to find user counts; should not exist
-    let user_counts_result = UserCounts::get_by_id(&user_id).await.unwrap();
+    let user_counts_result = UserCounts::get_from_index(&user_id).await.unwrap();
     assert!(
         user_counts_result.is_none(),
         "User counts should not be found after deletion"
