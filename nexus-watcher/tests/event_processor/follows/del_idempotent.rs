@@ -107,8 +107,9 @@ async fn test_follow_del_idempotent() -> Result<()> {
 }
 
 /// Test partial failure recovery: the original DEL attempt failed before SREM
-/// ran, so the follow sets still reflect the PUT state (stale). On retry,
-/// sync_del should clean them up.
+/// ran, so the follow sets still reflect the PUT state (stale) and the graph
+/// edge, deleted last, is still there. On retry, sync_del should clean the sets
+/// up and delete the edge.
 #[tokio_shared_rt::test(shared)]
 async fn test_follow_del_recovers_stale_indexes() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
@@ -145,14 +146,19 @@ async fn test_follow_del_recovers_stale_indexes() -> Result<()> {
     let follower_counts = find_user_counts(&follower_id).await;
     assert_eq!(follower_counts.following, 0);
 
-    // Simulate partial failure: restore the follow sets to their PUT state
-    // as if the original DEL never ran SREM.
+    // Simulate partial failure: restore the graph edge and the follow sets to
+    // their PUT state as if the original DEL never ran SREM.
+    Followers::put_to_graph(&follower_id, &followee_id).await?;
     let followers = Followers(vec![follower_id.to_string()]);
     let following = Following(vec![followee_id.to_string()]);
     followers.put_to_index(&followee_id).await?;
     following.put_to_index(&follower_id).await?;
 
-    // Verify stale state: indexes present
+    // Verify stale state: graph edge and indexes present
+    assert!(
+        find_follow_relationship(&follower_id, &followee_id).await?,
+        "Graph edge should still exist (simulated failure)"
+    );
     let (_, is_follower) = Followers::check_set_member(&[&followee_id], &follower_id).await?;
     assert!(is_follower, "Stale follower index should be present");
     let (_, is_following) = Following::check_set_member(&[&follower_id], &followee_id).await?;
