@@ -16,6 +16,9 @@ use crate::db::{fetch_all_rows_from_graph, fetch_key_from_graph, queries, RedisO
 const GLOBAL_INFLUENCERS_PREFIX: &str = "Cache:Influencers";
 /// Users per graph read when the AllTime ranking is rebuilt.
 const ALL_TIME_PAGE_SIZE: usize = 500;
+/// Taken by a request that finds a ranking's key missing, so requests that miss
+/// together share one rebuild instead of each reading the whole graph.
+static REBUILD_ON_MISS: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 /// How many global influencers each cache-backed timeframe holds. Pages past this
 /// are empty by construction, so callers should reject skips beyond it rather than
 /// treat the empty page as a cache miss.
@@ -113,7 +116,8 @@ impl Influencers {
     /// It first attempts to fetch a subset of global influencers from cache
     /// based on the provided `skip` and `limit`. Only a missing cache key counts as a
     /// miss: then it rebuilds the ranking from the graph with [`Self::refresh`] and
-    /// retrieves the requested subset again from cache.
+    /// retrieves the requested subset again from cache. One rebuild runs at a time:
+    /// a request that waited for another's checks the key again first.
     /// An existing key whose window is empty (skip past the end, or every user in
     /// the window deleted) is served as an empty page, since refetching would rebuild
     /// the same ranking and rewrite the key on every such request.
@@ -134,6 +138,11 @@ impl Influencers {
             return Ok(cached_influencers);
         }
 
+        let _rebuild = REBUILD_ON_MISS.lock().await;
+        let cached_influencers = Influencers::get_from_global_cache(skip, limit, timeframe).await?;
+        if cached_influencers.is_some() {
+            return Ok(cached_influencers);
+        }
         Influencers::refresh(timeframe).await?;
         Influencers::get_from_global_cache(skip, limit, timeframe)
             .await
@@ -435,8 +444,10 @@ impl Influencers {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::get_redis_conn;
     use crate::models::{traits::Collection, user::UserCounts};
     use crate::{types::DynError, StackConfig, StackManager};
+    use deadpool_redis::redis;
     use pubky::Keypair;
     use pubky_app_specs::PubkyId;
     use std::collections::HashMap;
@@ -688,6 +699,54 @@ mod tests {
         );
         assert_eq!(paged, whole);
         Ok(())
+    }
+
+    /// Requests that find the AllTime key missing share one rebuild: each waits for the
+    /// one in progress, then finds the key instead of reading the whole graph again.
+    /// Counts the ranking's replace script in Redis's server-wide command stats, so
+    /// `.config/nextest.toml` runs it alone.
+    #[tokio_shared_rt::test(shared)]
+    async fn requests_that_miss_together_share_one_rebuild() -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+        // Load the replace script first, so a NOSCRIPT retry cannot add a call below.
+        Influencers::refresh(&Timeframe::AllTime).await?;
+        Influencers::replace_index_sorted_set(&USER_INFLUENCERS_KEY_PARTS, &[], None, None).await?;
+        let requests = 8;
+        let scripts_before = evalsha_calls().await?;
+
+        let pages =
+            futures::future::try_join_all((0..requests).map(|_| {
+                Influencers::get_influencers(None, None, 0, 20, Timeframe::AllTime, false)
+            }))
+            .await?;
+
+        let rebuilds = evalsha_calls().await? - scripts_before;
+        assert_eq!(
+            rebuilds, 1,
+            "{requests} requests that missed together must share one rebuild"
+        );
+        assert!(
+            pages
+                .iter()
+                .all(|page| page.as_ref().is_some_and(|p| p.len() == 20)),
+            "every request must get a full page"
+        );
+        Ok(())
+    }
+
+    /// How many scripts Redis has run by hash (`EVALSHA`), across every client.
+    async fn evalsha_calls() -> RedisResult<u64> {
+        let mut conn = get_redis_conn().await?;
+        let stats: String = redis::cmd("INFO")
+            .arg("commandstats")
+            .query_async(&mut conn)
+            .await?;
+        Ok(stats
+            .lines()
+            .find_map(|line| line.strip_prefix("cmdstat_evalsha:calls="))
+            .and_then(|rest| rest.split(',').next())
+            .and_then(|calls| calls.parse().ok())
+            .unwrap_or(0))
     }
 
     /// The whole AllTime ranking under `prefix`, the live one for `None`.
