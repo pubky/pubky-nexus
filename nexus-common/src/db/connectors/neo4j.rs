@@ -44,7 +44,8 @@ impl Neo4jConnector {
             .uri(&config.uri)
             .user(&config.user)
             .password(&config.password)
-            // neo4rs 0.8 always used `neo4j`; later versions follow the server's default
+            // The graph lives in the neo4j database; without this, neo4rs uses the
+            // server's default database
             .db("neo4j")
             .connection_timeout(NEO4J_REPLY_TIMEOUT)
             .build()?;

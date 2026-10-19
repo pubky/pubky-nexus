@@ -10,6 +10,8 @@ use super::query::Query;
 #[async_trait]
 pub trait GraphOps: Send + Sync {
     /// Execute query, return boxed row stream.
+    ///
+    /// Neo4j starts the query before this returns, whether or not the stream is polled.
     async fn execute(
         &self,
         query: Query,
