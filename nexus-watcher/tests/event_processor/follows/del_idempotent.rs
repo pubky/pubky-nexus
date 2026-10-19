@@ -10,8 +10,8 @@ use nexus_watcher::events::handlers::follow;
 use pubky::Keypair;
 use pubky_app_specs::{PubkyAppUser, PubkyId};
 
-/// Test that calling sync_del twice (simulating a retry) does not produce
-/// negative counts or corrupt indexes.
+/// Test that calling sync_del twice (simulating a retry) leaves the counts at 0
+/// and the indexes clean.
 #[tokio_shared_rt::test(shared)]
 async fn test_follow_del_idempotent() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
@@ -75,7 +75,7 @@ async fn test_follow_del_idempotent() -> Result<()> {
     let followee_pubky = PubkyId::from(followee_kp.clone());
     follow::sync_del(follower_pubky, followee_pubky).await?;
 
-    // Verify counts are still 0 (not negative)
+    // Verify counts are still 0
     let followee_counts = find_user_counts(&followee_id).await;
     assert_eq!(
         followee_counts.followers, 0,
@@ -254,7 +254,7 @@ async fn test_follow_del_friends_idempotent() -> Result<()> {
     let b_pubky = PubkyId::from(b_kp.public_key());
     follow::sync_del(a_pubky, b_pubky).await?;
 
-    // Verify counts unchanged (friends not double-decremented)
+    // Verify counts unchanged
     let a_counts = find_user_counts(&a_id).await;
     assert_eq!(
         a_counts.friends, 0,
