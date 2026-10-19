@@ -315,17 +315,13 @@ cron = \"0 47 3,15 * * *\"\n";
         );
     }
 
-    /// The AllTime ranking keeps its own schedule while its section is absent: a
-    /// section with a `cron` overrides it, and one without turns the job off. The
-    /// ranged caches have none, so they stay opt-in.
+    /// The AllTime ranking keeps its own schedule, daily at 02:04 UTC as the docs
+    /// say, while its section is absent: a section with a `cron` overrides it, and
+    /// one without turns the job off. The ranged caches have none, so they stay opt-in.
     #[tokio::test]
     async fn scheduled_jobs_fall_back_to_a_jobs_own_schedule() {
-        let all_time = Arc::new(InfluencersCacheJob::new(Timeframe::AllTime));
-        let own_schedule = all_time
-            .default_cron()
-            .expect("the AllTime job has its own schedule");
         let registry = JobRegistry::new(vec![
-            all_time,
+            Arc::new(InfluencersCacheJob::new(Timeframe::AllTime)),
             Arc::new(InfluencersCacheJob::new(Timeframe::Today)),
             Arc::new(CountingJob::new("trust-recompute")),
         ]);
@@ -333,7 +329,7 @@ cron = \"0 47 3,15 * * *\"\n";
         let overridden = format!("{section}cron = \"0 0 * * * *\"\n");
 
         for (extra, expected_cron) in [
-            ("", Some(own_schedule)),
+            ("", Some("0 4 2 * * *")),
             (overridden.as_str(), Some("0 0 * * * *")),
             (section, None),
         ] {
