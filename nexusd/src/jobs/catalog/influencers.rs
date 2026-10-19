@@ -20,9 +20,9 @@ use crate::jobs::Job;
 /// an I/O window this short is unaffected by host suspend.
 const REFRESH_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 
-/// Every 10 minutes, at minutes no other job uses. The AllTime ranking has no TTL
-/// and no other writer, so its job runs on this unless the config says otherwise.
-const ALL_TIME_CRON: &str = "0 4/10 * * * *";
+/// Once a day at 02:04 UTC, clear of the other jobs' times. The AllTime ranking has
+/// no TTL and no other writer, so its job runs on this unless the config says otherwise.
+const ALL_TIME_CRON: &str = "0 4 2 * * *";
 
 /// The graph scan + cache write for one timeframe outran `REFRESH_TIMEOUT`.
 #[derive(Debug, thiserror::Error)]
