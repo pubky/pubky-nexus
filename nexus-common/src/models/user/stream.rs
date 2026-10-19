@@ -549,7 +549,8 @@ fn interleave_unique(ranked: Vec<Vec<String>>) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        interleave_unique, UserStream, MOST_FOLLOWED_PAGE_SIZE, USER_MOSTFOLLOWED_KEY_PARTS,
+        interleave_unique, UserStream, MOST_FOLLOWED_PAGE_SIZE, REBUILD_ON_MISS,
+        USER_MOSTFOLLOWED_KEY_PARTS,
     };
     use crate::db::kv::{RedisResult, SortOrder};
     use crate::db::{get_redis_conn, RedisOps};
@@ -563,6 +564,7 @@ mod tests {
     use pubky::Keypair;
     use pubky_app_specs::PubkyId;
     use std::collections::HashMap;
+    use std::time::Duration;
 
     fn lists(raw: &[&[&str]]) -> Vec<Vec<String>> {
         raw.iter()
@@ -786,6 +788,22 @@ mod tests {
                 .all(|page| page.as_ref().is_some_and(|p| p.len() == 20)),
             "every request must get a full page"
         );
+        Ok(())
+    }
+
+    /// The rebuild lock only holds up misses: with it taken, a read that finds the ranking
+    /// returns. Rewrites the live ranking first so the read is a hit, so nextest runs it
+    /// alone.
+    #[tokio_shared_rt::test(shared)]
+    async fn a_rebuild_holds_up_only_misses() -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+        UserStream::refresh_most_followed().await?;
+        let _rebuild = REBUILD_ON_MISS.lock().await;
+
+        let read = UserStream::get_most_followed(Some(0), Some(5));
+        tokio::time::timeout(Duration::from_secs(5), read)
+            .await
+            .expect("a read that finds the ranking must not wait for a rebuild")?;
         Ok(())
     }
 
