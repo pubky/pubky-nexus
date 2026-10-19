@@ -34,7 +34,7 @@ async fn test_user_del_idempotent() -> Result<()> {
         user_details_result.is_err(),
         "User details should not be found in graph after deletion"
     );
-    let user_counts = UserCounts::get_by_id(&user_id).await?;
+    let user_counts = UserCounts::get_from_index(&user_id).await?;
     assert!(
         user_counts.is_none(),
         "User counts should not be found after deletion"
@@ -55,7 +55,7 @@ async fn test_user_del_idempotent() -> Result<()> {
         user_details_result.is_err(),
         "User details should still not be found after retry"
     );
-    let user_counts = UserCounts::get_by_id(&user_id).await?;
+    let user_counts = UserCounts::get_from_index(&user_id).await?;
     assert!(
         user_counts.is_none(),
         "User counts should still not be found after retry"
@@ -86,7 +86,7 @@ async fn test_user_del_graph_last_recovery() -> Result<()> {
     // Sanity: verify everything is set up
     let user_details = find_user_details(&user_id).await;
     assert!(user_details.is_ok(), "User should exist in graph");
-    let user_counts = UserCounts::get_by_id(&user_id).await?;
+    let user_counts = UserCounts::get_from_index(&user_id).await?;
     assert!(user_counts.is_some(), "User counts should exist in Redis");
 
     // Simulate partial failure of a previous del() attempt:
@@ -105,7 +105,7 @@ async fn test_user_del_graph_last_recovery() -> Result<()> {
         user_details_graph.is_ok(),
         "Graph node should still exist (graph-last)"
     );
-    let user_counts = UserCounts::get_by_id(&user_id).await?;
+    let user_counts = UserCounts::get_from_index(&user_id).await?;
     assert!(
         user_counts.is_some(),
         "UserCounts should still be in Redis (simulated failure)"
@@ -121,7 +121,7 @@ async fn test_user_del_graph_last_recovery() -> Result<()> {
         user_details_result.is_err(),
         "Graph node should be deleted after recovery"
     );
-    let user_counts = UserCounts::get_by_id(&user_id).await?;
+    let user_counts = UserCounts::get_from_index(&user_id).await?;
     assert!(
         user_counts.is_none(),
         "UserCounts should be cleaned after recovery"

@@ -72,10 +72,10 @@ async fn test_delete_post_without_relationships() -> Result<()> {
         "Post view should not be found after deletion"
     );
 
-    let user_counts = UserCounts::get_by_id(&user_id)
+    let user_counts = UserCounts::get_from_index(&user_id)
         .await
         .unwrap()
-        .expect("User counts should exist");
+        .expect("User counts should exist in Redis");
     assert_eq!(
         user_counts.posts, 0,
         "User count of posts should be again 0 after deletion"
