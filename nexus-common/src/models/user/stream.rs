@@ -19,6 +19,9 @@ use utoipa::ToSchema;
 pub const USER_MOSTFOLLOWED_KEY_PARTS: [&str; 2] = ["Users", "MostFollowed"];
 /// Users per graph read when the most-followed ranking is rebuilt.
 const MOST_FOLLOWED_PAGE_SIZE: usize = 500;
+/// Taken by a request that finds the most-followed key missing, so requests that miss
+/// together share one rebuild instead of each reading the whole graph.
+static REBUILD_ON_MISS: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 pub const USER_INFLUENCERS_KEY_PARTS: [&str; 2] = ["Users", "Influencers"];
 pub const CACHE_USER_RECOMMENDED_KEY_PARTS: [&str; 3] = ["Cache", "Users", "Recommended"];
 /// Keeps the per-label overfetch inside the graph query's own row cap, so a page is never
@@ -325,7 +328,8 @@ impl UserStream {
     /// and cleaning them from the cache.
     ///
     /// Only a missing key counts as a miss: the ranking is rebuilt from the graph, then read
-    /// again. An existing key whose window is empty is served as an empty page.
+    /// again. One rebuild runs at a time: a request that waited for another's checks the
+    /// key again first. An existing key whose window is empty is served as an empty page.
     async fn get_most_followed(
         skip: Option<usize>,
         limit: Option<usize>,
@@ -343,8 +347,12 @@ impl UserStream {
         };
         let mut result = read().await?;
         if result.is_none() {
-            Self::refresh_most_followed().await?;
+            let _rebuild = REBUILD_ON_MISS.lock().await;
             result = read().await?;
+            if result.is_none() {
+                Self::refresh_most_followed().await?;
+                result = read().await?;
+            }
         }
 
         let Some(set) = result else {
@@ -544,13 +552,14 @@ mod tests {
         interleave_unique, UserStream, MOST_FOLLOWED_PAGE_SIZE, USER_MOSTFOLLOWED_KEY_PARTS,
     };
     use crate::db::kv::{RedisResult, SortOrder};
-    use crate::db::RedisOps;
+    use crate::db::{get_redis_conn, RedisOps};
     use crate::models::error::ModelError;
     use crate::models::{
         traits::Collection,
         user::{UserCounts, UserDetails},
     };
     use crate::{types::DynError, StackConfig, StackManager};
+    use deadpool_redis::redis;
     use pubky::Keypair;
     use pubky_app_specs::PubkyId;
     use std::collections::HashMap;
@@ -746,6 +755,53 @@ mod tests {
         );
         assert_eq!(paged, whole);
         Ok(())
+    }
+
+    /// Requests that find the most-followed key missing share one rebuild: each waits for
+    /// the one in progress, then finds the key instead of reading the whole graph again.
+    /// Counts the ranking's replace script in Redis's server-wide command stats, so
+    /// `.config/nextest.toml` runs it alone.
+    #[tokio_shared_rt::test(shared)]
+    async fn requests_that_miss_together_share_one_rebuild() -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+        // Load the replace script first, so a NOSCRIPT retry cannot add a call below.
+        UserStream::refresh_most_followed().await?;
+        UserStream::replace_index_sorted_set(&USER_MOSTFOLLOWED_KEY_PARTS, &[], None, None).await?;
+        let requests = 8;
+        let scripts_before = evalsha_calls().await?;
+
+        let pages = futures::future::try_join_all(
+            (0..requests).map(|_| UserStream::get_most_followed(Some(0), Some(20))),
+        )
+        .await?;
+
+        let rebuilds = evalsha_calls().await? - scripts_before;
+        assert_eq!(
+            rebuilds, 1,
+            "{requests} requests that missed together must share one rebuild"
+        );
+        assert!(
+            pages
+                .iter()
+                .all(|page| page.as_ref().is_some_and(|p| p.len() == 20)),
+            "every request must get a full page"
+        );
+        Ok(())
+    }
+
+    /// How many scripts Redis has run by hash (`EVALSHA`), across every client.
+    async fn evalsha_calls() -> RedisResult<u64> {
+        let mut conn = get_redis_conn().await?;
+        let stats: String = redis::cmd("INFO")
+            .arg("commandstats")
+            .query_async(&mut conn)
+            .await?;
+        Ok(stats
+            .lines()
+            .find_map(|line| line.strip_prefix("cmdstat_evalsha:calls="))
+            .and_then(|rest| rest.split(',').next())
+            .and_then(|calls| calls.parse().ok())
+            .unwrap_or(0))
     }
 
     /// The whole most-followed ranking under `prefix`, the live one for `None`.
