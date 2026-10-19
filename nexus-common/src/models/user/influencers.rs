@@ -465,6 +465,7 @@ mod tests {
     use pubky::Keypair;
     use pubky_app_specs::PubkyId;
     use std::collections::HashMap;
+    use std::time::Duration;
 
     /// Keeps the cache tests off `GLOBAL_INFLUENCERS_PREFIX`: the API tests run against
     /// the same Redis and assert exact rankings under the production keys.
@@ -745,6 +746,39 @@ mod tests {
                 .all(|page| page.as_ref().is_some_and(|p| p.len() == 20)),
             "every request must get a full page"
         );
+        Ok(())
+    }
+
+    /// The rebuild lock only holds up misses of its own ranking: with the AllTime one
+    /// taken, a read that finds the AllTime ranking returns, and so does a request that
+    /// misses the ThisWeek cache. Deletes that shared cache key, so nextest runs it alone.
+    #[tokio_shared_rt::test(shared)]
+    async fn a_rebuild_holds_up_only_misses_of_its_own_ranking() -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+        Influencers::refresh(&Timeframe::AllTime).await?;
+        let this_week = Influencers::get_cache_key_parts(CacheTimeframe::ThisWeek);
+        let this_week: Vec<&str> = this_week.iter().map(String::as_str).collect();
+        Influencers::replace_index_sorted_set(
+            &this_week,
+            &[],
+            Some(GLOBAL_INFLUENCERS_PREFIX),
+            None,
+        )
+        .await?;
+        let _all_time_rebuild = rebuild_lock(&Timeframe::AllTime).lock().await;
+
+        for (timeframe, request) in [
+            (Timeframe::AllTime, "a read that finds the AllTime ranking"),
+            (
+                Timeframe::ThisWeek,
+                "a request that misses the ThisWeek cache",
+            ),
+        ] {
+            let read = Influencers::get_influencers(None, None, 0, 5, timeframe, false);
+            tokio::time::timeout(Duration::from_secs(5), read)
+                .await
+                .unwrap_or_else(|_| panic!("{request} must not wait for the AllTime rebuild"))?;
+        }
         Ok(())
     }
 
