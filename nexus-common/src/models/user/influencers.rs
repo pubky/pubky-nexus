@@ -7,6 +7,7 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::ops::Deref;
 use std::sync::{Mutex, PoisonError};
+use tokio::sync::Mutex as AsyncMutex;
 use tracing::{debug, warn};
 use utoipa::ToSchema;
 
@@ -16,9 +17,6 @@ use crate::db::{fetch_all_rows_from_graph, fetch_key_from_graph, queries, RedisO
 const GLOBAL_INFLUENCERS_PREFIX: &str = "Cache:Influencers";
 /// Users per graph read when the AllTime ranking is rebuilt.
 const ALL_TIME_PAGE_SIZE: usize = 500;
-/// Taken by a request that finds a ranking's key missing, so requests that miss
-/// together share one rebuild instead of each reading the whole graph.
-static REBUILD_ON_MISS: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 /// How many global influencers each cache-backed timeframe holds. Pages past this
 /// are empty by construction, so callers should reject skips beyond it rather than
 /// treat the empty page as a cache miss.
@@ -41,6 +39,22 @@ pub const GLOBAL_INFLUENCERS_PREVIEW_OFFSETS: u32 =
 /// therefore NOT guaranteed to return different influencers.
 pub fn preview_skip(micros: u32) -> usize {
     (micros % GLOBAL_INFLUENCERS_PREVIEW_OFFSETS) as usize
+}
+
+/// The lock a request takes when its ranking's key is missing, one per timeframe:
+/// requests that miss the same ranking together share one rebuild, and no ranking
+/// waits for another's.
+fn rebuild_lock(timeframe: &Timeframe) -> &'static AsyncMutex<()> {
+    static TODAY: AsyncMutex<()> = AsyncMutex::const_new(());
+    static THIS_WEEK: AsyncMutex<()> = AsyncMutex::const_new(());
+    static THIS_MONTH: AsyncMutex<()> = AsyncMutex::const_new(());
+    static ALL_TIME: AsyncMutex<()> = AsyncMutex::const_new(());
+    match timeframe {
+        Timeframe::Today => &TODAY,
+        Timeframe::ThisWeek => &THIS_WEEK,
+        Timeframe::ThisMonth => &THIS_MONTH,
+        Timeframe::AllTime => &ALL_TIME,
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, ToSchema, Default, Clone)]
@@ -116,8 +130,8 @@ impl Influencers {
     /// It first attempts to fetch a subset of global influencers from cache
     /// based on the provided `skip` and `limit`. Only a missing cache key counts as a
     /// miss: then it rebuilds the ranking from the graph with [`Self::refresh`] and
-    /// retrieves the requested subset again from cache. One rebuild runs at a time:
-    /// a request that waited for another's checks the key again first.
+    /// retrieves the requested subset again from cache. One rebuild per ranking runs at
+    /// a time: a request that waited for another's checks the key again first.
     /// An existing key whose window is empty (skip past the end, or every user in
     /// the window deleted) is served as an empty page, since refetching would rebuild
     /// the same ranking and rewrite the key on every such request.
@@ -138,7 +152,7 @@ impl Influencers {
             return Ok(cached_influencers);
         }
 
-        let _rebuild = REBUILD_ON_MISS.lock().await;
+        let _rebuild = rebuild_lock(timeframe).lock().await;
         let cached_influencers = Influencers::get_from_global_cache(skip, limit, timeframe).await?;
         if cached_influencers.is_some() {
             return Ok(cached_influencers);
