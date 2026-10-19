@@ -8,6 +8,7 @@ use axum::http::StatusCode;
 use deadpool_redis::redis::AsyncCommands;
 use nexus_common::db::get_redis_conn;
 use nexus_common::db::RedisOps;
+use nexus_common::db::{fetch_all_rows_from_graph, queries};
 use nexus_common::models::user::{SocialGraphStatus, UserCounts, USER_SOCIAL_GRAPH_KEY_PARTS};
 
 /// From `docker/test-graph/skunk.cypher`: a `User` node with no edges at all.
@@ -215,6 +216,28 @@ async fn test_get_counts_ignores_redis_json() -> Result<()> {
     UserCounts::default()
         .put_index_json(&[NO_EDGES_USER], None, None)
         .await?;
+    Ok(())
+}
+
+/// A repeated id runs the counts once and still fills a slot per copy.
+#[tokio_shared_rt::test(shared)]
+async fn test_get_counts_by_repeated_ids() -> Result<()> {
+    TestServiceServer::get_test_server().await;
+    let ids = [NO_EDGES_USER, NO_EDGES_USER];
+
+    let rows = fetch_all_rows_from_graph(queries::get::user_counts_by_ids(&ids)).await?;
+    assert_eq!(
+        rows.len(),
+        1,
+        "copies are dropped before the count subqueries"
+    );
+
+    let counts = UserCounts::get_by_ids(&ids).await?;
+    assert_eq!(counts.len(), 2, "one slot per input id");
+    assert!(
+        counts.iter().all(Option::is_some),
+        "each copy maps back to the row"
+    );
     Ok(())
 }
 

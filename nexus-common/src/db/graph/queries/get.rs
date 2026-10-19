@@ -957,16 +957,18 @@ pub fn user_count_fields_columns() -> String {
         .join(", ")
 }
 
-/// One row per id, in no guaranteed order: `exists` is false for ids with no
-/// `User` node and `counts` holds every [`USER_COUNT_FIELDS`] entry.
+/// One row per distinct id, in no guaranteed order: `exists` is false for ids
+/// with no `User` node and `counts` holds every [`USER_COUNT_FIELDS`] entry.
 pub fn user_counts_by_ids(user_ids: &[&str]) -> Query {
     // Each field is an independent COUNT { } subquery off the single (u) row.
     // Do NOT precede this with a row-multiplying OPTIONAL MATCH (e.g. over
     // received tags): that makes every subquery a per-row grouping key, so the
     // whole block runs once per received tag, i.e. O(received_tags x authored_posts)
-    // and hangs on heavy users. See issue #935.
+    // and hangs on heavy users. See issue #935. A repeated id multiplies rows the
+    // same way, so DISTINCT drops the copies before any subquery runs.
     let cypher = format!(
         "UNWIND $user_ids AS id
+         WITH DISTINCT id
          OPTIONAL MATCH (u:User {{id: id}})
          RETURN
              id,
@@ -977,7 +979,8 @@ pub fn user_counts_by_ids(user_ids: &[&str]) -> Query {
     Query::new("user_counts_by_ids", cypher).param("user_ids", user_ids)
 }
 
-/// `all_exist` is true only when every id has a `User` node.
+/// `all_exist` is true only when every id has a `User` node. No DISTINCT here:
+/// `SIZE($user_ids)` counts every copy, so a self-relationship's `[a, a]` would fail.
 pub fn users_exist(user_ids: &[&str]) -> Query {
     Query::new(
         "users_exist",
