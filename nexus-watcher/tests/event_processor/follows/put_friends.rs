@@ -71,14 +71,14 @@ async fn test_homeserver_follow_friend() -> Result<()> {
 
     // Now Alice and Bob are friends
     // Assert the counts the API serves
-    let alice_user_count = find_user_counts(&bob_id).await;
+    let alice_user_count = find_user_counts(&alice_id).await;
     assert_eq!(alice_user_count.followers, 1);
     assert_eq!(alice_user_count.following, 1);
     assert_eq!(alice_user_count.friends, 1);
 
     let bob_user_count = find_user_counts(&bob_id).await;
     assert_eq!(bob_user_count.following, 1);
-    assert_eq!(bob_user_count.following, 1);
+    assert_eq!(bob_user_count.followers, 1);
     assert_eq!(bob_user_count.friends, 1);
 
     // Cleanup
