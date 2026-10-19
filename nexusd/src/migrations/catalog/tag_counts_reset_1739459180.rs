@@ -83,7 +83,7 @@ pub async fn compute_counts(list: Vec<(String, Option<String>)>) -> Result<(), D
             }
         } else {
             // Processing user counts
-            match UserCounts::get_from_graph(&pubky).await {
+            match UserCounts::get_by_id(&pubky).await {
                 Ok(Some(user_counts)) => {
                     if let Err(e) = user_counts.put_index_json(&[&pubky], None, None).await {
                         error!("Failed to add User:Counts:{pubky}, {e}");

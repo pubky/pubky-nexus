@@ -10,7 +10,6 @@
 
 [test-groups]
 influencers-sorted-set = { max-threads = 1 }
-resource-tag-index = { max-threads = 1 }
 
 [[profile.default.overrides]]
 filter = 'test(=stream::user::influencers::test_global_influencers) | test(=stream::user::influencers::test_global_influencers_skip_limit) | test(=stream::user::influencers::test_global_influencers_alltime_cache_recovery) | test(=stream::user::influencers::test_global_influencers_preview)'
@@ -35,15 +34,6 @@ threads-required = 'num-test-threads'
 [[profile.default.overrides]]
 filter = 'package(nexusd) and binary(cache_setup)'
 threads-required = 'num-test-threads'
-
-# test_resource_tags_viewer_tag_on_cache_miss deletes the tag index of its fixture
-# resource to force a cache miss. The resource streams (stream::resource, and the one in
-# test_views_and_streams_carry_viewer_tag_uri) load their resources' tags, which refills
-# that index mid-test. Keep them from overlapping.
-
-[[profile.default.overrides]]
-filter = 'test(=tags::relationship::test_resource_tags_viewer_tag_on_cache_miss) | test(=tags::relationship::test_views_and_streams_carry_viewer_tag_uri) | test(/^stream::resource::/)'
-test-group = 'resource-tag-index'
 
 # The user-epoch backfill touches every :User and every cached `User:Details`,
 # and its verify fails on any :User without an epoch. Run alone, no other test

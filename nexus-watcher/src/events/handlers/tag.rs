@@ -16,7 +16,7 @@ use nexus_common::universal_tag::normalize::{
     classify_uri, normalize_uri, resource_id, UriCategory,
 };
 use pubky_app_specs::{ExtendedParsedUri, ParsedUri, PubkyAppTag, PubkyId, Resource};
-use tracing::debug;
+use tracing::{debug, Instrument};
 
 use super::utils::{fail_on_blacklisted_hs, post_kind, post_relationships_is_reply};
 
@@ -106,7 +106,7 @@ pub async fn sync_put_resource(
     }
 }
 
-/// Creates a Resource tag in the graph and updates Redis indexes.
+/// Creates a Resource tag in the graph and adds its label to the tag search index.
 #[allow(clippy::too_many_arguments)]
 async fn put_sync_resource(
     tagger_id: PubkyId,
@@ -132,39 +132,17 @@ async fn put_sync_resource(
     )
     .await?
     {
-        OperationOutcome::Updated => Ok(()),
         OperationOutcome::MissingDependency => {
             // Tagger user not yet indexed
             let dependency = vec![format!("{tagger_id}")];
             Err(EventProcessorError::MissingDependency { dependency })
         }
-        OperationOutcome::CreatedOrDeleted => {
-            let tag_label_slice = &[tag_label.to_string()];
-
-            let indexing_results = nexus_common::traced_join!(
-                tracing::info_span!("index.write", phase = "tag_resource");
-                // Update tag label score on Resource
-                TagResource::update_index_score(
-                    resource_id,
-                    None,
-                    tag_label,
-                    ScoreAction::Increment(1.0),
-                ),
-                // Add tagger to Resource's label tagger set
-                TagResource::add_tagger_to_index(resource_id, None, &tagger_id, tag_label),
-                // Add tagger to the app-scoped tagger set. The TAGGED edge is
-                // keyed {label, app}, so this records one member per created
-                // edge; tag::del uses it as the retry gate for the decrement
-                TagResource::add_tagger_to_index(resource_id, Some(app), &tagger_id, tag_label),
-                // Add to global tag search index
-                TagSearch::put_to_index(tag_label_slice)
-            );
-
-            indexing_results.0?;
-            indexing_results.1?;
-            indexing_results.2?;
-            indexing_results.3?;
-
+        // Updated is a retry finding the edge already written: the index write is
+        // idempotent, so it runs again to recover from a partial failure
+        OperationOutcome::CreatedOrDeleted | OperationOutcome::Updated => {
+            TagSearch::put_to_index(&[tag_label.to_string()])
+                .instrument(tracing::info_span!("index.write", phase = "tag_resource"))
+                .await?;
             Ok(())
         }
     }
@@ -476,34 +454,8 @@ pub async fn del(tag_uri: &str) -> Result<(), EventProcessorError> {
             .await?;
             post_counts_to_invalidate = Some([author_id, post_id]);
         }
-        (None, None, None, Some(res_id)) => {
-            // The put path runs its increments once per created TAGGED edge,
-            // and resource edges are keyed {label, app}: the same user tagging
-            // the same resource and label from two apps increments every count
-            // twice. The retry gate must therefore be app-scoped as well; the
-            // app-agnostic taggers set holds the member only once and would
-            // wrongly skip the decrements of the second app's delete
-            let tagger_in_index = match app.as_deref() {
-                Some(a) => {
-                    TagResource::check_set_member(&[&res_id, a, &label], arg_user_id.as_ref())
-                        .await?
-                        .1
-                }
-                None => {
-                    TagResource::check_set_member(&[&res_id, &label], arg_user_id.as_ref())
-                        .await?
-                        .1
-                }
-            };
-            del_sync_resource(
-                arg_user_id.clone(),
-                &res_id,
-                &label,
-                app.as_deref(),
-                tagger_in_index,
-            )
-            .await?;
-        }
+        // Resource tags keep no Redis index to clean up
+        (None, None, None, Some(_)) => {}
         _ => {
             debug!("DEL-Tag: Unexpected combination of tag details");
         }
@@ -713,55 +665,6 @@ async fn del_sync_post(
         // Removed the last post using this tag: drop it from autocomplete suggestions.
         TagSearch::del_from_index(tag_label).await?;
     }
-
-    Ok(())
-}
-
-/// Cleans up Redis indexes when a Resource tag is deleted.
-/// Orphaned Resource node cleanup is handled by the delete_tag Cypher query.
-/// The non-idempotent label-score decrement is guarded by `tagger_in_index`
-/// so a retried event does not double-decrement it. The gate comes from the
-/// app-scoped tagger set, which the put path fills once per created TAGGED
-/// edge (keyed {label, app}), matching the per-edge increment.
-async fn del_sync_resource(
-    tagger_id: PubkyId,
-    resource_id: &str,
-    tag_label: &str,
-    app: Option<&str>,
-    tagger_in_index: bool,
-) -> Result<(), EventProcessorError> {
-    let score_results = tokio::join!(
-        // Guarded: Decrement label score in the resource
-        async {
-            if tagger_in_index {
-                TagResource::update_index_score(
-                    resource_id,
-                    None,
-                    tag_label,
-                    ScoreAction::Decrement(1.0),
-                )
-                .await?;
-            }
-            Ok::<(), EventProcessorError>(())
-        },
-        async {
-            // Idempotent: Delete the tagger from the tag list (SREM)
-            TagResource(vec![tagger_id.to_string()])
-                .del_from_index(resource_id, None, tag_label)
-                .await?;
-            // Idempotent: Delete the tagger from the app-scoped tagger set
-            // that gates the decrement above (SREM)
-            if let Some(a) = app {
-                TagResource(vec![tagger_id.to_string()])
-                    .del_from_index(resource_id, Some(a), tag_label)
-                    .await?;
-            }
-            Ok::<(), EventProcessorError>(())
-        }
-    );
-
-    score_results.0?;
-    score_results.1?;
 
     Ok(())
 }

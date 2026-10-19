@@ -90,10 +90,7 @@ async fn test_user_tags_carry_viewer_tag_uri() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_resource_tags_carry_viewer_tag_uri() -> Result<()> {
-    let path = format!("/v0/resource/{RESOURCE}/tags?viewer_id={VIEWER}");
-    // `db mock` doesn't index resource tags: the first read fills the index
-    get_request(&path).await?;
-    let body = get_request(&path).await?;
+    let body = get_request(&format!("/v0/resource/{RESOURCE}/tags?viewer_id={VIEWER}")).await?;
 
     assert_eq!(
         viewer_tag(&body["tags"], "trel-shared"),
@@ -219,8 +216,8 @@ async fn test_tag_is_untagged_when_index_is_ahead_of_graph() -> Result<()> {
 }
 
 // ##### Cache miss #####
-// Each test deletes its own target's Redis tag keys. Only the resource streams, here and in
-// `stream::resource`, also read one of them: see the nextest group `resource-tag-index`.
+// Each test deletes its own target's Redis tag keys. Resource tags keep none, so the
+// resource fixture here serves a two-app test instead.
 
 const MISS_AUTHOR: &str = "xxthkxjtb16wto9b7sud74dmsetqi54ewiisxaeadt6bhy6j9zmo";
 const MISS_POST: &str = "2ZRT8G4VXQ0N0";
@@ -307,18 +304,21 @@ async fn test_user_tags_viewer_tag_on_cache_miss() -> Result<()> {
     .await
 }
 
-/// The viewer tagged `trel-shared` from two apps: the miss, the hit and the taggers
-/// read all pick the same one of the two addresses.
+/// The viewer tagged `trel-shared` from two apps: the tags and the taggers reads pick the
+/// same one of the two addresses.
 #[tokio_shared_rt::test(shared)]
-async fn test_resource_tags_viewer_tag_on_cache_miss() -> Result<()> {
-    assert_viewer_tag_across_cache_miss(
-        &format!("/v0/resource/{MISS_RESOURCE}/tags"),
-        |body| &body["tags"],
-        VIEWER_MISS_RESOURCE_TAG_URI,
-        &format!("Sorted:Resources:Tag:{MISS_RESOURCE}"),
-        &format!("Resource:Taggers:{MISS_RESOURCE}"),
-    )
-    .await?;
+async fn test_resource_tags_viewer_tag_from_two_apps() -> Result<()> {
+    let path = format!("/v0/resource/{MISS_RESOURCE}/tags");
+    let anonymous = get_request(&path).await?;
+    let with_viewer = get_request(&format!("{path}?viewer_id={VIEWER}")).await?;
+    for label in ["trel-shared", "trel-other"] {
+        assert_eq!(viewer_tag(&anonymous["tags"], label), untagged(), "{label}");
+    }
+    assert_eq!(
+        viewer_tag(&with_viewer["tags"], "trel-shared"),
+        tagged(VIEWER_MISS_RESOURCE_TAG_URI)
+    );
+    assert_eq!(viewer_tag(&with_viewer["tags"], "trel-other"), untagged());
     assert_taggers_viewer_tag(
         |label| format!("/v0/resource/{MISS_RESOURCE}/tags/{label}/taggers"),
         VIEWER_MISS_RESOURCE_TAG_URI,
@@ -502,8 +502,6 @@ async fn test_user_taggers_carry_viewer_tag_uri() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_resource_taggers_carry_viewer_tag_uri() -> Result<()> {
-    // `db mock` doesn't index resource tags: a tags read fills the taggers sets
-    get_request(&format!("/v0/resource/{RESOURCE}/tags")).await?;
     assert_taggers_viewer_tag(
         |label| format!("/v0/resource/{RESOURCE}/tags/{label}/taggers"),
         VIEWER_RESOURCE_TAG_URI,
