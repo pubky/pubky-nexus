@@ -61,6 +61,12 @@ pub enum EventProcessorError {
     #[error("UnsupportedTarget: {0}")]
     UnsupportedTarget(String),
 
+    /// An edit names a different reply parent or repost embed than the post holds. Both are set
+    /// when the post is created, so the edit is rejected whole. Non-retryable: the same payload
+    /// is rejected again.
+    #[error("PostParentChanged: {0}")]
+    PostParentChanged(String),
+
     /// Fetch exceeded size cap (non-retryable).
     #[error("FetchSizeExceeded: {0} bytes (limit: {1} bytes)")]
     FetchSizeExceeded(u64, u64),

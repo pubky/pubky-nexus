@@ -53,6 +53,31 @@ fn reject_unsupported_parent(post: &PostInput) -> Result<(), EventProcessorError
     }
 }
 
+/// Rejects an edit whose reply parent or repost embed names a different post than the post's
+/// edges, as [`EventProcessorError::PostParentChanged`], never retried. Both are set when the
+/// post is created, so delete can read them back from the graph. Compares keys: a parent written
+/// differently but naming the same post, or any parent that isn't a post, is no change.
+fn reject_parent_change(
+    named: &PostParents,
+    stored: &PostParents,
+) -> Result<(), EventProcessorError> {
+    let (named, stored) = (parent_keys(named), parent_keys(stored));
+    if named == stored {
+        return Ok(());
+    }
+    Err(EventProcessorError::PostParentChanged(format!(
+        "The edit names (parent, embed) {named:?}, but the post was created with {stored:?}"
+    )))
+}
+
+/// The keys of the reply parent and the repost embed.
+fn parent_keys(parents: &PostParents) -> (Option<&ResourceKey>, Option<&ResourceKey>) {
+    (
+        parents.replied.as_ref().map(|parent| &parent.key),
+        parents.reposted.as_ref().map(|parent| &parent.key),
+    )
+}
+
 /// [`sync_put`] with the details built by the caller, so [`del`] can write a
 /// tombstone through the same edit path.
 #[tracing::instrument(name = "post.put", skip_all, fields(user_id = %author_id, post_id = %post_id))]
@@ -71,14 +96,14 @@ async fn sync_put_details(
     // the author wrote them: only their keys reach the graph, and the addresses only the
     // missing-dependency diagnostics.
     let named = post.parents();
+    // `None` for a new post. An existing one keeps the parents it was created with.
+    let stored = PostParents::get_from_graph(&author_id, &post_id).await?;
+    if let Some(stored) = &stored {
+        reject_parent_change(&named, stored)?;
+    }
 
-    let existed = match post_details
-        .put_to_graph(
-            named.replied.as_ref().map(|parent| &parent.key),
-            named.reposted.as_ref().map(|parent| &parent.key),
-        )
-        .await?
-    {
+    let (replied_key, reposted_key) = parent_keys(&named);
+    let existed = match post_details.put_to_graph(replied_key, reposted_key).await? {
         OperationOutcome::CreatedOrDeleted => false,
         OperationOutcome::Updated => true,
         OperationOutcome::MissingDependency => {
@@ -137,6 +162,7 @@ async fn sync_put_details(
                         || deleted_toggled;
                     sync_edit(
                         &post,
+                        stored.unwrap_or_default().replied,
                         author_id.clone(),
                         post_id.clone(),
                         post_details,
@@ -420,8 +446,12 @@ async fn recover_post_index_state(
     Ok(())
 }
 
+/// `replied` is the post's stored reply parent: the edit can't change it, and the notification
+/// links it by its stored address, not the one the edit wrote.
+#[allow(clippy::too_many_arguments)]
 async fn sync_edit(
     post: &PostInput,
+    replied: Option<PostParent>,
     author_id: PubkyId,
     post_id: String,
     post_details: PostDetails,
@@ -465,16 +495,12 @@ async fn sync_edit(
     )
     .await?;
 
-    // Handle "A reply to your post was edited/deleted"; only a post parent has an author.
-    if let Some(Reference {
-        uri: parent_uri,
-        target: ReferenceTarget::Post(parent_key),
-    }) = &post.parent
-    {
+    // Handle "A reply to your post was edited/deleted"
+    if let Some(parent) = replied {
         Notification::post_children_changed(
             &author_id,
-            parent_uri,
-            &parent_key.owner_id,
+            &parent.uri,
+            &parent.key.owner_id,
             &post_details.uri,
             PostChangedSource::Reply,
             &change_type,
@@ -632,20 +658,22 @@ pub async fn del(key: ResourceKey, ingestor: &UserIngestor) -> Result<(), EventP
     match execute_graph_operation(query).await? {
         OperationOutcome::CreatedOrDeleted => sync_del(key.owner_id, key.resource_id, uri).await?,
         OperationOutcome::Updated => {
-            let parent = PostParents::get_from_graph(&key.owner_id, &key.resource_id)
-                .await?
-                .and_then(|parents| parents.replied)
-                .map(|PostParent { uri, key }| Reference {
-                    uri,
-                    target: ReferenceTarget::Post(key),
-                });
+            let PostParents { replied, reposted } =
+                PostParents::get_from_graph(&key.owner_id, &key.resource_id)
+                    .await?
+                    .unwrap_or_default();
+            let reference = |PostParent { uri, key }| Reference {
+                uri,
+                target: ReferenceTarget::Post(key),
+            };
 
-            // A cleared Short flagged `deleted`, still a reply if it was one already.
+            // A cleared Short flagged `deleted`, still a reply or a repost if it was one already:
+            // an edit can't change either.
             let tombstone = PostInput {
                 uri,
                 content: String::new(),
-                parent,
-                embed: None,
+                parent: replied.map(reference),
+                embed: reposted.map(reference),
                 collection_items: Vec::new(),
                 kind: PubkyAppPostKind::Short,
                 attachments: None,
@@ -874,4 +902,69 @@ pub async fn sync_del(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const AUTHOR: &str = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
+
+    fn parent(post_id: &str, uri: &str) -> Option<PostParent> {
+        Some(PostParent {
+            uri: uri.to_string(),
+            key: ResourceKey {
+                owner_id: PubkyId::try_from(AUTHOR).unwrap(),
+                resource_id: post_id.to_string(),
+            },
+        })
+    }
+
+    fn parents(replied: Option<PostParent>, reposted: Option<PostParent>) -> PostParents {
+        PostParents { replied, reposted }
+    }
+
+    #[test]
+    fn same_parents_by_key_pass_however_written() {
+        let stored = parents(
+            parent("003286NSMY490", "stored"),
+            parent("003286NSMY491", "s"),
+        );
+        let named = parents(
+            parent("003286NSMY490", "written/extra"),
+            parent("003286NSMY491", "w"),
+        );
+        assert!(reject_parent_change(&named, &stored).is_ok());
+        assert!(reject_parent_change(&parents(None, None), &parents(None, None)).is_ok());
+    }
+
+    #[test]
+    fn added_removed_or_moved_parent_is_rejected() {
+        let p1 = || parent("003286NSMY490", "p1");
+        let p2 = || parent("003286NSMY491", "p2");
+        let cases = [
+            (
+                "root edited to reply",
+                parents(p1(), None),
+                parents(None, None),
+            ),
+            (
+                "root edited to repost",
+                parents(None, p1()),
+                parents(None, None),
+            ),
+            ("reply moved", parents(p2(), None), parents(p1(), None)),
+            ("reply dropped", parents(None, None), parents(p1(), None)),
+            ("repost dropped", parents(None, None), parents(None, p1())),
+        ];
+        for (case, named, stored) in cases {
+            assert!(
+                matches!(
+                    reject_parent_change(&named, &stored),
+                    Err(EventProcessorError::PostParentChanged(_))
+                ),
+                "{case}"
+            );
+        }
+    }
 }

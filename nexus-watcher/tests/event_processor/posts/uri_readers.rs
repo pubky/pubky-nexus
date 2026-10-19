@@ -183,7 +183,24 @@ async fn test_put_parents_written_non_canonically_store_parent_stored_uri() -> R
         })
         .collect();
     parent_uris.sort();
-    assert_eq!(parent_uris, vec![stored.clone(), stored]);
+    assert_eq!(parent_uris, vec![stored.clone(), stored.clone()]);
+
+    // An edit that keeps the parent as written links the parent by its stored `uri` too
+    reply.content = "Watcher:UriReaders:PutRel:Reply:Edited".to_string();
+    test.put(&replier_kp, &reply_path, &reply).await?;
+    let edited: Vec<String> = notifications_of(&author_id)
+        .await
+        .into_iter()
+        .filter_map(|body| match body {
+            NotificationBody::PostEdited {
+                edit_source: PostChangedSource::Reply,
+                linked_uri,
+                ..
+            } => Some(linked_uri),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(edited, vec![stored]);
 
     test.cleanup_post(&replier_kp, &repost_path).await?;
     test.cleanup_post(&replier_kp, &reply_path).await?;

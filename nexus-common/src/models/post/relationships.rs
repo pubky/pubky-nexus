@@ -100,7 +100,8 @@ pub struct PostParent {
 /// The posts a post replies to and reposts, read from its `REPLIED` and `REPOSTED` edges.
 ///
 /// The graph holds the parents' keys whatever epoch their addresses are written in, so delete,
-/// tombstone and recovery read them here instead of parsing a stored address.
+/// tombstone and recovery read them here instead of parsing a stored address. A post holds at
+/// most one of each, set when it is created: the watcher rejects an edit that changes either.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct PostParents {
     pub replied: Option<PostParent>,
