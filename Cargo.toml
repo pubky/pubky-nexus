@@ -19,7 +19,7 @@ clap = "4.6.1"
 cron = "0.17.0"
 deadpool-redis = "0.23"
 dirs = "7.0.0"
-neo4rs = "0.8.0"
+neo4rs = { git = "https://github.com/neo4j-labs/neo4rs", rev = "3295dad484ad79644d4cdee9f82bba64d6d6dd53" }
 redis = "1.0.4"
 opentelemetry = "0.33"
 opentelemetry_sdk = { version = "0.33", features = ["rt-tokio"] }

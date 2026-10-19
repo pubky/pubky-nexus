@@ -10,6 +10,11 @@ use crate::db::setup::setup_graph;
 use crate::db::{redact_url, Neo4JConfig};
 use crate::types::DynError;
 
+/// neo4rs caps every reply, and the TCP connect, at this. Long server-side calls (GDS
+/// PageRank, migrations, hot-tag refreshes) must fit, so it matches the
+/// `db.transaction.timeout` in docker-compose.yml.
+const NEO4J_REPLY_TIMEOUT: Duration = Duration::from_secs(15 * 60);
+
 pub struct Neo4jConnector {
     graph: Arc<dyn GraphOps>,
 }
@@ -35,8 +40,15 @@ impl Neo4jConnector {
 
     /// Create and return a new connector after defining a database connection
     async fn new_connection(config: &Neo4JConfig) -> GraphResult<Self> {
-        let neo4j_graph = neo4rs::Graph::new(&config.uri, &config.user, &config.password).await?;
-        let graph = Graph::new(neo4j_graph);
+        let neo4j_config = neo4rs::ConfigBuilder::default()
+            .uri(&config.uri)
+            .user(&config.user)
+            .password(&config.password)
+            // neo4rs 0.8 always used `neo4j`; later versions follow the server's default
+            .db("neo4j")
+            .connection_timeout(NEO4J_REPLY_TIMEOUT)
+            .build()?;
+        let graph = Graph::new(neo4rs::Graph::connect(neo4j_config)?);
 
         // Always wrap with InstrumentedGraph to collect OpenTelemetry metrics.
         // slow_query_threshold is None when slow-query logging is disabled.
