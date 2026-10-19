@@ -54,9 +54,9 @@ async fn test_user_del_idempotent() -> Result<()> {
     Ok(())
 }
 
-/// Test graph-last recovery: simulates a previous attempt that cleaned Redis
-/// but failed before the graph delete. On retry, the handler should re-enter
-/// CreatedOrDeleted, re-run the idempotent Redis cleanup, and delete graph last.
+/// Test graph-last recovery: simulates a previous attempt that failed during its
+/// Redis cleanup, before the graph delete. On retry, the handler should re-enter
+/// CreatedOrDeleted, finish the Redis cleanup, and delete graph last.
 #[tokio_shared_rt::test(shared)]
 async fn test_user_del_graph_last_recovery() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
@@ -80,17 +80,21 @@ async fn test_user_del_graph_last_recovery() -> Result<()> {
     // Simulate partial failure of a previous del() attempt:
     // Step 1 succeeded: UserSearch cleaned
     UserSearch::delete(&user_id).await?;
-    // Step 2 succeeded: UserDetails Redis DEL completed
-    let user_id_str = user_id.as_str();
-    let key_parts: &[&str] = &[user_id_str];
-    UserDetails::remove_from_index_multiple_json(&[key_parts]).await?;
+    // Step 2 failed: the UserDetails Redis DEL never ran (left stale)
     // Step 3 never ran: graph node still present (graph-last)
 
-    // Verify the partial state: graph exists, UserDetails gone
+    // Verify the partial state: graph exists, UserDetails still in Redis
     let user_details_graph = find_user_details(&user_id).await;
     assert!(
         user_details_graph.is_ok(),
         "Graph node should still exist (graph-last)"
+    );
+    let user_id_str = user_id.as_str();
+    assert!(
+        UserDetails::try_from_index_json(&[user_id_str], None)
+            .await?
+            .is_some(),
+        "UserDetails should still be in Redis (simulated failure)"
     );
 
     // Retry: call del() directly — should recover and complete successfully
@@ -102,6 +106,12 @@ async fn test_user_del_graph_last_recovery() -> Result<()> {
     assert!(
         user_details_result.is_err(),
         "Graph node should be deleted after recovery"
+    );
+    assert!(
+        UserDetails::try_from_index_json(&[user_id_str], None)
+            .await?
+            .is_none(),
+        "UserDetails should be cleaned after recovery"
     );
 
     Ok(())
