@@ -46,9 +46,9 @@ impl Timeframe {
 
 /// The timeframes whose global ranking is served from a TTL cache.
 ///
-/// `Timeframe::AllTime` is deliberately absent: it is served from the incrementally
-/// maintained `Sorted:Users:Influencers` index, which has no cache key and no TTL,
-/// so a cache write for it would be an orphan nobody reads.
+/// `Timeframe::AllTime` is deliberately absent: it is served from the full
+/// `Sorted:Users:Influencers` ranking, which has no cache key and no TTL, so a
+/// cache write for it would be an orphan nobody reads.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CacheTimeframe {
     Today,
