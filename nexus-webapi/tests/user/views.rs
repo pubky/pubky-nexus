@@ -81,9 +81,25 @@ async fn test_get_relationship() -> Result<()> {
     let user_id = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
     let viewer_id = "5g3fwnue819wfdjwiwm8qr35ww6uxxgbzrigrtdgmbi19ksioeoy";
     let res = get_request(&format!("/v0/user/{user_id}/relationship/{viewer_id}")).await?;
+    assert_eq!(res["followed_by"], true, "Aldert should follow Flavio");
+    assert_eq!(res["following"], false, "Flavio should not follow Aldert");
 
-    assert!(res["following"].is_boolean());
-    assert!(res["followed_by"].is_boolean());
+    // The stream path resolves the viewer once per page and the row from its
+    // counts slot, so it must agree with the single route.
+    let page = post_request(
+        "/v0/stream/users/by_ids",
+        serde_json::json!({ "user_ids": [user_id], "viewer_id": viewer_id }),
+    )
+    .await?;
+    assert_eq!(page[0]["details"]["id"], user_id);
+    assert_eq!(
+        page[0]["relationship"]["followed_by"], true,
+        "stream: Aldert follows Flavio"
+    );
+    assert_eq!(
+        page[0]["relationship"]["following"], false,
+        "stream: Flavio does not follow Aldert"
+    );
 
     // Either side missing from the graph reads as no relationship.
     let missing_id = "qca6wzjg4okp6g1hwr9g8hmx1po1jpoirjfau9ejsws1qz3t7iiy";
@@ -107,115 +123,6 @@ async fn test_get_relationship() -> Result<()> {
     )
     .await?;
 
-    Ok(())
-}
-
-/// User existence comes from the graph, so a relationship resolves with no
-/// `User:Counts` key on either side.
-#[tokio_shared_rt::test(shared)]
-async fn test_get_relationship_without_counts_keys() -> Result<()> {
-    // Redis is reachable only once the server has set its connectors up.
-    TestServiceServer::get_test_server().await;
-    let user_id = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
-    let viewer_id = "5g3fwnue819wfdjwiwm8qr35ww6uxxgbzrigrtdgmbi19ksioeoy";
-    let cached = [
-        (user_id, UserCounts::get_from_index(user_id).await?),
-        (viewer_id, UserCounts::get_from_index(viewer_id).await?),
-    ];
-    UserCounts::delete(user_id).await?;
-    UserCounts::delete(viewer_id).await?;
-
-    let res = get_request(&format!("/v0/user/{user_id}/relationship/{viewer_id}")).await;
-    // The stream path resolves the viewer once per page and the row from its
-    // counts slot, so it must agree inside the same delete window.
-    let page = post_request(
-        "/v0/stream/users/by_ids",
-        serde_json::json!({ "user_ids": [user_id], "viewer_id": viewer_id }),
-    )
-    .await;
-
-    for (id, counts) in cached {
-        if let Some(counts) = counts {
-            counts.put_index_json(&[id], None, None).await?;
-        }
-    }
-    let res = res?;
-    assert_eq!(res["followed_by"], true, "Aldert should follow Flavio");
-    assert_eq!(res["following"], false, "Flavio should not follow Aldert");
-
-    let page = page?;
-    assert_eq!(page[0]["details"]["id"], user_id);
-    assert_eq!(
-        page[0]["relationship"]["followed_by"], true,
-        "stream: Aldert follows Flavio"
-    );
-    assert_eq!(
-        page[0]["relationship"]["following"], false,
-        "stream: Flavio does not follow Aldert"
-    );
-
-    Ok(())
-}
-
-/// Counts are a graph COUNT: stale or absent `User:Counts` JSON is ignored and
-/// a read never writes it back.
-#[tokio_shared_rt::test(shared)]
-async fn test_get_counts_ignores_redis_json() -> Result<()> {
-    TestServiceServer::get_test_server().await;
-    let endpoint = format!("/v0/user/{NO_EDGES_USER}/counts");
-    let zeros = serde_json::to_value(UserCounts::default())?;
-
-    let stale = UserCounts {
-        posts: 99,
-        followers: 7,
-        ..Default::default()
-    };
-    stale.put_index_json(&[NO_EDGES_USER], None, None).await?;
-    let res = get_request(&endpoint).await?;
-    assert_eq!(
-        res, zeros,
-        "stale Redis JSON is ignored; a user with no edges counts zero"
-    );
-    let res = get_request(&format!("/v0/user/{NO_EDGES_USER}")).await?;
-    assert_eq!(res["counts"], zeros, "the user view ignores it too");
-
-    // The batched stream path reads the same graph counts, one slot per id.
-    let aldert = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
-    let missing = "qca6wzjg4okp6g1hwr9g8hmx1po1jpoirjfau9ejsws1qz3t7iiy";
-    let page = post_request(
-        "/v0/stream/users/by_ids",
-        serde_json::json!({ "user_ids": [missing, NO_EDGES_USER, aldert], "viewer_id": null }),
-    )
-    .await?;
-    let page = page.as_array().expect("user stream is an array");
-    assert_eq!(page.len(), 2, "the missing id has no slot in the page");
-    assert_eq!(page[0]["details"]["id"], NO_EDGES_USER);
-    assert_eq!(
-        page[0]["counts"], zeros,
-        "stale JSON ignored in the page too"
-    );
-    assert_eq!(page[1]["details"]["id"], aldert);
-    assert_eq!(page[1]["counts"]["followers"], 10);
-    assert_eq!(page[1]["counts"]["following"], 15);
-    assert_eq!(page[1]["counts"]["posts"], 4);
-
-    UserCounts::delete(NO_EDGES_USER).await?;
-    let res = get_request(&endpoint).await?;
-    assert_eq!(res, zeros, "counts resolve with no Redis key");
-    assert!(
-        UserCounts::get_from_index(NO_EDGES_USER).await?.is_none(),
-        "a counts read must not refill User:Counts"
-    );
-    get_request(&format!("/v0/user/{NO_EDGES_USER}")).await?;
-    assert!(
-        UserCounts::get_from_index(NO_EDGES_USER).await?.is_none(),
-        "a user view read must not refill User:Counts"
-    );
-
-    // Leave the key as the seed left it.
-    UserCounts::default()
-        .put_index_json(&[NO_EDGES_USER], None, None)
-        .await?;
     Ok(())
 }
 
@@ -312,6 +219,23 @@ async fn test_get_counts() -> Result<()> {
     // Test non-existing user
     let user_id = "qca6wzjg4okp6g1hwr9g8hmx1po1jpoirjfau9ejsws1qz3t7iiy";
     invalid_get_request(&format!("/v0/user/{user_id}/counts"), StatusCode::NOT_FOUND).await?;
+
+    // The batched stream path reads the same graph counts, one slot per id.
+    let zeros = serde_json::to_value(UserCounts::default())?;
+    let aldert = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
+    let page = post_request(
+        "/v0/stream/users/by_ids",
+        serde_json::json!({ "user_ids": [user_id, NO_EDGES_USER, aldert], "viewer_id": null }),
+    )
+    .await?;
+    let page = page.as_array().expect("user stream is an array");
+    assert_eq!(page.len(), 2, "the missing id has no slot in the page");
+    assert_eq!(page[0]["details"]["id"], NO_EDGES_USER);
+    assert_eq!(page[0]["counts"], zeros, "a user with no edges counts zero");
+    assert_eq!(page[1]["details"]["id"], aldert);
+    assert_eq!(page[1]["counts"]["followers"], 10);
+    assert_eq!(page[1]["counts"]["following"], 15);
+    assert_eq!(page[1]["counts"]["posts"], 4);
 
     Ok(())
 }

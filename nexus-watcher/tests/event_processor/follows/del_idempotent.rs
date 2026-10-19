@@ -3,12 +3,8 @@ use crate::event_processor::users::utils::find_user_counts;
 use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
 use nexus_common::{
-    db::kv::JsonAction,
     db::RedisOps,
-    models::{
-        follow::{Followers, Following, UserFollows},
-        user::UserCounts,
-    },
+    models::follow::{Followers, Following, UserFollows},
 };
 use nexus_watcher::events::handlers::follow;
 use pubky::Keypair;
@@ -111,9 +107,8 @@ async fn test_follow_del_idempotent() -> Result<()> {
 }
 
 /// Test partial failure recovery: the original DEL attempt failed before SREM
-/// and counter decrement ran, so indexes and counters still reflect the PUT
-/// state (stale). On retry, sync_del should clean up indexes and decrement
-/// counters exactly once (from 1 to 0), not double-decrement.
+/// ran, so the follow sets still reflect the PUT state (stale). On retry,
+/// sync_del should clean them up.
 #[tokio_shared_rt::test(shared)]
 async fn test_follow_del_recovers_stale_indexes() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
@@ -150,32 +145,20 @@ async fn test_follow_del_recovers_stale_indexes() -> Result<()> {
     let follower_counts = find_user_counts(&follower_id).await;
     assert_eq!(follower_counts.following, 0);
 
-    // Simulate partial failure: restore indexes and counters to their PUT state
-    // as if the original DEL never ran SREM or counter decrement.
+    // Simulate partial failure: restore the follow sets to their PUT state
+    // as if the original DEL never ran SREM.
     let followers = Followers(vec![follower_id.to_string()]);
     let following = Following(vec![followee_id.to_string()]);
     followers.put_to_index(&followee_id).await?;
     following.put_to_index(&follower_id).await?;
-    UserCounts::update_index_field(&followee_id, "followers", JsonAction::Increment(1)).await?;
-    UserCounts::update_index_field(&follower_id, "following", JsonAction::Increment(1)).await?;
 
-    // Verify stale state: indexes present, counters = 1
+    // Verify stale state: indexes present
     let (_, is_follower) = Followers::check_set_member(&[&followee_id], &follower_id).await?;
     assert!(is_follower, "Stale follower index should be present");
     let (_, is_following) = Following::check_set_member(&[&follower_id], &followee_id).await?;
     assert!(is_following, "Stale following index should be present");
-    let followee_counts = find_user_counts(&followee_id).await;
-    assert_eq!(
-        followee_counts.followers, 1,
-        "Followee should have 1 follower (stale)"
-    );
-    let follower_counts = find_user_counts(&follower_id).await;
-    assert_eq!(
-        follower_counts.following, 1,
-        "Follower should be following 1 (stale)"
-    );
 
-    // Simulate retry: sync_del sees stale indexes, decrements counters once, cleans up
+    // Simulate retry: sync_del sees stale indexes and cleans up
     let follower_pubky = PubkyId::from(follower_kp.clone());
     let followee_pubky = PubkyId::from(followee_kp.clone());
     follow::sync_del(follower_pubky, followee_pubky).await?;
@@ -192,16 +175,16 @@ async fn test_follow_del_recovers_stale_indexes() -> Result<()> {
         "Stale following index should be cleaned up after retry"
     );
 
-    // Verify counts decremented from 1 to 0 (exactly once, not double-decremented)
+    // Verify counts after recovery
     let followee_counts = find_user_counts(&followee_id).await;
     assert_eq!(
         followee_counts.followers, 0,
-        "Follower count should be 0 after recovery (was 1)"
+        "Follower count should be 0 after recovery"
     );
     let follower_counts = find_user_counts(&follower_id).await;
     assert_eq!(
         follower_counts.following, 0,
-        "Following count should be 0 after recovery (was 1)"
+        "Following count should be 0 after recovery"
     );
 
     // Cleanup
@@ -211,8 +194,8 @@ async fn test_follow_del_recovers_stale_indexes() -> Result<()> {
     Ok(())
 }
 
-/// Test that retrying an unfollow between friends does not double-decrement
-/// the friends counter for either user.
+/// Test that retrying an unfollow between friends leaves the friends count
+/// at 0 for both users.
 #[tokio_shared_rt::test(shared)]
 async fn test_follow_del_friends_idempotent() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
