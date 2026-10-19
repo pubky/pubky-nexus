@@ -20,7 +20,7 @@ use anyhow::{Context, Result};
 use nexus_common::db::{get_redis_conn, kv::clear_redis, reindex, RedisOps};
 use nexus_common::models::post::trust_filter::APPLIED_KEY_PARTS;
 use nexus_common::models::post::PostDetails;
-use nexus_common::models::user::USER_SOCIAL_GRAPH_KEY_PARTS;
+use nexus_common::models::user::{USER_MOSTFOLLOWED_KEY_PARTS, USER_SOCIAL_GRAPH_KEY_PARTS};
 use nexus_common::{FeaturesConfig, StackConfig, StackManager};
 use redis::Value;
 
@@ -119,6 +119,15 @@ async fn clear_redis_recreates_post_content_index() -> Result<()> {
         .await?;
     assert!(!ranking.is_empty(), "reindex::sync published no ranking");
     assert_eq!(applied, ranking, "reindex::sync should apply the ranking");
+    // The most-followed ranking is rebuilt here too, not left to the first read.
+    let most_followed: usize = redis::cmd("ZCARD")
+        .arg(sorted_key(&USER_MOSTFOLLOWED_KEY_PARTS))
+        .query_async(&mut conn)
+        .await?;
+    assert!(
+        most_followed > 0,
+        "reindex::sync built no most-followed ranking"
+    );
 
     Ok(())
 }

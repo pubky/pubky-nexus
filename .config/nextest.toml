@@ -30,10 +30,12 @@ test-group = 'most-followed-sorted-set'
 filter = 'test(=user::views::test_social_graph_status) | test(/^models::post::trust_filter::tests::live::/)'
 threads-required = 'num-test-threads'
 
-# This test seeds a stale copy of the shared Sorted:Users:MostFollowed ranking and
-# rebuilds it, so no reader of that set may run while it does.
+# The first test seeds a stale copy of the shared Sorted:Users:MostFollowed ranking
+# and rebuilds it, so no reader of that set may run while it does. The second reads
+# the ranking from the graph twice and compares the reads, so no test may write
+# users or follows in between.
 [[profile.default.overrides]]
-filter = 'test(=models::user::stream::tests::refresh_converges_a_stale_most_followed_ranking)'
+filter = 'test(=models::user::stream::tests::refresh_converges_a_stale_most_followed_ranking) | test(=models::user::stream::tests::read_most_followed_ranking_walks_every_page)'
 threads-required = 'num-test-threads'
 
 # nexusd/tests/cache_setup/main.rs calls clear_redis(), which issues FLUSHDB

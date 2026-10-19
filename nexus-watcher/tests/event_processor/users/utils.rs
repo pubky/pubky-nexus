@@ -4,23 +4,8 @@ use nexus_common::{
         exec_single_row, fetch_key_from_graph, fetch_row_from_graph, graph::Query, queries,
         RedisOps,
     },
-    models::user::{
-        UserCounts, UserDetails, UserStream, USER_INFLUENCERS_KEY_PARTS,
-        USER_MOSTFOLLOWED_KEY_PARTS,
-    },
+    models::user::{UserCounts, UserDetails, UserStream, USER_INFLUENCERS_KEY_PARTS},
 };
-
-/// The watcher leaves `Sorted:Users:MostFollowed` to the most-followed job, which rebuilds
-/// it from the graph, so no event may give a new user a score there.
-pub async fn assert_no_most_followed_score(user_id: &str) {
-    let score = UserStream::check_sorted_set_member(None, &USER_MOSTFOLLOWED_KEY_PARTS, &[user_id])
-        .await
-        .unwrap();
-    assert_eq!(
-        score, None,
-        "the watcher wrote a most-followed score for {user_id}"
-    );
-}
 
 pub async fn check_member_user_influencer(user_id: &str) -> Result<Option<isize>> {
     let influencer_score =

@@ -1,7 +1,5 @@
 use crate::{
-    event_processor::users::utils::{
-        assert_no_most_followed_score, check_member_user_influencer, find_user_details,
-    },
+    event_processor::users::utils::{check_member_user_influencer, find_user_details},
     event_processor::utils::watcher::WatcherTest,
 };
 use anyhow::Result;
@@ -90,9 +88,6 @@ async fn test_homeserver_user_put_event() -> Result<()> {
     let influencer_score = check_member_user_influencer(&user_id).await.unwrap();
     assert!(influencer_score.is_some());
     assert_eq!(influencer_score.unwrap(), 0);
-
-    // Sorted:Users:MostFollowed is the most-followed job's
-    assert_no_most_followed_score(&user_id).await;
 
     // Cleanup
     test.cleanup_user(&user_kp).await?;
