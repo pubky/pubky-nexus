@@ -31,8 +31,8 @@ pub struct Neo4JConfig {
     pub slow_query_logging_include_cypher: bool,
 
     /// Longest wait in seconds for one reply from Neo4j, and for a TCP connect.
-    /// Keep it at least the server's `db.transaction.timeout`, so a long call (GDS
-    /// PageRank, a migration backfill) ends on the server's limit, not this one.
+    /// A call whose reply takes longer, such as a GDS PageRank or a migration
+    /// backfill, fails.
     #[serde(
         default = "default_neo4j_reply_timeout_secs",
         deserialize_with = "deserialize_nonzero_reply_timeout_secs"
