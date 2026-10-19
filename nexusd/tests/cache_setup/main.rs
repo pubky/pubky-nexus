@@ -13,6 +13,9 @@
 //! 'num-test-threads'` so it never overlaps with any other test in the run.
 //! The cache is rebuilt with `reindex::sync()` before returning so a local
 //! run leaves the mock data in place for whatever runs next.
+//!
+//! The binary also runs the most-followed job against the live ranking, which
+//! needs the same exclusivity: no reader of that set may run while it does.
 
 use std::collections::BTreeSet;
 
@@ -22,6 +25,7 @@ use nexus_common::models::post::trust_filter::APPLIED_KEY_PARTS;
 use nexus_common::models::post::PostDetails;
 use nexus_common::models::user::{USER_MOSTFOLLOWED_KEY_PARTS, USER_SOCIAL_GRAPH_KEY_PARTS};
 use nexus_common::{FeaturesConfig, StackConfig, StackManager};
+use nexusd::jobs::{Job, MostFollowedCacheJob};
 use redis::Value;
 
 const POST_CONTENT_INDEX: &str = "postContentIdx";
@@ -127,6 +131,49 @@ async fn clear_redis_recreates_post_content_index() -> Result<()> {
     assert!(
         most_followed > 0,
         "reindex::sync built no most-followed ranking"
+    );
+
+    Ok(())
+}
+
+/// The job is the most-followed ranking's only scheduled writer, and the key has no
+/// TTL, so a job that stopped refreshing would freeze the ranking for good.
+#[tokio_shared_rt::test(shared)]
+async fn most_followed_job_rebuilds_the_ranking() -> Result<()> {
+    StackManager::setup(&StackConfig::default())
+        .await
+        .map_err(|e| anyhow::anyhow!("could not initialise the stack: {e:?}"))?;
+    let key = format!("Sorted:{}", USER_MOSTFOLLOWED_KEY_PARTS.join(":"));
+    let planted = "notinthegraphnotinthegraphnotinthegraphnotinthegraph";
+    let mut conn = get_redis_conn().await?;
+    let _: () = redis::cmd("ZADD")
+        .arg(&key)
+        .arg(1e9)
+        .arg(planted)
+        .query_async(&mut conn)
+        .await?;
+
+    let ran = MostFollowedCacheJob.run().await;
+    let (score, members): (Option<f64>, usize) = redis::pipe()
+        .zscore(&key, planted)
+        .zcard(&key)
+        .query_async(&mut conn)
+        .await?;
+    // Remove the planted member before asserting, so a failure cannot leave it ranked.
+    let _: () = redis::cmd("ZREM")
+        .arg(&key)
+        .arg(planted)
+        .query_async(&mut conn)
+        .await?;
+
+    ran.map_err(|e| anyhow::anyhow!("the most-followed job failed: {e}"))?;
+    assert_eq!(
+        score, None,
+        "the job must drop a member the graph does not have"
+    );
+    assert!(
+        members > 0,
+        "the job must rebuild the ranking, not only clear it"
     );
 
     Ok(())
