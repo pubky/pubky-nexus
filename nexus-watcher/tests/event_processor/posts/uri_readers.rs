@@ -1,4 +1,6 @@
-use super::utils::{set_post_uri, short_post, test_user};
+use super::utils::{
+    check_member_post_replies, find_post_details, set_post_uri, short_post, test_user,
+};
 use crate::event_processor::utils::watcher::{generate_post_id, HomeserverHashIdPath, WatcherTest};
 use anyhow::Result;
 use chrono::Utc;
@@ -392,6 +394,63 @@ async fn test_reply_delete_notification_carries_reply_stored_uri() -> Result<()>
         })
         .collect();
     assert_eq!(deleted, vec![(PostChangedSource::Reply, reply_stored)]);
+
+    test.cleanup_post(&author_kp, &post_path).await?;
+    test.cleanup_user(&replier_kp).await?;
+    test.cleanup_user(&author_kp).await?;
+    Ok(())
+}
+
+/// Deleting a reply whose parent is stored under a `social/v1` address finds the parent by the
+/// key on its `REPLIED` edge, not by parsing that address, even on a retry after the reply's
+/// relationships index entry is gone.
+#[tokio_shared_rt::test(shared)]
+async fn test_reply_delete_finds_parent_stored_under_another_address() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+
+    let author_kp = Keypair::random();
+    let author_id = test
+        .create_user(
+            &author_kp,
+            &test_user("Watcher:UriReaders:DelParent:Author", "uri"),
+        )
+        .await?;
+    let replier_kp = Keypair::random();
+    let replier_id = test
+        .create_user(
+            &replier_kp,
+            &test_user("Watcher:UriReaders:DelParent:Replier", "uri"),
+        )
+        .await?;
+
+    let (post_id, post_path) = test
+        .create_post(&author_kp, &short_post("Watcher:UriReaders:DelParent:Post"))
+        .await?;
+    let mut reply = short_post("Watcher:UriReaders:DelParent:Reply");
+    reply.parent = Some(post_uri_builder(author_id.clone(), post_id.clone()));
+    let (reply_id, reply_path) = test.create_post(&replier_kp, &reply).await?;
+    let reply_key = [replier_id.as_str(), reply_id.as_str()];
+    assert!(check_member_post_replies(&author_id, &post_id, &reply_key)
+        .await?
+        .is_some());
+
+    set_post_uri(
+        &author_id,
+        &post_id,
+        Some(&stored_uri(&author_id, &post_id)),
+    )
+    .await?;
+    // As on a retry: a first attempt removed the gate, then failed
+    PostRelationships::delete(&replier_id, &reply_id).await?;
+
+    test.cleanup_post(&replier_kp, &reply_path).await?;
+
+    // CACHE_OP: the reply left the parent's reply set
+    assert!(check_member_post_replies(&author_id, &post_id, &reply_key)
+        .await?
+        .is_none());
+    // GRAPH_OP: the reply is gone
+    assert!(find_post_details(&replier_id, &reply_id).await.is_err());
 
     test.cleanup_post(&author_kp, &post_path).await?;
     test.cleanup_user(&replier_kp).await?;
