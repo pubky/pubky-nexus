@@ -157,7 +157,7 @@ mod tests {
             .jobs
             .get("most-followed-cache")
             .expect("[jobs.most-followed-cache] should be present");
-        assert_eq!(most_followed_job.cron.as_deref(), Some("0 6/10 * * * *"));
+        assert_eq!(most_followed_job.cron.as_deref(), Some("0 6 4 * * *"));
         let trust_job = c
             .jobs
             .get("trust-recompute")
