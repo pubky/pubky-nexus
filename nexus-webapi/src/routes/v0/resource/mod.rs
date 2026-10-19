@@ -11,8 +11,8 @@ use crate::{Error, Result};
 use axum::routing::get;
 use axum::{Json, Router};
 use nexus_common::models::resource::tag::TagResource;
+use nexus_common::models::resource::view::ResourceView;
 use nexus_common::models::resource::ResourceDetails;
-use nexus_common::models::tag::traits::{TagCollection, TaggersCollection};
 use nexus_common::models::tag::TagDetails;
 use nexus_common::universal_tag::normalize::{normalize_uri, resource_id};
 use serde::{Deserialize, Serialize};
@@ -27,6 +27,15 @@ const MAX_URI_LENGTH: usize = 2048;
 pub struct ResourceTagsResponse {
     pub resource: ResourceDetails,
     pub tags: Vec<TagDetails>,
+}
+
+impl From<ResourceView> for ResourceTagsResponse {
+    fn from(view: ResourceView) -> Self {
+        Self {
+            resource: view.details,
+            tags: view.tags,
+        }
+    }
 }
 
 pub fn routes() -> Router<AppState> {
@@ -84,21 +93,17 @@ pub async fn resource_tags_handler(
     debug!("GET {RESOURCE_TAGS_ROUTE} resource_id:{}", res_id);
 
     reject_resource_depth(query.depth)?;
-    let tags = TagResource::get_by_id(
+    let view = ResourceView::get_by_id(
         &res_id,
-        None,
         query.skip_tags_as_usize(),
         query.limit_tags_as_usize(),
         query.limit_taggers_as_usize(),
         query.viewer_id.as_deref(),
-        None,
     )
     .await?
     .ok_or_else(|| Error::resource_not_found(res_id.to_string()))?;
 
-    let resource = load_resource_details(&res_id).await?;
-
-    Ok(Json(ResourceTagsResponse { resource, tags }))
+    Ok(Json(ResourceTagsResponse::from(view)))
 }
 
 #[utoipa::path(
@@ -136,21 +141,17 @@ pub async fn resource_by_uri_handler(
     let res_id = resource_id(&normalized);
 
     reject_resource_depth(query.tags_query.depth)?;
-    let tags = TagResource::get_by_id(
+    let view = ResourceView::get_by_id(
         &res_id,
-        None,
         query.tags_query.skip_tags_as_usize(),
         query.tags_query.limit_tags_as_usize(),
         query.tags_query.limit_taggers_as_usize(),
         query.tags_query.viewer_id.as_deref(),
-        None,
     )
     .await?
     .ok_or_else(|| Error::resource_not_found(res_id.clone()))?;
 
-    let resource = load_resource_details(&res_id).await?;
-
-    Ok(Json(ResourceTagsResponse { resource, tags }))
+    Ok(Json(ResourceTagsResponse::from(view)))
 }
 
 #[derive(Deserialize, Debug)]
@@ -189,23 +190,14 @@ pub async fn resource_taggers_handler(
     reject_resource_depth(taggers_query.tags_query.depth)?;
     let pagination = taggers_query.pagination.to_pagination(None, None);
 
-    let taggers = TagResource::get_tagger_by_id(
+    let taggers = TagResource::get_taggers(
         &resource_id,
-        None,
         &label,
         pagination,
         taggers_query.tags_query.viewer_id.as_deref(),
-        None,
     )
     .await?;
     Ok(Json(TaggersInfoResponse::from(taggers)))
-}
-
-/// Load Resource node details from Neo4j.
-async fn load_resource_details(res_id: &str) -> Result<ResourceDetails> {
-    ResourceDetails::get_by_id(res_id)
-        .await?
-        .ok_or_else(|| Error::resource_not_found(res_id))
 }
 
 #[derive(OpenApi)]

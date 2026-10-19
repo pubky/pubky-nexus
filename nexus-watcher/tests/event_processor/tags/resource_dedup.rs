@@ -2,8 +2,7 @@ use super::resource_utils::{compute_resource_id, count_resource_tags};
 use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
 use chrono::Utc;
-use nexus_common::models::resource::tag::TagResource;
-use nexus_common::models::tag::traits::TagCollection;
+use nexus_common::models::resource::view::ResourceView;
 use pubky::Keypair;
 use pubky::ResourcePath;
 use pubky_app_specs::traits::HashId;
@@ -70,11 +69,10 @@ async fn test_resource_tag_multi_user_dedup() -> Result<()> {
     );
 
     // Verify: Tag aggregation shows 2 taggers
-    let cache_tags =
-        TagResource::get_from_index(&resource_id, None, None, None, None, None, false).await?;
-
-    assert!(cache_tags.is_some());
-    let details = cache_tags.unwrap();
+    let details = ResourceView::get_by_id(&resource_id, None, None, None, None)
+        .await?
+        .expect("Resource should have a tag list")
+        .tags;
     assert_eq!(details.len(), 1, "Should have 1 label");
     assert_eq!(details[0].label, label);
     assert_eq!(details[0].taggers_count, 2, "Should show 2 taggers");

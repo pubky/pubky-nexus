@@ -43,7 +43,7 @@ MATCH (u:User {id: $trel_tagger}), (r:Resource {id: "7a6e1c0de5f0a11ce0ffee00000
 MATCH (u:User {id: $trel_tagger}), (r:Resource {id: "7a6e1c0de5f0a11ce0ffee0000000001"}) MERGE (u)-[:TAGGED {label: "trel-other", id: "TRELREST02", indexed_at: 1724134098008, app: "mapky", uri: "pubky://ww9hfpxrbq6hg8b34gg57irnhfk1iz9b8px9o7biy1d1dz1xep8o/pub/mapky/tags/TRELREST02"}]->(r);
 
 // Cache-miss targets: the cache-miss tests delete their Redis tag keys, so no other test reads
-// them. The resource streams do list the resource: see the nextest group `resource-tag-index`.
+// them. The resource keeps no Redis tag keys, so the resource streams can list it.
 :param trel_miss_user => 'twtytiiy6girjjoep9amicagowbde5m7n3dcpjdeuehzstca13oo';
 // Its own author: an author stream of the shared fixture author would read the miss post's tags
 :param trel_miss_author => 'xxthkxjtb16wto9b7sud74dmsetqi54ewiisxaeadt6bhy6j9zmo';

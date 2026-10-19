@@ -60,6 +60,31 @@ fn bench_get_full_by_id(c: &mut Criterion) {
     );
 }
 
+fn bench_get_full_by_ids(c: &mut Criterion) {
+    println!("**********************************************************************************");
+    println!("Test the performance of getting a page of user views by ID (one graph counts query)");
+    println!("**********************************************************************************");
+
+    run_setup();
+
+    let user_ids: Vec<String> = USER_IDS.iter().map(|id| id.to_string()).collect();
+    let viewer_id = "5g3fwnue819wfdjwiwm8qr35ww6uxxgbzrigrtdgmbi19ksioeoy";
+    let rt = Runtime::new().unwrap();
+
+    c.bench_with_input(
+        BenchmarkId::new("get_user_views_by_ids", user_ids.len()),
+        &user_ids,
+        |b, ids| {
+            b.to_async(&rt).iter(|| async {
+                let users = UserView::get_by_ids(ids, Some(viewer_id), None)
+                    .await
+                    .unwrap();
+                std::hint::black_box(users);
+            });
+        },
+    );
+}
+
 fn bench_get_relationship_by_id(c: &mut Criterion) {
     println!("*********************************************************************************************************");
     println!("Test the performance of getting a following/follower relationship by ID, using index or graph as needed.");
@@ -83,48 +108,30 @@ fn bench_get_relationship_by_id(c: &mut Criterion) {
     );
 }
 
-fn bench_get_counts_from_graph(c: &mut Criterion) {
-    println!("*********************************************************************************************************");
-    println!("Test the performance of getting user counts from the graph database.");
-    println!("*********************************************************************************************************");
-
-    run_setup();
-
-    let user_id = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
-    let rt = Runtime::new().unwrap();
-
-    c.bench_with_input(
-        BenchmarkId::new("get_counts_from_graph", user_id),
-        &user_id,
-        |b, &id| {
-            b.to_async(&rt).iter(|| async {
-                let counts = UserCounts::get_from_graph(id).await.unwrap();
-                std::hint::black_box(counts);
-            });
-        },
-    );
-}
-
 fn bench_get_counts_by_id(c: &mut Criterion) {
     println!("*********************************************************************************************************");
-    println!("Test the performance of getting user counts by ID, using index or graph as needed.");
+    println!("Test the performance of getting user counts by ID from the graph: a light user and a heavy one.");
     println!("*********************************************************************************************************");
 
     run_setup();
 
-    let user_id = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
     let rt = Runtime::new().unwrap();
-
-    c.bench_with_input(
-        BenchmarkId::new("get_counts_by_id", user_id),
-        &user_id,
-        |b, &id| {
-            b.to_async(&rt).iter(|| async {
-                let counts = UserCounts::get_by_id(id).await.unwrap();
-                std::hint::black_box(counts);
-            });
-        },
-    );
+    // Aldert: 4 posts, 25 follow edges. Ar: 87 posts, 95 tags given, 34 follow edges.
+    for user_id in [
+        "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro",
+        "pxnu33x7jtpx9ar1ytsi4yxbp6a5o36gwhffs8zoxmbuptici1jy",
+    ] {
+        c.bench_with_input(
+            BenchmarkId::new("get_counts_by_id", user_id),
+            &user_id,
+            |b, &id| {
+                b.to_async(&rt).iter(|| async {
+                    let counts = UserCounts::get_by_id(id).await.unwrap();
+                    std::hint::black_box(counts);
+                });
+            },
+        );
+    }
 }
 
 fn bench_get_details_from_graph(c: &mut Criterion) {
@@ -226,8 +233,8 @@ criterion_group! {
     name = benches;
     config = configure_criterion();
     targets = bench_get_full_by_id,
+              bench_get_full_by_ids,
               bench_get_relationship_by_id,
-              bench_get_counts_from_graph,
               bench_get_counts_by_id,
               bench_get_details_from_graph,
               bench_get_details_by_id,

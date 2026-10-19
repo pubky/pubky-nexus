@@ -1,7 +1,7 @@
 use super::{Epoch, UserSearch};
 use crate::db::graph::Query;
 use crate::db::kv::RedisResult;
-use crate::db::{exec_single_row, queries, GraphResult, RedisOps};
+use crate::db::{exec_single_row, fetch_key_from_graph, queries, GraphResult, RedisOps};
 use crate::models::error::ModelResult;
 use crate::models::traits::Collection;
 use async_trait::async_trait;
@@ -189,6 +189,11 @@ pub async fn set_user_homeserver(user_id: &str, homeserver_id: &str) -> GraphRes
 /// Toggles the stale flag on a user's existing homeserver mapping.
 pub async fn set_user_homeserver_stale(user_id: &str, stale: bool) -> GraphResult<()> {
     exec_single_row(queries::put::set_user_homeserver_stale(user_id, stale)).await
+}
+/// True only when every id has a `User` node.
+pub async fn users_exist(user_ids: &[&str]) -> GraphResult<bool> {
+    let exist = fetch_key_from_graph(queries::get::users_exist(user_ids), "all_exist").await?;
+    Ok(exist.unwrap_or(false))
 }
 
 #[cfg(test)]

@@ -702,7 +702,7 @@ mod tests {
         refreshed?;
         let live: HashMap<String, f64> = live?.unwrap_or_default().into_iter().collect();
 
-        let counts = UserCounts::get_from_graph(lowered)
+        let counts = UserCounts::get_by_id(lowered)
             .await?
             .expect("a ranked user has counts");
         assert_eq!(

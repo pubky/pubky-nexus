@@ -1,5 +1,7 @@
 use criterion::{criterion_group, criterion_main};
 use criterion::{BenchmarkId, Criterion};
+use nexus_common::models::resource::tag::TagResource;
+use nexus_common::models::resource::view::ResourceView;
 use nexus_common::models::tag::global::Taggers;
 use nexus_common::models::tag::post::TagPost;
 use nexus_common::models::tag::stream::HotTags;
@@ -191,6 +193,31 @@ fn bench_get_wot_post_tags(c: &mut Criterion) {
     );
 }
 
+fn bench_get_resource_view(c: &mut Criterion) {
+    println!("******************************************************************************");
+    println!("Test the performance of getting a resource's details and tags (graph-only path)");
+    println!("******************************************************************************");
+
+    run_setup();
+
+    // https://example.com/article, from docker/test-graph/mocks/resources.cypher
+    let resource_id = "450a72e3da164bfc3ac5f4056f9e5c7c";
+    let rt = Runtime::new().unwrap();
+
+    c.bench_with_input(
+        BenchmarkId::new("bench_get_resource_view", resource_id),
+        &resource_id,
+        |b, &id| {
+            b.to_async(&rt).iter(|| async {
+                let view = ResourceView::get_by_id(id, None, None, None, None)
+                    .await
+                    .unwrap();
+                std::hint::black_box(view);
+            });
+        },
+    );
+}
+
 fn bench_get_post_tag_taggers(c: &mut Criterion) {
     println!("*****************************************************************");
     println!("Test the performance of getting a post tag taggers, using index");
@@ -220,6 +247,31 @@ fn bench_get_post_tag_taggers(c: &mut Criterion) {
                 )
                 .await
                 .unwrap();
+                std::hint::black_box(taggers);
+            });
+        },
+    );
+}
+
+fn bench_get_resource_tag_taggers(c: &mut Criterion) {
+    println!("******************************************************************************");
+    println!("Test the performance of getting a resource tag taggers (graph-only path)");
+    println!("******************************************************************************");
+
+    run_setup();
+
+    // https://example.com/article, from docker/test-graph/mocks/resources.cypher
+    let resource_id = "450a72e3da164bfc3ac5f4056f9e5c7c";
+    let rt = Runtime::new().unwrap();
+
+    c.bench_with_input(
+        BenchmarkId::new("bench_get_resource_tag_taggers", resource_id),
+        &resource_id,
+        |b, &id| {
+            b.to_async(&rt).iter(|| async {
+                let taggers = TagResource::get_taggers(id, "bitcoin", Pagination::default(), None)
+                    .await
+                    .unwrap();
                 std::hint::black_box(taggers);
             });
         },
@@ -439,7 +491,9 @@ criterion_group! {
                 bench_get_wot_user_tag_taggers,
                 bench_get_post_tags,
                 bench_get_wot_post_tags,
+                bench_get_resource_view,
                 bench_get_post_tag_taggers,
+                bench_get_resource_tag_taggers,
                 bench_get_global_hot_tags,
                 bench_get_global_tag_taggers,
                 bench_get_following_reach_hot_tags,
