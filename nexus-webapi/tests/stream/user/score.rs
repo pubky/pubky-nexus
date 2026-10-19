@@ -94,6 +94,43 @@ async fn test_stream_most_followed_rebuilds_a_missing_ranking() -> Result<()> {
     Ok(())
 }
 
+/// An existing key whose window is empty is not a miss: a page past the end is served
+/// empty, with no rebuild on the request path.
+#[tokio_shared_rt::test(shared)]
+async fn test_stream_most_followed_serves_an_empty_window_without_a_rebuild() -> Result<()> {
+    TestServiceServer::get_test_server().await;
+    let mut redis_conn = get_redis_conn().await?;
+    let key = most_followed_key();
+
+    // Reading first rebuilds the ranking if it is missing, so the key exists.
+    get_request(&format!("{MOST_FOLLOWED_IDS}&limit=1")).await?;
+    let top: Vec<(String, f64)> = redis_conn.zrevrange_withscores(&key, 0, 0).await?;
+    let (top_id, top_score) = top.first().cloned().expect("the fixture ranks users");
+    // Follower counts are integers, so no rebuild can write this score.
+    let marked = top_score + 0.5;
+    let _: () = redis_conn.zadd(&key, &top_id, marked).await?;
+
+    // Probed without `?`, so a failure cannot leave the marked score for the next reader.
+    let probe = async {
+        let page = get_request(&format!("{MOST_FOLLOWED_IDS}&skip=10000&limit=5")).await?;
+        let after: Option<f64> = redis_conn.zscore(&key, &top_id).await?;
+        anyhow::Ok((page, after))
+    }
+    .await;
+
+    UserStream::refresh_most_followed().await?;
+    let (page, after) = probe?;
+
+    assert_eq!(page, json!([]), "a page past the end must be empty");
+    assert_eq!(
+        after,
+        Some(marked),
+        "an empty window must not rebuild the ranking"
+    );
+
+    Ok(())
+}
+
 /// A user deleted after the last refresh is still in the ranking. The read leaves them out
 /// of the page and evicts them, and the next refresh does not bring them back.
 #[tokio_shared_rt::test(shared)]

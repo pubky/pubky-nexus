@@ -649,8 +649,9 @@ mod tests {
 
     /// A stale live ranking converges on the graph at the next refresh, with no watcher
     /// update: a score above the user's follower count, as after an unfollow, drops to it,
-    /// a missing user comes back, and members the graph does not rank (gone, tombstoned,
-    /// stubs) leave. Rewrites the shared live set, so `.config/nextest.toml` runs it alone.
+    /// a missing user comes back, a new profile with no followers ranks with 0, and members
+    /// the graph does not rank (gone, tombstoned, stubs) leave. Rewrites the shared live
+    /// set, so `.config/nextest.toml` runs it alone.
     #[tokio_shared_rt::test(shared)]
     async fn refresh_converges_a_stale_most_followed_ranking() -> Result<(), DynError> {
         StackManager::setup(&StackConfig::default()).await?;
@@ -667,6 +668,7 @@ mod tests {
         let gone = PubkyId::from(Keypair::random());
         let tombstone = PubkyId::from(Keypair::random());
         let stub = PubkyId::from(Keypair::random());
+        let unfollowed = PubkyId::from(Keypair::random());
         let unranked: [(&str, &str); 3] = [
             (&*gone, "a user gone from the graph"),
             (&*tombstone, "a tombstoned user"),
@@ -685,12 +687,18 @@ mod tests {
         .await?;
         UserDetails::tombstone(&tombstone).put_to_graph().await?;
         UserDetails::from_pubky(stub.clone()).put_to_graph().await?;
+        let profile = UserDetails {
+            name: "Most followed fixture".to_string(),
+            ..UserDetails::from_pubky(unfollowed.clone())
+        };
+        profile.put_to_graph().await?;
 
         // Remove the nodes before asserting, so a failure cannot leave them in the graph.
         let refreshed = UserStream::refresh_most_followed().await;
         let live = read_most_followed(None).await;
         UserDetails::delete(&tombstone).await?;
         UserDetails::delete(&stub).await?;
+        UserDetails::delete(&unfollowed).await?;
         refreshed?;
         let live: HashMap<String, f64> = live?.unwrap_or_default().into_iter().collect();
 
@@ -706,13 +714,18 @@ mod tests {
             live.contains_key(missing),
             "a user missing from the ranking must come back"
         );
+        assert_eq!(
+            live.get(&*unfollowed),
+            Some(&0.0),
+            "a user with no followers must rank with 0"
+        );
         for (id, member) in unranked {
             assert!(!live.contains_key(id), "{member} must leave the ranking");
         }
         assert_eq!(
             live.len(),
-            graph_ranking.len(),
-            "every ranked user is in it"
+            graph_ranking.len() + 1,
+            "every ranked user is in it, the new profile included"
         );
         Ok(())
     }

@@ -17,10 +17,10 @@ resource-tag-index = { max-threads = 1 }
 filter = 'test(=stream::user::influencers::test_global_influencers) | test(=stream::user::influencers::test_global_influencers_skip_limit) | test(=stream::user::influencers::test_global_influencers_alltime_cache_recovery) | test(=stream::user::influencers::test_global_influencers_preview)'
 test-group = 'influencers-sorted-set'
 
-# The most-followed tests delete Sorted:Users:MostFollowed, or plant a deleted user at its
-# top, while the others assert full pages and the members of its top 20.
+# The most-followed tests delete Sorted:Users:MostFollowed, mark a score at its top, or
+# plant a deleted user there, while the others assert full pages and its top 20.
 [[profile.default.overrides]]
-filter = 'test(=stream::user::score::test_stream_most_followed) | test(=stream::user::score::test_stream_most_followed_rebuilds_a_missing_ranking) | test(=stream::user::score::test_stream_most_followed_filters_deleted_users) | test(=stream::user::ids::test_stream_user_ids_most_followed_align)'
+filter = 'test(=stream::user::score::test_stream_most_followed) | test(=stream::user::score::test_stream_most_followed_rebuilds_a_missing_ranking) | test(=stream::user::score::test_stream_most_followed_serves_an_empty_window_without_a_rebuild) | test(=stream::user::score::test_stream_most_followed_filters_deleted_users) | test(=stream::user::ids::test_stream_user_ids_most_followed_align)'
 test-group = 'most-followed-sorted-set'
 
 # These tests change the shared trust ranking (Sorted:Users:SocialGraph) and the
