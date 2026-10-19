@@ -152,6 +152,12 @@ mod tests {
             "hot-tags cache jobs must be opt-in; found {:#?}",
             c.jobs
         );
+        // The most-followed ranking has no other writer, so its job ships scheduled
+        let most_followed_job = c
+            .jobs
+            .get("most-followed-cache")
+            .expect("[jobs.most-followed-cache] should be present");
+        assert_eq!(most_followed_job.cron.as_deref(), Some("0 6/10 * * * *"));
         let trust_job = c
             .jobs
             .get("trust-recompute")

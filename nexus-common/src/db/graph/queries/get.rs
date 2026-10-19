@@ -361,6 +361,28 @@ fn ranked_user(var: &str) -> String {
     format!("{var}.trust > 0 AND NOT coalesce({var}.deleted, false)")
 }
 
+/// One keyset page of the most-followed ranking, ordered by `id`, strictly after
+/// `after_id` (`""` for the first page). It holds every user who is neither
+/// tombstoned nor a discovery stub, scored by the [`user_counts`] follower count,
+/// so a user with no followers ranks with 0.
+pub fn get_most_followed_users(after_id: &str, limit: usize) -> Query {
+    let cypher = format!(
+        "
+        MATCH (u:User)
+        WHERE u.id > $after_id
+          AND NOT coalesce(u.deleted, false)
+          // A discovery stub is named after its id, which no profile name can be.
+          AND u.name <> u.id
+        RETURN u.id AS id, {FOLLOWERS_COUNT} AS followers
+        ORDER BY u.id
+        LIMIT $limit
+        "
+    );
+    Query::new("get_most_followed_users", &cypher)
+        .param("after_id", after_id)
+        .param("limit", limit as i64)
+}
+
 /// Ids of the users who wrote at least one post.
 pub fn post_author_ids() -> Query {
     Query::new(
@@ -934,13 +956,16 @@ pub fn get_viewer_trusted_network_post_tags(
         .param("limit_taggers", limit_taggers as i64)
 }
 
+// The count the most-followed ranking scores by, so it can't drift from `UserCounts`.
+const FOLLOWERS_COUNT: &str = "COUNT { (:User)-[:FOLLOWS]->(u) }";
+
 /// Per-user count fields, as `(alias, COUNT {} subquery)` pairs bound to the
 /// node variable `u`. Single source of truth shared by [`user_counts`] (map
 /// form) and the trust report (column form), so their filters — especially the
 /// collection/bookmark rules — can't drift between the two queries.
 const USER_COUNT_FIELDS: &[(&str, &str)] = &[
     ("following", "COUNT { (u)-[:FOLLOWS]->(:User) }"),
-    ("followers", "COUNT { (:User)-[:FOLLOWS]->(u) }"),
+    ("followers", FOLLOWERS_COUNT),
     (
         "friends",
         "COUNT { (u)-[:FOLLOWS]->(friend:User) WHERE (friend)-[:FOLLOWS]->(u) }",

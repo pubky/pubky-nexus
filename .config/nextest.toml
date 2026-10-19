@@ -10,17 +10,30 @@
 
 [test-groups]
 influencers-sorted-set = { max-threads = 1 }
+most-followed-sorted-set = { max-threads = 1 }
 resource-tag-index = { max-threads = 1 }
 
 [[profile.default.overrides]]
 filter = 'test(=stream::user::influencers::test_global_influencers) | test(=stream::user::influencers::test_global_influencers_skip_limit) | test(=stream::user::influencers::test_global_influencers_alltime_cache_recovery) | test(=stream::user::influencers::test_global_influencers_preview)'
 test-group = 'influencers-sorted-set'
 
+# The most-followed tests delete Sorted:Users:MostFollowed, or plant a deleted user at its
+# top, while the others assert full pages and the members of its top 20.
+[[profile.default.overrides]]
+filter = 'test(=stream::user::score::test_stream_most_followed) | test(=stream::user::score::test_stream_most_followed_rebuilds_a_missing_ranking) | test(=stream::user::score::test_stream_most_followed_filters_deleted_users) | test(=stream::user::ids::test_stream_user_ids_most_followed_align)'
+test-group = 'most-followed-sorted-set'
+
 # These tests change the shared trust ranking (Sorted:Users:SocialGraph) and the
 # posts it hides, which every filtered stream and social graph status reads, so
 # they run alone, as cache_setup does below.
 [[profile.default.overrides]]
 filter = 'test(=user::views::test_social_graph_status) | test(/^models::post::trust_filter::tests::live::/)'
+threads-required = 'num-test-threads'
+
+# This test seeds a stale copy of the shared Sorted:Users:MostFollowed ranking and
+# rebuilds it, so no reader of that set may run while it does.
+[[profile.default.overrides]]
+filter = 'test(=models::user::stream::tests::refresh_converges_a_stale_most_followed_ranking)'
 threads-required = 'num-test-threads'
 
 # nexusd/tests/cache_setup/main.rs calls clear_redis(), which issues FLUSHDB

@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use super::{Influencers, UserCounts, UserDetails, UserSearch, UserView};
 
+use crate::db::graph::keyset_scan;
 use crate::db::kv::{sets, RedisError, RedisResult, SortOrder};
 use crate::db::{fetch_all_rows_from_graph, queries, RedisOps};
 use crate::models::error::ModelError;
@@ -11,9 +12,13 @@ use crate::models::post::{PostStream, POST_REPLIES_PER_POST_KEY_PARTS};
 use crate::types::{StreamReach, Timeframe, WotDepth};
 
 use serde::{Deserialize, Serialize};
+use std::sync::{Mutex, PoisonError};
+use tracing::debug;
 use utoipa::ToSchema;
 
 pub const USER_MOSTFOLLOWED_KEY_PARTS: [&str; 2] = ["Users", "MostFollowed"];
+/// Users per graph read when the most-followed ranking is rebuilt.
+const MOST_FOLLOWED_PAGE_SIZE: usize = 500;
 pub const USER_INFLUENCERS_KEY_PARTS: [&str; 2] = ["Users", "Influencers"];
 pub const CACHE_USER_RECOMMENDED_KEY_PARTS: [&str; 3] = ["Cache", "Users", "Recommended"];
 /// Keeps the per-label overfetch inside the graph query's own row cap, so a page is never
@@ -117,20 +122,6 @@ impl UserStream {
             true => Ok(None),
             false => Ok(Some(Self(user_views))),
         }
-    }
-
-    /// Adds the post to a Redis sorted set using the follower counts as score.
-    pub async fn add_to_most_followed_sorted_set(
-        user_id: &str,
-        counts: &UserCounts,
-    ) -> RedisResult<()> {
-        Self::put_index_sorted_set(
-            &USER_MOSTFOLLOWED_KEY_PARTS,
-            &[(counts.followers as f64, user_id)],
-            None,
-            None,
-        )
-        .await
     }
 
     /// Adds the post to a Redis sorted set using the follower counts as score.
@@ -277,22 +268,84 @@ impl UserStream {
         Ok((!user_ids.is_empty()).then_some(user_ids))
     }
 
+    /// Rebuilds the most-followed ranking from the graph, so its members and scores
+    /// converge on the graph's. Nothing else writes it and it has no TTL: the
+    /// `most-followed-cache` job runs this on its schedule, a missing key falls back to it,
+    /// and so does a full reindex.
+    pub async fn refresh_most_followed() -> ModelResult<()> {
+        let ranking = Self::read_most_followed_ranking(MOST_FOLLOWED_PAGE_SIZE).await;
+        Self::write_most_followed_ranking(ranking, None).await
+    }
+
+    /// Scores every ranked user by follower count, `page_size` users per graph read.
+    async fn read_most_followed_ranking(page_size: usize) -> ModelResult<Vec<(String, f64)>> {
+        let ranking = Mutex::new(Vec::new());
+        keyset_scan(page_size, "most_followed", |after_id| {
+            let ranking = &ranking;
+            async move {
+                let query = queries::get::get_most_followed_users(&after_id, page_size);
+                let mut page: Vec<(String, f64)> = Vec::with_capacity(page_size);
+                for row in fetch_all_rows_from_graph(query).await? {
+                    let followers: i64 = row.get("followers")?;
+                    page.push((row.get("id")?, followers as f64));
+                }
+                let last_id = page.last().map(|(id, _)| id.clone());
+                let count = page.len();
+                ranking
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .extend(page);
+                Ok::<_, ModelError>((count, last_id))
+            }
+        })
+        .await?;
+        Ok(ranking.into_inner().unwrap_or_else(PoisonError::into_inner))
+    }
+
+    /// Swaps a complete ranking in with one atomic write. A failed read writes nothing,
+    /// so the previous ranking is served until a later refresh succeeds. An empty one
+    /// deletes the key: with no TTL, keeping the old ranking would keep its members
+    /// forever. Tests drive it directly with injected results, under their own `prefix`.
+    async fn write_most_followed_ranking(
+        ranking: ModelResult<Vec<(String, f64)>>,
+        prefix: Option<&str>,
+    ) -> ModelResult<()> {
+        let ranking = ranking?;
+        debug!(count = ranking.len(), "Replacing the most-followed ranking");
+        let elements: Vec<(f64, &str)> = ranking
+            .iter()
+            .map(|(id, followers)| (*followers, id.as_str()))
+            .collect();
+        Self::replace_index_sorted_set(&USER_MOSTFOLLOWED_KEY_PARTS, &elements, prefix, None)
+            .await?;
+        Ok(())
+    }
+
     /// Retrieves most-followed user IDs from the sorted set, filtering out deleted users
     /// and cleaning them from the cache.
+    ///
+    /// Only a missing key counts as a miss: the ranking is rebuilt from the graph, then read
+    /// again. An existing key whose window is empty is served as an empty page.
     async fn get_most_followed(
         skip: Option<usize>,
         limit: Option<usize>,
-    ) -> RedisResult<Option<Vec<String>>> {
-        let result = Self::try_from_index_sorted_set(
-            &USER_MOSTFOLLOWED_KEY_PARTS,
-            None,
-            None,
-            skip,
-            limit,
-            SortOrder::Descending,
-            None,
-        )
-        .await?;
+    ) -> ModelResult<Option<Vec<String>>> {
+        let read = || {
+            Self::try_from_index_sorted_set(
+                &USER_MOSTFOLLOWED_KEY_PARTS,
+                None,
+                None,
+                skip,
+                limit,
+                SortOrder::Descending,
+                None,
+            )
+        };
+        let mut result = read().await?;
+        if result.is_none() {
+            Self::refresh_most_followed().await?;
+            result = read().await?;
+        }
 
         let Some(set) = result else {
             return Ok(None);
@@ -487,7 +540,20 @@ fn interleave_unique(ranked: Vec<Vec<String>>) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::interleave_unique;
+    use super::{
+        interleave_unique, UserStream, MOST_FOLLOWED_PAGE_SIZE, USER_MOSTFOLLOWED_KEY_PARTS,
+    };
+    use crate::db::kv::{RedisResult, SortOrder};
+    use crate::db::RedisOps;
+    use crate::models::error::ModelError;
+    use crate::models::{
+        traits::Collection,
+        user::{UserCounts, UserDetails},
+    };
+    use crate::{types::DynError, StackConfig, StackManager};
+    use pubky::Keypair;
+    use pubky_app_specs::PubkyId;
+    use std::collections::HashMap;
 
     fn lists(raw: &[&[&str]]) -> Vec<Vec<String>> {
         raw.iter()
@@ -525,5 +591,161 @@ mod tests {
     fn empty_input_is_empty() {
         assert!(interleave_unique(lists(&[])).is_empty());
         assert!(interleave_unique(lists(&[&[], &[]])).is_empty());
+    }
+
+    #[tokio_shared_rt::test(shared)]
+    async fn write_most_followed_ranking_keeps_the_previous_ranking_when_the_read_fails(
+    ) -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+        let prefix = "MostFollowedTest:FailedRead";
+        let previous = vec![("alice".to_string(), 10.0)];
+        UserStream::write_most_followed_ranking(Ok(previous.clone()), Some(prefix)).await?;
+
+        let failed_read = Err(ModelError::from_generic("graph unavailable"));
+        let result = UserStream::write_most_followed_ranking(failed_read, Some(prefix)).await;
+
+        assert!(result.is_err(), "a failed read must fail the refresh");
+        assert_eq!(read_most_followed(Some(prefix)).await?, Some(previous));
+        UserStream::write_most_followed_ranking(Ok(Vec::new()), Some(prefix)).await?;
+        Ok(())
+    }
+
+    #[tokio_shared_rt::test(shared)]
+    async fn write_most_followed_ranking_replaces_members_and_scores() -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+        let prefix = "MostFollowedTest:Replace";
+        let previous = vec![("alice".to_string(), 10.0), ("bob".to_string(), 5.0)];
+        UserStream::write_most_followed_ranking(Ok(previous), Some(prefix)).await?;
+
+        let ranking = vec![("bob".to_string(), 1.0), ("carol".to_string(), 2.0)];
+        UserStream::write_most_followed_ranking(Ok(ranking), Some(prefix)).await?;
+
+        // Not additive: alice leaves, and bob's unfollows lower his score.
+        assert_eq!(
+            read_most_followed(Some(prefix)).await?,
+            Some(vec![("carol".to_string(), 2.0), ("bob".to_string(), 1.0)])
+        );
+        UserStream::write_most_followed_ranking(Ok(Vec::new()), Some(prefix)).await?;
+        Ok(())
+    }
+
+    #[tokio_shared_rt::test(shared)]
+    async fn write_most_followed_ranking_deletes_the_key_on_an_empty_ranking(
+    ) -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+        let prefix = "MostFollowedTest:Empty";
+        let previous = vec![("alice".to_string(), 10.0)];
+        UserStream::write_most_followed_ranking(Ok(previous), Some(prefix)).await?;
+
+        UserStream::write_most_followed_ranking(Ok(Vec::new()), Some(prefix)).await?;
+
+        assert_eq!(
+            read_most_followed(Some(prefix)).await?,
+            None,
+            "an empty ranking must not keep the previous members"
+        );
+        Ok(())
+    }
+
+    /// A stale live ranking converges on the graph at the next refresh, with no watcher
+    /// update: a score above the user's follower count, as after an unfollow, drops to it,
+    /// a missing user comes back, and members the graph does not rank (gone, tombstoned,
+    /// stubs) leave. Rewrites the shared live set, so `.config/nextest.toml` runs it alone.
+    #[tokio_shared_rt::test(shared)]
+    async fn refresh_converges_a_stale_most_followed_ranking() -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+        let graph_ranking = UserStream::read_most_followed_ranking(MOST_FOLLOWED_PAGE_SIZE).await?;
+        let (lowered, _) = graph_ranking
+            .iter()
+            .max_by(|a, b| a.1.total_cmp(&b.1))
+            .expect("the fixture ranks users");
+        let (missing, _) = graph_ranking
+            .iter()
+            .find(|(id, _)| id != lowered)
+            .expect("the fixture ranks two users");
+
+        let gone = PubkyId::from(Keypair::random());
+        let tombstone = PubkyId::from(Keypair::random());
+        let stub = PubkyId::from(Keypair::random());
+        let unranked: [(&str, &str); 3] = [
+            (&*gone, "a user gone from the graph"),
+            (&*tombstone, "a tombstoned user"),
+            (&*stub, "a discovery stub"),
+        ];
+        let stale: Vec<(f64, &str)> = std::iter::once(lowered.as_str())
+            .chain(unranked.iter().map(|(id, _)| *id))
+            .map(|id| (1e9, id))
+            .collect();
+        UserStream::put_index_sorted_set(&USER_MOSTFOLLOWED_KEY_PARTS, &stale, None, None).await?;
+        UserStream::remove_from_index_sorted_set(
+            None,
+            &USER_MOSTFOLLOWED_KEY_PARTS,
+            &[missing.as_str()],
+        )
+        .await?;
+        UserDetails::tombstone(&tombstone).put_to_graph().await?;
+        UserDetails::from_pubky(stub.clone()).put_to_graph().await?;
+
+        // Remove the nodes before asserting, so a failure cannot leave them in the graph.
+        let refreshed = UserStream::refresh_most_followed().await;
+        let live = read_most_followed(None).await;
+        UserDetails::delete(&tombstone).await?;
+        UserDetails::delete(&stub).await?;
+        refreshed?;
+        let live: HashMap<String, f64> = live?.unwrap_or_default().into_iter().collect();
+
+        let counts = UserCounts::get_from_graph(lowered)
+            .await?
+            .expect("a ranked user has counts");
+        assert_eq!(
+            live.get(lowered),
+            Some(&f64::from(counts.followers)),
+            "a score above the follower count must drop to it"
+        );
+        assert!(
+            live.contains_key(missing),
+            "a user missing from the ranking must come back"
+        );
+        for (id, member) in unranked {
+            assert!(!live.contains_key(id), "{member} must leave the ranking");
+        }
+        assert_eq!(
+            live.len(),
+            graph_ranking.len(),
+            "every ranked user is in it"
+        );
+        Ok(())
+    }
+
+    /// The fixture fits in one page of `MOST_FOLLOWED_PAGE_SIZE`, so walk it in small pages
+    /// to cover the cursor a larger graph needs.
+    #[tokio_shared_rt::test(shared)]
+    async fn read_most_followed_ranking_walks_every_page() -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+        let page_size = 7;
+
+        let whole = UserStream::read_most_followed_ranking(MOST_FOLLOWED_PAGE_SIZE).await?;
+        let paged = UserStream::read_most_followed_ranking(page_size).await?;
+
+        assert!(
+            whole.len() > 2 * page_size,
+            "the fixture must span several pages"
+        );
+        assert_eq!(paged, whole);
+        Ok(())
+    }
+
+    /// The whole most-followed ranking under `prefix`, the live one for `None`.
+    async fn read_most_followed(prefix: Option<&str>) -> RedisResult<Option<Vec<(String, f64)>>> {
+        UserStream::try_from_index_sorted_set(
+            &USER_MOSTFOLLOWED_KEY_PARTS,
+            None,
+            None,
+            Some(0),
+            Some(10_000),
+            SortOrder::Descending,
+            prefix,
+        )
+        .await
     }
 }

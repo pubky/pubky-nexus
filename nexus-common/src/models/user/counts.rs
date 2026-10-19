@@ -71,7 +71,6 @@ impl UserCounts {
 
     pub async fn put_to_index(&self, user_id: &str) -> RedisResult<()> {
         self.put_index_json(&[user_id], None, None).await?;
-        UserStream::add_to_most_followed_sorted_set(user_id, self).await?;
         UserStream::add_to_influencers_sorted_set(user_id, self).await
     }
 
@@ -121,7 +120,7 @@ impl UserCounts {
         }
         // Update user counts index
         Self::update_index_field(user_id, field, action).await?;
-        // Just update influencer and most followed indexes, when that fields are updated
+        // Just update the influencers index, when those fields are updated
         if field == "followers" || field == "tags" || field == "posts" {
             // Index only, never a read-through: a caller may still be mid-change in the graph
             // (an unfollow deletes its edge after this), and a graph read here would cache the
@@ -130,10 +129,6 @@ impl UserCounts {
             let exist_count = Self::get_from_index(user_id).await?;
             if let Some(user_counts) = exist_count {
                 UserStream::add_to_influencers_sorted_set(user_id, &user_counts).await?;
-                // Increment followers
-                if field == "followers" {
-                    UserStream::add_to_most_followed_sorted_set(user_id, &user_counts).await?
-                }
             }
         }
         Ok(())
