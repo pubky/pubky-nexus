@@ -33,9 +33,10 @@ pub async fn sync_put(
     sync_put_details(post, post_details, author_id, post_id, ingestor).await
 }
 
-/// Rejects a reply to a file, a profile or a tag as [`EventProcessorError::UnsupportedTarget`],
-/// never retried: no reply edge can ever point at one. A reply to a URL or another app's object
-/// is indexed with no reply edge.
+/// Rejects a reply to a file, a profile or a `pubky.app` tag as
+/// [`EventProcessorError::UnsupportedTarget`], never retried: no reply edge can ever point at
+/// one. A reply to a URL or another app's object, its tags included, is indexed with no reply
+/// edge.
 fn reject_unsupported_parent(post: &PostInput) -> Result<(), EventProcessorError> {
     match &post.parent {
         Some(Reference {
@@ -43,7 +44,7 @@ fn reject_unsupported_parent(post: &PostInput) -> Result<(), EventProcessorError
             target:
                 target @ (ReferenceTarget::File(_)
                 | ReferenceTarget::User(_)
-                | ReferenceTarget::Tag { .. }),
+                | ReferenceTarget::Tag { app: None, .. }),
         }) => Err(EventProcessorError::UnsupportedTarget(format!(
             "The replied resource {} is not a Post, instead is: {}",
             bounded(uri),
@@ -910,14 +911,77 @@ mod tests {
 
     const AUTHOR: &str = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
 
+    fn author() -> PubkyId {
+        PubkyId::try_from(AUTHOR).unwrap()
+    }
+
+    fn key(resource_id: &str) -> ResourceKey {
+        ResourceKey {
+            owner_id: author(),
+            resource_id: resource_id.to_string(),
+        }
+    }
+
     fn parent(post_id: &str, uri: &str) -> Option<PostParent> {
         Some(PostParent {
             uri: uri.to_string(),
-            key: ResourceKey {
-                owner_id: PubkyId::try_from(AUTHOR).unwrap(),
-                resource_id: post_id.to_string(),
-            },
+            key: key(post_id),
         })
+    }
+
+    /// A Short whose parent, if any, names `target`.
+    fn reply_to(target: Option<ReferenceTarget>) -> PostInput {
+        PostInput {
+            uri: String::new(),
+            content: String::new(),
+            kind: PubkyAppPostKind::Short,
+            parent: target.map(|target| Reference {
+                uri: String::new(),
+                target,
+            }),
+            embed: None,
+            collection_items: Vec::new(),
+            attachments: None,
+            lock: None,
+        }
+    }
+
+    #[test]
+    fn reply_to_a_post_or_another_apps_object_passes() {
+        for target in [
+            None,
+            Some(ReferenceTarget::Post(key("003286NSMY490"))),
+            Some(ReferenceTarget::Other),
+            Some(ReferenceTarget::Tag {
+                key: key("8Z8CWH8NVYQY39ZEBFGKQWWEKG"),
+                app: Some("mapky".to_string()),
+            }),
+        ] {
+            assert!(
+                reject_unsupported_parent(&reply_to(target.clone())).is_ok(),
+                "{target:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn reply_to_a_file_profile_or_pubky_app_tag_is_rejected() {
+        for target in [
+            ReferenceTarget::File(key("0033SSE3B1FQ0")),
+            ReferenceTarget::User(author()),
+            ReferenceTarget::Tag {
+                key: key("8Z8CWH8NVYQY39ZEBFGKQWWEKG"),
+                app: None,
+            },
+        ] {
+            assert!(
+                matches!(
+                    reject_unsupported_parent(&reply_to(Some(target.clone()))),
+                    Err(EventProcessorError::UnsupportedTarget(_))
+                ),
+                "{target:?}"
+            );
+        }
     }
 
     fn parents(replied: Option<PostParent>, reposted: Option<PostParent>) -> PostParents {
