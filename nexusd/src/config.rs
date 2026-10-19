@@ -525,6 +525,38 @@ mod tests {
         assert_eq!(config.stack.net.pubky_http_request_timeout_secs, 300);
     }
 
+    #[test]
+    fn test_neo4j_reply_timeout_secs_defaults_when_omitted() {
+        let config = DaemonConfig::try_from_str(DEFAULT_CONFIG_TOML)
+            .expect("config without reply_timeout_secs should use the default");
+
+        assert_eq!(config.stack.db.neo4j.reply_timeout_secs, 900);
+    }
+
+    #[test]
+    fn test_neo4j_reply_timeout_secs_is_read() {
+        let toml =
+            DEFAULT_CONFIG_TOML.replace("#reply_timeout_secs = 900", "reply_timeout_secs = 3600");
+
+        let config = DaemonConfig::try_from_str(&toml).expect("reply_timeout_secs should parse");
+
+        assert_eq!(
+            config.stack.db.neo4j.reply_timeout(),
+            Duration::from_secs(3600)
+        );
+    }
+
+    #[test]
+    fn test_neo4j_reply_timeout_secs_rejects_zero() {
+        let toml =
+            DEFAULT_CONFIG_TOML.replace("#reply_timeout_secs = 900", "reply_timeout_secs = 0");
+
+        assert!(
+            DaemonConfig::try_from_str(&toml).is_err(),
+            "reply_timeout_secs must be at least 1 second"
+        );
+    }
+
     /// Legacy `watcher_sleep` / `hs_resolver_sleep` field names (renamed to
     /// `*_interval_ms` to clarify they are scheduling intervals, not post-run
     /// sleeps) must still parse via serde aliases.

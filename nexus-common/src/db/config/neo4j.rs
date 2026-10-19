@@ -1,10 +1,12 @@
 use super::{redact_url, REDACTED};
-use serde::{Deserialize, Serialize};
+use serde::{de::Error, Deserialize, Deserializer, Serialize};
 use std::fmt;
+use std::time::Duration;
 
 pub const NEO4J_URI: &str = "bolt://localhost:7687";
 pub const NEO4J_USER: &str = "neo4j";
 pub const NEO4J_PASS: &str = "12345678";
+const DEFAULT_NEO4J_REPLY_TIMEOUT_SECS: u64 = 15 * 60;
 // Create temporal struct to wrap database config
 #[derive(Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub struct Neo4JConfig {
@@ -27,10 +29,42 @@ pub struct Neo4JConfig {
     /// Useful for debugging but verbose. Defaults to false.
     #[serde(default)]
     pub slow_query_logging_include_cypher: bool,
+
+    /// Longest wait in seconds for one reply from Neo4j, and for a TCP connect.
+    /// Keep it at least the server's `db.transaction.timeout`, so a long call (GDS
+    /// PageRank, a migration backfill) ends on the server's limit, not this one.
+    #[serde(
+        default = "default_neo4j_reply_timeout_secs",
+        deserialize_with = "deserialize_nonzero_reply_timeout_secs"
+    )]
+    pub reply_timeout_secs: u64,
 }
 
 fn default_neo4j_user() -> String {
     String::from("neo4j")
+}
+
+const fn default_neo4j_reply_timeout_secs() -> u64 {
+    DEFAULT_NEO4J_REPLY_TIMEOUT_SECS
+}
+
+fn deserialize_nonzero_reply_timeout_secs<'de, D>(deserializer: D) -> Result<u64, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    match u64::deserialize(deserializer)? {
+        0 => Err(D::Error::custom(
+            "reply_timeout_secs must be at least 1 second",
+        )),
+        timeout => Ok(timeout),
+    }
+}
+
+impl Neo4JConfig {
+    /// Returns [`Self::reply_timeout_secs`] as a duration.
+    pub fn reply_timeout(&self) -> Duration {
+        Duration::from_secs(self.reply_timeout_secs)
+    }
 }
 
 /// Redacts the password and the URI credentials, since the config is logged at startup
@@ -42,6 +76,7 @@ impl fmt::Debug for Neo4JConfig {
             password: _,
             slow_query_logging_threshold_ms,
             slow_query_logging_include_cypher,
+            reply_timeout_secs,
         } = self;
         f.debug_struct("Neo4JConfig")
             .field("uri", &redact_url(uri))
@@ -55,6 +90,7 @@ impl fmt::Debug for Neo4JConfig {
                 "slow_query_logging_include_cypher",
                 slow_query_logging_include_cypher,
             )
+            .field("reply_timeout_secs", reply_timeout_secs)
             .finish()
     }
 }
@@ -67,6 +103,7 @@ impl Default for Neo4JConfig {
             password: String::from(NEO4J_PASS),
             slow_query_logging_threshold_ms: None,
             slow_query_logging_include_cypher: false,
+            reply_timeout_secs: DEFAULT_NEO4J_REPLY_TIMEOUT_SECS,
         }
     }
 }
