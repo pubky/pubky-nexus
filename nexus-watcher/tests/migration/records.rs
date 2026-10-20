@@ -19,13 +19,13 @@ async fn opting_out_to_a_dead_key_and_returning() -> Result<()> {
     t.post(&session_a, "first", None).await?;
     t.ingest(&mover).await?;
     t.index_external(&t.hs_a).await?;
-    t.resolve(&mover).await?;
+    t.recheck(&mover).await?;
     let cursor_a = t.cursor(&mover, &t.hs_a).await?;
     assert_eq!(t.live_posts(&mover).await?, 1);
 
     let dead = Keypair::random().public_key();
     t.switch_record(&device_a, &mover, &dead).await?;
-    t.resolve(&mover).await?;
+    t.recheck(&mover).await?;
     assert_eq!(
         t.bound_to(&mover).await?.as_deref(),
         Some(dead.to_z32().as_str())
@@ -43,7 +43,7 @@ async fn opting_out_to_a_dead_key_and_returning() -> Result<()> {
     // Back on the record: the read resumes where it stopped.
     t.switch_record(&device_a, &mover, &t.hs_a.to_public_key())
         .await?;
-    t.resolve(&mover).await?;
+    t.recheck(&mover).await?;
     assert_eq!(t.bound_to(&mover).await?.as_deref(), Some(t.hs_a.as_ref()));
     t.index_external(&t.hs_a).await?;
     assert!(t.cursor(&mover, &t.hs_a).await? > cursor_a);
@@ -64,11 +64,11 @@ async fn record_without_homeserver_keeps_the_binding() -> Result<()> {
     t.post(&session_a, "first", None).await?;
     t.ingest(&mover).await?;
     t.index_external(&t.hs_a).await?;
-    t.resolve(&mover).await?;
+    t.recheck(&mover).await?;
     assert_eq!(t.bound_to(&mover).await?.as_deref(), Some(t.hs_a.as_ref()));
 
     t.publish_without_homeserver(&device_a, &mover).await?;
-    t.resolve(&mover).await?;
+    t.recheck(&mover).await?;
     assert_eq!(t.bound_to(&mover).await?.as_deref(), Some(t.hs_a.as_ref()));
     t.post(&session_a, "second, still on A", None).await?;
     t.index_external(&t.hs_a).await?;
@@ -80,7 +80,7 @@ async fn record_without_homeserver_keeps_the_binding() -> Result<()> {
 
     t.switch_record(&device_a, &mover, &t.hs_b.to_public_key())
         .await?;
-    t.resolve(&mover).await?;
+    t.recheck(&mover).await?;
     assert_eq!(t.bound_to(&mover).await?.as_deref(), Some(t.hs_b.as_ref()));
     Ok(())
 }

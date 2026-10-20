@@ -1,6 +1,7 @@
 //! Switches between two external homeservers.
 
 use anyhow::Result;
+use nexus_common::models::user::RecheckOutcome;
 use pubky::Keypair;
 
 use crate::harness::{post_uri, MigrationTest};
@@ -45,8 +46,15 @@ async fn copy_and_switch_noticed_before_the_copy() -> Result<()> {
     // and follows the user to B.
     let device_b = t.device()?;
     let session_b = t.signup(&device_b, &mover, &t.hs_b, "mover").await?;
-    t.resolve(&mover).await?;
+    let recheck = t.recheck(&mover).await?;
+    assert_eq!(recheck.outcome, RecheckOutcome::Switched);
+    assert_eq!(recheck.homeserver.as_deref(), Some(t.hs_b.as_ref()));
     assert_eq!(t.bound_to(&mover).await?.as_deref(), Some(t.hs_b.as_ref()));
+    assert_eq!(
+        t.recheck(&mover).await?.outcome,
+        RecheckOutcome::Confirmed,
+        "a second look changes nothing"
+    );
     t.index_external(&t.hs_b).await?;
     assert_eq!(
         t.live_posts(&mover).await?,
@@ -74,7 +82,9 @@ async fn copy_and_switch_noticed_before_the_copy() -> Result<()> {
     Ok(())
 }
 
-/// The same migration with nexus noticing only after the copy is complete.
+/// The same migration with nexus noticing only after the copy is complete,
+/// through the periodic resolver with stale mapping disabled instead of a
+/// recheck.
 #[tokio_shared_rt::test(shared)]
 async fn copy_and_switch_noticed_after_the_copy() -> Result<()> {
     let t = MigrationTest::setup().await?;
@@ -126,7 +136,7 @@ async fn switching_back_and_forth_keeps_a_cursor_per_homeserver() -> Result<()> 
     let session_b = t.signup(&device_b, &mover, &t.hs_b, "mover").await?;
     t.write_tree(&session_b, &t.public_tree(&device_a, &mover).await?)
         .await?;
-    t.resolve(&mover).await?;
+    t.recheck(&mover).await?;
     assert_eq!(t.bound_to(&mover).await?.as_deref(), Some(t.hs_b.as_ref()));
     t.index_external(&t.hs_b).await?;
     let cursor_b = t.cursor(&mover, &t.hs_b).await?;
@@ -136,7 +146,7 @@ async fn switching_back_and_forth_keeps_a_cursor_per_homeserver() -> Result<()> 
     // Back to A: the read finds nothing new there, both cursors stand.
     t.switch_record(&device_a, &mover, &t.hs_a.to_public_key())
         .await?;
-    t.resolve(&mover).await?;
+    t.recheck(&mover).await?;
     assert_eq!(t.bound_to(&mover).await?.as_deref(), Some(t.hs_a.as_ref()));
     t.index_external(&t.hs_a).await?;
     assert_eq!(t.cursor(&mover, &t.hs_a).await?, cursor_a);
@@ -150,7 +160,7 @@ async fn switching_back_and_forth_keeps_a_cursor_per_homeserver() -> Result<()> 
     // And to B once more.
     t.switch_record(&device_b, &mover, &t.hs_b.to_public_key())
         .await?;
-    t.resolve(&mover).await?;
+    t.recheck(&mover).await?;
     t.index_external(&t.hs_b).await?;
     assert_eq!(t.bound_to(&mover).await?.as_deref(), Some(t.hs_b.as_ref()));
     assert_eq!(t.cursor(&mover, &t.hs_b).await?, cursor_b);
@@ -176,7 +186,7 @@ async fn fresh_signup_without_a_copy_keeps_the_old_index() -> Result<()> {
     let device_b = t.device()?;
     let session_b = t.signup(&device_b, &mover, &t.hs_b, "new name").await?;
     t.post(&session_b, "third, only on B", None).await?;
-    t.resolve(&mover).await?;
+    t.recheck(&mover).await?;
     t.index_external(&t.hs_b).await?;
 
     assert_eq!(t.bound_to(&mover).await?.as_deref(), Some(t.hs_b.as_ref()));
