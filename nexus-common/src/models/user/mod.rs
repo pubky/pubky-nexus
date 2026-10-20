@@ -16,7 +16,7 @@ pub use cursor::{user_hs_cursor_key, UserHsCursor, UserHsCursorKey};
 pub use details::UserDetails;
 pub use hosted_by::{
     apply_resolved_homeserver, get_user_homeserver, set_user_homeserver, set_user_homeserver_stale,
-    HomeserverMapping, MappingUpdate, StaleMapping, StaleReason,
+    HomeserverMapping, HomeserverRecheck, MappingUpdate, RecheckOutcome, StaleMapping, StaleReason,
 };
 pub use influencers::{Influencers, GLOBAL_INFLUENCERS_CACHE_SIZE};
 pub use ingestor::UserIngestor;

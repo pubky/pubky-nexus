@@ -1,6 +1,9 @@
 //! A user's `HOSTED_BY` binding and how a resolved `_pubky` record is applied
 //! to it. Shared by the watcher's periodic resolver and the API's recheck.
 
+use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
+
 use crate::db::{exec_single_row, fetch_row_from_graph, queries, GraphResult};
 use pubky_app_specs::PubkyId;
 
@@ -134,4 +137,46 @@ pub async fn apply_resolved_homeserver(
     };
 
     Ok(update)
+}
+
+/// The result of re-checking a user's homeserver against the network.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct HomeserverRecheck {
+    /// The homeserver the user is bound to after the check, if any.
+    pub homeserver: Option<String>,
+    pub outcome: RecheckOutcome,
+}
+
+/// What a recheck did to the user's mapping.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum RecheckOutcome {
+    /// Nothing is published and the user has no mapping.
+    Unbound,
+    /// The user had no mapping and is now bound to the published homeserver.
+    Bound,
+    /// The published homeserver is the one the user was bound to.
+    Confirmed,
+    /// The mapping moved to the published homeserver.
+    Switched,
+    /// Nothing is published; the mapping was kept.
+    Kept,
+}
+
+impl HomeserverRecheck {
+    /// Pairs a [`StaleMapping::Disabled`] update with the resulting binding.
+    /// A `MarkedStale` update cannot come from a recheck; it reads as kept.
+    pub fn new(update: &MappingUpdate, homeserver: Option<String>) -> Self {
+        let outcome = match update {
+            MappingUpdate::Unbound => RecheckOutcome::Unbound,
+            MappingUpdate::Bound => RecheckOutcome::Bound,
+            MappingUpdate::Confirmed { .. } => RecheckOutcome::Confirmed,
+            MappingUpdate::Switched { .. } => RecheckOutcome::Switched,
+            MappingUpdate::Kept { .. } | MappingUpdate::MarkedStale { .. } => RecheckOutcome::Kept,
+        };
+        Self {
+            homeserver,
+            outcome,
+        }
+    }
 }

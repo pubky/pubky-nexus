@@ -188,6 +188,30 @@ resolver run, preventing redundant PKDNS lookups.
 Higher → cheaper, but Nexus may keep pulling a user's events from an HS they have
 already left for up to ~`hs_resolver_ttl`.
 
+### Following a user to another homeserver
+
+Two paths move a user's `HOSTED_BY` edge to the homeserver their `_pubky` record
+names:
+
+- **Recheck on demand.** `PUT /v0/recheck/{user_id}` (the counterpart of
+  `PUT /v0/ingest/{user_id}`) asks every DHT node and relay for the user's
+  newest record and follows it: a record naming another homeserver moves the
+  edge there, a record naming none keeps it. The response says what happened
+  (`bound`, `confirmed`, `switched`, `kept`, `unbound`) and which homeserver the
+  user is bound to now. The client app should call it after a sign-in, so a
+  user who migrated is indexed from the new homeserver within seconds. The same
+  logic is `UserIngestor::recheck_user` for callers inside nexus.
+- **The periodic resolver**, when its stale mapping is disabled
+  (`UserHsResolverRunner::with_stale_mapping(StaleMapping::Disabled)`). By
+  default it keeps today's behaviour below. There is no config knob yet.
+
+Either way the user is read on the new homeserver from their stored per-user
+cursor there (0 for a homeserver they were never on), and the content of every
+event is fetched from the homeserver whose stream delivered it, not through the
+user's `pubky://` address: the SDK keeps a pooled connection to the homeserver
+the user was on, keyed by the user's hostname, and would otherwise keep serving
+the old homeserver's answers after a switch.
+
 ### Monitoring stale mappings
 
 When the resolver cannot reproduce a user's stored HS from PKDNS, it marks the
@@ -200,6 +224,7 @@ realigns. The resolver exports these metrics to catch this:
 | --- | --- | --- |
 | `nexus.task.hs-resolver.resolutions` | counter, labels `outcome`, `mapping` | One per user the resolver handled. `outcome`: `resolved` (PKDNS returned a HS), `unresolved` (PKDNS returned none; on pubky 0.9.3 DHT and relay failures also surface this way), `error` (the lookup failed, pubky 0.10+, or the graph read/update failed). `mapping`: the stored mapping's state before the resolution, `unbound` / `active` / `stale`, or `unknown` when a graph read or write failed (a Neo4j problem, also visible via `neo4j.query.errors`; deliberately outside the `mapping="active"` onset ratio). |
 | `nexus.task.hs-resolver.marked_stale` | counter, label `reason` | Users whose mapping flipped from active to stale. `unresolved`: PKDNS returned no HS. `hs_changed`: PKDNS returned a different HS. Already-stale users are not counted again. |
+| `nexus.task.hs-resolver.switched` | counter | Users whose mapping moved to the homeserver their record names. Only counted with stale mapping disabled. |
 | `nexus.task.hs-resolver.mapped_users` | gauge | Non-deleted users with a `HOSTED_BY` mapping. Recorded on the first run after startup, then refreshed after every run that processed users. |
 | `nexus.task.hs-resolver.stale_users` | gauge | Subset of `mapped_users` whose mapping is currently stale. |
 | `nexus.task.hs-resolver.heartbeat_timestamp` | gauge, unit `s` | Unix time of the resolver's most recent progress: a user handled or a run finished. |

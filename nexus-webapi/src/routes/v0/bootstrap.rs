@@ -1,15 +1,17 @@
 use crate::models::PubkyId;
 use crate::routes::v0::endpoints::BOOTSTRAP_ROUTE;
 use crate::routes::v0::endpoints::INGEST_USER_ROUTE;
+use crate::routes::v0::endpoints::RECHECK_USER_ROUTE;
 use crate::routes::AppState;
 use crate::routes::Path;
-use crate::Result;
+use crate::{Error, Result};
 
 use axum::extract::State;
 use axum::routing::{get, put};
 use axum::Json;
 use axum::Router;
 use nexus_common::models::bootstrap::{Bootstrap, ViewType};
+use nexus_common::models::user::{HomeserverRecheck, RecheckOutcome};
 use tracing::debug;
 use utoipa::OpenApi;
 
@@ -57,10 +59,38 @@ pub async fn ingest_user_handler(
     Ok(())
 }
 
+#[utoipa::path(
+    put,
+    path = RECHECK_USER_ROUTE,
+    description = "Re-check a known user's homeserver against the network now and follow the record: a record naming another homeserver moves the user there, so a user who migrated is indexed from the new homeserver without waiting for the periodic resolver. The client app should call it after a sign-in.",
+    tag = "Bootstrap",
+    params(
+        ("user_id" = PubkyId, Path, description = "User Pubky ID")
+    ),
+    responses(
+        (status = 200, description = "The user's homeserver after the check and what the check did", body = HomeserverRecheck),
+        (status = 403, description = "User is hosted on a blacklisted HS"),
+        (status = 404, description = "User not known to Nexus; ingest first"),
+        (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error")
+    )
+)]
+pub async fn recheck_user_handler(
+    State(app_state): State<AppState>,
+    Path(user_id): Path<PubkyId>,
+) -> Result<Json<HomeserverRecheck>> {
+    debug!("PUT {RECHECK_USER_ROUTE}, user_id:{user_id}");
+
+    match app_state.ingestor.recheck_user(&user_id).await? {
+        Some(recheck) => Ok(Json(recheck)),
+        None => Err(Error::user_not_found(user_id)),
+    }
+}
+
 #[derive(OpenApi)]
 #[openapi(
-    paths(bootstrap_handler, ingest_user_handler),
-    components(schemas(Bootstrap, PubkyId))
+    paths(bootstrap_handler, ingest_user_handler, recheck_user_handler),
+    components(schemas(Bootstrap, PubkyId, HomeserverRecheck, RecheckOutcome))
 )]
 pub struct BootstrapApiDoc;
 
@@ -69,5 +99,7 @@ pub fn expensive_routes() -> Router<AppState> {
 }
 
 pub fn routes() -> Router<AppState> {
-    Router::new().route(INGEST_USER_ROUTE, put(ingest_user_handler))
+    Router::new()
+        .route(INGEST_USER_ROUTE, put(ingest_user_handler))
+        .route(RECHECK_USER_ROUTE, put(recheck_user_handler))
 }

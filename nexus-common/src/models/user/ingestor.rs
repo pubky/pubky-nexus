@@ -4,7 +4,10 @@ use crate::db::PubkyConnector;
 use crate::models::error::{ModelError, ModelResult};
 use crate::models::homeserver::HsBlacklist;
 use crate::models::traits::Collection;
-use crate::models::user::{set_user_homeserver, UserDetails, UserHsCursor};
+use crate::models::user::{
+    apply_resolved_homeserver, get_user_homeserver, set_user_homeserver, HomeserverRecheck,
+    MappingUpdate, StaleMapping, UserDetails, UserHsCursor,
+};
 use crate::StackConfig;
 
 /// Ingests previously-unknown users unless their HS is blacklisted.
@@ -105,5 +108,60 @@ impl UserIngestor {
         UserHsCursor::init(user_id, &hs_id).await?;
 
         Ok(())
+    }
+
+    /// Re-checks a known user's homeserver against the network now and follows
+    /// the record: a record naming another homeserver moves the mapping there,
+    /// a record naming none keeps it. The lookup asks every DHT node and relay
+    /// for the newest packet instead of trusting the client's cache, which is
+    /// what a check made because something changed has to do. This is the
+    /// programmatic way to switch a user's homeserver; the periodic resolver
+    /// only follows records when its stale mapping is disabled.
+    ///
+    /// Returns `None` for a user nexus does not know; ingest them instead.
+    ///
+    /// Returns [`ModelError::HsBlacklisted`] if the published HS is blacklisted.
+    #[tracing::instrument(name = "user.recheck", skip_all)]
+    pub async fn recheck_user(&self, user_id: &PubkyId) -> ModelResult<Option<HomeserverRecheck>> {
+        let user_id_str = user_id.to_string();
+        if UserDetails::get_by_id(&user_id_str).await?.is_none() {
+            tracing::debug!("Skipping recheck: {user_id_str} unknown");
+            return Ok(None);
+        }
+
+        let pubky = PubkyConnector::get().map_err(ModelError::from_generic)?;
+        // Refreshes the client's cache with the newest packet on the network;
+        // the lookup below reads that cache.
+        pubky
+            .client()
+            .pkarr()
+            .resolve_most_recent(&user_id.to_public_key())
+            .await;
+
+        let resolved = match self
+            .ensure_hs_not_blacklisted(user_id)
+            .await
+            .inspect_err(|e| tracing::warn!("Aborting recheck of {user_id}: {e}"))?
+        {
+            Some(hs_id) => {
+                Some(PubkyId::try_from(hs_id.as_str()).map_err(ModelError::from_generic)?)
+            }
+            None => None,
+        };
+
+        let update =
+            apply_resolved_homeserver(&user_id_str, resolved.as_ref(), StaleMapping::Disabled)
+                .await?;
+        if let (MappingUpdate::Bound | MappingUpdate::Switched { .. }, Some(hs_id)) =
+            (&update, &resolved)
+        {
+            tracing::info!("User {user_id} now bound to HS {hs_id} after a recheck");
+            UserHsCursor::init(user_id, hs_id).await?;
+        }
+
+        let homeserver = get_user_homeserver(&user_id_str)
+            .await?
+            .map(|mapping| mapping.hs_id);
+        Ok(Some(HomeserverRecheck::new(&update, homeserver)))
     }
 }
