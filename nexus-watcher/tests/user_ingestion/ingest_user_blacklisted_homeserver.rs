@@ -6,7 +6,7 @@ use nexus_common::models::error::ModelError;
 use nexus_common::models::user::{UserDetails, UserIngestor};
 use nexus_common::utils::test_utils::random_pubky_id;
 use nexus_watcher::events::handlers;
-use nexus_watcher::events::inputs::ResourceKey;
+use nexus_watcher::events::inputs::{PostInput, ResourceKey, TagInput};
 use nexus_watcher::EventProcessorError;
 use pubky::Keypair;
 use pubky_social_specs::legacy_v0::{
@@ -153,7 +153,7 @@ async fn test_reply_to_post_on_blacklisted_homeserver_is_dropped() -> Result<()>
         owner_id: author_id,
         resource_id: reply_id,
     };
-    let err = handlers::post::sync_put(reply.into(), key, uri, &ingestor)
+    let err = handlers::post::sync_put(PostInput::from_v0(reply, uri), key, &ingestor)
         .await
         .expect_err("reply to a post on a blacklisted HS must fail");
 
@@ -215,7 +215,7 @@ async fn test_repost_of_post_on_blacklisted_homeserver_is_dropped() -> Result<()
         owner_id: author_id,
         resource_id: repost_id,
     };
-    let err = handlers::post::sync_put(repost.into(), key, uri, &ingestor)
+    let err = handlers::post::sync_put(PostInput::from_v0(repost, uri), key, &ingestor)
         .await
         .expect_err("repost of a post on a blacklisted HS must fail");
 
@@ -271,7 +271,7 @@ async fn test_tag_post_on_blacklisted_homeserver_is_dropped() -> Result<()> {
         owner_id: tagger_id,
         resource_id: tag_id,
     };
-    let err = handlers::tag::sync_put(tag.into(), key, tag_uri, &ingestor)
+    let err = handlers::tag::sync_put(TagInput::from_v0(tag, tag_uri), key, &ingestor)
         .await
         .expect_err("tag on a post hosted by a blacklisted HS must fail");
 
@@ -316,7 +316,7 @@ async fn test_tag_user_on_blacklisted_homeserver_is_dropped() -> Result<()> {
         owner_id: tagger_id,
         resource_id: tag_id,
     };
-    let err = handlers::tag::sync_put(tag.into(), key, tag_uri, &ingestor)
+    let err = handlers::tag::sync_put(TagInput::from_v0(tag, tag_uri), key, &ingestor)
         .await
         .expect_err("tag on a user hosted by a blacklisted HS must fail");
 

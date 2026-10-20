@@ -1,4 +1,6 @@
-use super::utils::{set_post_uri, short_post, test_user};
+use super::utils::{
+    check_member_post_replies, find_post_details, set_post_uri, short_post, test_user,
+};
 use crate::event_processor::utils::watcher::{generate_post_id, HomeserverHashIdPath, WatcherTest};
 use anyhow::Result;
 use chrono::Utc;
@@ -101,25 +103,111 @@ async fn test_relationship_parents_return_parent_stored_uri() -> Result<()> {
     });
     let (repost_id, repost_path) = test.create_post(&author_kp, &repost).await?;
 
-    // `ParsedUri` only holds a `pubky.app` address, so store a different one
-    let stored = post_uri_builder(author_id.clone(), generate_post_id());
+    // Store a non-v0 address on the parent, other than the one the reply and repost wrote
+    let stored = stored_uri(&author_id, &generate_post_id());
     set_post_uri(&author_id, &post_id, Some(&stored)).await?;
 
     let replied = PostRelationships::get_from_graph(&author_id, &reply_id)
         .await?
         .and_then(|rel| rel.replied)
         .expect("reply parent");
-    assert_eq!(replied.try_to_uri_str().unwrap(), stored);
+    assert_eq!(replied, stored);
 
     let reposted = PostRelationships::get_from_graph(&author_id, &repost_id)
         .await?
         .and_then(|rel| rel.reposted)
         .expect("repost parent");
-    assert_eq!(reposted.try_to_uri_str().unwrap(), stored);
+    assert_eq!(reposted, stored);
 
     test.cleanup_post(&author_kp, &repost_path).await?;
     test.cleanup_post(&author_kp, &reply_path).await?;
     test.cleanup_post(&author_kp, &post_path).await?;
+    test.cleanup_user(&author_kp).await?;
+    Ok(())
+}
+
+/// A reply and a repost whose parent address is written non-canonically, but still names the
+/// post, store the parent's stored `uri` in the Redis relationships and the notifications.
+#[tokio_shared_rt::test(shared)]
+async fn test_put_parents_written_non_canonically_store_parent_stored_uri() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+
+    let author_kp = Keypair::random();
+    let author_id = test
+        .create_user(
+            &author_kp,
+            &test_user("Watcher:UriReaders:PutRel:Author", "uri"),
+        )
+        .await?;
+    let replier_kp = Keypair::random();
+    let replier_id = test
+        .create_user(
+            &replier_kp,
+            &test_user("Watcher:UriReaders:PutRel:Replier", "uri"),
+        )
+        .await?;
+    let (post_id, post_path) = test
+        .create_post(&author_kp, &short_post("Watcher:UriReaders:PutRel:Post"))
+        .await?;
+    let stored = post_uri_builder(author_id.clone(), post_id.clone());
+    // A trailing segment still resolves to the post
+    let written = format!("{stored}/extra");
+
+    let mut reply = short_post("Watcher:UriReaders:PutRel:Reply");
+    reply.parent = Some(written.clone());
+    let (reply_id, reply_path) = test.create_post(&replier_kp, &reply).await?;
+
+    let mut repost = short_post("Watcher:UriReaders:PutRel:Repost");
+    repost.embed = Some(PubkyAppPostEmbed {
+        kind: PubkyAppPostKind::Short,
+        uri: written,
+    });
+    let (repost_id, repost_path) = test.create_post(&replier_kp, &repost).await?;
+
+    let replied = PostRelationships::get_from_index(&replier_id, &reply_id)
+        .await?
+        .and_then(|rel| rel.replied);
+    assert_eq!(replied.as_ref(), Some(&stored), "Redis reply parent");
+    let reposted = PostRelationships::get_from_index(&replier_id, &repost_id)
+        .await?
+        .and_then(|rel| rel.reposted);
+    assert_eq!(reposted.as_ref(), Some(&stored), "Redis repost parent");
+
+    let mut parent_uris: Vec<String> = notifications_of(&author_id)
+        .await
+        .into_iter()
+        .filter_map(|body| match body {
+            NotificationBody::Reply {
+                parent_post_uri, ..
+            } => Some(parent_post_uri),
+            NotificationBody::Repost { embed_uri, .. } => Some(embed_uri),
+            _ => None,
+        })
+        .collect();
+    parent_uris.sort();
+    assert_eq!(parent_uris, vec![stored.clone(), stored.clone()]);
+
+    // An edit that keeps the parent as written links the parent by its stored `uri` too
+    reply.content = "Watcher:UriReaders:PutRel:Reply:Edited".to_string();
+    test.put(&replier_kp, &reply_path, &reply).await?;
+    let edited: Vec<String> = notifications_of(&author_id)
+        .await
+        .into_iter()
+        .filter_map(|body| match body {
+            NotificationBody::PostEdited {
+                edit_source: PostChangedSource::Reply,
+                linked_uri,
+                ..
+            } => Some(linked_uri),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(edited, vec![stored]);
+
+    test.cleanup_post(&replier_kp, &repost_path).await?;
+    test.cleanup_post(&replier_kp, &reply_path).await?;
+    test.cleanup_post(&author_kp, &post_path).await?;
+    test.cleanup_user(&replier_kp).await?;
     test.cleanup_user(&author_kp).await?;
     Ok(())
 }
@@ -306,6 +394,63 @@ async fn test_reply_delete_notification_carries_reply_stored_uri() -> Result<()>
         })
         .collect();
     assert_eq!(deleted, vec![(PostChangedSource::Reply, reply_stored)]);
+
+    test.cleanup_post(&author_kp, &post_path).await?;
+    test.cleanup_user(&replier_kp).await?;
+    test.cleanup_user(&author_kp).await?;
+    Ok(())
+}
+
+/// Deleting a reply whose parent is stored under a `social/v1` address finds the parent by the
+/// key on its `REPLIED` edge, not by parsing that address, even on a retry after the reply's
+/// relationships index entry is gone.
+#[tokio_shared_rt::test(shared)]
+async fn test_reply_delete_finds_parent_stored_under_another_address() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+
+    let author_kp = Keypair::random();
+    let author_id = test
+        .create_user(
+            &author_kp,
+            &test_user("Watcher:UriReaders:DelParent:Author", "uri"),
+        )
+        .await?;
+    let replier_kp = Keypair::random();
+    let replier_id = test
+        .create_user(
+            &replier_kp,
+            &test_user("Watcher:UriReaders:DelParent:Replier", "uri"),
+        )
+        .await?;
+
+    let (post_id, post_path) = test
+        .create_post(&author_kp, &short_post("Watcher:UriReaders:DelParent:Post"))
+        .await?;
+    let mut reply = short_post("Watcher:UriReaders:DelParent:Reply");
+    reply.parent = Some(post_uri_builder(author_id.clone(), post_id.clone()));
+    let (reply_id, reply_path) = test.create_post(&replier_kp, &reply).await?;
+    let reply_key = [replier_id.as_str(), reply_id.as_str()];
+    assert!(check_member_post_replies(&author_id, &post_id, &reply_key)
+        .await?
+        .is_some());
+
+    set_post_uri(
+        &author_id,
+        &post_id,
+        Some(&stored_uri(&author_id, &post_id)),
+    )
+    .await?;
+    // As on a retry: a first attempt removed the gate, then failed
+    PostRelationships::delete(&replier_id, &reply_id).await?;
+
+    test.cleanup_post(&replier_kp, &reply_path).await?;
+
+    // CACHE_OP: the reply left the parent's reply set
+    assert!(check_member_post_replies(&author_id, &post_id, &reply_key)
+        .await?
+        .is_none());
+    // GRAPH_OP: the reply is gone
+    assert!(find_post_details(&replier_id, &reply_id).await.is_err());
 
     test.cleanup_post(&author_kp, &post_path).await?;
     test.cleanup_user(&replier_kp).await?;

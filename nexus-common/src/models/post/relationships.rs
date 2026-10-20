@@ -1,48 +1,18 @@
 use crate::db::kv::RedisResult;
 use crate::db::{fetch_row_from_graph, queries, GraphResult, RedisOps};
 use crate::models::error::ModelResult;
-use pubky_social_specs::legacy_v0::ParsedUri;
+use crate::models::ResourceKey;
 use pubky_social_specs::PubkyId;
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-mod parsed_uri_option {
-    use super::*;
-
-    pub fn serialize<S>(value: &Option<ParsedUri>, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        value
-            .as_ref()
-            .and_then(|v| v.try_to_uri_str().ok())
-            .serialize(serializer)
-    }
-
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<ParsedUri>, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let opt: Option<String> = Option::deserialize(deserializer)?;
-        opt.map(|s| ParsedUri::try_from(s.as_str()).map_err(serde::de::Error::custom))
-            .transpose()
-    }
-}
-
-// TODO(specs-migration): `ParsedUri` only parses and renders `pubky.app`, so a parent stored
-// under `social/v1` is dropped when read from the graph. The specs migration needs an internal
-// function that reads the owner and post id from an address in either epoch.
 #[derive(Serialize, Deserialize, ToSchema, Default, Debug)]
 pub struct PostRelationships {
     /// If set, URI of the post this is a reply to
-    #[schema(value_type = Option<String>)]
-    #[serde(with = "parsed_uri_option")]
-    pub replied: Option<ParsedUri>,
+    pub replied: Option<String>,
 
     /// If set, URI of the post this post is reposting
-    #[schema(value_type = Option<String>)]
-    #[serde(with = "parsed_uri_option")]
-    pub reposted: Option<ParsedUri>,
+    pub reposted: Option<String>,
 
     /// List of user IDs mentioned in this post
     pub mentioned: Vec<PubkyId>,
@@ -88,13 +58,8 @@ impl PostRelationships {
             return Ok(None);
         };
 
-        let parent = |column: &str| {
-            row.get::<Option<String>>(column)
-                .unwrap_or(None)
-                .and_then(|uri| ParsedUri::try_from(uri).ok())
-        };
-        let replied = parent("replied_uri");
-        let reposted = parent("reposted_uri");
+        let replied = row.get::<Option<String>>("replied_uri").unwrap_or(None);
+        let reposted = row.get::<Option<String>>("reposted_uri").unwrap_or(None);
         let mentioned: Vec<PubkyId> = row.get("mentioned_user_ids").unwrap_or(Vec::new());
 
         Ok(Some(Self {
@@ -122,5 +87,54 @@ impl PostRelationships {
             ),
         }
         Ok(())
+    }
+}
+
+/// A post this post replies to or reposts: the address stored on that post and its key.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PostParent {
+    pub uri: String,
+    pub key: ResourceKey,
+}
+
+/// The posts a post replies to and reposts, read from its `REPLIED` and `REPOSTED` edges.
+///
+/// The graph holds the parents' keys whatever epoch their addresses are written in, so delete,
+/// tombstone and recovery read them here instead of parsing a stored address. A post holds at
+/// most one of each, set when it is created: the watcher rejects an edit that changes either.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct PostParents {
+    pub replied: Option<PostParent>,
+    pub reposted: Option<PostParent>,
+}
+
+impl PostParents {
+    /// `None` when the graph has no such post.
+    pub async fn get_from_graph(author_id: &str, post_id: &str) -> GraphResult<Option<Self>> {
+        let query = queries::get::post_parents(author_id, post_id);
+        let Some(row) = fetch_row_from_graph(query).await? else {
+            return Ok(None);
+        };
+
+        let parent = |prefix: &str| -> GraphResult<Option<PostParent>> {
+            let uri = row.get::<Option<String>>(&format!("{prefix}_uri"))?;
+            let owner_id = row.get::<Option<PubkyId>>(&format!("{prefix}_author_id"))?;
+            let resource_id = row.get::<Option<String>>(&format!("{prefix}_post_id"))?;
+            Ok(match (uri, owner_id, resource_id) {
+                (Some(uri), Some(owner_id), Some(resource_id)) => Some(PostParent {
+                    uri,
+                    key: ResourceKey {
+                        owner_id,
+                        resource_id,
+                    },
+                }),
+                _ => None,
+            })
+        };
+
+        Ok(Some(Self {
+            replied: parent("replied")?,
+            reposted: parent("reposted")?,
+        }))
     }
 }

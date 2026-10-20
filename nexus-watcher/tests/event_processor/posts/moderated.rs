@@ -12,6 +12,7 @@ use nexus_common::models::post::PostCounts;
 use nexus_common::models::takedown::record_takedown;
 use nexus_common::types::Pagination;
 use nexus_common::utils::test_utils::default_ingestor_tests;
+use nexus_watcher::events::inputs::{Reference, ReferenceTarget, ResourceKey};
 use nexus_watcher::events::remove_if_taken_down;
 use nexus_watcher::EventProcessorError;
 use pubky::ResourcePath;
@@ -20,10 +21,22 @@ use pubky_social_specs::legacy_v0::traits::HasIdPath;
 use pubky_social_specs::legacy_v0::{
     post_uri_builder, PubkyAppPost, PubkyAppPostKind, PubkyAppTag, PubkyAppUser,
 };
+use pubky_social_specs::PubkyId;
 use std::path::Path;
 use tokio::fs;
 
 const MODERATION_LABEL: &str = "label_to_moderate";
+
+/// The reference a moderator tag written as `uri` resolves to: the post `post_id` by `owner_id`.
+fn post_reference(uri: &str, owner_id: &str, post_id: &str) -> Reference {
+    Reference {
+        uri: uri.to_string(),
+        target: ReferenceTarget::Post(ResourceKey {
+            owner_id: PubkyId::try_from(owner_id).expect("a valid user id"),
+            resource_id: post_id.to_string(),
+        }),
+    }
+}
 /// The address of a moderator tag applied directly in a test, kept with its takedown.
 const MODERATOR_TAG_URI: &str =
     "pubky://uo7jgkykft4885n8cruizwy6khw71mnu5pq3ay9i8pw1ymcn85ko/pub/pubky.app/tags/MODERATORTAG";
@@ -269,7 +282,7 @@ async fn test_post_taken_down_before_it_is_read_stays_out() -> Result<()> {
     let result = default_moderation_tests()
         .apply_moderation(
             &tag.label,
-            &tag.uri,
+            post_reference(&tag.uri, &user_id, &post_id),
             MODERATOR_TAG_URI,
             Path::new("/tmp/nexus-watcher-test"),
             &default_ingestor_tests(),
@@ -363,7 +376,7 @@ async fn test_post_taken_down_with_a_trailing_slash_stays_out() -> Result<()> {
     let _ = default_moderation_tests()
         .apply_moderation(
             &tag.label,
-            &tag.uri,
+            post_reference(&tag.uri, &user_id, &post_id),
             MODERATOR_TAG_URI,
             Path::new("/tmp/nexus-watcher-test"),
             &default_ingestor_tests(),
@@ -411,7 +424,7 @@ async fn test_reply_taken_down_before_it_is_read_notifies_no_one() -> Result<()>
     let _ = default_moderation_tests()
         .apply_moderation(
             &tag.label,
-            &tag.uri,
+            post_reference(&tag.uri, &replier_id, &reply_id),
             MODERATOR_TAG_URI,
             Path::new("/tmp/nexus-watcher-test"),
             &default_ingestor_tests(),

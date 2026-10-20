@@ -7,7 +7,7 @@ use nexus_common::models::user::UserIngestor;
 use nexus_common::utils::test_utils::random_pubky_id;
 use nexus_common::DEFAULT_MAX_FILE_SIZE;
 use nexus_watcher::events::handlers::file::sync_put;
-use nexus_watcher::events::inputs::ResourceKey;
+use nexus_watcher::events::inputs::{FileInput, ResourceKey};
 use nexus_watcher::EventProcessorError;
 use pubky::Keypair;
 use pubky_social_specs::legacy_v0::traits::{HasIdPath, HashId, TimestampId};
@@ -70,9 +70,8 @@ async fn test_file_ingest_aborts_on_blacklisted_source_homeserver() -> Result<()
         resource_id: file_id.clone(),
     };
     let err = sync_put(
-        file.into(),
+        FileInput::from_v0(file, file_uri),
         key,
-        file_uri,
         test.temp_dir.path(),
         DEFAULT_MAX_FILE_SIZE,
         &ingestor,
@@ -133,9 +132,8 @@ async fn test_file_ingest_aborts_when_source_is_blacklisted_hs_pk_directly() -> 
         resource_id: file_id.clone(),
     };
     let err = sync_put(
-        file.into(),
+        FileInput::from_v0(file, file_uri),
         key,
-        file_uri,
         test.temp_dir.path(),
         DEFAULT_MAX_FILE_SIZE,
         &ingestor,
@@ -185,9 +183,8 @@ async fn test_file_ingest_proceeds_when_source_homeserver_not_blacklisted() -> R
         resource_id: file_id.clone(),
     };
     sync_put(
-        file.clone().into(),
+        FileInput::from_v0(file.clone(), file_uri),
         key,
-        file_uri,
         test.temp_dir.path(),
         DEFAULT_MAX_FILE_SIZE,
         &ingestor,

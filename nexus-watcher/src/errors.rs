@@ -56,9 +56,16 @@ pub enum EventProcessorError {
     DataAnomaly(String),
 
     /// The event is valid but targets a resource kind this handler does not index (e.g. a tag on
-    /// something that is neither a Post nor a User). Non-retryable: the target kind will not change.
+    /// something that is neither a Post nor a User, or a bookmark of something that is not a
+    /// Post). Non-retryable: the target kind will not change.
     #[error("UnsupportedTarget: {0}")]
     UnsupportedTarget(String),
+
+    /// An edit names a different reply parent or repost embed than the post holds. Both are set
+    /// when the post is created, so the edit is rejected whole. Non-retryable: the same payload
+    /// is rejected again.
+    #[error("PostParentChanged: {0}")]
+    PostParentChanged(String),
 
     /// Fetch exceeded size cap (non-retryable).
     #[error("FetchSizeExceeded: {0} bytes (limit: {1} bytes)")]

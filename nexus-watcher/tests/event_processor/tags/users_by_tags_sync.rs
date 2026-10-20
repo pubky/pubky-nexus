@@ -7,7 +7,7 @@ use nexus_common::models::tag::user::TagUser;
 use nexus_common::models::user::{UserDetails, UsersByTagSearch};
 use nexus_watcher::events::inputs::UserInput;
 use pubky::Keypair;
-use pubky_social_specs::legacy_v0::{PubkyAppTag, PubkyAppUser};
+use pubky_social_specs::legacy_v0::{user_uri_builder, PubkyAppTag, PubkyAppUser};
 use pubky_social_specs::PubkyId;
 
 /// The backfill enumerates pairs from a graph snapshot but derives every
@@ -308,13 +308,16 @@ async fn test_sync_index_score_removal_guard() -> Result<()> {
     );
 
     // Guard cleared: the derive restores the member from the set cardinality
-    let restored = UserInput::from(PubkyAppUser {
-        bio: None,
-        image: None,
-        links: None,
-        name: "Watcher:GuardCheck:Restored".to_string(),
-        status: None,
-    })
+    let restored = UserInput::from_v0(
+        PubkyAppUser {
+            bio: None,
+            image: None,
+            links: None,
+            name: "Watcher:GuardCheck:Restored".to_string(),
+            status: None,
+        },
+        user_uri_builder(user_id.clone()),
+    )
     .into_details(&pubky_id);
     restored.put_index_json(&[&user_id], None, None).await?;
     UsersByTagSearch::sync_index_score(&user_id, label).await?;

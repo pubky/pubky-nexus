@@ -23,6 +23,18 @@ pub(super) fn fail_on_permanent_ingest_error(
     }
 }
 
+/// The most chars of a user-supplied string an error message embeds.
+const MESSAGE_TEXT_MAX_CHARS: usize = 256;
+
+/// `text` cut to [`MESSAGE_TEXT_MAX_CHARS`] on a char boundary, with `…` when cut, so a message
+/// that quotes an address stays bounded whatever the author wrote.
+pub(super) fn bounded(text: &str) -> String {
+    match text.char_indices().nth(MESSAGE_TEXT_MAX_CHARS) {
+        Some((end, _)) => format!("{}…", &text[..end]),
+        None => text.to_string(),
+    }
+}
+
 /// Checks if a post is a reply based on its relationships.
 /// # Arguments
 /// * `author_id` - The ID of the author of the post
@@ -83,5 +95,14 @@ mod tests {
     fn other_ingest_outcomes_are_swallowed() {
         assert!(fail_on_permanent_ingest_error(Ok(())).is_ok());
         assert!(fail_on_permanent_ingest_error(Err(ModelError::Generic("dht".into()))).is_ok());
+    }
+
+    #[test]
+    fn bounded_keeps_short_text_and_cuts_long_text_on_a_char_boundary() {
+        assert_eq!(bounded("pubky://short"), "pubky://short");
+        let exact = "é".repeat(MESSAGE_TEXT_MAX_CHARS);
+        assert_eq!(bounded(&exact), exact);
+        let long = "é".repeat(MESSAGE_TEXT_MAX_CHARS + 10);
+        assert_eq!(bounded(&long), format!("{exact}…"));
     }
 }
