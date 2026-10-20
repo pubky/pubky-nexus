@@ -13,7 +13,7 @@ use nexus_common::db::{
 };
 use nexus_common::models::homeserver::{Homeserver, HsBlacklist};
 use nexus_common::models::notification::Notification;
-use nexus_common::models::user::{StaleMapping, UserHsCursor, UserIngestor};
+use nexus_common::models::user::{HomeserverRecheck, StaleMapping, UserHsCursor, UserIngestor};
 use nexus_common::types::Pagination;
 use nexus_common::utils::test_utils::default_ingestor_tests;
 use nexus_common::{StackConfig, StackManager, DEFAULT_MAX_FILE_SIZE};
@@ -177,6 +177,16 @@ impl MigrationTest {
         )
         .await
         .map_err(|e| anyhow!("{e}"))
+    }
+
+    /// What `PUT /v0/recheck/{user}` does: a fresh lookup of the user's record,
+    /// followed wherever it points.
+    pub async fn recheck(&self, user: &Keypair) -> Result<HomeserverRecheck> {
+        self.ingestor
+            .recheck_user(&PubkyId::from(user.public_key()))
+            .await
+            .map_err(|e| anyhow!("rechecking the user: {e}"))?
+            .ok_or_else(|| anyhow!("user unknown to nexus"))
     }
 
     /// What nexus does when a known user first references an unknown one:

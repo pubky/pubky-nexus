@@ -33,7 +33,7 @@ async fn external_to_primary_catches_up_then_the_bulk_stream_takes_over() -> Res
     assert_eq!(t.bound_to(&mover).await?.as_deref(), Some(t.hs_a.as_ref()));
     assert_eq!(t.cursor(&mover, &t.primary).await?, 0);
 
-    t.resolve(&mover).await?;
+    t.recheck(&mover).await?;
     assert_eq!(
         t.bound_to(&mover).await?.as_deref(),
         Some(t.primary.as_ref())
@@ -57,11 +57,12 @@ async fn external_to_primary_catches_up_then_the_bulk_stream_takes_over() -> Res
     Ok(())
 }
 
-/// Primary to external and back. Leaving stores the bulk cursor as the
-/// user's floor on the primary, so the return reads only what the user wrote
-/// there after leaving.
+/// Primary to external and back. The return reads the user's own history on
+/// the primary again from their per-user cursor there, which the idempotent
+/// handlers make safe; a cursor floor stored when leaving would make that read
+/// shorter and is a later optimisation.
 #[tokio_shared_rt::test(shared)]
-async fn primary_to_external_and_back_reads_only_the_gap() -> Result<()> {
+async fn primary_to_external_and_back() -> Result<()> {
     let t = MigrationTest::setup().await?;
     let mover = Keypair::random();
 
@@ -70,7 +71,7 @@ async fn primary_to_external_and_back_reads_only_the_gap() -> Result<()> {
     t.post(&session_p, "first", None).await?;
     t.post(&session_p, "second", None).await?;
     t.index_primary().await?;
-    t.resolve(&mover).await?;
+    t.recheck(&mover).await?;
     assert_eq!(
         t.bound_to(&mover).await?.as_deref(),
         Some(t.primary.as_ref())
@@ -84,13 +85,8 @@ async fn primary_to_external_and_back_reads_only_the_gap() -> Result<()> {
         .await?;
     let bulk_cursor = t.bulk_cursor().await?;
     assert!(bulk_cursor > 0);
-    t.resolve(&mover).await?;
+    t.recheck(&mover).await?;
     assert_eq!(t.bound_to(&mover).await?.as_deref(), Some(t.hs_a.as_ref()));
-    assert_eq!(
-        t.cursor(&mover, &t.primary).await?,
-        bulk_cursor,
-        "the bulk cursor is the user's floor on the primary"
-    );
     t.index_external(&t.hs_a).await?;
     assert_eq!(t.live_posts(&mover).await?, 2);
     t.post(&session_a, "third, on A", None).await?;
@@ -111,7 +107,7 @@ async fn primary_to_external_and_back_reads_only_the_gap() -> Result<()> {
         "skipped as another homeserver's"
     );
 
-    t.resolve(&mover).await?;
+    t.recheck(&mover).await?;
     assert_eq!(
         t.bound_to(&mover).await?.as_deref(),
         Some(t.primary.as_ref())

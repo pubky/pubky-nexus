@@ -8,12 +8,13 @@
 //! switch only from the network, as in production.
 //!
 //! The tests drive nexus one step at a time instead of running the periodic
-//! tasks: one resolver sweep that looks up one user with a fresh lookup, one
-//! per-user read of a homeserver, one bulk poll of the primary. The
-//! assertions describe the behaviour nexus should have after a switch, in
-//! terms of what is indexed, so they do not depend on how the resolver
-//! stores a binding. Correctness must not depend on when nexus notices a
-//! switch, so the scenarios vary that moment and check the same end state.
+//! tasks: a recheck of one user (what `PUT /v0/recheck/{user}` does), or one
+//! resolver sweep with stale mapping disabled that looks up one user, then
+//! one per-user read of a homeserver or one bulk poll of the primary. The
+//! assertions describe what is indexed, so they do not depend on how the
+//! resolver stores a binding. Correctness must not depend on when nexus
+//! notices a switch, so the scenarios vary that moment and check the same
+//! end state.
 //!
 //! Nexus's Pubky client is a process-wide singleton bound to the first testnet
 //! created in the process, so every test needs its own process: run the suite
