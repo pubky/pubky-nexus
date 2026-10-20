@@ -97,10 +97,13 @@ async fn write_entry(user_id: &str, stub: bool) -> RedisResult<bool> {
 ///
 /// A node another caller created first is left as they made it: the watcher and the
 /// API can both meet an unknown user, and only the watcher keeps the moderator in
-/// scope. Its entry stays only if that node is a stub too.
+/// scope. Its counts are never overwritten, and its entry stays only if that node is a
+/// stub too.
 pub async fn create_stub(details: &UserDetails) -> ModelResult<()> {
     let user_id = details.id.to_string();
     write_entry(&user_id, true).await?;
+    // Before the node: a follow or tag of it, once it exists, has counts to update.
+    init_counts(&user_id).await?;
     let row = fetch_row_from_graph(queries::put::create_stub_user(details)?)
         .await?
         .ok_or_else(|| ModelError::from_generic("creating a stub returned no row"))?;
@@ -112,11 +115,24 @@ pub async fn create_stub(details: &UserDetails) -> ModelResult<()> {
         }
         return Ok(());
     }
-    // After the node: zeroed counts would overwrite those of a node created first.
-    UserCounts::default()
-        .put_index_json(&[&user_id], None, None)
-        .await?;
     write_entry(&user_id, true).await?;
+    Ok(())
+}
+
+/// Saves zeroed counts for the user, unless it has counts already: those of a user
+/// created first, or of a stub already updated, are never overwritten.
+async fn init_counts(user_id: &str) -> RedisResult<()> {
+    let key = format!("{}:{user_id}", UserCounts::prefix().await);
+    let zeroed = serde_json::to_string(&UserCounts::default())
+        .map_err(|e| RedisError::SerializationFailed(Box::new(e)))?;
+    let mut conn = get_redis_conn().await?;
+    let _: Option<String> = redis::cmd("JSON.SET")
+        .arg(key)
+        .arg("$")
+        .arg(zeroed)
+        .arg("NX")
+        .query_async(&mut conn)
+        .await?;
     Ok(())
 }
 
@@ -317,6 +333,40 @@ mod tests {
             Some("Moderator"),
             "profile kept"
         );
+        Ok(())
+    }
+
+    /// Counts a stub already has, from an update that landed before the stub was
+    /// written, are kept: a new stub's zeroed counts never replace them.
+    #[tokio_shared_rt::test(shared)]
+    async fn a_new_stub_keeps_counts_already_saved() -> Result<(), DynError> {
+        use crate::db::kv::RedisOps;
+        use crate::models::user::UserCounts;
+
+        StackManager::setup(&StackConfig::default()).await?;
+        let user_id = pubky::Keypair::random().public_key().to_z32();
+        let followed = UserCounts {
+            followers: 1,
+            ..Default::default()
+        };
+        followed.put_index_json(&[&user_id], None, None).await?;
+
+        let details = crate::models::user::UserDetails::from_pubky(
+            pubky_app_specs::PubkyId::try_from(user_id.as_str())?,
+        );
+        let stubbed = super::create_stub(&details).await;
+        let counts = UserCounts::get_from_index(&user_id).await;
+
+        let delete = Query::new(
+            "test_delete_stub_user",
+            "MATCH (u:User {id: $id}) DETACH DELETE u",
+        )
+        .param("id", user_id.clone());
+        exec_single_row(delete).await?;
+        super::drop_stub_entry(&user_id).await?;
+
+        stubbed?;
+        assert_eq!(counts?.map(|c| c.followers), Some(1), "the follow is kept");
         Ok(())
     }
 
