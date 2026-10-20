@@ -181,15 +181,6 @@ impl UserDetails {
     }
 }
 
-/// Binds a user to their homeserver, recording the `HOSTED_BY` relationship and `resolved_at`.
-pub async fn set_user_homeserver(user_id: &str, homeserver_id: &str) -> GraphResult<()> {
-    exec_single_row(queries::put::set_user_homeserver(user_id, homeserver_id)).await
-}
-
-/// Toggles the stale flag on a user's existing homeserver mapping.
-pub async fn set_user_homeserver_stale(user_id: &str, stale: bool) -> GraphResult<()> {
-    exec_single_row(queries::put::set_user_homeserver_stale(user_id, stale)).await
-}
 /// True only when every id has a `User` node.
 pub async fn users_exist(user_ids: &[&str]) -> GraphResult<bool> {
     let exist = fetch_key_from_graph(queries::get::users_exist(user_ids), "all_exist").await?;

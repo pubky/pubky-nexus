@@ -3,6 +3,7 @@ mod cursor;
 mod details;
 mod epoch;
 mod homeserver_resolver;
+mod hosted_by;
 //mod id;
 mod influencers;
 mod ingestor;
@@ -14,9 +15,13 @@ mod view;
 
 pub use counts::UserCounts;
 pub use cursor::{user_hs_cursor_key, UserHsCursor, UserHsCursorKey};
-pub use details::{set_user_homeserver, set_user_homeserver_stale, users_exist, UserDetails};
+pub use details::{users_exist, UserDetails};
 pub use epoch::Epoch;
 pub use homeserver_resolver::{PkdnsHomeserverResolver, PubkyConnectorResolver};
+pub use hosted_by::{
+    apply_resolved_homeserver, get_user_homeserver, set_user_homeserver, set_user_homeserver_stale,
+    HomeserverMapping, MappingUpdate, StaleMapping, StaleReason,
+};
 pub use influencers::{Influencers, GLOBAL_INFLUENCERS_CACHE_SIZE};
 pub use ingestor::UserIngestor;
 pub use relationship::Relationship;
