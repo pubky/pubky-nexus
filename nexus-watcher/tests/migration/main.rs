@@ -23,6 +23,7 @@
 //! and `TEST_PUBKY_CONNECTION_STRING` like the watcher suite.
 
 mod harness;
+mod hazards;
 mod primary;
 mod records;
 mod switches;
