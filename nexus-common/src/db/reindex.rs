@@ -9,6 +9,7 @@ use crate::models::tag::stream::HotTags;
 use crate::models::tag::traits::TagCollection;
 use crate::models::tag::user::TagUser;
 use crate::models::traits::Collection;
+use crate::models::user::stub::rebuild_stub_index;
 use crate::models::user::{Influencers, SocialGraphStatus, UserDetails, UsersByTagSearch};
 use crate::types::DynError;
 use crate::{
@@ -22,6 +23,10 @@ pub const REINDEX_BATCH_SIZE: usize = 500;
 
 #[tracing::instrument(name = "reindex.sync", skip_all)]
 pub async fn sync() {
+    // Before any user is indexed, so its counts never wait on a rebuild of a lost set.
+    rebuild_stub_index()
+        .await
+        .expect("Failed to rebuild the stub index");
     reindex_users_by_batch()
         .await
         .expect("Failed to reindex users by batch");

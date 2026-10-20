@@ -11,6 +11,7 @@
 use std::sync::LazyLock;
 
 use deadpool_redis::redis::{self, AsyncCommands, Script};
+use tokio::sync::Mutex as AsyncMutex;
 
 use crate::db::kv::{RedisError, RedisResult};
 use crate::db::{exec_single_row, fetch_key_from_graph, get_redis_conn, queries, RedisOps};
@@ -28,6 +29,8 @@ const WRITES_KEY: &str = "Scope:StubWrites";
 const BUILT: &str = "*built*";
 /// Rebuilds that lost to a stub write and read the graph again, before giving up.
 const REBUILD_ATTEMPTS: usize = 5;
+/// Taken by an [`is_stub`] that finds `Scope:Stubs` lost; per process.
+static REBUILD_LOCK: AsyncMutex<()> = AsyncMutex::const_new(());
 
 /// Replaces `Scope:Stubs` (KEYS[1]) with ARGV[2..], unless the write count (KEYS[2]) is no
 /// longer ARGV[1]: a stub written since the graph was read would be lost.
@@ -46,13 +49,28 @@ static REPLACE_IF_UNCHANGED: LazyLock<Script> = LazyLock::new(|| {
 /// while the watcher or the API kept running), it is rebuilt from the graph first, so
 /// stubs are never taken for members and ranked.
 pub async fn is_stub(user_id: &str) -> RedisResult<bool> {
-    let mut conn = get_redis_conn().await?;
-    let found: Vec<bool> = conn.smismember(STUBS_KEY, &[user_id, BUILT]).await?;
-    if found.get(1).copied().unwrap_or(false) {
-        return Ok(found.first().copied().unwrap_or(false));
+    if let Some(stub) = check(user_id).await? {
+        return Ok(stub);
+    }
+    // Callers that find the set lost together share one rebuild. The lock is taken
+    // holding no connection, so waiting callers never keep the pool from the rebuild.
+    let _rebuild = REBUILD_LOCK.lock().await;
+    if let Some(stub) = check(user_id).await? {
+        return Ok(stub);
     }
     rebuild().await?;
+    let mut conn = get_redis_conn().await?;
     Ok(conn.sismember(STUBS_KEY, user_id).await?)
+}
+
+/// Whether the user is a stub, or `None` if `Scope:Stubs` isn't built.
+async fn check(user_id: &str) -> RedisResult<Option<bool>> {
+    let mut conn = get_redis_conn().await?;
+    let found: Vec<bool> = conn.smismember(STUBS_KEY, &[user_id, BUILT]).await?;
+    Ok(match found.as_slice() {
+        [stub, true] => Some(*stub),
+        _ => None,
+    })
 }
 
 /// Adds (`true`) or removes the user's `Scope:Stubs` entry, counting the write in the
@@ -244,6 +262,34 @@ mod tests {
 
         assert!(after_loss?, "rebuilt from the graph, not read as empty");
         Ok(())
+    }
+
+    /// Many callers finding the set lost at once all get their answer: they share one
+    /// rebuild and none waits on the pool holding a connection the rebuild needs.
+    #[tokio_shared_rt::test(shared)]
+    async fn many_reads_of_a_lost_stub_set_finish() -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+        let () = deadpool_redis::redis::cmd("DEL")
+            .arg(super::STUBS_KEY)
+            .query_async(&mut crate::db::get_redis_conn().await?)
+            .await
+            .map_err(crate::db::kv::RedisError::from)?;
+
+        let mut reads = tokio::task::JoinSet::new();
+        for _ in 0..1_000 {
+            let user_id = pubky::Keypair::random().public_key().to_z32();
+            reads.spawn(async move { super::is_stub(&user_id).await });
+        }
+        let finished = tokio::time::timeout(std::time::Duration::from_secs(60), async {
+            while let Some(read) = reads.join_next().await {
+                assert!(!read??, "an unknown user is no stub");
+            }
+            Ok::<_, DynError>(())
+        })
+        .await;
+
+        assert!(finished.is_ok(), "the reads stalled on the Redis pool");
+        finished?
     }
 
     /// A rebuild doesn't overwrite a stub written after it read the graph: its
