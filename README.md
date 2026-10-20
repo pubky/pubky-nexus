@@ -112,7 +112,8 @@ cron = "0 * * * * *"  # every minute at second 0
 
 ### Notes
 
-- A job with no `[jobs.<name>]` section or no `cron` key is unscheduled (won't run automatically) but can still be triggered on demand.
+- A job with no `[jobs.<name>]` section or no `cron` key is unscheduled (won't run automatically) but can still be triggered on demand. The one exception is `influencers-cache-all-time`, which runs on its own schedule while its section is absent.
+- `influencers-cache-all-time` is the only writer of the AllTime influencers ranking, the default `source=influencers` stream, so it runs once a day (02:04 UTC) with no configuration. A `[jobs.influencers-cache-all-time]` section with a `cron` changes the schedule. A section without one turns the job off, and then the ranking stops changing.
 - `most-followed-cache` is the only writer of the most-followed ranking, the `source=most_followed` stream. Without a schedule that ranking stops changing. The shipped config schedules it once a day, but a `config.toml` written by an older build lacks its section, so add it there.
 - Scheduled jobs run only under `nexusd run`, the Docker image's default command, which also starts its own API and watcher. A deployment that runs `nexusd api` and `nexusd watcher` separately should either replace them with one `nexusd run`, or keep them and call `nexusd jobs run <name>` from an external cron. An on-demand run takes the same run lock as the scheduler.
 - The `nexusd run` daemon validates all `[jobs.*]` sections at startup — a typo'd section name fails fast rather than being silently ignored.

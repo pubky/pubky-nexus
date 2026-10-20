@@ -8,6 +8,7 @@ pub mod notification;
 pub mod post;
 pub mod resource;
 pub mod tag;
+pub mod takedown;
 pub mod traits;
 pub mod user;
 

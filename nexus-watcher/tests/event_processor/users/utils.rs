@@ -7,7 +7,7 @@ use nexus_common::{
     models::user::{UserCounts, UserDetails, UserStream, USER_INFLUENCERS_KEY_PARTS},
 };
 
-pub async fn check_member_user_influencer(user_id: &str) -> Result<Option<isize>> {
+pub async fn check_member_influencer(user_id: &str) -> Result<Option<isize>> {
     let influencer_score =
         UserStream::check_sorted_set_member(None, &USER_INFLUENCERS_KEY_PARTS, &[user_id])
             .await

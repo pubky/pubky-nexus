@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use super::{Influencers, UserCounts, UserDetails, UserSearch, UserView};
+use super::{Influencers, UserDetails, UserSearch, UserView};
 
 use crate::db::graph::keyset_scan;
 use crate::db::kv::{sets, RedisError, RedisResult, SortOrder};
@@ -127,15 +127,6 @@ impl UserStream {
         }
     }
 
-    /// Adds the post to a Redis sorted set using the follower counts as score.
-    pub async fn add_to_influencers_sorted_set(
-        user_id: &str,
-        counts: &UserCounts,
-    ) -> RedisResult<()> {
-        let score = (counts.tagged + counts.posts) as f64 * (counts.followers as f64).sqrt();
-        Self::put_index_sorted_set(&USER_INFLUENCERS_KEY_PARTS, &[(score, user_id)], None, None)
-            .await
-    }
     /// Retrieves recommended user IDs based on the specified criteria.
     pub async fn get_recommended_ids(
         user_id: &str,

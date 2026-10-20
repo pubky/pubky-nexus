@@ -2,18 +2,31 @@ use crate::event_processor::{
     posts::utils::{find_post_details, short_post, test_user},
     tags::utils::check_member_post_tag_global_timeline,
     users::utils::find_user_counts,
-    utils::watcher::{HomeserverHashIdPath, WatcherTest},
+    utils::default_moderation_tests,
+    utils::watcher::{generate_post_id, HomeserverHashIdPath, WatcherTest},
 };
 use anyhow::Result;
 use chrono::Utc;
+use nexus_common::models::notification::Notification;
 use nexus_common::models::post::PostCounts;
+use nexus_common::models::takedown::record_takedown;
+use nexus_common::types::Pagination;
+use nexus_common::utils::test_utils::default_ingestor_tests;
+use nexus_watcher::events::remove_if_taken_down;
+use nexus_watcher::EventProcessorError;
+use pubky::ResourcePath;
 use pubky::{recovery_file, Keypair};
+use pubky_app_specs::traits::HasIdPath;
 use pubky_app_specs::{
     post_uri_builder, PubkyAppPost, PubkyAppPostKind, PubkyAppTag, PubkyAppUser,
 };
+use std::path::Path;
 use tokio::fs;
 
 const MODERATION_LABEL: &str = "label_to_moderate";
+/// The address of a moderator tag applied directly in a test, kept with its takedown.
+const MODERATOR_TAG_URI: &str =
+    "pubky://uo7jgkykft4885n8cruizwy6khw71mnu5pq3ay9i8pw1ymcn85ko/pub/pubky.app/tags/MODERATORTAG";
 
 #[tokio_shared_rt::test(shared)]
 async fn test_moderated_post_lifecycle() -> Result<()> {
@@ -225,4 +238,191 @@ async fn moderate_post(
     };
     let tag_path = tag.hs_path();
     test.put(moderator_kp, &tag_path, tag).await
+}
+
+/// A takedown read before the post it targets keeps that post out: a new Nexus reads
+/// everyone's history in no particular order, so the moderator's tag can come first.
+#[tokio_shared_rt::test(shared)]
+async fn test_post_taken_down_before_it_is_read_stays_out() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+
+    let user_kp = Keypair::random();
+    let user = PubkyAppUser {
+        bio: None,
+        image: None,
+        links: None,
+        name: "Watcher:PostModerate:Early".to_string(),
+        status: None,
+    };
+    let user_id = test.create_user(&user_kp, &user).await?;
+
+    let post_id = generate_post_id();
+    let post_path: ResourcePath = PubkyAppPost::create_path(&post_id).parse()?;
+    let tag = PubkyAppTag {
+        uri: post_uri_builder(user_id.clone(), post_id.clone()),
+        label: MODERATION_LABEL.to_string(),
+        created_at: Utc::now().timestamp_millis(),
+    };
+
+    // The moderator's tag is read first, while there is no post to delete: deleting
+    // reports the post as unindexed, as it did before takedowns were remembered.
+    let result = default_moderation_tests()
+        .apply_moderation(
+            tag,
+            MODERATOR_TAG_URI,
+            Path::new("/tmp/nexus-watcher-test"),
+            &default_ingestor_tests(),
+        )
+        .await;
+    assert!(
+        matches!(result, Err(EventProcessorError::SkipIndexing)),
+        "{result:?}"
+    );
+
+    let post = PubkyAppPost {
+        content: "Watcher:PostModerate:Early:Post".to_string(),
+        kind: PubkyAppPostKind::Short,
+        parent: None,
+        embed: None,
+        attachments: None,
+        lock: None,
+    };
+    test.put(&user_kp, &post_path, post).await?;
+
+    assert!(
+        find_post_details(&user_id, &post_id).await.is_err(),
+        "the taken-down post stays out when its event comes later"
+    );
+    Ok(())
+}
+
+/// A post written while the moderator's tag was being read elsewhere (another loop, the
+/// fetch in flight) doesn't stay: once written, a recorded takedown removes it.
+#[tokio_shared_rt::test(shared)]
+async fn test_post_written_after_its_takedown_was_recorded_is_removed() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+
+    let user_kp = Keypair::random();
+    let user = PubkyAppUser {
+        bio: None,
+        image: None,
+        links: None,
+        name: "Watcher:PostModerate:Race".to_string(),
+        status: None,
+    };
+    let user_id = test.create_user(&user_kp, &user).await?;
+    let post = PubkyAppPost {
+        content: "Watcher:PostModerate:Race:Post".to_string(),
+        kind: PubkyAppPostKind::Short,
+        parent: None,
+        embed: None,
+        attachments: None,
+        lock: None,
+    };
+    // The write that passed the first check before the takedown was recorded.
+    let (post_id, _) = test.create_post(&user_kp, &post).await?;
+    assert!(find_post_details(&user_id, &post_id).await.is_ok());
+
+    // The takedown, recorded by another loop that found nothing to delete yet.
+    let post_uri = post_uri_builder(user_id.clone(), post_id.clone());
+    record_takedown(&post_uri, MODERATOR_TAG_URI).await?;
+
+    remove_if_taken_down(
+        &post_uri,
+        Path::new("/tmp/nexus-watcher-test"),
+        &default_ingestor_tests(),
+    )
+    .await?;
+
+    assert!(
+        find_post_details(&user_id, &post_id).await.is_err(),
+        "the post written before the takedown was recorded doesn't stay"
+    );
+    Ok(())
+}
+
+/// A moderator tag naming the post with a non-canonical address (a trailing slash) is
+/// recorded under the address the post's event carries, so the post stays out when its
+/// event comes later.
+#[tokio_shared_rt::test(shared)]
+async fn test_post_taken_down_with_a_trailing_slash_stays_out() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let user_kp = Keypair::random();
+    let user_id = test
+        .create_user(&user_kp, &test_user("Watcher:PostModerate:Slash", ""))
+        .await?;
+
+    let post_id = generate_post_id();
+    let post_path: ResourcePath = PubkyAppPost::create_path(&post_id).parse()?;
+    let tag = PubkyAppTag {
+        uri: format!("{}/", post_uri_builder(user_id.clone(), post_id.clone())),
+        label: MODERATION_LABEL.to_string(),
+        created_at: Utc::now().timestamp_millis(),
+    };
+    let _ = default_moderation_tests()
+        .apply_moderation(
+            tag,
+            MODERATOR_TAG_URI,
+            Path::new("/tmp/nexus-watcher-test"),
+            &default_ingestor_tests(),
+        )
+        .await;
+
+    test.put(
+        &user_kp,
+        &post_path,
+        short_post("Watcher:PostModerate:Slash:Post"),
+    )
+    .await?;
+
+    assert!(
+        find_post_details(&user_id, &post_id).await.is_err(),
+        "taken down under its canonical address, so its event is dropped"
+    );
+    Ok(())
+}
+
+/// A reply taken down before it is read is never written, so the post it replies to
+/// leaves its author no notification: not a new reply, nor a deleted one.
+#[tokio_shared_rt::test(shared)]
+async fn test_reply_taken_down_before_it_is_read_notifies_no_one() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let author_kp = Keypair::random();
+    let author_id = test
+        .create_user(&author_kp, &test_user("Watcher:PostModerate:Parent", ""))
+        .await?;
+    let (parent_id, _) = test
+        .create_post(&author_kp, &short_post("Watcher:PostModerate:Parent:Post"))
+        .await?;
+    let replier_kp = Keypair::random();
+    let replier_id = test
+        .create_user(&replier_kp, &test_user("Watcher:PostModerate:Replier", ""))
+        .await?;
+
+    let reply_id = generate_post_id();
+    let reply_path: ResourcePath = PubkyAppPost::create_path(&reply_id).parse()?;
+    let tag = PubkyAppTag {
+        uri: post_uri_builder(replier_id.clone(), reply_id.clone()),
+        label: MODERATION_LABEL.to_string(),
+        created_at: Utc::now().timestamp_millis(),
+    };
+    let _ = default_moderation_tests()
+        .apply_moderation(
+            tag,
+            MODERATOR_TAG_URI,
+            Path::new("/tmp/nexus-watcher-test"),
+            &default_ingestor_tests(),
+        )
+        .await;
+
+    let mut reply = short_post("Watcher:PostModerate:Reply");
+    reply.parent = Some(post_uri_builder(author_id.clone(), parent_id));
+    test.put(&replier_kp, &reply_path, reply).await?;
+
+    let notifications = Notification::get_by_id(&author_id, Pagination::default()).await?;
+    assert!(
+        notifications.is_empty(),
+        "nothing was written, so no one was notified: {notifications:?}"
+    );
+    Ok(())
 }
