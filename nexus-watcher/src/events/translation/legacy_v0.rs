@@ -11,70 +11,15 @@ use crate::events::inputs::{
     UserLink,
 };
 use crate::events::route::resolve_reference;
-use crate::events::target::EventTarget;
+use crate::events::translation::{TranslatedDel, TranslatedPut};
 use pubky_social_specs::legacy_v0::traits::Validatable;
 use pubky_social_specs::legacy_v0::{
     ExtendedParsedUri, PubkyAppBookmark, PubkyAppCollectionContent, PubkyAppFile, PubkyAppFollow,
     PubkyAppPost, PubkyAppPostKind, PubkyAppTag, PubkyAppUser, PubkyAppUserLink, Resource,
 };
-use pubky_social_specs::PubkyId;
 
-/// A fetched `pubky.app` object with the ids its path carries, one variant per PUT handler.
-///
-/// Every variant but `Follow`, which reads nothing from the bytes, carries its handler's input,
-/// and every input but the bookmark's carries the address its object is stored under.
-#[derive(Debug)]
-pub enum TranslatedPut {
-    User {
-        user_id: PubkyId,
-        user: UserInput,
-    },
-    Post {
-        key: ResourceKey,
-        post: PostInput,
-    },
-    Follow {
-        user_id: PubkyId,
-        followee_id: PubkyId,
-    },
-    /// `app` is set only for another app's universal tag (`/pub/mapky/tags/…`).
-    Tag {
-        key: ResourceKey,
-        tag: TagInput,
-        app: Option<String>,
-    },
-    Bookmark {
-        key: ResourceKey,
-        bookmark: BookmarkInput,
-    },
-    File {
-        key: ResourceKey,
-        file: FileInput,
-    },
-}
-
-/// A `pubky.app` deletion with the ids its path carries, one variant per DEL handler.
-#[derive(Debug, PartialEq, Eq)]
-pub enum TranslatedDel {
-    User {
-        user_id: PubkyId,
-    },
-    Post(ResourceKey),
-    Follow {
-        user_id: PubkyId,
-        followee_id: PubkyId,
-    },
-    /// `app` is set only for another app's universal tag (`/pub/mapky/tags/…`).
-    Tag {
-        key: ResourceKey,
-        app: Option<String>,
-    },
-    Bookmark(ResourceKey),
-    File(ResourceKey),
-}
-
-/// Reads `bytes` with the frozen v0 reader for the resource `target` names and pairs the
-/// object with the ids from the path. `event_uri` is the event's address, which `target` was
+/// Reads `bytes` with the frozen v0 reader for the resource `parsed` names and pairs the
+/// object with the ids from the path. `event_uri` is the event's address, which `parsed` was
 /// parsed from; the object is stored under it.
 ///
 /// Every error is deterministic and never retried: a resource with no handler is
@@ -83,10 +28,9 @@ pub enum TranslatedDel {
 /// [`EventProcessorError::SpecValidation`].
 pub fn translate_put(
     event_uri: &str,
-    target: &EventTarget,
+    parsed: &ExtendedParsedUri,
     bytes: &[u8],
 ) -> Result<TranslatedPut, EventProcessorError> {
-    let EventTarget::Legacy(parsed) = target;
     let user_id = parsed.user_id().clone();
     let uri = event_uri.to_string();
     Ok(match parsed.resource() {
@@ -138,12 +82,11 @@ pub fn translate_put(
     })
 }
 
-/// Maps the ids `target` names to the matching delete variant.
+/// Maps the ids `parsed` names to the matching delete variant.
 ///
 /// A resource with no handler is [`EventProcessorError::InvalidEventLine`], as in
 /// [`translate_put`].
-pub fn translate_del(target: &EventTarget) -> Result<TranslatedDel, EventProcessorError> {
-    let EventTarget::Legacy(parsed) = target;
+pub fn translate_del(parsed: &ExtendedParsedUri) -> Result<TranslatedDel, EventProcessorError> {
     let user_id = parsed.user_id().clone();
     Ok(match parsed.resource() {
         Resource::User => TranslatedDel::User { user_id },
@@ -313,6 +256,7 @@ mod tests {
     use crate::events::inputs::{Reference, ReferenceTarget};
     use pubky_social_specs::legacy_v0::traits::{HashId, TimestampId};
     use pubky_social_specs::legacy_v0::{PubkyAppPostEmbed, PubkyAppPostKind, PubkyAppUserLink};
+    use pubky_social_specs::PubkyId;
 
     const USER: &str = "operrr8wsbpr3ue9d4qj41ge1kcc6r7fdiy6o3ugjrrhi4y77rdo";
     const OTHER_USER: &str = "1hb71xx9km3f4pw5izsy1gn19ff1uuuqonw4mcygzobwkryujoiy";
@@ -327,8 +271,8 @@ mod tests {
         format!("pubky://{USER}/pub/{path}")
     }
 
-    fn target(path: &str) -> EventTarget {
-        EventTarget::Legacy(ExtendedParsedUri::try_from(event_uri(path).as_str()).unwrap())
+    fn target(path: &str) -> ExtendedParsedUri {
+        ExtendedParsedUri::try_from(event_uri(path).as_str()).unwrap()
     }
 
     /// Translates a PUT of `bytes` at `path`, as the dispatcher does for its event.
