@@ -113,57 +113,6 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         json::get_multiple(&prefix, &keys, None).await
     }
 
-    /// Retrieves multiple JSON objects from Redis using direct keys (mget operation).
-    ///
-    /// This method provides a convenient way to batch retrieve multiple objects by their direct keys
-    /// in a single Redis call, improving performance over individual get operations.
-    ///
-    /// # Arguments
-    ///
-    /// * `keys` - A slice of strings representing the direct keys to retrieve from Redis.
-    ///
-    /// # Returns
-    ///
-    /// A `Vec<Option<Self>>` containing the deserialized data if found, or `None` if a key does not exist.
-    async fn mget(keys: &[impl AsRef<str> + Send + Sync]) -> RedisResult<Vec<Option<Self>>> {
-        let prefix = Self::prefix().await;
-        json::get_multiple(&prefix, keys, None).await
-    }
-
-    /// Stores multiple key-value pairs in Redis, where each key is constructed from the provided key parts
-    /// and each value is an item from the given collection.
-    ///
-    /// This method serializes each item in the collection and stores it in Redis under keys generated
-    /// by joining the elements of the corresponding slices in `key_parts_list`. It efficiently handles
-    /// the setting of multiple key-value pairs in a single operation.
-    ///
-    /// # Arguments
-    ///
-    /// * `key_parts_list` - A slice of slices, where each inner slice is a list of string slices representing
-    ///   the components used to generate the Redis key for the corresponding value in the `collection`.
-    ///   Each slice in this list must align with the corresponding index in `collection`.
-    ///
-    /// * `collection` - A vector of `Option<Self>` representing the values to be stored in Redis. Each value is serialized
-    ///   before being stored, and the vector should be of the same length as `key_parts_list`.
-    ///
-    /// # Returns
-    ///
-    /// This function returns a `Result` indicating success or failure. A successful result means that
-    /// all key-value pairs were successfully stored in Redis.
-    async fn put_multiple_json_indexes(
-        key_parts_list: &[&[&str]],
-        collection: Vec<Option<Self>>,
-    ) -> RedisResult<()> // The items in the collection must be serializable
-    {
-        let mut data = Vec::with_capacity(key_parts_list.len());
-        for (i, key_parts) in key_parts_list.iter().enumerate() {
-            let key = key_parts.join(":");
-            data.push((key, &collection[i]));
-        }
-
-        json::put_multiple(&Self::prefix().await, &data).await
-    }
-
     /// Removes multiple JSON objects from Redis using the provided key parts.
     ///
     /// This method deletes the data stored under the keys generated from the provided `key_parts_list` in Redis.
