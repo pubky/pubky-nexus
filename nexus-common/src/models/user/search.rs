@@ -59,9 +59,9 @@ const SYNC_SEARCH_STATE: &str = r#"
 "#;
 
 /// The [`SYNC_SEARCH_STATE`] triple for a user: indexed under their lowercase
-/// name, or under none when tombstoned or a stub, which has no profile.
-fn search_entry(details: &UserDetails, stub: bool) -> (&str, String, bool) {
-    let name = match details.deleted || stub {
+/// name, or under none when tombstoned or without a `uri`.
+fn search_entry(details: &UserDetails, without_uri: bool) -> (&str, String, bool) {
+    let name = match details.deleted || without_uri {
         true => String::new(),
         false => details.name.to_lowercase(),
     };
@@ -398,14 +398,14 @@ impl UserSearch {
 
         let mut page = Vec::with_capacity(rows.len());
         for row in &rows {
-            let stub: bool = row.get("stub").map_err(GraphError::from)?;
+            let without_uri: bool = row.get("without_uri").map_err(GraphError::from)?;
             if let Some(details) = UserDetails::from_row(row) {
-                page.push((details, stub));
+                page.push((details, without_uri));
             }
         }
         let entries: Vec<(&str, String, bool)> = page
             .iter()
-            .map(|(details, stub)| search_entry(details, *stub))
+            .map(|(details, without_uri)| search_entry(details, *without_uri))
             .collect();
         Self::sync_state(&entries).await?;
         for (tombstone, _) in page.iter().filter(|(details, _)| details.deleted) {
@@ -497,33 +497,44 @@ mod tests {
         Ok((recorded, by_name.is_some(), by_id.is_some()))
     }
 
-    /// The rebuild tells a stub by its missing `uri`, not by its name: a node
-    /// without one loses what an earlier pass indexed it under, as
-    /// `UsersByPkReindex` indexes every node, and a profile named after its key
-    /// stays indexed.
+    /// The rebuild decides by the `uri` alone, not by the name: a stub and a
+    /// profile indexed before uris were stored both lose what an earlier pass
+    /// indexed them under, as `UsersByPkReindex` indexes every node, and a
+    /// profile named after its key stays indexed because it has a `uri`.
     #[tokio_shared_rt::test(shared)]
-    async fn test_reindex_tells_a_stub_by_its_missing_uri() -> Result<(), DynError> {
+    async fn test_reindex_keeps_only_users_with_a_uri() -> Result<(), DynError> {
         StackManager::setup(&StackConfig::default()).await?;
         let stub = UserDetails::from_pubky(random_pubky_id());
+        let mut legacy = UserDetails::from_pubky(random_pubky_id());
+        legacy.name = "Legacy Profile".to_string();
         let profile = UserDetails::from_pubky(random_pubky_id());
-        let (stub_id, profile_id) = (stub.id.to_string(), profile.id.to_string());
+        let ids = [&stub, &legacy, &profile].map(|details| details.id.to_string());
+        let [stub_id, legacy_id, profile_id] = &ids;
 
-        stub.put_to_graph().await?;
-        UserSearch::put_to_index(&[&stub]).await?;
+        for without_uri in [&stub, &legacy] {
+            without_uri.put_to_graph().await?;
+        }
+        UserSearch::put_to_index(&[&stub, &legacy]).await?;
         profile
             .put_profile_to_graph(&format!("pubky://{profile_id}/pub/pubky.app/profile.json"))
             .await?;
 
         let outcome = async {
-            reindex_one(&stub_id).await?;
-            reindex_one(&profile_id).await?;
+            for user_id in &ids {
+                reindex_one(user_id).await?;
+            }
             assert_eq!(
-                search_state(&stub_id, &stub_id).await?,
+                search_state(stub_id, stub_id).await?,
                 (None, false, false),
                 "the stub leaves the search"
             );
             assert_eq!(
-                search_state(&profile_id, &profile_id).await?,
+                search_state(legacy_id, "legacy profile").await?,
+                (None, false, false),
+                "a profile without a uri leaves the search"
+            );
+            assert_eq!(
+                search_state(profile_id, profile_id).await?,
                 (Some(profile_id.clone()), true, true),
                 "the profile stays indexed under its name"
             );
@@ -536,11 +547,12 @@ mod tests {
                 "user_search_test_cleanup",
                 "MATCH (u:User) WHERE u.id IN $ids DETACH DELETE u",
             )
-            .param("ids", vec![stub_id.clone(), profile_id.clone()]),
+            .param("ids", ids.to_vec()),
         )
         .await?;
-        UserSearch::delete(&stub_id).await?;
-        UserSearch::delete(&profile_id).await?;
+        for user_id in &ids {
+            UserSearch::delete(user_id).await?;
+        }
         outcome
     }
 }

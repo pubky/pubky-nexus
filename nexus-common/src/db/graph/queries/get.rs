@@ -405,15 +405,15 @@ pub fn author_post_entries(author_id: &str, after: (i64, &str), limit: usize) ->
 
 /// One keyset page of `:User` nodes as `record`, with their `id`, ordered by
 /// `id`, strictly after `after_id` (`""` for the first page); an empty page
-/// means the end. Tombstoned users and stubs are included; `stub` marks a node
-/// without a `uri`, which only a profile write stores.
+/// means the end. Tombstoned users and stubs are included; `without_uri` marks
+/// a node without a `uri`, which only a profile write stores.
 pub fn get_users_page(after_id: &str, limit: usize) -> Query {
     Query::new(
         "get_users_page",
         "
         MATCH (record:User)
         WHERE record.id > $after_id
-        RETURN record.id AS id, record, record.uri IS NULL AS stub
+        RETURN record.id AS id, record, record.uri IS NULL AS without_uri
         ORDER BY id ASC
         LIMIT $limit
         ",
