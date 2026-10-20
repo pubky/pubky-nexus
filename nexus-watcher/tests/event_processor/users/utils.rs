@@ -18,7 +18,7 @@ pub async fn check_member_most_followed(user_id: &str) -> Result<Option<isize>> 
     Ok(influencer_score)
 }
 
-pub async fn check_member_user_influencer(user_id: &str) -> Result<Option<isize>> {
+pub async fn check_member_influencer(user_id: &str) -> Result<Option<isize>> {
     let influencer_score =
         UserStream::check_sorted_set_member(None, &USER_INFLUENCERS_KEY_PARTS, &[user_id])
             .await
