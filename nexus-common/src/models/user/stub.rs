@@ -248,24 +248,44 @@ mod tests {
 
     /// A rebuild doesn't overwrite a stub written after it read the graph: its
     /// replacement is refused, so the next rebuild reads the graph again.
+    ///
+    /// The script runs on keys of this test's own: tests running alongside rebuild the
+    /// shared `Scope:Stubs` from the graph, which would drop a stub written to Redis only.
     #[tokio_shared_rt::test(shared)]
     async fn a_rebuild_keeps_a_stub_written_after_its_graph_read() -> Result<(), DynError> {
         StackManager::setup(&StackConfig::default()).await?;
         let user_id = pubky::Keypair::random().public_key().to_z32();
+        let stubs_key = format!("{}:test:{user_id}", super::STUBS_KEY);
+        let writes_key = format!("{}:test:{user_id}", super::WRITES_KEY);
         let mut conn = crate::db::get_redis_conn().await?;
-        let read_at: Option<String> = conn.get(super::WRITES_KEY).await?;
 
+        // A stub write counts itself, so a rebuild that read the graph before it can tell.
+        let before: Option<i64> = conn.get(super::WRITES_KEY).await?;
         super::write_entry(&user_id, true).await?;
+        let after: Option<i64> = conn.get(super::WRITES_KEY).await?;
+        super::write_entry(&user_id, false).await?;
+
+        // The graph is read with no writes counted, then a stub is written.
+        let () = deadpool_redis::redis::pipe()
+            .atomic()
+            .sadd(&stubs_key, &user_id)
+            .ignore()
+            .incr(&writes_key, 1)
+            .ignore()
+            .query_async(&mut conn)
+            .await
+            .map_err(crate::db::kv::RedisError::from)?;
         let replaced: i64 = super::REPLACE_IF_UNCHANGED
-            .key(super::STUBS_KEY)
-            .key(super::WRITES_KEY)
-            .arg(read_at.as_deref().unwrap_or("0"))
+            .key(&stubs_key)
+            .key(&writes_key)
+            .arg("0")
             .arg(super::BUILT)
             .invoke_async(&mut conn)
             .await?;
-        let kept: bool = conn.sismember(super::STUBS_KEY, &user_id).await?;
-        super::write_entry(&user_id, false).await?;
+        let kept: bool = conn.sismember(&stubs_key, &user_id).await?;
+        let () = conn.del(&[&stubs_key, &writes_key]).await?;
 
+        assert!(after > before, "the stub write is counted");
         assert_eq!(replaced, 0, "the replacement is refused");
         assert!(kept, "the stub written after the graph read stays");
         Ok(())
