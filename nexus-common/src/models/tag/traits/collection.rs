@@ -5,8 +5,9 @@ use crate::db::{
     OperationOutcome, RedisOps,
 };
 use crate::models::error::ModelResult;
-use crate::types::WotDepth;
+use crate::types::{Pagination, WotDepth};
 use async_trait::async_trait;
+use neo4rs::Row;
 use std::collections::HashMap;
 use tracing::{error, warn};
 
@@ -22,6 +23,29 @@ const CACHE_TTL: i64 = 3 * 60 * 60;
 /// can't force an unbounded fan-out (mirrors the stream limit cap).
 pub(crate) const MAX_TAG_PAGE: usize = 100;
 
+/// The page of a tag list: `skip_tags`/`limit_tags`/`limit_taggers` default to
+/// 0 / 5 / 5, and both limits are capped at `MAX_TAG_PAGE`.
+pub(crate) fn tag_page(
+    skip_tags: Option<usize>,
+    limit_tags: Option<usize>,
+    limit_taggers: Option<usize>,
+) -> (usize, usize, usize) {
+    (
+        skip_tags.unwrap_or(0),
+        limit_tags.unwrap_or(5).min(MAX_TAG_PAGE),
+        limit_taggers.unwrap_or(5).min(MAX_TAG_PAGE),
+    )
+}
+
+/// The page of a label's taggers: `skip`/`limit` default to 0 / 40, and the
+/// limit is capped at `MAX_TAG_PAGE`.
+pub(crate) fn taggers_page(pagination: &Pagination) -> (usize, usize) {
+    (
+        pagination.skip.unwrap_or(0),
+        pagination.limit.unwrap_or(40).min(MAX_TAG_PAGE),
+    )
+}
+
 /// Runs a tag query and parses the `exists`/`tags` row shape shared by the
 /// global and Web-of-Trust tag queries.
 pub(crate) async fn fetch_tag_details(query: Query) -> GraphResult<Option<Vec<TagDetails>>> {
@@ -29,17 +53,22 @@ pub(crate) async fn fetch_tag_details(query: Query) -> GraphResult<Option<Vec<Ta
     if let Some(row) = maybe_row {
         let exists: bool = row.get("exists").unwrap_or(false);
         if exists {
-            // A decode failure on an existing post/user is a real error, not a
-            // "not found": surface it instead of masking it as `None`.
-            let mut tags = row.get::<Vec<TagDetails>>("tags")?;
-            // The queries return only `tag_uri`
-            for tag in &mut tags {
-                tag.relationship = tag.tag_uri.is_some();
-            }
-            return Ok(Some(tags));
+            return Ok(Some(tag_details_from_row(&row)?));
         }
     }
     Ok(None)
+}
+
+/// The `tags` column of a tag query row, for a target that exists.
+pub(crate) fn tag_details_from_row(row: &Row) -> GraphResult<Vec<TagDetails>> {
+    // A decode failure on an existing target is a real error, not a
+    // "not found": surface it instead of masking it as `None`.
+    let mut tags = row.get::<Vec<TagDetails>>("tags")?;
+    // The queries return only `tag_uri`
+    for tag in &mut tags {
+        tag.relationship = tag.tag_uri.is_some();
+    }
+    Ok(tags)
 }
 
 /// Logs a cache drift: the index lists the viewer as a tagger of the label, but the
@@ -222,9 +251,7 @@ where
         limit_taggers: Option<usize>,
         is_cache: bool,
     ) -> RedisResult<Option<Vec<(TagDetails, bool)>>> {
-        let limit_tags = limit_tags.unwrap_or(5).min(MAX_TAG_PAGE);
-        let skip_tags = skip_tags.unwrap_or(0);
-        let limit_taggers = limit_taggers.unwrap_or(5).min(MAX_TAG_PAGE);
+        let (skip_tags, limit_tags, limit_taggers) = tag_page(skip_tags, limit_tags, limit_taggers);
         let key_parts = Self::create_sorted_set_key_parts(user_id, extra_param, is_cache);
         // Prepare the extra prefix for cache search
         let cache_prefix = match is_cache {
@@ -680,6 +707,31 @@ where
                 false => format!("{user_id}:{extra_id}:{label}"),
             },
             None => format!("{user_id}:{label}"),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tag_page_defaults_and_caps() {
+        assert_eq!(tag_page(None, None, None), (0, 5, 5));
+        assert_eq!(tag_page(Some(3), Some(7), Some(500)), (3, 7, 100));
+        assert_eq!(tag_page(None, Some(500), Some(9)), (0, 100, 9));
+    }
+
+    #[test]
+    fn taggers_page_defaults_and_caps() {
+        assert_eq!(taggers_page(&Pagination::default()), (0, 40));
+        for (limit, page) in [(7, (3, 7)), (500, (3, 100))] {
+            let pagination = Pagination {
+                skip: Some(3),
+                limit: Some(limit),
+                ..Default::default()
+            };
+            assert_eq!(taggers_page(&pagination), page);
         }
     }
 }

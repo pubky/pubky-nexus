@@ -67,10 +67,12 @@ impl RetryScheduler {
             EventProcessorError::InvalidEventLine(_)
             | EventProcessorError::SkipIndexing
             | EventProcessorError::SpecValidation(..)
+            | EventProcessorError::UnsupportedTarget(_)
             | EventProcessorError::HsBlacklisted { .. }
             | EventProcessorError::Homeserver(_)
             | EventProcessorError::HsEventsStreamRateLimitExhausted
             | EventProcessorError::FetchSizeExceeded(_, _)
+            | EventProcessorError::DataAnomaly(..)
             | EventProcessorError::UserIdMismatch { .. }
             | EventProcessorError::EventCursorOutOfOrder { .. } => false,
 

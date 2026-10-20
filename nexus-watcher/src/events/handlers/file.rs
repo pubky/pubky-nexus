@@ -32,20 +32,8 @@ pub async fn sync_put(
     )
     .await?;
 
-    // Create FileDetails object
     let file_details = FileDetails::from_homeserver(&file, uri, user_id.to_string(), file_id);
-
-    // SAVE TO GRAPH
     file_details.put_to_graph().await?;
-
-    FileDetails::put_to_index(
-        &[&[
-            file_details.owner_id.clone().as_str(),
-            file_details.id.clone().as_str(),
-        ]],
-        vec![Some(file_details)],
-    )
-    .await?;
 
     Ok(())
 }

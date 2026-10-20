@@ -3,6 +3,7 @@ mod collected_edges;
 mod collection_counts;
 mod del_reply_notification;
 mod del_reply_parent_notification;
+mod fanout_pagination;
 mod forwards_compat;
 
 mod del_bookmarked_notification;
@@ -40,6 +41,7 @@ mod retry_all;
 mod retry_post;
 mod retry_reply;
 mod retry_repost;
+mod tagged_pagination;
 mod trust_filter;
 mod uri;
 mod uri_readers;
