@@ -17,7 +17,7 @@ use tracing::{debug, Instrument};
 use super::utils::{
     bounded, fail_on_permanent_ingest_error, post_kind, post_relationships_is_reply,
 };
-use crate::events::inputs::{PostInput, Reference, ReferenceTarget, ResourceKey};
+use crate::events::inputs::{PostInput, PostKind, Reference, ReferenceTarget, ResourceKey};
 
 pub async fn sync_put(
     post: PostInput,
@@ -92,7 +92,7 @@ async fn sync_put_details(
     debug!("Indexing post");
     // We avoid indexing replies into global feed sorted sets
     let is_reply = post.parent.is_some();
-    let is_collection = post.kind == PubkyAppPostKind::Collection;
+    let is_collection = post.kind == PostKind::Collection;
     // PRE-INDEX operation, identify the post relationship. These parents carry the addresses as
     // the author wrote them: only their keys reach the graph, and the addresses only the
     // missing-dependency diagnostics.
@@ -210,7 +210,7 @@ async fn sync_put_details(
         &post_details.uri,
         &post_details.content,
         &mut post_relationships,
-        post.kind.clone(),
+        post_details.kind.clone(),
     )
     .await?;
 
@@ -676,8 +676,8 @@ pub async fn del(key: ResourceKey, ingestor: &UserIngestor) -> Result<(), EventP
                 parent: replied.map(reference),
                 embed: reposted.map(reference),
                 collection_items: Vec::new(),
-                kind: PubkyAppPostKind::Short,
-                attachments: None,
+                kind: PostKind::Short,
+                attachments: Vec::new(),
                 lock: None,
             };
             let tombstone_details = PostDetails {
@@ -934,14 +934,14 @@ mod tests {
         PostInput {
             uri: String::new(),
             content: String::new(),
-            kind: PubkyAppPostKind::Short,
+            kind: PostKind::Short,
             parent: target.map(|target| Reference {
                 uri: String::new(),
                 target,
             }),
             embed: None,
             collection_items: Vec::new(),
-            attachments: None,
+            attachments: Vec::new(),
             lock: None,
         }
     }

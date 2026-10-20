@@ -7,14 +7,15 @@
 
 use crate::errors::EventProcessorError;
 use crate::events::inputs::{
-    BookmarkInput, FileInput, PostInput, Reference, ResourceKey, TagInput, UserInput,
+    BookmarkInput, FileInput, PostInput, PostKind, Reference, ResourceKey, TagInput, UserInput,
+    UserLink,
 };
 use crate::events::route::resolve_reference;
 use crate::events::target::EventTarget;
 use pubky_social_specs::legacy_v0::traits::Validatable;
 use pubky_social_specs::legacy_v0::{
     ExtendedParsedUri, PubkyAppBookmark, PubkyAppCollectionContent, PubkyAppFile, PubkyAppFollow,
-    PubkyAppPost, PubkyAppPostKind, PubkyAppTag, PubkyAppUser, Resource,
+    PubkyAppPost, PubkyAppPostKind, PubkyAppTag, PubkyAppUser, PubkyAppUserLink, Resource,
 };
 use pubky_social_specs::PubkyId;
 
@@ -193,22 +194,33 @@ fn no_handler(resource: &Resource) -> EventProcessorError {
 }
 
 impl UserInput {
-    /// The input for a v0 profile stored under `uri`.
+    /// The input for a v0 profile stored under `uri`; a missing or `null` link list is empty.
     pub fn from_v0(user: PubkyAppUser, uri: String) -> Self {
         Self {
             uri,
             name: user.name,
             bio: user.bio,
             image: user.image,
-            links: user.links,
+            links: user
+                .links
+                .unwrap_or_default()
+                .into_iter()
+                .map(Into::into)
+                .collect(),
             status: user.status,
         }
     }
 }
 
+impl From<PubkyAppUserLink> for UserLink {
+    fn from(PubkyAppUserLink { title, url }: PubkyAppUserLink) -> Self {
+        Self { title, url }
+    }
+}
+
 impl PostInput {
     /// The input for a v0 post stored under `uri`, with its parent, embed and collection items
-    /// resolved.
+    /// resolved; a missing or `null` attachment list is empty.
     pub fn from_v0(post: PubkyAppPost, uri: String) -> Self {
         Self {
             uri,
@@ -216,9 +228,24 @@ impl PostInput {
             parent: post.parent.as_deref().map(resolve_reference),
             embed: post.embed.map(|embed| resolve_reference(&embed.uri)),
             content: post.content,
-            kind: post.kind,
-            attachments: post.attachments,
+            kind: post.kind.into(),
+            attachments: post.attachments.unwrap_or_default(),
             lock: post.lock,
+        }
+    }
+}
+
+impl From<PubkyAppPostKind> for PostKind {
+    fn from(kind: PubkyAppPostKind) -> Self {
+        match kind {
+            PubkyAppPostKind::Short => Self::Short,
+            PubkyAppPostKind::Long => Self::Long,
+            PubkyAppPostKind::Image => Self::Image,
+            PubkyAppPostKind::Video => Self::Video,
+            PubkyAppPostKind::Link => Self::Link,
+            PubkyAppPostKind::File => Self::File,
+            PubkyAppPostKind::Collection => Self::Collection,
+            PubkyAppPostKind::Unknown => Self::Unknown,
         }
     }
 }
@@ -330,13 +357,25 @@ mod tests {
         )
     }
 
-    fn links(links: &Option<Vec<PubkyAppUserLink>>) -> Option<Vec<(String, String)>> {
-        links.as_ref().map(|links| {
-            links
-                .iter()
-                .map(|link| (link.title.clone(), link.url.clone()))
-                .collect()
-        })
+    /// Translates a PUT of the v0 profile `bytes` to its user id and input.
+    fn translate_user(bytes: &[u8]) -> (PubkyId, UserInput) {
+        let translated = put_at("pubky.app/profile.json", bytes).unwrap();
+        let TranslatedPut::User { user_id, user } = translated else {
+            panic!("expected User, got {translated:?}");
+        };
+        (user_id, user)
+    }
+
+    fn link(title: &str, url: &str) -> UserLink {
+        UserLink {
+            title: title.to_string(),
+            url: url.to_string(),
+        }
+    }
+
+    /// The links the user details built from `input` store, as JSON.
+    fn stored_links(input: UserInput) -> serde_json::Value {
+        serde_json::to_value(input.into_details(&pubky_id(USER)).links).unwrap()
     }
 
     fn post_fixture() -> PubkyAppPost {
@@ -374,12 +413,17 @@ mod tests {
         format!("pubky.app/posts/{POST_ID}")
     }
 
-    fn translate_post(post: &PubkyAppPost) -> (ResourceKey, PostInput) {
-        let translated = put_at(&post_path(), &bytes(post)).unwrap();
+    fn translate_post(bytes: &[u8]) -> (ResourceKey, PostInput) {
+        let translated = put_at(&post_path(), bytes).unwrap();
         let TranslatedPut::Post { key, post } = translated else {
             panic!("expected Post, got {translated:?}");
         };
         (key, post)
+    }
+
+    /// The attachments the post details built from `input` store, as JSON.
+    fn stored_attachments(input: PostInput) -> serde_json::Value {
+        serde_json::to_value(input.into_details(&post_key()).attachments).unwrap()
     }
 
     fn tag_fixture() -> PubkyAppTag {
@@ -441,64 +485,86 @@ mod tests {
     #[test]
     fn put_user_translates_to_its_input_with_the_path_user() {
         let user = user_fixture();
-        let translated = put_at("pubky.app/profile.json", &bytes(&user)).unwrap();
-        let TranslatedPut::User {
-            user_id,
-            user: input,
-        } = translated
-        else {
-            panic!("expected User, got {translated:?}");
-        };
+        let (user_id, input) = translate_user(&bytes(&user));
         assert_eq!(user_id, pubky_id(USER));
-        assert_eq!(input.uri, event_uri("pubky.app/profile.json"));
-        assert_eq!(input.name, user.name);
-        assert_eq!(input.bio, user.bio);
-        assert_eq!(input.image, user.image);
-        assert_eq!(links(&input.links), links(&user.links));
-        assert_eq!(input.status, user.status);
+        assert_eq!(
+            input,
+            UserInput {
+                uri: event_uri("pubky.app/profile.json"),
+                name: user.name,
+                bio: user.bio,
+                image: user.image,
+                links: vec![link("site", "https://example.com/alice")],
+                status: user.status,
+            }
+        );
     }
 
     #[test]
-    fn put_user_keeps_empty_links_apart_from_missing_ones() {
-        for links_written in [None, Some(Vec::new())] {
-            let user = PubkyAppUser::new("Alice".to_string(), None, None, links_written, None);
-            let translated = put_at("pubky.app/profile.json", &bytes(&user)).unwrap();
-            let TranslatedPut::User { user: input, .. } = translated else {
-                panic!("expected User, got {translated:?}");
-            };
-            assert_eq!(links(&input.links), links(&user.links));
+    fn put_user_with_no_links_carries_an_empty_list_and_stores_one() {
+        for written in [
+            r#"{"name": "Alice"}"#,
+            r#"{"name": "Alice", "links": null}"#,
+            r#"{"name": "Alice", "links": []}"#,
+        ] {
+            let (_, input) = translate_user(written.as_bytes());
+            assert_eq!(input.links, Vec::new(), "{written}");
+            assert_eq!(stored_links(input), serde_json::json!([]), "{written}");
         }
+    }
+
+    #[test]
+    fn put_user_links_keep_their_order_and_values_on_the_input_and_when_stored() {
+        let bytes = br#"{"name": "Alice", "links": [
+            {"title": "site", "url": "https://example.com/alice"},
+            {"title": "blog", "url": "https://blog.example.com/posts"}
+        ]}"#;
+        let (_, input) = translate_user(bytes);
+        assert_eq!(
+            input.links,
+            vec![
+                link("site", "https://example.com/alice"),
+                link("blog", "https://blog.example.com/posts"),
+            ]
+        );
+        assert_eq!(
+            stored_links(input),
+            serde_json::json!([
+                {"title": "site", "url": "https://example.com/alice"},
+                {"title": "blog", "url": "https://blog.example.com/posts"},
+            ])
+        );
     }
 
     #[test]
     fn put_post_translates_to_its_input_with_the_path_ids() {
         let post = post_fixture();
-        let (key, input) = translate_post(&post);
+        let (key, input) = translate_post(&bytes(&post));
         assert_eq!(key, post_key());
         assert_eq!(input.uri, event_uri(&post_path()));
         assert_eq!(input.content, post.content);
-        assert_eq!(input.kind, post.kind);
+        assert_eq!(input.kind, PostKind::Image);
         assert_eq!(input.parent, Some(post_reference()));
         assert_eq!(input.embed, None);
         assert_eq!(input.collection_items, Vec::new());
-        assert_eq!(input.attachments, post.attachments);
+        assert_eq!(Some(input.attachments), post.attachments);
         assert_eq!(input.lock, post.lock);
     }
 
     #[test]
     fn put_post_with_an_embed_carries_only_the_embed_reference() {
         let post = repost_fixture();
-        let (_, input) = translate_post(&post);
+        let (_, input) = translate_post(&bytes(&post));
         assert_eq!(
             input,
             PostInput {
                 uri: event_uri(&post_path()),
                 content: String::new(),
-                kind: PubkyAppPostKind::Short,
+                kind: PostKind::Short,
                 parent: None,
                 embed: Some(post_reference()),
                 collection_items: Vec::new(),
-                attachments: None,
+                attachments: Vec::new(),
                 lock: None,
             }
         );
@@ -518,7 +584,7 @@ mod tests {
             }),
             None,
         );
-        let (_, input) = translate_post(&post);
+        let (_, input) = translate_post(&bytes(&post));
         assert_eq!(
             input.parent,
             Some(Reference {
@@ -557,7 +623,7 @@ mod tests {
     fn put_collection_post_resolves_its_items_in_order() {
         let first = format!("pubky://{USER}/pub/pubky.app/posts/{POST_ID}");
         let second = post_uri();
-        let (_, input) = translate_post(&collection_post(&[first.clone(), second]));
+        let (_, input) = translate_post(&bytes(&collection_post(&[first.clone(), second])));
         assert_eq!(
             input.collection_items,
             vec![
@@ -599,6 +665,80 @@ mod tests {
         };
         let input = PostInput::from_v0(post, event_uri(&post_path()));
         assert_eq!(input.collection_items, Vec::new());
+    }
+
+    #[test]
+    fn put_post_kind_translates_to_its_nexus_kind_and_is_stored_as_before() {
+        let cases = [
+            (PubkyAppPostKind::Short, PostKind::Short),
+            (PubkyAppPostKind::Long, PostKind::Long),
+            (PubkyAppPostKind::Image, PostKind::Image),
+            (PubkyAppPostKind::Video, PostKind::Video),
+            (PubkyAppPostKind::Link, PostKind::Link),
+            (PubkyAppPostKind::File, PostKind::File),
+            (PubkyAppPostKind::Collection, PostKind::Collection),
+        ];
+        for (v0_kind, nexus_kind) in cases {
+            let post = match v0_kind {
+                PubkyAppPostKind::Collection => collection_post(&[post_uri()]),
+                _ => PubkyAppPost::new("hello".to_string(), v0_kind.clone(), None, None, None),
+            };
+            let (key, input) = translate_post(&bytes(&post));
+            assert_eq!(input.kind, nexus_kind, "{v0_kind:?}");
+            assert_eq!(input.into_details(&key).kind, v0_kind);
+        }
+    }
+
+    #[test]
+    fn post_with_an_unrecognised_kind_carries_the_unknown_kind() {
+        // The reader reads the kind as unknown and then rejects the post, so read it directly.
+        let bytes = br#"{"content": "hello", "kind": "hyperverse_post"}"#;
+        assert!(matches!(
+            put_at(&post_path(), bytes),
+            Err(EventProcessorError::SpecValidation(_))
+        ));
+        let post: PubkyAppPost = serde_json::from_slice(bytes).unwrap();
+        let input = PostInput::from_v0(post, event_uri(&post_path()));
+        assert_eq!(input.kind, PostKind::Unknown);
+        assert_eq!(
+            input.into_details(&post_key()).kind,
+            PubkyAppPostKind::Unknown
+        );
+    }
+
+    #[test]
+    fn put_post_with_no_attachments_carries_an_empty_list_and_stores_one() {
+        for written in [
+            r#"{"content": "hello", "kind": "short"}"#,
+            r#"{"content": "hello", "kind": "short", "attachments": null}"#,
+            r#"{"content": "hello", "kind": "short", "attachments": []}"#,
+        ] {
+            let (_, input) = translate_post(written.as_bytes());
+            assert_eq!(input.attachments, Vec::<String>::new(), "{written}");
+            assert_eq!(
+                stored_attachments(input),
+                serde_json::json!([]),
+                "{written}"
+            );
+        }
+    }
+
+    #[test]
+    fn put_post_attachments_keep_their_order_and_values_on_the_input_and_when_stored() {
+        let attachments = vec![
+            format!("pubky://{USER}/pub/pubky.app/files/{POST_ID}"),
+            format!("pubky://{OTHER_USER}/pub/pubky.app/files/{POST_ID}"),
+        ];
+        let post = PubkyAppPost::new(
+            "hello".to_string(),
+            PubkyAppPostKind::Image,
+            None,
+            None,
+            Some(attachments.clone()),
+        );
+        let (_, input) = translate_post(&bytes(&post));
+        assert_eq!(input.attachments, attachments);
+        assert_eq!(stored_attachments(input), serde_json::json!(attachments));
     }
 
     #[test]
