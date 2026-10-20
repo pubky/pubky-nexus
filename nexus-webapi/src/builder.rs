@@ -15,7 +15,7 @@ use axum::Router;
 use axum_server::tls_rustls::{RustlsAcceptor, RustlsConfig};
 use axum_server::Handle;
 use futures_util::TryFutureExt;
-use nexus_common::db::DatabaseConfig;
+use nexus_common::db::{DatabaseConfig, PubkyConnector};
 use nexus_common::file::ConfigLoader;
 use nexus_common::types::DynError;
 use nexus_common::utils::create_shutdown_rx;
@@ -94,6 +94,13 @@ impl NexusApiBuilder {
     /// - `shutdown_rx`: optional shutdown signal. If none is provided, a default one will be created, listening for Ctrl-C.
     pub async fn start(self, shutdown_rx: Option<Receiver<bool>>) -> Result<NexusApi, DynError> {
         StackManager::setup(&self.api_context.api_config.stack).await?;
+        // The ingest and recheck routes look users up on PKDNS through the shared client.
+        let net = &self.api_context.api_config.stack.net;
+        PubkyConnector::initialise(
+            net.pubky_client_testnet_host(),
+            net.pubky_client_http_request_timeout(),
+        )
+        .await?;
         let mut shutdown_rx = shutdown_rx.unwrap_or_else(create_shutdown_rx);
 
         let nexus_api = NexusApi::start(

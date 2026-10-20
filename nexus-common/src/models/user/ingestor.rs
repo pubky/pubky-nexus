@@ -1,12 +1,17 @@
+use std::future::Future;
 use std::sync::Arc;
 
 use pubky_app_specs::{ParsedUri, PubkyId};
 
 use super::PkdnsHomeserverResolver;
+use crate::db::PubkyClientResult;
 use crate::models::error::{ModelError, ModelResult};
 use crate::models::homeserver::HsBlacklist;
 use crate::models::traits::Collection;
-use crate::models::user::{set_user_homeserver, UserDetails, UserHsCursor};
+use crate::models::user::{
+    apply_resolved_homeserver, get_user_homeserver, set_user_homeserver, HomeserverRecheck,
+    MappingUpdate, StaleMapping, UserDetails, UserHsCursor,
+};
 use crate::StackConfig;
 
 /// Ingests previously-unknown users unless their HS is blacklisted.
@@ -66,6 +71,17 @@ impl UserIngestor {
         &self,
         user_id: &PubkyId,
     ) -> ModelResult<Option<String>> {
+        let user_pk = user_id.to_public_key();
+        self.resolve_unless_blacklisted(user_id, self.resolver.resolve_homeserver(&user_pk))
+            .await
+    }
+
+    /// `lookup`'s answer for `user_id`, refused if it is blacklisted.
+    async fn resolve_unless_blacklisted(
+        &self,
+        user_id: &PubkyId,
+        lookup: impl Future<Output = PubkyClientResult<Option<PubkyId>>>,
+    ) -> ModelResult<Option<String>> {
         // `user_id` may itself be an HS PK (e.g. a file `src` of the form
         // `pubky://<hs_pk>/...` that addresses the HS directly). The resolver
         // returns `None` for an HS PK, so without this self-check a blacklisted HS
@@ -76,11 +92,7 @@ impl UserIngestor {
             });
         }
 
-        let resolved = self
-            .resolver
-            .resolve_homeserver(&user_id.to_public_key())
-            .await
-            .map_err(ModelError::from_generic)?;
+        let resolved = lookup.await.map_err(ModelError::from_generic)?;
         let Some(hs_pk) = resolved else {
             return Ok(None);
         };
@@ -131,6 +143,53 @@ impl UserIngestor {
         UserHsCursor::init(user_id, &hs_id).await?;
 
         Ok(())
+    }
+
+    /// Re-checks a known user's homeserver against the network now and follows
+    /// the record: a record naming another homeserver moves the mapping there,
+    /// a record naming none keeps it. The lookup is the resolver's fresh one
+    /// ([`PkdnsHomeserverResolver::resolve_homeserver_fresh`]): the network's
+    /// newest packet, not a cache. This is the programmatic way to switch a
+    /// user's homeserver; the periodic resolver only follows records when its
+    /// stale mapping is disabled.
+    ///
+    /// Returns `None` for a user nexus does not know; ingest them instead.
+    ///
+    /// Returns [`ModelError::HsBlacklisted`] if the published HS is blacklisted.
+    #[tracing::instrument(name = "user.recheck", skip_all)]
+    pub async fn recheck_user(&self, user_id: &PubkyId) -> ModelResult<Option<HomeserverRecheck>> {
+        let user_id_str = user_id.to_string();
+        if UserDetails::get_by_id(&user_id_str).await?.is_none() {
+            tracing::debug!("Skipping recheck: {user_id_str} unknown");
+            return Ok(None);
+        }
+
+        let user_pk = user_id.to_public_key();
+        let resolved = match self
+            .resolve_unless_blacklisted(user_id, self.resolver.resolve_homeserver_fresh(&user_pk))
+            .await
+            .inspect_err(|e| tracing::warn!("Aborting recheck of {user_id}: {e}"))?
+        {
+            Some(hs_id) => {
+                Some(PubkyId::try_from(hs_id.as_str()).map_err(ModelError::from_generic)?)
+            }
+            None => None,
+        };
+
+        let update =
+            apply_resolved_homeserver(&user_id_str, resolved.as_ref(), StaleMapping::Disabled)
+                .await?;
+        if let (MappingUpdate::Bound | MappingUpdate::Switched { .. }, Some(hs_id)) =
+            (&update, &resolved)
+        {
+            tracing::info!("User {user_id} now bound to HS {hs_id} after a recheck");
+            UserHsCursor::init(user_id, hs_id).await?;
+        }
+
+        let homeserver = get_user_homeserver(&user_id_str)
+            .await?
+            .map(|mapping| mapping.hs_id);
+        Ok(Some(HomeserverRecheck::new(&update, homeserver)))
     }
 }
 
