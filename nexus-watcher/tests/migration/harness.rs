@@ -13,7 +13,7 @@ use nexus_common::db::{
 };
 use nexus_common::models::homeserver::{Homeserver, HsBlacklist};
 use nexus_common::models::notification::Notification;
-use nexus_common::models::user::{UserHsCursor, UserIngestor};
+use nexus_common::models::user::{StaleMapping, UserHsCursor, UserIngestor};
 use nexus_common::types::Pagination;
 use nexus_common::utils::test_utils::default_ingestor_tests;
 use nexus_common::{StackConfig, StackManager, DEFAULT_MAX_FILE_SIZE};
@@ -160,17 +160,23 @@ impl MigrationTest {
         self.index_external(&self.primary).await
     }
 
-    /// One resolver sweep in which only `user` is looked up, with a fresh
-    /// network lookup. Every other user in the shared graph gets a failed
-    /// lookup, which the resolver leaves alone.
+    /// One resolver sweep with stale mapping disabled, in which only `user` is
+    /// looked up, with a fresh network lookup. Every other user in the shared
+    /// graph gets a failed lookup, which the resolver leaves alone.
     pub async fn resolve(&self, user: &Keypair) -> Result<()> {
         let resolver = FreshLookup {
             users: HashSet::from([user.public_key().to_z32()]),
         };
         let mut shutdown_rx = self.shutdown_rx.clone();
-        user_hs_resolver::run(&resolver, 0, &UnboundBackoff::default(), &mut shutdown_rx)
-            .await
-            .map_err(|e| anyhow!("{e}"))
+        user_hs_resolver::run(
+            &resolver,
+            0,
+            &UnboundBackoff::default(),
+            &mut shutdown_rx,
+            StaleMapping::Disabled,
+        )
+        .await
+        .map_err(|e| anyhow!("{e}"))
     }
 
     /// What nexus does when a known user first references an unknown one:
