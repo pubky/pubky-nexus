@@ -1,3 +1,4 @@
+use anyhow::Context;
 use async_trait::async_trait;
 use chrono::Utc;
 use futures::TryStreamExt;
@@ -251,7 +252,11 @@ impl MigrationManager {
             "get_migrations",
             "MATCH (m:Migration) RETURN COLLECT(m) as migrations",
         );
-        let mut result = self.graph.execute(query).await.map_err(|e| e.to_string())?;
+        let mut result = self
+            .graph
+            .execute(query)
+            .await
+            .context("Failed to execute migration query")?;
 
         match result.try_next().await {
             Ok(row) => match row {

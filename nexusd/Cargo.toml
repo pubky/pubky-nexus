@@ -8,6 +8,7 @@ repository = "https://github.com/pubky/pubky-nexus"
 license = "MIT"
 
 [dependencies]
+anyhow = { workspace = true }
 async-trait = { workspace = true }
 chrono = { workspace = true }
 clap = { workspace = true, features = ["derive"] }

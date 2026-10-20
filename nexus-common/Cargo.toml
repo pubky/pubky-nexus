@@ -11,6 +11,7 @@ license = "MIT"
 test-utils = []
 
 [dependencies]
+anyhow = { workspace = true }
 async-trait = { workspace = true }
 blake3 = { workspace = true }
 hex = { workspace = true }

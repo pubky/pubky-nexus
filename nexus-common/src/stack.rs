@@ -3,6 +3,7 @@ use crate::db::kv::search::set_ft_search_timeout_ms;
 use crate::db::{Neo4jConnector, RedisConnector};
 use crate::types::DynError;
 use crate::{Level, StackConfig};
+use anyhow::Context;
 use opentelemetry::trace::TracerProvider;
 use opentelemetry::{global, KeyValue};
 use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
@@ -121,7 +122,7 @@ impl StackManager {
             .with_endpoint(otel_endpoint.to_string())
             .with_timeout(Duration::from_secs(3))
             .build()
-            .map_err(|e| format!("OTLP Tracing Exporter Error: {e}"))?;
+            .context("OTLP Tracing Exporter Error")?;
 
         // Collects spans in memory and sends them in batches
         let tracer_provider = SdkTracerProvider::builder()
@@ -139,7 +140,7 @@ impl StackManager {
             .with_endpoint(otel_endpoint.to_string())
             .with_timeout(Duration::from_secs(3))
             .build()
-            .map_err(|e| format!("OTLP Logging Exporter Error: {e}"))?;
+            .context("OTLP Logging Exporter Error")?;
 
         let logging_provider = SdkLoggerProvider::builder()
             .with_resource(Self::create_resource(otlp))

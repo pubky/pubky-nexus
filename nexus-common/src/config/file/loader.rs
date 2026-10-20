@@ -1,4 +1,5 @@
 use crate::types::DynError;
+use anyhow::Context;
 use async_trait::async_trait;
 use serde::de::DeserializeOwned;
 use std::fmt::Debug;
@@ -23,11 +24,12 @@ where
         // Read file with error handling
         let s = fs::read_to_string(config_file_path)
             .await
-            .map_err(|e| format!("!Failed to read config file {config_file_path:?}: {e}"))?;
+            .with_context(|| format!("!Failed to read config file {config_file_path:?}"))?;
 
         // Convert TOML to struct with error handling
         let config = Self::try_from_str(&s)
-            .map_err(|e| format!("Failed to parse config file {config_file_path:?}: {e}"))?;
+            .map_err(anyhow::Error::from_boxed)
+            .with_context(|| format!("Failed to parse config file {config_file_path:?}"))?;
 
         Ok(config)
     }
