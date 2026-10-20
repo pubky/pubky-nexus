@@ -44,7 +44,7 @@ impl DaemonConfig {
         Self::load_or_create(&config_file_path, DEFAULT_CONFIG_TOML)
             .await
             .inspect_err(|e| {
-                error!("Failed to load config file: {e}");
+                error!("Failed to load config file: {e:#}");
             })
     }
 
