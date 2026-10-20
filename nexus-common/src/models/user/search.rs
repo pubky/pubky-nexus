@@ -368,10 +368,10 @@ impl UserSearch {
 
     /// Rebuilds the search state of every user from the graph, one keyset page
     /// at a time, and evicts each tombstone from the users-by-tag index. A
-    /// user without a `uri` is a stub, as only a profile write stores one: the
-    /// rebuild drops whatever an earlier pass indexed them under. That leaves
-    /// out a profile indexed before uris were stored and missing from the
-    /// event log, until its next profile write.
+    /// user without a `uri` leaves the search, as only a profile write stores
+    /// one: the rebuild drops whatever an earlier pass indexed them under. That
+    /// covers the discovery stubs, and a profile indexed before uris were
+    /// stored and missing from the event log, until its next profile write.
     ///
     /// Run with the watcher stopped: a profile event between a page's read and
     /// its write is overwritten with the page's older state. Existing state is
