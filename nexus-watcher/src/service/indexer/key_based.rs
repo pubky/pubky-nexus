@@ -387,6 +387,7 @@ impl KeyBasedEventProcessor {
 
             match Event::from_stream_event(&stream_event) {
                 Ok(Some(event)) => {
+                    let event = event.from_homeserver(hs_id);
                     if let Err(err) = self.handle_event(&event).await {
                         return (latest_cursor, Err(err));
                     }

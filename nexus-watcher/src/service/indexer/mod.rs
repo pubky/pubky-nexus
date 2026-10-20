@@ -153,6 +153,10 @@ pub trait TEventProcessor: Send + Sync + 'static {
                 warn!(%reason, "Unrecognized event URI");
             }
             Ok(ParseResult::Parsed(event)) => {
+                let event = match self.homeserver_id() {
+                    Some(homeserver_id) => event.from_homeserver(homeserver_id),
+                    None => event,
+                };
                 trace!(?event, "Processing event");
                 self.handle_event(&event).await?;
             }

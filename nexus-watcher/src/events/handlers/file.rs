@@ -1,4 +1,4 @@
-use crate::events::{fetch_capped, EventProcessorError};
+use crate::events::{fetch_capped, fetch_resource, EventProcessorError};
 
 use nexus_common::db::PubkyConnector;
 use nexus_common::media::FileVariant;
@@ -9,10 +9,17 @@ use std::path::Path;
 use tokio::fs::{self, remove_dir_all};
 use tracing::{debug, warn};
 
+/// Where a file event came from: the resource URI and, when known, the
+/// homeserver whose stream delivered it.
+pub struct FileOrigin<'a> {
+    pub uri: String,
+    pub homeserver: Option<&'a PubkyId>,
+}
+
 #[tracing::instrument(name = "file.put", skip_all, fields(user_id = %user_id, file_id = %file_id))]
 pub async fn sync_put(
     file: PubkyAppFile,
-    uri: String,
+    origin: FileOrigin<'_>,
     user_id: PubkyId,
     file_id: String,
     files_path: &Path,
@@ -28,11 +35,13 @@ pub async fn sync_put(
         files_path,
         max_file_size,
         ingestor,
+        origin.homeserver,
     )
     .await?;
 
     // Create FileDetails object
-    let file_details = FileDetails::from_homeserver(&file, uri, user_id.to_string(), file_id);
+    let file_details =
+        FileDetails::from_homeserver(&file, origin.uri, user_id.to_string(), file_id);
 
     // SAVE TO GRAPH
     file_details.put_to_graph().await?;
@@ -58,6 +67,7 @@ async fn ingest(
     files_path: &Path,
     max_file_size: u64,
     ingestor: &UserIngestor,
+    homeserver: Option<&PubkyId>,
 ) -> Result<(), EventProcessorError> {
     let file_src = &pubkyapp_file.src;
     let parsed_source_uri = ParsedUri::try_from(file_src.to_string()).map_err(|e| {
@@ -71,7 +81,21 @@ async fn ingest(
         .inspect_err(|e| warn!("Aborting file ingest: source {file_src}: {e}"))?;
 
     let pubky = PubkyConnector::get()?;
-    let response = pubky.public_storage().get(&pubkyapp_file.src).await?;
+    // The user's own blob comes from the homeserver that delivered the event;
+    // a source on another user's homeserver is fetched by URI as before.
+    let own_blob = parsed_source_uri.user_id == *user_id;
+    let source_path = file_src
+        .strip_prefix("pubky://")
+        .and_then(|rest| rest.strip_prefix(parsed_source_uri.user_id.as_ref()))
+        .unwrap_or("");
+    let response = fetch_resource(
+        &pubky,
+        file_src,
+        parsed_source_uri.user_id.as_ref(),
+        source_path,
+        homeserver.filter(|_| own_blob),
+    )
+    .await?;
 
     let path = Path::new(&user_id.to_string()).join(file_id);
     let full_path = files_path.join(&path);

@@ -54,6 +54,33 @@ where
 ///
 /// Returns [EventProcessorError::FetchSizeExceeded] on size violation,
 /// [EventProcessorError::ClientError] on stream failure.
+/// Fetches a user's resource. From `homeserver` when given, addressing it by its
+/// own key with the user in the `pubky-host` header, so the request goes where
+/// the event came from; the SDK's `pubky://` resolution would reuse a pooled
+/// connection to the homeserver the user was on before a switch for as long as
+/// requests keep it alive. Without a homeserver, by `pubky://` URI.
+pub(crate) async fn fetch_resource(
+    pubky: &pubky::Pubky,
+    uri: &str,
+    user_id: &str,
+    resource_path: &str,
+    homeserver: Option<&pubky_app_specs::PubkyId>,
+) -> Result<reqwest::Response, EventProcessorError> {
+    match homeserver {
+        Some(homeserver) => {
+            let url = format!("https://{homeserver}{resource_path}");
+            pubky
+                .client()
+                .request(reqwest::Method::GET, &url)
+                .header("pubky-host", user_id)
+                .send()
+                .await
+                .map_err(|e| EventProcessorError::client_error(e.to_string()))
+        }
+        None => Ok(pubky.public_storage().get(uri).await?),
+    }
+}
+
 pub(crate) async fn fetch_capped(
     resp: reqwest::Response,
     max: u64,

@@ -18,8 +18,8 @@ mod moderation;
 pub mod retry;
 
 pub(crate) use fetch::{
-    fetch_capped, format_error_body, read_stream_capped, MAX_ERROR_BODY, MAX_EVENTS_BODY,
-    MAX_RESOURCE_SIZE,
+    fetch_capped, fetch_resource, format_error_body, read_stream_capped, MAX_ERROR_BODY,
+    MAX_EVENTS_BODY, MAX_RESOURCE_SIZE,
 };
 pub use moderation::Moderation;
 
@@ -100,7 +100,14 @@ pub async fn handle_put_event(
     ingestor: Arc<UserIngestor>,
 ) -> Result<(), EventProcessorError> {
     let pubky = PubkyConnector::get()?;
-    let response = pubky.public_storage().get(&event.uri).await?;
+    let response = fetch_resource(
+        &pubky,
+        &event.uri,
+        event.parsed_uri.user_id().as_ref(),
+        event.resource_path(),
+        event.homeserver.as_ref(),
+    )
+    .await?;
 
     if !response.status().is_success() {
         let status = response.status();
@@ -178,7 +185,10 @@ pub async fn handle_put_event(
         (PubkyAppObject::File(file), Resource::File(file_id)) => {
             handlers::file::sync_put(
                 file,
-                event.uri.clone(),
+                handlers::file::FileOrigin {
+                    uri: event.uri.clone(),
+                    homeserver: event.homeserver.as_ref(),
+                },
                 user_id,
                 file_id,
                 files_path,
