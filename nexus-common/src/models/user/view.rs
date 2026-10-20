@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use super::{Relationship, SocialGraphStatus, UserCounts, UserDetails};
+use super::{users_exist, Relationship, SocialGraphStatus, UserCounts, UserDetails};
 use crate::db::RedisOps;
 use crate::models::error::{ModelError, ModelResult};
 use crate::models::tag::traits::TagCollection;
@@ -76,21 +76,29 @@ impl UserView {
         }))
     }
 
-    /// Retrieves multiple users by their IDs using batch Redis operations for better performance.
-    ///
-    /// This method uses the new `mget` operation to fetch user details and counts in bulk,
-    /// significantly improving performance when retrieving multiple users.
+    /// Retrieves multiple users by their IDs with one batched read per source.
     pub async fn get_by_ids(
         user_ids: &[String],
         viewer_id: Option<&str>,
         depth: Option<u8>,
     ) -> ModelResult<Vec<Option<Self>>> {
-        // Use mget to fetch all user details and counts in bulk. The social
+        // Details and social graph come from Redis in bulk, counts from one
+        // graph query, and the viewer is resolved once for the page. The social
         // graph lookup belongs here, batched, not in the per-user fan-out below.
-        let (details_list, counts_list, social_graph_list) = tokio::try_join!(
-            UserDetails::mget(user_ids),
-            UserCounts::mget(user_ids),
-            SocialGraphStatus::get_by_ids(user_ids),
+        let (details_list, counts_list, social_graph_list, viewer_exists) = tokio::try_join!(
+            async { UserDetails::mget(user_ids).await.map_err(ModelError::from) },
+            UserCounts::get_by_ids(user_ids),
+            async {
+                SocialGraphStatus::get_by_ids(user_ids)
+                    .await
+                    .map_err(ModelError::from)
+            },
+            async {
+                match viewer_id {
+                    Some(viewer) => users_exist(&[viewer]).await.map_err(ModelError::from),
+                    None => Ok(false),
+                }
+            },
         )?;
         // Each returns one slot per id; the positional zip below relies on it.
         debug_assert_eq!(details_list.len(), user_ids.len());
@@ -114,10 +122,14 @@ impl UserView {
                             return Ok::<_, ModelError>(None);
                         };
 
+                        // A `Some` counts slot is this row's own existence check.
+                        let relationship = match (&counts, viewer_id.as_deref()) {
+                            (Some(_), Some(viewer)) if viewer_exists => {
+                                Relationship::from_follow_sets(&user_id, viewer).await?
+                            }
+                            _ => Relationship::default(),
+                        };
                         let counts = counts.unwrap_or_default();
-                        let relationship = Relationship::get_by_id(&user_id, viewer_id.as_deref())
-                            .await?
-                            .unwrap_or_default();
 
                         // Before fetching post tags, check if the post has any tags
                         let tags = match counts.tags {

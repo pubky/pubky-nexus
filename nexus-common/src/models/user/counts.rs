@@ -1,8 +1,9 @@
 use crate::db::kv::{JsonAction, RedisResult};
-use crate::db::{fetch_row_from_graph, queries, GraphResult, RedisOps};
+use crate::db::{fetch_all_rows_from_graph, queries, RedisOps};
 use crate::models::error::ModelResult;
 use crate::models::tag::user::USER_TAGS_KEY_PARTS;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use utoipa::ToSchema;
 
 use super::{is_stub, UserStream};
@@ -30,39 +31,27 @@ pub struct UserCounts {
 impl RedisOps for UserCounts {}
 
 impl UserCounts {
-    /// Retrieves counts by user ID, first trying to get from Redis, then from Neo4j if not found.
+    /// Counts are a graph COUNT: Redis is neither read nor refilled here.
     pub async fn get_by_id(user_id: &str) -> ModelResult<Option<UserCounts>> {
-        match Self::get_from_index(user_id).await? {
-            Some(counts) => Ok(Some(counts)),
-            None => {
-                let graph_response = Self::get_from_graph(user_id).await?;
-                if let Some(user_counts) = graph_response {
-                    user_counts.put_to_index(user_id).await?;
-                    return Ok(Some(user_counts));
-                }
-                Ok(None)
-            }
-        }
+        Ok(Self::get_by_ids(&[user_id]).await?.pop().flatten())
     }
 
-    /// Retrieves the counts from Neo4j.
-    pub async fn get_from_graph(user_id: &str) -> GraphResult<Option<UserCounts>> {
-        let query = queries::get::user_counts(user_id);
-        let maybe_row = fetch_row_from_graph(query).await?;
+    /// One graph round-trip for a page of users; one slot per id, `None` for
+    /// ids with no `User` node.
+    pub async fn get_by_ids<T: AsRef<str>>(user_ids: &[T]) -> ModelResult<Vec<Option<UserCounts>>> {
+        if user_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let ids: Vec<&str> = user_ids.iter().map(AsRef::as_ref).collect();
+        let rows = fetch_all_rows_from_graph(queries::get::user_counts_by_ids(&ids)).await?;
 
-        if let Some(row) = maybe_row {
-            let user_exists: bool = row.get("exists").unwrap_or(false);
-            if user_exists {
-                match row.get("counts") {
-                    Ok(user_counts) => return Ok(Some(user_counts)),
-                    // Like this we give a chance, in the next request to populate index
-                    // If we populate the cache with default value, from that point we will have
-                    // inconsistent state
-                    Err(_e) => return Ok(None),
-                }
+        let mut by_id: HashMap<String, UserCounts> = HashMap::with_capacity(rows.len());
+        for row in rows {
+            if row.get::<bool>("exists")? {
+                by_id.insert(row.get("id")?, row.get("counts")?);
             }
         }
-        Ok(None)
+        Ok(ids.iter().map(|id| by_id.get(*id).cloned()).collect())
     }
 
     pub async fn get_from_index(user_id: &str) -> RedisResult<Option<UserCounts>> {
@@ -130,8 +119,8 @@ impl UserCounts {
         if ranked_field && !is_stub(user_id).await? {
             // Index only, never a read-through: a caller may still be mid-change in the graph
             // (an unfollow deletes its edge after this), and a graph read here would cache the
-            // pre-change counts. With no counts key there is nothing to rank yet; the next
-            // read rebuilds both from the graph.
+            // pre-change counts. With no counts key there is nothing to rank yet; reads
+            // never refill it, only `UserCounts::reindex` rebuilds the key and both ranks.
             let exist_count = Self::get_from_index(user_id).await?;
             if let Some(user_counts) = exist_count {
                 UserStream::add_to_influencers_sorted_set(user_id, &user_counts).await?;
@@ -145,7 +134,7 @@ impl UserCounts {
     }
 
     pub async fn reindex(author_id: &str) -> ModelResult<()> {
-        match Self::get_from_graph(author_id).await? {
+        match Self::get_by_id(author_id).await? {
             Some(counts) => counts.put_to_index(author_id).await?,
             None => tracing::error!("{}: Could not found user counts in the graph", author_id),
         }

@@ -8,11 +8,6 @@ use axum::{
 };
 use criterion::{criterion_group, criterion_main, Criterion};
 use http_body_util::BodyExt;
-use nexus_common::models::{
-    file::{FileDetails, FileUrls},
-    traits::Collection,
-    user::{Epoch, UserDetails},
-};
 use nexus_common::utils::test_utils::default_ingestor_tests;
 use nexus_webapi::media::test_utils::default_subprocess_tests;
 use nexus_webapi::media::MediaPermits;
@@ -50,9 +45,7 @@ impl AvatarBenchSetup {
         fs::create_dir_all(&image_dir).await.unwrap();
 
         let source_path = PathBuf::from(BLOB_PATH).join(AVATAR_BLOB_NAME);
-        let source_size = fs::copy(source_path, image_dir.join("main")).await.unwrap();
-
-        Self::seed_avatar_records(&user_id, source_size).await;
+        fs::copy(source_path, image_dir.join("main")).await.unwrap();
 
         let setup = Self {
             _temp_dir: temp_dir,
@@ -68,44 +61,6 @@ impl AvatarBenchSetup {
         let response = setup.call_avatar_handler().await.unwrap();
         std::hint::black_box(consume_avatar_response(response).await);
         setup
-    }
-
-    async fn seed_avatar_records(user_id: &PubkyId, source_size: u64) {
-        let avatar_uri = format!("pubky://{USER_PUBKY}/pub/pubky.app/files/{FILE_ID}");
-
-        let user = UserDetails {
-            name: "Avatar Bench User".to_string(),
-            bio: None,
-            id: user_id.clone(),
-            links: None,
-            status: None,
-            image: Some(avatar_uri.clone()),
-            indexed_at: 1_724_134_095_000,
-            deleted: false,
-            epoch: Epoch::V0,
-        };
-
-        UserDetails::put_to_index(&[USER_PUBKY], vec![Some(user)])
-            .await
-            .unwrap();
-
-        let file = FileDetails {
-            id: FILE_ID.to_string(),
-            uri: avatar_uri,
-            owner_id: USER_PUBKY.to_string(),
-            indexed_at: 1_724_134_095_000,
-            created_at: 1_784_134_095_000,
-            src: format!("pubky://{USER_PUBKY}/pub/pubky.app/blobs/{FILE_ID}"),
-            name: AVATAR_BLOB_NAME.to_string(),
-            size: source_size as i64,
-            content_type: "image/png".to_string(),
-            urls: FileUrls::new(USER_PUBKY, FILE_ID, "image/png"),
-            metadata: None,
-        };
-
-        FileDetails::put_to_index(&[&[USER_PUBKY, FILE_ID]], vec![Some(file)])
-            .await
-            .unwrap();
     }
 
     fn small_variant_path(&self) -> PathBuf {

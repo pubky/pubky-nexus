@@ -89,25 +89,35 @@ pub fn post_bookmark(author_id: &str, post_id: &str, viewer_id: &str) -> Query {
     .param("viewer_id", viewer_id)
 }
 
-// Check all the bookmarks that user creates
-pub fn user_bookmarks(user_id: &str) -> Query {
+// Keyset pagination on p.id (indexed).
+pub fn user_bookmarks(user_id: &str, cursor: &str, limit: i64) -> Query {
     Query::new(
         "user_bookmarks",
         "MATCH (u:User {id: $user_id})-[b:BOOKMARKED]->(p:Post)<-[:AUTHORED]-(author:User)
-         RETURN b, p.id AS post_id, author.id AS author_id",
+         WHERE p.id > $cursor
+         RETURN b, p.id AS post_id, author.id AS author_id
+         ORDER BY p.id LIMIT $limit",
     )
     .param("user_id", user_id)
+    .param("cursor", cursor)
+    .param("limit", limit)
 }
 
-// Get all the bookmarks that a post has received (used for edit/delete notifications)
-pub fn get_post_bookmarks(author_id: &str, post_id: &str) -> Query {
+// b.id collides across bookmarkers (hashes only the post uri), but BOOKMARKED is MERGEd
+// per (user, post), so bookmarker.id is unique per row and keyset pagination uses it.
+pub fn get_post_bookmarks(author_id: &str, post_id: &str, cursor: &[String], limit: i64) -> Query {
     Query::new(
         "get_post_bookmarks",
         "MATCH (bookmarker:User)-[b:BOOKMARKED]->(p:Post {id: $post_id})<-[:AUTHORED]-(author:User {id: $author_id})
-         RETURN b.id AS bookmark_id, bookmarker.id AS bookmarker_id",
+         WHERE [bookmarker.id] > $cursor AND bookmarker.id IS NOT NULL
+         RETURN b.id AS bookmark_id, bookmarker.id AS bookmarker_id, [bookmarker.id] AS cursor
+         ORDER BY bookmarker.id
+         LIMIT $limit",
     )
     .param("author_id", author_id)
     .param("post_id", post_id)
+    .param("cursor", cursor.to_vec())
+    .param("limit", limit)
 }
 
 // Read the target (post_id, author_id) for a bookmark without deleting the edge.
@@ -123,25 +133,37 @@ pub fn get_bookmark_target(user_id: &str, bookmark_id: &str) -> Query {
 }
 
 // Get all the reposts that a post has received (used for edit/delete notifications)
-pub fn get_post_reposts(author_id: &str, post_id: &str) -> Query {
+// Keyset pagination on the repost Post id (globally unique + indexed).
+pub fn get_post_reposts(author_id: &str, post_id: &str, cursor: &[String], limit: i64) -> Query {
     Query::new(
         "get_post_reposts",
         "MATCH (reposter:User)-[:AUTHORED]->(repost:Post)-[:REPOSTED]->(p:Post {id: $post_id})<-[:AUTHORED]-(author:User {id: $author_id})
-         RETURN reposter.id AS reposter_id, repost.uri AS repost_uri",
+         WHERE [repost.id] > $cursor AND repost.id IS NOT NULL
+         RETURN reposter.id AS reposter_id, repost.uri AS repost_uri, [repost.id] AS cursor
+         ORDER BY repost.id
+         LIMIT $limit",
     )
     .param("author_id", author_id)
     .param("post_id", post_id)
+    .param("cursor", cursor.to_vec())
+    .param("limit", limit)
 }
 
 // Get all the replies that a post has received (used for edit/delete notifications)
-pub fn get_post_replies(author_id: &str, post_id: &str) -> Query {
+// Keyset pagination on the reply Post id (globally unique + indexed).
+pub fn get_post_replies(author_id: &str, post_id: &str, cursor: &[String], limit: i64) -> Query {
     Query::new(
         "get_post_replies",
         "MATCH (replier:User)-[:AUTHORED]->(reply:Post)-[:REPLIED]->(p:Post {id: $post_id})<-[:AUTHORED]-(author:User {id: $author_id})
-         RETURN replier.id AS replier_id, reply.uri AS reply_uri",
+         WHERE [reply.id] > $cursor AND reply.id IS NOT NULL
+         RETURN replier.id AS replier_id, reply.uri AS reply_uri, [reply.id] AS cursor
+         ORDER BY reply.id
+         LIMIT $limit",
     )
     .param("author_id", author_id)
     .param("post_id", post_id)
+    .param("cursor", cursor.to_vec())
+    .param("limit", limit)
 }
 
 // Read the target details for a tag without deleting the TAGGED edge.
@@ -176,17 +198,27 @@ pub fn get_tag_target(user_id: &str, tag_id: &str, app: Option<&str>) -> Query {
     query
 }
 
-// Get all the tags/taggers that a post has received (used for edit/delete notifications)
-pub fn get_post_tags(author_id: &str, post_id: &str) -> Query {
+// t.id collides across taggers (hashes only {target_uri, label}), so the keyset is the row value
+// [tagger.id, t.id]: TAGGED is MERGEd per (tagger, post, label) and t.id maps 1:1 to label within
+// a post, which makes the pair unique per row.
+// Cursor columns are guarded IS NOT NULL: `['a', null] > []` is true, so a null column would come
+// back and fail to deserialize into the cursor, aborting the scan. create_post_tag always sets
+// t.id, so the guard only ever excludes corrupt edges.
+pub fn get_post_tags(author_id: &str, post_id: &str, cursor: &[String], limit: i64) -> Query {
     Query::new(
         "get_post_tags",
         "MATCH (p:Post {id: $post_id})
          WHERE EXISTS { (:User {id: $author_id})-[:AUTHORED]->(p) }
          MATCH (tagger:User)-[t:TAGGED]->(p)
-         RETURN tagger.id AS tagger_id, t.uri AS tag_uri",
+         WHERE [tagger.id, t.id] > $cursor AND tagger.id IS NOT NULL AND t.id IS NOT NULL
+         RETURN tagger.id AS tagger_id, t.uri AS tag_uri, [tagger.id, t.id] AS cursor
+         ORDER BY tagger.id, t.id
+         LIMIT $limit",
     )
     .param("author_id", author_id)
     .param("post_id", post_id)
+    .param("cursor", cursor.to_vec())
+    .param("limit", limit)
 }
 
 pub fn post_relationships(author_id: &str, post_id: &str) -> Query {
@@ -562,62 +594,98 @@ pub fn viewer_user_tag_uris(user_id: &str, viewer_id: &str, labels: Vec<String>)
     .param("labels", labels)
 }
 
-/// The viewer's tag addresses (`t.uri`) on a Resource node, for the given labels.
-/// Resource edges are keyed `{label, app}`, so a label tagged from two apps has two
-/// addresses: `min` picks the same one as `resource_tags`.
-pub fn viewer_resource_tag_uris(resource_id: &str, viewer_id: &str, labels: Vec<String>) -> Query {
+/// A Resource node's details and a page of its tags, in one read. Labels are
+/// ordered by tagger count, then label, and paginated with `skip_tags`/`limit_tags`.
+/// Each label carries its full `taggers_count`, at most `limit_taggers` tagger ids,
+/// and `tag_uri`, the viewer's tag address, looked up among all of its taggers, not
+/// only the listed ones; null without a viewer. With one edge per app, `min` picks
+/// the same address as `resource_label_taggers`. A missing Resource returns
+/// `details = null`; an existing one without tags returns `tags = []`.
+pub fn resource_view(
+    resource_id: &str,
+    viewer_id: Option<&str>,
+    skip_tags: usize,
+    limit_tags: usize,
+    limit_taggers: usize,
+) -> Query {
     Query::new(
-        "viewer_resource_tag_uris",
-        "
-        MATCH (:User {id: $viewer_id})-[t:TAGGED]->(:Resource {id: $resource_id})
-        WHERE t.label IN $labels AND t.uri IS NOT NULL
-        RETURN t.label AS label, min(t.uri) AS uri
-    ",
-    )
-    .param("resource_id", resource_id)
-    .param("viewer_id", viewer_id)
-    .param("labels", labels)
-}
-
-/// Retrieve Resource node details by ID
-pub fn get_resource_by_id(resource_id: &str) -> Query {
-    Query::new(
-        "get_resource_by_id",
-        "
-        MATCH (r:Resource {id: $resource_id})
-        RETURN r.id AS id, r.uri AS uri, r.scheme AS scheme, r.indexed_at AS indexed_at
-    ",
-    )
-    .param("resource_id", resource_id)
-}
-
-/// Retrieve all tags on a Resource node.
-/// `tag_uri` is the viewer's tag address per label, null without a viewer. With one
-/// edge per app, `min` picks the same address as `viewer_resource_tag_uris`.
-pub fn resource_tags(resource_id: &str, viewer_id: Option<&str>) -> Query {
-    Query::new(
-        "resource_tags",
+        "resource_view",
         "
         OPTIONAL MATCH (r:Resource {id: $resource_id})
+        OPTIONAL MATCH (viewer:User {id: $viewer_id})
         CALL {
-            WITH r
+            WITH r, viewer
             MATCH (tagger:User)-[tag:TAGGED]->(r)
-            WITH tag.label AS name, collect(DISTINCT tagger.id) AS tagger_ids,
-                 min(CASE WHEN tagger.id = $viewer_id THEN tag.uri END) AS viewer_uri
+            // Collect nodes, not ids: only the listed taggers' ids are read,
+            // and the viewer's edges are found by comparing nodes
+            WITH tag.label AS name, collect(DISTINCT tagger) AS taggers,
+                 min(CASE WHEN tagger = viewer THEN tag.uri END) AS viewer_uri
+            WITH name, taggers, viewer_uri, SIZE(taggers) AS taggers_count
+            ORDER BY taggers_count DESC, name ASC
+            SKIP $skip_tags
+            LIMIT $limit_tags
             RETURN collect({
                 label: name,
-                taggers: tagger_ids,
-                taggers_count: SIZE(tagger_ids),
+                taggers: [tagger IN taggers[0..$limit_taggers] | tagger.id],
+                taggers_count: taggers_count,
                 tag_uri: viewer_uri
             }) AS tags
         }
-        RETURN
-            r IS NOT NULL AS exists,
-            tags
+        RETURN r {.id, .uri, .scheme, .indexed_at} AS details, tags
     ",
     )
     .param("resource_id", resource_id)
     .param("viewer_id", viewer_id.map(str::to_string))
+    .param("skip_tags", skip_tags as i64)
+    .param("limit_tags", limit_tags as i64)
+    .param("limit_taggers", limit_taggers as i64)
+}
+
+/// Taggers of `label` on a Resource node, sorted by user id and paged with
+/// `skip`/`limit`. A user who tagged the label from two apps is listed once.
+/// `tag_uri` is the viewer's tag address on the label, null without a viewer or
+/// their tag; with one edge per app, `min` picks the same address as
+/// `resource_view`. A missing Resource has no taggers.
+///
+/// The index hint makes both matches start from the Resource, so the cost follows
+/// the resource's own tags. Left to itself, the planner can seek every TAGGED edge
+/// with the label through `taggedLabelIndex`, across posts and users too.
+pub fn resource_label_taggers(
+    resource_id: &str,
+    label: &str,
+    viewer_id: Option<&str>,
+    skip: usize,
+    limit: usize,
+) -> Query {
+    Query::new(
+        "resource_label_taggers",
+        "
+        OPTIONAL MATCH (viewer:User {id: $viewer_id})
+        CALL {
+            MATCH (tagger:User)-[tag:TAGGED]->(r:Resource {id: $resource_id})
+            USING INDEX r:Resource(id)
+            WHERE tag.label = $label
+            WITH DISTINCT tagger.id AS tagger_id
+            ORDER BY tagger_id
+            SKIP $skip
+            LIMIT $limit
+            RETURN collect(tagger_id) AS taggers
+        }
+        CALL {
+            WITH viewer
+            OPTIONAL MATCH (viewer)-[tag:TAGGED]->(r:Resource {id: $resource_id})
+            USING INDEX r:Resource(id)
+            WHERE tag.label = $label
+            RETURN min(tag.uri) AS tag_uri
+        }
+        RETURN taggers, tag_uri
+    ",
+    )
+    .param("resource_id", resource_id)
+    .param("label", label)
+    .param("viewer_id", viewer_id.map(str::to_string))
+    .param("skip", skip as i64)
+    .param("limit", limit as i64)
 }
 
 /// Query a stream of Resources with optional app and tag filters.
@@ -943,7 +1011,7 @@ pub fn get_viewer_trusted_network_post_tags(
 }
 
 /// Per-user count fields, as `(alias, COUNT {} subquery)` pairs bound to the
-/// node variable `u`. Single source of truth shared by [`user_counts`] (map
+/// node variable `u`. Single source of truth shared by [`user_counts_by_ids`] (map
 /// form) and the trust report (column form), so their filters — especially the
 /// collection/bookmark rules — can't drift between the two queries.
 const USER_COUNT_FIELDS: &[(&str, &str)] = &[
@@ -997,20 +1065,38 @@ pub fn user_count_fields_columns() -> String {
         .join(", ")
 }
 
-pub fn user_counts(user_id: &str) -> Query {
+/// One row per distinct id, in no guaranteed order: `exists` is false for ids
+/// with no `User` node and `counts` holds every [`USER_COUNT_FIELDS`] entry.
+pub fn user_counts_by_ids(user_ids: &[&str]) -> Query {
     // Each field is an independent COUNT { } subquery off the single (u) row.
     // Do NOT precede this with a row-multiplying OPTIONAL MATCH (e.g. over
     // received tags): that makes every subquery a per-row grouping key, so the
     // whole block runs once per received tag, i.e. O(received_tags x authored_posts)
-    // and hangs on heavy users. See issue #935.
+    // and hangs on heavy users. See issue #935. A repeated id multiplies rows the
+    // same way, so DISTINCT drops the copies before any subquery runs.
     let cypher = format!(
-        "MATCH (u:User {{id: $user_id}})
+        "UNWIND $user_ids AS id
+         WITH DISTINCT id
+         OPTIONAL MATCH (u:User {{id: id}})
          RETURN
+             id,
              u IS NOT NULL AS exists,
              {{ {fields} }} AS counts;",
         fields = user_count_fields_map()
     );
-    Query::new("user_counts", cypher).param("user_id", user_id)
+    Query::new("user_counts_by_ids", cypher).param("user_ids", user_ids)
+}
+
+/// `all_exist` is true only when every id has a `User` node. No DISTINCT here:
+/// `SIZE($user_ids)` counts every copy, so a self-relationship's `[a, a]` would fail.
+pub fn users_exist(user_ids: &[&str]) -> Query {
+    Query::new(
+        "users_exist",
+        "UNWIND $user_ids AS id
+         OPTIONAL MATCH (u:User {id: id})
+         RETURN COUNT(u) = SIZE($user_ids) AS all_exist",
+    )
+    .param("user_ids", user_ids)
 }
 
 // These queries aggregate into a single row, so SKIP/LIMIT cannot paginate the
@@ -1932,6 +2018,15 @@ pub fn get_tag_by_tagger_and_id(tagger_id: &str, tag_id: &str) -> Query {
     )
     .param("tagger_id", tagger_id)
     .param("tag_id", tag_id)
+}
+
+/// Whether the moderator took down an address; the `:Takedown(uri)` constraint indexes it.
+pub fn is_taken_down(uri: &str) -> Query {
+    Query::new(
+        "is_taken_down",
+        "RETURN EXISTS { MATCH (:Takedown {uri: $uri}) } AS taken_down",
+    )
+    .param("uri", uri.to_string())
 }
 
 #[cfg(test)]

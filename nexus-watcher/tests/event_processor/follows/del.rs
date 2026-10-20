@@ -153,12 +153,12 @@ async fn test_homeserver_unfollow_with_missing_counts_key() -> Result<()> {
     test.del(&follower_kp, &follow_url).await?;
 
     assert!(!find_follow_relationship(&follower_id, &followee_id).await?);
-    let counts = UserCounts::get_by_id(&followee_id)
+    let followers = UserCounts::get_from_index(&followee_id)
         .await?
-        .expect("followee counts should be readable");
-    assert_eq!(
-        counts.followers, 0,
-        "a stale pre-delete follower count was cached"
+        .map(|counts| counts.followers);
+    assert!(
+        matches!(followers, None | Some(0)),
+        "a stale pre-delete follower count was cached: {followers:?}"
     );
 
     test.cleanup_user(&follower_kp).await?;

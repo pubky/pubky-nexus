@@ -5,6 +5,7 @@ pub use event::{Event, EventType, ParseResult};
 
 use crate::errors::EventProcessorError;
 use crate::service::indexer::METER_NAME;
+use nexus_common::models::takedown::is_taken_down;
 use nexus_common::WatcherConfig;
 use opentelemetry::{global, metrics::Counter};
 use pubky_app_specs::{ExtendedParsedUri, PubkyAppObject, Resource};
@@ -22,6 +23,14 @@ static OUT_OF_SCOPE: LazyLock<Counter<u64>> = LazyLock::new(|| {
     global::meter(METER_NAME)
         .u64_counter("watcher.events.out_of_scope")
         .with_description("Events skipped because their author is outside the scope")
+        .build()
+});
+
+/// Counter for events skipped because the moderator took their record down.
+static TAKEN_DOWN: LazyLock<Counter<u64>> = LazyLock::new(|| {
+    global::meter(METER_NAME)
+        .u64_counter("watcher.events.taken_down")
+        .with_description("Events skipped because the moderator took their record down")
         .build()
 });
 
@@ -121,6 +130,14 @@ pub async fn handle_put_event(
     moderation: Arc<Moderation>,
     ingestor: Arc<UserIngestor>,
 ) -> Result<(), EventProcessorError> {
+    // Whatever order events arrive in, a record the moderator took down stays down. A
+    // copy left behind by an earlier attempt whose removal failed is removed here too.
+    if remove_if_taken_down(&event.uri, files_path, &ingestor).await? {
+        TAKEN_DOWN.add(1, &[]);
+        debug!(event.uri = %event.uri, "Record was taken down by the moderator; skipping event");
+        return Ok(());
+    }
+
     let pubky = PubkyConnector::get()?;
     let response = pubky.public_storage().get(&event.uri).await?;
 
@@ -170,7 +187,7 @@ pub async fn handle_put_event(
         (PubkyAppObject::Tag(tag), Resource::Tag(tag_id)) => {
             if moderation.should_delete(&tag, &user_id) {
                 moderation
-                    .apply_moderation(tag, files_path, &ingestor)
+                    .apply_moderation(tag, &event.uri, files_path, &ingestor)
                     .await?
             } else {
                 // Route universal tag events (non-pubky.app apps) to sync_put_resource
@@ -211,7 +228,33 @@ pub async fn handle_put_event(
         }
         other => debug!(?other, "Event type not handled"),
     }
+
+    // Checked again once written: see `remove_if_taken_down`.
+    remove_if_taken_down(&event.uri, files_path, &ingestor).await?;
     Ok(())
+}
+
+/// Removes the record at `uri` if the moderator took it down, and returns whether it did.
+///
+/// Run before a record is fetched and again once it is written. The moderator's tag may
+/// have been read by another loop (primary, external, retry) while the record was being
+/// fetched, and found nothing to delete yet: if the takedown is recorded by the second
+/// check, the record is removed there; if later, the moderator's own delete runs after
+/// the write and removes it. A removal that failed is finished on the event's retry, by
+/// the first check. Removing what is already gone does nothing.
+pub async fn remove_if_taken_down(
+    uri: &str,
+    files_path: &Path,
+    ingestor: &UserIngestor,
+) -> Result<bool, EventProcessorError> {
+    if !is_taken_down(uri).await? {
+        return Ok(false);
+    }
+    // Boxed: the delete handlers' futures would otherwise nest inside every PUT's.
+    match Box::pin(Moderation::remove_taken_down(uri, files_path, ingestor)).await {
+        Ok(()) | Err(EventProcessorError::SkipIndexing) => Ok(true),
+        Err(e) => Err(e),
+    }
 }
 
 /// Handles a DEL event by dispatching to the appropriate handler.

@@ -214,7 +214,7 @@ async fn test_large_network_scenario_counts() -> Result<()> {
             .await
             .unwrap()
             .expect("Counts not found in index");
-        let counts_graph = UserCounts::get_from_graph(user_id)
+        let counts_graph = UserCounts::get_by_id(user_id)
             .await
             .unwrap()
             .expect("Counts not found in graph");
