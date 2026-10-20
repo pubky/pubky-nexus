@@ -14,8 +14,8 @@ use deadpool_redis::redis::{self, AsyncCommands, Script};
 use tokio::sync::Mutex as AsyncMutex;
 
 use crate::db::kv::{RedisError, RedisResult};
-use crate::db::{exec_single_row, fetch_key_from_graph, get_redis_conn, queries, RedisOps};
-use crate::models::error::ModelResult;
+use crate::db::{fetch_key_from_graph, fetch_row_from_graph, get_redis_conn, queries, RedisOps};
+use crate::models::error::{ModelError, ModelResult};
 use crate::models::user::{UserCounts, UserDetails};
 
 /// `scope_state` of a user known to this Nexus but outside its scope.
@@ -94,13 +94,28 @@ async fn write_entry(user_id: &str, stub: bool) -> RedisResult<bool> {
 /// without its state for the HS resolver to bind. Redis is written first, so a failure
 /// leaves no node and the retry ingests the user from scratch; and again after the
 /// graph write, which also makes a rebuild that read the graph before it read again.
+///
+/// A node another caller created first is left as they made it: the watcher and the
+/// API can both meet an unknown user, and only the watcher keeps the moderator in
+/// scope. Its entry stays only if that node is a stub too.
 pub async fn create_stub(details: &UserDetails) -> ModelResult<()> {
     let user_id = details.id.to_string();
     write_entry(&user_id, true).await?;
+    let row = fetch_row_from_graph(queries::put::create_stub_user(details)?)
+        .await?
+        .ok_or_else(|| ModelError::from_generic("creating a stub returned no row"))?;
+    let created: bool = row.get("created")?;
+    let scope_state: Option<String> = row.get("scope_state")?;
+    if !created {
+        if scope_state.as_deref() != Some(SCOPE_STATE_STUB) {
+            drop_stub_entry(&user_id).await?;
+        }
+        return Ok(());
+    }
+    // After the node: zeroed counts would overwrite those of a node created first.
     UserCounts::default()
         .put_index_json(&[&user_id], None, None)
         .await?;
-    exec_single_row(queries::put::create_stub_user(details)?).await?;
     write_entry(&user_id, true).await?;
     Ok(())
 }
@@ -261,6 +276,47 @@ mod tests {
         super::rebuild_stub_index().await?;
 
         assert!(after_loss?, "rebuilt from the graph, not read as empty");
+        Ok(())
+    }
+
+    /// A stub written for a user another caller created first, in scope (the watcher's
+    /// moderator, met by the API at the same time), leaves that user as it was.
+    #[tokio_shared_rt::test(shared)]
+    async fn a_stub_write_leaves_a_user_created_first_in_scope() -> Result<(), DynError> {
+        use crate::models::traits::Collection;
+
+        StackManager::setup(&StackConfig::default()).await?;
+        let user_id = pubky::Keypair::random().public_key().to_z32();
+        let pubky_id = pubky_app_specs::PubkyId::try_from(user_id.as_str())?;
+        let mut member = crate::models::user::UserDetails::from_pubky(pubky_id.clone());
+        member.name = "Moderator".to_string();
+        member.put_to_graph().await?;
+
+        let stubbed =
+            super::create_stub(&crate::models::user::UserDetails::from_pubky(pubky_id)).await;
+        let details = crate::models::user::UserDetails::get_by_id(&user_id).await;
+        let state = crate::db::fetch_key_from_graph::<Option<String>>(
+            queries::get::get_user_scope_state(&user_id),
+            "scope_state",
+        )
+        .await;
+        let stub = super::is_stub(&user_id).await;
+
+        let delete = Query::new(
+            "test_delete_member",
+            "MATCH (u:User {id: $id}) DETACH DELETE u",
+        )
+        .param("id", user_id.clone());
+        exec_single_row(delete).await?;
+
+        stubbed?;
+        assert_eq!(state?.flatten(), None, "still in scope in the graph");
+        assert!(!stub?, "and in Redis");
+        assert_eq!(
+            details?.map(|d| d.name).as_deref(),
+            Some("Moderator"),
+            "profile kept"
+        );
         Ok(())
     }
 
