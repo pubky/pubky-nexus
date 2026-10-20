@@ -3,9 +3,10 @@ use std::sync::Arc;
 
 use crate::errors::EventProcessorError;
 use crate::events::handlers;
+use nexus_common::models::takedown::record_takedown;
 use nexus_common::models::user::UserIngestor;
 use nexus_common::WatcherConfig;
-use pubky_app_specs::{ParsedUri, PubkyAppTag, PubkyId, Resource};
+use pubky_app_specs::{ExtendedParsedUri, ParsedUri, PubkyAppTag, PubkyId, Resource};
 use tracing::info;
 
 pub struct Moderation {
@@ -35,48 +36,71 @@ impl Moderation {
     ///
     /// Parses the embedded URI in the moderator tag and removes the corresponding
     /// resource (tag, user, or file). Posts are hard-deleted when edge-free or
-    /// tombstoned when engagement edges remain.
+    /// tombstoned when engagement edges remain. `tag_uri` is the moderator tag's own
+    /// address, kept with the takedown.
     #[tracing::instrument(name = "moderation.apply", skip_all)]
     pub async fn apply_moderation(
         &self,
         moderator_tag: PubkyAppTag,
+        tag_uri: &str,
         files_path: &Path,
         ingestor: &UserIngestor,
     ) -> Result<(), EventProcessorError> {
         let lahel = moderator_tag.label;
         let moderated_uri = &moderator_tag.uri;
 
-        // ParsedUri does not handle app-specific tag storage paths (Universal Tags), so they must be intercepted first.
-        if handlers::tag::is_tag_storage_uri(&moderator_tag.uri) {
-            info!("Moderation tag '{lahel}' detected. Deleting moderated tag {moderated_uri}",);
-            return handlers::tag::del(moderated_uri).await;
+        // A profile is not remembered: its address is the user's, and a moderated user may
+        // come back by writing a new profile.
+        if !handlers::tag::is_tag_storage_uri(moderated_uri) {
+            let parsed_uri = ParsedUri::try_from(moderated_uri.as_str())
+                .map_err(EventProcessorError::generic)?;
+            match parsed_uri.resource {
+                Resource::User => {
+                    let user_id = parsed_uri.user_id;
+                    info!("Moderation tag '{lahel}' detected. Deleting user profile {user_id}");
+                    return handlers::user::del(user_id).await;
+                }
+                Resource::Post(_) | Resource::Tag(_) | Resource::File(_) => {}
+                _ => return Ok(()),
+            }
         }
 
-        // Parse the embeded URI to extract author_id and post_id using parse_tagged_post_uri
-        let parsed_uri = ParsedUri::try_from(moderator_tag.uri.as_str())
+        // Recorded under the address an event for it carries: the tag's URI may spell it
+        // differently (a trailing slash, a query) and still name the same record.
+        let uri = ExtendedParsedUri::try_from(moderated_uri.as_str())
+            .and_then(|parsed| parsed.try_to_uri_str())
             .map_err(EventProcessorError::generic)?;
-        let user_id = parsed_uri.user_id;
 
-        match parsed_uri.resource {
-            Resource::Post(post_id) => {
-                info!("Moderation tag '{lahel}' detected. Deleting post {user_id}:{post_id}");
-                // Same gate as user-issued DEL events: hard-delete when edge-free, tombstone
-                // when any engagement edge remains (tags, bookmarks, replies, reposts, mentions).
-                handlers::post::del(user_id, post_id, ingestor).await
+        // Posts, tags and files are remembered before they are deleted, so they stay down
+        // even if their own event is read only later, or again, or is being written right
+        // now by another loop (see `handle_put_event`): each has an address of its own.
+        info!("Moderation tag '{lahel}' detected. Taking down {uri}");
+        record_takedown(&uri, tag_uri).await?;
+        Self::remove_taken_down(&uri, files_path, ingestor).await
+    }
+
+    /// Deletes the post, tag or file at `uri`, which the moderator took down. Posts are
+    /// hard-deleted when edge-free or tombstoned when engagement edges remain, as for a
+    /// user's own DEL event. Deleting what isn't indexed reports
+    /// [`EventProcessorError::SkipIndexing`], as a user's DEL does.
+    pub(crate) async fn remove_taken_down(
+        uri: &str,
+        files_path: &Path,
+        ingestor: &UserIngestor,
+    ) -> Result<(), EventProcessorError> {
+        // ParsedUri does not handle app-specific tag storage paths (Universal Tags), so they
+        // must be intercepted first.
+        if handlers::tag::is_tag_storage_uri(uri) {
+            handlers::tag::del(uri).await
+        } else {
+            let parsed_uri = ParsedUri::try_from(uri).map_err(EventProcessorError::generic)?;
+            let user_id = parsed_uri.user_id;
+            match parsed_uri.resource {
+                Resource::Post(post_id) => handlers::post::del(user_id, post_id, ingestor).await,
+                Resource::Tag(_) => handlers::tag::del(uri).await,
+                Resource::File(file_id) => handlers::file::del(&user_id, file_id, files_path).await,
+                _ => Ok(()),
             }
-            Resource::Tag(tag_id) => {
-                info!("Moderation tag '{lahel}' detected. Deleting tag {user_id}:{tag_id}");
-                handlers::tag::del(&moderator_tag.uri).await
-            }
-            Resource::User => {
-                info!("Moderation tag '{lahel}' detected. Deleting user profile {user_id}");
-                handlers::user::del(user_id).await
-            }
-            Resource::File(file_id) => {
-                info!("Moderation tag '{lahel}' detected. Deleting file {user_id}:{file_id}");
-                handlers::file::del(&user_id, file_id, files_path).await
-            }
-            _ => Ok(()),
         }
     }
 }
