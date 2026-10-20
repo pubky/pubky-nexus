@@ -151,7 +151,7 @@ async fn sync_put_details(
                 // Collection -> Short flip would then read Short on both sides, skip
                 // this, and leave the old edges in the graph for good.
                 if was_collection || is_collection {
-                    let items = curated_items(&author_id, &post_id, &post_details);
+                    let items = post.collected_posts();
                     sync_collected_edges(&author_id, &post_id, &items, Some(&post_details)).await?;
                 }
                 if existing_details.is_different_than(&post_details) || kind_changed {
@@ -226,7 +226,7 @@ async fn sync_put_details(
 
     ingest_collection_item_authors(&post, ingestor).await;
     if is_collection {
-        let items = curated_items(&author_id, &post_id, &post_details);
+        let items = post.collected_posts();
         sync_collected_edges(&author_id, &post_id, &items, Some(&post_details)).await?;
     }
 
@@ -430,7 +430,7 @@ async fn recover_post_index_state(
     merge_mention_edges(author_id, post_id, &post_details.content).await?;
 
     // Same for COLLECTED edges; a non-collection also clears edges left by a kind flip.
-    let items = curated_items(author_id, post_id, &post_details);
+    let items = stored_curated_items(author_id, post_id, &post_details);
     sync_collected_edges(author_id, post_id, &items, Some(&post_details)).await?;
 
     // Reindex all Redis state from graph truth.
@@ -605,10 +605,13 @@ async fn merge_mention_edges(
     Ok(())
 }
 
-/// The post keys a Collection curates; none for any other kind.
-// TODO(specs-migration): the collected edges still parse the stored content with the v0
-// reader; decide how collection items are stored and read before the `social/v1` translator.
-fn curated_items(
+/// The post keys a stored Collection curates, parsed from its content; none for any other kind.
+///
+/// Recovery only: it has no input, so it reads the envelope the graph holds, which may have been
+/// written under an older spec. A PUT takes its items from [`PostInput::collected_posts`].
+// TODO(specs-migration): the stored envelope is read with the v0 reader; a `social/v1`
+// collection's items need their own read path before N3.
+fn stored_curated_items(
     author_id: &PubkyId,
     post_id: &str,
     post_details: &PostDetails,
@@ -616,8 +619,6 @@ fn curated_items(
     if post_details.kind != PubkyAppPostKind::Collection {
         return Vec::new();
     }
-    // PUTs are spec-validated, but recovery reads the graph, which may hold an
-    // envelope written under an older spec.
     collection_item_keys(&post_details.content)
         .inspect_err(|e| tracing::warn!("Collection {author_id}:{post_id} envelope malformed: {e}"))
         .unwrap_or_default()
