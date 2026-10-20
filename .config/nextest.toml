@@ -8,13 +8,15 @@
 # each preview is a contiguous window of it, so a reseed landing mid-read breaks it too.
 # test_global_influencers_rejects_skip_past_cache asserts an all-time page past 100 is
 # full, which a delete landing between the read's EXISTS and ZREVRANGEBYSCORE empties.
-# Put all five in a test group limited to one concurrent test.
+# test_homeserver_put_tag_user_another asserts the watcher leaves two new users out of
+# that set, which the rebuild after a delete would add.
+# Put all six in a test group limited to one concurrent test.
 
 [test-groups]
 influencers-sorted-set = { max-threads = 1 }
 
 [[profile.default.overrides]]
-filter = 'test(=stream::user::influencers::test_global_influencers) | test(=stream::user::influencers::test_global_influencers_skip_limit) | test(=stream::user::influencers::test_global_influencers_alltime_cache_recovery) | test(=stream::user::influencers::test_global_influencers_preview) | test(=stream::user::influencers::test_global_influencers_rejects_skip_past_cache)'
+filter = 'test(=stream::user::influencers::test_global_influencers) | test(=stream::user::influencers::test_global_influencers_skip_limit) | test(=stream::user::influencers::test_global_influencers_alltime_cache_recovery) | test(=stream::user::influencers::test_global_influencers_preview) | test(=stream::user::influencers::test_global_influencers_rejects_skip_past_cache) | test(=event_processor::tags::user_to_user_put::test_homeserver_put_tag_user_another)'
 test-group = 'influencers-sorted-set'
 
 # These tests change the shared trust ranking (Sorted:Users:SocialGraph) and the
