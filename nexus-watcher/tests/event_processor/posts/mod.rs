@@ -25,7 +25,6 @@ mod fail_reply;
 mod fail_repost;
 mod fail_user;
 mod idempotent;
-mod influencer;
 mod lock;
 mod moderated;
 mod raw;

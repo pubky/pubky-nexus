@@ -2,7 +2,7 @@ use super::utils::find_post_details;
 use super::utils::{
     check_member_global_timeline_user_post, check_member_user_post_timeline, find_post_counts,
 };
-use crate::event_processor::users::utils::{check_member_user_influencer, find_user_counts};
+use crate::event_processor::users::utils::find_user_counts;
 use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
 use nexus_common::models::event::EventLine;
@@ -85,11 +85,6 @@ async fn test_homeserver_put_post_event() -> Result<()> {
         .unwrap();
     assert!(post_timeline.is_some());
     assert_eq!(post_timeline.unwrap(), post_details.indexed_at as isize);
-
-    // Has influencer score. Sorted:Users:Influencers
-    let influencer_score = check_member_user_influencer(&user_id).await.unwrap();
-    assert!(influencer_score.is_some());
-    assert_eq!(influencer_score.unwrap(), 0);
 
     let exist_count = find_user_counts(&user_id).await;
     assert_eq!(exist_count.posts, 1);

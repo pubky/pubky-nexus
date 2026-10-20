@@ -13,6 +13,9 @@
 //! 'num-test-threads'` so it never overlaps with any other test in the run.
 //! The cache is rebuilt with `reindex::sync()` before returning so a local
 //! run leaves the mock data in place for whatever runs next.
+//!
+//! The binary also runs the AllTime influencers job against the live ranking,
+//! which needs the same exclusivity: no reader of that set may run while it does.
 
 use std::collections::BTreeSet;
 
@@ -20,8 +23,12 @@ use anyhow::{Context, Result};
 use nexus_common::db::{get_redis_conn, kv::clear_redis, reindex, RedisOps};
 use nexus_common::models::post::trust_filter::APPLIED_KEY_PARTS;
 use nexus_common::models::post::PostDetails;
-use nexus_common::models::user::USER_SOCIAL_GRAPH_KEY_PARTS;
+use nexus_common::models::user::{
+    GLOBAL_INFLUENCERS_CACHE_SIZE, USER_INFLUENCERS_KEY_PARTS, USER_SOCIAL_GRAPH_KEY_PARTS,
+};
+use nexus_common::types::Timeframe;
 use nexus_common::{FeaturesConfig, StackConfig, StackManager};
+use nexusd::jobs::{InfluencersCacheJob, Job};
 use redis::Value;
 
 const POST_CONTENT_INDEX: &str = "postContentIdx";
@@ -119,6 +126,59 @@ async fn clear_redis_recreates_post_content_index() -> Result<()> {
         .await?;
     assert!(!ranking.is_empty(), "reindex::sync published no ranking");
     assert_eq!(applied, ranking, "reindex::sync should apply the ranking");
+    // Nothing else writes the AllTime influencers ranking, and no request has
+    // run since the flush, so only the reindex can have built it.
+    let influencers: usize = redis::cmd("ZCARD")
+        .arg(sorted_key(&USER_INFLUENCERS_KEY_PARTS))
+        .query_async(&mut conn)
+        .await?;
+    assert!(
+        influencers > GLOBAL_INFLUENCERS_CACHE_SIZE,
+        "reindex::sync should build the whole AllTime influencers ranking, got {influencers}"
+    );
+
+    Ok(())
+}
+
+/// The job is the AllTime influencers ranking's only scheduled writer, and the key
+/// has no TTL, so a job that stopped refreshing would freeze the ranking for good.
+#[tokio_shared_rt::test(shared)]
+async fn influencers_all_time_job_rebuilds_the_ranking() -> Result<()> {
+    StackManager::setup(&StackConfig::default())
+        .await
+        .map_err(|e| anyhow::anyhow!("could not initialise the stack: {e:?}"))?;
+    let key = format!("Sorted:{}", USER_INFLUENCERS_KEY_PARTS.join(":"));
+    let planted = "notinthegraphnotinthegraphnotinthegraphnotinthegraph";
+    let mut conn = get_redis_conn().await?;
+    let _: () = redis::cmd("ZADD")
+        .arg(&key)
+        .arg(1e9)
+        .arg(planted)
+        .query_async(&mut conn)
+        .await?;
+
+    let ran = InfluencersCacheJob::new(Timeframe::AllTime).run().await;
+    let (score, members): (Option<f64>, usize) = redis::pipe()
+        .zscore(&key, planted)
+        .zcard(&key)
+        .query_async(&mut conn)
+        .await?;
+    // Remove the planted member before asserting, so a failure cannot leave it ranked.
+    let _: () = redis::cmd("ZREM")
+        .arg(&key)
+        .arg(planted)
+        .query_async(&mut conn)
+        .await?;
+
+    ran.map_err(|e| anyhow::anyhow!("the all-time influencers job failed: {e}"))?;
+    assert_eq!(
+        score, None,
+        "the job must drop a member the graph does not have"
+    );
+    assert!(
+        members > GLOBAL_INFLUENCERS_CACHE_SIZE,
+        "the job must rebuild the whole ranking, got {members} members"
+    );
 
     Ok(())
 }

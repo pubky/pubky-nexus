@@ -4,6 +4,7 @@ use crate::db::kv::SortOrder;
 use crate::models::post::{KindFilter, StreamSource};
 use crate::models::resource::stream::ResourceSorting;
 use crate::types::routes::HotTagsInputDTO;
+use crate::types::CacheTimeframe;
 use crate::types::DomainTrust;
 use crate::types::Pagination;
 use crate::types::StreamReach;
@@ -970,18 +971,24 @@ pub fn get_viewer_trusted_network_post_tags(
         .param("limit_taggers", limit_taggers as i64)
 }
 
+// The counts the all-time influencer score is built from, so it can't drift from `UserCounts`.
+const FOLLOWERS_COUNT: &str = "COUNT { (:User)-[:FOLLOWS]->(u) }";
+const POSTS_COUNT: &str = "COUNT { (u)-[:AUTHORED]->(:Post) }";
+// tagged = tags this user assigned to users + to posts
+const TAGGED_COUNT: &str = "COUNT { (u)-[:TAGGED]->(:User) } + COUNT { (u)-[:TAGGED]->(:Post) }";
+
 /// Per-user count fields, as `(alias, COUNT {} subquery)` pairs bound to the
 /// node variable `u`. Single source of truth shared by [`user_counts_by_ids`] (map
 /// form) and the trust report (column form), so their filters — especially the
 /// collection/bookmark rules — can't drift between the two queries.
 const USER_COUNT_FIELDS: &[(&str, &str)] = &[
     ("following", "COUNT { (u)-[:FOLLOWS]->(:User) }"),
-    ("followers", "COUNT { (:User)-[:FOLLOWS]->(u) }"),
+    ("followers", FOLLOWERS_COUNT),
     (
         "friends",
         "COUNT { (u)-[:FOLLOWS]->(friend:User) WHERE (friend)-[:FOLLOWS]->(u) }",
     ),
-    ("posts", "COUNT { (u)-[:AUTHORED]->(:Post) }"),
+    ("posts", POSTS_COUNT),
     (
         "replies",
         "COUNT { (u)-[:AUTHORED]->(:Post)-[:REPLIED]->(:Post) }",
@@ -995,11 +1002,7 @@ const USER_COUNT_FIELDS: &[(&str, &str)] = &[
         "bookmarks",
         "COUNT { (u)-[:BOOKMARKED]->(bp:Post) WHERE (bp.kind IS NULL OR bp.kind <> 'collection') }",
     ),
-    // tagged = tags this user assigned to users + to posts
-    (
-        "tagged",
-        "COUNT { (u)-[:TAGGED]->(:User) } + COUNT { (u)-[:TAGGED]->(:Post) }",
-    ),
+    ("tagged", TAGGED_COUNT),
     ("tags", "COUNT { (:User)-[:TAGGED]->(u) }"),
     (
         "unique_tags",
@@ -1357,60 +1360,76 @@ pub fn get_influencers_by_reach(
         .param("to", to)
 }
 
-pub fn get_global_influencers(skip: usize, limit: usize, timeframe: &Timeframe) -> Query {
-    let (from, to) = timeframe.to_timestamp_range();
-    // AllTime seeds the live influencers set, whose incremental scores count
-    // tags the user assigned to posts AND to users, so the seed must match
-    // that definition. Windowed timeframes keep their post-tags-only scoring;
-    // they only feed their own per-timeframe cache.
-    let tag_targets = match timeframe {
-        Timeframe::AllTime => ":Post|User",
-        _ => ":Post",
-    };
-    let query_string = format!(
+/// One keyset page of the all-time influencer ranking, ordered by `id`, strictly
+/// after `after_id` (`""` for the first page). It holds every user who is neither
+/// tombstoned nor a discovery stub, scored `(tagged + posts) * sqrt(followers)`
+/// from the [`user_counts_by_ids`] counts, so a user with no followers ranks with 0.
+pub fn get_all_time_influencers(after_id: &str, limit: usize) -> Query {
+    let cypher = format!(
+        "
+        MATCH (u:User)
+        WHERE u.id > $after_id
+          AND NOT coalesce(u.deleted, false)
+          // A discovery stub is named after its id, which no profile name can be.
+          AND u.name <> u.id
+        RETURN u.id AS id, ({TAGGED_COUNT} + {POSTS_COUNT}) * sqrt({FOLLOWERS_COUNT}) AS score
+        ORDER BY u.id
+        LIMIT $limit
+        "
+    );
+    Query::new("get_all_time_influencers", &cypher)
+        .param("after_id", after_id)
+        .param("limit", limit as i64)
+}
+
+/// The top `limit` users after `skip` for a ranged timeframe, which only counts
+/// tags on posts. AllTime is ranked in full by [`get_all_time_influencers`].
+pub fn get_global_influencers(skip: usize, limit: usize, timeframe: CacheTimeframe) -> Query {
+    let (from, to) = timeframe.timeframe().to_timestamp_range();
+    Query::new(
+        "get_global_influencers",
         "
         MATCH (user:User)
         WHERE NOT coalesce(user.deleted, false)
         WITH DISTINCT user
 
-        // Each count is a scoped CALL(user){{}} subquery so it stays per-user
+        // Each count is a scoped CALL(user){} subquery so it stays per-user
         // instead of multiplying into a cartesian product. Mirrors
         // get_influencers_by_reach.
-        CALL (user) {{
+        CALL (user) {
             MATCH (others:User)-[follow:FOLLOWS]->(user)
             WHERE follow.indexed_at >= $from AND follow.indexed_at < $to
             RETURN count(DISTINCT follow) AS followers_count
-        }}
-        CALL (user) {{
-            MATCH (user)-[tag:TAGGED]->({tag_targets})
+        }
+        CALL (user) {
+            MATCH (user)-[tag:TAGGED]->(:Post)
             WHERE tag.indexed_at >= $from AND tag.indexed_at < $to
             RETURN count(DISTINCT tag) AS tags_count
-        }}
-        CALL (user) {{
+        }
+        CALL (user) {
             // Filter on the Post node's indexed_at, like get_influencers_by_reach does.
             // The AUTHORED edge carries no indexed_at property (create_post never sets
             // one), so filtering on the edge would always yield posts_count = 0.
             MATCH (user)-[:AUTHORED]->(post:Post)
             WHERE post.indexed_at >= $from AND post.indexed_at < $to
             RETURN count(DISTINCT post) AS posts_count
-        }}
-        WITH {{
+        }
+        WITH {
             id: user.id,
             score: (tags_count + posts_count) * sqrt(followers_count)
-        }} AS influencer
+        } AS influencer
         WHERE influencer.id IS NOT NULL
 
         ORDER BY influencer.score DESC, influencer.id ASC
         SKIP $skip
         LIMIT $limit
         RETURN COLLECT([influencer.id, influencer.score]) as influencers
-    "
-    );
-    Query::new("get_global_influencers", &query_string)
-        .param("skip", skip as i64)
-        .param("limit", limit as i64)
-        .param("from", from)
-        .param("to", to)
+    ",
+    )
+    .param("skip", skip as i64)
+    .param("limit", limit as i64)
+    .param("from", from)
+    .param("to", to)
 }
 
 /// Every Collection post key, for backfills.

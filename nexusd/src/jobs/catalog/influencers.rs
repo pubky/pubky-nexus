@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use nexus_common::models::user::Influencers;
-use nexus_common::types::CacheTimeframe;
+use nexus_common::types::Timeframe;
 use std::error::Error;
 use std::time::Duration;
 use tokio::time::timeout;
@@ -20,23 +20,26 @@ use crate::jobs::Job;
 /// an I/O window this short is unaffected by host suspend.
 const REFRESH_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 
+/// Once a day at 02:04 UTC, clear of the other jobs' times. The AllTime ranking has
+/// no TTL and no other writer, so its job runs on this unless the config says otherwise.
+const ALL_TIME_CRON: &str = "0 4 2 * * *";
+
 /// The graph scan + cache write for one timeframe outran `REFRESH_TIMEOUT`.
 #[derive(Debug, thiserror::Error)]
 #[error("influencer cache refresh for {timeframe} timed out after {after:?}")]
 pub struct RefreshTimedOut {
-    pub timeframe: CacheTimeframe,
+    pub timeframe: Timeframe,
     pub after: Duration,
 }
 
-/// Refresh the global influencer cache for one `CacheTimeframe` on a schedule.
-///
-/// `Timeframe::AllTime` is not constructible here: it is served from the
-/// incrementally maintained `Sorted:Users:Influencers` set, has no cache key,
-/// and a job for it would only ever write an orphan.
-pub struct InfluencersCacheJob(CacheTimeframe);
+/// Refresh the global influencer ranking for one timeframe on a schedule: the
+/// top-100 TTL cache of a ranged timeframe, or the whole `Sorted:Users:Influencers`
+/// ranking for `AllTime`. That ranking has no TTL and no other writer, so its job
+/// is the one that keeps it current, on [`ALL_TIME_CRON`] by default.
+pub struct InfluencersCacheJob(Timeframe);
 
 impl InfluencersCacheJob {
-    pub fn new(timeframe: CacheTimeframe) -> Self {
+    pub fn new(timeframe: Timeframe) -> Self {
         Self(timeframe)
     }
 }
@@ -45,18 +48,23 @@ impl InfluencersCacheJob {
 impl Job for InfluencersCacheJob {
     fn name(&self) -> &'static str {
         match self.0 {
-            CacheTimeframe::Today => "influencers-cache-today",
-            CacheTimeframe::ThisWeek => "influencers-cache-this-week",
-            CacheTimeframe::ThisMonth => "influencers-cache-this-month",
+            Timeframe::Today => "influencers-cache-today",
+            Timeframe::ThisWeek => "influencers-cache-this-week",
+            Timeframe::ThisMonth => "influencers-cache-this-month",
+            Timeframe::AllTime => "influencers-cache-all-time",
         }
+    }
+
+    fn default_cron(&self) -> Option<&'static str> {
+        (self.0 == Timeframe::AllTime).then_some(ALL_TIME_CRON)
     }
 
     /// Errors propagate typed: the runner logs them once, as `JobError::Run`.
     async fn run(&self) -> Result<(), Box<dyn Error + Send + Sync>> {
-        match timeout(REFRESH_TIMEOUT, Influencers::fetch_and_cache(self.0)).await {
+        match timeout(REFRESH_TIMEOUT, Influencers::refresh(&self.0)).await {
             Ok(result) => Ok(result?),
             Err(_elapsed) => Err(Box::new(RefreshTimedOut {
-                timeframe: self.0,
+                timeframe: self.0.clone(),
                 after: REFRESH_TIMEOUT,
             })),
         }
@@ -71,9 +79,10 @@ mod tests {
     #[test]
     fn job_names_are_distinct_per_timeframe() {
         let registry = crate::jobs::JobRegistry::new(vec![
-            Arc::new(InfluencersCacheJob::new(CacheTimeframe::Today)),
-            Arc::new(InfluencersCacheJob::new(CacheTimeframe::ThisWeek)),
-            Arc::new(InfluencersCacheJob::new(CacheTimeframe::ThisMonth)),
+            Arc::new(InfluencersCacheJob::new(Timeframe::Today)),
+            Arc::new(InfluencersCacheJob::new(Timeframe::ThisWeek)),
+            Arc::new(InfluencersCacheJob::new(Timeframe::ThisMonth)),
+            Arc::new(InfluencersCacheJob::new(Timeframe::AllTime)),
         ]);
 
         let mut names = registry.job_names();
@@ -81,11 +90,12 @@ mod tests {
         assert_eq!(
             names,
             vec![
+                "influencers-cache-all-time",
                 "influencers-cache-this-month",
                 "influencers-cache-this-week",
                 "influencers-cache-today",
             ],
-            "each cache-backed timeframe must have a unique, deterministic job name"
+            "each timeframe must have a unique, deterministic job name"
         );
     }
 }
