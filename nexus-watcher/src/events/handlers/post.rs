@@ -66,9 +66,9 @@ fn reject_parent_change(
     if named == stored {
         return Ok(());
     }
-    Err(EventProcessorError::PostParentChanged(format!(
+    Err(EventProcessorError::PostParentChanged(bounded(&format!(
         "The edit names (parent, embed) {named:?}, but the post was created with {stored:?}"
-    )))
+    ))))
 }
 
 /// The keys of the reply parent and the repost embed.
@@ -1030,5 +1030,22 @@ mod tests {
                 "{case}"
             );
         }
+    }
+
+    /// The v0 parser never length-checks a post id, so the message that quotes the named
+    /// parent stays bounded whatever the author wrote after `posts/`.
+    #[test]
+    fn parent_change_message_is_bounded_for_a_long_post_id() {
+        let long_id = "A".repeat(4096);
+        let named = parents(parent(&long_id, "p1"), None);
+        let stored = parents(None, None);
+        let Err(EventProcessorError::PostParentChanged(message)) =
+            reject_parent_change(&named, &stored)
+        else {
+            panic!("a reply added by an edit is rejected");
+        };
+        assert!(!message.contains(&long_id), "the long id is cut");
+        assert_eq!(message.chars().count(), 257, "256 chars and the ellipsis");
+        assert!(message.ends_with('…'));
     }
 }
