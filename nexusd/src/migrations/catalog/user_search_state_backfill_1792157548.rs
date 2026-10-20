@@ -14,9 +14,9 @@ const SCAN_COUNT: usize = 1_000;
 ///
 /// 1. `UserSearch::reindex` walks every `:User`: `User:Search:Names` gets
 ///    the name each live user is indexed under, `User:Search:Deleted` gets
-///    the tombstones, and each tombstone is evicted from the users-by-tag
-///    index, where a tag event between deploy and this run could have
-///    re-added it.
+///    the tombstones, users without a `uri` (stubs) leave both indexes, and
+///    each tombstone is evicted from the users-by-tag index, where a tag event
+///    between deploy and this run could have re-added it.
 /// 2. `Sorted:Users:Name` and `Sorted:Users:ID` are scanned, and every
 ///    member the hash does not record is removed: names leaked by renames
 ///    and deletes before the hash existed, and users gone from the graph.
@@ -233,7 +233,7 @@ mod tests {
         delete_fixture(&ids, &members).await?;
 
         live_user(&live_id, "Backfill Current")
-            .put_to_graph()
+            .put_profile_to_graph(&format!("pubky://{live}/pub/pubky.app/profile.json"))
             .await?;
         UserDetails::tombstone(&tombstone_id).put_to_graph().await?;
         UserDetails::from_pubky(stub_id).put_to_graph().await?;

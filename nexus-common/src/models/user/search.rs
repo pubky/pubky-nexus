@@ -58,6 +58,16 @@ const SYNC_SEARCH_STATE: &str = r#"
     return #ARGV / 3
 "#;
 
+/// The [`SYNC_SEARCH_STATE`] triple for a user: indexed under their lowercase
+/// name, or under none when tombstoned or a stub, which has no profile.
+fn search_entry(details: &UserDetails, stub: bool) -> (&str, String, bool) {
+    let name = match details.deleted || stub {
+        true => String::new(),
+        false => details.name.to_lowercase(),
+    };
+    (details.id.as_ref(), name, details.deleted)
+}
+
 /// Represents a single result of a "users by tags" search: a user whose profile
 /// carries at least one of the searched tag labels, and how many distinct
 /// taggers applied them (summed across the searched labels).
@@ -339,21 +349,14 @@ impl UserSearch {
 
     /// Converges each user's search state with their profile, atomically per
     /// call: a live user is indexed under their lowercase name and by id, and
-    /// leaves the deleted set; a tombstone leaves both indexes and joins it; a
-    /// stub has no profile to search for, so it leaves both indexes too.
+    /// leaves the deleted set; a tombstone leaves both indexes and joins it.
     /// The member a rename or a delete has to drop comes from the names hash,
     /// so the call is safe to retry after any partial failure and never reads
     /// the profile.
     pub async fn put_to_index(details_list: &[&UserDetails]) -> RedisResult<()> {
         let entries: Vec<(&str, String, bool)> = details_list
             .iter()
-            .map(|details| {
-                let name = match details.deleted || details.is_stub() {
-                    true => String::new(),
-                    false => details.name.to_lowercase(),
-                };
-                (details.id.as_ref(), name, details.deleted)
-            })
+            .map(|details| search_entry(details, false))
             .collect();
         Self::sync_state(&entries).await
     }
@@ -364,9 +367,11 @@ impl UserSearch {
     }
 
     /// Rebuilds the search state of every user from the graph, one keyset page
-    /// at a time, and evicts each tombstone from the users-by-tag index. Stubs
-    /// go through [`Self::put_to_index`] too, which drops whatever an earlier
-    /// pass indexed them under.
+    /// at a time, and evicts each tombstone from the users-by-tag index. A
+    /// user without a `uri` is a stub, as only a profile write stores one: the
+    /// rebuild drops whatever an earlier pass indexed them under. That leaves
+    /// out a profile indexed before uris were stored and missing from the
+    /// event log, until its next profile write.
     ///
     /// Run with the watcher stopped: a profile event between a page's read and
     /// its write is overwritten with the page's older state. Existing state is
@@ -377,24 +382,36 @@ impl UserSearch {
     /// Returns an error when a graph page or a Redis write fails.
     pub async fn reindex() -> ModelResult<()> {
         let mut after_id = String::new();
-        loop {
-            let rows = fetch_all_rows_from_graph(queries::get::get_users_page(
-                &after_id,
-                REINDEX_PAGE_SIZE,
-            ))
-            .await?;
-            let Some(last_id) = rows.last().and_then(|row| row.get::<String>("id").ok()) else {
-                break;
-            };
+        while let Some(last_id) = Self::reindex_page(&after_id, REINDEX_PAGE_SIZE).await? {
             after_id = last_id;
-
-            let page: Vec<UserDetails> = rows.iter().filter_map(UserDetails::from_row).collect();
-            Self::put_to_index(&page.iter().collect::<Vec<_>>()).await?;
-            for tombstone in page.iter().filter(|details| details.deleted) {
-                UsersByTagSearch::sync_user_labels(&tombstone.id).await?;
-            }
         }
         Ok(())
+    }
+
+    /// Rebuilds the search state of the users on the keyset page after
+    /// `after_id`, and returns the page's last id: `None` past the last page.
+    async fn reindex_page(after_id: &str, limit: usize) -> ModelResult<Option<String>> {
+        let rows = fetch_all_rows_from_graph(queries::get::get_users_page(after_id, limit)).await?;
+        let Some(last_id) = rows.last().and_then(|row| row.get::<String>("id").ok()) else {
+            return Ok(None);
+        };
+
+        let mut page = Vec::with_capacity(rows.len());
+        for row in &rows {
+            let stub: bool = row.get("stub").map_err(GraphError::from)?;
+            if let Some(details) = UserDetails::from_row(row) {
+                page.push((details, stub));
+            }
+        }
+        let entries: Vec<(&str, String, bool)> = page
+            .iter()
+            .map(|(details, stub)| search_entry(details, *stub))
+            .collect();
+        Self::sync_state(&entries).await?;
+        for (tombstone, _) in page.iter().filter(|(details, _)| details.deleted) {
+            UsersByTagSearch::sync_user_labels(&tombstone.id).await?;
+        }
+        Ok(Some(last_id))
     }
 
     /// The lowercase name each user is indexed under, `None` when unindexed.
@@ -453,28 +470,77 @@ impl UserSearch {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::exec_single_row;
     use crate::utils::test_utils::random_pubky_id;
     use crate::{types::DynError, StackConfig, StackManager};
 
-    /// A stub never enters the user search: neither index holds it and the
-    /// names hash records nothing for it, so no later cleanup keeps it.
-    #[tokio_shared_rt::test(shared)]
-    async fn test_put_to_index_keeps_a_stub_out_of_the_search() -> Result<(), DynError> {
-        StackManager::setup(&StackConfig::default()).await?;
-        let stub = UserDetails::from_pubky(random_pubky_id());
-        let stub_id = stub.id.to_string();
-        let name_member = format!("{stub_id}:{stub_id}");
+    /// Rebuilds only the page that starts at `user_id`: no other id falls
+    /// between it and its prefix one character shorter.
+    async fn reindex_one(user_id: &str) -> ModelResult<()> {
+        UserSearch::reindex_page(&user_id[..user_id.len() - 1], 1).await?;
+        Ok(())
+    }
 
-        UserSearch::put_to_index(&[&stub]).await?;
-
-        assert_eq!(UserSearch::indexed_names(&[&stub_id]).await?, vec![None]);
+    /// The name the hash records for `user_id`, and whether the name index
+    /// holds them under `name` and the id index holds them at all.
+    async fn search_state(
+        user_id: &str,
+        name: &str,
+    ) -> Result<(Option<String>, bool, bool), DynError> {
+        let recorded = UserSearch::indexed_names(&[user_id]).await?.pop().flatten();
+        let name_member = format!("{name}:{user_id}");
         let by_name =
             UserSearch::check_sorted_set_member(None, &USER_NAME_KEY_PARTS, &[&name_member])
                 .await?;
-        assert!(by_name.is_none(), "the stub is not indexed by name");
         let by_id =
-            UserSearch::check_sorted_set_member(None, &USER_ID_KEY_PARTS, &[&stub_id]).await?;
-        assert!(by_id.is_none(), "the stub is not indexed by id");
-        Ok(())
+            UserSearch::check_sorted_set_member(None, &USER_ID_KEY_PARTS, &[user_id]).await?;
+        Ok((recorded, by_name.is_some(), by_id.is_some()))
+    }
+
+    /// The rebuild tells a stub by its missing `uri`, not by its name: a node
+    /// without one loses what an earlier pass indexed it under, as
+    /// `UsersByPkReindex` indexes every node, and a profile named after its key
+    /// stays indexed.
+    #[tokio_shared_rt::test(shared)]
+    async fn test_reindex_tells_a_stub_by_its_missing_uri() -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+        let stub = UserDetails::from_pubky(random_pubky_id());
+        let profile = UserDetails::from_pubky(random_pubky_id());
+        let (stub_id, profile_id) = (stub.id.to_string(), profile.id.to_string());
+
+        stub.put_to_graph().await?;
+        UserSearch::put_to_index(&[&stub]).await?;
+        profile
+            .put_profile_to_graph(&format!("pubky://{profile_id}/pub/pubky.app/profile.json"))
+            .await?;
+
+        let outcome = async {
+            reindex_one(&stub_id).await?;
+            reindex_one(&profile_id).await?;
+            assert_eq!(
+                search_state(&stub_id, &stub_id).await?,
+                (None, false, false),
+                "the stub leaves the search"
+            );
+            assert_eq!(
+                search_state(&profile_id, &profile_id).await?,
+                (Some(profile_id.clone()), true, true),
+                "the profile stays indexed under its name"
+            );
+            Ok::<(), DynError>(())
+        }
+        .await;
+
+        exec_single_row(
+            Query::new(
+                "user_search_test_cleanup",
+                "MATCH (u:User) WHERE u.id IN $ids DETACH DELETE u",
+            )
+            .param("ids", vec![stub_id.clone(), profile_id.clone()]),
+        )
+        .await?;
+        UserSearch::delete(&stub_id).await?;
+        UserSearch::delete(&profile_id).await?;
+        outcome
     }
 }

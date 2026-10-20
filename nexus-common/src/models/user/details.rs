@@ -139,13 +139,6 @@ impl UserDetails {
         exec_single_row(queries::put::create_user(self, None)?).await
     }
 
-    /// A node created by key discovery and never read from a profile: it is
-    /// named after its id. A profile name is at most 50 characters and an id
-    /// 52, so no profile can take this shape.
-    pub fn is_stub(&self) -> bool {
-        self.name == self.id.as_ref()
-    }
-
     /// Creates a minimal `UserDetails` with only the public key.
     /// All profile fields (bio, links, status, image) default to `None`.
     pub fn from_pubky(user_id: PubkyId) -> Self {
@@ -277,22 +270,6 @@ mod tests {
 
         let details: UserDetails = node.to().expect("should deserialize with deleted: true");
         assert!(details.deleted);
-    }
-
-    /// Only a key-discovery node is a stub: a profile cannot be named after its id.
-    #[test]
-    fn only_a_discovery_node_is_a_stub() {
-        let id = PubkyId::try_from("uo7jgkykft4885n8cruizwy6khw71mnu5pq3ay9i8pw1ymcn85ko").unwrap();
-        assert!(UserDetails::from_pubky(id.clone()).is_stub());
-        assert!(!UserDetails::tombstone(&id).is_stub());
-        let profile = PubkyAppUser {
-            name: "Dave".to_string(),
-            bio: None,
-            image: None,
-            links: None,
-            status: None,
-        };
-        assert!(!UserDetails::from_homeserver(profile, &id).is_stub());
     }
 
     /// A live user is kept; a tombstone and a missing node are evicted.
