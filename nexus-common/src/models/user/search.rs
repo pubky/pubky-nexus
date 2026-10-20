@@ -339,7 +339,8 @@ impl UserSearch {
 
     /// Converges each user's search state with their profile, atomically per
     /// call: a live user is indexed under their lowercase name and by id, and
-    /// leaves the deleted set; a tombstone leaves both indexes and joins it.
+    /// leaves the deleted set; a tombstone leaves both indexes and joins it; a
+    /// stub has no profile to search for, so it leaves both indexes too.
     /// The member a rename or a delete has to drop comes from the names hash,
     /// so the call is safe to retry after any partial failure and never reads
     /// the profile.
@@ -347,7 +348,7 @@ impl UserSearch {
         let entries: Vec<(&str, String, bool)> = details_list
             .iter()
             .map(|details| {
-                let name = match details.deleted {
+                let name = match details.deleted || details.is_stub() {
                     true => String::new(),
                     false => details.name.to_lowercase(),
                 };
@@ -364,7 +365,8 @@ impl UserSearch {
 
     /// Rebuilds the search state of every user from the graph, one keyset page
     /// at a time, and evicts each tombstone from the users-by-tag index. Stubs
-    /// are skipped, as the watcher skips them: nothing to search for.
+    /// go through [`Self::put_to_index`] too, which drops whatever an earlier
+    /// pass indexed them under.
     ///
     /// Run with the watcher stopped: a profile event between a page's read and
     /// its write is overwritten with the page's older state. Existing state is
@@ -386,11 +388,7 @@ impl UserSearch {
             };
             after_id = last_id;
 
-            let page: Vec<UserDetails> = rows
-                .iter()
-                .filter_map(UserDetails::from_row)
-                .filter(|details| !details.is_stub())
-                .collect();
+            let page: Vec<UserDetails> = rows.iter().filter_map(UserDetails::from_row).collect();
             Self::put_to_index(&page.iter().collect::<Vec<_>>()).await?;
             for tombstone in page.iter().filter(|details| details.deleted) {
                 UsersByTagSearch::sync_user_labels(&tombstone.id).await?;
@@ -448,6 +446,35 @@ impl UserSearch {
         }
         let mut conn = get_redis_conn().await?;
         let _: i64 = invocation.invoke_async(&mut conn).await?;
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::utils::test_utils::random_pubky_id;
+    use crate::{types::DynError, StackConfig, StackManager};
+
+    /// A stub never enters the user search: neither index holds it and the
+    /// names hash records nothing for it, so no later cleanup keeps it.
+    #[tokio_shared_rt::test(shared)]
+    async fn test_put_to_index_keeps_a_stub_out_of_the_search() -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+        let stub = UserDetails::from_pubky(random_pubky_id());
+        let stub_id = stub.id.to_string();
+        let name_member = format!("{stub_id}:{stub_id}");
+
+        UserSearch::put_to_index(&[&stub]).await?;
+
+        assert_eq!(UserSearch::indexed_names(&[&stub_id]).await?, vec![None]);
+        let by_name =
+            UserSearch::check_sorted_set_member(None, &USER_NAME_KEY_PARTS, &[&name_member])
+                .await?;
+        assert!(by_name.is_none(), "the stub is not indexed by name");
+        let by_id =
+            UserSearch::check_sorted_set_member(None, &USER_ID_KEY_PARTS, &[&stub_id]).await?;
+        assert!(by_id.is_none(), "the stub is not indexed by id");
         Ok(())
     }
 }
