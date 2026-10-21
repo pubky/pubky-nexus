@@ -471,6 +471,8 @@ impl UserSearch {
 mod tests {
     use super::*;
     use crate::db::exec_single_row;
+    use crate::db::kv::ScoreAction;
+    use crate::models::tag::traits::{TagCollection, TaggersCollection};
     use crate::utils::test_utils::random_pubky_id;
     use crate::{types::DynError, StackConfig, StackManager};
 
@@ -553,6 +555,50 @@ mod tests {
         for user_id in &ids {
             UserSearch::delete(user_id).await?;
         }
+        outcome
+    }
+
+    /// The rebuild records a tombstone in the deleted set and evicts it from
+    /// the users-by-tag label a tag event added it to before the set held it.
+    #[tokio_shared_rt::test(shared)]
+    async fn test_reindex_evicts_a_tagged_tombstone() -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+        let tombstone_id = random_pubky_id();
+        let tombstone = tombstone_id.to_string();
+        let tagger = random_pubky_id().to_string();
+        let label = "reindextombstone";
+        let label_key = [&TAG_GLOBAL_USER_TAGGERS[..], &[label]].concat();
+
+        UserDetails::tombstone(&tombstone_id).put_to_graph().await?;
+        TagUser::add_tagger_to_index(&tombstone, None, &tagger, label).await?;
+        TagUser::update_index_score(&tombstone, None, label, ScoreAction::Increment(1.0)).await?;
+        UsersByTagSearch::sync_index_score(&tombstone, label).await?;
+
+        let outcome = async {
+            reindex_one(&tombstone).await?;
+            let (_, deleted) =
+                UserSearch::check_set_member(&SEARCH_DELETED_KEY_PARTS, &tombstone).await?;
+            assert!(deleted, "the tombstone joins the deleted set");
+            let score =
+                UsersByTagSearch::check_sorted_set_member(None, &label_key, &[&tombstone]).await?;
+            assert!(score.is_none(), "the tombstone leaves users-by-tag");
+            Ok::<(), DynError>(())
+        }
+        .await;
+
+        exec_single_row(
+            Query::new(
+                "user_search_test_cleanup",
+                "MATCH (u:User {id: $id}) DETACH DELETE u",
+            )
+            .param("id", tombstone.clone()),
+        )
+        .await?;
+        UserSearch::delete(&tombstone).await?;
+        TagUser(vec![])
+            .del_from_index(&tombstone, None, label)
+            .await?;
+        UsersByTagSearch::remove_from_index_sorted_set(None, &label_key, &[&tombstone]).await?;
         outcome
     }
 }
