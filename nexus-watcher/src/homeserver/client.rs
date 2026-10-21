@@ -539,17 +539,28 @@ mod tests {
         })
     }
 
-    /// The read ends at `limit`: a homeserver that sends more than asked, then holds the
-    /// connection open, costs nothing past the events asked for.
-    #[tokio::test]
-    async fn user_events_are_read_up_to_the_limit_and_no_further() {
-        let mut stream = futures::stream::iter([stream_event(1), stream_event(2), stream_event(3)])
+    /// The read ends once it holds exactly `limit` events: a homeserver that then holds the
+    /// connection open is not waited for. Time is paused, so a read that waits fails at once.
+    #[tokio::test(start_paused = true)]
+    async fn user_events_read_ends_at_the_limit_without_waiting_for_more() {
+        let mut stream = futures::stream::iter([stream_event(1), stream_event(2)])
             .chain(futures::stream::pending());
 
         let events = tokio::time::timeout(Duration::from_secs(1), read_user_events(&mut stream, 2))
             .await
             .expect("the read must end at the limit")
             .unwrap();
+
+        let cursors: Vec<u64> = events.iter().map(|event| event.cursor).collect();
+        assert_eq!(cursors, [1, 2]);
+    }
+
+    /// A homeserver that sends more than the `limit` asked for has the excess left unread.
+    #[tokio::test]
+    async fn user_events_past_the_limit_are_not_read() {
+        let mut stream = futures::stream::iter([stream_event(1), stream_event(2), stream_event(3)]);
+
+        let events = read_user_events(&mut stream, 2).await.unwrap();
 
         let cursors: Vec<u64> = events.iter().map(|event| event.cursor).collect();
         assert_eq!(cursors, [1, 2]);
