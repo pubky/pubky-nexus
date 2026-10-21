@@ -21,7 +21,6 @@ pubky-app-specs = { workspace = true }
 redis = { workspace = true, features = ["tokio-comp"] }
 nexus-watcher = { version = "0.4.1", path = "../nexus-watcher" }
 serde = { workspace = true }
-serde_json = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 tokio = { workspace = true }
@@ -33,3 +32,4 @@ tokio-shared-rt = { workspace = true }
 tempfile = { workspace = true }
 tracing-test = { workspace = true }
 opentelemetry_sdk = { workspace = true, features = ["testing"] }
+serde_json = { workspace = true }
