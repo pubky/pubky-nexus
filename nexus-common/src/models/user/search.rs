@@ -59,9 +59,9 @@ const SYNC_SEARCH_STATE: &str = r#"
 "#;
 
 /// The [`SYNC_SEARCH_STATE`] triple for a user: indexed under their lowercase
-/// name, or under none when tombstoned or without a `uri`.
-fn search_entry(details: &UserDetails, without_uri: bool) -> (&str, String, bool) {
-    let name = match details.deleted || without_uri {
+/// name, or under none when tombstoned or a discovery stub.
+fn search_entry(details: &UserDetails, is_stub: bool) -> (&str, String, bool) {
+    let name = match details.deleted || is_stub {
         true => String::new(),
         false => details.name.to_lowercase(),
     };
@@ -368,10 +368,11 @@ impl UserSearch {
 
     /// Rebuilds the search state of every user from the graph, one keyset page
     /// at a time, and evicts each tombstone from the users-by-tag index. A
-    /// user without a `uri` leaves the search, as only a profile write stores
-    /// one: the rebuild drops whatever an earlier pass indexed them under. That
-    /// covers the discovery stubs, and a profile indexed before uris were
-    /// stored and missing from the event log, until its next profile write.
+    /// discovery stub leaves the search: a node with no `uri`, which only a
+    /// profile write stores, named after its key. The rebuild drops whatever an
+    /// earlier pass indexed it under. A profile indexed before uris were stored
+    /// keeps its entry, and so does a profile named after its key, which has a
+    /// `uri`.
     ///
     /// Run with the watcher stopped: a profile event between a page's read and
     /// its write is overwritten with the page's older state. Existing state is
@@ -398,14 +399,14 @@ impl UserSearch {
 
         let mut page = Vec::with_capacity(rows.len());
         for row in &rows {
-            let without_uri: bool = row.get("without_uri").map_err(GraphError::from)?;
+            let is_stub: bool = row.get("is_stub").map_err(GraphError::from)?;
             if let Some(details) = UserDetails::from_row(row) {
-                page.push((details, without_uri));
+                page.push((details, is_stub));
             }
         }
         let entries: Vec<(&str, String, bool)> = page
             .iter()
-            .map(|(details, without_uri)| search_entry(details, *without_uri))
+            .map(|(details, is_stub)| search_entry(details, *is_stub))
             .collect();
         Self::sync_state(&entries).await?;
         for (tombstone, _) in page.iter().filter(|(details, _)| details.deleted) {
@@ -506,12 +507,13 @@ mod tests {
         Ok(())
     }
 
-    /// The rebuild decides by the `uri` alone, not by the name: a stub and a
-    /// profile indexed before uris were stored both lose what an earlier pass
-    /// indexed them under, as `UsersByPkReindex` indexes every node, and a
-    /// profile named after its key stays indexed because it has a `uri`.
+    /// The rebuild drops only a discovery stub, with no `uri` and named after
+    /// its key, from what an earlier pass indexed (`UsersByPkReindex` indexes
+    /// every node). A profile indexed before uris were stored stays indexed
+    /// under its name, and so does a profile named after its key, which has a
+    /// `uri`.
     #[tokio_shared_rt::test(shared)]
-    async fn test_reindex_keeps_only_users_with_a_uri() -> Result<(), DynError> {
+    async fn test_reindex_drops_only_discovery_stubs() -> Result<(), DynError> {
         StackManager::setup(&StackConfig::default()).await?;
         let stub = UserDetails::from_pubky(random_pubky_id());
         let mut legacy = UserDetails::from_pubky(random_pubky_id());
@@ -520,8 +522,8 @@ mod tests {
         let ids = [&stub, &legacy, &profile].map(|details| details.id.to_string());
         let [stub_id, legacy_id, profile_id] = &ids;
 
-        for without_uri in [&stub, &legacy] {
-            without_uri.put_to_graph().await?;
+        for details in [&stub, &legacy] {
+            details.put_to_graph().await?;
         }
         UserSearch::put_to_index(&[&stub, &legacy]).await?;
         profile
@@ -539,13 +541,13 @@ mod tests {
             );
             assert_eq!(
                 search_state(legacy_id, "legacy profile").await?,
-                (None, false, false),
-                "a profile without a uri leaves the search"
+                (Some("legacy profile".to_string()), true, true),
+                "a profile without a uri stays indexed under its name"
             );
             assert_eq!(
                 search_state(profile_id, profile_id).await?,
                 (Some(profile_id.clone()), true, true),
-                "the profile stays indexed under its name"
+                "a profile named after its key stays indexed"
             );
             Ok::<(), DynError>(())
         }

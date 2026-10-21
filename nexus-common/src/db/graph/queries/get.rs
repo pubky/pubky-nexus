@@ -362,6 +362,13 @@ fn ranked_user(var: &str) -> String {
     format!("{var}.trust > 0 AND NOT coalesce({var}.deleted, false)")
 }
 
+/// Whether the user bound to `var` is a key-discovery stub: no profile write
+/// reached the node, as only one stores a `uri`, and it is named after its key.
+/// A profile with a `uri` is never one, whatever its name.
+fn discovery_stub(var: &str) -> String {
+    format!("({var}.uri IS NULL AND {var}.name = {var}.id)")
+}
+
 /// One keyset page of the most-followed ranking, ordered by `id`, strictly after
 /// `after_id` (`""` for the first page). It holds every user who is neither
 /// tombstoned nor a discovery stub, scored by the [`user_counts_by_ids`] follower count,
@@ -372,12 +379,12 @@ pub fn get_most_followed_users(after_id: &str, limit: usize) -> Query {
         MATCH (u:User)
         WHERE u.id > $after_id
           AND NOT coalesce(u.deleted, false)
-          // A discovery stub is named after its id, which no profile name can be.
-          AND u.name <> u.id
+          AND NOT {stub}
         RETURN u.id AS id, {FOLLOWERS_COUNT} AS followers
         ORDER BY u.id
         LIMIT $limit
-        "
+        ",
+        stub = discovery_stub("u")
     );
     Query::new("get_most_followed_users", &cypher)
         .param("after_id", after_id)
@@ -448,21 +455,23 @@ pub fn get_user_ids_page(after_id: &str, limit: usize) -> Query {
 
 /// One keyset page of `:User` nodes as `record`, with their `id`, ordered by
 /// `id`, strictly after `after_id` (`""` for the first page); an empty page
-/// means the end. Tombstoned users and stubs are included; `without_uri` marks
-/// a node without a `uri`, which only a profile write stores.
+/// means the end. Tombstoned users and stubs are included; `is_stub` marks a
+/// discovery stub: no `uri`, which only a profile write stores, and named after
+/// its key.
 pub fn get_users_page(after_id: &str, limit: usize) -> Query {
-    Query::new(
-        "get_users_page",
+    let cypher = format!(
         "
         MATCH (record:User)
         WHERE record.id > $after_id
-        RETURN record.id AS id, record, record.uri IS NULL AS without_uri
+        RETURN record.id AS id, record, {} AS is_stub
         ORDER BY id ASC
         LIMIT $limit
         ",
-    )
-    .param("after_id", after_id.to_string())
-    .param("limit", limit.min(MAX_QUERY_LIMIT) as i64)
+        discovery_stub("record")
+    );
+    Query::new("get_users_page", &cypher)
+        .param("after_id", after_id.to_string())
+        .param("limit", limit.min(MAX_QUERY_LIMIT) as i64)
 }
 
 /// Users whose profile carries any of the given tag labels, scored by distinct
@@ -1412,12 +1421,12 @@ pub fn get_all_time_influencers(after_id: &str, limit: usize) -> Query {
         MATCH (u:User)
         WHERE u.id > $after_id
           AND NOT coalesce(u.deleted, false)
-          // A discovery stub is named after its id, which no profile name can be.
-          AND u.name <> u.id
+          AND NOT {stub}
         RETURN u.id AS id, ({TAGGED_COUNT} + {POSTS_COUNT}) * sqrt({FOLLOWERS_COUNT}) AS score
         ORDER BY u.id
         LIMIT $limit
-        "
+        ",
+        stub = discovery_stub("u")
     );
     Query::new("get_all_time_influencers", &cypher)
         .param("after_id", after_id)

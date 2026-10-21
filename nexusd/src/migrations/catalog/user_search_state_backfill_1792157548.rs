@@ -14,14 +14,9 @@ const SCAN_COUNT: usize = 1_000;
 ///
 /// 1. `UserSearch::reindex` walks every `:User`: `User:Search:Names` gets
 ///    the name each live user is indexed under, `User:Search:Deleted` gets
-///    the tombstones, users without a `uri` leave both indexes, and each
-///    tombstone is evicted from the users-by-tag index, where a tag event
-///    between deploy and this run could have re-added it. Only a profile
-///    write stores a `uri`, so besides the discovery stubs, a profile indexed
-///    before uris were stored and missing from the event log leaves the
-///    search until its next profile write. Count those first with
-///    `MATCH (u:User) WHERE u.uri IS NULL AND NOT coalesce(u.deleted, false)
-///    AND u.name <> u.id RETURN count(u)`.
+///    the tombstones, discovery stubs (no `uri`, named after their key) leave
+///    both indexes, and each tombstone is evicted from the users-by-tag index,
+///    where a tag event between deploy and this run could have re-added it.
 /// 2. `Sorted:Users:Name` and `Sorted:Users:ID` are scanned, and every
 ///    member the hash does not record is removed: names leaked by renames
 ///    and deletes before the hash existed, and users gone from the graph.
