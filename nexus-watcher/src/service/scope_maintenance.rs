@@ -16,9 +16,10 @@ use nexus_common::db::kv::RedisError;
 use nexus_common::db::{fetch_key_from_graph, get_redis_conn, queries};
 use nexus_common::models::error::{ModelError, ModelResult};
 use nexus_common::models::user::stub::{drop_stub_entry, unstub, SCOPE_STATE_STUB};
-use nexus_common::models::user::{UserIngestor, SCOPE_STATE_LEFT};
+use nexus_common::models::user::{PkdnsHomeserverResolver, UserIngestor, SCOPE_STATE_LEFT};
 use nexus_common::{ScopeConfig, WatcherConfig};
 use pubky_app_specs::PubkyId;
+use std::sync::Arc;
 use tracing::{info, warn};
 
 /// The scope the last start ran with, to notice a homeserver list that changed.
@@ -57,8 +58,13 @@ pub struct ScopeMaintainer {
 }
 
 impl ScopeMaintainer {
-    pub fn from_config(config: &WatcherConfig) -> Self {
-        Self::new(config, UserIngestor::from_watcher_config(config), None)
+    /// Looks users' homeservers up through `resolver`.
+    pub fn from_config(config: &WatcherConfig, resolver: Arc<dyn PkdnsHomeserverResolver>) -> Self {
+        Self::new(
+            config,
+            UserIngestor::from_watcher_config(config, resolver),
+            None,
+        )
     }
 
     pub fn new(
@@ -115,11 +121,11 @@ impl ScopeMaintainer {
         Ok(change)
     }
 
-    /// For "everything": clears every user's scope state, and former stubs go back into
-    /// the rankings; the HS resolver binds them all, so they are polled again.
+    /// For "everything": clears every user's scope state, and the HS resolver binds them
+    /// all, so they are polled again.
     ///
-    /// Stubs are brought into the rankings before the graph's states are cleared, so a
-    /// start that fails partway finds them still marked and tries again.
+    /// Stubs leave `Scope:Stubs` before the graph's states are cleared, so a start that
+    /// fails partway finds them still marked and tries again.
     async fn let_everyone_in(&self) -> ModelResult<ScopeChange> {
         let query = queries::get::get_user_ids_by_scope_state(SCOPE_STATE_STUB);
         let stub_ids: Vec<String> = fetch_key_from_graph(query, "user_ids")

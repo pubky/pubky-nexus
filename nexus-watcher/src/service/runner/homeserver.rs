@@ -1,6 +1,7 @@
 use super::{TEventProcessorRunner, UserNotFoundBackoff, UserResumePoints};
 use crate::events::retry::RetryScheduler;
-use crate::events::{DefaultEventHandler, EventHandler};
+use crate::events::EventHandler;
+use crate::homeserver::HomeserverClient;
 use crate::service::indexer::{HsEventProcessor, TEventProcessor};
 use crate::service::stats::{ProcessedStats, RunAllProcessorsStats};
 use nexus_common::models::homeserver::{Homeserver, HsBlacklist};
@@ -17,6 +18,7 @@ pub struct HsEventProcessorRunner {
     pub limit: u16,
 
     pub event_handler: Arc<dyn EventHandler>,
+    pub client: Arc<dyn HomeserverClient>,
     pub shutdown_rx: Receiver<bool>,
 
     /// See [WatcherConfig::homeserver]
@@ -40,16 +42,23 @@ pub struct HsEventProcessorRunner {
 }
 
 impl HsEventProcessorRunner {
-    /// Creates a new instance from the provided configuration
-    pub fn from_config(config: &WatcherConfig, shutdown_rx: Receiver<bool>) -> Self {
+    /// Creates a runner configured by `config`, sharing the given client, handler and scheduler
+    pub fn new(
+        config: &WatcherConfig,
+        client: Arc<dyn HomeserverClient>,
+        event_handler: Arc<dyn EventHandler>,
+        retry_scheduler: Arc<RetryScheduler>,
+        shutdown_rx: Receiver<bool>,
+    ) -> Self {
         Self {
             limit: config.events_limit,
-            event_handler: Arc::new(DefaultEventHandler::from_config(config)),
+            event_handler,
+            client,
             shutdown_rx,
             primary_homeserver: config.homeserver.clone(),
             scope: scope_from_config(&config.stack.scope),
             hs_blacklist: HsBlacklist::from_config(&config.stack),
-            retry_scheduler: Arc::new(RetryScheduler::from_config(config)),
+            retry_scheduler,
             catch_up_resume_points: Arc::new(UserResumePoints::default()),
             catch_up_not_found: Arc::new(UserNotFoundBackoff::default()),
         }
@@ -77,6 +86,7 @@ impl TEventProcessorRunner for HsEventProcessorRunner {
             homeserver,
             limit: self.limit,
             event_handler: self.event_handler.clone(),
+            client: self.client.clone(),
             shutdown_rx: self.shutdown_rx.clone(),
             retry_scheduler: self.retry_scheduler.clone(),
             catch_up_resume_points: self.catch_up_resume_points.clone(),

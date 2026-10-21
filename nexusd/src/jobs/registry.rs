@@ -130,7 +130,10 @@ impl JobRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::jobs::{test_support::CountingJob, HotTagsCacheJob, InfluencersCacheJob, JobError};
+    use crate::jobs::{
+        test_support::CountingJob, HotTagsCacheJob, InfluencersCacheJob, JobError,
+        MostFollowedCacheJob,
+    };
     use nexus_common::types::Timeframe;
     use std::sync::Arc;
 
@@ -315,36 +318,48 @@ cron = \"0 47 3,15 * * *\"\n";
         );
     }
 
-    /// The AllTime ranking keeps its own schedule, daily at 02:04 UTC as the docs
-    /// say, while its section is absent: a section with a `cron` overrides it, and
-    /// one without turns the job off. The ranged caches have none, so they stay opt-in.
+    /// The AllTime influencers and most-followed rankings keep their own schedules,
+    /// daily at 02:04 and 04:06 UTC as the docs say, while their sections are absent:
+    /// a section with a `cron` overrides one, and one without turns that job off. The
+    /// ranged caches have none, so they stay opt-in.
     #[tokio::test]
     async fn scheduled_jobs_fall_back_to_a_jobs_own_schedule() {
         let registry = JobRegistry::new(vec![
             Arc::new(InfluencersCacheJob::new(Timeframe::AllTime)),
             Arc::new(InfluencersCacheJob::new(Timeframe::Today)),
+            Arc::new(MostFollowedCacheJob),
             Arc::new(CountingJob::new("trust-recompute")),
         ]);
-        let section = "[jobs.influencers-cache-all-time]\n";
-        let overridden = format!("{section}cron = \"0 0 * * * *\"\n");
+        let defaults = [
+            ("influencers-cache-all-time", "0 4 2 * * *"),
+            ("most-followed-cache", "0 6 4 * * *"),
+        ];
 
-        for (extra, expected_cron) in [
-            ("", Some("0 4 2 * * *")),
-            (overridden.as_str(), Some("0 0 * * * *")),
-            (section, None),
-        ] {
-            let config = default_config_with(extra).await;
-            let scheduled: Vec<(&str, String)> = registry
-                .scheduled_jobs(&config)
-                .expect("the config should resolve")
-                .iter()
-                .map(|sj| (sj.job.name(), sj.schedule.to_string()))
-                .collect();
-            let expected: Vec<(&str, String)> = expected_cron
-                .map(|cron| ("influencers-cache-all-time", cron.to_string()))
-                .into_iter()
-                .collect();
-            assert_eq!(scheduled, expected, "with {extra:?} appended");
+        for (job, default) in defaults {
+            let section = format!("[jobs.{job}]\n");
+            let overridden = format!("{section}cron = \"0 0 * * * *\"\n");
+
+            for (extra, job_cron) in [
+                ("", Some(default)),
+                (overridden.as_str(), Some("0 0 * * * *")),
+                (section.as_str(), None),
+            ] {
+                let config = default_config_with(extra).await;
+                let scheduled: Vec<(&str, String)> = registry
+                    .scheduled_jobs(&config)
+                    .expect("the config should resolve")
+                    .iter()
+                    .map(|sj| (sj.job.name(), sj.schedule.to_string()))
+                    .collect();
+                let expected: Vec<(&str, String)> = defaults
+                    .iter()
+                    .filter_map(|&(name, cron)| {
+                        let cron = if name == job { job_cron } else { Some(cron) };
+                        cron.map(|cron| (name, cron.to_string()))
+                    })
+                    .collect();
+                assert_eq!(scheduled, expected, "with {extra:?} appended");
+            }
         }
     }
 

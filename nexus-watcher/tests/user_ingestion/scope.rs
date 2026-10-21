@@ -9,12 +9,13 @@ use nexus_common::models::post::PostDetails;
 use nexus_common::models::scope::{HomeserverListScope, Scope};
 use nexus_common::models::user::stub::create_stub;
 use nexus_common::models::user::{
-    is_stub, user_hs_cursor_key, UserCounts, UserDetails, UserHsCursor, UserIngestor,
-    SCOPE_STATE_LEFT, USER_MOSTFOLLOWED_KEY_PARTS,
+    is_stub, user_hs_cursor_key, PubkyConnectorResolver, UserCounts, UserDetails, UserHsCursor,
+    UserIngestor, UserStream, SCOPE_STATE_LEFT, USER_MOSTFOLLOWED_KEY_PARTS,
 };
-use nexus_common::{ScopeConfig, WatcherConfig, DEFAULT_MAX_FILE_SIZE};
+use nexus_common::{ScopeConfig, WatcherConfig};
 use nexus_watcher::events::handlers;
 use nexus_watcher::events::{DefaultEventHandler, Event, EventHandler, ParseResult};
+use nexus_watcher::homeserver::PubkyHomeserverClient;
 use nexus_watcher::service::scope_maintenance::ScopeMaintainer;
 use pubky::Keypair;
 use pubky_app_specs::traits::{HasIdPath, TimestampId};
@@ -28,7 +29,7 @@ fn scoped_ingestor(test: &WatcherTest) -> UserIngestor {
     let scope: Arc<dyn Scope> = Arc::new(HomeserverListScope::new(std::slice::from_ref(
         &test.homeserver_id,
     )));
-    UserIngestor::with_scope(Vec::<PubkyId>::new(), scope)
+    UserIngestor::new(Vec::<PubkyId>::new(), Arc::new(PubkyConnectorResolver)).with_scope(scope)
 }
 
 /// A user created on the test's homeserver, so in scope.
@@ -115,7 +116,8 @@ async fn test_user_inside_the_scope_is_ingested_as_before() -> Result<()> {
     let (_, user_id) = user_on(&test, &hs_pk).await?;
 
     let scope: Arc<dyn Scope> = Arc::new(HomeserverListScope::new(&[PubkyId::from(hs_pk.clone())]));
-    UserIngestor::with_scope(Vec::<PubkyId>::new(), scope)
+    UserIngestor::new(Vec::<PubkyId>::new(), Arc::new(PubkyConnectorResolver))
+        .with_scope(scope)
         .maybe_ingest_user(&user_id)
         .await?;
 
@@ -135,10 +137,14 @@ async fn test_event_by_an_author_outside_the_scope_is_skipped() -> Result<()> {
     ingestor.maybe_ingest_user(&author_id).await?;
     assert_user_is_stub(&author_id).await;
 
+    let client = PubkyHomeserverClient::from_config(
+        PubkyConnector::get()?,
+        &nexus_common::WatcherConfig::default(),
+    );
     let handler = DefaultEventHandler::new(
         default_moderation_tests(),
         ingestor,
-        DEFAULT_MAX_FILE_SIZE,
+        Arc::new(client),
         PathBuf::from("/tmp/nexus-watcher-test"),
     );
     // Never written to any homeserver: fetching it would fail, so `Ok` means skipped.
@@ -170,16 +176,24 @@ async fn test_a_followed_stub_stays_out_of_the_rankings() -> Result<()> {
     let ingestor = scoped_ingestor(&test);
     ingestor.maybe_ingest_user(&stub_id).await?;
 
-    handlers::follow::sync_put(follower_id, stub_id.clone(), &ingestor).await?;
+    handlers::follow::sync_put(follower_id.clone(), stub_id.clone(), &ingestor).await?;
 
     let counts = UserCounts::get_from_index(&stub_id)
         .await?
         .expect("stub counts");
     assert_eq!(counts.followers, 1);
-    let ranked =
-        UserDetails::check_sorted_set_member(None, &USER_MOSTFOLLOWED_KEY_PARTS, &[&stub_id])
-            .await?;
-    assert!(ranked.is_none(), "a stub stays out of most followed");
+    UserStream::refresh_most_followed().await?;
+    let rank = |user_id: PubkyId| async move {
+        UserDetails::check_sorted_set_member(None, &USER_MOSTFOLLOWED_KEY_PARTS, &[&user_id]).await
+    };
+    assert!(
+        rank(stub_id).await?.is_none(),
+        "a stub stays out of most followed"
+    );
+    assert!(
+        rank(follower_id).await?.is_some(),
+        "control: a member is ranked"
+    );
     Ok(())
 }
 
@@ -221,7 +235,8 @@ fn homeserver_maintainer(
         homeservers: homeservers.to_vec(),
     };
     let scope: Arc<dyn Scope> = Arc::new(HomeserverListScope::new(homeservers));
-    let ingestor = UserIngestor::with_scope(Vec::<PubkyId>::new(), scope);
+    let ingestor = UserIngestor::new(Vec::<PubkyId>::new(), Arc::new(PubkyConnectorResolver))
+        .with_scope(scope);
     let limit_to = Some(users.iter().map(|id| id.to_string()).collect());
     let maintainer = ScopeMaintainer::new(&config, ingestor.clone(), limit_to);
     (ingestor, maintainer)
@@ -232,10 +247,12 @@ fn homeserver_maintainer(
 #[tokio_shared_rt::test(shared)]
 async fn test_a_stub_that_moved_onto_a_listed_homeserver_is_let_in() -> Result<()> {
     let test = WatcherTest::setup(None).await?;
+    let client =
+        PubkyHomeserverClient::from_config(PubkyConnector::get()?, &WatcherConfig::default());
     let handler = DefaultEventHandler::new(
         default_moderation_tests(),
         Arc::new(scoped_ingestor(&test)),
-        DEFAULT_MAX_FILE_SIZE,
+        Arc::new(client),
         PathBuf::from("/tmp/nexus-watcher-test"),
     );
 
@@ -312,7 +329,7 @@ async fn test_everything_lets_stubs_back_in() -> Result<()> {
 
     let maintainer = ScopeMaintainer::new(
         &WatcherConfig::default(),
-        UserIngestor::default(),
+        UserIngestor::new([], Arc::new(PubkyConnectorResolver)),
         Some(vec![user_id.to_string()]),
     );
     let change = maintainer.at_start().await?;
@@ -354,7 +371,7 @@ async fn test_a_user_let_back_in_is_read_from_the_start() -> Result<()> {
     let hs_pk = create_external_test_homeserver(&mut test).await?;
     let (_, user_id) = user_on(&test, &hs_pk).await?;
     let hs_id = PubkyId::from(hs_pk).to_string();
-    let ingestor = UserIngestor::default();
+    let ingestor = UserIngestor::new([], Arc::new(PubkyConnectorResolver));
     ingestor.maybe_ingest_user(&user_id).await?;
     ingestor.demote(&user_id).await?;
     // What a poll still running when the user left writes back.

@@ -136,18 +136,11 @@ async fn init_counts(user_id: &str) -> RedisResult<()> {
     Ok(())
 }
 
-/// Stops treating the user as a stub in Redis and puts its counts into the rankings.
-/// Returns whether it was a stub there. The caller clears its `scope_state`, then calls
-/// [`drop_stub_entry`].
+/// Stops treating the user as a stub in Redis. Returns whether it was a stub there. The
+/// caller clears its `scope_state`, then calls [`drop_stub_entry`]; the rankings, rebuilt
+/// from the graph, take the user in from their next rebuild.
 pub async fn unstub(user_id: &str) -> ModelResult<bool> {
-    // Out of the set first: the rankings skip a stub.
-    if !write_entry(user_id, false).await? {
-        return Ok(false);
-    }
-    if let Some(counts) = UserCounts::get_from_index(user_id).await? {
-        counts.put_to_index(user_id).await?;
-    }
-    Ok(true)
+    Ok(write_entry(user_id, false).await?)
 }
 
 /// Drops the user's `Scope:Stubs` entry, for a user whose graph state was just cleared:

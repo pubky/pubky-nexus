@@ -6,8 +6,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use utoipa::ToSchema;
 
-use super::{is_stub, UserStream};
-
 /// Represents total counts of relationships of a user.
 #[derive(Serialize, Deserialize, ToSchema, Debug, Default, Clone)]
 pub struct UserCounts {
@@ -59,12 +57,7 @@ impl UserCounts {
     }
 
     pub async fn put_to_index(&self, user_id: &str) -> RedisResult<()> {
-        self.put_index_json(&[user_id], None, None).await?;
-        // A stub's profile is never read: ranked, it would show as a blank card.
-        if is_stub(user_id).await? {
-            return Ok(());
-        }
-        UserStream::add_to_most_followed_sorted_set(user_id, self).await
+        self.put_index_json(&[user_id], None, None).await
     }
 
     pub async fn update_index_field(
@@ -75,8 +68,8 @@ impl UserCounts {
         Self::modify_json_field(&[author_id], field, action).await
     }
 
-    /// Updates a user's counts index field, and the most-followed ranking when the
-    /// followers count changes. The AllTime influencers ranking is rebuilt by its job.
+    /// Updates a user's counts index field. The AllTime influencers and most-followed
+    /// rankings are rebuilt by their jobs.
     ///
     /// # Arguments
     ///
@@ -89,7 +82,6 @@ impl UserCounts {
     ///
     /// - Conditional Update Based on `tag_label`
     /// - Update User Counts Index
-    /// - Update the most-followed ranking on a followers change
     pub async fn update(
         user_id: &str,
         field: &str,
@@ -113,15 +105,6 @@ impl UserCounts {
         }
         // Update user counts index
         Self::update_index_field(user_id, field, action).await?;
-        if field == "followers" && !is_stub(user_id).await? {
-            // Index only, never a read-through: a caller may still be mid-change in the graph
-            // (an unfollow deletes its edge after this), and a graph read here would cache the
-            // pre-change counts. With no counts key there is nothing to rank yet; reads
-            // never refill it, only `UserCounts::reindex` rebuilds the key and its rank.
-            if let Some(user_counts) = Self::get_from_index(user_id).await? {
-                UserStream::add_to_most_followed_sorted_set(user_id, &user_counts).await?
-            }
-        }
         Ok(())
     }
 
