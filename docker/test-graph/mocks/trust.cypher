@@ -17,6 +17,7 @@ WHERE u.trust IS NULL AND NOT u.id IN [
   'z5eect18reuccuwuq78da8k5re3y8si346n3bah45gad6t6b1zby', // btc4
   'wbhcz1gfz14jc4qjg74auyo5bwxd4gc3y84ic18iro17yi4bgz3y', // btc5
   'w153s1dr9rw6t8s3nd1de6pqquuprb37dwrnwh3nk85jt9ys9k7o', // artist1
-  'z4e8s17cou9qmuwen8p1556jzhf1wktmzo6ijsfnri9c4hnrdfty'  // wot.cypher's deleted_user: unscored and deleted, hidden either way
+  'z4e8s17cou9qmuwen8p1556jzhf1wktmzo6ijsfnri9c4hnrdfty', // wot.cypher's deleted_user: unscored and deleted, hidden either way
+  'xph5h5cw3ycbaww3ewokeoq3w4fkk36qa5cmxjbm4onsbeqxi9my'  // discovery-stub.cypher: key discovery scores nobody
 ]
 SET u.trust = 0.3;
