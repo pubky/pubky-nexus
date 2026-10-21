@@ -499,6 +499,13 @@ mod tests {
         Ok((recorded, by_name.is_some(), by_id.is_some()))
     }
 
+    /// Hard-deletes the user as the watcher does: node and search state.
+    async fn delete_user(user_id: &str) -> Result<(), DynError> {
+        exec_single_row(queries::del::delete_user(user_id)).await?;
+        UserSearch::delete(user_id).await?;
+        Ok(())
+    }
+
     /// The rebuild decides by the `uri` alone, not by the name: a stub and a
     /// profile indexed before uris were stored both lose what an earlier pass
     /// indexed them under, as `UsersByPkReindex` indexes every node, and a
@@ -544,16 +551,8 @@ mod tests {
         }
         .await;
 
-        exec_single_row(
-            Query::new(
-                "user_search_test_cleanup",
-                "MATCH (u:User) WHERE u.id IN $ids DETACH DELETE u",
-            )
-            .param("ids", ids.to_vec()),
-        )
-        .await?;
         for user_id in &ids {
-            UserSearch::delete(user_id).await?;
+            delete_user(user_id).await?;
         }
         outcome
     }
@@ -586,15 +585,7 @@ mod tests {
         }
         .await;
 
-        exec_single_row(
-            Query::new(
-                "user_search_test_cleanup",
-                "MATCH (u:User {id: $id}) DETACH DELETE u",
-            )
-            .param("id", tombstone.clone()),
-        )
-        .await?;
-        UserSearch::delete(&tombstone).await?;
+        delete_user(&tombstone).await?;
         TagUser(vec![])
             .del_from_index(&tombstone, None, label)
             .await?;
