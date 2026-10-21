@@ -9,6 +9,7 @@ use tokio::time::Instant;
 use crate::errors::EventProcessorError;
 use crate::events::Event;
 use crate::homeserver::{HomeserverClient, HsStreamEvent};
+use nexus_common::db::{fetch_key_from_graph, queries};
 use nexus_common::models::homeserver::HsBlacklist;
 use nexus_common::models::user::{catch_up, UserHsCursor};
 use opentelemetry::metrics::Counter;
@@ -38,6 +39,19 @@ static OUT_OF_ORDER_CURSOR_EXTERNAL_HS: LazyLock<Counter<u64>> = LazyLock::new(|
 
 /// The users of a run with their cursors, and those of them catching up.
 type ResolvedUsers = (Vec<(PublicKey, EventCursor)>, HashSet<PublicKey>);
+
+/// Those of `user_ids` the graph has let into the scope. A promotion lists a user for
+/// catch-up before it clears its `scope_state`: read before that, its events would be
+/// skipped as an outsider's while its cursor moved past them.
+async fn admitted(user_ids: Vec<String>) -> Result<Vec<String>, EventProcessorError> {
+    if user_ids.is_empty() {
+        return Ok(user_ids);
+    }
+    let query = queries::get::get_user_ids_in_scope(&user_ids);
+    Ok(fetch_key_from_graph(query, "user_ids")
+        .await?
+        .unwrap_or_default())
+}
 
 /// Event processor for third-party (external) HSs, where the user-specific `/events-stream`
 /// endpoint is used
@@ -205,7 +219,7 @@ impl KeyBasedEventProcessor {
         // Users catching up stay in until their stream is read to its end, also while a
         // replayed DEL marks their profile deleted and the query above leaves them out.
         let polled: HashSet<String> = user_ids.iter().cloned().collect();
-        let catching_up_here = catch_up::users_catching_up_on(hs_id).await?;
+        let catching_up_here = admitted(catch_up::users_catching_up_on(hs_id).await?).await?;
         user_ids.extend(
             catching_up_here
                 .into_iter()

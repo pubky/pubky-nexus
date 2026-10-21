@@ -869,6 +869,16 @@ pub fn get_users_needing_hs_resolution(ttl_ms: u64) -> Query {
     .param("ttl_ms", ttl_ms as i64)
 }
 
+/// Retrieves those of `user_ids` that are in scope (no `scope_state`), deleted or not.
+pub fn get_user_ids_in_scope(user_ids: &[String]) -> Query {
+    Query::new(
+        "get_user_ids_in_scope",
+        "MATCH (u:User) WHERE u.id IN $user_ids AND u.scope_state IS NULL
+         RETURN collect(u.id) AS user_ids",
+    )
+    .param("user_ids", user_ids.to_vec())
+}
+
 /// Retrieves the in-scope users bound to a homeserver that isn't listed: users of a
 /// homeserver the list no longer holds. `limit_to` narrows the search to those users
 /// (tests share one graph); `None` searches every user.

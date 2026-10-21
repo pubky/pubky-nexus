@@ -621,3 +621,53 @@ async fn test_a_catch_up_goes_on_after_a_replayed_profile_delete() -> Result<()>
     );
     Ok(())
 }
+
+/// A promotion lists the user for catch-up before it clears its scope state. A whole-feed
+/// poll in between leaves the user alone, rather than skipping its records as an
+/// outsider's and moving its cursor past them; once admitted, they are read.
+#[tokio_shared_rt::test(shared)]
+async fn test_catch_up_waits_for_a_promotion_to_finish() -> Result<()> {
+    let mut test = WatcherTest::setup(None)
+        .await?
+        .remove_event_processing()
+        .await;
+    let (user_id, post_id) = user_with_post(&mut test, "Midway").await?;
+    create_stub(&UserDetails::from_pubky(user_id.clone())).await?;
+    let hs = test.homeserver_id.clone();
+    // Its homeserver was just checked, so its events are skipped as an outsider's.
+    let rechecked = format!("Scope:Rechecked:{user_id}");
+    let mut redis_conn = get_redis_conn().await?;
+    let () = redis_conn.set_ex(&rechecked, 1, 900).await?;
+
+    // A promotion stopped before it clears the scope state: bound, read from 0, listed.
+    set_user_homeserver(&user_id, &hs).await?;
+    UserHsCursor::reset(&user_id, &hs).await?;
+    start_catch_up(&user_id, &hs).await?;
+
+    let scope: Arc<dyn Scope> = Arc::new(HomeserverListScope::new(std::slice::from_ref(&hs)));
+    let ingestor = Arc::new(
+        UserIngestor::new(Vec::<PubkyId>::new(), Arc::new(PubkyConnectorResolver))
+            .with_scope(scope),
+    );
+    let feed = feed_runner(&hs, ingestor.clone());
+    let run = || async {
+        let processor = feed
+            .build(hs.as_ref())
+            .await
+            .map_err(|e| anyhow::anyhow!(e))?;
+        processor.run().await.map_err(|e| anyhow::anyhow!("{e:?}"))
+    };
+
+    run().await?;
+    let cursor_midway = UserHsCursor::read(&[user_id.as_ref()], &hs).await?;
+    // The promotion finishes.
+    assert!(ingestor.promote(&user_id).await?);
+    run().await?;
+    let indexed = PostDetails::get_by_id(&user_id, &post_id).await?.is_some();
+    caught_up(&user_id).await?;
+    let () = redis_conn.del(&rechecked).await?;
+
+    assert_eq!(cursor_midway, vec![0], "not read before it is admitted");
+    assert!(indexed, "read once admitted");
+    Ok(())
+}
