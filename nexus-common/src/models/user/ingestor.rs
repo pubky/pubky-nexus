@@ -194,6 +194,12 @@ impl UserIngestor {
                 .put_to_graph()
                 .await?;
         }
+        self.let_in(user_id).await
+    }
+
+    /// Lets a user kept outside the scope in, whatever its homeserver: [`Self::promote`]s
+    /// it, or, with no published HS, clears its state so the HS resolver binds it later.
+    pub async fn let_in(&self, user_id: &PubkyId) -> ModelResult<()> {
         if self.promote(user_id).await? {
             return Ok(());
         }
@@ -201,7 +207,7 @@ impl UserIngestor {
         unstub(user_id).await?;
         exec_single_row(queries::put::set_user_scope_state(user_id, None)).await?;
         drop_stub_entry(user_id).await?;
-        tracing::info!("Brought {user_id} back into the scope: it must always be read");
+        tracing::info!("Let {user_id} into the scope; its HS is bound once published");
         Ok(())
     }
 

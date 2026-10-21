@@ -3,7 +3,7 @@
 //! Runs once at start, before any event is read, and then periodically.
 //!
 //! - **everything**: at start, every user kept out of a previous, narrower scope is let
-//!   back in, and the HS resolver binds them.
+//!   back in.
 //! - **homeservers**: users bound to a homeserver the list doesn't hold leave; at start
 //!   after the list changed, users kept out (stubs, users that left) now on a listed
 //!   homeserver join.
@@ -15,7 +15,7 @@ use deadpool_redis::redis::AsyncCommands;
 use nexus_common::db::kv::RedisError;
 use nexus_common::db::{fetch_key_from_graph, get_redis_conn, queries};
 use nexus_common::models::error::{ModelError, ModelResult};
-use nexus_common::models::user::stub::{drop_stub_entry, unstub, SCOPE_STATE_STUB};
+use nexus_common::models::user::stub::SCOPE_STATE_STUB;
 use nexus_common::models::user::{PkdnsHomeserverResolver, UserIngestor, SCOPE_STATE_LEFT};
 use nexus_common::{ScopeConfig, WatcherConfig};
 use pubky_app_specs::PubkyId;
@@ -121,31 +121,36 @@ impl ScopeMaintainer {
         Ok(change)
     }
 
-    /// For "everything": clears every user's scope state, and the HS resolver binds them
-    /// all, so they are polled again.
-    ///
-    /// Stubs leave `Scope:Stubs` before the graph's states are cleared, so a start that
-    /// fails partway finds them still marked and tries again.
+    /// For "everything": lets every stub and every user that left back in. Each one is
+    /// bound with its cursor at 0 and catches up, so the records it wrote while it was out
+    /// are read, also on the primary homeserver, whose feed moved past them. One that
+    /// fails stays out, and the next start tries it again.
     async fn let_everyone_in(&self) -> ModelResult<ScopeChange> {
-        let query = queries::get::get_user_ids_by_scope_state(SCOPE_STATE_STUB);
-        let stub_ids: Vec<String> = fetch_key_from_graph(query, "user_ids")
-            .await?
-            .unwrap_or_default();
-        let stub_ids = self.limited(stub_ids);
-        for user_id in &stub_ids {
-            unstub(user_id).await?;
+        let outsiders = self.limited(self.outsiders().await?);
+        let mut change = ScopeChange::default();
+        for user_id in &outsiders {
+            let Ok(id) = PubkyId::try_from(user_id.as_str()) else {
+                continue;
+            };
+            match self.ingestor.let_in(&id).await {
+                Ok(()) => change.joined += 1,
+                Err(e) => {
+                    warn!(%user_id, error = %e, "Could not let a user in; trying again next start")
+                }
+            }
         }
-        let query = queries::put::clear_scope_states(self.limit_to.as_deref());
-        let _: Option<Vec<String>> = fetch_key_from_graph(query, "stub_ids").await?;
-        // A concurrent `is_stub` rebuild may have put an entry back from the graph's old
-        // state.
-        for user_id in &stub_ids {
-            drop_stub_entry(user_id).await?;
+        Ok(change)
+    }
+
+    /// Users kept out of the scope: stubs, and users that left.
+    async fn outsiders(&self) -> ModelResult<Vec<String>> {
+        let mut outsiders = Vec::new();
+        for scope_state in [SCOPE_STATE_STUB, SCOPE_STATE_LEFT] {
+            let query = queries::get::get_user_ids_by_scope_state(scope_state);
+            let user_ids: Option<Vec<String>> = fetch_key_from_graph(query, "user_ids").await?;
+            outsiders.extend(user_ids.unwrap_or_default());
         }
-        Ok(ScopeChange {
-            joined: stub_ids.len(),
-            left: 0,
-        })
+        Ok(outsiders)
     }
 
     /// For a homeserver scope: users bound to a homeserver that isn't listed leave.
@@ -167,14 +172,8 @@ impl ScopeMaintainer {
     /// when the list was narrowed) whose homeserver is now listed join. Each one's
     /// homeserver is resolved, so this runs only when the list changed.
     async fn admit_outsiders_on(&self, homeservers: &[PubkyId]) -> ModelResult<usize> {
-        let mut outsiders: Vec<String> = Vec::new();
-        for scope_state in [SCOPE_STATE_STUB, SCOPE_STATE_LEFT] {
-            let query = queries::get::get_user_ids_by_scope_state(scope_state);
-            let user_ids: Option<Vec<String>> = fetch_key_from_graph(query, "user_ids").await?;
-            outsiders.extend(user_ids.unwrap_or_default());
-        }
-        self.admit_if_listed(homeservers, &self.limited(outsiders))
-            .await
+        let outsiders = self.limited(self.outsiders().await?);
+        self.admit_if_listed(homeservers, &outsiders).await
     }
 
     /// Tries again the admissions whose homeserver lookup failed.

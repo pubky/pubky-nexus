@@ -7,6 +7,7 @@ use nexus_common::db::kv::RedisOps;
 use nexus_common::db::{fetch_key_from_graph, fetch_row_from_graph, queries, PubkyConnector};
 use nexus_common::models::post::PostDetails;
 use nexus_common::models::scope::{HomeserverListScope, Scope};
+use nexus_common::models::user::catch_up;
 use nexus_common::models::user::stub::create_stub;
 use nexus_common::models::user::{
     is_stub, user_hs_cursor_key, PubkyConnectorResolver, UserCounts, UserDetails, UserHsCursor,
@@ -324,6 +325,7 @@ async fn test_everything_lets_stubs_back_in() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
     let hs_pk = create_external_test_homeserver(&mut test).await?;
     let (_, user_id) = user_on(&test, &hs_pk).await?;
+    let hs_id = PubkyId::from(hs_pk).to_string();
     scoped_ingestor(&test).maybe_ingest_user(&user_id).await?;
     assert_user_is_stub(&user_id).await;
 
@@ -333,10 +335,19 @@ async fn test_everything_lets_stubs_back_in() -> Result<()> {
         Some(vec![user_id.to_string()]),
     );
     let change = maintainer.at_start().await?;
+    let catching_up = catch_up::catching_up(&[user_id.as_ref()]).await?;
+    catch_up::caught_up(&user_id).await?;
 
     assert_eq!(change.joined, 1);
     assert!(!is_stub(&user_id).await?);
     assert_eq!(scope_state(&user_id).await?, None, "in scope");
+    assert_eq!(
+        catching_up,
+        vec![true],
+        "its skipped records are read from the start"
+    );
+    let cursors = UserHsCursor::read(&[user_id.as_ref()], &hs_id).await?;
+    assert_eq!(cursors, vec![0]);
     Ok(())
 }
 

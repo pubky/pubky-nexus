@@ -306,8 +306,9 @@ that doesn't belong to the `kind` is an error.
 **Changing the scope moves known users in or out at the next start**, before any event
 is read (`ScopeMaintainer`):
 
-- `everything`: every stub and every user that left is let back in, and the HS resolver
-  binds them.
+- `everything`: every stub and every user that left is let back in, and catches up like
+  any user that joins (below). One whose homeserver isn't published is let in unbound, for
+  the HS resolver to bind.
 - `homeservers`: users bound to a homeserver the list no longer holds leave. If the list
   changed since the last start (`Scope:Active`), stubs and users that left whose
   homeserver is now listed join. A user whose homeserver can't be found is tried again
@@ -319,7 +320,8 @@ nothing polls it; what was indexed of it stays. A user that **joins** is bound t
 homeserver with its cursor at 0 and **catches up** (`Scope:CatchUp`): its own stream is
 read from the start until it is empty, so the records it wrote while it was out are
 indexed. On a homeserver read whole, whose feed moved past those records, the whole-feed
-processor reads the user's own stream before the feed. A stub or a user that left whose
+processor reads the user's own stream before the feed, for at most 30 seconds per poll, so
+new events wait seconds; a longer catch-up goes on over the next polls. A stub or a user that left whose
 event shows up in a listed feed may have moved there: its homeserver is checked again, at
 most once per 15 minutes, and it joins if it is now listed.
 

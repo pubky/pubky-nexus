@@ -4,7 +4,7 @@ use crate::events::retry::RetryScheduler;
 use crate::events::{Event, EventHandler};
 use crate::homeserver::HomeserverClient;
 use crate::service::runner::{UserNotFoundBackoff, UserResumePoints};
-use crate::service::KEY_BASED_RUN_BUDGET;
+use crate::service::CATCH_UP_RUN_BUDGET;
 use nexus_common::db::kv::RedisError;
 use nexus_common::db::{fetch_row_from_graph, queries, GraphResult};
 use nexus_common::models::error::ModelError;
@@ -201,9 +201,10 @@ impl TEventProcessor for HsEventProcessor {
     }
 
     async fn run_internal(self: Arc<Self>) -> Result<RunOutcome, EventProcessorError> {
-        // Before the feed, in the same task, so a record is never handled twice at once. A
-        // failure here (a user's stream down while the feed works) doesn't hold the feed
-        // up: the next poll tries the catch-up again.
+        // Before the feed, in the same task, so a record is never handled twice at once, and
+        // for at most `CATCH_UP_RUN_BUDGET`, so the feed's new events wait seconds. A failure
+        // here (a user's stream down while the feed works) doesn't hold the feed up: the
+        // next poll tries the catch-up again.
         if let Err(e) = self.catch_up_users().await {
             warn!(error = ?e, "Catching users up failed; reading the feed anyway");
         }
@@ -243,7 +244,7 @@ impl HsEventProcessor {
             retry_scheduler: self.retry_scheduler.clone(),
             shutdown_rx: self.shutdown_rx.clone(),
             user_resume_points: self.catch_up_resume_points.clone(),
-            budget: KEY_BASED_RUN_BUDGET,
+            budget: CATCH_UP_RUN_BUDGET,
         });
         users.run_internal().await?;
         Ok(())

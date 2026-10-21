@@ -509,21 +509,6 @@ pub fn unbind_user_from_scope(user_id: &str, scope_state: &str) -> Query {
     .param("scope_state", scope_state.to_string())
 }
 
-/// Clears every user's `scope_state`, for a scope that now includes everyone, and
-/// returns the ids of those who were stubs. `limit_to` narrows it to those users
-/// (tests share one graph); `None` clears every user.
-pub fn clear_scope_states(limit_to: Option<&[String]>) -> Query {
-    Query::new(
-        "clear_scope_states",
-        "MATCH (u:User)
-         WHERE u.scope_state IS NOT NULL AND ($limit_to IS NULL OR u.id IN $limit_to)
-         WITH u, u.scope_state AS previous
-         REMOVE u.scope_state
-         RETURN collect(CASE WHEN previous = 'stub' THEN u.id END) AS stub_ids",
-    )
-    .param("limit_to", limit_to.map(<[String]>::to_vec))
-}
-
 /// Records an address the moderator took down, and the moderator tag that took it down;
 /// see [`crate::models::takedown`]. A second tag on the same address keeps the first.
 pub fn record_takedown(uri: &str, tag_uri: &str) -> Query {
