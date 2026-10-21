@@ -76,9 +76,13 @@ async fn homeserver_allowing_one_stream_request_a_second(
     test: &mut WatcherTest,
 ) -> Result<PublicKey, DynError> {
     let mut config = ConfigToml::default_test_config();
-    // The stack's test database, as `Testnet::create_random_homeserver` reads it.
-    if let Ok(connection_string) = std::env::var("TEST_PUBKY_CONNECTION_STRING") {
-        config.general.database_url = ConnectionString::new(&connection_string)?;
+    // The stack's test database, read as the testnet reads it for its own homeservers: an
+    // unset or unparsable `TEST_PUBKY_CONNECTION_STRING` leaves the default in place.
+    let stack_database = std::env::var("TEST_PUBKY_CONNECTION_STRING")
+        .ok()
+        .and_then(|raw| ConnectionString::new(&raw).ok());
+    if let Some(connection_string) = stack_database {
+        config.general.database_url = connection_string;
     }
     config.drive.rate_limits.push(PathLimit {
         path: GlobPattern::new("/events-stream"),
