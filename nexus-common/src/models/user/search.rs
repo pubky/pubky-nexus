@@ -393,9 +393,10 @@ impl UserSearch {
     /// `after_id`, and returns the page's last id: `None` past the last page.
     async fn reindex_page(after_id: &str, limit: usize) -> ModelResult<Option<String>> {
         let rows = fetch_all_rows_from_graph(queries::get::get_users_page(after_id, limit)).await?;
-        let Some(last_id) = rows.last().and_then(|row| row.get::<String>("id").ok()) else {
+        let Some(last) = rows.last() else {
             return Ok(None);
         };
+        let last_id: String = last.get("id").map_err(GraphError::from)?;
 
         let mut page = Vec::with_capacity(rows.len());
         for row in &rows {
