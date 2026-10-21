@@ -20,6 +20,7 @@ use pubky_app_specs::{
 use tokio::sync::watch;
 
 use crate::event_processor::utils::default_moderation_tests;
+use crate::event_processor::utils::watcher::retrieve_and_handle_event_line;
 use crate::service::utils::common::create_mock_handler;
 use crate::service::utils::{new_in_memory_store, setup, MockHomeserverClient};
 
@@ -840,15 +841,19 @@ async fn test_run_polls_and_fetches_through_the_client() -> Result<()> {
     };
     homeserver.put_to_index().await?;
     let hs_id = homeserver.id.to_string();
-    let processor = processor_with_client(homeserver, event_handler, client);
+    let processor = processor_with_client(homeserver, event_handler.clone(), client);
 
     processor.run().await?;
 
-    let user = UserDetails::get_by_id(&user_id)
-        .await?
-        .expect("the profile should be indexed");
-    assert_eq!(user.name, "client-seam");
-    assert_eq!(stored_cursor(&hs_id).await?, 1);
+    let user = UserDetails::get_by_id(&user_id).await?;
+    let cursor = stored_cursor(&hs_id).await?;
+    retrieve_and_handle_event_line(&format!("DEL {profile_uri}"), event_handler).await?;
+
+    assert_eq!(
+        user.expect("the profile should be indexed").name,
+        "client-seam"
+    );
+    assert_eq!(cursor, 1);
 
     Ok(())
 }

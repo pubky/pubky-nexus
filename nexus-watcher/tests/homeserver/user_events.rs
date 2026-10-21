@@ -6,7 +6,9 @@
 
 use std::time::{Duration, Instant};
 
-use crate::event_processor::utils::watcher::WatcherTest;
+use crate::event_processor::utils::watcher::{
+    retrieve_and_handle_event_line, unrank_user, WatcherTest,
+};
 use nexus_common::types::DynError;
 use pubky::{Keypair, PublicKey};
 use pubky_app_specs::{PubkyAppUser, PubkyId};
@@ -51,6 +53,15 @@ async fn test_user_events_come_from_the_homeserver_after_the_cursor() -> Result<
     let rest = client
         .user_events(&test.homeserver_id, &user_pk, cursor, 100)
         .await?;
+
+    // The key now names the other homeserver, so the usual cleanup helper would delete the
+    // profile there, where it never was. Undo `create_user` through the DEL handler instead.
+    unrank_user(&user_id).await?;
+    retrieve_and_handle_event_line(
+        &format!("DEL pubky://{user_id}/pub/pubky.app/profile.json"),
+        test.event_processor_runner.event_handler.clone(),
+    )
+    .await?;
 
     assert_eq!(rest.len(), 1, "{rest:?}");
     assert!(rest[0].cursor > cursor, "{rest:?}");
