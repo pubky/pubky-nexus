@@ -21,16 +21,19 @@ use nexus_watcher::events::{Event, ParseResult};
 use nexus_watcher::homeserver::{HomeserverClient, PubkyHomeserverClient};
 use nexus_watcher::service::HsEventProcessorRunner;
 use nexus_watcher::service::TEventProcessorRunner;
+use pubky::ClientId;
 use pubky::Keypair;
 use pubky::PublicKey;
 use pubky::ResourcePath;
-use pubky_app_specs::file_uri_builder;
-use pubky_app_specs::traits::HashId;
-use pubky_app_specs::{
+use pubky_social_specs::legacy_v0::file_uri_builder;
+use pubky_social_specs::legacy_v0::traits::HashId;
+use pubky_social_specs::legacy_v0::{
     traits::{HasIdPath, HasPath, TimestampId},
-    PubkyAppFile, PubkyAppFollow, PubkyAppPost, PubkyAppUser, PubkyId,
+    PubkyAppFile, PubkyAppFollow, PubkyAppPost, PubkyAppUser,
 };
+use pubky_social_specs::PubkyId;
 use pubky_testnet::Testnet;
+use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -39,6 +42,11 @@ use tempfile::TempDir;
 use tracing::debug;
 
 static COUNTER: AtomicU64 = AtomicU64::new(0);
+
+/// Client ID the tests sign in with. Since pubky 0.10 a session is a grant issued to a client.
+fn test_client_id() -> ClientId {
+    ClientId::new("nexus-watcher.test").expect("static test client id is valid")
+}
 
 /// Generate a unique post ID for tests.
 /// Uses PID-based offset for inter-process uniqueness and atomic counter
@@ -59,6 +67,8 @@ pub struct WatcherTest {
     pub testnet: Testnet,
     /// The homeserver ID
     pub homeserver_id: PubkyId,
+    /// The homeserver's admin server, which serves the WebDAV used by [`Self::put_as_admin`]
+    pub admin_socket: SocketAddr,
     /// The event processor runner
     pub event_processor_runner: HsEventProcessorRunner,
     /// Whether to ensure event processing is complete
@@ -154,7 +164,12 @@ impl WatcherTest {
         testnet.create_http_relay().await?;
 
         // Create a random homeserver with a random public key
-        let homeserver_id = PubkyId::from(testnet.create_random_homeserver().await?.public_key());
+        let homeserver = testnet.create_random_homeserver().await?;
+        let homeserver_id = PubkyId::from(homeserver.public_key());
+        let admin_socket = homeserver
+            .admin_server()
+            .map(|admin| admin.listen_socket())
+            .ok_or_else(|| anyhow!("the test homeserver runs no admin server"))?;
         Homeserver::persist_if_unknown(homeserver_id.clone())
             .await
             .unwrap();
@@ -178,6 +193,7 @@ impl WatcherTest {
         Ok(Self {
             testnet,
             homeserver_id,
+            admin_socket,
             event_processor_runner,
             ensure_event_processing: true,
             temp_dir,
@@ -226,11 +242,38 @@ impl WatcherTest {
         let pubky = PubkyConnector::get()?;
 
         let signer = pubky.signer(user_keypair.clone());
-        let session = signer.signin().await?;
+        let session = signer.signin(test_client_id()).await?;
         session
             .storage()
             .put(hs_path, serde_json::to_string(&object)?)
             .await?;
+        self.ensure_event_processing_complete().await?;
+        Ok(())
+    }
+
+    /// Writes `object` to `hs_path` of `user_id` through the homeserver's admin WebDAV, then
+    /// processes the events like [`Self::put`]. Since pubky 0.10 a user cannot write a path that
+    /// collides with a file or folder; the admin can, to repair data written before that rule.
+    pub async fn put_as_admin<T>(
+        &mut self,
+        user_id: &str,
+        hs_path: &ResourcePath,
+        object: T,
+    ) -> Result<()>
+    where
+        T: serde::Serialize,
+    {
+        // The admin password of the testnet homeserver's default test config
+        reqwest::Client::new()
+            .put(format!(
+                "http://{}/dav/{user_id}{hs_path}",
+                self.admin_socket
+            ))
+            .basic_auth("admin", Some("admin"))
+            .body(serde_json::to_string(&object)?)
+            .send()
+            .await?
+            .error_for_status()?;
         self.ensure_event_processing_complete().await?;
         Ok(())
     }
@@ -249,7 +292,7 @@ impl WatcherTest {
         let pubky = PubkyConnector::get()?;
 
         let signer = pubky.signer(user_keypair.clone());
-        let session = signer.signin().await?;
+        let session = signer.signin(test_client_id()).await?;
         session.storage().delete(hs_path).await?;
         self.ensure_event_processing_complete().await?;
         Ok(())
@@ -259,7 +302,10 @@ impl WatcherTest {
         let pubky = PubkyConnector::get()?;
 
         let signer = pubky.signer(user_kp.clone());
-        let hs_pk = self.homeserver_id.to_public_key();
+        let hs_pk = self
+            .homeserver_id
+            .to_public_key()
+            .expect("the test homeserver id is a real public key");
         signer.signup(&hs_pk, None).await?;
 
         Ok(())
@@ -356,7 +402,7 @@ impl WatcherTest {
         let pubky = PubkyConnector::get()?;
 
         let signer = pubky.signer(user_kp.clone());
-        let session = signer.signin().await?;
+        let session = signer.signin(test_client_id()).await?;
         session.storage().put(homeserver_uri, object).await?;
         Ok(())
     }
@@ -397,7 +443,7 @@ pub async fn retrieve_and_handle_event_line(
 ) -> Result<(), EventProcessorError> {
     match Event::parse_event(event_line)? {
         ParseResult::Parsed(event) => event_handler.handle(&event).await,
-        ParseResult::Skipped | ParseResult::UnrecognizedUri { .. } => Ok(()),
+        ParseResult::Skipped(_) | ParseResult::UnrecognizedUri { .. } => Ok(()),
     }
 }
 

@@ -11,7 +11,7 @@
 //! v0.4.5 → v0.5.0 staged-rollout strategy is theatre.
 
 use nexus_watcher::errors::EventProcessorError;
-use pubky_app_specs::{
+use pubky_social_specs::legacy_v0::{
     traits::{TimestampId, Validatable},
     PubkyAppPost, PubkyAppPostKind,
 };

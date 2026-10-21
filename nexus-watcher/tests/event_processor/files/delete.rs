@@ -1,3 +1,4 @@
+use crate::event_processor::posts::utils::resource_key;
 use crate::event_processor::utils::watcher::{assert_file_details, WatcherTest};
 use anyhow::Result;
 use chrono::Utc;
@@ -5,10 +6,10 @@ use nexus_common::models::event::EventLine;
 use nexus_common::models::{file::FileDetails, traits::Collection};
 use nexus_watcher::events::handlers;
 use pubky::Keypair;
-use pubky_app_specs::{
+use pubky_social_specs::legacy_v0::{
     blob_uri_builder,
     traits::{HasIdPath, HashId},
-    PubkyAppBlob, PubkyAppFile, PubkyAppUser, PubkyId,
+    PubkyAppBlob, PubkyAppFile, PubkyAppUser,
 };
 
 #[tokio_shared_rt::test(shared)]
@@ -127,8 +128,8 @@ async fn test_delete_pubkyapp_file_is_idempotent() -> Result<()> {
     assert!(files[0].is_none(), "File should be gone after first delete");
 
     // Simulate a replay: call the DEL handler again directly (e.g. crash between FS delete and store_event)
-    let user_pubky_id = PubkyId::try_from(user_id.as_str()).map_err(anyhow::Error::msg)?;
-    let result = handlers::file::del(&user_pubky_id, file_id, test.temp_dir.path()).await;
+    let key = resource_key(&user_id, &file_id)?;
+    let result = handlers::file::del(key, test.temp_dir.path()).await;
 
     assert!(
         result.is_ok(),

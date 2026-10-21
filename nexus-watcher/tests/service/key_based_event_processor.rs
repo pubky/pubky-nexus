@@ -23,7 +23,7 @@ use nexus_watcher::service::{
     KeyBasedEventProcessorRunner, TEventProcessorRunner, KEY_BASED_RUN_BUDGET,
 };
 use pubky::{Keypair, PubkyResource, PublicKey};
-use pubky_app_specs::PubkyId;
+use pubky_social_specs::PubkyId;
 use tokio::sync::watch;
 
 use crate::service::utils::{

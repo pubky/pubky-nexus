@@ -1,4 +1,5 @@
 use super::utils::find_post_tag;
+use crate::event_processor::posts::utils::resource_key;
 use crate::event_processor::users::utils::find_user_counts;
 use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
@@ -8,7 +9,7 @@ use nexus_common::models::tag::traits::{TagCollection, TaggersCollection};
 use nexus_common::models::user::UserCounts;
 use nexus_watcher::events::handlers;
 use pubky::Keypair;
-use pubky_app_specs::{tag_uri_builder, PubkyAppPost, PubkyAppUser};
+use pubky_social_specs::legacy_v0::{tag_uri_builder, PubkyAppPost, PubkyAppUser};
 
 /// Use indexed_at far in the past so TAGGED edges don't interfere with
 /// hot-tags tests that query this_month/today timeframes.
@@ -88,8 +89,7 @@ async fn test_tag_post_del_retry_no_double_decrement() -> Result<()> {
     assert_eq!(find_user_counts(&tagger_id).await.tagged, 0);
 
     // Retry: call del handler directly — should delete graph without double-decrement
-    let tag_uri = tag_uri_builder(tagger_id.clone(), tag_id.to_string());
-    handlers::tag::del(&tag_uri).await?;
+    handlers::tag::del(resource_key(&tagger_id, tag_id)?, None).await?;
 
     // Verify final state: graph edge deleted, counter still 0
     let post_tag = find_post_tag(&author_id, &post_id, label).await?;
@@ -156,15 +156,14 @@ async fn test_tag_post_del_replay_after_success_skips() -> Result<()> {
     UserCounts::increment(&tagger_id, "tagged", None).await?;
 
     // First delete via handler (should succeed)
-    let tag_uri = tag_uri_builder(tagger_id.clone(), tag_id.to_string());
-    handlers::tag::del(&tag_uri).await?;
+    handlers::tag::del(resource_key(&tagger_id, tag_id)?, None).await?;
 
     // Verify fully deleted state
     let post_tag = find_post_tag(&author_id, &post_id, label).await?;
     assert!(post_tag.is_none());
 
     // Replay: call del again — should succeed as idempotent no-op
-    handlers::tag::del(&tag_uri).await?;
+    handlers::tag::del(resource_key(&tagger_id, tag_id)?, None).await?;
 
     // Cleanup
     test.cleanup_post(&author_kp, &post_path).await?;

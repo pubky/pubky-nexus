@@ -3,7 +3,7 @@ use std::ops::Deref;
 
 use super::bounded_vec;
 use crate::Error;
-use pubky_app_specs::validate_crockford_id;
+use pubky_social_specs::legacy_v0::validate_crockford_id;
 use serde::de;
 use serde::Deserialize;
 use utoipa::ToSchema;

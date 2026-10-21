@@ -1,11 +1,11 @@
-use super::{PostRelationships, PostStream};
+use super::PostStream;
 use crate::db::kv::RedisResult;
 use crate::db::{
     execute_graph_operation, fetch_row_from_graph, queries, GraphResult, OperationOutcome, RedisOps,
 };
 use crate::models::error::ModelResult;
-use chrono::Utc;
-use pubky_app_specs::{PubkyAppPost, PubkyAppPostKind, PubkyId};
+use crate::models::ResourceKey;
+use pubky_social_specs::legacy_v0::PubkyAppPostKind;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -112,26 +112,6 @@ impl PostDetails {
         Ok(())
     }
 
-    /// `uri` is the address the post was read from: the event path.
-    pub fn from_homeserver(
-        homeserver_post: PubkyAppPost,
-        uri: String,
-        author_id: &PubkyId,
-        post_id: &str,
-    ) -> Self {
-        PostDetails {
-            uri,
-            content: homeserver_post.content,
-            id: post_id.to_string(),
-            indexed_at: Utc::now().timestamp_millis(),
-            author: author_id.to_string(),
-            kind: homeserver_post.kind,
-            attachments: homeserver_post.attachments,
-            lock: homeserver_post.lock,
-            deleted: false,
-        }
-    }
-
     pub async fn reindex(author_id: &str, post_id: &str) -> ModelResult<()> {
         match Self::get_from_graph(author_id, post_id).await? {
             Some((details, reply)) => details.put_to_index(author_id, reply, false).await?,
@@ -142,12 +122,13 @@ impl PostDetails {
         Ok(())
     }
 
-    // Save new graph node
+    /// Saves the post node with its `REPLIED` and `REPOSTED` edges to the posts these keys name.
     pub async fn put_to_graph(
         &self,
-        post_relationships: &PostRelationships,
+        replied: Option<&ResourceKey>,
+        reposted: Option<&ResourceKey>,
     ) -> GraphResult<OperationOutcome> {
-        let query = queries::put::create_post(self, post_relationships)?;
+        let query = queries::put::create_post(self, replied, reposted)?;
         execute_graph_operation(query).await
     }
 
@@ -198,7 +179,7 @@ impl PostDetails {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pubky_app_specs::PubkyAppPostKind;
+    use pubky_social_specs::legacy_v0::PubkyAppPostKind;
 
     #[tokio_shared_rt::test(shared)]
     async fn test_is_different_than() {

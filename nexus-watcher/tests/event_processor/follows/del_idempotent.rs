@@ -12,7 +12,8 @@ use nexus_common::{
 };
 use nexus_watcher::events::handlers::follow;
 use pubky::Keypair;
-use pubky_app_specs::{PubkyAppUser, PubkyId};
+use pubky_social_specs::legacy_v0::PubkyAppUser;
+use pubky_social_specs::PubkyId;
 
 /// Test that calling sync_del twice (simulating a retry) does not produce
 /// negative counts or corrupt indexes.

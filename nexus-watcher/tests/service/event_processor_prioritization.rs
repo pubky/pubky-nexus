@@ -19,7 +19,7 @@ use nexus_watcher::service::runner::{HomeserverBackoff, UserNotFoundBackoff, Use
 use nexus_watcher::service::{
     KeyBasedEventProcessorRunner, TEventProcessorRunner, KEY_BASED_RUN_BUDGET,
 };
-use pubky_app_specs::PubkyId;
+use pubky_social_specs::PubkyId;
 use std::path::PathBuf;
 use std::sync::Arc;
 

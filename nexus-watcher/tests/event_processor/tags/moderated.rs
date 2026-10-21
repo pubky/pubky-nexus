@@ -1,11 +1,17 @@
 use super::resource_utils::{compute_resource_id, find_resource_tag};
 use super::utils::find_post_tag;
-use crate::event_processor::utils::watcher::{HomeserverHashIdPath, WatcherTest};
+use crate::event_processor::posts::utils::find_post_details;
+use crate::event_processor::users::utils::find_user_counts;
+use crate::event_processor::utils::watcher::{
+    retrieve_and_handle_event_line, HomeserverHashIdPath, WatcherTest,
+};
 use anyhow::Result;
 use chrono::Utc;
 use pubky::{recovery_file, Keypair, ResourcePath};
-use pubky_app_specs::traits::HashId;
-use pubky_app_specs::{post_uri_builder, tag_uri_builder, PubkyAppPost, PubkyAppTag, PubkyAppUser};
+use pubky_social_specs::legacy_v0::traits::HashId;
+use pubky_social_specs::legacy_v0::{
+    post_uri_builder, tag_uri_builder, PubkyAppPost, PubkyAppTag, PubkyAppUser,
+};
 use tokio::fs;
 
 const MODERATION_LABEL: &str = "label_to_moderate";
@@ -176,6 +182,71 @@ async fn test_moderation_keeps_same_label_pubky_app_tag_from_different_user() ->
         .expect("same-label pubky.app tag from another user should remain");
     assert_eq!(post_tag.taggers_count, 1);
     assert!(post_tag.taggers.contains(&pubky_tagger_id));
+
+    Ok(())
+}
+
+/// A moderator tag whose target names nothing Nexus deletes (a URL) is a no-op that succeeds:
+/// nothing is deleted or indexed.
+#[tokio_shared_rt::test(shared)]
+async fn test_moderation_of_an_unresolved_target_is_a_no_op() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let moderator_kp = create_moderator(&mut test).await?;
+    let moderator_id = moderator_kp.public_key().to_z32();
+    let (_author_kp, author_id, post_id) = create_author_and_post(&mut test).await?;
+    let tagged_before = find_user_counts(&moderator_id).await.tagged;
+
+    // Switch OFF event processing so the tag is handled only by the call below
+    test = test.remove_event_processing().await;
+
+    let url = format!("https://example.com/moderate-other/{author_id}");
+    let tag = PubkyAppTag {
+        uri: url.clone(),
+        label: MODERATION_LABEL.to_string(),
+        created_at: Utc::now().timestamp_millis(),
+    };
+    let tag_id = tag.create_id();
+    test.put(&moderator_kp, &tag.hs_path(), &tag).await?;
+
+    let tag_event = format!("PUT pubky://{moderator_id}/pub/pubky.app/tags/{tag_id}");
+    let event_handler = test.event_processor_runner.event_handler.clone();
+    retrieve_and_handle_event_line(&tag_event, event_handler)
+        .await
+        .unwrap_or_else(|err| panic!("moderating {url} should succeed: {err:?}"));
+
+    let post = find_post_details(&author_id, &post_id).await?;
+    assert!(!post.deleted, "the v0 post must not be moderated");
+    assert!(
+        find_resource_tag(&compute_resource_id(&url), MODERATION_LABEL)
+            .await?
+            .is_none(),
+        "the moderator tag must not be indexed on the URL"
+    );
+    assert_eq!(
+        find_user_counts(&moderator_id).await.tagged,
+        tagged_before,
+        "the moderator tag must not be indexed"
+    );
+
+    Ok(())
+}
+
+/// A post has one node whichever epoch's address names it: a moderator tag written as the
+/// `social/v1` address of an indexed `pubky.app` post takes that post down.
+#[tokio_shared_rt::test(shared)]
+async fn test_moderation_through_the_social_v1_address_of_a_post_takes_it_down() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let moderator_kp = create_moderator(&mut test).await?;
+    let (_author_kp, author_id, post_id) = create_author_and_post(&mut test).await?;
+
+    let social_v1_post = format!("pubky://{author_id}/pub/social/v1/posts/{post_id}");
+    moderate_tag(&mut test, &moderator_kp, &social_v1_post).await?;
+
+    // Edge-free, so hard-deleted rather than tombstoned.
+    assert!(
+        find_post_details(&author_id, &post_id).await.is_err(),
+        "the post must be taken down through its v1 address"
+    );
 
     Ok(())
 }

@@ -9,7 +9,7 @@ use nexus_common::WatcherConfig;
 use opentelemetry::metrics::Counter;
 use opentelemetry::{global, KeyValue};
 use pubky::{EventCursor, Method, Pubky, PubkyResource, PublicKey};
-use pubky_app_specs::PubkyId;
+use pubky_social_specs::PubkyId;
 use tracing::{error, trace, warn};
 
 use super::fetch::{
@@ -144,11 +144,12 @@ impl PubkyHomeserverClient {
         cursor: u64,
         limit: u16,
     ) -> Result<Vec<HsStreamEvent>, HsErrorKind> {
+        let hs_pk = hs.to_public_key().map_err(HsErrorKind::malformed)?;
         // We are building the stream without the live flag, so it performs an HTTP GET and closes.
         // See rustdoc of EventStreamBuilder::live()
         let mut stream = self
             .pubky
-            .event_stream_for(&hs.to_public_key())
+            .event_stream_for(&hs_pk)
             .add_users(vec![(user, Some(EventCursor::new(cursor)))])
             .map_err(HsErrorKind::from_sdk)?
             .limit(limit)
@@ -204,10 +205,12 @@ where
 #[async_trait::async_trait]
 impl PkdnsHomeserverResolver for PubkyHomeserverClient {
     async fn resolve_homeserver(&self, user_pk: &PublicKey) -> PubkyClientResult<Option<PubkyId>> {
+        // A failed lookup and a malformed `_pubky` record stay an `Err`, as in
+        // `PubkyConnectorResolver`.
         Ok(self
             .pubky
             .get_homeserver_of(user_pk)
-            .await
+            .await?
             .map(PubkyId::from))
     }
 }

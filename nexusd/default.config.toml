@@ -49,7 +49,7 @@ retry_processor_interval_ms = 10000
 # Responses with Content-Length exceeding this are rejected immediately.
 # Responses without a header are streamed with a running byte-count and aborted past the cap.
 # Rejected files are treated as permanent failures (not retried).
-# Unset, it defaults to the blob size cap declared by pubky-app-specs.
+# Unset, it defaults to the v0 blob size cap declared by pubky-social-specs.
 # max_file_size = <bytes>
 # User public key to trust for moderating content (test user key, change as needed)
 moderation_id = "uo7jgkykft4885n8cruizwy6khw71mnu5pq3ay9i8pw1ymcn85ko"

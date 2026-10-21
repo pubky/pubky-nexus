@@ -12,18 +12,31 @@ use nexus_common::models::post::PostCounts;
 use nexus_common::models::takedown::record_takedown;
 use nexus_common::types::Pagination;
 use nexus_common::utils::test_utils::default_ingestor_tests;
+use nexus_watcher::events::inputs::{Reference, ReferenceTarget, ResourceKey};
 use nexus_watcher::events::remove_if_taken_down;
 use nexus_watcher::EventProcessorError;
 use pubky::ResourcePath;
 use pubky::{recovery_file, Keypair};
-use pubky_app_specs::traits::HasIdPath;
-use pubky_app_specs::{
+use pubky_social_specs::legacy_v0::traits::HasIdPath;
+use pubky_social_specs::legacy_v0::{
     post_uri_builder, PubkyAppPost, PubkyAppPostKind, PubkyAppTag, PubkyAppUser,
 };
+use pubky_social_specs::{post_uri_builder as social_v1_post_uri_builder, PubkyId};
 use std::path::Path;
 use tokio::fs;
 
 const MODERATION_LABEL: &str = "label_to_moderate";
+
+/// The reference a moderator tag written as `uri` resolves to: the post `post_id` by `owner_id`.
+fn post_reference(uri: &str, owner_id: &str, post_id: &str) -> Reference {
+    Reference {
+        uri: uri.to_string(),
+        target: ReferenceTarget::Post(ResourceKey {
+            owner_id: PubkyId::try_from(owner_id).expect("a valid user id"),
+            resource_id: post_id.to_string(),
+        }),
+    }
+}
 /// The address of a moderator tag applied directly in a test, kept with its takedown.
 const MODERATOR_TAG_URI: &str =
     "pubky://uo7jgkykft4885n8cruizwy6khw71mnu5pq3ay9i8pw1ymcn85ko/pub/pubky.app/tags/MODERATORTAG";
@@ -268,7 +281,8 @@ async fn test_post_taken_down_before_it_is_read_stays_out() -> Result<()> {
     // reports the post as unindexed, as it did before takedowns were remembered.
     let result = default_moderation_tests()
         .apply_moderation(
-            tag,
+            &tag.label,
+            post_reference(&tag.uri, &user_id, &post_id),
             MODERATOR_TAG_URI,
             Path::new("/tmp/nexus-watcher-test"),
             &default_ingestor_tests(),
@@ -361,7 +375,8 @@ async fn test_post_taken_down_with_a_trailing_slash_stays_out() -> Result<()> {
     };
     let _ = default_moderation_tests()
         .apply_moderation(
-            tag,
+            &tag.label,
+            post_reference(&tag.uri, &user_id, &post_id),
             MODERATOR_TAG_URI,
             Path::new("/tmp/nexus-watcher-test"),
             &default_ingestor_tests(),
@@ -378,6 +393,48 @@ async fn test_post_taken_down_with_a_trailing_slash_stays_out() -> Result<()> {
     assert!(
         find_post_details(&user_id, &post_id).await.is_err(),
         "taken down under its canonical address, so its event is dropped"
+    );
+    Ok(())
+}
+
+/// A moderator tag naming the post by its `social/v1` address is recorded under the
+/// `pubky.app` address the post's own event carries, so the post stays out when its event
+/// comes later.
+#[tokio_shared_rt::test(shared)]
+async fn test_post_taken_down_through_its_social_v1_address_stays_out() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let user_kp = Keypair::random();
+    let user_id = test
+        .create_user(&user_kp, &test_user("Watcher:PostModerate:SocialV1", ""))
+        .await?;
+
+    let post_id = generate_post_id();
+    let post_path: ResourcePath = PubkyAppPost::create_path(&post_id).parse()?;
+    let tag = PubkyAppTag {
+        uri: social_v1_post_uri_builder(user_id.clone(), post_id.clone()),
+        label: MODERATION_LABEL.to_string(),
+        created_at: Utc::now().timestamp_millis(),
+    };
+    let _ = default_moderation_tests()
+        .apply_moderation(
+            &tag.label,
+            post_reference(&tag.uri, &user_id, &post_id),
+            MODERATOR_TAG_URI,
+            Path::new("/tmp/nexus-watcher-test"),
+            &default_ingestor_tests(),
+        )
+        .await;
+
+    test.put(
+        &user_kp,
+        &post_path,
+        short_post("Watcher:PostModerate:SocialV1:Post"),
+    )
+    .await?;
+
+    assert!(
+        find_post_details(&user_id, &post_id).await.is_err(),
+        "taken down under its pubky.app address, so its event is dropped"
     );
     Ok(())
 }
@@ -408,7 +465,8 @@ async fn test_reply_taken_down_before_it_is_read_notifies_no_one() -> Result<()>
     };
     let _ = default_moderation_tests()
         .apply_moderation(
-            tag,
+            &tag.label,
+            post_reference(&tag.uri, &replier_id, &reply_id),
             MODERATOR_TAG_URI,
             Path::new("/tmp/nexus-watcher-test"),
             &default_ingestor_tests(),

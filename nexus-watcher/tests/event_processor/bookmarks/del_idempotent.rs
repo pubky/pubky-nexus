@@ -8,9 +8,10 @@ use nexus_common::models::post::Bookmark;
 use nexus_common::models::user::UserCounts;
 use nexus_watcher::events::handlers;
 use pubky::Keypair;
-use pubky_app_specs::{
-    post_uri_builder, traits::HashId, PubkyAppBookmark, PubkyAppPost, PubkyAppUser, PubkyId,
+use pubky_social_specs::legacy_v0::{
+    post_uri_builder, traits::HashId, PubkyAppBookmark, PubkyAppPost, PubkyAppUser,
 };
+use pubky_social_specs::PubkyId;
 
 /// Simulate a retry of sync_del after a partial failure where Redis cleanup
 /// succeeded but graph deletion failed. On retry, the counter must NOT be

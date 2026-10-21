@@ -6,7 +6,7 @@ use nexus_common::db::PubkyClientResult;
 use nexus_common::models::user::PkdnsHomeserverResolver;
 use nexus_watcher::homeserver::{HomeserverClient, HsError, HsErrorKind, HsOp, HsStreamEvent};
 use pubky::{PubkyResource, PublicKey};
-use pubky_app_specs::PubkyId;
+use pubky_social_specs::PubkyId;
 
 type UserEventsResult = Result<Vec<HsStreamEvent>, HsErrorKind>;
 

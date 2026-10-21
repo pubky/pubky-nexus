@@ -8,7 +8,7 @@ use anyhow::Result;
 use nexus_common::models::event::EventLine;
 use nexus_common::models::post::{PostCounts, PostDetails};
 use pubky::Keypair;
-use pubky_app_specs::{PubkyAppPost, PubkyAppPostKind, PubkyAppUser};
+use pubky_social_specs::legacy_v0::{PubkyAppPost, PubkyAppPostKind, PubkyAppUser};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_put_post_event() -> Result<()> {

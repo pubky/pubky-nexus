@@ -7,7 +7,9 @@ use nexus_common::{
     types::Pagination,
 };
 use pubky::Keypair;
-use pubky_app_specs::{post_uri_builder, PubkyAppPostKind, PubkyAppTag, PubkyAppUser};
+use pubky_social_specs::legacy_v0::{
+    post_uri_builder, PubkyAppPostKind, PubkyAppTag, PubkyAppUser,
+};
 
 /// Regression: a kind-only edit must refresh the cached kind used by notifications.
 #[tokio_shared_rt::test(shared)]
