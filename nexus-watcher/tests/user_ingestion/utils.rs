@@ -3,7 +3,7 @@ use anyhow::Result;
 use nexus_common::db::fetch_row_from_graph;
 use nexus_common::db::graph::Query;
 use nexus_common::db::kv::RedisOps;
-use nexus_common::models::user::{user_hs_cursor_key, UserDetails};
+use nexus_common::models::user::{user_hs_cursor_key, UserDetails, UserHsCursor};
 use pubky::PublicKey;
 
 pub async fn create_external_test_homeserver(test: &mut WatcherTest) -> Result<PublicKey> {
@@ -24,7 +24,7 @@ pub async fn assert_user_ingested(user_id: &str, hs_pk: &PublicKey) {
     assert!(user.is_some(), "User {user_id} should be ingested");
 
     let key = user_hs_cursor_key(user_id);
-    let cursor = UserDetails::check_sorted_set_member(None, &key, &[&hs_id])
+    let cursor = UserHsCursor::check_sorted_set_member(None, &key, &[&hs_id])
         .await
         .expect("check_sorted_set_member failed");
     assert!(

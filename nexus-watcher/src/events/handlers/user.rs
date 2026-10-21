@@ -1,13 +1,8 @@
 use crate::events::EventProcessorError;
 
 use nexus_common::db::queries::get::user_is_safe_to_delete;
-use nexus_common::db::{
-    exec_single_row, execute_graph_operation, queries, OperationOutcome, RedisOps,
-};
-use nexus_common::models::{
-    traits::Collection,
-    user::{UserCounts, UserDetails, UserSearch, UsersByTagSearch},
-};
+use nexus_common::db::{exec_single_row, execute_graph_operation, queries, OperationOutcome};
+use nexus_common::models::user::{UserCounts, UserDetails, UserSearch, UsersByTagSearch};
 use pubky_app_specs::{PubkyAppUser, PubkyId};
 use tracing::debug;
 
@@ -26,35 +21,18 @@ pub async fn sync_put(
     // Step 2: Save to graph, with the address the profile was read from
     user_details.put_profile_to_graph(&uri).await?;
 
-    // Step 3: Reindex search BEFORE refreshing the details cache. `put_to_index`
-    // resolves the stale `name:id` member from the cached JSON, so a concurrent
-    // `UserDetails::put_to_index` could overwrite it with the new name first and
-    // leak the old member forever.
-    UserSearch::put_to_index(&[&user_details]).await?;
+    // Step 3: Index the profile: drops the previous name member and clears the
+    // tombstone. Retry-safe, the previous member comes from the search state
+    // itself.
+    UserSearch::index_profile(&user_details).await?;
 
-    // Step 4: Run in parallel the remaining cache writes: SAVE TO INDEX
-    let indexing_results = nexus_common::traced_join!(
-        tracing::info_span!("index.write");
-        async {
-            // TODO: Use SCARD on a set for unique tag count to avoid race conditions in parallel processing
-            // If new user (no existing counts), save a new `UserCounts`
-            if UserCounts::get_from_index(&user_id).await?.is_none() {
-                UserCounts::default().put_to_index(&user_id).await?;
-            }
-            Ok::<(), EventProcessorError>(())
-        },
-        async {
-            // TODO(flip): caches `V0`, not the epoch stored in the graph.
-            UserDetails::put_to_index(&[&user_details.id], vec![Some(user_details.clone())])
-                .await?;
-            Ok::<(), EventProcessorError>(())
-        }
-    );
+    // Step 4: If new user (no existing counts), save a new `UserCounts`
+    // TODO: Use SCARD on a set for unique tag count to avoid race conditions in parallel processing
+    if UserCounts::get_from_index(&user_id).await?.is_none() {
+        UserCounts::default().put_to_index(&user_id).await?;
+    }
 
-    indexing_results.0?;
-    indexing_results.1?;
-
-    // A profile write always clears the tombstone, so re-derive the user's
+    // The search write above cleared the tombstone, so re-derive the user's
     // per-label search entries afterwards: a recreated profile gets its
     // retained tags back.
     UsersByTagSearch::sync_user_labels(&user_id).await?;
@@ -74,43 +52,26 @@ pub async fn del(user_id: PubkyId) -> Result<(), EventProcessorError> {
     // profile carrying `deleted = true`. The node survives so its edges stay intact.
     match execute_graph_operation(query).await? {
         OperationOutcome::CreatedOrDeleted => {
-            // 1. UserSearch reads UserDetails — must run before UserDetails Redis is removed
+            // 1. Drop the user from search; idempotent, the member comes from the search state
             UserSearch::delete(&user_id).await?;
 
-            // 2. Redis cleanup (parallel, all idempotent DEL/ZREM)
-            let user_id_str: &str = user_id.as_ref();
-            let key_parts: &[&str] = &[user_id_str];
-            let key_parts_list = [key_parts];
-            let indexing_results = nexus_common::traced_join!(
-                tracing::info_span!("index.delete");
-                UserDetails::remove_from_index_multiple_json(&key_parts_list),
-                UserCounts::delete(&user_id)
-            );
-            indexing_results.0?;
-            indexing_results.1?;
+            // 2. Idempotent Redis cleanup
+            UserCounts::delete(&user_id).await?;
 
             // 3. Graph deletion LAST
             exec_single_row(queries::del::delete_user(&user_id)).await?;
         }
         OperationOutcome::Updated => {
-            // 1. UserSearch resolves the indexed name from UserDetails — must run
-            // before the profile is wiped, or the stale entry cannot be removed.
-            UserSearch::delete(&user_id).await?;
-
-            // 2. Graph-first: write the tombstone before the cache. Collection::get_by_ids
-            // repopulates the cache from the graph on a miss, so writing the cache first
-            // would let a concurrent read cache the live profile again afterwards.
-            // The tombstone keeps the stored `uri` and its epoch in the graph.
+            // 1. Graph-first: the tombstone keeps the stored `uri` and its epoch.
             let tombstone = UserDetails::tombstone(&user_id);
             tombstone.put_to_graph().await?;
 
-            // 3. Cache the tombstone rather than invalidating: the users-by-tag removal
-            // guard reads `$.deleted` from this document and a missing key reads as
-            // live, so a concurrent tag event would re-add the user.
-            // TODO(flip): caches `V0`, not the epoch stored in the graph.
-            UserDetails::put_to_index(&[&tombstone.id], vec![Some(tombstone.clone())]).await?;
+            // 2. Drop the user from search and mark them deleted, atomically: from
+            // here on the users-by-tag sync evicts them, so a concurrent tag event
+            // cannot re-add them. A retry finds the same state and changes nothing.
+            UserSearch::mark_tombstoned(&user_id).await?;
 
-            // 4. Evict the user from every per-label users-by-tag sorted set.
+            // 3. Evict the user from every per-label users-by-tag sorted set.
             UsersByTagSearch::sync_user_labels(&user_id).await?;
         }
         OperationOutcome::MissingDependency => return Err(EventProcessorError::SkipIndexing),

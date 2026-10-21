@@ -1,8 +1,7 @@
 use crate::event_processor::users::utils::find_user_details;
 use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
-use nexus_common::db::RedisOps;
-use nexus_common::models::user::{UserCounts, UserDetails, UserSearch};
+use nexus_common::models::user::{UserCounts, UserSearch};
 use nexus_watcher::errors::EventProcessorError;
 use nexus_watcher::events::handlers::user;
 use pubky::Keypair;
@@ -92,14 +91,10 @@ async fn test_user_del_graph_last_recovery() -> Result<()> {
     // Simulate partial failure of a previous del() attempt:
     // Step 1 succeeded: UserSearch cleaned
     UserSearch::delete(&user_id).await?;
-    // Step 2 partially succeeded: UserDetails Redis DEL completed
-    let user_id_str = user_id.as_str();
-    let key_parts: &[&str] = &[user_id_str];
-    UserDetails::remove_from_index_multiple_json(&[key_parts]).await?;
-    // Step 2 partially failed: UserCounts::delete did NOT run (left stale)
+    // Step 2 failed: UserCounts::delete did NOT run (left stale)
     // Step 3 never ran: graph node still present (graph-last)
 
-    // Verify the partial state: graph exists, UserCounts stale, UserDetails gone
+    // Verify the partial state: graph exists, UserCounts stale
     let user_details_graph = find_user_details(&user_id).await;
     assert!(
         user_details_graph.is_ok(),

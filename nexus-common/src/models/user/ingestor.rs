@@ -5,8 +5,7 @@ use pubky_app_specs::{ParsedUri, PubkyId};
 use super::PkdnsHomeserverResolver;
 use crate::models::error::{ModelError, ModelResult};
 use crate::models::homeserver::HsBlacklist;
-use crate::models::traits::Collection;
-use crate::models::user::{set_user_homeserver, UserDetails, UserHsCursor};
+use crate::models::user::{set_user_homeserver, users_exist, UserDetails, UserHsCursor};
 use crate::StackConfig;
 
 /// Ingests previously-unknown users unless their HS is blacklisted.
@@ -99,7 +98,9 @@ impl UserIngestor {
     #[tracing::instrument(name = "user.ingest", skip_all)]
     pub async fn maybe_ingest_user(&self, user_id: &PubkyId) -> ModelResult<()> {
         let user_id_str = user_id.to_string();
-        if UserDetails::get_by_id(&user_id_str).await?.is_some() {
+        // Whether the node exists, not whether it reads: one that does not
+        // deserialize is still a known user, and the stub would overwrite it.
+        if users_exist(&[&user_id_str]).await? {
             tracing::debug!("Skipping ingestion: {user_id_str} already known");
             return Ok(());
         }

@@ -19,7 +19,7 @@ use crate::models::{
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use super::user::UserDetails;
+use super::user::users_exist;
 
 const BOOTSTRAP_NOTIFICATIONS_LIMIT: usize = 30;
 pub const BOOTSTRAP_HOT_TAGS_LIMIT: usize = 5;
@@ -78,7 +78,7 @@ impl Bootstrap {
         let mut user_ids = HashSet::new();
         let mut attachment_uris = HashSet::new();
 
-        let maybe_viewer_id = UserDetails::get_by_id(user_id).await?.map(|_| {
+        let maybe_viewer_id = users_exist(&[user_id]).await?.then(|| {
             user_ids.insert(user_id.to_string());
             bootstrap.indexed = true;
             user_id

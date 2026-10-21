@@ -8,9 +8,8 @@ use crate::models::tag::search::TagSearch;
 use crate::models::tag::stream::HotTags;
 use crate::models::tag::traits::TagCollection;
 use crate::models::tag::user::TagUser;
-use crate::models::traits::Collection;
 use crate::models::user::{
-    Influencers, SocialGraphStatus, UserDetails, UserStream, UsersByTagSearch,
+    Influencers, SocialGraphStatus, UserSearch, UserStream, UsersByTagSearch,
 };
 use crate::types::DynError;
 use crate::{
@@ -24,6 +23,9 @@ pub const REINDEX_BATCH_SIZE: usize = 500;
 
 #[tracing::instrument(name = "reindex.sync", skip_all)]
 pub async fn sync() {
+    UserSearch::reindex()
+        .await
+        .expect("Failed indexing User Search");
     reindex_users_by_batch()
         .await
         .expect("Failed to reindex users by batch");
@@ -112,10 +114,6 @@ async fn reindex_users_by_batch() -> Result<(), DynError> {
                 }
             }
             if !user_ids.is_empty() {
-                {
-                    let user_ids_refs: Vec<&str> = user_ids.iter().map(String::as_str).collect();
-                    UserDetails::reindex(&user_ids_refs).await?;
-                }
                 let mut tasks = JoinSet::new();
                 for user_id in user_ids {
                     let span = tracing::info_span!("reindex.user", user_id = %user_id);

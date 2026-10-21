@@ -9,10 +9,28 @@ use deadpool_redis::redis::AsyncCommands;
 use nexus_common::db::get_redis_conn;
 use nexus_common::db::RedisOps;
 use nexus_common::db::{fetch_all_rows_from_graph, queries};
-use nexus_common::models::user::{SocialGraphStatus, UserCounts, USER_SOCIAL_GRAPH_KEY_PARTS};
+use nexus_common::models::user::{
+    SocialGraphStatus, UserCounts, UserView, USER_SOCIAL_GRAPH_KEY_PARTS,
+};
 
 /// From `docker/test-graph/skunk.cypher`: a `User` node with no edges at all.
 const NO_EDGES_USER: &str = "18a49r4bu7zgu9p8wjcfhcs7q97q7u898ogs8m7k6375y8ixp17o";
+/// From `docker/test-graph/mocks/discovery-stub.cypher`: a user only key
+/// discovery knows, named after their key and without a `uri`.
+const DISCOVERY_STUB: &str = "xph5h5cw3ycbaww3ewokeoq3w4fkk36qa5cmxjbm4onsbeqxi9my";
+
+/// A discovery stub shows in user lists, named after their key, as lists read
+/// the graph, which holds every stub.
+#[tokio_shared_rt::test(shared)]
+async fn test_user_lists_show_a_discovery_stub() -> Result<()> {
+    let _ = TestServiceServer::get_test_server().await;
+
+    let views = UserView::get_by_ids(&[DISCOVERY_STUB.to_string()], None, None).await?;
+
+    let view = views[0].as_ref().expect("the stub is listed");
+    assert_eq!(view.details.name, DISCOVERY_STUB);
+    Ok(())
+}
 
 #[tokio_shared_rt::test(shared)]
 async fn test_user_endpoint() -> Result<()> {
