@@ -42,7 +42,7 @@ async fn test_global_influencers() -> Result<()> {
 
 /// Recovery path for the AllTime influencers stream: if the live
 /// `Sorted:Users:Influencers` set is lost (e.g. after Redis data loss), the next request
-/// must fall back to the graph, reseed that same key, and still return results.
+/// must rebuild that same key in full from the graph, and still return results.
 #[tokio_shared_rt::test(shared)]
 async fn test_global_influencers_alltime_cache_recovery() -> Result<()> {
     // Ensure the server is running, so the Redis pool is initialized
@@ -51,9 +51,9 @@ async fn test_global_influencers_alltime_cache_recovery() -> Result<()> {
 
     let sorted_set_key = "Sorted:Users:Influencers";
 
-    // Snapshot the live sorted set (members + scores) so it can be restored afterwards.
-    // The graph-derived fallback scores only approximate the counts-derived ones, and
-    // sibling tests assert on the exact original ordering.
+    // Snapshot the live sorted set (members + scores) so it can be restored afterwards:
+    // the rebuild reads the graph as it is now, so graph changes sibling tests made since
+    // `db mock` must not leak into the ranking the exact-order tests read.
     let snapshot: Vec<(String, f64)> = redis_conn.zrange_withscores(sorted_set_key, 0, -1).await?;
 
     // Simulate data loss of the live AllTime influencers sorted set
@@ -64,11 +64,11 @@ async fn test_global_influencers_alltime_cache_recovery() -> Result<()> {
     // shared sorted set poisoned for sibling tests.
     let body_result = get_request("/v0/stream/users?source=influencers").await;
 
-    // The fallback must have reseeded the same key the AllTime read path uses
-    let reseeded: bool = redis_conn.exists(sorted_set_key).await?;
+    // The fallback must have rebuilt the same key the AllTime read path uses
+    let reseeded_len: usize = redis_conn.zcard(sorted_set_key).await?;
 
     // Restore the original sorted set exactly (DEL then ZADD of the snapshot) before
-    // asserting, so any later test observes the original counts-derived scores.
+    // asserting, so any later test observes the ranking `db mock` built.
     let _: () = redis_conn.del(sorted_set_key).await?;
     if !snapshot.is_empty() {
         let items: Vec<(f64, &str)> = snapshot
@@ -90,8 +90,8 @@ async fn test_global_influencers_alltime_cache_recovery() -> Result<()> {
     );
 
     assert!(
-        reseeded,
-        "The graph fallback should rewrite the Sorted:Users:Influencers sorted set"
+        reseeded_len > GLOBAL_INFLUENCERS_CACHE_SIZE,
+        "The graph fallback should rebuild the whole Sorted:Users:Influencers ranking, got {reseeded_len} members"
     );
 
     Ok(())
@@ -406,10 +406,13 @@ async fn test_global_influencers_rejects_skip_past_cache() -> Result<()> {
             .await?;
     assert!(body.is_array());
 
-    // Only ranged global influencers are capped: the all-time index is not size-bound,
+    // Only ranged global influencers are capped: the all-time ranking holds every user,
     // and reach-scoped queries go to the graph with their own pagination.
     let body = get_request("/v0/stream/users?source=influencers&skip=101").await?;
-    assert!(body.is_array());
+    assert!(
+        body.as_array().is_some_and(|page| !page.is_empty()),
+        "the all-time ranking must serve pages past {GLOBAL_INFLUENCERS_CACHE_SIZE}, got: {body}"
+    );
     let body = get_request(&format!(
         "/v0/stream/users?source=influencers&timeframe=this_month&skip=101&user_id={USER_1}&reach=following"
     ))

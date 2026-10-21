@@ -1,5 +1,5 @@
 use super::utils::find_follow_relationship;
-use crate::event_processor::users::utils::find_user_counts;
+use crate::event_processor::users::utils::{check_member_most_followed, find_user_counts};
 use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
 use nexus_common::{
@@ -92,6 +92,10 @@ async fn test_homeserver_unfollow() -> Result<()> {
 
     let exist_count = find_user_counts(&follower_id).await;
     assert_eq!(exist_count.following, 0);
+
+    // Neither the follow nor the unfollow ranks the followee; only the most-followed
+    // job does: Sorted:Users:MostFollowed
+    assert_eq!(check_member_most_followed(&followee_id).await?, None);
 
     // GRAPH_OP: Verify the follower relationship no longer exists in Nexus
     let result_followers = Followers::get_by_id(&followee_id, None, None)

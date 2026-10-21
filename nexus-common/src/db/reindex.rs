@@ -8,7 +8,9 @@ use crate::models::tag::search::TagSearch;
 use crate::models::tag::stream::HotTags;
 use crate::models::tag::traits::TagCollection;
 use crate::models::tag::user::TagUser;
-use crate::models::user::{Influencers, SocialGraphStatus, UserSearch, UsersByTagSearch};
+use crate::models::user::{
+    Influencers, SocialGraphStatus, UserSearch, UserStream, UsersByTagSearch,
+};
 use crate::types::DynError;
 use crate::{
     models::post::{PostCounts, PostDetails, PostRelationships},
@@ -38,6 +40,10 @@ pub async fn sync() {
     Influencers::reindex()
         .await
         .expect("Failed to reindex influencers");
+
+    UserStream::refresh_most_followed()
+        .await
+        .expect("Failed to store the most followed users");
 
     SocialGraphStatus::publish()
         .await
