@@ -152,12 +152,12 @@ mod tests {
             "hot-tags cache jobs must be opt-in; found {:#?}",
             c.jobs
         );
-        // The most-followed ranking has no other writer, so its job ships scheduled
-        let most_followed_job = c
-            .jobs
-            .get("most-followed-cache")
-            .expect("[jobs.most-followed-cache] should be present");
-        assert_eq!(most_followed_job.cron.as_deref(), Some("0 6 4 * * *"));
+        // The most-followed job runs on its own schedule, so the config leaves it out
+        assert!(
+            !c.jobs.contains_key("most-followed-cache"),
+            "the most-followed job must keep its own schedule; found {:#?}",
+            c.jobs
+        );
         let trust_job = c
             .jobs
             .get("trust-recompute")
