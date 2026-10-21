@@ -564,6 +564,7 @@ mod tests {
 
         let cursors: Vec<u64> = events.iter().map(|event| event.cursor).collect();
         assert_eq!(cursors, [1, 2]);
+        assert_eq!(stream.count().await, 1, "the third event is left unread");
     }
 
     /// A failure after the response headers fails the read as a transport error, which
