@@ -313,7 +313,7 @@ async fn key_based_runner_backs_off_homeserver_after_out_of_order_cursor() -> Re
     let runner = runner(source.clone());
 
     runner.run().await?;
-    assert!(runner.client.health().should_skip(&hs_id));
+    assert!(runner.backoff.should_skip(&hs_id));
 
     runner.run().await?;
     let target_fetches = source
@@ -593,7 +593,7 @@ async fn key_based_runner_backs_off_homeserver_after_spent_budget() -> Result<()
         .find(|run| run.hs_id == hs_id)
         .expect("the homeserver was run");
     assert_eq!(run.status, ProcessorRunStatus::BudgetSpent);
-    assert!(runner.client.health().should_skip(&hs_id));
+    assert!(runner.backoff.should_skip(&hs_id));
 
     Ok(())
 }
@@ -695,7 +695,7 @@ async fn key_based_runner_backs_off_homeserver_after_event_stream_5xx() -> Resul
     let runner = runner(source.clone());
 
     runner.run().await?;
-    assert!(runner.client.health().should_skip(&hs_id));
+    assert!(runner.backoff.should_skip(&hs_id));
 
     runner.run().await?;
     let target_fetches = source

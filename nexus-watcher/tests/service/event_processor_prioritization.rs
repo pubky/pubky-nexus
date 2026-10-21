@@ -15,7 +15,7 @@ use nexus_common::types::DynError;
 use nexus_common::utils::test_utils::{default_ingestor_tests, random_pubky_id};
 use nexus_watcher::events::retry::{InitialBackoff, RedisRetryStore, RetryScheduler, RetryStore};
 use nexus_watcher::events::{DefaultEventHandler, EventHandler};
-use nexus_watcher::service::runner::{UserNotFoundBackoff, UserResumePoints};
+use nexus_watcher::service::runner::{HomeserverBackoff, UserNotFoundBackoff, UserResumePoints};
 use nexus_watcher::service::{
     KeyBasedEventProcessorRunner, TEventProcessorRunner, KEY_BASED_RUN_BUDGET,
 };
@@ -51,6 +51,7 @@ async fn test_event_processor_runner_primary_homeserver_excluded() -> Result<(),
         shutdown_rx: tokio::sync::watch::channel(false).1,
         primary_homeserver: PubkyId::try_from(HS_IDS[3]).unwrap(),
         hs_blacklist: HsBlacklist::default(),
+        backoff: HomeserverBackoff::default(),
         user_not_found_backoff: Arc::new(UserNotFoundBackoff::default()),
         user_resume_points: Arc::new(UserResumePoints::default()),
         budget: KEY_BASED_RUN_BUDGET,
@@ -105,6 +106,7 @@ async fn test_event_processor_runner_blacklisted_homeserver_excluded() -> Result
         shutdown_rx: tokio::sync::watch::channel(false).1,
         primary_homeserver: PubkyId::try_from(HS_IDS[3]).unwrap(),
         hs_blacklist: HsBlacklist::new([blacklisted_hs.clone()]),
+        backoff: HomeserverBackoff::default(),
         user_not_found_backoff: Arc::new(UserNotFoundBackoff::default()),
         user_resume_points: Arc::new(UserResumePoints::default()),
         budget: KEY_BASED_RUN_BUDGET,

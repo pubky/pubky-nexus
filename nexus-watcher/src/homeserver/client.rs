@@ -15,7 +15,7 @@ use tracing::{error, trace, warn};
 use super::fetch::{
     fetch_capped, read_stream_capped, MAX_ERROR_BODY, MAX_EVENTS_BODY, MAX_RESOURCE_SIZE,
 };
-use super::{HomeserverHealth, HsError, HsErrorKind, HsOp};
+use super::{HsError, HsErrorKind, HsOp};
 use crate::events::EventType;
 use crate::METER_NAME;
 
@@ -103,34 +103,25 @@ pub trait HomeserverClient: PkdnsHomeserverResolver + Send + Sync + 'static {
     /// The blob at `resource`, capped at the configured `max_file_size`, from the homeserver
     /// its owner publishes.
     async fn get_blob(&self, resource: &PubkyResource) -> Result<Vec<u8>, HsError>;
-
-    /// Per-homeserver health, shared by every caller of this client.
-    fn health(&self) -> &HomeserverHealth;
 }
 
 /// [`HomeserverClient`] over the Pubky SDK.
 pub struct PubkyHomeserverClient {
     pubky: Arc<Pubky>,
-    health: HomeserverHealth,
     max_file_size: u64,
 }
 
 impl PubkyHomeserverClient {
-    pub fn new(pubky: Arc<Pubky>, health: HomeserverHealth, max_file_size: u64) -> Self {
+    pub fn new(pubky: Arc<Pubky>, max_file_size: u64) -> Self {
         Self {
             pubky,
-            health,
             max_file_size,
         }
     }
 
-    /// Builds a client over `pubky`, with the backoff and file size limits of `config`.
+    /// Builds a client over `pubky`, with the file size limit of `config`.
     pub fn from_config(pubky: Arc<Pubky>, config: &WatcherConfig) -> Self {
-        Self::new(
-            pubky,
-            HomeserverHealth::from_config(config),
-            config.max_file_size,
-        )
+        Self::new(pubky, config.max_file_size)
     }
 
     /// GETs `resource`, returning the response for the caller to read under its cap.
@@ -254,10 +245,6 @@ impl HomeserverClient for PubkyHomeserverClient {
 
     async fn get_blob(&self, resource: &PubkyResource) -> Result<Vec<u8>, HsError> {
         get_blob_with(resource, self.max_file_size, self.get(resource)).await
-    }
-
-    fn health(&self) -> &HomeserverHealth {
-        &self.health
     }
 }
 

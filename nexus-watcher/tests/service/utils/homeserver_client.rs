@@ -4,9 +4,7 @@ use tokio::sync::Mutex;
 
 use nexus_common::db::PubkyClientResult;
 use nexus_common::models::user::PkdnsHomeserverResolver;
-use nexus_watcher::homeserver::{
-    HomeserverClient, HomeserverHealth, HsError, HsErrorKind, HsOp, HsStreamEvent,
-};
+use nexus_watcher::homeserver::{HomeserverClient, HsError, HsErrorKind, HsOp, HsStreamEvent};
 use pubky::{PubkyResource, PublicKey};
 use pubky_app_specs::PubkyId;
 
@@ -38,8 +36,6 @@ pub struct MockHomeserverClient {
 
     /// The homeserver every user resolves to. None by default.
     homeserver_of: Option<PubkyId>,
-
-    health: HomeserverHealth,
 }
 
 impl MockHomeserverClient {
@@ -166,9 +162,5 @@ impl HomeserverClient for MockHomeserverClient {
 
     async fn get_blob(&self, resource: &PubkyResource) -> Result<Vec<u8>, HsError> {
         Err(not_found(resource, HsOp::GetBlob))
-    }
-
-    fn health(&self) -> &HomeserverHealth {
-        &self.health
     }
 }

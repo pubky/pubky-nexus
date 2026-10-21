@@ -1,7 +1,7 @@
-use super::{TEventProcessorRunner, UserNotFoundBackoff, UserResumePoints};
+use super::{HomeserverBackoff, TEventProcessorRunner, UserNotFoundBackoff, UserResumePoints};
 use crate::events::retry::RetryScheduler;
 use crate::events::EventHandler;
-use crate::homeserver::{HomeserverClient, HomeserverHealth};
+use crate::homeserver::HomeserverClient;
 use crate::service::indexer::{KeyBasedEventProcessor, TEventProcessor};
 use crate::service::stats::{ProcessedStats, ProcessorRunStatus, RunAllProcessorsStats};
 use crate::service::KEY_BASED_RUN_BUDGET;
@@ -72,7 +72,7 @@ pub struct KeyBasedEventProcessorRunner {
     pub monitored_hs_limit: usize,
 
     pub event_handler: Arc<dyn EventHandler>,
-    /// Shared client, whose health is this runner's per-HS backoff
+    /// Client the processors this runner builds fetch through
     pub client: Arc<dyn HomeserverClient>,
     pub shutdown_rx: Receiver<bool>,
 
@@ -82,6 +82,9 @@ pub struct KeyBasedEventProcessorRunner {
     /// HS PKs that must never be indexed. Excluded from `pre_run` and re-checked
     /// by each [`KeyBasedEventProcessor`] this runner builds.
     pub hs_blacklist: HsBlacklist,
+
+    /// Per-target exponential backoff state
+    pub backoff: HomeserverBackoff,
 
     pub user_not_found_backoff: Arc<UserNotFoundBackoff>,
 
@@ -112,6 +115,7 @@ impl KeyBasedEventProcessorRunner {
             shutdown_rx,
             primary_homeserver: config.homeserver.clone(),
             hs_blacklist: HsBlacklist::from_config(&config.stack),
+            backoff: HomeserverBackoff::from_config(config),
             user_not_found_backoff: Arc::new(UserNotFoundBackoff::default()),
             user_resume_points: Arc::new(UserResumePoints::default()),
             budget: KEY_BASED_RUN_BUDGET,
@@ -167,11 +171,11 @@ impl TEventProcessorRunner for KeyBasedEventProcessorRunner {
     }
 
     async fn backoff_hs_should_skip(&self, hs_id: &str) -> bool {
-        self.client.health().should_skip(hs_id)
+        self.backoff.should_skip(hs_id)
     }
 
     async fn backoff_hs_record_result(&self, hs_id: &str, status: &ProcessorRunStatus) {
-        record_run_status(self.client.health(), hs_id, status);
+        record_run_status(&self.backoff, hs_id, status);
     }
 
     async fn post_run(&self, stats: RunAllProcessorsStats) -> ProcessedStats {
@@ -223,18 +227,18 @@ impl TEventProcessorRunner for KeyBasedEventProcessorRunner {
 
 /// Records a run's status in the homeserver's backoff: only an `Ok` run resets it, and every
 /// other status, a spent budget included, backs the homeserver off further.
-fn record_run_status(health: &HomeserverHealth, hs_id: &str, status: &ProcessorRunStatus) {
+fn record_run_status(backoff: &HomeserverBackoff, hs_id: &str, status: &ProcessorRunStatus) {
     if *status == ProcessorRunStatus::Ok {
-        health.record_success(hs_id);
+        backoff.record_success(hs_id);
     } else {
-        health.record_failure(hs_id);
+        backoff.record_failure(hs_id);
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use super::HomeserverBackoff;
     use super::{record_run_status, ExternalHsMetrics};
-    use crate::homeserver::HomeserverHealth;
     use crate::service::stats::ProcessorRunStatus;
     use opentelemetry::metrics::MeterProvider;
     use opentelemetry_sdk::metrics::data::{AggregatedMetrics, MetricData, ResourceMetrics};
@@ -293,25 +297,25 @@ mod tests {
     /// An `Ok` run ends a homeserver's backoff, so it is polled again at once.
     #[test]
     fn ok_run_resets_the_backoff() {
-        let health = HomeserverHealth::new(60, 3600);
-        record_run_status(&health, "hs1", &ProcessorRunStatus::Error);
+        let backoff = HomeserverBackoff::new(60, 3600);
+        record_run_status(&backoff, "hs1", &ProcessorRunStatus::Error);
 
-        record_run_status(&health, "hs1", &ProcessorRunStatus::Ok);
+        record_run_status(&backoff, "hs1", &ProcessorRunStatus::Ok);
 
-        assert_eq!(health.next_backoff_secs_for("hs1"), None);
-        assert!(!health.should_skip("hs1"));
+        assert_eq!(backoff.next_backoff_secs_for("hs1"), None);
+        assert!(!backoff.should_skip("hs1"));
     }
 
     /// A homeserver should not need more than one budget, so each spent budget backs it off
     /// further, as a failure does.
     #[test]
     fn spent_budgets_in_a_row_double_the_backoff() {
-        let health = HomeserverHealth::new(60, 3600);
+        let backoff = HomeserverBackoff::new(60, 3600);
 
         for _ in 0..2 {
-            record_run_status(&health, "hs1", &ProcessorRunStatus::BudgetSpent);
+            record_run_status(&backoff, "hs1", &ProcessorRunStatus::BudgetSpent);
         }
 
-        assert_eq!(health.next_backoff_secs_for("hs1"), Some(240));
+        assert_eq!(backoff.next_backoff_secs_for("hs1"), Some(240));
     }
 }

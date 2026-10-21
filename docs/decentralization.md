@@ -117,7 +117,7 @@ kept small to bound total work and per-HS request size.
 ### `initial_backoff_secs` / `max_backoff_secs` — offline-HS backoff
 
 > Per-HS exponential backoff for third-party HSs found to be **offline/unreachable**
-> (`HomeserverHealth`, built in `PubkyHomeserverClient::from_config`). After a failure the HS is skipped for `initial_backoff_secs`;
+> (`HomeserverBackoff`). After a failure the HS is skipped for `initial_backoff_secs`;
 > the skip interval doubles on each consecutive failure, capped at `max_backoff_secs`.
 > A skipped HS does not count towards `monitored_homeservers_limit`, so the next
 > eligible HS in priority order takes its slot.
@@ -126,7 +126,7 @@ kept small to bound total work and per-HS request size.
 > a larger cap slows it further.
 
 *Constraint:* `initial_backoff_secs` must not exceed `max_backoff_secs`
-(`HomeserverHealth::new`).
+(`HomeserverBackoff::new`).
 
 *Tuning:* larger initial/cap → fewer wasted requests to dead HSs, but slower to
 notice one coming back. Smaller → faster recovery, more retry traffic.
