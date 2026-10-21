@@ -10,9 +10,7 @@ use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
 use chrono::Utc;
 use nexus_common::db::kv::SortOrder;
-use nexus_common::models::resource::stream::{
-    ResourceKeyStream, ResourceSorting, ResourceStream, ResourceStreamSource,
-};
+use nexus_common::models::resource::stream::{ResourceKeyStream, ResourceSorting, ResourceStream};
 use nexus_common::types::Pagination;
 use pubky::Keypair;
 use pubky::ResourcePath;
@@ -25,7 +23,6 @@ const TAG_GAP: Duration = Duration::from_millis(10);
 
 async fn labels_timeline(labels: &[String], pagination: Pagination) -> Result<ResourceKeyStream> {
     Ok(ResourceStream::get_resource_keys(
-        &ResourceStreamSource::All,
         pagination,
         SortOrder::Descending,
         &ResourceSorting::Timeline,
