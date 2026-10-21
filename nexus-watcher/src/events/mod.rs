@@ -97,7 +97,7 @@ impl EventHandler for DefaultEventHandler {
         // from a homeserver's whole feed): skipped, neither indexed nor retried. A stub or
         // former member that moved onto a listed homeserver is let in first.
         let author_id = event.parsed_uri.user_id();
-        if !self.ingestor.scope().is_in_scope(author_id, None).await?
+        if !self.ingestor.is_author_in_scope(author_id).await?
             && !self.ingestor.admit_if_moved_in(author_id).await?
         {
             OUT_OF_SCOPE.add(1, &[]);
