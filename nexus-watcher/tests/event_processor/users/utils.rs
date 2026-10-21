@@ -11,11 +11,11 @@ use nexus_common::{
 };
 
 pub async fn check_member_most_followed(user_id: &str) -> Result<Option<isize>> {
-    let influencer_score =
+    let most_followed_score =
         UserStream::check_sorted_set_member(None, &USER_MOSTFOLLOWED_KEY_PARTS, &[user_id])
             .await
             .unwrap();
-    Ok(influencer_score)
+    Ok(most_followed_score)
 }
 
 pub async fn check_member_influencer(user_id: &str) -> Result<Option<isize>> {
