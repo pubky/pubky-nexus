@@ -3,8 +3,8 @@
 //! [`TranslatedPut`] and [`TranslatedDel`] are the operations every epoch maps into.
 //! [`translate_put`] and [`translate_del`] dispatch an event to the translator of its target's
 //! epoch, which gets its own parsed target and never sees the [`EventTarget`]. Skips are not
-//! translated: the classifier takes them before the fetch. A `social/v1` PUT has no translator
-//! yet and fails deterministically; the classifier skips every such event first.
+//! translated: the classifier takes them before the fetch, and still skips every `social/v1`
+//! event, so the v1 translator runs only in its unit tests.
 
 pub(super) mod legacy_v0;
 pub(super) mod social_v1;
@@ -14,7 +14,7 @@ use crate::events::inputs::{
     BookmarkInput, FileInput, PostInput, ResourceKey, TagInput, UserInput,
 };
 use crate::events::target::EventTarget;
-use pubky_social_specs::{epoch_segment, ParsedUri, PubkyId};
+use pubky_social_specs::PubkyId;
 
 /// A fetched object with the ids its path carries, one variant per PUT handler.
 ///
@@ -82,8 +82,7 @@ pub(super) fn translate_put(
 ) -> Result<TranslatedPut, EventProcessorError> {
     match target {
         EventTarget::Legacy(parsed) => legacy_v0::translate_put(event_uri, parsed, bytes),
-        // TODO(specs-migration): the `social/v1` PUT translator replaces this arm.
-        EventTarget::Social(parsed) => Err(no_translator(parsed)),
+        EventTarget::Social(parsed) => social_v1::translate_put(event_uri, parsed, bytes),
     }
 }
 
@@ -98,30 +97,16 @@ pub(super) fn translate_del(target: &EventTarget) -> Result<TranslatedDel, Event
     }
 }
 
-/// A `social/v1` resource, which no PUT translator takes yet; the classifier skips it before
-/// the fetch, so reaching here is a pipeline bug surfacing as a dropped, logged event.
-fn no_translator(parsed: &ParsedUri) -> EventProcessorError {
-    let (resource, epoch) = (&parsed.resource, epoch_segment());
-    EventProcessorError::InvalidEventLine(format!(
-        "Resource `{resource}` of epoch `{epoch}` has no translator and must not reach translation"
-    ))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::events::route::{route, Routed};
-    use pubky_social_specs::{
-        follow_uri_builder, post_uri_builder, tag_uri_builder, user_uri_builder, PubkySocialPost,
-        Root,
-    };
+    use pubky_social_specs::{user_uri_builder, PubkySocialPost, PubkySocialUser, Root};
 
     const USER: &str = "operrr8wsbpr3ue9d4qj41ge1kcc6r7fdiy6o3ugjrrhi4y77rdo";
-    const OTHER_USER: &str = "8pinxxgqs41n4aididenw5apqp1urfmzdztr8jt4abrkdn435ewo";
     const POST_ID: &str = "0032SSN7Q4EVG";
     /// A timestamp id later than [`POST_ID`], as a post version's edit id must be.
     const EDIT_ID: &str = "0032SSN7Q4EVJ";
-    const HASH_ID: &str = "8Z8CWH8NVYQY39ZEBFGKQWWEKG";
 
     /// The target the router builds for a `social/v1` address.
     fn social(address: &str) -> EventTarget {
@@ -137,25 +122,28 @@ mod tests {
         format!("pubky://{USER}{path}")
     }
 
-    /// Until the `social/v1` PUT translator lands, every v1 target fails as an invalid event
-    /// line on PUT, whatever the bytes: nothing is retried or guessed.
+    /// A PUT dispatches to its epoch's translator: a `social/v1` profile reaches the v1
+    /// translator and becomes the user input stored under the event's address, where the
+    /// `pubky.app` reader would read nothing.
     #[test]
-    fn social_v1_target_is_invalid_event_line_for_put() {
-        for address in [
-            user_uri_builder(USER.into()),
-            post_uri_builder(USER.into(), POST_ID.into()),
-            version_uri(None),
-            follow_uri_builder(USER.into(), OTHER_USER.into()),
-            tag_uri_builder(USER.into(), HASH_ID.into()),
-            format!("pubky://{USER}/pub/social/v1/unknown_kind/{POST_ID}"),
-        ] {
-            let target = social(&address);
-            let put = translate_put(&address, &target, b"{}");
-            assert!(
-                matches!(put, Err(EventProcessorError::InvalidEventLine(_))),
-                "{address}: {put:?}"
-            );
-        }
+    fn social_v1_put_dispatches_to_the_v1_translator() {
+        let address = user_uri_builder(USER.into());
+        let profile = PubkySocialUser::new("Alice".to_string(), None, None, None, None);
+        let bytes = serde_json::to_vec(&profile).unwrap();
+        let translated = translate_put(&address, &social(&address), &bytes).unwrap();
+        let TranslatedPut::User { user_id, user } = translated else {
+            panic!("expected User, got {translated:?}");
+        };
+        assert_eq!(user_id, PubkyId::try_from(USER).unwrap());
+        assert_eq!(user.uri, address);
+        assert_eq!(user.name, "Alice");
+        // A v1 resource with no handler fails through the same arm, whatever the bytes.
+        let address = format!("pubky://{USER}/pub/social/v1/unknown_kind/{POST_ID}");
+        let put = translate_put(&address, &social(&address), b"{}");
+        assert!(
+            matches!(put, Err(EventProcessorError::InvalidEventLine(_))),
+            "{put:?}"
+        );
     }
 
     /// A DEL dispatches to its epoch's translator: a `social/v1` version path reaches the v1
