@@ -216,17 +216,12 @@ impl HomeserverClient for PubkyHomeserverClient {
         cursor: u64,
         limit: u16,
     ) -> Result<Vec<String>, HsError> {
-        let error = |kind| HsError::new(hs, HsOp::PollEvents, kind);
-
-        let response = self
+        let send = self
             .pubky
             .client()
             .request(Method::GET, &events_url(hs, cursor, limit))
-            .send()
-            .await
-            .map_err(|e| error(HsErrorKind::from_reqwest(&e)))?;
-
-        event_lines_from_response(response).await.map_err(error)
+            .send();
+        poll_events_with(hs, send).await
     }
 
     async fn user_events(
@@ -246,6 +241,18 @@ impl HomeserverClient for PubkyHomeserverClient {
     async fn get_blob(&self, resource: &PubkyResource) -> Result<Vec<u8>, HsError> {
         get_blob_with(resource, self.max_file_size, self.get(resource)).await
     }
+}
+
+/// Reads the lines of the `/events/` poll `send` makes, labelling a failure as `hs`'s poll.
+async fn poll_events_with(
+    hs: &PubkyId,
+    send: impl Future<Output = Result<reqwest::Response, reqwest::Error>>,
+) -> Result<Vec<String>, HsError> {
+    let error = |kind| HsError::new(hs, HsOp::PollEvents, kind);
+    let response = send
+        .await
+        .map_err(|e| error(HsErrorKind::from_reqwest(&e)))?;
+    event_lines_from_response(response).await.map_err(error)
 }
 
 /// Fetches a user's events with `fetch`, retrying while rate limited, and labels a failure
@@ -371,6 +378,7 @@ async fn event_lines_from_response(
 
 #[cfg(test)]
 mod tests {
+    use super::super::error::transport_error;
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use tokio::time::Instant;
@@ -399,7 +407,7 @@ mod tests {
         );
     }
 
-    // --- event_lines_from_response ---
+    // --- poll_events_with ---
 
     /// The incident shape: a proxy error page. Before the status check this
     /// read as "events with no cursor line" and was counted as a stalled cursor.
@@ -407,12 +415,17 @@ mod tests {
     async fn error_page_fails_the_poll_with_status_and_body() {
         let html = "<html>\n<head><title>502 Bad Gateway</title></head>\n<body>bad gateway</body>\n</html>";
 
-        let kind = event_lines_from_response(response(502, html))
+        let error = poll_events_with(&hs_id(), async { Ok(response(502, html)) })
             .await
             .unwrap_err();
-        assert!(matches!(kind, HsErrorKind::ServerError(502, _)), "{kind:?}");
 
-        let message = HsError::new(&hs_id(), HsOp::PollEvents, kind).to_string();
+        assert_eq!(error.hs, HS_ID);
+        assert_eq!(error.op, HsOp::PollEvents);
+        assert!(
+            matches!(error.kind, HsErrorKind::ServerError(502, _)),
+            "{error:?}"
+        );
+        let message = error.to_string();
         assert!(message.contains(HS_ID), "names the HS: {message}");
         assert!(
             message.contains("HTTP 502"),
@@ -423,6 +436,21 @@ mod tests {
             "carries the body: {message}"
         );
     }
+
+    /// A poll that gets no response is labelled as the homeserver's poll too, as a
+    /// transport failure.
+    #[tokio::test]
+    async fn unanswered_poll_is_a_transport_failure_of_the_homeserver() {
+        let error = poll_events_with(&hs_id(), async { Err(transport_error().await) })
+            .await
+            .unwrap_err();
+
+        assert_eq!(error.hs, HS_ID);
+        assert_eq!(error.op, HsOp::PollEvents);
+        assert!(matches!(error.kind, HsErrorKind::Transport(_)), "{error:?}");
+    }
+
+    // --- event_lines_from_response ---
 
     /// Each status lands on its own kind, so a 429 is recognisable to callers
     /// that back off on rate limiting.

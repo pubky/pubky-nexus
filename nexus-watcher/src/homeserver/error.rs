@@ -127,6 +127,19 @@ fn capped(error: impl Display) -> String {
     format_error_body(error.to_string().as_bytes(), MAX_ERROR_BODY)
 }
 
+/// A failing body read gives a non-timeout `reqwest::Error`, as an unreachable homeserver
+/// or a reset connection does.
+#[cfg(test)]
+pub(crate) async fn transport_error() -> reqwest::Error {
+    let body = reqwest::Body::wrap_stream(futures::stream::iter(vec![Err::<bytes::Bytes, _>(
+        std::io::Error::other("connection reset"),
+    )]));
+    reqwest::Response::from(http::Response::new(body))
+        .bytes()
+        .await
+        .unwrap_err()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -212,18 +225,6 @@ mod tests {
             assert!(message.ends_with("… (truncated)"), "{message}");
             assert!(message.len() < MAX_ERROR_BODY + 64, "{}", message.len());
         }
-    }
-
-    /// A failing body read gives a non-timeout `reqwest::Error`, as an unreachable homeserver
-    /// or a reset connection does.
-    async fn transport_error() -> reqwest::Error {
-        let body = reqwest::Body::wrap_stream(futures::stream::iter(vec![Err::<bytes::Bytes, _>(
-            std::io::Error::other("connection reset"),
-        )]));
-        reqwest::Response::from(http::Response::new(body))
-            .bytes()
-            .await
-            .unwrap_err()
     }
 
     /// On a fetch, the client's classification and `PubkyClientError::from` decide the same
