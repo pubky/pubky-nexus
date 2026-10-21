@@ -80,6 +80,11 @@ pub enum EventProcessorError {
     #[error("HsEventsStreamServerError: {0}")]
     HsEventsStreamServerError(String),
 
+    /// Looking up the homeserver a user publishes failed, so whether this homeserver may
+    /// speak for the user is unknown.
+    #[error("UserHsLookupFailed: {0}")]
+    UserHsLookupFailed(String),
+
     /// The HS is blacklisted and must not be indexed.
     #[error("HsBlacklisted: {hs_id}")]
     HsBlacklisted { hs_id: String },
@@ -199,6 +204,11 @@ impl EventProcessorError {
                 // per-event error, or one such file would stall the whole run.
                 | Self::HsEventsStreamServerError(_)
 
+                // Retrying the event would skip the homeserver check (the retry
+                // processor hands events straight to the handler), so the batch
+                // stops and the cursor stays put until the lookup works again.
+                | Self::UserHsLookupFailed(_)
+
                 // For a key-based runner, this indicates the external HS either
                 // has a temporary glitch or is malicious. Including it here to
                 // abort this run and let the runner apply per-HS backoff.
@@ -238,6 +248,7 @@ impl EventProcessorError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::events::retry::RetryScheduler;
 
     #[test]
     fn event_stream_5xx_is_not_retry_now() {
@@ -245,6 +256,19 @@ mod tests {
         assert!(
             err.should_not_retry_now(),
             "an /events-stream 5xx must abort the run so the per-HS backoff applies"
+        );
+    }
+
+    #[test]
+    fn failed_user_hs_lookup_stops_the_batch_and_is_not_queued() {
+        let err = EventProcessorError::UserHsLookupFailed("dht unreachable".to_string());
+        assert!(
+            err.should_not_retry_now(),
+            "an event whose user's homeserver is unknown must hold the cursor"
+        );
+        assert!(
+            !RetryScheduler::should_enqueue_related_event(&err),
+            "a retry would reach the handler without the homeserver check"
         );
     }
 

@@ -2,14 +2,16 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use chrono::Utc;
-use nexus_common::db::{exec_single_row, queries};
+use nexus_common::db::{exec_single_row, queries, PubkyClientError, PubkyClientResult};
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::user::{Epoch, UserDetails};
 use nexus_common::utils::test_utils::{random_pk, random_pubky_id};
 use nexus_watcher::errors::EventProcessorError;
 use nexus_watcher::events::retry::{IndexKey, InitialBackoff, RetryScheduler, RetryStore};
 use nexus_watcher::events::EventHandler;
+use nexus_watcher::service::user_hs_resolver::PkdnsHomeserverResolver;
 use nexus_watcher::service::HsEventProcessor;
+use pubky::PublicKey;
 use pubky_app_specs::{post_uri_builder, PubkyId};
 use tokio::sync::watch;
 
@@ -68,20 +70,66 @@ async fn create_user_hosted_on(user_id: &str, hs_id: Option<&str>) {
     }
 }
 
-/// Assemble an [`HsEventProcessor`] for tests. Tests bypass `poll_events` by
-/// calling `process_event_lines` directly with constructed event lines.
-fn build_processor(
-    store: Arc<dyn RetryStore>,
-    event_handler: Arc<dyn EventHandler>,
-    shutdown_rx: watch::Receiver<bool>,
-) -> Arc<HsEventProcessor> {
-    let retry_scheduler = Arc::new(RetryScheduler::new(
+/// What every user without a `HOSTED_BY` edge publishes, as seen by [`PublishedHs`].
+#[derive(Clone)]
+enum Published {
+    Homeserver(String),
+    Nothing,
+    LookupFails,
+}
+
+/// Resolver stub answering every lookup the same way, so the processor's homeserver
+/// lookup for users without a `HOSTED_BY` edge runs without touching the DHT.
+struct PublishedHs(Published);
+
+#[async_trait::async_trait]
+impl PkdnsHomeserverResolver for PublishedHs {
+    async fn resolve_homeserver(&self, _user_pk: &PublicKey) -> PubkyClientResult<Option<PubkyId>> {
+        match &self.0 {
+            Published::Homeserver(hs_id) => Ok(Some(
+                PubkyId::try_from(hs_id.as_str()).expect("Valid homeserver Pubky ID"),
+            )),
+            Published::Nothing => Ok(None),
+            Published::LookupFails => Err(PubkyClientError::RequestFailed {
+                message: "dht unreachable".into(),
+            }),
+        }
+    }
+}
+
+fn test_retry_scheduler(store: Arc<dyn RetryStore>) -> Arc<RetryScheduler> {
+    Arc::new(RetryScheduler::new(
         store,
         InitialBackoff {
             missing_dep_ms: 60_000,
             transient_ms: 10_000,
         },
-    ));
+    ))
+}
+
+/// Assemble an [`HsEventProcessor`] for tests. Tests bypass `poll_events` by
+/// calling `process_event_lines` directly with constructed event lines. Users
+/// without a `HOSTED_BY` edge publish this processor's homeserver.
+fn build_processor(
+    store: Arc<dyn RetryStore>,
+    event_handler: Arc<dyn EventHandler>,
+    shutdown_rx: watch::Receiver<bool>,
+) -> Arc<HsEventProcessor> {
+    build_processor_with(
+        Published::Homeserver(TEST_HS_ID.to_string()),
+        store,
+        event_handler,
+        shutdown_rx,
+    )
+}
+
+/// [`build_processor`], with users without a `HOSTED_BY` edge publishing `published`.
+fn build_processor_with(
+    published: Published,
+    store: Arc<dyn RetryStore>,
+    event_handler: Arc<dyn EventHandler>,
+    shutdown_rx: watch::Receiver<bool>,
+) -> Arc<HsEventProcessor> {
     let hs_id = PubkyId::try_from(TEST_HS_ID).expect("Valid test Pubky ID");
 
     Arc::new(HsEventProcessor {
@@ -89,8 +137,9 @@ fn build_processor(
         limit: 100,
         event_handler,
         shutdown_rx,
-        retry_scheduler,
+        retry_scheduler: test_retry_scheduler(store),
         hs_mapping_cache: Default::default(),
+        hs_resolver: Arc::new(PublishedHs(published)),
     })
 }
 
@@ -100,31 +149,38 @@ fn build_processor(
 /// events from exactly that position.
 ///
 /// A random homeserver id keeps the stored cursor from leaking between tests.
+/// Users without a `HOSTED_BY` edge publish that homeserver.
 async fn build_processor_at_cursor(
     cursor: u64,
     store: Arc<dyn RetryStore>,
     event_handler: Arc<dyn EventHandler>,
     shutdown_rx: watch::Receiver<bool>,
 ) -> Result<Arc<HsEventProcessor>> {
+    build_processor_at_cursor_with(cursor, None, store, event_handler, shutdown_rx).await
+}
+
+/// [`build_processor_at_cursor`], with users without a `HOSTED_BY` edge publishing
+/// `published` (`None`: the processor's own homeserver).
+async fn build_processor_at_cursor_with(
+    cursor: u64,
+    published: Option<Published>,
+    store: Arc<dyn RetryStore>,
+    event_handler: Arc<dyn EventHandler>,
+    shutdown_rx: watch::Receiver<bool>,
+) -> Result<Arc<HsEventProcessor>> {
     let hs_id = random_pubky_id();
+    let published = published.unwrap_or_else(|| Published::Homeserver(hs_id.to_string()));
     let homeserver = Homeserver { id: hs_id, cursor };
     homeserver.put_to_index().await?;
-
-    let retry_scheduler = Arc::new(RetryScheduler::new(
-        store,
-        InitialBackoff {
-            missing_dep_ms: 60_000,
-            transient_ms: 10_000,
-        },
-    ));
 
     Ok(Arc::new(HsEventProcessor {
         homeserver,
         limit: 100,
         event_handler,
         shutdown_rx,
-        retry_scheduler,
+        retry_scheduler: test_retry_scheduler(store),
         hs_mapping_cache: Default::default(),
+        hs_resolver: Arc::new(PublishedHs(published)),
     }))
 }
 
@@ -146,7 +202,7 @@ async fn stored_cursor(hs_id: &str) -> Result<u64> {
 async fn test_batch_continues_after_single_failure() -> Result<()> {
     setup().await?;
 
-    // Fresh user with no HOSTED_BY edge, so the guard processes its events.
+    // Fresh user with no HOSTED_BY edge, publishing this homeserver, so the guard processes its events.
     let user_id = random_user_id();
     let first_post_id = "failone";
     let second_post_id = "failtwo";
@@ -203,7 +259,7 @@ async fn test_batch_continues_after_single_failure() -> Result<()> {
 async fn test_retry_event_carries_origin_homeserver_id() -> Result<()> {
     setup().await?;
 
-    // Fresh user with no HOSTED_BY edge, so the guard processes its events.
+    // Fresh user with no HOSTED_BY edge, publishing this homeserver, so the guard processes its events.
     let post_id = "originhs";
     let uri = post_uri_builder(random_user_id(), post_id.to_string());
 
@@ -342,13 +398,14 @@ async fn test_skips_event_when_user_mapping_to_this_homeserver_is_stale() -> Res
 }
 
 // ============================================================================
-// HOSTED_BY guard: process events from users with no HOSTED_BY edge
-// A missing edge is the common case (e.g. before the resolver has run) and must
-// not block processing.
+// HOSTED_BY guard: users with no HOSTED_BY edge
+// A missing edge is the common case (e.g. before the resolver has run). The
+// homeserver the user publishes decides instead: only this homeserver's events
+// for the user are processed.
 // ============================================================================
 
 #[tokio_shared_rt::test(shared)]
-async fn test_processes_event_when_user_has_no_homeserver_edge() -> Result<()> {
+async fn test_processes_event_when_user_without_edge_publishes_this_homeserver() -> Result<()> {
     setup().await?;
 
     // Fresh user id with no graph state: no User node, no HOSTED_BY edge.
@@ -361,13 +418,132 @@ async fn test_processes_event_when_user_has_no_homeserver_edge() -> Result<()> {
     let processor = build_processor(store.clone(), handler.clone(), shutdown_rx);
 
     processor
-        .process_event_lines(batch([format!("PUT {uri}")]))
+        .process_event_lines(batch([format!("PUT {uri}"), format!("DEL {uri}")]))
         .await?;
 
     assert_eq!(
         handler.get_handle_count(),
-        1,
-        "Event from a user without a HOSTED_BY edge must be processed"
+        2,
+        "Events from a user without a HOSTED_BY edge who publishes this homeserver must be processed"
+    );
+
+    let _ = shutdown_tx.send(true);
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_skips_event_when_user_without_edge_publishes_another_homeserver() -> Result<()> {
+    setup().await?;
+
+    let uri = post_uri_builder(random_user_id(), "elsewhere".to_string());
+
+    let store = new_in_memory_store();
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let handler = create_mock_handler(Ok(()), None);
+    let processor = build_processor_with(
+        Published::Homeserver(random_pubky_id().to_string()),
+        store.clone(),
+        handler.clone(),
+        shutdown_rx,
+    );
+
+    processor
+        .process_event_lines(batch([format!("PUT {uri}"), format!("DEL {uri}")]))
+        .await?;
+
+    assert_eq!(
+        handler.get_handle_count(),
+        0,
+        "Events from a user who publishes another homeserver must be skipped"
+    );
+    assert!(
+        store.get(&IndexKey::for_uri(&uri)).await?.is_none(),
+        "A skipped event must not be queued for retry"
+    );
+
+    let _ = shutdown_tx.send(true);
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_skips_event_when_user_without_edge_publishes_no_homeserver() -> Result<()> {
+    setup().await?;
+
+    let uri = post_uri_builder(random_user_id(), "unpublished".to_string());
+
+    let store = new_in_memory_store();
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let handler = create_mock_handler(Ok(()), None);
+    let processor = build_processor_with(
+        Published::Nothing,
+        store.clone(),
+        handler.clone(),
+        shutdown_rx,
+    );
+
+    processor
+        .process_event_lines(batch([format!("PUT {uri}"), format!("DEL {uri}")]))
+        .await?;
+
+    assert_eq!(
+        handler.get_handle_count(),
+        0,
+        "Events from a user who publishes no homeserver must be skipped"
+    );
+    assert!(
+        store.get(&IndexKey::for_uri(&uri)).await?.is_none(),
+        "A skipped event must not be queued for retry"
+    );
+
+    let _ = shutdown_tx.send(true);
+    Ok(())
+}
+
+// ============================================================================
+// HOSTED_BY guard: a failed homeserver lookup stops the batch
+// Without an answer the event can neither be processed nor queued (retries go
+// straight to the handler), so the batch stops and the cursor stays put.
+// ============================================================================
+
+#[tokio_shared_rt::test(shared)]
+async fn test_failed_homeserver_lookup_stops_batch_and_keeps_cursor() -> Result<()> {
+    setup().await?;
+
+    let uri = post_uri_builder(random_user_id(), "lookupfails".to_string());
+
+    let store = new_in_memory_store();
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let handler = create_mock_handler(Ok(()), None);
+    let processor = build_processor_at_cursor_with(
+        10,
+        Some(Published::LookupFails),
+        store.clone(),
+        handler.clone(),
+        shutdown_rx,
+    )
+    .await?;
+
+    let result = processor
+        .process_event_lines(vec![format!("DEL {uri}"), "cursor: 11".to_string()])
+        .await;
+
+    assert!(
+        matches!(result, Err(EventProcessorError::UserHsLookupFailed(_))),
+        "A failed homeserver lookup must stop the batch, got {result:?}"
+    );
+    assert_eq!(
+        handler.get_handle_count(),
+        0,
+        "The event must not be processed"
+    );
+    assert!(
+        store.get(&IndexKey::for_uri(&uri)).await?.is_none(),
+        "The event must not be queued for retry"
+    );
+    assert_eq!(
+        stored_cursor(&processor.homeserver.id).await?,
+        10,
+        "The cursor must not advance past the event"
     );
 
     let _ = shutdown_tx.send(true);
@@ -384,8 +560,8 @@ async fn test_processes_event_when_user_has_no_homeserver_edge() -> Result<()> {
 async fn test_user_homeserver_mapping_is_cached_across_events() -> Result<()> {
     setup().await?;
 
-    // User starts with no HOSTED_BY edge, so the first event is processed and the
-    // resulting "unbound" mapping is cached.
+    // User starts with no HOSTED_BY edge and publishes this homeserver, so the first
+    // event is processed and the resulting mapping is cached.
     let user_id = random_user_id();
     let first_uri = post_uri_builder(user_id.clone(), "cacheone".to_string());
     let second_uri = post_uri_builder(user_id.clone(), "cachetwo".to_string());
@@ -400,7 +576,7 @@ async fn test_user_homeserver_mapping_is_cached_across_events() -> Result<()> {
         .await?;
 
     // Map the user to a *different* homeserver. A fresh lookup would now skip,
-    // but the cached "unbound" mapping must keep this user's events flowing.
+    // but the cached mapping must keep this user's events flowing.
     let other_hs_id = random_pubky_id().to_string();
     create_user_hosted_on(&user_id, Some(&other_hs_id)).await;
 
@@ -428,7 +604,7 @@ async fn test_user_homeserver_mapping_is_cached_across_events() -> Result<()> {
 async fn test_batch_stops_on_infrastructure_error() -> Result<()> {
     setup().await?;
 
-    // Fresh user with no HOSTED_BY edge, so the guard processes its events.
+    // Fresh user with no HOSTED_BY edge, publishing this homeserver, so the guard processes its events.
     let user_id = random_user_id();
     let first_post_id = "infraone";
     let second_post_id = "infratwo";
