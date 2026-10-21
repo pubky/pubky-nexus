@@ -3,9 +3,9 @@
 //! the object holds. The [`ResourceKey`] the event's path names travels beside the input.
 //!
 //! A translator fills them from a validated spec object, so the handlers never see the spec's
-//! object layout, and translation alone decides each object's stored address. A few field types
-//! (`PubkyAppPostKind`, `PubkyAppUserLink`) still come from the spec, as they do in the stored
-//! models.
+//! object layout, and translation alone decides each object's stored address. The inputs name no
+//! spec type; the stored models they build still do, so each type crosses back beside the method
+//! that builds its model.
 
 use chrono::Utc;
 use nexus_common::models::file::{FileDetails, FileUrls};
@@ -58,13 +58,31 @@ impl ReferenceTarget {
     }
 }
 
+/// What kind of post a [`PostInput`] is, in Nexus vocabulary: every epoch's translator maps its
+/// spec's kinds into it.
+///
+/// It never leaves the watcher's memory, so it has no wire names. It moves to nexus-common with
+/// the API work, which puts Nexus-owned types on the stored models.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PostKind {
+    Short,
+    Long,
+    Image,
+    Video,
+    Link,
+    File,
+    Collection,
+    /// A kind the spec reader didn't recognise.
+    Unknown,
+}
+
 /// A post, as the post handler reads it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PostInput {
     /// The address the post is stored under.
     pub uri: String,
     pub content: String,
-    pub kind: PubkyAppPostKind,
+    pub kind: PostKind,
     /// If a reply, the parent the author named.
     pub parent: Option<Reference>,
     /// The embedded object the author named.
@@ -72,12 +90,15 @@ pub struct PostInput {
     /// A collection post's items, in order; empty for any other kind. Only author ingestion
     /// reads them: the collected edges still come from the stored content.
     pub collection_items: Vec<Reference>,
-    pub attachments: Option<Vec<String>>,
+    /// The attachments the author named, in order; empty when the post has none.
+    pub attachments: Vec<String>,
     /// `pubky://` URL of the lock server; `None` when the post is unlocked.
     pub lock: Option<String>,
 }
 
 impl PostInput {
+    /// The details stored for the post. The attachments are stored as a list, even an empty
+    /// one, never `null`.
     pub fn into_details(self, key: &ResourceKey) -> PostDetails {
         PostDetails {
             uri: self.uri,
@@ -85,8 +106,8 @@ impl PostInput {
             id: key.resource_id.clone(),
             indexed_at: Utc::now().timestamp_millis(),
             author: key.owner_id.to_string(),
-            kind: self.kind,
-            attachments: self.attachments,
+            kind: self.kind.into(),
+            attachments: Some(self.attachments),
             lock: self.lock,
             deleted: false,
         }
@@ -114,36 +135,70 @@ impl PostInput {
     }
 }
 
-/// A profile, as the user handler reads it.
+/// The stored post details still hold the v0 kind; [`PostInput::into_details`] is the one place
+/// the kind crosses back.
+impl From<PostKind> for PubkyAppPostKind {
+    fn from(kind: PostKind) -> Self {
+        match kind {
+            PostKind::Short => Self::Short,
+            PostKind::Long => Self::Long,
+            PostKind::Image => Self::Image,
+            PostKind::Video => Self::Video,
+            PostKind::Link => Self::Link,
+            PostKind::File => Self::File,
+            PostKind::Collection => Self::Collection,
+            PostKind::Unknown => Self::Unknown,
+        }
+    }
+}
+
+/// One link on a profile, in Nexus vocabulary: every epoch's translator maps its spec's links
+/// into it.
 ///
-/// No `PartialEq`: the v0 `PubkyAppUserLink` it carries has none.
-#[derive(Clone, Debug)]
+/// The spec reader has validated and sanitised it before translation. It moves to nexus-common
+/// with the API work, which puts Nexus-owned types on the stored models.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UserLink {
+    pub title: String,
+    pub url: String,
+}
+
+/// A profile, as the user handler reads it.
+#[derive(Clone, Debug, PartialEq)]
 pub struct UserInput {
     /// The address the profile is stored under.
     pub uri: String,
     pub name: String,
     pub bio: Option<String>,
     pub image: Option<String>,
-    /// `None` when the profile has no links or `null`; an empty list stays `Some`, so the stored
-    /// `null` and `[]` stay distinct.
-    pub links: Option<Vec<PubkyAppUserLink>>,
+    /// The profile's links, in order; empty when it has none.
+    pub links: Vec<UserLink>,
     pub status: Option<String>,
 }
 
 impl UserInput {
-    /// The details cached for the profile; [`UserInput::uri`] goes to the graph only.
+    /// The details cached for the profile; [`UserInput::uri`] goes to the graph only. The links
+    /// are stored as a list, even an empty one, never `null`.
     pub fn into_details(self, user_id: &PubkyId) -> UserDetails {
         UserDetails {
             name: self.name,
             bio: self.bio,
             status: self.status,
-            links: self.links,
+            links: Some(self.links.into_iter().map(Into::into).collect()),
             image: self.image,
             id: user_id.clone(),
             indexed_at: Utc::now().timestamp_millis(),
             deleted: false,
             epoch: Epoch::V0,
         }
+    }
+}
+
+/// The stored user details still hold v0 links; [`UserInput::into_details`] is the one place the
+/// links cross back.
+impl From<UserLink> for PubkyAppUserLink {
+    fn from(UserLink { title, url }: UserLink) -> Self {
+        Self { title, url }
     }
 }
 
@@ -222,11 +277,11 @@ mod tests {
         PostInput {
             uri: format!("pubky://{AUTHOR}/pub/pubky.app/posts/{POST_ID}"),
             content: "x".into(),
-            kind: PubkyAppPostKind::Short,
+            kind: PostKind::Short,
             parent,
             embed,
             collection_items: Vec::new(),
-            attachments: None,
+            attachments: Vec::new(),
             lock: None,
         }
     }
