@@ -19,9 +19,8 @@ const NO_EDGES_USER: &str = "18a49r4bu7zgu9p8wjcfhcs7q97q7u898ogs8m7k6375y8ixp17
 /// discovery knows, named after their key and without a `uri`.
 const DISCOVERY_STUB: &str = "xph5h5cw3ycbaww3ewokeoq3w4fkk36qa5cmxjbm4onsbeqxi9my";
 
-/// A discovery stub shows in user lists, named after their key. Lists read the
-/// graph, which holds every stub; before, a stub showed only once something
-/// had cached their details.
+/// A discovery stub shows in user lists, named after their key, as lists read
+/// the graph, which holds every stub.
 #[tokio_shared_rt::test(shared)]
 async fn test_user_lists_show_a_discovery_stub() -> Result<()> {
     let _ = TestServiceServer::get_test_server().await;
