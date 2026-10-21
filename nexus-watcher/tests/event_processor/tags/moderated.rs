@@ -251,6 +251,58 @@ async fn test_moderation_through_the_social_v1_address_of_a_post_takes_it_down()
     Ok(())
 }
 
+/// A tag has one id whatever folder holds it: a takedown of another app's tag holds when the
+/// same tag is replayed through that app's folder and through `pubky.app/tags/`.
+#[tokio_shared_rt::test(shared)]
+async fn test_takedown_of_another_apps_tag_holds_in_every_folder() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let moderator_kp = create_moderator(&mut test).await?;
+    let (_author_kp, author_id, post_id) = create_author_and_post(&mut test).await?;
+    let (tagger_kp, tagger_id) = create_tagger(&mut test, "every-folder").await?;
+
+    let label = "mod_every_folder";
+    let tag_uri = put_app_specific_post_tag(
+        &mut test, &tagger_kp, &tagger_id, "mapky", &author_id, &post_id, label,
+    )
+    .await?;
+    assert!(
+        find_post_tag(&author_id, &post_id, label).await?.is_some(),
+        "another app's tag should exist before moderation"
+    );
+
+    moderate_tag(&mut test, &moderator_kp, &tag_uri).await?;
+    assert!(
+        find_post_tag(&author_id, &post_id, label).await?.is_none(),
+        "another app's tag should be moderated"
+    );
+
+    let replayed_uri = put_app_specific_post_tag(
+        &mut test, &tagger_kp, &tagger_id, "mapky", &author_id, &post_id, label,
+    )
+    .await?;
+    assert_eq!(replayed_uri, tag_uri, "the same tag, replayed");
+    assert!(
+        find_post_tag(&author_id, &post_id, label).await?.is_none(),
+        "the takedown holds when the tag is replayed through its app's folder"
+    );
+
+    let pubky_app_uri = put_pubky_app_post_tag(
+        &mut test, &tagger_kp, &tagger_id, &author_id, &post_id, label,
+    )
+    .await?;
+    assert_eq!(
+        pubky_app_uri.rsplit('/').next(),
+        tag_uri.rsplit('/').next(),
+        "the same tag id in the pubky.app folder"
+    );
+    assert!(
+        find_post_tag(&author_id, &post_id, label).await?.is_none(),
+        "the takedown holds when the tag is replayed through pubky.app/tags/"
+    );
+
+    Ok(())
+}
+
 async fn create_moderator(test: &mut WatcherTest) -> Result<Keypair> {
     let moderator_recovery_file =
         fs::read("./tests/event_processor/utils/moderator_key.pkarr").await?;

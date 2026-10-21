@@ -64,15 +64,12 @@ impl Moderation {
             target @ (ReferenceTarget::Post(_)
             | ReferenceTarget::Tag { .. }
             | ReferenceTarget::File(_)) => {
-                // Recorded under the address an event for it carries: the tag's URI may spell
-                // it differently (a trailing slash, a query, its `social/v1` address) and still
-                // name the same record, whose events carry its `pubky.app` address until the
-                // flip.
-                // TODO(specs-migration): a `social/v1` file is recorded under an address no
-                // event carries (its raw `{hash}.{ext}` name in the `pubky.app` folder), and
-                // after the flip a `social/v1` post's events carry version paths. Both need the
-                // takedown looked up by the resolved target of the event's address, not by one
-                // address (N2b), and the post's version paths are settled with the flip (N3).
+                // Recorded under the resolved target's takedown address, as an event's address
+                // is looked up (see `remove_if_taken_down`): the tag's URI may spell the record
+                // differently from its events (a trailing slash, a query, its `social/v1`
+                // address, another app's folder) and still name it.
+                // TODO(specs-migration): keying takedowns of a `social/v1` post's version paths
+                // is settled with the flip (N3).
                 let address = takedown_address(&target).map_err(EventProcessorError::generic)?;
 
                 // Posts, tags and files are remembered before they are deleted, so they stay

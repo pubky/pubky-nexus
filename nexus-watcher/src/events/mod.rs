@@ -37,7 +37,7 @@ mod moderation;
 pub mod retry;
 
 pub use moderation::Moderation;
-use route::resolve_reference;
+use route::{resolve_reference, takedown_address};
 use translation::{translate_del, translate_put, TranslatedDel, TranslatedPut};
 
 /// Trait for handling events.
@@ -168,6 +168,11 @@ pub async fn handle_put_event(
 
 /// Removes the record at `uri` if the moderator took it down, and returns whether it did.
 ///
+/// The takedown is looked up under the [`takedown_address`] of the record `uri` resolves to
+/// (parsing only, no I/O), so every address that names one record finds it: a tag through any
+/// app's folder, a post through either epoch's address. A user or an unresolved address has
+/// no takedown address and is looked up as written.
+///
 /// Run before a record is fetched and again once it is written. The moderator's tag may
 /// have been read by another loop (primary, external, retry) while the record was being
 /// fetched, and found nothing to delete yet: if the takedown is recorded by the second
@@ -179,10 +184,11 @@ pub async fn remove_if_taken_down(
     files_path: &Path,
     ingestor: &UserIngestor,
 ) -> Result<bool, EventProcessorError> {
-    if !is_taken_down(uri).await? {
+    let target = resolve_reference(uri).target;
+    let address = takedown_address(&target).unwrap_or_else(|_| uri.to_string());
+    if !is_taken_down(&address).await? {
         return Ok(false);
     }
-    let target = resolve_reference(uri).target;
     // Boxed: the delete handlers' futures would otherwise nest inside every PUT's.
     match Box::pin(Moderation::remove_taken_down(target, files_path, ingestor)).await {
         Ok(()) | Err(EventProcessorError::SkipIndexing) => Ok(true),

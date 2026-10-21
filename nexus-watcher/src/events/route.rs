@@ -85,12 +85,11 @@ pub fn resolve_reference(address: &str) -> Reference {
     }
 }
 
-/// The address a takedown of `target` is recorded under: the `pubky.app` rendering of the
-/// resolved key, whichever epoch's address resolved it: a post, file or `pubky.app` tag in its
-/// `pubky.app` folder, another app's universal tag in that app's folder, both as the frozen v0
-/// reader renders them. Until the flip that is the address a `pubky.app` object's own events
-/// carry, which is how a takedown is looked up. A `social/v1` file keeps its raw
-/// `{hash}.{ext}` name, so its rendering is an address no event carries.
+/// The address a takedown of `target` is recorded and looked up under: the `pubky.app`
+/// rendering of the resolved key, as the frozen v0 reader renders it, whichever epoch's
+/// address or app's folder named it (a tag has one id whatever folder holds it). An event's
+/// address resolves the same way (see [`super::remove_if_taken_down`]), so every address that
+/// names one record finds its takedown. A `social/v1` file keeps its raw `{hash}.{ext}` name.
 ///
 /// `Err` for a user or an unresolved address: neither is taken down.
 pub fn takedown_address(target: &ReferenceTarget) -> Result<String, String> {
@@ -103,15 +102,7 @@ pub fn takedown_address(target: &ReferenceTarget) -> Result<String, String> {
     let parsed = match target {
         ReferenceTarget::Post(key) => pubky_app(key, legacy_v0::Resource::Post),
         ReferenceTarget::File(key) => pubky_app(key, legacy_v0::Resource::File),
-        ReferenceTarget::Tag { key, app: None } => pubky_app(key, legacy_v0::Resource::Tag),
-        ReferenceTarget::Tag {
-            key,
-            app: Some(app),
-        } => ExtendedParsedUri::UniversalTag {
-            user_id: key.owner_id.clone(),
-            app: app.clone(),
-            resource: legacy_v0::Resource::Tag(key.resource_id.clone()),
-        },
+        ReferenceTarget::Tag { key, .. } => pubky_app(key, legacy_v0::Resource::Tag),
         ReferenceTarget::User(_) => return Err("a user is never taken down".to_string()),
         ReferenceTarget::Other => return Err("names nothing Nexus takes down".to_string()),
     };
@@ -415,7 +406,7 @@ mod tests {
     }
 
     /// A takedown is recorded under the `pubky.app` address of the resolved key, whatever
-    /// address named it: the one the target's own events carry until the flip.
+    /// address or app's folder named it.
     #[test]
     fn takedown_addresses_are_the_pubky_app_ones_whatever_address_resolved_the_target() {
         let post = post_uri_builder(USER.into(), POST_ID.into());
@@ -432,19 +423,20 @@ mod tests {
                 "{address}"
             );
         }
+        // A tag has one id whatever folder holds it, another app's included.
         let tag = tag_uri_builder(USER.into(), HASH_ID.into());
-        for address in [tag.clone(), v1_tag_uri_builder(USER.into(), HASH_ID.into())] {
+        for address in [
+            tag.clone(),
+            v1_tag_uri_builder(USER.into(), HASH_ID.into()),
+            format!("pubky://{USER}/pub/mapky/tags/{HASH_ID}"),
+            format!("pubky://{USER}/pub/mapky/tags/{HASH_ID}?x=1"),
+        ] {
             assert_eq!(
                 takedown_address(&target(&address)).as_deref(),
                 Ok(tag.as_str()),
                 "{address}"
             );
         }
-        let universal = format!("pubky://{USER}/pub/mapky/tags/{HASH_ID}");
-        assert_eq!(
-            takedown_address(&target(&format!("{universal}?x=1"))).as_deref(),
-            Ok(universal.as_str())
-        );
         let file = file_uri_builder(USER.into(), POST_ID.into());
         assert_eq!(
             takedown_address(&target(&file)).as_deref(),
