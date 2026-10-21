@@ -13,7 +13,7 @@ use super::store::{RedisRetryStore, RetryStore};
 use super::IndexKey;
 use super::RetryEvent;
 use super::RetryScheduler;
-use crate::events::{DefaultEventHandler, EventHandler};
+use crate::events::EventHandler;
 use crate::service::indexer::{RunOutcome, TEventProcessor};
 
 /// Maximum number of retry events to fetch per batch to avoid memory spikes
@@ -69,10 +69,15 @@ impl TEventProcessor for RetryProcessor {
 }
 
 impl RetryProcessor {
-    pub fn new(config: &WatcherConfig, shutdown_rx: Receiver<bool>) -> Self {
+    /// Creates a processor retrying events from the Redis queue through `event_handler`
+    pub fn new(
+        config: &WatcherConfig,
+        event_handler: Arc<dyn EventHandler>,
+        shutdown_rx: Receiver<bool>,
+    ) -> Self {
         let store: Arc<dyn RetryStore> = Arc::new(RedisRetryStore::new());
         Self {
-            event_handler: Arc::new(DefaultEventHandler::from_config(config)),
+            event_handler,
             shutdown_rx,
             config: config.retry.clone(),
             store,

@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use nexus_common::models::user::UserIngestor;
+use nexus_common::models::user::{PubkyConnectorResolver, UserIngestor};
 use nexus_common::{types::DynError, ApiConfig};
 use pubky::pkarr::{self, Keypair};
 
@@ -39,7 +39,8 @@ impl ApiContextBuilder {
         // Ensure the dir exists, so a missing secret file can be created in it
         std::fs::create_dir_all(self.secret_dir.clone())?;
 
-        let ingestor = UserIngestor::from_config(&self.api_config.stack);
+        let ingestor =
+            UserIngestor::from_config(&self.api_config.stack, Arc::new(PubkyConnectorResolver));
 
         let pkarr_builder = self.pkarr_builder.clone().unwrap_or_default();
         let pkarr_client = pkarr_builder.build()?;
