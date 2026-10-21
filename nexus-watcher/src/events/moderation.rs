@@ -50,6 +50,9 @@ impl Moderation {
         ingestor: &UserIngestor,
     ) -> Result<(), EventProcessorError> {
         let Reference { uri, target } = moderated;
+        // TODO(specs-migration): a `Resource` tag is never taken down. A moderator tag on a
+        // foreign resource removes nothing, and a file takedown deletes the file but leaves the
+        // `Resource` tags on its address.
         match target {
             // A profile is not remembered: its address is the user's, and a moderated user may
             // come back by writing a new profile.
@@ -57,8 +60,6 @@ impl Moderation {
                 info!("Moderation tag '{label}' detected. Deleting user profile {user_id}");
                 handlers::user::del(user_id).await
             }
-            // TODO(specs-migration): a moderator tag on a foreign resource leaves its
-            // `Resource` tags in place.
             ReferenceTarget::Foreign | ReferenceTarget::Other => {
                 debug!("Moderation tag '{label}' on {uri} names nothing Nexus deletes");
                 Ok(())

@@ -36,6 +36,8 @@ pub mod handlers;
 mod moderation;
 pub mod retry;
 
+use handlers::utils::bounded;
+use inputs::{ReferenceTarget, ResourceKey, TagInput};
 pub use moderation::Moderation;
 use route::{resolve_reference, takedown_address};
 use translation::{translate_del, translate_put, TranslatedDel, TranslatedPut};
@@ -142,17 +144,14 @@ pub async fn handle_put_event(
         TranslatedPut::Bookmark { key, bookmark } => {
             handlers::bookmark::sync_put(bookmark, key).await
         }
-        TranslatedPut::Tag { key, tag, app } => {
+        TranslatedPut::Tag { key, tag } => {
+            // A moderator tag takes the takedown path, whatever it tags.
             if moderation.should_delete(&tag.label, &key.owner_id) {
                 moderation
                     .apply_moderation(&tag.label, tag.tagged, &event.uri, files_path, &ingestor)
                     .await
-            } else if let Some(app) = app {
-                // Another app's universal tag: `sync_put_resource` also makes Resource nodes
-                // for targets that are neither a post nor a user.
-                handlers::tag::sync_put_resource(tag, key, app, &ingestor).await
             } else {
-                handlers::tag::sync_put(tag, key, &ingestor).await
+                put_tag(tag, key, &ingestor).await
             }
         }
         TranslatedPut::File { key, file } => {
@@ -164,6 +163,36 @@ pub async fn handle_put_event(
     // Checked again once written: see `remove_if_taken_down`.
     remove_if_taken_down(&event.uri, files_path, &ingestor).await?;
     Ok(())
+}
+
+/// Indexes a non-moderator tag by what it tags, so the same tag gives the same result from any
+/// folder or epoch (`pubky.app/tags`, `social/v1/tags` or another app's folder):
+///
+/// - a post or a user: a post or user tag ([`handlers::tag::sync_put`]);
+/// - a foreign resource or a file, at either epoch's address: a `Resource` tag
+///   ([`handlers::tag::sync_put_resource`]);
+/// - a tag or anything else: [`EventProcessorError::UnsupportedTarget`], never retried. A
+///   `social/vN` target dropped here comes back through a reindex once Nexus speaks that epoch.
+pub async fn put_tag(
+    tag: TagInput,
+    key: ResourceKey,
+    ingestor: &UserIngestor,
+) -> Result<(), EventProcessorError> {
+    match &tag.tagged.target {
+        ReferenceTarget::Post(_) | ReferenceTarget::User(_) => {
+            handlers::tag::sync_put(tag, key, ingestor).await
+        }
+        ReferenceTarget::Foreign | ReferenceTarget::File(_) => {
+            handlers::tag::sync_put_resource(tag, key).await
+        }
+        target @ (ReferenceTarget::Tag { .. } | ReferenceTarget::Other) => {
+            Err(EventProcessorError::UnsupportedTarget(format!(
+                "The tagged resource {} is neither a post, a user, a file nor a foreign resource, instead is: {}",
+                bounded(&tag.tagged.uri),
+                bounded(&format!("{target:?}"))
+            )))
+        }
+    }
 }
 
 /// Removes the record at `uri` if the moderator took it down, and returns whether it did.
@@ -209,7 +238,7 @@ pub async fn handle_del_event(
             user_id,
             followee_id,
         } => handlers::follow::del(user_id, followee_id).await,
-        TranslatedDel::Tag { key, .. } => handlers::tag::del(key).await,
+        TranslatedDel::Tag(key) => handlers::tag::del(key).await,
         TranslatedDel::Bookmark(key) => handlers::bookmark::del(key).await,
         TranslatedDel::File(key) => handlers::file::del(key, files_path).await,
     }

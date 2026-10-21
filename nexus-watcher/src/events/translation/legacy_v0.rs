@@ -65,7 +65,6 @@ pub fn translate_put(
                 owner_id: user_id,
                 resource_id: tag_id.clone(),
             },
-            app: tag_app(parsed),
         },
         Resource::File(file_id) => TranslatedPut::File {
             file: FileInput::from_v0(read::<PubkyAppFile>(bytes, file_id)?, uri),
@@ -102,13 +101,10 @@ pub fn translate_del(parsed: &ExtendedParsedUri) -> Result<TranslatedDel, EventP
             owner_id: user_id,
             resource_id: bookmark_id.clone(),
         }),
-        Resource::Tag(tag_id) => TranslatedDel::Tag {
-            key: ResourceKey {
-                owner_id: user_id,
-                resource_id: tag_id.clone(),
-            },
-            app: tag_app(parsed),
-        },
+        Resource::Tag(tag_id) => TranslatedDel::Tag(ResourceKey {
+            owner_id: user_id,
+            resource_id: tag_id.clone(),
+        }),
         Resource::File(file_id) => TranslatedDel::File(ResourceKey {
             owner_id: user_id,
             resource_id: file_id.clone(),
@@ -119,14 +115,6 @@ pub fn translate_del(parsed: &ExtendedParsedUri) -> Result<TranslatedDel, EventP
         | Resource::Mute(_)
         | Resource::Unknown) => return Err(no_handler(resource)),
     })
-}
-
-/// The app whose folder holds a tag: `None` in the `pubky.app` folder.
-fn tag_app(parsed: &ExtendedParsedUri) -> Option<String> {
-    match parsed {
-        ExtendedParsedUri::PubkyApp { .. } => None,
-        ExtendedParsedUri::UniversalTag { app, .. } => Some(app.clone()),
-    }
 }
 
 /// A resource no handler takes; parsing skips or rejects it before translation.
@@ -727,56 +715,28 @@ mod tests {
         assert_eq!(followee_id, pubky_id(OTHER_USER));
     }
 
+    /// A tag translates to the same key and input from the `pubky.app` folder and from another
+    /// app's: the folder names no app, only the address the tag is stored under.
     #[test]
-    fn put_pubky_app_tag_translates_to_its_input_without_an_app() {
+    fn put_tag_translates_to_the_same_input_from_any_folder() {
         let tag = tag_fixture();
         let id = tag.create_id();
-        let path = format!("pubky.app/tags/{id}");
-        let translated = put_at(&path, &bytes(&tag)).unwrap();
-        let TranslatedPut::Tag {
-            key,
-            tag: input,
-            app,
-        } = translated
-        else {
-            panic!("expected Tag, got {translated:?}");
-        };
-        assert_eq!(key, owned_key(id));
-        assert_eq!(
-            input,
-            TagInput {
-                uri: event_uri(&path),
-                tagged: post_reference(),
-                label: tag.label,
-            }
-        );
-        assert_eq!(app, None);
-    }
-
-    #[test]
-    fn put_universal_tag_translates_to_its_input_with_its_app() {
-        let tag = tag_fixture();
-        let id = tag.create_id();
-        let path = format!("mapky/tags/{id}");
-        let translated = put_at(&path, &bytes(&tag)).unwrap();
-        let TranslatedPut::Tag {
-            key,
-            tag: input,
-            app,
-        } = translated
-        else {
-            panic!("expected Tag, got {translated:?}");
-        };
-        assert_eq!(key, owned_key(id));
-        assert_eq!(
-            input,
-            TagInput {
-                uri: event_uri(&path),
-                tagged: post_reference(),
-                label: tag.label,
-            }
-        );
-        assert_eq!(app.as_deref(), Some("mapky"));
+        for path in [format!("pubky.app/tags/{id}"), format!("mapky/tags/{id}")] {
+            let translated = put_at(&path, &bytes(&tag)).unwrap();
+            let TranslatedPut::Tag { key, tag: input } = translated else {
+                panic!("{path}: expected Tag, got {translated:?}");
+            };
+            assert_eq!(key, owned_key(id.clone()), "{path}");
+            assert_eq!(
+                input,
+                TagInput {
+                    uri: event_uri(&path),
+                    tagged: post_reference(),
+                    label: tag.label.clone(),
+                },
+                "{path}"
+            );
+        }
     }
 
     #[test]
@@ -1006,17 +966,11 @@ mod tests {
             ),
             (
                 format!("pubky.app/tags/{tag_id}"),
-                TranslatedDel::Tag {
-                    key: owned_key(tag_id.clone()),
-                    app: None,
-                },
+                TranslatedDel::Tag(owned_key(tag_id.clone())),
             ),
             (
                 format!("mapky/tags/{tag_id}"),
-                TranslatedDel::Tag {
-                    key: owned_key(tag_id),
-                    app: Some("mapky".to_string()),
-                },
+                TranslatedDel::Tag(owned_key(tag_id)),
             ),
             (
                 format!("pubky.app/bookmarks/{bookmark_id}"),

@@ -62,11 +62,9 @@ pub fn translate_put(
             user_id,
             followee_id: followee_id.clone(),
         },
-        // TODO(specs-migration): the tag flow PR decides which `app` a v1 tag carries.
         (Resource::Tag(tag_id), PubkySocialObject::Tag(tag)) => TranslatedPut::Tag {
             tag: TagInput::from_v1(tag, uri),
             key: owned_key(user_id, tag_id),
-            app: None,
         },
         (resource, object) => return Err(unexpected_object(resource, &object)),
     })
@@ -91,11 +89,7 @@ pub fn translate_del(parsed: &ParsedUri) -> Result<TranslatedDel, EventProcessor
             user_id,
             followee_id: followee_id.clone(),
         },
-        // TODO(specs-migration): the tag flow PR decides which `app` a v1 tag carries.
-        Resource::Tag(tag_id) => TranslatedDel::Tag {
-            key: owned_key(user_id, tag_id),
-            app: None,
-        },
+        Resource::Tag(tag_id) => TranslatedDel::Tag(owned_key(user_id, tag_id)),
         resource => return Err(no_handler(resource)),
     })
 }
@@ -401,14 +395,14 @@ mod tests {
         )
     }
 
-    /// Translates a PUT of `tag` at the path its id names, to its key, input and app.
-    fn translate_tag(tag: &PubkySocialTag) -> (ResourceKey, TagInput, Option<String>) {
+    /// Translates a PUT of `tag` at the path its id names, to its key and input.
+    fn translate_tag(tag: &PubkySocialTag) -> (ResourceKey, TagInput) {
         let address = tag_uri_builder(USER.into(), tag.create_id());
         let translated = put_at(&address, &bytes(tag)).unwrap();
-        let TranslatedPut::Tag { key, tag, app } = translated else {
+        let TranslatedPut::Tag { key, tag } = translated else {
             panic!("expected Tag, got {translated:?}");
         };
-        (key, tag, app)
+        (key, tag)
     }
 
     // ---- profile ------------------------------------------------------------------------
@@ -843,13 +837,13 @@ mod tests {
     // ---- tag ----------------------------------------------------------------------------
 
     /// A tag on a post, in either epoch's address, keys the tag by its id and the post by its
-    /// node, with no app.
+    /// node.
     #[test]
-    fn put_tag_on_a_post_translates_to_its_input_without_an_app() {
+    fn put_tag_on_a_post_translates_to_its_input() {
         for address in [v0_post_uri(), v1_post_uri()] {
             let tag = PubkySocialTag::new(address.clone(), "nexus".to_string());
             let id = tag.create_id();
-            let (key, input, app) = translate_tag(&tag);
+            let (key, input) = translate_tag(&tag);
             assert_eq!(key, self::key(&id), "{address}");
             assert_eq!(
                 input,
@@ -860,7 +854,6 @@ mod tests {
                 },
                 "{address}"
             );
-            assert_eq!(app, None, "{address}");
         }
     }
 
@@ -965,10 +958,7 @@ mod tests {
             ),
             (
                 tag_uri_builder(USER.into(), HASH_ID.into()),
-                TranslatedDel::Tag {
-                    key: key(HASH_ID),
-                    app: None,
-                },
+                TranslatedDel::Tag(key(HASH_ID)),
             ),
         ];
         for (address, expected) in cases {

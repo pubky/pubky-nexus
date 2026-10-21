@@ -128,19 +128,18 @@ async fn test_homeserver_resource_tag_put_del_reput() -> Result<()> {
     Ok(())
 }
 
-/// The same user tags the same external URI with the same label from two app folders. The
-/// tag id ignores the folder, so both files name one tag: one `TAGGED` edge, which the second
-/// file leaves as it is. A DEL of either file removes that edge and the orphaned Resource,
-/// and a DEL of the other one then finds nothing to remove.
+/// The same user tags the same external URI with the same label from the `pubky.app` folder and
+/// from another app's. The tag id ignores the folder, so both files name one tag: one `TAGGED`
+/// edge, which the second file leaves as it is, with the same tagger count. A DEL of either file
+/// removes that edge and the orphaned Resource, and a DEL of the other one then finds nothing to
+/// remove.
 #[tokio_shared_rt::test(shared)]
 async fn test_resource_tag_from_two_folders_is_one_edge() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
 
     let target_uri = "https://example.com/two-folders-one-edge";
     let label = "two-folder-label";
-    let suffix = Utc::now().timestamp_millis();
-    let app1 = &format!("twofoldera{suffix}");
-    let app2 = &format!("twofolderb{suffix}");
+    let app = &format!("twofolder{}", Utc::now().timestamp_millis());
     let resource_id = compute_resource_id(target_uri);
 
     let user_kp = Keypair::random();
@@ -159,8 +158,8 @@ async fn test_resource_tag_from_two_folders_is_one_edge() -> Result<()> {
         created_at: Utc::now().timestamp_millis(),
     };
     let tag_id = tag.create_id();
-    let path1: ResourcePath = format!("/pub/{app1}/tags/{tag_id}").parse()?;
-    let path2: ResourcePath = format!("/pub/{app2}/tags/{tag_id}").parse()?;
+    let path1: ResourcePath = format!("/pub/pubky.app/tags/{tag_id}").parse()?;
+    let path2: ResourcePath = format!("/pub/{app}/tags/{tag_id}").parse()?;
 
     // Each file is deleted first once
     for (first, second) in [(&path1, &path2), (&path2, &path1)] {

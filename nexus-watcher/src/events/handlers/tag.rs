@@ -84,45 +84,30 @@ pub async fn sync_put(
     }
 }
 
-/// Handles a tag event from an app-specific path (e.g., /pub/mapky/tags/TAG_ID).
-/// A tag on a post or a user takes the `pubky.app` flow; any other target (a URL, another
-/// app's object, a file or a tag) creates or updates a generic Resource node.
-pub async fn sync_put_resource(
-    tag: TagInput,
-    key: ResourceKey,
-    app: String,
-    ingestor: &UserIngestor,
-) -> Result<(), EventProcessorError> {
-    debug!(%app, "Indexing resource tag");
+/// Indexes a tag on a foreign resource or a file (at either epoch's address) as a generic
+/// `Resource` tag, keyed by the target's normalized address: a file is never waited for, and a
+/// v0 file and its v1 copy are two targets.
+#[tracing::instrument(
+    name = "tag.put_resource",
+    skip_all,
+    fields(user_id = %key.owner_id, tag_id = %key.resource_id)
+)]
+pub async fn sync_put_resource(tag: TagInput, key: ResourceKey) -> Result<(), EventProcessorError> {
+    debug!("Indexing resource tag");
+    let (normalized, scheme) =
+        normalize_uri(&tag.tagged.uri).map_err(EventProcessorError::generic)?;
 
-    match &tag.tagged.target {
-        ReferenceTarget::Post(_) | ReferenceTarget::User(_) => sync_put(tag, key, ingestor).await,
-        ReferenceTarget::File(_)
-        | ReferenceTarget::Tag { .. }
-        | ReferenceTarget::Foreign
-        | ReferenceTarget::Other => {
-            let ResourceKey {
-                owner_id: tagger_id,
-                resource_id: tag_id,
-            } = key;
-            let (normalized, scheme) =
-                normalize_uri(&tag.tagged.uri).map_err(EventProcessorError::generic)?;
-            let res_id = resource_id(&normalized);
-            let indexed_at = Utc::now().timestamp_millis();
-
-            put_sync_resource(
-                tagger_id,
-                &res_id,
-                &normalized,
-                &scheme,
-                &tag_id,
-                &tag.uri,
-                &tag.label,
-                indexed_at,
-            )
-            .await
-        }
-    }
+    put_sync_resource(
+        key.owner_id,
+        &resource_id(&normalized),
+        &normalized,
+        &scheme,
+        &key.resource_id,
+        &tag.uri,
+        &tag.label,
+        Utc::now().timestamp_millis(),
+    )
+    .await
 }
 
 /// Creates a Resource tag in the graph and adds its label to the tag search index.
