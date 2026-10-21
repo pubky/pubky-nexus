@@ -5,7 +5,6 @@ use nexus_common::models::file::FileDetails;
 use nexus_common::models::traits::Collection;
 use nexus_common::models::user::UserIngestor;
 use nexus_common::utils::test_utils::random_pubky_id;
-use nexus_common::DEFAULT_MAX_FILE_SIZE;
 use nexus_watcher::events::handlers::file::sync_put;
 use nexus_watcher::events::inputs::{FileInput, ResourceKey};
 use nexus_watcher::EventProcessorError;
@@ -63,7 +62,10 @@ async fn test_file_ingest_aborts_on_blacklisted_source_homeserver() -> Result<()
     let file_uri = file_uri_builder(user_id.clone(), file_id.clone());
 
     // Ingestor blacklisting the HS that hosts the blob source (the test homeserver)
-    let ingestor = UserIngestor::new([test.homeserver_id.clone()]);
+    let ingestor = UserIngestor::new(
+        [test.homeserver_id.clone()],
+        test.event_processor_runner.client.clone(),
+    );
 
     let key = ResourceKey {
         owner_id: user_pubky_id,
@@ -73,8 +75,8 @@ async fn test_file_ingest_aborts_on_blacklisted_source_homeserver() -> Result<()
         FileInput::from_v0(file, file_uri),
         key,
         test.temp_dir.path(),
-        DEFAULT_MAX_FILE_SIZE,
         &ingestor,
+        test.event_processor_runner.client.as_ref(),
     )
     .await
     .expect_err("file ingest should be refused for a blacklisted source HS");
@@ -125,7 +127,10 @@ async fn test_file_ingest_aborts_when_source_is_blacklisted_hs_pk_directly() -> 
     let file_uri = file_uri_builder(owner_id.to_string(), file_id.clone());
 
     // Ingestor blacklisting the HS PK used as the direct blob source.
-    let ingestor = UserIngestor::new([test.homeserver_id.clone()]);
+    let ingestor = UserIngestor::new(
+        [test.homeserver_id.clone()],
+        test.event_processor_runner.client.clone(),
+    );
 
     let key = ResourceKey {
         owner_id: owner_id.clone(),
@@ -135,8 +140,8 @@ async fn test_file_ingest_aborts_when_source_is_blacklisted_hs_pk_directly() -> 
         FileInput::from_v0(file, file_uri),
         key,
         test.temp_dir.path(),
-        DEFAULT_MAX_FILE_SIZE,
         &ingestor,
+        test.event_processor_runner.client.as_ref(),
     )
     .await
     .expect_err("file ingest should be refused when src addresses a blacklisted HS PK directly");
@@ -176,7 +181,10 @@ async fn test_file_ingest_proceeds_when_source_homeserver_not_blacklisted() -> R
     let file_uri = file_uri_builder(user_id.clone(), file_id.clone());
 
     // Ingestor blacklisting an unrelated HS; the source HS is not in the list
-    let ingestor = UserIngestor::new([random_pubky_id()]);
+    let ingestor = UserIngestor::new(
+        [random_pubky_id()],
+        test.event_processor_runner.client.clone(),
+    );
 
     let key = ResourceKey {
         owner_id: user_pubky_id,
@@ -186,8 +194,8 @@ async fn test_file_ingest_proceeds_when_source_homeserver_not_blacklisted() -> R
         FileInput::from_v0(file.clone(), file_uri),
         key,
         test.temp_dir.path(),
-        DEFAULT_MAX_FILE_SIZE,
         &ingestor,
+        test.event_processor_runner.client.as_ref(),
     )
     .await
     .expect("file ingest should proceed when the source HS is not blacklisted");

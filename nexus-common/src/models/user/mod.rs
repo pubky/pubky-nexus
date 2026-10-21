@@ -2,6 +2,7 @@ mod counts;
 mod cursor;
 mod details;
 mod epoch;
+mod homeserver_resolver;
 //mod id;
 mod influencers;
 mod ingestor;
@@ -18,6 +19,7 @@ pub use details::{
     users_exist, UserDetails,
 };
 pub use epoch::Epoch;
+pub use homeserver_resolver::{PkdnsHomeserverResolver, PubkyConnectorResolver};
 pub use influencers::{Influencers, GLOBAL_INFLUENCERS_CACHE_SIZE};
 pub use ingestor::UserIngestor;
 pub use relationship::Relationship;

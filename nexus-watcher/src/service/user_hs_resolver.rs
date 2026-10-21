@@ -5,10 +5,10 @@
 
 use nexus_common::db::{
     fetch_key_from_graph, fetch_row_from_graph, queries, GraphResult, PubkyClientError,
-    PubkyClientResult, PubkyConnector,
 };
 use nexus_common::models::user::{
     refresh_user_homeserver_resolved_at, set_user_homeserver, set_user_homeserver_stale,
+    PkdnsHomeserverResolver,
 };
 use nexus_common::types::DynError;
 use nexus_common::WatcherConfig;
@@ -16,27 +16,15 @@ use opentelemetry::metrics::{Counter, Gauge, Histogram};
 use opentelemetry::{global, KeyValue};
 use pubky::errors::PkarrError;
 use pubky::PublicKey;
-use pubky_social_specs::PubkyId;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{LazyLock, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::watch::Receiver;
 use tracing::{debug, error, info, warn};
 
 static HS_RESOLVER_METRICS: LazyLock<HsResolverMetrics> = LazyLock::new(HsResolverMetrics::new);
 
-/// Resolves a user's currently published homeserver from PKDNS/DHT.
-///
-/// Abstracted behind a trait so the resolver loop can be driven with a mock in
-/// tests instead of hitting the network.
-#[async_trait::async_trait]
-pub trait PkdnsHomeserverResolver: Send + Sync {
-    /// Returns the HS published for `user_pk`, if any is currently published.
-    async fn resolve_homeserver(&self, user_pk: &PublicKey) -> PubkyClientResult<Option<PubkyId>>;
-}
-
-/// Production resolver backed by the shared [`PubkyConnector`].
 /// First wait before an unbound user is looked up again. Doubles per
 /// consecutive empty lookup, capped at the resolution TTL.
 const UNBOUND_RETRY_INITIAL: Duration = Duration::from_secs(60);
@@ -106,22 +94,8 @@ impl UnboundBackoff {
     }
 }
 
-pub struct PubkyConnectorResolver;
-
-#[async_trait::async_trait]
-impl PkdnsHomeserverResolver for PubkyConnectorResolver {
-    async fn resolve_homeserver(&self, user_pk: &PublicKey) -> PubkyClientResult<Option<PubkyId>> {
-        let pubky = PubkyConnector::get()?;
-        // `Ok(None)` means no HS is published. A failed lookup and a malformed
-        // `_pubky` record stay an `Err` (`PkarrFailed`), so the resolver loop
-        // reports them as `LookupFailed` and `InvalidRecord` instead of treating
-        // the user as having no HS.
-        Ok(pubky.get_homeserver_of(user_pk).await?.map(PubkyId::from))
-    }
-}
-
 pub struct UserHsResolverRunner {
-    resolver: Box<dyn PkdnsHomeserverResolver>,
+    resolver: Arc<dyn PkdnsHomeserverResolver>,
     ttl_ms: u64,
     unbound_backoff: UnboundBackoff,
     shutdown_rx: Receiver<bool>,
@@ -130,7 +104,7 @@ pub struct UserHsResolverRunner {
 impl UserHsResolverRunner {
     pub fn from_config(
         config: &WatcherConfig,
-        resolver: Box<dyn PkdnsHomeserverResolver>,
+        resolver: Arc<dyn PkdnsHomeserverResolver>,
         shutdown_rx: Receiver<bool>,
     ) -> Self {
         Self {
@@ -204,7 +178,7 @@ pub async fn run(
     // As of pubky 0.7.0 parallel resolution is possible but unreliable. This was tried:
     // - with the singleton Pubky client (up to 10% unresolved nodes with 10 req. in parallel)
     // - with a relay-only Pubky client (up to 95% unresolved nodes with 10 req. in parallel)
-    // "unresolved nodes" = no HS was found using `get_homeserver_of(&user_pk)` for users with a known HS.
+    // "unresolved nodes" = no HS was found by the resolver for users with a known HS.
     //
     // The most reliable method remains sequential querying.
     //
@@ -705,10 +679,11 @@ impl HsResolverMetrics {
 mod tests {
     use super::*;
     use nexus_common::db::graph::Query;
-    use nexus_common::db::{exec_single_row, PubkyClientError};
+    use nexus_common::db::{exec_single_row, PubkyClientError, PubkyClientResult};
     use nexus_common::types::DynError;
     use nexus_common::utils::test_utils::{random_pk, random_pubky_id};
     use nexus_common::{StackConfig, StackManager};
+    use pubky_social_specs::PubkyId;
 
     async fn setup() -> Result<(), DynError> {
         StackManager::setup(&StackConfig::default()).await

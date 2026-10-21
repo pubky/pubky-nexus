@@ -2,20 +2,27 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use chrono::Utc;
-use nexus_common::db::{exec_single_row, queries};
+use nexus_common::db::{exec_single_row, queries, PubkyClientError};
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::user::{Epoch, UserDetails};
-use nexus_common::utils::test_utils::{random_pk, random_pubky_id};
+use nexus_common::utils::test_utils::{default_ingestor_tests, random_pk, random_pubky_id};
+use nexus_common::WatcherConfig;
 use nexus_watcher::errors::EventProcessorError;
 use nexus_watcher::events::retry::{IndexKey, InitialBackoff, RetryScheduler, RetryStore};
-use nexus_watcher::events::EventHandler;
-use nexus_watcher::service::HsEventProcessor;
-use pubky_social_specs::legacy_v0::post_uri_builder;
+use nexus_watcher::events::{DefaultEventHandler, Event, EventHandler, ParseResult};
+use nexus_watcher::homeserver::HsErrorKind;
+use nexus_watcher::service::{HsEventProcessor, RunError, TEventProcessor};
+use pubky_social_specs::legacy_v0::traits::{HashId, TimestampId};
+use pubky_social_specs::legacy_v0::{
+    blob_uri_builder, file_uri_builder, post_uri_builder, PubkyAppBlob, PubkyAppFile, PubkyAppUser,
+};
 use pubky_social_specs::PubkyId;
 use tokio::sync::watch;
 
+use crate::event_processor::utils::default_moderation_tests;
+use crate::event_processor::utils::watcher::retrieve_and_handle_event_line;
 use crate::service::utils::common::create_mock_handler;
-use crate::service::utils::{new_in_memory_store, setup};
+use crate::service::utils::{new_in_memory_store, setup, MockHomeserverClient};
 
 const TEST_HS_ID: &str = "1hb71xx9km3f4pw5izsy1gn19ff1uuuqonw4mcygzobwkryujoiy";
 
@@ -89,6 +96,7 @@ fn build_processor(
         homeserver: Homeserver::new(hs_id),
         limit: 100,
         event_handler,
+        client: Arc::new(MockHomeserverClient::default()),
         shutdown_rx,
         retry_scheduler,
         hs_mapping_cache: Default::default(),
@@ -123,10 +131,35 @@ async fn build_processor_at_cursor(
         homeserver,
         limit: 100,
         event_handler,
+        client: Arc::new(MockHomeserverClient::default()),
         shutdown_rx,
         retry_scheduler,
         hs_mapping_cache: Default::default(),
     }))
+}
+
+/// Assembles an [`HsEventProcessor`] for `homeserver`, reaching it through `client`, with
+/// a limit of 100.
+fn processor_with_client(
+    homeserver: Homeserver,
+    event_handler: Arc<dyn EventHandler>,
+    client: Arc<MockHomeserverClient>,
+) -> Arc<HsEventProcessor> {
+    Arc::new(HsEventProcessor {
+        homeserver,
+        limit: 100,
+        event_handler,
+        client,
+        shutdown_rx: watch::channel(false).1,
+        retry_scheduler: Arc::new(RetryScheduler::new(
+            new_in_memory_store(),
+            InitialBackoff {
+                missing_dep_ms: 60_000,
+                transient_ms: 10_000,
+            },
+        )),
+        hs_mapping_cache: Default::default(),
+    })
 }
 
 /// Reads a homeserver's currently stored cursor.
@@ -767,5 +800,162 @@ async fn test_cursor_not_persisted_when_batch_stops() -> Result<()> {
     );
 
     let _ = shutdown_tx.send(true);
+    Ok(())
+}
+
+// ============================================================================
+// The processor reaches the homeserver only through its client
+// ============================================================================
+
+/// The primary processor polls and fetches through its client: with one serving a
+/// scripted batch and resource, a run indexes the event without any homeserver.
+#[tokio_shared_rt::test(shared)]
+async fn test_run_polls_and_fetches_through_the_client() -> Result<()> {
+    setup().await?;
+
+    let user_id = random_user_id();
+    let profile_uri = format!("pubky://{user_id}/pub/pubky.app/profile.json");
+    let profile = PubkyAppUser {
+        bio: None,
+        image: None,
+        links: None,
+        name: "client-seam".to_string(),
+        status: None,
+    };
+    let client = Arc::new(
+        MockHomeserverClient::default()
+            .with_lines(batch([format!("PUT {profile_uri}")]))
+            .with_resource(&profile_uri, serde_json::to_vec(&profile)?),
+    );
+    let files = tempfile::TempDir::new()?;
+    let event_handler: Arc<dyn EventHandler> = Arc::new(DefaultEventHandler::new(
+        default_moderation_tests(),
+        default_ingestor_tests(),
+        client.clone(),
+        files.path().to_path_buf(),
+    ));
+
+    let homeserver = Homeserver {
+        id: random_pubky_id(),
+        cursor: 0,
+    };
+    homeserver.put_to_index().await?;
+    let hs_id = homeserver.id.to_string();
+    let processor = processor_with_client(homeserver, event_handler.clone(), client);
+
+    processor.run().await?;
+
+    let user = UserDetails::get_by_id(&user_id).await?;
+    let cursor = stored_cursor(&hs_id).await?;
+    retrieve_and_handle_event_line(&format!("DEL {profile_uri}"), event_handler).await?;
+
+    assert_eq!(
+        user.expect("the profile should be indexed").name,
+        "client-seam"
+    );
+    assert_eq!(cursor, 1);
+
+    Ok(())
+}
+
+/// The handler [`DefaultEventHandler::from_config`] builds resolves users' homeservers
+/// through its client: a file whose source user the client resolves to a blacklisted
+/// homeserver is refused, without any network.
+#[tokio_shared_rt::test(shared)]
+async fn test_handler_from_config_resolves_homeservers_through_its_client() -> Result<()> {
+    setup().await?;
+
+    let blacklisted_hs = random_pubky_id();
+    let blob_uri = blob_uri_builder(
+        random_user_id(),
+        PubkyAppBlob::new(b"blob".to_vec()).create_id(),
+    );
+    let file = PubkyAppFile {
+        name: "file".to_string(),
+        content_type: "text/plain".to_string(),
+        src: blob_uri,
+        size: 4,
+        created_at: Utc::now().timestamp_millis(),
+    };
+    let file_uri = file_uri_builder(random_user_id(), file.create_id());
+    let client = Arc::new(
+        MockHomeserverClient::default()
+            .with_homeserver_of(blacklisted_hs.clone())
+            .with_resource(&file_uri, serde_json::to_vec(&file)?),
+    );
+    let mut config = WatcherConfig::default();
+    config.stack.net.external_hs_pk_blacklist = vec![blacklisted_hs.clone()];
+    let files = tempfile::TempDir::new()?;
+    config.stack.files_path = files.path().to_path_buf();
+    let handler = DefaultEventHandler::from_config(&config, client);
+
+    let ParseResult::Parsed(event) = Event::parse_event(&format!("PUT {file_uri}"))? else {
+        panic!("the file event should parse");
+    };
+    let err = handler.handle(&event).await.unwrap_err();
+
+    assert!(
+        matches!(&err, EventProcessorError::HsBlacklisted { hs_id } if *hs_id == blacklisted_hs.to_string()),
+        "{err:?}"
+    );
+
+    Ok(())
+}
+
+/// The processor polls its own homeserver, from the cursor it was built with, for its limit.
+#[tokio_shared_rt::test(shared)]
+async fn test_run_polls_its_homeserver_from_the_stored_cursor() -> Result<()> {
+    setup().await?;
+
+    let client = Arc::new(MockHomeserverClient::default());
+    let homeserver = Homeserver {
+        id: random_pubky_id(),
+        cursor: 42,
+    };
+    homeserver.put_to_index().await?;
+    let hs_id = homeserver.id.to_string();
+    let processor = processor_with_client(
+        homeserver,
+        create_mock_handler(Ok(()), None),
+        client.clone(),
+    );
+
+    processor.run().await?;
+
+    assert_eq!(client.polls().await, vec![(hs_id, 42, 100)]);
+
+    Ok(())
+}
+
+/// A failed poll fails the run with the poll's error and leaves the stored cursor where
+/// the run started.
+#[tokio_shared_rt::test(shared)]
+async fn test_failed_poll_keeps_the_cursor() -> Result<()> {
+    setup().await?;
+
+    let client = Arc::new(
+        MockHomeserverClient::default()
+            .with_poll_error(HsErrorKind::ServerError(502, "bad gateway".into())),
+    );
+    let homeserver = Homeserver {
+        id: random_pubky_id(),
+        cursor: 42,
+    };
+    homeserver.put_to_index().await?;
+    let hs_id = homeserver.id.to_string();
+    let processor = processor_with_client(homeserver, create_mock_handler(Ok(()), None), client);
+
+    let err = processor.run().await.unwrap_err();
+
+    assert!(
+        matches!(
+            &err,
+            RunError::Internal(EventProcessorError::PubkyClientError(e))
+                if matches!(e.as_ref(), PubkyClientError::ServerError5xx { .. })
+        ),
+        "{err:?}"
+    );
+    assert_eq!(stored_cursor(&hs_id).await?, 42);
+
     Ok(())
 }

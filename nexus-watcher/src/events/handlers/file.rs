@@ -1,9 +1,10 @@
-use crate::events::{fetch_capped, EventProcessorError};
+use crate::events::EventProcessorError;
+use crate::homeserver::HomeserverClient;
 
-use nexus_common::db::PubkyConnector;
 use nexus_common::media::FileVariant;
 use nexus_common::models::user::UserIngestor;
 use nexus_common::models::{file::FileDetails, traits::Collection};
+use pubky::PubkyResource;
 use pubky_social_specs::legacy_v0::{ParsedUri, PubkyAppBlob, PubkyAppObject};
 use pubky_social_specs::PubkyId;
 use std::path::Path;
@@ -17,8 +18,8 @@ pub async fn sync_put(
     file: FileInput,
     key: ResourceKey,
     files_path: &Path,
-    max_file_size: u64,
     ingestor: &UserIngestor,
+    client: &dyn HomeserverClient,
 ) -> Result<(), EventProcessorError> {
     debug!("Indexing file");
 
@@ -27,8 +28,8 @@ pub async fn sync_put(
         &key.resource_id,
         &file,
         files_path,
-        max_file_size,
         ingestor,
+        client,
     )
     .await?;
 
@@ -45,8 +46,8 @@ async fn ingest(
     file_id: &str,
     file: &FileInput,
     files_path: &Path,
-    max_file_size: u64,
     ingestor: &UserIngestor,
+    client: &dyn HomeserverClient,
 ) -> Result<(), EventProcessorError> {
     // TODO(specs-migration): the v0 blob read (the `src` parse and `PubkyAppObject`) stays here
     // until the file work moves it into translation.
@@ -61,13 +62,11 @@ async fn ingest(
         .await
         .inspect_err(|e| warn!("Aborting file ingest: source {file_src}: {e}"))?;
 
-    let pubky = PubkyConnector::get()?;
-    let response = pubky.public_storage().get(&file.src).await?;
+    let source: PubkyResource = file_src.parse()?;
+    let blob = client.get_blob(&source).await?;
 
     let path = Path::new(&user_id.to_string()).join(file_id);
     let full_path = files_path.join(&path);
-
-    let blob = fetch_capped(response, max_file_size).await?;
     let pubky_app_object = PubkyAppObject::from_resource(&parsed_source_uri.resource, &blob)
         .map_err(EventProcessorError::generic)?;
 

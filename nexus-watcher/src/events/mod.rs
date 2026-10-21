@@ -1,4 +1,4 @@
-use nexus_common::{db::PubkyConnector, models::user::UserIngestor};
+use nexus_common::models::user::UserIngestor;
 mod classify;
 mod epoch_metrics;
 pub mod event;
@@ -12,10 +12,12 @@ pub use event::{Event, EventType, ParseResult};
 pub use target::EventTarget;
 
 use crate::errors::EventProcessorError;
-use crate::service::indexer::METER_NAME;
+use crate::homeserver::HomeserverClient;
+use crate::METER_NAME;
 use nexus_common::models::takedown::is_taken_down;
 use nexus_common::WatcherConfig;
 use opentelemetry::{global, metrics::Counter};
+use pubky::PubkyResource;
 use std::{
     path::{Path, PathBuf},
     sync::{Arc, LazyLock},
@@ -30,15 +32,10 @@ static TAKEN_DOWN: LazyLock<Counter<u64>> = LazyLock::new(|| {
         .build()
 });
 
-mod fetch;
 pub mod handlers;
 mod moderation;
 pub mod retry;
 
-pub(crate) use fetch::{
-    fetch_capped, format_error_body, read_stream_capped, MAX_ERROR_BODY, MAX_EVENTS_BODY,
-    MAX_RESOURCE_SIZE,
-};
 pub use moderation::Moderation;
 use route::resolve_reference;
 use translation::{translate_del, translate_put, TranslatedDel, TranslatedPut};
@@ -56,7 +53,7 @@ pub trait EventHandler: Send + Sync {
 pub struct DefaultEventHandler {
     moderation: Arc<Moderation>,
     ingestor: Arc<UserIngestor>,
-    max_file_size: u64,
+    client: Arc<dyn HomeserverClient>,
 
     /// Local files directory on Nexus used for file-backed events.
     files_path: PathBuf,
@@ -66,23 +63,26 @@ impl DefaultEventHandler {
     pub fn new(
         moderation: Arc<Moderation>,
         ingestor: Arc<UserIngestor>,
-        max_file_size: u64,
+        client: Arc<dyn HomeserverClient>,
         files_path: PathBuf,
     ) -> Self {
         Self {
             moderation,
             ingestor,
-            max_file_size,
+            client,
             files_path,
         }
     }
 
-    /// Builds a handler, deriving its moderation rules and user ingestor from config.
-    pub fn from_config(config: &WatcherConfig) -> Self {
+    /// Builds a handler that fetches through `client`, deriving its moderation rules
+    /// and user ingestor from config. The ingestor resolves users' homeservers through
+    /// `client` too.
+    pub fn from_config(config: &WatcherConfig, client: Arc<dyn HomeserverClient>) -> Self {
+        let ingestor = UserIngestor::from_config(&config.stack, client.clone());
         Self::new(
             Moderation::from_config(config),
-            Arc::new(UserIngestor::from_config(&config.stack)),
-            config.max_file_size,
+            Arc::new(ingestor),
+            client,
             config.stack.files_path.clone(),
         )
     }
@@ -95,10 +95,10 @@ impl EventHandler for DefaultEventHandler {
             EventType::Put => {
                 handle_put_event(
                     event,
-                    self.max_file_size,
                     self.files_path.as_path(),
                     self.moderation.clone(),
                     self.ingestor.clone(),
+                    self.client.as_ref(),
                 )
                 .await
             }
@@ -112,32 +112,14 @@ impl EventHandler for DefaultEventHandler {
     }
 }
 
-/// Fetches the resource an event addresses, capped at [`MAX_RESOURCE_SIZE`].
-async fn fetch_resource(uri: &str) -> Result<Vec<u8>, EventProcessorError> {
-    let pubky = PubkyConnector::get()?;
-    let response = pubky.public_storage().get(uri).await?;
-
-    if !response.status().is_success() {
-        let status = response.status();
-        let (body, _exceeded) = read_stream_capped(response.bytes_stream(), MAX_ERROR_BODY)
-            .await
-            .unwrap_or_default();
-        let body = format_error_body(&body, MAX_ERROR_BODY);
-
-        let err_msg = format!("Fetch resource failed {uri}: HTTP {status} - {body}");
-        return Err(EventProcessorError::client_error(err_msg));
-    }
-
-    fetch_capped(response, MAX_RESOURCE_SIZE as u64).await
-}
-
-/// Handles a PUT event: fetch, translate, dispatch to the matching handler.
+/// Handles a PUT event: fetches its resource through `client`, translates it and dispatches
+/// it to the matching handler.
 pub async fn handle_put_event(
     event: &Event,
-    max_file_size: u64,
     files_path: &Path,
     moderation: Arc<Moderation>,
     ingestor: Arc<UserIngestor>,
+    client: &dyn HomeserverClient,
 ) -> Result<(), EventProcessorError> {
     // Whatever order events arrive in, a record the moderator took down stays down. A
     // copy left behind by an earlier attempt whose removal failed is removed here too.
@@ -147,7 +129,8 @@ pub async fn handle_put_event(
         return Ok(());
     }
 
-    let blob = fetch_resource(&event.uri).await?;
+    let pubky_resource: PubkyResource = event.uri.parse()?;
+    let blob = client.get_resource(&pubky_resource).await?;
 
     let outcome = match translate_put(&event.uri, &event.target, &blob)? {
         TranslatedPut::User { user_id, user } => handlers::user::sync_put(user, user_id).await,
@@ -173,7 +156,7 @@ pub async fn handle_put_event(
             }
         }
         TranslatedPut::File { key, file } => {
-            handlers::file::sync_put(file, key, files_path, max_file_size, &ingestor).await
+            handlers::file::sync_put(file, key, files_path, &ingestor, client).await
         }
     };
     outcome?;

@@ -45,8 +45,6 @@ async fn test_homeserver_put_follow() -> Result<()> {
         .await
         .unwrap();
 
-    assert_eq!(check_member_most_followed(&followee_id).await?, Some(0));
-
     // Follow the followee
     test.create_follow(&follower_kp, &followee_id).await?;
 
@@ -90,8 +88,9 @@ async fn test_homeserver_put_follow() -> Result<()> {
     let exist_count = find_user_counts(&follower_id).await;
     assert_eq!(exist_count.following, 1);
 
-    // The follow rescores the followee in Sorted:Users:MostFollowed
-    assert_eq!(check_member_most_followed(&followee_id).await?, Some(1));
+    // The follow changes the followee's followers count, but only the most-followed
+    // job ranks a user: Sorted:Users:MostFollowed
+    assert_eq!(check_member_most_followed(&followee_id).await?, None);
 
     // Cleanup
     test.cleanup_user(&follower_kp).await?;

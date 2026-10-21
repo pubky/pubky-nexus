@@ -70,6 +70,7 @@ impl RetryScheduler {
             | EventProcessorError::UnsupportedTarget(_)
             | EventProcessorError::PostParentChanged(_)
             | EventProcessorError::HsBlacklisted { .. }
+            | EventProcessorError::Homeserver(_)
             | EventProcessorError::HsEventsStreamRateLimitExhausted
             | EventProcessorError::FetchSizeExceeded(_, _)
             | EventProcessorError::DataAnomaly(..)

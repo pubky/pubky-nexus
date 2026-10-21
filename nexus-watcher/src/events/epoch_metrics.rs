@@ -3,7 +3,7 @@
 //! mute) are silent and uncounted, so the signal stays about epochs.
 
 use super::classify::SkipReason;
-use crate::service::indexer::METER_NAME;
+use crate::METER_NAME;
 use opentelemetry::metrics::Counter;
 use opentelemetry::{global, KeyValue};
 use std::sync::LazyLock;
