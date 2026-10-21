@@ -21,10 +21,10 @@ pub async fn sync_put(
     // Step 2: Save to graph, with the address the profile was read from
     user_details.put_profile_to_graph(&uri).await?;
 
-    // Step 3: Converge the search state: drops the previous name member and
-    // clears the tombstone. Retry-safe, the previous member comes from the
-    // search state itself.
-    UserSearch::put_to_index(&[&user_details]).await?;
+    // Step 3: Index the profile: drops the previous name member and clears the
+    // tombstone. Retry-safe, the previous member comes from the search state
+    // itself.
+    UserSearch::index_profile(&user_details).await?;
 
     // Step 4: If new user (no existing counts), save a new `UserCounts`
     // TODO: Use SCARD on a set for unique tag count to avoid race conditions in parallel processing
@@ -69,7 +69,7 @@ pub async fn del(user_id: PubkyId) -> Result<(), EventProcessorError> {
             // 2. Drop the user from search and mark them deleted, atomically: from
             // here on the users-by-tag sync evicts them, so a concurrent tag event
             // cannot re-add them. A retry finds the same state and changes nothing.
-            UserSearch::put_to_index(&[&tombstone]).await?;
+            UserSearch::mark_tombstoned(&user_id).await?;
 
             // 3. Evict the user from every per-label users-by-tag sorted set.
             UsersByTagSearch::sync_user_labels(&user_id).await?;

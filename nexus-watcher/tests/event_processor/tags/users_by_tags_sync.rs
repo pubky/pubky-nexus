@@ -294,8 +294,7 @@ async fn test_sync_index_score_removal_guard() -> Result<()> {
     TagUser::put_index_set(&[&user_id, label], &taggers, None, None).await?;
 
     // Guard set: the tombstone wins over a non-empty taggers set
-    let tombstone = UserDetails::tombstone(&pubky_id);
-    UserSearch::put_to_index(&[&tombstone]).await?;
+    UserSearch::mark_tombstoned(&user_id).await?;
     UsersByTagSearch::sync_index_score(&user_id, label).await?;
     let score = check_member_user_tag_taggers(&user_id, label)
         .await
@@ -316,7 +315,7 @@ async fn test_sync_index_score_removal_guard() -> Result<()> {
         },
         &pubky_id,
     );
-    UserSearch::put_to_index(&[&restored]).await?;
+    UserSearch::index_profile(&restored).await?;
     UsersByTagSearch::sync_index_score(&user_id, label).await?;
     let score = check_member_user_tag_taggers(&user_id, label)
         .await

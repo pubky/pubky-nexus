@@ -11,7 +11,9 @@ use crate::types::{Pagination, StreamReach};
 use futures::TryStreamExt;
 use redis::Script;
 use serde::{Deserialize, Serialize};
+use std::sync::LazyLock;
 use tokio::time::{timeout, Duration};
+use tracing::warn;
 use utoipa::ToSchema;
 
 pub const USER_NAME_KEY_PARTS: [&str; 2] = ["Users", "Name"];
@@ -28,44 +30,96 @@ const SEARCH_DELETED_KEY_PARTS: [&str; 1] = ["Deleted"];
 const EVICT_PAGE_SIZE: usize = 500;
 const REINDEX_PAGE_SIZE: usize = 1_000;
 
-/// Converges one or more users' search state in one atomic step. For each
-/// `(id, name, tombstoned)` triple: the member recorded in the names hash is
-/// removed from the name index when it differs from `name`; an empty `name`
-/// unindexes the user, any other indexes them under it; `tombstoned` (`1`)
-/// adds the id to the deleted set, anything else removes it.
-const SYNC_SEARCH_STATE: &str = r#"
-    local names, by_name, by_id, deleted = KEYS[1], KEYS[2], KEYS[3], KEYS[4]
-    for i = 1, #ARGV, 3 do
-        local id, name, tombstoned = ARGV[i], ARGV[i + 1], ARGV[i + 2]
-        local previous = redis.call('HGET', names, id)
-        if previous and previous ~= name then
-            redis.call('ZREM', by_name, previous .. ':' .. id)
+/// Applies a batch of [`SearchWrite`]s, `(operation, id, name)` per entry in
+/// `ARGV`, in one atomic step. Every entry is checked before anything is
+/// written, as Redis keeps the writes of a script that fails partway: `index`
+/// needs a name, and any other operation than `index`, `tombstone` or `drop`
+/// is refused. Each write first removes the member the names hash records for
+/// the user, unless `index` keeps it.
+static SEARCH_WRITES: LazyLock<Script> = LazyLock::new(|| {
+    Script::new(
+        r"
+        local names, by_name, by_id, deleted = KEYS[1], KEYS[2], KEYS[3], KEYS[4]
+        for i = 1, #ARGV, 3 do
+            local op, id, name = ARGV[i], ARGV[i + 1], ARGV[i + 2]
+            if op == 'index' then
+                if name == '' then
+                    return redis.error_reply('index needs a name: ' .. id)
+                end
+            elseif op ~= 'tombstone' and op ~= 'drop' then
+                return redis.error_reply('unknown search write: ' .. op)
+            end
         end
-        if name == '' then
-            redis.call('HDEL', names, id)
-            redis.call('ZREM', by_id, id)
-        else
-            redis.call('HSET', names, id, name)
-            redis.call('ZADD', by_name, 0, name .. ':' .. id)
-            redis.call('ZADD', by_id, 0, id)
+        for i = 1, #ARGV, 3 do
+            local op, id, name = ARGV[i], ARGV[i + 1], ARGV[i + 2]
+            local previous = redis.call('HGET', names, id)
+            if previous and (op ~= 'index' or previous ~= name) then
+                redis.call('ZREM', by_name, previous .. ':' .. id)
+            end
+            if op == 'index' then
+                redis.call('HSET', names, id, name)
+                redis.call('ZADD', by_name, 0, name .. ':' .. id)
+                redis.call('ZADD', by_id, 0, id)
+                redis.call('SREM', deleted, id)
+            else
+                redis.call('HDEL', names, id)
+                redis.call('ZREM', by_id, id)
+                if op == 'tombstone' then
+                    redis.call('SADD', deleted, id)
+                else
+                    redis.call('SREM', deleted, id)
+                end
+            end
         end
-        if tombstoned == '1' then
-            redis.call('SADD', deleted, id)
-        else
-            redis.call('SREM', deleted, id)
-        end
-    end
-    return #ARGV / 3
-"#;
+        return #ARGV / 3
+        ",
+    )
+});
 
-/// The [`SYNC_SEARCH_STATE`] triple for a user: indexed under their lowercase
-/// name, or under none when tombstoned or a discovery stub.
-fn search_entry(details: &UserDetails, is_stub: bool) -> (&str, String, bool) {
-    let name = match details.deleted || is_stub {
-        true => String::new(),
-        false => details.name.to_lowercase(),
-    };
-    (details.id.as_ref(), name, details.deleted)
+/// One write to a user's search state.
+#[derive(Debug, PartialEq)]
+enum SearchWrite<'a> {
+    /// Indexes the user under their lowercase `name` and by id, and takes them
+    /// out of the deleted set.
+    Index { id: &'a str, name: String },
+    /// Takes the user out of both indexes and into the deleted set.
+    Tombstone { id: &'a str },
+    /// Takes the user out of both indexes and out of the deleted set.
+    Drop { id: &'a str },
+}
+
+impl<'a> SearchWrite<'a> {
+    /// The write that converges a user's search state with their node: a
+    /// tombstone joins the deleted set, a discovery stub leaves the search,
+    /// and anyone else is indexed. A live user with no name has nothing to
+    /// search for, so they leave the search with a warning rather than fail
+    /// a whole rebuild.
+    fn for_user(details: &'a UserDetails, is_stub: bool) -> Self {
+        let id = details.id.as_ref();
+        if details.deleted {
+            return Self::Tombstone { id };
+        }
+        if is_stub {
+            return Self::Drop { id };
+        }
+        if details.name.is_empty() {
+            warn!(user_id = %id, "Dropping a live user without a name from the search");
+            return Self::Drop { id };
+        }
+        Self::Index {
+            id,
+            name: details.name.to_lowercase(),
+        }
+    }
+
+    /// The script's `(operation, id, name)` arguments.
+    fn args(&self) -> [&str; 3] {
+        match self {
+            Self::Index { id, name } => ["index", id, name],
+            Self::Tombstone { id } => ["tombstone", id, ""],
+            Self::Drop { id } => ["drop", id, ""],
+        }
+    }
 }
 
 /// Represents a single result of a "users by tags" search: a user whose profile
@@ -347,23 +401,40 @@ impl UserSearch {
         Self::try_from_index_sorted_set_lex(&USER_ID_KEY_PARTS, &min, &max, skip, limit).await
     }
 
-    /// Converges each user's search state with their profile, atomically per
-    /// call: a live user is indexed under their lowercase name and by id, and
-    /// leaves the deleted set; a tombstone leaves both indexes and joins it.
-    /// The member a rename or a delete has to drop comes from the names hash,
-    /// so the call is safe to retry after any partial failure and never reads
-    /// the profile.
-    pub async fn put_to_index(details_list: &[&UserDetails]) -> RedisResult<()> {
-        let entries: Vec<(&str, String, bool)> = details_list
-            .iter()
-            .map(|details| search_entry(details, false))
-            .collect();
-        Self::sync_state(&entries).await
+    /// Indexes a profile under its lowercase name and by id, and takes the user
+    /// out of the deleted set. The member a rename has to drop comes from the
+    /// names hash, so the call is safe to retry after any partial failure.
+    pub async fn index_profile(details: &UserDetails) -> RedisResult<()> {
+        Self::apply_writes(&[SearchWrite::Index {
+            id: details.id.as_ref(),
+            name: details.name.to_lowercase(),
+        }])
+        .await
+    }
+
+    /// Takes a tombstoned user out of both indexes and into the deleted set,
+    /// where the users-by-tag sync reads it.
+    pub async fn mark_tombstoned(user_id: &str) -> RedisResult<()> {
+        Self::apply_writes(&[SearchWrite::Tombstone { id: user_id }]).await
     }
 
     /// Drops a hard-deleted user from both indexes and from the deleted set.
     pub async fn delete(user_id: &str) -> RedisResult<()> {
-        Self::sync_state(&[(user_id, String::new(), false)]).await
+        Self::apply_writes(&[SearchWrite::Drop { id: user_id }]).await
+    }
+
+    /// Indexes each user, or tombstones them when deleted, without telling a
+    /// stub apart. Public only because the shipped `UsersByPkReindex1751635096`
+    /// migration calls it, with every `:User`: the stubs it indexes are dropped
+    /// by `UserSearchStateBackfill1792157548` later in the same migration run.
+    /// Nothing else may call it; use [`Self::index_profile`],
+    /// [`Self::mark_tombstoned`] or [`Self::delete`].
+    pub async fn put_to_index(details_list: &[&UserDetails]) -> RedisResult<()> {
+        let writes: Vec<SearchWrite> = details_list
+            .iter()
+            .map(|details| SearchWrite::for_user(details, false))
+            .collect();
+        Self::apply_writes(&writes).await
     }
 
     /// Rebuilds the search state of every user from the graph, one keyset page
@@ -405,11 +476,11 @@ impl UserSearch {
                 page.push((details, is_stub));
             }
         }
-        let entries: Vec<(&str, String, bool)> = page
+        let writes: Vec<SearchWrite> = page
             .iter()
-            .map(|(details, is_stub)| search_entry(details, *is_stub))
+            .map(|(details, is_stub)| SearchWrite::for_user(details, *is_stub))
             .collect();
-        Self::sync_state(&entries).await?;
+        Self::apply_writes(&writes).await?;
         for (tombstone, _) in page.iter().filter(|(details, _)| details.deleted) {
             UsersByTagSearch::sync_user_labels(&tombstone.id).await?;
         }
@@ -446,26 +517,29 @@ impl UserSearch {
         )
     }
 
-    async fn sync_state(entries: &[(&str, String, bool)]) -> RedisResult<()> {
-        if entries.is_empty() {
+    async fn apply_writes(writes: &[SearchWrite<'_>]) -> RedisResult<()> {
+        if writes.is_empty() {
             return Ok(());
         }
-        let script = Script::new(SYNC_SEARCH_STATE);
-        let mut invocation = script.prepare_invoke();
+        let mut invocation = SEARCH_WRITES.prepare_invoke();
+        Self::search_keys(&mut invocation).await;
+        for write in writes {
+            for arg in write.args() {
+                invocation.arg(arg);
+            }
+        }
+        let mut conn = get_redis_conn().await?;
+        let _: i64 = invocation.invoke_async(&mut conn).await?;
+        Ok(())
+    }
+
+    /// The four keys [`SEARCH_WRITES`] works on, in the order it reads them.
+    async fn search_keys(invocation: &mut redis::ScriptInvocation<'_>) {
         invocation
             .key(Self::names_hash_key().await)
             .key(sorted_key(&USER_NAME_KEY_PARTS))
             .key(sorted_key(&USER_ID_KEY_PARTS))
             .key(Self::deleted_set_key().await);
-        for (user_id, name, tombstoned) in entries {
-            invocation
-                .arg(*user_id)
-                .arg(name)
-                .arg(if *tombstoned { "1" } else { "0" });
-        }
-        let mut conn = get_redis_conn().await?;
-        let _: i64 = invocation.invoke_async(&mut conn).await?;
-        Ok(())
     }
 }
 
@@ -477,6 +551,76 @@ mod tests {
     use crate::models::tag::traits::{TagCollection, TaggersCollection};
     use crate::utils::test_utils::random_pubky_id;
     use crate::{types::DynError, StackConfig, StackManager};
+
+    /// The write each kind of user gets: a tombstone joins the deleted set, a
+    /// stub and a live user without a name leave the search, and anyone else
+    /// is indexed under their lowercase name.
+    #[test]
+    fn for_user_picks_the_write_from_the_node() {
+        let profile = UserDetails {
+            name: "Mixed Case".to_string(),
+            ..UserDetails::from_pubky(random_pubky_id())
+        };
+        let id = profile.id.as_ref();
+        let index = SearchWrite::Index {
+            id,
+            name: "mixed case".to_string(),
+        };
+        assert_eq!(SearchWrite::for_user(&profile, false), index);
+        assert_eq!(
+            SearchWrite::for_user(&profile, true),
+            SearchWrite::Drop { id }
+        );
+        let tombstone = UserDetails::tombstone(&profile.id);
+        assert_eq!(
+            SearchWrite::for_user(&tombstone, false),
+            SearchWrite::Tombstone { id }
+        );
+        let nameless = UserDetails {
+            name: String::new(),
+            ..profile.clone()
+        };
+        assert_eq!(
+            SearchWrite::for_user(&nameless, false),
+            SearchWrite::Drop { id }
+        );
+    }
+
+    /// A batch with one bad entry writes nothing, as the script checks every
+    /// entry before its first write: `index` without a name and an unknown
+    /// operation are both refused.
+    #[tokio_shared_rt::test(shared)]
+    async fn test_a_bad_entry_fails_the_whole_batch() -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+        let good = random_pubky_id().to_string();
+        let bad = random_pubky_id().to_string();
+
+        let nameless = UserSearch::apply_writes(&[
+            SearchWrite::Index {
+                id: &good,
+                name: "good".to_string(),
+            },
+            SearchWrite::Index {
+                id: &bad,
+                name: String::new(),
+            },
+        ])
+        .await;
+        let mut unknown = SEARCH_WRITES.prepare_invoke();
+        UserSearch::search_keys(&mut unknown).await;
+        for arg in ["index", good.as_str(), "good", "rename", bad.as_str(), ""] {
+            unknown.arg(arg);
+        }
+        let mut conn = get_redis_conn().await?;
+        let unknown: redis::RedisResult<i64> = unknown.invoke_async(&mut conn).await;
+        let written = UserSearch::indexed_names(&[&good]).await;
+        delete_user(&good).await?;
+
+        assert!(nameless.is_err(), "index without a name is refused");
+        assert!(unknown.is_err(), "an unknown operation is refused");
+        assert_eq!(written?, vec![None], "neither batch wrote its valid entry");
+        Ok(())
+    }
 
     /// Rebuilds only the page that starts at `user_id`: no other id falls
     /// between it and its prefix one character shorter.
@@ -526,7 +670,9 @@ mod tests {
         for details in [&stub, &legacy] {
             details.put_to_graph().await?;
         }
-        UserSearch::put_to_index(&[&stub, &legacy]).await?;
+        for details in [&stub, &legacy] {
+            UserSearch::index_profile(details).await?;
+        }
         profile
             .put_profile_to_graph(&format!("pubky://{profile_id}/pub/pubky.app/profile.json"))
             .await?;

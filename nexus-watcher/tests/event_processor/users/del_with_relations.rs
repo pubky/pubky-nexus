@@ -380,7 +380,7 @@ async fn test_user_resurrection() -> Result<()> {
 }
 
 /// A tombstoned user must drop out of both search indexes, and stay out:
-/// `put_to_index` unindexes a tombstone and records it in the deleted set,
+/// `mark_tombstoned` unindexes a tombstone and records it in the deleted set,
 /// and only a new profile indexes them again.
 #[tokio_shared_rt::test(shared)]
 async fn test_deleted_user_removed_from_search() -> Result<()> {
