@@ -39,7 +39,11 @@ pub async fn sync_put(
     debug!("Indexing tag");
 
     // Parse the embeded URI to extract author_id and post_id using parse_tagged_post_uri
-    let parsed_uri = ParsedUri::try_from(tag.uri.as_str()).map_err(EventProcessorError::generic)?;
+    let parsed_uri = ParsedUri::try_from(tag.uri.as_str()).map_err(|e| {
+        EventProcessorError::UnsupportedTarget(format!(
+            "The tagged URI is not a pubky resource: {e}"
+        ))
+    })?;
     let user_id = parsed_uri.user_id;
     let indexed_at = Utc::now().timestamp_millis();
 

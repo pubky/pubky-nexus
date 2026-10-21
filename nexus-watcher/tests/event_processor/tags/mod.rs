@@ -1,5 +1,6 @@
 mod collection_notification;
 mod del_idempotent;
+mod external_uri_no_retry;
 mod fail_index;
 mod moderated;
 mod multi_user;
