@@ -3,10 +3,11 @@
 //! [`TranslatedPut`] and [`TranslatedDel`] are the operations every epoch maps into.
 //! [`translate_put`] and [`translate_del`] dispatch an event to the translator of its target's
 //! epoch, which gets its own parsed target and never sees the [`EventTarget`]. Skips are not
-//! translated: the classifier takes them before the fetch. A `social/v1` target has no
-//! translator yet and fails deterministically; the classifier skips every such event first.
+//! translated: the classifier takes them before the fetch. A `social/v1` PUT has no translator
+//! yet and fails deterministically; the classifier skips every such event first.
 
 pub(super) mod legacy_v0;
+pub(super) mod social_v1;
 
 use crate::errors::EventProcessorError;
 use crate::events::inputs::{
@@ -93,13 +94,12 @@ pub(super) fn translate_put(
 pub(super) fn translate_del(target: &EventTarget) -> Result<TranslatedDel, EventProcessorError> {
     match target {
         EventTarget::Legacy(parsed) => legacy_v0::translate_del(parsed),
-        // TODO(specs-migration): the `social/v1` DEL translator replaces this arm.
-        EventTarget::Social(parsed) => Err(no_translator(parsed)),
+        EventTarget::Social(parsed) => social_v1::translate_del(parsed),
     }
 }
 
-/// A `social/v1` resource, which no translator takes yet; the classifier skips it before the
-/// fetch, so reaching here is a pipeline bug surfacing as a dropped, logged event.
+/// A `social/v1` resource, which no PUT translator takes yet; the classifier skips it before
+/// the fetch, so reaching here is a pipeline bug surfacing as a dropped, logged event.
 fn no_translator(parsed: &ParsedUri) -> EventProcessorError {
     let (resource, epoch) = (&parsed.resource, epoch_segment());
     EventProcessorError::InvalidEventLine(format!(
@@ -131,30 +131,51 @@ mod tests {
         }
     }
 
-    /// Until the `social/v1` translators land, every v1 target fails as an invalid event line
-    /// for PUT and DEL alike, whatever the bytes: nothing is retried or guessed.
+    /// The v1 address of a stored post version, with or without a label.
+    fn version_uri(label: Option<&str>) -> String {
+        let path = PubkySocialPost::create_path_in(Root::Pub, POST_ID, EDIT_ID, label);
+        format!("pubky://{USER}{path}")
+    }
+
+    /// Until the `social/v1` PUT translator lands, every v1 target fails as an invalid event
+    /// line on PUT, whatever the bytes: nothing is retried or guessed.
     #[test]
-    fn social_v1_target_is_invalid_event_line_for_put_and_del() {
-        let version_path = PubkySocialPost::create_path_in(Root::Pub, POST_ID, EDIT_ID, None);
+    fn social_v1_target_is_invalid_event_line_for_put() {
         for address in [
             user_uri_builder(USER.into()),
             post_uri_builder(USER.into(), POST_ID.into()),
-            format!("pubky://{USER}{version_path}"),
+            version_uri(None),
             follow_uri_builder(USER.into(), OTHER_USER.into()),
             tag_uri_builder(USER.into(), HASH_ID.into()),
             format!("pubky://{USER}/pub/social/v1/unknown_kind/{POST_ID}"),
         ] {
             let target = social(&address);
             let put = translate_put(&address, &target, b"{}");
-            let del = translate_del(&target);
             assert!(
                 matches!(put, Err(EventProcessorError::InvalidEventLine(_))),
                 "{address}: {put:?}"
             );
-            assert!(
-                matches!(del, Err(EventProcessorError::InvalidEventLine(_))),
-                "{address}: {del:?}"
-            );
         }
+    }
+
+    /// A DEL dispatches to its epoch's translator: a `social/v1` version path reaches the v1
+    /// translator and deletes the post by its id, where the `pubky.app` parser would read
+    /// nothing.
+    #[test]
+    fn social_v1_del_dispatches_to_the_v1_translator() {
+        let address = version_uri(Some("hello-world"));
+        let expected = TranslatedDel::Post(ResourceKey {
+            owner_id: PubkyId::try_from(USER).unwrap(),
+            resource_id: POST_ID.to_string(),
+        });
+        assert_eq!(translate_del(&social(&address)).unwrap(), expected);
+        // A v1 resource with no handler fails through the same arm.
+        let del = translate_del(&social(&format!(
+            "pubky://{USER}/pub/social/v1/unknown_kind/{POST_ID}"
+        )));
+        assert!(
+            matches!(del, Err(EventProcessorError::InvalidEventLine(_))),
+            "{del:?}"
+        );
     }
 }
