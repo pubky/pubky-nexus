@@ -2,7 +2,7 @@ use std::collections::{HashMap, VecDeque};
 
 use tokio::sync::Mutex;
 
-use nexus_common::db::PubkyClientResult;
+use nexus_common::db::{PubkyClientError, PubkyClientResult};
 use nexus_common::models::user::PkdnsHomeserverResolver;
 use nexus_watcher::homeserver::{HomeserverClient, HsError, HsErrorKind, HsOp, HsStreamEvent};
 use pubky::{PubkyResource, PublicKey};
@@ -39,6 +39,9 @@ pub struct MockHomeserverClient {
 
     /// The homeserver every user resolves to. None by default.
     homeserver_of: Option<PubkyId>,
+
+    /// Whether every homeserver lookup fails instead.
+    homeserver_lookup_fails: bool,
 }
 
 impl MockHomeserverClient {
@@ -80,6 +83,11 @@ impl MockHomeserverClient {
         self
     }
 
+    pub fn with_failing_homeserver_lookup(mut self) -> Self {
+        self.homeserver_lookup_fails = true;
+        self
+    }
+
     pub fn with_resource(mut self, uri: impl Into<String>, body: impl Into<Vec<u8>>) -> Self {
         self.resources.insert(uri.into(), body.into());
         self
@@ -113,6 +121,11 @@ fn not_found(resource: &PubkyResource, op: HsOp) -> HsError {
 #[async_trait::async_trait]
 impl PkdnsHomeserverResolver for MockHomeserverClient {
     async fn resolve_homeserver(&self, _user_pk: &PublicKey) -> PubkyClientResult<Option<PubkyId>> {
+        if self.homeserver_lookup_fails {
+            return Err(PubkyClientError::RequestFailed {
+                message: "homeserver lookup failed".into(),
+            });
+        }
         Ok(self.homeserver_of.clone())
     }
 }
