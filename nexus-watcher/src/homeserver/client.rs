@@ -2,7 +2,7 @@ use std::future::Future;
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
-use futures::{Stream, StreamExt};
+use futures::{FutureExt, Stream, StreamExt};
 use nexus_common::db::PubkyClientResult;
 use nexus_common::models::user::PkdnsHomeserverResolver;
 use nexus_common::WatcherConfig;
@@ -158,16 +158,21 @@ impl PubkyHomeserverClient {
             .map_err(HsErrorKind::from_sdk)
             .inspect_err(|e| error!(error = %e, "Failed to subscribe to event stream"))?;
 
-        read_user_events(&mut stream, limit).await
+        read_user_events(&mut stream, limit, hs, user).await
     }
 }
 
-/// Reads at most `limit` events of an `/events-stream` response, and no further: a
-/// homeserver that sends more than asked, or holds the connection open once it has sent
-/// them, costs nothing past the limit. Pubky uses SSE framing regardless of
+/// Reads at most `limit` events of an `/events-stream` response. A homeserver that holds
+/// the connection open once it has sent them is not waited for; one that has already sent
+/// more than asked is logged, and the excess dropped. Pubky uses SSE framing regardless of
 /// `EventStreamBuilder::live()`, so a failure after the response headers arrives as a
 /// stream item, which fails the read as a transport error.
-async fn read_user_events<S>(stream: &mut S, limit: u16) -> Result<Vec<HsStreamEvent>, HsErrorKind>
+async fn read_user_events<S>(
+    stream: &mut S,
+    limit: u16,
+    hs: &PubkyId,
+    user: &PublicKey,
+) -> Result<Vec<HsStreamEvent>, HsErrorKind>
 where
     S: Stream<Item = pubky::Result<pubky::Event>> + Unpin,
 {
@@ -179,6 +184,18 @@ where
         };
         let event = result.map_err(HsErrorKind::transport)?;
         events.push(HsStreamEvent::from(event));
+    }
+
+    // Polled once, never awaited: only an event that has already arrived counts.
+    let sent_more =
+        events.len() == limit && matches!(stream.next().now_or_never(), Some(Some(Ok(_))));
+    if sent_more {
+        error!(
+            user_pk = %user.z32(),
+            hs_pk = %hs,
+            limit,
+            "Event stream returned more than the requested limit; ignoring the excess"
+        );
     }
 
     Ok(events)
@@ -543,28 +560,37 @@ mod tests {
     /// connection open is not waited for. Time is paused, so a read that waits fails at once.
     #[tokio::test(start_paused = true)]
     async fn user_events_read_ends_at_the_limit_without_waiting_for_more() {
+        let user = pubky::Keypair::random().public_key();
         let mut stream = futures::stream::iter([stream_event(1), stream_event(2)])
             .chain(futures::stream::pending());
 
-        let events = tokio::time::timeout(Duration::from_secs(1), read_user_events(&mut stream, 2))
-            .await
-            .expect("the read must end at the limit")
-            .unwrap();
+        let events = tokio::time::timeout(
+            Duration::from_secs(1),
+            read_user_events(&mut stream, 2, &hs_id(), &user),
+        )
+        .await
+        .expect("the read must end at the limit")
+        .unwrap();
 
         let cursors: Vec<u64> = events.iter().map(|event| event.cursor).collect();
         assert_eq!(cursors, [1, 2]);
     }
 
-    /// A homeserver that sends more than the `limit` asked for has the excess left unread.
+    /// A homeserver that has already sent more than the `limit` asked for is logged, and
+    /// only the events asked for are returned.
     #[tokio::test]
-    async fn user_events_past_the_limit_are_not_read() {
+    #[tracing_test::traced_test]
+    async fn user_events_past_the_limit_are_logged_and_dropped() {
+        let user = pubky::Keypair::random().public_key();
         let mut stream = futures::stream::iter([stream_event(1), stream_event(2), stream_event(3)]);
 
-        let events = read_user_events(&mut stream, 2).await.unwrap();
+        let events = read_user_events(&mut stream, 2, &hs_id(), &user)
+            .await
+            .unwrap();
 
         let cursors: Vec<u64> = events.iter().map(|event| event.cursor).collect();
         assert_eq!(cursors, [1, 2]);
-        assert_eq!(stream.count().await, 1, "the third event is left unread");
+        assert!(logs_contain("more than the requested limit"));
     }
 
     /// A failure after the response headers fails the read as a transport error, which
@@ -574,9 +600,12 @@ mod tests {
         let error = pubky::Error::from(pubky::errors::RequestError::Validation {
             message: "SSE stream error: unexpected EOF".into(),
         });
+        let user = pubky::Keypair::random().public_key();
         let mut stream = futures::stream::iter([stream_event(1), Err(error)]);
 
-        let kind = read_user_events(&mut stream, 10).await.unwrap_err();
+        let kind = read_user_events(&mut stream, 10, &hs_id(), &user)
+            .await
+            .unwrap_err();
 
         assert!(matches!(kind, HsErrorKind::Transport(_)), "{kind:?}");
     }
