@@ -84,10 +84,8 @@ async fn test_homeserver_user_put_event() -> Result<()> {
     assert!(is_member.is_some());
     assert_eq!(is_member.unwrap(), 0);
 
-    // most_followed score: Sorted:Users:MostFollowed
-    let influencer_score = check_member_most_followed(&user_id).await.unwrap();
-    assert!(influencer_score.is_some());
-    assert_eq!(influencer_score.unwrap(), 0);
+    // Only the most-followed job ranks a user: Sorted:Users:MostFollowed
+    assert_eq!(check_member_most_followed(&user_id).await?, None);
 
     // Cleanup
     test.cleanup_user(&user_kp).await?;

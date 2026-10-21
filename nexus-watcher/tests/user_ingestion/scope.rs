@@ -4,15 +4,16 @@ use crate::utils::default_moderation_tests;
 use anyhow::Result;
 use nexus_common::db::graph::Query;
 use nexus_common::db::kv::RedisOps;
-use nexus_common::db::{fetch_key_from_graph, fetch_row_from_graph, queries};
+use nexus_common::db::{fetch_key_from_graph, fetch_row_from_graph, queries, PubkyConnector};
 use nexus_common::models::post::PostDetails;
 use nexus_common::models::scope::{HomeserverListScope, Scope};
 use nexus_common::models::user::{
-    is_stub, user_hs_cursor_key, UserCounts, UserDetails, UserIngestor, USER_MOSTFOLLOWED_KEY_PARTS,
+    is_stub, user_hs_cursor_key, PubkyConnectorResolver, UserCounts, UserDetails, UserIngestor,
+    UserStream, USER_MOSTFOLLOWED_KEY_PARTS,
 };
-use nexus_common::DEFAULT_MAX_FILE_SIZE;
 use nexus_watcher::events::handlers;
 use nexus_watcher::events::{DefaultEventHandler, Event, EventHandler, ParseResult};
+use nexus_watcher::homeserver::PubkyHomeserverClient;
 use pubky::Keypair;
 use pubky_app_specs::traits::TimestampId;
 use pubky_app_specs::{post_uri_builder, PubkyAppPost, PubkyAppUser, PubkyId};
@@ -25,7 +26,7 @@ fn scoped_ingestor(test: &WatcherTest) -> UserIngestor {
     let scope: Arc<dyn Scope> = Arc::new(HomeserverListScope::new(std::slice::from_ref(
         &test.homeserver_id,
     )));
-    UserIngestor::with_scope(Vec::<PubkyId>::new(), scope)
+    UserIngestor::new(Vec::<PubkyId>::new(), Arc::new(PubkyConnectorResolver)).with_scope(scope)
 }
 
 /// A user created on the test's homeserver, so in scope.
@@ -112,7 +113,8 @@ async fn test_user_inside_the_scope_is_ingested_as_before() -> Result<()> {
     let (_, user_id) = user_on(&test, &hs_pk).await?;
 
     let scope: Arc<dyn Scope> = Arc::new(HomeserverListScope::new(&[PubkyId::from(hs_pk.clone())]));
-    UserIngestor::with_scope(Vec::<PubkyId>::new(), scope)
+    UserIngestor::new(Vec::<PubkyId>::new(), Arc::new(PubkyConnectorResolver))
+        .with_scope(scope)
         .maybe_ingest_user(&user_id)
         .await?;
 
@@ -132,10 +134,14 @@ async fn test_event_by_an_author_outside_the_scope_is_skipped() -> Result<()> {
     ingestor.maybe_ingest_user(&author_id).await?;
     assert_user_is_stub(&author_id).await;
 
+    let client = PubkyHomeserverClient::from_config(
+        PubkyConnector::get()?,
+        &nexus_common::WatcherConfig::default(),
+    );
     let handler = DefaultEventHandler::new(
         default_moderation_tests(),
         ingestor,
-        DEFAULT_MAX_FILE_SIZE,
+        Arc::new(client),
         PathBuf::from("/tmp/nexus-watcher-test"),
     );
     // Never written to any homeserver: fetching it would fail, so `Ok` means skipped.
@@ -167,16 +173,24 @@ async fn test_a_followed_stub_stays_out_of_the_rankings() -> Result<()> {
     let ingestor = scoped_ingestor(&test);
     ingestor.maybe_ingest_user(&stub_id).await?;
 
-    handlers::follow::sync_put(follower_id, stub_id.clone(), &ingestor).await?;
+    handlers::follow::sync_put(follower_id.clone(), stub_id.clone(), &ingestor).await?;
 
     let counts = UserCounts::get_from_index(&stub_id)
         .await?
         .expect("stub counts");
     assert_eq!(counts.followers, 1);
-    let ranked =
-        UserDetails::check_sorted_set_member(None, &USER_MOSTFOLLOWED_KEY_PARTS, &[&stub_id])
-            .await?;
-    assert!(ranked.is_none(), "a stub stays out of most followed");
+    UserStream::refresh_most_followed().await?;
+    let rank = |user_id: PubkyId| async move {
+        UserDetails::check_sorted_set_member(None, &USER_MOSTFOLLOWED_KEY_PARTS, &[&user_id]).await
+    };
+    assert!(
+        rank(stub_id).await?.is_none(),
+        "a stub stays out of most followed"
+    );
+    assert!(
+        rank(follower_id).await?.is_some(),
+        "control: a member is ranked"
+    );
     Ok(())
 }
 

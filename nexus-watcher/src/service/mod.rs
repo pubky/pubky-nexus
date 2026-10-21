@@ -16,10 +16,13 @@ pub use runner::{HsEventProcessorRunner, KeyBasedEventProcessorRunner, TEventPro
 pub(crate) use task_runner::{run_periodic_tasks, PeriodicTask};
 pub use user_hs_resolver::UserHsResolverRunner;
 
-use crate::events::retry::RetryProcessor;
+use crate::events::retry::{RetryProcessor, RetryScheduler};
+use crate::events::{DefaultEventHandler, EventHandler};
+use crate::homeserver::{HomeserverClient, PubkyHomeserverClient};
 use crate::service::constants::DEFAULT_WATCHER_CONFIG_TOML;
 use crate::service::task_runner::task_results_into_result;
 use crate::NexusWatcherBuilder;
+use nexus_common::db::PubkyConnector;
 use nexus_common::file::ConfigLoader;
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::scope::scope_from_config;
@@ -74,32 +77,54 @@ impl NexusWatcher {
     /// All tasks listen for the shutdown signal to exit gracefully. If any task panics,
     /// an internal cancellation signal is sent so that sibling tasks can finish their
     /// current iteration and exit.
+    ///
+    /// The tasks share one [`HomeserverClient`], one event handler and one retry scheduler.
+    ///
+    /// Expects [`PubkyConnector`] to be initialised.
     pub async fn start(shutdown_rx: Receiver<bool>, config: WatcherConfig) -> Result<(), DynError> {
         debug!(?config, "Running NexusWatcher with ");
-
-        prepare_scope(&config).await?;
 
         let primary_hs_monitoring_interval_ms = config.primary_hs_monitoring_interval_ms;
         let external_hs_monitoring_interval_ms = config.external_hs_monitoring_interval_ms;
         let hs_resolver_interval_ms = config.hs_resolver_interval_ms;
         let retry_processor_interval_ms = config.retry_processor_interval_ms;
 
-        let hs_runner = Arc::new(HsEventProcessorRunner::from_config(
+        let client: Arc<dyn HomeserverClient> = Arc::new(PubkyHomeserverClient::from_config(
+            PubkyConnector::get()?,
             &config,
+        ));
+        prepare_scope(&config, client.clone()).await?;
+
+        let event_handler: Arc<dyn EventHandler> =
+            Arc::new(DefaultEventHandler::from_config(&config, client.clone()));
+        let retry_scheduler = Arc::new(RetryScheduler::from_config(&config));
+
+        let hs_runner = Arc::new(HsEventProcessorRunner::new(
+            &config,
+            client.clone(),
+            event_handler.clone(),
+            retry_scheduler.clone(),
             shutdown_rx.clone(),
         ));
-        let key_based_runner = Arc::new(KeyBasedEventProcessorRunner::from_config(
+        let key_based_runner = Arc::new(KeyBasedEventProcessorRunner::new(
             &config,
+            client.clone(),
+            event_handler.clone(),
+            retry_scheduler,
             shutdown_rx.clone(),
         ));
         let user_hs_resolver_runner = Arc::new(UserHsResolverRunner::from_config(
             &config,
-            Box::new(user_hs_resolver::PubkyConnectorResolver),
+            client,
             shutdown_rx.clone(),
         ));
 
         // Create retry processor
-        let retry_processor = Arc::new(RetryProcessor::new(&config, shutdown_rx.clone()));
+        let retry_processor = Arc::new(RetryProcessor::new(
+            &config,
+            event_handler,
+            shutdown_rx.clone(),
+        ));
 
         let tasks = vec![
             PeriodicTask::new(
@@ -137,8 +162,12 @@ impl NexusWatcher {
 
 /// Gets the scope ready before any event is read: the homeservers read whole are
 /// persisted so their cursors exist, Redis's copy of the stubs is rebuilt from the
-/// graph, and the moderator is made sure to be read.
-async fn prepare_scope(config: &WatcherConfig) -> Result<(), DynError> {
+/// graph, and the moderator is made sure to be read, its homeserver looked up through
+/// `client`.
+async fn prepare_scope(
+    config: &WatcherConfig,
+    client: Arc<dyn HomeserverClient>,
+) -> Result<(), DynError> {
     let scope = scope_from_config(&config.stack.scope);
     info!(scope = ?config.stack.scope, "Indexing scope");
 
@@ -152,7 +181,7 @@ async fn prepare_scope(config: &WatcherConfig) -> Result<(), DynError> {
 
     // The moderator's tags take content down, so a scoped Nexus must read it too.
     if config.stack.scope != ScopeConfig::Everything {
-        UserIngestor::from_watcher_config(config)
+        UserIngestor::from_watcher_config(config, client)
             .ensure_in_scope(&config.moderation_id)
             .await?;
     }

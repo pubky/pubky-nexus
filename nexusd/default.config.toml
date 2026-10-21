@@ -222,6 +222,18 @@ slow_query_logging_threshold_ms = 100
 #[jobs.influencers-cache-all-time]
 #cron = "0 4 2 * * *"    # daily at 02:04 UTC
 
+# The most-followed ranking (`Sorted:Users:MostFollowed`), the
+# `source=most_followed` stream. It has no TTL and nothing else rescores it, so
+# this job runs once a day (at 04:06 UTC) with no section at all, and a follow
+# can take up to a day to reach it.
+# Uncomment the section to change the cron, or keep it with no `cron` to turn the
+# job off; unscheduled, the ranking only changes after a reindex or once its key
+# is lost. Each run rebuilds the whole ranking from the graph's follower counts
+# and swaps it in; a failed run leaves the previous one in place. A build that
+# predates this job refuses to start on an uncommented section.
+#[jobs.most-followed-cache]
+#cron = "0 6 4 * * *"    # daily at 04:06 UTC
+
 # Scheduling for the trust-rank recompute job. Set a cron for automatic
 # recomputes; omit it to leave the job on-demand only (`nexusd jobs run
 # trust-recompute` always works).

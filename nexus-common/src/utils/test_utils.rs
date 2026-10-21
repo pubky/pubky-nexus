@@ -7,7 +7,7 @@ use std::sync::Arc;
 use pubky::{Keypair, PublicKey};
 use pubky_app_specs::PubkyId;
 
-use crate::models::user::UserIngestor;
+use crate::models::user::{PubkyConnectorResolver, UserIngestor};
 
 /// Generates a random public key.
 pub fn random_pk() -> PublicKey {
@@ -21,5 +21,5 @@ pub fn random_pubky_id() -> PubkyId {
 
 /// Default user ingestor for tests: empty HS blacklist (ingest everything).
 pub fn default_ingestor_tests() -> Arc<UserIngestor> {
-    Arc::new(UserIngestor::default())
+    Arc::new(UserIngestor::new([], Arc::new(PubkyConnectorResolver)))
 }

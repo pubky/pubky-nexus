@@ -44,7 +44,6 @@ async fn test_homeserver_unfollow() -> Result<()> {
 
     // Follow the followee
     let follow_url = test.create_follow(&follower_kp, &followee_id).await?;
-    assert_eq!(check_member_most_followed(&followee_id).await?, Some(1));
 
     // Unfollow the followee
     test.del(&follower_kp, &follow_url).await?;
@@ -94,8 +93,9 @@ async fn test_homeserver_unfollow() -> Result<()> {
     let exist_count = find_user_counts(&follower_id).await;
     assert_eq!(exist_count.following, 0);
 
-    // The unfollow rescores the followee in Sorted:Users:MostFollowed
-    assert_eq!(check_member_most_followed(&followee_id).await?, Some(0));
+    // Neither the follow nor the unfollow ranks the followee; only the most-followed
+    // job does: Sorted:Users:MostFollowed
+    assert_eq!(check_member_most_followed(&followee_id).await?, None);
 
     // GRAPH_OP: Verify the follower relationship no longer exists in Nexus
     let result_followers = Followers::get_by_id(&followee_id, None, None)
