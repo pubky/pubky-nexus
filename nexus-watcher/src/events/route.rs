@@ -85,11 +85,12 @@ pub fn resolve_reference(address: &str) -> Reference {
     }
 }
 
-/// The address a takedown of `target` is recorded under: the one the target's own events
-/// carry, which is how a takedown is looked up. Until the flip that is the `pubky.app`
-/// rendering of the resolved key, whichever epoch's address resolved it: a post, file or
-/// `pubky.app` tag in its `pubky.app` folder, another app's universal tag in that app's
-/// folder, both as the frozen v0 reader renders them.
+/// The address a takedown of `target` is recorded under: the `pubky.app` rendering of the
+/// resolved key, whichever epoch's address resolved it: a post, file or `pubky.app` tag in its
+/// `pubky.app` folder, another app's universal tag in that app's folder, both as the frozen v0
+/// reader renders them. Until the flip that is the address a `pubky.app` object's own events
+/// carry, which is how a takedown is looked up. A `social/v1` file keeps its raw
+/// `{hash}.{ext}` name, so its rendering is an address no event carries.
 ///
 /// `Err` for a user or an unresolved address: neither is taken down.
 pub fn takedown_address(target: &ReferenceTarget) -> Result<String, String> {
@@ -448,6 +449,13 @@ mod tests {
         assert_eq!(
             takedown_address(&target(&file)).as_deref(),
             Ok(file.as_str())
+        );
+        // A `social/v1` file keeps its raw `{hash}.{ext}` name: no event carries this address.
+        let filename = format!("{HASH_ID}.jpg");
+        assert_eq!(
+            takedown_address(&target(&v1_file_uri_builder(USER.into(), filename.clone())))
+                .as_deref(),
+            Ok(format!("pubky://{USER}/pub/pubky.app/files/{filename}").as_str())
         );
         for address in [
             format!("pubky://{USER}"),

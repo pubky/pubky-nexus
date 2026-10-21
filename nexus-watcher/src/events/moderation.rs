@@ -68,9 +68,11 @@ impl Moderation {
                 // it differently (a trailing slash, a query, its `social/v1` address) and still
                 // name the same record, whose events carry its `pubky.app` address until the
                 // flip.
-                // TODO(specs-migration): after the flip a `social/v1` post's events carry
-                // version paths, so the takedown must then be keyed by the resolved key, not
-                // by one address; settled with the flip (N3).
+                // TODO(specs-migration): a `social/v1` file is recorded under an address no
+                // event carries (its raw `{hash}.{ext}` name in the `pubky.app` folder), and
+                // after the flip a `social/v1` post's events carry version paths. Both need the
+                // takedown looked up by the resolved target of the event's address, not by one
+                // address (N2b), and the post's version paths are settled with the flip (N3).
                 let address = takedown_address(&target).map_err(EventProcessorError::generic)?;
 
                 // Posts, tags and files are remembered before they are deleted, so they stay
