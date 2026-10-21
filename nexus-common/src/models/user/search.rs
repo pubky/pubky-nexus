@@ -400,7 +400,7 @@ impl UserSearch {
         let mut page = Vec::with_capacity(rows.len());
         for row in &rows {
             let is_stub: bool = row.get("is_stub").map_err(GraphError::from)?;
-            if let Some(details) = UserDetails::from_row(row) {
+            if let (_, Some(details)) = UserDetails::from_row(row)? {
                 page.push((details, is_stub));
             }
         }

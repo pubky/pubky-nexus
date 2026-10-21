@@ -9,6 +9,7 @@ use neo4rs::Row;
 use pubky_app_specs::{PubkyAppUser, PubkyAppUserLink, PubkyId};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json;
+use std::collections::HashMap;
 use tracing::warn;
 use utoipa::ToSchema;
 
@@ -110,21 +111,26 @@ impl UserDetails {
         }
         let ids: Vec<&str> = user_ids.iter().map(AsRef::as_ref).collect();
         let rows = fetch_all_rows_from_graph(queries::get::get_users_details_by_ids(&ids)).await?;
-        Ok(rows.iter().map(Self::from_row).collect())
+        let found = rows
+            .iter()
+            .map(Self::from_row)
+            .collect::<GraphResult<Vec<_>>>()?;
+        Ok(match_to_ids(&ids, found))
     }
 
-    /// The `record` node of a row with an `id` column: `None` for a missing
-    /// node, and for a node that does not deserialize, which is logged with
-    /// its id rather than failing the whole read.
-    pub fn from_row(row: &Row) -> Option<Self> {
-        match row.get::<Option<Self>>("record") {
+    /// The `id` and the `record` node of a row: the node is `None` when
+    /// missing, and when it does not deserialize, which is logged with its id
+    /// rather than failing the whole read.
+    pub fn from_row(row: &Row) -> GraphResult<(String, Option<Self>)> {
+        let id: String = row.get("id")?;
+        let record = match row.get::<Option<Self>>("record") {
             Ok(record) => record,
             Err(error) => {
-                let id: String = row.get("id").unwrap_or_default();
                 warn!(user_id = %id, %error, "Skipping a user node that does not deserialize");
                 None
             }
-        }
+        };
+        Ok((id, record))
     }
 
     /// Splits `items` by the details read for them, in order: the ones whose
@@ -199,6 +205,20 @@ impl UserDetails {
     }
 }
 
+/// Gives each id the details of the row that carries it, as the query keeps no
+/// order: `None` where no row brought details, and the same details in every
+/// slot of a repeated id.
+fn match_to_ids(
+    ids: &[&str],
+    found: Vec<(String, Option<UserDetails>)>,
+) -> Vec<Option<UserDetails>> {
+    let by_id: HashMap<String, UserDetails> = found
+        .into_iter()
+        .filter_map(|(id, details)| Some((id, details?)))
+        .collect();
+    ids.iter().map(|id| by_id.get(*id).cloned()).collect()
+}
+
 /// Binds a user to their homeserver, recording the `HOSTED_BY` relationship and `resolved_at`.
 pub async fn set_user_homeserver(user_id: &str, homeserver_id: &str) -> GraphResult<()> {
     exec_single_row(queries::put::set_user_homeserver(user_id, homeserver_id)).await
@@ -217,8 +237,60 @@ pub async fn users_exist(user_ids: &[&str]) -> GraphResult<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::utils::test_utils::random_pubky_id;
     use neo4rs::{BoltInteger, BoltList, BoltMap, BoltNode, BoltString, BoltType, Node};
     use tracing_test::traced_test;
+
+    fn ids_of(slots: &[Option<UserDetails>]) -> Vec<Option<String>> {
+        slots
+            .iter()
+            .map(|slot| slot.as_ref().map(|details| details.id.to_string()))
+            .collect()
+    }
+
+    /// Rows in any order: each id gets the details whose row carries it.
+    #[test]
+    fn match_to_ids_follows_the_ids_not_the_rows() {
+        let first = UserDetails::from_pubky(random_pubky_id());
+        let second = UserDetails::from_pubky(random_pubky_id());
+        let ids = [first.id.as_ref(), second.id.as_ref()];
+        let rows = vec![
+            (second.id.to_string(), Some(second.clone())),
+            (first.id.to_string(), Some(first.clone())),
+        ];
+        let slots = match_to_ids(&ids, rows);
+        assert_eq!(
+            ids_of(&slots),
+            vec![Some(first.id.to_string()), Some(second.id.to_string())]
+        );
+    }
+
+    /// An id whose row brought no details gets `None`; the others are kept.
+    #[test]
+    fn match_to_ids_leaves_a_missing_id_empty() {
+        let missing = random_pubky_id().to_string();
+        let found = UserDetails::from_pubky(random_pubky_id());
+        let ids = [missing.as_str(), found.id.as_ref()];
+        let rows = vec![
+            (found.id.to_string(), Some(found.clone())),
+            (missing.clone(), None),
+        ];
+        let slots = match_to_ids(&ids, rows);
+        assert_eq!(ids_of(&slots), vec![None, Some(found.id.to_string())]);
+    }
+
+    /// An id asked for twice gets the details in both of its slots.
+    #[test]
+    fn match_to_ids_fills_each_slot_of_a_repeated_id() {
+        let user = UserDetails::from_pubky(random_pubky_id());
+        let ids = [user.id.as_ref(), user.id.as_ref()];
+        let rows = vec![(user.id.to_string(), Some(user.clone()))];
+        let slots = match_to_ids(&ids, rows);
+        assert_eq!(
+            ids_of(&slots),
+            vec![Some(user.id.to_string()), Some(user.id.to_string())]
+        );
+    }
 
     /// Deserializing a UserDetails from a BoltNode without the links property
     /// should succeed with links: None. Neo4j drops null properties from nodes,
@@ -318,13 +390,19 @@ mod tests {
             Row::new(fields, data)
         };
 
-        assert!(UserDetails::from_row(&row(BoltType::Null(neo4rs::BoltNull))).is_none());
+        let record = |record: BoltType| {
+            let (row_id, details) = UserDetails::from_row(&row(record)).expect("the row has an id");
+            assert_eq!(row_id, id);
+            details
+        };
+
+        assert!(record(BoltType::Null(neo4rs::BoltNull)).is_none());
         assert!(!logs_contain("does not deserialize"));
 
-        let details = UserDetails::from_row(&row(node(Some(1724134095000)))).expect("a valid node");
+        let details = record(node(Some(1724134095000))).expect("a valid node");
         assert_eq!(details.name, "Dave");
 
-        assert!(UserDetails::from_row(&row(node(None))).is_none());
+        assert!(record(node(None)).is_none());
         assert!(logs_contain(
             "Skipping a user node that does not deserialize"
         ));
