@@ -36,24 +36,26 @@ pub enum ReferenceTarget {
     User(PubkyId),
     /// A file: its owner and file id.
     File(ResourceKey),
-    /// A tag: its tagger and tag id; `app` is set when the tag lives in another app's folder.
-    Tag {
-        key: ResourceKey,
-        app: Option<String>,
-    },
-    /// Anything else: a URL, another app's object, a resource Nexus never references (a follow,
-    /// a bookmark, a blob, a private path, …), an address that doesn't parse, or one of an
-    /// epoch the pinned spec crate doesn't speak.
+    /// A tag: its tagger and tag id, the same whatever folder holds the tag file.
+    Tag { key: ResourceKey },
+    /// A resource outside Nexus's namespaces: an address of another scheme (`https`, `nostr`,
+    /// …) or a public path under another app's namespace that is not a tag file.
+    Foreign,
+    /// Anything else inside Nexus's namespaces or no resource at all: a resource Nexus never
+    /// references (a follow, a mute, a feed, a bookmark, a blob, `last_read`), a private path,
+    /// a malformed `pubky.app` or `social` path, a `social/vN` epoch the pinned spec crate
+    /// doesn't speak, a `pubky://` address with no namespace, or a string that isn't a URL.
     Other,
 }
 
 impl ReferenceTarget {
-    /// The user who owns what the reference names; `None` for [`ReferenceTarget::Other`].
+    /// The user who owns what the reference names; `None` for [`ReferenceTarget::Foreign`]
+    /// and [`ReferenceTarget::Other`].
     pub fn owner_id(&self) -> Option<&PubkyId> {
         match self {
-            Self::Post(key) | Self::File(key) | Self::Tag { key, .. } => Some(&key.owner_id),
+            Self::Post(key) | Self::File(key) | Self::Tag { key } => Some(&key.owner_id),
             Self::User(user_id) => Some(user_id),
-            Self::Other => None,
+            Self::Foreign | Self::Other => None,
         }
     }
 }
@@ -333,7 +335,11 @@ mod tests {
                 &format!("pubky://{AUTHOR}/pub/pubky.app/profile.json"),
                 ReferenceTarget::User(key().owner_id),
             ),
-            reference("https://example.com", ReferenceTarget::Other),
+            reference("https://example.com", ReferenceTarget::Foreign),
+            reference(
+                &format!("pubky://{AUTHOR}/pub/pubky.app/follows/{AUTHOR}"),
+                ReferenceTarget::Other,
+            ),
             reference(
                 &format!("pubky://{AUTHOR}/pub/pubky.app/posts/{POST_ID}"),
                 ReferenceTarget::Post(key()),
@@ -356,13 +362,14 @@ mod tests {
 
     #[test]
     fn non_post_parent_and_embed_give_no_edges() {
-        // A file and an unresolved address: neither is a reply nor a repost edge.
+        // A file, a foreign resource and an unresolved address: none is a reply or repost edge.
         let file = reference(
             "pubky://x/pub/pubky.app/files/1",
             ReferenceTarget::File(key()),
         );
-        let other = reference("https://example.com", ReferenceTarget::Other);
-        for target in [file, other] {
+        let foreign = reference("https://example.com", ReferenceTarget::Foreign);
+        let other = reference("pubky://x/pub/pubky.app/follows/y", ReferenceTarget::Other);
+        for target in [file, foreign, other] {
             let parents = post(Some(target.clone()), Some(target)).parents();
             assert_eq!(parents, PostParents::default());
         }

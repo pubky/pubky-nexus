@@ -657,7 +657,7 @@ mod tests {
             input.parent,
             Some(Reference {
                 uri: url,
-                target: ReferenceTarget::Other,
+                target: ReferenceTarget::Foreign,
             })
         );
         assert_eq!(
@@ -784,7 +784,7 @@ mod tests {
             vec![
                 Reference {
                     uri: url,
-                    target: ReferenceTarget::Other,
+                    target: ReferenceTarget::Foreign,
                 },
                 Reference {
                     uri: user,
@@ -883,14 +883,14 @@ mod tests {
     }
 
     #[test]
-    fn put_tag_on_a_url_resolves_its_target_to_other() {
+    fn put_tag_on_a_url_resolves_its_target_to_foreign() {
         let address = "https://example.com/article".to_string();
         let tag = PubkySocialTag::new(address.clone(), "nexus".to_string());
         assert_eq!(
             translate_tag(&tag).1.tagged,
             Reference {
                 uri: address,
-                target: ReferenceTarget::Other,
+                target: ReferenceTarget::Foreign,
             }
         );
     }

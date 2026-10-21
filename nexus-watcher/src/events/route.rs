@@ -8,10 +8,14 @@
 //! inside objects.
 
 use super::inputs::{Reference, ReferenceTarget, ResourceKey};
-use pubky_social_specs::legacy_v0::{self, try_parse_pubky_path, ExtendedParsedUri};
+use pubky_social_specs::legacy_v0::{self, try_parse_pubky_path, ExtendedParsedUri, APP_PATH};
 use pubky_social_specs::{
-    epoch_segment, ParsedUri, PubkyId, Resource, Visibility, SOCIAL_NAMESPACE,
+    epoch_segment, is_pubky_scheme, ParsedUri, PubkyId, Resource, Visibility, SOCIAL_NAMESPACE,
 };
+use url::Url;
+
+/// The folder segment tag files sit in, in every namespace.
+const TAGS_SEGMENT: &str = "tags";
 
 /// A pubky address classified by its namespace segment and parsed by that epoch's parser.
 #[derive(Debug)]
@@ -67,16 +71,17 @@ fn route_social(uri: &str, epoch: Option<&str>) -> Routed {
 ///
 /// A `pubky.app` address, or another app's universal tag, gets the key the frozen v0 parser
 /// reads from it; a `social/v1` address the key the v1 parser reads from it, so a post has one
-/// key whichever epoch's address names it. A bare `pubky://<pk>` names the user, as the v1
-/// parser reads it. Every other address is [`ReferenceTarget::Other`]: a URL, a path no parser
-/// accepts, a `social/vN` epoch the crate does not speak.
+/// key whichever epoch's address names it, and a tag one key whatever folder holds it. A bare
+/// `pubky://<pk>` names the user, as the v1 parser reads it. An address of another scheme, or a
+/// public path under another app's namespace that is not a tag file, is
+/// [`ReferenceTarget::Foreign`]. Every other address is [`ReferenceTarget::Other`]: a resource
+/// Nexus never references, a private path, a `pubky.app` or `social` path its parser rejects, a
+/// `social/vN` epoch the crate does not speak, a `pubky://` address with no namespace.
 pub fn resolve_reference(address: &str) -> Reference {
     let target = match route(address) {
         Routed::Legacy(parsed) => legacy_target(parsed),
         Routed::Social(parsed) => social_target(parsed),
-        Routed::Malformed { .. } => {
-            bare_user(address).map_or(ReferenceTarget::Other, ReferenceTarget::User)
-        }
+        Routed::Malformed { .. } => unparsed_target(address),
         Routed::UnsupportedEpoch { .. } => ReferenceTarget::Other,
     };
     Reference {
@@ -102,9 +107,11 @@ pub fn takedown_address(target: &ReferenceTarget) -> Result<String, String> {
     let parsed = match target {
         ReferenceTarget::Post(key) => pubky_app(key, legacy_v0::Resource::Post),
         ReferenceTarget::File(key) => pubky_app(key, legacy_v0::Resource::File),
-        ReferenceTarget::Tag { key, .. } => pubky_app(key, legacy_v0::Resource::Tag),
+        ReferenceTarget::Tag { key } => pubky_app(key, legacy_v0::Resource::Tag),
         ReferenceTarget::User(_) => return Err("a user is never taken down".to_string()),
-        ReferenceTarget::Other => return Err("names nothing Nexus takes down".to_string()),
+        ReferenceTarget::Foreign | ReferenceTarget::Other => {
+            return Err("names nothing Nexus takes down".to_string())
+        }
     };
     parsed.try_to_uri_str()
 }
@@ -125,6 +132,37 @@ fn bare_user(address: &str) -> Option<PubkyId> {
     }
 }
 
+/// The target of an address no epoch's parser reads (see [`Routed::Malformed`]).
+///
+/// The user a bare `pubky://<pk>` names; [`ReferenceTarget::Foreign`] for an address of another
+/// scheme or a public path under another app's namespace; `Other` for the rest. A path under
+/// another app's tag folder the universal tag parser rejects is `Other`: it is a malformed tag
+/// file, not another app's object.
+fn unparsed_target(address: &str) -> ReferenceTarget {
+    if let Some(user_id) = bare_user(address) {
+        return ReferenceTarget::User(user_id);
+    }
+    let foreign = match try_parse_pubky_path(address) {
+        Ok(path) => {
+            !path.app.is_empty()
+                && !is_nexus_namespace(&path.app)
+                && path.segments.first().map(String::as_str) != Some(TAGS_SEGMENT)
+        }
+        // Not a public `pubky://<pk>/pub/<ns>` path: foreign only when another scheme's.
+        Err(_) => Url::parse(address).is_ok_and(|url| !is_pubky_scheme(url.scheme())),
+    };
+    if foreign {
+        ReferenceTarget::Foreign
+    } else {
+        ReferenceTarget::Other
+    }
+}
+
+/// Whether `namespace` is one of Nexus's own: `pubky.app` or `social`.
+fn is_nexus_namespace(namespace: &str) -> bool {
+    namespace == APP_PATH.trim_end_matches('/') || namespace == SOCIAL_NAMESPACE
+}
+
 /// The target a v0 address names; the resources Nexus never references are `Other`.
 fn legacy_target(parsed: ExtendedParsedUri) -> ReferenceTarget {
     let key = |owner_id: PubkyId, resource_id: String| ResourceKey {
@@ -138,7 +176,6 @@ fn legacy_target(parsed: ExtendedParsedUri) -> ReferenceTarget {
             legacy_v0::Resource::File(file_id) => ReferenceTarget::File(key(user_id, file_id)),
             legacy_v0::Resource::Tag(tag_id) => ReferenceTarget::Tag {
                 key: key(user_id, tag_id),
-                app: None,
             },
             legacy_v0::Resource::Follow(_)
             | legacy_v0::Resource::Bookmark(_)
@@ -150,17 +187,18 @@ fn legacy_target(parsed: ExtendedParsedUri) -> ReferenceTarget {
         },
         ExtendedParsedUri::UniversalTag {
             user_id,
-            app,
             resource: legacy_v0::Resource::Tag(tag_id),
+            ..
         } => ReferenceTarget::Tag {
             key: key(user_id, tag_id),
-            app: Some(app),
         },
-        ExtendedParsedUri::UniversalTag { .. } => ReferenceTarget::Other,
+        // Another app's path that is not a tag file: its own object.
+        ExtendedParsedUri::UniversalTag { .. } => ReferenceTarget::Foreign,
     }
 }
 
-/// The target a `social/v1` address names; the resources Nexus never references are `Other`.
+/// The target a `social/v1` address names; the resources Nexus never references are `Other`,
+/// another namespace's path is `Foreign`.
 ///
 /// A post is keyed by its id whether the address carries a version or not: every version of a
 /// post is one node. A file keeps its raw `{hash}.{ext}` name as its id. A private path names
@@ -182,11 +220,12 @@ fn social_target(parsed: ParsedUri) -> ReferenceTarget {
         Resource::Post { id, .. } => ReferenceTarget::Post(key(id)),
         Resource::User => ReferenceTarget::User(user_id),
         Resource::File(filename) => ReferenceTarget::File(key(filename)),
-        Resource::Tag(tag_id) => ReferenceTarget::Tag {
-            key: key(tag_id),
-            app: None,
-        },
-        // A follow, mute, bookmark, feed, foreign, unknown or unsupported resource, and one the
+        Resource::Tag(tag_id) => ReferenceTarget::Tag { key: key(tag_id) },
+        // Unreachable while [`route`] hands this only `social` paths.
+        Resource::Foreign { namespace, .. } if !is_nexus_namespace(&namespace) => {
+            ReferenceTarget::Foreign
+        }
+        // A follow, mute, bookmark, feed, unknown or unsupported resource, and one the
         // non-exhaustive `Resource` adds later: not referenced until the resolver says so.
         _ => ReferenceTarget::Other,
     }
@@ -249,7 +288,6 @@ mod tests {
                     owner_id,
                     resource_id: id,
                 },
-                app: None,
             },
             other => panic!("not a referenced resource: {other:?}"),
         }
@@ -269,10 +307,7 @@ mod tests {
             ),
             (
                 tag_uri_builder(USER.into(), HASH_ID.into()),
-                ReferenceTarget::Tag {
-                    key: key(HASH_ID),
-                    app: None,
-                },
+                ReferenceTarget::Tag { key: key(HASH_ID) },
             ),
             // The parser ignores segments past the id and reads the scheme case-insensitively.
             (
@@ -290,16 +325,19 @@ mod tests {
         }
     }
 
+    /// A tag has one id whatever folder holds it, so every folder's tag file resolves to the
+    /// same target: `pubky.app`, `social/v1` and another app's.
     #[test]
-    fn another_apps_tag_resolves_to_a_tag_with_its_app() {
-        let address = format!("pubky://{USER}/pub/mapky/tags/{HASH_ID}");
-        assert_eq!(
-            target(&address),
-            ReferenceTarget::Tag {
-                key: key(HASH_ID),
-                app: Some("mapky".to_string()),
-            }
-        );
+    fn a_tag_file_resolves_to_its_key_in_every_folder() {
+        let expected = ReferenceTarget::Tag { key: key(HASH_ID) };
+        for address in [
+            tag_uri_builder(USER.into(), HASH_ID.into()),
+            v1_tag_uri_builder(USER.into(), HASH_ID.into()),
+            format!("pubky://{USER}/pub/mapky/tags/{HASH_ID}"),
+            format!("pubky://{USER}/pub/eventky.app/tags/{HASH_ID}"),
+        ] {
+            assert_eq!(target(&address), expected, "{address}");
+        }
     }
 
     #[test]
@@ -359,17 +397,6 @@ mod tests {
         assert_eq!(
             target(&v1_file_uri_builder(USER.into(), filename.clone())),
             ReferenceTarget::File(key(&filename))
-        );
-    }
-
-    #[test]
-    fn social_v1_tag_resolves_to_a_tag_without_an_app() {
-        assert_eq!(
-            target(&v1_tag_uri_builder(USER.into(), HASH_ID.into())),
-            ReferenceTarget::Tag {
-                key: key(HASH_ID),
-                app: None,
-            }
         );
     }
 
@@ -455,28 +482,57 @@ mod tests {
             format!("pubky://{USER}/pub/social/v1/unknown_kind/{POST_ID}"),
             format!("pubky://{USER}/pub/social/v2/posts/{POST_ID}"),
             "https://example.com/article".to_string(),
+            format!("pubky://{OTHER_USER}/pub/mapky/reviews/{POST_ID}"),
         ] {
             assert!(takedown_address(&target(&address)).is_err(), "{address}");
         }
     }
 
+    /// Another scheme's address, and a public path under another app's namespace that is not a
+    /// tag file, name a resource outside Nexus's namespaces.
     #[test]
-    fn addresses_outside_pubky_app_resolve_to_other() {
+    fn foreign_resources_resolve_to_foreign() {
         for address in [
-            // A `social/vN` epoch the crate does not speak.
+            // External URLs, whatever the scheme's case.
+            "https://example.com/article".to_string(),
+            "HTTPS://Example.COM:443/path#frag".to_string(),
+            "nostr:note1abc123".to_string(),
+            // Another app's objects: a marketplace listing, a mapky review, an event.
+            format!("pubky://{OTHER_USER}/pub/marketplace/listings/{POST_ID}"),
+            format!("pubky://{OTHER_USER}/pub/mapky/reviews/{POST_ID}"),
+            format!("pubky://{OTHER_USER}/pub/eventky.app/events/E001"),
+            format!("PUBKY://{OTHER_USER}/pub/eventky.app/events/E001"),
+            // A namespace that only shares a prefix with `social` or `pubky.app`.
+            format!("pubky://{OTHER_USER}/pub/social.app/posts/{POST_ID}"),
+        ] {
+            assert_eq!(target(&address), ReferenceTarget::Foreign, "{address}");
+        }
+    }
+
+    /// An address inside Nexus's namespaces that names nothing Nexus references, a private
+    /// path, a `pubky://` address with no namespace, and a string that isn't a URL.
+    #[test]
+    fn addresses_naming_nothing_resolve_to_other() {
+        for address in [
+            // A `social/vN` epoch the crate does not speak, and a `social` path without one.
             format!("pubky://{USER}/pub/social/v2/posts/{POST_ID}"),
-            // A bare key with a trailing slash, or a short-form address no parser reads.
+            format!("pubky://{USER}/pub/social/posts/{POST_ID}"),
+            // A bare key with a trailing slash, an empty namespace, or a short-form address no
+            // parser reads.
             format!("pubky://{USER}/"),
+            format!("pubky://{USER}/pub/"),
             format!("pubky{USER}/pub/social/v1/posts/{POST_ID}"),
             // Malformed `pubky.app` addresses.
             format!("pubky://{USER}/pub/pubky.app/follows/not-a-key"),
             "pubky://not-a-key/pub/pubky.app/profile.json".to_string(),
+            // A key that doesn't parse under another app's namespace.
+            "pubky://not-a-key/pub/mapky/reviews/1".to_string(),
+            // Private paths, another app's included.
             format!("pubky://{USER}/priv/pubky.app/profile.json"),
-            // External URLs and another app's objects, whatever the scheme's case.
-            "https://example.com/article".to_string(),
-            "nostr:note1abc123".to_string(),
-            format!("pubky://{OTHER_USER}/pub/eventky.app/events/E001"),
-            format!("PUBKY://{OTHER_USER}/pub/eventky.app/events/E001"),
+            format!("pubky://{USER}/priv/mapky/reviews/{POST_ID}"),
+            // Malformed tag files in another app's folder.
+            format!("pubky://{USER}/pub/mapky/tags/"),
+            format!("pubky://{USER}/pub/mapky/tags/{HASH_ID}/extra"),
             "not a url".to_string(),
         ] {
             assert_eq!(target(&address), ReferenceTarget::Other, "{address}");

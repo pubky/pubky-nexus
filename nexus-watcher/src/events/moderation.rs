@@ -57,7 +57,9 @@ impl Moderation {
                 info!("Moderation tag '{label}' detected. Deleting user profile {user_id}");
                 handlers::user::del(user_id).await
             }
-            ReferenceTarget::Other => {
+            // TODO(specs-migration): a moderator tag on a foreign resource leaves its
+            // `Resource` tags in place.
+            ReferenceTarget::Foreign | ReferenceTarget::Other => {
                 debug!("Moderation tag '{label}' on {uri} names nothing Nexus deletes");
                 Ok(())
             }
@@ -95,9 +97,9 @@ impl Moderation {
     ) -> Result<(), EventProcessorError> {
         match target {
             ReferenceTarget::Post(key) => handlers::post::del(key, ingestor).await,
-            ReferenceTarget::Tag { key, .. } => handlers::tag::del(key).await,
+            ReferenceTarget::Tag { key } => handlers::tag::del(key).await,
             ReferenceTarget::File(key) => handlers::file::del(key, files_path).await,
-            ReferenceTarget::User(_) | ReferenceTarget::Other => Ok(()),
+            ReferenceTarget::User(_) | ReferenceTarget::Foreign | ReferenceTarget::Other => Ok(()),
         }
     }
 }
