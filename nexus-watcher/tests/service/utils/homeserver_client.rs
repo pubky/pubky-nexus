@@ -16,6 +16,9 @@ pub struct MockHomeserverClient {
     /// Lines the first `poll_events` returns. Later polls return none.
     lines: Mutex<Vec<String>>,
 
+    /// The failure every poll returns instead, when set.
+    poll_error: Option<HsErrorKind>,
+
     /// Homeserver IDs, cursors, and limits polled, in order.
     polls: Mutex<Vec<(String, u64, u16)>>,
 
@@ -41,6 +44,11 @@ pub struct MockHomeserverClient {
 impl MockHomeserverClient {
     pub fn with_lines(mut self, lines: Vec<String>) -> Self {
         *self.lines.get_mut() = lines;
+        self
+    }
+
+    pub fn with_poll_error(mut self, kind: HsErrorKind) -> Self {
+        self.poll_error = Some(kind);
         self
     }
 
@@ -121,6 +129,9 @@ impl HomeserverClient for MockHomeserverClient {
             .lock()
             .await
             .push((hs.to_string(), cursor, limit));
+        if let Some(kind) = &self.poll_error {
+            return Err(HsError::new(hs, HsOp::PollEvents, kind.clone()));
+        }
         Ok(std::mem::take(&mut *self.lines.lock().await))
     }
 

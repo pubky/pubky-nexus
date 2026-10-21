@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use chrono::Utc;
-use nexus_common::db::{exec_single_row, queries};
+use nexus_common::db::{exec_single_row, queries, PubkyClientError};
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::user::{Epoch, UserDetails};
 use nexus_common::utils::test_utils::{default_ingestor_tests, random_pk, random_pubky_id};
@@ -10,7 +10,8 @@ use nexus_common::WatcherConfig;
 use nexus_watcher::errors::EventProcessorError;
 use nexus_watcher::events::retry::{IndexKey, InitialBackoff, RetryScheduler, RetryStore};
 use nexus_watcher::events::{DefaultEventHandler, Event, EventHandler, ParseResult};
-use nexus_watcher::service::{HsEventProcessor, TEventProcessor};
+use nexus_watcher::homeserver::HsErrorKind;
+use nexus_watcher::service::{HsEventProcessor, RunError, TEventProcessor};
 use pubky_app_specs::traits::{HashId, TimestampId};
 use pubky_app_specs::{
     blob_uri_builder, file_uri_builder, post_uri_builder, PubkyAppBlob, PubkyAppFile, PubkyAppUser,
@@ -917,6 +918,39 @@ async fn test_run_polls_its_homeserver_from_the_stored_cursor() -> Result<()> {
     processor.run().await?;
 
     assert_eq!(client.polls().await, vec![(hs_id, 42, 100)]);
+
+    Ok(())
+}
+
+/// A failed poll fails the run with the poll's error and leaves the stored cursor where
+/// the run started.
+#[tokio_shared_rt::test(shared)]
+async fn test_failed_poll_keeps_the_cursor() -> Result<()> {
+    setup().await?;
+
+    let client = Arc::new(
+        MockHomeserverClient::default()
+            .with_poll_error(HsErrorKind::ServerError(502, "bad gateway".into())),
+    );
+    let homeserver = Homeserver {
+        id: random_pubky_id(),
+        cursor: 42,
+    };
+    homeserver.put_to_index().await?;
+    let hs_id = homeserver.id.to_string();
+    let processor = processor_with_client(homeserver, create_mock_handler(Ok(()), None), client);
+
+    let err = processor.run().await.unwrap_err();
+
+    assert!(
+        matches!(
+            &err,
+            RunError::Internal(EventProcessorError::PubkyClientError(e))
+                if matches!(e.as_ref(), PubkyClientError::ServerError5xx { .. })
+        ),
+        "{err:?}"
+    );
+    assert_eq!(stored_cursor(&hs_id).await?, 42);
 
     Ok(())
 }
