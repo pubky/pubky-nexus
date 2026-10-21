@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use pubky_app_specs::{ParsedUri, PubkyId};
 
-use super::{PkdnsHomeserverResolver, PubkyConnectorResolver};
+use super::PkdnsHomeserverResolver;
 use crate::models::error::{ModelError, ModelResult};
 use crate::models::homeserver::HsBlacklist;
 use crate::models::traits::Collection;
@@ -13,15 +13,8 @@ use crate::StackConfig;
 #[derive(Clone)]
 pub struct UserIngestor {
     hs_blacklist: HsBlacklist,
-    /// Looks up the HS a user publishes. The shared [`PubkyConnector`](crate::db::PubkyConnector)
-    /// unless [`Self::with_resolver`] sets another.
+    /// Looks up the HS a user publishes.
     resolver: Arc<dyn PkdnsHomeserverResolver>,
-}
-
-impl Default for UserIngestor {
-    fn default() -> Self {
-        Self::new([])
-    }
 }
 
 /// Names the blacklist only: the resolver is a trait object.
@@ -34,22 +27,25 @@ impl std::fmt::Debug for UserIngestor {
 }
 
 impl UserIngestor {
-    /// Builds an ingestor enforcing the given HS blacklist.
-    pub fn new(external_hs_pk_blacklist: impl IntoIterator<Item = PubkyId>) -> Self {
+    /// Builds an ingestor enforcing the given HS blacklist, looking users' homeservers up
+    /// through `resolver`.
+    pub fn new(
+        external_hs_pk_blacklist: impl IntoIterator<Item = PubkyId>,
+        resolver: Arc<dyn PkdnsHomeserverResolver>,
+    ) -> Self {
         Self {
             hs_blacklist: HsBlacklist::new(external_hs_pk_blacklist),
-            resolver: Arc::new(PubkyConnectorResolver),
+            resolver,
         }
     }
 
-    /// Looks up users' homeservers through `resolver` instead of the shared connector.
-    pub fn with_resolver(mut self, resolver: Arc<dyn PkdnsHomeserverResolver>) -> Self {
-        self.resolver = resolver;
-        self
-    }
-
-    pub fn from_config(config: &StackConfig) -> Self {
-        Self::new(config.net.external_hs_pk_blacklist.iter().cloned())
+    /// Builds an ingestor enforcing `config`'s HS blacklist, looking users' homeservers up
+    /// through `resolver`.
+    pub fn from_config(config: &StackConfig, resolver: Arc<dyn PkdnsHomeserverResolver>) -> Self {
+        Self::new(
+            config.net.external_hs_pk_blacklist.iter().cloned(),
+            resolver,
+        )
     }
 
     /// Ingests the author of a referenced post, if unknown.
@@ -163,15 +159,16 @@ mod tests {
         let allowed = random_pubky_id();
         let user = random_pubky_id();
 
-        let refusing = UserIngestor::new([blacklisted.clone()])
-            .with_resolver(Arc::new(FixedResolver(blacklisted.clone())));
+        let refusing = UserIngestor::new(
+            [blacklisted.clone()],
+            Arc::new(FixedResolver(blacklisted.clone())),
+        );
         let err = refusing.ensure_hs_not_blacklisted(&user).await.unwrap_err();
         assert!(
             matches!(err, ModelError::HsBlacklisted { hs_id } if hs_id == blacklisted.to_string())
         );
 
-        let accepting = UserIngestor::new([blacklisted])
-            .with_resolver(Arc::new(FixedResolver(allowed.clone())));
+        let accepting = UserIngestor::new([blacklisted], Arc::new(FixedResolver(allowed.clone())));
         let hs_id = accepting.ensure_hs_not_blacklisted(&user).await.unwrap();
         assert_eq!(hs_id, Some(allowed.to_string()));
     }

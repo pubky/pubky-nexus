@@ -69,7 +69,7 @@ impl DefaultEventHandler {
     /// and user ingestor from config. The ingestor resolves users' homeservers through
     /// `client` too.
     pub fn from_config(config: &WatcherConfig, client: Arc<dyn HomeserverClient>) -> Self {
-        let ingestor = UserIngestor::from_config(&config.stack).with_resolver(client.clone());
+        let ingestor = UserIngestor::from_config(&config.stack, client.clone());
         Self::new(
             Moderation::from_config(config),
             Arc::new(ingestor),
