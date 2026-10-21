@@ -113,7 +113,7 @@ async fn test_resource_tag_on_a_bare_key_delegates_to_user() -> Result<()> {
     let tagger_user_id = test.create_user(&tagger_kp, &tagger_user).await?;
 
     let bare_key = format!("pubky://{tagged_user_id}");
-    let label = "internal-known-bare-key";
+    let label = "known-bare-key";
     let tag = PubkyAppTag {
         uri: bare_key.clone(),
         label: label.to_string(),
@@ -172,7 +172,7 @@ async fn test_resource_tag_on_a_social_v1_post_address_delegates_to_post() -> Re
     let (post_id, post_path) = test.create_post(&user_kp, &post).await?;
 
     let v1_post_uri = social_v1_post_uri_builder(user_id.clone(), post_id.clone());
-    let label = "internal-known-social-v1";
+    let label = "known-social-v1";
     let tag = PubkyAppTag {
         uri: v1_post_uri.clone(),
         label: label.to_string(),
