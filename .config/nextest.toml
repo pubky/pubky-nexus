@@ -42,11 +42,3 @@ threads-required = 'num-test-threads'
 [[profile.default.overrides]]
 filter = 'package(nexusd) and test(/^migrations::catalog::user_epoch_backfill_1791812997::tests::/)'
 threads-required = 'num-test-threads'
-
-# The user search state backfill walks every :User and scans both user search
-# indexes, dropping members its hash does not record. Run alone, so no watcher
-# test writes a profile between the walk and the scan.
-
-[[profile.default.overrides]]
-filter = 'package(nexusd) and test(/^migrations::catalog::user_search_state_backfill_1792157548::tests::/)'
-threads-required = 'num-test-threads'

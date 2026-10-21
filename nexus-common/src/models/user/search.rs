@@ -24,7 +24,7 @@ pub const TAG_GLOBAL_USER_TAGGERS: [&str; 4] = ["Tags", "Global", "User", "Tagge
 const SEARCH_NAMES_KEY_PARTS: [&str; 1] = ["Names"];
 /// `User:Search:Deleted`, the set of tombstoned user ids: the Redis mirror of
 /// the graph's `deleted` flag, read atomically by the users-by-tag sync.
-pub const SEARCH_DELETED_KEY_PARTS: [&str; 1] = ["Deleted"];
+const SEARCH_DELETED_KEY_PARTS: [&str; 1] = ["Deleted"];
 const EVICT_PAGE_SIZE: usize = 500;
 const REINDEX_PAGE_SIZE: usize = 1_000;
 
