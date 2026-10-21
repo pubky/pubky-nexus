@@ -85,23 +85,43 @@ pub fn resolve_reference(address: &str) -> Reference {
     }
 }
 
-/// The canonical address of what `address` names, rendered by its epoch's parser: the address
-/// an event for the resource carries, which is how a takedown is recorded and looked up.
+/// The address a takedown of `target` is recorded under: the one the target's own events
+/// carry, which is how a takedown is looked up. Until the flip that is the `pubky.app`
+/// rendering of the resolved key, whichever epoch's address resolved it: a post, file or
+/// `pubky.app` tag in its `pubky.app` folder, another app's universal tag in that app's
+/// folder, both as the frozen v0 reader renders them.
 ///
-/// `Err` for an address no indexed epoch renders, a bare `pubky://<pk>` included: a user is
-/// never taken down.
-pub fn canonical_address(address: &str) -> Result<String, String> {
-    match route(address) {
-        Routed::Legacy(parsed) => parsed.try_to_uri_str(),
-        Routed::Social(parsed) => parsed.try_to_uri_str(),
-        Routed::UnsupportedEpoch { version } => Err(format!("unsupported social epoch {version}")),
-        Routed::Malformed { reason } => Err(reason),
-    }
+/// `Err` for a user or an unresolved address: neither is taken down.
+pub fn takedown_address(target: &ReferenceTarget) -> Result<String, String> {
+    let pubky_app = |key: &ResourceKey, resource: fn(String) -> legacy_v0::Resource| {
+        ExtendedParsedUri::PubkyApp {
+            user_id: key.owner_id.clone(),
+            resource: resource(key.resource_id.clone()),
+        }
+    };
+    let parsed = match target {
+        ReferenceTarget::Post(key) => pubky_app(key, legacy_v0::Resource::Post),
+        ReferenceTarget::File(key) => pubky_app(key, legacy_v0::Resource::File),
+        ReferenceTarget::Tag { key, app: None } => pubky_app(key, legacy_v0::Resource::Tag),
+        ReferenceTarget::Tag {
+            key,
+            app: Some(app),
+        } => ExtendedParsedUri::UniversalTag {
+            user_id: key.owner_id.clone(),
+            app: app.clone(),
+            resource: legacy_v0::Resource::Tag(key.resource_id.clone()),
+        },
+        ReferenceTarget::User(_) => return Err("a user is never taken down".to_string()),
+        ReferenceTarget::Other => return Err("names nothing Nexus takes down".to_string()),
+    };
+    parsed.try_to_uri_str()
 }
 
 /// The user a bare `pubky://<pk>` names. It has no namespace segment to route by, so the
-/// router calls it malformed; the v1 parser reads it as a user reference, and it reads no
-/// other routed-malformed address as one (a `profile.json` path routes to its epoch first).
+/// router calls it malformed; the v1 parser reads it as a user reference. The only other
+/// routed-malformed addresses it reads as one are the SDK short forms the v0 splitter does not
+/// read, `pubky<pk>` and `pubky<pk>/pub/social/v1/profile.json`; a canonical `profile.json`
+/// path routes to its epoch first.
 fn bare_user(address: &str) -> Option<PubkyId> {
     match ParsedUri::try_from(address) {
         Ok(ParsedUri {
@@ -328,9 +348,15 @@ mod tests {
         );
     }
 
+    /// The v1 profile path, the bare key, and the SDK short forms of both.
     #[test]
     fn social_v1_user_addresses_resolve_to_the_user_in_both_forms() {
-        for address in [v1_user_uri_builder(USER.into()), format!("pubky://{USER}")] {
+        for address in [
+            v1_user_uri_builder(USER.into()),
+            format!("pubky://{USER}"),
+            format!("pubky{USER}"),
+            format!("pubky{USER}/pub/social/v1/profile.json"),
+        ] {
             assert_eq!(target(&address), ReferenceTarget::User(user()), "{address}");
         }
     }
@@ -387,24 +413,50 @@ mod tests {
         }
     }
 
+    /// A takedown is recorded under the `pubky.app` address of the resolved key, whatever
+    /// address named it: the one the target's own events carry until the flip.
     #[test]
-    fn social_v1_addresses_render_canonically_for_a_takedown() {
-        let post = v1_post_uri_builder(USER.into(), POST_ID.into());
-        assert_eq!(canonical_address(&post).as_deref(), Ok(post.as_str()));
-        let version = v1_version_uri(Some("hello-world"));
-        assert_eq!(canonical_address(&version).as_deref(), Ok(version.as_str()));
-        let v0 = format!("pubky://{USER}/pub/pubky.app/posts/{POST_ID}/extra");
+    fn takedown_addresses_are_the_pubky_app_ones_whatever_address_resolved_the_target() {
+        let post = post_uri_builder(USER.into(), POST_ID.into());
+        for address in [
+            post.clone(),
+            format!("pubky://{USER}/pub/pubky.app/posts/{POST_ID}/extra"),
+            v1_post_uri_builder(USER.into(), POST_ID.into()),
+            v1_version_uri(None),
+            v1_version_uri(Some("hello-world")),
+        ] {
+            assert_eq!(
+                takedown_address(&target(&address)).as_deref(),
+                Ok(post.as_str()),
+                "{address}"
+            );
+        }
+        let tag = tag_uri_builder(USER.into(), HASH_ID.into());
+        for address in [tag.clone(), v1_tag_uri_builder(USER.into(), HASH_ID.into())] {
+            assert_eq!(
+                takedown_address(&target(&address)).as_deref(),
+                Ok(tag.as_str()),
+                "{address}"
+            );
+        }
+        let universal = format!("pubky://{USER}/pub/mapky/tags/{HASH_ID}");
         assert_eq!(
-            canonical_address(&v0).as_deref(),
-            Ok(post_uri_builder(USER.into(), POST_ID.into()).as_str())
+            takedown_address(&target(&format!("{universal}?x=1"))).as_deref(),
+            Ok(universal.as_str())
+        );
+        let file = file_uri_builder(USER.into(), POST_ID.into());
+        assert_eq!(
+            takedown_address(&target(&file)).as_deref(),
+            Ok(file.as_str())
         );
         for address in [
             format!("pubky://{USER}"),
+            user_uri_builder(USER.into()),
             format!("pubky://{USER}/pub/social/v1/unknown_kind/{POST_ID}"),
             format!("pubky://{USER}/pub/social/v2/posts/{POST_ID}"),
             "https://example.com/article".to_string(),
         ] {
-            assert!(canonical_address(&address).is_err(), "{address}");
+            assert!(takedown_address(&target(&address)).is_err(), "{address}");
         }
     }
 

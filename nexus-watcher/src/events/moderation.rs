@@ -4,7 +4,7 @@ use std::sync::Arc;
 use crate::errors::EventProcessorError;
 use crate::events::handlers;
 use crate::events::inputs::{Reference, ReferenceTarget};
-use crate::events::route::canonical_address;
+use crate::events::route::takedown_address;
 use nexus_common::models::takedown::record_takedown;
 use nexus_common::models::user::UserIngestor;
 use nexus_common::WatcherConfig;
@@ -65,19 +65,20 @@ impl Moderation {
             | ReferenceTarget::Tag { .. }
             | ReferenceTarget::File(_)) => {
                 // Recorded under the address an event for it carries: the tag's URI may spell
-                // it differently (a trailing slash, a query) and still name the same record.
-                // The target was resolved by its epoch's reader, so the address renders here too.
-                // TODO(specs-migration): a `social/v1` post's events carry version paths, which
-                // the versionless reference never equals; the takedown check for v1 events is
-                // settled with the flip (N3).
-                let uri = canonical_address(&uri).map_err(EventProcessorError::generic)?;
+                // it differently (a trailing slash, a query, its `social/v1` address) and still
+                // name the same record, whose events carry its `pubky.app` address until the
+                // flip.
+                // TODO(specs-migration): after the flip a `social/v1` post's events carry
+                // version paths, so the takedown must then be keyed by the resolved key, not
+                // by one address; settled with the flip (N3).
+                let address = takedown_address(&target).map_err(EventProcessorError::generic)?;
 
                 // Posts, tags and files are remembered before they are deleted, so they stay
                 // down even if their own event is read only later, or again, or is being
                 // written right now by another loop (see `handle_put_event`): each has an
                 // address of its own.
-                info!("Moderation tag '{label}' detected. Taking down {uri}");
-                record_takedown(&uri, tag_uri).await?;
+                info!("Moderation tag '{label}' on {uri} detected. Taking down {address}");
+                record_takedown(&address, tag_uri).await?;
                 Self::remove_taken_down(target, files_path, ingestor).await
             }
         }

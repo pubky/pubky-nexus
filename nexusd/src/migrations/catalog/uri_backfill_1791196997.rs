@@ -324,6 +324,16 @@ mod tests {
             "garbage".to_string(),
             "PUT".to_string(),
             "MOVE pubky://x/pub/pubky.app/tags/y".to_string(),
+            // A `social/v1` line names no v0 file: neither an edge nor a profile is read from
+            // it, whether the classifier skips it (today) or the fold does (once v1 is indexed).
+            format!(
+                "PUT {}",
+                pubky_social_specs::tag_uri_builder(TAGGER.to_string(), tag_id("v1"))
+            ),
+            format!(
+                "PUT {}",
+                pubky_social_specs::user_uri_builder(TAGGER.to_string())
+            ),
         ]);
         assert_eq!(page, PageUris::default());
     }

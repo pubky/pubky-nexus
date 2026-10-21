@@ -792,6 +792,43 @@ mod tests {
         );
     }
 
+    /// A bare `pubky://<pk>` is the v1 user reference: a tag on it tags that user, as a tag on
+    /// the user's `profile.json` address does.
+    #[test]
+    fn put_tag_on_a_bare_key_resolves_its_target_to_the_user() {
+        let address = format!("pubky://{OTHER_USER}");
+        let tag = PubkyAppTag::new(address.clone(), "nexus".to_string());
+        assert_eq!(
+            translate_tag(&tag).tagged,
+            Reference {
+                uri: address,
+                target: ReferenceTarget::User(pubky_id(OTHER_USER)),
+            }
+        );
+    }
+
+    /// A reply whose parent is a bare `pubky://<pk>` names the user, which the post handler
+    /// rejects as an unsupported target: no reply edge points at a user.
+    #[test]
+    fn put_post_with_a_bare_key_parent_resolves_it_to_the_user() {
+        let address = format!("pubky://{OTHER_USER}");
+        let post = PubkyAppPost::new(
+            "hello".to_string(),
+            PubkyAppPostKind::Short,
+            Some(address.clone()),
+            None,
+            None,
+        );
+        let (_, input) = translate_post(&bytes(&post));
+        assert_eq!(
+            input.parent,
+            Some(Reference {
+                uri: address,
+                target: ReferenceTarget::User(pubky_id(OTHER_USER)),
+            })
+        );
+    }
+
     #[test]
     fn put_tag_on_a_url_resolves_its_target_to_other() {
         let address = "https://example.com/article".to_string();

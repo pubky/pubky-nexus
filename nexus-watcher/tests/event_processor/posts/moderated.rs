@@ -21,7 +21,7 @@ use pubky_social_specs::legacy_v0::traits::HasIdPath;
 use pubky_social_specs::legacy_v0::{
     post_uri_builder, PubkyAppPost, PubkyAppPostKind, PubkyAppTag, PubkyAppUser,
 };
-use pubky_social_specs::PubkyId;
+use pubky_social_specs::{post_uri_builder as social_v1_post_uri_builder, PubkyId};
 use std::path::Path;
 use tokio::fs;
 
@@ -393,6 +393,48 @@ async fn test_post_taken_down_with_a_trailing_slash_stays_out() -> Result<()> {
     assert!(
         find_post_details(&user_id, &post_id).await.is_err(),
         "taken down under its canonical address, so its event is dropped"
+    );
+    Ok(())
+}
+
+/// A moderator tag naming the post by its `social/v1` address is recorded under the
+/// `pubky.app` address the post's own event carries, so the post stays out when its event
+/// comes later.
+#[tokio_shared_rt::test(shared)]
+async fn test_post_taken_down_through_its_social_v1_address_stays_out() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let user_kp = Keypair::random();
+    let user_id = test
+        .create_user(&user_kp, &test_user("Watcher:PostModerate:SocialV1", ""))
+        .await?;
+
+    let post_id = generate_post_id();
+    let post_path: ResourcePath = PubkyAppPost::create_path(&post_id).parse()?;
+    let tag = PubkyAppTag {
+        uri: social_v1_post_uri_builder(user_id.clone(), post_id.clone()),
+        label: MODERATION_LABEL.to_string(),
+        created_at: Utc::now().timestamp_millis(),
+    };
+    let _ = default_moderation_tests()
+        .apply_moderation(
+            &tag.label,
+            post_reference(&tag.uri, &user_id, &post_id),
+            MODERATOR_TAG_URI,
+            Path::new("/tmp/nexus-watcher-test"),
+            &default_ingestor_tests(),
+        )
+        .await;
+
+    test.put(
+        &user_kp,
+        &post_path,
+        short_post("Watcher:PostModerate:SocialV1:Post"),
+    )
+    .await?;
+
+    assert!(
+        find_post_details(&user_id, &post_id).await.is_err(),
+        "taken down under its pubky.app address, so its event is dropped"
     );
     Ok(())
 }
