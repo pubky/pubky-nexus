@@ -4,8 +4,19 @@ use nexus_common::{
         exec_single_row, fetch_key_from_graph, fetch_row_from_graph, graph::Query, queries,
         RedisOps,
     },
-    models::user::{UserCounts, UserDetails, UserStream, USER_INFLUENCERS_KEY_PARTS},
+    models::user::{
+        UserCounts, UserDetails, UserStream, USER_INFLUENCERS_KEY_PARTS,
+        USER_MOSTFOLLOWED_KEY_PARTS,
+    },
 };
+
+pub async fn check_member_most_followed(user_id: &str) -> Result<Option<isize>> {
+    let most_followed_score =
+        UserStream::check_sorted_set_member(None, &USER_MOSTFOLLOWED_KEY_PARTS, &[user_id])
+            .await
+            .unwrap();
+    Ok(most_followed_score)
+}
 
 pub async fn check_member_influencer(user_id: &str) -> Result<Option<isize>> {
     let influencer_score =

@@ -21,9 +21,11 @@ filter = 'test(=stream::user::influencers::test_global_influencers) | test(=stre
 test-group = 'influencers-sorted-set'
 
 # The most-followed tests delete Sorted:Users:MostFollowed, mark a score at its top, or
-# plant a deleted user there, while the others assert full pages and its top 20.
+# plant a deleted user there, while the others assert full pages and its top 20. The
+# watcher's user and follow tests assert their new users stay out of it, which the
+# rebuild after a delete would add.
 [[profile.default.overrides]]
-filter = 'test(=stream::user::score::test_stream_most_followed) | test(=stream::user::score::test_stream_most_followed_rebuilds_a_missing_ranking) | test(=stream::user::score::test_stream_most_followed_serves_an_empty_window_without_a_rebuild) | test(=stream::user::score::test_stream_most_followed_filters_deleted_users) | test(=stream::user::ids::test_stream_user_ids_most_followed_align)'
+filter = 'test(=stream::user::score::test_stream_most_followed) | test(=stream::user::score::test_stream_most_followed_rebuilds_a_missing_ranking) | test(=stream::user::score::test_stream_most_followed_serves_an_empty_window_without_a_rebuild) | test(=stream::user::score::test_stream_most_followed_filters_deleted_users) | test(=stream::user::ids::test_stream_user_ids_most_followed_align) | test(=event_processor::users::raw::test_homeserver_user_put_event) | test(=event_processor::follows::put::test_homeserver_put_follow) | test(=event_processor::follows::del::test_homeserver_unfollow)'
 test-group = 'most-followed-sorted-set'
 
 # These tests change the shared trust ranking (Sorted:Users:SocialGraph) and the
