@@ -59,6 +59,11 @@ pub enum HsErrorKind {
     Transport(String),
     #[error("{got} bytes, over the {max} byte limit")]
     TooLarge { got: u64, max: u64 },
+    /// The SDK refused the request, could not decode the answer, or could not resolve a
+    /// key: neither a status nor a transport failure. Retried per event, and unlike a
+    /// transport failure never charged to a homeserver's run.
+    #[error("sdk: {0}")]
+    Sdk(String),
     /// A request that could not be built, e.g. from a malformed homeserver URL.
     #[error("malformed: {0}")]
     Malformed(String),
@@ -95,10 +100,11 @@ impl HsErrorKind {
     /// Classifies an SDK error so it is retried, or not, as `PubkyClientError::from`
     /// classifies it.
     ///
-    /// A status lands by its code. A transport, PKARR or validation failure, which that
-    /// conversion makes a retried `RequestFailed` (`PkarrFailed` for PKARR), is a transport
-    /// failure. An error building the request (`Parse`, `Build`, `Authentication`) is
-    /// malformed, and permanent.
+    /// A status lands by its code and a transport failure stays one. A validation, JSON
+    /// decode or PKARR failure, which that conversion makes a retried `RequestFailed`
+    /// (`PkarrFailed` for PKARR), is an [`HsErrorKind::Sdk`] failure: retried the same
+    /// way, and never charged to a homeserver's run. An error building the request
+    /// (`Parse`, `Build`, `Authentication`) is malformed, and permanent.
     pub fn from_sdk(error: pubky::Error) -> Self {
         match error {
             pubky::Error::Request(RequestError::Server { status, message }) => {
@@ -108,8 +114,10 @@ impl HsErrorKind {
             pubky::Error::Request(
                 RequestError::Validation { .. } | RequestError::DecodeJson { .. },
             )
-            | pubky::Error::Pkarr(_) => Self::transport(error),
-            other => Self::malformed(other),
+            | pubky::Error::Pkarr(_) => Self::Sdk(capped(error)),
+            pubky::Error::Parse(_) | pubky::Error::Authentication(_) | pubky::Error::Build(_) => {
+                Self::malformed(error)
+            }
         }
     }
 }
@@ -124,9 +132,11 @@ mod tests {
     use super::*;
     use crate::errors::EventProcessorError;
     use crate::events::retry::RetryScheduler;
+    use nexus_common::db::PubkyClientError;
+    use pubky::errors::{AuthError, PkarrError};
 
     /// SDK errors are classified so that statuses are retried by their code, validation
-    /// failures as transport errors, and errors building the request never.
+    /// failures per event, and errors building the request never.
     #[test]
     fn sdk_errors_are_classified() {
         let server = |status: u16| {
@@ -141,16 +151,25 @@ mod tests {
         assert!(matches!(server(400), HsErrorKind::Rejected(400, _)));
 
         let validation = HsErrorKind::from_sdk(pubky::Error::from(RequestError::Validation {
-            message: "SSE stream error".into(),
+            message: "Cannot subscribe to more than 50 users".into(),
         }));
-        assert!(
-            matches!(validation, HsErrorKind::Transport(_)),
-            "{validation:?}"
-        );
+        assert!(matches!(validation, HsErrorKind::Sdk(_)), "{validation:?}");
+        let decode = HsErrorKind::from_sdk(pubky::Error::from(RequestError::DecodeJson {
+            message: "expected value at line 1".into(),
+        }));
+        assert!(matches!(decode, HsErrorKind::Sdk(_)), "{decode:?}");
+        let pkarr = HsErrorKind::from_sdk(pubky::Error::from(PkarrError::InvalidRecord(
+            "no homeserver record".into(),
+        )));
+        assert!(matches!(pkarr, HsErrorKind::Sdk(_)), "{pkarr:?}");
 
         let parse_error = reqwest::Url::parse("https://").unwrap_err();
         let parse = HsErrorKind::from_sdk(pubky::Error::from(parse_error));
         assert!(matches!(parse, HsErrorKind::Malformed(_)), "{parse:?}");
+        let auth = HsErrorKind::from_sdk(pubky::Error::from(AuthError::Validation(
+            "missing token".into(),
+        )));
+        assert!(matches!(auth, HsErrorKind::Malformed(_)), "{auth:?}");
 
         let hs = PubkyId::try_from("1hb71xx9km3f4pw5izsy1gn19ff1uuuqonw4mcygzobwkryujoiy").unwrap();
         let retried: EventProcessorError = HsError::new(&hs, HsOp::GetResource, validation).into();
@@ -182,10 +201,13 @@ mod tests {
             status: StatusCode::BAD_GATEWAY,
             message: huge.clone(),
         }));
+        let sdk = HsErrorKind::from_sdk(pubky::Error::from(RequestError::Validation {
+            message: huge.clone(),
+        }));
         let transport = HsErrorKind::transport(&huge);
         let malformed = HsErrorKind::malformed(&huge);
 
-        for kind in [status, sdk_status, transport, malformed] {
+        for kind in [status, sdk_status, sdk, transport, malformed] {
             let message = kind.to_string();
             assert!(message.ends_with("… (truncated)"), "{message}");
             assert!(message.len() < MAX_ERROR_BODY + 64, "{}", message.len());
@@ -202,6 +224,68 @@ mod tests {
             .bytes()
             .await
             .unwrap_err()
+    }
+
+    /// On a fetch, the client's classification and `PubkyClientError::from` decide the same
+    /// for every SDK error: whether the run stops, whether the event is retried, and whether
+    /// it was a 404. The compiler cannot check the two lists against each other, so this does.
+    #[tokio::test]
+    async fn sdk_classification_agrees_with_the_shared_converter() {
+        let server = |status: u16| {
+            pubky::Error::from(RequestError::Server {
+                status: StatusCode::from_u16(status).unwrap(),
+                message: "nope".into(),
+            })
+        };
+        // Two of each, the SDK's error not being `Clone`.
+        let pair = |make: &dyn Fn() -> pubky::Error| (make(), make());
+        let mut pairs = vec![
+            pair(&|| server(404)),
+            pair(&|| server(429)),
+            pair(&|| server(503)),
+            pair(&|| server(400)),
+            pair(&|| {
+                pubky::Error::from(RequestError::Validation {
+                    message: "bad".into(),
+                })
+            }),
+            pair(&|| {
+                pubky::Error::from(RequestError::DecodeJson {
+                    message: "bad".into(),
+                })
+            }),
+            pair(&|| pubky::Error::from(PkarrError::InvalidRecord("bad".into()))),
+            pair(&|| pubky::Error::from(reqwest::Url::parse("https://").unwrap_err())),
+            pair(&|| pubky::Error::from(AuthError::Validation("bad".into()))),
+        ];
+        pairs.push((
+            pubky::Error::from(RequestError::Transport(transport_error().await)),
+            pubky::Error::from(RequestError::Transport(transport_error().await)),
+        ));
+
+        let hs = PubkyId::try_from("1hb71xx9km3f4pw5izsy1gn19ff1uuuqonw4mcygzobwkryujoiy").unwrap();
+        for (via_client, via_converter) in pairs {
+            let label = via_converter.to_string();
+            let via_client: EventProcessorError =
+                HsError::new(&hs, HsOp::GetResource, HsErrorKind::from_sdk(via_client)).into();
+            let via_converter = EventProcessorError::from(PubkyClientError::from(via_converter));
+
+            assert_eq!(
+                via_client.should_not_retry_now(),
+                via_converter.should_not_retry_now(),
+                "{label}"
+            );
+            assert_eq!(
+                RetryScheduler::should_enqueue_related_event(&via_client),
+                RetryScheduler::should_enqueue_related_event(&via_converter),
+                "{label}"
+            );
+            assert_eq!(
+                via_client.is_not_found(),
+                via_converter.is_not_found(),
+                "{label}"
+            );
+        }
     }
 
     /// A transport failure stops the run on the event stream, and is retried on a fetch.

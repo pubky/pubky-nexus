@@ -147,9 +147,10 @@ impl From<HsError> for EventProcessorError {
             HsErrorKind::NotFound(_) => PubkyClientError::NotFound404 { message }.into(),
             HsErrorKind::RateLimited(_) => PubkyClientError::TooManyRequests429 { message }.into(),
             HsErrorKind::ServerError(..) => PubkyClientError::ServerError5xx { message }.into(),
-            HsErrorKind::Rejected(..) | HsErrorKind::Transport(_) | HsErrorKind::Timeout => {
-                PubkyClientError::RequestFailed { message }.into()
-            }
+            HsErrorKind::Rejected(..)
+            | HsErrorKind::Transport(_)
+            | HsErrorKind::Timeout
+            | HsErrorKind::Sdk(_) => PubkyClientError::RequestFailed { message }.into(),
             HsErrorKind::Malformed(_) => Self::Homeserver(error),
         }
     }
@@ -311,8 +312,8 @@ mod tests {
         }
     }
 
-    /// The same failures on a resource or blob fetch stay per-event, and a 404 on
-    /// the event stream stays per-user.
+    /// The same failures on a resource or blob fetch stay per-event, and a 404, a 403 or
+    /// an SDK failure on the event stream stays per-user.
     #[test]
     fn other_failures_stay_per_event() {
         for (op, kind) in [
@@ -320,6 +321,11 @@ mod tests {
             (HsOp::GetBlob, HsErrorKind::transport("connection refused")),
             (HsOp::PollEvents, HsErrorKind::RateLimited("".into())),
             (HsOp::UserEvents, HsErrorKind::NotFound("".into())),
+            (HsOp::UserEvents, HsErrorKind::Rejected(403, "".into())),
+            (
+                HsOp::UserEvents,
+                HsErrorKind::Sdk("could not resolve".into()),
+            ),
         ] {
             let err = hs_error(op, kind);
             assert!(!err.should_not_retry_now(), "{err}");
@@ -337,6 +343,17 @@ mod tests {
             "{rate_limited:?}"
         );
         assert!(hs_error(HsOp::UserEvents, HsErrorKind::NotFound("".into())).is_not_found());
+    }
+
+    /// A malformed event-stream request fails its user for good: it is not retried, and
+    /// the run goes on.
+    #[test]
+    fn malformed_stream_request_fails_one_user_for_good() {
+        let err = hs_error(HsOp::UserEvents, HsErrorKind::malformed("bad url"));
+
+        assert!(matches!(err, EventProcessorError::Homeserver(_)), "{err:?}");
+        assert!(!err.should_not_retry_now());
+        assert!(!RetryScheduler::should_enqueue_related_event(&err));
     }
 
     /// A 4xx other than 404/429, or a timeout off the event stream, is a retried
