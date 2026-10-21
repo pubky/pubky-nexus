@@ -75,7 +75,9 @@ fn fold_page(lines: &[String]) -> PageUris {
         if event.event_type != EventType::Put {
             continue;
         }
-        let EventTarget::Legacy(parsed_uri) = &event.target;
+        let EventTarget::Legacy(parsed_uri) = &event.target else {
+            continue;
+        };
         let user_id = parsed_uri.user_id().to_string();
         match parsed_uri.resource() {
             Resource::Tag(tag_id) => {

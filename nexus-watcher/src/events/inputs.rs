@@ -42,8 +42,8 @@ pub enum ReferenceTarget {
         app: Option<String>,
     },
     /// Anything else: a URL, another app's object, a resource Nexus never references (a follow,
-    /// a bookmark, a blob, …), an address that doesn't parse, or one of an epoch the resolver
-    /// doesn't read yet.
+    /// a bookmark, a blob, a private path, …), an address that doesn't parse, or one of an
+    /// epoch the pinned spec crate doesn't speak.
     Other,
 }
 
@@ -87,8 +87,8 @@ pub struct PostInput {
     pub parent: Option<Reference>,
     /// The embedded object the author named.
     pub embed: Option<Reference>,
-    /// A collection post's items, in order; empty for any other kind. Only author ingestion
-    /// reads them: the collected edges still come from the stored content.
+    /// A collection post's items, in order; empty for any other kind. They feed author
+    /// ingestion and, through [`PostInput::collected_posts`], the collected edges.
     pub collection_items: Vec<Reference>,
     /// The attachments the author named, in order; empty when the post has none.
     pub attachments: Vec<String>,
@@ -132,6 +132,19 @@ impl PostInput {
             replied: self.parent.as_ref().and_then(post_parent),
             reposted: self.embed.as_ref().and_then(post_parent),
         }
+    }
+
+    /// The posts the collection items name, in curator order, as `(author_id, post_id)`: the
+    /// posts the collected edges point at. An item that names anything else (a profile, a file,
+    /// a URL, an address that didn't resolve) gives no edge.
+    pub fn collected_posts(&self) -> Vec<(PubkyId, String)> {
+        self.collection_items
+            .iter()
+            .filter_map(|item| match &item.target {
+                ReferenceTarget::Post(key) => Some((key.owner_id.clone(), key.resource_id.clone())),
+                _ => None,
+            })
+            .collect()
     }
 }
 
@@ -300,6 +313,45 @@ mod tests {
             parents.reposted, expected,
             "a post embed should be reposted"
         );
+    }
+
+    #[test]
+    fn collected_posts_keeps_post_items_in_order() {
+        const OTHER_POST_ID: &str = "003286NSMY491";
+        let other_key = ResourceKey {
+            resource_id: OTHER_POST_ID.into(),
+            ..key()
+        };
+        let mut collection = post(None, None);
+        collection.kind = PostKind::Collection;
+        collection.collection_items = vec![
+            reference(
+                &format!("pubky://{AUTHOR}/pub/pubky.app/posts/{OTHER_POST_ID}"),
+                ReferenceTarget::Post(other_key.clone()),
+            ),
+            reference(
+                &format!("pubky://{AUTHOR}/pub/pubky.app/profile.json"),
+                ReferenceTarget::User(key().owner_id),
+            ),
+            reference("https://example.com", ReferenceTarget::Other),
+            reference(
+                &format!("pubky://{AUTHOR}/pub/pubky.app/posts/{POST_ID}"),
+                ReferenceTarget::Post(key()),
+            ),
+        ];
+        assert_eq!(
+            collection.collected_posts(),
+            vec![
+                (other_key.owner_id, OTHER_POST_ID.to_string()),
+                (key().owner_id, POST_ID.to_string()),
+            ],
+            "post items in curator order, every other item dropped"
+        );
+    }
+
+    #[test]
+    fn post_without_items_collects_nothing() {
+        assert!(post(None, None).collected_posts().is_empty());
     }
 
     #[test]

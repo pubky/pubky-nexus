@@ -9,7 +9,9 @@
 
 use super::inputs::{Reference, ReferenceTarget, ResourceKey};
 use pubky_social_specs::legacy_v0::{self, try_parse_pubky_path, ExtendedParsedUri};
-use pubky_social_specs::{epoch_segment, ParsedUri, PubkyId, Resource, SOCIAL_NAMESPACE};
+use pubky_social_specs::{
+    epoch_segment, ParsedUri, PubkyId, Resource, Visibility, SOCIAL_NAMESPACE,
+};
 
 /// A pubky address classified by its namespace segment and parsed by that epoch's parser.
 #[derive(Debug)]
@@ -64,19 +66,71 @@ fn route_social(uri: &str, epoch: Option<&str>) -> Routed {
 /// Resolves an address an object holds into what it names, keeping the address as written.
 ///
 /// A `pubky.app` address, or another app's universal tag, gets the key the frozen v0 parser
-/// reads from it. Every other address is [`ReferenceTarget::Other`]: a URL, a bare
-/// `pubky://<pk>`, a path no parser accepts, and for now any `social/*` address.
+/// reads from it; a `social/v1` address the key the v1 parser reads from it, so a post has one
+/// key whichever epoch's address names it. A bare `pubky://<pk>` names the user, as the v1
+/// parser reads it. Every other address is [`ReferenceTarget::Other`]: a URL, a path no parser
+/// accepts, a `social/vN` epoch the crate does not speak.
 pub fn resolve_reference(address: &str) -> Reference {
     let target = match route(address) {
         Routed::Legacy(parsed) => legacy_target(parsed),
-        // TODO(specs-migration): resolve `social/v1` addresses with the v1 translator.
-        Routed::Social(_) | Routed::UnsupportedEpoch { .. } | Routed::Malformed { .. } => {
-            ReferenceTarget::Other
+        Routed::Social(parsed) => social_target(parsed),
+        Routed::Malformed { .. } => {
+            bare_user(address).map_or(ReferenceTarget::Other, ReferenceTarget::User)
         }
+        Routed::UnsupportedEpoch { .. } => ReferenceTarget::Other,
     };
     Reference {
         uri: address.to_string(),
         target,
+    }
+}
+
+/// The address a takedown of `target` is recorded under: the `pubky.app` rendering of the
+/// resolved key, whichever epoch's address resolved it: a post, file or `pubky.app` tag in its
+/// `pubky.app` folder, another app's universal tag in that app's folder, both as the frozen v0
+/// reader renders them. Until the flip that is the address a `pubky.app` object's own events
+/// carry, which is how a takedown is looked up. A `social/v1` file keeps its raw
+/// `{hash}.{ext}` name, so its rendering is an address no event carries.
+///
+/// `Err` for a user or an unresolved address: neither is taken down.
+pub fn takedown_address(target: &ReferenceTarget) -> Result<String, String> {
+    let pubky_app = |key: &ResourceKey, resource: fn(String) -> legacy_v0::Resource| {
+        ExtendedParsedUri::PubkyApp {
+            user_id: key.owner_id.clone(),
+            resource: resource(key.resource_id.clone()),
+        }
+    };
+    let parsed = match target {
+        ReferenceTarget::Post(key) => pubky_app(key, legacy_v0::Resource::Post),
+        ReferenceTarget::File(key) => pubky_app(key, legacy_v0::Resource::File),
+        ReferenceTarget::Tag { key, app: None } => pubky_app(key, legacy_v0::Resource::Tag),
+        ReferenceTarget::Tag {
+            key,
+            app: Some(app),
+        } => ExtendedParsedUri::UniversalTag {
+            user_id: key.owner_id.clone(),
+            app: app.clone(),
+            resource: legacy_v0::Resource::Tag(key.resource_id.clone()),
+        },
+        ReferenceTarget::User(_) => return Err("a user is never taken down".to_string()),
+        ReferenceTarget::Other => return Err("names nothing Nexus takes down".to_string()),
+    };
+    parsed.try_to_uri_str()
+}
+
+/// The user a bare `pubky://<pk>` names. It has no namespace segment to route by, so the
+/// router calls it malformed; the v1 parser reads it as a user reference. The only other
+/// routed-malformed addresses it reads as one are the SDK short forms the v0 splitter does not
+/// read, `pubky<pk>` and `pubky<pk>/pub/social/v1/profile.json`; a canonical `profile.json`
+/// path routes to its epoch first.
+fn bare_user(address: &str) -> Option<PubkyId> {
+    match ParsedUri::try_from(address) {
+        Ok(ParsedUri {
+            user_id,
+            visibility: Visibility::Public,
+            resource: Resource::User,
+        }) => Some(user_id),
+        _ => None,
     }
 }
 
@@ -115,6 +169,38 @@ fn legacy_target(parsed: ExtendedParsedUri) -> ReferenceTarget {
     }
 }
 
+/// The target a `social/v1` address names; the resources Nexus never references are `Other`.
+///
+/// A post is keyed by its id whether the address carries a version or not: every version of a
+/// post is one node. A file keeps its raw `{hash}.{ext}` name as its id. A private path names
+/// nothing: a draft or a bookmark is never linked.
+fn social_target(parsed: ParsedUri) -> ReferenceTarget {
+    let ParsedUri {
+        user_id,
+        visibility,
+        resource,
+    } = parsed;
+    if visibility == Visibility::Private {
+        return ReferenceTarget::Other;
+    }
+    let key = |resource_id: String| ResourceKey {
+        owner_id: user_id.clone(),
+        resource_id,
+    };
+    match resource {
+        Resource::Post { id, .. } => ReferenceTarget::Post(key(id)),
+        Resource::User => ReferenceTarget::User(user_id),
+        Resource::File(filename) => ReferenceTarget::File(key(filename)),
+        Resource::Tag(tag_id) => ReferenceTarget::Tag {
+            key: key(tag_id),
+            app: None,
+        },
+        // A follow, mute, bookmark, feed, foreign, unknown or unsupported resource, and one the
+        // non-exhaustive `Resource` adds later: not referenced until the resolver says so.
+        _ => ReferenceTarget::Other,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -123,10 +209,19 @@ mod tests {
         follow_uri_builder, last_read_uri_builder, mute_uri_builder, post_uri_builder,
         tag_uri_builder, user_uri_builder, ParsedUri as V0ParsedUri,
     };
+    use pubky_social_specs::{
+        bookmark_uri_builder as v1_bookmark_uri_builder, feed_uri_builder as v1_feed_uri_builder,
+        file_uri_builder as v1_file_uri_builder, follow_uri_builder as v1_follow_uri_builder,
+        mute_uri_builder as v1_mute_uri_builder, post_uri_builder as v1_post_uri_builder,
+        tag_uri_builder as v1_tag_uri_builder, user_uri_builder as v1_user_uri_builder,
+        PubkySocialPost, Root,
+    };
 
     const USER: &str = "operrr8wsbpr3ue9d4qj41ge1kcc6r7fdiy6o3ugjrrhi4y77rdo";
     const OTHER_USER: &str = "8pinxxgqs41n4aididenw5apqp1urfmzdztr8jt4abrkdn435ewo";
     const POST_ID: &str = "0032SSN7Q4EVG";
+    /// A timestamp id later than [`POST_ID`], as a post version's edit id must be.
+    const EDIT_ID: &str = "0032SSN7Q4EVJ";
     const HASH_ID: &str = "8Z8CWH8NVYQY39ZEBFGKQWWEKG";
 
     fn user() -> PubkyId {
@@ -231,13 +326,156 @@ mod tests {
         }
     }
 
+    /// The v1 address of a stored post version, with or without a label.
+    fn v1_version_uri(label: Option<&str>) -> String {
+        let path = PubkySocialPost::create_path_in(Root::Pub, POST_ID, EDIT_ID, label);
+        format!("pubky://{USER}{path}")
+    }
+
+    #[test]
+    fn social_v1_post_addresses_resolve_to_the_post_whatever_their_form() {
+        let expected = ReferenceTarget::Post(key(POST_ID));
+        for address in [
+            v1_post_uri_builder(USER.into(), POST_ID.into()),
+            v1_version_uri(None),
+            v1_version_uri(Some("hello-world")),
+        ] {
+            assert_eq!(target(&address), expected, "{address}");
+        }
+        // The same node the `pubky.app` address of that post names.
+        assert_eq!(
+            target(&post_uri_builder(USER.into(), POST_ID.into())),
+            expected
+        );
+    }
+
+    /// The v1 profile path, the bare key, and the SDK short forms of both.
+    #[test]
+    fn social_v1_user_addresses_resolve_to_the_user_in_both_forms() {
+        for address in [
+            v1_user_uri_builder(USER.into()),
+            format!("pubky://{USER}"),
+            format!("pubky{USER}"),
+            format!("pubky{USER}/pub/social/v1/profile.json"),
+        ] {
+            assert_eq!(target(&address), ReferenceTarget::User(user()), "{address}");
+        }
+    }
+
+    #[test]
+    fn social_v1_file_resolves_to_the_file_with_its_raw_name() {
+        let filename = format!("{HASH_ID}.jpg");
+        assert_eq!(
+            target(&v1_file_uri_builder(USER.into(), filename.clone())),
+            ReferenceTarget::File(key(&filename))
+        );
+    }
+
+    #[test]
+    fn social_v1_tag_resolves_to_a_tag_without_an_app() {
+        assert_eq!(
+            target(&v1_tag_uri_builder(USER.into(), HASH_ID.into())),
+            ReferenceTarget::Tag {
+                key: key(HASH_ID),
+                app: None,
+            }
+        );
+    }
+
+    #[test]
+    fn unreferenced_social_v1_resources_resolve_to_other() {
+        for address in [
+            v1_follow_uri_builder(USER.into(), OTHER_USER.into()),
+            v1_feed_uri_builder(USER.into(), HASH_ID.into()),
+            format!("pubky://{USER}/pub/social/v1/feeds/{HASH_ID}.json"),
+            // A file name the parser cannot classify, and an unknown path.
+            format!("pubky://{USER}/pub/social/v1/files/{HASH_ID}.exe"),
+            format!("pubky://{USER}/pub/social/v1/unknown_kind/{POST_ID}"),
+            // A post version path with a malformed leaf.
+            format!("pubky://{USER}/pub/social/v1/posts/{POST_ID}/not-an-id.json"),
+        ] {
+            assert_eq!(target(&address), ReferenceTarget::Other, "{address}");
+        }
+    }
+
+    /// A private path names nothing, whatever resource it spells: a draft is never linked.
+    #[test]
+    fn private_social_v1_paths_resolve_to_other() {
+        for address in [
+            v1_mute_uri_builder(USER.into(), OTHER_USER.into()),
+            v1_bookmark_uri_builder(USER.into(), "~".to_string() + HASH_ID),
+            format!("pubky://{USER}/priv/social/v1/posts/{POST_ID}"),
+            format!("pubky://{USER}/priv/social/v1/profile.json"),
+            format!("pubky://{USER}/priv/social/v1/files/{HASH_ID}.jpg"),
+            format!("pubky://{USER}/priv/social/v1/tags/{HASH_ID}.json"),
+            format!("pubky://{USER}/priv"),
+        ] {
+            assert_eq!(target(&address), ReferenceTarget::Other, "{address}");
+        }
+    }
+
+    /// A takedown is recorded under the `pubky.app` address of the resolved key, whatever
+    /// address named it: the one the target's own events carry until the flip.
+    #[test]
+    fn takedown_addresses_are_the_pubky_app_ones_whatever_address_resolved_the_target() {
+        let post = post_uri_builder(USER.into(), POST_ID.into());
+        for address in [
+            post.clone(),
+            format!("pubky://{USER}/pub/pubky.app/posts/{POST_ID}/extra"),
+            v1_post_uri_builder(USER.into(), POST_ID.into()),
+            v1_version_uri(None),
+            v1_version_uri(Some("hello-world")),
+        ] {
+            assert_eq!(
+                takedown_address(&target(&address)).as_deref(),
+                Ok(post.as_str()),
+                "{address}"
+            );
+        }
+        let tag = tag_uri_builder(USER.into(), HASH_ID.into());
+        for address in [tag.clone(), v1_tag_uri_builder(USER.into(), HASH_ID.into())] {
+            assert_eq!(
+                takedown_address(&target(&address)).as_deref(),
+                Ok(tag.as_str()),
+                "{address}"
+            );
+        }
+        let universal = format!("pubky://{USER}/pub/mapky/tags/{HASH_ID}");
+        assert_eq!(
+            takedown_address(&target(&format!("{universal}?x=1"))).as_deref(),
+            Ok(universal.as_str())
+        );
+        let file = file_uri_builder(USER.into(), POST_ID.into());
+        assert_eq!(
+            takedown_address(&target(&file)).as_deref(),
+            Ok(file.as_str())
+        );
+        // A `social/v1` file keeps its raw `{hash}.{ext}` name: no event carries this address.
+        let filename = format!("{HASH_ID}.jpg");
+        assert_eq!(
+            takedown_address(&target(&v1_file_uri_builder(USER.into(), filename.clone())))
+                .as_deref(),
+            Ok(format!("pubky://{USER}/pub/pubky.app/files/{filename}").as_str())
+        );
+        for address in [
+            format!("pubky://{USER}"),
+            user_uri_builder(USER.into()),
+            format!("pubky://{USER}/pub/social/v1/unknown_kind/{POST_ID}"),
+            format!("pubky://{USER}/pub/social/v2/posts/{POST_ID}"),
+            "https://example.com/article".to_string(),
+        ] {
+            assert!(takedown_address(&target(&address)).is_err(), "{address}");
+        }
+    }
+
     #[test]
     fn addresses_outside_pubky_app_resolve_to_other() {
         for address in [
-            // A `social/v1` address: other until the v1 arm exists.
-            format!("pubky://{USER}/pub/social/v1/posts/{POST_ID}"),
-            // A bare public key.
-            format!("pubky://{USER}"),
+            // A `social/vN` epoch the crate does not speak.
+            format!("pubky://{USER}/pub/social/v2/posts/{POST_ID}"),
+            // A bare key with a trailing slash, or a short-form address no parser reads.
+            format!("pubky://{USER}/"),
+            format!("pubky{USER}/pub/social/v1/posts/{POST_ID}"),
             // Malformed `pubky.app` addresses.
             format!("pubky://{USER}/pub/pubky.app/follows/not-a-key"),
             "pubky://not-a-key/pub/pubky.app/profile.json".to_string(),
@@ -259,6 +497,7 @@ mod tests {
             format!("PUBKY://{USER}/pub/pubky.app/posts/{POST_ID}/extra"),
             "HTTPS://Example.COM:443/path#frag".to_string(),
             format!("pubky://{USER}/pub/mapky/tags/{HASH_ID}"),
+            v1_version_uri(Some("hello-world")),
         ] {
             assert_eq!(resolve_reference(&address).uri, address);
         }
