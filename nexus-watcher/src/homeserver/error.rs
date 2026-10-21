@@ -147,7 +147,22 @@ mod tests {
     use crate::errors::EventProcessorError;
     use crate::events::retry::RetryScheduler;
     use nexus_common::db::PubkyClientError;
-    use pubky::errors::{AuthError, PkarrError};
+    use pubky::errors::{AuthError, BuildError, PkarrError};
+
+    /// A `reqwest::Error` that `is_timeout()`: a request to a local socket nothing answers
+    /// on, with a timeout shorter than its patience.
+    async fn timeout_error() -> reqwest::Error {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/", listener.local_addr().unwrap());
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_millis(50))
+            .no_proxy()
+            .build()
+            .unwrap();
+        let error = client.get(url).send().await.unwrap_err();
+        assert!(error.is_timeout(), "{error:?}");
+        error
+    }
 
     /// SDK errors are classified so that statuses land by their code, validation failures
     /// are retried like failed requests, and errors building the request never.
@@ -229,8 +244,9 @@ mod tests {
     }
 
     /// On a fetch, the client's classification and `PubkyClientError::from` decide the same
-    /// for every SDK error: whether the run stops, whether the event is retried, and whether
-    /// it was a 404. The compiler cannot check the two lists against each other, so this does.
+    /// for every SDK error, a build error and a timed-out request included: whether the run
+    /// stops, whether the event is retried, and whether it was a 404. The compiler cannot
+    /// check the two lists against each other, so this does.
     #[tokio::test]
     async fn sdk_classification_agrees_with_the_shared_converter() {
         let server = |status: u16| {
@@ -264,6 +280,14 @@ mod tests {
             pubky::Error::from(RequestError::Transport(transport_error().await)),
             pubky::Error::from(RequestError::Transport(transport_error().await)),
         ));
+        pairs.push((
+            pubky::Error::from(RequestError::Transport(timeout_error().await)),
+            pubky::Error::from(RequestError::Transport(timeout_error().await)),
+        ));
+        pairs.push((
+            pubky::Error::from(BuildError::Http(transport_error().await)),
+            pubky::Error::from(BuildError::Http(transport_error().await)),
+        ));
 
         let hs = PubkyId::try_from("1hb71xx9km3f4pw5izsy1gn19ff1uuuqonw4mcygzobwkryujoiy").unwrap();
         for (via_client, via_converter) in pairs {
@@ -288,6 +312,16 @@ mod tests {
                 "{label}"
             );
         }
+    }
+
+    /// A request that timed out is its own kind, so a log tells it from a reset connection.
+    #[tokio::test]
+    async fn timed_out_requests_are_classified_as_timeouts() {
+        let kind = HsErrorKind::from_sdk(pubky::Error::from(RequestError::Transport(
+            timeout_error().await,
+        )));
+
+        assert!(matches!(kind, HsErrorKind::Timeout), "{kind:?}");
     }
 
     /// A transport failure stops the run on the event stream, and is retried on a fetch.
