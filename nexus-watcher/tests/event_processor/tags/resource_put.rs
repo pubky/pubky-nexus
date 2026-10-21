@@ -57,7 +57,7 @@ async fn test_homeserver_put_resource_tag_external_uri() -> Result<()> {
         .expect("Resource tag should exist in graph");
 
     assert_eq!(tag_result.label, label);
-    assert_eq!(tag_result.app.as_deref(), Some("mapky"));
+    assert_eq!(tag_result.app, None, "a resource tag edge carries no app");
     assert_eq!(tag_result.tagger, tagger_user_id);
     assert_eq!(tag_result.scheme, "https");
     // URI should be normalized (lowercase host, trailing slash rules, etc.)
@@ -180,7 +180,7 @@ async fn test_homeserver_put_resource_tag_internal_unknown() -> Result<()> {
         .expect("Internal-unknown tag should be indexed as Resource");
 
     assert_eq!(tag_result.label, label);
-    assert_eq!(tag_result.app.as_deref(), Some("eventky.app"));
+    assert_eq!(tag_result.app, None, "a resource tag edge carries no app");
     assert_eq!(tag_result.scheme, "pubky");
 
     // Cleanup

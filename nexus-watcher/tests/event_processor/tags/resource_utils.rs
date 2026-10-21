@@ -56,24 +56,16 @@ pub async fn count_resource_tags(resource_id: &str) -> Result<i64> {
     Ok(result.unwrap_or(0))
 }
 
-/// The newest `indexed_at` among the TAGGED edges on a Resource, optionally
-/// restricted to one app namespace. This is the resource's timeline position.
-pub async fn latest_tag_indexed_at(resource_id: &str, app: Option<&str>) -> Result<Option<i64>> {
-    let app_filter = match app {
-        Some(_) => "AND t.app = $app",
-        None => "",
-    };
-    let cypher = format!(
+/// The newest `indexed_at` among the TAGGED edges on a Resource: its timeline position.
+pub async fn latest_tag_indexed_at(resource_id: &str) -> Result<Option<i64>> {
+    let query = Query::new(
+        "latest_tag_indexed_at",
         "
-        MATCH (:User)-[t:TAGGED]->(:Resource {{id: $resource_id}})
-        WHERE true {app_filter}
+        MATCH (:User)-[t:TAGGED]->(:Resource {id: $resource_id})
         RETURN MAX(t.indexed_at) AS latest
-        "
-    );
-    let mut query = Query::new("latest_tag_indexed_at", &cypher).param("resource_id", resource_id);
-    if let Some(a) = app {
-        query = query.param("app", a);
-    }
+        ",
+    )
+    .param("resource_id", resource_id);
     let result: Option<i64> = fetch_key_from_graph(query, "latest").await.unwrap();
     Ok(result)
 }

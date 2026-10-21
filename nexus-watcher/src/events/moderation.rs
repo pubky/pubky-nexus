@@ -95,7 +95,7 @@ impl Moderation {
     ) -> Result<(), EventProcessorError> {
         match target {
             ReferenceTarget::Post(key) => handlers::post::del(key, ingestor).await,
-            ReferenceTarget::Tag { key, app } => handlers::tag::del(key, app).await,
+            ReferenceTarget::Tag { key, .. } => handlers::tag::del(key).await,
             ReferenceTarget::File(key) => handlers::file::del(key, files_path).await,
             ReferenceTarget::User(_) | ReferenceTarget::Other => Ok(()),
         }

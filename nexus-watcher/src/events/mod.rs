@@ -209,7 +209,7 @@ pub async fn handle_del_event(
             user_id,
             followee_id,
         } => handlers::follow::del(user_id, followee_id).await,
-        TranslatedDel::Tag { key, app } => handlers::tag::del(key, app).await,
+        TranslatedDel::Tag { key, .. } => handlers::tag::del(key).await,
         TranslatedDel::Bookmark(key) => handlers::bookmark::del(key).await,
         TranslatedDel::File(key) => handlers::file::del(key, files_path).await,
     }

@@ -111,7 +111,6 @@ pub async fn sync_put_resource(
                 &res_id,
                 &normalized,
                 &scheme,
-                &app,
                 &tag_id,
                 &tag.uri,
                 &tag.label,
@@ -129,7 +128,6 @@ async fn put_sync_resource(
     resource_id: &str,
     uri: &str,
     scheme: &str,
-    app: &str,
     tag_id: &str,
     tag_uri: &str,
     tag_label: &str,
@@ -140,7 +138,6 @@ async fn put_sync_resource(
         resource_id,
         uri,
         scheme,
-        app,
         tag_id,
         tag_uri,
         tag_label,
@@ -374,57 +371,29 @@ async fn put_sync_user(
     }
 }
 
-/// Deletes the tag `key` names; `app` is set when the tag lives in another app's folder.
+/// Deletes the tag `key` names, whichever folder wrote it: a tag is one edge per tagger,
+/// target and label, found by its id alone.
 #[tracing::instrument(
     name = "tag.del",
     skip_all,
-    fields(user_id = %key.owner_id, tag_id = %key.resource_id, app = ?app)
+    fields(user_id = %key.owner_id, tag_id = %key.resource_id)
 )]
-pub async fn del(key: ResourceKey, app: Option<String>) -> Result<(), EventProcessorError> {
-    // Prefix these vars with arg_ to indicate they come from the argument key and app.
+pub async fn del(key: ResourceKey) -> Result<(), EventProcessorError> {
+    // Prefix these vars with arg_ to indicate they come from the argument key.
     // Similarly named vars will be used in Step 2 below, reading fields from the query result
     let ResourceKey {
         owner_id: arg_user_id,
         resource_id: arg_tag_id,
     } = key;
-    let arg_app = app;
 
     debug!("Deleting tag");
 
     // 1. Read target from graph WITHOUT deleting the edge
-    let row = match fetch_row_from_graph(queries::get::get_tag_target(
-        &arg_user_id,
-        &arg_tag_id,
-        arg_app.as_deref(),
-    ))
-    .await?
-    {
-        Some(row) => row,
-        None if arg_app.is_some() => {
-            // App-specific tags that target known Pubky resources are indexed
-            // through the standard Post/User tag flow, where TAGGED has no app.
-            let Some(row) = fetch_row_from_graph(queries::get::get_tag_target(
-                &arg_user_id,
-                &arg_tag_id,
-                None,
-            ))
-            .await?
-            else {
-                // Edge already gone (fully completed on a prior attempt) - idempotent no-op
-                return Ok(());
-            };
-
-            let resource_id: Option<String> = row.get("resource_id").unwrap_or(None);
-            if resource_id.is_some() {
-                return Ok(());
-            }
-
-            row
-        }
-        None => {
-            // Edge already gone (fully completed on a prior attempt) - idempotent no-op
-            return Ok(());
-        }
+    let Some(row) =
+        fetch_row_from_graph(queries::get::get_tag_target(&arg_user_id, &arg_tag_id)).await?
+    else {
+        // Edge already gone (fully completed on a prior attempt) - idempotent no-op
+        return Ok(());
     };
 
     let tagged_user_id: Option<String> = row.get("user_id").unwrap_or(None);
@@ -435,7 +404,6 @@ pub async fn del(key: ResourceKey, app: Option<String>) -> Result<(), EventProce
     let label: String = row
         .get("label")
         .map_err(|e| EventProcessorError::generic(format!("Missing label in delete_tag: {e}")))?;
-    let app: Option<String> = row.get("app").unwrap_or(None);
 
     // 2. Redis cleanup (guarded by tagger_in_index where non-idempotent)
     // Post-count cache to invalidate AFTER the graph edge is deleted (invalidating
@@ -478,12 +446,7 @@ pub async fn del(key: ResourceKey, app: Option<String>) -> Result<(), EventProce
     }
 
     // 3. Graph deletion LAST — ensures data survives for retry if Redis ops fail
-    fetch_row_from_graph(queries::del::delete_tag(
-        &arg_user_id,
-        &arg_tag_id,
-        app.as_deref(),
-    ))
-    .await?;
+    fetch_row_from_graph(queries::del::delete_tag(&arg_user_id, &arg_tag_id)).await?;
 
     // Now that the TAGGED edge is gone, invalidate the cached post counts so the
     // next read recomputes the lower count instead of recaching the pre-delete one.

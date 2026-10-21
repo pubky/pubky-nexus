@@ -2,8 +2,8 @@
 //! resource tag put/del means for it: a resource's timeline position is its
 //! latest matching tag.
 //!
-//! Every test isolates itself in a fresh app namespace, so the shared graph
-//! can hold anything else without affecting the assertions.
+//! Every test isolates itself with labels of its own, filtering the stream on them,
+//! so the shared graph can hold anything else without affecting the assertions.
 
 use super::resource_utils::{compute_resource_id, latest_tag_indexed_at};
 use crate::event_processor::utils::watcher::WatcherTest;
@@ -23,16 +23,13 @@ use std::time::Duration;
 /// Watcher timestamps have millisecond resolution; keep consecutive tags apart
 const TAG_GAP: Duration = Duration::from_millis(10);
 
-async fn app_timeline(app: &str, pagination: Pagination) -> Result<ResourceKeyStream> {
-    let source = ResourceStreamSource::App {
-        app: app.to_string(),
-    };
+async fn labels_timeline(labels: &[String], pagination: Pagination) -> Result<ResourceKeyStream> {
     Ok(ResourceStream::get_resource_keys(
-        &source,
+        &ResourceStreamSource::All,
         pagination,
         SortOrder::Descending,
         &ResourceSorting::Timeline,
-        None,
+        Some(labels),
     )
     .await?)
 }
@@ -82,8 +79,12 @@ async fn create_user(test: &mut WatcherTest, name: &str) -> Result<(Keypair, Str
 #[tokio_shared_rt::test(shared)]
 async fn test_resource_stream_timeline_follows_latest_tag() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
-    let app = &format!("streamtl{}", Utc::now().timestamp_millis());
-    let label = "stream-timeline";
+    let run = Utc::now().timestamp_millis();
+    let app = &format!("streamtl{run}");
+    // Labels hold at most 20 characters
+    let label = &format!("stl{}", run % 100_000_000);
+    let newer_label = &format!("stn{}", run % 100_000_000);
+    let labels = &[label.clone(), newer_label.clone()];
 
     let (kp, _) = create_user(&mut test, "Timeline").await?;
 
@@ -95,36 +96,33 @@ async fn test_resource_stream_timeline_follows_latest_tag() -> Result<()> {
     // X is tagged first, then Y: Y leads the timeline
     let path_x1 = put_tag(&mut test, &kp, app, &uri_x, label).await?;
     let path_y = put_tag(&mut test, &kp, app, &uri_y, label).await?;
-    let x_first_tag = latest_tag_indexed_at(&x, Some(app)).await?.unwrap();
-    let y_tag = latest_tag_indexed_at(&y, Some(app)).await?.unwrap();
+    let x_first_tag = latest_tag_indexed_at(&x).await?.unwrap();
+    let y_tag = latest_tag_indexed_at(&y).await?.unwrap();
     assert!(x_first_tag < y_tag);
 
-    let keys = app_timeline(app, page(10)).await?;
+    let keys = labels_timeline(labels, page(10)).await?;
     assert_eq!(keys.resource_ids, vec![y.clone(), x.clone()]);
     assert_eq!(keys.last_score, Some(x_first_tag as u64));
 
     // A newer tag on X (another label) moves X ahead of Y
-    let path_x2 = put_tag(&mut test, &kp, app, &uri_x, "stream-newer").await?;
-    let x_second_tag = latest_tag_indexed_at(&x, Some(app)).await?.unwrap();
+    let path_x2 = put_tag(&mut test, &kp, app, &uri_x, newer_label).await?;
+    let x_second_tag = latest_tag_indexed_at(&x).await?.unwrap();
     assert!(x_second_tag > y_tag);
 
-    let keys = app_timeline(app, page(10)).await?;
+    let keys = labels_timeline(labels, page(10)).await?;
     assert_eq!(keys.resource_ids, vec![x.clone(), y.clone()]);
     assert_eq!(keys.last_score, Some(y_tag as u64));
 
     // Removing the newer tag recomputes X from its remaining tag: Y leads again
     test.del(&kp, &path_x2).await?;
-    assert_eq!(
-        latest_tag_indexed_at(&x, Some(app)).await?,
-        Some(x_first_tag)
-    );
-    let keys = app_timeline(app, page(10)).await?;
+    assert_eq!(latest_tag_indexed_at(&x).await?, Some(x_first_tag));
+    let keys = labels_timeline(labels, page(10)).await?;
     assert_eq!(keys.resource_ids, vec![y.clone(), x.clone()]);
     assert_eq!(keys.last_score, Some(x_first_tag as u64));
 
     // Removing the last tag removes the resource from the stream
     test.del(&kp, &path_x1).await?;
-    let keys = app_timeline(app, page(10)).await?;
+    let keys = labels_timeline(labels, page(10)).await?;
     assert_eq!(keys.resource_ids, vec![y.clone()]);
 
     // Cleanup
