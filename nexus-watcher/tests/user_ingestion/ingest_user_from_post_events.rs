@@ -1,6 +1,7 @@
 use super::utils::{assert_user_ingested, create_external_test_homeserver};
 use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
+use nexus_common::db::{exec_single_row, fetch_row_from_graph, graph::Query, queries};
 use nexus_common::models::user::UserDetails;
 use pubky::Keypair;
 use pubky_app_specs::{
@@ -162,6 +163,77 @@ async fn test_post_and_mention_users_on_unknown_homeserver() -> Result<()> {
 
     test.cleanup_user(&post_author_kp).await?;
     test.cleanup_post(&post_author_kp, &post_path).await?;
+
+    Ok(())
+}
+
+/// A node that does not deserialize reads as no user, but it is one: a
+/// mention must not make the ingestor write a stub over it. The mentioned
+/// user's homeserver resolves, so a wrongly ingested user would be written.
+#[tokio_shared_rt::test(shared)]
+async fn test_mention_keeps_a_malformed_user_node() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+
+    let mentioned_hs_pk = create_external_test_homeserver(&mut test).await?;
+    let mentioned_kp = Keypair::random();
+    let mentioned_id = mentioned_kp.public_key().to_z32();
+    test.register_user_in_hs(&mentioned_kp, &mentioned_hs_pk)
+        .await?;
+    // A tombstone without `indexed_at`, which every user node needs to deserialize
+    exec_single_row(
+        Query::new(
+            "malformed_user_fixture",
+            "MERGE (u:User {id: $id}) SET u.name = '', u.deleted = true",
+        )
+        .param("id", mentioned_id.clone()),
+    )
+    .await?;
+    assert!(UserDetails::get_by_id(&mentioned_id).await?.is_none());
+
+    let author = PubkyAppUser {
+        bio: Some("test_mention_keeps_a_malformed_user_node".to_string()),
+        image: None,
+        links: None,
+        name: "Watcher:MalformedUserIngest:Author".to_string(),
+        status: None,
+    };
+    let author_kp = Keypair::random();
+    test.create_user(&author_kp, &author).await?;
+    let post = PubkyAppPost {
+        content: format!("Hey pubky{mentioned_id}!"),
+        kind: PubkyAppPostKind::Short,
+        parent: None,
+        embed: None,
+        attachments: None,
+        lock: None,
+    };
+    let (_post_id, post_path) = test.create_post(&author_kp, &post).await?;
+
+    let node = fetch_row_from_graph(
+        Query::new(
+            "malformed_user_after_mention",
+            "MATCH (u:User {id: $id})
+             RETURN u.name AS name, u.deleted AS deleted, u.indexed_at AS indexed_at",
+        )
+        .param("id", mentioned_id.clone()),
+    )
+    .await?;
+
+    test.cleanup_post(&author_kp, &post_path).await?;
+    test.cleanup_user(&author_kp).await?;
+    exec_single_row(queries::del::delete_user(&mentioned_id)).await?;
+
+    let node = node.expect("the mentioned user's node is kept");
+    assert_eq!(
+        node.get::<String>("name")?,
+        "",
+        "the name is not overwritten"
+    );
+    assert!(node.get::<bool>("deleted")?, "the tombstone stays deleted");
+    assert!(
+        node.get::<Option<i64>>("indexed_at")?.is_none(),
+        "the node is not rewritten"
+    );
 
     Ok(())
 }
