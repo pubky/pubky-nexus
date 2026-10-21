@@ -159,7 +159,7 @@ pub trait TEventProcessor: Send + Sync + 'static {
     }
 
     /// Parses a single event line and dispatches to [`Self::handle_event`].
-    /// Universal tag events reach `tag::sync_put_resource` through `DefaultEventHandler`.
+    /// A tag event from any folder reaches `put_tag`, which picks its flow by the resolved target.
     async fn process_event_line(&self, line: &str) -> Result<(), EventProcessorError> {
         match Event::parse_event(line) {
             // Invalid event lines come from untrusted homeservers; treat as bad peer data, not Nexus errors.

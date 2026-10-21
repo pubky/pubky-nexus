@@ -130,9 +130,9 @@ async fn test_homeserver_resource_tag_put_del_reput() -> Result<()> {
 
 /// The same user tags the same external URI with the same label from the `pubky.app` folder and
 /// from another app's. The tag id ignores the folder, so both files name one tag: one `TAGGED`
-/// edge, which the second file leaves as it is, with the same tagger count. A DEL of either file
-/// removes that edge and the orphaned Resource, and a DEL of the other one then finds nothing to
-/// remove.
+/// edge, whose `uri` the second file's put moves to its own address while its id and the tagger
+/// count stay. A DEL of either file removes that edge and the orphaned Resource, and a DEL of the
+/// other one then finds nothing to remove.
 #[tokio_shared_rt::test(shared)]
 async fn test_resource_tag_from_two_folders_is_one_edge() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
