@@ -1,8 +1,6 @@
 use async_trait::async_trait;
 use nexus_common::{file::ConfigLoader, types::DynError};
-use nexus_common::{
-    ApiConfig, FeaturesConfig, JobConfig, StackConfig, TrustRankConfig, WatcherConfig,
-};
+use nexus_common::{ApiConfig, JobConfig, StackConfig, TrustRankConfig, WatcherConfig};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::{fmt::Debug, path::PathBuf};
@@ -27,9 +25,6 @@ pub struct DaemonConfig {
     /// Trust-rank computation parameters (`[trust_rank]`).
     #[serde(default)]
     pub trust_rank: TrustRankConfig,
-    /// App feature switches (`[features]`).
-    #[serde(default)]
-    pub features: FeaturesConfig,
 }
 
 impl DaemonConfig {
@@ -44,7 +39,7 @@ impl DaemonConfig {
         Self::load_or_create(&config_file_path, DEFAULT_CONFIG_TOML)
             .await
             .inspect_err(|e| {
-                error!("Failed to load config file: {e:#}");
+                error!("Failed to load config file: {e}");
             })
     }
 
@@ -60,7 +55,6 @@ impl DaemonConfig {
     pub fn watcher_config(&self) -> WatcherConfig {
         WatcherConfig {
             stack: self.stack.clone(),
-            features: self.features.clone(),
             ..self.watcher.clone()
         }
     }
@@ -157,7 +151,6 @@ mod tests {
             .get("trust-recompute")
             .expect("[jobs.trust-recompute] should be present");
         assert!(trust_job.cron.is_none());
-        assert!(!c.features.hide_unranked_authors);
         assert!(c.trust_rank.seed.is_empty());
         assert_eq!(c.trust_rank.alpha, DEFAULT_TRUST_ALPHA);
         assert_eq!(c.trust_rank.max_iterations, DEFAULT_TRUST_MAX_ITERATIONS);
@@ -283,31 +276,6 @@ mod tests {
             c.jobs["hot-tags-cache-all-time"].cron.as_deref(),
             Some("0 47 3,15 * * *")
         );
-    }
-
-    /// The trust filter switch parses and reaches the watcher's config, a
-    /// config that predates it keeps the filter off, and a misspelled switch
-    /// fails to parse instead of being ignored.
-    #[test]
-    fn test_hide_unranked_authors_parsing() {
-        let on = DEFAULT_CONFIG_TOML.replace(
-            "hide_unranked_authors = false",
-            "hide_unranked_authors = true",
-        );
-        let c = DaemonConfig::try_from_str(&on).expect("switch on should parse");
-        assert!(c.features.hide_unranked_authors);
-        assert!(c.watcher_config().features.hide_unranked_authors);
-
-        let absent = DEFAULT_CONFIG_TOML
-            .replace("[features]\n", "")
-            .replace("hide_unranked_authors = false\n", "");
-        assert!(!absent.contains("[features]"));
-        let c =
-            DaemonConfig::try_from_str(&absent).expect("a config without [features] should parse");
-        assert!(!c.features.hide_unranked_authors);
-
-        let typo = DEFAULT_CONFIG_TOML.replace("hide_unranked_authors", "hide_unranked_author");
-        assert!(DaemonConfig::try_from_str(&typo).is_err());
     }
 
     /// `trust_rank.report_enabled` and `trust_rank.report_dir` parse, with `~` expanded.

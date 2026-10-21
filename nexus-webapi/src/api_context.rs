@@ -1,7 +1,6 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use anyhow::Context;
 use nexus_common::models::user::UserIngestor;
 use nexus_common::{types::DynError, ApiConfig};
 use pubky::pkarr::{self, Keypair};
@@ -63,8 +62,8 @@ impl ApiContextBuilder {
             Keypair::random().write_secret_key_file(&secret_file_path)?;
         }
 
-        let keypair = Keypair::from_secret_key_file(&secret_file_path)
-            .context("Failed to load keypair from secret key file")?;
+        let keypair =
+            Keypair::from_secret_key_file(&secret_file_path).map_err(|e| e.to_string())?;
 
         Ok(keypair)
     }

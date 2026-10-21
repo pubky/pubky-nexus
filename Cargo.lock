@@ -3042,7 +3042,6 @@ dependencies = [
 name = "nexus-common"
 version = "0.4.1"
 dependencies = [
- "anyhow",
  "async-trait",
  "blake3",
  "chrono",
@@ -3172,7 +3171,6 @@ dependencies = [
  "pubky-app-specs",
  "redis",
  "serde",
- "serde_json",
  "tempfile",
  "thiserror 2.0.20",
  "tokio",

@@ -14,7 +14,6 @@ build = "build.rs"
 mock = []
 
 [dependencies]
-anyhow = { workspace = true }
 async-trait = { workspace = true }
 axum = "0.8.9"
 axum-server = { version = "0.8.0", features = ["tls-rustls-no-provider"] }
