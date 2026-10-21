@@ -1,6 +1,7 @@
 use super::Epoch;
 use crate::db::{
     exec_single_row, fetch_all_rows_from_graph, fetch_key_from_graph, queries, GraphResult,
+    RedisOps,
 };
 use crate::models::error::ModelResult;
 use chrono::Utc;
@@ -28,6 +29,12 @@ pub struct UserDetails {
     #[serde(deserialize_with = "deserialize_user_epoch", default)]
     pub epoch: Epoch,
 }
+
+// Only for the shipped migrations that clean up the documents this type was
+// once cached in (`UserDeletedFlag1780617600`, `UserEpochBackfill1791812997`):
+// migrations are never edited, so the trait they call stays. Nothing else
+// reads or writes those documents.
+impl RedisOps for UserDetails {}
 
 fn deserialize_user_links<'de, D>(
     deserializer: D,
