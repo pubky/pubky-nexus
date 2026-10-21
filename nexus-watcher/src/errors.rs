@@ -86,8 +86,9 @@ pub enum EventProcessorError {
     #[error("HsBlacklisted: {hs_id}")]
     HsBlacklisted { hs_id: String },
 
-    /// A homeserver request that could not be built ([`HsErrorKind::Malformed`]). Permanent:
-    /// the event is not retried, and the run goes on.
+    /// A homeserver request that could not be built ([`HsErrorKind::Malformed`]). Not
+    /// retried: a fetch's event is dropped, and an event-stream request's user is skipped
+    /// for the run, cursor kept. The run goes on.
     #[error("{0}")]
     Homeserver(HsError),
 
@@ -345,10 +346,10 @@ mod tests {
         assert!(hs_error(HsOp::UserEvents, HsErrorKind::NotFound("".into())).is_not_found());
     }
 
-    /// A malformed event-stream request fails its user for good: it is not retried, and
-    /// the run goes on.
+    /// A malformed event-stream request fails one user for the run: nothing is enqueued, the
+    /// run goes on, and the user's kept cursor has the next run ask again.
     #[test]
-    fn malformed_stream_request_fails_one_user_for_good() {
+    fn malformed_stream_request_skips_one_user_for_the_run() {
         let err = hs_error(HsOp::UserEvents, HsErrorKind::malformed("bad url"));
 
         assert!(matches!(err, EventProcessorError::Homeserver(_)), "{err:?}");

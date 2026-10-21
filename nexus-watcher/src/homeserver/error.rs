@@ -60,8 +60,9 @@ pub enum HsErrorKind {
     #[error("{got} bytes, over the {max} byte limit")]
     TooLarge { got: u64, max: u64 },
     /// The SDK refused the request, could not decode the answer, or could not resolve a
-    /// key: neither a status nor a transport failure. Retried per event, and unlike a
-    /// transport failure never charged to a homeserver's run.
+    /// key: neither a status nor a transport failure. A failed fetch is retried; a failed
+    /// event-stream request skips its user for the run, cursor kept, and unlike a transport
+    /// failure never stops the run.
     #[error("sdk: {0}")]
     Sdk(String),
     /// A request that could not be built, e.g. from a malformed homeserver URL.
@@ -102,9 +103,9 @@ impl HsErrorKind {
     ///
     /// A status lands by its code and a transport failure stays one. A validation, JSON
     /// decode or PKARR failure, which that conversion makes a retried `RequestFailed`
-    /// (`PkarrFailed` for PKARR), is an [`HsErrorKind::Sdk`] failure: retried the same
-    /// way, and never charged to a homeserver's run. An error building the request
-    /// (`Parse`, `Build`, `Authentication`) is malformed, and permanent.
+    /// (`PkarrFailed` for PKARR), is an [`HsErrorKind::Sdk`] failure, treated the same
+    /// way. An error building the request (`Parse`, `Build`, `Authentication`) is
+    /// malformed, and permanent.
     pub fn from_sdk(error: pubky::Error) -> Self {
         match error {
             pubky::Error::Request(RequestError::Server { status, message }) => {
@@ -148,8 +149,8 @@ mod tests {
     use nexus_common::db::PubkyClientError;
     use pubky::errors::{AuthError, PkarrError};
 
-    /// SDK errors are classified so that statuses are retried by their code, validation
-    /// failures per event, and errors building the request never.
+    /// SDK errors are classified so that statuses land by their code, validation failures
+    /// are retried like failed requests, and errors building the request never.
     #[test]
     fn sdk_errors_are_classified() {
         let server = |status: u16| {
