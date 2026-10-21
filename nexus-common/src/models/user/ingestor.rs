@@ -13,7 +13,7 @@ use crate::models::error::{ModelError, ModelResult};
 use crate::models::homeserver::HsBlacklist;
 use crate::models::scope::{scope_from_config, watcher_scope, EverythingScope, Scope};
 use crate::models::traits::Collection;
-use crate::models::user::catch_up::start_catch_up;
+use crate::models::user::catch_up::{caught_up, start_catch_up};
 use crate::models::user::stub::{create_stub, drop_stub_entry, unstub};
 use crate::models::user::{set_user_homeserver, UserDetails, UserHsCursor};
 use crate::{ScopeConfig, StackConfig, WatcherConfig};
@@ -327,6 +327,8 @@ impl UserIngestor {
         ))
         .await?;
         UserHsCursor::remove_all(user_id).await?;
+        // A catch-up still running reads users regardless of their binding.
+        caught_up(user_id).await?;
         tracing::info!("{user_id} left the scope");
         Ok(())
     }

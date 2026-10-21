@@ -565,3 +565,59 @@ async fn test_a_failed_catch_up_doesnt_hold_up_the_feed() -> Result<()> {
     );
     Ok(())
 }
+
+/// A user catching up whose profile a replayed DEL marked deleted is still read to the end
+/// of its stream: the users catching up come from the catch-up list, not from the active
+/// users a deleted profile drops out of.
+#[tokio_shared_rt::test(shared)]
+async fn test_a_catch_up_goes_on_after_a_replayed_profile_delete() -> Result<()> {
+    let mut test = WatcherTest::setup(None)
+        .await?
+        .remove_event_processing()
+        .await;
+    let (user_id, _) = user_with_post(&mut test, "Deleted").await?;
+    create_stub(&UserDetails::from_pubky(user_id.clone())).await?;
+    // Its homeserver was just checked, so its events are skipped as an outsider's.
+    let rechecked = format!("Scope:Rechecked:{user_id}");
+    let mut redis_conn = get_redis_conn().await?;
+    let () = redis_conn.set_ex(&rechecked, 1, 900).await?;
+    let hs = test.homeserver_id.clone();
+    let scope: Arc<dyn Scope> = Arc::new(HomeserverListScope::new(std::slice::from_ref(&hs)));
+    let ingestor = Arc::new(
+        UserIngestor::new(Vec::<PubkyId>::new(), Arc::new(PubkyConnectorResolver))
+            .with_scope(scope),
+    );
+    let feed = feed_runner(&hs, ingestor.clone());
+    let run = || async {
+        let processor = feed
+            .build(hs.as_ref())
+            .await
+            .map_err(|e| anyhow::anyhow!(e))?;
+        processor.run().await.map_err(|e| anyhow::anyhow!("{e:?}"))
+    };
+
+    // The feed moves past the user's records while it is out, so only catch-up reads them.
+    run().await?;
+    assert!(ingestor.promote(&user_id).await?);
+    // What a replayed profile DEL leaves behind.
+    let mark_deleted = Query::new(
+        "test_mark_user_deleted",
+        "MATCH (u:User {id: $id}) SET u.deleted = true",
+    )
+    .param("id", user_id.to_string());
+    exec_single_row(mark_deleted).await?;
+
+    for _ in 0..3 {
+        run().await?;
+    }
+    let still_catching_up = catching_up(&[user_id.as_ref()]).await?;
+    caught_up(&user_id).await?;
+    let () = redis_conn.del(&rechecked).await?;
+
+    assert_eq!(
+        still_catching_up,
+        vec![false],
+        "its stream was read to the end"
+    );
+    Ok(())
+}

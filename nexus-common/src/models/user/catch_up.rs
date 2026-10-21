@@ -32,6 +32,18 @@ pub async fn homeservers_catching_up() -> RedisResult<HashSet<String>> {
     Ok(hs_ids.into_iter().collect())
 }
 
+/// The users catching up on `hs_id`.
+pub async fn users_catching_up_on(hs_id: &str) -> RedisResult<Vec<String>> {
+    let mut conn = get_redis_conn().await?;
+    let users: Vec<(String, String)> =
+        conn.hgetall(CATCH_UP_KEY).await.map_err(RedisError::from)?;
+    Ok(users
+        .into_iter()
+        .filter(|(_, user_hs)| user_hs == hs_id)
+        .map(|(user_id, _)| user_id)
+        .collect())
+}
+
 /// Which of `user_ids` are catching up, in order.
 pub async fn catching_up(user_ids: &[&str]) -> RedisResult<Vec<bool>> {
     if user_ids.is_empty() {
@@ -45,7 +57,7 @@ pub async fn catching_up(user_ids: &[&str]) -> RedisResult<Vec<bool>> {
     Ok(hs_ids.iter().map(Option::is_some).collect())
 }
 
-/// The user's stream has been read to its end.
+/// The user's stream has been read to its end, or the user left the scope.
 pub async fn caught_up(user_id: &str) -> RedisResult<()> {
     let mut conn = get_redis_conn().await?;
     let () = conn

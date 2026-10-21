@@ -198,7 +198,19 @@ impl KeyBasedEventProcessor {
     #[tracing::instrument(name = "dx.users.resolve", skip_all)]
     async fn resolve_users_with_cursors(&self) -> Result<ResolvedUsers, EventProcessorError> {
         let hs_id: &str = self.homeserver_id.as_ref();
-        let user_ids = user_hs_resolver::get_user_ids_by_homeserver(hs_id).await?;
+        let mut user_ids = match self.catch_up_only {
+            true => Vec::new(),
+            false => user_hs_resolver::get_user_ids_by_homeserver(hs_id).await?,
+        };
+        // Users catching up stay in until their stream is read to its end, also while a
+        // replayed DEL marks their profile deleted and the query above leaves them out.
+        let polled: HashSet<String> = user_ids.iter().cloned().collect();
+        let catching_up_here = catch_up::users_catching_up_on(hs_id).await?;
+        user_ids.extend(
+            catching_up_here
+                .into_iter()
+                .filter(|id| !polled.contains(id)),
+        );
         debug!(user_count = user_ids.len(), "Resolved users");
 
         let mut valid_users: Vec<(PublicKey, &str)> = Vec::with_capacity(user_ids.len());
