@@ -4,10 +4,10 @@ use std::sync::Arc;
 use crate::errors::EventProcessorError;
 use crate::events::handlers;
 use crate::events::inputs::{Reference, ReferenceTarget};
+use crate::events::route::canonical_address;
 use nexus_common::models::takedown::record_takedown;
 use nexus_common::models::user::UserIngestor;
 use nexus_common::WatcherConfig;
-use pubky_social_specs::legacy_v0::ExtendedParsedUri;
 use pubky_social_specs::PubkyId;
 use tracing::{debug, info};
 
@@ -66,10 +66,11 @@ impl Moderation {
             | ReferenceTarget::File(_)) => {
                 // Recorded under the address an event for it carries: the tag's URI may spell
                 // it differently (a trailing slash, a query) and still name the same record.
-                // The target was resolved by the v0 reader, so the address parses here too.
-                let uri = ExtendedParsedUri::try_from(uri.as_str())
-                    .and_then(|parsed| parsed.try_to_uri_str())
-                    .map_err(EventProcessorError::generic)?;
+                // The target was resolved by its epoch's reader, so the address renders here too.
+                // TODO(specs-migration): a `social/v1` post's events carry version paths, which
+                // the versionless reference never equals; the takedown check for v1 events is
+                // settled with the flip (N3).
+                let uri = canonical_address(&uri).map_err(EventProcessorError::generic)?;
 
                 // Posts, tags and files are remembered before they are deleted, so they stay
                 // down even if their own event is read only later, or again, or is being

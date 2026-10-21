@@ -514,6 +514,33 @@ mod tests {
         );
     }
 
+    /// A reply to, or a repost of, a post written as its `social/v1` address links to the node
+    /// the `pubky.app` address of that post names.
+    #[test]
+    fn put_post_parent_and_embed_at_a_social_v1_address_resolve_to_the_same_post() {
+        let address = format!("pubky://{OTHER_USER}/pub/social/v1/posts/{POST_ID}");
+        let post = PubkyAppPost::new(
+            "hello".to_string(),
+            PubkyAppPostKind::Short,
+            Some(address.clone()),
+            Some(PubkyAppPostEmbed {
+                kind: PubkyAppPostKind::Short,
+                uri: address.clone(),
+            }),
+            None,
+        );
+        let (_, input) = translate_post(&bytes(&post));
+        let expected = Reference {
+            uri: address,
+            ..post_reference()
+        };
+        assert_eq!(input.parent, Some(expected.clone()));
+        assert_eq!(input.embed, Some(expected));
+        let v0 = translate_post(&bytes(&post_fixture())).1.parents();
+        let v1 = input.parents();
+        assert_eq!(v1.replied.map(|p| p.key), v0.replied.map(|p| p.key));
+    }
+
     #[test]
     fn put_post_parent_and_embed_outside_posts_resolve_to_their_targets() {
         let file = format!("pubky://{OTHER_USER}/pub/pubky.app/files/{POST_ID}");
@@ -816,15 +843,16 @@ mod tests {
         );
     }
 
+    /// A `social/v1` address of a post names the same node its `pubky.app` address does.
     #[test]
-    fn put_bookmark_of_a_social_v1_post_resolves_its_target_to_other() {
+    fn put_bookmark_of_a_social_v1_post_resolves_its_target_to_the_post() {
         let address = format!("pubky://{OTHER_USER}/pub/social/v1/posts/{POST_ID}");
         let bookmark = PubkyAppBookmark::new(address.clone());
         assert_eq!(
             translate_bookmark(&bookmark).bookmarked,
             Reference {
                 uri: address,
-                target: ReferenceTarget::Other,
+                ..post_reference()
             }
         );
     }

@@ -42,8 +42,8 @@ pub enum ReferenceTarget {
         app: Option<String>,
     },
     /// Anything else: a URL, another app's object, a resource Nexus never references (a follow,
-    /// a bookmark, a blob, …), an address that doesn't parse, or one of an epoch the resolver
-    /// doesn't read yet.
+    /// a bookmark, a blob, a private path, …), an address that doesn't parse, or one of an
+    /// epoch the pinned spec crate doesn't speak.
     Other,
 }
 
