@@ -73,7 +73,8 @@ impl RetryScheduler {
             | EventProcessorError::FetchSizeExceeded(_, _)
             | EventProcessorError::DataAnomaly(..)
             | EventProcessorError::UserIdMismatch { .. }
-            | EventProcessorError::EventCursorOutOfOrder { .. } => false,
+            | EventProcessorError::EventCursorOutOfOrder { .. }
+            | EventProcessorError::UserHsLookupFailed(_) => false,
 
             _ => true,
         }

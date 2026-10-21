@@ -4,6 +4,7 @@ use crate::events::retry::RetryScheduler;
 use crate::events::{
     format_error_body, read_stream_capped, Event, EventHandler, MAX_ERROR_BODY, MAX_EVENTS_BODY,
 };
+use crate::service::user_hs_resolver::PkdnsHomeserverResolver;
 use nexus_common::db::kv::RedisError;
 use nexus_common::db::{
     fetch_row_from_graph, queries, GraphResult, PubkyClientError, PubkyConnector,
@@ -12,7 +13,7 @@ use nexus_common::models::error::ModelError;
 use nexus_common::models::homeserver::Homeserver;
 use opentelemetry::metrics::Counter;
 use opentelemetry::{global, KeyValue};
-use pubky::Method;
+use pubky::{Method, PublicKey};
 use pubky_app_specs::PubkyId;
 use reqwest::StatusCode;
 use std::collections::HashMap;
@@ -60,15 +61,16 @@ static STALLED_CURSOR_PRIMARY_HS: LazyLock<Counter<u64>> = LazyLock::new(|| {
         .build()
 });
 
-/// A user's `HOSTED_BY` mapping, classified relative to a processor's HS.
+/// A user's homeserver mapping, classified relative to a processor's HS: the
+/// `HOSTED_BY` edge, or the homeserver the user publishes while they have no edge.
 ///
 /// The `stale` flag is only carried where it is meaningful: a stale mapping means
 /// the user's published HS has diverged from the stored one (see
 /// [`set_user_homeserver_stale`](nexus_common::db::queries::put::set_user_homeserver_stale)).
 #[derive(Clone)]
 pub enum HsMapping {
-    /// The user has no `HOSTED_BY` edge yet.
-    Unbound,
+    /// The user has no `HOSTED_BY` edge and publishes no homeserver.
+    Unresolved,
     /// The user is mapped to this processor's HS.
     Current { stale: bool },
     /// The user is mapped to a different HS.
@@ -139,13 +141,17 @@ pub struct HsEventProcessor {
     /// Scheduler used to enqueue failed events onto the retry queue
     pub retry_scheduler: Arc<RetryScheduler>,
 
-    /// Per-run cache of users' `HOSTED_BY` mappings. For a given user's events in
-    /// the events list, only the 1st one results in a graph lookup, the rest read from this cache.
+    /// Per-run cache of users' homeserver mappings. For a given user's events in the events
+    /// list, only the 1st one results in a graph lookup (and, for a user without a `HOSTED_BY`
+    /// edge, a homeserver lookup), the rest read from this cache.
     ///
     /// Entries are deliberately never refreshed within a run: once a user's mapping
     /// is resolved, the same decision is reused for the rest of the batch even if the
     /// resolver realigns the underlying edge mid-run. The cache is dropped when the run ends.
     pub hs_mapping_cache: Mutex<HashMap<String, HsMapping>>,
+
+    /// Looks up the homeserver a user without a `HOSTED_BY` edge publishes.
+    pub hs_resolver: Arc<dyn PkdnsHomeserverResolver>,
 }
 
 #[async_trait::async_trait]
@@ -169,7 +175,10 @@ impl TEventProcessor for HsEventProcessor {
     /// Skips events from users that are not actively bound to this homeserver.
     ///
     /// Before an event is processed we inspect the user's `HOSTED_BY` edge:
-    /// - No edge, or a non-stale edge to this processor's homeserver: process.
+    /// - A non-stale edge to this processor's homeserver: process.
+    /// - No edge: the homeserver the user publishes is looked up instead, and
+    ///   the event is processed only if it is this one. A user publishing no
+    ///   homeserver is skipped; a failed lookup stops the batch.
     /// - A stale edge to this homeserver (the user's published homeserver has
     ///   diverged): log a warning and skip until the resolver realigns it.
     /// - An edge to a different homeserver: log a warning and skip.
@@ -177,8 +186,16 @@ impl TEventProcessor for HsEventProcessor {
         let user_id = event.parsed_uri.user_id();
 
         match self.user_hs_mapping(user_id).await? {
-            // No mapping yet (graceful fallback) or actively bound here: process.
-            HsMapping::Unbound | HsMapping::Current { stale: false } => Ok(true),
+            HsMapping::Current { stale: false } => Ok(true),
+
+            HsMapping::Unresolved => {
+                warn!(
+                    event.uri = %event.uri,
+                    user_id = %user_id,
+                    "User publishes no homeserver; skipping event"
+                );
+                Ok(false)
+            }
 
             // Bound here but the mapping is stale: skip until the resolver realigns it.
             HsMapping::Current { stale: true } => {
@@ -222,25 +239,16 @@ impl TEventProcessor for HsEventProcessor {
 }
 
 impl HsEventProcessor {
-    /// Resolves and caches a user's `HOSTED_BY` mapping relative to this processor's HS
-    async fn user_hs_mapping(&self, user_id: &PubkyId) -> GraphResult<HsMapping> {
+    /// Resolves and caches a user's mapping relative to this processor's HS. A user without a
+    /// `HOSTED_BY` edge is classified by the homeserver they publish.
+    async fn user_hs_mapping(&self, user_id: &PubkyId) -> Result<HsMapping, EventProcessorError> {
         if let Some(hs_mapping) = self.hs_mapping_cache.lock().await.get(user_id.as_ref()) {
             return Ok(hs_mapping.clone());
         }
 
-        let query = queries::get::get_user_homeserver(user_id.as_ref());
-        let mapping = match fetch_row_from_graph(query).await? {
-            None => HsMapping::Unbound,
-            Some(row) => {
-                let hs_id: String = row.get("homeserver_id")?;
-                let stale: bool = row.get("stale")?;
-
-                if hs_id.as_str() == self.homeserver.id.as_ref() {
-                    HsMapping::Current { stale }
-                } else {
-                    HsMapping::Other { hs_id }
-                }
-            }
+        let mapping = match self.stored_hs_mapping(user_id).await? {
+            Some(stored) => stored,
+            None => self.published_hs_mapping(user_id).await?,
         };
 
         self.hs_mapping_cache
@@ -249,6 +257,45 @@ impl HsEventProcessor {
             .insert(user_id.as_ref().to_string(), mapping.clone());
 
         Ok(mapping)
+    }
+
+    /// Classifies the homeserver `user_id` publishes relative to this processor's HS.
+    async fn published_hs_mapping(
+        &self,
+        user_id: &PubkyId,
+    ) -> Result<HsMapping, EventProcessorError> {
+        let Ok(user_pk) = user_id.as_ref().parse::<PublicKey>() else {
+            return Ok(HsMapping::Unresolved);
+        };
+        match self.hs_resolver.resolve_homeserver(&user_pk).await {
+            Ok(Some(hs_id)) if hs_id.as_ref() == self.homeserver.id.as_ref() => {
+                Ok(HsMapping::Current { stale: false })
+            }
+            Ok(Some(hs_id)) => Ok(HsMapping::Other {
+                hs_id: hs_id.to_string(),
+            }),
+            Ok(None) => Ok(HsMapping::Unresolved),
+            Err(e) => Err(EventProcessorError::UserHsLookupFailed(format!(
+                "{user_id}: {e}"
+            ))),
+        }
+    }
+
+    /// Reads a user's `HOSTED_BY` mapping relative to this processor's HS from the graph, or
+    /// `None` if the user has no edge yet.
+    async fn stored_hs_mapping(&self, user_id: &PubkyId) -> GraphResult<Option<HsMapping>> {
+        let query = queries::get::get_user_homeserver(user_id.as_ref());
+        let Some(row) = fetch_row_from_graph(query).await? else {
+            return Ok(None);
+        };
+        let hs_id: String = row.get("homeserver_id")?;
+        let stale: bool = row.get("stale")?;
+
+        if hs_id.as_str() == self.homeserver.id.as_ref() {
+            Ok(Some(HsMapping::Current { stale }))
+        } else {
+            Ok(Some(HsMapping::Other { hs_id }))
+        }
     }
 
     /// Polls new events from the homeserver.
