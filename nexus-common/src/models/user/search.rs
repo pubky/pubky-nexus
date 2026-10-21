@@ -586,9 +586,15 @@ mod tests {
         .await;
 
         delete_user(&tombstone).await?;
-        TagUser(vec![])
+        TagUser(vec![tagger.clone()])
             .del_from_index(&tombstone, None, label)
             .await?;
+        TagUser::remove_from_index_sorted_set(
+            None,
+            &[&USER_TAGS_KEY_PARTS[..], &[tombstone.as_str()]].concat(),
+            &[label],
+        )
+        .await?;
         UsersByTagSearch::remove_from_index_sorted_set(None, &label_key, &[&tombstone]).await?;
         outcome
     }
