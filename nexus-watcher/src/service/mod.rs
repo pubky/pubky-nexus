@@ -1,6 +1,7 @@
 mod constants;
 pub mod indexer;
 pub mod runner;
+pub mod scope_maintenance;
 pub mod stats;
 mod task_runner;
 pub mod user_hs_resolver;
@@ -18,6 +19,7 @@ pub use user_hs_resolver::UserHsResolverRunner;
 
 use crate::events::retry::RetryProcessor;
 use crate::service::constants::DEFAULT_WATCHER_CONFIG_TOML;
+use crate::service::scope_maintenance::ScopeMaintainer;
 use crate::service::task_runner::task_results_into_result;
 use crate::NexusWatcherBuilder;
 use nexus_common::file::ConfigLoader;
@@ -77,7 +79,8 @@ impl NexusWatcher {
     pub async fn start(shutdown_rx: Receiver<bool>, config: WatcherConfig) -> Result<(), DynError> {
         debug!(?config, "Running NexusWatcher with ");
 
-        prepare_scope(&config).await?;
+        let scope_maintainer = Arc::new(ScopeMaintainer::from_config(&config));
+        prepare_scope(&config, &scope_maintainer).await?;
 
         let primary_hs_monitoring_interval_ms = config.primary_hs_monitoring_interval_ms;
         let external_hs_monitoring_interval_ms = config.external_hs_monitoring_interval_ms;
@@ -101,7 +104,7 @@ impl NexusWatcher {
         // Create retry processor
         let retry_processor = Arc::new(RetryProcessor::new(&config, shutdown_rx.clone()));
 
-        let tasks = vec![
+        let mut tasks = vec![
             PeriodicTask::new(
                 "primary-homeserver",
                 primary_hs_monitoring_interval_ms,
@@ -128,6 +131,17 @@ impl NexusWatcher {
             }),
         ];
 
+        if scope_maintainer.is_periodic() {
+            tasks.push(PeriodicTask::new(
+                "scope-maintenance",
+                config.scope_maintenance.interval_ms,
+                move || {
+                    let maintainer = scope_maintainer.clone();
+                    async move { maintainer.tick().await.map(|_| ()).map_err(DynError::from) }
+                },
+            ));
+        }
+
         let task_results = run_periodic_tasks(tasks, shutdown_rx).await;
 
         info!("Nexus Watcher shut down gracefully");
@@ -137,8 +151,11 @@ impl NexusWatcher {
 
 /// Gets the scope ready before any event is read: the homeservers read whole are
 /// persisted so their cursors exist, Redis's copy of the stubs is rebuilt from the
-/// graph, and the moderator is made sure to be read.
-async fn prepare_scope(config: &WatcherConfig) -> Result<(), DynError> {
+/// graph, the moderator is made sure to be read, and who is in scope is settled.
+async fn prepare_scope(
+    config: &WatcherConfig,
+    maintainer: &ScopeMaintainer,
+) -> Result<(), DynError> {
     let scope = scope_from_config(&config.stack.scope);
     info!(scope = ?config.stack.scope, "Indexing scope");
 
@@ -156,6 +173,10 @@ async fn prepare_scope(config: &WatcherConfig) -> Result<(), DynError> {
             .ensure_in_scope(&config.moderation_id)
             .await?;
     }
+
+    // Users of a narrower or wider previous scope moved out or back in, before anything
+    // is polled.
+    maintainer.at_start().await?;
 
     if let ScopeConfig::Homeservers { homeservers } = &config.stack.scope {
         let blacklist = &config.stack.net.external_hs_pk_blacklist;

@@ -63,6 +63,11 @@ moderated_tags = [
     "il_adult_nu_sex_act",
 ]
 
+# How often a homeservers scope re-checks who is in it: users whose homeserver
+# couldn't be found when they were let in are tried again.
+# [watcher.scope_maintenance]
+# interval_ms = 300000
+
 # Event retry configuration
 [watcher.retry]
 # Transient error retry limit before dead-letter
@@ -106,7 +111,7 @@ external_hs_pk_blacklist = []
 # Which users this Nexus indexes. Omit the section to index everyone.
 # Users outside the scope are kept as stubs: other records can point at them,
 # but their own content is never read. The watcher and the API must use the same scope.
-# Set it before the first run: changing it later doesn't move users already known.
+# Changing it moves users already known in or out at the next start.
 # [stack.scope]
 # kind = "everything"                     # default: every user Nexus can discover
 # kind = "homeservers"                    # users hosted on these homeservers

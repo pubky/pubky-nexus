@@ -94,9 +94,12 @@ impl DefaultEventHandler {
 impl EventHandler for DefaultEventHandler {
     async fn handle(&self, event: &Event) -> Result<(), EventProcessorError> {
         // Safety net for events of authors outside the scope (queued for retry, or read
-        // from a homeserver's whole feed): skipped, neither indexed nor retried.
+        // from a homeserver's whole feed): skipped, neither indexed nor retried. A stub or
+        // former member that moved onto a listed homeserver is let in first.
         let author_id = event.parsed_uri.user_id();
-        if !self.ingestor.scope().is_in_scope(author_id, None).await? {
+        if !self.ingestor.scope().is_in_scope(author_id, None).await?
+            && !self.ingestor.admit_if_moved_in(author_id).await?
+        {
             OUT_OF_SCOPE.add(1, &[]);
             debug!(event.uri = %event.uri, "Author is outside the scope; skipping event");
             return Ok(());

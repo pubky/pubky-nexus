@@ -846,6 +846,21 @@ pub fn get_users_needing_hs_resolution(ttl_ms: u64) -> Query {
     .param("ttl_ms", ttl_ms as i64)
 }
 
+/// Retrieves the in-scope users bound to a homeserver that isn't listed: users of a
+/// homeserver the list no longer holds. `limit_to` narrows the search to those users
+/// (tests share one graph); `None` searches every user.
+pub fn get_user_ids_bound_outside(listed: &[String], limit_to: Option<&[String]>) -> Query {
+    Query::new(
+        "get_user_ids_bound_outside",
+        "MATCH (u:User)-[:HOSTED_BY]->(hs:Homeserver)
+         WHERE u.scope_state IS NULL AND NOT hs.id IN $listed
+           AND ($limit_to IS NULL OR u.id IN $limit_to)
+         RETURN collect(u.id) AS user_ids",
+    )
+    .param("listed", listed.to_vec())
+    .param("limit_to", limit_to.map(<[String]>::to_vec))
+}
+
 /// Retrieves a user's `scope_state` and the homeserver it is bound to, either `null`.
 /// No row for an unknown user.
 pub fn get_user_scope_and_homeserver(user_id: &str) -> Query {

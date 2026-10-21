@@ -1,4 +1,4 @@
-use super::TEventProcessorRunner;
+use super::{TEventProcessorRunner, UserNotFoundBackoff, UserResumePoints};
 use crate::events::retry::RetryScheduler;
 use crate::events::{DefaultEventHandler, EventHandler};
 use crate::service::indexer::{HsEventProcessor, TEventProcessor};
@@ -30,6 +30,13 @@ pub struct HsEventProcessorRunner {
 
     /// Scheduler shared with every processor this runner builds
     pub retry_scheduler: Arc<RetryScheduler>,
+
+    /// Where catch-up runs start (see `HsEventProcessor::catch_up_users`), kept across
+    /// polls so a run that stops at its budget leaves the next one the users it didn't reach
+    pub catch_up_resume_points: Arc<UserResumePoints>,
+
+    /// Catching-up users whose stream returned 404, kept across polls like the resume points
+    pub catch_up_not_found: Arc<UserNotFoundBackoff>,
 }
 
 impl HsEventProcessorRunner {
@@ -43,6 +50,8 @@ impl HsEventProcessorRunner {
             scope: scope_from_config(&config.stack.scope),
             hs_blacklist: HsBlacklist::from_config(&config.stack),
             retry_scheduler: Arc::new(RetryScheduler::from_config(config)),
+            catch_up_resume_points: Arc::new(UserResumePoints::default()),
+            catch_up_not_found: Arc::new(UserNotFoundBackoff::default()),
         }
     }
 
@@ -70,6 +79,8 @@ impl TEventProcessorRunner for HsEventProcessorRunner {
             event_handler: self.event_handler.clone(),
             shutdown_rx: self.shutdown_rx.clone(),
             retry_scheduler: self.retry_scheduler.clone(),
+            catch_up_resume_points: self.catch_up_resume_points.clone(),
+            catch_up_not_found: self.catch_up_not_found.clone(),
             hs_mapping_cache: Default::default(),
         }))
     }

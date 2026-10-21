@@ -50,6 +50,29 @@ impl TryFrom<RawScopeConfig> for ScopeConfig {
     }
 }
 
+/// How often the watcher re-checks who is in scope, set in the watcher's
+/// `[scope_maintenance]` (`[watcher.scope_maintenance]` in a combined config).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ScopeMaintenanceConfig {
+    #[serde(default = "default_scope_maintenance_interval_ms")]
+    pub interval_ms: u64,
+}
+
+const DEFAULT_SCOPE_MAINTENANCE_INTERVAL_MS: u64 = 300_000;
+
+impl Default for ScopeMaintenanceConfig {
+    fn default() -> Self {
+        Self {
+            interval_ms: DEFAULT_SCOPE_MAINTENANCE_INTERVAL_MS,
+        }
+    }
+}
+
+fn default_scope_maintenance_interval_ms() -> u64 {
+    DEFAULT_SCOPE_MAINTENANCE_INTERVAL_MS
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

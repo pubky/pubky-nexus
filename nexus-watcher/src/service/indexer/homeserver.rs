@@ -1,15 +1,18 @@
-use super::{RunOutcome, TEventProcessor};
+use super::{KeyBasedEventProcessor, PubkyKeyBasedEventSource, RunOutcome, TEventProcessor};
 use crate::errors::EventProcessorError;
 use crate::events::retry::RetryScheduler;
 use crate::events::{
     format_error_body, read_stream_capped, Event, EventHandler, MAX_ERROR_BODY, MAX_EVENTS_BODY,
 };
+use crate::service::runner::{UserNotFoundBackoff, UserResumePoints};
+use crate::service::KEY_BASED_RUN_BUDGET;
 use nexus_common::db::kv::RedisError;
 use nexus_common::db::{
     fetch_row_from_graph, queries, GraphResult, PubkyClientError, PubkyConnector,
 };
 use nexus_common::models::error::ModelError;
-use nexus_common::models::homeserver::Homeserver;
+use nexus_common::models::homeserver::{Homeserver, HsBlacklist};
+use nexus_common::models::user::catch_up::homeservers_catching_up;
 use opentelemetry::metrics::Counter;
 use opentelemetry::{global, KeyValue};
 use pubky::Method;
@@ -139,6 +142,12 @@ pub struct HsEventProcessor {
     /// Scheduler used to enqueue failed events onto the retry queue
     pub retry_scheduler: Arc<RetryScheduler>,
 
+    /// Where catch-up runs start, shared across polls by the runner
+    pub catch_up_resume_points: Arc<UserResumePoints>,
+
+    /// Catching-up users whose stream returned 404, shared across polls by the runner
+    pub catch_up_not_found: Arc<UserNotFoundBackoff>,
+
     /// Per-run cache of users' `HOSTED_BY` mappings. For a given user's events in
     /// the events list, only the 1st one results in a graph lookup, the rest read from this cache.
     ///
@@ -204,6 +213,13 @@ impl TEventProcessor for HsEventProcessor {
     }
 
     async fn run_internal(self: Arc<Self>) -> Result<RunOutcome, EventProcessorError> {
+        // Before the feed, in the same task, so a record is never handled twice at once. A
+        // failure here (a user's stream down while the feed works) doesn't hold the feed
+        // up: the next poll tries the catch-up again.
+        if let Err(e) = self.catch_up_users().await {
+            warn!(error = ?e, "Catching users up failed; reading the feed anyway");
+        }
+
         let maybe_event_lines = self
             .poll_events()
             .await
@@ -222,6 +238,30 @@ impl TEventProcessor for HsEventProcessor {
 }
 
 impl HsEventProcessor {
+    /// Reads the own streams of this homeserver's users catching up (let into the scope,
+    /// see `catch_up`): the feed moved past the records they wrote while out.
+    async fn catch_up_users(&self) -> Result<(), EventProcessorError> {
+        let hs_id: &str = self.homeserver.id.as_ref();
+        if !homeservers_catching_up().await?.contains(hs_id) {
+            return Ok(());
+        }
+        let users = Arc::new(KeyBasedEventProcessor {
+            homeserver_id: self.homeserver.id.clone(),
+            catch_up_only: true,
+            limit: self.limit,
+            event_handler: self.event_handler.clone(),
+            event_source: Arc::new(PubkyKeyBasedEventSource),
+            user_not_found_backoff: self.catch_up_not_found.clone(),
+            hs_blacklist: HsBlacklist::default(),
+            retry_scheduler: self.retry_scheduler.clone(),
+            shutdown_rx: self.shutdown_rx.clone(),
+            user_resume_points: self.catch_up_resume_points.clone(),
+            budget: KEY_BASED_RUN_BUDGET,
+        });
+        users.run_internal().await?;
+        Ok(())
+    }
+
     /// Resolves and caches a user's `HOSTED_BY` mapping relative to this processor's HS
     async fn user_hs_mapping(&self, user_id: &PubkyId) -> GraphResult<HsMapping> {
         if let Some(hs_mapping) = self.hs_mapping_cache.lock().await.get(user_id.as_ref()) {

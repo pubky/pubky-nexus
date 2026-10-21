@@ -44,7 +44,7 @@ external_hs_pk_blacklist = []
 # Which users this Nexus indexes. Omit the section to index everyone.
 # Users outside the scope are kept as stubs: other records can point at them,
 # but their own content is never read. The watcher and the API must use the same scope.
-# Set it before the first run: changing it later doesn't move users already known.
+# Changing it moves users already known in or out at the watcher's next start.
 # [stack.scope]
 # kind = "everything"                     # default: every user Nexus can discover
 # kind = "homeservers"                    # users hosted on these homeservers

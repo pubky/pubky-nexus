@@ -1,3 +1,4 @@
+pub mod catch_up;
 mod counts;
 mod cursor;
 mod details;
@@ -17,7 +18,7 @@ pub use cursor::{user_hs_cursor_key, UserHsCursor, UserHsCursorKey};
 pub use details::{set_user_homeserver, set_user_homeserver_stale, users_exist, UserDetails};
 pub use epoch::Epoch;
 pub use influencers::{Influencers, GLOBAL_INFLUENCERS_CACHE_SIZE};
-pub use ingestor::UserIngestor;
+pub use ingestor::{UserIngestor, SCOPE_STATE_LEFT};
 pub use relationship::Relationship;
 pub use search::{UserSearch, UsersByTagSearch, TAG_GLOBAL_USER_TAGGERS, USER_NAME_KEY_PARTS};
 pub use social_graph::{SocialGraphStatus, USER_SOCIAL_GRAPH_KEY_PARTS};

@@ -115,6 +115,8 @@ impl WatcherTest {
             scope: Arc::new(EverythingScope),
             hs_blacklist: Default::default(),
             retry_scheduler,
+            catch_up_resume_points: Default::default(),
+            catch_up_not_found: Default::default(),
         }
     }
 
