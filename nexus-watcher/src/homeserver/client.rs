@@ -557,8 +557,10 @@ mod tests {
     }
 
     /// The read ends once it holds exactly `limit` events: a homeserver that then holds the
-    /// connection open is not waited for. Time is paused, so a read that waits fails at once.
+    /// connection open is neither waited for nor logged. Time is paused, so a read that
+    /// waits fails at once.
     #[tokio::test(start_paused = true)]
+    #[tracing_test::traced_test]
     async fn user_events_read_ends_at_the_limit_without_waiting_for_more() {
         let user = pubky::Keypair::random().public_key();
         let mut stream = futures::stream::iter([stream_event(1), stream_event(2)])
@@ -574,6 +576,23 @@ mod tests {
 
         let cursors: Vec<u64> = events.iter().map(|event| event.cursor).collect();
         assert_eq!(cursors, [1, 2]);
+        assert!(!logs_contain("more than the requested limit"));
+    }
+
+    /// A full page is normal: a homeserver that sends exactly `limit` events and ends the
+    /// stream is not logged.
+    #[tokio::test]
+    #[tracing_test::traced_test]
+    async fn user_events_exactly_at_the_limit_are_not_logged() {
+        let user = pubky::Keypair::random().public_key();
+        let mut stream = futures::stream::iter([stream_event(1), stream_event(2)]);
+
+        let events = read_user_events(&mut stream, 2, &hs_id(), &user)
+            .await
+            .unwrap();
+
+        assert_eq!(events.len(), 2);
+        assert!(!logs_contain("more than the requested limit"));
     }
 
     /// A homeserver that has already sent more than the `limit` asked for is logged, and
