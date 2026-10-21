@@ -1,5 +1,5 @@
 use super::utils::find_follow_relationship;
-use crate::event_processor::users::utils::find_user_counts;
+use crate::event_processor::users::utils::{check_member_most_followed, find_user_counts};
 use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
 use nexus_common::{
@@ -45,6 +45,8 @@ async fn test_homeserver_put_follow() -> Result<()> {
         .await
         .unwrap();
 
+    assert_eq!(check_member_most_followed(&followee_id).await?, Some(0));
+
     // Follow the followee
     test.create_follow(&follower_kp, &followee_id).await?;
 
@@ -87,6 +89,9 @@ async fn test_homeserver_put_follow() -> Result<()> {
 
     let exist_count = find_user_counts(&follower_id).await;
     assert_eq!(exist_count.following, 1);
+
+    // The follow rescores the followee in Sorted:Users:MostFollowed
+    assert_eq!(check_member_most_followed(&followee_id).await?, Some(1));
 
     // Cleanup
     test.cleanup_user(&follower_kp).await?;

@@ -1,6 +1,6 @@
 use super::utils::{check_member_user_tag_taggers, find_user_tag};
 use crate::event_processor::{
-    users::utils::{check_member_user_influencer, find_user_counts},
+    users::utils::{check_member_influencer, find_user_counts},
     utils::watcher::{HomeserverHashIdPath, WatcherTest},
 };
 use anyhow::Result;
@@ -92,15 +92,11 @@ async fn test_homeserver_put_tag_user_another() -> Result<()> {
     let user_counts = find_user_counts(&tagger_user_id).await;
     assert_eq!(user_counts.tagged, 1);
 
-    // Check user pionner score: Sorted:Users:Influencers
-    let influencer_score = check_member_user_influencer(&tagged_user_id)
-        .await
-        .expect("Failed to check user influencer score");
-    assert!(
-        influencer_score.is_some(),
-        "Influencer score should be present"
-    );
-    assert_eq!(influencer_score.unwrap(), 0);
+    // The tag changes the counts the AllTime score is built from, but only the all-time
+    // job ranks a user: Sorted:Users:Influencers
+    for user_id in [&tagged_user_id, &tagger_user_id] {
+        assert_eq!(check_member_influencer(user_id).await?, None);
+    }
 
     // Check the users-by-tag search score: Sorted:Tags:Global:User:Taggers:{label}
     let taggers_score = check_member_user_tag_taggers(&tagged_user_id, label)
