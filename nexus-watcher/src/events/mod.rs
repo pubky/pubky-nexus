@@ -96,7 +96,7 @@ impl EventHandler for DefaultEventHandler {
         // Safety net for events of authors outside the scope (queued for retry, or read
         // from a homeserver's whole feed): skipped, neither indexed nor retried.
         let author_id = event.parsed_uri.user_id();
-        if !self.ingestor.scope().is_in_scope(author_id, None).await? {
+        if !self.ingestor.is_author_in_scope(author_id).await? {
             OUT_OF_SCOPE.add(1, &[]);
             debug!(event.uri = %event.uri, "Author is outside the scope; skipping event");
             return Ok(());

@@ -3,14 +3,14 @@ use std::sync::Arc;
 use pubky_app_specs::{ParsedUri, PubkyId};
 
 use super::PkdnsHomeserverResolver;
-use crate::db::{exec_single_row, fetch_key_from_graph, queries};
+use crate::db::{exec_single_row, fetch_key_from_graph, fetch_row_from_graph, queries};
 use crate::models::error::{ModelError, ModelResult};
 use crate::models::homeserver::HsBlacklist;
 use crate::models::scope::{scope_from_config, watcher_scope, EverythingScope, Scope};
 use crate::models::traits::Collection;
 use crate::models::user::stub::{create_stub, drop_stub_entry, unstub};
 use crate::models::user::{set_user_homeserver, UserDetails, UserHsCursor};
-use crate::{StackConfig, WatcherConfig};
+use crate::{ScopeConfig, StackConfig, WatcherConfig};
 
 /// Ingests previously-unknown users unless their HS is blacklisted.
 #[derive(Clone)]
@@ -168,6 +168,35 @@ impl UserIngestor {
         UserHsCursor::init(user_id, &hs_id).await?;
 
         Ok(())
+    }
+
+    /// Whether the events of `user_id` are indexed.
+    ///
+    /// The graph decides for a user it can place (a stub, or a user bound to a homeserver).
+    /// One it can't (unknown, or not bound) is placed by the homeserver it publishes now, so
+    /// an old event in a listed feed by a user who has moved off that homeserver stays out.
+    /// An unknown user is ingested on the way, as a member or a stub, so its next events are
+    /// decided from the graph alone.
+    pub async fn is_author_in_scope(&self, user_id: &PubkyId) -> ModelResult<bool> {
+        if *self.scope.config() == ScopeConfig::Everything {
+            return Ok(true);
+        }
+        if !self.scope.is_in_scope(user_id, None).await? {
+            return Ok(false);
+        }
+        if UserDetails::get_by_id(user_id).await?.is_none() {
+            self.maybe_ingest_user(user_id).await?;
+            return self.scope.is_in_scope(user_id, None).await;
+        }
+        let bound = fetch_row_from_graph(queries::get::get_user_homeserver(user_id)).await?;
+        match bound {
+            Some(_) => Ok(true),
+            None => match self.ensure_hs_not_blacklisted(user_id).await? {
+                Some(hs_id) => self.scope.is_in_scope(user_id, Some(&hs_id)).await,
+                // Nothing published: the listed feed it came from is all there is to go by.
+                None => Ok(true),
+            },
+        }
     }
 
     /// Makes sure a user that must be in the scope (the moderator) is known and polled.

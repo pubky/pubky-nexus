@@ -214,3 +214,40 @@ async fn test_ensure_in_scope_brings_a_stubbed_moderator_back() -> Result<()> {
     assert_eq!(scope_state, Some(None), "no scope_state left in the graph");
     Ok(())
 }
+
+/// An unknown author whose homeserver isn't listed is placed by the homeserver it
+/// publishes, not by the listed feed its old event came from: the event is skipped and
+/// the author kept as a stub.
+#[tokio_shared_rt::test(shared)]
+async fn test_an_unknown_author_that_moved_away_is_not_indexed() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let hs_pk = create_external_test_homeserver(&mut test).await?;
+    let (_, author_id) = user_on(&test, &hs_pk).await?;
+    let client = PubkyHomeserverClient::from_config(
+        PubkyConnector::get()?,
+        &nexus_common::WatcherConfig::default(),
+    );
+    let handler = DefaultEventHandler::new(
+        default_moderation_tests(),
+        Arc::new(scoped_ingestor(&test)),
+        Arc::new(client),
+        PathBuf::from("/tmp/nexus-watcher-test"),
+    );
+
+    // Never written to any homeserver: fetching it would fail, so `Ok` means skipped.
+    let post_id = PubkyAppPost::default().create_id();
+    let line = format!(
+        "PUT {}",
+        post_uri_builder(author_id.to_string(), post_id.clone())
+    );
+    let ParseResult::Parsed(event) = Event::parse_event(&line)? else {
+        panic!("a post line parses");
+    };
+    handler.handle(&event).await?;
+
+    assert!(PostDetails::get_by_id(&author_id, &post_id)
+        .await?
+        .is_none());
+    assert_user_is_stub(&author_id).await;
+    Ok(())
+}
