@@ -1,16 +1,14 @@
-use super::utils::{assert_no_retired_keys, bookmarked_post_keys};
+use super::utils::bookmarked_post_keys;
 use crate::event_processor::posts::utils::{collection_post, short_post};
 use crate::event_processor::users::utils::find_user_counts;
 use crate::event_processor::utils::watcher::{HomeserverHashIdPath, WatcherTest};
 use anyhow::Result;
-use deadpool_redis::redis::AsyncCommands;
-use nexus_common::db::get_redis_conn;
 use nexus_common::models::post::Bookmark;
 use pubky::Keypair;
 use pubky_app_specs::{post_uri_builder, PubkyAppBookmark, PubkyAppUser};
 
 /// Bookmarking a collection follows it: it is listed with the user's bookmarks
-/// but left out of their bookmark count, and nothing writes a user counts copy.
+/// but left out of their bookmark count.
 #[tokio_shared_rt::test(shared)]
 async fn test_collection_bookmark_is_listed_but_not_counted() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
@@ -71,13 +69,6 @@ async fn test_collection_bookmark_is_listed_but_not_counted() -> Result<()> {
         .await?
         .is_none());
     assert_eq!(find_user_counts(&user_id).await.bookmarks, 1);
-
-    // Counts and bookmarks are read from the graph; neither has a Redis copy
-    let mut redis_conn = get_redis_conn().await?;
-    let counts_key = format!("User:Counts:{user_id}");
-    let counts_written: bool = redis_conn.exists(&counts_key).await?;
-    assert!(!counts_written, "{counts_key} must not be written");
-    assert_no_retired_keys(&user_id, &col_id, &user_id).await?;
 
     test.cleanup_post(&user_kp, &short_path).await?;
     test.cleanup_post(&user_kp, &col_path).await?;

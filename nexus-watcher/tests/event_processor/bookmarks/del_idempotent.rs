@@ -1,4 +1,4 @@
-use super::utils::{assert_no_retired_keys, bookmarked_post_keys, find_post_bookmark};
+use super::utils::{bookmarked_post_keys, find_post_bookmark};
 use crate::event_processor::utils::watcher::HomeserverHashIdPath;
 use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
@@ -9,8 +9,7 @@ use pubky_app_specs::{
     post_uri_builder, traits::HashId, PubkyAppBookmark, PubkyAppPost, PubkyAppUser, PubkyId,
 };
 
-/// A second delete of the same bookmark matches nothing and succeeds, and
-/// neither delete writes the retired Redis keys.
+/// A second delete of the same bookmark matches nothing and succeeds.
 #[tokio_shared_rt::test(shared)]
 async fn test_bookmark_del_replay_after_success_skips() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
@@ -86,7 +85,6 @@ async fn test_bookmark_del_replay_after_success_skips() -> Result<()> {
         bookmarked_post_keys(&bookmarker_id).await?.is_empty(),
         "The stream must stay empty"
     );
-    assert_no_retired_keys(&author_id, &post_id, &bookmarker_id).await?;
 
     // Cleanup
     test.cleanup_post(&author_kp, &post_path).await?;

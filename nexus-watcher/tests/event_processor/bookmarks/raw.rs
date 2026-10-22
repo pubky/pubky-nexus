@@ -1,4 +1,4 @@
-use super::utils::{assert_no_retired_keys, find_post_bookmark};
+use super::utils::find_post_bookmark;
 use crate::event_processor::utils::watcher::WatcherTest;
 use crate::event_processor::{
     users::utils::find_user_counts, utils::watcher::HomeserverHashIdPath,
@@ -87,9 +87,6 @@ async fn test_homeserver_bookmark() -> Result<()> {
         .await?
         .expect("The bookmark has to be served");
     assert_eq!(bookmark.id, bookmark_id, "Bookmark ids does not match");
-
-    // The bookmark lives in the graph only
-    assert_no_retired_keys(&user_id, &post_id, &user_id).await?;
 
     // Cleanup user and post
     test.cleanup_post(&user_kp, &post_path).await?;

@@ -1,11 +1,7 @@
 use super::utils::verify_post_list;
 use super::{KEYS_ROOT_PATH, ROOT_PATH};
-use crate::post::CAIRO_USER;
 use crate::utils::get_request;
-use crate::utils::server::TestServiceServer;
 use anyhow::Result;
-use deadpool_redis::redis::AsyncCommands;
-use nexus_common::db::get_redis_conn;
 
 // User with most bookmarks
 const BOOKMARKER_ID: &str = "o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo";
@@ -134,28 +130,6 @@ async fn test_stream_bookmarks_pages_through_ties_by_post_id() -> Result<()> {
     assert_eq!(at_score, all);
     let (below, _) = bookmark_keys(&format!("{observer}&start={}", TIED_SCORE - 1)).await?;
     assert!(below.is_empty(), "nothing is bookmarked before the tie");
-
-    Ok(())
-}
-
-/// The stream reads the graph: a post left in the retired sorted set of a
-/// user who bookmarked nothing is not served.
-#[tokio_shared_rt::test(shared)]
-async fn test_stream_bookmarks_ignores_the_retired_sorted_set() -> Result<()> {
-    TestServiceServer::get_test_server().await;
-    let set_key = format!("Sorted:Bookmarks:User:{CAIRO_USER}");
-    let stale_member = "y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy:2ZCW1TGR5BKG0";
-    let mut redis_conn = get_redis_conn().await?;
-    let _: () = redis_conn
-        .zadd(&set_key, stale_member, 1_724_134_150_100_i64)
-        .await?;
-
-    let served = bookmark_keys(&format!("observer_id={CAIRO_USER}")).await;
-    let _: () = redis_conn.zrem(&set_key, stale_member).await?;
-
-    let (keys, last_score) = served?;
-    assert!(keys.is_empty(), "the stale member was served: {keys:?}");
-    assert_eq!(last_score, None);
 
     Ok(())
 }

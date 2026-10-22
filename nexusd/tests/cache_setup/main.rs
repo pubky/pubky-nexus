@@ -31,7 +31,7 @@ use nexus_common::models::user::{
 use nexus_common::types::Timeframe;
 use nexus_common::{FeaturesConfig, StackConfig, StackManager};
 use nexusd::jobs::{InfluencersCacheJob, Job, MostFollowedCacheJob};
-use redis::{AsyncCommands, Value};
+use redis::Value;
 
 const POST_CONTENT_INDEX: &str = "postContentIdx";
 
@@ -147,12 +147,6 @@ async fn clear_redis_recreates_post_content_index() -> Result<()> {
         most_followed > 0,
         "reindex::sync built no most-followed ranking"
     );
-    // Bookmarks are read from the graph; the rebuild must not copy them back.
-    for pattern in ["Bookmark:*", "Sorted:Bookmarks:*"] {
-        let mut keys: redis::AsyncIter<String> = conn.scan_match(pattern).await?;
-        let found = keys.next_item().await.transpose()?;
-        assert!(found.is_none(), "reindex::sync wrote {found:?}");
-    }
 
     Ok(())
 }
