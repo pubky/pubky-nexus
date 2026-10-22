@@ -165,8 +165,8 @@ pub async fn handle_put_event(
     Ok(())
 }
 
-/// Indexes a non-moderator tag by what it tags, so the same tag gives the same result from any
-/// folder or epoch (`pubky.app/tags`, `social/v1/tags` or another app's folder):
+/// Indexes a non-moderator tag by what it tags, so the same tag gives the same result from either
+/// folder (`pubky.app/tags` or `social/v1/tags`; another app's folder is skipped before this):
 ///
 /// - a post or a user: a post or user tag ([`handlers::tag::sync_put`]);
 /// - a foreign resource or a file, at either epoch's address: a `Resource` tag

@@ -2,19 +2,22 @@ use super::resource_utils::{
     compute_resource_id, count_resource_tags, find_resource_tag, resource_exists_in_graph,
 };
 use crate::event_processor::posts::utils::resource_key;
-use crate::event_processor::utils::watcher::WatcherTest;
+use crate::event_processor::utils::watcher::{HomeserverHashIdPath, WatcherTest};
 use anyhow::Result;
 use chrono::Utc;
 use nexus_common::db::graph::Query;
 use nexus_common::db::{exec_single_row, OperationOutcome};
 use nexus_common::models::resource::tag::TagResource;
 use nexus_common::models::resource::view::ResourceView;
+use nexus_common::models::user::UserIngestor;
 use nexus_common::types::Pagination;
-use nexus_watcher::events::handlers;
+use nexus_watcher::events::inputs::TagInput;
+use nexus_watcher::events::{handlers, put_tag};
 use pubky::Keypair;
-use pubky::ResourcePath;
 use pubky_social_specs::legacy_v0::traits::HashId;
 use pubky_social_specs::legacy_v0::{PubkyAppTag, PubkyAppUser};
+use pubky_social_specs::traits::HashId as SocialHashId;
+use pubky_social_specs::{tag_uri_builder as social_v1_tag_uri_builder, PubkySocialTag};
 
 /// Test the full DEL cycle: PUT → DEL → verify Resource node is cleaned up
 #[tokio_shared_rt::test(shared)]
@@ -40,9 +43,8 @@ async fn test_homeserver_del_resource_tag() -> Result<()> {
         created_at: Utc::now().timestamp_millis(),
     };
 
-    let tag_id = tag.create_id();
     let resource_id = compute_resource_id(target_uri);
-    let custom_path: ResourcePath = format!("/pub/mapky/tags/{tag_id}").parse()?;
+    let custom_path = tag.hs_path();
 
     // PUT the tag
     test.put(&user_kp, &custom_path, &tag).await?;
@@ -99,9 +101,8 @@ async fn test_homeserver_resource_tag_put_del_reput() -> Result<()> {
         created_at: Utc::now().timestamp_millis(),
     };
 
-    let tag_id = tag.create_id();
     let resource_id = compute_resource_id(target_uri);
-    let custom_path: ResourcePath = format!("/pub/mapky/tags/{tag_id}").parse()?;
+    let custom_path = tag.hs_path();
 
     // Step 1: PUT
     test.put(&user_kp, &custom_path, &tag).await?;
@@ -128,18 +129,18 @@ async fn test_homeserver_resource_tag_put_del_reput() -> Result<()> {
     Ok(())
 }
 
-/// The same user tags the same external URI with the same label from the `pubky.app` folder and
-/// from another app's. The tag id ignores the folder, so both files name one tag: one `TAGGED`
-/// edge, whose `uri` the second file's put moves to its own address while its id and the tagger
-/// count stay. A DEL of either file removes that edge and the orphaned Resource, and a DEL of the
-/// other one then finds nothing to remove.
+/// The same user tags the same external URI with the same label from `pubky.app` and from
+/// `social/v1`. The tag id ignores the folder and the epoch, so both files name one tag: one
+/// `TAGGED` edge, whose `uri` the second file's put moves to its own address while its id and the
+/// tagger count stay. A DEL of either file removes that edge and the orphaned Resource, and a DEL
+/// of the other one then finds nothing to remove. The classifier still skips every `social/v1`
+/// event, so that file's input and DEL go to the tag handlers directly.
 #[tokio_shared_rt::test(shared)]
 async fn test_resource_tag_from_two_folders_is_one_edge() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
 
     let target_uri = "https://example.com/two-folders-one-edge";
     let label = "two-folder-label";
-    let app = &format!("twofolder{}", Utc::now().timestamp_millis());
     let resource_id = compute_resource_id(target_uri);
 
     let user_kp = Keypair::random();
@@ -158,18 +159,27 @@ async fn test_resource_tag_from_two_folders_is_one_edge() -> Result<()> {
         created_at: Utc::now().timestamp_millis(),
     };
     let tag_id = tag.create_id();
-    let path1: ResourcePath = format!("/pub/pubky.app/tags/{tag_id}").parse()?;
-    let path2: ResourcePath = format!("/pub/{app}/tags/{tag_id}").parse()?;
+    let pubky_app_path = tag.hs_path();
+    let v1_tag = PubkySocialTag::new(target_uri.to_string(), label.to_string());
+    assert_eq!(
+        SocialHashId::create_id(&v1_tag),
+        tag_id,
+        "one tag id in both folders"
+    );
+    let v1_tag_uri = social_v1_tag_uri_builder(user_id.clone(), tag_id.clone());
+    let key = resource_key(&user_id, &tag_id)?;
+    let ingestor = UserIngestor::new([], test.event_processor_runner.client.clone());
 
     // Each file is deleted first once
-    for (first, second) in [(&path1, &path2), (&path2, &path1)] {
-        test.put(&user_kp, &path1, &tag).await?;
+    for v1_first in [false, true] {
+        test.put(&user_kp, &pubky_app_path, &tag).await?;
         let (taggers, _) =
             TagResource::get_taggers(&resource_id, label, Pagination::default(), None).await?;
         assert_eq!(taggers, [user_id.as_str()]);
 
         // The second file names the same tag: still one edge and one tagger
-        test.put(&user_kp, &path2, &tag).await?;
+        let input = TagInput::from_v1(v1_tag.clone(), v1_tag_uri.clone());
+        put_tag(input, key.clone(), &ingestor).await?;
         assert_eq!(count_resource_tags(&resource_id).await?, 1, "one edge");
         let tags = ResourceView::get_by_id(&resource_id, None, None, None, None)
             .await?
@@ -180,7 +190,11 @@ async fn test_resource_tag_from_two_folders_is_one_edge() -> Result<()> {
         assert_eq!(tags[0].taggers_count, 1, "the second file adds no tagger");
 
         // A DEL of either file removes the one edge and the orphaned Resource
-        test.del(&user_kp, first).await?;
+        if v1_first {
+            handlers::tag::del(key.clone()).await?;
+        } else {
+            test.del(&user_kp, &pubky_app_path).await?;
+        }
         assert_eq!(count_resource_tags(&resource_id).await?, 0);
         assert!(
             !resource_exists_in_graph(&resource_id).await?,
@@ -188,7 +202,11 @@ async fn test_resource_tag_from_two_folders_is_one_edge() -> Result<()> {
         );
 
         // The other file's DEL finds the tag already gone
-        test.del(&user_kp, second).await?;
+        if v1_first {
+            test.del(&user_kp, &pubky_app_path).await?;
+        } else {
+            handlers::tag::del(key.clone()).await?;
+        }
         assert_eq!(count_resource_tags(&resource_id).await?, 0);
         assert!(!resource_exists_in_graph(&resource_id).await?);
     }

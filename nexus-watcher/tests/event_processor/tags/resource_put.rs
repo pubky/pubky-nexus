@@ -12,8 +12,6 @@ use nexus_common::types::Pagination;
 use nexus_watcher::events::inputs::{ReferenceTarget, TagInput};
 use nexus_watcher::events::{handlers, put_tag};
 use pubky::Keypair;
-use pubky::ResourcePath;
-use pubky_social_specs::legacy_v0::traits::HashId;
 use pubky_social_specs::legacy_v0::{file_uri_builder, PubkyAppTag, PubkyAppUser};
 use pubky_social_specs::traits::HashId as SocialHashId;
 use pubky_social_specs::{
@@ -21,9 +19,8 @@ use pubky_social_specs::{
     PubkySocialTag,
 };
 
-/// Full cycle test: PUT a tag at an app-specific path (/pub/mapky/tags/TAG_ID)
-/// and verify the Resource node is created in Neo4j, with its label in the tag
-/// search index.
+/// Full cycle test: PUT a `pubky.app` tag on an external URL and verify the Resource node is
+/// created in Neo4j, with its label in the tag search index.
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_put_resource_tag_external_uri() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
@@ -51,13 +48,9 @@ async fn test_homeserver_put_resource_tag_external_uri() -> Result<()> {
         created_at: Utc::now().timestamp_millis(),
     };
 
-    // Compute tag_id and resource_id for assertions
-    let tag_id = tag.create_id();
     let resource_id = compute_resource_id(target_uri);
-
-    // Build custom path at /pub/mapky/tags/ instead of /pub/pubky.app/tags/
-    let custom_path: ResourcePath = format!("/pub/mapky/tags/{tag_id}").parse()?;
-    test.put(&user_kp, &custom_path, &tag).await?;
+    let tag_path = tag.hs_path();
+    test.put(&user_kp, &tag_path, &tag).await?;
 
     // =============================================
     // LAYER 1: Verify Neo4j Graph
@@ -95,7 +88,7 @@ async fn test_homeserver_put_resource_tag_external_uri() -> Result<()> {
     );
 
     // Cleanup: resource tag deletes leave the label in tag search
-    test.del(&user_kp, &custom_path).await?;
+    test.del(&user_kp, &tag_path).await?;
     TagSearch::del_from_index(label).await?;
     test.cleanup_user(&user_kp).await?;
 
@@ -125,7 +118,7 @@ async fn test_homeserver_resource_tag_retry_heals_search_index() -> Result<()> {
         label: label.clone(),
         created_at: Utc::now().timestamp_millis(),
     };
-    let tag_path: ResourcePath = format!("/pub/mapky/tags/{}", tag.create_id()).parse()?;
+    let tag_path = tag.hs_path();
     test.put(&user_kp, &tag_path, &tag).await?;
 
     // Simulate the partial failure a retry recovers from: the edge exists, but
@@ -179,11 +172,9 @@ async fn test_homeserver_put_resource_tag_internal_unknown() -> Result<()> {
         created_at: Utc::now().timestamp_millis(),
     };
 
-    let tag_id = tag.create_id();
     let resource_id = compute_resource_id(&target_uri);
-
-    let custom_path: ResourcePath = format!("/pub/eventky.app/tags/{tag_id}").parse()?;
-    test.put(&user_kp, &custom_path, &tag).await?;
+    let tag_path = tag.hs_path();
+    test.put(&user_kp, &tag_path, &tag).await?;
 
     // Verify it was indexed as a Resource (not a Post or User)
     let tag_result = find_resource_tag(&resource_id, label)
@@ -195,14 +186,13 @@ async fn test_homeserver_put_resource_tag_internal_unknown() -> Result<()> {
     assert_eq!(tag_result.scheme, "pubky");
 
     // Cleanup
-    test.del(&user_kp, &custom_path).await?;
+    test.del(&user_kp, &tag_path).await?;
     test.cleanup_user(&user_kp).await?;
 
     Ok(())
 }
 
-/// A `pubky.app` tag picks its flow by what it tags, as another app's does: a marketplace
-/// listing, an `https` URL and a file at either epoch's address each become a `Resource` tag.
+/// A `pubky.app` tag picks its flow by what it tags: a marketplace listing, an `https` URL and a file at either epoch's address each become a `Resource` tag.
 /// The file is never indexed and never waited for: it is keyed by its address alone. A DEL of
 /// the tag file removes the edge and the orphaned `Resource`.
 #[tokio_shared_rt::test(shared)]
