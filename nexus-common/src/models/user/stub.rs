@@ -16,7 +16,8 @@ use tokio::sync::Mutex as AsyncMutex;
 use crate::db::kv::{RedisError, RedisResult};
 use crate::db::{fetch_key_from_graph, fetch_row_from_graph, get_redis_conn, queries, RedisOps};
 use crate::models::error::{ModelError, ModelResult};
-use crate::models::user::{UserCounts, UserDetails};
+use crate::models::post::trust_filter;
+use crate::models::user::{UserCounts, UserDetails, SCOPE_STATE_LEFT};
 
 /// `scope_state` of a user known to this Nexus but outside its scope.
 pub const SCOPE_STATE_STUB: &str = "stub";
@@ -136,11 +137,37 @@ async fn init_counts(user_id: &str) -> RedisResult<()> {
     Ok(())
 }
 
-/// Stops treating the user as a stub in Redis. Returns whether it was a stub there. The
-/// caller clears its `scope_state`, then calls [`drop_stub_entry`]; the rankings, rebuilt
-/// from the graph, take the user in from their next rebuild.
+/// Whether nothing reads the user's stream: a stub, or a former member that left the
+/// scope. A post of theirs that an in-scope record needs has to be fetched for it. Goes
+/// by the graph, the source of truth.
+pub async fn is_unread(user_id: &str) -> ModelResult<bool> {
+    let query = queries::get::get_user_scope_state(user_id);
+    let scope_state: Option<Option<String>> = fetch_key_from_graph(query, "scope_state").await?;
+    Ok(matches!(
+        scope_state.flatten().as_deref(),
+        Some(SCOPE_STATE_STUB | SCOPE_STATE_LEFT)
+    ))
+}
+
+/// Stops treating the user as a stub in Redis, and puts its posts into the global feeds.
+/// Returns whether it was a stub there. The caller clears its `scope_state`, then calls
+/// [`drop_stub_entry`]; the rankings, rebuilt from the graph, take the user in from their
+/// next rebuild.
+///
+/// Its posts indexed while it was a stub (fetched for in-scope records) were kept out of
+/// the global feeds, and reading its stream again doesn't put them back: a post already
+/// indexed takes the edit path. Writing them back is idempotent, so a retry is safe.
 pub async fn unstub(user_id: &str) -> ModelResult<bool> {
-    Ok(write_entry(user_id, false).await?)
+    // Out of the set first: the feed writes skip a stub.
+    if !write_entry(user_id, false).await? {
+        return Ok(false);
+    }
+    if let Err(e) = trust_filter::show_author(user_id).await {
+        // Back in the set, so the next promotion retries the whole of it.
+        write_entry(user_id, true).await?;
+        return Err(e);
+    }
+    Ok(true)
 }
 
 /// Drops the user's `Scope:Stubs` entry, for a user whose graph state was just cleared:

@@ -340,6 +340,21 @@ graph for the per-write check and is rebuilt at start.
 An event whose author is outside the scope is skipped before it is fetched, counted in
 `watcher.events.out_of_scope`.
 
+**A post outside the scope that an in-scope record needs is fetched.** A reply, repost,
+tag or bookmark by a member can point at a post whose author is a stub or a user that
+left, whose stream is never read. That one post is fetched from its author's homeserver
+and indexed, with the out-of-scope posts it replies to or reposts, oldest first; nothing
+else of those authors' is read. At most 20 posts are fetched per attempt: a longer
+chain continues on the record's next retry (`Scope:FetchResume`). A post taken down by
+the moderator, or on a blacklisted homeserver, is never fetched, and a post taken down while
+it is being fetched is removed again once saved. Fetched posts of a stub stay out of the
+global feeds until the stub joins the scope.
+
+A fetched post is a snapshot: its author's stream isn't read, so later edits and deletes
+of it don't reach this Nexus (a moderator takedown still does). It is indexed like any
+post, so it notifies the users it replies to or mentions when it is fetched, however old
+it is.
+
 ---
 
 ## 7. Quick reference

@@ -15,21 +15,34 @@ use pubky_app_specs::{
 };
 use tracing::{debug, Instrument};
 
+use super::scope::index_out_of_scope_post;
 use super::utils::{fail_on_blacklisted_hs, post_kind, post_relationships_is_reply};
+use crate::homeserver::HomeserverClient;
 
+/// Indexes a post. A reply or repost whose target is a post outside the scope has that
+/// target fetched through `client` (see [`super::scope`]).
 pub async fn sync_put(
     post: PubkyAppPost,
     uri: String,
     author_id: PubkyId,
     post_id: String,
     ingestor: &UserIngestor,
+    client: &dyn HomeserverClient,
 ) -> Result<(), EventProcessorError> {
     let post_details = PostDetails::from_homeserver(post.clone(), uri, &author_id, &post_id);
-    sync_put_details(post, post_details, author_id, post_id, ingestor).await
+    sync_put_details(
+        post,
+        post_details,
+        author_id,
+        post_id,
+        ingestor,
+        Some(client),
+    )
+    .await
 }
 
 /// [`sync_put`] with the details built by the caller, so [`del`] can write a
-/// tombstone through the same edit path.
+/// tombstone through the same edit path. Without `client`, no target is fetched.
 #[tracing::instrument(name = "post.put", skip_all, fields(user_id = %author_id, post_id = %post_id))]
 async fn sync_put_details(
     post: PubkyAppPost,
@@ -37,6 +50,7 @@ async fn sync_put_details(
     author_id: PubkyId,
     post_id: String,
     ingestor: &UserIngestor,
+    client: Option<&dyn HomeserverClient>,
 ) -> Result<(), EventProcessorError> {
     debug!("Indexing post");
     // We avoid indexing replies into global feed sorted sets
@@ -50,6 +64,8 @@ async fn sync_put_details(
         OperationOutcome::Updated => true,
         OperationOutcome::MissingDependency => {
             let mut dependency_event_keys = Vec::new();
+            // Whether a target outside the scope was just indexed, so this post can land now.
+            let mut fetched = false;
             if let Some(replied_to_uri) = &post_relationships.replied {
                 let replied_uri_str = replied_to_uri
                     .try_to_uri_str()
@@ -58,6 +74,9 @@ async fn sync_put_details(
 
                 // Drop the reply (non-retryable) if the replied-to post's author is on a blacklisted HS.
                 fail_on_blacklisted_hs(ingestor.maybe_ingest_author_of_post(replied_to_uri).await)?;
+                if let Some(client) = client {
+                    fetched |= index_out_of_scope_post(replied_to_uri, ingestor, client).await?;
+                }
             }
             if let Some(reposted_uri) = &post_relationships.reposted {
                 let reposted_uri_str = reposted_uri
@@ -67,6 +86,21 @@ async fn sync_put_details(
 
                 // Drop the repost (non-retryable) if the reposted post's author is on a blacklisted HS.
                 fail_on_blacklisted_hs(ingestor.maybe_ingest_author_of_post(reposted_uri).await)?;
+                if let Some(client) = client {
+                    fetched |= index_out_of_scope_post(reposted_uri, ingestor, client).await?;
+                }
+            }
+            if fetched {
+                // At most once: the targets are indexed now, so they are never fetched again.
+                return Box::pin(sync_put_details(
+                    post,
+                    post_details,
+                    author_id,
+                    post_id,
+                    ingestor,
+                    client,
+                ))
+                .await;
             }
             if dependency_event_keys.is_empty() {
                 let author_uri = author_id
@@ -639,7 +673,15 @@ pub async fn del(
 
             // The tombstone keeps the `parent` of a deleted reply, so re-PUT may
             // still ingest the parent's author; pass on ingestor to enforce the real blacklist.
-            sync_put_details(tombstone, tombstone_details, author_id, post_id, ingestor).await?;
+            sync_put_details(
+                tombstone,
+                tombstone_details,
+                author_id,
+                post_id,
+                ingestor,
+                None,
+            )
+            .await?;
         }
         OperationOutcome::MissingDependency => return Err(EventProcessorError::SkipIndexing),
     };

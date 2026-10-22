@@ -57,6 +57,7 @@ async fn test_post_put_recovers_after_partial_redis_write() -> Result<()> {
         pubky_id(&user_id)?,
         post_id.clone(),
         &default_ingestor_tests(),
+        &crate::service::utils::MockHomeserverClient::default(),
     )
     .await?;
 
@@ -115,6 +116,7 @@ async fn test_post_put_replay_after_full_success_is_noop() -> Result<()> {
         pubky_id(&user_id)?,
         post_id.clone(),
         &default_ingestor_tests(),
+        &crate::service::utils::MockHomeserverClient::default(),
     )
     .await?;
 
@@ -208,6 +210,7 @@ async fn test_post_put_recovers_mention_edge() -> Result<()> {
         pubky_id(&alice_id)?,
         post_id.clone(),
         &default_ingestor_tests(),
+        &crate::service::utils::MockHomeserverClient::default(),
     )
     .await?;
 
@@ -310,6 +313,7 @@ async fn test_post_put_recovers_reply_preserves_parent_sorted_sets() -> Result<(
         pubky_id(&bob_id)?,
         reply_id.clone(),
         &default_ingestor_tests(),
+        &crate::service::utils::MockHomeserverClient::default(),
     )
     .await?;
 
@@ -440,6 +444,7 @@ async fn test_post_put_recovers_repost_preserves_parent_state() -> Result<()> {
         pubky_id(&bob_id)?,
         repost_id.clone(),
         &default_ingestor_tests(),
+        &crate::service::utils::MockHomeserverClient::default(),
     )
     .await?;
 
