@@ -33,10 +33,10 @@ pub async fn sync_put(
     sync_put_details(post, post_details, author_id, post_id, ingestor).await
 }
 
-/// Rejects a reply to a file, a profile or a `pubky.app` tag as
+/// Rejects a reply to a file, a profile or a tag, whatever folder holds it, as
 /// [`EventProcessorError::UnsupportedTarget`], never retried: no reply edge can ever point at
-/// one. A reply to a URL or another app's object, its tags included, is indexed with no reply
-/// edge.
+/// one. A reply to a URL, another app's object or a resource Nexus never references is indexed
+/// with no reply edge.
 fn reject_unsupported_parent(post: &PostInput) -> Result<(), EventProcessorError> {
     match &post.parent {
         Some(Reference {
@@ -44,7 +44,7 @@ fn reject_unsupported_parent(post: &PostInput) -> Result<(), EventProcessorError
             target:
                 target @ (ReferenceTarget::File(_)
                 | ReferenceTarget::User(_)
-                | ReferenceTarget::Tag { app: None, .. }),
+                | ReferenceTarget::Tag { .. }),
         }) => Err(EventProcessorError::UnsupportedTarget(format!(
             "The replied resource {} is not a Post, instead is: {}",
             bounded(uri),
@@ -952,11 +952,8 @@ mod tests {
         for target in [
             None,
             Some(ReferenceTarget::Post(key("003286NSMY490"))),
+            Some(ReferenceTarget::Foreign),
             Some(ReferenceTarget::Other),
-            Some(ReferenceTarget::Tag {
-                key: key("8Z8CWH8NVYQY39ZEBFGKQWWEKG"),
-                app: Some("mapky".to_string()),
-            }),
         ] {
             assert!(
                 reject_unsupported_parent(&reply_to(target.clone())).is_ok(),
@@ -966,13 +963,12 @@ mod tests {
     }
 
     #[test]
-    fn reply_to_a_file_profile_or_pubky_app_tag_is_rejected() {
+    fn reply_to_a_file_profile_or_tag_is_rejected() {
         for target in [
             ReferenceTarget::File(key("0033SSE3B1FQ0")),
             ReferenceTarget::User(author()),
             ReferenceTarget::Tag {
                 key: key("8Z8CWH8NVYQY39ZEBFGKQWWEKG"),
-                app: None,
             },
         ] {
             assert!(

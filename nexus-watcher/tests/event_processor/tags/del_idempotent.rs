@@ -89,7 +89,7 @@ async fn test_tag_post_del_retry_no_double_decrement() -> Result<()> {
     assert_eq!(find_user_counts(&tagger_id).await.tagged, 0);
 
     // Retry: call del handler directly — should delete graph without double-decrement
-    handlers::tag::del(resource_key(&tagger_id, tag_id)?, None).await?;
+    handlers::tag::del(resource_key(&tagger_id, tag_id)?).await?;
 
     // Verify final state: graph edge deleted, counter still 0
     let post_tag = find_post_tag(&author_id, &post_id, label).await?;
@@ -156,14 +156,14 @@ async fn test_tag_post_del_replay_after_success_skips() -> Result<()> {
     UserCounts::increment(&tagger_id, "tagged", None).await?;
 
     // First delete via handler (should succeed)
-    handlers::tag::del(resource_key(&tagger_id, tag_id)?, None).await?;
+    handlers::tag::del(resource_key(&tagger_id, tag_id)?).await?;
 
     // Verify fully deleted state
     let post_tag = find_post_tag(&author_id, &post_id, label).await?;
     assert!(post_tag.is_none());
 
     // Replay: call del again — should succeed as idempotent no-op
-    handlers::tag::del(resource_key(&tagger_id, tag_id)?, None).await?;
+    handlers::tag::del(resource_key(&tagger_id, tag_id)?).await?;
 
     // Cleanup
     test.cleanup_post(&author_kp, &post_path).await?;

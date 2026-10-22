@@ -1,18 +1,26 @@
-use super::resource_utils::{compute_resource_id, find_resource_tag};
-use crate::event_processor::utils::watcher::WatcherTest;
+use super::resource_utils::{
+    compute_resource_id, count_resource_tags, find_resource_tag, resource_exists_in_graph,
+};
+use crate::event_processor::posts::utils::resource_key;
+use crate::event_processor::utils::watcher::{HomeserverHashIdPath, WatcherTest};
 use anyhow::Result;
 use chrono::Utc;
 use nexus_common::models::resource::view::ResourceView;
 use nexus_common::models::tag::search::TagSearch;
+use nexus_common::models::user::UserIngestor;
 use nexus_common::types::Pagination;
+use nexus_watcher::events::inputs::{ReferenceTarget, TagInput};
+use nexus_watcher::events::{handlers, put_tag};
 use pubky::Keypair;
-use pubky::ResourcePath;
-use pubky_social_specs::legacy_v0::traits::HashId;
-use pubky_social_specs::legacy_v0::{PubkyAppTag, PubkyAppUser};
+use pubky_social_specs::legacy_v0::{file_uri_builder, PubkyAppTag, PubkyAppUser};
+use pubky_social_specs::traits::HashId as SocialHashId;
+use pubky_social_specs::{
+    file_uri_builder as social_v1_file_uri_builder, tag_uri_builder as social_v1_tag_uri_builder,
+    PubkySocialTag,
+};
 
-/// Full cycle test: PUT a tag at an app-specific path (/pub/mapky/tags/TAG_ID)
-/// and verify the Resource node is created in Neo4j, with its label in the tag
-/// search index.
+/// Full cycle test: PUT a `pubky.app` tag on an external URL and verify the Resource node is
+/// created in Neo4j, with its label in the tag search index.
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_put_resource_tag_external_uri() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
@@ -40,13 +48,9 @@ async fn test_homeserver_put_resource_tag_external_uri() -> Result<()> {
         created_at: Utc::now().timestamp_millis(),
     };
 
-    // Compute tag_id and resource_id for assertions
-    let tag_id = tag.create_id();
     let resource_id = compute_resource_id(target_uri);
-
-    // Build custom path at /pub/mapky/tags/ instead of /pub/pubky.app/tags/
-    let custom_path: ResourcePath = format!("/pub/mapky/tags/{tag_id}").parse()?;
-    test.put(&user_kp, &custom_path, &tag).await?;
+    let tag_path = tag.hs_path();
+    test.put(&user_kp, &tag_path, &tag).await?;
 
     // =============================================
     // LAYER 1: Verify Neo4j Graph
@@ -57,7 +61,7 @@ async fn test_homeserver_put_resource_tag_external_uri() -> Result<()> {
         .expect("Resource tag should exist in graph");
 
     assert_eq!(tag_result.label, label);
-    assert_eq!(tag_result.app.as_deref(), Some("mapky"));
+    assert_eq!(tag_result.app, None, "a resource tag edge carries no app");
     assert_eq!(tag_result.tagger, tagger_user_id);
     assert_eq!(tag_result.scheme, "https");
     // URI should be normalized (lowercase host, trailing slash rules, etc.)
@@ -84,7 +88,7 @@ async fn test_homeserver_put_resource_tag_external_uri() -> Result<()> {
     );
 
     // Cleanup: resource tag deletes leave the label in tag search
-    test.del(&user_kp, &custom_path).await?;
+    test.del(&user_kp, &tag_path).await?;
     TagSearch::del_from_index(label).await?;
     test.cleanup_user(&user_kp).await?;
 
@@ -114,7 +118,7 @@ async fn test_homeserver_resource_tag_retry_heals_search_index() -> Result<()> {
         label: label.clone(),
         created_at: Utc::now().timestamp_millis(),
     };
-    let tag_path: ResourcePath = format!("/pub/mapky/tags/{}", tag.create_id()).parse()?;
+    let tag_path = tag.hs_path();
     test.put(&user_kp, &tag_path, &tag).await?;
 
     // Simulate the partial failure a retry recovers from: the edge exists, but
@@ -168,11 +172,9 @@ async fn test_homeserver_put_resource_tag_internal_unknown() -> Result<()> {
         created_at: Utc::now().timestamp_millis(),
     };
 
-    let tag_id = tag.create_id();
     let resource_id = compute_resource_id(&target_uri);
-
-    let custom_path: ResourcePath = format!("/pub/eventky.app/tags/{tag_id}").parse()?;
-    test.put(&user_kp, &custom_path, &tag).await?;
+    let tag_path = tag.hs_path();
+    test.put(&user_kp, &tag_path, &tag).await?;
 
     // Verify it was indexed as a Resource (not a Post or User)
     let tag_result = find_resource_tag(&resource_id, label)
@@ -180,11 +182,127 @@ async fn test_homeserver_put_resource_tag_internal_unknown() -> Result<()> {
         .expect("Internal-unknown tag should be indexed as Resource");
 
     assert_eq!(tag_result.label, label);
-    assert_eq!(tag_result.app.as_deref(), Some("eventky.app"));
+    assert_eq!(tag_result.app, None, "a resource tag edge carries no app");
     assert_eq!(tag_result.scheme, "pubky");
 
     // Cleanup
-    test.del(&user_kp, &custom_path).await?;
+    test.del(&user_kp, &tag_path).await?;
+    test.cleanup_user(&user_kp).await?;
+
+    Ok(())
+}
+
+/// A `pubky.app` tag picks its flow by what it tags: a marketplace listing, an `https` URL and a file at either epoch's address each become a `Resource` tag.
+/// The file is never indexed and never waited for: it is keyed by its address alone. A DEL of
+/// the tag file removes the edge and the orphaned `Resource`.
+#[tokio_shared_rt::test(shared)]
+async fn test_pubky_app_tag_on_a_resource_target_creates_a_resource_tag() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+
+    let user_kp = Keypair::random();
+    let user = PubkyAppUser {
+        bio: Some("test_pubky_app_tag_on_a_resource_target_creates_a_resource_tag".to_string()),
+        image: None,
+        links: None,
+        name: "Watcher:ResourceTag:PubkyAppFolder".to_string(),
+        status: None,
+    };
+    let user_id = test.create_user(&user_kp, &user).await?;
+
+    let targets = [
+        (
+            format!("pubky://{user_id}/pub/marketplace/listings/0032SSN7Q4EVG"),
+            "pubky",
+        ),
+        (
+            format!("https://example.com/pubky-app-folder/{user_id}"),
+            "https",
+        ),
+        (
+            file_uri_builder(user_id.clone(), "0032SSN7Q4EVG".to_string()),
+            "pubky",
+        ),
+        (
+            social_v1_file_uri_builder(
+                user_id.clone(),
+                "8Z8CWH8NVYQY39ZEBFGKQWWEKG.jpg".to_string(),
+            ),
+            "pubky",
+        ),
+    ];
+    let label = "pubky-app-resource";
+    for (target_uri, scheme) in targets {
+        let tag = PubkyAppTag {
+            uri: target_uri.clone(),
+            label: label.to_string(),
+            created_at: Utc::now().timestamp_millis(),
+        };
+        let tag_path = tag.hs_path();
+        let resource_id = compute_resource_id(&target_uri);
+        test.put(&user_kp, &tag_path, &tag).await?;
+
+        let tag_result = find_resource_tag(&resource_id, label)
+            .await?
+            .unwrap_or_else(|| panic!("{target_uri}: should be indexed as a Resource tag"));
+        assert_eq!(tag_result.tagger, user_id, "{target_uri}");
+        assert_eq!(tag_result.scheme, scheme, "{target_uri}");
+        assert_eq!(count_resource_tags(&resource_id).await?, 1, "{target_uri}");
+
+        test.del(&user_kp, &tag_path).await?;
+        assert_eq!(count_resource_tags(&resource_id).await?, 0, "{target_uri}");
+        assert!(
+            !resource_exists_in_graph(&resource_id).await?,
+            "{target_uri}: the orphaned Resource is removed with its last tag"
+        );
+    }
+
+    test.cleanup_user(&user_kp).await?;
+
+    Ok(())
+}
+
+/// A `social/v1` tag names no app, and a tag on another app's object reaches the `Resource` flow
+/// from there too. The classifier still skips every `social/v1` event, so the translated input
+/// is handed to the tag dispatch directly.
+#[tokio_shared_rt::test(shared)]
+async fn test_social_v1_tag_on_a_foreign_target_reaches_the_resource_flow() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+
+    let user_kp = Keypair::random();
+    let user = PubkyAppUser {
+        bio: Some("test_social_v1_tag_on_a_foreign_target_reaches_the_resource_flow".to_string()),
+        image: None,
+        links: None,
+        name: "Watcher:ResourceTag:SocialV1".to_string(),
+        status: None,
+    };
+    let user_id = test.create_user(&user_kp, &user).await?;
+
+    let target_uri = format!("pubky://{user_id}/pub/mapky/reviews/0032SSN7Q4EVG");
+    let label = "social-v1-resource";
+    let resource_id = compute_resource_id(&target_uri);
+    let tag = PubkySocialTag::new(target_uri.clone(), label.to_string());
+    let tag_id = SocialHashId::create_id(&tag);
+    let tag_uri = social_v1_tag_uri_builder(user_id.clone(), tag_id.clone());
+    let input = TagInput::from_v1(tag, tag_uri);
+    assert_eq!(input.tagged.target, ReferenceTarget::Foreign);
+    let key = resource_key(&user_id, &tag_id)?;
+    let ingestor = UserIngestor::new([], test.event_processor_runner.client.clone());
+
+    put_tag(input, key.clone(), &ingestor).await?;
+
+    let tag_result = find_resource_tag(&resource_id, label)
+        .await?
+        .expect("a social/v1 tag on another app's object should be indexed as a Resource tag");
+    assert_eq!(tag_result.tagger, user_id);
+    assert_eq!(tag_result.scheme, "pubky");
+
+    handlers::tag::del(key).await?;
+    assert!(
+        !resource_exists_in_graph(&resource_id).await?,
+        "the orphaned Resource is removed with its last tag"
+    );
+
     test.cleanup_user(&user_kp).await?;
 
     Ok(())

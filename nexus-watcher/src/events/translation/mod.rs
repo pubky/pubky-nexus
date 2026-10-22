@@ -34,11 +34,10 @@ pub enum TranslatedPut {
         user_id: PubkyId,
         followee_id: PubkyId,
     },
-    /// `app` is set only for another app's universal tag (`/pub/mapky/tags/…`).
+    /// A tag in any folder: what it tags, not where it sits, picks its handler.
     Tag {
         key: ResourceKey,
         tag: TagInput,
-        app: Option<String>,
     },
     Bookmark {
         key: ResourceKey,
@@ -61,11 +60,8 @@ pub enum TranslatedDel {
         user_id: PubkyId,
         followee_id: PubkyId,
     },
-    /// `app` is set only for another app's universal tag (`/pub/mapky/tags/…`).
-    Tag {
-        key: ResourceKey,
-        app: Option<String>,
-    },
+    /// A tag in any folder: one tag id names the same edge whatever folder holds it.
+    Tag(ResourceKey),
     Bookmark(ResourceKey),
     File(ResourceKey),
 }

@@ -63,47 +63,31 @@ pub fn delete_bookmark(user_id: &str, bookmark_id: &str) -> Query {
 
 /// Deletes a tag relationship created by a user and retrieves relevant details about the tag's target.
 ///
-/// When `app` is `Some`, adds `WHERE tag.app = $app` to scope deletion to a specific app namespace.
-/// This prevents cross-app deletion for Resource tags where each app owns its own TAGGED relationship.
-///
-/// When `app` is `None`, adds `WHERE tag.app IS NULL` to only match relationships without an app
-/// property. This prevents cross-app deletion when multiple apps tag the same URI with the same label.
-pub fn delete_tag(user_id: &str, tag_id: &str, app: Option<&str>) -> Query {
-    let app_filter = match app {
-        Some(_) => "\n    WHERE tag.app = $app",
-        None => "\n    WHERE tag.app IS NULL",
-    };
-
-    let cypher = format!(
-        "MATCH (user:User {{id: $user_id}})-[tag:TAGGED {{id: $tag_id}}]->(target){app_filter}
+/// A tag is one edge per tagger, target and label, whichever folder wrote it, so the edge is
+/// found by its id alone. A Resource left with no tag is deleted with its last edge.
+pub fn delete_tag(user_id: &str, tag_id: &str) -> Query {
+    Query::new(
+        "delete_tag",
+        "MATCH (user:User {id: $user_id})-[tag:TAGGED {id: $tag_id}]->(target)
     OPTIONAL MATCH (target)<-[:AUTHORED]-(author:User)
     WITH CASE WHEN target:User THEN target.id ELSE null END AS user_id,
          CASE WHEN target:Post THEN target.id ELSE null END AS post_id,
          CASE WHEN target:Post THEN author.id ELSE null END AS author_id,
          CASE WHEN target:Resource THEN target.id ELSE null END AS resource_id,
          tag.label AS label,
-         tag.app AS app,
          tag, target
     DELETE tag
-    WITH user_id, post_id, author_id, resource_id, label, app, target
-    CALL {{
+    WITH user_id, post_id, author_id, resource_id, label, target
+    CALL {
         WITH target, resource_id
         WITH target, resource_id WHERE resource_id IS NOT NULL
-        AND NOT EXISTS {{ (target)<-[:TAGGED]-() }}
+        AND NOT EXISTS { (target)<-[:TAGGED]-() }
         DELETE target
-    }}
-    RETURN user_id, post_id, author_id, resource_id, label, app"
-    );
-
-    let mut query = Query::new("delete_tag", &cypher)
-        .param("user_id", user_id)
-        .param("tag_id", tag_id);
-
-    if let Some(a) = app {
-        query = query.param("app", a);
     }
-
-    query
+    RETURN user_id, post_id, author_id, resource_id, label",
+    )
+    .param("user_id", user_id)
+    .param("tag_id", tag_id)
 }
 
 /// Deletes a file node and all its relationships

@@ -8,8 +8,8 @@ use pubky_social_specs::{ParsedUri, PubkyId};
 /// resource matches on it, so a third epoch fails to compile there and forces a decision.
 #[derive(Debug, Clone)]
 pub enum EventTarget {
-    /// A `pubky.app` path or another app's universal tag (`/pub/mapky/tags/…`), parsed by the
-    /// frozen v0 reader.
+    /// A `pubky.app` path parsed by the frozen v0 reader. Another app's tag file
+    /// (`/pub/mapky/tags/…`) is skipped before it becomes one.
     Legacy(ExtendedParsedUri),
     /// A `/pub/social/v1/…` path parsed by the v1 parser. Only the router builds it: the
     /// classifier still skips every `social/v1` event before the fetch.

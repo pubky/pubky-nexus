@@ -28,7 +28,7 @@ const MESSAGE_TEXT_MAX_CHARS: usize = 256;
 
 /// `text` cut to [`MESSAGE_TEXT_MAX_CHARS`] on a char boundary, with `…` when cut, so a message
 /// that quotes an address stays bounded whatever the author wrote.
-pub(super) fn bounded(text: &str) -> String {
+pub(crate) fn bounded(text: &str) -> String {
     match text.char_indices().nth(MESSAGE_TEXT_MAX_CHARS) {
         Some((end, _)) => format!("{}…", &text[..end]),
         None => text.to_string(),

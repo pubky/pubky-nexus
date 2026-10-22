@@ -74,9 +74,7 @@ criterion_group! {
               wot::bench_stream_wot_depth3_timeline,
               wot::bench_stream_wot_domain_depth2,
               resource::bench_stream_resources_all_timeline,
-              resource::bench_stream_resources_app_timeline,
-              resource::bench_stream_resources_tag_timeline,
-              resource::bench_stream_resources_app_tag_timeline
+              resource::bench_stream_resources_tag_timeline
 }
 
 criterion_main!(streams);

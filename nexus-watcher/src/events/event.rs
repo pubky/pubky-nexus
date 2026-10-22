@@ -338,10 +338,27 @@ mod tests {
         }
     }
 
+    /// Another app's tag file is skipped before any fetch, PUT and DEL alike, however it is
+    /// spelled; its other paths are not addresses Nexus recognises.
     #[test]
-    fn another_apps_tag_is_parsed_and_its_other_paths_are_unrecognized() {
-        assert_parsed(&format!("mapky/tags/{TAG_ID}"));
-        assert_parsed(&format!("eventky.app/tags/{TAG_ID}"));
+    fn another_apps_tag_is_skipped_and_its_other_paths_are_unrecognized() {
+        let app_folder = |app: &str| SkipReason::AppFolderTag {
+            app: app.to_string(),
+        };
+        assert_skipped(&format!("mapky/tags/{TAG_ID}"), app_folder("mapky"));
+        assert_skipped(
+            &format!("eventky.app/tags/{TAG_ID}"),
+            app_folder("eventky.app"),
+        );
+        assert_skipped(&format!("mapky/tags/{TAG_ID}?x=1"), app_folder("mapky"));
+        assert_skipped(&format!("mapky/tags/{TAG_ID}#frag"), app_folder("mapky"));
+        let upper = format!("PUBKY://{USER}/pub/mapky/tags/{TAG_ID}");
+        for result in parse_both(&upper) {
+            match result {
+                Ok(ParseResult::Skipped(reason)) => assert_eq!(reason, app_folder("mapky")),
+                other => panic!("{upper}: expected Skipped, got {other:?}"),
+            }
+        }
         assert_unrecognized(&uri(&format!("mapky/posts/{POST_ID}")));
         assert_unrecognized(&uri("mapky/profile.json"));
     }
@@ -410,12 +427,9 @@ mod tests {
         for path in [
             format!("pubky.app/posts/{POST_ID}/shadow"),
             format!("pubky.app/tags/{TAG_ID}/extra/more"),
-            format!("mapky/tags/{TAG_ID}?x=1"),
-            format!("mapky/tags/{TAG_ID}#frag"),
         ] {
             assert_non_canonical(&uri(&path));
         }
-        assert_non_canonical(&format!("PUBKY://{USER}/pub/mapky/tags/{TAG_ID}"));
     }
 
     /// The line splitter runs before the router: a line with the wrong shape never reaches it.
