@@ -87,6 +87,10 @@ async fn test_events_endpoint() -> Result<()> {
     let whole_body_lines: Vec<&str> = whole_body.lines().collect();
     let mut whole_line_index = 0usize;
     assert!(whole_body.lines().count() - 1 <= 1000);
+    // The log is append-only and other tests (or a watcher) may append while this
+    // test pages it: only lines at positions inside the first snapshot are compared.
+    let snapshot_len = whole_body_lines.len() - 1;
+    let mut position = 0usize;
 
     let limit = 10;
     let mut cursor = String::from("");
@@ -115,6 +119,10 @@ async fn test_events_endpoint() -> Result<()> {
         let lines: Vec<&str> = part_of_body.lines().collect();
         let count = lines.len();
         for &line in lines.iter().take(count - 1) {
+            position += 1;
+            if position > snapshot_len {
+                continue;
+            }
             assert!(
                 whole_body_lines[whole_line_index..]
                     .iter()

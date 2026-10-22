@@ -33,7 +33,7 @@ impl<const DEFAULT: usize, const MAX: usize> BoundedLimit<DEFAULT, MAX> {
         self.0
     }
 
-    fn validate(n: usize) -> Result<(), Error> {
+    pub(crate) fn validate(n: usize) -> Result<(), Error> {
         if n == 0 {
             return Err(Error::invalid_input("limit must be at least 1"));
         }

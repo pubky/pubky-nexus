@@ -6,7 +6,7 @@ use crate::media::{FailFastGate, MediaPermits, MediaSubprocess, QueuedGate, Vari
 use axum::body::Body;
 use axum::extract::{DefaultBodyLimit, FromRequest, FromRequestParts};
 use axum::http::request::Parts;
-use axum::http::{Request, StatusCode};
+use axum::http::{HeaderName, Request, StatusCode};
 use axum::Json as AxumJson;
 use axum::Router;
 use nexus_common::models::user::UserIngestor;
@@ -188,7 +188,12 @@ pub fn build_app(
     let cors = CorsLayer::new()
         .allow_origin(Any) // Allow all origins
         .allow_methods(Any) // Allow all HTTP methods
-        .allow_headers(Any); // Allow all headers
+        .allow_headers(Any) // Allow all headers
+        // Let browser clients read the event log's identity headers
+        .expose_headers([
+            HeaderName::from_static(v0::events::EVENTS_EPOCH_HEADER),
+            HeaderName::from_static(v0::events::EVENTS_LENGTH_HEADER),
+        ]);
 
     // Layer the request limits innermost, so that tracing and CORS still apply to the
     // 408/413 responses they short-circuit with (bypassing the rest of the stack).
