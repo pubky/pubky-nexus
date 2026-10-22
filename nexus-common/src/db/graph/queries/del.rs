@@ -52,10 +52,8 @@ pub fn delete_follow(follower_id: &str, followee_id: &str) -> Query {
 pub fn delete_bookmark(user_id: &str, bookmark_id: &str) -> Query {
     Query::new(
         "delete_bookmark",
-        "MATCH (u:User {id: $user_id})-[b:BOOKMARKED {id: $bookmark_id}]->(post:Post)<-[:AUTHORED]-(author:User)
-         WITH post.id as post_id, author.id as author_id, b
-         DELETE b
-         RETURN post_id, author_id",
+        "MATCH (u:User {id: $user_id})-[b:BOOKMARKED {id: $bookmark_id}]->(:Post)
+         DELETE b",
     )
     .param("user_id", user_id)
     .param("bookmark_id", bookmark_id)

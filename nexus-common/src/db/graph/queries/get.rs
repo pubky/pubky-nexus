@@ -81,27 +81,74 @@ pub fn post_counts(author_id: &str, post_id: &str) -> Query {
 pub fn post_bookmark(author_id: &str, post_id: &str, viewer_id: &str) -> Query {
     Query::new(
         "post_bookmark",
-        "MATCH (u:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
-         MATCH (viewer:User {id: $viewer_id})-[b:BOOKMARKED]->(p)
-         RETURN b",
+        // Without the hints the planner expands every bookmark of the viewer.
+        // Seeking both ends checks the edge between them instead.
+        "MATCH (p:Post {id: $post_id})
+         USING INDEX p:Post(id)
+         WHERE EXISTS { (:User {id: $author_id})-[:AUTHORED]->(p) }
+         MATCH (viewer:User {id: $viewer_id})
+         USING INDEX viewer:User(id)
+         MATCH (viewer)-[b:BOOKMARKED]->(p)
+         // A duplicate edge resolves to the latest, as in `bookmarked_posts`
+         RETURN b
+         ORDER BY b.indexed_at DESC
+         LIMIT 1",
     )
     .param("author_id", author_id)
     .param("post_id", post_id)
     .param("viewer_id", viewer_id)
 }
 
-// Keyset pagination on p.id (indexed).
-pub fn user_bookmarks(user_id: &str, cursor: &str, limit: i64) -> Query {
-    Query::new(
-        "user_bookmarks",
-        "MATCH (u:User {id: $user_id})-[b:BOOKMARKED]->(p:Post)<-[:AUTHORED]-(author:User)
-         WHERE p.id > $cursor
-         RETURN b, p.id AS post_id, author.id AS author_id
-         ORDER BY p.id LIMIT $limit",
-    )
-    .param("user_id", user_id)
-    .param("cursor", cursor)
-    .param("limit", limit)
+/// One page of the posts `user_id` bookmarked, scored by the bookmark's
+/// `indexed_at` and ordered by score, then post id. As in the sorted set this
+/// replaced, `start` is the highest score kept and `end` the lowest, in either
+/// order, both inclusive.
+pub fn bookmarked_posts(user_id: &str, order: &SortOrder, pagination: &Pagination) -> Query {
+    let order_direction = match order {
+        SortOrder::Ascending => "ASC",
+        SortOrder::Descending => "DESC",
+    };
+
+    // BOOKMARKED is MERGEd per (user, post); MAX only collapses duplicate edges,
+    // which the mock graph has.
+    let mut cypher = String::from(
+        "MATCH (:User {id: $user_id})-[b:BOOKMARKED]->(p:Post)\nWITH p, MAX(b.indexed_at) AS score\n",
+    );
+
+    let mut cursor_clauses = Vec::new();
+    if pagination.start.is_some() {
+        cursor_clauses.push("score <= $start");
+    }
+    if pagination.end.is_some() {
+        cursor_clauses.push("score >= $end");
+    }
+    if !cursor_clauses.is_empty() {
+        cypher.push_str("WHERE ");
+        cypher.push_str(&cursor_clauses.join(" AND "));
+        cypher.push('\n');
+    }
+
+    // Page before matching authors, so only the page's authors are read.
+    cypher.push_str(&format!(
+        "WITH p, score\nORDER BY score {order_direction}, p.id {order_direction}\nSKIP {}\nLIMIT {}\n",
+        pagination.skip.unwrap_or(0).min(MAX_QUERY_SKIP),
+        pagination
+            .limit
+            .unwrap_or(MAX_QUERY_LIMIT)
+            .min(MAX_QUERY_LIMIT)
+    ));
+    cypher.push_str(&format!(
+        "MATCH (p)<-[:AUTHORED]-(author:User)\nRETURN author.id AS author_id, p.id AS post_id, score\nORDER BY score {order_direction}, post_id {order_direction}\n"
+    ));
+
+    let mut query = Query::new("bookmarked_posts", &cypher).param("user_id", user_id);
+    if let Some(start) = pagination.start {
+        query = query.param("start", start);
+    }
+    if let Some(end) = pagination.end {
+        query = query.param("end", end);
+    }
+    query
 }
 
 // b.id collides across bookmarkers (hashes only the post uri), but BOOKMARKED is MERGEd
@@ -119,18 +166,6 @@ pub fn get_post_bookmarks(author_id: &str, post_id: &str, cursor: &[String], lim
     .param("post_id", post_id)
     .param("cursor", cursor.to_vec())
     .param("limit", limit)
-}
-
-// Read the target (post_id, author_id) for a bookmark without deleting the edge.
-// Used in sync_del to read before graph-last deletion.
-pub fn get_bookmark_target(user_id: &str, bookmark_id: &str) -> Query {
-    Query::new(
-        "get_bookmark_target",
-        "MATCH (u:User {id: $user_id})-[b:BOOKMARKED {id: $bookmark_id}]->(post:Post)<-[:AUTHORED]-(author:User)
-         RETURN post.id AS post_id, author.id AS author_id",
-    )
-    .param("user_id", user_id)
-    .param("bookmark_id", bookmark_id)
 }
 
 // Get all the reposts that a post has received (used for edit/delete notifications)
@@ -1638,10 +1673,11 @@ pub fn post_stream(
     // (validate_source_compat).
     //
     // Bookmarks are exempt: they target specific posts the user picked, replies
-    // included, and the Redis bookmarks sorted set carries them all. Applying
-    // the parents-only filter here would silently drop bookmarked replies on the
-    // graph path (reachable via kind/exclude_kinds or engagement sort), diverging
-    // from the index path. Every other source that routes here wants parents only.
+    // included, and the unfiltered bookmarks stream (`bookmarked_posts`) carries
+    // them all. Applying the parents-only filter here would silently drop
+    // bookmarked replies on this path (reachable via kind/exclude_kinds or
+    // engagement sort), diverging from that stream. Every other source that
+    // routes here wants parents only.
     if !matches!(source, StreamSource::Bookmarks { .. }) {
         append_condition(
             &mut cypher,

@@ -130,9 +130,7 @@ fn bench_get_post_counts_from_graph(c: &mut Criterion) {
 
 fn bench_get_post_bookmark_by_id(c: &mut Criterion) {
     println!("******************************************************************************");
-    println!(
-        "Test the performance of getting a post's bookmark by ID, using index or graph as needed"
-    );
+    println!("Test the performance of getting a post's bookmark by ID from the graph database");
     println!("******************************************************************************");
 
     run_setup();
@@ -148,32 +146,6 @@ fn bench_get_post_bookmark_by_id(c: &mut Criterion) {
         |b, &id| {
             b.to_async(&rt).iter(|| async {
                 let post = Bookmark::get_by_id(author_id, id, Some(viewer_id))
-                    .await
-                    .unwrap();
-                std::hint::black_box(post);
-            });
-        },
-    );
-}
-
-fn bench_get_post_bookmark_from_graph(c: &mut Criterion) {
-    println!("******************************************************************************");
-    println!("Test the performance of getting a post's bookmark from the graph database.");
-    println!("******************************************************************************");
-
-    run_setup();
-
-    let author_id = "y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy";
-    let post_id = "2ZCW1TGR5BKG0";
-    let viewer_id = "y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy";
-    let rt = Runtime::new().unwrap();
-
-    c.bench_with_input(
-        BenchmarkId::new("get_post_bookmark_from_graph", post_id),
-        &post_id,
-        |b, &id| {
-            b.to_async(&rt).iter(|| async {
-                let post = Bookmark::get_from_graph(author_id, id, viewer_id)
                     .await
                     .unwrap();
                 std::hint::black_box(post);
@@ -248,7 +220,6 @@ criterion_group! {
               bench_get_post_counts_by_id,
               bench_get_post_counts_from_graph,
               bench_get_post_bookmark_by_id,
-              bench_get_post_bookmark_from_graph,
               bench_get_post_relationships_by_id,
               bench_get_post_relationships_from_graph,
 }

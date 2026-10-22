@@ -1,25 +1,16 @@
-use crate::db::graph::keyset_scan;
-use crate::db::kv::RedisResult;
 use crate::db::{
-    execute_graph_operation, fetch_all_rows_from_graph, fetch_key_from_graph, queries, GraphResult,
-    OperationOutcome, RedisOps,
+    exec_single_row, execute_graph_operation, fetch_key_from_graph, queries, GraphResult,
+    OperationOutcome,
 };
-use crate::models::error::{ModelError, ModelResult};
-use neo4rs::Relation;
+use crate::models::error::ModelResult;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
-
-use super::PostStream;
-
-const BOOKMARK_PAGE_SIZE: usize = 500;
 
 #[derive(Serialize, Deserialize, ToSchema, Default, Debug)]
 pub struct Bookmark {
     pub id: String,
     pub indexed_at: i64,
 }
-
-impl RedisOps for Bookmark {}
 
 impl Bookmark {
     pub async fn put_to_graph(
@@ -40,142 +31,21 @@ impl Bookmark {
         execute_graph_operation(query).await
     }
 
-    /// Retrieves counts by user ID, first trying to get from Redis, then from Neo4j if not found.
+    /// The viewer's bookmark on the post, read from the graph; nothing caches it.
     pub async fn get_by_id(
         author_id: &str,
         post_id: &str,
         viewer_id: Option<&str>,
     ) -> ModelResult<Option<Bookmark>> {
         // Return None early if no viewer_id supplied
-        let viewer_id = match viewer_id {
-            Some(viewer_id) => viewer_id,
-            None => return Ok(None),
+        let Some(viewer_id) = viewer_id else {
+            return Ok(None);
         };
-        match Self::get_from_index(author_id, post_id, viewer_id).await? {
-            Some(counts) => Ok(Some(counts)),
-            None => {
-                let graph_response = Self::get_from_graph(author_id, post_id, viewer_id).await?;
-                if let Some(bookmark) = graph_response {
-                    bookmark.put_to_index(author_id, post_id, viewer_id).await?;
-                    return Ok(Some(bookmark));
-                }
-                Ok(None)
-            }
-        }
-    }
-
-    pub async fn get_from_index(
-        author_id: &str,
-        post_id: &str,
-        viewer_id: &str,
-    ) -> RedisResult<Option<Bookmark>> {
-        Self::try_from_index_json(&[author_id, post_id, viewer_id], None).await
-    }
-
-    /// Retrieves a bookmark from Neo4j.
-    pub async fn get_from_graph(
-        author_id: &str,
-        post_id: &str,
-        viewer_id: &str,
-    ) -> GraphResult<Option<Bookmark>> {
         let query = queries::get::post_bookmark(author_id, post_id, viewer_id);
-        fetch_key_from_graph(query, "b").await
+        Ok(fetch_key_from_graph(query, "b").await?)
     }
 
-    pub async fn put_to_index(
-        &self,
-        author_id: &str,
-        post_id: &str,
-        viewer_id: &str,
-    ) -> RedisResult<()> {
-        self.put_index_json(&[author_id, post_id, viewer_id], None, None)
-            .await?;
-        PostStream::add_to_bookmarks_sorted_set(self, viewer_id, post_id, author_id).await
-    }
-
-    /// Retrieves all post_keys a user bookmarked from Neo4j
-    /// Paginates in batches to limit memory usage for users with many bookmarks.
-    pub async fn reindex(user_id: &str) -> ModelResult<()> {
-        let user_id = user_id.to_string();
-        keyset_scan(BOOKMARK_PAGE_SIZE, "bookmark_reindex", |cursor| {
-            let user_id = user_id.clone();
-            async move {
-                let rows = fetch_all_rows_from_graph(queries::get::user_bookmarks(
-                    &user_id,
-                    &cursor,
-                    BOOKMARK_PAGE_SIZE as i64,
-                ))
-                .await?;
-                let count = rows.len();
-                let mut last_id = String::new();
-                for row in rows {
-                    let post_id: String = row.get("post_id")?;
-                    last_id = post_id.clone();
-                    if let Some(relation) = row.get::<Option<Relation>>("b")? {
-                        let bookmark = Bookmark {
-                            id: relation.get("id").unwrap_or_default(),
-                            indexed_at: relation.get("indexed_at").unwrap_or_default(),
-                        };
-                        let author_id: String = row.get("author_id")?;
-                        bookmark
-                            .put_to_index(&author_id, &post_id, &user_id)
-                            .await?;
-                    }
-                }
-                Ok::<(usize, Option<String>), ModelError>((
-                    count,
-                    if last_id.is_empty() {
-                        None
-                    } else {
-                        Some(last_id)
-                    },
-                ))
-            }
-        })
-        .await
-    }
-
-    /// Reads (post_id, author_id) for a bookmark from the graph without deleting the edge.
-    pub async fn get_target_from_graph(
-        user_id: &str,
-        bookmark_id: &str,
-    ) -> GraphResult<Option<(String, String)>> {
-        let query = queries::get::get_bookmark_target(user_id, bookmark_id);
-        let rows = fetch_all_rows_from_graph(query).await?;
-
-        for row in rows {
-            let post_id: Option<String> = row.get("post_id").unwrap_or(None);
-            let author_id: Option<String> = row.get("author_id").unwrap_or(None);
-            if let (Some(post_id), Some(author_id)) = (post_id, author_id) {
-                return Ok(Some((post_id, author_id)));
-            }
-        }
-        Ok(None)
-    }
-
-    pub async fn del_from_graph(
-        user_id: &str,
-        bookmark_id: &str,
-    ) -> GraphResult<Option<(String, String)>> {
-        let query = queries::del::delete_bookmark(user_id, bookmark_id);
-        let rows = fetch_all_rows_from_graph(query).await?;
-
-        for row in rows {
-            let post_id: Option<String> = row.get("post_id").unwrap_or(None);
-            let author_id: Option<String> = row.get("author_id").unwrap_or(None);
-            if let (Some(post_id), Some(author_id)) = (post_id, author_id) {
-                return Ok(Some((post_id, author_id)));
-            }
-        }
-        Ok(None)
-    }
-
-    pub async fn del_from_index(
-        bookmarker_id: &str,
-        post_id: &str,
-        author_id: &str,
-    ) -> RedisResult<()> {
-        Self::remove_from_index_multiple_json(&[&[author_id, post_id, bookmarker_id]]).await?;
-        PostStream::remove_from_bookmarks_sorted_set(bookmarker_id, post_id, author_id).await
+    pub async fn del_from_graph(user_id: &str, bookmark_id: &str) -> GraphResult<()> {
+        exec_single_row(queries::del::delete_bookmark(user_id, bookmark_id)).await
     }
 }

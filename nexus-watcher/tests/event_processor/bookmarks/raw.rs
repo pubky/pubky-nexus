@@ -1,4 +1,4 @@
-use super::utils::find_post_bookmark;
+use super::utils::{assert_no_retired_keys, find_post_bookmark};
 use crate::event_processor::utils::watcher::WatcherTest;
 use crate::event_processor::{
     users::utils::find_user_counts, utils::watcher::HomeserverHashIdPath,
@@ -83,13 +83,13 @@ async fn test_homeserver_bookmark() -> Result<()> {
     );
     assert!(result_bookmarks.last_post_score.is_some());
 
-    let exist_bookmark = Bookmark::get_from_index(&user_id, &post_id, &user_id)
-        .await
-        .unwrap();
-    assert!(exist_bookmark.is_some(), "The bookmark has to be indexed");
-
-    let bookmark = exist_bookmark.unwrap();
+    let bookmark = Bookmark::get_by_id(&user_id, &post_id, Some(&user_id))
+        .await?
+        .expect("The bookmark has to be served");
     assert_eq!(bookmark.id, bookmark_id, "Bookmark ids does not match");
+
+    // The bookmark lives in the graph only
+    assert_no_retired_keys(&user_id, &post_id, &user_id).await?;
 
     // Cleanup user and post
     test.cleanup_post(&user_kp, &post_path).await?;

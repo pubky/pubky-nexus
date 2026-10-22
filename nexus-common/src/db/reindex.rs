@@ -2,7 +2,6 @@ use crate::db::graph::exec::fetch_all_rows_from_graph;
 use crate::db::graph::{keyset_scan, Query};
 use crate::models::follow::{Followers, Following, UserFollows};
 use crate::models::post::search::PostsByTagSearch;
-use crate::models::post::Bookmark;
 use crate::models::post::{PostCounts, PostDetails, PostRelationships};
 use crate::models::tag::post::TagPost;
 use crate::models::tag::search::TagSearch;
@@ -61,7 +60,6 @@ pub async fn sync() {
 
 pub async fn reindex_user(user_id: &str) -> Result<(), DynError> {
     tokio::try_join!(
-        Bookmark::reindex(user_id),
         Followers::reindex(user_id),
         Following::reindex(user_id),
         TagUser::reindex(user_id, None)

@@ -1,3 +1,4 @@
+mod collection;
 mod del;
 mod del_idempotent;
 mod fail_index;

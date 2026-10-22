@@ -1,7 +1,11 @@
 use super::utils::verify_post_list;
-use super::ROOT_PATH;
+use super::{KEYS_ROOT_PATH, ROOT_PATH};
+use crate::post::CAIRO_USER;
 use crate::utils::get_request;
+use crate::utils::server::TestServiceServer;
 use anyhow::Result;
+use deadpool_redis::redis::AsyncCommands;
+use nexus_common::db::get_redis_conn;
 
 // User with most bookmarks
 const BOOKMARKER_ID: &str = "o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo";
@@ -78,6 +82,80 @@ async fn test_stream_user_bookmarks_by_timeline_with_skip_end() -> Result<()> {
     let body = get_request(&path).await?;
     let post_list = vec![POST_TA, POST_TB, POST_TC, POST_TD, POST_TE];
     verify_post_list(post_list, body);
+
+    Ok(())
+}
+
+// Bookmarked 9 posts in the same millisecond
+const TIED_BOOKMARKER_ID: &str = "pxnu33x7jtpx9ar1ytsi4yxbp6a5o36gwhffs8zoxmbuptici1jy";
+const TIED_SCORE: u64 = 1724134095000;
+
+/// Keys and `last_post_score` of a bookmarks stream page.
+async fn bookmark_keys(query: &str) -> Result<(Vec<String>, Option<u64>)> {
+    let body = get_request(&format!("{KEYS_ROOT_PATH}?source=bookmarks&{query}")).await?;
+    let keys = body["post_keys"]
+        .as_array()
+        .expect("post_keys should be an array")
+        .iter()
+        .map(|key| key.as_str().expect("keys are strings").to_string())
+        .collect();
+    Ok((keys, body["last_post_score"].as_u64()))
+}
+
+/// Equal bookmark times are ordered by post id, so `skip` pages neither repeat
+/// nor drop a bookmark.
+#[tokio_shared_rt::test(shared)]
+async fn test_stream_bookmarks_pages_through_ties_by_post_id() -> Result<()> {
+    let observer = format!("observer_id={TIED_BOOKMARKER_ID}");
+    let (all, last_score) = bookmark_keys(&format!("{observer}&limit=50")).await?;
+    assert_eq!(all.len(), 9, "the fixture has 9 tied bookmarks: {all:?}");
+    assert_eq!(last_score, Some(TIED_SCORE));
+
+    let post_ids: Vec<&str> = all
+        .iter()
+        .map(|key| key.split_once(':').expect("author:post key").1)
+        .collect();
+    let mut by_post_id = post_ids.clone();
+    by_post_id.sort_unstable_by(|a, b| b.cmp(a));
+    assert_eq!(post_ids, by_post_id, "ties are ordered by post id");
+
+    let mut paged = Vec::new();
+    for skip in [0, 4, 8] {
+        let (page, _) = bookmark_keys(&format!("{observer}&skip={skip}&limit=4")).await?;
+        paged.extend(page);
+    }
+    assert_eq!(paged, all, "pages must not repeat or drop a tied bookmark");
+
+    // Both bounds are inclusive
+    let (at_score, _) = bookmark_keys(&format!(
+        "{observer}&start={TIED_SCORE}&end={TIED_SCORE}&limit=50"
+    ))
+    .await?;
+    assert_eq!(at_score, all);
+    let (below, _) = bookmark_keys(&format!("{observer}&start={}", TIED_SCORE - 1)).await?;
+    assert!(below.is_empty(), "nothing is bookmarked before the tie");
+
+    Ok(())
+}
+
+/// The stream reads the graph: a post left in the retired sorted set of a
+/// user who bookmarked nothing is not served.
+#[tokio_shared_rt::test(shared)]
+async fn test_stream_bookmarks_ignores_the_retired_sorted_set() -> Result<()> {
+    TestServiceServer::get_test_server().await;
+    let set_key = format!("Sorted:Bookmarks:User:{CAIRO_USER}");
+    let stale_member = "y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy:2ZCW1TGR5BKG0";
+    let mut redis_conn = get_redis_conn().await?;
+    let _: () = redis_conn
+        .zadd(&set_key, stale_member, 1_724_134_150_100_i64)
+        .await?;
+
+    let served = bookmark_keys(&format!("observer_id={CAIRO_USER}")).await;
+    let _: () = redis_conn.zrem(&set_key, stale_member).await?;
+
+    let (keys, last_score) = served?;
+    assert!(keys.is_empty(), "the stale member was served: {keys:?}");
+    assert_eq!(last_score, None);
 
     Ok(())
 }

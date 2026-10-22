@@ -83,9 +83,8 @@ async fn test_by_tag_stream_includes_tagged_collection() -> Result<()> {
     Ok(())
 }
 
-/// `?source=bookmarks&kind=collection` intersects the user's bookmark sorted
-/// set with `p.kind = 'collection'`, returning only their bookmarked
-/// collections.
+/// `?source=bookmarks&kind=collection` intersects the user's bookmarks with
+/// `p.kind = 'collection'`, returning only their bookmarked collections.
 ///
 /// Seed: Eixample bookmarks both `COL_BOGOTA_1` (a Collection) and
 /// `SHORT_BOGOTA` (a `kind=short` post). The kind filter must include the
