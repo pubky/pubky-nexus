@@ -69,6 +69,23 @@ async fn test_stream_user_bookmarks_by_timeline_with_start_and_end() -> Result<(
     Ok(())
 }
 
+/// In ascending order too, `start` is the highest score kept and `end` the
+/// lowest.
+#[tokio_shared_rt::test(shared)]
+async fn test_stream_user_bookmarks_ascending_with_start_and_end() -> Result<()> {
+    let path = format!(
+        "{ROOT_PATH}?observer_id={BOOKMARKER_ID}&source=bookmarks&start={START_TIMELINE}&end={END_TIMELINE}&order=ascending"
+    );
+
+    let body = get_request(&path).await?;
+    let post_list = vec![
+        POST_TI, POST_TH, POST_TG, POST_TF, POST_TE, POST_TD, POST_TC,
+    ];
+    verify_post_list(post_list, body);
+
+    Ok(())
+}
+
 #[tokio_shared_rt::test(shared)]
 async fn test_stream_user_bookmarks_by_timeline_with_skip_end() -> Result<()> {
     let path = format!(
@@ -130,6 +147,27 @@ async fn test_stream_bookmarks_pages_through_ties_by_post_id() -> Result<()> {
     assert_eq!(at_score, all);
     let (below, _) = bookmark_keys(&format!("{observer}&start={}", TIED_SCORE - 1)).await?;
     assert!(below.is_empty(), "nothing is bookmarked before the tie");
+
+    Ok(())
+}
+
+// Bookmarked one post over 15 edges, from 1724134095000 to 1724134109000; it
+// is their oldest bookmark
+const REPEAT_BOOKMARKER_ID: &str = "h3fghnb3x59oh7r53x8y6a5x38oatqyjym9b31ybss17zqdnhcoy";
+const REPEATED_POST_KEY: &str =
+    "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro:2Z9P8AN738C00";
+
+/// A post bookmarked over several edges is listed once, at its latest
+/// bookmark time.
+#[tokio_shared_rt::test(shared)]
+async fn test_stream_bookmarks_lists_a_repeated_bookmark_once_at_its_latest() -> Result<()> {
+    let (keys, last_score) =
+        bookmark_keys(&format!("observer_id={REPEAT_BOOKMARKER_ID}&limit=50")).await?;
+
+    let listed = keys.iter().filter(|key| *key == REPEATED_POST_KEY).count();
+    assert_eq!(listed, 1, "the repeated bookmark is listed once: {keys:?}");
+    assert_eq!(keys.last().map(String::as_str), Some(REPEATED_POST_KEY));
+    assert_eq!(last_score, Some(1724134109000));
 
     Ok(())
 }
