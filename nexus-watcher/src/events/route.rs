@@ -90,30 +90,20 @@ pub fn resolve_reference(address: &str) -> Reference {
     }
 }
 
-/// The address a takedown of `target` is recorded and looked up under: the `pubky.app`
-/// rendering of the resolved key, as the frozen v0 reader renders it, whichever epoch's
-/// address or app's folder named it (a tag has one id whatever folder holds it). An event's
-/// address resolves the same way (see [`super::remove_if_taken_down`]), so every address that
-/// names one record finds its takedown. A `social/v1` file keeps its raw `{hash}.{ext}` name.
+/// The address a takedown of the moderated `address` is recorded under, which a PUT event's
+/// own address is looked up by as written (see [`super::remove_if_taken_down`]). A `social/v1`
+/// address is kept as written: the spec only accepts it in canonical form. A `pubky.app` or
+/// another app's address is rewritten by the frozen v0 reader, so a trailing slash or a query
+/// still finds the record's events.
 ///
-/// `Err` for a user or an unresolved address: neither is taken down.
-pub fn takedown_address(target: &ReferenceTarget) -> Result<String, String> {
-    let pubky_app = |key: &ResourceKey, resource: fn(String) -> legacy_v0::Resource| {
-        ExtendedParsedUri::PubkyApp {
-            user_id: key.owner_id.clone(),
-            resource: resource(key.resource_id.clone()),
-        }
-    };
-    let parsed = match target {
-        ReferenceTarget::Post(key) => pubky_app(key, legacy_v0::Resource::Post),
-        ReferenceTarget::File(key) => pubky_app(key, legacy_v0::Resource::File),
-        ReferenceTarget::Tag { key } => pubky_app(key, legacy_v0::Resource::Tag),
-        ReferenceTarget::User(_) => return Err("a user is never taken down".to_string()),
-        ReferenceTarget::Foreign | ReferenceTarget::Other => {
-            return Err("names nothing Nexus takes down".to_string())
-        }
-    };
-    parsed.try_to_uri_str()
+/// `Err` for an address neither epoch's parser reads.
+pub fn takedown_key(address: &str) -> Result<String, String> {
+    match route(address) {
+        Routed::Social(_) => Ok(address.to_string()),
+        Routed::Legacy(parsed) => parsed.try_to_uri_str(),
+        Routed::UnsupportedEpoch { version } => Err(format!("unsupported epoch {version}")),
+        Routed::Malformed { reason } => Err(reason),
+    }
 }
 
 /// The user a bare `pubky://<pk>` names. It has no namespace segment to route by, so the
@@ -432,59 +422,28 @@ mod tests {
         }
     }
 
-    /// A takedown is recorded under the `pubky.app` address of the resolved key, whatever
-    /// address or app's folder named it.
+    /// A takedown is recorded under the moderated address: a `social/v1` one as written, a
+    /// `pubky.app` or another app's one as the v0 reader rewrites it, in its own folder.
     #[test]
-    fn takedown_addresses_are_the_pubky_app_ones_whatever_address_resolved_the_target() {
+    fn takedown_keys_keep_social_v1_addresses_and_rewrite_v0_ones() {
         let post = post_uri_builder(USER.into(), POST_ID.into());
-        for address in [
-            post.clone(),
-            format!("pubky://{USER}/pub/pubky.app/posts/{POST_ID}/extra"),
-            v1_post_uri_builder(USER.into(), POST_ID.into()),
-            v1_version_uri(None),
-            v1_version_uri(Some("hello-world")),
+        let tag = format!("pubky://{USER}/pub/mapky/tags/{HASH_ID}");
+        let v1_post = v1_post_uri_builder(USER.into(), POST_ID.into());
+        let v1_tag = v1_tag_uri_builder(USER.into(), HASH_ID.into());
+        for (address, expected) in [
+            (post.clone(), &post),
+            (format!("{post}/"), &post),
+            (format!("{tag}?x=1"), &tag),
+            (v1_post.clone(), &v1_post),
+            (v1_tag.clone(), &v1_tag),
         ] {
-            assert_eq!(
-                takedown_address(&target(&address)).as_deref(),
-                Ok(post.as_str()),
-                "{address}"
-            );
+            assert_eq!(takedown_key(&address).as_ref(), Ok(expected), "{address}");
         }
-        // A tag has one id whatever folder holds it, another app's included.
-        let tag = tag_uri_builder(USER.into(), HASH_ID.into());
         for address in [
-            tag.clone(),
-            v1_tag_uri_builder(USER.into(), HASH_ID.into()),
-            format!("pubky://{USER}/pub/mapky/tags/{HASH_ID}"),
-            format!("pubky://{USER}/pub/mapky/tags/{HASH_ID}?x=1"),
-        ] {
-            assert_eq!(
-                takedown_address(&target(&address)).as_deref(),
-                Ok(tag.as_str()),
-                "{address}"
-            );
-        }
-        let file = file_uri_builder(USER.into(), POST_ID.into());
-        assert_eq!(
-            takedown_address(&target(&file)).as_deref(),
-            Ok(file.as_str())
-        );
-        // A `social/v1` file keeps its raw `{hash}.{ext}` name: no event carries this address.
-        let filename = format!("{HASH_ID}.jpg");
-        assert_eq!(
-            takedown_address(&target(&v1_file_uri_builder(USER.into(), filename.clone())))
-                .as_deref(),
-            Ok(format!("pubky://{USER}/pub/pubky.app/files/{filename}").as_str())
-        );
-        for address in [
-            format!("pubky://{USER}"),
-            user_uri_builder(USER.into()),
-            format!("pubky://{USER}/pub/social/v1/unknown_kind/{POST_ID}"),
             format!("pubky://{USER}/pub/social/v2/posts/{POST_ID}"),
             "https://example.com/article".to_string(),
-            format!("pubky://{OTHER_USER}/pub/mapky/reviews/{POST_ID}"),
         ] {
-            assert!(takedown_address(&target(&address)).is_err(), "{address}");
+            assert!(takedown_key(&address).is_err(), "{address}");
         }
     }
 

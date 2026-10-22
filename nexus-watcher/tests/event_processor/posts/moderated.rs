@@ -21,7 +21,7 @@ use pubky_social_specs::legacy_v0::traits::HasIdPath;
 use pubky_social_specs::legacy_v0::{
     post_uri_builder, PubkyAppPost, PubkyAppPostKind, PubkyAppTag, PubkyAppUser,
 };
-use pubky_social_specs::{post_uri_builder as social_v1_post_uri_builder, PubkyId};
+use pubky_social_specs::PubkyId;
 use std::path::Path;
 use tokio::fs;
 
@@ -355,85 +355,6 @@ async fn test_post_written_after_its_takedown_was_recorded_is_removed() -> Resul
     Ok(())
 }
 
-/// A takedown is looked up by the record an address resolves to: a post taken down under its
-/// `pubky.app` address is found through its `social/v1` address too. The classifier still
-/// skips `social/v1` events, so the lookup is called directly.
-#[tokio_shared_rt::test(shared)]
-async fn test_post_takedown_holds_for_its_social_v1_address() -> Result<()> {
-    let mut test = WatcherTest::setup(None).await?;
-    let user_kp = Keypair::random();
-    let user_id = test
-        .create_user(&user_kp, &test_user("Watcher:PostModerate:V1Lookup", ""))
-        .await?;
-    let (post_id, _) = test
-        .create_post(&user_kp, &short_post("Watcher:PostModerate:V1Lookup:Post"))
-        .await?;
-    assert!(find_post_details(&user_id, &post_id).await.is_ok());
-
-    record_takedown(
-        &post_uri_builder(user_id.clone(), post_id.clone()),
-        MODERATOR_TAG_URI,
-    )
-    .await?;
-
-    let removed = remove_if_taken_down(
-        &social_v1_post_uri_builder(user_id.clone(), post_id.clone()),
-        Path::new("/tmp/nexus-watcher-test"),
-        &default_ingestor_tests(),
-    )
-    .await?;
-
-    assert!(removed, "the social/v1 address finds the post's takedown");
-    assert!(
-        find_post_details(&user_id, &post_id).await.is_err(),
-        "the taken-down post is removed"
-    );
-    Ok(())
-}
-
-/// A user or an address that resolves to nothing Nexus takes down has no takedown address, so
-/// its takedown is looked up by the address as written: another spelling of it misses.
-#[tokio_shared_rt::test(shared)]
-async fn test_takedown_of_a_user_or_unresolved_address_is_looked_up_as_written() -> Result<()> {
-    let _test = WatcherTest::setup(None).await?;
-    let user_id = Keypair::random().public_key().to_z32();
-    let other_id = Keypair::random().public_key().to_z32();
-    let files_path = Path::new("/tmp/nexus-watcher-test");
-    let ingestor = default_ingestor_tests();
-
-    for (recorded, other_spelling) in [
-        // A user: its profile address and its bare key resolve to the same user.
-        (
-            format!("pubky://{user_id}/pub/pubky.app/profile.json"),
-            format!("pubky://{user_id}"),
-        ),
-        // Unresolved: a follow, and a URL.
-        (
-            format!("pubky://{user_id}/pub/pubky.app/follows/{other_id}"),
-            format!("pubky://{user_id}/pub/pubky.app/follows/{other_id}/"),
-        ),
-        (
-            format!("https://example.com/takedown-fallback/{user_id}"),
-            format!("https://example.com/takedown-fallback/{user_id}/"),
-        ),
-    ] {
-        assert!(
-            !remove_if_taken_down(&recorded, files_path, &ingestor).await?,
-            "{recorded} is not taken down yet"
-        );
-        record_takedown(&recorded, MODERATOR_TAG_URI).await?;
-        assert!(
-            remove_if_taken_down(&recorded, files_path, &ingestor).await?,
-            "{recorded} is looked up as written"
-        );
-        assert!(
-            !remove_if_taken_down(&other_spelling, files_path, &ingestor).await?,
-            "{other_spelling} is another address"
-        );
-    }
-    Ok(())
-}
-
 /// A moderator tag naming the post with a non-canonical address (a trailing slash) is
 /// recorded under the address the post's event carries, so the post stays out when its
 /// event comes later.
@@ -472,48 +393,6 @@ async fn test_post_taken_down_with_a_trailing_slash_stays_out() -> Result<()> {
     assert!(
         find_post_details(&user_id, &post_id).await.is_err(),
         "taken down under its canonical address, so its event is dropped"
-    );
-    Ok(())
-}
-
-/// A moderator tag naming the post by its `social/v1` address is recorded under the
-/// `pubky.app` address the post's own event carries, so the post stays out when its event
-/// comes later.
-#[tokio_shared_rt::test(shared)]
-async fn test_post_taken_down_through_its_social_v1_address_stays_out() -> Result<()> {
-    let mut test = WatcherTest::setup(None).await?;
-    let user_kp = Keypair::random();
-    let user_id = test
-        .create_user(&user_kp, &test_user("Watcher:PostModerate:SocialV1", ""))
-        .await?;
-
-    let post_id = generate_post_id();
-    let post_path: ResourcePath = PubkyAppPost::create_path(&post_id).parse()?;
-    let tag = PubkyAppTag {
-        uri: social_v1_post_uri_builder(user_id.clone(), post_id.clone()),
-        label: MODERATION_LABEL.to_string(),
-        created_at: Utc::now().timestamp_millis(),
-    };
-    let _ = default_moderation_tests()
-        .apply_moderation(
-            &tag.label,
-            post_reference(&tag.uri, &user_id, &post_id),
-            MODERATOR_TAG_URI,
-            Path::new("/tmp/nexus-watcher-test"),
-            &default_ingestor_tests(),
-        )
-        .await;
-
-    test.put(
-        &user_kp,
-        &post_path,
-        short_post("Watcher:PostModerate:SocialV1:Post"),
-    )
-    .await?;
-
-    assert!(
-        find_post_details(&user_id, &post_id).await.is_err(),
-        "taken down under its pubky.app address, so its event is dropped"
     );
     Ok(())
 }

@@ -4,7 +4,7 @@ use std::sync::Arc;
 use crate::errors::EventProcessorError;
 use crate::events::handlers;
 use crate::events::inputs::{Reference, ReferenceTarget};
-use crate::events::route::takedown_address;
+use crate::events::route::takedown_key;
 use nexus_common::models::takedown::record_takedown;
 use nexus_common::models::user::UserIngestor;
 use nexus_common::WatcherConfig;
@@ -67,13 +67,13 @@ impl Moderation {
             target @ (ReferenceTarget::Post(_)
             | ReferenceTarget::Tag { .. }
             | ReferenceTarget::File(_)) => {
-                // Recorded under the resolved target's takedown address, as an event's address
-                // is looked up (see `remove_if_taken_down`): the tag's URI may spell the record
-                // differently from its events (a trailing slash, a query, its `social/v1`
-                // address, another app's folder) and still name it.
-                // TODO(specs-migration): keying takedowns of a `social/v1` post's version paths
-                // is settled with the flip (N3).
-                let address = takedown_address(&target).map_err(EventProcessorError::generic)?;
+                // Recorded under the address the tag names, as an event for it carries it: a
+                // `pubky.app` or another app's address may spell it with a trailing slash or a
+                // query, rewritten here; a `social/v1` address is canonical by spec.
+                // TODO(specs-migration): a takedown through a `social/v1` address does not hold
+                // against the record's `pubky.app` events before the flip, nor against a
+                // `social/v1` post's version paths after it; both are settled with the flip (N3).
+                let address = takedown_key(&uri).map_err(EventProcessorError::generic)?;
 
                 // Posts, tags and files are remembered before they are deleted, so they stay
                 // down even if their own event is read only later, or again, or is being

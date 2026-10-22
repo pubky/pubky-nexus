@@ -251,16 +251,16 @@ async fn test_moderation_through_the_social_v1_address_of_a_post_takes_it_down()
     Ok(())
 }
 
-/// A tag has one id whatever folder holds it: a takedown of another app's tag holds when the
-/// same tag is replayed through that app's folder and through `pubky.app/tags/`.
+/// A takedown of another app's tag is recorded in that app's folder, so it holds when the
+/// same tag is replayed there.
 #[tokio_shared_rt::test(shared)]
-async fn test_takedown_of_another_apps_tag_holds_in_every_folder() -> Result<()> {
+async fn test_takedown_of_another_apps_tag_holds_on_replay() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
     let moderator_kp = create_moderator(&mut test).await?;
     let (_author_kp, author_id, post_id) = create_author_and_post(&mut test).await?;
-    let (tagger_kp, tagger_id) = create_tagger(&mut test, "every-folder").await?;
+    let (tagger_kp, tagger_id) = create_tagger(&mut test, "app-replay").await?;
 
-    let label = "mod_every_folder";
+    let label = "mod_app_replay";
     let tag_uri = put_app_specific_post_tag(
         &mut test, &tagger_kp, &tagger_id, "mapky", &author_id, &post_id, label,
     )
@@ -284,20 +284,6 @@ async fn test_takedown_of_another_apps_tag_holds_in_every_folder() -> Result<()>
     assert!(
         find_post_tag(&author_id, &post_id, label).await?.is_none(),
         "the takedown holds when the tag is replayed through its app's folder"
-    );
-
-    let pubky_app_uri = put_pubky_app_post_tag(
-        &mut test, &tagger_kp, &tagger_id, &author_id, &post_id, label,
-    )
-    .await?;
-    assert_eq!(
-        pubky_app_uri.rsplit('/').next(),
-        tag_uri.rsplit('/').next(),
-        "the same tag id in the pubky.app folder"
-    );
-    assert!(
-        find_post_tag(&author_id, &post_id, label).await?.is_none(),
-        "the takedown holds when the tag is replayed through pubky.app/tags/"
     );
 
     Ok(())
