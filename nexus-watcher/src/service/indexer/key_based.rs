@@ -426,7 +426,10 @@ impl KeyBasedEventProcessor {
                 }
                 Ok(None) => { /* resource not handled by Nexus, skip */ }
                 Err(e) => {
-                    error!(
+                    // Invalid event lines come from untrusted homeservers; treat as
+                    // bad peer data, not Nexus errors. Matches the homeserver path
+                    // (see `service::indexer`).
+                    warn!(
                         %user_id,
                         %cursor_id,
                         error = %e,
