@@ -3,9 +3,12 @@
 //! actions performed through per-device SDK clients.
 
 use std::collections::HashSet;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::{anyhow, ensure, Context, Result};
+use nexus_common::config::EventRetryConfig;
 use nexus_common::db::graph::Query;
 use nexus_common::db::{
     fetch_key_from_graph, fetch_row_from_graph, queries, PubkyClientError, PubkyClientResult,
@@ -17,19 +20,23 @@ use nexus_common::models::user::{HomeserverRecheck, StaleMapping, UserHsCursor, 
 use nexus_common::types::Pagination;
 use nexus_common::utils::test_utils::default_ingestor_tests;
 use nexus_common::{StackConfig, StackManager, DEFAULT_MAX_FILE_SIZE};
-use nexus_watcher::events::retry::{InitialBackoff, RedisRetryStore, RetryScheduler, RetryStore};
+use nexus_watcher::events::retry::{
+    InMemoryRetryStore, IndexKey, InitialBackoff, RetryEvent, RetryProcessor, RetryScheduler,
+    RetryStore,
+};
 use nexus_watcher::events::{DefaultEventHandler, EventHandler, Moderation};
 use nexus_watcher::service::indexer::{
-    KeyBasedEventProcessor, PubkyKeyBasedEventSource, TEventProcessor,
+    KeyBasedEventProcessor, KeyBasedEventSource, PubkyKeyBasedEventSource, TEventProcessor,
 };
 use nexus_watcher::service::runner::UserNotFoundBackoff;
 use nexus_watcher::service::stats::ProcessorRunStatus;
 use nexus_watcher::service::user_hs_resolver::{self, PkdnsHomeserverResolver, UnboundBackoff};
-use nexus_watcher::service::{HsEventProcessorRunner, TEventProcessorRunner};
+use nexus_watcher::service::{HsEventProcessorRunner, RunError, TEventProcessorRunner};
+use nexus_watcher::EventProcessorError;
 use pubky::pkarr::dns::rdata::TXT;
 use pubky::pkarr::dns::Name;
 use pubky::pkarr::SignedPacket;
-use pubky::{Keypair, Pubky, PubkySession, PublicKey};
+use pubky::{Event as StreamEvent, EventCursor, Keypair, Pubky, PubkySession, PublicKey};
 use pubky_app_specs::traits::{HasIdPath, HasPath, HashId, TimestampId};
 use pubky_app_specs::{
     post_uri_builder, PubkyAppFollow, PubkyAppPost, PubkyAppPostKind, PubkyAppTag, PubkyAppUser,
@@ -37,7 +44,8 @@ use pubky_app_specs::{
 };
 use pubky_testnet::Testnet;
 use tempfile::TempDir;
-use tokio::sync::watch;
+use tokio::sync::{watch, Notify};
+use tokio::task::JoinHandle;
 
 /// A user's `HOSTED_BY` binding as nexus stores it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -59,6 +67,7 @@ pub struct MigrationTest {
     handler: Arc<dyn EventHandler>,
     ingestor: Arc<UserIngestor>,
     retry: Arc<RetryScheduler>,
+    retry_queue: Arc<RetryQueue>,
     not_found_backoff: Arc<UserNotFoundBackoff>,
     shutdown_rx: watch::Receiver<bool>,
     _shutdown_tx: watch::Sender<bool>,
@@ -97,7 +106,8 @@ impl MigrationTest {
             DEFAULT_MAX_FILE_SIZE,
             files.path().to_path_buf(),
         ));
-        let store: Arc<dyn RetryStore> = Arc::new(RedisRetryStore::new());
+        let retry_queue = Arc::new(RetryQueue::default());
+        let store: Arc<dyn RetryStore> = retry_queue.clone();
         let retry = Arc::new(RetryScheduler::new(
             store,
             InitialBackoff {
@@ -123,6 +133,7 @@ impl MigrationTest {
             handler,
             ingestor,
             retry,
+            retry_queue,
             not_found_backoff: Arc::new(UserNotFoundBackoff::default()),
             shutdown_rx,
             _shutdown_tx: shutdown_tx,
@@ -148,10 +159,27 @@ impl MigrationTest {
 
     /// One per-user read of every user bound to `hs`.
     pub async fn index_external(&self, hs: &PubkyId) -> Result<()> {
-        self.key_based(hs.clone())
+        self.key_based(hs.clone(), Arc::new(PubkyKeyBasedEventSource))
             .run()
             .await
             .map_err(|e| anyhow!("{e:?}"))
+    }
+
+    /// A per-user read of `hs` that has listed its users and stops right
+    /// before fetching `user`'s events, until [`PausedRead::resume`]. One read
+    /// reaches the users of a busy homeserver minutes apart, so this is a read
+    /// that started before a switch, caught while the switch happens.
+    pub async fn index_external_paused(&self, hs: &PubkyId, user: &Keypair) -> Result<PausedRead> {
+        let source = Arc::new(PausingSource {
+            user: user.public_key(),
+            reached: Notify::new(),
+            resume: Notify::new(),
+        });
+        let run = tokio::spawn(self.key_based(hs.clone(), source.clone()).run());
+        tokio::time::timeout(Duration::from_secs(30), source.reached.notified())
+            .await
+            .context("the read never reached the user")?;
+        Ok(PausedRead { source, run })
     }
 
     /// One per-user read of the users bound to the primary: how a user's own
@@ -164,17 +192,49 @@ impl MigrationTest {
     /// looked up, with a fresh network lookup. Every other user in the shared
     /// graph gets a failed lookup, which the resolver leaves alone.
     pub async fn resolve(&self, user: &Keypair) -> Result<()> {
-        let resolver = FreshLookup {
+        self.sweep(&FreshLookup {
             users: HashSet::from([user.public_key().to_z32()]),
-        };
+        })
+        .await
+    }
+
+    /// One sweep with stale mapping disabled in which only `user` is looked
+    /// up, the way the production resolver does it: cache-first, through
+    /// `client`. A client other than nexus's own stands for the watcher
+    /// process when the recheck runs in the API process: each process has its
+    /// own pkarr cache, and the watcher's holds what its last sweep saw.
+    pub async fn resolve_cached(&self, user: &Keypair, client: &Pubky) -> Result<()> {
+        self.sweep(&CachedLookup {
+            users: HashSet::from([user.public_key().to_z32()]),
+            client: client.clone(),
+        })
+        .await
+    }
+
+    async fn sweep(&self, resolver: &dyn PkdnsHomeserverResolver) -> Result<()> {
         let mut shutdown_rx = self.shutdown_rx.clone();
         user_hs_resolver::run(
-            &resolver,
+            resolver,
             0,
             &UnboundBackoff::default(),
             &mut shutdown_rx,
             StaleMapping::Disabled,
         )
+        .await
+        .map_err(|e| anyhow!("{e}"))
+    }
+
+    /// One pass of the retry processor over everything queued so far, as if
+    /// every entry's backoff had passed.
+    pub async fn retry(&self) -> Result<()> {
+        self.retry_queue.all_due.store(true, Ordering::SeqCst);
+        Arc::new(RetryProcessor {
+            event_handler: self.handler.clone(),
+            shutdown_rx: self.shutdown_rx.clone(),
+            config: EventRetryConfig::default(),
+            store: self.retry_queue.clone(),
+        })
+        .run()
         .await
         .map_err(|e| anyhow!("{e}"))
     }
@@ -198,12 +258,16 @@ impl MigrationTest {
             .map_err(|e| anyhow!("ingesting the user: {e}"))
     }
 
-    fn key_based(&self, hs: PubkyId) -> Arc<KeyBasedEventProcessor> {
+    fn key_based(
+        &self,
+        hs: PubkyId,
+        event_source: Arc<dyn KeyBasedEventSource>,
+    ) -> Arc<KeyBasedEventProcessor> {
         Arc::new(KeyBasedEventProcessor {
             homeserver_id: hs,
             limit: 100,
             event_handler: self.handler.clone(),
-            event_source: Arc::new(PubkyKeyBasedEventSource),
+            event_source,
             user_not_found_backoff: self.not_found_backoff.clone(),
             hs_blacklist: HsBlacklist::default(),
             retry_scheduler: self.retry.clone(),
@@ -231,6 +295,11 @@ impl MigrationTest {
             .signer(user.clone())
             .signup(&hs.to_public_key(), None)
             .await?;
+        self.write_profile(&session, name).await?;
+        Ok(session)
+    }
+
+    pub async fn write_profile(&self, session: &PubkySession, name: &str) -> Result<()> {
         let profile = PubkyAppUser {
             name: name.to_string(),
             bio: Some("migration suite".to_string()),
@@ -245,7 +314,15 @@ impl MigrationTest {
                 serde_json::to_vec(&profile)?,
             )
             .await?;
-        Ok(session)
+        Ok(())
+    }
+
+    pub async fn delete_profile(&self, session: &PubkySession) -> Result<()> {
+        session
+            .storage()
+            .delete(PubkyAppUser::create_path().as_str())
+            .await?;
+        Ok(())
     }
 
     /// A session on the homeserver `device` currently resolves for `user`.
@@ -402,6 +479,18 @@ impl MigrationTest {
         Ok(self.binding(user).await?.homeserver)
     }
 
+    /// [`Self::bound_to`] by name, for readable assertions: `primary`, `hs_a`,
+    /// `hs_b`, `elsewhere` or `nowhere`.
+    pub async fn bound_name(&self, user: &Keypair) -> Result<&'static str> {
+        Ok(match self.bound_to(user).await? {
+            None => "nowhere",
+            Some(hs) if hs == self.primary.as_ref() => "primary",
+            Some(hs) if hs == self.hs_a.as_ref() => "hs_a",
+            Some(hs) if hs == self.hs_b.as_ref() => "hs_b",
+            Some(_) => "elsewhere",
+        })
+    }
+
     /// The user's per-user cursor on `hs`, 0 when none is stored.
     pub async fn cursor(&self, user: &Keypair, hs: &PubkyId) -> Result<u64> {
         let user_id = user.public_key().to_z32();
@@ -484,6 +573,126 @@ impl PkdnsHomeserverResolver for FreshLookup {
         let pubky = PubkyConnector::get()?;
         pubky.client().pkarr().resolve_most_recent(user_pk).await;
         Ok(pubky.get_homeserver_of(user_pk).await.map(PubkyId::from))
+    }
+}
+
+/// A resolver for the sweep that looks up this test's users as the production
+/// resolver does, with `get_homeserver_of`, but through a client of its own:
+/// pkarr's `resolve` answers from that client's cache, even with an expired
+/// packet, and refreshes it in the background.
+struct CachedLookup {
+    users: HashSet<String>,
+    client: Pubky,
+}
+
+#[async_trait::async_trait]
+impl PkdnsHomeserverResolver for CachedLookup {
+    async fn resolve_homeserver(&self, user_pk: &PublicKey) -> PubkyClientResult<Option<PubkyId>> {
+        if !self.users.contains(&user_pk.to_z32()) {
+            return Err(PubkyClientError::RequestFailed {
+                message: "not a user of this test".to_string(),
+            });
+        }
+        Ok(self
+            .client
+            .get_homeserver_of(user_pk)
+            .await
+            .map(PubkyId::from))
+    }
+}
+
+/// The event source of [`MigrationTest::index_external_paused`]: holds the
+/// fetch of one user's events until resumed.
+struct PausingSource {
+    user: PublicKey,
+    reached: Notify,
+    resume: Notify,
+}
+
+#[async_trait::async_trait]
+impl KeyBasedEventSource for PausingSource {
+    async fn fetch_events(
+        &self,
+        hs_pk: &PublicKey,
+        user_pk: &PublicKey,
+        cursor: EventCursor,
+        limit: u16,
+    ) -> Result<Vec<StreamEvent>, EventProcessorError> {
+        if *user_pk == self.user {
+            self.reached.notify_one();
+            self.resume.notified().await;
+        }
+        PubkyKeyBasedEventSource
+            .fetch_events(hs_pk, user_pk, cursor, limit)
+            .await
+    }
+}
+
+/// A per-user read stopped before one user's fetch.
+pub struct PausedRead {
+    source: Arc<PausingSource>,
+    run: JoinHandle<Result<(), RunError>>,
+}
+
+impl PausedRead {
+    /// Lets the read fetch the user's events now and finish.
+    pub async fn resume(self) -> Result<()> {
+        self.source.resume.notify_one();
+        self.run.await?.map_err(|e| anyhow!("{e:?}"))
+    }
+}
+
+/// The suite's retry queue: in memory, so tests running in parallel processes
+/// never see each other's entries, and with a switch that makes every entry
+/// due for one pass of the retry processor.
+#[derive(Default)]
+struct RetryQueue {
+    entries: InMemoryRetryStore,
+    all_due: AtomicBool,
+}
+
+#[async_trait::async_trait]
+impl RetryStore for RetryQueue {
+    async fn put(&self, event: &RetryEvent) -> Result<(), EventProcessorError> {
+        self.entries.put(event).await
+    }
+
+    async fn get(&self, index_key: &IndexKey) -> Result<Option<RetryEvent>, EventProcessorError> {
+        self.entries.get(index_key).await
+    }
+
+    async fn remove(&self, index_key: &IndexKey) -> Result<(), EventProcessorError> {
+        self.entries.remove(index_key).await
+    }
+
+    async fn remove_if(
+        &self,
+        index_key: &IndexKey,
+        expected_nonce: i64,
+    ) -> Result<bool, EventProcessorError> {
+        self.entries.remove_if(index_key, expected_nonce).await
+    }
+
+    async fn put_if(
+        &self,
+        event: &RetryEvent,
+        expected_nonce: i64,
+    ) -> Result<bool, EventProcessorError> {
+        self.entries.put_if(event, expected_nonce).await
+    }
+
+    /// The first fetch after [`MigrationTest::retry`] takes every entry; the
+    /// processor's next fetch sees only what is really due, which ends the pass.
+    async fn fetch_ready(
+        &self,
+        now: i64,
+        limit: Option<usize>,
+    ) -> Result<Vec<(IndexKey, RetryEvent)>, EventProcessorError> {
+        let now = match self.all_due.swap(false, Ordering::SeqCst) {
+            true => i64::MAX,
+            false => now,
+        };
+        self.entries.fetch_ready(now, limit).await
     }
 }
 
