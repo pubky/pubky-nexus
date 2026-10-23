@@ -317,8 +317,8 @@ of the most-followed and influencer rankings and the users-by-tag search (an out
 joins the scope is ranked there then), and their posts out of the global feeds
 (timeline, engagement, tag streams, and the `source=all` shapes served from the graph,
 such as a kind filter or several tags): they appear where they meet the scope, in threads,
-counts, notifications and their own profile. A Redis set (`Scope:Outsiders`) mirrors the
-graph for the per-write check and is rebuilt at start.
+counts, notifications and their own profile. Every check reads the graph's `scope_state`,
+the only record of who is an outsider.
 
 An event read from a homeserver's whole feed whose author is outside the scope is skipped
 before it is fetched, counted in `watcher.events.out_of_scope`. Users outside the scope

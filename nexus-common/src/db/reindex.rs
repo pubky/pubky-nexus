@@ -9,7 +9,6 @@ use crate::models::tag::stream::HotTags;
 use crate::models::tag::traits::TagCollection;
 use crate::models::tag::user::TagUser;
 use crate::models::traits::Collection;
-use crate::models::user::outsider::rebuild_outsider_index;
 use crate::models::user::{
     Influencers, SocialGraphStatus, UserDetails, UserStream, UsersByTagSearch,
 };
@@ -25,10 +24,6 @@ pub const REINDEX_BATCH_SIZE: usize = 500;
 
 #[tracing::instrument(name = "reindex.sync", skip_all)]
 pub async fn sync() {
-    // Before any user is indexed, so its counts never wait on a rebuild of a lost set.
-    rebuild_outsider_index()
-        .await
-        .expect("Failed to rebuild the outsider index");
     reindex_users_by_batch()
         .await
         .expect("Failed to reindex users by batch");

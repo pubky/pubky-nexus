@@ -3,12 +3,12 @@ use std::sync::Arc;
 use pubky_app_specs::{ParsedUri, PubkyId};
 
 use super::PkdnsHomeserverResolver;
-use crate::db::{exec_single_row, fetch_key_from_graph, fetch_row_from_graph, queries};
+use crate::db::{fetch_key_from_graph, fetch_row_from_graph, queries};
 use crate::models::error::{ModelError, ModelResult};
 use crate::models::homeserver::HsBlacklist;
 use crate::models::scope::{scope_from_config, EverythingScope, Scope};
 use crate::models::traits::Collection;
-use crate::models::user::outsider::{admit_outsider, create_outsider, drop_outsider_entry};
+use crate::models::user::outsider::{admit_outsider, create_outsider};
 use crate::models::user::{set_user_homeserver, UserDetails, UserHsCursor};
 use crate::{ScopeConfig, StackConfig};
 
@@ -193,7 +193,7 @@ impl UserIngestor {
     /// Makes sure a user that must be in the scope (the moderator) is known and polled.
     ///
     /// If its HS can't be resolved right now, the bare node is still created: the HS
-    /// resolver binds it on a later run, and polling starts from there. A node kept as a
+    /// resolver binds it on a later run, and polling starts from there. A node kept as an
     /// outsider (the API ingests with the plain scope, which doesn't pin the moderator) is
     /// brought back into the scope.
     pub async fn ensure_in_scope(&self, user_id: &PubkyId) -> ModelResult<()> {
@@ -210,15 +210,13 @@ impl UserIngestor {
         if scope_state.flatten().is_none() {
             return Ok(());
         }
-        // The graph's state is cleared last, so a failure before leaves it an outsider there
-        // and the next start retries the whole of it.
-        admit_outsider(user_id).await?;
-        exec_single_row(queries::put::set_user_scope_state(user_id, None)).await?;
-        drop_outsider_entry(user_id).await?;
+        // Bound first and let in last, so a failure before leaves it an outsider (never
+        // polled meanwhile) and the next start retries the whole of it.
         if let Some(hs_id) = self.ensure_hs_not_blacklisted(user_id).await? {
             set_user_homeserver(user_id, &hs_id).await?;
             UserHsCursor::init(user_id, &hs_id).await?;
         }
+        admit_outsider(user_id).await?;
         tracing::info!("Brought {user_id} back into the scope: it must always be read");
         Ok(())
     }

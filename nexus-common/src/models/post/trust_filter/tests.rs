@@ -373,10 +373,9 @@ mod live {
     #[tokio_shared_rt::test(shared)]
     async fn switching_off_keeps_outsiders_hidden() -> TestResult {
         setup(&[]).await?;
-        // An outsider in the graph, the source of truth Scope:Outsiders is rebuilt from.
+        // An outsider in the graph, where every check reads it.
         let outsider_state = |state| crate::db::queries::put::set_user_scope_state(SPAMMER, state);
         crate::db::exec_single_row(outsider_state(Some("outside"))).await?;
-        crate::models::user::outsider::rebuild_outsider_index().await?;
 
         switch(true).await?;
         let hidden = reconcile().await;
@@ -384,7 +383,6 @@ mod live {
         let shown = reconcile().await;
         let scores = spammer_scores().await;
         crate::db::exec_single_row(outsider_state(None)).await?;
-        crate::models::user::outsider::drop_outsider_entry(SPAMMER).await?;
         cleanup(&[]).await?;
 
         hidden?;
