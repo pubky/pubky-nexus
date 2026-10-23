@@ -251,6 +251,29 @@ mod tests {
         }
     }
 
+    /// The watcher's ingestor keeps the moderator in scope whatever the scope: on a
+    /// homeserver the list doesn't hold, the moderator is in, and anyone else is out.
+    #[tokio::test]
+    async fn the_watchers_ingestor_keeps_the_moderator_in_scope() {
+        let (listed, unlisted) = (random_pubky_id(), random_pubky_id());
+        let mut config = WatcherConfig::default();
+        config.stack.scope = crate::ScopeConfig::Homeservers {
+            homeservers: vec![listed],
+        };
+        let resolver = Arc::new(FixedResolver(unlisted.clone()));
+        let scope = UserIngestor::from_watcher_config(&config, resolver)
+            .scope()
+            .clone();
+
+        let moderator = config.moderation_id.to_string();
+        assert!(scope
+            .is_in_scope(&moderator, Some(&unlisted))
+            .await
+            .unwrap());
+        let someone = random_pubky_id().to_string();
+        assert!(!scope.is_in_scope(&someone, Some(&unlisted)).await.unwrap());
+    }
+
     /// The blacklist check looks the user's homeserver up through the injected resolver.
     #[tokio::test]
     async fn blacklist_check_uses_the_injected_resolver() {

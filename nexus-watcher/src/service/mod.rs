@@ -163,8 +163,8 @@ impl NexusWatcher {
 /// Gets the scope ready before any event is read: the homeservers read whole are
 /// persisted so their cursors exist, Redis's copy of the stubs is rebuilt from the
 /// graph, and the moderator is made sure to be read, its homeserver looked up through
-/// `client`.
-async fn prepare_scope(
+/// `client`. Run by [`NexusWatcher::start`]; public so tests can run it alone.
+pub async fn prepare_scope(
     config: &WatcherConfig,
     client: Arc<dyn HomeserverClient>,
 ) -> Result<(), DynError> {
