@@ -5,7 +5,7 @@ use utoipa::ToSchema;
 /// Which users this Nexus indexes, set in `[stack.scope]` so the watcher and the
 /// web API read the same value.
 ///
-/// Users outside the scope are kept as stubs: their node exists so in-scope
+/// Users outside the scope are kept as outsiders: their node exists so in-scope
 /// records can point at them, but their own content is never read.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case", try_from = "RawScopeConfig")]

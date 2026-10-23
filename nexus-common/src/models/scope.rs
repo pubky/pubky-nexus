@@ -2,7 +2,7 @@
 //!
 //! The watcher asks one [`Scope`], built from [`ScopeConfig`], at every point where
 //! it decides whose content to read: which homeservers it reads as a whole feed,
-//! whether a newly discovered user is indexed or kept as a stub, and whether an
+//! whether a newly discovered user is indexed or kept as an outsider, and whether an
 //! event's author is indexed.
 
 use std::collections::HashSet;

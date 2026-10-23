@@ -1,4 +1,4 @@
-use super::{is_stub, UserDetails};
+use super::{is_outsider, UserDetails};
 use crate::db::graph::Query;
 use crate::db::kv::{RedisResult, SortOrder};
 use crate::db::{get_neo4j_graph, queries, GraphError, GraphResult, RedisOps};
@@ -175,9 +175,9 @@ impl UsersByTagSearch {
     /// # Errors
     /// Returns an error if the Redis script execution fails.
     pub async fn sync_index_score(user_id: &str, label: &str) -> RedisResult<()> {
-        // A stub's profile is never read: ranked, it would show as a blank card. Its
-        // labels are synced when it joins the scope (`unstub`).
-        if is_stub(user_id).await? {
+        // An outsider's profile is never read: ranked, it would show as a blank card. Its
+        // labels are synced when it joins the scope (`admit_outsider`).
+        if is_outsider(user_id).await? {
             return Ok(());
         }
         let details_key = format!("{}:{}", UserDetails::prefix().await, user_id);

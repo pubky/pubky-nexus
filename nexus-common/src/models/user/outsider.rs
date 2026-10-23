@@ -1,11 +1,11 @@
-//! Stubs: users this Nexus knows but keeps outside its scope.
+//! Outsiders: users this Nexus knows but keeps outside its scope.
 //!
-//! A stub's node exists so in-scope records (a follow, a tag, a reply) can point at it,
+//! An outsider's node exists so in-scope records (a follow, a tag, a reply) can point at it,
 //! but its own content is never read: it has no `HOSTED_BY` and no cursor. It has
 //! counts, which in-scope records move, but is kept out of the rankings and its posts
 //! out of the global feeds, where a profile never read would show as a blank card.
 //!
-//! The graph's `scope_state` is the source of truth; `Scope:Stubs` mirrors it for the
+//! The graph's `scope_state` is the source of truth; `Scope:Outsiders` mirrors it for the
 //! per-write check and is rebuilt from the graph at start.
 
 use std::sync::LazyLock;
@@ -19,21 +19,21 @@ use crate::models::error::{ModelError, ModelResult};
 use crate::models::user::{UserCounts, UserDetails, UsersByTagSearch};
 
 /// `scope_state` of a user known to this Nexus but outside its scope.
-pub const SCOPE_STATE_STUB: &str = "stub";
-const STUBS_KEY: &str = "Scope:Stubs";
-/// Counts the writes to `Scope:Stubs`, so a rebuild can tell whether one landed after it
+pub const SCOPE_STATE_OUTSIDE: &str = "outside";
+const OUTSIDERS_KEY: &str = "Scope:Outsiders";
+/// Counts the writes to `Scope:Outsiders`, so a rebuild can tell whether one landed after it
 /// read the graph.
-const WRITES_KEY: &str = "Scope:StubWrites";
-/// A member every rebuilt `Scope:Stubs` holds (not a valid user id), so a set lost with
-/// Redis reads as not built yet rather than as "no stubs".
+const WRITES_KEY: &str = "Scope:OutsiderWrites";
+/// A member every rebuilt `Scope:Outsiders` holds (not a valid user id), so a set lost with
+/// Redis reads as not built yet rather than as "no outsiders".
 const BUILT: &str = "*built*";
-/// Rebuilds that lost to a stub write and read the graph again, before giving up.
+/// Rebuilds that lost to an outsider write and read the graph again, before giving up.
 const REBUILD_ATTEMPTS: usize = 5;
-/// Taken by an [`is_stub`] that finds `Scope:Stubs` lost; per process.
+/// Taken by an [`is_outsider`] that finds `Scope:Outsiders` lost; per process.
 static REBUILD_LOCK: AsyncMutex<()> = AsyncMutex::const_new(());
 
-/// Replaces `Scope:Stubs` (KEYS[1]) with ARGV[2..], unless the write count (KEYS[2]) is no
-/// longer ARGV[1]: a stub written since the graph was read would be lost.
+/// Replaces `Scope:Outsiders` (KEYS[1]) with ARGV[2..], unless the write count (KEYS[2]) is no
+/// longer ARGV[1]: an outsider written since the graph was read would be lost.
 static REPLACE_IF_UNCHANGED: LazyLock<Script> = LazyLock::new(|| {
     Script::new(
         "if (redis.call('get', KEYS[2]) or '0') ~= ARGV[1] then return 0 end
@@ -45,49 +45,49 @@ static REPLACE_IF_UNCHANGED: LazyLock<Script> = LazyLock::new(|| {
     )
 });
 
-/// Whether the user is a stub. If `Scope:Stubs` was lost (Redis restarted or flushed
+/// Whether the user is an outsider. If `Scope:Outsiders` was lost (Redis restarted or flushed
 /// while the watcher or the API kept running), it is rebuilt from the graph first, so
-/// stubs are never taken for members and ranked.
-pub async fn is_stub(user_id: &str) -> RedisResult<bool> {
-    if let Some(stub) = check(user_id).await? {
-        return Ok(stub);
+/// outsiders are never taken for members and ranked.
+pub async fn is_outsider(user_id: &str) -> RedisResult<bool> {
+    if let Some(outsider) = check(user_id).await? {
+        return Ok(outsider);
     }
     // Callers that find the set lost together share one rebuild. The lock is taken
     // holding no connection, so waiting callers never keep the pool from the rebuild.
     let _rebuild = REBUILD_LOCK.lock().await;
-    if let Some(stub) = check(user_id).await? {
-        return Ok(stub);
+    if let Some(outsider) = check(user_id).await? {
+        return Ok(outsider);
     }
     rebuild().await?;
     let mut conn = get_redis_conn().await?;
-    Ok(conn.sismember(STUBS_KEY, user_id).await?)
+    Ok(conn.sismember(OUTSIDERS_KEY, user_id).await?)
 }
 
-/// Whether the user is a stub, or `None` if `Scope:Stubs` isn't built.
+/// Whether the user is an outsider, or `None` if `Scope:Outsiders` isn't built.
 async fn check(user_id: &str) -> RedisResult<Option<bool>> {
     let mut conn = get_redis_conn().await?;
-    let found: Vec<bool> = conn.smismember(STUBS_KEY, &[user_id, BUILT]).await?;
+    let found: Vec<bool> = conn.smismember(OUTSIDERS_KEY, &[user_id, BUILT]).await?;
     Ok(match found.as_slice() {
-        [stub, true] => Some(*stub),
+        [outsider, true] => Some(*outsider),
         _ => None,
     })
 }
 
-/// Adds (`true`) or removes the user's `Scope:Stubs` entry, counting the write in the
+/// Adds (`true`) or removes the user's `Scope:Outsiders` entry, counting the write in the
 /// same step. Returns whether the set changed.
-async fn write_entry(user_id: &str, stub: bool) -> RedisResult<bool> {
+async fn write_entry(user_id: &str, outsider: bool) -> RedisResult<bool> {
     let mut conn = get_redis_conn().await?;
     let mut pipe = redis::pipe();
     pipe.atomic();
-    match stub {
-        true => pipe.sadd(STUBS_KEY, user_id),
-        false => pipe.srem(STUBS_KEY, user_id),
+    match outsider {
+        true => pipe.sadd(OUTSIDERS_KEY, user_id),
+        false => pipe.srem(OUTSIDERS_KEY, user_id),
     };
     let (changed, _): (usize, i64) = pipe.incr(WRITES_KEY, 1).query_async(&mut conn).await?;
     Ok(changed > 0)
 }
 
-/// Creates the node of a user met outside the scope, already a stub, with zeroed
+/// Creates the node of a user met outside the scope, already an outsider, with zeroed
 /// counts outside the rankings.
 ///
 /// The node and its `scope_state` are written in one graph write, so no node exists
@@ -98,20 +98,20 @@ async fn write_entry(user_id: &str, stub: bool) -> RedisResult<bool> {
 /// A node another caller created first is left as they made it: the watcher and the
 /// API can both meet an unknown user, and only the watcher keeps the moderator in
 /// scope. Its counts are never overwritten, and its entry stays only if that node is a
-/// stub too.
-pub async fn create_stub(details: &UserDetails) -> ModelResult<()> {
+/// outsider too.
+pub async fn create_outsider(details: &UserDetails) -> ModelResult<()> {
     let user_id = details.id.to_string();
     write_entry(&user_id, true).await?;
     // Before the node: a follow or tag of it, once it exists, has counts to update.
     init_counts(&user_id).await?;
-    let row = fetch_row_from_graph(queries::put::create_stub_user(details)?)
+    let row = fetch_row_from_graph(queries::put::create_outsider_user(details)?)
         .await?
-        .ok_or_else(|| ModelError::from_generic("creating a stub returned no row"))?;
+        .ok_or_else(|| ModelError::from_generic("creating an outsider returned no row"))?;
     let created: bool = row.get("created")?;
     let scope_state: Option<String> = row.get("scope_state")?;
     if !created {
-        if scope_state.as_deref() != Some(SCOPE_STATE_STUB) {
-            drop_stub_entry(&user_id).await?;
+        if scope_state.as_deref() != Some(SCOPE_STATE_OUTSIDE) {
+            drop_outsider_entry(&user_id).await?;
         }
         return Ok(());
     }
@@ -120,7 +120,7 @@ pub async fn create_stub(details: &UserDetails) -> ModelResult<()> {
 }
 
 /// Saves zeroed counts for the user, unless it has counts already: those of a user
-/// created first, or of a stub already updated, are never overwritten.
+/// created first, or of an outsider already updated, are never overwritten.
 async fn init_counts(user_id: &str) -> RedisResult<()> {
     let key = format!("{}:{user_id}", UserCounts::prefix().await);
     let zeroed = serde_json::to_string(&UserCounts::default())
@@ -136,12 +136,12 @@ async fn init_counts(user_id: &str) -> RedisResult<()> {
     Ok(())
 }
 
-/// Stops treating the user as a stub in Redis, and ranks it in the users-by-tag search
-/// its tags were kept out of. Returns whether it was a stub there. The caller clears its
-/// `scope_state`, then calls [`drop_stub_entry`]; the rankings, rebuilt from the graph,
+/// Stops treating the user as an outsider in Redis, and ranks it in the users-by-tag search
+/// its tags were kept out of. Returns whether it was an outsider there. The caller clears its
+/// `scope_state`, then calls [`drop_outsider_entry`]; the rankings, rebuilt from the graph,
 /// take the user in from their next rebuild.
-pub async fn unstub(user_id: &str) -> ModelResult<bool> {
-    // Out of the set first: the tag search skips a stub.
+pub async fn admit_outsider(user_id: &str) -> ModelResult<bool> {
+    // Out of the set first: the tag search skips an outsider.
     if !write_entry(user_id, false).await? {
         return Ok(false);
     }
@@ -153,43 +153,43 @@ pub async fn unstub(user_id: &str) -> ModelResult<bool> {
     Ok(true)
 }
 
-/// Drops the user's `Scope:Stubs` entry, for a user whose graph state was just cleared:
+/// Drops the user's `Scope:Outsiders` entry, for a user whose graph state was just cleared:
 /// a rebuild may have put it back from the state before.
-pub async fn drop_stub_entry(user_id: &str) -> ModelResult<()> {
+pub async fn drop_outsider_entry(user_id: &str) -> ModelResult<()> {
     write_entry(user_id, false).await?;
     Ok(())
 }
 
-/// Rebuilds `Scope:Stubs` from the graph. Returns how many stubs the graph holds.
-pub async fn rebuild_stub_index() -> ModelResult<usize> {
+/// Rebuilds `Scope:Outsiders` from the graph. Returns how many outsiders the graph holds.
+pub async fn rebuild_outsider_index() -> ModelResult<usize> {
     Ok(rebuild().await?)
 }
 
-/// Replaces `Scope:Stubs` with the graph's stubs, unless a stub write landed after the
+/// Replaces `Scope:Outsiders` with the graph's outsiders, unless an outsider write landed after the
 /// graph was read; then it reads the graph again.
 async fn rebuild() -> RedisResult<usize> {
     for _ in 0..REBUILD_ATTEMPTS {
         let mut conn = get_redis_conn().await?;
         let writes: Option<String> = conn.get(WRITES_KEY).await?;
-        let query = queries::get::get_user_ids_by_scope_state(SCOPE_STATE_STUB);
-        let stubs: Vec<String> = fetch_key_from_graph(query, "user_ids")
+        let query = queries::get::get_user_ids_by_scope_state(SCOPE_STATE_OUTSIDE);
+        let outsiders: Vec<String> = fetch_key_from_graph(query, "user_ids")
             .await
-            .map_err(|e| RedisError::CommandFailed(format!("reading the stubs: {e}").into()))?
+            .map_err(|e| RedisError::CommandFailed(format!("reading the outsiders: {e}").into()))?
             .unwrap_or_default();
         let replaced: i64 = REPLACE_IF_UNCHANGED
-            .key(STUBS_KEY)
+            .key(OUTSIDERS_KEY)
             .key(WRITES_KEY)
             .arg(writes.as_deref().unwrap_or("0"))
-            .arg(&stubs)
+            .arg(&outsiders)
             .arg(BUILT)
             .invoke_async(&mut conn)
             .await?;
         if replaced == 1 {
-            return Ok(stubs.len());
+            return Ok(outsiders.len());
         }
     }
     Err(RedisError::CommandFailed(
-        "Scope:Stubs kept changing while it was rebuilt".into(),
+        "Scope:Outsiders kept changing while it was rebuilt".into(),
     ))
 }
 
@@ -204,25 +204,25 @@ mod tests {
     use deadpool_redis::redis::AsyncCommands;
     use pubky_app_specs::PubkyAppPostKind;
 
-    use super::SCOPE_STATE_STUB;
+    use super::SCOPE_STATE_OUTSIDE;
 
-    /// The all-posts feed served from the graph (a kind filter) leaves a stub's posts
+    /// The all-posts feed served from the graph (a kind filter) leaves an outsider's posts
     /// out, as the feed served from Redis does; its author coming into scope lets them
     /// back in.
     #[tokio_shared_rt::test(shared)]
-    async fn the_graph_served_feed_leaves_stubs_posts_out() -> Result<(), DynError> {
+    async fn the_graph_served_feed_leaves_outsiders_posts_out() -> Result<(), DynError> {
         StackManager::setup(&StackConfig::default()).await?;
         let author = pubky::Keypair::random().public_key().to_z32();
         // Far in the future, so the window holds this post alone.
         let indexed_at = 4_000_000_000_000_i64 + rand_suffix();
-        let post_id = format!("STUB{indexed_at}");
+        let post_id = format!("OUTSIDE{indexed_at}");
         let create = Query::new(
-            "test_stub_author_with_post",
-            "CREATE (u:User {id: $author, trust: 1.0, scope_state: $stub})
+            "test_outsider_author_with_post",
+            "CREATE (u:User {id: $author, trust: 1.0, scope_state: $outsider})
                  -[:AUTHORED]->(:Post {id: $post_id, kind: 'short', indexed_at: $at})",
         )
         .param("author", author.clone())
-        .param("stub", SCOPE_STATE_STUB)
+        .param("outsider", SCOPE_STATE_OUTSIDE)
         .param("post_id", post_id.clone())
         .param("at", indexed_at);
         exec_single_row(create).await?;
@@ -250,58 +250,61 @@ mod tests {
             Ok::<_, DynError>(keys.contains(&format!("{author}:{post_id}")))
         };
 
-        let while_stub = in_feed().await;
+        let while_outsider = in_feed().await;
         let cleared = exec_single_row(queries::put::set_user_scope_state(&author, None)).await;
         let in_scope = in_feed().await;
 
         let delete = Query::new(
-            "test_delete_stub_author",
+            "test_delete_outsider_author",
             "MATCH (u:User {id: $author}) OPTIONAL MATCH (u)-[:AUTHORED]->(p:Post) DETACH DELETE u, p",
         )
         .param("author", author);
         exec_single_row(delete).await?;
 
         cleared?;
-        assert!(!while_stub?, "a stub's post stays out of the shared feed");
+        assert!(
+            !while_outsider?,
+            "an outsider's post stays out of the shared feed"
+        );
         assert!(in_scope?, "control: in scope, the same post is served");
         Ok(())
     }
 
-    /// A stub stays a stub when Redis loses `Scope:Stubs` while running: the set is
-    /// rebuilt from the graph before the answer, never read as "no stubs".
+    /// An outsider stays an outsider when Redis loses `Scope:Outsiders` while running: the set is
+    /// rebuilt from the graph before the answer, never read as "no outsiders".
     #[tokio_shared_rt::test(shared)]
-    async fn a_lost_stub_set_is_rebuilt_before_it_is_read() -> Result<(), DynError> {
+    async fn a_lost_outsider_set_is_rebuilt_before_it_is_read() -> Result<(), DynError> {
         StackManager::setup(&StackConfig::default()).await?;
         let user_id = pubky::Keypair::random().public_key().to_z32();
         let details = crate::models::user::UserDetails::from_pubky(
             pubky_app_specs::PubkyId::try_from(user_id.as_str())?,
         );
-        super::create_stub(&details).await?;
-        assert!(super::is_stub(&user_id).await?);
+        super::create_outsider(&details).await?;
+        assert!(super::is_outsider(&user_id).await?);
 
         let () = deadpool_redis::redis::cmd("DEL")
-            .arg("Scope:Stubs")
+            .arg("Scope:Outsiders")
             .query_async(&mut crate::db::get_redis_conn().await?)
             .await
             .map_err(crate::db::kv::RedisError::from)?;
-        let after_loss = super::is_stub(&user_id).await;
+        let after_loss = super::is_outsider(&user_id).await;
 
         let delete = Query::new(
-            "test_delete_stub_user",
+            "test_delete_outsider_user",
             "MATCH (u:User {id: $id}) DETACH DELETE u",
         )
         .param("id", user_id.clone());
         exec_single_row(delete).await?;
-        super::rebuild_stub_index().await?;
+        super::rebuild_outsider_index().await?;
 
         assert!(after_loss?, "rebuilt from the graph, not read as empty");
         Ok(())
     }
 
-    /// A stub written for a user another caller created first, in scope (the watcher's
+    /// An outsider written for a user another caller created first, in scope (the watcher's
     /// moderator, met by the API at the same time), leaves that user as it was.
     #[tokio_shared_rt::test(shared)]
-    async fn a_stub_write_leaves_a_user_created_first_in_scope() -> Result<(), DynError> {
+    async fn a_outsider_write_leaves_a_user_created_first_in_scope() -> Result<(), DynError> {
         use crate::models::traits::Collection;
 
         StackManager::setup(&StackConfig::default()).await?;
@@ -311,15 +314,15 @@ mod tests {
         member.name = "Moderator".to_string();
         member.put_to_graph().await?;
 
-        let stubbed =
-            super::create_stub(&crate::models::user::UserDetails::from_pubky(pubky_id)).await;
+        let kept_out =
+            super::create_outsider(&crate::models::user::UserDetails::from_pubky(pubky_id)).await;
         let details = crate::models::user::UserDetails::get_by_id(&user_id).await;
         let state = crate::db::fetch_key_from_graph::<Option<String>>(
             queries::get::get_user_scope_state(&user_id),
             "scope_state",
         )
         .await;
-        let stub = super::is_stub(&user_id).await;
+        let outsider = super::is_outsider(&user_id).await;
 
         let delete = Query::new(
             "test_delete_member",
@@ -328,9 +331,9 @@ mod tests {
         .param("id", user_id.clone());
         exec_single_row(delete).await?;
 
-        stubbed?;
+        kept_out?;
         assert_eq!(state?.flatten(), None, "still in scope in the graph");
-        assert!(!stub?, "and in Redis");
+        assert!(!outsider?, "and in Redis");
         assert_eq!(
             details?.map(|d| d.name).as_deref(),
             Some("Moderator"),
@@ -339,10 +342,10 @@ mod tests {
         Ok(())
     }
 
-    /// Counts a stub already has, from an update that landed before the stub was
-    /// written, are kept: a new stub's zeroed counts never replace them.
+    /// Counts an outsider already has, from an update that landed before the outsider was
+    /// written, are kept: a new outsider's zeroed counts never replace them.
     #[tokio_shared_rt::test(shared)]
-    async fn a_new_stub_keeps_counts_already_saved() -> Result<(), DynError> {
+    async fn a_new_outsider_keeps_counts_already_saved() -> Result<(), DynError> {
         use crate::db::kv::RedisOps;
         use crate::models::user::UserCounts;
 
@@ -357,18 +360,18 @@ mod tests {
         let details = crate::models::user::UserDetails::from_pubky(
             pubky_app_specs::PubkyId::try_from(user_id.as_str())?,
         );
-        let stubbed = super::create_stub(&details).await;
+        let kept_out = super::create_outsider(&details).await;
         let counts = UserCounts::get_from_index(&user_id).await;
 
         let delete = Query::new(
-            "test_delete_stub_user",
+            "test_delete_outsider_user",
             "MATCH (u:User {id: $id}) DETACH DELETE u",
         )
         .param("id", user_id.clone());
         exec_single_row(delete).await?;
-        super::drop_stub_entry(&user_id).await?;
+        super::drop_outsider_entry(&user_id).await?;
 
-        stubbed?;
+        kept_out?;
         assert_eq!(counts?.map(|c| c.followers), Some(1), "the follow is kept");
         Ok(())
     }
@@ -376,10 +379,10 @@ mod tests {
     /// Many callers finding the set lost at once all get their answer: they share one
     /// rebuild and none waits on the pool holding a connection the rebuild needs.
     #[tokio_shared_rt::test(shared)]
-    async fn many_reads_of_a_lost_stub_set_finish() -> Result<(), DynError> {
+    async fn many_reads_of_a_lost_outsider_set_finish() -> Result<(), DynError> {
         StackManager::setup(&StackConfig::default()).await?;
         let () = deadpool_redis::redis::cmd("DEL")
-            .arg(super::STUBS_KEY)
+            .arg(super::OUTSIDERS_KEY)
             .query_async(&mut crate::db::get_redis_conn().await?)
             .await
             .map_err(crate::db::kv::RedisError::from)?;
@@ -387,11 +390,11 @@ mod tests {
         let mut reads = tokio::task::JoinSet::new();
         for _ in 0..1_000 {
             let user_id = pubky::Keypair::random().public_key().to_z32();
-            reads.spawn(async move { super::is_stub(&user_id).await });
+            reads.spawn(async move { super::is_outsider(&user_id).await });
         }
         let finished = tokio::time::timeout(std::time::Duration::from_secs(60), async {
             while let Some(read) = reads.join_next().await {
-                assert!(!read??, "an unknown user is no stub");
+                assert!(!read??, "an unknown user is no outsider");
             }
             Ok::<_, DynError>(())
         })
@@ -401,29 +404,29 @@ mod tests {
         finished?
     }
 
-    /// A rebuild doesn't overwrite a stub written after it read the graph: its
+    /// A rebuild doesn't overwrite an outsider written after it read the graph: its
     /// replacement is refused, so the next rebuild reads the graph again.
     ///
     /// The script runs on keys of this test's own: tests running alongside rebuild the
-    /// shared `Scope:Stubs` from the graph, which would drop a stub written to Redis only.
+    /// shared `Scope:Outsiders` from the graph, which would drop an outsider written to Redis only.
     #[tokio_shared_rt::test(shared)]
-    async fn a_rebuild_keeps_a_stub_written_after_its_graph_read() -> Result<(), DynError> {
+    async fn a_rebuild_keeps_a_outsider_written_after_its_graph_read() -> Result<(), DynError> {
         StackManager::setup(&StackConfig::default()).await?;
         let user_id = pubky::Keypair::random().public_key().to_z32();
-        let stubs_key = format!("{}:test:{user_id}", super::STUBS_KEY);
+        let outsiders_key = format!("{}:test:{user_id}", super::OUTSIDERS_KEY);
         let writes_key = format!("{}:test:{user_id}", super::WRITES_KEY);
         let mut conn = crate::db::get_redis_conn().await?;
 
-        // A stub write counts itself, so a rebuild that read the graph before it can tell.
+        // An outsider write counts itself, so a rebuild that read the graph before it can tell.
         let before: Option<i64> = conn.get(super::WRITES_KEY).await?;
         super::write_entry(&user_id, true).await?;
         let after: Option<i64> = conn.get(super::WRITES_KEY).await?;
         super::write_entry(&user_id, false).await?;
 
-        // The graph is read with no writes counted, then a stub is written.
+        // The graph is read with no writes counted, then an outsider is written.
         let () = deadpool_redis::redis::pipe()
             .atomic()
-            .sadd(&stubs_key, &user_id)
+            .sadd(&outsiders_key, &user_id)
             .ignore()
             .incr(&writes_key, 1)
             .ignore()
@@ -431,39 +434,39 @@ mod tests {
             .await
             .map_err(crate::db::kv::RedisError::from)?;
         let replaced: i64 = super::REPLACE_IF_UNCHANGED
-            .key(&stubs_key)
+            .key(&outsiders_key)
             .key(&writes_key)
             .arg("0")
             .arg(super::BUILT)
             .invoke_async(&mut conn)
             .await?;
-        let kept: bool = conn.sismember(&stubs_key, &user_id).await?;
-        let () = conn.del(&[&stubs_key, &writes_key]).await?;
+        let kept: bool = conn.sismember(&outsiders_key, &user_id).await?;
+        let () = conn.del(&[&outsiders_key, &writes_key]).await?;
 
-        assert!(after > before, "the stub write is counted");
+        assert!(after > before, "the outsider write is counted");
         assert_eq!(replaced, 0, "the replacement is refused");
-        assert!(kept, "the stub written after the graph read stays");
+        assert!(kept, "the outsider written after the graph read stays");
         Ok(())
     }
 
-    /// The users-by-tag search and its reindex leave a tagged stub out, as the rankings
+    /// The users-by-tag search and its reindex leave a tagged outsider out, as the rankings
     /// do; a member tagged the same way is in.
     #[tokio_shared_rt::test(shared)]
-    async fn the_users_by_tag_queries_leave_stubs_out() -> Result<(), DynError> {
+    async fn the_users_by_tag_queries_leave_outsiders_out() -> Result<(), DynError> {
         StackManager::setup(&StackConfig::default()).await?;
-        let [tagger, member, stub] =
+        let [tagger, member, outsider] =
             [(); 3].map(|_| pubky::Keypair::random().public_key().to_z32());
-        let label = format!("stubtest{}", rand_suffix());
+        let label = format!("outsidertest{}", rand_suffix());
         let create = Query::new(
-            "test_tag_a_member_and_a_stub",
+            "test_tag_a_member_and_a_outsider",
             "CREATE (t:User {id: $tagger}), (m:User {id: $member}),
-                    (s:User {id: $stub, scope_state: $stub_state}),
+                    (s:User {id: $outsider, scope_state: $outsider_state}),
                     (t)-[:TAGGED {label: $label}]->(m), (t)-[:TAGGED {label: $label}]->(s)",
         )
         .param("tagger", tagger.clone())
         .param("member", member.clone())
-        .param("stub", stub.clone())
-        .param("stub_state", SCOPE_STATE_STUB)
+        .param("outsider", outsider.clone())
+        .param("outsider_state", SCOPE_STATE_OUTSIDE)
         .param("label", label.clone());
         exec_single_row(create).await?;
 
@@ -497,18 +500,18 @@ mod tests {
             "test_delete_tagged_users",
             "MATCH (u:User) WHERE u.id IN $ids DETACH DELETE u",
         )
-        .param("ids", vec![tagger, member.clone(), stub]);
+        .param("ids", vec![tagger, member.clone(), outsider]);
         exec_single_row(delete).await?;
 
         assert_eq!(
             searched?,
             vec![member.clone()],
-            "search: the member, not the stub"
+            "search: the member, not the outsider"
         );
         assert_eq!(
             reindexed?,
             vec![member],
-            "reindex: the member, not the stub"
+            "reindex: the member, not the outsider"
         );
         Ok(())
     }

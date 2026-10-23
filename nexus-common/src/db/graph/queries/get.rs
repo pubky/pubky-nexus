@@ -265,8 +265,8 @@ pub fn global_tags_by_post() -> Query {
         "global_tags_by_post",
         "
         MATCH (tagger:User)-[t:TAGGED]->(post:Post)<-[:AUTHORED]-(author:User)
-        // A stub's posts stay out of the global feeds, as on the incremental path.
-        WHERE coalesce(author.scope_state, '') <> 'stub'
+        // An outsider's posts stay out of the global feeds, as on the incremental path.
+        WHERE coalesce(author.scope_state, '') <> 'outside'
         WITH t.label AS label, author.id + ':' + post.id AS post_id, post.indexed_at AS score
         WITH DISTINCT post_id, label, score
         WITH label, COLLECT([toFloat(score), post_id ]) AS sorted_set
@@ -284,7 +284,7 @@ pub fn global_tags_by_post_engagement() -> Query {
         "global_tags_by_post_engagement",
         "
         MATCH (author:User)-[:AUTHORED]->(post:Post)<-[tag:TAGGED]-(tagger:User)
-        WHERE coalesce(author.scope_state, '') <> 'stub'
+        WHERE coalesce(author.scope_state, '') <> 'outside'
         WITH post, COUNT(tag) AS tags_count, tag.label AS label, author.id + ':' + post.id AS key
         WITH DISTINCT key, label, post, tags_count
         WHERE tags_count > 0
@@ -311,8 +311,8 @@ pub fn global_tags_by_user() -> Query {
         // create_user_tag MERGEs one TAGGED edge per (tagger, tagged, label),
         // so COUNT(t) is the distinct tagger count.
         MATCH (tagger:User)-[t:TAGGED]->(u:User)
-        // A stub's profile is never read: ranked, it would show as a blank card.
-        WHERE NOT coalesce(u.deleted, false) AND coalesce(u.scope_state, '') <> 'stub'
+        // An outsider's profile is never read: ranked, it would show as a blank card.
+        WHERE NOT coalesce(u.deleted, false) AND coalesce(u.scope_state, '') <> 'outside'
         WITH t.label AS label, u.id AS user_id, COUNT(t) AS score
         WITH label, COLLECT([toFloat(score), user_id]) AS sorted_set
         RETURN label, sorted_set
@@ -368,7 +368,7 @@ fn ranked_user(var: &str) -> String {
 
 /// One keyset page of the most-followed ranking, ordered by `id`, strictly after
 /// `after_id` (`""` for the first page). It holds every user who is neither
-/// tombstoned, a discovery stub nor a stub outside the scope, scored by the
+/// tombstoned, a discovery stub nor outside the scope, scored by the
 /// [`user_counts_by_ids`] follower count, so a user with no followers ranks with 0.
 pub fn get_most_followed_users(after_id: &str, limit: usize) -> Query {
     let cypher = format!(
@@ -378,7 +378,7 @@ pub fn get_most_followed_users(after_id: &str, limit: usize) -> Query {
           AND NOT coalesce(u.deleted, false)
           // A discovery stub is named after its id, which no profile name can be.
           AND u.name <> u.id
-          AND coalesce(u.scope_state, '') <> 'stub'
+          AND coalesce(u.scope_state, '') <> 'outside'
         RETURN u.id AS id, {FOLLOWERS_COUNT} AS followers
         ORDER BY u.id
         LIMIT $limit
@@ -503,7 +503,7 @@ fn users_by_tags_cypher(prefix: &str, skip: Option<usize>, limit: Option<usize>)
         {prefix}
         MATCH (tagger:User)-[tag:TAGGED]->(u:User)
         WHERE tag.label IN $labels AND NOT coalesce(u.deleted, false)
-          AND coalesce(u.scope_state, '') <> 'stub'
+          AND coalesce(u.scope_state, '') <> 'outside'
         WITH u, COUNT(tag) AS score
         RETURN u.id AS user_id, score
         // id DESC matches how Redis breaks equal scores (reverse-lex member
@@ -1428,7 +1428,7 @@ pub fn get_influencers_by_reach(
 
 /// One keyset page of the all-time influencer ranking, ordered by `id`, strictly
 /// after `after_id` (`""` for the first page). It holds every user who is neither
-/// tombstoned, a discovery stub nor a stub outside the scope, scored
+/// tombstoned, a discovery stub nor outside the scope, scored
 /// `(tagged + posts) * sqrt(followers)` from the [`user_counts_by_ids`] counts, so a
 /// user with no followers ranks with 0.
 pub fn get_all_time_influencers(after_id: &str, limit: usize) -> Query {
@@ -1439,7 +1439,7 @@ pub fn get_all_time_influencers(after_id: &str, limit: usize) -> Query {
           AND NOT coalesce(u.deleted, false)
           // A discovery stub is named after its id, which no profile name can be.
           AND u.name <> u.id
-          AND coalesce(u.scope_state, '') <> 'stub'
+          AND coalesce(u.scope_state, '') <> 'outside'
         RETURN u.id AS id, ({TAGGED_COUNT} + {POSTS_COUNT}) * sqrt({FOLLOWERS_COUNT}) AS score
         ORDER BY u.id
         LIMIT $limit
@@ -1458,7 +1458,7 @@ pub fn get_global_influencers(skip: usize, limit: usize, timeframe: CacheTimefra
         "get_global_influencers",
         "
         MATCH (user:User)
-        WHERE NOT coalesce(user.deleted, false) AND coalesce(user.scope_state, '') <> 'stub'
+        WHERE NOT coalesce(user.deleted, false) AND coalesce(user.scope_state, '') <> 'outside'
         WITH DISTINCT user
 
         // Each count is a scoped CALL(user){} subquery so it stays per-user
@@ -1543,8 +1543,8 @@ impl TrustRule<'_> {
 }
 
 // Build the graph query based on parameters
-/// An author whose posts may appear in shared feeds: anyone but a stub.
-const NOT_A_STUB: &str = "coalesce(author.scope_state, '') <> 'stub'";
+/// An author whose posts may appear in shared feeds: anyone but an outsider.
+const NOT_OUTSIDE: &str = "coalesce(author.scope_state, '') <> 'outside'";
 
 pub fn post_stream(
     source: StreamSource,
@@ -1635,10 +1635,10 @@ pub fn post_stream(
     let author_rule = trust_rule
         .filter(|_| matches!(source, StreamSource::All))
         .map(TrustRule::condition);
-    // A stub's posts appear where they meet the scope (threads, the stub's own
+    // An outsider's posts appear where they meet the scope (threads, the outsider's own
     // posts), never in the shared all-posts feed: the same rule the Redis-served feed
     // and the reindex apply.
-    let hide_stubs = matches!(source, StreamSource::All);
+    let hide_outsiders = matches!(source, StreamSource::All);
     match author_rule {
         // With the trust rule the author is matched after sorting, below.
         Some(_) => cypher.push_str("MATCH (p:Post)\n"),
@@ -1655,8 +1655,8 @@ pub fn post_stream(
         );
     }
 
-    if hide_stubs && author_rule.is_none() {
-        append_condition(&mut cypher, NOT_A_STUB, &mut where_clause_applied);
+    if hide_outsiders && author_rule.is_none() {
+        append_condition(&mut cypher, NOT_OUTSIDE, &mut where_clause_applied);
     }
 
     // If source has an author, add where clause. It is related with source pattern matching
@@ -1745,10 +1745,10 @@ pub fn post_stream(
     // fewer DB hits on `exclude_kinds` and multi-tag streams).
     match (&author_rule, &sorting) {
         (Some(rule), StreamSorting::Timeline) => cypher.push_str(&format!(
-            "WITH DISTINCT p\nORDER BY p.indexed_at {order_dir}, p.id {order_dir}\nMATCH (p)<-[:AUTHORED]-(author:User)\nWHERE ({rule}) AND {NOT_A_STUB}\n"
+            "WITH DISTINCT p\nORDER BY p.indexed_at {order_dir}, p.id {order_dir}\nMATCH (p)<-[:AUTHORED]-(author:User)\nWHERE ({rule}) AND {NOT_OUTSIDE}\n"
         )),
         (Some(rule), StreamSorting::TotalEngagement) => cypher.push_str(&format!(
-            "WITH DISTINCT p\nMATCH (p)<-[:AUTHORED]-(author:User)\nWHERE ({rule}) AND {NOT_A_STUB}\n"
+            "WITH DISTINCT p\nMATCH (p)<-[:AUTHORED]-(author:User)\nWHERE ({rule}) AND {NOT_OUTSIDE}\n"
         )),
         (None, _) => cypher.push_str("WITH DISTINCT p, author\n"),
     }
@@ -2142,7 +2142,7 @@ mod tests {
             Some(TrustRule::Ranked),
         );
         assert!(cypher.starts_with("MATCH (p:Post)\n"), "{cypher}");
-        let rule = format!("WHERE ({}) AND {NOT_A_STUB}", ranked_user("author"));
+        let rule = format!("WHERE ({}) AND {NOT_OUTSIDE}", ranked_user("author"));
         let clauses = [
             "MATCH (:User)-[tag:TAGGED]->(p)",
             "p.kind = 'short'",
@@ -2161,7 +2161,7 @@ mod tests {
         let kind = Some(KindFilter::Kind(pubky_app_specs::PubkyAppPostKind::Short));
         let ranked = Some(TrustRule::Ranked);
         let cypher = all_stream(StreamSorting::TotalEngagement, &None, kind, ranked);
-        let rule = format!("WHERE ({}) AND {NOT_A_STUB}", ranked_user("author"));
+        let rule = format!("WHERE ({}) AND {NOT_OUTSIDE}", ranked_user("author"));
         let clauses = [
             "WITH DISTINCT p\nMATCH (p)<-[:AUTHORED]-(author:User)",
             &rule,
@@ -2171,14 +2171,14 @@ mod tests {
         assert_in_order(&cypher, &clauses);
     }
 
-    /// A stub's posts stay out of the all-posts feed served from the graph, with or
+    /// An outsider's posts stay out of the all-posts feed served from the graph, with or
     /// without the trust rule, and the rule's own OR stays bracketed.
     #[test]
-    fn post_stream_all_hides_stubs() {
+    fn post_stream_all_hides_outsiders() {
         let kind = || Some(KindFilter::Kind(pubky_app_specs::PubkyAppPostKind::Short));
 
         let without_rule = all_stream(StreamSorting::Timeline, &None, kind(), None);
-        assert!(without_rule.contains(NOT_A_STUB), "{without_rule}");
+        assert!(without_rule.contains(NOT_OUTSIDE), "{without_rule}");
 
         let viewer = Some(TrustRule::RankedAndViewer("viewer"));
         let with_viewer = all_stream(StreamSorting::Timeline, &None, kind(), viewer);
@@ -2187,18 +2187,18 @@ mod tests {
             .condition()
             .replace("$viewer_id", "'viewer'");
         assert!(
-            with_viewer.contains(&format!("WHERE ({rule}) AND {NOT_A_STUB}")),
+            with_viewer.contains(&format!("WHERE ({rule}) AND {NOT_OUTSIDE}")),
             "{with_viewer}"
         );
     }
 
-    /// A stub's own posts, e.g. on its profile, are still served.
+    /// An outsider's own posts, e.g. on its profile, are still served.
     #[test]
-    fn post_stream_by_author_keeps_stubs() {
+    fn post_stream_by_author_keeps_outsiders() {
         let source = StreamSource::Author {
             author_id: "author".to_string(),
         };
-        assert!(!build(source).contains(NOT_A_STUB));
+        assert!(!build(source).contains(NOT_OUTSIDE));
     }
 
     fn build(source: StreamSource) -> String {

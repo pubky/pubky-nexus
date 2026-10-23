@@ -26,7 +26,7 @@ use nexus_common::db::PubkyConnector;
 use nexus_common::file::ConfigLoader;
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::scope::scope_from_config;
-use nexus_common::models::user::stub::rebuild_stub_index;
+use nexus_common::models::user::outsider::rebuild_outsider_index;
 use nexus_common::models::user::UserIngestor;
 use nexus_common::types::DynError;
 use nexus_common::ScopeConfig;
@@ -161,7 +161,7 @@ impl NexusWatcher {
 }
 
 /// Gets the scope ready before any event is read: the homeservers read whole are
-/// persisted so their cursors exist, Redis's copy of the stubs is rebuilt from the
+/// persisted so their cursors exist, Redis's copy of the outsiders is rebuilt from the
 /// graph, and the moderator is made sure to be read, its homeserver looked up through
 /// `client`. Run by [`NexusWatcher::start`]; public so tests can run it alone.
 pub async fn prepare_scope(
@@ -175,9 +175,9 @@ pub async fn prepare_scope(
         Homeserver::persist_if_unknown(homeserver).await?;
     }
 
-    // The graph is the source of truth for stubs; Redis only mirrors it.
-    let stubs = rebuild_stub_index().await?;
-    debug!(stubs, "Rebuilt the stub index from the graph");
+    // The graph is the source of truth for outsiders; Redis only mirrors it.
+    let outsiders = rebuild_outsider_index().await?;
+    debug!(outsiders, "Rebuilt the outsider index from the graph");
 
     // The moderator's tags take content down, so a scoped Nexus must read it too.
     if config.stack.scope != ScopeConfig::Everything {

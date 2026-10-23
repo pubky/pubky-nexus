@@ -8,7 +8,7 @@ use crate::models::error::{ModelError, ModelResult};
 use crate::models::homeserver::HsBlacklist;
 use crate::models::scope::{scope_from_config, watcher_scope, EverythingScope, Scope};
 use crate::models::traits::Collection;
-use crate::models::user::stub::{create_stub, drop_stub_entry, unstub};
+use crate::models::user::outsider::{admit_outsider, create_outsider, drop_outsider_entry};
 use crate::models::user::{set_user_homeserver, UserDetails, UserHsCursor};
 use crate::{ScopeConfig, StackConfig, WatcherConfig};
 
@@ -123,7 +123,7 @@ impl UserIngestor {
     /// Resolves and persists a previously-unknown user.
     ///
     /// A user in the scope is bound to its HS and gets a cursor, so it is polled. A user
-    /// outside it is kept as a stub; see [`crate::models::user::stub`].
+    /// outside it is kept as an outsider; see [`crate::models::user::outsider`].
     ///
     /// Returns [`ModelError::HsBlacklisted`] if the user's resolved HS is blacklisted.
     #[tracing::instrument(name = "user.ingest", skip_all)]
@@ -149,8 +149,8 @@ impl UserIngestor {
         let user_details = UserDetails::from_pubky(user_id.clone());
 
         if !in_scope {
-            tracing::info!("Kept {user_id} from HS {hs_id} as a stub: outside the scope");
-            return create_stub(&user_details).await;
+            tracing::info!("Kept {user_id} from HS {hs_id} as an outsider: outside the scope");
+            return create_outsider(&user_details).await;
         }
 
         // Do not add to index, as this would affect the timeline of events for this user.
@@ -172,10 +172,10 @@ impl UserIngestor {
 
     /// Whether the events of `user_id` are indexed.
     ///
-    /// The graph decides for a user it can place (a stub, or a user bound to a homeserver).
+    /// The graph decides for a user it can place (an outsider, or a user bound to a homeserver).
     /// One it can't (unknown, or not bound) is placed by the homeserver it publishes now, so
     /// an old event in a listed feed by a user who has moved off that homeserver stays out.
-    /// An unknown user is ingested on the way, as a member or a stub, so its next events are
+    /// An unknown user is ingested on the way, as a member or an outsider, so its next events are
     /// decided from the graph alone.
     pub async fn is_author_in_scope(&self, user_id: &PubkyId) -> ModelResult<bool> {
         if *self.scope.config() == ScopeConfig::Everything {
@@ -203,7 +203,7 @@ impl UserIngestor {
     ///
     /// If its HS can't be resolved right now, the bare node is still created: the HS
     /// resolver binds it on a later run, and polling starts from there. A node kept as a
-    /// stub (the API ingests with the plain scope, which doesn't pin the moderator) is
+    /// outsider (the API ingests with the plain scope, which doesn't pin the moderator) is
     /// brought back into the scope.
     pub async fn ensure_in_scope(&self, user_id: &PubkyId) -> ModelResult<()> {
         self.maybe_ingest_user(user_id).await?;
@@ -219,11 +219,11 @@ impl UserIngestor {
         if scope_state.flatten().is_none() {
             return Ok(());
         }
-        // The graph's state is cleared last, so a failure before leaves it a stub there
+        // The graph's state is cleared last, so a failure before leaves it an outsider there
         // and the next start retries the whole of it.
-        unstub(user_id).await?;
+        admit_outsider(user_id).await?;
         exec_single_row(queries::put::set_user_scope_state(user_id, None)).await?;
-        drop_stub_entry(user_id).await?;
+        drop_outsider_entry(user_id).await?;
         if let Some(hs_id) = self.ensure_hs_not_blacklisted(user_id).await? {
             set_user_homeserver(user_id, &hs_id).await?;
             UserHsCursor::init(user_id, &hs_id).await?;

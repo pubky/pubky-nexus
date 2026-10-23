@@ -3,15 +3,15 @@ use anyhow::Result;
 use nexus_common::db::graph::Query;
 use nexus_common::db::{exec_single_row, fetch_key_from_graph, queries};
 use nexus_common::models::homeserver::Homeserver;
-use nexus_common::models::user::stub::create_stub;
-use nexus_common::models::user::{is_stub, UserDetails};
+use nexus_common::models::user::outsider::create_outsider;
+use nexus_common::models::user::{is_outsider, UserDetails};
 use nexus_common::utils::test_utils::random_pubky_id;
 use nexus_common::{ScopeConfig, WatcherConfig};
 use nexus_watcher::service::prepare_scope;
 use std::sync::Arc;
 
 /// The start of a homeserver scope persists every listed homeserver, so each has the
-/// cursor its feed is read from, and brings a moderator kept as a stub back into the
+/// cursor its feed is read from, and brings a moderator kept as an outsider back into the
 /// scope, so its takedowns are read.
 #[tokio_shared_rt::test(shared)]
 async fn test_prepare_scope_persists_the_listed_homeservers_and_lets_the_moderator_in() -> Result<()>
@@ -29,8 +29,8 @@ async fn test_prepare_scope_persists_the_listed_homeservers_and_lets_the_moderat
         },
         ..Default::default()
     };
-    // Kept as a stub, as the API, which doesn't pin the moderator, would keep it.
-    create_stub(&UserDetails::from_pubky(moderator.clone())).await?;
+    // Kept as an outsider, as the API, which doesn't pin the moderator, would keep it.
+    create_outsider(&UserDetails::from_pubky(moderator.clone())).await?;
 
     // The mock publishes no homeserver for anyone: the moderator is let in unbound.
     let prepared = prepare_scope(&config, Arc::new(MockHomeserverClient::default())).await;
@@ -41,7 +41,7 @@ async fn test_prepare_scope_persists_the_listed_homeservers_and_lets_the_moderat
     ];
     let query = queries::get::get_user_scope_state(&moderator);
     let scope_state: Option<Option<String>> = fetch_key_from_graph(query, "scope_state").await?;
-    let moderator_is_stub = is_stub(&moderator).await?;
+    let moderator_is_outsider = is_outsider(&moderator).await?;
 
     let delete = Query::new(
         "test_delete_moderator",
@@ -56,6 +56,6 @@ async fn test_prepare_scope_persists_the_listed_homeservers_and_lets_the_moderat
         "every listed homeserver has a cursor to be read from"
     );
     assert_eq!(scope_state.flatten(), None, "the moderator is in scope");
-    assert!(!moderator_is_stub, "and not a stub in Redis");
+    assert!(!moderator_is_outsider, "and not an outsider in Redis");
     Ok(())
 }
