@@ -320,8 +320,10 @@ such as a kind filter or several tags): they appear where they meet the scope, i
 counts, notifications and their own profile. A Redis set (`Scope:Outsiders`) mirrors the
 graph for the per-write check and is rebuilt at start.
 
-An event whose author is outside the scope is skipped before it is fetched, counted in
-`watcher.events.out_of_scope`.
+An event read from a homeserver's whole feed whose author is outside the scope is skipped
+before it is fetched, counted in `watcher.events.out_of_scope`. Users outside the scope
+aren't polled, so no other source reads their events, and an event the retry queue holds
+is finished whatever the scope: it was in scope when it was read.
 
 ---
 

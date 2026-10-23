@@ -126,6 +126,7 @@ impl WatcherTest {
             primary_homeserver,
             hs_blacklist: Default::default(),
             retry_scheduler,
+            ingestor: default_ingestor_tests(),
         }
     }
 

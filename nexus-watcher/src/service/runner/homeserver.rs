@@ -2,10 +2,11 @@ use super::TEventProcessorRunner;
 use crate::events::retry::RetryScheduler;
 use crate::events::EventHandler;
 use crate::homeserver::HomeserverClient;
-use crate::scope::full_feed_homeservers;
+use crate::scope::{full_feed_homeservers, watcher_ingestor};
 use crate::service::indexer::{HsEventProcessor, TEventProcessor};
 use crate::service::stats::{ProcessedStats, RunAllProcessorsStats};
 use nexus_common::models::homeserver::{Homeserver, HsBlacklist};
+use nexus_common::models::user::UserIngestor;
 use nexus_common::types::DynError;
 use nexus_common::WatcherConfig;
 use pubky_app_specs::PubkyId;
@@ -32,6 +33,10 @@ pub struct HsEventProcessorRunner {
 
     /// Scheduler shared with every processor this runner builds
     pub retry_scheduler: Arc<RetryScheduler>,
+
+    /// The watcher's user ingestor, whose scope decides which authors' events are read
+    /// from the feeds
+    pub ingestor: Arc<UserIngestor>,
 }
 
 impl HsEventProcessorRunner {
@@ -46,11 +51,12 @@ impl HsEventProcessorRunner {
         Self {
             limit: config.events_limit,
             event_handler,
-            client,
             shutdown_rx,
             primary_homeserver: config.homeserver.clone(),
             full_feeds: full_feed_homeservers(&config.stack.scope, &config.homeserver),
             hs_blacklist: HsBlacklist::from_config(&config.stack),
+            ingestor: Arc::new(watcher_ingestor(config, client.clone())),
+            client,
             retry_scheduler,
         }
     }
@@ -80,6 +86,7 @@ impl TEventProcessorRunner for HsEventProcessorRunner {
             client: self.client.clone(),
             shutdown_rx: self.shutdown_rx.clone(),
             retry_scheduler: self.retry_scheduler.clone(),
+            ingestor: self.ingestor.clone(),
             hs_mapping_cache: Default::default(),
         }))
     }

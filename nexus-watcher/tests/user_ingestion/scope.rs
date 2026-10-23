@@ -5,6 +5,7 @@ use anyhow::Result;
 use nexus_common::db::graph::Query;
 use nexus_common::db::kv::RedisOps;
 use nexus_common::db::{fetch_key_from_graph, fetch_row_from_graph, queries, PubkyConnector};
+use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::post::PostDetails;
 use nexus_common::models::scope::{HomeserverListScope, Scope};
 use nexus_common::models::user::outsider::admit_outsider;
@@ -16,6 +17,7 @@ use nexus_common::models::user::{
 use nexus_watcher::events::handlers;
 use nexus_watcher::events::{DefaultEventHandler, Event, EventHandler, ParseResult};
 use nexus_watcher::homeserver::PubkyHomeserverClient;
+use nexus_watcher::service::{HsEventProcessor, TEventProcessor};
 use pubky::Keypair;
 use pubky_app_specs::traits::HashId;
 use pubky_app_specs::traits::TimestampId;
@@ -33,6 +35,34 @@ fn scoped_ingestor(test: &WatcherTest) -> UserIngestor {
         &test.homeserver_id,
     )));
     UserIngestor::new(Vec::<PubkyId>::new(), Arc::new(PubkyConnectorResolver)).with_scope(scope)
+}
+
+/// The processor of the test homeserver's whole feed, deciding with `ingestor`'s scope.
+fn feed_processor(test: &WatcherTest, ingestor: Arc<UserIngestor>) -> HsEventProcessor {
+    let runner = &test.event_processor_runner;
+    HsEventProcessor {
+        homeserver: Homeserver::new(test.homeserver_id.clone()),
+        limit: runner.limit,
+        event_handler: runner.event_handler.clone(),
+        client: runner.client.clone(),
+        shutdown_rx: runner.shutdown_rx.clone(),
+        retry_scheduler: runner.retry_scheduler.clone(),
+        ingestor,
+        hs_mapping_cache: Default::default(),
+    }
+}
+
+/// A `PUT` event of a post by `author_id` that was never written to any homeserver.
+fn unwritten_post_event(author_id: &PubkyId) -> Result<(Event, String)> {
+    let post_id = PubkyAppPost::default().create_id();
+    let line = format!(
+        "PUT {}",
+        post_uri_builder(author_id.to_string(), post_id.clone())
+    );
+    let ParseResult::Parsed(event) = Event::parse_event(&line)? else {
+        panic!("a post line parses");
+    };
+    Ok((event, post_id))
 }
 
 /// A user created on the test's homeserver, so in scope.
@@ -132,8 +162,10 @@ async fn test_user_inside_the_scope_is_ingested_as_before() -> Result<()> {
     Ok(())
 }
 
-/// An event by an author outside the scope is skipped before it is fetched: nothing is
-/// indexed and the event doesn't fail.
+/// A whole feed holds everyone on its homeserver: an event of an author outside the
+/// scope read from one is skipped before it is fetched. Handed to the handler as the retry
+/// queue hands it, the same event is processed: a queued event is finished whatever the
+/// scope.
 #[tokio_shared_rt::test(shared)]
 async fn test_event_by_an_author_outside_the_scope_is_skipped() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
@@ -142,7 +174,11 @@ async fn test_event_by_an_author_outside_the_scope_is_skipped() -> Result<()> {
     let ingestor = Arc::new(scoped_ingestor(&test));
     ingestor.maybe_ingest_user(&author_id).await?;
     assert_user_is_outsider(&author_id).await;
+    let (event, post_id) = unwritten_post_event(&author_id)?;
 
+    let from_the_feed = feed_processor(&test, ingestor.clone())
+        .should_process_event(&event)
+        .await?;
     let client = PubkyHomeserverClient::from_config(
         PubkyConnector::get()?,
         &nexus_common::WatcherConfig::default(),
@@ -153,18 +189,13 @@ async fn test_event_by_an_author_outside_the_scope_is_skipped() -> Result<()> {
         Arc::new(client),
         PathBuf::from("/tmp/nexus-watcher-test"),
     );
-    // Never written to any homeserver: fetching it would fail, so `Ok` means skipped.
-    let post_id = PubkyAppPost::default().create_id();
-    let line = format!(
-        "PUT {}",
-        post_uri_builder(author_id.to_string(), post_id.clone())
+    let retried = handler.handle(&event).await;
+
+    assert!(!from_the_feed, "skipped when read from the feed");
+    assert!(
+        retried.is_err(),
+        "processed when retried: the fetch of the unwritten post fails"
     );
-    let ParseResult::Parsed(event) = Event::parse_event(&line)? else {
-        panic!("a post line parses");
-    };
-
-    handler.handle(&event).await?;
-
     assert!(PostDetails::get_by_id(&author_id, &post_id)
         .await?
         .is_none());
@@ -232,31 +263,12 @@ async fn test_an_unknown_author_that_moved_away_is_not_indexed() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
     let hs_pk = create_external_test_homeserver(&mut test).await?;
     let (_, author_id) = user_on(&test, &hs_pk).await?;
-    let client = PubkyHomeserverClient::from_config(
-        PubkyConnector::get()?,
-        &nexus_common::WatcherConfig::default(),
-    );
-    let handler = DefaultEventHandler::new(
-        default_moderation_tests(),
-        Arc::new(scoped_ingestor(&test)),
-        Arc::new(client),
-        PathBuf::from("/tmp/nexus-watcher-test"),
-    );
+    let (event, _) = unwritten_post_event(&author_id)?;
 
-    // Never written to any homeserver: fetching it would fail, so `Ok` means skipped.
-    let post_id = PubkyAppPost::default().create_id();
-    let line = format!(
-        "PUT {}",
-        post_uri_builder(author_id.to_string(), post_id.clone())
-    );
-    let ParseResult::Parsed(event) = Event::parse_event(&line)? else {
-        panic!("a post line parses");
-    };
-    handler.handle(&event).await?;
+    let processor = feed_processor(&test, Arc::new(scoped_ingestor(&test)));
+    let processed = processor.should_process_event(&event).await?;
 
-    assert!(PostDetails::get_by_id(&author_id, &post_id)
-        .await?
-        .is_none());
+    assert!(!processed, "skipped before it is fetched");
     assert_user_is_outsider(&author_id).await;
     Ok(())
 }

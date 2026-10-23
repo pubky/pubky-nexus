@@ -387,6 +387,7 @@ async fn test_hs_runner_skips_a_blacklisted_listed_homeserver() -> Result<(), Dy
         primary_homeserver: primary.clone(),
         full_feeds: vec![primary.clone(), listed.clone(), blacklisted.clone()],
         hs_blacklist: HsBlacklist::new([blacklisted.clone(), primary.clone()]),
+        ingestor: default_ingestor_tests(),
         retry_scheduler: Arc::new(RetryScheduler::new(
             store,
             InitialBackoff {
