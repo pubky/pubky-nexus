@@ -132,10 +132,6 @@ async fn test_user_outside_the_scope_is_kept_as_a_outsider() -> Result<()> {
     scoped_ingestor(&test).maybe_ingest_user(&user_id).await?;
 
     assert_user_is_outsider(&user_id).await;
-    assert!(
-        UserCounts::get_from_index(&user_id).await?.is_some(),
-        "an outsider has counts, so records that move them don't fail"
-    );
 
     let needing_resolution: Vec<String> =
         fetch_key_from_graph(queries::get::get_users_needing_hs_resolution(0), "user_ids")
@@ -219,7 +215,7 @@ async fn test_a_followed_outsider_stays_out_of_the_rankings() -> Result<()> {
 
     handlers::follow::sync_put(follower_id.clone(), outsider_id.clone(), &ingestor).await?;
 
-    let counts = UserCounts::get_from_index(&outsider_id)
+    let counts = UserCounts::get_by_id(&outsider_id)
         .await?
         .expect("outsider counts");
     assert_eq!(counts.followers, 1);

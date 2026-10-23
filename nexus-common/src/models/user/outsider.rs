@@ -7,12 +7,10 @@
 //!
 //! The graph's `scope_state` is the one record of who is an outsider: every check reads it.
 
-use deadpool_redis::redis;
-
 use crate::db::kv::{RedisError, RedisResult};
-use crate::db::{exec_single_row, fetch_key_from_graph, get_redis_conn, queries, RedisOps};
+use crate::db::{exec_single_row, fetch_key_from_graph, queries};
 use crate::models::error::ModelResult;
-use crate::models::user::{UserCounts, UserDetails, UsersByTagSearch};
+use crate::models::user::{UserDetails, UsersByTagSearch};
 
 /// `scope_state` of a user known to this Nexus but outside its scope.
 pub const SCOPE_STATE_OUTSIDE: &str = "outside";
@@ -26,36 +24,16 @@ pub async fn is_outsider(user_id: &str) -> RedisResult<bool> {
     Ok(scope_state.flatten().as_deref() == Some(SCOPE_STATE_OUTSIDE))
 }
 
-/// Creates the node of a user met outside the scope, already an outsider, with zeroed
-/// counts outside the rankings.
+/// Creates the node of a user met outside the scope, already an outsider.
 ///
 /// The node and its `scope_state` are written in one graph write, so no node exists
 /// without its state for the HS resolver to bind.
 ///
 /// A node another caller created first is left as they made it: the watcher and the
 /// API can both meet an unknown user, and only the watcher keeps the moderator in
-/// scope. Its counts are never overwritten either.
+/// scope.
 pub async fn create_outsider(details: &UserDetails) -> ModelResult<()> {
-    // Before the node: a follow or tag of it, once it exists, has counts to update.
-    init_counts(&details.id).await?;
     exec_single_row(queries::put::create_outsider_user(details)?).await?;
-    Ok(())
-}
-
-/// Saves zeroed counts for the user, unless it has counts already: those of a user
-/// created first, or of an outsider already updated, are never overwritten.
-async fn init_counts(user_id: &str) -> RedisResult<()> {
-    let key = format!("{}:{user_id}", UserCounts::prefix().await);
-    let zeroed = serde_json::to_string(&UserCounts::default())
-        .map_err(|e| RedisError::SerializationFailed(Box::new(e)))?;
-    let mut conn = get_redis_conn().await?;
-    let _: Option<String> = redis::cmd("JSON.SET")
-        .arg(key)
-        .arg("$")
-        .arg(zeroed)
-        .arg("NX")
-        .query_async(&mut conn)
-        .await?;
     Ok(())
 }
 
@@ -192,39 +170,6 @@ mod tests {
             Some("Moderator"),
             "profile kept"
         );
-        Ok(())
-    }
-
-    /// Counts an outsider already has, from an update that landed before the outsider was
-    /// written, are kept: a new outsider's zeroed counts never replace them.
-    #[tokio_shared_rt::test(shared)]
-    async fn a_new_outsider_keeps_counts_already_saved() -> Result<(), DynError> {
-        use crate::db::kv::RedisOps;
-        use crate::models::user::UserCounts;
-
-        StackManager::setup(&StackConfig::default()).await?;
-        let user_id = pubky::Keypair::random().public_key().to_z32();
-        let followed = UserCounts {
-            followers: 1,
-            ..Default::default()
-        };
-        followed.put_index_json(&[&user_id], None, None).await?;
-
-        let details = crate::models::user::UserDetails::from_pubky(
-            pubky_app_specs::PubkyId::try_from(user_id.as_str())?,
-        );
-        let kept_out = super::create_outsider(&details).await;
-        let counts = UserCounts::get_from_index(&user_id).await;
-
-        let delete = Query::new(
-            "test_delete_outsider_user",
-            "MATCH (u:User {id: $id}) DETACH DELETE u",
-        )
-        .param("id", user_id.clone());
-        exec_single_row(delete).await?;
-
-        kept_out?;
-        assert_eq!(counts?.map(|c| c.followers), Some(1), "the follow is kept");
         Ok(())
     }
 
