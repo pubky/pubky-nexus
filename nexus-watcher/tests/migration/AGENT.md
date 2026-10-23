@@ -55,16 +55,23 @@ databases behind. If you must use the shared databases, rerun a failure on
 
 - Users: `device()` is one SDK client with its own pkarr cache, so an old
   device keeps resolving the old homeserver for an hour, as in production.
-  `signup`, `session`, `post`, `follow`, `tag`, `public_tree` (read through a
-  device), `write_tree` (the copy), `delete_tree` (the wipe), `switch_record`,
+  `signup`, `session`, `post`, `follow`, `tag`, `write_profile`,
+  `delete_profile`, `public_tree` (read through a device), `write_tree` (the
+  copy), `delete_tree` (the wipe), `switch_record`,
   `publish_without_homeserver`.
 - Nexus, one step at a time: `ingest` (how nexus first meets an unknown user),
   `recheck` (the route), `resolve` (one sweep, stale mapping disabled, only
-  this user looked up), `index_external(hs)` (one per-user read),
-  `index_primary` (one bulk poll), `catch_up` (a per-user read of the
-  primary, which production does not do yet).
-- What nexus holds: `binding`, `bound_to`, `cursor`, `bulk_cursor`,
-  `live_posts`, `profile_state`, `notifications`.
+  this user looked up, with a fresh lookup), `resolve_cached(user, client)`
+  (the same sweep, looking up cache-first through `client` as production does;
+  a second client stands for the watcher process when the recheck runs in the
+  API), `index_external(hs)` (one per-user read), `index_external_paused(hs,
+  user)` (a read that has listed its users and waits before fetching `user`
+  until `resume()`), `index_primary` (one bulk poll), `catch_up` (a per-user
+  read of the primary, which production does not do yet), `retry` (one pass
+  of the retry processor, every entry due).
+- The retry queue is in memory, one per test.
+- What nexus holds: `binding`, `bound_to`, `bound_name`, `cursor`,
+  `bulk_cursor`, `live_posts`, `profile_state`, `notifications`.
 
 Assert outcomes, not mechanisms: what is indexed, which homeserver the user is
 bound to, cursors, notification kinds. Never the resolver's internal flags.

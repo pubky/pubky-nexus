@@ -26,5 +26,6 @@ mod harness;
 mod hazards;
 mod primary;
 mod records;
+mod stale;
 mod switches;
 mod wipe;
