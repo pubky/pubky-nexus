@@ -43,11 +43,21 @@ async fn setup_graph_inner() -> GraphResult<()> {
     let graph = get_neo4j_graph()?;
 
     for &ddl in queries {
-        graph.run(Query::new("setup_ddl", ddl)).await.map_err(|e| {
-            GraphError::Generic(format!(
-                "Failed to apply graph constraint/index '{ddl}': {e}"
-            ))
-        })?;
+        match graph.run(Query::new("setup_ddl", ddl)).await {
+            Ok(()) => {}
+            // `IF NOT EXISTS` does not cover two processes creating the same
+            // rule at once on an empty graph (test runners start one process
+            // per test): the loser is told the rule already exists, which is
+            // the state it wanted.
+            Err(e) if e.to_string().contains("EquivalentSchemaRuleAlreadyExists") => {
+                info!("Graph constraint/index already created concurrently: {ddl}");
+            }
+            Err(e) => {
+                return Err(GraphError::Generic(format!(
+                    "Failed to apply graph constraint/index '{ddl}': {e}"
+                )))
+            }
+        }
     }
 
     info!("Neo4j graph constraints and indexes have been applied successfully");
