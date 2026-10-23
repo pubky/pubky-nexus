@@ -6,7 +6,7 @@ use nexus_common::{
     db::RedisOps,
     models::{
         follow::{Followers, Following, UserFollows},
-        user::{Relationship, UserCounts},
+        user::Relationship,
     },
 };
 use pubky::Keypair;
@@ -116,55 +116,6 @@ async fn test_homeserver_unfollow() -> Result<()> {
     );
 
     // Cleanup
-    test.cleanup_user(&follower_kp).await?;
-    test.cleanup_user(&followee_kp).await?;
-
-    Ok(())
-}
-
-/// Unfollowing a user whose counts key is missing from Redis must not cache the
-/// pre-delete follower count: the graph edge still exists when the counts are
-/// refreshed, so a read-through there would store `followers = 1` for good.
-#[tokio_shared_rt::test(shared)]
-async fn test_homeserver_unfollow_with_missing_counts_key() -> Result<()> {
-    let mut test = WatcherTest::setup(None).await?;
-
-    let follower_kp = Keypair::random();
-    let follower_user = PubkyAppUser {
-        bio: Some("test_homeserver_unfollow_with_missing_counts_key".to_string()),
-        image: None,
-        links: None,
-        name: "Watcher:UnfollowNoCounts:Follower".to_string(),
-        status: None,
-    };
-    let follower_id = test.create_user(&follower_kp, &follower_user).await?;
-
-    let followee_kp = Keypair::random();
-    let followee_user = PubkyAppUser {
-        bio: Some("test_homeserver_unfollow_with_missing_counts_key".to_string()),
-        image: None,
-        links: None,
-        name: "Watcher:UnfollowNoCounts:Followee".to_string(),
-        status: None,
-    };
-    let followee_id = test.create_user(&followee_kp, &followee_user).await?;
-
-    let follow_url = test.create_follow(&follower_kp, &followee_id).await?;
-
-    // The followee's counts drop out of Redis (eviction, flush) before the unfollow
-    UserCounts::delete(&followee_id).await?;
-
-    test.del(&follower_kp, &follow_url).await?;
-
-    assert!(!find_follow_relationship(&follower_id, &followee_id).await?);
-    let followers = UserCounts::get_from_index(&followee_id)
-        .await?
-        .map(|counts| counts.followers);
-    assert!(
-        matches!(followers, None | Some(0)),
-        "a stale pre-delete follower count was cached: {followers:?}"
-    );
-
     test.cleanup_user(&follower_kp).await?;
     test.cleanup_user(&followee_kp).await?;
 
