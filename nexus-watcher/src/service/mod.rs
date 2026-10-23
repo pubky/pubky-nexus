@@ -19,15 +19,14 @@ pub use user_hs_resolver::UserHsResolverRunner;
 use crate::events::retry::{RetryProcessor, RetryScheduler};
 use crate::events::{DefaultEventHandler, EventHandler};
 use crate::homeserver::{HomeserverClient, PubkyHomeserverClient};
+use crate::scope::{full_feed_homeservers, watcher_ingestor};
 use crate::service::constants::DEFAULT_WATCHER_CONFIG_TOML;
 use crate::service::task_runner::task_results_into_result;
 use crate::NexusWatcherBuilder;
 use nexus_common::db::PubkyConnector;
 use nexus_common::file::ConfigLoader;
 use nexus_common::models::homeserver::Homeserver;
-use nexus_common::models::scope::scope_from_config;
 use nexus_common::models::user::outsider::rebuild_outsider_index;
-use nexus_common::models::user::UserIngestor;
 use nexus_common::types::DynError;
 use nexus_common::ScopeConfig;
 use nexus_common::WatcherConfig;
@@ -168,10 +167,9 @@ pub async fn prepare_scope(
     config: &WatcherConfig,
     client: Arc<dyn HomeserverClient>,
 ) -> Result<(), DynError> {
-    let scope = scope_from_config(&config.stack.scope);
     info!(scope = ?config.stack.scope, "Indexing scope");
 
-    for homeserver in scope.full_feed_homeservers(&config.homeserver) {
+    for homeserver in full_feed_homeservers(&config.stack.scope, &config.homeserver) {
         Homeserver::persist_if_unknown(homeserver).await?;
     }
 
@@ -181,7 +179,7 @@ pub async fn prepare_scope(
 
     // The moderator's tags take content down, so a scoped Nexus must read it too.
     if config.stack.scope != ScopeConfig::Everything {
-        UserIngestor::from_watcher_config(config, client)
+        watcher_ingestor(config, client)
             .ensure_in_scope(&config.moderation_id)
             .await?;
     }

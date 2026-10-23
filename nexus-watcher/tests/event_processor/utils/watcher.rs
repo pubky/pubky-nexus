@@ -6,7 +6,6 @@ use nexus_common::db::{PubkyConnector, RedisOps};
 use nexus_common::models::file::FileDetails;
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::post::PostStream;
-use nexus_common::models::scope::EverythingScope;
 use nexus_common::models::traits::Collection;
 use nexus_common::models::user::USER_SOCIAL_GRAPH_KEY_PARTS;
 use nexus_common::utils::test_utils::default_ingestor_tests;
@@ -123,8 +122,8 @@ impl WatcherTest {
             event_handler,
             client,
             shutdown_rx,
+            full_feeds: vec![primary_homeserver.clone()],
             primary_homeserver,
-            scope: Arc::new(EverythingScope),
             hs_blacklist: Default::default(),
             retry_scheduler,
         }

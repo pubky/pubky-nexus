@@ -1,20 +1,20 @@
 //! Which users this Nexus indexes.
 //!
-//! The watcher asks one [`Scope`], built from [`ScopeConfig`], at every point where
-//! it decides whose content to read: which homeservers it reads as a whole feed,
-//! whether a newly discovered user is indexed or kept as an outsider, and whether an
-//! event's author is indexed.
+//! The watcher and the API ask one [`Scope`], built from [`ScopeConfig`], whether a
+//! user's content is indexed: the user ingestor keeps one, so both decide a newly met
+//! user is a member or an outsider the same way, and the watcher skips events of
+//! authors outside it. What only the watcher needs (the moderator pinned into it, and
+//! which homeservers it reads as a whole feed) lives in `nexus-watcher`.
 
-use std::collections::HashSet;
 use std::sync::Arc;
 
 use pubky_app_specs::PubkyId;
 
-use crate::config::{ScopeConfig, WatcherConfig};
+use crate::config::ScopeConfig;
 use crate::db::{fetch_row_from_graph, queries};
 use crate::models::error::ModelResult;
 
-/// The answers every scope gives the watcher.
+/// The answers every scope gives.
 #[async_trait::async_trait]
 pub trait Scope: Send + Sync + std::fmt::Debug {
     /// The settings this scope was built from, as `/v0/info` publishes them.
@@ -23,10 +23,6 @@ pub trait Scope: Send + Sync + std::fmt::Debug {
     /// Whether the user's own content is indexed. `hs_id` is the user's homeserver when
     /// the caller knows it; otherwise the scope looks it up if it needs one.
     async fn is_in_scope(&self, user_id: &str, hs_id: Option<&str>) -> ModelResult<bool>;
-
-    /// Homeservers whose whole `/events` feed is read. Users on any other homeserver
-    /// are read one by one through their own event stream, if they are in scope.
-    fn full_feed_homeservers(&self, primary: &PubkyId) -> Vec<PubkyId>;
 }
 
 /// Builds the scope the configuration describes.
@@ -37,52 +33,7 @@ pub fn scope_from_config(config: &ScopeConfig) -> Arc<dyn Scope> {
     }
 }
 
-/// A scope that also always includes some users, whatever the setting: the moderator,
-/// whose tags take content down, must be read on every Nexus. Pinned users never
-/// widen the scope themselves; who they follow doesn't matter.
-#[derive(Debug)]
-pub struct PinnedScope {
-    inner: Arc<dyn Scope>,
-    pinned: HashSet<String>,
-}
-
-impl PinnedScope {
-    pub fn new(inner: Arc<dyn Scope>, pinned: impl IntoIterator<Item = PubkyId>) -> Self {
-        Self {
-            inner,
-            pinned: pinned.into_iter().map(|id| id.to_string()).collect(),
-        }
-    }
-}
-
-#[async_trait::async_trait]
-impl Scope for PinnedScope {
-    fn config(&self) -> &ScopeConfig {
-        self.inner.config()
-    }
-
-    async fn is_in_scope(&self, user_id: &str, hs_id: Option<&str>) -> ModelResult<bool> {
-        if self.pinned.contains(user_id) {
-            return Ok(true);
-        }
-        self.inner.is_in_scope(user_id, hs_id).await
-    }
-
-    fn full_feed_homeservers(&self, primary: &PubkyId) -> Vec<PubkyId> {
-        self.inner.full_feed_homeservers(primary)
-    }
-}
-
-/// The watcher's scope: the configured one, with the moderator always in it.
-pub fn watcher_scope(config: &WatcherConfig) -> Arc<dyn Scope> {
-    Arc::new(PinnedScope::new(
-        scope_from_config(&config.stack.scope),
-        [config.moderation_id.clone()],
-    ))
-}
-
-/// Every user Nexus can discover: the primary homeserver's feed is read whole and
-/// everyone else is read through their own stream, as before scopes existed.
+/// Every user Nexus can discover, as before scopes existed.
 #[derive(Debug)]
 pub struct EverythingScope;
 
@@ -95,13 +46,9 @@ impl Scope for EverythingScope {
     async fn is_in_scope(&self, _user_id: &str, _hs_id: Option<&str>) -> ModelResult<bool> {
         Ok(true)
     }
-
-    fn full_feed_homeservers(&self, primary: &PubkyId) -> Vec<PubkyId> {
-        vec![primary.clone()]
-    }
 }
 
-/// Users hosted on a fixed list of homeservers, each read through its whole feed.
+/// Users hosted on a fixed list of homeservers.
 #[derive(Debug)]
 pub struct HomeserverListScope {
     config: ScopeConfig,
@@ -155,10 +102,6 @@ impl Scope for HomeserverListScope {
             (None, None) => true,
         })
     }
-
-    fn full_feed_homeservers(&self, _primary: &PubkyId) -> Vec<PubkyId> {
-        self.homeservers().to_vec()
-    }
 }
 
 #[cfg(test)]
@@ -173,36 +116,21 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn everything_reads_the_primary_feed_and_indexes_everyone() {
+    async fn everything_indexes_everyone() {
         let scope = scope_from_config(&ScopeConfig::Everything);
 
-        assert_eq!(scope.full_feed_homeservers(&pk(HS_A)), vec![pk(HS_A)]);
         assert!(scope.is_in_scope("anyone", None).await.unwrap());
         assert!(scope.is_in_scope("anyone", Some(HS_B)).await.unwrap());
     }
 
     #[tokio::test]
-    async fn homeserver_list_reads_its_feeds_and_indexes_their_users() {
+    async fn homeserver_list_indexes_its_homeservers_users() {
         let scope = scope_from_config(&ScopeConfig::Homeservers {
             homeservers: vec![pk(HS_B)],
         });
 
-        // The primary homeserver is replaced by the list.
-        assert_eq!(scope.full_feed_homeservers(&pk(HS_A)), vec![pk(HS_B)]);
         assert!(scope.is_in_scope("user", Some(HS_B)).await.unwrap());
         assert!(!scope.is_in_scope("user", Some(HS_A)).await.unwrap());
-    }
-
-    /// The moderator is in scope whatever the setting, so its takedowns are read.
-    #[tokio::test]
-    async fn pinned_users_are_always_in_scope() {
-        let moderator = pk(HS_A);
-        let homeservers: Arc<dyn Scope> = Arc::new(HomeserverListScope::new(&[pk(HS_B)]));
-        let scope = PinnedScope::new(homeservers, [moderator.clone()]);
-
-        assert!(scope.is_in_scope(&moderator, Some(HS_A)).await.unwrap());
-        assert!(!scope.is_in_scope("someone", Some(HS_A)).await.unwrap());
-        assert_eq!(scope.full_feed_homeservers(&pk(HS_A)), vec![pk(HS_B)]);
     }
 
     /// Without a homeserver from the caller, the user's binding decides.

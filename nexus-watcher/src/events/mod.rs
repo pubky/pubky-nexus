@@ -80,7 +80,7 @@ impl DefaultEventHandler {
     /// and user ingestor from config. The ingestor resolves users' homeservers through
     /// `client` too, and keeps the moderator in scope.
     pub fn from_config(config: &WatcherConfig, client: Arc<dyn HomeserverClient>) -> Self {
-        let ingestor = UserIngestor::from_watcher_config(config, client.clone());
+        let ingestor = crate::scope::watcher_ingestor(config, client.clone());
         Self::new(
             Moderation::from_config(config),
             Arc::new(ingestor),

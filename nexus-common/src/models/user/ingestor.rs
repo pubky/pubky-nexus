@@ -6,11 +6,11 @@ use super::PkdnsHomeserverResolver;
 use crate::db::{exec_single_row, fetch_key_from_graph, fetch_row_from_graph, queries};
 use crate::models::error::{ModelError, ModelResult};
 use crate::models::homeserver::HsBlacklist;
-use crate::models::scope::{scope_from_config, watcher_scope, EverythingScope, Scope};
+use crate::models::scope::{scope_from_config, EverythingScope, Scope};
 use crate::models::traits::Collection;
 use crate::models::user::outsider::{admit_outsider, create_outsider, drop_outsider_entry};
 use crate::models::user::{set_user_homeserver, UserDetails, UserHsCursor};
-use crate::{ScopeConfig, StackConfig, WatcherConfig};
+use crate::{ScopeConfig, StackConfig};
 
 /// Ingests previously-unknown users unless their HS is blacklisted.
 #[derive(Clone)]
@@ -59,15 +59,6 @@ impl UserIngestor {
             resolver,
         )
         .with_scope(scope_from_config(&config.scope))
-    }
-
-    /// The watcher's ingestor: like [`Self::from_config`], with the moderator always in
-    /// scope.
-    pub fn from_watcher_config(
-        config: &WatcherConfig,
-        resolver: Arc<dyn PkdnsHomeserverResolver>,
-    ) -> Self {
-        Self::from_config(&config.stack, resolver).with_scope(watcher_scope(config))
     }
 
     /// The scope deciding which users are indexed.
@@ -249,29 +240,6 @@ mod tests {
         async fn resolve_homeserver(&self, _: &PublicKey) -> PubkyClientResult<Option<PubkyId>> {
             Ok(Some(self.0.clone()))
         }
-    }
-
-    /// The watcher's ingestor keeps the moderator in scope whatever the scope: on a
-    /// homeserver the list doesn't hold, the moderator is in, and anyone else is out.
-    #[tokio::test]
-    async fn the_watchers_ingestor_keeps_the_moderator_in_scope() {
-        let (listed, unlisted) = (random_pubky_id(), random_pubky_id());
-        let mut config = WatcherConfig::default();
-        config.stack.scope = crate::ScopeConfig::Homeservers {
-            homeservers: vec![listed],
-        };
-        let resolver = Arc::new(FixedResolver(unlisted.clone()));
-        let scope = UserIngestor::from_watcher_config(&config, resolver)
-            .scope()
-            .clone();
-
-        let moderator = config.moderation_id.to_string();
-        assert!(scope
-            .is_in_scope(&moderator, Some(&unlisted))
-            .await
-            .unwrap());
-        let someone = random_pubky_id().to_string();
-        assert!(!scope.is_in_scope(&someone, Some(&unlisted)).await.unwrap());
     }
 
     /// The blacklist check looks the user's homeserver up through the injected resolver.

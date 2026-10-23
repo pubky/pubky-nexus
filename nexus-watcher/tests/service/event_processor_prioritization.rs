@@ -9,13 +9,14 @@ use chrono::Utc;
 use nexus_common::db::graph::exec::exec_single_row;
 use nexus_common::db::graph::Query;
 use nexus_common::models::homeserver::{Homeserver, HsBlacklist};
-use nexus_common::models::scope::{EverythingScope, HomeserverListScope, Scope};
 use nexus_common::models::traits::Collection;
 use nexus_common::models::user::{set_user_homeserver, Epoch, UserDetails};
 use nexus_common::types::DynError;
 use nexus_common::utils::test_utils::{default_ingestor_tests, random_pubky_id};
+use nexus_common::ScopeConfig;
 use nexus_watcher::events::retry::{InitialBackoff, RedisRetryStore, RetryScheduler, RetryStore};
 use nexus_watcher::events::{DefaultEventHandler, EventHandler};
+use nexus_watcher::scope::full_feed_homeservers;
 use nexus_watcher::service::runner::{HomeserverBackoff, UserNotFoundBackoff, UserResumePoints};
 use nexus_watcher::service::{
     HsEventProcessorRunner, KeyBasedEventProcessorRunner, TEventProcessorRunner,
@@ -52,7 +53,7 @@ async fn test_event_processor_runner_primary_homeserver_excluded() -> Result<(),
         client,
         shutdown_rx: tokio::sync::watch::channel(false).1,
         primary_homeserver: PubkyId::try_from(HS_IDS[3]).unwrap(),
-        scope: Arc::new(EverythingScope),
+        full_feeds: vec![PubkyId::try_from(HS_IDS[3]).unwrap()],
         hs_blacklist: HsBlacklist::default(),
         backoff: HomeserverBackoff::default(),
         user_not_found_backoff: Arc::new(UserNotFoundBackoff::default()),
@@ -108,7 +109,7 @@ async fn test_event_processor_runner_blacklisted_homeserver_excluded() -> Result
         client,
         shutdown_rx: tokio::sync::watch::channel(false).1,
         primary_homeserver: PubkyId::try_from(HS_IDS[3]).unwrap(),
-        scope: Arc::new(EverythingScope),
+        full_feeds: vec![PubkyId::try_from(HS_IDS[3]).unwrap()],
         hs_blacklist: HsBlacklist::new([blacklisted_hs.clone()]),
         backoff: HomeserverBackoff::default(),
         user_not_found_backoff: Arc::new(UserNotFoundBackoff::default()),
@@ -293,8 +294,8 @@ async fn delete_users(user_ids: &[PubkyId]) -> Result<(), DynError> {
     Ok(())
 }
 
-/// A key-based runner for `primary`, reading feeds as `scope` says.
-fn key_based_runner(primary: &PubkyId, scope: Arc<dyn Scope>) -> KeyBasedEventProcessorRunner {
+/// A key-based runner for `primary`, reading `full_feeds` whole.
+fn key_based_runner(primary: &PubkyId, full_feeds: Vec<PubkyId>) -> KeyBasedEventProcessorRunner {
     let client = Arc::new(MockHomeserverClient::default());
     let event_handler: Arc<dyn EventHandler> = Arc::new(DefaultEventHandler::new(
         default_moderation_tests(),
@@ -317,7 +318,7 @@ fn key_based_runner(primary: &PubkyId, scope: Arc<dyn Scope>) -> KeyBasedEventPr
         client,
         shutdown_rx: tokio::sync::watch::channel(false).1,
         primary_homeserver: primary.clone(),
-        scope,
+        full_feeds,
         hs_blacklist: HsBlacklist::default(),
         backoff: HomeserverBackoff::default(),
         user_not_found_backoff: Arc::new(UserNotFoundBackoff::default()),
@@ -346,8 +347,11 @@ async fn test_key_based_runner_skips_the_homeservers_a_scope_reads_whole() -> Re
     setup().await?;
     let [primary, listed, other] = active_homeservers(3).await?.try_into().unwrap();
 
-    let scope = Arc::new(HomeserverListScope::new(std::slice::from_ref(&listed)));
-    let hs_ids = key_based_runner(&primary, scope).pre_run().await?;
+    let scope = ScopeConfig::Homeservers {
+        homeservers: vec![listed.clone()],
+    };
+    let full_feeds = full_feed_homeservers(&scope, &primary);
+    let hs_ids = key_based_runner(&primary, full_feeds).pre_run().await?;
 
     assert!(
         !hs_ids.contains(&listed.to_string()),
@@ -381,11 +385,7 @@ async fn test_hs_runner_skips_a_blacklisted_listed_homeserver() -> Result<(), Dy
         client,
         shutdown_rx: tokio::sync::watch::channel(false).1,
         primary_homeserver: primary.clone(),
-        scope: Arc::new(HomeserverListScope::new(&[
-            primary.clone(),
-            listed.clone(),
-            blacklisted.clone(),
-        ])),
+        full_feeds: vec![primary.clone(), listed.clone(), blacklisted.clone()],
         hs_blacklist: HsBlacklist::new([blacklisted.clone(), primary.clone()]),
         retry_scheduler: Arc::new(RetryScheduler::new(
             store,
