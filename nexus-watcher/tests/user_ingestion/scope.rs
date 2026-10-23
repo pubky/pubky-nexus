@@ -280,18 +280,11 @@ fn homeserver_maintainer(
 }
 
 /// An outsider whose event comes in from a listed homeserver's feed may have moved there:
-/// it is let in, and the event is indexed rather than skipped.
+/// the feed's processor lets it in, and the event is indexed rather than skipped.
 #[tokio_shared_rt::test(shared)]
 async fn test_an_outsider_that_moved_onto_a_listed_homeserver_is_let_in() -> Result<()> {
     let test = WatcherTest::setup(None).await?;
-    let client =
-        PubkyHomeserverClient::from_config(PubkyConnector::get()?, &WatcherConfig::default());
-    let handler = DefaultEventHandler::new(
-        default_moderation_tests(),
-        Arc::new(scoped_ingestor(&test)),
-        Arc::new(client),
-        PathBuf::from("/tmp/nexus-watcher-test"),
-    );
+    let processor = feed_processor(&test, Arc::new(scoped_ingestor(&test)));
 
     let (user_kp, user_id) = user_on(&test, &test.homeserver_id.to_public_key()).await?;
     create_outsider(&UserDetails::from_pubky(user_id.clone())).await?;
@@ -320,7 +313,11 @@ async fn test_an_outsider_that_moved_onto_a_listed_homeserver_is_let_in() -> Res
     let ParseResult::Parsed(event) = Event::parse_event(&line)? else {
         panic!("a post line parses");
     };
-    handler.handle(&event).await?;
+    assert!(
+        processor.should_process_event(&event).await?,
+        "let in, so its event is processed"
+    );
+    processor.event_handler.handle(&event).await?;
 
     assert!(PostDetails::get_by_id(&user_id, &post_id).await?.is_some());
     assert!(!is_outsider(&user_id).await?);
