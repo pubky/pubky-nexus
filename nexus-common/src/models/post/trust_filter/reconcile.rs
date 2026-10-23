@@ -15,7 +15,7 @@ use crate::db::{
 use crate::models::error::ModelResult;
 use crate::models::post::search::PostsByTagSearch;
 use crate::models::post::PostStream;
-use crate::models::user::SocialGraphStatus;
+use crate::models::user::{is_outsider, SocialGraphStatus};
 
 /// Posts read from the graph, and written, per page.
 const POSTS_PAGE: usize = 1_000;
@@ -119,6 +119,10 @@ async fn write_authors(conn: &mut Connection, hide: &[String], show: &[String]) 
     let hides = hide.iter().map(|author| (author, Write::Hide));
     let shows = show.iter().map(|author| (author, Write::Show));
     for (author, write) in hides.chain(shows) {
+        // An outsider's posts stay out of the global feeds whatever the filter says.
+        if matches!(write, Write::Show) && is_outsider(author).await? {
+            continue;
+        }
         write_pages(conn, author, write, POSTS_PAGE)
             .await
             .inspect_err(|error| {

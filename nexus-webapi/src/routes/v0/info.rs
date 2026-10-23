@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use super::endpoints::INFO_ROUTE;
 use crate::models::info::ServerInfo;
 use crate::routes::AppState;
+use nexus_common::ScopeConfig;
 
 use axum::extract::State;
 use axum::response::IntoResponse;
@@ -22,7 +23,8 @@ use utoipa::OpenApi;
 )]
 pub async fn info_handler(State(app_state): State<AppState>) -> impl IntoResponse {
     let file_path: &PathBuf = &app_state.files_path;
-    let info = ServerInfo::new(file_path.clone()).await;
+    let scope = app_state.ingestor.scope().config().clone();
+    let info = ServerInfo::new(file_path.clone(), scope).await;
     Json(info)
 }
 
@@ -33,5 +35,5 @@ pub fn routes(app_state: AppState) -> Router<AppState> {
 }
 
 #[derive(OpenApi)]
-#[openapi(paths(info_handler), components(schemas(ServerInfo)))]
+#[openapi(paths(info_handler), components(schemas(ServerInfo, ScopeConfig)))]
 pub struct InfoApiDoc;

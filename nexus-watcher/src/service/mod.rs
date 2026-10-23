@@ -19,6 +19,7 @@ pub use user_hs_resolver::UserHsResolverRunner;
 use crate::events::retry::{RetryProcessor, RetryScheduler};
 use crate::events::{DefaultEventHandler, EventHandler};
 use crate::homeserver::{HomeserverClient, PubkyHomeserverClient};
+use crate::scope::{full_feed_homeservers, watcher_ingestor};
 use crate::service::constants::DEFAULT_WATCHER_CONFIG_TOML;
 use crate::service::task_runner::task_results_into_result;
 use crate::NexusWatcherBuilder;
@@ -26,11 +27,12 @@ use nexus_common::db::PubkyConnector;
 use nexus_common::file::ConfigLoader;
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::types::DynError;
+use nexus_common::ScopeConfig;
 use nexus_common::WatcherConfig;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::watch::Receiver;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 pub struct NexusWatcher {}
 
@@ -80,8 +82,6 @@ impl NexusWatcher {
     pub async fn start(shutdown_rx: Receiver<bool>, config: WatcherConfig) -> Result<(), DynError> {
         debug!(?config, "Running NexusWatcher with ");
 
-        Homeserver::persist_if_unknown(config.homeserver.clone()).await?;
-
         let primary_hs_monitoring_interval_ms = config.primary_hs_monitoring_interval_ms;
         let external_hs_monitoring_interval_ms = config.external_hs_monitoring_interval_ms;
         let hs_resolver_interval_ms = config.hs_resolver_interval_ms;
@@ -91,6 +91,8 @@ impl NexusWatcher {
             PubkyConnector::get()?,
             &config,
         ));
+        prepare_scope(&config, client.clone()).await?;
+
         let event_handler: Arc<dyn EventHandler> =
             Arc::new(DefaultEventHandler::from_config(&config, client.clone()));
         let retry_scheduler = Arc::new(RetryScheduler::from_config(&config));
@@ -154,6 +156,35 @@ impl NexusWatcher {
         info!("Nexus Watcher shut down gracefully");
         task_results_into_result(task_results)
     }
+}
+
+/// Gets the scope ready before any event is read: the homeservers read whole are
+/// persisted so their cursors exist, and the moderator is made sure to be read, its
+/// homeserver looked up through `client`. Run by [`NexusWatcher::start`]; public so tests can run it alone.
+pub async fn prepare_scope(
+    config: &WatcherConfig,
+    client: Arc<dyn HomeserverClient>,
+) -> Result<(), DynError> {
+    info!(scope = ?config.stack.scope, "Indexing scope");
+
+    for homeserver in full_feed_homeservers(config) {
+        Homeserver::persist_if_unknown(homeserver).await?;
+    }
+
+    // The moderator's tags take content down, so a scoped Nexus must read it too.
+    if config.stack.scope != ScopeConfig::Everything {
+        watcher_ingestor(config, client)
+            .ensure_in_scope(&config.moderation_id)
+            .await?;
+    }
+
+    if let ScopeConfig::Homeservers { homeservers } = &config.stack.scope {
+        let blacklist = &config.stack.net.external_hs_pk_blacklist;
+        for listed in homeservers.iter().filter(|hs| blacklist.contains(hs)) {
+            warn!(homeserver = %listed, "A listed homeserver is blacklisted: it is not read");
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]

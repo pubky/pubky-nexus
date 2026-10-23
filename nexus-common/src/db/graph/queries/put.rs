@@ -31,6 +31,32 @@ pub fn create_user(user: &UserDetails, uri: Option<&str>) -> GraphResult<Query> 
     Ok(query)
 }
 
+/// Creates the node of a user met outside the scope, with its `scope_state` set in the
+/// same write; see [`crate::models::user::outsider`]. A node that already exists is left as
+/// it is: another caller created it first, maybe in scope.
+pub fn create_outsider_user(user: &UserDetails) -> GraphResult<Query> {
+    let links = serde_json::to_string(&user.links)
+        .map_err(|e| GraphError::SerializationFailed(Box::new(e)))?;
+
+    let query = Query::new(
+        "create_outsider_user",
+        "MERGE (u:User {id: $id})
+         ON CREATE SET u.name = $name, u.bio = $bio, u.status = $status, u.links = $links, u.image = $image, u.indexed_at = $indexed_at, u.deleted = $deleted,
+             u.scope_state = $scope_state",
+    )
+    .param("id", user.id.to_string())
+    .param("name", user.name.clone())
+    .param("bio", user.bio.clone())
+    .param("status", user.status.clone())
+    .param("links", links)
+    .param("image", user.image.clone())
+    .param("indexed_at", user.indexed_at)
+    .param("deleted", user.deleted)
+    .param("scope_state", crate::models::user::SCOPE_STATE_OUTSIDE);
+
+    Ok(query)
+}
+
 /// Creates a Cypher query to add or edit a post to the graph database and handles its relationships.
 /// # Arguments
 /// * `post` - A reference to a `PostDetails` struct containing information about the post to be created or edited
@@ -448,6 +474,20 @@ pub fn create_homeserver(homeserver_id: &str) -> Query {
         RETURN hs;",
     )
     .param("id", homeserver_id)
+}
+
+/// Sets a user's `scope_state`, or removes it with `None` (the user is in scope).
+///
+/// Any `scope_state` keeps the user from being resolved or polled; see
+/// [`crate::models::user::outsider`].
+pub fn set_user_scope_state(user_id: &str, scope_state: Option<&str>) -> Query {
+    Query::new(
+        "set_user_scope_state",
+        "MATCH (u:User {id: $user_id})
+         SET u.scope_state = $scope_state",
+    )
+    .param("user_id", user_id.to_string())
+    .param("scope_state", scope_state.map(str::to_string))
 }
 
 /// Records an address the moderator took down, and the moderator tag that took it down;
