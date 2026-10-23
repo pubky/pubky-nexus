@@ -7,7 +7,7 @@ use crate::db::queries::get::TrustRule;
 use crate::db::{get_neo4j_graph, queries, GraphError, GraphResult, RedisOps};
 use crate::models::error::ModelError;
 use crate::models::error::ModelResult;
-use crate::models::user::is_stub;
+use crate::models::user::is_outsider;
 use crate::models::{
     follow::{Followers, Following, Friends, UserFollows},
     post::search::PostsByTagSearch,
@@ -893,8 +893,8 @@ impl PostStream {
 
     /// Adds the post to a Redis sorted set using the `indexed_at` timestamp as the score.
     pub async fn add_to_timeline_sorted_set(details: &PostDetails) -> RedisResult<()> {
-        // A stub's posts appear only where they meet the scope, not in global feeds.
-        if is_stub(&details.author).await? {
+        // An outsider's posts appear only where they meet the scope, not in global feeds.
+        if is_outsider(&details.author).await? {
             return Ok(());
         }
         let element = format!("{}:{}", details.author, details.id);
@@ -1004,7 +1004,7 @@ impl PostStream {
         author_id: &str,
         post_id: &str,
     ) -> RedisResult<()> {
-        if is_stub(author_id).await? {
+        if is_outsider(author_id).await? {
             return Ok(());
         }
         let element = format!("{author_id}:{post_id}");
@@ -1047,7 +1047,7 @@ impl PostStream {
         post_id: &str,
         score_action: ScoreAction,
     ) -> RedisResult<()> {
-        if is_stub(author_id).await? {
+        if is_outsider(author_id).await? {
             return Ok(());
         }
         let post_key_slice = &[author_id, post_id];

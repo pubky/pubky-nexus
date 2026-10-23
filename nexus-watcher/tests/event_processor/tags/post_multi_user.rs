@@ -168,7 +168,7 @@ async fn test_homeserver_multi_user_posts_tags() -> Result<()> {
     assert_eq!(post_counts.tags, 5);
     assert_eq!(post_counts.unique_tags, 2);
 
-    // Check if user counts updated: User:Counts:user_id
+    // Check if user counts updated
     let tagger_a_user_counts = find_user_counts(&tagger_a_kp_id.1).await;
     assert_eq!(tagger_a_user_counts.tagged, 1);
     let tagger_b_user_counts = find_user_counts(&tagger_b_kp_id.1).await;
@@ -243,7 +243,7 @@ async fn test_homeserver_multi_user_posts_tags() -> Result<()> {
     assert_eq!(post_counts.tags, 0);
     assert_eq!(post_counts.unique_tags, 0);
 
-    // Check if user counts updated: User:Counts:user_id
+    // Check if user counts updated
     for tagger_kp_id in water_taggers {
         let user_counts = find_user_counts(&tagger_kp_id.1).await;
         assert_eq!(user_counts.tagged, 0);

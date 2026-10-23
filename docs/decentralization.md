@@ -306,11 +306,11 @@ that doesn't belong to the `kind` is an error.
 **Changing the scope moves known users in or out at the next start**, before any event
 is read (`ScopeMaintainer`):
 
-- `everything`: every stub and every user that left is let back in, and catches up like
+- `everything`: every outsider and every user that left is let back in, and catches up like
   any user that joins (below). One whose homeserver isn't published is let in unbound, for
   the HS resolver to bind.
 - `homeservers`: users bound to a homeserver the list no longer holds leave. If the list
-  changed since the last start (`Scope:Active`), stubs and users that left whose
+  changed since the last start (`Scope:Active`), outsiders and users that left whose
   homeserver is now listed join. A user whose homeserver can't be found is tried again
   every `[scope_maintenance] interval_ms` (default 5 minutes), up to 12 times
   (`Scope:AdmitRetry`).
@@ -321,34 +321,37 @@ homeserver with its cursor at 0 and **catches up** (`Scope:CatchUp`): its own st
 read from the start until it is empty, so the records it wrote while it was out are
 indexed. On a homeserver read whole, whose feed moved past those records, the whole-feed
 processor reads the user's own stream before the feed, for at most 30 seconds per poll, so
-new events wait seconds; a longer catch-up goes on over the next polls. A stub or a user that left whose
+new events wait seconds; a longer catch-up goes on over the next polls. An outsider or a user that left whose
 event shows up in a listed feed may have moved there: its homeserver is checked again, at
 most once per 15 minutes, and it joins if it is now listed.
 
 **The moderator is always in scope.** `moderation_id` is read whatever the scope, since
 its tags take content down.
 
-**Users outside the scope are stubs**: a `User` node with `scope_state = "stub"` and
+**Users outside the scope are kept as outsiders**: a `User` node with `scope_state = "outside"` and
 counts, but no `HOSTED_BY` and no cursor, so the resolver and the indexers never touch
-it. Follows, tags and mentions of stubs by in-scope users are indexed. Stubs are kept out
-of the most-followed and influencer rankings, and their posts out of the global feeds
+it. Follows, tags and mentions of outsiders by in-scope users are indexed. Outsiders are kept out
+of the most-followed and influencer rankings and the users-by-tag search (an outsider that
+joins the scope is ranked there then), and their posts out of the global feeds
 (timeline, engagement, tag streams, and the `source=all` shapes served from the graph,
 such as a kind filter or several tags): they appear where they meet the scope, in threads,
-counts, notifications and their own profile. A Redis set (`Scope:Stubs`) mirrors the
-graph for the per-write check and is rebuilt at start.
+counts, notifications and their own profile. Every check reads the graph's `scope_state`,
+the only record of who is an outsider.
 
-An event whose author is outside the scope is skipped before it is fetched, counted in
-`watcher.events.out_of_scope`.
+An event read from a homeserver's whole feed whose author is outside the scope is skipped
+before it is fetched, counted in `watcher.events.out_of_scope`. Users outside the scope
+aren't polled, so no other source reads their events, and an event the retry queue holds
+is finished whatever the scope: it was in scope when it was read.
 
 **A post outside the scope that an in-scope record needs is fetched.** A reply, repost,
-tag or bookmark by a member can point at a post whose author is a stub or a user that
+tag or bookmark by a member can point at a post whose author is an outsider or a user that
 left, whose stream is never read. That one post is fetched from its author's homeserver
 and indexed, with the out-of-scope posts it replies to or reposts, oldest first; nothing
 else of those authors' is read. At most 20 posts are fetched per attempt: a longer
 chain continues on the record's next retry (`Scope:FetchResume`). A post taken down by
 the moderator, or on a blacklisted homeserver, is never fetched, and a post taken down while
-it is being fetched is removed again once saved. Fetched posts of a stub stay out of the
-global feeds until the stub joins the scope.
+it is being fetched is removed again once saved. Fetched posts of an outsider stay out of the
+global feeds until the outsider joins the scope.
 
 A fetched post is a snapshot: its author's stream isn't read, so later edits and deletes
 of it don't reach this Nexus (a moderator takedown still does). It is indexed like any

@@ -124,6 +124,11 @@ pub struct StackConfig {
     #[serde(default)]
     pub media: MediaConfig,
     /// Which users this Nexus indexes. See [ScopeConfig].
+    ///
+    /// Here rather than in the watcher's config because the API decides it too: its
+    /// ingest-user endpoint makes a new user a member or an outsider, and `/v0/info`
+    /// publishes it. Read from one place, the two can't disagree, as with the HS
+    /// blacklist in [NetConfig].
     #[serde(default)]
     pub scope: ScopeConfig,
 }

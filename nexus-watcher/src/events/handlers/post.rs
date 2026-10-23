@@ -9,7 +9,7 @@ use nexus_common::models::post::{
     collection_item_keys, sync_collected_edges, PostCounts, PostDetails, PostRelationships,
     PostStream,
 };
-use nexus_common::models::user::{UserCounts, UserIngestor};
+use nexus_common::models::user::UserIngestor;
 use pubky_app_specs::{
     ParsedUri, PubkyAppCollectionContent, PubkyAppPost, PubkyAppPostKind, PubkyId, Resource,
 };
@@ -120,11 +120,6 @@ async fn sync_put_details(
         match PostDetails::get_from_index(&author_id, &post_id).await? {
             Some(existing_details) => {
                 let was_collection = existing_details.kind == PubkyAppPostKind::Collection;
-                // Persist the new PostDetails (incl. kind) BEFORE moving the
-                // `collections` counter. If the counter moved first and a later
-                // step failed, a retry would re-read the old kind, see the same
-                // transition, and move the counter twice. Writing the kind first
-                // means a retry sees the new kind and the transition is gone.
                 let collection_toggled = was_collection != is_collection;
                 // `is_different_than` ignores kind, so refresh on a kind-only edit too.
                 let kind_changed = existing_details.kind != post_details.kind;
@@ -153,17 +148,12 @@ async fn sync_put_details(
                     )
                     .await?;
                 }
-                match (was_collection, is_collection) {
-                    (false, true) => UserCounts::increment(&author_id, "collections", None).await?,
-                    (true, false) => UserCounts::decrement(&author_id, "collections", None).await?,
-                    _ => {}
-                }
             }
             None => {
                 // Partial-failure recovery: graph already had the post but Redis is
                 // missing PostDetails. A previous sync_put attempt wrote the graph node
                 // but failed before completing the index writes. Re-run idempotent
-                // index writes only — counters/scores/notifications are intentionally
+                // index writes only — scores/notifications are intentionally
                 // skipped (prefer drift over duplicates).
                 recover_post_index_state(&author_id, &post_id).await?;
             }
@@ -199,38 +189,21 @@ async fn sync_put_details(
         sync_collected_edges(&author_id, &post_id, &items, Some(&post_details)).await?;
     }
 
-    // SAVE TO INDEX - PHASE 1, update post counts
-    let indexing_results = nexus_common::traced_join!(
-        tracing::info_span!("index.write", phase = "post_counts");
-        // TODO: Use SCARD on a set for unique tag count to avoid race conditions in parallel processing
-        async {
-            if PostCounts::get_from_index(&author_id, &post_id)
+    // SAVE TO INDEX - PHASE 1, create the post counts
+    // TODO: Use SCARD on a set for unique tag count to avoid race conditions in parallel processing
+    async {
+        if PostCounts::get_from_index(&author_id, &post_id)
+            .await?
+            .is_none()
+        {
+            PostCounts::default()
+                .put_to_index(&author_id, &post_id, is_reply)
                 .await?
-                .is_none()
-            {
-                PostCounts::default()
-                    .put_to_index(&author_id, &post_id, is_reply)
-                    .await?
-            }
-            Ok::<(), EventProcessorError>(())
-        },
-        // TODO: Use SCARD on a set for unique tag count to avoid race conditions in parallel processing
-        // Update user counts with the new post
-        UserCounts::increment(&author_id, "posts", None),
-        async {
-            // reply XOR collection (collections forbid `parent`); never both.
-            if is_reply {
-                UserCounts::increment(&author_id, "replies", None).await?;
-            } else if is_collection {
-                UserCounts::increment(&author_id, "collections", None).await?;
-            };
-            Ok::<(), EventProcessorError>(())
         }
-    );
-
-    indexing_results.0?;
-    indexing_results.1?;
-    indexing_results.2?;
+        Ok::<(), EventProcessorError>(())
+    }
+    .instrument(tracing::info_span!("index.write", phase = "post_counts"))
+    .await?;
 
     // Use that index wrapper to add a post reply
     let mut reply_parent_post_key_wrapper: Option<(String, String)> = None;
@@ -705,17 +678,16 @@ pub async fn sync_del(
 
     // Recover the kind BEFORE removing the gate below. PostDetails is still present
     // (graph-delete runs last). Doing this after the gate deletion would let a
-    // failed lookup strand the decrements on retry (gate gone, post_in_index false).
+    // failed lookup strand the notifications on retry (gate gone, post_in_index false).
     let deleted_kind = if post_in_index {
         post_kind(&author_id, &post_id).await?
     } else {
         PubkyAppPostKind::Unknown
     };
-    let is_collection = deleted_kind == PubkyAppPostKind::Collection;
 
     // 2. Atomically commit the cleanup decision: remove the gate as the very
     //    first mutation. Subsequent retries will observe `post_in_index = false`
-    //    and skip non-idempotent ops (counters, scores, notifications).
+    //    and skip non-idempotent ops (scores, notifications).
     if post_in_index {
         PostRelationships::delete(&author_id, &post_id).await?;
     }
@@ -735,32 +707,11 @@ pub async fn sync_del(
     let is_reply =
         matches!(&post_relationships_opt, Some(relationship) if relationship.replied.is_some());
 
-    // DELETE TO INDEX - PHASE 1, decrease post counts
-    let indexing_results = nexus_common::traced_join!(
-        tracing::info_span!("index.delete", phase = "post_counts");
-        // Idempotent: JSON DEL + ZREM from engagement sorted set.
-        PostCounts::delete(&author_id, &post_id, !is_reply),
-        // Guarded: skip on retry to avoid double-decrement.
-        async {
-            if post_in_index {
-                UserCounts::decrement(&author_id, "posts", None).await?;
-            }
-            Ok::<(), EventProcessorError>(())
-        },
-        async {
-            // reply XOR collection; never both fire.
-            if post_in_index && is_reply {
-                UserCounts::decrement(&author_id, "replies", None).await?;
-            } else if is_collection {
-                UserCounts::decrement(&author_id, "collections", None).await?;
-            };
-            Ok::<(), EventProcessorError>(())
-        }
-    );
-
-    indexing_results.0?;
-    indexing_results.1?;
-    indexing_results.2?;
+    // DELETE TO INDEX - PHASE 1, remove the post counts
+    // Idempotent: JSON DEL + ZREM from engagement sorted set.
+    PostCounts::delete(&author_id, &post_id, !is_reply)
+        .instrument(tracing::info_span!("index.delete", phase = "post_counts"))
+        .await?;
 
     // Use that index wrapper to delete a post reply
     let mut reply_parent_post_key_wrapper: Option<(String, String)> = None;

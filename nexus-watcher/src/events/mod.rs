@@ -17,17 +17,6 @@ use std::{
 };
 use tracing::debug;
 
-/// Counter for events skipped because their author is outside the scope.
-///
-/// The runners only read in-scope users, so this stays near zero; a steady
-/// count means events of out-of-scope users are still reaching dispatch.
-static OUT_OF_SCOPE: LazyLock<Counter<u64>> = LazyLock::new(|| {
-    global::meter(METER_NAME)
-        .u64_counter("watcher.events.out_of_scope")
-        .with_description("Events skipped because their author is outside the scope")
-        .build()
-});
-
 /// Counter for events skipped because the moderator took their record down.
 static TAKEN_DOWN: LazyLock<Counter<u64>> = LazyLock::new(|| {
     global::meter(METER_NAME)
@@ -80,7 +69,7 @@ impl DefaultEventHandler {
     /// and user ingestor from config. The ingestor resolves users' homeservers through
     /// `client` too, and keeps the moderator in scope.
     pub fn from_config(config: &WatcherConfig, client: Arc<dyn HomeserverClient>) -> Self {
-        let ingestor = UserIngestor::from_watcher_config(config, client.clone());
+        let ingestor = crate::scope::watcher_ingestor(config, client.clone());
         Self::new(
             Moderation::from_config(config),
             Arc::new(ingestor),
@@ -93,18 +82,6 @@ impl DefaultEventHandler {
 #[async_trait::async_trait]
 impl EventHandler for DefaultEventHandler {
     async fn handle(&self, event: &Event) -> Result<(), EventProcessorError> {
-        // Safety net for events of authors outside the scope (queued for retry, or read
-        // from a homeserver's whole feed): skipped, neither indexed nor retried. A stub or
-        // former member that moved onto a listed homeserver is let in first.
-        let author_id = event.parsed_uri.user_id();
-        if !self.ingestor.is_author_in_scope(author_id).await?
-            && !self.ingestor.admit_if_moved_in(author_id).await?
-        {
-            OUT_OF_SCOPE.add(1, &[]);
-            debug!(event.uri = %event.uri, "Author is outside the scope; skipping event");
-            return Ok(());
-        }
-
         match event.event_type {
             // Boxed: inline, these futures are too deep for the compiler's query limit.
             EventType::Put => {

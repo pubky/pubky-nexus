@@ -1,7 +1,7 @@
 //! In-scope records that point at a post outside the scope.
 //!
 //! A reply, repost, tag or bookmark by an in-scope user can target a post whose author
-//! is a stub, or a former member that left the scope. That post is never read through
+//! is an outsider, or a former member that left the scope. That post is never read through
 //! its author's stream, so the record would wait for it forever. Instead, that post is
 //! fetched from its author's homeserver and indexed, with the out-of-scope posts it
 //! depends on; nothing else of those authors' is read.
@@ -13,7 +13,7 @@ use nexus_common::db::get_redis_conn;
 use nexus_common::models::error::ModelError;
 use nexus_common::models::post::{PostDetails, PostRelationships};
 use nexus_common::models::takedown::is_taken_down;
-use nexus_common::models::user::stub::is_unread;
+use nexus_common::models::user::outsider::is_unread;
 use nexus_common::models::user::UserIngestor;
 use pubky::PubkyResource;
 use pubky_app_specs::{ParsedUri, PubkyAppObject, PubkyAppPost, PubkyId, Resource};
@@ -48,7 +48,7 @@ struct Fetched {
 }
 
 /// Indexes the post at `post_uri`, and the out-of-scope posts it depends on, if its
-/// author's stream is unread (a stub, or a member that left) and it isn't indexed yet.
+/// author's stream is unread (an outsider, or a member that left) and it isn't indexed yet.
 ///
 /// The chain is collected by walking up through parents and reposted posts, then saved
 /// oldest first, so every post's targets exist when it is saved. If the budget runs

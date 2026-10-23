@@ -3,21 +3,17 @@ use crate::db::graph::{keyset_scan, Query};
 use crate::models::follow::{Followers, Following, UserFollows};
 use crate::models::post::search::PostsByTagSearch;
 use crate::models::post::Bookmark;
+use crate::models::post::{PostCounts, PostDetails, PostRelationships};
 use crate::models::tag::post::TagPost;
 use crate::models::tag::search::TagSearch;
 use crate::models::tag::stream::HotTags;
 use crate::models::tag::traits::TagCollection;
 use crate::models::tag::user::TagUser;
 use crate::models::traits::Collection;
-use crate::models::user::stub::rebuild_stub_index;
 use crate::models::user::{
     Influencers, SocialGraphStatus, UserDetails, UserStream, UsersByTagSearch,
 };
 use crate::types::DynError;
-use crate::{
-    models::post::{PostCounts, PostDetails, PostRelationships},
-    models::user::UserCounts,
-};
 use tokio::task::JoinSet;
 use tracing::{info, Instrument};
 
@@ -25,10 +21,6 @@ pub const REINDEX_BATCH_SIZE: usize = 500;
 
 #[tracing::instrument(name = "reindex.sync", skip_all)]
 pub async fn sync() {
-    // Before any user is indexed, so its counts never wait on a rebuild of a lost set.
-    rebuild_stub_index()
-        .await
-        .expect("Failed to rebuild the stub index");
     reindex_users_by_batch()
         .await
         .expect("Failed to reindex users by batch");
@@ -70,7 +62,6 @@ pub async fn sync() {
 pub async fn reindex_user(user_id: &str) -> Result<(), DynError> {
     tokio::try_join!(
         Bookmark::reindex(user_id),
-        UserCounts::reindex(user_id),
         Followers::reindex(user_id),
         Following::reindex(user_id),
         TagUser::reindex(user_id, None)
