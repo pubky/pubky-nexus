@@ -169,7 +169,7 @@ pub async fn prepare_scope(
 ) -> Result<(), DynError> {
     info!(scope = ?config.stack.scope, "Indexing scope");
 
-    for homeserver in full_feed_homeservers(&config.stack.scope, &config.homeserver) {
+    for homeserver in full_feed_homeservers(config) {
         Homeserver::persist_if_unknown(homeserver).await?;
     }
 
@@ -188,12 +188,6 @@ pub async fn prepare_scope(
         let blacklist = &config.stack.net.external_hs_pk_blacklist;
         for listed in homeservers.iter().filter(|hs| blacklist.contains(hs)) {
             warn!(homeserver = %listed, "A listed homeserver is blacklisted: it is not read");
-        }
-        if !homeservers.contains(&config.homeserver) {
-            warn!(
-                primary = %config.homeserver,
-                "The primary homeserver is not in scope.homeservers: only the listed homeservers are read"
-            );
         }
     }
     Ok(())

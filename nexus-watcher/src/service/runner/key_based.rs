@@ -77,9 +77,6 @@ pub struct KeyBasedEventProcessorRunner {
     pub client: Arc<dyn HomeserverClient>,
     pub shutdown_rx: Receiver<bool>,
 
-    /// Primary homeserver ID, see [WatcherConfig::homeserver]
-    pub primary_homeserver: PubkyId,
-
     /// Homeservers read as a whole feed, see [`full_feed_homeservers`]: they are excluded
     /// from the targets list
     pub full_feeds: Vec<PubkyId>,
@@ -118,8 +115,7 @@ impl KeyBasedEventProcessorRunner {
             event_handler,
             client,
             shutdown_rx,
-            primary_homeserver: config.homeserver.clone(),
-            full_feeds: full_feed_homeservers(&config.stack.scope, &config.homeserver),
+            full_feeds: full_feed_homeservers(config),
             hs_blacklist: HsBlacklist::from_config(&config.stack),
             backoff: HomeserverBackoff::from_config(config),
             user_not_found_backoff: Arc::new(UserNotFoundBackoff::default()),

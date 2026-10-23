@@ -5,7 +5,7 @@ use crate::homeserver::HomeserverClient;
 use crate::scope::{full_feed_homeservers, watcher_ingestor};
 use crate::service::indexer::{HsEventProcessor, TEventProcessor};
 use crate::service::stats::{ProcessedStats, RunAllProcessorsStats};
-use nexus_common::models::homeserver::{Homeserver, HsBlacklist};
+use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::user::UserIngestor;
 use nexus_common::types::DynError;
 use nexus_common::WatcherConfig;
@@ -22,14 +22,8 @@ pub struct HsEventProcessorRunner {
     pub client: Arc<dyn HomeserverClient>,
     pub shutdown_rx: Receiver<bool>,
 
-    /// See [WatcherConfig::homeserver]
-    pub primary_homeserver: PubkyId,
-
     /// Homeservers read as a whole feed, see [`full_feed_homeservers`]
     pub full_feeds: Vec<PubkyId>,
-
-    /// HS PKs that must never be indexed: a listed homeserver on it isn't read
-    pub hs_blacklist: HsBlacklist,
 
     /// Scheduler shared with every processor this runner builds
     pub retry_scheduler: Arc<RetryScheduler>,
@@ -52,17 +46,11 @@ impl HsEventProcessorRunner {
             limit: config.events_limit,
             event_handler,
             shutdown_rx,
-            primary_homeserver: config.homeserver.clone(),
-            full_feeds: full_feed_homeservers(&config.stack.scope, &config.homeserver),
-            hs_blacklist: HsBlacklist::from_config(&config.stack),
+            full_feeds: full_feed_homeservers(config),
             ingestor: Arc::new(watcher_ingestor(config, client.clone())),
             client,
             retry_scheduler,
         }
-    }
-
-    pub fn primary_homeserver(&self) -> &str {
-        &self.primary_homeserver
     }
 }
 
@@ -91,18 +79,9 @@ impl TEventProcessorRunner for HsEventProcessorRunner {
         }))
     }
 
-    /// The homeservers read as a whole feed: the primary one, unless the scope
-    /// replaces it with a list. A blacklisted homeserver in the list is left out, as the
-    /// key-based runner leaves it out; the primary is read as it always was.
+    /// The homeservers read as a whole feed, see [`full_feed_homeservers`].
     async fn pre_run(&self) -> Result<Vec<String>, DynError> {
-        Ok(self
-            .full_feeds
-            .iter()
-            .filter(|hs| {
-                **hs == self.primary_homeserver || !self.hs_blacklist.is_blacklisted(hs.as_ref())
-            })
-            .map(ToString::to_string)
-            .collect())
+        Ok(self.full_feeds.iter().map(ToString::to_string).collect())
     }
 
     async fn post_run(&self, stats: RunAllProcessorsStats) -> ProcessedStats {

@@ -13,14 +13,13 @@ use nexus_common::models::traits::Collection;
 use nexus_common::models::user::{set_user_homeserver, Epoch, UserDetails};
 use nexus_common::types::DynError;
 use nexus_common::utils::test_utils::{default_ingestor_tests, random_pubky_id};
-use nexus_common::ScopeConfig;
+use nexus_common::{ScopeConfig, WatcherConfig};
 use nexus_watcher::events::retry::{InitialBackoff, RedisRetryStore, RetryScheduler, RetryStore};
 use nexus_watcher::events::{DefaultEventHandler, EventHandler};
 use nexus_watcher::scope::full_feed_homeservers;
 use nexus_watcher::service::runner::{HomeserverBackoff, UserNotFoundBackoff, UserResumePoints};
 use nexus_watcher::service::{
-    HsEventProcessorRunner, KeyBasedEventProcessorRunner, TEventProcessorRunner,
-    KEY_BASED_RUN_BUDGET,
+    KeyBasedEventProcessorRunner, TEventProcessorRunner, KEY_BASED_RUN_BUDGET,
 };
 use pubky_app_specs::PubkyId;
 use std::path::PathBuf;
@@ -52,7 +51,6 @@ async fn test_event_processor_runner_primary_homeserver_excluded() -> Result<(),
         event_handler,
         client,
         shutdown_rx: tokio::sync::watch::channel(false).1,
-        primary_homeserver: PubkyId::try_from(HS_IDS[3]).unwrap(),
         full_feeds: vec![PubkyId::try_from(HS_IDS[3]).unwrap()],
         hs_blacklist: HsBlacklist::default(),
         backoff: HomeserverBackoff::default(),
@@ -108,7 +106,6 @@ async fn test_event_processor_runner_blacklisted_homeserver_excluded() -> Result
         event_handler,
         client,
         shutdown_rx: tokio::sync::watch::channel(false).1,
-        primary_homeserver: PubkyId::try_from(HS_IDS[3]).unwrap(),
         full_feeds: vec![PubkyId::try_from(HS_IDS[3]).unwrap()],
         hs_blacklist: HsBlacklist::new([blacklisted_hs.clone()]),
         backoff: HomeserverBackoff::default(),
@@ -294,8 +291,8 @@ async fn delete_users(user_ids: &[PubkyId]) -> Result<(), DynError> {
     Ok(())
 }
 
-/// A key-based runner for `primary`, reading `full_feeds` whole.
-fn key_based_runner(primary: &PubkyId, full_feeds: Vec<PubkyId>) -> KeyBasedEventProcessorRunner {
+/// A key-based runner reading `full_feeds` whole.
+fn key_based_runner(full_feeds: Vec<PubkyId>) -> KeyBasedEventProcessorRunner {
     let client = Arc::new(MockHomeserverClient::default());
     let event_handler: Arc<dyn EventHandler> = Arc::new(DefaultEventHandler::new(
         default_moderation_tests(),
@@ -317,7 +314,6 @@ fn key_based_runner(primary: &PubkyId, full_feeds: Vec<PubkyId>) -> KeyBasedEven
         event_handler,
         client,
         shutdown_rx: tokio::sync::watch::channel(false).1,
-        primary_homeserver: primary.clone(),
         full_feeds,
         hs_blacklist: HsBlacklist::default(),
         backoff: HomeserverBackoff::default(),
@@ -347,11 +343,16 @@ async fn test_key_based_runner_skips_the_homeservers_a_scope_reads_whole() -> Re
     setup().await?;
     let [primary, listed, other] = active_homeservers(3).await?.try_into().unwrap();
 
-    let scope = ScopeConfig::Homeservers {
+    let mut config = WatcherConfig {
+        homeserver: primary.clone(),
+        ..WatcherConfig::default()
+    };
+    config.stack.scope = ScopeConfig::Homeservers {
         homeservers: vec![listed.clone()],
     };
-    let full_feeds = full_feed_homeservers(&scope, &primary);
-    let hs_ids = key_based_runner(&primary, full_feeds).pre_run().await?;
+    let hs_ids = key_based_runner(full_feed_homeservers(&config))
+        .pre_run()
+        .await?;
 
     assert!(
         !hs_ids.contains(&listed.to_string()),
@@ -362,43 +363,5 @@ async fn test_key_based_runner_skips_the_homeservers_a_scope_reads_whole() -> Re
         "the primary HS is not read whole"
     );
     assert!(hs_ids.contains(&other.to_string()));
-    Ok(())
-}
-
-/// A listed homeserver that is also blacklisted isn't read as a whole feed; the primary
-/// is read as it always was.
-#[tokio_shared_rt::test(shared)]
-async fn test_hs_runner_skips_a_blacklisted_listed_homeserver() -> Result<(), DynError> {
-    setup().await?;
-    let [primary, listed, blacklisted] = [random_pubky_id(), random_pubky_id(), random_pubky_id()];
-    let client = Arc::new(MockHomeserverClient::default());
-    let event_handler: Arc<dyn EventHandler> = Arc::new(DefaultEventHandler::new(
-        default_moderation_tests(),
-        default_ingestor_tests(),
-        client.clone(),
-        PathBuf::from("/tmp/nexus-watcher-test"),
-    ));
-    let store: Arc<dyn RetryStore> = Arc::new(RedisRetryStore::new());
-    let runner = HsEventProcessorRunner {
-        limit: 1000,
-        event_handler,
-        client,
-        shutdown_rx: tokio::sync::watch::channel(false).1,
-        primary_homeserver: primary.clone(),
-        full_feeds: vec![primary.clone(), listed.clone(), blacklisted.clone()],
-        hs_blacklist: HsBlacklist::new([blacklisted.clone(), primary.clone()]),
-        ingestor: default_ingestor_tests(),
-        retry_scheduler: Arc::new(RetryScheduler::new(
-            store,
-            InitialBackoff {
-                missing_dep_ms: 60_000,
-                transient_ms: 10_000,
-            },
-        )),
-    };
-
-    let hs_ids = runner.pre_run().await?;
-
-    assert_eq!(hs_ids, vec![primary.to_string(), listed.to_string()]);
     Ok(())
 }

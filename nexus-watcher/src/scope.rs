@@ -56,13 +56,23 @@ pub fn watcher_ingestor(
     UserIngestor::from_config(&config.stack, resolver).with_scope(Arc::new(scope))
 }
 
-/// Homeservers whose whole `/events` feed is read: the primary one for everything, the
-/// listed ones for a homeserver scope. Users on any other homeserver are read one by one
-/// through their own event stream, if they are in scope.
-pub fn full_feed_homeservers(scope: &ScopeConfig, primary: &PubkyId) -> Vec<PubkyId> {
-    match scope {
-        ScopeConfig::Everything => vec![primary.clone()],
-        ScopeConfig::Homeservers { homeservers } => homeservers.clone(),
+/// Homeservers whose whole `/events` feed is read. Users on any other homeserver are read
+/// one by one through their own event stream, if they are in scope.
+///
+/// For everything, the configured `homeserver`, read as it always was; for a homeserver
+/// scope, the listed ones, but none on the HS blacklist. This is the only place either
+/// is decided: the runners take the result.
+pub fn full_feed_homeservers(config: &WatcherConfig) -> Vec<PubkyId> {
+    match &config.stack.scope {
+        ScopeConfig::Everything => vec![config.homeserver.clone()],
+        ScopeConfig::Homeservers { homeservers } => {
+            let blacklist = &config.stack.net.external_hs_pk_blacklist;
+            homeservers
+                .iter()
+                .filter(|listed| !blacklist.contains(listed))
+                .cloned()
+                .collect()
+        }
     }
 }
 
@@ -85,17 +95,24 @@ mod tests {
         }
     }
 
+    /// Everything reads the configured homeserver whole, as before scopes, even if it is
+    /// blacklisted; a homeserver scope reads its list instead, minus blacklisted ones.
     #[test]
-    fn everything_reads_the_primary_feed_and_a_list_replaces_it() {
-        let (primary, listed) = (random_pubky_id(), random_pubky_id());
-
-        let everything = full_feed_homeservers(&ScopeConfig::Everything, &primary);
-        let homeservers = ScopeConfig::Homeservers {
-            homeservers: vec![listed.clone()],
+    fn the_whole_feeds_come_from_the_scope() {
+        let (homeserver, listed, blacklisted) =
+            (random_pubky_id(), random_pubky_id(), random_pubky_id());
+        let mut config = WatcherConfig {
+            homeserver: homeserver.clone(),
+            ..WatcherConfig::default()
         };
+        config.stack.net.external_hs_pk_blacklist = vec![homeserver.clone(), blacklisted.clone()];
 
-        assert_eq!(everything, vec![primary.clone()]);
-        assert_eq!(full_feed_homeservers(&homeservers, &primary), vec![listed]);
+        assert_eq!(full_feed_homeservers(&config), vec![homeserver]);
+
+        config.stack.scope = ScopeConfig::Homeservers {
+            homeservers: vec![listed.clone(), blacklisted],
+        };
+        assert_eq!(full_feed_homeservers(&config), vec![listed]);
     }
 
     /// The moderator is in scope whatever the setting, so its takedowns are read.
