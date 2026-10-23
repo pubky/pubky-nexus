@@ -33,10 +33,21 @@ cargo nextest run -p nexus-watcher --test migration
 cargo nextest run -p nexus-watcher --test migration -E 'test(hazards)' --run-ignored all
 ```
 
-On this box run it inside the private stack, `~/slowhs/hsc-ns.sh cargo nextest
-run --offline ...`, and drop the `pubky_test_*` Postgres databases it leaves
-behind. Redis and Neo4j are shared: leftovers from other runs can fail an
-assertion, so rerun a failure on `main` before blaming your change.
+Run it against a private stack rather than the shared databases, so leftovers
+from other runs cannot fail an assertion. `stack.sh` in this directory starts
+a Redis, a Neo4j and a Postgres in their own network namespace and runs
+commands inside it (needs docker, sudo and nsenter):
+
+```
+nexus-watcher/tests/migration/stack.sh up
+nexus-watcher/tests/migration/stack.sh run cargo nextest run --offline -p nexus-watcher --test migration
+nexus-watcher/tests/migration/stack.sh down
+```
+
+Pass `--offline` to cargo inside the namespace, build first if you can, and
+`down` the stack when done: every test leaves three `pubky_test_*` Postgres
+databases behind. If you must use the shared databases, rerun a failure on
+`main` before blaming your change.
 
 ## The harness
 
@@ -99,6 +110,6 @@ homeserver; an interactor is notified of a change the user did not make.
 
 Keep the scenario as a test. If it fails on purpose, mark it `#[ignore]` with
 a reason that says what has to exist for it to pass, as `hazards.rs` does for
-the primary gap. Record the finding, ranked, in the vault plan note
-"2026-10-16 homeserver migration in nexus" under "Attack and failure
-scenarios", with what was demonstrated and what was reasoned.
+the primary gap. Put the finding in the test's doc comment: the order of
+events, what nexus does, what it should do, and whether you demonstrated it or
+reasoned it. The commit message carries the summary.
