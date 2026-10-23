@@ -1,31 +1,34 @@
 use super::utils::{assert_user_ingested, create_external_test_homeserver, user_on};
-use crate::event_processor::utils::watcher::WatcherTest;
+use crate::event_processor::utils::watcher::{rank_user, unrank_user, WatcherTest};
 use crate::utils::default_moderation_tests;
 use anyhow::Result;
 use nexus_common::db::graph::Query;
 use nexus_common::db::kv::RedisOps;
 use nexus_common::db::{fetch_key_from_graph, fetch_row_from_graph, queries, PubkyConnector};
 use nexus_common::models::homeserver::Homeserver;
-use nexus_common::models::post::PostDetails;
+use nexus_common::models::post::{PostDetails, POST_TIMELINE_KEY_PARTS};
 use nexus_common::models::scope::{HomeserverListScope, Scope};
+use nexus_common::models::takedown::record_takedown;
 use nexus_common::models::user::catch_up;
 use nexus_common::models::user::outsider::{admit_outsider, create_outsider};
 use nexus_common::models::user::TAG_GLOBAL_USER_TAGGERS;
 use nexus_common::models::user::{
-    is_outsider, user_hs_cursor_key, PubkyConnectorResolver, UserCounts, UserDetails, UserHsCursor,
-    UserIngestor, UserStream, SCOPE_STATE_LEFT, USER_MOSTFOLLOWED_KEY_PARTS,
+    is_outsider, user_hs_cursor_key, PkdnsHomeserverResolver, PubkyConnectorResolver, UserCounts,
+    UserDetails, UserHsCursor, UserIngestor, UserStream, SCOPE_STATE_LEFT,
+    USER_MOSTFOLLOWED_KEY_PARTS,
 };
 use nexus_common::{ScopeConfig, WatcherConfig};
 use nexus_watcher::events::handlers;
 use nexus_watcher::events::{DefaultEventHandler, Event, EventHandler, ParseResult};
-use nexus_watcher::homeserver::PubkyHomeserverClient;
+use nexus_watcher::homeserver::{HomeserverClient, HsError, HsStreamEvent, PubkyHomeserverClient};
 use nexus_watcher::service::scope_maintenance::ScopeMaintainer;
 use nexus_watcher::service::{HsEventProcessor, TEventProcessor};
+use nexus_watcher::EventProcessorError;
 use pubky::Keypair;
 use pubky_app_specs::traits::{HasIdPath, HashId, TimestampId};
 use pubky_app_specs::{
-    post_uri_builder, tag_uri_builder, user_uri_builder, PubkyAppPost, PubkyAppPostKind,
-    PubkyAppTag, PubkyAppUser, PubkyId,
+    post_uri_builder, tag_uri_builder, user_uri_builder, PubkyAppBookmark, PubkyAppPost,
+    PubkyAppPostKind, PubkyAppTag, PubkyAppUser, PubkyId,
 };
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -475,6 +478,7 @@ async fn test_a_tagged_outsider_stays_out_of_the_users_by_tag_search() -> Result
                 tagger_id.clone(),
                 tag_id.clone(),
                 &ingestor,
+                &client()?,
             )
             .await;
             if put.is_ok() {
@@ -500,5 +504,379 @@ async fn test_a_tagged_outsider_stays_out_of_the_users_by_tag_search() -> Result
     );
     assert!(member_ranked.is_some(), "control: a member is in");
     assert!(outsider_once_in.is_some(), "ranked once it joins the scope");
+    Ok(())
+}
+
+/// A short post, replying to `parent` if given.
+fn post(content: &str, parent: Option<String>) -> PubkyAppPost {
+    PubkyAppPost {
+        content: content.to_string(),
+        kind: PubkyAppPostKind::Short,
+        parent,
+        embed: None,
+        attachments: None,
+        lock: None,
+    }
+}
+
+/// The client the watcher fetches through, over the test network.
+fn client() -> Result<PubkyHomeserverClient> {
+    Ok(PubkyHomeserverClient::from_config(
+        PubkyConnector::get()?,
+        &WatcherConfig::default(),
+    ))
+}
+
+/// A member's reply to an outsider's post lands at once: that one post is fetched and
+/// indexed, its author stays an outsider, its other posts are not read, and the fetched
+/// post stays out of the global timeline.
+#[tokio_shared_rt::test(shared)]
+async fn test_reply_to_an_outsider_post_fetches_only_that_post() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let hs_pk = create_external_test_homeserver(&mut test).await?;
+    let (outsider_kp, outsider_id) = user_on(&test, &hs_pk).await?;
+    // Written to the outsider's homeserver, which the test never indexes.
+    let (parent_id, _) = test
+        .create_post(&outsider_kp, &post("Watcher:Scope:Parent", None))
+        .await?;
+    let (other_id, _) = test
+        .create_post(&outsider_kp, &post("Watcher:Scope:Other", None))
+        .await?;
+
+    let replier_id = member(&mut test, "Replier").await?;
+    let ingestor = scoped_ingestor(&test);
+    ingestor.maybe_ingest_user(&outsider_id).await?;
+    assert_user_is_outsider(&outsider_id).await;
+
+    let reply = post(
+        "Watcher:Scope:Reply",
+        Some(post_uri_builder(outsider_id.to_string(), parent_id.clone())),
+    );
+    let reply_id = reply.create_id();
+    let reply_uri = post_uri_builder(replier_id.to_string(), reply_id.clone());
+    handlers::post::sync_put(
+        reply,
+        reply_uri,
+        replier_id.clone(),
+        reply_id.clone(),
+        &ingestor,
+        &client()?,
+    )
+    .await?;
+
+    assert!(
+        PostDetails::get_by_id(&replier_id, &reply_id)
+            .await?
+            .is_some(),
+        "the reply lands"
+    );
+    assert!(
+        PostDetails::get_by_id(&outsider_id, &parent_id)
+            .await?
+            .is_some(),
+        "its parent is fetched"
+    );
+    assert!(
+        PostDetails::get_by_id(&outsider_id, &other_id)
+            .await?
+            .is_none(),
+        "nothing else of the outsider's is read"
+    );
+    assert_user_is_outsider(&outsider_id).await;
+    let in_timeline = PostDetails::check_sorted_set_member(
+        None,
+        &POST_TIMELINE_KEY_PARTS,
+        &[&outsider_id, &parent_id],
+    )
+    .await?;
+    assert!(
+        in_timeline.is_none(),
+        "an outsider's post stays out of the global timeline"
+    );
+    Ok(())
+}
+
+/// A reply at the bottom of an outsider's thread longer than one attempt's fetch budget
+/// still lands: each retry continues the chain from where the last one stopped.
+#[tokio_shared_rt::test(shared)]
+async fn test_a_reply_under_a_long_outsider_thread_lands_over_retries() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let hs_pk = create_external_test_homeserver(&mut test).await?;
+    let (outsider_kp, outsider_id) = user_on(&test, &hs_pk).await?;
+
+    let mut parent = None;
+    let mut thread = Vec::new();
+    for depth in 0..25 {
+        let content = format!("Watcher:Scope:Thread:{depth}");
+        let (post_id, _) = test
+            .create_post(&outsider_kp, &post(&content, parent.take()))
+            .await?;
+        parent = Some(post_uri_builder(outsider_id.to_string(), post_id.clone()));
+        thread.push(post_id);
+    }
+
+    let replier_id = member(&mut test, "DeepReplier").await?;
+    let ingestor = scoped_ingestor(&test);
+    ingestor.maybe_ingest_user(&outsider_id).await?;
+
+    let resume_key = format!(
+        "Scope:FetchResume:{}",
+        parent.clone().expect("the thread has posts")
+    );
+    let reply = post("Watcher:Scope:DeepReply", parent);
+    let reply_id = reply.create_id();
+    let reply_uri = post_uri_builder(replier_id.to_string(), reply_id.clone());
+    let client = client()?;
+
+    let mut attempts = 0;
+    loop {
+        attempts += 1;
+        match handlers::post::sync_put(
+            reply.clone(),
+            reply_uri.clone(),
+            replier_id.clone(),
+            reply_id.clone(),
+            &ingestor,
+            &client,
+        )
+        .await
+        {
+            Ok(()) => break,
+            Err(EventProcessorError::MissingDependency { .. }) if attempts < 5 => {
+                if attempts == 1 {
+                    let mut redis_conn = nexus_common::db::get_redis_conn().await?;
+                    let ttl: i64 = deadpool_redis::redis::cmd("TTL")
+                        .arg(&resume_key)
+                        .query_async(&mut redis_conn)
+                        .await?;
+                    assert!(
+                        ttl > 0,
+                        "the resume point expires, so it can't pile up: {ttl}"
+                    );
+                }
+                continue;
+            }
+            Err(e) => panic!("attempt {attempts}: {e:?}"),
+        }
+    }
+
+    assert!(attempts > 1, "25 posts don't fit one attempt's budget");
+    for post_id in &thread {
+        assert!(PostDetails::get_by_id(&outsider_id, post_id)
+            .await?
+            .is_some());
+    }
+    assert!(PostDetails::get_by_id(&replier_id, &reply_id)
+        .await?
+        .is_some());
+    Ok(())
+}
+
+/// A member's bookmark of a post by an outsider this Nexus doesn't know yet lands: the
+/// outsider is kept out of the scope and that one post is fetched.
+#[tokio_shared_rt::test(shared)]
+async fn test_a_bookmark_of_an_unknown_outsiders_post_lands() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let hs_pk = create_external_test_homeserver(&mut test).await?;
+    let (outsider_kp, outsider_id) = user_on(&test, &hs_pk).await?;
+    let (post_id, _) = test
+        .create_post(&outsider_kp, &post("Watcher:Scope:Bookmarked", None))
+        .await?;
+    let member_id = member(&mut test, "Bookmarker").await?;
+    let ingestor = scoped_ingestor(&test);
+
+    let bookmark = PubkyAppBookmark {
+        uri: post_uri_builder(outsider_id.to_string(), post_id.clone()),
+        created_at: chrono::Utc::now().timestamp_millis(),
+    };
+    let bookmark_id = bookmark.create_id();
+    handlers::bookmark::sync_put(member_id, bookmark, bookmark_id, &ingestor, &client()?).await?;
+
+    assert!(
+        PostDetails::get_by_id(&outsider_id, &post_id)
+            .await?
+            .is_some(),
+        "the bookmarked post is fetched"
+    );
+    assert_user_is_outsider(&outsider_id).await;
+    Ok(())
+}
+
+/// A member's reply to a post by a known outsider whose homeserver is now blacklisted doesn't
+/// fetch that post: the blacklist is checked for every fetch, not only on ingestion.
+#[tokio_shared_rt::test(shared)]
+async fn test_a_known_outsider_on_a_blacklisted_homeserver_is_not_fetched() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let hs_pk = create_external_test_homeserver(&mut test).await?;
+    let (outsider_kp, outsider_id) = user_on(&test, &hs_pk).await?;
+    let (parent_id, _) = test
+        .create_post(&outsider_kp, &post("Watcher:Scope:BlacklistedParent", None))
+        .await?;
+    let replier_id = member(&mut test, "BlacklistReplier").await?;
+    // Known as an outsider before its homeserver was blacklisted.
+    scoped_ingestor(&test)
+        .maybe_ingest_user(&outsider_id)
+        .await?;
+    assert_user_is_outsider(&outsider_id).await;
+
+    let scope: Arc<dyn Scope> = Arc::new(HomeserverListScope::new(std::slice::from_ref(
+        &test.homeserver_id,
+    )));
+    let blacklisting = UserIngestor::new([PubkyId::from(hs_pk)], Arc::new(PubkyConnectorResolver))
+        .with_scope(scope);
+    let reply = post(
+        "Watcher:Scope:ReplyToBlacklisted",
+        Some(post_uri_builder(outsider_id.to_string(), parent_id.clone())),
+    );
+    let reply_id = reply.create_id();
+    let reply_uri = post_uri_builder(replier_id.to_string(), reply_id.clone());
+    let result = handlers::post::sync_put(
+        reply,
+        reply_uri,
+        replier_id,
+        reply_id,
+        &blacklisting,
+        &client()?,
+    )
+    .await;
+
+    assert!(result.is_err(), "the reply can't land without its parent");
+    assert!(
+        PostDetails::get_by_id(&outsider_id, &parent_id)
+            .await?
+            .is_none(),
+        "nothing is read from a blacklisted homeserver"
+    );
+    Ok(())
+}
+
+/// An outsider let into the scope gets its posts indexed while it was out into the
+/// global timeline: reading its stream again wouldn't, as they are already indexed.
+#[tokio_shared_rt::test(shared)]
+async fn test_a_promoted_outsiders_posts_join_the_global_feeds() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let hs_pk = create_external_test_homeserver(&mut test).await?;
+    let (outsider_kp, outsider_id) = user_on(&test, &hs_pk).await?;
+    let (parent_id, _) = test
+        .create_post(&outsider_kp, &post("Watcher:Scope:OutsiderParent", None))
+        .await?;
+    let replier_id = member(&mut test, "PromoteReplier").await?;
+    let ingestor = scoped_ingestor(&test);
+    ingestor.maybe_ingest_user(&outsider_id).await?;
+    let reply = post(
+        "Watcher:Scope:ReplyToOutsider",
+        Some(post_uri_builder(outsider_id.to_string(), parent_id.clone())),
+    );
+    let reply_id = reply.create_id();
+    let reply_uri = post_uri_builder(replier_id.to_string(), reply_id.clone());
+    handlers::post::sync_put(
+        reply,
+        reply_uri,
+        replier_id,
+        reply_id,
+        &ingestor,
+        &client()?,
+    )
+    .await?;
+    let entry = [outsider_id.as_ref(), parent_id.as_str()];
+    let in_timeline =
+        || PostDetails::check_sorted_set_member(None, &POST_TIMELINE_KEY_PARTS, &entry);
+    assert!(in_timeline().await?.is_none(), "kept out while an outsider");
+
+    // Ranked, so the trust filter doesn't keep its posts out for its own reason.
+    rank_user(&outsider_id).await?;
+    let promoted = UserIngestor::new([], Arc::new(PubkyConnectorResolver))
+        .promote(&outsider_id)
+        .await;
+    let after = in_timeline().await;
+    unrank_user(&outsider_id).await?;
+    catch_up::caught_up(&outsider_id).await?;
+
+    assert!(promoted?);
+    assert!(after?.is_some(), "in the global timeline once in scope");
+    Ok(())
+}
+
+/// The real client, but the moderator takes each post down while it is being fetched:
+/// after the check before the fetch, before the save.
+struct TakenDownWhileFetched(PubkyHomeserverClient);
+
+#[async_trait::async_trait]
+impl PkdnsHomeserverResolver for TakenDownWhileFetched {
+    async fn resolve_homeserver(
+        &self,
+        user_pk: &pubky::PublicKey,
+    ) -> nexus_common::db::PubkyClientResult<Option<PubkyId>> {
+        self.0.resolve_homeserver(user_pk).await
+    }
+}
+
+#[async_trait::async_trait]
+impl HomeserverClient for TakenDownWhileFetched {
+    async fn poll_events(
+        &self,
+        hs: &PubkyId,
+        cursor: u64,
+        limit: u16,
+    ) -> Result<Vec<String>, HsError> {
+        self.0.poll_events(hs, cursor, limit).await
+    }
+
+    async fn user_events(
+        &self,
+        hs: &PubkyId,
+        user: &pubky::PublicKey,
+        cursor: u64,
+        limit: u16,
+    ) -> Result<Vec<HsStreamEvent>, HsError> {
+        self.0.user_events(hs, user, cursor, limit).await
+    }
+
+    async fn get_resource(&self, resource: &pubky::PubkyResource) -> Result<Vec<u8>, HsError> {
+        record_takedown(
+            &resource.to_pubky_url(),
+            "pubky://moderator/pub/pubky.app/tags/T",
+        )
+        .await
+        .expect("records the takedown");
+        self.0.get_resource(resource).await
+    }
+
+    async fn get_blob(&self, resource: &pubky::PubkyResource) -> Result<Vec<u8>, HsError> {
+        self.0.get_blob(resource).await
+    }
+}
+
+/// An outsider's post the moderator takes down while it is being fetched for a member's
+/// reply is removed again once saved, as an event's record is: it isn't left indexed.
+#[tokio_shared_rt::test(shared)]
+async fn test_a_post_taken_down_while_fetched_is_not_left_indexed() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let hs_pk = create_external_test_homeserver(&mut test).await?;
+    let (outsider_kp, outsider_id) = user_on(&test, &hs_pk).await?;
+    let (parent_id, _) = test
+        .create_post(&outsider_kp, &post("Watcher:Scope:TakenDownParent", None))
+        .await?;
+    let replier_id = member(&mut test, "TakedownReplier").await?;
+    let ingestor = scoped_ingestor(&test);
+    ingestor.maybe_ingest_user(&outsider_id).await?;
+
+    let reply = post(
+        "Watcher:Scope:ReplyToTakenDown",
+        Some(post_uri_builder(outsider_id.to_string(), parent_id.clone())),
+    );
+    let reply_id = reply.create_id();
+    let reply_uri = post_uri_builder(replier_id.to_string(), reply_id.clone());
+    let client = TakenDownWhileFetched(client()?);
+    let result =
+        handlers::post::sync_put(reply, reply_uri, replier_id, reply_id, &ingestor, &client).await;
+
+    assert!(result.is_err(), "the reply waits: its parent is gone");
+    assert!(
+        PostDetails::get_by_id(&outsider_id, &parent_id)
+            .await?
+            .is_none(),
+        "the taken-down post isn't left indexed"
+    );
     Ok(())
 }

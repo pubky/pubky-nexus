@@ -207,6 +207,14 @@ impl Write {
     }
 }
 
+/// Writes `author`'s posts into the shared sets, as a reindex would place them, where
+/// the ranking admits them. For an author whose posts were kept out for another reason
+/// (an outsider let into the scope).
+pub(crate) async fn show_author(author: &str) -> ModelResult<()> {
+    let mut conn = get_redis_conn().await?;
+    write_pages(&mut conn, author, Write::Show, POSTS_PAGE).await
+}
+
 /// Applies `write` to `author`'s entries `page_size` posts at a time, oldest
 /// first, so a prolific author needs no single huge query or pipeline.
 pub(super) async fn write_pages(

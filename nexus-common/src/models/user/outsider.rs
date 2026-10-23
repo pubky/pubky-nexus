@@ -10,7 +10,8 @@
 use crate::db::kv::{RedisError, RedisResult};
 use crate::db::{exec_single_row, fetch_key_from_graph, queries};
 use crate::models::error::ModelResult;
-use crate::models::user::{UserDetails, UsersByTagSearch};
+use crate::models::post::trust_filter;
+use crate::models::user::{UserDetails, UsersByTagSearch, SCOPE_STATE_LEFT};
 
 /// `scope_state` of a user known to this Nexus but outside its scope.
 pub const SCOPE_STATE_OUTSIDE: &str = "outside";
@@ -22,6 +23,17 @@ pub async fn is_outsider(user_id: &str) -> RedisResult<bool> {
         .await
         .map_err(|e| RedisError::CommandFailed(format!("reading the scope state: {e}").into()))?;
     Ok(scope_state.flatten().as_deref() == Some(SCOPE_STATE_OUTSIDE))
+}
+
+/// Whether nothing reads the user's stream: an outsider, or a former member that left the
+/// scope. A post of theirs that an in-scope record needs has to be fetched for it.
+pub async fn is_unread(user_id: &str) -> ModelResult<bool> {
+    let query = queries::get::get_user_scope_state(user_id);
+    let scope_state: Option<Option<String>> = fetch_key_from_graph(query, "scope_state").await?;
+    Ok(matches!(
+        scope_state.flatten().as_deref(),
+        Some(SCOPE_STATE_OUTSIDE | SCOPE_STATE_LEFT)
+    ))
 }
 
 /// Creates the node of a user met outside the scope, already an outsider.
@@ -37,21 +49,29 @@ pub async fn create_outsider(details: &UserDetails) -> ModelResult<()> {
     Ok(())
 }
 
-/// Lets an outsider into the scope: clears its `scope_state`, and ranks it in the
-/// users-by-tag search its tags were kept out of; the rankings, rebuilt from the graph,
-/// take it in from their next rebuild. Returns whether it was an outsider.
+/// Lets an outsider into the scope: clears its `scope_state`, ranks it in the
+/// users-by-tag search its tags were kept out of, and puts its posts into the global
+/// feeds; the rankings, rebuilt from the graph, take it in from their next rebuild.
+/// Returns whether it was an outsider.
 ///
-/// If the ranking fails, it is an outsider again, so a retry lets it in from the start.
+/// Its posts indexed while it was an outsider (fetched for in-scope records) were kept out
+/// of the feeds, and reading its stream again doesn't put them back: a post already
+/// indexed takes the edit path. If either step fails, it is an outsider again, so a retry
+/// lets it in from the start; both are idempotent.
 pub async fn admit_outsider(user_id: &str) -> ModelResult<bool> {
     if !is_outsider(user_id).await? {
         return Ok(false);
     }
-    // Cleared first: the tag search skips an outsider.
+    // Cleared first: the tag search and the feed writes skip an outsider.
     exec_single_row(queries::put::set_user_scope_state(user_id, None)).await?;
-    if let Err(e) = UsersByTagSearch::sync_user_labels(user_id).await {
+    let admitted = match UsersByTagSearch::sync_user_labels(user_id).await {
+        Ok(()) => trust_filter::show_author(user_id).await,
+        Err(e) => Err(e.into()),
+    };
+    if let Err(e) = admitted {
         let query = queries::put::set_user_scope_state(user_id, Some(SCOPE_STATE_OUTSIDE));
         exec_single_row(query).await?;
-        return Err(e.into());
+        return Err(e);
     }
     Ok(true)
 }
