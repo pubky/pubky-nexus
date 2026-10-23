@@ -1116,7 +1116,7 @@ fn retryable_client_error() -> EventProcessorError {
     .into()
 }
 
-/// A runner over every active homeserver but a random primary one, fetching from `source`.
+/// A runner over every active homeserver (it reads only a random one whole), fetching from `source`.
 fn runner(source: Arc<MockHomeserverClient>) -> KeyBasedEventProcessorRunner {
     let mut runner = KeyBasedEventProcessorRunner::new(
         &WatcherConfig::default(),
@@ -1132,7 +1132,7 @@ fn runner(source: Arc<MockHomeserverClient>) -> KeyBasedEventProcessorRunner {
         watch::channel(false).1,
     );
     runner.monitored_hs_limit = usize::MAX;
-    runner.primary_homeserver = random_pubky_id();
+    runner.full_feeds = vec![random_pubky_id()];
     runner
 }
 

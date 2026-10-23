@@ -11,12 +11,12 @@ use crate::db::{
 };
 use crate::models::error::{ModelError, ModelResult};
 use crate::models::homeserver::HsBlacklist;
-use crate::models::scope::{scope_from_config, watcher_scope, EverythingScope, Scope};
+use crate::models::scope::{scope_from_config, EverythingScope, Scope};
 use crate::models::traits::Collection;
 use crate::models::user::catch_up::{caught_up, start_catch_up};
-use crate::models::user::stub::{create_stub, drop_stub_entry, unstub};
+use crate::models::user::outsider::{admit_outsider, create_outsider};
 use crate::models::user::{set_user_homeserver, UserDetails, UserHsCursor};
-use crate::{ScopeConfig, StackConfig, WatcherConfig};
+use crate::{ScopeConfig, StackConfig};
 
 /// `scope_state` of a member that left the scope: no longer polled, content kept.
 pub const SCOPE_STATE_LEFT: &str = "left";
@@ -74,15 +74,6 @@ impl UserIngestor {
         .with_scope(scope_from_config(&config.scope))
     }
 
-    /// The watcher's ingestor: like [`Self::from_config`], with the moderator always in
-    /// scope.
-    pub fn from_watcher_config(
-        config: &WatcherConfig,
-        resolver: Arc<dyn PkdnsHomeserverResolver>,
-    ) -> Self {
-        Self::from_config(&config.stack, resolver).with_scope(watcher_scope(config))
-    }
-
     /// The scope deciding which users are indexed.
     pub fn scope(&self) -> &Arc<dyn Scope> {
         &self.scope
@@ -136,7 +127,7 @@ impl UserIngestor {
     /// Resolves and persists a previously-unknown user.
     ///
     /// A user in the scope is bound to its HS and gets a cursor, so it is polled. A user
-    /// outside it is kept as a stub; see [`crate::models::user::stub`].
+    /// outside it is kept as an outsider; see [`crate::models::user::outsider`].
     ///
     /// Returns [`ModelError::HsBlacklisted`] if the user's resolved HS is blacklisted.
     #[tracing::instrument(name = "user.ingest", skip_all)]
@@ -162,8 +153,8 @@ impl UserIngestor {
         let user_details = UserDetails::from_pubky(user_id.clone());
 
         if !in_scope {
-            tracing::info!("Kept {user_id} from HS {hs_id} as a stub: outside the scope");
-            return create_stub(&user_details).await;
+            tracing::info!("Kept {user_id} from HS {hs_id} as an outsider: outside the scope");
+            return create_outsider(&user_details).await;
         }
 
         // Do not add to index, as this would affect the timeline of events for this user.
@@ -185,10 +176,10 @@ impl UserIngestor {
 
     /// Whether the events of `user_id` are indexed.
     ///
-    /// The graph decides for a user it can place (a stub, or a user bound to a homeserver).
+    /// The graph decides for a user it can place (an outsider, or a user bound to a homeserver).
     /// One it can't (unknown, or not bound) is placed by the homeserver it publishes now, so
     /// an old event in a listed feed by a user who has moved off that homeserver stays out.
-    /// An unknown user is ingested on the way, as a member or a stub, so its next events are
+    /// An unknown user is ingested on the way, as a member or an outsider, so its next events are
     /// decided from the graph alone.
     pub async fn is_author_in_scope(&self, user_id: &PubkyId) -> ModelResult<bool> {
         if *self.scope.config() == ScopeConfig::Everything {
@@ -216,7 +207,7 @@ impl UserIngestor {
     ///
     /// If its HS can't be resolved right now, the bare node is still created and let into
     /// the scope: the HS resolver binds it on a later run, and polling starts from there.
-    /// A node kept as a stub (the API ingests with the plain scope, which doesn't pin the
+    /// A node kept as an outsider (the API ingests with the plain scope, which doesn't pin the
     /// moderator) is brought back into the scope.
     pub async fn ensure_in_scope(&self, user_id: &PubkyId) -> ModelResult<()> {
         self.maybe_ingest_user(user_id).await?;
@@ -235,14 +226,12 @@ impl UserIngestor {
             return Ok(());
         }
         // No published HS: in scope without a binding, for the HS resolver to bind.
-        unstub(user_id).await?;
-        exec_single_row(queries::put::set_user_scope_state(user_id, None)).await?;
-        drop_stub_entry(user_id).await?;
+        Self::clear_scope_state(user_id).await?;
         tracing::info!("Let {user_id} into the scope; its HS is bound once published");
         Ok(())
     }
 
-    /// Brings a user kept outside the scope (a stub, or a member that left) back in:
+    /// Brings a user kept outside the scope (an outsider, or a member that left) back in:
     /// binds it to its HS with a cursor at 0, so it is read from the start of its
     /// stream. The rankings, rebuilt from the graph, take it in from their next rebuild.
     ///
@@ -271,16 +260,22 @@ impl UserIngestor {
         // have written a cursor back.
         UserHsCursor::reset(user_id, &hs_id).await?;
         start_catch_up(user_id, &hs_id).await?;
-        unstub(user_id).await?;
-        exec_single_row(queries::put::set_user_scope_state(user_id, None)).await?;
-        // A concurrent `is_stub` rebuild may have put the entry back from the graph's old
-        // state.
-        drop_stub_entry(user_id).await?;
+        Self::clear_scope_state(user_id).await?;
         tracing::info!("Brought {user_id} into the scope");
         Ok(true)
     }
 
-    /// An event from a listed homeserver's feed by a stub or a former member means it
+    /// Clears the user's `scope_state`: an outsider is admitted (its tags ranked, see
+    /// [`admit_outsider`]); a member that left was never kept out of anything, so its state
+    /// is just cleared.
+    async fn clear_scope_state(user_id: &str) -> ModelResult<()> {
+        if !admit_outsider(user_id).await? {
+            exec_single_row(queries::put::set_user_scope_state(user_id, None)).await?;
+        }
+        Ok(())
+    }
+
+    /// An event from a listed homeserver's feed by an outsider or a former member means it
     /// may have moved onto a listed homeserver. Checked at most once per 15 minutes per
     /// user; promote reads its stream from the start, so skipped events come back.
     ///

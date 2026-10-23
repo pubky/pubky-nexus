@@ -5,7 +5,7 @@
 //! - **everything**: at start, every user kept out of a previous, narrower scope is let
 //!   back in.
 //! - **homeservers**: users bound to a homeserver the list doesn't hold leave; at start
-//!   after the list changed, users kept out (stubs, users that left) now on a listed
+//!   after the list changed, users kept out (outsiders, users that left) now on a listed
 //!   homeserver join.
 //!
 //! Joining binds a user to its homeserver with a cursor at 0; leaving unbinds it so it
@@ -15,9 +15,12 @@ use deadpool_redis::redis::AsyncCommands;
 use nexus_common::db::kv::RedisError;
 use nexus_common::db::{fetch_key_from_graph, get_redis_conn, queries};
 use nexus_common::models::error::{ModelError, ModelResult};
-use nexus_common::models::user::stub::SCOPE_STATE_STUB;
-use nexus_common::models::user::{PkdnsHomeserverResolver, UserIngestor, SCOPE_STATE_LEFT};
+use nexus_common::models::user::{
+    PkdnsHomeserverResolver, UserIngestor, SCOPE_STATE_LEFT, SCOPE_STATE_OUTSIDE,
+};
 use nexus_common::{ScopeConfig, WatcherConfig};
+
+use crate::scope::watcher_ingestor;
 use pubky_app_specs::PubkyId;
 use std::sync::Arc;
 use tracing::{info, warn};
@@ -60,11 +63,7 @@ pub struct ScopeMaintainer {
 impl ScopeMaintainer {
     /// Looks users' homeservers up through `resolver`.
     pub fn from_config(config: &WatcherConfig, resolver: Arc<dyn PkdnsHomeserverResolver>) -> Self {
-        Self::new(
-            config,
-            UserIngestor::from_watcher_config(config, resolver),
-            None,
-        )
+        Self::new(config, watcher_ingestor(config, resolver), None)
     }
 
     pub fn new(
@@ -121,7 +120,7 @@ impl ScopeMaintainer {
         Ok(change)
     }
 
-    /// For "everything": lets every stub and every user that left back in. Each one is
+    /// For "everything": lets every outsider and every user that left back in. Each one is
     /// bound with its cursor at 0 and catches up, so the records it wrote while it was out
     /// are read, also on the primary homeserver, whose feed moved past them. One that
     /// fails stays out, and the next start tries it again.
@@ -142,10 +141,10 @@ impl ScopeMaintainer {
         Ok(change)
     }
 
-    /// Users kept out of the scope: stubs, and users that left.
+    /// Users kept out of the scope: outsiders, and users that left.
     async fn outsiders(&self) -> ModelResult<Vec<String>> {
         let mut outsiders = Vec::new();
-        for scope_state in [SCOPE_STATE_STUB, SCOPE_STATE_LEFT] {
+        for scope_state in [SCOPE_STATE_OUTSIDE, SCOPE_STATE_LEFT] {
             let query = queries::get::get_user_ids_by_scope_state(scope_state);
             let user_ids: Option<Vec<String>> = fetch_key_from_graph(query, "user_ids").await?;
             outsiders.extend(user_ids.unwrap_or_default());
@@ -168,7 +167,7 @@ impl ScopeMaintainer {
         Ok(change)
     }
 
-    /// For a homeserver list that changed: users kept out (stubs, and users that left
+    /// For a homeserver list that changed: users kept out (outsiders, and users that left
     /// when the list was narrowed) whose homeserver is now listed join. Each one's
     /// homeserver is resolved, so this runs only when the list changed.
     async fn admit_outsiders_on(&self, homeservers: &[PubkyId]) -> ModelResult<usize> {

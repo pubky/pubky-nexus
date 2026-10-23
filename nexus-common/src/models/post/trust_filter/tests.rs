@@ -368,23 +368,21 @@ mod live {
         Ok(())
     }
 
-    /// Switching off shows no stub's posts: they stay out of the global feeds
+    /// Switching off shows no outsider's posts: they stay out of the global feeds
     /// whatever the filter says.
     #[tokio_shared_rt::test(shared)]
-    async fn switching_off_keeps_stubs_hidden() -> TestResult {
+    async fn switching_off_keeps_outsiders_hidden() -> TestResult {
         setup(&[]).await?;
-        // A stub in the graph, the source of truth Scope:Stubs is rebuilt from.
-        let stub_state = |state| crate::db::queries::put::set_user_scope_state(SPAMMER, state);
-        crate::db::exec_single_row(stub_state(Some("stub"))).await?;
-        crate::models::user::stub::rebuild_stub_index().await?;
+        // An outsider in the graph, where every check reads it.
+        let outsider_state = |state| crate::db::queries::put::set_user_scope_state(SPAMMER, state);
+        crate::db::exec_single_row(outsider_state(Some("outside"))).await?;
 
         switch(true).await?;
         let hidden = reconcile().await;
         switch(false).await?;
         let shown = reconcile().await;
         let scores = spammer_scores().await;
-        crate::db::exec_single_row(stub_state(None)).await?;
-        crate::models::user::stub::drop_stub_entry(SPAMMER).await?;
+        crate::db::exec_single_row(outsider_state(None)).await?;
         cleanup(&[]).await?;
 
         hidden?;

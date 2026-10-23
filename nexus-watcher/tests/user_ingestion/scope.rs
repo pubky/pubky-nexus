@@ -5,12 +5,14 @@ use anyhow::Result;
 use nexus_common::db::graph::Query;
 use nexus_common::db::kv::RedisOps;
 use nexus_common::db::{fetch_key_from_graph, fetch_row_from_graph, queries, PubkyConnector};
+use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::post::PostDetails;
 use nexus_common::models::scope::{HomeserverListScope, Scope};
 use nexus_common::models::user::catch_up;
-use nexus_common::models::user::stub::create_stub;
+use nexus_common::models::user::outsider::{admit_outsider, create_outsider};
+use nexus_common::models::user::TAG_GLOBAL_USER_TAGGERS;
 use nexus_common::models::user::{
-    is_stub, user_hs_cursor_key, PubkyConnectorResolver, UserCounts, UserDetails, UserHsCursor,
+    is_outsider, user_hs_cursor_key, PubkyConnectorResolver, UserCounts, UserDetails, UserHsCursor,
     UserIngestor, UserStream, SCOPE_STATE_LEFT, USER_MOSTFOLLOWED_KEY_PARTS,
 };
 use nexus_common::{ScopeConfig, WatcherConfig};
@@ -18,9 +20,13 @@ use nexus_watcher::events::handlers;
 use nexus_watcher::events::{DefaultEventHandler, Event, EventHandler, ParseResult};
 use nexus_watcher::homeserver::PubkyHomeserverClient;
 use nexus_watcher::service::scope_maintenance::ScopeMaintainer;
+use nexus_watcher::service::{HsEventProcessor, TEventProcessor};
 use pubky::Keypair;
-use pubky_app_specs::traits::{HasIdPath, TimestampId};
-use pubky_app_specs::{post_uri_builder, PubkyAppPost, PubkyAppPostKind, PubkyAppUser, PubkyId};
+use pubky_app_specs::traits::{HasIdPath, HashId, TimestampId};
+use pubky_app_specs::{
+    post_uri_builder, tag_uri_builder, user_uri_builder, PubkyAppPost, PubkyAppPostKind,
+    PubkyAppTag, PubkyAppUser, PubkyId,
+};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -31,6 +37,36 @@ fn scoped_ingestor(test: &WatcherTest) -> UserIngestor {
         &test.homeserver_id,
     )));
     UserIngestor::new(Vec::<PubkyId>::new(), Arc::new(PubkyConnectorResolver)).with_scope(scope)
+}
+
+/// The processor of the test homeserver's whole feed, deciding with `ingestor`'s scope.
+fn feed_processor(test: &WatcherTest, ingestor: Arc<UserIngestor>) -> HsEventProcessor {
+    let runner = &test.event_processor_runner;
+    HsEventProcessor {
+        homeserver: Homeserver::new(test.homeserver_id.clone()),
+        limit: runner.limit,
+        event_handler: runner.event_handler.clone(),
+        client: runner.client.clone(),
+        shutdown_rx: runner.shutdown_rx.clone(),
+        retry_scheduler: runner.retry_scheduler.clone(),
+        catch_up_resume_points: Default::default(),
+        catch_up_not_found: Default::default(),
+        ingestor,
+        hs_mapping_cache: Default::default(),
+    }
+}
+
+/// A `PUT` event of a post by `author_id` that was never written to any homeserver.
+fn unwritten_post_event(author_id: &PubkyId) -> Result<(Event, String)> {
+    let post_id = PubkyAppPost::default().create_id();
+    let line = format!(
+        "PUT {}",
+        post_uri_builder(author_id.to_string(), post_id.clone())
+    );
+    let ParseResult::Parsed(event) = Event::parse_event(&line)? else {
+        panic!("a post line parses");
+    };
+    Ok((event, post_id))
 }
 
 /// A user created on the test's homeserver, so in scope.
@@ -47,16 +83,16 @@ async fn member(test: &mut WatcherTest, name: &str) -> Result<PubkyId> {
     Ok(PubkyId::from(user_kp.public_key()))
 }
 
-/// Asserts the user is known but kept outside the scope: a node marked as a stub,
+/// Asserts the user is known but kept outside the scope: a node marked as an outsider,
 /// with no `HOSTED_BY` edge and no cursor, so nothing ever polls it.
-async fn assert_user_is_stub(user_id: &str) {
+async fn assert_user_is_outsider(user_id: &str) {
     assert!(
         UserDetails::get_by_id(user_id).await.unwrap().is_some(),
-        "the stub's node exists, so records can point at it"
+        "the outsider's node exists, so records can point at it"
     );
     assert!(
-        is_stub(user_id).await.unwrap(),
-        "{user_id} should be a stub"
+        is_outsider(user_id).await.unwrap(),
+        "{user_id} should be an outsider"
     );
 
     let key = user_hs_cursor_key(user_id);
@@ -71,31 +107,34 @@ async fn assert_user_is_stub(user_id: &str) {
     )
     .await
     .unwrap();
-    assert!(cursors.is_none(), "a stub has no cursor");
+    assert!(cursors.is_none(), "an outsider has no cursor");
 
     let query = Query::new(
-        "assert_stub_not_hosted",
+        "assert_outsider_not_hosted",
         "MATCH (u:User {id: $user_id})-[:HOSTED_BY]->(hs:Homeserver) RETURN hs.id AS hs_id",
     )
     .param("user_id", user_id.to_string());
     let hosted_by = fetch_row_from_graph(query).await.unwrap();
-    assert!(hosted_by.is_none(), "a stub is not bound to a homeserver");
+    assert!(
+        hosted_by.is_none(),
+        "an outsider is not bound to a homeserver"
+    );
 }
 
-/// A user on a homeserver outside the list is kept as a stub, and the HS resolver
+/// A user on a homeserver outside the list is kept as an outsider, and the HS resolver
 /// never picks it up.
 #[tokio_shared_rt::test(shared)]
-async fn test_user_outside_the_scope_is_kept_as_a_stub() -> Result<()> {
+async fn test_user_outside_the_scope_is_kept_as_a_outsider() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
     let hs_pk = create_external_test_homeserver(&mut test).await?;
     let (_, user_id) = user_on(&test, &hs_pk).await?;
 
     scoped_ingestor(&test).maybe_ingest_user(&user_id).await?;
 
-    assert_user_is_stub(&user_id).await;
+    assert_user_is_outsider(&user_id).await;
     assert!(
         UserCounts::get_from_index(&user_id).await?.is_some(),
-        "a stub has counts, so records that move them don't fail"
+        "an outsider has counts, so records that move them don't fail"
     );
 
     let needing_resolution: Vec<String> =
@@ -104,7 +143,7 @@ async fn test_user_outside_the_scope_is_kept_as_a_stub() -> Result<()> {
             .unwrap_or_default();
     assert!(
         !needing_resolution.contains(&user_id.to_string()),
-        "the resolver skips stubs, so they never get HOSTED_BY"
+        "the resolver skips outsiders, so they never get HOSTED_BY"
     );
     Ok(())
 }
@@ -123,12 +162,14 @@ async fn test_user_inside_the_scope_is_ingested_as_before() -> Result<()> {
         .await?;
 
     assert_user_ingested(&user_id, &hs_pk).await;
-    assert!(!is_stub(&user_id).await?);
+    assert!(!is_outsider(&user_id).await?);
     Ok(())
 }
 
-/// An event by an author outside the scope is skipped before it is fetched: nothing is
-/// indexed and the event doesn't fail.
+/// A whole feed holds everyone on its homeserver: an event of an author outside the
+/// scope read from one is skipped before it is fetched. Handed to the handler as the retry
+/// queue hands it, the same event is processed: a queued event is finished whatever the
+/// scope.
 #[tokio_shared_rt::test(shared)]
 async fn test_event_by_an_author_outside_the_scope_is_skipped() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
@@ -136,8 +177,12 @@ async fn test_event_by_an_author_outside_the_scope_is_skipped() -> Result<()> {
     let (_, author_id) = user_on(&test, &hs_pk).await?;
     let ingestor = Arc::new(scoped_ingestor(&test));
     ingestor.maybe_ingest_user(&author_id).await?;
-    assert_user_is_stub(&author_id).await;
+    assert_user_is_outsider(&author_id).await;
+    let (event, post_id) = unwritten_post_event(&author_id)?;
 
+    let from_the_feed = feed_processor(&test, ingestor.clone())
+        .should_process_event(&event)
+        .await?;
     let client = PubkyHomeserverClient::from_config(
         PubkyConnector::get()?,
         &nexus_common::WatcherConfig::default(),
@@ -148,48 +193,43 @@ async fn test_event_by_an_author_outside_the_scope_is_skipped() -> Result<()> {
         Arc::new(client),
         PathBuf::from("/tmp/nexus-watcher-test"),
     );
-    // Never written to any homeserver: fetching it would fail, so `Ok` means skipped.
-    let post_id = PubkyAppPost::default().create_id();
-    let line = format!(
-        "PUT {}",
-        post_uri_builder(author_id.to_string(), post_id.clone())
+    let retried = handler.handle(&event).await;
+
+    assert!(!from_the_feed, "skipped when read from the feed");
+    assert!(
+        retried.is_err(),
+        "processed when retried: the fetch of the unwritten post fails"
     );
-    let ParseResult::Parsed(event) = Event::parse_event(&line)? else {
-        panic!("a post line parses");
-    };
-
-    handler.handle(&event).await?;
-
     assert!(PostDetails::get_by_id(&author_id, &post_id)
         .await?
         .is_none());
     Ok(())
 }
 
-/// Members following a stub move its counts, but it stays out of the rankings,
+/// Members following an outsider move its counts, but it stays out of the rankings,
 /// where it would show as a blank card.
 #[tokio_shared_rt::test(shared)]
-async fn test_a_followed_stub_stays_out_of_the_rankings() -> Result<()> {
+async fn test_a_followed_outsider_stays_out_of_the_rankings() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
     let hs_pk = create_external_test_homeserver(&mut test).await?;
-    let (_, stub_id) = user_on(&test, &hs_pk).await?;
+    let (_, outsider_id) = user_on(&test, &hs_pk).await?;
     let follower_id = member(&mut test, "Follower").await?;
     let ingestor = scoped_ingestor(&test);
-    ingestor.maybe_ingest_user(&stub_id).await?;
+    ingestor.maybe_ingest_user(&outsider_id).await?;
 
-    handlers::follow::sync_put(follower_id.clone(), stub_id.clone(), &ingestor).await?;
+    handlers::follow::sync_put(follower_id.clone(), outsider_id.clone(), &ingestor).await?;
 
-    let counts = UserCounts::get_from_index(&stub_id)
+    let counts = UserCounts::get_from_index(&outsider_id)
         .await?
-        .expect("stub counts");
+        .expect("outsider counts");
     assert_eq!(counts.followers, 1);
     UserStream::refresh_most_followed().await?;
     let rank = |user_id: PubkyId| async move {
         UserDetails::check_sorted_set_member(None, &USER_MOSTFOLLOWED_KEY_PARTS, &[&user_id]).await
     };
     assert!(
-        rank(stub_id).await?.is_none(),
-        "a stub stays out of most followed"
+        rank(outsider_id).await?.is_none(),
+        "an outsider stays out of most followed"
     );
     assert!(
         rank(follower_id).await?.is_some(),
@@ -198,20 +238,20 @@ async fn test_a_followed_stub_stays_out_of_the_rankings() -> Result<()> {
     Ok(())
 }
 
-/// A user that must always be read (the moderator), kept as a stub elsewhere (the API
+/// A user that must always be read (the moderator), kept as an outsider elsewhere (the API
 /// ingests with the plain scope), is brought back into the scope and bound at start.
 #[tokio_shared_rt::test(shared)]
-async fn test_ensure_in_scope_brings_a_stubbed_moderator_back() -> Result<()> {
+async fn test_ensure_in_scope_brings_a_moderator_kept_outside_back() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
     let hs_pk = create_external_test_homeserver(&mut test).await?;
     let (_, moderator_id) = user_on(&test, &hs_pk).await?;
     let ingestor = scoped_ingestor(&test);
     ingestor.maybe_ingest_user(&moderator_id).await?;
-    assert_user_is_stub(&moderator_id).await;
+    assert_user_is_outsider(&moderator_id).await;
 
     ingestor.ensure_in_scope(&moderator_id).await?;
 
-    assert!(!is_stub(&moderator_id).await?);
+    assert!(!is_outsider(&moderator_id).await?);
     assert_user_ingested(&moderator_id, &hs_pk).await;
     let query = queries::get::get_user_scope_state(&moderator_id);
     let scope_state: Option<Option<String>> = fetch_key_from_graph(query, "scope_state").await?;
@@ -243,10 +283,10 @@ fn homeserver_maintainer(
     (ingestor, maintainer)
 }
 
-/// A stub whose event comes in from a listed homeserver's feed may have moved there:
+/// An outsider whose event comes in from a listed homeserver's feed may have moved there:
 /// it is let in, and the event is indexed rather than skipped.
 #[tokio_shared_rt::test(shared)]
-async fn test_a_stub_that_moved_onto_a_listed_homeserver_is_let_in() -> Result<()> {
+async fn test_an_outsider_that_moved_onto_a_listed_homeserver_is_let_in() -> Result<()> {
     let test = WatcherTest::setup(None).await?;
     let client =
         PubkyHomeserverClient::from_config(PubkyConnector::get()?, &WatcherConfig::default());
@@ -258,7 +298,7 @@ async fn test_a_stub_that_moved_onto_a_listed_homeserver_is_let_in() -> Result<(
     );
 
     let (user_kp, user_id) = user_on(&test, &test.homeserver_id.to_public_key()).await?;
-    create_stub(&UserDetails::from_pubky(user_id.clone())).await?;
+    create_outsider(&UserDetails::from_pubky(user_id.clone())).await?;
 
     // Written straight to the homeserver, so no event is processed yet.
     let post_id = PubkyAppPost::default().create_id();
@@ -287,13 +327,13 @@ async fn test_a_stub_that_moved_onto_a_listed_homeserver_is_let_in() -> Result<(
     handler.handle(&event).await?;
 
     assert!(PostDetails::get_by_id(&user_id, &post_id).await?.is_some());
-    assert!(!is_stub(&user_id).await?);
+    assert!(!is_outsider(&user_id).await?);
     assert_eq!(scope_state(&user_id).await?, None, "in scope");
     Ok(())
 }
 
 /// Narrowing a homeserver list lets the users on the dropped homeserver go; listing it
-/// again brings them back, although they left rather than being stubs.
+/// again brings them back, although they left rather than being outsiders.
 #[tokio_shared_rt::test(shared)]
 async fn test_listing_a_homeserver_again_brings_its_users_back() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
@@ -319,15 +359,15 @@ async fn test_listing_a_homeserver_again_brings_its_users_back() -> Result<()> {
     Ok(())
 }
 
-/// Switching to "everything" lets every stub in.
+/// Switching to "everything" lets every outsider in.
 #[tokio_shared_rt::test(shared)]
-async fn test_everything_lets_stubs_back_in() -> Result<()> {
+async fn test_everything_lets_outsiders_back_in() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
     let hs_pk = create_external_test_homeserver(&mut test).await?;
     let (_, user_id) = user_on(&test, &hs_pk).await?;
     let hs_id = PubkyId::from(hs_pk).to_string();
     scoped_ingestor(&test).maybe_ingest_user(&user_id).await?;
-    assert_user_is_stub(&user_id).await;
+    assert_user_is_outsider(&user_id).await;
 
     let maintainer = ScopeMaintainer::new(
         &WatcherConfig::default(),
@@ -339,7 +379,7 @@ async fn test_everything_lets_stubs_back_in() -> Result<()> {
     catch_up::caught_up(&user_id).await?;
 
     assert_eq!(change.joined, 1);
-    assert!(!is_stub(&user_id).await?);
+    assert!(!is_outsider(&user_id).await?);
     assert_eq!(scope_state(&user_id).await?, None, "in scope");
     assert_eq!(
         catching_up,
@@ -359,7 +399,7 @@ async fn test_an_admission_whose_homeserver_was_not_found_is_retried() -> Result
     let hs_pk = create_external_test_homeserver(&mut test).await?;
     let late_kp = Keypair::random();
     let late = PubkyId::from(late_kp.public_key());
-    create_stub(&UserDetails::from_pubky(late.clone())).await?;
+    create_outsider(&UserDetails::from_pubky(late.clone())).await?;
 
     let homeservers = [test.homeserver_id.clone(), PubkyId::from(hs_pk.clone())];
     let (_, maintainer) = homeserver_maintainer(&homeservers, &[&late]);
@@ -370,7 +410,7 @@ async fn test_an_admission_whose_homeserver_was_not_found_is_retried() -> Result
     let change = maintainer.tick().await?;
 
     assert_eq!(change.joined, 1, "found and admitted on the next interval");
-    assert!(!is_stub(&late).await?);
+    assert!(!is_outsider(&late).await?);
     Ok(())
 }
 
@@ -397,37 +437,75 @@ async fn test_a_user_let_back_in_is_read_from_the_start() -> Result<()> {
 
 /// An unknown author whose homeserver isn't listed is placed by the homeserver it
 /// publishes, not by the listed feed its old event came from: the event is skipped and
-/// the author kept as a stub.
+/// the author kept as an outsider.
 #[tokio_shared_rt::test(shared)]
 async fn test_an_unknown_author_that_moved_away_is_not_indexed() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
     let hs_pk = create_external_test_homeserver(&mut test).await?;
     let (_, author_id) = user_on(&test, &hs_pk).await?;
-    let client = PubkyHomeserverClient::from_config(
-        PubkyConnector::get()?,
-        &nexus_common::WatcherConfig::default(),
-    );
-    let handler = DefaultEventHandler::new(
-        default_moderation_tests(),
-        Arc::new(scoped_ingestor(&test)),
-        Arc::new(client),
-        PathBuf::from("/tmp/nexus-watcher-test"),
-    );
+    let (event, _) = unwritten_post_event(&author_id)?;
 
-    // Never written to any homeserver: fetching it would fail, so `Ok` means skipped.
-    let post_id = PubkyAppPost::default().create_id();
-    let line = format!(
-        "PUT {}",
-        post_uri_builder(author_id.to_string(), post_id.clone())
-    );
-    let ParseResult::Parsed(event) = Event::parse_event(&line)? else {
-        panic!("a post line parses");
+    let processor = feed_processor(&test, Arc::new(scoped_ingestor(&test)));
+    let processed = processor.should_process_event(&event).await?;
+
+    assert!(!processed, "skipped before it is fetched");
+    assert_user_is_outsider(&author_id).await;
+    Ok(())
+}
+
+/// A member's tag on an outsider indexes the tag, but the outsider stays out of the
+/// users-by-tag search, where it would show as a blank card; a member tagged the same
+/// way is in. Once the outsider joins the scope, it is ranked there.
+#[tokio_shared_rt::test(shared)]
+async fn test_a_tagged_outsider_stays_out_of_the_users_by_tag_search() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let hs_pk = create_external_test_homeserver(&mut test).await?;
+    let (_, outsider_id) = user_on(&test, &hs_pk).await?;
+    let member_id = member(&mut test, "Tagged").await?;
+    let tagger_id = member(&mut test, "Tagger").await?;
+    let ingestor = scoped_ingestor(&test);
+    let label = format!("scopetest{}", chrono::Utc::now().timestamp_micros());
+
+    for tagged in [&outsider_id, &member_id] {
+        let tag = PubkyAppTag {
+            uri: user_uri_builder(tagged.to_string()),
+            label: label.clone(),
+            created_at: chrono::Utc::now().timestamp_millis(),
+        };
+        let tag_id = tag.create_id();
+        let tag_uri = tag_uri_builder(tagger_id.to_string(), tag_id.clone());
+        // The first meets an unknown user: it is ingested, and the tag retried.
+        for _ in 0..2 {
+            let put = handlers::tag::sync_put(
+                tag.clone(),
+                tag_uri.clone(),
+                tagger_id.clone(),
+                tag_id.clone(),
+                &ingestor,
+            )
+            .await;
+            if put.is_ok() {
+                break;
+            }
+        }
+    }
+    assert_user_is_outsider(&outsider_id).await;
+
+    let key_parts = [&TAG_GLOBAL_USER_TAGGERS[..], &[label.as_str()]].concat();
+    let ranked = |user_id: PubkyId| {
+        let key_parts = key_parts.clone();
+        async move { UserDetails::check_sorted_set_member(None, &key_parts, &[&user_id]).await }
     };
-    handler.handle(&event).await?;
+    let outsider_while_out = ranked(outsider_id.clone()).await?;
+    let member_ranked = ranked(member_id).await?;
+    admit_outsider(&outsider_id).await?;
+    let outsider_once_in = ranked(outsider_id.clone()).await?;
 
-    assert!(PostDetails::get_by_id(&author_id, &post_id)
-        .await?
-        .is_none());
-    assert_user_is_stub(&author_id).await;
+    assert!(
+        outsider_while_out.is_none(),
+        "an outsider stays out of the tag search"
+    );
+    assert!(member_ranked.is_some(), "control: a member is in");
+    assert!(outsider_once_in.is_some(), "ranked once it joins the scope");
     Ok(())
 }
