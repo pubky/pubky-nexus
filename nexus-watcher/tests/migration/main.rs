@@ -26,5 +26,6 @@ mod harness;
 mod hazards;
 mod primary;
 mod records;
+mod retry_queue;
 mod switches;
 mod wipe;

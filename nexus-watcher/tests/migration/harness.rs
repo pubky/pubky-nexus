@@ -16,8 +16,12 @@ use nexus_common::models::notification::Notification;
 use nexus_common::models::user::{HomeserverRecheck, StaleMapping, UserHsCursor, UserIngestor};
 use nexus_common::types::Pagination;
 use nexus_common::utils::test_utils::default_ingestor_tests;
+use nexus_common::EventRetryConfig;
 use nexus_common::{StackConfig, StackManager, DEFAULT_MAX_FILE_SIZE};
-use nexus_watcher::events::retry::{InitialBackoff, RedisRetryStore, RetryScheduler, RetryStore};
+use nexus_watcher::events::retry::{
+    InMemoryRetryStore, IndexKey, InitialBackoff, RedisRetryStore, RetryProcessor, RetryScheduler,
+    RetryStore,
+};
 use nexus_watcher::events::{DefaultEventHandler, EventHandler, Moderation};
 use nexus_watcher::service::indexer::{
     KeyBasedEventProcessor, PubkyKeyBasedEventSource, TEventProcessor,
@@ -196,6 +200,31 @@ impl MigrationTest {
             .maybe_ingest_user(&PubkyId::from(user.public_key()))
             .await
             .map_err(|e| anyhow!("ingesting the user: {e}"))
+    }
+
+    /// Fires the retry queued for `uri` now, through the real retry processor.
+    /// The stored entry is copied, its backoff elapsed, into a store of its
+    /// own, so nothing else queued in the shared Redis is retried. Returns
+    /// false when nothing is queued for `uri`.
+    pub async fn fire_retry(&self, uri: &str) -> Result<bool> {
+        let Some(mut entry) = RedisRetryStore::new()
+            .get(&IndexKey::for_uri(uri))
+            .await
+            .map_err(|e| anyhow!("{e:?}"))?
+        else {
+            return Ok(false);
+        };
+        entry.next_retry_at = 0;
+        let isolated: Arc<dyn RetryStore> = Arc::new(InMemoryRetryStore::new());
+        isolated.put(&entry).await.map_err(|e| anyhow!("{e:?}"))?;
+        let processor = Arc::new(RetryProcessor {
+            event_handler: self.handler.clone(),
+            shutdown_rx: self.shutdown_rx.clone(),
+            config: EventRetryConfig::default(),
+            store: isolated,
+        });
+        processor.run().await.map_err(|e| anyhow!("{e:?}"))?;
+        Ok(true)
     }
 
     fn key_based(&self, hs: PubkyId) -> Arc<KeyBasedEventProcessor> {
