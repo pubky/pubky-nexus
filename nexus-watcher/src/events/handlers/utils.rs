@@ -47,12 +47,3 @@ pub async fn post_kind(
         .map(|details| details.kind)
         .unwrap_or(PubkyAppPostKind::Unknown))
 }
-
-/// Whether a post is a Collection. A missing/unknown target defaults to `false`
-/// (a normal post) so the increment and decrement paths stay symmetric.
-pub async fn post_is_collection(
-    author_id: &str,
-    post_id: &str,
-) -> Result<bool, EventProcessorError> {
-    Ok(post_kind(author_id, post_id).await? == PubkyAppPostKind::Collection)
-}
