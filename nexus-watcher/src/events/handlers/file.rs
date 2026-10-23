@@ -49,9 +49,7 @@ async fn ingest(
     client: &dyn HomeserverClient,
 ) -> Result<(), EventProcessorError> {
     let file_src = &pubkyapp_file.src;
-    let parsed_source_uri = ParsedUri::try_from(file_src.to_string()).map_err(|e| {
-        EventProcessorError::generic(format!("Invalid file source URI {file_src}: {e}"))
-    })?;
+    let parsed_source_uri = file_source(file_src)?;
 
     // Refuse to download content hosted on a blacklisted HS
     ingestor
@@ -79,6 +77,16 @@ async fn ingest(
             pubkyapp_file.src
         ))),
     }
+}
+
+/// Parses the `src` of a file.
+///
+/// A `src` that is not a pubky.app URI can never be fetched by retrying, so it is rejected
+/// with [`EventProcessorError::UnsupportedTarget`], which is not retried.
+fn file_source(src: &str) -> Result<ParsedUri, EventProcessorError> {
+    ParsedUri::try_from(src).map_err(|e| {
+        EventProcessorError::UnsupportedTarget(format!("Invalid file source URI {src}: {e}"))
+    })
 }
 
 /// Writes `blob` to `<dir>/main`, creating `dir` if it does not exist.
@@ -122,6 +130,32 @@ pub async fn del(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::events::retry::RetryScheduler;
+
+    #[test]
+    fn file_source_rejects_non_pubky_uris_without_retry() {
+        let user_id = "8pinxxgqs41n4aididenw5apqp1urfmzdztr8jt4abrkdn435ewo";
+        let cases = [
+            "https://example.com/image.png".to_string(),
+            format!("pubky://{user_id}/pub/mapky/blobs/0033SSE3B1FQ0"),
+            "pubky://notakey/pub/pubky.app/blobs/0033SSE3B1FQ0".to_string(),
+        ];
+
+        for src in cases {
+            let err = file_source(&src).expect_err(&format!("{src} must be rejected"));
+            assert!(
+                matches!(err, EventProcessorError::UnsupportedTarget(_)),
+                "{src}: unexpected error {err:?}"
+            );
+            assert!(
+                !RetryScheduler::should_enqueue_related_event(&err),
+                "{src}: a deterministic rejection must not be retried"
+            );
+        }
+
+        let blob = format!("pubky://{user_id}/pub/pubky.app/blobs/0033SSE3B1FQ0");
+        assert!(file_source(&blob).is_ok());
+    }
 
     async fn read_main(dir: &Path) -> Vec<u8> {
         fs::read(dir.join("main")).await.unwrap()
