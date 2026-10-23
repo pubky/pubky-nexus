@@ -311,7 +311,8 @@ pub fn global_tags_by_user() -> Query {
         // create_user_tag MERGEs one TAGGED edge per (tagger, tagged, label),
         // so COUNT(t) is the distinct tagger count.
         MATCH (tagger:User)-[t:TAGGED]->(u:User)
-        WHERE NOT coalesce(u.deleted, false)
+        // A stub's profile is never read: ranked, it would show as a blank card.
+        WHERE NOT coalesce(u.deleted, false) AND coalesce(u.scope_state, '') <> 'stub'
         WITH t.label AS label, u.id AS user_id, COUNT(t) AS score
         WITH label, COLLECT([toFloat(score), user_id]) AS sorted_set
         RETURN label, sorted_set
@@ -502,6 +503,7 @@ fn users_by_tags_cypher(prefix: &str, skip: Option<usize>, limit: Option<usize>)
         {prefix}
         MATCH (tagger:User)-[tag:TAGGED]->(u:User)
         WHERE tag.label IN $labels AND NOT coalesce(u.deleted, false)
+          AND coalesce(u.scope_state, '') <> 'stub'
         WITH u, COUNT(tag) AS score
         RETURN u.id AS user_id, score
         // id DESC matches how Redis breaks equal scores (reverse-lex member

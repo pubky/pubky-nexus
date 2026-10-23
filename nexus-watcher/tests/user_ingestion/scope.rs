@@ -7,6 +7,8 @@ use nexus_common::db::kv::RedisOps;
 use nexus_common::db::{fetch_key_from_graph, fetch_row_from_graph, queries, PubkyConnector};
 use nexus_common::models::post::PostDetails;
 use nexus_common::models::scope::{HomeserverListScope, Scope};
+use nexus_common::models::user::stub::unstub;
+use nexus_common::models::user::TAG_GLOBAL_USER_TAGGERS;
 use nexus_common::models::user::{
     is_stub, user_hs_cursor_key, PubkyConnectorResolver, UserCounts, UserDetails, UserIngestor,
     UserStream, USER_MOSTFOLLOWED_KEY_PARTS,
@@ -15,8 +17,12 @@ use nexus_watcher::events::handlers;
 use nexus_watcher::events::{DefaultEventHandler, Event, EventHandler, ParseResult};
 use nexus_watcher::homeserver::PubkyHomeserverClient;
 use pubky::Keypair;
+use pubky_app_specs::traits::HashId;
 use pubky_app_specs::traits::TimestampId;
-use pubky_app_specs::{post_uri_builder, PubkyAppPost, PubkyAppUser, PubkyId};
+use pubky_app_specs::{
+    post_uri_builder, tag_uri_builder, user_uri_builder, PubkyAppPost, PubkyAppTag, PubkyAppUser,
+    PubkyId,
+};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -249,5 +255,62 @@ async fn test_an_unknown_author_that_moved_away_is_not_indexed() -> Result<()> {
         .await?
         .is_none());
     assert_user_is_stub(&author_id).await;
+    Ok(())
+}
+
+/// A member's tag on an outsider indexes the tag, but the stub stays out of the
+/// users-by-tag search, where it would show as a blank card; a member tagged the same
+/// way is in. Once the stub joins the scope, it is ranked there.
+#[tokio_shared_rt::test(shared)]
+async fn test_a_tagged_stub_stays_out_of_the_users_by_tag_search() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let hs_pk = create_external_test_homeserver(&mut test).await?;
+    let (_, stub_id) = user_on(&test, &hs_pk).await?;
+    let member_id = member(&mut test, "Tagged").await?;
+    let tagger_id = member(&mut test, "Tagger").await?;
+    let ingestor = scoped_ingestor(&test);
+    let label = format!("scopetest{}", chrono::Utc::now().timestamp_micros());
+
+    for tagged in [&stub_id, &member_id] {
+        let tag = PubkyAppTag {
+            uri: user_uri_builder(tagged.to_string()),
+            label: label.clone(),
+            created_at: chrono::Utc::now().timestamp_millis(),
+        };
+        let tag_id = tag.create_id();
+        let tag_uri = tag_uri_builder(tagger_id.to_string(), tag_id.clone());
+        // The first meets an unknown user: it is ingested, and the tag retried.
+        for _ in 0..2 {
+            let put = handlers::tag::sync_put(
+                tag.clone(),
+                tag_uri.clone(),
+                tagger_id.clone(),
+                tag_id.clone(),
+                &ingestor,
+            )
+            .await;
+            if put.is_ok() {
+                break;
+            }
+        }
+    }
+    assert_user_is_stub(&stub_id).await;
+
+    let key_parts = [&TAG_GLOBAL_USER_TAGGERS[..], &[label.as_str()]].concat();
+    let ranked = |user_id: PubkyId| {
+        let key_parts = key_parts.clone();
+        async move { UserDetails::check_sorted_set_member(None, &key_parts, &[&user_id]).await }
+    };
+    let stub_while_out = ranked(stub_id.clone()).await?;
+    let member_ranked = ranked(member_id).await?;
+    unstub(&stub_id).await?;
+    let stub_once_in = ranked(stub_id.clone()).await?;
+
+    assert!(
+        stub_while_out.is_none(),
+        "a stub stays out of the tag search"
+    );
+    assert!(member_ranked.is_some(), "control: a member is in");
+    assert!(stub_once_in.is_some(), "ranked once it joins the scope");
     Ok(())
 }

@@ -16,7 +16,7 @@ use tokio::sync::Mutex as AsyncMutex;
 use crate::db::kv::{RedisError, RedisResult};
 use crate::db::{fetch_key_from_graph, fetch_row_from_graph, get_redis_conn, queries, RedisOps};
 use crate::models::error::{ModelError, ModelResult};
-use crate::models::user::{UserCounts, UserDetails};
+use crate::models::user::{UserCounts, UserDetails, UsersByTagSearch};
 
 /// `scope_state` of a user known to this Nexus but outside its scope.
 pub const SCOPE_STATE_STUB: &str = "stub";
@@ -136,11 +136,21 @@ async fn init_counts(user_id: &str) -> RedisResult<()> {
     Ok(())
 }
 
-/// Stops treating the user as a stub in Redis. Returns whether it was a stub there. The
-/// caller clears its `scope_state`, then calls [`drop_stub_entry`]; the rankings, rebuilt
-/// from the graph, take the user in from their next rebuild.
+/// Stops treating the user as a stub in Redis, and ranks it in the users-by-tag search
+/// its tags were kept out of. Returns whether it was a stub there. The caller clears its
+/// `scope_state`, then calls [`drop_stub_entry`]; the rankings, rebuilt from the graph,
+/// take the user in from their next rebuild.
 pub async fn unstub(user_id: &str) -> ModelResult<bool> {
-    Ok(write_entry(user_id, false).await?)
+    // Out of the set first: the tag search skips a stub.
+    if !write_entry(user_id, false).await? {
+        return Ok(false);
+    }
+    if let Err(e) = UsersByTagSearch::sync_user_labels(user_id).await {
+        // Back in the set, so the next promotion retries the whole of it.
+        write_entry(user_id, true).await?;
+        return Err(e.into());
+    }
+    Ok(true)
 }
 
 /// Drops the user's `Scope:Stubs` entry, for a user whose graph state was just cleared:
@@ -433,6 +443,73 @@ mod tests {
         assert!(after > before, "the stub write is counted");
         assert_eq!(replaced, 0, "the replacement is refused");
         assert!(kept, "the stub written after the graph read stays");
+        Ok(())
+    }
+
+    /// The users-by-tag search and its reindex leave a tagged stub out, as the rankings
+    /// do; a member tagged the same way is in.
+    #[tokio_shared_rt::test(shared)]
+    async fn the_users_by_tag_queries_leave_stubs_out() -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+        let [tagger, member, stub] =
+            [(); 3].map(|_| pubky::Keypair::random().public_key().to_z32());
+        let label = format!("stubtest{}", rand_suffix());
+        let create = Query::new(
+            "test_tag_a_member_and_a_stub",
+            "CREATE (t:User {id: $tagger}), (m:User {id: $member}),
+                    (s:User {id: $stub, scope_state: $stub_state}),
+                    (t)-[:TAGGED {label: $label}]->(m), (t)-[:TAGGED {label: $label}]->(s)",
+        )
+        .param("tagger", tagger.clone())
+        .param("member", member.clone())
+        .param("stub", stub.clone())
+        .param("stub_state", SCOPE_STATE_STUB)
+        .param("label", label.clone());
+        exec_single_row(create).await?;
+
+        let searched =
+            async {
+                let rows = crate::db::fetch_all_rows_from_graph(
+                    queries::get::search_users_by_tags(std::slice::from_ref(&label), None, None),
+                )
+                .await?;
+                rows.iter()
+                    .map(|row| row.get::<String>("user_id"))
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(DynError::from)
+            }
+            .await;
+        let reindexed = async {
+            let rows =
+                crate::db::fetch_all_rows_from_graph(queries::get::global_tags_by_user()).await?;
+            let mut users = Vec::new();
+            for row in &rows {
+                if row.get::<String>("label")? == label {
+                    let sorted_set: Vec<(f64, String)> = row.get("sorted_set")?;
+                    users.extend(sorted_set.into_iter().map(|(_, id)| id));
+                }
+            }
+            Ok::<_, DynError>(users)
+        }
+        .await;
+
+        let delete = Query::new(
+            "test_delete_tagged_users",
+            "MATCH (u:User) WHERE u.id IN $ids DETACH DELETE u",
+        )
+        .param("ids", vec![tagger, member.clone(), stub]);
+        exec_single_row(delete).await?;
+
+        assert_eq!(
+            searched?,
+            vec![member.clone()],
+            "search: the member, not the stub"
+        );
+        assert_eq!(
+            reindexed?,
+            vec![member],
+            "reindex: the member, not the stub"
+        );
         Ok(())
     }
 

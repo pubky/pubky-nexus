@@ -313,7 +313,8 @@ its tags take content down.
 **Users outside the scope are stubs**: a `User` node with `scope_state = "stub"` and
 counts, but no `HOSTED_BY` and no cursor, so the resolver and the indexers never touch
 it. Follows, tags and mentions of stubs by in-scope users are indexed. Stubs are kept out
-of the most-followed and influencer rankings, and their posts out of the global feeds
+of the most-followed and influencer rankings and the users-by-tag search (a stub that
+joins the scope is ranked there then), and their posts out of the global feeds
 (timeline, engagement, tag streams, and the `source=all` shapes served from the graph,
 such as a kind filter or several tags): they appear where they meet the scope, in threads,
 counts, notifications and their own profile. A Redis set (`Scope:Stubs`) mirrors the
