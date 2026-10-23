@@ -7,7 +7,9 @@ use nexus_common::models::user::outsider::create_outsider;
 use nexus_common::models::user::{is_outsider, UserDetails};
 use nexus_common::utils::test_utils::random_pubky_id;
 use nexus_common::{ScopeConfig, WatcherConfig};
+use nexus_watcher::scope::watcher_ingestor;
 use nexus_watcher::service::prepare_scope;
+use nexus_watcher::service::scope_maintenance::ScopeMaintainer;
 use std::sync::Arc;
 
 /// The start of a homeserver scope persists every listed homeserver, so each has the
@@ -33,7 +35,14 @@ async fn test_prepare_scope_persists_the_listed_homeservers_and_lets_the_moderat
     create_outsider(&UserDetails::from_pubky(moderator.clone())).await?;
 
     // The mock publishes no homeserver for anyone: the moderator is let in unbound.
-    let prepared = prepare_scope(&config, Arc::new(MockHomeserverClient::default())).await;
+    let client: Arc<MockHomeserverClient> = Arc::new(MockHomeserverClient::default());
+    // Limited to the moderator: the graph is shared with the other tests.
+    let maintainer = ScopeMaintainer::new(
+        &config,
+        watcher_ingestor(&config, client.clone()),
+        Some(vec![moderator.to_string()]),
+    );
+    let prepared = prepare_scope(&config, client, &maintainer).await;
 
     let persisted = [
         Homeserver::get_by_id(homeservers[0].clone()).await?,

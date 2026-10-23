@@ -124,6 +124,8 @@ impl WatcherTest {
             shutdown_rx,
             full_feeds: vec![primary_homeserver],
             retry_scheduler,
+            catch_up_resume_points: Default::default(),
+            catch_up_not_found: Default::default(),
             ingestor: default_ingestor_tests(),
         }
     }
