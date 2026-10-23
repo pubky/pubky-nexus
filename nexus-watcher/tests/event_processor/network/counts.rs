@@ -109,9 +109,13 @@ async fn test_large_network_scenario_counts() -> Result<()> {
         }
     }
 
-    // Users bookmark posts
-    for (user_kp, _user_id) in user_kps_and_ids.iter() {
+    // Users bookmark posts. A repeated bookmark reuses its hashed path, so a user's
+    // bookmarks are the distinct posts they bookmarked.
+    let mut user_bookmarks: HashMap<String, HashSet<String>> = HashMap::new(); // Map user_id to bookmarked post URIs
+
+    for (user_kp, user_id) in user_kps_and_ids.iter() {
         let num_bookmarks = rng.random_range(1..=max_bookmarks_per_user);
+        let bookmark_set = user_bookmarks.entry(user_id.clone()).or_default();
         for _ in 0..num_bookmarks {
             let target_user_index = rng.random_range(0..NUM_USERS);
             let (_target_user_kp, target_user_id) = &user_kps_and_ids[target_user_index];
@@ -127,14 +131,19 @@ async fn test_large_network_scenario_counts() -> Result<()> {
                 let bookmark_path = bookmark.hs_path();
 
                 test.put(user_kp, &bookmark_path, &bookmark).await?;
+                bookmark_set.insert(bookmark.uri);
                 total_bookmarks += 1;
             }
         }
     }
 
-    // Users tag posts of other users
-    for (user_kp, _user_id) in user_kps_and_ids.iter() {
+    // Users tag posts of other users. A repeated tag reuses its hashed path, so a
+    // user's tags are the distinct (post, label) pairs they have not deleted.
+    let mut user_tagged: HashMap<String, HashSet<(String, String)>> = HashMap::new(); // Map user_id to tagged (post URI, label) pairs
+
+    for (user_kp, user_id) in user_kps_and_ids.iter() {
         let num_tags = rng.random_range(1..=max_tags_per_user);
+        let tag_set = user_tagged.entry(user_id.clone()).or_default();
         for _ in 0..num_tags {
             let target_user_index = rng.random_range(0..NUM_USERS);
             let (_target_user_kp, target_user_id) = &user_kps_and_ids[target_user_index];
@@ -151,12 +160,15 @@ async fn test_large_network_scenario_counts() -> Result<()> {
                 let tag_path = tag.hs_path();
 
                 test.put(user_kp, &tag_path, &tag).await?;
+                let post_label = (tag.uri, tag_label);
+                tag_set.insert(post_label.clone());
                 total_tags += 1;
 
                 // Randomly decide to delete the tag
                 if rng.random_bool(0.1) {
                     // 10% chance to delete the tag
                     test.del(user_kp, &tag_path).await?;
+                    tag_set.remove(&post_label);
                     total_tag_deletions += 1;
                 }
             }
@@ -203,9 +215,7 @@ async fn test_large_network_scenario_counts() -> Result<()> {
         }
     }
 
-    // Each user's counts must match the posts and follows this test sent. Bookmarks
-    // and tags are only logged: a repeated one reuses its hashed path, so the graph
-    // can count fewer than were sent.
+    // Each user's counts must match the posts, follows, bookmarks and tags this test sent.
     let mut total_posts_counted = 0;
     let mut total_tags_counted = 0;
     let mut total_bookmarks_counted = 0;
@@ -235,6 +245,16 @@ async fn test_large_network_scenario_counts() -> Result<()> {
         assert_eq!(
             counts.followers as usize, followers,
             "followers of {user_id}"
+        );
+        assert_eq!(
+            counts.bookmarks as usize,
+            user_bookmarks[user_id].len(),
+            "bookmarks of {user_id}"
+        );
+        assert_eq!(
+            counts.tagged as usize,
+            user_tagged[user_id].len(),
+            "tagged of {user_id}"
         );
 
         total_posts_counted += counts.posts as usize;
