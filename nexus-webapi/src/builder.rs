@@ -23,7 +23,7 @@ use nexus_common::Level;
 use nexus_common::{ApiConfig, StackManager};
 use pubky::pkarr::{Keypair, PublicKey};
 use tokio::sync::watch::Receiver;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 pub const API_CONFIG_FILE_NAME: &str = "api-config.toml";
 /// Written to [API_CONFIG_FILE_NAME] by [NexusApi::start_from_path] when the file is missing
@@ -94,13 +94,18 @@ impl NexusApiBuilder {
     /// - `shutdown_rx`: optional shutdown signal. If none is provided, a default one will be created, listening for Ctrl-C.
     pub async fn start(self, shutdown_rx: Option<Receiver<bool>>) -> Result<NexusApi, DynError> {
         StackManager::setup(&self.api_context.api_config.stack).await?;
-        // The ingest and recheck routes look users up on PKDNS through the shared client.
+        // The ingest and recheck routes look users up on PKDNS through the shared
+        // client. Serving reads does not depend on it, so a client that cannot be
+        // built keeps those two routes failing rather than the whole API down.
         let net = &self.api_context.api_config.stack.net;
-        PubkyConnector::initialise(
+        if let Err(e) = PubkyConnector::initialise(
             net.pubky_client_testnet_host(),
             net.pubky_client_http_request_timeout(),
         )
-        .await?;
+        .await
+        {
+            warn!(error = %e, "Pubky client not initialised; ingest and recheck will fail");
+        }
         let mut shutdown_rx = shutdown_rx.unwrap_or_else(create_shutdown_rx);
 
         let nexus_api = NexusApi::start(
