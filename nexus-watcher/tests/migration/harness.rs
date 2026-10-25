@@ -532,6 +532,19 @@ impl MigrationTest {
         Ok(fetch_key_from_graph(query, "n").await?.unwrap_or(0))
     }
 
+    /// The indexed content of one of `user`'s posts.
+    pub async fn post_content(&self, user: &Keypair, post_id: &str) -> Result<String> {
+        let query = Query::new(
+            "migration_post_content",
+            "MATCH (u:User {id: $id})-[:AUTHORED]->(p:Post {id: $post_id}) RETURN p.content AS c",
+        )
+        .param("id", user.public_key().to_z32())
+        .param("post_id", post_id.to_string());
+        fetch_key_from_graph(query, "c")
+            .await?
+            .ok_or_else(|| anyhow!("post missing"))
+    }
+
     /// `(deleted, name)` of the user node.
     pub async fn profile_state(&self, user: &Keypair) -> Result<(bool, String)> {
         let row = fetch_row_from_graph(
@@ -547,6 +560,36 @@ impl MigrationTest {
         Ok((row.get("deleted")?, row.get("name")?))
     }
 
+    /// How many events are waiting in the retry queue.
+    pub async fn queued_retries(&self) -> Result<usize> {
+        Ok(self
+            .retry_queue
+            .entries
+            .fetch_ready(i64::MAX, None)
+            .await
+            .map_err(|e| anyhow!("{e}"))?
+            .len())
+    }
+
+    /// The notification kinds of `user` with their times, oldest first. Two
+    /// notifications with the same body share one entry whose time is the
+    /// latest, so a notification issued again shows up here as a newer time,
+    /// not as a second entry.
+    pub async fn notification_times(&self, user: &Keypair) -> Result<Vec<(String, i64)>> {
+        let pagination = Pagination {
+            limit: Some(1000),
+            ..Pagination::default()
+        };
+        let mut entries: Vec<(String, i64)> =
+            Notification::get_by_id(&user.public_key().to_z32(), pagination)
+                .await?
+                .into_iter()
+                .map(|n| (notification_kind(&n), n.timestamp))
+                .collect();
+        entries.reverse();
+        Ok(entries)
+    }
+
     /// The notification kinds of `user`, oldest first.
     pub async fn notifications(&self, user: &Keypair) -> Result<Vec<String>> {
         let pagination = Pagination {
@@ -557,12 +600,7 @@ impl MigrationTest {
             Notification::get_by_id(&user.public_key().to_z32(), pagination)
                 .await?
                 .into_iter()
-                .map(|n| {
-                    serde_json::to_value(&n.body)
-                        .ok()
-                        .and_then(|v| v.get("type").and_then(|t| t.as_str()).map(str::to_string))
-                        .unwrap_or_default()
-                })
+                .map(|n| notification_kind(&n))
                 .collect();
         kinds.reverse();
         Ok(kinds)
@@ -746,6 +784,13 @@ impl RetryStore for RetryQueue {
         };
         self.entries.fetch_ready(now, limit).await
     }
+}
+
+fn notification_kind(notification: &Notification) -> String {
+    serde_json::to_value(&notification.body)
+        .ok()
+        .and_then(|v| v.get("type").and_then(|t| t.as_str()).map(str::to_string))
+        .unwrap_or_default()
 }
 
 fn is_profile(path: &str) -> bool {

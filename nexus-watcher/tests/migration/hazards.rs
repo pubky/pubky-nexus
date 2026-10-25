@@ -9,7 +9,7 @@ use nexus_common::models::user::{PubkyConnectorResolver, RecheckOutcome, UserIng
 use pubky::Keypair;
 use pubky_app_specs::PubkyId;
 
-use crate::harness::MigrationTest;
+use crate::harness::{post_uri, MigrationTest};
 
 /// A device whose cache still names the old homeserver keeps writing there
 /// after the switch. Nexus follows the record, so those writes are indexed
@@ -228,5 +228,139 @@ async fn recheck_works_for_a_user_known_only_as_a_stub() -> Result<()> {
     t.signup(&device_b, &mover, &t.hs_b, "mover").await?;
     assert_eq!(t.recheck(&mover).await?.outcome, RecheckOutcome::Switched);
     assert_eq!(t.bound_to(&mover).await?.as_deref(), Some(t.hs_b.as_ref()));
+    Ok(())
+}
+
+/// A post written on B and deleted again before nexus reads B: the PUT finds
+/// nothing to fetch. That is a resource gone since the event, not a failure,
+/// so it is skipped and never queued for a retry. Fetching from the
+/// delivering homeserver has to classify the answer the way the SDK did.
+#[tokio_shared_rt::test(shared)]
+async fn a_resource_gone_before_the_fetch_is_skipped_not_retried() -> Result<()> {
+    let t = MigrationTest::setup().await?;
+    let mover = Keypair::random();
+
+    let device_a = t.device()?;
+    let session_a = t.signup(&device_a, &mover, &t.hs_a, "mover").await?;
+    t.ingest(&mover).await?;
+    t.index_external(&t.hs_a).await?;
+
+    let short_lived = t.post(&session_a, "here and gone", None).await?;
+    session_a
+        .storage()
+        .delete(format!("/pub/pubky.app/posts/{short_lived}").as_str())
+        .await?;
+    t.post(&session_a, "stays", None).await?;
+    t.index_external(&t.hs_a).await?;
+
+    assert_eq!(t.live_posts(&mover).await?, 1);
+    assert_eq!(t.queued_retries().await?, 0, "a 404 is not retried");
+    Ok(())
+}
+
+/// The mover edits a post on A after copying it to B, then switches. B holds
+/// the older text and B is where the user lives now, so nexus takes B's
+/// version and tells the interactors about an edit once more. The edit made
+/// on A after the copy is gone from nexus, as it is gone from the user's new
+/// homeserver. Notifications with the same body share one entry, so the
+/// second edit shows as the same entry with a newer time.
+#[tokio_shared_rt::test(shared)]
+async fn an_edit_on_the_old_homeserver_after_the_copy_is_reverted_by_the_switch() -> Result<()> {
+    let t = MigrationTest::setup().await?;
+    let (mover, scout) = (Keypair::random(), Keypair::random());
+
+    let device_a = t.device()?;
+    let session_a = t.signup(&device_a, &mover, &t.hs_a, "mover").await?;
+    let post = t.post(&session_a, "first draft", None).await?;
+    let device_scout = t.device()?;
+    let session_scout = t.signup(&device_scout, &scout, &t.primary, "scout").await?;
+    t.index_primary().await?;
+    t.ingest(&mover).await?;
+    t.index_external(&t.hs_a).await?;
+    t.post(&session_scout, "hi", Some(post_uri(&mover, &post)))
+        .await?;
+    t.index_primary().await?;
+    let scout_notifications = t.notifications(&scout).await?;
+
+    // Copy to B, then edit on A.
+    let device_b = t.device()?;
+    let session_b = t.signup(&device_b, &mover, &t.hs_b, "mover").await?;
+    t.write_tree(&session_b, &t.public_tree(&device_a, &mover).await?)
+        .await?;
+    let edited = pubky_app_specs::PubkyAppPost::new(
+        "second draft".to_string(),
+        pubky_app_specs::PubkyAppPostKind::Short,
+        None,
+        None,
+        None,
+    );
+    session_a
+        .storage()
+        .put(
+            format!("/pub/pubky.app/posts/{post}").as_str(),
+            serde_json::to_vec(&edited)?,
+        )
+        .await?;
+    t.index_external(&t.hs_a).await?;
+    assert_eq!(t.post_content(&mover, &post).await?, "second draft");
+    let mut expected = scout_notifications.clone();
+    expected.push("post_edited".to_string());
+    assert_eq!(t.notifications(&scout).await?, expected);
+
+    let edit_time = t
+        .notification_times(&scout)
+        .await?
+        .last()
+        .map(|(_, time)| *time);
+
+    t.recheck(&mover).await?;
+    t.index_external(&t.hs_b).await?;
+    assert_eq!(t.post_content(&mover, &post).await?, "first draft");
+    let after = t.notification_times(&scout).await?;
+    assert_eq!(
+        after.last().map(|(kind, _)| kind.as_str()),
+        Some("post_edited")
+    );
+    assert!(
+        after.last().map(|(_, time)| *time) > edit_time,
+        "the edit notification was issued again"
+    );
+    assert_eq!(
+        after.len(),
+        expected.len(),
+        "as the same entry, not a second one"
+    );
+    Ok(())
+}
+
+/// Content never copied to the new homeserver stays indexed: nexus removes
+/// nothing on a switch, and the old homeserver is not read any more. The
+/// ghost lives until a reconciliation against the new homeserver exists.
+#[tokio_shared_rt::test(shared)]
+async fn content_left_behind_on_the_old_homeserver_stays_indexed() -> Result<()> {
+    let t = MigrationTest::setup().await?;
+    let mover = Keypair::random();
+
+    let device_a = t.device()?;
+    let session_a = t.signup(&device_a, &mover, &t.hs_a, "mover").await?;
+    t.post(&session_a, "copied", None).await?;
+    let left_behind = t.post(&session_a, "left behind", None).await?;
+    t.ingest(&mover).await?;
+    t.index_external(&t.hs_a).await?;
+    assert_eq!(t.live_posts(&mover).await?, 2);
+
+    let device_b = t.device()?;
+    let session_b = t.signup(&device_b, &mover, &t.hs_b, "mover").await?;
+    let tree: crate::harness::Tree = t
+        .public_tree(&device_a, &mover)
+        .await?
+        .into_iter()
+        .filter(|(path, _)| !path.ends_with(&left_behind))
+        .collect();
+    t.write_tree(&session_b, &tree).await?;
+    t.recheck(&mover).await?;
+    t.index_external(&t.hs_b).await?;
+
+    assert_eq!(t.live_posts(&mover).await?, 2, "the ghost stays");
     Ok(())
 }

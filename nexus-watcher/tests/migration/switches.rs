@@ -37,8 +37,8 @@ async fn copy_and_switch_noticed_before_the_copy() -> Result<()> {
 
     assert_eq!(t.bound_to(&mover).await?.as_deref(), Some(t.hs_a.as_ref()));
     assert_eq!(t.live_posts(&mover).await?, 2);
-    let mover_notifications = t.notifications(&mover).await?;
-    let scout_notifications = t.notifications(&scout).await?;
+    let mover_notifications = t.notification_times(&mover).await?;
+    let scout_notifications = t.notification_times(&scout).await?;
     assert_eq!(mover_notifications.len(), 3, "follow, reply and tag");
     assert!(!scout_notifications.is_empty(), "the mover's follow");
 
@@ -72,8 +72,9 @@ async fn copy_and_switch_noticed_before_the_copy() -> Result<()> {
     assert!(t.cursor(&mover, &t.hs_b).await? > cursor_before);
 
     assert_eq!(t.live_posts(&mover).await?, 2);
-    assert_eq!(t.notifications(&mover).await?, mover_notifications);
-    assert_eq!(t.notifications(&scout).await?, scout_notifications);
+    // Same entries, same times: nothing was notified again.
+    assert_eq!(t.notification_times(&mover).await?, mover_notifications);
+    assert_eq!(t.notification_times(&scout).await?, scout_notifications);
 
     // Life goes on from B alone.
     t.post(&session_b, "third, from B", None).await?;
