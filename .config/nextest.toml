@@ -98,3 +98,9 @@ threads-required = 'num-test-threads'
 [[profile.default.overrides]]
 filter = 'package(nexus-watcher) and test(=service::user_hs_resolver::tests::test_count_mappings_keep_tombstoned_users)'
 threads-required = 'num-test-threads'
+
+# Feed rebuild/read-only tests replace its global list and epoch; isolate them
+# from watcher appends and other feed consumers in workspace-wide runs.
+[[profile.default.overrides]]
+filter = 'test(/^models::event::resource_changes::tests::live_/) | test(/^resource_changes::/)'
+threads-required = 'num-test-threads'

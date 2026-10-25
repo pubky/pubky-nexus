@@ -42,7 +42,9 @@ use super::endpoints::{
 };
 use super::stream::posts::{PostStreamByIdsRequest, StreamSourceKind};
 use super::types::TaggersInfoResponse;
-use super::{bootstrap, file, notification, post, resource, search, stream, tag, user};
+use super::{
+    bootstrap, file, notification, post, resource, resource_changes, search, stream, tag, user,
+};
 use crate::models::{
     v1, IncludeAttachmentMetadata, KindToken, PostStreamDetailed, PostViewDetailed,
     StoredKindToken, StoredPostKinds, TagLabel, TagLabels, Tags,
@@ -499,16 +501,16 @@ impl ApiVersion for V1 {
         axum::routing::get(stream::resources::stream_resource_ids_handler_v1)
     }
 
-    /// The routes added since `/v0` froze: the resource views by IDs or URIs, and the
-    /// details-only user lookups, by ids and for a user's follows. Both user lookups are one
-    /// indexed graph read, like `/user/{user_id}/details`, so they sit in the default bucket.
-    /// `/v1` has no bookmark or file details route at all.
+    /// The routes added since `/v0` froze: the resource views by IDs or URIs, the resource
+    /// changes feed, and the details-only user lookups, by ids and for a user's follows. Both
+    /// user lookups are one indexed graph read, like `/user/{user_id}/details`, so they sit in
+    /// the default bucket. `/v1` has no bookmark or file details route at all.
     fn own_routes() -> (Router<AppState>, Router<AppState>) {
         let expensive = Router::new().route(
             STREAM_RESOURCES_BY_IDS_ROUTE,
             axum::routing::post(stream::resources::stream_resources_by_ids_handler),
         );
-        let default = Router::new()
+        let default = resource_changes::routes()
             .route(
                 STREAM_USERS_DETAILS_BY_IDS_ROUTE,
                 axum::routing::post(stream::users::stream_users_details_by_ids_handler),
@@ -756,6 +758,7 @@ struct V0Doc;
         stream::resources::stream_resources_by_ids_handler,
         stream::users::stream_users_details_by_ids_handler,
         user::follows::user_following_details_handler,
+        resource_changes::resource_changes_handler,
     ),
     components(schemas(
         v1::PostView,
