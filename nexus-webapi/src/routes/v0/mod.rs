@@ -10,6 +10,7 @@ pub mod info;
 pub mod notification;
 pub mod post;
 pub mod resource;
+pub mod resource_changes;
 pub mod search;
 pub mod stream;
 pub mod tag;
@@ -41,7 +42,8 @@ pub fn routes(app_state: AppState) -> (Router<AppState>, Router<AppState>) {
         .merge(resource::routes())
         .merge(notification::routes())
         .merge(bootstrap::routes())
-        .merge(events::routes());
+        .merge(events::routes())
+        .merge(resource_changes::routes());
 
     (expensive, default)
 }
@@ -77,6 +79,7 @@ impl ApiDoc {
         combined.merge(resource::ResourceApiDoc::openapi());
         combined.merge(notification::NotificationApiDoc::merge_docs());
         combined.merge(events::EventsApiDoc::openapi());
+        combined.merge(resource_changes::ResourceChangesApiDoc::openapi());
         combined.merge(ApiDoc::openapi());
 
         combined
