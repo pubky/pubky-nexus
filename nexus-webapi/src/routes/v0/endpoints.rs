@@ -93,6 +93,8 @@ pub const RESOURCE_BY_URI_ROUTE: &str = concatcp!(RESOURCE_PREFIX, "/by-uri");
 
 // STREAM of ResourceView objects
 pub const STREAM_RESOURCES_ROUTE: &str = concatcp!(STREAM_PREFIX, "/resources");
+/// Served under `/v1` only (`V1::own_routes`).
+pub const STREAM_RESOURCES_BY_IDS_ROUTE: &str = concatcp!(STREAM_RESOURCES_ROUTE, "/by_ids");
 pub const STREAM_RESOURCE_IDS_ROUTE: &str = concatcp!(STREAM_RESOURCES_ROUTE, "/ids");
 
 // -- EVENTS endpoints
