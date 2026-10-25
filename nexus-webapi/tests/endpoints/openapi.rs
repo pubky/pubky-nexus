@@ -89,6 +89,7 @@ const V1_ONLY_PATHS: &[&str] = &[
     "/static/avatar/{user_id}",
     "/static/files/{owner_id}/{file_id}/{variant}",
     "/stream/resources/by_ids",
+    "/resources/changes",
 ];
 
 /// Both documents come from one route declaration, so every v0 path is in the v1 document

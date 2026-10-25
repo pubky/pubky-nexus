@@ -99,3 +99,6 @@ pub const STREAM_RESOURCE_IDS_ROUTE: &str = concatcp!(STREAM_RESOURCES_ROUTE, "/
 
 // -- EVENTS endpoints
 pub const EVENTS_ROUTE: &str = "/events";
+
+// -- RESOURCE CHANGES endpoints, served under `/v1` only (`V1::own_routes`)
+pub const RESOURCE_CHANGES_ROUTE: &str = "/resources/changes";
