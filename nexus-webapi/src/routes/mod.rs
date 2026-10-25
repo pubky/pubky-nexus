@@ -189,8 +189,12 @@ pub fn build_app(
         .allow_origin(Any) // Allow all origins
         .allow_methods(Any) // Allow all HTTP methods
         .allow_headers(Any) // Allow all headers
-        // Let browsers read the filtered notification list's resume cursor.
-        .expose_headers([HeaderName::from_static(v0::notification::NEXT_START_HEADER)]);
+        // Let browsers read the notification list's resume cursor and the event log headers.
+        .expose_headers([
+            HeaderName::from_static(v0::notification::NEXT_START_HEADER),
+            HeaderName::from_static("x-events-epoch"),
+            HeaderName::from_static("x-events-length"),
+        ]);
 
     // Layer the request limits innermost, so that tracing and CORS still apply to the
     // 408/413 responses they short-circuit with (bypassing the rest of the stack).
