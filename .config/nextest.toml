@@ -75,3 +75,9 @@ threads-required = 'num-test-threads'
 [[profile.default.overrides]]
 filter = 'package(nexusd) and test(/^migrations::catalog::user_epoch_backfill_1791812997::tests::/)'
 threads-required = 'num-test-threads'
+
+# Feed rebuild/read-only tests replace its global list and epoch; isolate them
+# from watcher appends and other feed consumers in workspace-wide runs.
+[[profile.default.overrides]]
+filter = 'test(/^models::event::resource_changes::tests::live_/) | test(/^resource_changes::/)'
+threads-required = 'num-test-threads'

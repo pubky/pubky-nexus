@@ -188,7 +188,11 @@ pub fn build_app(
     let cors = CorsLayer::new()
         .allow_origin(Any) // Allow all origins
         .allow_methods(Any) // Allow all HTTP methods
-        .allow_headers(Any); // Allow all headers
+        .allow_headers(Any) // Allow all headers
+        .expose_headers([
+            axum::http::HeaderName::from_static("x-events-epoch"),
+            axum::http::HeaderName::from_static("x-events-length"),
+        ]);
 
     // Layer the request limits innermost, so that tracing and CORS still apply to the
     // 408/413 responses they short-circuit with (bypassing the rest of the stack).
