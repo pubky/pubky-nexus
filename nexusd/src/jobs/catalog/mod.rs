@@ -1,6 +1,8 @@
 //! Concrete jobs the daemon can register. The engine does not depend on these types.
 
 mod hot_tags;
+mod resource_changes_seed;
+use resource_changes_seed::ResourceChangesSeedJob;
 mod influencers;
 mod most_followed;
 mod trust_recompute;
@@ -18,7 +20,8 @@ use super::{JobRegistry, LOCK_TTL_SECS};
 
 impl JobRegistry {
     /// This daemon's jobs: one cache-refresh job per timeframe, the most-followed ranking
-    /// refresh, plus trust-recompute. `trust_rank` configures only the latter.
+    /// refresh, trust-recompute and resource-changes-seed. `trust_rank` configures only
+    /// trust-recompute.
     pub fn catalog(trust_rank: &TrustRankConfig) -> Self {
         Self::new(vec![
             Arc::new(InfluencersCacheJob::new(Timeframe::Today)),
@@ -31,6 +34,7 @@ impl JobRegistry {
             Arc::new(HotTagsCacheJob::new(Timeframe::AllTime)),
             Arc::new(MostFollowedCacheJob),
             Arc::new(TrustRecomputeJob::build(trust_rank, LOCK_TTL_SECS)),
+            Arc::new(ResourceChangesSeedJob),
         ])
     }
 }
@@ -42,7 +46,7 @@ mod tests {
     use nexus_common::TrustRankConfig;
 
     #[test]
-    fn catalog_names_are_the_ten_jobs() {
+    fn catalog_names_are_the_eleven_jobs() {
         let mut names = JobRegistry::catalog(&TrustRankConfig::default()).job_names();
         names.sort_unstable();
         assert_eq!(
@@ -57,6 +61,7 @@ mod tests {
                 "influencers-cache-this-week",
                 "influencers-cache-today",
                 "most-followed-cache",
+                "resource-changes-seed",
                 "trust-recompute",
             ]
         );

@@ -213,11 +213,26 @@ pub fn get_tag_target(user_id: &str, tag_id: &str) -> Query {
               CASE WHEN target:Post THEN author.id ELSE null END AS author_id,
               CASE WHEN target:Post THEN target.uri ELSE null END AS post_uri,
               CASE WHEN target:Resource THEN target.id ELSE null END AS resource_id,
+              CASE WHEN target:Resource THEN target.uri ELSE null END AS resource_uri,
+              tag.indexed_at AS tag_indexed_at,
               tag.label AS label
-         RETURN user_id, post_id, author_id, post_uri, resource_id, label",
+         RETURN user_id, post_id, author_id, post_uri, resource_id, resource_uri, tag_indexed_at, label",
     )
     .param("user_id", user_id)
     .param("tag_id", tag_id)
+}
+
+/// Stored time of a resource tag, including a normalization-equivalent replay
+/// whose raw URI produced a different object ID.
+pub fn get_resource_tag_indexed_at(author: &str, resource_id: &str, label: &str) -> Query {
+    Query::new(
+        "get_resource_tag_indexed_at",
+        "MATCH (:User {id: $author})-[t:TAGGED {label: $label}]->(:Resource {id: $resource_id})
+         RETURN t.indexed_at AS tag_indexed_at",
+    )
+    .param("author", author)
+    .param("resource_id", resource_id)
+    .param("label", label)
 }
 
 // t.id collides across taggers (hashes only {target_uri, label}), so the keyset is the row value
