@@ -289,3 +289,65 @@ async fn test_stream_resource_ids_empty_filter() -> Result<()> {
 
     Ok(())
 }
+
+#[tokio_shared_rt::test(shared)]
+async fn test_batch_resources_preserves_order_and_skips_unknown() -> Result<()> {
+    use crate::utils::post_request;
+    use serde_json::json;
+    let ids = [VIDEO, "00000000000000000000000000000000", ARTICLE, VIDEO];
+    let views = post_request(
+        &format!("{ROOT_PATH}/by_ids"),
+        json!({
+            "resource_ids": ids,
+            "viewer_id": "emq37ky6fbnaun7q1ris6rx3mqmw3a33so1txfesg9jj3ak9ryoy"
+        }),
+    )
+    .await?;
+    let ids: Vec<_> = views
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v["details"]["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(ids, [VIDEO, ARTICLE, VIDEO]);
+    assert!(views[1]["tags"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|tag| tag["label"] == "bitcoin" && tag["relationship"] == true));
+
+    let by_uri = post_request(&format!("{ROOT_PATH}/by_ids"), json!({
+        "uris": ["HTTPS://Example.COM:443/video#fragment", "https://example.com/unknown-batch", "https://example.com/article"]
+    })).await?;
+    let ids: Vec<_> = by_uri
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v["details"]["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(ids, [VIDEO, ARTICLE]);
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_batch_resources_bad_requests_and_no_matches() -> Result<()> {
+    use crate::utils::{invalid_post_request, post_request};
+    use serde_json::json;
+    let path = format!("{ROOT_PATH}/by_ids");
+    for body in [
+        json!({"resource_ids": ["00000000000000000000000000000000"]}),
+        json!({"uris": ["https://example.com/unknown-batch"]}),
+    ] {
+        assert_eq!(post_request(&path, body).await?, json!([]));
+    }
+    for body in [
+        json!({"resource_ids": []}),
+        json!({"uris": ["bad"]}),
+        json!({"resource_ids": [ARTICLE], "uris": ["https://example.com/article"]}),
+        json!({"resource_ids": [ARTICLE], "viewer_id": "bad"}),
+        json!({"resource_ids": vec![ARTICLE; 101]}),
+    ] {
+        invalid_post_request(&path, body, StatusCode::BAD_REQUEST).await?;
+    }
+    Ok(())
+}
