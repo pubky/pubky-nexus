@@ -58,7 +58,10 @@ databases behind. If you must use the shared databases, rerun a failure on
   `signup`, `session`, `post`, `follow`, `tag`, `write_profile`,
   `delete_profile`, `public_tree` (read through a device), `write_tree` (the
   copy), `delete_tree` (the wipe), `switch_record`,
-  `publish_without_homeserver`.
+  `publish_without_homeserver`. Two fixtures bundle the fixed parts of a
+  migration: `resident` (sign up with posts, ingested and read once) and
+  `signup_and_copy` (sign up elsewhere and copy the tree). Spell the steps
+  out whenever your scenario puts something between them.
 - Nexus, one step at a time: `ingest` (how nexus first meets an unknown user),
   `recheck` (the route), `resolve` (one sweep, stale mapping disabled, only
   this user looked up, with a fresh lookup), `resolve_cached(user, client)`
@@ -110,8 +113,9 @@ homeserver; an interactor is notified of a change the user did not make.
 ## What the testnet cannot show
 
 - Replays of old records: the testnet DHT nodes all hold the newest packet
-  and reject an older one, so a replay cannot be served. Reason from the
-  mainnet probe in the plan note instead.
+  and reject an older one, so a replay cannot be served. On mainnet a node
+  or relay can still answer with a packet older than the one nexus applied,
+  so reason about those cases instead of running them.
 - A homeserver reachable only through an ICANN domain: testnet homeservers
   publish a direct endpoint too.
 - Rebuilt homeservers whose event ids restart.

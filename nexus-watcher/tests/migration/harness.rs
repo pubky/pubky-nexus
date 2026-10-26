@@ -2,7 +2,6 @@
 //! external homeservers, nexus's indexers driven one step at a time, and user
 //! actions performed through per-device SDK clients.
 
-use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -11,13 +10,13 @@ use anyhow::{anyhow, ensure, Context, Result};
 use nexus_common::config::EventRetryConfig;
 use nexus_common::db::graph::Query;
 use nexus_common::db::{
-    fetch_key_from_graph, fetch_row_from_graph, queries, PubkyClientError, PubkyClientResult,
-    PubkyConnector,
+    fetch_key_from_graph, fetch_row_from_graph, PubkyClientError, PubkyClientResult, PubkyConnector,
 };
 use nexus_common::models::homeserver::{Homeserver, HsBlacklist};
 use nexus_common::models::notification::Notification;
 use nexus_common::models::user::{
-    HomeserverRecheck, PkdnsHomeserverResolver, StaleMapping, UserHsCursor, UserIngestor,
+    get_user_homeserver, HomeserverMapping, HomeserverRecheck, PkdnsHomeserverResolver,
+    StaleMapping, UserHsCursor, UserIngestor,
 };
 use nexus_common::types::Pagination;
 use nexus_common::utils::test_utils::default_ingestor_tests;
@@ -49,13 +48,6 @@ use pubky_testnet::Testnet;
 use tempfile::TempDir;
 use tokio::sync::{watch, Notify};
 use tokio::task::JoinHandle;
-
-/// A user's `HOSTED_BY` binding as nexus stores it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Binding {
-    pub homeserver: Option<String>,
-    pub stale: bool,
-}
 
 /// A user's public tree: owner-relative paths and their bytes.
 pub type Tree = Vec<(String, Vec<u8>)>;
@@ -203,10 +195,7 @@ impl MigrationTest {
     /// looked up, with a fresh network lookup. Every other user in the shared
     /// graph gets a failed lookup, which the resolver leaves alone.
     pub async fn resolve(&self, user: &Keypair) -> Result<()> {
-        self.sweep(&FreshLookup {
-            users: HashSet::from([user.public_key().to_z32()]),
-        })
-        .await
+        self.sweep(user, Lookup::Fresh).await
     }
 
     /// One sweep with stale mapping disabled in which only `user` is looked
@@ -215,17 +204,17 @@ impl MigrationTest {
     /// process when the recheck runs in the API process: each process has its
     /// own pkarr cache, and the watcher's holds what its last sweep saw.
     pub async fn resolve_cached(&self, user: &Keypair, client: &Pubky) -> Result<()> {
-        self.sweep(&CachedLookup {
-            users: HashSet::from([user.public_key().to_z32()]),
-            client: client.clone(),
-        })
-        .await
+        self.sweep(user, Lookup::Cached(client.clone())).await
     }
 
-    async fn sweep(&self, resolver: &dyn PkdnsHomeserverResolver) -> Result<()> {
+    async fn sweep(&self, user: &Keypair, how: Lookup) -> Result<()> {
+        let resolver = TestLookup {
+            user: user.public_key().to_z32(),
+            how,
+        };
         let mut shutdown_rx = self.shutdown_rx.clone();
         user_hs_resolver::run(
-            resolver,
+            &resolver,
             0,
             &UnboundBackoff::default(),
             &mut shutdown_rx,
@@ -290,6 +279,44 @@ impl MigrationTest {
     }
 
     // ----- users, through their own devices -----
+
+    /// A user living on `hs` as nexus first meets them: signed up through a
+    /// new device with `posts` written, ingested, and read once. Returns the
+    /// device, the session and the post ids.
+    pub async fn resident(
+        &self,
+        user: &Keypair,
+        hs: &PubkyId,
+        name: &str,
+        posts: &[&str],
+    ) -> Result<(Pubky, PubkySession, Vec<String>)> {
+        let device = self.device()?;
+        let session = self.signup(&device, user, hs, name).await?;
+        let mut ids = Vec::with_capacity(posts.len());
+        for text in posts {
+            ids.push(self.post(&session, text, None).await?);
+        }
+        self.ingest(user).await?;
+        self.index_external(hs).await?;
+        Ok((device, session, ids))
+    }
+
+    /// The client's move: sign `user` up on `hs` through a new device, which
+    /// publishes the record naming `hs`, and copy the public tree over as
+    /// `from` reads it. Returns the new device and session.
+    pub async fn signup_and_copy(
+        &self,
+        user: &Keypair,
+        hs: &PubkyId,
+        name: &str,
+        from: &Pubky,
+    ) -> Result<(Pubky, PubkySession)> {
+        let device = self.device()?;
+        let session = self.signup(&device, user, hs, name).await?;
+        self.write_tree(&session, &self.public_tree(from, user).await?)
+            .await?;
+        Ok((device, session))
+    }
 
     /// A fresh SDK client with its own pkarr cache: one user device.
     pub fn device(&self) -> Result<Pubky> {
@@ -472,25 +499,13 @@ impl MigrationTest {
 
     // ----- what nexus holds -----
 
-    pub async fn binding(&self, user: &Keypair) -> Result<Binding> {
-        let row = fetch_row_from_graph(queries::get::get_user_homeserver(
-            &user.public_key().to_z32(),
-        ))
-        .await?;
-        Ok(match row {
-            None => Binding {
-                homeserver: None,
-                stale: false,
-            },
-            Some(row) => Binding {
-                homeserver: row.get("homeserver_id")?,
-                stale: row.get("stale")?,
-            },
-        })
+    /// The user's `HOSTED_BY` binding as nexus stores it, if any.
+    pub async fn binding(&self, user: &Keypair) -> Result<Option<HomeserverMapping>> {
+        Ok(get_user_homeserver(&user.public_key().to_z32()).await?)
     }
 
     pub async fn bound_to(&self, user: &Keypair) -> Result<Option<String>> {
-        Ok(self.binding(user).await?.homeserver)
+        Ok(self.binding(user).await?.map(|mapping| mapping.hs_id))
     }
 
     /// [`Self::bound_to`] by name, for readable assertions: `primary`, `hs_a`,
@@ -592,64 +607,46 @@ impl MigrationTest {
 
     /// The notification kinds of `user`, oldest first.
     pub async fn notifications(&self, user: &Keypair) -> Result<Vec<String>> {
-        let pagination = Pagination {
-            limit: Some(1000),
-            ..Pagination::default()
+        let times = self.notification_times(user).await?;
+        Ok(times.into_iter().map(|(kind, _)| kind).collect())
+    }
+}
+
+/// A resolver for the sweep that looks up one user, this test's, and fails
+/// the lookup of everyone else so the shared graph is left untouched.
+struct TestLookup {
+    user: String,
+    how: Lookup,
+}
+
+/// How the sweep looks the user up.
+enum Lookup {
+    /// A fresh network lookup through nexus's own client, which also refreshes
+    /// its pkarr cache.
+    Fresh,
+    /// `get_homeserver_of` through a client of its own, as the production
+    /// resolver does: pkarr's `resolve` answers from that client's cache, even
+    /// with an expired packet, and refreshes it in the background.
+    Cached(Pubky),
+}
+
+#[async_trait::async_trait]
+impl PkdnsHomeserverResolver for TestLookup {
+    async fn resolve_homeserver(&self, user_pk: &PublicKey) -> PubkyClientResult<Option<PubkyId>> {
+        if user_pk.to_z32() != self.user {
+            return Err(PubkyClientError::RequestFailed {
+                message: "not the user under test".to_string(),
+            });
+        }
+        let homeserver = match &self.how {
+            Lookup::Fresh => {
+                let pubky = PubkyConnector::get()?;
+                pubky.client().pkarr().resolve_most_recent(user_pk).await;
+                pubky.get_homeserver_of(user_pk).await
+            }
+            Lookup::Cached(client) => client.get_homeserver_of(user_pk).await,
         };
-        let mut kinds: Vec<String> =
-            Notification::get_by_id(&user.public_key().to_z32(), pagination)
-                .await?
-                .into_iter()
-                .map(|n| notification_kind(&n))
-                .collect();
-        kinds.reverse();
-        Ok(kinds)
-    }
-}
-
-/// A resolver for the sweep that looks up only this test's users, each with a
-/// fresh network lookup that also refreshes nexus's pkarr cache, and fails the
-/// lookup of everyone else so the shared graph is left untouched.
-struct FreshLookup {
-    users: HashSet<String>,
-}
-
-#[async_trait::async_trait]
-impl PkdnsHomeserverResolver for FreshLookup {
-    async fn resolve_homeserver(&self, user_pk: &PublicKey) -> PubkyClientResult<Option<PubkyId>> {
-        if !self.users.contains(&user_pk.to_z32()) {
-            return Err(PubkyClientError::RequestFailed {
-                message: "not a user of this test".to_string(),
-            });
-        }
-        let pubky = PubkyConnector::get()?;
-        pubky.client().pkarr().resolve_most_recent(user_pk).await;
-        Ok(pubky.get_homeserver_of(user_pk).await.map(PubkyId::from))
-    }
-}
-
-/// A resolver for the sweep that looks up this test's users as the production
-/// resolver does, with `get_homeserver_of`, but through a client of its own:
-/// pkarr's `resolve` answers from that client's cache, even with an expired
-/// packet, and refreshes it in the background.
-struct CachedLookup {
-    users: HashSet<String>,
-    client: Pubky,
-}
-
-#[async_trait::async_trait]
-impl PkdnsHomeserverResolver for CachedLookup {
-    async fn resolve_homeserver(&self, user_pk: &PublicKey) -> PubkyClientResult<Option<PubkyId>> {
-        if !self.users.contains(&user_pk.to_z32()) {
-            return Err(PubkyClientError::RequestFailed {
-                message: "not a user of this test".to_string(),
-            });
-        }
-        Ok(self
-            .client
-            .get_homeserver_of(user_pk)
-            .await
-            .map(PubkyId::from))
+        Ok(homeserver.map(PubkyId::from))
     }
 }
 

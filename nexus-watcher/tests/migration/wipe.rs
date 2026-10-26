@@ -13,12 +13,9 @@ async fn mirror_then_switch_then_wipe_the_old_homeserver() -> Result<()> {
     let t = MigrationTest::setup().await?;
     let mover = Keypair::random();
 
-    let device_a = t.device()?;
-    let session_a = t.signup(&device_a, &mover, &t.hs_a, "mover").await?;
-    t.post(&session_a, "first", None).await?;
-    t.post(&session_a, "second", None).await?;
-    t.ingest(&mover).await?;
-    t.index_external(&t.hs_a).await?;
+    let (device_a, session_a, _) = t
+        .resident(&mover, &t.hs_a, "mover", &["first", "second"])
+        .await?;
     t.recheck(&mover).await?;
     assert_eq!(t.bound_to(&mover).await?.as_deref(), Some(t.hs_a.as_ref()));
 

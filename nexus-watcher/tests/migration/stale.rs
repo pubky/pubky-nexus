@@ -115,9 +115,8 @@ async fn a_retry_queued_on_the_old_homeserver_restores_a_reply_deleted_on_the_ne
     t.index_primary().await?;
 
     // Move to B. The copy brings the reply, whose parent is indexed by now.
-    let device_b = t.device()?;
-    let session_b = t.signup(&device_b, &mover, &t.hs_b, "mover").await?;
-    t.write_tree(&session_b, &t.public_tree(&device_a, &mover).await?)
+    let (_, session_b) = t
+        .signup_and_copy(&mover, &t.hs_b, "mover", &device_a)
         .await?;
     assert_eq!(t.recheck(&mover).await?.outcome, RecheckOutcome::Switched);
     t.index_external(&t.hs_b).await?;
@@ -158,8 +157,8 @@ async fn a_retry_queued_on_the_old_homeserver_restores_a_reply_deleted_on_the_ne
 /// visit after.
 ///
 /// The sweep should not move a binding on a record older than the one the
-/// binding was set from (the record clock of the plan), or should look again
-/// with `resolve_most_recent` before moving it.
+/// binding was set from (a record timestamp stored with the binding), or
+/// look again with `resolve_most_recent` before moving it.
 #[tokio_shared_rt::test(shared)]
 #[ignore = "the watcher's cache-first sweep applies the record its cache held before the API's \
             recheck; needs record timestamps on the binding or a fresh lookup before a move"]
@@ -168,12 +167,9 @@ async fn the_watchers_sweep_moves_the_user_back_after_a_recheck_through_the_api(
     let mover = Keypair::random();
     let watcher = t.device()?;
 
-    let device_a = t.device()?;
-    let session_a = t.signup(&device_a, &mover, &t.hs_a, "mover").await?;
-    t.post(&session_a, "first", None).await?;
-    t.post(&session_a, "second", None).await?;
-    t.ingest(&mover).await?;
-    t.index_external(&t.hs_a).await?;
+    let (device_a, session_a, _) = t
+        .resident(&mover, &t.hs_a, "mover", &["first", "second"])
+        .await?;
     // A sweep visit before the move leaves the record naming A in the
     // watcher's cache.
     t.resolve_cached(&mover, &watcher).await?;

@@ -15,19 +15,15 @@ async fn external_to_primary_catches_up_then_the_bulk_stream_takes_over() -> Res
     let t = MigrationTest::setup().await?;
     let mover = Keypair::random();
 
-    let device_a = t.device()?;
-    let session_a = t.signup(&device_a, &mover, &t.hs_a, "mover").await?;
-    t.post(&session_a, "first", None).await?;
-    t.post(&session_a, "second", None).await?;
-    t.ingest(&mover).await?;
-    t.index_external(&t.hs_a).await?;
+    let (device_a, _, _) = t
+        .resident(&mover, &t.hs_a, "mover", &["first", "second"])
+        .await?;
     assert_eq!(t.live_posts(&mover).await?, 2);
 
     // Sign up on the primary and copy. The bulk stream runs before nexus
     // notices the switch and passes over the copy as another homeserver's.
-    let device_p = t.device()?;
-    let session_p = t.signup(&device_p, &mover, &t.primary, "mover").await?;
-    t.write_tree(&session_p, &t.public_tree(&device_a, &mover).await?)
+    let (_, session_p) = t
+        .signup_and_copy(&mover, &t.primary, "mover", &device_a)
         .await?;
     t.index_primary().await?;
     assert_eq!(t.bound_to(&mover).await?.as_deref(), Some(t.hs_a.as_ref()));
@@ -79,9 +75,8 @@ async fn primary_to_external_and_back() -> Result<()> {
     assert_eq!(t.live_posts(&mover).await?, 2);
 
     // Leave for A.
-    let device_a = t.device()?;
-    let session_a = t.signup(&device_a, &mover, &t.hs_a, "mover").await?;
-    t.write_tree(&session_a, &t.public_tree(&device_p, &mover).await?)
+    let (device_a, session_a) = t
+        .signup_and_copy(&mover, &t.hs_a, "mover", &device_p)
         .await?;
     let bulk_cursor = t.bulk_cursor().await?;
     assert!(bulk_cursor > 0);

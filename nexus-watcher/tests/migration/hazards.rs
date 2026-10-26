@@ -19,15 +19,9 @@ async fn writes_to_the_homeserver_the_record_left_wait_for_a_return() -> Result<
     let t = MigrationTest::setup().await?;
     let mover = Keypair::random();
 
-    let device_a = t.device()?;
-    let session_a = t.signup(&device_a, &mover, &t.hs_a, "mover").await?;
-    t.post(&session_a, "first", None).await?;
-    t.ingest(&mover).await?;
-    t.index_external(&t.hs_a).await?;
+    let (device_a, session_a, _) = t.resident(&mover, &t.hs_a, "mover", &["first"]).await?;
 
-    let device_b = t.device()?;
-    let session_b = t.signup(&device_b, &mover, &t.hs_b, "mover").await?;
-    t.write_tree(&session_b, &t.public_tree(&device_a, &mover).await?)
+    t.signup_and_copy(&mover, &t.hs_b, "mover", &device_a)
         .await?;
     t.recheck(&mover).await?;
     t.index_external(&t.hs_b).await?;
@@ -57,11 +51,7 @@ async fn record_naming_a_homeserver_without_an_account() -> Result<()> {
     let t = MigrationTest::setup().await?;
     let mover = Keypair::random();
 
-    let device_a = t.device()?;
-    let session_a = t.signup(&device_a, &mover, &t.hs_a, "mover").await?;
-    t.post(&session_a, "first", None).await?;
-    t.ingest(&mover).await?;
-    t.index_external(&t.hs_a).await?;
+    let (device_a, _, _) = t.resident(&mover, &t.hs_a, "mover", &["first"]).await?;
 
     t.switch_record(&device_a, &mover, &t.hs_b.to_public_key())
         .await?;
@@ -73,9 +63,8 @@ async fn record_naming_a_homeserver_without_an_account() -> Result<()> {
 
     // The account appears later. The 404 backoff skips the user for a few
     // reads, then the copy is indexed.
-    let device_b = t.device()?;
-    let session_b = t.signup(&device_b, &mover, &t.hs_b, "mover").await?;
-    t.write_tree(&session_b, &t.public_tree(&device_a, &mover).await?)
+    let (_, session_b) = t
+        .signup_and_copy(&mover, &t.hs_b, "mover", &device_a)
         .await?;
     t.post(&session_b, "second, on B", None).await?;
     let mut reads = 0;
@@ -107,9 +96,8 @@ async fn copy_then_delete_on_the_new_homeserver_before_the_first_read() -> Resul
     t.index_external(&t.hs_a).await?;
     assert_eq!(t.live_posts(&mover).await?, 2);
 
-    let device_b = t.device()?;
-    let session_b = t.signup(&device_b, &mover, &t.hs_b, "mover").await?;
-    t.write_tree(&session_b, &t.public_tree(&device_a, &mover).await?)
+    let (_, session_b) = t
+        .signup_and_copy(&mover, &t.hs_b, "mover", &device_a)
         .await?;
     session_b
         .storage()
@@ -129,11 +117,7 @@ async fn recheck_by_a_stranger_changes_nothing() -> Result<()> {
     let t = MigrationTest::setup().await?;
     let mover = Keypair::random();
 
-    let device_a = t.device()?;
-    let session_a = t.signup(&device_a, &mover, &t.hs_a, "mover").await?;
-    t.post(&session_a, "first", None).await?;
-    t.ingest(&mover).await?;
-    t.index_external(&t.hs_a).await?;
+    t.resident(&mover, &t.hs_a, "mover", &["first"]).await?;
     let before = t.binding(&mover).await?;
     let cursor_a = t.cursor(&mover, &t.hs_a).await?;
 
@@ -160,15 +144,10 @@ async fn switch_to_the_primary_without_a_catch_up_loses_what_the_bulk_stream_ski
     let t = MigrationTest::setup().await?;
     let mover = Keypair::random();
 
-    let device_a = t.device()?;
-    let session_a = t.signup(&device_a, &mover, &t.hs_a, "mover").await?;
-    t.post(&session_a, "first", None).await?;
-    t.ingest(&mover).await?;
-    t.index_external(&t.hs_a).await?;
+    let (device_a, _, _) = t.resident(&mover, &t.hs_a, "mover", &["first"]).await?;
 
-    let device_p = t.device()?;
-    let session_p = t.signup(&device_p, &mover, &t.primary, "mover").await?;
-    t.write_tree(&session_p, &t.public_tree(&device_a, &mover).await?)
+    let (_, session_p) = t
+        .signup_and_copy(&mover, &t.primary, "mover", &device_a)
         .await?;
     t.post(&session_p, "second, only on the primary", None)
         .await?;
@@ -189,11 +168,7 @@ async fn recheck_refuses_a_blacklisted_homeserver() -> Result<()> {
     let t = MigrationTest::setup().await?;
     let mover = Keypair::random();
 
-    let device_a = t.device()?;
-    let session_a = t.signup(&device_a, &mover, &t.hs_a, "mover").await?;
-    t.post(&session_a, "first", None).await?;
-    t.ingest(&mover).await?;
-    t.index_external(&t.hs_a).await?;
+    t.resident(&mover, &t.hs_a, "mover", &["first"]).await?;
     let before = t.binding(&mover).await?;
 
     let device_b = t.device()?;
@@ -240,10 +215,7 @@ async fn a_resource_gone_before_the_fetch_is_skipped_not_retried() -> Result<()>
     let t = MigrationTest::setup().await?;
     let mover = Keypair::random();
 
-    let device_a = t.device()?;
-    let session_a = t.signup(&device_a, &mover, &t.hs_a, "mover").await?;
-    t.ingest(&mover).await?;
-    t.index_external(&t.hs_a).await?;
+    let (_, session_a, _) = t.resident(&mover, &t.hs_a, "mover", &[]).await?;
 
     let short_lived = t.post(&session_a, "here and gone", None).await?;
     session_a
@@ -283,9 +255,7 @@ async fn an_edit_on_the_old_homeserver_after_the_copy_is_reverted_by_the_switch(
     let scout_notifications = t.notifications(&scout).await?;
 
     // Copy to B, then edit on A.
-    let device_b = t.device()?;
-    let session_b = t.signup(&device_b, &mover, &t.hs_b, "mover").await?;
-    t.write_tree(&session_b, &t.public_tree(&device_a, &mover).await?)
+    t.signup_and_copy(&mover, &t.hs_b, "mover", &device_a)
         .await?;
     let edited = pubky_app_specs::PubkyAppPost::new(
         "second draft".to_string(),

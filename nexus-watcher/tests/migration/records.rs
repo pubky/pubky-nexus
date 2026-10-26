@@ -14,11 +14,7 @@ async fn opting_out_to_a_dead_key_and_returning() -> Result<()> {
     let t = MigrationTest::setup().await?;
     let mover = Keypair::random();
 
-    let device_a = t.device()?;
-    let session_a = t.signup(&device_a, &mover, &t.hs_a, "mover").await?;
-    t.post(&session_a, "first", None).await?;
-    t.ingest(&mover).await?;
-    t.index_external(&t.hs_a).await?;
+    let (device_a, session_a, _) = t.resident(&mover, &t.hs_a, "mover", &["first"]).await?;
     t.recheck(&mover).await?;
     let cursor_a = t.cursor(&mover, &t.hs_a).await?;
     assert_eq!(t.live_posts(&mover).await?, 1);
@@ -59,11 +55,7 @@ async fn record_without_homeserver_keeps_the_binding() -> Result<()> {
     let t = MigrationTest::setup().await?;
     let mover = Keypair::random();
 
-    let device_a = t.device()?;
-    let session_a = t.signup(&device_a, &mover, &t.hs_a, "mover").await?;
-    t.post(&session_a, "first", None).await?;
-    t.ingest(&mover).await?;
-    t.index_external(&t.hs_a).await?;
+    let (device_a, session_a, _) = t.resident(&mover, &t.hs_a, "mover", &["first"]).await?;
     t.recheck(&mover).await?;
     assert_eq!(t.bound_to(&mover).await?.as_deref(), Some(t.hs_a.as_ref()));
 

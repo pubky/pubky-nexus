@@ -91,12 +91,9 @@ async fn copy_and_switch_noticed_after_the_copy() -> Result<()> {
     let t = MigrationTest::setup().await?;
     let mover = Keypair::random();
 
-    let device_a = t.device()?;
-    let session_a = t.signup(&device_a, &mover, &t.hs_a, "mover").await?;
-    t.post(&session_a, "first", None).await?;
-    t.post(&session_a, "second", None).await?;
-    t.ingest(&mover).await?;
-    t.index_external(&t.hs_a).await?;
+    let (device_a, _, _) = t
+        .resident(&mover, &t.hs_a, "mover", &["first", "second"])
+        .await?;
     assert_eq!(t.live_posts(&mover).await?, 2);
 
     let device_b = t.device()?;
@@ -125,17 +122,12 @@ async fn switching_back_and_forth_keeps_a_cursor_per_homeserver() -> Result<()> 
     let t = MigrationTest::setup().await?;
     let mover = Keypair::random();
 
-    let device_a = t.device()?;
-    let session_a = t.signup(&device_a, &mover, &t.hs_a, "mover").await?;
-    t.post(&session_a, "first", None).await?;
-    t.ingest(&mover).await?;
-    t.index_external(&t.hs_a).await?;
+    let (device_a, session_a, _) = t.resident(&mover, &t.hs_a, "mover", &["first"]).await?;
     let cursor_a = t.cursor(&mover, &t.hs_a).await?;
     assert!(cursor_a > 0);
 
-    let device_b = t.device()?;
-    let session_b = t.signup(&device_b, &mover, &t.hs_b, "mover").await?;
-    t.write_tree(&session_b, &t.public_tree(&device_a, &mover).await?)
+    let (device_b, _) = t
+        .signup_and_copy(&mover, &t.hs_b, "mover", &device_a)
         .await?;
     t.recheck(&mover).await?;
     assert_eq!(t.bound_to(&mover).await?.as_deref(), Some(t.hs_b.as_ref()));
@@ -176,12 +168,8 @@ async fn fresh_signup_without_a_copy_keeps_the_old_index() -> Result<()> {
     let t = MigrationTest::setup().await?;
     let mover = Keypair::random();
 
-    let device_a = t.device()?;
-    let session_a = t.signup(&device_a, &mover, &t.hs_a, "old name").await?;
-    t.post(&session_a, "first", None).await?;
-    t.post(&session_a, "second", None).await?;
-    t.ingest(&mover).await?;
-    t.index_external(&t.hs_a).await?;
+    t.resident(&mover, &t.hs_a, "old name", &["first", "second"])
+        .await?;
     assert_eq!(t.live_posts(&mover).await?, 2);
 
     let device_b = t.device()?;
