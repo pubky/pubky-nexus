@@ -341,7 +341,10 @@ which the graph records (a member has no `scope_state`): who is new joins, who i
 leaves. This runs at start, within seconds of a follow being indexed or removed (a check
 every 5 seconds), and every `[scope_maintenance] interval_ms` in case one was missed. A
 user first met through a member's follow is an outsider until then. One that can't join
-(no published homeserver, a lookup timing out) is tried again at the next run.
+(no published homeserver, a lookup timing out) is tried again by the first run once the
+interval passed, so frequent runs don't look it up over and over. A seed scope has at
+most 50,000 members, so one member following everyone can't make it index everything:
+past that, the closest are kept, by id within a hop.
 
 **The moderator is always in scope.** `moderation_id` is read whatever the scope, since
 its tags take content down. Its follows add no members to a seed scope.

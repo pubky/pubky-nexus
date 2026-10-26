@@ -920,17 +920,23 @@ pub fn get_user_scope_state(user_id: &str) -> Query {
     .param("user_id", user_id.to_string())
 }
 
-/// Retrieves who the users in `user_ids` follow: one hop of a seed scope's members.
-/// A user whose profile is deleted counts: its node and follows remain, and a later
-/// profile can bring it back, so it is still read.
-pub fn get_followees_of(user_ids: &[String]) -> Query {
+/// Retrieves who the users in `user_ids` follow, but none in `known`: one hop of a seed
+/// scope's members. At most `limit`, by id, so the same follows always give the same
+/// users. A user whose profile is deleted counts: its node and follows remain, and a
+/// later profile can bring it back, so it is still read.
+pub fn get_followees_of(user_ids: &[String], known: &[String], limit: usize) -> Query {
     Query::new(
         "get_followees_of",
         "MATCH (u:User)-[:FOLLOWS]->(v:User)
-         WHERE u.id IN $user_ids
-         RETURN collect(DISTINCT v.id) AS user_ids",
+         WHERE u.id IN $user_ids AND NOT v.id IN $known
+         WITH DISTINCT v.id AS user_id
+         ORDER BY user_id
+         LIMIT $limit
+         RETURN collect(user_id) AS user_ids",
     )
     .param("user_ids", user_ids.to_vec())
+    .param("known", known.to_vec())
+    .param("limit", limit as i64)
 }
 
 /// Retrieves the users in scope: those without a `scope_state`, narrowed to `limit_to`
