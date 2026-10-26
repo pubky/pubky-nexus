@@ -48,8 +48,6 @@ pub async fn sync_put(
 }
 
 // TODO: Move it into its own process, server, etc
-/// `user_id`'s own blob comes from `homeserver`, the one that delivered the
-/// file event; a source on another user's homeserver is fetched by URI.
 #[tracing::instrument(name = "file.ingest", skip_all, fields(user_id = %user_id, file_id = %file_id))]
 async fn ingest(
     user_id: &PubkyId,
@@ -60,12 +58,29 @@ async fn ingest(
     client: &dyn HomeserverClient,
     homeserver: Option<&PubkyId>,
 ) -> Result<(), EventProcessorError> {
-    let file_src = &pubkyapp_file.src;
+    let blob = download_blob(&pubkyapp_file.src, user_id, homeserver, ingestor, client).await?;
+
+    let dir = files_path.join(Path::new(&user_id.to_string()).join(file_id));
+    write_main_variant(&dir, blob)
+        .await
+        .map_err(EventProcessorError::static_save_failed)
+}
+
+/// Downloads the blob a file points at. `user_id`'s own blob comes from
+/// `homeserver`, the one that delivered the file event; a source on another
+/// user's homeserver is fetched by URI. A source on a blacklisted homeserver
+/// is refused before anything is fetched.
+async fn download_blob(
+    file_src: &str,
+    user_id: &PubkyId,
+    homeserver: Option<&PubkyId>,
+    ingestor: &UserIngestor,
+    client: &dyn HomeserverClient,
+) -> Result<PubkyAppBlob, EventProcessorError> {
     let parsed_source_uri = ParsedUri::try_from(file_src.to_string()).map_err(|e| {
         EventProcessorError::generic(format!("Invalid file source URI {file_src}: {e}"))
     })?;
 
-    // Refuse to download content hosted on a blacklisted HS
     ingestor
         .ensure_hs_not_blacklisted(&parsed_source_uri.user_id)
         .await
@@ -73,25 +88,16 @@ async fn ingest(
 
     let source: PubkyResource = file_src.parse()?;
     let own_blob = parsed_source_uri.user_id == *user_id;
-    let blob = client
+    let bytes = client
         .get_blob(&source, homeserver.filter(|_| own_blob))
         .await?;
 
-    let path = Path::new(&user_id.to_string()).join(file_id);
-    let full_path = files_path.join(&path);
-    let pubky_app_object = PubkyAppObject::from_resource(&parsed_source_uri.resource, &blob)
-        .map_err(EventProcessorError::generic)?;
-
-    match pubky_app_object {
-        PubkyAppObject::Blob(blob) => {
-            write_main_variant(&full_path, blob)
-                .await
-                .map_err(EventProcessorError::static_save_failed)?;
-            Ok(())
-        }
+    match PubkyAppObject::from_resource(&parsed_source_uri.resource, &bytes)
+        .map_err(EventProcessorError::generic)?
+    {
+        PubkyAppObject::Blob(blob) => Ok(blob),
         _ => Err(EventProcessorError::InvalidEventLine(format!(
-            "The file has a source uri that is not a blob path: {}",
-            pubkyapp_file.src
+            "The file has a source uri that is not a blob path: {file_src}"
         ))),
     }
 }
