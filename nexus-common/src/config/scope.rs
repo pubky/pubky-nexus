@@ -2,6 +2,11 @@ use pubky_app_specs::PubkyId;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
+/// Most follow hops a seed scope may reach. Each hop multiplies the members, so beyond
+/// three a seed scope is close to indexing everything.
+pub const MAX_SEED_HOPS: u8 = 3;
+const DEFAULT_SEED_HOPS: u8 = 2;
+
 /// Which users this Nexus indexes, set in `[stack.scope]` so the watcher and the
 /// web API read the same value.
 ///
@@ -18,6 +23,13 @@ pub enum ScopeConfig {
         #[schema(value_type = Vec<String>)]
         homeservers: Vec<PubkyId>,
     },
+    /// The seed user and everyone it reaches by following, up to `hops` follows away.
+    /// Each member is read from its own stream; no feed is read whole.
+    Seed {
+        #[schema(value_type = String)]
+        seed: PubkyId,
+        hops: u8,
+    },
 }
 
 /// What the config file may hold, before the rules for each kind are checked.
@@ -26,16 +38,30 @@ pub enum ScopeConfig {
 struct RawScopeConfig {
     kind: String,
     homeservers: Option<Vec<PubkyId>>,
+    seed: Option<PubkyId>,
+    hops: Option<u8>,
+}
+
+fn only_with(field: &str, kind: &str) -> String {
+    format!("scope.{field} is only valid with kind = \"{kind}\"")
 }
 
 impl TryFrom<RawScopeConfig> for ScopeConfig {
     type Error = String;
 
     fn try_from(raw: RawScopeConfig) -> Result<Self, Self::Error> {
-        match raw.kind.as_str() {
-            "everything" if raw.homeservers.is_some() => {
-                Err("scope.homeservers is only valid with kind = \"homeservers\"".into())
+        if raw.kind != "homeservers" && raw.homeservers.is_some() {
+            return Err(only_with("homeservers", "homeservers"));
+        }
+        if raw.kind != "seed" {
+            if raw.seed.is_some() {
+                return Err(only_with("seed", "seed"));
             }
+            if raw.hops.is_some() {
+                return Err(only_with("hops", "seed"));
+            }
+        }
+        match raw.kind.as_str() {
             "everything" => Ok(Self::Everything),
             "homeservers" => match raw.homeservers {
                 Some(homeservers) if !homeservers.is_empty() => {
@@ -43,8 +69,18 @@ impl TryFrom<RawScopeConfig> for ScopeConfig {
                 }
                 _ => Err("scope.homeservers must list at least one homeserver key".into()),
             },
+            "seed" => {
+                let seed = raw.seed.ok_or("scope.seed is required with kind = \"seed\"")?;
+                let hops = raw.hops.unwrap_or(DEFAULT_SEED_HOPS);
+                if !(1..=MAX_SEED_HOPS).contains(&hops) {
+                    return Err(format!(
+                        "scope.hops must be between 1 and {MAX_SEED_HOPS}, got {hops}"
+                    ));
+                }
+                Ok(Self::Seed { seed, hops })
+            }
             other => Err(format!(
-                "unknown scope.kind \"{other}\": expected \"everything\" or \"homeservers\""
+                "unknown scope.kind \"{other}\": expected \"everything\", \"homeservers\" or \"seed\""
             )),
         }
     }
@@ -116,6 +152,23 @@ mod tests {
     }
 
     #[test]
+    fn reads_a_seed_scope() {
+        let seed = PubkyId::try_from(HS).unwrap();
+        assert_eq!(
+            parse(&format!("kind = \"seed\"\nseed = \"{HS}\"")),
+            Ok(ScopeConfig::Seed {
+                seed: seed.clone(),
+                hops: 2
+            }),
+            "two hops by default"
+        );
+        assert_eq!(
+            parse(&format!("kind = \"seed\"\nseed = \"{HS}\"\nhops = 3")),
+            Ok(ScopeConfig::Seed { seed, hops: 3 })
+        );
+    }
+
+    #[test]
     fn rejects_invalid_settings() {
         let cases = [
             (
@@ -135,6 +188,30 @@ mod tests {
                 "scope.homeservers is only valid with kind = \"homeservers\"",
             ),
             ("kind = \"some\"".to_string(), "unknown scope.kind"),
+            (
+                "kind = \"seed\"".to_string(),
+                "scope.seed is required with kind = \"seed\"",
+            ),
+            (
+                format!("kind = \"seed\"\nseed = \"{HS}\"\nhops = 0"),
+                "scope.hops must be between 1 and 3, got 0",
+            ),
+            (
+                format!("kind = \"seed\"\nseed = \"{HS}\"\nhops = 4"),
+                "scope.hops must be between 1 and 3, got 4",
+            ),
+            (
+                format!("kind = \"seed\"\nseed = \"{HS}\"\nhomeservers = [\"{HS}\"]"),
+                "scope.homeservers is only valid with kind = \"homeservers\"",
+            ),
+            (
+                format!("kind = \"everything\"\nseed = \"{HS}\""),
+                "scope.seed is only valid with kind = \"seed\"",
+            ),
+            (
+                format!("kind = \"homeservers\"\nhomeservers = [\"{HS}\"]\nhops = 2"),
+                "scope.hops is only valid with kind = \"seed\"",
+            ),
             (
                 "kind = \"everything\"\nhopz = 2".to_string(),
                 "unknown field",
@@ -171,6 +248,14 @@ mod tests {
         assert_eq!(
             serde_json::to_value(homeservers).unwrap(),
             serde_json::json!({ "kind": "homeservers", "homeservers": [HS] })
+        );
+        let seed = ScopeConfig::Seed {
+            seed: PubkyId::try_from(HS).unwrap(),
+            hops: 2,
+        };
+        assert_eq!(
+            serde_json::to_value(seed).unwrap(),
+            serde_json::json!({ "kind": "seed", "seed": HS, "hops": 2 })
         );
     }
 }

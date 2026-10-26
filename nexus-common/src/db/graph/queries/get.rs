@@ -920,6 +920,30 @@ pub fn get_user_scope_state(user_id: &str) -> Query {
     .param("user_id", user_id.to_string())
 }
 
+/// Retrieves who the users in `user_ids` follow: one hop of a seed scope's members.
+/// Deleted users are left out, as they have no content to read.
+pub fn get_followees_of(user_ids: &[String]) -> Query {
+    Query::new(
+        "get_followees_of",
+        "MATCH (u:User)-[:FOLLOWS]->(v:User)
+         WHERE u.id IN $user_ids AND NOT coalesce(v.deleted, false)
+         RETURN collect(DISTINCT v.id) AS user_ids",
+    )
+    .param("user_ids", user_ids.to_vec())
+}
+
+/// Retrieves the users in scope: those without a `scope_state`, narrowed to `limit_to`
+/// if given.
+pub fn get_in_scope_user_ids(limit_to: Option<&[String]>) -> Query {
+    Query::new(
+        "get_in_scope_user_ids",
+        "MATCH (u:User)
+         WHERE u.scope_state IS NULL AND ($limit_to IS NULL OR u.id IN $limit_to)
+         RETURN collect(u.id) AS user_ids",
+    )
+    .param("limit_to", limit_to.map(<[String]>::to_vec))
+}
+
 /// Retrieves the ids of the users with the given `scope_state`.
 pub fn get_user_ids_by_scope_state(scope_state: &str) -> Query {
     Query::new(

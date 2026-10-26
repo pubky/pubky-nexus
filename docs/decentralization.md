@@ -293,6 +293,7 @@ avoid hammering an HS for content that may not exist yet.
 |---|---|---|---|
 | `everything` (default) | Every user Nexus can discover | The primary HS (`homeserver`) | Users on every other HS |
 | `homeservers` | Users bound to a listed HS | Each listed HS | None |
+| `seed` | `seed` and everyone it reaches in up to `hops` follows (1–3, default 2) | None | Every member, also on the primary HS |
 
 ```toml
 [stack.scope]
@@ -300,8 +301,16 @@ kind = "homeservers"
 homeservers = ["<homeserver pubky>"]
 ```
 
-The settings are validated on load: `homeservers` must list at least one HS, and a field
-that doesn't belong to the `kind` is an error.
+```toml
+[stack.scope]
+kind = "seed"
+seed = "<user pubky>"
+hops = 2
+```
+
+The settings are validated on load: `homeservers` must list at least one HS, `seed` is
+required with `kind = "seed"` and `hops` must be between 1 and 3, and a field that
+doesn't belong to the `kind` is an error.
 
 **Changing the scope moves known users in or out at the next start**, before any event
 is read (`ScopeMaintainer`):
@@ -325,8 +334,17 @@ new events wait seconds; a longer catch-up goes on over the next polls. An outsi
 event shows up in a listed feed may have moved there: its homeserver is checked again, at
 most once per 15 minutes, and it joins if it is now listed.
 
+**A seed scope's members are worked out from the graph.** Starting from the seed, each hop
+adds who the users of the previous hop follow, as indexed in the graph, so the same
+follows always give the same members. The members are compared with who is in scope,
+which the graph records (a member has no `scope_state`): who is new joins, who is gone
+leaves. This runs at start, within seconds of a follow being indexed or removed (a check
+every 5 seconds), and every `[scope_maintenance] interval_ms` in case one was missed. A
+user first met through a member's follow is an outsider until then. One that can't join
+(no published homeserver, a lookup timing out) is tried again at the next run.
+
 **The moderator is always in scope.** `moderation_id` is read whatever the scope, since
-its tags take content down.
+its tags take content down. Its follows add no members to a seed scope.
 
 **Users outside the scope are kept as outsiders**: a `User` node with `scope_state = "outside"` and
 counts, but no `HOSTED_BY` and no cursor, so the resolver and the indexers never touch

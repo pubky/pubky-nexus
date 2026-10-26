@@ -69,11 +69,13 @@ impl NexusWatcher {
 
     /// Starts the Nexus Watcher with parallel periodic task loops.
     ///
-    /// Currently runs four tasks, each on its own tick interval:
+    /// Currently runs up to five tasks, each on its own tick interval:
     /// 1. **Primary homeserver** ([`WatcherConfig::primary_hs_monitoring_interval_ms`]).
     /// 2. **External homeservers** ([`WatcherConfig::external_hs_monitoring_interval_ms`]).
     /// 3. **User HS resolver** ([`WatcherConfig::hs_resolver_interval_ms`]).
     /// 4. **Retry processor** ([`WatcherConfig::retry_processor_interval_ms`]).
+    /// 5. **Scope maintenance** ([`ScopeMaintainer::tick_every_ms`]), unless the scope is
+    ///    `everything`.
     ///
     /// All tasks listen for the shutdown signal to exit gracefully. If any task panics,
     /// an internal cancellation signal is sent so that sibling tasks can finish their
@@ -158,7 +160,7 @@ impl NexusWatcher {
         if scope_maintainer.is_periodic() {
             tasks.push(PeriodicTask::new(
                 "scope-maintenance",
-                config.scope_maintenance.interval_ms,
+                scope_maintainer.tick_every_ms(),
                 move || {
                     let maintainer = scope_maintainer.clone();
                     async move { maintainer.tick().await.map(|_| ()).map_err(DynError::from) }
