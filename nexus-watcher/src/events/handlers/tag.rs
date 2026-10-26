@@ -19,7 +19,7 @@ use nexus_common::universal_tag::normalize::{
 use pubky_app_specs::{ExtendedParsedUri, ParsedUri, PubkyAppTag, PubkyId, Resource};
 use tracing::{debug, Instrument};
 
-use super::scope::index_out_of_scope_post;
+use super::scope::{finish_out_of_scope_post, index_out_of_scope_post};
 use super::utils::{fail_on_blacklisted_hs, post_kind, post_relationships_is_reply};
 
 #[derive(Debug)]
@@ -43,6 +43,7 @@ pub async fn sync_put(
 
     // Parse the embeded URI to extract author_id and post_id using parse_tagged_post_uri
     let parsed_uri = ParsedUri::try_from(tag.uri.as_str()).map_err(EventProcessorError::generic)?;
+    finish_out_of_scope_post(&parsed_uri, ingestor, client).await?;
     let user_id = parsed_uri.user_id;
     let indexed_at = Utc::now().timestamp_millis();
 

@@ -49,28 +49,34 @@ pub async fn create_outsider(details: &UserDetails) -> ModelResult<()> {
     Ok(())
 }
 
-/// Lets an outsider into the scope: clears its `scope_state`, ranks it in the
-/// users-by-tag search its tags were kept out of, and puts its posts into the global
-/// feeds; the rankings, rebuilt from the graph, take it in from their next rebuild.
-/// Returns whether it was an outsider.
+/// Lets an outsider into the scope: clears its `scope_state`, puts its posts into the
+/// global feeds and ranks it in the users-by-tag search its tags were kept out of; the
+/// rankings, rebuilt from the graph, take it in from their next rebuild. Returns whether
+/// it was an outsider.
 ///
 /// Its posts indexed while it was an outsider (fetched for in-scope records) were kept out
 /// of the feeds, and reading its stream again doesn't put them back: a post already
-/// indexed takes the edit path. If either step fails, it is an outsider again, so a retry
-/// lets it in from the start; both are idempotent.
+/// indexed takes the edit path. They are read before anything is written, so a failed
+/// read leaves nothing published. If a write fails, it is an outsider again and its posts
+/// are taken back out of the feeds, which serve them without checking the scope; a retry
+/// lets it in from the start, and every step is idempotent.
 pub async fn admit_outsider(user_id: &str) -> ModelResult<bool> {
     if !is_outsider(user_id).await? {
         return Ok(false);
     }
-    // Cleared first: the tag search and the feed writes skip an outsider.
+    let posts = trust_filter::author_entries(user_id).await?;
+    // Cleared first: the tag search skips an outsider.
     exec_single_row(queries::put::set_user_scope_state(user_id, None)).await?;
-    let admitted = match UsersByTagSearch::sync_user_labels(user_id).await {
-        Ok(()) => trust_filter::show_author(user_id).await,
-        Err(e) => Err(e.into()),
+    let admitted = match trust_filter::show_entries(&posts).await {
+        Ok(()) => UsersByTagSearch::sync_user_labels(user_id)
+            .await
+            .map_err(Into::into),
+        Err(e) => Err(e),
     };
     if let Err(e) = admitted {
         let query = queries::put::set_user_scope_state(user_id, Some(SCOPE_STATE_OUTSIDE));
         exec_single_row(query).await?;
+        trust_filter::withdraw_entries(&posts).await?;
         return Err(e);
     }
     Ok(true)

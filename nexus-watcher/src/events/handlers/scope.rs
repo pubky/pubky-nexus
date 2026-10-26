@@ -15,6 +15,7 @@ use nexus_common::models::post::{PostDetails, PostRelationships};
 use nexus_common::models::takedown::is_taken_down;
 use nexus_common::models::user::outsider::is_unread;
 use nexus_common::models::user::UserIngestor;
+use nexus_common::ScopeConfig;
 use pubky::PubkyResource;
 use pubky_app_specs::{ParsedUri, PubkyAppObject, PubkyAppPost, PubkyId, Resource};
 use tracing::{debug, warn};
@@ -109,8 +110,34 @@ pub(super) async fn index_out_of_scope_post(
         .await
 }
 
+/// Finishes the out-of-scope post at `post_uri` if an earlier attempt saved it only in
+/// part: in the graph, without its Redis details, which a save writes last. A record
+/// pointing at it would land on the graph node alone, and nothing reads that author's
+/// stream to finish it, so the record's handler calls this before saving the record.
+/// A post indexed whole costs one Redis read.
+pub(super) async fn finish_out_of_scope_post(
+    post_uri: &ParsedUri,
+    ingestor: &UserIngestor,
+    client: &dyn HomeserverClient,
+) -> Result<(), EventProcessorError> {
+    let Resource::Post(post_id) = &post_uri.resource else {
+        return Ok(());
+    };
+    if matches!(ingestor.scope().config(), ScopeConfig::Everything)
+        || PostDetails::get_from_index(&post_uri.user_id, post_id)
+            .await?
+            .is_some()
+    {
+        return Ok(());
+    }
+    index_out_of_scope_post(post_uri, ingestor, client).await?;
+    Ok(())
+}
+
 /// Fetches `start` and every out-of-scope post it depends on that isn't indexed yet,
-/// in the order they were fetched: a post always comes before its targets.
+/// in the order they were fetched: a post always comes before its targets. A post in the
+/// graph without its Redis details was saved only in part, so it is fetched again: saving
+/// it again finishes it (the post handler's recovery of a partial save).
 async fn collect_chain(
     start: &ParsedUri,
     ingestor: &UserIngestor,
@@ -133,7 +160,9 @@ async fn collect_chain(
         if !seen.insert(uri.clone())
             || remove_if_taken_down(&uri, author_id, post_id, ingestor).await?
             || !is_unread(author_id).await?
-            || PostDetails::get_by_id(author_id, post_id).await?.is_some()
+            || PostDetails::get_from_index(author_id, post_id)
+                .await?
+                .is_some()
         {
             continue;
         }
@@ -222,6 +251,11 @@ async fn remove_if_taken_down(
 /// Each post is checked for a takedown again once saved, as events are: one recorded
 /// since the chain was fetched removes it again. A removal that fails fails the record,
 /// and its retry finishes the removal (see [`remove_if_taken_down`] in [`collect_chain`]).
+///
+/// A storage error fails the record too, as it would the post's own event: the post may be
+/// in the graph already, and the record's retry finishes it (see
+/// [`finish_out_of_scope_post`]). A post that can't be saved for another reason (a target
+/// not saved yet, one on a blacklisted homeserver) is left out, and the record waits.
 async fn save_chain(
     chain: Vec<Fetched>,
     ingestor: &UserIngestor,
@@ -255,6 +289,10 @@ async fn save_chain(
                     debug!(uri = %fetched.uri, "Indexed out-of-scope post an in-scope record points at");
                     saved.insert(fetched.uri);
                 }
+                Err(
+                    e @ (EventProcessorError::GraphQueryFailed(..)
+                    | EventProcessorError::IndexOperationFailed(..)),
+                ) => return Err(e),
                 Err(e) => {
                     debug!(uri = %fetched.uri, error = %e, "Out-of-scope post not indexed yet");
                     left.push(fetched);

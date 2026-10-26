@@ -2,12 +2,16 @@ use super::utils::{assert_user_ingested, create_external_test_homeserver, user_o
 use crate::event_processor::utils::watcher::{rank_user, unrank_user, WatcherTest};
 use crate::utils::default_moderation_tests;
 use anyhow::Result;
+use deadpool_redis::redis::AsyncCommands;
 use nexus_common::db::graph::Query;
 use nexus_common::db::kv::RedisOps;
-use nexus_common::db::{fetch_key_from_graph, fetch_row_from_graph, queries, PubkyConnector};
+use nexus_common::db::{
+    fetch_key_from_graph, fetch_row_from_graph, get_redis_conn, queries, PubkyConnector,
+};
 use nexus_common::models::homeserver::Homeserver;
-use nexus_common::models::post::{PostDetails, POST_TIMELINE_KEY_PARTS};
+use nexus_common::models::post::{PostDetails, PostRelationships, POST_TIMELINE_KEY_PARTS};
 use nexus_common::models::scope::{HomeserverListScope, Scope};
+use nexus_common::models::tag::user::USER_TAGS_KEY_PARTS;
 use nexus_common::models::takedown::record_takedown;
 use nexus_common::models::user::catch_up;
 use nexus_common::models::user::outsider::{admit_outsider, create_outsider};
@@ -794,6 +798,104 @@ async fn test_a_promoted_outsiders_posts_join_the_global_feeds() -> Result<()> {
 
     assert!(promoted?);
     assert!(after?.is_some(), "in the global timeline once in scope");
+    Ok(())
+}
+
+/// An outsider's post, fetched and indexed for a member's reply to it, with the scoped
+/// ingestor that fetched it.
+async fn fetched_for_a_reply(
+    test: &mut WatcherTest,
+    name: &str,
+) -> Result<(PubkyId, String, UserIngestor)> {
+    let hs_pk = create_external_test_homeserver(test).await?;
+    let (outsider_kp, outsider_id) = user_on(test, &hs_pk).await?;
+    let (post_id, _) = test
+        .create_post(&outsider_kp, &post(&format!("{name}:Parent"), None))
+        .await?;
+    let replier_id = member(test, &format!("{name}:Replier")).await?;
+    let ingestor = scoped_ingestor(test);
+    ingestor.maybe_ingest_user(&outsider_id).await?;
+    let reply = post(
+        &format!("{name}:Reply"),
+        Some(post_uri_builder(outsider_id.to_string(), post_id.clone())),
+    );
+    let reply_id = reply.create_id();
+    let reply_uri = post_uri_builder(replier_id.to_string(), reply_id.clone());
+    handlers::post::sync_put(
+        reply,
+        reply_uri,
+        replier_id,
+        reply_id,
+        &ingestor,
+        &client()?,
+    )
+    .await?;
+    Ok((outsider_id, post_id, ingestor))
+}
+
+/// A fetched post saved only in part (in the graph, without the Redis details and
+/// relationships a save writes last) is finished before a record lands on it: nothing
+/// reads its author's stream to finish it otherwise.
+#[tokio_shared_rt::test(shared)]
+async fn test_a_fetched_post_saved_in_part_is_finished_before_a_record_lands_on_it() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let (outsider_id, post_id, ingestor) =
+        fetched_for_a_reply(&mut test, "Scope:SavedInPart").await?;
+    PostDetails::remove_from_index_multiple_json(&[&[outsider_id.as_ref(), post_id.as_str()]])
+        .await?;
+    PostRelationships::delete(&outsider_id, &post_id).await?;
+
+    let bookmarker_id = member(&mut test, "Scope:SavedInPart:Marker").await?;
+    let bookmark = PubkyAppBookmark {
+        uri: post_uri_builder(outsider_id.to_string(), post_id.clone()),
+        created_at: chrono::Utc::now().timestamp_millis(),
+    };
+    let bookmark_id = bookmark.create_id();
+    handlers::bookmark::sync_put(bookmarker_id, bookmark, bookmark_id, &ingestor, &client()?)
+        .await?;
+
+    assert!(
+        PostDetails::get_from_index(&outsider_id, &post_id)
+            .await?
+            .is_some(),
+        "details written again"
+    );
+    assert!(
+        PostRelationships::get_from_index(&outsider_id, &post_id)
+            .await?
+            .is_some(),
+        "relationships too: the whole save is finished, not just the details"
+    );
+    Ok(())
+}
+
+/// An admission that fails after the outsider's posts went into the global feeds takes
+/// them back out: it is an outsider again, and the feeds serve their entries without
+/// checking the scope.
+#[tokio_shared_rt::test(shared)]
+async fn test_a_failed_admission_takes_the_posts_back_out() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let (outsider_id, post_id, _) = fetched_for_a_reply(&mut test, "Scope:FailedAdmit").await?;
+    // Ranked, so the trust filter would show its posts.
+    rank_user(&outsider_id).await?;
+    // The tag ranking, the step after the feeds, fails: the user's labels set isn't one.
+    let labels_key = format!("Sorted:{}:{outsider_id}", USER_TAGS_KEY_PARTS.join(":"));
+    let mut redis_conn = get_redis_conn().await?;
+    let _: () = redis_conn.set(&labels_key, "not a sorted set").await?;
+
+    let admitted = admit_outsider(&outsider_id).await;
+    let entry = [outsider_id.as_ref(), post_id.as_str()];
+    let in_timeline =
+        PostDetails::check_sorted_set_member(None, &POST_TIMELINE_KEY_PARTS, &entry).await;
+    let _: () = redis_conn.del(&labels_key).await?;
+    unrank_user(&outsider_id).await?;
+
+    assert!(admitted.is_err());
+    assert_user_is_outsider(&outsider_id).await;
+    assert!(
+        in_timeline?.is_none(),
+        "taken back out of the global timeline"
+    );
     Ok(())
 }
 

@@ -15,7 +15,7 @@ use pubky_app_specs::{
 };
 use tracing::{debug, Instrument};
 
-use super::scope::index_out_of_scope_post;
+use super::scope::{finish_out_of_scope_post, index_out_of_scope_post};
 use super::utils::{fail_on_blacklisted_hs, post_kind, post_relationships_is_reply};
 use crate::homeserver::HomeserverClient;
 
@@ -58,6 +58,14 @@ async fn sync_put_details(
     let is_collection = post.kind == PubkyAppPostKind::Collection;
     // PRE-INDEX operation, identify the post relationship
     let mut post_relationships = PostRelationships::from_homeserver(&post);
+    if let Some(client) = client {
+        for target in [&post_relationships.replied, &post_relationships.reposted]
+            .into_iter()
+            .flatten()
+        {
+            finish_out_of_scope_post(target, ingestor, client).await?;
+        }
+    }
 
     let existed = match post_details.put_to_graph(&post_relationships).await? {
         OperationOutcome::CreatedOrDeleted => false,

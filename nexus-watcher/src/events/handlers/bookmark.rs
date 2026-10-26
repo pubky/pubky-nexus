@@ -6,7 +6,7 @@ use nexus_common::ScopeConfig;
 use pubky_app_specs::{ParsedUri, PubkyAppBookmark, PubkyId, Resource};
 use tracing::debug;
 
-use super::scope::index_out_of_scope_post;
+use super::scope::{finish_out_of_scope_post, index_out_of_scope_post};
 use super::utils::fail_on_blacklisted_hs;
 use crate::events::EventProcessorError;
 use crate::homeserver::HomeserverClient;
@@ -32,6 +32,8 @@ pub async fn sync_put(
             ))
         }
     };
+
+    finish_out_of_scope_post(&parsed_uri, ingestor, client).await?;
 
     // Save new bookmark relationship to the graph, only if the bookmarked user exists
     let indexed_at = Utc::now().timestamp_millis();
