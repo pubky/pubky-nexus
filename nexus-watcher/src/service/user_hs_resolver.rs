@@ -880,7 +880,9 @@ mod tests {
         let outcome = resolve_user(&resolver, &user_pk, StaleMapping::Enabled).await?;
         assert_eq!(
             outcome,
-            Resolution::Applied(MappingUpdate::Bound { to: hs_id.clone() })
+            Resolution::Applied(MappingUpdate::Bound {
+                to: hs_id.to_string()
+            })
         );
 
         assert_eq!(
@@ -1314,7 +1316,7 @@ mod tests {
             outcome,
             Resolution::Applied(MappingUpdate::Switched {
                 from: stored_hs.to_string(),
-                to: new_hs.clone(),
+                to: new_hs.to_string(),
                 was_stale: false,
             })
         );
@@ -1387,7 +1389,7 @@ mod tests {
         let switched = |was_stale| {
             applied(MappingUpdate::Switched {
                 from: random_pubky_id().to_string(),
-                to: random_pubky_id(),
+                to: random_pubky_id().to_string(),
                 was_stale,
             })
         };
@@ -1400,7 +1402,7 @@ mod tests {
             ),
             (
                 applied(MappingUpdate::Bound {
-                    to: random_pubky_id(),
+                    to: random_pubky_id().to_string(),
                 }),
                 Outcome::Resolved,
                 Unbound,

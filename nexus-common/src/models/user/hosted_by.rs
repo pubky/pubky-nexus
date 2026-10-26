@@ -45,7 +45,7 @@ pub enum MappingUpdate {
     /// No mapping and nothing published; graph untouched.
     Unbound,
     /// No mapping before; bound to the published homeserver now.
-    Bound { to: PubkyId },
+    Bound { to: String },
     /// The published homeserver is the stored one; the stale flag is cleared.
     Confirmed { was_stale: bool },
     /// The published homeserver is missing or another one; the mapping is kept
@@ -57,7 +57,7 @@ pub enum MappingUpdate {
     /// The mapping moved to the published homeserver ([`StaleMapping::Disabled`]).
     Switched {
         from: String,
-        to: PubkyId,
+        to: String,
         was_stale: bool,
     },
     /// Nothing published; the mapping is kept and the stale flag cleared
@@ -77,7 +77,9 @@ impl MappingUpdate {
         let Some(stored) = stored else {
             return match resolved {
                 None => Self::Unbound,
-                Some(hs_id) => Self::Bound { to: hs_id.clone() },
+                Some(hs_id) => Self::Bound {
+                    to: hs_id.to_string(),
+                },
             };
         };
         let was_stale = stored.stale;
@@ -92,7 +94,7 @@ impl MappingUpdate {
             },
             (Some(hs_id), StaleMapping::Disabled) => Self::Switched {
                 from: stored.hs_id.clone(),
-                to: hs_id.clone(),
+                to: hs_id.to_string(),
                 was_stale,
             },
             (None, StaleMapping::Disabled) => Self::Kept { was_stale },
@@ -106,7 +108,7 @@ impl MappingUpdate {
             Self::Unbound => Ok(()),
             Self::Bound { to } => {
                 debug!(%user_id, homeserver = %to, "HS mapping created");
-                set_user_homeserver(user_id, to.as_ref()).await
+                set_user_homeserver(user_id, to).await
             }
             Self::Confirmed { .. } => {
                 debug!(%user_id, "HS mapping still active");
@@ -118,7 +120,7 @@ impl MappingUpdate {
             }
             Self::Switched { from, to, .. } => {
                 info!(%user_id, %from, %to, "User published another homeserver; HS mapping switched");
-                set_user_homeserver(user_id, to.as_ref()).await
+                set_user_homeserver(user_id, to).await
             }
             Self::Kept { .. } => {
                 debug!(%user_id, "PKDNS returned no homeserver; HS mapping kept");
@@ -131,7 +133,7 @@ impl MappingUpdate {
     /// `stored`, if any.
     pub fn homeserver_after(&self, stored: Option<&HomeserverMapping>) -> Option<String> {
         match self {
-            Self::Bound { to } | Self::Switched { to, .. } => Some(to.to_string()),
+            Self::Bound { to } | Self::Switched { to, .. } => Some(to.clone()),
             Self::Unbound => None,
             Self::Confirmed { .. } | Self::MarkedStale { .. } | Self::Kept { .. } => {
                 stored.map(|mapping| mapping.hs_id.clone())
@@ -140,7 +142,7 @@ impl MappingUpdate {
     }
 
     /// The homeserver the update binds the user to, when it binds one.
-    pub fn bound_to(&self) -> Option<&PubkyId> {
+    pub fn bound_to(&self) -> Option<&str> {
         match self {
             Self::Bound { to } | Self::Switched { to, .. } => Some(to),
             Self::Unbound
@@ -232,14 +234,14 @@ mod tests {
         };
         let switched = |was_stale| Switched {
             from: a.to_string(),
-            to: b.clone(),
+            to: b.to_string(),
             was_stale,
         };
         let cases = [
             (None, None, Enabled, Unbound),
             (None, None, Disabled, Unbound),
-            (None, Some(&a), Enabled, Bound { to: a.clone() }),
-            (None, Some(&a), Disabled, Bound { to: a.clone() }),
+            (None, Some(&a), Enabled, Bound { to: a.to_string() }),
+            (None, Some(&a), Disabled, Bound { to: a.to_string() }),
             (
                 Some(on_a(false)),
                 Some(&a),
@@ -297,7 +299,7 @@ mod tests {
         });
         let cases = [
             (Unbound, None, None),
-            (Bound { to: b.clone() }, None, Some(b.to_string())),
+            (Bound { to: b.to_string() }, None, Some(b.to_string())),
             (
                 Confirmed { was_stale: false },
                 on_a.clone(),
@@ -314,7 +316,7 @@ mod tests {
             (
                 Switched {
                     from: a.to_string(),
-                    to: b.clone(),
+                    to: b.to_string(),
                     was_stale: false,
                 },
                 on_a.clone(),

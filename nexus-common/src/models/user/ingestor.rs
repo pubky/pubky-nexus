@@ -176,7 +176,7 @@ impl UserIngestor {
             MappingUpdate::decide(stored.as_ref(), resolved.as_ref(), StaleMapping::Disabled);
         update.apply(&user_id_str).await?;
         if let Some(hs_id) = update.bound_to() {
-            UserHsCursor::init(user_id, hs_id.as_ref()).await?;
+            UserHsCursor::init(user_id, hs_id).await?;
         }
 
         Ok(Some(HomeserverRecheck {
