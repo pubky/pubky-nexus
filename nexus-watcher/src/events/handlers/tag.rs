@@ -19,7 +19,7 @@ use nexus_common::universal_tag::normalize::{
 use pubky_app_specs::{ExtendedParsedUri, ParsedUri, PubkyAppTag, PubkyId, Resource};
 use tracing::{debug, Instrument};
 
-use super::scope::{finish_out_of_scope_post, index_out_of_scope_post};
+use super::scope::{finish_out_of_scope_post, index_out_of_scope_post, with_fetch_budget};
 use super::utils::{fail_on_blacklisted_hs, post_kind, post_relationships_is_reply};
 
 #[derive(Debug)]
@@ -29,9 +29,21 @@ struct TagStorageUri {
     app: Option<String>,
 }
 
-/// `event_uri` is the address of the tag file, stored as the edge `uri`; `tag.uri` is its target.
-#[tracing::instrument(name = "tag.put", skip_all, fields(user_id = %tagger_id, tag_id = %tag_id))]
+/// `event_uri` is the address of the tag file, stored as the edge `uri`; `tag.uri` is its
+/// target. An out-of-scope post it points at is fetched within one fetch budget.
 pub async fn sync_put(
+    tag: PubkyAppTag,
+    event_uri: String,
+    tagger_id: PubkyId,
+    tag_id: String,
+    ingestor: &UserIngestor,
+    client: &dyn HomeserverClient,
+) -> Result<(), EventProcessorError> {
+    with_fetch_budget(put(tag, event_uri, tagger_id, tag_id, ingestor, client)).await
+}
+
+#[tracing::instrument(name = "tag.put", skip_all, fields(user_id = %tagger_id, tag_id = %tag_id))]
+async fn put(
     tag: PubkyAppTag,
     event_uri: String,
     tagger_id: PubkyId,

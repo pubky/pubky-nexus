@@ -6,13 +6,24 @@ use nexus_common::ScopeConfig;
 use pubky_app_specs::{ParsedUri, PubkyAppBookmark, PubkyId, Resource};
 use tracing::debug;
 
-use super::scope::{finish_out_of_scope_post, index_out_of_scope_post};
+use super::scope::{finish_out_of_scope_post, index_out_of_scope_post, with_fetch_budget};
 use super::utils::fail_on_blacklisted_hs;
 use crate::events::EventProcessorError;
 use crate::homeserver::HomeserverClient;
 
-#[tracing::instrument(name = "bookmark.put", skip_all, fields(user_id = %user_id, bookmark_id = %id))]
+/// Indexes a bookmark, fetching an out-of-scope post it points at within one fetch budget.
 pub async fn sync_put(
+    user_id: PubkyId,
+    bookmark: PubkyAppBookmark,
+    id: String,
+    ingestor: &UserIngestor,
+    client: &dyn HomeserverClient,
+) -> Result<(), EventProcessorError> {
+    with_fetch_budget(put(user_id, bookmark, id, ingestor, client)).await
+}
+
+#[tracing::instrument(name = "bookmark.put", skip_all, fields(user_id = %user_id, bookmark_id = %id))]
+async fn put(
     user_id: PubkyId,
     bookmark: PubkyAppBookmark,
     id: String,

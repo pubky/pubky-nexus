@@ -32,9 +32,10 @@ use pubky::Keypair;
 use pubky_app_specs::traits::{HasIdPath, HashId, TimestampId};
 use pubky_app_specs::{
     post_uri_builder, tag_uri_builder, user_uri_builder, PubkyAppBookmark, PubkyAppPost,
-    PubkyAppPostKind, PubkyAppTag, PubkyAppUser, PubkyId,
+    PubkyAppPostEmbed, PubkyAppPostKind, PubkyAppTag, PubkyAppUser, PubkyId,
 };
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 
 /// An ingestor whose scope is the test's own homeserver, so users created through
@@ -601,7 +602,8 @@ async fn test_reply_to_an_outsider_post_fetches_only_that_post() -> Result<()> {
 }
 
 /// A reply at the bottom of an outsider's thread longer than one attempt's fetch budget
-/// still lands: each retry continues the chain from where the last one stopped.
+/// still lands: each retry continues the chain from where the last one stopped, and no
+/// attempt fetches more than the budget, whatever walks its handler starts.
 #[tokio_shared_rt::test(shared)]
 async fn test_a_reply_under_a_long_outsider_thread_lands_over_retries() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
@@ -630,12 +632,13 @@ async fn test_a_reply_under_a_long_outsider_thread_lands_over_retries() -> Resul
     let reply = post("Watcher:Scope:DeepReply", parent);
     let reply_id = reply.create_id();
     let reply_uri = post_uri_builder(replier_id.to_string(), reply_id.clone());
-    let client = client()?;
+    let client = CountingFetches(client()?, AtomicU32::new(0));
 
     let mut attempts = 0;
     loop {
         attempts += 1;
-        match handlers::post::sync_put(
+        let fetches_before = client.1.load(Ordering::Relaxed);
+        let result = handlers::post::sync_put(
             reply.clone(),
             reply_uri.clone(),
             replier_id.clone(),
@@ -643,8 +646,10 @@ async fn test_a_reply_under_a_long_outsider_thread_lands_over_retries() -> Resul
             &ingestor,
             &client,
         )
-        .await
-        {
+        .await;
+        let fetched = client.1.load(Ordering::Relaxed) - fetches_before;
+        assert!(fetched <= 20, "attempt {attempts} fetched {fetched} posts");
+        match result {
             Ok(()) => break,
             Err(EventProcessorError::MissingDependency { .. }) if attempts < 5 => {
                 if attempts == 1 {
@@ -673,6 +678,59 @@ async fn test_a_reply_under_a_long_outsider_thread_lands_over_retries() -> Resul
     assert!(PostDetails::get_by_id(&replier_id, &reply_id)
         .await?
         .is_some());
+    Ok(())
+}
+
+/// A thread of `len` posts by `author`, each replying to the last; the uri of its last.
+async fn thread(
+    test: &mut WatcherTest,
+    author_kp: &Keypair,
+    author_id: &PubkyId,
+    name: &str,
+    len: usize,
+) -> Result<String> {
+    let mut parent = None;
+    for depth in 0..len {
+        let (post_id, _) = test
+            .create_post(author_kp, &post(&format!("{name}:{depth}"), parent.take()))
+            .await?;
+        parent = Some(post_uri_builder(author_id.to_string(), post_id));
+    }
+    Ok(parent.expect("a thread has posts"))
+}
+
+/// A post replying under one outsider thread and reposting the end of another fetches no
+/// more than one attempt's budget in all: the walk for its second target gets what the
+/// first left, not a budget of its own.
+#[tokio_shared_rt::test(shared)]
+async fn test_one_attempt_shares_its_fetch_budget_across_targets() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let hs_pk = create_external_test_homeserver(&mut test).await?;
+    let (outsider_kp, outsider_id) = user_on(&test, &hs_pk).await?;
+    let short = thread(&mut test, &outsider_kp, &outsider_id, "Scope:Short", 3).await?;
+    let long = thread(&mut test, &outsider_kp, &outsider_id, "Scope:Long", 25).await?;
+    let member_id = member(&mut test, "Scope:TwoTargets").await?;
+    let ingestor = scoped_ingestor(&test);
+    ingestor.maybe_ingest_user(&outsider_id).await?;
+
+    let both = PubkyAppPost {
+        embed: Some(PubkyAppPostEmbed {
+            kind: PubkyAppPostKind::Short,
+            uri: long,
+        }),
+        ..post("Scope:TwoTargets:Post", Some(short))
+    };
+    let post_id = both.create_id();
+    let uri = post_uri_builder(member_id.to_string(), post_id.clone());
+    let client = CountingFetches(client()?, AtomicU32::new(0));
+    let result = handlers::post::sync_put(both, uri, member_id, post_id, &ingestor, &client).await;
+
+    let fetched = client.1.load(Ordering::Relaxed);
+    assert!(fetched <= 20, "one attempt fetched {fetched} posts");
+    assert!(
+        matches!(result, Err(EventProcessorError::MissingDependency { .. })),
+        "the long thread continues on a retry: {result:?}"
+    );
     Ok(())
 }
 
@@ -897,6 +955,50 @@ async fn test_a_failed_admission_takes_the_posts_back_out() -> Result<()> {
         "taken back out of the global timeline"
     );
     Ok(())
+}
+
+/// The real client, counting the resources fetched through it.
+struct CountingFetches(PubkyHomeserverClient, AtomicU32);
+
+#[async_trait::async_trait]
+impl PkdnsHomeserverResolver for CountingFetches {
+    async fn resolve_homeserver(
+        &self,
+        user_pk: &pubky::PublicKey,
+    ) -> nexus_common::db::PubkyClientResult<Option<PubkyId>> {
+        self.0.resolve_homeserver(user_pk).await
+    }
+}
+
+#[async_trait::async_trait]
+impl HomeserverClient for CountingFetches {
+    async fn poll_events(
+        &self,
+        hs: &PubkyId,
+        cursor: u64,
+        limit: u16,
+    ) -> Result<Vec<String>, HsError> {
+        self.0.poll_events(hs, cursor, limit).await
+    }
+
+    async fn user_events(
+        &self,
+        hs: &PubkyId,
+        user: &pubky::PublicKey,
+        cursor: u64,
+        limit: u16,
+    ) -> Result<Vec<HsStreamEvent>, HsError> {
+        self.0.user_events(hs, user, cursor, limit).await
+    }
+
+    async fn get_resource(&self, resource: &pubky::PubkyResource) -> Result<Vec<u8>, HsError> {
+        self.1.fetch_add(1, Ordering::Relaxed);
+        self.0.get_resource(resource).await
+    }
+
+    async fn get_blob(&self, resource: &pubky::PubkyResource) -> Result<Vec<u8>, HsError> {
+        self.0.get_blob(resource).await
+    }
 }
 
 /// The real client, but the moderator takes each post down while it is being fetched:

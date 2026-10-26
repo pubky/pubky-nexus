@@ -15,12 +15,12 @@ use pubky_app_specs::{
 };
 use tracing::{debug, Instrument};
 
-use super::scope::{finish_out_of_scope_post, index_out_of_scope_post};
+use super::scope::{finish_out_of_scope_post, index_out_of_scope_post, with_fetch_budget};
 use super::utils::{fail_on_blacklisted_hs, post_kind, post_relationships_is_reply};
 use crate::homeserver::HomeserverClient;
 
 /// Indexes a post. A reply or repost whose target is a post outside the scope has that
-/// target fetched through `client` (see [`super::scope`]).
+/// target fetched through `client` (see [`super::scope`]), within one fetch budget.
 pub async fn sync_put(
     post: PubkyAppPost,
     uri: String,
@@ -30,14 +30,14 @@ pub async fn sync_put(
     client: &dyn HomeserverClient,
 ) -> Result<(), EventProcessorError> {
     let post_details = PostDetails::from_homeserver(post.clone(), uri, &author_id, &post_id);
-    sync_put_details(
+    with_fetch_budget(sync_put_details(
         post,
         post_details,
         author_id,
         post_id,
         ingestor,
         Some(client),
-    )
+    ))
     .await
 }
 

@@ -9,7 +9,7 @@
 
 use crate::db::kv::{RedisError, RedisResult};
 use crate::db::{exec_single_row, fetch_key_from_graph, queries};
-use crate::models::error::ModelResult;
+use crate::models::error::{ModelError, ModelResult};
 use crate::models::post::trust_filter;
 use crate::models::user::{UserDetails, UsersByTagSearch, SCOPE_STATE_LEFT};
 
@@ -56,26 +56,29 @@ pub async fn create_outsider(details: &UserDetails) -> ModelResult<()> {
 ///
 /// Its posts indexed while it was an outsider (fetched for in-scope records) were kept out
 /// of the feeds, and reading its stream again doesn't put them back: a post already
-/// indexed takes the edit path. They are read before anything is written, so a failed
-/// read leaves nothing published. If a write fails, it is an outsider again and its posts
-/// are taken back out of the feeds, which serve them without checking the scope; a retry
-/// lets it in from the start, and every step is idempotent.
+/// indexed takes the edit path. They are read once the state is cleared: a post saved
+/// before is among them, and one saved after goes into the feeds on its own, as a post
+/// handler writes the feeds after the graph. If a step fails, it is an outsider again and
+/// its posts, read again, are taken back out of the feeds, which serve them without
+/// checking the scope; a retry lets it in from the start, and every step is idempotent.
 pub async fn admit_outsider(user_id: &str) -> ModelResult<bool> {
     if !is_outsider(user_id).await? {
         return Ok(false);
     }
-    let posts = trust_filter::author_entries(user_id).await?;
-    // Cleared first: the tag search skips an outsider.
+    // Cleared first: the tag search and the feed writes skip an outsider.
     exec_single_row(queries::put::set_user_scope_state(user_id, None)).await?;
-    let admitted = match trust_filter::show_entries(&posts).await {
-        Ok(()) => UsersByTagSearch::sync_user_labels(user_id)
-            .await
-            .map_err(Into::into),
-        Err(e) => Err(e),
-    };
+    let admitted = async {
+        let posts = trust_filter::author_entries(user_id).await?;
+        trust_filter::show_entries(&posts).await?;
+        UsersByTagSearch::sync_user_labels(user_id).await?;
+        Ok::<_, ModelError>(())
+    }
+    .await;
     if let Err(e) = admitted {
         let query = queries::put::set_user_scope_state(user_id, Some(SCOPE_STATE_OUTSIDE));
         exec_single_row(query).await?;
+        // Read again once it is out: posts saved while it was in went into the feeds too.
+        let posts = trust_filter::author_entries(user_id).await?;
         trust_filter::withdraw_entries(&posts).await?;
         return Err(e);
     }

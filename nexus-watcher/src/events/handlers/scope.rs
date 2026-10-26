@@ -6,7 +6,9 @@
 //! fetched from its author's homeserver and indexed, with the out-of-scope posts it
 //! depends on; nothing else of those authors' is read.
 
+use std::cell::Cell;
 use std::collections::HashSet;
+use std::future::Future;
 
 use deadpool_redis::redis::AsyncCommands;
 use nexus_common::db::get_redis_conn;
@@ -24,8 +26,9 @@ use super::post;
 use crate::events::EventProcessorError;
 use crate::homeserver::HomeserverClient;
 
-/// Posts fetched for one record in one attempt. A chain longer than this continues
-/// on the record's next retry, from where this attempt stopped.
+/// Posts fetched for one record in one attempt, across every walk its handler starts. A
+/// chain longer than this continues on the record's next retry, from where this attempt
+/// stopped.
 const MAX_FETCHES: u32 = 20;
 /// Where a chain too long for one attempt continues: target uri -> first post not fetched.
 const RESUME_PREFIX: &str = "Scope:FetchResume";
@@ -38,6 +41,19 @@ tokio::task_local! {
     /// Set while a chain is being saved, so the post handler's own call for a missing
     /// target doesn't start a second walk inside the first.
     static WALKING: ();
+    /// Fetches left for the record being saved (see [`with_fetch_budget`]).
+    static BUDGET: Cell<u32>;
+}
+
+/// Runs a record handler with one budget of [`MAX_FETCHES`] for every walk it starts: one
+/// to finish a target saved in part, one per missing target, and those of its retry
+/// within the same attempt. A handler called inside another shares the outer budget.
+pub(crate) async fn with_fetch_budget<F: Future>(handler: F) -> F::Output {
+    if BUDGET.try_with(|_| ()).is_ok() {
+        handler.await
+    } else {
+        BUDGET.scope(Cell::new(MAX_FETCHES), handler).await
+    }
 }
 
 /// A fetched out-of-scope post waiting to be saved.
@@ -73,7 +89,7 @@ pub(super) async fn index_out_of_scope_post(
 
     WALKING
         .scope((), async {
-            let mut budget = MAX_FETCHES;
+            let mut budget = BUDGET.try_with(Cell::get).unwrap_or(MAX_FETCHES);
             let mut stopped_at = None;
             let mut redis_conn = get_redis_conn().await?;
 
@@ -94,6 +110,8 @@ pub(super) async fn index_out_of_scope_post(
 
             let chain =
                 collect_chain(post_uri, ingestor, client, &mut budget, &mut stopped_at).await?;
+            // Outside a handler's budget (a direct call), this walk had its own.
+            let _ = BUDGET.try_with(|left| left.set(budget));
             let indexed = save_chain(chain, ingestor, client).await?.contains(&target);
 
             let result: Result<(), _> = match (&stopped_at, &resume) {
@@ -130,7 +148,16 @@ pub(super) async fn finish_out_of_scope_post(
     {
         return Ok(());
     }
-    index_out_of_scope_post(post_uri, ingestor, client).await?;
+    // Left unfinished (the budget ran out first, or the fetch failed), its graph node
+    // would still take the record: the record waits instead, and its retry goes on.
+    if !index_out_of_scope_post(post_uri, ingestor, client).await?
+        && is_unread(&post_uri.user_id).await?
+    {
+        let target = post_uri
+            .try_to_uri_str()
+            .map_err(EventProcessorError::generic)?;
+        return Err(EventProcessorError::missing_dependencies(vec![target]));
+    }
     Ok(())
 }
 
