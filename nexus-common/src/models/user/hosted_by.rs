@@ -127,6 +127,18 @@ impl MappingUpdate {
         }
     }
 
+    /// The homeserver the user is bound to once the update is applied to
+    /// `stored`, if any.
+    pub fn homeserver_after(&self, stored: Option<&HomeserverMapping>) -> Option<String> {
+        match self {
+            Self::Bound { to } | Self::Switched { to, .. } => Some(to.to_string()),
+            Self::Unbound => None,
+            Self::Confirmed { .. } | Self::MarkedStale { .. } | Self::Kept { .. } => {
+                stored.map(|mapping| mapping.hs_id.clone())
+            }
+        }
+    }
+
     /// The homeserver the update binds the user to, when it binds one.
     pub fn bound_to(&self) -> Option<&PubkyId> {
         match self {
@@ -268,6 +280,53 @@ mod tests {
                 MappingUpdate::decide(stored.as_ref(), resolved, policy),
                 expected,
                 "stored {stored:?}, resolved {resolved:?}, {policy:?}"
+            );
+        }
+    }
+
+    /// After an update the user is bound to the homeserver it bound, or to
+    /// the stored one when it kept it, or to none.
+    #[test]
+    fn homeserver_after_follows_the_update() {
+        use MappingUpdate::*;
+
+        let (a, b) = (random_pubky_id(), random_pubky_id());
+        let on_a = Some(HomeserverMapping {
+            hs_id: a.to_string(),
+            stale: false,
+        });
+        let cases = [
+            (Unbound, None, None),
+            (Bound { to: b.clone() }, None, Some(b.to_string())),
+            (
+                Confirmed { was_stale: false },
+                on_a.clone(),
+                Some(a.to_string()),
+            ),
+            (
+                MarkedStale {
+                    reason: StaleReason::Unresolved,
+                    was_stale: true,
+                },
+                on_a.clone(),
+                Some(a.to_string()),
+            ),
+            (
+                Switched {
+                    from: a.to_string(),
+                    to: b.clone(),
+                    was_stale: false,
+                },
+                on_a.clone(),
+                Some(b.to_string()),
+            ),
+            (Kept { was_stale: true }, on_a.clone(), Some(a.to_string())),
+        ];
+        for (update, stored, expected) in cases {
+            assert_eq!(
+                update.homeserver_after(stored.as_ref()),
+                expected,
+                "{update:?}"
             );
         }
     }
