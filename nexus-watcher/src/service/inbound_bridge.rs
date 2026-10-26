@@ -24,6 +24,7 @@ use opentelemetry::{global, KeyValue};
 use pubky::{PubkyResource, PublicKey};
 use pubky_app_specs::traits::HashId;
 use pubky_app_specs::{tag_uri_builder, ParsedUri, PubkyAppObject, PubkyAppTag, PubkyId, Resource};
+use tokio::sync::watch::Receiver;
 use tracing::{debug, info, warn};
 
 use super::big_nexus::{get_json, NexusAnswer};
@@ -223,6 +224,15 @@ impl Outcome {
     }
 }
 
+/// What the bridge indexes records with, as the event handler does.
+pub struct BridgeIndexing {
+    pub ingestor: Arc<UserIngestor>,
+    pub moderation: Arc<Moderation>,
+    /// Fetches records from their authors' homeservers.
+    pub client: Arc<dyn HomeserverClient>,
+    pub files_path: PathBuf,
+}
+
 /// The bridge of one seed scope.
 pub struct InboundBridge {
     seed: PubkyId,
@@ -235,6 +245,8 @@ pub struct InboundBridge {
     lookback: Option<Duration>,
     /// Sources failing recently are skipped for a while, as failing homeservers are.
     backoff: HomeserverBackoff,
+    /// A poll stops between records once the watcher shuts down.
+    shutdown_rx: Receiver<bool>,
 }
 
 impl InboundBridge {
@@ -243,6 +255,7 @@ impl InboundBridge {
     pub fn from_config(
         config: &WatcherConfig,
         client: Arc<dyn HomeserverClient>,
+        shutdown_rx: Receiver<bool>,
     ) -> Result<Option<Self>, DynError> {
         let bridge = &config.inbound_bridge;
         if !bridge.is_on() {
@@ -262,26 +275,34 @@ impl InboundBridge {
                 }) as Box<dyn NotificationSource>
             })
             .collect();
+        let indexing = BridgeIndexing {
+            ingestor: Arc::new(crate::scope::watcher_ingestor(config, client.clone())),
+            moderation: Moderation::from_config(config),
+            client,
+            files_path: config.stack.files_path.clone(),
+        };
         Ok(Some(Self::new(
             seed.clone(),
             sources,
-            Arc::new(crate::scope::watcher_ingestor(config, client.clone())),
-            Moderation::from_config(config),
-            client,
-            config.stack.files_path.clone(),
+            indexing,
             bridge.lookback_days,
+            shutdown_rx,
         )))
     }
 
     pub fn new(
         seed: PubkyId,
         sources: Vec<Box<dyn NotificationSource>>,
-        ingestor: Arc<UserIngestor>,
-        moderation: Arc<Moderation>,
-        client: Arc<dyn HomeserverClient>,
-        files_path: PathBuf,
+        indexing: BridgeIndexing,
         lookback_days: u32,
+        shutdown_rx: Receiver<bool>,
     ) -> Self {
+        let BridgeIndexing {
+            ingestor,
+            moderation,
+            client,
+            files_path,
+        } = indexing;
         Self {
             seed,
             sources,
@@ -292,7 +313,12 @@ impl InboundBridge {
             lookback: (lookback_days > 0)
                 .then(|| Duration::from_secs(u64::from(lookback_days) * 86_400)),
             backoff: HomeserverBackoff::default(),
+            shutdown_rx,
         }
+    }
+
+    fn is_shutting_down(&self) -> bool {
+        *self.shutdown_rx.borrow()
     }
 
     /// Tries again the records waiting from earlier polls, then polls every source not
@@ -302,6 +328,9 @@ impl InboundBridge {
         self.retry_pending().await?;
         let mut failed = 0;
         for source in &self.sources {
+            if self.is_shutting_down() {
+                break;
+            }
             if self.backoff.should_skip(source.name()) {
                 debug!(source = source.name(), "Skipping a big Nexus in backoff");
                 continue;
@@ -362,6 +391,14 @@ impl InboundBridge {
         let mut handled = 0;
         let mut newest = None;
         for notification in &notifications {
+            if self.is_shutting_down() {
+                // Stopped as on a failure: past the handled records only if nothing older
+                // is still unread; the next poll goes on from there.
+                if let (Some(newest), false, None) = (newest, cut_short, catch_up) {
+                    write_position(&position_key, newest).await?;
+                }
+                return Ok(handled);
+            }
             let uri = record_of(&notification.body, &self.seed);
             // Boxed: the handlers make the future too large for the stack.
             let outcome = match Box::pin(self.bridge_record(&uri)).await {
@@ -410,22 +447,29 @@ impl InboundBridge {
     /// Fetches one record from its author's homeserver and indexes it if it concerns the
     /// seed, or removes it if the homeserver no longer has it. Errors only for a passing
     /// failure (a homeserver or this Nexus's stores unreachable), so it is tried again.
+    ///
+    /// Only the kinds of record a notification can be about (posts, tags, follows) are
+    /// bridged, either way: a source naming anything else (a profile, a file) can't have it
+    /// removed here. Nothing is written for a record that turns out not to concern the
+    /// seed, not even its author's node.
     pub async fn bridge_record(&self, uri: &str) -> Result<Outcome, EventProcessorError> {
         let Ok(ParseResult::Parsed(put)) = Event::parse_event(&format!("PUT {uri}")) else {
             return Ok(Outcome::Skipped);
         };
+        if !matches!(
+            put.parsed_uri.resource(),
+            Resource::Post(_) | Resource::Tag(_) | Resource::Follow(_)
+        ) {
+            return Ok(Outcome::Skipped);
+        }
         let author = put.parsed_uri.user_id().clone();
         // Members' records are read from their own streams.
         if self.ingestor.scope().is_in_scope(&author, None).await? {
             return Ok(Outcome::Skipped);
         }
-        match self.ingestor.maybe_ingest_user(&author).await {
-            Ok(()) => {}
-            Err(ModelError::HsBlacklisted { .. }) => return Ok(Outcome::Skipped),
-            Err(e) => return Err(e.into()),
-        }
-        // Also for an author already known, which `maybe_ingest_user` doesn't look up: its
-        // homeserver may have been blacklisted since.
+        // Looked up for every author, also one already known: its homeserver may have been
+        // blacklisted since. Only a lookup: the author is ingested once its record is known
+        // to concern the seed.
         match self.ingestor.ensure_hs_not_blacklisted(&author).await {
             Ok(_) => {}
             Err(ModelError::HsBlacklisted { .. }) => return Ok(Outcome::Skipped),
@@ -454,6 +498,11 @@ impl InboundBridge {
         if !self.concerns_seed(&object, &resource_kind, &author).await? {
             debug!(%uri, "Bridged record doesn't concern the seed; not indexed");
             return Ok(Outcome::Unrelated);
+        }
+        match self.ingestor.maybe_ingest_user(&author).await {
+            Ok(()) => {}
+            Err(ModelError::HsBlacklisted { .. }) => return Ok(Outcome::Skipped),
+            Err(e) => return Err(e.into()),
         }
 
         // Handed to the handlers as a normal event, served the record just fetched.
@@ -557,6 +606,9 @@ impl InboundBridge {
             redis_conn.hgetall(self.pending_key()).await?
         };
         for (uri, attempts) in pending {
+            if self.is_shutting_down() {
+                break;
+            }
             // Boxed: the handlers make the future too large for the stack.
             match Box::pin(self.bridge_record(&uri)).await {
                 Ok(Outcome::Waiting) => self.keep_waiting(&uri, attempts + 1).await?,

@@ -379,8 +379,11 @@ seen. With `nexus_urls` set, the watcher polls each Nexus's
 record each notification is about, and fetches it from its author's homeserver: indexed
 if it concerns the seed (a follow of the seed, a tag on its profile or posts, a post
 replying to, reposting or mentioning it, or an edit of a post this Nexus already holds),
-removed if the homeserver no longer has it. A Nexus only says where to look: it can leave
-records out, but can't invent or change them, nor have unrelated records indexed.
+removed if the homeserver no longer has it. Only posts, tags and follows are bridged,
+either way, and nothing is written for a record that doesn't concern the seed. A Nexus
+only says where to look: it can leave records out, but can't invent or change them, nor
+have unrelated records indexed or anything else removed. A poll stops between records
+when the watcher shuts down.
 Members' records are left to their own streams.
 
 Each Nexus keeps its own position (`Scope:Bridge:<seed>:<url>`), moved only past

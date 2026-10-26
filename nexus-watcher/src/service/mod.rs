@@ -107,7 +107,8 @@ impl NexusWatcher {
         let scope_maintainer = Arc::new(ScopeMaintainer::from_config(&config, client.clone()));
         // Before the scope is prepared: a bridge configured without a seed scope stops the
         // start.
-        let inbound_bridge = InboundBridge::from_config(&config, client.clone())?.map(Arc::new);
+        let inbound_bridge =
+            InboundBridge::from_config(&config, client.clone(), shutdown_rx.clone())?.map(Arc::new);
         prepare_scope(&config, client.clone(), &scope_maintainer).await?;
         let bootstrap = match (scope_maintainer.seed_scope(), &config.scope_bootstrap) {
             (Some(_), ScopeBootstrapConfig::Nexus { nexus_url }) => {

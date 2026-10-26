@@ -7,21 +7,28 @@ use nexus_common::db::{get_redis_conn, PubkyConnector};
 use nexus_common::models::notification::{Notification, NotificationBody};
 use nexus_common::models::post::PostDetails;
 use nexus_common::models::scope::{Scope, SeedScope};
-use nexus_common::models::user::{PkdnsHomeserverResolver, PubkyConnectorResolver, UserIngestor};
+use nexus_common::models::user::outsider::create_outsider;
+use nexus_common::models::user::{
+    PkdnsHomeserverResolver, PubkyConnectorResolver, UserDetails, UserIngestor,
+};
 use nexus_common::types::DynError;
 use nexus_common::{InboundBridgeConfig, ScopeConfig, WatcherConfig};
 use nexus_watcher::homeserver::{
     HomeserverClient, HsError, HsErrorKind, HsOp, HsStreamEvent, PubkyHomeserverClient,
 };
 use nexus_watcher::service::big_nexus::NexusAnswer;
-use nexus_watcher::service::inbound_bridge::{InboundBridge, NotificationSource, Outcome};
+use nexus_watcher::service::inbound_bridge::{
+    BridgeIndexing, InboundBridge, NotificationSource, Outcome,
+};
 use pubky::{Keypair, ResourcePath};
 use pubky_app_specs::traits::{HasIdPath, TimestampId};
 use pubky_app_specs::{post_uri_builder, PubkyAppPost, PubkyAppPostKind, PubkyAppUser, PubkyId};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use tokio::sync::watch::Receiver;
 
-/// Notifications served from memory, newest first, recording the `end` each page asked for.
+/// Notifications served from memory, newest first, 100 a page, recording the `end` each
+/// page asked for.
 struct FakeBigNexus {
     notifications: Mutex<Vec<Notification>>,
     ends: Mutex<Vec<Option<i64>>>,
@@ -63,7 +70,10 @@ impl NotificationSource for FakeBigNexus {
             })
             .collect();
         page.sort_by_key(|n| std::cmp::Reverse(n.timestamp));
-        Ok(NexusAnswer::Found(page.into_iter().skip(skip).collect()))
+        // 100 a page, as the endpoint serves at most.
+        Ok(NexusAnswer::Found(
+            page.into_iter().skip(skip).take(100).collect(),
+        ))
     }
 }
 
@@ -71,7 +81,12 @@ impl NotificationSource for FakeBigNexus {
 fn bridge(seed: &PubkyId, source: Arc<FakeBigNexus>) -> Result<InboundBridge> {
     let client =
         PubkyHomeserverClient::from_config(PubkyConnector::get()?, &WatcherConfig::default());
-    Ok(bridge_with(seed, source, Arc::new(client)))
+    Ok(bridge_with(seed, source, Arc::new(client), running()))
+}
+
+/// A shutdown signal that never fires.
+fn running() -> Receiver<bool> {
+    tokio::sync::watch::channel(false).1
 }
 
 /// [`bridge`] fetching records through `client`.
@@ -79,18 +94,23 @@ fn bridge_with(
     seed: &PubkyId,
     source: Arc<FakeBigNexus>,
     client: Arc<dyn HomeserverClient>,
+    shutdown: Receiver<bool>,
 ) -> InboundBridge {
     let scope: Arc<dyn Scope> = Arc::new(SeedScope::new(seed.clone(), 1));
     let ingestor = UserIngestor::new(Vec::<PubkyId>::new(), Arc::new(PubkyConnectorResolver))
         .with_scope(scope);
+    let indexing = BridgeIndexing {
+        ingestor: Arc::new(ingestor),
+        moderation: default_moderation_tests(),
+        client,
+        files_path: PathBuf::from("/tmp/nexus-watcher-test"),
+    };
     InboundBridge::new(
         seed.clone(),
         vec![Box::new(Shared(source))],
-        Arc::new(ingestor),
-        default_moderation_tests(),
-        client,
-        PathBuf::from("/tmp/nexus-watcher-test"),
+        indexing,
         0,
+        shutdown,
     )
 }
 
@@ -281,9 +301,14 @@ async fn test_a_record_unrelated_to_the_seed_isnt_bridged() -> Result<()> {
 
     let outcome = bridge.bridge_record(&uri).await;
     let indexed = PostDetails::get_by_id(&outsider, &post_id).await?;
+    let author = UserDetails::get_by_id(&outsider).await?;
 
     assert_eq!(outcome?, Outcome::Unrelated);
     assert!(indexed.is_none(), "not indexed");
+    assert!(
+        author.is_none(),
+        "nothing written for it, not even its author"
+    );
     Ok(())
 }
 
@@ -391,13 +416,13 @@ async fn test_a_bridge_without_a_seed_scope_stops_the_start() -> Result<()> {
         PubkyConnector::get()?,
         &config,
     ));
-    let everything = InboundBridge::from_config(&config, client.clone());
+    let everything = InboundBridge::from_config(&config, client.clone(), running());
 
     config.stack.scope = ScopeConfig::Seed {
         seed: nexus_common::utils::test_utils::random_pubky_id(),
         hops: 1,
     };
-    let seed = InboundBridge::from_config(&config, client);
+    let seed = InboundBridge::from_config(&config, client, running());
 
     assert!(everything.is_err());
     assert!(seed.is_ok_and(|bridge| bridge.is_some()));
@@ -429,7 +454,7 @@ async fn test_a_record_on_an_unreachable_homeserver_doesnt_hold_up_the_rest() ->
         // As the client sees it, which isn't the `pubky://` form.
         failing: replies[0].1.parse::<pubky::PubkyResource>()?.to_string(),
     };
-    let bridge = bridge_with(&seed, source.clone(), Arc::new(client));
+    let bridge = bridge_with(&seed, source.clone(), Arc::new(client), running());
 
     let handled = bridge.poll_source(&Shared(source.clone())).await;
     let after = PostDetails::get_by_id(&outsider, &replies[1].0).await?;
@@ -443,5 +468,96 @@ async fn test_a_record_on_an_unreachable_homeserver_doesnt_hold_up_the_rest() ->
     assert_eq!(handled.map_err(anyhow::Error::msg)?, 2, "both handled");
     assert!(after.is_some(), "the next record is bridged");
     assert_eq!(tries, Some(1), "waiting, its failed retry counted");
+    Ok(())
+}
+
+/// A big Nexus naming a record a notification can't be about (a profile here) can't have
+/// it removed, though its homeserver doesn't have it.
+#[tokio_shared_rt::test(shared)]
+async fn test_a_source_cant_have_a_profile_removed() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let (seed, _, _, outsider) = seed_and_outsider(&mut test).await?;
+    // Known as an outsider, whose profile was never read nor written.
+    create_outsider(&UserDetails::from_pubky(outsider.clone())).await?;
+    let bridge = bridge(&seed, Arc::new(FakeBigNexus::new(Vec::new())))?;
+
+    let profile = format!("pubky://{outsider}/pub/pubky.app/profile.json");
+    let outcome = bridge.bridge_record(&profile).await;
+    let kept = UserDetails::get_by_id(&outsider).await?;
+
+    assert_eq!(outcome?, Outcome::Skipped);
+    assert!(kept.is_some_and(|user| !user.deleted), "still there");
+    Ok(())
+}
+
+/// A poll stops between records once the watcher shuts down.
+#[tokio_shared_rt::test(shared)]
+async fn test_a_poll_stops_when_the_watcher_shuts_down() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let (seed, seed_post, outsider_kp, outsider) = seed_and_outsider(&mut test).await?;
+    let parent = post_uri_builder(seed.to_string(), seed_post);
+    let (reply_id, _) =
+        write_post(&outsider_kp, &post("Bridge:Stopped", Some(parent.clone()))).await?;
+    let reply = post_uri_builder(outsider.to_string(), reply_id.clone());
+    let source = Arc::new(FakeBigNexus::new(vec![reply_notification(
+        1_000, &outsider, &parent, &reply,
+    )]));
+    let (stop, shutdown) = tokio::sync::watch::channel(false);
+    let client =
+        PubkyHomeserverClient::from_config(PubkyConnector::get()?, &WatcherConfig::default());
+    let bridge = bridge_with(&seed, source.clone(), Arc::new(client), shutdown);
+    stop.send(true)?;
+
+    let handled = bridge.poll_source(&Shared(source)).await;
+    let indexed = PostDetails::get_by_id(&outsider, &reply_id).await?;
+    forget_bridge(&seed).await?;
+
+    assert_eq!(
+        handled.map_err(anyhow::Error::msg)?,
+        0,
+        "stopped before the record"
+    );
+    assert!(indexed.is_none());
+    Ok(())
+}
+
+/// A backlog longer than one poll's pages is read over the next polls: the first keeps
+/// the position and a catch-up point, the next goes on from that point, then moves the
+/// position to the newest notification.
+#[tokio_shared_rt::test(shared)]
+async fn test_a_long_backlog_is_read_over_several_polls() -> Result<()> {
+    WatcherTest::setup(None).await?;
+    let seed = nexus_common::utils::test_utils::random_pubky_id();
+    // One more than a poll's 50 pages of 100. Followed by no valid user, so each record is
+    // skipped at once: only the paging is at stake.
+    let backlog = 50 * 100 + 5;
+    let notifications = (1..=backlog as i64)
+        .map(|timestamp| Notification {
+            timestamp,
+            body: NotificationBody::Follow {
+                followed_by: "x".into(),
+            },
+        })
+        .collect();
+    let source = Arc::new(FakeBigNexus::new(notifications));
+    let bridge = bridge(&seed, source.clone())?;
+    let position_key = format!("Scope:Bridge:{seed}:fake");
+    let catch_up_key = format!("{position_key}:CatchUp");
+    let mut redis_conn = get_redis_conn().await?;
+
+    let first = bridge.poll_source(&Shared(source.clone())).await;
+    let position_after_first: Option<i64> = redis_conn.get(&position_key).await?;
+    let catching_up: bool = redis_conn.exists(&catch_up_key).await?;
+    let second = bridge.poll_source(&Shared(source)).await;
+    let position: Option<i64> = redis_conn.get(&position_key).await?;
+    let still_catching_up: bool = redis_conn.exists(&catch_up_key).await?;
+    forget_bridge(&seed).await?;
+
+    assert_eq!(first.map_err(anyhow::Error::msg)?, 50 * 100);
+    assert_eq!(position_after_first, None, "kept until the backlog is read");
+    assert!(catching_up, "a catch-up point to go on from");
+    assert!(second.map_err(anyhow::Error::msg)? >= 5, "the rest read");
+    assert_eq!(position, Some(backlog as i64), "the newest notification");
+    assert!(!still_catching_up, "done catching up");
     Ok(())
 }
