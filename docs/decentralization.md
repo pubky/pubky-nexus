@@ -371,6 +371,38 @@ source = "nexus"
 nexus_url = "https://<big nexus>"
 ```
 
+**Inbound bridge — `[inbound_bridge]`** (`[watcher.inbound_bridge]` in a combined
+config; seed scope only, a startup error otherwise). Users outside the scope are never
+read, so their replies, mentions, reposts, tags and follows of the seed would never be
+seen. With `nexus_urls` set, the watcher polls each Nexus's
+`/v0/user/{seed}/notifications` every `interval_ms` (default 5 minutes), works out the
+record each notification is about, and fetches it from its author's homeserver: indexed
+if it concerns the seed (a follow of the seed, a tag on its profile or posts, a post
+replying to, reposting or mentioning it, or an edit of a post this Nexus already holds),
+removed if the homeserver no longer has it. A Nexus only says where to look: it can leave
+records out, but can't invent or change them, nor have unrelated records indexed.
+Members' records are left to their own streams.
+
+Each Nexus keeps its own position (`Scope:Bridge:<seed>:<url>`), moved only past
+records handled; its first poll reads `lookback_days` back (0 reads everything). One poll
+reads at most 50 pages of 100; a longer backlog is read over the next polls
+(`Scope:Bridge:<seed>:<url>:CatchUp`). A Nexus failing, rate limiting or sending pages
+out of order is backed off; the others still run. A record that can't be indexed yet
+(the seed's post it replies to isn't indexed, or its author's homeserver is unreachable)
+waits in `Scope:BridgePending:<seed>` and is tried on each poll, up to 20 times, with
+at most 10,000 waiting, so it never holds up the others. The bridge sees only what the
+seed is notified of: not bookmarks, not outsiders replying to each other, and not an
+outsider's plain unfollow.
+
+```toml
+[inbound_bridge]
+nexus_urls = ["https://<big nexus>"]
+lookback_days = 30
+```
+
+Metrics: `watcher.bridge.records` (by outcome), `watcher.bridge.source_errors` and
+`watcher.bridge.lag_ms`.
+
 **The moderator is always in scope.** `moderation_id` is read whatever the scope, since
 its tags take content down. Its follows add no members to a seed scope.
 

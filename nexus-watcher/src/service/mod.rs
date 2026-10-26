@@ -1,5 +1,6 @@
 pub mod big_nexus;
 mod constants;
+pub mod inbound_bridge;
 pub mod indexer;
 pub mod runner;
 pub mod scope_bootstrap;
@@ -25,6 +26,7 @@ use crate::events::{DefaultEventHandler, EventHandler};
 use crate::homeserver::{HomeserverClient, PubkyHomeserverClient};
 use crate::scope::{full_feed_homeservers, watcher_ingestor};
 use crate::service::constants::DEFAULT_WATCHER_CONFIG_TOML;
+use crate::service::inbound_bridge::InboundBridge;
 use crate::service::scope_bootstrap::{bootstrap_seed_scope, NexusFollowing};
 use crate::service::scope_maintenance::ScopeMaintainer;
 use crate::service::task_runner::task_results_into_result;
@@ -73,13 +75,15 @@ impl NexusWatcher {
 
     /// Starts the Nexus Watcher with parallel periodic task loops.
     ///
-    /// Currently runs up to five tasks, each on its own tick interval:
+    /// Currently runs up to six tasks, each on its own tick interval:
     /// 1. **Primary homeserver** ([`WatcherConfig::primary_hs_monitoring_interval_ms`]).
     /// 2. **External homeservers** ([`WatcherConfig::external_hs_monitoring_interval_ms`]).
     /// 3. **User HS resolver** ([`WatcherConfig::hs_resolver_interval_ms`]).
     /// 4. **Retry processor** ([`WatcherConfig::retry_processor_interval_ms`]).
     /// 5. **Scope maintenance** ([`ScopeMaintainer::tick_every_ms`]), unless the scope is
     ///    `everything`.
+    /// 6. **Inbound bridge** ([`nexus_common::InboundBridgeConfig::interval_ms`]), when
+    ///    configured for a seed scope.
     ///
     /// All tasks listen for the shutdown signal to exit gracefully. If any task panics,
     /// an internal cancellation signal is sent so that sibling tasks can finish their
@@ -101,6 +105,9 @@ impl NexusWatcher {
             &config,
         ));
         let scope_maintainer = Arc::new(ScopeMaintainer::from_config(&config, client.clone()));
+        // Before the scope is prepared: a bridge configured without a seed scope stops the
+        // start.
+        let inbound_bridge = InboundBridge::from_config(&config, client.clone())?.map(Arc::new);
         prepare_scope(&config, client.clone(), &scope_maintainer).await?;
         let bootstrap = match (scope_maintainer.seed_scope(), &config.scope_bootstrap) {
             (Some(_), ScopeBootstrapConfig::Nexus { nexus_url }) => {
@@ -182,6 +189,17 @@ impl NexusWatcher {
                 move || {
                     let maintainer = scope_maintainer.clone();
                     async move { maintainer.tick().await.map(|_| ()).map_err(DynError::from) }
+                },
+            ));
+        }
+
+        if let Some(bridge) = inbound_bridge {
+            tasks.push(PeriodicTask::new(
+                "inbound-bridge",
+                config.inbound_bridge.interval_ms,
+                move || {
+                    let bridge = bridge.clone();
+                    async move { bridge.poll().await }
                 },
             ));
         }
