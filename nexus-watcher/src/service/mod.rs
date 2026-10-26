@@ -1,6 +1,7 @@
 mod constants;
 pub mod indexer;
 pub mod runner;
+pub mod scope_bootstrap;
 pub mod scope_maintenance;
 pub mod stats;
 mod task_runner;
@@ -23,6 +24,7 @@ use crate::events::{DefaultEventHandler, EventHandler};
 use crate::homeserver::{HomeserverClient, PubkyHomeserverClient};
 use crate::scope::{full_feed_homeservers, watcher_ingestor};
 use crate::service::constants::DEFAULT_WATCHER_CONFIG_TOML;
+use crate::service::scope_bootstrap::{bootstrap_seed_scope, NexusFollowing};
 use crate::service::scope_maintenance::ScopeMaintainer;
 use crate::service::task_runner::task_results_into_result;
 use crate::NexusWatcherBuilder;
@@ -30,8 +32,8 @@ use nexus_common::db::PubkyConnector;
 use nexus_common::file::ConfigLoader;
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::types::DynError;
-use nexus_common::ScopeConfig;
 use nexus_common::WatcherConfig;
+use nexus_common::{ScopeBootstrapConfig, ScopeConfig};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::watch::Receiver;
@@ -98,6 +100,17 @@ impl NexusWatcher {
         ));
         let scope_maintainer = Arc::new(ScopeMaintainer::from_config(&config, client.clone()));
         prepare_scope(&config, client.clone(), &scope_maintainer).await?;
+        if let (Some(_), ScopeBootstrapConfig::Nexus { nexus_url }) =
+            (scope_maintainer.seed_scope(), &config.scope_bootstrap)
+        {
+            // In the background: events are read meanwhile, and crawling finds the members
+            // anyway if the big Nexus can't be read.
+            let maintainer = scope_maintainer.clone();
+            let source = NexusFollowing {
+                nexus_url: nexus_url.clone(),
+            };
+            tokio::spawn(async move { bootstrap_seed_scope(&maintainer, &source).await });
+        }
 
         let event_handler: Arc<dyn EventHandler> =
             Arc::new(DefaultEventHandler::from_config(&config, client.clone()));

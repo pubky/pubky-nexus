@@ -343,6 +343,26 @@ every 5 seconds), and every `[scope_maintenance] interval_ms` in case one was mi
 user first met through a member's follow is an outsider until then. One that can't join
 (no published homeserver, a lookup timing out) is tried again at the next run.
 
+**Seed bootstrap — `[scope_bootstrap]`** (`[watcher.scope_bootstrap]` in a combined
+config). A new seed scope finds its members hop by hop by default (`source = "crawl"`):
+each hop waits for the previous one's follows to be read. With `source = "nexus"` and a
+`nexus_url`, the watcher asks that Nexus, in the background at start, who the seed
+follows and who they follow up to `hops` (`GET /v0/user/{id}/following`, about one
+request per member). The answer is only a suggestion: each suggested user counts as a
+member for 24 hours (`Scope:Suggested:<seed>:<hops>`, kept per seed and hop count so a
+narrower scope never inherits it), so its own stream is read from its own homeserver, and
+the follows read that way confirm it or let it go once the suggestion expires. Content
+always comes from homeservers. It runs once per seed and hop count
+(`Scope:Bootstrapped:<seed>:<hops>`), and falls back to crawling if a request fails 3
+times. It is bounded whatever the Nexus answers: at most 20,000 requests, 10,000 follows
+per user and 50,000 suggested users, past which crawling finds the rest.
+
+```toml
+[scope_bootstrap]
+source = "nexus"
+nexus_url = "https://<big nexus>"
+```
+
 **The moderator is always in scope.** `moderation_id` is read whatever the scope, since
 its tags take content down. Its follows add no members to a seed scope.
 

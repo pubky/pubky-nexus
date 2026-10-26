@@ -24,6 +24,7 @@ use nexus_common::models::user::{
 use nexus_common::{ScopeConfig, WatcherConfig};
 
 use crate::scope::{follows_changed, seed_members, take_follows_changed, watcher_ingestor};
+use crate::service::scope_bootstrap::unexpired_suggestions;
 use pubky_app_specs::PubkyId;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -67,7 +68,9 @@ pub struct ScopeMaintainer {
     ingestor: UserIngestor,
     /// How often the scope is checked whatever happened.
     interval: Duration,
-    /// When a seed scope last worked its members out.
+    /// When a seed scope last worked its members out. Held for the whole of each run, so
+    /// two never overlap: one reading the members before another stored suggestions could
+    /// let go of users the other just let in.
     last_recompute: Mutex<Instant>,
     /// Narrows every graph-wide search to these users; `None` in production.
     /// Tests share one graph, so they pass their own users.
@@ -119,6 +122,25 @@ impl ScopeMaintainer {
         }
     }
 
+    /// The seed and hop count of a seed scope.
+    pub fn seed_scope(&self) -> Option<(&PubkyId, u8)> {
+        match &self.kind {
+            Kind::Seed { seed, hops } => Some((seed, *hops)),
+            Kind::Everything | Kind::Homeservers(_) => None,
+        }
+    }
+
+    /// Works a seed scope's members out now, e.g. right after a big Nexus suggested some.
+    pub async fn recompute_now(&self) -> ModelResult<ScopeChange> {
+        let Kind::Seed { seed, hops } = &self.kind else {
+            return Ok(ScopeChange::default());
+        };
+        let mut last_recompute = self.last_recompute.lock().await;
+        let change = self.recompute_members(seed, *hops).await?;
+        *last_recompute = Instant::now();
+        Ok(change)
+    }
+
     /// The run at start, before any event is read.
     pub async fn at_start(&self) -> ModelResult<ScopeChange> {
         let change = match &self.kind {
@@ -131,9 +153,12 @@ impl ScopeMaintainer {
                 change
             }
             Kind::Seed { seed, hops } => {
+                let mut last_recompute = self.last_recompute.lock().await;
                 // This run covers every follow indexed before it.
                 take_follows_changed();
-                self.recompute_members(seed, *hops).await?
+                let change = self.recompute_members(seed, *hops).await?;
+                *last_recompute = Instant::now();
+                change
             }
         };
         self.remember_scope().await?;
@@ -195,8 +220,10 @@ impl ScopeMaintainer {
         Ok(change)
     }
 
-    /// For a seed scope: works the members out from the graph and compares them with who
-    /// is in scope, which the graph records too. Who is new joins (ingested if never met,
+    /// For a seed scope: works the members out from the graph, adds the users a big Nexus
+    /// suggested until their suggestion expires (see `scope_bootstrap`), and compares them
+    /// with who is in scope, which the graph records too. Callers hold
+    /// [`Self::last_recompute`]. Who is new joins (ingested if never met,
     /// then bound and read from the start of its stream); who is in scope but no longer a
     /// member leaves, the moderator aside.
     ///
@@ -204,7 +231,12 @@ impl ScopeMaintainer {
     /// doesn't stop the others: still new, or still in, at the next recompute, it is tried
     /// again then.
     async fn recompute_members(&self, seed: &PubkyId, hops: u8) -> ModelResult<ScopeChange> {
-        let members = seed_members(seed, hops).await?;
+        let mut members = seed_members(seed, hops).await?;
+        // At the last hop: their distance in this graph isn't known until their follows
+        // are read.
+        for suggested in unexpired_suggestions(seed, hops).await? {
+            members.entry(suggested).or_insert(hops);
+        }
         let query = queries::get::get_in_scope_user_ids(self.limit_to.as_deref());
         let in_scope: HashSet<String> = fetch_key_from_graph::<Vec<String>>(query, "user_ids")
             .await?

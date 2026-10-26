@@ -1,8 +1,9 @@
 use super::utils::user_on;
 use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
+use deadpool_redis::redis::AsyncCommands;
 use nexus_common::db::graph::Query;
-use nexus_common::db::{exec_single_row, fetch_key_from_graph, queries};
+use nexus_common::db::{exec_single_row, fetch_key_from_graph, get_redis_conn, queries};
 use nexus_common::models::scope::{Scope, SeedScope};
 use nexus_common::models::user::outsider::create_outsider;
 use nexus_common::models::user::{
@@ -13,9 +14,13 @@ use nexus_common::utils::test_utils::random_pubky_id;
 use nexus_common::{ScopeConfig, WatcherConfig};
 use nexus_watcher::events::handlers;
 use nexus_watcher::scope::seed_members;
+use nexus_watcher::service::scope_bootstrap::{
+    bootstrap_seed_scope, suggest_members, FollowingSource,
+};
 use nexus_watcher::service::scope_maintenance::{ScopeChange, ScopeMaintainer};
 use pubky_app_specs::{PubkyAppUser, PubkyId};
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 
 /// A seed scope's ingestor and maintainer, with `moderator` pinned, limited to `users`.
@@ -258,5 +263,158 @@ async fn test_a_member_whose_profile_is_deleted_is_still_read() -> Result<()> {
     );
     assert_eq!(deleted_cursors.len(), 1, "still bound, so still read");
     assert!(members.contains_key(friend.as_ref()), "a member once back");
+    Ok(())
+}
+
+/// A big Nexus answering from memory: `seed` follows `followees`, and nobody else follows
+/// anyone. `None` fails every request.
+struct FakeBigNexus {
+    seed: String,
+    followees: Option<Vec<String>>,
+    requests: AtomicU32,
+}
+
+impl FakeBigNexus {
+    fn new(seed: &PubkyId, followees: Option<Vec<String>>) -> Self {
+        Self {
+            seed: seed.to_string(),
+            followees,
+            requests: AtomicU32::new(0),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl FollowingSource for FakeBigNexus {
+    async fn following(
+        &self,
+        user_id: &str,
+        skip: usize,
+    ) -> Result<Option<Vec<String>>, nexus_common::types::DynError> {
+        self.requests.fetch_add(1, Ordering::Relaxed);
+        let followees = self.followees.as_ref().ok_or("the big Nexus is down")?;
+        Ok(Some(if user_id == self.seed && skip == 0 {
+            followees.clone()
+        } else {
+            Vec::new()
+        }))
+    }
+}
+
+/// Removes what a bootstrap of `seed` stored in Redis.
+async fn forget_bootstrap(seed: &PubkyId, hops: u8) -> Result<()> {
+    let mut redis_conn = get_redis_conn().await?;
+    let _: () = redis_conn
+        .del(&[
+            format!("Scope:Suggested:{seed}:{hops}"),
+            format!("Scope:Bootstrapped:{seed}:{hops}"),
+        ])
+        .await?;
+    Ok(())
+}
+
+/// A bootstrap lets in at once the users a big Nexus says the seed follows, before any of
+/// the seed's follows is read, and a later start doesn't ask again.
+#[tokio_shared_rt::test(shared)]
+async fn test_a_bootstrap_lets_the_suggested_members_in_at_once() -> Result<()> {
+    let test = WatcherTest::setup(None).await?;
+    let hs = test.homeserver_id.to_public_key();
+    let (_, seed) = user_on(&test, &hs).await?;
+    let (_, friend) = user_on(&test, &hs).await?;
+    let moderator = random_pubky_id();
+    let (ingestor, maintainer) = seed_maintainer(&seed, 1, &moderator, &[&seed, &friend]);
+    ingestor.maybe_ingest_user(&seed).await?;
+    maintainer.at_start().await?;
+    let known_before = UserDetails::get_by_id(&friend).await?.is_some();
+
+    let big_nexus = FakeBigNexus::new(&seed, Some(vec![friend.to_string()]));
+    bootstrap_seed_scope(&maintainer, &big_nexus).await;
+    let after = scope_state(&friend).await?;
+    let cursors = UserHsCursor::read(&[friend.as_ref()], &test.homeserver_id).await?;
+    let again = FakeBigNexus::new(&seed, Some(vec![friend.to_string()]));
+    bootstrap_seed_scope(&maintainer, &again).await;
+
+    catch_up::caught_up(&friend).await?;
+    forget_bootstrap(&seed, 1).await?;
+    assert!(
+        !known_before,
+        "unknown before: none of the seed's follows is read"
+    );
+    assert!(
+        UserDetails::get_by_id(&friend).await?.is_some(),
+        "known once suggested"
+    );
+    assert_eq!(after, None, "in scope at once");
+    assert_eq!(cursors, vec![0], "read from the start");
+    assert_eq!(again.requests.load(Ordering::Relaxed), 0, "not asked again");
+    Ok(())
+}
+
+/// A suggestion the graph never confirms lets its user go once it expires; one the
+/// seed's own follows confirm keeps it.
+#[tokio_shared_rt::test(shared)]
+async fn test_an_unconfirmed_suggestion_is_let_go_once_it_expires() -> Result<()> {
+    let test = WatcherTest::setup(None).await?;
+    let hs = test.homeserver_id.to_public_key();
+    let (_, seed) = user_on(&test, &hs).await?;
+    let (_, suggested) = user_on(&test, &hs).await?;
+    let (_, confirmed) = user_on(&test, &hs).await?;
+    let moderator = random_pubky_id();
+    let (ingestor, maintainer) =
+        seed_maintainer(&seed, 1, &moderator, &[&seed, &suggested, &confirmed]);
+    ingestor.maybe_ingest_user(&seed).await?;
+    follow(&seed, &confirmed, &ingestor).await?;
+    let both = [suggested.to_string(), confirmed.to_string()];
+    suggest_members(&seed, 1, &both).await?;
+    let admitted = maintainer.at_start().await?;
+
+    // The suggestions run out.
+    let past = chrono::Utc::now().timestamp_millis() - 1;
+    let mut redis_conn = get_redis_conn().await?;
+    let key = format!("Scope:Suggested:{seed}:1");
+    let _: () = redis_conn
+        .zadd_multiple(&key, &[(past, both[0].as_str()), (past, both[1].as_str())])
+        .await?;
+    let expired = maintainer.recompute_now().await?;
+    let (suggested_state, confirmed_state) = (
+        scope_state(&suggested).await?,
+        scope_state(&confirmed).await?,
+    );
+
+    catch_up::caught_up(&suggested).await?;
+    catch_up::caught_up(&confirmed).await?;
+    forget_bootstrap(&seed, 1).await?;
+    assert_eq!(admitted, ScopeChange { joined: 2, left: 0 });
+    assert_eq!(expired, ScopeChange { joined: 0, left: 1 });
+    assert_eq!(
+        suggested_state.as_deref(),
+        Some(SCOPE_STATE_LEFT),
+        "unconfirmed"
+    );
+    assert_eq!(confirmed_state, None, "the seed follows it");
+    Ok(())
+}
+
+/// A big Nexus that can't be read suggests nobody and isn't recorded as done, so the next
+/// start asks again; crawling finds the members meanwhile.
+#[tokio_shared_rt::test(shared)]
+async fn test_a_failed_bootstrap_is_tried_again_next_start() -> Result<()> {
+    WatcherTest::setup(None).await?;
+    let seed = random_pubky_id();
+    let (_, maintainer) = seed_maintainer(&seed, 1, &random_pubky_id(), &[&seed]);
+
+    let down = FakeBigNexus::new(&seed, None);
+    bootstrap_seed_scope(&maintainer, &down).await;
+    let mut redis_conn = get_redis_conn().await?;
+    let suggested: u64 = redis_conn
+        .zcard(format!("Scope:Suggested:{seed}:1"))
+        .await?;
+    let recorded: bool = redis_conn
+        .exists(format!("Scope:Bootstrapped:{seed}:1"))
+        .await?;
+
+    assert!(down.requests.load(Ordering::Relaxed) > 0, "asked");
+    assert_eq!(suggested, 0, "nothing suggested");
+    assert!(!recorded, "not recorded, so tried again");
     Ok(())
 }

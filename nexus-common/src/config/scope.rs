@@ -86,6 +86,66 @@ impl TryFrom<RawScopeConfig> for ScopeConfig {
     }
 }
 
+/// How a new seed scope finds its members, set in the watcher's `[scope_bootstrap]`
+/// (`[watcher.scope_bootstrap]` in a combined config).
+///
+/// Either way, every member's content is read from its own homeserver: a big Nexus only
+/// suggests who the members are.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(
+    tag = "source",
+    rename_all = "snake_case",
+    try_from = "RawScopeBootstrapConfig"
+)]
+pub enum ScopeBootstrapConfig {
+    /// Find members hop by hop, as their follows are read.
+    #[default]
+    Crawl,
+    /// Ask a big Nexus who the seed follows, and who they follow, up to the hops, so they
+    /// are all read at once. Falls back to crawling if that Nexus can't be read.
+    Nexus { nexus_url: String },
+}
+
+/// What the config file may hold, before the rules for each source are checked.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawScopeBootstrapConfig {
+    source: String,
+    nexus_url: Option<String>,
+}
+
+impl TryFrom<RawScopeBootstrapConfig> for ScopeBootstrapConfig {
+    type Error = String;
+
+    fn try_from(raw: RawScopeBootstrapConfig) -> Result<Self, Self::Error> {
+        match (raw.source.as_str(), raw.nexus_url) {
+            ("crawl", None) => Ok(Self::Crawl),
+            ("crawl", Some(_)) => {
+                Err("scope_bootstrap.nexus_url is only valid with source = \"nexus\"".into())
+            }
+            ("nexus", Some(nexus_url)) => Ok(Self::Nexus {
+                nexus_url: http_url(&nexus_url, "scope_bootstrap.nexus_url")?,
+            }),
+            ("nexus", None) => {
+                Err("scope_bootstrap.nexus_url is required with source = \"nexus\"".into())
+            }
+            (other, _) => Err(format!(
+                "unknown scope_bootstrap.source \"{other}\": expected \"crawl\" or \"nexus\""
+            )),
+        }
+    }
+}
+
+/// Checks `value` is an http(s) URL and drops its trailing slash.
+fn http_url(value: &str, field: &str) -> Result<String, String> {
+    match url::Url::parse(value) {
+        Ok(url) if matches!(url.scheme(), "http" | "https") => {
+            Ok(value.trim_end_matches('/').to_string())
+        }
+        _ => Err(format!("{field} is not an http(s) URL: {value}")),
+    }
+}
+
 /// How often the watcher re-checks who is in scope, set in the watcher's
 /// `[scope_maintenance]` (`[watcher.scope_maintenance]` in a combined config).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -221,6 +281,42 @@ mod tests {
         for (toml_text, expected) in cases {
             let error = parse(&toml_text).expect_err(&toml_text);
             assert!(error.contains(expected), "{toml_text:?} gave {error:?}");
+        }
+    }
+
+    #[test]
+    fn reads_the_scope_bootstrap() {
+        let parse = |text: &str| {
+            toml::from_str::<ScopeBootstrapConfig>(text).map_err(|e| e.message().to_string())
+        };
+        assert_eq!(ScopeBootstrapConfig::default(), ScopeBootstrapConfig::Crawl);
+        assert_eq!(parse("source = \"crawl\""), Ok(ScopeBootstrapConfig::Crawl));
+        assert_eq!(
+            parse("source = \"nexus\"\nnexus_url = \"https://nexus.example/\""),
+            Ok(ScopeBootstrapConfig::Nexus {
+                nexus_url: "https://nexus.example".into()
+            }),
+            "the trailing slash is dropped"
+        );
+        let cases = [
+            ("source = \"nexus\"", "nexus_url is required"),
+            (
+                "source = \"crawl\"\nnexus_url = \"https://nexus.example\"",
+                "only valid with source = \"nexus\"",
+            ),
+            (
+                "source = \"nexus\"\nnexus_url = \"ftp://nexus.example\"",
+                "not an http(s) URL",
+            ),
+            (
+                "source = \"nexus\"\nnexus_url = \"nexus\"",
+                "not an http(s) URL",
+            ),
+            ("source = \"ask\"", "unknown scope_bootstrap.source"),
+        ];
+        for (text, expected) in cases {
+            let error = parse(text).expect_err(text);
+            assert!(error.contains(expected), "{text:?} gave {error:?}");
         }
     }
 
