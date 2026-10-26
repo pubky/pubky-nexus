@@ -359,10 +359,11 @@ the follows read that way confirm it or let it go once the suggestion expires. C
 always comes from homeservers. It runs once per seed and hop count
 (`Scope:Bootstrapped:<seed>:<hops>`); one that suggests nobody (the Nexus may not know
 the seed yet) runs again at the next start. A rate limit (`429`) is waited out as the
-Nexus asks, at most 5 times per request; any other failure falls back to crawling after
-3 tries. Only valid user ids from its answers are used. It is bounded whatever the Nexus
-answers: at most 20,000 requests, 10,000 follows per user and 50,000 suggested users,
-past which crawling finds the rest.
+Nexus asks, at most 5 times per page; any other failure falls back to crawling after 3
+tries. Only valid user ids from its answers are used. It is bounded whatever the Nexus
+answers: at most 20,000 requests (retries included), 30 seconds per request (body
+included), 10,000 follows read per user and 50,000 suggested users, past which crawling
+finds the rest. `nexus_url` may have a path, but no query or fragment.
 
 ```toml
 [scope_bootstrap]

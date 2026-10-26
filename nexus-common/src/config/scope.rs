@@ -136,10 +136,16 @@ impl TryFrom<RawScopeBootstrapConfig> for ScopeBootstrapConfig {
     }
 }
 
-/// Checks `value` is an http(s) URL and drops its trailing slash.
+/// Checks `value` is an http(s) URL an API path can be appended to (no query or
+/// fragment, which the path would land in), and drops its trailing slash.
 fn http_url(value: &str, field: &str) -> Result<String, String> {
     match url::Url::parse(value) {
         Ok(url) if matches!(url.scheme(), "http" | "https") => {
+            if url.query().is_some() || url.fragment().is_some() {
+                return Err(format!(
+                    "{field} must not have a query or fragment, as API paths are appended to it: {value}"
+                ));
+            }
             Ok(value.trim_end_matches('/').to_string())
         }
         _ => Err(format!("{field} is not an http(s) URL: {value}")),
@@ -311,6 +317,14 @@ mod tests {
             (
                 "source = \"nexus\"\nnexus_url = \"nexus\"",
                 "not an http(s) URL",
+            ),
+            (
+                "source = \"nexus\"\nnexus_url = \"https://nexus.example/?token=x\"",
+                "must not have a query or fragment",
+            ),
+            (
+                "source = \"nexus\"\nnexus_url = \"https://nexus.example/#here\"",
+                "must not have a query or fragment",
             ),
             ("source = \"ask\"", "unknown scope_bootstrap.source"),
         ];
