@@ -10,10 +10,17 @@ use std::path::Path;
 use tokio::fs::{self, remove_dir_all};
 use tracing::{debug, warn};
 
+/// Where a file event came from: the resource URI and, when known, the
+/// homeserver whose stream delivered it.
+pub struct FileOrigin<'a> {
+    pub uri: String,
+    pub homeserver: Option<&'a PubkyId>,
+}
+
 #[tracing::instrument(name = "file.put", skip_all, fields(user_id = %user_id, file_id = %file_id))]
 pub async fn sync_put(
     file: PubkyAppFile,
-    uri: String,
+    origin: FileOrigin<'_>,
     user_id: PubkyId,
     file_id: String,
     files_path: &Path,
@@ -29,16 +36,20 @@ pub async fn sync_put(
         files_path,
         ingestor,
         client,
+        origin.homeserver,
     )
     .await?;
 
-    let file_details = FileDetails::from_homeserver(&file, uri, user_id.to_string(), file_id);
+    let file_details =
+        FileDetails::from_homeserver(&file, origin.uri, user_id.to_string(), file_id);
     file_details.put_to_graph().await?;
 
     Ok(())
 }
 
 // TODO: Move it into its own process, server, etc
+/// `user_id`'s own blob comes from `homeserver`, the one that delivered the
+/// file event; a source on another user's homeserver is fetched by URI.
 #[tracing::instrument(name = "file.ingest", skip_all, fields(user_id = %user_id, file_id = %file_id))]
 async fn ingest(
     user_id: &PubkyId,
@@ -47,6 +58,7 @@ async fn ingest(
     files_path: &Path,
     ingestor: &UserIngestor,
     client: &dyn HomeserverClient,
+    homeserver: Option<&PubkyId>,
 ) -> Result<(), EventProcessorError> {
     let file_src = &pubkyapp_file.src;
     let parsed_source_uri = ParsedUri::try_from(file_src.to_string()).map_err(|e| {
@@ -60,7 +72,10 @@ async fn ingest(
         .inspect_err(|e| warn!("Aborting file ingest: source {file_src}: {e}"))?;
 
     let source: PubkyResource = file_src.parse()?;
-    let blob = client.get_blob(&source).await?;
+    let own_blob = parsed_source_uri.user_id == *user_id;
+    let blob = client
+        .get_blob(&source, homeserver.filter(|_| own_blob))
+        .await?;
 
     let path = Path::new(&user_id.to_string()).join(file_id);
     let full_path = files_path.join(&path);

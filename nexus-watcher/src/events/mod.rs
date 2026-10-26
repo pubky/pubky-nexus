@@ -103,8 +103,8 @@ impl EventHandler for DefaultEventHandler {
     }
 }
 
-/// Handles a PUT event: fetches its resource through `client` and dispatches it to the
-/// matching handler.
+/// Handles a PUT event: fetches its resource through `client`, from the homeserver whose
+/// stream delivered the event when known, and dispatches it to the matching handler.
 pub async fn handle_put_event(
     event: &Event,
     files_path: &Path,
@@ -121,7 +121,9 @@ pub async fn handle_put_event(
     }
 
     let pubky_resource: PubkyResource = event.uri.parse()?;
-    let blob = client.get_resource(&pubky_resource).await?;
+    let blob = client
+        .get_resource(&pubky_resource, event.homeserver.as_ref())
+        .await?;
 
     let resource = event.parsed_uri.resource().clone();
 
@@ -183,7 +185,10 @@ pub async fn handle_put_event(
         (PubkyAppObject::File(file), Resource::File(file_id)) => {
             handlers::file::sync_put(
                 file,
-                event.uri.clone(),
+                handlers::file::FileOrigin {
+                    uri: event.uri.clone(),
+                    homeserver: event.homeserver.as_ref(),
+                },
                 user_id,
                 file_id,
                 files_path,

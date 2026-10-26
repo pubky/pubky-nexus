@@ -5,7 +5,7 @@ use nexus_common::models::file::FileDetails;
 use nexus_common::models::traits::Collection;
 use nexus_common::models::user::UserIngestor;
 use nexus_common::utils::test_utils::random_pubky_id;
-use nexus_watcher::events::handlers::file::sync_put;
+use nexus_watcher::events::handlers::file::{sync_put, FileOrigin};
 use nexus_watcher::EventProcessorError;
 use pubky::Keypair;
 use pubky_app_specs::traits::{HasIdPath, HashId, TimestampId};
@@ -67,7 +67,10 @@ async fn test_file_ingest_aborts_on_blacklisted_source_homeserver() -> Result<()
 
     let err = sync_put(
         file,
-        file_uri,
+        FileOrigin {
+            uri: file_uri,
+            homeserver: None,
+        },
         user_pubky_id,
         file_id.clone(),
         test.temp_dir.path(),
@@ -130,7 +133,10 @@ async fn test_file_ingest_aborts_when_source_is_blacklisted_hs_pk_directly() -> 
 
     let err = sync_put(
         file,
-        file_uri,
+        FileOrigin {
+            uri: file_uri,
+            homeserver: None,
+        },
         owner_id.clone(),
         file_id.clone(),
         test.temp_dir.path(),
@@ -182,7 +188,10 @@ async fn test_file_ingest_proceeds_when_source_homeserver_not_blacklisted() -> R
 
     sync_put(
         file.clone(),
-        file_uri,
+        FileOrigin {
+            uri: file_uri,
+            homeserver: None,
+        },
         user_pubky_id,
         file_id.clone(),
         test.temp_dir.path(),

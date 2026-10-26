@@ -164,14 +164,22 @@ impl HomeserverClient for MockHomeserverClient {
         result.map_err(|kind| HsError::new(hs, HsOp::UserEvents, kind))
     }
 
-    async fn get_resource(&self, resource: &PubkyResource) -> Result<Vec<u8>, HsError> {
+    async fn get_resource(
+        &self,
+        resource: &PubkyResource,
+        _from: Option<&PubkyId>,
+    ) -> Result<Vec<u8>, HsError> {
         self.resources
             .get(&resource.to_pubky_url())
             .cloned()
             .ok_or_else(|| not_found(resource, HsOp::GetResource))
     }
 
-    async fn get_blob(&self, resource: &PubkyResource) -> Result<Vec<u8>, HsError> {
+    async fn get_blob(
+        &self,
+        resource: &PubkyResource,
+        _from: Option<&PubkyId>,
+    ) -> Result<Vec<u8>, HsError> {
         Err(not_found(resource, HsOp::GetBlob))
     }
 }

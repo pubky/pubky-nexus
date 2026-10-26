@@ -84,8 +84,8 @@ impl TEventProcessor for KeyBasedEventProcessor {
         Some(&self.retry_scheduler)
     }
 
-    fn homeserver_id(&self) -> Option<&str> {
-        Some(self.homeserver_id.as_ref())
+    fn homeserver_id(&self) -> Option<&PubkyId> {
+        Some(&self.homeserver_id)
     }
 
     async fn run_internal(self: Arc<Self>) -> Result<RunOutcome, EventProcessorError> {
@@ -308,6 +308,7 @@ impl KeyBasedEventProcessor {
 
             match Event::from_stream_event(&stream_event) {
                 Ok(Some(event)) => {
+                    let event = event.from_homeserver(self.homeserver_id.clone());
                     if let Err(err) = self.handle_event(&event).await {
                         return (latest_cursor, Err(err));
                     }

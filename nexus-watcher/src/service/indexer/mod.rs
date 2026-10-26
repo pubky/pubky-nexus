@@ -11,6 +11,7 @@ use crate::events::retry::RetryScheduler;
 use crate::events::EventHandler;
 use crate::events::{Event, ParseResult};
 use crate::service::SLOW_RUN_THRESHOLD;
+use pubky_app_specs::PubkyId;
 use tracing::{debug, error, trace, warn, Instrument};
 
 /// How a run of an event processor ended when it did not fail.
@@ -78,7 +79,8 @@ pub trait TEventProcessor: Send + Sync + 'static {
         None
     }
 
-    fn homeserver_id(&self) -> Option<&str> {
+    /// The homeserver whose stream this processor reads, when it reads one.
+    fn homeserver_id(&self) -> Option<&PubkyId> {
         None
     }
 
@@ -91,7 +93,7 @@ pub trait TEventProcessor: Send + Sync + 'static {
         let slow_run_threshold = self.slow_run_threshold().unwrap_or(SLOW_RUN_THRESHOLD);
 
         let instance_name = self.instance_name();
-        let homeserver_id = self.homeserver_id().map(str::to_owned);
+        let homeserver_id = self.homeserver_id().map(ToString::to_string);
         let homeserver = homeserver_id.as_deref().map(tracing::field::display);
         let span = tracing::info_span!(
             "event_processor.run",
@@ -170,6 +172,10 @@ pub trait TEventProcessor: Send + Sync + 'static {
                 warn!(%reason, "Unrecognized event URI");
             }
             Ok(ParseResult::Parsed(event)) => {
+                let event = match self.homeserver_id() {
+                    Some(homeserver_id) => event.from_homeserver(homeserver_id.clone()),
+                    None => event,
+                };
                 trace!(?event, "Processing event");
                 self.handle_event(&event).await?;
             }
@@ -218,10 +224,14 @@ pub trait TEventProcessor: Send + Sync + 'static {
         };
 
         if error.is_missing_dependency() {
-            scheduler.queue_missing_dep(event, homeserver_id).await
+            scheduler
+                .queue_missing_dep(event, homeserver_id.as_ref())
+                .await
         } else {
             warn!(error = %error, "Transient error, queuing event for retry");
-            scheduler.queue_transient(event, homeserver_id).await
+            scheduler
+                .queue_transient(event, homeserver_id.as_ref())
+                .await
         }
     }
 

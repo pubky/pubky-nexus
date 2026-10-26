@@ -96,13 +96,22 @@ pub trait HomeserverClient: PkdnsHomeserverResolver + Send + Sync + 'static {
         limit: u16,
     ) -> Result<Vec<HsStreamEvent>, HsError>;
 
-    /// The JSON resource at `resource`, capped at [`MAX_RESOURCE_SIZE`], from the homeserver
-    /// its owner publishes.
-    async fn get_resource(&self, resource: &PubkyResource) -> Result<Vec<u8>, HsError>;
+    /// The JSON resource at `resource`, capped at [`MAX_RESOURCE_SIZE`]. From `from` when
+    /// given, the homeserver whose stream delivered the event, else from the homeserver its
+    /// owner publishes.
+    async fn get_resource(
+        &self,
+        resource: &PubkyResource,
+        from: Option<&PubkyId>,
+    ) -> Result<Vec<u8>, HsError>;
 
-    /// The blob at `resource`, capped at the configured `max_file_size`, from the homeserver
-    /// its owner publishes.
-    async fn get_blob(&self, resource: &PubkyResource) -> Result<Vec<u8>, HsError>;
+    /// The blob at `resource`, capped at the configured `max_file_size`. From `from` when
+    /// given, else from the homeserver its owner publishes.
+    async fn get_blob(
+        &self,
+        resource: &PubkyResource,
+        from: Option<&PubkyId>,
+    ) -> Result<Vec<u8>, HsError>;
 }
 
 /// [`HomeserverClient`] over the Pubky SDK.
@@ -126,14 +135,43 @@ impl PubkyHomeserverClient {
 
     /// GETs `resource`, returning the response for the caller to read under its cap.
     ///
+    /// From `from` when given, addressed by its own key with the owner in the `pubky-host`
+    /// header, so the request goes where the event came from: the SDK's `pubky://`
+    /// resolution keeps a pooled connection to the homeserver the owner was on, keyed by
+    /// the owner's hostname, and would keep answering from there after a switch for as
+    /// long as requests keep it alive. A non-2xx answer is classified as the SDK's own.
+    ///
     /// The SDK reads a non-2xx body whole, before [`HsErrorKind::from_sdk`] keeps 4 KiB of
     /// it, so for resources and blobs that cap limits what is kept, not what is read.
-    async fn get(&self, resource: &PubkyResource) -> Result<reqwest::Response, HsErrorKind> {
-        self.pubky
-            .public_storage()
-            .get(resource)
+    async fn get(
+        &self,
+        resource: &PubkyResource,
+        from: Option<&PubkyId>,
+    ) -> Result<reqwest::Response, HsErrorKind> {
+        let Some(hs) = from else {
+            return self
+                .pubky
+                .public_storage()
+                .get(resource)
+                .await
+                .map_err(HsErrorKind::from_sdk);
+        };
+        let response = self
+            .pubky
+            .client()
+            .request(Method::GET, &resource_url(hs, resource))
+            .header("pubky-host", resource.owner.z32())
+            .send()
             .await
-            .map_err(HsErrorKind::from_sdk)
+            .map_err(|e| HsErrorKind::from_reqwest(&e))?;
+        let status = response.status();
+        if status.is_success() {
+            return Ok(response);
+        }
+        let (body, _) = read_stream_capped(response.bytes_stream(), MAX_ERROR_BODY)
+            .await
+            .unwrap_or_default();
+        Err(HsErrorKind::from_status(status, &body))
     }
 
     /// One `/events-stream` request, without retries.
@@ -238,12 +276,20 @@ impl HomeserverClient for PubkyHomeserverClient {
         user_events_with(hs, user, || self.fetch_user_events(hs, user, cursor, limit)).await
     }
 
-    async fn get_resource(&self, resource: &PubkyResource) -> Result<Vec<u8>, HsError> {
-        get_resource_with(resource, self.get(resource)).await
+    async fn get_resource(
+        &self,
+        resource: &PubkyResource,
+        from: Option<&PubkyId>,
+    ) -> Result<Vec<u8>, HsError> {
+        get_resource_with(resource, self.get(resource, from)).await
     }
 
-    async fn get_blob(&self, resource: &PubkyResource) -> Result<Vec<u8>, HsError> {
-        get_blob_with(resource, self.max_file_size, self.get(resource)).await
+    async fn get_blob(
+        &self,
+        resource: &PubkyResource,
+        from: Option<&PubkyId>,
+    ) -> Result<Vec<u8>, HsError> {
+        get_blob_with(resource, self.max_file_size, self.get(resource, from)).await
     }
 }
 
@@ -342,6 +388,12 @@ fn events_url(hs: &PubkyId, cursor: u64, limit: u16) -> String {
     format!("https://{hs}/events/?cursor={cursor}&limit={limit}")
 }
 
+/// The URL of `resource` on `hs`, the homeserver's own address: the owner goes in the
+/// `pubky-host` header.
+fn resource_url(hs: &PubkyId, resource: &PubkyResource) -> String {
+    format!("https://{hs}{}", resource.path)
+}
+
 /// Turns a `/events/` response into the lines it carries.
 ///
 /// The status is checked before the body is read: an error page has lines and
@@ -408,6 +460,21 @@ mod tests {
         assert_eq!(
             events_url(&hs_id(), 42, 17),
             format!("https://{HS_ID}/events/?cursor=42&limit=17")
+        );
+    }
+
+    // --- resource_url ---
+
+    /// A resource fetched from a known homeserver is addressed to that homeserver, under
+    /// the owner's path.
+    #[test]
+    fn resource_url_addresses_the_homeserver_under_the_owners_path() {
+        let owner = pubky::Keypair::random().public_key();
+        let resource = PubkyResource::new(owner, "/pub/pubky.app/posts/0001").unwrap();
+
+        assert_eq!(
+            resource_url(&hs_id(), &resource),
+            format!("https://{HS_ID}/pub/pubky.app/posts/0001")
         );
     }
 

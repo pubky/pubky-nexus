@@ -40,8 +40,8 @@ impl TEventProcessor for MockEventProcessor {
         "MockEventProcessor"
     }
 
-    fn homeserver_id(&self) -> Option<&str> {
-        Some(self.homeserver_id.as_ref())
+    fn homeserver_id(&self) -> Option<&PubkyId> {
+        Some(&self.homeserver_id)
     }
 
     fn retry_scheduler(&self) -> Option<&Arc<RetryScheduler>> {

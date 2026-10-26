@@ -1,7 +1,7 @@
 use crate::errors::EventProcessorError;
 use crate::homeserver::HsStreamEvent;
 use nexus_common::models::event::EventLine;
-use pubky_app_specs::{ExtendedParsedUri, Resource};
+use pubky_app_specs::{ExtendedParsedUri, PubkyId, Resource};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use tracing::{debug, warn};
@@ -70,6 +70,12 @@ pub struct Event {
 
     /// Parsed representation of [`Self::uri`].
     pub parsed_uri: ExtendedParsedUri,
+
+    /// The homeserver whose stream delivered the event, when known. The
+    /// resource is fetched from it rather than from wherever the user's record
+    /// resolves at fetch time, so a user who just switched homeservers is read
+    /// where their events come from.
+    pub homeserver: Option<PubkyId>,
 
     /// Original event line as received from the homeserver.
     event_line: String,
@@ -164,8 +170,15 @@ impl Event {
             uri,
             event_type,
             parsed_uri,
+            homeserver: None,
             event_line,
         }))
+    }
+
+    /// Records the homeserver whose stream delivered the event.
+    pub fn from_homeserver(mut self, homeserver: PubkyId) -> Self {
+        self.homeserver = Some(homeserver);
+        self
     }
 
     pub fn to_event_line(&self) -> EventLine {

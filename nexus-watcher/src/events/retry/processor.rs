@@ -6,6 +6,7 @@ use crate::events::{Event, ParseResult};
 use chrono::{DateTime, Utc};
 use nexus_common::config::EventRetryConfig;
 use nexus_common::WatcherConfig;
+use pubky_app_specs::PubkyId;
 use tokio::sync::watch::Receiver;
 use tracing::{debug, info, warn};
 
@@ -108,8 +109,21 @@ impl RetryProcessor {
         // The fetched RetryEvent deserialized fine (only the reconstructed event
         // line failed to parse), so its nonce is trustworthy and the cleanup can
         // be conditional too: a newer entry for the same URI must survive.
+        // The origin was written from a homeserver's key. An entry whose origin
+        // does not read as one is fetched through the user's record instead.
+        let origin = PubkyId::try_from(retry_event.origin_homeserver_id.as_str())
+            .inspect_err(|e| {
+                warn!(
+                    "Retry entry for key {index_key} names no homeserver key ({e}); \
+                     fetching by record"
+                )
+            })
+            .ok();
         let event = match Event::parse_event(&event_line) {
-            Ok(ParseResult::Parsed(event)) => event,
+            Ok(ParseResult::Parsed(event)) => match origin {
+                Some(origin) => event.from_homeserver(origin),
+                None => event,
+            },
             Ok(ParseResult::Skipped) | Err(_) => {
                 warn!("Corrupted retry entry for key {index_key}, removing: '{event_line}'");
                 self.remove_if_current(index_key, retry_event.nonce, &retry_event.event_uri)
