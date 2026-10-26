@@ -26,7 +26,7 @@ use nexus_common::{ScopeConfig, WatcherConfig};
 use crate::scope::{follows_changed, seed_members, take_follows_changed, watcher_ingestor};
 use crate::service::scope_bootstrap::unexpired_suggestions;
 use pubky_app_specs::PubkyId;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
@@ -72,6 +72,10 @@ pub struct ScopeMaintainer {
     /// two never overlap: one reading the members before another stored suggestions could
     /// let go of users the other just let in.
     last_recompute: Mutex<Instant>,
+    /// Members whose admission failed, and when. Each try looks the member's homeserver
+    /// up, and a recompute can run every few seconds over thousands of suggested users,
+    /// so one isn't tried again until the interval passed. In memory: a start tries all.
+    failed_admissions: std::sync::Mutex<HashMap<String, Instant>>,
     /// Narrows every graph-wide search to these users; `None` in production.
     /// Tests share one graph, so they pass their own users.
     limit_to: Option<Vec<String>>,
@@ -103,6 +107,7 @@ impl ScopeMaintainer {
             ingestor,
             interval: Duration::from_millis(config.scope_maintenance.interval_ms),
             last_recompute: Mutex::new(Instant::now()),
+            failed_admissions: Default::default(),
             limit_to,
         }
     }
@@ -228,8 +233,8 @@ impl ScopeMaintainer {
     /// member leaves, the moderator aside.
     ///
     /// One user failing (no published homeserver, a lookup timing out) is logged and
-    /// doesn't stop the others: still new, or still in, at the next recompute, it is tried
-    /// again then.
+    /// doesn't stop the others: still new, or still in, it is tried again by the first
+    /// recompute once the interval passed (see [`Self::failed_admissions`]).
     async fn recompute_members(&self, seed: &PubkyId, hops: u8) -> ModelResult<ScopeChange> {
         let mut members = seed_members(seed, hops).await?;
         // At the last hop: their distance in this graph isn't known until their follows
@@ -244,20 +249,37 @@ impl ScopeMaintainer {
             .into_iter()
             .collect();
 
+        let recently_failed: HashSet<String> = {
+            let mut failed = self.failed_admissions();
+            failed.retain(|_, at| at.elapsed() < self.interval);
+            failed.keys().cloned().collect()
+        };
+
         let mut change = ScopeChange::default();
         // Closest first, so a long run brings in the seed's own follows before theirs.
         let mut joining: Vec<(&String, &u8)> = members
             .iter()
-            .filter(|(id, _)| !in_scope.contains(*id))
+            .filter(|(id, _)| !in_scope.contains(*id) && !recently_failed.contains(*id))
             .collect();
         joining.sort_by_key(|(id, hop)| (**hop, id.as_str()));
         for (user_id, _) in joining {
-            match self.admit(user_id).await {
-                Ok(true) => change.joined += 1,
+            let joined = match self.admit(user_id).await {
+                Ok(true) => true,
                 Ok(false) => {
-                    warn!(%user_id, "Could not bring a member in: no published homeserver")
+                    warn!(%user_id, "Could not bring a member in: no published homeserver");
+                    false
                 }
-                Err(e) => warn!(%user_id, error = %e, "Could not bring a member in"),
+                Err(e) => {
+                    warn!(%user_id, error = %e, "Could not bring a member in");
+                    false
+                }
+            };
+            if joined {
+                change.joined += 1;
+                self.failed_admissions().remove(user_id);
+            } else {
+                self.failed_admissions()
+                    .insert(user_id.clone(), Instant::now());
             }
         }
         let gone = in_scope
@@ -270,6 +292,12 @@ impl ScopeMaintainer {
             }
         }
         Ok(change)
+    }
+
+    fn failed_admissions(&self) -> std::sync::MutexGuard<'_, HashMap<String, Instant>> {
+        self.failed_admissions
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     /// Brings a seed scope's member in: ingested if never met (kept out, as a seed scope

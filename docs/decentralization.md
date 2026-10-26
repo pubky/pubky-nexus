@@ -341,7 +341,8 @@ which the graph records (a member has no `scope_state`): who is new joins, who i
 leaves. This runs at start, within seconds of a follow being indexed or removed (a check
 every 5 seconds), and every `[scope_maintenance] interval_ms` in case one was missed. A
 user first met through a member's follow is an outsider until then. One that can't join
-(no published homeserver, a lookup timing out) is tried again at the next run.
+(no published homeserver, a lookup timing out) is tried again by the first run once the
+interval passed, so frequent runs don't look it up over and over.
 
 **Seed bootstrap — `[scope_bootstrap]`** (`[watcher.scope_bootstrap]` in a combined
 config). A new seed scope finds its members hop by hop by default (`source = "crawl"`):
@@ -353,9 +354,12 @@ member for 24 hours (`Scope:Suggested:<seed>:<hops>`, kept per seed and hop coun
 narrower scope never inherits it), so its own stream is read from its own homeserver, and
 the follows read that way confirm it or let it go once the suggestion expires. Content
 always comes from homeservers. It runs once per seed and hop count
-(`Scope:Bootstrapped:<seed>:<hops>`), and falls back to crawling if a request fails 3
-times. It is bounded whatever the Nexus answers: at most 20,000 requests, 10,000 follows
-per user and 50,000 suggested users, past which crawling finds the rest.
+(`Scope:Bootstrapped:<seed>:<hops>`); one that suggests nobody (the Nexus may not know
+the seed yet) runs again at the next start. A rate limit (`429`) is waited out as the
+Nexus asks, at most 5 times per request; any other failure falls back to crawling after
+3 tries. Only valid user ids from its answers are used. It is bounded whatever the Nexus
+answers: at most 20,000 requests, 10,000 follows per user and 50,000 suggested users,
+past which crawling finds the rest.
 
 ```toml
 [scope_bootstrap]

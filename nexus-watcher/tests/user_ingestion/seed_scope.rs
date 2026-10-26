@@ -7,8 +7,8 @@ use nexus_common::db::{exec_single_row, fetch_key_from_graph, get_redis_conn, qu
 use nexus_common::models::scope::{Scope, SeedScope};
 use nexus_common::models::user::outsider::create_outsider;
 use nexus_common::models::user::{
-    catch_up, PubkyConnectorResolver, UserDetails, UserHsCursor, UserIngestor, SCOPE_STATE_LEFT,
-    SCOPE_STATE_OUTSIDE,
+    catch_up, PkdnsHomeserverResolver, PubkyConnectorResolver, UserDetails, UserHsCursor,
+    UserIngestor, SCOPE_STATE_LEFT, SCOPE_STATE_OUTSIDE,
 };
 use nexus_common::utils::test_utils::random_pubky_id;
 use nexus_common::{ScopeConfig, WatcherConfig};
@@ -31,6 +31,23 @@ fn seed_maintainer(
     moderator: &PubkyId,
     users: &[&PubkyId],
 ) -> (UserIngestor, ScopeMaintainer) {
+    seed_maintainer_with(
+        seed,
+        hops,
+        moderator,
+        users,
+        Arc::new(PubkyConnectorResolver),
+    )
+}
+
+/// [`seed_maintainer`] looking homeservers up through `resolver`.
+fn seed_maintainer_with(
+    seed: &PubkyId,
+    hops: u8,
+    moderator: &PubkyId,
+    users: &[&PubkyId],
+    resolver: Arc<dyn PkdnsHomeserverResolver>,
+) -> (UserIngestor, ScopeMaintainer) {
     let mut config = WatcherConfig::default();
     config.stack.scope = ScopeConfig::Seed {
         seed: seed.clone(),
@@ -39,8 +56,7 @@ fn seed_maintainer(
     config.moderation_id = moderator.clone();
     config.scope_maintenance.interval_ms = 3_600_000;
     let scope: Arc<dyn Scope> = Arc::new(SeedScope::new(seed.clone(), hops));
-    let ingestor = UserIngestor::new(Vec::<PubkyId>::new(), Arc::new(PubkyConnectorResolver))
-        .with_scope(scope);
+    let ingestor = UserIngestor::new(Vec::<PubkyId>::new(), resolver).with_scope(scope);
     let limit_to = Some(users.iter().map(|id| id.to_string()).collect());
     let maintainer = ScopeMaintainer::new(&config, ingestor.clone(), limit_to);
     (ingestor, maintainer)
@@ -416,5 +432,72 @@ async fn test_a_failed_bootstrap_is_tried_again_next_start() -> Result<()> {
     assert!(down.requests.load(Ordering::Relaxed) > 0, "asked");
     assert_eq!(suggested, 0, "nothing suggested");
     assert!(!recorded, "not recorded, so tried again");
+    Ok(())
+}
+
+/// A big Nexus that knows nobody for the seed (it may not know the seed yet) leaves the
+/// bootstrap to be tried again next start.
+#[tokio_shared_rt::test(shared)]
+async fn test_a_bootstrap_that_suggests_nobody_is_tried_again() -> Result<()> {
+    WatcherTest::setup(None).await?;
+    let seed = random_pubky_id();
+    let (_, maintainer) = seed_maintainer(&seed, 1, &random_pubky_id(), &[&seed]);
+
+    bootstrap_seed_scope(&maintainer, &FakeBigNexus::new(&seed, Some(Vec::new()))).await;
+    let mut redis_conn = get_redis_conn().await?;
+    let recorded: bool = redis_conn
+        .exists(format!("Scope:Bootstrapped:{seed}:1"))
+        .await?;
+
+    assert!(!recorded, "not recorded, so asked again");
+    Ok(())
+}
+
+/// Looks homeservers up as the real resolver does, counting the lookups.
+struct CountingResolver(AtomicU32);
+
+#[async_trait::async_trait]
+impl PkdnsHomeserverResolver for CountingResolver {
+    async fn resolve_homeserver(
+        &self,
+        user_pk: &pubky::PublicKey,
+    ) -> nexus_common::db::PubkyClientResult<Option<PubkyId>> {
+        self.0.fetch_add(1, Ordering::Relaxed);
+        PubkyConnectorResolver.resolve_homeserver(user_pk).await
+    }
+}
+
+/// A member that couldn't join isn't looked up again by every recompute, which may run
+/// within seconds over thousands of suggested users, but once the interval passed.
+#[tokio_shared_rt::test(shared)]
+async fn test_a_member_that_couldnt_join_waits_for_the_interval() -> Result<()> {
+    let test = WatcherTest::setup(None).await?;
+    let hs = test.homeserver_id.to_public_key();
+    let (_, seed) = user_on(&test, &hs).await?;
+    let unpublished = random_pubky_id();
+    let resolver = Arc::new(CountingResolver(AtomicU32::new(0)));
+    let (ingestor, maintainer) = seed_maintainer_with(
+        &seed,
+        1,
+        &random_pubky_id(),
+        &[&seed, &unpublished],
+        resolver.clone(),
+    );
+    ingestor.maybe_ingest_user(&seed).await?;
+    create_outsider(&UserDetails::from_pubky(unpublished.clone())).await?;
+    follow(&seed, &unpublished, &ingestor).await?;
+
+    let before = resolver.0.load(Ordering::Relaxed);
+    maintainer.at_start().await?;
+    let first = resolver.0.load(Ordering::Relaxed);
+    maintainer.recompute_now().await?;
+    let second = resolver.0.load(Ordering::Relaxed);
+
+    assert!(first > before, "looked up once");
+    assert_eq!(second, first, "not again before the interval");
+    assert_eq!(
+        scope_state(&unpublished).await?.as_deref(),
+        Some(SCOPE_STATE_OUTSIDE)
+    );
     Ok(())
 }
