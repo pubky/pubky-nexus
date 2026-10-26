@@ -23,7 +23,9 @@ use nexus_common::models::user::{
 };
 use nexus_common::{ScopeConfig, WatcherConfig};
 
-use crate::scope::{follows_changed, seed_members, take_follows_changed, watcher_ingestor};
+use crate::scope::{
+    follows_changed, seed_members, take_follows_changed, watcher_ingestor, MAX_SEED_MEMBERS,
+};
 use crate::service::scope_bootstrap::unexpired_suggestions;
 use pubky_app_specs::PubkyId;
 use std::collections::{HashMap, HashSet};
@@ -236,12 +238,12 @@ impl ScopeMaintainer {
     /// doesn't stop the others: still new, or still in, it is tried again by the first
     /// recompute once the interval passed (see [`Self::failed_admissions`]).
     async fn recompute_members(&self, seed: &PubkyId, hops: u8) -> ModelResult<ScopeChange> {
-        let mut members = seed_members(seed, hops).await?;
-        // At the last hop: their distance in this graph isn't known until their follows
-        // are read.
-        for suggested in unexpired_suggestions(seed, hops).await? {
-            members.entry(suggested).or_insert(hops);
-        }
+        let members = with_suggestions(
+            seed_members(seed, hops, MAX_SEED_MEMBERS).await?,
+            unexpired_suggestions(seed, hops).await?,
+            hops,
+            MAX_SEED_MEMBERS,
+        );
         let query = queries::get::get_in_scope_user_ids(self.limit_to.as_deref());
         let in_scope: HashSet<String> = fetch_key_from_graph::<Vec<String>>(query, "user_ids")
             .await?
@@ -453,5 +455,50 @@ impl ScopeMaintainer {
             .await
             .map_err(RedisError::from)?;
         Ok(())
+    }
+}
+
+/// `members` with the `suggested` users added, but at most `max` in all: suggestions only
+/// fill the room the walk left, by id, so the most members holds whatever a big Nexus
+/// said. At the last hop: their distance in this graph isn't known until their follows
+/// are read.
+fn with_suggestions(
+    mut members: HashMap<String, u8>,
+    mut suggested: Vec<String>,
+    hops: u8,
+    max: usize,
+) -> HashMap<String, u8> {
+    suggested.sort();
+    for user_id in suggested {
+        if members.len() >= max {
+            break;
+        }
+        members.entry(user_id).or_insert(hops);
+    }
+    members
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Suggestions fill only the room the walk left, smallest ids first, and never
+    /// change a walked member's distance.
+    #[test]
+    fn suggestions_fill_only_the_room_left() {
+        let walked = HashMap::from([("seed".to_string(), 0), ("a".to_string(), 1)]);
+        let suggested = ["d", "a", "c", "b"].map(String::from).to_vec();
+
+        let members = with_suggestions(walked, suggested, 2, 4);
+
+        assert_eq!(
+            members,
+            HashMap::from([
+                ("seed".to_string(), 0),
+                ("a".to_string(), 1),
+                ("b".to_string(), 2),
+                ("c".to_string(), 2),
+            ])
+        );
     }
 }

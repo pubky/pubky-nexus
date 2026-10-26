@@ -12,6 +12,7 @@ use nexus_common::models::scope::{scope_from_config, Scope};
 use nexus_common::models::user::{PkdnsHomeserverResolver, UserIngestor};
 use nexus_common::{ScopeConfig, WatcherConfig};
 use pubky_app_specs::PubkyId;
+use tracing::warn;
 
 /// A scope that also always includes some users, whatever the setting: the moderator,
 /// whose tags take content down, must be read on every Nexus. Pinned users never
@@ -96,28 +97,41 @@ pub(crate) fn take_follows_changed() -> bool {
     FOLLOWS_CHANGED.swap(false, Ordering::AcqRel)
 }
 
+/// The most members a seed scope has. One member following everyone would otherwise
+/// make it index everything; past it, the closest users are kept.
+pub const MAX_SEED_MEMBERS: usize = 50_000;
+
 /// A seed scope's members: the seed at hop 0 and everyone it reaches in at most `hops`
-/// follows, each at its shortest distance. Worked out from the graph, which holds every
-/// follow every member made whatever order they were read in, so the same follows always
-/// give the same members. A member whose profile is deleted stays one: its stream, still
-/// read, may write a new profile. One query per hop.
-pub async fn seed_members(seed: &PubkyId, hops: u8) -> ModelResult<HashMap<String, u8>> {
+/// follows, each at its shortest distance, at most `max`. Worked out from the graph, which
+/// holds every follow every member made whatever order they were read in, so the same
+/// follows always give the same members; past `max`, the closest are kept, by id within a
+/// hop. A member whose profile is deleted stays one: its stream, still read, may write a
+/// new profile. One query per hop.
+pub async fn seed_members(
+    seed: &PubkyId,
+    hops: u8,
+    max: usize,
+) -> ModelResult<HashMap<String, u8>> {
     let mut members = HashMap::from([(seed.to_string(), 0)]);
     let mut frontier = vec![seed.to_string()];
     for hop in 1..=hops {
-        if frontier.is_empty() {
+        let room = max.saturating_sub(members.len());
+        if frontier.is_empty() || room == 0 {
             break;
         }
-        let query = queries::get::get_followees_of(&frontier);
-        let followees: Vec<String> = fetch_key_from_graph(query, "user_ids")
+        let known: Vec<String> = members.keys().cloned().collect();
+        let query = queries::get::get_followees_of(&frontier, &known, room);
+        frontier = fetch_key_from_graph(query, "user_ids")
             .await?
             .unwrap_or_default();
-        frontier = followees
-            .into_iter()
-            .filter(|followee| !members.contains_key(followee))
-            .collect();
         for followee in &frontier {
             members.insert(followee.clone(), hop);
+        }
+        if members.len() >= max {
+            warn!(
+                max,
+                "The seed scope reached its most members; the closest are kept"
+            );
         }
     }
     Ok(members)

@@ -342,7 +342,10 @@ leaves. This runs at start, within seconds of a follow being indexed or removed 
 every 5 seconds), and every `[scope_maintenance] interval_ms` in case one was missed. A
 user first met through a member's follow is an outsider until then. One that can't join
 (no published homeserver, a lookup timing out) is tried again by the first run once the
-interval passed, so frequent runs don't look it up over and over.
+interval passed, so frequent runs don't look it up over and over. A seed scope has at
+most 50,000 members, so one member following everyone can't make it index everything:
+past that, the closest are kept, by id within a hop; users a big Nexus suggested (below)
+only fill the room left.
 
 **Seed bootstrap — `[scope_bootstrap]`** (`[watcher.scope_bootstrap]` in a combined
 config). A new seed scope finds its members hop by hop by default (`source = "crawl"`):

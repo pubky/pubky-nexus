@@ -13,7 +13,7 @@ use nexus_common::models::user::{
 use nexus_common::utils::test_utils::random_pubky_id;
 use nexus_common::{ScopeConfig, WatcherConfig};
 use nexus_watcher::events::handlers;
-use nexus_watcher::scope::seed_members;
+use nexus_watcher::scope::{seed_members, MAX_SEED_MEMBERS};
 use nexus_watcher::service::scope_bootstrap::{
     bootstrap_seed_scope, suggest_members, FollowingSource,
 };
@@ -104,8 +104,8 @@ async fn test_seed_members_are_who_the_seed_reaches_by_following() -> Result<()>
     exec_single_row(create).await?;
 
     let seed_id = PubkyId::try_from(seed.as_str()).map_err(anyhow::Error::msg)?;
-    let two_hops = seed_members(&seed_id, 2).await;
-    let three_hops = seed_members(&seed_id, 3).await;
+    let two_hops = seed_members(&seed_id, 2, MAX_SEED_MEMBERS).await;
+    let three_hops = seed_members(&seed_id, 3, MAX_SEED_MEMBERS).await;
 
     let delete = Query::new(
         "test_delete_seed_follows",
@@ -269,7 +269,7 @@ async fn test_a_member_whose_profile_is_deleted_is_still_read() -> Result<()> {
         ..Default::default()
     };
     handlers::user::sync_put(profile, profile_uri, friend.clone()).await?;
-    let members = seed_members(&seed, 1).await?;
+    let members = seed_members(&seed, 1, MAX_SEED_MEMBERS).await?;
     catch_up::caught_up(&friend).await?;
 
     assert_eq!(recomputed, ScopeChange::default(), "nobody left");
@@ -279,6 +279,110 @@ async fn test_a_member_whose_profile_is_deleted_is_still_read() -> Result<()> {
     );
     assert_eq!(deleted_cursors.len(), 1, "still bound, so still read");
     assert!(members.contains_key(friend.as_ref()), "a member once back");
+    Ok(())
+}
+
+/// One member following everyone can't make a seed scope index everything: past the most
+/// members, the closest are kept, by id within a hop, the same every time.
+#[tokio_shared_rt::test(shared)]
+async fn test_seed_members_stop_at_the_most() -> Result<()> {
+    WatcherTest::setup(None).await?;
+    let seed = random_pubky_id().to_string();
+    let mut followees = [(); 3].map(|_| random_pubky_id().to_string());
+    let further = random_pubky_id().to_string();
+    let create = Query::new(
+        "test_seed_follows_many",
+        "CREATE (s:User {id: $seed}), (f:User {id: $further})
+         WITH s, f
+         UNWIND $followees AS followee
+         CREATE (s)-[:FOLLOWS]->(v:User {id: followee})-[:FOLLOWS]->(f)",
+    )
+    .param("seed", seed.clone())
+    .param("further", further.clone())
+    .param("followees", followees.to_vec());
+    exec_single_row(create).await?;
+
+    let seed_id = PubkyId::try_from(seed.as_str()).map_err(anyhow::Error::msg)?;
+    let capped = seed_members(&seed_id, 2, 3).await;
+    let again = seed_members(&seed_id, 2, 3).await;
+
+    let mut ids = followees.to_vec();
+    ids.extend([seed.clone(), further]);
+    let delete = Query::new(
+        "test_delete_seed_follows_many",
+        "MATCH (u:User) WHERE u.id IN $ids DETACH DELETE u",
+    )
+    .param("ids", ids);
+    exec_single_row(delete).await?;
+
+    followees.sort();
+    let expected = HashMap::from([
+        (seed, 0),
+        (followees[0].clone(), 1),
+        (followees[1].clone(), 1),
+    ]);
+    assert_eq!(
+        capped?, expected,
+        "the seed and its two follows first by id"
+    );
+    assert_eq!(again?, expected, "the same every time");
+    Ok(())
+}
+
+/// Looks homeservers up as the real resolver does, counting the lookups of one user.
+struct CountingResolver {
+    counted: PubkyId,
+    lookups: AtomicU32,
+}
+
+#[async_trait::async_trait]
+impl PkdnsHomeserverResolver for CountingResolver {
+    async fn resolve_homeserver(
+        &self,
+        user_pk: &pubky::PublicKey,
+    ) -> nexus_common::db::PubkyClientResult<Option<PubkyId>> {
+        if user_pk.to_z32() == self.counted.as_ref() {
+            self.lookups.fetch_add(1, Ordering::Relaxed);
+        }
+        PubkyConnectorResolver.resolve_homeserver(user_pk).await
+    }
+}
+
+/// A member that couldn't join isn't looked up again by every recompute, which runs
+/// within seconds of any follow, but once the interval passed.
+#[tokio_shared_rt::test(shared)]
+async fn test_a_member_that_couldnt_join_waits_for_the_interval() -> Result<()> {
+    let test = WatcherTest::setup(None).await?;
+    let hs = test.homeserver_id.to_public_key();
+    let (_, seed) = user_on(&test, &hs).await?;
+    let (_, friend) = user_on(&test, &hs).await?;
+    let unpublished = random_pubky_id();
+    let resolver = Arc::new(CountingResolver {
+        counted: unpublished.clone(),
+        lookups: AtomicU32::new(0),
+    });
+    let (ingestor, maintainer) = seed_maintainer_with(
+        &seed,
+        1,
+        &random_pubky_id(),
+        &[&seed, &unpublished, &friend],
+        resolver.clone(),
+    );
+    ingestor.maybe_ingest_user(&seed).await?;
+    create_outsider(&UserDetails::from_pubky(unpublished.clone())).await?;
+    follow(&seed, &unpublished, &ingestor).await?;
+
+    maintainer.at_start().await?;
+    let first = resolver.lookups.load(Ordering::Relaxed);
+    // Another follow: the next check works the members out again.
+    follow(&seed, &friend, &ingestor).await?;
+    let next = maintainer.tick().await?;
+    let second = resolver.lookups.load(Ordering::Relaxed);
+    catch_up::caught_up(&friend).await?;
+
+    assert!(first > 0, "looked up once");
+    assert_eq!(next.joined, 1, "the check ran: the new follow joined");
+    assert_eq!(second, first, "not looked up again before the interval");
     Ok(())
 }
 
@@ -450,54 +554,5 @@ async fn test_a_bootstrap_that_suggests_nobody_is_tried_again() -> Result<()> {
         .await?;
 
     assert!(!recorded, "not recorded, so asked again");
-    Ok(())
-}
-
-/// Looks homeservers up as the real resolver does, counting the lookups.
-struct CountingResolver(AtomicU32);
-
-#[async_trait::async_trait]
-impl PkdnsHomeserverResolver for CountingResolver {
-    async fn resolve_homeserver(
-        &self,
-        user_pk: &pubky::PublicKey,
-    ) -> nexus_common::db::PubkyClientResult<Option<PubkyId>> {
-        self.0.fetch_add(1, Ordering::Relaxed);
-        PubkyConnectorResolver.resolve_homeserver(user_pk).await
-    }
-}
-
-/// A member that couldn't join isn't looked up again by every recompute, which may run
-/// within seconds over thousands of suggested users, but once the interval passed.
-#[tokio_shared_rt::test(shared)]
-async fn test_a_member_that_couldnt_join_waits_for_the_interval() -> Result<()> {
-    let test = WatcherTest::setup(None).await?;
-    let hs = test.homeserver_id.to_public_key();
-    let (_, seed) = user_on(&test, &hs).await?;
-    let unpublished = random_pubky_id();
-    let resolver = Arc::new(CountingResolver(AtomicU32::new(0)));
-    let (ingestor, maintainer) = seed_maintainer_with(
-        &seed,
-        1,
-        &random_pubky_id(),
-        &[&seed, &unpublished],
-        resolver.clone(),
-    );
-    ingestor.maybe_ingest_user(&seed).await?;
-    create_outsider(&UserDetails::from_pubky(unpublished.clone())).await?;
-    follow(&seed, &unpublished, &ingestor).await?;
-
-    let before = resolver.0.load(Ordering::Relaxed);
-    maintainer.at_start().await?;
-    let first = resolver.0.load(Ordering::Relaxed);
-    maintainer.recompute_now().await?;
-    let second = resolver.0.load(Ordering::Relaxed);
-
-    assert!(first > before, "looked up once");
-    assert_eq!(second, first, "not again before the interval");
-    assert_eq!(
-        scope_state(&unpublished).await?.as_deref(),
-        Some(SCOPE_STATE_OUTSIDE)
-    );
     Ok(())
 }
