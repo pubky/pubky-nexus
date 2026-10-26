@@ -1,6 +1,7 @@
 use super::file::ConfigLoader;
 use super::{
-    default_stack, FeaturesConfig, ScopeBootstrapConfig, ScopeMaintenanceConfig, StackConfig,
+    default_stack, FeaturesConfig, InboundBridgeConfig, ScopeBootstrapConfig,
+    ScopeMaintenanceConfig, StackConfig,
 };
 use async_trait::async_trait;
 use pubky_app_specs::{PubkyId, VALIDATION_LIMITS};
@@ -183,6 +184,11 @@ pub struct WatcherConfig {
     #[serde(default)]
     pub scope_bootstrap: ScopeBootstrapConfig,
 
+    /// Where a seed scope hears of its outsiders' replies, mentions and follows. See
+    /// [InboundBridgeConfig].
+    #[serde(default)]
+    pub inbound_bridge: InboundBridgeConfig,
+
     // Moderation
     pub moderation_id: PubkyId,
     pub moderated_tags: Vec<String>,
@@ -215,6 +221,7 @@ impl Default for WatcherConfig {
             retry: EventRetryConfig::default(),
             scope_maintenance: ScopeMaintenanceConfig::default(),
             scope_bootstrap: ScopeBootstrapConfig::default(),
+            inbound_bridge: InboundBridgeConfig::default(),
             moderation_id,
             moderated_tags: MODERATED_TAGS.iter().map(|s| s.to_string()).collect(),
         }
