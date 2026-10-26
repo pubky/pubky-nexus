@@ -50,7 +50,9 @@ async fn setup_graph_inner() -> GraphResult<()> {
             // rule at once on an empty graph (test runners start one process
             // per test): the loser is told the rule already exists, which is
             // the state it wanted.
-            Err(e) if e.to_string().contains("EquivalentSchemaRuleAlreadyExists") => {
+            Err(neo4rs::Error::Neo4j(e))
+                if e.code() == "Neo.ClientError.Schema.EquivalentSchemaRuleAlreadyExists" =>
+            {
                 info!("Graph constraint/index already created concurrently: {ddl}");
             }
             Err(e) => {
