@@ -99,7 +99,8 @@ pub(crate) fn take_follows_changed() -> bool {
 /// A seed scope's members: the seed at hop 0 and everyone it reaches in at most `hops`
 /// follows, each at its shortest distance. Worked out from the graph, which holds every
 /// follow every member made whatever order they were read in, so the same follows always
-/// give the same members. One query per hop.
+/// give the same members. A member whose profile is deleted stays one: its stream, still
+/// read, may write a new profile. One query per hop.
 pub async fn seed_members(seed: &PubkyId, hops: u8) -> ModelResult<HashMap<String, u8>> {
     let mut members = HashMap::from([(seed.to_string(), 0)]);
     let mut frontier = vec![seed.to_string()];

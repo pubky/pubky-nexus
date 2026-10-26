@@ -14,7 +14,7 @@ use nexus_common::{ScopeConfig, WatcherConfig};
 use nexus_watcher::events::handlers;
 use nexus_watcher::scope::seed_members;
 use nexus_watcher::service::scope_maintenance::{ScopeChange, ScopeMaintainer};
-use pubky_app_specs::PubkyId;
+use pubky_app_specs::{PubkyAppUser, PubkyId};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -59,7 +59,7 @@ async fn follow(follower: &PubkyId, followee: &PubkyId, ingestor: &UserIngestor)
 }
 
 /// The members are the seed and who it reaches in up to `hops` follows, each at its
-/// shortest distance; a deleted user is left out.
+/// shortest distance; a user whose profile is deleted counts too.
 #[tokio_shared_rt::test(shared)]
 async fn test_seed_members_are_who_the_seed_reaches_by_following() -> Result<()> {
     WatcherTest::setup(None).await?;
@@ -97,7 +97,7 @@ async fn test_seed_members_are_who_the_seed_reaches_by_following() -> Result<()>
             near.clone(),
             far.clone(),
             farther.clone(),
-            deleted,
+            deleted.clone(),
             also_near.clone(),
         ],
     );
@@ -106,6 +106,7 @@ async fn test_seed_members_are_who_the_seed_reaches_by_following() -> Result<()>
     let expected = HashMap::from([
         (seed.clone(), 0),
         (near.clone(), 1),
+        (deleted.clone(), 1),
         (also_near.clone(), 1),
         (far.clone(), 2),
     ]);
@@ -217,5 +218,45 @@ async fn test_a_member_that_cant_join_doesnt_stop_the_others() -> Result<()> {
         "out, to be tried again"
     );
     assert_eq!(moderator_state, None, "the moderator stays in");
+    Ok(())
+}
+
+/// A member whose profile is deleted stays in through a recompute, bound and read, so a
+/// profile it writes later (read in a later batch of its stream) brings it back: it is
+/// never let go between the two.
+#[tokio_shared_rt::test(shared)]
+async fn test_a_member_whose_profile_is_deleted_is_still_read() -> Result<()> {
+    let test = WatcherTest::setup(None).await?;
+    let hs = test.homeserver_id.to_public_key();
+    let (_, seed) = user_on(&test, &hs).await?;
+    let (_, friend) = user_on(&test, &hs).await?;
+    let moderator = random_pubky_id();
+    let (ingestor, maintainer) = seed_maintainer(&seed, 1, &moderator, &[&seed, &friend]);
+    ingestor.maybe_ingest_user(&seed).await?;
+    follow(&seed, &friend, &ingestor).await?;
+    maintainer.at_start().await?;
+
+    let profile_uri = format!("pubky://{friend}/pub/pubky.app/profile.json");
+    handlers::user::del(friend.clone()).await?;
+    let recomputed = maintainer.at_start().await?;
+    let (deleted_state, deleted_cursors) = (
+        scope_state(&friend).await?,
+        UserHsCursor::read(&[friend.as_ref()], &test.homeserver_id).await?,
+    );
+    let profile = PubkyAppUser {
+        name: "Back".to_string(),
+        ..Default::default()
+    };
+    handlers::user::sync_put(profile, profile_uri, friend.clone()).await?;
+    let members = seed_members(&seed, 1).await?;
+    catch_up::caught_up(&friend).await?;
+
+    assert_eq!(recomputed, ScopeChange::default(), "nobody left");
+    assert_eq!(
+        deleted_state, None,
+        "still in scope with its profile deleted"
+    );
+    assert_eq!(deleted_cursors.len(), 1, "still bound, so still read");
+    assert!(members.contains_key(friend.as_ref()), "a member once back");
     Ok(())
 }

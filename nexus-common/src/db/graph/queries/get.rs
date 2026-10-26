@@ -921,12 +921,13 @@ pub fn get_user_scope_state(user_id: &str) -> Query {
 }
 
 /// Retrieves who the users in `user_ids` follow: one hop of a seed scope's members.
-/// Deleted users are left out, as they have no content to read.
+/// A user whose profile is deleted counts: its node and follows remain, and a later
+/// profile can bring it back, so it is still read.
 pub fn get_followees_of(user_ids: &[String]) -> Query {
     Query::new(
         "get_followees_of",
         "MATCH (u:User)-[:FOLLOWS]->(v:User)
-         WHERE u.id IN $user_ids AND NOT coalesce(v.deleted, false)
+         WHERE u.id IN $user_ids
          RETURN collect(DISTINCT v.id) AS user_ids",
     )
     .param("user_ids", user_ids.to_vec())
