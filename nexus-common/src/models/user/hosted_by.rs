@@ -2,6 +2,7 @@
 //! to it. Shared by the watcher's periodic resolver and the API's recheck.
 
 use serde::{Deserialize, Serialize};
+use tracing::{debug, info, warn};
 use utoipa::ToSchema;
 
 use crate::db::{exec_single_row, fetch_row_from_graph, queries, GraphResult};
@@ -37,13 +38,14 @@ pub struct HomeserverMapping {
     pub stale: bool,
 }
 
-/// What applying a resolved record did to the mapping.
+/// What a resolved record does to the stored mapping: decided by
+/// [`Self::decide`], written by [`Self::apply`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MappingUpdate {
     /// No mapping and nothing published; graph untouched.
     Unbound,
     /// No mapping before; bound to the published homeserver now.
-    Bound,
+    Bound { to: PubkyId },
     /// The published homeserver is the stored one; the stale flag is cleared.
     Confirmed { was_stale: bool },
     /// The published homeserver is missing or another one; the mapping is kept
@@ -53,10 +55,88 @@ pub enum MappingUpdate {
         was_stale: bool,
     },
     /// The mapping moved to the published homeserver ([`StaleMapping::Disabled`]).
-    Switched { from: String, was_stale: bool },
+    Switched {
+        from: String,
+        to: PubkyId,
+        was_stale: bool,
+    },
     /// Nothing published; the mapping is kept and the stale flag cleared
     /// ([`StaleMapping::Disabled`]).
     Kept { was_stale: bool },
+}
+
+impl MappingUpdate {
+    /// What PKDNS's answer does to the stored mapping. `resolved` is the
+    /// homeserver the record names, or `None` when there is no record or it
+    /// names none.
+    pub fn decide(
+        stored: Option<&HomeserverMapping>,
+        resolved: Option<&PubkyId>,
+        stale_mapping: StaleMapping,
+    ) -> Self {
+        let Some(stored) = stored else {
+            return match resolved {
+                None => Self::Unbound,
+                Some(hs_id) => Self::Bound { to: hs_id.clone() },
+            };
+        };
+        let was_stale = stored.stale;
+        match (resolved, stale_mapping) {
+            (Some(hs_id), _) if hs_id.as_ref() == stored.hs_id => Self::Confirmed { was_stale },
+            (resolved, StaleMapping::Enabled) => Self::MarkedStale {
+                reason: match resolved {
+                    None => StaleReason::Unresolved,
+                    Some(_) => StaleReason::HsChanged,
+                },
+                was_stale,
+            },
+            (Some(hs_id), StaleMapping::Disabled) => Self::Switched {
+                from: stored.hs_id.clone(),
+                to: hs_id.clone(),
+                was_stale,
+            },
+            (None, StaleMapping::Disabled) => Self::Kept { was_stale },
+        }
+    }
+
+    /// Writes the update to `user_id`'s mapping. The user node must exist.
+    /// Every variant but [`Self::Unbound`] refreshes `resolved_at`.
+    pub async fn apply(&self, user_id: &str) -> GraphResult<()> {
+        match self {
+            Self::Unbound => Ok(()),
+            Self::Bound { to } => {
+                debug!(%user_id, homeserver = %to, "HS mapping created");
+                set_user_homeserver(user_id, to.as_ref()).await
+            }
+            Self::Confirmed { .. } => {
+                debug!(%user_id, "HS mapping still active");
+                set_user_homeserver_stale(user_id, false).await
+            }
+            Self::MarkedStale { reason, .. } => {
+                warn!(%user_id, ?reason, "User homeserver changed or was removed; switching disabled, mapping marked stale");
+                set_user_homeserver_stale(user_id, true).await
+            }
+            Self::Switched { from, to, .. } => {
+                info!(%user_id, %from, %to, "User published another homeserver; HS mapping switched");
+                set_user_homeserver(user_id, to.as_ref()).await
+            }
+            Self::Kept { .. } => {
+                debug!(%user_id, "PKDNS returned no homeserver; HS mapping kept");
+                set_user_homeserver_stale(user_id, false).await
+            }
+        }
+    }
+
+    /// The homeserver the update binds the user to, when it binds one.
+    pub fn bound_to(&self) -> Option<&PubkyId> {
+        match self {
+            Self::Bound { to } | Self::Switched { to, .. } => Some(to),
+            Self::Unbound
+            | Self::Confirmed { .. }
+            | Self::MarkedStale { .. }
+            | Self::Kept { .. } => None,
+        }
+    }
 }
 
 /// Returns the user's stored mapping, if any.
@@ -79,64 +159,6 @@ pub async fn set_user_homeserver(user_id: &str, homeserver_id: &str) -> GraphRes
 /// Toggles the stale flag on a user's existing homeserver mapping.
 pub async fn set_user_homeserver_stale(user_id: &str, stale: bool) -> GraphResult<()> {
     exec_single_row(queries::put::set_user_homeserver_stale(user_id, stale)).await
-}
-
-/// Applies what PKDNS says about `user_id`'s homeserver to the stored mapping.
-///
-/// `resolved` is the homeserver the record names, or `None` when there is no
-/// record or it names none. The user node must exist.
-pub async fn apply_resolved_homeserver(
-    user_id: &str,
-    resolved: Option<&PubkyId>,
-    stale_mapping: StaleMapping,
-) -> GraphResult<MappingUpdate> {
-    let stored = get_user_homeserver(user_id).await?;
-
-    let update = match (stored, resolved) {
-        (None, None) => MappingUpdate::Unbound,
-
-        (None, Some(hs_id)) => {
-            set_user_homeserver(user_id, hs_id).await?;
-            MappingUpdate::Bound
-        }
-
-        (Some(stored), Some(hs_id)) if hs_id.as_ref() == stored.hs_id => {
-            set_user_homeserver_stale(user_id, false).await?;
-            MappingUpdate::Confirmed {
-                was_stale: stored.stale,
-            }
-        }
-
-        (Some(stored), resolved) => match stale_mapping {
-            StaleMapping::Enabled => {
-                set_user_homeserver_stale(user_id, true).await?;
-                MappingUpdate::MarkedStale {
-                    reason: match resolved {
-                        None => StaleReason::Unresolved,
-                        Some(_) => StaleReason::HsChanged,
-                    },
-                    was_stale: stored.stale,
-                }
-            }
-            StaleMapping::Disabled => match resolved {
-                Some(hs_id) => {
-                    set_user_homeserver(user_id, hs_id).await?;
-                    MappingUpdate::Switched {
-                        from: stored.hs_id,
-                        was_stale: stored.stale,
-                    }
-                }
-                None => {
-                    set_user_homeserver_stale(user_id, false).await?;
-                    MappingUpdate::Kept {
-                        was_stale: stored.stale,
-                    }
-                }
-            },
-        },
-    };
-
-    Ok(update)
 }
 
 /// The result of re-checking a user's homeserver against the network.
@@ -163,20 +185,90 @@ pub enum RecheckOutcome {
     Kept,
 }
 
-impl HomeserverRecheck {
-    /// Pairs a [`StaleMapping::Disabled`] update with the resulting binding.
-    /// A `MarkedStale` update cannot come from a recheck; it reads as kept.
-    pub fn new(update: &MappingUpdate, homeserver: Option<String>) -> Self {
-        let outcome = match update {
-            MappingUpdate::Unbound => RecheckOutcome::Unbound,
-            MappingUpdate::Bound => RecheckOutcome::Bound,
-            MappingUpdate::Confirmed { .. } => RecheckOutcome::Confirmed,
-            MappingUpdate::Switched { .. } => RecheckOutcome::Switched,
-            MappingUpdate::Kept { .. } | MappingUpdate::MarkedStale { .. } => RecheckOutcome::Kept,
+/// A recheck follows the record ([`StaleMapping::Disabled`]), so it never
+/// marks a mapping stale; should one arrive anyway, it reads as kept.
+impl From<&MappingUpdate> for RecheckOutcome {
+    fn from(update: &MappingUpdate) -> Self {
+        match update {
+            MappingUpdate::Unbound => Self::Unbound,
+            MappingUpdate::Bound { .. } => Self::Bound,
+            MappingUpdate::Confirmed { .. } => Self::Confirmed,
+            MappingUpdate::Switched { .. } => Self::Switched,
+            MappingUpdate::Kept { .. } | MappingUpdate::MarkedStale { .. } => Self::Kept,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::utils::test_utils::random_pubky_id;
+
+    /// Every combination of stored mapping, resolved record and policy maps to
+    /// one update, and the policy only matters when the record and the stored
+    /// mapping disagree.
+    #[test]
+    fn decide_covers_every_case() {
+        use MappingUpdate::*;
+        use StaleMapping::{Disabled, Enabled};
+        use StaleReason::{HsChanged, Unresolved};
+
+        let (a, b) = (random_pubky_id(), random_pubky_id());
+        let on_a = |stale| HomeserverMapping {
+            hs_id: a.to_string(),
+            stale,
         };
-        Self {
-            homeserver,
-            outcome,
+        let switched = |was_stale| Switched {
+            from: a.to_string(),
+            to: b.clone(),
+            was_stale,
+        };
+        let cases = [
+            (None, None, Enabled, Unbound),
+            (None, None, Disabled, Unbound),
+            (None, Some(&a), Enabled, Bound { to: a.clone() }),
+            (None, Some(&a), Disabled, Bound { to: a.clone() }),
+            (
+                Some(on_a(false)),
+                Some(&a),
+                Enabled,
+                Confirmed { was_stale: false },
+            ),
+            (
+                Some(on_a(true)),
+                Some(&a),
+                Disabled,
+                Confirmed { was_stale: true },
+            ),
+            (
+                Some(on_a(false)),
+                Some(&b),
+                Enabled,
+                MarkedStale {
+                    reason: HsChanged,
+                    was_stale: false,
+                },
+            ),
+            (
+                Some(on_a(true)),
+                None,
+                Enabled,
+                MarkedStale {
+                    reason: Unresolved,
+                    was_stale: true,
+                },
+            ),
+            (Some(on_a(false)), Some(&b), Disabled, switched(false)),
+            (Some(on_a(true)), Some(&b), Disabled, switched(true)),
+            (Some(on_a(false)), None, Disabled, Kept { was_stale: false }),
+            (Some(on_a(true)), None, Disabled, Kept { was_stale: true }),
+        ];
+        for (stored, resolved, policy, expected) in cases {
+            assert_eq!(
+                MappingUpdate::decide(stored.as_ref(), resolved, policy),
+                expected,
+                "stored {stored:?}, resolved {resolved:?}, {policy:?}"
+            );
         }
     }
 }

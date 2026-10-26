@@ -21,8 +21,8 @@ pub use homeserver_resolver::{
     fresh_homeserver_of, PkdnsHomeserverResolver, PubkyConnectorResolver,
 };
 pub use hosted_by::{
-    apply_resolved_homeserver, get_user_homeserver, set_user_homeserver, set_user_homeserver_stale,
-    HomeserverMapping, HomeserverRecheck, MappingUpdate, RecheckOutcome, StaleMapping, StaleReason,
+    get_user_homeserver, set_user_homeserver, set_user_homeserver_stale, HomeserverMapping,
+    HomeserverRecheck, MappingUpdate, RecheckOutcome, StaleMapping, StaleReason,
 };
 pub use influencers::{Influencers, GLOBAL_INFLUENCERS_CACHE_SIZE};
 pub use ingestor::UserIngestor;

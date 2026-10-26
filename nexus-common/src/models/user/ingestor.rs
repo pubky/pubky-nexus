@@ -9,8 +9,8 @@ use crate::models::error::{ModelError, ModelResult};
 use crate::models::homeserver::HsBlacklist;
 use crate::models::traits::Collection;
 use crate::models::user::{
-    apply_resolved_homeserver, get_user_homeserver, set_user_homeserver, HomeserverRecheck,
-    MappingUpdate, StaleMapping, UserDetails, UserHsCursor,
+    get_user_homeserver, set_user_homeserver, HomeserverRecheck, MappingUpdate, RecheckOutcome,
+    StaleMapping, UserDetails, UserHsCursor,
 };
 use crate::StackConfig;
 
@@ -70,7 +70,7 @@ impl UserIngestor {
     pub async fn ensure_hs_not_blacklisted(
         &self,
         user_id: &PubkyId,
-    ) -> ModelResult<Option<String>> {
+    ) -> ModelResult<Option<PubkyId>> {
         let user_pk = user_id.to_public_key();
         self.resolve_unless_blacklisted(user_id, self.resolver.resolve_homeserver(&user_pk))
             .await
@@ -81,7 +81,7 @@ impl UserIngestor {
         &self,
         user_id: &PubkyId,
         lookup: impl Future<Output = PubkyClientResult<Option<PubkyId>>>,
-    ) -> ModelResult<Option<String>> {
+    ) -> ModelResult<Option<PubkyId>> {
         // `user_id` may itself be an HS PK (e.g. a file `src` of the form
         // `pubky://<hs_pk>/...` that addresses the HS directly). The resolver
         // returns `None` for an HS PK, so without this self-check a blacklisted HS
@@ -93,13 +93,14 @@ impl UserIngestor {
         }
 
         let resolved = lookup.await.map_err(ModelError::from_generic)?;
-        let Some(hs_pk) = resolved else {
+        let Some(hs_id) = resolved else {
             return Ok(None);
         };
 
-        let hs_id = hs_pk.to_string();
-        if self.hs_blacklist.is_blacklisted(&hs_id) {
-            return Err(ModelError::HsBlacklisted { hs_id });
+        if self.hs_blacklist.is_blacklisted(hs_id.as_ref()) {
+            return Err(ModelError::HsBlacklisted {
+                hs_id: hs_id.to_string(),
+            });
         }
 
         Ok(Some(hs_id))
@@ -137,10 +138,10 @@ impl UserIngestor {
             .inspect_err(|e| tracing::error!("Failed to ingest user {user_id}: {e}"))?;
 
         // Bind the user to their HS (HOSTED_BY + resolved_at), since we just resolved the HS
-        set_user_homeserver(&user_id_str, &hs_id).await?;
+        set_user_homeserver(&user_id_str, hs_id.as_ref()).await?;
 
         // Seed the user's HS cursor floor (no-op if we're already tracking them).
-        UserHsCursor::init(user_id, &hs_id).await?;
+        UserHsCursor::init(user_id, hs_id.as_ref()).await?;
 
         Ok(())
     }
@@ -165,31 +166,27 @@ impl UserIngestor {
         }
 
         let user_pk = user_id.to_public_key();
-        let resolved = match self
+        let resolved = self
             .resolve_unless_blacklisted(user_id, self.resolver.resolve_homeserver_fresh(&user_pk))
             .await
-            .inspect_err(|e| tracing::warn!("Aborting recheck of {user_id}: {e}"))?
-        {
+            .inspect_err(|e| tracing::warn!("Aborting recheck of {user_id}: {e}"))?;
+
+        let stored = get_user_homeserver(&user_id_str).await?;
+        let update =
+            MappingUpdate::decide(stored.as_ref(), resolved.as_ref(), StaleMapping::Disabled);
+        update.apply(&user_id_str).await?;
+        let homeserver = match update.bound_to() {
             Some(hs_id) => {
-                Some(PubkyId::try_from(hs_id.as_str()).map_err(ModelError::from_generic)?)
+                UserHsCursor::init(user_id, hs_id.as_ref()).await?;
+                Some(hs_id.to_string())
             }
-            None => None,
+            None => stored.map(|mapping| mapping.hs_id),
         };
 
-        let update =
-            apply_resolved_homeserver(&user_id_str, resolved.as_ref(), StaleMapping::Disabled)
-                .await?;
-        if let (MappingUpdate::Bound | MappingUpdate::Switched { .. }, Some(hs_id)) =
-            (&update, &resolved)
-        {
-            tracing::info!("User {user_id} now bound to HS {hs_id} after a recheck");
-            UserHsCursor::init(user_id, hs_id).await?;
-        }
-
-        let homeserver = get_user_homeserver(&user_id_str)
-            .await?
-            .map(|mapping| mapping.hs_id);
-        Ok(Some(HomeserverRecheck::new(&update, homeserver)))
+        Ok(Some(HomeserverRecheck {
+            homeserver,
+            outcome: RecheckOutcome::from(&update),
+        }))
     }
 }
 
@@ -229,6 +226,6 @@ mod tests {
 
         let accepting = UserIngestor::new([blacklisted], Arc::new(FixedResolver(allowed.clone())));
         let hs_id = accepting.ensure_hs_not_blacklisted(&user).await.unwrap();
-        assert_eq!(hs_id, Some(allowed.to_string()));
+        assert_eq!(hs_id, Some(allowed));
     }
 }
