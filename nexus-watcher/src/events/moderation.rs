@@ -47,29 +47,17 @@ impl Moderation {
         ingestor: &UserIngestor,
     ) -> Result<(), EventProcessorError> {
         let lahel = moderator_tag.label;
-        let moderated_uri = &moderator_tag.uri;
 
-        // A profile is not remembered: its address is the user's, and a moderated user may
-        // come back by writing a new profile.
-        if !handlers::tag::is_tag_storage_uri(moderated_uri) {
-            let parsed_uri = ParsedUri::try_from(moderated_uri.as_str())
-                .map_err(EventProcessorError::generic)?;
-            match parsed_uri.resource {
-                Resource::User => {
-                    let user_id = parsed_uri.user_id;
-                    info!("Moderation tag '{lahel}' detected. Deleting user profile {user_id}");
-                    return handlers::user::del(user_id).await;
-                }
-                Resource::Post(_) | Resource::Tag(_) | Resource::File(_) => {}
-                _ => return Ok(()),
+        let uri = match moderation_target(&moderator_tag.uri)? {
+            // A profile is not remembered: its address is the user's, and a moderated user
+            // may come back by writing a new profile.
+            ModerationTarget::User(user_id) => {
+                info!("Moderation tag '{lahel}' detected. Deleting user profile {user_id}");
+                return handlers::user::del(user_id).await;
             }
-        }
-
-        // Recorded under the address an event for it carries: the tag's URI may spell it
-        // differently (a trailing slash, a query) and still name the same record.
-        let uri = ExtendedParsedUri::try_from(moderated_uri.as_str())
-            .and_then(|parsed| parsed.try_to_uri_str())
-            .map_err(EventProcessorError::generic)?;
+            ModerationTarget::Ignore => return Ok(()),
+            ModerationTarget::TakeDown(uri) => uri,
+        };
 
         // Posts, tags and files are remembered before they are deleted, so they stay down
         // even if their own event is read only later, or again, or is being written right
@@ -102,5 +90,102 @@ impl Moderation {
                 _ => Ok(()),
             }
         }
+    }
+}
+
+/// What a moderator tag acts on.
+#[derive(Debug, PartialEq)]
+enum ModerationTarget {
+    /// A profile: the user is deleted.
+    User(PubkyId),
+    /// A post, tag or file, under the address an event for it carries: the tag's URI may
+    /// spell it differently (a trailing slash, a query) and still name the same record.
+    TakeDown(String),
+    /// A pubky.app resource moderation does not act on (a follow, a bookmark, ...).
+    Ignore,
+}
+
+/// Classifies the target URI of a moderator tag.
+///
+/// A URI that is neither a pubky.app URI nor a universal tag path (another scheme, another
+/// app's non-tag path, an invalid user id) can never be taken down by retrying, so it is
+/// rejected with [`EventProcessorError::UnsupportedTarget`], which is not retried, as
+/// `tag::tag_target` does for an ordinary tag.
+fn moderation_target(uri: &str) -> Result<ModerationTarget, EventProcessorError> {
+    let unsupported = |e: String| {
+        EventProcessorError::UnsupportedTarget(format!(
+            "The moderated URI is not a pubky.app URI or a universal tag: {e}"
+        ))
+    };
+
+    if !handlers::tag::is_tag_storage_uri(uri) {
+        let parsed_uri = ParsedUri::try_from(uri).map_err(unsupported)?;
+        match parsed_uri.resource {
+            Resource::User => return Ok(ModerationTarget::User(parsed_uri.user_id)),
+            Resource::Post(_) | Resource::Tag(_) | Resource::File(_) => {}
+            _ => return Ok(ModerationTarget::Ignore),
+        }
+    }
+
+    ExtendedParsedUri::try_from(uri)
+        .and_then(|parsed| parsed.try_to_uri_str())
+        .map(ModerationTarget::TakeDown)
+        .map_err(unsupported)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::events::retry::RetryScheduler;
+
+    const USER_ID: &str = "8pinxxgqs41n4aididenw5apqp1urfmzdztr8jt4abrkdn435ewo";
+
+    #[test]
+    fn moderation_target_rejects_unsupported_targets_without_retry() {
+        let cases = [
+            "https://example.com/album/123".to_string(),
+            format!("pubky://{USER_ID}/pub/mapky/places/1"),
+            "pubky://notakey/pub/pubky.app/profile.json".to_string(),
+        ];
+
+        for uri in cases {
+            let err = moderation_target(&uri).expect_err(&format!("{uri} must be rejected"));
+            assert!(
+                matches!(err, EventProcessorError::UnsupportedTarget(_)),
+                "{uri}: unexpected error {err:?}"
+            );
+            assert!(
+                !RetryScheduler::should_enqueue_related_event(&err),
+                "{uri}: a deterministic rejection must not be retried"
+            );
+        }
+    }
+
+    #[test]
+    fn moderation_target_classifies_supported_targets() {
+        let user_id = PubkyId::try_from(USER_ID).unwrap();
+        let post = format!("pubky://{USER_ID}/pub/pubky.app/posts/0033SSE3B1FQ0");
+        let tag = format!("pubky://{USER_ID}/pub/pubky.app/tags/ABCDEFGHJK");
+        let universal_tag = format!("pubky://{USER_ID}/pub/mapky/tags/ABCDEFGHJK");
+        let file = format!("pubky://{USER_ID}/pub/pubky.app/files/0033SSE3B1FQ0");
+
+        assert_eq!(
+            moderation_target(&format!("pubky://{USER_ID}/pub/pubky.app/profile.json")).unwrap(),
+            ModerationTarget::User(user_id.clone())
+        );
+        for uri in [&post, &tag, &universal_tag, &file] {
+            assert_eq!(
+                moderation_target(uri).unwrap(),
+                ModerationTarget::TakeDown(uri.clone()),
+                "{uri}"
+            );
+        }
+        assert_eq!(
+            moderation_target(&format!(
+                "pubky://{USER_ID}/pub/pubky.app/follows/{USER_ID}"
+            ))
+            .unwrap(),
+            ModerationTarget::Ignore
+        );
     }
 }

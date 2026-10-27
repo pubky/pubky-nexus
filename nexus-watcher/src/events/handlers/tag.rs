@@ -73,7 +73,7 @@ enum TagTarget {
 fn tag_target(uri: &str) -> Result<TagTarget, EventProcessorError> {
     let parsed_uri = ParsedUri::try_from(uri).map_err(|e| {
         EventProcessorError::UnsupportedTarget(format!(
-            "The tagged URI is not a pubky resource: {e}"
+            "The tagged URI is not a pubky.app URI: {e}"
         ))
     })?;
 
@@ -713,6 +713,10 @@ mod tests {
             assert!(
                 matches!(err, EventProcessorError::UnsupportedTarget(_)),
                 "{uri}: unexpected error {err:?}"
+            );
+            assert!(
+                !err.to_string().contains("not a pubky resource"),
+                "{uri}: the message must not deny a pubky:// URI is pubky: {err}"
             );
             assert!(
                 !RetryScheduler::should_enqueue_related_event(&err),
