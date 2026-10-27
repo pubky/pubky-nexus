@@ -26,15 +26,6 @@ impl PkdnsRecord {
         }
     }
 
-    /// The packet's timestamp in microseconds, authored by the key holder.
-    /// Orders records of one key against each other and nothing else.
-    pub fn timestamp(&self) -> Option<u64> {
-        match self {
-            Self::Published(packet) => Some(packet.timestamp().as_u64()),
-            Self::Missing => None,
-        }
-    }
-
     /// The record as kept on the user's `HOSTED_BY` edge, when there is one.
     pub fn stored(&self) -> Option<StoredRecord> {
         match self {
@@ -182,23 +173,20 @@ mod tests {
         assert_eq!(published_homeserver(&domain_target), None);
     }
 
-    /// A published record exposes the homeserver it names and its timestamp; a
-    /// missing one has neither.
+    /// A published record exposes the homeserver it names, if any; a missing
+    /// one names none.
     #[test]
-    fn record_exposes_the_homeserver_and_the_timestamp() {
+    fn record_exposes_the_homeserver() {
         let homeserver = random_pubky_id();
         let user = Keypair::random();
 
         let naming = PkdnsRecord::Published(signed_packet_naming(&user, Some(&homeserver), 42));
         assert_eq!(naming.homeserver(), Some(homeserver));
-        assert_eq!(naming.timestamp(), Some(42));
 
         let naming_none = PkdnsRecord::Published(signed_packet_naming(&user, None, 42));
         assert_eq!(naming_none.homeserver(), None);
-        assert_eq!(naming_none.timestamp(), Some(42));
 
         assert_eq!(PkdnsRecord::Missing.homeserver(), None);
-        assert_eq!(PkdnsRecord::Missing.timestamp(), None);
     }
 
     /// A stored record decodes back to the packet it came from, signature
