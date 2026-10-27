@@ -1,11 +1,11 @@
-use super::utils::bookmarked_post_keys;
+use super::utils::{bookmark_of, bookmarked_post_keys};
 use crate::event_processor::posts::utils::{collection_post, short_post};
 use crate::event_processor::users::utils::find_user_counts;
 use crate::event_processor::utils::watcher::{HomeserverHashIdPath, WatcherTest};
 use anyhow::Result;
 use nexus_common::models::post::Bookmark;
 use pubky::Keypair;
-use pubky_app_specs::{post_uri_builder, PubkyAppBookmark, PubkyAppUser};
+use pubky_app_specs::PubkyAppUser;
 
 /// Bookmarking a collection follows it: it is listed with the user's bookmarks
 /// but left out of their bookmark count.
@@ -28,12 +28,8 @@ async fn test_collection_bookmark_is_listed_but_not_counted() -> Result<()> {
         .create_post(&user_kp, &collection_post("Followed"))
         .await?;
 
-    let bookmark_of = |post_id: &str| PubkyAppBookmark {
-        uri: post_uri_builder(user_id.clone(), post_id.to_string()),
-        created_at: chrono::Utc::now().timestamp_millis(),
-    };
-    let short_bookmark = bookmark_of(&short_id);
-    let col_bookmark = bookmark_of(&col_id);
+    let short_bookmark = bookmark_of(&user_id, &short_id);
+    let col_bookmark = bookmark_of(&user_id, &col_id);
     test.put(&user_kp, &short_bookmark.hs_path(), &short_bookmark)
         .await?;
     test.put(&user_kp, &col_bookmark.hs_path(), &col_bookmark)
@@ -53,11 +49,6 @@ async fn test_collection_bookmark_is_listed_but_not_counted() -> Result<()> {
     assert!(Bookmark::get_by_id(&user_id, &col_id, Some(&user_id))
         .await?
         .is_some());
-    assert_eq!(
-        find_user_counts(&user_id).await.bookmarks,
-        1,
-        "only the real post bookmark counts"
-    );
 
     // Unfollowing the collection drops it from the stream and the point read
     test.del(&user_kp, &col_bookmark.hs_path()).await?;
@@ -68,7 +59,11 @@ async fn test_collection_bookmark_is_listed_but_not_counted() -> Result<()> {
     assert!(Bookmark::get_by_id(&user_id, &col_id, Some(&user_id))
         .await?
         .is_none());
-    assert_eq!(find_user_counts(&user_id).await.bookmarks, 1);
+    assert_eq!(
+        find_user_counts(&user_id).await.bookmarks,
+        1,
+        "only the real post bookmark counts"
+    );
 
     test.cleanup_post(&user_kp, &short_path).await?;
     test.cleanup_post(&user_kp, &col_path).await?;

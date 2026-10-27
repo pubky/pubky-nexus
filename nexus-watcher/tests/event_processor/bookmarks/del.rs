@@ -1,4 +1,4 @@
-use super::utils::{bookmarked_post_keys, find_post_bookmark};
+use super::utils::bookmarked_post_keys;
 use crate::event_processor::{
     users::utils::find_user_counts, utils::watcher::HomeserverHashIdPath,
     utils::watcher::WatcherTest,
@@ -68,9 +68,6 @@ async fn test_homeserver_unbookmark() -> Result<()> {
     // Step 4: Delete bookmark
     test.del(&bookmarker_kp, &bookmark_path).await?;
 
-    // GRAPH_OP: Assert if the event writes the graph
-    let result = find_post_bookmark(&author_id, &post_id, &bookmarker_id).await;
-    assert!(result.is_err(), "The bookmark cannot exist after deletion");
     assert!(
         Bookmark::get_by_id(&author_id, &post_id, Some(&bookmarker_id))
             .await?

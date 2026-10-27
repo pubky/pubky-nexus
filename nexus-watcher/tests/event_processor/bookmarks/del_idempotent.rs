@@ -1,4 +1,4 @@
-use super::utils::{bookmarked_post_keys, find_post_bookmark};
+use super::utils::bookmarked_post_keys;
 use crate::event_processor::utils::watcher::HomeserverHashIdPath;
 use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
@@ -59,9 +59,11 @@ async fn test_bookmark_del_replay_after_success_skips() -> Result<()> {
     test.del(&bookmarker_kp, &bookmark_path).await?;
 
     // Verify fully deleted state
-    assert!(find_post_bookmark(&author_id, &post_id, &bookmarker_id)
-        .await
-        .is_err());
+    assert!(
+        Bookmark::get_by_id(&author_id, &post_id, Some(&bookmarker_id))
+            .await?
+            .is_none()
+    );
 
     // Replay: call sync_del again — should succeed silently (graph edge already gone)
     let bookmarker_pubky_id =
@@ -72,9 +74,6 @@ async fn test_bookmark_del_replay_after_success_skips() -> Result<()> {
         result.is_ok(),
         "Replay after full delete should return Ok, got: {result:?}"
     );
-    assert!(find_post_bookmark(&author_id, &post_id, &bookmarker_id)
-        .await
-        .is_err());
     assert!(
         Bookmark::get_by_id(&author_id, &post_id, Some(&bookmarker_id))
             .await?

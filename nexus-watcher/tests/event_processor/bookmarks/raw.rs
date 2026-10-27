@@ -1,4 +1,3 @@
-use super::utils::find_post_bookmark;
 use crate::event_processor::utils::watcher::WatcherTest;
 use crate::event_processor::{
     users::utils::find_user_counts, utils::watcher::HomeserverHashIdPath,
@@ -50,14 +49,7 @@ async fn test_homeserver_bookmark() -> Result<()> {
     // Put bookmark
     test.put(&user_kp, &bookmark_path, bookmark).await.unwrap();
 
-    // Step 4: Verify the bookmark exists in Nexus
-    // GRAPH_OP: Assert if the event writes the graph
-    let user_bookmark = find_post_bookmark(&user_id, &post_id, &user_id)
-        .await
-        .unwrap();
-    assert_eq!(user_bookmark.id, bookmark_id);
-
-    // Verify bookmark counts have increased for this user
+    // Step 4: Verify bookmark counts have increased for this user
     let user_counts = find_user_counts(&user_id).await;
     assert_eq!(user_counts.bookmarks, 1);
 

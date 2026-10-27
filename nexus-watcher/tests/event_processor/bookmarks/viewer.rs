@@ -1,4 +1,4 @@
-use super::utils::{bookmarked_post_keys, find_post_bookmark};
+use super::utils::{bookmark_of, bookmarked_post_keys};
 use crate::event_processor::utils::watcher::{HomeserverHashIdPath, WatcherTest};
 use anyhow::Result;
 use nexus_common::models::post::{Bookmark, PostStream};
@@ -6,13 +6,6 @@ use pubky::Keypair;
 use pubky_app_specs::{
     post_uri_builder, traits::HashId, PubkyAppBookmark, PubkyAppPost, PubkyAppUser,
 };
-
-fn bookmark_of(author_id: &str, post_id: &str) -> PubkyAppBookmark {
-    PubkyAppBookmark {
-        uri: post_uri_builder(author_id.to_string(), post_id.to_string()),
-        created_at: chrono::Utc::now().timestamp_millis(),
-    }
-}
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_viewer_bookmark() -> Result<()> {
@@ -66,9 +59,9 @@ async fn test_homeserver_viewer_bookmark() -> Result<()> {
 
     // Step 4: Verify the bookmark exists in Nexus
     // GRAPH_OP: Assert if the event writes the graph
-    let viewer_bookmark = find_post_bookmark(&user_id, &post_id, &viewer_id)
-        .await
-        .unwrap();
+    let viewer_bookmark = Bookmark::get_by_id(&user_id, &post_id, Some(&viewer_id))
+        .await?
+        .expect("The bookmark has to be served");
     assert_eq!(viewer_bookmark.id, bookmark_id);
 
     // The bookmark is served in the viewer's stream
