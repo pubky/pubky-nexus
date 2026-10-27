@@ -62,11 +62,11 @@ pub fn translate_put(
             user_id,
             followee_id: followee_id.clone(),
         },
-        // TODO(specs-migration): the tag flow PR decides which `app` a v1 tag carries.
+        // The existing Resource-tag writer scopes v1 tags to the social namespace.
         (Resource::Tag(tag_id), PubkySocialObject::Tag(tag)) => TranslatedPut::Tag {
             tag: TagInput::from_v1(tag, uri),
             key: owned_key(user_id, tag_id),
-            app: None,
+            app: Some("social".into()),
         },
         (resource, object) => return Err(unexpected_object(resource, &object)),
     })
@@ -91,10 +91,10 @@ pub fn translate_del(parsed: &ParsedUri) -> Result<TranslatedDel, EventProcessor
             user_id,
             followee_id: followee_id.clone(),
         },
-        // TODO(specs-migration): the tag flow PR decides which `app` a v1 tag carries.
+        // The existing Resource-tag writer scopes v1 tags to the social namespace.
         Resource::Tag(tag_id) => TranslatedDel::Tag {
             key: owned_key(user_id, tag_id),
-            app: None,
+            app: Some("social".into()),
         },
         resource => return Err(no_handler(resource)),
     })
@@ -250,8 +250,7 @@ mod tests {
     use crate::events::translation::legacy_v0;
     use pubky_social_specs::legacy_v0::{
         follow_uri_builder as v0_follow_uri_builder, post_uri_builder as v0_post_uri_builder,
-        tag_uri_builder as v0_tag_uri_builder, user_uri_builder as v0_user_uri_builder,
-        ExtendedParsedUri, PubkyAppPostKind,
+        user_uri_builder as v0_user_uri_builder, ExtendedParsedUri, PubkyAppPostKind,
     };
     use pubky_social_specs::traits::HashId;
     use pubky_social_specs::{
@@ -843,9 +842,9 @@ mod tests {
     // ---- tag ----------------------------------------------------------------------------
 
     /// A tag on a post, in either epoch's address, keys the tag by its id and the post by its
-    /// node, with no app.
+    /// node, in the social Resource-tag scope.
     #[test]
-    fn put_tag_on_a_post_translates_to_its_input_without_an_app() {
+    fn put_tag_on_a_post_translates_to_the_social_resource_scope() {
         for address in [v0_post_uri(), v1_post_uri()] {
             let tag = PubkySocialTag::new(address.clone(), "nexus".to_string());
             let id = tag.create_id();
@@ -860,7 +859,7 @@ mod tests {
                 },
                 "{address}"
             );
-            assert_eq!(app, None, "{address}");
+            assert_eq!(app.as_deref(), Some("social"), "{address}");
         }
     }
 
@@ -967,7 +966,7 @@ mod tests {
                 tag_uri_builder(USER.into(), HASH_ID.into()),
                 TranslatedDel::Tag {
                     key: key(HASH_ID),
-                    app: None,
+                    app: Some("social".into()),
                 },
             ),
         ];
@@ -986,7 +985,7 @@ mod tests {
         }
     }
 
-    /// A v1 DEL of a profile, a post, a follow or a tag is the operation the `pubky.app` DEL
+    /// A v1 DEL of a profile, a post or a follow is the operation the `pubky.app` DEL
     /// of that resource translates to, so both epochs reach one handler with one key.
     #[test]
     fn del_translates_to_the_same_operation_as_the_pubky_app_del() {
@@ -1002,10 +1001,6 @@ mod tests {
             (
                 follow_uri_builder(USER.into(), OTHER_USER.into()),
                 v0_follow_uri_builder(USER.into(), OTHER_USER.into()),
-            ),
-            (
-                tag_uri_builder(USER.into(), HASH_ID.into()),
-                v0_tag_uri_builder(USER.into(), HASH_ID.into()),
             ),
         ];
         for (v1, v0) in cases {

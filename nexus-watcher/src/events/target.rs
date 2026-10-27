@@ -11,8 +11,7 @@ pub enum EventTarget {
     /// A `pubky.app` path or another app's universal tag (`/pub/mapky/tags/…`), parsed by the
     /// frozen v0 reader.
     Legacy(ExtendedParsedUri),
-    /// A `/pub/social/v1/…` path parsed by the v1 parser. Only the router builds it: the
-    /// classifier still skips every `social/v1` event before the fetch.
+    /// A `/pub/social/v1/…` path parsed by the v1 parser. The classifier enables public profiles, stored post versions, follows and tags.
     Social(ParsedUri),
 }
 

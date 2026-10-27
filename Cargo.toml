@@ -24,7 +24,7 @@ redis = "1.0.4"
 opentelemetry = "0.33"
 opentelemetry_sdk = { version = "0.33", features = ["rt-tokio"] }
 pubky = "0.10.0"
-pubky-social-specs = { git = "https://github.com/pubky/pubky-social-specs", rev = "acde362939dabb79a3b08de250bcbc70da4e827d", features = ["openapi"] }
+pubky-social-specs = { version = "=1.0.0-rc.1", features = ["openapi"] }
 pubky-testnet = "0.10.0"
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.149"
