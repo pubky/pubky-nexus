@@ -213,8 +213,6 @@ pub async fn attendees(
 }
 pub fn routes() -> Router<AppState> {
     Router::new()
-        .route("/v0/stream/calendars", get(calendars))
-        .route("/v0/calendar/{author}/{id}", get(calendar))
         .route("/v0/stream/availability", get(availability))
         .route("/v0/availability/{author}", get(author_availability))
         .route("/v0/stream/events", get(events))
@@ -227,8 +225,6 @@ pub fn routes() -> Router<AppState> {
         events,
         event,
         attendees,
-        calendars,
-        calendar,
         availability,
         author_availability
     ),
@@ -237,9 +233,8 @@ pub fn routes() -> Router<AppState> {
         Occurrence,
         EventView,
         Attendee,
-        social_event::CalendarView,
         social_event::AvailabilityView,
-        BoundedLimit<10,100>, BoundedLimit<20,200>, BoundedLimit<50,50>, BoundedLimit<10,50>, BoundedLimit<20,50>
+        BoundedLimit<10,100>, BoundedLimit<20,200>, BoundedLimit<50,50>
     ))
 )]
 pub struct SocialEventsApiDoc;
@@ -319,75 +314,6 @@ fn location_ids(raw: &str) -> Result<Vec<String>> {
             }
         })
         .collect()
-}
-fn window(from: Option<i64>, to: Option<i64>) -> Result<(i64, i64)> {
-    let now = chrono::Utc::now();
-    let from = from.unwrap_or(now.timestamp_millis());
-    let to = to.unwrap_or_else(|| social_event::calendar::window_end(now));
-    if from < 0 || to <= from || to.saturating_sub(from) > 366 * 86_400_000 {
-        return Err(Error::invalid_input(
-            "from/to must be nonnegative UTC milliseconds, from < to, at most 366 days",
-        ));
-    }
-    Ok((from, to))
-}
-#[derive(Default, Deserialize)]
-pub struct CalendarsQuery {
-    pub author: Option<PubkyId>,
-    pub curator: Option<PubkyId>,
-    pub admin: Option<PubkyId>,
-    pub from: Option<i64>,
-    pub to: Option<i64>,
-    pub limit_occurrences: Option<BoundedLimit<10, 50>>,
-    #[serde(flatten)]
-    pub pagination: BoundedPagination<10_000, 20, 50>,
-}
-#[utoipa::path(get,path="/v0/stream/calendars",tag="Events",
-    description="Social collections containing Pubky events with occurrences overlapping the requested window, ordered by next start then author/id. Collection authors are their admins/curators in the current social spec; admin is an alias of curator. External items remain in collection.items but Nexus does not infer their event times.",
-    params(("author"=Option<PubkyId>,Query),("curator"=Option<PubkyId>,Query),("admin"=Option<PubkyId>,Query),
-      ("from"=Option<i64>,Query),("to"=Option<i64>,Query),("limit_occurrences"=Option<BoundedLimit<10,50>>,Query),
-      ("skip"=Option<usize>,Query),("limit"=Option<BoundedLimit<20,50>>,Query)),
-    responses((status=200,body=Vec<social_event::CalendarView>),(status=400,description="Invalid query"),(status=500,description="Internal error")))]
-pub async fn calendars(
-    Query(q): Query<CalendarsQuery>,
-) -> Result<Json<Vec<social_event::CalendarView>>> {
-    let (from, to) = window(q.from, q.to)?;
-    if q.curator.is_some() && q.admin.is_some() && q.curator != q.admin {
-        return Err(Error::invalid_input("curator and admin must agree"));
-    }
-    Ok(Json(
-        social_event::calendar_stream(social_event::CalendarQuery {
-            author: q.author.map(|v| v.to_string()),
-            curator: q.curator.or(q.admin).map(|v| v.to_string()),
-            from,
-            to,
-            skip: q.pagination.skip_value(),
-            limit: q.pagination.limit_value(),
-            occurrences: q.limit_occurrences.unwrap_or_default().value(),
-        })
-        .await?,
-    ))
-}
-#[utoipa::path(get,path="/v0/calendar/{author}/{id}",tag="Events",
-    description="A live social collection, its ordered items/notes and upcoming indexed Pubky event occurrences. An empty collection returns an empty occurrences array. Default time window is now through twelve months; external item timing belongs to its resolver.",
-    params(("author"=PubkyId,Path),("id"=PostId,Path),("from"=Option<i64>,Query),("to"=Option<i64>,Query),("limit_occurrences"=Option<BoundedLimit<10,50>>,Query)),
-    responses((status=200,body=social_event::CalendarView),(status=400,description="Invalid query"),(status=404,description="Social collection not found"),(status=500,description="Internal error")))]
-pub async fn calendar(
-    Path((author, id)): Path<(PubkyId, PostId)>,
-    Query(q): Query<CalendarsQuery>,
-) -> Result<Json<social_event::CalendarView>> {
-    let (from, to) = window(q.from, q.to)?;
-    Ok(Json(
-        social_event::calendar_view(
-            &author,
-            &id,
-            from,
-            to,
-            q.limit_occurrences.unwrap_or_default().value(),
-        )
-        .await?
-        .ok_or_else(|| Error::post_not_found(author, id))?,
-    ))
 }
 #[derive(Default, Deserialize)]
 pub struct AvailabilityQuery {

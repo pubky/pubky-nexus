@@ -167,6 +167,9 @@ pub enum KindFilter {
     /// Posts of any kind except the listed ones. Posts with a missing (NULL)
     /// or unrecognized ("unknown") kind are never excluded.
     Exclude(Vec<PubkyAppPostKind>),
+    /// Collection posts that list at least one live post of this kind
+    /// (`kind=collection&item_kind=<kind>`).
+    CollectionsWith(PubkyAppPostKind),
 }
 
 #[derive(Serialize, Deserialize, ToSchema, Debug, Default, Clone)]
