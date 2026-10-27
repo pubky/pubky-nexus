@@ -169,6 +169,14 @@ This is what tells the externally-hosted-user indexer
 ([Section 3](#3-indexing-externally-hosted-users-key-based)) which users
 belong to which HS.
 
+The edge also keeps the PKDNS record the mapping was last applied from:
+`record`, the user's signed PKARR packet as hex, and `record_ts`, the packet's
+timestamp in microseconds. The packet carries the key, the signature, the
+timestamp and the encoded DNS records, so anyone can verify that the key holder
+published it (`StoredRecord::verify` in nexus-common does). A lookup that finds
+no record leaves the stored one; a user bound by the ingestor has none until the
+resolver first applies a record.
+
 ### `hs_resolver_interval_ms`
 
 > Scheduling interval[^1] for triggering runs of the resolver task.

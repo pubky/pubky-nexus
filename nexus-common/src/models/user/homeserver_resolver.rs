@@ -4,6 +4,7 @@ use pubky::{Pubky, PublicKey};
 use pubky_app_specs::PubkyId;
 
 use crate::db::{PubkyClientResult, PubkyConnector};
+use crate::types::DynError;
 
 /// A user's PKDNS record, as the DHT or a relay answered.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -31,6 +32,52 @@ impl PkdnsRecord {
         match self {
             Self::Published(packet) => Some(packet.timestamp().as_u64()),
             Self::Missing => None,
+        }
+    }
+
+    /// The record as kept on the user's `HOSTED_BY` edge, when there is one.
+    pub fn stored(&self) -> Option<StoredRecord> {
+        match self {
+            Self::Published(packet) => Some(StoredRecord::from(packet)),
+            Self::Missing => None,
+        }
+    }
+}
+
+/// A PKDNS record as kept on a user's `HOSTED_BY` edge: the signed packet's
+/// canonical bytes, hex-encoded, and the packet's timestamp. The bytes carry
+/// the key, the signature, the timestamp and the encoded DNS packet, so anyone
+/// can check that the key holder published that record, see [`Self::verify`].
+/// The timestamp is kept beside them for Cypher, which cannot read the packet.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredRecord {
+    /// `SignedPacket::as_bytes` as lowercase hex.
+    pub packet: String,
+    /// The packet's timestamp in microseconds, as stored in the graph.
+    pub timestamp: i64,
+}
+
+impl StoredRecord {
+    /// Decodes the packet and checks its signature: the record is proof of the
+    /// key holder's publication only when this succeeds.
+    pub fn verify(&self) -> Result<SignedPacket, DynError> {
+        let bytes = hex::decode(&self.packet)?;
+        let (key, payload) = bytes
+            .split_at_checked(32)
+            .ok_or("stored record shorter than a public key")?;
+        let public_key = pubky::pkarr::PublicKey::try_from(key)?;
+        Ok(SignedPacket::from_relay_payload(
+            &public_key,
+            &payload.to_vec().into(),
+        )?)
+    }
+}
+
+impl From<&SignedPacket> for StoredRecord {
+    fn from(packet: &SignedPacket) -> Self {
+        Self {
+            packet: hex::encode(packet.as_bytes()),
+            timestamp: i64::try_from(packet.timestamp().as_u64()).unwrap_or(i64::MAX),
         }
     }
 }
@@ -151,5 +198,34 @@ mod tests {
 
         assert_eq!(PkdnsRecord::Missing.homeserver(), None);
         assert_eq!(PkdnsRecord::Missing.timestamp(), None);
+    }
+
+    /// A stored record decodes back to the packet it came from, signature
+    /// checked; a tampered one does not verify.
+    #[test]
+    fn stored_record_verifies_the_packet_it_came_from() {
+        let user = Keypair::random();
+        let homeserver = random_pubky_id();
+        let packet = signed_packet_naming(&user, Some(&homeserver), 42);
+        let stored = PkdnsRecord::Published(packet.clone())
+            .stored()
+            .expect("a published record is stored");
+        assert_eq!(stored.timestamp, 42);
+
+        let verified = stored.verify().expect("the stored record verifies");
+        assert_eq!(verified.as_bytes(), packet.as_bytes());
+        assert_eq!(verified.public_key().to_z32(), user.public_key().to_z32());
+        assert_eq!(published_homeserver(&verified), Some(homeserver));
+
+        // Flip the last nibble of the encoded packet: the signature no longer covers it.
+        let mut tampered = stored.clone();
+        let last = tampered.packet.pop().expect("non-empty");
+        tampered.packet.push(if last == '0' { '1' } else { '0' });
+        assert!(
+            tampered.verify().is_err(),
+            "a tampered record must not verify"
+        );
+
+        assert_eq!(PkdnsRecord::Missing.stored(), None);
     }
 }
