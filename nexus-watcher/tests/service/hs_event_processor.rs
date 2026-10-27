@@ -101,6 +101,7 @@ fn build_processor(
         retry_scheduler,
         catch_up_resume_points: Default::default(),
         catch_up_not_found: Default::default(),
+        hs_blacklist: Default::default(),
         ingestor: default_ingestor_tests(),
         hs_mapping_cache: Default::default(),
     })
@@ -139,6 +140,7 @@ async fn build_processor_at_cursor(
         retry_scheduler,
         catch_up_resume_points: Default::default(),
         catch_up_not_found: Default::default(),
+        hs_blacklist: Default::default(),
         ingestor: default_ingestor_tests(),
         hs_mapping_cache: Default::default(),
     }))
@@ -166,6 +168,7 @@ fn processor_with_client(
         )),
         catch_up_resume_points: Default::default(),
         catch_up_not_found: Default::default(),
+        hs_blacklist: Default::default(),
         ingestor: default_ingestor_tests(),
         hs_mapping_cache: Default::default(),
     })

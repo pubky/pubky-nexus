@@ -5,7 +5,7 @@ use crate::homeserver::HomeserverClient;
 use crate::scope::{full_feed_homeservers, watcher_ingestor};
 use crate::service::indexer::{HsEventProcessor, TEventProcessor};
 use crate::service::stats::{ProcessedStats, RunAllProcessorsStats};
-use nexus_common::models::homeserver::Homeserver;
+use nexus_common::models::homeserver::{Homeserver, HsBlacklist};
 use nexus_common::models::user::UserIngestor;
 use nexus_common::types::DynError;
 use nexus_common::WatcherConfig;
@@ -38,6 +38,9 @@ pub struct HsEventProcessorRunner {
     /// The watcher's user ingestor, whose scope decides which authors' events are read
     /// from the feeds
     pub ingestor: Arc<UserIngestor>,
+
+    /// The configured HS blacklist, handed to every processor this runner builds
+    pub hs_blacklist: HsBlacklist,
 }
 
 impl HsEventProcessorRunner {
@@ -59,6 +62,7 @@ impl HsEventProcessorRunner {
             retry_scheduler,
             catch_up_resume_points: Arc::new(UserResumePoints::default()),
             catch_up_not_found: Arc::new(UserNotFoundBackoff::default()),
+            hs_blacklist: HsBlacklist::from_config(&config.stack),
         }
     }
 }
@@ -86,6 +90,7 @@ impl TEventProcessorRunner for HsEventProcessorRunner {
             catch_up_resume_points: self.catch_up_resume_points.clone(),
             catch_up_not_found: self.catch_up_not_found.clone(),
             ingestor: self.ingestor.clone(),
+            hs_blacklist: self.hs_blacklist.clone(),
             hs_mapping_cache: Default::default(),
         }))
     }

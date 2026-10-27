@@ -126,6 +126,7 @@ impl WatcherTest {
             retry_scheduler,
             catch_up_resume_points: Default::default(),
             catch_up_not_found: Default::default(),
+            hs_blacklist: Default::default(),
             ingestor: default_ingestor_tests(),
         }
     }

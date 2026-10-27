@@ -52,6 +52,7 @@ fn feed_processor(test: &WatcherTest, ingestor: Arc<UserIngestor>) -> HsEventPro
         retry_scheduler: runner.retry_scheduler.clone(),
         catch_up_resume_points: Default::default(),
         catch_up_not_found: Default::default(),
+        hs_blacklist: Default::default(),
         ingestor,
         hs_mapping_cache: Default::default(),
     }

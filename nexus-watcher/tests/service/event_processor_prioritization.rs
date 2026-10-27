@@ -411,6 +411,7 @@ fn feed_runner(hs: &PubkyId, ingestor: Arc<UserIngestor>) -> HsEventProcessorRun
         )),
         catch_up_resume_points: Default::default(),
         catch_up_not_found: Default::default(),
+        hs_blacklist: Default::default(),
     }
 }
 
@@ -482,6 +483,50 @@ async fn test_a_user_let_in_on_a_whole_feed_homeserver_catches_up() -> Result<()
 
     assert!(indexed, "the post written while it was out is read");
     assert_eq!(still_catching_up, vec![false]);
+    Ok(())
+}
+
+/// The catch-up reads users' own streams under the configured HS blacklist, as every other
+/// read does: on a blacklisted homeserver (read whole only because "everything" reads its
+/// configured homeserver as it always was), it refuses, and the user's records stay unread.
+#[tokio_shared_rt::test(shared)]
+async fn test_a_catch_up_on_a_blacklisted_homeserver_is_refused() -> Result<()> {
+    let mut test = WatcherTest::setup(None)
+        .await?
+        .remove_event_processing()
+        .await;
+    let (user_id, post_id) = user_with_post(&mut test, "Blacklisted").await?;
+    create_outsider(&UserDetails::from_pubky(user_id.clone())).await?;
+    let rechecked = format!("Scope:Rechecked:{user_id}");
+    let mut redis_conn = get_redis_conn().await?;
+    let () = redis_conn.set_ex(&rechecked, 1, 900).await?;
+
+    let hs = test.homeserver_id.clone();
+    let scope: Arc<dyn Scope> = Arc::new(HomeserverListScope::new(std::slice::from_ref(&hs)));
+    let ingestor = Arc::new(
+        UserIngestor::new(Vec::<PubkyId>::new(), Arc::new(PubkyConnectorResolver))
+            .with_scope(scope),
+    );
+    let mut feed = feed_runner(&hs, ingestor.clone());
+    feed.hs_blacklist = HsBlacklist::new([hs.clone()]);
+    let run = || async {
+        let processor = feed
+            .build(hs.as_ref())
+            .await
+            .map_err(|e| anyhow::anyhow!(e))?;
+        processor.run().await.map_err(|e| anyhow::anyhow!("{e:?}"))
+    };
+
+    run().await?;
+    assert!(ScopeMembership::of(&ingestor).promote(&user_id).await?);
+    run().await?;
+    let indexed = PostDetails::get_by_id(&user_id, &post_id).await?.is_some();
+    let still_catching_up = catching_up(&[user_id.as_ref()]).await?;
+    caught_up(&user_id).await?;
+    let () = redis_conn.del(&rechecked).await?;
+
+    assert!(!indexed, "not read from a blacklisted homeserver");
+    assert_eq!(still_catching_up, vec![true], "left waiting, not read");
     Ok(())
 }
 

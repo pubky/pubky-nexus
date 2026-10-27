@@ -154,6 +154,9 @@ pub struct HsEventProcessor {
     /// feed are indexed
     pub ingestor: Arc<UserIngestor>,
 
+    /// The configured HS blacklist, which the catch-up's per-user reads check too
+    pub hs_blacklist: HsBlacklist,
+
     /// Per-run cache of users' `HOSTED_BY` mappings. For a given user's events in
     /// the events list, only the 1st one results in a graph lookup, the rest read from this cache.
     ///
@@ -279,7 +282,7 @@ impl HsEventProcessor {
             event_handler: self.event_handler.clone(),
             client: self.client.clone(),
             user_not_found_backoff: self.catch_up_not_found.clone(),
-            hs_blacklist: HsBlacklist::default(),
+            hs_blacklist: self.hs_blacklist.clone(),
             retry_scheduler: self.retry_scheduler.clone(),
             shutdown_rx: self.shutdown_rx.clone(),
             user_resume_points: self.catch_up_resume_points.clone(),
