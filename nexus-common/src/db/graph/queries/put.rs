@@ -469,9 +469,9 @@ pub fn record_takedown(uri: &str, tag_uri: &str) -> Query {
 /// MERGEs the target homeserver node if it doesn't exist yet.
 ///
 /// `record` is the PKDNS record the binding is applied from, kept on the edge
-/// as `record` (the signed packet, hex) and `record_ts` (its timestamp). `None`,
-/// as the ingestor binds without a record, leaves the stored one; a replaced
-/// edge starts without one.
+/// as `record` (the signed packet, hex) and `record_ts` (its timestamp). `None`
+/// (only tests bind without one) leaves the stored one; a replaced edge starts
+/// without one.
 pub fn set_user_homeserver(
     user_id: &str,
     homeserver_id: &str,
