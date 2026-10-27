@@ -14,6 +14,15 @@ pub struct ResourceView {
     pub details: ResourceDetails,
     pub tags: Vec<TagDetails>,
     pub taggers_count: usize,
+    /// Live posts replying to, embedding and collecting the resource. Not serialized: `/v0`
+    /// is frozen and serves this view as it is, so the counts reach a client only through the
+    /// `/v1` view and envelope, which copy them.
+    #[serde(skip)]
+    pub replies_count: usize,
+    #[serde(skip)]
+    pub embeds_count: usize,
+    #[serde(skip)]
+    pub collections_count: usize,
 }
 
 impl ResourceView {
@@ -54,6 +63,9 @@ impl ResourceView {
             details,
             tags,
             taggers_count,
+            replies_count: row.get::<i64>("replies_count").unwrap_or(0) as usize,
+            embeds_count: row.get::<i64>("embeds_count").unwrap_or(0) as usize,
+            collections_count: row.get::<i64>("collections_count").unwrap_or(0) as usize,
         }))
     }
 }
