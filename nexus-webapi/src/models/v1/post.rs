@@ -4,8 +4,9 @@ use std::sync::LazyLock;
 use nexus_common::models::post::{self, PostCounts, PostRelationships};
 use serde::de::{self, Deserializer, IgnoredAny};
 use serde::{Deserialize, Serialize, Serializer};
-use utoipa::openapi::path::{Parameter, ParameterIn};
+use utoipa::openapi::path::{Parameter, ParameterBuilder, ParameterIn};
 use utoipa::openapi::schema::{ObjectBuilder, Type};
+use utoipa::openapi::Required;
 use utoipa::openapi::{RefOr, Schema};
 use utoipa::{IntoParams, PartialSchema, ToSchema};
 
@@ -208,6 +209,36 @@ impl From<NoAttachmentMetadata> for bool {
 impl IntoParams for NoAttachmentMetadata {
     fn into_params(_: impl Fn() -> Option<ParameterIn>) -> Vec<Parameter> {
         Vec::new()
+    }
+}
+
+/// `item_kind=` on the post streams, with `kind=collection`: the kind of post a listed
+/// Collection must hold, in the `/v1` names. `/v1` only: `/v0` is frozen and reads nothing
+/// under that name ([`NoItemKind`](crate::models::v0_frozen::NoItemKind)).
+#[derive(Deserialize, Debug, Clone, Copy, Default, PartialEq)]
+#[serde(transparent)]
+pub struct ItemKind(pub Option<PostKind>);
+
+/// The stored kind a listed post must have, for the graph query.
+impl From<ItemKind> for Option<post::PostKind> {
+    fn from(kind: ItemKind) -> Self {
+        kind.0.map(Into::into)
+    }
+}
+
+/// What `item_kind=` does, as the parameter description says it.
+pub const ITEM_KIND_DESCRIPTION: &str = "Requires `kind=collection`. Returns only Collection posts that list at least one live indexed post of this kind, e.g. `kind=collection&item_kind=event` for collections containing events (calendars). Each collection's upcoming events are served by `GET /v1/stream/events?collection=<collection URI>`. External (non-post) items do not count. Any other `kind` (or none) returns 400, and so does `unknown`.";
+
+/// The parameter, after the route's other query parameters, with the `/v1` kind names.
+impl IntoParams for ItemKind {
+    fn into_params(_: impl Fn() -> Option<ParameterIn>) -> Vec<Parameter> {
+        vec![ParameterBuilder::new()
+            .name("item_kind")
+            .parameter_in(ParameterIn::Query)
+            .description(Some(ITEM_KIND_DESCRIPTION))
+            .required(Required::False)
+            .schema(Some(PostKind::schema()))
+            .build()]
     }
 }
 

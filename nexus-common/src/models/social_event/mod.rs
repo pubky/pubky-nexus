@@ -1,11 +1,9 @@
 //! Native social calendar, attendance and rating projections. No resource-feed writes.
 mod availability;
 pub mod calendar;
-mod collections;
 mod store;
 mod views;
 pub use availability::{availability_stream, AvailabilityView};
-pub use collections::{calendar_stream, calendar_view, CalendarQuery, CalendarView};
 
 pub use store::{
     flush_notifications, maintain_occurrences, prune_orphan_rsvps, remove, sync, sync_with_parent,

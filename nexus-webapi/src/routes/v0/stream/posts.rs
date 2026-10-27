@@ -226,6 +226,10 @@ pub struct PostStreamQuery<V: ApiVersion> {
     pub depth: Option<u8>,
     pub domain_tags: Option<V::Tags>,
     pub kind: Option<V::PostKind>,
+    /// With `kind=collection`, the kind a listed post must have, on `/v1`; nothing on `/v0`,
+    /// which has no `item_kind`.
+    #[serde(default)]
+    pub item_kind: V::ItemKind,
     pub exclude_kinds: Option<V::PostKinds>,
     #[serde(default)]
     pub locked: bool,
@@ -261,11 +265,20 @@ impl<V: ApiVersion> PostStreamQuery<V> {
         if self.locked {
             return Some(KindFilter::Locked);
         }
+        if let Some(item_kind) = self.item_kind() {
+            return Some(KindFilter::CollectionsWith(item_kind));
+        }
         match (&self.kind, &self.exclude_kinds) {
             (Some(kind), _) => Some(single_kind_filter::<V>(kind.clone().into())),
             (None, Some(exclude)) => Some(KindFilter::Exclude(exclude.clone().into())),
             (None, None) => None,
         }
+    }
+
+    /// The stored kind `item_kind=` names; always `None` on `/v0`, which reads no such
+    /// parameter.
+    fn item_kind(&self) -> Option<nexus_common::models::post::PostKind> {
+        self.item_kind.clone().into()
     }
 
     pub fn extract_stream_params(&self) -> AppResult<(StreamSource, StreamSorting, SortOrder)> {
@@ -291,6 +304,19 @@ impl<V: ApiVersion> PostStreamQuery<V> {
         if self.locked && (self.kind.is_some() || self.exclude_kinds.is_some()) {
             return Err(Error::invalid_input(
                 "`locked` cannot be combined with `kind` or `exclude_kinds`",
+            ));
+        }
+        if self.item_kind().is_some()
+            && self.kind.clone().map(Into::into)
+                != Some(nexus_common::models::post::PostKind::Collection)
+        {
+            return Err(Error::invalid_input(
+                "`item_kind` requires `kind=collection`",
+            ));
+        }
+        if self.item_kind() == Some(nexus_common::models::post::PostKind::Unknown) {
+            return Err(Error::invalid_input(
+                "`item_kind` must be a known post kind",
             ));
         }
         let source = self.source();
@@ -394,6 +420,7 @@ versioned_handlers! {
             ("start" = Option<f64>, Query, description = "The start of the stream timeframe or score. Posts with a timestamp/score greater than this value will be excluded from the results"),
             ("end" = Option<f64>, Query, description = "The end of the stream timeframe or score. Posts with a timestamp/score less than this value will be excluded from the results"),
             shapes::IncludeAttachmentMetadata,
+            shapes::ItemKind,
         ),
         description = concatcp!(r#"Stream Posts: Retrieve a stream of posts.
 
@@ -473,6 +500,7 @@ versioned_handlers! {
         ("limit" = Option<BoundedLimit<10, 50>>, Query, description = "Retrieve N posts (1–50, default 10)"),
         ("start" = Option<f64>, Query, description = "The start of the stream timeframe or score. Posts with a timestamp/score greater than this value will be excluded from the results"),
         ("end" = Option<f64>, Query, description = "The end of the stream timeframe or score. Posts with a timestamp/score less than this value will be excluded from the results"),
+        shapes::ItemKind,
     ),
     description = concatcp!(r#"Stream Post Keys: Retrieve a stream of post keys
 
@@ -634,6 +662,51 @@ mod tests {
                 "{name}"
             );
         }
+    }
+
+    /// `/v1` reads `item_kind` in its kind names, with `kind=collection` only and never
+    /// `unknown`; `/v0` is frozen and reads nothing under that name, whatever the value.
+    #[test]
+    fn item_kind_is_v1_only() {
+        assert!(matches!(
+            parse::<V1>("kind=collection&item_kind=event")
+                .unwrap()
+                .kind_filter(),
+            Some(KindFilter::CollectionsWith(PostKind::Event))
+        ));
+        assert!(matches!(
+            parse::<V1>("kind=collection&item_kind=note")
+                .unwrap()
+                .kind_filter(),
+            Some(KindFilter::CollectionsWith(PostKind::Short))
+        ));
+        assert!(parse::<V1>("kind=collection&item_kind=short").is_err());
+        for query in [
+            "item_kind=event",
+            "kind=note&item_kind=event",
+            "kind=collection&item_kind=unknown",
+        ] {
+            parse::<V1>(query)
+                .unwrap()
+                .validate_source_compat()
+                .expect_err(query);
+        }
+        for query in [
+            "kind=collection&item_kind=event",
+            "item_kind=event",
+            "item_kind=not-a-kind",
+        ] {
+            let v0 = parse::<V0>(query).expect(query);
+            v0.validate_source_compat().expect(query);
+            assert!(
+                !matches!(v0.kind_filter(), Some(KindFilter::CollectionsWith(_))),
+                "{query}"
+            );
+        }
+        assert!(matches!(
+            kind_filter::<V0>("kind=collection&item_kind=event"),
+            Some(KindFilter::Kind(PostKind::Collection))
+        ));
     }
 
     /// `/v0` refuses `sorting=rating` with the error it gave before the sorting existed; `/v1`

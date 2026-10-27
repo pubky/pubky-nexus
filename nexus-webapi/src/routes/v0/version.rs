@@ -47,7 +47,7 @@ use super::{
     tag, user,
 };
 use crate::models::{
-    v1, IncludeAttachmentMetadata, KindToken, PostStreamDetailed, PostViewDetailed,
+    v1, IncludeAttachmentMetadata, KindToken, NoItemKind, PostStreamDetailed, PostViewDetailed,
     StoredKindToken, StoredNotificationTypes, StoredPostKinds, TagLabel, TagLabels, Tags,
     V0PostKind, V0Shape, V1NotificationTypes,
 };
@@ -182,6 +182,17 @@ pub trait ApiVersion: Send + Sync + 'static {
     /// What `exclude_kinds=` does with a post whose kind is missing or unrecognised.
     const MISSING_KIND_RULE: &'static str;
 
+    /// `item_kind=` on the post streams: the kind of post a listed Collection must hold. `/v1`
+    /// reads it in its kind names and documents it; `/v0` is frozen, reads nothing under that
+    /// name, as it reads any unknown parameter, and documents no parameter.
+    type ItemKind: DeserializeOwned
+        + IntoParams
+        + Into<Option<PostKind>>
+        + Default
+        + Clone
+        + fmt::Debug
+        + Send;
+
     /// Whether the version serves the `social/v1` event vocabulary on the routes both versions
     /// share: the event kinds by name, `sorting=rating`, `item_kind=` and the `event_changed`
     /// notification. `/v1` does. `/v0` is frozen: it refuses `sorting=rating` and
@@ -313,6 +324,7 @@ impl ApiVersion for V0 {
 
     type PostKind = V0PostKind;
     type PostKinds = StoredPostKinds;
+    type ItemKind = NoItemKind;
 
     const KIND_NAMES: &'static str = "short, long, image, video, link, file, collection";
     const KIND_RULE: &'static str = "";
@@ -478,6 +490,7 @@ impl ApiVersion for V1 {
 
     type PostKind = v1::PostKind;
     type PostKinds = v1::PostKinds;
+    type ItemKind = v1::ItemKind;
 
     const KIND_NAMES: &'static str = v1::KIND_NAMES;
     const KIND_RULE: &'static str =
@@ -652,6 +665,7 @@ pub mod shapes {
             /// The notification list's query with `types` as this version reads it.
             pub type NotificationsQuery =
                 super::super::notification::list::NotificationsQuery<$version>;
+            pub type ItemKind = <$version as ApiVersion>::ItemKind;
             pub type IncludeAttachmentMetadata =
                 <$version as ApiVersion>::IncludeAttachmentMetadata;
             pub type PostStreamByIdsRequest = <$version as ApiVersion>::PostStreamByIdsRequest;

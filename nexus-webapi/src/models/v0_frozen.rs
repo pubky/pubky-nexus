@@ -20,12 +20,13 @@
 use std::borrow::Cow;
 
 use nexus_common::models::post::PostKind;
-use serde::de::Deserializer;
+use serde::de::{Deserializer, IgnoredAny};
 use serde::ser::Serializer;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use utoipa::openapi::path::{Parameter, ParameterIn};
 use utoipa::openapi::{OpenApi, RefOr, Schema};
-use utoipa::{PartialSchema, ToSchema};
+use utoipa::{IntoParams, PartialSchema, ToSchema};
 
 /// The `type` tag of the notification body `/v0` does not have.
 const EVENT_CHANGED: &str = "event_changed";
@@ -212,6 +213,26 @@ struct V0Scores {
     last_score: Option<u64>,
     last_post_score: Option<u64>,
     score: usize,
+}
+
+/// What `/v0` reads where `/v1` reads `item_kind`: nothing. `/v0` had no such parameter, so it
+/// reads one as any unknown parameter, whatever the value: ignored, with no 400 of its own.
+#[derive(Deserialize, Debug, Clone, Copy, Default, PartialEq)]
+#[serde(transparent)]
+pub struct NoItemKind(IgnoredAny);
+
+/// No kind to filter collections by.
+impl From<NoItemKind> for Option<PostKind> {
+    fn from(_: NoItemKind) -> Self {
+        None
+    }
+}
+
+/// No parameter to document.
+impl IntoParams for NoItemKind {
+    fn into_params(_: impl Fn() -> Option<ParameterIn>) -> Vec<Parameter> {
+        Vec::new()
+    }
 }
 
 /// The `/v0` document in the frozen vocabulary: the shared schemas the stored models document
