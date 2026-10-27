@@ -11,7 +11,7 @@ use chrono::Utc;
 use nexus_common::models::file::{FileDetails, FileUrls};
 use nexus_common::models::post::{PostDetails, PostParent, PostParents};
 use nexus_common::models::user::{Epoch, UserDetails};
-use pubky_social_specs::legacy_v0::{PubkyAppPostKind, PubkyAppUserLink};
+use pubky_social_specs::legacy_v0::PubkyAppUserLink;
 use pubky_social_specs::PubkyId;
 
 pub use nexus_common::models::ResourceKey;
@@ -58,23 +58,7 @@ impl ReferenceTarget {
     }
 }
 
-/// What kind of post a [`PostInput`] is, in Nexus vocabulary: every epoch's translator maps its
-/// spec's kinds into it.
-///
-/// It never leaves the watcher's memory, so it has no wire names. It moves to nexus-common with
-/// the API work, which puts Nexus-owned types on the stored models.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum PostKind {
-    Short,
-    Long,
-    Image,
-    Video,
-    Link,
-    File,
-    Collection,
-    /// A kind the spec reader didn't recognise.
-    Unknown,
-}
+pub use nexus_common::models::post::PostKind;
 
 /// A post, as the post handler reads it.
 #[derive(Clone, Debug, PartialEq)]
@@ -106,7 +90,7 @@ impl PostInput {
             id: key.resource_id.clone(),
             indexed_at: Utc::now().timestamp_millis(),
             author: key.owner_id.to_string(),
-            kind: self.kind.into(),
+            kind: self.kind,
             attachments: Some(self.attachments),
             lock: self.lock,
             deleted: false,
@@ -145,23 +129,6 @@ impl PostInput {
                 _ => None,
             })
             .collect()
-    }
-}
-
-/// The stored post details still hold the v0 kind; [`PostInput::into_details`] is the one place
-/// the kind crosses back.
-impl From<PostKind> for PubkyAppPostKind {
-    fn from(kind: PostKind) -> Self {
-        match kind {
-            PostKind::Short => Self::Short,
-            PostKind::Long => Self::Long,
-            PostKind::Image => Self::Image,
-            PostKind::Video => Self::Video,
-            PostKind::Link => Self::Link,
-            PostKind::File => Self::File,
-            PostKind::Collection => Self::Collection,
-            PostKind::Unknown => Self::Unknown,
-        }
     }
 }
 

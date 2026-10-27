@@ -20,3 +20,5 @@ pub use key::ResourceKey;
 fn create_zero_score_tuples(strings: &[String]) -> Vec<(f64, &str)> {
     strings.iter().map(|s| (0.0, s.as_str())).collect()
 }
+
+pub mod social_event;

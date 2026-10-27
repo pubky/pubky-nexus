@@ -11,12 +11,12 @@ use crate::routes::Query;
 use crate::{Error, Result as AppResult};
 use axum::Json;
 use nexus_common::db::kv::SortOrder;
+use nexus_common::models::post::PostKind as PubkyAppPostKind;
 use nexus_common::types::StreamSorting;
 use nexus_common::{
     models::post::{KindFilter, PostKeyStream, PostStream, StreamSource},
     types::{DomainTrust, WotDepth},
 };
-use pubky_social_specs::legacy_v0::PubkyAppPostKind;
 use serde::Deserialize;
 use tracing::debug;
 use utoipa::{OpenApi, ToSchema};
@@ -304,8 +304,8 @@ impl PostStreamQuery {
         ("tags" = Option<Tags>, Query, description = "Filter by a list of comma-separated tags (max 5). E.g.,`&tags=dev,free,opensource`. Only posts matching at least one of the tags will be returned."),
         ("depth" = Option<u8>, Query, description = "WoT traversal depth. For `source=wot`: 1-3, default 2. For `source=wot_domain`: 0-3, default 2, where `depth=0` is the observer-only (\"Me\") trust set (posts by authors the observer tagged directly, no follow traversal). `depth=0` is invalid for `source=wot`. Ignored for other sources."),
         ("domain_tags" = Option<Tags>, Query, description = "Required for `source=wot_domain`. Comma-separated tag labels (max 5); returns posts by authors tagged with any of these by the observer's WoT, or by the observer alone when `depth=0`. E.g. `&domain_tags=bitcoiner,btc-dev`. Ignored for other sources."),
-        ("kind" = Option<PubkyAppPostKind>, Query, description = "Filter by post kind: short, long, image, video, link, file, collection. Mutually exclusive with `exclude_kinds`; rejected for `source=post_collections`, `source=post_replies` and `source=author_replies`."),
-        ("exclude_kinds" = Option<PostKinds>, Query, description = "Comma-separated post kinds to exclude server-side (1-7 items, duplicates ignored), e.g. `&exclude_kinds=collection,link`. Valid values: short, long, image, video, link, file, collection; anything else is rejected with 400. Mutually exclusive with `kind`; rejected for `source=collection`, `source=post_collections`, `source=post_replies` and `source=author_replies`. Posts with a missing or unrecognized kind are never excluded."),
+        ("kind" = Option<PubkyAppPostKind>, Query, description = "Filter by post kind: short, long, image, video, link, file, collection, event, rsvp, rating, availability. Mutually exclusive with `exclude_kinds`; rejected for `source=post_collections`, `source=post_replies` and `source=author_replies`."),
+        ("exclude_kinds" = Option<PostKinds>, Query, description = "Comma-separated post kinds to exclude server-side (1-11 items, duplicates ignored), e.g. `&exclude_kinds=collection,link`. Valid values: short, long, image, video, link, file, collection, event, rsvp, rating, availability; anything else is rejected with 400. Mutually exclusive with `kind`; rejected for `source=collection`, `source=post_collections`, `source=post_replies` and `source=author_replies`. Posts with a missing or unrecognized kind are never excluded."),
         ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Skip N posts (max 10000)"),
         ("limit" = Option<BoundedLimit<10, 50>>, Query, description = "Retrieve N posts (1–50, default 10)"),
         ("start" = Option<f64>, Query, description = "The start of the stream timeframe or score. Posts with a timestamp/score greater than this value will be excluded from the results"),
@@ -380,8 +380,8 @@ pub async fn stream_posts_handler(
         ("tags" = Option<Tags>, Query, description = "Filter by a list of comma-separated tags (max 5). E.g.,`&tags=dev,free,opensource`. Only posts matching at least one of the tags will be returned."),
         ("depth" = Option<u8>, Query, description = "WoT traversal depth. For `source=wot`: 1-3, default 2. For `source=wot_domain`: 0-3, default 2, where `depth=0` is the observer-only (\"Me\") trust set (posts by authors the observer tagged directly, no follow traversal). `depth=0` is invalid for `source=wot`. Ignored for other sources."),
         ("domain_tags" = Option<Tags>, Query, description = "Required for `source=wot_domain`. Comma-separated tag labels (max 5); returns posts by authors tagged with any of these by the observer's WoT, or by the observer alone when `depth=0`. E.g. `&domain_tags=bitcoiner,btc-dev`. Ignored for other sources."),
-        ("kind" = Option<PubkyAppPostKind>, Query, description = "Filter by post kind: short, long, image, video, link, file, collection. Mutually exclusive with `exclude_kinds`; rejected for `source=post_collections`, `source=post_replies` and `source=author_replies`."),
-        ("exclude_kinds" = Option<PostKinds>, Query, description = "Comma-separated post kinds to exclude server-side (1-7 items, duplicates ignored), e.g. `&exclude_kinds=collection,link`. Valid values: short, long, image, video, link, file, collection; anything else is rejected with 400. Mutually exclusive with `kind`; rejected for `source=collection`, `source=post_collections`, `source=post_replies` and `source=author_replies`. Posts with a missing or unrecognized kind are never excluded."),
+        ("kind" = Option<PubkyAppPostKind>, Query, description = "Filter by post kind: short, long, image, video, link, file, collection, event, rsvp, rating, availability. Mutually exclusive with `exclude_kinds`; rejected for `source=post_collections`, `source=post_replies` and `source=author_replies`."),
+        ("exclude_kinds" = Option<PostKinds>, Query, description = "Comma-separated post kinds to exclude server-side (1-11 items, duplicates ignored), e.g. `&exclude_kinds=collection,link`. Valid values: short, long, image, video, link, file, collection, event, rsvp, rating, availability; anything else is rejected with 400. Mutually exclusive with `kind`; rejected for `source=collection`, `source=post_collections`, `source=post_replies` and `source=author_replies`. Posts with a missing or unrecognized kind are never excluded."),
         ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Skip N posts (max 10000)"),
         ("limit" = Option<BoundedLimit<10, 50>>, Query, description = "Retrieve N posts (1–50, default 10)"),
         ("start" = Option<f64>, Query, description = "The start of the stream timeframe or score. Posts with a timestamp/score greater than this value will be excluded from the results"),

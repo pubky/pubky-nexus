@@ -72,6 +72,17 @@ pub async fn search_posts_by_tag_handler(
 
     let pagination = query.pagination.to_pagination(query.start, query.end);
 
+    if sorting == Some(StreamSorting::Rating) && query.user_id.is_none() {
+        let entries = nexus_common::models::post::PostStream::get_scored_post_keys(
+            nexus_common::models::post::StreamSource::All,
+            pagination,
+            nexus_common::db::kv::SortOrder::Descending,
+            StreamSorting::Rating,
+            Some(vec![tag.to_string()]),
+        )
+        .await?;
+        return Ok(Json(entries.into_iter().map(Into::into).collect()));
+    }
     if let (Some(user_id), Some(reach)) = (query.user_id, query.reach) {
         let posts =
             PostsByTagSearch::get_by_label_with_reach(&tag, sorting, &user_id, reach, pagination)
@@ -207,7 +218,7 @@ pub struct SearchPostsByContentQuery {
     params(
         ("q" = PostSearchQuery, Query, description = "Search query (2–30 characters, up to 4 terms)"),
         ("author" = Option<PubkyId>, Query, description = "Optional author Pubky ID to scope results"),
-        ("kind" = Option<PubkyAppPostKind>, Query, description = "Optional post kind to filter by: short, long, image, video, link, file, collection"),
+        ("kind" = Option<PubkyAppPostKind>, Query, description = "Optional post kind to filter by: short, long, image, video, link, file, collection, event, rsvp, rating, availability"),
         ("user_id" = Option<PubkyId>, Query, description = "User ID to base reach on. Must be provided together with reach"),
         ("reach" = Option<StreamReach>, Query, example = "following", description = "Reach type: `followers` | `following` | `friends` | `wot` | `wot_1`..`wot_3`. Scopes results to posts authored by users in that reach, never by user_id itself. To apply that, user_id is required. Bare `wot` defaults to depth 2. Combined with `author`, results are that author's posts if the author is in reach, and empty otherwise"),
         ("skip" = Option<BoundedSkip<1000>>, Query, description = "Skip N results (max 1000)"),
