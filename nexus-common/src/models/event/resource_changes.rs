@@ -1,6 +1,6 @@
 //! Durable resource references. Reads never create or repair feed state.
 //!
-//! Delivery is at least once: consumers upsert/delete by `(author, object_path)`.
+//! Delivery is at least once: consumers upsert/delete by `(author, object_path, kind, resource_id)`.
 //! Rebuilds preserve live appends made while the graph snapshot is assembled.
 
 use crate::db::graph::{GraphError, Query};
@@ -27,8 +27,7 @@ pub enum ResourceChangeOp {
     Del,
 }
 
-/// Only `tag` is emitted today. `reply`, `embed` and `collection` are reserved for the other
-/// references a post makes to a URI.
+/// Tags and external replies, embeds and collection items share this feed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum ResourceChangeKind {
@@ -51,7 +50,7 @@ pub struct ResourceChange {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
     /// The homeserver path of the tag, reply or collection file that names the URI, as
-    /// written. Replay key is (author, object_path), since paths repeat across authors.
+    /// written. Replay key is (author, object_path, kind, resource_id).
     pub object_path: String,
     /// Indexed timestamp in Unix milliseconds (deletion time for del).
     pub at: i64,
@@ -157,6 +156,63 @@ impl ResourceChange {
             .arg(epoch_seed())
             .invoke_async::<()>(&mut conn)
             .await?;
+        Ok(())
+    }
+
+    /// Append one post's reference changes atomically, in the supplied order.
+    pub async fn store_batch(lines: &[Self]) -> RedisResult<()> {
+        if lines.is_empty() {
+            return Ok(());
+        }
+        static BATCH: LazyLock<Script> = LazyLock::new(|| {
+            Script::new(
+                r"
+            redis.call('SETNX', KEYS[2], ARGV[1])
+            for i = 2, #ARGV do redis.call('RPUSH', KEYS[1], ARGV[i]) end
+        ",
+            )
+        });
+        let raw = lines
+            .iter()
+            .map(Self::json)
+            .collect::<RedisResult<Vec<_>>>()?;
+        BATCH
+            .key(RESOURCE_CHANGES_KEY)
+            .key(EPOCH_KEY)
+            .arg(epoch_seed())
+            .arg(raw)
+            .invoke_async::<()>(&mut get_redis_conn().await?)
+            .await?;
+        Ok(())
+    }
+
+    /// Publish a journaled post deletion and remove its exact journal atomically.
+    pub async fn finish_batch_delete(key: &str, expected: &str, lines: &[Self]) -> ModelResult<()> {
+        static FINISH: LazyLock<Script> = LazyLock::new(|| {
+            Script::new(
+                r"
+            if redis.call('GET', KEYS[3]) == ARGV[1] then
+                redis.call('SETNX', KEYS[2], ARGV[2])
+                for i = 3, #ARGV do redis.call('RPUSH', KEYS[1], ARGV[i]) end
+                redis.call('DEL', KEYS[3])
+            end
+        ",
+            )
+        });
+        let raw = lines
+            .iter()
+            .map(Self::json)
+            .collect::<RedisResult<Vec<_>>>()?;
+        FINISH
+            .key(RESOURCE_CHANGES_KEY)
+            .key(EPOCH_KEY)
+            .key(key)
+            .arg(expected)
+            .arg(epoch_seed())
+            .arg(raw)
+            .invoke_async::<()>(&mut get_redis_conn().await?)
+            .await
+            .map_err(RedisError::from)?;
         Ok(())
     }
 
@@ -281,7 +337,32 @@ async fn seed_inner(token: &str, temp: &str) -> ModelResult<u64> {
     if !batch.is_empty() {
         write_seed_batch(temp, &batch).await?;
     }
+    seed_post_references(temp).await?;
     publish_seed(token, temp, start).await.map_err(Into::into)
+}
+
+async fn seed_post_references(temp: &str) -> ModelResult<()> {
+    let mut rows = get_neo4j_graph()?.execute(Query::new("resource_changes_post_seed", r"
+        MATCH (a:User)-[:AUTHORED]->(p:Post)-[e:REPLIED|EMBEDS|COLLECTED]->(r:Resource)
+        WHERE NOT coalesce(p.deleted, false)
+        RETURN {op: 'put', resource_id: r.id, uri: r.uri,
+          kind: CASE type(e) WHEN 'REPLIED' THEN 'reply' WHEN 'EMBEDS' THEN 'embed' ELSE 'collection' END,
+          author: a.id, object_path: e.object_path, at: e.indexed_at} AS line
+        ORDER BY e.indexed_at, a.id, p.id, type(e), r.id
+    ")).await.map_err(GraphError::from)?;
+    let mut batch = Vec::with_capacity(BATCH_SIZE);
+    while let Some(row) = rows.try_next().await.map_err(GraphError::from)? {
+        let line: ResourceChange = row.get("line")?;
+        batch.push(line.json()?);
+        if batch.len() == BATCH_SIZE {
+            write_seed_batch(temp, &batch).await?;
+            batch.clear();
+        }
+    }
+    if !batch.is_empty() {
+        write_seed_batch(temp, &batch).await?;
+    }
+    Ok(())
 }
 
 async fn write_seed_batch(temp: &str, batch: &[String]) -> RedisResult<()> {

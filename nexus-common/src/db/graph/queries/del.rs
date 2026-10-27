@@ -89,7 +89,7 @@ pub fn delete_tag(user_id: &str, tag_id: &str, app: Option<&str>) -> Query {
     CALL {{
         WITH target, resource_id
         WITH target, resource_id WHERE resource_id IS NOT NULL
-        AND NOT EXISTS {{ (target)<-[:TAGGED]-() }}
+        AND NOT EXISTS {{ (target)--() }}
         DELETE target
     }}
     RETURN user_id, post_id, author_id, resource_id, label, app"
