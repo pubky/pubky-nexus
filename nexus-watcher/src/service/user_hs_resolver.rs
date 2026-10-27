@@ -657,9 +657,11 @@ mod tests {
     use super::*;
     use nexus_common::db::graph::Query;
     use nexus_common::db::{exec_single_row, PubkyClientError, PubkyClientResult};
+    use nexus_common::models::user::PkdnsRecord;
     use nexus_common::types::DynError;
-    use nexus_common::utils::test_utils::{random_pk, random_pubky_id};
+    use nexus_common::utils::test_utils::{random_pk, random_pubky_id, signed_packet_naming};
     use nexus_common::{StackConfig, StackManager};
+    use pubky::Keypair;
     use pubky_app_specs::PubkyId;
 
     async fn setup() -> Result<(), DynError> {
@@ -674,11 +676,15 @@ mod tests {
 
     #[async_trait::async_trait]
     impl PkdnsHomeserverResolver for MockResolver {
-        async fn resolve_homeserver(
-            &self,
-            _user_pk: &PublicKey,
-        ) -> PubkyClientResult<Option<PubkyId>> {
-            Ok(self.result.clone())
+        async fn resolve_record(&self, _user_pk: &PublicKey) -> PubkyClientResult<PkdnsRecord> {
+            Ok(match &self.result {
+                Some(homeserver) => PkdnsRecord::Published(signed_packet_naming(
+                    &Keypair::random(),
+                    Some(homeserver),
+                    1,
+                )),
+                None => PkdnsRecord::Missing,
+            })
         }
     }
 
@@ -687,10 +693,7 @@ mod tests {
 
     #[async_trait::async_trait]
     impl PkdnsHomeserverResolver for FailingResolver {
-        async fn resolve_homeserver(
-            &self,
-            _user_pk: &PublicKey,
-        ) -> PubkyClientResult<Option<PubkyId>> {
+        async fn resolve_record(&self, _user_pk: &PublicKey) -> PubkyClientResult<PkdnsRecord> {
             Err(PubkyClientError::RequestFailed {
                 message: "dht unreachable".into(),
             })
@@ -1000,10 +1003,7 @@ mod tests {
 
     #[async_trait::async_trait]
     impl PkdnsHomeserverResolver for CountingResolver {
-        async fn resolve_homeserver(
-            &self,
-            user_pk: &PublicKey,
-        ) -> PubkyClientResult<Option<PubkyId>> {
+        async fn resolve_record(&self, user_pk: &PublicKey) -> PubkyClientResult<PkdnsRecord> {
             let user_id = user_pk.z32();
             *self
                 .calls
@@ -1012,7 +1012,7 @@ mod tests {
                 .entry(user_id.clone())
                 .or_default() += 1;
             if user_id == self.target {
-                Ok(None)
+                Ok(PkdnsRecord::Missing)
             } else {
                 Err(PubkyClientError::RequestFailed {
                     message: "not the user under test".into(),

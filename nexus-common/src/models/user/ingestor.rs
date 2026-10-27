@@ -136,19 +136,24 @@ impl UserIngestor {
 
 #[cfg(test)]
 mod tests {
-    use pubky::PublicKey;
+    use pubky::{Keypair, PublicKey};
 
     use super::*;
     use crate::db::PubkyClientResult;
-    use crate::utils::test_utils::random_pubky_id;
+    use crate::models::user::PkdnsRecord;
+    use crate::utils::test_utils::{random_pubky_id, signed_packet_naming};
 
     /// Resolves every user to one homeserver, without the network.
     struct FixedResolver(PubkyId);
 
     #[async_trait::async_trait]
     impl PkdnsHomeserverResolver for FixedResolver {
-        async fn resolve_homeserver(&self, _: &PublicKey) -> PubkyClientResult<Option<PubkyId>> {
-            Ok(Some(self.0.clone()))
+        async fn resolve_record(&self, _: &PublicKey) -> PubkyClientResult<PkdnsRecord> {
+            Ok(PkdnsRecord::Published(signed_packet_naming(
+                &Keypair::random(),
+                Some(&self.0),
+                1,
+            )))
         }
     }
 
