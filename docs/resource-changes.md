@@ -12,10 +12,8 @@ accepts, or add indexing of external post parents/embeds.
 ```
 
 `object_path` is the homeserver path of the tag, reply or collection file that names the
-URI, as written. Which tag folders reach this feed is the tag routing's to decide (another
-app's folder today, `pubky.app/tags/` and `social/v1/tags/` after
-[#1165](https://github.com/pubky/pubky-nexus/pull/1165)), so the example leaves the folder
-open.
+URI, as written. Which tag folders reach this feed is decided by the tag routing, so the
+example leaves the folder open.
 
 ## Delivery contract
 
@@ -38,10 +36,8 @@ replays), and the deletion's indexed timestamp for dels. Apply lines in list ord
 not timestamp order. `reply`, `embed` and `collection` are reserved kinds, never
 emitted yet.
 
-The response uses `x-events-epoch` and `x-events-length`, the header names proposed
-for `/v0/events` in [PR #1125](https://github.com/pubky/pubky-nexus/pull/1125). This
-feed has independent storage and does not require that PR. Both headers are exposed
-through CORS. Epoch is opaque to clients; length is the number of list entries.
+The response carries `x-events-epoch` and `x-events-length`. This feed has its
+own storage and epoch. Both headers are exposed through CORS. Epoch is opaque to clients; length is the number of list entries.
 The page and headers come from one atomic Redis read. Reads never create an epoch,
 append entries, query the graph, or seed an empty list.
 
