@@ -76,7 +76,7 @@ pub fn bench_stream_bookmarks_total_engagement(c: &mut Criterion) {
 
 /// A page of the bookmarked post keys of `OBSERVER_ID`, the mock user with the
 /// most bookmarks (15 posts over 37 edges): newest first, and ascending
-/// between two bookmark times (10 posts).
+/// between two bookmark times (11 posts).
 pub fn bench_stream_bookmarked_post_keys(c: &mut Criterion) {
     println!("***************************************************************************");
     println!(
