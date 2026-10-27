@@ -1,3 +1,4 @@
+mod post_reference;
 pub mod resource_changes;
 
 use crate::db::{kv::RedisResult, RedisOps};

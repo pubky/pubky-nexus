@@ -1,3 +1,4 @@
+pub mod app_post;
 pub mod bookmark;
 pub mod file;
 pub mod follow;

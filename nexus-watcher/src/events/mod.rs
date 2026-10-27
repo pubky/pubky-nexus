@@ -133,6 +133,7 @@ pub async fn handle_put_event(
     let blob = client.get_resource(&pubky_resource).await?;
 
     let outcome = match translate_put(&event.uri, &event.target, &blob)? {
+        TranslatedPut::AppPost { path } => handlers::app_post::put(&path).await,
         TranslatedPut::User { user_id, user } => handlers::user::sync_put(user, user_id).await,
         TranslatedPut::Post { key, post } => {
             handlers::post::sync_put_at(post, key, &ingestor, &event.uri).await
@@ -206,6 +207,7 @@ pub async fn handle_del_event(
     ingestor: Arc<UserIngestor>,
 ) -> Result<(), EventProcessorError> {
     match translate_del(&event.target)? {
+        TranslatedDel::AppPost(path) => handlers::app_post::del(&path).await,
         TranslatedDel::User { user_id } => handlers::user::del(user_id).await,
         TranslatedDel::Post(key) => match handlers::post::del(key, &ingestor).await {
             Err(EventProcessorError::SkipIndexing)
