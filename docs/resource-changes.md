@@ -2,10 +2,9 @@
 
 `GET /v0/resources/changes?cursor=0&limit=500` returns a JSON object with `lines` and
 `next_cursor`. Each line describes an accepted reference to a generic Resource;
-Nexus does not fetch the target. The first implementation emits only tags handled
-by the universal-tag flow. Post and User targets continue through their existing
-handlers and are excluded. This does not broaden which tag paths or targets Nexus
-accepts, or add indexing of external post parents/embeds.
+Nexus does not fetch the target. Tags and external post replies, embeds and
+collection items name Resources through this feed. Native Post and User targets
+continue through their existing handlers. Tag routing stays unchanged.
 
 ```json
 {"lines":[{"op":"put","resource_id":"19f876713c227a568d939946496a0d30","uri":"https://example.com/","kind":"tag","author":"<pk>","label":"example","object_path":"/pub/<folder>/tags/<id>","at":1792071211000}],"next_cursor":1}
@@ -20,14 +19,14 @@ open.
 ## Delivery contract
 
 Lines are delivered **at least once, in append order**. A consumer must apply `put`
-as an upsert keyed by **(author, object_path)** and `del` as a delete by the same key.
+as an upsert keyed by **(author, object_path, kind, resource_id)** and `del` as a delete by the same key.
 Duplicates are expected after retries and must be harmless: a repeated put replaces
 the same reference, and deleting an absent key is a no-op. Do not increment a
 counter for every line.
 
 The graph commit precedes the feed append. If the handler crashes between them,
-a retry on the existing edge appends the missing put with its original indexed
-timestamp. Retrying again after a successful append can emit an identical put;
+a retry appends the pending put. Tag replay retains its original indexed timestamp.
+Retrying again after a successful append can emit a duplicate put;
 the consumer's upsert leaves one reference. Pending deletes retain their metadata
 until the graph deletion succeeds and publication is acknowledged, so a retry after
 the edge is gone can still publish the del. Publication and pending record removal
@@ -35,8 +34,8 @@ are atomic. A later accepted put supersedes an unfinished delete for its path.
 
 `at` is the edge's indexed timestamp in Unix milliseconds for puts (including
 replays), and the deletion's indexed timestamp for dels. Apply lines in list order,
-not timestamp order. `reply`, `embed` and `collection` are reserved kinds, never
-emitted yet.
+not timestamp order. `reply`, `embed` and `collection` identify references made by posts.
+Post replay may refresh the reference timestamp; consumers still upsert the same key.
 
 The response uses `x-events-epoch` and `x-events-length`, the header names proposed
 for `/v0/events` in [PR #1125](https://github.com/pubky/pubky-nexus/pull/1125). This
@@ -109,3 +108,22 @@ resource views, in request order, retaining duplicates and skipping unknown entr
 Each entry includes `details.id`. Invalid inputs return 400; no matches returns 200 with an
 empty array. No remote fetch or resource creation occurs. Use this with the feed
 to hydrate referenced IDs without a request per resource.
+
+## Post references
+
+Social posts emit `reply`, `embed`, and `collection` for external targets. The target
+URI uses the same normalization and ID as a tag. `object_path` is the actual stored
+version file. One collection can emit multiple lines for that path.
+
+Consumers of these kinds apply each line as an upsert or deletion keyed by
+`(author, object_path, kind, resource_id)`. This extends the tag-only replay key
+without changing any tag line. Lines remain at least once and in append order;
+retries can duplicate a PUT. Keep distinct targets and kinds within one file.
+An edit emits DEL for removed references or an older source-version key, then PUT
+for each current reference. Deleting any social version follows the social-post
+delete contract and retracts the indexed logical post's current references.
+
+The edge update and a pending append batch commit in the same graph transaction.
+Retries flush that batch before recording new changes. Deletes journal all targets
+before graph removal. Reseeding includes live Resource edges and retains concurrent
+appends under the existing epoch/cursor rules. No external target is fetched.

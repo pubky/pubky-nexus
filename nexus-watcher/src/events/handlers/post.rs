@@ -4,11 +4,13 @@ use nexus_common::db::kv::ScoreAction;
 use nexus_common::db::queries;
 use nexus_common::db::queries::get::post_is_safe_to_delete;
 use nexus_common::db::{exec_single_row, execute_graph_operation, OperationOutcome};
+use nexus_common::models::event::resource_changes::{ResourceChange, ResourceChangeKind};
 use nexus_common::models::notification::{Notification, PostChangedSource, PostChangedType};
 use nexus_common::models::post::{
     collection_item_keys, sync_collected_edges, PostCounts, PostDetails, PostParent, PostParents,
     PostRelationships, PostStream,
 };
+use nexus_common::models::resource::references;
 use nexus_common::models::user::UserIngestor;
 use pubky_social_specs::legacy_v0::PubkyAppPostKind;
 use pubky_social_specs::PubkyId;
@@ -24,19 +26,72 @@ pub async fn sync_put(
     key: ResourceKey,
     ingestor: &UserIngestor,
 ) -> Result<(), EventProcessorError> {
+    let source_uri = post.uri.clone();
+    sync_put_at(post, key, ingestor, &source_uri).await
+}
+
+pub async fn sync_put_at(
+    post: PostInput,
+    key: ResourceKey,
+    ingestor: &UserIngestor,
+    source_uri: &str,
+) -> Result<(), EventProcessorError> {
     reject_unsupported_parent(&post)?;
+    let mut lines: Vec<ResourceChange> = Vec::new();
+    for (target, kind) in post
+        .parent
+        .iter()
+        .map(|r| (r, ResourceChangeKind::Reply))
+        .chain(post.embed.iter().map(|r| (r, ResourceChangeKind::Embed)))
+        .chain(
+            post.collection_items
+                .iter()
+                .map(|r| (r, ResourceChangeKind::Collection)),
+        )
+    {
+        if !matches!(target.target, ReferenceTarget::Post(_)) {
+            lines.push(references::reference(
+                &key.owner_id,
+                source_uri,
+                &target.uri,
+                kind,
+            )?);
+        }
+    }
+    references::finish_delete(&key.owner_id, &key.resource_id).await?;
+    let was_reply = PostRelationships::get_from_graph(&key.owner_id, &key.resource_id)
+        .await?
+        .is_some_and(|relationships| relationships.replied.is_some());
+    let now_reply = post.parent.is_some();
     let post_details = post.clone().into_details(&key);
+    let projected = post.clone().into_details(&key);
     let ResourceKey {
         owner_id: author_id,
         resource_id: post_id,
     } = key;
-    sync_put_details(post, post_details, author_id, post_id, ingestor).await
+    sync_put_details(
+        post,
+        post_details,
+        author_id.clone(),
+        post_id.clone(),
+        ingestor,
+    )
+    .await?;
+    references::sync(&projected, lines).await?;
+    PostRelationships::reindex(&author_id, &post_id).await?;
+    PostDetails::reindex(&author_id, &post_id).await?;
+    if was_reply && !now_reply {
+        if let Some((counts, is_reply)) = PostCounts::get_from_graph(&author_id, &post_id).await? {
+            counts.put_to_index(&author_id, &post_id, is_reply).await?;
+        }
+    }
+    Ok(())
 }
 
 /// Rejects a reply to a file, a profile or a `pubky.app` tag as
 /// [`EventProcessorError::UnsupportedTarget`], never retried: no reply edge can ever point at
 /// one. A reply to a URL or another app's object, its tags included, is indexed with no reply
-/// edge.
+/// edge. External targets use the Resource writer after the post commit.
 fn reject_unsupported_parent(post: &PostInput) -> Result<(), EventProcessorError> {
     match &post.parent {
         Some(Reference {
@@ -189,6 +244,7 @@ async fn sync_put_details(
     let mut post_relationships = PostRelationships {
         replied: replied.as_ref().map(|parent| parent.uri.clone()),
         reposted: reposted.as_ref().map(|parent| parent.uri.clone()),
+        embedded: None,
         mentioned: Vec::new(),
     };
 
@@ -612,6 +668,15 @@ async fn ingest_collection_item_authors(post: &PostInput, ingestor: &UserIngesto
 
 #[tracing::instrument(name = "post.del", skip_all, fields(user_id = %key.owner_id, post_id = %key.resource_id))]
 pub async fn del(key: ResourceKey, ingestor: &UserIngestor) -> Result<(), EventProcessorError> {
+    references::prepare_delete(&key.owner_id, &key.resource_id).await?;
+    let result = del_inner(key.clone(), ingestor).await;
+    if result.is_ok() || matches!(result, Err(EventProcessorError::SkipIndexing)) {
+        references::finish_delete(&key.owner_id, &key.resource_id).await?;
+    }
+    result
+}
+
+async fn del_inner(key: ResourceKey, ingestor: &UserIngestor) -> Result<(), EventProcessorError> {
     debug!("Deleting post");
 
     // The post's stored address: a tombstone keeps it, and a hard delete reports it.
@@ -680,6 +745,7 @@ pub async fn sync_del(
     post_id: String,
     deleted_uri: String,
 ) -> Result<(), EventProcessorError> {
+    references::prepare_delete(&author_id, &post_id).await?;
     // 1. The PostRelationships index entry is the gate.
     //    NOTE: deliberately NOT using `get_by_id`, which would re-populate the
     //    index from the graph and defeat the gate.
@@ -713,7 +779,9 @@ pub async fn sync_del(
     // If the post is a reply, cannot delete from the main feeds
     // In the main feed, we just include the root posts and reposts
     // It could be a situation that relationship would not exist and we will treat the post as a not reply
-    let is_reply = replied.is_some();
+    let is_reply = PostRelationships::get_from_graph(&author_id, &post_id)
+        .await?
+        .is_some_and(|r| r.replied.is_some());
 
     // DELETE TO INDEX - PHASE 1, remove the post counts
     // Idempotent: JSON DEL + ZREM from engagement sorted set.
@@ -830,6 +898,10 @@ pub async fn sync_del(
         indexing_results.1?;
     }
 
+    // External replies have no native parent wrapper, but still own this membership.
+    if is_reply {
+        PostStream::remove_from_replies_per_user_sorted_set(&author_id, &post_id).await?;
+    }
     // PHASE 4: Final Redis cleanup of PostDetails (idempotent JSON DEL + ZREM).
     PostDetails::delete_from_index(&author_id, &post_id, reply_parent_post_key_wrapper)
         .instrument(tracing::info_span!("index.delete", phase = "post_details"))
@@ -852,6 +924,7 @@ pub async fn sync_del(
         PostCounts::invalidate(&[&parent[0], &parent[1]]).await?;
     }
 
+    references::finish_delete(&author_id, &post_id).await?;
     Ok(())
 }
 

@@ -84,17 +84,29 @@ impl PostDetails {
         author_id: &str,
         parent_key_wrapper: Option<(String, String)>,
         is_edit: bool,
-    ) -> RedisResult<()> {
+    ) -> ModelResult<()> {
         self.put_index_json(&[author_id, &self.id], None, None)
             .await?;
         // When we delete a post that has ancestor, ignore other index updates
         if is_edit {
             return Ok(());
         }
+        // External replies have no native post key. Graph recovery must still
+        // keep them out of root timelines and restore the author's replies set.
+        if parent_key_wrapper.is_none()
+            && crate::models::resource::references::is_reply(author_id, &self.id).await?
+        {
+            PostStream::remove_from_timeline_sorted_set(author_id, &self.id).await?;
+            PostStream::remove_from_per_user_sorted_set(author_id, &self.id).await?;
+            PostStream::delete_from_engagement_sorted_set(author_id, &self.id).await?;
+            PostStream::add_to_replies_per_user_sorted_set(self).await?;
+            return Ok(());
+        }
         // Replies are not indexed in the global feeds — they live in the
         // per-parent reply set instead.
         match parent_key_wrapper {
             None => {
+                PostStream::remove_from_replies_per_user_sorted_set(author_id, &self.id).await?;
                 PostStream::add_to_timeline_sorted_set(self).await?;
                 PostStream::add_to_per_user_sorted_set(self).await?;
             }

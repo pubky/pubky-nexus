@@ -89,3 +89,6 @@ pub const STREAM_RESOURCE_IDS_ROUTE: &str = concatcp!(STREAM_RESOURCES_ROUTE, "/
 pub const EVENTS_ROUTE: &str = concatcp!(VERSION_ROUTE, "/events");
 
 pub const RESOURCE_CHANGES_ROUTE: &str = concatcp!(VERSION_ROUTE, "/resources/changes");
+
+pub const RESOURCE_REPLIES_ROUTE: &str = concatcp!(RESOURCE_PREFIX, "/{resource_id}/replies");
+pub const RESOURCE_EMBEDS_ROUTE: &str = concatcp!(RESOURCE_PREFIX, "/{resource_id}/embeds");
