@@ -203,4 +203,37 @@ mod tests {
             ModerationTarget::Ignore
         );
     }
+
+    /// A rejected moderator tag is dropped at debug level by `handle_error`, so the warn
+    /// line here is the only trace a dropped takedown leaves on the live path.
+    #[tokio::test]
+    #[tracing_test::traced_test]
+    async fn apply_moderation_rejects_and_warns_on_unsupported_target() {
+        let label = "label_to_moderate".to_string();
+        let moderation = Moderation {
+            id: PubkyId::try_from(USER_ID).unwrap(),
+            tags: vec![label.clone()],
+        };
+        let tag = PubkyAppTag {
+            uri: "https://example.com/album/123".to_string(),
+            label,
+            created_at: 0,
+        };
+        let tag_uri = format!("pubky://{USER_ID}/pub/pubky.app/tags/ABCDEFGHJK");
+
+        let result = moderation
+            .apply_moderation(
+                tag,
+                &tag_uri,
+                Path::new("/nonexistent"),
+                &nexus_common::utils::test_utils::default_ingestor_tests(),
+            )
+            .await;
+
+        assert!(
+            matches!(result, Err(EventProcessorError::UnsupportedTarget(_))),
+            "unexpected result {result:?}"
+        );
+        assert!(logs_contain("not applied"));
+    }
 }
