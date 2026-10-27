@@ -248,27 +248,76 @@ async fn event_routes_filters_rating_sorts_and_invalid_queries() -> Result<()> {
         .await?[0]["post_id"],
         ids[1]
     );
-    for owner_filter in [
-        format!("author={author}"),
-        format!("curator={author}"),
-        format!("admin={author}"),
-    ] {
-        let calendars = get_request(&format!(
-            "/v0/stream/calendars?{owner_filter}&limit=1&limit_occurrences=1"
-        ))
-        .await?;
-        assert_eq!(calendars.as_array().unwrap().len(), 1);
-        assert_eq!(calendars[0]["post"]["details"]["id"], collection);
-        assert_eq!(calendars[0]["occurrences"].as_array().unwrap().len(), 1);
-    }
+    // Calendars are collections that contain events.
+    let plain = pubky_social_specs::PubkySocialPost::new(
+        "plain".into(),
+        pubky_social_specs::PubkySocialPostKind::Note,
+        None,
+        None,
+        vec![],
+    )
+    .create_id();
+    tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+    let plain_collection = pubky_social_specs::PubkySocialPost::new(
+        "plain collection".into(),
+        pubky_social_specs::PubkySocialPostKind::Note,
+        None,
+        None,
+        vec![],
+    )
+    .create_id();
+    exec_single_row(Query::new("test_plain_collection","MATCH (u:User {id:$author}) CREATE (u)-[:AUTHORED]->(n:Post {id:$plain,uri:$plain_uri,kind:'short',content:'plain',indexed_at:2}) CREATE (u)-[:AUTHORED]->(c:Post {id:$collection,uri:$uri,kind:'collection',content:'{}',indexed_at:3,deleted:false})-[:COLLECTED]->(n)")
+        .param("author",author.clone()).param("plain",plain.clone()).param("plain_uri",pubky_social_specs::post_uri_builder(author.clone(), plain.clone()))
+        .param("collection",plain_collection.clone()).param("uri",pubky_social_specs::post_uri_builder(author.clone(), plain_collection.clone()))).await?;
+    let collections = |filter: &str| {
+        format!("/v0/stream/posts/keys?source=author&author_id={author}&kind=collection{filter}")
+    };
     assert_eq!(
-        get_request(&format!("/v0/stream/calendars?author={viewer}")).await?,
+        get_request(&collections("")).await?["post_keys"],
+        json!([
+            format!("{author}:{plain_collection}"),
+            format!("{author}:{collection}")
+        ])
+    );
+    assert_eq!(
+        get_request(&collections("&item_kind=event")).await?["post_keys"],
+        json!([format!("{author}:{collection}")])
+    );
+    assert_eq!(
+        get_request(&collections("&item_kind=short")).await?["post_keys"],
+        json!([format!("{author}:{plain_collection}")])
+    );
+    let calendars = get_request(&format!(
+        "/v0/stream/posts?source=author&author_id={author}&kind=collection&item_kind=event"
+    ))
+    .await?;
+    assert!(calendars
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|post| post["details"]["id"] == collection));
+    assert!(calendars
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|post| post["details"]["id"] != plain_collection));
+    // collection= reads the collection's items, not every occurrence.
+    assert_eq!(
+        get_request(&format!("/v0/stream/events?collection={collection_uri}"))
+            .await?
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(
+        get_request(&format!(
+            "/v0/stream/events?collection={}",
+            pubky_social_specs::post_uri_builder(author.clone(), plain_collection.clone())
+        ))
+        .await?,
         json!([])
     );
-    let calendar = get_request(&format!("/v0/calendar/{author}/{collection}")).await?;
-    assert_eq!(calendar["collection"]["items"][0]["note"], "Featured");
-    assert_eq!(calendar["collection"]["items"].as_array().unwrap().len(), 2);
-    assert_eq!(calendar["occurrences"][0]["post_id"], ids[1]);
     // Serve only newest per author/target, using the same projection as the watcher.
     for days in [30, 60] {
         let id = pubky_social_specs::PubkySocialPost::new(
@@ -321,9 +370,9 @@ async fn event_routes_filters_rating_sorts_and_invalid_queries() -> Result<()> {
             "/v0/stream/events?locations={}",
             vec![rid.as_str(); 101].join(",")
         ),
-        "/v0/stream/calendars?limit=51".into(),
-        "/v0/stream/calendars?limit_occurrences=51".into(),
-        format!("/v0/stream/calendars?admin={author}&curator={viewer}"),
+        "/v0/stream/posts?item_kind=event".into(),
+        "/v0/stream/posts?kind=short&item_kind=event".into(),
+        "/v0/stream/posts/keys?kind=collection&item_kind=unknown-kind".into(),
         format!("/v0/event/{author}/{}?limit_tags=101", ids[0]),
         format!("/v0/event/{author}/{}?limit_taggers=101", ids[0]),
         format!("/v0/event/{author}/{}?limit_attendees=201", ids[0]),

@@ -258,8 +258,8 @@ pub struct EventQuery {
     pub limit: usize,
 }
 pub async fn stream(q: EventQuery) -> ModelResult<Vec<Occurrence>> {
-    // Select candidates from the requested indexed resource/user, before applying
-    // the common time and effective-RSVP filters. UNION deduplicates master hits.
+    // Select candidates from the requested indexed resource/user/collection, before
+    // applying the common time and effective-RSVP filters. UNION deduplicates master hits.
     let candidates = if !q.locations.is_empty() {
         r"
         MATCH (location:Resource) USING INDEX location:Resource(id)
@@ -282,6 +282,21 @@ pub async fn stream(q: EventQuery) -> ModelResult<Vec<Occurrence>> {
             RETURN o
         }
         WITH DISTINCT o,rsvp WHERE rsvp.recurrence_id IS NULL OR rsvp.recurrence_id=o.recurrence_id
+        WITH DISTINCT o
+        "
+    } else if q.collection.is_some() {
+        // A collection item is a series master or an override post; both reach
+        // every materialized occurrence of that item.
+        r"
+        MATCH (c:Post {uri:$collection}) USING INDEX c:Post(uri)
+        MATCH (c)-[:COLLECTED]->(item:Post)
+        CALL (item) {
+            MATCH (o:EventOccurrence {master:item.uri}) USING INDEX o:EventOccurrence(master)
+            RETURN o
+            UNION
+            MATCH (o:EventOccurrence {post_uri:item.uri}) USING INDEX o:EventOccurrence(post_uri)
+            RETURN o
+        }
         WITH DISTINCT o
         "
     } else {
