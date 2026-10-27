@@ -2490,6 +2490,22 @@ mod tests {
     }
 
     #[test]
+    fn bookmarked_posts_caps_skip_and_limit() {
+        let query = bookmarked_posts(
+            "user",
+            &SortOrder::Descending,
+            &Pagination {
+                skip: Some(MAX_QUERY_SKIP + 1),
+                limit: Some(MAX_QUERY_LIMIT + 1),
+                ..Default::default()
+            },
+        );
+        assert!(query
+            .to_cypher_populated()
+            .contains(&format!("SKIP {MAX_QUERY_SKIP}\nLIMIT {MAX_QUERY_LIMIT}")));
+    }
+
+    #[test]
     fn tag_taggers_by_reach_dedups_reach_before_matching_tags() {
         let reaches = [
             StreamReach::Followers,
