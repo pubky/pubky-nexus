@@ -86,6 +86,13 @@ pub enum NotificationBody {
         linked_uri: String,
         post_kind: PostKind,
     },
+    /// An event the user attends changed an occurrence; it names no post kind, so it is the
+    /// stored body as it is.
+    EventChanged {
+        event_uri: String,
+        recurrence_id: String,
+        post_uri: String,
+    },
 }
 
 impl From<notification::NotificationBody> for NotificationBody {
@@ -188,6 +195,15 @@ impl From<notification::NotificationBody> for NotificationBody {
                 linked_uri,
                 post_kind: post_kind.into(),
             },
+            Stored::EventChanged {
+                event_uri,
+                recurrence_id,
+                post_uri,
+            } => Self::EventChanged {
+                event_uri,
+                recurrence_id,
+                post_uri,
+            },
         }
     }
 }
@@ -262,8 +278,13 @@ mod tests {
                 edit_source: PostChangedSource::TaggedPost,
                 edited_by: "a".into(),
                 edited_uri: who.clone(),
-                linked_uri: who,
+                linked_uri: who.clone(),
                 post_kind: StoredKind::Collection,
+            },
+            Stored::EventChanged {
+                event_uri: who.clone(),
+                recurrence_id: "2026-11-09T10:00:00".into(),
+                post_uri: who,
             },
         ];
         for body in bodies {

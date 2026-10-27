@@ -18,6 +18,7 @@ pub enum StreamSorting {
     #[default]
     Timeline,
     TotalEngagement,
+    Rating,
 }
 
 /// Web of Trust traversal depth, validated to `1..=3` at construction. The
@@ -163,6 +164,27 @@ impl<'de> Deserialize<'de> for StreamReach {
                 }
             }
         }
+    }
+}
+
+/// Preserve integer JSON for existing timestamp/count cursors, allowing fractional rating scores.
+pub fn serialize_score<S: serde::Serializer>(
+    score: &f64,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    if score.fract() == 0.0 && *score >= 0.0 && *score <= u64::MAX as f64 {
+        serializer.serialize_u64(*score as u64)
+    } else {
+        serializer.serialize_f64(*score)
+    }
+}
+pub fn serialize_optional_score<S: serde::Serializer>(
+    score: &Option<f64>,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    match score {
+        Some(score) => serialize_score(score, serializer),
+        None => serializer.serialize_none(),
     }
 }
 

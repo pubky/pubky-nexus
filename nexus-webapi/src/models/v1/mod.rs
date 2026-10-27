@@ -20,6 +20,7 @@ mod notification;
 mod post;
 mod post_kinds;
 mod resource;
+mod social_event;
 mod stream;
 mod tag;
 mod user;
@@ -32,6 +33,7 @@ pub use post::{
 };
 pub use post_kinds::{PostKinds, V1KindToken};
 pub use resource::{ResourceTagsResponse, ResourceView};
+pub use social_event::{CalendarView, EventView};
 pub use stream::{PostStreamByIdsRequest, StreamSourceKind, SOURCE_NAMES};
 pub use tag::{TagDetails, TagLabel, TaggersInfoResponse, Tags};
 pub use user::{UserCounts, UserStream, UserView};

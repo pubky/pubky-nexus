@@ -94,15 +94,23 @@ impl<K: KindToken, const MAX: usize> ToSchema for PostKinds<K, MAX> {
     }
 }
 
-/// `/v0`'s token: a stored name, case-insensitively on our side, through the strict
-/// [`FromStr`](std::str::FromStr) of [`PostKind`], so `unknown` is rejected and exclusion lists
-/// cannot target it.
+/// `/v0`'s token: a stored name of the frozen `/v0` vocabulary, case-insensitively on our side,
+/// through the strict [`FromStr`](std::str::FromStr) of [`PostKind`], so `unknown` is rejected
+/// and exclusion lists cannot target it. The `social/v1` event kinds are no `/v0` kind
+/// ([`PostKind::is_v0`]), so their names are rejected as any other unknown name.
 pub struct StoredKindToken(PostKind);
 
 impl TryFrom<String> for StoredKindToken {
     type Error = String;
     fn try_from(s: String) -> Result<Self, Self::Error> {
-        s.to_lowercase().parse::<PostKind>().map(Self)
+        let name = s.to_lowercase();
+        let kind = name.parse::<PostKind>()?;
+        if kind.is_v0() {
+            Ok(Self(kind))
+        } else {
+            // The lowercased spelling, as the strict parse words a name it refuses.
+            Err(format!("Invalid content kind: {name}"))
+        }
     }
 }
 
@@ -172,6 +180,27 @@ mod tests {
     #[test]
     fn rejects_over_max() {
         assert!(parse("short,long,image,video,link,file,collection,short").is_err());
+    }
+
+    /// `/v0` is frozen: the `social/v1` event kinds are no names it takes, refused with the
+    /// strict parse's own words for an unknown name, lowercased as it lowercased them.
+    #[test]
+    fn rejects_event_kinds() {
+        for name in ["event", "rsvp", "rating", "availability"] {
+            assert!(parse(name).is_err(), "{name}");
+            assert!(parse(&format!("short,{name}")).is_err(), "{name}");
+            let upper = name.to_uppercase();
+            assert_eq!(
+                StoredKindToken::try_from(upper).err().as_deref(),
+                Some(format!("Invalid content kind: {name}").as_str())
+            );
+        }
+        assert_eq!(
+            StoredKindToken::try_from("Bogus".to_string())
+                .err()
+                .as_deref(),
+            Some("Invalid content kind: bogus")
+        );
     }
 
     #[test]

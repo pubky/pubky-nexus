@@ -42,6 +42,11 @@ pub struct Notification {
 #[derive(Serialize, Deserialize, Clone, ToSchema, Debug)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum NotificationBody {
+    EventChanged {
+        event_uri: String,
+        recurrence_id: String,
+        post_uri: String,
+    },
     Follow {
         followed_by: String,
     },
@@ -127,6 +132,7 @@ pub enum NotificationType {
     Mention,
     PostDeleted,
     PostEdited,
+    EventChanged,
 }
 
 impl std::str::FromStr for NotificationType {
@@ -146,6 +152,7 @@ impl std::str::FromStr for NotificationType {
             "mention" => Self::Mention,
             "post_deleted" => Self::PostDeleted,
             "post_edited" => Self::PostEdited,
+            "event_changed" => Self::EventChanged,
             other => return Err(format!("unknown notification type: {other}")),
         })
     }
@@ -166,6 +173,7 @@ impl NotificationBody {
             Self::Mention { .. } => NotificationType::Mention,
             Self::PostDeleted { .. } => NotificationType::PostDeleted,
             Self::PostEdited { .. } => NotificationType::PostEdited,
+            Self::EventChanged { .. } => NotificationType::EventChanged,
         }
     }
 }
@@ -192,6 +200,11 @@ impl Default for NotificationBody {
 impl RedisOps for Notification {}
 
 impl Notification {
+    /// Retry-safe: the identical notification body is a sorted-set member.
+    pub async fn store_for(&self, user_id: &str) -> RedisResult<()> {
+        self.put_to_index(user_id).await
+    }
+
     pub fn new(body: NotificationBody) -> Self {
         Self {
             body,
@@ -264,6 +277,20 @@ impl Notification {
         pagination: Pagination,
         types: &[NotificationType],
     ) -> RedisResult<(Vec<Self>, Option<i64>)> {
+        Self::get_by_id_filtered_capped(user_id, pagination, types, NOTIFICATION_FILTER_MAX_SCAN)
+            .await
+    }
+
+    /// [`Self::get_by_id_filtered`] with its scan stopping after `max_scan` entries instead of
+    /// [`NOTIFICATION_FILTER_MAX_SCAN`]. The API's frozen `/v0` pages its unfiltered list over
+    /// the types it has with a cap of `skip + limit` plus the usual one, so a history with
+    /// none of the types it leaves out pages exactly as an unfiltered read does, however deep.
+    pub async fn get_by_id_filtered_capped(
+        user_id: &str,
+        pagination: Pagination,
+        types: &[NotificationType],
+        max_scan: usize,
+    ) -> RedisResult<(Vec<Self>, Option<i64>)> {
         let mut to_skip = pagination.skip.unwrap_or(0);
         let limit = pagination.limit.unwrap_or(20);
         let mut start = pagination.start;
@@ -272,8 +299,8 @@ impl Notification {
         let mut oldest_scanned: Option<f64> = None;
         let mut exhausted = false;
 
-        while result.len() < limit && offset < NOTIFICATION_FILTER_MAX_SCAN {
-            let chunk = NOTIFICATION_FILTER_CHUNK.min(NOTIFICATION_FILTER_MAX_SCAN - offset);
+        while result.len() < limit && offset < max_scan {
+            let chunk = NOTIFICATION_FILTER_CHUNK.min(max_scan - offset);
             let rows = Notification::try_from_index_sorted_set(
                 &["Notification", user_id],
                 start,
