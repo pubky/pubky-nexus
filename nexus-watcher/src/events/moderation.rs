@@ -7,7 +7,7 @@ use nexus_common::models::takedown::record_takedown;
 use nexus_common::models::user::UserIngestor;
 use nexus_common::WatcherConfig;
 use pubky_app_specs::{ExtendedParsedUri, ParsedUri, PubkyAppTag, PubkyId, Resource};
-use tracing::info;
+use tracing::{info, warn};
 
 pub struct Moderation {
     /// Moderator trusted user id
@@ -48,7 +48,11 @@ impl Moderation {
     ) -> Result<(), EventProcessorError> {
         let lahel = moderator_tag.label;
 
-        let uri = match moderation_target(&moderator_tag.uri)? {
+        // `handle_error` drops a non-retryable error at debug level, so a moderator action
+        // that cannot apply is logged here, where an operator will see it.
+        let target = moderation_target(&moderator_tag.uri)
+            .inspect_err(|e| warn!("Moderation tag '{lahel}' not applied: {e}"))?;
+        let uri = match target {
             // A profile is not remembered: its address is the user's, and a moderated user
             // may come back by writing a new profile.
             ModerationTarget::User(user_id) => {
@@ -178,6 +182,17 @@ mod tests {
                 moderation_target(uri).unwrap(),
                 ModerationTarget::TakeDown(uri.clone()),
                 "{uri}"
+            );
+        }
+        // A non-canonical spelling of the same record maps to the address its event carries.
+        for (spelling, canonical) in [
+            (format!("{post}/"), &post),
+            (format!("{universal_tag}?ref=1"), &universal_tag),
+        ] {
+            assert_eq!(
+                moderation_target(&spelling).unwrap(),
+                ModerationTarget::TakeDown(canonical.clone()),
+                "{spelling}"
             );
         }
         assert_eq!(
