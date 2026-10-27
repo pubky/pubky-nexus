@@ -26,6 +26,7 @@ pub enum ResourceStreamSource {
 pub enum ResourceSorting {
     #[default]
     Timeline,
+    Rating,
 }
 
 #[derive(Serialize, Deserialize, ToSchema, Debug, Default, Clone)]
@@ -36,21 +37,22 @@ pub struct ResourceKeyStream {
     ///
     /// The cursor carries only the score, not the id, and `start` is
     /// inclusive, so a resume re-selects every row sharing the cursor score and
-    /// takes a `skip` covering the served ones. Timestamps rarely tie, so
+    /// takes a `skip` covering the served ones, including rating ties. Timestamps rarely tie, so
     /// `skip=1` resumes a timeline walk.
-    pub last_score: Option<u64>,
+    #[serde(serialize_with = "crate::types::serialize_optional_score")]
+    pub last_score: Option<f64>,
 }
 
 impl ResourceKeyStream {
-    pub fn new(resource_ids: Vec<String>, last_score: Option<u64>) -> Self {
+    pub fn new(resource_ids: Vec<String>, last_score: Option<f64>) -> Self {
         Self {
             resource_ids,
             last_score,
         }
     }
 
-    pub fn from_scored_entries(entries: Vec<(String, i64)>) -> Self {
-        let last_score = entries.last().map(|(_, score)| (*score).max(0) as u64);
+    pub fn from_scored_entries(entries: Vec<(String, f64)>) -> Self {
+        let last_score = entries.last().map(|(_, score)| (*score).max(0.0));
         let resource_ids = entries.into_iter().map(|(key, _)| key).collect();
         Self::new(resource_ids, last_score)
     }
@@ -97,7 +99,9 @@ impl ResourceStream {
             let mut entries = Vec::new();
             while let Some(row) = result.try_next().await? {
                 let id: String = row.get("resource_id")?;
-                let score: i64 = row.get("score")?;
+                let score: f64 = row
+                    .get("score")
+                    .or_else(|_| row.get::<i64>("score").map(|s| s as f64))?;
                 entries.push((id, score));
             }
             Ok::<_, GraphError>(entries)

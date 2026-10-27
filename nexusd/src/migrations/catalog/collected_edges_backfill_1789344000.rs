@@ -3,12 +3,12 @@ use std::time::Instant;
 use tracing::{info, warn};
 
 use crate::migrations::manager::Migration;
+use nexus_common::models::post::PostKind as PubkyAppPostKind;
 use nexus_common::{
     db::{fetch_all_rows_from_graph, queries},
     models::post::{collection_item_keys, sync_collected_edges, PostDetails},
     types::DynError,
 };
-use pubky_social_specs::legacy_v0::PubkyAppPostKind;
 
 const PROGRESS_LOG_EVERY: u64 = 500;
 

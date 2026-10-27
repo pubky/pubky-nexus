@@ -91,3 +91,8 @@ threads-required = 'num-test-threads'
 [[profile.default.overrides]]
 filter = 'test(/^models::event::post_reference::tests::live_/)'
 threads-required = 'num-test-threads'
+
+# These inject a failed notification destination or advance the shared occurrence window.
+[[profile.default.overrides]]
+filter = 'test(=event_processor::social_events::projection_replay_recovers_graph_commit_and_notification_outbox) | test(=event_processor::social_events::daily_window_rolls_forward_without_pruning_future_rsvps)'
+threads-required = 'num-test-threads'

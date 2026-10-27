@@ -7,8 +7,7 @@
 
 use crate::errors::EventProcessorError;
 use crate::events::inputs::{
-    BookmarkInput, FileInput, PostInput, PostKind, Reference, ResourceKey, TagInput, UserInput,
-    UserLink,
+    BookmarkInput, FileInput, PostInput, Reference, ResourceKey, TagInput, UserInput, UserLink,
 };
 use crate::events::route::resolve_reference;
 use crate::events::translation::{TranslatedDel, TranslatedPut};
@@ -178,21 +177,6 @@ impl PostInput {
     }
 }
 
-impl From<PubkyAppPostKind> for PostKind {
-    fn from(kind: PubkyAppPostKind) -> Self {
-        match kind {
-            PubkyAppPostKind::Short => Self::Short,
-            PubkyAppPostKind::Long => Self::Long,
-            PubkyAppPostKind::Image => Self::Image,
-            PubkyAppPostKind::Video => Self::Video,
-            PubkyAppPostKind::Link => Self::Link,
-            PubkyAppPostKind::File => Self::File,
-            PubkyAppPostKind::Collection => Self::Collection,
-            PubkyAppPostKind::Unknown => Self::Unknown,
-        }
-    }
-}
-
 /// The items a collection post's content envelope lists, in order; none for any other kind.
 ///
 /// The reader has already validated a collection's envelope, so content that doesn't parse
@@ -253,6 +237,7 @@ fn read<T: Validatable>(bytes: &[u8], id: &str) -> Result<T, EventProcessorError
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::events::inputs::PostKind;
     use crate::events::inputs::{Reference, ReferenceTarget};
     use pubky_social_specs::legacy_v0::traits::{HashId, TimestampId};
     use pubky_social_specs::legacy_v0::{PubkyAppPostEmbed, PubkyAppPostKind, PubkyAppUserLink};

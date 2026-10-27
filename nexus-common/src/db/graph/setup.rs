@@ -20,6 +20,9 @@ pub async fn setup_graph() -> GraphResult<()> {
 async fn setup_graph_inner() -> GraphResult<()> {
     // Define unique constraints
     let constraints = [
+        "CREATE CONSTRAINT uniqueEventSeries IF NOT EXISTS FOR (s:EventSeries) REQUIRE s.uri IS UNIQUE",
+        "CREATE CONSTRAINT uniqueEventOccurrence IF NOT EXISTS FOR (o:EventOccurrence) REQUIRE (o.master,o.recurrence_id) IS UNIQUE",
+        "CREATE CONSTRAINT uniqueEventNotice IF NOT EXISTS FOR (n:EventNotice) REQUIRE n.key IS UNIQUE",
         "CREATE CONSTRAINT uniqueUserId IF NOT EXISTS FOR (u:User) REQUIRE u.id IS UNIQUE",
         "CREATE CONSTRAINT uniquePostId IF NOT EXISTS FOR (p:Post) REQUIRE p.id IS UNIQUE",
         "CREATE CONSTRAINT uniqueFileId IF NOT EXISTS FOR (f:File) REQUIRE (f.owner_id, f.id) IS UNIQUE",
@@ -31,6 +34,14 @@ async fn setup_graph_inner() -> GraphResult<()> {
     // User.id / Post.id / File.(owner_id,id) / Homeserver.id need no CREATE INDEX:
     // the UNIQUE constraints above already create a backing index for them.
     let indexes = [
+        "CREATE INDEX availabilityTarget IF NOT EXISTS FOR (p:Post) ON (p.availability_target)",
+        "CREATE INDEX occurrenceMaster IF NOT EXISTS FOR (o:EventOccurrence) ON (o.master)",
+        "CREATE INDEX occurrencePost IF NOT EXISTS FOR (o:EventOccurrence) ON (o.post_uri)",
+        "CREATE INDEX occurrenceStart IF NOT EXISTS FOR (o:EventOccurrence) ON (o.start_at)",
+        "CREATE INDEX occurrenceFamily IF NOT EXISTS FOR (o:EventOccurrence) ON (o.family)",
+        "CREATE INDEX postUriIndex IF NOT EXISTS FOR (p:Post) ON (p.uri)",
+        "CREATE INDEX eventMasterIndex IF NOT EXISTS FOR (p:Post) ON (p.event_master)",
+        "CREATE INDEX rsvpTargetIndex IF NOT EXISTS FOR (p:Post) ON (p.rsvp_target)",
         "CREATE INDEX postTimestampIndex IF NOT EXISTS FOR (p:Post) ON (p.indexed_at)",
         "CREATE INDEX postKindIndex IF NOT EXISTS FOR (p:Post) ON (p.kind)",
         "CREATE INDEX taggedLabelIndex IF NOT EXISTS FOR ()-[r:TAGGED]-() ON (r.label)",
@@ -44,11 +55,18 @@ async fn setup_graph_inner() -> GraphResult<()> {
     let graph = get_neo4j_graph()?;
 
     for &ddl in queries {
-        graph.run(Query::new("setup_ddl", ddl)).await.map_err(|e| {
-            GraphError::Generic(format!(
-                "Failed to apply graph constraint/index '{ddl}': {e}"
-            ))
-        })?;
+        if let Err(e) = graph.run(Query::new("setup_ddl", ddl)).await {
+            // Independent API/watcher processes can race on first startup even with
+            // IF NOT EXISTS. Only an equivalent schema rule is already satisfied.
+            if !e
+                .to_string()
+                .contains("Neo.ClientError.Schema.EquivalentSchemaRuleAlreadyExists")
+            {
+                return Err(GraphError::Generic(format!(
+                    "Failed to apply graph constraint/index '{ddl}': {e}"
+                )));
+            }
+        }
     }
 
     info!("Neo4j graph constraints and indexes have been applied successfully");

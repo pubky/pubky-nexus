@@ -2,10 +2,11 @@ use crate::db::graph::keyset_scan_composite;
 use crate::db::kv::{RedisError, RedisResult, SortOrder};
 use crate::db::{fetch_all_rows_from_graph, queries, RedisOps};
 use crate::models::error::{ModelError, ModelResult};
+use crate::models::post::PostKind as PubkyAppPostKind;
 use crate::types::Pagination;
 use chrono::Utc;
 use neo4rs::Row;
-use pubky_social_specs::legacy_v0::{bookmark_uri_builder, PubkyAppPostKind};
+use pubky_social_specs::legacy_v0::bookmark_uri_builder;
 use pubky_social_specs::PubkyId;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -41,6 +42,11 @@ pub struct Notification {
 #[derive(Serialize, Deserialize, Clone, ToSchema, Debug)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum NotificationBody {
+    EventChanged {
+        event_uri: String,
+        recurrence_id: String,
+        post_uri: String,
+    },
     Follow {
         followed_by: String,
     },
@@ -126,6 +132,11 @@ impl Default for NotificationBody {
 impl RedisOps for Notification {}
 
 impl Notification {
+    /// Retry-safe: the identical notification body is a sorted-set member.
+    pub async fn store_for(&self, user_id: &str) -> RedisResult<()> {
+        self.put_to_index(user_id).await
+    }
+
     pub fn new(body: NotificationBody) -> Self {
         Self {
             body,

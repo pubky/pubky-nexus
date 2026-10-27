@@ -4,8 +4,8 @@ use crate::db::{
     execute_graph_operation, fetch_row_from_graph, queries, GraphResult, OperationOutcome, RedisOps,
 };
 use crate::models::error::ModelResult;
+use crate::models::post::PostKind as PubkyAppPostKind;
 use crate::models::ResourceKey;
-use pubky_social_specs::legacy_v0::PubkyAppPostKind;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -191,7 +191,7 @@ impl PostDetails {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pubky_social_specs::legacy_v0::PubkyAppPostKind;
+    use crate::models::post::PostKind as PubkyAppPostKind;
 
     #[tokio_shared_rt::test(shared)]
     async fn test_is_different_than() {

@@ -6,13 +6,13 @@ use nexus_common::db::queries::get::post_is_safe_to_delete;
 use nexus_common::db::{exec_single_row, execute_graph_operation, OperationOutcome};
 use nexus_common::models::event::resource_changes::{ResourceChange, ResourceChangeKind};
 use nexus_common::models::notification::{Notification, PostChangedSource, PostChangedType};
+use nexus_common::models::post::PostKind as PubkyAppPostKind;
 use nexus_common::models::post::{
     collection_item_keys, sync_collected_edges, PostCounts, PostDetails, PostParent, PostParents,
     PostRelationships, PostStream,
 };
 use nexus_common::models::resource::references;
 use nexus_common::models::user::UserIngestor;
-use pubky_social_specs::legacy_v0::PubkyAppPostKind;
 use pubky_social_specs::PubkyId;
 use tracing::{debug, Instrument};
 
@@ -37,6 +37,48 @@ pub async fn sync_put_at(
     source_uri: &str,
 ) -> Result<(), EventProcessorError> {
     reject_unsupported_parent(&post)?;
+    let is_social = post.uri.contains("/pub/social/v1/posts/");
+    let projection = if is_social {
+        nexus_common::models::social_event::SocialContent::read(
+            post.kind.clone(),
+            &post.content,
+            chrono::Utc::now(),
+        )?
+    } else {
+        nexus_common::models::social_event::SocialContent::Other
+    };
+    if post.kind == PostKind::Rsvp {
+        let parent = post.parent.as_ref().ok_or_else(|| {
+            EventProcessorError::SpecValidation("RSVP requires an event parent".into())
+        })?;
+        let ReferenceTarget::Post(parent_key) = &parent.target else {
+            return Err(EventProcessorError::SpecValidation(
+                "RSVP parent must be a social event".into(),
+            ));
+        };
+        match nexus_common::models::social_event::validate_parent(parent_key).await? {
+            Some(true) => {}
+            Some(false) => {
+                return Err(EventProcessorError::SpecValidation(
+                    "RSVP parent is not an event".into(),
+                ))
+            }
+            None => {
+                fail_on_permanent_ingest_error(
+                    ingestor.maybe_ingest_user(&parent_key.owner_id).await,
+                )?;
+                return Err(EventProcessorError::missing_dependencies(vec![parent
+                    .uri
+                    .clone()]));
+            }
+        }
+    }
+    let source_content = post.content.clone();
+    let source_parent = post.parent.as_ref().map(|r| r.uri.clone());
+    let source_parent_key = post.parent.as_ref().and_then(|r| match &r.target {
+        ReferenceTarget::Post(key) => Some(key.clone()),
+        _ => None,
+    });
     let mut lines: Vec<ResourceChange> = Vec::new();
     for (target, kind) in post
         .parent
@@ -85,6 +127,17 @@ pub async fn sync_put_at(
             counts.put_to_index(&author_id, &post_id, is_reply).await?;
         }
     }
+    if is_social {
+        nexus_common::models::social_event::sync_with_parent(
+            &author_id,
+            &post_id,
+            &source_content,
+            source_parent.as_deref(),
+            source_parent_key.as_ref(),
+            &projection,
+        )
+        .await?;
+    }
     Ok(())
 }
 
@@ -93,6 +146,9 @@ pub async fn sync_put_at(
 /// one. A reply to a URL or another app's object, its tags included, is indexed with no reply
 /// edge. External targets use the Resource writer after the post commit.
 fn reject_unsupported_parent(post: &PostInput) -> Result<(), EventProcessorError> {
+    if post.kind == PostKind::Rating {
+        return Ok(());
+    }
     match &post.parent {
         Some(Reference {
             uri,
@@ -686,6 +742,10 @@ async fn del_inner(key: ResourceKey, ingestor: &UserIngestor) -> Result<(), Even
     else {
         return Err(EventProcessorError::SkipIndexing);
     };
+
+    if uri.contains("/pub/social/v1/posts/") {
+        nexus_common::models::social_event::remove(&key.owner_id, &key.resource_id).await?;
+    }
 
     // Graph query to check if there is any edge at all to this post other than AUTHORED, is a reply or is a repost.
     let query = post_is_safe_to_delete(&key.owner_id, &key.resource_id);

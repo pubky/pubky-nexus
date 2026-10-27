@@ -319,3 +319,29 @@ async fn test_tag_search_hides_unranked_authors() -> Result<()> {
     }
     Ok(())
 }
+
+#[tokio_shared_rt::test(shared)]
+async fn rating_stream_and_tag_search_keep_the_trust_filter() -> Result<()> {
+    let page = keys("source=all&sorting=rating&tags=wmtag1").await?;
+    assert!(post_keys_in(&page).is_empty());
+    let hidden = get_request(&format!(
+        "{}?sorting=rating",
+        format_search_posts_by_tag("wmtag1")
+    ))
+    .await?;
+    assert!(hidden.as_array().unwrap().is_empty());
+    let ranked = get_request(&format!(
+        "{}?sorting=rating",
+        format_search_posts_by_tag("opensource")
+    ))
+    .await?;
+    let keys = ranked
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| p["post_key"].as_str().unwrap().to_string())
+        .collect::<Vec<_>>();
+    assert!(!keys.is_empty());
+    assert!(unranked_keys(&keys).await?.is_empty());
+    Ok(())
+}

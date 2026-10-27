@@ -41,7 +41,7 @@ async fn resource_reference_routes_counts_pagination_and_validation() -> Result<
             uri: uri.clone(),
             content: "resource view".into(),
             indexed_at: 1000 + offset as i64,
-            kind: pubky_social_specs::legacy_v0::PubkyAppPostKind::Short,
+            kind: nexus_common::models::post::PostKind::Short,
             attachments: Some(vec![]),
             lock: None,
             deleted: false,

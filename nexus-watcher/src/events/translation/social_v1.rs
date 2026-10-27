@@ -8,9 +8,7 @@
 //! post id, the post is stored under its versionless address, and the edit id is never carried.
 
 use crate::errors::EventProcessorError;
-use crate::events::inputs::{
-    PostInput, PostKind, Reference, ResourceKey, TagInput, UserInput, UserLink,
-};
+use crate::events::inputs::{PostInput, Reference, ResourceKey, TagInput, UserInput, UserLink};
 use crate::events::route::resolve_reference;
 use crate::events::translation::{TranslatedDel, TranslatedPut};
 use pubky_social_specs::{
@@ -194,23 +192,6 @@ impl PostInput {
     }
 }
 
-impl From<PubkySocialPostKind> for PostKind {
-    fn from(kind: PubkySocialPostKind) -> Self {
-        match kind {
-            PubkySocialPostKind::Note => Self::Short,
-            PubkySocialPostKind::Article => Self::Long,
-            PubkySocialPostKind::Image => Self::Image,
-            PubkySocialPostKind::Video => Self::Video,
-            PubkySocialPostKind::Link => Self::Link,
-            PubkySocialPostKind::File => Self::File,
-            PubkySocialPostKind::Collection => Self::Collection,
-            // The reader keeps an unrecognised kind's spelling; Nexus drops it. A kind the
-            // non-exhaustive enum adds later lands here until a pin bump maps it.
-            _ => Self::Unknown,
-        }
-    }
-}
-
 /// The items a collection post's content envelope lists, in order, each as its address with
 /// the curator's `note` dropped; none for any other kind.
 ///
@@ -246,6 +227,7 @@ impl TagInput {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::events::inputs::PostKind;
     use crate::events::inputs::ReferenceTarget;
     use crate::events::translation::legacy_v0;
     use pubky_social_specs::legacy_v0::{
