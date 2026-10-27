@@ -164,10 +164,11 @@ mod tests {
             .expect("signed");
         assert_eq!(published_homeserver(&svcb_record), Some(homeserver_id));
 
+        // A key as the target, so only the name filter can make this `None`.
         let other_name = SignedPacket::builder()
             .https(
                 Name::try_from("_other").expect("valid name"),
-                svcb("example.com"),
+                svcb(&homeserver.to_z32()),
                 3600,
             )
             .sign(&user)
