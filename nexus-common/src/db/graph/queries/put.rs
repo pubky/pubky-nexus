@@ -403,7 +403,9 @@ pub fn create_resource_tag(
         OPTIONAL MATCH (tagger)-[existing:TAGGED {label: $label, app: $app}]->(resource)
         MERGE (tagger)-[t:TAGGED {label: $label, app: $app}]->(resource)
         ON CREATE SET t.id = $tag_id, t.indexed_at = $indexed_at
-        SET t.uri = $tag_uri
+        // The edge belongs to the file that created it; an equivalent file
+        // (same normalized target and label) must not take over its path.
+        SET t.uri = CASE WHEN t.id = $tag_id THEN $tag_uri ELSE t.uri END
         RETURN existing IS NOT NULL AS flag;",
     )
     .param("tagger_id", tagger_id)

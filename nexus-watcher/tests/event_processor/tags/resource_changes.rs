@@ -187,3 +187,72 @@ async fn test_resource_changes_excludes_posts_and_users() -> Result<()> {
     test.cleanup_user(&key).await?;
     Ok(())
 }
+
+#[tokio_shared_rt::test(shared)]
+async fn test_resource_changes_equivalent_tag_files_share_one_reference() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let key = Keypair::random();
+    let author = test
+        .create_user(&key, &test_user("Equivalent tags", "feed"))
+        .await?;
+    let (_, _, start) = ResourceChange::get_from_index(0, 0).await?;
+    let handler = test.event_processor_runner.event_handler.clone();
+    // Distinct file IDs, one normalized target: both land on one TAGGED edge.
+    let files: Vec<(String, ResourcePath, String)> = ["a", "b"]
+        .iter()
+        .map(|fragment| {
+            let tag = PubkyAppTag::new(
+                format!("https://example.com/equivalent/{author}#{fragment}"),
+                "feed".into(),
+            );
+            let path = format!("/pub/test.app/tags/{}", tag.create_id());
+            (
+                path.clone(),
+                path.parse().unwrap(),
+                format!("pubky://{author}{path}"),
+            )
+        })
+        .collect();
+    assert_ne!(files[0].0, files[1].0);
+    for (fragment, (_, storage, tag_uri)) in ["a", "b"].iter().zip(&files) {
+        let tag = PubkyAppTag::new(
+            format!("https://example.com/equivalent/{author}#{fragment}"),
+            "feed".into(),
+        );
+        test.put(&key, storage, &tag).await?;
+        retrieve_and_handle_event_line(&format!("PUT {tag_uri}"), handler.clone()).await?;
+    }
+    for (_, storage, tag_uri) in &files {
+        test.del(&key, storage).await?;
+        retrieve_and_handle_event_line(&format!("DEL {tag_uri}"), handler.clone()).await?;
+    }
+    let lines = authored_since(&author, start).await?;
+    assert!(
+        lines.iter().all(|line| line.object_path == files[0].0),
+        "only the edge's own file is published: {lines:?}"
+    );
+    // A consumer applying upsert/delete by key ends with no live reference.
+    let mut references = HashMap::new();
+    for line in &lines {
+        let key = (
+            line.author.clone(),
+            line.object_path.clone(),
+            line.resource_id.clone(),
+        );
+        match line.op {
+            ResourceChangeOp::Put => {
+                references.insert(key, ());
+            }
+            ResourceChangeOp::Del => {
+                references.remove(&key);
+            }
+        }
+    }
+    assert!(references.is_empty(), "{references:?}");
+    assert_eq!(
+        lines.last().map(|line| &line.op),
+        Some(&ResourceChangeOp::Del)
+    );
+    test.cleanup_user(&key).await?;
+    Ok(())
+}
