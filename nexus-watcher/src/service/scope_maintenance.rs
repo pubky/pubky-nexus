@@ -20,6 +20,7 @@ use nexus_common::models::user::{
 };
 use nexus_common::{ScopeConfig, WatcherConfig};
 
+use crate::scope::membership::ScopeMembership;
 use crate::scope::watcher_ingestor;
 use pubky_app_specs::PubkyId;
 use std::sync::Arc;
@@ -97,6 +98,11 @@ impl ScopeMaintainer {
         }
     }
 
+    /// Moves users in and out, deciding by this maintainer's scope.
+    fn membership(&self) -> ScopeMembership<'_> {
+        ScopeMembership::of(&self.ingestor)
+    }
+
     /// Whether the periodic task is needed: everything has nothing to maintain after start.
     pub fn is_periodic(&self) -> bool {
         !matches!(self.kind, Kind::Everything)
@@ -144,7 +150,7 @@ impl ScopeMaintainer {
             let Ok(id) = PubkyId::try_from(user_id.as_str()) else {
                 continue;
             };
-            match self.ingestor.let_in(&id).await {
+            match self.membership().let_in(&id).await {
                 Ok(()) => change.joined += 1,
                 Err(e) => {
                     warn!(%user_id, error = %e, "Could not let a user in; trying again next start")
@@ -174,7 +180,7 @@ impl ScopeMaintainer {
             .unwrap_or_default();
         let mut change = ScopeChange::default();
         for user_id in outside.iter().filter(|id| **id != self.moderator.as_ref()) {
-            self.ingestor.demote(user_id).await?;
+            self.membership().demote(user_id).await?;
             change.left += 1;
         }
         Ok(change)
@@ -226,7 +232,7 @@ impl ScopeMaintainer {
                 hs_id.is_some_and(|hs_id| homeservers.iter().any(|hs| hs.as_ref() == hs_id));
             if listed {
                 // One user failing doesn't stop the others: it is tried again.
-                match self.ingestor.promote(&id).await {
+                match self.membership().promote(&id).await {
                     Ok(true) => joined += 1,
                     result => {
                         let error = result.err().map(|e| e.to_string());

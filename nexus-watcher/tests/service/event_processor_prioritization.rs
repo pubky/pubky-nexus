@@ -29,6 +29,7 @@ use nexus_watcher::events::retry::{InitialBackoff, RedisRetryStore, RetrySchedul
 use nexus_watcher::events::{DefaultEventHandler, EventHandler};
 use nexus_watcher::homeserver::{HomeserverClient, PubkyHomeserverClient};
 use nexus_watcher::scope::full_feed_homeservers;
+use nexus_watcher::scope::membership::ScopeMembership;
 use nexus_watcher::service::runner::{HomeserverBackoff, UserNotFoundBackoff, UserResumePoints};
 use nexus_watcher::service::{
     HsEventProcessorRunner, KeyBasedEventProcessorRunner, TEventProcessorRunner,
@@ -471,7 +472,7 @@ async fn test_a_user_let_in_on_a_whole_feed_homeserver_catches_up() -> Result<()
     run().await?;
     assert!(PostDetails::get_by_id(&user_id, &post_id).await?.is_none());
 
-    assert!(ingestor.promote(&user_id).await?);
+    assert!(ScopeMembership::of(&ingestor).promote(&user_id).await?);
     run().await?;
     let indexed = PostDetails::get_by_id(&user_id, &post_id).await?.is_some();
     // Its stream has nothing left now: caught up.
@@ -560,7 +561,7 @@ async fn test_a_catch_up_goes_on_after_a_replayed_profile_delete() -> Result<()>
 
     // The feed moves past the user's records while it is out, so only catch-up reads them.
     run().await?;
-    assert!(ingestor.promote(&user_id).await?);
+    assert!(ScopeMembership::of(&ingestor).promote(&user_id).await?);
     // What a replayed profile DEL leaves behind.
     let mark_deleted = Query::new(
         "test_mark_user_deleted",
@@ -623,7 +624,7 @@ async fn test_catch_up_waits_for_a_promotion_to_finish() -> Result<()> {
     run().await?;
     let cursor_midway = UserHsCursor::read(&[user_id.as_ref()], &hs).await?;
     // The promotion finishes.
-    assert!(ingestor.promote(&user_id).await?);
+    assert!(ScopeMembership::of(&ingestor).promote(&user_id).await?);
     run().await?;
     let indexed = PostDetails::get_by_id(&user_id, &post_id).await?.is_some();
     caught_up(&user_id).await?;

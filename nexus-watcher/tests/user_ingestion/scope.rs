@@ -19,6 +19,7 @@ use nexus_common::{ScopeConfig, WatcherConfig};
 use nexus_watcher::events::handlers;
 use nexus_watcher::events::{DefaultEventHandler, Event, EventHandler, ParseResult};
 use nexus_watcher::homeserver::PubkyHomeserverClient;
+use nexus_watcher::scope::membership::ScopeMembership;
 use nexus_watcher::service::scope_maintenance::ScopeMaintainer;
 use nexus_watcher::service::{HsEventProcessor, TEventProcessor};
 use pubky::Keypair;
@@ -245,7 +246,9 @@ async fn test_ensure_in_scope_brings_a_moderator_kept_outside_back() -> Result<(
     ingestor.maybe_ingest_user(&moderator_id).await?;
     assert_user_is_outsider(&moderator_id).await;
 
-    ingestor.ensure_in_scope(&moderator_id).await?;
+    ScopeMembership::of(&ingestor)
+        .ensure_in_scope(&moderator_id)
+        .await?;
 
     assert!(!is_outsider(&moderator_id).await?);
     assert_user_ingested(&moderator_id, &hs_pk).await;
@@ -526,11 +529,11 @@ async fn test_a_user_let_back_in_is_read_from_the_start() -> Result<()> {
     let hs_id = PubkyId::from(hs_pk).to_string();
     let ingestor = UserIngestor::new([], Arc::new(PubkyConnectorResolver));
     ingestor.maybe_ingest_user(&user_id).await?;
-    ingestor.demote(&user_id).await?;
+    ScopeMembership::of(&ingestor).demote(&user_id).await?;
     // What a poll still running when the user left writes back.
     UserHsCursor::write(&user_id, &hs_id, 500).await?;
 
-    assert!(ingestor.promote(&user_id).await?);
+    assert!(ScopeMembership::of(&ingestor).promote(&user_id).await?);
 
     let cursors = UserHsCursor::read(&[user_id.as_ref()], &hs_id).await?;
     assert_eq!(cursors, vec![0], "read from the start");

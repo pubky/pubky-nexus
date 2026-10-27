@@ -11,6 +11,8 @@ use nexus_common::models::error::ModelError;
 use nexus_common::models::homeserver::{Homeserver, HsBlacklist};
 use nexus_common::models::user::catch_up::homeservers_catching_up;
 use nexus_common::models::user::UserIngestor;
+
+use crate::scope::membership::ScopeMembership;
 use opentelemetry::metrics::Counter;
 use opentelemetry::{global, KeyValue};
 use pubky_app_specs::PubkyId;
@@ -226,7 +228,9 @@ impl TEventProcessor for HsEventProcessor {
         // An outsider or a former member whose event shows up in a listed feed may have
         // moved onto that homeserver: it is let in first (see `admit_if_moved_in`).
         if !self.ingestor.is_author_in_scope(user_id).await?
-            && !self.ingestor.admit_if_moved_in(user_id).await?
+            && !ScopeMembership::of(&self.ingestor)
+                .admit_if_moved_in(user_id)
+                .await?
         {
             OUT_OF_SCOPE.add(1, &[]);
             debug!(event.uri = %event.uri, "Author is outside the scope; skipping event");
