@@ -1,5 +1,6 @@
 //! A resource on `/v1`: its tags without `relationship`, in the view the resource stream
-//! lists and in the envelope the resource tag routes serve.
+//! lists and in the envelope the resource tag routes serve, each with the counts of the live
+//! posts replying to, embedding and collecting it, which `/v0`, frozen, does not serve.
 
 use nexus_common::models::resource::view::{self, ResourceView as StoredResourceView};
 use nexus_common::models::resource::ResourceDetails;
@@ -9,12 +10,18 @@ use utoipa::ToSchema;
 use super::TagDetails;
 
 /// A resource with a page of its tags, as `/v0`'s [`view::ResourceView`] with the tags
-/// without `relationship`.
+/// without `relationship`, and the counts of the live posts that reference it.
 #[derive(Serialize, ToSchema, Debug)]
 pub struct ResourceView {
     pub details: ResourceDetails,
     pub tags: Vec<TagDetails>,
     pub taggers_count: usize,
+    /// Live posts replying to the resource.
+    pub replies_count: usize,
+    /// Live posts embedding the resource.
+    pub embeds_count: usize,
+    /// Live collections listing the resource.
+    pub collections_count: usize,
 }
 
 impl From<StoredResourceView> for ResourceView {
@@ -23,23 +30,36 @@ impl From<StoredResourceView> for ResourceView {
             details,
             tags,
             taggers_count,
+            replies_count,
+            embeds_count,
+            collections_count,
         } = view;
         Self {
             details,
             tags: tags.into_iter().map(TagDetails::from).collect(),
             taggers_count,
+            replies_count,
+            embeds_count,
+            collections_count,
         }
     }
 }
 
 /// The envelope of `GET /resource/{resource_id}/tags` and `GET /resource/by-uri`, as `/v0`'s
-/// [`ResourceTagsResponse`] with the tags without `relationship`.
+/// [`ResourceTagsResponse`] with the tags without `relationship`, and the counts of the live
+/// posts that reference the resource.
 ///
 /// [`ResourceTagsResponse`]: crate::routes::v0::resource::ResourceTagsResponse
 #[derive(Serialize, ToSchema, Debug)]
 pub struct ResourceTagsResponse {
     pub resource: ResourceDetails,
     pub tags: Vec<TagDetails>,
+    /// Live posts replying to the resource.
+    pub replies_count: usize,
+    /// Live posts embedding the resource.
+    pub embeds_count: usize,
+    /// Live collections listing the resource.
+    pub collections_count: usize,
 }
 
 impl From<StoredResourceView> for ResourceTagsResponse {
@@ -47,6 +67,9 @@ impl From<StoredResourceView> for ResourceTagsResponse {
         Self {
             resource: view.details,
             tags: view.tags.into_iter().map(TagDetails::from).collect(),
+            replies_count: view.replies_count,
+            embeds_count: view.embeds_count,
+            collections_count: view.collections_count,
         }
     }
 }
@@ -57,7 +80,7 @@ mod tests {
     use serde_json::{json, Value};
 
     fn stored() -> StoredResourceView {
-        serde_json::from_value(json!({
+        let mut view: StoredResourceView = serde_json::from_value(json!({
             "details": {
                 "id": "450a72e3da164bfc3ac5f4056f9e5c7c",
                 "uri": "https://example.com/article",
@@ -72,8 +95,16 @@ mod tests {
             ],
             "taggers_count": 3
         }))
-        .unwrap()
+        .unwrap();
+        // The counts are read from the graph, never from JSON: `/v0` does not serialize them.
+        view.replies_count = 4;
+        view.embeds_count = 5;
+        view.collections_count = 6;
+        view
     }
+
+    /// The counts `/v1` adds and `/v0`, frozen, leaves out.
+    const V1_COUNTS: [&str; 3] = ["replies_count", "embeds_count", "collections_count"];
 
     /// `body` without every boolean `relationship`, the flag the `/v1` tags leave out.
     fn without_relationship(body: Value) -> Value {
@@ -92,26 +123,36 @@ mod tests {
         }
     }
 
-    /// The `/v1` view is the stored view with each tag's `relationship` taken out, nothing else.
+    /// The `/v1` view is the stored view with each tag's `relationship` taken out and the
+    /// reference counts added, nothing else; `/v0` serializes no count.
     #[test]
-    fn view_differs_from_v0_only_by_the_tags_relationship() {
+    fn view_differs_from_v0_by_the_tags_relationship_and_the_counts() {
         let v0 = serde_json::to_value(stored()).unwrap();
-        let v1 = serde_json::to_value(ResourceView::from(stored())).unwrap();
+        let mut v1 = serde_json::to_value(ResourceView::from(stored())).unwrap();
         assert_eq!(v0["tags"][0]["relationship"], true, "{v0}");
         for tag in v1["tags"].as_array().unwrap() {
             assert!(tag.get("relationship").is_none(), "{tag}");
             assert!(tag.get("tag_uri").is_some(), "{tag}");
         }
         assert_eq!(v1["taggers_count"], 3);
+        for (count, expected) in V1_COUNTS.into_iter().zip([4, 5, 6]) {
+            assert!(v0.get(count).is_none(), "{v0}");
+            assert_eq!(v1[count], expected, "{v1}");
+            v1.as_object_mut().unwrap().remove(count);
+        }
         assert_eq!(v1, without_relationship(v0));
     }
 
-    /// The `/v1` envelope is the stored view's details and its tags without `relationship`.
+    /// The `/v1` envelope is the stored view's details, its tags without `relationship` and
+    /// the reference counts.
     #[test]
     fn envelope_carries_the_details_and_the_tags() {
         let v1 = serde_json::to_value(ResourceTagsResponse::from(stored())).unwrap();
         assert_eq!(v1["resource"]["id"], "450a72e3da164bfc3ac5f4056f9e5c7c");
         assert!(v1.get("taggers_count").is_none(), "{v1}");
+        for (count, expected) in V1_COUNTS.into_iter().zip([4, 5, 6]) {
+            assert_eq!(v1[count], expected, "{v1}");
+        }
         let tags = v1["tags"].as_array().unwrap();
         assert_eq!(tags.len(), 2);
         assert_eq!(tags[0]["tag_uri"], "pubky://alice/pub/mapky/tags/T1");

@@ -4,6 +4,7 @@ mod follows;
 mod mentions;
 mod network;
 pub(crate) mod posts;
+mod resource_references;
 pub(crate) mod tags;
 pub(crate) mod users;
 pub(crate) mod utils;

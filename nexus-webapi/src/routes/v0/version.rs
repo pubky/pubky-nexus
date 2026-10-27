@@ -36,7 +36,10 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 use utoipa::{IntoParams, OpenApi, ToSchema};
 
-use super::endpoints::{POST_BOOKMARK_ROUTE, STREAM_RESOURCES_BY_IDS_ROUTE, V0_PREFIX, V1_PREFIX};
+use super::endpoints::{
+    POST_BOOKMARK_ROUTE, RESOURCE_EMBEDS_ROUTE, RESOURCE_REPLIES_ROUTE,
+    STREAM_RESOURCES_BY_IDS_ROUTE, V0_PREFIX, V1_PREFIX,
+};
 use super::stream::posts::{PostStreamByIdsRequest, StreamSourceKind};
 use super::types::TaggersInfoResponse;
 use super::{
@@ -44,7 +47,7 @@ use super::{
 };
 use crate::models::{
     v1, IncludeAttachmentMetadata, KindToken, PostStreamDetailed, PostViewDetailed,
-    StoredKindToken, StoredPostKinds, TagLabel, TagLabels, Tags,
+    StoredKindToken, StoredPostKinds, TagLabel, TagLabels, Tags, V0Shape,
 };
 use crate::routes::AppState;
 
@@ -225,6 +228,11 @@ pub trait ApiVersion: Send + Sync + 'static {
     /// client reads one document; `/v0` documents none, the `/static` routes go with the
     /// static document.
     fn absolute_docs() -> utoipa::openapi::OpenApi;
+
+    /// The version's whole document as served, once nested and merged. `/v0` is frozen, so
+    /// the shared schemas lose what the stored models gained since
+    /// ([`freeze_docs`](crate::models::v0_frozen::freeze_docs)); `/v1` serves its own as built.
+    fn finish_docs(docs: utoipa::openapi::OpenApi) -> utoipa::openapi::OpenApi;
 }
 
 /// The frozen API: fixes only, every new feature lands in v1.
@@ -240,14 +248,14 @@ impl ApiVersion for V0 {
     const STANDING: &'static str =
         "`/v0` is frozen: fixes only, no new routes or fields. Every new feature lands in `/v1`.";
 
-    type PostView = PostViewDetailed;
+    type PostView = V0Shape<PostViewDetailed>;
     type PostDetails = PostDetails;
-    type PostStream = PostStreamDetailed;
+    type PostStream = V0Shape<PostStreamDetailed>;
     type Notification = Notification;
     type UserCounts = UserCounts;
     type UserView = UserView;
     type UserStream = UserStream;
-    type Bootstrap = Bootstrap;
+    type Bootstrap = V0Shape<Bootstrap>;
     type TagDetails = TagDetails;
     type TaggersInfoResponse = TaggersInfoResponse;
     type ResourceView = ResourceView;
@@ -374,6 +382,10 @@ impl ApiVersion for V0 {
     fn absolute_docs() -> utoipa::openapi::OpenApi {
         utoipa::openapi::OpenApi::default()
     }
+
+    fn finish_docs(docs: utoipa::openapi::OpenApi) -> utoipa::openapi::OpenApi {
+        crate::models::v0_frozen::freeze_docs(docs)
+    }
 }
 
 impl ApiVersion for V1 {
@@ -498,14 +510,24 @@ impl ApiVersion for V1 {
         axum::routing::get(stream::resources::stream_resource_ids_handler_v1)
     }
 
-    /// The routes added since `/v0` froze: the resource views by IDs or URIs and the resource
-    /// changes feed. No bookmark or file details route at all.
+    /// The routes added since `/v0` froze: the resource views by IDs or URIs, the resource
+    /// changes feed and the posts replying to or embedding a resource. No bookmark or file
+    /// details route at all.
     fn own_routes() -> (Router<AppState>, Router<AppState>) {
         let expensive = Router::new().route(
             STREAM_RESOURCES_BY_IDS_ROUTE,
             axum::routing::post(stream::resources::stream_resources_by_ids_handler),
         );
-        (expensive, resource_changes::routes())
+        let default = resource_changes::routes()
+            .route(
+                RESOURCE_REPLIES_ROUTE,
+                axum::routing::get(resource::references::replies),
+            )
+            .route(
+                RESOURCE_EMBEDS_ROUTE,
+                axum::routing::get(resource::references::embeds),
+            );
+        (expensive, default)
     }
 
     fn docs() -> utoipa::openapi::OpenApi {
@@ -515,6 +537,10 @@ impl ApiVersion for V1 {
     /// The two `/v1/static` routes, served by the static router.
     fn absolute_docs() -> utoipa::openapi::OpenApi {
         crate::routes::r#static::V1StaticApiDoc::openapi()
+    }
+
+    fn finish_docs(docs: utoipa::openapi::OpenApi) -> utoipa::openapi::OpenApi {
+        docs
     }
 }
 
@@ -743,6 +769,8 @@ struct V0Doc;
         stream::resources::stream_resource_ids_handler_v1,
         stream::resources::stream_resources_by_ids_handler,
         resource_changes::resource_changes_handler,
+        resource::references::replies,
+        resource::references::embeds,
     ),
     components(schemas(
         v1::PostView,
