@@ -12,12 +12,13 @@ Ordinary universal reply/embed references retain their existing feed behavior.
 
 `/v0` is frozen, so everything these projections add to the API is served under `/v1`
 alone: the event, calendar and availability routes, the `event`, `rsvp`, `rating` and
-`availability` kind names in `kind=` and `exclude_kinds=`, `sorting=rating`, the rating
+`availability` kind names in `kind=` and `exclude_kinds=`, `item_kind=`, `sorting=rating`, the rating
 summary (`rating_avg`, `rating_count`) on post and resource views, and the `event_changed`
 notification. `/v0` serves what it served before Nexus read these posts: an event post's
 kind is `unknown` there, as the translator stored it before, `kind=event` reads as
 `unknown` like any name `/v0` does not know and matches every post `/v0` shows as
-`unknown`, `exclude_kinds=event`, `sorting=rating` and
+`unknown`, `item_kind=` is ignored there like any unknown parameter,
+`exclude_kinds=event`, `sorting=rating` and
 `types=event_changed` are 400s, its notification lists and bootstrap leave `event_changed`
 out, and its OpenAPI document names none of it.
 
@@ -127,7 +128,7 @@ Pubky event posts**; an external event URI or a plain post is rejected before
 any graph projection or reference append. This filter does not infer attendance
 from external Resources. Location-filtered queries start from indexed Resource IDs,
 and going-only queries start from that user’s RSVP posts. Occurrences have separate
-master and post_uri indexes; event/calendar lookups use indexed UNION matches.
+master and post_uri indexes; event and collection lookups use indexed UNION matches.
 
 `GET /v1/event/{author}/{id}` returns ordinary post details, tags and taggers,
 counts, effective attendees and upcoming occurrences. `viewer_id` preserves tag
@@ -144,19 +145,20 @@ need their source versions replayed through the watcher to gain native projectio
 
 ## Calendars
 
-`GET /v1/stream/calendars` returns social collections containing Pubky events with
-upcoming occurrences. `author`, `curator`, and its alias `admin` refer to the
-collection author: the pinned collection spec has no separate admin membership.
-Conflicting admin/curator values return 400. Filter by `from`/`to`; results are
-ordered by the next event start, then author/id. Page limit is 1–50 (default 20).
-`limit_occurrences` is 1–50 (default 10) for each returned calendar.
+A calendar is an ordinary collection; Nexus has no calendar endpoints. List
+collections that contain events with the post stream:
+`GET /v1/stream/posts?kind=collection&item_kind=event` (any `source`, sorting
+and pagination of that stream; `/v1/stream/posts/keys` accepts the same filter).
+`item_kind` requires `kind=collection` and keeps collections that list at least
+one live indexed post of that kind. The kind index selects collections and each
+one expands only its own COLLECTED edges. External items are not counted.
 
-`GET /v1/calendar/{author}/{id}` returns the collection post, parsed metadata and
-ordered items (including notes and external URIs), plus indexed occurrences in
-start order. It accepts the same time window and occurrence limit. A live social
-collection with no indexed events returns 200 and empty occurrences. The stream
-includes only collections with an occurrence in its window. External event items
-remain links; their times are not inferred or fetched.
+A calendar's upcoming events come from
+`GET /v1/stream/events?collection=<versionless collection URI>`: indexed
+occurrences of the collection's items (series and overrides) in start order,
+with the usual time window, filters and paging. The query starts from the
+collection's items. External event items remain links; their times are not
+inferred or fetched.
 
 ## Availability
 
@@ -180,5 +182,4 @@ Attendance pages currently load every effective RSVP before paging; an attendanc
 projection would bound that work. Family rebuild comparisons are quadratic in the
 number of overrides and have no override-count bound. Global rating sorts still
 scan Posts/Resources and need maintained sorted sets. The weekly orphan-RSVP cleanup
-runs in one graph transaction. Calendar admin/curator currently mean the collection
-author; a separate admin model remains an owner/spec decision.
+runs in one graph transaction.

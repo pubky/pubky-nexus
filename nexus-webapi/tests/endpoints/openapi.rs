@@ -97,8 +97,6 @@ const V1_ONLY_PATHS: &[&str] = &[
     "/stream/events",
     "/event/{author}/{id}",
     "/event/{author}/{id}/attendees",
-    "/stream/calendars",
-    "/calendar/{author}/{id}",
     "/stream/availability",
     "/availability/{author}",
 ];
@@ -127,6 +125,12 @@ fn test_v0_and_v1_documents_list_the_same_paths() {
     }
     for &path in V1_ONLY_PATHS {
         assert!(v1.contains_key(path), "{path} missing from the v1 document");
+        assert!(!v0.contains_key(path), "{path} listed in the v0 document");
+    }
+    // The calendar routes are gone: a calendar is a collection of events, listed by the post
+    // streams' `kind=collection&item_kind=event`.
+    for path in ["/stream/calendars", "/calendar/{author}/{id}"] {
+        assert!(!v1.contains_key(path), "{path} listed in the v1 document");
         assert!(!v0.contains_key(path), "{path} listed in the v0 document");
     }
     let v0_shared: Vec<_> = v0
@@ -164,6 +168,8 @@ fn test_v0_and_v1_documents_list_the_same_paths() {
     // Method and path of the routes that describe the bookmark stream: in `source`, in
     // `locked` and in the operation's own description.
     let bookmark_sourced = [("get", "/stream/posts"), ("get", "/stream/posts/keys")];
+    // Method and path of the routes that take `item_kind` on v1 only.
+    let item_kind_filtered = [("get", "/stream/posts"), ("get", "/stream/posts/keys")];
     // Method and path of the routes that take `include_attachment_metadata` on v0.
     let metadata_flagged = [
         ("get", "/post/{author_id}/{post_id}"),
@@ -282,6 +288,23 @@ fn test_v0_and_v1_documents_list_the_same_paths() {
             assert!(
                 !has_parameter(&v1_operations[method], "include_attachment_metadata"),
                 "{operation} on v1 lists `include_attachment_metadata`"
+            );
+        }
+        for (method, _) in item_kind_filtered.iter().filter(|(_, p)| p == path) {
+            let operation = format!("{method} {path}");
+            let item_kind = take_parameter(&mut v1_operations[method], "item_kind");
+            assert_eq!(
+                item_kind["required"], false,
+                "{operation} on v1: {item_kind}"
+            );
+            let description = item_kind["description"].as_str().unwrap_or_default();
+            assert!(
+                description.contains("kind=collection"),
+                "{operation} on v1: {item_kind}"
+            );
+            assert!(
+                !has_parameter(&v0_operations[method], "item_kind"),
+                "{operation} on v0 lists `item_kind`"
             );
         }
         for (method, _, parameter) in version_routed.iter().filter(|(_, p, _)| p == path) {
