@@ -54,6 +54,12 @@ async fn test_bookmark_del_replay_after_success_skips() -> Result<()> {
     let bookmark_path = bookmark.hs_path();
 
     test.put(&bookmarker_kp, &bookmark_path, bookmark).await?;
+    assert!(
+        Bookmark::get_by_id(&author_id, &post_id, Some(&bookmarker_id))
+            .await?
+            .is_some(),
+        "The bookmark has to be served before the delete"
+    );
 
     // Delete through normal event flow
     test.del(&bookmarker_kp, &bookmark_path).await?;
