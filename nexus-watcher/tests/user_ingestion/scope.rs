@@ -18,13 +18,14 @@ use nexus_common::models::user::outsider::{admit_outsider, create_outsider};
 use nexus_common::models::user::TAG_GLOBAL_USER_TAGGERS;
 use nexus_common::models::user::{
     is_outsider, user_hs_cursor_key, PkdnsHomeserverResolver, PubkyConnectorResolver, UserCounts,
-    UserDetails, UserHsCursor, UserIngestor, UserStream, SCOPE_STATE_LEFT,
+    UserDetails, UserHsCursor, UserIngestor, UserStream, SCOPE_STATE_LEFT, SCOPE_STATE_OUTSIDE,
     USER_MOSTFOLLOWED_KEY_PARTS,
 };
 use nexus_common::{ScopeConfig, WatcherConfig};
 use nexus_watcher::events::handlers;
 use nexus_watcher::events::{DefaultEventHandler, Event, EventHandler, ParseResult};
 use nexus_watcher::homeserver::{HomeserverClient, HsError, HsStreamEvent, PubkyHomeserverClient};
+use nexus_watcher::scope::membership::ScopeMembership;
 use nexus_watcher::service::scope_maintenance::ScopeMaintainer;
 use nexus_watcher::service::{HsEventProcessor, TEventProcessor};
 use nexus_watcher::EventProcessorError;
@@ -59,6 +60,7 @@ fn feed_processor(test: &WatcherTest, ingestor: Arc<UserIngestor>) -> HsEventPro
         retry_scheduler: runner.retry_scheduler.clone(),
         catch_up_resume_points: Default::default(),
         catch_up_not_found: Default::default(),
+        hs_blacklist: Default::default(),
         ingestor,
         hs_mapping_cache: Default::default(),
     }
@@ -253,7 +255,9 @@ async fn test_ensure_in_scope_brings_a_moderator_kept_outside_back() -> Result<(
     ingestor.maybe_ingest_user(&moderator_id).await?;
     assert_user_is_outsider(&moderator_id).await;
 
-    ingestor.ensure_in_scope(&moderator_id).await?;
+    ScopeMembership::of(&ingestor)
+        .ensure_in_scope(&moderator_id)
+        .await?;
 
     assert!(!is_outsider(&moderator_id).await?);
     assert_user_ingested(&moderator_id, &hs_pk).await;
@@ -275,7 +279,19 @@ fn homeserver_maintainer(
     homeservers: &[PubkyId],
     users: &[&PubkyId],
 ) -> (UserIngestor, ScopeMaintainer) {
+    homeserver_maintainer_moderated_by(homeservers, users, None)
+}
+
+/// [`homeserver_maintainer`] with `moderator` as the moderator, if given.
+fn homeserver_maintainer_moderated_by(
+    homeservers: &[PubkyId],
+    users: &[&PubkyId],
+    moderator: Option<&PubkyId>,
+) -> (UserIngestor, ScopeMaintainer) {
     let mut config = WatcherConfig::default();
+    if let Some(moderator) = moderator {
+        config.moderation_id = moderator.clone();
+    }
     config.stack.scope = ScopeConfig::Homeservers {
         homeservers: homeservers.to_vec(),
     };
@@ -285,6 +301,52 @@ fn homeserver_maintainer(
     let limit_to = Some(users.iter().map(|id| id.to_string()).collect());
     let maintainer = ScopeMaintainer::new(&config, ingestor.clone(), limit_to);
     (ingestor, maintainer)
+}
+
+/// Whether `user_id` has a `HOSTED_BY` edge to `hs_id`, and a cursor there.
+async fn binding(user_id: &str, hs_id: &str) -> Result<(bool, bool)> {
+    let query = Query::new(
+        "test_user_hosted_by",
+        "MATCH (u:User {id: $user_id})-[:HOSTED_BY]->(hs:Homeserver {id: $hs_id})
+         RETURN hs.id AS homeserver_id",
+    )
+    .param("user_id", user_id.to_string())
+    .param("hs_id", hs_id.to_string());
+    let hosted_by = fetch_row_from_graph(query).await?.is_some();
+    let cursor = UserDetails::check_sorted_set_member(None, &user_hs_cursor_key(user_id), &[hs_id])
+        .await?
+        .is_some();
+    Ok((hosted_by, cursor))
+}
+
+/// The moderator, bound to a homeserver the list doesn't hold, is never let go: neither
+/// at start, right after it was let in, nor at a tick. Its takedowns must always be read.
+#[tokio_shared_rt::test(shared)]
+async fn test_the_moderator_is_never_let_go() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let hs_pk = create_external_test_homeserver(&mut test).await?;
+    let (_, moderator) = user_on(&test, &hs_pk).await?;
+    let hs_id = PubkyId::from(hs_pk).to_string();
+    // Bound to its unlisted homeserver, with a cursor there.
+    UserIngestor::new(Vec::<PubkyId>::new(), Arc::new(PubkyConnectorResolver))
+        .maybe_ingest_user(&moderator)
+        .await?;
+    let listed = [test.homeserver_id.clone()];
+    let (_, maintainer) =
+        homeserver_maintainer_moderated_by(&listed, &[&moderator], Some(&moderator));
+
+    let at_start = maintainer.at_start().await?;
+    let ticked = maintainer.tick().await?;
+
+    assert_eq!(at_start.left, 0, "kept at start");
+    assert_eq!(ticked.left, 0, "kept at a tick");
+    assert_eq!(scope_state(&moderator).await?, None, "in scope");
+    assert_eq!(
+        binding(&moderator, &hs_id).await?,
+        (true, true),
+        "still bound, with its cursor"
+    );
+    Ok(())
 }
 
 /// An outsider whose event comes in from a listed homeserver's feed may have moved there:
@@ -345,6 +407,9 @@ async fn test_listing_a_homeserver_again_brings_its_users_back() -> Result<()> {
     let (ingestor, wide) = homeserver_maintainer(&both, &[&user_id]);
     ingestor.maybe_ingest_user(&user_id).await?;
     assert_eq!(scope_state(&user_id).await?, None, "in scope");
+    // Still catching up when the list narrows.
+    let hs_id = both[1].to_string();
+    catch_up::start_catch_up(&user_id, &hs_id).await?;
 
     let (_, narrow) = homeserver_maintainer(&both[..1], &[&user_id]);
     let narrowed = narrow.at_start().await?;
@@ -353,10 +418,58 @@ async fn test_listing_a_homeserver_again_brings_its_users_back() -> Result<()> {
         scope_state(&user_id).await?.as_deref(),
         Some(SCOPE_STATE_LEFT)
     );
+    // Unbound, so a whole-feed processor hands its later events to `admit_if_moved_in`
+    // rather than skipping them as hosted elsewhere.
+    assert_eq!(
+        binding(&user_id, &hs_id).await?,
+        (false, false),
+        "no HOSTED_BY, no cursor"
+    );
+    assert_eq!(
+        catch_up::catching_up(&[user_id.as_ref()]).await?,
+        vec![false],
+        "no catch-up entry"
+    );
 
     let widened = wide.at_start().await?;
     assert_eq!(widened.joined, 1);
     assert_eq!(scope_state(&user_id).await?, None, "back in scope");
+    Ok(())
+}
+
+/// Outsiders now on a listed homeserver are looked for at start (a homeserver lookup each)
+/// only when the list changed since the last start: a restart with the same list leaves an
+/// outsider on a listed homeserver out; a changed list lets it in.
+#[tokio_shared_rt::test(shared)]
+async fn test_outsiders_are_looked_for_at_start_only_when_the_list_changed() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let hs_pk = create_external_test_homeserver(&mut test).await?;
+    let (_, user_id) = user_on(&test, &hs_pk).await?;
+    let hs = PubkyId::from(hs_pk);
+    let list = [test.homeserver_id.clone(), hs.clone()];
+
+    let (_, first) = homeserver_maintainer(&list, &[&user_id]);
+    first.at_start().await?;
+    // Kept out, though its homeserver is listed: met before, under another scope.
+    create_outsider(&UserDetails::from_pubky(user_id.clone())).await?;
+    let (_, same) = homeserver_maintainer(&list, &[&user_id]);
+    let restarted = same.at_start().await?;
+    let still_out = scope_state(&user_id).await?;
+    let (_, other) = homeserver_maintainer(std::slice::from_ref(&hs), &[&user_id]);
+    let changed = other.at_start().await?;
+    let after = scope_state(&user_id).await?;
+
+    catch_up::caught_up(&user_id).await?;
+    let mut redis_conn = nexus_common::db::get_redis_conn().await?;
+    let _: () = deadpool_redis::redis::AsyncCommands::del(
+        &mut redis_conn,
+        format!("Scope:Active:{user_id}"),
+    )
+    .await?;
+    assert_eq!(restarted.joined, 0, "same list: not looked for");
+    assert_eq!(still_out.as_deref(), Some(SCOPE_STATE_OUTSIDE));
+    assert_eq!(changed.joined, 1, "changed list: let in");
+    assert_eq!(after, None, "in scope");
     Ok(())
 }
 
@@ -425,11 +538,11 @@ async fn test_a_user_let_back_in_is_read_from_the_start() -> Result<()> {
     let hs_id = PubkyId::from(hs_pk).to_string();
     let ingestor = UserIngestor::new([], Arc::new(PubkyConnectorResolver));
     ingestor.maybe_ingest_user(&user_id).await?;
-    ingestor.demote(&user_id).await?;
+    ScopeMembership::of(&ingestor).demote(&user_id).await?;
     // What a poll still running when the user left writes back.
     UserHsCursor::write(&user_id, &hs_id, 500).await?;
 
-    assert!(ingestor.promote(&user_id).await?);
+    assert!(ScopeMembership::of(&ingestor).promote(&user_id).await?);
 
     let cursors = UserHsCursor::read(&[user_id.as_ref()], &hs_id).await?;
     assert_eq!(cursors, vec![0], "read from the start");
@@ -847,7 +960,7 @@ async fn test_a_promoted_outsiders_posts_join_the_global_feeds() -> Result<()> {
 
     // Ranked, so the trust filter doesn't keep its posts out for its own reason.
     rank_user(&outsider_id).await?;
-    let promoted = UserIngestor::new([], Arc::new(PubkyConnectorResolver))
+    let promoted = ScopeMembership::of(&UserIngestor::new([], Arc::new(PubkyConnectorResolver)))
         .promote(&outsider_id)
         .await;
     let after = in_timeline().await;
