@@ -1,4 +1,4 @@
-use super::utils::verify_post_list;
+use super::utils::{post_keys_in, verify_post_list};
 use super::{KEYS_ROOT_PATH, ROOT_PATH};
 use crate::utils::get_request;
 use anyhow::Result;
@@ -106,13 +106,7 @@ const TIED_SCORE: u64 = 1724134095000;
 /// Keys and `last_post_score` of a bookmarks stream page.
 async fn bookmark_keys(query: &str) -> Result<(Vec<String>, Option<u64>)> {
     let body = get_request(&format!("{KEYS_ROOT_PATH}?source=bookmarks&{query}")).await?;
-    let keys = body["post_keys"]
-        .as_array()
-        .expect("post_keys should be an array")
-        .iter()
-        .map(|key| key.as_str().expect("keys are strings").to_string())
-        .collect();
-    Ok((keys, body["last_post_score"].as_u64()))
+    Ok((post_keys_in(&body), body["last_post_score"].as_u64()))
 }
 
 /// Equal bookmark times are ordered by post id, so `skip` pages neither repeat
