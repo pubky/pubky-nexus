@@ -1,6 +1,7 @@
 use crate::post::ROOT_PATH;
-use crate::utils::get_request;
+use crate::utils::{get_request, invalid_get_request};
 use anyhow::Result;
+use axum::http::StatusCode;
 
 // Bookmarked the author's post over 15 edges, from 1724134095000 to 1724134109000
 const VIEWER_ID: &str = "h3fghnb3x59oh7r53x8y6a5x38oatqyjym9b31ybss17zqdnhcoy";
@@ -16,6 +17,24 @@ async fn test_post_bookmark_serves_the_latest_of_repeated_edges() -> Result<()> 
     .await?;
     assert_eq!(body["id"], "2Z9ZGRZTJZJ00");
     assert_eq!(body["indexed_at"].as_u64(), Some(1724134109000));
+
+    Ok(())
+}
+
+/// The bookmark is found only under the post's own author, and only for a
+/// viewer.
+#[tokio_shared_rt::test(shared)]
+async fn test_post_bookmark_is_not_found_under_another_author() -> Result<()> {
+    invalid_get_request(
+        &format!("{ROOT_PATH}/{VIEWER_ID}/{POST_ID}/bookmark?viewer_id={VIEWER_ID}"),
+        StatusCode::NOT_FOUND,
+    )
+    .await?;
+    invalid_get_request(
+        &format!("{ROOT_PATH}/{AUTHOR_ID}/{POST_ID}/bookmark"),
+        StatusCode::NOT_FOUND,
+    )
+    .await?;
 
     Ok(())
 }
