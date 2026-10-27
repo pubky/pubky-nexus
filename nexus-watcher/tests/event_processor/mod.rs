@@ -5,6 +5,7 @@ mod mentions;
 mod network;
 pub(crate) mod posts;
 mod resource_references;
+mod social_events;
 pub(crate) mod tags;
 pub(crate) mod users;
 pub(crate) mod utils;

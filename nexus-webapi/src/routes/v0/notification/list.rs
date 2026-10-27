@@ -9,7 +9,7 @@ use axum::Json;
 use nexus_common::models::notification::{
     Notification, NotificationBody, NotificationType, PostChangedSource,
 };
-use pubky_social_specs::legacy_v0::PubkyAppPostKind;
+use nexus_common::models::post::PostKind as PubkyAppPostKind;
 use serde::Deserialize;
 use tracing::debug;
 
@@ -37,7 +37,7 @@ pub struct NotificationsQuery {
         ("limit" = Option<BoundedLimit<20, 100>>, Query, description = "Retrieve N notifications (1–100, default 20)"),
         ("start" = Option<f64>, Query, description = "The start of the notifications timeframe. Notifications with a timestamp greater than this value will be excluded from the results"),
         ("end" = Option<f64>, Query, description = "The end of the notifications timeframe. Notifications with a timestamp less than this value will be excluded from the results"),
-        ("types" = Option<NotificationTypes>, Query, description = "Comma-separated notification types to keep (1-12, duplicates ignored), e.g. `&types=reply,mention`. Valid values are the `type` tags of the notification body: follow, new_friend, lost_friend, tag_post, tag_profile, untag_post, untag_profile, reply, repost, mention, post_deleted, post_edited; anything else is rejected with 400. `skip` and `limit` then count matching notifications. At most 10,000 notifications are scanned per request; when that cap is hit before the page fills, the page can be short or empty and the `X-Next-Start` response header carries the `start` to resume from.")
+        ("types" = Option<NotificationTypes>, Query, description = "Comma-separated notification types to keep (1-13, duplicates ignored), e.g. `&types=reply,mention`. Valid values are the `type` tags of the notification body: follow, new_friend, lost_friend, tag_post, tag_profile, untag_post, untag_profile, reply, repost, mention, post_deleted, post_edited, event_changed; anything else is rejected with 400. `skip` and `limit` then count matching notifications. At most 10,000 notifications are scanned per request; when that cap is hit before the page fills, the page can be short or empty and the `X-Next-Start` response header carries the `start` to resume from.")
     ),
     responses(
         (status = 200, description = "List of notifications", body = Vec<Notification>, headers(("X-Next-Start" = i64, description = "Only with `types`: present when the scan stopped at its 10,000-entry cap before filling the page, so more matches may exist. Pass it as `start` to continue. Absent means the history was read to the end (or the page is full; page on from the last timestamp)."))),
