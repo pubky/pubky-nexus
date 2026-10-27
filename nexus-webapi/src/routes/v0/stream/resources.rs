@@ -23,6 +23,11 @@ use utoipa::{OpenApi, ToSchema};
 /// later release.
 const APP_REMOVED: &str = "app is no longer supported; filter by tags";
 
+/// What `/v0` answers `sorting=rating` with: the error it gave when `timeline` was the only
+/// sorting, the query extractor's rejection word for word.
+pub(crate) const V0_NO_RATING_SORTING: &str =
+    "Failed to deserialize query string: sorting: unknown variant `rating`, expected `timeline`";
+
 /// The query of `GET /stream/resources` and `GET /stream/resources/ids`, with the labels of
 /// `tags` folded by version `V`'s rule. Every other parameter is the same on both.
 #[derive(Deserialize, Debug)]
@@ -50,6 +55,15 @@ impl<V: ApiVersion> ResourceStreamQuery<V> {
             None => Ok(()),
         }
     }
+
+    /// `/v0` is frozen: `rating` is no sorting it has, refused with the error it gave before
+    /// Nexus rated resources.
+    fn reject_v0_rating(&self) -> Result<()> {
+        if !V::SOCIAL_EVENTS && matches!(self.sorting, ResourceSorting::Rating) {
+            return Err(Error::invalid_input(V0_NO_RATING_SORTING));
+        }
+        Ok(())
+    }
 }
 
 /// The one body behind `stream_resource_ids_handler_v0` and `stream_resource_ids_handler_v1`:
@@ -62,6 +76,8 @@ pub async fn stream_resource_ids<V: ApiVersion>(
         query.tags, query.sorting
     );
 
+    // On `/v0` the rating sorting fails first, as its parse did before `app` was read.
+    query.reject_v0_rating()?;
     query.reject_app()?;
 
     let order = query.order.unwrap_or(SortOrder::Descending);
@@ -86,7 +102,7 @@ versioned_handlers! {
         params(
             ("app" = Option<String>, Query, description = "Removed. A request that sends it gets 400; filter by `tags` instead"),
             ("tags" = Option<shapes::Tags>, Query, description = "Comma-separated tag labels (max 5, OR logic)"),
-            ("sorting" = Option<String>, Query, description = "timeline (the only sorting, and the default)"),
+            ("sorting" = Option<String>, Query, description = shapes::RESOURCE_SORTING),
             ("order" = Option<SortOrder>, Query, description = "Ordering of response list. Either 'ascending' or 'descending'. Defaults to descending."),
             ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Pagination skip (max 10000)"),
             ("limit" = Option<BoundedLimit<10, 100>>, Query, description = "Pagination limit (1–100, default 10)"),
@@ -112,6 +128,8 @@ pub async fn stream_resources<V: ApiVersion>(
         query.tags, query.sorting
     );
 
+    // On `/v0` the rating sorting fails first, as its parse did before `app` was read.
+    query.reject_v0_rating()?;
     query.reject_app()?;
 
     let order = query.order.unwrap_or(SortOrder::Descending);
@@ -150,11 +168,11 @@ versioned_handlers! {
         params(
             ("app" = Option<String>, Query, description = "Removed. A request that sends it gets 400; filter by `tags` instead"),
             ("tags" = Option<shapes::Tags>, Query, description = "Comma-separated tag labels (max 5, OR logic)"),
-            ("sorting" = Option<String>, Query, description = "timeline (the only sorting, and the default)"),
+            ("sorting" = Option<String>, Query, description = shapes::RESOURCE_SORTING),
             ("order" = Option<SortOrder>, Query, description = "Ordering of response list. Either 'ascending' or 'descending'. Defaults to descending."),
             ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Pagination skip (max 10000)"),
             ("limit" = Option<BoundedLimit<10, 100>>, Query, description = "Pagination limit (1–100, default 10)"),
-            ("start" = Option<f64>, Query, description = concatcp!("Inclusive score bound the page starts from, following `order`: the latest tag timestamp. This route returns no cursor: page it with `skip`/`limit`, or take `last_score` from `", shapes::PREFIX, "/stream/resources/ids`. A view's `details.indexed_at` is the resource's creation time, not the latest tag timestamp the stream sorts on, so passing it here skips resources")),
+            ("start" = Option<f64>, Query, description = concatcp!("Inclusive score bound the page starts from, following `order`: ", shapes::RESOURCE_START_SCORE, " This route returns no cursor: page it with `skip`/`limit`, or take `last_score` from `", shapes::PREFIX, "/stream/resources/ids`. A view's `details.indexed_at` is the resource's creation time, not the latest tag timestamp the stream sorts on, so passing it here skips resources")),
             ("end" = Option<f64>, Query, description = "Inclusive score bound the page stops at, following `order`. Resources scoring past it are excluded"),
             ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID for relationship checks"),
         )

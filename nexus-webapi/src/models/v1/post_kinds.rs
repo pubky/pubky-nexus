@@ -1,5 +1,5 @@
 //! The `exclude_kinds=` list on `/v1`: the shared [`PostKinds`](crate::models::PostKinds) with
-//! a `/v1` token, so it reads the `social/v1` names, `unknown` included, one to eight of them.
+//! a `/v1` token, so it reads the `social/v1` names, `unknown` included, one to twelve of them.
 
 use super::post::PostKind;
 use crate::models::post_kinds::KindToken;
@@ -26,11 +26,11 @@ impl From<V1KindToken> for post::PostKind {
 }
 
 impl KindToken for V1KindToken {
-    const MAX: usize = 8;
-    const DESCRIPTION: &'static str = concatcp!("Comma-separated list of `/v1` post kinds (min=1, max=", V1KindToken::MAX, " tokens; duplicates are dropped,\norder preserved). Parsing is strict: a token that is not one of `note`, `article`, `image`,\n`video`, `link`, `file`, `collection` or `unknown` is rejected, so a `/v0` name is a 400\nrather than a filter that excludes nothing. `unknown` is a name here, unlike on `/v0`: a\nclient excludes the posts it cannot render with it.");
+    const MAX: usize = 12;
+    const DESCRIPTION: &'static str = concatcp!("Comma-separated list of `/v1` post kinds (min=1, max=", V1KindToken::MAX, " tokens; duplicates are dropped,\norder preserved). Parsing is strict: a token that is not one of `note`, `article`, `image`,\n`video`, `link`, `file`, `collection`, `event`, `rsvp`, `rating`, `availability` or `unknown` is rejected, so a `/v0` name is a 400\nrather than a filter that excludes nothing. `unknown` is a name here, unlike on `/v0`: a\nclient excludes the posts it cannot render with it.");
 }
 
-/// The `/v1` list: one to eight `/v1` names, `unknown` among them.
+/// The `/v1` list: one to twelve `/v1` names, `unknown` among them.
 pub type PostKinds = crate::models::PostKinds<V1KindToken, { V1KindToken::MAX }>;
 
 #[cfg(test)]
@@ -98,9 +98,9 @@ mod tests {
     }
 
     #[test]
-    fn accepts_all_eight_names_and_rejects_a_ninth() {
+    fn accepts_all_twelve_names_and_rejects_a_thirteenth() {
         let all = KIND_NAMES.replace(' ', "");
-        assert_eq!(parse(&all).unwrap().0.len(), 8);
+        assert_eq!(parse(&all).unwrap().0.len(), 12);
         assert!(parse(&format!("{all},note")).is_err());
     }
 

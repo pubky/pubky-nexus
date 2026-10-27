@@ -13,6 +13,12 @@ use super::TagDetails;
 /// without `relationship`, and the counts of the live posts that reference it.
 #[derive(Serialize, ToSchema, Debug)]
 pub struct ResourceView {
+    /// The average of the ratings the resource received, 1–10; 0 with none. `/v0`, frozen, does
+    /// not serve it. Plain fields, not the flattened summary: the view's schema stays an object
+    /// with its own properties.
+    pub rating_avg: f64,
+    /// How many ratings the resource received.
+    pub rating_count: i64,
     pub details: ResourceDetails,
     pub tags: Vec<TagDetails>,
     pub taggers_count: usize,
@@ -27,6 +33,7 @@ pub struct ResourceView {
 impl From<StoredResourceView> for ResourceView {
     fn from(view: StoredResourceView) -> Self {
         let view::ResourceView {
+            rating,
             details,
             tags,
             taggers_count,
@@ -35,6 +42,8 @@ impl From<StoredResourceView> for ResourceView {
             collections_count,
         } = view;
         Self {
+            rating_avg: rating.rating_avg,
+            rating_count: rating.rating_count,
             details,
             tags: tags.into_iter().map(TagDetails::from).collect(),
             taggers_count,
@@ -52,6 +61,12 @@ impl From<StoredResourceView> for ResourceView {
 /// [`ResourceTagsResponse`]: crate::routes::v0::resource::ResourceTagsResponse
 #[derive(Serialize, ToSchema, Debug)]
 pub struct ResourceTagsResponse {
+    /// The average of the ratings the resource received, 1–10; 0 with none. `/v0`, frozen, does
+    /// not serve it. Plain fields, not the flattened summary: the view's schema stays an object
+    /// with its own properties.
+    pub rating_avg: f64,
+    /// How many ratings the resource received.
+    pub rating_count: i64,
     pub resource: ResourceDetails,
     pub tags: Vec<TagDetails>,
     /// Live posts replying to the resource.
@@ -65,6 +80,8 @@ pub struct ResourceTagsResponse {
 impl From<StoredResourceView> for ResourceTagsResponse {
     fn from(view: StoredResourceView) -> Self {
         Self {
+            rating_avg: view.rating.rating_avg,
+            rating_count: view.rating.rating_count,
             resource: view.details,
             tags: view.tags.into_iter().map(TagDetails::from).collect(),
             replies_count: view.replies_count,
@@ -78,6 +95,27 @@ impl From<StoredResourceView> for ResourceTagsResponse {
 mod tests {
     use super::*;
     use serde_json::{json, Value};
+
+    /// Both shapes are object schemas whose own properties hold the rating summary and the
+    /// counts: no `allOf`, so a client reads one object.
+    #[test]
+    fn schemas_hold_the_rating_as_their_own_properties() {
+        use utoipa::PartialSchema;
+        for schema in [ResourceView::schema(), ResourceTagsResponse::schema()] {
+            let schema = serde_json::to_value(schema).unwrap();
+            assert!(schema.get("allOf").is_none(), "{schema}");
+            let properties = schema["properties"].as_object().expect("properties");
+            for field in [
+                "rating_avg",
+                "rating_count",
+                "replies_count",
+                "embeds_count",
+                "collections_count",
+            ] {
+                assert!(properties.contains_key(field), "{field}: {schema}");
+            }
+        }
+    }
 
     fn stored() -> StoredResourceView {
         let mut view: StoredResourceView = serde_json::from_value(json!({
@@ -105,6 +143,9 @@ mod tests {
 
     /// The counts `/v1` adds and `/v0`, frozen, leaves out.
     const V1_COUNTS: [&str; 3] = ["replies_count", "embeds_count", "collections_count"];
+
+    /// The rating summary `/v1` adds and `/v0`, frozen, leaves out.
+    const V1_RATING: [&str; 2] = ["rating_avg", "rating_count"];
 
     /// `body` without every boolean `relationship`, the flag the `/v1` tags leave out.
     fn without_relationship(body: Value) -> Value {
@@ -139,6 +180,13 @@ mod tests {
             assert!(v0.get(count).is_none(), "{v0}");
             assert_eq!(v1[count], expected, "{v1}");
             v1.as_object_mut().unwrap().remove(count);
+        }
+        for field in V1_RATING {
+            assert!(v0.get(field).is_none(), "{v0}");
+            assert!(
+                v1.as_object_mut().unwrap().remove(field).is_some(),
+                "{field}"
+            );
         }
         assert_eq!(v1, without_relationship(v0));
     }

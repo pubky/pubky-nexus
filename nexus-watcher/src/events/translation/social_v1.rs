@@ -246,6 +246,10 @@ fn post_kind(kind: PubkySocialPostKind) -> PostKind {
         PubkySocialPostKind::Link => PostKind::Link,
         PubkySocialPostKind::File => PostKind::File,
         PubkySocialPostKind::Collection => PostKind::Collection,
+        PubkySocialPostKind::Event => PostKind::Event,
+        PubkySocialPostKind::Rsvp => PostKind::Rsvp,
+        PubkySocialPostKind::Rating => PostKind::Rating,
+        PubkySocialPostKind::Availability => PostKind::Availability,
         // The reader keeps an unrecognised kind's spelling; Nexus drops it. A kind the
         // non-exhaustive enum adds later lands here until a pin bump maps it.
         _ => PostKind::Unknown,

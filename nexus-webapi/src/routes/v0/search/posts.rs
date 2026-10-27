@@ -1,7 +1,9 @@
+use crate::models::v0_frozen::UNKNOWN_SEARCH_TAGS;
 use crate::models::{
     BoundedLimit, BoundedPagination, BoundedSkip, PostKind, PostSearchQuery, PubkyId,
 };
 use crate::routes::v0::endpoints::{SEARCH_POSTS_BY_CONTENT_ROUTE, SEARCH_POSTS_BY_TAG_ROUTE};
+use crate::routes::v0::stream::posts::V0_NO_RATING_SORTING;
 use crate::routes::v0::version::{versioned_handlers, ApiVersion};
 use crate::routes::{Path, Query};
 use crate::{Error, Result};
@@ -31,6 +33,17 @@ pub struct SearchPostsQuery {
     pub end: Option<f64>,
 }
 
+/// The content index's tag filter for `kind`: the stored name. `/v0` shows an event post's
+/// kind as `unknown`, so its `unknown` takes the event kinds too, as the tag alternatives of
+/// [`UNKNOWN_SEARCH_TAGS`], as it matched those posts when they were stored as `unknown`.
+fn search_kind_tags<V: ApiVersion>(kind: PostKind) -> &'static str {
+    if !V::SOCIAL_EVENTS && kind == PostKind::Unknown {
+        UNKNOWN_SEARCH_TAGS
+    } else {
+        kind.as_str()
+    }
+}
+
 /// The one body behind `search_posts_by_tag_handler_v0` and `search_posts_by_tag_handler_v1`:
 /// the search, with the tag folded as the version folds a label.
 pub async fn search_posts_by_tag<V: ApiVersion>(
@@ -45,6 +58,12 @@ pub async fn search_posts_by_tag<V: ApiVersion>(
         query.pagination.skip_value(), query.pagination.limit_value()
     );
 
+    // `/v0` is frozen: `rating` is no sorting it has, refused as before Nexus rated posts, and
+    // first, as its parse failed before any other check ran.
+    if !V::SOCIAL_EVENTS && sorting == Some(StreamSorting::Rating) {
+        return Err(Error::invalid_input(V0_NO_RATING_SORTING));
+    }
+
     if query.user_id.is_some() ^ query.reach.is_some() {
         return Err(Error::invalid_input(
             "user_id and reach should be both provided together",
@@ -53,6 +72,17 @@ pub async fn search_posts_by_tag<V: ApiVersion>(
 
     let pagination = query.pagination.to_pagination(query.start, query.end);
 
+    if sorting == Some(StreamSorting::Rating) && query.user_id.is_none() {
+        let entries = nexus_common::models::post::PostStream::get_scored_post_keys(
+            nexus_common::models::post::StreamSource::All,
+            pagination,
+            nexus_common::db::kv::SortOrder::Descending,
+            StreamSorting::Rating,
+            Some(vec![tag.to_string()]),
+        )
+        .await?;
+        return Ok(Json(entries.into_iter().map(Into::into).collect()));
+    }
     if let (Some(user_id), Some(reach)) = (query.user_id, query.reach) {
         let posts =
             PostsByTagSearch::get_by_label_with_reach(&tag, sorting, &user_id, reach, pagination)
@@ -232,7 +262,7 @@ pub async fn search_posts_by_content<V: ApiVersion>(
     )?;
 
     let kind: Option<PostKind> = query.kind.clone().map(Into::into);
-    let kind_str = kind.map(PostKind::as_str);
+    let kind_str = kind.map(search_kind_tags::<V>);
 
     let author_ids;
     let author = match scope {
@@ -431,14 +461,40 @@ mod tests {
     #[test]
     fn kind_valid_short_accepted() {
         let q = parse_query("q=bitcoin&kind=short").expect("valid kind must parse");
-        assert_eq!(q.kind, Some(PostKind::Short));
+        assert_eq!(q.kind.map(PostKind::from), Some(PostKind::Short));
     }
 
     #[test]
     fn kind_unknown_parses_as_unknown() {
         let q =
             parse_query("q=bitcoin&kind=not-a-kind").expect("lenient kind parsing must not error");
-        assert_eq!(q.kind, Some(PostKind::Unknown));
+        assert_eq!(q.kind.map(PostKind::from), Some(PostKind::Unknown));
+    }
+
+    /// `/v0` searches its `unknown` among every post it shows as `unknown`, the event kinds'
+    /// included; `/v1` searches each kind by its own name.
+    #[test]
+    fn unknown_searches_the_event_kinds_on_v0_only() {
+        assert_eq!(
+            search_kind_tags::<V0>(PostKind::Unknown),
+            "unknown|event|rsvp|rating|availability"
+        );
+        assert_eq!(search_kind_tags::<V0>(PostKind::Short), "short");
+        assert_eq!(search_kind_tags::<V1>(PostKind::Unknown), "unknown");
+        assert_eq!(search_kind_tags::<V1>(PostKind::Event), "event");
+    }
+
+    /// `/v0` is frozen: an event kind's name is one it does not know, searched as `unknown`.
+    #[test]
+    fn kind_event_parses_as_unknown_on_v0() {
+        for name in ["event", "rsvp", "rating", "availability"] {
+            let q = parse_query(&format!("q=bitcoin&kind={name}")).expect(name);
+            assert_eq!(
+                q.kind.map(PostKind::from),
+                Some(PostKind::Unknown),
+                "{name}"
+            );
+        }
     }
 
     /// On `/v1` the kind is the `social/v1` name, mapped to the stored kind the index holds.

@@ -10,6 +10,10 @@ use crate::models::tag::TagDetails;
 /// Represents a Pubky user with relational data including tags, counts, and relationship with a viewer.
 #[derive(Serialize, Deserialize, ToSchema, Default, Debug)]
 pub struct PostView {
+    /// The post's rating summary. Not serialized: `/v0` is frozen and serves this view as it
+    /// is, so the summary reaches a client only through the `/v1` views, which copy it.
+    #[serde(skip)]
+    pub rating: crate::models::social_event::RatingSummary,
     pub details: PostDetails,
     pub counts: PostCounts,
     pub tags: Vec<TagDetails>,
@@ -62,7 +66,9 @@ impl PostView {
             }
         };
 
+        let rating = crate::models::social_event::rating_summary(&details.uri).await?;
         Ok(Some(Self {
+            rating,
             details,
             counts,
             bookmark,

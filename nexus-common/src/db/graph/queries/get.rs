@@ -732,6 +732,7 @@ pub fn resource_view(
             }) AS tags
         }
         RETURN r {.id, .uri, .scheme, .indexed_at} AS details, tags,
+          coalesce(r.rating_avg,0.0) AS rating_avg, coalesce(r.rating_count,0) AS rating_count,
           COUNT { (r)<-[:REPLIED]-(p:Post) WHERE NOT coalesce(p.deleted, false) } AS replies_count,
           COUNT { (r)<-[:EMBEDS]-(p:Post) WHERE NOT coalesce(p.deleted, false) } AS embeds_count,
           COUNT { (r)<-[:COLLECTED]-(p:Post) WHERE NOT coalesce(p.deleted, false) } AS collections_count
@@ -822,7 +823,11 @@ pub fn resource_stream(
         SortOrder::Ascending => (">=", "<="),
     };
 
-    let mut cypher = String::from("MATCH (tagger:User)-[t:TAGGED]->(r:Resource)\n");
+    let mut cypher = if matches!(sorting, ResourceSorting::Rating) && labels.is_none() {
+        String::from("MATCH (r:Resource)\n")
+    } else {
+        String::from("MATCH (tagger:User)-[t:TAGGED]->(r:Resource)\n")
+    };
 
     if labels.is_some() {
         cypher.push_str("WHERE t.label IN $labels\n");
@@ -830,6 +835,7 @@ pub fn resource_stream(
 
     let score_expr = match sorting {
         ResourceSorting::Timeline => "MAX(t.indexed_at)",
+        ResourceSorting::Rating => "coalesce(r.rating_avg,0.0)",
     };
     cypher.push_str(&format!("WITH r, {score_expr} AS score\n"));
 
@@ -1726,6 +1732,9 @@ pub fn post_stream(
         Some(KindFilter::Kind(_)) => {
             append_condition(&mut cypher, "p.kind = $kind", &mut where_clause_applied);
         }
+        Some(KindFilter::AnyOf(_)) => {
+            append_condition(&mut cypher, "p.kind IN $kinds", &mut where_clause_applied);
+        }
         // The IS NULL guard is load-bearing: with Cypher's three-valued logic,
         // `NOT p.kind IN [...]` evaluates to NULL (row dropped) for legacy
         // posts whose kind property was never set.
@@ -1804,7 +1813,7 @@ pub fn post_stream(
         (Some(rule), StreamSorting::Timeline) => cypher.push_str(&format!(
             "WITH DISTINCT p\nORDER BY p.indexed_at {order_dir}, p.id {order_dir}\nMATCH (p)<-[:AUTHORED]-(author:User)\nWHERE {rule}\n"
         )),
-        (Some(rule), StreamSorting::TotalEngagement) => cypher.push_str(&format!(
+        (Some(rule), StreamSorting::TotalEngagement | StreamSorting::Rating) => cypher.push_str(&format!(
             "WITH DISTINCT p\nMATCH (p)<-[:AUTHORED]-(author:User)\nWHERE {rule}\n"
         )),
         (None, _) => cypher.push_str("WITH DISTINCT p, author\n"),
@@ -1816,6 +1825,28 @@ pub fn post_stream(
     // within a response (pagination across ties is still best-effort: the cursor
     // carries only the score, not the id).
     let (score_expr, order_clause) = match sorting {
+        StreamSorting::Rating => {
+            cypher.push_str("WITH p, author WHERE NOT coalesce(p.deleted,false) AND NOT coalesce(author.deleted,false)\nWITH p, author, coalesce(p.rating_avg,0.0) AS rating_score\n");
+            where_clause_applied = false;
+            if pagination.start.is_some() {
+                append_condition(
+                    &mut cypher,
+                    &format!("rating_score {start_op} $start"),
+                    &mut where_clause_applied,
+                );
+            }
+            if pagination.end.is_some() {
+                append_condition(
+                    &mut cypher,
+                    &format!("rating_score {end_op} $end"),
+                    &mut where_clause_applied,
+                );
+            }
+            (
+                "rating_score",
+                format!("ORDER BY rating_score {order_dir}, p.id {order_dir}"),
+            )
+        }
         StreamSorting::Timeline => (
             "p.indexed_at",
             format!("ORDER BY p.indexed_at {order_dir}, p.id {order_dir}"),
@@ -1949,6 +1980,13 @@ fn build_query_with_params(
     match kind {
         Some(KindFilter::Kind(post_kind)) => {
             query = query.param("kind", post_kind.to_string());
+        }
+        Some(KindFilter::AnyOf(kinds)) => {
+            // Bare lowercase names, matching how `p.kind` is stored (see put.rs).
+            query = query.param(
+                "kinds",
+                kinds.iter().map(ToString::to_string).collect::<Vec<_>>(),
+            );
         }
         Some(KindFilter::Exclude(kinds)) => {
             // Bare lowercase names, matching how `p.kind` is stored (see put.rs).

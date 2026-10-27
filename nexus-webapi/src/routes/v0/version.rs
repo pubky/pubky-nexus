@@ -25,7 +25,7 @@ use axum::Router;
 use const_format::concatcp;
 use nexus_common::models::bootstrap::{AttachmentFiles, Bootstrap};
 use nexus_common::models::file::{FileDetails, FileUrls};
-use nexus_common::models::notification::Notification;
+use nexus_common::models::notification::{Notification, NotificationType};
 use nexus_common::models::post::{Bookmark, PostDetails, PostKind};
 use nexus_common::models::resource::view::ResourceView;
 use nexus_common::models::tag::search::PrefixFold;
@@ -37,17 +37,19 @@ use serde::Serialize;
 use utoipa::{IntoParams, OpenApi, ToSchema};
 
 use super::endpoints::{
-    POST_BOOKMARK_ROUTE, RESOURCE_EMBEDS_ROUTE, RESOURCE_REPLIES_ROUTE,
+    NOTIFICATION_ROUTE, POST_BOOKMARK_ROUTE, RESOURCE_EMBEDS_ROUTE, RESOURCE_REPLIES_ROUTE,
     STREAM_RESOURCES_BY_IDS_ROUTE, USER_REACH_SET_ROUTE, V0_PREFIX, V1_PREFIX,
 };
 use super::stream::posts::{PostStreamByIdsRequest, StreamSourceKind};
 use super::types::TaggersInfoResponse;
 use super::{
-    bootstrap, file, notification, post, resource, resource_changes, search, stream, tag, user,
+    bootstrap, file, notification, post, resource, resource_changes, search, social_events, stream,
+    tag, user,
 };
 use crate::models::{
     v1, IncludeAttachmentMetadata, KindToken, PostStreamDetailed, PostViewDetailed,
-    StoredKindToken, StoredPostKinds, TagLabel, TagLabels, Tags, V0Shape,
+    StoredKindToken, StoredNotificationTypes, StoredPostKinds, TagLabel, TagLabels, Tags,
+    V0PostKind, V0Shape, V1NotificationTypes,
 };
 use crate::routes::AppState;
 
@@ -180,6 +182,41 @@ pub trait ApiVersion: Send + Sync + 'static {
     /// What `exclude_kinds=` does with a post whose kind is missing or unrecognised.
     const MISSING_KIND_RULE: &'static str;
 
+    /// Whether the version serves the `social/v1` event vocabulary on the routes both versions
+    /// share: the event kinds by name, `sorting=rating`, `item_kind=` and the `event_changed`
+    /// notification. `/v1` does. `/v0` is frozen: it refuses `sorting=rating` and
+    /// `types=event_changed` as the unknown names they are to it, leaves `event_changed` out of
+    /// its notification lists, reads an event kind's name as `unknown` ([`V0PostKind`]) and
+    /// serves an event post's kind as `unknown` ([`V0Shape`]), as it did before Nexus read
+    /// them. Its document leaves them out too ([`freeze_docs`](crate::models::v0_frozen::freeze_docs)).
+    const SOCIAL_EVENTS: bool;
+    /// What `sorting=` takes on the post streams, as the parameter description opens.
+    const POST_SORTING: &'static str;
+    /// What `sorting=` takes on the resource streams.
+    const RESOURCE_SORTING: &'static str;
+    /// What the resource stream's `start` bounds, in the sortings the version has.
+    const RESOURCE_START_SCORE: &'static str;
+    /// How many types `types=` takes on the notification list.
+    const NOTIFICATION_TYPES_RANGE: &'static str;
+    /// The notification types `types=` takes.
+    const NOTIFICATION_TYPE_NAMES: &'static str;
+    /// The `types=` list of the notification route, bounded and parsed by the version: `/v0`
+    /// takes the twelve types it has and refuses `event_changed` as any unknown name, with the
+    /// parser's own errors; `/v1` takes all thirteen.
+    type NotificationTypes: DeserializeOwned
+        + ToSchema
+        + Into<Vec<NotificationType>>
+        + fmt::Debug
+        + Send;
+    /// What the notification list's description adds for the version: on `/v0`, that it pages
+    /// over the types it has, so the `event_changed` it leaves out counts nowhere.
+    const NOTIFICATION_LIST_RULE: &'static str;
+    /// The notification list's `X-Next-Start` header, as the version sets it: `/v1` only with
+    /// `types`, `/v0` also without them, when its list passes over the types it does not have
+    /// ([`Self::NOTIFICATION_LIST_RULE`]). `/v1`'s is the route annotation's own text; `/v0`'s
+    /// is written into its document by [`Self::finish_docs`].
+    const NEXT_START_HEADER_DOC: &'static str;
+
     /// This version's handler of each route whose response or query is one of the types above.
     /// The generic router builders mount these, so the route declaration stays single.
     fn post_view() -> MethodRouter<AppState>;
@@ -249,9 +286,9 @@ impl ApiVersion for V0 {
         "`/v0` is frozen: fixes only, no new routes or fields. Every new feature lands in `/v1`.";
 
     type PostView = V0Shape<PostViewDetailed>;
-    type PostDetails = PostDetails;
+    type PostDetails = V0Shape<PostDetails>;
     type PostStream = V0Shape<PostStreamDetailed>;
-    type Notification = Notification;
+    type Notification = V0Shape<Notification>;
     type UserCounts = UserCounts;
     type UserView = UserView;
     type UserStream = UserStream;
@@ -274,7 +311,7 @@ impl ApiVersion for V0 {
     const BOOKMARKS_SOURCE_LINE: &'static str = "- *bookmarks*: Requires **observer_id**.\n";
     const LOCKED_REPLIES_RULE: &'static str = "Replies are left out, except on `source=bookmarks`.";
 
-    type PostKind = PostKind;
+    type PostKind = V0PostKind;
     type PostKinds = StoredPostKinds;
 
     const KIND_NAMES: &'static str = "short, long, image, video, link, file, collection";
@@ -282,6 +319,16 @@ impl ApiVersion for V0 {
     const EXCLUDE_KINDS_RANGE: &'static str = concatcp!("1-", StoredKindToken::MAX);
     const MISSING_KIND_RULE: &'static str =
         "Posts with a missing or unrecognized kind are never excluded.";
+
+    const SOCIAL_EVENTS: bool = false;
+    const POST_SORTING: &'static str = "Sort method (`timeline` or `total_engagement`).";
+    const RESOURCE_SORTING: &'static str = "timeline (the only sorting, and the default)";
+    const RESOURCE_START_SCORE: &'static str = "the latest tag timestamp.";
+    const NOTIFICATION_TYPES_RANGE: &'static str = "1-12";
+    const NOTIFICATION_TYPE_NAMES: &'static str = "follow, new_friend, lost_friend, tag_post, tag_profile, untag_post, untag_profile, reply, repost, mention, post_deleted, post_edited";
+    type NotificationTypes = StoredNotificationTypes;
+    const NEXT_START_HEADER_DOC: &'static str = "With `types`, present when the scan stopped at its 10,000-entry cap before filling the page; without them, present when more than 10,000 notifications `/v0` does not show were passed over before the page filled. Either way more matches may exist. Pass it as `start` to continue. Absent means the history was read to the end (or the page is full; page on from the last timestamp).";
+    const NOTIFICATION_LIST_RULE: &'static str = ". Without `types`, `skip` and `limit` count the notifications `/v0` shows, the twelve types it has; the `X-Next-Start` header carries the `start` to resume from when more than 10,000 it does not show were passed over before the page filled";
 
     fn post_view() -> MethodRouter<AppState> {
         axum::routing::get(post::view::post_view_handler_v0)
@@ -383,8 +430,18 @@ impl ApiVersion for V0 {
         utoipa::openapi::OpenApi::default()
     }
 
+    /// The frozen schemas, and the notification list's `X-Next-Start` header in `/v0`'s words
+    /// ([`Self::NEXT_START_HEADER_DOC`]): the shared annotation carries `/v1`'s.
     fn finish_docs(docs: utoipa::openapi::OpenApi) -> utoipa::openapi::OpenApi {
-        crate::models::v0_frozen::freeze_docs(docs)
+        let docs = crate::models::v0_frozen::freeze_docs(docs);
+        crate::models::v0_frozen::describe_response_header(
+            docs,
+            concatcp!(V0_PREFIX, NOTIFICATION_ROUTE),
+            "get",
+            "200",
+            "X-Next-Start",
+            Self::NEXT_START_HEADER_DOC,
+        )
     }
 }
 
@@ -427,6 +484,18 @@ impl ApiVersion for V1 {
         "; any other name, `short` and `long` included, is rejected with 400";
     const EXCLUDE_KINDS_RANGE: &'static str = concatcp!("1-", v1::V1KindToken::MAX);
     const MISSING_KIND_RULE: &'static str = "Posts with a missing kind are never excluded; `unknown` excludes the posts whose kind the spec reader didn't recognise.";
+
+    const SOCIAL_EVENTS: bool = true;
+    const POST_SORTING: &'static str =
+        "Sort method (`timeline`, `total_engagement` or `rating`, the 1–10 rating average).";
+    const RESOURCE_SORTING: &'static str = "timeline (default) or rating (1–10 average)";
+    const RESOURCE_START_SCORE: &'static str =
+        "the latest tag timestamp for timeline, or the fractional average for rating.";
+    const NOTIFICATION_TYPES_RANGE: &'static str = "1-13";
+    const NOTIFICATION_TYPE_NAMES: &'static str = "follow, new_friend, lost_friend, tag_post, tag_profile, untag_post, untag_profile, reply, repost, mention, post_deleted, post_edited, event_changed";
+    type NotificationTypes = V1NotificationTypes;
+    const NOTIFICATION_LIST_RULE: &'static str = "";
+    const NEXT_START_HEADER_DOC: &'static str = "Only with `types`: present when the scan stopped at its 10,000-entry cap before filling the page, so more matches may exist. Pass it as `start` to continue. Absent means the history was read to the end (or the page is full; page on from the last timestamp).";
 
     fn post_view() -> MethodRouter<AppState> {
         axum::routing::get(post::view::post_view_handler_v1)
@@ -511,8 +580,8 @@ impl ApiVersion for V1 {
     }
 
     /// The routes added since `/v0` froze: the resource views by IDs or URIs, the resource
-    /// changes feed, the posts replying to or embedding a resource and a user's reach set. No
-    /// bookmark or file details route at all.
+    /// changes feed, the posts replying to or embedding a resource, a user's reach set and the
+    /// social event routes. No bookmark or file details route at all.
     fn own_routes() -> (Router<AppState>, Router<AppState>) {
         let expensive = Router::new().route(
             STREAM_RESOURCES_BY_IDS_ROUTE,
@@ -530,12 +599,16 @@ impl ApiVersion for V1 {
             .route(
                 USER_REACH_SET_ROUTE,
                 axum::routing::get(user::reach_set::user_reach_set_handler),
-            );
+            )
+            .merge(social_events::routes());
         (expensive, default)
     }
 
+    /// The `/v1` routes and schemas, and the social event routes with theirs.
     fn docs() -> utoipa::openapi::OpenApi {
-        V1Doc::openapi()
+        let mut docs = V1Doc::openapi();
+        docs.merge(social_events::SocialEventsApiDoc::openapi());
+        docs
     }
 
     /// The two `/v1/static` routes, served by the static router.
@@ -575,6 +648,10 @@ pub mod shapes {
             pub type StreamSource = <$version as ApiVersion>::StreamSource;
             pub type PostKind = <$version as ApiVersion>::PostKind;
             pub type PostKinds = <$version as ApiVersion>::PostKinds;
+            pub type NotificationTypes = <$version as ApiVersion>::NotificationTypes;
+            /// The notification list's query with `types` as this version reads it.
+            pub type NotificationsQuery =
+                super::super::notification::list::NotificationsQuery<$version>;
             pub type IncludeAttachmentMetadata =
                 <$version as ApiVersion>::IncludeAttachmentMetadata;
             pub type PostStreamByIdsRequest = <$version as ApiVersion>::PostStreamByIdsRequest;
@@ -608,6 +685,15 @@ pub mod shapes {
             pub const KIND_RULE: &str = <$version as ApiVersion>::KIND_RULE;
             pub const EXCLUDE_KINDS_RANGE: &str = <$version as ApiVersion>::EXCLUDE_KINDS_RANGE;
             pub const MISSING_KIND_RULE: &str = <$version as ApiVersion>::MISSING_KIND_RULE;
+            pub const POST_SORTING: &str = <$version as ApiVersion>::POST_SORTING;
+            pub const RESOURCE_SORTING: &str = <$version as ApiVersion>::RESOURCE_SORTING;
+            pub const RESOURCE_START_SCORE: &str = <$version as ApiVersion>::RESOURCE_START_SCORE;
+            pub const NOTIFICATION_TYPES_RANGE: &str =
+                <$version as ApiVersion>::NOTIFICATION_TYPES_RANGE;
+            pub const NOTIFICATION_TYPE_NAMES: &str =
+                <$version as ApiVersion>::NOTIFICATION_TYPE_NAMES;
+            pub const NOTIFICATION_LIST_RULE: &str =
+                <$version as ApiVersion>::NOTIFICATION_LIST_RULE;
         };
     }
 
@@ -735,6 +821,7 @@ pub(crate) use versioned_handlers;
         resource::ResourceTagsResponse,
         TagLabel,
         shapes::v0::Tags,
+        StoredNotificationTypes,
     ))
 )]
 struct V0Doc;
@@ -797,6 +884,7 @@ struct V0Doc;
         v1::ResourceTagsResponse,
         v1::TagLabel,
         v1::Tags,
+        V1NotificationTypes,
         stream::resources::ResourceStreamByIdsRequest,
         nexus_common::models::follow::reach::ReachSet,
     ))
@@ -812,8 +900,16 @@ mod tests {
     /// added to the stored enum without a name here fails this test, not the document.
     #[test]
     fn kind_names_match_each_versions_schema() {
-        // `/v0` lists the stored names a strict filter parses: every kind but `unknown`.
-        let mut v0 = enum_values::<PostKind>();
+        // `/v0` lists the stored names a strict filter parses: every kind of the frozen `/v0`
+        // vocabulary but `unknown`, none of the `social/v1` event kinds.
+        let mut v0: Vec<String> = enum_values::<PostKind>()
+            .into_iter()
+            .filter(|name| {
+                serde_json::from_value::<PostKind>(serde_json::Value::from(name.as_str()))
+                    .unwrap()
+                    .is_v0()
+            })
+            .collect();
         assert_eq!(v0.pop().as_deref(), Some("unknown"));
         assert_eq!(V0::KIND_NAMES.split(", ").collect::<Vec<_>>(), v0);
         // `/v1` lists `unknown` too, since its filters take it.

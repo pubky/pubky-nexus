@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
 use nexus_common::models::post::PostKind;
+use nexus_webapi::routes::v0::version::{ApiVersion, V0, V1};
 use nexus_webapi::routes::{r#static::ApiDoc as StaticApiDoc, v0::ApiDoc};
 use pubky_social_specs::PubkySocialPostKind;
 use serde_json::Value;
@@ -93,6 +94,13 @@ const V1_ONLY_PATHS: &[&str] = &[
     "/resource/{resource_id}/replies",
     "/resource/{resource_id}/embeds",
     "/user/{user_id}/reach-set",
+    "/stream/events",
+    "/event/{author}/{id}",
+    "/event/{author}/{id}/attendees",
+    "/stream/calendars",
+    "/calendar/{author}/{id}",
+    "/stream/availability",
+    "/availability/{author}",
 ];
 
 /// Both documents come from one route declaration, so every v0 path is in the v1 document
@@ -164,12 +172,105 @@ fn test_v0_and_v1_documents_list_the_same_paths() {
     // Method, path and parameter of the descriptions that name a route under the version's
     // own prefix, besides `source` on the bookmark-sourced routes below.
     let version_routed = [("get", "/stream/resources", "start")];
+    // Method, path, parameter and the fragments of its description in which the versions
+    // differ by the `social/v1` event vocabulary, each as v0 and v1 write it: v0 is frozen, so
+    // its text names no `rating` sorting and no `event_changed` type.
+    type EventVocabularyCase<'a> = (&'a str, &'a str, &'a str, &'a [(&'a str, &'a str)]);
+    let event_vocabulary: [EventVocabularyCase<'_>; 6] = [
+        (
+            "get",
+            "/stream/posts",
+            "sorting",
+            &[(V0::POST_SORTING, V1::POST_SORTING)],
+        ),
+        (
+            "get",
+            "/stream/posts/keys",
+            "sorting",
+            &[(V0::POST_SORTING, V1::POST_SORTING)],
+        ),
+        (
+            "get",
+            "/stream/resources",
+            "sorting",
+            &[(V0::RESOURCE_SORTING, V1::RESOURCE_SORTING)],
+        ),
+        (
+            "get",
+            "/stream/resources/ids",
+            "sorting",
+            &[(V0::RESOURCE_SORTING, V1::RESOURCE_SORTING)],
+        ),
+        (
+            "get",
+            "/stream/resources",
+            "start",
+            &[(V0::RESOURCE_START_SCORE, V1::RESOURCE_START_SCORE)],
+        ),
+        (
+            "get",
+            "/user/{user_id}/notifications",
+            "types",
+            &[
+                (V0::NOTIFICATION_TYPES_RANGE, V1::NOTIFICATION_TYPES_RANGE),
+                (V0::NOTIFICATION_TYPE_NAMES, V1::NOTIFICATION_TYPE_NAMES),
+            ],
+        ),
+    ];
     for (path, operations) in v0
         .iter()
         .filter(|(path, _)| !V0_ONLY_PATHS.contains(&path.as_str()))
     {
         let mut v0_operations = operations.clone();
         let mut v1_operations = v1[path].clone();
+        // The notification list's description and its `X-Next-Start` header say on v0 how it
+        // pages without `types`: the two v0 texts the event work changes, each exactly.
+        if path == "/user/{user_id}/notifications" {
+            let v0_text = v0_operations["get"]["description"].take();
+            let v1_text = v1_operations["get"]["description"].take();
+            assert_eq!(
+                v0_text,
+                format!("List of user notifications{}", V0::NOTIFICATION_LIST_RULE)
+            );
+            assert_eq!(v1_text, "List of user notifications");
+            let header = "/responses/200/headers/X-Next-Start/description";
+            let v0_header = v0_operations["get"].pointer_mut(header).map(Value::take);
+            let v1_header = v1_operations["get"].pointer_mut(header).map(Value::take);
+            assert_eq!(v0_header, Some(Value::from(V0::NEXT_START_HEADER_DOC)));
+            assert_eq!(v1_header, Some(Value::from(V1::NEXT_START_HEADER_DOC)));
+            assert!(V1::NEXT_START_HEADER_DOC.starts_with("Only with `types`"));
+            assert!(!V0::NEXT_START_HEADER_DOC.contains("Only with"));
+        }
+        for (method, _, parameter, fragments) in
+            event_vocabulary.iter().filter(|(_, p, ..)| p == path)
+        {
+            let operation = format!("{method} {path} {parameter}");
+            let v0_text = parameter_description(&v0_operations[method], parameter);
+            let v1_text = parameter_description(&v1_operations[method], parameter);
+            assert!(
+                !v0_text.contains("rating") && !v0_text.contains("event_changed"),
+                "{operation} on v0: {v0_text}"
+            );
+            let mut as_v1 = v0_text.clone();
+            for (v0_fragment, v1_fragment) in fragments.iter() {
+                assert!(
+                    v0_text.contains(v0_fragment),
+                    "{operation} on v0: {v0_text}"
+                );
+                assert!(
+                    v1_text.contains(v1_fragment),
+                    "{operation} on v1: {v1_text}"
+                );
+                as_v1 = as_v1.replacen(v0_fragment, v1_fragment, 1);
+            }
+            // The rest of the text is the same, read under v1's prefix where it names a route.
+            assert_eq!(
+                as_v1.replace("/v0/", "/v1/"),
+                v1_text.replace("/v0/", "/v1/"),
+                "{operation}"
+            );
+            set_parameter_description(&mut v0_operations[method], parameter, &as_v1);
+        }
         for (method, _) in metadata_flagged.iter().filter(|(_, p)| p == path) {
             let operation = format!("{method} {path}");
             let flag = take_parameter(&mut v0_operations[method], "include_attachment_metadata");
@@ -208,7 +309,7 @@ fn test_v0_and_v1_documents_list_the_same_paths() {
                 let v1_names = take_parameter_description(&mut v1_operations[method], filter);
                 assert!(
                     v1_names
-                        .contains("note, article, image, video, link, file, collection, unknown")
+                        .contains("note, article, image, video, link, file, collection, event, rsvp, rating, availability, unknown")
                         && !v1_names.contains("short, long"),
                     "{operation} {filter} on v1: {v1_names}"
                 );
@@ -267,6 +368,29 @@ fn take_parameter(operation: &mut Value, name: &str) -> Value {
     parameters.remove(position)
 }
 
+/// The description of the query parameter `name` of `operation`.
+fn parameter_description(operation: &Value, name: &str) -> String {
+    operation["parameters"]
+        .as_array()
+        .expect("parameters")
+        .iter()
+        .find(|parameter| parameter["name"] == name)
+        .and_then(|parameter| parameter["description"].as_str())
+        .unwrap_or_else(|| panic!("`{name}` has no description"))
+        .to_string()
+}
+
+/// Sets the description of the query parameter `name` of `operation`.
+fn set_parameter_description(operation: &mut Value, name: &str, description: &str) {
+    let parameter = operation["parameters"]
+        .as_array_mut()
+        .expect("parameters")
+        .iter_mut()
+        .find(|parameter| parameter["name"] == name)
+        .unwrap_or_else(|| panic!("no `{name}` parameter"));
+    parameter["description"] = Value::from(description);
+}
+
 /// Takes the description of the query parameter `name` out of `operation` and returns it.
 fn take_parameter_description(operation: &mut Value, name: &str) -> String {
     let parameter = operation["parameters"]
@@ -294,9 +418,11 @@ fn take_200_body(operation: &mut Value, schema: &str, context: &str) {
     );
 }
 
-/// The post kind's names: the stored ones on v0, the `social/v1` wire names on v1, `unknown`
-/// on both. The v1 list is pinned to the spec crate's names, so a renamed kind fails here and
-/// not in the client; the `/v1` component keeps the v0 name, so a client reads one `PostKind`.
+/// The post kind's names: the stored ones of the frozen v0 vocabulary on v0, every kind's
+/// `social/v1` wire name on v1, `unknown` on both. v0 has none of the event kinds: it serves an
+/// event post's kind as `unknown`. The v1 list is pinned to the spec crate's names, so a
+/// renamed kind fails here and not in the client; the `/v1` component keeps the v0 name, so a
+/// client reads one `PostKind`.
 #[test]
 fn test_post_kind_schema_names_the_kinds_per_version() {
     let kinds = |spec: utoipa::openapi::OpenApi| -> Vec<String> {
@@ -323,6 +449,31 @@ fn test_post_kind_schema_names_the_kinds_per_version() {
             "unknown"
         ]
     );
+    // Every stored kind, in the stored schema's order: v0's and the event kinds.
+    let stored_names = [
+        "short",
+        "long",
+        "image",
+        "video",
+        "link",
+        "file",
+        "collection",
+        "event",
+        "rsvp",
+        "rating",
+        "availability",
+        "unknown",
+    ];
+    let v0_names: Vec<&str> = stored_names
+        .iter()
+        .copied()
+        .filter(|name| {
+            serde_json::from_value::<PostKind>(Value::from(*name))
+                .unwrap()
+                .is_v0()
+        })
+        .collect();
+    assert_eq!(v0, v0_names);
 
     let v1 = kinds(ApiDoc::v1_docs());
     assert_eq!(
@@ -335,12 +486,17 @@ fn test_post_kind_schema_names_the_kinds_per_version() {
             "link",
             "file",
             "collection",
+            "event",
+            "rsvp",
+            "rating",
+            "availability",
             "unknown"
         ]
     );
-    // Each v1 name is the v0 kind's `v1_name`, and the spec crate knows it under that name.
-    for (v0_name, v1_name) in v0.iter().zip(&v1) {
-        let stored: PostKind = serde_json::from_value(Value::from(v0_name.as_str())).unwrap();
+    // Each v1 name is the stored kind's `v1_name`, and the spec crate knows it under that name.
+    assert_eq!(stored_names.len(), v1.len());
+    for (stored_name, v1_name) in stored_names.iter().zip(&v1) {
+        let stored: PostKind = serde_json::from_value(Value::from(*stored_name)).unwrap();
         assert_eq!(stored.v1_name(), v1_name);
         let spec = PubkySocialPostKind::from(v1_name.clone());
         assert_eq!(spec.is_known(), v1_name != "unknown", "{v1_name}");
@@ -1062,5 +1218,159 @@ fn test_embedded_relationship_is_documented_on_v1_only() {
         );
         assert!(properties.get("replied").is_some(), "{properties}");
         validate_openapi_refs(&spec);
+    }
+}
+
+/// v0 is frozen: its shared schemas name none of the `social/v1` event vocabulary, the stored
+/// models' event kinds, the `event_changed` notification and the `rating` sorting, and keep the
+/// twelve-type bound; v1's name all of it. Both documents' references all resolve.
+#[test]
+fn test_event_vocabulary_is_documented_on_v1_only() {
+    let v0 = serde_json::to_value(ApiDoc::v0_docs()).expect("serializable spec");
+    let v1 = serde_json::to_value(ApiDoc::v1_docs()).expect("serializable spec");
+    let names = |spec: &Value, pointer: &str| -> Vec<String> {
+        spec.pointer(pointer)
+            .and_then(Value::as_array)
+            .unwrap_or_else(|| panic!("no {pointer}"))
+            .iter()
+            .map(|name| name.as_str().expect("a name").to_string())
+            .collect()
+    };
+    let body_types = |spec: &Value| -> Vec<String> {
+        spec.pointer("/components/schemas/NotificationBody/oneOf")
+            .and_then(Value::as_array)
+            .expect("NotificationBody variants")
+            .iter()
+            .flat_map(|body| {
+                body.pointer("/properties/type/enum")
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default()
+            })
+            .map(|tag| tag.as_str().expect("a tag").to_string())
+            .collect()
+    };
+
+    let v0_types = names(&v0, "/components/schemas/NotificationType/enum");
+    assert!(
+        !v0_types.contains(&"event_changed".to_string()),
+        "{v0_types:?}"
+    );
+    assert_eq!(v0_types.len(), 12, "{v0_types:?}");
+    assert!(names(&v1, "/components/schemas/NotificationType/enum")
+        .contains(&"event_changed".to_string()));
+
+    let v0_bodies = body_types(&v0);
+    assert_eq!(v0_bodies.len(), 12, "{v0_bodies:?}");
+    assert!(!v0_bodies.contains(&"event_changed".to_string()));
+    assert!(body_types(&v1).contains(&"event_changed".to_string()));
+
+    assert_eq!(
+        names(&v0, "/components/schemas/StreamSorting/enum"),
+        ["timeline", "total_engagement"]
+    );
+    assert!(names(&v1, "/components/schemas/StreamSorting/enum").contains(&"rating".to_string()));
+
+    let description = |spec: &Value| {
+        spec.pointer("/components/schemas/NotificationTypes/description")
+            .and_then(Value::as_str)
+            .expect("NotificationTypes description")
+            .to_string()
+    };
+    assert!(description(&v0).contains("max=12"), "{}", description(&v0));
+    assert!(description(&v1).contains("max=13"), "{}", description(&v1));
+
+    // v0's scores stay whole numbers; v1's carry a fractional rating average.
+    for (schema, field) in [
+        ("PostKeyStream", "last_post_score"),
+        ("ResourceKeyStream", "last_score"),
+        ("PostsByTagSearch", "score"),
+    ] {
+        let kind = |spec: &Value| {
+            spec.pointer(&format!(
+                "/components/schemas/{schema}/properties/{field}/type"
+            ))
+            .map(Value::to_string)
+            .unwrap_or_else(|| panic!("{schema}.{field} type"))
+        };
+        assert!(
+            kind(&v0).contains("integer"),
+            "{schema}.{field} on v0: {}",
+            kind(&v0)
+        );
+        assert!(
+            kind(&v1).contains("number"),
+            "{schema}.{field} on v1: {}",
+            kind(&v1)
+        );
+    }
+
+    // v1's rating-bearing views stay object schemas with the summary among their own
+    // properties, as every test that reads `properties` of them expects: no `allOf`.
+    for schema in ["PostView", "ResourceView", "ResourceTagsResponse"] {
+        let view = &v1["components"]["schemas"][schema];
+        assert!(view.get("allOf").is_none(), "{schema}: {view}");
+        for field in ["rating_avg", "rating_count"] {
+            assert!(
+                view["properties"].get(field).is_some(),
+                "{schema}.{field}: {view}"
+            );
+        }
+    }
+
+    // Nothing the event and reference work added is named anywhere in v0's document: no
+    // route, schema, field, parameter or enum value.
+    let v0_text = v0.to_string();
+    for token in [
+        "event_changed",
+        "\"event\"",
+        "\"rsvp\"",
+        "\"rating\"",
+        "\"availability\"",
+        "rating_avg",
+        "rating_count",
+        "item_kind",
+        "replies_count",
+        "embeds_count",
+        "collections_count",
+        "\"embedded\"",
+        "/stream/events",
+        "/event/",
+        "/availability",
+        "/resources/changes",
+        "/stream/resources/by_ids",
+        "/resource/{resource_id}/replies",
+        "/resource/{resource_id}/embeds",
+        "EventView",
+        "Occurrence",
+        "Attendee",
+        "AvailabilityView",
+        "RatingSummary",
+    ] {
+        assert!(!v0_text.contains(token), "the v0 document names {token}");
+    }
+
+    validate_openapi_refs(&v0);
+    validate_openapi_refs(&v1);
+}
+
+/// A hook for comparing whole documents across commits, run on demand: with
+/// `NEXUS_OPENAPI_DUMP_DIR` set, writes `v0.json` and `v1.json` there, as the server serves
+/// them under `/api-docs/{v0,v1}/openapi.json`. v0 at an events commit is expected to equal v0
+/// at its extref base except two texts of the notification list, which say how `/v0` pages
+/// without `types`: the operation's description (`ApiVersion::NOTIFICATION_LIST_RULE`) and the
+/// `X-Next-Start` header's (`ApiVersion::NEXT_START_HEADER_DOC`).
+#[test]
+#[ignore = "a dump hook for cross-commit comparison; set NEXUS_OPENAPI_DUMP_DIR"]
+fn dump_openapi_documents() {
+    let dir = std::env::var("NEXUS_OPENAPI_DUMP_DIR").expect("NEXUS_OPENAPI_DUMP_DIR");
+    for (name, spec) in [("v0", ApiDoc::v0_docs()), ("v1", ApiDoc::v1_docs())] {
+        let value = serde_json::to_value(spec).expect("serializable spec");
+        let text = serde_json::to_string_pretty(&value).expect("serializable value");
+        std::fs::write(
+            std::path::Path::new(&dir).join(format!("{name}.json")),
+            text,
+        )
+        .expect("writable dump directory");
     }
 }

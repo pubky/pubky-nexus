@@ -26,7 +26,8 @@ use crate::models::{PostStreamDetailed, PostViewDetailed};
 pub struct PostKind(pub post::PostKind);
 
 /// The `/v1` names a filter takes, as the parameter descriptions list them.
-pub const KIND_NAMES: &str = "note, article, image, video, link, file, collection, unknown";
+pub const KIND_NAMES: &str =
+    "note, article, image, video, link, file, collection, event, rsvp, rating, availability, unknown";
 
 impl PostKind {
     /// The `/v1` name of this kind.
@@ -149,6 +150,12 @@ impl From<post::PostDetails> for PostDetails {
 /// exist for it; and a tag's `tag_uri` says whether the viewer tagged it.
 #[derive(Serialize, ToSchema, Debug)]
 pub struct PostView {
+    /// The average of the ratings the post received, 1–10; 0 with none. `/v0`, frozen, does
+    /// not serve it. Plain fields, not the flattened summary: the view's schema stays an object
+    /// with its own properties.
+    pub rating_avg: f64,
+    /// How many ratings the post received.
+    pub rating_count: i64,
     pub details: PostDetails,
     pub counts: PostCounts,
     pub tags: Vec<TagDetails>,
@@ -164,6 +171,7 @@ impl From<PostViewDetailed> for PostView {
             attachments_metadata: _,
         } = detailed;
         let post::PostView {
+            rating,
             details,
             counts,
             tags,
@@ -171,6 +179,8 @@ impl From<PostViewDetailed> for PostView {
             bookmark: _,
         } = view;
         Self {
+            rating_avg: rating.rating_avg,
+            rating_count: rating.rating_count,
             details: details.into(),
             counts,
             tags: tags.into_iter().map(TagDetails::from).collect(),
@@ -407,12 +417,20 @@ mod tests {
         v0.as_object_mut().unwrap().remove("attachments_metadata");
         v0.as_object_mut().unwrap().remove("bookmark");
         v0["details"]["kind"] = json!("note");
+        // The rating summary is `/v1`'s alone.
+        v0["rating_avg"] = json!(0.0);
+        v0["rating_count"] = json!(0);
         assert_eq!(v1, v0);
 
         let schema = serde_json::to_value(PostView::schema()).unwrap();
         let properties = schema["properties"].as_object().unwrap();
         assert!(!properties.contains_key("attachments_metadata"), "{schema}");
         assert!(!properties.contains_key("bookmark"), "{schema}");
+        // The rating summary is two of the view's own properties: an object schema, no `allOf`.
+        assert!(schema.get("allOf").is_none(), "{schema}");
+        for field in ["rating_avg", "rating_count"] {
+            assert!(properties.contains_key(field), "{field}: {schema}");
+        }
     }
 
     /// `NoAttachmentMetadata` reads whatever a client sends under the flag's name and never

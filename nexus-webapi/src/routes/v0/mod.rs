@@ -22,6 +22,7 @@ pub mod post;
 pub mod resource;
 pub mod resource_changes;
 pub mod search;
+pub mod social_events;
 pub mod stream;
 pub mod tag;
 mod types;
