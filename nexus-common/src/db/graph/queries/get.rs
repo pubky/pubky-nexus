@@ -1717,6 +1717,15 @@ pub fn post_stream(
         Some(KindFilter::Locked) => {
             append_condition(&mut cypher, "p.lock IS NOT NULL", &mut where_clause_applied);
         }
+        // The kind index selects collections; each one is then checked by
+        // expanding its own COLLECTED edges, never by scanning items.
+        Some(KindFilter::CollectionsWith(_)) => {
+            append_condition(
+                &mut cypher,
+                "p.kind = 'collection' AND EXISTS { (p)-[:COLLECTED]->(item:Post) WHERE item.kind = $item_kind AND NOT coalesce(item.deleted, false) }",
+                &mut where_clause_applied,
+            );
+        }
         None => {}
     }
 
@@ -1954,6 +1963,9 @@ fn build_query_with_params(
                 "exclude_kinds",
                 kinds.iter().map(ToString::to_string).collect::<Vec<_>>(),
             );
+        }
+        Some(KindFilter::CollectionsWith(item_kind)) => {
+            query = query.param("item_kind", item_kind.to_string());
         }
         Some(KindFilter::Locked) | None => {}
     }
@@ -2219,6 +2231,21 @@ mod tests {
             None,
         );
         let clauses = ["p.lock IS NOT NULL", "WITH DISTINCT p, author", "ORDER BY"];
+        assert_in_order(&cypher, &clauses);
+    }
+
+    /// `item_kind` keeps the indexed kind predicate and checks items per collection.
+    #[test]
+    fn post_stream_collections_with_item_kind() {
+        let kind = Some(KindFilter::CollectionsWith(
+            crate::models::post::PostKind::Event,
+        ));
+        let cypher = all_stream(StreamSorting::Timeline, &None, kind, None);
+        let clauses = [
+            "MATCH (p:Post)<-[:AUTHORED]-(author:User)",
+            "p.kind = 'collection' AND EXISTS { (p)-[:COLLECTED]->(item:Post) WHERE item.kind = 'event' AND NOT coalesce(item.deleted, false) }",
+            "NOT ( (p)-[:REPLIED]->() )",
+        ];
         assert_in_order(&cypher, &clauses);
     }
 

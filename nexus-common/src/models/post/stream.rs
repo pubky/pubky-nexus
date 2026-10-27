@@ -170,6 +170,9 @@ pub enum KindFilter {
     /// Only posts with a lock attached, of any kind. Lives here rather than as
     /// a separate filter because the sidebar picks one content filter at a time.
     Locked,
+    /// Collection posts that list at least one live post of this kind
+    /// (`kind=collection&item_kind=<kind>`).
+    CollectionsWith(PubkyAppPostKind),
 }
 
 #[derive(Serialize, Deserialize, ToSchema, Debug, Default, Clone)]
