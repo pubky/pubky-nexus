@@ -8,11 +8,18 @@ use utoipa::ToSchema;
 
 #[derive(Serialize, Deserialize, ToSchema, Default, Debug)]
 pub struct PostRelationships {
-    /// If set, URI of the post this is a reply to
+    /// If set, URI of what this post replies to: a post, or an external resource (another
+    /// scheme's URL or another app's public object). `/v0` names posts only and reads `null`
+    /// for a reply to anything else.
     pub replied: Option<String>,
 
     /// If set, URI of the post this post is reposting
     pub reposted: Option<String>,
+
+    /// External URI embedded by this post. Native post embeds use `reposted`. Kept in the
+    /// cache and served on `/v1` only: `/v0` is frozen and has no such field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub embedded: Option<String>,
 
     /// List of user IDs mentioned in this post
     pub mentioned: Vec<PubkyId>,
@@ -65,6 +72,7 @@ impl PostRelationships {
         Ok(Some(Self {
             replied,
             reposted,
+            embedded: row.get("embedded_uri").unwrap_or(None),
             mentioned,
         }))
     }
