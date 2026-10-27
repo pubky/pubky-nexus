@@ -91,14 +91,17 @@ async fn test_reply_to_a_non_post_is_rejected_and_not_retried() -> Result<()> {
 }
 
 /// A post whose parent or embed is another app's object or an external URL, or a `pubky.app`
-/// resource Nexus never references, is indexed with no reply or repost edge.
+/// resource Nexus never references, is indexed with no Post reply or repost edge and with a
+/// Resource reply edge.
 #[tokio_shared_rt::test(shared)]
-async fn test_reply_to_another_apps_object_is_indexed_without_a_reply_edge() -> Result<()> {
+async fn test_reply_to_another_apps_object_is_indexed_with_a_resource_reply_edge() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
 
     let user_kp = Keypair::random();
     let user = PubkyAppUser {
-        bio: Some("test_reply_to_another_apps_object_is_indexed_without_a_reply_edge".to_string()),
+        bio: Some(
+            "test_reply_to_another_apps_object_is_indexed_with_a_resource_reply_edge".to_string(),
+        ),
         image: None,
         links: None,
         name: "Watcher:ReplyToNonPost:Other".to_string(),
@@ -143,7 +146,7 @@ async fn test_reply_to_another_apps_object_is_indexed_without_a_reply_edge() -> 
             .await
             .unwrap_or_else(|e| panic!("a reply to a {kind} must be indexed: {e}"));
 
-        // GRAPH_OP: indexed, with no reply edge
+        // Native PostParents stays empty; the Resource URI is in the public relationships.
         assert!(
             find_post_details(&user_id, &reply_id).await.is_ok(),
             "a reply to a {kind} must be indexed"
@@ -153,6 +156,14 @@ async fn test_reply_to_another_apps_object_is_indexed_without_a_reply_edge() -> 
             .expect("the reply is in the graph");
         assert_eq!(parents.replied, None, "{kind}");
         assert_eq!(parents.reposted, None, "{kind}");
+        assert!(
+            nexus_common::models::post::PostRelationships::get_from_graph(&user_id, &reply_id)
+                .await?
+                .unwrap()
+                .replied
+                .is_some(),
+            "{kind}"
+        );
     }
 
     Ok(())
