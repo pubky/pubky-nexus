@@ -218,10 +218,13 @@ mod tests {
         assert_eq!(verified.public_key().to_z32(), user.public_key().to_z32());
         assert_eq!(published_homeserver(&verified), Some(homeserver));
 
-        // Flip the last nibble of the encoded packet: the signature no longer covers it.
+        // Flip the last nibble of the timestamp (hex 192..208): the packet still
+        // parses, so only the signature check can reject it.
         let mut tampered = stored.clone();
-        let last = tampered.packet.pop().expect("non-empty");
-        tampered.packet.push(if last == '0' { '1' } else { '0' });
+        let nibble = tampered.packet.remove(207);
+        tampered
+            .packet
+            .insert(207, if nibble == '0' { '1' } else { '0' });
         assert!(
             tampered.verify().is_err(),
             "a tampered record must not verify"
