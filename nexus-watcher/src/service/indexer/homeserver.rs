@@ -11,6 +11,8 @@ use nexus_common::models::error::ModelError;
 use nexus_common::models::homeserver::{Homeserver, HsBlacklist};
 use nexus_common::models::user::catch_up::homeservers_catching_up;
 use nexus_common::models::user::UserIngestor;
+
+use crate::scope::membership::ScopeMembership;
 use opentelemetry::metrics::Counter;
 use opentelemetry::{global, KeyValue};
 use pubky_app_specs::PubkyId;
@@ -152,6 +154,9 @@ pub struct HsEventProcessor {
     /// feed are indexed
     pub ingestor: Arc<UserIngestor>,
 
+    /// The configured HS blacklist, which the catch-up's per-user reads check too
+    pub hs_blacklist: HsBlacklist,
+
     /// Per-run cache of users' `HOSTED_BY` mappings. For a given user's events in
     /// the events list, only the 1st one results in a graph lookup, the rest read from this cache.
     ///
@@ -226,7 +231,9 @@ impl TEventProcessor for HsEventProcessor {
         // An outsider or a former member whose event shows up in a listed feed may have
         // moved onto that homeserver: it is let in first (see `admit_if_moved_in`).
         if !self.ingestor.is_author_in_scope(user_id).await?
-            && !self.ingestor.admit_if_moved_in(user_id).await?
+            && !ScopeMembership::of(&self.ingestor)
+                .admit_if_moved_in(user_id)
+                .await?
         {
             OUT_OF_SCOPE.add(1, &[]);
             debug!(event.uri = %event.uri, "Author is outside the scope; skipping event");
@@ -275,7 +282,7 @@ impl HsEventProcessor {
             event_handler: self.event_handler.clone(),
             client: self.client.clone(),
             user_not_found_backoff: self.catch_up_not_found.clone(),
-            hs_blacklist: HsBlacklist::default(),
+            hs_blacklist: self.hs_blacklist.clone(),
             retry_scheduler: self.retry_scheduler.clone(),
             shutdown_rx: self.shutdown_rx.clone(),
             user_resume_points: self.catch_up_resume_points.clone(),

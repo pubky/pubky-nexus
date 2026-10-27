@@ -24,6 +24,7 @@ pub use user_hs_resolver::UserHsResolverRunner;
 use crate::events::retry::{RetryProcessor, RetryScheduler};
 use crate::events::{DefaultEventHandler, EventHandler};
 use crate::homeserver::{HomeserverClient, PubkyHomeserverClient};
+use crate::scope::membership::ScopeMembership;
 use crate::scope::{full_feed_homeservers, watcher_ingestor};
 use crate::service::constants::DEFAULT_WATCHER_CONFIG_TOML;
 use crate::service::inbound_bridge::InboundBridge;
@@ -246,7 +247,7 @@ pub async fn prepare_scope(
 
     // The moderator's tags take content down, so a scoped Nexus must read it too.
     if config.stack.scope != ScopeConfig::Everything {
-        watcher_ingestor(config, client)
+        ScopeMembership::of(&watcher_ingestor(config, client))
             .ensure_in_scope(&config.moderation_id)
             .await?;
     }
