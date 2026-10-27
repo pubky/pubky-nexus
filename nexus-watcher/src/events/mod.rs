@@ -151,7 +151,9 @@ pub async fn handle_put_event(
 
     let outcome = match translate_put(&event.uri, &event.target, &blob)? {
         TranslatedPut::User { user_id, user } => handlers::user::sync_put(user, user_id).await,
-        TranslatedPut::Post { key, post } => handlers::post::sync_put(post, key, &ingestor).await,
+        TranslatedPut::Post { key, post } => {
+            handlers::post::sync_put_at(post, key, &ingestor, &event.uri).await
+        }
         TranslatedPut::Follow {
             user_id,
             followee_id,
@@ -250,7 +252,16 @@ pub async fn handle_del_event(
 ) -> Result<(), EventProcessorError> {
     match translate_del(&event.target)? {
         TranslatedDel::User { user_id } => handlers::user::del(user_id).await,
-        TranslatedDel::Post(key) => handlers::post::del(key, &ingestor).await,
+        TranslatedDel::Post(key) => match handlers::post::del(key, &ingestor).await {
+            // Any version DEL removes the logical v1 post. A retry after the graph
+            // deletion must still acknowledge the event once its feed journal is drained.
+            Err(EventProcessorError::SkipIndexing)
+                if matches!(event.target, target::EventTarget::Social(_)) =>
+            {
+                Ok(())
+            }
+            result => result,
+        },
         TranslatedDel::Follow {
             user_id,
             followee_id,

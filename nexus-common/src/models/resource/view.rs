@@ -14,6 +14,9 @@ pub struct ResourceView {
     pub details: ResourceDetails,
     pub tags: Vec<TagDetails>,
     pub taggers_count: usize,
+    pub replies_count: usize,
+    pub embeds_count: usize,
+    pub collections_count: usize,
 }
 
 impl ResourceView {
@@ -54,6 +57,9 @@ impl ResourceView {
             details,
             tags,
             taggers_count,
+            replies_count: row.get::<i64>("replies_count").unwrap_or(0) as usize,
+            embeds_count: row.get::<i64>("embeds_count").unwrap_or(0) as usize,
+            collections_count: row.get::<i64>("collections_count").unwrap_or(0) as usize,
         }))
     }
 }
