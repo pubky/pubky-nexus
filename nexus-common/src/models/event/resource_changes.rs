@@ -3,6 +3,7 @@
 //! Delivery is at least once: consumers upsert/delete by `(author, object_path, kind, resource_id)`.
 //! Rebuilds preserve live appends made while the graph snapshot is assembled.
 
+use super::post_reference::{seed_versions, POST_VERSIONS_KEY};
 use crate::db::graph::{GraphError, Query};
 use crate::db::kv::{RedisError, RedisResult};
 use crate::db::{get_neo4j_graph, get_redis_conn, release_lock, try_acquire_lock};
@@ -18,7 +19,7 @@ pub const RESOURCE_CHANGES_KEY: &str = "Event:ResourceChanges";
 const EPOCH_KEY: &str = "Event:ResourceChanges:Epoch";
 const SEED_LOCK: &str = "Event:ResourceChanges:SeedLock";
 const SEED_TTL: u64 = 3660;
-const BATCH_SIZE: usize = 1000;
+pub(super) const BATCH_SIZE: usize = 1000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "lowercase")]
@@ -32,6 +33,8 @@ pub enum ResourceChangeOp {
 #[serde(rename_all = "lowercase")]
 pub enum ResourceChangeKind {
     Tag,
+    /// A namespace post version naming its own logical URI.
+    Post,
     Reply,
     Embed,
     Collection,
@@ -88,6 +91,10 @@ static APPEND: LazyLock<Script> = LazyLock::new(|| {
         r"
     redis.call('SETNX', KEYS[2], ARGV[2])
     redis.call('RPUSH', KEYS[1], ARGV[1])
+    if ARGV[3] == 'post' then
+        if ARGV[5] == 'put' then redis.call('HSET', KEYS[4], ARGV[4], ARGV[1])
+        else redis.call('HDEL', KEYS[4], ARGV[4]) end
+    end
     redis.call('DEL', KEYS[3])
 ",
     )
@@ -140,7 +147,7 @@ impl ResourceChange {
         })
     }
 
-    fn json(&self) -> RedisResult<String> {
+    pub(super) fn json(&self) -> RedisResult<String> {
         serde_json::to_string(self).map_err(|e| RedisError::SerializationFailed(Box::new(e)))
     }
 
@@ -152,8 +159,20 @@ impl ResourceChange {
             .key(RESOURCE_CHANGES_KEY)
             .key(EPOCH_KEY)
             .key(pending_key(&self.author, &self.object_path))
+            .key(POST_VERSIONS_KEY)
             .arg(self.json()?)
             .arg(epoch_seed())
+            .arg(if self.kind == ResourceChangeKind::Post {
+                "post"
+            } else {
+                ""
+            })
+            .arg(format!("pubky://{}{}", self.author, self.object_path))
+            .arg(if self.op == ResourceChangeOp::Put {
+                "put"
+            } else {
+                "del"
+            })
             .invoke_async::<()>(&mut conn)
             .await?;
         Ok(())
@@ -338,6 +357,7 @@ async fn seed_inner(token: &str, temp: &str) -> ModelResult<u64> {
         write_seed_batch(temp, &batch).await?;
     }
     seed_post_references(temp).await?;
+    seed_versions(temp).await?;
     publish_seed(token, temp, start).await.map_err(Into::into)
 }
 
@@ -365,7 +385,7 @@ async fn seed_post_references(temp: &str) -> ModelResult<()> {
     Ok(())
 }
 
-async fn write_seed_batch(temp: &str, batch: &[String]) -> RedisResult<()> {
+pub(super) async fn write_seed_batch(temp: &str, batch: &[String]) -> RedisResult<()> {
     let mut conn = get_redis_conn().await?;
     redis::pipe()
         .atomic()

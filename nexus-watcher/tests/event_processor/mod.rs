@@ -10,3 +10,5 @@ mod users;
 pub(crate) mod utils;
 
 mod resource_references;
+
+mod app_posts;

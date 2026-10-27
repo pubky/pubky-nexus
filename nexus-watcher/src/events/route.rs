@@ -8,6 +8,7 @@
 //! inside objects.
 
 use super::inputs::{Reference, ReferenceTarget, ResourceKey};
+use nexus_common::models::app_post::AppPostUri;
 use pubky_social_specs::legacy_v0::{self, try_parse_pubky_path, ExtendedParsedUri};
 use pubky_social_specs::{
     epoch_segment, ParsedUri, PubkyId, Resource, Visibility, SOCIAL_NAMESPACE,
@@ -16,15 +17,20 @@ use pubky_social_specs::{
 /// A pubky address classified by its namespace segment and parsed by that epoch's parser.
 #[derive(Debug)]
 pub enum Routed {
+    AppPost(AppPostUri),
     /// A `pubky.app` path or another app's universal tag, parsed by the frozen v0 reader.
     Legacy(ExtendedParsedUri),
     /// A `/pub/social/v1/…` path parsed by the v1 parser, an unknown v1 resource included.
     Social(ParsedUri),
     /// A `/pub/social/vN/…` path of an epoch the pinned crate does not speak.
-    UnsupportedEpoch { version: String },
+    UnsupportedEpoch {
+        version: String,
+    },
     /// No namespace, a `social` path without an epoch segment, or a path its own namespace's
     /// parser rejects.
-    Malformed { reason: String },
+    Malformed {
+        reason: String,
+    },
 }
 
 /// Routes `uri` by its namespace segment, taken from the frozen reader's lenient splitter.
@@ -35,6 +41,9 @@ pub fn route(uri: &str) -> Routed {
     };
     if path.app == SOCIAL_NAMESPACE {
         return route_social(uri, path.segments.first().map(String::as_str));
+    }
+    if let Some(post) = AppPostUri::parse(uri) {
+        return Routed::AppPost(post);
     }
     match ExtendedParsedUri::try_from(uri) {
         Ok(parsed) => Routed::Legacy(parsed),
@@ -72,6 +81,7 @@ fn route_social(uri: &str, epoch: Option<&str>) -> Routed {
 /// accepts, a `social/vN` epoch the crate does not speak.
 pub fn resolve_reference(address: &str) -> Reference {
     let target = match route(address) {
+        Routed::AppPost(_) => ReferenceTarget::Other,
         Routed::Legacy(parsed) => legacy_target(parsed),
         Routed::Social(parsed) => social_target(parsed),
         Routed::Malformed { .. } => {
