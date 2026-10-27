@@ -139,6 +139,18 @@ async fn test_stream_bookmarks_pages_through_ties_by_post_id() -> Result<()> {
     }
     assert_eq!(paged, all, "pages must not repeat or drop a tied bookmark");
 
+    let mut ascending = Vec::new();
+    for skip in [0, 4, 8] {
+        let (page, _) =
+            bookmark_keys(&format!("{observer}&order=ascending&skip={skip}&limit=4")).await?;
+        ascending.extend(page);
+    }
+    let reversed: Vec<String> = all.iter().rev().cloned().collect();
+    assert_eq!(
+        ascending, reversed,
+        "ascending pages run the ties backwards"
+    );
+
     // Both bounds are inclusive
     let (at_score, _) = bookmark_keys(&format!(
         "{observer}&start={TIED_SCORE}&end={TIED_SCORE}&limit=50"
