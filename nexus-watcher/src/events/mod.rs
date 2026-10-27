@@ -145,7 +145,8 @@ pub async fn handle_put_event(
             handlers::user::sync_put(user, event.uri.clone(), user_id).await?
         }
         (PubkyAppObject::Post(post), Resource::Post(post_id)) => {
-            handlers::post::sync_put(post, event.uri.clone(), user_id, post_id, &ingestor).await?
+            handlers::post::sync_put(post, event.uri.clone(), user_id, post_id, &ingestor, client)
+                .await?
         }
         (PubkyAppObject::Follow(_follow), Resource::Follow(followee_id)) => {
             handlers::follow::sync_put(user_id, followee_id, &ingestor).await?
@@ -154,7 +155,7 @@ pub async fn handle_put_event(
             debug!("Mute events are no longer handled by nexus");
         }
         (PubkyAppObject::Bookmark(bookmark), Resource::Bookmark(bookmark_id)) => {
-            handlers::bookmark::sync_put(user_id, bookmark, bookmark_id).await?
+            handlers::bookmark::sync_put(user_id, bookmark, bookmark_id, &ingestor, client).await?
         }
         (PubkyAppObject::Tag(tag), Resource::Tag(tag_id)) => {
             if moderation.should_delete(&tag, &user_id) {
@@ -172,6 +173,7 @@ pub async fn handle_put_event(
                         tag_id.to_string(),
                         app.clone(),
                         &ingestor,
+                        client,
                     )
                     .await?
                 } else {
@@ -181,6 +183,7 @@ pub async fn handle_put_event(
                         user_id,
                         tag_id.to_string(),
                         &ingestor,
+                        client,
                     )
                     .await?
                 }

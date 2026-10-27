@@ -207,6 +207,57 @@ impl Write {
     }
 }
 
+/// Every entry `author`'s posts have in the shared sets, by key, as a reindex would place
+/// them. Read a page at a time, and whole before anything is written, so a failed read
+/// publishes nothing.
+pub(crate) async fn author_entries(
+    author: &str,
+) -> ModelResult<BTreeMap<String, Vec<(f64, String)>>> {
+    let mut entries: BTreeMap<String, Vec<(f64, String)>> = BTreeMap::new();
+    let mut after = Some((i64::MIN, String::new()));
+    while let Some(cursor) = after {
+        let page = read_page(author, &cursor, POSTS_PAGE).await?;
+        for (key, page_entries) in shared_entries(&page) {
+            entries.entry(key).or_default().extend(page_entries);
+        }
+        after = next_page(&page, POSTS_PAGE);
+    }
+    Ok(entries)
+}
+
+/// Writes `entries` (see [`author_entries`]) into the shared sets where the ranking admits
+/// them. For an author whose posts were kept out for another reason (an outsider let into
+/// the scope).
+pub(crate) async fn show_entries(
+    entries: &BTreeMap<String, Vec<(f64, String)>>,
+) -> ModelResult<()> {
+    let mut conn = get_redis_conn().await?;
+    write_entries(&mut conn, Write::Show, entries).await
+}
+
+/// Takes `entries` out of the shared sets whatever the ranking, undoing
+/// [`show_entries`]: for an author kept out again, whose posts no ranking may show.
+pub(crate) async fn withdraw_entries(
+    entries: &BTreeMap<String, Vec<(f64, String)>>,
+) -> ModelResult<()> {
+    if entries.is_empty() {
+        return Ok(());
+    }
+    let mut pipe = redis::pipe();
+    for (key, entries) in entries {
+        for batch in entries.chunks(BATCH) {
+            let members: Vec<&str> = batch.iter().map(|(_, member)| member.as_str()).collect();
+            pipe.zrem(key, members).ignore();
+        }
+    }
+    let mut conn = get_redis_conn().await?;
+    let _: () = pipe
+        .query_async(&mut conn)
+        .await
+        .map_err(RedisError::from)?;
+    Ok(())
+}
+
 /// Applies `write` to `author`'s entries `page_size` posts at a time, oldest
 /// first, so a prolific author needs no single huge query or pipeline.
 pub(super) async fn write_pages(

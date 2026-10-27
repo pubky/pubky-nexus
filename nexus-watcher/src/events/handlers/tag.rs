@@ -1,4 +1,5 @@
 use crate::events::EventProcessorError;
+use crate::homeserver::HomeserverClient;
 use chrono::Utc;
 use nexus_common::db::kv::ScoreAction;
 use nexus_common::db::{fetch_row_from_graph, queries, OperationOutcome, RedisOps};
@@ -18,6 +19,7 @@ use nexus_common::universal_tag::normalize::{
 use pubky_app_specs::{ExtendedParsedUri, ParsedUri, PubkyAppTag, PubkyId, Resource};
 use tracing::{debug, Instrument};
 
+use super::scope::{finish_out_of_scope_post, index_out_of_scope_post, with_fetch_budget};
 use super::utils::{fail_on_blacklisted_hs, post_kind, post_relationships_is_reply};
 
 #[derive(Debug)]
@@ -27,19 +29,33 @@ struct TagStorageUri {
     app: Option<String>,
 }
 
-/// `event_uri` is the address of the tag file, stored as the edge `uri`; `tag.uri` is its target.
-#[tracing::instrument(name = "tag.put", skip_all, fields(user_id = %tagger_id, tag_id = %tag_id))]
+/// `event_uri` is the address of the tag file, stored as the edge `uri`; `tag.uri` is its
+/// target. An out-of-scope post it points at is fetched within one fetch budget.
 pub async fn sync_put(
     tag: PubkyAppTag,
     event_uri: String,
     tagger_id: PubkyId,
     tag_id: String,
     ingestor: &UserIngestor,
+    client: &dyn HomeserverClient,
+) -> Result<(), EventProcessorError> {
+    with_fetch_budget(put(tag, event_uri, tagger_id, tag_id, ingestor, client)).await
+}
+
+#[tracing::instrument(name = "tag.put", skip_all, fields(user_id = %tagger_id, tag_id = %tag_id))]
+async fn put(
+    tag: PubkyAppTag,
+    event_uri: String,
+    tagger_id: PubkyId,
+    tag_id: String,
+    ingestor: &UserIngestor,
+    client: &dyn HomeserverClient,
 ) -> Result<(), EventProcessorError> {
     debug!("Indexing tag");
 
     // Parse the embeded URI to extract author_id and post_id using parse_tagged_post_uri
     let parsed_uri = ParsedUri::try_from(tag.uri.as_str()).map_err(EventProcessorError::generic)?;
+    finish_out_of_scope_post(&parsed_uri, ingestor, client).await?;
     let user_id = parsed_uri.user_id;
     let indexed_at = Utc::now().timestamp_millis();
 
@@ -49,7 +65,7 @@ pub async fn sync_put(
             // Place the tag on post
             put_sync_post(
                 tagger_id, user_id, &post_id, &tag_id, &event_uri, &tag.label, &tag.uri,
-                indexed_at, ingestor,
+                indexed_at, ingestor, client,
             )
             .await
         }
@@ -76,13 +92,14 @@ pub async fn sync_put_resource(
     tag_id: String,
     app: String,
     ingestor: &UserIngestor,
+    client: &dyn HomeserverClient,
 ) -> Result<(), EventProcessorError> {
     debug!(%app, "Indexing resource tag");
 
     match classify_uri(&tag.uri) {
         UriCategory::InternalKnown => {
             // The tagged URI is a known Post/User — delegate to existing flow
-            sync_put(tag, event_uri, tagger_id, tag_id, ingestor).await
+            sync_put(tag, event_uri, tagger_id, tag_id, ingestor, client).await
         }
         UriCategory::InternalUnknown | UriCategory::External => {
             let (normalized, scheme) =
@@ -159,6 +176,7 @@ async fn put_sync_post(
     post_uri_str: &str,
     indexed_at: i64,
     ingestor: &UserIngestor,
+    client: &dyn HomeserverClient,
 ) -> Result<(), EventProcessorError> {
     match TagPost::put_to_graph(
         &tagger_user_id,
@@ -194,6 +212,22 @@ async fn put_sync_post(
             if let Ok(post_uri) = ParsedUri::try_from(post_uri_str) {
                 // Drop the tag (non-retryable) if the tagged post's author is on a blacklisted HS.
                 fail_on_blacklisted_hs(ingestor.maybe_ingest_author_of_post(&post_uri).await)?;
+                if index_out_of_scope_post(&post_uri, ingestor, client).await? {
+                    // At most once: the post is indexed now, so it is never fetched again.
+                    return Box::pin(put_sync_post(
+                        tagger_user_id,
+                        author_id,
+                        post_id,
+                        tag_id,
+                        tag_uri,
+                        tag_label,
+                        post_uri_str,
+                        indexed_at,
+                        ingestor,
+                        client,
+                    ))
+                    .await;
+                }
             }
             Err(EventProcessorError::MissingDependency {
                 dependency: vec![post_uri_str.to_owned()],
