@@ -181,8 +181,9 @@ impl UserDetails {
     }
 }
 
-/// Binds a user to their homeserver without a PKDNS record in hand, as the
-/// ingestor does, recording the `HOSTED_BY` relationship and `resolved_at`.
+/// Binds a user to a homeserver without a PKDNS record, as tests do, recording
+/// the `HOSTED_BY` relationship and `resolved_at`; the resolver and the ingestor
+/// bind from the record they resolved, see [`set_user_homeserver_from_record`].
 pub async fn set_user_homeserver(user_id: &str, homeserver_id: &str) -> GraphResult<()> {
     exec_single_row(queries::put::set_user_homeserver(
         user_id,

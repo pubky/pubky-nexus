@@ -174,8 +174,8 @@ The edge also keeps the PKDNS record the mapping was last applied from:
 timestamp in microseconds. The packet carries the key, the signature, the
 timestamp and the encoded DNS records, so anyone can verify that the key holder
 published it (`StoredRecord::verify` in nexus-common does). A lookup that finds
-no record leaves the stored one; a user bound by the ingestor has none until the
-resolver first applies a record.
+no record leaves the stored one; the ingestor binds a newly seen user from the
+record it resolved, so the edge carries it from the start.
 
 ### `hs_resolver_interval_ms`
 
