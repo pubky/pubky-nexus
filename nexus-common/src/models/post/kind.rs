@@ -18,6 +18,14 @@ pub enum PostKind {
     Link,
     File,
     Collection,
+    /// A `social/v1` calendar event, its occurrences indexed for the event routes.
+    Event,
+    /// An attendance answer to a `social/v1` event.
+    Rsvp,
+    /// A rating of a post or an external URI.
+    Rating,
+    /// An author's availability blocks.
+    Availability,
     /// A kind the spec reader didn't recognise.
     #[serde(other)]
     Unknown,
@@ -34,7 +42,29 @@ impl PostKind {
             Self::Link => "link",
             Self::File => "file",
             Self::Collection => "collection",
+            Self::Event => "event",
+            Self::Rsvp => "rsvp",
+            Self::Rating => "rating",
+            Self::Availability => "availability",
             Self::Unknown => "unknown",
+        }
+    }
+
+    /// Whether the kind is in the frozen `/v0` vocabulary: the seven `pubky.app` kinds and
+    /// `unknown`. The `social/v1` event kinds are stored under their own names but are no
+    /// kind `/v0` knows: it serves and filters them as `unknown`, as it did before Nexus read
+    /// them.
+    pub fn is_v0(self) -> bool {
+        match self {
+            Self::Short
+            | Self::Long
+            | Self::Image
+            | Self::Video
+            | Self::Link
+            | Self::File
+            | Self::Collection
+            | Self::Unknown => true,
+            Self::Event | Self::Rsvp | Self::Rating | Self::Availability => false,
         }
     }
 
@@ -49,6 +79,10 @@ impl PostKind {
             Self::Link => "link",
             Self::File => "file",
             Self::Collection => "collection",
+            Self::Event => "event",
+            Self::Rsvp => "rsvp",
+            Self::Rating => "rating",
+            Self::Availability => "availability",
             Self::Unknown => "unknown",
         }
     }
@@ -78,7 +112,8 @@ mod tests {
     use super::*;
     use pubky_social_specs::PubkySocialPostKind;
 
-    /// The names already in storage and on `/v0`, so none may change.
+    /// The names in storage and on both versions, so none may change: the seven `pubky.app`
+    /// kinds and the four `social/v1` event kinds.
     #[test]
     fn names_are_the_stored_ones() {
         let names = [
@@ -89,6 +124,10 @@ mod tests {
             (PostKind::Link, "link"),
             (PostKind::File, "file"),
             (PostKind::Collection, "collection"),
+            (PostKind::Event, "event"),
+            (PostKind::Rsvp, "rsvp"),
+            (PostKind::Rating, "rating"),
+            (PostKind::Availability, "availability"),
             (PostKind::Unknown, "unknown"),
         ];
         for (kind, name) in names {
@@ -104,6 +143,40 @@ mod tests {
                 (kind != PostKind::Unknown).then_some(kind),
                 "{name}"
             );
+        }
+    }
+
+    /// `/v0` knows the `pubky.app` kinds and `unknown`, none of the event kinds.
+    #[test]
+    fn v0_vocabulary_is_the_pubky_app_kinds() {
+        let v0: Vec<&str> = [
+            "short",
+            "long",
+            "image",
+            "video",
+            "link",
+            "file",
+            "collection",
+        ]
+        .into_iter()
+        .chain(["unknown"])
+        .collect();
+        for name in [
+            "short",
+            "long",
+            "image",
+            "video",
+            "link",
+            "file",
+            "collection",
+            "event",
+            "rsvp",
+            "rating",
+            "availability",
+            "unknown",
+        ] {
+            let kind: PostKind = serde_json::from_value(name.into()).unwrap();
+            assert_eq!(kind.is_v0(), v0.contains(&name), "{name}");
         }
     }
 
@@ -126,6 +199,10 @@ mod tests {
             (PostKind::Link, PubkySocialPostKind::Link),
             (PostKind::File, PubkySocialPostKind::File),
             (PostKind::Collection, PubkySocialPostKind::Collection),
+            (PostKind::Event, PubkySocialPostKind::Event),
+            (PostKind::Rsvp, PubkySocialPostKind::Rsvp),
+            (PostKind::Rating, PubkySocialPostKind::Rating),
+            (PostKind::Availability, PubkySocialPostKind::Availability),
         ];
         for (kind, v1) in pairs {
             assert_eq!(kind.v1_name(), v1.wire_name());

@@ -86,6 +86,48 @@ async fn sync_put_locked(
     written: &mut bool,
 ) -> Result<(), EventProcessorError> {
     let _post_lock = lock_post(key.owner_id.as_ref(), &key.resource_id).await;
+    let is_social = post.uri.contains("/pub/social/v1/posts/");
+    let projection = if is_social {
+        nexus_common::models::social_event::SocialContent::read(
+            post.kind,
+            &post.content,
+            chrono::Utc::now(),
+        )?
+    } else {
+        nexus_common::models::social_event::SocialContent::Other
+    };
+    if post.kind == PostKind::Rsvp {
+        let parent = post.parent.as_ref().ok_or_else(|| {
+            EventProcessorError::SpecValidation("RSVP requires an event parent".into())
+        })?;
+        let ReferenceTarget::Post(parent_key) = &parent.target else {
+            return Err(EventProcessorError::SpecValidation(
+                "RSVP parent must be a social event".into(),
+            ));
+        };
+        match nexus_common::models::social_event::validate_parent(parent_key).await? {
+            Some(true) => {}
+            Some(false) => {
+                return Err(EventProcessorError::SpecValidation(
+                    "RSVP parent is not an event".into(),
+                ))
+            }
+            None => {
+                fail_on_permanent_ingest_error(
+                    ingestor.maybe_ingest_user(&parent_key.owner_id).await,
+                )?;
+                return Err(EventProcessorError::missing_dependencies(vec![parent
+                    .uri
+                    .clone()]));
+            }
+        }
+    }
+    let source_content = post.content.clone();
+    let source_parent = post.parent.as_ref().map(|r| r.uri.clone());
+    let source_parent_key = post.parent.as_ref().and_then(|r| match &r.target {
+        ReferenceTarget::Post(key) => Some(key.clone()),
+        _ => None,
+    });
     let lines = post
         .external_references()
         .into_iter()
@@ -125,6 +167,17 @@ async fn sync_put_locked(
         PostRelationships::reindex(&author_id, &post_id).await?;
         PostDetails::reindex(&author_id, &post_id).await?;
     }
+    if is_social {
+        nexus_common::models::social_event::sync_with_parent(
+            &author_id,
+            &post_id,
+            &source_content,
+            source_parent.as_deref(),
+            source_parent_key.as_ref(),
+            &projection,
+        )
+        .await?;
+    }
     Ok(())
 }
 
@@ -156,6 +209,9 @@ fn is_reply_input(post: &PostInput) -> bool {
 /// Resource reply edge, written after the post commit; a reply to a resource Nexus never
 /// references (a bookmark, a follow, a private path) is indexed with neither.
 fn reject_unsupported_parent(post: &PostInput) -> Result<(), EventProcessorError> {
+    if post.kind == PostKind::Rating {
+        return Ok(());
+    }
     match &post.parent {
         Some(Reference {
             uri,
@@ -832,6 +888,10 @@ pub async fn del(key: ResourceKey, ingestor: &UserIngestor) -> Result<(), EventP
     else {
         return Err(EventProcessorError::SkipIndexing);
     };
+
+    if uri.contains("/pub/social/v1/posts/") {
+        nexus_common::models::social_event::remove(&key.owner_id, &key.resource_id).await?;
+    }
 
     // Graph query to check if there is any edge at all to this post other than AUTHORED, is a reply or is a repost.
     let query = post_is_safe_to_delete(&key.owner_id, &key.resource_id);

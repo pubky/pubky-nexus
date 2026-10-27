@@ -180,9 +180,15 @@ fn without_v0_only_fields(body: Value) -> Value {
     }
 }
 
-/// The counts of the live posts that reply to, embed and collect a resource: fields of the
-/// resource envelope and view added since `/v0` froze, so `/v1` alone serves them.
-const V1_ONLY_FIELDS: [&str; 3] = ["replies_count", "embeds_count", "collections_count"];
+/// The counts of the live posts that reply to, embed and collect a resource, and the rating
+/// summary of a post or resource: fields added since `/v0` froze, so `/v1` alone serves them.
+const V1_ONLY_FIELDS: [&str; 5] = [
+    "replies_count",
+    "embeds_count",
+    "collections_count",
+    "rating_avg",
+    "rating_count",
+];
 
 /// `body` without the [`V1_ONLY_FIELDS`], taken out of `/v1`'s answer so the rest is compared.
 fn without_v1_only_fields(body: Value) -> Value {
@@ -964,8 +970,13 @@ async fn test_post_views_have_no_attachments_metadata_on_v1() -> Result<()> {
         }
     }
     assert_eq!(v1_flagged, v1_plain);
+    // `/v1` adds the rating summary, `/v0` has none; the rest is the `/v0` view.
+    for field in ["rating_avg", "rating_count"] {
+        assert!(v1_plain[field].is_number(), "{field}: {v1_plain}");
+        assert!(v0_plain.get(field).is_none(), "{field}: {v0_plain}");
+    }
     assert_eq!(
-        with_stored_kind_names(v1_plain.clone()),
+        without_v1_only_fields(with_stored_kind_names(v1_plain.clone())),
         without_v0_only_fields(v0_plain)
     );
 
