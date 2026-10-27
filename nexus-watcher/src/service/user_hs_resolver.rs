@@ -1172,6 +1172,16 @@ mod tests {
             .await?
             .contains(&user_id));
 
+        // The record that marked it stale is kept on the old edge, naming the new homeserver
+        let stored = stored_record(&user_id)
+            .await?
+            .expect("the record is on the edge");
+        assert_eq!(stored.timestamp, 10);
+        assert_eq!(
+            PkdnsRecord::Published(stored.verify()?).homeserver(),
+            Some(new_hs.clone())
+        );
+
         cleanup_test_user(&user_id).await?;
 
         Ok(())
