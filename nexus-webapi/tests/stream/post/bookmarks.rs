@@ -40,63 +40,55 @@ pub const POST_TK: &str = "2ZAX1DBDD5YG0";
 pub const START_TIMELINE: &str = "1724134149050";
 pub const END_TIMELINE: &str = "1724134141150";
 
-#[tokio_shared_rt::test(shared)]
-async fn test_stream_user_bookmarks_by_timeline_with_start() -> Result<()> {
-    let path =
-        format!("{ROOT_PATH}?observer_id={BOOKMARKER_ID}&source=bookmarks&start={START_TIMELINE}");
-
-    let body = get_request(&path).await?;
-    let post_list = vec![
-        POST_TC, POST_TD, POST_TE, POST_TF, POST_TG, POST_TH, POST_TI, POST_TJ, POST_TK,
-    ];
-    verify_post_list(post_list, body);
-
+/// Checks the posts of `BOOKMARKER_ID`'s bookmarks stream for `query`, in order.
+async fn verify_bookmarks(query: &str, expected: Vec<&str>) -> Result<()> {
+    let path = format!("{ROOT_PATH}?observer_id={BOOKMARKER_ID}&source=bookmarks&{query}");
+    verify_post_list(expected, get_request(&path).await?);
     Ok(())
 }
 
 #[tokio_shared_rt::test(shared)]
+async fn test_stream_user_bookmarks_by_timeline_with_start() -> Result<()> {
+    verify_bookmarks(
+        &format!("start={START_TIMELINE}"),
+        vec![
+            POST_TC, POST_TD, POST_TE, POST_TF, POST_TG, POST_TH, POST_TI, POST_TJ, POST_TK,
+        ],
+    )
+    .await
+}
+
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_user_bookmarks_by_timeline_with_start_and_end() -> Result<()> {
-    let path = format!(
-        "{ROOT_PATH}?observer_id={BOOKMARKER_ID}&source=bookmarks&start={START_TIMELINE}&end={END_TIMELINE}"
-    );
-
-    let body = get_request(&path).await?;
-    let post_list = vec![
-        POST_TC, POST_TD, POST_TE, POST_TF, POST_TG, POST_TH, POST_TI,
-    ];
-    verify_post_list(post_list, body);
-
-    Ok(())
+    verify_bookmarks(
+        &format!("start={START_TIMELINE}&end={END_TIMELINE}"),
+        vec![
+            POST_TC, POST_TD, POST_TE, POST_TF, POST_TG, POST_TH, POST_TI,
+        ],
+    )
+    .await
 }
 
 /// In ascending order too, `start` is the highest score kept and `end` the
 /// lowest.
 #[tokio_shared_rt::test(shared)]
 async fn test_stream_user_bookmarks_ascending_with_start_and_end() -> Result<()> {
-    let path = format!(
-        "{ROOT_PATH}?observer_id={BOOKMARKER_ID}&source=bookmarks&start={START_TIMELINE}&end={END_TIMELINE}&order=ascending"
-    );
-
-    let body = get_request(&path).await?;
-    let post_list = vec![
-        POST_TI, POST_TH, POST_TG, POST_TF, POST_TE, POST_TD, POST_TC,
-    ];
-    verify_post_list(post_list, body);
-
-    Ok(())
+    verify_bookmarks(
+        &format!("start={START_TIMELINE}&end={END_TIMELINE}&order=ascending"),
+        vec![
+            POST_TI, POST_TH, POST_TG, POST_TF, POST_TE, POST_TD, POST_TC,
+        ],
+    )
+    .await
 }
 
 #[tokio_shared_rt::test(shared)]
 async fn test_stream_user_bookmarks_by_timeline_with_skip_end() -> Result<()> {
-    let path = format!(
-        "{ROOT_PATH}?observer_id={BOOKMARKER_ID}&source=bookmarks&limit=5&end={END_TIMELINE}"
-    );
-
-    let body = get_request(&path).await?;
-    let post_list = vec![POST_TA, POST_TB, POST_TC, POST_TD, POST_TE];
-    verify_post_list(post_list, body);
-
-    Ok(())
+    verify_bookmarks(
+        &format!("limit=5&end={END_TIMELINE}"),
+        vec![POST_TA, POST_TB, POST_TC, POST_TD, POST_TE],
+    )
+    .await
 }
 
 // Bookmarked 9 posts in the same millisecond
