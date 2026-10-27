@@ -1,3 +1,4 @@
+mod references;
 use crate::utils::{get_request, invalid_get_request};
 use anyhow::Result;
 use axum::http::StatusCode;

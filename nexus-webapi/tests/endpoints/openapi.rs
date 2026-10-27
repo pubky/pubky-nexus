@@ -92,6 +92,8 @@ const V1_ONLY_PATHS: &[&str] = &[
     "/stream/users/details/by_ids",
     "/user/{user_id}/following/details",
     "/resources/changes",
+    "/resource/{resource_id}/replies",
+    "/resource/{resource_id}/embeds",
 ];
 
 /// Both documents come from one route declaration, so every v0 path is in the v1 document
@@ -1103,4 +1105,23 @@ fn test_resource_batch_body_requires_exactly_one_list() {
         "#/components/schemas/ResourceId"
     );
     assert_eq!(shapes[1]["properties"]["uris"]["items"]["type"], "string");
+}
+
+/// v0 is frozen: its `PostRelationships` has no `embedded`, the external embed external post
+/// references added; v1's has it. Both keep `replied`, and every reference resolves.
+#[test]
+fn test_embedded_relationship_is_documented_on_v1_only() {
+    for (spec, documented) in [(ApiDoc::v0_docs(), false), (ApiDoc::v1_docs(), true)] {
+        let spec = serde_json::to_value(spec).expect("serializable spec");
+        let properties = spec
+            .pointer("/components/schemas/PostRelationships/properties")
+            .expect("PostRelationships properties");
+        assert_eq!(
+            properties.get("embedded").is_some(),
+            documented,
+            "{properties}"
+        );
+        assert!(properties.get("replied").is_some(), "{properties}");
+        validate_openapi_refs(&spec);
+    }
 }
