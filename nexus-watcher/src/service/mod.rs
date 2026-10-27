@@ -1,13 +1,15 @@
 mod constants;
 pub mod indexer;
 pub mod runner;
+pub mod scope_maintenance;
 pub mod stats;
 mod task_runner;
 pub mod user_hs_resolver;
 
 /// Module exports
 pub use constants::{
-    KEY_BASED_RUN_BUDGET, KEY_BASED_SLOW_RUN_MARGIN, SLOW_RUN_THRESHOLD, WATCHER_CONFIG_FILE_NAME,
+    CATCH_UP_RUN_BUDGET, KEY_BASED_RUN_BUDGET, KEY_BASED_SLOW_RUN_MARGIN, SLOW_RUN_THRESHOLD,
+    WATCHER_CONFIG_FILE_NAME,
 };
 pub use indexer::{
     HsEventProcessor, KeyBasedEventProcessor, RunError, RunOutcome, TEventProcessor,
@@ -19,8 +21,10 @@ pub use user_hs_resolver::UserHsResolverRunner;
 use crate::events::retry::{RetryProcessor, RetryScheduler};
 use crate::events::{DefaultEventHandler, EventHandler};
 use crate::homeserver::{HomeserverClient, PubkyHomeserverClient};
+use crate::scope::membership::ScopeMembership;
 use crate::scope::{full_feed_homeservers, watcher_ingestor};
 use crate::service::constants::DEFAULT_WATCHER_CONFIG_TOML;
+use crate::service::scope_maintenance::ScopeMaintainer;
 use crate::service::task_runner::task_results_into_result;
 use crate::NexusWatcherBuilder;
 use nexus_common::db::PubkyConnector;
@@ -91,7 +95,8 @@ impl NexusWatcher {
             PubkyConnector::get()?,
             &config,
         ));
-        prepare_scope(&config, client.clone()).await?;
+        let scope_maintainer = Arc::new(ScopeMaintainer::from_config(&config, client.clone()));
+        prepare_scope(&config, client.clone(), &scope_maintainer).await?;
 
         let event_handler: Arc<dyn EventHandler> =
             Arc::new(DefaultEventHandler::from_config(&config, client.clone()));
@@ -124,7 +129,7 @@ impl NexusWatcher {
             shutdown_rx.clone(),
         ));
 
-        let tasks = vec![
+        let mut tasks = vec![
             PeriodicTask::new(
                 "primary-homeserver",
                 primary_hs_monitoring_interval_ms,
@@ -151,6 +156,17 @@ impl NexusWatcher {
             }),
         ];
 
+        if scope_maintainer.is_periodic() {
+            tasks.push(PeriodicTask::new(
+                "scope-maintenance",
+                config.scope_maintenance.interval_ms,
+                move || {
+                    let maintainer = scope_maintainer.clone();
+                    async move { maintainer.tick().await.map(|_| ()).map_err(DynError::from) }
+                },
+            ));
+        }
+
         let task_results = run_periodic_tasks(tasks, shutdown_rx).await;
 
         info!("Nexus Watcher shut down gracefully");
@@ -159,11 +175,13 @@ impl NexusWatcher {
 }
 
 /// Gets the scope ready before any event is read: the homeservers read whole are
-/// persisted so their cursors exist, and the moderator is made sure to be read, its
-/// homeserver looked up through `client`. Run by [`NexusWatcher::start`]; public so tests can run it alone.
+/// persisted so their cursors exist, the moderator is made sure to be read, and who is in
+/// scope is settled. Users' homeservers are looked up through `client`. Run by
+/// [`NexusWatcher::start`]; public so tests can run it alone.
 pub async fn prepare_scope(
     config: &WatcherConfig,
     client: Arc<dyn HomeserverClient>,
+    maintainer: &ScopeMaintainer,
 ) -> Result<(), DynError> {
     info!(scope = ?config.stack.scope, "Indexing scope");
 
@@ -173,10 +191,14 @@ pub async fn prepare_scope(
 
     // The moderator's tags take content down, so a scoped Nexus must read it too.
     if config.stack.scope != ScopeConfig::Everything {
-        watcher_ingestor(config, client)
+        ScopeMembership::of(&watcher_ingestor(config, client))
             .ensure_in_scope(&config.moderation_id)
             .await?;
     }
+
+    // Users of a narrower or wider previous scope moved out or back in, before anything
+    // is polled.
+    maintainer.at_start().await?;
 
     if let ScopeConfig::Homeservers { homeservers } = &config.stack.scope {
         let blacklist = &config.stack.net.external_hs_pk_blacklist;

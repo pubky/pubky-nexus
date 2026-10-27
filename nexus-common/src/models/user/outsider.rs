@@ -14,6 +14,8 @@ use crate::models::user::{UserDetails, UsersByTagSearch};
 
 /// `scope_state` of a user known to this Nexus but outside its scope.
 pub const SCOPE_STATE_OUTSIDE: &str = "outside";
+/// `scope_state` of a member that left the scope: no longer polled, content kept.
+pub const SCOPE_STATE_LEFT: &str = "left";
 
 /// Whether the user is an outsider, by the graph's `scope_state` (an indexed lookup).
 pub async fn is_outsider(user_id: &str) -> RedisResult<bool> {

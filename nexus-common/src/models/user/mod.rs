@@ -1,3 +1,4 @@
+pub mod catch_up;
 mod counts;
 mod cursor;
 mod details;
@@ -20,7 +21,7 @@ pub use epoch::Epoch;
 pub use homeserver_resolver::{PkdnsHomeserverResolver, PubkyConnectorResolver};
 pub use influencers::{Influencers, GLOBAL_INFLUENCERS_CACHE_SIZE};
 pub use ingestor::UserIngestor;
-pub use outsider::{is_outsider, SCOPE_STATE_OUTSIDE};
+pub use outsider::{is_outsider, SCOPE_STATE_LEFT, SCOPE_STATE_OUTSIDE};
 pub use relationship::Relationship;
 pub use search::{UserSearch, UsersByTagSearch, TAG_GLOBAL_USER_TAGGERS, USER_NAME_KEY_PARTS};
 pub use social_graph::{SocialGraphStatus, USER_SOCIAL_GRAPH_KEY_PARTS};

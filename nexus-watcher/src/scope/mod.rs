@@ -2,6 +2,8 @@
 //! homeservers it reads as a whole feed. The scope itself, which the API shares, lives
 //! in `nexus_common::models::scope`.
 
+pub mod membership;
+
 use std::collections::HashSet;
 use std::sync::Arc;
 

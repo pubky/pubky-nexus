@@ -1,5 +1,5 @@
 use super::file::ConfigLoader;
-use super::{default_stack, FeaturesConfig, StackConfig};
+use super::{default_stack, FeaturesConfig, ScopeMaintenanceConfig, StackConfig};
 use async_trait::async_trait;
 use pubky_app_specs::{PubkyId, VALIDATION_LIMITS};
 use serde::{de::Error, Deserialize, Deserializer, Serialize};
@@ -173,6 +173,10 @@ pub struct WatcherConfig {
     #[serde(default)]
     pub retry: EventRetryConfig,
 
+    /// How often the watcher re-checks who is in scope. See [ScopeMaintenanceConfig].
+    #[serde(default)]
+    pub scope_maintenance: ScopeMaintenanceConfig,
+
     // Moderation
     pub moderation_id: PubkyId,
     pub moderated_tags: Vec<String>,
@@ -203,6 +207,7 @@ impl Default for WatcherConfig {
             retry_processor_interval_ms: DEFAULT_RETRY_PROCESSOR_INTERVAL_MS,
             max_file_size: DEFAULT_MAX_FILE_SIZE,
             retry: EventRetryConfig::default(),
+            scope_maintenance: ScopeMaintenanceConfig::default(),
             moderation_id,
             moderated_tags: MODERATED_TAGS.iter().map(|s| s.to_string()).collect(),
         }

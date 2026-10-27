@@ -303,9 +303,27 @@ homeservers = ["<homeserver pubky>"]
 The settings are validated on load: `homeservers` must list at least one HS, and a field
 that doesn't belong to the `kind` is an error.
 
-**Set the scope before the first run.** It decides, as each user is first met, whether
-the user is indexed or kept as an outsider. Changing it on an existing database doesn't move
-users already known.
+**Changing the scope moves known users in or out at the next start**, before any event
+is read (`ScopeMaintainer`):
+
+- `everything`: every outsider and every user that left is let back in, and catches up like
+  any user that joins (below). One whose homeserver isn't published is let in unbound, for
+  the HS resolver to bind.
+- `homeservers`: users bound to a homeserver the list no longer holds leave. If the list
+  changed since the last start (`Scope:Active`), outsiders and users that left whose
+  homeserver is now listed join. A user whose homeserver can't be found is tried again
+  every `[scope_maintenance] interval_ms` (default 5 minutes), up to 12 times
+  (`Scope:AdmitRetry`).
+
+A user that **leaves** gets `scope_state = "left"` and loses its `HOSTED_BY` and cursor, so
+nothing polls it; what was indexed of it stays. A user that **joins** is bound to its
+homeserver with its cursor at 0 and **catches up** (`Scope:CatchUp`): its own stream is
+read from the start until it is empty, so the records it wrote while it was out are
+indexed. On a homeserver read whole, whose feed moved past those records, the whole-feed
+processor reads the user's own stream before the feed, for at most 30 seconds per poll, so
+new events wait seconds; a longer catch-up goes on over the next polls. An outsider or a user that left whose
+event shows up in a listed feed may have moved there: its homeserver is checked again, at
+most once per 15 minutes, and it joins if it is now listed.
 
 **The moderator is always in scope.** `moderation_id` is read whatever the scope, since
 its tags take content down.
@@ -349,6 +367,7 @@ is finished whatever the scope: it was in scope when it was read.
 | `max_missing_dep_backoff_secs` | `[watcher.retry]` | `u64` s | `3600` |
 | `external_hs_pk_blacklist` | `[stack.net]` | `Vec<PubkyId>` | `[]` |
 | `kind`, `homeservers` | `[stack.scope]` | see [Section 6](#6-indexing-scope--stackscope) | `kind = "everything"` |
+| `interval_ms` | `[scope_maintenance]` | `u64` ms | `300000` |
 
 
 [^1]: This is the *interval* at which runs are *triggered*, not a sleep duration
