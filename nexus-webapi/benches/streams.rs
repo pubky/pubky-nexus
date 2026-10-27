@@ -19,6 +19,7 @@ criterion_group! {
     name = streams;
     config = configure_criterion();
     targets = bookmarks::bench_stream_bookmarks_timeline,
+              bookmarks::bench_stream_bookmarked_post_keys,
               bookmarks::bench_stream_bookmarks_total_engagement,
               author::bench_stream_author_timeline,
               author::bench_stream_author_total_engagement,
