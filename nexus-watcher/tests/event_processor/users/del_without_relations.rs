@@ -2,7 +2,7 @@ use crate::{
     event_processor::users::utils::find_user_details, event_processor::utils::watcher::WatcherTest,
 };
 use anyhow::Result;
-use nexus_common::models::user::{UserCounts, UserSearch, UserView};
+use nexus_common::models::user::{UserSearch, UserView};
 use pubky::Keypair;
 use pubky_social_specs::legacy_v0::PubkyAppUser;
 
@@ -42,13 +42,6 @@ async fn test_delete_user_without_relationships() -> Result<()> {
     assert!(
         user_details_result.is_err(),
         "User details should not be found after deletion"
-    );
-
-    // Attempt to find user counts; should not exist
-    let user_counts_result = UserCounts::get_from_index(&user_id).await.unwrap();
-    assert!(
-        user_counts_result.is_none(),
-        "User counts should not be found after deletion"
     );
 
     // Attempt to get user view; should not exist

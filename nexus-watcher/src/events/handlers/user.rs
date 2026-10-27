@@ -6,10 +6,10 @@ use nexus_common::db::{
 };
 use nexus_common::models::{
     traits::Collection,
-    user::{UserCounts, UserDetails, UserSearch, UsersByTagSearch},
+    user::{UserDetails, UserSearch, UsersByTagSearch},
 };
 use pubky_social_specs::PubkyId;
-use tracing::debug;
+use tracing::{debug, Instrument};
 
 use crate::events::inputs::UserInput;
 
@@ -30,27 +30,11 @@ pub async fn sync_put(user: UserInput, user_id: PubkyId) -> Result<(), EventProc
     // leak the old member forever.
     UserSearch::put_to_index(&[&user_details]).await?;
 
-    // Step 4: Run in parallel the remaining cache writes: SAVE TO INDEX
-    let indexing_results = nexus_common::traced_join!(
-        tracing::info_span!("index.write");
-        async {
-            // TODO: Use SCARD on a set for unique tag count to avoid race conditions in parallel processing
-            // If new user (no existing counts), save a new `UserCounts`
-            if UserCounts::get_from_index(&user_id).await?.is_none() {
-                UserCounts::default().put_to_index(&user_id).await?;
-            }
-            Ok::<(), EventProcessorError>(())
-        },
-        async {
-            // TODO(flip): caches `V0`, not the epoch stored in the graph.
-            UserDetails::put_to_index(&[&user_details.id], vec![Some(user_details.clone())])
-                .await?;
-            Ok::<(), EventProcessorError>(())
-        }
-    );
-
-    indexing_results.0?;
-    indexing_results.1?;
+    // Step 4: Refresh the details cache: SAVE TO INDEX
+    // TODO(flip): caches `V0`, not the epoch stored in the graph.
+    UserDetails::put_to_index(&[&user_details.id], vec![Some(user_details.clone())])
+        .instrument(tracing::info_span!("index.write"))
+        .await?;
 
     // A profile write always clears the tombstone, so re-derive the user's
     // per-label search entries afterwards: a recreated profile gets its
@@ -75,17 +59,11 @@ pub async fn del(user_id: PubkyId) -> Result<(), EventProcessorError> {
             // 1. UserSearch reads UserDetails — must run before UserDetails Redis is removed
             UserSearch::delete(&user_id).await?;
 
-            // 2. Redis cleanup (parallel, all idempotent DEL/ZREM)
+            // 2. Redis cleanup (idempotent DEL)
             let user_id_str: &str = user_id.as_ref();
-            let key_parts: &[&str] = &[user_id_str];
-            let key_parts_list = [key_parts];
-            let indexing_results = nexus_common::traced_join!(
-                tracing::info_span!("index.delete");
-                UserDetails::remove_from_index_multiple_json(&key_parts_list),
-                UserCounts::delete(&user_id)
-            );
-            indexing_results.0?;
-            indexing_results.1?;
+            UserDetails::remove_from_index_multiple_json(&[&[user_id_str]])
+                .instrument(tracing::info_span!("index.delete"))
+                .await?;
 
             // 3. Graph deletion LAST
             exec_single_row(queries::del::delete_user(&user_id)).await?;

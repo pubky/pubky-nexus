@@ -1,12 +1,10 @@
 use super::utils::find_post_tag;
 use crate::event_processor::posts::utils::resource_key;
-use crate::event_processor::users::utils::find_user_counts;
 use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
 use nexus_common::db::OperationOutcome;
 use nexus_common::models::tag::post::TagPost;
 use nexus_common::models::tag::traits::{TagCollection, TaggersCollection};
-use nexus_common::models::user::UserCounts;
 use nexus_watcher::events::handlers;
 use pubky::Keypair;
 use pubky_social_specs::legacy_v0::{tag_uri_builder, PubkyAppPost, PubkyAppUser};
@@ -16,16 +14,15 @@ use pubky_social_specs::legacy_v0::{tag_uri_builder, PubkyAppPost, PubkyAppUser}
 const OLD_INDEXED_AT: i64 = 1_000_000;
 
 /// Simulate a retry of tag del after a partial failure where Redis cleanup
-/// succeeded but graph deletion failed. On retry, counters must NOT be
-/// decremented again (guarded by the tagger set membership check).
+/// succeeded but graph deletion failed. The retry must still delete the edge.
 #[tokio_shared_rt::test(shared)]
-async fn test_tag_post_del_retry_no_double_decrement() -> Result<()> {
+async fn test_tag_post_del_retry_completes_graph_delete() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
 
     // Create users + post through the watcher (no TAGGED edges)
     let tagger_kp = Keypair::random();
     let tagger = PubkyAppUser {
-        bio: Some("test_tag_post_del_retry_no_double_decrement".to_string()),
+        bio: Some("test_tag_post_del_retry_completes_graph_delete".to_string()),
         image: None,
         links: None,
         name: "Watcher:TagDelRetry:Tagger".to_string(),
@@ -35,7 +32,7 @@ async fn test_tag_post_del_retry_no_double_decrement() -> Result<()> {
 
     let author_kp = Keypair::random();
     let author = PubkyAppUser {
-        bio: Some("test_tag_post_del_retry_no_double_decrement".to_string()),
+        bio: Some("test_tag_post_del_retry_completes_graph_delete".to_string()),
         image: None,
         links: None,
         name: "Watcher:TagDelRetry:Author".to_string(),
@@ -68,33 +65,26 @@ async fn test_tag_post_del_retry_no_double_decrement() -> Result<()> {
     .await?;
     assert!(matches!(outcome, OperationOutcome::CreatedOrDeleted));
 
-    // Populate Redis state: tagger set + counter
+    // Populate Redis state: tagger set
     TagPost::add_tagger_to_index(&author_id, Some(&post_id), &tagger_id, label).await?;
-    UserCounts::increment(&tagger_id, "tagged", None).await?;
-
-    // Verify initial state
-    assert_eq!(find_user_counts(&tagger_id).await.tagged, 1);
 
     // Simulate partial completion of a previous del attempt:
-    // Remove tagger from Redis set + decrement counter (as if Redis ops completed but graph delete failed)
+    // Remove tagger from Redis set (as if Redis ops completed but graph delete failed)
     let tag_post = TagPost(vec![tagger_id.clone()]);
     tag_post
         .del_from_index(&author_id, Some(&post_id), label)
         .await?;
-    UserCounts::decrement(&tagger_id, "tagged", None).await?;
 
-    // Verify simulated state: graph still has TAGGED edge, Redis tagger set empty, counter at 0
+    // Verify simulated state: graph still has TAGGED edge
     let post_tag = find_post_tag(&author_id, &post_id, label).await?;
     assert!(post_tag.is_some(), "Graph should still have the tag edge");
-    assert_eq!(find_user_counts(&tagger_id).await.tagged, 0);
 
     // Retry: call del handler directly — should delete graph without double-decrement
     handlers::tag::del(resource_key(&tagger_id, tag_id)?, None).await?;
 
-    // Verify final state: graph edge deleted, counter still 0
+    // Verify final state: graph edge deleted
     let post_tag = find_post_tag(&author_id, &post_id, label).await?;
     assert!(post_tag.is_none(), "Graph tag edge should be deleted");
-    assert_eq!(find_user_counts(&tagger_id).await.tagged, 0);
 
     // Cleanup
     test.cleanup_post(&author_kp, &post_path).await?;
@@ -153,7 +143,6 @@ async fn test_tag_post_del_replay_after_success_skips() -> Result<()> {
     )
     .await?;
     TagPost::add_tagger_to_index(&author_id, Some(&post_id), &tagger_id, label).await?;
-    UserCounts::increment(&tagger_id, "tagged", None).await?;
 
     // First delete via handler (should succeed)
     handlers::tag::del(resource_key(&tagger_id, tag_id)?, None).await?;

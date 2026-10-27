@@ -15,8 +15,8 @@ use super::{simulate_partial_del_cleanup_child, simulate_partial_del_cleanup_roo
 
 /// sync_del graph-last recovery: simulate a previous attempt that completed
 /// every Redis cleanup step but failed before deleting the graph node. On
-/// retry, the handler must idempotently re-run cleanup, leave UserCounts at 0
-/// (no double-decrement), and finally delete the graph node.
+/// retry, the handler must idempotently re-run cleanup and finally delete the
+/// graph node.
 #[tokio_shared_rt::test(shared)]
 async fn test_post_del_recovers_after_partial_redis_cleanup() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
@@ -41,7 +41,6 @@ async fn test_post_del_recovers_after_partial_redis_cleanup() -> Result<()> {
 
     // Simulate the partial-failure state of the new graph-last sync_del:
     //   - Gate (PostRelationships) atomically removed
-    //   - UserCounts decremented (gate was true on the failed attempt)
     //   - PostCounts + PostDetails Redis entries removed
     //   - Graph node still present (graph delete is the LAST step)
     simulate_partial_del_cleanup_root(&user_id, &post_id).await?;
@@ -54,8 +53,7 @@ async fn test_post_del_recovers_after_partial_redis_cleanup() -> Result<()> {
     handlers::post::del(resource_key(&user_id, &post_id)?, &default_ingestor_tests()).await?;
 
     // Final state: graph node gone (retry ran its sole remaining step — the
-    // graph delete), count NOT double-decremented (still 0, not -1 — retry
-    // saw `post_in_index = false` and skipped `UserCounts::decrement`).
+    // graph delete), so the graph no longer counts the post.
     assert!(find_post_details(&user_id, &post_id).await.is_err());
     assert_eq!(find_user_counts(&user_id).await.posts, 0);
 
@@ -179,7 +177,7 @@ async fn test_post_del_reply_recovers_without_double_decrement() -> Result<()> {
     assert_eq!(
         find_user_counts(&bob_id).await.replies,
         0,
-        "Bob's reply count not double-decremented on retry"
+        "the graph no longer counts Bob's reply"
     );
     // Parent engagement score must not go negative — retry saw
     // `post_in_index = false` and skipped `decrement_score_index_sorted_set`.
@@ -280,7 +278,7 @@ async fn test_post_del_repost_recovers_without_double_decrement() -> Result<()> 
     assert_eq!(
         find_user_counts(&bob_id).await.posts,
         0,
-        "Bob's post count not double-decremented on retry"
+        "the graph no longer counts Bob's repost"
     );
     // Parent engagement score must not go negative — retry saw
     // `post_in_index = false` and skipped `decrement_score_index_sorted_set`.

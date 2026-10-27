@@ -1,7 +1,5 @@
-use crate::db::kv::{JsonAction, RedisResult};
-use crate::db::{fetch_all_rows_from_graph, queries, RedisOps};
+use crate::db::{fetch_all_rows_from_graph, queries};
 use crate::models::error::ModelResult;
-use crate::models::tag::user::USER_TAGS_KEY_PARTS;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use utoipa::ToSchema;
@@ -17,8 +15,6 @@ pub struct UserCounts {
     pub unique_tags: u32,
     pub posts: u32,
     pub replies: u32,
-    // Defaulted so counts cached before this field existed still deserialize.
-    #[serde(default)]
     pub collections: u32,
     pub following: u32,
     pub followers: u32,
@@ -26,10 +22,8 @@ pub struct UserCounts {
     pub bookmarks: u32,
 }
 
-impl RedisOps for UserCounts {}
-
 impl UserCounts {
-    /// Counts are a graph COUNT: Redis is neither read nor refilled here.
+    /// Counts are a graph COUNT per field; nothing caches them.
     pub async fn get_by_id(user_id: &str) -> ModelResult<Option<UserCounts>> {
         Ok(Self::get_by_ids(&[user_id]).await?.pop().flatten())
     }
@@ -50,84 +44,5 @@ impl UserCounts {
             }
         }
         Ok(ids.iter().map(|id| by_id.get(*id).cloned()).collect())
-    }
-
-    pub async fn get_from_index(user_id: &str) -> RedisResult<Option<UserCounts>> {
-        Self::try_from_index_json(&[user_id], None).await
-    }
-
-    pub async fn put_to_index(&self, user_id: &str) -> RedisResult<()> {
-        self.put_index_json(&[user_id], None, None).await
-    }
-
-    pub async fn update_index_field(
-        author_id: &str,
-        field: &str,
-        action: JsonAction,
-    ) -> RedisResult<()> {
-        Self::modify_json_field(&[author_id], field, action).await
-    }
-
-    /// Updates a user's counts index field. The AllTime influencers and most-followed
-    /// rankings are rebuilt by their jobs.
-    ///
-    /// # Arguments
-    ///
-    /// * `user_id` - The unique identifier of the user whose index field is being updated.
-    /// * `field` - The name of the user-related field to update (e.g., `"followers"`, `"tags"`, `"posts"`).
-    /// * `action` - The action to perform on the field (increment or decrement).
-    /// * `tag_label` - An optional tag label used to check membership in the user's tag-related sorted set. Important if we want to update the unique_tags field
-    ///
-    /// # Behavior
-    ///
-    /// - Conditional Update Based on `tag_label`
-    /// - Update User Counts Index
-    pub async fn update(
-        user_id: &str,
-        field: &str,
-        action: JsonAction,
-        tag_label: Option<&str>,
-    ) -> ModelResult<()> {
-        // This condition applies only when updating `unique_tags`
-        if let Some(label) = tag_label {
-            let index_parts = [&USER_TAGS_KEY_PARTS[..], &[user_id]].concat();
-            let score = Self::check_sorted_set_member(None, &index_parts, &[label]).await?;
-            match (score, &action) {
-                // If tag value is less than 1, `unique_tags` can be incremented or decremented
-                (Some(tag_value), _) if tag_value < 1 => (),
-
-                // Incrementing `unique_tags` is also allowed when the tag value doesn't exist yet in the sorted set
-                (None, JsonAction::Increment(_)) => (),
-
-                // Do not update the index
-                _ => return Ok(()),
-            }
-        }
-        // Update user counts index
-        Self::update_index_field(user_id, field, action).await?;
-        Ok(())
-    }
-
-    pub async fn reindex(author_id: &str) -> ModelResult<()> {
-        match Self::get_by_id(author_id).await? {
-            Some(counts) => counts.put_to_index(author_id).await?,
-            None => tracing::error!("{}: Could not found user counts in the graph", author_id),
-        }
-        Ok(())
-    }
-
-    pub async fn delete(user_id: &str) -> RedisResult<()> {
-        // Delete user_details on Redis
-        Self::remove_from_index_multiple_json(&[&[user_id]]).await
-    }
-
-    /// Increments a field in a user's counts by 1.
-    pub async fn increment(user_id: &str, field: &str, tag_label: Option<&str>) -> ModelResult<()> {
-        Self::update(user_id, field, JsonAction::Increment(1), tag_label).await
-    }
-
-    /// Decrements a field in a user's counts by 1.
-    pub async fn decrement(user_id: &str, field: &str, tag_label: Option<&str>) -> ModelResult<()> {
-        Self::update(user_id, field, JsonAction::Decrement(1), tag_label).await
     }
 }

@@ -104,7 +104,6 @@ async fn test_homeserver_post_reply() -> Result<()> {
     assert_eq!(total_engagement.unwrap(), 1);
 
     // Assert the user has changed stats
-    // User:Counts:user_id
     let user_count = find_user_counts(&user_id).await;
     assert_eq!(user_count.posts, 2);
     assert_eq!(user_count.replies, 1);
@@ -121,7 +120,7 @@ async fn test_homeserver_post_reply() -> Result<()> {
     assert_eq!(reply_post_details.uri, post_detail_cache.uri);
     assert_eq!(reply_post_details.indexed_at, post_detail_cache.indexed_at);
 
-    // User:Counts:user_id:post_id
+    // Post:Counts:user_id:post_id
     let reply_post_counts = find_post_counts(&user_id, &reply_id).await;
 
     assert_eq!(reply_post_counts.reposts, 0);

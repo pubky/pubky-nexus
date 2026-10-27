@@ -1,8 +1,8 @@
 use crate::event_processor::follows::utils::find_follow_relationship;
+use crate::event_processor::users::utils::find_user_counts;
 use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
-use nexus_common::db::RedisOps;
-use nexus_common::models::user::{Relationship, UserCounts};
+use nexus_common::models::user::Relationship;
 use pubky::Keypair;
 use pubky_social_specs::legacy_v0::PubkyAppUser;
 
@@ -42,20 +42,14 @@ async fn test_homeserver_unfollow_friend() -> Result<()> {
     // Step 5: Follower unfollows the followee
     test.del(&follower_kp, &follow_uri).await?;
 
-    // CACHE_OP: Assert if cache has been updated
-    let follower_count = UserCounts::try_from_index_json(&[&follower_id], None)
-        .await
-        .unwrap()
-        .expect("User count not found");
+    // Assert the counts the API serves
+    let follower_count = find_user_counts(&follower_id).await;
 
     assert_eq!(follower_count.followers, 1);
     assert_eq!(follower_count.following, 0);
     assert_eq!(follower_count.friends, 0);
 
-    let following_count = UserCounts::try_from_index_json(&[&followee_id], None)
-        .await
-        .unwrap()
-        .expect("User count not found");
+    let following_count = find_user_counts(&followee_id).await;
     assert_eq!(following_count.followers, 0);
     assert_eq!(following_count.following, 1);
     assert_eq!(following_count.friends, 0);
@@ -82,20 +76,14 @@ async fn test_homeserver_unfollow_friend() -> Result<()> {
         .unwrap();
     assert!(!exist, "The follow edge not removed");
 
-    // CACHE_OP: Assert if cache has been updated
-    let follower_count = UserCounts::try_from_index_json(&[&follower_id], None)
-        .await
-        .unwrap()
-        .expect("User count not found");
+    // Assert the counts the API serves
+    let follower_count = find_user_counts(&follower_id).await;
 
     assert_eq!(follower_count.followers, 0);
     assert_eq!(follower_count.following, 0);
     assert_eq!(follower_count.friends, 0);
 
-    let following_count = UserCounts::try_from_index_json(&[&followee_id], None)
-        .await
-        .unwrap()
-        .expect("User count not found");
+    let following_count = find_user_counts(&followee_id).await;
 
     assert_eq!(following_count.followers, 0);
     assert_eq!(following_count.following, 0);

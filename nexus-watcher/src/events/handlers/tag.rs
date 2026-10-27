@@ -2,6 +2,7 @@ use crate::events::EventProcessorError;
 use chrono::Utc;
 use nexus_common::db::kv::ScoreAction;
 use nexus_common::db::{fetch_row_from_graph, queries, OperationOutcome, RedisOps};
+use nexus_common::models::event::resource_changes::{ResourceChange, ResourceChangeOp};
 use nexus_common::models::notification::Notification;
 use nexus_common::models::post::search::PostsByTagSearch;
 use nexus_common::models::post::{PostCounts, PostStream};
@@ -10,7 +11,7 @@ use nexus_common::models::tag::post::TagPost;
 use nexus_common::models::tag::search::TagSearch;
 use nexus_common::models::tag::traits::{TagCollection, TaggersCollection};
 use nexus_common::models::tag::user::TagUser;
-use nexus_common::models::user::{UserCounts, UserIngestor, UsersByTagSearch};
+use nexus_common::models::user::{UserIngestor, UsersByTagSearch};
 use nexus_common::types::Pagination;
 use nexus_common::universal_tag::normalize::{normalize_uri, resource_id};
 use pubky_social_specs::PubkyId;
@@ -135,7 +136,7 @@ async fn put_sync_resource(
     tag_label: &str,
     indexed_at: i64,
 ) -> Result<(), EventProcessorError> {
-    match TagResource::put_to_graph_resource(
+    let outcome = TagResource::put_to_graph_resource(
         &tagger_id,
         resource_id,
         uri,
@@ -146,8 +147,37 @@ async fn put_sync_resource(
         tag_label,
         indexed_at,
     )
-    .await?
-    {
+    .await?;
+    if !matches!(outcome, OperationOutcome::MissingDependency) {
+        // A retry still publishes, so a graph commit followed by a Redis failure
+        // cannot lose the reference. Consumers upsert by (author, object_path).
+        let at = if matches!(outcome, OperationOutcome::Updated) {
+            let row = fetch_row_from_graph(queries::get::get_resource_tag_indexed_at(
+                &tagger_id,
+                resource_id,
+                tag_label,
+                app,
+            ))
+            .await?
+            .ok_or_else(|| EventProcessorError::generic("Resource tag disappeared during retry"))?;
+            row.get("tag_indexed_at")
+                .map_err(EventProcessorError::generic)?
+        } else {
+            indexed_at
+        };
+        ResourceChange::tag(
+            ResourceChangeOp::Put,
+            resource_id.to_owned(),
+            uri.to_owned(),
+            tagger_id.to_string(),
+            tag_label.to_owned(),
+            tag_uri,
+            at,
+        )?
+        .store()
+        .await?;
+    }
+    match outcome {
         OperationOutcome::MissingDependency => {
             // Tagger user not yet indexed
             let dependency = vec![format!("{tagger_id}")];
@@ -220,8 +250,6 @@ async fn put_sync_post(
 
             let indexing_results = nexus_common::traced_join!(
                 tracing::info_span!("index.write", phase = "tag_post");
-                // Update user counts for tagger
-                UserCounts::increment(&tagger_user_id, "tagged", None),
                 // Invalidate the cached post counts.
                 PostCounts::invalidate(post_key_slice),
                 // Increment the label count to post
@@ -275,14 +303,13 @@ async fn put_sync_post(
             indexing_results.5?;
             indexing_results.6?;
             indexing_results.7?;
-            indexing_results.8?;
 
             Ok(())
         }
     }
 }
 
-/// Handles the synchronization of a tagged user by updating the graph, indexes, and related counts.
+/// Handles the synchronization of a tagged user by updating the graph and indexes.
 ///
 /// # Arguments
 /// - `tagger_user_id` - The `PubkyId` of the user tagging the user.
@@ -337,19 +364,8 @@ async fn put_sync_user(
             // SAVE TO INDEX
             let indexing_results = nexus_common::traced_join!(
                 tracing::info_span!("index.write", phase = "tag_user");
-                // Update user counts for the tagged user
-                UserCounts::increment(&tagged_user_id, "tags", None),
-                // Update user counts for the tagger user
-                UserCounts::increment(&tagger_user_id, "tagged", None),
-                async {
-                    // Increase unique_tags if the tag does not exist already
-                    // NOTE: To update that field, it cannot exist in TagUser SORTED SET the tag. Thats why it has to be executed
-                    // before TagUser operation
-                    UserCounts::increment(&tagged_user_id, "unique_tags", Some(tag_label)).await?;
-                    // Add label count to the user profile tag
-                    TagUser::update_index_score(&tagged_user_id, None, tag_label, ScoreAction::Increment(1.0)).await?;
-                    Ok::<(), EventProcessorError>(())
-                },
+                // Add label count to the user profile tag
+                TagUser::update_index_score(&tagged_user_id, None, tag_label, ScoreAction::Increment(1.0)),
                 // Add tagger to the user taggers list
                 TagUser::add_tagger_to_index(&tagged_user_id, None, &tagger_user_id, tag_label),
                 // Save new notification
@@ -362,8 +378,6 @@ async fn put_sync_user(
             indexing_results.1?;
             indexing_results.2?;
             indexing_results.3?;
-            indexing_results.4?;
-            indexing_results.5?;
 
             // After the taggers SADD settled: the users-by-tag score is derived
             // from that set (SCARD), so first attempts and retries converge alike.
@@ -381,6 +395,20 @@ async fn put_sync_user(
     fields(user_id = %key.owner_id, tag_id = %key.resource_id, app = ?app)
 )]
 pub async fn del(key: ResourceKey, app: Option<String>) -> Result<(), EventProcessorError> {
+    let tag_uri = format!(
+        "pubky://{}/pub/{}/tags/{}",
+        key.owner_id,
+        app.as_deref().unwrap_or("pubky.app"),
+        key.resource_id
+    );
+    del_at(key, app, &tag_uri).await
+}
+
+pub async fn del_at(
+    key: ResourceKey,
+    app: Option<String>,
+    tag_uri: &str,
+) -> Result<(), EventProcessorError> {
     // Prefix these vars with arg_ to indicate they come from the argument key and app.
     // Similarly named vars will be used in Step 2 below, reading fields from the query result
     let ResourceKey {
@@ -411,11 +439,13 @@ pub async fn del(key: ResourceKey, app: Option<String>) -> Result<(), EventProce
             .await?
             else {
                 // Edge already gone (fully completed on a prior attempt) - idempotent no-op
+                ResourceChange::finish_delete(&arg_user_id, tag_uri).await?;
                 return Ok(());
             };
 
             let resource_id: Option<String> = row.get("resource_id").unwrap_or(None);
             if resource_id.is_some() {
+                ResourceChange::finish_delete(&arg_user_id, tag_uri).await?;
                 return Ok(());
             }
 
@@ -423,6 +453,7 @@ pub async fn del(key: ResourceKey, app: Option<String>) -> Result<(), EventProce
         }
         None => {
             // Edge already gone (fully completed on a prior attempt) - idempotent no-op
+            ResourceChange::finish_delete(&arg_user_id, tag_uri).await?;
             return Ok(());
         }
     };
@@ -441,6 +472,7 @@ pub async fn del(key: ResourceKey, app: Option<String>) -> Result<(), EventProce
     // Post-count cache to invalidate AFTER the graph edge is deleted (invalidating
     // before it is gone lets a concurrent read recache the pre-delete tag count).
     let mut post_counts_to_invalidate: Option<[String; 2]> = None;
+    let mut resource_change = None;
     match (tagged_user_id, post_id, author_id, resource_id) {
         (Some(tagged_id), None, None, None) => {
             let tagger_in_index =
@@ -470,11 +502,29 @@ pub async fn del(key: ResourceKey, app: Option<String>) -> Result<(), EventProce
             .await?;
             post_counts_to_invalidate = Some([author_id, post_id]);
         }
-        // Resource tags keep no Redis index to clean up
-        (None, None, None, Some(_)) => {}
+        // Resource tags keep no Redis index to clean up; the feed's del line
+        // is prepared here and published after the graph deletion below.
+        (None, None, None, Some(res_id)) => {
+            let uri: String = row
+                .get("resource_uri")
+                .map_err(EventProcessorError::generic)?;
+            resource_change = Some(ResourceChange::tag(
+                ResourceChangeOp::Del,
+                res_id,
+                uri,
+                arg_user_id.to_string(),
+                label.clone(),
+                tag_uri,
+                Utc::now().timestamp_millis(),
+            )?);
+        }
         _ => {
             debug!("DEL-Tag: Unexpected combination of tag details");
         }
+    }
+
+    if let Some(change) = &resource_change {
+        change.prepare_delete().await?;
     }
 
     // 3. Graph deletion LAST — ensures data survives for retry if Redis ops fail
@@ -484,6 +534,9 @@ pub async fn del(key: ResourceKey, app: Option<String>) -> Result<(), EventProce
         app.as_deref(),
     ))
     .await?;
+    if resource_change.is_some() {
+        ResourceChange::finish_delete(&arg_user_id, tag_uri).await?;
+    }
 
     // Now that the TAGGED edge is gone, invalidate the cached post counts so the
     // next read recomputes the lower count instead of recaching the pre-delete one.
@@ -502,27 +555,10 @@ async fn del_sync_user(
 ) -> Result<(), EventProcessorError> {
     let indexing_results = nexus_common::traced_join!(
         tracing::info_span!("index.delete", phase = "tag_user");
-        // Guarded: Update user counts in the tagged
+        // Guarded: Decrement label count to the user profile tag
         async {
             if tagger_in_index {
-                UserCounts::decrement(tagged_id, "tags", None).await?;
-            }
-            Ok::<(), EventProcessorError>(())
-        },
-        // Guarded: Update user counts in the tagger
-        async {
-            if tagger_in_index {
-                UserCounts::decrement(&tagger_id, "tagged", None).await?;
-            }
-            Ok::<(), EventProcessorError>(())
-        },
-        async {
-            if tagger_in_index {
-                // Decrement label count to the user profile tag
                 TagUser::update_index_score(tagged_id, None, tag_label, ScoreAction::Decrement(1.0)).await?;
-                // Decrease unique_tags
-                // NOTE: To update that field, we first need to decrement the value in the TagUser SORTED SET associated with that tag
-                UserCounts::decrement(tagged_id, "unique_tags", Some(tag_label)).await?;
             }
             Ok::<(), EventProcessorError>(())
         },
@@ -545,8 +581,6 @@ async fn del_sync_user(
     indexing_results.0?;
     indexing_results.1?;
     indexing_results.2?;
-    indexing_results.3?;
-    indexing_results.4?;
 
     // After the taggers SREM settled: recompute the derived users-by-tag score,
     // dropping the member once the last tagger is gone.
@@ -567,13 +601,6 @@ async fn del_sync_post(
 
     let indexing_results = nexus_common::traced_join!(
         tracing::info_span!("index.delete", phase = "tag_post");
-        // Guarded: Update user counts for tagger
-        async {
-            if tagger_in_index {
-                UserCounts::decrement(&tagger_id, "tagged", None).await?;
-            }
-            Ok::<(), EventProcessorError>(())
-        },
         async {
             if tagger_in_index {
                 // Decrement label score in the post
@@ -638,7 +665,6 @@ async fn del_sync_post(
     indexing_results.2?;
     indexing_results.3?;
     indexing_results.4?;
-    indexing_results.5?;
 
     // Tag-search cleanup runs AFTER the join so the SREM above and the concurrent
     // label-set ZINCRs have settled; otherwise `get_by_label` can see a phantom

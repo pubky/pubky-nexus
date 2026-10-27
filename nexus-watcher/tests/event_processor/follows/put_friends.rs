@@ -1,8 +1,7 @@
+use crate::event_processor::users::utils::find_user_counts;
 use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
-use nexus_common::db::RedisOps;
 use nexus_common::models::user::Relationship;
-use nexus_common::models::user::UserCounts;
 use pubky::Keypair;
 use pubky_social_specs::legacy_v0::PubkyAppUser;
 
@@ -44,20 +43,14 @@ async fn test_homeserver_follow_friend() -> Result<()> {
     assert!(relationship.following, "Bob should be following Alice");
     assert!(!relationship.followed_by, "Alice cannot be following Bob");
 
-    // CACHE_OP: Assert if cache has been updated
-    let alice_user_count = UserCounts::try_from_index_json(&[&alice_id], None)
-        .await
-        .unwrap()
-        .expect("User count not found");
+    // Assert the counts the API serves
+    let alice_user_count = find_user_counts(&alice_id).await;
 
     assert_eq!(alice_user_count.followers, 1);
     assert_eq!(alice_user_count.following, 0);
     assert_eq!(alice_user_count.friends, 0);
 
-    let bob_user_count = UserCounts::try_from_index_json(&[&bob_id], None)
-        .await
-        .unwrap()
-        .expect("User count not found");
+    let bob_user_count = find_user_counts(&bob_id).await;
     assert_eq!(bob_user_count.following, 1);
     assert_eq!(bob_user_count.followers, 0);
     assert_eq!(bob_user_count.friends, 0);
@@ -77,21 +70,15 @@ async fn test_homeserver_follow_friend() -> Result<()> {
     assert!(relationship.followed_by, "Alice should be following Bob");
 
     // Now Alice and Bob are friends
-    // CACHE_OP: Assert if cache has been updated
-    let alice_user_count = UserCounts::try_from_index_json(&[&bob_id], None)
-        .await
-        .unwrap()
-        .expect("User count not found");
+    // Assert the counts the API serves
+    let alice_user_count = find_user_counts(&alice_id).await;
     assert_eq!(alice_user_count.followers, 1);
     assert_eq!(alice_user_count.following, 1);
     assert_eq!(alice_user_count.friends, 1);
 
-    let bob_user_count = UserCounts::try_from_index_json(&[&bob_id], None)
-        .await
-        .unwrap()
-        .expect("User count not found");
+    let bob_user_count = find_user_counts(&bob_id).await;
     assert_eq!(bob_user_count.following, 1);
-    assert_eq!(bob_user_count.following, 1);
+    assert_eq!(bob_user_count.followers, 1);
     assert_eq!(bob_user_count.friends, 1);
 
     // Cleanup

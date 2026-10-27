@@ -21,7 +21,7 @@ use super::{
 
 /// sync_put recovery: simulate a previous attempt that wrote the post to the
 /// graph but failed before persisting Redis state. On retry, the handler must
-/// re-run idempotent index writes WITHOUT double-incrementing user counts.
+/// re-run idempotent index writes WITHOUT authoring the post twice.
 #[tokio_shared_rt::test(shared)]
 async fn test_post_put_recovers_after_partial_redis_write() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
@@ -46,8 +46,7 @@ async fn test_post_put_recovers_after_partial_redis_write() -> Result<()> {
 
     // Simulate the partial-failure window: graph still has the post but Redis
     // is missing PostDetails / PostRelationships / PostCounts AND all sorted-set
-    // memberships. UserCounts has already been incremented by the prior
-    // (failed) attempt.
+    // memberships.
     simulate_partial_put_failure_root(&user_id, &post_id).await?;
 
     // Retry: invoke sync_put directly. Graph reports `Updated`, the handler
@@ -71,7 +70,7 @@ async fn test_post_put_recovers_after_partial_redis_write() -> Result<()> {
         .expect("PostDetails should be re-indexed during recovery");
     assert_eq!(recovered_details.content, post.content);
 
-    // UserCounts MUST NOT have been double-incremented by the recovery.
+    // The graph must still count one post: the recovery did not author it twice.
     assert_eq!(find_user_counts(&user_id).await.posts, 1);
 
     test.cleanup_user(&user_kp).await?;
@@ -79,9 +78,9 @@ async fn test_post_put_recovers_after_partial_redis_write() -> Result<()> {
 }
 
 /// Replay sync_put after a full-success first attempt: calling sync_put again
-/// with identical content must be a no-op. User counts must not be
-/// double-incremented. For replies/reposts, parent sorted-set scores and
-/// parent counts must also stay stable.
+/// with identical content must be a no-op. The graph must still count one
+/// post. For replies/reposts, parent sorted-set scores and parent counts must
+/// also stay stable.
 #[tokio_shared_rt::test(shared)]
 async fn test_post_put_replay_after_full_success_is_noop() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
@@ -121,11 +120,11 @@ async fn test_post_put_replay_after_full_success_is_noop() -> Result<()> {
     )
     .await?;
 
-    // User counts must not have been double-incremented.
+    // The graph must still count one post.
     assert_eq!(
         find_user_counts(&user_id).await.posts,
         1,
-        "UserCounts.posts must not be double-incremented on replay"
+        "the replay must not author the post twice"
     );
 
     // PostDetails must be unchanged (same indexed_at in particular — no
@@ -345,16 +344,16 @@ async fn test_post_put_recovers_reply_preserves_parent_sorted_sets() -> Result<(
         "parent reply count not double-counted on recovery"
     );
 
-    // Bob's user counts must not have been double-incremented.
+    // The graph must still count Bob's reply once.
     assert_eq!(
         find_user_counts(&bob_id).await.posts,
         1,
-        "Bob's post count not double-incremented"
+        "the recovery must not author Bob's reply twice"
     );
     assert_eq!(
         find_user_counts(&bob_id).await.replies,
         1,
-        "Bob's reply count not double-incremented"
+        "the recovery must not count Bob's reply twice"
     );
 
     // Alice's notification count must be unchanged — recovery does not
@@ -429,9 +428,8 @@ async fn test_post_put_recovers_repost_preserves_parent_state() -> Result<()> {
     // Simulate a partial-failure window on the repost's sync_put: wipe
     // everything the reposter's side wrote (PostDetails, PostRelationships,
     // PostCounts, and the three root-post sorted-set memberships). Leave
-    // Alice's parent state and Bob's UserCounts alone — the failed attempt
-    // is assumed to have already incremented UserCounts.posts and updated
-    // Alice's parent.
+    // Alice's parent state alone — the failed attempt is assumed to have
+    // already updated it.
     simulate_partial_put_failure_root(&bob_id, &repost_id).await?;
 
     // Retry: graph reports Updated, handler enters recovery path. Recovery
@@ -461,11 +459,11 @@ async fn test_post_put_recovers_repost_preserves_parent_state() -> Result<()> {
         "recovery must re-populate PostRelationships.reposted from graph"
     );
 
-    // Bob's user counts must not have been double-incremented.
+    // The graph must still count Bob's repost once.
     assert_eq!(
         find_user_counts(&bob_id).await.posts,
         1,
-        "Bob's post count not double-incremented"
+        "the recovery must not author Bob's repost twice"
     );
 
     // Alice's parent state must be unchanged — recovery only touches the

@@ -1,7 +1,6 @@
 use super::index::*;
 use crate::db::kv::{RedisError, RedisResult};
 use async_trait::async_trait;
-use json::JsonAction;
 use serde::{de::DeserializeOwned, Serialize};
 use sorted_sets::{ScoreAction, SortOrder, SORTED_PREFIX};
 
@@ -189,36 +188,6 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
             .collect();
 
         json::del_multiple(&prefix, &keys).await
-    }
-
-    /// Modifies a numeric field in a Redis JSON object by either incrementing or decrementing it.
-    ///
-    /// This method performs an operation on a numeric field in Redis JSON at the given path,
-    /// either incrementing or decrementing it based on the `JsonAction` provided.
-    ///
-    /// # Arguments
-    ///
-    /// * `key_parts` - A slice of string slices representing the parts used to form the key under which the JSON object is stored.
-    /// * `field` - A string slice representing the field to be modified in the JSON object.
-    /// * `action` - A `JsonAction` enum that specifies whether to increment or decrement the field.
-    ///
-    /// # Returns
-    ///
-    /// Returns a result indicating success or failure.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the operation fails, such as if the Redis connection is unavailable or the field is not numeric.
-    async fn modify_json_field(
-        key_parts: &[&str],
-        field: &str,
-        action: JsonAction,
-    ) -> RedisResult<()> {
-        let prefix = Self::prefix().await;
-        let key = key_parts.join(":");
-        json::modify_json_field(&prefix, &key, field, action, None)
-            .await
-            .map(|_| ())
     }
 
     // ############################################################

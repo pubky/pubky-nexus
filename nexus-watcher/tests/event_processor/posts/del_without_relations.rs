@@ -4,10 +4,7 @@ use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
 use nexus_common::{
     db::RedisOps,
-    models::{
-        post::{PostCounts, PostDetails, PostRelationships, PostView},
-        user::UserCounts,
-    },
+    models::post::{PostCounts, PostDetails, PostRelationships, PostView},
 };
 use pubky::Keypair;
 use pubky_social_specs::legacy_v0::{
@@ -72,10 +69,7 @@ async fn test_delete_post_without_relationships() -> Result<()> {
         "Post view should not be found after deletion"
     );
 
-    let user_counts = UserCounts::get_from_index(&user_id)
-        .await
-        .unwrap()
-        .expect("User counts should exist in Redis");
+    let user_counts = find_user_counts(&user_id).await;
     assert_eq!(
         user_counts.posts, 0,
         "User count of posts should be again 0 after deletion"
@@ -222,7 +216,6 @@ async fn test_delete_post_that_reposted() -> Result<()> {
     );
 
     // Assert the parent user counts has changed stats
-    // User:Counts:user_id:post_id
     let post_count = find_user_counts(&user_id).await;
     assert_eq!(post_count.posts, 1);
 
