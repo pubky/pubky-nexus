@@ -52,6 +52,10 @@ pub struct ScopeMaintainer {
     kind: Kind,
     /// The scope as configured, to notice a change between starts.
     scope_json: String,
+    /// Where the scope the last start ran with is kept: [`ACTIVE_SCOPE_KEY`], or for a
+    /// maintainer limited to some users (tests share one Redis), a key of their own, so
+    /// each test starts from no recorded scope and its starts see each other's.
+    active_key: String,
     /// Always in scope and never let go, whatever the scope.
     moderator: PubkyId,
     ingestor: UserIngestor,
@@ -75,9 +79,18 @@ impl ScopeMaintainer {
             ScopeConfig::Everything => Kind::Everything,
             ScopeConfig::Homeservers { homeservers } => Kind::Homeservers(homeservers.clone()),
         };
+        let active_key = match &limit_to {
+            None => ACTIVE_SCOPE_KEY.to_string(),
+            Some(users) => {
+                let mut users = users.clone();
+                users.sort();
+                format!("{ACTIVE_SCOPE_KEY}:{}", users.join(","))
+            }
+        };
         Self {
             kind,
             scope_json: serde_json::to_string(&config.stack.scope).unwrap_or_default(),
+            active_key,
             moderator: config.moderation_id.clone(),
             ingestor,
             limit_to,
@@ -267,21 +280,17 @@ impl ScopeMaintainer {
     async fn scope_changed(&self) -> ModelResult<bool> {
         let mut redis_conn = get_redis_conn().await?;
         let active: Option<String> = redis_conn
-            .get(ACTIVE_SCOPE_KEY)
+            .get(&self.active_key)
             .await
             .map_err(RedisError::from)?;
         Ok(active.as_deref() != Some(self.scope_json.as_str()))
     }
 
-    /// Records the scope this start ran with. Tests (`limit_to`) leave it alone, as they
-    /// don't run the whole graph's scope.
+    /// Records the scope this start ran with.
     async fn remember_scope(&self) -> ModelResult<()> {
-        if self.limit_to.is_some() {
-            return Ok(());
-        }
         let mut redis_conn = get_redis_conn().await?;
         let () = redis_conn
-            .set(ACTIVE_SCOPE_KEY, &self.scope_json)
+            .set(&self.active_key, &self.scope_json)
             .await
             .map_err(RedisError::from)?;
         Ok(())

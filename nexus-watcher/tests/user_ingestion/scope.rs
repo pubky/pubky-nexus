@@ -13,7 +13,7 @@ use nexus_common::models::user::outsider::{admit_outsider, create_outsider};
 use nexus_common::models::user::TAG_GLOBAL_USER_TAGGERS;
 use nexus_common::models::user::{
     is_outsider, user_hs_cursor_key, PubkyConnectorResolver, UserCounts, UserDetails, UserHsCursor,
-    UserIngestor, UserStream, SCOPE_STATE_LEFT, USER_MOSTFOLLOWED_KEY_PARTS,
+    UserIngestor, UserStream, SCOPE_STATE_LEFT, SCOPE_STATE_OUTSIDE, USER_MOSTFOLLOWED_KEY_PARTS,
 };
 use nexus_common::{ScopeConfig, WatcherConfig};
 use nexus_watcher::events::handlers;
@@ -422,6 +422,42 @@ async fn test_listing_a_homeserver_again_brings_its_users_back() -> Result<()> {
     let widened = wide.at_start().await?;
     assert_eq!(widened.joined, 1);
     assert_eq!(scope_state(&user_id).await?, None, "back in scope");
+    Ok(())
+}
+
+/// Outsiders now on a listed homeserver are looked for at start (a homeserver lookup each)
+/// only when the list changed since the last start: a restart with the same list leaves an
+/// outsider on a listed homeserver out; a changed list lets it in.
+#[tokio_shared_rt::test(shared)]
+async fn test_outsiders_are_looked_for_at_start_only_when_the_list_changed() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let hs_pk = create_external_test_homeserver(&mut test).await?;
+    let (_, user_id) = user_on(&test, &hs_pk).await?;
+    let hs = PubkyId::from(hs_pk);
+    let list = [test.homeserver_id.clone(), hs.clone()];
+
+    let (_, first) = homeserver_maintainer(&list, &[&user_id]);
+    first.at_start().await?;
+    // Kept out, though its homeserver is listed: met before, under another scope.
+    create_outsider(&UserDetails::from_pubky(user_id.clone())).await?;
+    let (_, same) = homeserver_maintainer(&list, &[&user_id]);
+    let restarted = same.at_start().await?;
+    let still_out = scope_state(&user_id).await?;
+    let (_, other) = homeserver_maintainer(std::slice::from_ref(&hs), &[&user_id]);
+    let changed = other.at_start().await?;
+    let after = scope_state(&user_id).await?;
+
+    catch_up::caught_up(&user_id).await?;
+    let mut redis_conn = nexus_common::db::get_redis_conn().await?;
+    let _: () = deadpool_redis::redis::AsyncCommands::del(
+        &mut redis_conn,
+        format!("Scope:Active:{user_id}"),
+    )
+    .await?;
+    assert_eq!(restarted.joined, 0, "same list: not looked for");
+    assert_eq!(still_out.as_deref(), Some(SCOPE_STATE_OUTSIDE));
+    assert_eq!(changed.joined, 1, "changed list: let in");
+    assert_eq!(after, None, "in scope");
     Ok(())
 }
 
