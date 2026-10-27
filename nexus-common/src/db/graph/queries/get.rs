@@ -228,7 +228,7 @@ pub fn get_resource_tag_indexed_at(author: &str, resource_id: &str, label: &str)
     Query::new(
         "get_resource_tag_indexed_at",
         "MATCH (:User {id: $author})-[t:TAGGED {label: $label}]->(:Resource {id: $resource_id})
-         RETURN t.indexed_at AS tag_indexed_at",
+         RETURN t.indexed_at AS tag_indexed_at, t.uri AS tag_uri",
     )
     .param("author", author)
     .param("resource_id", resource_id)

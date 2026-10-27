@@ -137,6 +137,9 @@ async fn put_sync_resource(
     if !matches!(outcome, OperationOutcome::MissingDependency) {
         // A retry still publishes, so a graph commit followed by a Redis failure
         // cannot lose the reference. Consumers upsert by (author, object_path).
+        // A file that lands on an edge created by another file (an equivalent tag,
+        // or the other folder's copy of the same tag) publishes nothing: the edge and
+        // its feed line keep the first file's path, and the delete retracts that one.
         let at = if matches!(outcome, OperationOutcome::Updated) {
             let row = fetch_row_from_graph(queries::get::get_resource_tag_indexed_at(
                 &tagger_id,
@@ -145,22 +148,27 @@ async fn put_sync_resource(
             ))
             .await?
             .ok_or_else(|| EventProcessorError::generic("Resource tag disappeared during retry"))?;
-            row.get("tag_indexed_at")
+            let owner: String = row.get("tag_uri").map_err(EventProcessorError::generic)?;
+            (owner == tag_uri)
+                .then(|| row.get("tag_indexed_at"))
+                .transpose()
                 .map_err(EventProcessorError::generic)?
         } else {
-            indexed_at
+            Some(indexed_at)
         };
-        ResourceChange::tag(
-            ResourceChangeOp::Put,
-            resource_id.to_owned(),
-            uri.to_owned(),
-            tagger_id.to_string(),
-            tag_label.to_owned(),
-            tag_uri,
-            at,
-        )?
-        .store()
-        .await?;
+        if let Some(at) = at {
+            ResourceChange::tag(
+                ResourceChangeOp::Put,
+                resource_id.to_owned(),
+                uri.to_owned(),
+                tagger_id.to_string(),
+                tag_label.to_owned(),
+                tag_uri,
+                at,
+            )?
+            .store()
+            .await?;
+        }
     }
     match outcome {
         OperationOutcome::MissingDependency => {
