@@ -232,7 +232,11 @@ pub async fn remove_if_taken_down(
     }
     let target = resolve_reference(uri).target;
     // Boxed: the delete handlers' futures would otherwise nest inside every PUT's.
-    match Box::pin(Moderation::remove_taken_down(target, files_path, ingestor)).await {
+    match Box::pin(Moderation::remove_taken_down(
+        target, uri, files_path, ingestor,
+    ))
+    .await
+    {
         Ok(()) | Err(EventProcessorError::SkipIndexing) => Ok(true),
         Err(e) => Err(e),
     }

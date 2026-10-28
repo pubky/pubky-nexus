@@ -83,7 +83,7 @@ impl Moderation {
                 // address of its own.
                 info!("Moderation tag '{label}' on {uri} detected. Taking down {address}");
                 record_takedown(&address, tag_uri).await?;
-                Self::remove_taken_down(target, files_path, ingestor).await
+                Self::remove_taken_down(target, &address, files_path, ingestor).await
             }
         }
     }
@@ -92,15 +92,16 @@ impl Moderation {
     /// hard-deleted when edge-free or tombstoned when engagement edges remain, as for a
     /// user's own DEL event. Deleting what isn't indexed reports
     /// [`EventProcessorError::SkipIndexing`], as a user's DEL does. A user or any other
-    /// target is never taken down, so it is a no-op here.
+    /// target is never taken down, so it is a no-op here. `uri` is the taken-down address.
     pub(crate) async fn remove_taken_down(
         target: ReferenceTarget,
+        uri: &str,
         files_path: &Path,
         ingestor: &UserIngestor,
     ) -> Result<(), EventProcessorError> {
         match target {
             ReferenceTarget::Post(key) => handlers::post::del(key, ingestor).await,
-            ReferenceTarget::Tag { key } => handlers::tag::del(key).await,
+            ReferenceTarget::Tag { key } => handlers::tag::del_at(key, uri).await,
             ReferenceTarget::File(key) => handlers::file::del(key, files_path).await,
             ReferenceTarget::User(_) | ReferenceTarget::Foreign | ReferenceTarget::Other => Ok(()),
         }
