@@ -73,44 +73,102 @@ pub struct EventView {
     pub attendees: Vec<Attendee>,
 }
 
-async fn attendance(
-    uri: &str,
-    recurrence: Option<&str>,
-) -> ModelResult<(Vec<Attendee>, EventCounts)> {
-    let meta = fetch_row_from_graph(
+/// The occurrence an attendance read is about: its master, the effective event post (an
+/// override when one replaces the occurrence) and its recurrence id. An override's own URI
+/// resolves to its occurrence, so series answers to the master still count for it.
+struct AttendanceScope {
+    policy: String,
+    capacity: Option<i64>,
+    waitlist: bool,
+    master: String,
+    effective: String,
+    recurrence: Option<String>,
+}
+
+async fn scope(uri: &str, recurrence: Option<&str>) -> ModelResult<Option<AttendanceScope>> {
+    let Some(row) = fetch_row_from_graph(
         Query::new(
-            "attendance_policy",
-            "MATCH (p:Post {uri:$uri}) WHERE p.event_content IS NOT NULL
-        OPTIONAL MATCH (o:EventOccurrence {master:$uri,recurrence_id:$recurrence})
+            "attendance_scope",
+            r"
+        MATCH (p:Post {uri:$uri}) WHERE p.event_content IS NOT NULL
+        OPTIONAL MATCH (by_master:EventOccurrence {master:$uri,recurrence_id:$recurrence})
+        OPTIONAL MATCH (by_post:EventOccurrence {post_uri:$uri})
+          WHERE by_post.recurrence_id=$recurrence OR ($recurrence IS NULL AND p.event_master IS NOT NULL)
+        WITH p, collect(coalesce(by_master,by_post))[0] AS o
         OPTIONAL MATCH (override:Post {uri:o.post_uri})
-        RETURN coalesce(override,p).policy AS policy,coalesce(override,p).capacity AS capacity,
-          coalesce(override,p).waitlist AS waitlist,coalesce(override,p).uri AS effective",
+        WITH p, o, coalesce(override,p) AS effective
+        RETURN effective.policy AS policy, effective.capacity AS capacity,
+               coalesce(effective.waitlist,false) AS waitlist, coalesce(o.master,$uri) AS master,
+               effective.uri AS effective, coalesce(o.recurrence_id,$recurrence) AS recurrence
+    ",
         )
         .param("uri", uri)
         .param("recurrence", recurrence),
     )
-    .await?;
-    let Some(meta) = meta else {
-        return Ok((vec![], EventCounts::default()));
+    .await?
+    else {
+        return Ok(None);
     };
-    let policy: String = meta.get("policy")?;
-    let capacity: Option<i64> = meta.get("capacity")?;
-    let waitlist: bool = meta.get("waitlist")?;
-    let rows=fetch_all_rows_from_graph(Query::new("event_attendance", r"
+    Ok(Some(AttendanceScope {
+        policy: row.get("policy")?,
+        capacity: row.get("capacity")?,
+        waitlist: row.get("waitlist")?,
+        master: row.get("master")?,
+        effective: row.get("effective")?,
+        recurrence: row.get("recurrence")?,
+    }))
+}
+
+/// One effective RSVP `r` per live author `u`: an occurrence answer (or one to the
+/// override) beats the series answer, then the newest content wins.
+const EFFECTIVE_RSVPS: &str = r"
         MATCH (u:User)-[:AUTHORED]->(r:Post)
-        WHERE r.social_kind='rsvp' AND r.rsvp_target IN [$uri,$effective] AND NOT coalesce(r.deleted,false)
+        WHERE r.social_kind='rsvp' AND r.rsvp_target IN [$master,$effective]
+          AND NOT coalesce(r.deleted,false) AND NOT coalesce(u.deleted,false)
           AND (r.recurrence_id IS NULL OR r.recurrence_id=$recurrence)
-        WITH u,r ORDER BY CASE WHEN r.recurrence_id=$recurrence OR (r.rsvp_target=$effective AND $effective<>$uri) THEN 1 ELSE 0 END DESC,r.social_updated_at DESC,r.id DESC
+        WITH u,r ORDER BY CASE WHEN r.recurrence_id=$recurrence OR (r.rsvp_target=$effective AND $effective<>$master) THEN 1 ELSE 0 END DESC,r.social_updated_at DESC,r.id DESC
         WITH u,collect(r)[0] AS r
+";
+
+fn scoped(name: &'static str, cypher: String, scope: &AttendanceScope) -> Query {
+    Query::new(name, &cypher)
+        .param("master", scope.master.clone())
+        .param("effective", scope.effective.clone())
+        .param("recurrence", scope.recurrence.clone())
+}
+
+fn seats(scope: &AttendanceScope, guests: i64) -> i64 {
+    1 + if scope.policy == "ticket" { 0 } else { guests }
+}
+
+/// Attendees in FIFO order, filtered and paged in the graph. Whether an accepted party is
+/// waitlisted depends only on the accepted parties before it, so reading the first
+/// `skip + limit` matching rows is enough.
+async fn list(
+    scope: &AttendanceScope,
+    status: Option<&str>,
+    skip: usize,
+    limit: usize,
+) -> ModelResult<Vec<Attendee>> {
+    let (skip, limit) = (skip.min(10_000), limit.min(200));
+    let cypher = format!(
+        "{EFFECTIVE_RSVPS}
+        WITH u,r WHERE $status IS NULL OR r.rsvp_status=$status
         RETURN u.id AS author,r.uri AS post_uri,r.rsvp_status AS status,r.recurrence_id AS recurrence_id,
-               r.guests AS guests,r.indexed_at AS indexed_at,false AS waitlisted
+               coalesce(r.guests,0) AS guests,r.indexed_at AS indexed_at
         ORDER BY r.indexed_at,u.id
-    ").param("uri",uri).param("effective",meta.get::<String>("effective")?).param("recurrence",recurrence)).await?;
-    let mut people = Vec::new();
-    let mut counts = EventCounts::default();
-    let mut seats = 0;
+        LIMIT $take"
+    );
+    let rows = fetch_all_rows_from_graph(
+        scoped("event_attendees", cypher, scope)
+            .param("status", status)
+            .param("take", (skip + limit) as i64),
+    )
+    .await?;
+    let mut taken = 0;
+    let mut people = Vec::with_capacity(rows.len());
     for row in rows {
-        let mut person: Attendee = Attendee {
+        let mut person = Attendee {
             author: row.get("author")?,
             post_uri: row.get("post_uri")?,
             status: row.get("status")?,
@@ -119,25 +177,46 @@ async fn attendance(
             indexed_at: row.get("indexed_at")?,
             waitlisted: false,
         };
-        match person.status.as_str() {
-            "requested" => counts.requested += 1,
-            "declined" => counts.declined += 1,
-            "tentative" => counts.tentative += 1,
-            "accepted" => {
-                counts.accepted += 1;
-                let size = 1 + if policy == "ticket" { 0 } else { person.guests };
-                seats += size;
-                counts.going += size;
-                person.waitlisted = waitlist && capacity.is_some_and(|cap| seats > cap);
-                if person.waitlisted {
-                    counts.waitlisted += size;
-                }
-            }
-            _ => {}
+        if person.status == "accepted" {
+            taken += seats(scope, person.guests);
+            person.waitlisted = scope.waitlist && scope.capacity.is_some_and(|cap| taken > cap);
         }
         people.push(person);
     }
-    Ok((people, counts))
+    Ok(people.into_iter().skip(skip).collect())
+}
+
+/// Counts aggregated in the graph; only accepted parties' guest numbers come back, in FIFO
+/// order, to place the waitlist.
+async fn counts(scope: &AttendanceScope) -> ModelResult<EventCounts> {
+    let cypher = format!(
+        "{EFFECTIVE_RSVPS}
+        WITH u,r ORDER BY r.indexed_at,u.id
+        RETURN count(CASE WHEN r.rsvp_status='requested' THEN 1 END) AS requested,
+               count(CASE WHEN r.rsvp_status='declined' THEN 1 END) AS declined,
+               count(CASE WHEN r.rsvp_status='tentative' THEN 1 END) AS tentative,
+               collect(CASE WHEN r.rsvp_status='accepted' THEN coalesce(r.guests,0) END) AS accepted"
+    );
+    let Some(row) = fetch_row_from_graph(scoped("event_attendance_counts", cypher, scope)).await?
+    else {
+        return Ok(EventCounts::default());
+    };
+    let accepted: Vec<i64> = row.get("accepted")?;
+    let mut counts = EventCounts {
+        requested: row.get("requested")?,
+        declined: row.get("declined")?,
+        tentative: row.get("tentative")?,
+        accepted: accepted.len() as i64,
+        ..EventCounts::default()
+    };
+    for guests in accepted {
+        let size = seats(scope, guests);
+        counts.going += size;
+        if scope.waitlist && scope.capacity.is_some_and(|cap| counts.going > cap) {
+            counts.waitlisted += size;
+        }
+    }
+    Ok(counts)
 }
 
 pub async fn attendees(
@@ -147,13 +226,30 @@ pub async fn attendees(
     skip: usize,
     limit: usize,
 ) -> ModelResult<Vec<Attendee>> {
-    let (people, _) = attendance(uri, recurrence).await?;
-    Ok(people
-        .into_iter()
-        .filter(|a| status.is_none_or(|s| a.status == s))
-        .skip(skip.min(10_000))
-        .take(limit.min(200))
-        .collect())
+    match scope(uri, recurrence).await? {
+        Some(scope) => list(&scope, status, skip, limit).await,
+        None => Ok(Vec::new()),
+    }
+}
+
+/// The URI of a live event by a live author, the one the event routes answer for.
+pub async fn event_uri(author: &str, id: &str) -> ModelResult<Option<String>> {
+    let row = fetch_row_from_graph(
+        Query::new(
+            "event_uri",
+            r"
+        MATCH (u:User {id:$author})-[:AUTHORED]->(p:Post {id:$id})
+        WHERE p.event_content IS NOT NULL AND NOT coalesce(p.deleted,false)
+          AND NOT coalesce(u.deleted,false)
+        RETURN p.uri AS uri
+    ",
+        )
+        .param("author", author)
+        .param("id", id),
+    )
+    .await?;
+    row.map(|r| r.get("uri").map_err(ModelError::from))
+        .transpose()
 }
 
 pub async fn event_view(
@@ -194,8 +290,9 @@ pub async fn event_view_with_options(
         Query::new(
             "event_details",
             r"
-        MATCH (:User {id:$author})-[:AUTHORED]->(p:Post {id:$id})
+        MATCH (u:User {id:$author})-[:AUTHORED]->(p:Post {id:$id})
         WHERE p.event_content IS NOT NULL AND NOT coalesce(p.deleted,false)
+          AND NOT coalesce(u.deleted,false)
         RETURN p.uri AS uri,p.start_at AS start,p.end_at AS end,p.all_day AS all_day,
                p.status AS status,p.policy AS policy,p.capacity AS capacity
     ",
@@ -208,7 +305,13 @@ pub async fn event_view_with_options(
         return Ok(None);
     };
     let uri: String = meta.get("uri")?;
-    let (people, counts) = attendance(&uri, recurrence).await?;
+    let (people, counts) = match scope(&uri, recurrence).await? {
+        Some(scope) => (
+            list(&scope, None, 0, options.attendees).await?,
+            counts(&scope).await?,
+        ),
+        None => (Vec::new(), EventCounts::default()),
+    };
     let rows=fetch_all_rows_from_graph(Query::new("event_next_occurrences", "CALL () { MATCH (o:EventOccurrence {master:$uri}) USING INDEX o:EventOccurrence(master) RETURN o UNION MATCH (o:EventOccurrence {post_uri:$uri}) USING INDEX o:EventOccurrence(post_uri) RETURN o } WITH o WHERE o.end_at >= $now RETURN properties(o) AS occurrence ORDER BY o.start_at,o.master,o.recurrence_id LIMIT $limit").param("limit",options.occurrences.min(50) as i64).param("uri",uri).param("now",chrono::Utc::now().timestamp_millis())).await?;
     let occurrences = rows
         .iter()
@@ -235,10 +338,7 @@ pub async fn event_view_with_options(
         capacity: meta.get("capacity")?,
         counts,
         occurrences,
-        attendees: people
-            .into_iter()
-            .take(options.attendees.min(200))
-            .collect(),
+        attendees: people,
     }))
 }
 
@@ -271,9 +371,9 @@ pub async fn stream(q: EventQuery) -> ModelResult<Vec<Occurrence>> {
         "
     } else if q.going.is_some() {
         r"
-        MATCH (:User {id:$going})-[:AUTHORED]->(rsvp:Post)
+        MATCH (going:User {id:$going})-[:AUTHORED]->(rsvp:Post)
         WHERE rsvp.social_kind='rsvp' AND rsvp.rsvp_status IN ['accepted','tentative']
-          AND NOT coalesce(rsvp.deleted,false)
+          AND NOT coalesce(rsvp.deleted,false) AND NOT coalesce(going.deleted,false)
         CALL (rsvp) {
             MATCH (o:EventOccurrence {master:rsvp.rsvp_target}) USING INDEX o:EventOccurrence(master)
             RETURN o
@@ -313,8 +413,9 @@ pub async fn stream(q: EventQuery) -> ModelResult<Vec<Occurrence>> {
           AND ($status IS NULL OR o.status=$status)
           AND (size($locations)=0 OR EXISTS { MATCH (p)-[:LOCATED_AT]->(location:Resource) WHERE location.id IN $locations })
           AND ($going IS NULL OR EXISTS {
-              MATCH (:User {id:$going})-[:AUTHORED]->(r:Post)
+              MATCH (going:User {id:$going})-[:AUTHORED]->(r:Post)
               WHERE r.social_kind='rsvp' AND r.rsvp_target IN [o.master,o.post_uri] AND NOT coalesce(r.deleted,false)
+                AND NOT coalesce(going.deleted,false)
                 AND (r.recurrence_id IS NULL OR r.recurrence_id=o.recurrence_id)
               WITH r,o ORDER BY CASE WHEN r.recurrence_id=o.recurrence_id OR (r.rsvp_target=o.post_uri AND o.post_uri<>o.master) THEN 1 ELSE 0 END DESC,r.social_updated_at DESC,r.id DESC LIMIT 1
               WITH r WHERE r.rsvp_status IN ['accepted','tentative'] RETURN r

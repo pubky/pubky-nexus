@@ -123,9 +123,10 @@ relationship data. `limit_tags` and `limit_taggers` are 1–100 (default 10 each
 These limits never truncate counts. `/attendees?status=` accepts requested,
 accepted, declined or tentative; pagination remains independent of event-view limits.
 
-Requests read precomputed occurrences and never expand rules. Attendance currently
-selects all effective RSVPs for an event before applying pagination, to compute FIFO
-capacity consistently. Rating fields are read from graph aggregates so cached post
+Requests read precomputed occurrences and never expand rules. Attendees are
+filtered, paged and counted in the graph: a row's waitlist position only needs the
+accepted parties before it, so a page never loads the whole RSVP set. Deleted
+profiles are neither listed nor counted. Rating fields are read from graph aggregates so cached post
 bodies cannot hide an updated score. Historic posts previously indexed as unknown
 need their source versions replayed through the watcher to gain native projections.
 
@@ -164,8 +165,6 @@ namespace receives special treatment.
 
 ## Known follow-ups
 
-Attendance pages currently load every effective RSVP before paging; an attendance
-projection would bound that work. Family rebuild comparisons are quadratic in the
-number of overrides and have no override-count bound. Global rating sorts still
-scan Posts/Resources and need maintained sorted sets. The weekly orphan-RSVP cleanup
-runs in one graph transaction.
+Global rating sorts still scan Posts/Resources and need maintained sorted sets.
+Rating cursors carry only the score, like the other streams; ties resume with
+`skip`. Overrides of one series have no count bound of their own.
