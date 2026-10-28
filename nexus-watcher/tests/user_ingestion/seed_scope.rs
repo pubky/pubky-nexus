@@ -242,6 +242,46 @@ async fn test_a_member_that_cant_join_doesnt_stop_the_others() -> Result<()> {
     Ok(())
 }
 
+/// The moderator is pinned into the scope, but the walk doesn't start from it: who the
+/// moderator follows, unreached by the seed, is let go like any other user.
+#[tokio_shared_rt::test(shared)]
+async fn test_the_moderators_follows_are_not_members() -> Result<()> {
+    let test = WatcherTest::setup(None).await?;
+    let hs = test.homeserver_id.to_public_key();
+    let (_, seed) = user_on(&test, &hs).await?;
+    let (_, moderator) = user_on(&test, &hs).await?;
+    let (_, followee) = user_on(&test, &hs).await?;
+    let (ingestor, maintainer) =
+        seed_maintainer(&seed, 1, &moderator, &[&seed, &moderator, &followee]);
+
+    // Indexed under "everything", before the seed scope: both in scope.
+    let everything = UserIngestor::new(Vec::<PubkyId>::new(), Arc::new(PubkyConnectorResolver));
+    everything.maybe_ingest_user(&moderator).await?;
+    everything.maybe_ingest_user(&followee).await?;
+    ingestor.maybe_ingest_user(&seed).await?;
+    follow(&moderator, &followee, &ingestor).await?;
+
+    let at_start = maintainer.at_start().await?;
+    let members = seed_members(&seed, 1, MAX_SEED_MEMBERS).await?;
+    let (moderator_state, followee_state) = (
+        scope_state(&moderator).await?,
+        scope_state(&followee).await?,
+    );
+
+    assert_eq!(at_start, ScopeChange { joined: 0, left: 1 });
+    assert_eq!(moderator_state, None, "the moderator stays in");
+    assert!(
+        !members.contains_key(followee.as_ref()),
+        "not reached from the seed"
+    );
+    assert_eq!(
+        followee_state.as_deref(),
+        Some(SCOPE_STATE_LEFT),
+        "the moderator's followee is let go"
+    );
+    Ok(())
+}
+
 /// A member whose profile is deleted stays in through a recompute, bound and read, so a
 /// profile it writes later (read in a later batch of its stream) brings it back: it is
 /// never let go between the two.
