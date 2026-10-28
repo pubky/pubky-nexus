@@ -27,6 +27,7 @@ use crate::scope::membership::ScopeMembership;
 use crate::scope::{
     follows_changed, seed_members, take_follows_changed, watcher_ingestor, MAX_SEED_MEMBERS,
 };
+use crate::service::scope_bootstrap::unexpired_suggestions;
 use pubky_app_specs::PubkyId;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -74,11 +75,13 @@ pub struct ScopeMaintainer {
     ingestor: UserIngestor,
     /// How often the scope is checked whatever happened.
     interval: Duration,
-    /// When a seed scope last worked its members out.
+    /// When a seed scope last worked its members out. Held for the whole of each run, so
+    /// two never overlap: one reading the members before another stored suggestions could
+    /// let go of users the other just let in.
     last_recompute: Mutex<Instant>,
     /// Members whose admission failed, and when. Each try looks the member's homeserver
-    /// up, and a recompute can run every few seconds, so one isn't tried again until the
-    /// interval passed. In memory: a start tries all.
+    /// up, and a recompute can run every few seconds over thousands of suggested users,
+    /// so one isn't tried again until the interval passed. In memory: a start tries all.
     failed_admissions: std::sync::Mutex<HashMap<String, Instant>>,
     /// Narrows every graph-wide search to these users; `None` in production.
     /// Tests share one graph, so they pass their own users.
@@ -145,6 +148,25 @@ impl ScopeMaintainer {
         }
     }
 
+    /// The seed and hop count of a seed scope.
+    pub fn seed_scope(&self) -> Option<(&PubkyId, u8)> {
+        match &self.kind {
+            Kind::Seed { seed, hops } => Some((seed, *hops)),
+            Kind::Everything | Kind::Homeservers(_) => None,
+        }
+    }
+
+    /// Works a seed scope's members out now, e.g. right after a big Nexus suggested some.
+    pub async fn recompute_now(&self) -> ModelResult<ScopeChange> {
+        let Kind::Seed { seed, hops } = &self.kind else {
+            return Ok(ScopeChange::default());
+        };
+        let mut last_recompute = self.last_recompute.lock().await;
+        let change = self.recompute_members(seed, *hops).await?;
+        *last_recompute = Instant::now();
+        Ok(change)
+    }
+
     /// The run at start, before any event is read.
     pub async fn at_start(&self) -> ModelResult<ScopeChange> {
         let change = match &self.kind {
@@ -157,9 +179,12 @@ impl ScopeMaintainer {
                 change
             }
             Kind::Seed { seed, hops } => {
+                let mut last_recompute = self.last_recompute.lock().await;
                 // This run covers every follow indexed before it.
                 take_follows_changed();
-                self.recompute_members(seed, *hops).await?
+                let change = self.recompute_members(seed, *hops).await?;
+                *last_recompute = Instant::now();
+                change
             }
         };
         self.remember_scope().await?;
@@ -221,8 +246,10 @@ impl ScopeMaintainer {
         Ok(change)
     }
 
-    /// For a seed scope: works the members out from the graph and compares them with who
-    /// is in scope, which the graph records too. Who is new joins (ingested if never met,
+    /// For a seed scope: works the members out from the graph, adds the users a big Nexus
+    /// suggested until their suggestion expires (see `scope_bootstrap`), and compares them
+    /// with who is in scope, which the graph records too. Callers hold
+    /// [`Self::last_recompute`]. Who is new joins (ingested if never met,
     /// then bound and read from the start of its stream); who is in scope but no longer a
     /// member leaves, the moderator aside.
     ///
@@ -230,7 +257,12 @@ impl ScopeMaintainer {
     /// doesn't stop the others: still new, or still in, it is tried again by the first
     /// recompute once the interval passed (see [`Self::failed_admissions`]).
     async fn recompute_members(&self, seed: &PubkyId, hops: u8) -> ModelResult<ScopeChange> {
-        let members = seed_members(seed, hops, MAX_SEED_MEMBERS).await?;
+        let members = with_suggestions(
+            seed_members(seed, hops, MAX_SEED_MEMBERS).await?,
+            unexpired_suggestions(seed, hops).await?,
+            hops,
+            MAX_SEED_MEMBERS,
+        );
         let query = queries::get::get_in_scope_user_ids(self.limit_to.as_deref());
         let in_scope: HashSet<String> = fetch_key_from_graph::<Vec<String>>(query, "user_ids")
             .await?
@@ -438,5 +470,50 @@ impl ScopeMaintainer {
             .await
             .map_err(RedisError::from)?;
         Ok(())
+    }
+}
+
+/// `members` with the `suggested` users added, but at most `max` in all: suggestions only
+/// fill the room the walk left, by id, so the most members holds whatever a big Nexus
+/// said. At the last hop: their distance in this graph isn't known until their follows
+/// are read.
+fn with_suggestions(
+    mut members: HashMap<String, u8>,
+    mut suggested: Vec<String>,
+    hops: u8,
+    max: usize,
+) -> HashMap<String, u8> {
+    suggested.sort();
+    for user_id in suggested {
+        if members.len() >= max {
+            break;
+        }
+        members.entry(user_id).or_insert(hops);
+    }
+    members
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Suggestions fill only the room the walk left, smallest ids first, and never
+    /// change a walked member's distance.
+    #[test]
+    fn suggestions_fill_only_the_room_left() {
+        let walked = HashMap::from([("seed".to_string(), 0), ("a".to_string(), 1)]);
+        let suggested = ["d", "a", "c", "b"].map(String::from).to_vec();
+
+        let members = with_suggestions(walked, suggested, 2, 4);
+
+        assert_eq!(
+            members,
+            HashMap::from([
+                ("seed".to_string(), 0),
+                ("a".to_string(), 1),
+                ("b".to_string(), 2),
+                ("c".to_string(), 2),
+            ])
+        );
     }
 }

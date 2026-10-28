@@ -344,7 +344,32 @@ user first met through a member's follow is an outsider until then. One that can
 (no published homeserver, a lookup timing out) is tried again by the first run once the
 interval passed, so frequent runs don't look it up over and over. A seed scope has at
 most 50,000 members, so one member following everyone can't make it index everything:
-past that, the closest are kept, by id within a hop.
+past that, the closest are kept, by id within a hop; users a big Nexus suggested (below)
+only fill the room left.
+
+**Seed bootstrap — `[scope_bootstrap]`** (`[watcher.scope_bootstrap]` in a combined
+config). A new seed scope finds its members hop by hop by default (`source = "crawl"`):
+each hop waits for the previous one's follows to be read. With `source = "nexus"` and a
+`nexus_url`, the watcher asks that Nexus, in the background at start, who the seed
+follows and who they follow up to `hops` (`GET /v0/user/{id}/following`, about one
+request per member). The answer is only a suggestion: each suggested user counts as a
+member for 24 hours (`Scope:Suggested:<seed>:<hops>`, kept per seed and hop count so a
+narrower scope never inherits it), so its own stream is read from its own homeserver, and
+the follows read that way confirm it or let it go once the suggestion expires. Content
+always comes from homeservers. It runs once per seed and hop count
+(`Scope:Bootstrapped:<seed>:<hops>`); one that suggests nobody (the Nexus may not know
+the seed yet) runs again at the next start. A rate limit (`429`) is waited out as the
+Nexus asks, at most 5 times per page; any other failure falls back to crawling after 3
+tries. Only valid user ids from its answers are used. It is bounded whatever the Nexus
+answers: at most 20,000 requests (retries included), 30 seconds per request (body
+included), 10,000 follows read per user and 50,000 suggested users, past which crawling
+finds the rest. `nexus_url` may have a path, but no query or fragment.
+
+```toml
+[scope_bootstrap]
+source = "nexus"
+nexus_url = "https://<big nexus>"
+```
 
 **The moderator is always in scope.** `moderation_id` is read whatever the scope, since
 its tags take content down. Its follows add no members to a seed scope.
