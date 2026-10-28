@@ -120,8 +120,8 @@ async fn sync_put_details(
                 // missing PostDetails. A previous sync_put attempt wrote the graph node
                 // but failed before completing the index writes, or reported a
                 // missing dependency for a write that committed. Re-run idempotent
-                // index writes; scores are intentionally skipped (prefer drift over
-                // duplicates) and notifications are only added where missing.
+                // index writes and notifications; scores are intentionally skipped
+                // (prefer drift over duplicates).
                 recover_post_index_state(&author_id, &post_id).await?;
             }
         }
@@ -314,10 +314,10 @@ async fn sync_put_details(
 /// concurrent tag/bookmark/reply handler that also went through graph is
 /// already reflected.
 ///
-/// The mention, reply and repost notifications are re-sent last: the attempt
-/// that wrote the graph may have stopped (or reported a missing dependency)
-/// before sending them. Each is written only if absent, so one already
-/// delivered keeps its place.
+/// The mention, reply and repost notifications are re-sent too, since that
+/// attempt may have stopped before sending them. They are written only if
+/// absent, so one already delivered is neither duplicated nor re-surfaced, and
+/// before `PostDetails`: once it is indexed, a retry takes the edit path.
 async fn recover_post_index_state(
     author_id: &PubkyId,
     post_id: &str,
@@ -339,21 +339,56 @@ async fn recover_post_index_state(
     // the next read recomputes those counts from the now-durable graph edges.
     // Invalidate-only is sufficient and safe on missing keys. Run before the child
     // reindex below so a failure there still leaves the parent caches refreshed.
-    let relationships = PostRelationships::get_from_graph(author_id, post_id).await?;
-    if let Some(relationships) = &relationships {
-        for parent in [&relationships.replied, &relationships.reposted]
-            .into_iter()
-            .flatten()
-        {
-            if let Resource::Post(parent_post_id) = &parent.resource {
-                PostCounts::invalidate(&[&parent.user_id, parent_post_id]).await?;
-            }
+    // Then re-send the parent author's reply or repost notification.
+    let relationships = PostRelationships::get_from_graph(author_id, post_id)
+        .await?
+        .unwrap_or_default();
+    for (parent, is_reply) in [
+        (&relationships.replied, true),
+        (&relationships.reposted, false),
+    ] {
+        let Some(parent) = parent else { continue };
+        let Resource::Post(parent_post_id) = &parent.resource else {
+            continue;
+        };
+        PostCounts::invalidate(&[&parent.user_id, parent_post_id]).await?;
+
+        let parent_uri = parent
+            .try_to_uri_str()
+            .map_err(EventProcessorError::generic)?;
+        let parent_kind = post_kind(&parent.user_id, parent_post_id).await?;
+        if is_reply {
+            Notification::new_post_reply(
+                author_id,
+                &parent_uri,
+                &post_details.uri,
+                &parent.user_id,
+                parent_kind,
+            )
+            .await?;
+        } else {
+            Notification::new_repost(
+                author_id,
+                &parent_uri,
+                &post_details.uri,
+                &parent.user_id,
+                parent_kind,
+            )
+            .await?;
         }
     }
 
-    // Re-merge any MENTIONED graph edges that the original mention loop
-    // didn't finish. Their notifications are re-sent below.
-    merge_mention_edges(author_id, post_id, &post_details.content).await?;
+    // Re-merge any MENTIONED graph edges and mention notifications that the
+    // original mention loop didn't finish.
+    put_mentioned_relationships(
+        author_id,
+        post_id,
+        &post_details.uri,
+        &post_details.content,
+        &mut PostRelationships::default(), // reindexed from the graph below
+        post_details.kind.clone(),
+    )
+    .await?;
 
     // Same for COLLECTED edges; a non-collection also clears edges left by a kind flip.
     let items = curated_items(author_id, post_id, &post_details);
@@ -370,65 +405,6 @@ async fn recover_post_index_state(
     details_result?;
     relationships_result?;
     counts_result?;
-
-    notify_recovered_post(author_id, &post_details, relationships.as_ref()).await
-}
-
-/// Sends the notifications a new post triggers (mentions, then the reply or
-/// repost parent's author) for a post read back from the graph. Each is written
-/// only if absent, so re-running it never duplicates or re-surfaces one.
-async fn notify_recovered_post(
-    author_id: &PubkyId,
-    post_details: &PostDetails,
-    relationships: Option<&PostRelationships>,
-) -> Result<(), EventProcessorError> {
-    for prefix in ["pk:", "pubky"] {
-        for pubky_id in find_mentioned_ids(&post_details.content, prefix) {
-            Notification::new_mention(
-                author_id,
-                &pubky_id,
-                &post_details.uri,
-                post_details.kind.clone(),
-            )
-            .await?;
-        }
-    }
-
-    let Some(relationships) = relationships else {
-        return Ok(());
-    };
-    if let Some(replied_uri) = &relationships.replied {
-        if let Resource::Post(parent_post_id) = &replied_uri.resource {
-            let replied_uri_str = replied_uri
-                .try_to_uri_str()
-                .map_err(EventProcessorError::generic)?;
-            let parent_kind = post_kind(&replied_uri.user_id, parent_post_id).await?;
-            Notification::new_post_reply(
-                author_id,
-                &replied_uri_str,
-                &post_details.uri,
-                &replied_uri.user_id,
-                parent_kind,
-            )
-            .await?;
-        }
-    }
-    if let Some(reposted_uri) = &relationships.reposted {
-        if let Resource::Post(parent_post_id) = &reposted_uri.resource {
-            let reposted_uri_str = reposted_uri
-                .try_to_uri_str()
-                .map_err(EventProcessorError::generic)?;
-            let embed_kind = post_kind(&reposted_uri.user_id, parent_post_id).await?;
-            Notification::new_repost(
-                author_id,
-                &reposted_uri_str,
-                &post_details.uri,
-                &reposted_uri.user_id,
-                embed_kind,
-            )
-            .await?;
-        }
-    }
     Ok(())
 }
 
@@ -570,22 +546,6 @@ fn find_mentioned_ids(content: &str, prefix: &str) -> Vec<PubkyId> {
         })
         .filter(|id| seen.insert(id.to_string()))
         .collect()
-}
-
-/// Idempotent MERGE of every MENTIONED edge for the post. No notifications,
-/// no Redis — safe to re-run from recovery.
-async fn merge_mention_edges(
-    author_id: &PubkyId,
-    post_id: &str,
-    content: &str,
-) -> Result<(), EventProcessorError> {
-    for prefix in ["pk:", "pubky"] {
-        for pubky_id in find_mentioned_ids(content, prefix) {
-            let query = queries::put::create_mention_relationship(author_id, post_id, &pubky_id);
-            exec_single_row(query).await?
-        }
-    }
-    Ok(())
 }
 
 /// The post keys a Collection curates; none for any other kind.

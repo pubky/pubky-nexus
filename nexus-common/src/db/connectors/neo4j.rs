@@ -117,7 +117,7 @@ mod tests {
 
         let config = Neo4JConfig {
             uri: format!("bolt://{addr}"),
-            reply_timeout_secs: 1,
+            reply_timeout_secs: std::num::NonZeroU64::MIN,
             ..Default::default()
         };
         let connector = Neo4jConnector::new_connection(&config).await.unwrap();

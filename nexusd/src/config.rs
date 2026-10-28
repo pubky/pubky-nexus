@@ -536,7 +536,7 @@ mod tests {
         let config = DaemonConfig::try_from_str(DEFAULT_CONFIG_TOML)
             .expect("config without reply_timeout_secs should use the default");
 
-        assert_eq!(config.stack.db.neo4j.reply_timeout_secs, 900);
+        assert_eq!(config.stack.db.neo4j.reply_timeout_secs.get(), 900);
     }
 
     #[test]

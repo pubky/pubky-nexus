@@ -1,12 +1,13 @@
 use super::{redact_url, REDACTED};
-use serde::{de::Error, Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Serialize};
 use std::fmt;
+use std::num::NonZeroU64;
 use std::time::Duration;
 
 pub const NEO4J_URI: &str = "bolt://localhost:7687";
 pub const NEO4J_USER: &str = "neo4j";
 pub const NEO4J_PASS: &str = "12345678";
-const DEFAULT_NEO4J_REPLY_TIMEOUT_SECS: u64 = 15 * 60;
+const DEFAULT_NEO4J_REPLY_TIMEOUT_SECS: NonZeroU64 = NonZeroU64::new(15 * 60).unwrap();
 // Create temporal struct to wrap database config
 #[derive(Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub struct Neo4JConfig {
@@ -33,37 +34,22 @@ pub struct Neo4JConfig {
     /// Longest wait in seconds for one reply from Neo4j, and for a TCP connect.
     /// A call whose reply takes longer, such as a GDS PageRank or a migration
     /// backfill, fails.
-    #[serde(
-        default = "default_neo4j_reply_timeout_secs",
-        deserialize_with = "deserialize_nonzero_reply_timeout_secs"
-    )]
-    pub reply_timeout_secs: u64,
+    #[serde(default = "default_neo4j_reply_timeout_secs")]
+    pub reply_timeout_secs: NonZeroU64,
 }
 
 fn default_neo4j_user() -> String {
     String::from("neo4j")
 }
 
-const fn default_neo4j_reply_timeout_secs() -> u64 {
+const fn default_neo4j_reply_timeout_secs() -> NonZeroU64 {
     DEFAULT_NEO4J_REPLY_TIMEOUT_SECS
-}
-
-fn deserialize_nonzero_reply_timeout_secs<'de, D>(deserializer: D) -> Result<u64, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    match u64::deserialize(deserializer)? {
-        0 => Err(D::Error::custom(
-            "reply_timeout_secs must be at least 1 second",
-        )),
-        timeout => Ok(timeout),
-    }
 }
 
 impl Neo4JConfig {
     /// Returns [`Self::reply_timeout_secs`] as a duration.
     pub fn reply_timeout(&self) -> Duration {
-        Duration::from_secs(self.reply_timeout_secs)
+        Duration::from_secs(self.reply_timeout_secs.get())
     }
 }
 
