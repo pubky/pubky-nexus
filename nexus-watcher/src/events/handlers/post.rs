@@ -339,7 +339,7 @@ async fn recover_post_index_state(
     // the next read recomputes those counts from the now-durable graph edges.
     // Invalidate-only is sufficient and safe on missing keys. Run before the child
     // reindex below so a failure there still leaves the parent caches refreshed.
-    // Then re-send the parent author's reply or repost notification.
+    // Then re-send the parent author's reply or repost notification, unless deleted.
     let relationships = PostRelationships::get_from_graph(author_id, post_id)
         .await?
         .unwrap_or_default();
@@ -352,6 +352,9 @@ async fn recover_post_index_state(
             continue;
         };
         PostCounts::invalidate(&[&parent.user_id, parent_post_id]).await?;
+        if post_details.deleted {
+            continue; // a tombstone keeps its parent edge but notifies nobody
+        }
 
         let parent_uri = parent
             .try_to_uri_str()

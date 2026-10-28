@@ -7,7 +7,9 @@ use crate::event_processor::users::utils::find_user_counts;
 use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
 use nexus_common::db::RedisOps;
+use nexus_common::models::notification::Notification;
 use nexus_common::models::post::{PostCounts, PostDetails, PostRelationships};
+use nexus_common::types::Pagination;
 use nexus_common::utils::test_utils::default_ingestor_tests;
 use nexus_watcher::events::handlers;
 use pubky::Keypair;
@@ -150,7 +152,7 @@ async fn test_post_put_replay_after_full_success_is_noop() -> Result<()> {
 /// sync_put recovery of MENTIONED graph edges: simulate a partial mention
 /// loop where the MENTIONED edge was never committed to the graph AND the
 /// PostDetails Redis entry is missing. On retry, `recover_post_index_state`
-/// must re-MERGE the MENTIONED edge via `merge_mention_edges` WITHOUT
+/// must re-MERGE the MENTIONED edge via `put_mentioned_relationships` WITHOUT
 /// duplicating the mention notification Bob already has.
 #[tokio_shared_rt::test(shared)]
 async fn test_post_put_recovers_mention_edge() -> Result<()> {
@@ -200,7 +202,7 @@ async fn test_post_put_recovers_mention_edge() -> Result<()> {
     PostDetails::remove_from_index_multiple_json(&[post_key]).await?;
 
     // Retry: graph reports Updated, handler enters recovery path, which
-    // calls merge_mention_edges and then reindexes Redis state.
+    // calls put_mentioned_relationships and then reindexes Redis state.
     handlers::post::sync_put(
         post.clone(),
         post_uri_builder(alice_id.clone(), post_id.clone()),
@@ -214,7 +216,7 @@ async fn test_post_put_recovers_mention_edge() -> Result<()> {
     let mentioned_after = find_post_mentions(&alice_id, &post_id).await?;
     assert!(
         mentioned_after.contains(&bob_id),
-        "recovery must re-MERGE MENTIONED edge via merge_mention_edges"
+        "recovery must re-MERGE MENTIONED edge via put_mentioned_relationships"
     );
 
     // PostDetails must be re-indexed.
@@ -643,6 +645,127 @@ async fn test_post_put_recovery_sends_a_missing_repost_notification() -> Result<
     .await?;
 
     assert_notification_count(&alice_id, 1, "recovery sends the missing repost notif").await;
+
+    test.cleanup_user(&alice_kp).await?;
+    test.cleanup_user(&bob_kp).await?;
+    Ok(())
+}
+
+/// Recovery leaves a notification already delivered as it was: same entry,
+/// same timestamp, so it isn't pushed back to the top as if it were new.
+#[tokio_shared_rt::test(shared)]
+async fn test_post_put_recovery_keeps_a_delivered_notification_timestamp() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+
+    let alice_kp = Keypair::random();
+    let alice_id = test
+        .create_user(
+            &alice_kp,
+            &test_user(
+                "Watcher:Post:RecoverKeepsNotif:Alice",
+                "test_post_put_recovery_keeps_a_delivered_notification_timestamp",
+            ),
+        )
+        .await?;
+    let bob_kp = Keypair::random();
+    let bob_id = test
+        .create_user(
+            &bob_kp,
+            &test_user(
+                "Watcher:Post:RecoverKeepsNotif:Bob",
+                "test_post_put_recovery_keeps_a_delivered_notification_timestamp",
+            ),
+        )
+        .await?;
+
+    let post = short_post(format!("Hello pubky{bob_id} — a mention"));
+    let (post_id, _post_path) = test.create_post(&alice_kp, &post).await?;
+    let delivered = Notification::get_by_id(&bob_id, Pagination::default()).await?;
+    assert_eq!(delivered.len(), 1, "the mention was delivered");
+
+    // Redis lost the post but kept Bob's notification.
+    simulate_partial_put_failure_root(&alice_id, &post_id).await?;
+    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    handlers::post::sync_put(
+        post.clone(),
+        post_uri_builder(alice_id.clone(), post_id.clone()),
+        pubky_id(&alice_id)?,
+        post_id.clone(),
+        &default_ingestor_tests(),
+    )
+    .await?;
+
+    let after = Notification::get_by_id(&bob_id, Pagination::default()).await?;
+    assert_eq!(after.len(), 1, "recovery adds no second mention");
+    assert_eq!(
+        after[0].timestamp, delivered[0].timestamp,
+        "recovery keeps the delivered notification's timestamp"
+    );
+
+    test.cleanup_user(&alice_kp).await?;
+    test.cleanup_user(&bob_kp).await?;
+    Ok(())
+}
+
+/// Deleting a reply whose Redis state is gone takes the recovery path with the
+/// tombstone. The tombstone keeps its parent edge, but must not notify the
+/// parent's author of a reply.
+#[tokio_shared_rt::test(shared)]
+async fn test_post_del_recovery_of_a_reply_sends_no_reply_notification() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+
+    let alice_kp = Keypair::random();
+    let alice_id = test
+        .create_user(
+            &alice_kp,
+            &test_user(
+                "Watcher:Post:RecoverTombstone:Alice",
+                "test_post_del_recovery_of_a_reply_sends_no_reply_notification",
+            ),
+        )
+        .await?;
+    let bob_kp = Keypair::random();
+    let bob_id = test
+        .create_user(
+            &bob_kp,
+            &test_user(
+                "Watcher:Post:RecoverTombstone:Bob",
+                "test_post_del_recovery_of_a_reply_sends_no_reply_notification",
+            ),
+        )
+        .await?;
+
+    let parent_post = short_post("Watcher:Post:RecoverTombstone:Parent");
+    let (parent_id, _parent_path) = test.create_post(&alice_kp, &parent_post).await?;
+    let reply_post = short_reply(
+        "Watcher:Post:RecoverTombstone:Reply",
+        post_uri_builder(alice_id.clone(), parent_id.clone()),
+    );
+    let (reply_id, _reply_path) = test.create_post(&bob_kp, &reply_post).await?;
+    // A reply to Bob's reply keeps the deleted one in the graph as a tombstone.
+    let child_reply = short_reply(
+        "Watcher:Post:RecoverTombstone:Child",
+        post_uri_builder(bob_id.clone(), reply_id.clone()),
+    );
+    test.create_post(&alice_kp, &child_reply).await?;
+
+    clear_notifications(&alice_id).await?;
+    let parent_post_key: &[&str; 2] = &[alice_id.as_str(), parent_id.as_str()];
+    simulate_partial_put_failure_reply(&bob_id, &reply_id, parent_post_key).await?;
+
+    // The delete writes the tombstone, finds no PostDetails in Redis and recovers.
+    handlers::post::del(
+        pubky_id(&bob_id)?,
+        reply_id.clone(),
+        &default_ingestor_tests(),
+    )
+    .await?;
+
+    let details = PostDetails::get_from_index(&bob_id, &reply_id)
+        .await?
+        .expect("recovery indexes the tombstone");
+    assert!(details.deleted, "the reply is a tombstone");
+    assert_notification_count(&alice_id, 0, "a deleted reply notifies nobody").await;
 
     test.cleanup_user(&alice_kp).await?;
     test.cleanup_user(&bob_kp).await?;
