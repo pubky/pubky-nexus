@@ -118,9 +118,10 @@ async fn sync_put_details(
             None => {
                 // Partial-failure recovery: graph already had the post but Redis is
                 // missing PostDetails. A previous sync_put attempt wrote the graph node
-                // but failed before completing the index writes. Re-run idempotent
-                // index writes only — scores/notifications are intentionally
-                // skipped (prefer drift over duplicates).
+                // but failed before completing the index writes, or reported a
+                // missing dependency for a write that committed. Re-run idempotent
+                // index writes; scores are intentionally skipped (prefer drift over
+                // duplicates) and notifications are only added where missing.
                 recover_post_index_state(&author_id, &post_id).await?;
             }
         }
@@ -313,7 +314,10 @@ async fn sync_put_details(
 /// concurrent tag/bookmark/reply handler that also went through graph is
 /// already reflected.
 ///
-/// Notifications are intentionally NOT re-run (0 > N duplicates on retry).
+/// The mention, reply and repost notifications are re-sent last: the attempt
+/// that wrote the graph may have stopped (or reported a missing dependency)
+/// before sending them. Each is written only if absent, so one already
+/// delivered keeps its place.
 async fn recover_post_index_state(
     author_id: &PubkyId,
     post_id: &str,
@@ -335,8 +339,9 @@ async fn recover_post_index_state(
     // the next read recomputes those counts from the now-durable graph edges.
     // Invalidate-only is sufficient and safe on missing keys. Run before the child
     // reindex below so a failure there still leaves the parent caches refreshed.
-    if let Some(relationships) = PostRelationships::get_from_graph(author_id, post_id).await? {
-        for parent in [relationships.replied, relationships.reposted]
+    let relationships = PostRelationships::get_from_graph(author_id, post_id).await?;
+    if let Some(relationships) = &relationships {
+        for parent in [&relationships.replied, &relationships.reposted]
             .into_iter()
             .flatten()
         {
@@ -347,7 +352,7 @@ async fn recover_post_index_state(
     }
 
     // Re-merge any MENTIONED graph edges that the original mention loop
-    // didn't finish. Skips notifications (0 > N on retry).
+    // didn't finish. Their notifications are re-sent below.
     merge_mention_edges(author_id, post_id, &post_details.content).await?;
 
     // Same for COLLECTED edges; a non-collection also clears edges left by a kind flip.
@@ -365,6 +370,65 @@ async fn recover_post_index_state(
     details_result?;
     relationships_result?;
     counts_result?;
+
+    notify_recovered_post(author_id, &post_details, relationships.as_ref()).await
+}
+
+/// Sends the notifications a new post triggers (mentions, then the reply or
+/// repost parent's author) for a post read back from the graph. Each is written
+/// only if absent, so re-running it never duplicates or re-surfaces one.
+async fn notify_recovered_post(
+    author_id: &PubkyId,
+    post_details: &PostDetails,
+    relationships: Option<&PostRelationships>,
+) -> Result<(), EventProcessorError> {
+    for prefix in ["pk:", "pubky"] {
+        for pubky_id in find_mentioned_ids(&post_details.content, prefix) {
+            Notification::new_mention(
+                author_id,
+                &pubky_id,
+                &post_details.uri,
+                post_details.kind.clone(),
+            )
+            .await?;
+        }
+    }
+
+    let Some(relationships) = relationships else {
+        return Ok(());
+    };
+    if let Some(replied_uri) = &relationships.replied {
+        if let Resource::Post(parent_post_id) = &replied_uri.resource {
+            let replied_uri_str = replied_uri
+                .try_to_uri_str()
+                .map_err(EventProcessorError::generic)?;
+            let parent_kind = post_kind(&replied_uri.user_id, parent_post_id).await?;
+            Notification::new_post_reply(
+                author_id,
+                &replied_uri_str,
+                &post_details.uri,
+                &replied_uri.user_id,
+                parent_kind,
+            )
+            .await?;
+        }
+    }
+    if let Some(reposted_uri) = &relationships.reposted {
+        if let Resource::Post(parent_post_id) = &reposted_uri.resource {
+            let reposted_uri_str = reposted_uri
+                .try_to_uri_str()
+                .map_err(EventProcessorError::generic)?;
+            let embed_kind = post_kind(&reposted_uri.user_id, parent_post_id).await?;
+            Notification::new_repost(
+                author_id,
+                &reposted_uri_str,
+                &post_details.uri,
+                &reposted_uri.user_id,
+                embed_kind,
+            )
+            .await?;
+        }
+    }
     Ok(())
 }
 

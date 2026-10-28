@@ -14,8 +14,8 @@ use pubky::Keypair;
 use pubky_app_specs::post_uri_builder;
 
 use super::{
-    assert_root_post_fully_indexed, delete_mention_edge, simulate_partial_put_failure_reply,
-    simulate_partial_put_failure_root,
+    assert_root_post_fully_indexed, clear_notifications, delete_mention_edge,
+    simulate_partial_put_failure_reply, simulate_partial_put_failure_root,
 };
 
 /// sync_put recovery: simulate a previous attempt that wrote the post to the
@@ -151,7 +151,7 @@ async fn test_post_put_replay_after_full_success_is_noop() -> Result<()> {
 /// loop where the MENTIONED edge was never committed to the graph AND the
 /// PostDetails Redis entry is missing. On retry, `recover_post_index_state`
 /// must re-MERGE the MENTIONED edge via `merge_mention_edges` WITHOUT
-/// re-sending the mention notification (0 > N).
+/// duplicating the mention notification Bob already has.
 #[tokio_shared_rt::test(shared)]
 async fn test_post_put_recovers_mention_edge() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
@@ -222,8 +222,8 @@ async fn test_post_put_recovers_mention_edge() -> Result<()> {
         .await?
         .is_some());
 
-    // Bob must NOT have received a duplicate mention notification —
-    // merge_mention_edges is notification-free (0 > N on retry).
+    // Bob must NOT have received a duplicate mention notification — recovery
+    // writes it only if absent.
     assert_notification_count(&bob_id, 1, "no duplicate mention notif on recovery").await;
 
     test.cleanup_user(&alice_kp).await?;
@@ -351,8 +351,8 @@ async fn test_post_put_recovers_reply_preserves_parent_sorted_sets() -> Result<(
         "the recovery must not count Bob's reply twice"
     );
 
-    // Alice's notification count must be unchanged — recovery does not
-    // re-fire `new_post_reply`.
+    // Alice's notification count must be unchanged — recovery writes the
+    // reply notification only if absent.
     assert_notification_count(&alice_id, 1, "no duplicate reply notif on recovery").await;
 
     test.cleanup_user(&alice_kp).await?;
@@ -365,8 +365,8 @@ async fn test_post_put_recovers_reply_preserves_parent_sorted_sets() -> Result<(
 /// the graph that PostRelationships::reindex must recover. This test wipes
 /// the reposter's Redis state (but leaves the parent's repost count and
 /// engagement score untouched) and verifies recovery rebuilds the repost's
-/// indexes without double-counting the parent or re-notifying the parent
-/// author.
+/// indexes without double-counting the parent or duplicating the parent
+/// author's notification.
 #[tokio_shared_rt::test(shared)]
 async fn test_post_put_recovers_repost_preserves_parent_state() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
@@ -473,9 +473,176 @@ async fn test_post_put_recovers_repost_preserves_parent_state() -> Result<()> {
         "parent engagement unchanged after recovery"
     );
 
-    // Alice's notification count must be unchanged — recovery does not
-    // re-fire `new_repost`.
+    // Alice's notification count must be unchanged — recovery writes the
+    // repost notification only if absent.
     assert_notification_count(&alice_id, 1, "no duplicate repost notif on recovery").await;
+
+    test.cleanup_user(&alice_kp).await?;
+    test.cleanup_user(&bob_kp).await?;
+    Ok(())
+}
+
+/// #1149: the attempt that wrote a mention post to the graph reported a missing
+/// dependency (or stopped) before sending the mention notification. Recovery
+/// must send it, and a second recovery must not add another.
+#[tokio_shared_rt::test(shared)]
+async fn test_post_put_recovery_sends_a_missing_mention_notification() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+
+    let alice_kp = Keypair::random();
+    let alice_id = test
+        .create_user(
+            &alice_kp,
+            &test_user(
+                "Watcher:Post:RecoverMentionNotif:Alice",
+                "test_post_put_recovery_sends_a_missing_mention_notification",
+            ),
+        )
+        .await?;
+    let bob_kp = Keypair::random();
+    let bob_id = test
+        .create_user(
+            &bob_kp,
+            &test_user(
+                "Watcher:Post:RecoverMentionNotif:Bob",
+                "test_post_put_recovery_sends_a_missing_mention_notification",
+            ),
+        )
+        .await?;
+
+    let post = short_post(format!("Hello pubky{bob_id} — a mention"));
+    let (post_id, _post_path) = test.create_post(&alice_kp, &post).await?;
+
+    // The post is in the graph, but neither its Redis state nor Bob's
+    // notification was written.
+    clear_notifications(&bob_id).await?;
+    simulate_partial_put_failure_root(&alice_id, &post_id).await?;
+
+    for attempt in ["first", "second"] {
+        handlers::post::sync_put(
+            post.clone(),
+            post_uri_builder(alice_id.clone(), post_id.clone()),
+            pubky_id(&alice_id)?,
+            post_id.clone(),
+            &default_ingestor_tests(),
+        )
+        .await?;
+        assert_notification_count(
+            &bob_id,
+            1,
+            &format!("one mention notif after the {attempt} recovery"),
+        )
+        .await;
+        // Force the recovery branch again for the second attempt.
+        simulate_partial_put_failure_root(&alice_id, &post_id).await?;
+    }
+
+    test.cleanup_user(&alice_kp).await?;
+    test.cleanup_user(&bob_kp).await?;
+    Ok(())
+}
+
+/// Like the mention case, for the parent author's reply notification.
+#[tokio_shared_rt::test(shared)]
+async fn test_post_put_recovery_sends_a_missing_reply_notification() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+
+    let alice_kp = Keypair::random();
+    let alice_id = test
+        .create_user(
+            &alice_kp,
+            &test_user(
+                "Watcher:Post:RecoverReplyNotif:Alice",
+                "test_post_put_recovery_sends_a_missing_reply_notification",
+            ),
+        )
+        .await?;
+    let bob_kp = Keypair::random();
+    let bob_id = test
+        .create_user(
+            &bob_kp,
+            &test_user(
+                "Watcher:Post:RecoverReplyNotif:Bob",
+                "test_post_put_recovery_sends_a_missing_reply_notification",
+            ),
+        )
+        .await?;
+
+    let parent_post = short_post("Watcher:Post:RecoverReplyNotif:Parent");
+    let (parent_id, _parent_path) = test.create_post(&alice_kp, &parent_post).await?;
+    let reply_post = short_reply(
+        "Watcher:Post:RecoverReplyNotif:Reply",
+        post_uri_builder(alice_id.clone(), parent_id.clone()),
+    );
+    let (reply_id, _reply_path) = test.create_post(&bob_kp, &reply_post).await?;
+
+    clear_notifications(&alice_id).await?;
+    let parent_post_key: &[&str; 2] = &[alice_id.as_str(), parent_id.as_str()];
+    simulate_partial_put_failure_reply(&bob_id, &reply_id, parent_post_key).await?;
+
+    handlers::post::sync_put(
+        reply_post.clone(),
+        post_uri_builder(bob_id.clone(), reply_id.clone()),
+        pubky_id(&bob_id)?,
+        reply_id.clone(),
+        &default_ingestor_tests(),
+    )
+    .await?;
+
+    assert_notification_count(&alice_id, 1, "recovery sends the missing reply notif").await;
+
+    test.cleanup_user(&alice_kp).await?;
+    test.cleanup_user(&bob_kp).await?;
+    Ok(())
+}
+
+/// Like the mention case, for the reposted post author's notification.
+#[tokio_shared_rt::test(shared)]
+async fn test_post_put_recovery_sends_a_missing_repost_notification() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+
+    let alice_kp = Keypair::random();
+    let alice_id = test
+        .create_user(
+            &alice_kp,
+            &test_user(
+                "Watcher:Post:RecoverRepostNotif:Alice",
+                "test_post_put_recovery_sends_a_missing_repost_notification",
+            ),
+        )
+        .await?;
+    let bob_kp = Keypair::random();
+    let bob_id = test
+        .create_user(
+            &bob_kp,
+            &test_user(
+                "Watcher:Post:RecoverRepostNotif:Bob",
+                "test_post_put_recovery_sends_a_missing_repost_notification",
+            ),
+        )
+        .await?;
+
+    let parent_post = short_post("Watcher:Post:RecoverRepostNotif:Parent");
+    let (parent_id, _parent_path) = test.create_post(&alice_kp, &parent_post).await?;
+    let repost = short_repost(
+        "Watcher:Post:RecoverRepostNotif:Repost",
+        post_uri_builder(alice_id.clone(), parent_id.clone()),
+    );
+    let (repost_id, _repost_path) = test.create_post(&bob_kp, &repost).await?;
+
+    clear_notifications(&alice_id).await?;
+    simulate_partial_put_failure_root(&bob_id, &repost_id).await?;
+
+    handlers::post::sync_put(
+        repost.clone(),
+        post_uri_builder(bob_id.clone(), repost_id.clone()),
+        pubky_id(&bob_id)?,
+        repost_id.clone(),
+        &default_ingestor_tests(),
+    )
+    .await?;
+
+    assert_notification_count(&alice_id, 1, "recovery sends the missing repost notif").await;
 
     test.cleanup_user(&alice_kp).await?;
     test.cleanup_user(&bob_kp).await?;
