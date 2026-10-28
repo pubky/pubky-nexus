@@ -461,7 +461,7 @@ async fn event_routes_filters_rating_sorts_and_invalid_queries() -> Result<()> {
 #[tokio_shared_rt::test(shared)]
 async fn rating_streams_list_each_resource_once_and_reject_reply_sources() -> Result<()> {
     host_url().await;
-    let label = format!("rated{}", Utc::now().timestamp_micros());
+    let label = format!("rt{}", Utc::now().timestamp_micros() % 1_000_000_000);
     let users: Vec<String> = (0..2)
         .map(|_| pubky::Keypair::random().public_key().to_z32())
         .collect();
@@ -542,6 +542,132 @@ async fn rating_streams_list_each_resource_once_and_reject_reply_sources() -> Re
             "MATCH (r:Resource) WHERE r.id IN $ids DETACH DELETE r WITH count(*) AS n MATCH (u:User) WHERE u.id IN $users DETACH DELETE u",
         )
         .param("ids", ids)
+        .param("users", users),
+    )
+    .await?;
+    Ok(())
+}
+
+/// Attendance of an override counts series answers to its master, leaves out deleted
+/// profiles, pages in FIFO order with the waitlist placed by earlier parties, and a
+/// deleted author's event is gone.
+#[tokio_shared_rt::test(shared)]
+async fn override_attendance_pages_live_attendees_and_hides_deleted_authors() -> Result<()> {
+    host_url().await;
+    let users: Vec<String> = (0..4)
+        .map(|_| pubky::Keypair::random().public_key().to_z32())
+        .collect();
+    let (author, early, deleted, late) = (&users[0], &users[1], &users[2], &users[3]);
+    let new_id = || {
+        pubky_social_specs::PubkySocialPost::new(
+            "".into(),
+            pubky_social_specs::PubkySocialPostKind::Note,
+            None,
+            None,
+            vec![],
+        )
+        .create_id()
+    };
+    let (master_id, override_id) = (new_id(), new_id());
+    let master = pubky_social_specs::post_uri_builder(author.clone(), master_id.clone());
+    let replacement = pubky_social_specs::post_uri_builder(author.clone(), override_id.clone());
+    let recurrence = "2030-01-07T10:00:00";
+    exec_single_row(
+        Query::new(
+            "test_override_event",
+            r"
+        UNWIND $users AS id CREATE (:User {id:id})
+        WITH count(*) AS n
+        MATCH (a:User {id:$author}) SET a.deleted=false
+        CREATE (a)-[:AUTHORED]->(:Post {id:$master_id,uri:$master,kind:'event',event_content:'{}',policy:'open',capacity:1,waitlist:true,indexed_at:1})
+        CREATE (a)-[:AUTHORED]->(:Post {id:$override_id,uri:$replacement,kind:'event',event_content:'{}',event_master:$master,policy:'open',capacity:1,waitlist:true,indexed_at:2})
+        CREATE (:EventOccurrence {master:$master,recurrence_id:$recurrence,post_uri:$replacement,family:$master,start_at:1,end_at:2,status:'confirmed'})
+    ",
+        )
+        .param("users", users.clone())
+        .param("author", author.clone())
+        .param("master_id", master_id.clone())
+        .param("override_id", override_id.clone())
+        .param("master", master.clone())
+        .param("replacement", replacement.clone())
+        .param("recurrence", recurrence),
+    )
+    .await?;
+    // Series answers to the master, in FIFO order: early, the deleted profile, late.
+    for (at, user) in [(10, early), (20, deleted), (30, late)] {
+        let id = new_id();
+        exec_single_row(
+            Query::new(
+                "test_override_rsvp",
+                "MATCH (u:User {id:$user}) CREATE (u)-[:AUTHORED]->(:Post {id:$id,uri:$uri,kind:'rsvp',social_kind:'rsvp',rsvp_target:$master,rsvp_status:'accepted',guests:0,indexed_at:$at,social_updated_at:$at})",
+            )
+            .param("user", user.clone())
+            .param("id", id.clone())
+            .param("uri", pubky_social_specs::post_uri_builder(user.clone(), id))
+            .param("master", master.clone())
+            .param("at", at),
+        )
+        .await?;
+    }
+    exec_single_row(
+        Query::new(
+            "test_delete_profile",
+            "MATCH (u:User {id:$id}) SET u.deleted=true",
+        )
+        .param("id", deleted.clone()),
+    )
+    .await?;
+    let authors = |page: serde_json::Value| -> Vec<(String, bool)> {
+        page.as_array()
+            .unwrap()
+            .iter()
+            .map(|a| {
+                (
+                    a["author"].as_str().unwrap().to_string(),
+                    a["waitlisted"].as_bool().unwrap(),
+                )
+            })
+            .collect()
+    };
+    let expected = vec![(early.clone(), false), (late.clone(), true)];
+    for query in [String::new(), format!("?recurrence_id={recurrence}")] {
+        let page = get_request(&format!(
+            "/v0/event/{author}/{override_id}/attendees{query}"
+        ))
+        .await?;
+        assert_eq!(authors(page), expected, "override attendees {query}");
+    }
+    let page = get_request(&format!(
+        "/v0/event/{author}/{master_id}/attendees?recurrence_id={recurrence}&skip=1&limit=1"
+    ))
+    .await?;
+    assert_eq!(authors(page), expected[1..], "paged after the first party");
+    let page = get_request(&format!(
+        "/v0/event/{author}/{master_id}/attendees?status=accepted&limit=1"
+    ))
+    .await?;
+    assert_eq!(authors(page), expected[..1]);
+
+    exec_single_row(
+        Query::new(
+            "test_delete_author",
+            "MATCH (u:User {id:$id}) SET u.deleted=true",
+        )
+        .param("id", author.clone()),
+    )
+    .await?;
+    for path in [
+        format!("/v0/event/{author}/{master_id}"),
+        format!("/v0/event/{author}/{master_id}/attendees"),
+    ] {
+        invalid_get_request(&path, StatusCode::NOT_FOUND).await?;
+    }
+    exec_single_row(
+        Query::new(
+            "test_override_cleanup",
+            "MATCH (o:EventOccurrence {master:$master}) DETACH DELETE o WITH count(*) AS n MATCH (u:User) WHERE u.id IN $users OPTIONAL MATCH (u)-[:AUTHORED]->(p) DETACH DELETE p,u",
+        )
+        .param("master", master)
         .param("users", users),
     )
     .await?;

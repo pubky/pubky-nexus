@@ -393,9 +393,14 @@ async fn rebuild_snapshot(root: &str, now: DateTime<Utc>) -> ModelResult<bool> {
             result.insert(key.clone(), occurrence(root, key, post, event, start)?);
         }
     }
+    let key_set: std::collections::HashSet<&String> = keys.iter().collect();
     // Ascending indexed_at/id means the last override wins deterministically.
     for (post, event) in posts.iter().zip(&events).filter(|(p, _)| p.uri != root) {
-        if let Some(key) = event.recurrence_id.as_ref().filter(|k| keys.contains(k)) {
+        if let Some(key) = event
+            .recurrence_id
+            .as_ref()
+            .filter(|k| key_set.contains(*k))
+        {
             result.insert(
                 key.clone(),
                 occurrence(
@@ -426,10 +431,18 @@ async fn rebuild_snapshot(root: &str, now: DateTime<Utc>) -> ModelResult<bool> {
         .collect();
     // The family snapshot is compared under a per-family graph write lock. A racing source
     // change retries instead of publishing an older calculation over a newer one.
-    let snapshot = posts
+    // Ordered by URI on both sides, so the lock check is one list comparison.
+    let mut snapshot = posts
         .iter()
-        .map(|p| serde_json::json!({"uri":p.uri,"content":p.content}))
+        .map(|p| {
+            (
+                p.uri.clone(),
+                serde_json::json!({"uri":p.uri,"content":p.content}),
+            )
+        })
         .collect::<Vec<_>>();
+    snapshot.sort_by(|a, b| a.0.cmp(&b.0));
+    let snapshot = snapshot.into_iter().map(|(_, v)| v).collect::<Vec<_>>();
     let rows = occurrences
         .iter()
         .map(|o| serde_json::to_value(o).unwrap())
@@ -439,9 +452,9 @@ async fn rebuild_snapshot(root: &str, now: DateTime<Utc>) -> ModelResult<bool> {
         SET series.lock=coalesce(series.lock,0)+1
         WITH series
         OPTIONAL MATCH (p:Post) WHERE p.event_content IS NOT NULL AND ((p.uri=$root AND p.event_master IS NULL) OR p.event_master=$root)
-        WITH series, collect({uri:p.uri,content:p.event_content}) AS current
-        WHERE size([x IN current WHERE x.uri IS NOT NULL])=size($snapshot)
-          AND all(x IN $snapshot WHERE x IN current)
+        WITH series, p ORDER BY p.uri
+        WITH series, [x IN collect({uri:p.uri,content:p.event_content}) WHERE x.uri IS NOT NULL] AS current
+        WHERE current = $snapshot
         WITH series,coalesce(series.source,'')<>$source AS source_changed
         SET series.generated_keys=$keys,series.rolled_at=$now,series.source=$source
         WITH series,source_changed
@@ -535,16 +548,24 @@ pub async fn maintain_occurrences(now: DateTime<Utc>) -> ModelResult<()> {
 pub async fn prune_orphan_rsvps() -> ModelResult<()> {
     // Drop only the attendance projection, preserving the source reply and its notification.
     // generated_keys spans the full capped lifetime, so rolling windows never prune valid RSVPs.
-    exec_single_row(Query::new(
-        "rsvp_orphans",
-        r"
+    // Batched so one run never holds the whole graph's orphans in one transaction.
+    loop {
+        let row = fetch_row_from_graph(Query::new(
+            "rsvp_orphans",
+            r"
         MATCH (p:Post) WHERE p.social_kind='rsvp' AND p.recurrence_id IS NOT NULL
         OPTIONAL MATCH (target:Post {uri:p.rsvp_target})
         OPTIONAL MATCH (s:EventSeries {uri:coalesce(target.event_master,target.uri)})
         WITH p,s WHERE s IS NOT NULL AND NOT p.recurrence_id IN coalesce(s.generated_keys,[])
+        WITH p LIMIT 1000
         REMOVE p.rsvp_status,p.rsvp_target,p.recurrence_id
+        RETURN count(p) AS pruned
     ",
-    ))
-    .await?;
-    Ok(())
+        ))
+        .await?;
+        let pruned: i64 = row.map(|r| r.get("pruned")).transpose()?.unwrap_or(0);
+        if pruned < 1000 {
+            return Ok(());
+        }
+    }
 }

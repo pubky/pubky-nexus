@@ -10,8 +10,8 @@ pub use store::{
     validate_parent,
 };
 pub use views::{
-    attendees, event_view, event_view_with_options, rating_summary, stream, Attendee, EventCounts,
-    EventQuery, EventView, EventViewOptions, RatingSummary,
+    attendees, event_uri, event_view, event_view_with_options, rating_summary, stream, Attendee,
+    EventCounts, EventQuery, EventView, EventViewOptions, RatingSummary,
 };
 
 use crate::models::{

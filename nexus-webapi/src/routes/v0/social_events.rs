@@ -192,14 +192,9 @@ pub async fn attendees(
     {
         return Err(Error::invalid_input("Invalid RSVP status"));
     }
-    let uri = pubky_social_specs::post_uri_builder(author.to_string(), id.to_string());
-    let key = nexus_common::models::ResourceKey {
-        owner_id: author.clone(),
-        resource_id: id.to_string(),
-    };
-    if social_event::validate_parent(&key).await? != Some(true) {
+    let Some(uri) = social_event::event_uri(&author, &id).await? else {
         return Err(Error::post_not_found(author, id));
-    }
+    };
     Ok(Json(
         social_event::attendees(
             &uri,
