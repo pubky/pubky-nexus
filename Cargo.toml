@@ -24,6 +24,7 @@ redis = "1.0.4"
 opentelemetry = "0.33"
 opentelemetry_sdk = { version = "0.33", features = ["rt-tokio"] }
 pubky = "0.10.0"
+# TODO before merge: replace the git pin with the released version and rerun the tests.
 pubky-social-specs = { git = "https://github.com/pubky/pubky-social-specs", rev = "b2916840c610cece6174f96a4d364df600988d73", features = ["openapi"] }
 pubky-testnet = "0.10.0"
 serde = { version = "1.0.219", features = ["derive"] }
