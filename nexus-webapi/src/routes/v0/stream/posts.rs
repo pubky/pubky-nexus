@@ -274,6 +274,17 @@ impl PostStreamQuery {
                 "`kind` and `exclude_kinds` are not supported with `source=post_replies` or `source=author_replies`",
             ));
         }
+        // Rating order is computed on the graph too, so it would hit the same
+        // parents-only fallback.
+        if matches!(
+            self.source,
+            StreamSourceKind::PostReplies | StreamSourceKind::AuthorReplies
+        ) && self.sorting == Some(StreamSorting::Rating)
+        {
+            return Err(Error::invalid_input(
+                "`sorting=rating` is not supported with `source=post_replies` or `source=author_replies`",
+            ));
+        }
         // Every result is a Collection, so a kind filter can only no-op or
         // silently empty the page.
         if matches!(self.source, StreamSourceKind::PostCollections)
@@ -314,7 +325,7 @@ impl PostStreamQuery {
         ("observer_id" = Option<PubkyId>, Query, description = "Observer Pubky ID. The central point for streams with Reach"),
         ("author_id" = Option<PubkyId>, Query, description = "Filter posts by an specific author User ID"),
         ("post_id" = Option<PostId>, Query, description = "This parameter is needed when we want to retrieve the replies stream for a post"),
-        ("sorting" = Option<StreamSorting>, Query, description = "Sort method (`timeline` or `total_engagement`). Ties are broken by post id; pagination across equal scores is best-effort."),
+        ("sorting" = Option<StreamSorting>, Query, description = "Sort method (`timeline`, `total_engagement` or `rating`, the 1–10 rating average; `rating` is rejected for `source=post_replies` and `source=author_replies`). Ties are broken by post id; pagination across equal scores is best-effort."),
         ("order" = Option<SortOrder>, Query, description = "Ordering of response list. Either 'ascending' or 'descending'. Defaults to descending."),
         ("tags" = Option<Tags>, Query, description = "Filter by a list of comma-separated tags (max 5). E.g.,`&tags=dev,free,opensource`. Only posts matching at least one of the tags will be returned."),
         ("depth" = Option<u8>, Query, description = "WoT traversal depth. For `source=wot`: 1-3, default 2. For `source=wot_domain`: 0-3, default 2, where `depth=0` is the observer-only (\"Me\") trust set (posts by authors the observer tagged directly, no follow traversal). `depth=0` is invalid for `source=wot`. Ignored for other sources."),
@@ -391,7 +402,7 @@ pub async fn stream_posts_handler(
         ("observer_id" = Option<PubkyId>, Query, description = "Observer Pubky ID. The central point for streams with Reach"),
         ("author_id" = Option<PubkyId>, Query, description = "Filter posts by an specific author User ID"),
         ("post_id" = Option<PostId>, Query, description = "This parameter is needed when we want to retrieve the replies stream for a post"),
-        ("sorting" = Option<StreamSorting>, Query, description = "Sort method (`timeline` or `total_engagement`). Ties are broken by post id; pagination across equal scores is best-effort."),
+        ("sorting" = Option<StreamSorting>, Query, description = "Sort method (`timeline`, `total_engagement` or `rating`, the 1–10 rating average; `rating` is rejected for `source=post_replies` and `source=author_replies`). Ties are broken by post id; pagination across equal scores is best-effort."),
         ("order" = Option<SortOrder>, Query, description = "Ordering of response list. Either 'ascending' or 'descending'. Defaults to descending."),
         ("tags" = Option<Tags>, Query, description = "Filter by a list of comma-separated tags (max 5). E.g.,`&tags=dev,free,opensource`. Only posts matching at least one of the tags will be returned."),
         ("depth" = Option<u8>, Query, description = "WoT traversal depth. For `source=wot`: 1-3, default 2. For `source=wot_domain`: 0-3, default 2, where `depth=0` is the observer-only (\"Me\") trust set (posts by authors the observer tagged directly, no follow traversal). `depth=0` is invalid for `source=wot`. Ignored for other sources."),

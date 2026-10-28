@@ -803,7 +803,9 @@ pub fn resource_stream(
 
     let score_expr = match sorting {
         ResourceSorting::Timeline => "MAX(t.indexed_at)",
-        ResourceSorting::Rating => "coalesce(r.rating_avg,0.0)",
+        // Aggregated like the timeline score, so a resource matched through several
+        // tag edges is one row.
+        ResourceSorting::Rating => "max(coalesce(r.rating_avg,0.0))",
     };
     cypher.push_str(&format!("WITH r, {score_expr} AS score\n"));
 
