@@ -381,7 +381,7 @@ async fn put_sync_user(
     }
 }
 
-/// Deletes the tag `key` names when no event address is at hand (moderation): see [`del_at`].
+/// Deletes the tag `key` names when no file address is at hand: see [`del_at`].
 pub async fn del(key: ResourceKey) -> Result<(), EventProcessorError> {
     let tag_uri = format!(
         "pubky://{}/pub/pubky.app/tags/{}",
@@ -392,7 +392,8 @@ pub async fn del(key: ResourceKey) -> Result<(), EventProcessorError> {
 
 /// Deletes the tag `key` names, whichever folder wrote it: a tag is one edge per tagger,
 /// target and label, found by its id alone. A resource tag's feed del is keyed by the
-/// address its put used; `tag_uri`, the deleted file's address, is the fallback.
+/// address stored on the edge, which its put used; `tag_uri`, the address of the file
+/// being deleted, keys it once the edge is gone (a retry).
 #[tracing::instrument(
     name = "tag.del",
     skip_all,
@@ -425,6 +426,9 @@ pub async fn del_at(key: ResourceKey, tag_uri: &str) -> Result<(), EventProcesso
     let label: String = row
         .get("label")
         .map_err(|e| EventProcessorError::generic(format!("Missing label in delete_tag: {e}")))?;
+    // The feed's put used the address stored on the edge; key the del the same way.
+    let stored_uri: Option<String> = row.get("tag_uri").unwrap_or(None);
+    let tag_uri = stored_uri.as_deref().unwrap_or(tag_uri);
 
     // 2. Redis cleanup (guarded by tagger_in_index where non-idempotent)
     // Post-count cache to invalidate AFTER the graph edge is deleted (invalidating
