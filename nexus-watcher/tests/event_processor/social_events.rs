@@ -1,4 +1,4 @@
-use super::posts::utils::test_user;
+use super::posts::utils::v1_test_user;
 use super::utils::watcher::{generate_post_id, WatcherTest};
 use anyhow::Result;
 use chrono::{Duration, Utc};
@@ -14,6 +14,17 @@ use nexus_common::{
 };
 use pubky::{Keypair, ResourcePath};
 use serde_json::{json, Value};
+
+async fn create_v1_user(
+    test: &mut WatcherTest,
+    key: &Keypair,
+    user: &pubky_social_specs::PubkySocialUser,
+) -> Result<String> {
+    test.register_user(key).await?;
+    test.put_v1_profile(key, user).await?;
+    super::utils::watcher::rank_user(&key.public_key().to_z32()).await?;
+    Ok(key.public_key().to_z32())
+}
 
 fn content() -> Value {
     json!({"title":"CalendarNativeTitle","description":"NativeDescriptionUnique","start":(Utc::now()+Duration::days(2)).format("%Y-%m-%dT%H:%M:%S").to_string(),"timeZone":"UTC","duration":"PT1H","locations":[{"uri":"https://example.com/venue"}],"attendance":{"policy":"open","capacity":2,"waitlist":true}})
@@ -53,17 +64,11 @@ fn query(author: &str) -> EventQuery {
 async fn native_event_rsvps_guests_retries_and_change_notifications() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
     let owner = Keypair::random();
-    let author = test
-        .create_user(&owner, &test_user("Native event owner", ""))
-        .await?;
+    let author = create_v1_user(&mut test, &owner, &v1_test_user("Native event owner", "")).await?;
     let alice = Keypair::random();
-    let a = test
-        .create_user(&alice, &test_user("Native attendee", ""))
-        .await?;
+    let a = create_v1_user(&mut test, &alice, &v1_test_user("Native attendee", "")).await?;
     let bob = Keypair::random();
-    let b = test
-        .create_user(&bob, &test_user("Native requester", ""))
-        .await?;
+    let b = create_v1_user(&mut test, &bob, &v1_test_user("Native requester", "")).await?;
     let (_, _, cursor) = ResourceChange::get_from_index(0, 0).await?;
     let mut body = content();
     let (id, event_path, uri) = put(&mut test, &owner, "event", &body, None).await?;
@@ -244,9 +249,7 @@ async fn native_event_rsvps_guests_retries_and_change_notifications() -> Result<
 async fn recurrence_override_delete_restore_orphan_and_weekly_rsvp_cleanup() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
     let key = Keypair::random();
-    let author = test
-        .create_user(&key, &test_user("Native series", ""))
-        .await?;
+    let author = create_v1_user(&mut test, &key, &v1_test_user("Native series", "")).await?;
     let mut master = content();
     master["recurrenceRules"] = json!([{"frequency":"daily","count":3}]);
     let (id, master_path, uri) = put(&mut test, &key, "event", &master, None).await?;
@@ -291,9 +294,12 @@ async fn recurrence_override_delete_restore_orphan_and_weekly_rsvp_cleanup() -> 
         .iter()
         .all(|o| o.post_uri == uri));
     let attendee = Keypair::random();
-    let a = test
-        .create_user(&attendee, &test_user("Occurrence attendee", ""))
-        .await?;
+    let a = create_v1_user(
+        &mut test,
+        &attendee,
+        &v1_test_user("Occurrence attendee", ""),
+    )
+    .await?;
     put(
         &mut test,
         &attendee,
@@ -372,12 +378,9 @@ async fn recurrence_override_delete_restore_orphan_and_weekly_rsvp_cleanup() -> 
 async fn ratings_newest_per_author_resource_and_post_aggregates() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
     let key = Keypair::random();
-    let author = test
-        .create_user(&key, &test_user("Native ratings", ""))
-        .await?;
+    let author = create_v1_user(&mut test, &key, &v1_test_user("Native ratings", "")).await?;
     let other = Keypair::random();
-    test.create_user(&other, &test_user("Other rater", ""))
-        .await?;
+    create_v1_user(&mut test, &other, &v1_test_user("Other rater", "")).await?;
     let uri = format!("https://example.com/rating/{author}");
     let (_, first_path, _) =
         put(&mut test, &key, "rating", &json!({"rating":2}), Some(&uri)).await?;
@@ -437,9 +440,7 @@ async fn ratings_newest_per_author_resource_and_post_aggregates() -> Result<()> 
 async fn override_rsvp_survives_prune_until_its_master_key_is_removed() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
     let owner = Keypair::random();
-    let author = test
-        .create_user(&owner, &test_user("Override RSVP", ""))
-        .await?;
+    let author = create_v1_user(&mut test, &owner, &v1_test_user("Override RSVP", "")).await?;
     let mut master = content();
     master["recurrenceRules"] = json!([{"frequency":"daily","count":2}]);
     let (id, master_path, uri) = put(&mut test, &owner, "event", &master, None).await?;
@@ -487,9 +488,7 @@ async fn plain_notes_skip_projection_and_native_kind_cleanup_can_resume() -> Res
     use nexus_common::{db::exec_single_row, models::post::PostKind};
     let mut test = WatcherTest::setup(None).await?;
     let owner = Keypair::random();
-    let author = test
-        .create_user(&owner, &test_user("Projection state", ""))
-        .await?;
+    let author = create_v1_user(&mut test, &owner, &v1_test_user("Projection state", "")).await?;
     let note_id = generate_post_id();
     let note_path = path(&note_id);
     for _ in 0..2 {
@@ -589,9 +588,12 @@ async fn rating_waits_for_missing_post_then_replay_updates_its_view() -> Result<
     use nexus_watcher::errors::EventProcessorError;
     let mut test = WatcherTest::setup(None).await?;
     let owner = Keypair::random();
-    let author = test
-        .create_user(&owner, &test_user("Delayed rating target", ""))
-        .await?;
+    let author = create_v1_user(
+        &mut test,
+        &owner,
+        &v1_test_user("Delayed rating target", ""),
+    )
+    .await?;
     let target_id = generate_post_id();
     let target_path = path(&target_id);
     let uri = pubky_social_specs::post_uri_builder(author.clone(), target_id.clone());
@@ -689,13 +691,9 @@ async fn projection_replay_recovers_graph_commit_and_notification_outbox() -> Re
     use nexus_common::models::post::PostKind;
     let mut test = WatcherTest::setup(None).await?;
     let owner = Keypair::random();
-    let author = test
-        .create_user(&owner, &test_user("Recovery owner", ""))
-        .await?;
+    let author = create_v1_user(&mut test, &owner, &v1_test_user("Recovery owner", "")).await?;
     let attendee = Keypair::random();
-    let a = test
-        .create_user(&attendee, &test_user("Recovery attendee", ""))
-        .await?;
+    let a = create_v1_user(&mut test, &attendee, &v1_test_user("Recovery attendee", "")).await?;
     let id = generate_post_id();
     let event_path = path(&id);
     let uri = pubky_social_specs::post_uri_builder(author.clone(), id.clone());
@@ -784,9 +782,7 @@ async fn projection_replay_recovers_graph_commit_and_notification_outbox() -> Re
 async fn invalid_native_payloads_and_non_event_rsvp_parent_are_dropped() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
     let owner = Keypair::random();
-    let author = test
-        .create_user(&owner, &test_user("Validation owner", ""))
-        .await?;
+    let author = create_v1_user(&mut test, &owner, &v1_test_user("Validation owner", "")).await?;
     let note_id = generate_post_id();
     let note_path = path(&note_id);
     test.put(
@@ -848,9 +844,7 @@ async fn invalid_native_payloads_and_non_event_rsvp_parent_are_dropped() -> Resu
 async fn daily_window_rolls_forward_without_pruning_future_rsvps() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
     let owner = Keypair::random();
-    let author = test
-        .create_user(&owner, &test_user("Rolling calendar", ""))
-        .await?;
+    let author = create_v1_user(&mut test, &owner, &v1_test_user("Rolling calendar", "")).await?;
     let now = Utc::now();
     let start = now.checked_add_months(chrono::Months::new(13)).unwrap();
     let mut body = content();
@@ -908,13 +902,10 @@ async fn availability_latest_by_author_and_for_recovers_on_edit_delete_and_repla
     use super::utils::watcher::retrieve_and_handle_event_line;
     let mut test = WatcherTest::setup(None).await?;
     let key = Keypair::random();
-    let author = test
-        .create_user(&key, &test_user("Availability owner", ""))
-        .await?;
+    let author = create_v1_user(&mut test, &key, &v1_test_user("Availability owner", "")).await?;
     let other = Keypair::random();
-    let other_author = test
-        .create_user(&other, &test_user("Other schedule", ""))
-        .await?;
+    let other_author =
+        create_v1_user(&mut test, &other, &v1_test_user("Other schedule", "")).await?;
     let target = format!("https://example.com/bookable/{author}");
     let own_target = format!("pubky://{author}");
     let base = json!({"timeZone":"UTC","horizonDays":60,"available":[{"start":(Utc::now()+Duration::days(1)).format("%Y-%m-%dT%H:%M:%S").to_string(),"duration":"PT8H","capacity":2}],"busy":[]});
@@ -1001,13 +992,10 @@ async fn event_filters_follow_effective_location_status_and_occurrence_rsvp() ->
     use nexus_common::universal_tag::normalize::resource_id;
     let mut test = WatcherTest::setup(None).await?;
     let key = Keypair::random();
-    let author = test
-        .create_user(&key, &test_user("Filtered series", ""))
-        .await?;
+    let author = create_v1_user(&mut test, &key, &v1_test_user("Filtered series", "")).await?;
     let viewer = Keypair::random();
-    let viewer_id = test
-        .create_user(&viewer, &test_user("Filtered attendee", ""))
-        .await?;
+    let viewer_id =
+        create_v1_user(&mut test, &viewer, &v1_test_user("Filtered attendee", "")).await?;
     let first_location = format!("https://example.com/place/{author}/one");
     let second_location = format!("https://example.com/place/{author}/two");
     let mut master = content();
@@ -1108,9 +1096,7 @@ async fn native_parent_aliases_and_rating_cleanup_use_stable_keys() -> Result<()
     };
     let mut test = WatcherTest::setup(None).await?;
     let key = Keypair::random();
-    let author = test
-        .create_user(&key, &test_user("Stable parent keys", ""))
-        .await?;
+    let author = create_v1_user(&mut test, &key, &v1_test_user("Stable parent keys", "")).await?;
     let (id, event_path, uri) = put(&mut test, &key, "event", &content(), None).await?;
     let alias = pubky_social_specs::legacy_v0::post_uri_builder(author.clone(), id.clone());
     let (_, rating_path, _) = put(
@@ -1210,7 +1196,8 @@ async fn native_parent_aliases_and_rating_cleanup_use_stable_keys() -> Result<()
         .iter()
         .any(|(key, _)| key == &format!("{author}:{id}")));
     test.del(&key, &rating_path).await?;
-    test.cleanup_user(&key).await?;
+    test.del(&key, &"/pub/social/v1/profile.json".parse()?)
+        .await?;
     Ok(())
 }
 
@@ -1219,9 +1206,7 @@ async fn missing_series_recovery_preserves_occurrence_rsvp() -> Result<()> {
     use nexus_common::db::exec_single_row;
     let mut test = WatcherTest::setup(None).await?;
     let key = Keypair::random();
-    let author = test
-        .create_user(&key, &test_user("Series recovery", ""))
-        .await?;
+    let author = create_v1_user(&mut test, &key, &v1_test_user("Series recovery", "")).await?;
     let mut body = content();
     body["recurrenceRules"] = json!([{"frequency":"weekly", "count":3}]);
     let (id, event_path, uri) = put(&mut test, &key, "event", &body, None).await?;
@@ -1266,7 +1251,8 @@ async fn missing_series_recovery_preserves_occurrence_rsvp() -> Result<()> {
     );
     test.del(&key, &rsvp_path).await?;
     test.del(&key, &event_path).await?;
-    test.cleanup_user(&key).await?;
+    test.del(&key, &"/pub/social/v1/profile.json".parse()?)
+        .await?;
     Ok(())
 }
 
@@ -1278,9 +1264,12 @@ async fn resource_view_uses_its_own_rating_when_post_uri_matches() -> Result<()>
     };
     let mut test = WatcherTest::setup(None).await?;
     let key = Keypair::random();
-    let _author = test
-        .create_user(&key, &test_user("Independent rating view", ""))
-        .await?;
+    let _author = create_v1_user(
+        &mut test,
+        &key,
+        &v1_test_user("Independent rating view", ""),
+    )
+    .await?;
     let (_, path, uri) = put(&mut test, &key, "event", &content(), None).await?;
     let rid = resource_id(&uri);
     exec_single_row(Query::new("separate_rating_fixture", "MATCH (p:Post {uri:$uri}) SET p.rating_avg=9.0,p.rating_count=4 CREATE (:Resource {id:$id,uri:$uri,scheme:'pubky',indexed_at:1,rating_avg:2.0,rating_count:3})").param("uri",uri.clone()).param("id",rid.clone())).await?;
@@ -1298,6 +1287,7 @@ async fn resource_view_uses_its_own_rating_when_post_uri_matches() -> Result<()>
     )
     .await?;
     test.del(&key, &path).await?;
-    test.cleanup_user(&key).await?;
+    test.del(&key, &"/pub/social/v1/profile.json".parse()?)
+        .await?;
     Ok(())
 }
