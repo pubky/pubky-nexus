@@ -500,7 +500,7 @@ impl ApiVersion for V1 {
 
     const SOCIAL_EVENTS: bool = true;
     const POST_SORTING: &'static str =
-        "Sort method (`timeline`, `total_engagement` or `rating`, the 1–10 rating average).";
+        "Sort method (`timeline`, `total_engagement` or `rating`, the 1–10 rating average; `rating` is rejected for `source=post_replies` and `source=author_replies`).";
     const RESOURCE_SORTING: &'static str = "timeline (default) or rating (1–10 average)";
     const RESOURCE_START_SCORE: &'static str =
         "the latest tag timestamp for timeline, or the fractional average for rating.";
