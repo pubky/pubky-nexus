@@ -455,3 +455,95 @@ async fn event_routes_filters_rating_sorts_and_invalid_queries() -> Result<()> {
     exec_single_row(Query::new("test_events_cleanup","MATCH (u:User) WHERE u.id IN [$author,$viewer] OPTIONAL MATCH (u)-[:AUTHORED]->(p) DETACH DELETE p,u").param("author",author).param("viewer",viewer)).await?;
     Ok(())
 }
+
+/// A rating-sorted resource stream filtered by tag lists each resource once, however many
+/// taggers matched it; reply streams reject rating order instead of returning parent posts.
+#[tokio_shared_rt::test(shared)]
+async fn rating_streams_list_each_resource_once_and_reject_reply_sources() -> Result<()> {
+    host_url().await;
+    let label = format!("rated{}", Utc::now().timestamp_micros());
+    let users: Vec<String> = (0..2)
+        .map(|_| pubky::Keypair::random().public_key().to_z32())
+        .collect();
+    for user in &users {
+        exec_single_row(
+            Query::new("test_rating_tagger", "CREATE (:User {id:$id})").param("id", user.clone()),
+        )
+        .await?;
+    }
+    let mut ids = Vec::new();
+    for (rating, taggers) in [(6.5, &users[..]), (3.0, &users[..1])] {
+        let uri = format!("https://example.com/rating-dedup/{label}/{rating}");
+        let id = nexus_common::universal_tag::normalize::resource_id(&uri);
+        exec_single_row(
+            Query::new(
+                "test_rating_resource",
+                "CREATE (:Resource {id:$id,uri:$uri,scheme:'https',indexed_at:1,rating_avg:$rating,rating_count:1})",
+            )
+            .param("id", id.clone())
+            .param("uri", uri)
+            .param("rating", rating),
+        )
+        .await?;
+        for tagger in taggers {
+            exec_single_row(
+                Query::new(
+                    "test_rating_tag",
+                    "MATCH (u:User {id:$user}), (r:Resource {id:$id}) CREATE (u)-[:TAGGED {label:$label,app:'rating.test',indexed_at:1}]->(r)",
+                )
+                .param("user", tagger.clone())
+                .param("id", id.clone())
+                .param("label", label.clone()),
+            )
+            .await?;
+        }
+        ids.push(id);
+    }
+    for filter in [format!("tags={label}"), "app=rating.test".to_string()] {
+        let page = get_request(&format!(
+            "/v0/stream/resources/ids?sorting=rating&{filter}&limit=100"
+        ))
+        .await?;
+        let listed: Vec<String> = page["resource_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|id| id.as_str().unwrap().to_string())
+            .filter(|id| ids.contains(id))
+            .collect();
+        assert_eq!(listed, ids, "{filter}: once each, highest rating first");
+    }
+    let post_id = pubky_social_specs::PubkySocialPost::new(
+        "".into(),
+        pubky_social_specs::PubkySocialPostKind::Note,
+        None,
+        None,
+        vec![],
+    )
+    .create_id();
+    for source in [
+        format!(
+            "source=post_replies&author_id={}&post_id={post_id}",
+            users[0]
+        ),
+        format!("source=author_replies&author_id={}", users[0]),
+    ] {
+        for route in ["/v0/stream/posts", "/v0/stream/posts/keys"] {
+            invalid_get_request(
+                &format!("{route}?{source}&sorting=rating"),
+                StatusCode::BAD_REQUEST,
+            )
+            .await?;
+        }
+    }
+    exec_single_row(
+        Query::new(
+            "test_rating_cleanup",
+            "MATCH (r:Resource) WHERE r.id IN $ids DETACH DELETE r WITH count(*) AS n MATCH (u:User) WHERE u.id IN $users DETACH DELETE u",
+        )
+        .param("ids", ids)
+        .param("users", users),
+    )
+    .await?;
+    Ok(())
+}
