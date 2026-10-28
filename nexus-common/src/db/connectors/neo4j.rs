@@ -35,8 +35,16 @@ impl Neo4jConnector {
 
     /// Create and return a new connector after defining a database connection
     async fn new_connection(config: &Neo4JConfig) -> GraphResult<Self> {
-        let neo4j_graph = neo4rs::Graph::new(&config.uri, &config.user, &config.password).await?;
-        let graph = Graph::new(neo4j_graph);
+        let neo4j_config = neo4rs::ConfigBuilder::default()
+            .uri(&config.uri)
+            .user(&config.user)
+            .password(&config.password)
+            // The graph lives in the neo4j database; without this, neo4rs uses the
+            // server's default database
+            .db("neo4j")
+            .connection_timeout(config.reply_timeout())
+            .build()?;
+        let graph = Graph::new(neo4rs::Graph::connect(neo4j_config)?);
 
         // Always wrap with InstrumentedGraph to collect OpenTelemetry metrics.
         // slow_query_threshold is None when slow-query logging is disabled.
@@ -86,3 +94,46 @@ pub fn get_neo4j_graph() -> GraphResult<Arc<dyn GraphOps>> {
 }
 
 pub static NEO4J_CONNECTOR: OnceLock<Neo4jConnector> = OnceLock::new();
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Instant;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    #[tokio::test]
+    async fn reply_timeout_reaches_the_driver() {
+        // A Bolt server that agrees on 4.4, then never answers HELLO
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut handshake = [0; 20];
+            socket.read_exact(&mut handshake).await.unwrap();
+            socket.write_all(&[0, 0, 4, 4]).await.unwrap();
+            std::future::pending::<()>().await;
+        });
+
+        let config = Neo4JConfig {
+            uri: format!("bolt://{addr}"),
+            reply_timeout_secs: 1,
+            ..Default::default()
+        };
+        let connector = Neo4jConnector::new_connection(&config).await.unwrap();
+
+        let started = Instant::now();
+        let result = tokio::time::timeout(
+            Duration::from_secs(10),
+            connector.graph.run(Query::new("probe", "RETURN 1")),
+        )
+        .await
+        .expect("the 1 s reply timeout should end the wait");
+
+        assert!(
+            matches!(result, Err(neo4rs::Error::ConnectionTimedOut)),
+            "got {result:?}"
+        );
+        assert!(started.elapsed() >= Duration::from_secs(1));
+    }
+}
