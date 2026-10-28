@@ -1,17 +1,20 @@
-//! What only the watcher needs of the scope: the moderator pinned into it, and which
-//! homeservers it reads as a whole feed. The scope itself, which the API shares, lives
-//! in `nexus_common::models::scope`.
+//! What only the watcher needs of the scope: the moderator pinned into it, which
+//! homeservers it reads as a whole feed, and who a seed scope's members are. The scope
+//! itself, which the API shares, lives in `nexus_common::models::scope`.
 
 pub mod membership;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+use nexus_common::db::{fetch_key_from_graph, queries};
 use nexus_common::models::error::ModelResult;
 use nexus_common::models::scope::{scope_from_config, Scope};
 use nexus_common::models::user::{PkdnsHomeserverResolver, UserIngestor};
 use nexus_common::{ScopeConfig, WatcherConfig};
 use pubky_app_specs::PubkyId;
+use tracing::warn;
 
 /// A scope that also always includes some users, whatever the setting: the moderator,
 /// whose tags take content down, must be read on every Nexus. Pinned users never
@@ -62,8 +65,9 @@ pub fn watcher_ingestor(
 /// one by one through their own event stream, if they are in scope.
 ///
 /// For everything, the configured `homeserver`, read as it always was; for a homeserver
-/// scope, the listed ones, but none on the HS blacklist. This is the only place either
-/// is decided: the runners take the result.
+/// scope, the listed ones, but none on the HS blacklist; for a seed scope, none, as its
+/// members are spread over any homeserver. This is the only place it is decided: the
+/// runners take the result.
 pub fn full_feed_homeservers(config: &WatcherConfig) -> Vec<PubkyId> {
     match &config.stack.scope {
         ScopeConfig::Everything => vec![config.homeserver.clone()],
@@ -75,7 +79,64 @@ pub fn full_feed_homeservers(config: &WatcherConfig) -> Vec<PubkyId> {
                 .cloned()
                 .collect()
         }
+        ScopeConfig::Seed { .. } => Vec::new(),
     }
+}
+
+/// Set when a follow is indexed or removed, so a seed scope works its members out again
+/// at its next check (see the scope maintenance). Kept in memory: a start works them out
+/// anyway.
+static FOLLOWS_CHANGED: AtomicBool = AtomicBool::new(false);
+
+/// Records that a follow was indexed or removed.
+pub(crate) fn follows_changed() {
+    FOLLOWS_CHANGED.store(true, Ordering::Release);
+}
+
+/// Whether a follow changed since the last call, and clears it: one changed after this
+/// asks for the next check.
+pub(crate) fn take_follows_changed() -> bool {
+    FOLLOWS_CHANGED.swap(false, Ordering::AcqRel)
+}
+
+/// The most members a seed scope has. One member following everyone would otherwise
+/// make it index everything; past it, the closest users are kept.
+pub const MAX_SEED_MEMBERS: usize = 50_000;
+
+/// A seed scope's members: the seed at hop 0 and everyone it reaches in at most `hops`
+/// follows, each at its shortest distance, at most `max`. Worked out from the graph, which
+/// holds every follow every member made whatever order they were read in, so the same
+/// follows always give the same members; past `max`, the closest are kept, by id within a
+/// hop. A member whose profile is deleted stays one: its stream, still read, may write a
+/// new profile. One query per hop.
+pub async fn seed_members(
+    seed: &PubkyId,
+    hops: u8,
+    max: usize,
+) -> ModelResult<HashMap<String, u8>> {
+    let mut members = HashMap::from([(seed.to_string(), 0)]);
+    let mut frontier = vec![seed.to_string()];
+    for hop in 1..=hops {
+        let room = max.saturating_sub(members.len());
+        if frontier.is_empty() || room == 0 {
+            break;
+        }
+        let known: Vec<String> = members.keys().cloned().collect();
+        let query = queries::get::get_followees_of(&frontier, &known, room);
+        frontier = fetch_key_from_graph(query, "user_ids")
+            .await?
+            .unwrap_or_default();
+        for followee in &frontier {
+            members.insert(followee.clone(), hop);
+        }
+        if members.len() >= max {
+            warn!(
+                max,
+                "The seed scope reached its most members; the closest are kept"
+            );
+        }
+    }
+    Ok(members)
 }
 
 #[cfg(test)]
@@ -98,7 +159,8 @@ mod tests {
     }
 
     /// Everything reads the configured homeserver whole, as before scopes, even if it is
-    /// blacklisted; a homeserver scope reads its list instead, minus blacklisted ones.
+    /// blacklisted; a homeserver scope reads its list instead, minus blacklisted ones; a
+    /// seed scope reads none whole.
     #[test]
     fn the_whole_feeds_come_from_the_scope() {
         let (homeserver, listed, blacklisted) =
@@ -115,6 +177,12 @@ mod tests {
             homeservers: vec![listed.clone(), blacklisted],
         };
         assert_eq!(full_feed_homeservers(&config), vec![listed]);
+
+        config.stack.scope = ScopeConfig::Seed {
+            seed: random_pubky_id(),
+            hops: 2,
+        };
+        assert_eq!(full_feed_homeservers(&config), Vec::<PubkyId>::new());
     }
 
     /// The moderator is in scope whatever the setting, so its takedowns are read.
