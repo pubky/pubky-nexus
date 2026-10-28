@@ -503,7 +503,7 @@ impl ApiVersion for V1 {
         "Sort method (`timeline`, `total_engagement` or `rating`, the 1–10 rating average; `rating` is rejected for `source=post_replies` and `source=author_replies`).";
     const RESOURCE_SORTING: &'static str = "timeline (default) or rating (1–10 average)";
     const RESOURCE_START_SCORE: &'static str =
-        "the latest tag timestamp for timeline, or the fractional average for rating.";
+        "the latest tag timestamp for timeline, or the fractional average for rating. Rating averages tie often: resume with `start=<last_score>` and a `skip` of every row already served at that score, not `skip=1`.";
     const NOTIFICATION_TYPES_RANGE: &'static str = "1-13";
     const NOTIFICATION_TYPE_NAMES: &'static str = "follow, new_friend, lost_friend, tag_post, tag_profile, untag_post, untag_profile, reply, repost, mention, post_deleted, post_edited, event_changed";
     type NotificationTypes = V1NotificationTypes;
