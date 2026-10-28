@@ -14,7 +14,7 @@ use nexus_common::models::tag::user::TagUser;
 use nexus_common::models::user::{UserIngestor, UsersByTagSearch};
 use nexus_common::types::Pagination;
 use nexus_common::universal_tag::normalize::{normalize_uri, resource_id};
-use pubky_social_specs::PubkyId;
+use pubky_social_specs::{tag_uri_builder as social_tag_uri_builder, PubkyId};
 use tracing::{debug, Instrument};
 
 use super::utils::{
@@ -403,12 +403,18 @@ async fn put_sync_user(
     fields(user_id = %key.owner_id, tag_id = %key.resource_id, app = ?app)
 )]
 pub async fn del(key: ResourceKey, app: Option<String>) -> Result<(), EventProcessorError> {
-    let tag_uri = format!(
-        "pubky://{}/pub/{}/tags/{}",
-        key.owner_id,
-        app.as_deref().unwrap_or("pubky.app"),
-        key.resource_id
-    );
+    // The edge stores the address of the file that created it, and `del_at` keys the
+    // feed by that. This one only applies once the edge is gone (a retry), so it
+    // follows the folder's path rules: a `social/v1` tag is `v1/tags/{id}.json`.
+    let tag_uri = match app.as_deref() {
+        Some("social") => social_tag_uri_builder(key.owner_id.to_string(), key.resource_id.clone()),
+        app => format!(
+            "pubky://{}/pub/{}/tags/{}",
+            key.owner_id,
+            app.unwrap_or("pubky.app"),
+            key.resource_id
+        ),
+    };
     del_at(key, app, &tag_uri).await
 }
 
@@ -475,6 +481,9 @@ pub async fn del_at(
         .get("label")
         .map_err(|e| EventProcessorError::generic(format!("Missing label in delete_tag: {e}")))?;
     let app: Option<String> = row.get("app").unwrap_or(None);
+    // The feed's put used the address stored on the edge; key the del the same way.
+    let stored_uri: Option<String> = row.get("tag_uri").unwrap_or(None);
+    let tag_uri = stored_uri.as_deref().unwrap_or(tag_uri);
 
     // 2. Redis cleanup (guarded by tagger_in_index where non-idempotent)
     // Post-count cache to invalidate AFTER the graph edge is deleted (invalidating

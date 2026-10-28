@@ -186,8 +186,9 @@ pub fn get_tag_target(user_id: &str, tag_id: &str, app: Option<&str>) -> Query {
               CASE WHEN target:Resource THEN target.uri ELSE null END AS resource_uri,
               tag.indexed_at AS tag_indexed_at,
               tag.label AS label,
-              tag.app AS app
-         RETURN user_id, post_id, author_id, post_uri, resource_id, resource_uri, tag_indexed_at, label, app"
+              tag.app AS app,
+              tag.uri AS tag_uri
+         RETURN user_id, post_id, author_id, post_uri, resource_id, resource_uri, tag_indexed_at, label, app, tag_uri"
     );
 
     let mut query = Query::new("get_tag_target", &cypher)
