@@ -215,8 +215,9 @@ pub fn get_tag_target(user_id: &str, tag_id: &str) -> Query {
               CASE WHEN target:Resource THEN target.id ELSE null END AS resource_id,
               CASE WHEN target:Resource THEN target.uri ELSE null END AS resource_uri,
               tag.indexed_at AS tag_indexed_at,
-              tag.label AS label
-         RETURN user_id, post_id, author_id, post_uri, resource_id, resource_uri, tag_indexed_at, label",
+              tag.label AS label,
+              tag.uri AS tag_uri
+         RETURN user_id, post_id, author_id, post_uri, resource_id, resource_uri, tag_indexed_at, label, tag_uri",
     )
     .param("user_id", user_id)
     .param("tag_id", tag_id)

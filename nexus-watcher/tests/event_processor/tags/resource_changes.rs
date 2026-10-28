@@ -289,7 +289,8 @@ async fn test_resource_changes_equivalent_tag_files_share_one_reference() -> Res
 }
 
 /// A tag's `pubky.app` file and its `social/v1` copy share one edge (one tag id). Only the
-/// first file is published, and deleting either file retracts it, so no put stays live.
+/// first file is published. Migration copies are gated until the profile flip;
+/// deleting the active v1 file then retracts the original v0 reference.
 #[tokio_shared_rt::test(shared)]
 async fn test_resource_changes_a_tag_and_its_v1_copy_share_one_reference() -> Result<()> {
     use pubky_social_specs::traits::{HasIdPath as _, HashId as _};
@@ -321,6 +322,20 @@ async fn test_resource_changes_a_tag_and_its_v1_copy_share_one_reference() -> Re
     )
     .await?;
     test.put(&key, &v1_storage, &v1).await?;
+    retrieve_and_handle_event_line(
+        &format!("PUT {v1_uri}"),
+        &test.homeserver_id,
+        handler.clone(),
+    )
+    .await?;
+    // N3 ignores the migration copy until its profile is written last.
+    assert!(authored_since(&author, start)
+        .await?
+        .iter()
+        .all(|line| line.object_path == v0_path));
+    let profile: ResourcePath = "/pub/social/v1/profile.json".parse()?;
+    test.put(&key, &profile, &serde_json::json!({"name":"Tag copies"}))
+        .await?;
     retrieve_and_handle_event_line(
         &format!("PUT {v1_uri}"),
         &test.homeserver_id,
@@ -360,6 +375,6 @@ async fn test_resource_changes_a_tag_and_its_v1_copy_share_one_reference() -> Re
         }
     }
     assert!(live.is_empty(), "{live:?}");
-    test.cleanup_user(&key).await?;
+    test.del(&key, &profile).await?;
     Ok(())
 }
