@@ -332,6 +332,17 @@ impl<V: ApiVersion> PostStreamQuery<V> {
                 "`kind`, `exclude_kinds` and `locked` are not supported with `source=post_replies` or `source=author_replies`",
             ));
         }
+        // Rating order is computed on the graph too, so it would hit the same
+        // parents-only fallback.
+        if matches!(
+            source,
+            StreamSourceKind::PostReplies | StreamSourceKind::AuthorReplies
+        ) && self.sorting == Some(StreamSorting::Rating)
+        {
+            return Err(Error::invalid_input(
+                "`sorting=rating` is not supported with `source=post_replies` or `source=author_replies`",
+            ));
+        }
         // Every result is a Collection, so a kind filter can only no-op or
         // silently empty the page.
         if matches!(source, StreamSourceKind::PostCollections) && self.kind_filter().is_some() {
