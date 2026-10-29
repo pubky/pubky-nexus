@@ -11,7 +11,6 @@ use crate::event_processor::posts::utils::{
 use anyhow::Result;
 use nexus_common::db::graph::Query;
 use nexus_common::db::{exec_single_row, RedisOps};
-use nexus_common::models::notification::Notification;
 use nexus_common::models::post::{PostCounts, PostDetails, PostRelationships, PostStream};
 
 mod del;
@@ -20,13 +19,6 @@ mod put;
 // ---------------------------------------------------------------------------
 // Idempotency-test partial-failure simulators
 // ---------------------------------------------------------------------------
-
-/// Drop every notification of `user_id`, as if the attempt that wrote a post to
-/// the graph had stopped before sending them (#1149).
-pub(super) async fn clear_notifications(user_id: &str) -> Result<()> {
-    Notification::replace_index_sorted_set(&["Notification", user_id], &[], None, None).await?;
-    Ok(())
-}
 
 /// Simulate the partial-failure window of a `sync_put` for a ROOT post:
 /// the graph still holds the post but every Redis index/sorted-set entry
