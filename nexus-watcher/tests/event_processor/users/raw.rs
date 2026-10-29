@@ -1,14 +1,12 @@
 use crate::{
-    event_processor::users::utils::{
-        check_member_most_followed, check_member_user_influencer, find_user_details,
-    },
+    event_processor::users::utils::{check_member_most_followed, find_user_details},
     event_processor::utils::watcher::WatcherTest,
 };
 use anyhow::Result;
 use nexus_common::models::event::EventLine;
 use nexus_common::{
     db::RedisOps,
-    models::user::{UserCounts, UserSearch, USER_NAME_KEY_PARTS},
+    models::user::{UserSearch, USER_NAME_KEY_PARTS},
 };
 use pubky::Keypair;
 use pubky_app_specs::{file_uri_builder, PubkyAppUser, PubkyAppUserLink};
@@ -61,18 +59,8 @@ async fn test_homeserver_user_put_event() -> Result<()> {
     }
 
     // CACHE_OP: Check if the event writes in the graph
-    // User:Counts:user_id
     let (_, events_in_redis_after) = EventLine::get_from_index(None, usize::MAX).await.unwrap();
     assert!(events_in_redis_after > events_in_redis_before);
-
-    let user_counts = UserCounts::get_from_index(&user_id)
-        .await
-        .unwrap()
-        .expect("The new post was not served from Nexus");
-
-    assert_eq!(user_counts.followers, 0);
-    assert_eq!(user_counts.tagged, 0);
-    assert_eq!(user_counts.posts, 0);
 
     // Sorted:Users:Name
     let is_member = UserSearch::check_sorted_set_member(
@@ -86,15 +74,8 @@ async fn test_homeserver_user_put_event() -> Result<()> {
     assert!(is_member.is_some());
     assert_eq!(is_member.unwrap(), 0);
 
-    // influencers score: Sorted:Users:Influencers
-    let influencer_score = check_member_user_influencer(&user_id).await.unwrap();
-    assert!(influencer_score.is_some());
-    assert_eq!(influencer_score.unwrap(), 0);
-
-    // most_followed score: Sorted:Users:MostFollowed
-    let influencer_score = check_member_most_followed(&user_id).await.unwrap();
-    assert!(influencer_score.is_some());
-    assert_eq!(influencer_score.unwrap(), 0);
+    // Only the most-followed job ranks a user: Sorted:Users:MostFollowed
+    assert_eq!(check_member_most_followed(&user_id).await?, None);
 
     // Cleanup
     test.cleanup_user(&user_kp).await?;

@@ -2,33 +2,34 @@
 
 mod hot_tags;
 mod influencers;
+mod most_followed;
 mod trust_recompute;
 
 pub use hot_tags::HotTagsCacheJob;
 pub use influencers::InfluencersCacheJob;
+pub use most_followed::MostFollowedCacheJob;
 pub use trust_recompute::TrustRecomputeJob;
 
 use std::sync::Arc;
 
-use nexus_common::{
-    types::{CacheTimeframe, Timeframe},
-    TrustRankConfig,
-};
+use nexus_common::{types::Timeframe, TrustRankConfig};
 
 use super::{JobRegistry, LOCK_TTL_SECS};
 
 impl JobRegistry {
-    /// This daemon's jobs: one cache-refresh job per timeframe, plus trust-recompute.
-    /// `trust_rank` configures only the latter.
+    /// This daemon's jobs: one cache-refresh job per timeframe, the most-followed ranking
+    /// refresh, plus trust-recompute. `trust_rank` configures only the latter.
     pub fn catalog(trust_rank: &TrustRankConfig) -> Self {
         Self::new(vec![
-            Arc::new(InfluencersCacheJob::new(CacheTimeframe::Today)),
-            Arc::new(InfluencersCacheJob::new(CacheTimeframe::ThisWeek)),
-            Arc::new(InfluencersCacheJob::new(CacheTimeframe::ThisMonth)),
+            Arc::new(InfluencersCacheJob::new(Timeframe::Today)),
+            Arc::new(InfluencersCacheJob::new(Timeframe::ThisWeek)),
+            Arc::new(InfluencersCacheJob::new(Timeframe::ThisMonth)),
+            Arc::new(InfluencersCacheJob::new(Timeframe::AllTime)),
             Arc::new(HotTagsCacheJob::new(Timeframe::Today)),
             Arc::new(HotTagsCacheJob::new(Timeframe::ThisWeek)),
             Arc::new(HotTagsCacheJob::new(Timeframe::ThisMonth)),
             Arc::new(HotTagsCacheJob::new(Timeframe::AllTime)),
+            Arc::new(MostFollowedCacheJob),
             Arc::new(TrustRecomputeJob::build(trust_rank, LOCK_TTL_SECS)),
         ])
     }
@@ -41,7 +42,7 @@ mod tests {
     use nexus_common::TrustRankConfig;
 
     #[test]
-    fn catalog_names_are_the_eight_jobs() {
+    fn catalog_names_are_the_ten_jobs() {
         let mut names = JobRegistry::catalog(&TrustRankConfig::default()).job_names();
         names.sort_unstable();
         assert_eq!(
@@ -51,9 +52,11 @@ mod tests {
                 "hot-tags-cache-this-month",
                 "hot-tags-cache-this-week",
                 "hot-tags-cache-today",
+                "influencers-cache-all-time",
                 "influencers-cache-this-month",
                 "influencers-cache-this-week",
                 "influencers-cache-today",
+                "most-followed-cache",
                 "trust-recompute",
             ]
         );

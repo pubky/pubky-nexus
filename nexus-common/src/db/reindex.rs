@@ -3,18 +3,17 @@ use crate::db::graph::{keyset_scan, Query};
 use crate::models::follow::{Followers, Following, UserFollows};
 use crate::models::post::search::PostsByTagSearch;
 use crate::models::post::Bookmark;
+use crate::models::post::{PostCounts, PostDetails, PostRelationships};
 use crate::models::tag::post::TagPost;
 use crate::models::tag::search::TagSearch;
 use crate::models::tag::stream::HotTags;
 use crate::models::tag::traits::TagCollection;
 use crate::models::tag::user::TagUser;
 use crate::models::traits::Collection;
-use crate::models::user::{Influencers, SocialGraphStatus, UserDetails, UsersByTagSearch};
-use crate::types::DynError;
-use crate::{
-    models::post::{PostCounts, PostDetails, PostRelationships},
-    models::user::UserCounts,
+use crate::models::user::{
+    Influencers, SocialGraphStatus, UserDetails, UserStream, UsersByTagSearch,
 };
+use crate::types::DynError;
 use tokio::task::JoinSet;
 use tracing::{info, Instrument};
 
@@ -36,6 +35,10 @@ pub async fn sync() {
     Influencers::reindex()
         .await
         .expect("Failed to reindex influencers");
+
+    UserStream::refresh_most_followed()
+        .await
+        .expect("Failed to store the most followed users");
 
     SocialGraphStatus::publish()
         .await
@@ -59,7 +62,6 @@ pub async fn sync() {
 pub async fn reindex_user(user_id: &str) -> Result<(), DynError> {
     tokio::try_join!(
         Bookmark::reindex(user_id),
-        UserCounts::reindex(user_id),
         Followers::reindex(user_id),
         Following::reindex(user_id),
         TagUser::reindex(user_id, None)

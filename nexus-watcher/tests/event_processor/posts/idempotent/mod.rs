@@ -6,13 +6,12 @@
 
 use crate::event_processor::posts::utils::{
     check_member_global_timeline_user_post, check_member_total_engagement_user_posts,
-    check_member_user_post_timeline, pubky_id,
+    check_member_user_post_timeline,
 };
 use anyhow::Result;
 use nexus_common::db::graph::Query;
 use nexus_common::db::{exec_single_row, RedisOps};
 use nexus_common::models::post::{PostCounts, PostDetails, PostRelationships, PostStream};
-use nexus_common::models::user::UserCounts;
 
 mod del;
 mod put;
@@ -23,8 +22,7 @@ mod put;
 
 /// Simulate the partial-failure window of a `sync_put` for a ROOT post:
 /// the graph still holds the post but every Redis index/sorted-set entry
-/// has been wiped. Caller must NOT also wipe `UserCounts` — the failed
-/// attempt is assumed to have already incremented it.
+/// has been wiped.
 pub(super) async fn simulate_partial_put_failure_root(user_id: &str, post_id: &str) -> Result<()> {
     let post_key: &[&str] = &[user_id, post_id];
     PostDetails::remove_from_index_multiple_json(&[post_key]).await?;
@@ -58,23 +56,20 @@ pub(super) async fn simulate_partial_put_failure_reply(
 
 /// Simulate the partial-failure window of a graph-last `sync_del` for a
 /// ROOT post: every Redis cleanup step succeeded but the graph delete
-/// failed. The gate (`PostRelationships`) is removed atomically, the
-/// author's `posts` count was decremented, and the JSON indexes are gone
-/// — only the graph node remains.
+/// failed. The gate (`PostRelationships`) is removed atomically and the
+/// JSON indexes are gone — only the graph node remains.
 pub(super) async fn simulate_partial_del_cleanup_root(user_id: &str, post_id: &str) -> Result<()> {
     let post_key: &[&str] = &[user_id, post_id];
     PostRelationships::remove_from_index_multiple_json(&[post_key]).await?;
-    UserCounts::decrement(&pubky_id(user_id)?, "posts", None).await?;
     PostDetails::delete_from_index(user_id, post_id, None).await?;
     PostCounts::delete(user_id, post_id, true).await?;
     Ok(())
 }
 
 /// Whether a child post in a del-cleanup simulation is a reply or a repost.
-/// The two cases share most cleanup steps but differ in: parent-count field,
-/// `remove_from_feeds` flag for `PostCounts::delete`, the parent tuple passed
-/// to `PostDetails::delete_from_index`, and whether to also decrement the
-/// author's `replies` counter.
+/// The two cases share most cleanup steps but differ in: the
+/// `remove_from_feeds` flag for `PostCounts::delete` and the parent tuple
+/// passed to `PostDetails::delete_from_index`.
 pub(super) enum ChildKind {
     Reply,
     Repost,
@@ -83,8 +78,7 @@ pub(super) enum ChildKind {
 /// Simulate the partial-failure window of a graph-last `sync_del` for a
 /// CHILD post (reply or repost): every Redis cleanup step completed but the
 /// graph delete failed. Covers the scenario-specific writes (parent engagement
-/// decrement, the child's removed counts/details, and the author counter
-/// decrements).
+/// decrement and the child's removed counts/details).
 pub(super) async fn simulate_partial_del_cleanup_child(
     author_id: &str,
     post_id: &str,
@@ -94,22 +88,15 @@ pub(super) async fn simulate_partial_del_cleanup_child(
 ) -> Result<()> {
     let child_key: &[&str] = &[author_id, post_id];
     let parent_key: &[&str] = &[parent_author_id, parent_post_id];
-    let author_pubky = pubky_id(author_id)?;
 
     // Gate removed atomically.
     PostRelationships::remove_from_index_multiple_json(&[child_key]).await?;
-    // Author's post count decremented.
-    UserCounts::decrement(&author_pubky, "posts", None).await?;
 
     let (remove_from_feeds, delete_parent_tuple) = match kind {
-        ChildKind::Reply => {
-            // Replies also decrement the author's `replies` counter.
-            UserCounts::decrement(&author_pubky, "replies", None).await?;
-            (
-                false,
-                Some((parent_author_id.to_string(), parent_post_id.to_string())),
-            )
-        }
+        ChildKind::Reply => (
+            false,
+            Some((parent_author_id.to_string(), parent_post_id.to_string())),
+        ),
         ChildKind::Repost => (true, None),
     };
 

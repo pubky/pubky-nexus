@@ -1,17 +1,22 @@
+use crate::db::graph::keyset_scan;
 use crate::db::kv::RedisResult;
 use crate::db::kv::SortOrder;
-use crate::models::error::ModelResult;
+use crate::models::error::{ModelError, ModelResult};
 use crate::types::{CacheTimeframe, StreamReach, Timeframe};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::ops::Deref;
+use std::sync::{Mutex, PoisonError};
+use tokio::sync::Mutex as AsyncMutex;
 use tracing::{debug, warn};
 use utoipa::ToSchema;
 
 use super::{UserDetails, USER_INFLUENCERS_KEY_PARTS};
-use crate::db::{fetch_key_from_graph, queries, RedisOps};
+use crate::db::{fetch_all_rows_from_graph, fetch_key_from_graph, queries, RedisOps};
 
 const GLOBAL_INFLUENCERS_PREFIX: &str = "Cache:Influencers";
+/// Users per graph read when the AllTime ranking is rebuilt.
+const ALL_TIME_PAGE_SIZE: usize = 500;
 /// How many global influencers each cache-backed timeframe holds. Pages past this
 /// are empty by construction, so callers should reject skips beyond it rather than
 /// treat the empty page as a cache miss.
@@ -34,6 +39,22 @@ pub const GLOBAL_INFLUENCERS_PREVIEW_OFFSETS: u32 =
 /// therefore NOT guaranteed to return different influencers.
 pub fn preview_skip(micros: u32) -> usize {
     (micros % GLOBAL_INFLUENCERS_PREVIEW_OFFSETS) as usize
+}
+
+/// The lock a request takes when its ranking's key is missing, one per timeframe:
+/// requests that miss the same ranking together share one rebuild, and no ranking
+/// waits for another's.
+fn rebuild_lock(timeframe: &Timeframe) -> &'static AsyncMutex<()> {
+    static TODAY: AsyncMutex<()> = AsyncMutex::const_new(());
+    static THIS_WEEK: AsyncMutex<()> = AsyncMutex::const_new(());
+    static THIS_MONTH: AsyncMutex<()> = AsyncMutex::const_new(());
+    static ALL_TIME: AsyncMutex<()> = AsyncMutex::const_new(());
+    match timeframe {
+        Timeframe::Today => &TODAY,
+        Timeframe::ThisWeek => &THIS_WEEK,
+        Timeframe::ThisMonth => &THIS_MONTH,
+        Timeframe::AllTime => &ALL_TIME,
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, ToSchema, Default, Clone)]
@@ -108,8 +129,9 @@ impl Influencers {
 
     /// It first attempts to fetch a subset of global influencers from cache
     /// based on the provided `skip` and `limit`. Only a missing cache key counts as a
-    /// miss: then it queries the graph database for up to 100 global influencers,
-    /// stores the result in cache, and retrieves the requested subset again from cache.
+    /// miss: then it rebuilds the ranking from the graph with [`Self::refresh`] and
+    /// retrieves the requested subset again from cache. One rebuild per ranking runs at
+    /// a time: a request that waited for another's checks the key again first.
     /// An existing key whose window is empty (skip past the end, or every user in
     /// the window deleted) is served as an empty page, since refetching would rebuild
     /// the same ranking and rewrite the key on every such request.
@@ -130,70 +152,89 @@ impl Influencers {
             return Ok(cached_influencers);
         }
 
-        match CacheTimeframe::from_timeframe(timeframe) {
-            Some(cache_timeframe) => Influencers::fetch_and_cache(cache_timeframe).await?,
-            // `AllTime` has no cache key: a miss means the live index itself is gone
-            // (e.g. after Redis data loss), so reseed it from the graph.
-            None => Influencers::seed_live_all_time_set().await?,
+        let _rebuild = rebuild_lock(timeframe).lock().await;
+        let cached_influencers = Influencers::get_from_global_cache(skip, limit, timeframe).await?;
+        if cached_influencers.is_some() {
+            return Ok(cached_influencers);
         }
+        Influencers::refresh(timeframe).await?;
         Influencers::get_from_global_cache(skip, limit, timeframe)
             .await
             .map_err(Into::into)
+    }
+
+    /// Rebuilds the global ranking of `timeframe` from the graph: the top-100 cache of a
+    /// ranged timeframe, or the whole AllTime ranking. The influencer jobs run it on their
+    /// schedule, and a missing key falls back to it.
+    pub async fn refresh(timeframe: &Timeframe) -> ModelResult<()> {
+        match CacheTimeframe::from_timeframe(timeframe) {
+            Some(cache_timeframe) => Influencers::fetch_and_cache(cache_timeframe).await,
+            None => Influencers::refresh_all_time().await,
+        }
     }
 
     /// Fetch top-100 influencers from the graph and atomically replace the cache.
     ///
     /// A transient empty or `None` graph result must not evict a good ranking, so the
     /// previous cache is preferred. The caller can retry on the next scheduled tick.
-    pub async fn fetch_and_cache(timeframe: CacheTimeframe) -> ModelResult<()> {
-        let query = queries::get::get_global_influencers(
-            0,
-            GLOBAL_INFLUENCERS_CACHE_SIZE,
-            &timeframe.timeframe(),
-        );
+    async fn fetch_and_cache(timeframe: CacheTimeframe) -> ModelResult<()> {
+        let query =
+            queries::get::get_global_influencers(0, GLOBAL_INFLUENCERS_CACHE_SIZE, timeframe);
         let result = fetch_key_from_graph::<Influencers>(query, "influencers").await?;
         Influencers::write_or_preserve_cache(result, timeframe, GLOBAL_INFLUENCERS_PREFIX).await
     }
 
-    /// Reseeds the live `Sorted:Users:Influencers` set from the graph after it was lost.
-    ///
-    /// That set is normally maintained incrementally by
-    /// `UserStream::add_to_influencers_sorted_set` and has no TTL. The graph query
-    /// counts the same tag edges as `UserCounts.tagged` (tags the user assigned to
-    /// posts and to users), so the seeded score matches the incremental one, except
-    /// for edges indexed at or after the query's `to` snapshot; per-user activity
-    /// rewrites each member's score on its next counts update. Members are added
-    /// rather than replaced so concurrent incremental writes are not discarded.
-    /// Only the top `GLOBAL_INFLUENCERS_CACHE_SIZE` are seeded; deeper pages stay
-    /// empty until organic activity repopulates the set.
-    async fn seed_live_all_time_set() -> ModelResult<()> {
-        let query = queries::get::get_global_influencers(
-            0,
-            GLOBAL_INFLUENCERS_CACHE_SIZE,
-            &Timeframe::AllTime,
-        );
-        let Some(influencers) = fetch_key_from_graph::<Influencers>(query, "influencers").await?
-        else {
-            return Ok(());
-        };
-        if influencers.is_empty() {
-            return Ok(());
-        }
+    /// Rebuilds the live `Sorted:Users:Influencers` set from the graph, so its members and
+    /// scores converge on the graph's. Nothing else writes it and it has no TTL, so a
+    /// stale ranking only changes here.
+    async fn refresh_all_time() -> ModelResult<()> {
+        let ranking = Influencers::read_all_time_ranking(ALL_TIME_PAGE_SIZE).await;
+        Influencers::write_all_time_ranking(ranking, None).await
+    }
+
+    /// Scores every ranked user, `page_size` users per graph read.
+    async fn read_all_time_ranking(page_size: usize) -> ModelResult<Vec<(String, f64)>> {
+        let ranking = Mutex::new(Vec::new());
+        keyset_scan(page_size, "influencers_all_time", |after_id| {
+            let ranking = &ranking;
+            async move {
+                let query = queries::get::get_all_time_influencers(&after_id, page_size);
+                let mut page: Vec<(String, f64)> = Vec::with_capacity(page_size);
+                for row in fetch_all_rows_from_graph(query).await? {
+                    page.push((row.get("id")?, row.get("score")?));
+                }
+                let last_id = page.last().map(|(id, _)| id.clone());
+                let count = page.len();
+                ranking
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .extend(page);
+                Ok::<_, ModelError>((count, last_id))
+            }
+        })
+        .await?;
+        Ok(ranking.into_inner().unwrap_or_else(PoisonError::into_inner))
+    }
+
+    /// Swaps a complete ranking in with one atomic write. A failed read writes nothing,
+    /// so the previous ranking is served until a later refresh succeeds. An empty one
+    /// deletes the key: with no TTL, keeping the old ranking would keep its members
+    /// forever. Tests drive it directly with injected results, under their own `prefix`.
+    async fn write_all_time_ranking(
+        ranking: ModelResult<Vec<(String, f64)>>,
+        prefix: Option<&str>,
+    ) -> ModelResult<()> {
+        let ranking = ranking?;
         debug!(
-            count = influencers.len(),
-            "Reseeding the live AllTime influencers set from the graph"
+            count = ranking.len(),
+            "Replacing the AllTime influencers ranking"
         );
-        let elements: Vec<(f64, &str)> = influencers
+        let elements: Vec<(f64, &str)> = ranking
             .iter()
             .map(|(id, score)| (*score, id.as_str()))
             .collect();
-        Influencers::put_index_sorted_set(
-            USER_INFLUENCERS_KEY_PARTS.as_slice(),
-            elements.as_slice(),
-            None,
-            None,
-        )
-        .await?;
+        Influencers::replace_index_sorted_set(&USER_INFLUENCERS_KEY_PARTS, &elements, prefix, None)
+            .await?;
         Ok(())
     }
 
@@ -246,10 +287,8 @@ impl Influencers {
         timeframe: &Timeframe,
     ) -> RedisResult<Option<Influencers>> {
         let ranking = match timeframe {
-            // When timeframe is AllTime, we get the influencer list directly from Sorted::Users::Influencers,
-            // which is dynamically updated with each user action and therefore needs no TTL.
-            // Had we used the cache with TTL, it would have meant a random user gets hit with
-            // a full graph lookup, if they query this right after the TTL expires.
+            // AllTime reads the full ranking in Sorted:Users:Influencers. It has no TTL: the
+            // all-time job rebuilds it, so a request only pays for a rebuild when the key is lost.
             Timeframe::AllTime => {
                 Influencers::try_from_index_sorted_set(
                     super::USER_INFLUENCERS_KEY_PARTS.as_slice(),
@@ -409,11 +448,9 @@ impl Influencers {
         vec![timeframe.to_string()]
     }
 
-    /// Rebuilds the global influencer cache for the `ThisMonth` timeframe.
-    ///
-    /// `AllTime` is not warmed here: it is served from the `Sorted:Users:Influencers`
-    /// index that the user reindex maintains, and has no cache key.
+    /// Rebuilds the AllTime ranking and the `ThisMonth` cache from the graph.
     pub async fn reindex() -> ModelResult<()> {
+        Influencers::refresh_all_time().await?;
         Influencers::fetch_and_cache(CacheTimeframe::ThisMonth).await
     }
 }
@@ -421,7 +458,14 @@ impl Influencers {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::get_redis_conn;
+    use crate::models::{traits::Collection, user::UserCounts};
     use crate::{types::DynError, StackConfig, StackManager};
+    use deadpool_redis::redis;
+    use pubky::Keypair;
+    use pubky_app_specs::PubkyId;
+    use std::collections::HashMap;
+    use std::time::Duration;
 
     /// Keeps the cache tests off `GLOBAL_INFLUENCERS_PREFIX`: the API tests run against
     /// the same Redis and assert exact rankings under the production keys.
@@ -525,6 +569,246 @@ mod tests {
 
         clear_test_cache(timeframe).await?;
         Ok(())
+    }
+
+    #[tokio_shared_rt::test(shared)]
+    async fn write_all_time_ranking_keeps_the_previous_ranking_when_the_read_fails(
+    ) -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+        let prefix = "InfluencersAllTimeTest:FailedRead";
+        let previous = vec![("alice".to_string(), 10.0)];
+        Influencers::write_all_time_ranking(Ok(previous.clone()), Some(prefix)).await?;
+
+        let failed_read = Err(ModelError::from_generic("graph unavailable"));
+        let result = Influencers::write_all_time_ranking(failed_read, Some(prefix)).await;
+
+        assert!(result.is_err(), "a failed read must fail the refresh");
+        assert_eq!(read_all_time(Some(prefix)).await?, Some(previous));
+        Influencers::write_all_time_ranking(Ok(Vec::new()), Some(prefix)).await?;
+        Ok(())
+    }
+
+    #[tokio_shared_rt::test(shared)]
+    async fn write_all_time_ranking_replaces_members_and_scores() -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+        let prefix = "InfluencersAllTimeTest:Replace";
+        let previous = vec![("alice".to_string(), 10.0), ("bob".to_string(), 5.0)];
+        Influencers::write_all_time_ranking(Ok(previous), Some(prefix)).await?;
+
+        let ranking = vec![("bob".to_string(), 1.0), ("carol".to_string(), 2.0)];
+        Influencers::write_all_time_ranking(Ok(ranking), Some(prefix)).await?;
+
+        // Not additive: alice leaves and bob's score goes down.
+        assert_eq!(
+            read_all_time(Some(prefix)).await?,
+            Some(vec![("carol".to_string(), 2.0), ("bob".to_string(), 1.0)])
+        );
+        Influencers::write_all_time_ranking(Ok(Vec::new()), Some(prefix)).await?;
+        Ok(())
+    }
+
+    #[tokio_shared_rt::test(shared)]
+    async fn write_all_time_ranking_deletes_the_key_on_an_empty_ranking() -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+        let prefix = "InfluencersAllTimeTest:Empty";
+        let previous = vec![("alice".to_string(), 10.0)];
+        Influencers::write_all_time_ranking(Ok(previous), Some(prefix)).await?;
+
+        Influencers::write_all_time_ranking(Ok(Vec::new()), Some(prefix)).await?;
+
+        assert_eq!(
+            read_all_time(Some(prefix)).await?,
+            None,
+            "an empty ranking must not keep the previous members"
+        );
+        Ok(())
+    }
+
+    /// A stale live ranking converges on the graph at the next refresh, with no watcher
+    /// update: an inflated score drops, a missing user comes back, and members the graph
+    /// does not rank (gone, tombstoned, stubs) leave. Rewrites the shared live set, so
+    /// `.config/nextest.toml` runs it alone.
+    #[tokio_shared_rt::test(shared)]
+    async fn refresh_converges_a_stale_all_time_ranking() -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+        let graph_ranking = Influencers::read_all_time_ranking(ALL_TIME_PAGE_SIZE).await?;
+        // The top user scores from every count, so a wrong formula changes their score.
+        let (rescored, _) = graph_ranking
+            .iter()
+            .max_by(|a, b| a.1.total_cmp(&b.1))
+            .expect("the fixture ranks users");
+        let (missing, _) = graph_ranking
+            .iter()
+            .find(|(id, _)| id != rescored)
+            .expect("the fixture ranks two users");
+
+        let gone = PubkyId::from(Keypair::random());
+        let tombstone = PubkyId::from(Keypair::random());
+        let stub = PubkyId::from(Keypair::random());
+        let unranked: [(&str, &str); 3] = [
+            (&*gone, "a user gone from the graph"),
+            (&*tombstone, "a tombstoned user"),
+            (&*stub, "a discovery stub"),
+        ];
+        let stale: Vec<(f64, &str)> = std::iter::once(rescored.as_str())
+            .chain(unranked.iter().map(|(id, _)| *id))
+            .map(|id| (1e9, id))
+            .collect();
+        Influencers::put_index_sorted_set(&USER_INFLUENCERS_KEY_PARTS, &stale, None, None).await?;
+        Influencers::remove_from_index_sorted_set(
+            None,
+            &USER_INFLUENCERS_KEY_PARTS,
+            &[missing.as_str()],
+        )
+        .await?;
+        UserDetails::tombstone(&tombstone).put_to_graph().await?;
+        UserDetails::from_pubky(stub.clone()).put_to_graph().await?;
+
+        // Remove the nodes before asserting, so a failure cannot leave them in the graph.
+        let refreshed = Influencers::refresh(&Timeframe::AllTime).await;
+        let live = read_all_time(None).await;
+        UserDetails::delete(&tombstone).await?;
+        UserDetails::delete(&stub).await?;
+        refreshed?;
+        let live: HashMap<String, f64> = live?.unwrap_or_default().into_iter().collect();
+
+        let counts = UserCounts::get_by_id(rescored)
+            .await?
+            .expect("a ranked user has counts");
+        let graph_score =
+            f64::from(counts.tagged + counts.posts) * f64::from(counts.followers).sqrt();
+        assert_eq!(
+            live.get(rescored),
+            Some(&graph_score),
+            "an inflated score must drop to the graph's"
+        );
+        assert!(
+            live.contains_key(missing),
+            "a user missing from the ranking must come back"
+        );
+        for (id, member) in unranked {
+            assert!(!live.contains_key(id), "{member} must leave the ranking");
+        }
+        assert_eq!(live.len(), graph_ranking.len(), "every live user is ranked");
+        assert!(
+            live.len() > GLOBAL_INFLUENCERS_CACHE_SIZE,
+            "the fixture must rank more users than a ranged cache holds, got {}",
+            live.len()
+        );
+        Ok(())
+    }
+
+    /// The fixture fits in one page of `ALL_TIME_PAGE_SIZE`, so walk it in small pages
+    /// to cover the cursor a larger graph needs.
+    #[tokio_shared_rt::test(shared)]
+    async fn read_all_time_ranking_walks_every_page() -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+        let page_size = 7;
+
+        let whole = Influencers::read_all_time_ranking(ALL_TIME_PAGE_SIZE).await?;
+        let paged = Influencers::read_all_time_ranking(page_size).await?;
+
+        assert!(
+            whole.len() > 2 * page_size,
+            "the fixture must span several pages"
+        );
+        assert_eq!(paged, whole);
+        Ok(())
+    }
+
+    /// Requests that find the AllTime key missing share one rebuild: each waits for the
+    /// one in progress, then finds the key instead of reading the whole graph again.
+    /// Counts the ranking's replace script in Redis's server-wide command stats, so
+    /// `.config/nextest.toml` runs it alone.
+    #[tokio_shared_rt::test(shared)]
+    async fn requests_that_miss_together_share_one_rebuild() -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+        // Load the replace script first, so a NOSCRIPT retry cannot add a call below.
+        Influencers::refresh(&Timeframe::AllTime).await?;
+        Influencers::replace_index_sorted_set(&USER_INFLUENCERS_KEY_PARTS, &[], None, None).await?;
+        let requests = 8;
+        let scripts_before = evalsha_calls().await?;
+
+        let pages =
+            futures::future::try_join_all((0..requests).map(|_| {
+                Influencers::get_influencers(None, None, 0, 20, Timeframe::AllTime, false)
+            }))
+            .await?;
+
+        let rebuilds = evalsha_calls().await? - scripts_before;
+        assert_eq!(
+            rebuilds, 1,
+            "{requests} requests that missed together must share one rebuild"
+        );
+        assert!(
+            pages
+                .iter()
+                .all(|page| page.as_ref().is_some_and(|p| p.len() == 20)),
+            "every request must get a full page"
+        );
+        Ok(())
+    }
+
+    /// The rebuild lock only holds up misses of its own ranking: with the AllTime one
+    /// taken, a read that finds the AllTime ranking returns, and so does a request that
+    /// misses the ThisWeek cache. Deletes that shared cache key, so nextest runs it alone.
+    #[tokio_shared_rt::test(shared)]
+    async fn a_rebuild_holds_up_only_misses_of_its_own_ranking() -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+        Influencers::refresh(&Timeframe::AllTime).await?;
+        let this_week = Influencers::get_cache_key_parts(CacheTimeframe::ThisWeek);
+        let this_week: Vec<&str> = this_week.iter().map(String::as_str).collect();
+        Influencers::replace_index_sorted_set(
+            &this_week,
+            &[],
+            Some(GLOBAL_INFLUENCERS_PREFIX),
+            None,
+        )
+        .await?;
+        let _all_time_rebuild = rebuild_lock(&Timeframe::AllTime).lock().await;
+
+        for (timeframe, request) in [
+            (Timeframe::AllTime, "a read that finds the AllTime ranking"),
+            (
+                Timeframe::ThisWeek,
+                "a request that misses the ThisWeek cache",
+            ),
+        ] {
+            let read = Influencers::get_influencers(None, None, 0, 5, timeframe, false);
+            tokio::time::timeout(Duration::from_secs(5), read)
+                .await
+                .unwrap_or_else(|_| panic!("{request} must not wait for the AllTime rebuild"))?;
+        }
+        Ok(())
+    }
+
+    /// How many scripts Redis has run by hash (`EVALSHA`), across every client.
+    async fn evalsha_calls() -> RedisResult<u64> {
+        let mut conn = get_redis_conn().await?;
+        let stats: String = redis::cmd("INFO")
+            .arg("commandstats")
+            .query_async(&mut conn)
+            .await?;
+        Ok(stats
+            .lines()
+            .find_map(|line| line.strip_prefix("cmdstat_evalsha:calls="))
+            .and_then(|rest| rest.split(',').next())
+            .and_then(|calls| calls.parse().ok())
+            .unwrap_or(0))
+    }
+
+    /// The whole AllTime ranking under `prefix`, the live one for `None`.
+    async fn read_all_time(prefix: Option<&str>) -> RedisResult<Option<Vec<(String, f64)>>> {
+        Influencers::try_from_index_sorted_set(
+            &USER_INFLUENCERS_KEY_PARTS,
+            None,
+            None,
+            Some(0),
+            Some(10_000),
+            SortOrder::Descending,
+            prefix,
+        )
+        .await
     }
 
     async fn read_raw_cache(timeframe: CacheTimeframe) -> RedisResult<Option<Vec<(String, f64)>>> {

@@ -68,7 +68,7 @@ indexes users hosted on **third-party** HSs — any HS other than the primary
 (also called "external" or "secondary"). For every monitored HS *except* the
 primary, it pulls each hosted user's events per user from the HS `/events-stream`
 endpoint (hence "key-based" — keyed on each user's pubky). Configured in
-`KeyBasedEventProcessorRunner::from_config`.
+`KeyBasedEventProcessorRunner::new`.
 
 ### `monitored_homeservers_limit`
 

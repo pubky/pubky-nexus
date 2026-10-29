@@ -7,7 +7,7 @@ mod scheduler;
 #[cfg(test)]
 mod test_support;
 
-pub use catalog::{HotTagsCacheJob, InfluencersCacheJob, TrustRecomputeJob};
+pub use catalog::{HotTagsCacheJob, InfluencersCacheJob, MostFollowedCacheJob, TrustRecomputeJob};
 pub use error::{CronParseError, JobError};
 pub use lock::LOCK_TTL_SECS;
 pub use registry::JobRegistry;
@@ -45,6 +45,13 @@ pub trait Job: Send + Sync {
     /// Stable unique identifier: used in logs, on-demand selection, and as the
     /// `[jobs.<name>]` config key.
     fn name(&self) -> &'static str;
+
+    /// The schedule used when the config has no `[jobs.<name>]` section. Only a
+    /// job whose data nothing else refreshes should have one; `None` leaves such
+    /// a job unscheduled.
+    fn default_cron(&self) -> Option<&'static str> {
+        None
+    }
 
     /// Executes a single run. A returned error is logged but doesn't stop future
     /// scheduled runs.

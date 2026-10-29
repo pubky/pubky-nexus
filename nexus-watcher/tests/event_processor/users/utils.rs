@@ -11,14 +11,14 @@ use nexus_common::{
 };
 
 pub async fn check_member_most_followed(user_id: &str) -> Result<Option<isize>> {
-    let influencer_score =
+    let most_followed_score =
         UserStream::check_sorted_set_member(None, &USER_MOSTFOLLOWED_KEY_PARTS, &[user_id])
             .await
             .unwrap();
-    Ok(influencer_score)
+    Ok(most_followed_score)
 }
 
-pub async fn check_member_user_influencer(user_id: &str) -> Result<Option<isize>> {
+pub async fn check_member_influencer(user_id: &str) -> Result<Option<isize>> {
     let influencer_score =
         UserStream::check_sorted_set_member(None, &USER_INFLUENCERS_KEY_PARTS, &[user_id])
             .await
@@ -26,8 +26,9 @@ pub async fn check_member_user_influencer(user_id: &str) -> Result<Option<isize>
     Ok(influencer_score)
 }
 
+/// The counts the API serves, read from the graph.
 pub async fn find_user_counts(user_id: &str) -> UserCounts {
-    UserCounts::get_from_index(user_id)
+    UserCounts::get_by_id(user_id)
         .await
         .expect("User count not found with that ID")
         .expect("User count not found with that ID")

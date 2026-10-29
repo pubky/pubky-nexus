@@ -1,25 +1,58 @@
 # Minimal nextest configuration.
 #
-# test_global_influencers_alltime_cache_recovery deletes and reseeds the shared
+# test_global_influencers_alltime_cache_recovery deletes and rebuilds the shared
 # Sorted:Users:Influencers Redis sorted set. nextest runs each test in its own
 # process, in parallel, against one shared Redis, so that test must never
 # interleave with the sibling tests that assert the exact member order of the
 # same sorted set. test_global_influencers_preview reads that set five times and asserts
 # each preview is a contiguous window of it, so a reseed landing mid-read breaks it too.
-# Put all four in a test group limited to one concurrent test.
+# test_global_influencers_rejects_skip_past_cache asserts an all-time page past 100 is
+# full, which a delete landing between the read's EXISTS and ZREVRANGEBYSCORE empties.
+# test_homeserver_put_tag_user_another asserts the watcher leaves two new users out of
+# that set, which the rebuild after a delete would add.
+# Put all six in a test group limited to one concurrent test.
 
 [test-groups]
 influencers-sorted-set = { max-threads = 1 }
+most-followed-sorted-set = { max-threads = 1 }
 
 [[profile.default.overrides]]
-filter = 'test(=stream::user::influencers::test_global_influencers) | test(=stream::user::influencers::test_global_influencers_skip_limit) | test(=stream::user::influencers::test_global_influencers_alltime_cache_recovery) | test(=stream::user::influencers::test_global_influencers_preview)'
+filter = 'test(=stream::user::influencers::test_global_influencers) | test(=stream::user::influencers::test_global_influencers_skip_limit) | test(=stream::user::influencers::test_global_influencers_alltime_cache_recovery) | test(=stream::user::influencers::test_global_influencers_preview) | test(=stream::user::influencers::test_global_influencers_rejects_skip_past_cache) | test(=event_processor::tags::user_to_user_put::test_homeserver_put_tag_user_another)'
 test-group = 'influencers-sorted-set'
+
+# The most-followed tests delete Sorted:Users:MostFollowed, mark a score at its top, or
+# plant a deleted user there, while the others assert full pages and its top 20. The
+# watcher's user and follow tests assert their new users stay out of it, which the
+# rebuild after a delete would add.
+[[profile.default.overrides]]
+filter = 'test(=stream::user::score::test_stream_most_followed) | test(=stream::user::score::test_stream_most_followed_rebuilds_a_missing_ranking) | test(=stream::user::score::test_stream_most_followed_serves_an_empty_window_without_a_rebuild) | test(=stream::user::score::test_stream_most_followed_filters_deleted_users) | test(=stream::user::ids::test_stream_user_ids_most_followed_align) | test(=event_processor::users::raw::test_homeserver_user_put_event) | test(=event_processor::follows::put::test_homeserver_put_follow) | test(=event_processor::follows::del::test_homeserver_unfollow)'
+test-group = 'most-followed-sorted-set'
 
 # These tests change the shared trust ranking (Sorted:Users:SocialGraph) and the
 # posts it hides, which every filtered stream and social graph status reads, so
 # they run alone, as cache_setup does below.
 [[profile.default.overrides]]
 filter = 'test(=user::views::test_social_graph_status) | test(/^models::post::trust_filter::tests::live::/)'
+threads-required = 'num-test-threads'
+
+# The first test seeds a stale copy of the shared Sorted:Users:MostFollowed ranking
+# and rebuilds it, so no reader of that set may run while it does. The second reads
+# the ranking from the graph twice and compares the reads, so no test may write
+# users or follows in between. The third deletes the ranking and counts Redis's
+# server-wide script calls, so no other test may run a script meanwhile. The fourth
+# rewrites the live ranking, which the API's most-followed tests read.
+[[profile.default.overrides]]
+filter = 'test(=models::user::stream::tests::refresh_converges_a_stale_most_followed_ranking) | test(=models::user::stream::tests::read_most_followed_ranking_walks_every_page) | test(=models::user::stream::tests::requests_that_miss_together_share_one_rebuild) | test(=models::user::stream::tests::a_rebuild_holds_up_only_misses)'
+threads-required = 'num-test-threads'
+
+# The first test seeds a stale copy of the shared Sorted:Users:Influencers ranking
+# and rebuilds it, so no reader of that set may run while it does. The second reads
+# the ranking from the graph twice and compares the reads, so no test may write
+# users, posts, follows or tags in between. The third deletes the ranking and counts
+# Redis's server-wide script calls, so no other test may run a script meanwhile. The
+# fourth deletes the shared ThisWeek cache, which the API's empty-page test reads.
+[[profile.default.overrides]]
+filter = 'test(=models::user::influencers::tests::refresh_converges_a_stale_all_time_ranking) | test(=models::user::influencers::tests::read_all_time_ranking_walks_every_page) | test(=models::user::influencers::tests::requests_that_miss_together_share_one_rebuild) | test(=models::user::influencers::tests::a_rebuild_holds_up_only_misses_of_its_own_ranking)'
 threads-required = 'num-test-threads'
 
 # nexusd/tests/cache_setup/main.rs calls clear_redis(), which issues FLUSHDB

@@ -1,6 +1,8 @@
+use std::sync::Arc;
+
 use pubky_app_specs::{ParsedUri, PubkyId};
 
-use crate::db::PubkyConnector;
+use super::PkdnsHomeserverResolver;
 use crate::models::error::{ModelError, ModelResult};
 use crate::models::homeserver::HsBlacklist;
 use crate::models::traits::Collection;
@@ -8,21 +10,42 @@ use crate::models::user::{set_user_homeserver, UserDetails, UserHsCursor};
 use crate::StackConfig;
 
 /// Ingests previously-unknown users unless their HS is blacklisted.
-#[derive(Debug, Default, Clone)]
+#[derive(Clone)]
 pub struct UserIngestor {
     hs_blacklist: HsBlacklist,
+    /// Looks up the HS a user publishes.
+    resolver: Arc<dyn PkdnsHomeserverResolver>,
+}
+
+/// Names the blacklist only: the resolver is a trait object.
+impl std::fmt::Debug for UserIngestor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("UserIngestor")
+            .field("hs_blacklist", &self.hs_blacklist)
+            .finish_non_exhaustive()
+    }
 }
 
 impl UserIngestor {
-    /// Builds an ingestor enforcing the given HS blacklist.
-    pub fn new(external_hs_pk_blacklist: impl IntoIterator<Item = PubkyId>) -> Self {
+    /// Builds an ingestor enforcing the given HS blacklist, looking users' homeservers up
+    /// through `resolver`.
+    pub fn new(
+        external_hs_pk_blacklist: impl IntoIterator<Item = PubkyId>,
+        resolver: Arc<dyn PkdnsHomeserverResolver>,
+    ) -> Self {
         Self {
             hs_blacklist: HsBlacklist::new(external_hs_pk_blacklist),
+            resolver,
         }
     }
 
-    pub fn from_config(config: &StackConfig) -> Self {
-        Self::new(config.net.external_hs_pk_blacklist.iter().cloned())
+    /// Builds an ingestor enforcing `config`'s HS blacklist, looking users' homeservers up
+    /// through `resolver`.
+    pub fn from_config(config: &StackConfig, resolver: Arc<dyn PkdnsHomeserverResolver>) -> Self {
+        Self::new(
+            config.net.external_hs_pk_blacklist.iter().cloned(),
+            resolver,
+        )
     }
 
     /// Ingests the author of a referenced post, if unknown.
@@ -44,7 +67,7 @@ impl UserIngestor {
         user_id: &PubkyId,
     ) -> ModelResult<Option<String>> {
         // `user_id` may itself be an HS PK (e.g. a file `src` of the form
-        // `pubky://<hs_pk>/...` that addresses the HS directly). `get_homeserver_of`
+        // `pubky://<hs_pk>/...` that addresses the HS directly). The resolver
         // returns `None` for an HS PK, so without this self-check a blacklisted HS
         // used as a direct source would slip through and we'd reach out to it.
         if self.hs_blacklist.is_blacklisted(user_id.as_ref()) {
@@ -53,13 +76,16 @@ impl UserIngestor {
             });
         }
 
-        let pubky = PubkyConnector::get().map_err(ModelError::from_generic)?;
-
-        let Some(hs_pk) = pubky.get_homeserver_of(&user_id.to_public_key()).await else {
+        let resolved = self
+            .resolver
+            .resolve_homeserver(&user_id.to_public_key())
+            .await
+            .map_err(ModelError::from_generic)?;
+        let Some(hs_pk) = resolved else {
             return Ok(None);
         };
 
-        let hs_id = hs_pk.into_inner().to_z32();
+        let hs_id = hs_pk.to_string();
         if self.hs_blacklist.is_blacklisted(&hs_id) {
             return Err(ModelError::HsBlacklisted { hs_id });
         }
@@ -105,5 +131,45 @@ impl UserIngestor {
         UserHsCursor::init(user_id, &hs_id).await?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use pubky::PublicKey;
+
+    use super::*;
+    use crate::db::PubkyClientResult;
+    use crate::utils::test_utils::random_pubky_id;
+
+    /// Resolves every user to one homeserver, without the network.
+    struct FixedResolver(PubkyId);
+
+    #[async_trait::async_trait]
+    impl PkdnsHomeserverResolver for FixedResolver {
+        async fn resolve_homeserver(&self, _: &PublicKey) -> PubkyClientResult<Option<PubkyId>> {
+            Ok(Some(self.0.clone()))
+        }
+    }
+
+    /// The blacklist check looks the user's homeserver up through the injected resolver.
+    #[tokio::test]
+    async fn blacklist_check_uses_the_injected_resolver() {
+        let blacklisted = random_pubky_id();
+        let allowed = random_pubky_id();
+        let user = random_pubky_id();
+
+        let refusing = UserIngestor::new(
+            [blacklisted.clone()],
+            Arc::new(FixedResolver(blacklisted.clone())),
+        );
+        let err = refusing.ensure_hs_not_blacklisted(&user).await.unwrap_err();
+        assert!(
+            matches!(err, ModelError::HsBlacklisted { hs_id } if hs_id == blacklisted.to_string())
+        );
+
+        let accepting = UserIngestor::new([blacklisted], Arc::new(FixedResolver(allowed.clone())));
+        let hs_id = accepting.ensure_hs_not_blacklisted(&user).await.unwrap();
+        assert_eq!(hs_id, Some(allowed.to_string()));
     }
 }
