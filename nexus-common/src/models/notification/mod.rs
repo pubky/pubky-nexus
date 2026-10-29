@@ -235,23 +235,29 @@ impl Notification {
 
     /// Like [`Self::get_by_id`], keeping only notifications whose type is in `types`.
     /// `skip` and `limit` count matching notifications. The set is read newest-first
-    /// in chunks and the scan stops after [`NOTIFICATION_FILTER_MAX_SCAN`] entries,
-    /// so a page can come back short when matches are scarce.
+    /// in chunks and the scan stops after [`NOTIFICATION_FILTER_MAX_SCAN`] entries.
+    ///
+    /// Returns the page and, when the scan stopped at that cap before filling the
+    /// page, the `start` to resume from (one below the oldest timestamp scanned),
+    /// so a short or empty page is never mistaken for the end of the history.
     pub async fn get_by_id_filtered(
         user_id: &str,
         pagination: Pagination,
         types: &[NotificationType],
-    ) -> RedisResult<Vec<Self>> {
+    ) -> RedisResult<(Vec<Self>, Option<i64>)> {
         let mut to_skip = pagination.skip.unwrap_or(0);
         let limit = pagination.limit.unwrap_or(20);
+        let mut start = pagination.start;
         let mut result = Vec::new();
         let mut offset = 0;
+        let mut oldest_scanned: Option<f64> = None;
+        let mut exhausted = false;
 
         while result.len() < limit && offset < NOTIFICATION_FILTER_MAX_SCAN {
             let chunk = NOTIFICATION_FILTER_CHUNK.min(NOTIFICATION_FILTER_MAX_SCAN - offset);
             let rows = Notification::try_from_index_sorted_set(
                 &["Notification", user_id],
-                pagination.start,
+                start,
                 pagination.end,
                 Some(offset),
                 Some(chunk),
@@ -261,6 +267,17 @@ impl Notification {
             .await?
             .unwrap_or_default();
             let read = rows.len();
+            if read < chunk {
+                exhausted = true;
+            }
+            // Pin the upper bound to the newest row seen, so a notification written
+            // mid-scan cannot shift the offsets and repeat a row in the next chunk.
+            if start.is_none() {
+                start = rows.first().map(|(_, score)| *score);
+            }
+            if let Some((_, score)) = rows.last() {
+                oldest_scanned = Some(*score);
+            }
             offset += read;
 
             for notification in rows.into_iter().filter_map(Self::from_row) {
@@ -277,12 +294,17 @@ impl Notification {
                 }
             }
 
-            if read < chunk {
+            if exhausted {
                 break;
             }
         }
 
-        Ok(result)
+        let next_start = match (result.len() < limit && !exhausted, oldest_scanned) {
+            (true, Some(score)) => Some(score as i64 - 1),
+            _ => None,
+        };
+
+        Ok((result, next_start))
     }
 
     fn from_row((body_str, score): (String, f64)) -> Option<Self> {

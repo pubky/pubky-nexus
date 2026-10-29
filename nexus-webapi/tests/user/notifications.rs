@@ -5,6 +5,7 @@ use nexus_common::{
     db::RedisOps,
     models::notification::{Notification, NotificationBody},
 };
+use serde_json::Value;
 
 async fn env_init() {
     crate::utils::server::TestServiceServer::get_test_server().await;
@@ -454,6 +455,108 @@ async fn test_get_notifications_invalid_type_filter() -> Result<()> {
         StatusCode::BAD_REQUEST,
     )
     .await?;
+
+    Ok(())
+}
+
+/// GET that also returns one response header, for the filtered-scan cursor.
+async fn get_with_header(endpoint: &str, header: &str) -> Result<(Value, Option<String>)> {
+    let url = crate::utils::host_url().await;
+    let client = httpc_test::new_client("")?;
+    let res = client.do_get(&format!("{url}{endpoint}")).await?;
+    assert_eq!(res.status(), 200, "Expected HTTP status 200 OK");
+    Ok((res.json_body()?, res.header(header)))
+}
+
+/// Seeds one reply below 10,001 follows. The filtered scan stops at the cap with
+/// no match: the page is empty but `X-Next-Start` says where to resume, and
+/// resuming from it finds the reply with no header (the history is exhausted).
+#[tokio_shared_rt::test(shared)]
+async fn test_get_notifications_filtered_scan_cap_returns_cursor() -> Result<()> {
+    env_init().await;
+    const TEST_USER: &str = "e7xe7b1gwcd485ce3srio9j5qz3opgrb3fpqeqmu64cznn5hqpeo";
+    const OTHER: &str = "17775cing48kciy3enntgjwhw7yptxz6zw8k8czcddzk1yruqhcy";
+
+    seed_body(TEST_USER, &reply_body(OTHER, 1), 1_000).await?;
+    let follows: Vec<(f64, String)> = (0..10_001u32)
+        .map(|i| {
+            let body = NotificationBody::Follow {
+                followed_by: format!("{OTHER}-{i}"),
+            };
+            (100_000.0 + i as f64, serde_json::to_string(&body).unwrap())
+        })
+        .collect();
+    let refs: Vec<(f64, &str)> = follows.iter().map(|(s, b)| (*s, b.as_str())).collect();
+    Notification::put_index_sorted_set(&["Notification", TEST_USER], &refs, None, None)
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    let (first, cursor) = get_with_header(
+        &format!("/v0/user/{TEST_USER}/notifications?types=reply"),
+        "x-next-start",
+    )
+    .await?;
+    assert_eq!(first.as_array().unwrap().len(), 0);
+    let cursor = cursor.expect("a capped scan must return X-Next-Start");
+    // 10,000 newest follows scanned (100_001..=110_000); resume just below them.
+    assert_eq!(cursor, "100000");
+
+    let (second, cursor) = get_with_header(
+        &format!("/v0/user/{TEST_USER}/notifications?types=reply&start={cursor}"),
+        "x-next-start",
+    )
+    .await?;
+    let second = second.as_array().unwrap();
+    assert_eq!(second.len(), 1);
+    assert_eq!(second[0]["timestamp"], 1_000_i64);
+    assert!(
+        cursor.is_none(),
+        "an exhausted scan must not return a cursor"
+    );
+
+    Ok(())
+}
+
+/// 520 follows share one timestamp across the 500-row chunk boundary. The
+/// chunked scan must step past the ties without skipping or repeating a row.
+#[tokio_shared_rt::test(shared)]
+async fn test_get_notifications_filtered_ties_across_chunks() -> Result<()> {
+    env_init().await;
+    const TEST_USER: &str = "jy94hp5doi16dok1faidk9m695nkcryucfnfpr9jt53epsmpyf6o";
+    const OTHER: &str = "17775cing48kciy3enntgjwhw7yptxz6zw8k8czcddzk1yruqhcy";
+
+    let mut rows: Vec<(f64, String)> = (0..520u32)
+        .map(|i| {
+            let body = NotificationBody::Follow {
+                followed_by: format!("{OTHER}-{i}"),
+            };
+            (5_000.0, serde_json::to_string(&body).unwrap())
+        })
+        .collect();
+    for n in 0..3u32 {
+        rows.push((
+            5_000.0,
+            serde_json::to_string(&reply_body(OTHER, n)).unwrap(),
+        ));
+    }
+    rows.push((
+        4_000.0,
+        serde_json::to_string(&reply_body(OTHER, 9)).unwrap(),
+    ));
+    let refs: Vec<(f64, &str)> = rows.iter().map(|(s, b)| (*s, b.as_str())).collect();
+    Notification::put_index_sorted_set(&["Notification", TEST_USER], &refs, None, None)
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    let res = get_request(&format!("/v0/user/{TEST_USER}/notifications?types=reply")).await?;
+    let items = res.as_array().unwrap();
+    let uris: std::collections::HashSet<String> = items
+        .iter()
+        .map(|n| n["body"]["reply_uri"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(items.len(), 4, "each reply exactly once: {items:?}");
+    assert_eq!(uris.len(), 4);
+    assert_eq!(items[3]["timestamp"], 4_000_i64);
 
     Ok(())
 }
