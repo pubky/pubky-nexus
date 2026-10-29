@@ -192,14 +192,25 @@ fn unknown_kind_target(address: &str, epoch_segments: usize, kinds: &[&str]) -> 
     let foreign = try_parse_pubky_path(address)
         .ok()
         .and_then(|path| path.segments.into_iter().nth(epoch_segments))
-        .is_some_and(|first| {
-            !first.is_empty() && !kinds.iter().any(|kind| kind.trim_end_matches('/') == first)
-        });
+        .is_some_and(|first| !first.is_empty() && !spells_a_kind(&first, kinds));
     if foreign {
         ReferenceTarget::Foreign
     } else {
         ReferenceTarget::Other
     }
+}
+
+/// Whether `segment` is one of `kinds` spelled another way: in another ASCII case, with or
+/// without `.json` (`Posts`, `profile`), or percent-encoded (`%74ags`), which the v0 splitter
+/// keeps as written. A misspelt kind is a malformed path of it, never another app's object.
+fn spells_a_kind(segment: &str, kinds: &[&str]) -> bool {
+    let stem = |name: &str| {
+        let name = name.trim_end_matches('/').to_ascii_lowercase();
+        name.strip_suffix(".json")
+            .map(str::to_owned)
+            .unwrap_or(name)
+    };
+    segment.contains('%') || kinds.iter().any(|kind| stem(kind) == stem(segment))
 }
 
 /// The target a v0 address names; the resources Nexus never references are `Other`, a path
@@ -397,6 +408,10 @@ mod tests {
             format!("pubky://{USER}/pub/pubky.app/posts/"),
             format!("pubky://{USER}/pub/pubky.app/bookmarks"),
             format!("pubky://{USER}/pub/pubky.app/"),
+            // A v0 kind spelt another way: another case, no `.json`, percent-encoded.
+            format!("pubky://{USER}/pub/pubky.app/Posts/{POST_ID}"),
+            format!("pubky://{USER}/pub/pubky.app/profile"),
+            format!("pubky://{USER}/pub/pubky.app/%74ags/{HASH_ID}"),
         ] {
             assert_eq!(target(&address), ReferenceTarget::Other, "{address}");
         }
@@ -462,6 +477,9 @@ mod tests {
             format!("pubky://{USER}/pub/social/v1/follows/not-a-key.json"),
             format!("pubky://{USER}/pub/social/v1/mutes/{OTHER_USER}.json"),
             format!("pubky://{USER}/pub/social/v1/"),
+            // A v1 kind spelt another way: another case, no `.json`.
+            format!("pubky://{USER}/pub/social/v1/Posts/{POST_ID}"),
+            format!("pubky://{USER}/pub/social/v1/profile"),
             // A path the v1 canonicaliser rejects (a trailing slash), even one naming no kind.
             format!("pubky://{USER}/pub/social/v1/marketplace/"),
         ] {
