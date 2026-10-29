@@ -76,7 +76,8 @@ criterion_group! {
               resource::bench_stream_resources_all_timeline,
               resource::bench_stream_resources_app_timeline,
               resource::bench_stream_resources_tag_timeline,
-              resource::bench_stream_resources_app_tag_timeline
+              resource::bench_stream_resources_app_tag_timeline,
+              resource::bench_stream_resources_by_ids
 }
 
 criterion_main!(streams);

@@ -2,6 +2,7 @@ use crate::events::EventProcessorError;
 use chrono::Utc;
 use nexus_common::db::kv::ScoreAction;
 use nexus_common::db::{fetch_row_from_graph, queries, OperationOutcome, RedisOps};
+use nexus_common::models::event::resource_changes::{ResourceChange, ResourceChangeOp};
 use nexus_common::models::notification::Notification;
 use nexus_common::models::post::search::PostsByTagSearch;
 use nexus_common::models::post::{PostCounts, PostStream};
@@ -13,7 +14,7 @@ use nexus_common::models::tag::user::TagUser;
 use nexus_common::models::user::{UserIngestor, UsersByTagSearch};
 use nexus_common::types::Pagination;
 use nexus_common::universal_tag::normalize::{normalize_uri, resource_id};
-use pubky_social_specs::PubkyId;
+use pubky_social_specs::{tag_uri_builder as social_tag_uri_builder, PubkyId};
 use tracing::{debug, Instrument};
 
 use super::utils::{
@@ -135,7 +136,7 @@ async fn put_sync_resource(
     tag_label: &str,
     indexed_at: i64,
 ) -> Result<(), EventProcessorError> {
-    match TagResource::put_to_graph_resource(
+    let outcome = TagResource::put_to_graph_resource(
         &tagger_id,
         resource_id,
         uri,
@@ -146,8 +147,45 @@ async fn put_sync_resource(
         tag_label,
         indexed_at,
     )
-    .await?
-    {
+    .await?;
+    if !matches!(outcome, OperationOutcome::MissingDependency) {
+        // A retry still publishes, so a graph commit followed by a Redis failure
+        // cannot lose the reference. Consumers upsert by (author, object_path).
+        // An equivalent tag file that lands on an edge created by another file
+        // publishes nothing: the edge and its feed line keep the first file's
+        // path, so deleting that file removes both.
+        let at = if matches!(outcome, OperationOutcome::Updated) {
+            let row = fetch_row_from_graph(queries::get::get_resource_tag_indexed_at(
+                &tagger_id,
+                resource_id,
+                tag_label,
+                app,
+            ))
+            .await?
+            .ok_or_else(|| EventProcessorError::generic("Resource tag disappeared during retry"))?;
+            let owner: String = row.get("tag_id").map_err(EventProcessorError::generic)?;
+            (owner == tag_id)
+                .then(|| row.get("tag_indexed_at"))
+                .transpose()
+                .map_err(EventProcessorError::generic)?
+        } else {
+            Some(indexed_at)
+        };
+        if let Some(at) = at {
+            ResourceChange::tag(
+                ResourceChangeOp::Put,
+                resource_id.to_owned(),
+                uri.to_owned(),
+                tagger_id.to_string(),
+                tag_label.to_owned(),
+                tag_uri,
+                at,
+            )?
+            .store()
+            .await?;
+        }
+    }
+    match outcome {
         OperationOutcome::MissingDependency => {
             // Tagger user not yet indexed
             let dependency = vec![format!("{tagger_id}")];
@@ -365,6 +403,26 @@ async fn put_sync_user(
     fields(user_id = %key.owner_id, tag_id = %key.resource_id, app = ?app)
 )]
 pub async fn del(key: ResourceKey, app: Option<String>) -> Result<(), EventProcessorError> {
+    // The edge stores the address of the file that created it, and `del_at` keys the
+    // feed by that. This one only applies once the edge is gone (a retry), so it
+    // follows the folder's path rules: a `social/v1` tag is `v1/tags/{id}.json`.
+    let tag_uri = match app.as_deref() {
+        Some("social") => social_tag_uri_builder(key.owner_id.to_string(), key.resource_id.clone()),
+        app => format!(
+            "pubky://{}/pub/{}/tags/{}",
+            key.owner_id,
+            app.unwrap_or("pubky.app"),
+            key.resource_id
+        ),
+    };
+    del_at(key, app, &tag_uri).await
+}
+
+pub async fn del_at(
+    key: ResourceKey,
+    app: Option<String>,
+    tag_uri: &str,
+) -> Result<(), EventProcessorError> {
     // Prefix these vars with arg_ to indicate they come from the argument key and app.
     // Similarly named vars will be used in Step 2 below, reading fields from the query result
     let ResourceKey {
@@ -395,11 +453,13 @@ pub async fn del(key: ResourceKey, app: Option<String>) -> Result<(), EventProce
             .await?
             else {
                 // Edge already gone (fully completed on a prior attempt) - idempotent no-op
+                ResourceChange::finish_delete(&arg_user_id, tag_uri).await?;
                 return Ok(());
             };
 
             let resource_id: Option<String> = row.get("resource_id").unwrap_or(None);
             if resource_id.is_some() {
+                ResourceChange::finish_delete(&arg_user_id, tag_uri).await?;
                 return Ok(());
             }
 
@@ -407,6 +467,7 @@ pub async fn del(key: ResourceKey, app: Option<String>) -> Result<(), EventProce
         }
         None => {
             // Edge already gone (fully completed on a prior attempt) - idempotent no-op
+            ResourceChange::finish_delete(&arg_user_id, tag_uri).await?;
             return Ok(());
         }
     };
@@ -420,11 +481,15 @@ pub async fn del(key: ResourceKey, app: Option<String>) -> Result<(), EventProce
         .get("label")
         .map_err(|e| EventProcessorError::generic(format!("Missing label in delete_tag: {e}")))?;
     let app: Option<String> = row.get("app").unwrap_or(None);
+    // The feed's put used the address stored on the edge; key the del the same way.
+    let stored_uri: Option<String> = row.get("tag_uri").unwrap_or(None);
+    let tag_uri = stored_uri.as_deref().unwrap_or(tag_uri);
 
     // 2. Redis cleanup (guarded by tagger_in_index where non-idempotent)
     // Post-count cache to invalidate AFTER the graph edge is deleted (invalidating
     // before it is gone lets a concurrent read recache the pre-delete tag count).
     let mut post_counts_to_invalidate: Option<[String; 2]> = None;
+    let mut resource_change = None;
     match (tagged_user_id, post_id, author_id, resource_id) {
         (Some(tagged_id), None, None, None) => {
             let tagger_in_index =
@@ -454,11 +519,29 @@ pub async fn del(key: ResourceKey, app: Option<String>) -> Result<(), EventProce
             .await?;
             post_counts_to_invalidate = Some([author_id, post_id]);
         }
-        // Resource tags keep no Redis index to clean up
-        (None, None, None, Some(_)) => {}
+        // Resource tags keep no Redis index to clean up; the feed's del line
+        // is prepared here and published after the graph deletion below.
+        (None, None, None, Some(res_id)) => {
+            let uri: String = row
+                .get("resource_uri")
+                .map_err(EventProcessorError::generic)?;
+            resource_change = Some(ResourceChange::tag(
+                ResourceChangeOp::Del,
+                res_id,
+                uri,
+                arg_user_id.to_string(),
+                label.clone(),
+                tag_uri,
+                Utc::now().timestamp_millis(),
+            )?);
+        }
         _ => {
             debug!("DEL-Tag: Unexpected combination of tag details");
         }
+    }
+
+    if let Some(change) = &resource_change {
+        change.prepare_delete().await?;
     }
 
     // 3. Graph deletion LAST — ensures data survives for retry if Redis ops fail
@@ -468,6 +551,9 @@ pub async fn del(key: ResourceKey, app: Option<String>) -> Result<(), EventProce
         app.as_deref(),
     ))
     .await?;
+    if resource_change.is_some() {
+        ResourceChange::finish_delete(&arg_user_id, tag_uri).await?;
+    }
 
     // Now that the TAGGED edge is gone, invalidate the cached post counts so the
     // next read recomputes the lower count instead of recaching the pre-delete one.

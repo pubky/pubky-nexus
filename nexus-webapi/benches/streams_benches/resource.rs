@@ -92,3 +92,29 @@ pub fn bench_stream_resources_app_tag_timeline(c: &mut Criterion) {
         ResourceSorting::Timeline,
     );
 }
+
+/// Hydrate the maximum batch size, using the same loader as POST /by_ids.
+pub fn bench_stream_resources_by_ids(c: &mut Criterion) {
+    run_setup();
+    let rt = Runtime::new().unwrap();
+    let ids: Vec<String> = [
+        "450a72e3da164bfc3ac5f4056f9e5c7c",
+        "fb4155a2295ff3a8a8fe02e28229c021",
+        "e23f778c4f2a84606f350e4df1a918e9",
+    ]
+    .iter()
+    .cycle()
+    .take(100)
+    .map(|id| (*id).to_owned())
+    .collect();
+    c.bench_function("stream_resources_by_ids_100", |b| {
+        b.to_async(&rt).iter(|| async {
+            let stream = ResourceStream::from_listed_resource_ids(None, &ids)
+                .await
+                .unwrap()
+                .expect("seed resource fixtures before benchmarking");
+            assert_eq!(stream.0.len(), 100);
+            std::hint::black_box(stream);
+        });
+    });
+}
