@@ -475,7 +475,7 @@ async fn resolve_user(
     // to the mapping state it would have affected.
     let stored_mapping = get_user_homeserver(&user_id).await?;
 
-    let record = match resolver.resolve_record(user_pk).await {
+    let record = match resolver.resolve_own_record(user_pk).await {
         Ok(record) => record,
         Err(e) => {
             warn!(%user_id, error = %e, "PKDNS lookup failed");
@@ -704,16 +704,6 @@ mod tests {
                     keypair, homeserver, timestamp,
                 )),
             }
-        }
-
-        /// A record naming `homeserver`, authored at `timestamp` by some key.
-        fn naming(homeserver: &PubkyId, timestamp: u64) -> Self {
-            Self::signed_by(&Keypair::random(), Some(homeserver), timestamp)
-        }
-
-        /// A record with no homeserver in it, authored at `timestamp` by some key.
-        fn naming_none(timestamp: u64) -> Self {
-            Self::signed_by(&Keypair::random(), None, timestamp)
         }
 
         /// No record found.
@@ -963,13 +953,15 @@ mod tests {
     async fn test_resolve_user_first_time_sets_homeserver() -> Result<(), DynError> {
         setup().await?;
 
-        let user_pk = random_pk();
+        let user = Keypair::random();
+        let user_pk = user.public_key();
         let user_id = user_pk.z32();
         let hs_id = random_pubky_id();
 
         create_test_user(&user_id).await?;
 
-        let outcome = resolve_user(&MockResolver::naming(&hs_id, 10), &user_pk).await?;
+        let outcome =
+            resolve_user(&MockResolver::signed_by(&user, Some(&hs_id), 10), &user_pk).await?;
         assert_eq!(outcome, Resolution::Bound);
 
         assert_eq!(
@@ -992,12 +984,16 @@ mod tests {
     async fn test_resolve_user_first_time_no_homeserver_noop() -> Result<(), DynError> {
         setup().await?;
 
-        let user_pk = random_pk();
+        let user = Keypair::random();
+        let user_pk = user.public_key();
         let user_id = user_pk.z32();
 
         create_test_user(&user_id).await?;
 
-        for resolver in [MockResolver::missing(), MockResolver::naming_none(10)] {
+        for resolver in [
+            MockResolver::missing(),
+            MockResolver::signed_by(&user, None, 10),
+        ] {
             let outcome = resolve_user(&resolver, &user_pk).await?;
             assert_eq!(outcome, Resolution::Unbound);
             assert_eq!(get_user_homeserver(&user_id).await?, None);
@@ -1139,7 +1135,8 @@ mod tests {
     async fn test_resolve_user_change_keeps_binding_and_marks_stale() -> Result<(), DynError> {
         setup().await?;
 
-        let user_pk = random_pk();
+        let user = Keypair::random();
+        let user_pk = user.public_key();
         let user_id = user_pk.z32();
         let stored_hs = random_pubky_id();
         let new_hs = random_pubky_id();
@@ -1148,7 +1145,8 @@ mod tests {
         set_user_homeserver(&user_id, &stored_hs).await?;
 
         // DHT now points at a different homeserver
-        let outcome = resolve_user(&MockResolver::naming(&new_hs, 10), &user_pk).await?;
+        let outcome =
+            resolve_user(&MockResolver::signed_by(&user, Some(&new_hs), 10), &user_pk).await?;
         assert_eq!(
             outcome,
             Resolution::Diverged {
@@ -1178,7 +1176,7 @@ mod tests {
             .expect("the record is on the edge");
         assert_eq!(stored.timestamp, 10);
         assert_eq!(
-            PkdnsRecord::Published(stored.verify()?).homeserver(),
+            PkdnsRecord::Published(stored.verify(&user_pk)?).homeserver(),
             Some(new_hs.clone())
         );
 
@@ -1231,7 +1229,8 @@ mod tests {
     async fn test_resolve_user_realign_clears_stale() -> Result<(), DynError> {
         setup().await?;
 
-        let user_pk = random_pk();
+        let user = Keypair::random();
+        let user_pk = user.public_key();
         let user_id = user_pk.z32();
         let stored_hs = random_pubky_id();
 
@@ -1244,7 +1243,11 @@ mod tests {
             .contains(&user_id));
 
         // DHT points back at the stored homeserver
-        let outcome = resolve_user(&MockResolver::naming(&stored_hs, 10), &user_pk).await?;
+        let outcome = resolve_user(
+            &MockResolver::signed_by(&user, Some(&stored_hs), 10),
+            &user_pk,
+        )
+        .await?;
         assert_eq!(outcome, Resolution::Confirmed { was_stale: true });
 
         assert!(get_user_ids_by_homeserver(&stored_hs)
@@ -1263,7 +1266,8 @@ mod tests {
     async fn test_resolve_user_already_stale_not_counted_again() -> Result<(), DynError> {
         setup().await?;
 
-        let user_pk = random_pk();
+        let user = Keypair::random();
+        let user_pk = user.public_key();
         let user_id = user_pk.z32();
         let stored_hs = random_pubky_id();
         let new_hs = random_pubky_id();
@@ -1272,7 +1276,8 @@ mod tests {
         set_user_homeserver(&user_id, &stored_hs).await?;
         set_user_homeserver_stale(&user_id, true, None).await?;
 
-        let outcome = resolve_user(&MockResolver::naming(&new_hs, 10), &user_pk).await?;
+        let outcome =
+            resolve_user(&MockResolver::signed_by(&user, Some(&new_hs), 10), &user_pk).await?;
         assert_eq!(
             outcome,
             Resolution::Diverged {
@@ -1356,8 +1361,7 @@ mod tests {
             .await?
             .expect("the record is on the edge");
         assert_eq!(stored.timestamp, 10);
-        let packet = stored.verify()?;
-        assert_eq!(packet.public_key().to_z32(), user_id, "signed by the user");
+        let packet = stored.verify(&user_pk)?;
         assert_eq!(
             PkdnsRecord::Published(packet).homeserver(),
             Some(hs_id.clone())
@@ -1396,6 +1400,52 @@ mod tests {
             stored_record(&user_id).await?.map(|r| r.timestamp),
             Some(30),
             "a missing record leaves the stored one"
+        );
+
+        cleanup_test_user(&user_id).await?;
+        Ok(())
+    }
+
+    /// A lookup answered with another key's record fails like any lookup: an
+    /// unbound user stays unbound, a bound one keeps its mapping and record.
+    #[tokio_shared_rt::test(shared)]
+    async fn test_resolve_user_refuses_another_keys_record() -> Result<(), DynError> {
+        setup().await?;
+
+        let user = Keypair::random();
+        let user_pk = user.public_key();
+        let user_id = user_pk.z32();
+        let hs_id = random_pubky_id();
+        let foreign = MockResolver::signed_by(&Keypair::random(), Some(&random_pubky_id()), 20);
+        create_test_user(&user_id).await?;
+
+        let outcome = resolve_user(&foreign, &user_pk).await?;
+        assert_eq!(
+            outcome,
+            Resolution::LookupFailed {
+                mapping: MappingState::Unbound
+            }
+        );
+        assert_eq!(get_user_homeserver(&user_id).await?, None);
+
+        resolve_user(&MockResolver::signed_by(&user, Some(&hs_id), 10), &user_pk).await?;
+        let outcome = resolve_user(&foreign, &user_pk).await?;
+        assert_eq!(
+            outcome,
+            Resolution::LookupFailed {
+                mapping: MappingState::Active
+            }
+        );
+        assert_eq!(
+            get_user_homeserver(&user_id).await?,
+            Some(UserHomeserverMapping {
+                hs_id: hs_id.to_string(),
+                stale: false,
+            })
+        );
+        assert_eq!(
+            stored_record(&user_id).await?.map(|r| r.timestamp),
+            Some(10)
         );
 
         cleanup_test_user(&user_id).await?;

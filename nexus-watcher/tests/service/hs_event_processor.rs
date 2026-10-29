@@ -12,6 +12,7 @@ use nexus_watcher::events::retry::{IndexKey, InitialBackoff, RetryScheduler, Ret
 use nexus_watcher::events::{DefaultEventHandler, Event, EventHandler, ParseResult};
 use nexus_watcher::homeserver::HsErrorKind;
 use nexus_watcher::service::{HsEventProcessor, RunError, TEventProcessor};
+use pubky::Keypair;
 use pubky_app_specs::traits::{HashId, TimestampId};
 use pubky_app_specs::{
     blob_uri_builder, file_uri_builder, post_uri_builder, PubkyAppBlob, PubkyAppFile, PubkyAppUser,
@@ -868,8 +869,9 @@ async fn test_handler_from_config_resolves_homeservers_through_its_client() -> R
     setup().await?;
 
     let blacklisted_hs = random_pubky_id();
+    let source_user = Keypair::random();
     let blob_uri = blob_uri_builder(
-        random_user_id(),
+        source_user.public_key().z32(),
         PubkyAppBlob::new(b"blob".to_vec()).create_id(),
     );
     let file = PubkyAppFile {
@@ -882,7 +884,7 @@ async fn test_handler_from_config_resolves_homeservers_through_its_client() -> R
     let file_uri = file_uri_builder(random_user_id(), file.create_id());
     let client = Arc::new(
         MockHomeserverClient::default()
-            .with_homeserver_of(blacklisted_hs.clone())
+            .with_homeserver_of(source_user, blacklisted_hs.clone())
             .with_resource(&file_uri, serde_json::to_vec(&file)?),
     );
     let mut config = WatcherConfig::default();

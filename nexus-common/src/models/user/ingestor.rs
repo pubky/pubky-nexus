@@ -90,7 +90,7 @@ impl UserIngestor {
 
         let record = self
             .resolver
-            .resolve_record(&user_id.to_public_key())
+            .resolve_own_record(&user_id.to_public_key())
             .await
             .map_err(ModelError::from_generic)?;
         let (PkdnsRecord::Published(packet), Some(hs_pk)) = (&record, record.homeserver()) else {
@@ -157,20 +157,6 @@ mod tests {
     use crate::utils::test_utils::{random_pubky_id, signed_packet_naming};
     use crate::{types::DynError, StackConfig, StackManager};
 
-    /// Resolves every user to one homeserver, without the network.
-    struct FixedResolver(PubkyId);
-
-    #[async_trait::async_trait]
-    impl PkdnsHomeserverResolver for FixedResolver {
-        async fn resolve_record(&self, _: &PublicKey) -> PubkyClientResult<PkdnsRecord> {
-            Ok(PkdnsRecord::Published(signed_packet_naming(
-                &Keypair::random(),
-                Some(&self.0),
-                1,
-            )))
-        }
-    }
-
     /// Answers every lookup with `keypair`'s own record naming one homeserver.
     struct SigningResolver {
         keypair: Keypair,
@@ -221,8 +207,7 @@ mod tests {
             timestamp: row.get("timestamp")?,
         };
         assert_eq!(stored.timestamp, 7);
-        let packet = stored.verify()?;
-        assert_eq!(packet.public_key().to_z32(), user_id.to_string());
+        let packet = stored.verify(&user_id.to_public_key())?;
         assert_eq!(
             PkdnsRecord::Published(packet).homeserver(),
             Some(homeserver)
@@ -237,19 +222,52 @@ mod tests {
     async fn blacklist_check_uses_the_injected_resolver() {
         let blacklisted = random_pubky_id();
         let allowed = random_pubky_id();
-        let user = random_pubky_id();
+        let user = Keypair::random();
+        let user_id = PubkyId::from(user.public_key());
 
         let refusing = UserIngestor::new(
             [blacklisted.clone()],
-            Arc::new(FixedResolver(blacklisted.clone())),
+            Arc::new(SigningResolver {
+                keypair: user.clone(),
+                homeserver: blacklisted.clone(),
+            }),
         );
-        let err = refusing.ensure_hs_not_blacklisted(&user).await.unwrap_err();
+        let err = refusing
+            .ensure_hs_not_blacklisted(&user_id)
+            .await
+            .unwrap_err();
         assert!(
             matches!(err, ModelError::HsBlacklisted { hs_id } if hs_id == blacklisted.to_string())
         );
 
-        let accepting = UserIngestor::new([blacklisted], Arc::new(FixedResolver(allowed.clone())));
-        let hs_id = accepting.ensure_hs_not_blacklisted(&user).await.unwrap();
+        let accepting = UserIngestor::new(
+            [blacklisted],
+            Arc::new(SigningResolver {
+                keypair: user,
+                homeserver: allowed.clone(),
+            }),
+        );
+        let hs_id = accepting.ensure_hs_not_blacklisted(&user_id).await.unwrap();
         assert_eq!(hs_id, Some(allowed.to_string()));
+    }
+
+    /// A lookup answered with another key's record fails, so the user is not
+    /// taken to be hosted where that record points.
+    #[tokio::test]
+    async fn record_signed_by_another_key_is_refused() {
+        let user_id = random_pubky_id();
+        let ingestor = UserIngestor::new(
+            [],
+            Arc::new(SigningResolver {
+                keypair: Keypair::random(),
+                homeserver: random_pubky_id(),
+            }),
+        );
+
+        let err = ingestor
+            .ensure_hs_not_blacklisted(&user_id)
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("is signed by"), "{err}");
     }
 }

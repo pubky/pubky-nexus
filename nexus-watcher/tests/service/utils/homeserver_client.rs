@@ -38,8 +38,9 @@ pub struct MockHomeserverClient {
     /// Bodies served by `get_resource`, by URI. Any other URI is a 404.
     resources: HashMap<String, Vec<u8>>,
 
-    /// The homeserver every user resolves to. None by default.
-    homeserver_of: Option<PubkyId>,
+    /// The user whose record every lookup is answered with, and the homeserver
+    /// it names. None by default.
+    homeserver_of: Option<(Keypair, PubkyId)>,
 }
 
 impl MockHomeserverClient {
@@ -76,8 +77,8 @@ impl MockHomeserverClient {
         self
     }
 
-    pub fn with_homeserver_of(mut self, hs: PubkyId) -> Self {
-        self.homeserver_of = Some(hs);
+    pub fn with_homeserver_of(mut self, user: Keypair, hs: PubkyId) -> Self {
+        self.homeserver_of = Some((user, hs));
         self
     }
 
@@ -115,11 +116,9 @@ fn not_found(resource: &PubkyResource, op: HsOp) -> HsError {
 impl PkdnsHomeserverResolver for MockHomeserverClient {
     async fn resolve_record(&self, _user_pk: &PublicKey) -> PubkyClientResult<PkdnsRecord> {
         Ok(match &self.homeserver_of {
-            Some(homeserver) => PkdnsRecord::Published(signed_packet_naming(
-                &Keypair::random(),
-                Some(homeserver),
-                1,
-            )),
+            Some((user, homeserver)) => {
+                PkdnsRecord::Published(signed_packet_naming(user, Some(homeserver), 1))
+            }
             None => PkdnsRecord::Missing,
         })
     }

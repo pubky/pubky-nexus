@@ -3,7 +3,7 @@ use pubky::pkarr::SignedPacket;
 use pubky::{Pubky, PublicKey};
 use pubky_app_specs::PubkyId;
 
-use crate::db::{PubkyClientResult, PubkyConnector};
+use crate::db::{PubkyClientError, PubkyClientResult, PubkyConnector};
 use crate::types::DynError;
 
 /// A user's PKDNS record, as the DHT or a relay answered.
@@ -49,16 +49,18 @@ pub struct StoredRecord {
 }
 
 impl StoredRecord {
-    /// Decodes the packet and checks its signature: the record is proof of the
-    /// key holder's publication only when this succeeds.
-    pub fn verify(&self) -> Result<SignedPacket, DynError> {
+    /// Decodes the packet and checks that `user` signed it: the record is proof
+    /// of the user's publication only when this succeeds.
+    pub fn verify(&self, user: &PublicKey) -> Result<SignedPacket, DynError> {
         let bytes = hex::decode(&self.packet)?;
         let (key, payload) = bytes
             .split_at_checked(32)
             .ok_or("stored record shorter than a public key")?;
-        let public_key = pubky::pkarr::PublicKey::try_from(key)?;
+        if key != user.as_bytes() {
+            return Err("stored record is signed by another key".into());
+        }
         Ok(SignedPacket::from_relay_payload(
-            &public_key,
+            user,
             &payload.to_vec().into(),
         )?)
     }
@@ -82,9 +84,29 @@ pub trait PkdnsHomeserverResolver: Send + Sync {
     /// Looks up the PKDNS record of `user_pk`.
     async fn resolve_record(&self, user_pk: &PublicKey) -> PubkyClientResult<PkdnsRecord>;
 
+    /// Looks up the PKDNS record of `user_pk` and refuses a packet signed by
+    /// another key. pkarr 6.0.1 on mainline 6.2.0 checks a DHT answer against
+    /// the key the answer carries, not the key asked for, so any DHT node can
+    /// answer with another key's signed packet.
+    async fn resolve_own_record(&self, user_pk: &PublicKey) -> PubkyClientResult<PkdnsRecord> {
+        let record = self.resolve_record(user_pk).await?;
+        if let PkdnsRecord::Published(packet) = &record {
+            if packet.public_key() != *user_pk.as_inner() {
+                return Err(PubkyClientError::RequestFailed {
+                    message: format!(
+                        "PKDNS answer for {} is signed by {}",
+                        user_pk.z32(),
+                        packet.public_key().to_z32()
+                    ),
+                });
+            }
+        }
+        Ok(record)
+    }
+
     /// Returns the HS published for `user_pk`, if any is currently published.
     async fn resolve_homeserver(&self, user_pk: &PublicKey) -> PubkyClientResult<Option<PubkyId>> {
-        Ok(self.resolve_record(user_pk).await?.homeserver())
+        Ok(self.resolve_own_record(user_pk).await?.homeserver())
     }
 }
 
@@ -201,10 +223,16 @@ mod tests {
             .expect("a published record is stored");
         assert_eq!(stored.timestamp, 42);
 
-        let verified = stored.verify().expect("the stored record verifies");
+        let verified = stored
+            .verify(&user.public_key())
+            .expect("the stored record verifies");
         assert_eq!(verified.as_bytes(), packet.as_bytes());
-        assert_eq!(verified.public_key().to_z32(), user.public_key().to_z32());
         assert_eq!(published_homeserver(&verified), Some(homeserver));
+
+        assert!(
+            stored.verify(&Keypair::random().public_key()).is_err(),
+            "a record signed by another key must not verify"
+        );
 
         // Flip the last nibble of the timestamp (hex 192..208): the packet still
         // parses, so only the signature check can reject it.
@@ -214,10 +242,51 @@ mod tests {
             .packet
             .insert(207, if nibble == '0' { '1' } else { '0' });
         assert!(
-            tampered.verify().is_err(),
+            tampered.verify(&user.public_key()).is_err(),
             "a tampered record must not verify"
         );
 
         assert_eq!(PkdnsRecord::Missing.stored(), None);
+    }
+
+    /// Answers every lookup with one fixed record.
+    struct FixedRecordResolver(PkdnsRecord);
+
+    #[async_trait::async_trait]
+    impl PkdnsHomeserverResolver for FixedRecordResolver {
+        async fn resolve_record(&self, _: &PublicKey) -> PubkyClientResult<PkdnsRecord> {
+            Ok(self.0.clone())
+        }
+    }
+
+    /// A lookup answered with another key's packet fails; the user's own packet
+    /// and a missing record pass through.
+    #[tokio::test]
+    async fn own_record_refuses_another_key() {
+        let user = Keypair::random();
+        let homeserver = random_pubky_id();
+
+        let foreign = FixedRecordResolver(PkdnsRecord::Published(signed_packet_naming(
+            &Keypair::random(),
+            Some(&homeserver),
+            42,
+        )));
+        assert!(foreign
+            .resolve_own_record(&user.public_key())
+            .await
+            .is_err());
+
+        let own_record = PkdnsRecord::Published(signed_packet_naming(&user, Some(&homeserver), 42));
+        let own = FixedRecordResolver(own_record.clone());
+        assert_eq!(
+            own.resolve_own_record(&user.public_key()).await.ok(),
+            Some(own_record)
+        );
+
+        let missing = FixedRecordResolver(PkdnsRecord::Missing);
+        assert_eq!(
+            missing.resolve_own_record(&user.public_key()).await.ok(),
+            Some(PkdnsRecord::Missing)
+        );
     }
 }
