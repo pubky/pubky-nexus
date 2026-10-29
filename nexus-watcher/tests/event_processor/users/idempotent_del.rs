@@ -2,7 +2,7 @@ use crate::event_processor::users::utils::find_user_details;
 use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
 use nexus_common::db::RedisOps;
-use nexus_common::models::user::{UserCounts, UserDetails, UserSearch};
+use nexus_common::models::user::{UserDetails, UserSearch};
 use nexus_watcher::errors::EventProcessorError;
 use nexus_watcher::events::handlers::user;
 use pubky::Keypair;
@@ -35,11 +35,6 @@ async fn test_user_del_idempotent() -> Result<()> {
         user_details_result.is_err(),
         "User details should not be found in graph after deletion"
     );
-    let user_counts = UserCounts::get_from_index(&user_id).await?;
-    assert!(
-        user_counts.is_none(),
-        "User counts should not be found after deletion"
-    );
 
     // Simulate retry: call del() directly — graph node is gone so expect SkipIndexing
     let user_pubky = PubkyId::from(user_kp.public_key());
@@ -56,18 +51,13 @@ async fn test_user_del_idempotent() -> Result<()> {
         user_details_result.is_err(),
         "User details should still not be found after retry"
     );
-    let user_counts = UserCounts::get_from_index(&user_id).await?;
-    assert!(
-        user_counts.is_none(),
-        "User counts should still not be found after retry"
-    );
 
     Ok(())
 }
 
-/// Test graph-last recovery: simulates partial Redis cleanup failure where
-/// graph node is still present. On retry, the handler should re-enter
-/// CreatedOrDeleted, clean remaining stale Redis data, and delete graph last.
+/// Test graph-last recovery: simulates a previous attempt that failed during its
+/// Redis cleanup, before the graph delete. On retry, the handler should re-enter
+/// CreatedOrDeleted, finish the Redis cleanup, and delete graph last.
 #[tokio_shared_rt::test(shared)]
 async fn test_user_del_graph_last_recovery() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
@@ -87,29 +77,25 @@ async fn test_user_del_graph_last_recovery() -> Result<()> {
     // Sanity: verify everything is set up
     let user_details = find_user_details(&user_id).await;
     assert!(user_details.is_ok(), "User should exist in graph");
-    let user_counts = UserCounts::get_from_index(&user_id).await?;
-    assert!(user_counts.is_some(), "User counts should exist in Redis");
 
     // Simulate partial failure of a previous del() attempt:
     // Step 1 succeeded: UserSearch cleaned
     UserSearch::delete(&user_id).await?;
-    // Step 2 partially succeeded: UserDetails Redis DEL completed
-    let user_id_str = user_id.as_str();
-    let key_parts: &[&str] = &[user_id_str];
-    UserDetails::remove_from_index_multiple_json(&[key_parts]).await?;
-    // Step 2 partially failed: UserCounts::delete did NOT run (left stale)
+    // Step 2 failed: the UserDetails Redis DEL never ran (left stale)
     // Step 3 never ran: graph node still present (graph-last)
 
-    // Verify the partial state: graph exists, UserCounts stale, UserDetails gone
+    // Verify the partial state: graph exists, UserDetails still in Redis
     let user_details_graph = find_user_details(&user_id).await;
     assert!(
         user_details_graph.is_ok(),
         "Graph node should still exist (graph-last)"
     );
-    let user_counts = UserCounts::get_from_index(&user_id).await?;
+    let user_id_str = user_id.as_str();
     assert!(
-        user_counts.is_some(),
-        "UserCounts should still be in Redis (simulated failure)"
+        UserDetails::try_from_index_json(&[user_id_str], None)
+            .await?
+            .is_some(),
+        "UserDetails should still be in Redis (simulated failure)"
     );
 
     // Retry: call del() directly — should recover and complete successfully
@@ -122,10 +108,11 @@ async fn test_user_del_graph_last_recovery() -> Result<()> {
         user_details_result.is_err(),
         "Graph node should be deleted after recovery"
     );
-    let user_counts = UserCounts::get_from_index(&user_id).await?;
     assert!(
-        user_counts.is_none(),
-        "UserCounts should be cleaned after recovery"
+        UserDetails::try_from_index_json(&[user_id_str], None)
+            .await?
+            .is_none(),
+        "UserDetails should be cleaned after recovery"
     );
 
     Ok(())

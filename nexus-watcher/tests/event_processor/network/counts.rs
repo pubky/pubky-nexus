@@ -2,7 +2,7 @@
 
 use crate::event_processor::utils::watcher::{HomeserverHashIdPath, HomeserverIdPath, WatcherTest};
 use anyhow::{anyhow, Result};
-use nexus_common::{db::RedisOps, models::user::UserCounts};
+use nexus_common::models::user::UserCounts;
 use nexus_watcher::service::TEventProcessorRunner;
 use pubky::Keypair;
 use pubky_social_specs::legacy_v0::{
@@ -109,9 +109,13 @@ async fn test_large_network_scenario_counts() -> Result<()> {
         }
     }
 
-    // Users bookmark posts
-    for (user_kp, _user_id) in user_kps_and_ids.iter() {
+    // Users bookmark posts. A repeated bookmark reuses its hashed path, so a user's
+    // bookmarks are the distinct posts they bookmarked.
+    let mut user_bookmarks: HashMap<String, HashSet<String>> = HashMap::new(); // Map user_id to bookmarked post URIs
+
+    for (user_kp, user_id) in user_kps_and_ids.iter() {
         let num_bookmarks = rng.random_range(1..=max_bookmarks_per_user);
+        let bookmark_set = user_bookmarks.entry(user_id.clone()).or_default();
         for _ in 0..num_bookmarks {
             let target_user_index = rng.random_range(0..NUM_USERS);
             let (_target_user_kp, target_user_id) = &user_kps_and_ids[target_user_index];
@@ -127,14 +131,19 @@ async fn test_large_network_scenario_counts() -> Result<()> {
                 let bookmark_path = bookmark.hs_path();
 
                 test.put(user_kp, &bookmark_path, &bookmark).await?;
+                bookmark_set.insert(bookmark.uri);
                 total_bookmarks += 1;
             }
         }
     }
 
-    // Users tag posts of other users
-    for (user_kp, _user_id) in user_kps_and_ids.iter() {
+    // Users tag posts of other users. A repeated tag reuses its hashed path, so a
+    // user's tags are the distinct (post, label) pairs they have not deleted.
+    let mut user_tagged: HashMap<String, HashSet<(String, String)>> = HashMap::new(); // Map user_id to tagged (post URI, label) pairs
+
+    for (user_kp, user_id) in user_kps_and_ids.iter() {
         let num_tags = rng.random_range(1..=max_tags_per_user);
+        let tag_set = user_tagged.entry(user_id.clone()).or_default();
         for _ in 0..num_tags {
             let target_user_index = rng.random_range(0..NUM_USERS);
             let (_target_user_kp, target_user_id) = &user_kps_and_ids[target_user_index];
@@ -142,7 +151,7 @@ async fn test_large_network_scenario_counts() -> Result<()> {
                 let post_index = rng.random_range(0..user_posts[&target_user_id.clone()].len());
                 let target_post_id = &user_posts[&target_user_id.clone()][post_index];
 
-                let tag_label = format!("tag{}", rng.random_range(0..100)); // FAILs tag labels are repeated, the same, the counts do not match graph vs index. Graph does not duplicate tag, but index counts do increase.
+                let tag_label = format!("tag{}", rng.random_range(0..100));
                 let tag = PubkyAppTag {
                     uri: post_uri_builder(target_user_id.into(), target_post_id.into()),
                     label: tag_label.clone(),
@@ -151,16 +160,15 @@ async fn test_large_network_scenario_counts() -> Result<()> {
                 let tag_path = tag.hs_path();
 
                 test.put(user_kp, &tag_path, &tag).await?;
+                let post_label = (tag.uri, tag_label);
+                tag_set.insert(post_label.clone());
                 total_tags += 1;
 
-                // FAILS: possibly deletes a tag twice and decrements twice in index.
-                // Tag counts mismatch for user tesnbp8rctyamkxuc4e1o51yd8zuxf7n9bc96zcwyomu8skrehao between cache and graph
-                // left: 12
-                // right: 11
                 // Randomly decide to delete the tag
                 if rng.random_bool(0.1) {
                     // 10% chance to delete the tag
                     test.del(user_kp, &tag_path).await?;
+                    tag_set.remove(&post_label);
                     total_tag_deletions += 1;
                 }
             }
@@ -207,102 +215,72 @@ async fn test_large_network_scenario_counts() -> Result<()> {
         }
     }
 
-    // Now, make assertions
-    // For each user, compare counts from cache and graph
+    // Each user's counts must match the posts, follows, bookmarks and tags this test sent.
+    let mut total_posts_counted = 0;
+    let mut total_tags_counted = 0;
+    let mut total_bookmarks_counted = 0;
+    let mut total_following_counted = 0;
+    let mut total_followers_counted = 0;
+
     for (_user_kp, user_id) in user_kps_and_ids.iter() {
-        let counts_cache = UserCounts::try_from_index_json(&[user_id], None)
-            .await
-            .unwrap()
-            .expect("Counts not found in index");
-        let counts_graph = UserCounts::get_by_id(user_id)
+        let counts = UserCounts::get_by_id(user_id)
             .await
             .unwrap()
             .expect("Counts not found in graph");
+        let followers = user_followings
+            .values()
+            .filter(|following| following.contains(user_id))
+            .count();
 
         assert_eq!(
-            counts_cache.followers, counts_graph.followers,
-            "Follower counts mismatch for user {user_id} between cache and graph"
+            counts.posts as usize,
+            user_posts[user_id].len(),
+            "posts of {user_id}"
         );
         assert_eq!(
-            counts_cache.following, counts_graph.following,
-            "Following counts mismatch for user {user_id} between cache and graph"
+            counts.following as usize,
+            user_followings[user_id].len(),
+            "following of {user_id}"
         );
         assert_eq!(
-            counts_cache.posts, counts_graph.posts,
-            "Post counts mismatch for user {user_id} between cache and graph"
-        );
-        // FAILS: Maybe tagging same user twice with same tag?
-        // Tag counts mismatch for user 7jh4mieniunce1admx4xrgrd3mqabacms64ek8rredxr7fkkpbto between cache and graph
-        // left: 11
-        // right: 10
-        assert_eq!(
-            counts_cache.tagged, counts_graph.tagged,
-            "Tag counts mismatch for user {user_id} between cache and graph"
-        );
-        // FAILS: possibly bookmarking twice?
-        // Bookmarks counts mismatch for user taagfd54wqsm9erftpbi6q1tstgy1fbfca57jrk8dtkyodj483mo between cache and graph
-        //  left: 15
-        //  right: 13
-        assert_eq!(
-            counts_cache.bookmarks, counts_graph.bookmarks,
-            "Bookmarks counts mismatch for user {user_id} between cache and graph"
+            counts.followers as usize, followers,
+            "followers of {user_id}"
         );
         assert_eq!(
-            counts_cache.tags, counts_graph.tags,
-            "Tag counts mismatch for user {user_id} between cache and graph"
+            counts.bookmarks as usize,
+            user_bookmarks[user_id].len(),
+            "bookmarks of {user_id}"
         );
         assert_eq!(
-            counts_cache.unique_tags, counts_graph.unique_tags,
-            "Tag unique counts mismatch for user {user_id} between cache and graph"
+            counts.tagged as usize,
+            user_tagged[user_id].len(),
+            "tagged of {user_id}"
         );
-        assert_eq!(
-            counts_cache.unique_tags, counts_graph.unique_tags,
-            "Unique tag counts mismatch for user {user_id} between cache and graph"
-        );
-    }
 
-    // Optionally, verify total counts across all users
-    let mut total_posts_cache = 0;
-    let mut total_tags_cache = 0;
-    let mut total_bookmarks_cache = 0;
-    let mut total_following_cache = 0;
-    let mut total_followers_cache = 0;
-
-    for (_user_kp, user_id) in user_kps_and_ids.iter() {
-        let counts_cache = UserCounts::try_from_index_json(&[user_id], None)
-            .await
-            .unwrap()
-            .expect("Counts not found in cache");
-
-        total_posts_cache += counts_cache.posts as usize;
-        total_tags_cache += counts_cache.tagged as usize;
-        total_following_cache += counts_cache.following as usize;
-        total_followers_cache += counts_cache.followers as usize;
-        total_bookmarks_cache += counts_cache.bookmarks as usize;
+        total_posts_counted += counts.posts as usize;
+        total_tags_counted += counts.tagged as usize;
+        total_following_counted += counts.following as usize;
+        total_followers_counted += counts.followers as usize;
+        total_bookmarks_counted += counts.bookmarks as usize;
     }
 
     info!("Total posts created: {}", total_posts);
-    info!("Total posts counted in index: {}", total_posts_cache);
+    info!("Total posts counted in the graph: {}", total_posts_counted);
     info!(
         "Total tags created (excluding deletions): {}",
         total_tags - total_tag_deletions
     );
-    info!("Total tags counted in index: {}", total_tags_cache);
+    info!("Total tags counted in the graph: {}", total_tags_counted);
 
     info!("Total bookmarks created: {}", total_bookmarks);
-    info!("Total bookmarks counted in index: {total_bookmarks_cache}",);
+    info!("Total bookmarks counted in the graph: {total_bookmarks_counted}",);
 
     info!("Total follows created: {}", total_follows);
     info!("Total unfollows performed: {}", total_unfollows);
     let net_follows = total_follows - total_unfollows;
     info!("Net follows (should equal total following counts): {net_follows}",);
-    info!("Total following counted in index: {total_following_cache}",);
-    info!("Total followers counted in index: {total_followers_cache}",);
-
-    assert_eq!(
-        total_followers_cache, total_following_cache,
-        "Total followers and following should match"
-    );
+    info!("Total following counted in the graph: {total_following_counted}",);
+    info!("Total followers counted in the graph: {total_followers_counted}",);
 
     Ok(())
 }

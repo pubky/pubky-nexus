@@ -4,7 +4,7 @@ use crate::{
 };
 use anyhow::Result;
 use chrono::Utc;
-use nexus_common::models::user::{UserCounts, UserSearch, UserStream, UserView};
+use nexus_common::models::user::{UserSearch, UserStream, UserView};
 use nexus_watcher::events::handlers;
 use nexus_watcher::events::inputs::UserInput;
 use pubky::Keypair;
@@ -93,13 +93,6 @@ async fn test_delete_user_with_relationships() -> Result<()> {
     assert!(
         user_details_result.is_err(),
         "User details should not be found after final deletion"
-    );
-
-    // Attempt to find user counts; should not exist
-    let user_counts_result = UserCounts::get_from_index(&user_id).await.unwrap();
-    assert!(
-        user_counts_result.is_none(),
-        "User counts should not be found after deletion"
     );
 
     // User view should not be found
@@ -223,13 +216,6 @@ async fn test_delete_user_with_relationships() -> Result<()> {
     assert!(
         user_details_result.is_err(),
         "User details should not be found after final deletion"
-    );
-
-    // Attempt to find user counts; should not exist
-    let user_counts_result = UserCounts::get_from_index(&user_with_id).await.unwrap();
-    assert!(
-        user_counts_result.is_none(),
-        "User counts should not be found after deletion"
     );
 
     // User view should not be found

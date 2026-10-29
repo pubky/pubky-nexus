@@ -7,6 +7,8 @@ use utoipa::OpenApi;
 
 mod list;
 
+pub use list::NEXT_START_HEADER;
+
 pub fn routes() -> Router<AppState> {
     Router::new().route(NOTIFICATION_ROUTE, get(list::list_notifications_handler))
 }

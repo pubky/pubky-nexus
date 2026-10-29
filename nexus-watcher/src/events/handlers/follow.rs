@@ -1,10 +1,9 @@
 use crate::events::EventProcessorError;
 
-use nexus_common::db::kv::JsonAction;
 use nexus_common::db::OperationOutcome;
 use nexus_common::models::follow::{Followers, Following, Friends, UserFollows};
 use nexus_common::models::notification::Notification;
-use nexus_common::models::user::{UserCounts, UserIngestor};
+use nexus_common::models::user::UserIngestor;
 use pubky_social_specs::PubkyId;
 use tracing::debug;
 
@@ -29,7 +28,7 @@ pub async fn sync_put(
             // Retry / duplicate: graph edge already exists.
             // Re-run idempotent index writes (SADD is a no-op for existing members)
             // to recover from partial failures where graph wrote but indexes didn't.
-            // Skip counters and notifications (prefer 0 over N).
+            // Skip the notification (prefer 0 over N).
             let followers = Followers(vec![follower_id.to_string()]);
             let following = Following(vec![followee_id.to_string()]);
             let indexing_results = nexus_common::traced_join!(
@@ -64,12 +63,6 @@ pub async fn sync_put(
                 followers.put_to_index(&followee_id),
                 // Add in the Following:follower_id index a followee user
                 following.put_to_index(&follower_id),
-                update_follow_counts(
-                    &follower_id,
-                    &followee_id,
-                    JsonAction::Increment(1),
-                    will_be_friends
-                ),
                 // Notify the followee
                 Notification::new_follow(&follower_id, &followee_id, will_be_friends)
             );
@@ -77,7 +70,6 @@ pub async fn sync_put(
             indexing_results.0?;
             indexing_results.1?;
             indexing_results.2?;
-            indexing_results.3?;
         }
     };
 
@@ -98,8 +90,8 @@ pub async fn sync_del(
     // Check friendship while Redis follow sets are still populated
     let were_friends = Friends::check(&follower_id, &followee_id).await?;
 
-    // Guard counters/notifications: only run if still in Redis index (first attempt).
-    // On retry (Redis already cleaned, graph edge still present), skip non-idempotent ops.
+    // Guard the notification: only send it if still in Redis index (first attempt).
+    // On retry (Redis already cleaned, graph edge still present), skip it.
     let still_indexed = Followers::check_in_index(&followee_id, &follower_id).await?;
 
     let followers = Followers(vec![follower_id.to_string()]);
@@ -114,38 +106,14 @@ pub async fn sync_del(
     indexing_results.0?;
     indexing_results.1?;
 
-    // Only after indexes are confirmed clean: non-idempotent ops
+    // Only after indexes are confirmed clean: the non-idempotent notification
     if still_indexed {
-        update_follow_counts(
-            &follower_id,
-            &followee_id,
-            JsonAction::Decrement(1),
-            were_friends,
-        )
-        .await?;
         Notification::lost_follow(&follower_id, &followee_id, were_friends).await?;
     }
 
     // Graph deletion LAST — on retry, we re-enter here with indexes already clean.
     // MissingDependency means the resource is already gone — deletion is complete.
     Followers::del_from_graph(&follower_id, &followee_id).await?;
-    Ok(())
-}
-
-async fn update_follow_counts(
-    follower_id: &str,
-    followee_id: &str,
-    counter: JsonAction,
-    update_friend_relationship: bool,
-) -> Result<(), EventProcessorError> {
-    // Update UserCount related indexes
-    UserCounts::update_index_field(follower_id, "following", counter.clone()).await?;
-    UserCounts::update(followee_id, "followers", counter.clone(), None).await?;
-
-    if update_friend_relationship {
-        UserCounts::update_index_field(follower_id, "friends", counter.clone()).await?;
-        UserCounts::update_index_field(followee_id, "friends", counter.clone()).await?;
-    }
     Ok(())
 }
 

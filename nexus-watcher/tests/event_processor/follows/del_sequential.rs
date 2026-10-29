@@ -1,9 +1,8 @@
+use crate::event_processor::users::utils::find_user_counts;
 use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
-use nexus_common::db::RedisOps;
 use nexus_common::models::notification::{Notification, NotificationBody};
 use nexus_common::models::user::Relationship;
-use nexus_common::models::user::UserCounts;
 use nexus_common::types::Pagination;
 use pubky::Keypair;
 use pubky_social_specs::legacy_v0::PubkyAppUser;
@@ -101,10 +100,7 @@ async fn test_homeserver_sequential_unfollow() -> Result<()> {
     test.del(&bob_kp, &bob_follow_uri).await?;
 
     // Assert folowee counts
-    let follower_count = UserCounts::try_from_index_json(&[&followee_id], None)
-        .await
-        .unwrap()
-        .expect("User count not found");
+    let follower_count = find_user_counts(&followee_id).await;
 
     assert_eq!(follower_count.followers, 2);
     assert_eq!(follower_count.following, 2);
@@ -160,10 +156,7 @@ async fn test_homeserver_sequential_unfollow() -> Result<()> {
     test.del(&followee_kp, &followee_follow_enzo_uri).await?;
 
     // Assert folowee last counts
-    let follower_count = UserCounts::try_from_index_json(&[&followee_id], None)
-        .await
-        .unwrap()
-        .expect("User count not found");
+    let follower_count = find_user_counts(&followee_id).await;
 
     assert_eq!(follower_count.followers, 0);
     assert_eq!(follower_count.following, 0);

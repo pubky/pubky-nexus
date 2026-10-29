@@ -119,7 +119,7 @@ async fn test_homeserver_multi_user_tags() -> Result<()> {
     assert!(cache_tag_details[1].taggers.contains(&tagger_b_id_kp.0));
     assert!(cache_tag_details[1].taggers.contains(&tagger_c_id_kp.0));
 
-    // Check if user counts updated: User:Counts:user_id
+    // Check if user counts updated
     let tagger_a_user_counts = find_user_counts(tagged_id).await;
     assert_eq!(tagger_a_user_counts.tags, 5);
     assert_eq!(tagger_a_user_counts.unique_tags, 2);
@@ -204,12 +204,12 @@ async fn test_homeserver_multi_user_tags() -> Result<()> {
         .expect("Failed to check the users-by-tag score");
     assert!(earth_score.is_none());
 
-    // Check if user counts updated: User:Counts:user_id:post_id
+    // Check if user counts updated
     let user_counts = find_user_counts(tagged_id).await;
     assert_eq!(user_counts.tags, 0);
     assert_eq!(user_counts.unique_tags, 0);
 
-    // Check if user counts updated: User:Counts:user_id
+    // Check if user counts updated
     for (tagger_id, _) in wind_taggers {
         let user_counts = find_user_counts(tagger_id).await;
         assert_eq!(user_counts.tagged, 0);

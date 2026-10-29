@@ -71,7 +71,7 @@ async fn test_homeserver_put_tag_user_self() -> Result<()> {
     // Find user as tagger in the user profile: User:Taggers:user_id
     assert_eq!(cache_tag_details[0].taggers[0], user_id);
 
-    // Check if user counts updated: User:Counts:user_id
+    // Check if user counts updated
     let user_counts = find_user_counts(&user_id).await;
     assert_eq!(user_counts.tagged, 1);
     assert_eq!(user_counts.tags, 1);
