@@ -715,28 +715,26 @@ mod tests {
         assert_eq!(followee_id, pubky_id(OTHER_USER));
     }
 
-    /// A tag translates to the same key and input from the `pubky.app` folder and from another
-    /// app's: the folder names no app, only the address the tag is stored under.
+    /// A tag translates to its key and an input that names no app, only the address the tag is
+    /// stored under.
     #[test]
-    fn put_tag_translates_to_the_same_input_from_any_folder() {
+    fn put_tag_translates_to_its_key_and_input() {
         let tag = tag_fixture();
         let id = tag.create_id();
-        for path in [format!("pubky.app/tags/{id}"), format!("mapky/tags/{id}")] {
-            let translated = put_at(&path, &bytes(&tag)).unwrap();
-            let TranslatedPut::Tag { key, tag: input } = translated else {
-                panic!("{path}: expected Tag, got {translated:?}");
-            };
-            assert_eq!(key, owned_key(id.clone()), "{path}");
-            assert_eq!(
-                input,
-                TagInput {
-                    uri: event_uri(&path),
-                    tagged: post_reference(),
-                    label: tag.label.clone(),
-                },
-                "{path}"
-            );
-        }
+        let path = format!("pubky.app/tags/{id}");
+        let translated = put_at(&path, &bytes(&tag)).unwrap();
+        let TranslatedPut::Tag { key, tag: input } = translated else {
+            panic!("expected Tag, got {translated:?}");
+        };
+        assert_eq!(key, owned_key(id));
+        assert_eq!(
+            input,
+            TagInput {
+                uri: event_uri(&path),
+                tagged: post_reference(),
+                label: tag.label,
+            }
+        );
     }
 
     #[test]
@@ -966,10 +964,6 @@ mod tests {
             ),
             (
                 format!("pubky.app/tags/{tag_id}"),
-                TranslatedDel::Tag(owned_key(tag_id.clone())),
-            ),
-            (
-                format!("mapky/tags/{tag_id}"),
                 TranslatedDel::Tag(owned_key(tag_id)),
             ),
             (

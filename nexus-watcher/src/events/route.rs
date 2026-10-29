@@ -404,10 +404,21 @@ mod tests {
             mute_uri_builder(USER.into(), OTHER_USER.into()),
             feed_uri_builder(USER.into(), HASH_ID.into()),
             last_read_uri_builder(USER.into()),
-            // A v0 kind with no id, and the namespace root.
+            // A path of each v0 kind the parser can't key, which only its kind entry keeps out
+            // of `Foreign`; the last two also pin the segment read after the namespace.
             format!("pubky://{USER}/pub/pubky.app/posts/"),
             format!("pubky://{USER}/pub/pubky.app/bookmarks"),
+            format!("pubky://{USER}/pub/pubky.app/follows/"),
+            format!("pubky://{USER}/pub/pubky.app/mutes/"),
+            format!("pubky://{USER}/pub/pubky.app/tags/"),
+            format!("pubky://{USER}/pub/pubky.app/files/"),
+            format!("pubky://{USER}/pub/pubky.app/blobs/"),
+            format!("pubky://{USER}/pub/pubky.app/feeds/"),
+            format!("pubky://{USER}/pub/pubky.app/last_read/x"),
+            format!("pubky://{USER}/pub/pubky.app/profile.json/x"),
+            // The namespace root, with and without a slash.
             format!("pubky://{USER}/pub/pubky.app/"),
+            format!("pubky://{USER}/pub/pubky.app"),
             // A v0 kind spelt another way: another case, no `.json`, percent-encoded.
             format!("pubky://{USER}/pub/pubky.app/Posts/{POST_ID}"),
             format!("pubky://{USER}/pub/pubky.app/profile"),
@@ -473,14 +484,21 @@ mod tests {
             // A post version path with a malformed leaf, and an extension on the post itself.
             format!("pubky://{USER}/pub/social/v1/posts/{POST_ID}/not-an-id.json"),
             format!("pubky://{USER}/pub/social/v1/posts/{POST_ID}.json"),
-            // A follow with no key, a private kind at the public root, and the epoch root.
+            // A follow with no key, and private kinds at the public root.
             format!("pubky://{USER}/pub/social/v1/follows/not-a-key.json"),
             format!("pubky://{USER}/pub/social/v1/mutes/{OTHER_USER}.json"),
-            format!("pubky://{USER}/pub/social/v1/"),
+            format!("pubky://{USER}/pub/social/v1/bookmarks/x.json"),
+            // A tag, a feed and a profile path the parser can't key.
+            format!("pubky://{USER}/pub/social/v1/tags/bad.json"),
+            format!("pubky://{USER}/pub/social/v1/feeds/bad.json"),
+            format!("pubky://{USER}/pub/social/v1/profile.json/x"),
+            // The epoch root.
+            format!("pubky://{USER}/pub/social/v1"),
             // A v1 kind spelt another way: another case, no `.json`.
             format!("pubky://{USER}/pub/social/v1/Posts/{POST_ID}"),
             format!("pubky://{USER}/pub/social/v1/profile"),
             // A path the v1 canonicaliser rejects (a trailing slash), even one naming no kind.
+            format!("pubky://{USER}/pub/social/v1/"),
             format!("pubky://{USER}/pub/social/v1/marketplace/"),
         ] {
             assert_eq!(target(&address), ReferenceTarget::Other, "{address}");

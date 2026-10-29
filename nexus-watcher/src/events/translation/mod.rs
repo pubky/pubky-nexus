@@ -34,7 +34,7 @@ pub enum TranslatedPut {
         user_id: PubkyId,
         followee_id: PubkyId,
     },
-    /// A tag in any folder: what it tags, not where it sits, picks its handler.
+    /// A tag in `pubky.app/tags` or `social/v1/tags`: what it tags picks its handler.
     Tag {
         key: ResourceKey,
         tag: TagInput,
@@ -60,7 +60,7 @@ pub enum TranslatedDel {
         user_id: PubkyId,
         followee_id: PubkyId,
     },
-    /// A tag in any folder: one tag id names the same edge whatever folder holds it.
+    /// A tag in `pubky.app/tags` or `social/v1/tags`: one tag id names the same edge in both.
     Tag(ResourceKey),
     Bookmark(ResourceKey),
     File(ResourceKey),
