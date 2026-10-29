@@ -8,9 +8,17 @@
 //! inside objects.
 
 use super::inputs::{Reference, ReferenceTarget, ResourceKey};
-use pubky_social_specs::legacy_v0::{self, try_parse_pubky_path, ExtendedParsedUri, APP_PATH};
+use pubky_social_specs::legacy_v0::traits::{HasIdPath, HasPath};
+use pubky_social_specs::legacy_v0::{
+    self, try_parse_pubky_path, ExtendedParsedUri, PubkyAppBlob, PubkyAppBookmark, PubkyAppFeed,
+    PubkyAppFile, PubkyAppFollow, PubkyAppLastRead, PubkyAppMute, PubkyAppPost, PubkyAppTag,
+    PubkyAppUser, APP_PATH,
+};
+use pubky_social_specs::traits::{HasIdPath as _, HasPath as _};
 use pubky_social_specs::{
-    epoch_segment, is_pubky_scheme, ParsedUri, PubkyId, Resource, Visibility, SOCIAL_NAMESPACE,
+    epoch_segment, is_pubky_scheme, ParsedUri, PubkyId, PubkySocialBookmark, PubkySocialFeed,
+    PubkySocialFile, PubkySocialFollow, PubkySocialMute, PubkySocialPost, PubkySocialTag,
+    PubkySocialUser, Resource, Visibility, SOCIAL_NAMESPACE,
 };
 use url::Url;
 
@@ -72,15 +80,12 @@ fn route_social(uri: &str, epoch: Option<&str>) -> Routed {
 /// A `pubky.app` address, or another app's universal tag, gets the key the frozen v0 parser
 /// reads from it; a `social/v1` address the key the v1 parser reads from it, so a post has one
 /// key whichever epoch's address names it, and a tag one key whatever folder holds it. A bare
-/// `pubky://<pk>` names the user, as the v1 parser reads it. An address of another scheme, or a
-/// public path under another app's namespace that is not a tag file, is
-/// [`ReferenceTarget::Foreign`]. Every other address is [`ReferenceTarget::Other`]: a resource
-/// Nexus never references, a private path, a `pubky.app` or `social` path its parser rejects, a
-/// `social/vN` epoch the crate does not speak, a `pubky://` address with no namespace.
+/// `pubky://<pk>` names the user, as the v1 parser reads it. Every other address is
+/// [`ReferenceTarget::Foreign`] or [`ReferenceTarget::Other`], as those variants describe.
 pub fn resolve_reference(address: &str) -> Reference {
     let target = match route(address) {
-        Routed::Legacy(parsed) => legacy_target(parsed),
-        Routed::Social(parsed) => social_target(parsed),
+        Routed::Legacy(parsed) => legacy_target(parsed, address),
+        Routed::Social(parsed) => social_target(parsed, address),
         Routed::Malformed { .. } => unparsed_target(address),
         Routed::UnsupportedEpoch { .. } => ReferenceTarget::Other,
     };
@@ -153,8 +158,53 @@ fn is_nexus_namespace(namespace: &str) -> bool {
     namespace == APP_PATH.trim_end_matches('/') || namespace == SOCIAL_NAMESPACE
 }
 
-/// The target a v0 address names; the resources Nexus never references are `Other`.
-fn legacy_target(parsed: ExtendedParsedUri) -> ReferenceTarget {
+/// The first path segment of each v0 kind.
+const V0_KIND_SEGMENTS: [&str; 10] = [
+    PubkyAppUser::PATH_SEGMENT,
+    PubkyAppLastRead::PATH_SEGMENT,
+    PubkyAppPost::PATH_SEGMENT,
+    PubkyAppFollow::PATH_SEGMENT,
+    PubkyAppMute::PATH_SEGMENT,
+    PubkyAppBookmark::PATH_SEGMENT,
+    PubkyAppTag::PATH_SEGMENT,
+    PubkyAppFile::PATH_SEGMENT,
+    PubkyAppBlob::PATH_SEGMENT,
+    PubkyAppFeed::PATH_SEGMENT,
+];
+
+/// The first path segment after the epoch of each v1 kind, private ones included.
+const V1_KIND_SEGMENTS: [&str; 8] = [
+    PubkySocialUser::PATH_SEGMENT,
+    PubkySocialPost::PATH_SEGMENT,
+    PubkySocialFollow::PATH_SEGMENT,
+    PubkySocialMute::PATH_SEGMENT,
+    PubkySocialBookmark::PATH_SEGMENT,
+    PubkySocialTag::PATH_SEGMENT,
+    PubkySocialFile::PATH_SEGMENT,
+    PubkySocialFeed::PATH_SEGMENT,
+];
+
+/// The target of a public path its parser reads as `Unknown`: a kind the parser doesn't know, or
+/// a malformed path of one it does. The segment after the namespace and `epoch_segments` tells
+/// them apart: one that is none of `kinds` names another app's object (the Shop's
+/// `pubky.app/marketplace/v1/listings/{id}`), `Foreign`; a known kind, or none at all, `Other`.
+fn unknown_kind_target(address: &str, epoch_segments: usize, kinds: &[&str]) -> ReferenceTarget {
+    let foreign = try_parse_pubky_path(address)
+        .ok()
+        .and_then(|path| path.segments.into_iter().nth(epoch_segments))
+        .is_some_and(|first| {
+            !first.is_empty() && !kinds.iter().any(|kind| kind.trim_end_matches('/') == first)
+        });
+    if foreign {
+        ReferenceTarget::Foreign
+    } else {
+        ReferenceTarget::Other
+    }
+}
+
+/// The target a v0 address names; the resources Nexus never references are `Other`, a path
+/// that names no v0 kind is `Foreign` (see [`unknown_kind_target`]).
+fn legacy_target(parsed: ExtendedParsedUri, address: &str) -> ReferenceTarget {
     let key = |owner_id: PubkyId, resource_id: String| ResourceKey {
         owner_id,
         resource_id,
@@ -172,8 +222,8 @@ fn legacy_target(parsed: ExtendedParsedUri) -> ReferenceTarget {
             | legacy_v0::Resource::Blob(_)
             | legacy_v0::Resource::Mute(_)
             | legacy_v0::Resource::Feed(_)
-            | legacy_v0::Resource::LastRead
-            | legacy_v0::Resource::Unknown => ReferenceTarget::Other,
+            | legacy_v0::Resource::LastRead => ReferenceTarget::Other,
+            legacy_v0::Resource::Unknown => unknown_kind_target(address, 0, &V0_KIND_SEGMENTS),
         },
         ExtendedParsedUri::UniversalTag {
             user_id,
@@ -188,12 +238,13 @@ fn legacy_target(parsed: ExtendedParsedUri) -> ReferenceTarget {
 }
 
 /// The target a `social/v1` address names; the resources Nexus never references are `Other`,
-/// another namespace's path is `Foreign`.
+/// another namespace's path and a path that names no v1 kind are `Foreign` (see
+/// [`unknown_kind_target`]).
 ///
 /// A post is keyed by its id whether the address carries a version or not: every version of a
 /// post is one node. A file keeps its raw `{hash}.{ext}` name as its id. A private path names
 /// nothing: a draft or a bookmark is never linked.
-fn social_target(parsed: ParsedUri) -> ReferenceTarget {
+fn social_target(parsed: ParsedUri, address: &str) -> ReferenceTarget {
     let ParsedUri {
         user_id,
         visibility,
@@ -215,8 +266,9 @@ fn social_target(parsed: ParsedUri) -> ReferenceTarget {
         Resource::Foreign { namespace, .. } if !is_nexus_namespace(&namespace) => {
             ReferenceTarget::Foreign
         }
-        // A follow, mute, bookmark, feed, unknown or unsupported resource, and one the
-        // non-exhaustive `Resource` adds later: not referenced until the resolver says so.
+        Resource::Unknown => unknown_kind_target(address, 1, &V1_KIND_SEGMENTS),
+        // A follow, mute, bookmark, feed or unsupported resource, and one the non-exhaustive
+        // `Resource` adds later: not referenced until the resolver says so.
         _ => ReferenceTarget::Other,
     }
 }
@@ -243,6 +295,8 @@ mod tests {
     /// A timestamp id later than [`POST_ID`], as a post version's edit id must be.
     const EDIT_ID: &str = "0032SSN7Q4EVJ";
     const HASH_ID: &str = "8Z8CWH8NVYQY39ZEBFGKQWWEKG";
+    /// A Shop listing id, as the Shop writes it.
+    const LISTING_ID: &str = "5d277f7f913f48659cbc6822362c8deb";
 
     fn user() -> PubkyId {
         PubkyId::try_from(USER).unwrap()
@@ -339,7 +393,10 @@ mod tests {
             mute_uri_builder(USER.into(), OTHER_USER.into()),
             feed_uri_builder(USER.into(), HASH_ID.into()),
             last_read_uri_builder(USER.into()),
-            format!("pubky://{USER}/pub/pubky.app/unknown_kind/{POST_ID}"),
+            // A v0 kind with no id, and the namespace root.
+            format!("pubky://{USER}/pub/pubky.app/posts/"),
+            format!("pubky://{USER}/pub/pubky.app/bookmarks"),
+            format!("pubky://{USER}/pub/pubky.app/"),
         ] {
             assert_eq!(target(&address), ReferenceTarget::Other, "{address}");
         }
@@ -396,11 +453,17 @@ mod tests {
             v1_follow_uri_builder(USER.into(), OTHER_USER.into()),
             v1_feed_uri_builder(USER.into(), HASH_ID.into()),
             format!("pubky://{USER}/pub/social/v1/feeds/{HASH_ID}.json"),
-            // A file name the parser cannot classify, and an unknown path.
+            // A file name the parser cannot classify.
             format!("pubky://{USER}/pub/social/v1/files/{HASH_ID}.exe"),
-            format!("pubky://{USER}/pub/social/v1/unknown_kind/{POST_ID}"),
-            // A post version path with a malformed leaf.
+            // A post version path with a malformed leaf, and an extension on the post itself.
             format!("pubky://{USER}/pub/social/v1/posts/{POST_ID}/not-an-id.json"),
+            format!("pubky://{USER}/pub/social/v1/posts/{POST_ID}.json"),
+            // A follow with no key, a private kind at the public root, and the epoch root.
+            format!("pubky://{USER}/pub/social/v1/follows/not-a-key.json"),
+            format!("pubky://{USER}/pub/social/v1/mutes/{OTHER_USER}.json"),
+            format!("pubky://{USER}/pub/social/v1/"),
+            // A path the v1 canonicaliser rejects (a trailing slash), even one naming no kind.
+            format!("pubky://{USER}/pub/social/v1/marketplace/"),
         ] {
             assert_eq!(target(&address), ReferenceTarget::Other, "{address}");
         }
@@ -416,6 +479,7 @@ mod tests {
             format!("pubky://{USER}/priv/social/v1/profile.json"),
             format!("pubky://{USER}/priv/social/v1/files/{HASH_ID}.jpg"),
             format!("pubky://{USER}/priv/social/v1/tags/{HASH_ID}.json"),
+            format!("pubky://{USER}/priv/social/v1/marketplace/v1/listings/{LISTING_ID}"),
             format!("pubky://{USER}/priv"),
         ] {
             assert_eq!(target(&address), ReferenceTarget::Other, "{address}");
@@ -463,6 +527,15 @@ mod tests {
             format!("PUBKY://{OTHER_USER}/pub/eventky.app/events/E001"),
             // A namespace that only shares a prefix with `social` or `pubky.app`.
             format!("pubky://{OTHER_USER}/pub/social.app/posts/{POST_ID}"),
+            // Another app's objects under `pubky.app`, which name no v0 kind: the Shop's
+            // listing and shop, and an unknown kind.
+            format!("pubky://{OTHER_USER}/pub/pubky.app/marketplace/v1/listings/{LISTING_ID}"),
+            format!("pubky://{OTHER_USER}/pub/pubky.app/marketplace/v1/shop.json"),
+            format!("pubky://{OTHER_USER}/pub/pubky.app/unknown_kind/{POST_ID}"),
+            // The same under `social/v1`, which names no v1 kind.
+            format!("pubky://{OTHER_USER}/pub/social/v1/marketplace"),
+            format!("pubky://{OTHER_USER}/pub/social/v1/marketplace/v1/listings/{LISTING_ID}"),
+            format!("pubky://{OTHER_USER}/pub/social/v1/unknown_kind/{POST_ID}"),
         ] {
             assert_eq!(target(&address), ReferenceTarget::Foreign, "{address}");
         }

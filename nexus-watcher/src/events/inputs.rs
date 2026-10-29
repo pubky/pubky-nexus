@@ -38,13 +38,15 @@ pub enum ReferenceTarget {
     File(ResourceKey),
     /// A tag: its tagger and tag id, the same whatever folder holds the tag file.
     Tag { key: ResourceKey },
-    /// A resource outside Nexus's namespaces: an address of another scheme (`https`, `nostr`,
-    /// …) or a public path under another app's namespace that is not a tag file.
+    /// A resource no spec models: an address of another scheme (`https`, `nostr`, …), a public
+    /// path under another app's namespace that is not a tag file, or a public `pubky.app` or
+    /// `social/v1` path whose first segment is no kind of its spec (`…/marketplace/…`).
     Foreign,
     /// Anything else inside Nexus's namespaces or no resource at all: a resource Nexus never
     /// references (a follow, a mute, a feed, a bookmark, a blob, `last_read`), a private path,
-    /// a malformed `pubky.app` or `social` path, a `social/vN` epoch the pinned spec crate
-    /// doesn't speak, a `pubky://` address with no namespace, or a string that isn't a URL.
+    /// a malformed path of a spec kind, a non-canonical `social` path, a `social/vN` epoch the
+    /// pinned spec crate doesn't speak, a `pubky://` address with no namespace, or a string
+    /// that isn't a URL.
     Other,
 }
 

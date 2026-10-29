@@ -12,8 +12,9 @@ use pubky_social_specs::legacy_v0::{
     PubkyAppUser, Resource,
 };
 
-/// A pubky.app tag whose target is an unknown `pubky.app` resource is rejected
-/// deterministically, so it must not be queued for retry.
+/// A pubky.app tag on a v0 kind with no id (`pubky.app/posts/`), which the v0 parser reads as
+/// `Unknown`, is rejected deterministically and never retried. An unknown kind there becomes a
+/// `Resource` tag instead (`resource_put.rs`).
 #[tokio_shared_rt::test(shared)]
 async fn test_tag_unknown_target_is_not_retried() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
@@ -32,7 +33,7 @@ async fn test_tag_unknown_target_is_not_retried() -> Result<()> {
     test = test.remove_event_processing().await;
 
     let tag = PubkyAppTag {
-        uri: format!("pubky://{user_id}/pub/pubky.app/unknown_kind/0033SSE3B1FQ0"),
+        uri: format!("pubky://{user_id}/pub/pubky.app/posts/"),
         label: "unknown_target".to_string(),
         created_at: Utc::now().timestamp_millis(),
     };
@@ -56,6 +57,10 @@ async fn test_tag_unknown_target_is_not_retried() -> Result<()> {
         "deterministic rejection must not be retried, got {err:?}"
     );
     assert!(matches!(err, EventProcessorError::UnsupportedTarget(_)));
+    assert!(
+        !resource_exists_in_graph(&compute_resource_id(&tag.uri)).await?,
+        "a rejected tag must not create a Resource node"
+    );
 
     Ok(())
 }

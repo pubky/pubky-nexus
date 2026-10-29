@@ -192,7 +192,9 @@ async fn test_homeserver_put_resource_tag_internal_unknown() -> Result<()> {
     Ok(())
 }
 
-/// A `pubky.app` tag picks its flow by what it tags: a marketplace listing, an `https` URL and a file at either epoch's address each become a `Resource` tag.
+/// A `pubky.app` tag picks its flow by what it tags: a marketplace listing in its own namespace,
+/// `pubky.app` or `social/v1`, the Shop's `shop.json`, an `https` URL and a file at either
+/// epoch's address each become a `Resource` tag.
 /// The file is never indexed and never waited for: it is keyed by its address alone. A DEL of
 /// the tag file removes the edge and the orphaned `Resource`.
 #[tokio_shared_rt::test(shared)]
@@ -209,9 +211,22 @@ async fn test_pubky_app_tag_on_a_resource_target_creates_a_resource_tag() -> Res
     };
     let user_id = test.create_user(&user_kp, &user).await?;
 
+    let listing_id = "5d277f7f913f48659cbc6822362c8deb";
     let targets = [
         (
             format!("pubky://{user_id}/pub/marketplace/listings/0032SSN7Q4EVG"),
+            "pubky",
+        ),
+        (
+            format!("pubky://{user_id}/pub/pubky.app/marketplace/v1/listings/{listing_id}"),
+            "pubky",
+        ),
+        (
+            format!("pubky://{user_id}/pub/pubky.app/marketplace/v1/shop.json"),
+            "pubky",
+        ),
+        (
+            format!("pubky://{user_id}/pub/social/v1/marketplace/v1/listings/{listing_id}"),
             "pubky",
         ),
         (
