@@ -1,3 +1,4 @@
+mod app_folder_skipped;
 mod collection_notification;
 mod del_idempotent;
 mod fail_index;

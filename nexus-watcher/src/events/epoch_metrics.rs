@@ -1,6 +1,6 @@
 //! The operator-visible signal for events skipped by spec epoch: one counter labelled by
 //! `epoch` and `resource` only, never by user or object id. v0 skips (last-read, feed, blob,
-//! mute) are silent and uncounted, so the signal stays about epochs.
+//! mute, another app's tag folder) are uncounted, so the signal stays about epochs.
 
 use super::classify::SkipReason;
 use crate::METER_NAME;
@@ -36,6 +36,10 @@ pub(super) fn record_skip(reason: &SkipReason, uri: &str) {
 fn skip_labels<'a>(reason: &'a SkipReason, uri: &str) -> Option<(&'a str, &'a str)> {
     match reason {
         SkipReason::LegacyNotIndexed { .. } => None,
+        SkipReason::AppFolderTag { app } => {
+            debug!(%uri, %app, "Skipped tag in another app's folder");
+            None
+        }
         SkipReason::EpochNotIndexed { epoch, resource } => {
             debug!(%uri, %epoch, %resource, "Skipped event of an epoch Nexus does not index yet");
             Some((epoch_label(epoch), resource))

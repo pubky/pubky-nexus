@@ -1,17 +1,23 @@
 use super::resource_utils::{
-    app_stream_resource_ids, compute_resource_id, count_resource_tags, find_resource_tag,
-    resource_exists_in_graph,
+    compute_resource_id, count_resource_tags, find_resource_tag, resource_exists_in_graph,
 };
-use crate::event_processor::utils::watcher::WatcherTest;
+use crate::event_processor::posts::utils::resource_key;
+use crate::event_processor::utils::watcher::{HomeserverHashIdPath, WatcherTest};
 use anyhow::Result;
 use chrono::Utc;
+use nexus_common::db::graph::Query;
+use nexus_common::db::{exec_single_row, OperationOutcome};
 use nexus_common::models::resource::tag::TagResource;
 use nexus_common::models::resource::view::ResourceView;
+use nexus_common::models::user::UserIngestor;
 use nexus_common::types::Pagination;
+use nexus_watcher::events::inputs::TagInput;
+use nexus_watcher::events::{handlers, put_tag};
 use pubky::Keypair;
-use pubky::ResourcePath;
 use pubky_social_specs::legacy_v0::traits::HashId;
 use pubky_social_specs::legacy_v0::{PubkyAppTag, PubkyAppUser};
+use pubky_social_specs::traits::HashId as SocialHashId;
+use pubky_social_specs::{tag_uri_builder as social_v1_tag_uri_builder, PubkySocialTag};
 
 /// Test the full DEL cycle: PUT → DEL → verify Resource node is cleaned up
 #[tokio_shared_rt::test(shared)]
@@ -37,9 +43,8 @@ async fn test_homeserver_del_resource_tag() -> Result<()> {
         created_at: Utc::now().timestamp_millis(),
     };
 
-    let tag_id = tag.create_id();
     let resource_id = compute_resource_id(target_uri);
-    let custom_path: ResourcePath = format!("/pub/mapky/tags/{tag_id}").parse()?;
+    let custom_path = tag.hs_path();
 
     // PUT the tag
     test.put(&user_kp, &custom_path, &tag).await?;
@@ -96,9 +101,8 @@ async fn test_homeserver_resource_tag_put_del_reput() -> Result<()> {
         created_at: Utc::now().timestamp_millis(),
     };
 
-    let tag_id = tag.create_id();
     let resource_id = compute_resource_id(target_uri);
-    let custom_path: ResourcePath = format!("/pub/mapky/tags/{tag_id}").parse()?;
+    let custom_path = tag.hs_path();
 
     // Step 1: PUT
     test.put(&user_kp, &custom_path, &tag).await?;
@@ -116,7 +120,7 @@ async fn test_homeserver_resource_tag_put_del_reput() -> Result<()> {
         .await?
         .expect("Tag should exist again after re-PUT");
     assert_eq!(tag_result.tagger, user_id);
-    assert_eq!(tag_result.app.as_deref(), Some("mapky"));
+    assert_eq!(tag_result.app, None, "a resource tag edge carries no app");
 
     // Cleanup
     test.del(&user_kp, &custom_path).await?;
@@ -125,97 +129,185 @@ async fn test_homeserver_resource_tag_put_del_reput() -> Result<()> {
     Ok(())
 }
 
-/// The same user tags the same external URI with the same label from TWO
-/// different app namespaces, creating two app-scoped TAGGED edges. Deleting the
-/// first app's tag removes only that app's edge, so the user still tags the
-/// label through the other app. Deleting the second removes the last edge and
-/// the orphaned Resource. The stream follows the graph: the resource is listed
-/// under each app while its edge exists and vanishes with the last edge.
+/// The same user tags the same external URI with the same label from `pubky.app` and from
+/// `social/v1`. The tag id ignores the folder and the epoch, so both files name one tag: one
+/// `TAGGED` edge, whose `uri` the second file's put moves to its own address while its id and the
+/// tagger count stay. A DEL of either file removes that edge and the orphaned Resource, and a DEL
+/// of the other one then finds nothing to remove. The classifier still skips every `social/v1`
+/// event, so that file's input and DEL go to the tag handlers directly.
 #[tokio_shared_rt::test(shared)]
-async fn test_resource_tag_del_multi_app_full_cleanup() -> Result<()> {
+async fn test_resource_tag_from_two_folders_is_one_edge() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
 
-    let target_uri = "https://example.com/multi-app-del-test";
-    let label = "multi-app-res-label";
-    let suffix = Utc::now().timestamp_millis();
-    let app1 = &format!("multiappa{suffix}");
-    let app2 = &format!("multiappb{suffix}");
+    let target_uri = "https://example.com/two-folders-one-edge";
+    let label = "two-folder-label";
     let resource_id = compute_resource_id(target_uri);
 
     let user_kp = Keypair::random();
     let user = PubkyAppUser {
-        bio: Some("resource_del_multi_app_user".to_string()),
+        bio: Some("resource_del_two_folders_user".to_string()),
         image: None,
         links: None,
-        name: "Watcher:ResourceDelMultiApp:User".to_string(),
+        name: "Watcher:ResourceDelTwoFolders:User".to_string(),
         status: None,
     };
     let user_id = test.create_user(&user_kp, &user).await?;
 
-    // Tag the URI from app1
-    let tag1 = PubkyAppTag {
+    let tag = PubkyAppTag {
         uri: target_uri.to_string(),
         label: label.to_string(),
         created_at: Utc::now().timestamp_millis(),
     };
-    let path1: ResourcePath = format!("/pub/{app1}/tags/{}", tag1.create_id()).parse()?;
-    test.put(&user_kp, &path1, &tag1).await?;
-
-    // Tag the same URI with the same label from app2
-    let tag2 = PubkyAppTag {
-        uri: target_uri.to_string(),
-        label: label.to_string(),
-        created_at: Utc::now().timestamp_millis() + 1,
-    };
-    let path2: ResourcePath = format!("/pub/{app2}/tags/{}", tag2.create_id()).parse()?;
-    test.put(&user_kp, &path2, &tag2).await?;
-
-    // Two app-scoped TAGGED edges
-    assert_eq!(count_resource_tags(&resource_id).await?, 2);
-    for app in [app1, app2] {
-        assert_eq!(
-            app_stream_resource_ids(app).await?,
-            vec![resource_id.clone()],
-            "resource must be listed under {app}"
-        );
-    }
-
-    // Delete the app1 tag: only its edge goes, and the app2 tag keeps the
-    // user among the label's taggers
-    test.del(&user_kp, &path1).await?;
-
-    assert_eq!(count_resource_tags(&resource_id).await?, 1);
-    let (taggers, _) =
-        TagResource::get_taggers(&resource_id, label, Pagination::default(), None).await?;
-    assert_eq!(taggers, [user_id.as_str()], "the app2 tag still counts");
+    let tag_id = tag.create_id();
+    let pubky_app_path = tag.hs_path();
+    let v1_tag = PubkySocialTag::new(target_uri.to_string(), label.to_string());
     assert_eq!(
-        app_stream_resource_ids(app1).await?,
-        Vec::<String>::new(),
-        "the app1 stream follows the deleted edge"
+        SocialHashId::create_id(&v1_tag),
+        tag_id,
+        "one tag id in both folders"
     );
-    assert_eq!(
-        app_stream_resource_ids(app2).await?,
-        vec![resource_id.clone()],
-        "the app2 stream still lists the resource"
-    );
+    let v1_tag_uri = social_v1_tag_uri_builder(user_id.clone(), tag_id.clone());
+    let key = resource_key(&user_id, &tag_id)?;
+    let ingestor = UserIngestor::new([], test.event_processor_runner.client.clone());
 
-    // Delete the app2 tag: its edge was the last one
-    test.del(&user_kp, &path2).await?;
+    // Each file is deleted first once
+    for v1_first in [false, true] {
+        test.put(&user_kp, &pubky_app_path, &tag).await?;
+        let (taggers, _) =
+            TagResource::get_taggers(&resource_id, label, Pagination::default(), None).await?;
+        assert_eq!(taggers, [user_id.as_str()]);
 
-    assert_eq!(count_resource_tags(&resource_id).await?, 0);
-    assert!(
-        !resource_exists_in_graph(&resource_id).await?,
-        "orphaned Resource node must be removed with its last tag"
-    );
-    for app in [app1, app2] {
-        assert_eq!(
-            app_stream_resource_ids(app).await?,
-            Vec::<String>::new(),
-            "resource must be gone from the {app} stream"
+        // The second file names the same tag: still one edge and one tagger
+        let input = TagInput::from_v1(v1_tag.clone(), v1_tag_uri.clone());
+        put_tag(input, key.clone(), &ingestor).await?;
+        assert_eq!(count_resource_tags(&resource_id).await?, 1, "one edge");
+        let tags = ResourceView::get_by_id(&resource_id, None, None, None, None)
+            .await?
+            .expect("Resource should have a tag list")
+            .tags;
+        assert_eq!(tags.len(), 1, "one label");
+        assert_eq!(tags[0].label, label);
+        assert_eq!(tags[0].taggers_count, 1, "the second file adds no tagger");
+
+        // A DEL of either file removes the one edge and the orphaned Resource
+        if v1_first {
+            handlers::tag::del(key.clone()).await?;
+        } else {
+            test.del(&user_kp, &pubky_app_path).await?;
+        }
+        assert_eq!(count_resource_tags(&resource_id).await?, 0);
+        assert!(
+            !resource_exists_in_graph(&resource_id).await?,
+            "orphaned Resource node must be removed with its last tag"
         );
+
+        // The other file's DEL finds the tag already gone
+        if v1_first {
+            test.del(&user_kp, &pubky_app_path).await?;
+        } else {
+            handlers::tag::del(key.clone()).await?;
+        }
+        assert_eq!(count_resource_tags(&resource_id).await?, 0);
+        assert!(!resource_exists_in_graph(&resource_id).await?);
     }
 
     test.cleanup_user(&user_kp).await?;
+
+    Ok(())
+}
+
+/// The mock graph's `calendar` tag on the eventky event stands in for the resource tag edges
+/// written before a tag became one edge per tagger, target and label: it still carries `app`.
+const OLD_EDGE_TAGGER: &str = "ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny";
+const OLD_EDGE_TAG_ID: &str = "RES_TAG_004";
+const OLD_EDGE_LABEL: &str = "calendar";
+const OLD_EDGE_RESOURCE_ID: &str = "fb4155a2295ff3a8a8fe02e28229c021";
+const OLD_EDGE_RESOURCE_URI: &str = "pubky://somepk/pub/eventky.app/events/E001";
+const OLD_EDGE_INDEXED_AT: i64 = 1724544095003;
+const OLD_EDGE_TAG_URI: &str =
+    "pubky://ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny/pub/eventky/tags/RES_TAG_004";
+
+/// Writes the mock graph's old edge and its Resource as `docker/test-graph/mocks/resources.cypher`
+/// does, so the test starts from it however a previous run ended and leaves it for the others.
+async fn seed_old_resource_tag_edge() -> Result<()> {
+    let query = Query::new(
+        "seed_old_resource_tag_edge",
+        "MATCH (u:User {id: $tagger_id})
+         MERGE (r:Resource {id: $resource_id})
+         SET r.uri = $resource_uri, r.scheme = 'pubky', r.indexed_at = 1724234095000
+         MERGE (u)-[rel:TAGGED {label: $label, id: $tag_id, indexed_at: $indexed_at, app: 'eventky'}]->(r)
+         SET rel.uri = $tag_uri",
+    )
+    .param("tagger_id", OLD_EDGE_TAGGER)
+    .param("resource_id", OLD_EDGE_RESOURCE_ID)
+    .param("resource_uri", OLD_EDGE_RESOURCE_URI)
+    .param("label", OLD_EDGE_LABEL)
+    .param("tag_id", OLD_EDGE_TAG_ID)
+    .param("indexed_at", OLD_EDGE_INDEXED_AT)
+    .param("tag_uri", OLD_EDGE_TAG_URI);
+    exec_single_row(query).await?;
+    Ok(())
+}
+
+/// A resource tag edge written before the edge lost `app` is the same tag: a replay reuses it
+/// (`Updated`, still one edge, `app` left in place), and a DEL removes it and its orphaned
+/// Resource.
+#[tokio_shared_rt::test(shared)]
+async fn test_old_resource_tag_edge_with_app_is_reused_and_deleted() -> Result<()> {
+    WatcherTest::setup(None).await?;
+    seed_old_resource_tag_edge().await?;
+
+    let old = find_resource_tag(OLD_EDGE_RESOURCE_ID, OLD_EDGE_LABEL)
+        .await?
+        .expect("the mock graph holds the old edge");
+    assert_eq!(old.app.as_deref(), Some("eventky"));
+    assert_eq!(count_resource_tags(OLD_EDGE_RESOURCE_ID).await?, 1);
+
+    // Replay: the MERGE on the label matches the old edge
+    let outcome = TagResource::put_to_graph_resource(
+        OLD_EDGE_TAGGER,
+        OLD_EDGE_RESOURCE_ID,
+        OLD_EDGE_RESOURCE_URI,
+        "pubky",
+        OLD_EDGE_TAG_ID,
+        OLD_EDGE_TAG_URI,
+        OLD_EDGE_LABEL,
+        Utc::now().timestamp_millis(),
+    )
+    .await?;
+    assert!(
+        matches!(outcome, OperationOutcome::Updated),
+        "a replay finds the old edge, got {outcome:?}"
+    );
+    assert_eq!(
+        count_resource_tags(OLD_EDGE_RESOURCE_ID).await?,
+        1,
+        "no new edge"
+    );
+    let replayed = find_resource_tag(OLD_EDGE_RESOURCE_ID, OLD_EDGE_LABEL)
+        .await?
+        .expect("the old edge is still there");
+    assert_eq!(
+        replayed.app.as_deref(),
+        Some("eventky"),
+        "the old app stays"
+    );
+    assert_eq!(replayed.tagger, OLD_EDGE_TAGGER);
+
+    // DEL: found by its id alone, whatever its app
+    let deleted = handlers::tag::del(resource_key(OLD_EDGE_TAGGER, OLD_EDGE_TAG_ID)?).await;
+
+    // Put the mock edge back for the other tests before asserting
+    let after_del = find_resource_tag(OLD_EDGE_RESOURCE_ID, OLD_EDGE_LABEL).await?;
+    let resource_left = resource_exists_in_graph(OLD_EDGE_RESOURCE_ID).await?;
+    seed_old_resource_tag_edge().await?;
+
+    deleted?;
+    assert!(after_del.is_none(), "the DEL removes the old edge");
+    assert!(
+        !resource_left,
+        "the orphaned Resource node is removed with the old edge"
+    );
 
     Ok(())
 }

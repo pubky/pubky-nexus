@@ -2,22 +2,18 @@ use crate::run_setup;
 use crate::streams_benches::LIMIT_20;
 use criterion::Criterion;
 use nexus_common::db::kv::SortOrder;
-use nexus_common::models::resource::stream::{
-    ResourceSorting, ResourceStream, ResourceStreamSource,
-};
+use nexus_common::models::resource::stream::{ResourceSorting, ResourceStream};
 use tokio::runtime::Runtime;
 
-// Fixture data (docker/test-graph/mocks/resources.cypher) uses these; a
-// synthetic graph should make them its most popular app and label so the same
-// targets stay meaningful at scale.
-const APP: &str = "mapky";
+// Fixture data (docker/test-graph/mocks/resources.cypher) uses this; a
+// synthetic graph should make it its most popular label so the same target
+// stays meaningful at scale.
 const TAG: &str = "bitcoin";
 
 /// RESOURCE STREAM BENCHMARKS (served from the graph)
 fn bench_resource_keys(
     c: &mut Criterion,
     name: &str,
-    app: Option<&'static str>,
     tag: Option<&'static str>,
     sorting: ResourceSorting,
 ) {
@@ -31,16 +27,9 @@ fn bench_resource_keys(
 
     c.bench_function(name, |b| {
         b.to_async(&rt).iter(|| async {
-            let source = match app {
-                Some(app) => ResourceStreamSource::App {
-                    app: app.to_string(),
-                },
-                None => ResourceStreamSource::All,
-            };
             let tags = tag.map(|t| vec![t.to_string()]);
 
             let keys = ResourceStream::get_resource_keys(
-                &source,
                 LIMIT_20,
                 SortOrder::Descending,
                 &sorting,
@@ -58,17 +47,6 @@ pub fn bench_stream_resources_all_timeline(c: &mut Criterion) {
         c,
         "stream_resources_all_timeline",
         None,
-        None,
-        ResourceSorting::Timeline,
-    );
-}
-
-pub fn bench_stream_resources_app_timeline(c: &mut Criterion) {
-    bench_resource_keys(
-        c,
-        "stream_resources_app_timeline",
-        Some(APP),
-        None,
         ResourceSorting::Timeline,
     );
 }
@@ -77,17 +55,6 @@ pub fn bench_stream_resources_tag_timeline(c: &mut Criterion) {
     bench_resource_keys(
         c,
         "stream_resources_tag_timeline",
-        None,
-        Some(TAG),
-        ResourceSorting::Timeline,
-    );
-}
-
-pub fn bench_stream_resources_app_tag_timeline(c: &mut Criterion) {
-    bench_resource_keys(
-        c,
-        "stream_resources_app_tag_timeline",
-        Some(APP),
         Some(TAG),
         ResourceSorting::Timeline,
     );

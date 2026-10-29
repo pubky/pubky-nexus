@@ -8,12 +8,12 @@ use nexus_watcher::EventProcessorError;
 use pubky::Keypair;
 use pubky_social_specs::legacy_v0::{
     file_uri_builder, follow_uri_builder, post_uri_builder, tag_uri_builder, user_uri_builder,
-    PubkyAppPost, PubkyAppPostKind, PubkyAppUser,
+    PubkyAppPost, PubkyAppPostEmbed, PubkyAppPostKind, PubkyAppUser,
 };
 
-/// A reply whose parent is a file, a profile or a `pubky.app` tag is rejected deterministically:
-/// no reply edge can ever point at one, so the event must not be queued for retry, and the reply
-/// is neither indexed nor counted.
+/// A reply whose parent is a file, a profile or a tag in any folder is rejected
+/// deterministically: no reply edge can ever point at one, so the event must not be queued for
+/// retry, and the reply is neither indexed nor counted.
 #[tokio_shared_rt::test(shared)]
 async fn test_reply_to_a_non_post_is_rejected_and_not_retried() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
@@ -40,6 +40,10 @@ async fn test_reply_to_a_non_post_is_rejected_and_not_retried() -> Result<()> {
         (
             "tag",
             tag_uri_builder(user_id.clone(), "8Z8CWH8NVYQY39ZEBFGKQWWEKG".into()),
+        ),
+        (
+            "another app's tag",
+            format!("pubky://{user_id}/pub/mapky/tags/8Z8CWH8NVYQY39ZEBFGKQWWEKG"),
         ),
     ];
     for (kind, parent) in parents {
@@ -86,8 +90,8 @@ async fn test_reply_to_a_non_post_is_rejected_and_not_retried() -> Result<()> {
     Ok(())
 }
 
-/// A reply whose parent is another app's object, or a `pubky.app` resource Nexus never
-/// references, is indexed with no reply edge.
+/// A post whose parent or embed is another app's object or an external URL, or a `pubky.app`
+/// resource Nexus never references, is indexed with no reply or repost edge.
 #[tokio_shared_rt::test(shared)]
 async fn test_reply_to_another_apps_object_is_indexed_without_a_reply_edge() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
@@ -107,9 +111,10 @@ async fn test_reply_to_another_apps_object_is_indexed_without_a_reply_edge() -> 
 
     let parents = [
         (
-            "another app's tag",
-            format!("pubky://{user_id}/pub/mapky/tags/8Z8CWH8NVYQY39ZEBFGKQWWEKG"),
+            "another app's object",
+            format!("pubky://{user_id}/pub/mapky/reviews/0033SSE3B1FQ0"),
         ),
+        ("URL", "https://example.com/article".to_string()),
         (
             "follow",
             follow_uri_builder(user_id.clone(), user_id.clone()),
@@ -119,8 +124,11 @@ async fn test_reply_to_another_apps_object_is_indexed_without_a_reply_edge() -> 
         let reply = PubkyAppPost {
             content: format!("Watcher:ReplyToNonPost:Other:Reply:{kind}"),
             kind: PubkyAppPostKind::Short,
-            parent: Some(parent),
-            embed: None,
+            parent: Some(parent.clone()),
+            embed: Some(PubkyAppPostEmbed {
+                kind: PubkyAppPostKind::Short,
+                uri: parent,
+            }),
             attachments: None,
             lock: None,
         };
@@ -144,6 +152,7 @@ async fn test_reply_to_another_apps_object_is_indexed_without_a_reply_edge() -> 
             .await?
             .expect("the reply is in the graph");
         assert_eq!(parents.replied, None, "{kind}");
+        assert_eq!(parents.reposted, None, "{kind}");
     }
 
     Ok(())

@@ -6,12 +6,12 @@ use serde_json::Value;
 // The resource stream is served from the graph. These tests pin the seeded
 // resources from docker/test-graph/mocks/resources.cypher:
 //
-// - ARTICLE: bitcoin by amsterdam (mapky, ..095000) and bogota (mapky, ..095001),
-//            interesting by amsterdam (eventky, ..095002)
-// - EVENT:   calendar by bogota (eventky, ..095003)
-// - VIDEO:   bitcoin by amsterdam (mapky, ..095004)
-// - TIE_A:   tie by amsterdam (tiedky, ..095010)
-// - TIE_B:   tie by bogota (tiedky, ..095010), the same timestamp as TIE_A
+// - ARTICLE: bitcoin by amsterdam (..095000) and bogota (..095001),
+//            interesting by amsterdam (..095002)
+// - EVENT:   calendar by bogota (..095003)
+// - VIDEO:   bitcoin by amsterdam (..095004)
+// - TIE_A:   tie by amsterdam (..095010)
+// - TIE_B:   tie by bogota (..095010), the same timestamp as TIE_A
 //
 // Watcher tests share the graph and may add resources of their own, so the
 // assertions are about the seeded IDs: their presence, relative order and
@@ -99,37 +99,6 @@ async fn test_stream_resources_all() -> Result<()> {
 }
 
 #[tokio_shared_rt::test(shared)]
-async fn test_stream_resources_by_app_mapky() -> Result<()> {
-    let (ids, _) = get_ids("app=mapky&sorting=timeline&limit=100").await?;
-    assert_before(&ids, VIDEO, ARTICLE);
-    assert!(
-        !ids.contains(&EVENT.to_string()),
-        "the event has no mapky tag"
-    );
-
-    let views = get_views("app=mapky&sorting=timeline&limit=100").await?;
-    assert!(
-        !views.is_empty(),
-        "Mapky app filter should return resources"
-    );
-
-    Ok(())
-}
-
-#[tokio_shared_rt::test(shared)]
-async fn test_stream_resources_by_app_eventky() -> Result<()> {
-    // The article's "interesting" tag is from eventky, so it is in this stream too
-    let (ids, _) = get_ids("app=eventky&sorting=timeline&limit=100").await?;
-    assert_before(&ids, EVENT, ARTICLE);
-    assert!(
-        !ids.contains(&VIDEO.to_string()),
-        "the video has no eventky tag"
-    );
-
-    Ok(())
-}
-
-#[tokio_shared_rt::test(shared)]
 async fn test_stream_resources_by_tag_bitcoin() -> Result<()> {
     let (ids, _) = get_ids("tags=bitcoin&sorting=timeline&limit=100").await?;
     // Within the label, the video's bitcoin tag is the newest
@@ -160,24 +129,30 @@ async fn test_stream_resources_multi_tag_or() -> Result<()> {
     Ok(())
 }
 
+/// `app` is no longer a parameter: the query ignores an unknown one, so a client that still
+/// sends it gets 200 and every app's resources, the same rows as without it.
 #[tokio_shared_rt::test(shared)]
-async fn test_stream_resources_combined_app_and_tag() -> Result<()> {
-    let (ids, _) = get_ids("app=mapky&tags=bitcoin&sorting=timeline&limit=100").await?;
-    assert_before(&ids, VIDEO, ARTICLE);
-    assert!(!ids.contains(&EVENT.to_string()));
+async fn test_stream_resources_ignore_app() -> Result<()> {
+    // The tie group's label holds exactly its two seeded resources, so the rows are exact
+    let filter = "tags=tie&sorting=timeline&limit=10";
+    for app in ["mapky", "tiedky", "nonexistent_app"] {
+        assert_eq!(
+            get_ids(&format!("app={app}&{filter}")).await?,
+            get_ids(filter).await?,
+            "app={app}"
+        );
+        assert_eq!(
+            get_views(&format!("app={app}&{filter}")).await?,
+            get_views(filter).await?,
+            "app={app}"
+        );
+    }
 
-    // The article's eventky tag is "interesting", not bitcoin
-    let (ids, _) = get_ids("app=eventky&tags=bitcoin&sorting=timeline&limit=100").await?;
-    assert!(
-        !ids.contains(&ARTICLE.to_string()),
-        "no bitcoin tag from eventky on the article"
-    );
-
-    let views = get_views("app=mapky&tags=bitcoin&sorting=timeline&limit=100").await?;
-    assert!(
-        !views.is_empty(),
-        "Mapky+bitcoin combined filter should return resources"
-    );
+    // The event's only tag sat in eventky's folder; unfiltered, it streams under any `app`
+    let (ids, _) = get_ids("app=mapky&sorting=timeline&limit=100").await?;
+    for id in [ARTICLE, EVENT, VIDEO] {
+        position(&ids, id);
+    }
 
     Ok(())
 }
@@ -218,10 +193,10 @@ async fn test_stream_resource_ids() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_stream_resource_ids_cursor_pagination() -> Result<()> {
-    // `eventky` restricted to the two seeded labels holds exactly the seeded
-    // event ("calendar") and article ("interesting"), so the pages below are
-    // exact by construction: nothing else in the shared graph can join them.
-    let filter = "app=eventky&tags=calendar,interesting&sorting=timeline";
+    // The two seeded labels hold exactly the seeded event ("calendar") and
+    // article ("interesting"), so the pages below are exact by construction:
+    // nothing else in the shared graph tags a resource with them.
+    let filter = "tags=calendar,interesting&sorting=timeline";
 
     let (page1, cursor) = get_ids(&format!("{filter}&limit=1")).await?;
     assert_eq!(page1, vec![EVENT.to_string()]);
@@ -251,9 +226,9 @@ async fn test_stream_resource_ids_cursor_pagination() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_stream_resource_ids_timeline_tie_group() -> Result<()> {
-    // `tiedky` restricted to its one seeded label holds exactly the two
-    // resources tagged at the same timestamp, so the pages below are exact.
-    let filter = "app=tiedky&tags=tie&sorting=timeline";
+    // The seeded label holds exactly the two resources tagged at the same
+    // timestamp, so the pages below are exact.
+    let filter = "tags=tie&sorting=timeline";
 
     // Equal scores fall back to the resource id, in the sort direction
     let (both, last) = get_ids(&format!("{filter}&limit=10")).await?;
@@ -283,8 +258,8 @@ async fn test_stream_resource_ids_timeline_tie_group() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_stream_resource_ids_empty_filter() -> Result<()> {
-    let (ids, last_score) = get_ids("app=nonexistent_app&sorting=timeline").await?;
-    assert!(ids.is_empty(), "Non-existent app should return empty");
+    let (ids, last_score) = get_ids("tags=nonexistent_label&sorting=timeline").await?;
+    assert!(ids.is_empty(), "Non-existent label should return empty");
     assert_eq!(last_score, None);
 
     Ok(())
