@@ -1,11 +1,8 @@
 use super::utils::find_post_bookmark;
+use crate::event_processor::utils::watcher::HomeserverHashIdPath;
 use crate::event_processor::utils::watcher::WatcherTest;
-use crate::event_processor::{
-    users::utils::find_user_counts, utils::watcher::HomeserverHashIdPath,
-};
 use anyhow::Result;
 use nexus_common::models::post::Bookmark;
-use nexus_common::models::user::UserCounts;
 use nexus_watcher::events::handlers;
 use pubky::Keypair;
 use pubky_social_specs::legacy_v0::{
@@ -14,16 +11,15 @@ use pubky_social_specs::legacy_v0::{
 use pubky_social_specs::PubkyId;
 
 /// Simulate a retry of sync_del after a partial failure where Redis cleanup
-/// succeeded but graph deletion failed. On retry, the counter must NOT be
-/// decremented again (guarded by the Redis index check).
+/// succeeded but graph deletion failed. The retry must still delete the edge.
 #[tokio_shared_rt::test(shared)]
-async fn test_bookmark_del_retry_no_double_decrement() -> Result<()> {
+async fn test_bookmark_del_retry_completes_graph_delete() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
 
     // Create post author
     let author_kp = Keypair::random();
     let author = PubkyAppUser {
-        bio: Some("test_bookmark_del_retry_no_double_decrement".to_string()),
+        bio: Some("test_bookmark_del_retry_completes_graph_delete".to_string()),
         image: None,
         links: None,
         name: "Watcher:Bookmark:DelRetry:Author".to_string(),
@@ -34,7 +30,7 @@ async fn test_bookmark_del_retry_no_double_decrement() -> Result<()> {
     // Create bookmark owner (different user)
     let bookmarker_kp = Keypair::random();
     let bookmarker = PubkyAppUser {
-        bio: Some("test_bookmark_del_retry_no_double_decrement".to_string()),
+        bio: Some("test_bookmark_del_retry_completes_graph_delete".to_string()),
         image: None,
         links: None,
         name: "Watcher:Bookmark:DelRetry:Bookmarker".to_string(),
@@ -61,7 +57,7 @@ async fn test_bookmark_del_retry_no_double_decrement() -> Result<()> {
 
     test.put(&bookmarker_kp, &bookmark_path, bookmark).await?;
 
-    // Verify initial state: bookmark exists in graph + Redis, count = 1
+    // Verify initial state: bookmark exists in graph + Redis
     assert!(find_post_bookmark(&author_id, &post_id, &bookmarker_id)
         .await
         .is_ok());
@@ -70,14 +66,12 @@ async fn test_bookmark_del_retry_no_double_decrement() -> Result<()> {
             .await?
             .is_some()
     );
-    assert_eq!(find_user_counts(&bookmarker_id).await.bookmarks, 1);
 
     // Simulate partial completion of a previous sync_del attempt:
-    // Redis cleanup succeeded (index removed + counter decremented) but graph delete failed.
+    // Redis cleanup succeeded (index removed) but graph delete failed.
     Bookmark::del_from_index(&bookmarker_id, &post_id, &author_id).await?;
-    UserCounts::decrement(&bookmarker_id, "bookmarks", None).await?;
 
-    // Verify simulated state: graph still has edge, Redis is clean, counter = 0
+    // Verify simulated state: graph still has edge, Redis is clean
     assert!(find_post_bookmark(&author_id, &post_id, &bookmarker_id)
         .await
         .is_ok());
@@ -86,18 +80,16 @@ async fn test_bookmark_del_retry_no_double_decrement() -> Result<()> {
             .await?
             .is_none()
     );
-    assert_eq!(find_user_counts(&bookmarker_id).await.bookmarks, 0);
 
-    // Retry: call sync_del directly — should complete graph cleanup without double-decrement
+    // Retry: call sync_del directly — should complete graph cleanup
     let bookmarker_pubky_id =
         PubkyId::try_from(bookmarker_id.as_str()).map_err(anyhow::Error::msg)?;
     handlers::bookmark::sync_del(bookmarker_pubky_id, bookmark_id).await?;
 
-    // Verify final state: graph edge deleted, counter still 0 (not decremented again)
+    // Verify final state: graph edge deleted
     assert!(find_post_bookmark(&author_id, &post_id, &bookmarker_id)
         .await
         .is_err());
-    assert_eq!(find_user_counts(&bookmarker_id).await.bookmarks, 0);
 
     // Cleanup
     test.cleanup_post(&author_kp, &post_path).await?;
@@ -160,7 +152,6 @@ async fn test_bookmark_del_replay_after_success_skips() -> Result<()> {
     assert!(find_post_bookmark(&author_id, &post_id, &bookmarker_id)
         .await
         .is_err());
-    assert_eq!(find_user_counts(&bookmarker_id).await.bookmarks, 0);
 
     // Replay: call sync_del again — should succeed silently (graph edge already gone)
     let bookmarker_pubky_id =
@@ -171,9 +162,6 @@ async fn test_bookmark_del_replay_after_success_skips() -> Result<()> {
         result.is_ok(),
         "Replay after full delete should return Ok, got: {result:?}"
     );
-
-    // Counter must remain 0
-    assert_eq!(find_user_counts(&bookmarker_id).await.bookmarks, 0);
 
     // Cleanup
     test.cleanup_post(&author_kp, &post_path).await?;

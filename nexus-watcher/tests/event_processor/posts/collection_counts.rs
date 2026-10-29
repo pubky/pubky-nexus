@@ -3,7 +3,6 @@ use crate::event_processor::users::utils::find_user_counts;
 use crate::event_processor::utils::watcher::{HomeserverHashIdPath, WatcherTest};
 use anyhow::Result;
 use nexus_common::models::post::PostDetails;
-use nexus_common::models::user::UserCounts;
 use pubky::Keypair;
 use pubky_social_specs::legacy_v0::{
     post_uri_builder, PubkyAppBookmark, PubkyAppPost, PubkyAppPostKind, PubkyAppUser,
@@ -63,14 +62,6 @@ async fn test_collection_post_increments_collections_not_replies() -> Result<()>
     assert_eq!(counts.collections, 1, "the collection is counted once");
     assert_eq!(counts.replies, 0, "a collection is not a reply");
 
-    // Graph backfill must match the live counters.
-    let graph_counts = UserCounts::get_by_id(&user_id)
-        .await?
-        .expect("user counts present in graph");
-    assert_eq!(graph_counts.posts, 2);
-    assert_eq!(graph_counts.collections, 1);
-    assert_eq!(graph_counts.replies, 0);
-
     test.cleanup_post(&user_kp, &short_path).await?;
     test.cleanup_post(&user_kp, &col_path).await?;
     test.cleanup_user(&user_kp).await?;
@@ -109,9 +100,8 @@ async fn test_delete_collection_decrements_collections() -> Result<()> {
     Ok(())
 }
 
-/// Editing a post across the collection boundary moves `collections`; the graph
-/// kind is overwritten on every PUT, so otherwise the live counter drifts from
-/// the Cypher backfill until the next reindex.
+/// Editing a post across the collection boundary moves `collections`: the edit
+/// must rewrite the post's kind in the graph, which the count reads.
 #[tokio_shared_rt::test(shared)]
 async fn test_editing_post_kind_moves_collections_counter() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
@@ -146,19 +136,13 @@ async fn test_editing_post_kind_moves_collections_counter() -> Result<()> {
         "edit out of a collection decrements collections"
     );
 
-    // Graph backfill agrees with the final live state.
-    let graph = UserCounts::get_by_id(&user_id)
-        .await?
-        .expect("user counts present in graph");
-    assert_eq!(graph.collections, 0);
-
     test.cleanup_user(&user_kp).await?;
     Ok(())
 }
 
 /// Deleting a collection that still has relationships soft-deletes it (rewrites
 /// it as a cleared, `deleted` Short via the edit path). The author's `collections` must
-/// drop by exactly one, and the kind transition must persist.
+/// drop to 0, and the kind transition must persist.
 #[tokio_shared_rt::test(shared)]
 async fn test_soft_deleting_a_bookmarked_collection_decrements_collections_once() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
@@ -195,7 +179,7 @@ async fn test_soft_deleting_a_bookmarked_collection_decrements_collections_once(
     assert_eq!(
         find_user_counts(&author_id).await.collections,
         0,
-        "soft-deleting the collection decrements collections exactly once"
+        "the soft-deleted collection is no longer counted"
     );
     // The post survives as a soft-deleted Short placeholder.
     let details = PostDetails::get_by_id(&author_id, &col_id)
@@ -237,11 +221,6 @@ async fn test_bookmarking_a_collection_is_excluded_from_bookmarks() -> Result<()
         counts.bookmarks, 1,
         "only the real post bookmark counts, not the collection-follow"
     );
-
-    let graph_counts = UserCounts::get_by_id(&user_id)
-        .await?
-        .expect("user counts present in graph");
-    assert_eq!(graph_counts.bookmarks, 1);
 
     test.cleanup_user(&user_kp).await?;
     Ok(())

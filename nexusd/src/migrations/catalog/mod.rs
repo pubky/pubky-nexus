@@ -12,6 +12,7 @@ use resource_node_setup_1774000000::ResourceNodeSetup1774000000;
 use resource_stream_keys_retire_1790208000::ResourceStreamKeysRetire1790208000;
 use resource_tag_keys_retire_1792076035::ResourceTagKeysRetire1792076035;
 use uri_backfill_1791196997::UriBackfill1791196997;
+use user_counts_keys_retire_1792418266::UserCountsKeysRetire1792418266;
 use user_deleted_flag_1780617600::UserDeletedFlag1780617600;
 use user_epoch_backfill_1791812997::UserEpochBackfill1791812997;
 use users_by_pk_reindex_1751635096::UsersByPkReindex1751635096;
@@ -39,6 +40,7 @@ pub fn import_migrations(migration_manager: &mut MigrationManager) {
         Box::new(UserEpochBackfill1791812997),
         Box::new(ResourceTagKeysRetire1792076035),
         Box::new(FileDetailsKeysRetire1792145757),
+        Box::new(UserCountsKeysRetire1792418266),
     ];
     for migration in migrations {
         migration_manager.register(migration);
@@ -57,6 +59,7 @@ pub mod resource_node_setup_1774000000;
 pub mod resource_stream_keys_retire_1790208000;
 pub mod resource_tag_keys_retire_1792076035;
 pub mod uri_backfill_1791196997;
+pub mod user_counts_keys_retire_1792418266;
 pub mod user_deleted_flag_1780617600;
 pub mod user_epoch_backfill_1791812997;
 pub mod users_by_pk_reindex_1751635096;

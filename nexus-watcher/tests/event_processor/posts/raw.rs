@@ -66,7 +66,7 @@ async fn test_homeserver_put_post_event() -> Result<()> {
     assert_eq!(post_details.uri, post_detail_cache.uri);
     assert_eq!(post_details.indexed_at, post_detail_cache.indexed_at);
 
-    // User:Counts:user_id:post_id
+    // Post:Counts:user_id:post_id
     let post_counts: PostCounts = find_post_counts(&user_id, &post_id).await;
     assert_eq!(post_counts.reposts, 0);
     assert_eq!(post_counts.replies, 0);

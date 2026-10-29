@@ -6,7 +6,7 @@ use anyhow::Result;
 use nexus_common::models::event::EventLine;
 use nexus_common::{
     db::RedisOps,
-    models::user::{UserCounts, UserSearch, USER_NAME_KEY_PARTS},
+    models::user::{UserSearch, USER_NAME_KEY_PARTS},
 };
 use pubky::Keypair;
 use pubky_social_specs::legacy_v0::{file_uri_builder, PubkyAppUser, PubkyAppUserLink};
@@ -59,18 +59,8 @@ async fn test_homeserver_user_put_event() -> Result<()> {
     }
 
     // CACHE_OP: Check if the event writes in the graph
-    // User:Counts:user_id
     let (_, events_in_redis_after) = EventLine::get_from_index(None, usize::MAX).await.unwrap();
     assert!(events_in_redis_after > events_in_redis_before);
-
-    let user_counts = UserCounts::get_from_index(&user_id)
-        .await
-        .unwrap()
-        .expect("The new post was not served from Nexus");
-
-    assert_eq!(user_counts.followers, 0);
-    assert_eq!(user_counts.tagged, 0);
-    assert_eq!(user_counts.posts, 0);
 
     // Sorted:Users:Name
     let is_member = UserSearch::check_sorted_set_member(

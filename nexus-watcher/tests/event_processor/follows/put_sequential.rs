@@ -1,8 +1,7 @@
+use crate::event_processor::users::utils::find_user_counts;
 use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
-use nexus_common::db::RedisOps;
 use nexus_common::models::user::Relationship;
-use nexus_common::models::user::UserCounts;
 use pubky::Keypair;
 use pubky_social_specs::legacy_v0::PubkyAppUser;
 
@@ -122,10 +121,7 @@ async fn test_homeserver_sequential_follow() -> Result<()> {
         "Followee cannot be following Danonino"
     );
 
-    let followee_user_count = UserCounts::try_from_index_json(&[&followee_id], None)
-        .await
-        .unwrap()
-        .expect("User count not found");
+    let followee_user_count = find_user_counts(&followee_id).await;
 
     assert_eq!(followee_user_count.followers, 4);
     assert_eq!(followee_user_count.following, 0);
@@ -147,10 +143,7 @@ async fn test_homeserver_sequential_follow() -> Result<()> {
         "Danonino should be following Followee"
     );
 
-    let followee_user_count = UserCounts::try_from_index_json(&[&followee_id], None)
-        .await
-        .unwrap()
-        .expect("User count not found");
+    let followee_user_count = find_user_counts(&followee_id).await;
 
     assert_eq!(followee_user_count.followers, 4);
     assert_eq!(followee_user_count.following, 1);
@@ -193,10 +186,7 @@ async fn test_homeserver_sequential_follow() -> Result<()> {
         "Followee should be following Enzo"
     );
 
-    let followee_user_count = UserCounts::try_from_index_json(&[&followee_id], None)
-        .await
-        .unwrap()
-        .expect("User count not found");
+    let followee_user_count = find_user_counts(&followee_id).await;
 
     assert_eq!(followee_user_count.followers, 4);
     assert_eq!(followee_user_count.following, 2);

@@ -10,7 +10,7 @@ use nexus_common::models::tag::post::TagPost;
 use nexus_common::models::tag::search::TagSearch;
 use nexus_common::models::tag::traits::{TagCollection, TaggersCollection};
 use nexus_common::models::tag::user::TagUser;
-use nexus_common::models::user::{UserCounts, UserIngestor, UsersByTagSearch};
+use nexus_common::models::user::{UserIngestor, UsersByTagSearch};
 use nexus_common::types::Pagination;
 use nexus_common::universal_tag::normalize::{normalize_uri, resource_id};
 use pubky_social_specs::PubkyId;
@@ -206,8 +206,6 @@ async fn put_sync_post(
 
             let indexing_results = nexus_common::traced_join!(
                 tracing::info_span!("index.write", phase = "tag_post");
-                // Update user counts for tagger
-                UserCounts::increment(&tagger_user_id, "tagged", None),
                 // Invalidate the cached post counts.
                 PostCounts::invalidate(post_key_slice),
                 // Increment the label count to post
@@ -261,14 +259,13 @@ async fn put_sync_post(
             indexing_results.5?;
             indexing_results.6?;
             indexing_results.7?;
-            indexing_results.8?;
 
             Ok(())
         }
     }
 }
 
-/// Handles the synchronization of a tagged user by updating the graph, indexes, and related counts.
+/// Handles the synchronization of a tagged user by updating the graph and indexes.
 ///
 /// # Arguments
 /// - `tagger_user_id` - The `PubkyId` of the user tagging the user.
@@ -323,19 +320,8 @@ async fn put_sync_user(
             // SAVE TO INDEX
             let indexing_results = nexus_common::traced_join!(
                 tracing::info_span!("index.write", phase = "tag_user");
-                // Update user counts for the tagged user
-                UserCounts::increment(&tagged_user_id, "tags", None),
-                // Update user counts for the tagger user
-                UserCounts::increment(&tagger_user_id, "tagged", None),
-                async {
-                    // Increase unique_tags if the tag does not exist already
-                    // NOTE: To update that field, it cannot exist in TagUser SORTED SET the tag. Thats why it has to be executed
-                    // before TagUser operation
-                    UserCounts::increment(&tagged_user_id, "unique_tags", Some(tag_label)).await?;
-                    // Add label count to the user profile tag
-                    TagUser::update_index_score(&tagged_user_id, None, tag_label, ScoreAction::Increment(1.0)).await?;
-                    Ok::<(), EventProcessorError>(())
-                },
+                // Add label count to the user profile tag
+                TagUser::update_index_score(&tagged_user_id, None, tag_label, ScoreAction::Increment(1.0)),
                 // Add tagger to the user taggers list
                 TagUser::add_tagger_to_index(&tagged_user_id, None, &tagger_user_id, tag_label),
                 // Save new notification
@@ -348,8 +334,6 @@ async fn put_sync_user(
             indexing_results.1?;
             indexing_results.2?;
             indexing_results.3?;
-            indexing_results.4?;
-            indexing_results.5?;
 
             // After the taggers SADD settled: the users-by-tag score is derived
             // from that set (SCARD), so first attempts and retries converge alike.
@@ -454,27 +438,10 @@ async fn del_sync_user(
 ) -> Result<(), EventProcessorError> {
     let indexing_results = nexus_common::traced_join!(
         tracing::info_span!("index.delete", phase = "tag_user");
-        // Guarded: Update user counts in the tagged
+        // Guarded: Decrement label count to the user profile tag
         async {
             if tagger_in_index {
-                UserCounts::decrement(tagged_id, "tags", None).await?;
-            }
-            Ok::<(), EventProcessorError>(())
-        },
-        // Guarded: Update user counts in the tagger
-        async {
-            if tagger_in_index {
-                UserCounts::decrement(&tagger_id, "tagged", None).await?;
-            }
-            Ok::<(), EventProcessorError>(())
-        },
-        async {
-            if tagger_in_index {
-                // Decrement label count to the user profile tag
                 TagUser::update_index_score(tagged_id, None, tag_label, ScoreAction::Decrement(1.0)).await?;
-                // Decrease unique_tags
-                // NOTE: To update that field, we first need to decrement the value in the TagUser SORTED SET associated with that tag
-                UserCounts::decrement(tagged_id, "unique_tags", Some(tag_label)).await?;
             }
             Ok::<(), EventProcessorError>(())
         },
@@ -497,8 +464,6 @@ async fn del_sync_user(
     indexing_results.0?;
     indexing_results.1?;
     indexing_results.2?;
-    indexing_results.3?;
-    indexing_results.4?;
 
     // After the taggers SREM settled: recompute the derived users-by-tag score,
     // dropping the member once the last tagger is gone.
@@ -519,13 +484,6 @@ async fn del_sync_post(
 
     let indexing_results = nexus_common::traced_join!(
         tracing::info_span!("index.delete", phase = "tag_post");
-        // Guarded: Update user counts for tagger
-        async {
-            if tagger_in_index {
-                UserCounts::decrement(&tagger_id, "tagged", None).await?;
-            }
-            Ok::<(), EventProcessorError>(())
-        },
         async {
             if tagger_in_index {
                 // Decrement label score in the post
@@ -590,7 +548,6 @@ async fn del_sync_post(
     indexing_results.2?;
     indexing_results.3?;
     indexing_results.4?;
-    indexing_results.5?;
 
     // Tag-search cleanup runs AFTER the join so the SREM above and the concurrent
     // label-set ZINCRs have settled; otherwise `get_by_label` can see a phantom

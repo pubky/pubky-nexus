@@ -84,7 +84,7 @@ async fn test_homeserver_del_tag_to_another_user() -> Result<()> {
         "Tagged user cannot stay in the users-by-tag index after the last tagger deletes"
     );
 
-    // Check if user counts is updated, User:Counts:user_id
+    // Check if user counts is updated
     let user_counts = find_user_counts(&tagger_user_id).await;
     assert_eq!(user_counts.tagged, 0);
 
