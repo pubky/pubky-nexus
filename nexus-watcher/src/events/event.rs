@@ -457,7 +457,7 @@ mod tests {
             (format!("pubky.app/posts/{POST_ID}"), "posts", POST_ID),
             ("pubky.app/profile.json".to_string(), "profile.json", ""),
             (format!("pubky.app/follows/{USER}"), "follows", USER),
-            (format!("mapky/tags/{TAG_ID}"), "tags", TAG_ID),
+            (format!("pubky.app/tags/{TAG_ID}"), "tags", TAG_ID),
         ];
         for (path, name, id) in cases {
             let Ok(ParseResult::Parsed(event)) = Event::parse_event(&format!("PUT {}", uri(&path)))

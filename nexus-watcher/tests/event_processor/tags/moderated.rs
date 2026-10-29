@@ -53,7 +53,7 @@ async fn test_moderation_through_an_app_folder_address_deletes_the_tag() -> Resu
     let (tagger_kp, tagger_id) = create_tagger(&mut test, "app-folder").await?;
 
     let target_uri = format!("https://example.com/moderate-app-folder/{tagger_id}");
-    let resource_label = "mod_app_folder_resource";
+    let resource_label = "mod_app_folder_res";
     let (resource_tag_uri, resource_id) = put_pubky_app_resource_tag(
         &mut test,
         &tagger_kp,

@@ -6,7 +6,7 @@
 //! so the shared graph can hold anything else without affecting the assertions.
 
 use super::resource_utils::{compute_resource_id, latest_tag_indexed_at};
-use crate::event_processor::utils::watcher::WatcherTest;
+use crate::event_processor::utils::watcher::{HomeserverHashIdPath, WatcherTest};
 use anyhow::Result;
 use chrono::Utc;
 use nexus_common::db::kv::SortOrder;
@@ -14,7 +14,6 @@ use nexus_common::models::resource::stream::{ResourceKeyStream, ResourceSorting,
 use nexus_common::types::Pagination;
 use pubky::Keypair;
 use pubky::ResourcePath;
-use pubky_social_specs::legacy_v0::traits::HashId;
 use pubky_social_specs::legacy_v0::{PubkyAppTag, PubkyAppUser};
 use std::time::Duration;
 
@@ -41,7 +40,6 @@ fn page(limit: usize) -> Pagination {
 async fn put_tag(
     test: &mut WatcherTest,
     kp: &Keypair,
-    app: &str,
     uri: &str,
     label: &str,
 ) -> Result<ResourcePath> {
@@ -52,7 +50,7 @@ async fn put_tag(
         label: label.to_string(),
         created_at: Utc::now().timestamp_millis(),
     };
-    let path: ResourcePath = format!("/pub/{app}/tags/{}", tag.create_id()).parse()?;
+    let path = tag.hs_path();
     test.put(kp, &path, &tag).await?;
     Ok(path)
 }
@@ -77,7 +75,7 @@ async fn create_user(test: &mut WatcherTest, name: &str) -> Result<(Keypair, Str
 async fn test_resource_stream_timeline_follows_latest_tag() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
     let run = Utc::now().timestamp_millis();
-    let app = &format!("streamtl{run}");
+    let scope = &format!("streamtl{run}");
     // Labels hold at most 20 characters
     let label = &format!("stl{}", run % 100_000_000);
     let newer_label = &format!("stn{}", run % 100_000_000);
@@ -85,14 +83,14 @@ async fn test_resource_stream_timeline_follows_latest_tag() -> Result<()> {
 
     let (kp, _) = create_user(&mut test, "Timeline").await?;
 
-    let uri_x = format!("https://example.com/{app}/x");
-    let uri_y = format!("https://example.com/{app}/y");
+    let uri_x = format!("https://example.com/{scope}/x");
+    let uri_y = format!("https://example.com/{scope}/y");
     let x = compute_resource_id(&uri_x);
     let y = compute_resource_id(&uri_y);
 
     // X is tagged first, then Y: Y leads the timeline
-    let path_x1 = put_tag(&mut test, &kp, app, &uri_x, label).await?;
-    let path_y = put_tag(&mut test, &kp, app, &uri_y, label).await?;
+    let path_x1 = put_tag(&mut test, &kp, &uri_x, label).await?;
+    let path_y = put_tag(&mut test, &kp, &uri_y, label).await?;
     let x_first_tag = latest_tag_indexed_at(&x).await?.unwrap();
     let y_tag = latest_tag_indexed_at(&y).await?.unwrap();
     assert!(x_first_tag < y_tag);
@@ -102,7 +100,7 @@ async fn test_resource_stream_timeline_follows_latest_tag() -> Result<()> {
     assert_eq!(keys.last_score, Some(x_first_tag as u64));
 
     // A newer tag on X (another label) moves X ahead of Y
-    let path_x2 = put_tag(&mut test, &kp, app, &uri_x, newer_label).await?;
+    let path_x2 = put_tag(&mut test, &kp, &uri_x, newer_label).await?;
     let x_second_tag = latest_tag_indexed_at(&x).await?.unwrap();
     assert!(x_second_tag > y_tag);
 

@@ -108,7 +108,7 @@ async fn test_pubky_app_resource_tag_stores_event_path_as_uri() -> Result<()> {
 
     let tag = tag_on(
         format!("https://example.com/tag-uri/{tagger_id}"),
-        "uri-pubky-app-resource",
+        "uri-pubky-app-res",
     );
     let tag_id = tag.create_id();
     let tag_path = tag.hs_path();
