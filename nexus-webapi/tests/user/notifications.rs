@@ -346,3 +346,114 @@ async fn test_notification_post_kind_wire_and_backcompat() -> Result<()> {
 
     Ok(())
 }
+
+/// Inserts one raw notification body with an explicit timestamp.
+async fn seed_body(recipient_id: &str, body: &NotificationBody, timestamp: i64) -> Result<()> {
+    let json = serde_json::to_string(body).unwrap();
+    Notification::put_index_sorted_set(
+        &["Notification", recipient_id],
+        &[(timestamp as f64, json.as_str())],
+        None,
+        None,
+    )
+    .await
+    .map_err(|e| anyhow::anyhow!("{e}"))
+}
+
+fn reply_body(replier: &str, n: u32) -> NotificationBody {
+    NotificationBody::Reply {
+        replied_by: replier.to_string(),
+        parent_post_uri: format!("pubky://{replier}/pub/pubky.app/posts/P{n:012}"),
+        reply_uri: format!("pubky://{replier}/pub/pubky.app/posts/R{n:012}"),
+        post_kind: pubky_app_specs::PubkyAppPostKind::Short,
+    }
+}
+
+fn mention_body(mentioner: &str, n: u32) -> NotificationBody {
+    NotificationBody::Mention {
+        mentioned_by: mentioner.to_string(),
+        post_uri: format!("pubky://{mentioner}/pub/pubky.app/posts/M{n:012}"),
+        post_kind: pubky_app_specs::PubkyAppPostKind::Short,
+    }
+}
+
+/// Seeds 30 follows on top of 3 older replies and 1 mention, so an unfiltered
+/// first page holds only follows. `types=reply` must reach past them and return
+/// the 3 replies newest-first; `types=reply,mention` returns 4 items.
+#[tokio_shared_rt::test(shared)]
+async fn test_get_notifications_filtered_by_type() -> Result<()> {
+    env_init().await;
+    const TEST_USER: &str = "tffi66yjexyy6guz6rpgx816rpneobifatau3j46fmfy3i5nx8co";
+    const OTHER: &str = "17775cing48kciy3enntgjwhw7yptxz6zw8k8czcddzk1yruqhcy";
+
+    seed_body(TEST_USER, &reply_body(OTHER, 1), 1000).await?;
+    seed_body(TEST_USER, &mention_body(OTHER, 1), 1500).await?;
+    seed_body(TEST_USER, &reply_body(OTHER, 2), 2000).await?;
+    seed_body(TEST_USER, &reply_body(OTHER, 3), 3000).await?;
+    for i in 0..30u32 {
+        let follower = format!("{OTHER}-{i}");
+        seed_follow(TEST_USER, &follower, 10_000 + i as i64).await?;
+    }
+
+    let page = get_request(&format!("/v0/user/{TEST_USER}/notifications?limit=20")).await?;
+    let page = page.as_array().unwrap();
+    assert!(page.iter().all(|n| n["body"]["type"] == "follow"));
+
+    let replies = get_request(&format!("/v0/user/{TEST_USER}/notifications?types=reply")).await?;
+    let replies = replies.as_array().unwrap();
+    assert_eq!(replies.len(), 3, "expected only the 3 replies: {replies:?}");
+    assert!(replies.iter().all(|n| n["body"]["type"] == "reply"));
+    let ts: Vec<i64> = replies
+        .iter()
+        .map(|n| n["timestamp"].as_i64().unwrap())
+        .collect();
+    assert_eq!(ts, vec![3000, 2000, 1000]);
+
+    // skip and limit count matching notifications only.
+    let paged = get_request(&format!(
+        "/v0/user/{TEST_USER}/notifications?types=reply&skip=1&limit=1"
+    ))
+    .await?;
+    let paged = paged.as_array().unwrap();
+    assert_eq!(paged.len(), 1);
+    assert_eq!(paged[0]["timestamp"], 2000_i64);
+
+    // `start` keeps working as the cursor for the next filtered page.
+    let older = get_request(&format!(
+        "/v0/user/{TEST_USER}/notifications?types=reply&start=1999"
+    ))
+    .await?;
+    let older = older.as_array().unwrap();
+    assert_eq!(older.len(), 1);
+    assert_eq!(older[0]["timestamp"], 1000_i64);
+
+    let two = get_request(&format!(
+        "/v0/user/{TEST_USER}/notifications?types=reply,mention"
+    ))
+    .await?;
+    let two = two.as_array().unwrap();
+    assert_eq!(two.len(), 4);
+    assert_eq!(two[2]["body"]["type"], "mention");
+
+    Ok(())
+}
+
+/// An unknown type name and an empty list are rejected with 400.
+#[tokio_shared_rt::test(shared)]
+async fn test_get_notifications_invalid_type_filter() -> Result<()> {
+    env_init().await;
+    const TEST_USER: &str = "tffi66yjexyy6guz6rpgx816rpneobifatau3j46fmfy3i5nx8co";
+
+    invalid_get_request(
+        &format!("/v0/user/{TEST_USER}/notifications?types=bogus"),
+        StatusCode::BAD_REQUEST,
+    )
+    .await?;
+    invalid_get_request(
+        &format!("/v0/user/{TEST_USER}/notifications?types=,"),
+        StatusCode::BAD_REQUEST,
+    )
+    .await?;
+
+    Ok(())
+}

@@ -109,7 +109,72 @@ pub enum NotificationBody {
     },
 }
 
+/// The `type` tag of a [`NotificationBody`], used to filter a notification list.
+#[derive(Serialize, Deserialize, ToSchema, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum NotificationType {
+    Follow,
+    NewFriend,
+    LostFriend,
+    TagPost,
+    TagProfile,
+    UntagPost,
+    UntagProfile,
+    Reply,
+    Repost,
+    Mention,
+    PostDeleted,
+    PostEdited,
+}
+
+impl std::str::FromStr for NotificationType {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(match s {
+            "follow" => Self::Follow,
+            "new_friend" => Self::NewFriend,
+            "lost_friend" => Self::LostFriend,
+            "tag_post" => Self::TagPost,
+            "tag_profile" => Self::TagProfile,
+            "untag_post" => Self::UntagPost,
+            "untag_profile" => Self::UntagProfile,
+            "reply" => Self::Reply,
+            "repost" => Self::Repost,
+            "mention" => Self::Mention,
+            "post_deleted" => Self::PostDeleted,
+            "post_edited" => Self::PostEdited,
+            other => return Err(format!("unknown notification type: {other}")),
+        })
+    }
+}
+
+impl NotificationBody {
+    pub fn notification_type(&self) -> NotificationType {
+        match self {
+            Self::Follow { .. } => NotificationType::Follow,
+            Self::NewFriend { .. } => NotificationType::NewFriend,
+            Self::LostFriend { .. } => NotificationType::LostFriend,
+            Self::TagPost { .. } => NotificationType::TagPost,
+            Self::TagProfile { .. } => NotificationType::TagProfile,
+            Self::UntagPost { .. } => NotificationType::UntagPost,
+            Self::UntagProfile { .. } => NotificationType::UntagProfile,
+            Self::Reply { .. } => NotificationType::Reply,
+            Self::Repost { .. } => NotificationType::Repost,
+            Self::Mention { .. } => NotificationType::Mention,
+            Self::PostDeleted { .. } => NotificationType::PostDeleted,
+            Self::PostEdited { .. } => NotificationType::PostEdited,
+        }
+    }
+}
+
 const NOTIFICATION_FANOUT_PAGE_SIZE: i64 = 1_000;
+
+/// Entries read from Redis per round when filtering by type.
+const NOTIFICATION_FILTER_CHUNK: usize = 500;
+/// Upper bound on entries scanned for one filtered request, so a rare or absent
+/// type cannot make a request walk a whole history.
+pub const NOTIFICATION_FILTER_MAX_SCAN: usize = 10_000;
 
 type QueryFunction = fn(&str, &str, &[String], i64) -> crate::db::graph::Query;
 type ExtractFunction = Arc<dyn Fn(&Row) -> (String, String) + Send + Sync>;
@@ -153,7 +218,7 @@ impl Notification {
         let skip = pagination.skip.unwrap_or(0);
         let limit = pagination.limit.unwrap_or(20);
 
-        let notifications = Notification::try_from_index_sorted_set(
+        let rows = Notification::try_from_index_sorted_set(
             &["Notification", user_id],
             pagination.start,
             pagination.end,
@@ -162,30 +227,75 @@ impl Notification {
             SortOrder::Descending, // StreamSorting in descending order by score (timestamp)
             None,
         )
-        .await?;
+        .await?
+        .unwrap_or_default();
 
+        Ok(rows.into_iter().filter_map(Self::from_row).collect())
+    }
+
+    /// Like [`Self::get_by_id`], keeping only notifications whose type is in `types`.
+    /// `skip` and `limit` count matching notifications. The set is read newest-first
+    /// in chunks and the scan stops after [`NOTIFICATION_FILTER_MAX_SCAN`] entries,
+    /// so a page can come back short when matches are scarce.
+    pub async fn get_by_id_filtered(
+        user_id: &str,
+        pagination: Pagination,
+        types: &[NotificationType],
+    ) -> RedisResult<Vec<Self>> {
+        let mut to_skip = pagination.skip.unwrap_or(0);
+        let limit = pagination.limit.unwrap_or(20);
         let mut result = Vec::new();
+        let mut offset = 0;
 
-        if let Some(notifications) = notifications {
-            for (notification_body_str, score) in notifications {
-                match serde_json::from_str::<NotificationBody>(&notification_body_str) {
-                    Ok(body) => {
-                        let notification = Notification {
-                            timestamp: score as i64,
-                            body,
-                        };
-                        result.push(notification);
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            "Failed to deserialize notification, body: {notification_body_str}, reason: {e}"
-                        );
-                    }
+        while result.len() < limit && offset < NOTIFICATION_FILTER_MAX_SCAN {
+            let chunk = NOTIFICATION_FILTER_CHUNK.min(NOTIFICATION_FILTER_MAX_SCAN - offset);
+            let rows = Notification::try_from_index_sorted_set(
+                &["Notification", user_id],
+                pagination.start,
+                pagination.end,
+                Some(offset),
+                Some(chunk),
+                SortOrder::Descending,
+                None,
+            )
+            .await?
+            .unwrap_or_default();
+            let read = rows.len();
+            offset += read;
+
+            for notification in rows.into_iter().filter_map(Self::from_row) {
+                if !types.contains(&notification.body.notification_type()) {
+                    continue;
                 }
+                if to_skip > 0 {
+                    to_skip -= 1;
+                    continue;
+                }
+                result.push(notification);
+                if result.len() == limit {
+                    break;
+                }
+            }
+
+            if read < chunk {
+                break;
             }
         }
 
         Ok(result)
+    }
+
+    fn from_row((body_str, score): (String, f64)) -> Option<Self> {
+        match serde_json::from_str::<NotificationBody>(&body_str) {
+            Ok(body) => Some(Notification {
+                timestamp: score as i64,
+                body,
+            }),
+            Err(e) => {
+                tracing::warn!("Failed to deserialize notification, body: {body_str}, reason: {e}");
+                None
+            }
+        }
     }
 
     pub async fn new_follow(user_id: &str, followee_id: &str, new_friend: bool) -> RedisResult<()> {
