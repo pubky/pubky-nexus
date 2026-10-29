@@ -48,7 +48,7 @@ services:
       NEO4J_dbms_security_procedures_unrestricted: gds.*
       NEO4J_dbms_security_procedures_allowlist: gds.graph.project,gds.graph.project.estimate,gds.graph.drop,gds.graph.list,gds.pageRank.mutate,gds.graph.nodeProperty.stream
   redis:
-    image: redis:8.0.6-alpine
+    image: redis:8.2-alpine
     container_name: redis
     ports:
       - 127.0.0.1:6379:6379
@@ -58,7 +58,7 @@ services:
       - .database/redis/data:/data:Z
     restart: always
   redisinsight:
-    image: redis/redisinsight:3.0.3
+    image: redis/redisinsight:3.8.0
     container_name: redisinsight
     ports:
       - 127.0.0.1:5540:5540

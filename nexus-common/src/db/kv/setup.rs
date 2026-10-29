@@ -20,7 +20,7 @@ use tracing::info;
 /// index. Every index created here is idempotent, so repeated calls are cheap.
 ///
 /// Nexus requires a Redis that ships the query engine (`docker-compose` pins
-/// `redis:8.0.6-alpine`). A failed `FT.CREATE` is fatal at connector init, so a
+/// `redis:8.2-alpine`). A failed `FT.CREATE` is fatal at connector init, so a
 /// Redis without it stops every binary from starting instead of degrading
 /// search. This is deliberate: a missing index is a misconfigured environment,
 /// not a runtime condition to route around.
