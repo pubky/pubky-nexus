@@ -4025,8 +4025,9 @@ dependencies = [
 
 [[package]]
 name = "pubky-social-specs"
-version = "1.0.0-alpha.5"
-source = "git+https://github.com/pubky/pubky-social-specs?rev=acde362939dabb79a3b08de250bcbc70da4e827d#acde362939dabb79a3b08de250bcbc70da4e827d"
+version = "1.0.0-rc.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f6dded6a08c919ae4de45a0461360aed0aad9ff46a5e150d7099b4a19f8b04bb"
 dependencies = [
  "base32",
  "base64 0.22.1",

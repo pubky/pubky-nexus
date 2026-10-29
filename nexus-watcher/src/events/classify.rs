@@ -32,10 +32,28 @@ pub enum Classified {
 pub fn classify(routed: Routed) -> Classified {
     match routed {
         Routed::Legacy(parsed) => classify_legacy(parsed),
-        Routed::Social(parsed) => Classified::Skip(SkipReason::EpochNotIndexed {
-            epoch: epoch_segment(),
-            resource: parsed.resource.to_string(),
-        }),
+        Routed::Social(parsed) => {
+            use pubky_social_specs::{Resource as V1Resource, Visibility};
+            if parsed.visibility == Visibility::Public
+                && matches!(
+                    parsed.resource,
+                    V1Resource::User
+                        | V1Resource::Post {
+                            version: Some(_),
+                            ..
+                        }
+                        | V1Resource::Follow(_)
+                        | V1Resource::Tag(_)
+                )
+            {
+                Classified::Index(EventTarget::Social(parsed))
+            } else {
+                Classified::Skip(SkipReason::EpochNotIndexed {
+                    epoch: epoch_segment(),
+                    resource: parsed.resource.to_string(),
+                })
+            }
+        }
         Routed::UnsupportedEpoch { version } => {
             Classified::Skip(SkipReason::UnsupportedEpoch { version })
         }

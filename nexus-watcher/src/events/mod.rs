@@ -147,8 +147,14 @@ pub async fn handle_put_event(
                 moderation
                     .apply_moderation(&tag.label, tag.tagged, &event.uri, files_path, &ingestor)
                     .await
+            } else if matches!(&event.target, target::EventTarget::Social(_))
+                && matches!(&tag.tagged.target, inputs::ReferenceTarget::Tag { .. })
+            {
+                Err(EventProcessorError::UnsupportedTarget(
+                    "Tags cannot target another tag".into(),
+                ))
             } else if let Some(app) = app {
-                // Another app's universal tag: `sync_put_resource` also makes Resource nodes
+                // A resource-capable tag: `sync_put_resource` also makes Resource nodes
                 // for targets that are neither a post nor a user.
                 handlers::tag::sync_put_resource(tag, key, app, &ingestor).await
             } else {
@@ -179,10 +185,11 @@ pub async fn remove_if_taken_down(
     files_path: &Path,
     ingestor: &UserIngestor,
 ) -> Result<bool, EventProcessorError> {
-    if !is_taken_down(uri).await? {
+    let target = resolve_reference(uri).target;
+    let address = route::takedown_address(&target).unwrap_or_else(|_| uri.to_owned());
+    if !is_taken_down(uri).await? && (address == uri || !is_taken_down(&address).await?) {
         return Ok(false);
     }
-    let target = resolve_reference(uri).target;
     // Boxed: the delete handlers' futures would otherwise nest inside every PUT's.
     match Box::pin(Moderation::remove_taken_down(target, files_path, ingestor)).await {
         Ok(()) | Err(EventProcessorError::SkipIndexing) => Ok(true),
@@ -198,7 +205,14 @@ pub async fn handle_del_event(
 ) -> Result<(), EventProcessorError> {
     match translate_del(&event.target)? {
         TranslatedDel::User { user_id } => handlers::user::del(user_id).await,
-        TranslatedDel::Post(key) => handlers::post::del(key, &ingestor).await,
+        TranslatedDel::Post(key) => match handlers::post::del(key, &ingestor).await {
+            Err(EventProcessorError::SkipIndexing)
+                if matches!(event.target, target::EventTarget::Social(_)) =>
+            {
+                Ok(())
+            }
+            result => result,
+        },
         TranslatedDel::Follow {
             user_id,
             followee_id,

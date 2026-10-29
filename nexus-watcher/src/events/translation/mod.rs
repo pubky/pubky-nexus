@@ -3,8 +3,8 @@
 //! [`TranslatedPut`] and [`TranslatedDel`] are the operations every epoch maps into.
 //! [`translate_put`] and [`translate_del`] dispatch an event to the translator of its target's
 //! epoch, which gets its own parsed target and never sees the [`EventTarget`]. Skips are not
-//! translated: the classifier takes them before the fetch, and still skips every `social/v1`
-//! event, so the v1 translator runs only in its unit tests.
+//! translated: the classifier takes them before the fetch. Public v1 profiles, stored post versions,
+//! follows and tags pass through to their handlers.
 
 pub(super) mod legacy_v0;
 pub(super) mod social_v1;
@@ -34,7 +34,7 @@ pub enum TranslatedPut {
         user_id: PubkyId,
         followee_id: PubkyId,
     },
-    /// `app` is set only for another app's universal tag (`/pub/mapky/tags/…`).
+    /// Resource-tag scope: social for v1; the legacy app name for v0 universal tags.
     Tag {
         key: ResourceKey,
         tag: TagInput,
@@ -61,7 +61,7 @@ pub enum TranslatedDel {
         user_id: PubkyId,
         followee_id: PubkyId,
     },
-    /// `app` is set only for another app's universal tag (`/pub/mapky/tags/…`).
+    /// Resource-tag scope: social for v1; the legacy app name for v0 universal tags.
     Tag {
         key: ResourceKey,
         app: Option<String>,

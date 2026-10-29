@@ -104,6 +104,12 @@ pub fn takedown_address(target: &ReferenceTarget) -> Result<String, String> {
         ReferenceTarget::Post(key) => pubky_app(key, legacy_v0::Resource::Post),
         ReferenceTarget::File(key) => pubky_app(key, legacy_v0::Resource::File),
         ReferenceTarget::Tag { key, app: None } => pubky_app(key, legacy_v0::Resource::Tag),
+        // Social v1 tags carry the `social` Resource-tag scope, but their takedowns are
+        // recorded under the same `pubky.app` address as legacy tags.
+        ReferenceTarget::Tag {
+            key,
+            app: Some(app),
+        } if app == SOCIAL_NAMESPACE => pubky_app(key, legacy_v0::Resource::Tag),
         ReferenceTarget::Tag {
             key,
             app: Some(app),
@@ -193,7 +199,7 @@ fn social_target(parsed: ParsedUri) -> ReferenceTarget {
         Resource::File(filename) => ReferenceTarget::File(key(filename)),
         Resource::Tag(tag_id) => ReferenceTarget::Tag {
             key: key(tag_id),
-            app: None,
+            app: Some("social".to_string()),
         },
         // A follow, mute, bookmark, feed, foreign, unknown or unsupported resource, and one the
         // non-exhaustive `Resource` adds later: not referenced until the resolver says so.
@@ -372,12 +378,12 @@ mod tests {
     }
 
     #[test]
-    fn social_v1_tag_resolves_to_a_tag_without_an_app() {
+    fn social_v1_tag_resolves_to_the_social_scope() {
         assert_eq!(
             target(&v1_tag_uri_builder(USER.into(), HASH_ID.into())),
             ReferenceTarget::Tag {
                 key: key(HASH_ID),
-                app: None,
+                app: Some("social".to_string()),
             }
         );
     }

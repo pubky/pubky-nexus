@@ -290,13 +290,9 @@ mod tests {
     }
 
     #[test]
-    fn social_v1_resources_are_skipped_with_their_resource_name() {
+    fn unsupported_social_v1_resources_are_skipped_with_their_resource_name() {
         for (path, resource) in [
-            ("social/v1/profile.json".to_string(), "profile.json"),
             (format!("social/v1/posts/{POST_ID}"), "posts"),
-            (format!("social/v1/posts/{POST_ID}/{POST_ID}.json"), "posts"),
-            (format!("social/v1/tags/{HASH_ID}.json"), "tags"),
-            (format!("social/v1/follows/{USER}.json"), "follows"),
             (format!("social/v1/files/{HASH_ID}.jpg"), "files"),
             (format!("social/v1/feeds/{HASH_ID}.json"), "feeds"),
             // A v1 path the pinned parser cannot classify is still a v1 skip, under `unknown`.
@@ -305,6 +301,18 @@ mod tests {
             ("social/v1".to_string(), "unknown"),
         ] {
             assert_skipped(&path, v1_not_indexed(resource));
+        }
+    }
+
+    #[test]
+    fn supported_social_v1_resources_are_indexed() {
+        for path in [
+            "social/v1/profile.json".into(),
+            format!("social/v1/posts/{POST_ID}/{POST_ID}.json"),
+            format!("social/v1/tags/{HASH_ID}.json"),
+            format!("social/v1/follows/{USER}.json"),
+        ] {
+            assert_parsed(&path);
         }
     }
 
