@@ -96,8 +96,8 @@ impl Homeserver {
     /// Retrieves a homeserver from Neo4j.
     ///
     /// Note that the cursor in the returned homeserver will have the default value, as it is not persisted in the graph.
-    pub async fn get_from_graph(id: &str) -> GraphResult<Option<Homeserver>> {
-        let query = queries::get::get_homeserver_by_id(id);
+    pub async fn get_from_graph(id: &PubkyId) -> GraphResult<Option<Homeserver>> {
+        let query = queries::get::get_homeserver_by_id(id.as_ref());
 
         let maybe_id = fetch_key_from_graph(query, "id").await?;
         let maybe_hs = maybe_id.map(Homeserver::new);
@@ -106,8 +106,8 @@ impl Homeserver {
     }
 
     /// Retrieves the homeserver from Redis.
-    pub async fn get_from_index(id: &str) -> RedisResult<Option<Self>> {
-        Self::try_from_index_json(&[id], None).await
+    pub async fn get_from_index(id: &PubkyId) -> RedisResult<Option<Self>> {
+        Self::try_from_index_json(&[id.as_ref()], None).await
     }
 
     /// Stores this homeserver in Redis.
@@ -192,10 +192,25 @@ impl Homeserver {
     ///
     /// # Returns
     /// A list of active homeserver IDs.
-    pub async fn get_all_active_from_graph() -> GraphResult<Vec<String>> {
+    pub async fn get_all_active_from_graph() -> GraphResult<Vec<PubkyId>> {
         let query = queries::get::get_all_homeservers_with_active_users();
         let maybe_hs_ids = fetch_key_from_graph(query, "homeservers_list").await?;
-        Ok(maybe_hs_ids.unwrap_or_default())
+
+        let hs_strings: Vec<String> = maybe_hs_ids.unwrap_or_default();
+
+        // Parse strings into PubkyIds, filtering out any invalid ones
+        let hs_ids = hs_strings
+            .into_iter()
+            .filter_map(|s| match PubkyId::try_from(s.as_str()) {
+                Ok(id) => Some(id),
+                Err(e) => {
+                    tracing::warn!(homeserver = %s, error = %e, "Skipping invalid homeserver ID from graph");
+                    None
+                }
+            })
+            .collect();
+
+        Ok(hs_ids)
     }
 }
 

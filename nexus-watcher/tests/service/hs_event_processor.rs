@@ -22,7 +22,9 @@ use tokio::sync::watch;
 use crate::event_processor::utils::default_moderation_tests;
 use crate::event_processor::utils::watcher::retrieve_and_handle_event_line;
 use crate::service::utils::common::create_mock_handler;
-use crate::service::utils::{new_in_memory_store, setup, MockHomeserverClient};
+use crate::service::utils::{
+    hs_id as parse_hs_id, new_in_memory_store, setup, MockHomeserverClient,
+};
 
 const TEST_HS_ID: &str = "1hb71xx9km3f4pw5izsy1gn19ff1uuuqonw4mcygzobwkryujoiy";
 
@@ -163,7 +165,7 @@ fn processor_with_client(
 }
 
 /// Reads a homeserver's currently stored cursor.
-async fn stored_cursor(hs_id: &str) -> Result<u64> {
+async fn stored_cursor(hs_id: &PubkyId) -> Result<u64> {
     Ok(Homeserver::get_from_index(hs_id)
         .await?
         .expect("Homeserver must be present in the index")
@@ -846,7 +848,8 @@ async fn test_run_polls_and_fetches_through_the_client() -> Result<()> {
     processor.run().await?;
 
     let user = UserDetails::get_by_id(&user_id).await?;
-    let cursor = stored_cursor(&hs_id).await?;
+    let hs_pubky_id = parse_hs_id(&hs_id);
+    let cursor = stored_cursor(&hs_pubky_id).await?;
     retrieve_and_handle_event_line(&format!("DEL {profile_uri}"), event_handler).await?;
 
     assert_eq!(
@@ -955,7 +958,8 @@ async fn test_failed_poll_keeps_the_cursor() -> Result<()> {
         ),
         "{err:?}"
     );
-    assert_eq!(stored_cursor(&hs_id).await?, 42);
+    let hs_pubky_id = parse_hs_id(&hs_id);
+    assert_eq!(stored_cursor(&hs_pubky_id).await?, 42);
 
     Ok(())
 }
