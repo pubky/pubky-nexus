@@ -5,8 +5,7 @@ use nexus_common::db::get_neo4j_graph;
 use nexus_common::db::graph::Query;
 use nexus_common::models::event::EventLine;
 use nexus_common::types::DynError;
-use nexus_watcher::events::{Event, EventTarget, EventType, ParseResult};
-use pubky_social_specs::legacy_v0::Resource;
+use pubky_social_specs::legacy_v0::{ExtendedParsedUri, Resource};
 use std::collections::BTreeMap;
 use tracing::info;
 
@@ -34,6 +33,10 @@ use tracing::info;
 /// It is paged with `LRANGE` and read only; each tag PUT line gives its edge `(tagger, tag id)`
 /// its address (see [`fold_page`]). A DEL needs no handling: an edge that exists now was
 /// recreated by a PUT of the same file, which has the same address.
+///
+/// The lines are read with the frozen v0 parser, not the watcher's event classification: the
+/// log records what earlier builds indexed, and the current watcher skips tag files in other
+/// apps' folders, which are exactly the edges this step is for.
 ///
 /// Each profile.json PUT line gives its user the same address. A profile DEL needs no handling
 /// either: it deletes the node, or leaves a tombstone, which keeps the stored `uri`.
@@ -66,25 +69,30 @@ struct PageUris {
 
 /// Maps each tag PUT line in a page to its edge and its file's path, and each profile.json PUT
 /// line to its user and the file's path. Other lines, and lines that don't parse, are skipped.
+///
+/// A line counts only when its path is the canonical path the v0 parser renders back, so an
+/// alias spelling (an extra segment, a query) never gives an edge an address that isn't its
+/// file's.
 fn fold_page(lines: &[String]) -> PageUris {
     let mut page = PageUris::default();
     for line in lines {
-        let Ok(ParseResult::Parsed(event)) = Event::parse_event(line) else {
+        let Some(("PUT", uri)) = line.split_once(' ') else {
             continue;
         };
-        if event.event_type != EventType::Put {
+        let Ok(parsed) = ExtendedParsedUri::try_from(uri) else {
+            continue;
+        };
+        if parsed.try_to_uri_str().as_deref() != Ok(uri) {
             continue;
         }
-        let EventTarget::Legacy(parsed_uri) = &event.target else {
-            continue;
-        };
-        let user_id = parsed_uri.user_id().to_string();
-        match parsed_uri.resource() {
+        let user_id = parsed.user_id().to_string();
+        match parsed.resource() {
             Resource::Tag(tag_id) => {
-                page.edges.insert((user_id, tag_id.clone()), event.uri);
+                page.edges
+                    .insert((user_id, tag_id.clone()), uri.to_string());
             }
             Resource::User => {
-                page.profiles.insert(user_id, event.uri);
+                page.profiles.insert(user_id, uri.to_string());
             }
             _ => {}
         }
@@ -323,6 +331,8 @@ mod tests {
             "garbage".to_string(),
             "PUT".to_string(),
             "MOVE pubky://x/pub/pubky.app/tags/y".to_string(),
+            // A social/v1 tag: the watcher stores its address on the edge when it writes it.
+            format!("PUT pubky://{TAGGER}/pub/social/v1/tags/8Z8CWH8NVYQY39ZEBFGKQWWEKG.json"),
         ]);
         assert_eq!(page, PageUris::default());
     }
