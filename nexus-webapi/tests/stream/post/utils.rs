@@ -10,6 +10,16 @@ pub fn ids_in(response: &Value) -> Vec<String> {
         .collect()
 }
 
+/// Extracts the post keys from a post keys stream response.
+pub fn post_keys_in(response: &Value) -> Vec<String> {
+    response["post_keys"]
+        .as_array()
+        .expect("post_keys array")
+        .iter()
+        .map(|key| key.as_str().unwrap_or_default().to_string())
+        .collect()
+}
+
 // TODO: Check if it is in the cache
 pub fn search_tag_in_post(mock_posts: &[Value], label: &str, post_order: Vec<&str>) {
     for (index, post) in mock_posts.iter().enumerate() {

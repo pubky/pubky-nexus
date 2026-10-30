@@ -1,4 +1,3 @@
-use super::utils::find_post_bookmark;
 use crate::event_processor::utils::watcher::WatcherTest;
 use crate::event_processor::{
     users::utils::find_user_counts, utils::watcher::HomeserverHashIdPath,
@@ -50,14 +49,7 @@ async fn test_homeserver_bookmark() -> Result<()> {
     // Put bookmark
     test.put(&user_kp, &bookmark_path, bookmark).await.unwrap();
 
-    // Step 4: Verify the bookmark exists in Nexus
-    // GRAPH_OP: Assert if the event writes the graph
-    let user_bookmark = find_post_bookmark(&user_id, &post_id, &user_id)
-        .await
-        .unwrap();
-    assert_eq!(user_bookmark.id, bookmark_id);
-
-    // Verify bookmark counts have increased for this user
+    // Step 4: Verify bookmark counts have increased for this user
     let user_counts = find_user_counts(&user_id).await;
     assert_eq!(user_counts.bookmarks, 1);
 
@@ -83,12 +75,9 @@ async fn test_homeserver_bookmark() -> Result<()> {
     );
     assert!(result_bookmarks.last_post_score.is_some());
 
-    let exist_bookmark = Bookmark::get_from_index(&user_id, &post_id, &user_id)
-        .await
-        .unwrap();
-    assert!(exist_bookmark.is_some(), "The bookmark has to be indexed");
-
-    let bookmark = exist_bookmark.unwrap();
+    let bookmark = Bookmark::get_by_id(&user_id, &post_id, Some(&user_id))
+        .await?
+        .expect("The bookmark has to be served");
     assert_eq!(bookmark.id, bookmark_id, "Bookmark ids does not match");
 
     // Cleanup user and post

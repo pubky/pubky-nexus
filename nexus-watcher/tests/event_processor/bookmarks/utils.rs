@@ -1,18 +1,20 @@
 use anyhow::Result;
-use nexus_common::db::{fetch_key_from_graph, queries};
-use nexus_common::models::post::Bookmark;
+use nexus_common::db::kv::SortOrder;
+use nexus_common::models::post::PostStream;
+use pubky_app_specs::{post_uri_builder, PubkyAppBookmark};
 
-pub async fn find_post_bookmark(
-    author: &str,
-    post_id: &str,
-    bookmarker_id: &str,
-) -> Result<Bookmark> {
-    let query = queries::get::post_bookmark(author, post_id, bookmarker_id);
-
-    let maybe_bookmark = fetch_key_from_graph(query, "b").await.unwrap();
-
-    if let Some(result) = maybe_bookmark {
-        return Ok(result);
+/// A bookmark of `author_id`'s post `post_id`, made now.
+pub fn bookmark_of(author_id: &str, post_id: &str) -> PubkyAppBookmark {
+    PubkyAppBookmark {
+        uri: post_uri_builder(author_id.to_string(), post_id.to_string()),
+        created_at: chrono::Utc::now().timestamp_millis(),
     }
-    anyhow::bail!("Bookmarked relationship not found in Nexus graph");
+}
+
+/// The keys of the posts `user_id` bookmarked, newest bookmark first.
+pub async fn bookmarked_post_keys(user_id: &str) -> Result<Vec<String>> {
+    let stream =
+        PostStream::get_bookmarked_posts(user_id, SortOrder::Descending, None, None, None, None)
+            .await?;
+    Ok(stream.post_keys)
 }

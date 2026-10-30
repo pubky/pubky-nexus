@@ -34,13 +34,6 @@ pub async fn sync_put(
         let dependency = vec![format!("{author_id}:posts:{post_id}")];
         return Err(EventProcessorError::MissingDependency { dependency });
     }
-
-    // SAVE TO INDEX
-    let bookmark_details = Bookmark { id, indexed_at };
-
-    bookmark_details
-        .put_to_index(&author_id, &post_id, &user_id)
-        .await?;
     Ok(())
 }
 
@@ -51,18 +44,7 @@ pub async fn del(user_id: PubkyId, bookmark_id: String) -> Result<(), EventProce
 }
 
 pub async fn sync_del(user_id: PubkyId, bookmark_id: String) -> Result<(), EventProcessorError> {
-    // 1. Read target from graph WITHOUT deleting the edge
-    let Some((post_id, author_id)) =
-        Bookmark::get_target_from_graph(&user_id, &bookmark_id).await?
-    else {
-        return Ok(());
-    };
-
-    // 2. Redis cleanup (idempotent)
-    Bookmark::del_from_index(&user_id, &post_id, &author_id).await?;
-
-    // 3. Graph deletion LAST — ensures data survives for retry if Redis ops fail
+    // A bookmark that is already gone matches nothing
     Bookmark::del_from_graph(&user_id, &bookmark_id).await?;
-
     Ok(())
 }

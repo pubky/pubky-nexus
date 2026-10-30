@@ -22,7 +22,7 @@ use nexus_common::db::{fetch_key_from_graph, get_redis_conn};
 use nexus_common::models::user::USER_SOCIAL_GRAPH_KEY_PARTS;
 use serde_json::Value;
 
-use super::utils::ids_in;
+use super::utils::{ids_in, post_keys_in};
 use super::{KEYS_ROOT_PATH, ROOT_PATH};
 
 const WOT_D1: &str = "qjftuwjog819ki1wktuy5tndebce36bmxxwtjjm3z1fr97jk9yuo";
@@ -65,15 +65,6 @@ async fn keys(query: &str) -> Result<Value> {
 
 async fn posts(query: &str) -> Result<Value> {
     Ok(get_request(&format!("{ROOT_PATH}?{query}")).await?)
-}
-
-fn post_keys_in(response: &Value) -> Vec<String> {
-    response["post_keys"]
-        .as_array()
-        .expect("post_keys array")
-        .iter()
-        .map(|key| key.as_str().unwrap_or_default().to_string())
-        .collect()
 }
 
 /// The users in the trust ranking.

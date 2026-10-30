@@ -57,10 +57,10 @@ async fn test_exclude_collections_timeline_returns_full_page() -> Result<()> {
 }
 
 /// Engagement-sort exclusion on the graph path, with a graph-path baseline:
-/// `source=bookmarks&sorting=total_engagement` routes to Cypher even without
-/// a kind filter (only timeline-sorted bookmarks have a sorted set), so both
-/// requests exercise the same query shape and the baseline proves the
-/// exclusion below is non-vacuous.
+/// `source=bookmarks&sorting=total_engagement` routes to the post stream query
+/// even without a kind filter (only timeline-sorted bookmarks have their own
+/// query), so both requests exercise the same query shape and the baseline
+/// proves the exclusion below is non-vacuous.
 #[tokio_shared_rt::test(shared)]
 async fn test_exclude_collections_engagement_sort() -> Result<()> {
     let base =
@@ -138,10 +138,10 @@ async fn test_exclude_kinds_bookmarks_source() -> Result<()> {
     Ok(())
 }
 
-/// Bookmarked replies must survive kind filtering. The Redis bookmarks stream
-/// returns every bookmark (replies included), but any kind filter routes
-/// bookmarks to the graph, whose parents-only filter would otherwise drop
-/// bookmarked replies. Seed: Eixample bookmarks the short reply
+/// Bookmarked replies must survive kind filtering. The unfiltered bookmarks
+/// stream returns every bookmark (replies included), but any kind filter routes
+/// bookmarks to the post stream query, whose parents-only filter would otherwise
+/// drop bookmarked replies. Seed: Eixample bookmarks the short reply
 /// `0000003A0BJWT`. It must appear both unfiltered and under
 /// `exclude_kinds=collection`.
 #[tokio_shared_rt::test(shared)]

@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
 use super::trust_filter::{self, AuthorPost};
-use super::{collection_item_keys, Bookmark, PostCounts, PostDetails, PostView};
+use super::{collection_item_keys, PostCounts, PostDetails, PostView};
+use crate::db::graph::Query;
 use crate::db::kv::{RedisResult, ScoreAction, SortOrder};
 use crate::db::queries::get::TrustRule;
 use crate::db::{get_neo4j_graph, queries, GraphError, GraphResult, RedisOps};
@@ -26,7 +27,6 @@ pub const POST_TOTAL_ENGAGEMENT_KEY_PARTS: [&str; 3] = ["Posts", "Global", "Tota
 pub const POST_PER_USER_KEY_PARTS: [&str; 2] = ["Posts", "AuthorParents"];
 pub const POST_REPLIES_PER_USER_KEY_PARTS: [&str; 2] = ["Posts", "AuthorReplies"];
 pub const POST_REPLIES_PER_POST_KEY_PARTS: [&str; 2] = ["Posts", "PostReplies"];
-const BOOKMARKS_USER_KEY_PARTS: [&str; 2] = ["Bookmarks", "User"];
 
 #[derive(ToSchema, Deserialize, Debug, Clone, PartialEq, Default)]
 #[serde(tag = "source", rename_all = "snake_case")]
@@ -442,7 +442,7 @@ impl PostStream {
             (StreamSorting::Timeline, StreamSource::Following { .. }, None) => true,
             (StreamSorting::Timeline, StreamSource::Followers { .. }, None) => true,
             (StreamSorting::Timeline, StreamSource::Friends { .. }, None) => true,
-            // We have a sorted set for bookmarks only for timeline
+            // Timeline bookmarks have their own graph query, ordered by bookmark time
             (StreamSorting::Timeline, StreamSource::Bookmarks { .. }, None) => true,
             // We can use sorted set of post replies
             (_, StreamSource::PostReplies { .. }, _) => true,
@@ -562,9 +562,14 @@ impl PostStream {
         kind: Option<KindFilter>,
         trust_rule: Option<TrustRule<'_>>,
     ) -> GraphResult<Vec<(String, f64)>> {
-        let graph = get_neo4j_graph()?;
         let query =
             queries::get::post_stream(source, sorting, order, tags, pagination, kind, trust_rule)?;
+        Self::fetch_scored_post_keys(query).await
+    }
+
+    /// Runs a query returning `author_id`, `post_id` and `score` rows.
+    async fn fetch_scored_post_keys(query: Query) -> GraphResult<Vec<(String, f64)>> {
+        let graph = get_neo4j_graph()?;
 
         // The 10-second budget covers execution AND row streaming: execute()
         // only submits the query and the heavy work (ORDER BY materializes at
@@ -745,6 +750,8 @@ impl PostStream {
         }
     }
 
+    /// The posts `user_id` bookmarked, scored by when they were bookmarked. Read
+    /// from the graph.
     pub async fn get_bookmarked_posts(
         user_id: &str,
         order: SortOrder,
@@ -752,15 +759,17 @@ impl PostStream {
         end: Option<f64>,
         skip: Option<usize>,
         limit: Option<usize>,
-    ) -> RedisResult<PostKeyStream> {
-        let key_parts = [&BOOKMARKS_USER_KEY_PARTS[..], &[user_id]].concat();
-        let post_keys =
-            Self::try_from_index_sorted_set(&key_parts, start, end, skip, limit, order, None)
-                .await?;
-
-        Ok(PostKeyStream::from_scored_entries(
-            post_keys.unwrap_or_default(),
-        ))
+    ) -> GraphResult<PostKeyStream> {
+        let pagination = Pagination {
+            start,
+            end,
+            skip,
+            limit,
+        };
+        let query = queries::get::bookmarked_posts(user_id, &order, &pagination);
+        Self::fetch_scored_post_keys(query)
+            .await
+            .map(PostKeyStream::from_scored_entries)
     }
 
     pub async fn get_post_replies(
@@ -967,30 +976,6 @@ impl PostStream {
     ) -> RedisResult<()> {
         let key_parts = [&POST_REPLIES_PER_USER_KEY_PARTS[..], &[author_id]].concat();
         Self::remove_from_index_sorted_set(None, &key_parts, &[post_id]).await
-    }
-
-    /// Adds a bookmark to Redis sorted set using the `indexed_at` timestamp as the score.
-    pub async fn add_to_bookmarks_sorted_set(
-        bookmark: &Bookmark,
-        bookmarker_id: &str,
-        post_id: &str,
-        author_id: &str,
-    ) -> RedisResult<()> {
-        let key_parts = [&BOOKMARKS_USER_KEY_PARTS[..], &[bookmarker_id]].concat();
-        let post_key = format!("{author_id}:{post_id}");
-        let score = bookmark.indexed_at as f64;
-        Self::put_index_sorted_set(&key_parts, &[(score, post_key.as_str())], None, None).await
-    }
-
-    /// Remove a bookmark from Redis sorted
-    pub async fn remove_from_bookmarks_sorted_set(
-        bookmarker_id: &str,
-        post_id: &str,
-        author_id: &str,
-    ) -> RedisResult<()> {
-        let key_parts = [&BOOKMARKS_USER_KEY_PARTS[..], &[bookmarker_id]].concat();
-        let post_key = format!("{author_id}:{post_id}");
-        Self::remove_from_index_sorted_set(None, &key_parts, &[&post_key]).await
     }
 
     /// Adds the post to a Redis sorted set using the total engagement as the score.

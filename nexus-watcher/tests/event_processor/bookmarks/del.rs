@@ -1,13 +1,14 @@
-use super::utils::find_post_bookmark;
-use crate::event_processor::utils::watcher::WatcherTest;
+use super::utils::bookmarked_post_keys;
 use crate::event_processor::{
     users::utils::find_user_counts, utils::watcher::HomeserverHashIdPath,
+    utils::watcher::WatcherTest,
 };
 use anyhow::Result;
-use nexus_common::models::post::{Bookmark, PostStream};
+use nexus_common::models::post::Bookmark;
 use pubky::Keypair;
 use pubky_app_specs::{post_uri_builder, PubkyAppBookmark, PubkyAppPost, PubkyAppUser};
 
+/// An unbookmark is gone from the point read and the stream at once.
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_unbookmark() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
@@ -44,49 +45,38 @@ async fn test_homeserver_unbookmark() -> Result<()> {
     };
     let (post_id, post_path) = test.create_post(&author_kp, &post).await?;
 
-    // Step 3: Add a bookmark to the post. Before create a new user
+    // Step 3: The bookmarker bookmarks the author's post
     let bookmark = PubkyAppBookmark {
         uri: post_uri_builder(author_id.clone(), post_id.clone()),
         created_at: chrono::Utc::now().timestamp_millis(),
     };
     let bookmark_path = bookmark.hs_path();
 
-    // Put bookmark
-    test.put(&author_kp, &bookmark_path, bookmark).await?;
+    test.put(&bookmarker_kp, &bookmark_path, bookmark).await?;
+
+    assert_eq!(
+        bookmarked_post_keys(&bookmarker_id).await?,
+        vec![format!("{author_id}:{post_id}")]
+    );
+    assert!(
+        Bookmark::get_by_id(&author_id, &post_id, Some(&bookmarker_id))
+            .await?
+            .is_some(),
+        "The bookmark has to be served before the delete"
+    );
 
     // Step 4: Delete bookmark
-    test.del(&author_kp, &bookmark_path).await?;
+    test.del(&bookmarker_kp, &bookmark_path).await?;
 
-    // GRAPH_OP: Assert if the event writes the graph
-    let result = find_post_bookmark(&author_id, &post_id, &bookmarker_id).await;
-
-    if let Ok(bookmark) = result {
-        anyhow::bail!("The bookmark with {:} id still exist", bookmark.id);
-    }
-
-    // CACHE_OP: Assert the index is clear of the bookmark
-    let bookmarks = PostStream::get_bookmarked_posts(
-        &bookmarker_id,
-        nexus_common::db::kv::SortOrder::Descending,
-        None,
-        None,
-        None,
-        None,
-    )
-    .await
-    .unwrap();
     assert!(
-        bookmarks.post_keys.is_empty(),
-        "The bookmark list should be empty"
+        Bookmark::get_by_id(&author_id, &post_id, Some(&bookmarker_id))
+            .await?
+            .is_none(),
+        "The point read must not serve the bookmark"
     );
-    assert!(bookmarks.last_post_score.is_none());
-
-    let exist_bookmark = Bookmark::get_from_index(&author_id, &post_id, &bookmarker_id)
-        .await
-        .unwrap();
     assert!(
-        exist_bookmark.is_none(),
-        "The bookmark cannot exist after deletion"
+        bookmarked_post_keys(&bookmarker_id).await?.is_empty(),
+        "The bookmark list should be empty"
     );
 
     // Verify bookmark counts have return to 0 for this user
