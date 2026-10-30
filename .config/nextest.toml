@@ -86,3 +86,8 @@ threads-required = 'num-test-threads'
 [[profile.default.overrides]]
 filter = 'test(/^models::resource::references::tests::live_/)'
 threads-required = 'num-test-threads'
+
+# Namespace version seeds replace the same resource feed.
+[[profile.default.overrides]]
+filter = 'test(/^models::event::post_reference::tests::live_/)'
+threads-required = 'num-test-threads'

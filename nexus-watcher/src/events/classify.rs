@@ -31,6 +31,16 @@ pub enum Classified {
 /// Decides index, skip, reject or invalid for a route.
 pub fn classify(routed: Routed) -> Classified {
     match routed {
+        Routed::AppPost(parsed) => {
+            if parsed.version.is_some() {
+                Classified::Index(EventTarget::AppPost(parsed))
+            } else {
+                Classified::Skip(SkipReason::EpochNotIndexed {
+                    epoch: format!("{}/v1", parsed.namespace),
+                    resource: "versionless post reference".into(),
+                })
+            }
+        }
         Routed::Legacy(parsed) => classify_legacy(parsed),
         Routed::Social(parsed) => {
             use pubky_social_specs::{Resource as V1Resource, Visibility};

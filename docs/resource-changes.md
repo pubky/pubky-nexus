@@ -123,3 +123,9 @@ The edge update and a pending append batch commit in the same graph transaction.
 Retries flush that batch before recording new changes. Deletes journal all targets
 before graph removal. Reseeding includes live Resource edges and retains concurrent
 appends under the existing epoch/cursor rules. No external target is fetched.
+
+## Namespace post versions
+
+`post` is a self reference for an accepted public namespace post version. Its URI
+names the versionless post and its object_path names the stored version file.
+Append, replay, deletion and recovery rules are described in [Namespace post references](app-post-feed.md).

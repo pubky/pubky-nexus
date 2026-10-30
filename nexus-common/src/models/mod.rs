@@ -1,3 +1,4 @@
+pub mod app_post;
 pub mod bootstrap;
 pub mod error;
 pub mod event;
