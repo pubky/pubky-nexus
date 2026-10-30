@@ -1,6 +1,8 @@
+mod references;
 use crate::models::{BoundedLimit, BoundedSkip, PubkyId, ResourceId, TagLabel};
 use crate::routes::v0::endpoints::{
-    RESOURCE_BY_URI_ROUTE, RESOURCE_TAGGERS_ROUTE, RESOURCE_TAGS_ROUTE,
+    RESOURCE_BY_URI_ROUTE, RESOURCE_EMBEDS_ROUTE, RESOURCE_REPLIES_ROUTE, RESOURCE_TAGGERS_ROUTE,
+    RESOURCE_TAGS_ROUTE,
 };
 use crate::routes::v0::user::tags::TaggersQuery;
 use crate::routes::v0::{TaggersInfoResponse, TagsQuery};
@@ -27,6 +29,9 @@ const MAX_URI_LENGTH: usize = 2048;
 pub struct ResourceTagsResponse {
     pub resource: ResourceDetails,
     pub tags: Vec<TagDetails>,
+    pub replies_count: usize,
+    pub embeds_count: usize,
+    pub collections_count: usize,
 }
 
 impl From<ResourceView> for ResourceTagsResponse {
@@ -34,12 +39,17 @@ impl From<ResourceView> for ResourceTagsResponse {
         Self {
             resource: view.details,
             tags: view.tags,
+            replies_count: view.replies_count,
+            embeds_count: view.embeds_count,
+            collections_count: view.collections_count,
         }
     }
 }
 
 pub fn routes() -> Router<AppState> {
     Router::new()
+        .route(RESOURCE_REPLIES_ROUTE, get(references::replies))
+        .route(RESOURCE_EMBEDS_ROUTE, get(references::embeds))
         .route(RESOURCE_TAGS_ROUTE, get(resource_tags_handler))
         .route(RESOURCE_TAGGERS_ROUTE, get(resource_taggers_handler))
         .route(RESOURCE_BY_URI_ROUTE, get(resource_by_uri_handler))
@@ -203,6 +213,8 @@ pub async fn resource_taggers_handler(
 #[derive(OpenApi)]
 #[openapi(
     paths(
+        references::replies,
+        references::embeds,
         resource_tags_handler,
         resource_by_uri_handler,
         resource_taggers_handler

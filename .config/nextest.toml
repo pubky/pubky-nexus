@@ -81,3 +81,8 @@ threads-required = 'num-test-threads'
 [[profile.default.overrides]]
 filter = 'test(/^models::event::resource_changes::tests::live_/) | test(/^resource_changes::/)'
 threads-required = 'num-test-threads'
+
+# This reference test replaces the shared feed while testing graph recovery.
+[[profile.default.overrides]]
+filter = 'test(/^models::resource::references::tests::live_/)'
+threads-required = 'num-test-threads'

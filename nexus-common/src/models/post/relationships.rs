@@ -14,6 +14,10 @@ pub struct PostRelationships {
     /// If set, URI of the post this post is reposting
     pub reposted: Option<String>,
 
+    /// External URI embedded by this post. Native post embeds use `reposted`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub embedded: Option<String>,
+
     /// List of user IDs mentioned in this post
     pub mentioned: Vec<PubkyId>,
 }
@@ -65,6 +69,7 @@ impl PostRelationships {
         Ok(Some(Self {
             replied,
             reposted,
+            embedded: row.get("embedded_uri").unwrap_or(None),
             mentioned,
         }))
     }
