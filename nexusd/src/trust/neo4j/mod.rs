@@ -144,9 +144,9 @@ impl TrustRankEngine for GdsNeo4j {
         // `db.transaction.timeout` (docker-compose.yml locally, neo4j.conf in
         // production) terminates each GDS call that exceeds it, and the
         // age-gated stale sweep above drops a leftover projection once it ages
-        // out (until then the double-memory window remains). We can't bound it
-        // tighter per-query yet — neo4rs 0.8 exposes no RUN tx_timeout metadata
-        // (needs 0.9's Query::extra, currently only an RC).
+        // out (until then the double-memory window remains). Nothing bounds it
+        // tighter per query: neo4rs can send a RUN `tx_timeout` (`Query::extra`),
+        // but nexus's `Query` doesn't pass one.
         let projected = fetch_row_from_graph(project_trust_graph(&graph_name)).await?;
         if let Some(row) = &projected {
             let node_count: i64 = row.get("nodeCount").unwrap_or_default();

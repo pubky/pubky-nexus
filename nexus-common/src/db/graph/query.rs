@@ -358,9 +358,8 @@ mod tests {
     fn into_neo4rs_query_preserves_cypher() {
         let q = query("RETURN $x").param("x", 42_i64);
         let nq: neo4rs::Query = q.into();
-        // neo4rs::Query doesn't expose cypher publicly, but if the
-        // conversion compiles and doesn't panic, the basic contract holds.
-        let _ = nq;
+        assert_eq!(nq.query(), "RETURN $x");
+        assert_eq!(nq.get_params().get::<i64>("x").unwrap(), 42);
     }
 
     // ── Telemetry attributes ────────────────────────────────────────

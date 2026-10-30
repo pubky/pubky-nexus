@@ -99,3 +99,6 @@ password = "12345678"
 slow_query_logging_threshold_ms = 100
 # Include the Cypher query text in slow query log entries
 #slow_query_logging_include_cypher = false
+# Longest wait (seconds) for one Neo4j reply, and for connecting. Calls whose reply
+# takes longer, such as GDS PageRank or migration backfills, fail.
+#reply_timeout_secs = 900
