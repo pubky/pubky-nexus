@@ -195,7 +195,7 @@ pub struct TagInput {
 /// A bookmark, as the bookmark handler reads it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BookmarkInput {
-    /// The bookmarked object; only a post is indexed.
+    /// The bookmarked object: a post, or any non-profile URI as a Resource.
     pub bookmarked: Reference,
 }
 

@@ -92,3 +92,5 @@ pub const RESOURCE_CHANGES_ROUTE: &str = concatcp!(VERSION_ROUTE, "/resources/ch
 
 pub const RESOURCE_REPLIES_ROUTE: &str = concatcp!(RESOURCE_PREFIX, "/{resource_id}/replies");
 pub const RESOURCE_EMBEDS_ROUTE: &str = concatcp!(RESOURCE_PREFIX, "/{resource_id}/embeds");
+pub const RESOURCE_COLLECTIONS_ROUTE: &str =
+    concatcp!(RESOURCE_PREFIX, "/{resource_id}/collections");

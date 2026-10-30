@@ -2,6 +2,7 @@ mod del;
 mod del_idempotent;
 mod fail_index;
 mod raw;
+mod resource;
 mod retry_bookmark;
 mod unsupported_target_no_retry;
 mod utils;

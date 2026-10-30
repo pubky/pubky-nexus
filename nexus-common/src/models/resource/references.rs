@@ -394,6 +394,40 @@ pub async fn posts(
     Ok(keys)
 }
 
+/// Live Collection posts that list the Resource `id`, newest first with stable author/id ties,
+/// optionally only those curated by `curator`. The Resource-anchored counterpart of the post
+/// stream's `post_collections` source.
+pub async fn collections(
+    id: &str,
+    curator: Option<&str>,
+    skip: usize,
+    limit: usize,
+) -> ModelResult<Vec<(String, String)>> {
+    let mut rows = get_neo4j_graph()?
+        .execute(
+            Query::new(
+                "resource_collections",
+                r"
+        MATCH (r:Resource {id: $id})<-[:COLLECTED]-(p:Post)<-[:AUTHORED]-(a:User)
+        WHERE NOT coalesce(p.deleted, false) AND ($curator IS NULL OR a.id = $curator)
+        RETURN a.id AS author, p.id AS id ORDER BY p.indexed_at DESC, a.id, p.id
+        SKIP $skip LIMIT $limit
+    ",
+            )
+            .param("id", id)
+            .param("curator", curator.map(str::to_string))
+            .param("skip", skip as i64)
+            .param("limit", limit as i64),
+        )
+        .await
+        .map_err(GraphError::from)?;
+    let mut keys = vec![];
+    while let Some(row) = rows.try_next().await.map_err(GraphError::from)? {
+        keys.push((row.get("author")?, row.get("id")?));
+    }
+    Ok(keys)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

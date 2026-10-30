@@ -61,6 +61,23 @@ pub fn delete_bookmark(user_id: &str, bookmark_id: &str) -> Query {
     .param("bookmark_id", bookmark_id)
 }
 
+/// Deletes a user's bookmark of a Resource and, in the same transaction, the Resource itself
+/// when nothing else references it (the orphan rule Resource tags and post references use).
+/// Returns the Resource id; no row when the user has no such Resource bookmark.
+pub fn delete_resource_bookmark(user_id: &str, bookmark_id: &str) -> Query {
+    Query::new(
+        "delete_resource_bookmark",
+        "MATCH (u:User {id: $user_id})-[b:BOOKMARKED {id: $bookmark_id}]->(r:Resource)
+         WITH b, r, r.id AS resource_id
+         DELETE b
+         WITH r, resource_id
+         FOREACH (orphan IN CASE WHEN NOT EXISTS { (r)--() } THEN [r] ELSE [] END | DELETE orphan)
+         RETURN resource_id",
+    )
+    .param("user_id", user_id)
+    .param("bookmark_id", bookmark_id)
+}
+
 /// Deletes a tag relationship created by a user and retrieves relevant details about the tag's target.
 ///
 /// When `app` is `Some`, adds `WHERE tag.app = $app` to scope deletion to a specific app namespace.

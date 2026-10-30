@@ -692,7 +692,9 @@ pub fn resource_view(
           coalesce(r.rating_avg,0.0) AS rating_avg, coalesce(r.rating_count,0) AS rating_count,
           COUNT { (r)<-[:REPLIED]-(p:Post) WHERE NOT coalesce(p.deleted, false) } AS replies_count,
           COUNT { (r)<-[:EMBEDS]-(p:Post) WHERE NOT coalesce(p.deleted, false) } AS embeds_count,
-          COUNT { (r)<-[:COLLECTED]-(p:Post) WHERE NOT coalesce(p.deleted, false) } AS collections_count
+          COUNT { (r)<-[:COLLECTED]-(p:Post) WHERE NOT coalesce(p.deleted, false) } AS collections_count,
+          // The viewer's bookmark, as `post_bookmark` returns it for a post; null without one.
+          head([(viewer)-[b:BOOKMARKED]->(r) | b {.id, .indexed_at}]) AS bookmark
     ",
     )
     .param("resource_id", resource_id)
@@ -848,6 +850,52 @@ pub fn resource_stream(
         query = query.param("end", end);
     }
 
+    query
+}
+
+/// Resources `user_id` bookmarked, scored by the bookmark's `indexed_at`. Cursor and paging
+/// follow `resource_stream`: `start` resumes, `end` is the hard limit, both inclusive and
+/// following the sort direction, with `r.id` breaking ties.
+pub fn resource_bookmarks_stream(
+    user_id: &str,
+    order: &SortOrder,
+    pagination: &Pagination,
+) -> Query {
+    let order_direction = match order {
+        SortOrder::Ascending => "ASC",
+        SortOrder::Descending => "DESC",
+    };
+    let (start_op, end_op) = match order {
+        SortOrder::Descending => ("<=", ">="),
+        SortOrder::Ascending => (">=", "<="),
+    };
+    let mut cypher = String::from(
+        "MATCH (:User {id: $user_id})-[b:BOOKMARKED]->(r:Resource)\nWITH r, b.indexed_at AS score\n",
+    );
+    let mut cursor_clauses = Vec::new();
+    if pagination.start.is_some() {
+        cursor_clauses.push(format!("score {start_op} $start"));
+    }
+    if pagination.end.is_some() {
+        cursor_clauses.push(format!("score {end_op} $end"));
+    }
+    if !cursor_clauses.is_empty() {
+        cypher.push_str("WHERE ");
+        cypher.push_str(&cursor_clauses.join(" AND "));
+        cypher.push('\n');
+    }
+    cypher.push_str(&format!(
+        "RETURN r.id AS resource_id, score\nORDER BY score {order_direction}, r.id {order_direction}\nSKIP {}\nLIMIT {}\n",
+        pagination.skip.unwrap_or(0).min(MAX_QUERY_SKIP),
+        pagination.limit.unwrap_or(10).min(MAX_QUERY_LIMIT)
+    ));
+    let mut query = Query::new("resource_bookmarks_stream", &cypher).param("user_id", user_id);
+    if let Some(start) = pagination.start {
+        query = query.param("start", start);
+    }
+    if let Some(end) = pagination.end {
+        query = query.param("end", end);
+    }
     query
 }
 
