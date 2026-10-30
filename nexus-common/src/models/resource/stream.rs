@@ -19,6 +19,10 @@ pub enum ResourceStreamSource {
     App {
         app: String,
     },
+    /// Resources a user bookmarked, newest bookmark first by default.
+    Bookmarks {
+        user_id: String,
+    },
 }
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone, ToSchema)]
@@ -80,12 +84,17 @@ impl ResourceStream {
         sorting: &ResourceSorting,
         tags: Option<&[String]>,
     ) -> ModelResult<ResourceKeyStream> {
-        let app = match source {
-            ResourceStreamSource::App { app } => Some(app.as_str()),
-            ResourceStreamSource::All => None,
+        let query = match source {
+            ResourceStreamSource::Bookmarks { user_id } => {
+                queries::get::resource_bookmarks_stream(user_id, &order, &pagination)
+            }
+            ResourceStreamSource::App { app } => {
+                queries::get::resource_stream(Some(app), tags, sorting, &order, &pagination)
+            }
+            ResourceStreamSource::All => {
+                queries::get::resource_stream(None, tags, sorting, &order, &pagination)
+            }
         };
-
-        let query = queries::get::resource_stream(app, tags, sorting, &order, &pagination);
 
         let graph = crate::db::get_neo4j_graph()?;
 

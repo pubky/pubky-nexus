@@ -1,6 +1,8 @@
 use chrono::Utc;
 use nexus_common::db::OperationOutcome;
 use nexus_common::models::post::Bookmark;
+use nexus_common::models::resource::bookmark::ResourceBookmark;
+use nexus_common::universal_tag::normalize::{normalize_uri, resource_id};
 use pubky_social_specs::PubkyId;
 use tracing::debug;
 
@@ -18,16 +20,23 @@ pub async fn sync_put(
         owner_id: user_id,
         resource_id: bookmark_id,
     } = key;
-    let ReferenceTarget::Post(ResourceKey {
-        owner_id: author_id,
-        resource_id: post_id,
-    }) = bookmark.bookmarked.target
-    else {
-        return Err(EventProcessorError::UnsupportedTarget(format!(
-            "The bookmarked resource {} is not a Post, instead is: {}",
-            bounded(&bookmark.bookmarked.uri),
-            bounded(&format!("{:?}", bookmark.bookmarked.target))
-        )));
+    let (author_id, post_id) = match bookmark.bookmarked.target {
+        ReferenceTarget::Post(ResourceKey {
+            owner_id,
+            resource_id,
+        }) => (owner_id, resource_id),
+        // A profile is not a Resource: bookmarks of users stay unsupported.
+        ReferenceTarget::User(_) => {
+            return Err(EventProcessorError::UnsupportedTarget(format!(
+                "The bookmarked resource {} is a user profile, not a Post or a Resource",
+                bounded(&bookmark.bookmarked.uri)
+            )))
+        }
+        // Any other target (a URL, a file, another app's object) is a Resource, the same
+        // routing Resource tags use.
+        ReferenceTarget::File(_) | ReferenceTarget::Tag { .. } | ReferenceTarget::Other => {
+            return sync_put_resource(&bookmark.bookmarked.uri, user_id, bookmark_id).await
+        }
     };
 
     // Save new bookmark relationship to the graph, only if the bookmarked user exists
@@ -62,6 +71,9 @@ pub async fn sync_del(user_id: PubkyId, bookmark_id: String) -> Result<(), Event
     let Some((post_id, author_id)) =
         Bookmark::get_target_from_graph(&user_id, &bookmark_id).await?
     else {
+        // Not a post bookmark: a Resource bookmark has no index entries, so deleting its edge
+        // (and the Resource when it is left unreferenced) is the whole delete. A repeat is a no-op.
+        ResourceBookmark::del_from_graph(&user_id, &bookmark_id).await?;
         return Ok(());
     };
 
@@ -72,4 +84,36 @@ pub async fn sync_del(user_id: PubkyId, bookmark_id: String) -> Result<(), Event
     Bookmark::del_from_graph(&user_id, &bookmark_id).await?;
 
     Ok(())
+}
+
+/// Indexes a bookmark of a non-post target as a `BOOKMARKED` edge to its Resource. Resource
+/// views are read from the graph, so there is no index to write.
+async fn sync_put_resource(
+    uri: &str,
+    user_id: PubkyId,
+    bookmark_id: String,
+) -> Result<(), EventProcessorError> {
+    let (normalized, scheme) = normalize_uri(uri).map_err(|e| {
+        EventProcessorError::UnsupportedTarget(format!(
+            "The bookmarked URI {} cannot be a Resource: {}",
+            bounded(uri),
+            bounded(&e)
+        ))
+    })?;
+    let indexed_at = Utc::now().timestamp_millis();
+    match ResourceBookmark::put_to_graph(
+        &user_id,
+        &resource_id(&normalized),
+        &normalized,
+        &scheme,
+        &bookmark_id,
+        indexed_at,
+    )
+    .await?
+    {
+        OperationOutcome::MissingDependency => Err(EventProcessorError::MissingDependency {
+            dependency: vec![user_id.to_string()],
+        }),
+        OperationOutcome::CreatedOrDeleted | OperationOutcome::Updated => Ok(()),
+    }
 }

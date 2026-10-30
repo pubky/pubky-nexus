@@ -252,6 +252,40 @@ pub fn create_post_bookmark(
     .param("indexed_at", indexed_at)
 }
 
+/// Creates a `BOOKMARKED` relationship between a user and a Resource (any non-post URI),
+/// creating the Resource node on first reference like a Resource tag does.
+///
+/// One edge per (user, Resource): two bookmark files whose targets normalize to the same
+/// URI share it, and the edge carries the id of the file that wrote it last. `indexed_at`
+/// is set once, so a retry does not move the bookmark in the user's stream.
+pub fn create_resource_bookmark(
+    user_id: &str,
+    resource_id: &str,
+    uri: &str,
+    scheme: &str,
+    bookmark_id: &str,
+    indexed_at: i64,
+) -> Query {
+    Query::new(
+        "create_resource_bookmark",
+        "MATCH (u:User {id: $user_id})
+        MERGE (r:Resource {id: $resource_id})
+        ON CREATE SET r.uri = $uri, r.scheme = $scheme, r.indexed_at = $indexed_at
+        WITH u, r
+        OPTIONAL MATCH (u)-[existing:BOOKMARKED]->(r)
+        MERGE (u)-[b:BOOKMARKED]->(r)
+        ON CREATE SET b.indexed_at = $indexed_at
+        SET b.id = $bookmark_id
+        RETURN existing IS NOT NULL AS flag;",
+    )
+    .param("user_id", user_id)
+    .param("resource_id", resource_id)
+    .param("uri", uri)
+    .param("scheme", scheme)
+    .param("bookmark_id", bookmark_id)
+    .param("indexed_at", indexed_at)
+}
+
 /// Creates a `TAGGED` relationship between a user and a post authored by another user. The tag is uniquely
 /// identified by a `label` and is associated with the post
 /// # Arguments

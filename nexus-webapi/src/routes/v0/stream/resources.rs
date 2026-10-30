@@ -30,6 +30,30 @@ pub struct ResourceStreamQuery {
     pub start: Option<f64>,
     pub end: Option<f64>,
     pub viewer_id: Option<PubkyId>,
+    /// Stream the resources this user bookmarked instead of tagged resources.
+    pub bookmarked_by: Option<PubkyId>,
+}
+
+/// The source a stream query names. `bookmarked_by` orders by bookmark time and takes no
+/// tag filters, so `app`, `tags` and `sorting=rating` are rejected with it.
+fn stream_source(query: &ResourceStreamQuery) -> Result<ResourceStreamSource> {
+    match (&query.bookmarked_by, &query.app) {
+        (Some(user_id), _) => {
+            if query.app.is_some()
+                || query.tags.is_some()
+                || matches!(query.sorting, ResourceSorting::Rating)
+            {
+                return Err(Error::invalid_input(
+                    "`bookmarked_by` cannot be combined with `app`, `tags` or `sorting=rating`",
+                ));
+            }
+            Ok(ResourceStreamSource::Bookmarks {
+                user_id: user_id.to_string(),
+            })
+        }
+        (None, Some(app)) => Ok(ResourceStreamSource::App { app: app.clone() }),
+        (None, None) => Ok(ResourceStreamSource::All),
+    }
 }
 
 #[utoipa::path(
@@ -40,6 +64,7 @@ pub struct ResourceStreamQuery {
     params(
         ("app" = Option<String>, Query, description = "Filter by app namespace (e.g., mapky, eventky)"),
         ("tags" = Option<Tags>, Query, description = "Comma-separated tag labels (max 5, OR logic)"),
+        ("bookmarked_by" = Option<PubkyId>, Query, description = "Stream the resources this user bookmarked, scored by bookmark time (`start`/`end`/`last_score` are bookmark timestamps). Rejects `app`, `tags` and `sorting=rating` with 400"),
         ("sorting" = Option<String>, Query, description = "timeline (default) or rating (1–10 average)"),
         ("order" = Option<SortOrder>, Query, description = "Ordering of response list. Either 'ascending' or 'descending'. Defaults to descending."),
         ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Pagination skip (max 10000)"),
@@ -62,10 +87,7 @@ pub async fn stream_resource_ids_handler(
         query.app, query.tags, query.sorting
     );
 
-    let source = match &query.app {
-        Some(app) => ResourceStreamSource::App { app: app.clone() },
-        None => ResourceStreamSource::All,
-    };
+    let source = stream_source(&query)?;
 
     let order = query.order.unwrap_or(SortOrder::Descending);
     let tags = query.tags.as_ref().map(Tags::to_string_vec);
@@ -91,6 +113,7 @@ pub async fn stream_resource_ids_handler(
     params(
         ("app" = Option<String>, Query, description = "Filter by app namespace"),
         ("tags" = Option<Tags>, Query, description = "Comma-separated tag labels (max 5, OR logic)"),
+        ("bookmarked_by" = Option<PubkyId>, Query, description = "Stream the resources this user bookmarked, scored by bookmark time (`start`/`end`/`last_score` are bookmark timestamps). Rejects `app`, `tags` and `sorting=rating` with 400"),
         ("sorting" = Option<String>, Query, description = "timeline (default) or rating (1–10 average)"),
         ("order" = Option<SortOrder>, Query, description = "Ordering of response list. Either 'ascending' or 'descending'. Defaults to descending."),
         ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Pagination skip (max 10000)"),
@@ -114,10 +137,7 @@ pub async fn stream_resources_handler(
         query.app, query.tags, query.sorting
     );
 
-    let source = match &query.app {
-        Some(app) => ResourceStreamSource::App { app: app.clone() },
-        None => ResourceStreamSource::All,
-    };
+    let source = stream_source(&query)?;
 
     let order = query.order.unwrap_or(SortOrder::Descending);
     let tags = query.tags.as_ref().map(Tags::to_string_vec);

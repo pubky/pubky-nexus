@@ -5,6 +5,7 @@ use utoipa::ToSchema;
 use super::ResourceDetails;
 use crate::db::{fetch_row_from_graph, queries};
 use crate::models::error::ModelResult;
+use crate::models::post::Bookmark;
 use crate::models::tag::traits::collection::tag_page;
 use crate::models::tag::traits::tag_details_from_row;
 use crate::models::tag::TagDetails;
@@ -19,6 +20,9 @@ pub struct ResourceView {
     pub replies_count: usize,
     pub embeds_count: usize,
     pub collections_count: usize,
+    /// The viewer's bookmark of this resource; `None` without `viewer_id` or a bookmark.
+    #[serde(default)]
+    pub bookmark: Option<Bookmark>,
 }
 
 impl ResourceView {
@@ -66,6 +70,7 @@ impl ResourceView {
             replies_count: row.get::<i64>("replies_count").unwrap_or(0) as usize,
             embeds_count: row.get::<i64>("embeds_count").unwrap_or(0) as usize,
             collections_count: row.get::<i64>("collections_count").unwrap_or(0) as usize,
+            bookmark: row.get::<Option<Bookmark>>("bookmark").unwrap_or(None),
         }))
     }
 }
