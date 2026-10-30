@@ -12,7 +12,10 @@ pub mod trust_filter;
 mod view;
 
 pub use bookmark::Bookmark;
-pub use collection::{collection_item_keys, sync_collected_edges};
+pub use collection::{
+    collection_item_keys, collection_items_page, sync_collected_edges, CollectionItem,
+    CollectionItemsPage, COLLECTION_ITEMS_MAX_PAGE,
+};
 pub use counts::PostCounts;
 pub use details::PostDetails;
 pub use relationships::{PostParent, PostParents, PostRelationships};
