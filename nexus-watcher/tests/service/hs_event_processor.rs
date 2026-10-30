@@ -70,7 +70,7 @@ async fn create_user_hosted_on(user_id: &str, hs_id: Option<&str>) {
         .expect("create user node");
 
     if let Some(hs_id) = hs_id {
-        exec_single_row(queries::put::set_user_homeserver(user_id, hs_id))
+        exec_single_row(queries::put::set_user_homeserver(user_id, hs_id, None))
             .await
             .expect("link user to homeserver");
     }
@@ -350,9 +350,11 @@ async fn test_skips_event_when_user_mapping_to_this_homeserver_is_stale() -> Res
     // User is bound to this processor's homeserver, but the mapping is stale.
     let user_id = random_user_id();
     create_user_hosted_on(&user_id, Some(TEST_HS_ID)).await;
-    exec_single_row(queries::put::set_user_homeserver_stale(&user_id, true))
-        .await
-        .expect("mark user homeserver mapping stale");
+    exec_single_row(queries::put::set_user_homeserver_stale(
+        &user_id, true, None,
+    ))
+    .await
+    .expect("mark user homeserver mapping stale");
 
     let uri = post_uri_builder(user_id.clone(), "staleme".to_string());
 

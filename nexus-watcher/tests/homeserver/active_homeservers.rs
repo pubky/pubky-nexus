@@ -133,7 +133,7 @@ async fn test_stale_users_excluded_from_active_homeservers() -> Result<(), DynEr
     );
 
     // Marking the only user stale drops the homeserver off the active list.
-    set_user_homeserver_stale(&user_id, true).await?;
+    set_user_homeserver_stale(&user_id, true, None).await?;
     let hs_ids = Homeserver::get_all_active_from_graph().await?;
     assert!(
         !hs_ids.contains(&hs.to_string()),

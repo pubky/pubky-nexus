@@ -3,9 +3,10 @@ use std::collections::{HashMap, VecDeque};
 use tokio::sync::Mutex;
 
 use nexus_common::db::PubkyClientResult;
-use nexus_common::models::user::PkdnsHomeserverResolver;
+use nexus_common::models::user::{PkdnsHomeserverResolver, PkdnsRecord};
+use nexus_common::utils::test_utils::signed_packet_naming;
 use nexus_watcher::homeserver::{HomeserverClient, HsError, HsErrorKind, HsOp, HsStreamEvent};
-use pubky::{PubkyResource, PublicKey};
+use pubky::{Keypair, PubkyResource, PublicKey};
 use pubky_app_specs::PubkyId;
 
 type UserEventsResult = Result<Vec<HsStreamEvent>, HsErrorKind>;
@@ -112,8 +113,15 @@ fn not_found(resource: &PubkyResource, op: HsOp) -> HsError {
 
 #[async_trait::async_trait]
 impl PkdnsHomeserverResolver for MockHomeserverClient {
-    async fn resolve_homeserver(&self, _user_pk: &PublicKey) -> PubkyClientResult<Option<PubkyId>> {
-        Ok(self.homeserver_of.clone())
+    async fn resolve_record(&self, _user_pk: &PublicKey) -> PubkyClientResult<PkdnsRecord> {
+        Ok(match &self.homeserver_of {
+            Some(homeserver) => PkdnsRecord::Published(signed_packet_naming(
+                &Keypair::random(),
+                Some(homeserver),
+                1,
+            )),
+            None => PkdnsRecord::Missing,
+        })
     }
 }
 

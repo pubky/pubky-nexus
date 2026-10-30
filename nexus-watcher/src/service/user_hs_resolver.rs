@@ -2,10 +2,17 @@
 //!
 //! Periodic task that resolves each user's homeserver and persists
 //! the `(:User)-[:HOSTED_BY]->(:Homeserver)` relationship in Neo4j.
+//!
+//! The PKDNS record a mapping was last applied from is kept on the edge: the
+//! signed packet itself, hex-encoded, and its timestamp. Anyone can check the
+//! key holder's signature over it, so the graph carries proof of what the user
+//! published, not only what nexus concluded from it. A missing record cannot
+//! be kept and leaves the stored one.
 
 use nexus_common::db::{fetch_key_from_graph, fetch_row_from_graph, queries, GraphResult};
 use nexus_common::models::user::{
-    set_user_homeserver, set_user_homeserver_stale, PkdnsHomeserverResolver,
+    set_user_homeserver_from_record, set_user_homeserver_stale, PkdnsHomeserverResolver,
+    PkdnsRecord, StoredRecord,
 };
 use nexus_common::types::DynError;
 use nexus_common::WatcherConfig;
@@ -468,8 +475,8 @@ async fn resolve_user(
     // to the mapping state it would have affected.
     let stored_mapping = get_user_homeserver(&user_id).await?;
 
-    let maybe_resolved_hs_id = match resolver.resolve_homeserver(user_pk).await {
-        Ok(resolved) => resolved,
+    let record = match resolver.resolve_record(user_pk).await {
+        Ok(record) => record,
         Err(e) => {
             warn!(%user_id, error = %e, "PKDNS lookup failed");
             return Ok(Resolution::LookupFailed {
@@ -478,39 +485,54 @@ async fn resolve_user(
         }
     };
 
-    let resolution = match (&stored_mapping, &maybe_resolved_hs_id) {
+    let resolution = match (&stored_mapping, &record) {
         // Nothing published. The caller logs it and applies the unbound backoff.
-        (None, None) => Resolution::Unbound,
+        (None, PkdnsRecord::Missing) => Resolution::Unbound,
 
-        (None, Some(resolved_hs_id)) => {
-            set_user_homeserver(&user_id, resolved_hs_id).await?;
-            debug!(%user_id, homeserver = %resolved_hs_id, "HS mapping created");
-            Resolution::Bound
-        }
+        (None, PkdnsRecord::Published(packet)) => match record.homeserver() {
+            None => Resolution::Unbound,
+            Some(resolved_hs_id) => {
+                set_user_homeserver_from_record(
+                    &user_id,
+                    &resolved_hs_id,
+                    &StoredRecord::from(packet),
+                )
+                .await?;
+                debug!(%user_id, homeserver = %resolved_hs_id, "HS mapping created");
+                Resolution::Bound
+            }
+        },
 
         // Already bound to a HS: toggle the stale flag instead of switching.
-        (Some(stored), Some(resolved_hs_id)) if resolved_hs_id.as_ref() == stored.hs_id => {
-            set_user_homeserver_stale(&user_id, false).await?;
-            debug!(%user_id, homeserver = %stored.hs_id, "HS mapping still active");
-            Resolution::Confirmed {
-                was_stale: stored.stale,
-            }
-        }
+        // The record is kept on the edge either way, as what the key holder
+        // published; a missing one leaves the stored record.
+        (Some(stored), record) => {
+            let stored_record = record.stored();
+            match record.homeserver() {
+                Some(resolved_hs_id) if resolved_hs_id.as_ref() == stored.hs_id => {
+                    set_user_homeserver_stale(&user_id, false, stored_record.as_ref()).await?;
+                    debug!(%user_id, homeserver = %stored.hs_id, "HS mapping still active");
+                    Resolution::Confirmed {
+                        was_stale: stored.stale,
+                    }
+                }
 
-        // HS switching is not fully implemented, so the bound HS is never changed once set
-        (Some(stored), resolved) => {
-            set_user_homeserver_stale(&user_id, true).await?;
-            warn!(
-                %user_id,
-                stored_homeserver = %stored.hs_id,
-                "User homeserver changed or was removed; switching unsupported, mapping marked stale"
-            );
-            Resolution::Diverged {
-                reason: match resolved {
-                    None => StaleReason::Unresolved,
-                    Some(_) => StaleReason::HsChanged,
-                },
-                was_stale: stored.stale,
+                // HS switching is not fully implemented, so the bound HS is never changed once set
+                resolved => {
+                    set_user_homeserver_stale(&user_id, true, stored_record.as_ref()).await?;
+                    warn!(
+                        %user_id,
+                        stored_homeserver = %stored.hs_id,
+                        "User homeserver changed or was removed; switching unsupported, mapping marked stale"
+                    );
+                    Resolution::Diverged {
+                        reason: match resolved {
+                            None => StaleReason::Unresolved,
+                            Some(_) => StaleReason::HsChanged,
+                        },
+                        was_stale: stored.stale,
+                    }
+                }
             }
         }
     };
@@ -657,28 +679,55 @@ mod tests {
     use super::*;
     use nexus_common::db::graph::Query;
     use nexus_common::db::{exec_single_row, PubkyClientError, PubkyClientResult};
+    use nexus_common::models::user::set_user_homeserver;
     use nexus_common::types::DynError;
-    use nexus_common::utils::test_utils::{random_pk, random_pubky_id};
+    use nexus_common::utils::test_utils::{random_pk, random_pubky_id, signed_packet_naming};
     use nexus_common::{StackConfig, StackManager};
+    use pubky::Keypair;
     use pubky_app_specs::PubkyId;
 
     async fn setup() -> Result<(), DynError> {
         StackManager::setup(&StackConfig::default()).await
     }
 
-    /// Resolver stub returning a fixed PKDNS result, so `resolve_user` can be
+    /// Resolver stub returning a fixed PKDNS record, so `resolve_user` can be
     /// driven without touching the DHT.
     struct MockResolver {
-        result: Option<PubkyId>,
+        record: PkdnsRecord,
+    }
+
+    impl MockResolver {
+        /// A record signed by `keypair` at `timestamp`, naming `homeserver` or none.
+        fn signed_by(keypair: &Keypair, homeserver: Option<&PubkyId>, timestamp: u64) -> Self {
+            Self {
+                record: PkdnsRecord::Published(signed_packet_naming(
+                    keypair, homeserver, timestamp,
+                )),
+            }
+        }
+
+        /// A record naming `homeserver`, authored at `timestamp` by some key.
+        fn naming(homeserver: &PubkyId, timestamp: u64) -> Self {
+            Self::signed_by(&Keypair::random(), Some(homeserver), timestamp)
+        }
+
+        /// A record with no homeserver in it, authored at `timestamp` by some key.
+        fn naming_none(timestamp: u64) -> Self {
+            Self::signed_by(&Keypair::random(), None, timestamp)
+        }
+
+        /// No record found.
+        fn missing() -> Self {
+            Self {
+                record: PkdnsRecord::Missing,
+            }
+        }
     }
 
     #[async_trait::async_trait]
     impl PkdnsHomeserverResolver for MockResolver {
-        async fn resolve_homeserver(
-            &self,
-            _user_pk: &PublicKey,
-        ) -> PubkyClientResult<Option<PubkyId>> {
-            Ok(self.result.clone())
+        async fn resolve_record(&self, _user_pk: &PublicKey) -> PubkyClientResult<PkdnsRecord> {
+            Ok(self.record.clone())
         }
     }
 
@@ -687,10 +736,7 @@ mod tests {
 
     #[async_trait::async_trait]
     impl PkdnsHomeserverResolver for FailingResolver {
-        async fn resolve_homeserver(
-            &self,
-            _user_pk: &PublicKey,
-        ) -> PubkyClientResult<Option<PubkyId>> {
+        async fn resolve_record(&self, _user_pk: &PublicKey) -> PubkyClientResult<PkdnsRecord> {
             Err(PubkyClientError::RequestFailed {
                 message: "dht unreachable".into(),
             })
@@ -715,6 +761,24 @@ mod tests {
         exec_single_row(query).await
     }
 
+    /// Helper: the PKDNS record kept on the user's `HOSTED_BY` edge, if any.
+    async fn stored_record(user_id: &str) -> Result<Option<StoredRecord>, DynError> {
+        let query = Query::new(
+            "stored_hs_record",
+            "MATCH (u:User {id: $user_id})-[r:HOSTED_BY]->(:Homeserver)
+             RETURN r.record AS packet, r.record_ts AS timestamp",
+        )
+        .param("user_id", user_id.to_string());
+        let Some(row) = fetch_row_from_graph(query).await? else {
+            return Ok(None);
+        };
+        let packet: Option<String> = row.get("packet")?;
+        let timestamp: Option<i64> = row.get("timestamp")?;
+        Ok(packet
+            .zip(timestamp)
+            .map(|(packet, timestamp)| StoredRecord { packet, timestamp }))
+    }
+
     #[tokio_shared_rt::test(shared)]
     async fn test_set_user_homeserver_graph_query() -> Result<(), DynError> {
         setup().await?;
@@ -726,11 +790,11 @@ mod tests {
         create_test_user(user_id).await?;
 
         // Set initial homeserver
-        let query = queries::put::set_user_homeserver(user_id, hs_id_a);
+        let query = queries::put::set_user_homeserver(user_id, hs_id_a, None);
         exec_single_row(query).await?;
 
         // Switch to a different homeserver
-        let query = queries::put::set_user_homeserver(user_id, hs_id_b);
+        let query = queries::put::set_user_homeserver(user_id, hs_id_b, None);
         exec_single_row(query).await?;
 
         // Cleanup
@@ -749,11 +813,11 @@ mod tests {
         create_test_user(user_id).await?;
 
         // Set homeserver for the first time
-        let query = queries::put::set_user_homeserver(user_id, hs_id);
+        let query = queries::put::set_user_homeserver(user_id, hs_id, None);
         exec_single_row(query).await?;
 
         // Set same homeserver again (should reuse HS, e.g. not create any orphan HS)
-        let query = queries::put::set_user_homeserver(user_id, hs_id);
+        let query = queries::put::set_user_homeserver(user_id, hs_id, None);
         exec_single_row(query).await?;
 
         // Cleanup
@@ -880,7 +944,7 @@ mod tests {
         );
 
         // Marking the mapping stale is reflected in the next lookup
-        set_user_homeserver_stale(&user_id, true).await?;
+        set_user_homeserver_stale(&user_id, true, None).await?;
         assert_eq!(
             get_user_homeserver(&user_id).await?,
             Some(UserHomeserverMapping {
@@ -905,10 +969,7 @@ mod tests {
 
         create_test_user(&user_id).await?;
 
-        let resolver = MockResolver {
-            result: Some(hs_id.clone()),
-        };
-        let outcome = resolve_user(&resolver, &user_pk).await?;
+        let outcome = resolve_user(&MockResolver::naming(&hs_id, 10), &user_pk).await?;
         assert_eq!(outcome, Resolution::Bound);
 
         assert_eq!(
@@ -925,7 +986,8 @@ mod tests {
         Ok(())
     }
 
-    /// A user with no published homeserver and no stored mapping is left alone.
+    /// A user with no stored mapping and nothing published is left alone, whether
+    /// no record exists or the record names no homeserver.
     #[tokio_shared_rt::test(shared)]
     async fn test_resolve_user_first_time_no_homeserver_noop() -> Result<(), DynError> {
         setup().await?;
@@ -935,11 +997,11 @@ mod tests {
 
         create_test_user(&user_id).await?;
 
-        let resolver = MockResolver { result: None };
-        let outcome = resolve_user(&resolver, &user_pk).await?;
-        assert_eq!(outcome, Resolution::Unbound);
-
-        assert_eq!(get_user_homeserver(&user_id).await?, None);
+        for resolver in [MockResolver::missing(), MockResolver::naming_none(10)] {
+            let outcome = resolve_user(&resolver, &user_pk).await?;
+            assert_eq!(outcome, Resolution::Unbound);
+            assert_eq!(get_user_homeserver(&user_id).await?, None);
+        }
         assert!(
             get_users_needing_resolution(3_600_000)
                 .await?
@@ -1000,10 +1062,7 @@ mod tests {
 
     #[async_trait::async_trait]
     impl PkdnsHomeserverResolver for CountingResolver {
-        async fn resolve_homeserver(
-            &self,
-            user_pk: &PublicKey,
-        ) -> PubkyClientResult<Option<PubkyId>> {
+        async fn resolve_record(&self, user_pk: &PublicKey) -> PubkyClientResult<PkdnsRecord> {
             let user_id = user_pk.z32();
             *self
                 .calls
@@ -1012,7 +1071,7 @@ mod tests {
                 .entry(user_id.clone())
                 .or_default() += 1;
             if user_id == self.target {
-                Ok(None)
+                Ok(PkdnsRecord::Missing)
             } else {
                 Err(PubkyClientError::RequestFailed {
                     message: "not the user under test".into(),
@@ -1089,10 +1148,7 @@ mod tests {
         set_user_homeserver(&user_id, &stored_hs).await?;
 
         // DHT now points at a different homeserver
-        let resolver = MockResolver {
-            result: Some(new_hs.clone()),
-        };
-        let outcome = resolve_user(&resolver, &user_pk).await?;
+        let outcome = resolve_user(&MockResolver::naming(&new_hs, 10), &user_pk).await?;
         assert_eq!(
             outcome,
             Resolution::Diverged {
@@ -1116,6 +1172,16 @@ mod tests {
             .await?
             .contains(&user_id));
 
+        // The record that marked it stale is kept on the old edge, naming the new homeserver
+        let stored = stored_record(&user_id)
+            .await?
+            .expect("the record is on the edge");
+        assert_eq!(stored.timestamp, 10);
+        assert_eq!(
+            PkdnsRecord::Published(stored.verify()?).homeserver(),
+            Some(new_hs.clone())
+        );
+
         cleanup_test_user(&user_id).await?;
 
         Ok(())
@@ -1134,8 +1200,7 @@ mod tests {
         set_user_homeserver(&user_id, &stored_hs).await?;
 
         // DHT no longer publishes a homeserver
-        let resolver = MockResolver { result: None };
-        let outcome = resolve_user(&resolver, &user_pk).await?;
+        let outcome = resolve_user(&MockResolver::missing(), &user_pk).await?;
         assert_eq!(
             outcome,
             Resolution::Diverged {
@@ -1173,16 +1238,13 @@ mod tests {
         create_test_user(&user_id).await?;
         set_user_homeserver(&user_id, &stored_hs).await?;
         // Start from a stale mapping
-        set_user_homeserver_stale(&user_id, true).await?;
+        set_user_homeserver_stale(&user_id, true, None).await?;
         assert!(!get_user_ids_by_homeserver(&stored_hs)
             .await?
             .contains(&user_id));
 
         // DHT points back at the stored homeserver
-        let resolver = MockResolver {
-            result: Some(stored_hs.clone()),
-        };
-        let outcome = resolve_user(&resolver, &user_pk).await?;
+        let outcome = resolve_user(&MockResolver::naming(&stored_hs, 10), &user_pk).await?;
         assert_eq!(outcome, Resolution::Confirmed { was_stale: true });
 
         assert!(get_user_ids_by_homeserver(&stored_hs)
@@ -1208,12 +1270,9 @@ mod tests {
 
         create_test_user(&user_id).await?;
         set_user_homeserver(&user_id, &stored_hs).await?;
-        set_user_homeserver_stale(&user_id, true).await?;
+        set_user_homeserver_stale(&user_id, true, None).await?;
 
-        let resolver = MockResolver {
-            result: Some(new_hs.clone()),
-        };
-        let outcome = resolve_user(&resolver, &user_pk).await?;
+        let outcome = resolve_user(&MockResolver::naming(&new_hs, 10), &user_pk).await?;
         assert_eq!(
             outcome,
             Resolution::Diverged {
@@ -1224,6 +1283,122 @@ mod tests {
 
         cleanup_test_user(&user_id).await?;
 
+        Ok(())
+    }
+
+    /// The edge keeps the record it was last applied from: a write without one
+    /// leaves it, a replaced edge starts without one.
+    #[tokio_shared_rt::test(shared)]
+    async fn test_mapping_keeps_the_record_it_was_applied_from() -> Result<(), DynError> {
+        setup().await?;
+
+        let user = Keypair::random();
+        let user_id = user.public_key().z32();
+        let hs_id = random_pubky_id();
+        let other_hs = random_pubky_id();
+        let record_10 = StoredRecord::from(&signed_packet_naming(&user, Some(&hs_id), 10));
+        let record_5 = StoredRecord::from(&signed_packet_naming(&user, Some(&hs_id), 5));
+        create_test_user(&user_id).await?;
+
+        set_user_homeserver(&user_id, &hs_id).await?;
+        assert_eq!(
+            stored_record(&user_id).await?,
+            None,
+            "bound without a record"
+        );
+
+        set_user_homeserver_stale(&user_id, false, Some(&record_10)).await?;
+        assert_eq!(stored_record(&user_id).await?, Some(record_10.clone()));
+
+        set_user_homeserver(&user_id, &hs_id).await?;
+        set_user_homeserver_stale(&user_id, true, None).await?;
+        assert_eq!(
+            stored_record(&user_id).await?,
+            Some(record_10),
+            "writes without a record leave the stored one"
+        );
+
+        set_user_homeserver_from_record(&user_id, &hs_id, &record_5).await?;
+        assert_eq!(
+            stored_record(&user_id).await?,
+            Some(record_5),
+            "the edge keeps the record last applied, whatever its timestamp"
+        );
+
+        set_user_homeserver(&user_id, &other_hs).await?;
+        assert_eq!(
+            stored_record(&user_id).await?,
+            None,
+            "a replaced edge starts without a record"
+        );
+
+        cleanup_test_user(&user_id).await?;
+        Ok(())
+    }
+
+    /// Every resolution that has a record keeps it on the edge, and the stored
+    /// record verifies as the user's own signed packet. A missing record leaves
+    /// the stored one.
+    #[tokio_shared_rt::test(shared)]
+    async fn test_resolve_user_keeps_the_record_on_the_edge() -> Result<(), DynError> {
+        setup().await?;
+
+        let user = Keypair::random();
+        let user_pk = user.public_key();
+        let user_id = user_pk.z32();
+        let hs_id = random_pubky_id();
+        create_test_user(&user_id).await?;
+
+        let outcome =
+            resolve_user(&MockResolver::signed_by(&user, Some(&hs_id), 10), &user_pk).await?;
+        assert_eq!(outcome, Resolution::Bound);
+        let stored = stored_record(&user_id)
+            .await?
+            .expect("the record is on the edge");
+        assert_eq!(stored.timestamp, 10);
+        let packet = stored.verify()?;
+        assert_eq!(packet.public_key().to_z32(), user_id, "signed by the user");
+        assert_eq!(
+            PkdnsRecord::Published(packet).homeserver(),
+            Some(hs_id.clone())
+        );
+
+        let outcome =
+            resolve_user(&MockResolver::signed_by(&user, Some(&hs_id), 20), &user_pk).await?;
+        assert_eq!(outcome, Resolution::Confirmed { was_stale: false });
+        assert_eq!(
+            stored_record(&user_id).await?.map(|r| r.timestamp),
+            Some(20)
+        );
+
+        let outcome = resolve_user(&MockResolver::signed_by(&user, None, 30), &user_pk).await?;
+        assert_eq!(
+            outcome,
+            Resolution::Diverged {
+                reason: StaleReason::Unresolved,
+                was_stale: false,
+            }
+        );
+        assert_eq!(
+            stored_record(&user_id).await?.map(|r| r.timestamp),
+            Some(30)
+        );
+
+        let outcome = resolve_user(&MockResolver::missing(), &user_pk).await?;
+        assert_eq!(
+            outcome,
+            Resolution::Diverged {
+                reason: StaleReason::Unresolved,
+                was_stale: true,
+            }
+        );
+        assert_eq!(
+            stored_record(&user_id).await?.map(|r| r.timestamp),
+            Some(30),
+            "a missing record leaves the stored one"
+        );
+
+        cleanup_test_user(&user_id).await?;
         Ok(())
     }
 
@@ -1291,7 +1466,7 @@ mod tests {
 
         create_test_user(&user_id).await?;
         set_user_homeserver(&user_id, &stored_hs).await?;
-        set_user_homeserver_stale(&user_id, true).await?;
+        set_user_homeserver_stale(&user_id, true, None).await?;
 
         let counts = count_mappings().await?;
         assert!(counts.stale >= 1);
