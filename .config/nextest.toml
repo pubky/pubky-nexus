@@ -67,11 +67,3 @@ threads-required = 'num-test-threads'
 [[profile.default.overrides]]
 filter = 'package(nexusd) and binary(cache_setup)'
 threads-required = 'num-test-threads'
-
-# The user-epoch backfill touches every :User and every cached `User:Details`,
-# and its verify fails on any :User without an epoch. Run alone, no other test
-# seeds a node without one mid-run.
-
-[[profile.default.overrides]]
-filter = 'package(nexusd) and test(/^migrations::catalog::user_epoch_backfill_1791812997::tests::/)'
-threads-required = 'num-test-threads'
