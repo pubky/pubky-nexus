@@ -120,6 +120,9 @@ impl From<ModelError> for EventProcessorError {
             }
             ModelError::HsBlacklisted { hs_id } => EventProcessorError::HsBlacklisted { hs_id },
             ModelError::InvalidInput(message) => EventProcessorError::SpecValidation(message),
+            ModelError::MissingDependency(uri) => {
+                EventProcessorError::missing_dependencies(vec![uri])
+            }
             ModelError::Generic(message) => EventProcessorError::Generic(message),
         }
     }

@@ -29,14 +29,15 @@ pub const MAX_REACH_AUTHORS_FT: usize = 1_000;
 #[derive(Serialize, Deserialize, ToSchema, Default)]
 pub struct PostsByTagSearch {
     pub post_key: String,
-    pub score: usize,
+    #[serde(serialize_with = "crate::types::serialize_score")]
+    pub score: f64,
 }
 
 impl From<(String, f64)> for PostsByTagSearch {
     fn from(tuple: (String, f64)) -> Self {
         PostsByTagSearch {
             post_key: tuple.0,
-            score: tuple.1 as usize,
+            score: tuple.1,
         }
     }
 }

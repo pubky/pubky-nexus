@@ -11,12 +11,12 @@ use crate::routes::Query;
 use crate::{Error, Result as AppResult};
 use axum::Json;
 use nexus_common::db::kv::SortOrder;
+use nexus_common::models::post::PostKind as PubkyAppPostKind;
 use nexus_common::types::StreamSorting;
 use nexus_common::{
     models::post::{KindFilter, PostKeyStream, PostStream, StreamSource},
     types::{DomainTrust, WotDepth},
 };
-use pubky_social_specs::legacy_v0::PubkyAppPostKind;
 use serde::Deserialize;
 use tracing::debug;
 use utoipa::{OpenApi, ToSchema};
@@ -200,6 +200,7 @@ pub struct PostStreamQuery {
     pub depth: Option<u8>,
     pub domain_tags: Option<Tags>,
     pub kind: Option<PubkyAppPostKind>,
+    pub item_kind: Option<PubkyAppPostKind>,
     pub exclude_kinds: Option<PostKinds>,
     #[serde(default)]
     pub include_attachment_metadata: bool,
@@ -222,8 +223,12 @@ impl PostStreamQuery {
     }
 
     /// Maps the mutually exclusive `kind` / `exclude_kinds` params (enforced
-    /// by `validate_source_compat`) to the internal filter.
+    /// by `validate_source_compat`) to the internal filter. `item_kind` is only
+    /// accepted with `kind=collection`.
     pub fn kind_filter(&self) -> Option<KindFilter> {
+        if let Some(item_kind) = &self.item_kind {
+            return Some(KindFilter::CollectionsWith(item_kind.clone()));
+        }
         match (&self.kind, &self.exclude_kinds) {
             (Some(kind), _) => Some(KindFilter::Kind(kind.clone())),
             (None, Some(exclude)) => Some(KindFilter::Exclude(exclude.0.clone())),
@@ -247,6 +252,16 @@ impl PostStreamQuery {
                 "`kind` and `exclude_kinds` are mutually exclusive",
             ));
         }
+        if self.item_kind.is_some() && self.kind != Some(PubkyAppPostKind::Collection) {
+            return Err(Error::invalid_input(
+                "`item_kind` requires `kind=collection`",
+            ));
+        }
+        if self.item_kind == Some(PubkyAppPostKind::Unknown) {
+            return Err(Error::invalid_input(
+                "`item_kind` must be a known post kind",
+            ));
+        }
         // Reply streams are served by dedicated sorted sets; the Cypher
         // fallback that kind filters route to has no reply MATCH arm and
         // would silently return the author's parent posts instead.
@@ -257,6 +272,17 @@ impl PostStreamQuery {
         {
             return Err(Error::invalid_input(
                 "`kind` and `exclude_kinds` are not supported with `source=post_replies` or `source=author_replies`",
+            ));
+        }
+        // Rating order is computed on the graph too, so it would hit the same
+        // parents-only fallback.
+        if matches!(
+            self.source,
+            StreamSourceKind::PostReplies | StreamSourceKind::AuthorReplies
+        ) && self.sorting == Some(StreamSorting::Rating)
+        {
+            return Err(Error::invalid_input(
+                "`sorting=rating` is not supported with `source=post_replies` or `source=author_replies`",
             ));
         }
         // Every result is a Collection, so a kind filter can only no-op or
@@ -299,13 +325,14 @@ impl PostStreamQuery {
         ("observer_id" = Option<PubkyId>, Query, description = "Observer Pubky ID. The central point for streams with Reach"),
         ("author_id" = Option<PubkyId>, Query, description = "Filter posts by an specific author User ID"),
         ("post_id" = Option<PostId>, Query, description = "This parameter is needed when we want to retrieve the replies stream for a post"),
-        ("sorting" = Option<StreamSorting>, Query, description = "Sort method (`timeline` or `total_engagement`). Ties are broken by post id; pagination across equal scores is best-effort."),
+        ("sorting" = Option<StreamSorting>, Query, description = "Sort method (`timeline`, `total_engagement` or `rating`, the 1–10 rating average; `rating` is rejected for `source=post_replies` and `source=author_replies`). Ties are broken by post id; pagination across equal scores is best-effort."),
         ("order" = Option<SortOrder>, Query, description = "Ordering of response list. Either 'ascending' or 'descending'. Defaults to descending."),
         ("tags" = Option<Tags>, Query, description = "Filter by a list of comma-separated tags (max 5). E.g.,`&tags=dev,free,opensource`. Only posts matching at least one of the tags will be returned."),
         ("depth" = Option<u8>, Query, description = "WoT traversal depth. For `source=wot`: 1-3, default 2. For `source=wot_domain`: 0-3, default 2, where `depth=0` is the observer-only (\"Me\") trust set (posts by authors the observer tagged directly, no follow traversal). `depth=0` is invalid for `source=wot`. Ignored for other sources."),
         ("domain_tags" = Option<Tags>, Query, description = "Required for `source=wot_domain`. Comma-separated tag labels (max 5); returns posts by authors tagged with any of these by the observer's WoT, or by the observer alone when `depth=0`. E.g. `&domain_tags=bitcoiner,btc-dev`. Ignored for other sources."),
-        ("kind" = Option<PubkyAppPostKind>, Query, description = "Filter by post kind: short, long, image, video, link, file, collection. Mutually exclusive with `exclude_kinds`; rejected for `source=post_collections`, `source=post_replies` and `source=author_replies`."),
-        ("exclude_kinds" = Option<PostKinds>, Query, description = "Comma-separated post kinds to exclude server-side (1-7 items, duplicates ignored), e.g. `&exclude_kinds=collection,link`. Valid values: short, long, image, video, link, file, collection; anything else is rejected with 400. Mutually exclusive with `kind`; rejected for `source=collection`, `source=post_collections`, `source=post_replies` and `source=author_replies`. Posts with a missing or unrecognized kind are never excluded."),
+        ("kind" = Option<PubkyAppPostKind>, Query, description = "Filter by post kind: short, long, image, video, link, file, collection, event, rsvp, rating, availability. Mutually exclusive with `exclude_kinds`; rejected for `source=post_collections`, `source=post_replies` and `source=author_replies`."),
+        ("item_kind" = Option<PubkyAppPostKind>, Query, description = "Requires `kind=collection`. Returns only Collection posts that list at least one live indexed post of this kind, e.g. `kind=collection&item_kind=event` for collections containing events (calendars). Each collection's upcoming events are served by `GET /v0/stream/events?collection=<collection URI>`. External (non-post) items do not count. Any other `kind` (or none) returns 400."),
+        ("exclude_kinds" = Option<PostKinds>, Query, description = "Comma-separated post kinds to exclude server-side (1-11 items, duplicates ignored), e.g. `&exclude_kinds=collection,link`. Valid values: short, long, image, video, link, file, collection, event, rsvp, rating, availability; anything else is rejected with 400. Mutually exclusive with `kind`; rejected for `source=collection`, `source=post_collections`, `source=post_replies` and `source=author_replies`. Posts with a missing or unrecognized kind are never excluded."),
         ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Skip N posts (max 10000)"),
         ("limit" = Option<BoundedLimit<10, 50>>, Query, description = "Retrieve N posts (1–50, default 10)"),
         ("start" = Option<f64>, Query, description = "The start of the stream timeframe or score. Posts with a timestamp/score greater than this value will be excluded from the results"),
@@ -375,13 +402,14 @@ pub async fn stream_posts_handler(
         ("observer_id" = Option<PubkyId>, Query, description = "Observer Pubky ID. The central point for streams with Reach"),
         ("author_id" = Option<PubkyId>, Query, description = "Filter posts by an specific author User ID"),
         ("post_id" = Option<PostId>, Query, description = "This parameter is needed when we want to retrieve the replies stream for a post"),
-        ("sorting" = Option<StreamSorting>, Query, description = "Sort method (`timeline` or `total_engagement`). Ties are broken by post id; pagination across equal scores is best-effort."),
+        ("sorting" = Option<StreamSorting>, Query, description = "Sort method (`timeline`, `total_engagement` or `rating`, the 1–10 rating average; `rating` is rejected for `source=post_replies` and `source=author_replies`). Ties are broken by post id; pagination across equal scores is best-effort."),
         ("order" = Option<SortOrder>, Query, description = "Ordering of response list. Either 'ascending' or 'descending'. Defaults to descending."),
         ("tags" = Option<Tags>, Query, description = "Filter by a list of comma-separated tags (max 5). E.g.,`&tags=dev,free,opensource`. Only posts matching at least one of the tags will be returned."),
         ("depth" = Option<u8>, Query, description = "WoT traversal depth. For `source=wot`: 1-3, default 2. For `source=wot_domain`: 0-3, default 2, where `depth=0` is the observer-only (\"Me\") trust set (posts by authors the observer tagged directly, no follow traversal). `depth=0` is invalid for `source=wot`. Ignored for other sources."),
         ("domain_tags" = Option<Tags>, Query, description = "Required for `source=wot_domain`. Comma-separated tag labels (max 5); returns posts by authors tagged with any of these by the observer's WoT, or by the observer alone when `depth=0`. E.g. `&domain_tags=bitcoiner,btc-dev`. Ignored for other sources."),
-        ("kind" = Option<PubkyAppPostKind>, Query, description = "Filter by post kind: short, long, image, video, link, file, collection. Mutually exclusive with `exclude_kinds`; rejected for `source=post_collections`, `source=post_replies` and `source=author_replies`."),
-        ("exclude_kinds" = Option<PostKinds>, Query, description = "Comma-separated post kinds to exclude server-side (1-7 items, duplicates ignored), e.g. `&exclude_kinds=collection,link`. Valid values: short, long, image, video, link, file, collection; anything else is rejected with 400. Mutually exclusive with `kind`; rejected for `source=collection`, `source=post_collections`, `source=post_replies` and `source=author_replies`. Posts with a missing or unrecognized kind are never excluded."),
+        ("kind" = Option<PubkyAppPostKind>, Query, description = "Filter by post kind: short, long, image, video, link, file, collection, event, rsvp, rating, availability. Mutually exclusive with `exclude_kinds`; rejected for `source=post_collections`, `source=post_replies` and `source=author_replies`."),
+        ("item_kind" = Option<PubkyAppPostKind>, Query, description = "Requires `kind=collection`. Returns only Collection posts that list at least one live indexed post of this kind, e.g. `kind=collection&item_kind=event` for collections containing events (calendars). Each collection's upcoming events are served by `GET /v0/stream/events?collection=<collection URI>`. External (non-post) items do not count. Any other `kind` (or none) returns 400."),
+        ("exclude_kinds" = Option<PostKinds>, Query, description = "Comma-separated post kinds to exclude server-side (1-11 items, duplicates ignored), e.g. `&exclude_kinds=collection,link`. Valid values: short, long, image, video, link, file, collection, event, rsvp, rating, availability; anything else is rejected with 400. Mutually exclusive with `kind`; rejected for `source=collection`, `source=post_collections`, `source=post_replies` and `source=author_replies`. Posts with a missing or unrecognized kind are never excluded."),
         ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Skip N posts (max 10000)"),
         ("limit" = Option<BoundedLimit<10, 50>>, Query, description = "Retrieve N posts (1–50, default 10)"),
         ("start" = Option<f64>, Query, description = "The start of the stream timeframe or score. Posts with a timestamp/score greater than this value will be excluded from the results"),

@@ -4,7 +4,7 @@ use utoipa::ToSchema;
 use crate::models::bounded_vec;
 use nexus_common::models::notification::NotificationType;
 
-/// Comma-separated list of notification types (min=1, max=12 tokens; duplicates
+/// Comma-separated list of notification types (min=1, max=13 tokens; duplicates
 /// are dropped, order preserved). Unknown values are rejected.
 #[derive(Debug, ToSchema)]
 #[schema(value_type = String, example = "reply,mention")]
@@ -22,7 +22,7 @@ impl TryFrom<String> for TypeToken {
 
 impl<'de> Deserialize<'de> for NotificationTypes {
     fn deserialize<D: serde::de::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        let tokens = bounded_vec::deserialize_csv::<TypeToken, D, 1, 12>(d)?;
+        let tokens = bounded_vec::deserialize_csv::<TypeToken, D, 1, 13>(d)?;
         let mut types: Vec<NotificationType> = Vec::with_capacity(tokens.len());
         for TypeToken(t) in tokens {
             if !types.contains(&t) {
@@ -65,6 +65,7 @@ mod tests {
             "mention",
             "post_deleted",
             "post_edited",
+            "event_changed",
         ] {
             assert!(parse(tag).is_ok(), "{tag} should parse");
         }

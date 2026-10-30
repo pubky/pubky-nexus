@@ -7,6 +7,7 @@ use crate::db::queries::get::TrustRule;
 use crate::db::{get_neo4j_graph, queries, GraphError, GraphResult, RedisOps};
 use crate::models::error::ModelError;
 use crate::models::error::ModelResult;
+use crate::models::post::PostKind as PubkyAppPostKind;
 use crate::models::{
     follow::{Followers, Following, Friends, UserFollows},
     post::search::PostsByTagSearch,
@@ -14,7 +15,6 @@ use crate::models::{
 use crate::types::{DomainTrust, Pagination, StreamReach, StreamSorting, WotDepth};
 use futures::stream::{self, StreamExt};
 use futures::TryStreamExt;
-use pubky_social_specs::legacy_v0::PubkyAppPostKind;
 use serde::{Deserialize, Serialize};
 use tokio::task::spawn;
 use tokio::time::{timeout, Duration};
@@ -167,17 +167,21 @@ pub enum KindFilter {
     /// Posts of any kind except the listed ones. Posts with a missing (NULL)
     /// or unrecognized ("unknown") kind are never excluded.
     Exclude(Vec<PubkyAppPostKind>),
+    /// Collection posts that list at least one live post of this kind
+    /// (`kind=collection&item_kind=<kind>`).
+    CollectionsWith(PubkyAppPostKind),
 }
 
 #[derive(Serialize, Deserialize, ToSchema, Debug, Default, Clone)]
 #[serde(rename_all = "snake_case")]
 pub struct PostKeyStream {
     pub post_keys: Vec<String>,
-    pub last_post_score: Option<u64>,
+    #[serde(serialize_with = "crate::types::serialize_optional_score")]
+    pub last_post_score: Option<f64>,
 }
 
 impl PostKeyStream {
-    pub fn new(post_keys: Vec<String>, last_post_score: Option<u64>) -> Self {
+    pub fn new(post_keys: Vec<String>, last_post_score: Option<f64>) -> Self {
         Self {
             post_keys,
             last_post_score,
@@ -186,7 +190,7 @@ impl PostKeyStream {
 
     // Iterate over tuples of (post_key, score) to extract the post keys and capture the last score
     pub fn from_scored_entries(entries: Vec<(String, f64)>) -> Self {
-        let last_post_score = entries.last().map(|(_, score)| score.round() as u64);
+        let last_post_score = entries.last().map(|(_, score)| *score);
         let post_keys = entries.into_iter().map(|(key, _)| key).collect();
         Self::new(post_keys, last_post_score)
     }
@@ -319,7 +323,7 @@ impl PostStream {
     /// # Errors
     /// Returns [`ModelError::GraphOperationFailed`] on graph failures, including
     /// `GraphError::QueryTimeout` when the query exceeds its budget.
-    pub(crate) async fn get_scored_post_keys(
+    pub async fn get_scored_post_keys(
         source: StreamSource,
         pagination: Pagination,
         order: SortOrder,
@@ -333,8 +337,9 @@ impl PostStream {
         }
 
         let started = std::time::Instant::now();
+        let rule = Self::trust_rule(&source, false, None).await?;
         let result: ModelResult<Vec<(String, f64)>> =
-            Self::get_scored_from_graph(source, sorting, order, &tags, pagination, None, None)
+            Self::get_scored_from_graph(source, sorting, order, &tags, pagination, None, rule)
                 .await
                 .map_err(Into::into);
 
@@ -428,7 +433,7 @@ impl PostStream {
         tags: &Option<Vec<String>>,
         kind: &Option<KindFilter>,
     ) -> bool {
-        if kind.is_some() {
+        if kind.is_some() || *sorting == StreamSorting::Rating {
             return false;
         }
         match (sorting, source, tags) {
@@ -579,8 +584,10 @@ impl PostStream {
             while let Some(row) = result.try_next().await? {
                 let author_id: String = row.get("author_id")?;
                 let post_id: String = row.get("post_id")?;
-                let score: i64 = row.get("score")?;
-                entries.push((format!("{author_id}:{post_id}"), score as f64));
+                let score: f64 = row
+                    .get("score")
+                    .or_else(|_| row.get::<i64>("score").map(|s| s as f64))?;
+                entries.push((format!("{author_id}:{post_id}"), score));
             }
             Ok(entries)
         })
@@ -597,6 +604,11 @@ impl PostStream {
         limit: Option<usize>,
     ) -> RedisResult<PostKeyStream> {
         let sorted_set = match sorting {
+            StreamSorting::Rating => {
+                return Err(crate::db::kv::RedisError::CommandFailed(
+                    "Rating sorting requires the graph".into(),
+                ))
+            }
             StreamSorting::TotalEngagement => {
                 Self::try_from_index_sorted_set(
                     &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
@@ -650,7 +662,7 @@ impl PostStream {
         let stream = match post_search_result {
             Some(post_keys) => {
                 // Iterate over PostsByTagSearch structs to extract post keys and capture the last score
-                let last_post_score = post_keys.last().map(|entry| entry.score as u64);
+                let last_post_score = post_keys.last().map(|entry| entry.score);
                 let post_keys = post_keys
                     .into_iter()
                     .map(|post_score| post_score.post_key)

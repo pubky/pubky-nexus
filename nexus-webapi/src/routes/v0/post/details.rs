@@ -5,7 +5,7 @@ use crate::routes::Path;
 use crate::{Error, Result};
 use axum::Json;
 use nexus_common::models::post::PostDetails;
-use pubky_social_specs::legacy_v0::PubkyAppPostKind;
+use nexus_common::models::post::PostKind as PubkyAppPostKind;
 use tracing::debug;
 use utoipa::OpenApi;
 
