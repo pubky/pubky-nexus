@@ -1,6 +1,6 @@
 use crate::routes::v0::endpoints::{
-    POST_BOOKMARK_ROUTE, POST_COUNTS_ROUTE, POST_DETAILS_ROUTE, POST_ROUTE, POST_TAGGERS_ROUTE,
-    POST_TAGS_ROUTE,
+    POST_BOOKMARK_ROUTE, POST_COUNTS_ROUTE, POST_DETAILS_ROUTE, POST_ITEMS_ROUTE, POST_ROUTE,
+    POST_TAGGERS_ROUTE, POST_TAGS_ROUTE,
 };
 use crate::routes::AppState;
 use axum::routing::get;
@@ -10,6 +10,7 @@ use utoipa::OpenApi;
 mod bookmark;
 mod counts;
 mod details;
+mod items;
 pub mod tags;
 pub mod view;
 
@@ -21,6 +22,7 @@ pub fn routes() -> Router<AppState> {
         .route(POST_BOOKMARK_ROUTE, get(bookmark::post_bookmark_handler))
         .route(POST_TAGS_ROUTE, get(tags::post_tags_handler))
         .route(POST_TAGGERS_ROUTE, get(tags::post_taggers_handler))
+        .route(POST_ITEMS_ROUTE, get(items::collection_items_handler))
 }
 
 #[derive(OpenApi)]
@@ -34,6 +36,7 @@ impl PostApiDoc {
         combined.merge(bookmark::BookmarkApiDoc::openapi());
         combined.merge(details::PostDetailsApiDoc::openapi());
         combined.merge(tags::PostTagsApiDoc::openapi());
+        combined.merge(items::CollectionItemsApiDoc::openapi());
         combined
     }
 }

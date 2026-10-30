@@ -52,3 +52,13 @@ rejected with it. Bookmarks add no line to the resource changes feed.
 Social v1 bookmarks live under `/priv/social/v1/bookmarks/` and are private, so
 Nexus never sees them: a v1 client reads its own bookmark of a target directly (the
 target is the file name).
+
+## Reading a collection's items
+
+`GET /v0/post/{author_id}/{post_id}/items` returns a Collection's items in curator
+order, posts and external resources alike, one bounded page at a time (`limit`
+1–100, default 20). Each item has its `position`, `uri`, `note`, and either
+`post_key` (`author_id:post_id`) or `resource_id`. `next_cursor` is passed back as
+`cursor` until it is null; the cursor has no ceiling, so a collection of any length
+reads to its end. Nexus sets no item limit of its own: the item count is bounded
+only by the social specs' collection validation.

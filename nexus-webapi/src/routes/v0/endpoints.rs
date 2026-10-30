@@ -26,6 +26,7 @@ pub const POST_BOOKMARK_ROUTE: &str = concatcp!(POST_ROUTE, "/bookmark");
 pub const POST_COUNTS_ROUTE: &str = concatcp!(POST_ROUTE, "/counts");
 pub const POST_DETAILS_ROUTE: &str = concatcp!(POST_ROUTE, "/details");
 pub const POST_TAGS_ROUTE: &str = concatcp!(POST_ROUTE, "/tags");
+pub const POST_ITEMS_ROUTE: &str = concatcp!(POST_ROUTE, "/items");
 pub const POST_TAGGERS_ROUTE: &str = concatcp!(POST_ROUTE, "/taggers/{label}");
 
 // -- STREAM endpoints --
