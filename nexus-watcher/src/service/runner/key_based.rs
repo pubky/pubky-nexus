@@ -124,15 +124,14 @@ impl KeyBasedEventProcessorRunner {
     }
 
     /// Returns the HS IDs relevant for this run, ordered by their priority.
-    async fn hs_by_priority(&self) -> Result<Vec<String>, DynError> {
-        let active_hs_ids = Homeserver::get_all_active_from_graph().await?;
-
-        let result_hs_ids: Vec<String> = active_hs_ids
+    async fn hs_by_priority(&self) -> Result<Vec<PubkyId>, DynError> {
+        let result_hs_ids: Vec<PubkyId> = Homeserver::get_all_active_from_graph()
+            .await?
             .into_iter()
             // Exclude the primary HS, as it is processed separately
-            .filter(|hs_id| hs_id != self.primary_homeserver.as_ref())
+            .filter(|hs_id| *hs_id != self.primary_homeserver)
             // Exclude any blacklisted HS
-            .filter(|hs_id| !self.hs_blacklist.is_blacklisted(hs_id))
+            .filter(|hs_id| !self.hs_blacklist.is_blacklisted(hs_id.as_ref()))
             .collect();
 
         Ok(result_hs_ids)
@@ -145,11 +144,9 @@ impl TEventProcessorRunner for KeyBasedEventProcessorRunner {
         self.shutdown_rx.clone()
     }
 
-    async fn build(&self, hs_id: &str) -> Result<Arc<dyn TEventProcessor>, DynError> {
-        let homeserver_id = PubkyId::try_from(hs_id)?;
-
+    async fn build(&self, homeserver_id: &PubkyId) -> Result<Arc<dyn TEventProcessor>, DynError> {
         Ok(Arc::new(KeyBasedEventProcessor {
-            homeserver_id,
+            homeserver_id: homeserver_id.clone(),
             limit: self.limit,
             event_handler: self.event_handler.clone(),
             client: self.client.clone(),
@@ -162,7 +159,7 @@ impl TEventProcessorRunner for KeyBasedEventProcessorRunner {
         }))
     }
 
-    async fn pre_run(&self) -> Result<Vec<String>, DynError> {
+    async fn pre_run(&self) -> Result<Vec<PubkyId>, DynError> {
         self.hs_by_priority().await
     }
 

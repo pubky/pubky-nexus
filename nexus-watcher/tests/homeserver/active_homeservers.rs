@@ -59,23 +59,17 @@ async fn test_get_all_active_homeservers() -> Result<(), DynError> {
     let hs_ids = Homeserver::get_all_active_from_graph().await?;
 
     // Orphans excluded
-    assert!(
-        !hs_ids.contains(&orphan1.to_string()),
-        "orphan1 should be excluded"
-    );
-    assert!(
-        !hs_ids.contains(&orphan2.to_string()),
-        "orphan2 should be excluded"
-    );
+    assert!(!hs_ids.contains(&orphan1), "orphan1 should be excluded");
+    assert!(!hs_ids.contains(&orphan2), "orphan2 should be excluded");
 
     // Both active HSs included, HS-B (2 users) before HS-A (1 user)
     let pos_a = hs_ids
         .iter()
-        .position(|id| id == &hs_a.to_string())
+        .position(|id| id == &hs_a)
         .expect("HS-A missing");
     let pos_b = hs_ids
         .iter()
-        .position(|id| id == &hs_b.to_string())
+        .position(|id| id == &hs_b)
         .expect("HS-B missing");
     assert!(pos_b < pos_a, "HS-B (2 users) should precede HS-A (1 user)");
 
@@ -83,24 +77,15 @@ async fn test_get_all_active_homeservers() -> Result<(), DynError> {
     set_user_homeserver(&id_b2, &hs_a).await?;
 
     let hs_ids = Homeserver::get_all_active_from_graph().await?;
+    assert!(hs_ids.contains(&hs_a), "HS-A should still be active");
     assert!(
-        hs_ids.contains(&hs_a.to_string()),
-        "HS-A should still be active"
-    );
-    assert!(
-        hs_ids.contains(&hs_b.to_string()),
+        hs_ids.contains(&hs_b),
         "HS-B should still be active after partial removal"
     );
 
     // Now HS-A has 2 users, HS-B has 1 — order should flip
-    let pos_a = hs_ids
-        .iter()
-        .position(|id| id == &hs_a.to_string())
-        .unwrap();
-    let pos_b = hs_ids
-        .iter()
-        .position(|id| id == &hs_b.to_string())
-        .unwrap();
+    let pos_a = hs_ids.iter().position(|id| id == &hs_a).unwrap();
+    let pos_b = hs_ids.iter().position(|id| id == &hs_b).unwrap();
     assert!(
         pos_a < pos_b,
         "HS-A (2 users) should now precede HS-B (1 user)"
@@ -128,7 +113,7 @@ async fn test_stale_users_excluded_from_active_homeservers() -> Result<(), DynEr
     // With an active mapping the homeserver is listed.
     let hs_ids = Homeserver::get_all_active_from_graph().await?;
     assert!(
-        hs_ids.contains(&hs.to_string()),
+        hs_ids.contains(&hs),
         "HS with an active user should be listed"
     );
 
@@ -136,7 +121,7 @@ async fn test_stale_users_excluded_from_active_homeservers() -> Result<(), DynEr
     set_user_homeserver_stale(&user_id, true).await?;
     let hs_ids = Homeserver::get_all_active_from_graph().await?;
     assert!(
-        !hs_ids.contains(&hs.to_string()),
+        !hs_ids.contains(&hs),
         "HS with only stale users should be excluded"
     );
 
