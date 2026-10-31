@@ -1360,7 +1360,7 @@ async fn test_future_events_not_picked_up() -> Result<()> {
 
 // ============================================================================
 // Skipped-by-design entry is removed without a handler call
-// A `social/v1` file line left in the queue re-parses to `Skipped`: the
+// A `social/v1` feed line left in the queue re-parses to `Skipped`: the
 // processor drops it unfetched and still handles the v0 line next to it.
 // ============================================================================
 
@@ -1371,13 +1371,13 @@ async fn test_skipped_entry_is_removed_without_handler_call() -> Result<()> {
     let store = new_in_memory_store();
     let now = Utc::now().timestamp_millis();
 
-    // A v0 post line and, next to it, a `social/v1` file line, which no handler
-    // takes until v1 files are supported; both ready now.
+    // A v0 post line and, next to it, a `social/v1` feed line, which no handler
+    // takes; both ready now.
     let post_id = "skipnextv0";
     let v0_event = create_test_retry_event(post_id, EventType::Put, 0, now - 1000);
     let v0_uri = v0_event.event_uri.clone();
     let v1_uri =
-        format!("pubky://{TEST_USER_ID}/pub/social/v1/files/8Z8CWH8NVYQY39ZEBFGKQWWEKG.jpg");
+        format!("pubky://{TEST_USER_ID}/pub/social/v1/feeds/8Z8CWH8NVYQY39ZEBFGKQWWEKG.json");
     let v1_event = RetryEvent {
         event_uri: v1_uri.clone(),
         ..v0_event.clone()

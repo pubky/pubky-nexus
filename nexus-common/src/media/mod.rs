@@ -29,12 +29,20 @@ pub const V1_FILES_DIR: &str = "v1";
 /// stays in the folder name because `H.png` and `H.bin` are two files on the homeserver: a DEL
 /// of one must leave the other, and a folder exists only for an address that was uploaded.
 pub fn file_folder(owner_id: &str, file_id: &str) -> PathBuf {
-    let owner_folder = if file_id.contains('.') {
+    let owner_folder = if is_v1_file_id(file_id) {
         Path::new(V1_FILES_DIR).join(owner_id)
     } else {
         PathBuf::from(owner_id)
     };
     owner_folder.join(file_id)
+}
+
+/// Whether `file_id` names a `social/v1` file: a `{hash}.{ext}`, with a dot, against a v0
+/// `{tsid}` without one. The one rule [`file_folder`] picks the folder by, shared so a caller
+/// that must know which kind of file an id names (a v1 file has no `File` node to read) cannot
+/// disagree with the folder it lives in.
+pub fn is_v1_file_id(file_id: &str) -> bool {
+    file_id.contains('.')
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize, ToSchema, Clone, Copy)]
@@ -145,6 +153,8 @@ mod tests {
             file_folder("owner", "0032SSN7Q4EVG.bin"),
             Path::new("v1/owner/0032SSN7Q4EVG.bin")
         );
+        assert!(!is_v1_file_id("0032SSN7Q4EVG"));
+        assert!(is_v1_file_id("0032SSN7Q4EVG.png"));
     }
 
     // The kind is read off the top-level type, so a content type that only starts with the word

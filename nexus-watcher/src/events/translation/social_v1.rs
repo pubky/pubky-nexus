@@ -1,7 +1,8 @@
 //! The `social/v1` translator, over the v1 reader.
 //!
 //! [`translate_put`] turns a v1 address and its fetched bytes into one variant per PUT handler
-//! call; [`translate_del`] turns a v1 address into one variant per DEL handler call. A DEL
+//! call; [`translate_put_from_path`] does the same for the one v1 resource with no body to read,
+//! a file; [`translate_del`] turns a v1 address into one variant per DEL handler call. A DEL
 //! carries no body, so the keys come from the path alone.
 //!
 //! A v1 post is one node whatever version its address carries: every version path maps to the
@@ -26,8 +27,9 @@ use pubky_social_specs::{
 ///
 /// Every error is deterministic and never retried: a resource with no handler is
 /// [`EventProcessorError::InvalidEventLine`], a pipeline bug surfacing as a dropped, logged
-/// event, since the classifier skips those first; bytes the reader rejects, the post's
-/// reference rules with the event's user as author included, are
+/// event, since the classifier skips those first, and so is a file, which has no body to read
+/// here and is translated by [`translate_put_from_path`] before any fetch; bytes the reader
+/// rejects, the post's reference rules with the event's user as author included, are
 /// [`EventProcessorError::SpecValidation`].
 pub fn translate_put(
     event_uri: &str,
@@ -36,6 +38,13 @@ pub fn translate_put(
 ) -> Result<TranslatedPut, EventProcessorError> {
     if !has_handler(&parsed.resource) {
         return Err(no_handler(&parsed.resource));
+    }
+    if let Resource::File(_) = &parsed.resource {
+        return Err(EventProcessorError::InvalidEventLine(format!(
+            "Resource `{}` of epoch `{}` has no body to read and is translated from its path",
+            parsed.resource,
+            epoch_segment()
+        )));
     }
     let ctx = ValidationCtx {
         root: parsed.visibility.root(),
@@ -70,12 +79,30 @@ pub fn translate_put(
     })
 }
 
+/// Translates a PUT of the one v1 resource with no body to read, a file, from `parsed` alone:
+/// the key with the full `{hash}.{ext}` as its id, and the hash the bytes must match. The
+/// handler downloads the bytes, as the `pubky.app` file handler downloads its blob, because
+/// translation does no I/O. `None` for every other resource, which [`translate_put`] reads
+/// from its fetched bytes.
+pub fn translate_put_from_path(parsed: &ParsedUri) -> Option<TranslatedPut> {
+    let Resource::File(filename) = &parsed.resource else {
+        return None;
+    };
+    // `Some` for every file: the id is the filename with its extension stripped.
+    let hash = parsed.resource.id()?;
+    Some(TranslatedPut::V1File {
+        key: owned_key(parsed.user_id.clone(), filename),
+        hash,
+    })
+}
+
 /// Maps the ids `parsed` names to the matching delete variant.
 ///
 /// Any post version path, plain or labelled, deletes the post by its id: a client deleting a
 /// post sends one DEL per version, the first deletes the post and the rest are no-ops in the
-/// handler. A resource with no handler is [`EventProcessorError::InvalidEventLine`],
-/// deterministic and never retried.
+/// handler. A file is keyed by its full `{hash}.{ext}`, so a DEL of `H.png` leaves `H.bin`. A
+/// resource with no handler is [`EventProcessorError::InvalidEventLine`], deterministic and
+/// never retried.
 pub fn translate_del(parsed: &ParsedUri) -> Result<TranslatedDel, EventProcessorError> {
     let user_id = parsed.user_id.clone();
     Ok(match &parsed.resource {
@@ -90,17 +117,19 @@ pub fn translate_del(parsed: &ParsedUri) -> Result<TranslatedDel, EventProcessor
             followee_id: followee_id.clone(),
         },
         Resource::Tag(tag_id) => TranslatedDel::Tag(owned_key(user_id, tag_id)),
+        Resource::File(filename) => TranslatedDel::File(owned_key(user_id, filename)),
         resource => return Err(no_handler(resource)),
     })
 }
 
-/// Whether a v1 resource has a PUT handler: the profile, a stored post version, a follow or a
-/// tag, the same set [`translate_del`] takes. The classifier indexes these and skips the rest.
+/// Whether a v1 resource has a PUT handler: the profile, a stored post version, a follow, a
+/// tag or a file, the same set [`translate_del`] takes. The classifier indexes these and skips
+/// the rest; the epoch gate then decides whose are handled. A file is the one of them with no
+/// body to read: [`translate_put_from_path`] takes it, [`translate_put`] refuses it.
 ///
 /// A versionless post address names no stored file; a mute, bookmark, feed, foreign, unknown or
 /// unsupported resource, and one the non-exhaustive `Resource` adds later, has no v1 handler.
 pub(in crate::events) fn has_handler(resource: &Resource) -> bool {
-    // TODO(specs-migration): N5 translates v1 files.
     matches!(
         resource,
         Resource::User
@@ -110,6 +139,7 @@ pub(in crate::events) fn has_handler(resource: &Resource) -> bool {
             }
             | Resource::Follow(_)
             | Resource::Tag(_)
+            | Resource::File(_)
     )
 }
 
@@ -890,6 +920,73 @@ mod tests {
         );
     }
 
+    // ---- file ---------------------------------------------------------------------------
+
+    /// A file has no body to read: it is translated from its path alone, to the key with the
+    /// full `{hash}.{ext}` as its id and the hash its bytes must match. Every other resource,
+    /// handled or not, answers nothing here.
+    #[test]
+    fn put_file_is_translated_from_its_path_and_no_other_resource_is() {
+        for ext in ["jpg", "png", "bin"] {
+            let address = file_uri(USER, ext);
+            let translated = translate_put_from_path(&target(&address))
+                .unwrap_or_else(|| panic!("{address}: expected V1File"));
+            let TranslatedPut::V1File { key, hash } = translated else {
+                panic!("{address}: expected V1File, got {translated:?}");
+            };
+            assert_eq!(key, self::key(&format!("{HASH_ID}.{ext}")), "{address}");
+            assert_eq!(hash, HASH_ID, "{address}");
+        }
+        for address in [
+            user_uri_builder(USER.into()),
+            version_uri(None),
+            version_uri(Some("hello-world")),
+            post_uri_builder(USER.into(), POST_ID.into()),
+            follow_uri_builder(USER.into(), OTHER_USER.into()),
+            tag_uri_builder(USER.into(), HASH_ID.into()),
+            mute_uri_builder(USER.into(), OTHER_USER.into()),
+            bookmark_uri_builder(USER.into(), "~".to_string() + HASH_ID),
+            feed_uri_builder(USER.into(), HASH_ID.into()),
+            format!("pubky://{USER}/pub/social/v1/files/{HASH_ID}"),
+            format!("pubky://{USER}/pub/social/v1/unknown_kind/{POST_ID}"),
+            format!("pubky://{USER}/pub/social/v2/posts/{POST_ID}"),
+        ] {
+            assert!(
+                translate_put_from_path(&target(&address)).is_none(),
+                "{address}"
+            );
+        }
+    }
+
+    /// The bytes-taking translation refuses a file whatever the bytes: a file reaching it is a
+    /// pipeline bug, dropped like a resource with no handler, never a file indexed from a body
+    /// that was never checked against its address.
+    #[test]
+    fn put_file_with_bytes_is_invalid_event_line() {
+        let address = file_uri(USER, "jpg");
+        for written in [&b"\x89PNG"[..], b"{}", b""] {
+            let put = put_at(&address, written);
+            assert!(
+                matches!(put, Err(EventProcessorError::InvalidEventLine(_))),
+                "{put:?}"
+            );
+        }
+    }
+
+    /// A DEL of a file is keyed by its full `{hash}.{ext}`: `H.png` and `H.bin` are two files
+    /// on the homeserver, so a DEL of one must not name the other.
+    #[test]
+    fn del_file_is_keyed_by_its_full_filename() {
+        for ext in ["jpg", "bin"] {
+            let address = file_uri(USER, ext);
+            assert_eq!(
+                del_at(&address).unwrap(),
+                TranslatedDel::File(key(&format!("{HASH_ID}.{ext}"))),
+                "{address}"
+            );
+        }
+    }
+
     // ---- error classes ------------------------------------------------------------------
 
     #[test]
@@ -908,13 +1005,12 @@ mod tests {
     }
 
     /// A versionless post address names no stored file, and the resources with no v1 handler
-    /// yet fail the same way on PUT and DEL: deterministic, never retried, nothing guessed.
+    /// fail the same way on PUT and DEL: deterministic, never retried, nothing guessed.
     #[test]
     fn unhandled_resources_are_invalid_event_line_for_put_and_del() {
         let profile = bytes(&user_fixture());
         for address in [
             post_uri_builder(USER.into(), POST_ID.into()),
-            file_uri(USER, "jpg"),
             mute_uri_builder(USER.into(), OTHER_USER.into()),
             bookmark_uri_builder(USER.into(), "~".to_string() + HASH_ID),
             feed_uri_builder(USER.into(), HASH_ID.into()),

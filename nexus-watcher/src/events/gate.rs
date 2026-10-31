@@ -173,6 +173,7 @@ mod tests {
             "social/v1/posts/0032SSN7Q4EVG/0032SSN7Q4EVJ.json",
             &format!("social/v1/follows/{USER}.json"),
             "social/v1/tags/8Z8CWH8NVYQY39ZEBFGKQWWEKG.json",
+            "social/v1/files/8Z8CWH8NVYQY39ZEBFGKQWWEKG.jpg",
         ])
     }
 
