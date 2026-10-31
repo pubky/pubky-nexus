@@ -1,3 +1,4 @@
+use crate::events::translation::legacy_v0::read_blob;
 use crate::events::EventProcessorError;
 use crate::homeserver::HomeserverClient;
 
@@ -5,7 +6,6 @@ use nexus_common::media::{file_folder, FileVariant};
 use nexus_common::models::user::UserIngestor;
 use nexus_common::models::{file::FileDetails, traits::Collection};
 use pubky::PubkyResource;
-use pubky_social_specs::legacy_v0::{ParsedUri, PubkyAppBlob, PubkyAppObject};
 use pubky_social_specs::PubkyId;
 use std::path::Path;
 use tokio::fs::{self, remove_dir_all};
@@ -39,6 +39,11 @@ pub async fn sync_put(
     Ok(())
 }
 
+/// Downloads the blob `file` names and writes it as the file's `main` variant.
+///
+/// The translator has already parsed `src` into [`FileInput::blob`], so what is left is the
+/// I/O: refuse a blob hosted on a blacklisted homeserver, fetch it, check the bytes against the
+/// id in the address, write them. A mismatch is spec validation and never retried.
 // TODO: Move it into its own process, server, etc
 #[tracing::instrument(name = "file.ingest", skip_all, fields(user_id = %user_id, file_id = %file_id))]
 async fn ingest(
@@ -49,56 +54,29 @@ async fn ingest(
     ingestor: &UserIngestor,
     client: &dyn HomeserverClient,
 ) -> Result<(), EventProcessorError> {
-    // TODO(specs-migration): the v0 blob read (the `src` parse and `PubkyAppObject`) stays here
-    // until the file work moves it into translation.
-    let file_src = &file.src;
-    let parsed_source_uri = file_source(file_src)?;
-
     // Refuse to download content hosted on a blacklisted HS
     ingestor
-        .ensure_hs_not_blacklisted(&parsed_source_uri.user_id)
+        .ensure_hs_not_blacklisted(&file.blob.owner_id)
         .await
-        .inspect_err(|e| warn!("Aborting file ingest: source {file_src}: {e}"))?;
+        .inspect_err(|e| warn!("Aborting file ingest: source {}: {e}", file.src))?;
 
-    let source: PubkyResource = file_src.parse()?;
-    let blob = client.get_blob(&source).await?;
+    let source: PubkyResource = file.src.parse()?;
+    let bytes = read_blob(client.get_blob(&source).await?, &file.blob.blob_id)?;
 
     let full_path = files_path.join(file_folder(user_id.as_ref(), file_id));
-    let pubky_app_object = PubkyAppObject::from_resource(&parsed_source_uri.resource, &blob)
-        .map_err(EventProcessorError::generic)?;
-
-    match pubky_app_object {
-        PubkyAppObject::Blob(blob) => {
-            write_main_variant(&full_path, blob)
-                .await
-                .map_err(EventProcessorError::static_save_failed)?;
-            Ok(())
-        }
-        _ => Err(EventProcessorError::InvalidEventLine(format!(
-            "The file has a source uri that is not a blob path: {}",
-            file.src
-        ))),
-    }
+    write_main_variant(&full_path, &bytes)
+        .await
+        .map_err(EventProcessorError::static_save_failed)
 }
 
-/// Parses the `src` of a file.
-///
-/// A `src` that is not a pubky.app URI can never be fetched by retrying, so it is rejected
-/// with [`EventProcessorError::UnsupportedTarget`], which is not retried.
-fn file_source(src: &str) -> Result<ParsedUri, EventProcessorError> {
-    ParsedUri::try_from(src).map_err(|e| {
-        EventProcessorError::UnsupportedTarget(format!("Invalid file source URI {src}: {e}"))
-    })
-}
-
-/// Writes `blob` to `<dir>/main`, creating `dir` if it does not exist.
+/// Writes `bytes` to `<dir>/main`, creating `dir` if it does not exist.
 ///
 /// An existing file is overwritten, which is what re-indexing an already
 /// downloaded file relies on.
-async fn write_main_variant(dir: &Path, blob: PubkyAppBlob) -> std::io::Result<()> {
+async fn write_main_variant(dir: &Path, bytes: &[u8]) -> std::io::Result<()> {
     fs::create_dir_all(dir).await?;
 
-    fs::write(dir.join(FileVariant::Main.to_string()), blob.0).await
+    fs::write(dir.join(FileVariant::Main.to_string()), bytes).await
 }
 
 #[tracing::instrument(name = "file.del", skip_all, fields(user_id = %key.owner_id, file_id = %key.resource_id))]
@@ -127,32 +105,6 @@ pub async fn del(key: ResourceKey, files_path: &Path) -> Result<(), EventProcess
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::events::retry::RetryScheduler;
-
-    #[test]
-    fn file_source_rejects_non_pubky_uris_without_retry() {
-        let user_id = "8pinxxgqs41n4aididenw5apqp1urfmzdztr8jt4abrkdn435ewo";
-        let cases = [
-            "https://example.com/image.png".to_string(),
-            format!("pubky://{user_id}/pub/mapky/blobs/0033SSE3B1FQ0"),
-            "pubky://notakey/pub/pubky.app/blobs/0033SSE3B1FQ0".to_string(),
-        ];
-
-        for src in cases {
-            let err = file_source(&src).expect_err(&format!("{src} must be rejected"));
-            assert!(
-                matches!(err, EventProcessorError::UnsupportedTarget(_)),
-                "{src}: unexpected error {err:?}"
-            );
-            assert!(
-                !RetryScheduler::should_enqueue_related_event(&err),
-                "{src}: a deterministic rejection must not be retried"
-            );
-        }
-
-        let blob = format!("pubky://{user_id}/pub/pubky.app/blobs/0033SSE3B1FQ0");
-        assert!(file_source(&blob).is_ok());
-    }
 
     async fn read_main(dir: &Path) -> Vec<u8> {
         fs::read(dir.join("main")).await.unwrap()
@@ -162,9 +114,7 @@ mod tests {
     async fn write_main_variant_creates_new_file() {
         let tmp_dir = tempfile::TempDir::new().unwrap();
         let dir = tmp_dir.path().join("user1").join("file1");
-        let blob = PubkyAppBlob::new(b"hello world".to_vec());
-
-        write_main_variant(&dir, blob)
+        write_main_variant(&dir, b"hello world")
             .await
             .expect("write_main_variant should succeed for a new file");
 
@@ -175,17 +125,14 @@ mod tests {
     async fn write_main_variant_overwrites_existing_file() {
         let tmp_dir = tempfile::TempDir::new().unwrap();
         let dir = tmp_dir.path().join("user1").join("file1");
-        let blob1 = PubkyAppBlob::new(b"first write".to_vec());
-
-        write_main_variant(&dir, blob1)
+        write_main_variant(&dir, b"first write")
             .await
             .expect("first write_main_variant should succeed");
 
         // Writing again simulates re-indexing when the file already exists on disk.
         // The second payload is shorter than the first, so a write without truncation
         // would leave stale trailing bytes and fail the assertion below.
-        let blob2 = PubkyAppBlob::new(b"second".to_vec());
-        write_main_variant(&dir, blob2).await.expect(
+        write_main_variant(&dir, b"second").await.expect(
             "write_main_variant should succeed even when file already exists (re-indexing)",
         );
 
@@ -208,9 +155,7 @@ mod tests {
         fs::create_dir_all(dir.join(FileVariant::Main.to_string()))
             .await
             .unwrap();
-        let blob = PubkyAppBlob::new(b"hello world".to_vec());
-
-        write_main_variant(&dir, blob)
+        write_main_variant(&dir, b"hello world")
             .await
             .expect_err("write_main_variant should surface the failure to open `main`");
     }
