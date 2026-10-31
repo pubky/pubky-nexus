@@ -118,6 +118,17 @@ async fn test_user_avatar_endpoint() -> Result<()> {
         "Served size should differ from source — proves small webp variant was generated, not the original served back"
     );
 
+    // The avatar goes through the same serve function as the file route, so it carries the
+    // serving rule too: an image displays inline, and nothing is sniffed.
+    assert_eq!(
+        res.header("x-content-type-options").as_deref(),
+        Some("nosniff")
+    );
+    assert!(
+        res.header("content-disposition").is_none(),
+        "an avatar image is not offered as a download"
+    );
+
     Ok(())
 }
 

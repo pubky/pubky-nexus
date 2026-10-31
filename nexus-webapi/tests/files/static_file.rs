@@ -57,6 +57,15 @@ async fn test_static_serving() -> Result<()> {
             .unwrap(),
         result_file.size
     );
+    // The serving rule on the shared server: `text/plain` displays, and nothing is sniffed.
+    assert_eq!(
+        res.header("x-content-type-options").as_deref(),
+        Some("nosniff")
+    );
+    assert!(
+        res.header("content-disposition").is_none(),
+        "an inline type is not offered as a download"
+    );
 
     Ok(())
 }
