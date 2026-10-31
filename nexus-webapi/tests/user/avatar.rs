@@ -36,6 +36,11 @@ const FILE_ID: &str = "003286NSMY490";
 // smaller than creating a synthetic user visible to aggregate tests.
 const INTRUDER_PUBKY: &str = "4p1qa1ko7wuta4f1qm8io495cqsmefbgfp85wtnm9bj55gqbhjpo";
 
+// User "dz" in docker/test-graph/skunk.cypher has no profile image and no other
+// test references it. The unparsable-URI case mutates its `image` instead of
+// Intruder's, so the two image-mutating tests never race on one profile.
+const BAD_IMAGE_PUBKY: &str = "f8r8pf61kh7cpirthz7e1ztqzr8qg5yf7pbnbeifjx4exdqaekpo";
+
 async fn seed_avatar_main_variant(owner_id: &str, file_id: &str) -> Result<usize> {
     let test_image_dir_path = TestServiceServer::get_test_server()
         .await
@@ -185,17 +190,17 @@ async fn test_user_avatar_serves_file_owned_by_another_user() -> Result<()> {
 async fn test_user_avatar_unparsable_image_uri_is_not_found() -> Result<()> {
     let client = httpc_test::new_client(host_url().await)?;
 
-    let original_intruder = UserDetails::get_by_id(INTRUDER_PUBKY)
+    let original_user = UserDetails::get_by_id(BAD_IMAGE_PUBKY)
         .await?
-        .ok_or_else(|| anyhow::anyhow!("Intruder user not found in test graph"))?;
-    let original_image = original_intruder.image.clone();
+        .ok_or_else(|| anyhow::anyhow!("dz user not found in test graph"))?;
+    let original_image = original_user.image.clone();
 
     let bad_image = format!("pubky://{USER_PUBKY}/pub/other.app/files/avatar-asset-cnmnq7x8.png");
-    set_user_image(INTRUDER_PUBKY, Some(bad_image)).await?;
+    set_user_image(BAD_IMAGE_PUBKY, Some(bad_image)).await?;
 
     let test_result = async {
         let res = client
-            .do_get(format!("/static/avatar/{INTRUDER_PUBKY}").as_str())
+            .do_get(format!("/static/avatar/{BAD_IMAGE_PUBKY}").as_str())
             .await?;
 
         anyhow::ensure!(
@@ -208,7 +213,7 @@ async fn test_user_avatar_unparsable_image_uri_is_not_found() -> Result<()> {
     }
     .await;
 
-    let restore_result = set_user_image(INTRUDER_PUBKY, original_image).await;
+    let restore_result = set_user_image(BAD_IMAGE_PUBKY, original_image).await;
     test_result?;
     restore_result?;
 
