@@ -10,6 +10,7 @@ use nexus_common::models::{
 };
 use pubky_social_specs::PubkyId;
 use std::future::Future;
+use std::path::Path;
 use tracing::{debug, error, info, Instrument};
 
 use crate::events::inputs::UserInput;
@@ -48,8 +49,9 @@ pub async fn sync_put(user: UserInput, user_id: PubkyId) -> Result<(), EventProc
 /// The flip step: moves a user to `v1` on their `social/v1` profile PUT, before the profile is
 /// fetched, so the move does not wait for the homeserver.
 ///
-/// What Nexus holds for the user at `pubky.app` is migrated first ([`v0_to_v1`]), then the
-/// epoch is written ([`move_to_v1`]). Every failure there, the epoch write's included, comes
+/// What Nexus holds for the user at `pubky.app` is migrated first ([`v0_to_v1`]), their files
+/// copied to their `social/v1` folders under `files_path` included, then the epoch is written
+/// ([`move_to_v1`]). Every failure there, the epoch write's included, comes
 /// out of [`v0_to_v1::step`] as [`EventProcessorError::FlipFailed`] naming the step and the
 /// cause, leaves the user at `v0` and logs one summary line saying so: the retry runs the whole
 /// step again over its partial work, without limit while the user is `v0`. The details cache
@@ -61,8 +63,13 @@ pub async fn sync_put(user: UserInput, user_id: PubkyId) -> Result<(), EventProc
 /// epoch from the graph. The profile itself is the ordinary `v1` profile PUT's ([`sync_put`]).
 /// A user whose first event is this PUT has no node yet: the epoch write creates a stub, which
 /// the profile write fills in.
-pub async fn flip(user_id: &PubkyId) -> Result<(), EventProcessorError> {
-    run_flip(user_id, move_to_v1(user_id), refresh_details_cache(user_id)).await
+pub async fn flip(user_id: &PubkyId, files_path: &Path) -> Result<(), EventProcessorError> {
+    run_flip(
+        user_id,
+        move_to_v1(user_id, files_path),
+        refresh_details_cache(user_id),
+    )
+    .await
 }
 
 /// The flip's order and its log lines, over its two parts: `moved` (steps 1 and 2,
@@ -96,8 +103,8 @@ async fn run_flip(
 
 /// The part of the flip that moves the user: the internal migration of their indexed data to
 /// its `social/v1` form while they are still `v0` (step 1), then the epoch write (step 2).
-async fn move_to_v1(user_id: &PubkyId) -> Result<(), EventProcessorError> {
-    v0_to_v1::run(user_id).await?;
+async fn move_to_v1(user_id: &PubkyId, files_path: &Path) -> Result<(), EventProcessorError> {
+    v0_to_v1::run(user_id, files_path).await?;
     v0_to_v1::step(user_id, "epoch", Epoch::set_v1_in_graph(user_id)).await
 }
 
@@ -182,7 +189,8 @@ mod tests {
         let user = random_pubky_id();
         UserDetails::from_pubky(user.clone()).put_to_graph().await?;
 
-        flip(&user).await?;
+        let files = tempfile::TempDir::new()?;
+        flip(&user, files.path()).await?;
 
         assert_eq!(Epoch::get_from_graph(&user).await?, Epoch::V1);
         let details = UserDetails::get_from_graph(&[user.as_ref()]).await?[0]
@@ -310,7 +318,10 @@ mod tests {
         .param("post_id", post_id);
         exec_single_row(plant).await?;
 
-        let err = flip(&user).await.expect_err("the posts step must fail");
+        let files = tempfile::TempDir::new()?;
+        let err = flip(&user, files.path())
+            .await
+            .expect_err("the posts step must fail");
 
         assert!(
             matches!(err, EventProcessorError::FlipFailed { step: "posts", .. }),

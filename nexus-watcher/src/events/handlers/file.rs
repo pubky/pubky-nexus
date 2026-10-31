@@ -141,8 +141,8 @@ pub async fn sync_put_v1(
         .map_err(EventProcessorError::static_save_failed)
 }
 
-/// The `main` variant inside a file's folder.
-fn main_path(folder: &Path) -> PathBuf {
+/// The `main` variant inside a file's folder. The flip's copy reads and checks it too.
+pub(crate) fn main_path(folder: &Path) -> PathBuf {
     folder.join(FileVariant::Main.to_string())
 }
 

@@ -133,7 +133,7 @@ impl EventHandler for DefaultEventHandler {
             // flip logs the failed step and, while the user stays `v0`, one summary line. Once
             // the step lands, the event is a `v1` user's profile PUT and takes the ordinary path
             // below, retry limit included.
-            handlers::user::flip(event.target.user_id()).await?;
+            handlers::user::flip(event.target.user_id(), self.files_path.as_path()).await?;
         }
 
         match event.event_type {

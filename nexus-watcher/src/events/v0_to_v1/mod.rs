@@ -1,7 +1,8 @@
 //! The internal migration from `pubky.app` (`v0`) to `social/v1`: at the flip, what Nexus
 //! already holds for a user under `pubky.app` is rewritten to its `social/v1` form, derived from
 //! the graph, before the user's epoch moves to `v1`. Not a `nexusd` migration, and not the
-//! app's migrator, which copies the user's files; this one rewrites the index.
+//! app's migrator, which copies the user's files on the homeserver; this one rewrites the index
+//! and copies the files Nexus holds to their `social/v1` addresses ([`copy`]).
 //!
 //! Each step pages through the user's data in batches, each batch its own transaction, and a
 //! rerun over partly migrated data gives the same result. A failed step is logged with the user
@@ -13,6 +14,7 @@
 //! ([`crate::events::handlers::user::flip`]) go through the same [`step`].
 
 pub mod attachments;
+pub mod copy;
 pub mod files;
 #[cfg(test)]
 mod migrator_tests;
@@ -23,13 +25,17 @@ use crate::events::EventProcessorError;
 use files::FileMap;
 use pubky_social_specs::PubkyId;
 use std::future::Future;
+use std::path::Path;
 use tracing::error;
 
-/// Runs every step of `user_id`'s migration, in order: the file map first, then the posts
-/// whose attachments it resolves, then the tags whose file targets it resolves.
+/// Runs every step of `user_id`'s migration, in order: the file map first, then the copy of
+/// each file to its `social/v1` address under `files_path`, then the posts whose attachments
+/// the map resolves, then the tags whose file targets it resolves. The copy comes before the
+/// posts, so no migrated address names a missing file.
 #[tracing::instrument(name = "user.migrate", skip_all, fields(user_id = %user_id))]
-pub async fn run(user_id: &PubkyId) -> Result<(), EventProcessorError> {
+pub async fn run(user_id: &PubkyId, files_path: &Path) -> Result<(), EventProcessorError> {
     let files = step(user_id, "files", FileMap::load(user_id)).await?;
+    step(user_id, "copy", copy::copy(user_id, &files, files_path)).await?;
     step(
         user_id,
         "posts",
