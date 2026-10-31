@@ -178,6 +178,43 @@ async fn test_user_avatar_serves_file_owned_by_another_user() -> Result<()> {
     Ok(())
 }
 
+// A profile `image` is free text from the user's homeserver, so it can hold a
+// pubky URI that does not name a pubky.app file record (another app's files
+// path, say). That is a missing avatar, not a server fault: 404, not 500.
+#[tokio_shared_rt::test(shared)]
+async fn test_user_avatar_unparsable_image_uri_is_not_found() -> Result<()> {
+    let client = httpc_test::new_client(host_url().await)?;
+
+    let original_intruder = UserDetails::get_by_id(INTRUDER_PUBKY)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("Intruder user not found in test graph"))?;
+    let original_image = original_intruder.image.clone();
+
+    let bad_image = format!("pubky://{USER_PUBKY}/pub/other.app/files/avatar-asset-cnmnq7x8.png");
+    set_user_image(INTRUDER_PUBKY, Some(bad_image)).await?;
+
+    let test_result = async {
+        let res = client
+            .do_get(format!("/static/avatar/{INTRUDER_PUBKY}").as_str())
+            .await?;
+
+        anyhow::ensure!(
+            res.status() == 404,
+            "An image URI that names no file record should be 404, got {}",
+            res.status()
+        );
+
+        Ok::<(), anyhow::Error>(())
+    }
+    .await;
+
+    let restore_result = set_user_image(INTRUDER_PUBKY, original_image).await;
+    test_result?;
+    restore_result?;
+
+    Ok(())
+}
+
 // When the media concurrency gate is at capacity, the avatar handler must shed
 // load by serving the untouched `main` image instead of failing with a 500.
 #[tokio_shared_rt::test(shared)]
