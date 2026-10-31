@@ -11,3 +11,5 @@ pub const V1_STATIC_ROUTE: &str = "/v1/static";
 pub const V1_FILES_PREFIX: &str = concatcp!(V1_STATIC_ROUTE, "/files");
 pub const V1_STATIC_FILES_ROUTE: &str =
     concatcp!(V1_FILES_PREFIX, "/{owner_id}/{file_id}/{variant}");
+/// The avatar under the v1 base path: the same handler as [`USER_AVATAR_ROUTE`], mounted twice.
+pub const V1_USER_AVATAR_ROUTE: &str = concatcp!(V1_STATIC_ROUTE, "/avatar/{user_id}");

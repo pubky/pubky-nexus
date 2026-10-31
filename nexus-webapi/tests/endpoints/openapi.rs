@@ -212,3 +212,23 @@ fn test_resource_stream_routes_take_no_app_parameter() {
         assert!(!names.contains(&"app"), "{path}: {names:?}");
     }
 }
+
+/// The avatar is one handler mounted twice: under `/static` for v0 clients and under the v1
+/// base path, so a v1 client reads an avatar where it reads every other file. Both mounts sit in
+/// the static document until API1 moves the v1 one, and each lists the 404 a client falls back
+/// from when the profile image is not an image file Nexus holds.
+#[test]
+fn test_static_openapi_lists_both_avatar_mounts() {
+    let spec = serde_json::to_value(StaticApiDoc::merge_docs()).expect("serializable spec");
+    let paths = spec["paths"].as_object().expect("paths");
+    for path in ["/static/avatar/{user_id}", "/v1/static/avatar/{user_id}"] {
+        let item = paths.get(path).unwrap_or_else(|| {
+            panic!("{path} missing from {:?}", paths.keys().collect::<Vec<_>>())
+        });
+        let operation = &item["get"];
+        assert!(
+            operation["responses"].get("404").is_some(),
+            "{path}: {operation}"
+        );
+    }
+}

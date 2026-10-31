@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path as FsPath, PathBuf};
 
 use axum::{
     extract::{Query, Request, State},
@@ -214,10 +214,7 @@ async fn serve_v1_file(
 ) -> Result<Response<ServeFileSystemResponseBody>> {
     let files_path: &PathBuf = &app_state.files_path;
 
-    let main = files_path
-        .join(file.folder())
-        .join(FileVariant::Main.to_string());
-    if !fs::try_exists(main).await? {
+    if !v1_file_is_on_disk(files_path, &file).await? {
         return Err(Error::FileNotFound {});
     }
 
@@ -237,6 +234,17 @@ async fn serve_v1_file(
         &app_state.queued_variant_controller,
     )
     .await
+}
+
+/// Whether a `social/v1` file's `main` is on disk: what stands in for the node lookup a v0 file
+/// has, since a v1 file has no node. Every route that serves one checks it before asking for a
+/// variant, because the variant controller reports `main` as present without looking, and a
+/// request for a file that is not there must start no conversion.
+pub(super) async fn v1_file_is_on_disk(files_path: &FsPath, file: &MediaFile) -> Result<bool> {
+    let main = files_path
+        .join(file.folder())
+        .join(FileVariant::Main.to_string());
+    Ok(fs::try_exists(main).await?)
 }
 
 #[derive(OpenApi)]

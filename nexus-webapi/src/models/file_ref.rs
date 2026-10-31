@@ -1,7 +1,7 @@
 use crate::models::{FileId, PubkyId};
 use crate::{Error, Result};
 use nexus_common::media::is_v1_file_id;
-use pubky_social_specs::{file_uri_builder, ParsedUri, Resource};
+use pubky_social_specs::{file_uri_builder, legacy_v0, ParsedUri, Resource, Visibility};
 
 /// A file id as `/v1/static/files` takes it, in either form, so a client has one base path for
 /// all file bytes and never picks a route from an address.
@@ -32,16 +32,45 @@ impl FileRef {
 
         let uri = file_uri_builder(owner_id.to_string(), file_id.clone());
         match ParsedUri::try_from(uri.as_str()).map(|parsed| parsed.resource) {
-            Ok(Resource::File(filename)) if filename == file_id => {
-                // The dot is there by the check above, and the reader accepted exactly one
-                // extension after the last one.
-                let ext = filename.rsplit_once('.').map_or("", |(_, ext)| ext).to_string();
-                Ok(Self::V1 { filename, ext })
-            }
+            Ok(Resource::File(filename)) if filename == file_id => Ok(Self::v1(filename)),
             _ => Err(Error::invalid_input(format!(
                 "Invalid file id: {file_id} is neither a 13-character id nor a {{hash}}.{{ext}} file name"
             ))),
         }
+    }
+
+    /// Reads a file address, as a profile's `image` names one, into its owner and the file, or
+    /// `None` when it names nothing Nexus holds. The v1 parser reads it first: a public
+    /// `social/v1` file is a v1 file. A path under another namespace goes on to the v0 parser,
+    /// which accepts a `pubky.app` file address and nothing else. Everything else is `None`: a
+    /// web URL, another app's object, an address that is not a file, and a private one, which
+    /// Nexus never indexes. The owner comes from the address, so another user's file is theirs.
+    pub fn parse_uri(uri: &str) -> Option<(PubkyId, Self)> {
+        let parsed = ParsedUri::try_from(uri).ok()?;
+        match parsed.resource {
+            Resource::File(filename) if parsed.visibility == Visibility::Public => {
+                Some((parsed.user_id, Self::v1(filename)))
+            }
+            Resource::Foreign { .. } => {
+                let parsed = legacy_v0::ParsedUri::try_from(uri).ok()?;
+                let legacy_v0::Resource::File(file_id) = parsed.resource else {
+                    return None;
+                };
+                let file_id = FileId::try_from(file_id).ok()?;
+                Some((parsed.user_id, Self::Legacy(file_id)))
+            }
+            _ => None,
+        }
+    }
+
+    /// A v1 file by the `{hash}.{ext}` the crate's reader handed back: the extension is what
+    /// follows the last dot, which the reader accepted as exactly one known extension.
+    fn v1(filename: String) -> Self {
+        let ext = filename
+            .rsplit_once('.')
+            .map_or("", |(_, ext)| ext)
+            .to_string();
+        Self::V1 { filename, ext }
     }
 }
 
@@ -103,6 +132,65 @@ mod tests {
                 matches!(parse(&file_id), Err(Error::InvalidInput { .. })),
                 "{file_id:?}"
             );
+        }
+    }
+}
+
+#[cfg(test)]
+mod parse_uri_tests {
+    use super::*;
+
+    const OWNER: &str = "y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy";
+    /// A canonical hash id: blake3 over `[1, 2]`, first 16 bytes, Crockford.
+    const HASH: &str = "PZBQ010FF079VVZPQG1RNFN6DR";
+    const TSID: &str = "2ZK2H8P2T5NG0";
+
+    // A `pubky.app` file address is a v0 file read by the v0 parser, a public `social/v1` file
+    // address a v1 file read by the v1 one, each with the owner the address names.
+    #[test]
+    fn test_file_addresses_of_either_epoch_are_read() {
+        let (owner, file) =
+            FileRef::parse_uri(&format!("pubky://{OWNER}/pub/pubky.app/files/{TSID}"))
+                .expect("a v0 file address");
+        assert_eq!(owner.to_string(), OWNER);
+        assert!(matches!(file, FileRef::Legacy(id) if &*id == TSID));
+
+        let (owner, file) =
+            FileRef::parse_uri(&format!("pubky://{OWNER}/pub/social/v1/files/{HASH}.png"))
+                .expect("a v1 file address");
+        assert_eq!(owner.to_string(), OWNER);
+        assert_eq!(
+            file,
+            FileRef::V1 {
+                filename: format!("{HASH}.png"),
+                ext: "png".to_string()
+            }
+        );
+    }
+
+    // Nothing Nexus holds: a web URL, another app's object, an address of either epoch that is
+    // not a file, a v0 blob, a private v1 file, a v0 file address with an id of the wrong shape,
+    // and a v1 file name the reader does not accept.
+    #[test]
+    fn test_addresses_that_name_no_file_nexus_holds_are_none() {
+        let rejected = [
+            "https://example.com/avatar.png".to_string(),
+            format!("pubky://{OWNER}/pub/other.app/v1/files/{HASH}.png"),
+            format!("pubky://{OWNER}/pub/other.app/files/{TSID}"),
+            format!("pubky://{OWNER}/pub/social/v1/posts/{TSID}"),
+            format!("pubky://{OWNER}/pub/social/v1/profile.json"),
+            format!("pubky://{OWNER}/pub/pubky.app/posts/{TSID}"),
+            format!("pubky://{OWNER}/pub/pubky.app/profile.json"),
+            format!("pubky://{OWNER}/pub/pubky.app/blobs/{TSID}"),
+            format!("pubky://{OWNER}/priv/social/v1/files/{HASH}.png"),
+            format!("pubky://{OWNER}/pub/pubky.app/files/ABCDEFG"),
+            format!("pubky://{OWNER}/pub/social/v1/files/{HASH}.JPG"),
+            format!("pubky://{OWNER}/pub/social/v1/files/{HASH}"),
+            format!("pubky://{OWNER}/pub/"),
+            String::new(),
+        ];
+        for uri in rejected {
+            assert_eq!(FileRef::parse_uri(&uri), None, "{uri:?}");
         }
     }
 }
