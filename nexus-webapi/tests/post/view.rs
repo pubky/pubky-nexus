@@ -13,7 +13,7 @@ use crate::{
 use anyhow::Result;
 use axum::http::StatusCode;
 use nexus_common::db::{exec_single_row, queries};
-use nexus_common::models::post::PostDetails;
+use nexus_common::models::post::{PostCounts, PostDetails, PostRelationships};
 use nexus_common::models::tag::TagDetails;
 use nexus_webapi::models::PubkyAppPostKind;
 
@@ -308,14 +308,18 @@ async fn test_get_post_view_with_viewer() -> Result<()> {
 
 /// A post of a migrated user names a `social/v1` file address; a v1 file has no `File` node, so
 /// the frozen v0 view carries no metadata for it and the read is an ordinary 200. The post is
-/// this test's own: written to the graph, read once, then taken out of the graph and the index.
+/// this test's own: written to the graph, read once, then taken out of the graph and the index,
+/// the keys the read wrote on its miss included.
 #[tokio_shared_rt::test(shared)]
 async fn test_get_post_view_with_v1_attachment_has_empty_metadata() -> Result<()> {
     // The shared server initialises the DB connectors the seed below writes through.
     let _ = TestServiceServer::get_test_server().await;
 
-    // A user of the mock graph; the post id is this test's own.
-    let author = "y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy";
+    // A user of the mock graph ("JBro" in `docker/test-graph/skunk.cypher`) with no followers,
+    // so an extra post leaves every ranking as it is: the influencer score is
+    // `(tags + posts) * sqrt(followers)`, zero for them whatever they post, and no test names
+    // them. The post id is this test's own.
+    let author = "dzz8cshisfst7dthpy7eio9a3byecmrym1ymn75hwqt67a9fs7zo";
     let post_id = "2ZV1ATTCHMT00";
     let attachment = format!("pubky://{author}/pub/social/v1/files/PZBQ010FF079VVZPQG1RNFN6DR.png");
     let post = PostDetails {
@@ -351,8 +355,11 @@ async fn test_get_post_view_with_v1_attachment_has_empty_metadata() -> Result<()
     }
     .await;
 
-    // The read indexed the post on its miss; take it out of the index and the graph again.
+    // The read indexed the post on its miss: its details, its counts and its relationships.
+    // Take them out of the index, then the post out of the graph.
     PostDetails::delete_from_index(author, post_id, None).await?;
+    PostCounts::delete(author, post_id, false).await?;
+    PostRelationships::delete(author, post_id).await?;
     exec_single_row(queries::del::delete_post(author, post_id)).await?;
     outcome
 }

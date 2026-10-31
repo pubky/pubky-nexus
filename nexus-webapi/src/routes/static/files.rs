@@ -1,11 +1,10 @@
-use std::path::{Path as FsPath, PathBuf};
+use std::path::PathBuf;
 
 use axum::{
     extract::{Query, Request, State},
     response::Response,
 };
 use serde::Deserialize;
-use tokio::fs;
 use tower_http::services::fs::ServeFileSystemResponseBody;
 use tracing::{debug, error};
 use utoipa::OpenApi;
@@ -18,7 +17,7 @@ use crate::routes::AppState;
 use crate::routes::Path;
 use crate::{Error, Result};
 use nexus_common::{
-    media::{content_type_for_ext, validate_variant_for_content_type, FileVariant},
+    media::{validate_variant_for_content_type, FileVariant},
     models::{file::FileDetails, traits::Collection},
 };
 
@@ -100,7 +99,8 @@ pub async fn static_files_handler(
 /// its `File` node and legacy folder, as `/static/files` reads it, also after its owner migrated;
 /// a `{hash}.{ext}` is read from the owner's v1 folder, with no node: its content type comes
 /// from the extension and a download is named after the file. A `{hash}.{ext}` the spec
-/// crate's reader does not accept, such as `H.JPG`, `H.tar.gz` or a bare `H`, is a 400. A v1
+/// crate's reader does not accept, such as `H.JPG`, `H.tar.gz` or a bare `H`, is a 400, and so
+/// is an id longer than any file name, refused before it is parsed, logged or echoed. A v1
 /// file whose `main` is not on disk is a 404 before any variant is derived.
 #[utoipa::path(
     get,
@@ -132,23 +132,20 @@ pub async fn v1_static_files_handler(
     params: Query<FileParams>,
     request: Request,
 ) -> Result<Response<ServeFileSystemResponseBody>> {
-    debug!(
-        "Serving v1 route file for user: {} and file: {} with variant: {:?}",
-        owner_id, file_id, variant
-    );
     let download = params.dl.is_some();
+    // Parsed before it is logged: only a validated id reaches the log, as on the other routes.
+    let file = FileRef::parse(&owner_id, file_id)?;
+    debug!(
+        "Serving v1 route file for user: {} and file: {:?} with variant: {:?}",
+        owner_id, file, variant
+    );
 
-    match FileRef::parse(&owner_id, file_id)? {
+    match file {
         FileRef::Legacy(file_id) => {
             serve_legacy_file(request, &app_state, &owner_id, &file_id, &variant, download).await
         }
         FileRef::V1 { filename, ext } => {
-            let file = MediaFile {
-                owner_id: owner_id.to_string(),
-                id: filename.clone(),
-                content_type: content_type_for_ext(&ext).to_string(),
-                download_name: Some(filename),
-            };
+            let file = MediaFile::v1(&owner_id, filename, &ext);
             serve_v1_file(request, &app_state, file, &variant, download).await
         }
     }
@@ -214,7 +211,7 @@ async fn serve_v1_file(
 ) -> Result<Response<ServeFileSystemResponseBody>> {
     let files_path: &PathBuf = &app_state.files_path;
 
-    if !v1_file_is_on_disk(files_path, &file).await? {
+    if !file.main_is_on_disk(files_path).await? {
         return Err(Error::FileNotFound {});
     }
 
@@ -234,17 +231,6 @@ async fn serve_v1_file(
         &app_state.queued_variant_controller,
     )
     .await
-}
-
-/// Whether a `social/v1` file's `main` is on disk: what stands in for the node lookup a v0 file
-/// has, since a v1 file has no node. Every route that serves one checks it before asking for a
-/// variant, because the variant controller reports `main` as present without looking, and a
-/// request for a file that is not there must start no conversion.
-pub(super) async fn v1_file_is_on_disk(files_path: &FsPath, file: &MediaFile) -> Result<bool> {
-    let main = files_path
-        .join(file.folder())
-        .join(FileVariant::Main.to_string());
-    Ok(fs::try_exists(main).await?)
 }
 
 #[derive(OpenApi)]

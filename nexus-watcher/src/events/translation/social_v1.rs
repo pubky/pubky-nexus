@@ -16,8 +16,8 @@ use crate::events::route::resolve_reference;
 use crate::events::translation::{TranslatedDel, TranslatedPut};
 use pubky_social_specs::{
     epoch_segment, post_uri_builder, ParsedUri, PubkyId, PubkySocialCollectionContent,
-    PubkySocialObject, PubkySocialPost, PubkySocialPostKind, PubkySocialTag, PubkySocialUser,
-    PubkySocialUserLink, Resource, ValidationCtx,
+    PubkySocialFile, PubkySocialObject, PubkySocialPost, PubkySocialPostKind, PubkySocialTag,
+    PubkySocialUser, PubkySocialUserLink, Resource, ValidationCtx,
 };
 
 /// Reads `bytes` with the v1 reader for the resource `parsed` names, under the root of the
@@ -94,6 +94,23 @@ pub fn translate_put_from_path(parsed: &ParsedUri) -> Option<TranslatedPut> {
         key: owned_key(parsed.user_id.clone(), filename),
         hash,
     })
+}
+
+/// Runs the v1 reader over the bytes of the `social/v1` file whose address carries `hash`,
+/// downloaded or read from a legacy folder: they must hash to it. The v1 counterpart of the v0
+/// translator's `read_blob`; a rejection is [`EventProcessorError::SpecValidation`], never
+/// retried, since the same bytes fail the same way. Hashing up to the file cap of bytes is CPU
+/// work, so it runs off the runtime's workers; a check that could not run at all is an
+/// internal error.
+///
+/// The bytes come back for writing, so a file is never copied to check it.
+pub async fn read_v1_file(bytes: Vec<u8>, hash: &str) -> Result<Vec<u8>, EventProcessorError> {
+    let hash = hash.to_string();
+    let file = tokio::task::spawn_blocking(move || PubkySocialFile::from_vec(bytes, &hash))
+        .await
+        .map_err(EventProcessorError::internal_error)?
+        .map_err(EventProcessorError::SpecValidation)?;
+    Ok(file.0)
 }
 
 /// Maps the ids `parsed` names to the matching delete variant.

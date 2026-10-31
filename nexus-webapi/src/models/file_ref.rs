@@ -1,7 +1,30 @@
 use crate::models::{FileId, PubkyId};
 use crate::{Error, Result};
 use nexus_common::media::is_v1_file_id;
-use pubky_social_specs::{file_uri_builder, legacy_v0, ParsedUri, Resource, Visibility};
+use pubky_social_specs::{
+    file_uri_builder, legacy_v0, ParsedUri, Resource, Visibility, MIME_TO_EXT, STRIP_SET,
+};
+
+/// The length of a v1 hash id: 26 Crockford characters, as the spec crate's hash ids are.
+const HASH_ID_LEN: usize = 26;
+
+/// The longest extension a v1 file name can end in, read off the spec crate's set.
+const fn longest_extension() -> usize {
+    let mut longest = 0;
+    let mut i = 0;
+    while i < STRIP_SET.len() {
+        if STRIP_SET[i].len() > longest {
+            longest = STRIP_SET[i].len();
+        }
+        i += 1;
+    }
+    longest
+}
+
+/// The longest file id either form admits: a `{hash}.{ext}` with the longest extension. A v0
+/// id is 13 characters, well under it. Checked before any parse, so an over-long segment is
+/// refused without being parsed, logged or echoed.
+pub const MAX_FILE_ID_LEN: usize = HASH_ID_LEN + 1 + longest_extension();
 
 /// A file id as `/v1/static/files` takes it, in either form, so a client has one base path for
 /// all file bytes and never picks a route from an address.
@@ -22,10 +45,16 @@ pub enum FileRef {
 }
 
 impl FileRef {
-    /// Reads `file_id` as the id of a file of `owner_id`. The owner is needed to put a v1 id
-    /// through the crate's reader, which reads whole addresses; the id it hands back must be
-    /// the raw one, so nothing the reader normalises can slip past the check.
+    /// Reads `file_id` as the id of a file of `owner_id`. An id longer than any file name
+    /// ([`MAX_FILE_ID_LEN`]) is refused first, unparsed and unechoed. The owner is needed to
+    /// put a v1 id through the crate's reader, which reads whole addresses; the id it hands
+    /// back must be the raw one, so nothing the reader normalises can slip past the check.
     pub fn parse(owner_id: &PubkyId, file_id: String) -> Result<Self> {
+        if file_id.len() > MAX_FILE_ID_LEN {
+            return Err(Error::invalid_input(format!(
+                "Invalid file id: longer than any file name ({MAX_FILE_ID_LEN} characters)"
+            )));
+        }
         if !is_v1_file_id(&file_id) {
             return FileId::try_from(file_id).map(Self::Legacy);
         }
@@ -41,26 +70,34 @@ impl FileRef {
 
     /// Reads a file address, as a profile's `image` names one, into its owner and the file, or
     /// `None` when it names nothing Nexus holds. The v1 parser reads it first: a public
-    /// `social/v1` file is a v1 file. A path under another namespace goes on to the v0 parser,
-    /// which accepts a `pubky.app` file address and nothing else. Everything else is `None`: a
-    /// web URL, another app's object, an address that is not a file, and a private one, which
-    /// Nexus never indexes. The owner comes from the address, so another user's file is theirs.
+    /// `social/v1` file is a v1 file. A path under another namespace, and anything the v1
+    /// parser refuses, goes on to the v0 parser, which accepts a `pubky.app` file address and
+    /// nothing else; it is the reader the avatar always had, so a v0 address it accepts in a
+    /// loose spelling, with a trailing slash, a query or a fragment, stays a v0 file. Everything
+    /// else is `None`: a web URL, another app's object, an address that is not a file, and a
+    /// private one, which Nexus never indexes. The owner comes from the address, so another
+    /// user's file is theirs.
     pub fn parse_uri(uri: &str) -> Option<(PubkyId, Self)> {
-        let parsed = ParsedUri::try_from(uri).ok()?;
-        match parsed.resource {
-            Resource::File(filename) if parsed.visibility == Visibility::Public => {
-                Some((parsed.user_id, Self::v1(filename)))
-            }
-            Resource::Foreign { .. } => {
-                let parsed = legacy_v0::ParsedUri::try_from(uri).ok()?;
-                let legacy_v0::Resource::File(file_id) = parsed.resource else {
-                    return None;
-                };
-                let file_id = FileId::try_from(file_id).ok()?;
-                Some((parsed.user_id, Self::Legacy(file_id)))
-            }
-            _ => None,
+        match ParsedUri::try_from(uri) {
+            Ok(parsed) => match parsed.resource {
+                Resource::File(filename) if parsed.visibility == Visibility::Public => {
+                    Some((parsed.user_id, Self::v1(filename)))
+                }
+                Resource::Foreign { .. } => Self::parse_v0_uri(uri),
+                _ => None,
+            },
+            Err(_) => Self::parse_v0_uri(uri),
         }
+    }
+
+    /// A `pubky.app` file address, read by the v0 parser, or `None` for anything else.
+    fn parse_v0_uri(uri: &str) -> Option<(PubkyId, Self)> {
+        let parsed = legacy_v0::ParsedUri::try_from(uri).ok()?;
+        let legacy_v0::Resource::File(file_id) = parsed.resource else {
+            return None;
+        };
+        let file_id = FileId::try_from(file_id).ok()?;
+        Some((parsed.user_id, Self::Legacy(file_id)))
     }
 
     /// A v1 file by the `{hash}.{ext}` the crate's reader handed back: the extension is what
@@ -74,9 +111,23 @@ impl FileRef {
     }
 }
 
+/// The content type a `social/v1` file is served under, read off the extension in its address.
+/// A v1 file carries no declared type, so the extension is all an address says about its
+/// bytes: this reads the crate's frozen `MIME_TO_EXT` backwards, the first row naming `ext`,
+/// else `application/octet-stream`. So `xml` is `application/xml`, the row before `text/xml`,
+/// and `bin`, which the crate gives every type it does not map, is octet-stream, as its own
+/// comment says. Case-sensitive, as the crate's strip set is: `JPG` is no extension.
+pub fn content_type_for_ext(ext: &str) -> &'static str {
+    MIME_TO_EXT
+        .iter()
+        .find(|(_, mapped)| *mapped == ext)
+        .map_or("application/octet-stream", |(content_type, _)| content_type)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pubky_social_specs::mime_to_ext;
 
     const OWNER: &str = "y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy";
     /// A canonical hash id: blake3 over `[1, 2]`, first 16 bytes, Crockford.
@@ -134,6 +185,57 @@ mod tests {
             );
         }
     }
+
+    // The longest id either form admits is a hash with the longest extension; one character
+    // more is refused before any parser sees it, and the 400 does not echo it.
+    #[test]
+    fn test_an_id_longer_than_any_file_name_is_refused_unparsed() {
+        assert_eq!(HASH.len(), HASH_ID_LEN);
+        let longest = format!("{HASH}.{}", "x".repeat(longest_extension()));
+        assert_eq!(longest.len(), MAX_FILE_ID_LEN);
+        // Admitted by the length check, refused by the parser: an unknown extension.
+        assert!(matches!(parse(&longest), Err(Error::InvalidInput { .. })));
+
+        let too_long = format!("{longest}x");
+        match parse(&too_long) {
+            Err(Error::InvalidInput { message }) => {
+                assert!(
+                    !message.contains(HASH),
+                    "the raw id is not echoed: {message}"
+                );
+            }
+            other => panic!("expected invalid input, got {other:?}"),
+        }
+    }
+
+    // Every extension the crate's parser accepts has a content type, and it is the one the
+    // crate maps back to that extension, so the type a v1 file is served under names the
+    // extension its uploader was given. The two extensions with a choice are pinned: `xml` is
+    // the first row, `bin` is octet-stream.
+    #[test]
+    fn test_content_type_for_ext_inverts_the_crate_map() {
+        for ext in STRIP_SET {
+            let content_type = content_type_for_ext(ext);
+            assert_eq!(mime_to_ext(content_type), *ext, "{ext}: {content_type}");
+        }
+        assert_eq!(content_type_for_ext("xml"), "application/xml");
+        assert_eq!(content_type_for_ext("bin"), "application/octet-stream");
+        assert_eq!(content_type_for_ext("png"), "image/png");
+        assert_eq!(content_type_for_ext("mp3"), "audio/mpeg");
+    }
+
+    // An extension outside the map is unknown content, like `bin`; the strip set is
+    // case-sensitive, so a cased one is too.
+    #[test]
+    fn test_unknown_extension_is_octet_stream() {
+        for ext in ["JPG", "Png", "tar", "gz", "", "."] {
+            assert_eq!(
+                content_type_for_ext(ext),
+                "application/octet-stream",
+                "{ext:?}"
+            );
+        }
+    }
 }
 
 #[cfg(test)]
@@ -168,9 +270,26 @@ mod parse_uri_tests {
         );
     }
 
+    // A v0 file address in a loose spelling the v0 parser accepts, with a trailing slash, a
+    // query or a fragment, is still a v0 file: the v1 parser refuses it, and the v0 one is the
+    // reader the avatar always had.
+    #[test]
+    fn test_a_loose_v0_file_address_falls_through_to_the_v0_parser() {
+        for uri in [
+            format!("pubky://{OWNER}/pub/pubky.app/files/{TSID}/"),
+            format!("pubky://{OWNER}/pub/pubky.app/files/{TSID}?x"),
+            format!("pubky://{OWNER}/pub/pubky.app/files/{TSID}#x"),
+        ] {
+            let (owner, file) = FileRef::parse_uri(&uri).unwrap_or_else(|| panic!("{uri}"));
+            assert_eq!(owner.to_string(), OWNER, "{uri}");
+            assert!(matches!(file, FileRef::Legacy(id) if &*id == TSID), "{uri}");
+        }
+    }
+
     // Nothing Nexus holds: a web URL, another app's object, an address of either epoch that is
     // not a file, a v0 blob, a private v1 file, a v0 file address with an id of the wrong shape,
-    // and a v1 file name the reader does not accept.
+    // a v1 file name the reader does not accept, and a v1 address in a loose spelling, which
+    // neither parser accepts.
     #[test]
     fn test_addresses_that_name_no_file_nexus_holds_are_none() {
         let rejected = [
@@ -186,6 +305,8 @@ mod parse_uri_tests {
             format!("pubky://{OWNER}/pub/pubky.app/files/ABCDEFG"),
             format!("pubky://{OWNER}/pub/social/v1/files/{HASH}.JPG"),
             format!("pubky://{OWNER}/pub/social/v1/files/{HASH}"),
+            format!("pubky://{OWNER}/pub/social/v1/files/{HASH}.png/"),
+            format!("pubky://{OWNER}/pub/social/v1/files/{HASH}.png?x"),
             format!("pubky://{OWNER}/pub/"),
             String::new(),
         ];

@@ -14,9 +14,9 @@ use crate::events::route::resolve_reference;
 use crate::events::translation::{TranslatedDel, TranslatedPut};
 use pubky_social_specs::legacy_v0::traits::Validatable;
 use pubky_social_specs::legacy_v0::{
-    ExtendedParsedUri, ParsedUri, PubkyAppBlob, PubkyAppBookmark, PubkyAppCollectionContent,
-    PubkyAppFile, PubkyAppFollow, PubkyAppPost, PubkyAppPostKind, PubkyAppTag, PubkyAppUser,
-    PubkyAppUserLink, Resource,
+    validate_crockford_id, ExtendedParsedUri, ParsedUri, PubkyAppBlob, PubkyAppBookmark,
+    PubkyAppCollectionContent, PubkyAppFile, PubkyAppFollow, PubkyAppPost, PubkyAppPostKind,
+    PubkyAppTag, PubkyAppUser, PubkyAppUserLink, Resource,
 };
 
 /// Reads `bytes` with the frozen v0 reader for the resource `parsed` names and pairs the
@@ -84,8 +84,11 @@ pub fn translate_put(
 
 /// Maps the ids `parsed` names to the matching delete variant.
 ///
-/// A resource with no handler is [`EventProcessorError::InvalidEventLine`], as in
-/// [`translate_put`].
+/// A file id is checked as the PUT side checks it, with the spec crate's Crockford id
+/// validation, and one that fails is [`EventProcessorError::SpecValidation`], never retried:
+/// the file handler picks the folder to remove by the id's form, a dot meaning a `social/v1`
+/// file, so only an id a validator passed may reach it. A resource with no handler is
+/// [`EventProcessorError::InvalidEventLine`], as in [`translate_put`].
 pub fn translate_del(parsed: &ExtendedParsedUri) -> Result<TranslatedDel, EventProcessorError> {
     let user_id = parsed.user_id().clone();
     Ok(match parsed.resource() {
@@ -106,10 +109,15 @@ pub fn translate_del(parsed: &ExtendedParsedUri) -> Result<TranslatedDel, EventP
             owner_id: user_id,
             resource_id: tag_id.clone(),
         }),
-        Resource::File(file_id) => TranslatedDel::File(ResourceKey {
-            owner_id: user_id,
-            resource_id: file_id.clone(),
-        }),
+        Resource::File(file_id) => {
+            validate_crockford_id(file_id).map_err(|e| {
+                EventProcessorError::SpecValidation(format!("Invalid file id {file_id}: {e}"))
+            })?;
+            TranslatedDel::File(ResourceKey {
+                owner_id: user_id,
+                resource_id: file_id.clone(),
+            })
+        }
         resource @ (Resource::LastRead
         | Resource::Feed(_)
         | Resource::Blob(_)
@@ -1118,6 +1126,26 @@ mod tests {
         ];
         for (path, expected) in cases {
             assert_eq!(translate_del(&target(&path)).unwrap(), expected, "{path}");
+        }
+    }
+
+    /// A file DEL whose id is no 13-character Crockford id is spec validation, a dotted
+    /// `{hash}.{ext}` among them: the file handler picks the folder to remove by the id's
+    /// form, so an unvalidated dotted id would reach its `social/v1` branch.
+    #[test]
+    fn del_file_with_an_id_no_validator_passed_is_spec_validation() {
+        for file_id in [
+            "8Z8CWH8NVYQY39ZEBFGKQWWEKG.png",
+            "0032SSN7Q4EV.png",
+            "ABCDEFG",
+            "UUUUUUUUUUUUU",
+        ] {
+            let path = format!("pubky.app/files/{file_id}");
+            let del = translate_del(&target(&path));
+            assert!(
+                matches!(del, Err(EventProcessorError::SpecValidation(_))),
+                "{file_id}: {del:?}"
+            );
         }
     }
 }

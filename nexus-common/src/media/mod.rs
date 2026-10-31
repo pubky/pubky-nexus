@@ -3,12 +3,12 @@
 //!
 //! Deriving a variant lives in the API (`nexus-webapi`), the only service that does it, and so
 //! does the label a derived variant is served under -- that one belongs beside the processor
-//! that produces the bytes. What stays here is what both services must agree on: a file's variant
-//! URLs are built from the same table the API validates requests against, and the watcher writes
-//! a file into the same folder the API serves it from.
+//! that produces the bytes -- and the content type a `social/v1` file is served under, which
+//! only the API reads off an address. What stays here is what both services must agree on: a
+//! file's variant URLs are built from the same table the API validates requests against, and the
+//! watcher writes a file into the same folder the API serves it from.
 
 use crate::types::DynError;
-use pubky_social_specs::MIME_TO_EXT;
 use serde::{Deserialize, Serialize};
 use std::{
     fmt::Display,
@@ -44,19 +44,6 @@ pub fn file_folder(owner_id: &str, file_id: &str) -> PathBuf {
 /// disagree with the folder it lives in.
 pub fn is_v1_file_id(file_id: &str) -> bool {
     file_id.contains('.')
-}
-
-/// The content type a `social/v1` file is served under, read off the extension in its address.
-/// A v1 file carries no declared type, so the extension is all an address says about its
-/// bytes: this reads the crate's frozen `MIME_TO_EXT` backwards, the first row naming `ext`,
-/// else `application/octet-stream`. So `xml` is `application/xml`, the row before `text/xml`,
-/// and `bin`, which the crate gives every type it does not map, is octet-stream, as its own
-/// comment says. Case-sensitive, as the crate's strip set is: `JPG` is no extension.
-pub fn content_type_for_ext(ext: &str) -> &'static str {
-    MIME_TO_EXT
-        .iter()
-        .find(|(_, mapped)| *mapped == ext)
-        .map_or("application/octet-stream", |(content_type, _)| content_type)
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize, ToSchema, Clone, Copy)]
@@ -150,36 +137,6 @@ pub fn validate_variant_for_content_type(content_type: &str, variant: &FileVaria
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pubky_social_specs::{mime_to_ext, STRIP_SET};
-
-    // Every extension the crate's parser accepts has a content type, and it is the one the
-    // crate maps back to that extension, so the type a v1 file is served under names the
-    // extension its uploader was given. The two extensions with a choice are pinned: `xml` is
-    // the first row, `bin` is octet-stream.
-    #[test]
-    fn test_content_type_for_ext_inverts_the_crate_map() {
-        for ext in STRIP_SET {
-            let content_type = content_type_for_ext(ext);
-            assert_eq!(mime_to_ext(content_type), *ext, "{ext}: {content_type}");
-        }
-        assert_eq!(content_type_for_ext("xml"), "application/xml");
-        assert_eq!(content_type_for_ext("bin"), "application/octet-stream");
-        assert_eq!(content_type_for_ext("png"), "image/png");
-        assert_eq!(content_type_for_ext("mp3"), "audio/mpeg");
-    }
-
-    // An extension outside the map is unknown content, like `bin`; the strip set is
-    // case-sensitive, so a cased one is too.
-    #[test]
-    fn test_unknown_extension_is_octet_stream() {
-        for ext in ["JPG", "Png", "tar", "gz", "", "."] {
-            assert_eq!(
-                content_type_for_ext(ext),
-                "application/octet-stream",
-                "{ext:?}"
-            );
-        }
-    }
 
     // The id form alone decides where a file lives: a `{tsid}` under the owner, a `{hash}.{ext}`
     // under `v1/<owner>`, with the extension kept so two addresses never share a folder.

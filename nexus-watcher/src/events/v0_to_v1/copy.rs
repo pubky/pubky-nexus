@@ -14,10 +14,11 @@
 
 use super::files::{Blob, FileMap};
 use crate::events::handlers::file::{main_path, write_v1_main};
+use crate::events::translation::social_v1::read_v1_file;
 use crate::events::EventProcessorError;
 use nexus_common::media::file_folder;
 use nexus_common::models::takedown::is_taken_down;
-use pubky_social_specs::{file_uri_builder, PubkyId, PubkySocialFile};
+use pubky_social_specs::{file_uri_builder, PubkyId};
 use std::future::Future;
 use std::io::ErrorKind;
 use std::path::Path;
@@ -127,16 +128,12 @@ async fn read_source(
             }
             Err(e) => return Err(EventProcessorError::migration_disk_failed(e)),
         };
-        // Hashing up to the file cap of bytes is CPU work: off the runtime's workers.
-        let hash = blob.hash.clone();
-        match tokio::task::spawn_blocking(move || PubkySocialFile::from_vec(bytes, &hash))
-            .await
-            .map_err(EventProcessorError::internal_error)?
-        {
-            Ok(file) => return Ok(Some(file.0)),
-            Err(reason) => {
+        match read_v1_file(bytes, &blob.hash).await {
+            Ok(bytes) => return Ok(Some(bytes)),
+            Err(EventProcessorError::SpecValidation(reason)) => {
                 warn!(user_id = %owner, file_id = %tsid, hash = %blob.hash, %reason, "Legacy main does not hash to its blob");
             }
+            Err(e) => return Err(e),
         }
     }
     Ok(None)
@@ -154,8 +151,10 @@ async fn remove_folder(folder: &Path) -> Result<(), EventProcessorError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::events::handlers::file::temp_files;
     use pubky_social_specs::legacy_v0::blob_uri_builder;
     use pubky_social_specs::traits::HashId;
+    use pubky_social_specs::PubkySocialFile;
     use std::collections::HashSet;
     use std::path::PathBuf;
     use std::sync::Mutex;
@@ -238,18 +237,6 @@ mod tests {
         fs::read(main_path(&v1_folder(files_path, hash, ext)))
             .await
             .ok()
-    }
-
-    /// The names left in the watcher's temp folder.
-    async fn temp_files(files_path: &Path) -> Vec<String> {
-        let mut names = Vec::new();
-        let Ok(mut entries) = fs::read_dir(files_path.join("v1").join(".tmp")).await else {
-            return names;
-        };
-        while let Some(entry) = entries.next_entry().await.unwrap() {
-            names.push(entry.file_name().to_string_lossy().into_owned());
-        }
-        names
     }
 
     /// No address is taken down.

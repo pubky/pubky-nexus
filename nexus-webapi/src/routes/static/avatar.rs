@@ -1,7 +1,6 @@
 use std::path::{Path as FsPath, PathBuf};
 
 use super::endpoints::{USER_AVATAR_ROUTE, V1_USER_AVATAR_ROUTE};
-use super::files::v1_file_is_on_disk;
 use super::serve_dir::serve_file_variant;
 use crate::media::MediaFile;
 use crate::models::{FileRef, PubkyId};
@@ -11,7 +10,7 @@ use crate::{Error, Result};
 use axum::extract::{Request, State};
 use axum::http::{header, HeaderValue};
 use axum::response::Response;
-use nexus_common::media::{content_type_for_ext, FileVariant, MediaKind};
+use nexus_common::media::{FileVariant, MediaKind};
 use nexus_common::models::{file::FileDetails, traits::Collection, user::UserDetails};
 use tower_http::services::fs::ServeFileSystemResponseBody;
 use tracing::{debug, warn};
@@ -160,17 +159,11 @@ async fn avatar_file(image_uri: &str, files_path: &FsPath) -> Result<Option<Medi
                 .map(MediaFile::from))
         }
         FileRef::V1 { filename, ext } => {
-            let content_type = content_type_for_ext(&ext);
-            if MediaKind::from_content_type(content_type) != Some(MediaKind::Image) {
+            let file = MediaFile::v1(&owner_id, filename, &ext);
+            if MediaKind::from_content_type(&file.content_type) != Some(MediaKind::Image) {
                 return Ok(None);
             }
-            let file = MediaFile {
-                owner_id: owner_id.to_string(),
-                id: filename,
-                content_type: content_type.to_string(),
-                download_name: None,
-            };
-            Ok(v1_file_is_on_disk(files_path, &file).await?.then_some(file))
+            Ok(file.main_is_on_disk(files_path).await?.then_some(file))
         }
     }
 }

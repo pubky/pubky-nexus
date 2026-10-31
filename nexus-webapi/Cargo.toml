@@ -103,5 +103,9 @@ name = "avatar"
 harness = false
 
 [[bench]]
+name = "v1_static_files"
+harness = false
+
+[[bench]]
 name = "events"
 harness = false

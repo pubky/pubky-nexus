@@ -12,6 +12,8 @@ use std::{
     sync::Arc,
 };
 
+use crate::models::file_ref::content_type_for_ext;
+use crate::models::PubkyId;
 use nexus_common::media::{file_folder, FileVariant, MediaKind};
 use nexus_common::models::file::FileDetails;
 use processors::{
@@ -46,10 +48,35 @@ pub struct MediaFile {
 }
 
 impl MediaFile {
+    /// A `social/v1` file of `owner_id`, from the `{hash}.{ext}` its address names and the
+    /// extension read off it. A v1 file has no node, so its type is the one the extension
+    /// names, and the file name is the only name a download of it can have.
+    pub fn v1(owner_id: &PubkyId, filename: String, ext: &str) -> Self {
+        Self {
+            owner_id: owner_id.to_string(),
+            content_type: content_type_for_ext(ext).to_string(),
+            download_name: Some(filename.clone()),
+            id: filename,
+        }
+    }
+
     /// The folder holding this file's variants, relative to `files_path`. Built by the one
     /// function the watcher writes through, so the API cannot look in a different place.
     pub fn folder(&self) -> PathBuf {
         file_folder(&self.owner_id, &self.id)
+    }
+
+    /// Whether this file's `main` is on disk under `files_path`. For a `social/v1` file it is
+    /// what stands in for the node lookup a v0 file has: every route that serves one checks it
+    /// before asking for a variant, because the variant controller reports `main` as present
+    /// without looking, and a request for a file that is not there must start no conversion.
+    pub async fn main_is_on_disk(&self, files_path: &Path) -> std::io::Result<bool> {
+        fs::try_exists(
+            files_path
+                .join(self.folder())
+                .join(FileVariant::Main.to_string()),
+        )
+        .await
     }
 }
 
@@ -177,6 +204,45 @@ mod tests {
             content_type: content_type.to_string(),
             download_name: None,
         }
+    }
+
+    // The v1 path builds the media file from its address: the type is the extension's, the
+    // download name is the file name, and the folder is the owner's v1 one.
+    #[test]
+    fn test_media_file_v1_is_built_from_its_file_name() {
+        let owner =
+            PubkyId::try_from("y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy").unwrap();
+        let file = MediaFile::v1(&owner, "8Z8CWH8NVYQY39ZEBFGKQWWEKG.png".to_string(), "png");
+        assert_eq!(
+            file,
+            MediaFile {
+                owner_id: owner.to_string(),
+                id: String::from("8Z8CWH8NVYQY39ZEBFGKQWWEKG.png"),
+                content_type: String::from("image/png"),
+                download_name: Some(String::from("8Z8CWH8NVYQY39ZEBFGKQWWEKG.png")),
+            }
+        );
+        assert_eq!(
+            file.folder(),
+            file_folder(owner.as_ref(), "8Z8CWH8NVYQY39ZEBFGKQWWEKG.png")
+        );
+    }
+
+    // `main` on disk is what makes a v1 file exist: absent folder, absent file, present file.
+    #[tokio_shared_rt::test(shared)]
+    async fn test_main_is_on_disk_reads_the_file_folder() {
+        let root = tempfile::TempDir::new().expect("temp dir");
+        let owner =
+            PubkyId::try_from("y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy").unwrap();
+        let file = MediaFile::v1(&owner, "8Z8CWH8NVYQY39ZEBFGKQWWEKG.png".to_string(), "png");
+        assert!(!file.main_is_on_disk(root.path()).await.unwrap());
+
+        let folder = root.path().join(file.folder());
+        fs::create_dir_all(&folder).await.unwrap();
+        assert!(!file.main_is_on_disk(root.path()).await.unwrap());
+
+        fs::write(folder.join("main"), b"bytes").await.unwrap();
+        assert!(file.main_is_on_disk(root.path()).await.unwrap());
     }
 
     // The v0 path builds the media file from its node, and a download keeps the node's name.

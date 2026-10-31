@@ -63,7 +63,7 @@ async fn test_v1_route_serves_both_id_forms() -> Result<()> {
     let filename = seed_v1(files_dir.path(), "png", &png).await?;
 
     let response = get(&app, &v1_route(OWNER, &filename, "main"), None).await?;
-    assert_eq!(served_as(&response, "v1 png"), ("image/png", None));
+    assert_eq!(served_as(&response, "v1 png")?, ("image/png", None));
     assert_eq!(
         header_value(&response, header::CONTENT_LENGTH),
         Some(png.len().to_string().as_str())
@@ -110,7 +110,7 @@ async fn test_v1_route_serves_each_variant_of_a_v1_image() -> Result<()> {
         ("small", "image/webp"),
     ] {
         let response = get(&app, &v1_route(OWNER, &filename, variant), None).await?;
-        assert_eq!(served_as(&response, variant), (content_type, None));
+        assert_eq!(served_as(&response, variant)?, (content_type, None));
         assert!(
             try_exists(
                 files_dir
@@ -219,7 +219,7 @@ async fn test_v1_route_serves_each_extension_under_the_serving_rule() -> Result<
         let filename = seed_v1(files_dir.path(), ext, format!("{ext} bytes").as_bytes()).await?;
         let response = get(&app, &v1_route(OWNER, &filename, "main"), None).await?;
         assert_eq!(
-            served_as(&response, ext),
+            served_as(&response, ext)?,
             (*content_type, *disposition),
             "{ext}"
         );
@@ -237,12 +237,12 @@ async fn test_v1_route_svg_main_downloads_and_its_derived_variant_displays() -> 
 
     let main = get(&app, &v1_route(OWNER, &filename, "main"), None).await?;
     assert_eq!(
-        served_as(&main, "svg main"),
+        served_as(&main, "svg main")?,
         ("image/svg+xml", Some("attachment"))
     );
 
     let small = get(&app, &v1_route(OWNER, &filename, "small"), None).await?;
-    assert_eq!(served_as(&small, "svg small"), ("image/webp", None));
+    assert_eq!(served_as(&small, "svg small")?, ("image/webp", None));
     Ok(())
 }
 
@@ -264,7 +264,7 @@ async fn test_v1_route_legacy_mixed_case_html_downloads() -> Result<()> {
     let outcome = async {
         let response = get(&app, &v1_route(OWNER, &file.details.id, "main"), None).await?;
         anyhow::ensure!(
-            served_as(&response, "legacy html") == ("Text/HTML; charset=x", Some("attachment")),
+            served_as(&response, "legacy html")? == ("Text/HTML; charset=x", Some("attachment")),
             "a bare attachment under the declared type"
         );
         Ok::<(), anyhow::Error>(())
@@ -290,7 +290,7 @@ async fn test_v1_route_dl_names_the_file_after_its_address() -> Result<()> {
             None,
         )
         .await?;
-        let (_, disposition) = served_as(&response, ext);
+        let (_, disposition) = served_as(&response, ext)?;
         assert_eq!(
             disposition,
             Some(format!("attachment; filename=\"{filename}\"").as_str()),
@@ -310,7 +310,7 @@ async fn test_v1_route_video_range_request_returns_206() -> Result<()> {
 
     let response = get(&app, &v1_route(OWNER, &filename, "main"), Some("bytes=0-3")).await?;
     assert_eq!(response.status(), StatusCode::PARTIAL_CONTENT);
-    assert_eq!(served_as(&response, "video range"), ("video/mp4", None));
+    assert_eq!(served_as(&response, "video range")?, ("video/mp4", None));
     assert_eq!(
         header_value(&response, header::CONTENT_RANGE),
         Some("bytes 0-3/16")

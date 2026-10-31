@@ -11,7 +11,7 @@ use axum::{
 use nexus_common::media::FileVariant;
 use pubky_social_specs::essence;
 use tower_http::services::{fs::ServeFileSystemResponseBody, ServeDir};
-use tracing::error;
+use tracing::{error, warn};
 
 static SERVE_DIR_INSTANCE: OnceLock<ServeDir> = OnceLock::new();
 
@@ -93,7 +93,9 @@ impl PubkyServeDir {
 /// and a variant whose served type is not one of [`INLINE_CONTENT_TYPES`] is offered as a bare
 /// `Content-Disposition: attachment`, with no filename, since a non-ASCII name would not fit the
 /// header. If `download` is true (`?dl=`), the response is an attachment under the file's download
-/// name when it has one, whatever its type.
+/// name when it has one, whatever its type; a name the header cannot carry, one with a control
+/// character, falls back to the bare `attachment` with a warning, never a 500: the name is the
+/// uploader's, and a read answers for it with a download, not an error.
 pub async fn serve_file_variant(
     request: Request<Body>,
     file: &MediaFile,
@@ -127,9 +129,12 @@ pub async fn serve_file_variant(
         let content_disposition = match &file.download_name {
             Some(filename) if download => {
                 let named = format!("attachment; filename=\"{filename}\"");
-                named
-                    .parse()
-                    .inspect_err(|_| error!("Invalid content disposition header: {named}"))?
+                named.parse().unwrap_or_else(|_| {
+                    warn!(
+                        "File name {filename:?} does not fit a Content-Disposition header; sending a bare attachment"
+                    );
+                    HeaderValue::from_static("attachment")
+                })
             }
             _ => HeaderValue::from_static("attachment"),
         };

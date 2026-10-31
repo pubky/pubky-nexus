@@ -4,7 +4,7 @@
 //! disk, so each row is a real request and its headers.
 
 use crate::utils::server::TestServiceServer;
-use anyhow::Result;
+use anyhow::{ensure, Result};
 use axum::body::Body;
 use axum::http::{header, Request, Response, StatusCode};
 use axum::Router;
@@ -113,26 +113,26 @@ pub(crate) fn header_value(response: &Response<Body>, name: header::HeaderName) 
     response.headers().get(name).and_then(|v| v.to_str().ok())
 }
 
-/// The headers the rule decides: `(content-type, content-disposition)`, after asserting the
-/// response is a success that carries `nosniff`.
+/// The headers the rule decides: `(content-type, content-disposition)`, after checking the
+/// response is a success that carries `nosniff`. An error, not a panic, so a failing row still
+/// reaches the cleanup that removes the files the test seeded.
 pub(crate) fn served_as<'a>(
     response: &'a Response<Body>,
     what: &str,
-) -> (&'a str, Option<&'a str>) {
-    assert!(
+) -> Result<(&'a str, Option<&'a str>)> {
+    ensure!(
         response.status().is_success(),
         "{what}: expected a success, got {}",
         response.status()
     );
-    assert_eq!(
-        header_value(response, header::X_CONTENT_TYPE_OPTIONS),
-        Some("nosniff"),
+    ensure!(
+        header_value(response, header::X_CONTENT_TYPE_OPTIONS) == Some("nosniff"),
         "{what}: every file response carries nosniff"
     );
-    (
+    Ok((
         header_value(response, header::CONTENT_TYPE).unwrap_or_default(),
         header_value(response, header::CONTENT_DISPOSITION),
-    )
+    ))
 }
 
 // Each inline type displays, with no `Content-Disposition`; HTML, SVG, a script type, a malformed
@@ -179,7 +179,7 @@ async fn test_main_displays_inline_types_and_downloads_the_rest() -> Result<()> 
     let outcome = async {
         for (file, (content_type, disposition)) in seeded.iter().zip(rows) {
             let response = get(&app, &file.path("main"), None).await?;
-            let (served_type, served_disposition) = served_as(&response, content_type);
+            let (served_type, served_disposition) = served_as(&response, content_type)?;
             anyhow::ensure!(
                 served_type == *content_type,
                 "{content_type}: main is served under the declared type, got {served_type}"
@@ -217,13 +217,13 @@ async fn test_svg_main_downloads_and_its_derived_variant_displays() -> Result<()
     let outcome = async {
         let main = get(&app, &file.path("main"), None).await?;
         anyhow::ensure!(
-            served_as(&main, "svg main") == ("image/svg+xml", Some("attachment")),
+            served_as(&main, "svg main")? == ("image/svg+xml", Some("attachment")),
             "svg main downloads under its own type"
         );
 
         let small = get(&app, &file.path("small"), None).await?;
         anyhow::ensure!(
-            served_as(&small, "svg small") == ("image/webp", None),
+            served_as(&small, "svg small")? == ("image/webp", None),
             "the derived variant is webp and displays"
         );
         Ok::<(), anyhow::Error>(())
@@ -252,7 +252,7 @@ async fn test_non_ascii_name_does_not_fail_a_forced_download() -> Result<()> {
     let outcome = async {
         let response = get(&app, &file.path("main"), None).await?;
         anyhow::ensure!(
-            served_as(&response, "non-ascii name") == ("text/html", Some("attachment")),
+            served_as(&response, "non-ascii name")? == ("text/html", Some("attachment")),
             "a bare attachment, whatever the file is named"
         );
         Ok::<(), anyhow::Error>(())
@@ -289,7 +289,7 @@ async fn test_dl_param_keeps_the_file_name() -> Result<()> {
     let outcome = async {
         for (file, name) in [(&plain, "notes.txt"), (&page, "page.html")] {
             let response = get(&app, &format!("{}?dl", file.path("main")), None).await?;
-            let (_, disposition) = served_as(&response, name);
+            let (_, disposition) = served_as(&response, name)?;
             anyhow::ensure!(
                 disposition == Some(format!("attachment; filename=\"{name}\"").as_str()),
                 "{name}: ?dl= names the file, got {disposition:?}"
@@ -301,6 +301,35 @@ async fn test_dl_param_keeps_the_file_name() -> Result<()> {
 
     plain.remove().await?;
     page.remove().await?;
+    outcome
+}
+
+// A `?dl=` name the header cannot carry, one with a control character, is not a 500: the
+// download falls back to the bare attachment a forced download of an unnamed file gets.
+#[tokio_shared_rt::test(shared)]
+async fn test_dl_name_the_header_cannot_carry_falls_back_to_a_bare_attachment() -> Result<()> {
+    let files_dir = TempDir::new()?;
+    let app = test_app(files_dir.path()).await;
+    let file = SeededFile::create(
+        files_dir.path(),
+        &file_id(25),
+        "notes\u{7}.txt",
+        "text/plain",
+        b"hi",
+    )
+    .await?;
+
+    let outcome = async {
+        let response = get(&app, &format!("{}?dl", file.path("main")), None).await?;
+        anyhow::ensure!(
+            served_as(&response, "control character name")? == ("text/plain", Some("attachment")),
+            "a bare attachment when the name does not fit the header"
+        );
+        Ok::<(), anyhow::Error>(())
+    }
+    .await;
+
+    file.remove().await?;
     outcome
 }
 
@@ -327,7 +356,7 @@ async fn test_video_range_request_returns_206() -> Result<()> {
             response.status()
         );
         anyhow::ensure!(
-            served_as(&response, "video range") == ("video/mp4", None),
+            served_as(&response, "video range")? == ("video/mp4", None),
             "the partial video displays inline"
         );
         anyhow::ensure!(

@@ -166,8 +166,9 @@ async fn test_user_avatar_endpoint() -> Result<()> {
 
 // Every row of the avatar table, through both mounts, on one profile whose `image` is set per
 // row. An image file Nexus holds is served as its small variant from the file owner's folder,
-// legacy or v1, the owner read off the address; anything else is a 404, never a redirect or a
-// fetch. A v1 image not on disk is a 404 that starts no conversion.
+// legacy or v1, the owner read off the address; a v0 address in a loose spelling the v0 parser
+// accepts, with a trailing slash or a query, is still that file; anything else is a 404, never
+// a redirect or a fetch. A v1 image not on disk is a 404 that starts no conversion.
 #[tokio_shared_rt::test(shared)]
 async fn test_user_avatar_serves_each_row_of_the_image_table() -> Result<()> {
     let client = httpc_test::new_client(host_url().await)?;
@@ -197,6 +198,16 @@ async fn test_user_avatar_serves_each_row_of_the_image_table() -> Result<()> {
 
     // (the case, the profile's `image`, the status both mounts answer)
     let rows: Vec<(&str, Option<String>, u16)> = vec![
+        (
+            "another user's v0 file with a trailing slash",
+            Some(format!("{legacy_other}/")),
+            200,
+        ),
+        (
+            "another user's v0 file with a query",
+            Some(format!("{legacy_other}?x")),
+            200,
+        ),
         ("another user's v0 file", Some(legacy_other), 200),
         ("own v1 image", Some(own_v1), 200),
         ("another user's v1 image", Some(other_v1), 200),

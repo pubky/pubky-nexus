@@ -4,6 +4,7 @@
 //! same way.
 
 use crate::events::translation::legacy_v0::read_blob;
+use crate::events::translation::social_v1::read_v1_file;
 use crate::events::EventProcessorError;
 use crate::homeserver::HomeserverClient;
 
@@ -11,7 +12,7 @@ use nexus_common::media::{file_folder, is_v1_file_id, FileVariant, V1_FILES_DIR}
 use nexus_common::models::user::UserIngestor;
 use nexus_common::models::{file::FileDetails, traits::Collection};
 use pubky::PubkyResource;
-use pubky_social_specs::{file_uri_builder, PubkyId, PubkySocialFile};
+use pubky_social_specs::{file_uri_builder, PubkyId};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::fs::{self, remove_dir_all};
@@ -103,8 +104,9 @@ async fn write_main_variant(dir: &Path, bytes: &[u8]) -> std::io::Result<()> {
 /// is checked against the blacklist; the bytes are fetched under the file cap, over it being
 /// [`EventProcessorError::FetchSizeExceeded`]; bytes that don't hash to the address are
 /// [`EventProcessorError::SpecValidation`], neither retried; a failed write is
-/// [`EventProcessorError::StaticSaveFailed`] and retried, as for a `pubky.app` file. A
-/// homeserver 404 is the fetch error it is for every PUT.
+/// [`EventProcessorError::StaticSaveFailed`] and retried, as for a `pubky.app` file, and so is
+/// a check for `main` that fails other than by absence, mapped here and not left to the
+/// catch-all conversion. A homeserver 404 is the fetch error it is for every PUT.
 #[tracing::instrument(name = "file.put_v1", skip_all, fields(user_id = %key.owner_id, file_id = %key.resource_id))]
 pub async fn sync_put_v1(
     key: ResourceKey,
@@ -114,7 +116,10 @@ pub async fn sync_put_v1(
     client: &dyn HomeserverClient,
 ) -> Result<(), EventProcessorError> {
     let folder = files_path.join(file_folder(key.owner_id.as_ref(), &key.resource_id));
-    if fs::try_exists(main_path(&folder)).await? {
+    if fs::try_exists(main_path(&folder))
+        .await
+        .map_err(EventProcessorError::static_save_failed)?
+    {
         debug!("File is already on disk; nothing to fetch");
         return Ok(());
     }
@@ -127,16 +132,9 @@ pub async fn sync_put_v1(
 
     let source: PubkyResource =
         file_uri_builder(key.owner_id.to_string(), key.resource_id.clone()).parse()?;
-    let bytes = client.get_blob(&source).await?;
+    let bytes = read_v1_file(client.get_blob(&source).await?, hash).await?;
 
-    // Hashing up to the file cap of bytes is CPU work: off the runtime's workers.
-    let hash = hash.to_string();
-    let file = tokio::task::spawn_blocking(move || PubkySocialFile::from_vec(bytes, &hash))
-        .await
-        .map_err(EventProcessorError::internal_error)?
-        .map_err(EventProcessorError::SpecValidation)?;
-
-    write_v1_main(files_path, &folder, &file.0)
+    write_v1_main(files_path, &folder, &bytes)
         .await
         .map_err(EventProcessorError::static_save_failed)
 }
@@ -150,7 +148,9 @@ pub(crate) fn main_path(folder: &Path) -> PathBuf {
 /// `files_path`: into a temp file in `files_path/v1/.tmp` first, then a rename into place.
 /// Never a direct write: a crash leaves no partial file under the final name, so an existing
 /// `main` always means a complete one, and a `main` being served is replaced whole, never
-/// truncated while a reader has it open. The temp file is removed when the write fails.
+/// truncated while a reader has it open. The folder is made only once the temp file is
+/// written, right before the rename, so a failed write leaves no empty folder under the final
+/// name; a failed rename removes the temp file, and the folder too when this call made it.
 ///
 /// The flip's copy writes through here too, so both writers leave the same thing on disk.
 pub(crate) async fn write_v1_main(
@@ -160,7 +160,6 @@ pub(crate) async fn write_v1_main(
 ) -> std::io::Result<()> {
     let temp_dir = files_path.join(V1_FILES_DIR).join(V1_TEMP_DIR);
     fs::create_dir_all(&temp_dir).await?;
-    fs::create_dir_all(folder).await?;
 
     let name = folder
         .file_name()
@@ -172,22 +171,58 @@ pub(crate) async fn write_v1_main(
         TEMP_FILE_SEQ.fetch_add(1, Ordering::Relaxed)
     ));
 
-    let written = async {
+    let renamed = async {
         fs::write(&temp_path, bytes).await?;
-        fs::rename(&temp_path, main_path(folder)).await
+        let created = create_folder(folder).await?;
+        let renamed = fs::rename(&temp_path, main_path(folder)).await;
+        if renamed.is_err() && created {
+            // Only an empty folder goes: a rename that failed put nothing into it.
+            let _ = fs::remove_dir(folder).await;
+        }
+        renamed
     }
     .await;
-    if written.is_err() {
+    if renamed.is_err() {
         // Best effort: a temp file left behind holds no address, so nothing serves it.
         let _ = fs::remove_file(&temp_path).await;
     }
-    written
+    renamed
+}
+
+/// Makes `folder`, and its parents; `true` when this call made the folder itself, `false` when
+/// it was there already.
+async fn create_folder(folder: &Path) -> std::io::Result<bool> {
+    if let Some(parent) = folder.parent() {
+        fs::create_dir_all(parent).await?;
+    }
+    match fs::create_dir(folder).await {
+        Ok(()) => Ok(true),
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Ok(false),
+        Err(e) => Err(e),
+    }
+}
+
+/// The names left in the watcher's temp folder under `files_path`; for the tests of both
+/// writers through [`write_v1_main`], the handler's and the flip's copy.
+#[cfg(test)]
+pub(crate) async fn temp_files(files_path: &Path) -> Vec<String> {
+    let mut names = Vec::new();
+    let Ok(mut entries) = fs::read_dir(files_path.join(V1_FILES_DIR).join(V1_TEMP_DIR)).await
+    else {
+        return names;
+    };
+    while let Some(entry) = entries.next_entry().await.unwrap() {
+        names.push(entry.file_name().to_string_lossy().into_owned());
+    }
+    names
 }
 
 /// Deletes the file `key` names, of either epoch, picking what to remove by the id. A
 /// `social/v1` file has no `File` node: its folder goes, and nothing else, so a DEL of `H.png`
 /// leaves `H.bin` and every legacy folder alone. A `pubky.app` file's node and folder go.
-/// Deleting what isn't there is a no-op either way.
+/// Deleting what isn't there is a no-op either way; a removal that fails otherwise is
+/// [`EventProcessorError::StaticSaveFailed`], a counted retry as for a failed write, mapped
+/// here and not left to the catch-all conversion.
 #[tracing::instrument(name = "file.del", skip_all, fields(user_id = %key.owner_id, file_id = %key.resource_id))]
 pub async fn del(key: ResourceKey, files_path: &Path) -> Result<(), EventProcessorError> {
     debug!("Deleting file");
@@ -208,7 +243,7 @@ pub async fn del(key: ResourceKey, files_path: &Path) -> Result<(), EventProcess
     match remove_dir_all(full_path.as_path()).await {
         Ok(_) => Ok(()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(e) => Err(e.into()),
+        Err(e) => Err(EventProcessorError::static_save_failed(e)),
     }
 }
 
@@ -277,18 +312,6 @@ mod tests {
         files_path.join(file_folder("owner", "8Z8CWH8NVYQY39ZEBFGKQWWEKG.png"))
     }
 
-    /// The names left in the watcher's temp folder.
-    async fn temp_files(files_path: &Path) -> Vec<String> {
-        let mut names = Vec::new();
-        let Ok(mut entries) = fs::read_dir(files_path.join("v1").join(".tmp")).await else {
-            return names;
-        };
-        while let Some(entry) = entries.next_entry().await.unwrap() {
-            names.push(entry.file_name().to_string_lossy().into_owned());
-        }
-        names
-    }
-
     /// A write lands as `main` in the file's folder, inside `v1/`, and leaves nothing in the
     /// temp folder: the temp file is consumed by the rename.
     #[tokio_shared_rt::test(shared)]
@@ -326,8 +349,41 @@ mod tests {
         assert!(temp_files(tmp_dir.path()).await.is_empty());
     }
 
+    /// A failed temp write leaves nothing under the final name: the folder is made only once
+    /// the temp file is written, so a write that fails, here into a temp folder that cannot be
+    /// written, leaves no empty folder, not even the owner's, for a reader to find.
+    #[cfg(unix)]
+    #[tokio_shared_rt::test(shared)]
+    async fn write_v1_main_failed_temp_write_leaves_no_folder_under_the_final_name() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let tmp_dir = tempfile::TempDir::new().unwrap();
+        let folder = v1_folder(tmp_dir.path());
+        let temp_dir = tmp_dir.path().join(V1_FILES_DIR).join(V1_TEMP_DIR);
+        fs::create_dir_all(&temp_dir).await.unwrap();
+        fs::set_permissions(&temp_dir, std::fs::Permissions::from_mode(0o555))
+            .await
+            .unwrap();
+
+        let result = write_v1_main(tmp_dir.path(), &folder, b"hello world").await;
+
+        fs::set_permissions(&temp_dir, std::fs::Permissions::from_mode(0o755))
+            .await
+            .unwrap();
+        result.expect_err("the failed temp write is reported");
+        assert!(!folder.exists(), "no folder is made under the final name");
+        assert!(
+            !tmp_dir.path().join(V1_FILES_DIR).join("owner").exists(),
+            "nor the owner's folder"
+        );
+        assert!(temp_files(tmp_dir.path()).await.is_empty());
+    }
+
     /// A failed rename reports its error and removes the temp file, so a failure leaves no
-    /// partial file under the final name and nothing in the temp folder.
+    /// partial file under the final name and nothing in the temp folder. The folder was there
+    /// before the call, so it stays: only a folder this call made is removed, and no file
+    /// system state makes a rename into a folder just made fail, so that branch holds by
+    /// construction.
     #[tokio_shared_rt::test(shared)]
     async fn write_v1_main_propagates_io_error_and_leaves_no_temp_file() {
         let tmp_dir = tempfile::TempDir::new().unwrap();
@@ -343,6 +399,10 @@ mod tests {
             .expect_err("the failed rename is reported");
 
         assert!(main_path(&folder).is_dir(), "nothing was written over it");
+        assert!(
+            folder.is_dir(),
+            "a folder that was there before the call stays"
+        );
         assert!(
             temp_files(tmp_dir.path()).await.is_empty(),
             "the temp file is removed on failure"
