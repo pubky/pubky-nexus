@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use super::endpoints::USER_AVATAR_ROUTE;
 use super::serve_dir::serve_file_variant;
+use crate::media::MediaFile;
 use crate::models::PubkyId;
 use crate::routes::AppState;
 use crate::routes::Path;
@@ -61,6 +62,7 @@ pub async fn user_avatar_handler(
     let Some(file_details) = file_list.into_iter().flatten().next() else {
         return Err(Error::FileNotFound {});
     };
+    let file = MediaFile::from(&file_details);
 
     // No permit free: serve the untouched `main` image instead of queueing for one.
     // Queueing could still win a permit before the timeout, but that is not worth up to
@@ -69,7 +71,7 @@ pub async fn user_avatar_handler(
     // variant to disk for every request after it.
     let controller = &app_state.fail_fast_variant_controller;
     let variant = match controller
-        .ensure_variant(&file_details, &FileVariant::Small, file_path)
+        .ensure_variant(&file, &FileVariant::Small, file_path)
         .await
     {
         Ok(_) => FileVariant::Small,
@@ -82,7 +84,7 @@ pub async fn user_avatar_handler(
 
     let mut response = serve_file_variant(
         request,
-        &file_details,
+        &file,
         &variant,
         file_path.clone(),
         false,

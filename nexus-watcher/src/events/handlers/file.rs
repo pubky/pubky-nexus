@@ -1,7 +1,7 @@
 use crate::events::EventProcessorError;
 use crate::homeserver::HomeserverClient;
 
-use nexus_common::media::FileVariant;
+use nexus_common::media::{file_folder, FileVariant};
 use nexus_common::models::user::UserIngestor;
 use nexus_common::models::{file::FileDetails, traits::Collection};
 use pubky::PubkyResource;
@@ -63,8 +63,7 @@ async fn ingest(
     let source: PubkyResource = file_src.parse()?;
     let blob = client.get_blob(&source).await?;
 
-    let path = Path::new(&user_id.to_string()).join(file_id);
-    let full_path = files_path.join(&path);
+    let full_path = files_path.join(file_folder(user_id.as_ref(), file_id));
     let pubky_app_object = PubkyAppObject::from_resource(&parsed_source_uri.resource, &blob)
         .map_err(EventProcessorError::generic)?;
 
@@ -116,8 +115,7 @@ pub async fn del(key: ResourceKey, files_path: &Path) -> Result<(), EventProcess
         file_details.delete().await?;
     }
 
-    let folder_path = Path::new(&key.owner_id.to_string()).join(&key.resource_id);
-    let full_path = files_path.join(folder_path);
+    let full_path = files_path.join(file_folder(key.owner_id.as_ref(), &key.resource_id));
 
     match remove_dir_all(full_path.as_path()).await {
         Ok(_) => Ok(()),

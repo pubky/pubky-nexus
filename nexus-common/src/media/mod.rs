@@ -1,15 +1,41 @@
-//! Shared media vocabulary: the variant names, and the table of which variants a content type
-//! has.
+//! Shared media vocabulary: the variant names, the table of which variants a content type has,
+//! and the folder a file lives in on disk.
 //!
 //! Deriving a variant lives in the API (`nexus-webapi`), the only service that does it, and so
 //! does the label a derived variant is served under -- that one belongs beside the processor
 //! that produces the bytes. What stays here is what both services must agree on: a file's variant
-//! URLs are built from the same table the API validates requests against.
+//! URLs are built from the same table the API validates requests against, and the watcher writes
+//! a file into the same folder the API serves it from.
 
 use crate::types::DynError;
 use serde::{Deserialize, Serialize};
-use std::{fmt::Display, str::FromStr};
+use std::{
+    fmt::Display,
+    path::{Path, PathBuf},
+    str::FromStr,
+};
 use utoipa::ToSchema;
+
+/// The folder under `files_path` that holds every `social/v1` file, one owner folder inside it.
+/// It cannot clash with an owner folder: an owner id is 52 characters.
+pub const V1_FILES_DIR: &str = "v1";
+
+/// The folder a file's variants live in, relative to `files_path`. The one place the layout is
+/// decided: the watcher writes a file through it and the API reads through it, and no test
+/// crosses the two, so this is what keeps them in agreement.
+///
+/// The id form picks the folder. A `{tsid}`, with no dot, is a v0 file at `<owner>/<tsid>/`. A
+/// `{hash}.{ext}`, with a dot, is a `social/v1` file at `v1/<owner>/{hash}.{ext}/`. The extension
+/// stays in the folder name because `H.png` and `H.bin` are two files on the homeserver: a DEL
+/// of one must leave the other, and a folder exists only for an address that was uploaded.
+pub fn file_folder(owner_id: &str, file_id: &str) -> PathBuf {
+    let owner_folder = if file_id.contains('.') {
+        Path::new(V1_FILES_DIR).join(owner_id)
+    } else {
+        PathBuf::from(owner_id)
+    };
+    owner_folder.join(file_id)
+}
 
 #[derive(Debug, PartialEq, Serialize, Deserialize, ToSchema, Clone, Copy)]
 #[serde(rename_all = "lowercase")]
@@ -102,6 +128,24 @@ pub fn validate_variant_for_content_type(content_type: &str, variant: &FileVaria
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // The id form alone decides where a file lives: a `{tsid}` under the owner, a `{hash}.{ext}`
+    // under `v1/<owner>`, with the extension kept so two addresses never share a folder.
+    #[test]
+    fn test_file_folder_is_picked_by_the_id_form() {
+        assert_eq!(
+            file_folder("owner", "0032SSN7Q4EVG"),
+            Path::new("owner/0032SSN7Q4EVG")
+        );
+        assert_eq!(
+            file_folder("owner", "0032SSN7Q4EVG.png"),
+            Path::new("v1/owner/0032SSN7Q4EVG.png")
+        );
+        assert_eq!(
+            file_folder("owner", "0032SSN7Q4EVG.bin"),
+            Path::new("v1/owner/0032SSN7Q4EVG.bin")
+        );
+    }
 
     // The kind is read off the top-level type, so a content type that only starts with the word
     // is not an image: it must get no derived variants, or the API would be asked for one it

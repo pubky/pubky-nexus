@@ -7,9 +7,12 @@
 //! the table of which variants a content type has are shared with the watcher and stay in
 //! [`nexus_common::media`].
 
-use std::{path::Path, sync::Arc};
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
-use nexus_common::media::{FileVariant, MediaKind};
+use nexus_common::media::{file_folder, FileVariant, MediaKind};
 use nexus_common::models::file::FileDetails;
 use processors::{
     image_variant_content_type, video_variant_content_type, ImageProcessor, VariantProcessor,
@@ -30,6 +33,37 @@ pub use concurrency::{FailFastGate, MediaGate, MediaPermits, QueuedGate};
 pub use processors::MediaProcessorError;
 pub use subprocess::MediaSubprocess;
 
+/// What the media code needs to know about a file: enough to find its folder on disk, to label
+/// the bytes it serves, and to name a download. No more, so a file with no `File` node can be
+/// served too: a v0 file builds this from its node, a `social/v1` file from its address.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MediaFile {
+    pub owner_id: String,
+    pub id: String,
+    pub content_type: String,
+    /// The name a download is saved under, when the file has one.
+    pub download_name: Option<String>,
+}
+
+impl MediaFile {
+    /// The folder holding this file's variants, relative to `files_path`. Built by the one
+    /// function the watcher writes through, so the API cannot look in a different place.
+    pub fn folder(&self) -> PathBuf {
+        file_folder(&self.owner_id, &self.id)
+    }
+}
+
+impl From<&FileDetails> for MediaFile {
+    fn from(file: &FileDetails) -> Self {
+        Self {
+            owner_id: file.owner_id.clone(),
+            id: file.id.clone(),
+            content_type: file.content_type.clone(),
+            download_name: Some(file.name.clone()),
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct VariantController {
     gate: Arc<dyn MediaGate>,
@@ -49,7 +83,7 @@ impl VariantController {
     /// file's own type; a derived variant carries the type its processor produces, which is why
     /// this dispatches to them rather than restating their formats. A kind without a processor
     /// keeps the file's own type too: there is nothing to derive.
-    fn get_content_type_for_variant(file: &FileDetails, variant: &FileVariant) -> String {
+    fn get_content_type_for_variant(file: &MediaFile, variant: &FileVariant) -> String {
         if variant == &FileVariant::Main {
             return file.content_type.clone();
         }
@@ -67,7 +101,7 @@ impl VariantController {
     /// spending either.
     pub async fn ensure_variant(
         &self,
-        file: &FileDetails,
+        file: &MediaFile,
         variant: &FileVariant,
         file_path: &Path,
     ) -> Result<String, MediaProcessorError> {
@@ -80,7 +114,7 @@ impl VariantController {
 
     async fn create_file_variant(
         &self,
-        file: &FileDetails,
+        file: &MediaFile,
         variant: &FileVariant,
         file_path: &Path,
     ) -> Result<String, MediaProcessorError> {
@@ -115,7 +149,7 @@ impl VariantController {
     }
 
     async fn check_variant_exists(
-        file: &FileDetails,
+        file: &MediaFile,
         variant: FileVariant,
         file_path: &Path,
     ) -> bool {
@@ -125,10 +159,7 @@ impl VariantController {
         }
 
         // if file exists, variant has already been created
-        let path = file_path
-            .join(file.owner_id.as_str())
-            .join(file.id.as_str())
-            .join(variant.to_string());
+        let path = file_path.join(file.folder()).join(variant.to_string());
 
         fs::metadata(path).await.is_ok()
     }
@@ -139,11 +170,34 @@ mod tests {
     use super::*;
     use nexus_common::media::get_valid_variants_for_content_type;
 
-    fn make_file(content_type: &str) -> FileDetails {
-        FileDetails {
+    fn make_file(content_type: &str) -> MediaFile {
+        MediaFile {
+            owner_id: String::from("owner"),
+            id: String::from("file"),
             content_type: content_type.to_string(),
-            ..Default::default()
+            download_name: None,
         }
+    }
+
+    // The v0 path builds the media file from its node, and a download keeps the node's name.
+    #[test]
+    fn test_media_file_from_details_keeps_the_download_name() {
+        let details = FileDetails {
+            owner_id: String::from("owner"),
+            id: String::from("file"),
+            content_type: String::from("image/png"),
+            name: String::from("photo.png"),
+            ..Default::default()
+        };
+        assert_eq!(
+            MediaFile::from(&details),
+            MediaFile {
+                owner_id: String::from("owner"),
+                id: String::from("file"),
+                content_type: String::from("image/png"),
+                download_name: Some(String::from("photo.png")),
+            }
+        );
     }
 
     #[test]

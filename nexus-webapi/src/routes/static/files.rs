@@ -11,6 +11,7 @@ use utoipa::OpenApi;
 
 use super::endpoints::STATIC_FILES_ROUTE;
 use super::serve_dir::serve_file_variant;
+use crate::media::MediaFile;
 use crate::models::{FileId, PubkyId};
 use crate::routes::AppState;
 use crate::routes::Path;
@@ -100,7 +101,7 @@ pub async fn static_files_handler(
 
     serve_file_variant(
         request,
-        &file,
+        &MediaFile::from(&file),
         &variant,
         file_path.clone(),
         params.dl.is_some(),

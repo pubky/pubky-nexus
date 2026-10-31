@@ -1,14 +1,14 @@
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
-use crate::media::VariantController;
+use crate::media::{MediaFile, VariantController};
 use crate::Result;
 use axum::{
     body::Body,
     http::{header, HeaderValue, Request, Uri},
     response::Response,
 };
-use nexus_common::{media::FileVariant, models::file::FileDetails};
+use nexus_common::media::FileVariant;
 use tower_http::services::{fs::ServeFileSystemResponseBody, ServeDir};
 use tracing::error;
 
@@ -60,10 +60,11 @@ impl PubkyServeDir {
 }
 
 /// Ensures a file variant exists, serves it, and applies cache headers.
-/// If `download` is true, sets `Content-Disposition: attachment`.
+/// If `download` is true, sets `Content-Disposition: attachment`, with the file's download name
+/// when it has one.
 pub async fn serve_file_variant(
     request: Request<Body>,
-    file: &FileDetails,
+    file: &MediaFile,
     variant: &FileVariant,
     files_path: PathBuf,
     download: bool,
@@ -73,7 +74,8 @@ pub async fn serve_file_variant(
         .ensure_variant(file, variant, &files_path)
         .await?;
 
-    let disk_path = format!("/{}/{}/{variant}", file.owner_id, file.id);
+    // `ServeDir` is rooted at `files_path`, so the request path is the file's folder under it.
+    let disk_path = format!("/{}/{variant}", file.folder().display());
 
     let mut response =
         PubkyServeDir::try_call(request, disk_path, content_type, files_path).await?;
@@ -85,10 +87,13 @@ pub async fn serve_file_variant(
     );
 
     if download {
-        let filename = &file.name;
-        let content_disposition = format!("attachment; filename=\"{filename}\"")
+        let content_disposition = match &file.download_name {
+            Some(filename) => format!("attachment; filename=\"{filename}\""),
+            None => String::from("attachment"),
+        };
+        let content_disposition = content_disposition
             .parse()
-            .inspect_err(|_| error!("Invalid content disposition header: {filename}"))?;
+            .inspect_err(|_| error!("Invalid content disposition header: {content_disposition}"))?;
         headers.insert(header::CONTENT_DISPOSITION, content_disposition);
     }
 
