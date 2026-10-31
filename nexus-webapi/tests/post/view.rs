@@ -7,11 +7,15 @@ use crate::{
     utils::{
         get_request, invalid_get_request,
         recommended::{DELETED, TOMBSTONE_POST},
+        server::TestServiceServer,
     },
 };
 use anyhow::Result;
 use axum::http::StatusCode;
+use nexus_common::db::{exec_single_row, queries};
+use nexus_common::models::post::PostDetails;
 use nexus_common::models::tag::TagDetails;
+use nexus_webapi::models::PubkyAppPostKind;
 
 #[tokio_shared_rt::test(shared)]
 async fn test_get_post_view() -> Result<()> {
@@ -300,4 +304,55 @@ async fn test_get_post_view_with_viewer() -> Result<()> {
     assert!(tags[1]["tag_uri"].is_null(), "Expected no tag address");
 
     Ok(())
+}
+
+/// A post of a migrated user names a `social/v1` file address; a v1 file has no `File` node, so
+/// the frozen v0 view carries no metadata for it and the read is an ordinary 200. The post is
+/// this test's own: written to the graph, read once, then taken out of the graph and the index.
+#[tokio_shared_rt::test(shared)]
+async fn test_get_post_view_with_v1_attachment_has_empty_metadata() -> Result<()> {
+    // The shared server initialises the DB connectors the seed below writes through.
+    let _ = TestServiceServer::get_test_server().await;
+
+    // A user of the mock graph; the post id is this test's own.
+    let author = "y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy";
+    let post_id = "2ZV1ATTCHMT00";
+    let attachment = format!("pubky://{author}/pub/social/v1/files/PZBQ010FF079VVZPQG1RNFN6DR.png");
+    let post = PostDetails {
+        content: "a post of a migrated user".to_string(),
+        id: post_id.to_string(),
+        // The oldest post there is, so it never reaches the first page of any stream.
+        indexed_at: 0,
+        author: author.to_string(),
+        kind: PubkyAppPostKind::Short,
+        uri: format!("pubky://{author}/pub/social/v1/posts/{post_id}"),
+        attachments: Some(vec![attachment.clone()]),
+        lock: None,
+        deleted: false,
+    };
+    post.put_to_graph(None, None).await?;
+
+    let outcome = async {
+        let body = get_request(&format!(
+            "{ROOT_PATH}/{author}/{post_id}?include_attachment_metadata=true"
+        ))
+        .await?;
+        anyhow::ensure!(
+            body["details"]["attachments"] == serde_json::json!([attachment]),
+            "the address is kept as written: {}",
+            body["details"]["attachments"]
+        );
+        let metadata = body.get("attachments_metadata");
+        anyhow::ensure!(
+            metadata.is_none_or(|m| m.as_array().is_some_and(Vec::is_empty)),
+            "no metadata for a v1 attachment, got {metadata:?}"
+        );
+        Ok::<(), anyhow::Error>(())
+    }
+    .await;
+
+    // The read indexed the post on its miss; take it out of the index and the graph again.
+    PostDetails::delete_from_index(author, post_id, None).await?;
+    exec_single_row(queries::del::delete_post(author, post_id)).await?;
+    outcome
 }

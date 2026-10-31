@@ -22,7 +22,7 @@ use tower::ServiceExt;
 
 /// An owner the mock graph knows (`docker/test-graph`). The files below are this suite's own,
 /// written to the graph for one test and deleted after it.
-const OWNER: &str = "y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy";
+pub(crate) const OWNER: &str = "y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy";
 
 /// A small valid SVG, enough for ImageMagick to rasterise.
 const SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><rect width="64" height="64" fill="#f00"/></svg>"##;
@@ -35,12 +35,12 @@ fn file_id(n: u32) -> String {
 
 /// A `File` node in the graph plus its `main` bytes under the router's own files folder. Dropped
 /// from the graph by `remove`; the bytes go with the temp dir.
-struct SeededFile {
-    details: FileDetails,
+pub(crate) struct SeededFile {
+    pub(crate) details: FileDetails,
 }
 
 impl SeededFile {
-    async fn create(
+    pub(crate) async fn create(
         files_dir: &Path,
         id: &str,
         name: &str,
@@ -72,21 +72,28 @@ impl SeededFile {
         format!("/static/files/{OWNER}/{}/{variant}", self.details.id)
     }
 
-    async fn remove(self) -> Result<()> {
+    pub(crate) async fn remove(self) -> Result<()> {
         self.details.delete().await?;
         Ok(())
     }
 }
 
 /// A router over its own files folder, with one media permit so a derived variant can be made.
-async fn test_app(files_dir: &Path) -> Router {
+/// Shared with the `/v1/static/files` tests, which serve the same files through the other route.
+pub(crate) async fn test_app(files_dir: &Path) -> Router {
+    test_app_with_permits(files_dir, 1).await
+}
+
+/// [`test_app`] over a chosen number of media permits: none, and a derived variant sheds before
+/// any subprocess starts.
+pub(crate) async fn test_app_with_permits(files_dir: &Path, permits: usize) -> Router {
     // Initialises the shared DB connectors; the router below never touches the shared server.
     let _ = TestServiceServer::get_test_server().await;
 
     let state = AppState::new(
         files_dir.to_path_buf(),
         default_ingestor_tests(),
-        MediaPermits::new(1),
+        MediaPermits::new(permits),
         default_subprocess_tests(),
     );
     let (_tx, rx) = watch::channel(false);
@@ -94,7 +101,7 @@ async fn test_app(files_dir: &Path) -> Router {
     build_app(routes, state, 30, 10 * 1024 * 1024)
 }
 
-async fn get(app: &Router, uri: &str, range: Option<&str>) -> Result<Response<Body>> {
+pub(crate) async fn get(app: &Router, uri: &str, range: Option<&str>) -> Result<Response<Body>> {
     let mut request = Request::builder().uri(uri);
     if let Some(range) = range {
         request = request.header(header::RANGE, range);
@@ -102,13 +109,16 @@ async fn get(app: &Router, uri: &str, range: Option<&str>) -> Result<Response<Bo
     Ok(app.clone().oneshot(request.body(Body::empty())?).await?)
 }
 
-fn header_value(response: &Response<Body>, name: header::HeaderName) -> Option<&str> {
+pub(crate) fn header_value(response: &Response<Body>, name: header::HeaderName) -> Option<&str> {
     response.headers().get(name).and_then(|v| v.to_str().ok())
 }
 
 /// The headers the rule decides: `(content-type, content-disposition)`, after asserting the
 /// response is a success that carries `nosniff`.
-fn served_as<'a>(response: &'a Response<Body>, what: &str) -> (&'a str, Option<&'a str>) {
+pub(crate) fn served_as<'a>(
+    response: &'a Response<Body>,
+    what: &str,
+) -> (&'a str, Option<&'a str>) {
     assert!(
         response.status().is_success(),
         "{what}: expected a success, got {}",

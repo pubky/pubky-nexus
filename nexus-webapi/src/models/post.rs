@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use crate::Result;
 use nexus_common::models::{file::FileDetails, post::PostView, traits::Collection};
 use serde::{Deserialize, Serialize};
-use tracing::warn;
+use tracing::{debug, warn};
 use utoipa::ToSchema;
 
 #[derive(Deserialize, Serialize, ToSchema)]
@@ -119,7 +119,9 @@ async fn fetch_attachment_metadata(attachments: &[String]) -> Result<Vec<FileDet
         .filter_map(|uri| {
             let key = FileDetails::file_key_from_uri(uri);
             if key.is_none() {
-                warn!("Skipping invalid file URI: {}", uri);
+                // A `social/v1` or web attachment is a normal address with no `File` node, not
+                // a fault worth a warning on every read of the post.
+                debug!("Skipping invalid file URI: {}", uri);
             }
             Some((key?, uri))
         })

@@ -1,7 +1,9 @@
 use super::AppState;
 
 use axum::{routing::get, Router};
-use endpoints::{LEGACY_STATIC_FILES_ROUTE, STATIC_FILES_ROUTE, USER_AVATAR_ROUTE};
+use endpoints::{
+    LEGACY_STATIC_FILES_ROUTE, STATIC_FILES_ROUTE, USER_AVATAR_ROUTE, V1_STATIC_FILES_ROUTE,
+};
 use utoipa::OpenApi;
 
 pub use avatar::user_avatar_handler;
@@ -18,6 +20,7 @@ mod serve_dir;
 pub fn routes() -> (Router<AppState>, Router<AppState>) {
     let expensive = Router::new()
         .route(STATIC_FILES_ROUTE, get(files::static_files_handler))
+        .route(V1_STATIC_FILES_ROUTE, get(files::v1_static_files_handler))
         .route(USER_AVATAR_ROUTE, get(avatar::user_avatar_handler));
 
     let default = Router::new().route(

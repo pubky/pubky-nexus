@@ -114,6 +114,27 @@ fn test_static_openapi_spec_valid() {
     validate_openapi_refs(&json);
 }
 
+/// The v1 files route sits in the static document, next to the v0 route it extends, until
+/// API1 moves it to the v1 one; a missing v1 file is a 404 there, so the route lists one.
+#[test]
+fn test_static_openapi_lists_both_files_routes() {
+    let spec = serde_json::to_value(StaticApiDoc::merge_docs()).expect("serializable spec");
+    let paths = spec["paths"].as_object().expect("paths");
+    for path in [
+        "/static/files/{owner_id}/{file_id}/{variant}",
+        "/v1/static/files/{owner_id}/{file_id}/{variant}",
+    ] {
+        assert!(
+            paths.contains_key(path),
+            "{path} missing from {:?}",
+            paths.keys().collect::<Vec<_>>()
+        );
+    }
+    let v1 = &spec["paths"]["/v1/static/files/{owner_id}/{file_id}/{variant}"]["get"];
+    assert!(v1["responses"].get("404").is_some(), "{v1}");
+    assert!(v1["responses"].get("400").is_some(), "{v1}");
+}
+
 /// The `Path`, `Query` and `Json` extractors turn every rejection into a 400, so every
 /// operation that takes input must list one.
 #[test]
