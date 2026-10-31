@@ -239,6 +239,26 @@ pub fn post_relationships(author_id: &str, post_id: &str) -> Query {
     .param("post_id", post_id)
 }
 
+/// The posts a post replies to and reposts: each one's stored address and key.
+pub fn post_parents(author_id: &str, post_id: &str) -> Query {
+    Query::new(
+        "post_parents",
+        "MATCH (p:Post {id: $post_id})
+        WHERE EXISTS { (:User {id: $author_id})-[:AUTHORED]->(p) }
+        OPTIONAL MATCH (p)-[:REPLIED]->(replied_post:Post)<-[:AUTHORED]-(replied_author:User)
+        OPTIONAL MATCH (p)-[:REPOSTED]->(reposted_post:Post)<-[:AUTHORED]-(reposted_author:User)
+        RETURN
+          replied_post.uri AS replied_uri,
+          replied_author.id AS replied_author_id,
+          replied_post.id AS replied_post_id,
+          reposted_post.uri AS reposted_uri,
+          reposted_author.id AS reposted_author_id,
+          reposted_post.id AS reposted_post_id",
+    )
+    .param("author_id", author_id)
+    .param("post_id", post_id)
+}
+
 // Retrieve many users by id
 // We return also id if not we will not get not found users
 pub fn get_users_details_by_ids(user_ids: &[&str]) -> Query {
@@ -2078,7 +2098,9 @@ mod tests {
     #[test]
     fn post_stream_trust_rule_matches_authors_after_sorting_posts() {
         let tags = Some(vec!["a".to_string(), "b".to_string()]);
-        let kind = Some(KindFilter::Kind(pubky_app_specs::PubkyAppPostKind::Short));
+        let kind = Some(KindFilter::Kind(
+            pubky_social_specs::legacy_v0::PubkyAppPostKind::Short,
+        ));
         let cypher = all_stream(
             StreamSorting::Timeline,
             &tags,
@@ -2102,7 +2124,9 @@ mod tests {
     /// Engagement sorting drops hidden authors before counting engagement.
     #[test]
     fn post_stream_trust_rule_filters_engagement_streams() {
-        let kind = Some(KindFilter::Kind(pubky_app_specs::PubkyAppPostKind::Short));
+        let kind = Some(KindFilter::Kind(
+            pubky_social_specs::legacy_v0::PubkyAppPostKind::Short,
+        ));
         let ranked = Some(TrustRule::Ranked);
         let cypher = all_stream(StreamSorting::TotalEngagement, &None, kind, ranked);
         let rule = format!("WHERE {}", ranked_user("author"));

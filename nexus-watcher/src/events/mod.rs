@@ -1,7 +1,15 @@
 use nexus_common::models::user::UserIngestor;
+mod classify;
+mod epoch_metrics;
 pub mod event;
+pub mod inputs;
+mod route;
+pub mod target;
+mod translation;
 
+pub use classify::SkipReason;
 pub use event::{Event, EventType, ParseResult};
+pub use target::EventTarget;
 
 use crate::errors::EventProcessorError;
 use crate::homeserver::HomeserverClient;
@@ -10,7 +18,6 @@ use nexus_common::models::takedown::is_taken_down;
 use nexus_common::WatcherConfig;
 use opentelemetry::{global, metrics::Counter};
 use pubky::PubkyResource;
-use pubky_app_specs::{ExtendedParsedUri, PubkyAppObject, Resource};
 use std::{
     path::{Path, PathBuf},
     sync::{Arc, LazyLock},
@@ -30,6 +37,8 @@ mod moderation;
 pub mod retry;
 
 pub use moderation::Moderation;
+use route::resolve_reference;
+use translation::{translate_del, translate_put, TranslatedDel, TranslatedPut};
 
 /// Trait for handling events.
 ///
@@ -103,8 +112,8 @@ impl EventHandler for DefaultEventHandler {
     }
 }
 
-/// Handles a PUT event: fetches its resource through `client` and dispatches it to the
-/// matching handler.
+/// Handles a PUT event: fetches its resource through `client`, translates it and dispatches
+/// it to the matching handler.
 pub async fn handle_put_event(
     event: &Event,
     files_path: &Path,
@@ -123,77 +132,34 @@ pub async fn handle_put_event(
     let pubky_resource: PubkyResource = event.uri.parse()?;
     let blob = client.get_resource(&pubky_resource).await?;
 
-    let resource = event.parsed_uri.resource().clone();
-
-    // Use the new importer from pubky-app-specs.
-    // `from_resource` runs spec validation; failures are deterministic and must
-    // not be retried (a re-run produces the same error). Classify them as
-    // `SpecValidation` so the retry queue stays clean — the load-bearing
-    // counterpart to the `Unknown` forwards-compat variant in pubky-app-specs.
-    let pubky_object = PubkyAppObject::from_resource(&resource, blob.as_slice())
-        .map_err(|e| EventProcessorError::SpecValidation(e.to_string()))?;
-
-    let user_id = event.parsed_uri.user_id().clone();
-    match (pubky_object, resource) {
-        (PubkyAppObject::User(user), Resource::User) => {
-            handlers::user::sync_put(user, event.uri.clone(), user_id).await?
+    let outcome = match translate_put(&event.uri, &event.target, &blob)? {
+        TranslatedPut::User { user_id, user } => handlers::user::sync_put(user, user_id).await,
+        TranslatedPut::Post { key, post } => handlers::post::sync_put(post, key, &ingestor).await,
+        TranslatedPut::Follow {
+            user_id,
+            followee_id,
+        } => handlers::follow::sync_put(user_id, followee_id, &ingestor).await,
+        TranslatedPut::Bookmark { key, bookmark } => {
+            handlers::bookmark::sync_put(bookmark, key).await
         }
-        (PubkyAppObject::Post(post), Resource::Post(post_id)) => {
-            handlers::post::sync_put(post, event.uri.clone(), user_id, post_id, &ingestor).await?
-        }
-        (PubkyAppObject::Follow(_follow), Resource::Follow(followee_id)) => {
-            handlers::follow::sync_put(user_id, followee_id, &ingestor).await?
-        }
-        (PubkyAppObject::Mute(_), Resource::Mute(_)) => {
-            debug!("Mute events are no longer handled by nexus");
-        }
-        (PubkyAppObject::Bookmark(bookmark), Resource::Bookmark(bookmark_id)) => {
-            handlers::bookmark::sync_put(user_id, bookmark, bookmark_id).await?
-        }
-        (PubkyAppObject::Tag(tag), Resource::Tag(tag_id)) => {
-            if moderation.should_delete(&tag, &user_id) {
+        TranslatedPut::Tag { key, tag, app } => {
+            if moderation.should_delete(&tag.label, &key.owner_id) {
                 moderation
-                    .apply_moderation(tag, &event.uri, files_path, &ingestor)
-                    .await?
+                    .apply_moderation(&tag.label, tag.tagged, &event.uri, files_path, &ingestor)
+                    .await
+            } else if let Some(app) = app {
+                // Another app's universal tag: `sync_put_resource` also makes Resource nodes
+                // for targets that are neither a post nor a user.
+                handlers::tag::sync_put_resource(tag, key, app, &ingestor).await
             } else {
-                // Route universal tag events (non-pubky.app apps) to sync_put_resource
-                // which handles Resource nodes for InternalUnknown/InternalUnknown URIs.
-                if let ExtendedParsedUri::UniversalTag { app, .. } = &event.parsed_uri {
-                    handlers::tag::sync_put_resource(
-                        tag,
-                        event.uri.clone(),
-                        user_id,
-                        tag_id.to_string(),
-                        app.clone(),
-                        &ingestor,
-                    )
-                    .await?
-                } else {
-                    handlers::tag::sync_put(
-                        tag,
-                        event.uri.clone(),
-                        user_id,
-                        tag_id.to_string(),
-                        &ingestor,
-                    )
-                    .await?
-                }
+                handlers::tag::sync_put(tag, key, &ingestor).await
             }
         }
-        (PubkyAppObject::File(file), Resource::File(file_id)) => {
-            handlers::file::sync_put(
-                file,
-                event.uri.clone(),
-                user_id,
-                file_id,
-                files_path,
-                &ingestor,
-                client,
-            )
-            .await?
+        TranslatedPut::File { key, file } => {
+            handlers::file::sync_put(file, key, files_path, &ingestor, client).await
         }
-        other => debug!(?other, "Event type not handled"),
-    }
+    };
+    outcome?;
 
     // Checked again once written: see `remove_if_taken_down`.
     remove_if_taken_down(&event.uri, files_path, &ingestor).await?;
@@ -216,35 +182,29 @@ pub async fn remove_if_taken_down(
     if !is_taken_down(uri).await? {
         return Ok(false);
     }
+    let target = resolve_reference(uri).target;
     // Boxed: the delete handlers' futures would otherwise nest inside every PUT's.
-    match Box::pin(Moderation::remove_taken_down(uri, files_path, ingestor)).await {
+    match Box::pin(Moderation::remove_taken_down(target, files_path, ingestor)).await {
         Ok(()) | Err(EventProcessorError::SkipIndexing) => Ok(true),
         Err(e) => Err(e),
     }
 }
 
-/// Handles a DEL event by dispatching to the appropriate handler.
+/// Handles a DEL event: translate, dispatch to the matching handler.
 pub async fn handle_del_event(
     event: &Event,
     files_path: &Path,
     ingestor: Arc<UserIngestor>,
 ) -> Result<(), EventProcessorError> {
-    let user_id = event.parsed_uri.user_id().clone();
-    match event.parsed_uri.resource() {
-        Resource::User => handlers::user::del(user_id).await?,
-        Resource::Post(post_id) => handlers::post::del(user_id, post_id.clone(), &ingestor).await?,
-        Resource::Follow(followee_id) => {
-            handlers::follow::del(user_id, followee_id.clone()).await?
-        }
-        Resource::Mute(_) => debug!("Mute events are no longer handled by nexus"),
-        Resource::Bookmark(bookmark_id) => {
-            handlers::bookmark::del(user_id, bookmark_id.clone()).await?
-        }
-        Resource::Tag(_) => handlers::tag::del(&event.uri).await?,
-        Resource::File(file_id) => {
-            handlers::file::del(&user_id, file_id.clone(), files_path).await?
-        }
-        other => debug!(?other, "DEL event type not handled"),
+    match translate_del(&event.target)? {
+        TranslatedDel::User { user_id } => handlers::user::del(user_id).await,
+        TranslatedDel::Post(key) => handlers::post::del(key, &ingestor).await,
+        TranslatedDel::Follow {
+            user_id,
+            followee_id,
+        } => handlers::follow::del(user_id, followee_id).await,
+        TranslatedDel::Tag { key, app } => handlers::tag::del(key, app).await,
+        TranslatedDel::Bookmark(key) => handlers::bookmark::del(key).await,
+        TranslatedDel::File(key) => handlers::file::del(key, files_path).await,
     }
-    Ok(())
 }

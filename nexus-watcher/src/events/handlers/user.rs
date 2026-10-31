@@ -8,22 +8,20 @@ use nexus_common::models::{
     traits::Collection,
     user::{UserDetails, UserSearch, UsersByTagSearch},
 };
-use pubky_app_specs::{PubkyAppUser, PubkyId};
+use pubky_social_specs::PubkyId;
 use tracing::{debug, Instrument};
 
-/// `uri` is the address the profile was read from: the event path.
+use crate::events::inputs::UserInput;
+
 #[tracing::instrument(name = "user.put", skip_all, fields(user_id = %user_id))]
-pub async fn sync_put(
-    user: PubkyAppUser,
-    uri: String,
-    user_id: PubkyId,
-) -> Result<(), EventProcessorError> {
+pub async fn sync_put(user: UserInput, user_id: PubkyId) -> Result<(), EventProcessorError> {
     debug!("Indexing user profile");
 
     // Step 1: Create `UserDetails` object
-    let user_details = UserDetails::from_homeserver(user, &user_id);
+    let uri = user.uri.clone();
+    let user_details = user.into_details(&user_id);
 
-    // Step 2: Save to graph, with the address the profile was read from
+    // Step 2: Save to graph, with the address the profile is stored under
     user_details.put_profile_to_graph(&uri).await?;
 
     // Step 3: Reindex search BEFORE refreshing the details cache. `put_to_index`

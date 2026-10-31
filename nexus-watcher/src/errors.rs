@@ -47,7 +47,7 @@ pub enum EventProcessorError {
         cursor_floor: u64,
     },
 
-    /// The event payload deserialized but failed `pubky-app-specs` validation
+    /// The event payload deserialized but failed `pubky-social-specs` v0 validation
     /// (e.g. unknown post kind, malformed Collection envelope, oversized field).
     /// Non-retryable: re-running the same payload will produce the same error.
     #[error("SpecValidation: {0}")]
@@ -58,9 +58,16 @@ pub enum EventProcessorError {
     DataAnomaly(String),
 
     /// The event is valid but targets a resource kind this handler does not index (e.g. a tag on
-    /// something that is neither a Post nor a User). Non-retryable: the target kind will not change.
+    /// something that is neither a Post nor a User, or a bookmark of something that is not a
+    /// Post). Non-retryable: the target kind will not change.
     #[error("UnsupportedTarget: {0}")]
     UnsupportedTarget(String),
+
+    /// An edit names a different reply parent or repost embed than the post holds. Both are set
+    /// when the post is created, so the edit is rejected whole. Non-retryable: the same payload
+    /// is rejected again.
+    #[error("PostParentChanged: {0}")]
+    PostParentChanged(String),
 
     /// Fetch exceeded size cap (non-retryable).
     #[error("FetchSizeExceeded: {0} bytes (limit: {1} bytes)")]
@@ -112,6 +119,7 @@ impl From<ModelError> for EventProcessorError {
                 EventProcessorError::IndexOperationFailed(should_not_retry_now, source.to_string())
             }
             ModelError::HsBlacklisted { hs_id } => EventProcessorError::HsBlacklisted { hs_id },
+            ModelError::InvalidInput(message) => EventProcessorError::SpecValidation(message),
             ModelError::Generic(message) => EventProcessorError::Generic(message),
         }
     }
@@ -273,7 +281,7 @@ mod tests {
     }
 
     fn hs_error(op: HsOp, kind: HsErrorKind) -> EventProcessorError {
-        let hs = pubky_app_specs::PubkyId::try_from(
+        let hs = pubky_social_specs::PubkyId::try_from(
             "1hb71xx9km3f4pw5izsy1gn19ff1uuuqonw4mcygzobwkryujoiy",
         )
         .unwrap();

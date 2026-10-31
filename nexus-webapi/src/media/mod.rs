@@ -203,12 +203,10 @@ mod tests {
             test_utils::default_subprocess_tests(),
         );
 
-        let content_types = pubky_app_specs::VALID_MIME_TYPES.iter().copied().chain([
-            "imagefoo",
-            "videofoo",
-            "Image/png",
-            "VIDEO/MP4",
-        ]);
+        let content_types = pubky_social_specs::legacy_v0::VALID_MIME_TYPES
+            .iter()
+            .copied()
+            .chain(["imagefoo", "videofoo", "Image/png", "VIDEO/MP4"]);
         for content_type in content_types {
             let file = make_file(content_type);
             let result = controller

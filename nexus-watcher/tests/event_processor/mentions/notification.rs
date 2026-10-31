@@ -5,7 +5,7 @@ use nexus_common::{
     types::Pagination,
 };
 use pubky::Keypair;
-use pubky_app_specs::{PubkyAppPost, PubkyAppPostKind, PubkyAppUser};
+use pubky_social_specs::legacy_v0::{PubkyAppPost, PubkyAppPostKind, PubkyAppUser};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_mentions_notifications() -> Result<()> {

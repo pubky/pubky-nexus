@@ -79,7 +79,7 @@ mod tests {
         default_trust_report_dir, Level, DEFAULT_TRUST_ALPHA, DEFAULT_TRUST_MAX_ITERATIONS,
         DEFAULT_TRUST_REPORT_LIMIT, DEFAULT_TRUST_TOLERANCE,
     };
-    use pubky_app_specs::PubkyId;
+    use pubky_social_specs::PubkyId;
 
     use super::{DaemonConfig, DEFAULT_CONFIG_TOML};
 

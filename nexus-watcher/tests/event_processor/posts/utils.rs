@@ -10,9 +10,11 @@ use nexus_common::{
         POST_TOTAL_ENGAGEMENT_KEY_PARTS,
     },
 };
-use pubky_app_specs::{
-    post_uri_builder, PubkyAppPost, PubkyAppPostEmbed, PubkyAppPostKind, PubkyAppUser, PubkyId,
+use nexus_watcher::events::inputs::ResourceKey;
+use pubky_social_specs::legacy_v0::{
+    post_uri_builder, PubkyAppPost, PubkyAppPostEmbed, PubkyAppPostKind, PubkyAppUser,
 };
+use pubky_social_specs::PubkyId;
 
 pub async fn find_post_counts(user_id: &str, post_id: &str) -> PostCounts {
     // Read-through: counts are invalidated on write and recomputed from the
@@ -244,6 +246,14 @@ pub fn test_user(name: impl Into<String>, bio: impl Into<String>) -> PubkyAppUse
 /// through `anyhow`.
 pub fn pubky_id(id: &str) -> Result<PubkyId> {
     PubkyId::try_from(id).map_err(anyhow::Error::msg)
+}
+
+/// The [`ResourceKey`] of `owner_id`'s resource `resource_id`, such as a post.
+pub fn resource_key(owner_id: &str, resource_id: &str) -> Result<ResourceKey> {
+    Ok(ResourceKey {
+        owner_id: pubky_id(owner_id)?,
+        resource_id: resource_id.to_string(),
+    })
 }
 
 /// Assert that `user_id` currently has exactly `expected` notifications.

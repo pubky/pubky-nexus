@@ -3,14 +3,18 @@
 //! Periodic task that resolves each user's homeserver and persists
 //! the `(:User)-[:HOSTED_BY]->(:Homeserver)` relationship in Neo4j.
 
-use nexus_common::db::{fetch_key_from_graph, fetch_row_from_graph, queries, GraphResult};
+use nexus_common::db::{
+    fetch_key_from_graph, fetch_row_from_graph, queries, GraphResult, PubkyClientError,
+};
 use nexus_common::models::user::{
-    set_user_homeserver, set_user_homeserver_stale, PkdnsHomeserverResolver,
+    refresh_user_homeserver_resolved_at, set_user_homeserver, set_user_homeserver_stale,
+    PkdnsHomeserverResolver,
 };
 use nexus_common::types::DynError;
 use nexus_common::WatcherConfig;
 use opentelemetry::metrics::{Counter, Gauge, Histogram};
 use opentelemetry::{global, KeyValue};
+use pubky::errors::PkarrError;
 use pubky::PublicKey;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -372,6 +376,8 @@ enum Outcome {
     Unresolved,
     /// The lookup failed (pubky 0.10+ surfaces transport errors) or the graph read/write failed.
     Error,
+    /// The published `_pubky` record does not name a valid homeserver public key.
+    InvalidRecord,
 }
 
 impl Outcome {
@@ -380,6 +386,7 @@ impl Outcome {
             Self::Resolved => "resolved",
             Self::Unresolved => "unresolved",
             Self::Error => "error",
+            Self::InvalidRecord => "invalid_record",
         }
     }
 }
@@ -404,6 +411,9 @@ enum Resolution {
     /// The lookup itself failed (pubky 0.10+ surfaces transport errors);
     /// graph untouched.
     LookupFailed { mapping: MappingState },
+    /// The published record is malformed. A bound mapping keeps its stale flag
+    /// and only has `resolved_at` refreshed; an unbound user is left untouched.
+    InvalidRecord { mapping: MappingState },
 }
 
 impl Resolution {
@@ -421,6 +431,7 @@ impl Resolution {
                 ..
             } => Outcome::Unresolved,
             Self::LookupFailed { .. } => Outcome::Error,
+            Self::InvalidRecord { .. } => Outcome::InvalidRecord,
         }
     }
 
@@ -436,7 +447,7 @@ impl Resolution {
             | Self::Diverged {
                 was_stale: false, ..
             } => MappingState::Active,
-            Self::LookupFailed { mapping } => mapping,
+            Self::LookupFailed { mapping } | Self::InvalidRecord { mapping } => mapping,
         }
     }
 
@@ -457,7 +468,9 @@ impl Resolution {
 /// Resolves a single user's HS and persists the HOSTED_BY relationship.
 ///
 /// A failed lookup is reported as a [`Resolution`] and leaves the graph
-/// untouched; only graph errors are returned as `Err`.
+/// untouched; only graph errors are returned as `Err`. A malformed record only
+/// refreshes `resolved_at` of a bound mapping, so it is not looked up again
+/// until the TTL expires.
 async fn resolve_user(
     resolver: &dyn PkdnsHomeserverResolver,
     user_pk: &PublicKey,
@@ -470,6 +483,16 @@ async fn resolve_user(
 
     let maybe_resolved_hs_id = match resolver.resolve_homeserver(user_pk).await {
         Ok(resolved) => resolved,
+        // The record names no homeserver, so it is no reason to stop indexing the bound one.
+        Err(PubkyClientError::PkarrFailed(PkarrError::InvalidRecord(reason))) => {
+            warn!(%user_id, %reason, "Published homeserver record is malformed");
+            if stored_mapping.is_some() {
+                refresh_user_homeserver_resolved_at(&user_id).await?;
+            }
+            return Ok(Resolution::InvalidRecord {
+                mapping: MappingState::of(&stored_mapping),
+            });
+        }
         Err(e) => {
             warn!(%user_id, error = %e, "PKDNS lookup failed");
             return Ok(Resolution::LookupFailed {
@@ -660,7 +683,7 @@ mod tests {
     use nexus_common::types::DynError;
     use nexus_common::utils::test_utils::{random_pk, random_pubky_id};
     use nexus_common::{StackConfig, StackManager};
-    use pubky_app_specs::PubkyId;
+    use pubky_social_specs::PubkyId;
 
     async fn setup() -> Result<(), DynError> {
         StackManager::setup(&StackConfig::default()).await
@@ -697,6 +720,19 @@ mod tests {
         }
     }
 
+    /// Resolver stub whose `_pubky` record targets something that is not a public key.
+    struct MalformedRecordResolver;
+
+    #[async_trait::async_trait]
+    impl PkdnsHomeserverResolver for MalformedRecordResolver {
+        async fn resolve_homeserver(
+            &self,
+            _user_pk: &PublicKey,
+        ) -> PubkyClientResult<Option<PubkyId>> {
+            Err(PkarrError::InvalidRecord("`_pubky` target `example.com`".into()).into())
+        }
+    }
+
     /// Helper: create a User node in the graph
     async fn create_test_user(user_id: &str) -> GraphResult<()> {
         let query = Query::new(
@@ -712,6 +748,17 @@ mod tests {
     /// Helper: clean up test data
     async fn cleanup_test_user(user_id: &str) -> GraphResult<()> {
         let query = queries::del::delete_user(user_id);
+        exec_single_row(query).await
+    }
+
+    /// Helper: backdate a user's mapping (2 hours ago) so the user is due for resolution
+    async fn backdate_hs_mapping(user_id: &str) -> GraphResult<()> {
+        let query = Query::new(
+            "backdate_hs_mapping",
+            "MATCH (u:User {id: $user_id})-[r:HOSTED_BY]->(:Homeserver)
+             SET r.resolved_at = timestamp() - 7200000",
+        )
+        .param("user_id", user_id);
         exec_single_row(query).await
     }
 
@@ -1240,14 +1287,7 @@ mod tests {
         create_test_user(&user_id).await?;
         set_user_homeserver(&user_id, &stored_hs).await?;
 
-        // Backdate the mapping (2 hours ago) so the user is due for resolution
-        let backdate_query = Query::new(
-            "backdate_hs_mapping",
-            "MATCH (u:User {id: $user_id})-[r:HOSTED_BY]->(:Homeserver)
-             SET r.resolved_at = timestamp() - 7200000",
-        )
-        .param("user_id", user_id.as_str());
-        exec_single_row(backdate_query).await?;
+        backdate_hs_mapping(&user_id).await?;
 
         let outcome = resolve_user(&FailingResolver, &user_pk).await?;
         assert_eq!(
@@ -1270,6 +1310,87 @@ mod tests {
                 .contains(&user_id),
             "a failed lookup must not refresh resolved_at, or recovery waits a full TTL"
         );
+
+        cleanup_test_user(&user_id).await?;
+
+        Ok(())
+    }
+
+    /// A malformed record backs off the lookup and keeps an active mapping
+    /// indexed: it names no homeserver, so it is no reason to go stale.
+    #[tokio_shared_rt::test(shared)]
+    async fn test_resolve_user_invalid_record_keeps_mapping_and_backs_off() -> Result<(), DynError>
+    {
+        setup().await?;
+
+        let user_pk = random_pk();
+        let user_id = user_pk.z32();
+        let stored_hs = random_pubky_id();
+
+        create_test_user(&user_id).await?;
+        set_user_homeserver(&user_id, &stored_hs).await?;
+        backdate_hs_mapping(&user_id).await?;
+
+        let outcome = resolve_user(&MalformedRecordResolver, &user_pk).await?;
+        assert_eq!(
+            outcome,
+            Resolution::InvalidRecord {
+                mapping: MappingState::Active
+            }
+        );
+
+        assert_eq!(
+            get_user_homeserver(&user_id).await?,
+            Some(UserHomeserverMapping {
+                hs_id: stored_hs.to_string(),
+                stale: false,
+            })
+        );
+        assert!(
+            !get_users_needing_resolution(3_600_000)
+                .await?
+                .contains(&user_id),
+            "a malformed record must refresh resolved_at, or it is looked up on every run"
+        );
+
+        cleanup_test_user(&user_id).await?;
+
+        Ok(())
+    }
+
+    /// A malformed record does not clear the stale flag of a mapping that was
+    /// already marked stale.
+    #[tokio_shared_rt::test(shared)]
+    async fn test_resolve_user_invalid_record_keeps_stale_flag() -> Result<(), DynError> {
+        setup().await?;
+
+        let user_pk = random_pk();
+        let user_id = user_pk.z32();
+        let stored_hs = random_pubky_id();
+
+        create_test_user(&user_id).await?;
+        set_user_homeserver(&user_id, &stored_hs).await?;
+        set_user_homeserver_stale(&user_id, true).await?;
+        backdate_hs_mapping(&user_id).await?;
+
+        let outcome = resolve_user(&MalformedRecordResolver, &user_pk).await?;
+        assert_eq!(
+            outcome,
+            Resolution::InvalidRecord {
+                mapping: MappingState::Stale
+            }
+        );
+
+        assert_eq!(
+            get_user_homeserver(&user_id).await?,
+            Some(UserHomeserverMapping {
+                hs_id: stored_hs.to_string(),
+                stale: true,
+            })
+        );
+        assert!(!get_users_needing_resolution(3_600_000)
+            .await?
+            .contains(&user_id));
 
         cleanup_test_user(&user_id).await?;
 
@@ -1350,6 +1471,18 @@ mod tests {
                 Unbound,
                 None,
             ),
+            (
+                Resolution::InvalidRecord { mapping: Active },
+                Outcome::InvalidRecord,
+                Active,
+                None,
+            ),
+            (
+                Resolution::InvalidRecord { mapping: Unbound },
+                Outcome::InvalidRecord,
+                Unbound,
+                None,
+            ),
         ];
 
         for (resolution, outcome, mapping, newly_stale) in cases {
@@ -1365,6 +1498,7 @@ mod tests {
         assert_eq!(Outcome::Resolved.as_str(), "resolved");
         assert_eq!(Outcome::Unresolved.as_str(), "unresolved");
         assert_eq!(Outcome::Error.as_str(), "error");
+        assert_eq!(Outcome::InvalidRecord.as_str(), "invalid_record");
 
         let label = |mapping| mapping_attribute(mapping).value.to_string();
         assert_eq!(label(Some(MappingState::Unbound)), "unbound");

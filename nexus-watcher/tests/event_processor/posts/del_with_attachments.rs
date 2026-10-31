@@ -4,7 +4,7 @@ use anyhow::Result;
 use chrono::Utc;
 use nexus_common::models::{file::FileDetails, traits::Collection};
 use pubky::Keypair;
-use pubky_app_specs::{
+use pubky_social_specs::legacy_v0::{
     blob_uri_builder, file_uri_builder,
     traits::{HasIdPath, HashId},
     PubkyAppBlob, PubkyAppFile, PubkyAppPost, PubkyAppPostKind, PubkyAppUser,

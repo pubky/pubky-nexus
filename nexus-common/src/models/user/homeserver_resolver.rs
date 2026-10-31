@@ -1,5 +1,5 @@
 use pubky::PublicKey;
-use pubky_app_specs::PubkyId;
+use pubky_social_specs::PubkyId;
 
 use crate::db::{PubkyClientResult, PubkyConnector};
 
@@ -21,6 +21,10 @@ pub struct PubkyConnectorResolver;
 impl PkdnsHomeserverResolver for PubkyConnectorResolver {
     async fn resolve_homeserver(&self, user_pk: &PublicKey) -> PubkyClientResult<Option<PubkyId>> {
         let pubky = PubkyConnector::get()?;
-        Ok(pubky.get_homeserver_of(user_pk).await.map(PubkyId::from))
+        // `Ok(None)` means no HS is published. A failed lookup and a malformed
+        // `_pubky` record stay an `Err` (`PkarrFailed`), so the resolver loop
+        // reports them as `LookupFailed` and `InvalidRecord` instead of treating
+        // the user as having no HS.
+        Ok(pubky.get_homeserver_of(user_pk).await?.map(PubkyId::from))
     }
 }

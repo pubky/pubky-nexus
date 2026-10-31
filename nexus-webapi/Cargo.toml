@@ -23,7 +23,7 @@ const_format = "0.2.36"
 futures-util = "0.3.32"
 
 opentelemetry = { workspace = true }
-pubky-app-specs = { workspace = true }
+pubky-social-specs = { workspace = true }
 nexus-common = { version = "0.4.1", path = "../nexus-common" }
 deadpool-redis = { workspace = true }
 pubky = { workspace = true }

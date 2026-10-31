@@ -9,7 +9,7 @@ use nexus_common::models::error::ModelError;
 use nexus_common::models::homeserver::Homeserver;
 use opentelemetry::metrics::Counter;
 use opentelemetry::{global, KeyValue};
-use pubky_app_specs::PubkyId;
+use pubky_social_specs::PubkyId;
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock};
 use tokio::sync::watch::Receiver;
@@ -162,7 +162,7 @@ impl TEventProcessor for HsEventProcessor {
     ///   diverged): log a warning and skip until the resolver realigns it.
     /// - An edge to a different homeserver: log a warning and skip.
     async fn should_process_event(&self, event: &Event) -> Result<bool, EventProcessorError> {
-        let user_id = event.parsed_uri.user_id();
+        let user_id = event.target.user_id();
 
         match self.user_hs_mapping(user_id).await? {
             // No mapping yet (graceful fallback) or actively bound here: process.

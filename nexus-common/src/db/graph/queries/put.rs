@@ -1,8 +1,8 @@
 use crate::db::graph::error::{GraphError, GraphResult};
 use crate::db::graph::Query;
-use crate::models::post::PostRelationships;
+use crate::models::ResourceKey;
 use crate::models::{file::FileDetails, post::PostDetails, user::UserDetails};
-use pubky_app_specs::{ParsedUri, PubkyId, Resource};
+use pubky_social_specs::PubkyId;
 
 /// Creates or overwrites a `User` node.
 ///
@@ -34,23 +34,24 @@ pub fn create_user(user: &UserDetails, uri: Option<&str>) -> GraphResult<Query> 
 /// Creates a Cypher query to add or edit a post to the graph database and handles its relationships.
 /// # Arguments
 /// * `post` - A reference to a `PostDetails` struct containing information about the post to be created or edited
-/// * `post_relationships` - A reference to a PostRelationships struct that define relationships
-///   for the post (e.g., replies or reposts).
+/// * `replied` - The key of the post this one replies to, if any
+/// * `reposted` - The key of the post this one reposts, if any
 pub fn create_post(
     post: &PostDetails,
-    post_relationships: &PostRelationships,
+    replied: Option<&ResourceKey>,
+    reposted: Option<&ResourceKey>,
 ) -> GraphResult<Query> {
     let mut cypher = String::new();
     let mut new_relationships = Vec::new();
 
     // Check if all the dependencies are consistent in the graph
-    if post_relationships.replied.is_some() {
+    if replied.is_some() {
         cypher.push_str("
             MATCH (reply_parent_author:User {id: $reply_parent_author_id})-[:AUTHORED]->(reply_parent_post:Post {id: $reply_parent_post_id})
         ");
         new_relationships.push("MERGE (new_post)-[:REPLIED]->(reply_parent_post)");
     };
-    if post_relationships.reposted.is_some() {
+    if reposted.is_some() {
         cypher.push_str("
             MATCH (repost_parent_author:User {id: $repost_parent_author_id})-[:AUTHORED]->(repost_parent_post:Post {id: $repost_parent_post_id})
         ");
@@ -97,53 +98,17 @@ pub fn create_post(
         .param("lock", post.lock.clone())
         .param("deleted", post.deleted);
 
-    // Handle "replied" relationship
-    cypher_query = add_relationship_params(
-        cypher_query,
-        &post_relationships
-            .replied
-            .clone()
-            .and_then(|uri| uri.try_to_uri_str().ok()),
-        "reply_parent_author_id",
-        "reply_parent_post_id",
-    )?;
-
-    // Handle "reposted" relationship
-    cypher_query = add_relationship_params(
-        cypher_query,
-        &post_relationships
-            .reposted
-            .clone()
-            .and_then(|uri| uri.try_to_uri_str().ok()),
-        "repost_parent_author_id",
-        "repost_parent_post_id",
-    )?;
-
-    Ok(cypher_query)
-}
-
-fn add_relationship_params(
-    cypher_query: Query,
-    uri: &Option<String>,
-    author_param: &str,
-    post_param: &str,
-) -> GraphResult<Query> {
-    if let Some(uri) = uri {
-        let parsed_uri = ParsedUri::try_from(uri.as_str()).map_err(GraphError::UriParseError)?;
-        let parent_author_id = parsed_uri.user_id;
-        let parent_post_id = match parsed_uri.resource {
-            Resource::Post(id) => id,
-            _ => {
-                return Err(GraphError::InvalidResourceType(
-                    "Reposted uri is not a Post resource".into(),
-                ))
-            }
-        };
-
-        return Ok(cypher_query
-            .param(author_param, parent_author_id.as_ref())
-            .param(post_param, parent_post_id.as_str()));
+    if let Some(parent) = replied {
+        cypher_query = cypher_query
+            .param("reply_parent_author_id", parent.owner_id.as_ref())
+            .param("reply_parent_post_id", parent.resource_id.as_str());
     }
+    if let Some(parent) = reposted {
+        cypher_query = cypher_query
+            .param("repost_parent_author_id", parent.owner_id.as_ref())
+            .param("repost_parent_post_id", parent.resource_id.as_str());
+    }
+
     Ok(cypher_query)
 }
 
@@ -503,4 +468,18 @@ pub fn set_user_homeserver_stale(user_id: &str, stale: bool) -> Query {
     )
     .param("user_id", user_id.to_string())
     .param("stale", stale)
+}
+
+/// Refreshes `resolved_at` on a user's existing `HOSTED_BY` relationship and
+/// leaves the `stale` flag as it is.
+///
+/// Backs off a lookup that will fail again until the user republishes, such as
+/// a malformed record, without changing whether the mapping is indexed.
+pub fn refresh_user_homeserver_resolved_at(user_id: &str) -> Query {
+    Query::new(
+        "refresh_user_homeserver_resolved_at",
+        "MATCH (u:User {id: $user_id})-[r:HOSTED_BY]->(:Homeserver)
+         SET r.resolved_at = timestamp()",
+    )
+    .param("user_id", user_id.to_string())
 }

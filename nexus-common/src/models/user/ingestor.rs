@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use pubky_app_specs::{ParsedUri, PubkyId};
+use pubky_social_specs::PubkyId;
 
 use super::PkdnsHomeserverResolver;
 use crate::models::error::{ModelError, ModelResult};
@@ -48,20 +48,15 @@ impl UserIngestor {
         )
     }
 
-    /// Ingests the author of a referenced post, if unknown.
-    pub async fn maybe_ingest_author_of_post(
-        &self,
-        referenced_post_uri: &ParsedUri,
-    ) -> ModelResult<()> {
-        self.maybe_ingest_user(&referenced_post_uri.user_id).await
-    }
-
     /// Resolves the HS hosting `user_id` and refuses it if blacklisted.
     ///
     /// # Returns
     /// - `Ok(Some(hs_id))` if the user's HS resolved and is not blacklisted
     /// - `Ok(None)` if the user has no published HS or is an HS PK itself
     /// - [`ModelError::HsBlacklisted`] if the resolved HS is blacklisted
+    /// - [`ModelError::InvalidInput`] if `user_id` is well-formed but not a public key
+    /// - [`ModelError::Generic`] if the lookup itself failed (DHT or network). A failed
+    ///   lookup is not "no HS": callers must not proceed as if the HS were known to be clean.
     pub async fn ensure_hs_not_blacklisted(
         &self,
         user_id: &PubkyId,
@@ -76,9 +71,14 @@ impl UserIngestor {
             });
         }
 
+        // A format-valid id need not be a curve point. That never changes, so it is not retryable.
+        let user_pk = user_id.to_public_key().map_err(|e| {
+            ModelError::InvalidInput(format!("{user_id} is not a valid public key: {e}"))
+        })?;
+
         let resolved = self
             .resolver
-            .resolve_homeserver(&user_id.to_public_key())
+            .resolve_homeserver(&user_pk)
             .await
             .map_err(ModelError::from_generic)?;
         let Some(hs_pk) = resolved else {

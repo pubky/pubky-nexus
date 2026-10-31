@@ -2,7 +2,7 @@ use super::utils::{assert_user_ingested, create_external_test_homeserver};
 use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
 use pubky::Keypair;
-use pubky_app_specs::PubkyAppUser;
+use pubky_social_specs::legacy_v0::PubkyAppUser;
 
 #[tokio_shared_rt::test(shared)]
 async fn test_follow_on_unknown_homeserver() -> Result<()> {

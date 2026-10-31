@@ -2,8 +2,8 @@ use std::fmt;
 use std::ops::Deref;
 
 use crate::Error;
-use pubky_app_specs::traits::Validatable;
-use pubky_app_specs::PubkyAppTag;
+use pubky_social_specs::legacy_v0::traits::Validatable;
+use pubky_social_specs::legacy_v0::PubkyAppTag;
 use serde::de;
 use serde::Deserialize;
 use utoipa::ToSchema;

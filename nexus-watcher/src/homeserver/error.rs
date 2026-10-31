@@ -1,7 +1,7 @@
 use std::fmt::Display;
 
 use pubky::errors::RequestError;
-use pubky_app_specs::PubkyId;
+use pubky_social_specs::PubkyId;
 use reqwest::StatusCode;
 
 use super::fetch::{format_error_body, MAX_ERROR_BODY};
