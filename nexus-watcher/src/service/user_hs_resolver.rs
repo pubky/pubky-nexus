@@ -377,7 +377,8 @@ enum Outcome {
     Resolved,
     /// PKDNS returned none; on pubky 0.9.3 DHT and relay failures surface this way too.
     Unresolved,
-    /// The lookup failed (pubky 0.10+ surfaces transport errors) or the graph read/write failed.
+    /// The lookup failed (a transport error on pubky 0.10+, or an answer signed by
+    /// another key, refused on any version) or the graph read/write failed.
     Error,
 }
 
@@ -408,8 +409,8 @@ enum Resolution {
         reason: StaleReason,
         was_stale: bool,
     },
-    /// The lookup itself failed (pubky 0.10+ surfaces transport errors);
-    /// graph untouched.
+    /// The lookup itself failed (a transport error on pubky 0.10+, or an answer
+    /// signed by another key, refused on any version); graph untouched.
     LookupFailed { mapping: MappingState },
 }
 
