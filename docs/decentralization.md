@@ -173,7 +173,9 @@ The edge also keeps the PKDNS record the mapping was last applied from:
 `record`, the user's signed PKARR packet as hex, and `record_ts`, the packet's
 timestamp in microseconds. The packet carries the key, the signature, the
 timestamp and the encoded DNS records, so anyone can verify that the key holder
-published it (`StoredRecord::verify` in nexus-common does). A lookup that finds
+published it (`StoredRecord::verify` in nexus-common does). The record need
+not back its edge: a mapping marked stale by a record keeps that record, which
+names another homeserver than the edge points to, or none. A lookup that finds
 no record leaves the stored one; the ingestor binds a newly seen user from the
 record it resolved, so the edge carries it from the start. A packet whose
 timestamp does not fit `record_ts`, a signed 64-bit integer, counts as no
