@@ -93,9 +93,10 @@ pub trait PkdnsHomeserverResolver: Send + Sync {
     /// - One signed by another key fails the lookup. pkarr 6.0.1 on mainline
     ///   6.2.0 checks a DHT answer against the key the answer carries, not the
     ///   key asked for, so any DHT node can answer with another key's packet.
-    /// - One whose timestamp does not fit the graph counts as no record. Such a
-    ///   packet cannot be on the DHT either: BEP44's `seq` is an `i64` and pkarr
-    ///   signs the timestamp as a `u64`, so only a relay's cache can hold one.
+    /// - One whose timestamp does not fit the graph counts as no record. pkarr
+    ///   reads a DHT item's `seq` as a `u64`, so an item signed with a negative
+    ///   `seq` arrives with such a timestamp; its signature does not verify as a
+    ///   pkarr packet, so it could not be kept as proof either.
     async fn resolve_own_record(&self, user_pk: &PublicKey) -> PubkyClientResult<PkdnsRecord> {
         let record = self.resolve_record(user_pk).await?;
         let PkdnsRecord::Published(packet) = &record else {

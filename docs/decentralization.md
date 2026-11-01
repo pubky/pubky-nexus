@@ -179,7 +179,9 @@ names another homeserver than the edge points to, or none. A lookup that finds
 no record leaves the stored one; the ingestor binds a newly seen user from the
 record it resolved, so the edge carries it from the start. A packet whose
 timestamp does not fit `record_ts`, a signed 64-bit integer, counts as no
-record; the DHT cannot carry such a packet either, since BEP44's `seq` is signed.
+record. pkarr reads a DHT item's `seq` as a `u64`, so an item signed with a
+negative `seq` arrives with such a timestamp; its signature does not verify as a
+pkarr packet, so it could not be kept as proof either.
 
 ### `hs_resolver_interval_ms`
 
