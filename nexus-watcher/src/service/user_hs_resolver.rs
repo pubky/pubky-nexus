@@ -12,7 +12,7 @@
 use nexus_common::db::{fetch_key_from_graph, fetch_row_from_graph, queries, GraphResult};
 use nexus_common::models::user::{
     set_user_homeserver_from_record, set_user_homeserver_stale, PkdnsHomeserverResolver,
-    PkdnsRecord, StoredRecord,
+    PkdnsRecord,
 };
 use nexus_common::types::DynError;
 use nexus_common::WatcherConfig;
@@ -489,18 +489,13 @@ async fn resolve_user(
         // Nothing published. The caller logs it and applies the unbound backoff.
         (None, PkdnsRecord::Missing) => Resolution::Unbound,
 
-        (None, PkdnsRecord::Published(packet)) => match record.homeserver() {
-            None => Resolution::Unbound,
-            Some(resolved_hs_id) => {
-                set_user_homeserver_from_record(
-                    &user_id,
-                    &resolved_hs_id,
-                    &StoredRecord::from(packet),
-                )
-                .await?;
+        (None, PkdnsRecord::Published(_)) => match (record.homeserver(), record.stored()) {
+            (Some(resolved_hs_id), Some(stored_record)) => {
+                set_user_homeserver_from_record(&user_id, &resolved_hs_id, &stored_record).await?;
                 debug!(%user_id, homeserver = %resolved_hs_id, "HS mapping created");
                 Resolution::Bound
             }
+            _ => Resolution::Unbound,
         },
 
         // Already bound to a HS: toggle the stale flag instead of switching.
@@ -679,7 +674,7 @@ mod tests {
     use super::*;
     use nexus_common::db::graph::Query;
     use nexus_common::db::{exec_single_row, PubkyClientError, PubkyClientResult};
-    use nexus_common::models::user::set_user_homeserver;
+    use nexus_common::models::user::{set_user_homeserver, StoredRecord};
     use nexus_common::types::DynError;
     use nexus_common::utils::test_utils::{random_pk, random_pubky_id, signed_packet_naming};
     use nexus_common::{StackConfig, StackManager};
@@ -1301,8 +1296,8 @@ mod tests {
         let user_id = user.public_key().z32();
         let hs_id = random_pubky_id();
         let other_hs = random_pubky_id();
-        let record_10 = StoredRecord::from(&signed_packet_naming(&user, Some(&hs_id), 10));
-        let record_5 = StoredRecord::from(&signed_packet_naming(&user, Some(&hs_id), 5));
+        let record_10 = StoredRecord::try_from(&signed_packet_naming(&user, Some(&hs_id), 10))?;
+        let record_5 = StoredRecord::try_from(&signed_packet_naming(&user, Some(&hs_id), 5))?;
         create_test_user(&user_id).await?;
 
         set_user_homeserver(&user_id, &hs_id).await?;
@@ -1443,6 +1438,35 @@ mod tests {
                 stale: false,
             })
         );
+        assert_eq!(
+            stored_record(&user_id).await?.map(|r| r.timestamp),
+            Some(10)
+        );
+
+        cleanup_test_user(&user_id).await?;
+        Ok(())
+    }
+
+    /// A record whose timestamp does not fit the graph counts as no record: an
+    /// unbound user stays unbound, a bound one keeps the record it was applied
+    /// from.
+    #[tokio_shared_rt::test(shared)]
+    async fn test_resolve_user_takes_an_unstorable_record_as_none() -> Result<(), DynError> {
+        setup().await?;
+
+        let user = Keypair::random();
+        let user_pk = user.public_key();
+        let user_id = user_pk.z32();
+        let hs_id = random_pubky_id();
+        let unstorable = MockResolver::signed_by(&user, Some(&hs_id), i64::MAX as u64 + 1);
+        create_test_user(&user_id).await?;
+
+        let outcome = resolve_user(&unstorable, &user_pk).await?;
+        assert_eq!(outcome, Resolution::Unbound);
+        assert_eq!(get_user_homeserver(&user_id).await?, None);
+
+        resolve_user(&MockResolver::signed_by(&user, Some(&hs_id), 10), &user_pk).await?;
+        resolve_user(&unstorable, &user_pk).await?;
         assert_eq!(
             stored_record(&user_id).await?.map(|r| r.timestamp),
             Some(10)

@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use pubky_app_specs::{ParsedUri, PubkyId};
 
-use super::{PkdnsHomeserverResolver, PkdnsRecord, StoredRecord};
+use super::{PkdnsHomeserverResolver, StoredRecord};
 use crate::models::error::{ModelError, ModelResult};
 use crate::models::homeserver::HsBlacklist;
 use crate::models::traits::Collection;
@@ -93,7 +93,7 @@ impl UserIngestor {
             .resolve_own_record(&user_id.to_public_key())
             .await
             .map_err(ModelError::from_generic)?;
-        let (PkdnsRecord::Published(packet), Some(hs_pk)) = (&record, record.homeserver()) else {
+        let (Some(stored), Some(hs_pk)) = (record.stored(), record.homeserver()) else {
             return Ok(None);
         };
 
@@ -102,7 +102,7 @@ impl UserIngestor {
             return Err(ModelError::HsBlacklisted { hs_id });
         }
 
-        Ok(Some((hs_id, StoredRecord::from(packet))))
+        Ok(Some((hs_id, stored)))
     }
 
     /// Resolves and persists a previously-unknown user.
@@ -154,6 +154,7 @@ mod tests {
     use crate::db::{
         exec_single_row, fetch_row_from_graph, graph::Query, queries, PubkyClientResult,
     };
+    use crate::models::user::PkdnsRecord;
     use crate::utils::test_utils::{random_pubky_id, signed_packet_naming};
     use crate::{types::DynError, StackConfig, StackManager};
 

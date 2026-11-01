@@ -175,7 +175,9 @@ timestamp in microseconds. The packet carries the key, the signature, the
 timestamp and the encoded DNS records, so anyone can verify that the key holder
 published it (`StoredRecord::verify` in nexus-common does). A lookup that finds
 no record leaves the stored one; the ingestor binds a newly seen user from the
-record it resolved, so the edge carries it from the start.
+record it resolved, so the edge carries it from the start. A packet whose
+timestamp does not fit `record_ts`, a signed 64-bit integer, counts as no
+record; the DHT cannot carry such a packet either, since BEP44's `seq` is signed.
 
 ### `hs_resolver_interval_ms`
 

@@ -26,10 +26,11 @@ impl PkdnsRecord {
         }
     }
 
-    /// The record as kept on the user's `HOSTED_BY` edge, when there is one.
+    /// The record as kept on the user's `HOSTED_BY` edge, when there is one and
+    /// its timestamp fits the graph.
     pub fn stored(&self) -> Option<StoredRecord> {
         match self {
-            Self::Published(packet) => Some(StoredRecord::from(packet)),
+            Self::Published(packet) => StoredRecord::try_from(packet).ok(),
             Self::Missing => None,
         }
     }
@@ -66,12 +67,15 @@ impl StoredRecord {
     }
 }
 
-impl From<&SignedPacket> for StoredRecord {
-    fn from(packet: &SignedPacket) -> Self {
-        Self {
+/// Fails when the packet's timestamp, a `u64`, does not fit the graph's `i64`.
+impl TryFrom<&SignedPacket> for StoredRecord {
+    type Error = std::num::TryFromIntError;
+
+    fn try_from(packet: &SignedPacket) -> Result<Self, Self::Error> {
+        Ok(Self {
             packet: hex::encode(packet.as_bytes()),
-            timestamp: i64::try_from(packet.timestamp().as_u64()).unwrap_or(i64::MAX),
-        }
+            timestamp: i64::try_from(packet.timestamp().as_u64())?,
+        })
     }
 }
 
@@ -84,22 +88,35 @@ pub trait PkdnsHomeserverResolver: Send + Sync {
     /// Looks up the PKDNS record of `user_pk`.
     async fn resolve_record(&self, user_pk: &PublicKey) -> PubkyClientResult<PkdnsRecord>;
 
-    /// Looks up the PKDNS record of `user_pk` and refuses a packet signed by
-    /// another key. pkarr 6.0.1 on mainline 6.2.0 checks a DHT answer against
-    /// the key the answer carries, not the key asked for, so any DHT node can
-    /// answer with another key's signed packet.
+    /// Looks up the PKDNS record of `user_pk`, refusing a packet nexus cannot
+    /// apply:
+    /// - One signed by another key fails the lookup. pkarr 6.0.1 on mainline
+    ///   6.2.0 checks a DHT answer against the key the answer carries, not the
+    ///   key asked for, so any DHT node can answer with another key's packet.
+    /// - One whose timestamp does not fit the graph counts as no record. Such a
+    ///   packet cannot be on the DHT either: BEP44's `seq` is an `i64` and pkarr
+    ///   signs the timestamp as a `u64`, so only a relay's cache can hold one.
     async fn resolve_own_record(&self, user_pk: &PublicKey) -> PubkyClientResult<PkdnsRecord> {
         let record = self.resolve_record(user_pk).await?;
-        if let PkdnsRecord::Published(packet) = &record {
-            if packet.public_key() != *user_pk.as_inner() {
-                return Err(PubkyClientError::RequestFailed {
-                    message: format!(
-                        "PKDNS answer for {} is signed by {}",
-                        user_pk.z32(),
-                        packet.public_key().to_z32()
-                    ),
-                });
-            }
+        let PkdnsRecord::Published(packet) = &record else {
+            return Ok(record);
+        };
+        if packet.public_key() != *user_pk.as_inner() {
+            return Err(PubkyClientError::RequestFailed {
+                message: format!(
+                    "PKDNS answer for {} is signed by {}",
+                    user_pk.z32(),
+                    packet.public_key().to_z32()
+                ),
+            });
+        }
+        if StoredRecord::try_from(packet).is_err() {
+            tracing::warn!(
+                user_id = %user_pk.z32(),
+                timestamp = packet.timestamp().as_u64(),
+                "PKDNS record timestamp does not fit the graph; taken as no record"
+            );
+            return Ok(PkdnsRecord::Missing);
         }
         Ok(record)
     }
@@ -286,6 +303,24 @@ mod tests {
         let missing = FixedRecordResolver(PkdnsRecord::Missing);
         assert_eq!(
             missing.resolve_own_record(&user.public_key()).await.ok(),
+            Some(PkdnsRecord::Missing)
+        );
+    }
+
+    /// The user's own packet with a timestamp past `i64::MAX` is not stored,
+    /// and a lookup answered with it counts as no record.
+    #[tokio::test]
+    async fn record_past_the_graph_timestamp_range_counts_as_none() {
+        let user = Keypair::random();
+        let homeserver = random_pubky_id();
+        let packet = signed_packet_naming(&user, Some(&homeserver), i64::MAX as u64 + 1);
+
+        let record = PkdnsRecord::Published(packet);
+        assert_eq!(record.stored(), None);
+
+        let resolver = FixedRecordResolver(record);
+        assert_eq!(
+            resolver.resolve_own_record(&user.public_key()).await.ok(),
             Some(PkdnsRecord::Missing)
         );
     }
