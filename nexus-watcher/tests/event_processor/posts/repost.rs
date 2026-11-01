@@ -79,12 +79,11 @@ async fn test_homeserver_post_repost() -> Result<()> {
     // CACHE_OP: Check if the event writes in the index
 
     // ########### PARENT RELATED INDEXES ################
-    // Assert the parent post has changed stats, User:Counts:user_id:post_id
+    // Assert the parent post has changed stats, Post:Counts:user_id:post_id
     let post_count = find_post_counts(&user_id, &parent_post_id).await;
     assert_eq!(post_count.reposts, 1);
 
     // Assert the parent user counts has changed stats
-    // User:Counts:user_id:post_id
     let post_count = find_user_counts(&user_id).await;
     assert_eq!(post_count.posts, 2);
 
@@ -130,7 +129,7 @@ async fn test_homeserver_post_repost() -> Result<()> {
         "The parent URIs does not match"
     );
 
-    // User:Counts:user_id:post_id
+    // Post:Counts:user_id:post_id
     let reply_post_counts = find_post_counts(&user_id, &repost_id).await;
 
     assert_eq!(reply_post_counts.reposts, 0);

@@ -72,6 +72,33 @@ fn test_user_details_epoch_schema_is_a_string_enum() {
     assert_eq!(schema["enum"], serde_json::json!(["v0", "v1"]), "{schema}");
 }
 
+/// Every `UserCounts` field is always present, `collections` included.
+#[test]
+fn test_user_counts_schema_requires_every_count() {
+    let spec = serde_json::to_value(V0ApiDoc::merge_docs()).expect("serializable spec");
+    let required = spec
+        .pointer("/components/schemas/UserCounts/required")
+        .and_then(Value::as_array)
+        .expect("UserCounts lists its required fields");
+    let mut required: Vec<&str> = required.iter().filter_map(Value::as_str).collect();
+    required.sort_unstable();
+    assert_eq!(
+        required,
+        [
+            "bookmarks",
+            "collections",
+            "followers",
+            "following",
+            "friends",
+            "posts",
+            "replies",
+            "tagged",
+            "tags",
+            "unique_tags",
+        ]
+    );
+}
+
 /// Test that the static OpenAPI spec is valid and all schema references are defined.
 #[test]
 fn test_static_openapi_spec_valid() {

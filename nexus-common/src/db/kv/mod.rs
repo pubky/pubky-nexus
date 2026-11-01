@@ -8,7 +8,6 @@ mod traits;
 
 pub use error::{ensure_cursor_not_backwards, RedisError, RedisResult};
 pub use flush::clear_redis;
-pub use index::json::JsonAction;
 pub(crate) use index::search;
 pub use index::search::AuthorFilter;
 pub use index::sets;

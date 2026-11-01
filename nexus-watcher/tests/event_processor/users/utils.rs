@@ -26,8 +26,9 @@ pub async fn check_member_influencer(user_id: &str) -> Result<Option<isize>> {
     Ok(influencer_score)
 }
 
+/// The counts the API serves, read from the graph.
 pub async fn find_user_counts(user_id: &str) -> UserCounts {
-    UserCounts::get_from_index(user_id)
+    UserCounts::get_by_id(user_id)
         .await
         .expect("User count not found with that ID")
         .expect("User count not found with that ID")

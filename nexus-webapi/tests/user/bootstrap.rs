@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use crate::utils::get_request;
 use anyhow::Result;
-use nexus_common::db::{exec_single_row, graph::Query, queries};
+use nexus_common::db::{exec_single_row, graph::Query, queries, PubkyConnector};
 use nexus_common::models::bootstrap::{Bootstrap, BOOTSTRAP_HOT_TAGS_LIMIT};
 use nexus_common::models::notification::Notification;
 use nexus_common::models::notification::NotificationBody;
@@ -136,6 +136,19 @@ async fn test_bootstrap_user_not_indexed() -> Result<()> {
         "Files count should match the number of unique attachment URIs in posts"
     );
 
+    Ok(())
+}
+
+/// Starting the API sets up the shared Pubky client, which the ingest-user route looks
+/// users' homeservers up with.
+#[tokio_shared_rt::test(shared)]
+async fn test_api_start_initialises_the_pubky_client() -> Result<()> {
+    crate::utils::server::TestServiceServer::get_test_server().await;
+
+    assert!(
+        PubkyConnector::get().is_ok(),
+        "the ingest-user route needs the Pubky client"
+    );
     Ok(())
 }
 

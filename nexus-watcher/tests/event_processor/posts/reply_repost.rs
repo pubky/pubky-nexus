@@ -80,7 +80,7 @@ async fn test_homeserver_reply_repost() -> Result<()> {
     assert_eq!(post_count.replies, 1);
     assert_eq!(post_count.reposts, 1);
 
-    // User:Counts:user_id
+    // The author's counts
     let exist_count = find_user_counts(&user_id).await;
     assert_eq!(exist_count.posts, 3);
 
