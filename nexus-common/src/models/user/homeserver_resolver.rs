@@ -120,11 +120,6 @@ pub trait PkdnsHomeserverResolver: Send + Sync {
         }
         Ok(record)
     }
-
-    /// Returns the HS published for `user_pk`, if any is currently published.
-    async fn resolve_homeserver(&self, user_pk: &PublicKey) -> PubkyClientResult<Option<PubkyId>> {
-        Ok(self.resolve_own_record(user_pk).await?.homeserver())
-    }
 }
 
 /// Looks up the PKDNS record of `user_pk` through `pubky`: the lookup behind
