@@ -224,3 +224,34 @@ pub fn bench_stream_post_exclude_kinds(c: &mut Criterion) {
         });
     });
 }
+
+pub fn bench_stream_post_locked(c: &mut Criterion) {
+    println!("***************************************************************************");
+    println!("Benchmarking the post streams keeping only locked posts");
+    println!("***************************************************************************");
+
+    run_setup();
+
+    let rt = Runtime::new().unwrap();
+
+    c.bench_function("stream_posts_locked", |b| {
+        b.to_async(&rt).iter(|| async {
+            // Define all the arguments of the post stream
+            let source = StreamSource::All;
+
+            // Run the benchmark
+            let post_stream = PostStream::get_posts(
+                source,
+                LIMIT_20,
+                SortOrder::Descending,
+                StreamSorting::Timeline,
+                None,
+                None,
+                Some(KindFilter::Locked),
+            )
+            .await
+            .unwrap();
+            std::hint::black_box(post_stream);
+        });
+    });
+}
