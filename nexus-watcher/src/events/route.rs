@@ -95,15 +95,30 @@ pub fn resolve_reference(address: &str) -> Reference {
     }
 }
 
-/// The address a takedown of the moderated `address` is recorded under, which a PUT event's
-/// own address is looked up by as written (see [`super::remove_if_taken_down`]). A `social/v1`
-/// address is kept as written: the spec only accepts it in canonical form. A `pubky.app` or
-/// another app's address is rewritten by the frozen v0 reader, so a trailing slash or a query
-/// still finds the record's events.
+/// The key a takedown of `address` is recorded under and a PUT event is looked up by (see
+/// [`super::remove_if_taken_down`]). A `social/v1` post version (`…/posts/{id}/{edit}.json`)
+/// is keyed by its post's address `…/posts/{id}`: every version of a post is one resource, the
+/// one a takedown deletes, stored and served under that `uri`. Any other `social/v1` address is
+/// kept as written, since the spec only accepts it in canonical form. A `pubky.app` or another
+/// app's address is rewritten by the frozen v0 reader, so a trailing slash or a query still
+/// finds the record's events.
 ///
 /// `Err` for an address neither epoch's parser reads.
 pub fn takedown_key(address: &str) -> Result<String, String> {
     match route(address) {
+        Routed::Social(ParsedUri {
+            user_id,
+            resource:
+                Resource::Post {
+                    id,
+                    version: Some(_),
+                    ..
+                },
+            ..
+        }) => Ok(pubky_social_specs::post_uri_builder(
+            user_id.to_string(),
+            id,
+        )),
         Routed::Social(_) => Ok(address.to_string()),
         Routed::Legacy(parsed) => parsed.try_to_uri_str(),
         Routed::UnsupportedEpoch { version } => Err(format!("unsupported epoch {version}")),
@@ -522,20 +537,25 @@ mod tests {
         }
     }
 
-    /// A takedown is recorded under the moderated address: a `social/v1` one as written, a
-    /// `pubky.app` or another app's one as the v0 reader rewrites it, in its own folder.
+    /// A takedown is keyed by the moderated address: a `social/v1` post version by its post's
+    /// address, another `social/v1` address as written, a `pubky.app` or another app's one as
+    /// the v0 reader rewrites it, in its own folder.
     #[test]
-    fn takedown_keys_keep_social_v1_addresses_and_rewrite_v0_ones() {
+    fn takedown_keys_fold_v1_post_versions_and_rewrite_v0_addresses() {
         let post = post_uri_builder(USER.into(), POST_ID.into());
         let tag = format!("pubky://{USER}/pub/mapky/tags/{HASH_ID}");
         let v1_post = v1_post_uri_builder(USER.into(), POST_ID.into());
         let v1_tag = v1_tag_uri_builder(USER.into(), HASH_ID.into());
+        let v1_profile = format!("pubky://{USER}/pub/social/v1/profile.json");
         for (address, expected) in [
             (post.clone(), &post),
             (format!("{post}/"), &post),
             (format!("{tag}?x=1"), &tag),
             (v1_post.clone(), &v1_post),
+            (v1_version_uri(None), &v1_post),
+            (v1_version_uri(Some("hello-world")), &v1_post),
             (v1_tag.clone(), &v1_tag),
+            (v1_profile.clone(), &v1_profile),
         ] {
             assert_eq!(takedown_key(&address).as_ref(), Ok(expected), "{address}");
         }
