@@ -1,19 +1,23 @@
 use crate::models::{BoundedLimit, BoundedPagination, BoundedSkip, PubkyId, Tags};
 use crate::routes::v0::endpoints::{STREAM_RESOURCES_ROUTE, STREAM_RESOURCE_IDS_ROUTE};
 use crate::routes::Query;
-use crate::Result;
+use crate::{Error, Result};
 use axum::Json;
 use nexus_common::db::kv::SortOrder;
-use nexus_common::models::resource::stream::{
-    ResourceKeyStream, ResourceSorting, ResourceStream, ResourceStreamSource,
-};
+use nexus_common::models::resource::stream::{ResourceKeyStream, ResourceSorting, ResourceStream};
 use nexus_common::models::resource::view::ResourceView;
 use serde::Deserialize;
 use tracing::debug;
 use utoipa::OpenApi;
 
+/// The `app` filter Nexus no longer stores. A request that still sends it gets 400 rather
+/// than a silently unfiltered stream, so a client notices the break. It leaves the query in a
+/// later release.
+const APP_REMOVED: &str = "app is no longer supported; filter by tags";
+
 #[derive(Deserialize, Debug)]
 pub struct ResourceStreamQuery {
+    /// Removed filter: any value, the empty string included, is rejected with 400.
     pub app: Option<String>,
     pub tags: Option<Tags>,
     #[serde(default)]
@@ -27,13 +31,23 @@ pub struct ResourceStreamQuery {
     pub viewer_id: Option<PubkyId>,
 }
 
+impl ResourceStreamQuery {
+    /// Rejects a request that still sends the removed `app` filter.
+    fn reject_app(&self) -> Result<()> {
+        match self.app {
+            Some(_) => Err(Error::invalid_input(APP_REMOVED)),
+            None => Ok(()),
+        }
+    }
+}
+
 #[utoipa::path(
     get,
     path = STREAM_RESOURCE_IDS_ROUTE,
-    description = "Stream resource IDs with app/tag filtering",
+    description = "Stream resource IDs with tag filtering",
     tag = "Stream",
     params(
-        ("app" = Option<String>, Query, description = "Filter by app namespace (e.g., mapky, eventky)"),
+        ("app" = Option<String>, Query, description = "Removed. A request that sends it gets 400; filter by `tags` instead"),
         ("tags" = Option<Tags>, Query, description = "Comma-separated tag labels (max 5, OR logic)"),
         ("sorting" = Option<String>, Query, description = "timeline (the only sorting, and the default)"),
         ("order" = Option<SortOrder>, Query, description = "Ordering of response list. Either 'ascending' or 'descending'. Defaults to descending."),
@@ -44,7 +58,7 @@ pub struct ResourceStreamQuery {
     ),
     responses(
         (status = 200, description = "Resource IDs with cursor", body = ResourceKeyStream),
-        (status = 400, description = "Invalid parameters"),
+        (status = 400, description = "Invalid parameters, or the removed `app` filter"),
         (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error")
     )
@@ -53,27 +67,19 @@ pub async fn stream_resource_ids_handler(
     Query(query): Query<ResourceStreamQuery>,
 ) -> Result<Json<ResourceKeyStream>> {
     debug!(
-        "GET {STREAM_RESOURCE_IDS_ROUTE} app:{:?}, tags:{:?}, sorting:{:?}",
-        query.app, query.tags, query.sorting
+        "GET {STREAM_RESOURCE_IDS_ROUTE} tags:{:?}, sorting:{:?}",
+        query.tags, query.sorting
     );
 
-    let source = match &query.app {
-        Some(app) => ResourceStreamSource::App { app: app.clone() },
-        None => ResourceStreamSource::All,
-    };
+    query.reject_app()?;
 
     let order = query.order.unwrap_or(SortOrder::Descending);
     let tags = query.tags.as_ref().map(Tags::to_string_vec);
     let pagination = query.pagination.to_pagination(query.start, query.end);
 
-    let keys = ResourceStream::get_resource_keys(
-        &source,
-        pagination,
-        order,
-        &query.sorting,
-        tags.as_deref(),
-    )
-    .await?;
+    let keys =
+        ResourceStream::get_resource_keys(pagination, order, &query.sorting, tags.as_deref())
+            .await?;
 
     Ok(Json(keys))
 }
@@ -81,10 +87,10 @@ pub async fn stream_resource_ids_handler(
 #[utoipa::path(
     get,
     path = STREAM_RESOURCES_ROUTE,
-    description = "Stream resources with app/tag filtering, returns full ResourceView objects",
+    description = "Stream resources with tag filtering, returns full ResourceView objects",
     tag = "Stream",
     params(
-        ("app" = Option<String>, Query, description = "Filter by app namespace"),
+        ("app" = Option<String>, Query, description = "Removed. A request that sends it gets 400; filter by `tags` instead"),
         ("tags" = Option<Tags>, Query, description = "Comma-separated tag labels (max 5, OR logic)"),
         ("sorting" = Option<String>, Query, description = "timeline (the only sorting, and the default)"),
         ("order" = Option<SortOrder>, Query, description = "Ordering of response list. Either 'ascending' or 'descending'. Defaults to descending."),
@@ -96,7 +102,7 @@ pub async fn stream_resource_ids_handler(
     ),
     responses(
         (status = 200, description = "Resource stream", body = Vec<ResourceView>),
-        (status = 400, description = "Invalid parameters"),
+        (status = 400, description = "Invalid parameters, or the removed `app` filter"),
         (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error")
     )
@@ -105,27 +111,19 @@ pub async fn stream_resources_handler(
     Query(query): Query<ResourceStreamQuery>,
 ) -> Result<Json<Vec<ResourceView>>> {
     debug!(
-        "GET {STREAM_RESOURCES_ROUTE} app:{:?}, tags:{:?}, sorting:{:?}",
-        query.app, query.tags, query.sorting
+        "GET {STREAM_RESOURCES_ROUTE} tags:{:?}, sorting:{:?}",
+        query.tags, query.sorting
     );
 
-    let source = match &query.app {
-        Some(app) => ResourceStreamSource::App { app: app.clone() },
-        None => ResourceStreamSource::All,
-    };
+    query.reject_app()?;
 
     let order = query.order.unwrap_or(SortOrder::Descending);
     let tags = query.tags.as_ref().map(Tags::to_string_vec);
     let pagination = query.pagination.to_pagination(query.start, query.end);
 
-    let keys = ResourceStream::get_resource_keys(
-        &source,
-        pagination,
-        order,
-        &query.sorting,
-        tags.as_deref(),
-    )
-    .await?;
+    let keys =
+        ResourceStream::get_resource_keys(pagination, order, &query.sorting, tags.as_deref())
+            .await?;
 
     if keys.is_empty() {
         return Ok(Json(vec![]));

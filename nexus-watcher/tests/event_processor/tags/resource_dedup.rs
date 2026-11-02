@@ -1,15 +1,12 @@
 use super::resource_utils::{compute_resource_id, count_resource_tags};
-use crate::event_processor::utils::watcher::WatcherTest;
+use crate::event_processor::utils::watcher::{HomeserverHashIdPath, WatcherTest};
 use anyhow::Result;
 use chrono::Utc;
 use nexus_common::models::resource::view::ResourceView;
 use pubky::Keypair;
-use pubky::ResourcePath;
-use pubky_social_specs::legacy_v0::traits::HashId;
 use pubky_social_specs::legacy_v0::{PubkyAppTag, PubkyAppUser};
 
-/// Two different users tag the same external URI with the same label
-/// from different app paths. Verifies:
+/// Two different users tag the same external URI with the same label. Verifies:
 /// - One Resource node exists
 /// - Two TAGGED relationships (one per user)
 /// - Correct aggregated tagger count
@@ -21,7 +18,7 @@ async fn test_resource_tag_multi_user_dedup() -> Result<()> {
     let label = "dedup-label";
     let resource_id = compute_resource_id(target_uri);
 
-    // User 1 tags from /pub/mapky/tags/
+    // User 1 tags the URI
     let user1_kp = Keypair::random();
     let user1 = PubkyAppUser {
         bio: Some("dedup_user_1".to_string()),
@@ -37,11 +34,10 @@ async fn test_resource_tag_multi_user_dedup() -> Result<()> {
         label: label.to_string(),
         created_at: Utc::now().timestamp_millis(),
     };
-    let tag1_id = tag1.create_id();
-    let path1: ResourcePath = format!("/pub/mapky/tags/{tag1_id}").parse()?;
+    let path1 = tag1.hs_path();
     test.put(&user1_kp, &path1, &tag1).await?;
 
-    // User 2 tags same URI, same label from /pub/eventky/tags/
+    // User 2 tags the same URI with the same label
     let user2_kp = Keypair::random();
     let user2 = PubkyAppUser {
         bio: Some("dedup_user_2".to_string()),
@@ -57,8 +53,7 @@ async fn test_resource_tag_multi_user_dedup() -> Result<()> {
         label: label.to_string(),
         created_at: Utc::now().timestamp_millis(),
     };
-    let tag2_id = tag2.create_id();
-    let path2: ResourcePath = format!("/pub/eventky/tags/{tag2_id}").parse()?;
+    let path2 = tag2.hs_path();
     test.put(&user2_kp, &path2, &tag2).await?;
 
     // Verify: Two TAGGED relationships on one Resource

@@ -168,35 +168,23 @@ pub fn get_post_replies(author_id: &str, post_id: &str, cursor: &[String], limit
 }
 
 // Read the target details for a tag without deleting the TAGGED edge.
-// Used in tag del to read before graph-last deletion.
-pub fn get_tag_target(user_id: &str, tag_id: &str, app: Option<&str>) -> Query {
-    let app_filter = match app {
-        Some(_) => "\n    WHERE tag.app = $app",
-        None => "\n    WHERE tag.app IS NULL",
-    };
-
-    let cypher = format!(
-        "MATCH (user:User {{id: $user_id}})-[tag:TAGGED {{id: $tag_id}}]->(target){app_filter}
+// Used in tag del to read before graph-last deletion. The edge is found by its id alone,
+// whichever folder wrote the tag.
+pub fn get_tag_target(user_id: &str, tag_id: &str) -> Query {
+    Query::new(
+        "get_tag_target",
+        "MATCH (user:User {id: $user_id})-[tag:TAGGED {id: $tag_id}]->(target)
          OPTIONAL MATCH (target)<-[:AUTHORED]-(author:User)
          WITH CASE WHEN target:User THEN target.id ELSE null END AS user_id,
               CASE WHEN target:Post THEN target.id ELSE null END AS post_id,
               CASE WHEN target:Post THEN author.id ELSE null END AS author_id,
               CASE WHEN target:Post THEN target.uri ELSE null END AS post_uri,
               CASE WHEN target:Resource THEN target.id ELSE null END AS resource_id,
-              tag.label AS label,
-              tag.app AS app
-         RETURN user_id, post_id, author_id, post_uri, resource_id, label, app"
-    );
-
-    let mut query = Query::new("get_tag_target", &cypher)
-        .param("user_id", user_id)
-        .param("tag_id", tag_id);
-
-    if let Some(a) = app {
-        query = query.param("app", a);
-    }
-
-    query
+              tag.label AS label
+         RETURN user_id, post_id, author_id, post_uri, resource_id, label",
+    )
+    .param("user_id", user_id)
+    .param("tag_id", tag_id)
 }
 
 // t.id collides across taggers (hashes only {target_uri, label}), so the keyset is the row value
@@ -638,8 +626,8 @@ pub fn viewer_user_tag_uris(user_id: &str, viewer_id: &str, labels: Vec<String>)
 /// ordered by tagger count, then label, and paginated with `skip_tags`/`limit_tags`.
 /// Each label carries its full `taggers_count`, at most `limit_taggers` tagger ids,
 /// and `tag_uri`, the viewer's tag address, looked up among all of its taggers, not
-/// only the listed ones; null without a viewer. With one edge per app, `min` picks
-/// the same address as `resource_label_taggers`. A missing Resource returns
+/// only the listed ones; null without a viewer. Where old per-app edges left two
+/// for one label, `min` picks the same address as `resource_label_taggers`. A missing Resource returns
 /// `details = null`; an existing one without tags returns `tags = []`.
 pub fn resource_view(
     resource_id: &str,
@@ -682,10 +670,10 @@ pub fn resource_view(
 }
 
 /// Taggers of `label` on a Resource node, sorted by user id and paged with
-/// `skip`/`limit`. A user who tagged the label from two apps is listed once.
-/// `tag_uri` is the viewer's tag address on the label, null without a viewer or
-/// their tag; with one edge per app, `min` picks the same address as
-/// `resource_view`. A missing Resource has no taggers.
+/// `skip`/`limit`. A user with two edges for the label, left by old per-app edges,
+/// is listed once. `tag_uri` is the viewer's tag address on the label, null without
+/// a viewer or their tag; where old per-app edges left two, `min` picks the same
+/// address as `resource_view`. A missing Resource has no taggers.
 ///
 /// The index hint makes both matches start from the Resource, so the cost follows
 /// the resource's own tags. Left to itself, the planner can seek every TAGGED edge
@@ -728,13 +716,13 @@ pub fn resource_label_taggers(
     .param("limit", limit as i64)
 }
 
-/// Query a stream of Resources with optional app and tag filters.
+/// Query a stream of Resources with an optional tag filter.
 ///
 /// Ordering:
 /// - `Timeline` sorts by the newest matching TAGGED edge (`MAX(t.indexed_at)`),
 ///   not by when the Resource node was created. Adding a newer tag moves the
 ///   resource up; removing it drops the resource back to its latest remaining
-///   tag. With an app or label filter, only the matching edges count.
+///   tag. With a label filter, only the matching edges count.
 ///
 /// `score` is the sort value (the timestamp), so callers can hand it
 /// back as a cursor. `start` is the resume cursor and `end` the hard limit,
@@ -744,7 +732,6 @@ pub fn resource_label_taggers(
 /// not the id, so resuming from inside a tie group takes a `skip` covering
 /// every already-served row with that score.
 pub fn resource_stream(
-    app: Option<&str>,
     labels: Option<&[String]>,
     sorting: &ResourceSorting,
     order: &SortOrder,
@@ -762,17 +749,8 @@ pub fn resource_stream(
 
     let mut cypher = String::from("MATCH (tagger:User)-[t:TAGGED]->(r:Resource)\n");
 
-    let mut where_clauses = Vec::new();
-    if app.is_some() {
-        where_clauses.push("t.app = $app");
-    }
     if labels.is_some() {
-        where_clauses.push("t.label IN $labels");
-    }
-    if !where_clauses.is_empty() {
-        cypher.push_str("WHERE ");
-        cypher.push_str(&where_clauses.join(" AND "));
-        cypher.push('\n');
+        cypher.push_str("WHERE t.label IN $labels\n");
     }
 
     let score_expr = match sorting {
@@ -805,9 +783,6 @@ pub fn resource_stream(
 
     let mut query = Query::new("resource_stream", &cypher);
 
-    if let Some(a) = app {
-        query = query.param("app", a);
-    }
     if let Some(l) = labels {
         let label_strings: Vec<String> = l.iter().map(|s| s.to_string()).collect();
         query = query.param("labels", label_strings);
@@ -2386,19 +2361,17 @@ mod tests {
     }
 
     fn build_resource_stream(
-        app: Option<&str>,
         labels: Option<&[String]>,
         sorting: ResourceSorting,
         order: SortOrder,
         pagination: Pagination,
     ) -> String {
-        resource_stream(app, labels, &sorting, &order, &pagination).to_cypher_populated()
+        resource_stream(labels, &sorting, &order, &pagination).to_cypher_populated()
     }
 
     #[test]
     fn resource_stream_timeline_orders_by_latest_matching_tag() {
         let cypher = build_resource_stream(
-            None,
             None,
             ResourceSorting::Timeline,
             SortOrder::Descending,
@@ -2412,22 +2385,23 @@ mod tests {
         assert!(cypher.contains("ORDER BY score DESC, r.id DESC"));
         assert!(
             !cypher.contains("WHERE"),
-            "no filter without app/labels: {cypher}"
+            "no filter without labels: {cypher}"
         );
         assert!(cypher.contains("SKIP 0\nLIMIT 10"));
     }
 
     #[test]
-    fn resource_stream_applies_app_and_label_filters_to_the_edges() {
+    fn resource_stream_applies_the_label_filter_to_the_edges() {
         let labels = vec!["bitcoin".to_string(), "nostr".to_string()];
         let cypher = build_resource_stream(
-            Some("mapky"),
             Some(&labels),
             ResourceSorting::Timeline,
             SortOrder::Descending,
             Pagination::default(),
         );
-        assert!(cypher.contains("MATCH (tagger:User)-[t:TAGGED]->(r:Resource)\nWHERE t.app = 'mapky' AND t.label IN ['bitcoin', 'nostr']\n"));
+        assert!(cypher.contains(
+            "MATCH (tagger:User)-[t:TAGGED]->(r:Resource)\nWHERE t.label IN ['bitcoin', 'nostr']\n"
+        ));
     }
 
     #[test]
@@ -2440,7 +2414,6 @@ mod tests {
         };
         let desc = build_resource_stream(
             None,
-            None,
             ResourceSorting::Timeline,
             SortOrder::Descending,
             pagination,
@@ -2450,7 +2423,6 @@ mod tests {
         assert!(desc.contains("ORDER BY score DESC, r.id DESC\nSKIP 5\nLIMIT 7"));
 
         let asc = build_resource_stream(
-            None,
             None,
             ResourceSorting::Timeline,
             SortOrder::Ascending,
@@ -2464,7 +2436,6 @@ mod tests {
     #[test]
     fn resource_stream_caps_skip_and_limit() {
         let cypher = build_resource_stream(
-            None,
             None,
             ResourceSorting::Timeline,
             SortOrder::Descending,

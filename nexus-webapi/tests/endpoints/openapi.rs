@@ -177,3 +177,17 @@ fn test_tag_details_relationship_and_tag_uri() {
 fn test_taggers_relationship_and_tag_uri() {
     assert_relationship_and_tag_uri("TaggersInfoResponse");
 }
+
+/// A resource tag keeps no `app`, so the resource stream routes take no `app` parameter.
+#[test]
+fn test_resource_stream_routes_take_no_app_parameter() {
+    let spec = serde_json::to_value(V0ApiDoc::merge_docs()).expect("serializable spec");
+    for path in ["/v0/stream/resources", "/v0/stream/resources/ids"] {
+        let params = spec["paths"][path]["get"]["parameters"]
+            .as_array()
+            .unwrap_or_else(|| panic!("{path} parameters"));
+        let names: Vec<_> = params.iter().filter_map(|p| p["name"].as_str()).collect();
+        assert!(names.contains(&"tags"), "{path}: {names:?}");
+        assert!(!names.contains(&"app"), "{path}: {names:?}");
+    }
+}

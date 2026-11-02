@@ -1,6 +1,4 @@
-use super::resource_utils::{
-    app_stream_resource_ids, compute_resource_id, find_resource_tag, resource_exists_in_graph,
-};
+use super::resource_utils::{compute_resource_id, find_resource_tag, resource_exists_in_graph};
 use crate::event_processor::posts::utils::test_user;
 use crate::event_processor::users::utils::find_user_counts;
 use crate::event_processor::utils::watcher::WatcherTest;
@@ -50,11 +48,7 @@ async fn test_homeserver_epochless_social_tag_is_not_indexed() -> Result<()> {
         "an epoch-less social tag must not create a Resource node"
     );
 
-    // Redis: no entry in an app stream named `social`, the tagger's counts unchanged
-    assert!(
-        app_stream_resource_ids("social").await?.is_empty(),
-        "no resource stream must exist for an app named `social`"
-    );
+    // The tagger's counts unchanged
     let counts_after = find_user_counts(&tagger_id).await;
     assert_eq!(counts_after.tagged, counts_before.tagged);
     assert_eq!(counts_after.tags, counts_before.tags);

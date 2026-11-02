@@ -21,10 +21,6 @@ fn tag_on(target_uri: String, label: &str) -> PubkyAppTag {
     }
 }
 
-fn mapky_path(tag_id: &str) -> ResourcePath {
-    format!("/pub/mapky/tags/{tag_id}").parse().unwrap()
-}
-
 /// A user and a post by that user, for the tests below.
 async fn author_with_post(
     test: &mut WatcherTest,
@@ -104,48 +100,26 @@ async fn test_pubky_app_user_tag_stores_event_path_as_uri() -> Result<()> {
     Ok(())
 }
 
-/// A tag in another app's folder that targets a post stores that folder's address.
+/// A `pubky.app` tag that targets a URL stores its event path on the `Resource` edge.
 #[tokio_shared_rt::test(shared)]
-async fn test_mapky_post_tag_stores_mapky_uri() -> Result<()> {
-    let mut test = WatcherTest::setup(None).await?;
-    let (author_kp, author_id, post_id, post_path) = author_with_post(&mut test, "Mapky").await?;
-    let (tagger_kp, tagger_id) = new_user(&mut test, "Mapky:Tagger").await?;
-
-    let tag = tag_on(post_uri_builder(author_id, post_id), "uri-mapky-post");
-    let tag_id = tag.create_id();
-    test.put(&tagger_kp, &mapky_path(&tag_id), tag).await?;
-
-    assert_eq!(
-        find_tag_uri(&tagger_id, &tag_id).await,
-        Some(format!("pubky://{tagger_id}/pub/mapky/tags/{tag_id}"))
-    );
-
-    test.del(&tagger_kp, &mapky_path(&tag_id)).await?;
-    test.cleanup_post(&author_kp, &post_path).await?;
-    test.cleanup_user(&tagger_kp).await?;
-    test.cleanup_user(&author_kp).await?;
-    Ok(())
-}
-
-/// A tag in another app's folder that targets a URL stores that folder's address on the `Resource` edge.
-#[tokio_shared_rt::test(shared)]
-async fn test_mapky_resource_tag_stores_mapky_uri() -> Result<()> {
+async fn test_pubky_app_resource_tag_stores_event_path_as_uri() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
     let (tagger_kp, tagger_id) = new_user(&mut test, "Resource:Tagger").await?;
 
     let tag = tag_on(
         format!("https://example.com/tag-uri/{tagger_id}"),
-        "uri-mapky-resource",
+        "uri-pubky-app-res",
     );
     let tag_id = tag.create_id();
-    test.put(&tagger_kp, &mapky_path(&tag_id), tag).await?;
+    let tag_path = tag.hs_path();
+    test.put(&tagger_kp, &tag_path, tag).await?;
 
     assert_eq!(
         find_tag_uri(&tagger_id, &tag_id).await,
-        Some(format!("pubky://{tagger_id}/pub/mapky/tags/{tag_id}"))
+        Some(tag_uri_builder(tagger_id.clone(), tag_id.clone()))
     );
 
-    test.del(&tagger_kp, &mapky_path(&tag_id)).await?;
+    test.del(&tagger_kp, &tag_path).await?;
     test.cleanup_user(&tagger_kp).await?;
     Ok(())
 }
@@ -161,9 +135,10 @@ async fn test_replayed_tag_event_line_stores_uri() -> Result<()> {
     test = test.remove_event_processing().await;
     let tag = tag_on(post_uri_builder(author_id, post_id), "uri-replay");
     let tag_id = tag.create_id();
-    test.put(&tagger_kp, &mapky_path(&tag_id), tag).await?;
+    let tag_path = tag.hs_path();
+    test.put(&tagger_kp, &tag_path, tag).await?;
 
-    let expected = format!("pubky://{tagger_id}/pub/mapky/tags/{tag_id}");
+    let expected = tag_uri_builder(tagger_id.clone(), tag_id.clone());
     let event_handler = test.event_processor_runner.event_handler.clone();
     let line = format!("PUT {expected}");
     retrieve_and_handle_event_line(&line, event_handler.clone()).await?;
@@ -176,7 +151,7 @@ async fn test_replayed_tag_event_line_stores_uri() -> Result<()> {
     retrieve_and_handle_event_line(&line, event_handler).await?;
     assert_eq!(find_tag_uri(&tagger_id, &tag_id).await, Some(expected));
 
-    test.del(&tagger_kp, &mapky_path(&tag_id)).await?;
+    test.del(&tagger_kp, &tag_path).await?;
     test.cleanup_post(&author_kp, &post_path).await?;
     test.cleanup_user(&tagger_kp).await?;
     test.cleanup_user(&author_kp).await?;
@@ -192,7 +167,8 @@ async fn test_tagged_post_edit_notification_links_tag_uri() -> Result<()> {
 
     let tag = tag_on(post_uri_builder(author_id, post_id), "uri-notify");
     let tag_id = tag.create_id();
-    test.put(&tagger_kp, &mapky_path(&tag_id), tag).await?;
+    let tag_path = tag.hs_path();
+    test.put(&tagger_kp, &tag_path, tag).await?;
 
     test.put(
         &author_kp,
@@ -219,11 +195,11 @@ async fn test_tagged_post_edit_notification_links_tag_uri() -> Result<()> {
         edited,
         vec![(
             PostChangedSource::TaggedPost,
-            format!("pubky://{tagger_id}/pub/mapky/tags/{tag_id}")
+            tag_uri_builder(tagger_id.clone(), tag_id)
         )]
     );
 
-    test.del(&tagger_kp, &mapky_path(&tag_id)).await?;
+    test.del(&tagger_kp, &tag_path).await?;
     test.cleanup_post(&author_kp, &post_path).await?;
     test.cleanup_user(&tagger_kp).await?;
     test.cleanup_user(&author_kp).await?;

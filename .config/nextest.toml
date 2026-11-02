@@ -55,6 +55,13 @@ threads-required = 'num-test-threads'
 filter = 'test(=models::user::influencers::tests::refresh_converges_a_stale_all_time_ranking) | test(=models::user::influencers::tests::read_all_time_ranking_walks_every_page) | test(=models::user::influencers::tests::requests_that_miss_together_share_one_rebuild) | test(=models::user::influencers::tests::a_rebuild_holds_up_only_misses_of_its_own_ranking)'
 threads-required = 'num-test-threads'
 
+# This test deletes the mock graph's old resource tag edge (the eventky event's
+# `calendar` tag) and its Resource, then writes both back. The API's resource tests
+# read that Resource, so it runs alone.
+[[profile.default.overrides]]
+filter = 'test(=event_processor::tags::resource_del::test_old_resource_tag_edge_with_app_is_reused_and_deleted)'
+threads-required = 'num-test-threads'
+
 # nexusd/tests/cache_setup/main.rs calls clear_redis(), which issues FLUSHDB
 # against the shared Redis instance. It must not overlap with any other test in
 # the run, including nexus-webapi's search suite under --workspace, or that

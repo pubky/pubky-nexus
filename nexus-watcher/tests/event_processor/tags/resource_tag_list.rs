@@ -1,15 +1,12 @@
 use super::resource_utils::compute_resource_id;
-use crate::event_processor::utils::watcher::WatcherTest;
+use crate::event_processor::utils::watcher::{HomeserverHashIdPath, WatcherTest};
 use anyhow::Result;
 use chrono::Utc;
 use nexus_common::models::resource::view::ResourceView;
 use nexus_common::models::tag::TagDetails;
 use pubky::Keypair;
 use pubky::ResourcePath;
-use pubky_social_specs::legacy_v0::traits::HashId;
 use pubky_social_specs::legacy_v0::{PubkyAppTag, PubkyAppUser};
-
-const APP: &str = "mapky";
 
 /// A resource's tag list follows its puts and dels: each put adds its tagger to
 /// the label, each del removes only its own tagger or label, and the last del
@@ -70,7 +67,7 @@ async fn create_user(test: &mut WatcherTest, name: &str) -> Result<(Keypair, Str
     Ok((user_kp, user_id))
 }
 
-/// PUTs a `label` tag on `uri` under the app's tag path, so the watcher indexes
+/// PUTs a `label` tag on `uri` under `pubky.app/tags/`, so the watcher indexes
 /// it as a Resource tag
 async fn put_resource_tag(
     test: &mut WatcherTest,
@@ -83,7 +80,7 @@ async fn put_resource_tag(
         label: label.to_string(),
         created_at: Utc::now().timestamp_millis(),
     };
-    let tag_path: ResourcePath = format!("/pub/{APP}/tags/{}", tag.create_id()).parse()?;
+    let tag_path = tag.hs_path();
     test.put(user_kp, &tag_path, &tag).await?;
     Ok(tag_path)
 }

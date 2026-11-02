@@ -7,7 +7,7 @@ use crate::event_processor::utils::watcher::{
 };
 use anyhow::Result;
 use chrono::Utc;
-use pubky::{recovery_file, Keypair, ResourcePath};
+use pubky::{recovery_file, Keypair};
 use pubky_social_specs::legacy_v0::traits::HashId;
 use pubky_social_specs::legacy_v0::{
     post_uri_builder, tag_uri_builder, PubkyAppPost, PubkyAppTag, PubkyAppUser,
@@ -42,69 +42,70 @@ async fn test_moderation_deletes_pubky_app_tag() -> Result<()> {
     Ok(())
 }
 
+/// Nexus no longer indexes another app's tag folder, but the tags indexed from one before stay,
+/// keyed by tagger and tag id like their `pubky.app` copy. A moderator tag naming such a tag's
+/// app-folder address still takes it down, a resource tag and a post tag alike.
 #[tokio_shared_rt::test(shared)]
-async fn test_moderation_deletes_universal_tag() -> Result<()> {
-    let mut test = WatcherTest::setup(None).await?;
-    let moderator_kp = create_moderator(&mut test).await?;
-    let (tagger_kp, tagger_id) = create_tagger(&mut test, "universal").await?;
-
-    let target_uri = format!("https://example.com/moderate-universal/{tagger_id}");
-    let label = "mod_universal";
-    let (tag_uri, resource_id) = put_universal_resource_tag(
-        &mut test,
-        &tagger_kp,
-        &tagger_id,
-        "mapky",
-        &target_uri,
-        label,
-    )
-    .await?;
-
-    assert!(
-        find_resource_tag(&resource_id, label).await?.is_some(),
-        "universal tag should exist before moderation"
-    );
-
-    moderate_tag(&mut test, &moderator_kp, &tag_uri).await?;
-
-    assert!(
-        find_resource_tag(&resource_id, label).await?.is_none(),
-        "universal tag should be moderated"
-    );
-
-    Ok(())
-}
-
-#[tokio_shared_rt::test(shared)]
-async fn test_moderation_deletes_app_specific_known_post_tag() -> Result<()> {
+async fn test_moderation_through_an_app_folder_address_deletes_the_tag() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
     let moderator_kp = create_moderator(&mut test).await?;
     let (_author_kp, author_id, post_id) = create_author_and_post(&mut test).await?;
-    let (tagger_kp, tagger_id) = create_tagger(&mut test, "known-post").await?;
+    let (tagger_kp, tagger_id) = create_tagger(&mut test, "app-folder").await?;
 
-    let label = "mod_known_post";
-    let tag_uri = put_app_specific_post_tag(
-        &mut test, &tagger_kp, &tagger_id, "mapky", &author_id, &post_id, label,
+    let target_uri = format!("https://example.com/moderate-app-folder/{tagger_id}");
+    let resource_label = "mod_app_folder_res";
+    let (resource_tag_uri, resource_id) = put_pubky_app_resource_tag(
+        &mut test,
+        &tagger_kp,
+        &tagger_id,
+        &target_uri,
+        resource_label,
     )
     .await?;
-
+    let post_label = "mod_app_folder_post";
+    let post_tag_uri = put_pubky_app_post_tag(
+        &mut test, &tagger_kp, &tagger_id, &author_id, &post_id, post_label,
+    )
+    .await?;
     assert!(
-        find_post_tag(&author_id, &post_id, label).await?.is_some(),
-        "app-specific known post tag should exist before moderation"
+        find_resource_tag(&resource_id, resource_label)
+            .await?
+            .is_some(),
+        "resource tag should exist before moderation"
+    );
+    assert!(
+        find_post_tag(&author_id, &post_id, post_label)
+            .await?
+            .is_some(),
+        "post tag should exist before moderation"
     );
 
-    moderate_tag(&mut test, &moderator_kp, &tag_uri).await?;
+    moderate_tag(
+        &mut test,
+        &moderator_kp,
+        &app_folder_address(&resource_tag_uri),
+    )
+    .await?;
+    moderate_tag(&mut test, &moderator_kp, &app_folder_address(&post_tag_uri)).await?;
 
     assert!(
-        find_post_tag(&author_id, &post_id, label).await?.is_none(),
-        "app-specific known post tag should be moderated"
+        find_resource_tag(&resource_id, resource_label)
+            .await?
+            .is_none(),
+        "resource tag should be moderated through its app-folder address"
+    );
+    assert!(
+        find_post_tag(&author_id, &post_id, post_label)
+            .await?
+            .is_none(),
+        "post tag should be moderated through its app-folder address"
     );
 
     Ok(())
 }
 
 #[tokio_shared_rt::test(shared)]
-async fn test_moderation_keeps_same_label_universal_tag_from_same_user() -> Result<()> {
+async fn test_moderation_keeps_same_label_resource_tag_from_same_user() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
     let moderator_kp = create_moderator(&mut test).await?;
     let (_author_kp, author_id, post_id) = create_author_and_post(&mut test).await?;
@@ -116,15 +117,8 @@ async fn test_moderation_keeps_same_label_universal_tag_from_same_user() -> Resu
     )
     .await?;
     let target_uri = format!("https://example.com/same-user/{tagger_id}");
-    let (_universal_tag_uri, resource_id) = put_universal_resource_tag(
-        &mut test,
-        &tagger_kp,
-        &tagger_id,
-        "mapky",
-        &target_uri,
-        label,
-    )
-    .await?;
+    let (_resource_tag_uri, resource_id) =
+        put_pubky_app_resource_tag(&mut test, &tagger_kp, &tagger_id, &target_uri, label).await?;
 
     moderate_tag(&mut test, &moderator_kp, &pubky_app_tag_uri).await?;
 
@@ -134,7 +128,7 @@ async fn test_moderation_keeps_same_label_universal_tag_from_same_user() -> Resu
     );
     assert!(
         find_resource_tag(&resource_id, label).await?.is_some(),
-        "same-label universal tag from same user should remain"
+        "same-label resource tag from same user should remain"
     );
 
     Ok(())
@@ -147,8 +141,8 @@ async fn test_moderation_keeps_same_label_pubky_app_tag_from_different_user() ->
     let (_author_kp, author_id, post_id) = create_author_and_post(&mut test).await?;
     let (pubky_tagger_kp, pubky_tagger_id) =
         create_tagger(&mut test, "different-user-pubky").await?;
-    let (universal_tagger_kp, universal_tagger_id) =
-        create_tagger(&mut test, "different-user-universal").await?;
+    let (resource_tagger_kp, resource_tagger_id) =
+        create_tagger(&mut test, "different-user-resource").await?;
 
     let label = "mod_diff_user";
     put_pubky_app_post_tag(
@@ -160,22 +154,21 @@ async fn test_moderation_keeps_same_label_pubky_app_tag_from_different_user() ->
         label,
     )
     .await?;
-    let target_uri = format!("https://example.com/different-user/{universal_tagger_id}");
-    let (universal_tag_uri, resource_id) = put_universal_resource_tag(
+    let target_uri = format!("https://example.com/different-user/{resource_tagger_id}");
+    let (resource_tag_uri, resource_id) = put_pubky_app_resource_tag(
         &mut test,
-        &universal_tagger_kp,
-        &universal_tagger_id,
-        "mapky",
+        &resource_tagger_kp,
+        &resource_tagger_id,
         &target_uri,
         label,
     )
     .await?;
 
-    moderate_tag(&mut test, &moderator_kp, &universal_tag_uri).await?;
+    moderate_tag(&mut test, &moderator_kp, &resource_tag_uri).await?;
 
     assert!(
         find_resource_tag(&resource_id, label).await?.is_none(),
-        "targeted universal tag should be moderated"
+        "targeted resource tag should be moderated"
     );
     let post_tag = find_post_tag(&author_id, &post_id, label)
         .await?
@@ -251,6 +244,43 @@ async fn test_moderation_through_the_social_v1_address_of_a_post_takes_it_down()
     Ok(())
 }
 
+/// A takedown of a tag is recorded under its address, so it holds when the same tag is replayed.
+#[tokio_shared_rt::test(shared)]
+async fn test_takedown_of_a_tag_holds_on_replay() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let moderator_kp = create_moderator(&mut test).await?;
+    let (_author_kp, author_id, post_id) = create_author_and_post(&mut test).await?;
+    let (tagger_kp, tagger_id) = create_tagger(&mut test, "tag-replay").await?;
+
+    let label = "mod_tag_replay";
+    let tag_uri = put_pubky_app_post_tag(
+        &mut test, &tagger_kp, &tagger_id, &author_id, &post_id, label,
+    )
+    .await?;
+    assert!(
+        find_post_tag(&author_id, &post_id, label).await?.is_some(),
+        "the tag should exist before moderation"
+    );
+
+    moderate_tag(&mut test, &moderator_kp, &tag_uri).await?;
+    assert!(
+        find_post_tag(&author_id, &post_id, label).await?.is_none(),
+        "the tag should be moderated"
+    );
+
+    let replayed_uri = put_pubky_app_post_tag(
+        &mut test, &tagger_kp, &tagger_id, &author_id, &post_id, label,
+    )
+    .await?;
+    assert_eq!(replayed_uri, tag_uri, "the same tag, replayed");
+    assert!(
+        find_post_tag(&author_id, &post_id, label).await?.is_none(),
+        "the takedown holds when the tag is replayed"
+    );
+
+    Ok(())
+}
+
 async fn create_moderator(test: &mut WatcherTest) -> Result<Keypair> {
     let moderator_recovery_file =
         fs::read("./tests/event_processor/utils/moderator_key.pkarr").await?;
@@ -299,32 +329,10 @@ async fn put_pubky_app_post_tag(
     Ok(tag_uri)
 }
 
-async fn put_app_specific_post_tag(
+async fn put_pubky_app_resource_tag(
     test: &mut WatcherTest,
     tagger_kp: &Keypair,
     tagger_id: &str,
-    app: &str,
-    author_id: &str,
-    post_id: &str,
-    label: &str,
-) -> Result<String> {
-    let tag = PubkyAppTag {
-        uri: post_uri_builder(author_id.to_string(), post_id.to_string()),
-        label: label.to_string(),
-        created_at: Utc::now().timestamp_millis(),
-    };
-    let tag_id = tag.create_id();
-    let tag_uri = format!("pubky://{tagger_id}/pub/{app}/tags/{tag_id}");
-    let tag_path: ResourcePath = format!("/pub/{app}/tags/{tag_id}").parse()?;
-    test.put(tagger_kp, &tag_path, tag).await?;
-    Ok(tag_uri)
-}
-
-async fn put_universal_resource_tag(
-    test: &mut WatcherTest,
-    tagger_kp: &Keypair,
-    tagger_id: &str,
-    app: &str,
     target_uri: &str,
     label: &str,
 ) -> Result<(String, String)> {
@@ -335,10 +343,15 @@ async fn put_universal_resource_tag(
     };
     let tag_id = tag.create_id();
     let resource_id = compute_resource_id(target_uri);
-    let tag_uri = format!("pubky://{tagger_id}/pub/{app}/tags/{tag_id}");
-    let tag_path: ResourcePath = format!("/pub/{app}/tags/{tag_id}").parse()?;
+    let tag_uri = tag_uri_builder(tagger_id.to_string(), tag_id);
+    let tag_path = tag.hs_path();
     test.put(tagger_kp, &tag_path, tag).await?;
     Ok((tag_uri, resource_id))
+}
+
+/// The address the same tag file had in another app's folder (`mapky`).
+fn app_folder_address(pubky_app_tag_uri: &str) -> String {
+    pubky_app_tag_uri.replace("/pub/pubky.app/tags/", "/pub/mapky/tags/")
 }
 
 async fn moderate_tag(

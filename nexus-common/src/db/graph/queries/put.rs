@@ -334,12 +334,15 @@ pub fn create_user_tag(
 
 /// Creates a `TAGGED` relationship between a user and a generic Resource node.
 /// The Resource is created (MERGE) if it does not already exist.
+///
+/// A resource tag is one edge per tagger, target and label, whichever app's folder wrote it,
+/// as post and user tags are. Edges written before that still carry an `app` property: nothing
+/// reads it, and the `MERGE` on `{label}` matches such an edge too, so a replay reuses it.
 /// # Arguments
 /// * `tagger_id` - The user creating the tag.
 /// * `resource_id` - The deterministic 32-char hex Resource ID.
 /// * `uri` - The normalized URI of the resource.
 /// * `scheme` - The URI scheme (https, pubky, nostr, etc.)
-/// * `app` - The app namespace the tag was created from (e.g., "mapky", "eventky").
 /// * `tag_id` - A unique identifier for the tagging relationship.
 /// * `tag_uri` - The address of the tag file (its event path), stored as the edge `uri`.
 /// * `label` - The tag label.
@@ -350,7 +353,6 @@ pub fn create_resource_tag(
     resource_id: &str,
     uri: &str,
     scheme: &str,
-    app: &str,
     tag_id: &str,
     tag_uri: &str,
     label: &str,
@@ -365,8 +367,8 @@ pub fn create_resource_tag(
             resource.scheme = $scheme,
             resource.indexed_at = $indexed_at
         WITH tagger, resource
-        OPTIONAL MATCH (tagger)-[existing:TAGGED {label: $label, app: $app}]->(resource)
-        MERGE (tagger)-[t:TAGGED {label: $label, app: $app}]->(resource)
+        OPTIONAL MATCH (tagger)-[existing:TAGGED {label: $label}]->(resource)
+        MERGE (tagger)-[t:TAGGED {label: $label}]->(resource)
         ON CREATE SET t.id = $tag_id, t.indexed_at = $indexed_at
         SET t.uri = $tag_uri
         RETURN existing IS NOT NULL AS flag;",
@@ -375,7 +377,6 @@ pub fn create_resource_tag(
     .param("resource_id", resource_id)
     .param("uri", uri)
     .param("scheme", scheme)
-    .param("app", app)
     .param("tag_id", tag_id)
     .param("tag_uri", tag_uri)
     .param("label", label)

@@ -10,6 +10,11 @@ use pubky_social_specs::legacy_v0::{ExtendedParsedUri, Resource};
 pub enum SkipReason {
     /// A `pubky.app` resource Nexus never indexed: last-read, feed, blob or mute.
     LegacyNotIndexed { resource: String },
+    /// A tag file in another app's folder (`/pub/<app>/tags/{id}`), PUT or DEL. Apps write their
+    /// tags at `pubky.app/tags/` or `social/v1/tags/`; the edges indexed from app folders before
+    /// stay, and a DEL here never removes one, since the tag id ignores the folder and the same
+    /// tag may live on in the other folder.
+    AppFolderTag { app: String },
     /// A resource of a spec epoch this build recognises but does not index yet; `resource` is
     /// `unknown` for a path that epoch's parser cannot classify.
     EpochNotIndexed { epoch: String, resource: String },
@@ -43,8 +48,12 @@ pub fn classify(routed: Routed) -> Classified {
     }
 }
 
-/// Index, skip or reject a v0 address; the resources Nexus never indexed are skipped.
+/// Index, skip or reject a v0 address; the resources Nexus never indexed and another app's tag
+/// files are skipped.
 fn classify_legacy(parsed: ExtendedParsedUri) -> Classified {
+    if let ExtendedParsedUri::UniversalTag { app, .. } = parsed {
+        return Classified::Skip(SkipReason::AppFolderTag { app });
+    }
     match parsed.resource() {
         Resource::User
         | Resource::Post(_)
