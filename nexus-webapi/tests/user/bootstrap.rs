@@ -2,10 +2,11 @@ use std::collections::HashSet;
 
 use crate::utils::get_request;
 use anyhow::Result;
-use nexus_common::db::PubkyConnector;
+use nexus_common::db::{exec_single_row, graph::Query, queries, PubkyConnector};
 use nexus_common::models::bootstrap::{Bootstrap, BOOTSTRAP_HOT_TAGS_LIMIT};
 use nexus_common::models::notification::Notification;
 use nexus_common::models::notification::NotificationBody;
+use nexus_common::utils::test_utils::random_pubky_id;
 
 #[tokio_shared_rt::test(shared)]
 async fn test_bootstrap_user() -> Result<()> {
@@ -148,5 +149,29 @@ async fn test_api_start_initialises_the_pubky_client() -> Result<()> {
         PubkyConnector::get().is_ok(),
         "the ingest-user route needs the Pubky client"
     );
+    Ok(())
+}
+
+/// A viewer whose node does not deserialize is still a known user: the
+/// bootstrap counts them as indexed, as it asks whether the node exists.
+#[tokio_shared_rt::test(shared)]
+async fn test_bootstrap_user_with_unreadable_node_is_indexed() -> Result<()> {
+    crate::utils::server::TestServiceServer::get_test_server().await;
+    let user_id = random_pubky_id().to_string();
+    // A tombstone without `indexed_at`, which every user node needs to deserialize
+    exec_single_row(
+        Query::new(
+            "unreadable_viewer_fixture",
+            "MERGE (u:User {id: $id}) SET u.name = '', u.deleted = true",
+        )
+        .param("id", user_id.clone()),
+    )
+    .await?;
+
+    let body = get_request(&format!("/v0/bootstrap/{user_id}")).await;
+    exec_single_row(queries::del::delete_user(&user_id)).await?;
+
+    let bootstrap: Bootstrap = serde_json::from_value(body?)?;
+    assert!(bootstrap.indexed, "a viewer with a node is indexed");
     Ok(())
 }

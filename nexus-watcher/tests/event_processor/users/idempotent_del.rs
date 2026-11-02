@@ -1,8 +1,7 @@
 use crate::event_processor::users::utils::find_user_details;
 use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
-use nexus_common::db::RedisOps;
-use nexus_common::models::user::{UserDetails, UserSearch};
+use nexus_common::models::user::UserSearch;
 use nexus_watcher::errors::EventProcessorError;
 use nexus_watcher::events::handlers::user;
 use pubky::Keypair;
@@ -54,9 +53,9 @@ async fn test_user_del_idempotent() -> Result<()> {
     Ok(())
 }
 
-/// Test graph-last recovery: simulates a previous attempt that failed during its
-/// Redis cleanup, before the graph delete. On retry, the handler should re-enter
-/// CreatedOrDeleted, finish the Redis cleanup, and delete graph last.
+/// Test graph-last recovery: simulates a previous attempt that dropped the user
+/// from search but failed before the graph delete. On retry, the handler should
+/// re-enter CreatedOrDeleted and delete graph last.
 #[tokio_shared_rt::test(shared)]
 async fn test_user_del_graph_last_recovery() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
@@ -80,21 +79,13 @@ async fn test_user_del_graph_last_recovery() -> Result<()> {
     // Simulate partial failure of a previous del() attempt:
     // Step 1 succeeded: UserSearch cleaned
     UserSearch::delete(&user_id).await?;
-    // Step 2 failed: the UserDetails Redis DEL never ran (left stale)
-    // Step 3 never ran: graph node still present (graph-last)
+    // Step 2 never ran: graph node still present (graph-last)
 
-    // Verify the partial state: graph exists, UserDetails still in Redis
+    // Verify the partial state: graph exists
     let user_details_graph = find_user_details(&user_id).await;
     assert!(
         user_details_graph.is_ok(),
         "Graph node should still exist (graph-last)"
-    );
-    let user_id_str = user_id.as_str();
-    assert!(
-        UserDetails::try_from_index_json(&[user_id_str], None)
-            .await?
-            .is_some(),
-        "UserDetails should still be in Redis (simulated failure)"
     );
 
     // Retry: call del() directly — should recover and complete successfully
@@ -106,12 +97,6 @@ async fn test_user_del_graph_last_recovery() -> Result<()> {
     assert!(
         user_details_result.is_err(),
         "Graph node should be deleted after recovery"
-    );
-    assert!(
-        UserDetails::try_from_index_json(&[user_id_str], None)
-            .await?
-            .is_none(),
-        "UserDetails should be cleaned after recovery"
     );
 
     Ok(())

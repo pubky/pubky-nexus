@@ -5,7 +5,7 @@ use crate::utils::server::TestServiceServer;
 use anyhow::Result;
 use axum::body::{to_bytes, Body};
 use axum::http::Request;
-use nexus_common::models::{traits::Collection, user::UserDetails};
+use nexus_common::models::user::UserDetails;
 use nexus_common::utils::test_utils::default_ingestor_tests;
 use nexus_common::RateLimitConfig;
 use nexus_webapi::media::test_utils::default_subprocess_tests;
@@ -74,7 +74,6 @@ async fn set_user_image(user_id: &str, image: Option<String>) -> Result<()> {
         .ok_or_else(|| anyhow::anyhow!("user {user_id} not found in test graph"))?;
     user.image = image;
     user.put_to_graph().await?;
-    UserDetails::put_to_index(&[user_id], vec![Some(user)]).await?;
     Ok(())
 }
 
