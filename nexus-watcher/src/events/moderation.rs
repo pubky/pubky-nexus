@@ -9,7 +9,7 @@ use nexus_common::models::takedown::record_takedown;
 use nexus_common::models::user::UserIngestor;
 use nexus_common::WatcherConfig;
 use pubky_social_specs::PubkyId;
-use tracing::{debug, info};
+use tracing::{info, warn};
 
 pub struct Moderation {
     /// Moderator trusted user id
@@ -60,8 +60,10 @@ impl Moderation {
                 info!("Moderation tag '{label}' detected. Deleting user profile {user_id}");
                 handlers::user::del(user_id).await
             }
+            // `handle_error` drops a non-retryable error at debug level, so a moderator action
+            // that cannot apply is logged here, where an operator will see it.
             ReferenceTarget::Foreign | ReferenceTarget::Other => {
-                debug!("Moderation tag '{label}' on {uri} names nothing Nexus deletes");
+                warn!("Moderation tag '{label}' on {uri} not applied: names nothing Nexus deletes");
                 Ok(())
             }
             target @ (ReferenceTarget::Post(_)
@@ -103,5 +105,44 @@ impl Moderation {
             ReferenceTarget::File(key) => handlers::file::del(key, files_path).await,
             ReferenceTarget::User(_) | ReferenceTarget::Foreign | ReferenceTarget::Other => Ok(()),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::events::route::resolve_reference;
+
+    const USER_ID: &str = "8pinxxgqs41n4aididenw5apqp1urfmzdztr8jt4abrkdn435ewo";
+
+    /// A moderator tag on a target Nexus never deletes is a no-op, so the warn line here is
+    /// the only trace an unapplied takedown leaves on the live path.
+    #[tokio::test]
+    #[tracing_test::traced_test]
+    async fn apply_moderation_warns_on_a_target_it_never_deletes() {
+        let label = "label_to_moderate".to_string();
+        let moderation = Moderation {
+            id: PubkyId::try_from(USER_ID).unwrap(),
+            tags: vec![label.clone()],
+        };
+        let tag_uri = format!("pubky://{USER_ID}/pub/pubky.app/tags/ABCDEFGHJK");
+
+        for address in [
+            "https://example.com/album/123".to_string(),
+            format!("pubky://{USER_ID}/pub/pubky.app/follows/{USER_ID}"),
+        ] {
+            let result = moderation
+                .apply_moderation(
+                    &label,
+                    resolve_reference(&address),
+                    &tag_uri,
+                    Path::new("/nonexistent"),
+                    &nexus_common::utils::test_utils::default_ingestor_tests(),
+                )
+                .await;
+
+            assert!(result.is_ok(), "{address}: unexpected result {result:?}");
+        }
+        assert!(logs_contain("not applied"));
     }
 }

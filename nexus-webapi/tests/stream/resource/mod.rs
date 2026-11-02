@@ -129,29 +129,23 @@ async fn test_stream_resources_multi_tag_or() -> Result<()> {
     Ok(())
 }
 
-/// `app` is no longer a parameter: the query ignores an unknown one, so a client that still
-/// sends it gets 200 and every app's resources, the same rows as without it.
+/// `app` is removed, but not silently: a client that still sends it (loopky and pubky-rooms do,
+/// on every call) gets 400 on both routes instead of every app's resources.
 #[tokio_shared_rt::test(shared)]
-async fn test_stream_resources_ignore_app() -> Result<()> {
-    // The tie group's label holds exactly its two seeded resources, so the rows are exact
-    let filter = "tags=tie&sorting=timeline&limit=10";
-    for app in ["mapky", "tiedky", "nonexistent_app"] {
-        assert_eq!(
-            get_ids(&format!("app={app}&{filter}")).await?,
-            get_ids(filter).await?,
-            "app={app}"
-        );
-        assert_eq!(
-            get_views(&format!("app={app}&{filter}")).await?,
-            get_views(filter).await?,
-            "app={app}"
-        );
-    }
-
-    // The event's only tag sat in eventky's folder; unfiltered, it streams under any `app`
-    let (ids, _) = get_ids("app=mapky&sorting=timeline&limit=100").await?;
-    for id in [ARTICLE, EVENT, VIDEO] {
-        position(&ids, id);
+async fn test_stream_resources_rejects_app() -> Result<()> {
+    for path in [ROOT_PATH, IDS_PATH] {
+        for app in ["mapky", "pubky.app", ""] {
+            let body = invalid_get_request(
+                &format!("{path}?app={app}&tags=tie&sorting=timeline&limit=10"),
+                StatusCode::BAD_REQUEST,
+            )
+            .await?;
+            let message = body["error"].as_str().unwrap_or_default();
+            assert!(
+                message.contains("app is no longer supported"),
+                "{path} app={app:?}: {body}"
+            );
+        }
     }
 
     Ok(())
