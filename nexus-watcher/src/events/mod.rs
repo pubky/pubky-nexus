@@ -218,12 +218,16 @@ pub async fn put_tag(
 /// check, the record is removed there; if later, the moderator's own delete runs after
 /// the write and removes it. A removal that failed is finished on the event's retry, by
 /// the first check. Removing what is already gone does nothing.
+///
+/// The record is looked up by its [`route::takedown_key`], the key its takedown was recorded
+/// under. An address no parser reads is looked up as written; none is ever recorded.
 pub async fn remove_if_taken_down(
     uri: &str,
     files_path: &Path,
     ingestor: &UserIngestor,
 ) -> Result<bool, EventProcessorError> {
-    if !is_taken_down(uri).await? {
+    let key = route::takedown_key(uri).unwrap_or_else(|_| uri.to_string());
+    if !is_taken_down(&key).await? {
         return Ok(false);
     }
     let target = resolve_reference(uri).target;
