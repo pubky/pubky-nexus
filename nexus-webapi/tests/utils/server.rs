@@ -1,7 +1,7 @@
 use std::net::SocketAddr;
 
 use anyhow::Result;
-use nexus_common::ApiConfig;
+use nexus_common::{ApiConfig, NetConfig, StackConfig};
 use nexus_webapi::{api_context::ApiContextBuilder, NexusApi, NexusApiBuilder};
 use tempfile::TempDir;
 use tokio::sync::OnceCell;
@@ -63,6 +63,15 @@ impl TestServiceServer {
             // When we define the sockets, use local port 0 so OS assigns an available port
             public_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
             pubky_listen_socket: SocketAddr::from(([127, 0, 0, 1], 0)),
+            // Testnet mode keeps the API's Pubky client off the public DHT: it bootstraps
+            // to localhost and binds an ephemeral port instead of 6881
+            stack: StackConfig {
+                net: NetConfig {
+                    testnet: true,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
             ..Default::default()
         };
 
