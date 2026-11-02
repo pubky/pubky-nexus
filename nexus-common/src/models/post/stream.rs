@@ -1183,6 +1183,7 @@ mod tests {
                 for filter in [
                     KindFilter::Kind(kind.clone()),
                     KindFilter::Exclude(vec![kind.clone()]),
+                    KindFilter::Locked,
                 ] {
                     assert!(
                         !PostStream::can_use_index(sorting, source, &None, &Some(filter.clone())),
