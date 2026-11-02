@@ -323,3 +323,57 @@ async fn test_resource_changes_a_tag_and_its_v1_copy_share_one_reference() -> Re
     test.del(&key, &profile).await?;
     Ok(())
 }
+
+/// Crash after the graph delete but before the feed append: the active v1 file
+/// must finish the journal created under the edge's original v0 path.
+#[tokio_shared_rt::test(shared)]
+async fn migrated_tag_delete_retry_finishes_the_original_file_journal() -> Result<()> {
+    use nexus_common::db::{fetch_row_from_graph, queries};
+    use pubky_social_specs::traits::{HasIdPath as _, HashId as _};
+    use pubky_social_specs::PubkySocialTag;
+
+    let mut test = WatcherTest::setup(None).await?;
+    let key = Keypair::random();
+    let author = test
+        .create_user(&key, &test_user("Migrated delete retry", "feed"))
+        .await?;
+    let (_, _, cursor) = ResourceChange::get_from_index(0, 0).await?;
+    let target = format!("https://example.com/migrated-delete/{author}");
+    let v0 = PubkyAppTag::new(target.clone(), "retry".into());
+    let id = v0.create_id();
+    let v0_path: ResourcePath = format!("/pub/pubky.app/tags/{id}").parse()?;
+    test.put(&key, &v0_path, &v0).await?;
+    let v1 = PubkySocialTag::new(target, "retry".into());
+    assert_eq!(id, v1.create_id());
+    let v1_path: ResourcePath = PubkySocialTag::create_path(&id).parse()?;
+    test.put(&key, &v1_path, &v1).await?;
+    let profile: ResourcePath = "/pub/social/v1/profile.json".parse()?;
+    test.put(
+        &key,
+        &profile,
+        &serde_json::json!({"name":"Migrated retry"}),
+    )
+    .await?;
+
+    let puts = authored_since(&author, cursor).await?;
+    assert_eq!(puts.len(), 1);
+    let mut deleted = puts[0].clone();
+    deleted.op = ResourceChangeOp::Del;
+    deleted.at += 1;
+    deleted.prepare_delete().await?;
+    fetch_row_from_graph(queries::del::delete_tag(&author, &id)).await?;
+    // Exact durable state left by a failed finish_delete, without disrupting Redis
+    // for the other tests: a journal exists, but the source edge no longer does.
+    test.del(&key, &v1_path).await?;
+    retrieve_and_handle_event_line(
+        &format!("DEL pubky://{author}{v1_path}"),
+        test.event_processor_runner.event_handler.clone(),
+    )
+    .await?;
+    assert_eq!(
+        authored_since(&author, cursor).await?,
+        vec![puts[0].clone(), deleted]
+    );
+    test.del(&key, &profile).await?;
+    Ok(())
+}

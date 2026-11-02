@@ -393,7 +393,7 @@ pub async fn del(key: ResourceKey) -> Result<(), EventProcessorError> {
 /// Deletes the tag `key` names, whichever folder wrote it: a tag is one edge per tagger,
 /// target and label, found by its id alone. A resource tag's feed del is keyed by the
 /// address stored on the edge, which its put used; `tag_uri`, the address of the file
-/// being deleted, keys it once the edge is gone (a retry).
+/// being deleted, is also checked along with both canonical epoch paths on a retry.
 #[tracing::instrument(
     name = "tag.del",
     skip_all,
@@ -413,8 +413,19 @@ pub async fn del_at(key: ResourceKey, tag_uri: &str) -> Result<(), EventProcesso
     let Some(row) =
         fetch_row_from_graph(queries::get::get_tag_target(&arg_user_id, &arg_tag_id)).await?
     else {
-        // Edge already gone (fully completed on a prior attempt) - idempotent no-op
-        ResourceChange::finish_delete(&arg_user_id, tag_uri).await?;
+        // The edge may have been owned by the other epoch's file. Its URI is gone
+        // after the graph commit, so finish both bounded canonical journal keys.
+        // Each append-and-clear is atomic; replaying either key is harmless.
+        for uri in [
+            tag_uri.to_owned(),
+            pubky_social_specs::legacy_v0::tag_uri_builder(
+                arg_user_id.to_string(),
+                arg_tag_id.clone(),
+            ),
+            pubky_social_specs::tag_uri_builder(arg_user_id.to_string(), arg_tag_id.clone()),
+        ] {
+            ResourceChange::finish_delete(&arg_user_id, &uri).await?;
+        }
         return Ok(());
     };
 
