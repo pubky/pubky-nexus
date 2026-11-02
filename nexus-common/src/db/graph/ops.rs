@@ -132,16 +132,12 @@ mod tests {
         running > 0
     }
 
-    /// Waits on another connection until Neo4j has run `cypher` to its last reply:
-    /// first until it shows up, so a query that never ran fails, then until it is gone.
-    async fn wait_until_finished(cypher: &str) {
-        let observer = single_connection_graph().await;
+    /// Waits on the observer's connection until Neo4j has run `cypher` to its last reply.
+    async fn wait_until_finished(observer: &neo4rs::Graph, cypher: &str) {
         let deadline = Instant::now() + Duration::from_secs(30);
-        for (running, state) in [(true, "started"), (false, "finished")] {
-            while is_running(&observer, cypher).await != running {
-                assert!(Instant::now() < deadline, "{cypher} never {state}");
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
+        while is_running(observer, cypher).await {
+            assert!(Instant::now() < deadline, "{cypher} never finished");
+            tokio::time::sleep(Duration::from_millis(10)).await;
         }
     }
 
@@ -156,6 +152,7 @@ mod tests {
     #[tokio_shared_rt::test(shared)]
     async fn dropped_read_leaves_the_pool_in_sync() {
         let graph = Graph::new(single_connection_graph().await);
+        let observer = single_connection_graph().await;
 
         let mut rows = graph
             .execute(Query::new("slow_read", SLOW_READ))
@@ -163,18 +160,19 @@ mod tests {
             .unwrap();
         let read = timeout(Duration::from_millis(50), rows.try_next()).await;
         assert!(
-            read.is_err(),
+            read.is_err() && is_running(&observer, SLOW_READ).await,
             "the read finished before it could be dropped"
         );
         drop(rows);
 
-        wait_until_finished(SLOW_READ).await;
+        wait_until_finished(&observer, SLOW_READ).await;
         assert_in_sync(&graph).await;
     }
 
     #[tokio_shared_rt::test(shared)]
     async fn dropped_run_leaves_the_pool_in_sync() {
         let graph = Graph::new(single_connection_graph().await);
+        let observer = single_connection_graph().await;
 
         let run = timeout(
             Duration::from_millis(50),
@@ -182,11 +180,11 @@ mod tests {
         )
         .await;
         assert!(
-            run.is_err(),
+            run.is_err() && is_running(&observer, SLOW_WRITE).await,
             "the write finished before it could be dropped"
         );
 
-        wait_until_finished(SLOW_WRITE).await;
+        wait_until_finished(&observer, SLOW_WRITE).await;
         assert_in_sync(&graph).await;
     }
 }
