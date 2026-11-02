@@ -231,24 +231,38 @@ mod tests {
         assert_eq!(row.get::<i64>("answer").unwrap(), 42);
     }
 
-    #[tokio_shared_rt::test(shared)]
-    async fn dropped_read_leaves_the_pool_in_sync() {
+    /// Drops `caller` once it has waited `after`, checking first, while the caller still
+    /// holds the query, that Neo4j is running it: once dropped, it may end at once.
+    async fn drop_while_running<F: Future>(
+        caller: F,
+        after: Duration,
+        observer: &neo4rs::Graph,
+        cypher: &str,
+    ) {
+        let mut caller = Box::pin(caller);
+        assert!(
+            timeout(after, &mut caller).await.is_err(),
+            "{cypher} finished before it could be dropped"
+        );
+        assert!(is_running(observer, cypher).await, "{cypher} isn't running");
+    }
+
+    async fn graph_and_observer() -> (Graph, neo4rs::Graph) {
         let graph = Graph::new(
             single_connection_graph().await,
             single_connection_graph().await,
         );
-        let observer = single_connection_graph().await;
+        (graph, single_connection_graph().await)
+    }
 
-        let mut rows = graph
-            .execute(Query::new("slow_read", SLOW_READ))
-            .await
-            .unwrap();
-        let read = timeout(Duration::from_millis(50), rows.try_next()).await;
-        assert!(
-            read.is_err() && is_running(&observer, SLOW_READ).await,
-            "the read finished before it could be dropped"
-        );
-        drop(rows);
+    #[tokio_shared_rt::test(shared)]
+    async fn dropped_read_leaves_the_pool_in_sync() {
+        let (graph, observer) = graph_and_observer().await;
+
+        let query = Query::new("slow_read", SLOW_READ);
+        let mut rows = graph.execute(query).await.unwrap();
+        let read = async move { rows.try_next().await };
+        drop_while_running(read, Duration::from_millis(50), &observer, SLOW_READ).await;
 
         wait_until_finished(&observer, SLOW_READ).await;
         assert_in_sync(&graph).await;
@@ -256,21 +270,10 @@ mod tests {
 
     #[tokio_shared_rt::test(shared)]
     async fn dropped_run_leaves_the_pool_in_sync() {
-        let graph = Graph::new(
-            single_connection_graph().await,
-            single_connection_graph().await,
-        );
-        let observer = single_connection_graph().await;
+        let (graph, observer) = graph_and_observer().await;
 
-        let run = timeout(
-            Duration::from_millis(50),
-            graph.run(Query::new("slow_write", SLOW_WRITE)),
-        )
-        .await;
-        assert!(
-            run.is_err() && is_running(&observer, SLOW_WRITE).await,
-            "the write finished before it could be dropped"
-        );
+        let run = graph.run(Query::new("slow_write", SLOW_WRITE));
+        drop_while_running(run, Duration::from_millis(50), &observer, SLOW_WRITE).await;
 
         wait_until_finished(&observer, SLOW_WRITE).await;
         assert_in_sync(&graph).await;
@@ -283,7 +286,6 @@ mod tests {
     /// A dropped query must not hold its connection until Neo4j finishes it: the next
     /// query on the one-connection pool answers at once, and the dropped one is gone.
     async fn assert_released_at_once(graph: &Graph, observer: &neo4rs::Graph, cypher: &str) {
-        assert!(is_running(observer, cypher).await, "{cypher} never started");
         let start = Instant::now();
         assert_in_sync(graph).await;
         let waited = start.elapsed();
@@ -296,45 +298,22 @@ mod tests {
 
     #[tokio_shared_rt::test(shared)]
     async fn dropped_read_releases_its_connection_at_once() {
-        let graph = Graph::new(
-            single_connection_graph().await,
-            single_connection_graph().await,
-        );
-        let observer = single_connection_graph().await;
+        let (graph, observer) = graph_and_observer().await;
 
-        let mut rows = graph
-            .execute(Query::new("very_slow_read", VERY_SLOW_READ))
-            .await
-            .unwrap();
-        let read = timeout(Duration::from_millis(300), rows.try_next()).await;
-        assert!(
-            read.is_err(),
-            "the read finished before it could be dropped"
-        );
-        let still_running = is_running(&observer, VERY_SLOW_READ).await;
-        drop(rows);
+        let query = Query::new("very_slow_read", VERY_SLOW_READ);
+        let mut rows = graph.execute(query).await.unwrap();
+        let read = async move { rows.try_next().await };
+        drop_while_running(read, Duration::from_millis(300), &observer, VERY_SLOW_READ).await;
 
-        assert!(still_running);
         assert_released_at_once(&graph, &observer, VERY_SLOW_READ).await;
     }
 
     #[tokio_shared_rt::test(shared)]
     async fn dropped_run_releases_its_connection_at_once() {
-        let graph = Graph::new(
-            single_connection_graph().await,
-            single_connection_graph().await,
-        );
-        let observer = single_connection_graph().await;
+        let (graph, observer) = graph_and_observer().await;
 
-        let run = timeout(
-            Duration::from_millis(300),
-            graph.run(Query::new("very_slow_write", VERY_SLOW_WRITE)),
-        )
-        .await;
-        assert!(
-            run.is_err(),
-            "the write finished before it could be dropped"
-        );
+        let run = graph.run(Query::new("very_slow_write", VERY_SLOW_WRITE));
+        drop_while_running(run, Duration::from_millis(300), &observer, VERY_SLOW_WRITE).await;
 
         assert_released_at_once(&graph, &observer, VERY_SLOW_WRITE).await;
     }
