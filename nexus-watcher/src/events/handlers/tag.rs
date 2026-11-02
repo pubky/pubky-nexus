@@ -38,28 +38,51 @@ pub async fn sync_put(
 ) -> Result<(), EventProcessorError> {
     debug!("Indexing tag");
 
-    // Parse the embeded URI to extract author_id and post_id using parse_tagged_post_uri
-    let parsed_uri = ParsedUri::try_from(tag.uri.as_str()).map_err(EventProcessorError::generic)?;
-    let user_id = parsed_uri.user_id;
+    let target = tag_target(&tag.uri)?;
     let indexed_at = Utc::now().timestamp_millis();
 
-    match parsed_uri.resource {
-        // If post_id is in the tagged URI, we place tag to a post.
-        Resource::Post(post_id) => {
-            // Place the tag on post
+    match target {
+        TagTarget::Post { author_id, post_id } => {
             put_sync_post(
-                tagger_id, user_id, &post_id, &tag_id, &event_uri, &tag.label, &tag.uri,
+                tagger_id, author_id, &post_id, &tag_id, &event_uri, &tag.label, &tag.uri,
                 indexed_at, ingestor,
             )
             .await
         }
-        // If no post_id in the tagged URI, we place tag to a user.
-        Resource::User => {
+        TagTarget::User(user_id) => {
             put_sync_user(
                 tagger_id, user_id, &tag_id, &event_uri, &tag.label, indexed_at, ingestor,
             )
             .await
         }
+    }
+}
+
+/// What a pubky.app tag points at.
+#[derive(Debug, PartialEq)]
+enum TagTarget {
+    Post { author_id: PubkyId, post_id: String },
+    User(PubkyId),
+}
+
+/// Classifies the target URI of a pubky.app tag.
+///
+/// Anything that is not a pubky.app Post or User URI (another scheme, another app's path,
+/// an invalid user id, an unknown resource kind) can never become indexable by retrying,
+/// so it is rejected with [`EventProcessorError::UnsupportedTarget`], which is not retried.
+fn tag_target(uri: &str) -> Result<TagTarget, EventProcessorError> {
+    let parsed_uri = ParsedUri::try_from(uri).map_err(|e| {
+        EventProcessorError::UnsupportedTarget(format!(
+            "The tagged URI is not a pubky.app URI: {e}"
+        ))
+    })?;
+
+    match parsed_uri.resource {
+        Resource::Post(post_id) => Ok(TagTarget::Post {
+            author_id: parsed_uri.user_id,
+            post_id,
+        }),
+        Resource::User => Ok(TagTarget::User(parsed_uri.user_id)),
         other => Err(EventProcessorError::UnsupportedTarget(format!(
             "The tagged resource is not Post or User, instead is: {other:?}"
         ))),
@@ -624,4 +647,58 @@ async fn del_sync_post(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::events::retry::RetryScheduler;
+
+    const USER_ID: &str = "8pinxxgqs41n4aididenw5apqp1urfmzdztr8jt4abrkdn435ewo";
+
+    #[test]
+    fn tag_target_rejects_unsupported_targets_without_retry() {
+        let cases = [
+            "https://example.com/album/123".to_string(),
+            format!("pubky://{USER_ID}/pub/mapky/places/1"),
+            "pubky://notakey/pub/pubky.app/profile.json".to_string(),
+            format!("pubky://{USER_ID}/pub/pubky.app/unknown_kind/0033SSE3B1FQ0"),
+        ];
+
+        for uri in cases {
+            let err = tag_target(&uri).expect_err(&format!("{uri} must be rejected"));
+            assert!(
+                matches!(err, EventProcessorError::UnsupportedTarget(_)),
+                "{uri}: unexpected error {err:?}"
+            );
+            assert!(
+                !err.to_string().contains("not a pubky resource"),
+                "{uri}: the message must not deny a pubky:// URI is pubky: {err}"
+            );
+            assert!(
+                !RetryScheduler::should_enqueue_related_event(&err),
+                "{uri}: a deterministic rejection must not be retried"
+            );
+        }
+    }
+
+    #[test]
+    fn tag_target_classifies_posts_and_users() {
+        let user_id = PubkyId::try_from(USER_ID).unwrap();
+
+        assert_eq!(
+            tag_target(&format!(
+                "pubky://{USER_ID}/pub/pubky.app/posts/0033SSE3B1FQ0"
+            ))
+            .unwrap(),
+            TagTarget::Post {
+                author_id: user_id.clone(),
+                post_id: "0033SSE3B1FQ0".to_string(),
+            }
+        );
+        assert_eq!(
+            tag_target(&format!("pubky://{USER_ID}/pub/pubky.app/profile.json")).unwrap(),
+            TagTarget::User(user_id)
+        );
+    }
 }

@@ -2,8 +2,33 @@ use crate::types::DynError;
 use async_trait::async_trait;
 use serde::de::DeserializeOwned;
 use std::fmt::Debug;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use thiserror::Error;
 use tokio::fs;
+
+#[derive(Debug, Error)]
+pub enum ConfigError {
+    #[error("Failed to read config file {path:?}: {source}")]
+    Read {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+
+    #[error("Failed to parse config file {path:?}: {source}")]
+    Parse {
+        path: PathBuf,
+        #[source]
+        source: DynError,
+    },
+
+    #[error("Failed to write default config file {path:?}: {source}")]
+    WriteDefault {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+}
 
 #[async_trait]
 pub trait ConfigLoader<T>
@@ -23,11 +48,16 @@ where
         // Read file with error handling
         let s = fs::read_to_string(config_file_path)
             .await
-            .map_err(|e| format!("!Failed to read config file {config_file_path:?}: {e}"))?;
+            .map_err(|source| ConfigError::Read {
+                path: config_file_path.to_path_buf(),
+                source,
+            })?;
 
         // Convert TOML to struct with error handling
-        let config = Self::try_from_str(&s)
-            .map_err(|e| format!("Failed to parse config file {config_file_path:?}: {e}"))?;
+        let config = Self::try_from_str(&s).map_err(|source| ConfigError::Parse {
+            path: config_file_path.to_path_buf(),
+            source,
+        })?;
 
         Ok(config)
     }
@@ -47,9 +77,12 @@ where
                 }
                 fs::write(config_file_path, default_toml).await
             };
-            write_default.await.map_err(|e| {
-                format!("Failed to write default config file {config_file_path:?}: {e}")
-            })?;
+            write_default
+                .await
+                .map_err(|source| ConfigError::WriteDefault {
+                    path: config_file_path.to_path_buf(),
+                    source,
+                })?;
             println!(
                 "Wrote the default config file {}",
                 config_file_path.display()
@@ -64,8 +97,9 @@ where
 mod tests {
     use async_trait::async_trait;
     use serde::Deserialize;
+    use std::error::Error;
 
-    use super::ConfigLoader;
+    use super::{ConfigError, ConfigLoader};
 
     #[derive(Debug, Deserialize, PartialEq)]
     struct Sample {
@@ -100,5 +134,43 @@ mod tests {
         std::fs::write(&path, "value = \"two\"\n").unwrap();
         assert!(Sample::load_or_create(&path, "value = 1\n").await.is_err());
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "value = \"two\"\n");
+    }
+    /// A missing file returns a ConfigError::Read with the source preserved.
+    #[tokio::test]
+    async fn test_load_missing_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("does_not_exist.toml");
+
+        let result = Sample::load(&path).await;
+        assert!(result.is_err());
+
+        let err = result.unwrap_err();
+        let config_err = err
+            .downcast_ref::<ConfigError>()
+            .expect("Should be ConfigError");
+
+        assert!(matches!(config_err, ConfigError::Read { .. }));
+        assert!(config_err.source().is_some());
+    }
+
+    /// An invalid TOML file returns a ConfigError::Parse with the source preserved.
+    #[tokio::test]
+    async fn test_load_invalid_toml() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("invalid.toml");
+
+        // Write malformed TOML
+        std::fs::write(&path, "value = \"not_a_number\"\n").unwrap();
+
+        let result = Sample::load(&path).await;
+        assert!(result.is_err());
+
+        let err = result.unwrap_err();
+        let config_err = err
+            .downcast_ref::<ConfigError>()
+            .expect("Should be ConfigError");
+
+        assert!(matches!(config_err, ConfigError::Parse { .. }));
+        assert!(config_err.source().is_some());
     }
 }
