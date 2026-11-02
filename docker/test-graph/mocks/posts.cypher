@@ -286,3 +286,8 @@ MATCH (u:User {id: $eixample}), (p:Post {id: "COLW1TGL5BKG1"}) MERGE (u)-[:BOOKM
 // prove kind filtering on bookmarks keeps bookmarked replies (the graph path
 // must not apply the parents-only filter for the bookmarks source).
 MATCH (u:User {id: $eixample}), (p:Post {id: "0000003A0BJWT"}) MERGE (u)-[:BOOKMARKED {id: "BKMK_REPLY_0BJWT", indexed_at: 1980477299510}]->(p);
+
+// Locked posts (used by `?locked=true` stream tests): a Bogota parent, an
+// Eixample parent, and the bookmarked Bogota reply above, which only
+// `source=bookmarks` keeps.
+MATCH (p:Post) WHERE p.id IN ["SIJW1TGL5BKG6", "5YCW1TGL5BKG8", "0000003A0BJWT"] SET p.lock = "pubky://" + $bogota + "/pub/pubky.app/lock";

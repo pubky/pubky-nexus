@@ -160,7 +160,7 @@ impl StreamSource {
 }
 
 /// Post-kind filter for streams. Any filter routes the query to the Cypher
-/// path: the Redis sorted-set indexes carry no kind information.
+/// path: the Redis sorted-set indexes carry no kind or lock information.
 #[derive(Debug, Clone, PartialEq)]
 pub enum KindFilter {
     /// Only posts of exactly this kind.
@@ -168,6 +168,9 @@ pub enum KindFilter {
     /// Posts of any kind except the listed ones. Posts with a missing (NULL)
     /// or unrecognized ("unknown") kind are never excluded.
     Exclude(Vec<PubkyAppPostKind>),
+    /// Only posts with a lock attached, of any kind. Lives here rather than as
+    /// a separate filter because the sidebar picks one content filter at a time.
+    Locked,
 }
 
 #[derive(Serialize, Deserialize, ToSchema, Debug, Default, Clone)]
@@ -1191,6 +1194,7 @@ mod tests {
                 for filter in [
                     KindFilter::Kind(kind.clone()),
                     KindFilter::Exclude(vec![kind.clone()]),
+                    KindFilter::Locked,
                 ] {
                     assert!(
                         !PostStream::can_use_index(sorting, source, &None, &Some(filter.clone())),

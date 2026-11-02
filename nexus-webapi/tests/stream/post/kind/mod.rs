@@ -4,6 +4,7 @@ pub mod exclude;
 pub mod file;
 pub mod image;
 pub mod link;
+pub mod locked;
 pub mod long;
 pub mod video;
 
