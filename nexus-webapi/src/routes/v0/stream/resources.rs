@@ -52,7 +52,6 @@ impl ResourceStreamQuery {
     description = "Stream resource IDs with tag filtering",
     tag = "Stream",
     params(
-        ("app" = Option<String>, Query, description = "Removed. A request that sends it gets 400; filter by `tags` instead"),
         ("tags" = Option<Tags>, Query, description = "Comma-separated tag labels (max 5, OR logic)"),
         ("sorting" = Option<String>, Query, description = "timeline (the only sorting, and the default)"),
         ("order" = Option<SortOrder>, Query, description = "Ordering of response list. Either 'ascending' or 'descending'. Defaults to descending."),
@@ -95,7 +94,6 @@ pub async fn stream_resource_ids_handler(
     description = "Stream resources with tag filtering, returns full ResourceView objects",
     tag = "Stream",
     params(
-        ("app" = Option<String>, Query, description = "Removed. A request that sends it gets 400; filter by `tags` instead"),
         ("tags" = Option<Tags>, Query, description = "Comma-separated tag labels (max 5, OR logic)"),
         ("sorting" = Option<String>, Query, description = "timeline (the only sorting, and the default)"),
         ("order" = Option<SortOrder>, Query, description = "Ordering of response list. Either 'ascending' or 'descending'. Defaults to descending."),
