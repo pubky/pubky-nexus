@@ -1,9 +1,13 @@
-//! The operator-visible signal for events skipped by spec epoch: one counter labelled by
-//! `epoch` and `resource` only, never by user or object id. v0 skips (last-read, feed, blob,
-//! mute, another app's tag folder) are uncounted, so the signal stays about epochs.
+//! The operator-visible signal for events skipped by epoch: one counter labelled by `epoch`,
+//! `resource` and `reason` only, never by user or object id. `reason` tells the two skips apart:
+//! `not_indexed` for an epoch the parse step does not index, `gated` for an event of an epoch its
+//! user is not read through. v0 skips at parse (last-read, feed, blob, mute, another app's tag
+//! folder) are uncounted, so the signal stays about epochs.
 
 use super::classify::SkipReason;
+use super::target::EventTarget;
 use crate::METER_NAME;
+use nexus_common::models::user::Epoch;
 use opentelemetry::metrics::Counter;
 use opentelemetry::{global, KeyValue};
 use std::sync::LazyLock;
@@ -19,17 +23,33 @@ static SKIPPED: LazyLock<Counter<u64>> = LazyLock::new(|| {
 
 const UNKNOWN: &str = "unknown";
 
+/// `reason` of a skip at parse: an epoch, or a resource of one, Nexus does not index.
+const NOT_INDEXED: &str = "not_indexed";
+/// `reason` of a skip by the gate: the event's epoch is not the one its user is read through.
+const GATED: &str = "gated";
+
 /// Counts and logs a skip the parse step decided for `uri`.
 pub(super) fn record_skip(reason: &SkipReason, uri: &str) {
     if let Some((epoch, resource)) = skip_labels(reason, uri) {
-        SKIPPED.add(
-            1,
-            &[
-                KeyValue::new("epoch", epoch.to_string()),
-                KeyValue::new("resource", resource.to_string()),
-            ],
-        );
+        SKIPPED.add(1, &labels(epoch, resource, NOT_INDEXED));
     }
+}
+
+/// Counts and logs an event at `uri` the gate ignored, its user being at `user_epoch`.
+pub(super) fn record_gated(target: &EventTarget, uri: &str, user_epoch: Epoch) {
+    let epoch = target.epoch().as_str();
+    let resource = target.resource_name();
+    debug!(%uri, %epoch, user_epoch = user_epoch.as_str(), "Ignored event of an epoch its user is not read through");
+    SKIPPED.add(1, &labels(epoch, &resource, GATED));
+}
+
+/// The full label set of one skip.
+fn labels(epoch: &str, resource: &str, reason: &'static str) -> [KeyValue; 3] {
+    [
+        KeyValue::new("epoch", epoch.to_string()),
+        KeyValue::new("resource", resource.to_string()),
+        KeyValue::new("reason", reason),
+    ]
 }
 
 /// The `(epoch, resource)` labels of a skip, logging it on the way; `None` for a v0 skip.
@@ -120,6 +140,15 @@ mod tests {
     #[test]
     fn the_unknown_label_is_the_v1_parsers_spelling() {
         assert_eq!(Resource::Unknown.to_string(), UNKNOWN);
+    }
+
+    #[test]
+    fn labels_are_epoch_resource_and_reason_only() {
+        let pairs =
+            labels("v0", "posts", GATED).map(|kv| (kv.key.to_string(), kv.value.to_string()));
+        let expected = [("epoch", "v0"), ("resource", "posts"), ("reason", "gated")]
+            .map(|(k, v)| (k.to_string(), v.to_string()));
+        assert_eq!(pairs, expected);
     }
 
     #[test]

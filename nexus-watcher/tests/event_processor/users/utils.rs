@@ -47,6 +47,14 @@ pub async fn find_user_details(user_id: &str) -> Result<UserDetails> {
     anyhow::bail!("User node not found in Nexus graph");
 }
 
+/// The user's details as cached for the API, read through `UserDetails::get_by_id`.
+pub async fn find_cached_user_details(user_id: &str) -> Result<UserDetails> {
+    let user = UserDetails::get_by_id(user_id)
+        .await?
+        .expect("the user's details are cached");
+    Ok(user)
+}
+
 /// The `uri` property stored on the `User` node, `None` when it is unset.
 pub async fn find_user_uri(user_id: &str) -> Option<String> {
     let query = Query::new(

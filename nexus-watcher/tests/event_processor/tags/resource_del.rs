@@ -133,8 +133,8 @@ async fn test_homeserver_resource_tag_put_del_reput() -> Result<()> {
 /// `social/v1`. The tag id ignores the folder and the epoch, so both files name one tag: one
 /// `TAGGED` edge, whose `uri` the second file's put moves to its own address while its id and the
 /// tagger count stay. A DEL of either file removes that edge and the orphaned Resource, and a DEL
-/// of the other one then finds nothing to remove. The classifier still skips every `social/v1`
-/// event, so that file's input and DEL go to the tag handlers directly.
+/// of the other one then finds nothing to remove. The gate ignores a `social/v1` event of a user
+/// at `v0`, so that file's input and DEL go to the tag handlers directly.
 #[tokio_shared_rt::test(shared)]
 async fn test_resource_tag_from_two_folders_is_one_edge() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;

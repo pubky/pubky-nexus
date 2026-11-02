@@ -3,8 +3,7 @@
 //! [`TranslatedPut`] and [`TranslatedDel`] are the operations every epoch maps into.
 //! [`translate_put`] and [`translate_del`] dispatch an event to the translator of its target's
 //! epoch, which gets its own parsed target and never sees the [`EventTarget`]. Skips are not
-//! translated: the classifier takes them before the fetch, and still skips every `social/v1`
-//! event, so the v1 translator runs only in its unit tests.
+//! translated: the classifier takes them before the fetch.
 
 pub(super) mod legacy_v0;
 pub(super) mod social_v1;

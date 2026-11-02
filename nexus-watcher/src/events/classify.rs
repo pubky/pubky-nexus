@@ -2,8 +2,9 @@
 
 use super::route::Routed;
 use super::target::EventTarget;
-use pubky_social_specs::epoch_segment;
+use super::translation::social_v1;
 use pubky_social_specs::legacy_v0::{ExtendedParsedUri, Resource};
+use pubky_social_specs::{epoch_segment, ParsedUri};
 
 /// Why an event is skipped before any fetch: no GET, no retry entry, no stored event line.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -37,15 +38,25 @@ pub enum Classified {
 pub fn classify(routed: Routed) -> Classified {
     match routed {
         Routed::Legacy(parsed) => classify_legacy(parsed),
-        Routed::Social(parsed) => Classified::Skip(SkipReason::EpochNotIndexed {
-            epoch: epoch_segment(),
-            resource: parsed.resource.to_string(),
-        }),
+        Routed::Social(parsed) => classify_social(parsed),
         Routed::UnsupportedEpoch { version } => {
             Classified::Skip(SkipReason::UnsupportedEpoch { version })
         }
         Routed::Malformed { reason } => Classified::Unrecognized(reason),
     }
+}
+
+/// Index a v1 address the v1 translator has a handler for; skip the rest (a file until N5, a
+/// feed, a versionless post address, an unknown resource), which would be fetched only to fail
+/// translation.
+fn classify_social(parsed: ParsedUri) -> Classified {
+    if social_v1::has_handler(&parsed.resource) {
+        return Classified::Index(EventTarget::Social(parsed));
+    }
+    Classified::Skip(SkipReason::EpochNotIndexed {
+        epoch: epoch_segment(),
+        resource: parsed.resource.to_string(),
+    })
 }
 
 /// Index, skip or reject a v0 address; the resources Nexus never indexed and another app's tag

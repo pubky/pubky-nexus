@@ -5,5 +5,5 @@ mod mentions;
 mod network;
 mod posts;
 mod tags;
-mod users;
+pub(crate) mod users;
 pub(crate) mod utils;

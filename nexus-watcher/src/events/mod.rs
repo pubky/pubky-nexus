@@ -2,6 +2,7 @@ use nexus_common::models::user::UserIngestor;
 mod classify;
 mod epoch_metrics;
 pub mod event;
+mod gate;
 pub mod inputs;
 mod route;
 pub mod target;
@@ -36,6 +37,7 @@ pub mod handlers;
 mod moderation;
 pub mod retry;
 
+use gate::Gate;
 use handlers::utils::bounded;
 use inputs::{ReferenceTarget, ResourceKey, TagInput};
 pub use moderation::Moderation;
@@ -93,6 +95,13 @@ impl DefaultEventHandler {
 #[async_trait::async_trait]
 impl EventHandler for DefaultEventHandler {
     async fn handle(&self, event: &Event) -> Result<(), EventProcessorError> {
+        // Before any fetch. An ignored event stores no event line, and `Ok` moves the cursor
+        // on and removes its retry entry.
+        let gate = gate::check(event).await?;
+        if gate == Gate::Ignore {
+            return Ok(());
+        }
+
         match event.event_type {
             EventType::Put => {
                 handle_put_event(
@@ -108,6 +117,11 @@ impl EventHandler for DefaultEventHandler {
                 handle_del_event(event, self.files_path.as_path(), self.ingestor.clone()).await
             }
         }?;
+
+        // After the profile is indexed, so a failure there leaves the user at `v0`.
+        if gate == Gate::Flip {
+            handlers::user::flip(event.target.user_id()).await?;
+        }
 
         event.to_event_line().store().await?;
         Ok(())
@@ -203,12 +217,16 @@ pub async fn put_tag(
 /// check, the record is removed there; if later, the moderator's own delete runs after
 /// the write and removes it. A removal that failed is finished on the event's retry, by
 /// the first check. Removing what is already gone does nothing.
+///
+/// The record is looked up by its [`route::takedown_key`], the key its takedown was recorded
+/// under. An address no parser reads is looked up as written; none is ever recorded.
 pub async fn remove_if_taken_down(
     uri: &str,
     files_path: &Path,
     ingestor: &UserIngestor,
 ) -> Result<bool, EventProcessorError> {
-    if !is_taken_down(uri).await? {
+    let key = route::takedown_key(uri).unwrap_or_else(|_| uri.to_string());
+    if !is_taken_down(&key).await? {
         return Ok(false);
     }
     let target = resolve_reference(uri).target;

@@ -69,12 +69,12 @@ impl Moderation {
             target @ (ReferenceTarget::Post(_)
             | ReferenceTarget::Tag { .. }
             | ReferenceTarget::File(_)) => {
-                // Recorded under the address the tag names, as an event for it carries it: a
-                // `pubky.app` or another app's address may spell it with a trailing slash or a
-                // query, rewritten here; a `social/v1` address is canonical by spec.
-                // TODO(specs-migration): a takedown through a `social/v1` address does not hold
-                // against the record's `pubky.app` events before the flip, nor against a
-                // `social/v1` post's version paths after it; both are settled with the flip (N3).
+                // Recorded under the moderated address's `takedown_key`, as its events are
+                // looked up: a `social/v1` post version folds into its post's address, the
+                // resource the delete below removes; a `pubky.app` or another app's address is
+                // rewritten by the v0 reader. A `pubky.app` takedown does not reach the
+                // author's `social/v1` versions after the flip: the post comes back at its
+                // `social/v1` address, where the moderator tags it again.
                 let address = takedown_key(&uri).map_err(EventProcessorError::generic)?;
 
                 // Posts, tags and files are remembered before they are deleted, so they stay

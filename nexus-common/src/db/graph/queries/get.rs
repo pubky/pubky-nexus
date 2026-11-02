@@ -869,6 +869,17 @@ pub fn get_user_homeserver(user_id: &str) -> Query {
     .param("user_id", user_id.to_string())
 }
 
+/// Reads a user's epoch as stored on the `User` node: `v0` when the node has no
+/// `epoch`, or when there is no node.
+pub fn get_user_epoch(user_id: &str) -> Query {
+    Query::new(
+        "get_user_epoch",
+        "OPTIONAL MATCH (u:User {id: $user_id})
+         RETURN coalesce(u.epoch, 'v0') AS epoch",
+    )
+    .param("user_id", user_id.to_string())
+}
+
 /// Counts users with a `HOSTED_BY` mapping, and how many of those mappings are
 /// marked `stale`. Deleted users are excluded from both counts.
 pub fn count_user_homeserver_mappings() -> Query {

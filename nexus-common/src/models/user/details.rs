@@ -153,9 +153,21 @@ impl UserDetails {
     }
 
     /// Writes a profile read from the homeserver, storing `uri` (its event path) on the node.
-    /// `put_to_graph` writes no `uri` and keeps the stored one: stubs and tombstones use it.
-    pub async fn put_profile_to_graph(&self, uri: &str) -> GraphResult<()> {
-        exec_single_row(queries::put::create_user(self, Some(uri))?).await
+    /// `put_to_graph` writes no `uri` and keeps the stored one: stubs use it.
+    ///
+    /// The write keeps the epoch stored on the node, and sets it on `self`.
+    pub async fn put_profile_to_graph(&mut self, uri: &str) -> GraphResult<()> {
+        let query = queries::put::create_user(self, Some(uri))?;
+        self.epoch = Epoch::fetch_from_graph(query).await?;
+        Ok(())
+    }
+
+    /// Writes a [`UserDetails::tombstone`], keeping the stored `uri`. The write keeps the epoch
+    /// stored on the node, and sets it on `self`.
+    pub async fn put_tombstone_to_graph(&mut self) -> GraphResult<()> {
+        let query = self.put_graph_query()?;
+        self.epoch = Epoch::fetch_from_graph(query).await?;
+        Ok(())
     }
 
     pub async fn delete(user_id: &str) -> ModelResult<()> {

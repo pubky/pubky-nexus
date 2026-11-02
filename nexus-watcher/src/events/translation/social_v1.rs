@@ -26,8 +26,8 @@ use pubky_social_specs::{
 ///
 /// Every error is deterministic and never retried: a resource with no handler is
 /// [`EventProcessorError::InvalidEventLine`], a pipeline bug surfacing as a dropped, logged
-/// event, since the classifier skips or rejects those first; bytes the reader rejects, the
-/// post's reference rules with the event's user as author included, are
+/// event, since the classifier skips those first; bytes the reader rejects, the post's
+/// reference rules with the event's user as author included, are
 /// [`EventProcessorError::SpecValidation`].
 pub fn translate_put(
     event_uri: &str,
@@ -95,11 +95,11 @@ pub fn translate_del(parsed: &ParsedUri) -> Result<TranslatedDel, EventProcessor
 }
 
 /// Whether a v1 resource has a PUT handler: the profile, a stored post version, a follow or a
-/// tag, the same set [`translate_del`] takes.
+/// tag, the same set [`translate_del`] takes. The classifier indexes these and skips the rest.
 ///
 /// A versionless post address names no stored file; a mute, bookmark, feed, foreign, unknown or
 /// unsupported resource, and one the non-exhaustive `Resource` adds later, has no v1 handler.
-fn has_handler(resource: &Resource) -> bool {
+pub(in crate::events) fn has_handler(resource: &Resource) -> bool {
     // TODO(specs-migration): N5 translates v1 files.
     matches!(
         resource,
@@ -121,8 +121,7 @@ fn owned_key(owner_id: PubkyId, resource_id: &str) -> ResourceKey {
     }
 }
 
-/// A `social/v1` resource no handler takes; the classifier skips or rejects it before
-/// translation.
+/// A `social/v1` resource no handler takes; the classifier skips it before translation.
 fn no_handler(resource: &Resource) -> EventProcessorError {
     let epoch = epoch_segment();
     EventProcessorError::InvalidEventLine(format!(
@@ -172,6 +171,9 @@ impl PostInput {
     /// resolved; the attachments as their addresses, `alt` and `name` dropped.
     pub fn from_v1(post: PubkySocialPost, author: &PubkyId, post_id: &str) -> Self {
         Self {
+            // TODO(specs-migration): the edit id is dropped, so an older version retried after a
+            // newer one overwrites it; "newest version wins" comes with the v1 edit design (E1),
+            // before clients write v1.
             uri: post_uri_builder(author.to_string(), post_id.to_string()),
             collection_items: collection_items(&post),
             parent: post.parent.as_deref().map(resolve_reference),

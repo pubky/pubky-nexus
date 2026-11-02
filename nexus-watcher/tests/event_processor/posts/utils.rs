@@ -14,7 +14,7 @@ use nexus_watcher::events::inputs::ResourceKey;
 use pubky_social_specs::legacy_v0::{
     post_uri_builder, PubkyAppPost, PubkyAppPostEmbed, PubkyAppPostKind, PubkyAppUser,
 };
-use pubky_social_specs::PubkyId;
+use pubky_social_specs::{PubkyId, PubkySocialPost, PubkySocialPostKind, PubkySocialUser};
 
 pub async fn find_post_counts(user_id: &str, post_id: &str) -> PostCounts {
     // Read-through: counts are invalidated on write and recomputed from the
@@ -240,6 +240,22 @@ pub fn test_user(name: impl Into<String>, bio: impl Into<String>) -> PubkyAppUse
         name: name.into(),
         status: None,
     }
+}
+
+/// Build a `social/v1` `Note` root post, the v1 kind a `Short` post becomes.
+pub fn v1_note(content: impl Into<String>) -> PubkySocialPost {
+    PubkySocialPost::new(
+        content.into(),
+        PubkySocialPostKind::Note,
+        None,
+        None,
+        vec![],
+    )
+}
+
+/// Build a `social/v1` profile for tests with the given display name and bio.
+pub fn v1_test_user(name: impl Into<String>, bio: impl Into<String>) -> PubkySocialUser {
+    PubkySocialUser::new(name.into(), Some(bio.into()), None, None, None)
 }
 
 /// Convert a user-id string into a `PubkyId`, surfacing the parse error

@@ -277,8 +277,8 @@ async fn test_pubky_app_tag_on_a_resource_target_creates_a_resource_tag() -> Res
 }
 
 /// A `social/v1` tag names no app, and a tag on another app's object reaches the `Resource` flow
-/// from there too. The classifier still skips every `social/v1` event, so the translated input
-/// is handed to the tag dispatch directly.
+/// from there too. The gate ignores a `social/v1` event of a user at `v0`, so the translated
+/// input is handed to the tag dispatch directly.
 #[tokio_shared_rt::test(shared)]
 async fn test_social_v1_tag_on_a_foreign_target_reaches_the_resource_flow() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;

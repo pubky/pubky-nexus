@@ -1,19 +1,33 @@
+use crate::event_processor::users::utils::{
+    find_cached_user_details, find_user_epoch, set_user_epoch,
+};
+use crate::event_processor::utils::default_moderation_tests;
 use crate::service::utils::common::create_mock_handler;
-use crate::service::utils::{new_in_memory_store, setup, HS_IDS, TEST_USER_ID};
+use crate::service::utils::{
+    new_in_memory_store, setup, MockHomeserverClient, HS_IDS, TEST_USER_ID,
+};
 use anyhow::Result;
 use chrono::Utc;
 use nexus_common::config::EventRetryConfig;
 use nexus_common::db::kv::RedisOps;
+use nexus_common::db::{exec_single_row, queries};
+use nexus_common::models::post::PostDetails;
+use nexus_common::models::traits::Collection;
+use nexus_common::models::user::{Epoch, UserDetails};
+use nexus_common::utils::test_utils::{default_ingestor_tests, random_pubky_id};
 use nexus_watcher::errors::EventProcessorError;
 use nexus_watcher::events::retry::{
     IndexKey, RedisRetryStore, RetryEvent, RetryProcessor, RetryStore, RETRY_MANAGER_EVENTS_INDEX,
     RETRY_MANAGER_PREFIX,
 };
-use nexus_watcher::events::EventHandler;
 use nexus_watcher::events::EventType;
+use nexus_watcher::events::{handlers, DefaultEventHandler, EventHandler};
 use nexus_watcher::service::RunOutcome;
 use nexus_watcher::service::TEventProcessor;
-use pubky_social_specs::legacy_v0::post_uri_builder;
+use pubky_social_specs::legacy_v0::traits::TimestampId;
+use pubky_social_specs::legacy_v0::{post_uri_builder, PubkyAppPost, PubkyAppPostKind};
+use pubky_social_specs::traits::{HasPath as _, TimestampId as _};
+use pubky_social_specs::{PubkySocialPost, PubkySocialPostKind, PubkySocialUser, Root};
 use std::sync::Arc;
 use tokio::sync::watch;
 
@@ -1329,8 +1343,8 @@ async fn test_future_events_not_picked_up() -> Result<()> {
 
 // ============================================================================
 // Skipped-by-design entry is removed without a handler call
-// A `social/v1` line left in the queue from before the epoch router re-parses
-// to `Skipped`: the processor drops it and still handles the v0 line next to it.
+// A `social/v1` file line left in the queue re-parses to `Skipped`: the
+// processor drops it unfetched and still handles the v0 line next to it.
 // ============================================================================
 
 #[tokio_shared_rt::test(shared)]
@@ -1340,12 +1354,13 @@ async fn test_skipped_entry_is_removed_without_handler_call() -> Result<()> {
     let store = new_in_memory_store();
     let now = Utc::now().timestamp_millis();
 
-    // A v0 post line and, next to it, a `social/v1` post line as a processor
-    // without the epoch router stored it; both ready now.
+    // A v0 post line and, next to it, a `social/v1` file line, which no handler
+    // takes until v1 files are supported; both ready now.
     let post_id = "skipnextv0";
     let v0_event = create_test_retry_event(post_id, EventType::Put, 0, now - 1000);
     let v0_uri = v0_event.event_uri.clone();
-    let v1_uri = format!("pubky://{TEST_USER_ID}/pub/social/v1/posts/0032SSN7Q4EVG");
+    let v1_uri =
+        format!("pubky://{TEST_USER_ID}/pub/social/v1/files/8Z8CWH8NVYQY39ZEBFGKQWWEKG.jpg");
     let v1_event = RetryEvent {
         event_uri: v1_uri.clone(),
         ..v0_event.clone()
@@ -1381,6 +1396,319 @@ async fn test_skipped_entry_is_removed_without_handler_call() -> Result<()> {
         "Handled v0 entry must be removed from the queue"
     );
 
+    let _ = shutdown_tx.send(true);
+    Ok(())
+}
+
+// ============================================================================
+// Entry the epoch gate ignores is removed
+// A `pubky.app` line queued for a user since moved to `v1` goes through the real
+// handler: the gate ignores it, so the entry is removed and nothing is indexed.
+// ============================================================================
+
+#[tokio_shared_rt::test(shared)]
+async fn test_gated_entry_is_removed_and_nothing_indexed() -> Result<()> {
+    setup().await?;
+
+    let user = random_pubky_id();
+    let user_id = user.to_string();
+    UserDetails::from_pubky(user).put_to_graph().await?;
+    set_user_epoch(&user_id, "v1").await?;
+
+    // The homeserver still serves the post: only the gate keeps it out
+    let post = PubkyAppPost {
+        content: "Retry:EpochGate:Post".to_string(),
+        kind: PubkyAppPostKind::Short,
+        parent: None,
+        embed: None,
+        attachments: None,
+        lock: None,
+    };
+    let post_id = post.create_id();
+    let event_uri = post_uri_builder(user_id.clone(), post_id.clone());
+    let client = Arc::new(
+        MockHomeserverClient::default().with_resource(&event_uri, serde_json::to_vec(&post)?),
+    );
+    let files = tempfile::TempDir::new()?;
+    let handler: Arc<dyn EventHandler> = Arc::new(DefaultEventHandler::new(
+        default_moderation_tests(),
+        default_ingestor_tests(),
+        client,
+        files.path().to_path_buf(),
+    ));
+
+    let store = new_in_memory_store();
+    let retry_event = RetryEvent {
+        retry_count: 0,
+        event_type: EventType::Put,
+        event_uri: event_uri.clone(),
+        next_retry_at: Utc::now().timestamp_millis() - 1000,
+        origin_homeserver_id: TEST_HOMESERVER_ID.to_string(),
+        nonce: 0,
+    };
+    store.put(&retry_event).await?;
+
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let processor = build_processor(
+        store.clone(),
+        create_test_config(10, 50, 60, 3600, 60, 3600),
+        handler,
+        shutdown_rx,
+    );
+
+    processor
+        .run_internal()
+        .await
+        .expect("an ignored entry must not fail the batch");
+
+    assert!(
+        store.get(&IndexKey::for_uri(&event_uri)).await?.is_none(),
+        "Ignored entry must be removed from the queue"
+    );
+    assert!(
+        PostDetails::get_from_graph(&user_id, &post_id)
+            .await?
+            .is_none(),
+        "Ignored entry must index nothing"
+    );
+
+    exec_single_row(queries::del::delete_user(&user_id)).await?;
+    let _ = shutdown_tx.send(true);
+    Ok(())
+}
+
+// ============================================================================
+// `social/v1` entry of a `v0` user is removed
+// A v1 line queued for a user still at `v0` goes through the real handler:
+// the gate ignores it, so the entry is removed and nothing is indexed.
+// ============================================================================
+
+#[tokio_shared_rt::test(shared)]
+async fn test_social_v1_entry_of_a_v0_user_is_removed_and_nothing_indexed() -> Result<()> {
+    setup().await?;
+
+    let user = random_pubky_id();
+    let user_id = user.to_string();
+    // No epoch on the node: the user reads as `v0`
+    UserDetails::from_pubky(user).put_to_graph().await?;
+
+    // The homeserver still serves the post version: only the gate keeps it out
+    let post = PubkySocialPost::new(
+        "Retry:EpochGate:SocialV1".to_string(),
+        PubkySocialPostKind::Note,
+        None,
+        None,
+        vec![],
+    );
+    let post_id = post.create_id();
+    let path = PubkySocialPost::create_path_in(Root::Pub, &post_id, &post_id, None);
+    let event_uri = format!("pubky://{user_id}{path}");
+    let client = Arc::new(
+        MockHomeserverClient::default().with_resource(&event_uri, serde_json::to_vec(&post)?),
+    );
+    let files = tempfile::TempDir::new()?;
+    let handler: Arc<dyn EventHandler> = Arc::new(DefaultEventHandler::new(
+        default_moderation_tests(),
+        default_ingestor_tests(),
+        client,
+        files.path().to_path_buf(),
+    ));
+
+    let store = new_in_memory_store();
+    let retry_event = RetryEvent {
+        retry_count: 0,
+        event_type: EventType::Put,
+        event_uri: event_uri.clone(),
+        next_retry_at: Utc::now().timestamp_millis() - 1000,
+        origin_homeserver_id: TEST_HOMESERVER_ID.to_string(),
+        nonce: 0,
+    };
+    store.put(&retry_event).await?;
+
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let processor = build_processor(
+        store.clone(),
+        create_test_config(10, 50, 60, 3600, 60, 3600),
+        handler,
+        shutdown_rx,
+    );
+
+    processor
+        .run_internal()
+        .await
+        .expect("an ignored entry must not fail the batch");
+
+    assert!(
+        store.get(&IndexKey::for_uri(&event_uri)).await?.is_none(),
+        "Ignored entry must be removed from the queue"
+    );
+    assert!(
+        PostDetails::get_from_graph(&user_id, &post_id)
+            .await?
+            .is_none(),
+        "Ignored entry must index nothing"
+    );
+
+    exec_single_row(queries::del::delete_user(&user_id)).await?;
+    let _ = shutdown_tx.send(true);
+    Ok(())
+}
+
+// ============================================================================
+// A queued `social/v1` profile flips its `v0` user
+// A v1 profile line queued for a user still at `v0` goes through the real
+// handler: the profile is indexed, the user moves to `v1` in the graph and the
+// cache, and the entry is removed.
+// ============================================================================
+
+#[tokio_shared_rt::test(shared)]
+async fn test_social_v1_profile_entry_flips_a_v0_user() -> Result<()> {
+    setup().await?;
+
+    let user = random_pubky_id();
+    let user_id = user.to_string();
+    // No epoch on the node: the user reads as `v0`
+    UserDetails::from_pubky(user.clone()).put_to_graph().await?;
+
+    let profile = PubkySocialUser::new("Retry:EpochGate:Flip".to_string(), None, None, None, None);
+    let event_uri = format!("pubky://{user_id}{}", PubkySocialUser::create_path());
+    let client = Arc::new(
+        MockHomeserverClient::default().with_resource(&event_uri, serde_json::to_vec(&profile)?),
+    );
+    let files = tempfile::TempDir::new()?;
+    let handler: Arc<dyn EventHandler> = Arc::new(DefaultEventHandler::new(
+        default_moderation_tests(),
+        default_ingestor_tests(),
+        client,
+        files.path().to_path_buf(),
+    ));
+
+    let store = new_in_memory_store();
+    let retry_event = RetryEvent {
+        retry_count: 0,
+        event_type: EventType::Put,
+        event_uri: event_uri.clone(),
+        next_retry_at: Utc::now().timestamp_millis() - 1000,
+        origin_homeserver_id: TEST_HOMESERVER_ID.to_string(),
+        nonce: 0,
+    };
+    store.put(&retry_event).await?;
+
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let processor = build_processor(
+        store.clone(),
+        create_test_config(10, 50, 60, 3600, 60, 3600),
+        handler,
+        shutdown_rx,
+    );
+
+    processor
+        .run_internal()
+        .await
+        .expect("the flip must not fail the batch");
+
+    assert_eq!(find_user_epoch(&user_id).await.as_deref(), Some("v1"));
+    let cached = find_cached_user_details(&user_id).await?;
+    assert_eq!(cached.epoch, Epoch::V1);
+    assert_eq!(cached.name, "Retry:EpochGate:Flip");
+    assert!(
+        store.get(&IndexKey::for_uri(&event_uri)).await?.is_none(),
+        "Handled entry must be removed from the queue"
+    );
+
+    handlers::user::del(user).await?;
+    let _ = shutdown_tx.send(true);
+    Ok(())
+}
+
+// ============================================================================
+// A failed `social/v1` profile does not flip its `v0` user
+// The flip sets `v1` after the profile is indexed: a profile PUT that fails
+// leaves the user at `v0`, in the graph and the cache, and their `pubky.app`
+// events are still handled. An invalid profile is never retried.
+// ============================================================================
+
+#[tokio_shared_rt::test(shared)]
+async fn test_failed_social_v1_profile_entry_does_not_flip_a_v0_user() -> Result<()> {
+    setup().await?;
+
+    let user = random_pubky_id();
+    let user_id = user.to_string();
+    // No epoch on the node: the user reads as `v0`
+    UserDetails::from_pubky(user.clone()).put_to_graph().await?;
+
+    let profile_uri = format!("pubky://{user_id}{}", PubkySocialUser::create_path());
+    let post = PubkyAppPost {
+        content: "Retry:EpochGate:FailedFlip:Post".to_string(),
+        kind: PubkyAppPostKind::Short,
+        parent: None,
+        embed: None,
+        attachments: None,
+        lock: None,
+    };
+    let post_id = post.create_id();
+    let post_uri = post_uri_builder(user_id.clone(), post_id.clone());
+    let client = Arc::new(
+        MockHomeserverClient::default()
+            .with_resource(&profile_uri, b"not json".to_vec())
+            .with_resource(&post_uri, serde_json::to_vec(&post)?),
+    );
+    let files = tempfile::TempDir::new()?;
+    let handler: Arc<dyn EventHandler> = Arc::new(DefaultEventHandler::new(
+        default_moderation_tests(),
+        default_ingestor_tests(),
+        client,
+        files.path().to_path_buf(),
+    ));
+
+    let store = new_in_memory_store();
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let processor = build_processor(
+        store.clone(),
+        create_test_config(10, 50, 60, 3600, 60, 3600),
+        handler,
+        shutdown_rx,
+    );
+    let due_put = |event_uri: &str| RetryEvent {
+        retry_count: 0,
+        event_type: EventType::Put,
+        event_uri: event_uri.to_string(),
+        next_retry_at: Utc::now().timestamp_millis() - 1000,
+        origin_homeserver_id: TEST_HOMESERVER_ID.to_string(),
+        nonce: 0,
+    };
+
+    // The flip profile fails validation
+    store.put(&due_put(&profile_uri)).await?;
+    processor
+        .clone()
+        .run_internal()
+        .await
+        .expect("a failed flip must not fail the batch");
+
+    assert_eq!(find_user_epoch(&user_id).await, None, "no epoch written");
+    let cached = find_cached_user_details(&user_id).await?;
+    assert_eq!(cached.epoch, Epoch::V0);
+    assert!(
+        store.get(&IndexKey::for_uri(&profile_uri)).await?.is_none(),
+        "an invalid profile is never retried"
+    );
+
+    // Still at `v0`: a `pubky.app` post from the same user is indexed
+    store.put(&due_put(&post_uri)).await?;
+    processor
+        .run_internal()
+        .await
+        .expect("the post must not fail the batch");
+    assert!(
+        PostDetails::get_from_graph(&user_id, &post_id)
+            .await?
+            .is_some(),
+        "a v0 user's pubky.app post is still indexed after a failed flip"
+    );
+
+    exec_single_row(queries::del::delete_post(&user_id, &post_id)).await?;
+    exec_single_row(queries::del::delete_user(&user_id)).await?;
     let _ = shutdown_tx.send(true);
     Ok(())
 }

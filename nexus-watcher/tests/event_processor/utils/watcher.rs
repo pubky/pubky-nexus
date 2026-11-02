@@ -31,7 +31,10 @@ use pubky_social_specs::legacy_v0::{
     traits::{HasIdPath, HasPath, TimestampId},
     PubkyAppFile, PubkyAppFollow, PubkyAppPost, PubkyAppUser,
 };
-use pubky_social_specs::PubkyId;
+use pubky_social_specs::traits::{HasIdPath as _, HasPath as _, HashId as _};
+use pubky_social_specs::{
+    PubkyId, PubkySocialFollow, PubkySocialPost, PubkySocialTag, PubkySocialUser, Root,
+};
 use pubky_testnet::Testnet;
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -366,6 +369,57 @@ impl WatcherTest {
         self.put(user_kp, &post_path, post).await?;
 
         Ok((post_id, post_path))
+    }
+
+    /// Writes `user` as the `social/v1` profile, at `/pub/social/v1/profile.json`.
+    pub async fn put_v1_profile(
+        &mut self,
+        user_kp: &Keypair,
+        user: &PubkySocialUser,
+    ) -> Result<ResourcePath> {
+        let profile_path: ResourcePath = PubkySocialUser::create_path().parse()?;
+        self.put(user_kp, &profile_path, user).await?;
+        Ok(profile_path)
+    }
+
+    /// Writes `post` as the `social/v1` version `edit_id` of post `post_id`, at
+    /// `/pub/social/v1/posts/{post_id}/{edit_id}.json`. A post is created with `edit_id ==
+    /// post_id`; an edit takes a later id, such as one from [`generate_post_id`].
+    pub async fn put_v1_post_version(
+        &mut self,
+        user_kp: &Keypair,
+        post_id: &str,
+        edit_id: &str,
+        post: &PubkySocialPost,
+    ) -> Result<ResourcePath> {
+        let version_path: ResourcePath =
+            PubkySocialPost::create_path_in(Root::Pub, post_id, edit_id, None).parse()?;
+        self.put(user_kp, &version_path, post).await?;
+        Ok(version_path)
+    }
+
+    /// Writes a `social/v1` follow of `followee_id`, at
+    /// `/pub/social/v1/follows/{followee_id}.json`.
+    pub async fn put_v1_follow(
+        &mut self,
+        follower_kp: &Keypair,
+        followee_id: &str,
+    ) -> Result<ResourcePath> {
+        let follow_path: ResourcePath = PubkySocialFollow::create_path(followee_id).parse()?;
+        self.put(follower_kp, &follow_path, PubkySocialFollow::new())
+            .await?;
+        Ok(follow_path)
+    }
+
+    /// Writes `tag` as a `social/v1` tag, at `/pub/social/v1/tags/{tag_id}.json`.
+    pub async fn put_v1_tag(
+        &mut self,
+        tagger_kp: &Keypair,
+        tag: &PubkySocialTag,
+    ) -> Result<ResourcePath> {
+        let tag_path: ResourcePath = PubkySocialTag::create_path(&tag.create_id()).parse()?;
+        self.put(tagger_kp, &tag_path, tag).await?;
+        Ok(tag_path)
     }
 
     pub async fn cleanup_user(&mut self, user_kp: &Keypair) -> Result<()> {

@@ -289,17 +289,39 @@ mod tests {
         assert_invalid("pubky.app/profile.json/extra");
     }
 
+    /// The resources the v1 translator handles parse to a `social/v1` target; the gate decides
+    /// whose are handled.
     #[test]
-    fn social_v1_resources_are_skipped_with_their_resource_name() {
+    fn social_v1_resources_nexus_indexes_are_parsed() {
+        for path in [
+            "social/v1/profile.json".to_string(),
+            format!("social/v1/posts/{POST_ID}/{POST_ID}.json"),
+            format!("social/v1/posts/{POST_ID}/{POST_ID}-hello-world.json"),
+            format!("social/v1/tags/{HASH_ID}.json"),
+            format!("social/v1/follows/{USER}.json"),
+        ] {
+            assert_parsed(&path);
+            let Ok(ParseResult::Parsed(event)) = Event::parse_event(&format!("PUT {}", uri(&path)))
+            else {
+                panic!("{path}: expected Parsed");
+            };
+            assert!(
+                matches!(event.target, EventTarget::Social(_)),
+                "{path}: {:?}",
+                event.target
+            );
+        }
+    }
+
+    /// A v1 resource with no handler costs no GET: a file until v1 files are translated, a feed,
+    /// a versionless post address, which names no stored file, and a path the pinned parser
+    /// cannot classify, under `unknown`.
+    #[test]
+    fn social_v1_resources_without_a_handler_are_skipped_with_their_resource_name() {
         for (path, resource) in [
-            ("social/v1/profile.json".to_string(), "profile.json"),
-            (format!("social/v1/posts/{POST_ID}"), "posts"),
-            (format!("social/v1/posts/{POST_ID}/{POST_ID}.json"), "posts"),
-            (format!("social/v1/tags/{HASH_ID}.json"), "tags"),
-            (format!("social/v1/follows/{USER}.json"), "follows"),
             (format!("social/v1/files/{HASH_ID}.jpg"), "files"),
             (format!("social/v1/feeds/{HASH_ID}.json"), "feeds"),
-            // A v1 path the pinned parser cannot classify is still a v1 skip, under `unknown`.
+            (format!("social/v1/posts/{POST_ID}"), "posts"),
             ("social/v1/whatever".to_string(), "unknown"),
             (format!("social/v1/posts/{POST_ID}.json"), "unknown"),
             ("social/v1".to_string(), "unknown"),

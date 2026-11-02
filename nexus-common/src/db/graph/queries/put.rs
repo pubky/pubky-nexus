@@ -7,7 +7,8 @@ use pubky_social_specs::PubkyId;
 /// Creates or overwrites a `User` node.
 ///
 /// `uri` is the address the profile was read from (its event path). `None` keeps the stored
-/// `uri`, so a tombstone retains it and a stub node gets none.
+/// `uri`, so a tombstone retains it and a stub node gets none. The stored `epoch` is never
+/// written here; the query returns it as `epoch`, `v0` when the node has none.
 pub fn create_user(user: &UserDetails, uri: Option<&str>) -> GraphResult<Query> {
     let links = serde_json::to_string(&user.links)
         .map_err(|e| GraphError::SerializationFailed(Box::new(e)))?;
@@ -16,7 +17,8 @@ pub fn create_user(user: &UserDetails, uri: Option<&str>) -> GraphResult<Query> 
         "create_user",
         "MERGE (u:User {id: $id})
          SET u.name = $name, u.bio = $bio, u.status = $status, u.links = $links, u.image = $image, u.indexed_at = $indexed_at, u.deleted = $deleted,
-             u.uri = coalesce($uri, u.uri);",
+             u.uri = coalesce($uri, u.uri)
+         RETURN coalesce(u.epoch, 'v0') AS epoch;",
     )
     .param("id", user.id.to_string())
     .param("uri", uri.map(str::to_string))
@@ -29,6 +31,17 @@ pub fn create_user(user: &UserDetails, uri: Option<&str>) -> GraphResult<Query> 
     .param("deleted", user.deleted);
 
     Ok(query)
+}
+
+/// Moves a user to epoch `v1`. There is no write of `v0`, so the epoch only moves up. A
+/// missing node stays missing.
+pub fn set_user_epoch_v1(user_id: &str) -> Query {
+    Query::new(
+        "set_user_epoch_v1",
+        "MATCH (u:User {id: $user_id})
+         SET u.epoch = 'v1'",
+    )
+    .param("user_id", user_id.to_string())
 }
 
 /// Creates a Cypher query to add or edit a post to the graph database and handles its relationships.
