@@ -532,6 +532,7 @@ async fn test_post_put_recovery_sends_a_missing_mention_notification() -> Result
             pubky_id(&alice_id)?,
             post_id.clone(),
             &default_ingestor_tests(),
+            &crate::service::utils::MockHomeserverClient::default(),
         )
         .await?;
         assert_notification_count(
@@ -593,6 +594,7 @@ async fn test_post_put_recovery_sends_a_missing_reply_notification() -> Result<(
         pubky_id(&bob_id)?,
         reply_id.clone(),
         &default_ingestor_tests(),
+        &crate::service::utils::MockHomeserverClient::default(),
     )
     .await?;
 
@@ -646,6 +648,7 @@ async fn test_post_put_recovery_sends_a_missing_repost_notification() -> Result<
         pubky_id(&bob_id)?,
         repost_id.clone(),
         &default_ingestor_tests(),
+        &crate::service::utils::MockHomeserverClient::default(),
     )
     .await?;
 
@@ -697,6 +700,7 @@ async fn test_post_put_recovery_keeps_a_delivered_notification_timestamp() -> Re
         pubky_id(&alice_id)?,
         post_id.clone(),
         &default_ingestor_tests(),
+        &crate::service::utils::MockHomeserverClient::default(),
     )
     .await?;
 
@@ -778,6 +782,7 @@ async fn assert_recovery_keeps_parent_notification_timestamp(is_reply: bool) -> 
         pubky_id(&bob_id)?,
         child_id.clone(),
         &default_ingestor_tests(),
+        &crate::service::utils::MockHomeserverClient::default(),
     )
     .await?;
 
