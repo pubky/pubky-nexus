@@ -714,6 +714,66 @@ async fn test_reply_to_an_outsider_post_fetches_only_that_post() -> Result<()> {
     Ok(())
 }
 
+/// The feed's run, polled on a thread with the stack `nexusd` gives its workers, indexes a
+/// member's reply to an outsider's post: the nested post handler fetching the parent fits.
+/// Run on the test's own thread it would not show an overflow, that stack being larger.
+#[tokio_shared_rt::test(shared)]
+async fn test_a_reply_to_an_outsider_post_fits_the_worker_stack() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let hs_pk = create_external_test_homeserver(&mut test).await?;
+    let (outsider_kp, outsider_id) = user_on(&test, &hs_pk).await?;
+    let (parent_id, _) = test
+        .create_post(&outsider_kp, &post("Watcher:Scope:StackParent", None))
+        .await?;
+    let replier_kp = Keypair::random();
+    let replier = PubkyAppUser {
+        bio: None,
+        image: None,
+        links: None,
+        name: "Watcher:Scope:StackReplier".to_string(),
+        status: None,
+    };
+    test.create_user(&replier_kp, &replier).await?;
+    let replier_id = PubkyId::from(replier_kp.public_key());
+    let ingestor = Arc::new(scoped_ingestor(&test));
+    ingestor.maybe_ingest_user(&outsider_id).await?;
+
+    // Written without the test's own processor, so only the scoped run below reads it.
+    let mut test = test.remove_event_processing().await;
+    let (reply_id, _) = test
+        .create_post(
+            &replier_kp,
+            &post(
+                "Watcher:Scope:StackReply",
+                Some(post_uri_builder(outsider_id.to_string(), parent_id.clone())),
+            ),
+        )
+        .await?;
+
+    let processor = Arc::new(feed_processor(&test, ingestor));
+    let runtime = tokio::runtime::Handle::current();
+    let run = std::thread::Builder::new()
+        .stack_size(nexus_watcher::WORKER_STACK_SIZE)
+        .spawn(move || runtime.block_on(processor.run_internal()))?;
+    tokio::task::spawn_blocking(move || run.join())
+        .await?
+        .expect("the run doesn't overflow its stack")?;
+
+    assert!(
+        PostDetails::get_by_id(&replier_id, &reply_id)
+            .await?
+            .is_some(),
+        "the reply lands"
+    );
+    assert!(
+        PostDetails::get_by_id(&outsider_id, &parent_id)
+            .await?
+            .is_some(),
+        "its parent is fetched"
+    );
+    Ok(())
+}
+
 /// A reply at the bottom of an outsider's thread longer than one attempt's fetch budget
 /// still lands: each retry continues the chain from where the last one stopped, and no
 /// attempt fetches more than the budget, whatever walks its handler starts.

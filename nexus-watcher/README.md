@@ -46,6 +46,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 }
 ```
 
+Debug builds need more stack than Tokio's 2 MiB default to index a record pointing at an
+outsider's post. Build the runtime with
+`.thread_stack_size(nexus_watcher::WORKER_STACK_SIZE)` instead of `#[tokio::main]`, as
+`nexusd` does.
+
 ## License
 
 This project is licensed under the MIT License.
