@@ -10,8 +10,8 @@
 //!
 //! | Edge target | `t.id` |
 //! |---|---|
-//! | Post, `t.id` matches the `pubky.app` post | Computed from the v1 post URI |
-//! | Post, no match (a `social/v1` address, versioned or not) | Kept |
+//! | Post, `t.id` matches the versionless `social/v1` post | Kept |
+//! | Post, any other spelling | Computed from the v1 post URI |
 //! | User, `t.id` matches `profile.json` | Computed from the v1 profile URI |
 //! | User, `t.id` matches bare `pubky://pk` | Kept |
 //! | User, no match | Kept, and logged |
@@ -24,10 +24,12 @@
 //! profile to its v1 URI whether or not they migrated. A kept id is right because the migrator
 //! keeps those targets too, so the hash input is the same; for a URL with a fragment or
 //! userinfo it is the only answer, because `Resource.uri` has lost them. The match on a post or
-//! a user edge recomputes the v0 id for the `pubky.app` spelling, with no I/O, because the edge
-//! no longer holds which one the tagger wrote: a tagger still on `pubky.app` may have tagged a
-//! post by its `social/v1` address, versioned or not, which the migrator keeps as it is and
-//! which the keys cannot rebuild, so the id stays.
+//! a user edge recomputes the v0 id for a spelling, with no I/O, because the edge no longer
+//! holds which one the tagger wrote. A tagger still on `pubky.app` may have tagged a post by
+//! its versionless `social/v1` address, which the migrator keeps as it is, so that id stays;
+//! every other spelling of the post (canonical, loose, or a `social/v1` version, for which the
+//! migrator writes no tag file at all) takes the id of the versionless v1 URI, the id a real
+//! v1 tag on that post with that label carries.
 //!
 //! Paging never uses `SKIP`: each loop reads up to a batch of edges still under the `pubky.app`
 //! prefix, with no offset, and each write moves its edges out of that set. Every row is
@@ -44,8 +46,8 @@ use crate::events::EventProcessorError;
 use nexus_common::db::{fetch_all_rows_from_graph, fetch_key_from_graph, queries, GraphError};
 use pubky_social_specs::legacy_v0::traits::HashId as _;
 use pubky_social_specs::legacy_v0::{
-    post_uri_builder as v0_post_uri_builder, tag_uri_builder as v0_tag_uri_builder,
-    user_uri_builder as v0_user_uri_builder, ParsedUri, PubkyAppTag, Resource,
+    tag_uri_builder as v0_tag_uri_builder, user_uri_builder as v0_user_uri_builder, ParsedUri,
+    PubkyAppTag, Resource,
 };
 use pubky_social_specs::traits::HashId;
 use pubky_social_specs::{
@@ -213,14 +215,11 @@ fn new_id(owner: &PubkyId, files: &FileMap, tag: &StoredTag) -> NewId {
             author_id: Some(author_id),
             post_id,
         } => {
-            let v0_uri = v0_post_uri_builder(author_id.clone(), post_id.clone());
-            if tag.id == v0_tag_id(&v0_uri, &tag.label) {
-                NewId::Computed(tag_id(
-                    &post_uri_builder(author_id.clone(), post_id.clone()),
-                    &tag.label,
-                ))
-            } else {
+            let v1_uri = post_uri_builder(author_id.clone(), post_id.clone());
+            if tag.id == v0_tag_id(&v1_uri, &tag.label) {
                 NewId::Kept
+            } else {
+                NewId::Computed(tag_id(&v1_uri, &tag.label))
             }
         }
         Target::Post {
@@ -283,7 +282,9 @@ mod tests {
     use super::*;
     use crate::events::retry::RetryScheduler;
     use pubky_social_specs::file_uri_builder;
-    use pubky_social_specs::legacy_v0::file_uri_builder as v0_file_uri_builder;
+    use pubky_social_specs::legacy_v0::{
+        file_uri_builder as v0_file_uri_builder, post_uri_builder as v0_post_uri_builder,
+    };
     use std::cell::RefCell;
 
     const OWNER: &str = "operrr8wsbpr3ue9d4qj41ge1kcc6r7fdiy6o3ugjrrhi4y77rdo";
@@ -340,15 +341,36 @@ mod tests {
         }
     }
 
-    /// A tagger still on `pubky.app` tagged the post by its `social/v1` address: the migrator
-    /// keeps that target, so the id computed from the versionless keys would name another file.
+    /// A tagger still on `pubky.app` tagged the post by its versionless `social/v1` address:
+    /// the migrator keeps that target, so the id is already the v1 one.
     #[test]
-    fn a_post_tag_on_a_v1_address_keeps_its_id() {
+    fn a_post_tag_on_the_versionless_v1_address_keeps_its_id() {
         let versionless = post_uri_builder(OTHER.to_string(), POST_ID.to_string());
-        let versioned = format!("{versionless}/0032SSN7Q4EVJ.json");
-        for spelling in [versionless, versioned] {
+        let tag = v0_edge(&versionless, post(OTHER));
+        assert_eq!(new_id(&owner(), &files(), &tag), NewId::Kept);
+    }
+
+    /// Any other spelling of the post takes the id of the versionless v1 URI: a loose
+    /// `pubky.app` spelling the migrator canonicalizes and rewrites, and a `social/v1` version,
+    /// for which the migrator writes no tag file, so the id is the one a real v1 tag would get.
+    #[test]
+    fn a_post_tag_on_any_other_spelling_takes_the_computed_id() {
+        let versionless = post_uri_builder(OTHER.to_string(), POST_ID.to_string());
+        let expected = tag_id(&versionless, LABEL);
+        let spellings = [
+            format!(
+                "{}/extra",
+                v0_post_uri_builder(OTHER.to_string(), POST_ID.to_string())
+            ),
+            format!("{versionless}/0032SSN7Q4EVJ.json"),
+        ];
+        for spelling in spellings {
             let tag = v0_edge(&spelling, post(OTHER));
-            assert_eq!(new_id(&owner(), &files(), &tag), NewId::Kept, "{spelling}");
+            assert_eq!(
+                new_id(&owner(), &files(), &tag),
+                NewId::Computed(expected.clone()),
+                "{spelling}"
+            );
         }
     }
 
