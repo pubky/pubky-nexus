@@ -707,6 +707,91 @@ async fn test_post_put_recovery_keeps_a_delivered_notification_timestamp() -> Re
     Ok(())
 }
 
+#[tokio_shared_rt::test(shared)]
+async fn test_post_put_recovery_keeps_a_delivered_reply_notification_timestamp() -> Result<()> {
+    assert_recovery_keeps_parent_notification_timestamp(true).await
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_post_put_recovery_keeps_a_delivered_repost_notification_timestamp() -> Result<()> {
+    assert_recovery_keeps_parent_notification_timestamp(false).await
+}
+
+/// Like the mention case, for the notification Alice gets when Bob replies to
+/// or reposts her post. Counting entries can't tell `ZADD NX` from a plain
+/// `ZADD`, which also leaves one entry but with a new score.
+async fn assert_recovery_keeps_parent_notification_timestamp(is_reply: bool) -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let label = if is_reply { "Reply" } else { "Repost" };
+
+    let alice_kp = Keypair::random();
+    let alice_id = test
+        .create_user(
+            &alice_kp,
+            &test_user(
+                format!("Watcher:Post:RecoverKeeps{label}Notif:Alice"),
+                "assert_recovery_keeps_parent_notification_timestamp",
+            ),
+        )
+        .await?;
+    let bob_kp = Keypair::random();
+    let bob_id = test
+        .create_user(
+            &bob_kp,
+            &test_user(
+                format!("Watcher:Post:RecoverKeeps{label}Notif:Bob"),
+                "assert_recovery_keeps_parent_notification_timestamp",
+            ),
+        )
+        .await?;
+
+    let parent_post = short_post(format!("Watcher:Post:RecoverKeeps{label}Notif:Parent"));
+    let (parent_id, _parent_path) = test.create_post(&alice_kp, &parent_post).await?;
+    let parent_uri = post_uri_builder(alice_id.clone(), parent_id.clone());
+    let content = format!("Watcher:Post:RecoverKeeps{label}Notif:Child");
+    let child = if is_reply {
+        short_reply(content, parent_uri)
+    } else {
+        short_repost(content, parent_uri)
+    };
+    let (child_id, _child_path) = test.create_post(&bob_kp, &child).await?;
+
+    let delivered = Notification::get_by_id(&alice_id, Pagination::default()).await?;
+    assert_eq!(delivered.len(), 1, "the {label} notification was delivered");
+
+    // Redis lost Bob's post but kept Alice's notification.
+    if is_reply {
+        let parent_post_key: &[&str; 2] = &[alice_id.as_str(), parent_id.as_str()];
+        simulate_partial_put_failure_reply(&bob_id, &child_id, parent_post_key).await?;
+    } else {
+        simulate_partial_put_failure_root(&bob_id, &child_id).await?;
+    }
+    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    handlers::post::sync_put(
+        child.clone(),
+        post_uri_builder(bob_id.clone(), child_id.clone()),
+        pubky_id(&bob_id)?,
+        child_id.clone(),
+        &default_ingestor_tests(),
+    )
+    .await?;
+
+    let after = Notification::get_by_id(&alice_id, Pagination::default()).await?;
+    assert_eq!(
+        after.len(),
+        1,
+        "recovery adds no second {label} notification"
+    );
+    assert_eq!(
+        after[0].timestamp, delivered[0].timestamp,
+        "recovery keeps the delivered {label} notification's timestamp"
+    );
+
+    test.cleanup_user(&alice_kp).await?;
+    test.cleanup_user(&bob_kp).await?;
+    Ok(())
+}
+
 /// Deleting a reply whose Redis state is gone takes the recovery path with the
 /// tombstone. The tombstone keeps its parent edge, but must not notify the
 /// parent's author of a reply.
