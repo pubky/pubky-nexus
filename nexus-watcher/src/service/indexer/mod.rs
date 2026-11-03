@@ -198,8 +198,7 @@ pub trait TEventProcessor: Send + Sync + 'static {
 
         if !RetryScheduler::should_enqueue_related_event(&error) {
             // A `social/v1` profile PUT that is 404 or invalid never reaches the retry queue.
-            // The level follows the user's epoch, not the path: for a user at `v0` it is a
-            // lost flip, named and logged at `error`; a `v1` user's own edit stays at `debug`.
+            // A lost flip is logged at `error`, a `v1` user's own edit at `debug` (`is_flip`).
             if is_flip(event).await {
                 error!(
                     event.uri = %event.uri,

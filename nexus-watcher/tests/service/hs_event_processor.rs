@@ -138,12 +138,14 @@ async fn build_processor_at_cursor(
     }))
 }
 
-/// Assembles an [`HsEventProcessor`] for `homeserver`, reaching it through `client`, with
-/// a limit of 100.
+/// Assembles an [`HsEventProcessor`] for `homeserver`, reaching it through `client` and
+/// queuing retries on `store`, with a limit of 100. Pass the handler's store: the gate reads
+/// the queue the scheduler writes.
 fn processor_with_client(
     homeserver: Homeserver,
     event_handler: Arc<dyn EventHandler>,
     client: Arc<MockHomeserverClient>,
+    store: Arc<dyn RetryStore>,
 ) -> Arc<HsEventProcessor> {
     Arc::new(HsEventProcessor {
         homeserver,
@@ -152,7 +154,7 @@ fn processor_with_client(
         client,
         shutdown_rx: watch::channel(false).1,
         retry_scheduler: Arc::new(RetryScheduler::new(
-            new_in_memory_store(),
+            store,
             InitialBackoff {
                 missing_dep_ms: 60_000,
                 transient_ms: 10_000,
@@ -828,12 +830,13 @@ async fn test_run_polls_and_fetches_through_the_client() -> Result<()> {
             .with_resource(&profile_uri, serde_json::to_vec(&profile)?),
     );
     let files = tempfile::TempDir::new()?;
+    let store = new_in_memory_store();
     let event_handler: Arc<dyn EventHandler> = Arc::new(DefaultEventHandler::new(
         default_moderation_tests(),
         default_ingestor_tests(),
         client.clone(),
         files.path().to_path_buf(),
-        new_in_memory_store(),
+        store.clone(),
     ));
 
     let homeserver = Homeserver {
@@ -842,7 +845,7 @@ async fn test_run_polls_and_fetches_through_the_client() -> Result<()> {
     };
     homeserver.put_to_index().await?;
     let hs_id = homeserver.id.to_string();
-    let processor = processor_with_client(homeserver, event_handler.clone(), client);
+    let processor = processor_with_client(homeserver, event_handler.clone(), client, store);
 
     processor.run().await?;
 
@@ -919,6 +922,7 @@ async fn test_run_polls_its_homeserver_from_the_stored_cursor() -> Result<()> {
         homeserver,
         create_mock_handler(Ok(()), None),
         client.clone(),
+        new_in_memory_store(),
     );
 
     processor.run().await?;
@@ -944,7 +948,12 @@ async fn test_failed_poll_keeps_the_cursor() -> Result<()> {
     };
     homeserver.put_to_index().await?;
     let hs_id = homeserver.id.to_string();
-    let processor = processor_with_client(homeserver, create_mock_handler(Ok(()), None), client);
+    let processor = processor_with_client(
+        homeserver,
+        create_mock_handler(Ok(()), None),
+        client,
+        new_in_memory_store(),
+    );
 
     let err = processor.run().await.unwrap_err();
 

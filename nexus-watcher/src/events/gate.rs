@@ -79,8 +79,9 @@ async fn decide_by_graph(event: &Event) -> Result<(Gate, Epoch), EventProcessorE
 
 /// The gate's decision for `event`: by its user's epoch in the graph ([`decide_by_graph`]),
 /// then, for a handled `pubky.app` DEL (so of a user at `v0`) and only then, by `retry_store`:
-/// with the user's flip queued there, the DEL is deferred. An ignored or deferred event is
-/// counted on `watcher.epoch.skipped`.
+/// with the user's flip queued there, a PUT entry under the profile URI, the DEL is deferred.
+/// A DEL entry under that URI is no flip. An ignored or deferred event is counted on
+/// `watcher.epoch.skipped`.
 pub(super) async fn check(
     event: &Event,
     retry_store: &dyn RetryStore,
@@ -93,7 +94,7 @@ pub(super) async fn check(
             if retry_store
                 .get(&IndexKey::for_uri(&flip_uri))
                 .await?
-                .is_some()
+                .is_some_and(|entry| entry.event_type == EventType::Put)
             {
                 record_deferred(&event.target, &event.uri, &flip_uri);
                 return Ok(Gate::Defer);
@@ -227,9 +228,18 @@ mod tests {
 
             /// Queues `user_id`'s flip, as a transient fetch error on its first attempt does.
             async fn queue_flip(&self, user_id: &PubkyId) -> Result<(), EventProcessorError> {
-                let line = format!("PUT {}", flip_profile_uri(user_id));
-                let flip = event(&line);
-                self.put(&RetryEvent::new(&flip, i64::MAX, "hs")).await
+                self.queue_profile_event(user_id, "PUT").await
+            }
+
+            /// Queues a `kind` event of `user_id`'s `social/v1` profile, under the flip's key.
+            async fn queue_profile_event(
+                &self,
+                user_id: &PubkyId,
+                kind: &str,
+            ) -> Result<(), EventProcessorError> {
+                let line = format!("{kind} {}", flip_profile_uri(user_id));
+                self.put(&RetryEvent::new(&event(&line), i64::MAX, "hs"))
+                    .await
             }
         }
 
@@ -316,6 +326,48 @@ mod tests {
             }
 
             delete_user(&user).await
+        }
+
+        /// A DEL entry under the profile URI is no flip: a `v0` user's `pubky.app` DELs are
+        /// handled while one is queued.
+        #[tokio_shared_rt::test(shared)]
+        async fn a_queued_profile_del_defers_nothing() -> Result<(), DynError> {
+            let user = v0_user().await?;
+            let store = CountingStore::new();
+            store.queue_profile_event(&user, "DEL").await?;
+
+            for line in pubky_app_dels(&user) {
+                assert_eq!(check(&event(&line), &store).await?, Gate::Handle, "{line}");
+            }
+            assert_eq!(store.reads(), 2, "each DEL asks the queue once");
+
+            delete_user(&user).await
+        }
+
+        /// Only a `v0` user's `social/v1` profile PUT is a flip: a `v1` user's is an edit, and
+        /// a `pubky.app` profile PUT of either is no flip.
+        #[tokio_shared_rt::test(shared)]
+        async fn is_flip_names_the_v0_users_social_v1_profile_put_only() -> Result<(), DynError> {
+            let v0 = v0_user().await?;
+            let v1 = v0_user().await?;
+            Epoch::set_v1_in_graph(&v1).await?;
+
+            let flip = |user: &PubkyId| event(&format!("PUT {}", flip_profile_uri(user)));
+            assert!(
+                is_flip(&flip(&v0)).await,
+                "a v0 user's social/v1 profile PUT"
+            );
+            assert!(
+                !is_flip(&flip(&v1)).await,
+                "a v1 user's social/v1 profile PUT"
+            );
+            for user in [&v0, &v1] {
+                let line = format!("PUT pubky://{user}/pub/pubky.app/profile.json");
+                assert!(!is_flip(&event(&line)).await, "{line}");
+            }
+
+            delete_user(&v0).await?;
+            delete_user(&v1).await
         }
 
         /// With the flip queued, the same user's `pubky.app` PUT and `social/v1` events decide

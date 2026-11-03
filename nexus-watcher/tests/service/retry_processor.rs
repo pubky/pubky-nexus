@@ -1638,17 +1638,18 @@ async fn test_social_v1_profile_entry_flips_a_v0_user() -> Result<()> {
 // a homeserver client stub that answers 5xx.
 // ============================================================================
 
-/// The real event handler, fetching through `client` and reading the retry queue `store`;
-/// `files` must outlive it.
+/// The real event handler, fetching through `client` (owned, or an `Arc` a runner shares)
+/// and reading the retry queue `store`; `files` must outlive it.
 fn default_handler(
-    client: MockHomeserverClient,
+    client: impl Into<Arc<MockHomeserverClient>>,
     files: &tempfile::TempDir,
     store: Arc<dyn RetryStore>,
 ) -> Arc<dyn EventHandler> {
+    let client: Arc<MockHomeserverClient> = client.into();
     Arc::new(DefaultEventHandler::new(
         default_moderation_tests(),
         default_ingestor_tests(),
-        Arc::new(client),
+        client,
         files.path().to_path_buf(),
         store,
     ))
@@ -2143,13 +2144,7 @@ async fn test_pubky_app_dels_of_a_v0_user_are_deferred_while_their_flip_is_queue
     );
     let store = new_in_memory_store();
     let files = tempfile::TempDir::new()?;
-    let handler = Arc::new(DefaultEventHandler::new(
-        default_moderation_tests(),
-        default_ingestor_tests(),
-        client.clone(),
-        files.path().to_path_buf(),
-        store.clone(),
-    ));
+    let handler = default_handler(client.clone(), &files, store.clone());
     let runner = primary_runner(client, handler.clone(), store.clone()).await?;
 
     let now = Utc::now().timestamp_millis();
@@ -2285,6 +2280,164 @@ async fn test_deferred_dels_are_ignored_and_leave_the_queue_once_the_flip_lands(
     Ok(())
 }
 
+/// A `v0` user with an indexed `pubky.app` post, their flip queued and not yet due, and the
+/// post's DEL queued and due at `retry_count` attempts: the queue as an outage leaves it when
+/// the retry processor picks the held DEL up before the flip. Returns the store, the handler
+/// and the post's id and URI; `files` must outlive the handler.
+async fn held_del_queue(
+    user_id: &str,
+    content: &str,
+    retry_count: u32,
+    files: &tempfile::TempDir,
+) -> Result<(Arc<dyn RetryStore>, Arc<dyn EventHandler>, String, String)> {
+    let (post, post_id, post_uri) = pubky_app_post(user_id, content);
+    let store = new_in_memory_store();
+    let handler = default_handler(
+        MockHomeserverClient::default().with_resource(&post_uri, serde_json::to_vec(&post)?),
+        files,
+        store.clone(),
+    );
+    retrieve_and_handle_event_line(&format!("PUT {post_uri}"), handler.clone()).await?;
+
+    store
+        .put(&RetryEvent {
+            next_retry_at: i64::MAX,
+            ..ready_put_entry(&social_v1_profile_uri(user_id), 1)
+        })
+        .await?;
+    store
+        .put(&RetryEvent {
+            retry_count,
+            ..del_entry(&post_uri, Utc::now().timestamp_millis() - 1000)
+        })
+        .await?;
+    Ok((store, handler, post_id, post_uri))
+}
+
+/// The retry processor picks a held DEL up while the flip still waits: the gate holds it
+/// again and it is rescheduled with the dependency class, its count raised; the post and
+/// the user's epoch are untouched.
+#[tokio_shared_rt::test(shared)]
+async fn test_deferred_del_retried_while_the_flip_waits_is_rescheduled_with_the_post_kept(
+) -> Result<()> {
+    setup().await?;
+
+    let user = random_pubky_id();
+    let user_id = user.to_string();
+    UserDetails::from_pubky(user.clone()).put_to_graph().await?;
+
+    let files = tempfile::TempDir::new()?;
+    let (store, handler, post_id, post_uri) =
+        held_del_queue(&user_id, "Retry:Defer:Held", 0, &files).await?;
+    let flip_uri = social_v1_profile_uri(&user_id);
+
+    let now = Utc::now().timestamp_millis();
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    // A transient backoff of 10 s, a dependency one of 60 s: the class shows in the due time
+    let processor = build_processor(
+        store.clone(),
+        create_test_config(MAX_RETRIES, 50, 10, 3600, 60, 3600),
+        handler,
+        shutdown_rx,
+    );
+
+    processor
+        .run_internal()
+        .await
+        .expect("a DEL held again must not fail the batch");
+
+    let held = store
+        .get(&IndexKey::for_uri(&post_uri))
+        .await?
+        .expect("the held DEL must stay queued");
+    assert_eq!(held.retry_count, 1, "the retry counts");
+    assert!(
+        held.next_retry_at >= now + MISSING_DEP_MS,
+        "the DEL is rescheduled with the dependency class"
+    );
+    assert!(
+        store.get(&IndexKey::for_uri(&flip_uri)).await?.is_some(),
+        "the flip stays queued"
+    );
+    assert!(
+        PostDetails::get_from_graph(&user_id, &post_id)
+            .await?
+            .is_some(),
+        "the held DEL must leave the post readable"
+    );
+    assert_eq!(
+        find_user_epoch(&user_id).await,
+        None,
+        "the user stays at v0 until the flip lands"
+    );
+
+    exec_single_row(queries::del::delete_post(&user_id, &post_id)).await?;
+    exec_single_row(queries::del::delete_user(&user_id)).await?;
+    let _ = shutdown_tx.send(true);
+    Ok(())
+}
+
+/// A held DEL at the dependency limit while the flip still waits is dead-lettered: it
+/// leaves the queue and the post stays in the graph.
+#[tokio_shared_rt::test(shared)]
+async fn test_deferred_del_at_the_dependency_limit_is_dead_lettered_with_the_post_kept(
+) -> Result<()> {
+    setup().await?;
+
+    let user = random_pubky_id();
+    let user_id = user.to_string();
+    UserDetails::from_pubky(user.clone()).put_to_graph().await?;
+
+    const MAX_DEPENDENCY_RETRIES: u32 = 50;
+    let files = tempfile::TempDir::new()?;
+    let (store, handler, post_id, post_uri) = held_del_queue(
+        &user_id,
+        "Retry:Defer:HeldLimit",
+        MAX_DEPENDENCY_RETRIES,
+        &files,
+    )
+    .await?;
+    let flip_uri = social_v1_profile_uri(&user_id);
+
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let processor = build_processor(
+        store.clone(),
+        create_test_config(MAX_RETRIES, MAX_DEPENDENCY_RETRIES, 10, 3600, 60, 3600),
+        handler,
+        shutdown_rx,
+    );
+
+    processor
+        .run_internal()
+        .await
+        .expect("a dead-lettered DEL must not fail the batch");
+
+    assert!(
+        store.get(&IndexKey::for_uri(&post_uri)).await?.is_none(),
+        "the held DEL leaves the queue at the dependency limit"
+    );
+    assert!(
+        store.get(&IndexKey::for_uri(&flip_uri)).await?.is_some(),
+        "the flip stays queued"
+    );
+    assert!(
+        PostDetails::get_from_graph(&user_id, &post_id)
+            .await?
+            .is_some(),
+        "the dead-lettered DEL must leave the post readable"
+    );
+    assert_eq!(
+        find_user_epoch(&user_id).await,
+        None,
+        "the user stays at v0"
+    );
+
+    exec_single_row(queries::del::delete_post(&user_id, &post_id)).await?;
+    exec_single_row(queries::del::delete_user(&user_id)).await?;
+    let _ = shutdown_tx.send(true);
+    Ok(())
+}
+
 /// With no flip queued, a `v0` user's `pubky.app` post DEL is handled as today: the post
 /// is gone and nothing is queued.
 #[tokio_shared_rt::test(shared)]
@@ -2306,13 +2459,7 @@ async fn test_pubky_app_del_of_a_v0_user_without_a_queued_flip_is_handled() -> R
     );
     let store = new_in_memory_store();
     let files = tempfile::TempDir::new()?;
-    let handler = Arc::new(DefaultEventHandler::new(
-        default_moderation_tests(),
-        default_ingestor_tests(),
-        client.clone(),
-        files.path().to_path_buf(),
-        store.clone(),
-    ));
+    let handler = default_handler(client.clone(), &files, store.clone());
     let runner = primary_runner(client, handler, store.clone()).await?;
 
     runner

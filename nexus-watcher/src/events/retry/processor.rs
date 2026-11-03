@@ -170,10 +170,8 @@ impl RetryProcessor {
 
         match error {
             e if !RetryScheduler::should_enqueue_related_event(&e) => {
-                // Not worth retrying (ParseFailed, etc.) - dead-letter immediately. The level
-                // follows the user's epoch, not the path: a dropped `social/v1` profile PUT of
-                // a user at `v0` is a lost flip, named and logged at `error`; a `v1` user's
-                // own edit stays at `warn`.
+                // Not worth retrying (ParseFailed, etc.) - dead-letter immediately. A lost flip
+                // is logged at `error`, a `v1` user's own edit at `warn` (`is_flip`).
                 if is_flip(&event).await {
                     error!("social/v1 profile PUT {ev_uri} threw an error not worth retrying, dead-lettering: {e}");
                 } else {
@@ -191,9 +189,8 @@ impl RetryProcessor {
             }
             e if limit_reached => {
                 // A flip has no limit for a transient fetch error (`limit_reached`), so a
-                // `social/v1` profile PUT reaching it is usually a `v1` user's edit. The level
-                // follows the user's epoch, not the path: a flip lost to a non-transient error
-                // is named and logged at `error`; a `v1` user's own edit stays at `warn`.
+                // `social/v1` profile PUT reaching it is usually a `v1` user's edit, logged at
+                // `warn`; a flip lost to a non-transient error is logged at `error` (`is_flip`).
                 if is_flip(&event).await {
                     error!("social/v1 profile PUT {ev_uri} exceeded max retries ({ev_retry_count}), dead-lettering: {e}");
                 } else {
