@@ -122,11 +122,11 @@ struct FailingFor {
 
 #[async_trait::async_trait]
 impl PkdnsHomeserverResolver for FailingFor {
-    async fn resolve_homeserver(
+    async fn resolve_record(
         &self,
         user_pk: &pubky::PublicKey,
-    ) -> nexus_common::db::PubkyClientResult<Option<PubkyId>> {
-        self.inner.resolve_homeserver(user_pk).await
+    ) -> nexus_common::db::PubkyClientResult<nexus_common::models::user::PkdnsRecord> {
+        self.inner.resolve_record(user_pk).await
     }
 }
 
