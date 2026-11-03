@@ -40,29 +40,33 @@ pub(super) fn record_skip(reason: &SkipReason, uri: &str) {
 
 /// Counts and logs an event at `uri` the gate ignored, its user being at `user_epoch`.
 pub(super) fn record_gated(target: &EventTarget, uri: &str, user_epoch: Epoch) {
-    let epoch = target.epoch().as_str();
-    let resource = target.resource_name();
     debug!(
         %uri,
-        event_epoch = %epoch,
+        event_epoch = %target.epoch().as_str(),
         user_epoch = %user_epoch.as_str(),
         "Ignored event: epochs do not match"
     );
-    SKIPPED.add(1, &labels(epoch, &resource, GATED));
+    count(target, GATED);
 }
 
 /// Counts and logs a `pubky.app` DEL at `uri` the gate deferred until the flip at `flip_uri`,
 /// its user's queued `social/v1` profile PUT, lands.
 pub(super) fn record_deferred(target: &EventTarget, uri: &str, flip_uri: &str) {
-    let epoch = target.epoch().as_str();
-    let resource = target.resource_name();
     debug!(
         %uri,
         user_id = %target.user_id(),
         %flip_uri,
         "Deferred event: the user's flip waits in the retry queue"
     );
-    SKIPPED.add(1, &labels(epoch, &resource, DEFERRED));
+    count(target, DEFERRED);
+}
+
+/// Counts one skip of an event at `target` for `reason`.
+fn count(target: &EventTarget, reason: &'static str) {
+    SKIPPED.add(
+        1,
+        &labels(target.epoch().as_str(), &target.resource_name(), reason),
+    );
 }
 
 /// The full label set of one skip.

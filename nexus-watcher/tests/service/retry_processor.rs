@@ -2046,6 +2046,8 @@ const TRANSIENT_MS: i64 = 10_000;
 /// Initial backoff of a missing dependency on the first attempt: the dependency class shows
 /// in an entry's due time.
 const MISSING_DEP_MS: i64 = 60_000;
+/// Attempts a missing dependency gets before it is dead-lettered.
+const MAX_DEPENDENCY_RETRIES: u32 = 50;
 
 /// The primary-homeserver runner: polls `client` once, handles the batch through `handler`
 /// and queues what fails on `store`.
@@ -2282,15 +2284,23 @@ async fn test_deferred_dels_are_ignored_and_leave_the_queue_once_the_flip_lands(
 
 /// A `v0` user with an indexed `pubky.app` post, their flip queued and not yet due, and the
 /// post's DEL queued and due at `retry_count` attempts: the queue as an outage leaves it when
-/// the retry processor picks the held DEL up before the flip. Returns the store, the handler
-/// and the post's id and URI; `files` must outlive the handler.
+/// the retry processor picks the held DEL up before the flip. Returns the store, the handler,
+/// the user's id and the post's id and URI; `files` must outlive the handler.
 async fn held_del_queue(
-    user_id: &str,
     content: &str,
     retry_count: u32,
     files: &tempfile::TempDir,
-) -> Result<(Arc<dyn RetryStore>, Arc<dyn EventHandler>, String, String)> {
-    let (post, post_id, post_uri) = pubky_app_post(user_id, content);
+) -> Result<(
+    Arc<dyn RetryStore>,
+    Arc<dyn EventHandler>,
+    String,
+    String,
+    String,
+)> {
+    let user = random_pubky_id();
+    let user_id = user.to_string();
+    UserDetails::from_pubky(user).put_to_graph().await?;
+    let (post, post_id, post_uri) = pubky_app_post(&user_id, content);
     let store = new_in_memory_store();
     let handler = default_handler(
         MockHomeserverClient::default().with_resource(&post_uri, serde_json::to_vec(&post)?),
@@ -2302,7 +2312,7 @@ async fn held_del_queue(
     store
         .put(&RetryEvent {
             next_retry_at: i64::MAX,
-            ..ready_put_entry(&social_v1_profile_uri(user_id), 1)
+            ..ready_put_entry(&social_v1_profile_uri(&user_id), 1)
         })
         .await?;
     store
@@ -2311,7 +2321,35 @@ async fn held_del_queue(
             ..del_entry(&post_uri, Utc::now().timestamp_millis() - 1000)
         })
         .await?;
-    Ok((store, handler, post_id, post_uri))
+    Ok((store, handler, user_id, post_id, post_uri))
+}
+
+/// What a held DEL must leave alone, whether it was rescheduled or dead-lettered: the flip
+/// still queued, the post still readable, the user still at `v0`.
+async fn assert_held_del_left_the_post(
+    store: &dyn RetryStore,
+    user_id: &str,
+    post_id: &str,
+) -> Result<()> {
+    assert!(
+        store
+            .get(&IndexKey::for_uri(&social_v1_profile_uri(user_id)))
+            .await?
+            .is_some(),
+        "the flip stays queued"
+    );
+    assert!(
+        PostDetails::get_from_graph(user_id, post_id)
+            .await?
+            .is_some(),
+        "the held DEL must leave the post readable"
+    );
+    assert_eq!(
+        find_user_epoch(user_id).await,
+        None,
+        "the user stays at v0 until the flip lands"
+    );
+    Ok(())
 }
 
 /// The retry processor picks a held DEL up while the flip still waits: the gate holds it
@@ -2322,21 +2360,16 @@ async fn test_deferred_del_retried_while_the_flip_waits_is_rescheduled_with_the_
 ) -> Result<()> {
     setup().await?;
 
-    let user = random_pubky_id();
-    let user_id = user.to_string();
-    UserDetails::from_pubky(user.clone()).put_to_graph().await?;
-
     let files = tempfile::TempDir::new()?;
-    let (store, handler, post_id, post_uri) =
-        held_del_queue(&user_id, "Retry:Defer:Held", 0, &files).await?;
-    let flip_uri = social_v1_profile_uri(&user_id);
+    let (store, handler, user_id, post_id, post_uri) =
+        held_del_queue("Retry:Defer:Held", 0, &files).await?;
 
     let now = Utc::now().timestamp_millis();
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     // A transient backoff of 10 s, a dependency one of 60 s: the class shows in the due time
     let processor = build_processor(
         store.clone(),
-        create_test_config(MAX_RETRIES, 50, 10, 3600, 60, 3600),
+        create_test_config(MAX_RETRIES, MAX_DEPENDENCY_RETRIES, 10, 3600, 60, 3600),
         handler,
         shutdown_rx,
     );
@@ -2355,21 +2388,7 @@ async fn test_deferred_del_retried_while_the_flip_waits_is_rescheduled_with_the_
         held.next_retry_at >= now + MISSING_DEP_MS,
         "the DEL is rescheduled with the dependency class"
     );
-    assert!(
-        store.get(&IndexKey::for_uri(&flip_uri)).await?.is_some(),
-        "the flip stays queued"
-    );
-    assert!(
-        PostDetails::get_from_graph(&user_id, &post_id)
-            .await?
-            .is_some(),
-        "the held DEL must leave the post readable"
-    );
-    assert_eq!(
-        find_user_epoch(&user_id).await,
-        None,
-        "the user stays at v0 until the flip lands"
-    );
+    assert_held_del_left_the_post(store.as_ref(), &user_id, &post_id).await?;
 
     exec_single_row(queries::del::delete_post(&user_id, &post_id)).await?;
     exec_single_row(queries::del::delete_user(&user_id)).await?;
@@ -2384,20 +2403,9 @@ async fn test_deferred_del_at_the_dependency_limit_is_dead_lettered_with_the_pos
 ) -> Result<()> {
     setup().await?;
 
-    let user = random_pubky_id();
-    let user_id = user.to_string();
-    UserDetails::from_pubky(user.clone()).put_to_graph().await?;
-
-    const MAX_DEPENDENCY_RETRIES: u32 = 50;
     let files = tempfile::TempDir::new()?;
-    let (store, handler, post_id, post_uri) = held_del_queue(
-        &user_id,
-        "Retry:Defer:HeldLimit",
-        MAX_DEPENDENCY_RETRIES,
-        &files,
-    )
-    .await?;
-    let flip_uri = social_v1_profile_uri(&user_id);
+    let (store, handler, user_id, post_id, post_uri) =
+        held_del_queue("Retry:Defer:HeldLimit", MAX_DEPENDENCY_RETRIES, &files).await?;
 
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let processor = build_processor(
@@ -2416,21 +2424,7 @@ async fn test_deferred_del_at_the_dependency_limit_is_dead_lettered_with_the_pos
         store.get(&IndexKey::for_uri(&post_uri)).await?.is_none(),
         "the held DEL leaves the queue at the dependency limit"
     );
-    assert!(
-        store.get(&IndexKey::for_uri(&flip_uri)).await?.is_some(),
-        "the flip stays queued"
-    );
-    assert!(
-        PostDetails::get_from_graph(&user_id, &post_id)
-            .await?
-            .is_some(),
-        "the dead-lettered DEL must leave the post readable"
-    );
-    assert_eq!(
-        find_user_epoch(&user_id).await,
-        None,
-        "the user stays at v0"
-    );
+    assert_held_del_left_the_post(store.as_ref(), &user_id, &post_id).await?;
 
     exec_single_row(queries::del::delete_post(&user_id, &post_id)).await?;
     exec_single_row(queries::del::delete_user(&user_id)).await?;
