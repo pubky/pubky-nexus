@@ -377,14 +377,14 @@ struct CountingResolver {
 
 #[async_trait::async_trait]
 impl PkdnsHomeserverResolver for CountingResolver {
-    async fn resolve_homeserver(
+    async fn resolve_record(
         &self,
         user_pk: &pubky::PublicKey,
-    ) -> nexus_common::db::PubkyClientResult<Option<PubkyId>> {
+    ) -> nexus_common::db::PubkyClientResult<nexus_common::models::user::PkdnsRecord> {
         if user_pk.to_z32() == self.counted.as_ref() {
             self.lookups.fetch_add(1, Ordering::Relaxed);
         }
-        PubkyConnectorResolver.resolve_homeserver(user_pk).await
+        PubkyConnectorResolver.resolve_record(user_pk).await
     }
 }
 
