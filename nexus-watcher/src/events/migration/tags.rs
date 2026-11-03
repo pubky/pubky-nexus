@@ -35,7 +35,8 @@
 //! left. As a guard, a read that returns rows whose write changes none fails the batch with
 //! an error, so it goes through the normal retry instead of reading the same rows forever; a
 //! write that changes fewer rows than were read is fine, another loop may have rewritten or
-//! deleted some. Each batch is its own transaction.
+//! deleted some. Each batch is its own transaction. The stop, continue or fail decision is
+//! [`drain`]'s, apart from the two graph calls, so it is tested on canned pages.
 
 use super::attachments;
 use super::files::FileMap;
@@ -50,6 +51,7 @@ use pubky_social_specs::traits::HashId;
 use pubky_social_specs::{
     post_uri_builder, tag_uri_builder, user_uri_builder, PubkyId, PubkySocialTag, PROTOCOL,
 };
+use std::future::Future;
 use tracing::{debug, warn};
 
 /// Edges per batch: one graph read and one graph write each.
@@ -102,10 +104,11 @@ pub async fn migrate(
     let tagger_id: &str = user_id.as_ref();
     // The v0 tag address with no id: everything the user wrote under `pubky.app/tags/`
     let prefix = v0_tag_uri_builder(tagger_id.to_string(), String::new());
-    loop {
-        let tags = read_page(tagger_id, &prefix, batch_size).await?;
+    let prefix = prefix.as_str();
+    drain(prefix, move || async move {
+        let tags = read_page(tagger_id, prefix, batch_size).await?;
         if tags.is_empty() {
-            return Ok(());
+            return Ok((0, 0));
         }
         let rows: Vec<(String, String, String)> = tags
             .iter()
@@ -120,13 +123,30 @@ pub async fn migrate(
         )
         .await?
         .unwrap_or(0);
+        Ok((tags.len(), changed))
+    })
+    .await
+}
+
+/// Drives the drain of the edges under `prefix`: `step()` reads one page and rewrites it,
+/// returning how many edges it read and how many the write changed. An empty page ends the
+/// drain; a page whose write changed nothing fails it with a retryable graph error, so the flip
+/// goes through the normal retry instead of reading the same rows forever. Fewer changed than
+/// read is fine.
+async fn drain<F, Fut>(prefix: &str, mut step: F) -> Result<(), EventProcessorError>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<(usize, i64), EventProcessorError>>,
+{
+    loop {
+        let (read, changed) = step().await?;
+        if read == 0 {
+            return Ok(());
+        }
         if changed == 0 {
             return Err(EventProcessorError::GraphQueryFailed(
                 false,
-                format!(
-                    "none of the {} tag edges read under {prefix} were rewritten",
-                    tags.len()
-                ),
+                format!("none of the {read} tag edges read under {prefix} were rewritten"),
             ));
         }
     }
@@ -261,8 +281,10 @@ fn v0_tag_id(target: &str, label: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::events::retry::RetryScheduler;
     use pubky_social_specs::file_uri_builder;
     use pubky_social_specs::legacy_v0::file_uri_builder as v0_file_uri_builder;
+    use std::cell::RefCell;
 
     const OWNER: &str = "operrr8wsbpr3ue9d4qj41ge1kcc6r7fdiy6o3ugjrrhi4y77rdo";
     const OTHER: &str = "y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy";
@@ -463,5 +485,70 @@ mod tests {
         );
         rewrite(&owner(), &files(), &on_post);
         assert!(!logs_contain("Tag id kept as it is"));
+    }
+
+    /// One canned page: how many edges the read returned and how many the write changed.
+    type Page = Result<(usize, i64), EventProcessorError>;
+
+    /// Drains `pages` in order and returns the outcome with the number of steps taken.
+    async fn drain_over(pages: Vec<Page>) -> (Result<(), EventProcessorError>, usize) {
+        let pages = RefCell::new(pages.into_iter());
+        let steps = RefCell::new(0);
+        let result = drain("pubky://owner/pub/pubky.app/tags/", || {
+            *steps.borrow_mut() += 1;
+            let page = pages
+                .borrow_mut()
+                .next()
+                .expect("step called more times than there are pages");
+            async move { page }
+        })
+        .await;
+        (result, steps.into_inner())
+    }
+
+    #[tokio::test]
+    async fn the_drain_stops_on_an_empty_page() {
+        let (result, steps) = drain_over(vec![Ok((0, 0))]).await;
+        assert!(result.is_ok());
+        assert_eq!(steps, 1);
+
+        let (result, steps) = drain_over(vec![Ok((2, 2)), Ok((1, 1)), Ok((0, 0))]).await;
+        assert!(result.is_ok());
+        assert_eq!(steps, 3);
+    }
+
+    /// Another loop may have rewritten or deleted some of the edges the read returned.
+    #[tokio::test]
+    async fn the_drain_goes_on_when_fewer_edges_changed_than_were_read() {
+        let (result, steps) = drain_over(vec![Ok((2, 1)), Ok((0, 0))]).await;
+        assert!(result.is_ok());
+        assert_eq!(steps, 2);
+    }
+
+    /// A page whose write changed nothing would be read forever: the drain fails instead, with
+    /// an error the flip retries later rather than one that aborts the run.
+    #[tokio::test]
+    async fn the_drain_fails_into_the_retry_when_a_page_changes_nothing() {
+        let (result, steps) = drain_over(vec![Ok((2, 0))]).await;
+        assert_eq!(steps, 1);
+        let err = result.unwrap_err();
+        assert!(matches!(
+            err,
+            EventProcessorError::GraphQueryFailed(false, ref message)
+                if message.contains("none of the 2 tag edges")
+        ));
+        assert!(!err.should_not_retry_now());
+        assert!(RetryScheduler::should_enqueue_related_event(&err));
+    }
+
+    #[tokio::test]
+    async fn the_drain_returns_a_failed_step_as_it_is() {
+        let failed = EventProcessorError::GraphQueryFailed(true, "down".to_string());
+        let (result, steps) = drain_over(vec![Err(failed)]).await;
+        assert_eq!(steps, 1);
+        assert!(matches!(
+            result,
+            Err(EventProcessorError::GraphQueryFailed(true, _))
+        ));
     }
 }
