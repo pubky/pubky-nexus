@@ -40,9 +40,14 @@
 //! rows than were read is fine, another loop may have rewritten or deleted some. Each batch is
 //! its own transaction. The stop, continue or fail decision is [`drain`]'s, apart from the two
 //! graph calls, so it is tested on canned pages.
+//!
+//! Before a batch's write, the address each `Resource` edge moves from is held for the
+//! resource changes feed, which published the edge under it: see
+//! [`super::resource_changes`].
 
 use super::attachments;
 use super::files::FileMap;
+use super::resource_changes;
 use crate::events::EventProcessorError;
 use nexus_common::db::{fetch_all_rows_from_graph, fetch_key_from_graph, queries, GraphError};
 use pubky_social_specs::legacy_v0::traits::HashId as _;
@@ -113,13 +118,25 @@ pub async fn migrate(
         if tags.is_empty() {
             return Ok((0, 0));
         }
+        let mut moves = Vec::new();
         let rows: Vec<(String, String, String)> = tags
             .iter()
-            .map(|tag| {
+            .map(|(tag, from)| {
                 let (id, uri) = rewrite(user_id, files, tag);
+                if let (Target::Resource(resource_uri), Some(from)) = (&tag.target, from) {
+                    moves.push(resource_changes::Move {
+                        resource_id: from.resource_id.clone(),
+                        resource_uri: resource_uri.clone(),
+                        label: tag.label.clone(),
+                        from: from.tag_uri.clone(),
+                        to: uri.clone(),
+                    });
+                }
                 (tag.edge.clone(), id, uri)
             })
             .collect();
+        // Before the write, which takes the old address off the edge for good
+        Box::pin(resource_changes::prepare(user_id, &moves)).await?;
         let changed = fetch_key_from_graph::<i64>(
             queries::migration::set_tag_addresses(tagger_id, &rows),
             "changed",
@@ -154,18 +171,26 @@ where
     }
 }
 
-/// One page of the user's edges still under `prefix`.
+/// Where a `Resource` edge of a page is before the rewrite, for the resource changes feed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct MovedFrom {
+    resource_id: String,
+    tag_uri: String,
+}
+
+/// One page of the user's edges still under `prefix`, each `Resource` edge with where it is.
 async fn read_page(
     tagger_id: &str,
     prefix: &str,
     batch_size: usize,
-) -> Result<Vec<StoredTag>, EventProcessorError> {
+) -> Result<Vec<(StoredTag, Option<MovedFrom>)>, EventProcessorError> {
     let page = queries::migration::get_tagger_edges_under(tagger_id, prefix, batch_size);
     Ok(fetch_all_rows_from_graph(page)
         .await?
         .iter()
         .map(|row| {
             let required = |key: &str| row.get::<String>(key).map_err(GraphError::from);
+            let mut from = None;
             let target = match required("kind")?.as_str() {
                 "post" => Target::Post {
                     author_id: row
@@ -174,15 +199,22 @@ async fn read_page(
                     post_id: required("target_id")?,
                 },
                 "user" => Target::User(required("target_id")?),
-                "resource" => Target::Resource(required("resource_uri")?),
+                "resource" => {
+                    from = Some(MovedFrom {
+                        resource_id: required("target_id")?,
+                        tag_uri: required("tag_uri")?,
+                    });
+                    Target::Resource(required("resource_uri")?)
+                }
                 _ => Target::Other,
             };
-            Ok(StoredTag {
+            let tag = StoredTag {
                 edge: required("edge")?,
                 id: required("id")?,
                 label: required("label")?,
                 target,
-            })
+            };
+            Ok((tag, from))
         })
         .collect::<Result<_, GraphError>>()?)
 }
