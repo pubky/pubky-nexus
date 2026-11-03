@@ -12,6 +12,7 @@ use nexus_watcher::events::retry::{IndexKey, InitialBackoff, RetryScheduler, Ret
 use nexus_watcher::events::{DefaultEventHandler, Event, EventHandler, ParseResult};
 use nexus_watcher::homeserver::HsErrorKind;
 use nexus_watcher::service::{HsEventProcessor, RunError, TEventProcessor};
+use pubky::Keypair;
 use pubky_app_specs::traits::{HashId, TimestampId};
 use pubky_app_specs::{
     blob_uri_builder, file_uri_builder, post_uri_builder, PubkyAppBlob, PubkyAppFile, PubkyAppUser,
@@ -70,7 +71,7 @@ async fn create_user_hosted_on(user_id: &str, hs_id: Option<&str>) {
         .expect("create user node");
 
     if let Some(hs_id) = hs_id {
-        exec_single_row(queries::put::set_user_homeserver(user_id, hs_id))
+        exec_single_row(queries::put::set_user_homeserver(user_id, hs_id, None))
             .await
             .expect("link user to homeserver");
     }
@@ -353,9 +354,11 @@ async fn test_skips_event_when_user_mapping_to_this_homeserver_is_stale() -> Res
     // User is bound to this processor's homeserver, but the mapping is stale.
     let user_id = random_user_id();
     create_user_hosted_on(&user_id, Some(TEST_HS_ID)).await;
-    exec_single_row(queries::put::set_user_homeserver_stale(&user_id, true))
-        .await
-        .expect("mark user homeserver mapping stale");
+    exec_single_row(queries::put::set_user_homeserver_stale(
+        &user_id, true, None,
+    ))
+    .await
+    .expect("mark user homeserver mapping stale");
 
     let uri = post_uri_builder(user_id.clone(), "staleme".to_string());
 
@@ -869,8 +872,9 @@ async fn test_handler_from_config_resolves_homeservers_through_its_client() -> R
     setup().await?;
 
     let blacklisted_hs = random_pubky_id();
+    let source_user = Keypair::random();
     let blob_uri = blob_uri_builder(
-        random_user_id(),
+        source_user.public_key().z32(),
         PubkyAppBlob::new(b"blob".to_vec()).create_id(),
     );
     let file = PubkyAppFile {
@@ -883,7 +887,7 @@ async fn test_handler_from_config_resolves_homeservers_through_its_client() -> R
     let file_uri = file_uri_builder(random_user_id(), file.create_id());
     let client = Arc::new(
         MockHomeserverClient::default()
-            .with_homeserver_of(blacklisted_hs.clone())
+            .with_homeserver_of(source_user, blacklisted_hs.clone())
             .with_resource(&file_uri, serde_json::to_vec(&file)?),
     );
     let mut config = WatcherConfig::default();
