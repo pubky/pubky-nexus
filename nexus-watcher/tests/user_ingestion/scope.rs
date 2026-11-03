@@ -1075,11 +1075,11 @@ struct CountingFetches(PubkyHomeserverClient, AtomicU32);
 
 #[async_trait::async_trait]
 impl PkdnsHomeserverResolver for CountingFetches {
-    async fn resolve_homeserver(
+    async fn resolve_record(
         &self,
         user_pk: &pubky::PublicKey,
-    ) -> nexus_common::db::PubkyClientResult<Option<PubkyId>> {
-        self.0.resolve_homeserver(user_pk).await
+    ) -> nexus_common::db::PubkyClientResult<nexus_common::models::user::PkdnsRecord> {
+        self.0.resolve_record(user_pk).await
     }
 }
 
@@ -1120,11 +1120,11 @@ struct TakenDownWhileFetched(PubkyHomeserverClient);
 
 #[async_trait::async_trait]
 impl PkdnsHomeserverResolver for TakenDownWhileFetched {
-    async fn resolve_homeserver(
+    async fn resolve_record(
         &self,
         user_pk: &pubky::PublicKey,
-    ) -> nexus_common::db::PubkyClientResult<Option<PubkyId>> {
-        self.0.resolve_homeserver(user_pk).await
+    ) -> nexus_common::db::PubkyClientResult<nexus_common::models::user::PkdnsRecord> {
+        self.0.resolve_record(user_pk).await
     }
 }
 
