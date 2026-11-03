@@ -183,8 +183,12 @@ impl PostDetails {
 
     /// True when the post's visible content (content or attachments) changed.
     /// Deliberately excludes `lock` so a lock toggle is not treated as a content edit.
+    /// No attachments and an empty list compare equal: the graph stores `None` as
+    /// `[]`, so details read back from it would otherwise always differ.
     pub fn content_differs_from(&self, other: &PostDetails) -> bool {
-        self.content != other.content || self.attachments != other.attachments
+        self.content != other.content
+            || self.attachments.as_deref().unwrap_or_default()
+                != other.attachments.as_deref().unwrap_or_default()
     }
 
     /// True when any cached field changed and the index needs refreshing. Unlike
@@ -225,6 +229,19 @@ mod tests {
             ..base_post.clone()
         };
         assert!(base_post.is_different_than(&different_order_attachments_post));
+
+        // No attachments, as the homeserver sends them, and an empty list, as the
+        // graph returns them, are the same post
+        let no_attachments = PostDetails {
+            attachments: None,
+            ..base_post.clone()
+        };
+        let empty_attachments = PostDetails {
+            attachments: Some(vec![]),
+            ..base_post.clone()
+        };
+        assert!(!no_attachments.is_different_than(&empty_attachments));
+        assert!(!empty_attachments.content_differs_from(&no_attachments));
 
         // Test with different content
         let different_content_post = PostDetails {
