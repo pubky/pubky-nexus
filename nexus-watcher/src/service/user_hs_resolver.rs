@@ -221,7 +221,7 @@ pub async fn run(
                         if let Some(reason) = resolution.newly_stale() {
                             HS_RESOLVER_METRICS.marked_stale.add(1, &[reason.attribute()]);
                         }
-                        if matches!(resolution, Resolution::IgnoredOlder { .. }) {
+                        if resolution.ignored_older() {
                             HS_RESOLVER_METRICS.ignored_older_record.add(1, &[]);
                         }
                         let outcome = resolution.outcome();
@@ -415,7 +415,7 @@ enum Resolution {
     /// flag and its record stand; only `resolved_at` is refreshed.
     NoRecord { was_stale: bool },
     /// The record is older than the one the mapping was applied from; the
-    /// mapping, its flag and its record stand.
+    /// mapping, its flag and its record stand; only `resolved_at` is refreshed.
     IgnoredOlder {
         was_stale: bool,
         /// Whether the ignored record named a homeserver.
@@ -489,6 +489,12 @@ impl Resolution {
             } => Some(reason),
             _ => None,
         }
+    }
+
+    /// Set when the record was older than the one the mapping was applied
+    /// from: the case the `ignored_older_record` counter counts.
+    fn ignored_older(self) -> bool {
+        matches!(self, Self::IgnoredOlder { .. })
     }
 }
 
@@ -816,6 +822,18 @@ mod tests {
     }
 
     /// Helper: the PKDNS record kept on the user's `HOSTED_BY` edge, if any.
+    /// Backdates the user's mapping two hours, so the user is due for resolution.
+    async fn backdate_resolved_at(user_id: &str) -> Result<(), DynError> {
+        let backdate_query = Query::new(
+            "backdate_hs_mapping",
+            "MATCH (u:User {id: $user_id})-[r:HOSTED_BY]->(:Homeserver)
+             SET r.resolved_at = timestamp() - 7200000",
+        )
+        .param("user_id", user_id);
+        exec_single_row(backdate_query).await?;
+        Ok(())
+    }
+
     async fn stored_record(user_id: &str) -> Result<Option<StoredRecord>, DynError> {
         let query = Query::new(
             "stored_hs_record",
@@ -1254,7 +1272,8 @@ mod tests {
     }
 
     /// When no record is found, the mapping is left as it is and the user is
-    /// still indexed: on pubky 0.9.3 an outage looks the same.
+    /// still indexed: on pubky 0.9.3 an outage looks the same. `resolved_at` is
+    /// refreshed, so the user waits a TTL like any other.
     #[tokio_shared_rt::test(shared)]
     async fn test_resolve_user_missing_record_leaves_mapping_as_it_is() -> Result<(), DynError> {
         setup().await?;
@@ -1265,9 +1284,16 @@ mod tests {
 
         create_test_user(&user_id).await?;
         set_user_homeserver(&user_id, &stored_hs).await?;
+        backdate_resolved_at(&user_id).await?;
 
         let outcome = resolve_user(&MockResolver::missing(), &user_pk).await?;
         assert_eq!(outcome, Resolution::NoRecord { was_stale: false });
+        assert!(
+            !get_users_needing_resolution(3_600_000)
+                .await?
+                .contains(&user_id),
+            "resolved_at is refreshed"
+        );
 
         assert_eq!(
             get_user_homeserver(&user_id).await?,
@@ -1497,6 +1523,7 @@ mod tests {
         create_test_user(&user_id).await?;
 
         assert_eq!(resolve(Some(&stored_hs), 20).await?, Resolution::Bound);
+        backdate_resolved_at(&user_id).await?;
 
         let outcome = resolve(Some(&other_hs), 10).await?;
         assert_eq!(
@@ -1505,6 +1532,12 @@ mod tests {
                 was_stale: false,
                 names_homeserver: true,
             }
+        );
+        assert!(
+            !get_users_needing_resolution(3_600_000)
+                .await?
+                .contains(&user_id),
+            "an ignored record still refreshes resolved_at"
         );
         assert_eq!(
             get_user_homeserver(&user_id).await?,
@@ -1643,14 +1676,7 @@ mod tests {
         create_test_user(&user_id).await?;
         set_user_homeserver(&user_id, &stored_hs).await?;
 
-        // Backdate the mapping (2 hours ago) so the user is due for resolution
-        let backdate_query = Query::new(
-            "backdate_hs_mapping",
-            "MATCH (u:User {id: $user_id})-[r:HOSTED_BY]->(:Homeserver)
-             SET r.resolved_at = timestamp() - 7200000",
-        )
-        .param("user_id", user_id.as_str());
-        exec_single_row(backdate_query).await?;
+        backdate_resolved_at(&user_id).await?;
 
         let outcome = resolve_user(&FailingResolver, &user_pk).await?;
         assert_eq!(
@@ -1793,6 +1819,28 @@ mod tests {
         }
     }
 
+    /// Only an ignored older record counts for `ignored_older_record`, not the
+    /// other resolutions that change nothing.
+    #[test]
+    fn test_only_an_ignored_older_record_counts_as_ignored() {
+        let ignored = Resolution::IgnoredOlder {
+            was_stale: false,
+            names_homeserver: true,
+        };
+        assert!(ignored.ignored_older());
+
+        let others = [
+            Resolution::Unbound,
+            Resolution::NoRecord { was_stale: false },
+            Resolution::LookupFailed {
+                mapping: MappingState::Active,
+            },
+        ];
+        for other in others {
+            assert!(!other.ignored_older(), "{other:?}");
+        }
+    }
+
     /// The exported label strings are part of the alerting contract; pin them.
     #[test]
     fn test_outcome_and_mapping_label_strings() {
@@ -1806,6 +1854,11 @@ mod tests {
         assert_eq!(label(Some(MappingState::Stale)), "stale");
         assert_eq!(label(None), "unknown");
         assert_eq!(mapping_attribute(None).key.as_str(), "mapping");
+
+        let reason = |reason: StaleReason| reason.attribute().value.to_string();
+        assert_eq!(reason(StaleReason::Unresolved), "unresolved");
+        assert_eq!(reason(StaleReason::HsChanged), "hs_changed");
+        assert_eq!(StaleReason::HsChanged.attribute().key.as_str(), "reason");
     }
 
     #[test]
