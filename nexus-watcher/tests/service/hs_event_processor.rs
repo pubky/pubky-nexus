@@ -833,6 +833,7 @@ async fn test_run_polls_and_fetches_through_the_client() -> Result<()> {
         default_ingestor_tests(),
         client.clone(),
         files.path().to_path_buf(),
+        new_in_memory_store(),
     ));
 
     let homeserver = Homeserver {

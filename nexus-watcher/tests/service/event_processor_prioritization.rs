@@ -29,13 +29,14 @@ async fn test_event_processor_runner_primary_homeserver_excluded() -> Result<(),
     setup().await?;
 
     let client = Arc::new(MockHomeserverClient::default());
+    let store: Arc<dyn RetryStore> = Arc::new(RedisRetryStore::new());
     let event_handler: Arc<dyn EventHandler> = Arc::new(DefaultEventHandler::new(
         default_moderation_tests(),
         default_ingestor_tests(),
         client.clone(),
         PathBuf::from("/tmp/nexus-watcher-test"),
+        store.clone(),
     ));
-    let store: Arc<dyn RetryStore> = Arc::new(RedisRetryStore::new());
     let retry_scheduler = Arc::new(RetryScheduler::new(
         store,
         InitialBackoff {
@@ -80,13 +81,14 @@ async fn test_event_processor_runner_blacklisted_homeserver_excluded() -> Result
     setup().await?;
 
     let client = Arc::new(MockHomeserverClient::default());
+    let store: Arc<dyn RetryStore> = Arc::new(RedisRetryStore::new());
     let event_handler: Arc<dyn EventHandler> = Arc::new(DefaultEventHandler::new(
         default_moderation_tests(),
         default_ingestor_tests(),
         client.clone(),
         PathBuf::from("/tmp/nexus-watcher-test"),
+        store.clone(),
     ));
-    let store: Arc<dyn RetryStore> = Arc::new(RedisRetryStore::new());
     let retry_scheduler = Arc::new(RetryScheduler::new(
         store,
         InitialBackoff {

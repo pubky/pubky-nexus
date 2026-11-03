@@ -1,8 +1,9 @@
 //! The operator-visible signal for events skipped by epoch: one counter labelled by `epoch`,
-//! `resource` and `reason` only, never by user or object id. `reason` tells the two skips apart:
+//! `resource` and `reason` only, never by user or object id. `reason` tells the skips apart:
 //! `not_indexed` for an epoch the parse step does not index, `gated` for an event of an epoch its
-//! user is not read through. v0 skips at parse (last-read, feed, blob, mute, another app's tag
-//! folder) are uncounted, so the signal stays about epochs.
+//! user is not read through, `deferred` for a `pubky.app` DEL held while its user's flip waits in
+//! the retry queue. v0 skips at parse (last-read, feed, blob, mute, another app's tag folder) are
+//! uncounted, so the signal stays about epochs.
 
 use super::classify::SkipReason;
 use super::target::EventTarget;
@@ -27,6 +28,8 @@ const UNKNOWN: &str = "unknown";
 const NOT_INDEXED: &str = "not_indexed";
 /// `reason` of a skip by the gate: the event's epoch is not the one its user is read through.
 const GATED: &str = "gated";
+/// `reason` of a deferral by the gate: a `pubky.app` DEL of a `v0` user whose flip is queued.
+const DEFERRED: &str = "deferred";
 
 /// Counts and logs a skip the parse step decided for `uri`.
 pub(super) fn record_skip(reason: &SkipReason, uri: &str) {
@@ -46,6 +49,20 @@ pub(super) fn record_gated(target: &EventTarget, uri: &str, user_epoch: Epoch) {
         "Ignored event: epochs do not match"
     );
     SKIPPED.add(1, &labels(epoch, &resource, GATED));
+}
+
+/// Counts and logs a `pubky.app` DEL at `uri` the gate deferred until the flip at `flip_uri`,
+/// its user's queued `social/v1` profile PUT, lands.
+pub(super) fn record_deferred(target: &EventTarget, uri: &str, flip_uri: &str) {
+    let epoch = target.epoch().as_str();
+    let resource = target.resource_name();
+    debug!(
+        %uri,
+        user_id = %target.user_id(),
+        %flip_uri,
+        "Deferred event: the user's flip waits in the retry queue"
+    );
+    SKIPPED.add(1, &labels(epoch, &resource, DEFERRED));
 }
 
 /// The full label set of one skip.
@@ -162,6 +179,28 @@ mod tests {
         assert!(logs_contain("epochs do not match"));
         assert!(logs_contain("event_epoch=v0"));
         assert!(logs_contain("user_epoch=v1"));
+    }
+
+    /// The deferral's log names the user and the flip the DEL waits on, so a held DEL reads
+    /// as one and not as a missing post.
+    #[test]
+    #[tracing_test::traced_test]
+    fn a_deferred_event_logs_the_flip_it_waits_on() {
+        let line = "DEL pubky://operrr8wsbpr3ue9d4qj41ge1kcc6r7fdiy6o3ugjrrhi4y77rdo/pub/pubky.app/posts/0032SSN7Q4EVG";
+        let event = match crate::events::Event::parse_event(line) {
+            Ok(crate::events::ParseResult::Parsed(event)) => event,
+            other => panic!("expected Parsed, got {other:?}"),
+        };
+        let flip_uri =
+            "pubky://operrr8wsbpr3ue9d4qj41ge1kcc6r7fdiy6o3ugjrrhi4y77rdo/pub/social/v1/profile.json";
+
+        record_deferred(&event.target, &event.uri, flip_uri);
+
+        assert!(logs_contain("Deferred event"));
+        assert!(logs_contain(
+            "user_id=operrr8wsbpr3ue9d4qj41ge1kcc6r7fdiy6o3ugjrrhi4y77rdo"
+        ));
+        assert!(logs_contain(&format!("flip_uri={flip_uri}")));
     }
 
     #[test]

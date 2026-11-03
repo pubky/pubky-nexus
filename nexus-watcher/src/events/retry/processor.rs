@@ -13,8 +13,7 @@ use super::store::{RedisRetryStore, RetryStore};
 use super::IndexKey;
 use super::RetryEvent;
 use super::RetryScheduler;
-use crate::events::gate::{self, Gate};
-use crate::events::{is_flip, EventHandler};
+use crate::events::{confirm_flip, is_flip, EventHandler};
 use crate::service::indexer::{RunOutcome, TEventProcessor};
 
 /// Maximum number of retry events to fetch per batch to avoid memory spikes
@@ -227,9 +226,7 @@ impl RetryProcessor {
         if retry_count < self.max_retries_for(error) {
             return Ok(false);
         }
-        let unlimited = error.is_transient_fetch()
-            && gate::is_profile_put(event)
-            && gate::check(event).await? == Gate::Flip;
+        let unlimited = error.is_transient_fetch() && confirm_flip(event).await?;
         Ok(!unlimited)
     }
 

@@ -38,11 +38,12 @@ pub mod handlers;
 mod moderation;
 pub mod retry;
 
-pub(crate) use gate::is_flip;
 use gate::Gate;
+pub(crate) use gate::{confirm_flip, is_flip};
 use handlers::utils::bounded;
 use inputs::{ReferenceTarget, ResourceKey, TagInput};
 pub use moderation::Moderation;
+use retry::{RedisRetryStore, RetryStore};
 use route::resolve_reference;
 use translation::{translate_del, translate_put, TranslatedDel, TranslatedPut};
 
@@ -63,6 +64,11 @@ pub struct DefaultEventHandler {
 
     /// Local files directory on Nexus used for file-backed events.
     files_path: PathBuf,
+
+    /// The retry queue the gate reads a `v0` user's queued flip from, before a `pubky.app`
+    /// DEL of theirs is handled. The same queue the runners enqueue to and the retry
+    /// processor drains: [`RedisRetryStore`] in production, an in-memory one in tests.
+    retry_store: Arc<dyn RetryStore>,
 }
 
 impl DefaultEventHandler {
@@ -71,18 +77,20 @@ impl DefaultEventHandler {
         ingestor: Arc<UserIngestor>,
         client: Arc<dyn HomeserverClient>,
         files_path: PathBuf,
+        retry_store: Arc<dyn RetryStore>,
     ) -> Self {
         Self {
             moderation,
             ingestor,
             client,
             files_path,
+            retry_store,
         }
     }
 
     /// Builds a handler that fetches through `client`, deriving its moderation rules
-    /// and user ingestor from config. The ingestor resolves users' homeservers through
-    /// `client` too.
+    /// and user ingestor from config, and reading the Redis retry queue. The ingestor
+    /// resolves users' homeservers through `client` too.
     pub fn from_config(config: &WatcherConfig, client: Arc<dyn HomeserverClient>) -> Self {
         let ingestor = UserIngestor::from_config(&config.stack, client.clone());
         Self::new(
@@ -90,6 +98,7 @@ impl DefaultEventHandler {
             Arc::new(ingestor),
             client,
             config.stack.files_path.clone(),
+            Arc::new(RedisRetryStore::new()),
         )
     }
 }
@@ -98,11 +107,19 @@ impl DefaultEventHandler {
 impl EventHandler for DefaultEventHandler {
     async fn handle(&self, event: &Event) -> Result<(), EventProcessorError> {
         // Before any fetch. An ignored event stores no event line, and `Ok` moves the cursor
-        // on and removes its retry entry.
-        let gate = gate::check(event).await?;
-        if gate == Gate::Ignore {
-            return Ok(());
-        }
+        // on and removes its retry entry. A deferred DEL waits on the flip as a tag waits on
+        // its post: queued with the dependency class, retried after the flip, when the user
+        // is at `v1` and the gate ignores it; dead-lettered at the dependency limit when the
+        // flip never lands, the content kept at `v0`.
+        let gate = match gate::check(event, self.retry_store.as_ref()).await? {
+            Gate::Ignore => return Ok(()),
+            Gate::Defer => {
+                return Err(EventProcessorError::MissingDependency {
+                    dependency: vec![gate::flip_profile_uri(event.target.user_id())],
+                })
+            }
+            gate @ (Gate::Handle | Gate::Flip) => gate,
+        };
 
         let handled = match event.event_type {
             EventType::Put => {

@@ -4,7 +4,7 @@ mod follows;
 mod mentions;
 mod migration;
 mod network;
-mod posts;
+pub(crate) mod posts;
 mod tags;
 pub(crate) mod users;
 pub(crate) mod utils;

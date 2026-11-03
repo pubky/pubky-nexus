@@ -1,11 +1,13 @@
 //! The epoch gate: every user is read through one path, the one their epoch names.
 
-use super::epoch_metrics::record_gated;
+use super::epoch_metrics::{record_deferred, record_gated};
 use super::event::{Event, EventType};
+use super::retry::{IndexKey, RetryStore};
 use super::target::EventTarget;
 use crate::errors::EventProcessorError;
 use nexus_common::models::user::Epoch;
-use pubky_social_specs::Resource;
+use pubky_social_specs::traits::HasPath as _;
+use pubky_social_specs::{PubkyId, PubkySocialUser, Resource};
 
 /// What the gate does with an event.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -16,6 +18,11 @@ pub(super) enum Gate {
     Flip,
     /// The event is skipped: no fetch, no stored event line, no error, no retry.
     Ignore,
+    /// The event waits for its user's flip, queued for retry: a `pubky.app` DEL of a user at
+    /// `v0` whose `social/v1` profile PUT sits in the retry queue. Handled now, it would delete
+    /// content the flip's internal migration is about to move; retried after the flip, the
+    /// user is at `v1` and the gate ignores it.
+    Defer,
 }
 
 /// The gate's decision for `event` of a user at `user_epoch`. Pure: the caller reads the
@@ -44,17 +51,55 @@ pub(super) fn is_profile_put(event: &Event) -> bool {
 /// `v1` user's own dropped edit keeps the level other events have. A failed graph read counts
 /// as a flip: on a failing graph, over-reporting a lost flip is the safe side.
 pub(crate) async fn is_flip(event: &Event) -> bool {
-    is_profile_put(event) && matches!(check(event).await, Ok(Gate::Flip) | Err(_))
+    !matches!(confirm_flip(event).await, Ok(false))
 }
 
-/// The gate's decision for `event`, by its user's epoch in the graph: never the cached
-/// `User:Details` copy, which a concurrent profile write can leave stale. An ignored event is
-/// counted on `watcher.epoch.skipped`.
-pub(super) async fn check(event: &Event) -> Result<Gate, EventProcessorError> {
+/// Whether `event` is a flip, by its user's epoch in the graph; a failed graph read is the
+/// caller's to classify.
+pub(crate) async fn confirm_flip(event: &Event) -> Result<bool, EventProcessorError> {
+    Ok(is_profile_put(event) && decide_by_graph(event).await?.0 == Gate::Flip)
+}
+
+/// Whether `event` is a `pubky.app` DEL: the kind the gate holds while its user's flip waits.
+fn is_pubky_app_del(event: &Event) -> bool {
+    event.event_type == EventType::Del && event.target.epoch() == Epoch::V0
+}
+
+/// The URI of `user_id`'s `social/v1` profile: the flip's event URI, which keys its retry entry.
+pub(super) fn flip_profile_uri(user_id: &PubkyId) -> String {
+    format!("pubky://{user_id}{}", PubkySocialUser::create_path())
+}
+
+/// The gate's decision for `event` by its user's epoch in the graph, with that epoch: never
+/// the cached `User:Details` copy, which a concurrent profile write can leave stale.
+async fn decide_by_graph(event: &Event) -> Result<(Gate, Epoch), EventProcessorError> {
     let user_epoch = Epoch::get_from_graph(event.target.user_id()).await?;
-    let gate = decide(event, user_epoch);
-    if gate == Gate::Ignore {
-        record_gated(&event.target, &event.uri, user_epoch);
+    Ok((decide(event, user_epoch), user_epoch))
+}
+
+/// The gate's decision for `event`: by its user's epoch in the graph ([`decide_by_graph`]),
+/// then, for a handled `pubky.app` DEL (so of a user at `v0`) and only then, by `retry_store`:
+/// with the user's flip queued there, the DEL is deferred. An ignored or deferred event is
+/// counted on `watcher.epoch.skipped`.
+pub(super) async fn check(
+    event: &Event,
+    retry_store: &dyn RetryStore,
+) -> Result<Gate, EventProcessorError> {
+    let (gate, user_epoch) = decide_by_graph(event).await?;
+    match gate {
+        Gate::Ignore => record_gated(&event.target, &event.uri, user_epoch),
+        Gate::Handle if is_pubky_app_del(event) => {
+            let flip_uri = flip_profile_uri(event.target.user_id());
+            if retry_store
+                .get(&IndexKey::for_uri(&flip_uri))
+                .await?
+                .is_some()
+            {
+                record_deferred(&event.target, &event.uri, &flip_uri);
+                return Ok(Gate::Defer);
+            }
+        }
+        Gate::Handle | Gate::Flip | Gate::Defer => {}
     }
     Ok(gate)
 }
@@ -145,6 +190,176 @@ mod tests {
     fn a_v1_user_has_social_v1_events_handled() {
         for line in social_v1_lines() {
             assert_eq!(decide(&event(&line), Epoch::V1), Gate::Handle, "{line}");
+        }
+    }
+
+    /// The deferral: `check` against the graph and an in-memory retry queue.
+    mod check {
+        use super::*;
+        use crate::events::retry::{InMemoryRetryStore, RetryEvent};
+        use async_trait::async_trait;
+        use nexus_common::db::{exec_single_row, queries};
+        use nexus_common::models::traits::Collection as _;
+        use nexus_common::models::user::UserDetails;
+        use nexus_common::types::DynError;
+        use nexus_common::utils::test_utils::random_pubky_id;
+        use nexus_common::{StackConfig, StackManager};
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        /// An in-memory retry queue that counts its reads, so a test can tell which events
+        /// made the gate look at it.
+        struct CountingStore {
+            inner: InMemoryRetryStore,
+            reads: AtomicUsize,
+        }
+
+        impl CountingStore {
+            fn new() -> Self {
+                Self {
+                    inner: InMemoryRetryStore::new(),
+                    reads: AtomicUsize::new(0),
+                }
+            }
+
+            fn reads(&self) -> usize {
+                self.reads.load(Ordering::SeqCst)
+            }
+
+            /// Queues `user_id`'s flip, as a transient fetch error on its first attempt does.
+            async fn queue_flip(&self, user_id: &PubkyId) -> Result<(), EventProcessorError> {
+                let line = format!("PUT {}", flip_profile_uri(user_id));
+                let flip = event(&line);
+                self.put(&RetryEvent::new(&flip, i64::MAX, "hs")).await
+            }
+        }
+
+        #[async_trait]
+        impl RetryStore for CountingStore {
+            async fn put(&self, event: &RetryEvent) -> Result<(), EventProcessorError> {
+                self.inner.put(event).await
+            }
+
+            async fn get(
+                &self,
+                index_key: &IndexKey,
+            ) -> Result<Option<RetryEvent>, EventProcessorError> {
+                self.reads.fetch_add(1, Ordering::SeqCst);
+                self.inner.get(index_key).await
+            }
+
+            async fn remove(&self, index_key: &IndexKey) -> Result<(), EventProcessorError> {
+                self.inner.remove(index_key).await
+            }
+
+            async fn remove_if(
+                &self,
+                index_key: &IndexKey,
+                expected_nonce: i64,
+            ) -> Result<bool, EventProcessorError> {
+                self.inner.remove_if(index_key, expected_nonce).await
+            }
+
+            async fn put_if(
+                &self,
+                event: &RetryEvent,
+                expected_nonce: i64,
+            ) -> Result<bool, EventProcessorError> {
+                self.inner.put_if(event, expected_nonce).await
+            }
+
+            async fn fetch_ready(
+                &self,
+                now: i64,
+                limit: Option<usize>,
+            ) -> Result<Vec<(IndexKey, RetryEvent)>, EventProcessorError> {
+                self.inner.fetch_ready(now, limit).await
+            }
+        }
+
+        /// A `User` node without an epoch, which reads as `v0`.
+        async fn v0_user() -> Result<PubkyId, DynError> {
+            StackManager::setup(&StackConfig::default()).await?;
+            let user = random_pubky_id();
+            UserDetails::from_pubky(user.clone()).put_to_graph().await?;
+            Ok(user)
+        }
+
+        async fn delete_user(user: &PubkyId) -> Result<(), DynError> {
+            exec_single_row(queries::del::delete_user(user)).await?;
+            Ok(())
+        }
+
+        /// `pubky.app` DEL lines of `user`'s post and profile.
+        fn pubky_app_dels(user: &PubkyId) -> [String; 2] {
+            [
+                format!("DEL pubky://{user}/pub/pubky.app/posts/0032SSN7Q4EVG"),
+                format!("DEL pubky://{user}/pub/pubky.app/profile.json"),
+            ]
+        }
+
+        /// A `v0` user's `pubky.app` DELs are handled while no flip of theirs is queued, and
+        /// deferred once one is: the post's and the profile's alike.
+        #[tokio_shared_rt::test(shared)]
+        async fn a_v0_users_pubky_app_del_is_deferred_while_their_flip_is_queued(
+        ) -> Result<(), DynError> {
+            let user = v0_user().await?;
+            let store = CountingStore::new();
+
+            for line in pubky_app_dels(&user) {
+                assert_eq!(check(&event(&line), &store).await?, Gate::Handle, "{line}");
+            }
+            assert_eq!(store.reads(), 2, "each DEL asks the queue once");
+
+            store.queue_flip(&user).await?;
+            for line in pubky_app_dels(&user) {
+                assert_eq!(check(&event(&line), &store).await?, Gate::Defer, "{line}");
+            }
+
+            delete_user(&user).await
+        }
+
+        /// With the flip queued, the same user's `pubky.app` PUT and `social/v1` events decide
+        /// as before, without a look at the queue.
+        #[tokio_shared_rt::test(shared)]
+        async fn a_v0_users_other_events_are_unchanged_and_never_read_the_queue(
+        ) -> Result<(), DynError> {
+            let user = v0_user().await?;
+            let store = CountingStore::new();
+            store.queue_flip(&user).await?;
+
+            let post_put = format!("PUT pubky://{user}/pub/pubky.app/posts/0032SSN7Q4EVG");
+            assert_eq!(check(&event(&post_put), &store).await?, Gate::Handle);
+            let profile_put = format!("PUT {}", flip_profile_uri(&user));
+            assert_eq!(check(&event(&profile_put), &store).await?, Gate::Flip);
+            for kind in ["PUT", "DEL"] {
+                let line = format!(
+                    "{kind} pubky://{user}/pub/social/v1/posts/0032SSN7Q4EVG/0032SSN7Q4EVJ.json"
+                );
+                assert_eq!(check(&event(&line), &store).await?, Gate::Ignore, "{line}");
+            }
+            assert_eq!(store.reads(), 0, "only a pubky.app DEL asks the queue");
+
+            delete_user(&user).await
+        }
+
+        /// A `v1` user's events never read the queue: their `pubky.app` DEL is ignored and
+        /// their `social/v1` DEL handled, flip entry or not.
+        #[tokio_shared_rt::test(shared)]
+        async fn a_v1_users_events_never_read_the_queue() -> Result<(), DynError> {
+            let user = v0_user().await?;
+            Epoch::set_v1_in_graph(&user).await?;
+            let store = CountingStore::new();
+            store.queue_flip(&user).await?;
+
+            for line in pubky_app_dels(&user) {
+                assert_eq!(check(&event(&line), &store).await?, Gate::Ignore, "{line}");
+            }
+            let v1_del =
+                format!("DEL pubky://{user}/pub/social/v1/posts/0032SSN7Q4EVG/0032SSN7Q4EVJ.json");
+            assert_eq!(check(&event(&v1_del), &store).await?, Gate::Handle);
+            assert_eq!(store.reads(), 0);
+
+            delete_user(&user).await
         }
     }
 }

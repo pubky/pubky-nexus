@@ -112,16 +112,18 @@ impl WatcherTest {
         };
         let client: Arc<dyn HomeserverClient> =
             Arc::new(PubkyHomeserverClient::from_config(pubky, &config));
+        // One retry queue: the scheduler enqueues to it and the handler's gate reads it
+        let store: Arc<dyn RetryStore> = Arc::new(RedisRetryStore::new());
         let event_handler: Arc<dyn EventHandler> = Arc::new(DefaultEventHandler::new(
             default_moderation_tests(),
             default_ingestor_tests(),
             client.clone(),
             files_path,
+            store.clone(),
         ));
 
         let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
 
-        let store: Arc<dyn RetryStore> = Arc::new(RedisRetryStore::new());
         let retry_scheduler = Arc::new(RetryScheduler::new(
             store,
             InitialBackoff {

@@ -1,7 +1,9 @@
+use crate::event_processor::posts::utils::find_post_uri;
 use crate::event_processor::users::utils::{
     find_cached_user_details, find_user_epoch, set_user_epoch,
 };
 use crate::event_processor::utils::default_moderation_tests;
+use crate::event_processor::utils::watcher::retrieve_and_handle_event_line;
 use crate::service::utils::common::create_mock_handler;
 use crate::service::utils::{
     new_in_memory_store, setup, MockHomeserverClient, HS_IDS, TEST_USER_ID,
@@ -11,24 +13,27 @@ use chrono::Utc;
 use nexus_common::config::EventRetryConfig;
 use nexus_common::db::kv::RedisOps;
 use nexus_common::db::{exec_single_row, queries};
+use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::post::PostDetails;
 use nexus_common::models::traits::Collection;
 use nexus_common::models::user::{Epoch, UserDetails};
 use nexus_common::utils::test_utils::{default_ingestor_tests, random_pubky_id};
 use nexus_watcher::errors::EventProcessorError;
 use nexus_watcher::events::retry::{
-    IndexKey, RedisRetryStore, RetryEvent, RetryProcessor, RetryStore, RETRY_MANAGER_EVENTS_INDEX,
-    RETRY_MANAGER_PREFIX,
+    IndexKey, InitialBackoff, RedisRetryStore, RetryEvent, RetryProcessor, RetryScheduler,
+    RetryStore, RETRY_MANAGER_EVENTS_INDEX, RETRY_MANAGER_PREFIX,
 };
 use nexus_watcher::events::EventType;
 use nexus_watcher::events::{handlers, DefaultEventHandler, EventHandler};
 use nexus_watcher::homeserver::HsErrorKind;
-use nexus_watcher::service::RunOutcome;
-use nexus_watcher::service::TEventProcessor;
+use nexus_watcher::service::{HsEventProcessor, RunOutcome, TEventProcessor};
 use pubky_social_specs::legacy_v0::traits::TimestampId;
 use pubky_social_specs::legacy_v0::{post_uri_builder, PubkyAppPost, PubkyAppPostKind};
 use pubky_social_specs::traits::{HasPath as _, TimestampId as _};
-use pubky_social_specs::{PubkySocialPost, PubkySocialPostKind, PubkySocialUser, Root};
+use pubky_social_specs::{
+    post_uri_builder as v1_post_uri_builder, PubkySocialPost, PubkySocialPostKind, PubkySocialUser,
+    Root,
+};
 use std::sync::Arc;
 use tokio::sync::watch;
 
@@ -1431,14 +1436,15 @@ async fn test_gated_entry_is_removed_and_nothing_indexed() -> Result<()> {
         MockHomeserverClient::default().with_resource(&event_uri, serde_json::to_vec(&post)?),
     );
     let files = tempfile::TempDir::new()?;
+    let store = new_in_memory_store();
     let handler: Arc<dyn EventHandler> = Arc::new(DefaultEventHandler::new(
         default_moderation_tests(),
         default_ingestor_tests(),
         client,
         files.path().to_path_buf(),
+        store.clone(),
     ));
 
-    let store = new_in_memory_store();
     let retry_event = RetryEvent {
         retry_count: 0,
         event_type: EventType::Put,
@@ -1508,14 +1514,15 @@ async fn test_social_v1_entry_of_a_v0_user_is_removed_and_nothing_indexed() -> R
         MockHomeserverClient::default().with_resource(&event_uri, serde_json::to_vec(&post)?),
     );
     let files = tempfile::TempDir::new()?;
+    let store = new_in_memory_store();
     let handler: Arc<dyn EventHandler> = Arc::new(DefaultEventHandler::new(
         default_moderation_tests(),
         default_ingestor_tests(),
         client,
         files.path().to_path_buf(),
+        store.clone(),
     ));
 
-    let store = new_in_memory_store();
     let retry_event = RetryEvent {
         retry_count: 0,
         event_type: EventType::Put,
@@ -1577,14 +1584,15 @@ async fn test_social_v1_profile_entry_flips_a_v0_user() -> Result<()> {
         MockHomeserverClient::default().with_resource(&event_uri, serde_json::to_vec(&profile)?),
     );
     let files = tempfile::TempDir::new()?;
+    let store = new_in_memory_store();
     let handler: Arc<dyn EventHandler> = Arc::new(DefaultEventHandler::new(
         default_moderation_tests(),
         default_ingestor_tests(),
         client,
         files.path().to_path_buf(),
+        store.clone(),
     ));
 
-    let store = new_in_memory_store();
     let retry_event = RetryEvent {
         retry_count: 0,
         event_type: EventType::Put,
@@ -1630,16 +1638,19 @@ async fn test_social_v1_profile_entry_flips_a_v0_user() -> Result<()> {
 // a homeserver client stub that answers 5xx.
 // ============================================================================
 
-/// The real event handler, fetching through `client`; `files` must outlive it.
+/// The real event handler, fetching through `client` and reading the retry queue `store`;
+/// `files` must outlive it.
 fn default_handler(
     client: MockHomeserverClient,
     files: &tempfile::TempDir,
+    store: Arc<dyn RetryStore>,
 ) -> Arc<dyn EventHandler> {
     Arc::new(DefaultEventHandler::new(
         default_moderation_tests(),
         default_ingestor_tests(),
         Arc::new(client),
         files.path().to_path_buf(),
+        store,
     ))
 }
 
@@ -1687,6 +1698,7 @@ async fn test_flip_at_max_retries_with_5xx_is_rescheduled_until_the_fetch_succee
     let handler = default_handler(
         MockHomeserverClient::default().with_resource_error(&event_uri, outage()),
         &files,
+        store.clone(),
     );
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let processor = build_processor(
@@ -1731,6 +1743,7 @@ async fn test_flip_at_max_retries_with_5xx_is_rescheduled_until_the_fetch_succee
     let handler = default_handler(
         MockHomeserverClient::default().with_resource(&event_uri, serde_json::to_vec(&profile)?),
         &files,
+        store.clone(),
     );
     let (_, shutdown_rx) = watch::channel(false);
     let processor = build_processor(
@@ -1779,7 +1792,7 @@ async fn test_social_v1_profile_put_with_404_is_removed() -> Result<()> {
 
     // The mock client answers 404 for any URI it does not serve
     let files = tempfile::TempDir::new()?;
-    let handler = default_handler(MockHomeserverClient::default(), &files);
+    let handler = default_handler(MockHomeserverClient::default(), &files, store.clone());
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let processor = build_processor(
         store.clone(),
@@ -1831,6 +1844,7 @@ async fn test_v1_user_profile_put_at_max_retries_with_5xx_is_dead_lettered() -> 
     let handler = default_handler(
         MockHomeserverClient::default().with_resource_error(&event_uri, outage()),
         &files,
+        store.clone(),
     );
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let processor = build_processor(
@@ -1921,6 +1935,7 @@ async fn test_pubky_app_post_put_at_max_retries_with_5xx_is_dead_lettered() -> R
     let handler = default_handler(
         MockHomeserverClient::default().with_resource_error(&event_uri, outage()),
         &files,
+        store.clone(),
     );
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let processor = build_processor(
@@ -2012,5 +2027,310 @@ async fn test_graph_error_on_the_flip_is_rescheduled_without_counting_and_stops_
 
     exec_single_row(queries::del::delete_user(&user_id)).await?;
     let _ = shutdown_tx.send(true);
+    Ok(())
+}
+
+// ============================================================================
+// A `v0` user's `pubky.app` DELs are deferred while their flip waits in the queue
+// The migrator writes the flip last and a cleanup pass deletes the `pubky.app`
+// copies after it. A flip whose fetch failed once sits in the retry queue with the
+// user still at `v0`; the cleanup DELs that follow would otherwise be handled and
+// delete what the flip's internal migration is about to move. These tests drive the
+// events through the primary runner and the retry processor with the real handler,
+// one in-memory queue shared by the scheduler, the handler's gate and the processor.
+// ============================================================================
+
+/// Initial backoff of a transient error on the first attempt.
+const TRANSIENT_MS: i64 = 10_000;
+/// Initial backoff of a missing dependency on the first attempt: the dependency class shows
+/// in an entry's due time.
+const MISSING_DEP_MS: i64 = 60_000;
+
+/// The primary-homeserver runner: polls `client` once, handles the batch through `handler`
+/// and queues what fails on `store`.
+async fn primary_runner(
+    client: Arc<MockHomeserverClient>,
+    handler: Arc<dyn EventHandler>,
+    store: Arc<dyn RetryStore>,
+) -> Result<Arc<HsEventProcessor>> {
+    let homeserver = Homeserver {
+        id: random_pubky_id(),
+        cursor: 0,
+    };
+    homeserver.put_to_index().await?;
+    Ok(Arc::new(HsEventProcessor {
+        homeserver,
+        limit: 100,
+        event_handler: handler,
+        client,
+        shutdown_rx: watch::channel(false).1,
+        retry_scheduler: Arc::new(RetryScheduler::new(
+            store,
+            InitialBackoff {
+                missing_dep_ms: MISSING_DEP_MS,
+                transient_ms: TRANSIENT_MS,
+            },
+        )),
+        hs_mapping_cache: Default::default(),
+    }))
+}
+
+/// Closes `event_lines` into a batch the runner accepts: a cursor line past the stored 0.
+fn batch(event_lines: impl IntoIterator<Item = String>) -> Vec<String> {
+    event_lines
+        .into_iter()
+        .chain(["cursor: 1".to_string()])
+        .collect()
+}
+
+/// The URI of `user_id`'s `pubky.app` profile.
+fn pubky_app_profile_uri(user_id: &str) -> String {
+    format!("pubky://{user_id}/pub/pubky.app/profile.json")
+}
+
+/// A `pubky.app` post of `user_id` and its URI, which the migrator's cleanup DELs name.
+fn pubky_app_post(user_id: &str, content: &str) -> (PubkyAppPost, String, String) {
+    let post = PubkyAppPost {
+        content: content.to_string(),
+        kind: PubkyAppPostKind::Short,
+        parent: None,
+        embed: None,
+        attachments: None,
+        lock: None,
+    };
+    let post_id = post.create_id();
+    let uri = post_uri_builder(user_id.to_string(), post_id.clone());
+    (post, post_id, uri)
+}
+
+/// A DEL entry of `event_uri`, ready for retry at `next_retry_at`.
+fn del_entry(event_uri: &str, next_retry_at: i64) -> RetryEvent {
+    RetryEvent {
+        event_type: EventType::Del,
+        next_retry_at,
+        ..ready_put_entry(event_uri, 0)
+    }
+}
+
+/// The flip answers 503 and is queued; the cleanup DELs of the user's post and
+/// `pubky.app` profile behind it are deferred: each is a missing dependency naming
+/// the flip, queued with the dependency class, and the graph keeps the post and the user.
+#[tokio_shared_rt::test(shared)]
+async fn test_pubky_app_dels_of_a_v0_user_are_deferred_while_their_flip_is_queued() -> Result<()> {
+    setup().await?;
+
+    let user = random_pubky_id();
+    let user_id = user.to_string();
+    // No epoch on the node: the user reads as `v0`
+    UserDetails::from_pubky(user.clone()).put_to_graph().await?;
+
+    let (post, post_id, post_uri) = pubky_app_post(&user_id, "Retry:Defer:Post");
+    let flip_uri = social_v1_profile_uri(&user_id);
+    let profile_uri = pubky_app_profile_uri(&user_id);
+
+    // The user's post, then the migrator's run: the flip, whose fetch answers 503, and
+    // the cleanup pass that must have waited for it
+    let client = Arc::new(
+        MockHomeserverClient::default()
+            .with_lines(batch([
+                format!("PUT {post_uri}"),
+                format!("PUT {flip_uri}"),
+                format!("DEL {post_uri}"),
+                format!("DEL {profile_uri}"),
+            ]))
+            .with_resource(&post_uri, serde_json::to_vec(&post)?)
+            .with_resource_error(&flip_uri, outage()),
+    );
+    let store = new_in_memory_store();
+    let files = tempfile::TempDir::new()?;
+    let handler = Arc::new(DefaultEventHandler::new(
+        default_moderation_tests(),
+        default_ingestor_tests(),
+        client.clone(),
+        files.path().to_path_buf(),
+        store.clone(),
+    ));
+    let runner = primary_runner(client, handler.clone(), store.clone()).await?;
+
+    let now = Utc::now().timestamp_millis();
+    runner
+        .run_internal()
+        .await
+        .expect("a queued flip and deferred DELs must not fail the batch");
+
+    let flip = store
+        .get(&IndexKey::for_uri(&flip_uri))
+        .await?
+        .expect("the flip must be queued");
+    assert_eq!(flip.event_type, EventType::Put);
+    assert!(
+        flip.next_retry_at < now + MISSING_DEP_MS,
+        "the flip is queued with the transient class"
+    );
+    for uri in [&post_uri, &profile_uri] {
+        let deferred = store
+            .get(&IndexKey::for_uri(uri))
+            .await?
+            .unwrap_or_else(|| panic!("the DEL of {uri} must be queued"));
+        assert_eq!(deferred.event_type, EventType::Del, "{uri}");
+        assert!(
+            deferred.next_retry_at >= now + MISSING_DEP_MS,
+            "the DEL of {uri} is queued with the dependency class"
+        );
+
+        // What the runner queued: a missing dependency naming the flip
+        let err = retrieve_and_handle_event_line(&format!("DEL {uri}"), handler.clone())
+            .await
+            .expect_err("a deferred DEL is an error, so the runner queues it");
+        assert!(
+            matches!(&err, EventProcessorError::MissingDependency { dependency } if *dependency == vec![flip_uri.clone()]),
+            "{uri}: {err:?}"
+        );
+    }
+
+    assert!(
+        PostDetails::get_from_graph(&user_id, &post_id)
+            .await?
+            .is_some(),
+        "the deferred DEL must leave the post readable"
+    );
+    assert!(
+        UserDetails::get_from_graph(&[user_id.as_str()]).await?[0].is_some(),
+        "the deferred DEL must leave the user node"
+    );
+    assert_eq!(
+        find_user_epoch(&user_id).await,
+        None,
+        "the user stays at v0 until the flip lands"
+    );
+
+    exec_single_row(queries::del::delete_post(&user_id, &post_id)).await?;
+    exec_single_row(queries::del::delete_user(&user_id)).await?;
+    Ok(())
+}
+
+/// The homeserver is back: the queued flip lands first, moving the user to `v1` and the
+/// post to its `social/v1` address; the deferred DELs behind it are then ignored by the
+/// gate and leave the queue, the post kept.
+#[tokio_shared_rt::test(shared)]
+async fn test_deferred_dels_are_ignored_and_leave_the_queue_once_the_flip_lands() -> Result<()> {
+    setup().await?;
+
+    let user = random_pubky_id();
+    let user_id = user.to_string();
+    UserDetails::from_pubky(user.clone()).put_to_graph().await?;
+
+    let (post, post_id, post_uri) = pubky_app_post(&user_id, "Retry:Defer:Flipped");
+    let flip_uri = social_v1_profile_uri(&user_id);
+    let profile_uri = pubky_app_profile_uri(&user_id);
+    let profile = PubkySocialUser::new("Retry:Defer:Flipped".to_string(), None, None, None, None);
+
+    let store = new_in_memory_store();
+    let files = tempfile::TempDir::new()?;
+    let handler = default_handler(
+        MockHomeserverClient::default()
+            .with_resource(&post_uri, serde_json::to_vec(&post)?)
+            .with_resource(&flip_uri, serde_json::to_vec(&profile)?),
+        &files,
+        store.clone(),
+    );
+    retrieve_and_handle_event_line(&format!("PUT {post_uri}"), handler.clone()).await?;
+
+    // The queue as the outage left it: the flip due first, the deferred DELs behind it
+    let now = Utc::now().timestamp_millis();
+    store
+        .put(&RetryEvent {
+            next_retry_at: now - 2000,
+            ..ready_put_entry(&flip_uri, 1)
+        })
+        .await?;
+    store.put(&del_entry(&post_uri, now - 1000)).await?;
+    store.put(&del_entry(&profile_uri, now - 1000)).await?;
+
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let processor = build_processor(
+        store.clone(),
+        create_test_config(MAX_RETRIES, 50, 60, 3600, 60, 3600),
+        handler,
+        shutdown_rx,
+    );
+
+    processor
+        .run_internal()
+        .await
+        .expect("the flip and the ignored DELs must not fail the batch");
+
+    assert_eq!(find_user_epoch(&user_id).await.as_deref(), Some("v1"));
+    assert_eq!(
+        find_post_uri(&user_id, &post_id).await.as_deref(),
+        Some(v1_post_uri_builder(user_id.clone(), post_id.clone()).as_str()),
+        "the internal migration moved the post to its v1 address"
+    );
+    assert!(
+        PostDetails::get_from_graph(&user_id, &post_id)
+            .await?
+            .is_some(),
+        "the retried DELs must leave the post in place"
+    );
+    for uri in [&flip_uri, &post_uri, &profile_uri] {
+        assert!(
+            store.get(&IndexKey::for_uri(uri)).await?.is_none(),
+            "the entry of {uri} must leave the queue"
+        );
+    }
+
+    exec_single_row(queries::del::delete_post(&user_id, &post_id)).await?;
+    handlers::user::del(user).await?;
+    let _ = shutdown_tx.send(true);
+    Ok(())
+}
+
+/// With no flip queued, a `v0` user's `pubky.app` post DEL is handled as today: the post
+/// is gone and nothing is queued.
+#[tokio_shared_rt::test(shared)]
+async fn test_pubky_app_del_of_a_v0_user_without_a_queued_flip_is_handled() -> Result<()> {
+    setup().await?;
+
+    let user = random_pubky_id();
+    let user_id = user.to_string();
+    UserDetails::from_pubky(user.clone()).put_to_graph().await?;
+
+    let (post, post_id, post_uri) = pubky_app_post(&user_id, "Retry:Defer:NoFlip");
+    let client = Arc::new(
+        MockHomeserverClient::default()
+            .with_lines(batch([
+                format!("PUT {post_uri}"),
+                format!("DEL {post_uri}"),
+            ]))
+            .with_resource(&post_uri, serde_json::to_vec(&post)?),
+    );
+    let store = new_in_memory_store();
+    let files = tempfile::TempDir::new()?;
+    let handler = Arc::new(DefaultEventHandler::new(
+        default_moderation_tests(),
+        default_ingestor_tests(),
+        client.clone(),
+        files.path().to_path_buf(),
+        store.clone(),
+    ));
+    let runner = primary_runner(client, handler, store.clone()).await?;
+
+    runner
+        .run_internal()
+        .await
+        .expect("a handled DEL must not fail the batch");
+
+    assert!(
+        PostDetails::get_from_graph(&user_id, &post_id)
+            .await?
+            .is_none(),
+        "the DEL must delete the post"
+    );
+    assert!(
+        store.fetch_ready(i64::MAX, None).await?.is_empty(),
+        "nothing is queued"
+    );
+
+    exec_single_row(queries::del::delete_user(&user_id)).await?;
     Ok(())
 }
