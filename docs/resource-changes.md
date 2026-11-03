@@ -31,8 +31,16 @@ until the graph deletion succeeds and publication is acknowledged, so a retry af
 the edge is gone can still publish the del. Publication and pending record removal
 are atomic. A later accepted put supersedes an unfinished delete for its path.
 
+When a user moves from `pubky.app` to `social/v1` (the flip on their `social/v1`
+profile), Nexus moves each resource tag edge they wrote to the address of its
+`social/v1` tag file. Each move is published as a put at the new `object_path`
+followed by a del at the old one, so a consumer ends with the reference under the
+path the user's later `social/v1` delete retracts. The del of each old path is held
+before the edge moves and published with its put after; a flip that fails before it
+completes runs again and publishes what an earlier attempt held.
+
 `at` is the edge's indexed timestamp in Unix milliseconds for puts (including
-replays), and the deletion's indexed timestamp for dels. Apply lines in list order,
+replays and moves), and the deletion's indexed timestamp for dels. Apply lines in list order,
 not timestamp order. `reply`, `embed` and `collection` are reserved kinds, never
 emitted yet.
 
@@ -92,6 +100,8 @@ The seed describes current graph references, not historical deletions.
 
 The list is `Event:ResourceChanges`, its epoch is `Event:ResourceChanges:Epoch`.
 `Event:ResourceChanges:PendingDelete:*` retains interrupted delete details;
+`Event:ResourceChanges:PendingMove:<author>` holds the dels of a flip's moves until
+they are published;
 `Event:ResourceChanges:Seed:*` and `Event:ResourceChanges:SeedLock` are temporary.
 This feed follows accepted tag events; it does not add hooks for unrelated graph
 maintenance or profile-deletion cascades. Rebuilding reconciles current graph state.

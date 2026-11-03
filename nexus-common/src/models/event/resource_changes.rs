@@ -77,6 +77,10 @@ fn pending_key(author: &str, object_path: &str) -> String {
     format!("Event:ResourceChanges:PendingDelete:{author}:{object_path}")
 }
 
+fn moves_key(author: &str) -> String {
+    format!("Event:ResourceChanges:PendingMove:{author}")
+}
+
 fn object_path<'a>(author: &str, tag_uri: &'a str) -> ModelResult<&'a str> {
     tag_uri
         .strip_prefix(&format!("pubky://{author}"))
@@ -102,6 +106,23 @@ static FINISH_DELETE: LazyLock<Script> = LazyLock::new(|| {
         redis.call('SETNX', KEYS[2], ARGV[1])
         redis.call('RPUSH', KEYS[1], line)
         redis.call('DEL', KEYS[3])
+    end
+",
+    )
+});
+
+// ARGV[1] seeds the epoch, then (put, path) pairs: each put is followed by the del
+// held for its path, and both are published only while that del is still held.
+static FINISH_MOVES: LazyLock<Script> = LazyLock::new(|| {
+    Script::new(
+        r"
+    redis.call('SETNX', KEYS[2], ARGV[1])
+    for i = 2, #ARGV, 2 do
+        local line = redis.call('HGET', KEYS[3], ARGV[i + 1])
+        if line then
+            redis.call('RPUSH', KEYS[1], ARGV[i], line)
+            redis.call('HDEL', KEYS[3], ARGV[i + 1])
+        end
     end
 ",
     )
@@ -183,6 +204,65 @@ impl ResourceChange {
             .invoke_async::<()>(&mut conn)
             .await
             .map_err(RedisError::from)?;
+        Ok(())
+    }
+
+    /// Hold the del of each tag file a migration moves, keyed by the address it moves
+    /// to, before the graph write: `moves` pairs the new tag URI with the del of the
+    /// old one. Retry preserves the first timestamp.
+    pub async fn prepare_moves(author: &str, moves: &[(String, Self)]) -> ModelResult<()> {
+        if moves.is_empty() {
+            return Ok(());
+        }
+        let mut pipe = redis::pipe();
+        pipe.atomic();
+        for (to, del) in moves {
+            pipe.cmd("HSETNX")
+                .arg(moves_key(author))
+                .arg(object_path(author, to)?)
+                .arg(del.json()?)
+                .ignore();
+        }
+        let mut conn = get_redis_conn().await?;
+        pipe.query_async::<()>(&mut conn)
+            .await
+            .map_err(RedisError::from)?;
+        Ok(())
+    }
+
+    /// One `HSCAN` page of the paths `author`'s held moves go to, from `cursor`; the
+    /// returned cursor is 0 once the scan is complete.
+    pub async fn pending_moves(author: &str, cursor: u64) -> RedisResult<(u64, Vec<String>)> {
+        let mut conn = get_redis_conn().await?;
+        let (next, flat): (u64, Vec<String>) = redis::cmd("HSCAN")
+            .arg(moves_key(author))
+            .arg(cursor)
+            .arg("COUNT")
+            .arg(BATCH_SIZE)
+            .query_async(&mut conn)
+            .await?;
+        Ok((next, flat.into_iter().step_by(2).collect()))
+    }
+
+    /// Call after the moving graph write has committed, with the put of each moved tag
+    /// at its new address. Each put is appended with the held del of its old address,
+    /// and the held del removed, atomically; a put whose del is no longer held was
+    /// already published and is skipped.
+    pub async fn finish_moves(author: &str, puts: &[Self]) -> RedisResult<()> {
+        if puts.is_empty() {
+            return Ok(());
+        }
+        let mut script = FINISH_MOVES.prepare_invoke();
+        script
+            .key(RESOURCE_CHANGES_KEY)
+            .key(EPOCH_KEY)
+            .key(moves_key(author))
+            .arg(epoch_seed());
+        for put in puts {
+            script.arg(put.json()?).arg(&put.object_path);
+        }
+        let mut conn = get_redis_conn().await?;
+        script.invoke_async::<()>(&mut conn).await?;
         Ok(())
     }
 
