@@ -48,6 +48,9 @@ pub fn get_author_posts_page(author_id: &str, after_id: &str, limit: usize) -> Q
 /// them, as `(author_id, post_id)` rows strictly after the child post id `after_id` (`""` for
 /// the first page), ordered by that id, up to `limit`. A post that both replies to and reposts
 /// one of them is one row; a child with no author is left out.
+///
+/// The `WITH` barrier is load-bearing, as in `set_post_addresses`: it pins the seek on
+/// `Post(id)` per id, where the planner may otherwise expand every post of the author for each.
 pub fn get_post_children_page(
     author_id: &str,
     post_ids: &[String],
@@ -59,7 +62,9 @@ pub fn get_post_children_page(
         "
         MATCH (u:User {id: $author_id})
         UNWIND $post_ids AS post_id
-        MATCH (u)-[:AUTHORED]->(:Post {id: post_id})<-[:REPLIED|REPOSTED]-(child:Post)
+        MATCH (p:Post {id: post_id})
+        WITH u, p WHERE (u)-[:AUTHORED]->(p)
+        MATCH (p)<-[:REPLIED|REPOSTED]-(child:Post)
         WHERE child.id > $after_id
         WITH DISTINCT child
         MATCH (child)<-[:AUTHORED]-(child_author:User)
