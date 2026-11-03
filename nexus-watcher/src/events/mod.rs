@@ -36,6 +36,7 @@ static TAKEN_DOWN: LazyLock<Counter<u64>> = LazyLock::new(|| {
 pub mod handlers;
 mod moderation;
 pub mod retry;
+pub mod v0_to_v1;
 
 use gate::Gate;
 use handlers::utils::bounded;

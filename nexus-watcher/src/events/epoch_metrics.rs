@@ -39,7 +39,12 @@ pub(super) fn record_skip(reason: &SkipReason, uri: &str) {
 pub(super) fn record_gated(target: &EventTarget, uri: &str, user_epoch: Epoch) {
     let epoch = target.epoch().as_str();
     let resource = target.resource_name();
-    debug!(%uri, %epoch, user_epoch = user_epoch.as_str(), "Ignored event of an epoch its user is not read through");
+    debug!(
+        %uri,
+        event_epoch = %epoch,
+        user_epoch = %user_epoch.as_str(),
+        "Ignored event: epochs do not match"
+    );
     SKIPPED.add(1, &labels(epoch, &resource, GATED));
 }
 
@@ -140,6 +145,23 @@ mod tests {
     #[test]
     fn the_unknown_label_is_the_v1_parsers_spelling() {
         assert_eq!(Resource::Unknown.to_string(), UNKNOWN);
+    }
+
+    /// The gate's log names both epochs, so an ignored event can be explained.
+    #[test]
+    #[tracing_test::traced_test]
+    fn a_gated_event_logs_that_the_epochs_do_not_match() {
+        let line = "PUT pubky://operrr8wsbpr3ue9d4qj41ge1kcc6r7fdiy6o3ugjrrhi4y77rdo/pub/pubky.app/posts/0032SSN7Q4EVG";
+        let event = match crate::events::Event::parse_event(line) {
+            Ok(crate::events::ParseResult::Parsed(event)) => event,
+            other => panic!("expected Parsed, got {other:?}"),
+        };
+
+        record_gated(&event.target, &event.uri, Epoch::V1);
+
+        assert!(logs_contain("epochs do not match"));
+        assert!(logs_contain("event_epoch=v0"));
+        assert!(logs_contain("user_epoch=v1"));
     }
 
     #[test]

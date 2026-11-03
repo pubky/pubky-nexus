@@ -1,7 +1,8 @@
 use super::PostStream;
 use crate::db::kv::RedisResult;
 use crate::db::{
-    execute_graph_operation, fetch_row_from_graph, queries, GraphResult, OperationOutcome, RedisOps,
+    execute_graph_operation, fetch_all_rows_from_graph, fetch_row_from_graph, queries, GraphResult,
+    OperationOutcome, RedisOps,
 };
 use crate::models::error::ModelResult;
 use crate::models::ResourceKey;
@@ -77,6 +78,31 @@ impl PostDetails {
             false => Some(reply_value[0].clone()),
         };
         Ok(Some((post, reply_key)))
+    }
+
+    /// The details of `author_id`'s posts `post_ids`, in that order, without the ones the graph
+    /// doesn't hold. No reply key: [`Self::get_from_graph`] reads one post's.
+    pub async fn get_many_from_graph(
+        author_id: &str,
+        post_ids: &[String],
+    ) -> GraphResult<Vec<PostDetails>> {
+        let query = queries::get::get_posts_details_by_ids(author_id, post_ids);
+        let rows = fetch_all_rows_from_graph(query).await?;
+        rows.iter()
+            .map(|row| row.get::<PostDetails>("details").map_err(Into::into))
+            .collect()
+    }
+
+    /// Caches the details of `author_id`'s `posts`, JSON only: no sorted set is touched. For a
+    /// rewrite of posts the sets already hold, such as the internal migration's.
+    pub async fn put_many_to_index(author_id: &str, posts: Vec<PostDetails>) -> RedisResult<()> {
+        let post_ids: Vec<String> = posts.iter().map(|post| post.id.clone()).collect();
+        let key_parts: Vec<[&str; 2]> = post_ids
+            .iter()
+            .map(|post_id| [author_id, post_id.as_str()])
+            .collect();
+        let key_parts: Vec<&[&str]> = key_parts.iter().map(|parts| parts.as_slice()).collect();
+        Self::put_multiple_json_indexes(&key_parts, posts.into_iter().map(Some).collect()).await
     }
 
     pub async fn put_to_index(

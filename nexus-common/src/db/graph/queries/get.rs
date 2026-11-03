@@ -15,7 +15,9 @@ use crate::types::WotDepth;
 // Defense-in-depth: cap SKIP and LIMIT before splicing into Cypher so a future
 // route regression can't produce runaway result sets or excessive skip cost.
 const MAX_QUERY_SKIP: usize = 10_000;
-const MAX_QUERY_LIMIT: usize = 1_000;
+/// The most rows any page query here returns, whatever limit it is asked for. A scan that
+/// stops on a short page must ask for no more than this, or a full page reads as the last.
+pub const MAX_QUERY_LIMIT: usize = 1_000;
 
 // Retrieve post node by post id and author id
 pub fn get_post_by_id(author_id: &str, post_id: &str) -> Query {
@@ -49,6 +51,37 @@ pub fn get_post_by_id(author_id: &str, post_id: &str) -> Query {
     )
     .param("author_id", author_id)
     .param("post_id", post_id)
+}
+
+/// The details of `author_id`'s posts `post_ids`, shaped as [`get_post_by_id`] shapes them,
+/// one row per post the graph holds, in `post_ids` order. No reply key.
+///
+/// The `WITH` barrier is load-bearing, as in [`get_post_by_id`]: it pins the seek on
+/// `Post(id)` per id, where the planner may otherwise expand every post of the author for
+/// each id.
+pub fn get_posts_details_by_ids(author_id: &str, post_ids: &[String]) -> Query {
+    Query::new(
+        "get_posts_details_by_ids",
+        "
+        MATCH (u:User {id: $author_id})
+        UNWIND $post_ids AS post_id
+        MATCH (p:Post {id: post_id})
+        WITH u, p WHERE (u)-[:AUTHORED]->(p)
+        RETURN {
+            uri: p.uri,
+            content: p.content,
+            id: p.id,
+            indexed_at: p.indexed_at,
+            author: u.id,
+            kind: COALESCE(p.kind, 'short'),
+            attachments: p.attachments,
+            lock: p.lock,
+            deleted: COALESCE(p.deleted, false)
+        } AS details
+        ",
+    )
+    .param("author_id", author_id)
+    .param("post_ids", post_ids.to_vec())
 }
 
 pub fn post_counts(author_id: &str, post_id: &str) -> Query {

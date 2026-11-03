@@ -7,3 +7,4 @@ mod posts;
 mod tags;
 pub(crate) mod users;
 pub(crate) mod utils;
+mod v0_to_v1;

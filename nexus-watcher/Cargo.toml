@@ -31,6 +31,9 @@ base32 = "0.5"
 http = "1"
 nexus-common = { path = "../nexus-common", features = ["test-utils"] }
 opentelemetry_sdk = { workspace = true, features = ["testing"] }
+# The migrator is only a test oracle: the agreement test compares the migration's output with
+# `migrate::transform`. The feature stays off in every production build.
+pubky-social-specs = { workspace = true, features = ["migrator"] }
 pubky-testnet = { workspace = true }
 rand = "0.10.1"
 tempfile = { workspace = true }
