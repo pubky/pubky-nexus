@@ -19,8 +19,8 @@ use nexus_common::models::post::search::PostsByTagSearch;
 use nexus_common::models::post::{PostDetails, PostRelationships, PostView, PostsByContentSearch};
 use nexus_common::models::user::Epoch;
 use nexus_common::types::Pagination;
-use nexus_watcher::events::migration;
 use nexus_watcher::events::retry::{IndexKey, RetryEvent};
+use nexus_watcher::events::v0_to_v1;
 use pubky::Keypair;
 use pubky_social_specs::legacy_v0::{post_uri_builder as v0_post_uri_builder, PubkyAppTag};
 use pubky_social_specs::post_uri_builder as v1_post_uri_builder;
@@ -546,8 +546,8 @@ async fn test_migration_rerun_gives_the_same_result() -> Result<()> {
     unset_post_attachments(&author_id, bare_id).await?;
 
     let author = pubky_id(&author_id)?;
-    let files = migration::files::FileMap::load(&author).await?;
-    migration::posts::migrate(&author, &files, 2).await?;
+    let files = v0_to_v1::files::FileMap::load(&author).await?;
+    v0_to_v1::posts::migrate(&author, &files, 2).await?;
     let first = snapshot(&author_id, &post_ids, &children).await?;
     for post_id in &post_ids {
         assert_eq!(
@@ -578,7 +578,7 @@ async fn test_migration_rerun_gives_the_same_result() -> Result<()> {
         assert!(parent.contains("/pub/social/v1/posts/"), "{parent}");
     }
 
-    migration::posts::migrate(&author, &files, 2).await?;
+    v0_to_v1::posts::migrate(&author, &files, 2).await?;
     assert_eq!(snapshot(&author_id, &post_ids, &children).await?, first);
 
     // Partly migrated, as a failed run leaves it: some addresses back at `pubky.app`
@@ -587,7 +587,7 @@ async fn test_migration_rerun_gives_the_same_result() -> Result<()> {
         set_post_uri(&author_id, post_id, Some(&v0_uri)).await?;
     }
     assert_ne!(snapshot(&author_id, &post_ids, &children).await?, first);
-    migration::posts::migrate(&author, &files, 2).await?;
+    v0_to_v1::posts::migrate(&author, &files, 2).await?;
     assert_eq!(snapshot(&author_id, &post_ids, &children).await?, first);
 
     for child_path in &child_paths {

@@ -11,7 +11,7 @@ use chrono::Utc;
 use nexus_common::models::notification::Notification;
 use nexus_common::models::post::PostView;
 use nexus_common::types::Pagination;
-use nexus_watcher::events::migration;
+use nexus_watcher::events::v0_to_v1;
 use pubky::{Keypair, ResourcePath};
 use pubky_social_specs::legacy_v0::traits::{HasIdPath, HashId};
 use pubky_social_specs::legacy_v0::{
@@ -256,8 +256,8 @@ async fn test_flip_rewrites_attachments_to_the_migrated_file_addresses() -> Resu
 
     // Rerun: the same attachments
     let author = pubky_id(&author_id)?;
-    let files = migration::files::FileMap::load(&author).await?;
-    migration::posts::migrate(&author, &files, 2).await?;
+    let files = v0_to_v1::files::FileMap::load(&author).await?;
+    v0_to_v1::posts::migrate(&author, &files, 2).await?;
     let (served, stored) = served_and_stored_attachments(&author_id, &post_id).await?;
     assert_eq!(served.as_deref(), Some(expected.as_slice()));
     assert_eq!(stored.as_deref(), Some(expected.as_slice()));

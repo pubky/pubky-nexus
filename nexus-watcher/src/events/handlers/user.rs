@@ -46,7 +46,7 @@ pub async fn sync_put(user: UserInput, user_id: PubkyId) -> Result<(), EventProc
 
 /// Moves a user to `v1`, once [`sync_put`] has indexed their `social/v1` profile: the flip.
 ///
-/// What Nexus holds for the user at `pubky.app` is migrated first ([`crate::events::migration`]). A
+/// What Nexus holds for the user at `pubky.app` is migrated first ([`crate::events::v0_to_v1`]). A
 /// failure before the epoch write leaves the user at `v0`, so the retry runs the whole flip
 /// again, migration included; one after it is retried as a profile edit, which caches the
 /// stored `v1`.
@@ -55,7 +55,7 @@ pub async fn flip(user_id: &PubkyId) -> Result<(), EventProcessorError> {
     debug!("Flipping user to v1");
 
     // Step 1: Migrate the user's indexed data to its `social/v1` form, while they are still `v0`
-    crate::events::migration::run(user_id).await?;
+    crate::events::v0_to_v1::run(user_id).await?;
 
     // Step 2: Set the epoch in the graph
     Epoch::set_v1_in_graph(user_id).await?;

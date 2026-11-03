@@ -26,7 +26,7 @@ use nexus_common::models::tag::post::TagPost;
 use nexus_common::models::tag::traits::TagCollection;
 use nexus_common::models::tag::user::TagUser;
 use nexus_common::models::tag::TagDetails;
-use nexus_watcher::events::migration;
+use nexus_watcher::events::v0_to_v1;
 use pubky::Keypair;
 use pubky_social_specs::legacy_v0::traits::HashId as V0HashId;
 use pubky_social_specs::legacy_v0::{
@@ -747,8 +747,8 @@ async fn test_tags_migration_rerun_gives_the_same_result() -> Result<()> {
     }
 
     let author = pubky_id(&author_id)?;
-    let files = migration::files::FileMap::load(&author).await?;
-    migration::tags::migrate(&author, &files, 2).await?;
+    let files = v0_to_v1::files::FileMap::load(&author).await?;
+    v0_to_v1::tags::migrate(&author, &files, 2).await?;
     let first = tag_edges_snapshot(&author_id).await?;
     assert_eq!(first.len(), tags.len());
     for (label, id, uri, _, _) in &first {
@@ -760,7 +760,7 @@ async fn test_tags_migration_rerun_gives_the_same_result() -> Result<()> {
         assert_eq!(uri, &v1_tag_uri(&author_id, id), "{label}");
     }
 
-    migration::tags::migrate(&author, &files, 2).await?;
+    v0_to_v1::tags::migrate(&author, &files, 2).await?;
     assert_eq!(tag_edges_snapshot(&author_id).await?, first);
 
     // Partly migrated, as a failed run leaves it: some edges back at `pubky.app`
@@ -774,7 +774,7 @@ async fn test_tags_migration_rerun_gives_the_same_result() -> Result<()> {
         .await?;
     }
     assert_ne!(tag_edges_snapshot(&author_id).await?, first);
-    migration::tags::migrate(&author, &files, 2).await?;
+    v0_to_v1::tags::migrate(&author, &files, 2).await?;
     assert_eq!(tag_edges_snapshot(&author_id).await?, first);
 
     // The edges answer to their v1 ids now: handled at `v1`

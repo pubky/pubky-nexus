@@ -1,6 +1,7 @@
-//! The internal migration: at the flip, what Nexus already holds for a user under `pubky.app`
-//! is rewritten to its `social/v1` form, derived from the graph, before the user's epoch moves
-//! to `v1`.
+//! The internal migration from `pubky.app` (`v0`) to `social/v1`: at the flip, what Nexus
+//! already holds for a user under `pubky.app` is rewritten to its `social/v1` form, derived from
+//! the graph, before the user's epoch moves to `v1`. Not a `nexusd` migration, and not the
+//! app's migrator, which copies the user's files; this one rewrites the index.
 //!
 //! Each step pages through the user's data in batches, each batch its own transaction, and a
 //! rerun over partly migrated data gives the same result. A failed step is logged with the user

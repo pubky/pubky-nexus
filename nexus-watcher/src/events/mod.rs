@@ -4,7 +4,6 @@ mod epoch_metrics;
 pub mod event;
 mod gate;
 pub mod inputs;
-pub mod migration;
 mod route;
 pub mod target;
 mod translation;
@@ -37,6 +36,7 @@ static TAKEN_DOWN: LazyLock<Counter<u64>> = LazyLock::new(|| {
 pub mod handlers;
 mod moderation;
 pub mod retry;
+pub mod v0_to_v1;
 
 use gate::Gate;
 use handlers::utils::bounded;
