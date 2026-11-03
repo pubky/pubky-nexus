@@ -821,7 +821,6 @@ mod tests {
         exec_single_row(query).await
     }
 
-    /// Helper: the PKDNS record kept on the user's `HOSTED_BY` edge, if any.
     /// Backdates the user's mapping two hours, so the user is due for resolution.
     async fn backdate_resolved_at(user_id: &str) -> Result<(), DynError> {
         let backdate_query = Query::new(
@@ -834,6 +833,7 @@ mod tests {
         Ok(())
     }
 
+    /// Helper: the PKDNS record kept on the user's `HOSTED_BY` edge, if any.
     async fn stored_record(user_id: &str) -> Result<Option<StoredRecord>, DynError> {
         let query = Query::new(
             "stored_hs_record",
