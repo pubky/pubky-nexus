@@ -150,11 +150,11 @@ mod tests {
 
     #[async_trait::async_trait]
     impl PkdnsHomeserverResolver for NoResolver {
-        async fn resolve_homeserver(
+        async fn resolve_record(
             &self,
             _: &pubky::PublicKey,
-        ) -> nexus_common::db::PubkyClientResult<Option<PubkyId>> {
-            Ok(None)
+        ) -> nexus_common::db::PubkyClientResult<nexus_common::models::user::PkdnsRecord> {
+            Ok(nexus_common::models::user::PkdnsRecord::Missing)
         }
     }
 
