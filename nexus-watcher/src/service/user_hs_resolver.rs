@@ -311,14 +311,13 @@ async fn get_users_needing_resolution(ttl_ms: u64) -> GraphResult<Vec<String>> {
 
 /// Why a user's `HOSTED_BY` mapping was marked stale.
 ///
-/// Exported as the `reason` attribute of the `marked_stale` counter so that a
-/// resolver outage (`unresolved`) can be told apart from users genuinely
-/// migrating to another homeserver (`hs_changed`).
+/// Exported as the `reason` attribute of the `marked_stale` counter. Both are
+/// records the key holder signed; a lookup that finds no record marks nothing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum StaleReason {
-    /// PKDNS returned no homeserver for the user.
+    /// The record names no homeserver.
     Unresolved,
-    /// PKDNS returned a homeserver different from the stored one.
+    /// The record names a homeserver different from the stored one.
     HsChanged,
 }
 
@@ -404,11 +403,14 @@ enum Resolution {
     Bound,
     /// Published HS matches the stored one; stale flag cleared.
     Confirmed { was_stale: bool },
-    /// Published HS missing or different; stale flag set.
+    /// The record names no HS or another one; stale flag set.
     Diverged {
         reason: StaleReason,
         was_stale: bool,
     },
+    /// Bound, and no record was found: nothing is known, so the mapping, its
+    /// flag and its record stand; only `resolved_at` is refreshed.
+    NoRecord { was_stale: bool },
     /// The lookup itself failed (a transport error on pubky 0.10+, or an answer
     /// signed by another key, refused on any version); graph untouched.
     LookupFailed { mapping: MappingState },
@@ -424,6 +426,7 @@ impl Resolution {
                 ..
             } => Outcome::Resolved,
             Self::Unbound
+            | Self::NoRecord { .. }
             | Self::Diverged {
                 reason: StaleReason::Unresolved,
                 ..
@@ -439,11 +442,13 @@ impl Resolution {
             Self::Confirmed { was_stale: true }
             | Self::Diverged {
                 was_stale: true, ..
-            } => MappingState::Stale,
+            }
+            | Self::NoRecord { was_stale: true } => MappingState::Stale,
             Self::Confirmed { was_stale: false }
             | Self::Diverged {
                 was_stale: false, ..
-            } => MappingState::Active,
+            }
+            | Self::NoRecord { was_stale: false } => MappingState::Active,
             Self::LookupFailed { mapping } => mapping,
         }
     }
@@ -499,9 +504,19 @@ async fn resolve_user(
             _ => Resolution::Unbound,
         },
 
+        // No record says nothing: on pubky 0.9.3 a failed lookup looks the
+        // same. The mapping, its flag and its record stand.
+        (Some(stored), PkdnsRecord::Missing) => {
+            set_user_homeserver_stale(&user_id, stored.stale, None).await?;
+            debug!(%user_id, "No PKDNS record found; HS mapping left as it is");
+            Resolution::NoRecord {
+                was_stale: stored.stale,
+            }
+        }
+
         // Already bound to a HS: toggle the stale flag instead of switching.
         // The record is kept on the edge either way, as what the key holder
-        // published; a missing one leaves the stored record.
+        // published.
         (Some(stored), record) => {
             let stored_record = record.stored();
             match record.homeserver() {
@@ -1181,9 +1196,10 @@ mod tests {
         Ok(())
     }
 
-    /// When the homeserver is unpublished, the binding is kept but marked stale.
+    /// When no record is found, the mapping is left as it is and the user is
+    /// still indexed: on pubky 0.9.3 an outage looks the same.
     #[tokio_shared_rt::test(shared)]
-    async fn test_resolve_user_unpublished_keeps_binding_and_marks_stale() -> Result<(), DynError> {
+    async fn test_resolve_user_missing_record_leaves_mapping_as_it_is() -> Result<(), DynError> {
         setup().await?;
 
         let user_pk = random_pk();
@@ -1193,24 +1209,17 @@ mod tests {
         create_test_user(&user_id).await?;
         set_user_homeserver(&user_id, &stored_hs).await?;
 
-        // DHT no longer publishes a homeserver
         let outcome = resolve_user(&MockResolver::missing(), &user_pk).await?;
-        assert_eq!(
-            outcome,
-            Resolution::Diverged {
-                reason: StaleReason::Unresolved,
-                was_stale: false,
-            }
-        );
+        assert_eq!(outcome, Resolution::NoRecord { was_stale: false });
 
         assert_eq!(
             get_user_homeserver(&user_id).await?,
             Some(UserHomeserverMapping {
                 hs_id: stored_hs.to_string(),
-                stale: true,
+                stale: false,
             })
         );
-        assert!(!get_user_ids_by_homeserver(&stored_hs)
+        assert!(get_user_ids_by_homeserver(&stored_hs)
             .await?
             .contains(&user_id));
 
@@ -1338,8 +1347,9 @@ mod tests {
     }
 
     /// Every resolution that has a record keeps it on the edge, and the stored
-    /// record verifies as the user's own signed packet. A missing record leaves
-    /// the stored one.
+    /// record verifies as the user's own signed packet. A record naming no
+    /// homeserver marks the mapping stale; a missing record leaves the flag and
+    /// the stored record.
     #[tokio_shared_rt::test(shared)]
     async fn test_resolve_user_keeps_the_record_on_the_edge() -> Result<(), DynError> {
         setup().await?;
@@ -1385,12 +1395,12 @@ mod tests {
         );
 
         let outcome = resolve_user(&MockResolver::missing(), &user_pk).await?;
-        assert_eq!(
-            outcome,
-            Resolution::Diverged {
-                reason: StaleReason::Unresolved,
-                was_stale: true,
-            }
+        assert_eq!(outcome, Resolution::NoRecord { was_stale: true });
+        assert!(
+            get_user_homeserver(&user_id)
+                .await?
+                .is_some_and(|m| m.stale),
+            "a missing record leaves a stale mapping stale"
         );
         assert_eq!(
             stored_record(&user_id).await?.map(|r| r.timestamp),
@@ -1588,6 +1598,18 @@ mod tests {
             ),
             (diverged(Unresolved, true), Outcome::Unresolved, Stale, None),
             (diverged(HsChanged, true), Outcome::Resolved, Stale, None),
+            (
+                Resolution::NoRecord { was_stale: false },
+                Outcome::Unresolved,
+                Active,
+                None,
+            ),
+            (
+                Resolution::NoRecord { was_stale: true },
+                Outcome::Unresolved,
+                Stale,
+                None,
+            ),
             (
                 Resolution::LookupFailed { mapping: Active },
                 Outcome::Error,
