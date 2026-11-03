@@ -181,14 +181,44 @@ impl UserDetails {
     }
 }
 
-/// Binds a user to their homeserver, recording the `HOSTED_BY` relationship and `resolved_at`.
+/// Binds a user to a homeserver without a PKDNS record, as tests do, recording
+/// the `HOSTED_BY` relationship and `resolved_at`; the resolver and the ingestor
+/// bind from the record they resolved, see [`set_user_homeserver_from_record`].
 pub async fn set_user_homeserver(user_id: &str, homeserver_id: &str) -> GraphResult<()> {
-    exec_single_row(queries::put::set_user_homeserver(user_id, homeserver_id)).await
+    exec_single_row(queries::put::set_user_homeserver(
+        user_id,
+        homeserver_id,
+        None,
+    ))
+    .await
 }
 
-/// Toggles the stale flag on a user's existing homeserver mapping.
-pub async fn set_user_homeserver_stale(user_id: &str, stale: bool) -> GraphResult<()> {
-    exec_single_row(queries::put::set_user_homeserver_stale(user_id, stale)).await
+/// Binds a user to the homeserver their PKDNS record names, keeping the record
+/// on the `HOSTED_BY` relationship.
+pub async fn set_user_homeserver_from_record(
+    user_id: &str,
+    homeserver_id: &str,
+    record: &super::StoredRecord,
+) -> GraphResult<()> {
+    exec_single_row(queries::put::set_user_homeserver(
+        user_id,
+        homeserver_id,
+        Some(record),
+    ))
+    .await
+}
+
+/// Toggles the stale flag on a user's existing homeserver mapping, keeping the
+/// PKDNS record the flag was applied from on the relationship when there is one.
+pub async fn set_user_homeserver_stale(
+    user_id: &str,
+    stale: bool,
+    record: Option<&super::StoredRecord>,
+) -> GraphResult<()> {
+    exec_single_row(queries::put::set_user_homeserver_stale(
+        user_id, stale, record,
+    ))
+    .await
 }
 /// True only when every id has a `User` node.
 pub async fn users_exist(user_ids: &[&str]) -> GraphResult<bool> {
