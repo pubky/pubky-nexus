@@ -9,7 +9,7 @@ use nexus_common::models::traits::Collection;
 use nexus_common::models::user::catch_up::{caught_up, start_catch_up};
 use nexus_common::models::user::outsider::admit_outsider;
 use nexus_common::models::user::{
-    set_user_homeserver, UserDetails, UserHsCursor, UserIngestor, SCOPE_STATE_LEFT,
+    set_user_homeserver_from_record, UserDetails, UserHsCursor, UserIngestor, SCOPE_STATE_LEFT,
 };
 use nexus_common::ScopeConfig;
 use pubky_app_specs::PubkyId;
@@ -73,14 +73,14 @@ impl<'a> ScopeMembership<'a> {
             Some(Some(_)) => {}
         }
 
-        let Some(hs_id) = self.ingestor.ensure_hs_not_blacklisted(user_id).await? else {
+        let Some((hs_id, record)) = self.ingestor.resolve_unless_blacklisted(user_id).await? else {
             tracing::warn!("Not promoting {user_id}: no published HS");
             return Ok(false);
         };
 
         // The graph's state is cleared last: if anything before fails, the user is still
         // out of scope there and the next promotion retries the whole of it.
-        set_user_homeserver(user_id, &hs_id).await?;
+        set_user_homeserver_from_record(user_id, &hs_id, &record).await?;
         // Read from the start: its records were skipped while it was out, also in the
         // feeds of the homeservers read whole, and a poll still running when it left may
         // have written a cursor back.

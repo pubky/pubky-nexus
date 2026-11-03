@@ -2,14 +2,14 @@ use std::sync::Arc;
 
 use pubky_app_specs::{ParsedUri, PubkyId};
 
-use super::PkdnsHomeserverResolver;
+use super::{PkdnsHomeserverResolver, StoredRecord};
 use crate::db::{fetch_row_from_graph, queries};
 use crate::models::error::{ModelError, ModelResult};
 use crate::models::homeserver::HsBlacklist;
 use crate::models::scope::{scope_from_config, EverythingScope, Scope};
 use crate::models::traits::Collection;
 use crate::models::user::outsider::create_outsider;
-use crate::models::user::{set_user_homeserver, UserDetails, UserHsCursor};
+use crate::models::user::{set_user_homeserver_from_record, UserDetails, UserHsCursor};
 use crate::{ScopeConfig, StackConfig};
 
 /// Ingests previously-unknown users unless their HS is blacklisted.
@@ -84,9 +84,21 @@ impl UserIngestor {
         &self,
         user_id: &PubkyId,
     ) -> ModelResult<Option<String>> {
+        Ok(self
+            .resolve_unless_blacklisted(user_id)
+            .await?
+            .map(|(hs_id, _)| hs_id))
+    }
+
+    /// The user's published HS and the record naming it, unless the user's own
+    /// key or that HS is blacklisted. `None` when the user publishes no HS.
+    pub async fn resolve_unless_blacklisted(
+        &self,
+        user_id: &PubkyId,
+    ) -> ModelResult<Option<(String, StoredRecord)>> {
         // `user_id` may itself be an HS PK (e.g. a file `src` of the form
         // `pubky://<hs_pk>/...` that addresses the HS directly). The resolver
-        // returns `None` for an HS PK, so without this self-check a blacklisted HS
+        // returns no HS for an HS PK, so without this self-check a blacklisted HS
         // used as a direct source would slip through and we'd reach out to it.
         if self.hs_blacklist.is_blacklisted(user_id.as_ref()) {
             return Err(ModelError::HsBlacklisted {
@@ -94,12 +106,12 @@ impl UserIngestor {
             });
         }
 
-        let resolved = self
+        let record = self
             .resolver
-            .resolve_homeserver(&user_id.to_public_key())
+            .resolve_own_record(&user_id.to_public_key())
             .await
             .map_err(ModelError::from_generic)?;
-        let Some(hs_pk) = resolved else {
+        let (Some(stored), Some(hs_pk)) = (record.stored(), record.homeserver()) else {
             return Ok(None);
         };
 
@@ -108,7 +120,7 @@ impl UserIngestor {
             return Err(ModelError::HsBlacklisted { hs_id });
         }
 
-        Ok(Some(hs_id))
+        Ok(Some((hs_id, stored)))
     }
 
     /// Resolves and persists a previously-unknown user.
@@ -125,12 +137,12 @@ impl UserIngestor {
             return Ok(());
         }
 
-        let maybe_hs_id = self
-            .ensure_hs_not_blacklisted(user_id)
+        let resolved = self
+            .resolve_unless_blacklisted(user_id)
             .await
             .inspect_err(|e| tracing::warn!("Aborting ingestion of {user_id}: {e}"))?;
 
-        let Some(hs_id) = maybe_hs_id else {
+        let Some((hs_id, record)) = resolved else {
             tracing::warn!("Skipping ingestion: {user_id} has no published HS or is an HS PK");
             return Ok(());
         };
@@ -152,8 +164,8 @@ impl UserIngestor {
             .inspect(|_| tracing::info!("Ingested user {user_id} from HS {hs_id}"))
             .inspect_err(|e| tracing::error!("Failed to ingest user {user_id}: {e}"))?;
 
-        // Bind the user to their HS (HOSTED_BY + resolved_at), since we just resolved the HS
-        set_user_homeserver(&user_id_str, &hs_id).await?;
+        // Bind the user to their HS (HOSTED_BY + resolved_at) from the record just resolved
+        set_user_homeserver_from_record(&user_id_str, &hs_id, &record).await?;
 
         // Seed the user's HS cursor floor (no-op if we're already tracking them).
         UserHsCursor::init(user_id, &hs_id).await?;
@@ -193,20 +205,74 @@ impl UserIngestor {
 
 #[cfg(test)]
 mod tests {
-    use pubky::PublicKey;
+    use pubky::{Keypair, PublicKey};
 
     use super::*;
-    use crate::db::PubkyClientResult;
-    use crate::utils::test_utils::random_pubky_id;
+    use crate::db::{
+        exec_single_row, fetch_row_from_graph, graph::Query, queries, PubkyClientResult,
+    };
+    use crate::models::user::PkdnsRecord;
+    use crate::utils::test_utils::{random_pubky_id, signed_packet_naming};
+    use crate::{types::DynError, StackConfig, StackManager};
 
-    /// Resolves every user to one homeserver, without the network.
-    struct FixedResolver(PubkyId);
+    /// Answers every lookup with `keypair`'s own record naming one homeserver.
+    struct SigningResolver {
+        keypair: Keypair,
+        homeserver: PubkyId,
+    }
 
     #[async_trait::async_trait]
-    impl PkdnsHomeserverResolver for FixedResolver {
-        async fn resolve_homeserver(&self, _: &PublicKey) -> PubkyClientResult<Option<PubkyId>> {
-            Ok(Some(self.0.clone()))
+    impl PkdnsHomeserverResolver for SigningResolver {
+        async fn resolve_record(&self, _: &PublicKey) -> PubkyClientResult<PkdnsRecord> {
+            Ok(PkdnsRecord::Published(signed_packet_naming(
+                &self.keypair,
+                Some(&self.homeserver),
+                7,
+            )))
         }
+    }
+
+    /// A newly seen user is bound from the record just resolved, which stays on
+    /// the edge as the user's own signed packet.
+    #[tokio_shared_rt::test(shared)]
+    async fn ingested_user_is_bound_from_the_resolved_record() -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+        let user = Keypair::random();
+        let user_id = PubkyId::from(user.public_key());
+        let homeserver = random_pubky_id();
+        let ingestor = UserIngestor::new(
+            [],
+            Arc::new(SigningResolver {
+                keypair: user,
+                homeserver: homeserver.clone(),
+            }),
+        );
+
+        ingestor.maybe_ingest_user(&user_id).await?;
+
+        let query = Query::new(
+            "ingested_user_record",
+            "MATCH (u:User {id: $user_id})-[r:HOSTED_BY]->(hs:Homeserver)
+             RETURN hs.id AS hs_id, r.record AS packet, r.record_ts AS timestamp",
+        )
+        .param("user_id", user_id.to_string());
+        let row = fetch_row_from_graph(query)
+            .await?
+            .expect("the user is bound");
+        assert_eq!(row.get::<String>("hs_id")?, homeserver.to_string());
+        let stored = StoredRecord {
+            packet: row.get("packet")?,
+            timestamp: row.get("timestamp")?,
+        };
+        assert_eq!(stored.timestamp, 7);
+        let packet = stored.verify(&user_id.to_public_key())?;
+        assert_eq!(
+            PkdnsRecord::Published(packet).homeserver(),
+            Some(homeserver)
+        );
+
+        exec_single_row(queries::del::delete_user(user_id.as_ref())).await?;
+        Ok(())
     }
 
     /// The blacklist check looks the user's homeserver up through the injected resolver.
@@ -214,19 +280,52 @@ mod tests {
     async fn blacklist_check_uses_the_injected_resolver() {
         let blacklisted = random_pubky_id();
         let allowed = random_pubky_id();
-        let user = random_pubky_id();
+        let user = Keypair::random();
+        let user_id = PubkyId::from(user.public_key());
 
         let refusing = UserIngestor::new(
             [blacklisted.clone()],
-            Arc::new(FixedResolver(blacklisted.clone())),
+            Arc::new(SigningResolver {
+                keypair: user.clone(),
+                homeserver: blacklisted.clone(),
+            }),
         );
-        let err = refusing.ensure_hs_not_blacklisted(&user).await.unwrap_err();
+        let err = refusing
+            .ensure_hs_not_blacklisted(&user_id)
+            .await
+            .unwrap_err();
         assert!(
             matches!(err, ModelError::HsBlacklisted { hs_id } if hs_id == blacklisted.to_string())
         );
 
-        let accepting = UserIngestor::new([blacklisted], Arc::new(FixedResolver(allowed.clone())));
-        let hs_id = accepting.ensure_hs_not_blacklisted(&user).await.unwrap();
+        let accepting = UserIngestor::new(
+            [blacklisted],
+            Arc::new(SigningResolver {
+                keypair: user,
+                homeserver: allowed.clone(),
+            }),
+        );
+        let hs_id = accepting.ensure_hs_not_blacklisted(&user_id).await.unwrap();
         assert_eq!(hs_id, Some(allowed.to_string()));
+    }
+
+    /// A lookup answered with another key's record fails, so the user is not
+    /// taken to be hosted where that record points.
+    #[tokio::test]
+    async fn record_signed_by_another_key_is_refused() {
+        let user_id = random_pubky_id();
+        let ingestor = UserIngestor::new(
+            [],
+            Arc::new(SigningResolver {
+                keypair: Keypair::random(),
+                homeserver: random_pubky_id(),
+            }),
+        );
+
+        let err = ingestor
+            .ensure_hs_not_blacklisted(&user_id)
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("is signed by"), "{err}");
     }
 }
