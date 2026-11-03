@@ -212,6 +212,23 @@ impl Notification {
         .await
     }
 
+    /// Like [`Self::put_to_index`], but keeps an identical notification already in
+    /// the set, timestamp included. The body carries no timestamp, so the event that
+    /// created it can be replayed (retry, recovery) without re-surfacing it.
+    async fn put_to_index_once(&self, user_id: &str) -> RedisResult<()> {
+        let notification_body_json = serde_json::to_string(&self.body)
+            .map_err(|e| RedisError::SerializationFailed(Box::new(e)))?;
+        let score = self.timestamp as f64;
+
+        Notification::add_index_sorted_set_if_absent(
+            &["Notification", user_id],
+            score,
+            notification_body_json.as_str(),
+            None,
+        )
+        .await
+    }
+
     /// Lists notifications from the sorted set for the user, based on skip and limit, or timestamp range.
     pub async fn get_by_id(user_id: &str, pagination: Pagination) -> RedisResult<Vec<Self>> {
         // Set the default params for pagination
@@ -439,7 +456,7 @@ impl Notification {
             post_kind,
         };
         let notification = Notification::new(body);
-        notification.put_to_index(parent_post_author).await
+        notification.put_to_index_once(parent_post_author).await
     }
 
     pub async fn new_mention(
@@ -457,7 +474,7 @@ impl Notification {
             post_kind,
         };
         let notification = Notification::new(body);
-        notification.put_to_index(mentioned_id).await?;
+        notification.put_to_index_once(mentioned_id).await?;
 
         Ok(Some(mentioned_id.clone()))
     }
@@ -479,7 +496,7 @@ impl Notification {
             post_kind,
         };
         let notification = Notification::new(body);
-        notification.put_to_index(embed_post_author).await
+        notification.put_to_index_once(embed_post_author).await
     }
 
     pub async fn post_children_changed(
