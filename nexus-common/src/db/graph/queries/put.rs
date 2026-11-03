@@ -467,7 +467,16 @@ pub fn record_takedown(uri: &str, tag_uri: &str) -> Query {
 /// If the user is already on the target homeserver, refreshes `resolved_at`.
 /// If the user is on a different homeserver, replaces the old relationship.
 /// MERGEs the target homeserver node if it doesn't exist yet.
-pub fn set_user_homeserver(user_id: &str, homeserver_id: &str) -> Query {
+///
+/// `record` is the PKDNS record the binding is applied from, kept on the edge
+/// as `record` (the signed packet, hex) and `record_ts` (its timestamp). `None`
+/// (only tests bind without one) leaves the stored one; a replaced edge starts
+/// without one.
+pub fn set_user_homeserver(
+    user_id: &str,
+    homeserver_id: &str,
+    record: Option<&crate::models::user::StoredRecord>,
+) -> Query {
     Query::new(
         "set_user_homeserver",
         "MATCH (u:User {id: $user_id})
@@ -482,10 +491,14 @@ pub fn set_user_homeserver(user_id: &str, homeserver_id: &str) -> Query {
          // Ensure target homeserver and relationship exist
          MERGE (hs:Homeserver {id: $hs_id})
          MERGE (u)-[r:HOSTED_BY]->(hs)
-         SET r.resolved_at = timestamp()",
+         SET r.resolved_at = timestamp(),
+             r.record = coalesce($record, r.record),
+             r.record_ts = coalesce($record_ts, r.record_ts)",
     )
     .param("user_id", user_id.to_string())
     .param("hs_id", homeserver_id.to_string())
+    .param("record", record.map(|record| record.packet.clone()))
+    .param("record_ts", record.map(|record| record.timestamp))
 }
 
 /// Toggles the `stale` flag on a user's existing `HOSTED_BY` relationship and
@@ -495,12 +508,25 @@ pub fn set_user_homeserver(user_id: &str, homeserver_id: &str) -> Query {
 /// never changed. Instead, when the published homeserver diverges (changed or
 /// removed) the mapping is marked stale to pause indexing; when it realigns the
 /// flag is cleared to resume.
-pub fn set_user_homeserver_stale(user_id: &str, stale: bool) -> Query {
+///
+/// `record` is the PKDNS record the flag is applied from, kept on the edge as
+/// [`set_user_homeserver`] keeps it; `None`, when no record was found, leaves
+/// the stored one.
+pub fn set_user_homeserver_stale(
+    user_id: &str,
+    stale: bool,
+    record: Option<&crate::models::user::StoredRecord>,
+) -> Query {
     Query::new(
         "set_user_homeserver_stale",
         "MATCH (u:User {id: $user_id})-[r:HOSTED_BY]->(:Homeserver)
-         SET r.stale = $stale, r.resolved_at = timestamp()",
+         SET r.stale = $stale,
+             r.resolved_at = timestamp(),
+             r.record = coalesce($record, r.record),
+             r.record_ts = coalesce($record_ts, r.record_ts)",
     )
     .param("user_id", user_id.to_string())
     .param("stale", stale)
+    .param("record", record.map(|record| record.packet.clone()))
+    .param("record_ts", record.map(|record| record.timestamp))
 }
