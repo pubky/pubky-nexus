@@ -448,9 +448,21 @@ fn every_tag_row_takes_the_migrators_id_and_address() {
             format!("{PROTOCOL}{OWNER}/pub/eventky.app/events/abc"),
             LABEL,
         ),
-        // A v1 file address written before the flip
+        // v1 addresses written before the flip: a file, a post, a post version
         (
             format!("{PROTOCOL}{OWNER}/pub/social/v1/files/{IMAGE_HASH}.png"),
+            LABEL,
+        ),
+        (
+            format!("{PROTOCOL}{OTHER}/pub/social/v1/posts/{}", tsid(51)),
+            LABEL,
+        ),
+        (
+            format!(
+                "{PROTOCOL}{OTHER}/pub/social/v1/posts/{}/{}.json",
+                tsid(51),
+                tsid(52)
+            ),
             LABEL,
         ),
     ];

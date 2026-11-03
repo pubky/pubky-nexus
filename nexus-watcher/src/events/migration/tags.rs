@@ -10,7 +10,8 @@
 //!
 //! | Edge target | `t.id` |
 //! |---|---|
-//! | Post | Computed from the v1 post URI |
+//! | Post, `t.id` matches the `pubky.app` post | Computed from the v1 post URI |
+//! | Post, no match (a `social/v1` address, versioned or not) | Kept |
 //! | User, `t.id` matches `profile.json` | Computed from the v1 profile URI |
 //! | User, `t.id` matches bare `pubky://pk` | Kept |
 //! | User, no match | Kept, and logged |
@@ -22,9 +23,11 @@
 //! author's `Post.uri` is still `pubky.app`, and the migrator rewrites another user's post or
 //! profile to its v1 URI whether or not they migrated. A kept id is right because the migrator
 //! keeps those targets too, so the hash input is the same; for a URL with a fragment or
-//! userinfo it is the only answer, because `Resource.uri` has lost them. The match on a user
-//! edge recomputes the v0 id for each spelling, with no I/O, because the edge no longer holds
-//! which one the tagger wrote.
+//! userinfo it is the only answer, because `Resource.uri` has lost them. The match on a post or
+//! a user edge recomputes the v0 id for the `pubky.app` spelling, with no I/O, because the edge
+//! no longer holds which one the tagger wrote: a tagger still on `pubky.app` may have tagged a
+//! post by its `social/v1` address, versioned or not, which the migrator keeps as it is and
+//! which the keys cannot rebuild, so the id stays.
 //!
 //! Paging never uses `SKIP`: each loop reads up to a batch of edges still under the `pubky.app`
 //! prefix, with no offset, and each write moves its edges out of that set. Every row is
@@ -40,8 +43,8 @@ use crate::events::EventProcessorError;
 use nexus_common::db::{fetch_all_rows_from_graph, fetch_key_from_graph, queries, GraphError};
 use pubky_social_specs::legacy_v0::traits::HashId as _;
 use pubky_social_specs::legacy_v0::{
-    tag_uri_builder as v0_tag_uri_builder, user_uri_builder as v0_user_uri_builder, ParsedUri,
-    PubkyAppTag, Resource,
+    post_uri_builder as v0_post_uri_builder, tag_uri_builder as v0_tag_uri_builder,
+    user_uri_builder as v0_user_uri_builder, ParsedUri, PubkyAppTag, Resource,
 };
 use pubky_social_specs::traits::HashId;
 use pubky_social_specs::{
@@ -189,10 +192,17 @@ fn new_id(owner: &PubkyId, files: &FileMap, tag: &StoredTag) -> NewId {
         Target::Post {
             author_id: Some(author_id),
             post_id,
-        } => NewId::Computed(tag_id(
-            &post_uri_builder(author_id.clone(), post_id.clone()),
-            &tag.label,
-        )),
+        } => {
+            let v0_uri = v0_post_uri_builder(author_id.clone(), post_id.clone());
+            if tag.id == v0_tag_id(&v0_uri, &tag.label) {
+                NewId::Computed(tag_id(
+                    &post_uri_builder(author_id.clone(), post_id.clone()),
+                    &tag.label,
+                ))
+            } else {
+                NewId::Kept
+            }
+        }
         Target::Post {
             author_id: None, ..
         } => NewId::Unmatched("the tagged post has no author"),
@@ -252,9 +262,7 @@ fn v0_tag_id(target: &str, label: &str) -> String {
 mod tests {
     use super::*;
     use pubky_social_specs::file_uri_builder;
-    use pubky_social_specs::legacy_v0::{
-        file_uri_builder as v0_file_uri_builder, post_uri_builder as v0_post_uri_builder,
-    };
+    use pubky_social_specs::legacy_v0::file_uri_builder as v0_file_uri_builder;
 
     const OWNER: &str = "operrr8wsbpr3ue9d4qj41ge1kcc6r7fdiy6o3ugjrrhi4y77rdo";
     const OTHER: &str = "y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy";
@@ -307,6 +315,18 @@ mod tests {
                 LABEL,
             );
             assert_eq!(new_id(&owner(), &files(), &tag), NewId::Computed(expected));
+        }
+    }
+
+    /// A tagger still on `pubky.app` tagged the post by its `social/v1` address: the migrator
+    /// keeps that target, so the id computed from the versionless keys would name another file.
+    #[test]
+    fn a_post_tag_on_a_v1_address_keeps_its_id() {
+        let versionless = post_uri_builder(OTHER.to_string(), POST_ID.to_string());
+        let versioned = format!("{versionless}/0032SSN7Q4EVJ.json");
+        for spelling in [versionless, versioned] {
+            let tag = v0_edge(&spelling, post(OTHER));
+            assert_eq!(new_id(&owner(), &files(), &tag), NewId::Kept, "{spelling}");
         }
     }
 
