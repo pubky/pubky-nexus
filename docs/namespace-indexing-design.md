@@ -15,8 +15,8 @@ document, and is not on `main`), it is marked *branch*.
 2. An object of another namespace reaches Nexus only when social data references it: a tag in
    the social tag folder, or a social post's `parent`, `embed` or collection item.
 3. Nexus never follows references found inside a referenced object.
-4. Apps that need every object of their own namespace index them themselves; Nexus is not that
-   indexer.
+4. Who runs a full index for clients that need every object of a namespace is outside this
+   design. The only fixed point is rule 1: it is not Nexus discovering namespaces on its own.
 5. Social validation stays strict: social objects are read only with the social spec's closed
    kind sets, and nothing read from another namespace feeds social indexing.
 
@@ -65,21 +65,33 @@ state for `401`/`403` (not treated as deleted), and treats `404`/`410` as missin
 bound; queueing, backoff, homeserver unavailability and dead-lettering delay an edit or delete
 without limit until a refresh succeeds. No Nexus watcher and no known-URI event signal is added.
 
-### 2.5 "Following" and reach (decided: keep current behaviour)
+### 2.5 Following, reach and web of trust (decided: keep current behaviour exactly)
 
-Everywhere Nexus filters by a social relation today, the relation applies to the **author**:
+Routes that take a social relation apply it to different subjects. Each row is current
+behaviour on this branch's base, and every one is kept as it is. `reach` is `followers |
+following | friends | wot | wot_1..wot_3` (bare `wot` is depth 2) anchored on the named user.
 
-- `GET /v0/stream/posts?source=following|followers|friends&observer_id=` selects posts
-  **authored** by those users (`queries/get.rs`, `post_stream`, the `Following`/`Followers`/
-  `Friends` arms; the observer's own posts excluded).
-- `GET /v0/search/posts/by_tag/{tag}?reach=&user_id=` selects posts tagged with the label
-  whose **author** is in the reach (`models/post/search.rs`, `get_by_label_with_reach`).
-- The resource streams have no reach parameter. Pinakes applies reach to **referrers** itself:
-  it reads `GET /v0/user/{viewer}/following|friends` (limit 200) and filters its own references.
+| Route and parameters | Who the relation selects | Source |
+|---|---|---|
+| `GET /v0/stream/posts?source=following\|followers\|friends&observer_id=` | post **authors** in that relation to the observer (observer excluded) | `queries/get.rs` `post_stream`, `Following`/`Followers`/`Friends` arms |
+| `GET /v0/stream/posts?source=wot&observer_id=&depth=1..3` | post **authors** within `depth` follow steps (observer excluded) | `post_stream`, `Wot` arm |
+| `GET /v0/stream/posts?source=wot_domain&observer_id=&domain_tags=&depth=0..3` | post **authors** endorsed with a `domain_tags` label by **taggers** in the observer's follow reach (`depth=0`: by the observer alone) | `post_stream`, `WotDomain` arms |
+| `GET /v0/search/posts/by_tag/{tag}?user_id=&reach=` | tagged posts whose **author** is in reach (never `user_id`) | `models/post/search.rs` `get_by_label_with_reach` |
+| `GET /v0/search/posts/by_content?user_id=&reach=` | matching posts whose **author** is in reach (never `user_id`) | `routes/v0/search/posts.rs` |
+| `GET /v0/tags/hot?user_id=&reach=` | tags whose **tagger** is in reach | `queries/get.rs` `get_hot_tags_by_reach` |
+| `GET /v0/tags/taggers/{label}?user_id=&reach=` | **taggers** in reach who used the label on posts | `queries/get.rs` `get_tag_taggers_by_reach` |
+| `GET /v0/search/users/by_tags?user_id=&reach=` | **tagged users** in reach (never `user_id`), scores unchanged | `queries/get.rs` `search_users_by_tags_with_reach` |
+| `GET /v0/stream/users?source=influencers&user_id=&reach=` | **users** in reach, ranked as influencers | `models/user/stream.rs` |
+| `GET /v0/post/{a}/{id}/tags`, `GET /v0/user/{id}/tags`, `/taggers/{label}`, `GET /v0/user/{id}` with `viewer_id=&depth=1..3` | **taggers** of those tags within `depth` follow steps of the viewer (the post taggers route ignores `depth`) | `queries/get.rs` `get_viewer_trusted_network_tags`, `get_viewer_trusted_network_post_tags` |
+| `GET /v0/stream/resources`, `/ids`, Resource routes | no relation parameter | `routes/v0/stream/resources.rs` |
+
+Pinakes applies reach to **referrers** of Resources itself: it reads
+`GET /v0/user/{viewer}/following|friends` (limit 200) and filters its own references.
 
 "Authored by someone I follow" and "tagged or embedded by someone I follow" are different
-questions. This design keeps both behaviours exactly as they are and adds no following filter.
-A referrer-reach filter in Nexus remains a possible later proposal, only if a consumer needs it.
+questions, and both already exist on different routes. This design keeps every row above as it is
+and adds no relation filter and no new meaning for an existing one. A relation filter on the
+resource streams would be a separate future proposal.
 
 ## 3. Identity
 
@@ -105,41 +117,65 @@ in `beta` never share a filter, a count or a validator.
 
 ### 3.3 Spec compatibility
 
-The base spec pin (social 1.0) has no envelope for other namespaces: such paths are
-`Resource::Foreign` and nothing else. The social 1.1 draft adds sub-specs: an app's kinds use
-the same `PostEnvelope<K>` as social, stored at `/{pub,priv}/<ns>/v1/posts/{id}/{editId}.json`
-and referenced versionless as `pubky://{owner}/pub/<ns>/v1/posts/{id}`; `kind` is the envelope's
-top-level string; a namespace is 1–32 characters of `a-z0-9-` starting with a letter, and
-`social` is reserved (`subspec::validate_namespace`). The draft states that an indexer reads only
-the generic envelope (namespace, kind, author, `parent`, `embed`) and nothing inside an app's
-`content`.
+Two spec pins matter: this branch's base pins `pubky-social-specs` at `acde362` (crate version
+`1.0.0-alpha.5`); the separate social 1.1 work pins the draft `b2916840` (`1.1.0-alpha.1`).
+Neither is a release.
 
-What the draft does **not** yet give an indexer is a way to read any namespace's kind.
-`subspec::read_version::<K>` validates `kind` against one namespace's closed set `K`; a name
-outside it lands in the catch-all `Unknown(String)`, which "reads, and fails validation". So
-reading the kind of an arbitrary namespace needs one addition, and only one:
+**Already in the base pin (`acde362`).**
 
-- a namespace-agnostic kind type for indexers: it accepts any well-formed kind name and has no
-  content rules, so the envelope's own rules (id, `extra`, list caps, the reference gate on
-  `parent`/`embed`/`attachments`, the ownership rule with the author the URI names) still run;
-- a kind-name syntax, which the spec does not define for sub-specs today (social's names are
-  short lowercase words).
+- The generic envelope `PostEnvelope<K: PostKind>`, the object "every specialization shares",
+  stored at `{root}/{namespace}/v1/posts/{id}/{editId}.json`; its documentation says a namespace
+  can ship its own kind set on the same envelope and that social readers classify those paths as
+  foreign (`src/models/post/mod.rs`, `PostKind` and `PostEnvelope`).
+- The path builder `namespace_path(root, namespace, leaf)` (`src/constants.rs`) and
+  `PostEnvelope::version_path(namespace, …)`, `create_version_under`, `edit_version_under`, which
+  refuse the reserved `social` namespace (`reject_social_namespace`).
+- `kind` as the envelope's top-level string, read into a `PostKind` whose catch-all
+  (`is_known() == false`) "reads, and fails validation".
+- A generic `Validatable` for `PostEnvelope<K>` and `check_references(ctx, owner)`, the reference
+  gate with the author in scope.
+- `ParsedUri` classifying another namespace's path as `Resource::Foreign { namespace, version,
+  rest }` (`src/uri/parsed.rs`).
 
-Proposed: both go into the spec crate, so every indexer agrees on what a well-formed kind is. A
-Nexus-local implementation of the public `PostKind` trait would work too, but would make Nexus
-the owner of a naming rule the spec should own. Neither changes the envelope's wire, the social
-envelope, tag files or reference positions.
+**Added by the 1.1 draft (`b2916840`), not in the base pin.**
+
+- A `subspec` module (`src/subspec.rs`): `validate_namespace` (1–32 characters of `a-z0-9-`,
+  starting with a letter, `social` reserved), `version_path`, the versionless reference
+  `post_uri` (`pubky://{owner}/{root}/{ns}/v1/posts/{id}`), `parse_post_uri`, `read_version`
+  (validate a stored version with the ownership rule), the `subspec_names!` macro and vector
+  files.
+- A `check_owner` hook on `PostKind`.
+- `docs/SUBSPECS.md`, which states that an indexer reads only the generic envelope (namespace,
+  kind, author, `parent`, `embed`) and nothing inside an app's `content`.
+
+**In neither pin.** A way for an indexer to read the kind of **any** namespace. Every `PostKind`
+is one namespace's closed set: an unknown name fails validation, and `read_version::<K>` needs a
+`K`. Reading arbitrary namespaces needs:
+
+- a namespace-agnostic indexer kind type that accepts any well-formed kind name and has no content
+  rules, so the envelope's own rules (id, `extra`, list caps, the reference gate, the ownership
+  rule) still run;
+- a kind-name syntax, which neither pin defines for other namespaces.
+
+Proposed: both go into the spec crate, so every indexer agrees on a well-formed kind. A
+Nexus-local implementation of the public `PostKind` trait would work against either pin, but
+would make Nexus the owner of a naming rule the spec should own. Neither changes the envelope
+wire, the social envelope, tag files or reference positions.
+
+**Release dependencies.** Reading the envelope needs nothing beyond the base pin's types; the
+namespace syntax rule and the reference parser need the 1.1 draft's `subspec` module in a
+released spec; the indexer kind type and kind-name syntax need a spec change not yet written.
 
 Social validation stays strict: social posts keep the closed `PubkySocialPostKind`, the generic
-type is never used for `social` (the namespace rule reserves it), and nothing it reads enters
-social indexing. Objects in a namespace that does not use the sub-spec layout have no envelope
-kind; Nexus reports their kind as unknown and never guesses it from a path.
+type is never used for `social` (both pins reserve it), and nothing it reads enters social
+indexing. Objects in a namespace that does not use this layout have no envelope kind; Nexus
+reports their kind as unknown and never guesses it from a path.
 
-## 4. Graph model (decided: Resource, with referenced-only metadata)
+## 4. Graph model (decided: Resource, with metadata from the address and, only if approved, from one read)
 
-Both models were compared on the same terms. Neither needs a watcher: both would read a target
-only because it was referenced (4.1), and both would see a target's later edits and deletes only
-through such a read.
+Both models were compared on the same terms. Neither needs a watcher: either would get a target's
+metadata or content only from a read made because it was referenced (4.1, unapproved), and either
+would see a target's later edits and deletes only through such a read.
 
 | | Resource + metadata (decided) | Post per referenced object |
 |---|---|---|
@@ -160,28 +196,31 @@ present it as current.
 
 ### 4.1 Where the metadata comes from
 
-- `namespace`: parsed from the URI at write time, no fetch. Only for `pubky://` URIs whose path
-  passes the spec's namespace rule; `null` otherwise.
-- `kind` and `envelope_author`: proposed from a **referenced-only hydration**: when a Resource is
-  first created by a reference, and its URI is a versionless sub-spec post reference, list that
-  post's own folder newest first with a limit of one, read that version once and validate only
-  the generic envelope with the indexer kind type (3.3). Not implemented and not part of any
-  current change; it needs its own review because Nexus fetches no target today. Bounds: one read
-  per new Resource; a byte cap; JSON depth and member caps; a time budget; no redirect off the
-  account's homeserver; result stored as untrusted metadata with `hydrated_at`; failure leaves
-  `kind` unknown with no retry storm (bounded backoff, then give up). No re-read on events (rule
-  1); a re-read only on a later new reference after a minimum age. Nothing inside `content` is
-  read or stored, and no URI found in the envelope is followed.
-- Until hydration is approved, `kind` is always unknown.
+- `namespace`: parsed from the URI at write time, no fetch. Only for `pubky://` URIs whose
+  namespace segment passes the namespace syntax rule (the 1.1 draft's `validate_namespace`, 3.3);
+  `null` otherwise.
+- `kind` and `envelope_author`: only from a **referenced-target hydration**, which is an
+  **unapproved, future, owner-scoped implementation**. This design describes its shape; neither
+  this design nor its review authorises it, because Nexus reads no target today. If the owner
+  ever approves it: when a Resource is first created by a reference and its URI is a versionless
+  post reference under the shared layout, list that post's own folder newest first with a limit
+  of one, read that version once and validate only the generic envelope with the indexer kind
+  type (3.3). Bounds: one read per new Resource; a byte cap; JSON depth and member caps; a time
+  budget; no redirect off the account's homeserver; stored as untrusted metadata with
+  `hydrated_at`; failure leaves `kind` unknown, with bounded backoff and then give up. No re-read
+  on events (rule 1); at most a re-read on a later new reference after a minimum age. Nothing
+  inside `content` is read or stored, and no URI found in the envelope is followed.
+- Without that approval, `kind` and `envelope_author` are never set.
 
 ### 4.2 Wire names
 
-Two strings at the top level of the Resource view's `details`, `namespace` and `kind`, both
-optional, beside `address_owner` (from the URI) and, after hydration, `envelope_author` and
-`hydrated_at`. `kind` never appears without `namespace`. Bounds: `namespace` per the spec rule; `kind` per the kind-name
-syntax the spec is asked to define (3.3), and until then no `kind` is stored at all. A value that
-fails its rule is reported as unknown and is not filterable. The resource changes feed stays as
-it is: its `kind` is the reference kind (2.2).
+All proposed metadata sits in the Resource view's `details`, beside today's `id`, `uri`,
+`scheme` and `indexed_at`: `namespace` and `address_owner` (from the URI), and `kind`,
+`envelope_author` and `hydrated_at` (only from an approved hydration). All are optional; `kind`
+never appears without `namespace`. Bounds: `namespace` per the namespace syntax rule; `kind` per
+the kind-name syntax the spec is asked to define (3.3), and until then no `kind` is stored at
+all. A value that fails its rule is reported as unknown and is not filterable. The resource
+changes feed stays as it is: its `kind` is the reference kind (2.2).
 
 ## 5. Validation
 
@@ -221,6 +260,10 @@ A view returns `details {id, uri, scheme, indexed_at}`, a tag page and `taggers_
 *branch* also `replies_count`, `embeds_count`, `collections_count`. It has no namespace, kind,
 author, title, existence or deletion field.
 
+The separate, dependent social 1.1 change adds `sorting=rating` to the resource streams and
+`rating_avg`/`rating_count` to Resource views. That is its own scope, not the baseline of this
+design, and nothing here depends on it.
+
 Consumers in use: Pinakes reads the feed (`limit=1000`, `(epoch, cursor)` committed with its
 references), hydrates with `POST /v0/stream/resources/by_ids`, and reads follow lists for reach.
 It also asks for `GET /v0/user/{viewer}/reach-set?depth=2`, which no Nexus route serves; it reads
@@ -235,13 +278,13 @@ routes as they exist on `main` and this branch's base.
 | Concept | Resource view field | Resource stream filter | Post equivalent today |
 |---|---|---|---|
 | Namespace | proposed | proposed `namespace=` | none (social only) |
-| Kind | proposed (unknown until hydration) | proposed `kind=` with `namespace=` | stream filter `kind`, `exclude_kinds` (social kinds) |
+| Kind | proposed (only after an approved hydration) | proposed `kind=` with `namespace=` | stream filter `kind`, `exclude_kinds` (social kinds) |
 | Address owner | proposed `address_owner` | proposed `owner=` | stream `source=author&author_id=` (the post's own author) |
-| Verified envelope author | proposed, hydration only | not proposed | as above |
-| Referrer (tagger) | `tags[].taggers` | not proposed (2.5) | none |
+| Verified envelope author | proposed, only after an approved hydration | not proposed | as above |
+| Referrer (tagger) | `tags[].taggers` | not proposed (2.5) | tagger reach exists on tag routes, not on posts (2.5) |
 | Tag file's app folder | — | `app=` on `main` only; rejected on this branch's base (7.1) | none |
 | Tags | `tags` | current `tags=` (≤ 5, OR) | stream `tags=` |
-| Following / reach | — | not proposed (2.5) | stream `source=following…` (authored by); `search/posts/by_tag` `reach` (authored by) |
+| Following / reach / web of trust | — | not proposed (2.5) | stream `source=following\|followers\|friends\|wot` (authors), `wot_domain` (authors endorsed by trusted taggers), search `reach` (authors); full table in 2.5 |
 | Order | — | current latest tag time | stream `sorting=timeline|total_engagement` |
 | Time bounds | `indexed_at` (creation) | current `start`/`end` on the score | stream `start`/`end` |
 | Reference counts | *branch* counts | not proposed | counts in post views |
@@ -257,12 +300,22 @@ routes as they exist on `main` and this branch's base.
 
 ### 7.4 Proposed stable paging for filtered resource queries
 
-Today's resource stream pages by `skip` or by an inclusive score bound with `skip=1`, which
-skips or repeats on ties and is not bound to the filter. Proposed:
+Today the resource stream orders by `score <order>, r.id <order>` (descending by default, on
+`main` and this branch's base). Two ways of paging it exist, with different properties:
 
-- Order by `(score DESC, id ASC)`; `id` is the Resource id, so ties are deterministic.
-- `cursor` is opaque: the last `(score, id)` served plus a hash of the filter parameters. A
-  request with a cursor returns rows strictly after it; a cursor presented with different
+- `skip`/`limit` over an unchanged result set is already deterministic on ties, because the
+  order includes `r.id`; it is capped at `skip ≤ 10000` and shifts when rows are added or
+  removed.
+- Resuming from `/ids`'s `last_score` with an inclusive `start` cannot tell tied rows apart:
+  `last_score` carries no id, so the client must also `skip` every row already served at that
+  score (`skip=1` assumes no ties). It is not bound to the filters either.
+
+Proposed:
+
+- Keep the current order, `(score <order>, id <order>)`, so existing clients see tied rows in the
+  same order.
+- `cursor` is opaque: the last `(score, id)` served, the order, and a hash of the filter
+  parameters. A request with a cursor returns rows strictly after it in that order; a cursor presented with different
   filters, or together with `skip`, is rejected with 400. `limit` keeps its current bound
   (1–100); a cursor walk has no depth limit because each page is one index seek, unlike `skip`,
   which stays capped at 10000.
@@ -321,20 +374,26 @@ POST /v0/stream/resources/by_ids
 
 `namespace` and `address_owner` are parsed from the URI and say nothing about existence,
 content, the writing app or authorship. `kind`, `envelope_author` and `hydrated_at` stay `null`
-until hydration (4.1) exists and has read the envelope. There is no title, content or deletion
-field.
+unless an owner-approved hydration (4.1) has read the envelope. There is no title, content or
+deletion field.
 
 ## 8. Decisions and remaining review items
 
 Decided: no namespace watch (1); Resource graph model (4); top-level string kind scoped by
-namespace (3.1); current author-based following kept, no new following filter (2.5); target
-freshness by consumers' scheduled refresh, eventual and without an SLA (2.4).
+namespace (3.1); every current following, reach and web-of-trust behaviour kept exactly, no new
+relation filter (2.5); target freshness by consumers' scheduled refresh, eventual and without an
+SLA (2.4).
 
-For review with the implementation changes, not owner questions:
+Not authorised by this design:
 
-1. Approval of the one-read referenced-only hydration (4.1) and its bounds, since it is the
-   first time Nexus would read a target.
-2. Whether `namespace` and the keyset paging (7.4) land before hydration.
-3. Whether Nexus should serve the reach-set route Pinakes asks for.
-4. The spec addition the kind read depends on (3.3): a namespace-agnostic indexer kind type and
-   a kind-name syntax, in a released social 1.1.
+- **Referenced-target hydration (4.1)** is an unapproved, future, owner-scoped implementation:
+  the first time Nexus would read a target. It needs the owner's explicit approval of the read
+  itself and its bounds before any implementation; review of this document does not grant it.
+  Until then `kind` and `envelope_author` are never set.
+
+Open for the reviews of later implementation changes:
+
+1. Whether the address-derived `namespace` and the cursor paging (7.4) land on their own.
+2. Whether Nexus should serve the reach-set route Pinakes asks for.
+3. The spec work (3.3): a released spec carrying the 1.1 draft's namespace rule and reference
+   parser, and a namespace-agnostic indexer kind type with a kind-name syntax, which no pin has.
