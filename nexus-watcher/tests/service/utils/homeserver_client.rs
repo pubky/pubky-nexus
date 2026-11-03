@@ -3,9 +3,10 @@ use std::collections::{HashMap, VecDeque};
 use tokio::sync::Mutex;
 
 use nexus_common::db::PubkyClientResult;
-use nexus_common::models::user::PkdnsHomeserverResolver;
+use nexus_common::models::user::{PkdnsHomeserverResolver, PkdnsRecord};
+use nexus_common::utils::test_utils::signed_packet_naming;
 use nexus_watcher::homeserver::{HomeserverClient, HsError, HsErrorKind, HsOp, HsStreamEvent};
-use pubky::{PubkyResource, PublicKey};
+use pubky::{Keypair, PubkyResource, PublicKey};
 use pubky_social_specs::PubkyId;
 
 type UserEventsResult = Result<Vec<HsStreamEvent>, HsErrorKind>;
@@ -40,8 +41,9 @@ pub struct MockHomeserverClient {
     /// Failures `get_resource` answers instead, by URI. Checked before `resources`.
     resource_errors: HashMap<String, HsErrorKind>,
 
-    /// The homeserver every user resolves to. None by default.
-    homeserver_of: Option<PubkyId>,
+    /// The user whose record every lookup is answered with, and the homeserver
+    /// it names. None by default.
+    homeserver_of: Option<(Keypair, PubkyId)>,
 }
 
 impl MockHomeserverClient {
@@ -78,8 +80,8 @@ impl MockHomeserverClient {
         self
     }
 
-    pub fn with_homeserver_of(mut self, hs: PubkyId) -> Self {
-        self.homeserver_of = Some(hs);
+    pub fn with_homeserver_of(mut self, user: Keypair, hs: PubkyId) -> Self {
+        self.homeserver_of = Some((user, hs));
         self
     }
 
@@ -122,8 +124,13 @@ fn not_found(resource: &PubkyResource, op: HsOp) -> HsError {
 
 #[async_trait::async_trait]
 impl PkdnsHomeserverResolver for MockHomeserverClient {
-    async fn resolve_homeserver(&self, _user_pk: &PublicKey) -> PubkyClientResult<Option<PubkyId>> {
-        Ok(self.homeserver_of.clone())
+    async fn resolve_record(&self, _user_pk: &PublicKey) -> PubkyClientResult<PkdnsRecord> {
+        Ok(match &self.homeserver_of {
+            Some((user, homeserver)) => {
+                PkdnsRecord::Published(signed_packet_naming(user, Some(homeserver), 1))
+            }
+            None => PkdnsRecord::Missing,
+        })
     }
 }
 

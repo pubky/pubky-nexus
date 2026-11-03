@@ -26,7 +26,7 @@ use nexus_common::models::tag::post::TagPost;
 use nexus_common::models::tag::traits::TagCollection;
 use nexus_common::models::tag::user::TagUser;
 use nexus_common::models::tag::TagDetails;
-use nexus_watcher::events::migration;
+use nexus_watcher::events::v0_to_v1;
 use pubky::Keypair;
 use pubky_social_specs::legacy_v0::traits::HashId as V0HashId;
 use pubky_social_specs::legacy_v0::{
@@ -245,7 +245,8 @@ async fn reset_tag_edge(tagger_id: &str, label: &str, id: &str, uri: &str) -> Re
 }
 
 /// A tag on an own post and one on another user's `v0` post take the id of the v1 post URI
-/// built from the keys; `tag_uri` names the v1 file on both, the other user's `Post.uri` stays
+/// built from the keys, and a tag written on that post's versionless `social/v1` address keeps
+/// its id; `tag_uri` names the v1 file on all three, the other user's `Post.uri` stays
 /// `pubky.app`, and the `v1` `DEL` removes each edge.
 #[tokio_shared_rt::test(shared)]
 async fn test_flip_rewrites_post_tags_and_their_v1_del_removes_them() -> Result<()> {
@@ -277,6 +278,7 @@ async fn test_flip_rewrites_post_tags_and_their_v1_del_removes_them() -> Result<
 
     let own_label = "migownpost";
     let their_label = "migtheirpost";
+    let kept_label = "migkeptpost";
     let own_v0 = v0_tag(
         &v0_post_uri_builder(author_id.clone(), own_post_id.clone()),
         own_label,
@@ -285,8 +287,14 @@ async fn test_flip_rewrites_post_tags_and_their_v1_del_removes_them() -> Result<
         &v0_post_uri_builder(other_id.clone(), their_post_id.clone()),
         their_label,
     );
+    // A `pubky.app` tag written on the other user's post by its `social/v1` address
+    let kept_v0 = v0_tag(
+        &v1_post_uri_builder(other_id.clone(), their_post_id.clone()),
+        kept_label,
+    );
     test.put(&author_kp, &own_v0.hs_path(), &own_v0).await?;
     test.put(&author_kp, &their_v0.hs_path(), &their_v0).await?;
+    test.put(&author_kp, &kept_v0.hs_path(), &kept_v0).await?;
 
     // The migrator's copies, before the profile: ignored, the user is still `v0`
     let own_v1 = v1_tag(
@@ -297,11 +305,21 @@ async fn test_flip_rewrites_post_tags_and_their_v1_del_removes_them() -> Result<
         &v1_post_uri_builder(other_id.clone(), their_post_id.clone()),
         their_label,
     );
+    let kept_v1 = v1_tag(
+        &v1_post_uri_builder(other_id.clone(), their_post_id.clone()),
+        kept_label,
+    );
     let own_v1_path = test.put_v1_tag(&author_kp, &own_v1).await?;
     let their_v1_path = test.put_v1_tag(&author_kp, &their_v1).await?;
+    let kept_v1_path = test.put_v1_tag(&author_kp, &kept_v1).await?;
     assert_eq!(
         find_tag_uri(&author_id, &own_v0.create_id()).await,
         Some(v0_tag_uri_builder(author_id.clone(), own_v0.create_id()))
+    );
+    assert_eq!(kept_v0.create_id(), kept_v1.create_id());
+    assert_eq!(
+        find_tag_uri(&author_id, &kept_v0.create_id()).await,
+        Some(v0_tag_uri_builder(author_id.clone(), kept_v0.create_id()))
     );
 
     let profile_path = test
@@ -328,6 +346,15 @@ async fn test_flip_rewrites_post_tags_and_their_v1_del_removes_them() -> Result<
         served_post_tag_uri(&other_id, &their_post_id, &author_id, their_label).await?,
         Some(v1_tag_uri(&author_id, &their_v1.create_id()))
     );
+    // The tag on the v1 address kept its id and moved to the v1 file
+    assert_eq!(
+        find_tag_uri(&author_id, &kept_v0.create_id()).await,
+        Some(v1_tag_uri(&author_id, &kept_v0.create_id()))
+    );
+    assert_eq!(
+        served_post_tag_uri(&other_id, &their_post_id, &author_id, kept_label).await?,
+        Some(v1_tag_uri(&author_id, &kept_v1.create_id()))
+    );
     assert_eq!(
         find_post_uri(&other_id, &their_post_id).await,
         Some(v0_post_uri_builder(other_id.clone(), their_post_id.clone()))
@@ -336,10 +363,14 @@ async fn test_flip_rewrites_post_tags_and_their_v1_del_removes_them() -> Result<
     // The user untags in the new app: the `DEL` of the v1 file finds the edge
     test.del(&author_kp, &own_v1_path).await?;
     test.del(&author_kp, &their_v1_path).await?;
+    test.del(&author_kp, &kept_v1_path).await?;
     assert!(find_post_tag(&author_id, &own_post_id, own_label)
         .await?
         .is_none());
     assert!(find_post_tag(&other_id, &their_post_id, their_label)
+        .await?
+        .is_none());
+    assert!(find_post_tag(&other_id, &their_post_id, kept_label)
         .await?
         .is_none());
 
@@ -716,8 +747,8 @@ async fn test_tags_migration_rerun_gives_the_same_result() -> Result<()> {
     }
 
     let author = pubky_id(&author_id)?;
-    let files = migration::files::FileMap::load(&author).await?;
-    migration::tags::migrate(&author, &files, 2).await?;
+    let files = v0_to_v1::files::FileMap::load(&author).await?;
+    v0_to_v1::tags::migrate(&author, &files, 2).await?;
     let first = tag_edges_snapshot(&author_id).await?;
     assert_eq!(first.len(), tags.len());
     for (label, id, uri, _, _) in &first {
@@ -729,7 +760,7 @@ async fn test_tags_migration_rerun_gives_the_same_result() -> Result<()> {
         assert_eq!(uri, &v1_tag_uri(&author_id, id), "{label}");
     }
 
-    migration::tags::migrate(&author, &files, 2).await?;
+    v0_to_v1::tags::migrate(&author, &files, 2).await?;
     assert_eq!(tag_edges_snapshot(&author_id).await?, first);
 
     // Partly migrated, as a failed run leaves it: some edges back at `pubky.app`
@@ -743,7 +774,7 @@ async fn test_tags_migration_rerun_gives_the_same_result() -> Result<()> {
         .await?;
     }
     assert_ne!(tag_edges_snapshot(&author_id).await?, first);
-    migration::tags::migrate(&author, &files, 2).await?;
+    v0_to_v1::tags::migrate(&author, &files, 2).await?;
     assert_eq!(tag_edges_snapshot(&author_id).await?, first);
 
     // The edges answer to their v1 ids now: handled at `v1`

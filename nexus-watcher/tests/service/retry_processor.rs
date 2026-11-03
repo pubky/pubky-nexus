@@ -1631,6 +1631,99 @@ async fn test_social_v1_profile_entry_flips_a_v0_user() -> Result<()> {
 }
 
 // ============================================================================
+// A failed `social/v1` profile does not flip its `v0` user
+// The flip sets `v1` after the profile is indexed: a profile PUT that fails
+// leaves the user at `v0`, in the graph and the cache, and their `pubky.app`
+// events are still handled. An invalid profile is never retried.
+// ============================================================================
+
+#[tokio_shared_rt::test(shared)]
+async fn test_failed_social_v1_profile_entry_does_not_flip_a_v0_user() -> Result<()> {
+    setup().await?;
+
+    let user = random_pubky_id();
+    let user_id = user.to_string();
+    // No epoch on the node: the user reads as `v0`
+    UserDetails::from_pubky(user.clone()).put_to_graph().await?;
+
+    let profile_uri = format!("pubky://{user_id}{}", PubkySocialUser::create_path());
+    let post = PubkyAppPost {
+        content: "Retry:EpochGate:FailedFlip:Post".to_string(),
+        kind: PubkyAppPostKind::Short,
+        parent: None,
+        embed: None,
+        attachments: None,
+        lock: None,
+    };
+    let post_id = post.create_id();
+    let post_uri = post_uri_builder(user_id.clone(), post_id.clone());
+    let client = Arc::new(
+        MockHomeserverClient::default()
+            .with_resource(&profile_uri, b"not json".to_vec())
+            .with_resource(&post_uri, serde_json::to_vec(&post)?),
+    );
+    let files = tempfile::TempDir::new()?;
+    let store = new_in_memory_store();
+    let handler: Arc<dyn EventHandler> = Arc::new(DefaultEventHandler::new(
+        default_moderation_tests(),
+        default_ingestor_tests(),
+        client,
+        files.path().to_path_buf(),
+        store.clone(),
+    ));
+
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let processor = build_processor(
+        store.clone(),
+        create_test_config(10, 50, 60, 3600, 60, 3600),
+        handler,
+        shutdown_rx,
+    );
+    let due_put = |event_uri: &str| RetryEvent {
+        retry_count: 0,
+        event_type: EventType::Put,
+        event_uri: event_uri.to_string(),
+        next_retry_at: Utc::now().timestamp_millis() - 1000,
+        origin_homeserver_id: TEST_HOMESERVER_ID.to_string(),
+        nonce: 0,
+    };
+
+    // The flip profile fails validation
+    store.put(&due_put(&profile_uri)).await?;
+    processor
+        .clone()
+        .run_internal()
+        .await
+        .expect("a failed flip must not fail the batch");
+
+    assert_eq!(find_user_epoch(&user_id).await, None, "no epoch written");
+    let cached = find_cached_user_details(&user_id).await?;
+    assert_eq!(cached.epoch, Epoch::V0);
+    assert!(
+        store.get(&IndexKey::for_uri(&profile_uri)).await?.is_none(),
+        "an invalid profile is never retried"
+    );
+
+    // Still at `v0`: a `pubky.app` post from the same user is indexed
+    store.put(&due_put(&post_uri)).await?;
+    processor
+        .run_internal()
+        .await
+        .expect("the post must not fail the batch");
+    assert!(
+        PostDetails::get_from_graph(&user_id, &post_id)
+            .await?
+            .is_some(),
+        "a v0 user's pubky.app post is still indexed after a failed flip"
+    );
+
+    exec_single_row(queries::del::delete_post(&user_id, &post_id)).await?;
+    exec_single_row(queries::del::delete_user(&user_id)).await?;
+    let _ = shutdown_tx.send(true);
+    Ok(())
+}
+
+// ============================================================================
 // The flip is never dead-lettered
 // A `social/v1` profile PUT of a user at `v0` whose fetch fails transiently is
 // rescheduled past `max_retries`, for as long as it takes; the same entry flips

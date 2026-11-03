@@ -10,7 +10,8 @@
 //!
 //! | Edge target | `t.id` |
 //! |---|---|
-//! | Post | Computed from the v1 post URI |
+//! | Post, `t.id` matches the versionless `social/v1` post | Kept |
+//! | Post, any other spelling | Computed from the v1 post URI |
 //! | User, `t.id` matches `profile.json` | Computed from the v1 profile URI |
 //! | User, `t.id` matches bare `pubky://pk` | Kept |
 //! | User, no match | Kept, and logged |
@@ -22,9 +23,13 @@
 //! author's `Post.uri` is still `pubky.app`, and the migrator rewrites another user's post or
 //! profile to its v1 URI whether or not they migrated. A kept id is right because the migrator
 //! keeps those targets too, so the hash input is the same; for a URL with a fragment or
-//! userinfo it is the only answer, because `Resource.uri` has lost them. The match on a user
-//! edge recomputes the v0 id for each spelling, with no I/O, because the edge no longer holds
-//! which one the tagger wrote.
+//! userinfo it is the only answer, because `Resource.uri` has lost them. The match on a post or
+//! a user edge recomputes the v0 id for a spelling, with no I/O, because the edge no longer
+//! holds which one the tagger wrote. A tagger still on `pubky.app` may have tagged a post by
+//! its versionless `social/v1` address, which the migrator keeps as it is, so that id stays;
+//! every other spelling of the post (canonical, loose, or a `social/v1` version, for which the
+//! migrator writes no tag file at all) takes the id of the versionless v1 URI, the id a real
+//! v1 tag on that post with that label carries.
 //!
 //! Paging never uses `SKIP`: each loop reads up to a batch of edges still under the `pubky.app`
 //! prefix, with no offset, and each write moves its edges out of that set. Every row is
@@ -32,7 +37,8 @@
 //! left. As a guard, a read that returns rows whose write changes none fails the batch with
 //! an error, so it goes through the normal retry instead of reading the same rows forever; a
 //! write that changes fewer rows than were read is fine, another loop may have rewritten or
-//! deleted some. Each batch is its own transaction.
+//! deleted some. Each batch is its own transaction. The stop, continue or fail decision is
+//! [`drain`]'s, apart from the two graph calls, so it is tested on canned pages.
 
 use super::attachments;
 use super::files::FileMap;
@@ -47,6 +53,7 @@ use pubky_social_specs::traits::HashId;
 use pubky_social_specs::{
     post_uri_builder, tag_uri_builder, user_uri_builder, PubkyId, PubkySocialTag, PROTOCOL,
 };
+use std::future::Future;
 use tracing::{debug, warn};
 
 /// Edges per batch: one graph read and one graph write each.
@@ -99,10 +106,11 @@ pub async fn migrate(
     let tagger_id: &str = user_id.as_ref();
     // The v0 tag address with no id: everything the user wrote under `pubky.app/tags/`
     let prefix = v0_tag_uri_builder(tagger_id.to_string(), String::new());
-    loop {
-        let tags = read_page(tagger_id, &prefix, batch_size).await?;
+    let prefix = prefix.as_str();
+    drain(prefix, move || async move {
+        let tags = read_page(tagger_id, prefix, batch_size).await?;
         if tags.is_empty() {
-            return Ok(());
+            return Ok((0, 0));
         }
         let rows: Vec<(String, String, String)> = tags
             .iter()
@@ -117,13 +125,30 @@ pub async fn migrate(
         )
         .await?
         .unwrap_or(0);
+        Ok((tags.len(), changed))
+    })
+    .await
+}
+
+/// Drives the drain of the edges under `prefix`: `step()` reads one page and rewrites it,
+/// returning how many edges it read and how many the write changed. An empty page ends the
+/// drain; a page whose write changed nothing fails it with a retryable graph error, so the flip
+/// goes through the normal retry instead of reading the same rows forever. Fewer changed than
+/// read is fine.
+async fn drain<F, Fut>(prefix: &str, mut step: F) -> Result<(), EventProcessorError>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<(usize, i64), EventProcessorError>>,
+{
+    loop {
+        let (read, changed) = step().await?;
+        if read == 0 {
+            return Ok(());
+        }
         if changed == 0 {
             return Err(EventProcessorError::GraphQueryFailed(
                 false,
-                format!(
-                    "none of the {} tag edges read under {prefix} were rewritten",
-                    tags.len()
-                ),
+                format!("none of the {read} tag edges read under {prefix} were rewritten"),
             ));
         }
     }
@@ -189,10 +214,14 @@ fn new_id(owner: &PubkyId, files: &FileMap, tag: &StoredTag) -> NewId {
         Target::Post {
             author_id: Some(author_id),
             post_id,
-        } => NewId::Computed(tag_id(
-            &post_uri_builder(author_id.clone(), post_id.clone()),
-            &tag.label,
-        )),
+        } => {
+            let v1_uri = post_uri_builder(author_id.clone(), post_id.clone());
+            if tag.id == v0_tag_id(&v1_uri, &tag.label) {
+                NewId::Kept
+            } else {
+                NewId::Computed(tag_id(&v1_uri, &tag.label))
+            }
+        }
         Target::Post {
             author_id: None, ..
         } => NewId::Unmatched("the tagged post has no author"),
@@ -251,10 +280,12 @@ fn v0_tag_id(target: &str, label: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::events::retry::RetryScheduler;
     use pubky_social_specs::file_uri_builder;
     use pubky_social_specs::legacy_v0::{
         file_uri_builder as v0_file_uri_builder, post_uri_builder as v0_post_uri_builder,
     };
+    use std::cell::RefCell;
 
     const OWNER: &str = "operrr8wsbpr3ue9d4qj41ge1kcc6r7fdiy6o3ugjrrhi4y77rdo";
     const OTHER: &str = "y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy";
@@ -307,6 +338,39 @@ mod tests {
                 LABEL,
             );
             assert_eq!(new_id(&owner(), &files(), &tag), NewId::Computed(expected));
+        }
+    }
+
+    /// A tagger still on `pubky.app` tagged the post by its versionless `social/v1` address:
+    /// the migrator keeps that target, so the id is already the v1 one.
+    #[test]
+    fn a_post_tag_on_the_versionless_v1_address_keeps_its_id() {
+        let versionless = post_uri_builder(OTHER.to_string(), POST_ID.to_string());
+        let tag = v0_edge(&versionless, post(OTHER));
+        assert_eq!(new_id(&owner(), &files(), &tag), NewId::Kept);
+    }
+
+    /// Any other spelling of the post takes the id of the versionless v1 URI: a loose
+    /// `pubky.app` spelling the migrator canonicalizes and rewrites, and a `social/v1` version,
+    /// for which the migrator writes no tag file, so the id is the one a real v1 tag would get.
+    #[test]
+    fn a_post_tag_on_any_other_spelling_takes_the_computed_id() {
+        let versionless = post_uri_builder(OTHER.to_string(), POST_ID.to_string());
+        let expected = tag_id(&versionless, LABEL);
+        let spellings = [
+            format!(
+                "{}/extra",
+                v0_post_uri_builder(OTHER.to_string(), POST_ID.to_string())
+            ),
+            format!("{versionless}/0032SSN7Q4EVJ.json"),
+        ];
+        for spelling in spellings {
+            let tag = v0_edge(&spelling, post(OTHER));
+            assert_eq!(
+                new_id(&owner(), &files(), &tag),
+                NewId::Computed(expected.clone()),
+                "{spelling}"
+            );
         }
     }
 
@@ -443,5 +507,70 @@ mod tests {
         );
         rewrite(&owner(), &files(), &on_post);
         assert!(!logs_contain("Tag id kept as it is"));
+    }
+
+    /// One canned page: how many edges the read returned and how many the write changed.
+    type Page = Result<(usize, i64), EventProcessorError>;
+
+    /// Drains `pages` in order and returns the outcome with the number of steps taken.
+    async fn drain_over(pages: Vec<Page>) -> (Result<(), EventProcessorError>, usize) {
+        let pages = RefCell::new(pages.into_iter());
+        let steps = RefCell::new(0);
+        let result = drain("pubky://owner/pub/pubky.app/tags/", || {
+            *steps.borrow_mut() += 1;
+            let page = pages
+                .borrow_mut()
+                .next()
+                .expect("step called more times than there are pages");
+            async move { page }
+        })
+        .await;
+        (result, steps.into_inner())
+    }
+
+    #[tokio::test]
+    async fn the_drain_stops_on_an_empty_page() {
+        let (result, steps) = drain_over(vec![Ok((0, 0))]).await;
+        assert!(result.is_ok());
+        assert_eq!(steps, 1);
+
+        let (result, steps) = drain_over(vec![Ok((2, 2)), Ok((1, 1)), Ok((0, 0))]).await;
+        assert!(result.is_ok());
+        assert_eq!(steps, 3);
+    }
+
+    /// Another loop may have rewritten or deleted some of the edges the read returned.
+    #[tokio::test]
+    async fn the_drain_goes_on_when_fewer_edges_changed_than_were_read() {
+        let (result, steps) = drain_over(vec![Ok((2, 1)), Ok((0, 0))]).await;
+        assert!(result.is_ok());
+        assert_eq!(steps, 2);
+    }
+
+    /// A page whose write changed nothing would be read forever: the drain fails instead, with
+    /// an error the flip retries later rather than one that aborts the run.
+    #[tokio::test]
+    async fn the_drain_fails_into_the_retry_when_a_page_changes_nothing() {
+        let (result, steps) = drain_over(vec![Ok((2, 0))]).await;
+        assert_eq!(steps, 1);
+        let err = result.unwrap_err();
+        assert!(matches!(
+            err,
+            EventProcessorError::GraphQueryFailed(false, ref message)
+                if message.contains("none of the 2 tag edges")
+        ));
+        assert!(!err.should_not_retry_now());
+        assert!(RetryScheduler::should_enqueue_related_event(&err));
+    }
+
+    #[tokio::test]
+    async fn the_drain_returns_a_failed_step_as_it_is() {
+        let failed = EventProcessorError::GraphQueryFailed(true, "down".to_string());
+        let (result, steps) = drain_over(vec![Err(failed)]).await;
+        assert_eq!(steps, 1);
+        assert!(matches!(
+            result,
+            Err(EventProcessorError::GraphQueryFailed(true, _))
+        ));
     }
 }

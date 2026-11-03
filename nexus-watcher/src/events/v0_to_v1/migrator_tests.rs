@@ -403,6 +403,8 @@ fn every_tag_row_takes_the_migrators_id_and_address() {
             format!("PUBKY://{OTHER}/pub/pubky.app/posts/{}", tsid(51)),
             LABEL,
         ),
+        // A loose spelling the v0 reader and the migrator both read as the post
+        (format!("{}/extra", post(OTHER, 51)), LABEL),
         (v0(OWNER, "profile.json"), LABEL),
         (v0(OTHER, "profile.json"), LABEL),
         (v0(OTHER, "profile.json"), "  Nexus "),
@@ -448,9 +450,13 @@ fn every_tag_row_takes_the_migrators_id_and_address() {
             format!("{PROTOCOL}{OWNER}/pub/eventky.app/events/abc"),
             LABEL,
         ),
-        // A v1 file address written before the flip
+        // v1 addresses written before the flip: a file, a versionless post
         (
             format!("{PROTOCOL}{OWNER}/pub/social/v1/files/{IMAGE_HASH}.png"),
+            LABEL,
+        ),
+        (
+            format!("{PROTOCOL}{OTHER}/pub/social/v1/posts/{}", tsid(51)),
             LABEL,
         ),
     ];
@@ -473,13 +479,35 @@ fn every_tag_row_takes_the_migrators_id_and_address() {
 /// spelling reproduces fails the v0 reader, so the migrator skips it; Nexus keeps the id. A
 /// pubky target the v1 reader calls non-canonical, such as a path with a query, makes the
 /// migrator skip the tag, or the post carrying it as an attachment, whole; Nexus keeps the id
-/// and the address, the spec's accepted limit of a tag with no v1 file. A tag on an own blob
-/// or on a tag is indexed by neither. A tag on a post with no `AUTHORED` author keeps its id by
-/// decision, while the migrator, which reads the author from the address, computes it: the one
-/// row where the two part, as the table says.
+/// and the address, the spec's accepted limit of a tag with no v1 file. A tag on a `social/v1`
+/// post version is refused by the v1 reader too ("must be versionless"), so the migrator skips
+/// it; Nexus gives the edge the id of the versionless v1 URI, the one a real v1 tag on that
+/// post carries. A tag on an own blob or on a tag is indexed by neither. A tag on a post with
+/// no `AUTHORED` author keeps its id by decision, while the migrator, which reads the author
+/// from the address, computes it: the one row where the two part, as the table says.
 #[test]
 fn the_rows_the_migrator_has_no_counterpart_for() {
     let (owner, files, ctx) = both_sides();
+
+    let versionless = format!("{PROTOCOL}{OTHER}/pub/social/v1/posts/{}", tsid(51));
+    let versioned = format!("{versionless}/{}.json", tsid(52));
+    let (id, bytes) = v0_tag(&versioned, LABEL);
+    assert_eq!(
+        skip(&ctx, &format!("pub/pubky.app/tags/{id}"), &bytes),
+        Skip::Invalid
+    );
+    let stored = stored_tag(&id, &bytes).unwrap();
+    assert_eq!(
+        stored.target,
+        Target::Post {
+            author_id: Some(OTHER.to_string()),
+            post_id: tsid(51),
+        }
+    );
+    let (versionless_id, versionless_bytes) = v0_tag(&versionless, LABEL);
+    let (real_v1_id, _) = migrated_tag(&ctx, &versionless_id, &versionless_bytes);
+    assert_ne!(real_v1_id, id);
+    assert_eq!(tags::rewrite(&owner, &files, &stored).0, real_v1_id);
 
     let with_query = format!("{PROTOCOL}{OTHER}/pub/other.app/items/1?x=1");
     let (id, bytes) = v0_tag(&with_query, LABEL);

@@ -1,7 +1,7 @@
 use crate::models::{BoundedLimit, BoundedPagination, BoundedSkip, PubkyId, Tags};
 use crate::routes::v0::endpoints::{STREAM_RESOURCES_ROUTE, STREAM_RESOURCE_IDS_ROUTE};
 use crate::routes::Query;
-use crate::Result;
+use crate::{Error, Result};
 use axum::Json;
 use nexus_common::db::kv::SortOrder;
 use nexus_common::models::resource::stream::{ResourceKeyStream, ResourceSorting, ResourceStream};
@@ -10,8 +10,15 @@ use serde::Deserialize;
 use tracing::debug;
 use utoipa::OpenApi;
 
+/// The `app` filter Nexus no longer stores. A request that still sends it gets 400 rather
+/// than a silently unfiltered stream, so a client notices the break. It leaves the query in a
+/// later release.
+const APP_REMOVED: &str = "app is no longer supported; filter by tags";
+
 #[derive(Deserialize, Debug)]
 pub struct ResourceStreamQuery {
+    /// Removed filter: any value, the empty string included, is rejected with 400.
+    pub app: Option<String>,
     pub tags: Option<Tags>,
     #[serde(default)]
     pub sorting: ResourceSorting,
@@ -24,12 +31,23 @@ pub struct ResourceStreamQuery {
     pub viewer_id: Option<PubkyId>,
 }
 
+impl ResourceStreamQuery {
+    /// Rejects a request that still sends the removed `app` filter.
+    fn reject_app(&self) -> Result<()> {
+        match self.app {
+            Some(_) => Err(Error::invalid_input(APP_REMOVED)),
+            None => Ok(()),
+        }
+    }
+}
+
 #[utoipa::path(
     get,
     path = STREAM_RESOURCE_IDS_ROUTE,
     description = "Stream resource IDs with tag filtering",
     tag = "Stream",
     params(
+        ("app" = Option<String>, Query, description = "Removed. A request that sends it gets 400; filter by `tags` instead"),
         ("tags" = Option<Tags>, Query, description = "Comma-separated tag labels (max 5, OR logic)"),
         ("sorting" = Option<String>, Query, description = "timeline (the only sorting, and the default)"),
         ("order" = Option<SortOrder>, Query, description = "Ordering of response list. Either 'ascending' or 'descending'. Defaults to descending."),
@@ -40,7 +58,7 @@ pub struct ResourceStreamQuery {
     ),
     responses(
         (status = 200, description = "Resource IDs with cursor", body = ResourceKeyStream),
-        (status = 400, description = "Invalid parameters"),
+        (status = 400, description = "Invalid parameters, or the removed `app` filter"),
         (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error")
     )
@@ -52,6 +70,8 @@ pub async fn stream_resource_ids_handler(
         "GET {STREAM_RESOURCE_IDS_ROUTE} tags:{:?}, sorting:{:?}",
         query.tags, query.sorting
     );
+
+    query.reject_app()?;
 
     let order = query.order.unwrap_or(SortOrder::Descending);
     let tags = query.tags.as_ref().map(Tags::to_string_vec);
@@ -70,6 +90,7 @@ pub async fn stream_resource_ids_handler(
     description = "Stream resources with tag filtering, returns full ResourceView objects",
     tag = "Stream",
     params(
+        ("app" = Option<String>, Query, description = "Removed. A request that sends it gets 400; filter by `tags` instead"),
         ("tags" = Option<Tags>, Query, description = "Comma-separated tag labels (max 5, OR logic)"),
         ("sorting" = Option<String>, Query, description = "timeline (the only sorting, and the default)"),
         ("order" = Option<SortOrder>, Query, description = "Ordering of response list. Either 'ascending' or 'descending'. Defaults to descending."),
@@ -81,7 +102,7 @@ pub async fn stream_resource_ids_handler(
     ),
     responses(
         (status = 200, description = "Resource stream", body = Vec<ResourceView>),
-        (status = 400, description = "Invalid parameters"),
+        (status = 400, description = "Invalid parameters, or the removed `app` filter"),
         (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error")
     )
@@ -93,6 +114,8 @@ pub async fn stream_resources_handler(
         "GET {STREAM_RESOURCES_ROUTE} tags:{:?}, sorting:{:?}",
         query.tags, query.sorting
     );
+
+    query.reject_app()?;
 
     let order = query.order.unwrap_or(SortOrder::Descending);
     let tags = query.tags.as_ref().map(Tags::to_string_vec);
