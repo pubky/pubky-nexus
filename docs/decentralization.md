@@ -169,6 +169,20 @@ This is what tells the externally-hosted-user indexer
 ([Section 3](#3-indexing-externally-hosted-users-key-based)) which users
 belong to which HS.
 
+The edge also keeps the PKDNS record the mapping was last applied from:
+`record`, the user's signed PKARR packet as hex, and `record_ts`, the packet's
+timestamp in microseconds. The packet carries the key, the signature, the
+timestamp and the encoded DNS records, so anyone can verify that the key holder
+published it (`StoredRecord::verify` in nexus-common does). The record need
+not back its edge: a mapping marked stale by a record keeps that record, which
+names another homeserver than the edge points to, or none. A lookup that finds
+no record leaves the stored one; the ingestor binds a newly seen user from the
+record it resolved, so the edge carries it from the start. A packet whose
+timestamp does not fit `record_ts`, a signed 64-bit integer, counts as no
+record. pkarr reads a DHT item's `seq` as a `u64`, so an item signed with a
+negative `seq` arrives with such a timestamp; its signature does not verify as a
+pkarr packet, so it could not be kept as proof either.
+
 ### `hs_resolver_interval_ms`
 
 > Scheduling interval[^1] for triggering runs of the resolver task.
@@ -201,7 +215,7 @@ realigns. The resolver exports these metrics to catch this:
 
 | Metric | Type | Meaning |
 | --- | --- | --- |
-| `nexus.task.hs-resolver.resolutions` | counter, labels `outcome`, `mapping` | One per user the resolver handled. `outcome`: `resolved` (PKDNS returned a HS), `unresolved` (PKDNS returned none; on pubky 0.9.3 DHT and relay failures also surface this way), `error` (the lookup failed, pubky 0.10+, or the graph read/update failed). `mapping`: the stored mapping's state before the resolution, `unbound` / `active` / `stale`, or `unknown` when a graph read or write failed (a Neo4j problem, also visible via `neo4j.query.errors`; deliberately outside the `mapping="active"` onset ratio). |
+| `nexus.task.hs-resolver.resolutions` | counter, labels `outcome`, `mapping` | One per user the resolver handled. `outcome`: `resolved` (PKDNS returned a HS), `unresolved` (PKDNS returned none; on pubky 0.9.3 DHT and relay failures also surface this way), `error` (the lookup failed: a transport error on pubky 0.10+, or an answer signed by another key, refused on any version; or the graph read/update failed). `mapping`: the stored mapping's state before the resolution, `unbound` / `active` / `stale`, or `unknown` when a graph read or write failed (a Neo4j problem, also visible via `neo4j.query.errors`; deliberately outside the `mapping="active"` onset ratio). |
 | `nexus.task.hs-resolver.marked_stale` | counter, label `reason` | Users whose mapping flipped from active to stale. `unresolved`: PKDNS returned no HS. `hs_changed`: PKDNS returned a different HS. Already-stale users are not counted again. |
 | `nexus.task.hs-resolver.mapped_users` | gauge | Non-deleted users with a `HOSTED_BY` mapping. Recorded on the first run after startup, then refreshed after every run that processed users. |
 | `nexus.task.hs-resolver.stale_users` | gauge | Subset of `mapped_users` whose mapping is currently stale. |
