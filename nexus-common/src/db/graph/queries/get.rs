@@ -1667,6 +1667,9 @@ pub fn post_stream(
                 &mut where_clause_applied,
             );
         }
+        Some(KindFilter::Locked) => {
+            append_condition(&mut cypher, "p.lock IS NOT NULL", &mut where_clause_applied);
+        }
         None => {}
     }
 
@@ -1846,7 +1849,7 @@ fn append_condition(cypher: &mut String, condition: &str, where_clause_applied: 
 /// * `query` - A `Query` already constructed with its label and cypher string.
 /// * `source` - The `StreamSource` specifying the origin of the posts (e.g., Following, Followers).
 /// * `tags` - An optional list of tag labels to filter the posts.
-/// * `kind` - An optional `KindFilter` to include a single kind or exclude a list of kinds.
+/// * `kind` - An optional `KindFilter` to include a single kind, exclude a list of kinds, or keep locked posts.
 /// * `pagination` - The `Pagination` object containing pagination parameters like `start`, `end`, `skip`, and `limit`.
 fn build_query_with_params(
     mut query: Query,
@@ -1883,7 +1886,7 @@ fn build_query_with_params(
                 kinds.iter().map(ToString::to_string).collect::<Vec<_>>(),
             );
         }
-        None => {}
+        Some(KindFilter::Locked) | None => {}
     }
     if let Some(start_interval) = pagination.start {
         query = query.param("start", start_interval);
@@ -2137,6 +2140,18 @@ mod tests {
             &rule,
             "RETURN author.id AS author_id",
         ];
+        assert_in_order(&cypher, &clauses);
+    }
+
+    #[test]
+    fn post_stream_locked_filter_applies_before_sorting() {
+        let cypher = all_stream(
+            StreamSorting::Timeline,
+            &None,
+            Some(KindFilter::Locked),
+            None,
+        );
+        let clauses = ["p.lock IS NOT NULL", "WITH DISTINCT p, author", "ORDER BY"];
         assert_in_order(&cypher, &clauses);
     }
 
