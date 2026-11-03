@@ -24,5 +24,10 @@ pub mod service;
 /// OpenTelemetry meter name shared by all watcher metrics.
 pub(crate) const METER_NAME: &str = "nexus.watcher";
 
+/// Stack size the runtime running the watcher gives its worker threads. A record pointing
+/// at an outsider's post runs the post handler again inside its own (once, see
+/// `events::handlers::scope`), which outgrows Tokio's 2 MiB default in debug builds.
+pub const WORKER_STACK_SIZE: usize = 8 * 1024 * 1024;
+
 pub use builder::NexusWatcherBuilder;
 pub use errors::EventProcessorError;
