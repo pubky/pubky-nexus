@@ -857,7 +857,7 @@ async fn test_post_del_recovery_of_a_reply_sends_no_reply_notification() -> Resu
     Ok(())
 }
 
-/// #1192: a read of the post between the failed attempt and the retry refills
+/// A read of the post between the failed attempt and the retry refills
 /// PostDetails from the graph. The retry then finds PostDetails, but the post is
 /// the same, so it must still recover the rest of the post's Redis state.
 #[tokio_shared_rt::test(shared)]
