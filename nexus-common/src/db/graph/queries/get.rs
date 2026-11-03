@@ -989,12 +989,13 @@ pub fn count_user_homeserver_mappings() -> Query {
 /// Excludes users whose mapping is marked `stale` — i.e. whose published
 /// homeserver has diverged from the stored one — so the watcher stops
 /// indexing them until the mapping realigns, and users outside the scope.
+/// A user whose profile is deleted is still read, so a profile it writes
+/// later brings it back.
 pub fn get_active_users_by_homeserver(hs_id: &str) -> Query {
     Query::new(
         "get_active_users_by_homeserver",
         "MATCH (u:User)-[r:HOSTED_BY]->(:Homeserver {id: $hs_id})
-         WHERE NOT coalesce(u.deleted, false) AND NOT coalesce(r.stale, false)
-           AND u.scope_state IS NULL
+         WHERE NOT coalesce(r.stale, false) AND u.scope_state IS NULL
          RETURN collect(u.id) AS user_ids",
     )
     .param("hs_id", hs_id.to_string())

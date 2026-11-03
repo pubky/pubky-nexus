@@ -18,6 +18,7 @@ use nexus_watcher::service::scope_bootstrap::{
     bootstrap_seed_scope, suggest_members, FollowingPage, FollowingSource,
 };
 use nexus_watcher::service::scope_maintenance::{ScopeChange, ScopeMaintainer};
+use nexus_watcher::service::user_hs_resolver::get_user_ids_by_homeserver;
 use pubky_app_specs::{PubkyAppUser, PubkyId};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -300,9 +301,10 @@ async fn test_a_member_whose_profile_is_deleted_is_still_read() -> Result<()> {
     let profile_uri = format!("pubky://{friend}/pub/pubky.app/profile.json");
     handlers::user::del(friend.clone()).await?;
     let recomputed = maintainer.at_start().await?;
-    let (deleted_state, deleted_cursors) = (
+    let (deleted_state, deleted_cursors, polled) = (
         scope_state(&friend).await?,
         UserHsCursor::read(&[friend.as_ref()], &test.homeserver_id).await?,
+        get_user_ids_by_homeserver(&test.homeserver_id).await?,
     );
     let profile = PubkyAppUser {
         name: "Back".to_string(),
@@ -317,7 +319,11 @@ async fn test_a_member_whose_profile_is_deleted_is_still_read() -> Result<()> {
         deleted_state, None,
         "still in scope with its profile deleted"
     );
-    assert_eq!(deleted_cursors.len(), 1, "still bound, so still read");
+    assert_eq!(deleted_cursors.len(), 1, "still bound");
+    assert!(
+        polled.contains(&friend.to_string()),
+        "still polled, so its new profile is read"
+    );
     assert!(members.contains_key(friend.as_ref()), "a member once back");
     Ok(())
 }
