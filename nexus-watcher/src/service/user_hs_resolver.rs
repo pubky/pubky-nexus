@@ -221,6 +221,9 @@ pub async fn run(
                         if let Some(reason) = resolution.newly_stale() {
                             HS_RESOLVER_METRICS.marked_stale.add(1, &[reason.attribute()]);
                         }
+                        if matches!(resolution, Resolution::IgnoredOlder { .. }) {
+                            HS_RESOLVER_METRICS.ignored_older_record.add(1, &[]);
+                        }
                         let outcome = resolution.outcome();
                         if outcome == Outcome::Unresolved {
                             warn!(%user_id, "PKDNS lookup found no HS");
@@ -411,6 +414,13 @@ enum Resolution {
     /// Bound, and no record was found: nothing is known, so the mapping, its
     /// flag and its record stand; only `resolved_at` is refreshed.
     NoRecord { was_stale: bool },
+    /// The record is older than the one the mapping was applied from; the
+    /// mapping, its flag and its record stand.
+    IgnoredOlder {
+        was_stale: bool,
+        /// Whether the ignored record named a homeserver.
+        names_homeserver: bool,
+    },
     /// The lookup itself failed (a transport error on pubky 0.10+, or an answer
     /// signed by another key, refused on any version); graph untouched.
     LookupFailed { mapping: MappingState },
@@ -420,13 +430,22 @@ impl Resolution {
     /// `outcome` label: whether PKDNS returned a homeserver.
     fn outcome(self) -> Outcome {
         match self {
-            Self::Bound | Self::Confirmed { .. } => Outcome::Resolved,
+            Self::Bound
+            | Self::Confirmed { .. }
+            | Self::IgnoredOlder {
+                names_homeserver: true,
+                ..
+            } => Outcome::Resolved,
             Self::Diverged {
                 reason: StaleReason::HsChanged,
                 ..
             } => Outcome::Resolved,
             Self::Unbound
             | Self::NoRecord { .. }
+            | Self::IgnoredOlder {
+                names_homeserver: false,
+                ..
+            }
             | Self::Diverged {
                 reason: StaleReason::Unresolved,
                 ..
@@ -443,12 +462,18 @@ impl Resolution {
             | Self::Diverged {
                 was_stale: true, ..
             }
-            | Self::NoRecord { was_stale: true } => MappingState::Stale,
+            | Self::NoRecord { was_stale: true }
+            | Self::IgnoredOlder {
+                was_stale: true, ..
+            } => MappingState::Stale,
             Self::Confirmed { was_stale: false }
             | Self::Diverged {
                 was_stale: false, ..
             }
-            | Self::NoRecord { was_stale: false } => MappingState::Active,
+            | Self::NoRecord { was_stale: false }
+            | Self::IgnoredOlder {
+                was_stale: false, ..
+            } => MappingState::Active,
             Self::LookupFailed { mapping } => mapping,
         }
     }
@@ -519,6 +544,22 @@ async fn resolve_user(
         // published.
         (Some(stored), record) => {
             let stored_record = record.stored();
+
+            // A record older than the one the mapping was applied from is a
+            // replay or a lagging answer: it changes nothing, whatever it names.
+            let older = stored_record
+                .as_ref()
+                .zip(stored.record_ts)
+                .is_some_and(|(record, clock)| record.timestamp < clock);
+            if older {
+                set_user_homeserver_stale(&user_id, stored.stale, None).await?;
+                warn!(%user_id, "PKDNS record is older than the one applied; ignored");
+                return Ok(Resolution::IgnoredOlder {
+                    was_stale: stored.stale,
+                    names_homeserver: record.homeserver().is_some(),
+                });
+            }
+
             match record.homeserver() {
                 Some(resolved_hs_id) if resolved_hs_id.as_ref() == stored.hs_id => {
                     set_user_homeserver_stale(&user_id, false, stored_record.as_ref()).await?;
@@ -558,6 +599,8 @@ struct UserHomeserverMapping {
     hs_id: String,
     /// Whether the `HOSTED_BY` relationship is marked stale.
     stale: bool,
+    /// The timestamp of the record the mapping was last applied from, if any.
+    record_ts: Option<i64>,
 }
 
 /// Returns the user's stored homeserver mapping, if any.
@@ -569,6 +612,7 @@ async fn get_user_homeserver(user_id: &str) -> GraphResult<Option<UserHomeserver
     Ok(Some(UserHomeserverMapping {
         hs_id: row.get("homeserver_id")?,
         stale: row.get("stale")?,
+        record_ts: row.get("record_ts")?,
     }))
 }
 
@@ -614,6 +658,9 @@ struct HsResolverMetrics {
     /// by [`StaleReason`]. Only the transition is counted, so a sustained stale
     /// population does not mask a new wave.
     marked_stale: Counter<u64>,
+    /// PKDNS records older than the one the mapping was applied from: replays
+    /// or lagging answers, never applied.
+    ignored_older_record: Counter<u64>,
     /// Non-deleted users with a `HOSTED_BY` mapping; denominator for `stale_users`.
     mapped_users: Gauge<u64>,
     /// Subset of `mapped_users` whose mapping is currently stale. Refreshed
@@ -647,6 +694,12 @@ impl HsResolverMetrics {
             marked_stale: meter
                 .u64_counter("nexus.task.hs-resolver.marked_stale")
                 .with_description("Users whose homeserver mapping transitioned to stale, by reason")
+                .build(),
+            ignored_older_record: meter
+                .u64_counter("nexus.task.hs-resolver.ignored_older_record")
+                .with_description(
+                    "PKDNS records older than the one the mapping was applied from, never applied",
+                )
                 .build(),
             mapped_users: meter
                 .u64_gauge("nexus.task.hs-resolver.mapped_users")
@@ -941,6 +994,7 @@ mod tests {
             Some(UserHomeserverMapping {
                 hs_id: hs_id.to_string(),
                 stale: false,
+                record_ts: None,
             })
         );
 
@@ -951,6 +1005,7 @@ mod tests {
             Some(UserHomeserverMapping {
                 hs_id: hs_id.to_string(),
                 stale: true,
+                record_ts: None,
             })
         );
 
@@ -980,6 +1035,7 @@ mod tests {
             Some(UserHomeserverMapping {
                 hs_id: hs_id.to_string(),
                 stale: false,
+                record_ts: Some(10),
             })
         );
         assert!(get_user_ids_by_homeserver(&hs_id).await?.contains(&user_id));
@@ -1172,6 +1228,7 @@ mod tests {
             Some(UserHomeserverMapping {
                 hs_id: stored_hs.to_string(),
                 stale: true,
+                record_ts: Some(10),
             })
         );
         assert!(!get_user_ids_by_homeserver(&stored_hs)
@@ -1217,6 +1274,7 @@ mod tests {
             Some(UserHomeserverMapping {
                 hs_id: stored_hs.to_string(),
                 stale: false,
+                record_ts: None,
             })
         );
         assert!(get_user_ids_by_homeserver(&stored_hs)
@@ -1412,6 +1470,90 @@ mod tests {
         Ok(())
     }
 
+    /// A record older than the one the mapping was applied from changes
+    /// nothing, whatever it names; the same record again, or a newer one, is
+    /// applied.
+    #[tokio_shared_rt::test(shared)]
+    async fn test_resolve_user_ignores_record_older_than_the_applied_one() -> Result<(), DynError> {
+        setup().await?;
+
+        let user = Keypair::random();
+        let user_pk = user.public_key();
+        let user_id = user_pk.z32();
+        let stored_hs = random_pubky_id();
+        let other_hs = random_pubky_id();
+        let resolve = |hs: Option<&PubkyId>, ts| {
+            let resolver = MockResolver::signed_by(&user, hs, ts);
+            let user_pk = user_pk.clone();
+            async move { resolve_user(&resolver, &user_pk).await }
+        };
+        let mapping = |stale, record_ts| {
+            Some(UserHomeserverMapping {
+                hs_id: stored_hs.to_string(),
+                stale,
+                record_ts,
+            })
+        };
+        create_test_user(&user_id).await?;
+
+        assert_eq!(resolve(Some(&stored_hs), 20).await?, Resolution::Bound);
+
+        let outcome = resolve(Some(&other_hs), 10).await?;
+        assert_eq!(
+            outcome,
+            Resolution::IgnoredOlder {
+                was_stale: false,
+                names_homeserver: true,
+            }
+        );
+        assert_eq!(
+            get_user_homeserver(&user_id).await?,
+            mapping(false, Some(20))
+        );
+
+        let outcome = resolve(None, 10).await?;
+        assert_eq!(
+            outcome,
+            Resolution::IgnoredOlder {
+                was_stale: false,
+                names_homeserver: false,
+            }
+        );
+        assert_eq!(
+            get_user_homeserver(&user_id).await?,
+            mapping(false, Some(20))
+        );
+
+        let outcome = resolve(Some(&stored_hs), 20).await?;
+        assert_eq!(outcome, Resolution::Confirmed { was_stale: false });
+
+        let outcome = resolve(Some(&other_hs), 30).await?;
+        assert_eq!(
+            outcome,
+            Resolution::Diverged {
+                reason: StaleReason::HsChanged,
+                was_stale: false,
+            }
+        );
+
+        let outcome = resolve(Some(&stored_hs), 20).await?;
+        assert_eq!(
+            outcome,
+            Resolution::IgnoredOlder {
+                was_stale: true,
+                names_homeserver: true,
+            },
+            "an older record naming the stored homeserver does not clear the flag"
+        );
+        assert_eq!(
+            get_user_homeserver(&user_id).await?,
+            mapping(true, Some(30))
+        );
+
+        cleanup_test_user(&user_id).await?;
+        Ok(())
+    }
+
     /// A lookup answered with another key's record fails like any lookup: an
     /// unbound user stays unbound, a bound one keeps its mapping and record.
     #[tokio_shared_rt::test(shared)]
@@ -1447,6 +1589,7 @@ mod tests {
             Some(UserHomeserverMapping {
                 hs_id: hs_id.to_string(),
                 stale: false,
+                record_ts: Some(10),
             })
         );
         assert_eq!(
@@ -1522,6 +1665,7 @@ mod tests {
             Some(UserHomeserverMapping {
                 hs_id: stored_hs.to_string(),
                 stale: false,
+                record_ts: None,
             })
         );
         assert!(
@@ -1606,6 +1750,24 @@ mod tests {
             ),
             (
                 Resolution::NoRecord { was_stale: true },
+                Outcome::Unresolved,
+                Stale,
+                None,
+            ),
+            (
+                Resolution::IgnoredOlder {
+                    was_stale: false,
+                    names_homeserver: true,
+                },
+                Outcome::Resolved,
+                Active,
+                None,
+            ),
+            (
+                Resolution::IgnoredOlder {
+                    was_stale: true,
+                    names_homeserver: false,
+                },
                 Outcome::Unresolved,
                 Stale,
                 None,
