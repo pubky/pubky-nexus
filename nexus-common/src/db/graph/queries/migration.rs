@@ -85,7 +85,8 @@ pub fn get_post_children_page(
 /// element id, its `id` and `label`, the target's `kind` (`post`, `user`, `resource`, or
 /// `other` for anything else) and the target's keys: `target_id` for a post or a user,
 /// `author_id` for a post (null when it has no `AUTHORED` author), `resource_uri` for a
-/// resource.
+/// resource, and the edge's address before the rewrite, `tag_uri`, which the resource changes
+/// feed published it under.
 pub fn get_tagger_edges_under(tagger_id: &str, prefix: &str, limit: usize) -> Query {
     Query::new(
         "get_tagger_edges_under",
@@ -105,12 +106,33 @@ pub fn get_tagger_edges_under(tagger_id: &str, prefix: &str, limit: usize) -> Qu
             END AS kind,
             target.id AS target_id,
             author.id AS author_id,
-            target.uri AS resource_uri
+            target.uri AS resource_uri,
+            t.uri AS tag_uri
         ",
     )
     .param("tagger_id", tagger_id)
     .param("prefix", prefix)
     .param("limit", limit.min(MAX_QUERY_LIMIT) as i64)
+}
+
+/// The `Resource` tags `tagger_id` wrote whose address is one of `tag_uris`, as `(tag_uri,
+/// label, indexed_at, resource_id, resource_uri)` rows: the edges the tags step moved, read
+/// back for the resource changes feed. An address with no such edge has no row.
+pub fn get_tagger_resource_tags_at(tagger_id: &str, tag_uris: &[String]) -> Query {
+    Query::new(
+        "get_tagger_resource_tags_at",
+        "
+        MATCH (:User {id: $tagger_id})-[t:TAGGED]->(r:Resource)
+        WHERE t.uri IN $tag_uris
+        RETURN t.uri AS tag_uri,
+            t.label AS label,
+            t.indexed_at AS indexed_at,
+            r.id AS resource_id,
+            r.uri AS resource_uri
+        ",
+    )
+    .param("tagger_id", tagger_id)
+    .param("tag_uris", tag_uris.to_vec())
 }
 
 /// Writes the stored address and the attachments of each of `author_id`'s posts in `posts`,

@@ -258,9 +258,10 @@ async fn test_resource_changes_equivalent_tag_files_share_one_reference() -> Res
     Ok(())
 }
 
-/// A tag's `pubky.app` file and its `social/v1` copy share one edge (one tag id). Only the
-/// first file is published. Migration copies are gated until the profile flip;
-/// deleting the active v1 file then retracts the original v0 reference.
+/// A tag's `pubky.app` file and its `social/v1` copy share one edge (one tag id). The copy is
+/// gated until the profile flip, which moves the edge to the copy's address: the feed then
+/// publishes a put at the v1 path followed by a del at the v0 path, and deleting the v1 file
+/// retracts the v1 reference. A consumer keyed by path ends with nothing live.
 #[tokio_shared_rt::test(shared)]
 async fn test_resource_changes_a_tag_and_its_v1_copy_share_one_reference() -> Result<()> {
     use pubky_social_specs::traits::{HasIdPath as _, HashId as _};
@@ -293,19 +294,37 @@ async fn test_resource_changes_a_tag_and_its_v1_copy_share_one_reference() -> Re
         .await?
         .iter()
         .all(|line| line.object_path == v0_path));
+    let before_flip = authored_since(&author, start).await?;
     let profile: ResourcePath = "/pub/social/v1/profile.json".parse()?;
     test.put(&key, &profile, &serde_json::json!({"name":"Tag copies"}))
         .await?;
+    let moved = authored_since(&author, start).await?;
+    assert_eq!(moved.len(), before_flip.len() + 2, "{moved:?}");
+    let (put, del) = (&moved[before_flip.len()], &moved[before_flip.len() + 1]);
+    assert_eq!(
+        (put.op, put.object_path.as_str()),
+        (ResourceChangeOp::Put, v1_path.as_str())
+    );
+    assert_eq!(put.at, before_flip[0].at, "the move keeps the indexed time");
+    assert_eq!(
+        (del.op, del.object_path.as_str()),
+        (ResourceChangeOp::Del, v0_path.as_str())
+    );
+    assert_eq!(del.resource_id, put.resource_id);
+    // Handled at v1 now: an upsert of the moved reference, published under its v1 path
     retrieve_and_handle_event_line(&format!("PUT {v1_uri}"), handler.clone()).await?;
     test.del(&key, &v1_storage).await?;
     retrieve_and_handle_event_line(&format!("DEL {v1_uri}"), handler.clone()).await?;
+    // Gated at v1: publishes nothing
     test.del(&key, &v0_storage).await?;
     retrieve_and_handle_event_line(&format!("DEL {v0_uri}"), handler.clone()).await?;
 
     let lines = authored_since(&author, start).await?;
     assert!(
-        lines.iter().all(|line| line.object_path == v0_path),
-        "only the first file is published: {lines:?}"
+        lines[moved.len()..]
+            .iter()
+            .all(|line| line.object_path == v1_path),
+        "after the flip only the v1 file is published: {lines:?}"
     );
     let mut live = HashMap::new();
     for line in &lines {
@@ -324,8 +343,10 @@ async fn test_resource_changes_a_tag_and_its_v1_copy_share_one_reference() -> Re
     Ok(())
 }
 
-/// Crash after the graph delete but before the feed append: the active v1 file
-/// must finish the journal created under the edge's original v0 path.
+/// A `pubky.app` DEL that crashed after the graph delete but before the feed append, while
+/// its user was still `v0`: after the flip its retry is gated, so the DEL of the active v1
+/// copy must finish the journal created under the edge's original v0 path. The edge is gone
+/// before the flip, so the flip moves nothing.
 #[tokio_shared_rt::test(shared)]
 async fn migrated_tag_delete_retry_finishes_the_original_file_journal() -> Result<()> {
     use nexus_common::db::{fetch_row_from_graph, queries};
@@ -347,13 +368,6 @@ async fn migrated_tag_delete_retry_finishes_the_original_file_journal() -> Resul
     assert_eq!(id, v1.create_id());
     let v1_path: ResourcePath = PubkySocialTag::create_path(&id).parse()?;
     test.put(&key, &v1_path, &v1).await?;
-    let profile: ResourcePath = "/pub/social/v1/profile.json".parse()?;
-    test.put(
-        &key,
-        &profile,
-        &serde_json::json!({"name":"Migrated retry"}),
-    )
-    .await?;
 
     let puts = authored_since(&author, cursor).await?;
     assert_eq!(puts.len(), 1);
@@ -364,6 +378,18 @@ async fn migrated_tag_delete_retry_finishes_the_original_file_journal() -> Resul
     fetch_row_from_graph(queries::del::delete_tag(&author, &id)).await?;
     // Exact durable state left by a failed finish_delete, without disrupting Redis
     // for the other tests: a journal exists, but the source edge no longer does.
+    let profile: ResourcePath = "/pub/social/v1/profile.json".parse()?;
+    test.put(
+        &key,
+        &profile,
+        &serde_json::json!({"name":"Migrated retry"}),
+    )
+    .await?;
+    assert_eq!(
+        authored_since(&author, cursor).await?,
+        puts,
+        "the flip has no edge to move"
+    );
     test.del(&key, &v1_path).await?;
     retrieve_and_handle_event_line(
         &format!("DEL pubky://{author}{v1_path}"),
@@ -374,6 +400,105 @@ async fn migrated_tag_delete_retry_finishes_the_original_file_journal() -> Resul
         authored_since(&author, cursor).await?,
         vec![puts[0].clone(), deleted]
     );
+    test.del(&key, &profile).await?;
+    Ok(())
+}
+
+/// A flip run that moved the edges but stopped before publishing their moves, the state a
+/// crash between the tags step's write and the feed append leaves: the held dels survive,
+/// and the flip's own run publishes each move as a put at the v1 path followed by the del
+/// at the v0 path, once.
+#[tokio_shared_rt::test(shared)]
+async fn test_resource_changes_publish_moves_held_by_an_interrupted_flip() -> Result<()> {
+    use crate::event_processor::posts::utils::pubky_id;
+    use nexus_watcher::events::v0_to_v1;
+    use pubky_social_specs::traits::{HasIdPath as _, HashId as _};
+    use pubky_social_specs::PubkySocialTag;
+
+    let mut test = WatcherTest::setup(None).await?;
+    let key = Keypair::random();
+    let author = test
+        .create_user(&key, &test_user("Interrupted flip", "feed"))
+        .await?;
+    let (_, _, start) = ResourceChange::get_from_index(0, 0).await?;
+    let mut files = Vec::new();
+    for n in 0..3 {
+        let target = format!("https://example.com/interrupted-flip/{n}/{author}");
+        let v0 = PubkyAppTag::new(target.clone(), "moved".into());
+        let v0_path = format!("/pub/pubky.app/tags/{}", v0.create_id());
+        let v0_storage: ResourcePath = v0_path.parse()?;
+        test.put(&key, &v0_storage, &v0).await?;
+        // The migrator's copy, ignored until the flip
+        let v1 = PubkySocialTag::new(target, "moved".into());
+        let v1_path = PubkySocialTag::create_path(&v1.create_id());
+        let v1_storage: ResourcePath = v1_path.parse()?;
+        test.put(&key, &v1_storage, &v1).await?;
+        files.push((v0_path, v1_path, v1_storage));
+    }
+    let puts = authored_since(&author, start).await?;
+    assert_eq!(puts.len(), files.len());
+
+    // The tags step of a flip that stops there: edges moved, moves held, nothing published
+    let author_id = pubky_id(&author)?;
+    let file_map = v0_to_v1::files::FileMap::load(&author_id).await?;
+    v0_to_v1::tags::migrate(&author_id, &file_map, 2).await?;
+    assert_eq!(authored_since(&author, start).await?, puts);
+    let (_, held) = ResourceChange::pending_moves(&author, 0).await?;
+    assert_eq!(held.len(), files.len(), "{held:?}");
+
+    let profile: ResourcePath = "/pub/social/v1/profile.json".parse()?;
+    test.put(
+        &key,
+        &profile,
+        &serde_json::json!({"name":"Interrupted flip"}),
+    )
+    .await?;
+    let lines = authored_since(&author, start).await?;
+    assert_eq!(lines.len(), puts.len() + 2 * files.len(), "{lines:?}");
+    for (v0_path, v1_path, _) in &files {
+        let put = puts
+            .iter()
+            .find(|line| &line.object_path == v0_path)
+            .expect("the v0 put");
+        let at = lines
+            .iter()
+            .position(|line| &line.object_path == v1_path)
+            .expect("a put at the v1 path");
+        let (moved, retracted) = (&lines[at], &lines[at + 1]);
+        assert_eq!(moved.op, ResourceChangeOp::Put);
+        assert_eq!(
+            (&moved.resource_id, &moved.label, moved.at),
+            (&put.resource_id, &put.label, put.at)
+        );
+        assert_eq!(retracted.op, ResourceChangeOp::Del);
+        assert_eq!(&retracted.object_path, v0_path);
+        assert_eq!(retracted.resource_id, put.resource_id);
+    }
+    let (_, held) = ResourceChange::pending_moves(&author, 0).await?;
+    assert!(held.is_empty(), "{held:?}");
+
+    // The v1 DELs retract what the consumer now holds
+    for (_, v1_path, v1_storage) in &files {
+        test.del(&key, v1_storage).await?;
+        retrieve_and_handle_event_line(
+            &format!("DEL pubky://{author}{v1_path}"),
+            test.event_processor_runner.event_handler.clone(),
+        )
+        .await?;
+    }
+    let mut live = HashMap::new();
+    for line in authored_since(&author, start).await? {
+        let key = (line.object_path.clone(), line.resource_id.clone());
+        match line.op {
+            ResourceChangeOp::Put => {
+                live.insert(key, ());
+            }
+            ResourceChangeOp::Del => {
+                live.remove(&key);
+            }
+        }
+    }
+    assert!(live.is_empty(), "{live:?}");
     test.del(&key, &profile).await?;
     Ok(())
 }
