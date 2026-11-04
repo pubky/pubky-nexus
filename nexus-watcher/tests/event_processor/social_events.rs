@@ -1366,3 +1366,59 @@ async fn ratings_of_native_non_post_targets_are_rejected() -> Result<()> {
     }
     Ok(())
 }
+
+/// Only the series' own author overrides an occurrence: the event family queries collect
+/// overrides of a master from any author, and rely on ingest refusing an override whose
+/// `recurrenceOf` names another author's event. Such an override is never indexed, and the
+/// series keeps its own occurrences.
+#[tokio_shared_rt::test(shared)]
+async fn an_override_of_another_authors_series_is_rejected() -> Result<()> {
+    use super::utils::watcher::retrieve_and_handle_event_line;
+    use nexus_watcher::EventProcessorError;
+
+    let mut test = WatcherTest::setup(None).await?;
+    let owner = Keypair::random();
+    let author = create_v1_user(&mut test, &owner, &v1_test_user("Series owner", "")).await?;
+    let mut master = content();
+    master["recurrenceRules"] = json!([{"frequency":"daily","count":3}]);
+    let (_, master_path, uri) = put(&mut test, &owner, "event", &master, None).await?;
+    let before = social_event::stream(query(&author)).await?;
+    assert_eq!(before.len(), 3);
+
+    let intruder = Keypair::random();
+    let other = create_v1_user(&mut test, &intruder, &v1_test_user("Series intruder", "")).await?;
+    test = test.remove_event_processing().await;
+    let mut hijack = content();
+    hijack["recurrenceOf"] = uri.clone().into();
+    hijack["recurrenceId"] = before[1].recurrence_id.clone().into();
+    hijack["status"] = "cancelled".into();
+    let id = generate_post_id();
+    let hijack_path = path(&id);
+    test.put(&intruder, &hijack_path, &post("event", &hijack, None))
+        .await?;
+    let err = retrieve_and_handle_event_line(
+        &format!("PUT pubky://{other}{hijack_path}"),
+        test.event_processor_runner.event_handler.clone(),
+    )
+    .await
+    .expect_err("an override of another author's series must be rejected");
+    assert!(
+        matches!(err, EventProcessorError::SpecValidation(_)),
+        "{err}"
+    );
+    assert!(PostDetails::get_from_graph(&other, &id).await?.is_none());
+    let after = social_event::stream(query(&author)).await?;
+    assert_eq!(
+        after
+            .iter()
+            .map(|o| (&o.post_uri, &o.recurrence_id, o.start_at))
+            .collect::<Vec<_>>(),
+        before
+            .iter()
+            .map(|o| (&o.post_uri, &o.recurrence_id, o.start_at))
+            .collect::<Vec<_>>()
+    );
+    test.del(&intruder, &hijack_path).await?;
+    test.del(&owner, &master_path).await?;
+    Ok(())
+}
