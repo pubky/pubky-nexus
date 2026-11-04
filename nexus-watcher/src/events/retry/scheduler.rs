@@ -77,6 +77,10 @@ impl RetryScheduler {
             | EventProcessorError::UserIdMismatch { .. }
             | EventProcessorError::EventCursorOutOfOrder { .. } => false,
 
+            // Whatever the source: a data anomaly inside a flip step reaches the queue, where
+            // the step is rerun whole over its partial work, instead of being dropped.
+            EventProcessorError::FlipFailed { .. } => true,
+
             _ => true,
         }
     }

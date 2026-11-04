@@ -188,9 +188,10 @@ impl RetryProcessor {
                 return Err(e);
             }
             e if limit_reached => {
-                // A flip has no limit for a transient fetch error (`limit_reached`), so a
-                // `social/v1` profile PUT reaching it is usually a `v1` user's edit, logged at
-                // `warn`; a flip lost to a non-transient error is logged at `error` (`is_flip`).
+                // A flip has no limit for a transient fetch error or a failed flip step
+                // (`limit_reached`), so a `social/v1` profile PUT reaching it is usually a `v1`
+                // user's edit, logged at `warn`; a flip lost to any other error is logged at
+                // `error` (`is_flip`).
                 if is_flip(&event).await {
                     error!("social/v1 profile PUT {ev_uri} exceeded max retries ({ev_retry_count}), dead-lettering: {e}");
                 } else {
@@ -211,9 +212,10 @@ impl RetryProcessor {
     /// Whether `retry_count` attempts have used up the limit `error` gives `event`.
     ///
     /// A flip, the `social/v1` profile PUT of a user at `v0`, has no limit for a transient
-    /// fetch error: losing it would strand the user at `v0`, so a homeserver outage of any
-    /// length delays it instead. The gate, a graph read, is asked only once such an entry
-    /// reaches its limit; a `v1` user's profile edit keeps the limit like any other event.
+    /// fetch error or a failed flip step (`FlipFailed`): losing it would strand the user at
+    /// `v0`, so a homeserver, Neo4j or Redis outage of any length delays it instead. The gate,
+    /// a graph read, is asked only once such an entry reaches its limit; a `v1` user's profile
+    /// edit keeps the limit like any other event.
     async fn limit_reached(
         &self,
         event: &Event,
@@ -223,7 +225,8 @@ impl RetryProcessor {
         if retry_count < self.max_retries_for(error) {
             return Ok(false);
         }
-        let unlimited = error.is_transient_fetch() && confirm_flip(event).await?;
+        let unlimited =
+            (error.is_transient_fetch() || error.is_flip_failed()) && confirm_flip(event).await?;
         Ok(!unlimited)
     }
 
@@ -328,8 +331,15 @@ fn calculate_backoff(retry_count: u32, initial: u64, max: u64) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::events::gate::flip_profile_uri;
     use crate::events::retry::store::InMemoryRetryStore;
     use crate::events::EventType;
+    use nexus_common::db::{exec_single_row, queries};
+    use nexus_common::models::traits::Collection as _;
+    use nexus_common::models::user::{Epoch, UserDetails};
+    use nexus_common::types::DynError;
+    use nexus_common::utils::test_utils::random_pubky_id;
+    use nexus_common::{StackConfig, StackManager};
     use tokio::sync::watch;
 
     /// Valid post URI (z32 user id + pubky.app post path) so
@@ -411,5 +421,88 @@ mod tests {
         assert_eq!(stored.nonce, 200, "stored entry must be E2, not E1");
         assert_eq!(stored.event_type, EventType::Del);
         assert_eq!(stored.next_retry_at, now + 60_000);
+    }
+
+    /// Handler that fails every event with `error`.
+    struct FailingHandler {
+        error: EventProcessorError,
+    }
+
+    #[async_trait::async_trait]
+    impl EventHandler for FailingHandler {
+        async fn handle(&self, _event: &Event) -> Result<(), EventProcessorError> {
+            Err(self.error.clone())
+        }
+    }
+
+    /// A flip step only fails for a user at `v0`, so a `FlipFailed` entry whose user is `v1`
+    /// in the graph is a stale one: at the limit it is dead-lettered as the profile edit it
+    /// then is, at `warn` with the error's text, never at `error`. The in-crate counterpart
+    /// of the `v0` tests in `tests/service/retry_processor.rs`, here because only a test in
+    /// this crate can read the processor's log lines.
+    #[tokio_shared_rt::test(shared)]
+    #[tracing_test::traced_test]
+    async fn a_failed_flip_step_of_a_v1_user_at_the_limit_is_dead_lettered_at_warn(
+    ) -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+        let user = random_pubky_id();
+        UserDetails::from_pubky(user.clone()).put_to_graph().await?;
+        Epoch::set_v1_in_graph(&user).await?;
+
+        let flip_uri = flip_profile_uri(&user);
+        let index_key = IndexKey::for_uri(&flip_uri);
+        let config = EventRetryConfig::default();
+        let store: Arc<dyn RetryStore> = Arc::new(InMemoryRetryStore::new());
+        store
+            .put(&RetryEvent {
+                retry_count: config.max_retries,
+                event_type: EventType::Put,
+                event_uri: flip_uri,
+                next_retry_at: Utc::now().timestamp_millis() - 1_000,
+                origin_homeserver_id: "test_hs".to_string(),
+                nonce: 1,
+            })
+            .await?;
+
+        let error = EventProcessorError::FlipFailed {
+            step: "posts",
+            source: Box::new(EventProcessorError::GraphQueryFailed(
+                true,
+                "connection refused".to_string(),
+            )),
+        };
+        let (_shutdown_tx, shutdown_rx) = watch::channel(false);
+        let processor = Arc::new(RetryProcessor {
+            event_handler: Arc::new(FailingHandler {
+                error: error.clone(),
+            }),
+            shutdown_rx,
+            config,
+            store: store.clone(),
+        });
+
+        processor.run_internal().await?;
+
+        assert!(
+            store.get(&index_key).await?.is_none(),
+            "a v1 user's entry is dead-lettered at the limit"
+        );
+        assert_eq!(Epoch::get_from_graph(&user).await?, Epoch::V1);
+        let text = error.to_string();
+        logs_assert(|lines| {
+            let dead_letter: Vec<_> = lines
+                .iter()
+                .filter(|line| line.contains("dead-lettering"))
+                .collect();
+            match dead_letter.as_slice() {
+                [line] if line.contains(" WARN ") && line.contains(&text) => Ok(()),
+                other => Err(format!(
+                    "expected one WARN dead-letter line carrying `{text}`, got {other:?}"
+                )),
+            }
+        });
+
+        exec_single_row(queries::del::delete_user(&user)).await?;
+        Ok(())
     }
 }

@@ -58,6 +58,22 @@ pub enum EventProcessorError {
     #[error("DataAnomaly: {0}")]
     DataAnomaly(String),
 
+    /// A step of the flip failed, between the gate's `Flip` decision and the end of the epoch
+    /// write: the internal migration or the epoch write itself. `step` names the step and
+    /// `source` keeps the cause, so one line shows what failed and why.
+    ///
+    /// Its retry class is its own, whatever the source's, so a new migration step cannot pick
+    /// one by accident: always enqueued, never a batch stop, the transient backoff and
+    /// `max_retries`, and no limit while the user is still `v0` in the graph
+    /// (`RetryProcessor::limit_reached`). Losing a flip would strand its user at `v0`, so a
+    /// Neo4j or Redis outage of any length delays it instead; a bug in a migration query pins
+    /// the affected flips hourly, in the queue and the logs, until a release fixes it.
+    #[error("FlipFailed at step `{step}`: {source}")]
+    FlipFailed {
+        step: &'static str,
+        source: Box<EventProcessorError>,
+    },
+
     /// The event is valid but targets a resource kind this handler does not index (e.g. a tag on
     /// something that is neither a Post nor a User, or a bookmark of something that is not a
     /// Post). Non-retryable: the target kind will not change.
@@ -253,6 +269,12 @@ impl EventProcessorError {
 
     pub fn is_missing_dependency(&self) -> bool {
         matches!(self, Self::MissingDependency { .. })
+    }
+
+    /// Whether a step of the flip failed ([`Self::FlipFailed`]): the one error, besides a
+    /// transient fetch failure, that a flip is retried without limit for.
+    pub fn is_flip_failed(&self) -> bool {
+        matches!(self, Self::FlipFailed { .. })
     }
 
     /// Whether this is a fetch failure the retry queue takes: a `PubkyClientError` the
@@ -472,5 +494,37 @@ mod tests {
             !err.should_not_retry_now(),
             "a 404 is per-user and must not abort the run"
         );
+    }
+
+    /// A failed flip step names the step and its cause, and takes one retry class whatever
+    /// the cause's: enqueued, no batch stop, the transient backoff and limit, and the flip's
+    /// unlimited rule. Each source has a class of its own that the wrapper overrides.
+    #[test]
+    fn a_failed_flip_step_names_its_cause_and_keeps_one_retry_class() {
+        let sources = [
+            EventProcessorError::GraphQueryFailed(true, "connection refused".to_string()),
+            EventProcessorError::IndexOperationFailed(false, "wrong type".to_string()),
+            EventProcessorError::DataAnomaly("keyset scan cannot advance".to_string()),
+        ];
+        for source in sources {
+            let cause = source.to_string();
+            let err = EventProcessorError::FlipFailed {
+                step: "posts",
+                source: Box::new(source),
+            };
+
+            let message = err.to_string();
+            assert!(message.contains("step `posts`"), "{message}");
+            assert!(message.contains(&cause), "{message}");
+
+            assert!(err.is_flip_failed(), "{err:?}");
+            assert!(
+                RetryScheduler::should_enqueue_related_event(&err),
+                "{err:?}"
+            );
+            assert!(!err.should_not_retry_now(), "{err:?}");
+            assert!(!err.is_missing_dependency(), "{err:?}");
+            assert!(!err.is_transient_fetch(), "{err:?}");
+        }
     }
 }

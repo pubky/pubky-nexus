@@ -2568,3 +2568,263 @@ async fn test_pubky_app_del_of_a_v0_user_without_a_queued_flip_is_handled() -> R
     exec_single_row(queries::del::delete_user(&user_id)).await?;
     Ok(())
 }
+
+// ============================================================================
+// A failed flip step is queued without limit while the user is `v0`
+// `FlipFailed` wraps whatever failed inside the flip step, and its retry class is
+// the variant's, not the source's: enqueued on the first attempt with the transient
+// backoff while the batch goes on, counted with `max_retries`, and rescheduled past
+// that limit for as long as the user is still `v0` in the graph. Nothing produces
+// the variant yet; these tests return it from a stub handler, through the primary
+// runner and the retry processor with the in-memory queue. The `v1` user's case,
+// dead-lettered at `warn`, is in the processor's own tests, where its log line can
+// be read.
+// ============================================================================
+
+/// The step's failure, wrapped as the flip returns it.
+fn flip_failed(source: EventProcessorError) -> EventProcessorError {
+    EventProcessorError::FlipFailed {
+        step: "posts",
+        source: Box::new(source),
+    }
+}
+
+/// What a flip step can fail with, one per retry class of its own: a connection-class
+/// graph error (a batch stop), a deserialization-class one (counted), and a stalled keyset
+/// scan (never retried). Wrapped, each takes the flip's class instead.
+fn flip_step_failures() -> [EventProcessorError; 3] {
+    [
+        EventProcessorError::GraphQueryFailed(true, "connection refused".to_string()),
+        EventProcessorError::GraphQueryFailed(false, "Deserialization failed".to_string()),
+        EventProcessorError::DataAnomaly("keyset scan cannot advance".to_string()),
+    ]
+}
+
+/// A `pubky.app` post URI of another user: the event behind the flip in a batch.
+fn another_users_post_uri() -> String {
+    post_uri_builder(random_pubky_id().to_string(), "0032SSN7Q4EVG".to_string())
+}
+
+/// The runner's first attempt: the flip step fails, the flip is queued with the transient
+/// class and the next event is handled, whichever of the three sources failed the step.
+#[tokio_shared_rt::test(shared)]
+async fn test_a_failed_flip_step_is_queued_on_the_first_attempt_and_the_batch_continues(
+) -> Result<()> {
+    setup().await?;
+
+    for source in flip_step_failures() {
+        let flip_uri = social_v1_profile_uri(random_pubky_id().as_ref());
+        let post_uri = another_users_post_uri();
+        let client = Arc::new(MockHomeserverClient::default().with_lines(batch([
+            format!("PUT {flip_uri}"),
+            format!("PUT {post_uri}"),
+        ])));
+        let store = new_in_memory_store();
+        let handler = create_mock_handler(Err(flip_failed(source.clone())), Some(&flip_uri));
+        let runner = primary_runner(client, handler.clone(), store.clone()).await?;
+
+        let now = Utc::now().timestamp_millis();
+        runner.run_internal().await.unwrap_or_else(|e| {
+            panic!("{source:?}: a failed flip step must not fail the batch: {e}")
+        });
+
+        assert_eq!(
+            handler.get_handled_uris(),
+            vec![flip_uri.clone(), post_uri.clone()],
+            "{source:?}: the event behind the flip is handled"
+        );
+        let queued = store
+            .get(&IndexKey::for_uri(&flip_uri))
+            .await?
+            .unwrap_or_else(|| panic!("{source:?}: the flip must be queued"));
+        assert_eq!(queued.event_type, EventType::Put, "{source:?}");
+        assert_eq!(queued.retry_count, 0, "{source:?}");
+        assert!(
+            (now + TRANSIENT_MS..now + MISSING_DEP_MS).contains(&queued.next_retry_at),
+            "{source:?}: the flip is queued with the transient class"
+        );
+        assert!(
+            store.get(&IndexKey::for_uri(&post_uri)).await?.is_none(),
+            "{source:?}: the handled post is not queued"
+        );
+    }
+    Ok(())
+}
+
+/// The retry processor below the limit: the flip step fails again, the entry is rescheduled
+/// with the transient backoff and its count raised, and the entry behind it is handled.
+#[tokio_shared_rt::test(shared)]
+async fn test_a_failed_flip_step_retried_below_the_limit_is_rescheduled_and_the_batch_continues(
+) -> Result<()> {
+    setup().await?;
+
+    for source in flip_step_failures() {
+        let flip_uri = social_v1_profile_uri(random_pubky_id().as_ref());
+        let post_uri = another_users_post_uri();
+        let store = new_in_memory_store();
+        let now = Utc::now().timestamp_millis();
+        // The flip is due first, the post behind it
+        store
+            .put(&RetryEvent {
+                next_retry_at: now - 2000,
+                ..ready_put_entry(&flip_uri, 0)
+            })
+            .await?;
+        store.put(&ready_put_entry(&post_uri, 0)).await?;
+
+        let handler = create_mock_handler(Err(flip_failed(source.clone())), Some(&flip_uri));
+        let (_shutdown_tx, shutdown_rx) = watch::channel(false);
+        let processor = build_processor(
+            store.clone(),
+            // Transient: 60 s doubling to 1 h; dependency: 600 s doubling to 2 h
+            create_test_config(MAX_RETRIES, 50, 60, 3600, 600, 7200),
+            handler.clone(),
+            shutdown_rx,
+        );
+
+        processor.run_internal().await.unwrap_or_else(|e| {
+            panic!("{source:?}: a failed flip step must not fail the batch: {e}")
+        });
+
+        assert_eq!(
+            handler.get_handled_uris(),
+            vec![flip_uri.clone(), post_uri.clone()],
+            "{source:?}: the entry behind the flip is handled"
+        );
+        let rescheduled = store
+            .get(&IndexKey::for_uri(&flip_uri))
+            .await?
+            .unwrap_or_else(|| panic!("{source:?}: the flip must be rescheduled"));
+        assert_eq!(rescheduled.retry_count, 1, "{source:?}: the attempt counts");
+        assert!(
+            (now + 60_000..now + 600_000).contains(&rescheduled.next_retry_at),
+            "{source:?}: the flip takes the transient backoff, not the dependency one"
+        );
+        assert!(
+            store.get(&IndexKey::for_uri(&post_uri)).await?.is_none(),
+            "{source:?}: the handled post leaves the queue"
+        );
+    }
+    Ok(())
+}
+
+/// At `max_retries`, a flip whose step keeps failing is rescheduled with its count raised, not
+/// removed, while the user is still `v0`: the attempts count, the limit does not apply.
+#[tokio_shared_rt::test(shared)]
+async fn test_a_failed_flip_step_at_max_retries_is_rescheduled_while_the_user_is_v0() -> Result<()>
+{
+    setup().await?;
+
+    let user = random_pubky_id();
+    let user_id = user.to_string();
+    // No epoch on the node: the user reads as `v0`
+    UserDetails::from_pubky(user).put_to_graph().await?;
+    let flip_uri = social_v1_profile_uri(&user_id);
+
+    for source in flip_step_failures() {
+        let store = new_in_memory_store();
+        let now = Utc::now().timestamp_millis();
+        store.put(&ready_put_entry(&flip_uri, MAX_RETRIES)).await?;
+
+        let (_shutdown_tx, shutdown_rx) = watch::channel(false);
+        let processor = build_processor(
+            store.clone(),
+            create_test_config(MAX_RETRIES, 50, 60, 3600, 600, 7200),
+            create_mock_handler(Err(flip_failed(source.clone())), Some(&flip_uri)),
+            shutdown_rx,
+        );
+
+        processor.run_internal().await.unwrap_or_else(|e| {
+            panic!("{source:?}: a failed flip step must not fail the batch: {e}")
+        });
+
+        let rescheduled = store
+            .get(&IndexKey::for_uri(&flip_uri))
+            .await?
+            .unwrap_or_else(|| {
+                panic!(
+                    "{source:?}: the flip must be rescheduled past max_retries, not dead-lettered"
+                )
+            });
+        assert_eq!(
+            rescheduled.retry_count,
+            MAX_RETRIES + 1,
+            "{source:?}: the attempt still counts"
+        );
+        assert!(
+            (now + 3_600_000..now + 3_600_000 + 60_000).contains(&rescheduled.next_retry_at),
+            "{source:?}: the flip is rescheduled at the transient ceiling"
+        );
+        assert_eq!(
+            find_user_epoch(&user_id).await,
+            None,
+            "{source:?}: the user stays at v0 until the step succeeds"
+        );
+    }
+
+    exec_single_row(queries::del::delete_user(&user_id)).await?;
+    Ok(())
+}
+
+/// A failed graph read inside the limit check takes the handler's error's place: the entry is
+/// rescheduled without counting, as for any graph failure, and the batch stops. The stack is
+/// never set up here, so the gate's read fails on the uninitialised connection; nextest runs
+/// each test in its own process, so no other test initialises it first.
+#[tokio_shared_rt::test(shared)]
+async fn test_a_failed_graph_read_in_the_limit_check_keeps_the_flip_entry() -> Result<()> {
+    let flip_uri = social_v1_profile_uri(random_pubky_id().as_ref());
+    let post_uri = another_users_post_uri();
+    let store = new_in_memory_store();
+    let now = Utc::now().timestamp_millis();
+    // The flip is due first, the post behind it
+    store
+        .put(&RetryEvent {
+            next_retry_at: now - 2000,
+            ..ready_put_entry(&flip_uri, MAX_RETRIES)
+        })
+        .await?;
+    store.put(&ready_put_entry(&post_uri, 0)).await?;
+
+    let handler = create_mock_handler(
+        Err(flip_failed(EventProcessorError::DataAnomaly(
+            "keyset scan cannot advance".to_string(),
+        ))),
+        Some(&flip_uri),
+    );
+    let (_shutdown_tx, shutdown_rx) = watch::channel(false);
+    let processor = build_processor(
+        store.clone(),
+        create_test_config(MAX_RETRIES, 50, 60, 3600, 600, 7200),
+        handler.clone(),
+        shutdown_rx,
+    );
+
+    let err = processor
+        .run_internal()
+        .await
+        .expect_err("a failed graph read must stop the batch");
+    assert!(
+        matches!(err, EventProcessorError::GraphQueryFailed(true, _)),
+        "classified as the graph error it is: {err:?}"
+    );
+    assert_eq!(
+        handler.get_handled_uris(),
+        vec![flip_uri.clone()],
+        "the post behind the flip must not be reached"
+    );
+
+    let kept = store
+        .get(&IndexKey::for_uri(&flip_uri))
+        .await?
+        .expect("the flip must be kept, not dead-lettered");
+    assert_eq!(
+        kept.retry_count, MAX_RETRIES,
+        "a graph error does not count"
+    );
+    assert!(kept.next_retry_at > now, "rescheduled with backoff");
+    assert!(
+        store.get(&IndexKey::for_uri(&post_uri)).await?.is_some(),
+        "the post entry stays queued"
+    );
+    Ok(())
+}
