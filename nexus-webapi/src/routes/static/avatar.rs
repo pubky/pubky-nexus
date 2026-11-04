@@ -51,10 +51,12 @@ pub async fn user_avatar_handler(
         return Err(Error::FileNotFound {});
     };
 
-    let (owner_id, file_id) =
-        FileDetails::file_key_from_uri(&image_uri).ok_or(Error::InternalServerError {
-            source: format!("Invalid file URI: {image_uri}").into(),
-        })?;
+    // The profile `image` is free text from the user's homeserver. A URI that names no
+    // pubky.app file record is a missing avatar, not a server fault.
+    let Some((owner_id, file_id)) = FileDetails::file_key_from_uri(&image_uri) else {
+        debug!("Avatar image is not a file URI for user: {user_id}");
+        return Err(Error::FileNotFound {});
+    };
 
     let file_list = FileDetails::get_by_ids(&[&[&owner_id, &file_id]]).await?;
 
