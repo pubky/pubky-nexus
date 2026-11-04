@@ -5,7 +5,7 @@ use nexus_common::media::FileVariant;
 use nexus_common::models::user::UserIngestor;
 use nexus_common::models::{file::FileDetails, traits::Collection};
 use pubky::PubkyResource;
-use pubky_app_specs::{ParsedUri, PubkyAppBlob, PubkyAppFile, PubkyAppObject, PubkyId};
+use pubky_app_specs::{ParsedUri, PubkyAppBlob, PubkyAppFile, PubkyAppObject, PubkyId, Resource};
 use std::path::Path;
 use tokio::fs::{self, remove_dir_all};
 use tracing::{debug, warn};
@@ -62,8 +62,7 @@ async fn ingest(
 
     let path = Path::new(&user_id.to_string()).join(file_id);
     let full_path = files_path.join(&path);
-    let pubky_app_object = PubkyAppObject::from_resource(&parsed_source_uri.resource, &blob)
-        .map_err(EventProcessorError::generic)?;
+    let pubky_app_object = source_object(&parsed_source_uri.resource, &blob)?;
 
     match pubky_app_object {
         PubkyAppObject::Blob(blob) => {
@@ -87,6 +86,14 @@ fn file_source(src: &str) -> Result<ParsedUri, EventProcessorError> {
     ParsedUri::try_from(src).map_err(|e| {
         EventProcessorError::UnsupportedTarget(format!("Invalid file source URI {src}: {e}"))
     })
+}
+
+/// Validates the bytes fetched from a file's `src` against the resource it names.
+///
+/// A blob id is the hash of its bytes, so a mismatch fails the same way on every retry: it is
+/// rejected with [`EventProcessorError::SpecValidation`], which is not retried.
+fn source_object(resource: &Resource, bytes: &[u8]) -> Result<PubkyAppObject, EventProcessorError> {
+    PubkyAppObject::from_resource(resource, bytes).map_err(EventProcessorError::SpecValidation)
 }
 
 /// Writes `blob` to `<dir>/main`, creating `dir` if it does not exist.
@@ -131,6 +138,7 @@ pub async fn del(
 mod tests {
     use super::*;
     use crate::events::retry::RetryScheduler;
+    use pubky_app_specs::traits::HashId;
 
     #[test]
     fn file_source_rejects_non_pubky_uris_without_retry() {
@@ -155,6 +163,37 @@ mod tests {
 
         let blob = format!("pubky://{user_id}/pub/pubky.app/blobs/0033SSE3B1FQ0");
         assert!(file_source(&blob).is_ok());
+    }
+
+    #[test]
+    fn source_object_rejects_blob_id_mismatch_without_retry() {
+        let bytes = b"hello world".to_vec();
+        let blob_id = PubkyAppBlob::new(bytes.clone()).create_id();
+
+        // The bytes do not hash to the id in the source URI: every retry fetches the same
+        // bytes and fails the same way.
+        let wrong_id = PubkyAppBlob::new(b"other bytes".to_vec()).create_id();
+        let err = source_object(&Resource::Blob(wrong_id), &bytes)
+            .expect_err("a blob whose bytes do not match its id must be rejected");
+        assert!(
+            matches!(err, EventProcessorError::SpecValidation(_)),
+            "unexpected error {err:?}"
+        );
+        assert!(
+            !RetryScheduler::should_enqueue_related_event(&err),
+            "a blob id mismatch must not be retried"
+        );
+
+        // The id written in lower case is not the canonical id either.
+        let err = source_object(&Resource::Blob(blob_id.to_lowercase()), &bytes)
+            .expect_err("a lower-case blob id must be rejected");
+        assert!(!RetryScheduler::should_enqueue_related_event(&err));
+
+        // Matching bytes still validate.
+        assert!(matches!(
+            source_object(&Resource::Blob(blob_id), &bytes),
+            Ok(PubkyAppObject::Blob(_))
+        ));
     }
 
     async fn read_main(dir: &Path) -> Vec<u8> {
