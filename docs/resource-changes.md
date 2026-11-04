@@ -36,8 +36,10 @@ homeserver runners and the retry processor). A resource tag's PUT, its DEL and a
 takedown of it take one lock per tag file (tagger and tag id) across their graph
 write and their append, so the feed lists one file's changes in the order the
 graph took them. The flip's tags step (below) takes the same locks for the edges
-it moves, from its read of a batch to the batch's write, so no handler of those
-files reads an edge before the move and appends after it. The lock is per watcher
+it moves, by each edge's tag id and the new id the flip gives it, from its read
+of a batch to the batch's write, so no handler of those files reads an edge before
+the move and appends after it. A DEL or a takedown of an edge the flip gave a new
+id holds the locks of both ids. The lock is per watcher
 process: this ordering holds for one watcher process per Neo4j and Redis, the
 deployment the watcher's cursors already assume. Equivalent tag files land on one
 edge and only its owner publishes, so they need no shared lock.
@@ -45,7 +47,17 @@ edge and only its owner publishes, so they need no shared lock.
 What the feed cannot repair alone is a handler that stops for good between its
 graph write and its append: a PUT or a DEL whose retries run out there. The graph
 then holds a change the feed lacks. Running the seed job (below) rebuilds the feed from
-the graph.
+the graph. Two cases around the flip (below) end the same way:
+
+- A `pubky.app` DEL that deleted its edge but failed to publish, and whose user's flip
+  completes before its retry: the gate drops the retry once the user is at
+  `social/v1`, so its del stays unpublished.
+- A `pubky.app` PUT that recreates a tag's edge after the flip's tags step, while the
+  del of the tag's moved edge is still unpublished: the new edge stays at its
+  `pubky.app` address, the flip keeps holding the del of that address, and a later
+  delete of the tag's `social/v1` address publishes it, retracting a live reference.
+
+The seed job repairs both.
 
 When a user moves from `pubky.app` to `social/v1` (the flip on their `social/v1`
 profile), Nexus moves each resource tag edge they wrote to the address of its
@@ -55,7 +67,12 @@ path the user's later `social/v1` delete retracts. The del of each old path is h
 before the edge moves and published with its put after; a flip that fails before it
 completes runs again and publishes what an earlier attempt held. A tag deleted or
 taken down after its edge moved, before the flip published the move, publishes the
-held del of the old path together with its own.
+held del of the old path together with its own. That includes a tag on the user's
+own file, whose id the flip changes: the edge keeps its `pubky.app` id beside the
+new one, and the delete of its `pubky.app` file finds it by that id. Such a delete
+journals its del under the edge's address and names that journal from the deleted
+file's address until the del is published, so a retry that no longer finds the edge
+still publishes it, with any del the flip holds for that address.
 
 `at` is the edge's indexed timestamp in Unix milliseconds for puts (including
 replays and moves), and the deletion's indexed timestamp for dels. Apply lines in list order,
@@ -120,6 +137,11 @@ The list is `Event:ResourceChanges`, its epoch is `Event:ResourceChanges:Epoch`.
 `Event:ResourceChanges:PendingDelete:*` retains interrupted delete details;
 `Event:ResourceChanges:PendingMove:<author>` holds the dels of a flip's moves until
 they are published;
+`Event:ResourceChanges:PendingDeleteAlias:*` names, from a deleted tag file's address,
+the pending delete of an edge stored under another address, and goes when that delete
+is published. It can outlive that delete: when a later put lands at either address,
+or the delete's retry is gated off. Resolving a leftover alias publishes only a pending
+delete that still exists;
 `Event:ResourceChanges:Seed:*` and `Event:ResourceChanges:SeedLock` are temporary.
 This feed follows accepted tag events; it does not add hooks for unrelated graph
 maintenance or profile-deletion cascades. Rebuilding reconciles current graph state.

@@ -174,7 +174,8 @@ pub fn set_post_addresses(
 /// Writes the `id` and the `uri` of each of `tagger_id`'s `TAGGED` edges in `tags`, `(edge,
 /// id, uri)` rows keyed by the edge's element id, one element-id seek per row, and returns how
 /// many it wrote as `changed`. An edge that is gone, or not the tagger's, is left alone and not
-/// counted.
+/// counted. An edge whose id changes keeps its old one as `v0_id`, which a delete of its
+/// `pubky.app` file still finds it by; an edge whose id stays keeps the `v0_id` it has.
 ///
 /// The anonymous pattern is load-bearing: anchored on the tagger, the planner expands every
 /// edge they wrote for each row; anchored on nothing, it seeks the edge by its element id
@@ -190,6 +191,7 @@ pub fn set_tag_addresses(tagger_id: &str, tags: &[(String, String, String)]) -> 
         UNWIND $tags AS tag
         MATCH ()-[t:TAGGED]->()
         WHERE elementId(t) = tag[0] AND startNode(t).id = $tagger_id
+        SET t.v0_id = CASE WHEN t.id = tag[1] THEN t.v0_id ELSE t.id END
         SET t.id = tag[1], t.uri = tag[2]
         RETURN count(t) AS changed
         ",

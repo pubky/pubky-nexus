@@ -794,3 +794,74 @@ async fn test_tags_migration_rerun_gives_the_same_result() -> Result<()> {
     test.cleanup_user(&author_kp).await?;
     Ok(())
 }
+
+/// A flip that gives a post tag a new id and then fails leaves the edge with its `pubky.app`
+/// id beside the new one. A replay of the `pubky.app` tag file puts the edge back at that
+/// file's address, keeping the new id; the retried tags step rewrites the edge to the same new
+/// id and must keep the `pubky.app` id, so the `DEL` of that file still removes the tag.
+#[tokio_shared_rt::test(shared)]
+async fn test_retried_flip_keeps_the_pubky_app_id_of_a_replayed_tag() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+
+    let author_kp = Keypair::random();
+    let author_id = test
+        .create_user(
+            &author_kp,
+            &test_user("Watcher:Migration:Tags:Replayed:Author", "migration"),
+        )
+        .await?;
+    let (post_id, post_path) = test
+        .create_post(&author_kp, &short_post("Watcher:Migration:Tags:Replayed"))
+        .await?;
+    let label = "migreplayed";
+    let v0 = v0_tag(
+        &v0_post_uri_builder(author_id.clone(), post_id.clone()),
+        label,
+    );
+    test.put(&author_kp, &v0.hs_path(), &v0).await?;
+    let v1_id = v1_tag(
+        &v1_post_uri_builder(author_id.clone(), post_id.clone()),
+        label,
+    )
+    .create_id();
+    assert_ne!(v0.create_id(), v1_id);
+
+    // The flip's tags step commits; a later step fails, so the user stays `v0`
+    let user = pubky_id(&author_id)?;
+    let files = v0_to_v1::files::FileMap::load(&user).await?;
+    v0_to_v1::tags::migrate(&user, &files, v0_to_v1::tags::BATCH_SIZE).await?;
+    assert_eq!(
+        find_tag_uri(&author_id, &v1_id).await,
+        Some(v1_tag_uri(&author_id, &v1_id))
+    );
+    // A replay of the `pubky.app` file
+    test.put(&author_kp, &v0.hs_path(), &v0).await?;
+    assert_eq!(
+        find_tag_uri(&author_id, &v1_id).await,
+        Some(v0_tag_uri_builder(author_id.clone(), v0.create_id()))
+    );
+    // The retried tags step
+    v0_to_v1::tags::migrate(&user, &files, v0_to_v1::tags::BATCH_SIZE).await?;
+    assert_eq!(
+        find_tag_uri(&author_id, &v1_id).await,
+        Some(v1_tag_uri(&author_id, &v1_id))
+    );
+
+    test.del(&author_kp, &v0.hs_path()).await?;
+    retrieve_and_handle_event_line(
+        &format!(
+            "DEL {}",
+            v0_tag_uri_builder(author_id.clone(), v0.create_id())
+        ),
+        test.event_processor_runner.event_handler.clone(),
+    )
+    .await?;
+    assert!(
+        find_post_tag(&author_id, &post_id, label).await?.is_none(),
+        "the pubky.app DEL must remove the tag"
+    );
+
+    test.cleanup_post(&author_kp, &post_path).await?;
+    test.cleanup_user(&author_kp).await?;
+    Ok(())
+}
