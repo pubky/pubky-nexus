@@ -95,8 +95,8 @@ store the indexed event's current URI. The pinned wire validator requires a soci
 RSVP parent; the handler also resolves legacy aliases when supplied by a translator.
 Resource views read their own aggregate by Resource ID. External-URI ratings also
 create the ordinary external reply edge, count and resource-feed line.
-Existing post/resource streams support `sorting=rating`; score cursors
-can be fractional. Other sorting modes keep integer timestamp/count JSON values.
+Existing post/resource streams support `sorting=rating`; on the resource stream it
+orders the same tagged Resources as the timeline. Score cursors can be fractional. Other sorting modes keep integer timestamp/count JSON values.
 
 RSVPs and ratings retain ordinary reply notifications. `event_changed` is sent to
 accepted attendees when an indexed occurrence's start, normalized location set or
