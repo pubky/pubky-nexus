@@ -66,7 +66,7 @@ pub async fn sync_put_at(
     let was_reply = PostRelationships::get_from_graph(&key.owner_id, &key.resource_id)
         .await?
         .is_some_and(|relationships| relationships.replied.is_some());
-    let now_reply = post.parent.is_some();
+    let now_reply = is_reply_input(&post);
     let post_details = post.clone().into_details(&key);
     let projected = post.clone().into_details(&key);
     let ResourceKey {
@@ -90,6 +90,18 @@ pub async fn sync_put_at(
         }
     }
     Ok(())
+}
+
+/// Whether `post` is indexed as a reply: its parent is a post, or an external target it has a
+/// Resource reply edge to. A parent Nexus never references makes no edge, so the post is a root
+/// post, as a graph rebuild of its counts and timelines finds it.
+fn is_reply_input(post: &PostInput) -> bool {
+    post.parent.as_ref().is_some_and(|parent| {
+        matches!(
+            parent.target,
+            ReferenceTarget::Post(_) | ReferenceTarget::Foreign
+        )
+    })
 }
 
 /// Rejects a reply to a file, a profile or a tag, whatever folder holds it, as
@@ -151,7 +163,7 @@ async fn sync_put_details(
 ) -> Result<(), EventProcessorError> {
     debug!("Indexing post");
     // We avoid indexing replies into global feed sorted sets
-    let is_reply = post.parent.is_some();
+    let is_reply = is_reply_input(&post);
     let is_collection = post.kind == PostKind::Collection;
     // PRE-INDEX operation, identify the post relationship. These parents carry the addresses as
     // the author wrote them: only their keys reach the graph, and the addresses only the
