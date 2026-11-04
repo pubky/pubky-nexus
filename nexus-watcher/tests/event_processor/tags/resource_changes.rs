@@ -2,12 +2,14 @@ use crate::event_processor::posts::utils::{short_post, test_user};
 use crate::event_processor::utils::watcher::{retrieve_and_handle_event_line, WatcherTest};
 use anyhow::Result;
 use chrono::Utc;
+use futures::future::LocalBoxFuture;
 use nexus_common::db::OperationOutcome;
 use nexus_common::models::event::resource_changes::{
     ResourceChange, ResourceChangeKind, ResourceChangeOp,
 };
 use nexus_common::models::resource::tag::TagResource;
 use nexus_common::universal_tag::normalize::{normalize_uri, resource_id};
+use nexus_watcher::EventProcessorError;
 use pubky::{Keypair, ResourcePath};
 use pubky_social_specs::legacy_v0::{
     post_uri_builder, traits::HashId, user_uri_builder, PubkyAppTag,
@@ -580,5 +582,369 @@ async fn test_resource_changes_retract_a_moved_tag_deleted_before_the_flip_retry
     assert!(held.is_empty(), "{held:?}");
     test.del(&key, &v1_storage).await?;
     test.del(&key, &profile).await?;
+    Ok(())
+}
+
+/// A resource tag file's handlers, as the watcher runs them: a PUT through
+/// `sync_put_resource`, a DEL through `del_at`.
+#[derive(Clone, Copy, Debug)]
+enum TagStep {
+    Put,
+    Del,
+}
+
+/// The handler of `step` for the tag file of `author` on `target` labelled `steps`, not yet
+/// polled.
+fn tag_handler(
+    author: &str,
+    target: &str,
+    step: TagStep,
+) -> Result<LocalBoxFuture<'static, Result<(), EventProcessorError>>> {
+    use futures::FutureExt;
+    use nexus_watcher::events::handlers::tag;
+    use nexus_watcher::events::inputs::{Reference, ReferenceTarget, ResourceKey, TagInput};
+
+    let id = PubkyAppTag::new(target.to_string(), "steps".into()).create_id();
+    let tag_uri = format!("pubky://{author}/pub/pubky.app/tags/{id}");
+    let key = ResourceKey {
+        owner_id: crate::event_processor::posts::utils::pubky_id(author)?,
+        resource_id: id,
+    };
+    Ok(match step {
+        TagStep::Put => {
+            let input = TagInput {
+                uri: tag_uri,
+                tagged: Reference {
+                    uri: target.to_string(),
+                    target: ReferenceTarget::Foreign,
+                },
+                label: "steps".into(),
+            };
+            tag::sync_put_resource(input, key).boxed_local()
+        }
+        TagStep::Del => async move { tag::del_at(key, &tag_uri).await }.boxed_local(),
+    })
+}
+
+/// Polls each of `handlers` once, asserting it waits for its tag's lock: they queue for it in
+/// that order.
+async fn queue_tag_handlers(
+    steps: &[TagStep],
+    handlers: &mut [LocalBoxFuture<'static, Result<(), EventProcessorError>>],
+) {
+    for (step, handler) in steps.iter().zip(handlers.iter_mut()) {
+        assert!(
+            futures::poll!(handler.as_mut()).is_pending(),
+            "{step:?} must wait for the tag's lock"
+        );
+    }
+}
+
+/// Queues `steps` for one tag file behind its lock, in that order, then lets them run: the
+/// lock grants them one at a time, first come first served. Each step is polled until it waits
+/// for the lock, so the order is fixed before any of them runs. Returns the file's path.
+async fn run_tag_steps(author: &str, target: &str, steps: &[TagStep]) -> Result<String> {
+    use futures::future::join_all;
+    use nexus_watcher::events::handlers::tag;
+
+    let id = PubkyAppTag::new(target.to_string(), "steps".into()).create_id();
+    let path = format!("/pub/pubky.app/tags/{id}");
+    let guard = tag::lock_tag(author, &id).await;
+    let mut queued = steps
+        .iter()
+        .map(|step| tag_handler(author, target, *step))
+        .collect::<Result<Vec<_>>>()?;
+    queue_tag_handlers(steps, &mut queued).await;
+    drop(guard);
+    for (step, result) in steps.iter().zip(join_all(queued).await) {
+        result.map_err(|e| anyhow::anyhow!("{step:?}: {e}"))?;
+    }
+    Ok(path)
+}
+
+/// The flip's tags step and its publish step for `author`, as the flip runs them, not yet
+/// polled.
+fn flip_tags(
+    author: &str,
+    batch_size: usize,
+) -> Result<LocalBoxFuture<'static, Result<(), EventProcessorError>>> {
+    use futures::FutureExt;
+    use nexus_watcher::events::v0_to_v1;
+
+    let author_id = crate::event_processor::posts::utils::pubky_id(author)?;
+    Ok(async move {
+        let files = v0_to_v1::files::FileMap::load(&author_id).await?;
+        v0_to_v1::tags::migrate(&author_id, &files, batch_size).await?;
+        v0_to_v1::resource_changes::publish(&author_id).await
+    }
+    .boxed_local())
+}
+
+/// The feed's live references of `author` to `target` since `start` are exactly the graph's:
+/// the edge's reference when it exists, none otherwise.
+async fn assert_feed_matches_graph(author: &str, start: u64, target: &str) -> Result<()> {
+    use nexus_common::db::{fetch_row_from_graph, queries};
+
+    let (normalized, _) = normalize_uri(target).unwrap();
+    let rid = resource_id(&normalized);
+    let edge = fetch_row_from_graph(queries::get::get_resource_tag_indexed_at(
+        author, &rid, "steps",
+    ))
+    .await?;
+    let lines: Vec<_> = authored_since(author, start)
+        .await?
+        .into_iter()
+        .filter(|line| line.resource_id == rid)
+        .collect();
+    let mut live = std::collections::BTreeSet::new();
+    for line in &lines {
+        let key = (line.object_path.clone(), line.resource_id.clone());
+        match line.op {
+            ResourceChangeOp::Put => {
+                live.insert(key);
+            }
+            ResourceChangeOp::Del => {
+                live.remove(&key);
+            }
+        }
+    }
+    let expected: std::collections::BTreeSet<_> = match edge {
+        Some(row) => {
+            let tag_uri: String = row.get("tag_uri")?;
+            let path = tag_uri
+                .strip_prefix(&format!("pubky://{author}"))
+                .unwrap()
+                .to_string();
+            [(path, rid)].into()
+        }
+        None => Default::default(),
+    };
+    assert_eq!(live, expected, "feed {lines:?}");
+    Ok(())
+}
+
+/// A DEL of a resource tag waits while another handler of the same tag file holds its lock,
+/// and runs once it is released.
+#[tokio_shared_rt::test(shared)]
+async fn test_resource_tag_delete_waits_for_the_tag_lock() -> Result<()> {
+    use nexus_watcher::events::handlers::tag;
+    use nexus_watcher::events::inputs::ResourceKey;
+
+    let mut test = WatcherTest::setup(None).await?;
+    let key = Keypair::random();
+    let author = test
+        .create_user(&key, &test_user("Tag lock", "feed"))
+        .await?;
+    let (_, _, start) = ResourceChange::get_from_index(0, 0).await?;
+    let target = format!("https://example.com/tag-lock/{author}");
+    let tag = PubkyAppTag::new(target.clone(), "steps".into());
+    let id = tag.create_id();
+    let storage: ResourcePath = format!("/pub/pubky.app/tags/{id}").parse()?;
+    let tag_uri = format!("pubky://{author}{storage}");
+    test.put(&key, &storage, &tag).await?;
+
+    let guard = tag::lock_tag(&author, &id).await;
+    let owner_id = crate::event_processor::posts::utils::pubky_id(&author)?;
+    let mut delete = tokio::spawn(async move {
+        tag::del_at(
+            ResourceKey {
+                owner_id,
+                resource_id: id,
+            },
+            &tag_uri,
+        )
+        .await
+    });
+    // Bounds the wait only: a DEL that does not take the lock finishes well within it
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_secs(2), &mut delete)
+            .await
+            .is_err(),
+        "a DEL must wait while the tag's lock is held"
+    );
+    drop(guard);
+    delete.await??;
+    assert_feed_matches_graph(&author, start, &target).await?;
+    let lines = authored_since(&author, start).await?;
+    assert_eq!(
+        lines.last().map(|line| line.op),
+        Some(ResourceChangeOp::Del)
+    );
+    test.cleanup_user(&key).await?;
+    Ok(())
+}
+
+/// A PUT and a DEL of the same resource tag file, run concurrently in either order, with or
+/// without the edge already there, leave the feed's live references equal to the graph's.
+#[tokio_shared_rt::test(shared)]
+async fn test_resource_tag_put_and_delete_agree_in_either_order() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let key = Keypair::random();
+    let author = test
+        .create_user(&key, &test_user("Tag orders", "feed"))
+        .await?;
+    for (n, (existing, steps)) in [
+        (false, [TagStep::Put, TagStep::Del]),
+        (false, [TagStep::Del, TagStep::Put]),
+        (true, [TagStep::Put, TagStep::Del]),
+        (true, [TagStep::Del, TagStep::Put]),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let target = format!("https://example.com/tag-orders/{n}/{author}");
+        let (_, _, start) = ResourceChange::get_from_index(0, 0).await?;
+        if existing {
+            run_tag_steps(&author, &target, &[TagStep::Put]).await?;
+        }
+        run_tag_steps(&author, &target, &steps).await?;
+        assert_feed_matches_graph(&author, start, &target)
+            .await
+            .map_err(|e| anyhow::anyhow!("existing={existing} {steps:?}: {e}"))?;
+    }
+    test.cleanup_user(&key).await?;
+    Ok(())
+}
+
+/// Two PUTs of the same resource tag file around a DEL of it, all concurrent: the second PUT
+/// re-creates the edge after the DEL, so the reference is live, as the edge is.
+#[tokio_shared_rt::test(shared)]
+async fn test_resource_tag_put_delete_put_leaves_the_reference_live() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let key = Keypair::random();
+    let author = test
+        .create_user(&key, &test_user("Tag three handlers", "feed"))
+        .await?;
+    let (_, _, start) = ResourceChange::get_from_index(0, 0).await?;
+    let target = format!("https://example.com/tag-three/{author}");
+    run_tag_steps(&author, &target, &[TagStep::Put]).await?;
+    run_tag_steps(
+        &author,
+        &target,
+        &[TagStep::Put, TagStep::Del, TagStep::Put],
+    )
+    .await?;
+    assert_feed_matches_graph(&author, start, &target).await?;
+    let lines = authored_since(&author, start).await?;
+    assert_eq!(
+        lines.last().map(|line| line.op),
+        Some(ResourceChangeOp::Put)
+    );
+    test.cleanup_user(&key).await?;
+    Ok(())
+}
+
+/// The flip's tags step moves a resource tag edge only under the tag file's lock, so it never
+/// moves the edge between a handler's read of it and that handler's append. Here the test holds
+/// the lock as a PUT of the file does once it has read the edge's owner, its own `pubky.app`
+/// path: the flip waits, the PUT appends its put of that path, and a PUT and a DEL of the file
+/// queue for the lock. Once all have run, the feed holds what the graph holds.
+#[tokio_shared_rt::test(shared)]
+async fn test_resource_tag_flip_waits_for_the_tag_lock() -> Result<()> {
+    use futures::future::join_all;
+    use nexus_common::db::{fetch_row_from_graph, queries};
+    use nexus_watcher::events::handlers::tag;
+
+    let mut test = WatcherTest::setup(None).await?;
+    let key = Keypair::random();
+    let author = test
+        .create_user(&key, &test_user("Flip lock", "feed"))
+        .await?;
+    let (_, _, start) = ResourceChange::get_from_index(0, 0).await?;
+    let target = format!("https://example.com/flip-lock/{author}");
+    let path = run_tag_steps(&author, &target, &[TagStep::Put]).await?;
+    let id = PubkyAppTag::new(target.clone(), "steps".into()).create_id();
+
+    let guard = tag::lock_tag(&author, &id).await;
+    let mut flip = flip_tags(&author, 2)?;
+    // Bounds the wait only: a flip that does not take the lock finishes well within it
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_secs(2), &mut flip)
+            .await
+            .is_err(),
+        "the flip must wait while the tag's lock is held"
+    );
+    // The PUT holding the lock found its own path on the edge, and appends its put
+    let (normalized, _) = normalize_uri(&target).unwrap();
+    let rid = resource_id(&normalized);
+    let row = fetch_row_from_graph(queries::get::get_resource_tag_indexed_at(
+        &author, &rid, "steps",
+    ))
+    .await?
+    .expect("the edge");
+    ResourceChange::tag(
+        ResourceChangeOp::Put,
+        rid,
+        normalized.to_string(),
+        author.clone(),
+        "steps".into(),
+        &format!("pubky://{author}{path}"),
+        row.get("tag_indexed_at")?,
+    )?
+    .store()
+    .await?;
+    let steps = [TagStep::Put, TagStep::Del];
+    let mut queued = steps
+        .iter()
+        .map(|step| tag_handler(&author, &target, *step))
+        .collect::<Result<Vec<_>>>()?;
+    queue_tag_handlers(&steps, &mut queued).await;
+    drop(guard);
+    let (flipped, handled) = futures::join!(flip, join_all(queued));
+    flipped?;
+    for (step, result) in steps.iter().zip(handled) {
+        result.map_err(|e| anyhow::anyhow!("{step:?}: {e}"))?;
+    }
+
+    assert_feed_matches_graph(&author, start, &target).await?;
+    let (_, held) = ResourceChange::pending_moves(&author, 0).await?;
+    assert!(held.is_empty(), "{held:?}");
+    test.cleanup_user(&key).await?;
+    Ok(())
+}
+
+/// The flip's tags step takes the locks of a page's tag files together. Two files whose locks
+/// share a stripe take it once: the flip moves both, and publishes both moves.
+#[tokio_shared_rt::test(shared)]
+async fn test_resource_tag_flip_moves_tags_that_share_a_lock() -> Result<()> {
+    use nexus_watcher::events::handlers::tag;
+
+    let mut test = WatcherTest::setup(None).await?;
+    let key = Keypair::random();
+    let author = test
+        .create_user(&key, &test_user("Flip shared lock", "feed"))
+        .await?;
+    let (_, _, start) = ResourceChange::get_from_index(0, 0).await?;
+    let mut stripes = HashMap::new();
+    let targets = (0..)
+        .map(|n| format!("https://example.com/flip-shared-lock/{n}/{author}"))
+        .find_map(|target| {
+            let id = PubkyAppTag::new(target.clone(), "steps".into()).create_id();
+            stripes
+                .insert(tag::tag_lock_stripe(&author, &id), target.clone())
+                .map(|other| [other, target])
+        })
+        .unwrap();
+    for target in &targets {
+        run_tag_steps(&author, target, &[TagStep::Put]).await?;
+    }
+
+    // Bounds a deadlock only: the flip of two edges finishes well within it
+    tokio::time::timeout(std::time::Duration::from_secs(30), flip_tags(&author, 2)?)
+        .await
+        .expect("the flip must not wait for itself")?;
+
+    for target in &targets {
+        assert_feed_matches_graph(&author, start, target).await?;
+    }
+    let moved = authored_since(&author, start)
+        .await?
+        .into_iter()
+        .filter(|line| {
+            line.op == ResourceChangeOp::Put && line.object_path.starts_with("/pub/social/v1/")
+        })
+        .count();
+    assert_eq!(moved, 2);
+    test.cleanup_user(&key).await?;
     Ok(())
 }
