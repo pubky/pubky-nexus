@@ -46,10 +46,12 @@
 //! [`super::resource_changes`].
 //!
 //! A batch holds the locks of its `Resource` edges' tag files, the ones their handlers take
-//! (see [`tag::lock_tags`]), from its read to its write. So no handler of those files runs
-//! between a read of the edge and its append while the edge moves: a handler that runs after
-//! the write finds the edge at its `social/v1` address. A batch holds at most `batch_size`
-//! locks.
+//! (see [`tag::lock_tags`]), from its read to its write: the edge's id, and the new id the
+//! flip gives it, which a takedown of the migrator's copy locks. So no handler of those files
+//! runs between a read of the edge and its append while the edge moves: a handler that runs
+//! after the write finds the edge at its `social/v1` address. A batch holds at most two locks
+//! per edge. The write keeps a changed id as `v0_id`, so a `pubky.app` `DEL` or takedown of
+//! the edge, in the window before a failed flip's retry, still finds and deletes it.
 
 use super::attachments;
 use super::files::FileMap;
@@ -123,7 +125,7 @@ pub async fn migrate(
     let prefix = v0_tag_uri_builder(tagger_id.to_string(), String::new());
     let prefix = prefix.as_str();
     drain(prefix, move || async move {
-        let (tags, _locks) = read_locked_page(tagger_id, prefix, batch_size).await?;
+        let (tags, _locks) = read_locked_page(user_id, files, prefix, batch_size).await?;
         if tags.is_empty() {
             return Ok((0, 0));
         }
@@ -191,14 +193,16 @@ struct MovedFrom {
 }
 
 /// A page as [`read_page`] reads it, read while the tag files of its `Resource` edges are
-/// locked, with those locks. The page is read again under the locks, and the locks taken
-/// again if it names a file they do not cover: a handler may have changed the page between
-/// the read that chose the locks and their grant.
+/// locked, by their ids and the ids the rewrite gives them, with those locks. The page is read
+/// again under the locks, and the locks taken again if it names a file they do not cover: a
+/// handler may have changed the page between the read that chose the locks and their grant.
 async fn read_locked_page(
-    tagger_id: &str,
+    user_id: &PubkyId,
+    files: &FileMap,
     prefix: &str,
     batch_size: usize,
 ) -> Result<(Page, Vec<MutexGuard<'static, ()>>), EventProcessorError> {
+    let tagger_id: &str = user_id.as_ref();
     let mut locked = BTreeSet::new();
     let mut locks = Vec::new();
     loop {
@@ -206,7 +210,10 @@ async fn read_locked_page(
         let ids: BTreeSet<String> = page
             .iter()
             .filter(|(_, from)| from.is_some())
-            .map(|(tag, _)| tag.id.clone())
+            .flat_map(|(tag, _)| match new_id(user_id, files, tag) {
+                NewId::Computed(id) => vec![tag.id.clone(), id],
+                NewId::Kept | NewId::Unmatched(_) => vec![tag.id.clone()],
+            })
             .collect();
         if ids.is_subset(&locked) {
             return Ok((page, locks));

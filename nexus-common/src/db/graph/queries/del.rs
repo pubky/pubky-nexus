@@ -64,11 +64,13 @@ pub fn delete_bookmark(user_id: &str, bookmark_id: &str) -> Query {
 /// Deletes a tag relationship created by a user and retrieves relevant details about the tag's target.
 ///
 /// A tag is one edge per tagger, target and label, whichever folder wrote it, so the edge is
-/// found by its id alone. A Resource left with no tag is deleted with its last edge.
+/// found by its id alone, or by the id it had before the flip gave it a new one. A Resource
+/// left with no tag is deleted with its last edge.
 pub fn delete_tag(user_id: &str, tag_id: &str) -> Query {
     Query::new(
         "delete_tag",
-        "MATCH (user:User {id: $user_id})-[tag:TAGGED {id: $tag_id}]->(target)
+        "MATCH (user:User {id: $user_id})-[tag:TAGGED]->(target)
+    WHERE tag.id = $tag_id OR tag.v0_id = $tag_id
     OPTIONAL MATCH (target)<-[:AUTHORED]-(author:User)
     WITH CASE WHEN target:User THEN target.id ELSE null END AS user_id,
          CASE WHEN target:Post THEN target.id ELSE null END AS post_id,
