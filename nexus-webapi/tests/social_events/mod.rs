@@ -5,7 +5,7 @@ use chrono::{Duration, Utc};
 use nexus_common::{
     db::{exec_single_row, graph::Query},
     models::{
-        post::{PostDetails, PostKind},
+        post::{PostCounts, PostDetails, PostKind},
         social_event::{self, SocialContent},
     },
 };
@@ -157,6 +157,13 @@ async fn event_routes_filters_rating_sorts_and_invalid_queries() -> Result<()> {
             .param("uri", uri)
             .param("rating", rating),
         )
+        .await?;
+        // Every rating is a reply: the two ratings are the post's two replies
+        PostCounts {
+            replies: 2,
+            ..Default::default()
+        }
+        .put_to_index(&author, &id, false)
         .await?;
         ids.push(id);
         tokio::time::sleep(std::time::Duration::from_millis(1)).await;
