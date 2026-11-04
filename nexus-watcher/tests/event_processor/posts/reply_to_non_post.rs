@@ -90,9 +90,9 @@ async fn test_reply_to_a_non_post_is_rejected_and_not_retried() -> Result<()> {
     Ok(())
 }
 
-/// A post whose parent or embed is another app's object or an external URL, or a `pubky.app`
-/// resource Nexus never references, is indexed with no Post reply or repost edge and with a
-/// Resource reply edge.
+/// A post whose parent or embed is another app's object or an external URL is indexed with no
+/// Post reply or repost edge and with a Resource reply edge. One naming a `pubky.app` resource
+/// Nexus never references is indexed with neither.
 #[tokio_shared_rt::test(shared)]
 async fn test_reply_to_another_apps_object_is_indexed_with_a_resource_reply_edge() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
@@ -118,10 +118,6 @@ async fn test_reply_to_another_apps_object_is_indexed_with_a_resource_reply_edge
             format!("pubky://{user_id}/pub/mapky/reviews/0033SSE3B1FQ0"),
         ),
         ("URL", "https://example.com/article".to_string()),
-        (
-            "follow",
-            follow_uri_builder(user_id.clone(), user_id.clone()),
-        ),
     ];
     for (kind, parent) in parents {
         let reply = PubkyAppPost {
@@ -165,6 +161,39 @@ async fn test_reply_to_another_apps_object_is_indexed_with_a_resource_reply_edge
             "{kind}"
         );
     }
+
+    // A follow is no Resource: the reply is indexed with no reply edge of either kind
+    let follow = follow_uri_builder(user_id.clone(), user_id.clone());
+    let reply = PubkyAppPost {
+        content: "Watcher:ReplyToNonPost:Other:Reply:follow".to_string(),
+        kind: PubkyAppPostKind::Short,
+        parent: Some(follow.clone()),
+        embed: Some(PubkyAppPostEmbed {
+            kind: PubkyAppPostKind::Short,
+            uri: follow,
+        }),
+        attachments: None,
+        lock: None,
+    };
+    let (reply_id, _reply_path) = test.create_post(&user_kp, &reply).await?;
+    let reply_event = format!(
+        "PUT {}",
+        post_uri_builder(user_id.clone(), reply_id.clone())
+    );
+    retrieve_and_handle_event_line(
+        &reply_event,
+        test.event_processor_runner.event_handler.clone(),
+    )
+    .await
+    .unwrap_or_else(|e| panic!("a reply to a follow must be indexed: {e}"));
+    assert!(find_post_details(&user_id, &reply_id).await.is_ok());
+    let relationships =
+        nexus_common::models::post::PostRelationships::get_from_graph(&user_id, &reply_id)
+            .await?
+            .unwrap();
+    assert_eq!(relationships.replied, None);
+    assert_eq!(relationships.reposted, None);
+    assert_eq!(relationships.embedded, None);
 
     Ok(())
 }

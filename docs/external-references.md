@@ -3,8 +3,12 @@
 A social or legacy post replying to an external URI creates a `REPLIED` edge to
 its Resource. External embeds create `EMBEDS`; external collection items create
 `COLLECTED`. Native post replies, reposts and collected posts keep their existing
-paths. Known profile/file/tag reply rejections remain unchanged. All Resource
-targets use the tag normalizer and ID, so tags and posts share one node.
+paths. Known profile/file/tag reply rejections remain unchanged. Only external
+targets become Resources: another scheme's URL or another app's public object.
+A profile, file or tag named as an embed or collection item, and a bookmark, a
+follow, a private path or anything else Nexus never references, gets no Resource,
+no edge, no feed line and no count; a reply to one is indexed as a root post. All
+Resource targets use the tag normalizer and ID, so tags and posts share one node.
 
 `GET /v0/resource/{resource_id}/replies` and `/embeds` return live post views,
 newest first with author/id ties, `skip` up to 10,000 and `limit` 1–100 (default 20).
