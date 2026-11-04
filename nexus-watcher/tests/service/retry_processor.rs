@@ -1,9 +1,11 @@
 use crate::event_processor::posts::utils::{
     corrupt_post_indexed_at, find_post_details, find_post_uri, restore_post_indexed_at,
 };
-use crate::event_processor::tags::utils::find_tag_uri;
+use crate::event_processor::tags::resource_utils::{compute_resource_id, count_resource_tags};
+use crate::event_processor::tags::utils::{find_post_tag, find_tag_uri};
 use crate::event_processor::users::utils::{
-    find_cached_user_details, find_user_details, find_user_epoch, find_user_uri, set_user_epoch,
+    assert_flipped, find_cached_user_details, find_user_details, find_user_epoch, find_user_uri,
+    set_user_epoch,
 };
 use crate::event_processor::utils::default_moderation_tests;
 use crate::event_processor::utils::watcher::retrieve_and_handle_event_line;
@@ -16,10 +18,11 @@ use chrono::Utc;
 use nexus_common::config::EventRetryConfig;
 use nexus_common::db::kv::RedisOps;
 use nexus_common::db::{exec_single_row, queries};
+use nexus_common::models::file::FileDetails;
 use nexus_common::models::homeserver::Homeserver;
-use nexus_common::models::post::PostDetails;
+use nexus_common::models::post::{PostCounts, PostDetails};
 use nexus_common::models::traits::Collection;
-use nexus_common::models::user::{Epoch, UserDetails};
+use nexus_common::models::user::{Epoch, UserCounts, UserDetails, UserIngestor};
 use nexus_common::utils::test_utils::{default_ingestor_tests, random_pubky_id};
 use nexus_watcher::errors::EventProcessorError;
 use nexus_watcher::events::retry::{
@@ -32,13 +35,15 @@ use nexus_watcher::homeserver::HsErrorKind;
 use nexus_watcher::service::{HsEventProcessor, RunOutcome, TEventProcessor};
 use pubky_social_specs::legacy_v0::traits::{HashId as _, TimestampId};
 use pubky_social_specs::legacy_v0::{
-    post_uri_builder, tag_uri_builder as v0_tag_uri_builder, PubkyAppPost, PubkyAppPostKind,
-    PubkyAppTag,
+    blob_uri_builder, file_uri_builder as v0_file_uri_builder, post_uri_builder,
+    tag_uri_builder as v0_tag_uri_builder, PubkyAppBlob, PubkyAppFile, PubkyAppPost,
+    PubkyAppPostKind, PubkyAppTag,
 };
 use pubky_social_specs::traits::{HasPath as _, HashId as _, TimestampId as _};
 use pubky_social_specs::{
-    post_uri_builder as v1_post_uri_builder, tag_uri_builder as v1_tag_uri_builder,
-    PubkySocialPost, PubkySocialPostKind, PubkySocialTag, PubkySocialUser, Root,
+    file_uri_builder as v1_file_uri_builder, post_uri_builder as v1_post_uri_builder,
+    tag_uri_builder as v1_tag_uri_builder, PubkySocialPost, PubkySocialPostKind, PubkySocialTag,
+    PubkySocialUser, Root,
 };
 use std::sync::Arc;
 use tokio::sync::watch;
@@ -1647,7 +1652,8 @@ async fn test_social_v1_profile_entry_flips_a_v0_user() -> Result<()> {
 // ============================================================================
 
 /// The real event handler, fetching through `client` (owned, or an `Arc` a runner shares)
-/// and reading the retry queue `store`; `files` must outlive it.
+/// and reading the retry queue `store`; `files` must outlive it. The stub also resolves the
+/// homeserver lookups (a file PUT checks its blob's host), so nothing goes to the network.
 fn default_handler(
     client: impl Into<Arc<MockHomeserverClient>>,
     files: &tempfile::TempDir,
@@ -1656,7 +1662,7 @@ fn default_handler(
     let client: Arc<MockHomeserverClient> = client.into();
     Arc::new(DefaultEventHandler::new(
         default_moderation_tests(),
-        default_ingestor_tests(),
+        Arc::new(UserIngestor::new([], client.clone())),
         client,
         files.path().to_path_buf(),
         store,
@@ -2026,9 +2032,48 @@ async fn test_a_failed_migration_step_comes_out_of_the_handler_as_flip_failed() 
     Ok(())
 }
 
+/// What the graph holds of a user's content: their counts, those of post `post_id`, the tag
+/// edges on the `Resource` `resource_id`, the post's details and stored address, the `File`
+/// node `file_id`, and the address of each of the user's tag edges in `tag_ids`. A migration
+/// that ran twice, or a second one, shows here as a changed snapshot or count.
+async fn content_snapshot(
+    user_id: &str,
+    post_id: &str,
+    file_id: &str,
+    resource_id: &str,
+    tag_ids: &[&str],
+) -> Result<serde_json::Value> {
+    let user_counts = UserCounts::get_by_id(user_id)
+        .await?
+        .expect("the user has counts");
+    let (post_counts, _) = PostCounts::get_from_graph(user_id, post_id)
+        .await?
+        .expect("the post has counts");
+    let file = FileDetails::get_by_ids(&[&[user_id, file_id]])
+        .await?
+        .pop()
+        .flatten()
+        .expect("the file is indexed");
+    let mut tag_uris = Vec::new();
+    for tag_id in tag_ids {
+        tag_uris.push(find_tag_uri(user_id, tag_id).await);
+    }
+    Ok(serde_json::json!({
+        "user_counts": user_counts,
+        "post_counts": post_counts,
+        "resource_tags": count_resource_tags(resource_id).await?,
+        "post": find_post_details(user_id, post_id).await?,
+        "post_uri": find_post_uri(user_id, post_id).await,
+        "file": file,
+        "tag_uris": tag_uris,
+    }))
+}
+
 /// The feed replays the batch while the queued flip waits: the replay flips the user and
-/// indexes the profile. The retry then finds `v1`, runs as a profile fetch and leaves the
-/// queue; the post is as the replay left it, migrated once.
+/// indexes the profile, moving their post, its attachment and their tags to the `social/v1`
+/// addresses. The retry then finds `v1`, runs as a profile fetch and leaves the queue; the
+/// content is as the replay left it, migrated once: every address and tag id is the `v1`
+/// one, with the counts the user had before the flip.
 #[tokio_shared_rt::test(shared)]
 async fn test_a_flip_replayed_by_the_feed_and_retried_from_the_queue_converge() -> Result<()> {
     setup().await?;
@@ -2037,20 +2082,63 @@ async fn test_a_flip_replayed_by_the_feed_and_retried_from_the_queue_converge() 
     let user_id = user.to_string();
     // No epoch on the node: the user reads as `v0`
     UserDetails::from_pubky(user).put_to_graph().await?;
-    let (post, post_id, post_uri) = pubky_app_post(&user_id, "Retry:Flip:Replay:Post");
     let flip_uri = social_v1_profile_uri(&user_id);
     let profile = PubkySocialUser::new("Retry:Flip:Replay".to_string(), None, None, None, None);
+
+    // The user's `pubky.app` content: a blob and the file naming it, a post attaching the
+    // file, and a tag on the post and one on the file
+    let blob = PubkyAppBlob::new(format!("Retry:Flip:Replay:Blob:{user_id}").into_bytes());
+    let hash = blob.create_id();
+    let blob_uri = blob_uri_builder(user_id.clone(), hash.clone());
+    let file = PubkyAppFile {
+        name: "replay.png".to_string(),
+        content_type: "image/png".to_string(),
+        src: blob_uri.clone(),
+        size: blob.0.len(),
+        created_at: Utc::now().timestamp_millis(),
+    };
+    let file_id = file.create_id();
+    let file_uri = v0_file_uri_builder(user_id.clone(), file_id.clone());
+    let post = PubkyAppPost {
+        attachments: Some(vec![file_uri.clone()]),
+        ..pubky_app_post(&user_id, "Retry:Flip:Replay:Post").0
+    };
+    let post_id = post.create_id();
+    let post_uri = post_uri_builder(user_id.clone(), post_id.clone());
+    let post_label = "flipreplaypost";
+    let file_label = "flipreplayfile";
+    let (post_tag, post_tag_uri) = pubky_app_tag(&user_id, &post_uri, post_label);
+    let (file_tag, file_tag_uri) = pubky_app_tag(&user_id, &file_uri, file_label);
+    let (v0_post_tag_id, v0_file_tag_id) = (post_tag.create_id(), file_tag.create_id());
+    let v0_tag_ids: [&str; 2] = [&v0_post_tag_id, &v0_file_tag_id];
+    let resource_id = compute_resource_id(&file_uri);
 
     let store = new_in_memory_store();
     let files = tempfile::TempDir::new()?;
     let client = Arc::new(
         MockHomeserverClient::default()
             .with_lines(batch([format!("PUT {flip_uri}")]))
+            .with_resource(&blob_uri, blob.0.clone())
+            .with_resource(&file_uri, serde_json::to_vec(&file)?)
             .with_resource(&post_uri, serde_json::to_vec(&post)?)
+            .with_resource(&post_tag_uri, serde_json::to_vec(&post_tag)?)
+            .with_resource(&file_tag_uri, serde_json::to_vec(&file_tag)?)
             .with_resource(&flip_uri, serde_json::to_vec(&profile)?),
     );
     let handler = default_handler(client.clone(), &files, store.clone());
-    retrieve_and_handle_event_line(&format!("PUT {post_uri}"), handler.clone()).await?;
+    for uri in [&file_uri, &post_uri, &post_tag_uri, &file_tag_uri] {
+        retrieve_and_handle_event_line(&format!("PUT {uri}"), handler.clone()).await?;
+    }
+    let before = content_snapshot(&user_id, &post_id, &file_id, &resource_id, &v0_tag_ids).await?;
+    assert_eq!(before["user_counts"]["posts"], 1);
+    assert_eq!(before["user_counts"]["tagged"], 1, "the tag on the post");
+    assert_eq!(before["post_counts"]["tags"], 1);
+    assert_eq!(before["resource_tags"], 1, "the tag on the file");
+    assert_eq!(before["post_uri"], post_uri);
+    assert_eq!(
+        before["tag_uris"],
+        serde_json::json!(v0_tag_ids.map(|id| v0_tag_uri_builder(user_id.clone(), id.to_string())))
+    );
     // The queue as a failed flip step left it
     store.put(&ready_put_entry(&flip_uri, 1)).await?;
 
@@ -2060,11 +2148,47 @@ async fn test_a_flip_replayed_by_the_feed_and_retried_from_the_queue_converge() 
         .run_internal()
         .await
         .expect("the replayed flip must not fail the batch");
-    assert_eq!(find_user_epoch(&user_id).await.as_deref(), Some("v1"));
+
+    assert_flipped(&user_id).await;
     assert_eq!(find_user_details(&user_id).await?.name, "Retry:Flip:Replay");
+    // The addresses the `v1` targets give: the post's, the file's through the file map, and
+    // the tag ids of the tags on them
     let v1_post_uri = v1_post_uri_builder(user_id.clone(), post_id.clone());
-    assert_eq!(find_post_uri(&user_id, &post_id).await, Some(v1_post_uri));
-    let post_after_replay = find_post_details(&user_id, &post_id).await?;
+    let v1_file_uri = v1_file_uri_builder(user_id.clone(), format!("{hash}.png"));
+    let v1_post_tag_id =
+        PubkySocialTag::new(v1_post_uri.clone(), post_label.to_string()).create_id();
+    let v1_file_tag_id =
+        PubkySocialTag::new(v1_file_uri.clone(), file_label.to_string()).create_id();
+    assert_ne!(v1_post_tag_id, v0_post_tag_id);
+    assert_ne!(v1_file_tag_id, v0_file_tag_id);
+    let v1_tag_ids: [&str; 2] = [&v1_post_tag_id, &v1_file_tag_id];
+    let after_replay =
+        content_snapshot(&user_id, &post_id, &file_id, &resource_id, &v1_tag_ids).await?;
+    assert_eq!(after_replay["post_uri"], v1_post_uri);
+    assert_eq!(
+        after_replay["post"]["attachments"],
+        serde_json::json!([v1_file_uri]),
+        "the attachment names the migrated file"
+    );
+    assert_eq!(after_replay["post"]["content"], "Retry:Flip:Replay:Post");
+    assert_eq!(
+        after_replay["tag_uris"],
+        serde_json::json!(v1_tag_ids.map(|id| v1_tag_uri_builder(user_id.clone(), id.to_string()))),
+        "each tag is at the v1 address of its v1 id"
+    );
+    for v0_tag_id in v0_tag_ids {
+        assert_eq!(find_tag_uri(&user_id, v0_tag_id).await, None);
+    }
+    assert_eq!(
+        find_post_tag(&user_id, &post_id, post_label)
+            .await?
+            .expect("the post keeps its tag")
+            .taggers_count,
+        1
+    );
+    for key in ["user_counts", "post_counts", "resource_tags", "file"] {
+        assert_eq!(after_replay[key], before[key], "{key} is unchanged");
+    }
     assert!(
         store.get(&IndexKey::for_uri(&flip_uri)).await?.is_some(),
         "the replay leaves the queued entry in place"
@@ -2087,15 +2211,18 @@ async fn test_a_flip_replayed_by_the_feed_and_retried_from_the_queue_converge() 
         store.get(&IndexKey::for_uri(&flip_uri)).await?.is_none(),
         "the retried entry leaves the queue"
     );
-    assert_eq!(find_user_epoch(&user_id).await.as_deref(), Some("v1"));
+    assert_flipped(&user_id).await;
     assert_eq!(find_user_uri(&user_id).await, Some(flip_uri));
+    assert_eq!(find_user_details(&user_id).await?.name, "Retry:Flip:Replay");
     assert_eq!(
-        find_post_details(&user_id, &post_id).await?,
-        post_after_replay,
-        "the post is as the replay left it"
+        content_snapshot(&user_id, &post_id, &file_id, &resource_id, &v1_tag_ids).await?,
+        after_replay,
+        "the content is as the replay left it: migrated once"
     );
 
+    exec_single_row(queries::del::delete_tag(&user_id, &v1_file_tag_id)).await?;
     exec_single_row(queries::del::delete_post(&user_id, &post_id)).await?;
+    exec_single_row(queries::del::delete_file(&user_id, &file_id)).await?;
     exec_single_row(queries::del::delete_user(&user_id)).await?;
     Ok(())
 }

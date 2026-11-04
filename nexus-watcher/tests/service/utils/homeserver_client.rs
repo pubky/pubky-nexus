@@ -35,10 +35,11 @@ pub struct MockHomeserverClient {
     /// Useful for asserting the processor continued to, or stopped before, specific users.
     calls: Mutex<Vec<(String, String, u64, u16)>>,
 
-    /// Bodies served by `get_resource`, by URI. Any other URI is a 404.
+    /// Bodies served by `get_resource` and `get_blob`, by URI. Any other URI is a 404.
     resources: HashMap<String, Vec<u8>>,
 
-    /// Failures `get_resource` answers instead, by URI. Checked before `resources`.
+    /// Failures `get_resource` and `get_blob` answer instead, by URI. Checked before
+    /// `resources`.
     resource_errors: HashMap<String, HsErrorKind>,
 
     /// The user whose record every lookup is answered with, and the homeserver
@@ -182,18 +183,25 @@ impl HomeserverClient for MockHomeserverClient {
     }
 
     async fn get_resource(&self, resource: &PubkyResource) -> Result<Vec<u8>, HsError> {
+        self.serve(resource, HsOp::GetResource)
+    }
+
+    async fn get_blob(&self, resource: &PubkyResource) -> Result<Vec<u8>, HsError> {
+        self.serve(resource, HsOp::GetBlob)
+    }
+}
+
+impl MockHomeserverClient {
+    /// The scripted answer for `resource`: its failure, its body, or a 404, labelled with `op`.
+    fn serve(&self, resource: &PubkyResource, op: HsOp) -> Result<Vec<u8>, HsError> {
         let url = resource.to_pubky_url();
         if let Some(kind) = self.resource_errors.get(&url) {
             let owner = PubkyId::from(resource.owner.clone());
-            return Err(HsError::new(&owner, HsOp::GetResource, kind.clone()));
+            return Err(HsError::new(&owner, op, kind.clone()));
         }
         self.resources
             .get(&url)
             .cloned()
-            .ok_or_else(|| not_found(resource, HsOp::GetResource))
-    }
-
-    async fn get_blob(&self, resource: &PubkyResource) -> Result<Vec<u8>, HsError> {
-        Err(not_found(resource, HsOp::GetBlob))
+            .ok_or_else(|| not_found(resource, op))
     }
 }
