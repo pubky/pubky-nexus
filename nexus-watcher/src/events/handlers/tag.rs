@@ -15,12 +15,58 @@ use nexus_common::models::user::{UserIngestor, UsersByTagSearch};
 use nexus_common::types::Pagination;
 use nexus_common::universal_tag::normalize::{normalize_uri, resource_id};
 use pubky_social_specs::PubkyId;
+use std::hash::{DefaultHasher, Hash, Hasher};
+use std::sync::LazyLock;
+use tokio::sync::{Mutex, MutexGuard};
 use tracing::{debug, Instrument};
 
 use super::utils::{
     bounded, fail_on_permanent_ingest_error, post_kind, post_relationships_is_reply,
 };
 use crate::events::inputs::{Reference, ReferenceTarget, ResourceKey, TagInput};
+
+/// Locks shared by the handlers of resource tags: see [`lock_tag`].
+const TAG_LOCK_STRIPES: usize = 1024;
+static TAG_LOCKS: LazyLock<Vec<Mutex<()>>> =
+    LazyLock::new(|| (0..TAG_LOCK_STRIPES).map(|_| Mutex::new(())).collect());
+
+/// The lock of one tag file, keyed by its tagger and tag id, which every handler of the file
+/// knows before it reads the graph. A resource tag's PUT, its DEL and a takedown of it hold it
+/// across their graph write and their resource changes feed append, so the feed lists one file's
+/// changes in the order the graph took them. The locks are a fixed set of stripes: two files
+/// that share one only wait for each other, and nothing is kept per file. A crash releases it.
+/// It orders the handlers of one watcher process.
+pub async fn lock_tag(tagger_id: &str, tag_id: &str) -> MutexGuard<'static, ()> {
+    TAG_LOCKS[tag_lock_stripe(tagger_id, tag_id)].lock().await
+}
+
+/// The locks of several tag files of one tagger, as the flip's tags step takes them for the
+/// edges it moves: see [`lock_tag`]. Each stripe is taken once, in ascending order, so files
+/// that share a stripe do not wait for themselves, and two callers never wait for each other in
+/// a cycle (a handler holds one stripe).
+pub async fn lock_tags<'a>(
+    tagger_id: &str,
+    tag_ids: impl IntoIterator<Item = &'a str>,
+) -> Vec<MutexGuard<'static, ()>> {
+    let mut stripes: Vec<usize> = tag_ids
+        .into_iter()
+        .map(|tag_id| tag_lock_stripe(tagger_id, tag_id))
+        .collect();
+    stripes.sort_unstable();
+    stripes.dedup();
+    let mut guards = Vec::with_capacity(stripes.len());
+    for stripe in stripes {
+        guards.push(TAG_LOCKS[stripe].lock().await);
+    }
+    guards
+}
+
+/// Which of the locks a tag file takes.
+pub fn tag_lock_stripe(tagger_id: &str, tag_id: &str) -> usize {
+    let mut hasher = DefaultHasher::new();
+    (tagger_id, tag_id).hash(&mut hasher);
+    hasher.finish() as usize % TAG_LOCK_STRIPES
+}
 
 /// `tag.uri` is the address the tag is stored under, kept as the edge `uri`; `tag.tagged` is
 /// what it tags. Only a post or a user can be tagged here; any other target is
@@ -95,6 +141,7 @@ pub async fn sync_put(
 )]
 pub async fn sync_put_resource(tag: TagInput, key: ResourceKey) -> Result<(), EventProcessorError> {
     debug!("Indexing resource tag");
+    let _tag_lock = lock_tag(key.owner_id.as_ref(), &key.resource_id).await;
     let (normalized, scheme) =
         normalize_uri(&tag.tagged.uri).map_err(EventProcessorError::generic)?;
 
@@ -402,6 +449,7 @@ pub async fn del(key: ResourceKey) -> Result<(), EventProcessorError> {
 pub async fn del_at(key: ResourceKey, tag_uri: &str) -> Result<(), EventProcessorError> {
     // Prefix these vars with arg_ to indicate they come from the argument key.
     // Similarly named vars will be used in Step 2 below, reading fields from the query result
+    let _tag_lock = lock_tag(key.owner_id.as_ref(), &key.resource_id).await;
     let ResourceKey {
         owner_id: arg_user_id,
         resource_id: arg_tag_id,
