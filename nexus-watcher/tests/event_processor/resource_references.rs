@@ -364,6 +364,51 @@ async fn hard_deleted_external_reply_leaves_author_replies() -> Result<()> {
     Ok(())
 }
 
+/// A tombstoned external reply keeps its place in the author's replies. The DEL that later
+/// hard-deletes it, once the child that kept the tombstone is gone (a replayed DEL, or the DEL
+/// of another of its version files), must take it out of the author's replies too.
+#[tokio_shared_rt::test(shared)]
+async fn hard_delete_of_a_tombstoned_external_reply_leaves_author_replies() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let key = Keypair::random();
+    test.register_user(&key).await?;
+    let author = key.public_key().to_z32();
+    let profile = test
+        .put_v1_profile(&key, &v1_test_user("Tombstoned external reply", ""))
+        .await?;
+    super::utils::watcher::rank_user(&author).await?;
+    let id = generate_post_id();
+    let path: ResourcePath = format!("/pub/social/v1/posts/{id}/{id}.json").parse()?;
+    test.put(&key, &path, &json!({"kind":"note", "content":"reply", "parent":format!("https://example.com/tombstoned-reply/{author}")})).await?;
+    let child_id = generate_post_id();
+    let child: ResourcePath = format!("/pub/social/v1/posts/{child_id}/{child_id}.json").parse()?;
+    test.put(&key, &child, &json!({"kind":"note","content":"keep the parent tombstone","parent":format!("pubky://{author}/pub/social/v1/posts/{id}")})).await?;
+    test.del(&key, &path).await?;
+    assert!(PostDetails::get_by_id(&author, &id).await?.unwrap().deleted);
+    assert!(
+        super::posts::utils::check_member_user_replies_timeline(&author, &id)
+            .await?
+            .is_some(),
+        "a tombstone stays in the author's replies"
+    );
+
+    test.del(&key, &child).await?;
+    retrieve_and_handle_event_line(
+        &format!("DEL pubky://{author}{path}"),
+        test.event_processor_runner.event_handler.clone(),
+    )
+    .await?;
+    assert!(PostDetails::get_from_graph(&author, &id).await?.is_none());
+    assert!(
+        super::posts::utils::check_member_user_replies_timeline(&author, &id)
+            .await?
+            .is_none(),
+        "a hard-deleted tombstone stays in the author's replies"
+    );
+    test.del(&key, &profile).await?;
+    Ok(())
+}
+
 /// Only external targets are Resources. A reply, an embed or a collection item naming a
 /// bookmark, a private path or another object Nexus never references is indexed, but makes no
 /// Resource, no reference edge, no feed line and no count.
