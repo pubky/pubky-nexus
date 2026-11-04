@@ -12,8 +12,11 @@ Ordinary universal reply/embed references retain their existing feed behavior.
 
 Events store `start_at` and `end_at` as UTC milliseconds, plus `all_day`, `status`,
 `policy`, `capacity` and `waitlist`. Location URIs use the common Resource
-normalizer and ID function; each is connected by `LOCATED_AT`. Nexus performs no
-geocoding or spatial filtering. Event title and description are searchable via
+normalizer and ID function; each is connected by `LOCATED_AT`. Only an external
+location (another scheme's URL or another app's public object) is kept: a location
+naming a bookmark, a follow or anything else Nexus never references is left out of
+the projection and makes no Resource. Nexus performs no geocoding or spatial
+filtering. Event title and description are searchable via
 `GET /v0/search/posts/by_content?q=...&kind=event`.
 
 Time conversion uses the IANA database bundled with chrono-tz. Following

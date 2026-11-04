@@ -1422,3 +1422,37 @@ async fn an_override_of_another_authors_series_is_rejected() -> Result<()> {
     test.del(&owner, &master_path).await?;
     Ok(())
 }
+
+/// An event's location is a place: only an external URI becomes a Resource it is located at.
+/// A location naming a bookmark or a follow, which Nexus never references, makes no Resource and
+/// no edge; the event is indexed with its external locations.
+#[tokio_shared_rt::test(shared)]
+async fn event_locations_make_resources_of_external_uris_only() -> Result<()> {
+    use nexus_common::models::resource::view::ResourceView;
+    use nexus_common::universal_tag::normalize::{normalize_uri, resource_id};
+
+    let mut test = WatcherTest::setup(None).await?;
+    let key = Keypair::random();
+    let author = create_v1_user(&mut test, &key, &v1_test_user("Event places", "")).await?;
+    let bookmark = format!("pubky://{author}/pub/pubky.app/bookmarks/8Z8CWH8NVYQY39ZEBFGKQWWEKG");
+    let follow = format!("pubky://{author}/pub/pubky.app/follows/{author}");
+    let venue = format!("https://example.com/venue/places/{author}");
+    let mut body = content();
+    body["locations"] = json!([{"uri": bookmark}, {"uri": follow}, {"uri": venue}]);
+    let (id, event_path, _) = put(&mut test, &key, "event", &body, None).await?;
+    assert!(
+        PostDetails::get_from_graph(&author, &id).await?.is_some(),
+        "the event is indexed"
+    );
+    for (name, uri, kept) in [
+        ("bookmark", &bookmark, false),
+        ("follow", &follow, false),
+        ("venue", &venue, true),
+    ] {
+        let (uri, _) = normalize_uri(uri).map_err(anyhow::Error::msg)?;
+        let resource = ResourceView::get_by_id(&resource_id(&uri), None, None, None, None).await?;
+        assert_eq!(resource.is_some(), kept, "{name}");
+    }
+    test.del(&key, &event_path).await?;
+    Ok(())
+}
