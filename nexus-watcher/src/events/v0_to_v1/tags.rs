@@ -43,10 +43,17 @@
 //! Before a batch's write, the address each `Resource` edge moves from is held for the
 //! resource changes feed, which published the edge under it: see
 //! [`super::resource_changes`].
+//!
+//! A batch holds the locks of its `Resource` edges' tag files, the ones their handlers take
+//! (see [`tag::lock_tags`]), from its read to its write. So no handler of those files runs
+//! between a read of the edge and its append while the edge moves: a handler that runs after
+//! the write finds the edge at its `social/v1` address. A batch holds at most `batch_size`
+//! locks.
 
 use super::attachments;
 use super::files::FileMap;
 use super::resource_changes;
+use crate::events::handlers::tag;
 use crate::events::EventProcessorError;
 use nexus_common::db::{fetch_all_rows_from_graph, fetch_key_from_graph, queries, GraphError};
 use pubky_social_specs::legacy_v0::traits::HashId as _;
@@ -58,7 +65,9 @@ use pubky_social_specs::traits::HashId;
 use pubky_social_specs::{
     post_uri_builder, tag_uri_builder, user_uri_builder, PubkyId, PubkySocialTag, PROTOCOL,
 };
+use std::collections::BTreeSet;
 use std::future::Future;
+use tokio::sync::MutexGuard;
 use tracing::{debug, warn};
 
 /// Edges per batch: one graph read and one graph write each.
@@ -113,7 +122,7 @@ pub async fn migrate(
     let prefix = v0_tag_uri_builder(tagger_id.to_string(), String::new());
     let prefix = prefix.as_str();
     drain(prefix, move || async move {
-        let tags = read_page(tagger_id, prefix, batch_size).await?;
+        let (tags, _locks) = read_locked_page(tagger_id, prefix, batch_size).await?;
         if tags.is_empty() {
             return Ok((0, 0));
         }
@@ -171,6 +180,9 @@ where
     }
 }
 
+/// A page of edges, each `Resource` edge with where it is.
+type Page = Vec<(StoredTag, Option<MovedFrom>)>;
+
 /// Where a `Resource` edge of a page is before the rewrite, for the resource changes feed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct MovedFrom {
@@ -178,12 +190,40 @@ struct MovedFrom {
     tag_uri: String,
 }
 
+/// A page as [`read_page`] reads it, read while the tag files of its `Resource` edges are
+/// locked, with those locks. The page is read again under the locks, and the locks taken
+/// again if it names a file they do not cover: a handler may have changed the page between
+/// the read that chose the locks and their grant.
+async fn read_locked_page(
+    tagger_id: &str,
+    prefix: &str,
+    batch_size: usize,
+) -> Result<(Page, Vec<MutexGuard<'static, ()>>), EventProcessorError> {
+    let mut locked = BTreeSet::new();
+    let mut locks = Vec::new();
+    loop {
+        let page = read_page(tagger_id, prefix, batch_size).await?;
+        let ids: BTreeSet<String> = page
+            .iter()
+            .filter(|(_, from)| from.is_some())
+            .map(|(tag, _)| tag.id.clone())
+            .collect();
+        if ids.is_subset(&locked) {
+            return Ok((page, locks));
+        }
+        // Released before the next locks, which are taken in their own order
+        drop(locks);
+        locks = tag::lock_tags(tagger_id, ids.iter().map(String::as_str)).await;
+        locked = ids;
+    }
+}
+
 /// One page of the user's edges still under `prefix`, each `Resource` edge with where it is.
 async fn read_page(
     tagger_id: &str,
     prefix: &str,
     batch_size: usize,
-) -> Result<Vec<(StoredTag, Option<MovedFrom>)>, EventProcessorError> {
+) -> Result<Page, EventProcessorError> {
     let page = queries::migration::get_tagger_edges_under(tagger_id, prefix, batch_size);
     Ok(fetch_all_rows_from_graph(page)
         .await?
