@@ -161,25 +161,26 @@ fn is_reply_input(post: &PostInput) -> bool {
 /// [`EventProcessorError::UnsupportedTarget`], never retried: no reply edge can ever point at
 /// one. A reply to a URL or another app's object is indexed with no Post reply edge and a
 /// Resource reply edge, written after the post commit; a reply to a resource Nexus never
-/// references (a bookmark, a follow, a private path) is indexed with neither.
+/// references (a bookmark, a follow, a private path) is indexed with neither. A rating needs a
+/// post or an external Resource to aggregate on, so a rating of a resource Nexus never
+/// references is rejected too.
 fn reject_unsupported_parent(post: &PostInput) -> Result<(), EventProcessorError> {
-    if post.kind == PostKind::Rating {
+    let Some(Reference { uri, target }) = &post.parent else {
+        return Ok(());
+    };
+    let unsupported = match target {
+        ReferenceTarget::File(_) | ReferenceTarget::User(_) | ReferenceTarget::Tag { .. } => true,
+        ReferenceTarget::Other => post.kind == PostKind::Rating,
+        ReferenceTarget::Post(_) | ReferenceTarget::Foreign => false,
+    };
+    if !unsupported {
         return Ok(());
     }
-    match &post.parent {
-        Some(Reference {
-            uri,
-            target:
-                target @ (ReferenceTarget::File(_)
-                | ReferenceTarget::User(_)
-                | ReferenceTarget::Tag { .. }),
-        }) => Err(EventProcessorError::UnsupportedTarget(format!(
-            "The replied resource {} is not a Post, instead is: {}",
-            bounded(uri),
-            bounded(&format!("{target:?}"))
-        ))),
-        _ => Ok(()),
-    }
+    Err(EventProcessorError::UnsupportedTarget(format!(
+        "The replied resource {} is not a Post, instead is: {}",
+        bounded(uri),
+        bounded(&format!("{target:?}"))
+    )))
 }
 
 /// Rejects an edit whose reply parent or repost embed names a different post than the post's

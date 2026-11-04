@@ -1291,3 +1291,78 @@ async fn resource_view_uses_its_own_rating_when_post_uri_matches() -> Result<()>
         .await?;
     Ok(())
 }
+
+/// A rating aggregates on a post or an external Resource. A rating of a profile, a tag, a file
+/// or a bookmark is rejected for good, as a reply to one is: the rating is not indexed, and no
+/// Resource or aggregate is made for its target.
+#[tokio_shared_rt::test(shared)]
+async fn ratings_of_native_non_post_targets_are_rejected() -> Result<()> {
+    use super::utils::watcher::retrieve_and_handle_event_line;
+    use nexus_common::models::resource::view::ResourceView;
+    use nexus_common::universal_tag::normalize::{normalize_uri, resource_id};
+    use nexus_watcher::events::retry::RetryScheduler;
+    use nexus_watcher::EventProcessorError;
+
+    let mut test = WatcherTest::setup(None).await?;
+    let key = Keypair::random();
+    let author =
+        create_v1_user(&mut test, &key, &v1_test_user("Native rating targets", "")).await?;
+    // Each rating is handled only by the call below
+    test = test.remove_event_processing().await;
+    let targets = [
+        (
+            "profile",
+            format!("pubky://{author}/pub/social/v1/profile.json"),
+        ),
+        (
+            "tag",
+            format!("pubky://{author}/pub/social/v1/tags/8Z8CWH8NVYQY39ZEBFGKQWWEKG.json"),
+        ),
+        (
+            "file",
+            format!("pubky://{author}/pub/social/v1/files/8Z8CWH8NVYQY39ZEBFGKQWWEKG.png"),
+        ),
+        (
+            "bookmark",
+            format!("pubky://{author}/pub/pubky.app/bookmarks/8Z8CWH8NVYQY39ZEBFGKQWWEKG"),
+        ),
+    ];
+    for (kind, target) in targets {
+        let id = generate_post_id();
+        let path = path(&id);
+        test.put(
+            &key,
+            &path,
+            &post("rating", &json!({"rating":7}), Some(&target)),
+        )
+        .await?;
+        let err = retrieve_and_handle_event_line(
+            &format!("PUT pubky://{author}{path}"),
+            test.event_processor_runner.event_handler.clone(),
+        )
+        .await
+        .expect_err(&format!("a rating of a {kind} must be rejected"));
+        assert!(
+            matches!(err, EventProcessorError::UnsupportedTarget(_)),
+            "{kind}: {err}"
+        );
+        assert!(
+            !RetryScheduler::should_enqueue_related_event(&err),
+            "{kind}"
+        );
+        assert!(
+            PostDetails::get_from_graph(&author, &id).await?.is_none(),
+            "{kind}"
+        );
+        let (uri, _) = normalize_uri(&target).map_err(anyhow::Error::msg)?;
+        assert!(
+            ResourceView::get_by_id(&resource_id(&uri), None, None, None, None)
+                .await?
+                .is_none(),
+            "{kind}"
+        );
+        assert_eq!(social_event::rating_summary(&target).await?.rating_count, 0);
+        test.del(&key, &path).await?;
+    }
+    Ok(())
+}

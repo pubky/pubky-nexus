@@ -67,12 +67,14 @@ author. When waitlisting is enabled, accepted parties exceeding cumulative capac
 are marked `waitlisted`; this count is included in `going`, not subtracted from it.
 This is public attendance information, not an admission or ticket entitlement check.
 
-Ratings accept integers **1–10** and require a parent URI. The newest indexed rating
+Ratings accept integers **1–10** and require a parent that is a post or an external
+URI; a rating of a profile, file, tag or other resource Nexus never references is
+rejected for good, as a reply to one is. The newest indexed rating
 per author/parent wins; edits and deletes recompute the target's `rating_avg` and
 `rating_count`, with zero/zero for no ratings. Both Post and Resource views expose
 these fields; a post view reads them only when the post has replies (every rating is
 one), and shows zero/zero rather than failing when that read fails. A missing social or legacy pubky post target is retried as a dependency;
-its rating never falls back to a Resource node. Other URI targets use Resource nodes.
+its rating never falls back to a Resource node. External URI targets use Resource nodes.
 Native parent validation and rating updates use the resolved author/post ID, so v0/v1
 aliases and later stored-URI changes cannot strand an aggregate. RSVP projections
 store the indexed event's current URI. The pinned wire validator requires a social/v1
