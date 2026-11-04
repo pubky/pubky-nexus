@@ -188,10 +188,9 @@ impl RetryProcessor {
                 return Err(e);
             }
             e if limit_reached => {
-                // A flip has no limit for a transient fetch error or a failed flip step
-                // (`limit_reached`), so a `social/v1` profile PUT reaching it is usually a `v1`
-                // user's edit, logged at `warn`; a flip lost to any other error is logged at
-                // `error` (`is_flip`).
+                // A flip has no limit for a failed flip step (`limit_reached`), so a `social/v1`
+                // profile PUT reaching it is usually a `v1` user's edit, logged at `warn`; a flip
+                // lost to any other error is logged at `error` (`is_flip`).
                 if is_flip(&event).await {
                     error!("social/v1 profile PUT {ev_uri} exceeded max retries ({ev_retry_count}), dead-lettering: {e}");
                 } else {
@@ -211,11 +210,11 @@ impl RetryProcessor {
 
     /// Whether `retry_count` attempts have used up the limit `error` gives `event`.
     ///
-    /// A flip, the `social/v1` profile PUT of a user at `v0`, has no limit for a transient
-    /// fetch error or a failed flip step (`FlipFailed`): losing it would strand the user at
-    /// `v0`, so a homeserver, Neo4j or Redis outage of any length delays it instead. The gate,
-    /// a graph read, is asked only once such an entry reaches its limit; a `v1` user's profile
-    /// edit keeps the limit like any other event.
+    /// A flip, the `social/v1` profile PUT of a user at `v0`, has no limit for a failed flip
+    /// step (`FlipFailed`): losing it would strand the user at `v0`, so a Neo4j or Redis outage
+    /// of any length delays it instead. The gate, a graph read, is asked only once such an
+    /// entry reaches its limit. The flip step runs before the profile fetch, so a fetch error
+    /// on such a PUT is a `v1` user's edit, which keeps the limit like any other event.
     async fn limit_reached(
         &self,
         event: &Event,
@@ -225,8 +224,7 @@ impl RetryProcessor {
         if retry_count < self.max_retries_for(error) {
             return Ok(false);
         }
-        let unlimited =
-            (error.is_transient_fetch() || error.is_flip_failed()) && confirm_flip(event).await?;
+        let unlimited = error.is_flip_failed() && confirm_flip(event).await?;
         Ok(!unlimited)
     }
 

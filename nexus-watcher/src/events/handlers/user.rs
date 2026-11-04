@@ -1,4 +1,4 @@
-use crate::events::EventProcessorError;
+use crate::events::{v0_to_v1, EventProcessorError};
 
 use nexus_common::db::queries::get::user_is_safe_to_delete;
 use nexus_common::db::{
@@ -44,29 +44,26 @@ pub async fn sync_put(user: UserInput, user_id: PubkyId) -> Result<(), EventProc
     Ok(())
 }
 
-/// Moves a user to `v1`, once [`sync_put`] has indexed their `social/v1` profile: the flip.
+/// The flip step: moves a user to `v1` on their `social/v1` profile PUT, before the profile is
+/// fetched, so the move does not wait for the homeserver.
 ///
-/// What Nexus holds for the user at `pubky.app` is migrated first ([`crate::events::v0_to_v1`]). A
-/// failure before the epoch write leaves the user at `v0`, so the retry runs the whole flip
-/// again, migration included; one after it is retried as a profile edit, which caches the
-/// stored `v1`.
+/// What Nexus holds for the user at `pubky.app` is migrated first ([`v0_to_v1`]), then the
+/// epoch is written. Every failure inside, the epoch write's included, comes out of
+/// [`v0_to_v1::step`] as [`EventProcessorError::FlipFailed`] naming the step and the cause, and
+/// leaves the user at `v0`: the retry runs the whole step again over its partial work, without
+/// limit while the user is `v0`. The profile and the details cache are the ordinary `v1`
+/// profile PUT's, which follows ([`sync_put`]). A user whose first event is this PUT has no
+/// node yet: the epoch write creates a stub, which the profile write fills in.
 #[tracing::instrument(name = "user.flip", skip_all, fields(user_id = %user_id))]
 pub async fn flip(user_id: &PubkyId) -> Result<(), EventProcessorError> {
     // Step 1: Migrate the user's indexed data to its `social/v1` form, while they are still `v0`
-    crate::events::v0_to_v1::run(user_id).await?;
+    v0_to_v1::run(user_id).await?;
 
     // Step 2: Set the epoch in the graph
-    Epoch::set_v1_in_graph(user_id).await?;
+    v0_to_v1::step(user_id, "epoch", Epoch::set_v1_in_graph(user_id)).await?;
 
     // One line per flip, so flips can be counted and found by user.
     info!("User flipped to v1");
-
-    // Step 3: Refresh the details cache from the graph, so the API shows `v1`
-    let user_id: &str = user_id.as_ref();
-    let user_details = UserDetails::get_from_graph(&[user_id]).await?;
-    UserDetails::put_to_index(&[user_id], user_details)
-        .instrument(tracing::info_span!("index.write"))
-        .await?;
 
     Ok(())
 }
@@ -121,4 +118,62 @@ pub async fn del(user_id: PubkyId) -> Result<(), EventProcessorError> {
     // TODO notifications for deleted user
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nexus_common::db::{exec_single_row, queries};
+    use nexus_common::types::DynError;
+    use nexus_common::utils::test_utils::random_pubky_id;
+    use nexus_common::{StackConfig, StackManager};
+
+    /// The flip step of a `v0` user with nothing to migrate: the user is `v1` in the graph, the
+    /// profile untouched until the fetch that follows, and one `info` line names the user.
+    #[tokio_shared_rt::test(shared)]
+    #[tracing_test::traced_test]
+    async fn a_flip_moves_the_user_to_v1_and_logs_one_info_line() -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+        let user = random_pubky_id();
+        UserDetails::from_pubky(user.clone()).put_to_graph().await?;
+
+        flip(&user).await?;
+
+        assert_eq!(Epoch::get_from_graph(&user).await?, Epoch::V1);
+        let details = UserDetails::get_from_graph(&[user.as_ref()]).await?[0]
+            .clone()
+            .expect("the node stays");
+        assert_eq!(details.name, user.to_string(), "no profile fetched here");
+        logs_assert(|lines| {
+            let flipped: Vec<_> = lines
+                .iter()
+                .filter(|line| line.contains("User flipped to v1"))
+                .collect();
+            match flipped.as_slice() {
+                [line] if line.contains(" INFO ") && line.contains(user.as_ref()) => Ok(()),
+                other => Err(format!(
+                    "expected one INFO line naming the user, got {other:?}"
+                )),
+            }
+        });
+
+        exec_single_row(queries::del::delete_user(&user)).await?;
+        Ok(())
+    }
+
+    /// A user whose first event is their `social/v1` profile has no node: the flip creates
+    /// one at `v1`, for the profile write that follows.
+    #[tokio_shared_rt::test(shared)]
+    async fn a_flip_of_an_unknown_user_creates_their_node_at_v1() -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+        let user = random_pubky_id();
+
+        flip(&user).await?;
+
+        assert_eq!(Epoch::get_from_graph(&user).await?, Epoch::V1);
+        assert!(UserDetails::get_from_graph(&[user.as_ref()]).await?[0].is_some());
+
+        exec_single_row(queries::del::delete_user(&user)).await?;
+        Ok(())
+    }
 }

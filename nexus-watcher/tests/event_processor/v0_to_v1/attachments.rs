@@ -4,7 +4,7 @@
 use crate::event_processor::posts::utils::{
     find_post_details, long_post, pubky_id, short_post, short_reply, test_user, v1_test_user,
 };
-use crate::event_processor::users::utils::{find_user_epoch, set_user_epoch};
+use crate::event_processor::users::utils::{assert_flipped, set_user_epoch};
 use crate::event_processor::utils::watcher::{retrieve_and_handle_event_line, WatcherTest};
 use anyhow::Result;
 use chrono::Utc;
@@ -217,7 +217,7 @@ async fn test_flip_rewrites_attachments_to_the_migrated_file_addresses() -> Resu
             &v1_test_user("Watcher:Migration:Attachments:Author:V1", "migration"),
         )
         .await?;
-    assert_eq!(find_user_epoch(&author_id).await.as_deref(), Some("v1"));
+    assert_flipped(&author_id).await;
 
     let shared_v1 = v1_file_uri(&author_id, &shared_hash, "png");
     assert_eq!(
@@ -366,7 +366,7 @@ async fn test_replayed_flip_batch_sends_no_edit_notification_for_a_short_post_wi
             &v1_test_user("Watcher:Migration:Replay:Author:V1", "migration"),
         )
         .await?;
-    assert_eq!(find_user_epoch(&author_id).await.as_deref(), Some("v1"));
+    assert_flipped(&author_id).await;
     let (served, stored) = served_and_stored_attachments(&author_id, &post_id).await?;
     assert_eq!(served, Some(vec![migrated_file.clone()]));
     assert_eq!(stored, Some(vec![migrated_file.clone()]));

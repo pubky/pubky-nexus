@@ -1,10 +1,12 @@
 //! The posts step: addresses rewritten at the flip, caches rewritten with them, and reruns.
 
 use crate::event_processor::posts::utils::{
-    find_post_details, find_post_uri, pubky_id, set_post_uri, short_post, short_reply,
-    short_repost, test_user, v1_note, v1_test_user,
+    corrupt_post_indexed_at, find_post_details, find_post_uri, pubky_id, restore_post_indexed_at,
+    set_post_uri, short_post, short_reply, short_repost, test_user, v1_note, v1_test_user,
 };
-use crate::event_processor::users::utils::{find_user_epoch, set_user_epoch};
+use crate::event_processor::users::utils::{
+    assert_flipped, find_user_uri, set_user_epoch, v1_profile_uri,
+};
 use crate::event_processor::utils::watcher::{
     generate_post_id, retrieve_and_handle_event_line, HomeserverHashIdPath, WatcherTest,
 };
@@ -22,31 +24,15 @@ use nexus_common::types::Pagination;
 use nexus_watcher::events::retry::{IndexKey, RetryEvent};
 use nexus_watcher::events::v0_to_v1;
 use pubky::Keypair;
-use pubky_social_specs::legacy_v0::{post_uri_builder as v0_post_uri_builder, PubkyAppTag};
+use pubky_social_specs::legacy_v0::{
+    post_uri_builder as v0_post_uri_builder, user_uri_builder as v0_user_uri_builder, PubkyAppTag,
+};
 use pubky_social_specs::post_uri_builder as v1_post_uri_builder;
-
-/// The `social/v1` profile address of `user_id`.
-fn v1_profile_uri(user_id: &str) -> String {
-    format!("pubky://{user_id}/pub/social/v1/profile.json")
-}
 
 /// Whether the shared event log holds `line`.
 async fn event_line_stored(line: &str) -> Result<bool> {
     let (lines, _) = EventLine::get_from_index(None, usize::MAX).await?;
     Ok(lines.iter().any(|stored| stored == line))
-}
-
-/// Plants a row the migration can't read back: `indexed_at` as text, where an integer is read.
-async fn corrupt_post_indexed_at(author_id: &str, post_id: &str) -> Result<()> {
-    let query = Query::new(
-        "corrupt_post_indexed_at",
-        "MATCH (:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
-        SET p.indexed_at = 'soon'",
-    )
-    .param("author_id", author_id)
-    .param("post_id", post_id);
-    exec_single_row(query).await?;
-    Ok(())
 }
 
 /// Drops a post's `attachments` list, as a post indexed before the list was stored has none.
@@ -58,20 +44,6 @@ async fn unset_post_attachments(author_id: &str, post_id: &str) -> Result<()> {
     )
     .param("author_id", author_id)
     .param("post_id", post_id);
-    exec_single_row(query).await?;
-    Ok(())
-}
-
-/// Puts a post's `indexed_at` back.
-async fn restore_post_indexed_at(author_id: &str, post_id: &str, indexed_at: i64) -> Result<()> {
-    let query = Query::new(
-        "restore_post_indexed_at",
-        "MATCH (:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
-        SET p.indexed_at = $indexed_at",
-    )
-    .param("author_id", author_id)
-    .param("post_id", post_id)
-    .param("indexed_at", indexed_at);
     exec_single_row(query).await?;
     Ok(())
 }
@@ -174,7 +146,7 @@ async fn test_flip_rewrites_the_users_post_addresses() -> Result<()> {
             &v1_test_user("Watcher:Migration:Posts:Author:V1", "migration"),
         )
         .await?;
-    assert_eq!(find_user_epoch(&author_id).await.as_deref(), Some("v1"));
+    assert_flipped(&author_id).await;
 
     let v1_uri = v1_post_uri_builder(author_id.clone(), post_id.clone());
     assert_eq!(
@@ -455,6 +427,11 @@ async fn test_failed_migration_leaves_v0_and_the_retry_finishes_it() -> Result<(
         "the failed flip must be queued for retry"
     );
     assert!(!event_line_stored(&line).await?);
+    // The flip step runs before the fetch: a failed one leaves the `pubky.app` profile indexed
+    assert_eq!(
+        find_user_uri(&author_id).await,
+        Some(v0_user_uri_builder(author_id.clone()))
+    );
     // The batch's graph write landed before the read failed
     assert_eq!(
         find_post_uri(&author_id, &first_id).await,
@@ -466,7 +443,7 @@ async fn test_failed_migration_leaves_v0_and_the_retry_finishes_it() -> Result<(
     let event_handler = test.event_processor_runner.event_handler.clone();
     retrieve_and_handle_event_line(&line, event_handler).await?;
 
-    assert_eq!(Epoch::get_from_graph(&author_id).await?, Epoch::V1);
+    assert_flipped(&author_id).await;
     assert!(event_line_stored(&line).await?);
     for post_id in [&first_id, &second_id] {
         let expected = v1_post_uri_builder(author_id.clone(), post_id.clone());

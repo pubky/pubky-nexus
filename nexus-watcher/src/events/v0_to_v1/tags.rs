@@ -34,11 +34,12 @@
 //! Paging never uses `SKIP`: each loop reads up to a batch of edges still under the `pubky.app`
 //! prefix, with no offset, and each write moves its edges out of that set. Every row is
 //! rewritten, kept and logged ones included, so the loop ends and a rerun picks up what is
-//! left. As a guard, a read that returns rows whose write changes none fails the batch with
-//! an error, so it goes through the normal retry instead of reading the same rows forever; a
-//! write that changes fewer rows than were read is fine, another loop may have rewritten or
-//! deleted some. Each batch is its own transaction. The stop, continue or fail decision is
-//! [`drain`]'s, apart from the two graph calls, so it is tested on canned pages.
+//! left. As a guard, a read that returns rows whose write changes none fails the step with a
+//! data anomaly instead of reading the same rows forever; the flip step wraps it, so the user
+//! stays at `v0` and the flip is retried whole ([`super::step`]). A write that changes fewer
+//! rows than were read is fine, another loop may have rewritten or deleted some. Each batch is
+//! its own transaction. The stop, continue or fail decision is [`drain`]'s, apart from the two
+//! graph calls, so it is tested on canned pages.
 
 use super::attachments;
 use super::files::FileMap;
@@ -132,9 +133,9 @@ pub async fn migrate(
 
 /// Drives the drain of the edges under `prefix`: `step()` reads one page and rewrites it,
 /// returning how many edges it read and how many the write changed. An empty page ends the
-/// drain; a page whose write changed nothing fails it with a retryable graph error, so the flip
-/// goes through the normal retry instead of reading the same rows forever. Fewer changed than
-/// read is fine.
+/// drain; a page whose write changed nothing fails it with a data anomaly, which only a code
+/// bug or a corrupted user produces, instead of reading the same rows forever. Fewer changed
+/// than read is fine.
 async fn drain<F, Fut>(prefix: &str, mut step: F) -> Result<(), EventProcessorError>
 where
     F: FnMut() -> Fut,
@@ -146,10 +147,9 @@ where
             return Ok(());
         }
         if changed == 0 {
-            return Err(EventProcessorError::GraphQueryFailed(
-                false,
-                format!("none of the {read} tag edges read under {prefix} were rewritten"),
-            ));
+            return Err(EventProcessorError::DataAnomaly(format!(
+                "none of the {read} tag edges read under {prefix} were rewritten"
+            )));
         }
     }
 }
@@ -548,19 +548,33 @@ mod tests {
     }
 
     /// A page whose write changed nothing would be read forever: the drain fails instead, with
-    /// an error the flip retries later rather than one that aborts the run.
+    /// a data anomaly. On its own it would be dropped; through the flip step it comes out as
+    /// `FlipFailed`, queued and retried whole rather than aborting the run or being lost.
     #[tokio::test]
-    async fn the_drain_fails_into_the_retry_when_a_page_changes_nothing() {
+    async fn the_drain_fails_the_flip_step_when_a_page_changes_nothing() {
         let (result, steps) = drain_over(vec![Ok((2, 0))]).await;
         assert_eq!(steps, 1);
         let err = result.unwrap_err();
         assert!(matches!(
             err,
-            EventProcessorError::GraphQueryFailed(false, ref message)
+            EventProcessorError::DataAnomaly(ref message)
                 if message.contains("none of the 2 tag edges")
         ));
-        assert!(!err.should_not_retry_now());
-        assert!(RetryScheduler::should_enqueue_related_event(&err));
+        assert!(!RetryScheduler::should_enqueue_related_event(&err));
+
+        let owner = owner();
+        let wrapped = super::super::step(&owner, "tags", async { Err::<(), _>(err) })
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(
+                wrapped,
+                EventProcessorError::FlipFailed { step: "tags", .. }
+            ),
+            "{wrapped:?}"
+        );
+        assert!(!wrapped.should_not_retry_now());
+        assert!(RetryScheduler::should_enqueue_related_event(&wrapped));
     }
 
     #[tokio::test]

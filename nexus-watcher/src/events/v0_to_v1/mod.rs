@@ -5,8 +5,12 @@
 //!
 //! Each step pages through the user's data in batches, each batch its own transaction, and a
 //! rerun over partly migrated data gives the same result. A failed step is logged with the user
-//! and the step and returned as the transient graph or Redis error it is, so the flip goes
-//! through the normal retry, which runs it whole again while the user is still `v0`.
+//! and the step and returned as [`EventProcessorError::FlipFailed`] naming both, whatever the
+//! cause: a graph or Redis error, or one of the migration's own guards (a tags page whose write
+//! changed nothing, a stalled keyset scan). The flip goes through the normal retry, which runs
+//! it whole again while the user is still `v0`; a user whose data cannot be migrated is never
+//! reported as `v1`. The epoch write that ends the flip ([`crate::events::handlers::user::flip`])
+//! goes through the same [`step`].
 
 pub mod attachments;
 pub mod files;
@@ -40,36 +44,101 @@ pub async fn run(user_id: &PubkyId) -> Result<(), EventProcessorError> {
     .await
 }
 
-/// Runs one step, logging a failure with the user and the step before returning it.
-async fn step<T>(
+/// Runs one step of the flip. A failure is logged with the user, the step and the cause, and
+/// returned as [`EventProcessorError::FlipFailed`] naming the step and keeping the cause, so
+/// its retry class is the flip's whatever the cause's.
+pub(crate) async fn step<T, E>(
     user_id: &PubkyId,
     name: &'static str,
-    task: impl Future<Output = Result<T, EventProcessorError>>,
-) -> Result<T, EventProcessorError> {
-    task.await
-        .inspect_err(|e| error!(%user_id, step = %name, error = %e, "Internal migration failed"))
+    task: impl Future<Output = Result<T, E>>,
+) -> Result<T, EventProcessorError>
+where
+    E: Into<EventProcessorError>,
+{
+    task.await.map_err(|e| {
+        let source = e.into();
+        error!(%user_id, step = %name, error = %source, "Flip step failed");
+        EventProcessorError::FlipFailed {
+            step: name,
+            source: Box::new(source),
+        }
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nexus_common::db::GraphError;
 
     const USER: &str = "operrr8wsbpr3ue9d4qj41ge1kcc6r7fdiy6o3ugjrrhi4y77rdo";
 
-    /// A failed step is logged with the user and the step, and returned as it is.
+    /// A failed step comes out as `FlipFailed` naming the step and keeping the cause, a graph
+    /// or a Redis error alike, and its message names both.
+    #[tokio::test]
+    async fn a_failed_step_comes_out_as_flip_failed_naming_the_step_and_the_cause() {
+        let user_id = PubkyId::try_from(USER).unwrap();
+        let failures = [
+            (
+                "posts",
+                EventProcessorError::GraphQueryFailed(false, "boom".to_string()),
+            ),
+            (
+                "tags",
+                EventProcessorError::IndexOperationFailed(true, "connection refused".to_string()),
+            ),
+        ];
+        for (name, failure) in failures {
+            let cause = failure.to_string();
+
+            let result: Result<(), _> = step(&user_id, name, async { Err(failure) }).await;
+
+            let err = result.unwrap_err();
+            match &err {
+                EventProcessorError::FlipFailed { step, source } => {
+                    assert_eq!(*step, name);
+                    assert_eq!(source.to_string(), cause);
+                }
+                other => panic!("expected FlipFailed, got {other:?}"),
+            }
+            let message = err.to_string();
+            assert!(message.contains(&format!("step `{name}`")), "{message}");
+            assert!(message.contains(&cause), "{message}");
+        }
+    }
+
+    /// A step may fail with the graph's own error, as the epoch write does: converted and
+    /// wrapped like any other.
+    #[tokio::test]
+    async fn a_graph_error_is_converted_before_it_is_wrapped() {
+        let user_id = PubkyId::try_from(USER).unwrap();
+        let stalled = GraphError::KeysetScanStalled {
+            context: "migration.posts".to_string(),
+            detail: "cursor did not advance".to_string(),
+        };
+
+        let result: Result<(), _> = step(&user_id, "epoch", async { Err(stalled) }).await;
+
+        assert!(
+            matches!(
+                result,
+                Err(EventProcessorError::FlipFailed { step: "epoch", ref source })
+                    if matches!(**source, EventProcessorError::DataAnomaly(_))
+            ),
+            "{result:?}"
+        );
+    }
+
+    /// A failed step is logged with the user, the step and the cause.
     #[tokio::test]
     #[tracing_test::traced_test]
-    async fn a_failed_step_is_logged_with_the_user_and_the_step() {
+    async fn a_failed_step_is_logged_with_the_user_the_step_and_the_cause() {
         let user_id = PubkyId::try_from(USER).unwrap();
         let failure = EventProcessorError::GraphQueryFailed(false, "boom".to_string());
 
         let result: Result<(), _> = step(&user_id, "posts", async { Err(failure) }).await;
 
-        assert!(
-            matches!(result, Err(EventProcessorError::GraphQueryFailed(false, ref m)) if m == "boom"),
-            "{result:?}"
-        );
-        assert!(logs_contain("Internal migration failed"));
+        assert!(result.is_err());
+        assert!(logs_contain("Flip step failed"));
         assert!(logs_contain(&format!("user_id={USER}")));
         assert!(logs_contain("step=posts"));
         assert!(logs_contain("boom"));
@@ -81,8 +150,12 @@ mod tests {
     async fn a_passing_step_logs_no_error() {
         let user_id = PubkyId::try_from(USER).unwrap();
 
-        step(&user_id, "posts", async { Ok(()) }).await.unwrap();
+        step(&user_id, "posts", async {
+            Ok::<(), EventProcessorError>(())
+        })
+        .await
+        .unwrap();
 
-        assert!(!logs_contain("Internal migration failed"));
+        assert!(!logs_contain("Flip step failed"));
     }
 }

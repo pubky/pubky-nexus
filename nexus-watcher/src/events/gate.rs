@@ -14,7 +14,8 @@ use pubky_social_specs::{PubkyId, PubkySocialUser, Resource};
 pub(super) enum Gate {
     /// The event goes on to the handlers.
     Handle,
-    /// The event goes on to the handlers, then its user moves to `v1`: the flip.
+    /// The flip: its user moves to `v1` first (the internal migration, then the epoch write),
+    /// then the event goes on to the handlers as a `v1` user's profile PUT.
     Flip,
     /// The event is skipped: no fetch, no stored event line, no error, no retry.
     Ignore,
@@ -226,7 +227,7 @@ mod tests {
                 self.reads.load(Ordering::SeqCst)
             }
 
-            /// Queues `user_id`'s flip, as a transient fetch error on its first attempt does.
+            /// Queues `user_id`'s flip, as a failed flip step on its first attempt does.
             async fn queue_flip(&self, user_id: &PubkyId) -> Result<(), EventProcessorError> {
                 self.queue_profile_event(user_id, "PUT").await
             }

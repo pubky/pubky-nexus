@@ -41,8 +41,9 @@ impl Epoch {
         Ok(epoch.unwrap_or_default())
     }
 
-    /// Moves `user_id`'s `User` node to `V1`; a missing node stays missing. Nothing writes
-    /// `V0` over a stored epoch, so the epoch only moves up.
+    /// Moves `user_id`'s `User` node to `V1`; a missing node is created as a stub, for the
+    /// user whose first event is their `social/v1` profile. Nothing writes `V0` over a stored
+    /// epoch, so the epoch only moves up.
     pub async fn set_v1_in_graph(user_id: &str) -> GraphResult<()> {
         exec_single_row(queries::put::set_user_epoch_v1(user_id)).await
     }
@@ -104,14 +105,36 @@ mod tests {
         Ok(())
     }
 
-    /// The `v1` write leaves a missing node missing.
+    /// The `v1` write creates a missing node as a stub at `v1`, named by its key like an
+    /// ingested user's, and a profile write then fills it in and keeps the epoch.
     #[tokio_shared_rt::test(shared)]
-    async fn set_v1_in_graph_creates_no_node() -> Result<(), DynError> {
+    async fn set_v1_in_graph_creates_a_missing_node_as_a_stub_at_v1() -> Result<(), DynError> {
         StackManager::setup(&StackConfig::default()).await?;
 
-        let id = random_pubky_id().to_string();
+        let user_id = random_pubky_id();
+        let id = user_id.to_string();
         Epoch::set_v1_in_graph(&id).await?;
-        assert!(UserDetails::get_from_graph(&[id.as_str()]).await?[0].is_none());
+
+        let stub = UserDetails::get_from_graph(&[id.as_str()]).await?[0]
+            .clone()
+            .expect("the write creates the node");
+        assert_eq!(stub.name, id);
+        assert_eq!(stub.epoch, Epoch::V1);
+        assert!(!stub.deleted);
+        assert_eq!(Epoch::get_from_graph(&id).await?, Epoch::V1);
+
+        let uri = format!("pubky://{id}/pub/social/v1/profile.json");
+        let mut profile = UserDetails::from_pubky(user_id);
+        profile.name = "Stub:Filled".to_string();
+        profile.put_profile_to_graph(&uri).await?;
+        assert_eq!(profile.epoch, Epoch::V1);
+        let filled = UserDetails::get_from_graph(&[id.as_str()]).await?[0]
+            .clone()
+            .expect("the node stays");
+        assert_eq!(filled.name, "Stub:Filled");
+        assert_eq!(filled.epoch, Epoch::V1);
+
+        exec_single_row(queries::del::delete_user(&id)).await?;
         Ok(())
     }
 

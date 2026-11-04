@@ -2,6 +2,7 @@ use crate::db::graph::error::{GraphError, GraphResult};
 use crate::db::graph::Query;
 use crate::models::ResourceKey;
 use crate::models::{file::FileDetails, post::PostDetails, user::UserDetails};
+use chrono::Utc;
 use pubky_social_specs::PubkyId;
 
 /// Creates or overwrites a `User` node.
@@ -34,14 +35,18 @@ pub fn create_user(user: &UserDetails, uri: Option<&str>) -> GraphResult<Query> 
 }
 
 /// Moves a user to epoch `v1`. There is no write of `v0`, so the epoch only moves up. A
-/// missing node stays missing.
+/// missing node is created as a stub, named by its key as an ingested user's is, with no
+/// `uri`: the flip writes the epoch before the profile, so a user whose first event is their
+/// `social/v1` profile has no node yet. The profile write that follows fills it in.
 pub fn set_user_epoch_v1(user_id: &str) -> Query {
     Query::new(
         "set_user_epoch_v1",
-        "MATCH (u:User {id: $user_id})
+        "MERGE (u:User {id: $user_id})
+         ON CREATE SET u.name = $user_id, u.indexed_at = $indexed_at, u.deleted = false
          SET u.epoch = 'v1'",
     )
     .param("user_id", user_id.to_string())
+    .param("indexed_at", Utc::now().timestamp_millis())
 }
 
 /// Creates a Cypher query to add or edit a post to the graph database and handles its relationships.

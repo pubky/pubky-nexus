@@ -6,7 +6,6 @@ use nexus_common::db::{GraphError, PubkyClientError};
 use nexus_common::models::error::ModelError;
 use thiserror::Error;
 
-use crate::events::retry::RetryScheduler;
 use crate::homeserver::{HsError, HsErrorKind, HsOp};
 
 #[derive(Error, Debug, Clone)]
@@ -54,7 +53,10 @@ pub enum EventProcessorError {
     #[error("SpecValidation: {0}")]
     SpecValidation(String),
 
-    /// A keyset scan could not advance: a deterministic data anomaly, so retrying reproduces it.
+    /// A scan could not advance (a stalled keyset scan, a tags page whose write changed
+    /// nothing): a deterministic data anomaly, so retrying reproduces it and the event is
+    /// dropped. Inside a flip step it is wrapped in [`Self::FlipFailed`] instead, which keeps the
+    /// user at `v0` and retries the step whole.
     #[error("DataAnomaly: {0}")]
     DataAnomaly(String),
 
@@ -271,30 +273,18 @@ impl EventProcessorError {
         matches!(self, Self::MissingDependency { .. })
     }
 
-    /// Whether a step of the flip failed ([`Self::FlipFailed`]): the one error, besides a
-    /// transient fetch failure, that a flip is retried without limit for.
+    /// Whether a step of the flip failed ([`Self::FlipFailed`]): the one error a flip is
+    /// retried without limit for. The flip step runs before the profile fetch, so a fetch error
+    /// on a `social/v1` profile PUT is a `v1` user's and keeps the limit.
     pub fn is_flip_failed(&self) -> bool {
         matches!(self, Self::FlipFailed { .. })
-    }
-
-    /// Whether this is a fetch failure the retry queue takes: a `PubkyClientError` the
-    /// scheduler enqueues. Today that is a 5xx, a 429, a failed request, a PKARR failure or a
-    /// client not yet initialised. Each is retried with the transient backoff; a flip's profile
-    /// PUT with one is retried without limit. A `Generic` or `InternalError` is not one: it
-    /// would likely repeat on every attempt.
-    ///
-    /// A failed request includes a rejected status (400, 401, 403) on purpose: the retry queue
-    /// already treats it as transient, and a flip must not be lost to a homeserver
-    /// misconfiguration that is fixed later.
-    pub fn is_transient_fetch(&self) -> bool {
-        matches!(self, Self::PubkyClientError(_))
-            && RetryScheduler::should_enqueue_related_event(self)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::events::retry::RetryScheduler;
     use pubky::errors::PkarrError;
 
     #[test]
@@ -448,10 +438,12 @@ mod tests {
         assert!(message.contains("HTTP 502: bad gateway"), "{message}");
     }
 
-    /// A transient fetch error is one the retry queue takes, with the transient class; a 404,
-    /// a graph failure or a `Generic` is not one.
+    /// A fetch error the retry queue takes (a 5xx, a 429, a rejected status, a timeout, a PKARR
+    /// failure or a client not yet initialised) is retried with the transient class and never
+    /// stops the batch; a 404 is dropped. After the flip step a fetch error on a `social/v1`
+    /// profile PUT is a `v1` user's, so none of these lifts the retry limit.
     #[test]
-    fn transient_fetch_errors_are_the_retried_client_errors() {
+    fn retried_fetch_errors_take_the_transient_class_and_keep_the_limit() {
         for err in [
             hs_error(HsOp::GetResource, HsErrorKind::ServerError(500, "".into())),
             hs_error(HsOp::GetResource, HsErrorKind::RateLimited("".into())),
@@ -466,23 +458,17 @@ mod tests {
                 "`_pubky` target `example.com`".into(),
             ))),
         ] {
-            assert!(err.is_transient_fetch(), "{err:?}");
             assert!(
                 RetryScheduler::should_enqueue_related_event(&err),
                 "{err:?}"
             );
             assert!(!err.should_not_retry_now(), "{err:?}");
+            assert!(!err.is_flip_failed(), "{err:?}");
         }
 
-        for err in [
-            hs_error(HsOp::GetResource, HsErrorKind::NotFound("".into())),
-            EventProcessorError::GraphQueryFailed(true, "".into()),
-            EventProcessorError::Generic("".into()),
-            EventProcessorError::InternalError("".into()),
-            EventProcessorError::MissingDependency { dependency: vec![] },
-        ] {
-            assert!(!err.is_transient_fetch(), "{err:?}");
-        }
+        let not_found = hs_error(HsOp::GetResource, HsErrorKind::NotFound("".into()));
+        assert!(!RetryScheduler::should_enqueue_related_event(&not_found));
+        assert!(!not_found.is_flip_failed());
     }
 
     #[test]
@@ -524,7 +510,6 @@ mod tests {
             );
             assert!(!err.should_not_retry_now(), "{err:?}");
             assert!(!err.is_missing_dependency(), "{err:?}");
-            assert!(!err.is_transient_fetch(), "{err:?}");
         }
     }
 }

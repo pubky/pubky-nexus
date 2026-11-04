@@ -1,6 +1,9 @@
-use crate::event_processor::posts::utils::find_post_uri;
+use crate::event_processor::posts::utils::{
+    corrupt_post_indexed_at, find_post_details, find_post_uri, restore_post_indexed_at,
+};
+use crate::event_processor::tags::utils::find_tag_uri;
 use crate::event_processor::users::utils::{
-    find_cached_user_details, find_user_epoch, set_user_epoch,
+    find_cached_user_details, find_user_details, find_user_epoch, find_user_uri, set_user_epoch,
 };
 use crate::event_processor::utils::default_moderation_tests;
 use crate::event_processor::utils::watcher::retrieve_and_handle_event_line;
@@ -27,12 +30,15 @@ use nexus_watcher::events::EventType;
 use nexus_watcher::events::{handlers, DefaultEventHandler, EventHandler};
 use nexus_watcher::homeserver::HsErrorKind;
 use nexus_watcher::service::{HsEventProcessor, RunOutcome, TEventProcessor};
-use pubky_social_specs::legacy_v0::traits::TimestampId;
-use pubky_social_specs::legacy_v0::{post_uri_builder, PubkyAppPost, PubkyAppPostKind};
-use pubky_social_specs::traits::{HasPath as _, TimestampId as _};
+use pubky_social_specs::legacy_v0::traits::{HashId as _, TimestampId};
+use pubky_social_specs::legacy_v0::{
+    post_uri_builder, tag_uri_builder as v0_tag_uri_builder, PubkyAppPost, PubkyAppPostKind,
+    PubkyAppTag,
+};
+use pubky_social_specs::traits::{HasPath as _, HashId as _, TimestampId as _};
 use pubky_social_specs::{
-    post_uri_builder as v1_post_uri_builder, PubkySocialPost, PubkySocialPostKind, PubkySocialUser,
-    Root,
+    post_uri_builder as v1_post_uri_builder, tag_uri_builder as v1_tag_uri_builder,
+    PubkySocialPost, PubkySocialPostKind, PubkySocialTag, PubkySocialUser, Root,
 };
 use std::sync::Arc;
 use tokio::sync::watch;
@@ -1565,8 +1571,8 @@ async fn test_social_v1_entry_of_a_v0_user_is_removed_and_nothing_indexed() -> R
 // ============================================================================
 // A queued `social/v1` profile flips its `v0` user
 // A v1 profile line queued for a user still at `v0` goes through the real
-// handler: the profile is indexed, the user moves to `v1` in the graph and the
-// cache, and the entry is removed.
+// handler: the user moves to `v1` in the graph, then the profile is indexed and
+// cached at `v1`, and the entry is removed.
 // ============================================================================
 
 #[tokio_shared_rt::test(shared)]
@@ -1631,104 +1637,13 @@ async fn test_social_v1_profile_entry_flips_a_v0_user() -> Result<()> {
 }
 
 // ============================================================================
-// A failed `social/v1` profile does not flip its `v0` user
-// The flip sets `v1` after the profile is indexed: a profile PUT that fails
-// leaves the user at `v0`, in the graph and the cache, and their `pubky.app`
-// events are still handled. An invalid profile is never retried.
-// ============================================================================
-
-#[tokio_shared_rt::test(shared)]
-async fn test_failed_social_v1_profile_entry_does_not_flip_a_v0_user() -> Result<()> {
-    setup().await?;
-
-    let user = random_pubky_id();
-    let user_id = user.to_string();
-    // No epoch on the node: the user reads as `v0`
-    UserDetails::from_pubky(user.clone()).put_to_graph().await?;
-
-    let profile_uri = format!("pubky://{user_id}{}", PubkySocialUser::create_path());
-    let post = PubkyAppPost {
-        content: "Retry:EpochGate:FailedFlip:Post".to_string(),
-        kind: PubkyAppPostKind::Short,
-        parent: None,
-        embed: None,
-        attachments: None,
-        lock: None,
-    };
-    let post_id = post.create_id();
-    let post_uri = post_uri_builder(user_id.clone(), post_id.clone());
-    let client = Arc::new(
-        MockHomeserverClient::default()
-            .with_resource(&profile_uri, b"not json".to_vec())
-            .with_resource(&post_uri, serde_json::to_vec(&post)?),
-    );
-    let files = tempfile::TempDir::new()?;
-    let store = new_in_memory_store();
-    let handler: Arc<dyn EventHandler> = Arc::new(DefaultEventHandler::new(
-        default_moderation_tests(),
-        default_ingestor_tests(),
-        client,
-        files.path().to_path_buf(),
-        store.clone(),
-    ));
-
-    let (shutdown_tx, shutdown_rx) = watch::channel(false);
-    let processor = build_processor(
-        store.clone(),
-        create_test_config(10, 50, 60, 3600, 60, 3600),
-        handler,
-        shutdown_rx,
-    );
-    let due_put = |event_uri: &str| RetryEvent {
-        retry_count: 0,
-        event_type: EventType::Put,
-        event_uri: event_uri.to_string(),
-        next_retry_at: Utc::now().timestamp_millis() - 1000,
-        origin_homeserver_id: TEST_HOMESERVER_ID.to_string(),
-        nonce: 0,
-    };
-
-    // The flip profile fails validation
-    store.put(&due_put(&profile_uri)).await?;
-    processor
-        .clone()
-        .run_internal()
-        .await
-        .expect("a failed flip must not fail the batch");
-
-    assert_eq!(find_user_epoch(&user_id).await, None, "no epoch written");
-    let cached = find_cached_user_details(&user_id).await?;
-    assert_eq!(cached.epoch, Epoch::V0);
-    assert!(
-        store.get(&IndexKey::for_uri(&profile_uri)).await?.is_none(),
-        "an invalid profile is never retried"
-    );
-
-    // Still at `v0`: a `pubky.app` post from the same user is indexed
-    store.put(&due_put(&post_uri)).await?;
-    processor
-        .run_internal()
-        .await
-        .expect("the post must not fail the batch");
-    assert!(
-        PostDetails::get_from_graph(&user_id, &post_id)
-            .await?
-            .is_some(),
-        "a v0 user's pubky.app post is still indexed after a failed flip"
-    );
-
-    exec_single_row(queries::del::delete_post(&user_id, &post_id)).await?;
-    exec_single_row(queries::del::delete_user(&user_id)).await?;
-    let _ = shutdown_tx.send(true);
-    Ok(())
-}
-
-// ============================================================================
-// The flip is never dead-lettered
-// A `social/v1` profile PUT of a user at `v0` whose fetch fails transiently is
-// rescheduled past `max_retries`, for as long as it takes; the same entry flips
-// the user once the fetch succeeds. These tests go through the real handler, with
-// a homeserver client stub that answers 5xx.
+// The flip step runs before the profile fetch
+// A `social/v1` profile PUT of a user at `v0` moves them to `v1` first: the
+// internal migration of their indexed data, then the epoch write. Only then is
+// the profile fetched, as the `v1` edit it now is, so the flip does not wait for
+// the homeserver and a failed migration step is queued without limit while the
+// user is `v0`. These tests go through the real handler against the local graph,
+// with a homeserver client stub that answers the profile fetch.
 // ============================================================================
 
 /// The real event handler, fetching through `client` (owned, or an `Arc` a runner shares)
@@ -1772,74 +1687,101 @@ fn outage() -> HsErrorKind {
 
 const MAX_RETRIES: u32 = 10;
 
+/// A `pubky.app` tag by `tagger_id` on `target` and its URI.
+fn pubky_app_tag(tagger_id: &str, target: &str, label: &str) -> (PubkyAppTag, String) {
+    let tag = PubkyAppTag {
+        uri: target.to_string(),
+        label: label.to_string(),
+        created_at: Utc::now().timestamp_millis(),
+    };
+    let uri = v0_tag_uri_builder(tagger_id.to_string(), tag.create_id());
+    (tag, uri)
+}
+
+/// The flip's first attempt with the homeserver down: the flip step lands, so the user is
+/// `v1` with their post and their tag at their `v1` addresses, and the profile PUT is queued
+/// with the transient class as the `v1` edit it now is. The homeserver back, the entry's retry
+/// fetches and indexes the `social/v1` profile, the details cache shows it at `v1`, and the
+/// entry leaves the queue. (The `info` line is asserted in the handler's own tests, where
+/// the crate's logs can be read.)
 #[tokio_shared_rt::test(shared)]
-async fn test_flip_at_max_retries_with_5xx_is_rescheduled_until_the_fetch_succeeds() -> Result<()> {
+async fn test_a_5xx_at_the_fetch_flips_the_user_and_queues_the_profile_put_as_a_v1_edit(
+) -> Result<()> {
     setup().await?;
 
     let user = random_pubky_id();
     let user_id = user.to_string();
     // No epoch on the node: the user reads as `v0`
-    UserDetails::from_pubky(user.clone()).put_to_graph().await?;
+    UserDetails::from_pubky(user).put_to_graph().await?;
+    let (post, post_id, post_uri) = pubky_app_post(&user_id, "Retry:Flip:Outage:Post");
+    let label = "flipoutage";
+    let (tag, tag_uri) = pubky_app_tag(&user_id, &post_uri, label);
+    let flip_uri = social_v1_profile_uri(&user_id);
 
-    let event_uri = social_v1_profile_uri(&user_id);
-    let index_key = IndexKey::for_uri(&event_uri);
+    // The user's post and tag, indexed at `pubky.app`; then the flip, whose fetch answers 503
     let store = new_in_memory_store();
-    let now = Utc::now().timestamp_millis();
-    store.put(&ready_put_entry(&event_uri, MAX_RETRIES)).await?;
-
-    // The homeserver is down: the fetch answers 503
     let files = tempfile::TempDir::new()?;
-    let handler = default_handler(
-        MockHomeserverClient::default().with_resource_error(&event_uri, outage()),
-        &files,
-        store.clone(),
+    let client = Arc::new(
+        MockHomeserverClient::default()
+            .with_lines(batch([format!("PUT {flip_uri}")]))
+            .with_resource(&post_uri, serde_json::to_vec(&post)?)
+            .with_resource(&tag_uri, serde_json::to_vec(&tag)?)
+            .with_resource_error(&flip_uri, outage()),
     );
-    let (shutdown_tx, shutdown_rx) = watch::channel(false);
-    let processor = build_processor(
-        store.clone(),
-        create_test_config(MAX_RETRIES, 50, 60, 3600, 60, 120),
-        handler,
-        shutdown_rx,
-    );
+    let handler = default_handler(client.clone(), &files, store.clone());
+    retrieve_and_handle_event_line(&format!("PUT {post_uri}"), handler.clone()).await?;
+    retrieve_and_handle_event_line(&format!("PUT {tag_uri}"), handler.clone()).await?;
+    let runner = primary_runner(client, handler, store.clone()).await?;
 
-    processor
+    let now = Utc::now().timestamp_millis();
+    runner
         .run_internal()
         .await
-        .expect("a transient fetch error on the flip must not fail the batch");
+        .expect("a 5xx at the fetch must not fail the batch");
 
-    let rescheduled = store
-        .get(&index_key)
+    assert_eq!(find_user_epoch(&user_id).await.as_deref(), Some("v1"));
+    let v1_post_uri = v1_post_uri_builder(user_id.clone(), post_id.clone());
+    assert_eq!(
+        find_post_uri(&user_id, &post_id).await,
+        Some(v1_post_uri.clone()),
+        "the post is at its v1 address"
+    );
+    let v1_tag_id = PubkySocialTag::new(v1_post_uri, label.to_string()).create_id();
+    assert_eq!(
+        find_tag_uri(&user_id, &v1_tag_id).await,
+        Some(v1_tag_uri_builder(user_id.clone(), v1_tag_id)),
+        "the tag is at its v1 address"
+    );
+    let queued = store
+        .get(&IndexKey::for_uri(&flip_uri))
         .await?
-        .expect("the flip must be rescheduled past max_retries, not dead-lettered");
-    assert_eq!(
-        rescheduled.retry_count,
-        MAX_RETRIES + 1,
-        "the attempt still counts"
-    );
+        .expect("the profile PUT must be queued");
+    assert_eq!(queued.event_type, EventType::Put);
+    assert_eq!(queued.retry_count, 0);
     assert!(
-        rescheduled.next_retry_at >= now + 3_600_000,
-        "the flip is rescheduled with the transient backoff"
+        (now + TRANSIENT_MS..now + MISSING_DEP_MS).contains(&queued.next_retry_at),
+        "the profile PUT is queued with the transient class"
     );
     assert_eq!(
-        find_user_epoch(&user_id).await,
-        None,
-        "the user stays at v0 until the fetch succeeds"
+        find_user_details(&user_id).await?.name,
+        user_id,
+        "the previous profile stays until the fetch"
     );
 
-    // The homeserver is back: the same entry, due again, flips the user and leaves the queue
+    // The homeserver is back: the same entry, due again, indexes the profile and leaves the queue
     store
         .put(&RetryEvent {
             next_retry_at: now - 1000,
-            ..rescheduled
+            ..queued
         })
         .await?;
     let profile = PubkySocialUser::new("Retry:Flip:Outage".to_string(), None, None, None, None);
     let handler = default_handler(
-        MockHomeserverClient::default().with_resource(&event_uri, serde_json::to_vec(&profile)?),
+        MockHomeserverClient::default().with_resource(&flip_uri, serde_json::to_vec(&profile)?),
         &files,
         store.clone(),
     );
-    let (_, shutdown_rx) = watch::channel(false);
+    let (_shutdown_tx, shutdown_rx) = watch::channel(false);
     let processor = build_processor(
         store.clone(),
         create_test_config(MAX_RETRIES, 50, 60, 3600, 60, 3600),
@@ -1850,44 +1792,47 @@ async fn test_flip_at_max_retries_with_5xx_is_rescheduled_until_the_fetch_succee
     processor
         .run_internal()
         .await
-        .expect("the flip must not fail the batch");
+        .expect("the profile PUT must not fail the batch");
 
-    assert_eq!(find_user_epoch(&user_id).await.as_deref(), Some("v1"));
+    assert!(
+        store.get(&IndexKey::for_uri(&flip_uri)).await?.is_none(),
+        "the indexed entry must leave the queue"
+    );
+    assert_eq!(find_user_uri(&user_id).await, Some(flip_uri.clone()));
     let cached = find_cached_user_details(&user_id).await?;
     assert_eq!(cached.epoch, Epoch::V1);
     assert_eq!(cached.name, "Retry:Flip:Outage");
-    assert!(
-        store.get(&index_key).await?.is_none(),
-        "the flipped entry must leave the queue"
-    );
 
-    handlers::user::del(user).await?;
-    let _ = shutdown_tx.send(true);
+    exec_single_row(queries::del::delete_post(&user_id, &post_id)).await?;
+    exec_single_row(queries::del::delete_user(&user_id)).await?;
     Ok(())
 }
 
-// ============================================================================
-// A `social/v1` profile PUT whose fetch answers 404 is removed
-// The profile was deleted since: not worth retrying, so the entry is dropped at
-// once and the user stays at `v0`.
-// ============================================================================
-
+/// A `v0` user's entry at `max_retries` whose flip step lands and whose fetch answers 5xx:
+/// the user flips, and the entry is dead-lettered as the `v1` edit it then is. The fetch after
+/// the epoch write is a bounded `v1` edit: the previous profile stays until the user's next
+/// profile write.
 #[tokio_shared_rt::test(shared)]
-async fn test_social_v1_profile_put_with_404_is_removed() -> Result<()> {
+async fn test_a_v0_users_entry_at_max_retries_with_a_5xx_at_the_fetch_flips_and_is_dead_lettered(
+) -> Result<()> {
     setup().await?;
 
     let user = random_pubky_id();
     let user_id = user.to_string();
+    // No epoch on the node: the user reads as `v0`
     UserDetails::from_pubky(user).put_to_graph().await?;
 
-    let event_uri = social_v1_profile_uri(&user_id);
+    let flip_uri = social_v1_profile_uri(&user_id);
     let store = new_in_memory_store();
-    store.put(&ready_put_entry(&event_uri, 0)).await?;
+    store.put(&ready_put_entry(&flip_uri, MAX_RETRIES)).await?;
 
-    // The mock client answers 404 for any URI it does not serve
     let files = tempfile::TempDir::new()?;
-    let handler = default_handler(MockHomeserverClient::default(), &files, store.clone());
-    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let handler = default_handler(
+        MockHomeserverClient::default().with_resource_error(&flip_uri, outage()),
+        &files,
+        store.clone(),
+    );
+    let (_shutdown_tx, shutdown_rx) = watch::channel(false);
     let processor = build_processor(
         store.clone(),
         create_test_config(MAX_RETRIES, 50, 60, 3600, 60, 3600),
@@ -1898,20 +1843,260 @@ async fn test_social_v1_profile_put_with_404_is_removed() -> Result<()> {
     processor
         .run_internal()
         .await
-        .expect("a 404 must not fail the batch");
+        .expect("a dead-lettered entry must not fail the batch");
 
-    assert!(
-        store.get(&IndexKey::for_uri(&event_uri)).await?.is_none(),
-        "a profile that is gone must be removed from the queue"
+    assert_eq!(
+        find_user_epoch(&user_id).await.as_deref(),
+        Some("v1"),
+        "the flip step landed before the fetch"
     );
+    assert!(
+        store.get(&IndexKey::for_uri(&flip_uri)).await?.is_none(),
+        "a v1 user's profile edit is dead-lettered at max_retries"
+    );
+    assert_eq!(find_user_details(&user_id).await?.name, user_id);
+
+    exec_single_row(queries::del::delete_user(&user_id)).await?;
+    Ok(())
+}
+
+/// A profile the fetch cannot index, a 404 or an invalid body, after the flip step landed: the
+/// event is dropped as a `v1` user's and never retried, the user is `v1` with the previous
+/// profile, and their `pubky.app` events are ignored from then on.
+#[tokio_shared_rt::test(shared)]
+async fn test_a_profile_the_fetch_cannot_index_leaves_a_v1_user_with_the_previous_profile(
+) -> Result<()> {
+    setup().await?;
+
+    for (case, body) in [
+        ("a 404", None),
+        ("an invalid profile", Some(b"not json".to_vec())),
+    ] {
+        let user = random_pubky_id();
+        let user_id = user.to_string();
+        // No epoch on the node: the user reads as `v0`
+        UserDetails {
+            name: "Retry:Flip:Previous".to_string(),
+            ..UserDetails::from_pubky(user)
+        }
+        .put_to_graph()
+        .await?;
+        let profile_uri = social_v1_profile_uri(&user_id);
+        let (post, post_id, post_uri) = pubky_app_post(&user_id, "Retry:Flip:Previous:Post");
+
+        // The mock client answers 404 for any URI it does not serve
+        let mut client =
+            MockHomeserverClient::default().with_resource(&post_uri, serde_json::to_vec(&post)?);
+        if let Some(body) = body {
+            client = client.with_resource(&profile_uri, body);
+        }
+        let files = tempfile::TempDir::new()?;
+        let store = new_in_memory_store();
+        let handler = default_handler(client, &files, store.clone());
+        let (_shutdown_tx, shutdown_rx) = watch::channel(false);
+        let processor = build_processor(
+            store.clone(),
+            create_test_config(MAX_RETRIES, 50, 60, 3600, 60, 3600),
+            handler,
+            shutdown_rx,
+        );
+
+        store.put(&ready_put_entry(&profile_uri, 0)).await?;
+        processor
+            .clone()
+            .run_internal()
+            .await
+            .unwrap_or_else(|e| panic!("{case}: a dropped profile must not fail the batch: {e}"));
+
+        assert_eq!(
+            find_user_epoch(&user_id).await.as_deref(),
+            Some("v1"),
+            "{case}: the flip step landed before the fetch"
+        );
+        assert_eq!(
+            find_user_details(&user_id).await?.name,
+            "Retry:Flip:Previous",
+            "{case}: the previous profile stays"
+        );
+        assert!(
+            store.get(&IndexKey::for_uri(&profile_uri)).await?.is_none(),
+            "{case}: a profile that cannot be indexed is never retried"
+        );
+
+        // At `v1`: a `pubky.app` post from the same user is ignored
+        store.put(&ready_put_entry(&post_uri, 0)).await?;
+        processor
+            .run_internal()
+            .await
+            .unwrap_or_else(|e| panic!("{case}: an ignored post must not fail the batch: {e}"));
+        assert!(
+            PostDetails::get_from_graph(&user_id, &post_id)
+                .await?
+                .is_none(),
+            "{case}: a v1 user's pubky.app post is ignored"
+        );
+        assert!(store.get(&IndexKey::for_uri(&post_uri)).await?.is_none());
+
+        exec_single_row(queries::del::delete_user(&user_id)).await?;
+    }
+    Ok(())
+}
+
+/// A failed migration step through the real handler: the handler's error is `FlipFailed`
+/// naming the step and the cause, and the user stays at `v0` with their profile unfetched and
+/// their post's content intact. The posts step's graph write landed before its read failed;
+/// the retry runs the step whole over it, flips the user and indexes the profile. (The log
+/// lines are asserted in the handler's own tests, where the crate's logs can be read.)
+#[tokio_shared_rt::test(shared)]
+async fn test_a_failed_migration_step_comes_out_of_the_handler_as_flip_failed() -> Result<()> {
+    setup().await?;
+
+    let user = random_pubky_id();
+    let user_id = user.to_string();
+    // No epoch on the node: the user reads as `v0`
+    UserDetails::from_pubky(user).put_to_graph().await?;
+    let (post, post_id, post_uri) = pubky_app_post(&user_id, "Retry:FlipFailed:Post");
+    let flip_uri = social_v1_profile_uri(&user_id);
+    let profile = PubkySocialUser::new("Retry:FlipFailed".to_string(), None, None, None, None);
+
+    let store = new_in_memory_store();
+    let files = tempfile::TempDir::new()?;
+    let handler = default_handler(
+        MockHomeserverClient::default()
+            .with_resource(&post_uri, serde_json::to_vec(&post)?)
+            .with_resource(&flip_uri, serde_json::to_vec(&profile)?),
+        &files,
+        store.clone(),
+    );
+    retrieve_and_handle_event_line(&format!("PUT {post_uri}"), handler.clone()).await?;
+    let indexed_at = find_post_details(&user_id, &post_id).await?.indexed_at;
+    corrupt_post_indexed_at(&user_id, &post_id).await?;
+
+    let err = retrieve_and_handle_event_line(&format!("PUT {flip_uri}"), handler.clone())
+        .await
+        .expect_err("a failed step must fail the flip");
+
+    match &err {
+        EventProcessorError::FlipFailed { step, source } => {
+            assert_eq!(*step, "posts");
+            assert!(
+                matches!(**source, EventProcessorError::GraphQueryFailed(false, _)),
+                "the cause is kept: {source:?}"
+            );
+        }
+        other => panic!("expected FlipFailed, got {other:?}"),
+    }
     assert_eq!(
         find_user_epoch(&user_id).await,
         None,
         "the user stays at v0"
     );
+    assert_eq!(
+        find_user_details(&user_id).await?.name,
+        user_id,
+        "the profile is not fetched before the step lands"
+    );
+    assert!(
+        store.get(&IndexKey::for_uri(&flip_uri)).await?.is_none(),
+        "the handler queues nothing itself; the runner does"
+    );
 
+    // The row reads again: the retry runs the step whole and the flip lands
+    restore_post_indexed_at(&user_id, &post_id, indexed_at).await?;
+    assert_eq!(
+        find_post_details(&user_id, &post_id).await?.content,
+        "Retry:FlipFailed:Post"
+    );
+    retrieve_and_handle_event_line(&format!("PUT {flip_uri}"), handler).await?;
+
+    assert_eq!(find_user_epoch(&user_id).await.as_deref(), Some("v1"));
+    assert_eq!(find_user_uri(&user_id).await, Some(flip_uri));
+    assert_eq!(find_user_details(&user_id).await?.name, "Retry:FlipFailed");
+    assert_eq!(
+        find_post_uri(&user_id, &post_id).await,
+        Some(v1_post_uri_builder(user_id.clone(), post_id.clone()))
+    );
+    assert_eq!(
+        find_post_details(&user_id, &post_id).await?.content,
+        "Retry:FlipFailed:Post"
+    );
+
+    exec_single_row(queries::del::delete_post(&user_id, &post_id)).await?;
     exec_single_row(queries::del::delete_user(&user_id)).await?;
-    let _ = shutdown_tx.send(true);
+    Ok(())
+}
+
+/// The feed replays the batch while the queued flip waits: the replay flips the user and
+/// indexes the profile. The retry then finds `v1`, runs as a profile fetch and leaves the
+/// queue; the post is as the replay left it, migrated once.
+#[tokio_shared_rt::test(shared)]
+async fn test_a_flip_replayed_by_the_feed_and_retried_from_the_queue_converge() -> Result<()> {
+    setup().await?;
+
+    let user = random_pubky_id();
+    let user_id = user.to_string();
+    // No epoch on the node: the user reads as `v0`
+    UserDetails::from_pubky(user).put_to_graph().await?;
+    let (post, post_id, post_uri) = pubky_app_post(&user_id, "Retry:Flip:Replay:Post");
+    let flip_uri = social_v1_profile_uri(&user_id);
+    let profile = PubkySocialUser::new("Retry:Flip:Replay".to_string(), None, None, None, None);
+
+    let store = new_in_memory_store();
+    let files = tempfile::TempDir::new()?;
+    let client = Arc::new(
+        MockHomeserverClient::default()
+            .with_lines(batch([format!("PUT {flip_uri}")]))
+            .with_resource(&post_uri, serde_json::to_vec(&post)?)
+            .with_resource(&flip_uri, serde_json::to_vec(&profile)?),
+    );
+    let handler = default_handler(client.clone(), &files, store.clone());
+    retrieve_and_handle_event_line(&format!("PUT {post_uri}"), handler.clone()).await?;
+    // The queue as a failed flip step left it
+    store.put(&ready_put_entry(&flip_uri, 1)).await?;
+
+    // The feed replays the batch
+    let runner = primary_runner(client, handler.clone(), store.clone()).await?;
+    runner
+        .run_internal()
+        .await
+        .expect("the replayed flip must not fail the batch");
+    assert_eq!(find_user_epoch(&user_id).await.as_deref(), Some("v1"));
+    assert_eq!(find_user_details(&user_id).await?.name, "Retry:Flip:Replay");
+    let v1_post_uri = v1_post_uri_builder(user_id.clone(), post_id.clone());
+    assert_eq!(find_post_uri(&user_id, &post_id).await, Some(v1_post_uri));
+    let post_after_replay = find_post_details(&user_id, &post_id).await?;
+    assert!(
+        store.get(&IndexKey::for_uri(&flip_uri)).await?.is_some(),
+        "the replay leaves the queued entry in place"
+    );
+
+    // The queued flip is retried: a `v1` user's profile PUT
+    let (_shutdown_tx, shutdown_rx) = watch::channel(false);
+    let processor = build_processor(
+        store.clone(),
+        create_test_config(MAX_RETRIES, 50, 60, 3600, 60, 3600),
+        handler,
+        shutdown_rx,
+    );
+    processor
+        .run_internal()
+        .await
+        .expect("the retried flip must not fail the batch");
+
+    assert!(
+        store.get(&IndexKey::for_uri(&flip_uri)).await?.is_none(),
+        "the retried entry leaves the queue"
+    );
+    assert_eq!(find_user_epoch(&user_id).await.as_deref(), Some("v1"));
+    assert_eq!(find_user_uri(&user_id).await, Some(flip_uri));
+    assert_eq!(
+        find_post_details(&user_id, &post_id).await?,
+        post_after_replay,
+        "the post is as the replay left it"
+    );
+
+    exec_single_row(queries::del::delete_post(&user_id, &post_id)).await?;
+    exec_single_row(queries::del::delete_user(&user_id)).await?;
     Ok(())
 }
 
@@ -1965,8 +2150,8 @@ async fn test_v1_user_profile_put_at_max_retries_with_5xx_is_dead_lettered() -> 
 
 // ============================================================================
 // A flip with a `Generic` error keeps the limit
-// Only a transient fetch error lifts the limit: an error that would likely repeat
-// on every attempt dead-letters the flip at `max_retries`.
+// Only a failed flip step lifts the limit: any other error on a `v0` user's
+// profile PUT dead-letters it at `max_retries`.
 // ============================================================================
 
 #[tokio_shared_rt::test(shared)]
@@ -2056,8 +2241,9 @@ async fn test_pubky_app_post_put_at_max_retries_with_5xx_is_dead_lettered() -> R
 
 // ============================================================================
 // A graph error on the flip is unchanged
-// Rescheduled without counting, and the batch stops: the entry behind it is not
-// reached.
+// A connection-class graph error outside the flip step, such as the gate's own
+// read: rescheduled without counting, and the batch stops, so the entry behind it
+// is not reached.
 // ============================================================================
 
 #[tokio_shared_rt::test(shared)]
@@ -2126,12 +2312,12 @@ async fn test_graph_error_on_the_flip_is_rescheduled_without_counting_and_stops_
 
 // ============================================================================
 // A `v0` user's `pubky.app` DELs are deferred while their flip waits in the queue
-// The migrator writes the flip last and a cleanup pass deletes the `pubky.app`
-// copies after it. A flip whose fetch failed once sits in the retry queue with the
-// user still at `v0`; the cleanup DELs that follow would otherwise be handled and
-// delete what the flip's internal migration is about to move. These tests drive the
-// events through the primary runner and the retry processor with the real handler,
-// one in-memory queue shared by the scheduler, the handler's gate and the processor.
+// The migrator writes the flip last; an old client may still delete the `pubky.app`
+// copies after it. A flip whose step failed sits in the retry queue with the user
+// still at `v0`; the DELs that follow would otherwise be handled and delete what the
+// flip's internal migration is about to move. These tests drive the events through
+// the primary runner and the retry processor with the real handler, one in-memory
+// queue shared by the scheduler, the handler's gate and the processor.
 // ============================================================================
 
 /// Initial backoff of a transient error on the first attempt.
@@ -2208,9 +2394,10 @@ fn del_entry(event_uri: &str, next_retry_at: i64) -> RetryEvent {
     }
 }
 
-/// The flip answers 503 and is queued; the cleanup DELs of the user's post and
-/// `pubky.app` profile behind it are deferred: each is a missing dependency naming
-/// the flip, queued with the dependency class, and the graph keeps the post and the user.
+/// The flip's posts step fails on a row it can't read and the flip is queued; the DELs of
+/// the user's post and `pubky.app` profile behind it are deferred: each is a missing
+/// dependency naming the flip, queued with the dependency class, and the graph keeps the
+/// post and the user.
 #[tokio_shared_rt::test(shared)]
 async fn test_pubky_app_dels_of_a_v0_user_are_deferred_while_their_flip_is_queued() -> Result<()> {
     setup().await?;
@@ -2223,23 +2410,25 @@ async fn test_pubky_app_dels_of_a_v0_user_are_deferred_while_their_flip_is_queue
     let (post, post_id, post_uri) = pubky_app_post(&user_id, "Retry:Defer:Post");
     let flip_uri = social_v1_profile_uri(&user_id);
     let profile_uri = pubky_app_profile_uri(&user_id);
+    let profile = PubkySocialUser::new("Retry:Defer".to_string(), None, None, None, None);
 
-    // The user's post, then the migrator's run: the flip, whose fetch answers 503, and
-    // the cleanup pass that must have waited for it
+    // The user's post, indexed; then the migrator's run: the flip, whose posts step fails
+    // on the post's row, and an old client's deletes that must wait for it
     let client = Arc::new(
         MockHomeserverClient::default()
             .with_lines(batch([
-                format!("PUT {post_uri}"),
                 format!("PUT {flip_uri}"),
                 format!("DEL {post_uri}"),
                 format!("DEL {profile_uri}"),
             ]))
             .with_resource(&post_uri, serde_json::to_vec(&post)?)
-            .with_resource_error(&flip_uri, outage()),
+            .with_resource(&flip_uri, serde_json::to_vec(&profile)?),
     );
     let store = new_in_memory_store();
     let files = tempfile::TempDir::new()?;
     let handler = default_handler(client.clone(), &files, store.clone());
+    retrieve_and_handle_event_line(&format!("PUT {post_uri}"), handler.clone()).await?;
+    corrupt_post_indexed_at(&user_id, &post_id).await?;
     let runner = primary_runner(client, handler.clone(), store.clone()).await?;
 
     let now = Utc::now().timestamp_millis();
@@ -2279,10 +2468,8 @@ async fn test_pubky_app_dels_of_a_v0_user_are_deferred_while_their_flip_is_queue
     }
 
     assert!(
-        PostDetails::get_from_graph(&user_id, &post_id)
-            .await?
-            .is_some(),
-        "the deferred DEL must leave the post readable"
+        find_post_uri(&user_id, &post_id).await.is_some(),
+        "the deferred DEL must leave the post node"
     );
     assert!(
         UserDetails::get_from_graph(&[user_id.as_str()]).await?[0].is_some(),
@@ -2574,9 +2761,10 @@ async fn test_pubky_app_del_of_a_v0_user_without_a_queued_flip_is_handled() -> R
 // `FlipFailed` wraps whatever failed inside the flip step, and its retry class is
 // the variant's, not the source's: enqueued on the first attempt with the transient
 // backoff while the batch goes on, counted with `max_retries`, and rescheduled past
-// that limit for as long as the user is still `v0` in the graph. Nothing produces
-// the variant yet; these tests return it from a stub handler, through the primary
-// runner and the retry processor with the in-memory queue. The `v1` user's case,
+// that limit for as long as the user is still `v0` in the graph. The flip step
+// produces it (the tests through the real handler above); these return it from a
+// stub handler, through the primary runner and the retry processor with the
+// in-memory queue, to cover every class of cause. The `v1` user's case,
 // dead-lettered at `warn`, is in the processor's own tests, where its log line can
 // be read.
 // ============================================================================
