@@ -50,9 +50,10 @@ A reference names a URI; Nexus normalises and hashes it (`universal_tag::normali
 | post `embed`, external URI (*branch*) | `(:Post)-[:EMBEDS]->(:Resource)` | `embed` |
 | collection item, external URI (*branch*) | `(:Post)-[:COLLECTED]->(:Resource)` | `collection` |
 
-An external URI is another scheme's URL or another app's public object. A profile, file or
-tag named by a post, and a bookmark, a follow, a private path or anything else Nexus never
-references, makes no Resource.
+An external URI is another scheme's URL or another app's public object. A post reference to a
+profile, file or tag, or to a bookmark, a follow, a private path or anything else Nexus never
+references, makes no Resource edge, feed line or count; a Resource that exists for another
+reason, such as a tag on a file, is left as it is.
 
 The feed's `kind` is the kind of **reference**. It is not, and must never be reused as, the
 kind of the referenced object (section 4).
