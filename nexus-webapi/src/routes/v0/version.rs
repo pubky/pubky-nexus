@@ -607,10 +607,12 @@ impl ApiVersion for V1 {
     /// Both user lookups are one indexed graph read, like `/user/{user_id}/details`, so they sit
     /// in the default bucket. `/v1` has no bookmark or file details route at all.
     fn own_routes() -> (Router<AppState>, Router<AppState>) {
-        let expensive = Router::new().route(
-            STREAM_RESOURCES_BY_IDS_ROUTE,
-            axum::routing::post(stream::resources::stream_resources_by_ids_handler),
-        );
+        let expensive = Router::new()
+            .route(
+                STREAM_RESOURCES_BY_IDS_ROUTE,
+                axum::routing::post(stream::resources::stream_resources_by_ids_handler),
+            )
+            .merge(social_events::routes());
         let default = resource_changes::routes()
             .route(
                 RESOURCE_REPLIES_ROUTE,
@@ -631,8 +633,7 @@ impl ApiVersion for V1 {
             .route(
                 USER_FOLLOWING_DETAILS_ROUTE,
                 axum::routing::get(user::follows::user_following_details_handler),
-            )
-            .merge(social_events::routes());
+            );
         (expensive, default)
     }
 
