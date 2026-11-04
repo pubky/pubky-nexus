@@ -1,11 +1,14 @@
 use crate::db::graph::Query;
 use crate::db::{exec_single_row, fetch_key_from_graph, queries, GraphResult};
+use crate::models::user::UserDetails;
+use pubky_social_specs::PubkyId;
 use serde::de::{value, IntoDeserializer};
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use utoipa::ToSchema;
 
-/// A user's indexing epoch: Nexus indexing state, not app data. Users are born `V0`.
+/// A user's indexing epoch: Nexus indexing state, not app data. Users are born `V0`, except
+/// the node the flip creates for a user whose first event is their `social/v1` profile.
 ///
 /// Stored as `epoch` on the `:User` node (a node without one reads as `V0`) and
 /// carried by [`super::UserDetails`] for the API. The watcher reads it from the
@@ -41,11 +44,12 @@ impl Epoch {
         Ok(epoch.unwrap_or_default())
     }
 
-    /// Moves `user_id`'s `User` node to `V1`; a missing node is created as a stub, for the
-    /// user whose first event is their `social/v1` profile. Nothing writes `V0` over a stored
-    /// epoch, so the epoch only moves up.
-    pub async fn set_v1_in_graph(user_id: &str) -> GraphResult<()> {
-        exec_single_row(queries::put::set_user_epoch_v1(user_id)).await
+    /// Moves `user_id`'s `User` node to `V1`; a missing node is created as the stub
+    /// [`UserDetails::from_pubky`] gives, for the user whose first event is their `social/v1`
+    /// profile. Nothing writes `V0` over a stored epoch, so the epoch only moves up.
+    pub async fn set_v1_in_graph(user_id: &PubkyId) -> GraphResult<()> {
+        let stub = UserDetails::from_pubky(user_id.clone());
+        exec_single_row(queries::put::set_user_epoch_v1(&stub)).await
     }
 }
 
@@ -95,10 +99,12 @@ mod tests {
         let id = user_id.to_string();
         assert_eq!(Epoch::get_from_graph(&id).await?, Epoch::V0, "no node");
 
-        UserDetails::from_pubky(user_id).put_to_graph().await?;
+        UserDetails::from_pubky(user_id.clone())
+            .put_to_graph()
+            .await?;
         assert_eq!(Epoch::get_from_graph(&id).await?, Epoch::V0, "no epoch");
 
-        Epoch::set_v1_in_graph(&id).await?;
+        Epoch::set_v1_in_graph(&user_id).await?;
         assert_eq!(Epoch::get_from_graph(&id).await?, Epoch::V1, "stored v1");
 
         exec_single_row(queries::del::delete_user(&id)).await?;
@@ -113,7 +119,7 @@ mod tests {
 
         let user_id = random_pubky_id();
         let id = user_id.to_string();
-        Epoch::set_v1_in_graph(&id).await?;
+        Epoch::set_v1_in_graph(&user_id).await?;
 
         let stub = UserDetails::get_from_graph(&[id.as_str()]).await?[0]
             .clone()
@@ -151,7 +157,7 @@ mod tests {
         profile.put_profile_to_graph(&uri).await?;
         assert_eq!(profile.epoch, Epoch::V0, "new node");
 
-        Epoch::set_v1_in_graph(&id).await?;
+        Epoch::set_v1_in_graph(&user_id).await?;
         let mut profile = UserDetails::from_pubky(user_id.clone());
         profile.put_profile_to_graph(&uri).await?;
         assert_eq!(profile.epoch, Epoch::V1, "profile");

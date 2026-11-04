@@ -1705,7 +1705,8 @@ fn pubky_app_tag(tagger_id: &str, target: &str, label: &str) -> (PubkyAppTag, St
 }
 
 /// The flip's first attempt with the homeserver down: the flip step lands, so the user is
-/// `v1` with their post and their tag at their `v1` addresses, and the profile PUT is queued
+/// `v1` with their post, its attachment (through the file map) and their tag at their `v1`
+/// addresses, and the profile PUT is queued
 /// with the transient class as the `v1` edit it now is. The homeserver back, the entry's retry
 /// fetches and indexes the `social/v1` profile, the details cache shows it at `v1`, and the
 /// entry leaves the queue. (The `info` line is asserted in the handler's own tests, where
@@ -1719,24 +1720,46 @@ async fn test_a_5xx_at_the_fetch_flips_the_user_and_queues_the_profile_put_as_a_
     let user_id = user.to_string();
     // No epoch on the node: the user reads as `v0`
     UserDetails::from_pubky(user).put_to_graph().await?;
-    let (post, post_id, post_uri) = pubky_app_post(&user_id, "Retry:Flip:Outage:Post");
+    // A blob and the file naming it, a post attaching the file, and a tag on the post
+    let blob = PubkyAppBlob::new(format!("Retry:Flip:Outage:Blob:{user_id}").into_bytes());
+    let hash = blob.create_id();
+    let blob_uri = blob_uri_builder(user_id.clone(), hash.clone());
+    let file = PubkyAppFile {
+        name: "outage.png".to_string(),
+        content_type: "image/png".to_string(),
+        src: blob_uri.clone(),
+        size: blob.0.len(),
+        created_at: Utc::now().timestamp_millis(),
+    };
+    let file_id = file.create_id();
+    let file_uri = v0_file_uri_builder(user_id.clone(), file_id.clone());
+    let post = PubkyAppPost {
+        attachments: Some(vec![file_uri.clone()]),
+        ..pubky_app_post(&user_id, "Retry:Flip:Outage:Post").0
+    };
+    let post_id = post.create_id();
+    let post_uri = post_uri_builder(user_id.clone(), post_id.clone());
     let label = "flipoutage";
     let (tag, tag_uri) = pubky_app_tag(&user_id, &post_uri, label);
     let flip_uri = social_v1_profile_uri(&user_id);
 
-    // The user's post and tag, indexed at `pubky.app`; then the flip, whose fetch answers 503
+    // The user's file, post and tag, indexed at `pubky.app`; then the flip, whose fetch
+    // answers 503
     let store = new_in_memory_store();
     let files = tempfile::TempDir::new()?;
     let client = Arc::new(
         MockHomeserverClient::default()
             .with_lines(batch([format!("PUT {flip_uri}")]))
+            .with_resource(&blob_uri, blob.0.clone())
+            .with_resource(&file_uri, serde_json::to_vec(&file)?)
             .with_resource(&post_uri, serde_json::to_vec(&post)?)
             .with_resource(&tag_uri, serde_json::to_vec(&tag)?)
             .with_resource_error(&flip_uri, outage()),
     );
     let handler = default_handler(client.clone(), &files, store.clone());
-    retrieve_and_handle_event_line(&format!("PUT {post_uri}"), handler.clone()).await?;
-    retrieve_and_handle_event_line(&format!("PUT {tag_uri}"), handler.clone()).await?;
+    for uri in [&file_uri, &post_uri, &tag_uri] {
+        retrieve_and_handle_event_line(&format!("PUT {uri}"), handler.clone()).await?;
+    }
     let runner = primary_runner(client, handler, store.clone()).await?;
 
     let now = Utc::now().timestamp_millis();
@@ -1751,6 +1774,14 @@ async fn test_a_5xx_at_the_fetch_flips_the_user_and_queues_the_profile_put_as_a_
         find_post_uri(&user_id, &post_id).await,
         Some(v1_post_uri.clone()),
         "the post is at its v1 address"
+    );
+    assert_eq!(
+        find_post_details(&user_id, &post_id).await?.attachments,
+        Some(vec![v1_file_uri_builder(
+            user_id.clone(),
+            format!("{hash}.png")
+        )]),
+        "the attachment is at the file's v1 address, through the file map"
     );
     let v1_tag_id = PubkySocialTag::new(v1_post_uri, label.to_string()).create_id();
     assert_eq!(
@@ -1810,6 +1841,7 @@ async fn test_a_5xx_at_the_fetch_flips_the_user_and_queues_the_profile_put_as_a_
     assert_eq!(cached.name, "Retry:Flip:Outage");
 
     exec_single_row(queries::del::delete_post(&user_id, &post_id)).await?;
+    exec_single_row(queries::del::delete_file(&user_id, &file_id)).await?;
     exec_single_row(queries::del::delete_user(&user_id)).await?;
     Ok(())
 }
@@ -2071,9 +2103,10 @@ async fn content_snapshot(
 
 /// The feed replays the batch while the queued flip waits: the replay flips the user and
 /// indexes the profile, moving their post, its attachment and their tags to the `social/v1`
-/// addresses. The retry then finds `v1`, runs as a profile fetch and leaves the queue; the
-/// content is as the replay left it, migrated once: every address and tag id is the `v1`
-/// one, with the counts the user had before the flip.
+/// addresses. The retry then finds `v1`, runs as a profile fetch (it indexes the edited
+/// profile the homeserver serves by then) and leaves the queue; the content is as the replay
+/// left it, migrated once: every address and tag id is the `v1` one, with the counts the user
+/// had before the flip.
 #[tokio_shared_rt::test(shared)]
 async fn test_a_flip_replayed_by_the_feed_and_retried_from_the_queue_converge() -> Result<()> {
     setup().await?;
@@ -2194,7 +2227,14 @@ async fn test_a_flip_replayed_by_the_feed_and_retried_from_the_queue_converge() 
         "the replay leaves the queued entry in place"
     );
 
-    // The queued flip is retried: a `v1` user's profile PUT
+    // The queued flip is retried: a `v1` user's profile PUT. The homeserver serves an edited
+    // profile by now, so a retry that fetched shows in the name.
+    let edited = PubkySocialUser::new("Retry:Flip:Retried".to_string(), None, None, None, None);
+    let handler = default_handler(
+        MockHomeserverClient::default().with_resource(&flip_uri, serde_json::to_vec(&edited)?),
+        &files,
+        store.clone(),
+    );
     let (_shutdown_tx, shutdown_rx) = watch::channel(false);
     let processor = build_processor(
         store.clone(),
@@ -2213,7 +2253,11 @@ async fn test_a_flip_replayed_by_the_feed_and_retried_from_the_queue_converge() 
     );
     assert_flipped(&user_id).await;
     assert_eq!(find_user_uri(&user_id).await, Some(flip_uri));
-    assert_eq!(find_user_details(&user_id).await?.name, "Retry:Flip:Replay");
+    assert_eq!(
+        find_user_details(&user_id).await?.name,
+        "Retry:Flip:Retried",
+        "the retry fetched and indexed the profile"
+    );
     assert_eq!(
         content_snapshot(&user_id, &post_id, &file_id, &resource_id, &v1_tag_ids).await?,
         after_replay,

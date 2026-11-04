@@ -119,8 +119,10 @@ impl UserDetails {
         Ok(details_collection.into_iter().flatten().next())
     }
 
-    /// Creates a minimal `UserDetails` with only the public key.
-    /// All profile fields (bio, links, status, image) default to `None`.
+    /// Creates a minimal `UserDetails` with only the public key: the stub of a user whose
+    /// profile Nexus has not indexed, named by its id. All profile fields (bio, links, status,
+    /// image) default to `None`. The epoch write's `ON CREATE` ([`Epoch::set_v1_in_graph`])
+    /// mirrors it, so a stub looks the same whichever path created it.
     pub fn from_pubky(user_id: PubkyId) -> Self {
         UserDetails {
             name: user_id.to_string(),
