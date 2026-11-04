@@ -596,10 +596,12 @@ impl ApiVersion for V1 {
     /// changes feed, the posts replying to or embedding a resource, a user's reach set and the
     /// social event routes. No bookmark or file details route at all.
     fn own_routes() -> (Router<AppState>, Router<AppState>) {
-        let expensive = Router::new().route(
-            STREAM_RESOURCES_BY_IDS_ROUTE,
-            axum::routing::post(stream::resources::stream_resources_by_ids_handler),
-        );
+        let expensive = Router::new()
+            .route(
+                STREAM_RESOURCES_BY_IDS_ROUTE,
+                axum::routing::post(stream::resources::stream_resources_by_ids_handler),
+            )
+            .merge(social_events::routes());
         let default = resource_changes::routes()
             .route(
                 RESOURCE_REPLIES_ROUTE,
@@ -612,8 +614,7 @@ impl ApiVersion for V1 {
             .route(
                 USER_REACH_SET_ROUTE,
                 axum::routing::get(user::reach_set::user_reach_set_handler),
-            )
-            .merge(social_events::routes());
+            );
         (expensive, default)
     }
 

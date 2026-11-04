@@ -114,7 +114,8 @@ occurrence-change notifications until they enter it.
 public keys), `tags`, `status` (`confirmed`, `tentative`, `cancelled`), `collection`,
 `source=following&user_id=...`, `going=<user>` and `locations`. Filters intersect;
 multiple authors or locations match any entry. Pagination is skip 0–10000 and
-limit 1–200, default 20, in start/master/recurrence order.
+limit 1–200, default 20, in start/master/recurrence order. The event, attendee and
+availability routes are rate limited in the expensive bucket.
 
 `locations` accepts 1–100 Resource IDs or universal URIs, normalized with the same
 functions as tags, and matches the effective event's `LOCATED_AT` edges. It can
