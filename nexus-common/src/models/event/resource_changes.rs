@@ -77,6 +77,10 @@ fn pending_key(author: &str, object_path: &str) -> String {
     format!("Event:ResourceChanges:PendingDelete:{author}:{object_path}")
 }
 
+fn alias_key(author: &str, object_path: &str) -> String {
+    format!("Event:ResourceChanges:PendingDeleteAlias:{author}:{object_path}")
+}
+
 fn moves_key(author: &str) -> String {
     format!("Event:ResourceChanges:PendingMove:{author}")
 }
@@ -100,6 +104,9 @@ static APPEND: LazyLock<Script> = LazyLock::new(|| {
 
 // A tag deleted after a flip's tags step moved it, but before the flip published the move,
 // also releases the del held for the address it moved from: the consumer holds only that one.
+// The held del goes only with a pending delete of the address, so an edge that never moved
+// keeps its held del unpublished. KEYS[5], when given, is the alias of the address the delete
+// was published from, removed with it.
 static FINISH_DELETE: LazyLock<Script> = LazyLock::new(|| {
     Script::new(
         r"
@@ -108,12 +115,14 @@ static FINISH_DELETE: LazyLock<Script> = LazyLock::new(|| {
         redis.call('SETNX', KEYS[2], ARGV[1])
         redis.call('RPUSH', KEYS[1], line)
         redis.call('DEL', KEYS[3])
+        local moved = redis.call('HGET', KEYS[4], ARGV[2])
+        if moved then
+            redis.call('RPUSH', KEYS[1], moved)
+            redis.call('HDEL', KEYS[4], ARGV[2])
+        end
     end
-    local moved = redis.call('HGET', KEYS[4], ARGV[2])
-    if moved then
-        redis.call('SETNX', KEYS[2], ARGV[1])
-        redis.call('RPUSH', KEYS[1], moved)
-        redis.call('HDEL', KEYS[4], ARGV[2])
+    if KEYS[5] then
+        redis.call('DEL', KEYS[5])
     end
 ",
     )
@@ -199,17 +208,70 @@ impl ResourceChange {
         Ok(())
     }
 
+    /// [`ResourceChange::prepare_delete`] of a tag whose edge is stored under another address
+    /// than `from_uri`, the address of the file being deleted: the pending delete is keyed by
+    /// the edge's address, and `from_uri` names it until the delete is published, so a retry
+    /// that no longer finds the edge still finds the delete.
+    pub async fn prepare_aliased_delete(&self, from_uri: &str) -> ModelResult<()> {
+        let from = object_path(&self.author, from_uri)?;
+        let mut conn = get_redis_conn().await?;
+        let mut pipe = redis::pipe();
+        pipe.atomic()
+            .cmd("SETNX")
+            .arg(pending_key(&self.author, &self.object_path))
+            .arg(self.json()?)
+            .ignore()
+            .cmd("SET")
+            .arg(alias_key(&self.author, from))
+            .arg(&self.object_path)
+            .ignore();
+        pipe.query_async::<()>(&mut conn)
+            .await
+            .map_err(RedisError::from)?;
+        Ok(())
+    }
+
+    /// The address of the tag file whose pending delete `from_uri` names: see
+    /// [`ResourceChange::prepare_aliased_delete`].
+    pub async fn aliased_delete(author: &str, from_uri: &str) -> ModelResult<Option<String>> {
+        let from = object_path(author, from_uri)?;
+        let mut conn = get_redis_conn().await?;
+        let path: Option<String> = conn
+            .get(alias_key(author, from))
+            .await
+            .map_err(RedisError::from)?;
+        Ok(path.map(|path| format!("pubky://{author}{path}")))
+    }
+
     /// Call after graph deletion, including a retry that finds no edge. Append
     /// and pending-record removal are atomic, so a failed acknowledgement is safe.
-    /// A move a flip held for this address is published and released with it.
+    /// A move a flip held for this address is published and released with the pending delete.
     pub async fn finish_delete(author: &str, tag_uri: &str) -> ModelResult<()> {
+        Self::finish(author, tag_uri, None).await
+    }
+
+    /// [`ResourceChange::finish_delete`] of a delete prepared with
+    /// [`ResourceChange::prepare_aliased_delete`]: removes the alias `from_uri` with it.
+    pub async fn finish_aliased_delete(
+        author: &str,
+        tag_uri: &str,
+        from_uri: &str,
+    ) -> ModelResult<()> {
+        Self::finish(author, tag_uri, Some(from_uri)).await
+    }
+
+    async fn finish(author: &str, tag_uri: &str, from_uri: Option<&str>) -> ModelResult<()> {
         let path = object_path(author, tag_uri)?;
         let mut conn = get_redis_conn().await?;
-        FINISH_DELETE
-            .key(RESOURCE_CHANGES_KEY)
+        let mut invocation = FINISH_DELETE.key(RESOURCE_CHANGES_KEY);
+        invocation
             .key(EPOCH_KEY)
             .key(pending_key(author, path))
-            .key(moves_key(author))
+            .key(moves_key(author));
+        if let Some(from_uri) = from_uri {
+            invocation.key(alias_key(author, object_path(author, from_uri)?));
+        }
+        invocation
             .arg(epoch_seed())
             .arg(path)
             .invoke_async::<()>(&mut conn)

@@ -15,6 +15,7 @@ use nexus_common::models::user::{UserIngestor, UsersByTagSearch};
 use nexus_common::types::Pagination;
 use nexus_common::universal_tag::normalize::{normalize_uri, resource_id};
 use pubky_social_specs::PubkyId;
+use std::collections::BTreeSet;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::LazyLock;
 use tokio::sync::{Mutex, MutexGuard};
@@ -41,9 +42,10 @@ pub async fn lock_tag(tagger_id: &str, tag_id: &str) -> MutexGuard<'static, ()> 
 }
 
 /// The locks of several tag files of one tagger, as the flip's tags step takes them for the
-/// edges it moves: see [`lock_tag`]. Each stripe is taken once, in ascending order, so files
-/// that share a stripe do not wait for themselves, and two callers never wait for each other in
-/// a cycle (a handler holds one stripe).
+/// edges it moves, and a DEL for both ids of an edge the flip gave a new one: see
+/// [`lock_tag`]. Each stripe is taken once, in ascending order, so files that share a stripe do
+/// not wait for themselves, and two callers never wait for each other in a cycle: a caller
+/// holds either one stripe, waiting for none, or stripes it took in this order.
 pub async fn lock_tags<'a>(
     tagger_id: &str,
     tag_ids: impl IntoIterator<Item = &'a str>,
@@ -438,9 +440,10 @@ pub async fn del(key: ResourceKey) -> Result<(), EventProcessorError> {
 }
 
 /// Deletes the tag `key` names, whichever folder wrote it: a tag is one edge per tagger,
-/// target and label, found by its id alone. A resource tag's feed del is keyed by the
-/// address stored on the edge, which its put used; `tag_uri`, the address of the file
-/// being deleted, is also checked along with both canonical epoch paths on a retry.
+/// target and label, found by its id alone, or by the id it had before the flip gave it a new
+/// one. It holds the locks of the edge's ids: see [`lock_tags`]. A resource tag's feed del is
+/// keyed by the address stored on the edge, which its put used; `tag_uri`, the address of the
+/// file being deleted, is also checked along with both canonical epoch paths on a retry.
 #[tracing::instrument(
     name = "tag.del",
     skip_all,
@@ -449,7 +452,6 @@ pub async fn del(key: ResourceKey) -> Result<(), EventProcessorError> {
 pub async fn del_at(key: ResourceKey, tag_uri: &str) -> Result<(), EventProcessorError> {
     // Prefix these vars with arg_ to indicate they come from the argument key.
     // Similarly named vars will be used in Step 2 below, reading fields from the query result
-    let _tag_lock = lock_tag(key.owner_id.as_ref(), &key.resource_id).await;
     let ResourceKey {
         owner_id: arg_user_id,
         resource_id: arg_tag_id,
@@ -457,10 +459,33 @@ pub async fn del_at(key: ResourceKey, tag_uri: &str) -> Result<(), EventProcesso
 
     debug!("Deleting tag");
 
-    // 1. Read target from graph WITHOUT deleting the edge
-    let Some(row) =
-        fetch_row_from_graph(queries::get::get_tag_target(&arg_user_id, &arg_tag_id)).await?
-    else {
+    // 1. Read target from graph WITHOUT deleting the edge. An edge the flip gave a new id is
+    // found by either id, and its other handlers lock the other one: hold both.
+    let tagger_id: &str = arg_user_id.as_ref();
+    let mut locked = BTreeSet::from([arg_tag_id.clone()]);
+    let mut _tag_locks = vec![lock_tag(tagger_id, &arg_tag_id).await];
+    let row = loop {
+        let row =
+            fetch_row_from_graph(queries::get::get_tag_target(tagger_id, &arg_tag_id)).await?;
+        let ids: BTreeSet<String> = row
+            .iter()
+            .flat_map(|row| ["tag_id", "v0_id"].map(|id| row.get::<Option<String>>(id)))
+            .filter_map(|id| id.ok().flatten())
+            .chain([arg_tag_id.clone()])
+            .collect();
+        if ids.is_subset(&locked) {
+            break row;
+        }
+        // Released before the locks of both ids, which are taken in their own order
+        drop(_tag_locks);
+        _tag_locks = lock_tags(tagger_id, ids.iter().map(String::as_str)).await;
+        locked = ids;
+    };
+    let Some(row) = row else {
+        // A delete of an edge stored under another address names its journal from this one
+        if let Some(stored_uri) = ResourceChange::aliased_delete(&arg_user_id, tag_uri).await? {
+            ResourceChange::finish_aliased_delete(&arg_user_id, &stored_uri, tag_uri).await?;
+        }
         // The edge may have been owned by the other epoch's file. Its URI is gone
         // after the graph commit, so finish both bounded canonical journal keys.
         // Each append-and-clear is atomic; replaying either key is harmless.
@@ -487,7 +512,11 @@ pub async fn del_at(key: ResourceKey, tag_uri: &str) -> Result<(), EventProcesso
         .map_err(|e| EventProcessorError::generic(format!("Missing label in delete_tag: {e}")))?;
     // The feed's put used the address stored on the edge; key the del the same way.
     let stored_uri: Option<String> = row.get("tag_uri").unwrap_or(None);
+    let event_uri = tag_uri;
     let tag_uri = stored_uri.as_deref().unwrap_or(tag_uri);
+    // A retry that no longer finds the edge knows only the event's address: it names the
+    // journal kept under the edge's until the del is published.
+    let aliased = tag_uri != event_uri;
 
     // 2. Redis cleanup (guarded by tagger_in_index where non-idempotent)
     // Post-count cache to invalidate AFTER the graph edge is deleted (invalidating
@@ -545,13 +574,21 @@ pub async fn del_at(key: ResourceKey, tag_uri: &str) -> Result<(), EventProcesso
     }
 
     if let Some(change) = &resource_change {
-        change.prepare_delete().await?;
+        if aliased {
+            change.prepare_aliased_delete(event_uri).await?;
+        } else {
+            change.prepare_delete().await?;
+        }
     }
 
     // 3. Graph deletion LAST — ensures data survives for retry if Redis ops fail
     fetch_row_from_graph(queries::del::delete_tag(&arg_user_id, &arg_tag_id)).await?;
     if resource_change.is_some() {
-        ResourceChange::finish_delete(&arg_user_id, tag_uri).await?;
+        if aliased {
+            ResourceChange::finish_aliased_delete(&arg_user_id, tag_uri, event_uri).await?;
+        } else {
+            ResourceChange::finish_delete(&arg_user_id, tag_uri).await?;
+        }
     }
 
     // Now that the TAGGED edge is gone, invalidate the cached post counts so the

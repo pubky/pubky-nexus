@@ -450,7 +450,7 @@ async fn test_takedown_of_a_moved_resource_tag_before_the_flip_retry_retracts_it
     Ok(())
 }
 
-async fn create_moderator(test: &mut WatcherTest) -> Result<Keypair> {
+pub(super) async fn create_moderator(test: &mut WatcherTest) -> Result<Keypair> {
     let moderator_recovery_file =
         fs::read("./tests/event_processor/utils/moderator_key.pkarr").await?;
     let moderator_kp = recovery_file::decrypt_recovery_file(&moderator_recovery_file, "password")?;
@@ -523,7 +523,7 @@ fn app_folder_address(pubky_app_tag_uri: &str) -> String {
     pubky_app_tag_uri.replace("/pub/pubky.app/tags/", "/pub/mapky/tags/")
 }
 
-async fn moderate_tag(
+pub(super) async fn moderate_tag(
     test: &mut WatcherTest,
     moderator_kp: &Keypair,
     target_tag_uri: &str,
