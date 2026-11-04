@@ -25,7 +25,7 @@ use pubky_social_specs::{
 };
 
 /// Uploads `bytes` as `user_id`'s v0 blob and returns its id and address.
-pub(super) async fn upload_blob(
+pub(crate) async fn upload_blob(
     test: &mut WatcherTest,
     user_kp: &Keypair,
     user_id: &str,
@@ -43,7 +43,7 @@ pub(super) async fn upload_blob(
 
 /// Writes a v0 `File` object of `user_id` naming the blob at `src`, and returns its id, its
 /// path and its address.
-pub(super) async fn create_file(
+pub(crate) async fn create_file(
     test: &mut WatcherTest,
     user_kp: &Keypair,
     user_id: &str,
@@ -64,7 +64,7 @@ pub(super) async fn create_file(
 }
 
 /// The migrated address of `user_id`'s blob `hash` under `ext`.
-pub(super) fn v1_file_uri(user_id: &str, hash: &str, ext: &str) -> String {
+pub(crate) fn v1_file_uri(user_id: &str, hash: &str, ext: &str) -> String {
     v1_file_uri_builder(user_id.to_string(), format!("{hash}.{ext}"))
 }
 
