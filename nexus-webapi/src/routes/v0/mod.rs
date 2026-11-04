@@ -30,7 +30,9 @@ pub fn routes(app_state: AppState) -> (Router<AppState>, Router<AppState>) {
         .merge(tag::expensive_routes())
         .merge(search::expensive_routes())
         .merge(file::expensive_routes())
-        .merge(bootstrap::expensive_routes());
+        .merge(bootstrap::expensive_routes())
+        // Graph queries over up to 100 authors or locations per request
+        .merge(social_events::routes());
 
     let default = Router::new()
         .merge(info::routes(app_state.clone()))
@@ -44,8 +46,7 @@ pub fn routes(app_state: AppState) -> (Router<AppState>, Router<AppState>) {
         .merge(notification::routes())
         .merge(bootstrap::routes())
         .merge(events::routes())
-        .merge(resource_changes::routes())
-        .merge(social_events::routes());
+        .merge(resource_changes::routes());
 
     (expensive, default)
 }
