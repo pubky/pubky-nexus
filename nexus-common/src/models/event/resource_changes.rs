@@ -98,6 +98,8 @@ static APPEND: LazyLock<Script> = LazyLock::new(|| {
     )
 });
 
+// A tag deleted after a flip's tags step moved it, but before the flip published the move,
+// also releases the del held for the address it moved from: the consumer holds only that one.
 static FINISH_DELETE: LazyLock<Script> = LazyLock::new(|| {
     Script::new(
         r"
@@ -106,6 +108,12 @@ static FINISH_DELETE: LazyLock<Script> = LazyLock::new(|| {
         redis.call('SETNX', KEYS[2], ARGV[1])
         redis.call('RPUSH', KEYS[1], line)
         redis.call('DEL', KEYS[3])
+    end
+    local moved = redis.call('HGET', KEYS[4], ARGV[2])
+    if moved then
+        redis.call('SETNX', KEYS[2], ARGV[1])
+        redis.call('RPUSH', KEYS[1], moved)
+        redis.call('HDEL', KEYS[4], ARGV[2])
     end
 ",
     )
@@ -193,6 +201,7 @@ impl ResourceChange {
 
     /// Call after graph deletion, including a retry that finds no edge. Append
     /// and pending-record removal are atomic, so a failed acknowledgement is safe.
+    /// A move a flip held for this address is published and released with it.
     pub async fn finish_delete(author: &str, tag_uri: &str) -> ModelResult<()> {
         let path = object_path(author, tag_uri)?;
         let mut conn = get_redis_conn().await?;
@@ -200,7 +209,9 @@ impl ResourceChange {
             .key(RESOURCE_CHANGES_KEY)
             .key(EPOCH_KEY)
             .key(pending_key(author, path))
+            .key(moves_key(author))
             .arg(epoch_seed())
+            .arg(path)
             .invoke_async::<()>(&mut conn)
             .await
             .map_err(RedisError::from)?;
