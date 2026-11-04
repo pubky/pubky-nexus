@@ -202,11 +202,12 @@ pub fn get_post_replies(author_id: &str, post_id: &str, cursor: &[String], limit
 
 // Read the target details for a tag without deleting the TAGGED edge.
 // Used in tag del to read before graph-last deletion. The edge is found by its id alone,
-// whichever folder wrote the tag.
+// whichever folder wrote the tag, or by the id it had before the flip gave it a new one.
 pub fn get_tag_target(user_id: &str, tag_id: &str) -> Query {
     Query::new(
         "get_tag_target",
-        "MATCH (user:User {id: $user_id})-[tag:TAGGED {id: $tag_id}]->(target)
+        "MATCH (user:User {id: $user_id})-[tag:TAGGED]->(target)
+         WHERE tag.id = $tag_id OR tag.v0_id = $tag_id
          OPTIONAL MATCH (target)<-[:AUTHORED]-(author:User)
          WITH CASE WHEN target:User THEN target.id ELSE null END AS user_id,
               CASE WHEN target:Post THEN target.id ELSE null END AS post_id,
@@ -216,8 +217,10 @@ pub fn get_tag_target(user_id: &str, tag_id: &str) -> Query {
               CASE WHEN target:Resource THEN target.uri ELSE null END AS resource_uri,
               tag.indexed_at AS tag_indexed_at,
               tag.label AS label,
-              tag.uri AS tag_uri
-         RETURN user_id, post_id, author_id, post_uri, resource_id, resource_uri, tag_indexed_at, label, tag_uri",
+              tag.uri AS tag_uri,
+              tag.id AS tag_id,
+              tag.v0_id AS v0_id
+         RETURN user_id, post_id, author_id, post_uri, resource_id, resource_uri, tag_indexed_at, label, tag_uri, tag_id, v0_id",
     )
     .param("user_id", user_id)
     .param("tag_id", tag_id)
