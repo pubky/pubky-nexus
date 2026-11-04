@@ -37,7 +37,9 @@ profile), Nexus moves each resource tag edge they wrote to the address of its
 followed by a del at the old one, so a consumer ends with the reference under the
 path the user's later `social/v1` delete retracts. The del of each old path is held
 before the edge moves and published with its put after; a flip that fails before it
-completes runs again and publishes what an earlier attempt held.
+completes runs again and publishes what an earlier attempt held. A tag deleted or
+taken down after its edge moved, before the flip published the move, publishes the
+held del of the old path together with its own.
 
 `at` is the edge's indexed timestamp in Unix milliseconds for puts (including
 replays and moves), and the deletion's indexed timestamp for dels. Apply lines in list order,

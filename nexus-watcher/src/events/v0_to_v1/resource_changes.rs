@@ -9,7 +9,8 @@
 //! back every edge a held del names and appends its put and the del together, releasing the
 //! del. A flip that fails anywhere before the epoch write runs again whole, and this step with
 //! it, so a del held by an earlier attempt is published by a later one. A put published twice
-//! is a duplicate the feed's consumers already ignore.
+//! is a duplicate the feed's consumers already ignore. A tag deleted in between, while the
+//! user is still `v0`, releases its held del itself when its own del is published.
 
 use crate::events::EventProcessorError;
 use chrono::Utc;
