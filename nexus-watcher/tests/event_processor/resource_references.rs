@@ -528,6 +528,7 @@ async fn bookmarks_and_private_paths_never_become_resources() -> Result<()> {
     let profile = test
         .put_v1_profile(&social, &v1_test_user("Bookmark targets", ""))
         .await?;
+    super::utils::watcher::rank_user(&social_id).await?;
     let bookmark =
         format!("pubky://{social_id}/pub/pubky.app/bookmarks/8Z8CWH8NVYQY39ZEBFGKQWWEKG");
     let mut social_posts = Vec::new();
@@ -552,6 +553,20 @@ async fn bookmarks_and_private_paths_never_become_resources() -> Result<()> {
         assert!(
             PostDetails::get_from_graph(&social_id, id).await?.is_some(),
             "{id} must be indexed"
+        );
+    }
+    // A post whose parent makes no Resource is a root post everywhere: in the engagement
+    // ranking too, as a graph rebuild puts it
+    let posts = legacy_posts
+        .iter()
+        .map(|(id, _)| (&legacy_id, id))
+        .chain(social_posts.iter().map(|(id, _)| (&social_id, id)));
+    for (author, id) in posts {
+        assert!(
+            super::posts::utils::check_member_total_engagement_user_posts(&[author, id])
+                .await?
+                .is_some(),
+            "{id} must be ranked as a root post"
         );
     }
     for target in legacy_targets.iter().chain([&bookmark]) {
