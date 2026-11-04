@@ -9,7 +9,6 @@ use nexus_common::models::error::ModelError;
 use nexus_common::models::homeserver::Homeserver;
 use opentelemetry::metrics::Counter;
 use opentelemetry::{global, KeyValue};
-use pubky::PublicKey;
 use pubky_app_specs::PubkyId;
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock};
@@ -242,9 +241,7 @@ impl HsEventProcessor {
 
     /// Classifies the homeserver `user_id` publishes relative to this processor's HS.
     async fn published_hs_mapping(&self, user_id: &PubkyId) -> HsMapping {
-        let Ok(user_pk) = user_id.as_ref().parse::<PublicKey>() else {
-            return HsMapping::Unresolved;
-        };
+        let user_pk = user_id.to_public_key();
         let published = match self.client.resolve_own_record(&user_pk).await {
             Ok(record) => record.homeserver(),
             Err(e) => {
