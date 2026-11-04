@@ -286,21 +286,26 @@ async fn finish_delete_journal(author: &str, id: &str, key: &str, raw: &str) -> 
         CALL (p) {
             MATCH (p)-[e:REPLIED|EMBEDS|COLLECTED]->(:Resource) DELETE e
         }
-        RETURN true AS applied
+        RETURN p IS NOT NULL AS live
     ",
         )
         .param("author", author)
         .param("id", id)
         .param("revision", revision),
     )
-    .await?
-    .is_some();
-    if !applied {
+    .await?;
+    let Some(applied) = applied else {
         // Compare-and-delete only this stale journal, without publishing stale DELs.
         return ResourceChange::finish_batch_delete(key, raw, &[]).await;
-    }
+    };
     cleanup(&lines).await?;
-    crate::models::post::PostRelationships::delete(author, id).await?;
+    // A surviving tombstone keeps its relationships, rebuilt without the external edges: its
+    // later hard delete reads them as its gate. A hard-deleted post has none left.
+    if applied.get::<bool>("live")? {
+        crate::models::post::PostRelationships::reindex(author, id).await?;
+    } else {
+        crate::models::post::PostRelationships::delete(author, id).await?;
+    }
     ResourceChange::finish_batch_delete(key, raw, &lines).await
 }
 
