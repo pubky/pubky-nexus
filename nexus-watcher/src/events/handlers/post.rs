@@ -64,7 +64,7 @@ pub async fn sync_put_at(
     reject_unsupported_parent(&post)?;
     let _post_lock = lock_post(key.owner_id.as_ref(), &key.resource_id).await;
     let is_social = post.uri.contains("/pub/social/v1/posts/");
-    let projection = if is_social {
+    let mut projection = if is_social {
         nexus_common::models::social_event::SocialContent::read(
             post.kind,
             &post.content,
@@ -73,6 +73,17 @@ pub async fn sync_put_at(
     } else {
         nexus_common::models::social_event::SocialContent::Other
     };
+    // A location is a place: only an external URI becomes a Resource the event is located
+    // at, as for post references. A bookmark, a follow or anything else Nexus never references
+    // is left out of the projection.
+    if let nexus_common::models::social_event::SocialContent::Event(event) = &mut projection {
+        event.locations.retain(|location| {
+            matches!(
+                crate::events::route::resolve_reference(&location.uri).target,
+                ReferenceTarget::Foreign
+            )
+        });
+    }
     if post.kind == PostKind::Rsvp {
         let parent = post.parent.as_ref().ok_or_else(|| {
             EventProcessorError::SpecValidation("RSVP requires an event parent".into())
