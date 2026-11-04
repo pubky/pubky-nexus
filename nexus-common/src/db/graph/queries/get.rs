@@ -822,11 +822,8 @@ pub fn resource_stream(
         SortOrder::Ascending => (">=", "<="),
     };
 
-    let mut cypher = if matches!(sorting, ResourceSorting::Rating) && labels.is_none() {
-        String::from("MATCH (r:Resource)\n")
-    } else {
-        String::from("MATCH (tagger:User)-[t:TAGGED]->(r:Resource)\n")
-    };
+    // Every sorting orders the same rows: the tagged Resources, by label when given.
+    let mut cypher = String::from("MATCH (tagger:User)-[t:TAGGED]->(r:Resource)\n");
 
     if labels.is_some() {
         cypher.push_str("WHERE t.label IN $labels\n");
@@ -2584,6 +2581,25 @@ mod tests {
         assert!(asc.contains("AS score\nWHERE score >= 200"));
         assert!(asc.contains("AND score <= 100\n"));
         assert!(asc.contains("ORDER BY score ASC, r.id ASC\nSKIP 5\nLIMIT 7"));
+    }
+
+    /// A sort orders the rows, it does not choose them: the rating sort lists the tagged
+    /// Resources the timeline lists, never every Resource node (a location, an availability
+    /// target or an external reply that nobody tagged).
+    #[test]
+    fn resource_stream_rating_lists_the_same_resources_as_the_timeline() {
+        let cypher = build_resource_stream(
+            None,
+            ResourceSorting::Rating,
+            SortOrder::Descending,
+            Pagination::default(),
+        );
+        assert!(
+            cypher.starts_with("MATCH (tagger:User)-[t:TAGGED]->(r:Resource)\n"),
+            "{cypher}"
+        );
+        assert!(cypher.contains("AS score"));
+        assert!(cypher.contains("ORDER BY score DESC, r.id DESC"));
     }
 
     #[test]
