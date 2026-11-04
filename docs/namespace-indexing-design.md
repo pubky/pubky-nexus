@@ -39,9 +39,13 @@ A reference names a URI; Nexus normalises and hashes it (`universal_tag::normali
 | Reference (written by a social user) | Edge | Feed `kind` |
 |---|---|---|
 | tag at `pubky.app/tags/` or `social/v1/tags/` | `(:User)-[:TAGGED {label}]->(:Resource)` | `tag` |
-| post `parent`, non-post URI (*branch*) | `(:Post)-[:REPLIED]->(:Resource)` | `reply` |
-| post `embed`, non-post URI (*branch*) | `(:Post)-[:EMBEDS]->(:Resource)` | `embed` |
-| collection item, non-post URI (*branch*) | `(:Post)-[:COLLECTED]->(:Resource)` | `collection` |
+| post `parent`, external URI (*branch*) | `(:Post)-[:REPLIED]->(:Resource)` | `reply` |
+| post `embed`, external URI (*branch*) | `(:Post)-[:EMBEDS]->(:Resource)` | `embed` |
+| collection item, external URI (*branch*) | `(:Post)-[:COLLECTED]->(:Resource)` | `collection` |
+
+An external URI is another scheme's URL or another app's public object. A profile, file or
+tag named by a post, and a bookmark, a follow, a private path or anything else Nexus never
+references, makes no Resource.
 
 The feed's `kind` is the kind of **reference**. It is not, and must never be reused as, the
 kind of the referenced object (section 4).
