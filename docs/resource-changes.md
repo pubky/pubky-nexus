@@ -32,6 +32,22 @@ until the graph deletion succeeds and publication is acknowledged, so a retry af
 the edge is gone can still publish the del. Publication and pending record removal
 are atomic. A later accepted put supersedes an unfinished delete for its path.
 
+The watcher handles a tag file's events concurrently from several tasks (the
+homeserver runners and the retry processor). A resource tag's PUT, its DEL and a
+takedown of it take one lock per tag file (tagger and tag id) across their graph
+write and their append, so the feed lists one file's changes in the order the
+graph took them. The flip's tags step (below) takes the same locks for the edges
+it moves, from its read of a batch to the batch's write, so no handler of those
+files reads an edge before the move and appends after it. The lock is per watcher
+process: this ordering holds for one watcher process per Neo4j and Redis, the
+deployment the watcher's cursors already assume. Equivalent tag files land on one
+edge and only its owner publishes, so they need no shared lock.
+
+What the feed cannot repair alone is a handler that stops for good between its
+graph write and its append: a PUT or a DEL whose retries run out there. The graph
+then holds a change the feed lacks. Running the seed job (below) rebuilds the feed from
+the graph.
+
 When a user moves from `pubky.app` to `social/v1` (the flip on their `social/v1`
 profile), Nexus moves each resource tag edge they wrote to the address of its
 `social/v1` tag file. Each move is published as a put at the new `object_path`
