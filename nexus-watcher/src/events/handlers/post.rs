@@ -49,7 +49,11 @@ pub async fn sync_put_at(
                 .map(|r| (r, ResourceChangeKind::Collection)),
         )
     {
-        if !matches!(target.target, ReferenceTarget::Post(_)) {
+        // Only an external target is a Resource: another scheme's URL or another app's
+        // public object. Native posts keep their own edges; profiles, files, tags,
+        // bookmarks, private paths and anything else Nexus never references are not
+        // projected at all.
+        if matches!(target.target, ReferenceTarget::Foreign) {
             lines.push(references::reference(
                 &key.owner_id,
                 source_uri,
@@ -90,8 +94,9 @@ pub async fn sync_put_at(
 
 /// Rejects a reply to a file, a profile or a tag, whatever folder holds it, as
 /// [`EventProcessorError::UnsupportedTarget`], never retried: no reply edge can ever point at
-/// one. A reply to a URL, another app's object or a resource Nexus never references is indexed
-/// with no Post reply edge; such external targets use the Resource writer after the post commit.
+/// one. A reply to a URL or another app's object is indexed with no Post reply edge and a
+/// Resource reply edge, written after the post commit; a reply to a resource Nexus never
+/// references (a bookmark, a follow, a private path) is indexed with neither.
 fn reject_unsupported_parent(post: &PostInput) -> Result<(), EventProcessorError> {
     match &post.parent {
         Some(Reference {

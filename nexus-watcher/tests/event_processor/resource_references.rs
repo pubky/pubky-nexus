@@ -363,3 +363,114 @@ async fn hard_deleted_external_reply_leaves_author_replies() -> Result<()> {
     test.del(&key, &profile).await?;
     Ok(())
 }
+
+/// Only external targets are Resources. A reply, an embed or a collection item naming a
+/// bookmark, a private path or another object Nexus never references is indexed, but makes no
+/// Resource, no reference edge, no feed line and no count.
+#[tokio_shared_rt::test(shared)]
+async fn bookmarks_and_private_paths_never_become_resources() -> Result<()> {
+    use super::posts::utils::test_user;
+    use pubky_social_specs::legacy_v0::{PubkyAppPost, PubkyAppPostEmbed, PubkyAppPostKind};
+
+    async fn authored_since(authors: &[&str], mut cursor: u64) -> Result<Vec<ResourceChange>> {
+        let mut lines = Vec::new();
+        loop {
+            let (page, _, _) = ResourceChange::get_from_index(cursor, 1000).await?;
+            if page.lines.is_empty() {
+                return Ok(lines);
+            }
+            cursor = page.next_cursor;
+            lines.extend(
+                page.lines
+                    .into_iter()
+                    .filter(|line| authors.contains(&line.author.as_str())),
+            );
+        }
+    }
+
+    let mut test = WatcherTest::setup(None).await?;
+    let (_, _, start) = ResourceChange::get_from_index(0, 0).await?;
+
+    // A legacy author: a v0 post takes any URL as its parent or embed
+    let legacy = Keypair::random();
+    let legacy_id = test
+        .create_user(&legacy, &test_user("Private targets", "v0"))
+        .await?;
+    let legacy_targets = [
+        format!("pubky://{legacy_id}/pub/pubky.app/bookmarks/8Z8CWH8NVYQY39ZEBFGKQWWEKG"),
+        format!("pubky://{legacy_id}/priv/social/v1/bookmarks/aHR0cHM6Ly9leGFtcGxlLmNvbS8.json"),
+        format!("pubky://{legacy_id}/priv/notes.app/drafts/0033SSE3B1FQ0"),
+    ];
+    let mut legacy_posts = Vec::new();
+    for target in &legacy_targets {
+        for (parent, embed) in [(Some(target.clone()), None), (None, Some(target.clone()))] {
+            let post = PubkyAppPost {
+                content: format!("references {target}"),
+                kind: PubkyAppPostKind::Short,
+                parent,
+                embed: embed.map(|uri| PubkyAppPostEmbed {
+                    kind: PubkyAppPostKind::Short,
+                    uri,
+                }),
+                attachments: None,
+                lock: None,
+            };
+            legacy_posts.push(test.create_post(&legacy, &post).await?);
+        }
+    }
+
+    // A social v1 author: a public post references public objects only, so a legacy bookmark
+    let social = Keypair::random();
+    test.register_user(&social).await?;
+    let social_id = social.public_key().to_z32();
+    let profile = test
+        .put_v1_profile(&social, &v1_test_user("Bookmark targets", ""))
+        .await?;
+    let bookmark =
+        format!("pubky://{social_id}/pub/pubky.app/bookmarks/8Z8CWH8NVYQY39ZEBFGKQWWEKG");
+    let mut social_posts = Vec::new();
+    for body in [
+        json!({"kind":"note","content":"reply to a bookmark","parent":bookmark}),
+        json!({"kind":"note","content":"embed of a bookmark","embed":bookmark}),
+        json!({"kind":"collection","content":json!({"name":"Bookmarks","items":[{"uri":bookmark}]}).to_string()}),
+    ] {
+        let id = generate_post_id();
+        let path: ResourcePath = format!("/pub/social/v1/posts/{id}/{id}.json").parse()?;
+        test.put(&social, &path, &body).await?;
+        social_posts.push((id, path));
+    }
+
+    for (id, _) in &legacy_posts {
+        assert!(
+            PostDetails::get_from_graph(&legacy_id, id).await?.is_some(),
+            "{id} must be indexed"
+        );
+    }
+    for (id, _) in &social_posts {
+        assert!(
+            PostDetails::get_from_graph(&social_id, id).await?.is_some(),
+            "{id} must be indexed"
+        );
+    }
+    for target in legacy_targets.iter().chain([&bookmark]) {
+        let (uri, _) = normalize_uri(target).map_err(anyhow::Error::msg)?;
+        assert!(
+            ResourceView::get_by_id(&resource_id(&uri), None, None, None, None)
+                .await?
+                .is_none(),
+            "{target} must not be a Resource"
+        );
+    }
+    let lines = authored_since(&[&legacy_id, &social_id], start).await?;
+    assert!(lines.is_empty(), "no reference reaches the feed: {lines:?}");
+
+    for (_, path) in &social_posts {
+        test.del(&social, path).await?;
+    }
+    test.del(&social, &profile).await?;
+    for (_, path) in &legacy_posts {
+        test.cleanup_post(&legacy, path).await?;
+    }
+    test.cleanup_user(&legacy).await?;
+    Ok(())
+}
