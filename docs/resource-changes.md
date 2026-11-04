@@ -130,12 +130,15 @@ A shared seed lease prevents overlapping job/migration seeds; publication checks
 ownership. The build has a one-hour deadline; temporary keys and the lease expire
 if the process dies, leaving the old feed intact. An empty graph still publishes
 an empty feed with a new epoch. The random initial numeric epoch also distinguishes
-a newly initialized feed after Redis is cleared. Redis persistence protects both
-the list and pending delete records; after loss of Redis state, run the seed job.
+a newly initialized feed after Redis is cleared. Redis persistence protects the
+list and the pending delete, post delete and held move records; after loss of Redis
+state, run the seed job.
 The seed describes current graph references, not historical deletions.
 
 The list is `Event:ResourceChanges`, its epoch is `Event:ResourceChanges:Epoch`.
-`Event:ResourceChanges:PendingDelete:*` retains interrupted delete details;
+`Event:ResourceChanges:PendingDelete:*` retains interrupted tag delete details and
+`Event:ResourceChanges:PostDelete:*` a deleted post's reference dels until they are
+published;
 `Event:ResourceChanges:PendingMove:<author>` holds the dels of a flip's moves until
 they are published;
 `Event:ResourceChanges:PendingDeleteAlias:*` names, from a deleted tag file's address,
