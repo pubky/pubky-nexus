@@ -502,3 +502,83 @@ async fn test_resource_changes_publish_moves_held_by_an_interrupted_flip() -> Re
     test.del(&key, &profile).await?;
     Ok(())
 }
+
+/// A flip whose tags step committed but whose later step failed leaves the user at `v0`, the
+/// edge at its `social/v1` address and the del of its `pubky.app` address held, until the
+/// retry. A `pubky.app` DEL of the tag in that window is handled at `v0` and deletes the edge.
+/// The consumer holds only the `pubky.app` path, so once the retried flip has run, nothing of
+/// the tag may stay live and nothing may stay held.
+#[tokio_shared_rt::test(shared)]
+async fn test_resource_changes_retract_a_moved_tag_deleted_before_the_flip_retry() -> Result<()> {
+    use crate::event_processor::posts::utils::pubky_id;
+    use nexus_watcher::events::v0_to_v1;
+    use pubky_social_specs::traits::{HasIdPath as _, HashId as _};
+    use pubky_social_specs::PubkySocialTag;
+
+    let mut test = WatcherTest::setup(None).await?;
+    let key = Keypair::random();
+    let author = test
+        .create_user(&key, &test_user("Delete before flip retry", "feed"))
+        .await?;
+    let (_, _, start) = ResourceChange::get_from_index(0, 0).await?;
+    let target = format!("https://example.com/delete-before-flip-retry/{author}");
+    let v0 = PubkyAppTag::new(target.clone(), "moved".into());
+    let v0_path = format!("/pub/pubky.app/tags/{}", v0.create_id());
+    let v0_storage: ResourcePath = v0_path.parse()?;
+    test.put(&key, &v0_storage, &v0).await?;
+    // The migrator's copy, ignored until the flip
+    let v1 = PubkySocialTag::new(target, "moved".into());
+    let v1_path = PubkySocialTag::create_path(&v1.create_id());
+    let v1_storage: ResourcePath = v1_path.parse()?;
+    test.put(&key, &v1_storage, &v1).await?;
+    let puts = authored_since(&author, start).await?;
+    assert_eq!(puts.len(), 1);
+    assert_eq!(puts[0].object_path, v0_path);
+
+    // The flip's tags step commits; the step after it fails, so the user stays `v0`
+    let author_id = pubky_id(&author)?;
+    let file_map = v0_to_v1::files::FileMap::load(&author_id).await?;
+    v0_to_v1::tags::migrate(&author_id, &file_map, 2).await?;
+    let (_, held) = ResourceChange::pending_moves(&author, 0).await?;
+    assert_eq!(held, std::slice::from_ref(&v1_path));
+
+    // Before the retry, the user deletes the tag at its `pubky.app` address
+    test.del(&key, &v0_storage).await?;
+    retrieve_and_handle_event_line(
+        &format!("DEL pubky://{author}{v0_path}"),
+        test.event_processor_runner.event_handler.clone(),
+    )
+    .await?;
+
+    // The retried flip
+    let profile: ResourcePath = "/pub/social/v1/profile.json".parse()?;
+    test.put(
+        &key,
+        &profile,
+        &serde_json::json!({"name":"Delete before flip retry"}),
+    )
+    .await?;
+
+    let lines = authored_since(&author, start).await?;
+    let mut live = HashMap::new();
+    for line in &lines {
+        let key = (line.object_path.clone(), line.resource_id.clone());
+        match line.op {
+            ResourceChangeOp::Put => {
+                live.insert(key, ());
+            }
+            ResourceChangeOp::Del => {
+                live.remove(&key);
+            }
+        }
+    }
+    assert!(
+        live.is_empty(),
+        "a deleted tag stays live: {live:?} from {lines:?}"
+    );
+    let (_, held) = ResourceChange::pending_moves(&author, 0).await?;
+    assert!(held.is_empty(), "{held:?}");
+    test.del(&key, &v1_storage).await?;
+    test.del(&key, &profile).await?;
+    Ok(())
+}
