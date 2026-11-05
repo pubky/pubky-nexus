@@ -248,10 +248,11 @@ MATCH (reply:Post {id: "SIJW1TGL5BKG9" }), (parent:Post {id: "SIJW1TGL5BKG8" }) 
 // `social/v1` envelope (COLV1TGL5BKG4) as {uri, note?} objects, whose addresses may
 // be of either epoch. Timestamps placed below other kinds so they don't disturb
 // existing timeline/bootstrap test fixtures.
-// `social/v1` envelope: a legacy-addressed post (D), a v1-addressed post (E), a user
-// and a web URL. Expected `?source=collection` stream: [D, E].
+// `social/v1` envelope, stored under its `social/v1` address: a legacy-addressed
+// post (D), a v1-addressed post (E), a user and a web URL. Expected
+// `?source=collection` stream: [D, E].
 MERGE (p:Post {id: "COLV1TGL5BKG4"}) SET p.content = "{\"name\":\"Epoch bridge\",\"description\":\"Items of both epochs\",\"items\":[{\"uri\":\"pubky://ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny/pub/pubky.app/posts/00000039YD9C0\",\"note\":\"legacy address\"},{\"uri\":\"pubky://ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny/pub/social/v1/posts/00000039YD9CE\"},{\"uri\":\"pubky://ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny/pub/social/v1/profile.json\"},{\"uri\":\"https://example.com/reading\"}]}", p.kind = "collection", p.indexed_at = 1980477299091;
-MATCH (u:User {id: $bogota}), (p:Post {id: "COLV1TGL5BKG4"}) MERGE (u)-[:AUTHORED]->(p) SET p.uri = "pubky://ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny/pub/pubky.app/posts/COLV1TGL5BKG4";
+MATCH (u:User {id: $bogota}), (p:Post {id: "COLV1TGL5BKG4"}) MERGE (u)-[:AUTHORED]->(p) SET p.uri = "pubky://ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny/pub/social/v1/posts/COLV1TGL5BKG4";
 MERGE (p:Post {id: "COLW1TGL5BKG1"}) SET p.content = "{\"name\":\"AI papers\",\"description\":\"Best stuff\",\"items\":[\"pubky://ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny/pub/pubky.app/posts/00000039YD9BM\",\"pubky://ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny/pub/pubky.app/posts/00000039YD9C0\",\"pubky://ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny/pub/pubky.app/posts/00000039YD9CE\",\"pubky://ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny/pub/pubky.app/posts/ZZZZZZZZZZZZZ\",\"pubky://ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny/pub/pubky.app/profile.json\"]}", p.kind = "collection", p.indexed_at = 1980477299101;
 MATCH (u:User {id: $bogota}), (p:Post {id: "COLW1TGL5BKG1"}) MERGE (u)-[:AUTHORED]->(p) SET p.uri = "pubky://ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny/pub/pubky.app/posts/COLW1TGL5BKG1";
 MERGE (p:Post {id: "COLW1TGL5BKG2"}) SET p.content = "{\"name\":\"Privacy reads\",\"items\":[]}", p.kind = "collection", p.indexed_at = 1980477299111;
