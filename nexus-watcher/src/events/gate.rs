@@ -2,7 +2,7 @@
 
 use super::epoch_metrics::{record_deferred, record_gated};
 use super::event::{Event, EventType};
-use super::retry::{IndexKey, RetryStore};
+use super::retry::{IndexKey, RetryEvent, RetryStore};
 use super::target::EventTarget;
 use crate::errors::EventProcessorError;
 use nexus_common::models::user::Epoch;
@@ -87,6 +87,12 @@ fn waits_for_flip(event: &Event, gate: Gate, user_epoch: Epoch) -> bool {
     }
 }
 
+/// Whether `entry`, the retry queue's entry under a user's `social/v1` profile URI, is their
+/// queued flip: a PUT. A DEL entry under that URI is no flip. Pure: the caller reads the queue.
+fn is_queued_flip(entry: Option<&RetryEvent>) -> bool {
+    entry.is_some_and(|entry| entry.event_type == EventType::Put)
+}
+
 /// The URI of `user_id`'s `social/v1` profile: the flip's event URI, which keys its retry entry.
 pub(super) fn flip_profile_uri(user_id: &PubkyId) -> String {
     format!("pubky://{user_id}{}", PubkySocialUser::create_path())
@@ -111,11 +117,8 @@ pub(super) async fn check(
     let (gate, user_epoch) = decide_by_graph(event).await?;
     if waits_for_flip(event, gate, user_epoch) {
         let flip_uri = flip_profile_uri(event.target.user_id());
-        if retry_store
-            .get(&IndexKey::for_uri(&flip_uri))
-            .await?
-            .is_some_and(|entry| entry.event_type == EventType::Put)
-        {
+        let entry = retry_store.get(&IndexKey::for_uri(&flip_uri)).await?;
+        if is_queued_flip(entry.as_ref()) {
             record_deferred(&event.target, &event.uri, &flip_uri);
             return Ok(Gate::Defer);
         }
@@ -241,10 +244,25 @@ mod tests {
         }
     }
 
+    /// Only a PUT entry under the profile URI is a queued flip.
+    #[test]
+    fn only_a_put_entry_is_a_queued_flip() {
+        let entry = |kind: &str| {
+            let line = format!("{kind} pubky://{USER}/pub/social/v1/profile.json");
+            RetryEvent::new(&event(&line), 0, "hs")
+        };
+        assert!(is_queued_flip(Some(&entry("PUT"))));
+        assert!(
+            !is_queued_flip(Some(&entry("DEL"))),
+            "a profile DEL is no flip"
+        );
+        assert!(!is_queued_flip(None), "nothing queued");
+    }
+
     /// The deferral: `check` against the graph and an in-memory retry queue.
     mod check {
         use super::*;
-        use crate::events::retry::{InMemoryRetryStore, RetryEvent};
+        use crate::events::retry::InMemoryRetryStore;
         use async_trait::async_trait;
         use nexus_common::db::{exec_single_row, queries};
         use nexus_common::models::traits::Collection as _;

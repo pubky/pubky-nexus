@@ -160,16 +160,10 @@ impl RetryProcessor {
                 .await;
         };
 
-        // A failed gate read must not dead-letter a flip: its error takes the handler's
-        // place and is classified below as the graph error it is.
-        let (error, limit_reached) = match self.limit_reached(&event, ev_retry_count, &error).await
-        {
-            Ok(limit_reached) => (error, limit_reached),
-            Err(gate_error) => (gate_error, false),
-        };
-
-        match error {
-            e if !RetryScheduler::should_enqueue_related_event(&e) => {
+        let limit = self.limit_reached(&event, ev_retry_count, &error).await;
+        let (e, outcome) = retry_outcome(error, limit);
+        match outcome {
+            RetryOutcome::Drop => {
                 // Not worth retrying (ParseFailed, etc.) - dead-letter immediately. No flip is
                 // dead-lettered here: its step runs before the fetch and every failure of it is
                 // queued, so a `social/v1` profile PUT that is 404 or invalid is a `v1` user's
@@ -178,14 +172,14 @@ impl RetryProcessor {
                 self.remove_if_current(index_key, retry_event.nonce, ev_uri)
                     .await?;
             }
-            e if e.should_not_retry_now() => {
+            RetryOutcome::RescheduleUncounted => {
                 // Errors we should not retry right now (e.g. Neo4j/Redis failures) must NOT count
                 // against the application-level max_retries limit.  Reschedule with backoff but do
                 // NOT increment retry_count, then propagate to stop the current batch.
                 self.reschedule(&retry_event, &e, false).await?;
                 return Err(e);
             }
-            e if limit_reached => {
+            RetryOutcome::DeadLetter => {
                 // A flip has no limit for a failed flip step (`limit_reached`), so a `social/v1`
                 // profile PUT reaching it is usually a `v1` user's edit, logged at `warn`; a flip
                 // lost to any other error is logged at `error` (`is_flip`).
@@ -197,7 +191,7 @@ impl RetryProcessor {
                 self.remove_if_current(index_key, retry_event.nonce, ev_uri)
                     .await?;
             }
-            e => {
+            RetryOutcome::Reschedule => {
                 // Schedule retry with backoff (increments retry_count)
                 self.reschedule(&retry_event, &e, true).await?;
             }
@@ -322,6 +316,54 @@ fn calculate_backoff(retry_count: u32, initial: u64, max: u64) -> u64 {
         .and_then(|p| initial.checked_mul(p))
         .unwrap_or(max);
     min(exponential, max)
+}
+
+/// What the retry processor does with an entry whose handling failed with `error`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RetryOutcome {
+    /// Removed at once: the error is not worth retrying.
+    Drop,
+    /// Rescheduled without counting the attempt, and the batch stops: Neo4j or Redis is down.
+    RescheduleUncounted,
+    /// Removed: the entry used up its limit.
+    DeadLetter,
+    /// Rescheduled, the attempt counted.
+    Reschedule,
+}
+
+/// Classifies a failed retry. Pure: the caller reads the limit ([`RetryProcessor::limit_reached`])
+/// and does the I/O the outcome names. Returns the error to log and reschedule with, and the
+/// outcome.
+///
+/// A failed limit check, a graph read of the user's epoch, takes the handler's error's place
+/// and never removes the entry: dead-lettering a flip because the graph could not say whether
+/// it is one would strand its user at `v0`. It is rescheduled uncounted when it stops the
+/// batch, counted otherwise.
+fn retry_outcome(
+    error: EventProcessorError,
+    limit: Result<bool, EventProcessorError>,
+) -> (EventProcessorError, RetryOutcome) {
+    let limit_reached = match limit {
+        Ok(limit_reached) => limit_reached,
+        Err(gate_error) => {
+            let outcome = if gate_error.should_not_retry_now() {
+                RetryOutcome::RescheduleUncounted
+            } else {
+                RetryOutcome::Reschedule
+            };
+            return (gate_error, outcome);
+        }
+    };
+    let outcome = if !RetryScheduler::should_enqueue_related_event(&error) {
+        RetryOutcome::Drop
+    } else if error.should_not_retry_now() {
+        RetryOutcome::RescheduleUncounted
+    } else if limit_reached {
+        RetryOutcome::DeadLetter
+    } else {
+        RetryOutcome::Reschedule
+    };
+    (error, outcome)
 }
 
 #[cfg(test)]
@@ -500,5 +542,98 @@ mod tests {
 
         exec_single_row(queries::del::delete_user(&user)).await?;
         Ok(())
+    }
+
+    /// The classification of a failed retry, for the errors that decide it. A failed limit
+    /// check never removes the entry, whatever its class; a flip's limit is the check's to
+    /// lift (`Ok(false)`), so `FlipFailed` dead-letters only at a `v1` user's limit.
+    #[test]
+    fn retry_outcome_classifies_every_error_and_never_removes_on_a_failed_limit_check() {
+        use RetryOutcome::*;
+        let graph_down =
+            || EventProcessorError::GraphQueryFailed(true, "connection refused".into());
+        let graph_bad_row =
+            || EventProcessorError::GraphQueryFailed(false, "deserialization failed".into());
+        let anomaly = || EventProcessorError::DataAnomaly("keyset scan cannot advance".into());
+        let flip_failed = || EventProcessorError::FlipFailed {
+            step: "posts",
+            source: Box::new(graph_bad_row()),
+        };
+        let not_found = || EventProcessorError::client_error_404("gone".into());
+        let missing = || EventProcessorError::missing_dependencies(vec![URI.to_string()]);
+
+        type Case = (
+            &'static str,
+            EventProcessorError,
+            Result<bool, EventProcessorError>,
+            RetryOutcome,
+        );
+        // (case, handler error, limit check, outcome)
+        let cases: Vec<Case> = vec![
+            (
+                "flip, graph down at the check",
+                flip_failed(),
+                Err(graph_down()),
+                RescheduleUncounted,
+            ),
+            (
+                "flip, bad row at the check",
+                flip_failed(),
+                Err(graph_bad_row()),
+                Reschedule,
+            ),
+            (
+                "flip, anomaly at the check",
+                flip_failed(),
+                Err(anomaly()),
+                Reschedule,
+            ),
+            (
+                "flip of a v1 user at its limit",
+                flip_failed(),
+                Ok(true),
+                DeadLetter,
+            ),
+            (
+                "flip under its limit or of a v0 user",
+                flip_failed(),
+                Ok(false),
+                Reschedule,
+            ),
+            ("404 under its limit", not_found(), Ok(false), Drop),
+            ("404 at its limit", not_found(), Ok(true), Drop),
+            (
+                "graph down at the limit",
+                graph_down(),
+                Ok(true),
+                RescheduleUncounted,
+            ),
+            (
+                "missing dependency at its limit",
+                missing(),
+                Ok(true),
+                DeadLetter,
+            ),
+            (
+                "missing dependency under its limit",
+                missing(),
+                Ok(false),
+                Reschedule,
+            ),
+        ];
+        for (case, error, limit, expected) in cases {
+            // A failed limit check takes the handler's error's place
+            let expected_error = match &limit {
+                Err(check_error) => check_error.to_string(),
+                Ok(_) => error.to_string(),
+            };
+            let (returned, outcome) = retry_outcome(error, limit);
+            assert_eq!(outcome, expected, "{case}");
+            assert_eq!(
+                returned.to_string(),
+                expected_error,
+                "{case}: the error kept"
+            );
+        }
     }
 }
