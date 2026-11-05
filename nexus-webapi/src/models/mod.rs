@@ -16,6 +16,7 @@ pub mod resource_id;
 pub mod tag_label;
 pub mod user_id_prefix;
 pub mod username_prefix;
+pub mod v1;
 
 use std::ops::Deref;
 

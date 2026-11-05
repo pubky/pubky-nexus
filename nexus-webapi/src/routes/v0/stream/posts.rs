@@ -6,6 +6,7 @@ use crate::routes::v0::endpoints::{
     STREAM_POSTS_BY_IDS_ROUTE, STREAM_POSTS_ROUTE, STREAM_POST_KEYS_ROUTE,
 };
 use crate::routes::v0::types::parse_string_to_u8;
+use crate::routes::v0::version::{versioned_handlers, ApiVersion};
 use crate::routes::Json as RequestJson;
 use crate::routes::Query;
 use crate::{Error, Result as AppResult};
@@ -299,37 +300,67 @@ impl PostStreamQuery {
     }
 }
 
-#[utoipa::path(
-    get,
-    path = STREAM_POSTS_ROUTE,
-    tag = "Stream",
-    params(
-        ("source" = Option<StreamSourceKind>, Query, description = "Source of posts for streams with viewer (following, followers, friends, bookmarks, post_replies, author, author_replies, collection, post_collections, wot, wot_domain, all). For `source=post_collections`: provide `author_id` + `post_id` of a post; returns the Collection posts that curate it, newest first by default. `kind`, `exclude_kinds` and `locked` are rejected with 400. Links are materialized when the Collection is written: an item indexed after the Collection that lists it is not linked until the Collection is edited. For `source=collection`: provide `author_id` + `post_id` of the Collection post; items are returned in curator order. `tags`, `kind`, `exclude_kinds`, `locked`, `sorting`, `order`, `start`, `end` are all rejected with 400 (incompatible with the curator-ordered result set). Items whose underlying post is missing (deleted, not indexed) or whose URI is malformed/non-post are dropped during hydration; pages may be shorter than `limit`. Pagination via `skip`/`limit` is not stable across deletions, if an item is removed between page fetches, the same `skip` returns a different window. The FE can identify dropped items by diffing the response against the Collection envelope's `items[]`. When the instance filters by trust, posts by authors outside its trust ranking are left out of `all` (any `sorting`, `tags` or `kind`)."),
-        ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID. Sets the viewer's relationship flags on the posts. On `source=all` with `sorting=timeline` and no `tags`, also brings back the viewer's own posts when the trust filter hides them"),
-        ("observer_id" = Option<PubkyId>, Query, description = "Observer Pubky ID. The central point for streams with Reach"),
-        ("author_id" = Option<PubkyId>, Query, description = "Filter posts by an specific author User ID"),
-        ("post_id" = Option<PostId>, Query, description = "This parameter is needed when we want to retrieve the replies stream for a post"),
-        ("sorting" = Option<StreamSorting>, Query, description = "Sort method (`timeline` or `total_engagement`). Ties are broken by post id; pagination across equal scores is best-effort."),
-        ("order" = Option<SortOrder>, Query, description = "Ordering of response list. Either 'ascending' or 'descending'. Defaults to descending."),
-        ("tags" = Option<Tags>, Query, description = "Filter by a list of comma-separated tags (max 5). E.g.,`&tags=dev,free,opensource`. Only posts matching at least one of the tags will be returned."),
-        ("depth" = Option<u8>, Query, description = "WoT traversal depth. For `source=wot`: 1-3, default 2. For `source=wot_domain`: 0-3, default 2, where `depth=0` is the observer-only (\"Me\") trust set (posts by authors the observer tagged directly, no follow traversal). `depth=0` is invalid for `source=wot`. Ignored for other sources."),
-        ("domain_tags" = Option<Tags>, Query, description = "Required for `source=wot_domain`. Comma-separated tag labels (max 5); returns posts by authors tagged with any of these by the observer's WoT, or by the observer alone when `depth=0`. E.g. `&domain_tags=bitcoiner,btc-dev`. Ignored for other sources."),
-        ("kind" = Option<PostKind>, Query, description = "Filter by post kind: short, long, image, video, link, file, collection. Mutually exclusive with `exclude_kinds`; rejected for `source=post_collections`, `source=post_replies` and `source=author_replies`."),
-        ("exclude_kinds" = Option<PostKinds>, Query, description = "Comma-separated post kinds to exclude server-side (1-7 items, duplicates ignored), e.g. `&exclude_kinds=collection,link`. Valid values: short, long, image, video, link, file, collection; anything else is rejected with 400. Mutually exclusive with `kind`; rejected for `source=collection`, `source=post_collections`, `source=post_replies` and `source=author_replies`. Posts with a missing or unrecognized kind are never excluded."),
-        ("locked" = Option<bool>, Query, description = "When `true`, return only posts with a lock attached, whoever the viewer is and whether or not they unlocked them. `false` (default) applies no filter. Replies are left out, except on `source=bookmarks`. Cannot be combined with `kind` or `exclude_kinds`; rejected for `source=collection`, `source=post_collections`, `source=post_replies` and `source=author_replies`."),
-        ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Skip N posts (max 10000)"),
-        ("limit" = Option<BoundedLimit<10, 50>>, Query, description = "Retrieve N posts (1–50, default 10)"),
-        ("start" = Option<f64>, Query, description = "The start of the stream timeframe or score. Posts with a timestamp/score greater than this value will be excluded from the results"),
-        ("end" = Option<f64>, Query, description = "The end of the stream timeframe or score. Posts with a timestamp/score less than this value will be excluded from the results"),
-        ("include_attachment_metadata" = Option<bool>, Query, description = "Include file metadata for post attachments"),
-    ),
-    responses(
-        (status = 200, description = "Posts stream", body = PostStreamDetailed),
-        (status = 400, description = "Invalid parameters"),
-        (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
-        (status = 500, description = "Internal server error")
-    ),
-    description = r#"Stream Posts: Retrieve a stream of posts.
+/// The one body behind `stream_posts_handler_v0` and `stream_posts_handler_v1`: the page in
+/// the version's shape.
+pub async fn stream_posts<V: ApiVersion>(
+    Query(mut query): Query<PostStreamQuery>,
+) -> AppResult<Json<V::PostStream>> {
+    debug!("GET {STREAM_POSTS_ROUTE}");
+
+    query.validate_source_compat()?; // before initialize_defaults
+    query.initialize_defaults();
+    let pagination = query.pagination.to_pagination(query.start, query.end);
+    let (source, sorting, order) = query.extract_stream_params()?;
+    let include_attachment_metadata = query.include_attachment_metadata;
+    let tags = query.tags.as_ref().map(Tags::to_string_vec);
+
+    let stream = match PostStream::get_posts(
+        source,
+        pagination,
+        order,
+        sorting,
+        query.viewer_id.as_deref(),
+        tags,
+        query.kind_filter(),
+    )
+    .await?
+    {
+        Some(stream) => {
+            PostStreamDetailed::from_post_views(stream.0, include_attachment_metadata).await?
+        }
+        None => PostStreamDetailed::default(),
+    };
+    Ok(Json(V::PostStream::from(stream)))
+}
+
+versioned_handlers! {
+    stream_posts_handler_v0 / stream_posts_handler_v1 => stream_posts(query: Query<PostStreamQuery>) -> PostStream;
+    #[utoipa::path(
+        get,
+        path = STREAM_POSTS_ROUTE,
+        operation_id = "stream_posts_handler",
+        tag = "Stream",
+        params(
+            ("source" = Option<StreamSourceKind>, Query, description = "Source of posts for streams with viewer (following, followers, friends, bookmarks, post_replies, author, author_replies, collection, post_collections, wot, wot_domain, all). For `source=post_collections`: provide `author_id` + `post_id` of a post; returns the Collection posts that curate it, newest first by default. `kind`, `exclude_kinds` and `locked` are rejected with 400. Links are materialized when the Collection is written: an item indexed after the Collection that lists it is not linked until the Collection is edited. For `source=collection`: provide `author_id` + `post_id` of the Collection post; items are returned in curator order. `tags`, `kind`, `exclude_kinds`, `locked`, `sorting`, `order`, `start`, `end` are all rejected with 400 (incompatible with the curator-ordered result set). Items whose underlying post is missing (deleted, not indexed) or whose URI is malformed/non-post are dropped during hydration; pages may be shorter than `limit`. Pagination via `skip`/`limit` is not stable across deletions, if an item is removed between page fetches, the same `skip` returns a different window. The FE can identify dropped items by diffing the response against the Collection envelope's `items[]`. When the instance filters by trust, posts by authors outside its trust ranking are left out of `all` (any `sorting`, `tags` or `kind`)."),
+            ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID. Sets the viewer's relationship flags on the posts. On `source=all` with `sorting=timeline` and no `tags`, also brings back the viewer's own posts when the trust filter hides them"),
+            ("observer_id" = Option<PubkyId>, Query, description = "Observer Pubky ID. The central point for streams with Reach"),
+            ("author_id" = Option<PubkyId>, Query, description = "Filter posts by an specific author User ID"),
+            ("post_id" = Option<PostId>, Query, description = "This parameter is needed when we want to retrieve the replies stream for a post"),
+            ("sorting" = Option<StreamSorting>, Query, description = "Sort method (`timeline` or `total_engagement`). Ties are broken by post id; pagination across equal scores is best-effort."),
+            ("order" = Option<SortOrder>, Query, description = "Ordering of response list. Either 'ascending' or 'descending'. Defaults to descending."),
+            ("tags" = Option<Tags>, Query, description = "Filter by a list of comma-separated tags (max 5). E.g.,`&tags=dev,free,opensource`. Only posts matching at least one of the tags will be returned."),
+            ("depth" = Option<u8>, Query, description = "WoT traversal depth. For `source=wot`: 1-3, default 2. For `source=wot_domain`: 0-3, default 2, where `depth=0` is the observer-only (\"Me\") trust set (posts by authors the observer tagged directly, no follow traversal). `depth=0` is invalid for `source=wot`. Ignored for other sources."),
+            ("domain_tags" = Option<Tags>, Query, description = "Required for `source=wot_domain`. Comma-separated tag labels (max 5); returns posts by authors tagged with any of these by the observer's WoT, or by the observer alone when `depth=0`. E.g. `&domain_tags=bitcoiner,btc-dev`. Ignored for other sources."),
+            ("kind" = Option<PostKind>, Query, description = "Filter by post kind: short, long, image, video, link, file, collection. Mutually exclusive with `exclude_kinds`; rejected for `source=post_collections`, `source=post_replies` and `source=author_replies`."),
+            ("exclude_kinds" = Option<PostKinds>, Query, description = "Comma-separated post kinds to exclude server-side (1-7 items, duplicates ignored), e.g. `&exclude_kinds=collection,link`. Valid values: short, long, image, video, link, file, collection; anything else is rejected with 400. Mutually exclusive with `kind`; rejected for `source=collection`, `source=post_collections`, `source=post_replies` and `source=author_replies`. Posts with a missing or unrecognized kind are never excluded."),
+            ("locked" = Option<bool>, Query, description = "When `true`, return only posts with a lock attached, whoever the viewer is and whether or not they unlocked them. `false` (default) applies no filter. Replies are left out, except on `source=bookmarks`. Cannot be combined with `kind` or `exclude_kinds`; rejected for `source=collection`, `source=post_collections`, `source=post_replies` and `source=author_replies`."),
+            ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Skip N posts (max 10000)"),
+            ("limit" = Option<BoundedLimit<10, 50>>, Query, description = "Retrieve N posts (1–50, default 10)"),
+            ("start" = Option<f64>, Query, description = "The start of the stream timeframe or score. Posts with a timestamp/score greater than this value will be excluded from the results"),
+            ("end" = Option<f64>, Query, description = "The end of the stream timeframe or score. Posts with a timestamp/score less than this value will be excluded from the results"),
+            ("include_attachment_metadata" = Option<bool>, Query, description = "Include file metadata for post attachments"),
+        ),
+        description = r#"Stream Posts: Retrieve a stream of posts.
 
 
 The `source` parameter determines the type of stream. Depending on the `source`, certain parameters are required:
@@ -345,35 +376,13 @@ The `source` parameter determines the type of stream. Depending on the `source`,
 - *wot_domain*: Requires **observer_id** and **domain_tags**. Posts by authors whom the observer's Web of Trust has tagged with any of `domain_tags`, all of those authors' posts, not only topic-tagged ones; combine with `tags=` for topic-scoped posts. With `depth=0` the trust set is the observer alone ("Me"): posts by authors the observer tagged directly. Includes the observer's own posts when they themselves are tagged with a matching label.
 
 Ensure that you provide the necessary parameters based on the selected `source`. If a required parameter is missing, a 400 Bad Request error will be returned."#
-)]
-pub async fn stream_posts_handler(
-    Query(mut query): Query<PostStreamQuery>,
-) -> AppResult<Json<PostStreamDetailed>> {
-    debug!("GET {STREAM_POSTS_ROUTE}");
-
-    query.validate_source_compat()?; // before initialize_defaults
-    query.initialize_defaults();
-    let pagination = query.pagination.to_pagination(query.start, query.end);
-    let (source, sorting, order) = query.extract_stream_params()?;
-    let include_attachment_metadata = query.include_attachment_metadata;
-    let tags = query.tags.as_ref().map(Tags::to_string_vec);
-
-    match PostStream::get_posts(
-        source,
-        pagination,
-        order,
-        sorting,
-        query.viewer_id.as_deref(),
-        tags,
-        query.kind_filter(),
-    )
-    .await?
-    {
-        Some(stream) => Ok(Json(
-            PostStreamDetailed::from_post_views(stream.0, include_attachment_metadata).await?,
-        )),
-        None => Ok(Json(PostStreamDetailed::default())),
-    }
+        )]
+        responses(
+            (status = 200, description = "Posts stream"),
+            (status = 400, description = "Invalid parameters"),
+            (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
+            (status = 500, description = "Internal server error")
+        )
 }
 
 #[utoipa::path(
@@ -455,22 +464,11 @@ pub struct PostStreamByIdsRequest {
     #[serde(default)]
     pub include_attachment_metadata: bool,
 }
-#[utoipa::path(
-    post,
-    path = STREAM_POSTS_BY_IDS_ROUTE,
-    tag = "Stream",
-    description = "Stream post by ID. This is a POST request because we're passing a potentially large list of post IDs in the request body",
-    request_body = PostStreamByIdsRequest,
-    responses(
-        (status = 200, description = "Post stream", body = PostStreamDetailed),
-        (status = 400, description = "Invalid request body"),
-        (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
-        (status = 500, description = "Internal server error")
-    )
-)]
-pub async fn stream_posts_by_ids_handler(
+/// The one body behind `stream_posts_by_ids_handler_v0` and `stream_posts_by_ids_handler_v1`:
+/// the listed posts in the version's shape.
+pub async fn stream_posts_by_ids<V: ApiVersion>(
     RequestJson(request): RequestJson<PostStreamByIdsRequest>,
-) -> AppResult<Json<PostStreamDetailed>> {
+) -> AppResult<Json<V::PostStream>> {
     debug!(
         "POST {} post_ids size {:?}",
         STREAM_POSTS_BY_IDS_ROUTE,
@@ -479,25 +477,42 @@ pub async fn stream_posts_by_ids_handler(
 
     let post_ids = request.post_ids.into_string_vec();
 
-    match PostStream::from_listed_post_ids(request.viewer_id.as_deref(), &post_ids).await? {
-        Some(stream) => Ok(Json(
-            PostStreamDetailed::from_post_views(stream.0, request.include_attachment_metadata)
-                .await?,
-        )),
-        None => Ok(Json(PostStreamDetailed::default())),
-    }
+    let stream =
+        match PostStream::from_listed_post_ids(request.viewer_id.as_deref(), &post_ids).await? {
+            Some(stream) => {
+                PostStreamDetailed::from_post_views(stream.0, request.include_attachment_metadata)
+                    .await?
+            }
+            None => PostStreamDetailed::default(),
+        };
+    Ok(Json(V::PostStream::from(stream)))
 }
 
+versioned_handlers! {
+    stream_posts_by_ids_handler_v0 / stream_posts_by_ids_handler_v1 => stream_posts_by_ids(request: RequestJson<PostStreamByIdsRequest>) -> PostStream;
+    #[utoipa::path(
+        post,
+        path = STREAM_POSTS_BY_IDS_ROUTE,
+        operation_id = "stream_posts_by_ids_handler",
+        tag = "Stream",
+        description = "Stream post by ID. This is a POST request because we're passing a potentially large list of post IDs in the request body",
+        request_body = PostStreamByIdsRequest
+    )]
+    responses(
+        (status = 200, description = "Post stream"),
+        (status = 400, description = "Invalid request body"),
+        (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error")
+    )
+}
+
+/// The shared stream routes and schemas; the post stream and its `by_ids` body come with the
+/// version's document.
 #[derive(OpenApi)]
 #[openapi(
-    paths(
-        stream_posts_handler,
-        stream_post_keys_handler,
-        stream_posts_by_ids_handler
-    ),
+    paths(stream_post_keys_handler),
     components(schemas(
         PostKeyStream,
-        PostStreamDetailed,
         StreamSorting,
         StreamSourceKind,
         SortOrder,

@@ -1,6 +1,8 @@
 use std::collections::BTreeMap;
 
+use nexus_common::models::post::PostKind;
 use nexus_webapi::routes::{r#static::ApiDoc as StaticApiDoc, v0::ApiDoc};
+use pubky_social_specs::PubkySocialPostKind;
 use serde_json::Value;
 
 /// Validates that all schema references in an OpenAPI spec are defined.
@@ -74,15 +76,142 @@ fn paths_under(spec: &Value, prefix: &str) -> BTreeMap<String, Value> {
 /// Both documents come from one route declaration, so every v0 path is in the v1 document
 /// and vice versa, with the same operations under each. The tickets that take a route off
 /// v1 add their exceptions here.
+///
+/// A versioned route documents its own 200 body: `PostViewDetailed` on v0 is `PostView` on
+/// v1, `PostStreamDetailed` is `PostStream`. Those operations are compared without the body
+/// and the body's schema name is checked on its own.
 #[test]
 fn test_v0_and_v1_documents_list_the_same_paths() {
     let v0 = paths_under(&serde_json::to_value(ApiDoc::v0_docs()).unwrap(), "/v0");
     let v1 = paths_under(&serde_json::to_value(ApiDoc::v1_docs()).unwrap(), "/v1");
     assert!(!v0.is_empty(), "the v0 document lists no path");
     assert_eq!(v0.keys().collect::<Vec<_>>(), v1.keys().collect::<Vec<_>>());
+
+    // Method, path and each version's 200 body schema of the routes whose body is versioned.
+    let renamed_bodies = [
+        (
+            "get",
+            "/post/{author_id}/{post_id}",
+            "PostViewDetailed",
+            "PostView",
+        ),
+        ("get", "/stream/posts", "PostStreamDetailed", "PostStream"),
+        (
+            "post",
+            "/stream/posts/by_ids",
+            "PostStreamDetailed",
+            "PostStream",
+        ),
+    ];
     for (path, operations) in &v0 {
-        assert_eq!(operations, &v1[path], "{path}");
+        let mut v0_operations = operations.clone();
+        let mut v1_operations = v1[path].clone();
+        for (method, _, v0_body, v1_body) in renamed_bodies.iter().filter(|(_, p, ..)| p == path) {
+            let operation = format!("{method} {path}");
+            take_200_body(&mut v0_operations[method], v0_body, &operation);
+            take_200_body(&mut v1_operations[method], v1_body, &operation);
+        }
+        assert_eq!(v0_operations, v1_operations, "{path}");
     }
+}
+
+/// Takes the 200 body's `$ref` out of `operation`, asserting it names `schema`.
+fn take_200_body(operation: &mut Value, schema: &str, context: &str) {
+    let reference = operation
+        .pointer_mut("/responses/200/content/application~1json/schema/$ref")
+        .unwrap_or_else(|| panic!("{context}: no 200 body"));
+    assert_eq!(
+        reference.take(),
+        format!("#/components/schemas/{schema}"),
+        "{context}"
+    );
+}
+
+/// The post kind's names: the stored ones on v0, the `social/v1` wire names on v1, `unknown`
+/// on both. The v1 list is pinned to the spec crate's names, so a renamed kind fails here and
+/// not in the client; the `/v1` component keeps the v0 name, so a client reads one `PostKind`.
+#[test]
+fn test_post_kind_schema_names_the_kinds_per_version() {
+    let kinds = |spec: utoipa::openapi::OpenApi| -> Vec<String> {
+        let spec = serde_json::to_value(spec).expect("serializable spec");
+        spec.pointer("/components/schemas/PostKind/enum")
+            .and_then(Value::as_array)
+            .expect("PostKind enum")
+            .iter()
+            .map(|name| name.as_str().expect("a name").to_string())
+            .collect()
+    };
+
+    let v0 = kinds(ApiDoc::v0_docs());
+    assert_eq!(
+        v0,
+        [
+            "short",
+            "long",
+            "image",
+            "video",
+            "link",
+            "file",
+            "collection",
+            "unknown"
+        ]
+    );
+
+    let v1 = kinds(ApiDoc::v1_docs());
+    assert_eq!(
+        v1,
+        [
+            "note",
+            "article",
+            "image",
+            "video",
+            "link",
+            "file",
+            "collection",
+            "unknown"
+        ]
+    );
+    // Each v1 name is the v0 kind's `v1_name`, and the spec crate knows it under that name.
+    for (v0_name, v1_name) in v0.iter().zip(&v1) {
+        let stored: PostKind = serde_json::from_value(Value::from(v0_name.as_str())).unwrap();
+        assert_eq!(stored.v1_name(), v1_name);
+        let spec = PubkySocialPostKind::from(v1_name.clone());
+        assert_eq!(spec.is_known(), v1_name != "unknown", "{v1_name}");
+        assert_eq!(spec.wire_name(), v1_name, "{v1_name}");
+    }
+}
+
+/// The v1 schemas keep `epoch`, `tag_uri` and `deleted` where v0 has them.
+#[test]
+fn test_v1_schemas_keep_epoch_tag_uri_and_deleted() {
+    let spec = serde_json::to_value(ApiDoc::v1_docs()).expect("serializable spec");
+    for (schema, field) in [
+        ("UserDetails", "epoch"),
+        ("TagDetails", "tag_uri"),
+        ("TaggersInfoResponse", "tag_uri"),
+        ("PostDetails", "deleted"),
+    ] {
+        let object = spec
+            .pointer(&format!("/components/schemas/{schema}"))
+            .unwrap_or_else(|| panic!("{schema} missing from the v1 document"));
+        assert!(
+            object["properties"].get(field).is_some(),
+            "{schema}.{field}: {object}"
+        );
+    }
+    // The v1 post view is the v1 details, kind included.
+    assert_eq!(
+        spec.pointer("/components/schemas/PostView/properties/details/$ref"),
+        Some(&Value::from("#/components/schemas/PostDetails"))
+    );
+    assert_eq!(
+        spec.pointer("/components/schemas/PostDetails/properties/kind/$ref"),
+        Some(&Value::from("#/components/schemas/PostKind"))
+    );
+    assert_eq!(
+        spec.pointer("/components/schemas/PostStream/items/$ref"),
+        Some(&Value::from("#/components/schemas/PostView"))
+    );
 }
 
 /// `StreamReach` is a query string like `wot_2`, not the Rust enum shape.

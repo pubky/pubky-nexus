@@ -1,5 +1,6 @@
 use crate::models::{BoundedLimit, PostId, PostViewDetailed, PubkyId};
 use crate::routes::v0::endpoints::POST_ROUTE;
+use crate::routes::v0::version::{versioned_handlers, ApiVersion};
 use crate::routes::Path;
 use crate::routes::Query;
 use crate::{Error, Result};
@@ -26,31 +27,12 @@ pub struct PostViewQuery {
     pub include_attachment_metadata: bool,
 }
 
-#[utoipa::path(
-    get,
-    path = POST_ROUTE,
-    description = "Post view",
-    tag = "Post",
-    params(
-        ("author_id" = PubkyId, Path, description = "Author Pubky ID"),
-        ("post_id" = PostId, Path, description = "Post Crockford32 ID"),
-        ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID"),
-        ("limit_tags" = Option<BoundedLimit<5, 100>>, Query, description = "Upper limit on the number of tags for the post (1–100, **default** 5)"),
-        ("limit_taggers" = Option<BoundedLimit<5, 100>>, Query, description = "Upper limit on the number of taggers per tag (1–100, **default** 5)"),
-        ("include_attachment_metadata" = Option<bool>, Query, description = "Include file metadata for post attachments"),
-    ),
-    responses(
-        (status = 200, description = "Post", body = PostViewDetailed),
-        (status = 400, description = "Invalid parameters"),
-        (status = 404, description = "Post not found"),
-        (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
-        (status = 500, description = "Internal server error")
-    )
-)]
-pub async fn post_view_handler(
+/// The one body behind `post_view_handler_v0` and `post_view_handler_v1`: the view in the
+/// version's shape.
+pub async fn post_view<V: ApiVersion>(
     Path(PostPath { author_id, post_id }): Path<PostPath>,
     Query(query): Query<PostViewQuery>,
-) -> Result<Json<PostViewDetailed>> {
+) -> Result<Json<V::PostView>> {
     debug!(
         "GET {POST_ROUTE} author_id:{}, post_id:{}, viewer_id:{:?}, limit_tags:{:?}, limit_taggers:{:?}",
         author_id,
@@ -70,21 +52,38 @@ pub async fn post_view_handler(
     )
     .await?
     {
-        Some(post) => Ok(Json(post)),
+        Some(post) => Ok(Json(V::PostView::from(post))),
         None => Err(Error::post_not_found(author_id, post_id)),
     }
 }
 
+versioned_handlers! {
+    post_view_handler_v0 / post_view_handler_v1 => post_view(path: Path<PostPath>, query: Query<PostViewQuery>) -> PostView;
+    #[utoipa::path(
+        get,
+        path = POST_ROUTE,
+        operation_id = "post_view_handler",
+        description = "Post view",
+        tag = "Post",
+        params(
+            ("author_id" = PubkyId, Path, description = "Author Pubky ID"),
+            ("post_id" = PostId, Path, description = "Post Crockford32 ID"),
+            ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID"),
+            ("limit_tags" = Option<BoundedLimit<5, 100>>, Query, description = "Upper limit on the number of tags for the post (1–100, **default** 5)"),
+            ("limit_taggers" = Option<BoundedLimit<5, 100>>, Query, description = "Upper limit on the number of taggers per tag (1–100, **default** 5)"),
+            ("include_attachment_metadata" = Option<bool>, Query, description = "Include file metadata for post attachments"),
+        )
+    )]
+    responses(
+        (status = 200, description = "Post"),
+        (status = 400, description = "Invalid parameters"),
+        (status = 404, description = "Post not found"),
+        (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error")
+    )
+}
+
+/// The schemas the post view nests in every version; the view itself is each version's.
 #[derive(OpenApi)]
-#[openapi(
-    paths(post_view_handler),
-    components(schemas(
-        PostViewDetailed,
-        PostRelationships,
-        TagPost,
-        TagDetails,
-        PubkyId,
-        PostId
-    ))
-)]
+#[openapi(components(schemas(PostRelationships, TagPost, TagDetails, PubkyId, PostId)))]
 pub struct PostViewApiDoc;

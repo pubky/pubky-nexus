@@ -3,6 +3,7 @@ use crate::routes::v0::endpoints::{
     STREAM_RESOURCE_IDS_ROUTE, STREAM_USERS_BY_IDS_ROUTE, STREAM_USERS_ROUTE,
     STREAM_USERS_USERNAME_SEARCH_ROUTE, STREAM_USER_IDS_ROUTE,
 };
+use crate::routes::v0::version::ApiVersion;
 use crate::routes::AppState;
 
 use axum::routing::{get, post};
@@ -13,20 +14,21 @@ pub mod posts;
 mod resources;
 pub mod users;
 
-pub fn expensive_routes() -> Router<AppState> {
+/// The expensive stream routes for one version: the `by_ids` post stream in the version's
+/// shape, the rest shared.
+pub fn expensive_routes<V: ApiVersion>() -> Router<AppState> {
     Router::new()
         .route(STREAM_USERS_ROUTE, get(users::stream_users_handler))
         .route(
             STREAM_USERS_BY_IDS_ROUTE,
             post(users::stream_users_by_ids_handler),
         )
-        .route(
-            STREAM_POSTS_BY_IDS_ROUTE,
-            post(posts::stream_posts_by_ids_handler),
-        )
+        .route(STREAM_POSTS_BY_IDS_ROUTE, V::stream_posts_by_ids())
 }
 
-pub fn routes() -> Router<AppState> {
+/// The default-bucket stream routes for one version: the post stream in the version's shape,
+/// the rest shared.
+pub fn routes<V: ApiVersion>() -> Router<AppState> {
     Router::new()
         .route(STREAM_USER_IDS_ROUTE, get(users::stream_user_ids_handler))
         .route(
@@ -34,7 +36,7 @@ pub fn routes() -> Router<AppState> {
             get(users::stream_username_search_handler),
         )
         .route(STREAM_POST_KEYS_ROUTE, get(posts::stream_post_keys_handler))
-        .route(STREAM_POSTS_ROUTE, get(posts::stream_posts_handler))
+        .route(STREAM_POSTS_ROUTE, V::stream_posts())
         .route(
             STREAM_RESOURCES_ROUTE,
             get(resources::stream_resources_handler),
