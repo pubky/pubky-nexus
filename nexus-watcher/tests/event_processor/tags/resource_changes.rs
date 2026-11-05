@@ -29,6 +29,44 @@ async fn authored_since(author: &str, mut cursor: u64) -> Result<Vec<ResourceCha
     Ok(lines)
 }
 
+/// The moves recorded on `author`'s `Resource` tag edges that the feed has not published yet,
+/// as `(tag_uri, v0_uri)`: where each edge is, and where it moved from.
+pub(super) async fn recorded_moves(author: &str) -> Result<Vec<(String, String)>> {
+    use nexus_common::db::{fetch_all_rows_from_graph, graph::Query};
+
+    let query = Query::new(
+        "test_recorded_moves",
+        "MATCH (:User {id: $author})-[t:TAGGED]->(:Resource)
+         WHERE t.moved_at IS NOT NULL
+         RETURN t.uri AS tag_uri, t.v0_uri AS v0_uri
+         ORDER BY tag_uri",
+    )
+    .param("author", author);
+    let mut moves = Vec::new();
+    for row in fetch_all_rows_from_graph(query).await? {
+        moves.push((row.get("tag_uri")?, row.get("v0_uri")?));
+    }
+    Ok(moves)
+}
+
+/// The live references a consumer applying `lines` in order holds, by `(object_path,
+/// resource_id)`.
+fn live_references(lines: &[ResourceChange]) -> std::collections::BTreeSet<(String, String)> {
+    let mut live = std::collections::BTreeSet::new();
+    for line in lines {
+        let key = (line.object_path.clone(), line.resource_id.clone());
+        match line.op {
+            ResourceChangeOp::Put => {
+                live.insert(key);
+            }
+            ResourceChangeOp::Del => {
+                live.remove(&key);
+            }
+        }
+    }
+    live
+}
+
 #[tokio_shared_rt::test(shared)]
 async fn test_resource_changes_put_del_and_replay() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
@@ -376,7 +414,7 @@ async fn migrated_tag_delete_retry_finishes_the_original_file_journal() -> Resul
     let mut deleted = puts[0].clone();
     deleted.op = ResourceChangeOp::Del;
     deleted.at += 1;
-    deleted.prepare_delete().await?;
+    deleted.prepare_delete(None).await?;
     fetch_row_from_graph(queries::del::delete_tag(&author, &id)).await?;
     // Exact durable state left by a failed finish_delete, without disrupting Redis
     // for the other tests: a journal exists, but the source edge no longer does.
@@ -406,12 +444,11 @@ async fn migrated_tag_delete_retry_finishes_the_original_file_journal() -> Resul
     Ok(())
 }
 
-/// A flip run that moved the edges but stopped before publishing their moves, the state a
-/// crash between the tags step's write and the feed append leaves: the held dels survive,
-/// and the flip's own run publishes each move as a put at the v1 path followed by the del
-/// at the v0 path, once.
+/// A flip whose tags step moved the edges and then stopped, before the epoch write: the moves
+/// stay recorded on the edges, and the retried flip publishes each, after its epoch write, as
+/// a put at the v1 path followed by the del at the v0 path, once.
 #[tokio_shared_rt::test(shared)]
-async fn test_resource_changes_publish_moves_held_by_an_interrupted_flip() -> Result<()> {
+async fn test_resource_changes_publish_moves_recorded_by_an_interrupted_flip() -> Result<()> {
     use crate::event_processor::posts::utils::pubky_id;
     use nexus_watcher::events::v0_to_v1;
     use pubky_social_specs::traits::{HasIdPath as _, HashId as _};
@@ -440,13 +477,13 @@ async fn test_resource_changes_publish_moves_held_by_an_interrupted_flip() -> Re
     let puts = authored_since(&author, start).await?;
     assert_eq!(puts.len(), files.len());
 
-    // The tags step of a flip that stops there: edges moved, moves held, nothing published
+    // The tags step of a flip that stops there: edges moved, moves recorded, nothing published
     let author_id = pubky_id(&author)?;
     let file_map = v0_to_v1::files::FileMap::load(&author_id).await?;
     v0_to_v1::tags::migrate(&author_id, &file_map, 2).await?;
     assert_eq!(authored_since(&author, start).await?, puts);
-    let (_, held) = ResourceChange::pending_moves(&author, 0).await?;
-    assert_eq!(held.len(), files.len(), "{held:?}");
+    let recorded = recorded_moves(&author).await?;
+    assert_eq!(recorded.len(), files.len(), "{recorded:?}");
 
     let profile: ResourcePath = "/pub/social/v1/profile.json".parse()?;
     test.put(
@@ -476,8 +513,8 @@ async fn test_resource_changes_publish_moves_held_by_an_interrupted_flip() -> Re
         assert_eq!(&retracted.object_path, v0_path);
         assert_eq!(retracted.resource_id, put.resource_id);
     }
-    let (_, held) = ResourceChange::pending_moves(&author, 0).await?;
-    assert!(held.is_empty(), "{held:?}");
+    let recorded = recorded_moves(&author).await?;
+    assert!(recorded.is_empty(), "{recorded:?}");
 
     // The v1 DELs retract what the consumer now holds
     for (_, v1_path, v1_storage) in &files {
@@ -506,10 +543,10 @@ async fn test_resource_changes_publish_moves_held_by_an_interrupted_flip() -> Re
 }
 
 /// A flip whose tags step committed but whose later step failed leaves the user at `v0`, the
-/// edge at its `social/v1` address and the del of its `pubky.app` address held, until the
-/// retry. A `pubky.app` DEL of the tag in that window is handled at `v0` and deletes the edge.
-/// The consumer holds only the `pubky.app` path, so once the retried flip has run, nothing of
-/// the tag may stay live and nothing may stay held.
+/// edge at its `social/v1` address and its move recorded, until the retry. A `pubky.app` DEL
+/// of the tag in that window is handled at `v0` and deletes the edge. The consumer holds only
+/// the `pubky.app` path, so the DEL retracts it next to the `social/v1` one, and once the
+/// retried flip has run, nothing of the tag may stay live and no move may stay recorded.
 #[tokio_shared_rt::test(shared)]
 async fn test_resource_changes_retract_a_moved_tag_deleted_before_the_flip_retry() -> Result<()> {
     use crate::event_processor::posts::utils::pubky_id;
@@ -541,8 +578,14 @@ async fn test_resource_changes_retract_a_moved_tag_deleted_before_the_flip_retry
     let author_id = pubky_id(&author)?;
     let file_map = v0_to_v1::files::FileMap::load(&author_id).await?;
     v0_to_v1::tags::migrate(&author_id, &file_map, 2).await?;
-    let (_, held) = ResourceChange::pending_moves(&author, 0).await?;
-    assert_eq!(held, std::slice::from_ref(&v1_path));
+    let recorded = recorded_moves(&author).await?;
+    assert_eq!(
+        recorded,
+        [(
+            format!("pubky://{author}{v1_path}"),
+            format!("pubky://{author}{v0_path}")
+        )]
+    );
 
     // Before the retry, the user deletes the tag at its `pubky.app` address
     test.del(&key, &v0_storage).await?;
@@ -578,10 +621,465 @@ async fn test_resource_changes_retract_a_moved_tag_deleted_before_the_flip_retry
         live.is_empty(),
         "a deleted tag stays live: {live:?} from {lines:?}"
     );
-    let (_, held) = ResourceChange::pending_moves(&author, 0).await?;
-    assert!(held.is_empty(), "{held:?}");
+    let recorded = recorded_moves(&author).await?;
+    assert!(recorded.is_empty(), "{recorded:?}");
     test.del(&key, &v1_storage).await?;
     test.del(&key, &profile).await?;
+    Ok(())
+}
+
+/// A resource tag `author` wrote on `target` at `pubky.app`, and the migrator's `social/v1`
+/// copy of it, ignored until the flip; then the flip, whose publish of the move fails. Returns
+/// the paths of both files, the copy's storage and the profile.
+struct UnpublishedMove {
+    v0_path: String,
+    v1_path: String,
+    v1_storage: ResourcePath,
+    profile: ResourcePath,
+    puts: Vec<ResourceChange>,
+}
+
+async fn flip_failing_to_publish_a_move(
+    test: &mut WatcherTest,
+    key: &Keypair,
+    author: &str,
+    target: &str,
+    start: u64,
+) -> Result<UnpublishedMove> {
+    use nexus_common::models::user::Epoch;
+    use nexus_common::utils::test_utils::fail_move_appends;
+    use pubky_social_specs::traits::{HasIdPath as _, HashId as _};
+    use pubky_social_specs::PubkySocialTag;
+
+    let v0 = PubkyAppTag::new(target.to_string(), "moved".into());
+    let v0_path = format!("/pub/pubky.app/tags/{}", v0.create_id());
+    test.put(key, &v0_path.parse()?, &v0).await?;
+    let v1 = PubkySocialTag::new(target.to_string(), "moved".into());
+    let v1_path = PubkySocialTag::create_path(&v1.create_id());
+    let v1_storage: ResourcePath = v1_path.parse()?;
+    test.put(key, &v1_storage, &v1).await?;
+    let puts = authored_since(author, start).await?;
+    assert_eq!(puts.len(), 1);
+
+    fail_move_appends(author, true);
+    let profile: ResourcePath = "/pub/social/v1/profile.json".parse()?;
+    let flipped = test
+        .put(
+            key,
+            &profile,
+            &serde_json::json!({"name": "Unpublished move"}),
+        )
+        .await;
+    fail_move_appends(author, false);
+    flipped?;
+    assert_eq!(Epoch::get_from_graph(author).await?, Epoch::V1);
+    assert_eq!(
+        authored_since(author, start).await?,
+        puts,
+        "the failed publish appends nothing"
+    );
+    assert_eq!(
+        recorded_moves(author).await?,
+        [(
+            format!("pubky://{author}{v1_path}"),
+            format!("pubky://{author}{v0_path}")
+        )],
+        "the move stays recorded"
+    );
+    Ok(UnpublishedMove {
+        v0_path,
+        v1_path,
+        v1_storage,
+        profile,
+        puts,
+    })
+}
+
+/// The feed never fails the flip: when the append of a move fails, the user is `v1` all the
+/// same, the move stays recorded on the edge, and the sweep publishes it as a put at the v1
+/// path followed by a del at the v0 path, once.
+#[tokio_shared_rt::test(shared)]
+async fn test_resource_changes_flip_succeeds_when_its_publish_fails() -> Result<()> {
+    use nexus_watcher::events::v0_to_v1::resource_changes;
+
+    let mut test = WatcherTest::setup(None).await?;
+    let key = Keypair::random();
+    let author = test
+        .create_user(&key, &test_user("Publish fails", "feed"))
+        .await?;
+    let (_, _, start) = ResourceChange::get_from_index(0, 0).await?;
+    let target = format!("https://example.com/publish-fails/{author}");
+    let moved = flip_failing_to_publish_a_move(&mut test, &key, &author, &target, start).await?;
+
+    resource_changes::sweep(resource_changes::BATCH_SIZE).await?;
+    let lines = authored_since(&author, start).await?;
+    let put = &moved.puts[0];
+    assert_eq!(lines.len(), 3, "{lines:?}");
+    assert_eq!(
+        (lines[1].op, lines[1].object_path.as_str(), lines[1].at),
+        (ResourceChangeOp::Put, moved.v1_path.as_str(), put.at)
+    );
+    assert_eq!(
+        (lines[2].op, lines[2].object_path.as_str()),
+        (ResourceChangeOp::Del, moved.v0_path.as_str())
+    );
+    assert_eq!(
+        (&lines[1].resource_id, &lines[2].resource_id),
+        (&put.resource_id, &put.resource_id)
+    );
+    assert!(recorded_moves(&author).await?.is_empty());
+
+    // Published once
+    resource_changes::sweep(resource_changes::BATCH_SIZE).await?;
+    assert_eq!(authored_since(&author, start).await?, lines);
+    test.del(&key, &moved.v1_storage).await?;
+    test.del(&key, &moved.profile).await?;
+    Ok(())
+}
+
+/// The tags step records the address an edge moved from once: a rerun of its write over an
+/// edge already at its new address, as a retried flip's would be, keeps the recorded address
+/// and time, and the move is published from the original address.
+#[tokio_shared_rt::test(shared)]
+async fn test_resource_changes_tags_step_rerun_keeps_the_original_v0_uri() -> Result<()> {
+    use crate::event_processor::posts::utils::pubky_id;
+    use nexus_common::db::{
+        fetch_all_rows_from_graph, fetch_key_from_graph, graph::Query, queries,
+    };
+    use nexus_watcher::events::v0_to_v1;
+    use pubky_social_specs::traits::{HasIdPath as _, HashId as _};
+    use pubky_social_specs::PubkySocialTag;
+
+    let mut test = WatcherTest::setup(None).await?;
+    let key = Keypair::random();
+    let author = test
+        .create_user(&key, &test_user("Tags step rerun", "feed"))
+        .await?;
+    let (_, _, start) = ResourceChange::get_from_index(0, 0).await?;
+    let target = format!("https://example.com/tags-step-rerun/{author}");
+    let v0 = PubkyAppTag::new(target.clone(), "moved".into());
+    let v0_path = format!("/pub/pubky.app/tags/{}", v0.create_id());
+    test.put(&key, &v0_path.parse()?, &v0).await?;
+    let v1 = PubkySocialTag::new(target, "moved".into());
+    let v1_path = PubkySocialTag::create_path(&v1.create_id());
+    let v1_uri = format!("pubky://{author}{v1_path}");
+    let v0_uri = format!("pubky://{author}{v0_path}");
+
+    let author_id = pubky_id(&author)?;
+    let files = v0_to_v1::files::FileMap::load(&author_id).await?;
+    v0_to_v1::tags::migrate(&author_id, &files, 2).await?;
+    let moved = || async {
+        let query = Query::new(
+            "test_moved_edge",
+            "MATCH (:User {id: $author})-[t:TAGGED]->(:Resource)
+             RETURN elementId(t) AS edge, t.id AS id, t.uri AS uri, t.v0_uri AS v0_uri,
+                 t.moved_at AS moved_at",
+        )
+        .param("author", author.as_str());
+        let rows = fetch_all_rows_from_graph(query).await?;
+        assert_eq!(rows.len(), 1);
+        let row = &rows[0];
+        anyhow::Ok((
+            row.get::<String>("edge")?,
+            row.get::<String>("id")?,
+            row.get::<String>("uri")?,
+            row.get::<String>("v0_uri")?,
+            row.get::<i64>("moved_at")?,
+        ))
+    };
+    let (edge, id, uri, recorded_from, moved_at) = moved().await?;
+    assert_eq!(
+        (uri.as_str(), recorded_from.as_str()),
+        (v1_uri.as_str(), v0_uri.as_str())
+    );
+
+    // The write again, later, over the moved edge
+    let changed = fetch_key_from_graph::<i64>(
+        queries::migration::set_tag_addresses(
+            &author,
+            &[(edge.clone(), id.clone(), v1_uri.clone())],
+            moved_at + 60_000,
+        ),
+        "changed",
+    )
+    .await?;
+    assert_eq!(changed, Some(1));
+    // And the whole step: no edge is left under `pubky.app`
+    v0_to_v1::tags::migrate(&author_id, &files, 2).await?;
+    assert_eq!(moved().await?, (edge, id, v1_uri, v0_uri, moved_at));
+
+    v0_to_v1::resource_changes::publish_moves(&author_id).await?;
+    let lines = authored_since(&author, start).await?;
+    assert_eq!(
+        lines
+            .iter()
+            .map(|line| (line.op, line.object_path.as_str()))
+            .collect::<Vec<_>>(),
+        [
+            (ResourceChangeOp::Put, v0_path.as_str()),
+            (ResourceChangeOp::Put, v1_path.as_str()),
+            (ResourceChangeOp::Del, v0_path.as_str())
+        ]
+    );
+    test.del(&key, &v0_path.parse()?).await?;
+    test.cleanup_user(&key).await?;
+    Ok(())
+}
+
+/// A v1 DEL of a moved tag whose move the flip failed to publish: the consumer holds the tag
+/// only at its `pubky.app` path, so the DEL retracts that path next to its own, and the sweep
+/// then has nothing left to publish for it.
+#[tokio_shared_rt::test(shared)]
+async fn test_resource_changes_delete_of_an_unpublished_move_retracts_the_old_path() -> Result<()> {
+    use nexus_watcher::events::v0_to_v1::resource_changes;
+
+    let mut test = WatcherTest::setup(None).await?;
+    let key = Keypair::random();
+    let author = test
+        .create_user(&key, &test_user("Delete unpublished move", "feed"))
+        .await?;
+    let (_, _, start) = ResourceChange::get_from_index(0, 0).await?;
+    let target = format!("https://example.com/delete-unpublished-move/{author}");
+    let moved = flip_failing_to_publish_a_move(&mut test, &key, &author, &target, start).await?;
+
+    test.del(&key, &moved.v1_storage).await?;
+    retrieve_and_handle_event_line(
+        &format!("DEL pubky://{author}{}", moved.v1_path),
+        test.event_processor_runner.event_handler.clone(),
+    )
+    .await?;
+    let lines = authored_since(&author, start).await?;
+    assert_eq!(
+        lines[1..]
+            .iter()
+            .map(|line| (line.op, line.object_path.as_str()))
+            .collect::<Vec<_>>(),
+        [
+            (ResourceChangeOp::Del, moved.v1_path.as_str()),
+            (ResourceChangeOp::Del, moved.v0_path.as_str())
+        ],
+        "{lines:?}"
+    );
+    assert!(live_references(&lines).is_empty(), "{lines:?}");
+    assert!(recorded_moves(&author).await?.is_empty());
+
+    resource_changes::sweep(resource_changes::BATCH_SIZE).await?;
+    assert_eq!(authored_since(&author, start).await?, lines);
+    test.del(&key, &moved.profile).await?;
+    Ok(())
+}
+
+/// A v1 DEL of a tag whose move is not published journals the del of the old path beside its
+/// own, and fails to publish after its graph delete. Before its retry, the user tags the same
+/// target again, at the same v1 path: that put supersedes the journal of its path, and
+/// publishes the del of the old path pending with it, which the put does not bring back.
+#[tokio_shared_rt::test(shared)]
+async fn test_resource_changes_put_again_after_a_failed_delete_retracts_the_old_path() -> Result<()>
+{
+    use deadpool_redis::redis::AsyncCommands;
+    use nexus_common::db::get_redis_conn;
+    use nexus_watcher::events::handlers::tag;
+    use nexus_watcher::events::inputs::ResourceKey;
+    use pubky_social_specs::traits::HashId as _;
+    use pubky_social_specs::PubkySocialTag;
+
+    let mut test = WatcherTest::setup(None).await?;
+    let key = Keypair::random();
+    let author = test
+        .create_user(&key, &test_user("Put again after failed delete", "feed"))
+        .await?;
+    let (_, _, start) = ResourceChange::get_from_index(0, 0).await?;
+    let target = format!("https://example.com/put-again-after-failed-delete/{author}");
+    let moved = flip_failing_to_publish_a_move(&mut test, &key, &author, &target, start).await?;
+    let v1_uri = format!("pubky://{author}{}", moved.v1_path);
+    let delete_key = || -> Result<ResourceKey> {
+        Ok(ResourceKey {
+            owner_id: crate::event_processor::posts::utils::pubky_id(&author)?,
+            resource_id: PubkySocialTag::new(target.clone(), "moved".into()).create_id(),
+        })
+    };
+
+    // The DEL fails after its graph delete: its path's journal key holds another type
+    let journal = format!(
+        "Event:ResourceChanges:PendingDelete:{author}:{}",
+        moved.v1_path
+    );
+    let mut conn = get_redis_conn().await?;
+    let _: () = conn.hset(&journal, "of", "another type").await?;
+    assert!(
+        tag::del_at(delete_key()?, &v1_uri).await.is_err(),
+        "the DEL must fail to publish"
+    );
+    let _: () = conn.del(&journal).await?;
+    assert!(
+        recorded_moves(&author).await?.is_empty(),
+        "the edge is gone"
+    );
+
+    // The same tag again, at the same v1 path
+    let v1 = PubkySocialTag::new(target.clone(), "moved".into());
+    test.put(&key, &moved.v1_storage, &v1).await?;
+    let lines = authored_since(&author, start).await?;
+    assert!(
+        lines[1..]
+            .iter()
+            .any(|line| line.op == ResourceChangeOp::Del && line.object_path == moved.v0_path),
+        "the old path must be retracted: {lines:?}"
+    );
+    assert_eq!(
+        live_references(&lines),
+        [(moved.v1_path.clone(), moved.puts[0].resource_id.clone())].into(),
+        "{lines:?}"
+    );
+    test.del(&key, &moved.v1_storage).await?;
+    test.del(&key, &moved.profile).await?;
+    Ok(())
+}
+
+/// The sweep and a DEL of a moved tag, queued for the tag file's lock in either order: the
+/// DEL either runs first, and the sweep finds no edge, or after the sweep published the move,
+/// and retracts it. No put of the tag outlives the DEL.
+#[tokio_shared_rt::test(shared)]
+async fn test_resource_changes_sweep_and_delete_agree_in_either_order() -> Result<()> {
+    use futures::FutureExt;
+    use nexus_watcher::events::handlers::tag;
+    use nexus_watcher::events::inputs::ResourceKey;
+    use nexus_watcher::events::v0_to_v1::resource_changes;
+
+    let mut test = WatcherTest::setup(None).await?;
+    for sweep_first in [true, false] {
+        let key = Keypair::random();
+        let author = test
+            .create_user(&key, &test_user("Sweep and delete", "feed"))
+            .await?;
+        let (_, _, start) = ResourceChange::get_from_index(0, 0).await?;
+        let target = format!("https://example.com/sweep-and-delete/{author}");
+        let moved =
+            flip_failing_to_publish_a_move(&mut test, &key, &author, &target, start).await?;
+        let id = moved
+            .v1_path
+            .rsplit('/')
+            .next()
+            .unwrap()
+            .trim_end_matches(".json")
+            .to_string();
+        let v1_uri = format!("pubky://{author}{}", moved.v1_path);
+        let delete_key = ResourceKey {
+            owner_id: crate::event_processor::posts::utils::pubky_id(&author)?,
+            resource_id: id.clone(),
+        };
+
+        let guard = tag::lock_tag(&author, &id).await;
+        let mut sweep = async {
+            resource_changes::sweep(resource_changes::BATCH_SIZE)
+                .await
+                .map(|_| ())
+        }
+        .boxed_local();
+        let mut delete = async move { tag::del_at(delete_key, &v1_uri).await }.boxed_local();
+        let order = if sweep_first {
+            [&mut sweep, &mut delete]
+        } else {
+            [&mut delete, &mut sweep]
+        };
+        for handler in order {
+            // The sweep reads its page first, then waits for the lock
+            assert!(
+                tokio::time::timeout(std::time::Duration::from_secs(2), handler.as_mut())
+                    .await
+                    .is_err(),
+                "sweep_first={sweep_first}: every handler must wait for the tag's lock"
+            );
+        }
+        drop(guard);
+        let (swept, deleted) = futures::join!(sweep, delete);
+        swept?;
+        deleted?;
+
+        let lines = authored_since(&author, start).await?;
+        assert!(
+            live_references(&lines).is_empty(),
+            "sweep_first={sweep_first}: a deleted tag stays live: {lines:?}"
+        );
+        // The sweep publishes other users' recorded moves too, and may reach this tag's lock
+        // only after the DEL: either order is one of these
+        let swept_then_deleted = [
+            (ResourceChangeOp::Put, moved.v1_path.as_str()),
+            (ResourceChangeOp::Del, moved.v0_path.as_str()),
+            (ResourceChangeOp::Del, moved.v1_path.as_str()),
+        ];
+        let deleted_then_swept = [
+            (ResourceChangeOp::Del, moved.v1_path.as_str()),
+            (ResourceChangeOp::Del, moved.v0_path.as_str()),
+        ];
+        let after: Vec<_> = lines[1..]
+            .iter()
+            .map(|line| (line.op, line.object_path.as_str()))
+            .collect();
+        assert!(
+            after == swept_then_deleted || after == deleted_then_swept,
+            "sweep_first={sweep_first}: {lines:?}"
+        );
+        if !sweep_first {
+            assert_eq!(after, deleted_then_swept, "the DEL ran first");
+        }
+        assert!(recorded_moves(&author).await?.is_empty());
+        test.del(&key, &moved.v1_storage).await?;
+        test.del(&key, &moved.profile).await?;
+    }
+    Ok(())
+}
+
+/// A publish that appended a move and then stopped before clearing its record, as a crash
+/// between the two leaves it: the next sweep appends the move again and clears the record.
+/// The consumer only sees the put and the del twice, and ends with the reference at its
+/// `social/v1` path.
+#[tokio_shared_rt::test(shared)]
+async fn test_resource_changes_a_move_appended_but_not_cleared_is_only_repeated() -> Result<()> {
+    use nexus_watcher::events::v0_to_v1::resource_changes;
+
+    let mut test = WatcherTest::setup(None).await?;
+    let key = Keypair::random();
+    let author = test
+        .create_user(&key, &test_user("Move not cleared", "feed"))
+        .await?;
+    let (_, _, start) = ResourceChange::get_from_index(0, 0).await?;
+    let target = format!("https://example.com/move-not-cleared/{author}");
+    let moved = flip_failing_to_publish_a_move(&mut test, &key, &author, &target, start).await?;
+
+    // The append of the publish, without its clear
+    let put = &moved.puts[0];
+    let mut at_v1 = put.clone();
+    at_v1.object_path = moved.v1_path.clone();
+    let mut del_v0 = put.clone();
+    del_v0.op = ResourceChangeOp::Del;
+    ResourceChange::store_moves(&[(at_v1, del_v0)]).await?;
+    assert_eq!(recorded_moves(&author).await?.len(), 1);
+
+    resource_changes::sweep(resource_changes::BATCH_SIZE).await?;
+    let lines = authored_since(&author, start).await?;
+    assert_eq!(
+        lines[1..]
+            .iter()
+            .map(|line| (line.op, line.object_path.as_str()))
+            .collect::<Vec<_>>(),
+        [
+            (ResourceChangeOp::Put, moved.v1_path.as_str()),
+            (ResourceChangeOp::Del, moved.v0_path.as_str()),
+            (ResourceChangeOp::Put, moved.v1_path.as_str()),
+            (ResourceChangeOp::Del, moved.v0_path.as_str())
+        ],
+        "{lines:?}"
+    );
+    assert_eq!(
+        live_references(&lines),
+        [(moved.v1_path.clone(), put.resource_id.clone())].into()
+    );
+    assert!(recorded_moves(&author).await?.is_empty());
+    resource_changes::sweep(resource_changes::BATCH_SIZE).await?;
+    assert_eq!(authored_since(&author, start).await?, lines);
+    test.del(&key, &moved.v1_storage).await?;
+    test.del(&key, &moved.profile).await?;
     Ok(())
 }
 
@@ -675,7 +1173,9 @@ fn flip_tags(
     Ok(async move {
         let files = v0_to_v1::files::FileMap::load(&author_id).await?;
         v0_to_v1::tags::migrate(&author_id, &files, batch_size).await?;
-        v0_to_v1::resource_changes::publish(&author_id).await
+        v0_to_v1::resource_changes::publish_moves(&author_id)
+            .await
+            .map(|_| ())
     }
     .boxed_local())
 }
@@ -897,8 +1397,8 @@ async fn test_resource_tag_flip_waits_for_the_tag_lock() -> Result<()> {
     }
 
     assert_feed_matches_graph(&author, start, &target).await?;
-    let (_, held) = ResourceChange::pending_moves(&author, 0).await?;
-    assert!(held.is_empty(), "{held:?}");
+    let recorded = recorded_moves(&author).await?;
+    assert!(recorded.is_empty(), "{recorded:?}");
     test.cleanup_user(&key).await?;
     Ok(())
 }
@@ -1010,7 +1510,7 @@ async fn resource_tag_edge(author: &str, target: &str) -> Result<Option<String>>
 
 /// After a flip whose tags step moved an own-file tag to its new id and address, then failed,
 /// `remove` deletes or takes down the tag at its `pubky.app` address while the user is still
-/// `v0`. The retried flip must leave no edge, no live reference and no held move.
+/// `v0`. The retried flip must leave no edge, no live reference and no recorded move.
 async fn own_file_tag_removed_before_the_flip_retry(
     name: &str,
     remove: impl AsyncFnOnce(&mut WatcherTest, &Keypair, &str, &OwnFileTag) -> Result<()>,
@@ -1018,8 +1518,8 @@ async fn own_file_tag_removed_before_the_flip_retry(
     own_file_tag_removed_after_a_failed_flip(name, false, remove).await
 }
 
-/// [`own_file_tag_removed_before_the_flip_retry`], where the failed flip has `published` its
-/// moves or not: the step after the tags step, or the epoch write after the publish, failed.
+/// [`own_file_tag_removed_before_the_flip_retry`], where the move has been `published` or not
+/// before the removal: the sweep publishes the moves of a flip that failed at its epoch write.
 async fn own_file_tag_removed_after_a_failed_flip(
     name: &str,
     published: bool,
@@ -1039,7 +1539,7 @@ async fn own_file_tag_removed_after_a_failed_flip(
     let file_map = v0_to_v1::files::FileMap::load(&author_id).await?;
     v0_to_v1::tags::migrate(&author_id, &file_map, 2).await?;
     if published {
-        v0_to_v1::resource_changes::publish(&author_id).await?;
+        v0_to_v1::resource_changes::publish_moves(&author_id).await?;
     }
     assert_eq!(
         resource_tag_edge(&author, &tag.file_uri).await?,
@@ -1059,8 +1559,15 @@ async fn own_file_tag_removed_after_a_failed_flip(
         "the removed tag must leave the graph"
     );
     assert_feed_matches_graph(&author, start, &tag.file_uri).await?;
-    let (_, held) = ResourceChange::pending_moves(&author, 0).await?;
-    assert!(held.is_empty(), "{held:?}");
+    assert!(
+        authored_since(&author, start)
+            .await?
+            .iter()
+            .any(|line| line.op == ResourceChangeOp::Del && line.object_path == tag.v0_path),
+        "the removal retracts the pubky.app path"
+    );
+    let recorded = recorded_moves(&author).await?;
+    assert!(recorded.is_empty(), "{recorded:?}");
     let v0_uri = format!("pubky://{author}{}", tag.v0_path);
     assert_eq!(
         ResourceChange::aliased_delete(&author, &v0_uri).await?,
@@ -1153,8 +1660,8 @@ async fn test_resource_tag_flip_waits_for_the_lock_of_the_new_id() -> Result<()>
 
     assert_eq!(resource_tag_edge(&author, &own.file_uri).await?, None);
     assert_feed_matches_graph(&author, start, &own.file_uri).await?;
-    let (_, held) = ResourceChange::pending_moves(&author, 0).await?;
-    assert!(held.is_empty(), "{held:?}");
+    let recorded = recorded_moves(&author).await?;
+    assert!(recorded.is_empty(), "{recorded:?}");
     test.del(&key, &own.v1_storage).await?;
     test.cleanup_file(&key, &own.file_path).await?;
     test.cleanup_user(&key).await?;
@@ -1197,8 +1704,8 @@ async fn test_resource_tag_flip_rereads_a_page_a_delete_changed_before_the_grant
 
     assert_eq!(resource_tag_edge(&author, &target).await?, None);
     assert_feed_matches_graph(&author, start, &target).await?;
-    let (_, held) = ResourceChange::pending_moves(&author, 0).await?;
-    assert!(held.is_empty(), "{held:?}");
+    let recorded = recorded_moves(&author).await?;
+    assert!(recorded.is_empty(), "{recorded:?}");
     test.cleanup_user(&key).await?;
     Ok(())
 }
@@ -1262,18 +1769,16 @@ async fn test_resource_tag_flip_relocks_for_an_edge_created_before_the_grant() -
         );
         assert_feed_matches_graph(&author, start, target).await?;
     }
-    let (_, held) = ResourceChange::pending_moves(&author, 0).await?;
-    assert!(held.is_empty(), "{held:?}");
+    let recorded = recorded_moves(&author).await?;
+    assert!(recorded.is_empty(), "{recorded:?}");
     test.cleanup_user(&key).await?;
     Ok(())
 }
 
 /// The DEL of a moved own-file tag at its `pubky.app` address, as the handler runs it up to a
 /// publish that fails: its journal under the address on the edge, named by the `pubky.app`
-/// address, then the graph delete. Then its retry, which finds no edge.
-async fn delete_a_moved_own_file_tag_failing_to_publish(
-    test: &mut WatcherTest,
-    key: &Keypair,
+/// address, then the graph delete.
+async fn fail_to_publish_a_delete_of_a_moved_own_file_tag(
     author: &str,
     tag: &OwnFileTag,
 ) -> Result<()> {
@@ -1281,33 +1786,93 @@ async fn delete_a_moved_own_file_tag_failing_to_publish(
 
     let v0_uri = format!("pubky://{author}{}", tag.v0_path);
     let (normalized, _) = normalize_uri(&tag.file_uri).unwrap();
-    ResourceChange::tag(
-        ResourceChangeOp::Del,
-        resource_id(&normalized),
-        normalized.to_string(),
-        author.to_string(),
-        "steps".into(),
-        &format!("pubky://{author}{}", tag.v1_storage),
-        Utc::now().timestamp_millis(),
-    )?
-    .prepare_aliased_delete(&v0_uri)
-    .await?;
+    let del = |path: String| {
+        ResourceChange::tag(
+            ResourceChangeOp::Del,
+            resource_id(&normalized),
+            normalized.to_string(),
+            author.to_string(),
+            "steps".into(),
+            &format!("pubky://{author}{path}"),
+            Utc::now().timestamp_millis(),
+        )
+    };
+    // The del of the address the edge moved from, while its move is recorded
+    let moved = match recorded_moves(author).await?.is_empty() {
+        true => None,
+        false => Some(del(tag.v0_path.clone())?),
+    };
+    del(tag.v1_storage.to_string())?
+        .prepare_aliased_delete(&v0_uri, moved.as_ref())
+        .await?;
     let v0_id = tag.v0_path.rsplit('/').next().unwrap();
     fetch_row_from_graph(queries::del::delete_tag(author, v0_id)).await?;
+    Ok(())
+}
+
+/// [`fail_to_publish_a_delete_of_a_moved_own_file_tag`], then its retry, which finds no edge.
+async fn delete_a_moved_own_file_tag_failing_to_publish(
+    test: &mut WatcherTest,
+    key: &Keypair,
+    author: &str,
+    tag: &OwnFileTag,
+) -> Result<()> {
+    fail_to_publish_a_delete_of_a_moved_own_file_tag(author, tag).await?;
     // Its retry
     test.del(key, &tag.v0_path.parse()?).await?;
     retrieve_and_handle_event_line(
-        &format!("DEL {v0_uri}"),
+        &format!("DEL pubky://{author}{}", tag.v0_path),
         test.event_processor_runner.event_handler.clone(),
     )
     .await?;
     Ok(())
 }
 
+/// The user deletes the moved own-file tag at its `pubky.app` address after its move was
+/// published, the DEL fails after its graph delete, and the user tags the file again at that
+/// address before the DEL's retry. The retry finds and deletes the new edge, and finishes the
+/// journal its first attempt left under the moved address: the consumer holds that address.
+#[tokio_shared_rt::test(shared)]
+async fn test_resource_changes_delete_retry_on_a_tag_put_again_finishes_its_first_journal(
+) -> Result<()> {
+    own_file_tag_removed_after_a_failed_flip(
+        "Own file delete retry after a put again",
+        true,
+        async |test, key, author, tag| {
+            fail_to_publish_a_delete_of_a_moved_own_file_tag(author, tag).await?;
+            let again = PubkyAppTag::new(tag.file_uri.clone(), "steps".into());
+            test.put(key, &tag.v0_path.parse()?, &again).await?;
+            assert_eq!(
+                resource_tag_edge(author, &tag.file_uri).await?,
+                Some(format!("pubky://{author}{}", tag.v0_path))
+            );
+            // The DEL's retry
+            retrieve_and_handle_event_line(
+                &format!("DEL pubky://{author}{}", tag.v0_path),
+                test.event_processor_runner.event_handler.clone(),
+            )
+            .await?;
+            let lines = authored_since(author, 0).await?;
+            assert!(
+                live_references(&lines).is_empty(),
+                "the retry must retract both addresses: {lines:?}"
+            );
+            assert_eq!(
+                ResourceChange::aliased_delete(author, &format!("pubky://{author}{}", tag.v0_path))
+                    .await?,
+                None
+            );
+            test.del(key, &tag.v0_path.parse()?).await?;
+            Ok(())
+        },
+    )
+    .await
+}
+
 /// The user deletes the moved own-file tag at its `pubky.app` address before the failed flip
-/// published its moves, and the DEL fails after its graph delete, before it publishes. Its retry
+/// published its move, and the DEL fails after its graph delete, before it publishes. Its retry
 /// finds no edge, and publishes the del of the moved address through the alias the DEL left,
-/// with the del the flip held for the `pubky.app` address.
+/// with the del of the `pubky.app` address pending with it.
 #[tokio_shared_rt::test(shared)]
 async fn test_resource_changes_delete_of_a_moved_own_file_tag_that_fails_to_publish() -> Result<()>
 {
@@ -1320,8 +1885,8 @@ async fn test_resource_changes_delete_of_a_moved_own_file_tag_that_fails_to_publ
 }
 
 /// [`test_resource_changes_delete_of_a_moved_own_file_tag_that_fails_to_publish`] after the
-/// failed flip published its moves: no held del is left, and the retry publishes the del of
-/// the moved address through the alias alone.
+/// failed flip published its move: the move is no longer recorded, and the retry publishes the
+/// del of the moved address through the alias alone.
 #[tokio_shared_rt::test(shared)]
 async fn test_resource_changes_delete_of_a_published_own_file_tag_move_that_fails_to_publish(
 ) -> Result<()> {
@@ -1334,10 +1899,10 @@ async fn test_resource_changes_delete_of_a_published_own_file_tag_move_that_fail
 }
 
 /// A DEL of a moved own-file tag deleted the edge but failed to publish, leaving its del
-/// pending under the moved address and the flip's held del of the `pubky.app` address. The
-/// retried flip's tags step then finds no edge to move, and before it publishes, the user, still
-/// `v0`, tags the file again at the `pubky.app` address: the new edge is live, so the flip's
-/// publish must not retract that address.
+/// pending under the moved address, with the del of the `pubky.app` address. The retried
+/// flip's tags step then finds no edge to move, and before it publishes, the user, still `v0`,
+/// tags the file again at the `pubky.app` address: the new edge is live, so the flip's publish
+/// must not retract that address.
 #[tokio_shared_rt::test(shared)]
 async fn test_resource_changes_flip_publish_keeps_a_tag_put_again_after_a_failed_delete(
 ) -> Result<()> {
@@ -1356,20 +1921,24 @@ async fn test_resource_changes_flip_publish_keeps_a_tag_put_again_after_a_failed
     let file_map = v0_to_v1::files::FileMap::load(&author_id).await?;
     v0_to_v1::tags::migrate(&author_id, &file_map, 2).await?;
 
-    // The DEL's journal under the moved address and its graph delete; its publish fails
+    // The DEL's journal under the moved address, with the del of the address the edge moved
+    // from, and its graph delete; its publish fails
     let v0_uri = format!("pubky://{author}{}", tag.v0_path);
     let (normalized, _) = normalize_uri(&tag.file_uri).unwrap();
-    ResourceChange::tag(
-        ResourceChangeOp::Del,
-        resource_id(&normalized),
-        normalized.to_string(),
-        author.clone(),
-        "steps".into(),
-        &format!("pubky://{author}{}", tag.v1_storage),
-        Utc::now().timestamp_millis(),
-    )?
-    .prepare_aliased_delete(&v0_uri)
-    .await?;
+    let del = |path: String| {
+        ResourceChange::tag(
+            ResourceChangeOp::Del,
+            resource_id(&normalized),
+            normalized.to_string(),
+            author.clone(),
+            "steps".into(),
+            &format!("pubky://{author}{path}"),
+            Utc::now().timestamp_millis(),
+        )
+    };
+    del(tag.v1_storage.to_string())?
+        .prepare_aliased_delete(&v0_uri, Some(&del(tag.v0_path.clone())?))
+        .await?;
     let v0_id = tag.v0_path.rsplit('/').next().unwrap();
     fetch_row_from_graph(queries::del::delete_tag(&author, v0_id)).await?;
 
@@ -1377,7 +1946,94 @@ async fn test_resource_changes_flip_publish_keeps_a_tag_put_again_after_a_failed
     v0_to_v1::tags::migrate(&author_id, &file_map, 2).await?;
     let again = PubkyAppTag::new(tag.file_uri.clone(), "steps".into());
     test.put(&key, &tag.v0_path.parse()?, &again).await?;
-    v0_to_v1::resource_changes::publish(&author_id).await?;
+    v0_to_v1::resource_changes::publish_moves(&author_id).await?;
+
+    assert_eq!(
+        resource_tag_edge(&author, &tag.file_uri).await?,
+        Some(format!("pubky://{author}{}", tag.v0_path))
+    );
+    assert_feed_matches_graph(&author, start, &tag.file_uri).await?;
+    test.cleanup_file(&key, &tag.file_path).await?;
+    test.cleanup_user(&key).await?;
+    Ok(())
+}
+
+/// A takedown of a moved own-file tag at its `social/v1` address, while the flip that moved it
+/// waits for its retry, journals the del of the `pubky.app` address beside its own and fails
+/// to publish after its graph delete. The user, still `v0`, then tags the file again at the
+/// `pubky.app` address. That put makes the address live again, so the takedown's retry, which
+/// finds no edge, must publish only the del of the `social/v1` address.
+#[tokio_shared_rt::test(shared)]
+async fn test_resource_changes_put_at_the_old_address_drops_a_pending_moved_del() -> Result<()> {
+    use crate::event_processor::posts::utils::pubky_id;
+    use deadpool_redis::redis::AsyncCommands;
+    use nexus_common::db::get_redis_conn;
+    use nexus_watcher::events::handlers::tag;
+    use nexus_watcher::events::inputs::ResourceKey;
+    use nexus_watcher::events::v0_to_v1;
+
+    let mut test = WatcherTest::setup(None).await?;
+    let key = Keypair::random();
+    let author = test
+        .create_user(&key, &test_user("Put at the old address", "feed"))
+        .await?;
+    let (_, _, start) = ResourceChange::get_from_index(0, 0).await?;
+    let tag = put_own_file_tag(&mut test, &key, &author).await?;
+    let author_id = pubky_id(&author)?;
+    let file_map = v0_to_v1::files::FileMap::load(&author_id).await?;
+    v0_to_v1::tags::migrate(&author_id, &file_map, 2).await?;
+    let v1_uri = format!("pubky://{author}{}", tag.v1_storage);
+    let takedown_key = || ResourceKey {
+        owner_id: author_id.clone(),
+        resource_id: tag.v1_id.clone(),
+    };
+
+    // The takedown fails after its graph delete: its path's journal key holds another type
+    let journal = format!(
+        "Event:ResourceChanges:PendingDelete:{author}:{}",
+        tag.v1_storage
+    );
+    let mut conn = get_redis_conn().await?;
+    let _: () = conn.hset(&journal, "of", "another type").await?;
+    assert!(
+        tag::del_at(takedown_key(), &v1_uri).await.is_err(),
+        "the takedown must fail to publish"
+    );
+    assert_eq!(resource_tag_edge(&author, &tag.file_uri).await?, None);
+    // The journal as the takedown wrote it, the del of its address
+    let _: () = conn.del(&journal).await?;
+    let (normalized, _) = normalize_uri(&tag.file_uri).unwrap();
+    ResourceChange::tag(
+        ResourceChangeOp::Del,
+        resource_id(&normalized),
+        normalized.to_string(),
+        author.clone(),
+        "steps".into(),
+        &v1_uri,
+        Utc::now().timestamp_millis(),
+    )?
+    .prepare_delete(None)
+    .await?;
+
+    // The same tag again, at the `pubky.app` address, then the takedown's retry
+    let again = PubkyAppTag::new(tag.file_uri.clone(), "steps".into());
+    test.put(&key, &tag.v0_path.parse()?, &again).await?;
+    assert_eq!(
+        ResourceChange::pending_moved_from(&author, &v1_uri).await?,
+        Some(format!("pubky://{author}{}", tag.v0_path)),
+        "the takedown journals the del of the pubky.app address"
+    );
+    let (_, _, before_retry) = ResourceChange::get_from_index(0, 0).await?;
+    tag::del_at(takedown_key(), &v1_uri).await?;
+    assert_eq!(
+        authored_since(&author, before_retry)
+            .await?
+            .iter()
+            .map(|line| (line.op, line.object_path.clone()))
+            .collect::<Vec<_>>(),
+        [(ResourceChangeOp::Del, tag.v1_storage.to_string())],
+        "the retry publishes only the del of the social/v1 address"
+    );
 
     assert_eq!(
         resource_tag_edge(&author, &tag.file_uri).await?,

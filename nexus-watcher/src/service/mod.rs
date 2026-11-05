@@ -7,7 +7,8 @@ pub mod user_hs_resolver;
 
 /// Module exports
 pub use constants::{
-    KEY_BASED_RUN_BUDGET, KEY_BASED_SLOW_RUN_MARGIN, SLOW_RUN_THRESHOLD, WATCHER_CONFIG_FILE_NAME,
+    KEY_BASED_RUN_BUDGET, KEY_BASED_SLOW_RUN_MARGIN, RESOURCE_MOVES_SWEEP_INTERVAL_MS,
+    SLOW_RUN_THRESHOLD, WATCHER_CONFIG_FILE_NAME,
 };
 pub use indexer::{
     HsEventProcessor, KeyBasedEventProcessor, RunError, RunOutcome, TEventProcessor,
@@ -17,6 +18,7 @@ pub(crate) use task_runner::{run_periodic_tasks, PeriodicTask};
 pub use user_hs_resolver::UserHsResolverRunner;
 
 use crate::events::retry::{RetryProcessor, RetryScheduler};
+use crate::events::v0_to_v1::resource_changes;
 use crate::events::{DefaultEventHandler, EventHandler};
 use crate::homeserver::{HomeserverClient, PubkyHomeserverClient};
 use crate::service::constants::DEFAULT_WATCHER_CONFIG_TOML;
@@ -64,11 +66,13 @@ impl NexusWatcher {
 
     /// Starts the Nexus Watcher with parallel periodic task loops.
     ///
-    /// Currently runs four tasks, each on its own tick interval:
+    /// Currently runs five tasks, each on its own tick interval:
     /// 1. **Primary homeserver** ([`WatcherConfig::primary_hs_monitoring_interval_ms`]).
     /// 2. **External homeservers** ([`WatcherConfig::external_hs_monitoring_interval_ms`]).
     /// 3. **User HS resolver** ([`WatcherConfig::hs_resolver_interval_ms`]).
     /// 4. **Retry processor** ([`WatcherConfig::retry_processor_interval_ms`]).
+    /// 5. **Moved resource tags** ([`RESOURCE_MOVES_SWEEP_INTERVAL_MS`]): publishes the resource
+    ///    changes feed lines of the tags a flip moved that the flip did not publish.
     ///
     /// All tasks listen for the shutdown signal to exit gracefully. If any task panics,
     /// an internal cancellation signal is sent so that sibling tasks can finish their
@@ -147,6 +151,16 @@ impl NexusWatcher {
                 let processor = retry_processor.clone();
                 async move { processor.run().await.map_err(DynError::from) }
             }),
+            PeriodicTask::new(
+                "resource-moves-sweep",
+                RESOURCE_MOVES_SWEEP_INTERVAL_MS,
+                || async {
+                    resource_changes::sweep(resource_changes::BATCH_SIZE)
+                        .await
+                        .map(|_| ())
+                        .map_err(DynError::from)
+                },
+            ),
         ];
 
         let task_results = run_periodic_tasks(tasks, shutdown_rx).await;
