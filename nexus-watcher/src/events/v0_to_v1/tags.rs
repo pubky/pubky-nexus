@@ -43,15 +43,20 @@
 //!
 //! The write marks each `Resource` edge it moves with the address it moves from, `v0_uri`,
 //! and the time, `moved_at`: the resource changes feed published the edge under that address,
-//! and publishes the move after the flip, outside it (see [`super::resource_changes`]).
+//! and publishes the move after the flip's epoch write, never failing the flip (see
+//! [`super::resource_changes`]).
 //!
 //! A batch holds the locks of its `Resource` edges' tag files, the ones their handlers take
 //! (see [`tag::lock_tags`]), from its read to its write: the edge's id, and the new id the
 //! flip gives it, which a takedown of the migrator's copy locks. So no handler of those files
 //! runs between a read of the edge and its append while the edge moves: a handler that runs
 //! after the write finds the edge at its `social/v1` address. A batch holds at most two locks
-//! per edge. The write keeps a changed id as `v0_id`, so a `pubky.app` `DEL` or takedown of
-//! the edge, in the window before a failed flip's retry, still finds and deletes it.
+//! per edge. The write keeps a changed id as `v0_id`, so a takedown at the edge's `pubky.app`
+//! address, in the window before a failed flip's retry, still finds and deletes it. So does a
+//! `pubky.app` `DEL` handled in that window, which happens only with no flip queued: the gate
+//! holds the user's `pubky.app` `DEL`s while the failed flip waits in the retry queue, and
+//! ignores them once it lands. No flip is queued when the retry processor handles such a `DEL`
+//! while the flip's first attempt is in flight, or once the flip's entry is gone.
 
 use super::attachments;
 use super::files::FileMap;

@@ -63,23 +63,30 @@ path the user's later `social/v1` delete retracts.
 The move is recorded on the edge, in the same graph write that moves it: `v0_uri`
 keeps the address the feed published the edge under, as stored, and `moved_at` is
 set until the move is published. A rerun of that write over an edge already at its
-new address keeps both. The moves are published outside the flip, which never fails
-on the feed: once right after the flip's epoch write, and by a sweep the watcher
-runs every minute over every edge whose move is still recorded, in pages of 100,
-starting from the index on `TAGGED(moved_at)`, which holds only those edges. When
-the first publish fails, a consumer sees the move up to one sweep later. Each move
-is published under its tag file's lock, from the edge read again under it: the put
-and the del are appended together, then `moved_at` is cleared if it is still the
-move that was read, a page of 100 at a time under the page's locks. A crash between
-the append and the clear makes the next sweep append the moves again, duplicates.
+new address keeps both. The moves are published outside the flip's steps, so the
+flip never fails on the feed: once in the flip right after its epoch write, and by
+a sweep the watcher runs every minute over every edge whose move is still
+recorded, in pages of 100, starting from the index on `TAGGED(moved_at)`, which
+holds only those edges. When the first publish fails, a consumer sees the move up
+to one sweep later. Each move is published under its tag file's lock, from the
+edge read again under it: the put and the del are appended together, then
+`moved_at` is cleared if it is still the move that was read, a page of 100 at a
+time under the page's locks. A crash between the append and the clear makes the
+next sweep append the moves again, duplicates. A `social/v1` tag file the gate
+held while a failed flip was queued, on the target and label of an edge the flip
+moved to that file, is handled after the flip as a replayed put at the new path,
+which may come before the move's own lines. Consumers upsert it.
 
 A tag deleted or taken down while its move is still recorded publishes a del of
 `v0_uri` right after its own del: the consumer may still hold only that address.
-That includes a tag on the user's own file, whose id the flip changes: the edge keeps
-its `pubky.app` id beside the new one, and the delete of its `pubky.app` file finds it
-by that id. Such a delete journals its del under the edge's address and names that
-journal from the deleted file's address until the del is published, so a retry still
-publishes it, whether it finds no edge or a tag made again at that file.
+That includes a tag on the user's own file, whose id the flip changes: the edge
+keeps its `pubky.app` id beside the new one, and the delete of its `pubky.app`
+file finds it by that id. While a failed flip waits in the retry queue, the gate
+holds the user's `pubky.app` DELs and ignores them once the flip lands, so such a
+delete reaches the edge only when no flip is queued; a takedown reaches it either
+way. Such a delete journals its del under the edge's address and names that
+journal from the deleted file's address until the del is published, so a retry
+still publishes it, whether it finds no edge or a tag made again at that file.
 
 The del of `v0_uri` is pending with the delete's own, so a retry that no longer finds
 the edge publishes both, and the move is never published afterwards, since its edge
