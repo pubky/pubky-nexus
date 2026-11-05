@@ -1,7 +1,9 @@
 use crate::events::EventProcessorError;
 use chrono::Utc;
 use nexus_common::db::kv::ScoreAction;
-use nexus_common::db::{fetch_row_from_graph, queries, OperationOutcome, RedisOps};
+use nexus_common::db::{
+    fetch_key_from_graph, fetch_row_from_graph, queries, OperationOutcome, RedisOps,
+};
 use nexus_common::models::event::resource_changes::{ResourceChange, ResourceChangeOp};
 use nexus_common::models::notification::Notification;
 use nexus_common::models::post::search::PostsByTagSearch;
@@ -50,9 +52,18 @@ pub async fn lock_tags<'a>(
     tagger_id: &str,
     tag_ids: impl IntoIterator<Item = &'a str>,
 ) -> Vec<MutexGuard<'static, ()>> {
-    let mut stripes: Vec<usize> = tag_ids
+    lock_tag_files(tag_ids.into_iter().map(|tag_id| (tagger_id, tag_id))).await
+}
+
+/// The locks of several tag files, of any taggers, `(tagger_id, tag_id)` pairs, as the
+/// publisher of the flip's moves takes them for a page of edges: see [`lock_tags`], whose
+/// order it keeps across taggers.
+pub async fn lock_tag_files<T: AsRef<str>, I: AsRef<str>>(
+    files: impl IntoIterator<Item = (T, I)>,
+) -> Vec<MutexGuard<'static, ()>> {
+    let mut stripes: Vec<usize> = files
         .into_iter()
-        .map(|tag_id| tag_lock_stripe(tagger_id, tag_id))
+        .map(|(tagger_id, tag_id)| tag_lock_stripe(tagger_id.as_ref(), tag_id.as_ref()))
         .collect();
     stripes.sort_unstable();
     stripes.dedup();
@@ -61,6 +72,13 @@ pub async fn lock_tags<'a>(
         guards.push(TAG_LOCKS[stripe].lock().await);
     }
     guards
+}
+
+/// The id of the tag file at `tag_uri`, the last segment of its path, which its handlers
+/// lock it by.
+fn tag_id_of(tag_uri: &str) -> &str {
+    let file = tag_uri.rsplit('/').next().unwrap_or(tag_uri);
+    file.strip_suffix(".json").unwrap_or(file)
 }
 
 /// Which of the locks a tag file takes.
@@ -443,7 +461,10 @@ pub async fn del(key: ResourceKey) -> Result<(), EventProcessorError> {
 /// target and label, found by its id alone, or by the id it had before the flip gave it a new
 /// one. It holds the locks of the edge's ids: see [`lock_tags`]. A resource tag's feed del is
 /// keyed by the address stored on the edge, which its put used; `tag_uri`, the address of the
-/// file being deleted, is also checked along with both canonical epoch paths on a retry.
+/// file being deleted, is also checked along with both canonical epoch paths on a retry. A
+/// resource tag the flip moved, whose move the feed has not published yet, is also retracted
+/// at the address it moved from, which the consumer holds: that del is pending with the
+/// other and published right after it.
 #[tracing::instrument(
     name = "tag.del",
     skip_all,
@@ -482,22 +503,58 @@ pub async fn del_at(key: ResourceKey, tag_uri: &str) -> Result<(), EventProcesso
         locked = ids;
     };
     let Some(row) = row else {
-        // A delete of an edge stored under another address names its journal from this one
+        // The journals a retry finishes. First the one this file's address names, kept under
+        // the address of an edge stored elsewhere. Then the journals of this address and of
+        // both canonical epoch paths: the edge may have been owned by the other epoch's file,
+        // and its URI is gone after the graph commit. Each append-and-clear is atomic;
+        // replaying any is harmless.
+        let mut journals: Vec<(String, bool)> = Vec::new();
         if let Some(stored_uri) = ResourceChange::aliased_delete(&arg_user_id, tag_uri).await? {
-            ResourceChange::finish_aliased_delete(&arg_user_id, &stored_uri, tag_uri).await?;
+            journals.push((stored_uri, true));
         }
-        // The edge may have been owned by the other epoch's file. Its URI is gone
-        // after the graph commit, so finish both bounded canonical journal keys.
-        // Each append-and-clear is atomic; replaying either key is harmless.
-        for uri in [
-            tag_uri.to_owned(),
-            pubky_social_specs::legacy_v0::tag_uri_builder(
-                arg_user_id.to_string(),
-                arg_tag_id.clone(),
-            ),
-            pubky_social_specs::tag_uri_builder(arg_user_id.to_string(), arg_tag_id.clone()),
-        ] {
-            ResourceChange::finish_delete(&arg_user_id, &uri).await?;
+        journals.extend(
+            [
+                tag_uri.to_owned(),
+                pubky_social_specs::legacy_v0::tag_uri_builder(
+                    arg_user_id.to_string(),
+                    arg_tag_id.clone(),
+                ),
+                pubky_social_specs::tag_uri_builder(arg_user_id.to_string(), arg_tag_id.clone()),
+            ]
+            .map(|uri| (uri, false)),
+        );
+        // A journal's del of the address its edge moved from is dropped if that address is
+        // live again, a tag put there since: checked under the lock of that file too.
+        let moved_from = loop {
+            let mut moved_from = Vec::with_capacity(journals.len());
+            for (uri, _) in &journals {
+                moved_from.push(ResourceChange::pending_moved_from(&arg_user_id, uri).await?);
+            }
+            let ids: BTreeSet<String> = moved_from
+                .iter()
+                .flatten()
+                .map(|uri| tag_id_of(uri).to_string())
+                .chain([arg_tag_id.clone()])
+                .collect();
+            if ids.is_subset(&locked) {
+                break moved_from;
+            }
+            drop(_tag_locks);
+            _tag_locks = lock_tags(tagger_id, ids.iter().map(String::as_str)).await;
+            locked = ids;
+        };
+        for ((uri, aliased), from) in journals.iter().zip(moved_from) {
+            let live = match from {
+                Some(from) => fetch_key_from_graph::<bool>(
+                    queries::get::tag_address_is_live(tagger_id, &from),
+                    "live",
+                )
+                .await?
+                .unwrap_or(false),
+                None => false,
+            };
+            let aliases: &[&str] = if *aliased { &[tag_uri] } else { &[] };
+            ResourceChange::finish_aliased_delete(&arg_user_id, uri, aliases, live).await?;
         }
         return Ok(());
     };
@@ -558,36 +615,63 @@ pub async fn del_at(key: ResourceKey, tag_uri: &str) -> Result<(), EventProcesso
             let uri: String = row
                 .get("resource_uri")
                 .map_err(EventProcessorError::generic)?;
-            resource_change = Some(ResourceChange::tag(
-                ResourceChangeOp::Del,
-                res_id,
-                uri,
-                arg_user_id.to_string(),
-                label.clone(),
-                tag_uri,
-                Utc::now().timestamp_millis(),
-            )?);
+            let at = Utc::now().timestamp_millis();
+            let del_line = |tag_uri: &str| {
+                ResourceChange::tag(
+                    ResourceChangeOp::Del,
+                    res_id.clone(),
+                    uri.clone(),
+                    arg_user_id.to_string(),
+                    label.clone(),
+                    tag_uri,
+                    at,
+                )
+            };
+            // A move still to publish: the consumer holds the address the edge moved from
+            let moved_from = match row.get::<Option<i64>>("moved_at").unwrap_or(None) {
+                Some(_) => row.get::<Option<String>>("v0_uri").unwrap_or(None),
+                None => None,
+            };
+            resource_change = Some((
+                del_line(tag_uri)?,
+                moved_from.as_deref().map(del_line).transpose()?,
+            ));
         }
         _ => {
             debug!("DEL-Tag: Unexpected combination of tag details");
         }
     }
 
-    if let Some(change) = &resource_change {
+    if let Some((change, moved)) = &resource_change {
         if aliased {
-            change.prepare_aliased_delete(event_uri).await?;
+            change
+                .prepare_aliased_delete(event_uri, moved.as_ref())
+                .await?;
         } else {
-            change.prepare_delete().await?;
+            change.prepare_delete(moved.as_ref()).await?;
         }
     }
 
     // 3. Graph deletion LAST — ensures data survives for retry if Redis ops fail
     fetch_row_from_graph(queries::del::delete_tag(&arg_user_id, &arg_tag_id)).await?;
     if resource_change.is_some() {
-        if aliased {
-            ResourceChange::finish_aliased_delete(&arg_user_id, tag_uri, event_uri).await?;
-        } else {
-            ResourceChange::finish_delete(&arg_user_id, tag_uri).await?;
+        let aliases: &[&str] = if aliased { &[event_uri] } else { &[] };
+        ResourceChange::finish_aliased_delete(&arg_user_id, tag_uri, aliases, false).await?;
+        // An earlier attempt of this delete, on an edge stored elsewhere and deleted since, may
+        // have left its journal named from this file's address: the file is gone, so is that
+        // edge, and its del goes out too
+        if !aliased {
+            if let Some(earlier) = ResourceChange::aliased_delete(&arg_user_id, event_uri).await? {
+                if earlier != tag_uri {
+                    ResourceChange::finish_aliased_delete(
+                        &arg_user_id,
+                        &earlier,
+                        &[event_uri],
+                        false,
+                    )
+                    .await?;
+                }
+            }
         }
     }
 

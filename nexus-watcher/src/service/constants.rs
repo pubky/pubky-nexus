@@ -20,3 +20,8 @@ pub const KEY_BASED_RUN_BUDGET: Duration = Duration::from_secs(8 * 60);
 /// makes two requests (its resource, then its `src` blob). Each request is bounded by
 /// `pubky_http_request_timeout_secs`, so this is three times its default (300 s)
 pub const KEY_BASED_SLOW_RUN_MARGIN: Duration = Duration::from_secs(3 * 300);
+/// How often the watcher publishes the resource changes feed lines of the tags a flip moved
+/// that the flip itself did not publish: how long after the flip a consumer may see such a
+/// move. Each sweep starts from the index on the moves still to publish, so an idle one reads
+/// nothing else.
+pub const RESOURCE_MOVES_SWEEP_INTERVAL_MS: u64 = 60_000;
