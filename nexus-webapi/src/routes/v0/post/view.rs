@@ -58,7 +58,7 @@ pub async fn post_view<V: ApiVersion>(
 }
 
 versioned_handlers! {
-    post_view_handler_v0 / post_view_handler_v1 => post_view(path: Path<PostPath>, query: Query<PostViewQuery>) -> PostView;
+    post_view_handler_v0 / post_view_handler_v1 => post_view(path: Path<PostPath>, query: Query<PostViewQuery>) -> shapes::PostView;
     #[utoipa::path(
         get,
         path = POST_ROUTE,

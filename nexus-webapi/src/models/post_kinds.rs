@@ -8,9 +8,16 @@ use nexus_common::models::post::PostKind;
 /// dropped, order preserved). Parsing is strict: values outside the known
 /// kinds (short, long, image, video, link, file, collection) are rejected,
 /// unlike the lenient single `kind` param which falls back to `Unknown`.
-#[derive(Debug, ToSchema)]
+#[derive(Clone, Debug, ToSchema)]
 #[schema(value_type = String, example = "collection,link")]
 pub struct PostKinds(pub Vec<PostKind>);
+
+/// The kinds the list names, for the graph query.
+impl From<PostKinds> for Vec<PostKind> {
+    fn from(kinds: PostKinds) -> Self {
+        kinds.0
+    }
+}
 
 /// `deserialize_csv` requires `TryFrom<String>`; delegate to the strict
 /// `FromStr` of [`PostKind`] (case-insensitive on our side).

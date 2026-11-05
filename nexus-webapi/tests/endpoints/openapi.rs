@@ -79,7 +79,9 @@ fn paths_under(spec: &Value, prefix: &str) -> BTreeMap<String, Value> {
 ///
 /// A versioned route documents its own 200 body: `PostViewDetailed` on v0 is `PostView` on
 /// v1, `PostStreamDetailed` is `PostStream`. Those operations are compared without the body
-/// and the body's schema name is checked on its own.
+/// and the body's schema name is checked on its own. A route with a kind filter describes
+/// `kind` and `exclude_kinds` in its version's names: those descriptions are compared to the
+/// version's names and the operations without them.
 #[test]
 fn test_v0_and_v1_documents_list_the_same_paths() {
     let v0 = paths_under(&serde_json::to_value(ApiDoc::v0_docs()).unwrap(), "/v0");
@@ -103,6 +105,12 @@ fn test_v0_and_v1_documents_list_the_same_paths() {
             "PostStream",
         ),
     ];
+    // Method, path and the kind filters of the routes that take one.
+    let kind_filtered = [
+        ("get", "/stream/posts", &["kind", "exclude_kinds"][..]),
+        ("get", "/stream/posts/keys", &["kind", "exclude_kinds"][..]),
+        ("get", "/search/posts/by_content", &["kind"][..]),
+    ];
     for (path, operations) in &v0 {
         let mut v0_operations = operations.clone();
         let mut v1_operations = v1[path].clone();
@@ -111,8 +119,41 @@ fn test_v0_and_v1_documents_list_the_same_paths() {
             take_200_body(&mut v0_operations[method], v0_body, &operation);
             take_200_body(&mut v1_operations[method], v1_body, &operation);
         }
+        for (method, _, filters) in kind_filtered.iter().filter(|(_, p, _)| p == path) {
+            let operation = format!("{method} {path}");
+            for filter in *filters {
+                let v0_names = take_parameter_description(&mut v0_operations[method], filter);
+                assert!(
+                    v0_names.contains("short, long, image, video, link, file, collection")
+                        && !v0_names.contains("note"),
+                    "{operation} {filter} on v0: {v0_names}"
+                );
+                let v1_names = take_parameter_description(&mut v1_operations[method], filter);
+                assert!(
+                    v1_names
+                        .contains("note, article, image, video, link, file, collection, unknown")
+                        && !v1_names.contains("short, long"),
+                    "{operation} {filter} on v1: {v1_names}"
+                );
+            }
+        }
         assert_eq!(v0_operations, v1_operations, "{path}");
     }
+}
+
+/// Takes the description of the query parameter `name` out of `operation` and returns it.
+fn take_parameter_description(operation: &mut Value, name: &str) -> String {
+    let parameter = operation["parameters"]
+        .as_array_mut()
+        .expect("parameters")
+        .iter_mut()
+        .find(|parameter| parameter["name"] == name)
+        .unwrap_or_else(|| panic!("no `{name}` parameter"));
+    parameter["description"]
+        .take()
+        .as_str()
+        .unwrap_or_else(|| panic!("`{name}` has no description"))
+        .to_string()
 }
 
 /// Takes the 200 body's `$ref` out of `operation`, asserting it names `schema`.
@@ -212,6 +253,25 @@ fn test_v1_schemas_keep_epoch_tag_uri_and_deleted() {
         spec.pointer("/components/schemas/PostStream/items/$ref"),
         Some(&Value::from("#/components/schemas/PostView"))
     );
+}
+
+/// The `exclude_kinds` list's schema is a string on both versions; the v1 one says `unknown`
+/// is a name there.
+#[test]
+fn test_post_kinds_schema_per_version() {
+    for (spec, unknown_listed) in [(ApiDoc::v0_docs(), false), (ApiDoc::v1_docs(), true)] {
+        let spec = serde_json::to_value(spec).expect("serializable spec");
+        let schema = spec
+            .pointer("/components/schemas/PostKinds")
+            .expect("PostKinds schema");
+        assert_eq!(schema["type"], "string", "{schema}");
+        let description = schema["description"].as_str().expect("description");
+        assert_eq!(
+            description.contains("`unknown`"),
+            unknown_listed,
+            "{description}"
+        );
+    }
 }
 
 /// `StreamReach` is a query string like `wot_2`, not the Rust enum shape.

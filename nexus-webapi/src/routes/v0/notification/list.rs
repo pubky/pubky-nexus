@@ -58,7 +58,7 @@ fn in_version<V: ApiVersion>(notifications: Vec<Notification>) -> Vec<V::Notific
 }
 
 versioned_handlers! {
-    list_notifications_handler_v0 / list_notifications_handler_v1 => list_notifications(user_id: Path<PubkyId>, query: Query<NotificationsQuery>) -> [Notification];
+    list_notifications_handler_v0 / list_notifications_handler_v1 => list_notifications(user_id: Path<PubkyId>, query: Query<NotificationsQuery>) -> Vec<shapes::Notification>;
     #[utoipa::path(
         get,
         path = NOTIFICATION_ROUTE,

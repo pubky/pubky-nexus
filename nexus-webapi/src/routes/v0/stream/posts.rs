@@ -1,5 +1,5 @@
 use crate::models::{
-    BoundedLimit, BoundedPagination, BoundedSkip, GlobalPostId, GlobalPostIds, PostId, PostKinds,
+    BoundedLimit, BoundedPagination, BoundedSkip, GlobalPostId, GlobalPostIds, PostId,
     PostStreamDetailed, PubkyId, Tags,
 };
 use crate::routes::v0::endpoints::{
@@ -11,8 +11,8 @@ use crate::routes::Json as RequestJson;
 use crate::routes::Query;
 use crate::{Error, Result as AppResult};
 use axum::Json;
+use const_format::concatcp;
 use nexus_common::db::kv::SortOrder;
-use nexus_common::models::post::PostKind;
 use nexus_common::types::StreamSorting;
 use nexus_common::{
     models::post::{KindFilter, PostKeyStream, PostStream, StreamSource},
@@ -182,8 +182,12 @@ fn build_stream_source(
     }
 }
 
+/// The query of `GET /stream/posts` and `GET /stream/posts/keys`, with `kind` and
+/// `exclude_kinds` in version `V`'s names: the stored ones on `/v0`, the `social/v1` ones on
+/// `/v1`. Every other parameter is the same on both.
 #[derive(Deserialize, Debug)]
-pub struct PostStreamQuery {
+#[serde(bound(deserialize = ""))]
+pub struct PostStreamQuery<V: ApiVersion> {
     #[serde(default)]
     pub source: StreamSourceKind,
     pub author_id: Option<PubkyId>,
@@ -200,15 +204,15 @@ pub struct PostStreamQuery {
     #[serde(default, deserialize_with = "parse_string_to_u8")]
     pub depth: Option<u8>,
     pub domain_tags: Option<Tags>,
-    pub kind: Option<PostKind>,
-    pub exclude_kinds: Option<PostKinds>,
+    pub kind: Option<V::PostKind>,
+    pub exclude_kinds: Option<V::PostKinds>,
     #[serde(default)]
     pub locked: bool,
     #[serde(default)]
     pub include_attachment_metadata: bool,
 }
 
-impl PostStreamQuery {
+impl<V: ApiVersion> PostStreamQuery<V> {
     pub fn initialize_defaults(&mut self) {
         self.sorting.get_or_insert(StreamSorting::Timeline);
     }
@@ -225,14 +229,14 @@ impl PostStreamQuery {
     }
 
     /// Maps the mutually exclusive `kind` / `exclude_kinds` / `locked` params
-    /// (enforced by `validate_source_compat`) to the internal filter.
+    /// (enforced by `validate_source_compat`) to the internal filter, in the stored names.
     pub fn kind_filter(&self) -> Option<KindFilter> {
         if self.locked {
             return Some(KindFilter::Locked);
         }
         match (&self.kind, &self.exclude_kinds) {
-            (Some(kind), _) => Some(KindFilter::Kind(*kind)),
-            (None, Some(exclude)) => Some(KindFilter::Exclude(exclude.0.clone())),
+            (Some(kind), _) => Some(KindFilter::Kind(kind.clone().into())),
+            (None, Some(exclude)) => Some(KindFilter::Exclude(exclude.clone().into())),
             (None, None) => None,
         }
     }
@@ -301,9 +305,9 @@ impl PostStreamQuery {
 }
 
 /// The one body behind `stream_posts_handler_v0` and `stream_posts_handler_v1`: the page in
-/// the version's shape.
+/// the version's shape, filtered by the kinds in the version's names.
 pub async fn stream_posts<V: ApiVersion>(
-    Query(mut query): Query<PostStreamQuery>,
+    Query(mut query): Query<PostStreamQuery<V>>,
 ) -> AppResult<Json<V::PostStream>> {
     debug!("GET {STREAM_POSTS_ROUTE}");
 
@@ -334,7 +338,7 @@ pub async fn stream_posts<V: ApiVersion>(
 }
 
 versioned_handlers! {
-    stream_posts_handler_v0 / stream_posts_handler_v1 => stream_posts(query: Query<PostStreamQuery>) -> PostStream;
+    stream_posts_handler_v0 / stream_posts_handler_v1 => stream_posts(query: Query<shapes::PostStreamQuery>) -> shapes::PostStream;
     #[utoipa::path(
         get,
         path = STREAM_POSTS_ROUTE,
@@ -351,8 +355,8 @@ versioned_handlers! {
             ("tags" = Option<Tags>, Query, description = "Filter by a list of comma-separated tags (max 5). E.g.,`&tags=dev,free,opensource`. Only posts matching at least one of the tags will be returned."),
             ("depth" = Option<u8>, Query, description = "WoT traversal depth. For `source=wot`: 1-3, default 2. For `source=wot_domain`: 0-3, default 2, where `depth=0` is the observer-only (\"Me\") trust set (posts by authors the observer tagged directly, no follow traversal). `depth=0` is invalid for `source=wot`. Ignored for other sources."),
             ("domain_tags" = Option<Tags>, Query, description = "Required for `source=wot_domain`. Comma-separated tag labels (max 5); returns posts by authors tagged with any of these by the observer's WoT, or by the observer alone when `depth=0`. E.g. `&domain_tags=bitcoiner,btc-dev`. Ignored for other sources."),
-            ("kind" = Option<PostKind>, Query, description = "Filter by post kind: short, long, image, video, link, file, collection. Mutually exclusive with `exclude_kinds`; rejected for `source=post_collections`, `source=post_replies` and `source=author_replies`."),
-            ("exclude_kinds" = Option<PostKinds>, Query, description = "Comma-separated post kinds to exclude server-side (1-7 items, duplicates ignored), e.g. `&exclude_kinds=collection,link`. Valid values: short, long, image, video, link, file, collection; anything else is rejected with 400. Mutually exclusive with `kind`; rejected for `source=collection`, `source=post_collections`, `source=post_replies` and `source=author_replies`. Posts with a missing or unrecognized kind are never excluded."),
+            ("kind" = Option<shapes::PostKind>, Query, description = concatcp!("Filter by post kind: ", shapes::KIND_NAMES, shapes::KIND_RULE, ". Mutually exclusive with `exclude_kinds`; rejected for `source=post_collections`, `source=post_replies` and `source=author_replies`.")),
+            ("exclude_kinds" = Option<shapes::PostKinds>, Query, description = concatcp!("Comma-separated post kinds to exclude server-side (", shapes::EXCLUDE_KINDS_RANGE, " items, duplicates ignored), e.g. `&exclude_kinds=collection,link`. Valid values: ", shapes::KIND_NAMES, "; anything else is rejected with 400. Mutually exclusive with `kind`; rejected for `source=collection`, `source=post_collections`, `source=post_replies` and `source=author_replies`. ", shapes::MISSING_KIND_RULE)),
             ("locked" = Option<bool>, Query, description = "When `true`, return only posts with a lock attached, whoever the viewer is and whether or not they unlocked them. `false` (default) applies no filter. Replies are left out, except on `source=bookmarks`. Cannot be combined with `kind` or `exclude_kinds`; rejected for `source=collection`, `source=post_collections`, `source=post_replies` and `source=author_replies`."),
             ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Skip N posts (max 10000)"),
             ("limit" = Option<BoundedLimit<10, 50>>, Query, description = "Retrieve N posts (1–50, default 10)"),
@@ -385,53 +389,10 @@ Ensure that you provide the necessary parameters based on the selected `source`.
         )
 }
 
-#[utoipa::path(
-    get,
-    path = STREAM_POST_KEYS_ROUTE,
-    tag = "Stream",
-    params(
-        ("source" = Option<StreamSourceKind>, Query, description = "Source of posts for streams with viewer (following, followers, friends, bookmarks, post_replies, author, author_replies, collection, post_collections, wot, wot_domain, all). For `source=post_collections`: provide `author_id` + `post_id` of a post; returns the Collection posts that curate it, newest first by default. `kind`, `exclude_kinds` and `locked` are rejected with 400. Links are materialized when the Collection is written: an item indexed after the Collection that lists it is not linked until the Collection is edited. For `source=collection`: provide `author_id` + `post_id` of the Collection post; keys are returned in curator order. `tags`, `kind`, `exclude_kinds`, `locked`, `sorting`, `order`, `start`, `end` are all rejected with 400 (incompatible with the curator-ordered result set). Like every other source, the returned keys are a best-effort snapshot, they may reference posts that have since been deleted or are not yet indexed; callers should hydrate via `GET /v0/stream/posts?source=collection&author_id=...&post_id=...` (or `POST /v0/stream/posts/by_ids`) which drops unresolved refs. Pagination via `skip`/`limit` is not stable across deletions. When the instance filters by trust, posts by authors outside its trust ranking are left out of `all` (any `sorting`, `tags` or `kind`)."),
-        ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID. On `source=all` with `sorting=timeline` and no `tags`, brings back the viewer's own posts when the trust filter hides them"),
-        ("observer_id" = Option<PubkyId>, Query, description = "Observer Pubky ID. The central point for streams with Reach"),
-        ("author_id" = Option<PubkyId>, Query, description = "Filter posts by an specific author User ID"),
-        ("post_id" = Option<PostId>, Query, description = "This parameter is needed when we want to retrieve the replies stream for a post"),
-        ("sorting" = Option<StreamSorting>, Query, description = "Sort method (`timeline` or `total_engagement`). Ties are broken by post id; pagination across equal scores is best-effort."),
-        ("order" = Option<SortOrder>, Query, description = "Ordering of response list. Either 'ascending' or 'descending'. Defaults to descending."),
-        ("tags" = Option<Tags>, Query, description = "Filter by a list of comma-separated tags (max 5). E.g.,`&tags=dev,free,opensource`. Only posts matching at least one of the tags will be returned."),
-        ("depth" = Option<u8>, Query, description = "WoT traversal depth. For `source=wot`: 1-3, default 2. For `source=wot_domain`: 0-3, default 2, where `depth=0` is the observer-only (\"Me\") trust set (posts by authors the observer tagged directly, no follow traversal). `depth=0` is invalid for `source=wot`. Ignored for other sources."),
-        ("domain_tags" = Option<Tags>, Query, description = "Required for `source=wot_domain`. Comma-separated tag labels (max 5); returns posts by authors tagged with any of these by the observer's WoT, or by the observer alone when `depth=0`. E.g. `&domain_tags=bitcoiner,btc-dev`. Ignored for other sources."),
-        ("kind" = Option<PostKind>, Query, description = "Filter by post kind: short, long, image, video, link, file, collection. Mutually exclusive with `exclude_kinds`; rejected for `source=post_collections`, `source=post_replies` and `source=author_replies`."),
-        ("exclude_kinds" = Option<PostKinds>, Query, description = "Comma-separated post kinds to exclude server-side (1-7 items, duplicates ignored), e.g. `&exclude_kinds=collection,link`. Valid values: short, long, image, video, link, file, collection; anything else is rejected with 400. Mutually exclusive with `kind`; rejected for `source=collection`, `source=post_collections`, `source=post_replies` and `source=author_replies`. Posts with a missing or unrecognized kind are never excluded."),
-        ("locked" = Option<bool>, Query, description = "When `true`, return only posts with a lock attached, whoever the viewer is and whether or not they unlocked them. `false` (default) applies no filter. Replies are left out, except on `source=bookmarks`. Cannot be combined with `kind` or `exclude_kinds`; rejected for `source=collection`, `source=post_collections`, `source=post_replies` and `source=author_replies`."),
-        ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Skip N posts (max 10000)"),
-        ("limit" = Option<BoundedLimit<10, 50>>, Query, description = "Retrieve N posts (1–50, default 10)"),
-        ("start" = Option<f64>, Query, description = "The start of the stream timeframe or score. Posts with a timestamp/score greater than this value will be excluded from the results"),
-        ("end" = Option<f64>, Query, description = "The end of the stream timeframe or score. Posts with a timestamp/score less than this value will be excluded from the results"),
-    ),
-    responses(
-        (status = 200, description = "Post key stream", body = PostKeyStream),
-        (status = 400, description = "Invalid parameters"),
-        (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
-        (status = 500, description = "Internal server error")
-    ),
-    description = r#"Stream Post Keys: Retrieve a stream of post keys
-
-The `source` parameter determines the type of stream. Depending on the `source`, certain parameters are required:
-- *following*, *followers*, *friends*: Require **observer_id** and exclude posts authored by the observer.
-- *bookmarks*: Requires **observer_id**.
-- *post_replies*: Requires **author_id** and **post_id** to filter replies to a specific post.
-- *author*:  Requires  **author_id** to filter posts by a specific author.
-- *author_replies*:  Requires  **author_id** to filter replies by a specific author.
-- *collection*: Requires **author_id** and **post_id** of the Collection post; keys are returned in curator order.
-- *post_collections*: Requires **author_id** and **post_id** of a post; returns the keys of the Collection posts that contain it.
-
-- *wot*: Requires **observer_id**. Posts from users in the observer's Web of Trust (transitive follows, `depth` 1-3, default 2). Excludes the observer's own posts, including when a follow cycle reaches the observer again.
-- *wot_domain*: Requires **observer_id** and **domain_tags**. Posts by authors whom the observer's Web of Trust has tagged with any of `domain_tags`, all of those authors' posts, not only topic-tagged ones; combine with `tags=` for topic-scoped posts. With `depth=0` the trust set is the observer alone ("Me"): posts by authors the observer tagged directly. Includes the observer's own posts when they themselves are tagged with a matching label.
-
-Ensure that you provide the necessary parameters based on the selected `source`. If a required parameter is missing, a 400 Bad Request error will be returned."#
-)]
-pub async fn stream_post_keys_handler(
-    Query(mut query): Query<PostStreamQuery>,
+/// The one body behind `stream_post_keys_handler_v0` and `stream_post_keys_handler_v1`: the
+/// keys of the page, filtered by the kinds in the version's names.
+pub async fn stream_post_keys<V: ApiVersion>(
+    Query(mut query): Query<PostStreamQuery<V>>,
 ) -> AppResult<Json<PostKeyStream>> {
     debug!("GET {STREAM_POST_KEYS_ROUTE}");
 
@@ -455,6 +416,56 @@ pub async fn stream_post_keys_handler(
         Some(stream) => Ok(Json(stream)),
         None => Ok(Json(PostKeyStream::default())),
     }
+}
+
+versioned_handlers! {
+    stream_post_keys_handler_v0 / stream_post_keys_handler_v1 => stream_post_keys(query: Query<shapes::PostStreamQuery>) -> PostKeyStream;
+    #[utoipa::path(
+    get,
+    path = STREAM_POST_KEYS_ROUTE,
+    operation_id = "stream_post_keys_handler",
+    tag = "Stream",
+    params(
+        ("source" = Option<StreamSourceKind>, Query, description = "Source of posts for streams with viewer (following, followers, friends, bookmarks, post_replies, author, author_replies, collection, post_collections, wot, wot_domain, all). For `source=post_collections`: provide `author_id` + `post_id` of a post; returns the Collection posts that curate it, newest first by default. `kind`, `exclude_kinds` and `locked` are rejected with 400. Links are materialized when the Collection is written: an item indexed after the Collection that lists it is not linked until the Collection is edited. For `source=collection`: provide `author_id` + `post_id` of the Collection post; keys are returned in curator order. `tags`, `kind`, `exclude_kinds`, `locked`, `sorting`, `order`, `start`, `end` are all rejected with 400 (incompatible with the curator-ordered result set). Like every other source, the returned keys are a best-effort snapshot, they may reference posts that have since been deleted or are not yet indexed; callers should hydrate via `GET /v0/stream/posts?source=collection&author_id=...&post_id=...` (or `POST /v0/stream/posts/by_ids`) which drops unresolved refs. Pagination via `skip`/`limit` is not stable across deletions. When the instance filters by trust, posts by authors outside its trust ranking are left out of `all` (any `sorting`, `tags` or `kind`)."),
+        ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID. On `source=all` with `sorting=timeline` and no `tags`, brings back the viewer's own posts when the trust filter hides them"),
+        ("observer_id" = Option<PubkyId>, Query, description = "Observer Pubky ID. The central point for streams with Reach"),
+        ("author_id" = Option<PubkyId>, Query, description = "Filter posts by an specific author User ID"),
+        ("post_id" = Option<PostId>, Query, description = "This parameter is needed when we want to retrieve the replies stream for a post"),
+        ("sorting" = Option<StreamSorting>, Query, description = "Sort method (`timeline` or `total_engagement`). Ties are broken by post id; pagination across equal scores is best-effort."),
+        ("order" = Option<SortOrder>, Query, description = "Ordering of response list. Either 'ascending' or 'descending'. Defaults to descending."),
+        ("tags" = Option<Tags>, Query, description = "Filter by a list of comma-separated tags (max 5). E.g.,`&tags=dev,free,opensource`. Only posts matching at least one of the tags will be returned."),
+        ("depth" = Option<u8>, Query, description = "WoT traversal depth. For `source=wot`: 1-3, default 2. For `source=wot_domain`: 0-3, default 2, where `depth=0` is the observer-only (\"Me\") trust set (posts by authors the observer tagged directly, no follow traversal). `depth=0` is invalid for `source=wot`. Ignored for other sources."),
+        ("domain_tags" = Option<Tags>, Query, description = "Required for `source=wot_domain`. Comma-separated tag labels (max 5); returns posts by authors tagged with any of these by the observer's WoT, or by the observer alone when `depth=0`. E.g. `&domain_tags=bitcoiner,btc-dev`. Ignored for other sources."),
+        ("kind" = Option<shapes::PostKind>, Query, description = concatcp!("Filter by post kind: ", shapes::KIND_NAMES, shapes::KIND_RULE, ". Mutually exclusive with `exclude_kinds`; rejected for `source=post_collections`, `source=post_replies` and `source=author_replies`.")),
+        ("exclude_kinds" = Option<shapes::PostKinds>, Query, description = concatcp!("Comma-separated post kinds to exclude server-side (", shapes::EXCLUDE_KINDS_RANGE, " items, duplicates ignored), e.g. `&exclude_kinds=collection,link`. Valid values: ", shapes::KIND_NAMES, "; anything else is rejected with 400. Mutually exclusive with `kind`; rejected for `source=collection`, `source=post_collections`, `source=post_replies` and `source=author_replies`. ", shapes::MISSING_KIND_RULE)),
+        ("locked" = Option<bool>, Query, description = "When `true`, return only posts with a lock attached, whoever the viewer is and whether or not they unlocked them. `false` (default) applies no filter. Replies are left out, except on `source=bookmarks`. Cannot be combined with `kind` or `exclude_kinds`; rejected for `source=collection`, `source=post_collections`, `source=post_replies` and `source=author_replies`."),
+        ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Skip N posts (max 10000)"),
+        ("limit" = Option<BoundedLimit<10, 50>>, Query, description = "Retrieve N posts (1–50, default 10)"),
+        ("start" = Option<f64>, Query, description = "The start of the stream timeframe or score. Posts with a timestamp/score greater than this value will be excluded from the results"),
+        ("end" = Option<f64>, Query, description = "The end of the stream timeframe or score. Posts with a timestamp/score less than this value will be excluded from the results"),
+    ),
+    description = r#"Stream Post Keys: Retrieve a stream of post keys
+
+The `source` parameter determines the type of stream. Depending on the `source`, certain parameters are required:
+- *following*, *followers*, *friends*: Require **observer_id** and exclude posts authored by the observer.
+- *bookmarks*: Requires **observer_id**.
+- *post_replies*: Requires **author_id** and **post_id** to filter replies to a specific post.
+- *author*:  Requires  **author_id** to filter posts by a specific author.
+- *author_replies*:  Requires  **author_id** to filter replies by a specific author.
+- *collection*: Requires **author_id** and **post_id** of the Collection post; keys are returned in curator order.
+- *post_collections*: Requires **author_id** and **post_id** of a post; returns the keys of the Collection posts that contain it.
+
+- *wot*: Requires **observer_id**. Posts from users in the observer's Web of Trust (transitive follows, `depth` 1-3, default 2). Excludes the observer's own posts, including when a follow cycle reaches the observer again.
+- *wot_domain*: Requires **observer_id** and **domain_tags**. Posts by authors whom the observer's Web of Trust has tagged with any of `domain_tags`, all of those authors' posts, not only topic-tagged ones; combine with `tags=` for topic-scoped posts. With `depth=0` the trust set is the observer alone ("Me"): posts by authors the observer tagged directly. Includes the observer's own posts when they themselves are tagged with a matching label.
+
+Ensure that you provide the necessary parameters based on the selected `source`. If a required parameter is missing, a 400 Bad Request error will be returned."#
+    )]
+    responses(
+        (status = 200, description = "Post key stream"),
+        (status = 400, description = "Invalid parameters"),
+        (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error")
+    )
 }
 
 #[derive(ToSchema, Deserialize)]
@@ -489,7 +500,7 @@ pub async fn stream_posts_by_ids<V: ApiVersion>(
 }
 
 versioned_handlers! {
-    stream_posts_by_ids_handler_v0 / stream_posts_by_ids_handler_v1 => stream_posts_by_ids(request: RequestJson<PostStreamByIdsRequest>) -> PostStream;
+    stream_posts_by_ids_handler_v0 / stream_posts_by_ids_handler_v1 => stream_posts_by_ids(request: RequestJson<PostStreamByIdsRequest>) -> shapes::PostStream;
     #[utoipa::path(
         post,
         path = STREAM_POSTS_BY_IDS_ROUTE,
@@ -506,28 +517,130 @@ versioned_handlers! {
     )
 }
 
-/// The shared stream routes and schemas; the post stream and its `by_ids` body come with the
-/// version's document.
+/// The schemas the post stream routes share; the routes themselves, their kind filters and
+/// the `by_ids` body come with the version's document.
 #[derive(OpenApi)]
-#[openapi(
-    paths(stream_post_keys_handler),
-    components(schemas(
-        PostKeyStream,
-        StreamSorting,
-        StreamSourceKind,
-        SortOrder,
-        PubkyId,
-        PostId,
-        Tags,
-        PostKinds,
-        GlobalPostId
-    ))
-)]
+#[openapi(components(schemas(
+    PostKeyStream,
+    StreamSorting,
+    StreamSourceKind,
+    SortOrder,
+    PubkyId,
+    PostId,
+    Tags,
+    GlobalPostId
+)))]
 pub struct StreamPostsApiDocs;
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::routes::v0::version::{V0, V1};
+    use nexus_common::models::post::PostKind;
+
+    fn parse<V: ApiVersion>(
+        query: &str,
+    ) -> std::result::Result<PostStreamQuery<V>, serde_urlencoded::de::Error> {
+        serde_urlencoded::from_str(query)
+    }
+
+    /// The filter a query maps to, in the stored names whichever version parsed it.
+    fn kind_filter<V: ApiVersion>(query: &str) -> Option<KindFilter> {
+        parse::<V>(query).expect(query).kind_filter()
+    }
+
+    /// `/v0` reads the stored names, and any other name in `kind=` as `unknown`.
+    #[test]
+    fn v0_kind_is_lenient_and_exclude_kinds_strict() {
+        assert!(matches!(
+            kind_filter::<V0>("kind=short"),
+            Some(KindFilter::Kind(PostKind::Short))
+        ));
+        assert!(matches!(
+            kind_filter::<V0>("kind=note"),
+            Some(KindFilter::Kind(PostKind::Unknown))
+        ));
+        assert!(matches!(
+            kind_filter::<V0>("exclude_kinds=short,long"),
+            Some(KindFilter::Exclude(kinds)) if kinds == [PostKind::Short, PostKind::Long]
+        ));
+        assert!(parse::<V0>("exclude_kinds=note").is_err());
+        assert!(parse::<V0>("exclude_kinds=unknown").is_err());
+    }
+
+    /// `/v1` reads the `social/v1` names, `unknown` included, into the stored kinds.
+    #[test]
+    fn v1_kind_filters_take_the_v1_names() {
+        assert!(matches!(
+            kind_filter::<V1>("kind=note"),
+            Some(KindFilter::Kind(PostKind::Short))
+        ));
+        assert!(matches!(
+            kind_filter::<V1>("kind=article"),
+            Some(KindFilter::Kind(PostKind::Long))
+        ));
+        assert!(matches!(
+            kind_filter::<V1>("kind=unknown"),
+            Some(KindFilter::Kind(PostKind::Unknown))
+        ));
+        assert!(matches!(
+            kind_filter::<V1>("exclude_kinds=note,article"),
+            Some(KindFilter::Exclude(kinds)) if kinds == [PostKind::Short, PostKind::Long]
+        ));
+        assert!(matches!(
+            kind_filter::<V1>("exclude_kinds=unknown"),
+            Some(KindFilter::Exclude(kinds)) if kinds == [PostKind::Unknown]
+        ));
+        assert!(kind_filter::<V1>("").is_none());
+    }
+
+    /// On `/v1` a stored name, an unknown token and a differently cased name are errors that
+    /// name the parameter, on `kind=` and `exclude_kinds=` alike.
+    #[test]
+    fn v1_rejects_other_kind_names_naming_the_parameter() {
+        for (query, parameter) in [
+            ("kind=short", "`kind`"),
+            ("kind=foo", "`kind`"),
+            ("kind=Note", "`kind`"),
+            ("exclude_kinds=short", "`exclude_kinds`"),
+            ("exclude_kinds=note,long", "`exclude_kinds`"),
+        ] {
+            let error = parse::<V1>(query).expect_err(query).to_string();
+            assert!(error.contains(parameter), "{query}: {error}");
+            assert!(error.contains(V1::KIND_NAMES), "{query}: {error}");
+        }
+    }
+
+    /// The rejections that hold on both versions: `kind` with `exclude_kinds`, and a kind
+    /// filter on the sources that cannot take one.
+    #[test]
+    fn kind_filter_rejections_hold_on_both_versions() {
+        fn rejected<V: ApiVersion>(query: &str) -> bool {
+            parse::<V>(query)
+                .expect(query)
+                .validate_source_compat()
+                .is_err()
+        }
+        let author = "author_id=4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
+        let anchored = format!("{author}&post_id=0000000000001");
+        // The same queries in each version's names.
+        for (short, long, rejected) in [
+            ("short", "long", rejected::<V0> as fn(&str) -> bool),
+            ("note", "article", rejected::<V1>),
+        ] {
+            for query in [
+                format!("kind={short}&exclude_kinds={long}"),
+                format!("source=post_collections&{anchored}&kind={short}"),
+                format!("source=post_replies&{anchored}&exclude_kinds={short}"),
+                format!("source=author_replies&{author}&kind={long}"),
+                format!("source=collection&{anchored}&kind={short}"),
+            ] {
+                assert!(rejected(&query), "{query}");
+            }
+        }
+        assert!(!rejected::<V0>("kind=short"));
+        assert!(!rejected::<V1>("kind=note"));
+    }
 
     #[test]
     fn resolve_domain_trust_maps_depth() {

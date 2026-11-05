@@ -53,7 +53,7 @@ fn relative_routes<V: ApiVersion>(app_state: AppState) -> (Router<AppState>, Rou
     let expensive = Router::new()
         .merge(stream::expensive_routes::<V>())
         .merge(tag::expensive_routes())
-        .merge(search::expensive_routes())
+        .merge(search::expensive_routes::<V>())
         .merge(file::expensive_routes())
         .merge(bootstrap::expensive_routes());
 

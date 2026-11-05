@@ -26,7 +26,7 @@ pub async fn post_details<V: ApiVersion>(
 }
 
 versioned_handlers! {
-    post_details_handler_v0 / post_details_handler_v1 => post_details(path: Path<PostPath>) -> PostDetails;
+    post_details_handler_v0 / post_details_handler_v1 => post_details(path: Path<PostPath>) -> shapes::PostDetails;
     #[utoipa::path(
         get,
         path = POST_DETAILS_ROUTE,

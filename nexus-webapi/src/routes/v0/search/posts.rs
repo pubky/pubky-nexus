@@ -2,9 +2,11 @@ use crate::models::{
     BoundedLimit, BoundedPagination, BoundedSkip, PostKind, PostSearchQuery, PubkyId, TagLabel,
 };
 use crate::routes::v0::endpoints::{SEARCH_POSTS_BY_CONTENT_ROUTE, SEARCH_POSTS_BY_TAG_ROUTE};
+use crate::routes::v0::version::{versioned_handlers, ApiVersion};
 use crate::routes::{Path, Query};
 use crate::{Error, Result};
 use axum::Json;
+use const_format::concatcp;
 use nexus_common::db::kv::AuthorFilter;
 use nexus_common::models::follow::reach::{reach_authors, reach_contains, ReachAuthors};
 use nexus_common::models::post::search::{
@@ -187,40 +189,26 @@ fn author_in_reach_filter<'a>(
     in_reach.then_some(AuthorFilter::One(author))
 }
 
+/// The query of `GET /search/posts/by_content`, with `kind` in version `V`'s names: the
+/// stored ones on `/v0`, the `social/v1` ones on `/v1`. Every other parameter is the same on
+/// both.
 #[derive(Deserialize)]
-pub struct SearchPostsByContentQuery {
+#[serde(bound(deserialize = ""))]
+pub struct SearchPostsByContentQuery<V: ApiVersion> {
     pub q: PostSearchQuery,
     pub author: Option<PubkyId>,
-    pub kind: Option<PostKind>,
+    pub kind: Option<V::PostKind>,
     pub user_id: Option<PubkyId>,
     pub reach: Option<StreamReach>,
     #[serde(flatten)]
     pub pagination: BoundedPagination<1000, 20, 100>,
 }
 
-#[utoipa::path(
-    get,
-    path = SEARCH_POSTS_BY_CONTENT_ROUTE,
-    description = "Full-text search over post content",
-    tag = "Search",
-    params(
-        ("q" = PostSearchQuery, Query, description = "Search query (2–30 characters, up to 4 terms)"),
-        ("author" = Option<PubkyId>, Query, description = "Optional author Pubky ID to scope results"),
-        ("kind" = Option<PostKind>, Query, description = "Optional post kind to filter by: short, long, image, video, link, file, collection"),
-        ("user_id" = Option<PubkyId>, Query, description = "User ID to base reach on. Must be provided together with reach"),
-        ("reach" = Option<StreamReach>, Query, example = "following", description = "Reach type: `followers` | `following` | `friends` | `wot` | `wot_1`..`wot_3`. Scopes results to posts authored by users in that reach, never by user_id itself. To apply that, user_id is required. Bare `wot` defaults to depth 2. Combined with `author`, results are that author's posts if the author is in reach, and empty otherwise"),
-        ("skip" = Option<BoundedSkip<1000>>, Query, description = "Skip N results (max 1000)"),
-        ("limit" = Option<BoundedLimit<20, 100>>, Query, description = "Limit the number of results (1–100, default 20)")
-    ),
-    responses(
-        (status = 200, description = "Search results ordered by relevance score", body = Vec<PostsByContentSearch>),
-        (status = 400, description = "Invalid query or limit parameter"),
-        (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
-        (status = 500, description = "Internal server error")
-    )
-)]
-pub async fn search_posts_by_content_handler(
-    Query(query): Query<SearchPostsByContentQuery>,
+/// The one body behind `search_posts_by_content_handler_v0` and
+/// `search_posts_by_content_handler_v1`: the search, with the kind the version's query names
+/// mapped to the stored name the index holds.
+pub async fn search_posts_by_content<V: ApiVersion>(
+    Query(query): Query<SearchPostsByContentQuery<V>>,
 ) -> Result<Json<Vec<PostsByContentSearch>>> {
     let skip = query.pagination.skip_value();
     let limit = query.pagination.limit_value();
@@ -236,7 +224,8 @@ pub async fn search_posts_by_content_handler(
         query.reach.as_ref(),
     )?;
 
-    let kind_str = query.kind.as_ref().map(|k| k.to_string());
+    let kind: Option<PostKind> = query.kind.clone().map(Into::into);
+    let kind_str = kind.map(PostKind::as_str);
 
     let author_ids;
     let author = match scope {
@@ -263,14 +252,41 @@ pub async fn search_posts_by_content_handler(
     };
 
     let results =
-        PostsByContentSearch::search(query.q.as_str(), author, kind_str.as_deref(), skip, limit)
-            .await?;
+        PostsByContentSearch::search(query.q.as_str(), author, kind_str, skip, limit).await?;
     Ok(Json(results))
 }
 
+versioned_handlers! {
+    search_posts_by_content_handler_v0 / search_posts_by_content_handler_v1 => search_posts_by_content(query: Query<shapes::ContentSearchQuery>) -> Vec<PostsByContentSearch>;
+    #[utoipa::path(
+        get,
+        path = SEARCH_POSTS_BY_CONTENT_ROUTE,
+        operation_id = "search_posts_by_content_handler",
+        description = "Full-text search over post content",
+        tag = "Search",
+        params(
+            ("q" = PostSearchQuery, Query, description = "Search query (2–30 characters, up to 4 terms)"),
+            ("author" = Option<PubkyId>, Query, description = "Optional author Pubky ID to scope results"),
+            ("kind" = Option<shapes::PostKind>, Query, description = concatcp!("Optional post kind to filter by: ", shapes::KIND_NAMES, shapes::KIND_RULE)),
+            ("user_id" = Option<PubkyId>, Query, description = "User ID to base reach on. Must be provided together with reach"),
+            ("reach" = Option<StreamReach>, Query, example = "following", description = "Reach type: `followers` | `following` | `friends` | `wot` | `wot_1`..`wot_3`. Scopes results to posts authored by users in that reach, never by user_id itself. To apply that, user_id is required. Bare `wot` defaults to depth 2. Combined with `author`, results are that author's posts if the author is in reach, and empty otherwise"),
+            ("skip" = Option<BoundedSkip<1000>>, Query, description = "Skip N results (max 1000)"),
+            ("limit" = Option<BoundedLimit<20, 100>>, Query, description = "Limit the number of results (1–100, default 20)")
+        )
+    )]
+    responses(
+        (status = 200, description = "Search results ordered by relevance score"),
+        (status = 400, description = "Invalid query or limit parameter"),
+        (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error")
+    )
+}
+
+/// The tag search and the schemas both searches share; the content search, whose kind filter
+/// is the version's, comes with the version's document.
 #[derive(OpenApi)]
 #[openapi(
-    paths(search_posts_by_tag_handler, search_posts_by_content_handler),
+    paths(search_posts_by_tag_handler),
     components(schemas(
         PostsByTagSearch,
         PostsByContentSearch,
@@ -284,6 +300,7 @@ pub struct SearchPostsApiDocs;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::routes::v0::version::{V0, V1};
     use nexus_common::types::WotDepth;
     use opentelemetry::metrics::MeterProvider;
     use opentelemetry_sdk::metrics::data::{
@@ -293,7 +310,13 @@ mod tests {
 
     fn parse_query(
         s: &str,
-    ) -> std::result::Result<SearchPostsByContentQuery, serde_urlencoded::de::Error> {
+    ) -> std::result::Result<SearchPostsByContentQuery<V0>, serde_urlencoded::de::Error> {
+        serde_urlencoded::from_str(s)
+    }
+
+    fn parse_v1_query(
+        s: &str,
+    ) -> std::result::Result<SearchPostsByContentQuery<V1>, serde_urlencoded::de::Error> {
         serde_urlencoded::from_str(s)
     }
 
@@ -412,6 +435,35 @@ mod tests {
         let q =
             parse_query("q=bitcoin&kind=not-a-kind").expect("lenient kind parsing must not error");
         assert_eq!(q.kind, Some(PostKind::Unknown));
+    }
+
+    /// On `/v1` the kind is the `social/v1` name, mapped to the stored kind the index holds.
+    #[test]
+    fn v1_kind_takes_the_v1_names() {
+        for (name, stored) in [
+            ("note", PostKind::Short),
+            ("article", PostKind::Long),
+            ("video", PostKind::Video),
+            ("unknown", PostKind::Unknown),
+        ] {
+            let q = parse_v1_query(&format!("q=bitcoin&kind={name}")).expect(name);
+            assert_eq!(q.kind.map(PostKind::from), Some(stored), "{name}");
+        }
+        assert!(parse_v1_query("q=bitcoin").unwrap().kind.is_none());
+    }
+
+    /// On `/v1` a stored name, an unknown token and a differently cased name are a 400 that
+    /// names the parameter, where `/v0` would search for `unknown`.
+    #[test]
+    fn v1_kind_rejects_other_names() {
+        for name in ["short", "long", "not-a-kind", "Note"] {
+            let error = parse_v1_query(&format!("q=bitcoin&kind={name}"))
+                .map(|query| query.kind)
+                .expect_err(name)
+                .to_string();
+            assert!(error.contains("`kind`"), "{name}: {error}");
+            assert!(error.contains(&format!("`{name}`")), "{name}: {error}");
+        }
     }
 
     /// `attr=value` pairs of a data point, sorted, so the assertions don't

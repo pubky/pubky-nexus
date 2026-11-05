@@ -27,7 +27,7 @@ pub fn expensive_routes<V: ApiVersion>() -> Router<AppState> {
 }
 
 /// The default-bucket stream routes for one version: the post stream in the version's shape,
-/// the rest shared.
+/// it and the post keys with the version's kind filters, the rest shared.
 pub fn routes<V: ApiVersion>() -> Router<AppState> {
     Router::new()
         .route(STREAM_USER_IDS_ROUTE, get(users::stream_user_ids_handler))
@@ -35,7 +35,7 @@ pub fn routes<V: ApiVersion>() -> Router<AppState> {
             STREAM_USERS_USERNAME_SEARCH_ROUTE,
             get(users::stream_username_search_handler),
         )
-        .route(STREAM_POST_KEYS_ROUTE, get(posts::stream_post_keys_handler))
+        .route(STREAM_POST_KEYS_ROUTE, V::stream_post_keys())
         .route(STREAM_POSTS_ROUTE, V::stream_posts())
         .route(
             STREAM_RESOURCES_ROUTE,

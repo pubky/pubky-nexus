@@ -1,11 +1,12 @@
 //! The API answers under `/v0` and `/v1` from one route declaration, so the same request
-//! gets the same answer on both, up to what `/v1` names differently: a post's kind. One
-//! representative route per module, against the mock data, plus the kind names on every route
-//! that carries one.
+//! gets the same answer on both, up to what `/v1` names differently: a post's kind, in the
+//! responses and in the `kind` and `exclude_kinds` filters. One representative route per
+//! module, against the mock data, plus the kind names on every route that carries one.
 
-use crate::utils::{get_request, host_url, post_request};
+use crate::utils::{get_request, host_url, invalid_get_request, post_request};
 
 use anyhow::Result;
+use axum::http::StatusCode;
 use nexus_common::db::RedisOps;
 use nexus_common::models::notification::{Notification, NotificationBody};
 use nexus_common::models::post::PostKind;
@@ -169,9 +170,8 @@ async fn test_post_view_and_details_name_the_kind_per_version() -> Result<()> {
 #[tokio_shared_rt::test(shared)]
 async fn test_post_streams_name_the_kind_per_version() -> Result<()> {
     for (prefix, short, long) in KIND_NAMES {
-        // The stored name is the filter on both versions until the v1 filters land.
         let stream = get_request(&format!(
-            "{prefix}/stream/posts?kind=long&author_id={EIXAMPLE}&source=author"
+            "{prefix}/stream/posts?kind={long}&author_id={EIXAMPLE}&source=author"
         ))
         .await?;
         let posts = stream.as_array().expect("a post stream is an array");
@@ -248,5 +248,199 @@ async fn test_notifications_name_the_post_kind_per_version() -> Result<()> {
     assert_eq!(v1_items[2]["body"]["post_kind"], "unknown");
     assert_eq!(with_stored_kind_names(v1), v0);
 
+    Ok(())
+}
+
+/// The post ids of a stream, in order.
+fn ids_of(stream: &Value) -> Vec<String> {
+    stream
+        .as_array()
+        .expect("a post stream is an array")
+        .iter()
+        .map(|post| post["details"]["id"].as_str().unwrap().to_string())
+        .collect()
+}
+
+/// The `post_key`s of a content search, sorted.
+fn post_keys_of(results: &Value) -> Vec<String> {
+    let mut keys: Vec<String> = results
+        .as_array()
+        .expect("search results are an array")
+        .iter()
+        .map(|result| result["post_key"].as_str().unwrap().to_string())
+        .collect();
+    keys.sort();
+    keys
+}
+
+/// The error a 400 carries.
+async fn rejection(route: &str) -> Result<String> {
+    let body = invalid_get_request(route, StatusCode::BAD_REQUEST).await?;
+    Ok(body["error"]
+        .as_str()
+        .unwrap_or_else(|| panic!("{route}: no error in {body}"))
+        .to_string())
+}
+
+/// `kind` and `exclude_kinds` take each version's names on the post stream, the post keys and
+/// the content search, and select the same posts: the keys line up with the stream, and the
+/// search under `kind=article` on `/v1` finds what `kind=long` finds on `/v0`.
+#[tokio_shared_rt::test(shared)]
+async fn test_kind_filters_take_each_versions_names() -> Result<()> {
+    let mut found_per_version = Vec::new();
+    for (prefix, short, long) in KIND_NAMES {
+        let by_author = format!("source=author&author_id={EIXAMPLE}&limit=50");
+
+        let stream = get_request(&format!("{prefix}/stream/posts?{by_author}&kind={long}")).await?;
+        let ids = ids_of(&stream);
+        assert!(!ids.is_empty(), "{prefix}: {stream}");
+        for post in stream.as_array().unwrap() {
+            assert_eq!(post["details"]["kind"], long, "{prefix}: {post}");
+        }
+        let keys = get_request(&format!(
+            "{prefix}/stream/posts/keys?{by_author}&kind={long}"
+        ))
+        .await?;
+        let keys: Vec<String> = keys["post_keys"]
+            .as_array()
+            .unwrap_or_else(|| panic!("{prefix}: {keys}"))
+            .iter()
+            .map(|key| key.as_str().unwrap().to_string())
+            .collect();
+        let expected: Vec<String> = ids.iter().map(|id| format!("{EIXAMPLE}:{id}")).collect();
+        assert_eq!(keys, expected, "{prefix}");
+
+        let excluded = get_request(&format!(
+            "{prefix}/stream/posts?{by_author}&exclude_kinds={short},{long}"
+        ))
+        .await?;
+        let posts = excluded.as_array().unwrap();
+        assert!(!posts.is_empty(), "{prefix}: {excluded}");
+        for post in posts {
+            let kind = post["details"]["kind"].as_str().unwrap();
+            assert!(kind != short && kind != long, "{prefix}: {post}");
+        }
+
+        let found = get_request(&format!(
+            "{prefix}/search/posts/by_content?q=post&kind={long}&limit=100"
+        ))
+        .await?;
+        let found = post_keys_of(&found);
+        assert!(!found.is_empty(), "{prefix}: no `{long}` post holds `post`");
+        found_per_version.push(found);
+    }
+    assert_eq!(found_per_version[0], found_per_version[1]);
+    Ok(())
+}
+
+/// On `/v1` a stored name, an unknown token and a differently cased name are a 400 naming the
+/// parameter, on every route with a kind filter; `/v0` keeps its lenient `kind` and its strict
+/// `exclude_kinds` as they were.
+#[tokio_shared_rt::test(shared)]
+async fn test_v1_kind_filters_reject_other_names() -> Result<()> {
+    for (query, parameter) in [
+        ("kind=short", "`kind`"),
+        ("kind=foo", "`kind`"),
+        ("kind=Note", "`kind`"),
+        ("exclude_kinds=short", "`exclude_kinds`"),
+        ("exclude_kinds=note,long", "`exclude_kinds`"),
+    ] {
+        for route in ["/stream/posts", "/stream/posts/keys"] {
+            let error = rejection(&format!("{V1_PREFIX}{route}?{query}")).await?;
+            assert!(error.contains(parameter), "{route}?{query}: {error}");
+            assert!(error.contains("note, article"), "{route}?{query}: {error}");
+        }
+    }
+    for query in ["kind=short", "kind=foo", "kind=Note"] {
+        let error = rejection(&format!(
+            "{V1_PREFIX}/search/posts/by_content?q=post&{query}"
+        ))
+        .await?;
+        assert!(error.contains("`kind`"), "{query}: {error}");
+    }
+
+    // `/v0` reads any `kind` name, a `/v1` one included, and matches nothing with it.
+    let v0 = get_request(&format!(
+        "{V0_PREFIX}/stream/posts?source=author&author_id={EIXAMPLE}&kind=note"
+    ))
+    .await?;
+    assert_eq!(v0, json!([]));
+    let v0 = get_request(&format!(
+        "{V0_PREFIX}/search/posts/by_content?q=post&kind=article"
+    ))
+    .await?;
+    assert_eq!(v0, json!([]));
+    // `/v0`'s `exclude_kinds` is strict against the stored names, in any case.
+    rejection(&format!("{V0_PREFIX}/stream/posts?exclude_kinds=note")).await?;
+    let v0 = get_request(&format!(
+        "{V0_PREFIX}/stream/posts?source=author&author_id={EIXAMPLE}&exclude_kinds=Long"
+    ))
+    .await?;
+    assert!(!v0.as_array().unwrap().is_empty(), "{v0}");
+    Ok(())
+}
+
+/// `unknown` is a kind a `/v1` client may filter by or exclude, so it can leave out the posts
+/// it cannot render; `/v0`'s `exclude_kinds` keeps rejecting it.
+#[tokio_shared_rt::test(shared)]
+async fn test_unknown_is_a_filter_name_on_v1() -> Result<()> {
+    let by_author = format!("source=author&author_id={EIXAMPLE}&limit=50");
+    let all = ids_of(&get_request(&format!("{V1_PREFIX}/stream/posts?{by_author}")).await?);
+    assert!(!all.is_empty());
+
+    // The mock data holds no post of an unrecognised kind, so the filter selects none and
+    // the exclusion leaves every post in.
+    for route in ["/stream/posts", "/stream/posts/keys"] {
+        let only_unknown =
+            get_request(&format!("{V1_PREFIX}{route}?{by_author}&kind=unknown")).await?;
+        let without_unknown = get_request(&format!(
+            "{V1_PREFIX}{route}?{by_author}&exclude_kinds=unknown"
+        ))
+        .await?;
+        if route == "/stream/posts" {
+            assert_eq!(only_unknown, json!([]), "{route}");
+            assert_eq!(ids_of(&without_unknown), all, "{route}");
+        } else {
+            assert_eq!(only_unknown["post_keys"], json!([]), "{route}");
+            assert_eq!(
+                without_unknown["post_keys"].as_array().map(Vec::len),
+                Some(all.len()),
+                "{route}"
+            );
+        }
+    }
+    let found = get_request(&format!(
+        "{V1_PREFIX}/search/posts/by_content?q=post&kind=unknown"
+    ))
+    .await?;
+    assert_eq!(found, json!([]));
+
+    rejection(&format!("{V0_PREFIX}/stream/posts?exclude_kinds=unknown")).await?;
+    rejection(&format!(
+        "{V0_PREFIX}/stream/posts/keys?exclude_kinds=unknown"
+    ))
+    .await?;
+    Ok(())
+}
+
+/// The rejections around the kind filters hold on `/v1` as on `/v0`: `kind` with
+/// `exclude_kinds`, and either with a source that cannot take them.
+#[tokio_shared_rt::test(shared)]
+async fn test_kind_filter_rejections_hold_on_both_versions() -> Result<()> {
+    for (prefix, short, long) in KIND_NAMES {
+        let anchored = format!("author_id={BOGOTA}&post_id={SHORT_POST}");
+        for query in [
+            format!("kind={short}&exclude_kinds={long}"),
+            format!("source=collection&{anchored}&kind={short}"),
+            format!("source=post_collections&{anchored}&exclude_kinds={long}"),
+            format!("source=post_replies&{anchored}&kind={short}"),
+            format!("source=author_replies&author_id={BOGOTA}&exclude_kinds={short}"),
+        ] {
+            for route in ["/stream/posts", "/stream/posts/keys"] {
+                let error = rejection(&format!("{prefix}{route}?{query}")).await?;
+                assert!(error.contains("kind"), "{prefix}{route}?{query}: {error}");
+            }
+        }
+    }
     Ok(())
 }
