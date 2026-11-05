@@ -1,5 +1,6 @@
 use std::{fmt::Debug, path::PathBuf};
 
+use nexus_common::models::user::set_outsiders_possible;
 use nexus_common::{types::DynError, utils::create_shutdown_rx};
 use nexus_watcher::NexusWatcherBuilder;
 use nexus_webapi::{api_context::ApiContextBuilder, NexusApiBuilder};
@@ -33,6 +34,7 @@ impl DaemonLauncher {
         // Resolve + validate scheduled jobs before starting any service, so a
         // bad cron fails fast at startup.
         let config = DaemonConfig::read_or_create_config_file(config_dir.clone()).await?;
+        set_outsiders_possible(&config.stack.scope);
         let jobs = JobRegistry::catalog(&config.trust_rank).scheduled_jobs(&config)?;
 
         let api_context = ApiContextBuilder::new(config.api_config(), config_dir).try_build()?;
@@ -67,6 +69,7 @@ impl DaemonLauncher {
         shutdown_rx: Option<Receiver<bool>>,
     ) -> Result<(), DynError> {
         let config = DaemonConfig::read_or_create_config_file(config_dir.clone()).await?;
+        set_outsiders_possible(&config.stack.scope);
         let api_context = ApiContextBuilder::new(config.api_config(), config_dir).try_build()?;
 
         NexusApiBuilder::new(api_context).start(shutdown_rx).await?;
@@ -87,6 +90,7 @@ impl DaemonLauncher {
         shutdown_rx: Option<Receiver<bool>>,
     ) -> Result<(), DynError> {
         let config = DaemonConfig::read_or_create_config_file(config_dir).await?;
+        set_outsiders_possible(&config.stack.scope);
 
         NexusWatcherBuilder(config.watcher_config())
             .start(shutdown_rx)
