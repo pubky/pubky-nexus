@@ -25,6 +25,11 @@ pub fn collection_item_keys(content: &str) -> Result<Vec<(PubkyId, String)>, ser
 
 /// The post `uri` names, read with the `social/v1` parser first, then the
 /// legacy one; `None` for anything that is not a post of either epoch.
+///
+/// This classifies, it does not validate. The spec gate at ingest admits only
+/// canonical public references into a stored collection (a private reference
+/// inside a public post and a non-canonical spelling are refused there), so
+/// the fallback never sees an address the PUT path would drop.
 fn post_key(uri: &str) -> Option<(PubkyId, String)> {
     if let Ok(ParsedUri {
         user_id,
@@ -80,12 +85,12 @@ mod tests {
     const POST_C: &str = "00000039YD9C0";
     const HASH_ID: &str = "8Z8CWH8NVYQY39ZEBFGKQWWEKG";
 
-    /// The legacy envelope: items are address strings.
-    fn envelope(items: &[&str]) -> String {
+    /// The legacy envelope.
+    fn legacy_envelope(items: &[&str]) -> String {
         serde_json::json!({ "name": "n", "items": items }).to_string()
     }
 
-    /// The `social/v1` envelope: items are `{uri, note}` objects.
+    /// The `social/v1` envelope.
     fn v1_envelope(items: &[&str]) -> String {
         let items: Vec<_> = items
             .iter()
@@ -108,14 +113,14 @@ mod tests {
 
     #[test]
     fn keeps_post_items_in_curator_order() {
-        let content = envelope(&[&legacy_post(CAIRO, POST_C), &legacy_post(BOGOTA, POST_A)]);
+        let content = legacy_envelope(&[&legacy_post(CAIRO, POST_C), &legacy_post(BOGOTA, POST_A)]);
         let keys = collection_item_keys(&content).unwrap();
         assert_eq!(keys, vec![key(CAIRO, POST_C), key(BOGOTA, POST_A)]);
     }
 
     #[test]
     fn drops_non_post_and_malformed_uris() {
-        let content = envelope(&[
+        let content = legacy_envelope(&[
             &format!("pubky://{BOGOTA}/pub/pubky.app/profile.json"),
             "pubky://not-a-pubky-id/pub/pubky.app/posts/00000039YD9BM",
             &legacy_post(BOGOTA, POST_A),
