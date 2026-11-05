@@ -795,7 +795,8 @@ async fn test_tags_migration_rerun_gives_the_same_result() -> Result<()> {
 /// A flip that gives a post tag a new id and then fails leaves the edge with its `pubky.app`
 /// id beside the new one. A replay of the `pubky.app` tag file puts the edge back at that
 /// file's address, keeping the new id; the retried tags step rewrites the edge to the same new
-/// id and must keep the `pubky.app` id, so the `DEL` of that file still removes the tag.
+/// id and must keep the `pubky.app` id, so the `DEL` of that file still removes the tag when
+/// it is handled at `v0` with no flip queued (the gate holds it while one is).
 #[tokio_shared_rt::test(shared)]
 async fn test_retried_flip_keeps_the_pubky_app_id_of_a_replayed_tag() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;

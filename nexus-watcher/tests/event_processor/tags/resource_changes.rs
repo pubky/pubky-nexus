@@ -544,7 +544,9 @@ async fn test_resource_changes_publish_moves_recorded_by_an_interrupted_flip() -
 
 /// A flip whose tags step committed but whose later step failed leaves the user at `v0`, the
 /// edge at its `social/v1` address and its move recorded, until the retry. A `pubky.app` DEL
-/// of the tag in that window is handled at `v0` and deletes the edge. The consumer holds only
+/// of the tag handled in that window, at `v0`, deletes the edge. The gate holds such a DEL
+/// while the failed flip waits in the retry queue, so this is one handled with no flip queued:
+/// the test runs the tags step itself and queues nothing. The consumer holds only
 /// the `pubky.app` path, so the DEL retracts it next to the `social/v1` one, and once the
 /// retried flip has run, nothing of the tag may stay live and no move may stay recorded.
 #[tokio_shared_rt::test(shared)]
@@ -1510,7 +1512,9 @@ async fn resource_tag_edge(author: &str, target: &str) -> Result<Option<String>>
 
 /// After a flip whose tags step moved an own-file tag to its new id and address, then failed,
 /// `remove` deletes or takes down the tag at its `pubky.app` address while the user is still
-/// `v0`. The retried flip must leave no edge, no live reference and no recorded move.
+/// `v0`. The retried flip must leave no edge, no live reference and no recorded move. A
+/// takedown reaches the edge whether a flip is queued or not; a `pubky.app` DEL only with no
+/// flip queued, since the gate holds it while one is: the test queues none.
 async fn own_file_tag_removed_before_the_flip_retry(
     name: &str,
     remove: impl AsyncFnOnce(&mut WatcherTest, &Keypair, &str, &OwnFileTag) -> Result<()>,
@@ -1579,7 +1583,7 @@ async fn own_file_tag_removed_after_a_failed_flip(
     Ok(())
 }
 
-/// The user deletes the moved own-file tag at its `pubky.app` address.
+/// The user deletes the moved own-file tag at its `pubky.app` address, with no flip queued.
 #[tokio_shared_rt::test(shared)]
 async fn test_resource_changes_delete_of_a_moved_own_file_tag_before_the_flip_retry() -> Result<()>
 {
@@ -1829,8 +1833,9 @@ async fn delete_a_moved_own_file_tag_failing_to_publish(
 }
 
 /// The user deletes the moved own-file tag at its `pubky.app` address after its move was
-/// published, the DEL fails after its graph delete, and the user tags the file again at that
-/// address before the DEL's retry. The retry finds and deletes the new edge, and finishes the
+/// published, with no flip queued (see [`own_file_tag_removed_before_the_flip_retry`]), the DEL
+/// fails after its graph delete, and the user tags the file again at that address before the
+/// DEL's retry. The retry finds and deletes the new edge, and finishes the
 /// journal its first attempt left under the moved address: the consumer holds that address.
 #[tokio_shared_rt::test(shared)]
 async fn test_resource_changes_delete_retry_on_a_tag_put_again_finishes_its_first_journal(
@@ -1870,9 +1875,10 @@ async fn test_resource_changes_delete_retry_on_a_tag_put_again_finishes_its_firs
 }
 
 /// The user deletes the moved own-file tag at its `pubky.app` address before the failed flip
-/// published its move, and the DEL fails after its graph delete, before it publishes. Its retry
-/// finds no edge, and publishes the del of the moved address through the alias the DEL left,
-/// with the del of the `pubky.app` address pending with it.
+/// published its move, with no flip queued (see [`own_file_tag_removed_before_the_flip_retry`]),
+/// and the DEL fails after its graph delete, before it publishes. Its retry finds no edge, and
+/// publishes the del of the moved address through the alias the DEL left, with the del of the
+/// `pubky.app` address pending with it.
 #[tokio_shared_rt::test(shared)]
 async fn test_resource_changes_delete_of_a_moved_own_file_tag_that_fails_to_publish() -> Result<()>
 {
@@ -1898,11 +1904,12 @@ async fn test_resource_changes_delete_of_a_published_own_file_tag_move_that_fail
     .await
 }
 
-/// A DEL of a moved own-file tag deleted the edge but failed to publish, leaving its del
-/// pending under the moved address, with the del of the `pubky.app` address. The retried
-/// flip's tags step then finds no edge to move, and before it publishes, the user, still `v0`,
-/// tags the file again at the `pubky.app` address: the new edge is live, so the flip's publish
-/// must not retract that address.
+/// A DEL of a moved own-file tag, handled with no flip queued (see
+/// [`own_file_tag_removed_before_the_flip_retry`]), deleted the edge but failed to publish, leaving
+/// its del pending under the moved address, with the del of the `pubky.app` address. The retried
+/// flip's tags step then finds no edge to move, and before it publishes, the user, still `v0`, tags
+/// the file again at the `pubky.app` address: the new edge is live, so the flip's publish must not
+/// retract that address.
 #[tokio_shared_rt::test(shared)]
 async fn test_resource_changes_flip_publish_keeps_a_tag_put_again_after_a_failed_delete(
 ) -> Result<()> {
