@@ -1,5 +1,14 @@
+//! The API, served under every version prefix from one declaration.
+//!
+//! Every module declares its routes and OpenAPI paths once, relative to the prefix
+//! (`endpoints`). [`routes`] mounts them under `/v0` and `/v1`, and [`ApiDoc`] prefixes the one
+//! document the same way, so a route cannot exist in one version and not the other by
+//! accident. The two versions answer identically for now: the differences a `social/v1` client
+//! needs are carved out as types, never as a second handler or route declaration.
+
 use crate::models::{BoundedLimit, BoundedSkip};
 use axum::Router;
+use endpoints::{V0_PREFIX, V1_PREFIX, VERSION_PREFIXES};
 use utoipa::OpenApi;
 
 pub mod bootstrap;
@@ -20,9 +29,29 @@ pub use types::{TaggersInfoResponse, TagsQuery};
 
 use super::AppState;
 
-/// Returns (expensive_routes, default_routes).
-/// Expensive routes receive tighter rate limiting.
+/// Returns (expensive_routes, default_routes), each mounted under every version prefix.
+/// Expensive routes receive tighter rate limiting. Both versions of a bucket come back in one
+/// router so that one rate-limit layer, and so one bucket per client, covers them both.
 pub fn routes(app_state: AppState) -> (Router<AppState>, Router<AppState>) {
+    let (expensive, default) = relative_routes(app_state);
+    (
+        mount_under_every_version(expensive),
+        mount_under_every_version(default),
+    )
+}
+
+/// `router` under each of [`VERSION_PREFIXES`]. Axum flattens a nested router into the outer
+/// one, route by route, so two buckets nested under the same prefix still merge.
+fn mount_under_every_version(router: Router<AppState>) -> Router<AppState> {
+    VERSION_PREFIXES
+        .iter()
+        .fold(Router::new(), |mounted, prefix| {
+            mounted.nest(prefix, router.clone())
+        })
+}
+
+/// The buckets as the modules declare them, with paths relative to the version prefix.
+fn relative_routes(app_state: AppState) -> (Router<AppState>, Router<AppState>) {
     let expensive = Router::new()
         .merge(stream::expensive_routes())
         .merge(tag::expensive_routes())
@@ -65,7 +94,25 @@ pub fn routes(app_state: AppState) -> (Router<AppState>, Router<AppState>) {
 pub struct ApiDoc;
 
 impl ApiDoc {
-    pub fn merge_docs() -> utoipa::openapi::OpenApi {
+    /// The `/v0` document: the frozen API.
+    pub fn v0_docs() -> utoipa::openapi::OpenApi {
+        Self::docs_under(V0_PREFIX)
+    }
+
+    /// The `/v1` document, for the `social/v1` clients.
+    pub fn v1_docs() -> utoipa::openapi::OpenApi {
+        Self::docs_under(V1_PREFIX)
+    }
+
+    /// The one document with every path under `prefix`, as [`routes`] mounts them. Nesting
+    /// prefixes the paths and carries the schemas over, so both documents list the same
+    /// operations and components.
+    fn docs_under(prefix: &str) -> utoipa::openapi::OpenApi {
+        Self::openapi().nest(prefix, Self::relative_docs())
+    }
+
+    /// Every module's document merged, with paths relative to the version prefix.
+    fn relative_docs() -> utoipa::openapi::OpenApi {
         let mut combined = post::PostApiDoc::merge_docs();
         combined.merge(bootstrap::BootstrapApiDoc::openapi());
         combined.merge(info::InfoApiDoc::openapi());
@@ -77,7 +124,6 @@ impl ApiDoc {
         combined.merge(resource::ResourceApiDoc::openapi());
         combined.merge(notification::NotificationApiDoc::merge_docs());
         combined.merge(events::EventsApiDoc::openapi());
-        combined.merge(ApiDoc::openapi());
 
         combined
     }

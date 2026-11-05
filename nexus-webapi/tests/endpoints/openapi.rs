@@ -1,4 +1,6 @@
-use nexus_webapi::routes::{r#static::ApiDoc as StaticApiDoc, v0::ApiDoc as V0ApiDoc};
+use std::collections::BTreeMap;
+
+use nexus_webapi::routes::{r#static::ApiDoc as StaticApiDoc, v0::ApiDoc};
 use serde_json::Value;
 
 /// Validates that all schema references in an OpenAPI spec are defined.
@@ -29,11 +31,9 @@ fn collect_refs(value: &Value) -> Box<dyn Iterator<Item = &str> + '_> {
     }
 }
 
-/// Test that the v0 OpenAPI spec is valid and all schema references are defined.
-#[test]
-fn test_v0_openapi_spec_valid() {
-    let spec = V0ApiDoc::merge_docs();
-    let json = serde_json::to_value(&spec).expect("Failed to serialize v0 OpenAPI spec");
+/// A document has the basic structure and every schema it references.
+fn assert_valid_document(spec: utoipa::openapi::OpenApi) {
+    let json = serde_json::to_value(&spec).expect("Failed to serialize OpenAPI spec");
 
     // Basic structure checks
     assert!(json["openapi"].is_string(), "Missing openapi version");
@@ -44,10 +44,51 @@ fn test_v0_openapi_spec_valid() {
     validate_openapi_refs(&json);
 }
 
+/// Test that the v0 OpenAPI spec is valid and all schema references are defined.
+#[test]
+fn test_v0_openapi_spec_valid() {
+    assert_valid_document(ApiDoc::v0_docs());
+}
+
+/// Test that the v1 OpenAPI spec is valid and all schema references are defined.
+#[test]
+fn test_v1_openapi_spec_valid() {
+    assert_valid_document(ApiDoc::v1_docs());
+}
+
+/// The paths of a document with their version prefix stripped, each with its operations.
+fn paths_under(spec: &Value, prefix: &str) -> BTreeMap<String, Value> {
+    spec["paths"]
+        .as_object()
+        .expect("paths")
+        .iter()
+        .map(|(path, item)| {
+            let relative = path
+                .strip_prefix(prefix)
+                .unwrap_or_else(|| panic!("{path} is not under {prefix}"));
+            (relative.to_string(), item.clone())
+        })
+        .collect()
+}
+
+/// Both documents come from one route declaration, so every v0 path is in the v1 document
+/// and vice versa, with the same operations under each. The tickets that take a route off
+/// v1 add their exceptions here.
+#[test]
+fn test_v0_and_v1_documents_list_the_same_paths() {
+    let v0 = paths_under(&serde_json::to_value(ApiDoc::v0_docs()).unwrap(), "/v0");
+    let v1 = paths_under(&serde_json::to_value(ApiDoc::v1_docs()).unwrap(), "/v1");
+    assert!(!v0.is_empty(), "the v0 document lists no path");
+    assert_eq!(v0.keys().collect::<Vec<_>>(), v1.keys().collect::<Vec<_>>());
+    for (path, operations) in &v0 {
+        assert_eq!(operations, &v1[path], "{path}");
+    }
+}
+
 /// `StreamReach` is a query string like `wot_2`, not the Rust enum shape.
 #[test]
 fn test_stream_reach_schema_is_its_string_form() {
-    let spec = serde_json::to_value(V0ApiDoc::merge_docs()).expect("serializable spec");
+    let spec = serde_json::to_value(ApiDoc::v0_docs()).expect("serializable spec");
     let schema = spec
         .pointer("/components/schemas/StreamReach")
         .expect("StreamReach schema");
@@ -60,7 +101,7 @@ fn test_stream_reach_schema_is_its_string_form() {
 /// `UserDetails.epoch` is the string enum `["v0", "v1"]`.
 #[test]
 fn test_user_details_epoch_schema_is_a_string_enum() {
-    let spec = serde_json::to_value(V0ApiDoc::merge_docs()).expect("serializable spec");
+    let spec = serde_json::to_value(ApiDoc::v0_docs()).expect("serializable spec");
     let field = spec
         .pointer("/components/schemas/UserDetails/properties/epoch/$ref")
         .expect("UserDetails.epoch references a schema");
@@ -75,7 +116,7 @@ fn test_user_details_epoch_schema_is_a_string_enum() {
 /// Post kinds and profile links are documented under Nexus's names, with the stored kind names.
 #[test]
 fn test_post_kind_and_user_link_schemas_are_nexus_owned() {
-    let spec = serde_json::to_value(V0ApiDoc::merge_docs()).expect("serializable spec");
+    let spec = serde_json::to_value(ApiDoc::v0_docs()).expect("serializable spec");
     let schemas = spec
         .pointer("/components/schemas")
         .and_then(Value::as_object)
@@ -106,7 +147,7 @@ fn test_post_kind_and_user_link_schemas_are_nexus_owned() {
 /// `attachments` and `links` are always present lists, never `null`.
 #[test]
 fn test_attachments_and_links_are_required_lists() {
-    let spec = serde_json::to_value(V0ApiDoc::merge_docs()).expect("serializable spec");
+    let spec = serde_json::to_value(ApiDoc::v0_docs()).expect("serializable spec");
     for (schema, field) in [("PostDetails", "attachments"), ("UserDetails", "links")] {
         let object = spec
             .pointer(&format!("/components/schemas/{schema}"))
@@ -123,7 +164,7 @@ fn test_attachments_and_links_are_required_lists() {
 /// Every `UserCounts` field is always present, `collections` included.
 #[test]
 fn test_user_counts_schema_requires_every_count() {
-    let spec = serde_json::to_value(V0ApiDoc::merge_docs()).expect("serializable spec");
+    let spec = serde_json::to_value(ApiDoc::v0_docs()).expect("serializable spec");
     let required = spec
         .pointer("/components/schemas/UserCounts/required")
         .and_then(Value::as_array)
@@ -150,16 +191,7 @@ fn test_user_counts_schema_requires_every_count() {
 /// Test that the static OpenAPI spec is valid and all schema references are defined.
 #[test]
 fn test_static_openapi_spec_valid() {
-    let spec = StaticApiDoc::merge_docs();
-    let json = serde_json::to_value(&spec).expect("Failed to serialize static OpenAPI spec");
-
-    // Basic structure checks
-    assert!(json["openapi"].is_string(), "Missing openapi version");
-    assert!(json["info"]["title"].is_string(), "Missing info.title");
-    assert!(json["paths"].is_object(), "Missing paths");
-
-    // Validate all $ref references are defined
-    validate_openapi_refs(&json);
+    assert_valid_document(StaticApiDoc::merge_docs());
 }
 
 /// The v1 files route sits in the static document, next to the v0 route it extends, until
@@ -190,12 +222,17 @@ fn test_every_operation_documents_400() {
     let exempt = [
         // Takes no input.
         "get /v0/info",
+        "get /v1/info",
         // The legacy redirect never extracts its parameters.
         "get /static/files/{owner_id}/{file_id}",
     ];
 
     let mut missing = Vec::new();
-    for spec in [V0ApiDoc::merge_docs(), StaticApiDoc::merge_docs()] {
+    for spec in [
+        ApiDoc::v0_docs(),
+        ApiDoc::v1_docs(),
+        StaticApiDoc::merge_docs(),
+    ] {
         let spec = serde_json::to_value(spec).expect("serializable spec");
         let paths = spec["paths"].as_object().expect("paths");
         for (path, item) in paths {
@@ -215,7 +252,7 @@ fn test_every_operation_documents_400() {
 
 /// `relationship` is a boolean and `tag_uri`, the viewer's tag address, a nullable string.
 fn assert_relationship_and_tag_uri(schema: &str) {
-    let spec = serde_json::to_value(V0ApiDoc::merge_docs()).expect("serializable spec");
+    let spec = serde_json::to_value(ApiDoc::v0_docs()).expect("serializable spec");
     let properties = spec
         .pointer(&format!("/components/schemas/{schema}/properties"))
         .unwrap_or_else(|| panic!("{schema} properties"));
@@ -250,7 +287,7 @@ fn test_taggers_relationship_and_tag_uri() {
 /// A resource tag keeps no `app`, so the resource stream routes take no `app` parameter.
 #[test]
 fn test_resource_stream_routes_take_no_app_parameter() {
-    let spec = serde_json::to_value(V0ApiDoc::merge_docs()).expect("serializable spec");
+    let spec = serde_json::to_value(ApiDoc::v0_docs()).expect("serializable spec");
     for path in ["/v0/stream/resources", "/v0/stream/resources/ids"] {
         let params = spec["paths"][path]["get"]["parameters"]
             .as_array()
