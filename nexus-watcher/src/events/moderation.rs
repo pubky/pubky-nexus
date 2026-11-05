@@ -96,10 +96,10 @@ impl Moderation {
                 // written right now by another loop (see `handle_put_event`): each has an
                 // address of its own.
                 info!("Moderation tag '{label}' on {uri} detected. Taking down {address}");
-                record_takedown(&address, tag_uri).await?;
                 // A v0 file's blob goes with it, keyed by `blob_takedown_key`, so the takedown
-                // holds against the flip's copy whichever comes first. Read here, before the
-                // delete below removes the `File` node the map is built from.
+                // holds against the flip's copy whichever comes first. The map is read before
+                // anything is recorded: once the address is, another loop's
+                // `remove_if_taken_down` may delete the `File` node the map is built from.
                 if let ReferenceTarget::File(key) = &target {
                     if !is_v1_file_id(&key.resource_id) {
                         let files = FileMap::load(&key.owner_id).await?;
@@ -111,6 +111,7 @@ impl Moderation {
                         }
                     }
                 }
+                record_takedown(&address, tag_uri).await?;
                 Self::remove_taken_down(target, files_path, ingestor).await
             }
         }
