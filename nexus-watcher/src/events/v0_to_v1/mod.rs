@@ -73,7 +73,8 @@ mod tests {
     const USER: &str = "operrr8wsbpr3ue9d4qj41ge1kcc6r7fdiy6o3ugjrrhi4y77rdo";
 
     /// A failed step comes out as `FlipFailed` naming the step and keeping the cause, a graph
-    /// or a Redis error alike, and its message names both.
+    /// or a Redis error alike, and its message names both. A step may fail with the graph's
+    /// own error, as the epoch write does: converted, then wrapped like any other.
     #[tokio::test]
     async fn a_failed_step_comes_out_as_flip_failed_naming_the_step_and_the_cause() {
         let user_id = PubkyId::try_from(USER).unwrap();
@@ -104,13 +105,7 @@ mod tests {
             assert!(message.contains(&format!("step `{name}`")), "{message}");
             assert!(message.contains(&cause), "{message}");
         }
-    }
 
-    /// A step may fail with the graph's own error, as the epoch write does: converted and
-    /// wrapped like any other.
-    #[tokio::test]
-    async fn a_graph_error_is_converted_before_it_is_wrapped() {
-        let user_id = PubkyId::try_from(USER).unwrap();
         let stalled = GraphError::KeysetScanStalled {
             context: "migration.posts".to_string(),
             detail: "cursor did not advance".to_string(),

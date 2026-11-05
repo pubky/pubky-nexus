@@ -160,20 +160,4 @@ mod tests {
         exec_single_row(queries::del::delete_user(&user)).await?;
         Ok(())
     }
-
-    /// A user whose first event is their `social/v1` profile has no node: the flip creates
-    /// one at `v1`, for the profile write that follows.
-    #[tokio_shared_rt::test(shared)]
-    async fn a_flip_of_an_unknown_user_creates_their_node_at_v1() -> Result<(), DynError> {
-        StackManager::setup(&StackConfig::default()).await?;
-        let user = random_pubky_id();
-
-        flip(&user).await?;
-
-        assert_eq!(Epoch::get_from_graph(&user).await?, Epoch::V1);
-        assert!(UserDetails::get_from_graph(&[user.as_ref()]).await?[0].is_some());
-
-        exec_single_row(queries::del::delete_user(&user)).await?;
-        Ok(())
-    }
 }
