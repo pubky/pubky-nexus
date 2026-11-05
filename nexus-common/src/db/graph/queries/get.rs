@@ -2062,6 +2062,16 @@ pub fn is_taken_down(uri: &str) -> Query {
     .param("uri", uri.to_string())
 }
 
+/// Whether the moderator took down any of `uris`, in one read: the addresses one resource is
+/// known under, such as a migrated file's `social/v1` address and its `pubky.app` ones.
+pub fn is_any_taken_down(uris: &[String]) -> Query {
+    Query::new(
+        "is_any_taken_down",
+        "RETURN EXISTS { MATCH (t:Takedown) WHERE t.uri IN $uris } AS taken_down",
+    )
+    .param("uris", uris.to_vec())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -12,13 +12,18 @@
 //! [`EventProcessorError::MigrationDiskFailed`]: the copy step fails as a
 //! [`EventProcessorError::FlipFailed`], retried without limit while the user stays at `v0`. The
 //! retry runs the copy again, and it skips what already exists.
+//!
+//! A blob is taken down when its `social/v1` address is, or the `pubky.app` address of any file
+//! that names it: a takedown recorded under a file's v0 address holds against its copy too,
+//! whichever of the two the moderator's tag and the flip reach first.
 
 use super::files::{Blob, FileMap};
 use crate::events::handlers::file::{main_path, write_v1_main};
 use crate::events::translation::social_v1::read_v1_file;
 use crate::events::EventProcessorError;
 use nexus_common::media::file_folder;
-use nexus_common::models::takedown::is_taken_down;
+use nexus_common::models::takedown::is_any_taken_down;
+use pubky_social_specs::legacy_v0::file_uri_builder as v0_file_uri_builder;
 use pubky_social_specs::{file_uri_builder, PubkyId};
 use std::future::Future;
 use std::io::ErrorKind;
@@ -33,14 +38,14 @@ pub async fn copy(
     files: &FileMap,
     files_path: &Path,
 ) -> Result<(), EventProcessorError> {
-    copy_with(owner, files, files_path, |uri| async move {
-        Ok(is_taken_down(&uri).await?)
+    copy_with(owner, files, files_path, |uris| async move {
+        Ok(is_any_taken_down(&uris).await?)
     })
     .await
 }
 
-/// [`copy`], asking `taken_down` whether an address is taken down: the graph in production,
-/// anything in a test, so the copy's disk behaviour is tested with no graph.
+/// [`copy`], asking `taken_down` whether any of a blob's addresses is taken down: the graph in
+/// production, anything in a test, so the copy's disk behaviour is tested with no graph.
 pub(super) async fn copy_with<F, Fut>(
     owner: &PubkyId,
     files: &FileMap,
@@ -48,7 +53,7 @@ pub(super) async fn copy_with<F, Fut>(
     taken_down: F,
 ) -> Result<(), EventProcessorError>
 where
-    F: Fn(String) -> Fut,
+    F: Fn(Vec<String>) -> Fut,
     Fut: Future<Output = Result<bool, EventProcessorError>>,
 {
     for blob in files.blobs() {
@@ -57,11 +62,11 @@ where
     Ok(())
 }
 
-/// Copies one blob, in order: a taken-down address is skipped, and a copy an earlier attempt
-/// left behind is removed; an existing target is skipped, since an address names exact bytes
-/// and every write checked them; the source is the first legacy `main` of the group that passes
-/// the hash, none being a skip; the write goes through the temp-then-rename writer; a takedown
-/// that landed during the copy removes it again.
+/// Copies one blob, in order: a taken-down blob ([`takedown_addresses`]) is skipped, and a copy
+/// an earlier attempt left behind is removed; an existing target is skipped, since an address
+/// names exact bytes and every write checked them; the source is the first legacy `main` of the
+/// group that passes the hash, none being a skip; the write goes through the temp-then-rename
+/// writer; a takedown that landed during the copy removes it again.
 async fn copy_blob<F, Fut>(
     owner: &PubkyId,
     blob: &Blob,
@@ -69,14 +74,15 @@ async fn copy_blob<F, Fut>(
     taken_down: &F,
 ) -> Result<(), EventProcessorError>
 where
-    F: Fn(String) -> Fut,
+    F: Fn(Vec<String>) -> Fut,
     Fut: Future<Output = Result<bool, EventProcessorError>>,
 {
     let file_id = blob.file_id();
     let folder = files_path.join(file_folder(owner.as_ref(), &file_id));
     let uri = file_uri_builder(owner.to_string(), file_id);
+    let addresses = takedown_addresses(owner, blob, &uri);
 
-    if taken_down(uri.clone()).await? {
+    if taken_down(addresses.clone()).await? {
         // A copy left behind by an earlier attempt whose removal failed goes here, as a PUT's
         // first takedown check removes one.
         remove_folder(&folder).await?;
@@ -103,11 +109,24 @@ where
         .await
         .map_err(EventProcessorError::migration_disk_failed)?;
 
-    if taken_down(uri.clone()).await? {
+    if taken_down(addresses).await? {
         remove_folder(&folder).await?;
         info!(user_id = %owner, address = %uri, "File was taken down during its copy; removed");
     }
     Ok(())
+}
+
+/// The addresses a takedown of `blob` is recorded under: its `social/v1` address `uri`, and the
+/// `pubky.app` address of every file of the group. One taken-down file takes down the blob: the
+/// bytes are the content the moderator removed, whichever file names them.
+fn takedown_addresses(owner: &PubkyId, blob: &Blob, uri: &str) -> Vec<String> {
+    std::iter::once(uri.to_string())
+        .chain(
+            blob.tsids
+                .iter()
+                .map(|tsid| v0_file_uri_builder(owner.to_string(), tsid.clone())),
+        )
+        .collect()
 }
 
 /// The bytes of the first legacy `main` of `blob`'s group that hashes to the blob, lowest
@@ -244,8 +263,12 @@ mod tests {
     }
 
     /// No address is taken down.
-    async fn nothing_taken_down(_uri: String) -> Result<bool, EventProcessorError> {
+    async fn nothing_taken_down(_uris: Vec<String>) -> Result<bool, EventProcessorError> {
         Ok(false)
+    }
+
+    fn v0_uri(tsid: &str) -> String {
+        v0_file_uri_builder(OWNER.to_string(), tsid.to_string())
     }
 
     /// Every legacy `main` the test wrote is still there, with its bytes.
@@ -415,9 +438,9 @@ mod tests {
         fs::write(main_path(&leftover), b"copy:down").await.unwrap();
         let down_uri = v1_uri(&down, "png");
 
-        copy_with(&owner(), &map, dir.path(), |uri| {
-            let down_uri = down_uri.clone();
-            async move { Ok(uri == down_uri) }
+        copy_with(&owner(), &map, dir.path(), |uris| {
+            let down = uris.contains(&down_uri);
+            async move { Ok(down) }
         })
         .await
         .unwrap();
@@ -443,8 +466,8 @@ mod tests {
         // Down from the second check on: the moderator's tag landed during the copy.
         let asked = Mutex::new(HashSet::new());
 
-        copy_with(&owner(), &map, dir.path(), |uri| {
-            let first = asked.lock().unwrap().insert(uri);
+        copy_with(&owner(), &map, dir.path(), |uris| {
+            let first = asked.lock().unwrap().insert(uris);
             async move { Ok(!first) }
         })
         .await
@@ -547,5 +570,54 @@ mod tests {
         assert!(!v1_folder(dir.path(), &files[2].hash(), "png").exists());
         assert!(logs_contain("Legacy main cannot be read"));
         assert!(logs_contain(&v1_uri(&files[2].hash(), "png")));
+    }
+
+    /// A takedown recorded under the `pubky.app` address of any file of a blob holds against
+    /// the copy: the blob is not copied, a leftover copy is removed, and the blob's other file
+    /// does not bring it back. The address list is the blob's v1 address and each file's v0 one.
+    #[tokio::test]
+    async fn a_takedown_of_any_v0_file_of_a_blob_takes_the_blob_down() {
+        let dir = TempDir::new().unwrap();
+        let files = [
+            LegacyFile::new("0032SSN7Q4EVG", b"copy:v0:shared", "image/png"),
+            LegacyFile::new("0032SSN7Q4EVH", b"copy:v0:shared", "image/png"),
+            LegacyFile::new("0032SSN7Q4EVJ", b"copy:v0:up", "image/png"),
+        ];
+        let map = seed(dir.path(), &files).await;
+        let shared = files[0].hash();
+        let leftover = v1_folder(dir.path(), &shared, "png");
+        fs::create_dir_all(&leftover).await.unwrap();
+        fs::write(main_path(&leftover), b"copy:v0:shared")
+            .await
+            .unwrap();
+        // The moderator took down the second upload of the shared blob, at its v0 address.
+        let down = v0_uri(files[1].tsid);
+        let asked = Mutex::new(Vec::new());
+
+        copy_with(&owner(), &map, dir.path(), |uris| {
+            let hit = uris.contains(&down);
+            asked.lock().unwrap().push(uris);
+            async move { Ok(hit) }
+        })
+        .await
+        .unwrap();
+
+        assert!(!leftover.exists(), "the leftover copy must be removed");
+        assert_eq!(
+            v1_main(dir.path(), &files[2].hash(), "png")
+                .await
+                .as_deref(),
+            Some(b"copy:v0:up".as_slice())
+        );
+        let asked = asked.into_inner().unwrap();
+        assert!(
+            asked.contains(&vec![
+                v1_uri(&shared, "png"),
+                v0_uri(files[0].tsid),
+                v0_uri(files[1].tsid),
+            ]),
+            "the shared blob is looked up under its v1 address and both v0 ones: {asked:?}"
+        );
+        assert_legacy_intact(dir.path(), &files).await;
     }
 }

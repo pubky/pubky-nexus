@@ -55,7 +55,7 @@ impl V1File {
         }
     }
 
-    fn hash(&self) -> &str {
+    pub(super) fn hash(&self) -> &str {
         self.filename
             .split_once('.')
             .expect("a {hash}.{ext} leaf")

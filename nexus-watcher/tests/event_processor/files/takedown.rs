@@ -1,6 +1,6 @@
-//! One takedown covers one address. A moderator tag on a `{hash}.{ext}` address removes that
-//! v1 folder and nothing else, and a later PUT at the address stays down; a tag on a `{tsid}`
-//! address removes that legacy folder and its `File` node and nothing else. Prior art:
+//! A moderator tag on a `{hash}.{ext}` address removes that v1 folder and nothing else, and a
+//! later PUT at the address stays down; a tag on a `{tsid}` address removes that legacy folder
+//! and its `File` node, and takes down the address the flip copies it to, nothing else. Prior art:
 //! `tags/moderated.rs` and `delete.rs`.
 
 use super::social_v1::{cleanup_v1_user, handler_over_mock, v1_user, V1File};
@@ -15,6 +15,7 @@ use nexus_common::models::file::FileDetails;
 use nexus_common::models::takedown::is_taken_down;
 use nexus_common::models::traits::Collection;
 use pubky::{recovery_file, Keypair, ResourcePath};
+use pubky_social_specs::file_uri_builder;
 use pubky_social_specs::legacy_v0::traits::{HasIdPath, HashId as _};
 use pubky_social_specs::legacy_v0::{
     blob_uri_builder, file_uri_builder as v0_file_uri_builder, PubkyAppBlob, PubkyAppFile,
@@ -136,8 +137,10 @@ async fn test_takedown_of_a_v1_file_removes_its_folder_and_holds_against_a_later
     cleanup_v1_user(&mut test, &author_kp, &author_id).await
 }
 
-/// A tag on a `{tsid}` address removes that legacy folder and its node, and leaves the owner's
-/// v1 file alone: `H.png` stays servable until the moderator tags it too.
+/// A tag on a `{tsid}` address removes that legacy folder and its node, and takes down the
+/// address the flip would copy it to, `H.txt` for this `text/plain` file. The owner's own v1
+/// upload of the same bytes at another address, `H.png`, is left alone: it stays servable until
+/// the moderator tags it too.
 #[tokio_shared_rt::test(shared)]
 async fn test_takedown_of_a_tsid_address_leaves_the_v1_folder_alone() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
@@ -177,6 +180,11 @@ async fn test_takedown_of_a_tsid_address_leaves_the_v1_folder_alone() -> Result<
     );
     assert!(v1_main.exists(), "the v1 folder must be left alone");
     assert!(!is_taken_down(&v1_uri).await?);
+    let migrated = file_uri_builder(author_id.clone(), format!("{}.txt", v1_file.hash()));
+    assert!(
+        is_taken_down(&migrated).await?,
+        "the address the flip copies the file to is taken down"
+    );
 
     v1_file.del(&mut test, &author_kp).await?;
     cleanup_v1_user(&mut test, &author_kp, &author_id).await

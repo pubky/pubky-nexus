@@ -13,6 +13,7 @@ use anyhow::Result;
 use chrono::Utc;
 use nexus_common::media::file_folder;
 use nexus_common::models::post::PostView;
+use nexus_common::models::takedown::is_taken_down;
 use nexus_watcher::EventProcessorError;
 use pubky::{recovery_file, Keypair, ResourcePath};
 use pubky_social_specs::legacy_v0::{PubkyAppPost, PubkyAppTag};
@@ -509,11 +510,11 @@ async fn test_a_v1_address_taken_down_before_the_flip_is_not_copied() -> Result<
     .await
 }
 
-/// A `{tsid}` takedown before the flip leaves its blob out of the copy, unless another `tsid`
-/// shares the blob, in which case the copy is made from that one.
+/// A `{tsid}` takedown before the flip takes its blob down at its `social/v1` address too, so
+/// the blob is not copied, even when another upload the moderator did not tag shares it: the
+/// bytes are the content taken down. That upload's legacy folder is left alone.
 #[tokio_shared_rt::test(shared)]
-async fn test_a_tsid_takedown_before_the_flip_leaves_the_file_out_unless_another_shares_its_blob(
-) -> Result<()> {
+async fn test_a_tsid_takedown_before_the_flip_takes_its_blob_down_shared_or_not() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
     let moderator_kp = create_moderator(&mut test).await?;
     let (author_kp, author_id) = v0_author(&mut test, "Watcher:Migration:Tsid:Author").await?;
@@ -554,14 +555,19 @@ async fn test_a_tsid_takedown_before_the_flip_leaves_the_file_out_unless_another
 
     assert_eq!(find_user_epoch(&author_id).await.as_deref(), Some("v1"));
     let files_path = test.temp_dir.path();
+    for (file, what) in [(&lone, "a lone blob"), (&shared, "a shared blob")] {
+        assert!(
+            !v1_main(files_path, &author_id, &file.hash, "png").exists(),
+            "{what} of a taken-down tsid must not be copied"
+        );
+        assert!(
+            is_taken_down(&v1_file_uri(&author_id, &file.hash, "png")).await?,
+            "{what}: the takedown must be recorded under the v1 address"
+        );
+    }
     assert!(
-        !v1_main(files_path, &author_id, &lone.hash, "png").exists(),
-        "a taken-down tsid with no other upload leaves nothing to copy"
-    );
-    assert_eq!(
-        fs::read(v1_main(files_path, &author_id, &shared.hash, "png")).await?,
-        shared.bytes,
-        "copied from the upload the moderator did not tag"
+        other.main.exists(),
+        "the untagged upload's legacy folder stays"
     );
 
     cleanup(
@@ -570,6 +576,62 @@ async fn test_a_tsid_takedown_before_the_flip_leaves_the_file_out_unless_another
         &author_id,
         &profile_path,
         &[&lone, &shared, &other],
+        &[],
+    )
+    .await
+}
+
+/// A `{tsid}` takedown read after the flip removes the copy as well as the legacy folder, and
+/// records the copy's address, so the copy does not outlive the takedown.
+#[tokio_shared_rt::test(shared)]
+async fn test_a_tsid_takedown_after_the_flip_removes_the_copy() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let moderator_kp = create_moderator(&mut test).await?;
+    let (author_kp, author_id) = v0_author(&mut test, "Watcher:Migration:After:Author").await?;
+    let unique = format!("{author_id}:{}", Utc::now().timestamp_micros());
+    let down = legacy_file(
+        &mut test,
+        &author_kp,
+        &author_id,
+        &format!("after:down:{unique}"),
+        "down.png",
+        "image/png",
+    )
+    .await?;
+    let up = legacy_file(
+        &mut test,
+        &author_kp,
+        &author_id,
+        &format!("after:up:{unique}"),
+        "up.png",
+        "image/png",
+    )
+    .await?;
+    let profile_path = flip(&mut test, &author_kp, "Watcher:Migration:After:Author:V1").await?;
+    let files_path = test.temp_dir.path().to_path_buf();
+    let copy = v1_main(&files_path, &author_id, &down.hash, "png");
+    assert!(copy.exists(), "the flip copies the file");
+
+    moderate(&mut test, &moderator_kp, &down.uri).await?;
+
+    assert!(!down.main.exists(), "the legacy folder is removed");
+    assert!(!copy.exists(), "the copy is removed with it");
+    assert!(
+        is_taken_down(&v1_file_uri(&author_id, &down.hash, "png")).await?,
+        "the copy's address is recorded, so a later PUT there stays down"
+    );
+    assert_eq!(
+        fs::read(v1_main(&files_path, &author_id, &up.hash, "png")).await?,
+        up.bytes,
+        "the other file's copy stays"
+    );
+
+    cleanup(
+        &mut test,
+        &author_kp,
+        &author_id,
+        &profile_path,
+        &[&down, &up],
         &[],
     )
     .await
