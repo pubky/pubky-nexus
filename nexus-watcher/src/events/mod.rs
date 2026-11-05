@@ -67,9 +67,9 @@ impl DefaultEventHandler {
 
     /// Builds a handler that fetches through `client`, deriving its moderation rules
     /// and user ingestor from config. The ingestor resolves users' homeservers through
-    /// `client` too.
+    /// `client` too, and keeps the moderator in scope.
     pub fn from_config(config: &WatcherConfig, client: Arc<dyn HomeserverClient>) -> Self {
-        let ingestor = UserIngestor::from_config(&config.stack, client.clone());
+        let ingestor = crate::scope::watcher_ingestor(config, client.clone());
         Self::new(
             Moderation::from_config(config),
             Arc::new(ingestor),
@@ -83,18 +83,24 @@ impl DefaultEventHandler {
 impl EventHandler for DefaultEventHandler {
     async fn handle(&self, event: &Event) -> Result<(), EventProcessorError> {
         match event.event_type {
+            // Boxed: inline, these futures are too deep for the compiler's query limit.
             EventType::Put => {
-                handle_put_event(
+                Box::pin(handle_put_event(
                     event,
                     self.files_path.as_path(),
                     self.moderation.clone(),
                     self.ingestor.clone(),
                     self.client.as_ref(),
-                )
+                ))
                 .await
             }
             EventType::Del => {
-                handle_del_event(event, self.files_path.as_path(), self.ingestor.clone()).await
+                Box::pin(handle_del_event(
+                    event,
+                    self.files_path.as_path(),
+                    self.ingestor.clone(),
+                ))
+                .await
             }
         }?;
 

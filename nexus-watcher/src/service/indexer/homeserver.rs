@@ -7,6 +7,7 @@ use nexus_common::db::kv::RedisError;
 use nexus_common::db::{fetch_row_from_graph, queries, GraphResult};
 use nexus_common::models::error::ModelError;
 use nexus_common::models::homeserver::Homeserver;
+use nexus_common::models::user::UserIngestor;
 use opentelemetry::metrics::Counter;
 use opentelemetry::{global, KeyValue};
 use pubky_app_specs::PubkyId;
@@ -52,6 +53,17 @@ static STALLED_CURSOR_PRIMARY_HS: LazyLock<Counter<u64>> = LazyLock::new(|| {
 /// The `stale` flag is only carried where it is meaningful: a stale mapping means
 /// the user's published HS has diverged from the stored one (see
 /// [`set_user_homeserver_stale`](nexus_common::db::queries::put::set_user_homeserver_stale)).
+/// Counter for events skipped because their author is outside the scope.
+///
+/// Only users in scope are polled, so this counts events read from a whole feed (which
+/// holds everyone on its homeserver) whose author is kept out.
+static OUT_OF_SCOPE: LazyLock<Counter<u64>> = LazyLock::new(|| {
+    global::meter(crate::METER_NAME)
+        .u64_counter("watcher.events.out_of_scope")
+        .with_description("Events skipped because their author is outside the scope")
+        .build()
+});
+
 #[derive(Clone)]
 pub enum HsMapping {
     /// The user has no `HOSTED_BY` edge yet.
@@ -127,6 +139,10 @@ pub struct HsEventProcessor {
     /// Scheduler used to enqueue failed events onto the retry queue
     pub retry_scheduler: Arc<RetryScheduler>,
 
+    /// The watcher's user ingestor, whose scope decides which authors' events in this
+    /// feed are indexed
+    pub ingestor: Arc<UserIngestor>,
+
     /// Per-run cache of users' `HOSTED_BY` mappings. For a given user's events in
     /// the events list, only the 1st one results in a graph lookup, the rest read from this cache.
     ///
@@ -161,12 +177,17 @@ impl TEventProcessor for HsEventProcessor {
     /// - A stale edge to this homeserver (the user's published homeserver has
     ///   diverged): log a warning and skip until the resolver realigns it.
     /// - An edge to a different homeserver: log a warning and skip.
+    ///
+    /// Then the scope: a whole feed holds everyone on its homeserver, so the events of
+    /// authors outside the scope are skipped, neither indexed nor retried. The other
+    /// event sources need no such check: the key-based processor only polls users in
+    /// scope, and an event the retry queue holds was in scope when it was read.
     async fn should_process_event(&self, event: &Event) -> Result<bool, EventProcessorError> {
         let user_id = event.parsed_uri.user_id();
 
-        match self.user_hs_mapping(user_id).await? {
+        let hosted_here = match self.user_hs_mapping(user_id).await? {
             // No mapping yet (graceful fallback) or actively bound here: process.
-            HsMapping::Unbound | HsMapping::Current { stale: false } => Ok(true),
+            HsMapping::Unbound | HsMapping::Current { stale: false } => true,
 
             // Bound here but the mapping is stale: skip until the resolver realigns it.
             HsMapping::Current { stale: true } => {
@@ -175,7 +196,7 @@ impl TEventProcessor for HsEventProcessor {
                     user_id = %user_id,
                     "User's homeserver mapping is stale; skipping event"
                 );
-                Ok(false)
+                false
             }
 
             // Bound to a different homeserver: skip.
@@ -186,9 +207,19 @@ impl TEventProcessor for HsEventProcessor {
                     user_homeserver = %hs_id,
                     "User is hosted on a different homeserver; skipping event"
                 );
-                Ok(false)
+                false
             }
+        };
+        if !hosted_here {
+            return Ok(false);
         }
+
+        if !self.ingestor.is_author_in_scope(user_id).await? {
+            OUT_OF_SCOPE.add(1, &[]);
+            debug!(event.uri = %event.uri, "Author is outside the scope; skipping event");
+            return Ok(false);
+        }
+        Ok(true)
     }
 
     async fn run_internal(self: Arc<Self>) -> Result<RunOutcome, EventProcessorError> {

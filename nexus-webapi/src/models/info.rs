@@ -5,6 +5,7 @@ use serde::Serialize;
 use utoipa::ToSchema;
 
 use nexus_common::db::kv::get_last_rdb_save_time;
+use nexus_common::ScopeConfig;
 
 #[derive(Serialize, ToSchema)]
 pub struct ServerInfo {
@@ -17,10 +18,13 @@ pub struct ServerInfo {
     pub commit_hash: String,
     pub last_index_snapshot: String,
     pub base_file_url: String,
+    /// Which users this Nexus indexes. On a scoped Nexus, counts, streams and
+    /// search cover the users in scope only.
+    pub scope: ScopeConfig,
 }
 
 impl ServerInfo {
-    pub async fn new(base_file_path: PathBuf) -> Self {
+    pub async fn new(base_file_path: PathBuf, scope: ScopeConfig) -> Self {
         let last_index_snapshot = Self::get_index_snapshot().await;
 
         Self {
@@ -35,6 +39,7 @@ impl ServerInfo {
                 .to_string(),
             last_index_snapshot,
             base_file_url: base_file_path.to_string_lossy().into_owned(),
+            scope,
         }
     }
 

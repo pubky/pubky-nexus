@@ -95,7 +95,8 @@ impl Default for EventRetryConfig {
 /// Configuration settings for the Nexus Watcher service
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct WatcherConfig {
-    /// Default, prioritized homeserver
+    /// The homeserver read as a whole feed with the default `everything` scope (see
+    /// [crate::ScopeConfig]); a `homeservers` scope reads its listed homeservers instead.
     pub homeserver: PubkyId,
 
     /// Maximum number of events to fetch per run from the primary homeserver.

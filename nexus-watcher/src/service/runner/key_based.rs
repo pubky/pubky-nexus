@@ -2,6 +2,7 @@ use super::{HomeserverBackoff, TEventProcessorRunner, UserNotFoundBackoff, UserR
 use crate::events::retry::RetryScheduler;
 use crate::events::EventHandler;
 use crate::homeserver::HomeserverClient;
+use crate::scope::full_feed_homeservers;
 use crate::service::indexer::{KeyBasedEventProcessor, TEventProcessor};
 use crate::service::stats::{ProcessedStats, ProcessorRunStatus, RunAllProcessorsStats};
 use crate::service::KEY_BASED_RUN_BUDGET;
@@ -76,8 +77,9 @@ pub struct KeyBasedEventProcessorRunner {
     pub client: Arc<dyn HomeserverClient>,
     pub shutdown_rx: Receiver<bool>,
 
-    /// Primary homeserver ID, excluded from the external targets list
-    pub primary_homeserver: PubkyId,
+    /// Homeservers read as a whole feed, see [`full_feed_homeservers`]: they are excluded
+    /// from the targets list
+    pub full_feeds: Vec<PubkyId>,
 
     /// HS PKs that must never be indexed. Excluded from `pre_run` and re-checked
     /// by each [`KeyBasedEventProcessor`] this runner builds.
@@ -113,7 +115,7 @@ impl KeyBasedEventProcessorRunner {
             event_handler,
             client,
             shutdown_rx,
-            primary_homeserver: config.homeserver.clone(),
+            full_feeds: full_feed_homeservers(config),
             hs_blacklist: HsBlacklist::from_config(&config.stack),
             backoff: HomeserverBackoff::from_config(config),
             user_not_found_backoff: Arc::new(UserNotFoundBackoff::default()),
@@ -126,11 +128,15 @@ impl KeyBasedEventProcessorRunner {
     /// Returns the HS IDs relevant for this run, ordered by their priority.
     async fn hs_by_priority(&self) -> Result<Vec<String>, DynError> {
         let active_hs_ids = Homeserver::get_all_active_from_graph().await?;
-
         let result_hs_ids: Vec<String> = active_hs_ids
             .into_iter()
-            // Exclude the primary HS, as it is processed separately
-            .filter(|hs_id| hs_id != self.primary_homeserver.as_ref())
+            // Exclude the HSs whose whole feed is read, as they are processed separately
+            .filter(|hs_id| {
+                !self
+                    .full_feeds
+                    .iter()
+                    .any(|full_feed| full_feed.as_ref() == hs_id)
+            })
             // Exclude any blacklisted HS
             .filter(|hs_id| !self.hs_blacklist.is_blacklisted(hs_id))
             .collect();

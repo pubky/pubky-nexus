@@ -13,8 +13,10 @@ use nexus_common::models::traits::Collection;
 use nexus_common::models::user::{set_user_homeserver, Epoch, UserDetails};
 use nexus_common::types::DynError;
 use nexus_common::utils::test_utils::{default_ingestor_tests, random_pubky_id};
+use nexus_common::{ScopeConfig, WatcherConfig};
 use nexus_watcher::events::retry::{InitialBackoff, RedisRetryStore, RetryScheduler, RetryStore};
 use nexus_watcher::events::{DefaultEventHandler, EventHandler};
+use nexus_watcher::scope::full_feed_homeservers;
 use nexus_watcher::service::runner::{HomeserverBackoff, UserNotFoundBackoff, UserResumePoints};
 use nexus_watcher::service::{
     KeyBasedEventProcessorRunner, TEventProcessorRunner, KEY_BASED_RUN_BUDGET,
@@ -49,7 +51,7 @@ async fn test_event_processor_runner_primary_homeserver_excluded() -> Result<(),
         event_handler,
         client,
         shutdown_rx: tokio::sync::watch::channel(false).1,
-        primary_homeserver: PubkyId::try_from(HS_IDS[3]).unwrap(),
+        full_feeds: vec![PubkyId::try_from(HS_IDS[3]).unwrap()],
         hs_blacklist: HsBlacklist::default(),
         backoff: HomeserverBackoff::default(),
         user_not_found_backoff: Arc::new(UserNotFoundBackoff::default()),
@@ -104,7 +106,7 @@ async fn test_event_processor_runner_blacklisted_homeserver_excluded() -> Result
         event_handler,
         client,
         shutdown_rx: tokio::sync::watch::channel(false).1,
-        primary_homeserver: PubkyId::try_from(HS_IDS[3]).unwrap(),
+        full_feeds: vec![PubkyId::try_from(HS_IDS[3]).unwrap()],
         hs_blacklist: HsBlacklist::new([blacklisted_hs.clone()]),
         backoff: HomeserverBackoff::default(),
         user_not_found_backoff: Arc::new(UserNotFoundBackoff::default()),
@@ -286,5 +288,80 @@ async fn delete_users(user_ids: &[PubkyId]) -> Result<(), DynError> {
     )
     .param("ids", ids);
     exec_single_row(query).await?;
+    Ok(())
+}
+
+/// A key-based runner reading `full_feeds` whole.
+fn key_based_runner(full_feeds: Vec<PubkyId>) -> KeyBasedEventProcessorRunner {
+    let client = Arc::new(MockHomeserverClient::default());
+    let event_handler: Arc<dyn EventHandler> = Arc::new(DefaultEventHandler::new(
+        default_moderation_tests(),
+        default_ingestor_tests(),
+        client.clone(),
+        PathBuf::from("/tmp/nexus-watcher-test"),
+    ));
+    let store: Arc<dyn RetryStore> = Arc::new(RedisRetryStore::new());
+    let retry_scheduler = Arc::new(RetryScheduler::new(
+        store,
+        InitialBackoff {
+            missing_dep_ms: 60_000,
+            transient_ms: 10_000,
+        },
+    ));
+    KeyBasedEventProcessorRunner {
+        limit: 1000,
+        monitored_hs_limit: 100,
+        event_handler,
+        client,
+        shutdown_rx: tokio::sync::watch::channel(false).1,
+        full_feeds,
+        hs_blacklist: HsBlacklist::default(),
+        backoff: HomeserverBackoff::default(),
+        user_not_found_backoff: Arc::new(UserNotFoundBackoff::default()),
+        user_resume_points: Arc::new(UserResumePoints::default()),
+        budget: KEY_BASED_RUN_BUDGET,
+        retry_scheduler,
+    }
+}
+
+/// Persists `count` homeservers, each with an active user, so the key-based runner sees them.
+async fn active_homeservers(count: usize) -> Result<Vec<PubkyId>, DynError> {
+    let mut homeservers = Vec::with_capacity(count);
+    for _ in 0..count {
+        let hs = random_pubky_id();
+        Homeserver::new(hs.clone()).put_to_graph().await?;
+        create_active_user_on_homeserver(&hs).await?;
+        homeservers.push(hs);
+    }
+    Ok(homeservers)
+}
+
+/// A homeserver scope reads its listed homeservers as whole feeds, so the key-based
+/// runner leaves them out; the primary homeserver is polled per user like any other.
+#[tokio_shared_rt::test(shared)]
+async fn test_key_based_runner_skips_the_homeservers_a_scope_reads_whole() -> Result<(), DynError> {
+    setup().await?;
+    let [primary, listed, other] = active_homeservers(3).await?.try_into().unwrap();
+
+    let mut config = WatcherConfig {
+        homeserver: primary.clone(),
+        ..WatcherConfig::default()
+    };
+    config.stack.scope = ScopeConfig::Homeservers {
+        homeservers: vec![listed.clone()],
+    };
+    let hs_ids = key_based_runner(full_feed_homeservers(&config))
+        .pre_run()
+        .await?;
+
+    assert!(
+        !hs_ids.contains(&listed.to_string()),
+        "a listed HS is read whole"
+    );
+    assert!(
+        hs_ids.contains(&primary.to_string()),
+        "the primary HS is not read whole"
+    );
+    assert!(hs_ids.contains(&other.to_string()));
     Ok(())
 }
