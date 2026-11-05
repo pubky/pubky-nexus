@@ -37,7 +37,7 @@ impl PostViewDetailed {
         };
 
         let attachments_metadata = if include_attachment_metadata {
-            let attachment_uris = view.details.attachments.as_deref().unwrap_or(&[]);
+            let attachment_uris = &view.details.attachments;
             fetch_attachment_metadata(attachment_uris).await?
         } else {
             vec![]
@@ -69,7 +69,7 @@ impl PostStreamDetailed {
         // Collect unique attachment URIs across all posts for a single batched fetch
         let all_uris: Vec<String> = views
             .iter()
-            .flat_map(|v| v.details.attachments.as_deref().unwrap_or(&[]))
+            .flat_map(|v| &v.details.attachments)
             .collect::<HashSet<_>>()
             .into_iter()
             .cloned()
@@ -90,8 +90,6 @@ impl PostStreamDetailed {
                 let attachments_metadata = view
                     .details
                     .attachments
-                    .as_deref()
-                    .unwrap_or(&[])
                     .iter()
                     .filter_map(|uri| {
                         let key = FileDetails::file_key_from_uri(uri)?;

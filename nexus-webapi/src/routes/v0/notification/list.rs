@@ -9,7 +9,7 @@ use axum::Json;
 use nexus_common::models::notification::{
     Notification, NotificationBody, NotificationType, PostChangedSource,
 };
-use pubky_social_specs::legacy_v0::PubkyAppPostKind;
+use nexus_common::models::post::PostKind;
 use serde::Deserialize;
 use tracing::debug;
 
@@ -79,7 +79,7 @@ pub async fn list_notifications_handler(
         NotificationType,
         NotificationTypes,
         PostChangedSource,
-        PubkyAppPostKind,
+        PostKind,
         PubkyId
     ))
 )]

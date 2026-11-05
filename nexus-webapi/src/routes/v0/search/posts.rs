@@ -1,6 +1,5 @@
 use crate::models::{
-    BoundedLimit, BoundedPagination, BoundedSkip, PostSearchQuery, PubkyAppPostKind, PubkyId,
-    TagLabel,
+    BoundedLimit, BoundedPagination, BoundedSkip, PostKind, PostSearchQuery, PubkyId, TagLabel,
 };
 use crate::routes::v0::endpoints::{SEARCH_POSTS_BY_CONTENT_ROUTE, SEARCH_POSTS_BY_TAG_ROUTE};
 use crate::routes::{Path, Query};
@@ -192,7 +191,7 @@ fn author_in_reach_filter<'a>(
 pub struct SearchPostsByContentQuery {
     pub q: PostSearchQuery,
     pub author: Option<PubkyId>,
-    pub kind: Option<PubkyAppPostKind>,
+    pub kind: Option<PostKind>,
     pub user_id: Option<PubkyId>,
     pub reach: Option<StreamReach>,
     #[serde(flatten)]
@@ -207,7 +206,7 @@ pub struct SearchPostsByContentQuery {
     params(
         ("q" = PostSearchQuery, Query, description = "Search query (2–30 characters, up to 4 terms)"),
         ("author" = Option<PubkyId>, Query, description = "Optional author Pubky ID to scope results"),
-        ("kind" = Option<PubkyAppPostKind>, Query, description = "Optional post kind to filter by: short, long, image, video, link, file, collection"),
+        ("kind" = Option<PostKind>, Query, description = "Optional post kind to filter by: short, long, image, video, link, file, collection"),
         ("user_id" = Option<PubkyId>, Query, description = "User ID to base reach on. Must be provided together with reach"),
         ("reach" = Option<StreamReach>, Query, example = "following", description = "Reach type: `followers` | `following` | `friends` | `wot` | `wot_1`..`wot_3`. Scopes results to posts authored by users in that reach, never by user_id itself. To apply that, user_id is required. Bare `wot` defaults to depth 2. Combined with `author`, results are that author's posts if the author is in reach, and empty otherwise"),
         ("skip" = Option<BoundedSkip<1000>>, Query, description = "Skip N results (max 1000)"),
@@ -276,7 +275,7 @@ pub async fn search_posts_by_content_handler(
         PostsByTagSearch,
         PostsByContentSearch,
         PostSearchQuery,
-        PubkyAppPostKind,
+        PostKind,
         StreamReach
     ))
 )]
@@ -405,14 +404,14 @@ mod tests {
     #[test]
     fn kind_valid_short_accepted() {
         let q = parse_query("q=bitcoin&kind=short").expect("valid kind must parse");
-        assert_eq!(q.kind, Some(PubkyAppPostKind::Short));
+        assert_eq!(q.kind, Some(PostKind::Short));
     }
 
     #[test]
     fn kind_unknown_parses_as_unknown() {
         let q =
             parse_query("q=bitcoin&kind=not-a-kind").expect("lenient kind parsing must not error");
-        assert_eq!(q.kind, Some(PubkyAppPostKind::Unknown));
+        assert_eq!(q.kind, Some(PostKind::Unknown));
     }
 
     /// `attr=value` pairs of a data point, sorted, so the assertions don't

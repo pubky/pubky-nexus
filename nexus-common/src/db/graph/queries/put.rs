@@ -36,12 +36,13 @@ pub fn create_user(user: &UserDetails, uri: Option<&str>) -> GraphResult<Query> 
 /// Moves a user to epoch `v1`. There is no write of `v0`, so the epoch only moves up. A
 /// missing node is created from `stub`, a [`UserDetails::from_pubky`] of the user, with no
 /// `uri`: the flip writes the epoch before the profile, so a user whose first event is their
-/// `social/v1` profile has no node yet. The profile write that follows fills it in.
+/// `social/v1` profile has no node yet. The profile write that follows fills it in. Its links are
+/// `'[]'`, as [`create_user`] stores a stub's empty list.
 pub fn set_user_epoch_v1(stub: &UserDetails) -> Query {
     Query::new(
         "set_user_epoch_v1",
         "MERGE (u:User {id: $id})
-         ON CREATE SET u.name = $name, u.indexed_at = $indexed_at, u.deleted = $deleted
+         ON CREATE SET u.name = $name, u.indexed_at = $indexed_at, u.deleted = $deleted, u.links = '[]'
          SET u.epoch = 'v1'",
     )
     .param("id", stub.id.to_string())
@@ -112,7 +113,7 @@ pub fn create_post(
         .param("content", post.content.to_string())
         .param("indexed_at", post.indexed_at)
         .param("kind", kind.trim_matches('"'))
-        .param("attachments", post.attachments.clone().unwrap_or_default())
+        .param("attachments", post.attachments.clone())
         // Pass Option directly so None clears the property; "" would read back as Some("").
         .param("lock", post.lock.clone())
         .param("deleted", post.deleted);

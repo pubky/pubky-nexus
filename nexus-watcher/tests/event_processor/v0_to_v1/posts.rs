@@ -12,9 +12,9 @@ use crate::event_processor::utils::watcher::{
 };
 use anyhow::Result;
 use chrono::Utc;
-use nexus_common::db::exec_single_row;
 use nexus_common::db::graph::Query;
 use nexus_common::db::kv::AuthorFilter;
+use nexus_common::db::{exec_single_row, fetch_key_from_graph};
 use nexus_common::models::event::EventLine;
 use nexus_common::models::notification::{Notification, NotificationBody, PostChangedSource};
 use nexus_common::models::post::search::PostsByTagSearch;
@@ -46,6 +46,21 @@ async fn unset_post_attachments(author_id: &str, post_id: &str) -> Result<()> {
     .param("post_id", post_id);
     exec_single_row(query).await?;
     Ok(())
+}
+
+/// Whether the post's node holds an `attachments` property at all; a missing one reads back as
+/// an empty list, so only the graph tells the two apart.
+async fn has_attachments_property(author_id: &str, post_id: &str) -> Result<bool> {
+    let query = Query::new(
+        "has_attachments_property",
+        "MATCH (:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
+        RETURN p.attachments IS NOT NULL AS present",
+    )
+    .param("author_id", author_id)
+    .param("post_id", post_id);
+    Ok(fetch_key_from_graph(query, "present")
+        .await?
+        .unwrap_or(false))
 }
 
 /// What the migration leaves for a post and the posts that point at it, through the API models
@@ -532,21 +547,18 @@ async fn test_migration_rerun_gives_the_same_result() -> Result<()> {
             Some(v1_post_uri_builder(author_id.clone(), post_id.clone()))
         );
     }
-    // The missing list stays missing, in the graph and as served; a stored list stays a list
-    assert_eq!(
-        find_post_details(&author_id, bare_id).await?.attachments,
-        None
-    );
+    // The missing list stays missing in the graph, and reads and is served as an empty list; a
+    // stored list stays a list
+    assert!(!has_attachments_property(&author_id, bare_id).await?);
+    assert!(find_post_details(&author_id, bare_id)
+        .await?
+        .attachments
+        .is_empty());
     let served = PostView::get_by_id(&author_id, bare_id, None, None, None)
         .await?
         .expect("the post is served");
-    assert_eq!(served.details.attachments, None);
-    assert_eq!(
-        find_post_details(&author_id, &post_ids[0])
-            .await?
-            .attachments,
-        Some(Vec::new())
-    );
+    assert!(served.details.attachments.is_empty());
+    assert!(has_attachments_property(&author_id, &post_ids[0]).await?);
     for (child_author_id, child_id) in &children {
         let served = PostRelationships::get_by_id(child_author_id, child_id)
             .await?

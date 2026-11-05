@@ -1871,10 +1871,7 @@ async fn test_a_5xx_at_the_fetch_flips_the_user_and_queues_the_profile_put_as_a_
     );
     assert_eq!(
         find_post_details(&user_id, &post_id).await?.attachments,
-        Some(vec![v1_file_uri_builder(
-            user_id.clone(),
-            format!("{hash}.png")
-        )]),
+        vec![v1_file_uri_builder(user_id.clone(), format!("{hash}.png"))],
         "the attachment is at the file's v1 address, through the file map"
     );
     let v1_tag_id = PubkySocialTag::new(v1_post_uri, label.to_string()).create_id();

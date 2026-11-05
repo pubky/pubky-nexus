@@ -72,6 +72,54 @@ fn test_user_details_epoch_schema_is_a_string_enum() {
     assert_eq!(schema["enum"], serde_json::json!(["v0", "v1"]), "{schema}");
 }
 
+/// Post kinds and profile links are documented under Nexus's names, with the stored kind names.
+#[test]
+fn test_post_kind_and_user_link_schemas_are_nexus_owned() {
+    let spec = serde_json::to_value(V0ApiDoc::merge_docs()).expect("serializable spec");
+    let schemas = spec
+        .pointer("/components/schemas")
+        .and_then(Value::as_object)
+        .expect("schemas");
+    for gone in ["PubkyAppPostKind", "PubkyAppUserLink"] {
+        assert!(!schemas.contains_key(gone), "{gone} is still documented");
+    }
+    assert!(schemas.contains_key("UserLink"));
+    assert_eq!(
+        spec.pointer("/components/schemas/PostDetails/properties/kind/$ref"),
+        Some(&Value::from("#/components/schemas/PostKind"))
+    );
+    assert_eq!(
+        schemas["PostKind"]["enum"],
+        serde_json::json!([
+            "short",
+            "long",
+            "image",
+            "video",
+            "link",
+            "file",
+            "collection",
+            "unknown"
+        ])
+    );
+}
+
+/// `attachments` and `links` are always present lists, never `null`.
+#[test]
+fn test_attachments_and_links_are_required_lists() {
+    let spec = serde_json::to_value(V0ApiDoc::merge_docs()).expect("serializable spec");
+    for (schema, field) in [("PostDetails", "attachments"), ("UserDetails", "links")] {
+        let object = spec
+            .pointer(&format!("/components/schemas/{schema}"))
+            .expect("schema");
+        let required = object["required"].as_array().expect("required fields");
+        assert!(required.contains(&Value::from(field)), "{schema}.{field}");
+        assert_eq!(
+            object["properties"][field]["type"], "array",
+            "{schema}.{field}"
+        );
+    }
+}
+
 /// Every `UserCounts` field is always present, `collections` included.
 #[test]
 fn test_user_counts_schema_requires_every_count() {

@@ -80,7 +80,7 @@ async fn test_homeserver_del_post_with_attachments() -> Result<()> {
 
     assert_eq!(post_details.id, post_id);
     assert_eq!(post_details.content, post.content);
-    assert_eq!(post_details.attachments, Some(post_attachments));
+    assert_eq!(post_details.attachments, post_attachments);
 
     // Cleanup
     test.cleanup_post(&user_kp, &post_path).await?;

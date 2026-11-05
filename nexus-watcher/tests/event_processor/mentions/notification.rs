@@ -1,5 +1,6 @@
 use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
+use nexus_common::models::post::PostKind;
 use nexus_common::{
     models::notification::{Notification, NotificationBody},
     types::Pagination,
@@ -83,7 +84,7 @@ async fn test_homeserver_mentions_notifications() -> Result<()> {
     {
         assert_eq!(
             post_kind,
-            &PubkyAppPostKind::Short,
+            &PostKind::Short,
             "A mention from a note should report post_kind = Short"
         );
         assert_eq!(
@@ -118,7 +119,7 @@ async fn test_homeserver_mentions_notifications() -> Result<()> {
     {
         assert_eq!(
             post_kind,
-            &PubkyAppPostKind::Short,
+            &PostKind::Short,
             "A mention from a note should report post_kind = Short"
         );
         assert_eq!(
