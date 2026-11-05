@@ -609,8 +609,6 @@ fn find_mentioned_ids(content: &str, prefix: &str) -> Vec<PubkyId> {
 ///
 /// Recovery only: it has no input, so it reads the envelope the graph holds, which may have been
 /// written under an older spec. A PUT takes its items from [`PostInput::collected_posts`].
-// TODO(specs-migration): the stored envelope is read with the v0 reader; a `social/v1`
-// collection's items need their own read path before N3.
 fn stored_curated_items(
     author_id: &PubkyId,
     post_id: &str,
