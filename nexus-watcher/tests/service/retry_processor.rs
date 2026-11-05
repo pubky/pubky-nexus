@@ -1849,6 +1849,11 @@ async fn test_a_5xx_at_the_fetch_flips_the_user_and_queues_the_profile_put_as_a_
             .with_resource_error(&flip_uri, outage()),
     )
     .await?;
+    assert_eq!(
+        find_cached_user_details(&user_id).await?.epoch,
+        Epoch::V0,
+        "the pubky.app profile leaves the cache at v0 before the flip"
+    );
     let runner = primary_runner(client, handler, store.clone()).await?;
 
     let now = Utc::now().timestamp_millis();

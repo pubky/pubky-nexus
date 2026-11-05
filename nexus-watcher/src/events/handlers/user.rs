@@ -9,6 +9,7 @@ use nexus_common::models::{
     user::{Epoch, UserDetails, UserSearch, UsersByTagSearch},
 };
 use pubky_social_specs::PubkyId;
+use std::future::Future;
 use tracing::{debug, error, info, Instrument};
 
 use crate::events::inputs::UserInput;
@@ -54,13 +55,27 @@ pub async fn sync_put(user: UserInput, user_id: PubkyId) -> Result<(), EventProc
 /// step again over its partial work, without limit while the user is `v0`. The details cache
 /// is then refreshed from the graph, so the API reports `v1` before the profile fetch that
 /// follows; a failure there is a `FlipFailed` of a user already `v1`, logged by its step only,
-/// whose retry is the ordinary profile PUT and refreshes the cache again. The
-/// profile itself is the ordinary `v1` profile PUT's ([`sync_put`]). A user whose first event is
-/// this PUT has no node yet: the epoch write creates a stub, which the profile write fills in.
-#[tracing::instrument(name = "user.flip", skip_all, fields(user_id = %user_id))]
+/// whose retry is the ordinary profile PUT. That retry rewrites the cache only when its fetch
+/// indexes the profile: after a 404, an invalid profile or a dead-letter, the cache reads `v0`
+/// until the user's next profile write. Indexing is not affected, since the gate reads the
+/// epoch from the graph. The profile itself is the ordinary `v1` profile PUT's ([`sync_put`]).
+/// A user whose first event is this PUT has no node yet: the epoch write creates a stub, which
+/// the profile write fills in.
 pub async fn flip(user_id: &PubkyId) -> Result<(), EventProcessorError> {
+    run_flip(user_id, move_to_v1(user_id), refresh_details_cache(user_id)).await
+}
+
+/// The flip's order and its log lines, over its two parts: `moved` (steps 1 and 2,
+/// [`move_to_v1`]) and `cache` (step 3, [`refresh_details_cache`]). `cache` runs only once
+/// `moved` succeeded. Taking the parts as futures lets a test fail either one without the stack.
+#[tracing::instrument(name = "user.flip", skip_all, fields(user_id = %user_id))]
+async fn run_flip(
+    user_id: &PubkyId,
+    moved: impl Future<Output = Result<(), EventProcessorError>>,
+    cache: impl Future<Output = Result<(), EventProcessorError>>,
+) -> Result<(), EventProcessorError> {
     // Steps 1 and 2. The summary covers them only: until the epoch write lands the user is `v0`
-    move_to_v1(user_id).await.inspect_err(|e| {
+    moved.await.inspect_err(|e| {
         error!(
             user_id = %user_id,
             error = %e,
@@ -74,7 +89,7 @@ pub async fn flip(user_id: &PubkyId) -> Result<(), EventProcessorError> {
     // Step 3: Refresh the details cache from the graph, so the API reports `v1` now and not
     // only once the profile fetch succeeds. Every indexed `v0` user has a cached copy from their
     // `pubky.app` profile, which reads as `v0` until it is rewritten.
-    v0_to_v1::step(user_id, "cache", refresh_details_cache(user_id)).await?;
+    v0_to_v1::step(user_id, "cache", cache).await?;
 
     Ok(())
 }
@@ -189,6 +204,90 @@ mod tests {
 
         exec_single_row(queries::del::delete_user(&user)).await?;
         Ok(())
+    }
+
+    /// A failed `cache` step comes after the epoch write: `run_flip` returns its `FlipFailed`,
+    /// logs the `info` line and the step line, and no line says the user stays at `v0`.
+    #[tokio::test]
+    #[tracing_test::traced_test]
+    async fn a_failed_cache_step_logs_the_flip_and_the_step_but_no_summary() {
+        let user = random_pubky_id();
+        let cache = async {
+            Err(EventProcessorError::IndexOperationFailed(
+                true,
+                "redis down".into(),
+            ))
+        };
+
+        let err = run_flip(&user, async { Ok(()) }, cache)
+            .await
+            .expect_err("the cache step must fail");
+
+        assert!(
+            matches!(err, EventProcessorError::FlipFailed { step: "cache", .. }),
+            "{err:?}"
+        );
+        assert!(logs_contain("User flipped to v1"));
+        logs_assert(|lines| {
+            let steps: Vec<_> = lines
+                .iter()
+                .filter(|line| line.contains("Flip step failed"))
+                .collect();
+            match steps.as_slice() {
+                [line] if line.contains(" ERROR ") && line.contains("step=cache") => Ok(()),
+                other => Err(format!("expected one cache step line, got {other:?}")),
+            }
+        });
+        assert!(!logs_contain("stays at v0"));
+    }
+
+    /// A failed `moved` part (steps 1 and 2) leaves the user at `v0`: `run_flip` returns its
+    /// error unchanged, logs exactly one summary line naming the user, no `info` line, and
+    /// never polls the `cache` step.
+    #[tokio::test]
+    #[tracing_test::traced_test]
+    async fn a_failed_move_logs_one_summary_line_and_never_runs_the_cache_step() {
+        let user = random_pubky_id();
+        let moved = async {
+            Err(EventProcessorError::FlipFailed {
+                step: "posts",
+                source: Box::new(EventProcessorError::GraphQueryFailed(
+                    true,
+                    "connection refused".into(),
+                )),
+            })
+        };
+        let cache_ran = std::sync::atomic::AtomicBool::new(false);
+        let cache = async {
+            cache_ran.store(true, std::sync::atomic::Ordering::SeqCst);
+            Ok(())
+        };
+
+        let err = run_flip(&user, moved, cache)
+            .await
+            .expect_err("the move must fail");
+
+        assert!(
+            matches!(err, EventProcessorError::FlipFailed { step: "posts", .. }),
+            "{err:?}"
+        );
+        assert!(
+            !cache_ran.load(std::sync::atomic::Ordering::SeqCst),
+            "the cache step must not run"
+        );
+        assert!(!logs_contain("User flipped to v1"));
+        logs_assert(|lines| {
+            let summaries: Vec<_> = lines
+                .iter()
+                .filter(|line| line.contains("Flip failed, the user stays at v0"))
+                .collect();
+            match summaries.as_slice() {
+                [line] if line.contains(" ERROR ") && line.contains(user.as_ref()) => Ok(()),
+                other => Err(format!(
+                    "expected one ERROR summary line naming the user, got {other:?}"
+                )),
+            }
+        });
     }
 
     /// A flip whose posts step fails on a row it cannot read: `flip` returns the step's

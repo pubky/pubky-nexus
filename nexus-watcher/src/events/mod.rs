@@ -66,7 +66,7 @@ pub struct DefaultEventHandler {
     files_path: PathBuf,
 
     /// The retry queue the gate reads a `v0` user's queued flip from, before a `pubky.app`
-    /// DEL of theirs is handled. The same queue the runners enqueue to and the retry
+    /// DEL or a `social/v1` write of theirs is decided. The same queue the runners enqueue to and the retry
     /// processor drains: [`RedisRetryStore`] in production, an in-memory one in tests.
     retry_store: Arc<dyn RetryStore>,
 }
