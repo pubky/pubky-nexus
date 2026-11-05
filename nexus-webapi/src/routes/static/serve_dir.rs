@@ -91,11 +91,9 @@ impl PubkyServeDir {
 /// The one place a file's bytes leave the host, so the rule that keeps user content from running
 /// here is applied to every file route: every response carries `X-Content-Type-Options: nosniff`,
 /// and a variant whose served type is not one of [`INLINE_CONTENT_TYPES`] is offered as a bare
-/// `Content-Disposition: attachment`, with no filename, since a non-ASCII name would not fit the
-/// header. If `download` is true (`?dl=`), the response is an attachment under the file's download
-/// name when it has one, whatever its type; a name the header cannot carry, one with a control
-/// character, falls back to the bare `attachment` with a warning, never a 500: the name is the
-/// uploader's, and a read answers for it with a download, not an error.
+/// `Content-Disposition: attachment`, with no filename. If `download` is true (`?dl=`), the
+/// response is an attachment under the file's download name when it has one, whatever its type
+/// ([`attachment_named`]): any name the uploader gave builds a valid header, never a 500.
 pub async fn serve_file_variant(
     request: Request<Body>,
     file: &MediaFile,
@@ -127,15 +125,7 @@ pub async fn serve_file_variant(
 
     if download || !inline {
         let content_disposition = match &file.download_name {
-            Some(filename) if download => {
-                let named = format!("attachment; filename=\"{filename}\"");
-                named.parse().unwrap_or_else(|_| {
-                    warn!(
-                        "File name {filename:?} does not fit a Content-Disposition header; sending a bare attachment"
-                    );
-                    HeaderValue::from_static("attachment")
-                })
-            }
+            Some(filename) if download && !filename.is_empty() => attachment_named(filename),
             _ => HeaderValue::from_static("attachment"),
         };
         headers.insert(header::CONTENT_DISPOSITION, content_disposition);
@@ -144,9 +134,80 @@ pub async fn serve_file_variant(
     Ok(response)
 }
 
+/// `Content-Disposition: attachment` under `filename` (RFC 6266). A name of printable ASCII with
+/// no `"` or `\` goes as it is, `filename="<name>"`, the form every client reads. Any other
+/// name, non-ASCII, a quote, a backslash or a control character, adds `filename*`, the name's
+/// UTF-8 bytes percent-encoded (RFC 8187), which a client prefers, after an ASCII `filename`
+/// fallback with each such character replaced by `_`. Both parts are visible ASCII, so the
+/// header always builds.
+fn attachment_named(filename: &str) -> HeaderValue {
+    let plain = |c: char| (c.is_ascii_graphic() && c != '"' && c != '\\') || c == ' ';
+    let value = if filename.chars().all(plain) {
+        format!("attachment; filename=\"{filename}\"")
+    } else {
+        let fallback: String = filename
+            .chars()
+            .map(|c| if plain(c) { c } else { '_' })
+            .collect();
+        format!(
+            "attachment; filename=\"{fallback}\"; filename*=UTF-8''{}",
+            percent_encode_attr(filename)
+        )
+    };
+    HeaderValue::from_str(&value).unwrap_or_else(|e| {
+        // Unreachable: both forms are visible ASCII. A download, not an error, if it ever is.
+        warn!("Content-Disposition for {filename:?} did not build: {e}; sending a bare attachment");
+        HeaderValue::from_static("attachment")
+    })
+}
+
+/// `value`'s UTF-8 bytes, each one outside RFC 8187's `attr-char` percent-encoded.
+fn percent_encode_attr(value: &str) -> String {
+    let attr_char = |b: u8| b.is_ascii_alphanumeric() || b"!#$&+-.^_`|~".contains(&b);
+    value
+        .bytes()
+        .map(|b| {
+            if attr_char(b) {
+                (b as char).to_string()
+            } else {
+                format!("%{b:02X}")
+            }
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // A plain name goes as it is; any other gets an ASCII fallback and its UTF-8 bytes in
+    // `filename*`, and every one builds a header: quotes, backslashes, control characters,
+    // non-ASCII.
+    #[test]
+    fn test_attachment_named_builds_a_header_for_any_name() {
+        for (name, expected) in [
+            ("notes.txt", r#"attachment; filename="notes.txt""#),
+            ("my notes.txt", r#"attachment; filename="my notes.txt""#),
+            (
+                "say \"hi\".txt",
+                r#"attachment; filename="say _hi_.txt"; filename*=UTF-8''say%20%22hi%22.txt"#,
+            ),
+            (
+                "a\\b;c.txt",
+                r#"attachment; filename="a_b;c.txt"; filename*=UTF-8''a%5Cb%3Bc.txt"#,
+            ),
+            (
+                "notes\u{7}.txt",
+                r#"attachment; filename="notes_.txt"; filename*=UTF-8''notes%07.txt"#,
+            ),
+            (
+                "café.png",
+                r#"attachment; filename="caf_.png"; filename*=UTF-8''caf%C3%A9.png"#,
+            ),
+        ] {
+            assert_eq!(attachment_named(name), expected, "{name:?}");
+        }
+    }
 
     // Every type a browser may render in place displays, however the declared type is cased or
     // parameterised: the rule reads the essence.

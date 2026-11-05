@@ -304,10 +304,10 @@ async fn test_dl_param_keeps_the_file_name() -> Result<()> {
     outcome
 }
 
-// A `?dl=` name the header cannot carry, one with a control character, is not a 500: the
-// download falls back to the bare attachment a forced download of an unnamed file gets.
+// A `?dl=` name a plain `filename` cannot carry, one with a control character, is not a 500:
+// the download keeps the name, encoded in `filename*` after an ASCII fallback.
 #[tokio_shared_rt::test(shared)]
-async fn test_dl_name_the_header_cannot_carry_falls_back_to_a_bare_attachment() -> Result<()> {
+async fn test_dl_name_with_a_control_character_is_encoded() -> Result<()> {
     let files_dir = TempDir::new()?;
     let app = test_app(files_dir.path()).await;
     let file = SeededFile::create(
@@ -322,8 +322,12 @@ async fn test_dl_name_the_header_cannot_carry_falls_back_to_a_bare_attachment() 
     let outcome = async {
         let response = get(&app, &format!("{}?dl", file.path("main")), None).await?;
         anyhow::ensure!(
-            served_as(&response, "control character name")? == ("text/plain", Some("attachment")),
-            "a bare attachment when the name does not fit the header"
+            served_as(&response, "control character name")?
+                == (
+                    "text/plain",
+                    Some(r#"attachment; filename="notes_.txt"; filename*=UTF-8''notes%07.txt"#)
+                ),
+            "the name is encoded, not dropped"
         );
         Ok::<(), anyhow::Error>(())
     }
