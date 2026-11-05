@@ -2,8 +2,13 @@
 //! `resource` and `reason` only, never by user or object id. `reason` tells the skips apart:
 //! `not_indexed` for an epoch the parse step does not index, `gated` for an event of an epoch its
 //! user is not read through, `deferred` for a `v0` user's `pubky.app` DEL or `social/v1` write
-//! held while their flip waits in the retry queue. v0 skips at parse (last-read, feed, blob, mute, another app's tag folder) are
-//! uncounted, so the signal stays about epochs.
+//! held while their flip waits in the retry queue. v0 skips at parse (last-read, feed, blob,
+//! mute, another app's tag folder) are uncounted, so the signal stays about epochs.
+//!
+//! `deferred` counts holds, not held events: the retry processor runs each held event through
+//! the gate again, so one event adds up to 51 (its first attempt and 50 dependency retries,
+//! over about two days). Its rate shows hold activity; the number of held events is the
+//! planned gauge's to show. `gated` and `not_indexed` count once per event.
 
 use super::classify::SkipReason;
 use super::target::EventTarget;
@@ -14,11 +19,14 @@ use opentelemetry::{global, KeyValue};
 use std::sync::LazyLock;
 use tracing::{debug, warn};
 
-/// Counter for events skipped before any fetch because of their spec epoch.
+/// Counter for events skipped or deferred before any fetch because of their spec epoch.
 static SKIPPED: LazyLock<Counter<u64>> = LazyLock::new(|| {
     global::meter(METER_NAME)
         .u64_counter("watcher.epoch.skipped")
-        .with_description("Events skipped before any fetch because of their spec epoch")
+        .with_description(
+            "Events skipped or deferred before any fetch because of their spec epoch; \
+             a deferral counts on every attempt",
+        )
         .build()
 });
 
@@ -29,7 +37,7 @@ const NOT_INDEXED: &str = "not_indexed";
 /// `reason` of a skip by the gate: the event's epoch is not the one its user is read through.
 const GATED: &str = "gated";
 /// `reason` of a deferral by the gate: a `pubky.app` DEL or a `social/v1` write of a `v0` user
-/// whose flip is queued.
+/// whose flip is queued. Counted on every attempt, retries included.
 const DEFERRED: &str = "deferred";
 
 /// Counts and logs a skip the parse step decided for `uri`.

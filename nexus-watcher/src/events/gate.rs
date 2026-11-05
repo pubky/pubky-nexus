@@ -19,12 +19,13 @@ pub(super) enum Gate {
     Flip,
     /// The event is skipped: no fetch, no stored event line, no error, no retry.
     Ignore,
-    /// The event waits for its user's flip, queued for retry: an event of a user at `v0` whose
-    /// `social/v1` profile PUT sits in the retry queue, of a kind [`waits_for_flip`] names.
-    /// A `pubky.app` DEL handled now would delete content the flip's internal migration is
-    /// about to move; retried after the flip, the user is at `v1` and the gate ignores it. A
-    /// `social/v1` write ignored now would be lost, the user writing from their `v1` app once
-    /// the flip is written; retried after the flip, the gate handles it.
+    /// The event waits for its user's flip to the next epoch, queued for retry while that
+    /// flip sits in the retry queue: a DEL of the epoch the user is read through, or an event
+    /// of the next epoch, of a kind [`waits_for_flip`] names. Today the only flip is `v0` →
+    /// `v1`: a `pubky.app` DEL handled now would delete content the flip's internal migration
+    /// is about to move, and is ignored when retried after the flip; a `social/v1` write
+    /// ignored now would be lost, the user writing from their `v1` app once the flip is
+    /// written, and is handled when retried after it.
     Defer,
 }
 
@@ -68,13 +69,17 @@ fn is_profile(event: &Event) -> bool {
     matches!(&event.target, EventTarget::Social(parsed) if parsed.resource == Resource::User)
 }
 
-/// Whether `event`, decided `gate` for a user at `user_epoch`, waits for that user's flip
-/// while it is queued. Pure: the caller reads the epoch and the queue.
+/// Whether `event`, decided `gate` for a user at `user_epoch`, waits for that user's flip to
+/// the next epoch while it is queued. Pure: the caller reads the epoch and the queue.
 ///
-/// - A `pubky.app` DEL of a `v0` user (`Handle`): handled now, it would delete content the
-///   flip's internal migration is about to move.
-/// - A `social/v1` event of a `v0` user other than the profile (`Ignore`): ignored now, it
-///   would be lost, since the user writes from their `v1` app once the flip is written.
+/// - A DEL of the epoch the user is read through (`Handle`): handled now, it would delete
+///   content the flip's internal migration is about to move.
+/// - An event of the next epoch other than its profile (`Ignore`): ignored now, it would be
+///   lost, since the user writes from the new app once the flip is written.
+///
+/// Today the only flip is `v0` → `v1`, so these are a `v0` user's `pubky.app` DELs and
+/// `social/v1` events, and the rule names `v0`: a general form needs the next epoch's profile
+/// URI, which [`flip_profile_uri`] builds for `v1` only.
 ///
 /// The profile's own events never wait: they share the flip's URI, so a held one queued under
 /// it would overwrite the flip's entry. A second profile PUT is the flip itself; a profile DEL
@@ -107,7 +112,8 @@ async fn decide_by_graph(event: &Event) -> Result<(Gate, Epoch), EventProcessorE
 
 /// The gate's decision for `event`: by its user's epoch in the graph ([`decide_by_graph`]),
 /// then, for an event that [`waits_for_flip`] and only then, by `retry_store`: with the
-/// user's flip queued there, a PUT entry under the profile URI, the event is deferred. A DEL
+/// user's flip queued there, a PUT entry under the profile URI, the event is deferred (today
+/// a `v0` user's `pubky.app` DEL or `social/v1` write). A DEL
 /// entry under that URI is no flip. An ignored or deferred event is counted on
 /// `watcher.epoch.skipped`.
 pub(super) async fn check(
