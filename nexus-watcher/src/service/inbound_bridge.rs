@@ -665,6 +665,13 @@ impl PkdnsHomeserverResolver for Prefetched {
     ) -> nexus_common::db::PubkyClientResult<nexus_common::models::user::PkdnsRecord> {
         self.inner.resolve_record(user_pk).await
     }
+
+    async fn resolve_latest_record(
+        &self,
+        user_pk: &PublicKey,
+    ) -> nexus_common::db::PubkyClientResult<nexus_common::models::user::PkdnsRecord> {
+        self.inner.resolve_latest_record(user_pk).await
+    }
 }
 
 #[async_trait::async_trait]
