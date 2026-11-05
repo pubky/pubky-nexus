@@ -29,7 +29,7 @@ const AVATAR_FALLBACK_CACHE_CONTROL: &str = "public, max-age=30";
     responses(
         (status = 200, description = "Avatar image"),
         (status = 400, description = "Invalid parameters"),
-        (status = 404, description = "User not found, no profile image, or an image Nexus does not hold: a web URL, another app's object, or a social/v1 file that is not an image or not on disk"),
+        (status = 404, description = "User not found, no profile image, or an image Nexus does not hold: a web URL, another app's object, a file that is not an image, or a social/v1 file not on disk"),
         (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal error retrieving avatar")
     )
@@ -56,7 +56,7 @@ pub async fn user_avatar_handler(
     responses(
         (status = 200, description = "Avatar image"),
         (status = 400, description = "Invalid parameters"),
-        (status = 404, description = "User not found, no profile image, or an image Nexus does not hold: a web URL, another app's object, or a social/v1 file that is not an image or not on disk"),
+        (status = 404, description = "User not found, no profile image, or an image Nexus does not hold: a web URL, another app's object, a file that is not an image, or a social/v1 file not on disk"),
         (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal error retrieving avatar")
     )
@@ -140,10 +140,10 @@ async fn serve_avatar(
 
 /// The file a profile's `image` names, as the media code needs it, or `None` when it is not an
 /// image file Nexus holds. The address is read by [`FileRef::parse_uri`], the owner taken from
-/// it, so another user's file is served from that user's folder. A v0 file is read from its
-/// `File` node, as before, whatever its type. A `social/v1` file has no node: its type is the one
-/// its extension names, which must be an image, and its `main` must be on disk, checked here so
-/// a missing file starts no conversion.
+/// it, so another user's file is served from that user's folder. Either form must be an image,
+/// or no variant can be derived from it. A v0 file is read from its `File` node, whose declared
+/// type decides. A `social/v1` file has no node: its type is the one its extension names, and
+/// its `main` must be on disk, checked here so a missing file starts no conversion.
 async fn avatar_file(image_uri: &str, files_path: &FsPath) -> Result<Option<MediaFile>> {
     let Some((owner_id, file_ref)) = FileRef::parse_uri(image_uri) else {
         return Ok(None);
@@ -156,16 +156,22 @@ async fn avatar_file(image_uri: &str, files_path: &FsPath) -> Result<Option<Medi
                 .flatten()
                 .next()
                 .as_ref()
-                .map(MediaFile::from))
+                .map(MediaFile::from)
+                .filter(is_image))
         }
         FileRef::V1 { filename, ext } => {
             let file = MediaFile::v1(&owner_id, filename, &ext);
-            if MediaKind::from_content_type(&file.content_type) != Some(MediaKind::Image) {
+            if !is_image(&file) {
                 return Ok(None);
             }
             Ok(file.main_is_on_disk(files_path).await?.then_some(file))
         }
     }
+}
+
+/// Whether `file`'s type is an image, the only kind an avatar's `small` variant is made from.
+fn is_image(file: &MediaFile) -> bool {
+    MediaKind::from_content_type(&file.content_type) == Some(MediaKind::Image)
 }
 
 #[derive(OpenApi)]

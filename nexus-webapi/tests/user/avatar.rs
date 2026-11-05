@@ -34,6 +34,11 @@ const ABSENT_HASH: &str = "PZBQ010FF079VVZPQG1RNFN6DR";
 /// A post of the mock graph, for an address that is not a file.
 const POST_ID: &str = "0032SSN7Q4EVG";
 
+/// A `text/plain` file of the mock graph (docker/test-graph/mocks/files.cypher), for a v0 file
+/// address that is not an image. Only its node is read.
+const TEXT_FILE_OWNER: &str = "y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy";
+const TEXT_FILE_ID: &str = "2ZK2H8P2T5NG0";
+
 // User "Aldert" in docker/test-graph/skunk.cypher has u.image set to
 // pubky://<USER_PUBKY>/pub/pubky.app/files/<FILE_ID>, and FILE_ID is
 // defined in docker/test-graph/mocks/files.cypher.
@@ -234,6 +239,13 @@ async fn test_user_avatar_serves_each_row_of_the_image_table() -> Result<()> {
             "a v0 address that is not a file",
             Some(format!(
                 "pubky://{INTRUDER_PUBKY}/pub/pubky.app/posts/{POST_ID}"
+            )),
+            404,
+        ),
+        (
+            "another user's v0 file that is not an image",
+            Some(format!(
+                "pubky://{TEXT_FILE_OWNER}/pub/pubky.app/files/{TEXT_FILE_ID}"
             )),
             404,
         ),
