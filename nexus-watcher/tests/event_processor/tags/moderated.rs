@@ -366,11 +366,13 @@ async fn test_moderation_of_a_social_v1_resource_tag_retracts_its_feed_line() ->
 }
 
 /// A flip whose tags step committed but whose later step failed leaves the tagger at `v0`, the
-/// resource tag's edge at its `social/v1` address and the del of its `pubky.app` address held.
-/// A takedown of the `pubky.app` address in that window removes the edge; once the retried flip
-/// has run, nothing of the tag may stay live on the feed and nothing may stay held.
+/// resource tag's edge at its `social/v1` address and its move recorded, not published. A
+/// takedown of the `pubky.app` address in that window removes the edge and retracts the
+/// `pubky.app` address the consumer holds; once the retried flip has run, nothing of the tag
+/// may stay live on the feed and no move may stay recorded.
 #[tokio_shared_rt::test(shared)]
 async fn test_takedown_of_a_moved_resource_tag_before_the_flip_retry_retracts_it() -> Result<()> {
+    use super::resource_changes::recorded_moves;
     use crate::event_processor::posts::utils::pubky_id;
     use nexus_common::models::event::resource_changes::{ResourceChange, ResourceChangeOp};
     use nexus_watcher::events::v0_to_v1;
@@ -395,10 +397,7 @@ async fn test_takedown_of_a_moved_resource_tag_before_the_flip_retry_retracts_it
     let tagger = pubky_id(&tagger_id)?;
     let file_map = v0_to_v1::files::FileMap::load(&tagger).await?;
     v0_to_v1::tags::migrate(&tagger, &file_map, 2).await?;
-    assert_eq!(
-        ResourceChange::pending_moves(&tagger_id, 0).await?.1.len(),
-        1
-    );
+    assert_eq!(recorded_moves(&tagger_id).await?.len(), 1);
 
     // Before the retry, the moderator takes the tag down at its `pubky.app` address
     moderate_tag(&mut test, &moderator_kp, &tag_uri).await?;
@@ -443,8 +442,8 @@ async fn test_takedown_of_a_moved_resource_tag_before_the_flip_retry_retracts_it
         live.is_empty(),
         "a taken-down tag stays live: {live:?} from {lines:?}"
     );
-    let (_, held) = ResourceChange::pending_moves(&tagger_id, 0).await?;
-    assert!(held.is_empty(), "{held:?}");
+    let recorded = recorded_moves(&tagger_id).await?;
+    assert!(recorded.is_empty(), "{recorded:?}");
     test.del(&tagger_kp, &v1_storage).await?;
     test.del(&tagger_kp, &profile).await?;
     Ok(())

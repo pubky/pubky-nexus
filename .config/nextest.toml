@@ -15,6 +15,7 @@
 [test-groups]
 influencers-sorted-set = { max-threads = 1 }
 most-followed-sorted-set = { max-threads = 1 }
+resource-tag-moves = { max-threads = 1 }
 
 [[profile.default.overrides]]
 filter = 'test(=stream::user::influencers::test_global_influencers) | test(=stream::user::influencers::test_global_influencers_skip_limit) | test(=stream::user::influencers::test_global_influencers_alltime_cache_recovery) | test(=stream::user::influencers::test_global_influencers_preview) | test(=stream::user::influencers::test_global_influencers_rejects_skip_past_cache) | test(=event_processor::tags::user_to_user_put::test_homeserver_put_tag_user_another)'
@@ -82,6 +83,12 @@ threads-required = 'num-test-threads'
 [[profile.default.overrides]]
 filter = 'package(nexusd) and test(/^migrations::catalog::user_epoch_backfill_1791812997::tests::/)'
 threads-required = 'num-test-threads'
+
+# The watcher's sweep publishes every recorded resource tag move in the graph, of every user,
+# and these tests sweep, or assert a move stays recorded until they publish it: one at a time.
+[[profile.default.overrides]]
+filter = 'test(/^event_processor::tags::resource_changes::/) | test(=event_processor::tags::moderated::test_takedown_of_a_moved_resource_tag_before_the_flip_retry_retracts_it)'
+test-group = 'resource-tag-moves'
 
 # Feed rebuild/read-only tests replace its global list and epoch; isolate them
 # from watcher appends and other feed consumers in workspace-wide runs.

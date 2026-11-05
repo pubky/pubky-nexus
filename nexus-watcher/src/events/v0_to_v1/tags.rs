@@ -41,9 +41,9 @@
 //! its own transaction. The stop, continue or fail decision is [`drain`]'s, apart from the two
 //! graph calls, so it is tested on canned pages.
 //!
-//! Before a batch's write, the address each `Resource` edge moves from is held for the
-//! resource changes feed, which published the edge under it: see
-//! [`super::resource_changes`].
+//! The write marks each `Resource` edge it moves with the address it moves from, `v0_uri`,
+//! and the time, `moved_at`: the resource changes feed published the edge under that address,
+//! and publishes the move after the flip, outside it (see [`super::resource_changes`]).
 //!
 //! A batch holds the locks of its `Resource` edges' tag files, the ones their handlers take
 //! (see [`tag::lock_tags`]), from its read to its write: the edge's id, and the new id the
@@ -55,9 +55,9 @@
 
 use super::attachments;
 use super::files::FileMap;
-use super::resource_changes;
 use crate::events::handlers::tag;
 use crate::events::EventProcessorError;
+use chrono::Utc;
 use nexus_common::db::{fetch_all_rows_from_graph, fetch_key_from_graph, queries, GraphError};
 use pubky_social_specs::legacy_v0::traits::HashId as _;
 use pubky_social_specs::legacy_v0::{
@@ -129,27 +129,16 @@ pub async fn migrate(
         if tags.is_empty() {
             return Ok((0, 0));
         }
-        let mut moves = Vec::new();
         let rows: Vec<(String, String, String)> = tags
             .iter()
-            .map(|(tag, from)| {
+            .map(|tag| {
                 let (id, uri) = rewrite(user_id, files, tag);
-                if let (Target::Resource(resource_uri), Some(from)) = (&tag.target, from) {
-                    moves.push(resource_changes::Move {
-                        resource_id: from.resource_id.clone(),
-                        resource_uri: resource_uri.clone(),
-                        label: tag.label.clone(),
-                        from: from.tag_uri.clone(),
-                        to: uri.clone(),
-                    });
-                }
                 (tag.edge.clone(), id, uri)
             })
             .collect();
-        // Before the write, which takes the old address off the edge for good
-        Box::pin(resource_changes::prepare(user_id, &moves)).await?;
+        let moved_at = Utc::now().timestamp_millis();
         let changed = fetch_key_from_graph::<i64>(
-            queries::migration::set_tag_addresses(tagger_id, &rows),
+            queries::migration::set_tag_addresses(tagger_id, &rows, moved_at),
             "changed",
         )
         .await?
@@ -182,16 +171,6 @@ where
     }
 }
 
-/// A page of edges, each `Resource` edge with where it is.
-type Page = Vec<(StoredTag, Option<MovedFrom>)>;
-
-/// Where a `Resource` edge of a page is before the rewrite, for the resource changes feed.
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct MovedFrom {
-    resource_id: String,
-    tag_uri: String,
-}
-
 /// A page as [`read_page`] reads it, read while the tag files of its `Resource` edges are
 /// locked, by their ids and the ids the rewrite gives them, with those locks. The page is read
 /// again under the locks, and the locks taken again if it names a file they do not cover: a
@@ -201,7 +180,7 @@ async fn read_locked_page(
     files: &FileMap,
     prefix: &str,
     batch_size: usize,
-) -> Result<(Page, Vec<MutexGuard<'static, ()>>), EventProcessorError> {
+) -> Result<(Vec<StoredTag>, Vec<MutexGuard<'static, ()>>), EventProcessorError> {
     let tagger_id: &str = user_id.as_ref();
     let mut locked = BTreeSet::new();
     let mut locks = Vec::new();
@@ -209,8 +188,8 @@ async fn read_locked_page(
         let page = read_page(tagger_id, prefix, batch_size).await?;
         let ids: BTreeSet<String> = page
             .iter()
-            .filter(|(_, from)| from.is_some())
-            .flat_map(|(tag, _)| match new_id(user_id, files, tag) {
+            .filter(|tag| matches!(tag.target, Target::Resource(_)))
+            .flat_map(|tag| match new_id(user_id, files, tag) {
                 NewId::Computed(id) => vec![tag.id.clone(), id],
                 NewId::Kept | NewId::Unmatched(_) => vec![tag.id.clone()],
             })
@@ -225,19 +204,18 @@ async fn read_locked_page(
     }
 }
 
-/// One page of the user's edges still under `prefix`, each `Resource` edge with where it is.
+/// One page of the user's edges still under `prefix`.
 async fn read_page(
     tagger_id: &str,
     prefix: &str,
     batch_size: usize,
-) -> Result<Page, EventProcessorError> {
+) -> Result<Vec<StoredTag>, EventProcessorError> {
     let page = queries::migration::get_tagger_edges_under(tagger_id, prefix, batch_size);
     Ok(fetch_all_rows_from_graph(page)
         .await?
         .iter()
         .map(|row| {
             let required = |key: &str| row.get::<String>(key).map_err(GraphError::from);
-            let mut from = None;
             let target = match required("kind")?.as_str() {
                 "post" => Target::Post {
                     author_id: row
@@ -246,22 +224,15 @@ async fn read_page(
                     post_id: required("target_id")?,
                 },
                 "user" => Target::User(required("target_id")?),
-                "resource" => {
-                    from = Some(MovedFrom {
-                        resource_id: required("target_id")?,
-                        tag_uri: required("tag_uri")?,
-                    });
-                    Target::Resource(required("resource_uri")?)
-                }
+                "resource" => Target::Resource(required("resource_uri")?),
                 _ => Target::Other,
             };
-            let tag = StoredTag {
+            Ok(StoredTag {
                 edge: required("edge")?,
                 id: required("id")?,
                 label: required("label")?,
                 target,
-            };
-            Ok((tag, from))
+            })
         })
         .collect::<Result<_, GraphError>>()?)
 }

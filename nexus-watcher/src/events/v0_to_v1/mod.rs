@@ -27,8 +27,9 @@ use std::future::Future;
 use tracing::error;
 
 /// Runs every step of `user_id`'s migration, in order: the file map first, then the posts
-/// whose attachments it resolves, then the tags whose file targets it resolves, then the
-/// resource changes feed lines of the tags it moved.
+/// whose attachments it resolves, then the tags whose file targets it resolves. The resource
+/// changes feed lines of the tags it moves are published after the flip's epoch write, and
+/// never fail the flip: see [`resource_changes`].
 #[tracing::instrument(name = "user.migrate", skip_all, fields(user_id = %user_id))]
 pub async fn run(user_id: &PubkyId) -> Result<(), EventProcessorError> {
     let files = step(user_id, "files", FileMap::load(user_id)).await?;
@@ -42,12 +43,6 @@ pub async fn run(user_id: &PubkyId) -> Result<(), EventProcessorError> {
         user_id,
         "tags",
         tags::migrate(user_id, &files, tags::BATCH_SIZE),
-    )
-    .await?;
-    step(
-        user_id,
-        "resource_changes",
-        Box::pin(resource_changes::publish(user_id)),
     )
     .await
 }

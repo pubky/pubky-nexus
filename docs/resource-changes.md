@@ -38,44 +38,59 @@ write and their append, so the feed lists one file's changes in the order the
 graph took them. The flip's tags step (below) takes the same locks for the edges
 it moves, by each edge's tag id and the new id the flip gives it, from its read
 of a batch to the batch's write, so no handler of those files reads an edge before
-the move and appends after it. A DEL or a takedown of an edge the flip gave a new
-id holds the locks of both ids. The lock is per watcher
-process: this ordering holds for one watcher process per Neo4j and Redis, the
-deployment the watcher's cursors already assume. Equivalent tag files land on one
-edge and only its owner publishes, so they need no shared lock.
+the move and appends after it. The publisher of moves (below) takes them too, for
+each page of edges it publishes. A DEL or a takedown of an edge the flip gave a new
+id holds the locks of both ids. The lock is per watcher process: this ordering
+holds for one watcher process per Neo4j and Redis, the deployment the watcher's
+cursors already assume. Equivalent tag files land on one edge and only its owner
+publishes, so they need no shared lock.
 
 What the feed cannot repair alone is a handler that stops for good between its
 graph write and its append: a PUT or a DEL whose retries run out there. The graph
 then holds a change the feed lacks. Running the seed job (below) rebuilds the feed from
-the graph. Two cases around the flip (below) end the same way:
-
-- A `pubky.app` DEL that deleted its edge but failed to publish, and whose user's flip
-  completes before its retry: the gate drops the retry once the user is at
-  `social/v1`, so its del stays unpublished.
-- A `pubky.app` PUT that recreates a tag's edge after the flip's tags step, while the
-  del of the tag's moved edge is still unpublished: the new edge stays at its
-  `pubky.app` address, the flip keeps holding the del of that address, and a later
-  delete of the tag's `social/v1` address publishes it, retracting a live reference.
-
-The seed job repairs both.
+the graph. One case around the flip (below) ends the same way: a `pubky.app` DEL that
+deleted its edge but failed to publish, and whose user's flip completes before its
+retry. The gate drops the retry once the user is at `social/v1`, so its del stays
+unpublished until a delete of the tag's `social/v1` file. The seed job repairs it.
 
 When a user moves from `pubky.app` to `social/v1` (the flip on their `social/v1`
 profile), Nexus moves each resource tag edge they wrote to the address of its
 `social/v1` tag file. Each move is published as a put at the new `object_path`
 followed by a del at the old one, so a consumer ends with the reference under the
-path the user's later `social/v1` delete retracts. The del of each old path is held
-before the edge moves and published with its put after; a flip that fails before it
-completes runs again and publishes what an earlier attempt held. A tag deleted or
-taken down after its edge moved, before the flip published the move, publishes the
-held del of the old path together with its own. That includes a tag on the user's
-own file, whose id the flip changes: the edge keeps its `pubky.app` id beside the
-new one, and the delete of its `pubky.app` file finds it by that id. Such a delete
-journals its del under the edge's address and names that journal from the deleted
-file's address until the del is published, so a retry that no longer finds the edge
-still publishes it, with any del the flip holds for that address.
+path the user's later `social/v1` delete retracts.
+
+The move is recorded on the edge, in the same graph write that moves it: `v0_uri`
+keeps the address the feed published the edge under, as stored, and `moved_at` is
+set until the move is published. A rerun of that write over an edge already at its
+new address keeps both. The moves are published outside the flip, which never fails
+on the feed: once right after the flip's epoch write, and by a sweep the watcher
+runs every minute over every edge whose move is still recorded, in pages of 100,
+starting from the index on `TAGGED(moved_at)`, which holds only those edges. When
+the first publish fails, a consumer sees the move up to one sweep later. Each move
+is published under its tag file's lock, from the edge read again under it: the put
+and the del are appended together, then `moved_at` is cleared if it is still the
+move that was read, a page of 100 at a time under the page's locks. A crash between
+the append and the clear makes the next sweep append the moves again, duplicates.
+
+A tag deleted or taken down while its move is still recorded publishes a del of
+`v0_uri` right after its own del: the consumer may still hold only that address.
+That includes a tag on the user's own file, whose id the flip changes: the edge keeps
+its `pubky.app` id beside the new one, and the delete of its `pubky.app` file finds it
+by that id. Such a delete journals its del under the edge's address and names that
+journal from the deleted file's address until the del is published, so a retry still
+publishes it, whether it finds no edge or a tag made again at that file.
+
+The del of `v0_uri` is pending with the delete's own, so a retry that no longer finds
+the edge publishes both, and the move is never published afterwards, since its edge
+is gone. A later put at the moved address, which supersedes the unfinished delete,
+publishes the del of `v0_uri` pending with it, since the put does not bring that
+address back. A retry that no longer finds the edge first checks, under the lock of
+the file at `v0_uri` too, whether a tag is stored there again (made while the user
+was still at `pubky.app`): then that del is dropped, since the address is live.
 
 `at` is the edge's indexed timestamp in Unix milliseconds for puts (including
-replays and moves), and the deletion's indexed timestamp for dels. Apply lines in list order,
+replays and moves), and the deletion's indexed timestamp for dels (the move's, for the
+del a published move appends). Apply lines in list order,
 not timestamp order. `reply`, `embed` and `collection` are reserved kinds, never
 emitted yet.
 
@@ -135,8 +150,8 @@ The seed describes current graph references, not historical deletions.
 
 The list is `Event:ResourceChanges`, its epoch is `Event:ResourceChanges:Epoch`.
 `Event:ResourceChanges:PendingDelete:*` retains interrupted delete details;
-`Event:ResourceChanges:PendingMove:<author>` holds the dels of a flip's moves until
-they are published;
+`Event:ResourceChanges:PendingDeleteMoved:*` holds, beside the pending delete of a
+tag whose move is not published, the del of the address it moved from;
 `Event:ResourceChanges:PendingDeleteAlias:*` names, from a deleted tag file's address,
 the pending delete of an edge stored under another address, and goes when that delete
 is published. It can outlive that delete: when a later put lands at either address,

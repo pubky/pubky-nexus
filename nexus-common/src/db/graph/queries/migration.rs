@@ -85,8 +85,7 @@ pub fn get_post_children_page(
 /// element id, its `id` and `label`, the target's `kind` (`post`, `user`, `resource`, or
 /// `other` for anything else) and the target's keys: `target_id` for a post or a user,
 /// `author_id` for a post (null when it has no `AUTHORED` author), `resource_uri` for a
-/// resource, and the edge's address before the rewrite, `tag_uri`, which the resource changes
-/// feed published it under.
+/// resource.
 pub fn get_tagger_edges_under(tagger_id: &str, prefix: &str, limit: usize) -> Query {
     Query::new(
         "get_tagger_edges_under",
@@ -106,33 +105,12 @@ pub fn get_tagger_edges_under(tagger_id: &str, prefix: &str, limit: usize) -> Qu
             END AS kind,
             target.id AS target_id,
             author.id AS author_id,
-            target.uri AS resource_uri,
-            t.uri AS tag_uri
+            target.uri AS resource_uri
         ",
     )
     .param("tagger_id", tagger_id)
     .param("prefix", prefix)
     .param("limit", limit.min(MAX_QUERY_LIMIT) as i64)
-}
-
-/// The `Resource` tags `tagger_id` wrote whose address is one of `tag_uris`, as `(tag_uri,
-/// label, indexed_at, resource_id, resource_uri)` rows: the edges the tags step moved, read
-/// back for the resource changes feed. An address with no such edge has no row.
-pub fn get_tagger_resource_tags_at(tagger_id: &str, tag_uris: &[String]) -> Query {
-    Query::new(
-        "get_tagger_resource_tags_at",
-        "
-        MATCH (:User {id: $tagger_id})-[t:TAGGED]->(r:Resource)
-        WHERE t.uri IN $tag_uris
-        RETURN t.uri AS tag_uri,
-            t.label AS label,
-            t.indexed_at AS indexed_at,
-            r.id AS resource_id,
-            r.uri AS resource_uri
-        ",
-    )
-    .param("tagger_id", tagger_id)
-    .param("tag_uris", tag_uris.to_vec())
 }
 
 /// Writes the stored address and the attachments of each of `author_id`'s posts in `posts`,
@@ -177,10 +155,20 @@ pub fn set_post_addresses(
 /// counted. An edge whose id changes keeps its old one as `v0_id`, which a delete of its
 /// `pubky.app` file still finds it by; an edge whose id stays keeps the `v0_id` it has.
 ///
-/// The anonymous pattern is load-bearing: anchored on the tagger, the planner expands every
+/// A `Resource` edge whose address changes is marked as moved, for the resource changes feed,
+/// which published it under the old address: `v0_uri` keeps that address as stored, and
+/// `moved_at` is `moved_at`, until the move is published (see [`get_moved_resource_tags`]). An
+/// edge already at its new address, as on a rerun, keeps both as they are, so a rerun never
+/// overwrites the address the feed knows.
+///
+/// The anonymous start node is load-bearing: anchored on the tagger, the planner expands every
 /// edge they wrote for each row; anchored on nothing, it seeks the edge by its element id
 /// (`DirectedRelationshipByElementIdSeek`) and checks the tagger on the start node.
-pub fn set_tag_addresses(tagger_id: &str, tags: &[(String, String, String)]) -> Query {
+pub fn set_tag_addresses(
+    tagger_id: &str,
+    tags: &[(String, String, String)],
+    moved_at: i64,
+) -> Query {
     let tags: Vec<Vec<String>> = tags
         .iter()
         .map(|(edge, id, uri)| vec![edge.clone(), id.clone(), uri.clone()])
@@ -189,13 +177,121 @@ pub fn set_tag_addresses(tagger_id: &str, tags: &[(String, String, String)]) -> 
         "set_tag_addresses",
         "
         UNWIND $tags AS tag
-        MATCH ()-[t:TAGGED]->()
+        MATCH ()-[t:TAGGED]->(target)
         WHERE elementId(t) = tag[0] AND startNode(t).id = $tagger_id
-        SET t.v0_id = CASE WHEN t.id = tag[1] THEN t.v0_id ELSE t.id END
+        WITH t, tag, coalesce(target:Resource AND t.uri <> tag[2], false) AS moves
+        SET t.v0_id = CASE WHEN t.id = tag[1] THEN t.v0_id ELSE t.id END,
+            t.v0_uri = CASE WHEN moves THEN t.uri ELSE t.v0_uri END,
+            t.moved_at = CASE WHEN moves THEN $moved_at ELSE t.moved_at END
         SET t.id = tag[1], t.uri = tag[2]
         RETURN count(t) AS changed
         ",
     )
     .param("tagger_id", tagger_id)
     .param("tags", tags)
+    .param("moved_at", moved_at)
+}
+
+/// One keyset page of the `Resource` tag edges whose move the resource changes feed has not
+/// published yet (`moved_at` set, see [`set_tag_addresses`]), of `tagger_id` or, with `None`,
+/// of every tagger: `(edge, tagger_id, tag_id, v0_id, moved_at)` rows ordered by `moved_at`,
+/// then the edge's element id, strictly after `after` (`(i64::MIN, "")` for the first page),
+/// up to `limit`. The keyset leads with a range on `moved_at`, so without a tagger the page is
+/// a seek on the `TAGGED(moved_at)` index, which holds only the edges still to publish.
+pub fn get_moved_resource_tags(tagger_id: Option<&str>, after: (i64, &str), limit: usize) -> Query {
+    let (name, pattern) = match tagger_id {
+        Some(_) => (
+            "get_moved_resource_tags_of",
+            "MATCH (u:User {id: $tagger_id})-[t:TAGGED]->(:Resource)",
+        ),
+        None => (
+            "get_moved_resource_tags",
+            "MATCH (u:User)-[t:TAGGED]->(:Resource)",
+        ),
+    };
+    Query::new(
+        name,
+        format!(
+            "
+        {pattern}
+        WHERE t.moved_at >= $after_at
+            AND (t.moved_at > $after_at OR elementId(t) > $after_edge)
+        WITH u, t
+        ORDER BY t.moved_at, elementId(t)
+        LIMIT $limit
+        RETURN elementId(t) AS edge,
+            u.id AS tagger_id,
+            t.id AS tag_id,
+            t.v0_id AS v0_id,
+            t.moved_at AS moved_at
+        "
+        ),
+    )
+    .param("tagger_id", tagger_id.unwrap_or_default())
+    .param("after_at", after.0)
+    .param("after_edge", after.1)
+    .param("limit", limit.min(MAX_QUERY_LIMIT) as i64)
+}
+
+/// The `Resource` tag edges of `edges`, `(edge, tagger_id, tag_id)` triples, whose move is still
+/// to publish, as `(edge, tagger_id, tag_id, v0_id, tag_uri, v0_uri, moved_at, label,
+/// indexed_at, resource_id, resource_uri)` rows. An edge that is gone, has another id or
+/// tagger, or whose move was published has no row. Seeks each edge by its element id, as
+/// [`set_tag_addresses`] does.
+pub fn get_moved_resource_tags_at(edges: &[(String, String, String)]) -> Query {
+    let (ids, taggers, tag_ids) = unzip3(edges);
+    Query::new(
+        "get_moved_resource_tags_at",
+        "
+        UNWIND range(0, size($edges) - 1) AS i
+        MATCH ()-[t:TAGGED]->(r:Resource)
+        WHERE elementId(t) = $edges[i] AND startNode(t).id = $taggers[i] AND t.id = $tag_ids[i]
+            AND t.moved_at IS NOT NULL
+        RETURN $edges[i] AS edge,
+            $taggers[i] AS tagger_id,
+            t.id AS tag_id,
+            t.v0_id AS v0_id,
+            t.uri AS tag_uri,
+            t.v0_uri AS v0_uri,
+            t.moved_at AS moved_at,
+            t.label AS label,
+            t.indexed_at AS indexed_at,
+            r.id AS resource_id,
+            r.uri AS resource_uri
+        ",
+    )
+    .param("edges", ids)
+    .param("taggers", taggers)
+    .param("tag_ids", tag_ids)
+}
+
+/// Marks the moves of the `Resource` tag edges `edges`, `(edge, tagger_id)` pairs, as
+/// published, each only if its `moved_at` is still the one in `moved_at` (same order), and
+/// returns how many it changed as `cleared`.
+pub fn clear_moved_resource_tags(edges: &[(String, String)], moved_at: &[i64]) -> Query {
+    let (ids, taggers): (Vec<String>, Vec<String>) = edges.iter().cloned().unzip();
+    Query::new(
+        "clear_moved_resource_tags",
+        "
+        UNWIND range(0, size($edges) - 1) AS i
+        MATCH ()-[t:TAGGED]->(:Resource)
+        WHERE elementId(t) = $edges[i] AND startNode(t).id = $taggers[i]
+            AND t.moved_at = $moved_at[i]
+        SET t.moved_at = null
+        RETURN count(t) AS cleared
+        ",
+    )
+    .param("edges", ids)
+    .param("taggers", taggers)
+    .param("moved_at", moved_at.to_vec())
+}
+
+fn unzip3(rows: &[(String, String, String)]) -> (Vec<String>, Vec<String>, Vec<String>) {
+    let mut out = (Vec::new(), Vec::new(), Vec::new());
+    for (a, b, c) in rows {
+        out.0.push(a.clone());
+        out.1.push(b.clone());
+        out.2.push(c.clone());
+    }
+    out
 }
