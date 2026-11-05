@@ -7,6 +7,7 @@
 //! event's route, and [`resolve_reference`] applies the same routing to the addresses found
 //! inside objects.
 
+use super::handlers::file::{blob_of, blob_takedown_key};
 use super::inputs::{Reference, ReferenceTarget, ResourceKey};
 use pubky_social_specs::legacy_v0::traits::{HasIdPath, HasPath};
 use pubky_social_specs::legacy_v0::{
@@ -98,10 +99,10 @@ pub fn resolve_reference(address: &str) -> Reference {
 /// The key a takedown of `address` is recorded under and a PUT event is looked up by (see
 /// [`super::remove_if_taken_down`]). A `social/v1` post version (`…/posts/{id}/{edit}.json`)
 /// is keyed by its post's address `…/posts/{id}`: every version of a post is one resource, the
-/// one a takedown deletes, stored and served under that `uri`. Any other `social/v1` address is
-/// kept as written, since the spec only accepts it in canonical form. A `pubky.app` or another
-/// app's address is rewritten by the frozen v0 reader, so a trailing slash or a query still
-/// finds the record's events.
+/// one a takedown deletes, stored and served under that `uri`. A `social/v1` file is keyed by
+/// its blob ([`blob_takedown_key`]). Any other `social/v1` address is kept as written, since the
+/// spec only accepts it in canonical form. A `pubky.app` or another app's address is rewritten by
+/// the frozen v0 reader, so a trailing slash or a query still finds the record's events.
 ///
 /// `Err` for an address neither epoch's parser reads.
 pub fn takedown_key(address: &str) -> Result<String, String> {
@@ -119,6 +120,11 @@ pub fn takedown_key(address: &str) -> Result<String, String> {
             user_id.to_string(),
             id,
         )),
+        Routed::Social(ParsedUri {
+            user_id,
+            resource: Resource::File(id),
+            ..
+        }) => Ok(blob_takedown_key(user_id.as_ref(), blob_of(&id))),
         Routed::Social(_) => Ok(address.to_string()),
         Routed::Legacy(parsed) => parsed.try_to_uri_str(),
         Routed::UnsupportedEpoch { version } => Err(format!("unsupported epoch {version}")),
@@ -538,24 +544,36 @@ mod tests {
     }
 
     /// A takedown is keyed by the moderated address: a `social/v1` post version by its post's
-    /// address, another `social/v1` address as written, a `pubky.app` or another app's one as
-    /// the v0 reader rewrites it, in its own folder.
+    /// address, a `social/v1` file by its blob (the address with no extension, so `H.png` and
+    /// `H.bin` share one key), another `social/v1` address as written, a `pubky.app` or another
+    /// app's one as the v0 reader rewrites it, in its own folder.
     #[test]
     fn takedown_keys_fold_v1_post_versions_and_rewrite_v0_addresses() {
         let post = post_uri_builder(USER.into(), POST_ID.into());
         let tag = format!("pubky://{USER}/pub/mapky/tags/{HASH_ID}");
+        let file = file_uri_builder(USER.into(), POST_ID.into());
         let v1_post = v1_post_uri_builder(USER.into(), POST_ID.into());
         let v1_tag = v1_tag_uri_builder(USER.into(), HASH_ID.into());
         let v1_profile = format!("pubky://{USER}/pub/social/v1/profile.json");
+        let v1_blob = v1_file_uri_builder(USER.into(), HASH_ID.into());
         for (address, expected) in [
             (post.clone(), &post),
             (format!("{post}/"), &post),
             (format!("{tag}?x=1"), &tag),
+            (file.clone(), &file),
             (v1_post.clone(), &v1_post),
             (v1_version_uri(None), &v1_post),
             (v1_version_uri(Some("hello-world")), &v1_post),
             (v1_tag.clone(), &v1_tag),
             (v1_profile.clone(), &v1_profile),
+            (
+                v1_file_uri_builder(USER.into(), format!("{HASH_ID}.png")),
+                &v1_blob,
+            ),
+            (
+                v1_file_uri_builder(USER.into(), format!("{HASH_ID}.bin")),
+                &v1_blob,
+            ),
         ] {
             assert_eq!(takedown_key(&address).as_ref(), Ok(expected), "{address}");
         }

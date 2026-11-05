@@ -14,6 +14,7 @@ use chrono::Utc;
 use nexus_common::media::file_folder;
 use nexus_common::models::post::PostView;
 use nexus_common::models::takedown::is_taken_down;
+use nexus_watcher::events::handlers::file::blob_takedown_key;
 use nexus_watcher::EventProcessorError;
 use pubky::{recovery_file, Keypair, ResourcePath};
 use pubky_social_specs::legacy_v0::{PubkyAppPost, PubkyAppTag};
@@ -510,9 +511,12 @@ async fn test_a_v1_address_taken_down_before_the_flip_is_not_copied() -> Result<
     .await
 }
 
-/// A `{tsid}` takedown before the flip takes its blob down at its `social/v1` address too, so
-/// the blob is not copied, even when another upload the moderator did not tag shares it: the
-/// bytes are the content taken down. That upload's legacy folder is left alone.
+/// A `{tsid}` takedown before the flip takes its blob down under its key too, so the blob is not
+/// copied, even when another upload the moderator did not tag shares it: the bytes are the
+/// content taken down. The untagged upload declares another type, so once the tagged upload's
+/// node is gone it names the blob and the flip would copy it as `H.txt` where the takedown saw
+/// `H.png`: the key carries no extension, so neither is copied. That upload's legacy folder is
+/// left alone.
 #[tokio_shared_rt::test(shared)]
 async fn test_a_tsid_takedown_before_the_flip_takes_its_blob_down_shared_or_not() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
@@ -542,8 +546,8 @@ async fn test_a_tsid_takedown_before_the_flip_takes_its_blob_down_shared_or_not(
         &author_kp,
         &author_id,
         &shared.src,
-        "shared-again.png",
-        "image/png",
+        "shared-again.txt",
+        "text/plain",
     )
     .await?;
 
@@ -556,13 +560,15 @@ async fn test_a_tsid_takedown_before_the_flip_takes_its_blob_down_shared_or_not(
     assert_eq!(find_user_epoch(&author_id).await.as_deref(), Some("v1"));
     let files_path = test.temp_dir.path();
     for (file, what) in [(&lone, "a lone blob"), (&shared, "a shared blob")] {
+        for ext in ["png", "txt"] {
+            assert!(
+                !v1_main(files_path, &author_id, &file.hash, ext).exists(),
+                "{what} of a taken-down tsid must not be copied, as {ext} or anything else"
+            );
+        }
         assert!(
-            !v1_main(files_path, &author_id, &file.hash, "png").exists(),
-            "{what} of a taken-down tsid must not be copied"
-        );
-        assert!(
-            is_taken_down(&v1_file_uri(&author_id, &file.hash, "png")).await?,
-            "{what}: the takedown must be recorded under the v1 address"
+            is_taken_down(&blob_takedown_key(&author_id, &file.hash)).await?,
+            "{what}: the takedown must be recorded under the blob's key"
         );
     }
     assert!(
@@ -617,8 +623,8 @@ async fn test_a_tsid_takedown_after_the_flip_removes_the_copy() -> Result<()> {
     assert!(!down.main.exists(), "the legacy folder is removed");
     assert!(!copy.exists(), "the copy is removed with it");
     assert!(
-        is_taken_down(&v1_file_uri(&author_id, &down.hash, "png")).await?,
-        "the copy's address is recorded, so a later PUT there stays down"
+        is_taken_down(&blob_takedown_key(&author_id, &down.hash)).await?,
+        "the blob's key is recorded, so a later PUT of its bytes stays down"
     );
     assert_eq!(
         fs::read(v1_main(&files_path, &author_id, &up.hash, "png")).await?,

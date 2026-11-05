@@ -3,7 +3,8 @@ use std::sync::Arc;
 
 use crate::errors::EventProcessorError;
 use crate::events::handlers;
-use crate::events::inputs::{Reference, ReferenceTarget, ResourceKey};
+use crate::events::handlers::file::{blob_of, blob_takedown_key};
+use crate::events::inputs::{Reference, ReferenceTarget};
 use crate::events::route::{route, takedown_key, Routed};
 use crate::events::v0_to_v1::files::FileMap;
 use nexus_common::media::is_v1_file_id;
@@ -11,7 +12,7 @@ use nexus_common::models::takedown::record_takedown;
 use nexus_common::models::user::UserIngestor;
 use nexus_common::WatcherConfig;
 use pubky_social_specs::legacy_v0::validate_crockford_id;
-use pubky_social_specs::{file_uri_builder, PubkyId};
+use pubky_social_specs::PubkyId;
 use tracing::{info, warn};
 
 pub struct Moderation {
@@ -90,50 +91,35 @@ impl Moderation {
                         return Ok(());
                     }
                 }
-                // Looked up before the delete below removes the `File` node it is read from.
-                let copy = match &target {
-                    ReferenceTarget::File(key) if !is_v1_file_id(&key.resource_id) => {
-                        Self::migrated_copy(key).await?
-                    }
-                    _ => None,
-                };
-
                 // Posts, tags and files are remembered before they are deleted, so they stay
                 // down even if their own event is read only later, or again, or is being
                 // written right now by another loop (see `handle_put_event`): each has an
                 // address of its own.
                 info!("Moderation tag '{label}' on {uri} detected. Taking down {address}");
                 record_takedown(&address, tag_uri).await?;
-                if let Some(copy) = copy {
-                    let copy_address =
-                        file_uri_builder(copy.owner_id.to_string(), copy.resource_id.clone());
-                    info!("Taking down {copy_address}, the social/v1 address of {address}");
-                    record_takedown(&copy_address, tag_uri).await?;
-                    handlers::file::del(copy, files_path).await?;
+                // A v0 file's blob goes with it, keyed by `blob_takedown_key`, so the takedown
+                // holds against the flip's copy whichever comes first. Read here, before the
+                // delete below removes the `File` node the map is built from.
+                if let ReferenceTarget::File(key) = &target {
+                    if !is_v1_file_id(&key.resource_id) {
+                        let files = FileMap::load(&key.owner_id).await?;
+                        if let Some(hash) = files.hash_of(&key.resource_id) {
+                            let blob_key = blob_takedown_key(key.owner_id.as_ref(), hash);
+                            info!("Taking down {blob_key}, the bytes of {address}");
+                            record_takedown(&blob_key, tag_uri).await?;
+                            handlers::file::del_blob(&key.owner_id, hash, files_path).await?;
+                        }
+                    }
                 }
                 Self::remove_taken_down(target, files_path, ingestor).await
             }
         }
     }
 
-    /// The `social/v1` file a v0 file `key` is copied to at its owner's flip, by the flip's own
-    /// rule ([`FileMap`]): `{hash}.{ext}` of the blob its `src` names. `None` when the file is
-    /// not indexed or its `src` names no blob of the owner's, so it has no copy.
-    ///
-    /// A v0 file takedown takes the copy down too, so it holds whether the moderator's tag is
-    /// read before the flip or after it. The copy's address is the blob's: an upload of the
-    /// same bytes at it, by the owner, stays down as well.
-    async fn migrated_copy(key: &ResourceKey) -> Result<Option<ResourceKey>, EventProcessorError> {
-        let files = FileMap::load(&key.owner_id).await?;
-        Ok(files.hash_of(&key.resource_id).map(|hash| ResourceKey {
-            owner_id: key.owner_id.clone(),
-            resource_id: format!("{hash}.{}", files.ext_of(hash)),
-        }))
-    }
-
     /// Deletes the post, tag or file `target` names, which the moderator took down. Posts are
     /// hard-deleted when edge-free or tombstoned when engagement edges remain, as for a
-    /// user's own DEL event. Deleting what isn't indexed reports
+    /// user's own DEL event. A `social/v1` file is removed at every address of its bytes
+    /// ([`blob_takedown_key`]). Deleting what isn't indexed reports
     /// [`EventProcessorError::SkipIndexing`], as a user's DEL does. A user or any other
     /// target is never taken down, so it is a no-op here.
     pub(crate) async fn remove_taken_down(
@@ -144,6 +130,9 @@ impl Moderation {
         match target {
             ReferenceTarget::Post(key) => handlers::post::del(key, ingestor).await,
             ReferenceTarget::Tag { key } => handlers::tag::del(key).await,
+            ReferenceTarget::File(key) if is_v1_file_id(&key.resource_id) => {
+                handlers::file::del_blob(&key.owner_id, blob_of(&key.resource_id), files_path).await
+            }
             ReferenceTarget::File(key) => handlers::file::del(key, files_path).await,
             ReferenceTarget::User(_) | ReferenceTarget::Foreign | ReferenceTarget::Other => Ok(()),
         }

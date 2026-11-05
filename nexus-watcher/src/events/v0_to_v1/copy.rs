@@ -14,12 +14,12 @@
 //! [`EventProcessorError::FlipFailed`], retried without limit while the user stays at `v0`. The
 //! retry runs the copy again, and it skips what already exists.
 //!
-//! A blob is taken down when its `social/v1` address is, or the `pubky.app` address of any file
-//! that names it: a takedown recorded under a file's v0 address holds against its copy too,
-//! whichever of the two the moderator's tag and the flip reach first.
+//! A blob is taken down when its key is ([`blob_takedown_key`]), or the `pubky.app` address of
+//! any file that names it: a takedown recorded under a file's v0 address holds against its copy
+//! too, whichever of the two the moderator's tag and the flip reach first.
 
 use super::files::{Blob, FileMap};
-use crate::events::handlers::file::{main_path, write_v1_main};
+use crate::events::handlers::file::{blob_takedown_key, main_path, write_v1_main};
 use crate::events::translation::social_v1::read_v1_file;
 use crate::events::EventProcessorError;
 use nexus_common::media::file_folder;
@@ -81,7 +81,7 @@ where
     let file_id = blob.file_id();
     let folder = files_path.join(file_folder(owner.as_ref(), &file_id));
     let uri = file_uri_builder(owner.to_string(), file_id);
-    let addresses = takedown_addresses(owner, blob, &uri);
+    let addresses = takedown_addresses(owner, blob);
 
     if taken_down(addresses.clone()).await? {
         // A copy left behind by an earlier attempt whose removal failed goes here, as a PUT's
@@ -117,11 +117,11 @@ where
     Ok(())
 }
 
-/// The addresses a takedown of `blob` is recorded under: its `social/v1` address `uri`, and the
-/// `pubky.app` address of every file of the group. One taken-down file takes down the blob: the
-/// bytes are the content the moderator removed, whichever file names them.
-fn takedown_addresses(owner: &PubkyId, blob: &Blob, uri: &str) -> Vec<String> {
-    std::iter::once(uri.to_string())
+/// The addresses a takedown of `blob` is recorded under: its key and the `pubky.app` address of
+/// every file of the group. One taken-down file takes down the blob: the bytes are the content
+/// the moderator removed, whichever file names them.
+fn takedown_addresses(owner: &PubkyId, blob: &Blob) -> Vec<String> {
+    std::iter::once(blob_takedown_key(owner.as_ref(), &blob.hash))
         .chain(
             blob.tsids
                 .iter()
@@ -251,6 +251,11 @@ mod tests {
 
     fn v1_uri(hash: &str, ext: &str) -> String {
         file_uri_builder(OWNER.to_string(), format!("{hash}.{ext}"))
+    }
+
+    /// The key a takedown of the owner's blob `hash` is recorded under.
+    fn blob_key(hash: &str) -> String {
+        blob_takedown_key(OWNER, hash)
     }
 
     fn v1_folder(files_path: &Path, hash: &str, ext: &str) -> PathBuf {
@@ -424,23 +429,25 @@ mod tests {
         assert!(!dir.path().join("v1").exists());
     }
 
-    /// A taken-down address is not copied, and a copy an earlier attempt left behind is removed.
+    /// A taken-down blob is not copied, and a copy an earlier attempt left behind is removed.
+    /// The key carries no extension, so the `text/plain` file now naming the blob, and the
+    /// `H.txt` the copy would land at, change nothing.
     #[tokio::test]
-    async fn a_taken_down_address_is_not_copied_and_a_leftover_copy_is_removed() {
+    async fn a_taken_down_blob_is_not_copied_and_a_leftover_copy_is_removed() {
         let dir = TempDir::new().unwrap();
         let files = [
-            LegacyFile::new("0032SSN7Q4EVG", b"copy:down", "image/png"),
-            LegacyFile::new("0032SSN7Q4EVH", b"copy:up", "image/png"),
+            LegacyFile::new("0032SSN7Q4EVH", b"copy:down", "text/plain"),
+            LegacyFile::new("0032SSN7Q4EVJ", b"copy:up", "image/png"),
         ];
         let map = seed(dir.path(), &files).await;
         let down = files[0].hash();
-        let leftover = v1_folder(dir.path(), &down, "png");
+        let leftover = v1_folder(dir.path(), &down, "txt");
         fs::create_dir_all(&leftover).await.unwrap();
         fs::write(main_path(&leftover), b"copy:down").await.unwrap();
-        let down_uri = v1_uri(&down, "png");
+        let down_key = blob_key(&down);
 
         copy_with(&owner(), &map, dir.path(), |uris| {
-            let down = uris.contains(&down_uri);
+            let down = uris.contains(&down_key);
             async move { Ok(down) }
         })
         .await
@@ -575,7 +582,7 @@ mod tests {
 
     /// A takedown recorded under the `pubky.app` address of any file of a blob holds against
     /// the copy: the blob is not copied, a leftover copy is removed, and the blob's other file
-    /// does not bring it back. The address list is the blob's v1 address and each file's v0 one.
+    /// does not bring it back. The address list is the blob's key and each file's v0 address.
     #[tokio::test]
     async fn a_takedown_of_any_v0_file_of_a_blob_takes_the_blob_down() {
         let dir = TempDir::new().unwrap();
@@ -613,11 +620,11 @@ mod tests {
         let asked = asked.into_inner().unwrap();
         assert!(
             asked.contains(&vec![
-                v1_uri(&shared, "png"),
+                blob_key(&shared),
                 v0_uri(files[0].tsid),
                 v0_uri(files[1].tsid),
             ]),
-            "the shared blob is looked up under its v1 address and both v0 ones: {asked:?}"
+            "the shared blob is looked up under its key and both v0 addresses: {asked:?}"
         );
         assert_legacy_intact(dir.path(), &files).await;
     }

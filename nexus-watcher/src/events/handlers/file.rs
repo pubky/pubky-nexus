@@ -248,12 +248,64 @@ pub async fn del(key: ResourceKey, files_path: &Path) -> Result<(), EventProcess
     }
 
     let full_path = files_path.join(file_folder(key.owner_id.as_ref(), &key.resource_id));
+    remove_folder(&full_path).await
+}
 
-    match remove_dir_all(full_path.as_path()).await {
-        Ok(_) => Ok(()),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(e) => Err(EventProcessorError::static_save_failed(e)),
+/// Removes `folder` and everything in it; a folder that is not there is a no-op. Any other
+/// failure is [`EventProcessorError::StaticSaveFailed`], a counted retry as for a failed write.
+async fn remove_folder(folder: &Path) -> Result<(), EventProcessorError> {
+    match remove_dir_all(folder).await {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+            Err(EventProcessorError::static_save_failed(e))
+        }
+        _ => Ok(()),
     }
+}
+
+/// The key a takedown of the owner's blob `hash` is recorded under and looked up by: the
+/// `social/v1` file address with no extension, `…/files/{hash}`, which no file has (a v1 file id
+/// is `{hash}.{ext}`). The bytes are the content a takedown removes, so the key names them rather
+/// than one upload: it holds against the same bytes under any extension, and against the copy
+/// the flip makes of a v0 file, whatever extension the flip picks once the tagged upload's node
+/// is gone and another upload names the blob.
+pub fn blob_takedown_key(owner_id: &str, hash: &str) -> String {
+    file_uri_builder(owner_id.to_string(), hash.to_string())
+}
+
+/// The blob a `social/v1` file id names: the `{hash}` before its extension.
+pub fn blob_of(file_id: &str) -> &str {
+    file_id.split_once('.').map_or(file_id, |(hash, _)| hash)
+}
+
+/// Removes every `social/v1` folder of the owner's blob `hash`, `v1/<owner>/{hash}.*`: a
+/// moderator's takedown removes the bytes under every extension, where a user's own DEL
+/// ([`del`]) removes the one address it names. A missing owner folder is a no-op; any other
+/// failure is [`EventProcessorError::StaticSaveFailed`], as for [`del`].
+#[tracing::instrument(name = "file.del_blob", skip_all, fields(user_id = %owner_id, hash = %hash))]
+pub async fn del_blob(
+    owner_id: &PubkyId,
+    hash: &str,
+    files_path: &Path,
+) -> Result<(), EventProcessorError> {
+    let owner_folder = files_path.join(V1_FILES_DIR).join(owner_id.as_ref());
+    let mut entries = match fs::read_dir(&owner_folder).await {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(EventProcessorError::static_save_failed(e)),
+    };
+    let prefix = format!("{hash}.");
+    while let Some(entry) = entries
+        .next_entry()
+        .await
+        .map_err(EventProcessorError::static_save_failed)?
+    {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name.starts_with(&prefix) {
+            debug!(file_id = %name, "Deleting a file of the taken-down blob");
+            remove_folder(&entry.path()).await?;
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -262,6 +314,36 @@ mod tests {
 
     async fn read_main(dir: &Path) -> Vec<u8> {
         fs::read(dir.join("main")).await.unwrap()
+    }
+
+    /// A blob's takedown removes every v1 folder of its bytes, `H.png` and `H.bin` alike, and
+    /// leaves another blob's folder and the legacy folders alone.
+    #[tokio_shared_rt::test(shared)]
+    async fn del_blob_removes_every_extension_of_the_blob_and_nothing_else() {
+        let tmp_dir = tempfile::TempDir::new().unwrap();
+        let owner =
+            PubkyId::try_from("operrr8wsbpr3ue9d4qj41ge1kcc6r7fdiy6o3ugjrrhi4y77rdo").unwrap();
+        let hash = "8Z8CWH8NVYQY39ZEBFGKQWWEKG";
+        let folders: Vec<PathBuf> = [
+            format!("{hash}.png"),
+            format!("{hash}.bin"),
+            "9Z8CWH8NVYQY39ZEBFGKQWWEKG.png".to_string(),
+            "0032SSN7Q4EVG".to_string(),
+        ]
+        .iter()
+        .map(|id| tmp_dir.path().join(file_folder(owner.as_ref(), id)))
+        .collect();
+        for folder in &folders {
+            fs::create_dir_all(folder).await.unwrap();
+            fs::write(folder.join("main"), b"bytes").await.unwrap();
+        }
+
+        del_blob(&owner, hash, tmp_dir.path()).await.unwrap();
+
+        assert!(!folders[0].exists(), "H.png must go");
+        assert!(!folders[1].exists(), "H.bin must go");
+        assert!(folders[2].exists(), "another blob's folder stays");
+        assert!(folders[3].exists(), "the legacy folder stays");
     }
 
     #[tokio_shared_rt::test(shared)]
