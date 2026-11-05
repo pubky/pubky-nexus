@@ -124,9 +124,10 @@ impl EventHandler for DefaultEventHandler {
         if gate == Gate::Flip {
             // The flip step first, before any fetch, so the user's move does not wait for the
             // homeserver. A failure inside it is a `FlipFailed` that leaves the user at `v0` and
-            // is queued without limit while they are: one summary line here, the step having
-            // logged its own. Once the step lands, the event is a `v1` user's profile PUT and
-            // takes the ordinary path below, retry limit included.
+            // is queued without limit while they are (the cache step after the epoch write is
+            // the exception: its retry finds a `v1` user and runs as their profile PUT): one
+            // summary line here, the step having logged its own. Once the step lands, the event
+            // is a `v1` user's profile PUT and takes the ordinary path below, retry limit included.
             handlers::user::flip(event.target.user_id())
                 .await
                 .inspect_err(|e| {

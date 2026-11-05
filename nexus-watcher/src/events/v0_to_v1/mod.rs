@@ -9,8 +9,8 @@
 //! cause: a graph or Redis error, or one of the migration's own guards (a tags page whose write
 //! changed nothing, a stalled keyset scan). The flip goes through the normal retry, which runs
 //! it whole again while the user is still `v0`; a user whose data cannot be migrated is never
-//! reported as `v1`. The epoch write that ends the flip ([`crate::events::handlers::user::flip`])
-//! goes through the same [`step`].
+//! reported as `v1`. The epoch write and the details cache refresh that end the flip
+//! ([`crate::events::handlers::user::flip`]) go through the same [`step`].
 
 pub mod attachments;
 pub mod files;

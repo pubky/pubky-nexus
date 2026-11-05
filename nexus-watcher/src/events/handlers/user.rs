@@ -51,9 +51,11 @@ pub async fn sync_put(user: UserInput, user_id: PubkyId) -> Result<(), EventProc
 /// epoch is written. Every failure inside, the epoch write's included, comes out of
 /// [`v0_to_v1::step`] as [`EventProcessorError::FlipFailed`] naming the step and the cause, and
 /// leaves the user at `v0`: the retry runs the whole step again over its partial work, without
-/// limit while the user is `v0`. The profile and the details cache are the ordinary `v1`
-/// profile PUT's, which follows ([`sync_put`]). A user whose first event is this PUT has no
-/// node yet: the epoch write creates a stub, which the profile write fills in.
+/// limit while the user is `v0`. The details cache is then refreshed from the graph, so the API
+/// reports `v1` before the profile fetch that follows; a failure there is a `FlipFailed` of a
+/// user already `v1`, whose retry is the ordinary profile PUT and refreshes the cache again. The
+/// profile itself is the ordinary `v1` profile PUT's ([`sync_put`]). A user whose first event is
+/// this PUT has no node yet: the epoch write creates a stub, which the profile write fills in.
 #[tracing::instrument(name = "user.flip", skip_all, fields(user_id = %user_id))]
 pub async fn flip(user_id: &PubkyId) -> Result<(), EventProcessorError> {
     // Step 1: Migrate the user's indexed data to its `social/v1` form, while they are still `v0`
@@ -65,6 +67,21 @@ pub async fn flip(user_id: &PubkyId) -> Result<(), EventProcessorError> {
     // One line per flip, so flips can be counted and found by user.
     info!("User flipped to v1");
 
+    // Step 3: Refresh the details cache from the graph, so the API reports `v1` now and not
+    // only once the profile fetch succeeds. Every indexed `v0` user has a cached copy from their
+    // `pubky.app` profile, which reads as `v0` until it is rewritten.
+    v0_to_v1::step(user_id, "cache", refresh_details_cache(user_id)).await?;
+
+    Ok(())
+}
+
+/// Rewrites the user's cached details from the graph, epoch included.
+async fn refresh_details_cache(user_id: &PubkyId) -> Result<(), EventProcessorError> {
+    let user_id: &str = user_id.as_ref();
+    let user_details = UserDetails::get_from_graph(&[user_id]).await?;
+    UserDetails::put_to_index(&[user_id], user_details)
+        .instrument(tracing::info_span!("index.write"))
+        .await?;
     Ok(())
 }
 
@@ -129,7 +146,8 @@ mod tests {
     use nexus_common::{StackConfig, StackManager};
 
     /// The flip step of a `v0` user with nothing to migrate: the user is `v1` in the graph, the
-    /// profile untouched until the fetch that follows, and one `info` line names the user.
+    /// profile untouched until the fetch that follows, and one `info` line names the user. The
+    /// cache refresh is proved through the API read path in `tests/service/retry_processor.rs`.
     #[tokio_shared_rt::test(shared)]
     #[tracing_test::traced_test]
     async fn a_flip_moves_the_user_to_v1_and_logs_one_info_line() -> Result<(), DynError> {

@@ -37,7 +37,7 @@ use pubky_social_specs::legacy_v0::traits::{HashId as _, TimestampId};
 use pubky_social_specs::legacy_v0::{
     blob_uri_builder, file_uri_builder as v0_file_uri_builder, post_uri_builder,
     tag_uri_builder as v0_tag_uri_builder, PubkyAppBlob, PubkyAppFile, PubkyAppPost,
-    PubkyAppPostKind, PubkyAppTag,
+    PubkyAppPostKind, PubkyAppTag, PubkyAppUser,
 };
 use pubky_social_specs::traits::{HasPath as _, HashId as _, TimestampId as _};
 use pubky_social_specs::{
@@ -1711,13 +1711,14 @@ enum Tagged {
     File,
 }
 
-/// A `v0` user with their `pubky.app` content indexed, as [`seed_v0_user_with_content`] leaves
-/// it: the blob's `hash`, the file naming it, the post attaching the file, and the id of each
-/// tag in the order asked. `client` answers every fetch of that content on top of what the test
+/// A `v0` user with their `pubky.app` profile and content indexed, as
+/// [`seed_v0_user_with_content`] leaves it: the profile's `name`, the blob's `hash`, the file
+/// naming it, the post attaching the file, and the id of each tag in the order asked. `client` answers every fetch of that content on top of what the test
 /// registered, `handler` fetches through it and queues on `store`, and `files` must outlive the
 /// handler.
 struct SeededContent {
     user_id: String,
+    name: String,
     hash: String,
     file_id: String,
     file_uri: String,
@@ -1730,11 +1731,12 @@ struct SeededContent {
     files: tempfile::TempDir,
 }
 
-/// Writes `user` to the graph with no epoch, so they read as `v0`, and indexes their content
-/// at `pubky.app`: a blob and the file naming it, a post attaching the file, and the user's tag
-/// on each `(target, label)` in `tags`, all named after `prefix`. `client` carries the test's
-/// own lines and the flip's answer; the content's resources are added to it, and the handler
-/// that indexed the content fetches through it.
+/// Indexes `user` at `pubky.app` as an indexed `v0` user is: their profile, through the
+/// handler, so the node has no epoch and the details cache holds a copy that reads as `v0`; a
+/// blob and the file naming it; a post attaching the file; and the user's tag on each
+/// `(target, label)` in `tags`, all named after `prefix`. `client` carries the test's own lines
+/// and the flip's answer; the content's resources are added to it, and the handler that indexed
+/// the content fetches through it.
 async fn seed_v0_user_with_content(
     user: PubkyId,
     prefix: &str,
@@ -1742,7 +1744,15 @@ async fn seed_v0_user_with_content(
     client: MockHomeserverClient,
 ) -> Result<SeededContent> {
     let user_id = user.to_string();
-    UserDetails::from_pubky(user).put_to_graph().await?;
+    let name = format!("{prefix}:Profile");
+    let profile = PubkyAppUser {
+        bio: None,
+        image: None,
+        links: None,
+        name: name.clone(),
+        status: None,
+    };
+    let profile_uri = pubky_app_profile_uri(&user_id);
     let blob = PubkyAppBlob::new(format!("{prefix}:Blob:{user_id}").into_bytes());
     let hash = blob.create_id();
     let blob_uri = blob_uri_builder(user_id.clone(), hash.clone());
@@ -1763,10 +1773,11 @@ async fn seed_v0_user_with_content(
     let post_uri = post_uri_builder(user_id.clone(), post_id.clone());
 
     let mut client = client
+        .with_resource(&profile_uri, serde_json::to_vec(&profile)?)
         .with_resource(&blob_uri, blob.0.clone())
         .with_resource(&file_uri, serde_json::to_vec(&file)?)
         .with_resource(&post_uri, serde_json::to_vec(&post)?);
-    let mut event_uris = vec![file_uri.clone(), post_uri.clone()];
+    let mut event_uris = vec![profile_uri, file_uri.clone(), post_uri.clone()];
     let mut tag_ids = Vec::new();
     for (target, label) in tags {
         let target_uri = match target {
@@ -1787,6 +1798,7 @@ async fn seed_v0_user_with_content(
     }
     Ok(SeededContent {
         user_id,
+        name,
         hash,
         file_id,
         file_uri,
@@ -1802,10 +1814,10 @@ async fn seed_v0_user_with_content(
 
 /// The flip's first attempt with the homeserver down: the flip step lands, so the user is
 /// `v1` with their post, its attachment (through the file map) and their tag at their `v1`
-/// addresses, and the profile PUT is queued
-/// with the transient class as the `v1` edit it now is. The homeserver back, the entry's retry
-/// fetches and indexes the `social/v1` profile, the details cache shows it at `v1`, and the
-/// entry leaves the queue. (The `info` line is asserted in the handler's own tests, where
+/// addresses, the details cache the `pubky.app` profile left reports `v1` with the previous
+/// profile, and the profile PUT is queued with the transient class as the `v1` edit it now is.
+/// The homeserver back, the entry's retry fetches and indexes the `social/v1` profile, the
+/// details cache shows it at `v1`, and the entry leaves the queue. (The `info` line is asserted in the handler's own tests, where
 /// the crate's logs can be read.)
 #[tokio_shared_rt::test(shared)]
 async fn test_a_5xx_at_the_fetch_flips_the_user_and_queues_the_profile_put_as_a_v1_edit(
@@ -1819,6 +1831,7 @@ async fn test_a_5xx_at_the_fetch_flips_the_user_and_queues_the_profile_put_as_a_
     // whose fetch answers 503
     let SeededContent {
         user_id,
+        name,
         hash,
         file_id,
         post_id,
@@ -1877,9 +1890,16 @@ async fn test_a_5xx_at_the_fetch_flips_the_user_and_queues_the_profile_put_as_a_
     );
     assert_eq!(
         find_user_details(&user_id).await?.name,
-        user_id,
+        name,
         "the previous profile stays until the fetch"
     );
+    let cached = find_cached_user_details(&user_id).await?;
+    assert_eq!(
+        cached.epoch,
+        Epoch::V1,
+        "the cache the pubky.app profile left reports v1 before the fetch"
+    );
+    assert_eq!(cached.name, name, "with the previous profile");
 
     // The homeserver is back: the same entry, due again, indexes the profile and leaves the queue
     store
@@ -2206,6 +2226,7 @@ async fn test_a_flip_replayed_by_the_feed_and_retried_from_the_queue_converge() 
         handler,
         store,
         files,
+        ..
     } = seed_v0_user_with_content(
         user,
         "Retry:Flip:Replay",
