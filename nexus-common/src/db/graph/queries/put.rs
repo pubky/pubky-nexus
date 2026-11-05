@@ -34,14 +34,20 @@ pub fn create_user(user: &UserDetails, uri: Option<&str>) -> GraphResult<Query> 
 }
 
 /// Moves a user to epoch `v1`. There is no write of `v0`, so the epoch only moves up. A
-/// missing node stays missing.
-pub fn set_user_epoch_v1(user_id: &str) -> Query {
+/// missing node is created from `stub`, a [`UserDetails::from_pubky`] of the user, with no
+/// `uri`: the flip writes the epoch before the profile, so a user whose first event is their
+/// `social/v1` profile has no node yet. The profile write that follows fills it in.
+pub fn set_user_epoch_v1(stub: &UserDetails) -> Query {
     Query::new(
         "set_user_epoch_v1",
-        "MATCH (u:User {id: $user_id})
+        "MERGE (u:User {id: $id})
+         ON CREATE SET u.name = $name, u.indexed_at = $indexed_at, u.deleted = $deleted
          SET u.epoch = 'v1'",
     )
-    .param("user_id", user_id.to_string())
+    .param("id", stub.id.to_string())
+    .param("name", stub.name.clone())
+    .param("indexed_at", stub.indexed_at)
+    .param("deleted", stub.deleted)
 }
 
 /// Creates a Cypher query to add or edit a post to the graph database and handles its relationships.

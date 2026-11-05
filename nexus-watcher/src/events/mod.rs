@@ -39,9 +39,11 @@ pub mod retry;
 pub mod v0_to_v1;
 
 use gate::Gate;
+pub(crate) use gate::{confirm_flip, is_flip};
 use handlers::utils::bounded;
 use inputs::{ReferenceTarget, ResourceKey, TagInput};
 pub use moderation::Moderation;
+use retry::{RedisRetryStore, RetryStore};
 use route::resolve_reference;
 use translation::{translate_del, translate_put, TranslatedDel, TranslatedPut};
 
@@ -62,6 +64,11 @@ pub struct DefaultEventHandler {
 
     /// Local files directory on Nexus used for file-backed events.
     files_path: PathBuf,
+
+    /// The retry queue the gate reads a `v0` user's queued flip from, before a `pubky.app`
+    /// DEL or a `social/v1` write of theirs is decided. The same queue the runners enqueue to and the retry
+    /// processor drains: [`RedisRetryStore`] in production, an in-memory one in tests.
+    retry_store: Arc<dyn RetryStore>,
 }
 
 impl DefaultEventHandler {
@@ -70,18 +77,20 @@ impl DefaultEventHandler {
         ingestor: Arc<UserIngestor>,
         client: Arc<dyn HomeserverClient>,
         files_path: PathBuf,
+        retry_store: Arc<dyn RetryStore>,
     ) -> Self {
         Self {
             moderation,
             ingestor,
             client,
             files_path,
+            retry_store,
         }
     }
 
     /// Builds a handler that fetches through `client`, deriving its moderation rules
-    /// and user ingestor from config. The ingestor resolves users' homeservers through
-    /// `client` too.
+    /// and user ingestor from config, and reading the Redis retry queue. The ingestor
+    /// resolves users' homeservers through `client` too.
     pub fn from_config(config: &WatcherConfig, client: Arc<dyn HomeserverClient>) -> Self {
         let ingestor = UserIngestor::from_config(&config.stack, client.clone());
         Self::new(
@@ -89,6 +98,7 @@ impl DefaultEventHandler {
             Arc::new(ingestor),
             client,
             config.stack.files_path.clone(),
+            Arc::new(RedisRetryStore::new()),
         )
     }
 }
@@ -97,10 +107,31 @@ impl DefaultEventHandler {
 impl EventHandler for DefaultEventHandler {
     async fn handle(&self, event: &Event) -> Result<(), EventProcessorError> {
         // Before any fetch. An ignored event stores no event line, and `Ok` moves the cursor
-        // on and removes its retry entry.
-        let gate = gate::check(event).await?;
-        if gate == Gate::Ignore {
-            return Ok(());
+        // on and removes its retry entry. A deferred event, a `v0` user's `pubky.app` DEL or
+        // `social/v1` write, waits on the flip as a tag waits on its post: queued with the
+        // dependency class and held while the flip's entry is in the queue; after the flip
+        // the user is at `v1`, the gate ignores the DEL and handles the write. A flip dropped
+        // or dead-lettered on retry frees them: the DELs then run against `v0` and the writes
+        // are ignored.
+        let gate = match gate::check(event, self.retry_store.as_ref()).await? {
+            Gate::Ignore => return Ok(()),
+            Gate::Defer => {
+                return Err(EventProcessorError::MissingDependency {
+                    dependency: vec![gate::flip_profile_uri(event.target.user_id())],
+                })
+            }
+            gate @ (Gate::Handle | Gate::Flip) => gate,
+        };
+
+        if gate == Gate::Flip {
+            // The flip step first, before any fetch, so the user's move does not wait for the
+            // homeserver. A failure inside it is a `FlipFailed` that leaves the user at `v0` and
+            // is queued without limit while they are (the cache step after the epoch write is
+            // the exception: its retry finds a `v1` user and runs as their profile PUT). The
+            // flip logs the failed step and, while the user stays `v0`, one summary line. Once
+            // the step lands, the event is a `v1` user's profile PUT and takes the ordinary path
+            // below, retry limit included.
+            handlers::user::flip(event.target.user_id()).await?;
         }
 
         match event.event_type {
@@ -118,11 +149,6 @@ impl EventHandler for DefaultEventHandler {
                 handle_del_event(event, self.files_path.as_path(), self.ingestor.clone()).await
             }
         }?;
-
-        // After the profile is indexed, so a failure there leaves the user at `v0`.
-        if gate == Gate::Flip {
-            handlers::user::flip(event.target.user_id()).await?;
-        }
 
         event.to_event_line().store().await?;
         Ok(())

@@ -197,6 +197,9 @@ pub trait TEventProcessor: Send + Sync + 'static {
         }
 
         if !RetryScheduler::should_enqueue_related_event(&error) {
+            // No flip is dropped here: its step runs before the fetch and every failure of it
+            // is queued, so a `social/v1` profile PUT that is 404 or invalid is a `v1` user's
+            // own edit.
             debug!(
                 event.uri = %event.uri,
                 error = %error,

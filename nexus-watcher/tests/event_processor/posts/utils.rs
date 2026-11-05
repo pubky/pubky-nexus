@@ -331,3 +331,35 @@ pub async fn set_post_uri(author_id: &str, post_id: &str, uri: Option<&str>) -> 
     exec_single_row(query).await?;
     Ok(())
 }
+
+/// Plants a row the internal migration can't read back: `indexed_at` as text, where an integer
+/// is read. The posts step fails on it, so a flip fails and is queued.
+pub async fn corrupt_post_indexed_at(author_id: &str, post_id: &str) -> Result<()> {
+    let query = Query::new(
+        "corrupt_post_indexed_at",
+        "MATCH (:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
+        SET p.indexed_at = 'soon'",
+    )
+    .param("author_id", author_id)
+    .param("post_id", post_id);
+    exec_single_row(query).await?;
+    Ok(())
+}
+
+/// Puts a post's `indexed_at` back.
+pub async fn restore_post_indexed_at(
+    author_id: &str,
+    post_id: &str,
+    indexed_at: i64,
+) -> Result<()> {
+    let query = Query::new(
+        "restore_post_indexed_at",
+        "MATCH (:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
+        SET p.indexed_at = $indexed_at",
+    )
+    .param("author_id", author_id)
+    .param("post_id", post_id)
+    .param("indexed_at", indexed_at);
+    exec_single_row(query).await?;
+    Ok(())
+}

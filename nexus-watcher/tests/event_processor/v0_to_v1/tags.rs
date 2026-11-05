@@ -13,7 +13,7 @@ use crate::event_processor::tags::resource_utils::{
     compute_resource_id, count_resource_tags, resource_exists_in_graph,
 };
 use crate::event_processor::tags::utils::{find_post_tag, find_tag_uri, find_user_tag};
-use crate::event_processor::users::utils::{find_user_epoch, set_user_epoch};
+use crate::event_processor::users::utils::{assert_flipped, set_user_epoch};
 use crate::event_processor::utils::watcher::{
     retrieve_and_handle_event_line, HomeserverHashIdPath, WatcherTest,
 };
@@ -328,7 +328,7 @@ async fn test_flip_rewrites_post_tags_and_their_v1_del_removes_them() -> Result<
             &v1_test_user("Watcher:Migration:Tags:Posts:Author:V1", "migration"),
         )
         .await?;
-    assert_eq!(find_user_epoch(&author_id).await.as_deref(), Some("v1"));
+    assert_flipped(&author_id).await;
 
     for (v0, v1) in [(&own_v0, &own_v1), (&their_v0, &their_v1)] {
         assert_ne!(v0.create_id(), v1.create_id());
@@ -436,7 +436,7 @@ async fn test_flip_rewrites_user_and_url_tags_and_their_v1_del_removes_them() ->
             &v1_test_user("Watcher:Migration:Tags:Users:Author:V1", "migration"),
         )
         .await?;
-    assert_eq!(find_user_epoch(&author_id).await.as_deref(), Some("v1"));
+    assert_flipped(&author_id).await;
 
     assert_eq!(
         find_tag_uri(&author_id, &profile_v0.create_id()).await,
@@ -532,7 +532,7 @@ async fn test_flip_rewrites_an_own_file_tag_and_the_del_removes_its_late_copy_to
             &v1_test_user("Watcher:Migration:Tags:File:Author:V1", "migration"),
         )
         .await?;
-    assert_eq!(find_user_epoch(&author_id).await.as_deref(), Some("v1"));
+    assert_flipped(&author_id).await;
     assert_eq!(find_tag_uri(&author_id, &file_v0.create_id()).await, None);
     assert_eq!(
         find_tag_uri(&author_id, &tag_id).await,
@@ -650,11 +650,8 @@ async fn test_flip_keeps_unmatched_ids_and_leaves_other_edges_alone() -> Result<
             &v1_test_user("Watcher:Migration:Tags:Seeded:Author:V1", "migration"),
         )
         .await?;
-    assert_eq!(
-        find_user_epoch(&author_id).await.as_deref(),
-        Some("v1"),
-        "the migration must finish over the seeded rows"
-    );
+    // The migration must finish over the seeded rows
+    assert_flipped(&author_id).await;
 
     assert_eq!(
         find_tag_uri(&author_id, &no_match_id).await,

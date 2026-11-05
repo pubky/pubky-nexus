@@ -1,8 +1,14 @@
 //! The operator-visible signal for events skipped by epoch: one counter labelled by `epoch`,
-//! `resource` and `reason` only, never by user or object id. `reason` tells the two skips apart:
+//! `resource` and `reason` only, never by user or object id. `reason` tells the skips apart:
 //! `not_indexed` for an epoch the parse step does not index, `gated` for an event of an epoch its
-//! user is not read through. v0 skips at parse (last-read, feed, blob, mute, another app's tag
-//! folder) are uncounted, so the signal stays about epochs.
+//! user is not read through, `deferred` for a `v0` user's `pubky.app` DEL or `social/v1` write
+//! held while their flip waits in the retry queue. v0 skips at parse (last-read, feed, blob,
+//! mute, another app's tag folder) are uncounted, so the signal stays about epochs.
+//!
+//! `deferred` counts holds, not held events: the retry processor runs each held event through
+//! the gate again, so one event adds up to 51 (its first attempt and 50 dependency retries,
+//! over about two days). Its rate shows hold activity; the number of held events is the
+//! planned gauge's to show. `gated` and `not_indexed` count once per event.
 
 use super::classify::SkipReason;
 use super::target::EventTarget;
@@ -13,11 +19,14 @@ use opentelemetry::{global, KeyValue};
 use std::sync::LazyLock;
 use tracing::{debug, warn};
 
-/// Counter for events skipped before any fetch because of their spec epoch.
+/// Counter for events skipped or deferred before any fetch because of their spec epoch.
 static SKIPPED: LazyLock<Counter<u64>> = LazyLock::new(|| {
     global::meter(METER_NAME)
         .u64_counter("watcher.epoch.skipped")
-        .with_description("Events skipped before any fetch because of their spec epoch")
+        .with_description(
+            "Events skipped or deferred before any fetch because of their spec epoch; \
+             a deferral counts on every attempt",
+        )
         .build()
 });
 
@@ -27,6 +36,9 @@ const UNKNOWN: &str = "unknown";
 const NOT_INDEXED: &str = "not_indexed";
 /// `reason` of a skip by the gate: the event's epoch is not the one its user is read through.
 const GATED: &str = "gated";
+/// `reason` of a deferral by the gate: a `pubky.app` DEL or a `social/v1` write of a `v0` user
+/// whose flip is queued. Counted on every attempt, retries included.
+const DEFERRED: &str = "deferred";
 
 /// Counts and logs a skip the parse step decided for `uri`.
 pub(super) fn record_skip(reason: &SkipReason, uri: &str) {
@@ -37,15 +49,33 @@ pub(super) fn record_skip(reason: &SkipReason, uri: &str) {
 
 /// Counts and logs an event at `uri` the gate ignored, its user being at `user_epoch`.
 pub(super) fn record_gated(target: &EventTarget, uri: &str, user_epoch: Epoch) {
-    let epoch = target.epoch().as_str();
-    let resource = target.resource_name();
     debug!(
         %uri,
-        event_epoch = %epoch,
+        event_epoch = %target.epoch().as_str(),
         user_epoch = %user_epoch.as_str(),
         "Ignored event: epochs do not match"
     );
-    SKIPPED.add(1, &labels(epoch, &resource, GATED));
+    count(target, GATED);
+}
+
+/// Counts and logs an event at `uri` the gate deferred until the flip at `flip_uri`, its
+/// user's queued `social/v1` profile PUT, lands.
+pub(super) fn record_deferred(target: &EventTarget, uri: &str, flip_uri: &str) {
+    debug!(
+        %uri,
+        user_id = %target.user_id(),
+        %flip_uri,
+        "Deferred event: the user's flip waits in the retry queue"
+    );
+    count(target, DEFERRED);
+}
+
+/// Counts one skip of an event at `target` for `reason`.
+fn count(target: &EventTarget, reason: &'static str) {
+    SKIPPED.add(
+        1,
+        &labels(target.epoch().as_str(), &target.resource_name(), reason),
+    );
 }
 
 /// The full label set of one skip.
@@ -162,6 +192,28 @@ mod tests {
         assert!(logs_contain("epochs do not match"));
         assert!(logs_contain("event_epoch=v0"));
         assert!(logs_contain("user_epoch=v1"));
+    }
+
+    /// The deferral's log names the user and the flip the DEL waits on, so a held DEL reads
+    /// as one and not as a missing post.
+    #[test]
+    #[tracing_test::traced_test]
+    fn a_deferred_event_logs_the_flip_it_waits_on() {
+        let line = "DEL pubky://operrr8wsbpr3ue9d4qj41ge1kcc6r7fdiy6o3ugjrrhi4y77rdo/pub/pubky.app/posts/0032SSN7Q4EVG";
+        let event = match crate::events::Event::parse_event(line) {
+            Ok(crate::events::ParseResult::Parsed(event)) => event,
+            other => panic!("expected Parsed, got {other:?}"),
+        };
+        let flip_uri =
+            "pubky://operrr8wsbpr3ue9d4qj41ge1kcc6r7fdiy6o3ugjrrhi4y77rdo/pub/social/v1/profile.json";
+
+        record_deferred(&event.target, &event.uri, flip_uri);
+
+        assert!(logs_contain("Deferred event"));
+        assert!(logs_contain(
+            "user_id=operrr8wsbpr3ue9d4qj41ge1kcc6r7fdiy6o3ugjrrhi4y77rdo"
+        ));
+        assert!(logs_contain(&format!("flip_uri={flip_uri}")));
     }
 
     #[test]
