@@ -85,8 +85,16 @@ impl TryFrom<&SignedPacket> for StoredRecord {
 /// drive it with a mock in tests instead of hitting the network.
 #[async_trait::async_trait]
 pub trait PkdnsHomeserverResolver: Send + Sync {
-    /// Looks up the PKDNS record of `user_pk`.
+    /// Looks up the PKDNS record of `user_pk`. May answer from a cache, also with a record
+    /// past its TTL (refreshed in the background).
     async fn resolve_record(&self, user_pk: &PublicKey) -> PubkyClientResult<PkdnsRecord>;
+
+    /// Looks up the newest PKDNS record of `user_pk`, asking the network whatever is
+    /// cached: a cached record may still name the homeserver a user just moved away from.
+    /// Defaults to [`Self::resolve_record`], for resolvers that keep no cache.
+    async fn resolve_latest_record(&self, user_pk: &PublicKey) -> PubkyClientResult<PkdnsRecord> {
+        self.resolve_record(user_pk).await
+    }
 
     /// Looks up the PKDNS record of `user_pk`, refusing a packet nexus cannot
     /// apply:
@@ -98,29 +106,41 @@ pub trait PkdnsHomeserverResolver: Send + Sync {
     ///   `seq` arrives with such a timestamp; its signature does not verify as a
     ///   pkarr packet, so it could not be kept as proof either.
     async fn resolve_own_record(&self, user_pk: &PublicKey) -> PubkyClientResult<PkdnsRecord> {
-        let record = self.resolve_record(user_pk).await?;
-        let PkdnsRecord::Published(packet) = &record else {
-            return Ok(record);
-        };
-        if packet.public_key() != *user_pk.as_inner() {
-            return Err(PubkyClientError::RequestFailed {
-                message: format!(
-                    "PKDNS answer for {} is signed by {}",
-                    user_pk.z32(),
-                    packet.public_key().to_z32()
-                ),
-            });
-        }
-        if StoredRecord::try_from(packet).is_err() {
-            tracing::warn!(
-                user_id = %user_pk.z32(),
-                timestamp = packet.timestamp().as_u64(),
-                "PKDNS record timestamp does not fit the graph; taken as no record"
-            );
-            return Ok(PkdnsRecord::Missing);
-        }
-        Ok(record)
+        own_record(user_pk, self.resolve_record(user_pk).await?)
     }
+
+    /// [`Self::resolve_own_record`] through [`Self::resolve_latest_record`].
+    async fn resolve_own_latest_record(
+        &self,
+        user_pk: &PublicKey,
+    ) -> PubkyClientResult<PkdnsRecord> {
+        own_record(user_pk, self.resolve_latest_record(user_pk).await?)
+    }
+}
+
+/// The checks of [`PkdnsHomeserverResolver::resolve_own_record`] on a record looked up.
+fn own_record(user_pk: &PublicKey, record: PkdnsRecord) -> PubkyClientResult<PkdnsRecord> {
+    let PkdnsRecord::Published(packet) = &record else {
+        return Ok(record);
+    };
+    if packet.public_key() != *user_pk.as_inner() {
+        return Err(PubkyClientError::RequestFailed {
+            message: format!(
+                "PKDNS answer for {} is signed by {}",
+                user_pk.z32(),
+                packet.public_key().to_z32()
+            ),
+        });
+    }
+    if StoredRecord::try_from(packet).is_err() {
+        tracing::warn!(
+            user_id = %user_pk.z32(),
+            timestamp = packet.timestamp().as_u64(),
+            "PKDNS record timestamp does not fit the graph; taken as no record"
+        );
+        return Ok(PkdnsRecord::Missing);
+    }
+    Ok(record)
 }
 
 /// Looks up the PKDNS record of `user_pk` through `pubky`: the lookup behind
@@ -128,6 +148,15 @@ pub trait PkdnsHomeserverResolver: Send + Sync {
 /// no homeserver into one `None`.
 pub async fn pkdns_record_of(pubky: &Pubky, user_pk: &PublicKey) -> PkdnsRecord {
     match pubky.client().pkarr().resolve(user_pk).await {
+        Some(packet) => PkdnsRecord::Published(packet),
+        None => PkdnsRecord::Missing,
+    }
+}
+
+/// Looks up the newest PKDNS record of `user_pk` through `pubky`, querying the DHT and the
+/// relays even when a record is cached (which it then replaces, so later lookups agree).
+pub async fn latest_pkdns_record_of(pubky: &Pubky, user_pk: &PublicKey) -> PkdnsRecord {
+    match pubky.client().pkarr().resolve_most_recent(user_pk).await {
         Some(packet) => PkdnsRecord::Published(packet),
         None => PkdnsRecord::Missing,
     }
@@ -156,6 +185,11 @@ impl PkdnsHomeserverResolver for PubkyConnectorResolver {
     async fn resolve_record(&self, user_pk: &PublicKey) -> PubkyClientResult<PkdnsRecord> {
         let pubky = PubkyConnector::get()?;
         Ok(pkdns_record_of(&pubky, user_pk).await)
+    }
+
+    async fn resolve_latest_record(&self, user_pk: &PublicKey) -> PubkyClientResult<PkdnsRecord> {
+        let pubky = PubkyConnector::get()?;
+        Ok(latest_pkdns_record_of(&pubky, user_pk).await)
     }
 }
 

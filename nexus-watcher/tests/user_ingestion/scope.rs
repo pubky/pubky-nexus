@@ -6,7 +6,8 @@ use deadpool_redis::redis::AsyncCommands;
 use nexus_common::db::graph::Query;
 use nexus_common::db::kv::RedisOps;
 use nexus_common::db::{
-    fetch_key_from_graph, fetch_row_from_graph, get_redis_conn, queries, PubkyConnector,
+    fetch_key_from_graph, fetch_row_from_graph, get_redis_conn, queries, PubkyClientError,
+    PubkyClientResult, PubkyConnector,
 };
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::post::{PostDetails, PostRelationships, POST_TIMELINE_KEY_PARTS};
@@ -17,10 +18,11 @@ use nexus_common::models::user::catch_up;
 use nexus_common::models::user::outsider::{admit_outsider, create_outsider};
 use nexus_common::models::user::TAG_GLOBAL_USER_TAGGERS;
 use nexus_common::models::user::{
-    is_outsider, user_hs_cursor_key, PkdnsHomeserverResolver, PubkyConnectorResolver, UserCounts,
-    UserDetails, UserHsCursor, UserIngestor, UserStream, SCOPE_STATE_LEFT, SCOPE_STATE_OUTSIDE,
-    USER_MOSTFOLLOWED_KEY_PARTS,
+    is_outsider, user_hs_cursor_key, PkdnsHomeserverResolver, PkdnsRecord, PubkyConnectorResolver,
+    UserCounts, UserDetails, UserHsCursor, UserIngestor, UserStream, SCOPE_STATE_LEFT,
+    SCOPE_STATE_OUTSIDE, USER_MOSTFOLLOWED_KEY_PARTS,
 };
+use nexus_common::utils::test_utils::signed_packet_naming;
 use nexus_common::{ScopeConfig, WatcherConfig};
 use nexus_watcher::events::handlers;
 use nexus_watcher::events::{DefaultEventHandler, Event, EventHandler, ParseResult};
@@ -29,7 +31,7 @@ use nexus_watcher::scope::membership::ScopeMembership;
 use nexus_watcher::service::scope_maintenance::ScopeMaintainer;
 use nexus_watcher::service::{HsEventProcessor, TEventProcessor};
 use nexus_watcher::EventProcessorError;
-use pubky::Keypair;
+use pubky::{Keypair, PublicKey};
 use pubky_app_specs::traits::{HasIdPath, HashId, TimestampId};
 use pubky_app_specs::{
     post_uri_builder, tag_uri_builder, user_uri_builder, PubkyAppBookmark, PubkyAppPost,
@@ -392,6 +394,94 @@ async fn test_an_outsider_that_moved_onto_a_listed_homeserver_is_let_in() -> Res
     assert!(PostDetails::get_by_id(&user_id, &post_id).await?.is_some());
     assert!(!is_outsider(&user_id).await?);
     assert_eq!(scope_state(&user_id).await?, None, "in scope");
+    Ok(())
+}
+
+/// Answers as pkarr's `resolve` does from its cache, which may hold a record past its TTL:
+/// the homeserver the user left. Asked for the newest record, it asks the network.
+struct CachedBeforeTheMove(pubky::pkarr::SignedPacket);
+
+#[async_trait::async_trait]
+impl PkdnsHomeserverResolver for CachedBeforeTheMove {
+    async fn resolve_record(&self, _: &PublicKey) -> PubkyClientResult<PkdnsRecord> {
+        Ok(PkdnsRecord::Published(self.0.clone()))
+    }
+
+    async fn resolve_latest_record(&self, user_pk: &PublicKey) -> PubkyClientResult<PkdnsRecord> {
+        PubkyConnectorResolver.resolve_record(user_pk).await
+    }
+}
+
+/// An outsider met on another homeserver moves onto a listed one: its first event there
+/// lets it in, although the cached record still names the homeserver it left.
+#[tokio_shared_rt::test(shared)]
+async fn test_a_moved_outsider_is_let_in_although_its_old_record_is_cached() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let old_hs = PubkyId::from(create_external_test_homeserver(&mut test).await?);
+    let (user_kp, user_id) = user_on(&test, &test.homeserver_id.to_public_key()).await?;
+    create_outsider(&UserDetails::from_pubky(user_id.clone())).await?;
+    let cached = signed_packet_naming(&user_kp, Some(&old_hs), 1);
+    let scope: Arc<dyn Scope> = Arc::new(HomeserverListScope::new(std::slice::from_ref(
+        &test.homeserver_id,
+    )));
+    let ingestor = UserIngestor::new(Vec::<PubkyId>::new(), Arc::new(CachedBeforeTheMove(cached)))
+        .with_scope(scope);
+
+    let admitted = ScopeMembership::of(&ingestor)
+        .admit_if_moved_in(&user_id)
+        .await?;
+
+    assert!(
+        admitted,
+        "let in on its first event from the listed homeserver"
+    );
+    assert_eq!(scope_state(&user_id).await?, None, "in scope");
+    let (bound, _) = binding(&user_id, test.homeserver_id.as_ref()).await?;
+    assert!(bound, "bound to the homeserver it moved to");
+    catch_up::caught_up(&user_id).await?;
+    Ok(())
+}
+
+/// The newest record can't be looked up.
+struct LatestLookupFails;
+
+#[async_trait::async_trait]
+impl PkdnsHomeserverResolver for LatestLookupFails {
+    async fn resolve_record(&self, _: &PublicKey) -> PubkyClientResult<PkdnsRecord> {
+        Ok(PkdnsRecord::Missing)
+    }
+
+    async fn resolve_latest_record(&self, _: &PublicKey) -> PubkyClientResult<PkdnsRecord> {
+        Err(PubkyClientError::RequestFailed {
+            message: "the DHT is unreachable".to_string(),
+        })
+    }
+}
+
+/// A recheck whose lookup failed doesn't count: the user's next event checks again,
+/// rather than waiting out the 15 minutes.
+#[tokio_shared_rt::test(shared)]
+async fn test_a_failed_recheck_lets_the_next_event_check_again() -> Result<()> {
+    let test = WatcherTest::setup(None).await?;
+    let (_, user_id) = user_on(&test, &test.homeserver_id.to_public_key()).await?;
+    create_outsider(&UserDetails::from_pubky(user_id.clone())).await?;
+    let scope: Arc<dyn Scope> = Arc::new(HomeserverListScope::new(std::slice::from_ref(
+        &test.homeserver_id,
+    )));
+    let ingestor =
+        UserIngestor::new(Vec::<PubkyId>::new(), Arc::new(LatestLookupFails)).with_scope(scope);
+
+    let admitted = ScopeMembership::of(&ingestor)
+        .admit_if_moved_in(&user_id)
+        .await?;
+
+    assert!(!admitted);
+    let mut redis_conn = nexus_common::db::get_redis_conn().await?;
+    let rechecked: bool = redis_conn
+        .exists(format!("Scope:Rechecked:{user_id}"))
+        .await?;
+    assert!(!rechecked, "the failed recheck is forgotten");
+    assert!(is_outsider(&user_id).await?);
     Ok(())
 }
 

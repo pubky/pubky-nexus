@@ -9,14 +9,18 @@ use nexus_common::models::traits::Collection;
 use nexus_common::models::user::catch_up::{caught_up, start_catch_up};
 use nexus_common::models::user::outsider::admit_outsider;
 use nexus_common::models::user::{
-    set_user_homeserver_from_record, UserDetails, UserHsCursor, UserIngestor, SCOPE_STATE_LEFT,
+    set_user_homeserver_from_record, StoredRecord, UserDetails, UserHsCursor, UserIngestor,
+    SCOPE_STATE_LEFT,
 };
 use nexus_common::ScopeConfig;
 use pubky_app_specs::PubkyId;
+use std::time::Duration;
 
 /// Marks a user outside the scope whose homeserver was rechecked lately.
 const RECHECKED_PREFIX: &str = "Scope:Rechecked:";
 const RECHECK_EVERY_S: u64 = 15 * 60;
+/// How long a recheck's lookup may take: it runs while a homeserver's feed waits.
+const RECHECK_LOOKUP_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Brings users into the scope and takes them out of it, looking their homeservers up and
 /// deciding by the scope of the ingestor it is given.
@@ -64,28 +68,31 @@ impl<'a> ScopeMembership<'a> {
     /// Returns whether the user is in scope now: `true` if it was promoted or already in,
     /// `false` if it is unknown or has no published HS, so it couldn't be bound.
     pub async fn promote(&self, user_id: &PubkyId) -> ModelResult<bool> {
-        let query = queries::get::get_user_scope_state(user_id);
-        let scope_state: Option<Option<String>> =
-            fetch_key_from_graph(query, "scope_state").await?;
-        match scope_state {
-            None => return Ok(false),
-            Some(None) => return Ok(true),
-            Some(Some(_)) => {}
+        if let Some(in_scope) = settled(user_id).await? {
+            return Ok(in_scope);
         }
-
         let Some((hs_id, record)) = self.ingestor.resolve_unless_blacklisted(user_id).await? else {
             tracing::warn!("Not promoting {user_id}: no published HS");
             return Ok(false);
         };
+        self.bind_and_admit(user_id, &hs_id, &record).await
+    }
 
+    /// Promotes a user kept out to the homeserver `record` names, looked up already.
+    async fn bind_and_admit(
+        &self,
+        user_id: &PubkyId,
+        hs_id: &str,
+        record: &StoredRecord,
+    ) -> ModelResult<bool> {
         // The graph's state is cleared last: if anything before fails, the user is still
         // out of scope there and the next promotion retries the whole of it.
-        set_user_homeserver_from_record(user_id, &hs_id, &record).await?;
+        set_user_homeserver_from_record(user_id, hs_id, record).await?;
         // Read from the start: its records were skipped while it was out, also in the
         // feeds of the homeservers read whole, and a poll still running when it left may
         // have written a cursor back.
-        UserHsCursor::reset(user_id, &hs_id).await?;
-        start_catch_up(user_id, &hs_id).await?;
+        UserHsCursor::reset(user_id, hs_id).await?;
+        start_catch_up(user_id, hs_id).await?;
         clear_scope_state(user_id).await?;
         tracing::info!("Brought {user_id} into the scope");
         Ok(true)
@@ -94,6 +101,10 @@ impl<'a> ScopeMembership<'a> {
     /// An event from a listed homeserver's feed by an outsider or a former member means it
     /// may have moved onto a listed homeserver. Checked at most once per 15 minutes per
     /// user; promote reads its stream from the start, so skipped events come back.
+    ///
+    /// The user's newest record is looked up, past any cached one: a user met before its
+    /// move is cached with its old homeserver. A lookup that fails or times out doesn't
+    /// count as a check, so the user's next event checks again.
     ///
     /// Returns whether the user is in scope now. A failed lookup is logged, not returned.
     pub async fn admit_if_moved_in(&self, user_id: &PubkyId) -> ModelResult<bool> {
@@ -119,19 +130,33 @@ impl<'a> ScopeMembership<'a> {
             return Ok(false);
         }
 
-        match self.ingestor.ensure_hs_not_blacklisted(user_id).await {
-            Ok(Some(hs_id))
+        let lookup = tokio::time::timeout(
+            RECHECK_LOOKUP_TIMEOUT,
+            self.ingestor.resolve_latest_unless_blacklisted(user_id),
+        )
+        .await;
+        match lookup {
+            Ok(Ok(Some((hs_id, record))))
                 if self
                     .ingestor
                     .scope()
                     .is_in_scope(user_id, Some(&hs_id))
                     .await? =>
             {
-                self.promote(user_id).await
+                if let Some(in_scope) = settled(user_id).await? {
+                    return Ok(in_scope);
+                }
+                self.bind_and_admit(user_id, &hs_id, &record).await
             }
-            Ok(_) | Err(ModelError::HsBlacklisted { .. }) => Ok(false),
-            Err(e) => {
+            Ok(Ok(_)) | Ok(Err(ModelError::HsBlacklisted { .. })) => Ok(false),
+            Ok(Err(e)) => {
                 tracing::warn!("Could not recheck the homeserver of {user_id}: {e}");
+                forget_recheck(user_id).await?;
+                Ok(false)
+            }
+            Err(_) => {
+                tracing::warn!("Recheck of the homeserver of {user_id} timed out");
+                forget_recheck(user_id).await?;
                 Ok(false)
             }
         }
@@ -152,6 +177,29 @@ impl<'a> ScopeMembership<'a> {
         tracing::info!("{user_id} left the scope");
         Ok(())
     }
+}
+
+/// Whether promoting the user is already settled: `Some(false)` if it is unknown,
+/// `Some(true)` if it is in scope; `None` if it is kept out, so it can be promoted.
+async fn settled(user_id: &PubkyId) -> ModelResult<Option<bool>> {
+    let query = queries::get::get_user_scope_state(user_id);
+    let scope_state: Option<Option<String>> = fetch_key_from_graph(query, "scope_state").await?;
+    Ok(match scope_state {
+        None => Some(false),
+        Some(None) => Some(true),
+        Some(Some(_)) => None,
+    })
+}
+
+/// Lets the user's next event recheck its homeserver at once.
+async fn forget_recheck(user_id: &PubkyId) -> ModelResult<()> {
+    let mut redis_conn = get_redis_conn().await?;
+    let _: i64 = redis::cmd("DEL")
+        .arg(format!("{RECHECKED_PREFIX}{user_id}"))
+        .query_async(&mut redis_conn)
+        .await
+        .map_err(RedisError::from)?;
+    Ok(())
 }
 
 /// Clears the user's `scope_state`: an outsider is admitted (its tags ranked, see
