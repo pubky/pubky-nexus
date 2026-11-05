@@ -4,12 +4,12 @@
 //! under the `pubky.app` path, and the v1 `DEL` the new app sends retracts the `social/v1`
 //! path, so each move is published as a put at the new path followed by a del at the old one.
 //!
-//! The move is recorded on the edge, by the tags step's own write: `v0_uri`, the address the
-//! feed published it under, and `moved_at`, set until the move is published. Publishing is
-//! outside the flip, which never fails on the feed: [`publish_moves`] runs right after the
-//! flip's epoch write, and a failure there is only logged; [`sweep`] runs periodically in the
-//! watcher and publishes every move still recorded, the ones whose publish failed or never
-//! ran. A consumer sees a move up to one sweep later when the first publish fails.
+//! The move is recorded on the edge, by the tags step's own write: `v0_uri`, the address the feed
+//! published it under, and `moved_at`, set until the move is published. Publishing is outside the
+//! flip's steps, so the flip never fails on the feed: [`publish_moves`] runs in the flip right
+//! after its epoch write, and a failure there is only logged; [`sweep`] runs periodically in the
+//! watcher and publishes every move still recorded, the ones whose publish failed or never ran. A
+//! consumer sees a move up to one sweep later when the first publish fails.
 //!
 //! Moves are published a page at a time, under the locks of the page's tag files (see
 //! [`tag::lock_tag_files`]), the ones their handlers take, and read again under them: a `DEL`
