@@ -66,7 +66,8 @@ impl FromStr for Epoch {
 #[cfg(test)]
 mod tests {
     use super::Epoch;
-    use crate::db::{exec_single_row, queries};
+    use crate::db::graph::Query;
+    use crate::db::{exec_single_row, fetch_key_from_graph, queries};
     use crate::models::traits::Collection;
     use crate::models::user::UserDetails;
     use crate::{types::DynError, utils::test_utils::random_pubky_id, StackConfig, StackManager};
@@ -128,6 +129,18 @@ mod tests {
         assert_eq!(stub.epoch, Epoch::V1);
         assert!(!stub.deleted);
         assert_eq!(Epoch::get_from_graph(&id).await?, Epoch::V1);
+        // A read through `UserDetails` turns a missing property into `[]` too, so read the node
+        let stored_links = Query::new(
+            "stub_links",
+            "MATCH (u:User {id: $id}) RETURN u.links AS links",
+        )
+        .param("id", id.as_str());
+        let stored_links: Option<String> = fetch_key_from_graph(stored_links, "links").await?;
+        assert_eq!(
+            stored_links.as_deref(),
+            Some("[]"),
+            "the stub stores an empty list"
+        );
 
         let uri = format!("pubky://{id}/pub/social/v1/profile.json");
         let mut profile = UserDetails::from_pubky(user_id);
