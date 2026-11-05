@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 
 use nexus_common::models::file::FileDetails;
-use nexus_common::models::post::{self, Bookmark, PostCounts, PostRelationships};
+use nexus_common::models::post::{self, PostCounts, PostRelationships};
 use nexus_common::models::tag::TagDetails;
 use serde::de::{self, Deserializer};
 use serde::{Deserialize, Serialize, Serializer};
@@ -136,14 +136,14 @@ impl From<post::PostDetails> for PostDetails {
 }
 
 /// A post with its counts, tags and relationships, as `/v0`'s [`PostViewDetailed`] with the
-/// kind under its `/v1` name.
+/// kind under its `/v1` name and without the viewer's `bookmark`: `social/v1` bookmarks live
+/// under `/priv/`, which Nexus never sees.
 #[derive(Serialize, ToSchema, Debug)]
 pub struct PostView {
     pub details: PostDetails,
     pub counts: PostCounts,
     pub tags: Vec<TagDetails>,
     pub relationships: PostRelationships,
-    pub bookmark: Option<Bookmark>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub attachments_metadata: Vec<FileDetails>,
 }
@@ -154,14 +154,27 @@ impl From<PostViewDetailed> for PostView {
             view,
             attachments_metadata,
         } = detailed;
+        let post::PostView {
+            details,
+            counts,
+            tags,
+            relationships,
+            bookmark: _,
+        } = view;
         Self {
-            details: view.details.into(),
-            counts: view.counts,
-            tags: view.tags,
-            relationships: view.relationships,
-            bookmark: view.bookmark,
+            details: details.into(),
+            counts,
+            tags,
+            relationships,
             attachments_metadata,
         }
+    }
+}
+
+/// A stored view with no attachment metadata fetched, as the bootstrap lists its posts.
+impl From<post::PostView> for PostView {
+    fn from(view: post::PostView) -> Self {
+        PostViewDetailed::new(view, Vec::new()).into()
     }
 }
 
@@ -171,6 +184,13 @@ pub struct PostStream(pub Vec<PostView>);
 
 impl From<PostStreamDetailed> for PostStream {
     fn from(stream: PostStreamDetailed) -> Self {
+        Self(stream.0.into_iter().map(PostView::from).collect())
+    }
+}
+
+/// The stored stream the bootstrap lists, with no attachment metadata on any post.
+impl From<post::PostStream> for PostStream {
+    fn from(stream: post::PostStream) -> Self {
         Self(stream.0.into_iter().map(PostView::from).collect())
     }
 }
@@ -309,20 +329,60 @@ mod tests {
         assert_eq!(v1, v0);
     }
 
-    /// An empty stream and a post without attachment metadata keep `/v0`'s shape: a plain
-    /// array, and no `attachments_metadata` key.
+    /// An empty stream and a post without attachment metadata keep `/v0`'s shape, a plain
+    /// array and no `attachments_metadata` key, and the view has no `bookmark` key whether or
+    /// not the viewer bookmarked the post.
     #[test]
-    fn stream_and_view_keep_the_v0_shape() {
+    fn stream_and_view_keep_the_v0_shape_without_bookmark() {
         let stream = PostStream::from(PostStreamDetailed::default());
         assert_eq!(serde_json::to_value(stream).unwrap(), json!([]));
 
-        let view = PostView::from(PostViewDetailed::new(
-            nexus_common::models::post::PostView::default(),
+        let bookmarked = post::PostView {
+            bookmark: Some(post::Bookmark {
+                id: "bookmark1".into(),
+                indexed_at: 1,
+            }),
+            ..Default::default()
+        };
+        for view in [post::PostView::default(), bookmarked] {
+            let v0 = serde_json::to_value(&view).unwrap();
+            assert!(v0.get("bookmark").is_some(), "{v0}");
+            let json =
+                serde_json::to_value(PostView::from(PostViewDetailed::new(view, vec![]))).unwrap();
+            assert!(json.get("bookmark").is_none(), "{json}");
+            assert!(json.get("attachments_metadata").is_none(), "{json}");
+            assert_eq!(json["details"]["kind"], "note");
+            assert_eq!(json["details"]["attachments"], json!([]));
+        }
+    }
+
+    /// A stored view and a stored stream, as the bootstrap lists them, convert like the
+    /// detailed ones with no metadata: no `bookmark`, no `attachments_metadata`.
+    #[test]
+    fn stored_view_and_stream_convert_without_bookmark() {
+        let bookmarked = post::PostView {
+            bookmark: Some(post::Bookmark {
+                id: "bookmark1".into(),
+                indexed_at: 1,
+            }),
+            ..Default::default()
+        };
+        let from_stored = serde_json::to_value(PostView::from(bookmarked)).unwrap();
+        let from_detailed = serde_json::to_value(PostView::from(PostViewDetailed::new(
+            post::PostView::default(),
             vec![],
-        ));
-        let json = serde_json::to_value(view).unwrap();
-        assert!(json.get("attachments_metadata").is_none(), "{json}");
-        assert_eq!(json["details"]["kind"], "note");
-        assert_eq!(json["details"]["attachments"], json!([]));
+        )))
+        .unwrap();
+        assert_eq!(from_stored, from_detailed);
+        assert!(from_stored.get("bookmark").is_none(), "{from_stored}");
+        assert!(
+            from_stored.get("attachments_metadata").is_none(),
+            "{from_stored}"
+        );
+
+        let stream = PostStream::from(post::PostStream(vec![post::PostView::default()]));
+        let json = serde_json::to_value(stream).unwrap();
+        assert_eq!(json.as_array().map(Vec::len), Some(1), "{json}");
+        assert_eq!(json[0], from_detailed);
     }
 }

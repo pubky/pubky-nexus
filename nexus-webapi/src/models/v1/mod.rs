@@ -2,13 +2,23 @@
 //!
 //! Each is a plain struct converted from the model `/v0` serves, so serde and utoipa see the
 //! `/v1` shape as it is and the compiler lists every field that differs between the versions.
-//! Only the post kind's name differs so far: `/v1` says `note` and `article` where storage
-//! and `/v0` say `short` and `long`, and reads those names, strictly, in the kind filters.
+//! What differs so far: `/v1` says `note` and `article` where storage and `/v0` say `short`
+//! and `long`, and reads those names, strictly, in the kind filters; and `/v1` has no
+//! bookmarks, since `social/v1` keeps them under `/priv/`, which Nexus never sees: no
+//! `bookmark` on a post view, no `bookmarks` in a user's counts, no `bookmarks` stream source.
+//! The responses that embed those, the user view and stream, and the bootstrap, are `/v1`
+//! types too, so an embedded post or user is shaped like the one its own route serves.
 
+mod bootstrap;
 mod notification;
 mod post;
 mod post_kinds;
+mod stream;
+mod user;
 
+pub use bootstrap::Bootstrap;
 pub use notification::{Notification, NotificationBody};
 pub use post::{PostDetails, PostKind, PostStream, PostView, KIND_NAMES};
 pub use post_kinds::PostKinds;
+pub use stream::{StreamSourceKind, SOURCE_NAMES};
+pub use user::{UserCounts, UserStream, UserView};

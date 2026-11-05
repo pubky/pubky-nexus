@@ -4,7 +4,8 @@
 //! (`endpoints`). [`routes`] builds them once per version and mounts each under its prefix,
 //! and [`ApiDoc`] prefixes each version's document the same way, so a route cannot exist in one
 //! version and not the other by accident. What a `social/v1` client reads differently is a type
-//! of the version (`version`), never a second handler or route declaration.
+//! of the version (`version`), never a second handler or route declaration, and a route only
+//! one version serves is listed with that version (`ApiVersion::own_routes`).
 
 use crate::models::{BoundedLimit, BoundedSkip};
 use axum::Router;
@@ -55,12 +56,12 @@ fn relative_routes<V: ApiVersion>(app_state: AppState) -> (Router<AppState>, Rou
         .merge(tag::expensive_routes())
         .merge(search::expensive_routes::<V>())
         .merge(file::expensive_routes())
-        .merge(bootstrap::expensive_routes());
+        .merge(bootstrap::expensive_routes::<V>());
 
     let default = Router::new()
         .merge(info::routes(app_state.clone()))
         .merge(post::routes::<V>())
-        .merge(user::routes())
+        .merge(user::routes::<V>())
         .merge(stream::routes::<V>())
         .merge(search::routes())
         .merge(file::routes())
@@ -68,7 +69,8 @@ fn relative_routes<V: ApiVersion>(app_state: AppState) -> (Router<AppState>, Rou
         .merge(resource::routes())
         .merge(notification::routes::<V>())
         .merge(bootstrap::routes())
-        .merge(events::routes());
+        .merge(events::routes())
+        .merge(V::own_routes());
 
     (expensive, default)
 }

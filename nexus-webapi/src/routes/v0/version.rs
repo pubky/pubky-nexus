@@ -1,10 +1,11 @@
 //! The API version as a type: what `/v0` and `/v1` answer differently, and nothing else.
 //!
 //! [`ApiVersion`] has one marker type per mount, [`V0`] and [`V1`], and an associated type for
-//! every shape that differs between them: the response shapes, and the two kind filters a
-//! client writes. A handler whose shape differs is one generic body over the version's types;
+//! every shape that differs between them: the response shapes, and the filters a client writes
+//! differently. A handler whose shape differs is one generic body over the version's types;
 //! the router builder is generic too and runs once per version, so a route is declared once and
-//! a fix lands in both versions at once.
+//! a fix lands in both versions at once. A route only one version serves is listed with that
+//! version ([`ApiVersion::own_routes`]), never behind an `if` in a shared builder.
 //!
 //! utoipa's path annotation does not take a generic function: the path struct it generates has
 //! no type parameter, so a `V::PostView` body does not resolve (checked against utoipa 5.5).
@@ -17,14 +18,18 @@
 use std::fmt;
 
 use axum::routing::MethodRouter;
+use axum::Router;
+use nexus_common::models::bootstrap::Bootstrap;
 use nexus_common::models::notification::Notification;
-use nexus_common::models::post::{PostDetails, PostKind};
+use nexus_common::models::post::{Bookmark, PostDetails, PostKind};
+use nexus_common::models::user::{UserCounts, UserStream, UserView};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use utoipa::{OpenApi, ToSchema};
 
-use super::endpoints::{V0_PREFIX, V1_PREFIX};
-use super::{notification, post, search, stream};
+use super::endpoints::{POST_BOOKMARK_ROUTE, V0_PREFIX, V1_PREFIX};
+use super::stream::posts::StreamSourceKind;
+use super::{bootstrap, notification, post, search, stream, user};
 use crate::models::{v1, PostKinds, PostStreamDetailed, PostViewDetailed};
 use crate::routes::AppState;
 
@@ -46,6 +51,34 @@ pub trait ApiVersion: Send + Sync + 'static {
     type PostStream: Serialize + ToSchema + From<PostStreamDetailed> + Send;
     /// One notification, listed by `GET /user/{user_id}/notifications`.
     type Notification: Serialize + ToSchema + From<Notification> + Send;
+    /// A user's counts, `GET /user/{user_id}/counts`. `/v1` has no `bookmarks`.
+    type UserCounts: Serialize + ToSchema + From<UserCounts> + Send;
+    /// A user with their counts, tags and relationship, `GET /user/{user_id}`; it embeds
+    /// [`Self::UserCounts`].
+    type UserView: Serialize + ToSchema + From<UserView> + Send;
+    /// A list of user views, `GET /stream/users`, `GET /stream/users/username` and
+    /// `POST /stream/users/by_ids`.
+    type UserStream: Serialize + ToSchema + From<UserStream> + Send;
+    /// The sign-in payload, `GET /bootstrap/{user_id}`; it embeds [`Self::UserStream`],
+    /// [`Self::PostStream`]'s views and [`Self::Notification`]s.
+    type Bootstrap: Serialize + ToSchema + From<Bootstrap> + Send;
+
+    /// The source of a post stream as a client writes it in `source=`. `/v0` reads every
+    /// source, `/v1` every source but `bookmarks`, which is an unknown name there.
+    type StreamSource: DeserializeOwned
+        + ToSchema
+        + Into<StreamSourceKind>
+        + Default
+        + Clone
+        + fmt::Debug
+        + Send;
+    /// The names [`Self::StreamSource`] takes, as the parameter description lists them.
+    const SOURCE_NAMES: &'static str;
+    /// The line of the stream descriptions that says what `source=bookmarks` needs: present on
+    /// `/v0`, empty on `/v1`, which has no such source.
+    const BOOKMARKS_SOURCE_LINE: &'static str;
+    /// What `locked=true` does with replies: left out, except on `/v0`'s bookmark stream.
+    const LOCKED_REPLIES_RULE: &'static str;
 
     /// A post kind as a client writes it in `kind=`, on the post streams and the content
     /// search. `/v0` reads the stored names and any other name as `Unknown`; `/v1` reads the
@@ -75,6 +108,18 @@ pub trait ApiVersion: Send + Sync + 'static {
     fn stream_posts_by_ids() -> MethodRouter<AppState>;
     fn search_posts_by_content() -> MethodRouter<AppState>;
     fn list_notifications() -> MethodRouter<AppState>;
+    fn user_counts() -> MethodRouter<AppState>;
+    fn user_view() -> MethodRouter<AppState>;
+    fn stream_users() -> MethodRouter<AppState>;
+    fn stream_username_search() -> MethodRouter<AppState>;
+    fn stream_users_by_ids() -> MethodRouter<AppState>;
+    fn bootstrap() -> MethodRouter<AppState>;
+
+    /// The default-bucket routes only this version serves, mounted next to the shared ones:
+    /// `/v0` keeps the bookmark route until R1, `/v1` has none. A route leaves a version by
+    /// moving from the shared builders into the other version's list here, and its path into
+    /// that version's [`Self::docs`], so the compiler and the path parity test both see it.
+    fn own_routes() -> Router<AppState>;
 
     /// The document of those routes with this version's schemas. The version's document is
     /// built on it, so these schemas win over a same-named one a shared route nests.
@@ -96,6 +141,15 @@ impl ApiVersion for V0 {
     type PostDetails = PostDetails;
     type PostStream = PostStreamDetailed;
     type Notification = Notification;
+    type UserCounts = UserCounts;
+    type UserView = UserView;
+    type UserStream = UserStream;
+    type Bootstrap = Bootstrap;
+
+    type StreamSource = StreamSourceKind;
+    const SOURCE_NAMES: &'static str = "following, followers, friends, bookmarks, post_replies, author, author_replies, collection, post_collections, wot, wot_domain, all";
+    const BOOKMARKS_SOURCE_LINE: &'static str = "- *bookmarks*: Requires **observer_id**.\n";
+    const LOCKED_REPLIES_RULE: &'static str = "Replies are left out, except on `source=bookmarks`.";
 
     type PostKind = PostKind;
     type PostKinds = PostKinds;
@@ -127,6 +181,32 @@ impl ApiVersion for V0 {
     fn list_notifications() -> MethodRouter<AppState> {
         axum::routing::get(notification::list::list_notifications_handler_v0)
     }
+    fn user_counts() -> MethodRouter<AppState> {
+        axum::routing::get(user::counts::user_counts_handler_v0)
+    }
+    fn user_view() -> MethodRouter<AppState> {
+        axum::routing::get(user::view::user_view_handler_v0)
+    }
+    fn stream_users() -> MethodRouter<AppState> {
+        axum::routing::get(stream::users::stream_users_handler_v0)
+    }
+    fn stream_username_search() -> MethodRouter<AppState> {
+        axum::routing::get(stream::users::stream_username_search_handler_v0)
+    }
+    fn stream_users_by_ids() -> MethodRouter<AppState> {
+        axum::routing::post(stream::users::stream_users_by_ids_handler_v0)
+    }
+    fn bootstrap() -> MethodRouter<AppState> {
+        axum::routing::get(bootstrap::bootstrap_handler_v0)
+    }
+
+    /// The bookmark route, until R1.
+    fn own_routes() -> Router<AppState> {
+        Router::new().route(
+            POST_BOOKMARK_ROUTE,
+            axum::routing::get(post::bookmark::post_bookmark_handler),
+        )
+    }
 
     fn docs() -> utoipa::openapi::OpenApi {
         V0Doc::openapi()
@@ -140,6 +220,15 @@ impl ApiVersion for V1 {
     type PostDetails = v1::PostDetails;
     type PostStream = v1::PostStream;
     type Notification = v1::Notification;
+    type UserCounts = v1::UserCounts;
+    type UserView = v1::UserView;
+    type UserStream = v1::UserStream;
+    type Bootstrap = v1::Bootstrap;
+
+    type StreamSource = v1::StreamSourceKind;
+    const SOURCE_NAMES: &'static str = v1::SOURCE_NAMES;
+    const BOOKMARKS_SOURCE_LINE: &'static str = "";
+    const LOCKED_REPLIES_RULE: &'static str = "Replies are left out.";
 
     type PostKind = v1::PostKind;
     type PostKinds = v1::PostKinds;
@@ -171,6 +260,29 @@ impl ApiVersion for V1 {
     fn list_notifications() -> MethodRouter<AppState> {
         axum::routing::get(notification::list::list_notifications_handler_v1)
     }
+    fn user_counts() -> MethodRouter<AppState> {
+        axum::routing::get(user::counts::user_counts_handler_v1)
+    }
+    fn user_view() -> MethodRouter<AppState> {
+        axum::routing::get(user::view::user_view_handler_v1)
+    }
+    fn stream_users() -> MethodRouter<AppState> {
+        axum::routing::get(stream::users::stream_users_handler_v1)
+    }
+    fn stream_username_search() -> MethodRouter<AppState> {
+        axum::routing::get(stream::users::stream_username_search_handler_v1)
+    }
+    fn stream_users_by_ids() -> MethodRouter<AppState> {
+        axum::routing::post(stream::users::stream_users_by_ids_handler_v1)
+    }
+    fn bootstrap() -> MethodRouter<AppState> {
+        axum::routing::get(bootstrap::bootstrap_handler_v1)
+    }
+
+    /// None: `/v1` serves no route of its own yet, and no bookmark route at all.
+    fn own_routes() -> Router<AppState> {
+        Router::new()
+    }
 
     fn docs() -> utoipa::openapi::OpenApi {
         V1Doc::openapi()
@@ -191,6 +303,11 @@ pub mod shapes {
             pub type PostDetails = <$version as ApiVersion>::PostDetails;
             pub type PostStream = <$version as ApiVersion>::PostStream;
             pub type Notification = <$version as ApiVersion>::Notification;
+            pub type UserCounts = <$version as ApiVersion>::UserCounts;
+            pub type UserView = <$version as ApiVersion>::UserView;
+            pub type UserStream = <$version as ApiVersion>::UserStream;
+            pub type Bootstrap = <$version as ApiVersion>::Bootstrap;
+            pub type StreamSource = <$version as ApiVersion>::StreamSource;
             pub type PostKind = <$version as ApiVersion>::PostKind;
             pub type PostKinds = <$version as ApiVersion>::PostKinds;
 
@@ -200,6 +317,9 @@ pub mod shapes {
             pub type ContentSearchQuery =
                 super::super::search::posts::SearchPostsByContentQuery<$version>;
 
+            pub const SOURCE_NAMES: &str = <$version as ApiVersion>::SOURCE_NAMES;
+            pub const BOOKMARKS_SOURCE_LINE: &str = <$version as ApiVersion>::BOOKMARKS_SOURCE_LINE;
+            pub const LOCKED_REPLIES_RULE: &str = <$version as ApiVersion>::LOCKED_REPLIES_RULE;
             pub const KIND_NAMES: &str = <$version as ApiVersion>::KIND_NAMES;
             pub const KIND_RULE: &str = <$version as ApiVersion>::KIND_RULE;
             pub const EXCLUDE_KINDS_RANGE: &str = <$version as ApiVersion>::EXCLUDE_KINDS_RANGE;
@@ -270,31 +390,45 @@ macro_rules! versioned_handlers {
 }
 pub(crate) use versioned_handlers;
 
-/// The `/v0` routes whose shape is the version's, with the stored models' schemas.
+/// The `/v0` routes whose shape is the version's, with the stored models' schemas, and the
+/// bookmark route `/v0` alone serves.
 #[derive(OpenApi)]
 #[openapi(
     paths(
         post::view::post_view_handler_v0,
         post::details::post_details_handler_v0,
+        post::bookmark::post_bookmark_handler,
         stream::posts::stream_posts_handler_v0,
         stream::posts::stream_post_keys_handler_v0,
         stream::posts::stream_posts_by_ids_handler_v0,
         search::posts::search_posts_by_content_handler_v0,
         notification::list::list_notifications_handler_v0,
+        user::counts::user_counts_handler_v0,
+        user::view::user_view_handler_v0,
+        stream::users::stream_users_handler_v0,
+        stream::users::stream_username_search_handler_v0,
+        stream::users::stream_users_by_ids_handler_v0,
+        bootstrap::bootstrap_handler_v0,
     ),
     components(schemas(
         PostViewDetailed,
         PostDetails,
         PostStreamDetailed,
+        Bookmark,
         Notification,
         nexus_common::models::notification::NotificationBody,
+        UserCounts,
+        UserView,
+        UserStream,
+        Bootstrap,
+        StreamSourceKind,
         PostKind,
         PostKinds,
     ))
 )]
 struct V0Doc;
 
-/// The same routes on `/v1`, with the `social/v1` schemas.
+/// The same routes on `/v1`, the bookmark route left out, with the `social/v1` schemas.
 #[derive(OpenApi)]
 #[openapi(
     paths(
@@ -305,6 +439,12 @@ struct V0Doc;
         stream::posts::stream_posts_by_ids_handler_v1,
         search::posts::search_posts_by_content_handler_v1,
         notification::list::list_notifications_handler_v1,
+        user::counts::user_counts_handler_v1,
+        user::view::user_view_handler_v1,
+        stream::users::stream_users_handler_v1,
+        stream::users::stream_username_search_handler_v1,
+        stream::users::stream_users_by_ids_handler_v1,
+        bootstrap::bootstrap_handler_v1,
     ),
     components(schemas(
         v1::PostView,
@@ -312,6 +452,11 @@ struct V0Doc;
         v1::PostStream,
         v1::Notification,
         v1::NotificationBody,
+        v1::UserCounts,
+        v1::UserView,
+        v1::UserStream,
+        v1::Bootstrap,
+        v1::StreamSourceKind,
         v1::PostKind,
         v1::PostKinds,
     ))

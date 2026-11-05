@@ -73,21 +73,35 @@ fn paths_under(spec: &Value, prefix: &str) -> BTreeMap<String, Value> {
         .collect()
 }
 
+/// The paths only v0 serves, relative to the prefix: the bookmark route, until R1. The tickets
+/// that take a route off v1 add theirs here.
+const V0_ONLY_PATHS: &[&str] = &["/post/{author_id}/{post_id}/bookmark"];
+
 /// Both documents come from one route declaration, so every v0 path is in the v1 document
-/// and vice versa, with the same operations under each. The tickets that take a route off
-/// v1 add their exceptions here.
+/// and vice versa, with the same operations under each, except the paths one version alone
+/// serves ([`V0_ONLY_PATHS`]).
 ///
 /// A versioned route documents its own 200 body: `PostViewDetailed` on v0 is `PostView` on
 /// v1, `PostStreamDetailed` is `PostStream`. Those operations are compared without the body
 /// and the body's schema name is checked on its own. A route with a kind filter describes
 /// `kind` and `exclude_kinds` in its version's names: those descriptions are compared to the
-/// version's names and the operations without them.
+/// version's names and the operations without them. The post streams describe `source` and
+/// `locked`, and themselves, with the bookmark stream on v0 and without it on v1: those
+/// descriptions are compared the same way.
 #[test]
 fn test_v0_and_v1_documents_list_the_same_paths() {
     let v0 = paths_under(&serde_json::to_value(ApiDoc::v0_docs()).unwrap(), "/v0");
     let v1 = paths_under(&serde_json::to_value(ApiDoc::v1_docs()).unwrap(), "/v1");
     assert!(!v0.is_empty(), "the v0 document lists no path");
-    assert_eq!(v0.keys().collect::<Vec<_>>(), v1.keys().collect::<Vec<_>>());
+    for &path in V0_ONLY_PATHS {
+        assert!(v0.contains_key(path), "{path} missing from the v0 document");
+        assert!(!v1.contains_key(path), "{path} listed in the v1 document");
+    }
+    let shared: Vec<_> = v0
+        .keys()
+        .filter(|path| !V0_ONLY_PATHS.contains(&path.as_str()))
+        .collect();
+    assert_eq!(shared, v1.keys().collect::<Vec<_>>());
 
     // Method, path and each version's 200 body schema of the routes whose body is versioned.
     let renamed_bodies = [
@@ -111,7 +125,13 @@ fn test_v0_and_v1_documents_list_the_same_paths() {
         ("get", "/stream/posts/keys", &["kind", "exclude_kinds"][..]),
         ("get", "/search/posts/by_content", &["kind"][..]),
     ];
-    for (path, operations) in &v0 {
+    // Method and path of the routes that describe the bookmark stream: in `source`, in
+    // `locked` and in the operation's own description.
+    let bookmark_sourced = [("get", "/stream/posts"), ("get", "/stream/posts/keys")];
+    for (path, operations) in v0
+        .iter()
+        .filter(|(path, _)| !V0_ONLY_PATHS.contains(&path.as_str()))
+    {
         let mut v0_operations = operations.clone();
         let mut v1_operations = v1[path].clone();
         for (method, _, v0_body, v1_body) in renamed_bodies.iter().filter(|(_, p, ..)| p == path) {
@@ -135,6 +155,34 @@ fn test_v0_and_v1_documents_list_the_same_paths() {
                         && !v1_names.contains("short, long"),
                     "{operation} {filter} on v1: {v1_names}"
                 );
+            }
+        }
+        for (method, _) in bookmark_sourced.iter().filter(|(_, p)| p == path) {
+            let operation = format!("{method} {path}");
+            let mut v0_texts = vec![v0_operations[method]["description"].take()];
+            let mut v1_texts = vec![v1_operations[method]["description"].take()];
+            for parameter in ["source", "locked"] {
+                v0_texts
+                    .push(take_parameter_description(&mut v0_operations[method], parameter).into());
+                v1_texts
+                    .push(take_parameter_description(&mut v1_operations[method], parameter).into());
+            }
+            for (v0_text, v1_text) in v0_texts.iter().zip(&v1_texts) {
+                let (v0_text, v1_text) = (v0_text.as_str().unwrap(), v1_text.as_str().unwrap());
+                assert!(
+                    v0_text.contains("bookmarks"),
+                    "{operation} on v0: {v0_text}"
+                );
+                assert!(
+                    !v1_text.contains("bookmark"),
+                    "{operation} on v1: {v1_text}"
+                );
+                // The same text once the bookmark stream is written out of v0's.
+                let without_bookmarks = v0_text
+                    .replace("- *bookmarks*: Requires **observer_id**.\n", "")
+                    .replace("bookmarks, ", "")
+                    .replace(", except on `source=bookmarks`", "");
+                assert_eq!(without_bookmarks, v1_text, "{operation}");
             }
         }
         assert_eq!(v0_operations, v1_operations, "{path}");
@@ -350,30 +398,190 @@ fn test_attachments_and_links_are_required_lists() {
     }
 }
 
-/// Every `UserCounts` field is always present, `collections` included.
+/// Every `UserCounts` field is always present, `collections` included; `bookmarks` is one of
+/// them on v0 and absent on v1.
 #[test]
 fn test_user_counts_schema_requires_every_count() {
-    let spec = serde_json::to_value(ApiDoc::v0_docs()).expect("serializable spec");
-    let required = spec
-        .pointer("/components/schemas/UserCounts/required")
-        .and_then(Value::as_array)
-        .expect("UserCounts lists its required fields");
-    let mut required: Vec<&str> = required.iter().filter_map(Value::as_str).collect();
-    required.sort_unstable();
+    let counts_without_bookmarks = [
+        "collections",
+        "followers",
+        "following",
+        "friends",
+        "posts",
+        "replies",
+        "tagged",
+        "tags",
+        "unique_tags",
+    ];
+    for (spec, with_bookmarks) in [(ApiDoc::v0_docs(), true), (ApiDoc::v1_docs(), false)] {
+        let spec = serde_json::to_value(spec).expect("serializable spec");
+        let schema = spec
+            .pointer("/components/schemas/UserCounts")
+            .expect("UserCounts schema");
+        let mut required: Vec<&str> = schema["required"]
+            .as_array()
+            .expect("UserCounts lists its required fields")
+            .iter()
+            .filter_map(Value::as_str)
+            .collect();
+        required.sort_unstable();
+        let mut expected = counts_without_bookmarks.to_vec();
+        if with_bookmarks {
+            expected.insert(0, "bookmarks");
+        }
+        assert_eq!(required, expected, "{schema}");
+        assert_eq!(
+            schema["properties"].get("bookmarks").is_some(),
+            with_bookmarks,
+            "{schema}"
+        );
+    }
+}
+
+/// The schema `pointer` references, resolved in `spec`.
+fn referenced<'a>(spec: &'a Value, pointer: &str) -> &'a Value {
+    let reference = spec
+        .pointer(pointer)
+        .and_then(Value::as_str)
+        .unwrap_or_else(|| panic!("{pointer} is not a $ref in {spec}"));
+    let name = reference
+        .strip_prefix("#/components/schemas/")
+        .unwrap_or_else(|| panic!("{pointer}: {reference}"));
+    spec.pointer(&format!("/components/schemas/{name}"))
+        .unwrap_or_else(|| panic!("{reference} is not defined"))
+}
+
+/// The user view, the user stream and the bootstrap embed the version's counts: the `counts`
+/// of `UserView` resolve to a schema with `bookmarks` on v0 and without on v1, the stream
+/// lists that view, and the bootstrap's `users` are that stream. On v1 the bootstrap's posts
+/// and notifications are the v1 ones too, so no v1 schema has a `bookmark` or `bookmarks`
+/// property and the `Bookmark` component is v0's alone.
+#[test]
+fn test_user_view_schema_embeds_the_versions_counts() {
+    for (spec, with_bookmarks) in [(ApiDoc::v0_docs(), true), (ApiDoc::v1_docs(), false)] {
+        let spec = serde_json::to_value(spec).expect("serializable spec");
+        let counts = referenced(&spec, "/components/schemas/UserView/properties/counts/$ref");
+        assert_eq!(
+            counts["properties"].get("bookmarks").is_some(),
+            with_bookmarks,
+            "{counts}"
+        );
+        assert!(counts["properties"].get("followers").is_some(), "{counts}");
+        for field in ["details", "tags", "relationship", "social_graph_status"] {
+            assert!(
+                spec.pointer(&format!("/components/schemas/UserView/properties/{field}"))
+                    .is_some(),
+                "UserView.{field}"
+            );
+        }
+        assert_eq!(
+            spec.pointer("/components/schemas/UserStream/items/$ref"),
+            Some(&Value::from("#/components/schemas/UserView"))
+        );
+        assert_eq!(
+            spec.pointer("/components/schemas/Bootstrap/properties/users/$ref"),
+            Some(&Value::from("#/components/schemas/UserStream"))
+        );
+        assert_eq!(
+            spec.pointer("/components/schemas/Bootstrap/properties/posts/$ref"),
+            Some(&Value::from("#/components/schemas/PostStream"))
+        );
+        assert_eq!(
+            spec.pointer("/components/schemas/Bootstrap/properties/notifications/items/$ref"),
+            Some(&Value::from("#/components/schemas/Notification"))
+        );
+        // The bootstrap's posts: the stored `PostView` on v0, the v1 one on v1.
+        let post = referenced(&spec, "/components/schemas/PostStream/items/$ref");
+        assert_eq!(
+            post["properties"].get("bookmark").is_some(),
+            with_bookmarks,
+            "{post}"
+        );
+
+        let schemas = spec
+            .pointer("/components/schemas")
+            .and_then(Value::as_object)
+            .expect("schemas");
+        let with_bookmark_fields: Vec<&String> = schemas
+            .iter()
+            .filter(|(_, schema)| {
+                schema["properties"].as_object().is_some_and(|fields| {
+                    fields.contains_key("bookmark") || fields.contains_key("bookmarks")
+                })
+            })
+            .map(|(name, _)| name)
+            .collect();
+        if with_bookmarks {
+            assert!(schemas.contains_key("Bookmark"), "{with_bookmark_fields:?}");
+            assert!(!with_bookmark_fields.is_empty());
+        } else {
+            assert!(!schemas.contains_key("Bookmark"));
+            assert_eq!(with_bookmark_fields, Vec::<&String>::new());
+        }
+    }
+}
+
+/// Bookmarks are v0's alone: `social/v1` keeps them under `/priv/`, which Nexus never sees.
+/// The v1 post view has no `bookmark`, the v1 stream sources no `bookmarks`, and the bookmark
+/// route is in the v0 document only; v0 keeps all three.
+#[test]
+fn test_bookmarks_are_documented_on_v0_only() {
+    let v0 = serde_json::to_value(ApiDoc::v0_docs()).expect("serializable spec");
+    let v1 = serde_json::to_value(ApiDoc::v1_docs()).expect("serializable spec");
+
+    // v0's `PostViewDetailed` extends the stored `PostView` through `allOf`; the fields are there.
     assert_eq!(
-        required,
-        [
-            "bookmarks",
-            "collections",
-            "followers",
-            "following",
-            "friends",
-            "posts",
-            "replies",
-            "tagged",
-            "tags",
-            "unique_tags",
-        ]
+        v0.pointer("/components/schemas/PostViewDetailed/allOf/0/$ref"),
+        Some(&Value::from("#/components/schemas/PostView"))
+    );
+    let v0_view = v0
+        .pointer("/components/schemas/PostView/properties")
+        .expect("PostView properties");
+    assert!(v0_view.get("bookmark").is_some(), "{v0_view}");
+    let v1_view = v1
+        .pointer("/components/schemas/PostView/properties")
+        .expect("PostView properties");
+    assert!(v1_view.get("bookmark").is_none(), "{v1_view}");
+    for field in ["details", "counts", "tags", "relationships"] {
+        assert!(v1_view.get(field).is_some(), "PostView.{field}: {v1_view}");
+    }
+
+    let sources = |spec: &Value| -> Vec<String> {
+        spec.pointer("/components/schemas/StreamSourceKind/enum")
+            .and_then(Value::as_array)
+            .expect("StreamSourceKind enum")
+            .iter()
+            .map(|name| name.as_str().expect("a name").to_string())
+            .collect()
+    };
+    let v0_sources = sources(&v0);
+    let v1_sources = sources(&v1);
+    assert!(
+        v0_sources.iter().any(|name| name == "bookmarks"),
+        "{v0_sources:?}"
+    );
+    let v0_without_bookmarks: Vec<&String> = v0_sources
+        .iter()
+        .filter(|name| *name != "bookmarks")
+        .collect();
+    assert_eq!(v1_sources.iter().collect::<Vec<_>>(), v0_without_bookmarks);
+
+    let bookmark_route = "/post/{author_id}/{post_id}/bookmark";
+    assert!(
+        v0["paths"].get(format!("/v0{bookmark_route}")).is_some(),
+        "the bookmark route is missing from the v0 document"
+    );
+    assert!(
+        v1["paths"].get(format!("/v1{bookmark_route}")).is_none(),
+        "the bookmark route is listed in the v1 document"
+    );
+    assert!(
+        v1["paths"]
+            .as_object()
+            .expect("paths")
+            .keys()
+            .all(|path| !path.contains("bookmark")),
+        "a bookmark path is listed in the v1 document"
     );
 }
 

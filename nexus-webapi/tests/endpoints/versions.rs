@@ -1,7 +1,8 @@
 //! The API answers under `/v0` and `/v1` from one route declaration, so the same request
-//! gets the same answer on both, up to what `/v1` names differently: a post's kind, in the
-//! responses and in the `kind` and `exclude_kinds` filters. One representative route per
-//! module, against the mock data, plus the kind names on every route that carries one.
+//! gets the same answer on both, up to what `/v1` names differently, a post's kind, in the
+//! responses and in the `kind` and `exclude_kinds` filters, and what `/v1` leaves out, the
+//! bookmarks. One representative route per module, against the mock data, plus the kind names
+//! on every route that carries one and the bookmarks on every route that carries them.
 
 use crate::utils::{get_request, host_url, invalid_get_request, post_request};
 
@@ -106,6 +107,33 @@ fn with_stored_kind_names(body: Value) -> Value {
     }
 }
 
+/// `body` without the `bookmark` of a post view and the `bookmarks` of a user's counts: the
+/// fields `/v1` has no counterpart for, taken out of `/v0`'s answer so the rest is compared.
+/// `/v1` never writes them, so on that side this changes nothing, which
+/// `test_bootstrap_has_no_bookmarks_on_v1` and its siblings assert on their own.
+fn without_bookmarks(body: Value) -> Value {
+    match body {
+        Value::Object(fields) => Value::Object(
+            fields
+                .into_iter()
+                .filter(|(key, _)| key != "bookmark" && key != "bookmarks")
+                .map(|(key, value)| (key, without_bookmarks(value)))
+                .collect(),
+        ),
+        Value::Array(items) => Value::Array(items.into_iter().map(without_bookmarks).collect()),
+        other => other,
+    }
+}
+
+/// A `/v1` answer as `/v0` would give it: the stored kind names, and no bookmark fields on
+/// either side.
+fn comparable(v1: Value, v0: Value) -> (Value, Value) {
+    (
+        without_bookmarks(with_stored_kind_names(v1)),
+        without_bookmarks(v0),
+    )
+}
+
 /// The stored name of a kind named either way; a name neither version knows is kept, so
 /// a stray value still fails the comparison.
 fn stored_kind_name(name: &str) -> &str {
@@ -125,11 +153,11 @@ async fn test_every_module_answers_the_same_on_both_versions() -> Result<()> {
         let v1 = client.do_get(&format!("{V1_PREFIX}{route}")).await?;
         assert_eq!(v0.status(), 200, "{V0_PREFIX}{route}");
         assert_eq!(v1.status(), v0.status(), "{route}");
-        assert_eq!(
-            with_stored_kind_names(deterministic_part(&route, body(&v1)?)),
+        let (v1, v0) = comparable(
+            deterministic_part(&route, body(&v1)?),
             deterministic_part(&route, body(&v0)?),
-            "{route}"
         );
+        assert_eq!(v1, v0, "{route}");
     }
 
     Ok(())
@@ -440,6 +468,285 @@ async fn test_kind_filter_rejections_hold_on_both_versions() -> Result<()> {
                 let error = rejection(&format!("{prefix}{route}?{query}")).await?;
                 assert!(error.contains("kind"), "{prefix}{route}?{query}: {error}");
             }
+        }
+    }
+    Ok(())
+}
+
+// The post `PUBKY_USER` bookmarked, from docker/test-graph/mocks, and the user with the most
+// bookmarks and the one whose counts the user suite pins.
+const BOOKMARKED_POST: &str = "2ZCW1TGR5BKG0";
+const BOOKMARK_ID: &str = "2Z9PFGC3WWWW0";
+const BOOKMARKER: &str = "o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo";
+const COUNTED_USER: &str = "pxnu33x7jtpx9ar1ytsi4yxbp6a5o36gwhffs8zoxmbuptici1jy";
+
+/// `/v0` serves the bookmark route; `/v1` has no such route, so it is a 404 there like any
+/// path the API does not know.
+#[tokio_shared_rt::test(shared)]
+async fn test_bookmark_route_is_v0_only() -> Result<()> {
+    let client = httpc_test::new_client(host_url().await)?;
+    let route = format!("/post/{PUBKY_USER}/{BOOKMARKED_POST}/bookmark?viewer_id={PUBKY_USER}");
+
+    let v0 = client.do_get(&format!("{V0_PREFIX}{route}")).await?;
+    assert_eq!(v0.status(), 200, "{V0_PREFIX}{route}");
+    let bookmark = v0.json_body()?;
+    assert_eq!(bookmark["id"], BOOKMARK_ID, "{bookmark}");
+    assert!(bookmark["indexed_at"].is_number(), "{bookmark}");
+
+    let v1 = client.do_get(&format!("{V1_PREFIX}{route}")).await?;
+    assert_eq!(v1.status(), 404, "{V1_PREFIX}{route}");
+    // Without the viewer too: the route itself is gone, not one answer of it.
+    let v1 = client
+        .do_get(&format!(
+            "{V1_PREFIX}/post/{PUBKY_USER}/{BOOKMARKED_POST}/bookmark"
+        ))
+        .await?;
+    assert_eq!(v1.status(), 404);
+    Ok(())
+}
+
+/// A `/v0` post view carries the viewer's `bookmark`; the `/v1` view of the same post for the
+/// same viewer has no `bookmark` key and is otherwise the same.
+#[tokio_shared_rt::test(shared)]
+async fn test_post_view_has_no_bookmark_on_v1() -> Result<()> {
+    let route = format!("/post/{PUBKY_USER}/{BOOKMARKED_POST}?viewer_id={PUBKY_USER}");
+    let mut v0 = get_request(&format!("{V0_PREFIX}{route}")).await?;
+    let v1 = get_request(&format!("{V1_PREFIX}{route}")).await?;
+
+    assert_eq!(v0["bookmark"]["id"], BOOKMARK_ID, "{v0}");
+    assert!(v1.get("bookmark").is_none(), "{v1}");
+    for field in ["details", "counts", "tags", "relationships"] {
+        assert!(v1.get(field).is_some(), "{field}: {v1}");
+    }
+    v0.as_object_mut().unwrap().remove("bookmark");
+    assert_eq!(with_stored_kind_names(v1), v0);
+
+    // A viewer who did not bookmark the post: `/v0` says `null`, `/v1` says nothing.
+    let route = format!("/post/{PUBKY_USER}/{BOOKMARKED_POST}?viewer_id={AUTHOR}");
+    let v0 = get_request(&format!("{V0_PREFIX}{route}")).await?;
+    let v1 = get_request(&format!("{V1_PREFIX}{route}")).await?;
+    assert_eq!(v0["bookmark"], Value::Null, "{v0}");
+    assert!(v1.get("bookmark").is_none(), "{v1}");
+
+    // The streams serve the same view: no `bookmark` on `/v1` there either.
+    let stream = get_request(&format!(
+        "{V1_PREFIX}/stream/posts?source=author&author_id={PUBKY_USER}&viewer_id={PUBKY_USER}&limit=50"
+    ))
+    .await?;
+    let posts = stream.as_array().expect("a post stream is an array");
+    assert!(!posts.is_empty(), "{stream}");
+    for post in posts {
+        assert!(post.get("bookmark").is_none(), "{post}");
+    }
+    Ok(())
+}
+
+/// `/v0` counts a user's bookmarks; the `/v1` counts of the same user have no `bookmarks` key
+/// and are otherwise the same.
+#[tokio_shared_rt::test(shared)]
+async fn test_user_counts_have_no_bookmarks_on_v1() -> Result<()> {
+    let route = format!("/user/{COUNTED_USER}/counts");
+    let mut v0 = get_request(&format!("{V0_PREFIX}{route}")).await?;
+    let v1 = get_request(&format!("{V1_PREFIX}{route}")).await?;
+
+    assert_eq!(v0["bookmarks"], 14, "{v0}");
+    assert!(v1.get("bookmarks").is_none(), "{v1}");
+    for count in [
+        "tagged",
+        "tags",
+        "unique_tags",
+        "posts",
+        "replies",
+        "collections",
+        "following",
+        "followers",
+        "friends",
+    ] {
+        assert!(v1[count].is_number(), "{count}: {v1}");
+    }
+    v0.as_object_mut().unwrap().remove("bookmarks");
+    assert_eq!(v1, v0);
+
+    // An unknown user is a 404 on both.
+    let unknown = "qca6wzjg4okp6g1hwr9g8hmx1po1jpoirjfau9ejsws1qz3t7iiy";
+    for prefix in [V0_PREFIX, V1_PREFIX] {
+        invalid_get_request(
+            &format!("{prefix}/user/{unknown}/counts"),
+            StatusCode::NOT_FOUND,
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+/// Every key of `value` named `name`, at any depth.
+fn keys_named(value: &Value, name: &str) -> usize {
+    match value {
+        Value::Object(fields) => fields
+            .iter()
+            .map(|(key, value)| usize::from(key == name) + keys_named(value, name))
+            .sum(),
+        Value::Array(items) => items.iter().map(|item| keys_named(item, name)).sum(),
+        _ => 0,
+    }
+}
+
+/// A `/v0` user view carries `counts.bookmarks`; the `/v1` view of the same user has no
+/// `bookmarks` key under `counts`, or anywhere, and is otherwise the same.
+#[tokio_shared_rt::test(shared)]
+async fn test_user_view_has_no_bookmarks_count_on_v1() -> Result<()> {
+    let route = format!("/user/{COUNTED_USER}?viewer_id={BOOKMARKER}");
+    let mut v0 = get_request(&format!("{V0_PREFIX}{route}")).await?;
+    let v1 = get_request(&format!("{V1_PREFIX}{route}")).await?;
+
+    assert_eq!(v0["counts"]["bookmarks"], 14, "{v0}");
+    assert!(v1["counts"].get("bookmarks").is_none(), "{v1}");
+    assert_eq!(keys_named(&v1, "bookmarks"), 0, "{v1}");
+    for field in [
+        "details",
+        "counts",
+        "tags",
+        "relationship",
+        "social_graph_status",
+    ] {
+        assert!(v1.get(field).is_some(), "{field}: {v1}");
+    }
+    for count in [
+        "tagged",
+        "tags",
+        "posts",
+        "following",
+        "followers",
+        "friends",
+    ] {
+        assert!(v1["counts"][count].is_number(), "{count}: {v1}");
+    }
+    v0["counts"].as_object_mut().unwrap().remove("bookmarks");
+    assert_eq!(v1, v0);
+
+    // An unknown user is a 404 on both.
+    let unknown = "qca6wzjg4okp6g1hwr9g8hmx1po1jpoirjfau9ejsws1qz3t7iiy";
+    for prefix in [V0_PREFIX, V1_PREFIX] {
+        invalid_get_request(&format!("{prefix}/user/{unknown}"), StatusCode::NOT_FOUND).await?;
+    }
+    Ok(())
+}
+
+/// The user streams serve the version's view: on `/v0` every user's counts carry
+/// `bookmarks`, on `/v1` none do, and the pages are otherwise the same. The `by_ids` list,
+/// the username search and a `source=` page, the three routes that return user views.
+#[tokio_shared_rt::test(shared)]
+async fn test_user_streams_have_no_bookmarks_count_on_v1() -> Result<()> {
+    let by_ids = json!({ "user_ids": [COUNTED_USER, BOOKMARKER], "viewer_id": PUBKY_USER });
+    let v0 = post_request(&format!("{V0_PREFIX}/stream/users/by_ids"), by_ids.clone()).await?;
+    let v1 = post_request(&format!("{V1_PREFIX}/stream/users/by_ids"), by_ids).await?;
+    let users = v0.as_array().expect("a user stream is an array");
+    assert_eq!(users.len(), 2, "{v0}");
+    assert_eq!(users[0]["counts"]["bookmarks"], 14, "{v0}");
+    assert!(users[1]["counts"]["bookmarks"].is_number(), "{v0}");
+    assert_eq!(v1.as_array().map(Vec::len), Some(2), "{v1}");
+    assert_eq!(keys_named(&v1, "bookmarks"), 0, "{v1}");
+    assert_eq!(v1, without_bookmarks(v0));
+
+    let pages = [
+        "/stream/users/username?username=Jo".to_string(),
+        format!("/stream/users?source=followers&user_id={COUNTED_USER}&limit=5"),
+    ];
+    for route in pages {
+        let v0 = get_request(&format!("{V0_PREFIX}{route}")).await?;
+        let v1 = get_request(&format!("{V1_PREFIX}{route}")).await?;
+        let users = v0.as_array().expect("a user stream is an array");
+        assert!(!users.is_empty(), "{V0_PREFIX}{route}: {v0}");
+        for user in users {
+            assert!(user["counts"]["bookmarks"].is_number(), "{route}: {user}");
+        }
+        let v1_users = v1.as_array().expect("a user stream is an array");
+        assert_eq!(v1_users.len(), users.len(), "{route}: {v1}");
+        for user in v1_users {
+            assert!(user["counts"].is_object(), "{route}: {user}");
+            assert!(user["counts"].get("bookmarks").is_none(), "{route}: {user}");
+        }
+        assert_eq!(keys_named(&v1, "bookmarks"), 0, "{route}: {v1}");
+        // The username search lists one order; a `source=` page may not.
+        if route.contains("username") {
+            assert_eq!(v1, without_bookmarks(v0), "{route}");
+        }
+    }
+    Ok(())
+}
+
+/// The bootstrap embeds users and posts in the version's shape: on `/v0` every user's counts
+/// carry `bookmarks` and every post its `bookmark`; on `/v1` no key named either is anywhere
+/// in the payload, and the posts name their kind the `/v1` way.
+#[tokio_shared_rt::test(shared)]
+async fn test_bootstrap_has_no_bookmarks_on_v1() -> Result<()> {
+    let route = format!("/bootstrap/{AMSTERDAM}");
+    let v0 = get_request(&format!("{V0_PREFIX}{route}")).await?;
+    let v1 = get_request(&format!("{V1_PREFIX}{route}")).await?;
+
+    let users = v0["users"].as_array().expect("users");
+    let posts = v0["posts"].as_array().expect("posts");
+    assert!(!users.is_empty() && !posts.is_empty(), "{v0}");
+    for user in users {
+        assert!(user["counts"]["bookmarks"].is_number(), "{user}");
+    }
+    for post in posts {
+        assert!(post.get("bookmark").is_some(), "{post}");
+    }
+
+    let users = v1["users"].as_array().expect("users");
+    let posts = v1["posts"].as_array().expect("posts");
+    assert!(!users.is_empty() && !posts.is_empty(), "{v1}");
+    for user in users {
+        assert!(user["counts"].is_object(), "{user}");
+        assert!(user["counts"].get("bookmarks").is_none(), "{user}");
+    }
+    for post in posts {
+        assert!(post.get("bookmark").is_none(), "{post}");
+        let kind = post["details"]["kind"].as_str().expect("a kind");
+        assert!(kind != "short" && kind != "long", "{post}");
+    }
+    assert_eq!(keys_named(&v1, "bookmarks"), 0, "{v1}");
+    assert_eq!(keys_named(&v1, "bookmark"), 0, "{v1}");
+    // The rest of the payload is there as on `/v0`; `files` stays until its own ticket.
+    for field in ["ids", "indexed", "notifications", "files"] {
+        assert!(v1.get(field).is_some(), "{field}: {v1}");
+    }
+    Ok(())
+}
+
+/// `source=bookmarks` is a stream on `/v0` and an unknown source on `/v1`, a 400 that lists the
+/// sources a `/v1` client may use; every other source answers on both.
+#[tokio_shared_rt::test(shared)]
+async fn test_bookmarks_source_is_unknown_on_v1() -> Result<()> {
+    for route in ["/stream/posts", "/stream/posts/keys"] {
+        let query = format!("{route}?source=bookmarks&observer_id={BOOKMARKER}");
+        let v0 = get_request(&format!("{V0_PREFIX}{query}")).await?;
+        let listed = if route == "/stream/posts" {
+            v0.as_array().map(Vec::len)
+        } else {
+            v0["post_keys"].as_array().map(Vec::len)
+        };
+        assert!(listed.is_some_and(|n| n > 0), "{V0_PREFIX}{query}: {v0}");
+
+        let error = rejection(&format!("{V1_PREFIX}{query}")).await?;
+        assert!(error.contains("`bookmarks`"), "{route}: {error}");
+        assert!(error.contains("`following`"), "{route}: {error}");
+        assert!(error.contains("`all`"), "{route}: {error}");
+        // The observer alone is no reason to reject: the source is.
+        let error = rejection(&format!("{V1_PREFIX}{route}?source=bookmarks")).await?;
+        assert!(error.contains("`bookmarks`"), "{route}: {error}");
+
+        // Every other source still answers the same on both.
+        for source in [
+            format!("source=following&observer_id={BOOKMARKER}"),
+            format!("source=author&author_id={AUTHOR}"),
+            "source=all".to_string(),
+        ] {
+            let v0 = get_request(&format!("{V0_PREFIX}{route}?{source}&limit=5")).await?;
+            let v1 = get_request(&format!("{V1_PREFIX}{route}?{source}&limit=5")).await?;
+            let (v1, v0) = comparable(v1, v0);
+            assert_eq!(v1, v0, "{route}?{source}");
         }
     }
     Ok(())

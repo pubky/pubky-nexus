@@ -25,6 +25,9 @@ use utoipa::{OpenApi, ToSchema};
 /// Discriminant for the source of posts in a stream.
 /// Mirrors the variant structure of StreamSource but does not carry ID payloads,
 /// since the actual IDs are validated at the API boundary via dedicated query params.
+// This is `/v0`'s reading of `source=` and the one the body builds from; `/v1` reads
+// `v1::StreamSourceKind`, the same names without `bookmarks`, and converts into this. A
+// line comment: a doc comment would be the `/v0` schema's description, which is frozen.
 #[derive(Deserialize, Debug, ToSchema, Clone, PartialEq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum StreamSourceKind {
@@ -182,14 +185,15 @@ fn build_stream_source(
     }
 }
 
-/// The query of `GET /stream/posts` and `GET /stream/posts/keys`, with `kind` and
-/// `exclude_kinds` in version `V`'s names: the stored ones on `/v0`, the `social/v1` ones on
-/// `/v1`. Every other parameter is the same on both.
+/// The query of `GET /stream/posts` and `GET /stream/posts/keys`, with `source` in version
+/// `V`'s names (`bookmarks` is `/v0`'s alone) and `kind` and `exclude_kinds` in its kind names:
+/// the stored ones on `/v0`, the `social/v1` ones on `/v1`. Every other parameter is the same
+/// on both.
 #[derive(Deserialize, Debug)]
 #[serde(bound(deserialize = ""))]
 pub struct PostStreamQuery<V: ApiVersion> {
     #[serde(default)]
-    pub source: StreamSourceKind,
+    pub source: V::StreamSource,
     pub author_id: Option<PubkyId>,
     pub observer_id: Option<PubkyId>,
     pub post_id: Option<PostId>,
@@ -217,9 +221,14 @@ impl<V: ApiVersion> PostStreamQuery<V> {
         self.sorting.get_or_insert(StreamSorting::Timeline);
     }
 
+    /// The source as the shared builder reads it, whichever version's names it was parsed in.
+    pub fn source(&self) -> StreamSourceKind {
+        self.source.clone().into()
+    }
+
     pub fn build_source(&self) -> AppResult<StreamSource> {
         build_stream_source(
-            &self.source,
+            &self.source(),
             self.author_id.as_ref(),
             self.observer_id.as_ref(),
             self.post_id.as_ref(),
@@ -262,11 +271,12 @@ impl<V: ApiVersion> PostStreamQuery<V> {
                 "`locked` cannot be combined with `kind` or `exclude_kinds`",
             ));
         }
+        let source = self.source();
         // Reply streams are served by dedicated sorted sets; the Cypher
         // fallback that kind filters route to has no reply MATCH arm and
         // would silently return the author's parent posts instead.
         if matches!(
-            self.source,
+            source,
             StreamSourceKind::PostReplies | StreamSourceKind::AuthorReplies
         ) && self.kind_filter().is_some()
         {
@@ -276,13 +286,12 @@ impl<V: ApiVersion> PostStreamQuery<V> {
         }
         // Every result is a Collection, so a kind filter can only no-op or
         // silently empty the page.
-        if matches!(self.source, StreamSourceKind::PostCollections) && self.kind_filter().is_some()
-        {
+        if matches!(source, StreamSourceKind::PostCollections) && self.kind_filter().is_some() {
             return Err(Error::invalid_input(
                 "`kind`, `exclude_kinds` and `locked` are not supported with `source=post_collections`",
             ));
         }
-        if !matches!(self.source, StreamSourceKind::Collection) {
+        if !matches!(source, StreamSourceKind::Collection) {
             return Ok(());
         }
         let incompatible = [
@@ -345,7 +354,7 @@ versioned_handlers! {
         operation_id = "stream_posts_handler",
         tag = "Stream",
         params(
-            ("source" = Option<StreamSourceKind>, Query, description = "Source of posts for streams with viewer (following, followers, friends, bookmarks, post_replies, author, author_replies, collection, post_collections, wot, wot_domain, all). For `source=post_collections`: provide `author_id` + `post_id` of a post; returns the Collection posts that curate it, newest first by default. `kind`, `exclude_kinds` and `locked` are rejected with 400. Links are materialized when the Collection is written: an item indexed after the Collection that lists it is not linked until the Collection is edited. For `source=collection`: provide `author_id` + `post_id` of the Collection post; items are returned in curator order. `tags`, `kind`, `exclude_kinds`, `locked`, `sorting`, `order`, `start`, `end` are all rejected with 400 (incompatible with the curator-ordered result set). Items whose underlying post is missing (deleted, not indexed) or whose URI is malformed/non-post are dropped during hydration; pages may be shorter than `limit`. Pagination via `skip`/`limit` is not stable across deletions, if an item is removed between page fetches, the same `skip` returns a different window. The FE can identify dropped items by diffing the response against the Collection envelope's `items[]`. When the instance filters by trust, posts by authors outside its trust ranking are left out of `all` (any `sorting`, `tags` or `kind`)."),
+            ("source" = Option<shapes::StreamSource>, Query, description = concatcp!("Source of posts for streams with viewer (", shapes::SOURCE_NAMES, "). For `source=post_collections`: provide `author_id` + `post_id` of a post; returns the Collection posts that curate it, newest first by default. `kind`, `exclude_kinds` and `locked` are rejected with 400. Links are materialized when the Collection is written: an item indexed after the Collection that lists it is not linked until the Collection is edited. For `source=collection`: provide `author_id` + `post_id` of the Collection post; items are returned in curator order. `tags`, `kind`, `exclude_kinds`, `locked`, `sorting`, `order`, `start`, `end` are all rejected with 400 (incompatible with the curator-ordered result set). Items whose underlying post is missing (deleted, not indexed) or whose URI is malformed/non-post are dropped during hydration; pages may be shorter than `limit`. Pagination via `skip`/`limit` is not stable across deletions, if an item is removed between page fetches, the same `skip` returns a different window. The FE can identify dropped items by diffing the response against the Collection envelope's `items[]`. When the instance filters by trust, posts by authors outside its trust ranking are left out of `all` (any `sorting`, `tags` or `kind`).")),
             ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID. Sets the viewer's relationship flags on the posts. On `source=all` with `sorting=timeline` and no `tags`, also brings back the viewer's own posts when the trust filter hides them"),
             ("observer_id" = Option<PubkyId>, Query, description = "Observer Pubky ID. The central point for streams with Reach"),
             ("author_id" = Option<PubkyId>, Query, description = "Filter posts by an specific author User ID"),
@@ -357,20 +366,19 @@ versioned_handlers! {
             ("domain_tags" = Option<Tags>, Query, description = "Required for `source=wot_domain`. Comma-separated tag labels (max 5); returns posts by authors tagged with any of these by the observer's WoT, or by the observer alone when `depth=0`. E.g. `&domain_tags=bitcoiner,btc-dev`. Ignored for other sources."),
             ("kind" = Option<shapes::PostKind>, Query, description = concatcp!("Filter by post kind: ", shapes::KIND_NAMES, shapes::KIND_RULE, ". Mutually exclusive with `exclude_kinds`; rejected for `source=post_collections`, `source=post_replies` and `source=author_replies`.")),
             ("exclude_kinds" = Option<shapes::PostKinds>, Query, description = concatcp!("Comma-separated post kinds to exclude server-side (", shapes::EXCLUDE_KINDS_RANGE, " items, duplicates ignored), e.g. `&exclude_kinds=collection,link`. Valid values: ", shapes::KIND_NAMES, "; anything else is rejected with 400. Mutually exclusive with `kind`; rejected for `source=collection`, `source=post_collections`, `source=post_replies` and `source=author_replies`. ", shapes::MISSING_KIND_RULE)),
-            ("locked" = Option<bool>, Query, description = "When `true`, return only posts with a lock attached, whoever the viewer is and whether or not they unlocked them. `false` (default) applies no filter. Replies are left out, except on `source=bookmarks`. Cannot be combined with `kind` or `exclude_kinds`; rejected for `source=collection`, `source=post_collections`, `source=post_replies` and `source=author_replies`."),
+            ("locked" = Option<bool>, Query, description = concatcp!("When `true`, return only posts with a lock attached, whoever the viewer is and whether or not they unlocked them. `false` (default) applies no filter. ", shapes::LOCKED_REPLIES_RULE, " Cannot be combined with `kind` or `exclude_kinds`; rejected for `source=collection`, `source=post_collections`, `source=post_replies` and `source=author_replies`.")),
             ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Skip N posts (max 10000)"),
             ("limit" = Option<BoundedLimit<10, 50>>, Query, description = "Retrieve N posts (1–50, default 10)"),
             ("start" = Option<f64>, Query, description = "The start of the stream timeframe or score. Posts with a timestamp/score greater than this value will be excluded from the results"),
             ("end" = Option<f64>, Query, description = "The end of the stream timeframe or score. Posts with a timestamp/score less than this value will be excluded from the results"),
             ("include_attachment_metadata" = Option<bool>, Query, description = "Include file metadata for post attachments"),
         ),
-        description = r#"Stream Posts: Retrieve a stream of posts.
+        description = concatcp!(r#"Stream Posts: Retrieve a stream of posts.
 
 
 The `source` parameter determines the type of stream. Depending on the `source`, certain parameters are required:
 - *following*, *followers*, *friends*: Require **observer_id** and exclude posts authored by the observer.
-- *bookmarks*: Requires **observer_id**.
-- *post_replies*: Requires **author_id** and **post_id** to filter replies to a specific post.
+"#, shapes::BOOKMARKS_SOURCE_LINE, r#"- *post_replies*: Requires **author_id** and **post_id** to filter replies to a specific post.
 - *author*:  Requires  **author_id** to filter posts by a specific author.
 - *author_replies*:  Requires  **author_id** to filter replies by a specific author.
 - *collection*: Requires **author_id** and **post_id** of the Collection post; items are returned in curator order.
@@ -379,7 +387,7 @@ The `source` parameter determines the type of stream. Depending on the `source`,
 - *wot*: Requires **observer_id**. Posts from users in the observer's Web of Trust (transitive follows, `depth` 1-3, default 2). Excludes the observer's own posts, including when a follow cycle reaches the observer again.
 - *wot_domain*: Requires **observer_id** and **domain_tags**. Posts by authors whom the observer's Web of Trust has tagged with any of `domain_tags`, all of those authors' posts, not only topic-tagged ones; combine with `tags=` for topic-scoped posts. With `depth=0` the trust set is the observer alone ("Me"): posts by authors the observer tagged directly. Includes the observer's own posts when they themselves are tagged with a matching label.
 
-Ensure that you provide the necessary parameters based on the selected `source`. If a required parameter is missing, a 400 Bad Request error will be returned."#
+Ensure that you provide the necessary parameters based on the selected `source`. If a required parameter is missing, a 400 Bad Request error will be returned."#)
         )]
         responses(
             (status = 200, description = "Posts stream"),
@@ -426,7 +434,7 @@ versioned_handlers! {
     operation_id = "stream_post_keys_handler",
     tag = "Stream",
     params(
-        ("source" = Option<StreamSourceKind>, Query, description = "Source of posts for streams with viewer (following, followers, friends, bookmarks, post_replies, author, author_replies, collection, post_collections, wot, wot_domain, all). For `source=post_collections`: provide `author_id` + `post_id` of a post; returns the Collection posts that curate it, newest first by default. `kind`, `exclude_kinds` and `locked` are rejected with 400. Links are materialized when the Collection is written: an item indexed after the Collection that lists it is not linked until the Collection is edited. For `source=collection`: provide `author_id` + `post_id` of the Collection post; keys are returned in curator order. `tags`, `kind`, `exclude_kinds`, `locked`, `sorting`, `order`, `start`, `end` are all rejected with 400 (incompatible with the curator-ordered result set). Like every other source, the returned keys are a best-effort snapshot, they may reference posts that have since been deleted or are not yet indexed; callers should hydrate via `GET /v0/stream/posts?source=collection&author_id=...&post_id=...` (or `POST /v0/stream/posts/by_ids`) which drops unresolved refs. Pagination via `skip`/`limit` is not stable across deletions. When the instance filters by trust, posts by authors outside its trust ranking are left out of `all` (any `sorting`, `tags` or `kind`)."),
+        ("source" = Option<shapes::StreamSource>, Query, description = concatcp!("Source of posts for streams with viewer (", shapes::SOURCE_NAMES, "). For `source=post_collections`: provide `author_id` + `post_id` of a post; returns the Collection posts that curate it, newest first by default. `kind`, `exclude_kinds` and `locked` are rejected with 400. Links are materialized when the Collection is written: an item indexed after the Collection that lists it is not linked until the Collection is edited. For `source=collection`: provide `author_id` + `post_id` of the Collection post; keys are returned in curator order. `tags`, `kind`, `exclude_kinds`, `locked`, `sorting`, `order`, `start`, `end` are all rejected with 400 (incompatible with the curator-ordered result set). Like every other source, the returned keys are a best-effort snapshot, they may reference posts that have since been deleted or are not yet indexed; callers should hydrate via `GET /v0/stream/posts?source=collection&author_id=...&post_id=...` (or `POST /v0/stream/posts/by_ids`) which drops unresolved refs. Pagination via `skip`/`limit` is not stable across deletions. When the instance filters by trust, posts by authors outside its trust ranking are left out of `all` (any `sorting`, `tags` or `kind`).")),
         ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID. On `source=all` with `sorting=timeline` and no `tags`, brings back the viewer's own posts when the trust filter hides them"),
         ("observer_id" = Option<PubkyId>, Query, description = "Observer Pubky ID. The central point for streams with Reach"),
         ("author_id" = Option<PubkyId>, Query, description = "Filter posts by an specific author User ID"),
@@ -438,18 +446,17 @@ versioned_handlers! {
         ("domain_tags" = Option<Tags>, Query, description = "Required for `source=wot_domain`. Comma-separated tag labels (max 5); returns posts by authors tagged with any of these by the observer's WoT, or by the observer alone when `depth=0`. E.g. `&domain_tags=bitcoiner,btc-dev`. Ignored for other sources."),
         ("kind" = Option<shapes::PostKind>, Query, description = concatcp!("Filter by post kind: ", shapes::KIND_NAMES, shapes::KIND_RULE, ". Mutually exclusive with `exclude_kinds`; rejected for `source=post_collections`, `source=post_replies` and `source=author_replies`.")),
         ("exclude_kinds" = Option<shapes::PostKinds>, Query, description = concatcp!("Comma-separated post kinds to exclude server-side (", shapes::EXCLUDE_KINDS_RANGE, " items, duplicates ignored), e.g. `&exclude_kinds=collection,link`. Valid values: ", shapes::KIND_NAMES, "; anything else is rejected with 400. Mutually exclusive with `kind`; rejected for `source=collection`, `source=post_collections`, `source=post_replies` and `source=author_replies`. ", shapes::MISSING_KIND_RULE)),
-        ("locked" = Option<bool>, Query, description = "When `true`, return only posts with a lock attached, whoever the viewer is and whether or not they unlocked them. `false` (default) applies no filter. Replies are left out, except on `source=bookmarks`. Cannot be combined with `kind` or `exclude_kinds`; rejected for `source=collection`, `source=post_collections`, `source=post_replies` and `source=author_replies`."),
+        ("locked" = Option<bool>, Query, description = concatcp!("When `true`, return only posts with a lock attached, whoever the viewer is and whether or not they unlocked them. `false` (default) applies no filter. ", shapes::LOCKED_REPLIES_RULE, " Cannot be combined with `kind` or `exclude_kinds`; rejected for `source=collection`, `source=post_collections`, `source=post_replies` and `source=author_replies`.")),
         ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Skip N posts (max 10000)"),
         ("limit" = Option<BoundedLimit<10, 50>>, Query, description = "Retrieve N posts (1–50, default 10)"),
         ("start" = Option<f64>, Query, description = "The start of the stream timeframe or score. Posts with a timestamp/score greater than this value will be excluded from the results"),
         ("end" = Option<f64>, Query, description = "The end of the stream timeframe or score. Posts with a timestamp/score less than this value will be excluded from the results"),
     ),
-    description = r#"Stream Post Keys: Retrieve a stream of post keys
+    description = concatcp!(r#"Stream Post Keys: Retrieve a stream of post keys
 
 The `source` parameter determines the type of stream. Depending on the `source`, certain parameters are required:
 - *following*, *followers*, *friends*: Require **observer_id** and exclude posts authored by the observer.
-- *bookmarks*: Requires **observer_id**.
-- *post_replies*: Requires **author_id** and **post_id** to filter replies to a specific post.
+"#, shapes::BOOKMARKS_SOURCE_LINE, r#"- *post_replies*: Requires **author_id** and **post_id** to filter replies to a specific post.
 - *author*:  Requires  **author_id** to filter posts by a specific author.
 - *author_replies*:  Requires  **author_id** to filter replies by a specific author.
 - *collection*: Requires **author_id** and **post_id** of the Collection post; keys are returned in curator order.
@@ -458,7 +465,7 @@ The `source` parameter determines the type of stream. Depending on the `source`,
 - *wot*: Requires **observer_id**. Posts from users in the observer's Web of Trust (transitive follows, `depth` 1-3, default 2). Excludes the observer's own posts, including when a follow cycle reaches the observer again.
 - *wot_domain*: Requires **observer_id** and **domain_tags**. Posts by authors whom the observer's Web of Trust has tagged with any of `domain_tags`, all of those authors' posts, not only topic-tagged ones; combine with `tags=` for topic-scoped posts. With `depth=0` the trust set is the observer alone ("Me"): posts by authors the observer tagged directly. Includes the observer's own posts when they themselves are tagged with a matching label.
 
-Ensure that you provide the necessary parameters based on the selected `source`. If a required parameter is missing, a 400 Bad Request error will be returned."#
+Ensure that you provide the necessary parameters based on the selected `source`. If a required parameter is missing, a 400 Bad Request error will be returned."#)
     )]
     responses(
         (status = 200, description = "Post key stream"),
@@ -517,13 +524,12 @@ versioned_handlers! {
     )
 }
 
-/// The schemas the post stream routes share; the routes themselves, their kind filters and
-/// the `by_ids` body come with the version's document.
+/// The schemas the post stream routes share; the routes themselves, their source and kind
+/// filters and the `by_ids` body come with the version's document.
 #[derive(OpenApi)]
 #[openapi(components(schemas(
     PostKeyStream,
     StreamSorting,
-    StreamSourceKind,
     SortOrder,
     PubkyId,
     PostId,
