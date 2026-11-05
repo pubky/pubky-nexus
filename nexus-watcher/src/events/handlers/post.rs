@@ -10,7 +10,6 @@ use nexus_common::models::post::{
     PostRelationships, PostStream,
 };
 use nexus_common::models::user::UserIngestor;
-use pubky_social_specs::legacy_v0::PubkyAppPostKind;
 use pubky_social_specs::PubkyId;
 use tracing::{debug, Instrument};
 
@@ -138,7 +137,7 @@ async fn sync_put_details(
         // If the post existed, let's confirm this is an edit. Is the content different?
         match PostDetails::get_from_index(&author_id, &post_id).await? {
             Some(existing_details) => {
-                let was_collection = existing_details.kind == PubkyAppPostKind::Collection;
+                let was_collection = existing_details.kind == PostKind::Collection;
                 let collection_toggled = was_collection != is_collection;
                 // `is_different_than` ignores kind, so refresh on a kind-only edit too.
                 let kind_changed = existing_details.kind != post_details.kind;
@@ -164,7 +163,7 @@ async fn sync_put_details(
                         post_details,
                         ingestor,
                         notify,
-                        existing_details.kind.clone(),
+                        existing_details.kind,
                     )
                     .await?;
                 }
@@ -201,7 +200,7 @@ async fn sync_put_details(
         &post_details.uri,
         &post_details.content,
         &mut post_relationships,
-        post_details.kind.clone(),
+        post_details.kind,
     )
     .await?;
 
@@ -442,7 +441,7 @@ async fn recover_post_index_state(
         &post_details.uri,
         &post_details.content,
         &mut PostRelationships::default(), // reindexed from the graph below
-        post_details.kind.clone(),
+        post_details.kind,
     )
     .await?;
 
@@ -475,7 +474,7 @@ async fn sync_edit(
     post_details: PostDetails,
     ingestor: &UserIngestor,
     notify: bool,
-    was_kind: PubkyAppPostKind,
+    was_kind: PostKind,
 ) -> Result<(), EventProcessorError> {
     // Refresh the cached details (always, even for a lock-only toggle).
     post_details.put_to_index(&author_id, None, true).await?;
@@ -500,7 +499,7 @@ async fn sync_edit(
     // Deletes report the prior kind (the tombstone forges a Short); edits the new kind.
     let changed_kind = match change_type {
         PostChangedType::Deleted => was_kind,
-        PostChangedType::Edited => post_details.kind.clone(),
+        PostChangedType::Edited => post_details.kind,
     };
 
     // Send notifications to users who interacted with the post
@@ -509,7 +508,7 @@ async fn sync_edit(
         &post_id,
         &post_details.uri,
         &change_type,
-        changed_kind.clone(),
+        changed_kind,
     )
     .await?;
 
@@ -537,7 +536,7 @@ pub async fn put_mentioned_relationships(
     post_uri: &str,
     content: &str,
     relationships: &mut PostRelationships,
-    post_kind: PubkyAppPostKind,
+    post_kind: PostKind,
 ) -> Result<(), EventProcessorError> {
     // TODO Deprecate, drop support for pk: support in an upcoming release
     // Backwards compatibility: identify user references with "pk:" prefix
@@ -548,7 +547,7 @@ pub async fn put_mentioned_relationships(
         content,
         relationships,
         "pk:",
-        post_kind.clone(),
+        post_kind,
     )
     .await?;
 
@@ -574,7 +573,7 @@ async fn put_mentioned_relationships_for_prefix(
     content: &str,
     relationships: &mut PostRelationships,
     prefix: &str,
-    post_kind: PubkyAppPostKind,
+    post_kind: PostKind,
 ) -> Result<(), EventProcessorError> {
     for pubky_id in find_mentioned_ids(content, prefix) {
         // Create the MENTIONED relationship in the graph
@@ -582,7 +581,7 @@ async fn put_mentioned_relationships_for_prefix(
         exec_single_row(query).await?;
 
         let maybe_mentioned_id =
-            Notification::new_mention(author_id, &pubky_id, post_uri, post_kind.clone()).await?;
+            Notification::new_mention(author_id, &pubky_id, post_uri, post_kind).await?;
         if let Some(mentioned_user_id) = maybe_mentioned_id {
             relationships.mentioned.push(mentioned_user_id);
         }
@@ -617,7 +616,7 @@ fn stored_curated_items(
     post_id: &str,
     post_details: &PostDetails,
 ) -> Vec<(PubkyId, String)> {
-    if post_details.kind != PubkyAppPostKind::Collection {
+    if post_details.kind != PostKind::Collection {
         return Vec::new();
     }
     collection_item_keys(&post_details.content)
@@ -723,7 +722,7 @@ pub async fn sync_del(
     let deleted_kind = if post_in_index {
         post_kind(&author_id, &post_id).await?
     } else {
-        PubkyAppPostKind::Unknown
+        PostKind::Unknown
     };
 
     // The parents to clean up come from the graph, which still has the post because
@@ -798,7 +797,7 @@ pub async fn sync_del(
                         &deleted_uri,
                         PostChangedSource::Reply,
                         &PostChangedType::Deleted,
-                        deleted_kind.clone(),
+                        deleted_kind,
                     )
                     .await?;
                 }
@@ -848,7 +847,7 @@ pub async fn sync_del(
                         &deleted_uri,
                         PostChangedSource::Repost,
                         &PostChangedType::Deleted,
-                        deleted_kind.clone(),
+                        deleted_kind,
                     )
                     .await?;
                 }

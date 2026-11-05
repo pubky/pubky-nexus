@@ -1,5 +1,6 @@
 use crate::event_processor::utils::watcher::{HomeserverHashIdPath, WatcherTest};
 use anyhow::Result;
+use nexus_common::models::post::PostKind;
 use nexus_common::{
     models::notification::{Notification, NotificationBody, PostChangedSource},
     types::Pagination,
@@ -80,7 +81,7 @@ async fn test_delete_bookmarked_post_notification() -> Result<()> {
     {
         assert_eq!(
             post_kind,
-            &PubkyAppPostKind::Short,
+            &PostKind::Short,
             "A deleted note should report post_kind = Short"
         );
         assert_eq!(

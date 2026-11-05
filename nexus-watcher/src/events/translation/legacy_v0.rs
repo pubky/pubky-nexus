@@ -145,17 +145,16 @@ impl UserInput {
                 .links
                 .unwrap_or_default()
                 .into_iter()
-                .map(Into::into)
+                .map(user_link)
                 .collect(),
             status: user.status,
         }
     }
 }
 
-impl From<PubkyAppUserLink> for UserLink {
-    fn from(PubkyAppUserLink { title, url }: PubkyAppUserLink) -> Self {
-        Self { title, url }
-    }
+/// A v0 profile link as a Nexus [`UserLink`].
+fn user_link(PubkyAppUserLink { title, url }: PubkyAppUserLink) -> UserLink {
+    UserLink { title, url }
 }
 
 impl PostInput {
@@ -168,25 +167,24 @@ impl PostInput {
             parent: post.parent.as_deref().map(resolve_reference),
             embed: post.embed.map(|embed| resolve_reference(&embed.uri)),
             content: post.content,
-            kind: post.kind.into(),
+            kind: post_kind(post.kind),
             attachments: post.attachments.unwrap_or_default(),
             lock: post.lock,
         }
     }
 }
 
-impl From<PubkyAppPostKind> for PostKind {
-    fn from(kind: PubkyAppPostKind) -> Self {
-        match kind {
-            PubkyAppPostKind::Short => Self::Short,
-            PubkyAppPostKind::Long => Self::Long,
-            PubkyAppPostKind::Image => Self::Image,
-            PubkyAppPostKind::Video => Self::Video,
-            PubkyAppPostKind::Link => Self::Link,
-            PubkyAppPostKind::File => Self::File,
-            PubkyAppPostKind::Collection => Self::Collection,
-            PubkyAppPostKind::Unknown => Self::Unknown,
-        }
+/// A v0 post kind as a Nexus [`PostKind`].
+fn post_kind(kind: PubkyAppPostKind) -> PostKind {
+    match kind {
+        PubkyAppPostKind::Short => PostKind::Short,
+        PubkyAppPostKind::Long => PostKind::Long,
+        PubkyAppPostKind::Image => PostKind::Image,
+        PubkyAppPostKind::Video => PostKind::Video,
+        PubkyAppPostKind::Link => PostKind::Link,
+        PubkyAppPostKind::File => PostKind::File,
+        PubkyAppPostKind::Collection => PostKind::Collection,
+        PubkyAppPostKind::Unknown => PostKind::Unknown,
     }
 }
 
@@ -692,7 +690,10 @@ mod tests {
             };
             let (key, input) = translate_post(&bytes(&post));
             assert_eq!(input.kind, nexus_kind, "{v0_kind:?}");
-            assert_eq!(input.into_details(&key).kind, v0_kind);
+            assert_eq!(
+                input.into_details(&key).kind.to_string(),
+                v0_kind.to_string()
+            );
         }
     }
 
@@ -708,8 +709,8 @@ mod tests {
         let input = PostInput::from_v0(post, event_uri(&post_path()));
         assert_eq!(input.kind, PostKind::Unknown);
         assert_eq!(
-            input.into_details(&post_key()).kind,
-            PubkyAppPostKind::Unknown
+            input.into_details(&post_key()).kind.to_string(),
+            PubkyAppPostKind::Unknown.to_string()
         );
     }
 

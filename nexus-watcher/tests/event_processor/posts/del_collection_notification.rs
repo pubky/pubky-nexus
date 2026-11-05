@@ -1,14 +1,14 @@
 use super::utils::collection_post;
 use crate::event_processor::utils::watcher::{HomeserverHashIdPath, WatcherTest};
 use anyhow::Result;
+use nexus_common::models::post::PostKind;
 use nexus_common::{
     models::notification::{Notification, NotificationBody, PostChangedSource},
     types::Pagination,
 };
 use pubky::Keypair;
 use pubky_social_specs::legacy_v0::{
-    bookmark_uri_builder, post_uri_builder, traits::HashId, PubkyAppBookmark, PubkyAppPostKind,
-    PubkyAppUser,
+    bookmark_uri_builder, post_uri_builder, traits::HashId, PubkyAppBookmark, PubkyAppUser,
 };
 
 /// Deleting a bookmarked collection (soft-delete tombstone) must still report
@@ -76,7 +76,7 @@ async fn test_delete_bookmarked_collection_notification() -> Result<()> {
     {
         assert_eq!(
             post_kind,
-            &PubkyAppPostKind::Collection,
+            &PostKind::Collection,
             "Deleting a collection should tag the notification with post_kind = Collection (prior kind, via the tombstone)"
         );
         assert_eq!(

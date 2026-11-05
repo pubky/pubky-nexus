@@ -15,7 +15,7 @@ use axum::http::StatusCode;
 use nexus_common::db::{exec_single_row, queries};
 use nexus_common::models::post::{PostCounts, PostDetails, PostRelationships};
 use nexus_common::models::tag::TagDetails;
-use nexus_webapi::models::PubkyAppPostKind;
+use nexus_webapi::models::PostKind;
 
 #[tokio_shared_rt::test(shared)]
 async fn test_get_post_view() -> Result<()> {
@@ -328,9 +328,9 @@ async fn test_get_post_view_with_v1_attachment_has_empty_metadata() -> Result<()
         // The oldest post there is, so it never reaches the first page of any stream.
         indexed_at: 0,
         author: author.to_string(),
-        kind: PubkyAppPostKind::Short,
+        kind: PostKind::Short,
         uri: format!("pubky://{author}/pub/social/v1/posts/{post_id}"),
-        attachments: Some(vec![attachment.clone()]),
+        attachments: vec![attachment.clone()],
         lock: None,
         deleted: false,
     };

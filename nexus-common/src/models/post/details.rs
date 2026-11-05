@@ -1,4 +1,4 @@
-use super::PostStream;
+use super::{PostKind, PostStream};
 use crate::db::kv::RedisResult;
 use crate::db::{
     execute_graph_operation, fetch_all_rows_from_graph, fetch_row_from_graph, queries, GraphResult,
@@ -6,8 +6,7 @@ use crate::db::{
 };
 use crate::models::error::ModelResult;
 use crate::models::ResourceKey;
-use pubky_social_specs::legacy_v0::PubkyAppPostKind;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use utoipa::ToSchema;
 
 /// Represents post data with content, bio, image, links, and status.
@@ -20,9 +19,12 @@ pub struct PostDetails {
     pub id: String,
     pub indexed_at: i64,
     pub author: String,
-    pub kind: PubkyAppPostKind,
+    pub kind: PostKind,
     pub uri: String,
-    pub attachments: Option<Vec<String>>,
+    /// The attachments the author named, in order; an old cached `null` reads as none.
+    #[serde(deserialize_with = "deserialize_attachments", default)]
+    #[schema(required = true)]
+    pub attachments: Vec<String>,
     /// `pubky://` URL of the lock server; `None` when the post is unlocked.
     /// `default` keeps pre-lock cached JSON (no `lock` key) deserializing.
     #[serde(default)]
@@ -35,6 +37,15 @@ pub struct PostDetails {
 }
 
 impl RedisOps for PostDetails {}
+
+/// Reads `null` and a missing value as an empty list. `default` alone misses both: an explicit
+/// `null`, and neo4rs' missing property, which only deserializes as an `Option`.
+fn deserialize_attachments<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Ok(Option::<Vec<String>>::deserialize(deserializer)?.unwrap_or_default())
+}
 
 impl PostDetails {
     /// Retrieves post details by author ID and post ID, first trying to get from Redis, then from Neo4j if not found.
@@ -205,7 +216,6 @@ impl PostDetails {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pubky_social_specs::legacy_v0::PubkyAppPostKind;
 
     #[tokio_shared_rt::test(shared)]
     async fn test_is_different_than() {
@@ -215,9 +225,9 @@ mod tests {
             id: "post1".into(),
             indexed_at: 123456789,
             author: "author1".into(),
-            kind: PubkyAppPostKind::Short,
+            kind: PostKind::Short,
             uri: "uri1".into(),
-            attachments: Some(vec!["image1.jpg".into(), "image2.jpg".into()]),
+            attachments: vec!["image1.jpg".into(), "image2.jpg".into()],
             lock: None,
             deleted: false,
         };
@@ -228,7 +238,7 @@ mod tests {
 
         // Test with same attachments but different order
         let different_order_attachments_post = PostDetails {
-            attachments: Some(vec!["image2.jpg".into(), "image1.jpg".into()]),
+            attachments: vec!["image2.jpg".into(), "image1.jpg".into()],
             ..base_post.clone()
         };
         assert!(base_post.is_different_than(&different_order_attachments_post));
@@ -242,14 +252,14 @@ mod tests {
 
         // Test with different attachments
         let different_attachments_post = PostDetails {
-            attachments: Some(vec!["image3.jpg".to_string()]),
+            attachments: vec!["image3.jpg".to_string()],
             ..base_post.clone()
         };
         assert!(base_post.is_different_than(&different_attachments_post));
 
         // Test with no attachments
         let no_attachments_post = PostDetails {
-            attachments: None,
+            attachments: vec![],
             ..base_post.clone()
         };
         assert!(base_post.is_different_than(&no_attachments_post));
@@ -311,9 +321,9 @@ mod tests {
             id: "p".into(),
             indexed_at: 1,
             author: "a".into(),
-            kind: PubkyAppPostKind::Short,
+            kind: PostKind::Short,
             uri: "u".into(),
-            attachments: None,
+            attachments: vec![],
             lock: None,
             deleted: false,
         };
@@ -343,5 +353,34 @@ mod tests {
         };
         assert!(!live.content_differs_from(&tombstone));
         assert!(live.is_different_than(&tombstone));
+    }
+
+    /// A post cached with `null` attachments equals an incoming copy with none, so a replayed
+    /// unchanged PUT is no edit.
+    #[test]
+    fn test_cached_null_attachments_equal_none() {
+        let cached: PostDetails = serde_json::from_str(
+            r#"{
+                "content": "hi",
+                "id": "post1",
+                "indexed_at": 1,
+                "author": "author1",
+                "kind": "short",
+                "uri": "pubky://author1/pub/pubky.app/posts/post1",
+                "attachments": null
+            }"#,
+        )
+        .unwrap();
+        assert!(cached.attachments.is_empty());
+        let incoming = PostDetails {
+            indexed_at: 2,
+            ..cached.clone()
+        };
+        assert!(!incoming.content_differs_from(&cached));
+        assert!(!incoming.is_different_than(&cached));
+        assert_eq!(
+            serde_json::to_value(&incoming).unwrap()["attachments"],
+            serde_json::json!([])
+        );
     }
 }

@@ -9,9 +9,10 @@ use super::utils::{
 use crate::event_processor::utils::watcher::{generate_post_id, HomeserverHashIdPath, WatcherTest};
 use anyhow::Result;
 use nexus_common::models::post::PostDetails;
+use nexus_common::models::post::PostKind;
 use pubky::{Keypair, ResourcePath};
 use pubky_social_specs::legacy_v0::{
-    post_uri_builder, traits::HasIdPath, PubkyAppBookmark, PubkyAppPost, PubkyAppPostKind,
+    post_uri_builder, traits::HasIdPath, PubkyAppBookmark, PubkyAppPost,
 };
 
 /// One user with two short posts to curate.
@@ -185,7 +186,7 @@ async fn test_collection_soft_delete_uncounts_items() -> Result<()> {
     let placeholder = PostDetails::get_by_id(&f.user_id, &col_id)
         .await?
         .expect("soft-deleted placeholder still present");
-    assert_eq!(placeholder.kind, PubkyAppPostKind::Short);
+    assert_eq!(placeholder.kind, PostKind::Short);
     assert!(placeholder.deleted);
     assert_eq!(placeholder.content, "");
     assert_eq!(collections_count(&f, &f.item_a).await, 0);

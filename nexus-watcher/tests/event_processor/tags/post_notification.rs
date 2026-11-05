@@ -2,14 +2,13 @@ use super::utils::find_post_tag;
 use crate::event_processor::utils::watcher::{HomeserverHashIdPath, WatcherTest};
 use anyhow::Result;
 use chrono::Utc;
+use nexus_common::models::post::PostKind;
 use nexus_common::{
     models::notification::{Notification, NotificationBody},
     types::Pagination,
 };
 use pubky::Keypair;
-use pubky_social_specs::legacy_v0::{
-    post_uri_builder, PubkyAppPost, PubkyAppPostKind, PubkyAppTag, PubkyAppUser,
-};
+use pubky_social_specs::legacy_v0::{post_uri_builder, PubkyAppPost, PubkyAppTag, PubkyAppUser};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_tag_post_notification() -> Result<()> {
@@ -95,7 +94,7 @@ async fn test_homeserver_tag_post_notification() -> Result<()> {
     {
         assert_eq!(
             post_kind,
-            &PubkyAppPostKind::Short,
+            &PostKind::Short,
             "Tagging a note should report post_kind = Short"
         );
         assert_eq!(

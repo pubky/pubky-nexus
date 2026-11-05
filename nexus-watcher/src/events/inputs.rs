@@ -3,17 +3,17 @@
 //! the object holds. The [`ResourceKey`] the event's path names travels beside the input.
 //!
 //! A translator fills them from a validated spec object, so the handlers never see the spec's
-//! object layout, and translation alone decides each object's stored address. The inputs name no
-//! spec type; the stored models they build still do, so each type crosses back beside the method
-//! that builds its model.
+//! object layout, and translation alone decides each object's stored address. Neither the inputs
+//! nor the stored models they build name a spec type.
 
 use chrono::Utc;
 use nexus_common::models::file::{FileDetails, FileUrls};
 use nexus_common::models::post::{PostDetails, PostParent, PostParents};
 use nexus_common::models::user::{Epoch, UserDetails};
-use pubky_social_specs::legacy_v0::{PubkyAppPostKind, PubkyAppUserLink};
 use pubky_social_specs::PubkyId;
 
+pub use nexus_common::models::post::PostKind;
+pub use nexus_common::models::user::UserLink;
 pub use nexus_common::models::ResourceKey;
 
 /// An address one object holds to another: the address as written and what it names.
@@ -62,24 +62,6 @@ impl ReferenceTarget {
     }
 }
 
-/// What kind of post a [`PostInput`] is, in Nexus vocabulary: every epoch's translator maps its
-/// spec's kinds into it.
-///
-/// It never leaves the watcher's memory, so it has no wire names. It moves to nexus-common with
-/// the API work, which puts Nexus-owned types on the stored models.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum PostKind {
-    Short,
-    Long,
-    Image,
-    Video,
-    Link,
-    File,
-    Collection,
-    /// A kind the spec reader didn't recognise.
-    Unknown,
-}
-
 /// A post, as the post handler reads it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PostInput {
@@ -101,8 +83,7 @@ pub struct PostInput {
 }
 
 impl PostInput {
-    /// The details stored for the post. The attachments are stored as a list, even an empty
-    /// one, never `null`.
+    /// The details stored for the post.
     pub fn into_details(self, key: &ResourceKey) -> PostDetails {
         PostDetails {
             uri: self.uri,
@@ -110,8 +91,8 @@ impl PostInput {
             id: key.resource_id.clone(),
             indexed_at: Utc::now().timestamp_millis(),
             author: key.owner_id.to_string(),
-            kind: self.kind.into(),
-            attachments: Some(self.attachments),
+            kind: self.kind,
+            attachments: self.attachments,
             lock: self.lock,
             deleted: false,
         }
@@ -152,34 +133,6 @@ impl PostInput {
     }
 }
 
-/// The stored post details still hold the v0 kind; [`PostInput::into_details`] is the one place
-/// the kind crosses back.
-impl From<PostKind> for PubkyAppPostKind {
-    fn from(kind: PostKind) -> Self {
-        match kind {
-            PostKind::Short => Self::Short,
-            PostKind::Long => Self::Long,
-            PostKind::Image => Self::Image,
-            PostKind::Video => Self::Video,
-            PostKind::Link => Self::Link,
-            PostKind::File => Self::File,
-            PostKind::Collection => Self::Collection,
-            PostKind::Unknown => Self::Unknown,
-        }
-    }
-}
-
-/// One link on a profile, in Nexus vocabulary: every epoch's translator maps its spec's links
-/// into it.
-///
-/// The spec reader has validated and sanitised it before translation. It moves to nexus-common
-/// with the API work, which puts Nexus-owned types on the stored models.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct UserLink {
-    pub title: String,
-    pub url: String,
-}
-
 /// A profile, as the user handler reads it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct UserInput {
@@ -194,28 +147,19 @@ pub struct UserInput {
 }
 
 impl UserInput {
-    /// The details cached for the profile; [`UserInput::uri`] goes to the graph only. The links
-    /// are stored as a list, even an empty one, never `null`.
+    /// The details cached for the profile; [`UserInput::uri`] goes to the graph only.
     pub fn into_details(self, user_id: &PubkyId) -> UserDetails {
         UserDetails {
             name: self.name,
             bio: self.bio,
             status: self.status,
-            links: Some(self.links.into_iter().map(Into::into).collect()),
+            links: self.links,
             image: self.image,
             id: user_id.clone(),
             indexed_at: Utc::now().timestamp_millis(),
             deleted: false,
             epoch: Epoch::V0,
         }
-    }
-}
-
-/// The stored user details still hold v0 links; [`UserInput::into_details`] is the one place the
-/// links cross back.
-impl From<UserLink> for PubkyAppUserLink {
-    fn from(UserLink { title, url }: UserLink) -> Self {
-        Self { title, url }
     }
 }
 
