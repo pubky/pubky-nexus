@@ -49,12 +49,17 @@ impl PostKind {
     }
 
     /// The `social/v1` name, for the `/v1` API: `Short` is `note`, `Long` is `article`, the
-    /// rest keep their name.
+    /// rest keep their name. Every variant is spelled out, so a new one needs its v1 name here.
     pub fn v1_name(self) -> &'static str {
         match self {
             Self::Short => "note",
             Self::Long => "article",
-            other => other.as_str(),
+            Self::Image => "image",
+            Self::Video => "video",
+            Self::Link => "link",
+            Self::File => "file",
+            Self::Collection => "collection",
+            Self::Unknown => "unknown",
         }
     }
 }

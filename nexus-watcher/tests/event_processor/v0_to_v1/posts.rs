@@ -64,8 +64,8 @@ async fn has_attachments_property(author_id: &str, post_id: &str) -> Result<bool
 }
 
 /// What the migration leaves for a post and the posts that point at it, through the API models
-/// and the graph: the stored address, the graph details, the served details and the served
-/// relationships of each child.
+/// and the graph: the stored address, the graph details, whether the node holds an attachments
+/// list at all, the served details and the served relationships of each child.
 async fn snapshot(
     author_id: &str,
     post_ids: &[String],
@@ -80,6 +80,7 @@ async fn snapshot(
             "id": post_id,
             "uri": find_post_uri(author_id, post_id).await,
             "graph": find_post_details(author_id, post_id).await?,
+            "has_attachments": has_attachments_property(author_id, post_id).await?,
             "served": served.details,
         }));
     }
