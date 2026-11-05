@@ -7,11 +7,14 @@
 //!
 //! The graph's `scope_state` is the one record of who is an outsider: every check reads it.
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use crate::db::kv::{RedisError, RedisResult};
 use crate::db::{exec_single_row, fetch_key_from_graph, queries};
 use crate::models::error::{ModelError, ModelResult};
 use crate::models::post::trust_filter;
 use crate::models::user::{UserDetails, UsersByTagSearch};
+use crate::ScopeConfig;
 
 /// `scope_state` of a user known to this Nexus but outside its scope.
 pub const SCOPE_STATE_OUTSIDE: &str = "outside";
@@ -36,6 +39,27 @@ pub async fn is_unread(user_id: &str) -> ModelResult<bool> {
         scope_state.flatten().as_deref(),
         Some(SCOPE_STATE_OUTSIDE | SCOPE_STATE_LEFT)
     ))
+}
+
+/// Whether the scope of this process can hold outsiders. Only `nexusd` sets it, from its
+/// configured scope; unset, it stays `true`, so no check is ever skipped by accident.
+static OUTSIDERS_POSSIBLE: AtomicBool = AtomicBool::new(true);
+
+/// Records whether `scope` can hold outsiders: "everything" lets every user in, so it holds
+/// none, and [`is_kept_out_of_global`] needs no lookup.
+pub fn set_outsiders_possible(scope: &ScopeConfig) {
+    let possible = !matches!(scope, ScopeConfig::Everything);
+    OUTSIDERS_POSSIBLE.store(possible, Ordering::Relaxed);
+}
+
+/// Whether the author's posts and tags stay out of the global feeds, searches and tag
+/// lists: [`is_outsider`], which these ask for every post and tag they take, without the
+/// lookup in a process whose scope holds no outsiders.
+pub async fn is_kept_out_of_global(user_id: &str) -> RedisResult<bool> {
+    if !OUTSIDERS_POSSIBLE.load(Ordering::Relaxed) {
+        return Ok(false);
+    }
+    is_outsider(user_id).await
 }
 
 /// Creates the node of a user met outside the scope, already an outsider.
@@ -160,6 +184,35 @@ mod tests {
             "an outsider's post stays out of the shared feed"
         );
         assert!(in_scope?, "control: in scope, the same post is served");
+        Ok(())
+    }
+
+    /// The global feeds look an outsider up unless the process's scope holds none: unset,
+    /// it is looked up; with "everything", it is taken without a lookup.
+    #[tokio_shared_rt::test(shared)]
+    async fn the_global_feeds_look_outsiders_up_only_where_the_scope_holds_them(
+    ) -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+        let user_id = pubky::Keypair::random().public_key().to_z32();
+        let pubky_id = pubky_app_specs::PubkyId::try_from(user_id.as_str())?;
+        super::create_outsider(&crate::models::user::UserDetails::from_pubky(pubky_id)).await?;
+
+        let unset = super::is_kept_out_of_global(&user_id).await;
+        super::set_outsiders_possible(&crate::ScopeConfig::Everything);
+        let everything = super::is_kept_out_of_global(&user_id).await;
+        super::OUTSIDERS_POSSIBLE.store(true, std::sync::atomic::Ordering::Relaxed);
+        let outsider = super::is_outsider(&user_id).await;
+
+        let delete = Query::new(
+            "test_delete_outsider",
+            "MATCH (u:User {id: $id}) DETACH DELETE u",
+        )
+        .param("id", user_id.clone());
+        exec_single_row(delete).await?;
+
+        assert!(unset?, "looked up while the scope isn't known");
+        assert!(!everything?, "everything holds no outsiders");
+        assert!(outsider?, "still an outsider in the graph");
         Ok(())
     }
 

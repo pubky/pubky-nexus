@@ -1,4 +1,4 @@
-use super::{is_outsider, UserDetails};
+use super::{is_kept_out_of_global, UserDetails};
 use crate::db::graph::Query;
 use crate::db::kv::{RedisResult, SortOrder};
 use crate::db::{get_neo4j_graph, queries, GraphError, GraphResult, RedisOps};
@@ -177,7 +177,7 @@ impl UsersByTagSearch {
     pub async fn sync_index_score(user_id: &str, label: &str) -> RedisResult<()> {
         // An outsider's profile is never read: ranked, it would show as a blank card. Its
         // labels are synced when it joins the scope (`admit_outsider`).
-        if is_outsider(user_id).await? {
+        if is_kept_out_of_global(user_id).await? {
             return Ok(());
         }
         let details_key = format!("{}:{}", UserDetails::prefix().await, user_id);
