@@ -5,10 +5,11 @@
 //! copied; the API derives variants on first request.
 //!
 //! The flip reads the graph, Redis and the legacy folders only: no homeserver fetch, so no fetch
-//! error can decide a flip. A blob with no legacy `main` that passes its hash is skipped with an
-//! `error!` naming the user and the address, and the flip goes on; the address stays a 404 until
-//! a later read of its PUT event or a new upload. A read that fails other than by absence, or a
-//! failed write, is [`EventProcessorError::MigrationDiskFailed`]: the copy step fails as a
+//! error can decide a flip. A blob with no legacy `main` that can be read and passes its hash is
+//! skipped with an `error!` naming the user and the address, and the flip goes on; the address
+//! stays a 404 until a later read of its PUT event or a new upload. A legacy `main` that cannot
+//! be read counts as missing: one bad folder must not hold the user at `v0`. A failed write is
+//! [`EventProcessorError::MigrationDiskFailed`]: the copy step fails as a
 //! [`EventProcessorError::FlipFailed`], retried without limit while the user stays at `v0`. The
 //! retry runs the copy again, and it skips what already exists.
 
@@ -110,9 +111,9 @@ where
 }
 
 /// The bytes of the first legacy `main` of `blob`'s group that hashes to the blob, lowest
-/// `tsid` first; `None` when no file of the group has one. A missing `main` is skipped, and a
-/// `main` with other bytes is skipped with a warning; any other read failure is the disk error
-/// it is.
+/// `tsid` first; `None` when no file of the group has one. A missing `main` is skipped, a
+/// `main` that cannot be read is skipped with an error, and a `main` with other bytes is
+/// skipped with a warning: none of them is a reason to hold the flip.
 async fn read_source(
     owner: &PubkyId,
     blob: &Blob,
@@ -126,7 +127,10 @@ async fn read_source(
                 debug!(user_id = %owner, file_id = %tsid, "Legacy main is not on disk");
                 continue;
             }
-            Err(e) => return Err(EventProcessorError::migration_disk_failed(e)),
+            Err(e) => {
+                error!(user_id = %owner, file_id = %tsid, error = %e, "Legacy main cannot be read; trying the next file of the blob");
+                continue;
+            }
         };
         match read_v1_file(bytes, &blob.hash).await {
             Ok(bytes) => return Ok(Some(bytes)),
@@ -508,26 +512,40 @@ mod tests {
         assert!(temp_files(dir.path()).await.is_empty());
     }
 
-    /// A legacy `main` that cannot be read, other than by not being there, is the migration's
-    /// disk error too: the flip must not treat an unreadable disk as a missing file.
+    /// A legacy `main` that cannot be read, other than by not being there, is skipped with an
+    /// error naming the file, as a missing one is: the group's next file is the source, and a
+    /// blob with no readable source is not copied. The flip passes, so one bad folder cannot
+    /// hold the user at `v0`.
     #[tokio::test]
-    async fn a_failed_read_of_a_legacy_main_is_a_migration_disk_error() {
+    #[tracing_test::traced_test]
+    async fn an_unreadable_legacy_main_is_skipped_and_the_next_file_is_the_source() {
         let dir = TempDir::new().unwrap();
-        let files = [LegacyFile::new("0032SSN7Q4EVG", b"copy:unreadable", "image/png").missing()];
+        let files = [
+            LegacyFile::new("0032SSN7Q4EVG", b"copy:unreadable", "image/png").missing(),
+            LegacyFile::new("0032SSN7Q4EVH", b"copy:unreadable", "image/png"),
+            LegacyFile::new("0032SSN7Q4EVJ", b"copy:unreadable:alone", "image/png").missing(),
+        ];
         let map = seed(dir.path(), &files).await;
-        // A directory where the legacy `main` should be: reading it fails, and not with NotFound.
-        fs::create_dir_all(files[0].legacy_main(dir.path()))
-            .await
-            .unwrap();
+        // A directory where a legacy `main` should be: reading it fails, and not with NotFound.
+        for file in [&files[0], &files[2]] {
+            fs::create_dir_all(file.legacy_main(dir.path()))
+                .await
+                .unwrap();
+        }
 
-        let err = copy_with(&owner(), &map, dir.path(), nothing_taken_down)
+        copy_with(&owner(), &map, dir.path(), nothing_taken_down)
             .await
-            .expect_err("an unreadable legacy main must fail the flip");
+            .expect("an unreadable legacy main must not fail the flip");
 
-        assert!(
-            matches!(err, EventProcessorError::MigrationDiskFailed(_)),
-            "{err:?}"
+        assert_eq!(
+            v1_main(dir.path(), &files[0].hash(), "png")
+                .await
+                .as_deref(),
+            Some(b"copy:unreadable".as_slice()),
+            "the group's readable file is the source"
         );
-        assert!(!v1_folder(dir.path(), &files[0].hash(), "png").exists());
+        assert!(!v1_folder(dir.path(), &files[2].hash(), "png").exists());
+        assert!(logs_contain("Legacy main cannot be read"));
+        assert!(logs_contain(&v1_uri(&files[2].hash(), "png")));
     }
 }
