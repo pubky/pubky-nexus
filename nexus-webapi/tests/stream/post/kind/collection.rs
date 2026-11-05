@@ -1,6 +1,6 @@
 use super::{
-    ALL_COLLECTIONS, COL_BOGOTA_1, COL_BOGOTA_2, COL_BOGOTA_MALF, COL_BOGOTA_NEST, COL_CAIRO,
-    EIXAMPLE, SHORT_BOGOTA,
+    ALL_COLLECTIONS, COL_BOGOTA_1, COL_BOGOTA_2, COL_BOGOTA_MALF, COL_BOGOTA_NEST, COL_BOGOTA_V1,
+    COL_CAIRO, EIXAMPLE, SHORT_BOGOTA,
 };
 use crate::stream::post::utils::{ids_in, verify_post_list_kind};
 use crate::stream::post::BOGOTA;
@@ -26,6 +26,7 @@ async fn test_stream_collection_post_kind() -> Result<()> {
         COL_CAIRO,
         COL_BOGOTA_2,
         COL_BOGOTA_1,
+        COL_BOGOTA_V1,
     ];
     verify_post_list_kind(post_list, body, KIND);
 
@@ -37,7 +38,13 @@ async fn test_stream_collection_post_kind_with_author() -> Result<()> {
     let path = format!("{ROOT_PATH}?kind=collection&author_id={BOGOTA}&source=author");
 
     let body = get_request(&path).await?;
-    let post_list = vec![COL_BOGOTA_NEST, COL_BOGOTA_MALF, COL_BOGOTA_2, COL_BOGOTA_1];
+    let post_list = vec![
+        COL_BOGOTA_NEST,
+        COL_BOGOTA_MALF,
+        COL_BOGOTA_2,
+        COL_BOGOTA_1,
+        COL_BOGOTA_V1,
+    ];
     verify_post_list_kind(post_list, body, KIND);
 
     Ok(())
@@ -205,6 +212,24 @@ async fn test_source_collection_returns_items_in_curator_order() -> Result<()> {
         ids,
         vec![POST_A.to_string(), POST_C.to_string(), POST_K.to_string()],
         "source=collection must return live items in curator order, with missing/non-post URIs dropped"
+    );
+    Ok(())
+}
+
+/// A `social/v1` envelope lists `{uri, note}` items, addressed in either epoch. Seed:
+/// COL_BOGOTA_V1 lists POST_C by its `pubky.app` address, POST_K by its `social/v1`
+/// address, then a user and a web URL; only the two posts are served, in curator order.
+#[tokio_shared_rt::test(shared)]
+async fn test_source_collection_serves_v1_envelope_items_in_curator_order() -> Result<()> {
+    let path = format!(
+        "{ROOT_PATH}?source=collection&author_id={BOGOTA}&post_id={COL_BOGOTA_V1}&limit=50"
+    );
+    let body = get_request(&path).await?;
+    let ids = ids_in(&body);
+    assert_eq!(
+        ids,
+        vec![POST_C.to_string(), POST_K.to_string()],
+        "a v1 envelope must serve its posts of either epoch in curator order, the user and URL items dropped"
     );
     Ok(())
 }
