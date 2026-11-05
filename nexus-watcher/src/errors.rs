@@ -127,12 +127,13 @@ pub enum EventProcessorError {
     #[error("StaticSaveFailed: {0}")]
     StaticSaveFailed(String),
 
-    /// The flip's copy of a user's files could not read a legacy `main`, other than by its
-    /// absence, or could not write a `social/v1` one: a full disk, permissions. It only ever
-    /// leaves the copy step wrapped in [`Self::FlipFailed`], so its retry class is the flip's:
-    /// enqueued, never a batch stop, and no limit while the user is `v0`. So a full disk can
-    /// never dead-letter a flip, nor can one unreadable folder stall the homeserver's run: the
-    /// retry runs the whole flip again, and the copy skips what already exists. A file PUT's
+    /// The flip's copy of a user's files could not check for, write or remove a `social/v1`
+    /// copy: a full disk, permissions. A legacy `main` that cannot be read is not this error:
+    /// the copy skips it like a missing one. It only ever leaves the copy step wrapped in
+    /// [`Self::FlipFailed`], so its retry class is the flip's: enqueued, never a batch stop, and
+    /// no limit while the user is `v0`. So a full disk can never dead-letter a flip, nor can one
+    /// bad folder stall the homeserver's run: the retry runs the whole flip again, and the copy
+    /// skips what already exists. A file PUT's
     /// own failed write stays the counted [`Self::StaticSaveFailed`]: there the cost of giving
     /// up is one file, here it is a user stuck at `v0`.
     #[error("MigrationDiskFailed: {0}")]

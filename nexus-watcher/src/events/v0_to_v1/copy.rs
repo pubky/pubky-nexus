@@ -8,8 +8,9 @@
 //! error can decide a flip. A blob with no legacy `main` that can be read and passes its hash is
 //! skipped with an `error!` naming the user and the address, and the flip goes on; the address
 //! stays a 404 until a later read of its PUT event or a new upload. A legacy `main` that cannot
-//! be read counts as missing: one bad folder must not hold the user at `v0`. A failed write is
-//! [`EventProcessorError::MigrationDiskFailed`]: the copy step fails as a
+//! be read counts as missing: one bad folder must not hold the user at `v0`. A copy that cannot
+//! be checked for, written or removed is [`EventProcessorError::MigrationDiskFailed`]: the copy
+//! step fails as a
 //! [`EventProcessorError::FlipFailed`], retried without limit while the user stays at `v0`. The
 //! retry runs the copy again, and it skips what already exists.
 //!
