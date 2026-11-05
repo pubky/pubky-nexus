@@ -16,6 +16,7 @@ use pubky_social_specs::{file_uri_builder, PubkyId};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::fs::{self, remove_dir_all};
+use tokio::io::AsyncWriteExt;
 use tracing::{debug, warn};
 
 use crate::events::inputs::{FileInput, ResourceKey};
@@ -144,10 +145,18 @@ pub(crate) fn main_path(folder: &Path) -> PathBuf {
     folder.join(FileVariant::Main.to_string())
 }
 
+/// Writes `bytes` to a new file at `path` and syncs it to disk before returning, so a rename
+/// that follows never puts a file whose bytes are still in the page cache under its final name.
+async fn write_synced(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    let mut file = fs::File::create(path).await?;
+    file.write_all(bytes).await?;
+    file.sync_all().await
+}
+
 /// Writes `bytes` as the `main` of the `social/v1` file whose folder is `folder`, under
-/// `files_path`: into a temp file in `files_path/v1/.tmp` first, then a rename into place.
-/// Never a direct write: a crash leaves no partial file under the final name, so an existing
-/// `main` always means a complete one, and a `main` being served is replaced whole, never
+/// `files_path`: into a temp file in `files_path/v1/.tmp` first, synced to disk, then a rename
+/// into place. Never a direct write: a crash, a power loss included, leaves no partial file
+/// under the final name, so an existing `main` always means a complete one, and a `main` being served is replaced whole, never
 /// truncated while a reader has it open. The folder is made only once the temp file is
 /// written, right before the rename, so a failed write leaves no empty folder under the final
 /// name; a failed rename removes the temp file, and the folder too when this call made it.
@@ -172,7 +181,7 @@ pub(crate) async fn write_v1_main(
     ));
 
     let renamed = async {
-        fs::write(&temp_path, bytes).await?;
+        write_synced(&temp_path, bytes).await?;
         let created = create_folder(folder).await?;
         let renamed = fs::rename(&temp_path, main_path(folder)).await;
         if renamed.is_err() && created {
