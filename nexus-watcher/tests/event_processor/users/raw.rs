@@ -47,6 +47,11 @@ async fn test_homeserver_user_put_event() -> Result<()> {
 
     let result_links = user_details.links;
     let expected_links = user.links.unwrap_or_default();
+    assert_eq!(
+        result_links.len(),
+        expected_links.len(),
+        "Every link is stored."
+    );
     for (result_link, expected_link) in result_links.iter().zip(expected_links.iter()) {
         assert_eq!(
             result_link.title, expected_link.title,

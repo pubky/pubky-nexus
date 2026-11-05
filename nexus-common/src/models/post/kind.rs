@@ -24,16 +24,6 @@ pub enum PostKind {
 }
 
 impl PostKind {
-    const KNOWN: [Self; 7] = [
-        Self::Short,
-        Self::Long,
-        Self::Image,
-        Self::Video,
-        Self::Link,
-        Self::File,
-        Self::Collection,
-    ];
-
     /// The stored and `/v0` name, as serde writes it.
     pub fn as_str(self) -> &'static str {
         match self {
@@ -70,15 +60,16 @@ impl fmt::Display for PostKind {
     }
 }
 
-/// Strict: only a known kind's name parses, so `unknown` is an error too.
+/// Strict: only a known kind's name parses, so `unknown` is an error too. It reads the names the
+/// serde derive generates, so a new variant parses with no second list to keep in step.
 impl FromStr for PostKind {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::KNOWN
-            .into_iter()
-            .find(|kind| kind.as_str() == s)
-            .ok_or_else(|| format!("Invalid content kind: {s}"))
+        match serde_json::from_value(serde_json::Value::from(s)) {
+            Ok(kind) if kind != Self::Unknown => Ok(kind),
+            _ => Err(format!("Invalid content kind: {s}")),
+        }
     }
 }
 
