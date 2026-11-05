@@ -2559,11 +2559,13 @@ async fn test_graph_error_on_the_flip_is_rescheduled_without_counting_and_stops_
 }
 
 // ============================================================================
-// A `v0` user's `pubky.app` DELs are deferred while their flip waits in the queue
+// A `v0` user's `pubky.app` DELs and `social/v1` writes are deferred while their flip
+// waits in the queue
 // The migrator writes the flip last; an old client may still delete the `pubky.app`
-// copies after it. A flip whose step failed sits in the retry queue with the user
-// still at `v0`; the DELs that follow would otherwise be handled and delete what the
-// flip's internal migration is about to move. These tests drive the events through
+// copies after it, and the user writes from their `v1` app. A flip whose step failed
+// sits in the retry queue with the user still at `v0`; the DELs that follow would
+// otherwise be handled and delete what the flip's internal migration is about to move,
+// and the writes ignored and lost. These tests drive the events through
 // the primary runner and the retry processor with the real handler, one in-memory
 // queue shared by the scheduler, the handler's gate and the processor.
 // ============================================================================
@@ -2731,6 +2733,127 @@ async fn test_pubky_app_dels_of_a_v0_user_are_deferred_while_their_flip_is_queue
 
     exec_single_row(queries::del::delete_post(&user_id, &post_id)).await?;
     exec_single_row(queries::del::delete_user(&user_id)).await?;
+    Ok(())
+}
+
+/// A failed flip step does not stop the batch, so the user's next events are handled while
+/// they are still `v0`: a `social/v1` post they write behind the flip is held as a missing
+/// dependency on it, not ignored and lost. Once the row reads again the flip lands first and
+/// the held post is indexed at its `v1` address.
+#[tokio_shared_rt::test(shared)]
+async fn test_a_social_v1_write_behind_a_failed_flip_is_held_and_indexed_once_the_flip_lands(
+) -> Result<()> {
+    setup().await?;
+
+    let user = random_pubky_id();
+    let user_id = user.to_string();
+    // No epoch on the node: the user reads as `v0`
+    UserDetails::from_pubky(user.clone()).put_to_graph().await?;
+
+    let (post, post_id, post_uri) = pubky_app_post(&user_id, "Retry:Defer:Write:Old");
+    let flip_uri = social_v1_profile_uri(&user_id);
+    let profile = PubkySocialUser::new("Retry:Defer:Write".to_string(), None, None, None, None);
+    // The user's first post from their `v1` app, written right after the migrator's run
+    let new_post = PubkySocialPost::new(
+        "Retry:Defer:Write:New".to_string(),
+        PubkySocialPostKind::Note,
+        None,
+        None,
+        vec![],
+    );
+    let new_post_id = new_post.create_id();
+    let new_post_uri = format!(
+        "pubky://{user_id}{}",
+        PubkySocialPost::create_path_in(Root::Pub, &new_post_id, &new_post_id, None)
+    );
+
+    let client = Arc::new(
+        MockHomeserverClient::default()
+            .with_lines(batch([
+                format!("PUT {flip_uri}"),
+                format!("PUT {new_post_uri}"),
+            ]))
+            .with_resource(&post_uri, serde_json::to_vec(&post)?)
+            .with_resource(&flip_uri, serde_json::to_vec(&profile)?)
+            .with_resource(&new_post_uri, serde_json::to_vec(&new_post)?),
+    );
+    let store = new_in_memory_store();
+    let files = tempfile::TempDir::new()?;
+    let handler = default_handler(client.clone(), &files, store.clone());
+    retrieve_and_handle_event_line(&format!("PUT {post_uri}"), handler.clone()).await?;
+    // The flip's posts step fails on this row; the graph answers every other query
+    let indexed_at = find_post_details(&user_id, &post_id).await?.indexed_at;
+    corrupt_post_indexed_at(&user_id, &post_id).await?;
+    let runner = primary_runner(client, handler.clone(), store.clone()).await?;
+
+    let now = Utc::now().timestamp_millis();
+    runner
+        .run_internal()
+        .await
+        .expect("a queued flip and a held write must not fail the batch");
+
+    let held = store
+        .get(&IndexKey::for_uri(&new_post_uri))
+        .await?
+        .expect("the write behind the flip must be queued, not ignored");
+    assert_eq!(held.event_type, EventType::Put);
+    assert!(
+        held.next_retry_at >= now + MISSING_DEP_MS,
+        "the write is queued with the dependency class"
+    );
+    assert!(
+        PostDetails::get_from_graph(&user_id, &new_post_id)
+            .await?
+            .is_none(),
+        "the held write indexes nothing while the user is v0"
+    );
+    assert_eq!(find_user_epoch(&user_id).await, None);
+
+    // The row reads again; both entries due, the flip first
+    restore_post_indexed_at(&user_id, &post_id, indexed_at).await?;
+    let now = Utc::now().timestamp_millis();
+    store
+        .put(&RetryEvent {
+            next_retry_at: now - 2000,
+            ..ready_put_entry(&flip_uri, 1)
+        })
+        .await?;
+    store
+        .put(&RetryEvent {
+            next_retry_at: now - 1000,
+            ..ready_put_entry(&new_post_uri, 1)
+        })
+        .await?;
+
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let processor = build_processor(
+        store.clone(),
+        create_test_config(MAX_RETRIES, MAX_DEPENDENCY_RETRIES, 10, 3600, 60, 3600),
+        handler,
+        shutdown_rx,
+    );
+    processor
+        .run_internal()
+        .await
+        .expect("the flip and the released write must not fail the batch");
+
+    assert_eq!(find_user_epoch(&user_id).await.as_deref(), Some("v1"));
+    assert_eq!(
+        find_post_uri(&user_id, &new_post_id).await.as_deref(),
+        Some(v1_post_uri_builder(user_id.clone(), new_post_id.clone()).as_str()),
+        "the held write is indexed at its v1 address once the flip lands"
+    );
+    for uri in [&flip_uri, &new_post_uri] {
+        assert!(
+            store.get(&IndexKey::for_uri(uri)).await?.is_none(),
+            "the entry of {uri} must leave the queue"
+        );
+    }
+
+    exec_single_row(queries::del::delete_post(&user_id, &post_id)).await?;
+    exec_single_row(queries::del::delete_post(&user_id, &new_post_id)).await?;
+    handlers::user::del(user).await?;
+    let _ = shutdown_tx.send(true);
     Ok(())
 }
 

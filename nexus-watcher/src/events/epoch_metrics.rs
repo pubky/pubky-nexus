@@ -1,8 +1,8 @@
 //! The operator-visible signal for events skipped by epoch: one counter labelled by `epoch`,
 //! `resource` and `reason` only, never by user or object id. `reason` tells the skips apart:
 //! `not_indexed` for an epoch the parse step does not index, `gated` for an event of an epoch its
-//! user is not read through, `deferred` for a `pubky.app` DEL held while its user's flip waits in
-//! the retry queue. v0 skips at parse (last-read, feed, blob, mute, another app's tag folder) are
+//! user is not read through, `deferred` for a `v0` user's `pubky.app` DEL or `social/v1` write
+//! held while their flip waits in the retry queue. v0 skips at parse (last-read, feed, blob, mute, another app's tag folder) are
 //! uncounted, so the signal stays about epochs.
 
 use super::classify::SkipReason;
@@ -28,7 +28,8 @@ const UNKNOWN: &str = "unknown";
 const NOT_INDEXED: &str = "not_indexed";
 /// `reason` of a skip by the gate: the event's epoch is not the one its user is read through.
 const GATED: &str = "gated";
-/// `reason` of a deferral by the gate: a `pubky.app` DEL of a `v0` user whose flip is queued.
+/// `reason` of a deferral by the gate: a `pubky.app` DEL or a `social/v1` write of a `v0` user
+/// whose flip is queued.
 const DEFERRED: &str = "deferred";
 
 /// Counts and logs a skip the parse step decided for `uri`.
@@ -49,8 +50,8 @@ pub(super) fn record_gated(target: &EventTarget, uri: &str, user_epoch: Epoch) {
     count(target, GATED);
 }
 
-/// Counts and logs a `pubky.app` DEL at `uri` the gate deferred until the flip at `flip_uri`,
-/// its user's queued `social/v1` profile PUT, lands.
+/// Counts and logs an event at `uri` the gate deferred until the flip at `flip_uri`, its
+/// user's queued `social/v1` profile PUT, lands.
 pub(super) fn record_deferred(target: &EventTarget, uri: &str, flip_uri: &str) {
     debug!(
         %uri,

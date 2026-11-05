@@ -69,7 +69,10 @@ pub enum EventProcessorError {
     /// `max_retries`, and no limit while the user is still `v0` in the graph
     /// (`RetryProcessor::limit_reached`). Losing a flip would strand its user at `v0`, so a
     /// Neo4j or Redis outage of any length delays it instead; a bug in a migration query pins
-    /// the affected flips hourly, in the queue and the logs, until a release fixes it.
+    /// the affected flips hourly, in the queue and the logs, until a release fixes it. Never a
+    /// batch stop, so the user's next events are handled while they are still `v0`: the gate
+    /// holds their `pubky.app` DELs and `social/v1` writes until the flip lands (`Gate::Defer`),
+    /// each for the dependency limit.
     #[error("FlipFailed at step `{step}`: {source}")]
     FlipFailed {
         step: &'static str,

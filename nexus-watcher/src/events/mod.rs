@@ -107,10 +107,12 @@ impl DefaultEventHandler {
 impl EventHandler for DefaultEventHandler {
     async fn handle(&self, event: &Event) -> Result<(), EventProcessorError> {
         // Before any fetch. An ignored event stores no event line, and `Ok` moves the cursor
-        // on and removes its retry entry. A deferred DEL waits on the flip as a tag waits on
-        // its post: queued with the dependency class and held while the flip's entry is in
-        // the queue; after the flip the user is at `v1` and the gate ignores it. A flip
-        // dropped or dead-lettered on retry frees the DELs, which then run against `v0`.
+        // on and removes its retry entry. A deferred event, a `v0` user's `pubky.app` DEL or
+        // `social/v1` write, waits on the flip as a tag waits on its post: queued with the
+        // dependency class and held while the flip's entry is in the queue; after the flip
+        // the user is at `v1`, the gate ignores the DEL and handles the write. A flip dropped
+        // or dead-lettered on retry frees them: the DELs then run against `v0` and the writes
+        // are ignored.
         let gate = match gate::check(event, self.retry_store.as_ref()).await? {
             Gate::Ignore => return Ok(()),
             Gate::Defer => {
