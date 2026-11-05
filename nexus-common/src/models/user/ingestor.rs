@@ -96,6 +96,23 @@ impl UserIngestor {
         &self,
         user_id: &PubkyId,
     ) -> ModelResult<Option<(String, StoredRecord)>> {
+        self.resolve_with(user_id, false).await
+    }
+
+    /// [`Self::resolve_unless_blacklisted`] from the user's newest record, past any cached
+    /// one: for a user that may have just moved.
+    pub async fn resolve_latest_unless_blacklisted(
+        &self,
+        user_id: &PubkyId,
+    ) -> ModelResult<Option<(String, StoredRecord)>> {
+        self.resolve_with(user_id, true).await
+    }
+
+    async fn resolve_with(
+        &self,
+        user_id: &PubkyId,
+        latest: bool,
+    ) -> ModelResult<Option<(String, StoredRecord)>> {
         // `user_id` may itself be an HS PK (e.g. a file `src` of the form
         // `pubky://<hs_pk>/...` that addresses the HS directly). The resolver
         // returns no HS for an HS PK, so without this self-check a blacklisted HS
@@ -106,11 +123,13 @@ impl UserIngestor {
             });
         }
 
-        let record = self
-            .resolver
-            .resolve_own_record(&user_id.to_public_key())
-            .await
-            .map_err(ModelError::from_generic)?;
+        let user_pk = user_id.to_public_key();
+        let record = if latest {
+            self.resolver.resolve_own_latest_record(&user_pk).await
+        } else {
+            self.resolver.resolve_own_record(&user_pk).await
+        }
+        .map_err(ModelError::from_generic)?;
         let (Some(stored), Some(hs_pk)) = (record.stored(), record.homeserver()) else {
             return Ok(None);
         };

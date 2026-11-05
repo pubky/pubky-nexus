@@ -4,7 +4,9 @@ use std::time::Duration;
 
 use futures::{FutureExt, Stream, StreamExt};
 use nexus_common::db::PubkyClientResult;
-use nexus_common::models::user::{pkdns_record_of, PkdnsHomeserverResolver, PkdnsRecord};
+use nexus_common::models::user::{
+    latest_pkdns_record_of, pkdns_record_of, PkdnsHomeserverResolver, PkdnsRecord,
+};
 use nexus_common::WatcherConfig;
 use opentelemetry::metrics::Counter;
 use opentelemetry::{global, KeyValue};
@@ -205,6 +207,10 @@ where
 impl PkdnsHomeserverResolver for PubkyHomeserverClient {
     async fn resolve_record(&self, user_pk: &PublicKey) -> PubkyClientResult<PkdnsRecord> {
         Ok(pkdns_record_of(&self.pubky, user_pk).await)
+    }
+
+    async fn resolve_latest_record(&self, user_pk: &PublicKey) -> PubkyClientResult<PkdnsRecord> {
+        Ok(latest_pkdns_record_of(&self.pubky, user_pk).await)
     }
 }
 
