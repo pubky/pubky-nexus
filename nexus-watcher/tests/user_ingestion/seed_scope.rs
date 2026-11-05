@@ -1,8 +1,9 @@
-use super::utils::user_on;
+use super::utils::{create_external_test_homeserver, user_on};
 use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
 use nexus_common::db::graph::Query;
 use nexus_common::db::{exec_single_row, fetch_key_from_graph, queries};
+use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::scope::{Scope, SeedScope};
 use nexus_common::models::user::outsider::create_outsider;
 use nexus_common::models::user::{
@@ -321,6 +322,37 @@ async fn test_a_member_whose_profile_is_deleted_is_still_read() -> Result<()> {
         "still polled, so its new profile is read"
     );
     assert!(members.contains_key(friend.as_ref()), "a member once back");
+    Ok(())
+}
+
+/// A member alone on its homeserver whose profile is deleted keeps that homeserver
+/// polled, so a profile it writes later is read there.
+#[tokio_shared_rt::test(shared)]
+async fn test_the_homeserver_of_a_member_whose_profile_is_deleted_is_still_polled() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let own_hs = create_external_test_homeserver(&mut test).await?;
+    let (_, seed) = user_on(&test, &test.homeserver_id.to_public_key()).await?;
+    let (_, friend) = user_on(&test, &own_hs).await?;
+    let moderator = random_pubky_id();
+    let (ingestor, maintainer) = seed_maintainer(&seed, 1, &moderator, &[&seed, &friend]);
+    ingestor.maybe_ingest_user(&seed).await?;
+    follow(&seed, &friend, &ingestor).await?;
+    maintainer.at_start().await?;
+    let before = Homeserver::get_all_active_from_graph().await?;
+
+    handlers::user::del(friend.clone()).await?;
+    let after = Homeserver::get_all_active_from_graph().await?;
+    catch_up::caught_up(&friend).await?;
+
+    let own_hs = own_hs.to_z32();
+    assert!(
+        before.contains(&own_hs),
+        "control: polled while the profile exists"
+    );
+    assert!(
+        after.contains(&own_hs),
+        "still polled with its profile deleted"
+    );
     Ok(())
 }
 
