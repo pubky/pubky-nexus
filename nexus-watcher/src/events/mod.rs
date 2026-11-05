@@ -23,7 +23,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{Arc, LazyLock},
 };
-use tracing::{debug, error};
+use tracing::debug;
 
 /// Counter for events skipped because the moderator took their record down.
 static TAKEN_DOWN: LazyLock<Counter<u64>> = LazyLock::new(|| {
@@ -127,18 +127,11 @@ impl EventHandler for DefaultEventHandler {
             // The flip step first, before any fetch, so the user's move does not wait for the
             // homeserver. A failure inside it is a `FlipFailed` that leaves the user at `v0` and
             // is queued without limit while they are (the cache step after the epoch write is
-            // the exception: its retry finds a `v1` user and runs as their profile PUT): one
-            // summary line here, the step having logged its own. Once the step lands, the event
-            // is a `v1` user's profile PUT and takes the ordinary path below, retry limit included.
-            handlers::user::flip(event.target.user_id())
-                .await
-                .inspect_err(|e| {
-                    error!(
-                        user_id = %event.target.user_id(),
-                        error = %e,
-                        "Flip failed, the user stays at v0"
-                    )
-                })?;
+            // the exception: its retry finds a `v1` user and runs as their profile PUT). The
+            // flip logs the failed step and, while the user stays `v0`, one summary line. Once
+            // the step lands, the event is a `v1` user's profile PUT and takes the ordinary path
+            // below, retry limit included.
+            handlers::user::flip(event.target.user_id()).await?;
         }
 
         match event.event_type {

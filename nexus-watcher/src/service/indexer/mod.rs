@@ -8,7 +8,7 @@ use std::{fmt::Display, sync::Arc, time::Duration};
 
 use crate::errors::EventProcessorError;
 use crate::events::retry::RetryScheduler;
-use crate::events::{is_flip, EventHandler};
+use crate::events::EventHandler;
 use crate::events::{Event, ParseResult};
 use crate::service::SLOW_RUN_THRESHOLD;
 use tracing::{debug, error, trace, warn, Instrument};
@@ -197,21 +197,14 @@ pub trait TEventProcessor: Send + Sync + 'static {
         }
 
         if !RetryScheduler::should_enqueue_related_event(&error) {
-            // A `social/v1` profile PUT that is 404 or invalid never reaches the retry queue.
-            // A lost flip is logged at `error`, a `v1` user's own edit at `debug` (`is_flip`).
-            if is_flip(event).await {
-                error!(
-                    event.uri = %event.uri,
-                    error = %error,
-                    "social/v1 profile PUT not worth retrying, dropping event"
-                );
-            } else {
-                debug!(
-                    event.uri = %event.uri,
-                    error = %error,
-                    "Error not worth retrying, skipping event"
-                );
-            }
+            // No flip is dropped here: its step runs before the fetch and every failure of it
+            // is queued, so a `social/v1` profile PUT that is 404 or invalid is a `v1` user's
+            // own edit.
+            debug!(
+                event.uri = %event.uri,
+                error = %error,
+                "Error not worth retrying, skipping event"
+            );
             return Ok(());
         }
 

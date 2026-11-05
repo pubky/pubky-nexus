@@ -49,9 +49,10 @@ pub(super) fn is_profile_put(event: &Event) -> bool {
 }
 
 /// Whether `event` is a flip: a `social/v1` profile PUT of a user still at `v0` in the graph.
-/// Losing one strands that user, so a dropped or dead-lettered flip is logged at `error`; a
-/// `v1` user's own dropped edit keeps the level other events have. A failed graph read counts
-/// as a flip: on a failing graph, over-reporting a lost flip is the safe side.
+/// Losing one strands that user, so a flip dead-lettered at its limit is logged at `error`; a
+/// `v1` user's own edit keeps the level other events have. No flip is dropped as not worth
+/// retrying: its step runs before the fetch and every failure of it is queued. A failed graph
+/// read counts as a flip: on a failing graph, over-reporting a lost flip is the safe side.
 pub(crate) async fn is_flip(event: &Event) -> bool {
     !matches!(confirm_flip(event).await, Ok(false))
 }

@@ -170,13 +170,11 @@ impl RetryProcessor {
 
         match error {
             e if !RetryScheduler::should_enqueue_related_event(&e) => {
-                // Not worth retrying (ParseFailed, etc.) - dead-letter immediately. A lost flip
-                // is logged at `error`, a `v1` user's own edit at `warn` (`is_flip`).
-                if is_flip(&event).await {
-                    error!("social/v1 profile PUT {ev_uri} threw an error not worth retrying, dead-lettering: {e}");
-                } else {
-                    warn!("Event {ev_uri} threw an error not worth retrying, dead-lettering: {e}");
-                }
+                // Not worth retrying (ParseFailed, etc.) - dead-letter immediately. No flip is
+                // dead-lettered here: its step runs before the fetch and every failure of it is
+                // queued, so a `social/v1` profile PUT that is 404 or invalid is a `v1` user's
+                // own edit.
+                warn!("Event {ev_uri} threw an error not worth retrying, dead-lettering: {e}");
                 self.remove_if_current(index_key, retry_event.nonce, ev_uri)
                     .await?;
             }

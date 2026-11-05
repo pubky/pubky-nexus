@@ -9,7 +9,7 @@ use nexus_common::models::{
     user::{Epoch, UserDetails, UserSearch, UsersByTagSearch},
 };
 use pubky_social_specs::PubkyId;
-use tracing::{debug, info, Instrument};
+use tracing::{debug, error, info, Instrument};
 
 use crate::events::inputs::UserInput;
 
@@ -48,21 +48,25 @@ pub async fn sync_put(user: UserInput, user_id: PubkyId) -> Result<(), EventProc
 /// fetched, so the move does not wait for the homeserver.
 ///
 /// What Nexus holds for the user at `pubky.app` is migrated first ([`v0_to_v1`]), then the
-/// epoch is written. Every failure inside, the epoch write's included, comes out of
-/// [`v0_to_v1::step`] as [`EventProcessorError::FlipFailed`] naming the step and the cause, and
-/// leaves the user at `v0`: the retry runs the whole step again over its partial work, without
-/// limit while the user is `v0`. The details cache is then refreshed from the graph, so the API
-/// reports `v1` before the profile fetch that follows; a failure there is a `FlipFailed` of a
-/// user already `v1`, whose retry is the ordinary profile PUT and refreshes the cache again. The
+/// epoch is written ([`move_to_v1`]). Every failure there, the epoch write's included, comes
+/// out of [`v0_to_v1::step`] as [`EventProcessorError::FlipFailed`] naming the step and the
+/// cause, leaves the user at `v0` and logs one summary line saying so: the retry runs the whole
+/// step again over its partial work, without limit while the user is `v0`. The details cache
+/// is then refreshed from the graph, so the API reports `v1` before the profile fetch that
+/// follows; a failure there is a `FlipFailed` of a user already `v1`, logged by its step only,
+/// whose retry is the ordinary profile PUT and refreshes the cache again. The
 /// profile itself is the ordinary `v1` profile PUT's ([`sync_put`]). A user whose first event is
 /// this PUT has no node yet: the epoch write creates a stub, which the profile write fills in.
 #[tracing::instrument(name = "user.flip", skip_all, fields(user_id = %user_id))]
 pub async fn flip(user_id: &PubkyId) -> Result<(), EventProcessorError> {
-    // Step 1: Migrate the user's indexed data to its `social/v1` form, while they are still `v0`
-    v0_to_v1::run(user_id).await?;
-
-    // Step 2: Set the epoch in the graph
-    v0_to_v1::step(user_id, "epoch", Epoch::set_v1_in_graph(user_id)).await?;
+    // Steps 1 and 2. The summary covers them only: until the epoch write lands the user is `v0`
+    move_to_v1(user_id).await.inspect_err(|e| {
+        error!(
+            user_id = %user_id,
+            error = %e,
+            "Flip failed, the user stays at v0"
+        )
+    })?;
 
     // One line per flip, so flips can be counted and found by user.
     info!("User flipped to v1");
@@ -73,6 +77,13 @@ pub async fn flip(user_id: &PubkyId) -> Result<(), EventProcessorError> {
     v0_to_v1::step(user_id, "cache", refresh_details_cache(user_id)).await?;
 
     Ok(())
+}
+
+/// The part of the flip that moves the user: the internal migration of their indexed data to
+/// its `social/v1` form while they are still `v0` (step 1), then the epoch write (step 2).
+async fn move_to_v1(user_id: &PubkyId) -> Result<(), EventProcessorError> {
+    v0_to_v1::run(user_id).await?;
+    v0_to_v1::step(user_id, "epoch", Epoch::set_v1_in_graph(user_id)).await
 }
 
 /// Rewrites the user's cached details from the graph, epoch included.
@@ -140,6 +151,7 @@ pub async fn del(user_id: PubkyId) -> Result<(), EventProcessorError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nexus_common::db::graph::Query;
     use nexus_common::db::{exec_single_row, queries};
     use nexus_common::types::DynError;
     use nexus_common::utils::test_utils::random_pubky_id;
@@ -175,6 +187,51 @@ mod tests {
             }
         });
 
+        exec_single_row(queries::del::delete_user(&user)).await?;
+        Ok(())
+    }
+
+    /// A flip whose posts step fails on a row it cannot read: `flip` returns the step's
+    /// `FlipFailed`, the user stays `v0`, and exactly one summary line says so, naming the user.
+    #[tokio_shared_rt::test(shared)]
+    #[tracing_test::traced_test]
+    async fn a_failed_migration_step_leaves_the_user_at_v0_and_logs_one_summary_line(
+    ) -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+        let user = random_pubky_id();
+        UserDetails::from_pubky(user.clone()).put_to_graph().await?;
+        // A post whose attachments are no list of addresses: the posts step cannot read it
+        let post_id = "0032SSN7Q4EVG";
+        let plant = Query::new(
+            "plant_unreadable_post",
+            "MATCH (u:User {id: $user_id})
+            CREATE (u)-[:AUTHORED]->(:Post {id: $post_id, attachments: 42})",
+        )
+        .param("user_id", user.to_string())
+        .param("post_id", post_id);
+        exec_single_row(plant).await?;
+
+        let err = flip(&user).await.expect_err("the posts step must fail");
+
+        assert!(
+            matches!(err, EventProcessorError::FlipFailed { step: "posts", .. }),
+            "{err:?}"
+        );
+        assert_eq!(Epoch::get_from_graph(&user).await?, Epoch::V0);
+        logs_assert(|lines| {
+            let summaries: Vec<_> = lines
+                .iter()
+                .filter(|line| line.contains("Flip failed, the user stays at v0"))
+                .collect();
+            match summaries.as_slice() {
+                [line] if line.contains(" ERROR ") && line.contains(user.as_ref()) => Ok(()),
+                other => Err(format!(
+                    "expected one ERROR summary line naming the user, got {other:?}"
+                )),
+            }
+        });
+
+        exec_single_row(queries::del::delete_post(user.as_ref(), post_id)).await?;
         exec_single_row(queries::del::delete_user(&user)).await?;
         Ok(())
     }
