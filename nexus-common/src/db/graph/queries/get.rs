@@ -838,13 +838,15 @@ pub fn get_homeserver_by_id(id: &str) -> Query {
 /// falls through to `active_users` — exactly today's behaviour. The trust term
 /// only starts doing work once an operator configures a seed set.
 ///
+/// A user whose profile is deleted still counts, as in [`get_active_users_by_homeserver`]:
+/// a member alone on its homeserver would otherwise never have a new profile read.
+///
 /// Returns a single `homeservers_list` column containing the collected IDs.
 pub fn get_all_homeservers_with_active_users() -> Query {
     Query::new(
         "get_all_homeservers_with_active_users",
         "MATCH (u:User)-[r:HOSTED_BY]->(hs:Homeserver)
-        WHERE NOT coalesce(u.deleted, false) AND NOT coalesce(r.stale, false)
-          AND u.scope_state IS NULL
+        WHERE NOT coalesce(r.stale, false) AND u.scope_state IS NULL
         WITH hs.id AS id,
              sum(coalesce(u.trust, 0.0)) AS hosted_trust,
              count(u) AS active_users
