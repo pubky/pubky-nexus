@@ -10,7 +10,8 @@
 //! changed nothing, a stalled keyset scan). The flip goes through the normal retry, which runs
 //! it whole again while the user is still `v0`; a user whose data cannot be migrated is never
 //! reported as `v1`. The epoch write and the details cache refresh that end the flip
-//! ([`crate::events::handlers::user::flip`]) go through the same [`step`].
+//! ([`crate::events::handlers::user::flip`]) go through the same [`step`]; the resource changes
+//! feed lines published between them do not, since they never fail the flip (see [`run`]).
 
 pub mod attachments;
 pub mod files;
