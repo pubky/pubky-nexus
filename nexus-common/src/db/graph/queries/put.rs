@@ -490,6 +490,21 @@ pub fn set_user_scope_state(user_id: &str, scope_state: Option<&str>) -> Query {
     .param("scope_state", scope_state.map(str::to_string))
 }
 
+/// Takes a user out of the scope: sets its `scope_state` and removes its `HOSTED_BY`,
+/// so it is no longer resolved or polled. Its content stays.
+pub fn unbind_user_from_scope(user_id: &str, scope_state: &str) -> Query {
+    Query::new(
+        "unbind_user_from_scope",
+        "MATCH (u:User {id: $user_id})
+         SET u.scope_state = $scope_state
+         WITH u
+         OPTIONAL MATCH (u)-[r:HOSTED_BY]->(:Homeserver)
+         DELETE r",
+    )
+    .param("user_id", user_id.to_string())
+    .param("scope_state", scope_state.to_string())
+}
+
 /// Records an address the moderator took down, and the moderator tag that took it down;
 /// see [`crate::models::takedown`]. A second tag on the same address keeps the first.
 pub fn record_takedown(uri: &str, tag_uri: &str) -> Query {

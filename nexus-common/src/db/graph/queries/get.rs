@@ -311,8 +311,9 @@ pub fn global_tags_by_user() -> Query {
         // create_user_tag MERGEs one TAGGED edge per (tagger, tagged, label),
         // so COUNT(t) is the distinct tagger count.
         MATCH (tagger:User)-[t:TAGGED]->(u:User)
-        // An outsider's profile is never read: ranked, it would show as a blank card.
-        WHERE NOT coalesce(u.deleted, false) AND coalesce(u.scope_state, '') <> 'outside'
+        // Only members are ranked: an outsider's profile is never read (it would show as a
+        // blank card), and a member that left is no longer part of the scope.
+        WHERE NOT coalesce(u.deleted, false) AND u.scope_state IS NULL
         WITH t.label AS label, u.id AS user_id, COUNT(t) AS score
         WITH label, COLLECT([toFloat(score), user_id]) AS sorted_set
         RETURN label, sorted_set
@@ -378,7 +379,8 @@ pub fn get_most_followed_users(after_id: &str, limit: usize) -> Query {
           AND NOT coalesce(u.deleted, false)
           // A discovery stub is named after its id, which no profile name can be.
           AND u.name <> u.id
-          AND coalesce(u.scope_state, '') <> 'outside'
+          // Only members are ranked (see `global_tags_by_user`).
+          AND u.scope_state IS NULL
         RETURN u.id AS id, {FOLLOWERS_COUNT} AS followers
         ORDER BY u.id
         LIMIT $limit
@@ -503,7 +505,7 @@ fn users_by_tags_cypher(prefix: &str, skip: Option<usize>, limit: Option<usize>)
         {prefix}
         MATCH (tagger:User)-[tag:TAGGED]->(u:User)
         WHERE tag.label IN $labels AND NOT coalesce(u.deleted, false)
-          AND coalesce(u.scope_state, '') <> 'outside'
+          AND u.scope_state IS NULL
         WITH u, COUNT(tag) AS score
         RETURN u.id AS user_id, score
         // id DESC matches how Redis breaks equal scores (reverse-lex member
@@ -869,6 +871,31 @@ pub fn get_users_needing_hs_resolution(ttl_ms: u64) -> Query {
          RETURN collect(u.id) AS user_ids",
     )
     .param("ttl_ms", ttl_ms as i64)
+}
+
+/// Retrieves those of `user_ids` that are in scope (no `scope_state`), deleted or not.
+pub fn get_user_ids_in_scope(user_ids: &[String]) -> Query {
+    Query::new(
+        "get_user_ids_in_scope",
+        "MATCH (u:User) WHERE u.id IN $user_ids AND u.scope_state IS NULL
+         RETURN collect(u.id) AS user_ids",
+    )
+    .param("user_ids", user_ids.to_vec())
+}
+
+/// Retrieves the in-scope users bound to a homeserver that isn't listed: users of a
+/// homeserver the list no longer holds. `limit_to` narrows the search to those users
+/// (tests share one graph); `None` searches every user.
+pub fn get_user_ids_bound_outside(listed: &[String], limit_to: Option<&[String]>) -> Query {
+    Query::new(
+        "get_user_ids_bound_outside",
+        "MATCH (u:User)-[:HOSTED_BY]->(hs:Homeserver)
+         WHERE u.scope_state IS NULL AND NOT hs.id IN $listed
+           AND ($limit_to IS NULL OR u.id IN $limit_to)
+         RETURN collect(u.id) AS user_ids",
+    )
+    .param("listed", listed.to_vec())
+    .param("limit_to", limit_to.map(<[String]>::to_vec))
 }
 
 /// Retrieves a user's `scope_state` and the homeserver it is bound to, either `null`.
@@ -1427,8 +1454,8 @@ pub fn get_influencers_by_reach(
 }
 
 /// One keyset page of the all-time influencer ranking, ordered by `id`, strictly
-/// after `after_id` (`""` for the first page). It holds every user who is neither
-/// tombstoned, a discovery stub nor outside the scope, scored
+/// after `after_id` (`""` for the first page). It holds every member that is neither
+/// tombstoned nor a discovery stub, scored
 /// `(tagged + posts) * sqrt(followers)` from the [`user_counts_by_ids`] counts, so a
 /// user with no followers ranks with 0.
 pub fn get_all_time_influencers(after_id: &str, limit: usize) -> Query {
@@ -1439,7 +1466,7 @@ pub fn get_all_time_influencers(after_id: &str, limit: usize) -> Query {
           AND NOT coalesce(u.deleted, false)
           // A discovery stub is named after its id, which no profile name can be.
           AND u.name <> u.id
-          AND coalesce(u.scope_state, '') <> 'outside'
+          AND u.scope_state IS NULL
         RETURN u.id AS id, ({TAGGED_COUNT} + {POSTS_COUNT}) * sqrt({FOLLOWERS_COUNT}) AS score
         ORDER BY u.id
         LIMIT $limit
@@ -1458,7 +1485,7 @@ pub fn get_global_influencers(skip: usize, limit: usize, timeframe: CacheTimefra
         "get_global_influencers",
         "
         MATCH (user:User)
-        WHERE NOT coalesce(user.deleted, false) AND coalesce(user.scope_state, '') <> 'outside'
+        WHERE NOT coalesce(user.deleted, false) AND user.scope_state IS NULL
         WITH DISTINCT user
 
         // Each count is a scoped CALL(user){} subquery so it stays per-user
@@ -1984,6 +2011,8 @@ pub fn recommend_users(user_id: &str, limit: usize) -> Query {
         WITH DISTINCT user, potential
         WHERE potential <> user
           AND NOT coalesce(potential.deleted, false)
+          // Only members are recommended (see `global_tags_by_user`).
+          AND potential.scope_state IS NULL
           AND NOT (user)-[:FOLLOWS]->(potential)
           // Degree lookup instead of expand + aggregate; keeps LIMIT lazy.
           AND COUNT { (potential)-[:AUTHORED]->() } >= 5
@@ -2033,6 +2062,8 @@ pub fn starter_pack_users(
                  count(DISTINCT tagger) AS endorsers
             // Cheaper here than against every endorsement row.
             WHERE NOT coalesce(candidate.deleted, false)
+              // Only members are suggested (see `global_tags_by_user`).
+              AND candidate.scope_state IS NULL
               AND (user IS NULL OR (candidate <> user AND NOT (user)-[:FOLLOWS]->(candidate)))
               AND EXISTS { MATCH (candidate)-[:AUTHORED]->(p:Post) WHERE p.indexed_at >= $since }
             WITH candidate.id AS id, trust_score, endorsers

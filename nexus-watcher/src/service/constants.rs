@@ -15,6 +15,11 @@ pub const SLOW_RUN_THRESHOLD: Duration = Duration::from_secs(3_600);
 /// doubling up to `max_backoff_secs`: one whose pass keeps needing more gets one budget per
 /// `max_backoff_secs` (1 h by default).
 pub const KEY_BASED_RUN_BUDGET: Duration = Duration::from_secs(8 * 60);
+/// How long the catch-up of a homeserver read whole (users let into the scope, read
+/// through their own stream) may take in one poll, before the feed is read. Small, so new
+/// events wait seconds, not minutes; a catch-up the budget cuts short resumes on the next
+/// poll from the users it didn't reach.
+pub const CATCH_UP_RUN_BUDGET: Duration = Duration::from_secs(30);
 /// How far past its budget an external homeserver's run may go before it is logged as slow.
 /// A run overshoots its budget by the events fetch and the event in progress, and a file event
 /// makes two requests (its resource, then its `src` blob). Each request is bounded by

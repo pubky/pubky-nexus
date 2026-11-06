@@ -1240,6 +1240,7 @@ fn processor_with_options(
 ) -> KeyBasedEventProcessor {
     KeyBasedEventProcessor {
         homeserver_id: homeserver.id,
+        catch_up_only: false,
         limit,
         event_handler: handler,
         client: source,

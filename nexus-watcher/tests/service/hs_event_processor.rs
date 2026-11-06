@@ -100,6 +100,9 @@ fn build_processor(
         client: Arc::new(MockHomeserverClient::default()),
         shutdown_rx,
         retry_scheduler,
+        catch_up_resume_points: Default::default(),
+        catch_up_not_found: Default::default(),
+        hs_blacklist: Default::default(),
         ingestor: default_ingestor_tests(),
         hs_mapping_cache: Default::default(),
     })
@@ -136,6 +139,9 @@ async fn build_processor_at_cursor(
         client: Arc::new(MockHomeserverClient::default()),
         shutdown_rx,
         retry_scheduler,
+        catch_up_resume_points: Default::default(),
+        catch_up_not_found: Default::default(),
+        hs_blacklist: Default::default(),
         ingestor: default_ingestor_tests(),
         hs_mapping_cache: Default::default(),
     }))
@@ -161,6 +167,9 @@ fn processor_with_client(
                 transient_ms: 10_000,
             },
         )),
+        catch_up_resume_points: Default::default(),
+        catch_up_not_found: Default::default(),
+        hs_blacklist: Default::default(),
         ingestor: default_ingestor_tests(),
         hs_mapping_cache: Default::default(),
     })

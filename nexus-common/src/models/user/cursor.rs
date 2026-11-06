@@ -93,6 +93,20 @@ impl UserHsCursor {
         let key = user_hs_cursor_key(user_id);
         Self::add_index_sorted_set_if_absent(&key, 0.0, hs_id, None).await
     }
+
+    /// Sets the user's cursor for `hs_id` back to `0`, whatever it holds: for a user let
+    /// into the scope, whose stream is read from the start. Overwrites a cursor a poll
+    /// still running when the user left may have written after [`Self::remove_all`].
+    pub async fn reset(user_id: &str, hs_id: &str) -> RedisResult<()> {
+        let key = user_hs_cursor_key(user_id);
+        Self::replace_index_sorted_set(&key, &[(0.0, hs_id)], None, None).await
+    }
+
+    /// Forgets every cursor of the user, for a user leaving the scope: if it comes back,
+    /// it is read from the start of its stream again.
+    pub async fn remove_all(user_id: &str) -> RedisResult<()> {
+        Self::replace_index_sorted_set(&user_hs_cursor_key(user_id), &[], None, None).await
+    }
 }
 
 #[cfg(test)]
