@@ -422,3 +422,31 @@ fn source_name(source: &UserStreamSource) -> &'static str {
     PostId,
 )))]
 pub struct StreamUsersApiDocs;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::routes::v0::version::{V0, V1};
+
+    fn parse<V: ApiVersion>(query: &str) -> UserStreamQuery<V> {
+        serde_urlencoded::from_str(query).expect(query)
+    }
+
+    /// The interest labels fold by the version's rule: `/v1` trims and lowercases ASCII only,
+    /// so a non-ASCII capital stays; `/v0` lowercases every letter. Pinned here because the
+    /// two versions document the same `Tags` schema, so the documents would not tell.
+    #[test]
+    fn starter_pack_tags_fold_by_the_versions_rule() {
+        let query = "source=starter_pack&tags=%C3%84rger,%20Dev%20";
+        let v1 = parse::<V1>(query);
+        assert_eq!(
+            v1.tags.as_ref().map(TagLabels::to_string_vec),
+            Some(vec!["Ärger".to_string(), "dev".to_string()])
+        );
+        let v0 = parse::<V0>(query);
+        assert_eq!(
+            v0.tags.as_ref().map(TagLabels::to_string_vec),
+            Some(vec!["ärger".to_string(), "dev".to_string()])
+        );
+    }
+}

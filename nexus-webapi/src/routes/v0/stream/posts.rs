@@ -654,6 +654,23 @@ mod tests {
         assert!(!rejected::<V1>("kind=note"));
     }
 
+    /// `domain_tags` folds by the version's rule into the source the graph query reads: `/v1`
+    /// keeps a non-ASCII capital, `/v0` lowercases it. Pinned here because both versions
+    /// document the same `Tags` schema, so the documents would not tell.
+    #[test]
+    fn domain_tags_fold_by_the_versions_rule() {
+        const OBSERVER: &str = "ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny";
+        let query = format!("source=wot_domain&observer_id={OBSERVER}&domain_tags=%C3%84rger");
+        let domain_tags = |source: StreamSource| match source {
+            StreamSource::WotDomain { domain_tags, .. } => domain_tags,
+            other => panic!("not a wot_domain source: {other:?}"),
+        };
+        let v1 = parse::<V1>(&query).expect(&query).build_source().unwrap();
+        assert_eq!(domain_tags(v1), vec!["Ärger".to_string()]);
+        let v0 = parse::<V0>(&query).expect(&query).build_source().unwrap();
+        assert_eq!(domain_tags(v0), vec!["ärger".to_string()]);
+    }
+
     #[test]
     fn resolve_domain_trust_maps_depth() {
         // Absent depth defaults to the network reach (backward compatible).
