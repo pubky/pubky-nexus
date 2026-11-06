@@ -630,6 +630,126 @@ async fn test_resource_changes_retract_a_moved_tag_deleted_before_the_flip_retry
     Ok(())
 }
 
+/// A flip whose tags step committed and whose later step failed waits in the retry queue,
+/// the user still `v0`, the edge at its `social/v1` address and its move recorded. The gate
+/// holds a `pubky.app` DEL of the tag meanwhile: a missing dependency on the flip that leaves
+/// the edge, the recorded move and the feed alone. Once the flip lands, the held DEL is
+/// ignored, and the feed ends with the reference under the `social/v1` path only.
+#[tokio_shared_rt::test(shared)]
+async fn test_resource_changes_pubky_app_delete_of_a_moved_tag_waits_for_the_queued_flip(
+) -> Result<()> {
+    use crate::event_processor::posts::utils::pubky_id;
+    use nexus_common::models::user::Epoch;
+    use nexus_watcher::events::retry::{IndexKey, RedisRetryStore, RetryEvent, RetryStore};
+    use nexus_watcher::events::v0_to_v1;
+    use nexus_watcher::events::EventType;
+    use pubky_social_specs::traits::{HasIdPath as _, HashId as _};
+    use pubky_social_specs::PubkySocialTag;
+
+    let mut test = WatcherTest::setup(None).await?;
+    let key = Keypair::random();
+    let author = test
+        .create_user(&key, &test_user("Delete held for flip", "feed"))
+        .await?;
+    let (_, _, start) = ResourceChange::get_from_index(0, 0).await?;
+    let target = format!("https://example.com/delete-held-for-flip/{author}");
+    let v0 = PubkyAppTag::new(target.clone(), "steps".into());
+    let v0_path = format!("/pub/pubky.app/tags/{}", v0.create_id());
+    let v0_storage: ResourcePath = v0_path.parse()?;
+    test.put(&key, &v0_storage, &v0).await?;
+    // The migrator's copy, ignored until the flip
+    let v1 = PubkySocialTag::new(target.clone(), "steps".into());
+    let v1_path = PubkySocialTag::create_path(&v1.create_id());
+    let v1_storage: ResourcePath = v1_path.parse()?;
+    test.put(&key, &v1_storage, &v1).await?;
+    let puts = authored_since(&author, start).await?;
+    assert_eq!(puts.len(), 1);
+    assert_eq!(puts[0].object_path, v0_path);
+
+    // The flip's tags step commits, a later step fails, and the flip waits in the queue
+    let author_id = pubky_id(&author)?;
+    let file_map = v0_to_v1::files::FileMap::load(&author_id).await?;
+    v0_to_v1::tags::migrate(&author_id, &file_map, 2).await?;
+    let moved = [(
+        format!("pubky://{author}{v1_path}"),
+        format!("pubky://{author}{v0_path}"),
+    )];
+    assert_eq!(recorded_moves(&author).await?, moved);
+    let flip_uri = format!("pubky://{author}/pub/social/v1/profile.json");
+    let store = RedisRetryStore::new();
+    store
+        .put(&RetryEvent {
+            retry_count: 1,
+            event_type: EventType::Put,
+            event_uri: flip_uri.clone(),
+            next_retry_at: Utc::now().timestamp_millis() + 3_600_000,
+            origin_homeserver_id: author.clone(),
+            nonce: 0,
+        })
+        .await?;
+
+    // The user deletes the tag at its `pubky.app` address: held for the flip
+    let del_line = format!("DEL pubky://{author}{v0_path}");
+    let held = retrieve_and_handle_event_line(
+        &del_line,
+        test.event_processor_runner.event_handler.clone(),
+    )
+    .await;
+    store.remove(&IndexKey::for_uri(&flip_uri)).await?;
+    let held_on = match &held {
+        Err(EventProcessorError::MissingDependency { dependency }) => dependency.clone(),
+        other => panic!("the DEL must wait for the flip: {other:?}"),
+    };
+    assert_eq!(held_on, [flip_uri.as_str()]);
+    assert_eq!(
+        resource_tag_edge(&author, &target).await?,
+        Some(format!("pubky://{author}{v1_path}")),
+        "the held DEL leaves the edge"
+    );
+    assert_eq!(recorded_moves(&author).await?, moved);
+    assert_eq!(authored_since(&author, start).await?, puts);
+
+    // The flip lands, then the held DEL is retried and ignored
+    let profile: ResourcePath = "/pub/social/v1/profile.json".parse()?;
+    test.put(
+        &key,
+        &profile,
+        &serde_json::json!({"name":"Delete held for flip"}),
+    )
+    .await?;
+    assert_eq!(Epoch::get_from_graph(&author).await?, Epoch::V1);
+    retrieve_and_handle_event_line(&del_line, test.event_processor_runner.event_handler.clone())
+        .await?;
+
+    let lines = authored_since(&author, start).await?;
+    let mut live = HashMap::new();
+    for line in &lines {
+        let key = (line.object_path.clone(), line.resource_id.clone());
+        match line.op {
+            ResourceChangeOp::Put => {
+                live.insert(key, ());
+            }
+            ResourceChangeOp::Del => {
+                live.remove(&key);
+            }
+        }
+    }
+    assert_eq!(
+        live.into_keys().collect::<Vec<_>>(),
+        [(v1_path.clone(), puts[0].resource_id.clone())],
+        "{lines:?}"
+    );
+    assert!(recorded_moves(&author).await?.is_empty());
+    assert_eq!(
+        resource_tag_edge(&author, &target).await?,
+        Some(format!("pubky://{author}{v1_path}"))
+    );
+    test.del(&key, &v0_storage).await?;
+    test.del(&key, &v1_storage).await?;
+    test.del(&key, &profile).await?;
+    Ok(())
+}
+
 /// A resource tag `author` wrote on `target` at `pubky.app`, and the migrator's `social/v1`
 /// copy of it, ignored until the flip; then the flip, whose publish of the move fails. Returns
 /// the paths of both files, the copy's storage and the profile.
