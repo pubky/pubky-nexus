@@ -36,7 +36,13 @@ impl Neo4jConnector {
     /// Create and return a new connector after defining a database connection
     async fn new_connection(config: &Neo4JConfig) -> GraphResult<Self> {
         let neo4j_graph = neo4rs::Graph::new(&config.uri, &config.user, &config.password).await?;
-        let graph = Graph::new(neo4j_graph);
+        let stopper = neo4rs::ConfigBuilder::default()
+            .uri(&config.uri)
+            .user(&config.user)
+            .password(&config.password)
+            .max_connections(1)
+            .build()?;
+        let graph = Graph::new(neo4j_graph, neo4rs::Graph::connect(stopper).await?);
 
         // Always wrap with InstrumentedGraph to collect OpenTelemetry metrics.
         // slow_query_threshold is None when slow-query logging is disabled.
