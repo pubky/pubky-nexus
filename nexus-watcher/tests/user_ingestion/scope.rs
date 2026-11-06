@@ -523,6 +523,66 @@ async fn test_listing_a_homeserver_again_brings_its_users_back() -> Result<()> {
     Ok(())
 }
 
+/// A member that leaves the scope drops out of the user rankings at once, staying indexed;
+/// back in the scope, its tags rank it again.
+#[tokio_shared_rt::test(shared)]
+async fn test_a_member_that_leaves_drops_out_of_the_rankings() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let hs_pk = create_external_test_homeserver(&mut test).await?;
+    let (_, user_id) = user_on(&test, &hs_pk).await?;
+    let both = [test.homeserver_id.clone(), PubkyId::from(hs_pk)];
+    let (ingestor, wide) = homeserver_maintainer(&both, &[&user_id]);
+    ingestor.maybe_ingest_user(&user_id).await?;
+    let tagger_id = member(&mut test, "LeaveTagger").await?;
+    let label = format!("lefttest{}", chrono::Utc::now().timestamp_micros());
+    let tag = PubkyAppTag {
+        uri: user_uri_builder(user_id.to_string()),
+        label: label.clone(),
+        created_at: chrono::Utc::now().timestamp_millis(),
+    };
+    let tag_id = tag.create_id();
+    let tag_uri = tag_uri_builder(tagger_id.to_string(), tag_id.clone());
+    handlers::tag::sync_put(tag, tag_uri, tagger_id, tag_id, &ingestor).await?;
+    UserStream::put_index_sorted_set(
+        &USER_MOSTFOLLOWED_KEY_PARTS,
+        &[(7.0, user_id.as_ref())],
+        None,
+        None,
+    )
+    .await?;
+
+    let key_parts = [&TAG_GLOBAL_USER_TAGGERS[..], &[label.as_str()]].concat();
+    let ranked = || async {
+        let by_tag = UserDetails::check_sorted_set_member(None, &key_parts, &[&user_id]).await?;
+        let most_followed =
+            UserStream::check_sorted_set_member(None, &USER_MOSTFOLLOWED_KEY_PARTS, &[&user_id])
+                .await?;
+        anyhow::Ok((by_tag.is_some(), most_followed.is_some()))
+    };
+    let as_member = ranked().await?;
+
+    let (_, narrow) = homeserver_maintainer(&both[..1], &[&user_id]);
+    let left = narrow.at_start().await?.left;
+    let while_left = ranked().await?;
+    let still_indexed = UserDetails::get_by_id(&user_id).await?.is_some();
+
+    let joined = wide.at_start().await?.joined;
+    let (by_tag_back, _) = ranked().await?;
+    catch_up::caught_up(&user_id).await?;
+
+    assert_eq!(as_member, (true, true), "control: ranked while a member");
+    assert_eq!(left, 1);
+    assert_eq!(
+        while_left,
+        (false, false),
+        "out of the rankings once it left"
+    );
+    assert!(still_indexed, "still indexed");
+    assert_eq!(joined, 1);
+    assert!(by_tag_back, "its tags rank it again once back");
+    Ok(())
+}
+
 /// Outsiders now on a listed homeserver are looked for at start (a homeserver lookup each)
 /// only when the list changed since the last start: a restart with the same list leaves an
 /// outsider on a listed homeserver out; a changed list lets it in.
