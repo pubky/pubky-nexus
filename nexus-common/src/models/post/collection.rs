@@ -172,6 +172,18 @@ mod tests {
         assert_eq!(keys, vec![key(BOGOTA, POST_A), key(CAIRO, POST_C)]);
     }
 
+    /// A `social/v1` post version address, plain or labelled, is keyed by its post, as the
+    /// router keys it; `POST_C` stands in for the edit id, a later timestamp id.
+    #[test]
+    fn v1_envelope_keys_a_post_version_by_its_post() {
+        let content = v1_envelope(&[
+            &format!("pubky://{BOGOTA}/pub/social/v1/posts/{POST_A}/{POST_C}.json"),
+            &format!("pubky://{BOGOTA}/pub/social/v1/posts/{POST_A}/{POST_C}-hello.json"),
+        ]);
+        let keys = collection_item_keys(&content).unwrap();
+        assert_eq!(keys, vec![key(BOGOTA, POST_A); 2]);
+    }
+
     #[test]
     fn v1_envelope_keeps_a_post_listed_twice_twice() {
         let content = v1_envelope(&[&v1_post(BOGOTA, POST_A), &v1_post(BOGOTA, POST_A)]);
