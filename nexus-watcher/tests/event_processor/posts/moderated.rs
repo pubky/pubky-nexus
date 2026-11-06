@@ -1,5 +1,9 @@
 use crate::event_processor::{
-    posts::utils::{find_post_details, short_post, test_user},
+    posts::utils::{
+        check_member_global_timeline_user_post, check_member_post_replies,
+        check_member_total_engagement_user_posts, find_post_counts, find_post_details, short_post,
+        short_reply, short_repost, test_user,
+    },
     tags::utils::check_member_post_tag_global_timeline,
     users::utils::find_user_counts,
     utils::default_moderation_tests,
@@ -424,5 +428,286 @@ async fn test_reply_taken_down_before_it_is_read_notifies_no_one() -> Result<()>
         notifications.is_empty(),
         "nothing was written, so no one was notified: {notifications:?}"
     );
+    Ok(())
+}
+
+/// Takes down the post at `post_uri` the way the moderator's tag does when the post isn't
+/// indexed: only the takedown is recorded.
+async fn take_down_unread(post_uri: String) -> Result<()> {
+    let tag = PubkyAppTag {
+        uri: post_uri,
+        label: MODERATION_LABEL.to_string(),
+        created_at: Utc::now().timestamp_millis(),
+    };
+    let result = default_moderation_tests()
+        .apply_moderation(
+            tag,
+            MODERATOR_TAG_URI,
+            Path::new("/tmp/nexus-watcher-test"),
+            &default_ingestor_tests(),
+        )
+        .await;
+    assert!(
+        matches!(result, Err(EventProcessorError::SkipIndexing)),
+        "{result:?}"
+    );
+    Ok(())
+}
+
+/// The parent stands as an empty tombstone, out of the feeds.
+async fn assert_tombstone(author_id: &str, post_id: &str) {
+    let details = find_post_details(author_id, post_id)
+        .await
+        .expect("the taken-down parent stands as a tombstone");
+    assert!(details.deleted, "the tombstone is flagged deleted");
+    assert_eq!(details.content, "", "the tombstone holds no content");
+    assert!(
+        check_member_global_timeline_user_post(author_id, post_id)
+            .await
+            .unwrap()
+            .is_none(),
+        "the tombstone stays out of the global feed"
+    );
+    assert!(
+        check_member_total_engagement_user_posts(&[author_id, post_id])
+            .await
+            .unwrap()
+            .is_none(),
+        "the tombstone stays out of the engagement feed"
+    );
+}
+
+/// A reply to a post taken down before either is read lands under an empty tombstone,
+/// instead of waiting in the retry queue for a parent that is never written.
+#[tokio_shared_rt::test(shared)]
+async fn test_reply_to_a_post_taken_down_before_it_is_read_lands_under_a_tombstone() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let author_kp = Keypair::random();
+    let author_id = test
+        .create_user(
+            &author_kp,
+            &test_user("Watcher:PostModerate:EarlyParent", ""),
+        )
+        .await?;
+    let replier_kp = Keypair::random();
+    let replier_id = test
+        .create_user(
+            &replier_kp,
+            &test_user("Watcher:PostModerate:EarlyReplier", ""),
+        )
+        .await?;
+
+    let parent_id = generate_post_id();
+    let parent_path: ResourcePath = PubkyAppPost::create_path(&parent_id).parse()?;
+    let parent_uri = post_uri_builder(author_id.clone(), parent_id.clone());
+    take_down_unread(parent_uri.clone()).await?;
+
+    // The parent's own event is dropped, whether it comes before the reply or not.
+    test.put(
+        &author_kp,
+        &parent_path,
+        short_post("Watcher:PostModerate:EarlyParent:Post"),
+    )
+    .await?;
+    let (reply_id, _) = test
+        .create_post(
+            &replier_kp,
+            &short_reply("Watcher:PostModerate:EarlyReply", parent_uri),
+        )
+        .await?;
+
+    assert_tombstone(&author_id, &parent_id).await;
+    assert!(
+        find_post_details(&replier_id, &reply_id).await.is_ok(),
+        "the reply is indexed"
+    );
+    assert!(
+        check_member_post_replies(&author_id, &parent_id, &[&replier_id, &reply_id])
+            .await?
+            .is_some(),
+        "the reply is listed under the tombstone"
+    );
+    assert_eq!(find_post_counts(&author_id, &parent_id).await.replies, 1);
+    Ok(())
+}
+
+/// A reply that landed under the tombstone survives the parent's own event read later,
+/// which finds the takedown and removes the parent again: the reply keeps it a tombstone.
+#[tokio_shared_rt::test(shared)]
+async fn test_reply_under_a_tombstone_survives_the_parents_later_event() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let author_kp = Keypair::random();
+    let author_id = test
+        .create_user(
+            &author_kp,
+            &test_user("Watcher:PostModerate:LateParent", ""),
+        )
+        .await?;
+    let replier_kp = Keypair::random();
+    let replier_id = test
+        .create_user(
+            &replier_kp,
+            &test_user("Watcher:PostModerate:FirstReplier", ""),
+        )
+        .await?;
+
+    let parent_id = generate_post_id();
+    let parent_path: ResourcePath = PubkyAppPost::create_path(&parent_id).parse()?;
+    let parent_uri = post_uri_builder(author_id.clone(), parent_id.clone());
+    take_down_unread(parent_uri.clone()).await?;
+
+    let (reply_id, _) = test
+        .create_post(
+            &replier_kp,
+            &short_reply("Watcher:PostModerate:FirstReply", parent_uri),
+        )
+        .await?;
+    let tag = PubkyAppTag {
+        uri: post_uri_builder(author_id.clone(), parent_id.clone()),
+        label: "under_takedown".to_string(),
+        created_at: Utc::now().timestamp_millis(),
+    };
+    test.put(&replier_kp, &tag.hs_path(), tag).await?;
+    test.put(
+        &author_kp,
+        &parent_path,
+        short_post("Watcher:PostModerate:LateParent:Post"),
+    )
+    .await?;
+
+    assert_tombstone(&author_id, &parent_id).await;
+    assert!(
+        find_post_details(&replier_id, &reply_id).await.is_ok(),
+        "the reply is indexed"
+    );
+    assert!(
+        check_member_post_replies(&author_id, &parent_id, &[&replier_id, &reply_id])
+            .await?
+            .is_some(),
+        "the reply is still listed under the tombstone"
+    );
+    Ok(())
+}
+
+/// A post removed by its takedown while nothing pointed at it yet (a reply to it was
+/// waiting in the retry queue) comes back as an empty tombstone when the reply lands.
+#[tokio_shared_rt::test(shared)]
+async fn test_reply_to_a_post_removed_by_its_takedown_lands_under_a_tombstone() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let author_kp = Keypair::random();
+    let author_id = test
+        .create_user(
+            &author_kp,
+            &test_user("Watcher:PostModerate:RemovedParent", ""),
+        )
+        .await?;
+    let (parent_id, _) = test
+        .create_post(
+            &author_kp,
+            &short_post("Watcher:PostModerate:RemovedParent:Post"),
+        )
+        .await?;
+    let parent_uri = post_uri_builder(author_id.clone(), parent_id.clone());
+
+    // Written, then removed outright by the takedown recorded meanwhile.
+    record_takedown(&parent_uri, MODERATOR_TAG_URI).await?;
+    remove_if_taken_down(
+        &parent_uri,
+        Path::new("/tmp/nexus-watcher-test"),
+        &default_ingestor_tests(),
+    )
+    .await?;
+    assert!(find_post_details(&author_id, &parent_id).await.is_err());
+
+    let replier_kp = Keypair::random();
+    let replier_id = test
+        .create_user(
+            &replier_kp,
+            &test_user("Watcher:PostModerate:LateReplier", ""),
+        )
+        .await?;
+    let (reply_id, _) = test
+        .create_post(
+            &replier_kp,
+            &short_reply("Watcher:PostModerate:LateReply", parent_uri),
+        )
+        .await?;
+
+    assert_tombstone(&author_id, &parent_id).await;
+    assert!(
+        find_post_details(&replier_id, &reply_id).await.is_ok(),
+        "the reply is indexed"
+    );
+    Ok(())
+}
+
+/// A repost of a post taken down before it is read lands under an empty tombstone too.
+#[tokio_shared_rt::test(shared)]
+async fn test_repost_of_a_post_taken_down_before_it_is_read_lands_under_a_tombstone() -> Result<()>
+{
+    let mut test = WatcherTest::setup(None).await?;
+    let author_kp = Keypair::random();
+    let author_id = test
+        .create_user(&author_kp, &test_user("Watcher:PostModerate:Reposted", ""))
+        .await?;
+    let reposter_kp = Keypair::random();
+    let reposter_id = test
+        .create_user(
+            &reposter_kp,
+            &test_user("Watcher:PostModerate:Reposter", ""),
+        )
+        .await?;
+
+    let parent_id = generate_post_id();
+    let parent_uri = post_uri_builder(author_id.clone(), parent_id.clone());
+    take_down_unread(parent_uri.clone()).await?;
+
+    let (repost_id, _) = test
+        .create_post(
+            &reposter_kp,
+            &short_repost("Watcher:PostModerate:Repost", parent_uri),
+        )
+        .await?;
+
+    assert_tombstone(&author_id, &parent_id).await;
+    assert!(
+        find_post_details(&reposter_id, &repost_id).await.is_ok(),
+        "the repost is indexed"
+    );
+    assert_eq!(find_post_counts(&author_id, &parent_id).await.reposts, 1);
+    Ok(())
+}
+
+/// A reply to a missing post that wasn't taken down still waits for it: no tombstone.
+#[tokio_shared_rt::test(shared)]
+async fn test_reply_to_a_missing_post_not_taken_down_gets_no_tombstone() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let author_kp = Keypair::random();
+    let author_id = test
+        .create_user(
+            &author_kp,
+            &test_user("Watcher:PostModerate:MissingParent", ""),
+        )
+        .await?;
+    let replier_kp = Keypair::random();
+    let replier_id = test
+        .create_user(&replier_kp, &test_user("Watcher:PostModerate:Waiting", ""))
+        .await?;
+
+    let parent_id = generate_post_id();
+    let reply_id = generate_post_id();
+    let reply_path: ResourcePath = PubkyAppPost::create_path(&reply_id).parse()?;
+    test.put(
+        &replier_kp,
+        &reply_path,
+        short_reply(
+            "Watcher:PostModerate:WaitingReply",
+            post_uri_builder(author_id.clone(), parent_id.clone()),
+        ),
+    )
+    .await?;
+
+    assert!(find_post_details(&author_id, &parent_id).await.is_err());
+    assert!(find_post_details(&replier_id, &reply_id).await.is_err());
     Ok(())
 }

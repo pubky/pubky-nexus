@@ -22,19 +22,25 @@ pub(super) fn fail_on_blacklisted_hs(
     }
 }
 
-/// Checks if a post is a reply based on its relationships.
+/// Whether the post's score belongs in the global engagement feed: a root post that isn't
+/// deleted. Replies are tracked in their parent's reply set instead, and a tombstone stays
+/// out of the feeds. Checked before every score change, since `ZINCRBY` would create the
+/// member if absent.
 /// # Arguments
 /// * `author_id` - The ID of the author of the post
 /// * `post_id` - The ID of the post to check
-pub(super) async fn post_relationships_is_reply(
+pub(super) async fn counts_toward_engagement(
     author_id: &str,
     post_id: &str,
 ) -> Result<bool, EventProcessorError> {
     match PostRelationships::get_by_id(author_id, post_id).await? {
-        Some(relationship) => Ok(relationship.replied.is_some()),
+        Some(relationship) if relationship.replied.is_none() => {}
         // If the post does not exist, it is treated as a reply to avoid incorrect assumptions
-        None => Ok(true),
+        _ => return Ok(false),
     }
+    Ok(PostDetails::get_by_id(author_id, post_id)
+        .await?
+        .is_some_and(|details| !details.deleted))
 }
 
 /// The post's kind; a missing target reads back as `Unknown`.
