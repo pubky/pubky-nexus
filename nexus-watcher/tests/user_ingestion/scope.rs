@@ -546,7 +546,7 @@ async fn test_a_member_that_leaves_drops_out_of_the_rankings() -> Result<()> {
     };
     let tag_id = tag.create_id();
     let tag_uri = tag_uri_builder(tagger_id.to_string(), tag_id.clone());
-    handlers::tag::sync_put(tag, tag_uri, tagger_id, tag_id, &ingestor).await?;
+    handlers::tag::sync_put(tag, tag_uri, tagger_id, tag_id, &ingestor, &client()?).await?;
     UserStream::put_index_sorted_set(
         &USER_MOSTFOLLOWED_KEY_PARTS,
         &[(7.0, user_id.as_ref())],
