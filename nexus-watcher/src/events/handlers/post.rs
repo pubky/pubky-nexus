@@ -9,6 +9,7 @@ use nexus_common::models::post::{
     collection_item_keys, sync_collected_edges, PostCounts, PostDetails, PostRelationships,
     PostStream,
 };
+use nexus_common::models::takedown::is_taken_down;
 use nexus_common::models::user::UserIngestor;
 use pubky_app_specs::{
     ParsedUri, PubkyAppCollectionContent, PubkyAppPost, PubkyAppPostKind, PubkyId, Resource,
@@ -45,7 +46,13 @@ async fn sync_put_details(
     // PRE-INDEX operation, identify the post relationship
     let mut post_relationships = PostRelationships::from_homeserver(&post);
 
-    let existed = match post_details.put_to_graph(&post_relationships).await? {
+    let mut outcome = post_details.put_to_graph(&post_relationships).await?;
+    if matches!(outcome, OperationOutcome::MissingDependency)
+        && put_taken_down_parents(&post_relationships, ingestor).await?
+    {
+        outcome = post_details.put_to_graph(&post_relationships).await?;
+    }
+    let existed = match outcome {
         OperationOutcome::CreatedOrDeleted => false,
         OperationOutcome::Updated => true,
         OperationOutcome::MissingDependency => {
@@ -301,6 +308,66 @@ async fn sync_put_details(
     indexing_results.1?;
 
     Ok(())
+}
+
+/// Writes an empty tombstone for each post `relationships` replies to or reposts that the
+/// moderator took down, and returns whether it wrote any.
+///
+/// A taken-down post is never written (its event is dropped) or is removed outright when
+/// nothing points at it yet, which is the case while a reply to it waits in the retry
+/// queue. The reply would then wait for a parent that never comes, and be dropped. The
+/// tombstone is the one [`del`] leaves for a deleted post with replies: no content, flagged
+/// `deleted`, out of the feeds. A parent whose author isn't indexed gets none: the reply
+/// waits for the author as before.
+async fn put_taken_down_parents(
+    relationships: &PostRelationships,
+    ingestor: &UserIngestor,
+) -> Result<bool, EventProcessorError> {
+    let mut written = false;
+    for parent in [&relationships.replied, &relationships.reposted]
+        .into_iter()
+        .flatten()
+    {
+        let Resource::Post(post_id) = &parent.resource else {
+            continue;
+        };
+        let uri = parent
+            .try_to_uri_str()
+            .map_err(EventProcessorError::generic)?;
+        if !is_taken_down(&uri).await? {
+            continue;
+        }
+        // Best-effort, as for any missing parent: the caller drops a blacklisted author.
+        let _ = ingestor.maybe_ingest_author_of_post(parent).await;
+        let tombstone = PostDetails {
+            deleted: true,
+            ..PostDetails::from_homeserver(empty_short(None), uri, &parent.user_id, post_id)
+        };
+        if matches!(
+            tombstone
+                .put_to_graph(&PostRelationships::default())
+                .await?,
+            OperationOutcome::MissingDependency
+        ) {
+            continue;
+        }
+        // Details only, as for an edit: a tombstone stays out of the feeds.
+        tombstone.put_to_index(&parent.user_id, None, true).await?;
+        written = true;
+    }
+    Ok(written)
+}
+
+/// A Short with no content, replying to `parent` if given: what a tombstone holds.
+fn empty_short(parent: Option<String>) -> PubkyAppPost {
+    PubkyAppPost {
+        content: String::new(),
+        parent,
+        embed: None,
+        kind: PubkyAppPostKind::Short,
+        attachments: None,
+        lock: None,
+    }
 }
 
 /// Re-runs idempotent post index writes when a previous `sync_put` attempt
@@ -624,14 +691,7 @@ pub async fn del(
                 .and_then(|replied_uri| replied_uri.try_to_uri_str().ok());
 
             // A cleared Short flagged `deleted`, still a reply if it was one already.
-            let tombstone = PubkyAppPost {
-                content: String::new(),
-                parent,
-                embed: None,
-                kind: PubkyAppPostKind::Short,
-                attachments: None,
-                lock: None,
-            };
+            let tombstone = empty_short(parent);
             let tombstone_details = PostDetails {
                 deleted: true,
                 ..PostDetails::from_homeserver(tombstone.clone(), uri, &author_id, &post_id)
