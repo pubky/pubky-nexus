@@ -28,8 +28,8 @@ pub use homeserver_resolver::{
 pub use influencers::{Influencers, GLOBAL_INFLUENCERS_CACHE_SIZE};
 pub use ingestor::UserIngestor;
 pub use outsider::{
-    is_kept_out_of_global, is_outsider, set_outsiders_possible, SCOPE_STATE_LEFT,
-    SCOPE_STATE_OUTSIDE,
+    is_kept_out_of_global, is_kept_out_of_rankings, is_outsider, remove_from_rankings,
+    set_outsiders_possible, SCOPE_STATE_LEFT, SCOPE_STATE_OUTSIDE,
 };
 pub use relationship::Relationship;
 pub use search::{UserSearch, UsersByTagSearch, TAG_GLOBAL_USER_TAGGERS, USER_NAME_KEY_PARTS};

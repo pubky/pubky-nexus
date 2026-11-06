@@ -448,6 +448,27 @@ impl Influencers {
         vec![timeframe.to_string()]
     }
 
+    /// Takes `user_id` out of the AllTime ranking and every timeframe's cache, which
+    /// their next rebuild from the graph would also leave it out of.
+    pub async fn remove_user(user_id: &str) -> RedisResult<()> {
+        Self::remove_from_index_sorted_set(None, &USER_INFLUENCERS_KEY_PARTS, &[user_id]).await?;
+        for timeframe in [
+            CacheTimeframe::Today,
+            CacheTimeframe::ThisWeek,
+            CacheTimeframe::ThisMonth,
+        ] {
+            let key_parts = Influencers::get_cache_key_parts(timeframe);
+            let key_parts: Vec<&str> = key_parts.iter().map(String::as_str).collect();
+            Self::remove_from_index_sorted_set(
+                Some(GLOBAL_INFLUENCERS_PREFIX),
+                &key_parts,
+                &[user_id],
+            )
+            .await?;
+        }
+        Ok(())
+    }
+
     /// Rebuilds the AllTime ranking and the `ThisMonth` cache from the graph.
     pub async fn reindex() -> ModelResult<()> {
         Influencers::refresh_all_time().await?;
