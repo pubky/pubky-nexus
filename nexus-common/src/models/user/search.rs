@@ -1,4 +1,4 @@
-use super::{is_kept_out_of_global, UserDetails};
+use super::{is_kept_out_of_rankings, UserDetails};
 use crate::db::graph::Query;
 use crate::db::kv::{RedisResult, SortOrder};
 use crate::db::{get_neo4j_graph, queries, GraphError, GraphResult, RedisOps};
@@ -175,10 +175,12 @@ impl UsersByTagSearch {
     /// # Errors
     /// Returns an error if the Redis script execution fails.
     pub async fn sync_index_score(user_id: &str, label: &str) -> RedisResult<()> {
-        // An outsider's profile is never read: ranked, it would show as a blank card. Its
-        // labels are synced when it joins the scope (`admit_outsider`).
-        if is_kept_out_of_global(user_id).await? {
-            return Ok(());
+        // Only members are ranked: an outsider's profile is never read (it would show as a
+        // blank card), and a member that left is no longer part of the scope. Its labels
+        // are synced again when it joins (see `clear_scope_state` in the watcher).
+        if is_kept_out_of_rankings(user_id).await? {
+            let key_parts = [&TAG_GLOBAL_USER_TAGGERS[..], &[label]].concat();
+            return Self::remove_from_index_sorted_set(None, &key_parts, &[user_id]).await;
         }
         let details_key = format!("{}:{}", UserDetails::prefix().await, user_id);
         Self::put_cardinality_index_sorted_set(
