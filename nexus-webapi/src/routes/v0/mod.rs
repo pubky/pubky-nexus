@@ -109,10 +109,16 @@ impl ApiDoc {
     /// Version `V`'s document, with every path under its prefix as [`routes`] mounts them.
     /// Nesting prefixes the paths and carries the schemas over; the routes the version
     /// documents from outside its mount ([`ApiVersion::absolute_docs`]) are merged as they are.
+    /// The description ends with the version's standing ([`ApiVersion::STANDING`]).
     fn docs_of<V: ApiVersion>() -> utoipa::openapi::OpenApi {
-        Self::openapi()
+        let mut docs = Self::openapi()
             .nest(V::PREFIX, Self::relative_docs::<V>())
-            .merge_from(V::absolute_docs())
+            .merge_from(V::absolute_docs());
+        docs.info.description = Some(match &docs.info.description {
+            Some(about) => format!("{about}\n\n{}", V::STANDING),
+            None => V::STANDING.to_string(),
+        });
+        docs
     }
 
     /// Every module's document merged for version `V`, with paths relative to its prefix. The

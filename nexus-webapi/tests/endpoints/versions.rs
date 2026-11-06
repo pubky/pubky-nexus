@@ -942,6 +942,29 @@ async fn test_bootstrap_has_no_files_on_v1() -> Result<()> {
     Ok(())
 }
 
+/// A post with no attachments and a profile with no links answer `[]`, never `null`, on both
+/// versions: `attachments` on the post details and in the view's details, `links` on the user
+/// details and in the view's details. The profile is [`TAG_VIEWER`]'s, seeded with no links.
+#[tokio_shared_rt::test(shared)]
+async fn test_attachments_and_links_are_empty_lists_on_both_versions() -> Result<()> {
+    for prefix in [V0_PREFIX, V1_PREFIX] {
+        let details = get_request(&format!("{prefix}/post/{BOGOTA}/{SHORT_POST}/details")).await?;
+        assert_eq!(details["attachments"], json!([]), "{prefix}: {details}");
+        let view = get_request(&format!("{prefix}/post/{BOGOTA}/{SHORT_POST}")).await?;
+        assert_eq!(
+            view["details"]["attachments"],
+            json!([]),
+            "{prefix}: {view}"
+        );
+
+        let details = get_request(&format!("{prefix}/user/{TAG_VIEWER}/details")).await?;
+        assert_eq!(details["links"], json!([]), "{prefix}: {details}");
+        let view = get_request(&format!("{prefix}/user/{TAG_VIEWER}")).await?;
+        assert_eq!(view["details"]["links"], json!([]), "{prefix}: {view}");
+    }
+    Ok(())
+}
+
 // The viewer's tags, from docker/test-graph/mocks/tag-relationship.cypher: the viewer tagged
 // a post, a user and a resource with `trel-shared`, each of which another user tagged with
 // `trel-shared` and `trel-other`.

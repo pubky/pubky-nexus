@@ -409,24 +409,32 @@ fn test_user_details_epoch_schema_is_a_string_enum() {
     assert_eq!(schema["enum"], serde_json::json!(["v0", "v1"]), "{schema}");
 }
 
-/// Post kinds and profile links are documented under Nexus's names, with the stored kind names.
+/// Post kinds and profile links are documented under Nexus's names, `PostKind` and `UserLink`,
+/// in both documents, with no alias of the old spec-crate names; v0's kinds are the stored names.
 #[test]
 fn test_post_kind_and_user_link_schemas_are_nexus_owned() {
-    let spec = serde_json::to_value(ApiDoc::v0_docs()).expect("serializable spec");
-    let schemas = spec
-        .pointer("/components/schemas")
-        .and_then(Value::as_object)
-        .expect("schemas");
-    for gone in ["PubkyAppPostKind", "PubkyAppUserLink"] {
-        assert!(!schemas.contains_key(gone), "{gone} is still documented");
+    let v0 = serde_json::to_value(ApiDoc::v0_docs()).expect("serializable spec");
+    let v1 = serde_json::to_value(ApiDoc::v1_docs()).expect("serializable spec");
+    for spec in [&v0, &v1] {
+        let schemas = spec
+            .pointer("/components/schemas")
+            .and_then(Value::as_object)
+            .expect("schemas");
+        for gone in ["PubkyAppPostKind", "PubkyAppUserLink"] {
+            assert!(!schemas.contains_key(gone), "{gone} is still documented");
+        }
+        assert!(schemas.contains_key("UserLink"));
+        assert_eq!(
+            spec.pointer("/components/schemas/UserDetails/properties/links/items/$ref"),
+            Some(&Value::from("#/components/schemas/UserLink"))
+        );
+        assert_eq!(
+            spec.pointer("/components/schemas/PostDetails/properties/kind/$ref"),
+            Some(&Value::from("#/components/schemas/PostKind"))
+        );
     }
-    assert!(schemas.contains_key("UserLink"));
     assert_eq!(
-        spec.pointer("/components/schemas/PostDetails/properties/kind/$ref"),
-        Some(&Value::from("#/components/schemas/PostKind"))
-    );
-    assert_eq!(
-        schemas["PostKind"]["enum"],
+        v0["components"]["schemas"]["PostKind"]["enum"],
         serde_json::json!([
             "short",
             "long",
@@ -440,21 +448,63 @@ fn test_post_kind_and_user_link_schemas_are_nexus_owned() {
     );
 }
 
-/// `attachments` and `links` are always present lists, never `null`.
+/// `attachments` and `links` are always present lists, never `null`, in both documents: a
+/// required property whose type is `array` alone, not `["array", "null"]`, and not nullable.
 #[test]
 fn test_attachments_and_links_are_required_lists() {
-    let spec = serde_json::to_value(ApiDoc::v0_docs()).expect("serializable spec");
-    for (schema, field) in [("PostDetails", "attachments"), ("UserDetails", "links")] {
-        let object = spec
-            .pointer(&format!("/components/schemas/{schema}"))
-            .expect("schema");
-        let required = object["required"].as_array().expect("required fields");
-        assert!(required.contains(&Value::from(field)), "{schema}.{field}");
-        assert_eq!(
-            object["properties"][field]["type"], "array",
-            "{schema}.{field}"
+    for (prefix, spec) in [("/v0", ApiDoc::v0_docs()), ("/v1", ApiDoc::v1_docs())] {
+        let spec = serde_json::to_value(spec).expect("serializable spec");
+        for (schema, field) in [("PostDetails", "attachments"), ("UserDetails", "links")] {
+            let object = spec
+                .pointer(&format!("/components/schemas/{schema}"))
+                .unwrap_or_else(|| panic!("{prefix}: no {schema} schema"));
+            let required = object["required"].as_array().expect("required fields");
+            assert!(
+                required.contains(&Value::from(field)),
+                "{prefix}: {schema}.{field} is optional: {object}"
+            );
+            let property = &object["properties"][field];
+            assert_eq!(
+                property["type"], "array",
+                "{prefix}: {schema}.{field}: {property}"
+            );
+            assert!(
+                property.get("nullable").is_none(),
+                "{prefix}: {schema}.{field}: {property}"
+            );
+            assert!(property["items"].is_object(), "{prefix}: {schema}.{field}");
+        }
+    }
+}
+
+/// The `/v0` document says it is frozen, fixes only, with every new feature in `/v1`; the `/v1`
+/// document says it is the current API. Both keep the crate's description first.
+#[test]
+fn test_v0_document_is_marked_frozen() {
+    let about = "Nexus API exposes a social-media-like API";
+    let v0 = serde_json::to_value(ApiDoc::v0_docs()).expect("serializable spec");
+    let v0_description = v0["info"]["description"].as_str().expect("v0 description");
+    assert!(v0_description.starts_with(about), "{v0_description}");
+    for phrase in [
+        "`/v0` is frozen",
+        "fixes only",
+        "no new routes or fields",
+        "`/v1`",
+    ] {
+        assert!(
+            v0_description.contains(phrase),
+            "{phrase}: {v0_description}"
         );
     }
+
+    let v1 = serde_json::to_value(ApiDoc::v1_docs()).expect("serializable spec");
+    let v1_description = v1["info"]["description"].as_str().expect("v1 description");
+    assert!(v1_description.starts_with(about), "{v1_description}");
+    assert!(
+        v1_description.contains("`/v1` is the current API"),
+        "{v1_description}"
+    );
+    assert!(!v1_description.contains("frozen"), "{v1_description}");
 }
 
 /// Every `UserCounts` field is always present, `collections` included; `bookmarks` is one of

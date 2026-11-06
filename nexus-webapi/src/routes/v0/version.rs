@@ -53,6 +53,9 @@ use crate::routes::AppState;
 pub trait ApiVersion: Send + Sync + 'static {
     /// The mount prefix, `/v0` or `/v1`.
     const PREFIX: &'static str;
+    /// The version's standing, appended to its OpenAPI document's description so a client
+    /// reads it next to the routes: `/v0` is frozen (fixes only), `/v1` takes every new feature.
+    const STANDING: &'static str;
 
     /// A post with its counts, tags and relationships, `GET /post/{author_id}/{post_id}`.
     /// `/v1` has no `bookmark` and no `attachments_metadata`.
@@ -220,6 +223,8 @@ pub struct V1;
 
 impl ApiVersion for V0 {
     const PREFIX: &'static str = V0_PREFIX;
+    const STANDING: &'static str =
+        "`/v0` is frozen: fixes only, no new routes or fields. Every new feature lands in `/v1`.";
 
     type PostView = PostViewDetailed;
     type PostDetails = PostDetails;
@@ -357,6 +362,8 @@ impl ApiVersion for V0 {
 
 impl ApiVersion for V1 {
     const PREFIX: &'static str = V1_PREFIX;
+    const STANDING: &'static str =
+        "`/v1` is the current API, the one the `social/v1` clients read: every new feature lands here.";
 
     type PostView = v1::PostView;
     type PostDetails = v1::PostDetails;
