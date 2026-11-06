@@ -11,15 +11,14 @@ use std::time::Duration;
 
 use deadpool_redis::redis::AsyncCommands;
 use futures::{stream, StreamExt, TryStreamExt};
+use nexus_common::db::get_redis_conn;
 use nexus_common::db::kv::{RedisError, RedisResult};
-use nexus_common::db::{get_redis_conn, PubkyConnector};
 use nexus_common::types::DynError;
-use pubky::Method;
 use pubky_app_specs::PubkyId;
 use tracing::{info, warn};
 
+use super::big_nexus::{get_json, NexusAnswer};
 use super::scope_maintenance::ScopeMaintainer;
-use crate::homeserver::fetch::{fetch_capped, MAX_RESOURCE_SIZE};
 
 /// Follows asked for per page, the most `/v0/user/{id}/following` serves.
 const PAGE_LIMIT: usize = 200;
@@ -34,34 +33,24 @@ const CONCURRENT_REQUESTS: usize = 8;
 const MAX_REQUESTS: usize = 20_000;
 /// Users suggested in one bootstrap, for the same reason.
 const MAX_SUGGESTED: usize = 50_000;
-/// How long one request to the big Nexus may take, body included.
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
-/// Waits for a rate limit (`429`) per page, each at most [`MAX_RATE_LIMIT_WAIT`], before
+/// Waits for a rate limit (`429`) per page, each at most
+/// [`MAX_RATE_LIMIT_WAIT`](super::big_nexus::MAX_RATE_LIMIT_WAIT), before
 /// the bootstrap gives up.
 const MAX_RATE_LIMIT_WAITS: u32 = 5;
-const MAX_RATE_LIMIT_WAIT: Duration = Duration::from_secs(60);
-/// How long a rate-limited request waits when the Nexus doesn't say.
-const DEFAULT_RATE_LIMIT_WAIT: Duration = Duration::from_secs(5);
 /// How long a suggested user counts as a member without the graph confirming it.
 const SUGGESTION_TTL_MS: i64 = 24 * 60 * 60 * 1_000;
-
-/// One answer to "who does this user follow?".
-#[derive(Debug, Clone, PartialEq)]
-pub enum FollowingPage {
-    /// A page of followees, as the source sent them: the caller keeps the valid ids.
-    Followees(Vec<String>),
-    /// The source doesn't know the user.
-    Unknown,
-    /// The source asks to wait this long before asking again (`429`).
-    RateLimited(Duration),
-}
 
 /// Where "who does this user follow?" is asked: a big Nexus over HTTP, or a fake in tests.
 #[async_trait::async_trait]
 pub trait FollowingSource: Send + Sync {
     /// One page of the user's followees, skipping `skip` entries, in one request: the
-    /// caller does the retrying, so every request counts against its budget.
-    async fn following(&self, user_id: &str, skip: usize) -> Result<FollowingPage, DynError>;
+    /// caller does the retrying, so every request counts against its budget. The ids are
+    /// as the source sent them: the caller keeps the valid ones.
+    async fn following(
+        &self,
+        user_id: &str,
+        skip: usize,
+    ) -> Result<NexusAnswer<Vec<String>>, DynError>;
 }
 
 /// A big Nexus's `GET /v0/user/{id}/following`.
@@ -72,52 +61,17 @@ pub struct NexusFollowing {
 
 #[async_trait::async_trait]
 impl FollowingSource for NexusFollowing {
-    async fn following(&self, user_id: &str, skip: usize) -> Result<FollowingPage, DynError> {
+    async fn following(
+        &self,
+        user_id: &str,
+        skip: usize,
+    ) -> Result<NexusAnswer<Vec<String>>, DynError> {
         let url = format!(
             "{}/v0/user/{user_id}/following?skip={skip}&limit={PAGE_LIMIT}",
             self.nexus_url
         );
-        let pubky = PubkyConnector::get()?;
-        read_page(&url, pubky.client().request(Method::GET, &url).send()).await
+        get_json(&url).await
     }
-}
-
-/// One request, from `send` to the end of its body, within [`REQUEST_TIMEOUT`]: a Nexus
-/// that sends headers and stalls its body is cut off too.
-async fn read_page(
-    url: &str,
-    send: impl std::future::Future<Output = Result<reqwest::Response, reqwest::Error>>,
-) -> Result<FollowingPage, DynError> {
-    let read = async {
-        let response = send.await?;
-        match response.status() {
-            reqwest::StatusCode::NOT_FOUND => Ok(FollowingPage::Unknown),
-            reqwest::StatusCode::TOO_MANY_REQUESTS => {
-                Ok(FollowingPage::RateLimited(retry_after(&response)))
-            }
-            status if !status.is_success() => Err(format!("GET {url}: HTTP {status}").into()),
-            _ => {
-                let body = fetch_capped(response, MAX_RESOURCE_SIZE as u64)
-                    .await
-                    .map_err(|e| format!("GET {url}: {e:?}"))?;
-                Ok(FollowingPage::Followees(serde_json::from_slice(&body)?))
-            }
-        }
-    };
-    tokio::time::timeout(REQUEST_TIMEOUT, read)
-        .await
-        .map_err(|_| format!("GET {url}: timed out"))?
-}
-
-/// How long a `429` asks to wait (`Retry-After` in seconds), at most
-/// [`MAX_RATE_LIMIT_WAIT`].
-fn retry_after(response: &reqwest::Response) -> Duration {
-    response
-        .headers()
-        .get(reqwest::header::RETRY_AFTER)
-        .and_then(|value| value.to_str().ok()?.parse::<u64>().ok())
-        .map_or(DEFAULT_RATE_LIMIT_WAIT, Duration::from_secs)
-        .min(MAX_RATE_LIMIT_WAIT)
 }
 
 /// The requests one bootstrap may still send. Taken before every request, retries and
@@ -222,7 +176,7 @@ async fn all_following(
             break;
         }
         match source.following(user_id, read).await {
-            Ok(FollowingPage::Followees(mut page)) => {
+            Ok(NexusAnswer::Found(mut page)) => {
                 (failures, waits) = (0, 0);
                 let full_page = page.len() >= PAGE_LIMIT;
                 page.truncate(PAGE_LIMIT);
@@ -235,12 +189,12 @@ async fn all_following(
                     break;
                 }
             }
-            Ok(FollowingPage::Unknown) => break,
-            Ok(FollowingPage::RateLimited(wait)) if waits < MAX_RATE_LIMIT_WAITS => {
+            Ok(NexusAnswer::NotFound) => break,
+            Ok(NexusAnswer::RateLimited(wait)) if waits < MAX_RATE_LIMIT_WAITS => {
                 waits += 1;
                 tokio::time::sleep(wait).await;
             }
-            Ok(FollowingPage::RateLimited(_)) => {
+            Ok(NexusAnswer::RateLimited(_)) => {
                 return Err(format!("still rate limited after {waits} waits").into())
             }
             Err(e) if failures + 1 < MAX_ATTEMPTS => {
@@ -378,7 +332,7 @@ mod tests {
     #[derive(Default)]
     struct FakeFollowing {
         graph: HashMap<String, Vec<String>>,
-        script: Mutex<VecDeque<Result<FollowingPage, String>>>,
+        script: Mutex<VecDeque<Result<NexusAnswer<Vec<String>>, String>>>,
         down: bool,
         asked: Mutex<Vec<(String, usize)>>,
     }
@@ -393,7 +347,7 @@ mod tests {
 
         fn scripted(
             graph: HashMap<String, Vec<String>>,
-            script: Vec<Result<FollowingPage, String>>,
+            script: Vec<Result<NexusAnswer<Vec<String>>, String>>,
         ) -> Self {
             Self {
                 graph,
@@ -409,7 +363,11 @@ mod tests {
 
     #[async_trait::async_trait]
     impl FollowingSource for FakeFollowing {
-        async fn following(&self, user_id: &str, skip: usize) -> Result<FollowingPage, DynError> {
+        async fn following(
+            &self,
+            user_id: &str,
+            skip: usize,
+        ) -> Result<NexusAnswer<Vec<String>>, DynError> {
             self.asked.lock().unwrap().push((user_id.to_string(), skip));
             if let Some(answer) = self.script.lock().unwrap().pop_front() {
                 return answer.map_err(Into::into);
@@ -418,7 +376,7 @@ mod tests {
                 return Err("the big Nexus is down".into());
             }
             Ok(match self.graph.get(user_id) {
-                Some(followees) => FollowingPage::Followees(
+                Some(followees) => NexusAnswer::Found(
                     followees
                         .iter()
                         .skip(skip)
@@ -426,7 +384,7 @@ mod tests {
                         .cloned()
                         .collect(),
                 ),
-                None => FollowingPage::Unknown,
+                None => NexusAnswer::NotFound,
             })
         }
     }
@@ -534,7 +492,7 @@ mod tests {
         let [seed, friend] = [(); 2].map(|_| random_pubky_id().to_string());
         let source = FakeFollowing::scripted(
             HashMap::from([(seed.clone(), vec![friend.clone()])]),
-            vec![Ok(FollowingPage::RateLimited(Duration::from_secs(7)))],
+            vec![Ok(NexusAnswer::RateLimited(Duration::from_secs(7)))],
         );
         let started = tokio::time::Instant::now();
 
@@ -548,7 +506,7 @@ mod tests {
         );
 
         let limited = (0..=MAX_RATE_LIMIT_WAITS)
-            .map(|_| Ok(FollowingPage::RateLimited(Duration::from_secs(1))))
+            .map(|_| Ok(NexusAnswer::RateLimited(Duration::from_secs(1))))
             .collect();
         let source = FakeFollowing::scripted(HashMap::new(), limited);
         assert!(suggested_members(&seed, 1, &source).await.is_err());
@@ -566,7 +524,7 @@ mod tests {
             },
             FakeFollowing::scripted(
                 HashMap::new(),
-                vec![Ok(FollowingPage::RateLimited(Duration::from_secs(1))); 4],
+                vec![Ok(NexusAnswer::RateLimited(Duration::from_secs(1))); 4],
             ),
         ] {
             let suggested =
@@ -575,48 +533,5 @@ mod tests {
             assert_eq!(suggested.unwrap(), HashMap::new(), "stopped by the budget");
             assert_eq!(source.requests(), 2, "two requests sent, as budgeted");
         }
-    }
-
-    /// A body that never arrives is cut off by the same timeout as the headers.
-    #[tokio::test(start_paused = true)]
-    async fn a_stalled_body_times_out() {
-        let stalled = futures::stream::pending::<Result<bytes::Bytes, std::io::Error>>();
-        let response =
-            reqwest::Response::from(http::Response::new(reqwest::Body::wrap_stream(stalled)));
-
-        // A deadline of its own, so the test fails rather than hangs if the body is read
-        // outside the request's timeout.
-        let deadline = REQUEST_TIMEOUT + Duration::from_secs(1);
-        let read =
-            tokio::time::timeout(deadline, read_page("url", std::future::ready(Ok(response))))
-                .await
-                .expect("cut off within the request's timeout");
-
-        assert!(read.unwrap_err().to_string().contains("timed out"));
-    }
-
-    #[tokio::test]
-    async fn reads_how_long_a_rate_limit_asks_to_wait() {
-        let limited = |retry_after: &str| {
-            let response = http::Response::builder()
-                .status(429)
-                .header("retry-after", retry_after)
-                .body("")
-                .unwrap();
-            read_page(
-                "url",
-                std::future::ready(Ok(reqwest::Response::from(response))),
-            )
-        };
-
-        assert_eq!(
-            limited("7").await.unwrap(),
-            FollowingPage::RateLimited(Duration::from_secs(7))
-        );
-        assert_eq!(
-            limited("100000").await.unwrap(),
-            FollowingPage::RateLimited(MAX_RATE_LIMIT_WAIT),
-            "at most the longest wait"
-        );
     }
 }
