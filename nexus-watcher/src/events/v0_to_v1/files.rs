@@ -13,7 +13,23 @@ use crate::events::EventProcessorError;
 use nexus_common::db::{fetch_all_rows_from_graph, queries, GraphError};
 use pubky_social_specs::legacy_v0::ParsedUri;
 use pubky_social_specs::{mime_to_ext, resolve_deref, PubkyId};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
+
+/// One of the owner's blobs, as the flip copies it: the address it migrates under and the
+/// files that name it, lowest `tsid` first, so a copy reads the namer's `main` before any other.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Blob {
+    pub hash: String,
+    pub ext: String,
+    pub tsids: Vec<String>,
+}
+
+impl Blob {
+    /// The `{hash}.{ext}` the blob migrates under: its `social/v1` file id.
+    pub fn file_id(&self) -> String {
+        format!("{}.{}", self.hash, self.ext)
+    }
+}
 
 /// The blob each of a user's files names, and the extension each blob migrates under.
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -77,6 +93,26 @@ impl FileMap {
     /// names it, as in the migrator.
     pub fn ext_of(&self, hash: &str) -> &str {
         self.exts.get(hash).map_or("bin", |(_, ext)| ext.as_str())
+    }
+
+    /// Every blob the owner's files name, in hash order, each with its files lowest `tsid`
+    /// first: the order the flip copies them in, so a rerun walks the same list.
+    pub fn blobs(&self) -> Vec<Blob> {
+        let mut by_hash: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
+        for (tsid, hash) in &self.hashes {
+            by_hash.entry(hash).or_default().push(tsid);
+        }
+        by_hash
+            .into_iter()
+            .map(|(hash, mut tsids)| {
+                tsids.sort_unstable();
+                Blob {
+                    hash: hash.to_string(),
+                    ext: self.ext_of(hash).to_string(),
+                    tsids: tsids.into_iter().map(str::to_string).collect(),
+                }
+            })
+            .collect()
     }
 }
 
@@ -142,6 +178,40 @@ mod tests {
 
         assert_eq!(map.ext_of(HASH), "bin");
         assert_eq!(map.ext_of(OTHER_HASH), "bin");
+    }
+
+    /// The blobs come in hash order, each with its files lowest `tsid` first and under the
+    /// namer's extension, whatever order the rows came in; a file that names no blob is in
+    /// no group.
+    #[test]
+    fn blobs_group_the_files_by_hash_lowest_tsid_first() {
+        let map = FileMap::from_files(
+            &owner(),
+            [
+                row("0032SSN7Q4EVJ", &blob(OWNER, HASH), "application/pdf"),
+                row("0032SSN7Q4EVK", &blob(OWNER, OTHER_HASH), "text/plain"),
+                row("0032SSN7Q4EVG", &blob(OWNER, HASH), "image/png"),
+                row("0032SSN7Q4EVM", "https://example.com/a.png", "image/png"),
+            ],
+        );
+
+        assert_eq!(
+            map.blobs(),
+            vec![
+                Blob {
+                    hash: OTHER_HASH.to_string(),
+                    ext: "txt".to_string(),
+                    tsids: vec!["0032SSN7Q4EVK".to_string()],
+                },
+                Blob {
+                    hash: HASH.to_string(),
+                    ext: "png".to_string(),
+                    tsids: vec!["0032SSN7Q4EVG".to_string(), "0032SSN7Q4EVJ".to_string()],
+                },
+            ]
+        );
+        assert_eq!(map.blobs()[1].file_id(), format!("{HASH}.png"));
+        assert!(FileMap::default().blobs().is_empty());
     }
 
     #[test]

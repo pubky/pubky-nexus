@@ -299,6 +299,7 @@ mod tests {
             format!("social/v1/posts/{POST_ID}/{POST_ID}-hello-world.json"),
             format!("social/v1/tags/{HASH_ID}.json"),
             format!("social/v1/follows/{USER}.json"),
+            format!("social/v1/files/{HASH_ID}.jpg"),
         ] {
             assert_parsed(&path);
             let Ok(ParseResult::Parsed(event)) = Event::parse_event(&format!("PUT {}", uri(&path)))
@@ -313,14 +314,15 @@ mod tests {
         }
     }
 
-    /// A v1 resource with no handler costs no GET: a file until v1 files are translated, a feed,
-    /// a versionless post address, which names no stored file, and a path the pinned parser
-    /// cannot classify, under `unknown`.
+    /// A v1 resource with no handler costs no GET: a feed, a versionless post address, which
+    /// names no stored file, and a path the pinned parser cannot classify, under `unknown`,
+    /// a file name with no known extension among them.
     #[test]
     fn social_v1_resources_without_a_handler_are_skipped_with_their_resource_name() {
         for (path, resource) in [
-            (format!("social/v1/files/{HASH_ID}.jpg"), "files"),
             (format!("social/v1/feeds/{HASH_ID}.json"), "feeds"),
+            (format!("social/v1/files/{HASH_ID}"), "unknown"),
+            (format!("social/v1/files/{HASH_ID}.tar.gz"), "unknown"),
             (format!("social/v1/posts/{POST_ID}"), "posts"),
             ("social/v1/whatever".to_string(), "unknown"),
             (format!("social/v1/posts/{POST_ID}.json"), "unknown"),

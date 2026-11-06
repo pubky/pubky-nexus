@@ -236,6 +236,19 @@ pub struct BookmarkInput {
     pub bookmarked: Reference,
 }
 
+/// The blob a file's metadata points at: the user whose storage holds it and its id, the hash
+/// of its bytes.
+///
+/// Not a [`Reference`]: `resolve_reference` deliberately maps a blob to [`ReferenceTarget::Other`],
+/// since nothing in the graph points at one. The translator parses it from the metadata's `src`,
+/// so the handler checks the owner's homeserver against the blacklist and the downloaded bytes
+/// against the id without parsing the address itself.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BlobSource {
+    pub owner_id: PubkyId,
+    pub blob_id: String,
+}
+
 /// A file's metadata, as the file handler reads it. The handler downloads the blob from `src`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FileInput {
@@ -244,6 +257,8 @@ pub struct FileInput {
     pub name: String,
     /// The URI of the blob, as the author wrote it.
     pub src: String,
+    /// What `src` names.
+    pub blob: BlobSource,
     pub content_type: String,
     pub size: usize,
     pub created_at: i64,

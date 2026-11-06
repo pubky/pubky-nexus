@@ -42,6 +42,10 @@ pub struct MockHomeserverClient {
     /// `resources`.
     resource_errors: HashMap<String, HsErrorKind>,
 
+    /// Blob URIs `get_blob` was asked for, in fetch order, served or not, so a test that
+    /// asserts no download happened reads this.
+    blob_fetches: Mutex<Vec<String>>,
+
     /// The user whose record every lookup is answered with, and the homeserver
     /// it names. None by default.
     homeserver_of: Option<(Keypair, PubkyId)>,
@@ -113,6 +117,11 @@ impl MockHomeserverClient {
 
     pub async fn call_details(&self) -> Vec<(String, String, u64, u16)> {
         self.calls.lock().await.clone()
+    }
+
+    /// The blob URIs `get_blob` was asked for, in fetch order.
+    pub async fn blob_fetches(&self) -> Vec<String> {
+        self.blob_fetches.lock().await.clone()
     }
 }
 
@@ -187,6 +196,7 @@ impl HomeserverClient for MockHomeserverClient {
     }
 
     async fn get_blob(&self, resource: &PubkyResource) -> Result<Vec<u8>, HsError> {
+        self.blob_fetches.lock().await.push(resource.to_pubky_url());
         self.serve(resource, HsOp::GetBlob)
     }
 }

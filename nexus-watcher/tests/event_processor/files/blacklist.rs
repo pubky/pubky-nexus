@@ -72,7 +72,7 @@ async fn test_file_ingest_aborts_on_blacklisted_source_homeserver() -> Result<()
         resource_id: file_id.clone(),
     };
     let err = sync_put(
-        FileInput::from_v0(file, file_uri),
+        FileInput::from_v0(file, file_uri)?,
         key,
         test.temp_dir.path(),
         &ingestor,
@@ -137,7 +137,7 @@ async fn test_file_ingest_aborts_when_source_is_blacklisted_hs_pk_directly() -> 
         resource_id: file_id.clone(),
     };
     let err = sync_put(
-        FileInput::from_v0(file, file_uri),
+        FileInput::from_v0(file, file_uri)?,
         key,
         test.temp_dir.path(),
         &ingestor,
@@ -191,7 +191,7 @@ async fn test_file_ingest_proceeds_when_source_homeserver_not_blacklisted() -> R
         resource_id: file_id.clone(),
     };
     sync_put(
-        FileInput::from_v0(file.clone(), file_uri),
+        FileInput::from_v0(file.clone(), file_uri)?,
         key,
         test.temp_dir.path(),
         &ingestor,

@@ -46,9 +46,9 @@ pub fn classify(routed: Routed) -> Classified {
     }
 }
 
-/// Index a v1 address the v1 translator has a handler for; skip the rest (a file until N5, a
-/// feed, a versionless post address, an unknown resource), which would be fetched only to fail
-/// translation.
+/// Index a v1 address the v1 translator has a handler for, a file included, whose bytes its
+/// handler fetches; skip the rest (a feed, a versionless post address, an unknown resource),
+/// which would be fetched only to fail translation.
 fn classify_social(parsed: ParsedUri) -> Classified {
     if social_v1::has_handler(&parsed.resource) {
         return Classified::Index(EventTarget::Social(parsed));

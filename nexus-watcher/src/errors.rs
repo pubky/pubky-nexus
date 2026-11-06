@@ -127,6 +127,18 @@ pub enum EventProcessorError {
     #[error("StaticSaveFailed: {0}")]
     StaticSaveFailed(String),
 
+    /// The flip's copy of a user's files could not check for, write or remove a `social/v1`
+    /// copy: a full disk, permissions. A legacy `main` that cannot be read is not this error:
+    /// the copy skips it like a missing one. It only ever leaves the copy step wrapped in
+    /// [`Self::FlipFailed`], so its retry class is the flip's: enqueued, never a batch stop, and
+    /// no limit while the user is `v0`. So a full disk can never dead-letter a flip, nor can one
+    /// bad folder stall the homeserver's run: the retry runs the whole flip again, and the copy
+    /// skips what already exists. A file PUT's
+    /// own failed write stays the counted [`Self::StaticSaveFailed`]: there the cost of giving
+    /// up is one file, here it is a user stuck at `v0`.
+    #[error("MigrationDiskFailed: {0}")]
+    MigrationDiskFailed(String),
+
     /// Catch-all for miscellaneous errors in the processor layer
     #[error("Generic error: {0}")]
     Generic(String),
@@ -221,6 +233,10 @@ impl EventProcessorError {
 
     pub fn static_save_failed(source: impl Display) -> Self {
         Self::StaticSaveFailed(source.to_string())
+    }
+
+    pub fn migration_disk_failed(source: impl Display) -> Self {
+        Self::MigrationDiskFailed(source.to_string())
     }
 
     pub fn generic(source: impl Display) -> Self {
@@ -472,6 +488,31 @@ mod tests {
         let not_found = hs_error(HsOp::GetResource, HsErrorKind::NotFound("".into()));
         assert!(!RetryScheduler::should_enqueue_related_event(&not_found));
         assert!(!not_found.is_flip_failed());
+    }
+
+    /// The copy's disk error never stops a batch: one unreadable folder must not stall a
+    /// homeserver's run. Its retry class is the flip's, whose `FlipFailed` wraps it. A file
+    /// PUT's own failed write stays a counted retry.
+    #[test]
+    fn migration_disk_failure_is_a_per_event_error_wrapped_by_the_flip() {
+        let err = EventProcessorError::migration_disk_failed("No space left on device");
+
+        assert!(
+            matches!(err, EventProcessorError::MigrationDiskFailed(ref m) if m == "No space left on device")
+        );
+        assert!(!err.should_not_retry_now(), "{err}");
+        assert!(RetryScheduler::should_enqueue_related_event(&err), "{err}");
+
+        let flip = EventProcessorError::FlipFailed {
+            step: "copy",
+            source: Box::new(err),
+        };
+        assert!(flip.is_flip_failed(), "{flip}");
+        assert!(!flip.should_not_retry_now(), "{flip}");
+
+        let file_write = EventProcessorError::static_save_failed("No space left on device");
+        assert!(!file_write.should_not_retry_now(), "{file_write}");
+        assert!(RetryScheduler::should_enqueue_related_event(&file_write));
     }
 
     #[test]

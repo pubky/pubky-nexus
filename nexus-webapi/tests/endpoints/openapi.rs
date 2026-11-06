@@ -114,6 +114,27 @@ fn test_static_openapi_spec_valid() {
     validate_openapi_refs(&json);
 }
 
+/// The v1 files route sits in the static document, next to the v0 route it extends, until
+/// API1 moves it to the v1 one; a missing v1 file is a 404 there, so the route lists one.
+#[test]
+fn test_static_openapi_lists_both_files_routes() {
+    let spec = serde_json::to_value(StaticApiDoc::merge_docs()).expect("serializable spec");
+    let paths = spec["paths"].as_object().expect("paths");
+    for path in [
+        "/static/files/{owner_id}/{file_id}/{variant}",
+        "/v1/static/files/{owner_id}/{file_id}/{variant}",
+    ] {
+        assert!(
+            paths.contains_key(path),
+            "{path} missing from {:?}",
+            paths.keys().collect::<Vec<_>>()
+        );
+    }
+    let v1 = &spec["paths"]["/v1/static/files/{owner_id}/{file_id}/{variant}"]["get"];
+    assert!(v1["responses"].get("404").is_some(), "{v1}");
+    assert!(v1["responses"].get("400").is_some(), "{v1}");
+}
+
 /// The `Path`, `Query` and `Json` extractors turn every rejection into a 400, so every
 /// operation that takes input must list one.
 #[test]
@@ -189,5 +210,25 @@ fn test_resource_stream_routes_take_no_app_parameter() {
         let names: Vec<_> = params.iter().filter_map(|p| p["name"].as_str()).collect();
         assert!(names.contains(&"tags"), "{path}: {names:?}");
         assert!(!names.contains(&"app"), "{path}: {names:?}");
+    }
+}
+
+/// The avatar is one handler mounted twice: under `/static` for v0 clients and under the v1
+/// base path, so a v1 client reads an avatar where it reads every other file. Both mounts sit in
+/// the static document until API1 moves the v1 one, and each lists the 404 a client falls back
+/// from when the profile image is not an image file Nexus holds.
+#[test]
+fn test_static_openapi_lists_both_avatar_mounts() {
+    let spec = serde_json::to_value(StaticApiDoc::merge_docs()).expect("serializable spec");
+    let paths = spec["paths"].as_object().expect("paths");
+    for path in ["/static/avatar/{user_id}", "/v1/static/avatar/{user_id}"] {
+        let item = paths.get(path).unwrap_or_else(|| {
+            panic!("{path} missing from {:?}", paths.keys().collect::<Vec<_>>())
+        });
+        let operation = &item["get"];
+        assert!(
+            operation["responses"].get("404").is_some(),
+            "{path}: {operation}"
+        );
     }
 }

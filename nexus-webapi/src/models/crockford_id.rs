@@ -12,7 +12,7 @@ use utoipa::ToSchema;
 macro_rules! crockford_id {
     ($name:ident, $doc:literal) => {
         #[doc = $doc]
-        #[derive(Debug, ToSchema)]
+        #[derive(Debug, Clone, PartialEq, Eq, ToSchema)]
         #[schema(value_type = String, example = "00000039YD9DP")]
         pub struct $name(pub String);
 

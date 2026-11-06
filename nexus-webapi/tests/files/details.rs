@@ -1,12 +1,14 @@
 use std::panic::{resume_unwind, AssertUnwindSafe};
 
 use anyhow::Result;
+use axum::http::StatusCode;
 use chrono::Utc;
 use futures_util::FutureExt;
 use nexus_common::models::{file::FileDetails, traits::Collection};
+use nexus_webapi::models::ErrorResponsePayload;
 use pubky_social_specs::legacy_v0::file_uri_builder;
 
-use crate::utils::get_request;
+use crate::utils::{get_request, invalid_get_request};
 
 // From docker/test-graph/mocks/files.cypher; no other test reads this file.
 const GRAPH_UPDATE_FILE_OWNER: &str = "y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy";
@@ -63,5 +65,25 @@ async fn test_file_details_follow_graph_updates() -> Result<()> {
     let body = read.unwrap_or_else(|panic| resume_unwind(panic))?;
     assert_eq!(body["name"], renamed);
 
+    Ok(())
+}
+
+/// The frozen v0 contract: a `social/v1` file address is no v0 file, so the route answers the
+/// 400 it answers for any address that is not one, with the same message.
+#[tokio_shared_rt::test(shared)]
+async fn test_file_details_rejects_a_v1_address() -> Result<()> {
+    let uri = pubky_social_specs::file_uri_builder(
+        GRAPH_UPDATE_FILE_OWNER.into(),
+        "PZBQ010FF079VVZPQG1RNFN6DR.png".into(),
+    );
+
+    let res = invalid_get_request(&file_details_path(&uri), StatusCode::BAD_REQUEST).await?;
+
+    let payload: ErrorResponsePayload = serde_json::from_value(res)?;
+    assert!(
+        payload.error.contains("Malformed file URI"),
+        "{}",
+        payload.error
+    );
     Ok(())
 }

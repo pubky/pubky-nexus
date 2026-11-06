@@ -13,7 +13,7 @@ pub enum EventTarget {
     /// (`/pub/mapky/tags/…`) is skipped before it becomes one.
     Legacy(ExtendedParsedUri),
     /// A `/pub/social/v1/…` path parsed by the v1 parser. A resource the v1 translator has no
-    /// handler for, a file until N5 among them, is skipped before it becomes one.
+    /// handler for is skipped before it becomes one.
     Social(ParsedUri),
 }
 

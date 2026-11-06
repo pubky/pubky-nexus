@@ -7,15 +7,16 @@
 
 use crate::errors::EventProcessorError;
 use crate::events::inputs::{
-    BookmarkInput, FileInput, PostInput, PostKind, Reference, ResourceKey, TagInput, UserInput,
-    UserLink,
+    BlobSource, BookmarkInput, FileInput, PostInput, PostKind, Reference, ResourceKey, TagInput,
+    UserInput, UserLink,
 };
 use crate::events::route::resolve_reference;
 use crate::events::translation::{TranslatedDel, TranslatedPut};
 use pubky_social_specs::legacy_v0::traits::Validatable;
 use pubky_social_specs::legacy_v0::{
-    ExtendedParsedUri, PubkyAppBookmark, PubkyAppCollectionContent, PubkyAppFile, PubkyAppFollow,
-    PubkyAppPost, PubkyAppPostKind, PubkyAppTag, PubkyAppUser, PubkyAppUserLink, Resource,
+    validate_crockford_id, ExtendedParsedUri, ParsedUri, PubkyAppBlob, PubkyAppBookmark,
+    PubkyAppCollectionContent, PubkyAppFile, PubkyAppFollow, PubkyAppPost, PubkyAppPostKind,
+    PubkyAppTag, PubkyAppUser, PubkyAppUserLink, Resource,
 };
 
 /// Reads `bytes` with the frozen v0 reader for the resource `parsed` names and pairs the
@@ -24,8 +25,8 @@ use pubky_social_specs::legacy_v0::{
 ///
 /// Every error is deterministic and never retried: a resource with no handler is
 /// [`EventProcessorError::InvalidEventLine`], a pipeline bug surfacing as a dropped, logged
-/// event, since parsing skips or rejects those first; bytes the reader rejects are
-/// [`EventProcessorError::SpecValidation`].
+/// event, since parsing skips or rejects those first; bytes the reader rejects, and a file
+/// whose `src` is no v0 blob address, are [`EventProcessorError::SpecValidation`].
 pub fn translate_put(
     event_uri: &str,
     parsed: &ExtendedParsedUri,
@@ -67,7 +68,7 @@ pub fn translate_put(
             },
         },
         Resource::File(file_id) => TranslatedPut::File {
-            file: FileInput::from_v0(read::<PubkyAppFile>(bytes, file_id)?, uri),
+            file: FileInput::from_v0(read::<PubkyAppFile>(bytes, file_id)?, uri)?,
             key: ResourceKey {
                 owner_id: user_id,
                 resource_id: file_id.clone(),
@@ -83,8 +84,11 @@ pub fn translate_put(
 
 /// Maps the ids `parsed` names to the matching delete variant.
 ///
-/// A resource with no handler is [`EventProcessorError::InvalidEventLine`], as in
-/// [`translate_put`].
+/// A file id is checked as the PUT side checks it, with the spec crate's Crockford id
+/// validation, and one that fails is [`EventProcessorError::SpecValidation`], never retried:
+/// the file handler picks the folder to remove by the id's form, a dot meaning a `social/v1`
+/// file, so only an id a validator passed may reach it. A resource with no handler is
+/// [`EventProcessorError::InvalidEventLine`], as in [`translate_put`].
 pub fn translate_del(parsed: &ExtendedParsedUri) -> Result<TranslatedDel, EventProcessorError> {
     let user_id = parsed.user_id().clone();
     Ok(match parsed.resource() {
@@ -105,10 +109,15 @@ pub fn translate_del(parsed: &ExtendedParsedUri) -> Result<TranslatedDel, EventP
             owner_id: user_id,
             resource_id: tag_id.clone(),
         }),
-        Resource::File(file_id) => TranslatedDel::File(ResourceKey {
-            owner_id: user_id,
-            resource_id: file_id.clone(),
-        }),
+        Resource::File(file_id) => {
+            validate_crockford_id(file_id).map_err(|e| {
+                EventProcessorError::SpecValidation(format!("Invalid file id {file_id}: {e}"))
+            })?;
+            TranslatedDel::File(ResourceKey {
+                owner_id: user_id,
+                resource_id: file_id.clone(),
+            })
+        }
         resource @ (Resource::LastRead
         | Resource::Feed(_)
         | Resource::Blob(_)
@@ -209,17 +218,55 @@ impl From<PubkyAppBookmark> for BookmarkInput {
 }
 
 impl FileInput {
-    /// The input for a v0 file's metadata stored under `uri`.
-    pub fn from_v0(file: PubkyAppFile, uri: String) -> Self {
-        Self {
+    /// The input for a v0 file's metadata stored under `uri`, with its `src` parsed into the
+    /// blob it names.
+    ///
+    /// A `src` that is no v0 blob address is [`EventProcessorError::SpecValidation`]: the
+    /// reader admits any URL there, but only a blob can back a file, and that can't change on
+    /// a retry.
+    pub fn from_v0(file: PubkyAppFile, uri: String) -> Result<Self, EventProcessorError> {
+        Ok(Self {
             uri,
             name: file.name,
+            blob: blob_source(&file.src)?,
             src: file.src,
             content_type: file.content_type,
             size: file.size,
             created_at: file.created_at,
-        }
+        })
     }
+}
+
+/// The blob a v0 file's `src` names: a `pubky.app/blobs/{blob_id}` address in some user's
+/// storage. A `src` that is no `pubky.app` URI (another scheme, another app, a bad user id) is
+/// [`EventProcessorError::UnsupportedTarget`], as for any target Nexus can never fetch; a
+/// `pubky.app` address of another resource is [`EventProcessorError::SpecValidation`]. Neither
+/// is retried.
+fn blob_source(src: &str) -> Result<BlobSource, EventProcessorError> {
+    let parsed = ParsedUri::try_from(src).map_err(|e| {
+        EventProcessorError::UnsupportedTarget(format!("Invalid file source URI {src}: {e}"))
+    })?;
+    match parsed.resource {
+        Resource::Blob(blob_id) => Ok(BlobSource {
+            owner_id: parsed.user_id,
+            blob_id,
+        }),
+        resource => Err(EventProcessorError::SpecValidation(format!(
+            "File source {src} is a `{resource}` address, not a blob"
+        ))),
+    }
+}
+
+/// Runs the frozen v0 reader over a downloaded blob: `bytes` must hash to `blob_id`, the id
+/// its address carries, and be neither empty nor over the spec's cap. A rejection is spec
+/// validation, never retried, since the same bytes fail the same way.
+///
+/// The bytes come back for writing, so a blob is never copied to check it.
+pub fn read_blob(bytes: Vec<u8>, blob_id: &str) -> Result<Vec<u8>, EventProcessorError> {
+    let blob = PubkyAppBlob::new(bytes);
+    blob.validate(Some(blob_id))
+        .map_err(EventProcessorError::SpecValidation)?;
+    Ok(blob.0)
 }
 
 impl TagInput {
@@ -242,6 +289,7 @@ fn read<T: Validatable>(bytes: &[u8], id: &str) -> Result<T, EventProcessorError
 mod tests {
     use super::*;
     use crate::events::inputs::{Reference, ReferenceTarget};
+    use crate::events::retry::RetryScheduler;
     use pubky_social_specs::legacy_v0::traits::{HashId, TimestampId};
     use pubky_social_specs::legacy_v0::{PubkyAppPostEmbed, PubkyAppPostKind, PubkyAppUserLink};
     use pubky_social_specs::PubkyId;
@@ -868,11 +916,112 @@ mod tests {
                 uri: event_uri(&path),
                 name: file.name,
                 src: file.src,
+                blob: BlobSource {
+                    owner_id: pubky_id(USER),
+                    blob_id: POST_ID.to_string(),
+                },
                 content_type: file.content_type,
                 size: file.size,
                 created_at: file.created_at,
             }
         );
+    }
+
+    /// Translates the PUT of a v0 file whose metadata points at `src`.
+    fn put_file_with_src(src: &str) -> Result<TranslatedPut, EventProcessorError> {
+        let file = PubkyAppFile {
+            src: src.to_string(),
+            ..file_fixture()
+        };
+        let path = format!("pubky.app/files/{}", file.create_id());
+        put_at(&path, &bytes(&file))
+    }
+
+    /// A file's `src` is parsed once, in translation: the blob keeps its owner, who need not be
+    /// the file's owner, and its id, the hash the handler checks the download against.
+    #[test]
+    fn put_file_source_in_another_users_storage_keeps_that_owner() {
+        let src = format!("pubky://{OTHER_USER}/pub/pubky.app/blobs/{POST_ID}");
+        let translated = put_file_with_src(&src).unwrap();
+        let TranslatedPut::File { file: input, .. } = translated else {
+            panic!("expected File, got {translated:?}");
+        };
+        assert_eq!(input.src, src);
+        assert_eq!(
+            input.blob,
+            BlobSource {
+                owner_id: pubky_id(OTHER_USER),
+                blob_id: POST_ID.to_string(),
+            }
+        );
+    }
+
+    /// A `src` that is no `pubky.app` URI: a URL of another scheme, an address with no path, a
+    /// bad user id, another app's storage, or a v1 file, which the frozen v0 reader does not
+    /// speak. The reader admits it, so translation rejects it as an unsupported target, before
+    /// any handler could download it, and it is never retried.
+    #[test]
+    fn put_file_with_a_source_that_is_not_a_pubky_app_uri_is_unsupported_target() {
+        for src in [
+            "https://example.com/photo.png".to_string(),
+            "nostr:npub1example".to_string(),
+            format!("pubky://{USER}"),
+            "pubky://notakey/pub/pubky.app/blobs/0033SSE3B1FQ0".to_string(),
+            format!("pubky://{USER}/pub/mapky/blobs/0033SSE3B1FQ0"),
+            format!("pubky://{USER}/pub/other.app/blobs/{POST_ID}"),
+            format!("pubky://{USER}/pub/social/v1/files/{POST_ID}.png"),
+        ] {
+            let result = put_file_with_src(&src);
+            assert!(
+                matches!(result, Err(EventProcessorError::UnsupportedTarget(_))),
+                "{src}: {result:?}"
+            );
+            let err = result.unwrap_err();
+            assert!(
+                !RetryScheduler::should_enqueue_related_event(&err),
+                "{src}: a deterministic rejection must not be retried"
+            );
+        }
+    }
+
+    /// A `src` that is a `pubky.app` address of anything but a blob: spec validation, before
+    /// any download.
+    #[test]
+    fn put_file_with_a_source_that_is_not_a_blob_address_is_spec_validation() {
+        for src in [
+            format!("pubky://{USER}/pub/pubky.app/posts/{POST_ID}"),
+            format!("pubky://{USER}/pub/pubky.app/files/{POST_ID}"),
+            format!("pubky://{USER}/pub/pubky.app/profile.json"),
+            format!("pubky://{USER}/pub/pubky.app/blobs/"),
+        ] {
+            let result = put_file_with_src(&src);
+            assert!(
+                matches!(result, Err(EventProcessorError::SpecValidation(_))),
+                "{src}: {result:?}"
+            );
+        }
+    }
+
+    /// The downloaded bytes must hash to the id in the blob's address; anything else is spec
+    /// validation, since the same bytes would fail again.
+    #[test]
+    fn read_blob_keeps_bytes_that_hash_to_the_id_and_rejects_the_rest() {
+        let bytes = b"Hello World!".to_vec();
+        let blob_id = PubkyAppBlob::new(bytes.clone()).create_id();
+        assert_eq!(read_blob(bytes.clone(), &blob_id).unwrap(), bytes);
+
+        let other_id = PubkyAppBlob::new(b"other bytes".to_vec()).create_id();
+        for (bytes, id) in [
+            (bytes.clone(), other_id.as_str()),
+            (bytes, "INVALIDID"),
+            (Vec::new(), blob_id.as_str()),
+        ] {
+            let result = read_blob(bytes, id);
+            assert!(
+                matches!(result, Err(EventProcessorError::SpecValidation(_))),
+                "{id}: {result:?}"
+            );
+        }
     }
 
     // ---- error classes ------------------------------------------------------------------
@@ -977,6 +1126,26 @@ mod tests {
         ];
         for (path, expected) in cases {
             assert_eq!(translate_del(&target(&path)).unwrap(), expected, "{path}");
+        }
+    }
+
+    /// A file DEL whose id is no 13-character Crockford id is spec validation, a dotted
+    /// `{hash}.{ext}` among them: the file handler picks the folder to remove by the id's
+    /// form, so an unvalidated dotted id would reach its `social/v1` branch.
+    #[test]
+    fn del_file_with_an_id_no_validator_passed_is_spec_validation() {
+        for file_id in [
+            "8Z8CWH8NVYQY39ZEBFGKQWWEKG.png",
+            "0032SSN7Q4EV.png",
+            "ABCDEFG",
+            "UUUUUUUUUUUUU",
+        ] {
+            let path = format!("pubky.app/files/{file_id}");
+            let del = translate_del(&target(&path));
+            assert!(
+                matches!(del, Err(EventProcessorError::SpecValidation(_))),
+                "{file_id}: {del:?}"
+            );
         }
     }
 }

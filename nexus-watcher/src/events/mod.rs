@@ -45,7 +45,9 @@ use inputs::{ReferenceTarget, ResourceKey, TagInput};
 pub use moderation::Moderation;
 use retry::{RedisRetryStore, RetryStore};
 use route::resolve_reference;
-use translation::{translate_del, translate_put, TranslatedDel, TranslatedPut};
+use translation::{
+    translate_del, translate_put, translate_put_from_path, TranslatedDel, TranslatedPut,
+};
 
 /// Trait for handling events.
 ///
@@ -131,7 +133,7 @@ impl EventHandler for DefaultEventHandler {
             // flip logs the failed step and, while the user stays `v0`, one summary line. Once
             // the step lands, the event is a `v1` user's profile PUT and takes the ordinary path
             // below, retry limit included.
-            handlers::user::flip(event.target.user_id()).await?;
+            handlers::user::flip(event.target.user_id(), self.files_path.as_path()).await?;
         }
 
         match event.event_type {
@@ -155,8 +157,11 @@ impl EventHandler for DefaultEventHandler {
     }
 }
 
-/// Handles a PUT event: fetches its resource through `client`, translates it and dispatches
-/// it to the matching handler.
+/// Handles a PUT event: translates its resource and dispatches it to the matching handler.
+///
+/// A resource with a body is fetched through `client`, capped for a JSON object, and translated
+/// from its bytes. A resource with none, a `social/v1` file, is translated from its path alone
+/// and its handler downloads the bytes under the file cap, so the JSON fetch is skipped.
 pub async fn handle_put_event(
     event: &Event,
     files_path: &Path,
@@ -172,10 +177,16 @@ pub async fn handle_put_event(
         return Ok(());
     }
 
-    let pubky_resource: PubkyResource = event.uri.parse()?;
-    let blob = client.get_resource(&pubky_resource).await?;
+    let translated = match translate_put_from_path(&event.target) {
+        Some(translated) => translated,
+        None => {
+            let pubky_resource: PubkyResource = event.uri.parse()?;
+            let blob = client.get_resource(&pubky_resource).await?;
+            translate_put(&event.uri, &event.target, &blob)?
+        }
+    };
 
-    let outcome = match translate_put(&event.uri, &event.target, &blob)? {
+    let outcome = match translated {
         TranslatedPut::User { user_id, user } => handlers::user::sync_put(user, user_id).await,
         TranslatedPut::Post { key, post } => handlers::post::sync_put(post, key, &ingestor).await,
         TranslatedPut::Follow {
@@ -197,6 +208,9 @@ pub async fn handle_put_event(
         }
         TranslatedPut::File { key, file } => {
             handlers::file::sync_put(file, key, files_path, &ingestor, client).await
+        }
+        TranslatedPut::V1File { key, hash } => {
+            handlers::file::sync_put_v1(key, &hash, files_path, &ingestor, client).await
         }
     };
     outcome?;
@@ -264,7 +278,8 @@ pub async fn remove_if_taken_down(
     }
 }
 
-/// Handles a DEL event: translate, dispatch to the matching handler.
+/// Handles a DEL event: translate, dispatch to the matching handler. A file DEL of either epoch
+/// reaches the one file handler, which picks the folder by the id.
 pub async fn handle_del_event(
     event: &Event,
     files_path: &Path,
