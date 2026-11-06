@@ -79,7 +79,7 @@ mod live {
     };
     use crate::db::kv::SortOrder;
     use crate::db::{fetch_all_rows_from_graph, queries};
-    use crate::models::bootstrap::{Bootstrap, ViewType};
+    use crate::models::bootstrap::{AttachmentFiles, Bootstrap, ViewType};
     use crate::models::post::PostKind;
     use crate::models::post::{KindFilter, PostStream, StreamSource};
     use crate::models::user::SocialGraphStatus;
@@ -635,8 +635,8 @@ mod live {
 
         let _: () = conn.zrem(ranking_key(), &author).await?;
         let hidden = reconcile().await;
-        let own = Bootstrap::get_by_id(&author, ViewType::Full).await;
-        let other = Bootstrap::get_by_id(D2, ViewType::Full).await;
+        let own = Bootstrap::get_by_id(&author, ViewType::Full, AttachmentFiles::Fetch).await;
+        let other = Bootstrap::get_by_id(D2, ViewType::Full, AttachmentFiles::Fetch).await;
         let _: () = conn.zadd(ranking_key(), &author, rank).await?;
         let shown = reconcile().await;
 

@@ -1,11 +1,16 @@
 use crate::utils::{get_request, invalid_get_request};
 use anyhow::Result;
 use axum::http::StatusCode;
+use const_format::concatcp;
 use nexus_webapi::models::ErrorResponsePayload;
 use nexus_webapi::routes::v0::{
-    endpoints::{SEARCH_USERS_BY_ID_ROUTE, SEARCH_USERS_BY_NAME_ROUTE},
+    endpoints::{self, V0_PREFIX},
     search::USER_ID_SEARCH_MIN_PREFIX_LEN,
 };
+
+const SEARCH_USERS_BY_NAME_ROUTE: &str =
+    concatcp!(V0_PREFIX, endpoints::SEARCH_USERS_BY_NAME_ROUTE);
+const SEARCH_USERS_BY_ID_ROUTE: &str = concatcp!(V0_PREFIX, endpoints::SEARCH_USERS_BY_ID_ROUTE);
 
 fn format_search_users_by_name_prefix(prefix: &str) -> String {
     SEARCH_USERS_BY_NAME_ROUTE.replace("{prefix}", prefix)

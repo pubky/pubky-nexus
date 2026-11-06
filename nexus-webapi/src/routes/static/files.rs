@@ -233,9 +233,11 @@ async fn serve_v1_file(
     .await
 }
 
+/// The `/static/files` route; the `/v1/static/files` one is documented with `/v1`
+/// (`V1StaticApiDoc`).
 #[derive(OpenApi)]
 #[openapi(
-    paths(static_files_handler, v1_static_files_handler),
+    paths(static_files_handler),
     components(schemas(FileVariant, PubkyId, FileId))
 )]
 pub struct StaticFileApiDoc;

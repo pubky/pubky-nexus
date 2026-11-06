@@ -4,7 +4,39 @@ use crate::Result;
 use nexus_common::models::{file::FileDetails, post::PostView, traits::Collection};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, warn};
-use utoipa::ToSchema;
+use utoipa::openapi::path::{Parameter, ParameterBuilder, ParameterIn};
+use utoipa::openapi::Required;
+use utoipa::{IntoParams, PartialSchema, ToSchema};
+
+/// The `include_attachment_metadata` flag of `/v0`'s post view and post streams: whether the
+/// `File` nodes of a post's attachments are fetched into `attachments_metadata`. Read as the
+/// `bool` it wraps, so a value that is not `true` or `false` is the 400 it has always been,
+/// and documented as the one query parameter it is. `/v1` reads [`NoAttachmentMetadata`] in
+/// its place: a `social/v1` file has no `File` node, so there is no metadata to promise.
+///
+/// [`NoAttachmentMetadata`]: crate::models::v1::NoAttachmentMetadata
+#[derive(Deserialize, Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[serde(transparent)]
+pub struct IncludeAttachmentMetadata(pub bool);
+
+impl From<IncludeAttachmentMetadata> for bool {
+    fn from(flag: IncludeAttachmentMetadata) -> Self {
+        flag.0
+    }
+}
+
+/// The parameter as `/v0` has always listed it, after the route's other query parameters.
+impl IntoParams for IncludeAttachmentMetadata {
+    fn into_params(_: impl Fn() -> Option<ParameterIn>) -> Vec<Parameter> {
+        vec![ParameterBuilder::new()
+            .name("include_attachment_metadata")
+            .parameter_in(ParameterIn::Query)
+            .description(Some("Include file metadata for post attachments"))
+            .required(Required::False)
+            .schema(Some(bool::schema()))
+            .build()]
+    }
+}
 
 #[derive(Deserialize, Serialize, ToSchema)]
 pub struct PostViewDetailed {

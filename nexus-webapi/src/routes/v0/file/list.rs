@@ -7,7 +7,7 @@ use nexus_common::models::file::FileDetails;
 use nexus_common::models::traits::Collection;
 use serde::Deserialize;
 use tracing::{debug, warn};
-use utoipa::{OpenApi, ToSchema};
+use utoipa::ToSchema;
 
 #[derive(Deserialize, ToSchema)]
 pub struct FilesByIdsBody {
@@ -55,10 +55,3 @@ pub async fn file_details_by_uris_handler(
     let data: Vec<FileDetails> = files.into_iter().flatten().collect();
     Ok(Json(data))
 }
-
-#[derive(OpenApi)]
-#[openapi(
-    paths(file_details_by_uris_handler),
-    components(schemas(FileDetails, FilesByIdsBody))
-)]
-pub struct FilesListApiDoc;

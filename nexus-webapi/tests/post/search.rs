@@ -1,10 +1,9 @@
 use anyhow::Result;
 use axum::http::StatusCode;
+use const_format::concatcp;
 use nexus_common::models::post::PostDetails;
 use nexus_webapi::models::ErrorResponsePayload;
-use nexus_webapi::routes::v0::endpoints::{
-    SEARCH_POSTS_BY_CONTENT_ROUTE, SEARCH_POSTS_BY_TAG_ROUTE,
-};
+use nexus_webapi::routes::v0::endpoints::{self, V0_PREFIX};
 use serde_json::Value;
 
 use crate::{
@@ -18,6 +17,10 @@ use crate::{
         },
     },
 };
+
+const SEARCH_POSTS_BY_CONTENT_ROUTE: &str =
+    concatcp!(V0_PREFIX, endpoints::SEARCH_POSTS_BY_CONTENT_ROUTE);
+const SEARCH_POSTS_BY_TAG_ROUTE: &str = concatcp!(V0_PREFIX, endpoints::SEARCH_POSTS_BY_TAG_ROUTE);
 
 const POST_A: &str = "2VDW8YBDZJ02";
 const POST_B: &str = "1TDV7XBCF4M1";

@@ -272,14 +272,16 @@ async fn test_exclude_kinds_rejects_invalid_values() -> Result<()> {
     Ok(())
 }
 
-/// Excluding every known kind is allowed; the seed has no NULL/unknown-kind
-/// posts, so the stream is simply empty (a 200, not an error).
+/// Excluding every known kind is allowed, and `unknown` is not a name `/v0` can exclude, so
+/// the one seeded post of an unrecognised kind (Eixample's `7VNK1TGW5BKG1`, stored as
+/// `unknown`) is all that remains: a 200 with that post, not an error.
 #[tokio_shared_rt::test(shared)]
-async fn test_exclude_all_kinds_returns_empty() -> Result<()> {
+async fn test_exclude_all_kinds_leaves_the_unknown_kind() -> Result<()> {
     let body = get_request(&format!(
         "{ROOT_PATH}?source=all&exclude_kinds=short,long,image,video,link,file,collection&limit=10"
     ))
     .await?;
-    assert!(ids_in(&body).is_empty());
+    assert_eq!(ids_in(&body), ["7VNK1TGW5BKG1"]);
+    assert_eq!(body[0]["details"]["kind"], "unknown", "{body}");
     Ok(())
 }
