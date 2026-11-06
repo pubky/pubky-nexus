@@ -987,17 +987,30 @@ fn test_tag_relationship_is_documented_on_v0_only() {
     }
 }
 
-/// A resource tag keeps no `app`, so the resource stream routes take no `app` parameter.
+/// A resource tag keeps no `app`, so the resource stream routes filter by `tags`. The removed
+/// `app` parameter stays in both documents, described as removed and with the 400 it earns,
+/// because a client that still sends it is answered 400 rather than given an unfiltered stream.
 #[test]
-fn test_resource_stream_routes_take_no_app_parameter() {
-    let spec = serde_json::to_value(ApiDoc::v0_docs()).expect("serializable spec");
-    for path in ["/v0/stream/resources", "/v0/stream/resources/ids"] {
-        let params = spec["paths"][path]["get"]["parameters"]
-            .as_array()
-            .unwrap_or_else(|| panic!("{path} parameters"));
-        let names: Vec<_> = params.iter().filter_map(|p| p["name"].as_str()).collect();
-        assert!(names.contains(&"tags"), "{path}: {names:?}");
-        assert!(!names.contains(&"app"), "{path}: {names:?}");
+fn test_resource_stream_routes_document_app_as_removed() {
+    let v0 = serde_json::to_value(ApiDoc::v0_docs()).expect("serializable spec");
+    let v1 = serde_json::to_value(ApiDoc::v1_docs()).expect("serializable spec");
+    for (spec, version) in [(&v0, "v0"), (&v1, "v1")] {
+        for route in ["stream/resources", "stream/resources/ids"] {
+            let path = format!("/{version}/{route}");
+            let operation = &spec["paths"][&path]["get"];
+            let params = operation["parameters"]
+                .as_array()
+                .unwrap_or_else(|| panic!("{path} parameters"));
+            let names: Vec<_> = params.iter().filter_map(|p| p["name"].as_str()).collect();
+            assert!(names.contains(&"tags"), "{path}: {names:?}");
+            let app = params
+                .iter()
+                .find(|p| p["name"] == "app")
+                .unwrap_or_else(|| panic!("{path}: {names:?}"));
+            let description = app["description"].as_str().expect("app description");
+            assert!(description.starts_with("Removed"), "{path}: {description}");
+            assert!(operation["responses"].get("400").is_some(), "{path}");
+        }
     }
 }
 
