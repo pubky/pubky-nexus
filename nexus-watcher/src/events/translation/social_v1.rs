@@ -289,6 +289,7 @@ mod tests {
     use super::*;
     use crate::events::inputs::ReferenceTarget;
     use crate::events::translation::legacy_v0;
+    use nexus_common::models::post::collection_item_keys;
     use pubky_social_specs::legacy_v0::{
         follow_uri_builder as v0_follow_uri_builder, post_uri_builder as v0_post_uri_builder,
         tag_uri_builder as v0_tag_uri_builder, user_uri_builder as v0_user_uri_builder,
@@ -800,6 +801,34 @@ mod tests {
             input.collected_posts(),
             vec![(pubky_id(OTHER_USER), POST_ID.to_string()); 3]
         );
+    }
+
+    /// The stored content read back by [`collection_item_keys`] (recovery, the
+    /// `source=collection` stream, the collected-edges backfill) names the same posts, in the
+    /// same order, as the input the PUT handler writes the edges from. The legacy item names a
+    /// different post from the v1 ones, so a swapped key or a reordered list fails.
+    #[test]
+    fn stored_collection_content_reads_back_to_the_collected_posts() {
+        let legacy_post = v0_post_uri_builder(OTHER_USER.into(), EDIT_ID.into());
+        let post = collection_post(vec![
+            PubkySocialCollectionItem::new(legacy_post, Some("the original".to_string())),
+            PubkySocialCollectionItem::new(user_uri_builder(OTHER_USER.into()), None),
+            PubkySocialCollectionItem::new(v1_post_uri(), None),
+            PubkySocialCollectionItem::new("https://example.com/article".to_string(), None),
+            PubkySocialCollectionItem::new(v1_post_uri(), Some("again".to_string())),
+        ]);
+        let (key, input) = translate_post(&bytes(&post));
+        let collected = input.collected_posts();
+        assert_eq!(
+            collected,
+            vec![
+                (pubky_id(OTHER_USER), EDIT_ID.to_string()),
+                (pubky_id(OTHER_USER), POST_ID.to_string()),
+                (pubky_id(OTHER_USER), POST_ID.to_string()),
+            ]
+        );
+        let details = input.into_details(&key);
+        assert_eq!(collection_item_keys(&details.content).unwrap(), collected);
     }
 
     #[test]
