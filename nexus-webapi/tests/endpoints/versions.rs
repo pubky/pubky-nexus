@@ -14,6 +14,7 @@ use axum::http::StatusCode;
 use nexus_common::db::RedisOps;
 use nexus_common::models::notification::{Notification, NotificationBody};
 use nexus_common::models::post::PostKind;
+use nexus_common::models::tag::search::TagSearch;
 use nexus_webapi::routes::v0::endpoints::{V0_PREFIX, V1_PREFIX};
 use serde_json::{json, Value};
 
@@ -1325,6 +1326,33 @@ async fn test_v1_tags_list_rejects_an_invalid_label() -> Result<()> {
                 invalid_get_request(&format!("{prefix}{route}"), StatusCode::BAD_REQUEST).await?;
             }
         }
+    }
+    Ok(())
+}
+
+/// A label with a non-ASCII capital, which the `social/v1` fold keeps, is found by its prefix
+/// on `/v1` and not on `/v0`, under either spelling of the prefix: `/v1` matches the prefix as
+/// its fold left it, `/v0` lowercases the whole prefix with the Unicode rule, and the index
+/// holds the label as stored. Seeded into the label index, idempotently: the mock data has no
+/// such label, and nothing else reads it.
+#[tokio_shared_rt::test(shared)]
+async fn test_v1_prefix_search_finds_a_label_with_a_non_ascii_capital() -> Result<()> {
+    const LABEL: &str = "Ärger";
+    crate::utils::server::TestServiceServer::get_test_server().await;
+    TagSearch::put_to_index(&[LABEL.to_string()])
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    let found = |body: &Value| {
+        body.as_array()
+            .is_some_and(|l| l.iter().any(|t| t == LABEL))
+    };
+    // `Är`, as the client writes it, and `är`, its Unicode lowercase.
+    for (prefix, on_v1) in [("%C3%84r", true), ("%C3%A4r", false)] {
+        let v1 = get_request(&format!("{V1_PREFIX}/search/tags/by_prefix/{prefix}")).await?;
+        assert_eq!(found(&v1), on_v1, "{V1_PREFIX} {prefix}: {v1}");
+        let v0 = get_request(&format!("{V0_PREFIX}/search/tags/by_prefix/{prefix}")).await?;
+        assert!(!found(&v0), "{V0_PREFIX} {prefix}: {v0}");
     }
     Ok(())
 }

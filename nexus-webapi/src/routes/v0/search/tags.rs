@@ -5,7 +5,6 @@ use crate::routes::Path;
 use crate::routes::Query;
 use crate::Result;
 use axum::Json;
-use const_format::concatcp;
 use nexus_common::models::tag::search::TagSearch;
 use serde::Deserialize;
 use tracing::debug;
@@ -18,7 +17,7 @@ pub struct SearchTagsQuery {
 
 /// The one body behind `search_tags_by_prefix_handler_v0` and
 /// `search_tags_by_prefix_handler_v1`: the search, with the prefix folded as the version folds
-/// a label.
+/// a label and matched as the version says ([`ApiVersion::TAG_PREFIX_FOLD`]).
 pub async fn search_tags_by_prefix<V: ApiVersion>(
     Path(prefix): Path<V::TagLabel>,
     Query(query): Query<SearchTagsQuery>,
@@ -30,7 +29,7 @@ pub async fn search_tags_by_prefix<V: ApiVersion>(
         prefix, pagination.skip, pagination.limit
     );
 
-    match TagSearch::get_by_label(&prefix, &pagination).await? {
+    match TagSearch::get_by_prefix(&prefix, V::TAG_PREFIX_FOLD, &pagination).await? {
         Some(tags_list) => Ok(Json(tags_list)),
         None => Ok(Json(vec![])),
     }
@@ -45,7 +44,7 @@ versioned_handlers! {
         description = "Search tags by prefix",
         tag = "Search",
         params(
-            ("prefix" = shapes::TagLabel, Path, description = concatcp!("Tag name prefix", shapes::TAG_PREFIX_RULE)),
+            ("prefix" = shapes::TagLabel, Path, description = "Tag name prefix"),
             ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Skip N results (max 10000)"),
             ("limit" = Option<BoundedLimit<20, 100>>, Query, description = "Limit the number of results (1–100, default 20)")
         )

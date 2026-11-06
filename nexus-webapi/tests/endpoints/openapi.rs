@@ -155,9 +155,6 @@ fn test_v0_and_v1_documents_list_the_same_paths() {
         ("get", "/post/{author_id}/{post_id}"),
         ("get", "/stream/posts"),
     ];
-    // Method and path of the route whose `prefix` description says, on v1 only, that the
-    // search lowercases the prefix past the v1 fold.
-    let prefix_searched = [("get", "/search/tags/by_prefix/{prefix}")];
     // Method, path and parameter of the descriptions that name a route under the version's
     // own prefix, besides `source` on the bookmark-sourced routes below.
     let version_routed = [("get", "/stream/resources", "start")];
@@ -178,16 +175,6 @@ fn test_v0_and_v1_documents_list_the_same_paths() {
             assert!(
                 !has_parameter(&v1_operations[method], "include_attachment_metadata"),
                 "{operation} on v1 lists `include_attachment_metadata`"
-            );
-        }
-        for (method, _) in prefix_searched.iter().filter(|(_, p)| p == path) {
-            let operation = format!("{method} {path}");
-            let v0_text = take_parameter_description(&mut v0_operations[method], "prefix");
-            assert_eq!(v0_text, "Tag name prefix", "{operation} on v0");
-            let v1_text = take_parameter_description(&mut v1_operations[method], "prefix");
-            assert!(
-                v1_text.starts_with("Tag name prefix. ") && v1_text.contains("lowercases"),
-                "{operation} on v1: {v1_text}"
             );
         }
         for (method, _, parameter) in version_routed.iter().filter(|(_, p, _)| p == path) {

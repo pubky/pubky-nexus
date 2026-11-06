@@ -9,9 +9,10 @@
 //! and all; the two only disagree on a non-ASCII uppercase letter. A `social/v1` label can
 //! hold one: the spec crate's sanitizer lowercases ASCII only and keeps a non-Latin label's
 //! case, so a client that publishes `Ärger` stores `Ärger`. Such a label is reachable on `/v1`
-//! only, which folds a query as the store folded the label; `/v0` folds the same spelling to
-//! `ärger` and misses it, its frozen rule kept on purpose. That is why neither version falls
-//! back to the other's fold on a miss.
+//! only, which folds a query as the store folded the label, the prefix search included: it
+//! matches a `/v1` prefix as the fold left it, where `/v0` lowercases the whole prefix again
+//! and so folds the same spelling to `ärger` and misses it, its frozen rule kept on purpose.
+//! That is why neither version falls back to the other's fold on a miss.
 
 use std::fmt;
 use std::ops::Deref;

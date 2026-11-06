@@ -28,6 +28,7 @@ use nexus_common::models::file::{FileDetails, FileUrls};
 use nexus_common::models::notification::Notification;
 use nexus_common::models::post::{Bookmark, PostDetails, PostKind};
 use nexus_common::models::resource::view::ResourceView;
+use nexus_common::models::tag::search::PrefixFold;
 use nexus_common::models::tag::traits::taggers::TaggersTuple;
 use nexus_common::models::tag::TagDetails;
 use nexus_common::models::user::{UserCounts, UserStream, UserView};
@@ -113,11 +114,11 @@ pub trait ApiVersion: Send + Sync + 'static {
         + Deref<Target = Vec<Self::TagLabel>>
         + fmt::Debug
         + Send;
-    /// What the tag search does with a `prefix` beyond the version's label fold, appended to
-    /// the parameter's description: nothing to say on `/v0`, whose fold already lowercases
-    /// every letter; on `/v1`, whose fold keeps a non-ASCII capital, that the search lowercases
-    /// the whole prefix with the Unicode rule anyway.
-    const TAG_PREFIX_RULE: &'static str;
+    /// What the tag search does with a `prefix` after the version's label fold. `/v0`
+    /// lowercases it again with the Unicode rule, as it always has; `/v1` passes it as its
+    /// fold left it, so a prefix with a non-ASCII capital, which that fold keeps, finds the
+    /// labels stored with one.
+    const TAG_PREFIX_FOLD: PrefixFold;
 
     /// Whether the bootstrap's `files` are read: `/v0` serves the list, `/v1` has no file
     /// details and drops it, so it skips the read rather than fetch what it throws away.
@@ -251,7 +252,7 @@ impl ApiVersion for V0 {
 
     type TagLabel = TagLabel;
     type Tags = Tags<TagLabel>;
-    const TAG_PREFIX_RULE: &'static str = "";
+    const TAG_PREFIX_FOLD: PrefixFold = PrefixFold::Lowercase;
 
     const ATTACHMENT_FILES: AttachmentFiles = AttachmentFiles::Fetch;
     type IncludeAttachmentMetadata = IncludeAttachmentMetadata;
@@ -392,7 +393,7 @@ impl ApiVersion for V1 {
 
     type TagLabel = v1::TagLabel;
     type Tags = v1::Tags;
-    const TAG_PREFIX_RULE: &'static str = ". The search then lowercases the whole prefix with the Unicode rule, so a non-ASCII capital, which the `/v1` fold keeps, is searched in lowercase";
+    const TAG_PREFIX_FOLD: PrefixFold = PrefixFold::AsGiven;
 
     const ATTACHMENT_FILES: AttachmentFiles = AttachmentFiles::Skip;
     type IncludeAttachmentMetadata = v1::NoAttachmentMetadata;
@@ -563,7 +564,6 @@ pub mod shapes {
             pub type ResourceTaggersPath = super::super::resource::ResourceTaggersPath<$version>;
 
             pub const PREFIX: &str = <$version as ApiVersion>::PREFIX;
-            pub const TAG_PREFIX_RULE: &str = <$version as ApiVersion>::TAG_PREFIX_RULE;
             pub const SOURCE_NAMES: &str = <$version as ApiVersion>::SOURCE_NAMES;
             pub const BOOKMARKS_SOURCE_LINE: &str = <$version as ApiVersion>::BOOKMARKS_SOURCE_LINE;
             pub const LOCKED_REPLIES_RULE: &str = <$version as ApiVersion>::LOCKED_REPLIES_RULE;
