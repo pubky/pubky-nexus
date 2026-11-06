@@ -3,6 +3,7 @@
 
 use super::post::PostKind;
 use crate::models::post_kinds::KindToken;
+use const_format::concatcp;
 use nexus_common::models::post;
 
 /// `/v1`'s token: a `/v1` name, `unknown` included, through [`PostKind::parse`], with the
@@ -25,11 +26,12 @@ impl From<V1KindToken> for post::PostKind {
 }
 
 impl KindToken for V1KindToken {
-    const DESCRIPTION: &'static str = "Comma-separated list of `/v1` post kinds (min=1, max=8 tokens; duplicates are dropped,\norder preserved). Parsing is strict: a token that is not one of `note`, `article`, `image`,\n`video`, `link`, `file`, `collection` or `unknown` is rejected, so a `/v0` name is a 400\nrather than a filter that excludes nothing. `unknown` is a name here, unlike on `/v0`: a\nclient excludes the posts it cannot render with it.";
+    const MAX: usize = 8;
+    const DESCRIPTION: &'static str = concatcp!("Comma-separated list of `/v1` post kinds (min=1, max=", V1KindToken::MAX, " tokens; duplicates are dropped,\norder preserved). Parsing is strict: a token that is not one of `note`, `article`, `image`,\n`video`, `link`, `file`, `collection` or `unknown` is rejected, so a `/v0` name is a 400\nrather than a filter that excludes nothing. `unknown` is a name here, unlike on `/v0`: a\nclient excludes the posts it cannot render with it.");
 }
 
 /// The `/v1` list: one to eight `/v1` names, `unknown` among them.
-pub type PostKinds = crate::models::PostKinds<V1KindToken, 8>;
+pub type PostKinds = crate::models::PostKinds<V1KindToken, { V1KindToken::MAX }>;
 
 #[cfg(test)]
 mod tests {

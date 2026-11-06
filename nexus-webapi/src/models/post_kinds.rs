@@ -9,6 +9,8 @@ use std::borrow::Cow;
 use std::fmt;
 use std::marker::PhantomData;
 
+use const_format::concatcp;
+
 use serde::Deserialize;
 use serde_json::Value;
 use utoipa::openapi::schema::{ObjectBuilder, Type};
@@ -22,6 +24,8 @@ use nexus_common::models::post::PostKind;
 /// `TryFrom<String>`; the token names the stored kind it read, with the parameter in its error
 /// where the version says it.
 pub trait KindToken: TryFrom<String, Error = String> + Into<PostKind> {
+    /// The version's bound on the list: the one place it is written.
+    const MAX: usize;
     /// The list's schema description: the version's bound and names, spelled out.
     const DESCRIPTION: &'static str;
 }
@@ -51,8 +55,14 @@ impl<K, const MAX: usize> From<PostKinds<K, MAX>> for Vec<PostKind> {
     }
 }
 
+impl<K: KindToken, const MAX: usize> PostKinds<K, MAX> {
+    /// Compile-time check that the list's bound is the token's.
+    const BOUND_IS_THE_TOKENS: () = assert!(MAX == K::MAX, "`MAX` must equal `K::MAX`");
+}
+
 impl<'de, K: KindToken, const MAX: usize> Deserialize<'de> for PostKinds<K, MAX> {
     fn deserialize<D: serde::de::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let () = Self::BOUND_IS_THE_TOKENS;
         let tokens = bounded_vec::deserialize_csv::<K, D, 1, MAX>(d)?;
         let mut kinds: Vec<PostKind> = Vec::with_capacity(tokens.len());
         for token in tokens {
@@ -103,11 +113,12 @@ impl From<StoredKindToken> for PostKind {
 }
 
 impl KindToken for StoredKindToken {
-    const DESCRIPTION: &'static str = "Comma-separated list of post kinds (min=1, max=7 tokens; duplicates are\ndropped, order preserved). Parsing is strict: values outside the known\nkinds (short, long, image, video, link, file, collection) are rejected,\nunlike the lenient single `kind` param which falls back to `Unknown`.";
+    const MAX: usize = 7;
+    const DESCRIPTION: &'static str = concatcp!("Comma-separated list of post kinds (min=1, max=", StoredKindToken::MAX, " tokens; duplicates are\ndropped, order preserved). Parsing is strict: values outside the known\nkinds (short, long, image, video, link, file, collection) are rejected,\nunlike the lenient single `kind` param which falls back to `Unknown`.");
 }
 
 /// The `/v0` list: one to seven stored names.
-pub type StoredPostKinds = PostKinds<StoredKindToken, 7>;
+pub type StoredPostKinds = PostKinds<StoredKindToken, { StoredKindToken::MAX }>;
 
 #[cfg(test)]
 mod tests {

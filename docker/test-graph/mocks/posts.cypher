@@ -238,8 +238,9 @@ MATCH (u:User {id: $eixample}), (p:Post {id: "SIJW1TGL5BKG8"}) MERGE (u)-[:AUTHO
 // It has a reply
 MERGE (p:Post {id: "SIJW1TGL5BKG9"}) SET p.content = "LINK post, pubky H", p.kind = "link", p.indexed_at = 1980477299378;
 MATCH (u:User {id: $eixample}), (p:Post {id: "SIJW1TGL5BKG9"}) MERGE (u)-[:AUTHORED]->(p) SET p.uri = "pubky://8attbeo9ftu5nztqkcfw3gydksehr7jbspgfi64u4h8eo5e7dbiy/pub/pubky.app/posts/SIJW1TGL5BKG9";
-// A post of a kind the spec reader did not recognise. The watcher stores such a kind under
-// the enum's own name, `unknown`, never the client's word; `/v1` filters by that name and
+// A post of kind `unknown`, written when the spec crate knows a kind Nexus's translator has no
+// arm for yet, or when a stored kind name is one serde no longer knows; never the client's
+// word. `/v1` filters by that name and
 // `/v0` cannot exclude it. Oldest of all, no tags, in no collection, and its content holds
 // neither `post` nor `privacy`, so no other stream, search or count moves.
 MERGE (p:Post {id: "7VNK1TGW5BKG1"}) SET p.content = "Sondage: a kind Nexus does not know", p.kind = "unknown", p.indexed_at = 1600000000000;

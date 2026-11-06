@@ -22,6 +22,7 @@ use std::ops::Deref;
 
 use axum::routing::MethodRouter;
 use axum::Router;
+use const_format::concatcp;
 use nexus_common::models::bootstrap::Bootstrap;
 use nexus_common::models::file::{FileDetails, FileUrls};
 use nexus_common::models::notification::Notification;
@@ -39,8 +40,8 @@ use super::stream::posts::{PostStreamByIdsRequest, StreamSourceKind};
 use super::types::TaggersInfoResponse;
 use super::{bootstrap, file, notification, post, resource, search, stream, tag, user};
 use crate::models::{
-    v1, IncludeAttachmentMetadata, PostStreamDetailed, PostViewDetailed, StoredPostKinds, TagLabel,
-    TagLabels, Tags,
+    v1, IncludeAttachmentMetadata, KindToken, PostStreamDetailed, PostViewDetailed,
+    StoredKindToken, StoredPostKinds, TagLabel, TagLabels, Tags,
 };
 use crate::routes::AppState;
 
@@ -261,7 +262,7 @@ impl ApiVersion for V0 {
 
     const KIND_NAMES: &'static str = "short, long, image, video, link, file, collection";
     const KIND_RULE: &'static str = "";
-    const EXCLUDE_KINDS_RANGE: &'static str = "1-7";
+    const EXCLUDE_KINDS_RANGE: &'static str = concatcp!("1-", StoredKindToken::MAX);
     const MISSING_KIND_RULE: &'static str =
         "Posts with a missing or unrecognized kind are never excluded.";
 
@@ -402,7 +403,7 @@ impl ApiVersion for V1 {
     const KIND_NAMES: &'static str = v1::KIND_NAMES;
     const KIND_RULE: &'static str =
         "; any other name, `short` and `long` included, is rejected with 400";
-    const EXCLUDE_KINDS_RANGE: &'static str = "1-8";
+    const EXCLUDE_KINDS_RANGE: &'static str = concatcp!("1-", v1::V1KindToken::MAX);
     const MISSING_KIND_RULE: &'static str = "Posts with a missing kind are never excluded; `unknown` excludes the posts whose kind the spec reader didn't recognise.";
 
     fn post_view() -> MethodRouter<AppState> {
