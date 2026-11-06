@@ -16,7 +16,7 @@ use pubky_app_specs::{
 };
 use tracing::{debug, Instrument};
 
-use super::utils::{fail_on_blacklisted_hs, post_kind, post_relationships_is_reply};
+use super::utils::{counts_toward_engagement, fail_on_blacklisted_hs, post_kind};
 
 pub async fn sync_put(
     post: PubkyAppPost,
@@ -207,9 +207,8 @@ async fn sync_put_details(
             tracing::info_span!("index.write", phase = "reply_parent");
             PostCounts::invalidate(parent_post_key_parts),
             async {
-                // Replies must not enter POST_TOTAL_ENGAGEMENT — ZINCRBY
-                // would create the member if absent.
-                if !post_relationships_is_reply(&parent_author_id, &parent_post_id).await? {
+                // Replies and tombstones must not enter POST_TOTAL_ENGAGEMENT.
+                if counts_toward_engagement(&parent_author_id, &parent_post_id).await? {
                     PostStream::update_index_score(
                         &parent_author_id,
                         &parent_post_id,
@@ -266,9 +265,8 @@ async fn sync_put_details(
             tracing::info_span!("index.write", phase = "repost_parent");
             PostCounts::invalidate(parent_post_key_parts),
             async {
-                // Replies must not enter POST_TOTAL_ENGAGEMENT — ZINCRBY
-                // would create the member if absent.
-                if !post_relationships_is_reply(&parent_author_id, &parent_post_id).await? {
+                // Replies and tombstones must not enter POST_TOTAL_ENGAGEMENT.
+                if counts_toward_engagement(&parent_author_id, &parent_post_id).await? {
                     PostStream::update_index_score(
                         &parent_author_id,
                         &parent_post_id,
@@ -317,7 +315,7 @@ async fn sync_put_details(
 /// nothing points at it yet, which is the case while a reply to it waits in the retry
 /// queue. The reply would then wait for a parent that never comes, and be dropped. The
 /// tombstone is the one [`del`] leaves for a deleted post with replies: no content, flagged
-/// `deleted`, out of the feeds. A parent whose author isn't indexed gets none: the reply
+/// `deleted`, out of the feeds (see [`counts_toward_engagement`]). A parent whose author isn't indexed gets none: the reply
 /// waits for the author as before.
 async fn put_taken_down_parents(
     relationships: &PostRelationships,

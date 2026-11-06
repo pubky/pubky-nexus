@@ -1,7 +1,8 @@
 use crate::event_processor::{
     posts::utils::{
-        check_member_global_timeline_user_post, check_member_post_replies, find_post_counts,
-        find_post_details, short_post, short_reply, short_repost, test_user,
+        check_member_global_timeline_user_post, check_member_post_replies,
+        check_member_total_engagement_user_posts, find_post_counts, find_post_details, short_post,
+        short_reply, short_repost, test_user,
     },
     tags::utils::check_member_post_tag_global_timeline,
     users::utils::find_user_counts,
@@ -467,6 +468,13 @@ async fn assert_tombstone(author_id: &str, post_id: &str) {
             .is_none(),
         "the tombstone stays out of the global feed"
     );
+    assert!(
+        check_member_total_engagement_user_posts(&[author_id, post_id])
+            .await
+            .unwrap()
+            .is_none(),
+        "the tombstone stays out of the engagement feed"
+    );
 }
 
 /// A reply to a post taken down before either is read lands under an empty tombstone,
@@ -520,6 +528,64 @@ async fn test_reply_to_a_post_taken_down_before_it_is_read_lands_under_a_tombsto
         "the reply is listed under the tombstone"
     );
     assert_eq!(find_post_counts(&author_id, &parent_id).await.replies, 1);
+    Ok(())
+}
+
+/// A reply that landed under the tombstone survives the parent's own event read later,
+/// which finds the takedown and removes the parent again: the reply keeps it a tombstone.
+#[tokio_shared_rt::test(shared)]
+async fn test_reply_under_a_tombstone_survives_the_parents_later_event() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let author_kp = Keypair::random();
+    let author_id = test
+        .create_user(
+            &author_kp,
+            &test_user("Watcher:PostModerate:LateParent", ""),
+        )
+        .await?;
+    let replier_kp = Keypair::random();
+    let replier_id = test
+        .create_user(
+            &replier_kp,
+            &test_user("Watcher:PostModerate:FirstReplier", ""),
+        )
+        .await?;
+
+    let parent_id = generate_post_id();
+    let parent_path: ResourcePath = PubkyAppPost::create_path(&parent_id).parse()?;
+    let parent_uri = post_uri_builder(author_id.clone(), parent_id.clone());
+    take_down_unread(parent_uri.clone()).await?;
+
+    let (reply_id, _) = test
+        .create_post(
+            &replier_kp,
+            &short_reply("Watcher:PostModerate:FirstReply", parent_uri),
+        )
+        .await?;
+    let tag = PubkyAppTag {
+        uri: post_uri_builder(author_id.clone(), parent_id.clone()),
+        label: "under_takedown".to_string(),
+        created_at: Utc::now().timestamp_millis(),
+    };
+    test.put(&replier_kp, &tag.hs_path(), tag).await?;
+    test.put(
+        &author_kp,
+        &parent_path,
+        short_post("Watcher:PostModerate:LateParent:Post"),
+    )
+    .await?;
+
+    assert_tombstone(&author_id, &parent_id).await;
+    assert!(
+        find_post_details(&replier_id, &reply_id).await.is_ok(),
+        "the reply is indexed"
+    );
+    assert!(
+        check_member_post_replies(&author_id, &parent_id, &[&replier_id, &reply_id])
+            .await?
+            .is_some(),
+        "the reply is still listed under the tombstone"
+    );
     Ok(())
 }
 
