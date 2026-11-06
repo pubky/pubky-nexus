@@ -864,12 +864,15 @@ pub fn get_users_needing_hs_resolution(ttl_ms: u64) -> Query {
 }
 
 /// Retrieves the homeserver ID a user is currently hosted on, if any, along with
-/// whether that `HOSTED_BY` mapping is marked `stale`.
+/// whether that `HOSTED_BY` mapping is marked `stale` and the timestamp of the
+/// PKDNS record it was last applied from (`record_ts`, null until one was).
 pub fn get_user_homeserver(user_id: &str) -> Query {
     Query::new(
         "get_user_homeserver",
         "MATCH (u:User {id: $user_id})-[r:HOSTED_BY]->(hs:Homeserver)
-         RETURN hs.id AS homeserver_id, coalesce(r.stale, false) AS stale",
+         RETURN hs.id AS homeserver_id,
+                coalesce(r.stale, false) AS stale,
+                r.record_ts AS record_ts",
     )
     .param("user_id", user_id.to_string())
 }
