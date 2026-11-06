@@ -11,7 +11,7 @@ use std::sync::Arc;
 use pubky_app_specs::PubkyId;
 
 use crate::config::ScopeConfig;
-use crate::db::{fetch_row_from_graph, queries};
+use crate::db::{fetch_key_from_graph, fetch_row_from_graph, queries};
 use crate::models::error::ModelResult;
 
 /// The answers every scope gives.
@@ -30,6 +30,7 @@ pub fn scope_from_config(config: &ScopeConfig) -> Arc<dyn Scope> {
     match config {
         ScopeConfig::Everything => Arc::new(EverythingScope),
         ScopeConfig::Homeservers { homeservers } => Arc::new(HomeserverListScope::new(homeservers)),
+        ScopeConfig::Seed { seed, hops } => Arc::new(SeedScope::new(seed.clone(), *hops)),
     }
 }
 
@@ -66,7 +67,7 @@ impl HomeserverListScope {
     fn homeservers(&self) -> &[PubkyId] {
         match &self.config {
             ScopeConfig::Homeservers { homeservers } => homeservers,
-            ScopeConfig::Everything => &[],
+            ScopeConfig::Everything | ScopeConfig::Seed { .. } => &[],
         }
     }
 
@@ -101,6 +102,52 @@ impl Scope for HomeserverListScope {
             (None, Some(bound_to)) => self.is_listed(&bound_to),
             (None, None) => true,
         })
+    }
+}
+
+/// The seed user and everyone it reaches by following, up to `hops` follows away.
+///
+/// Who that is changes with every follow, so the watcher works it out from the graph and
+/// applies it there (see its scope maintenance): a member has no `scope_state`, and
+/// everyone else it knows is an outsider or a member that left. The graph answers, so the
+/// watcher and the API agree without a copy to keep in step. A user never met is out until
+/// a recompute finds it among the members.
+#[derive(Debug)]
+pub struct SeedScope {
+    config: ScopeConfig,
+}
+
+impl SeedScope {
+    pub fn new(seed: PubkyId, hops: u8) -> Self {
+        Self {
+            config: ScopeConfig::Seed { seed, hops },
+        }
+    }
+
+    fn seed(&self) -> &str {
+        match &self.config {
+            ScopeConfig::Seed { seed, .. } => seed,
+            ScopeConfig::Everything | ScopeConfig::Homeservers { .. } => "",
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl Scope for SeedScope {
+    fn config(&self) -> &ScopeConfig {
+        &self.config
+    }
+
+    /// The seed is always in; anyone else is in once the graph holds it without a
+    /// `scope_state`.
+    async fn is_in_scope(&self, user_id: &str, _hs_id: Option<&str>) -> ModelResult<bool> {
+        if user_id == self.seed() {
+            return Ok(true);
+        }
+        let query = queries::get::get_user_scope_state(user_id);
+        let scope_state: Option<Option<String>> =
+            fetch_key_from_graph(query, "scope_state").await?;
+        Ok(matches!(scope_state, Some(None)))
     }
 }
 

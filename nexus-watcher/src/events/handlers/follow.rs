@@ -8,6 +8,7 @@ use pubky_app_specs::PubkyId;
 use tracing::debug;
 
 use super::utils::fail_on_blacklisted_hs;
+use crate::scope::follows_changed;
 
 #[tracing::instrument(name = "follow.put", skip_all, fields(follower_id = %follower_id, followee_id = %followee_id))]
 pub async fn sync_put(
@@ -23,7 +24,12 @@ pub async fn sync_put(
     debug!("Indexing follow");
     // SAVE TO GRAPH
     // (follower_id)-[:FOLLOWS]->(followee_id)
-    match Followers::put_to_graph(&follower_id, &followee_id).await? {
+    let outcome = Followers::put_to_graph(&follower_id, &followee_id).await?;
+    if !matches!(outcome, OperationOutcome::MissingDependency) {
+        // A seed scope's members follow the graph's follows.
+        follows_changed();
+    }
+    match outcome {
         OperationOutcome::Updated => {
             // Retry / duplicate: graph edge already exists.
             // Re-run idempotent index writes (SADD is a no-op for existing members)
@@ -118,6 +124,8 @@ pub async fn sync_del(
     // Graph deletion LAST — on retry, we re-enter here with indexes already clean.
     // MissingDependency means the resource is already gone — deletion is complete.
     Followers::del_from_graph(&follower_id, &followee_id).await?;
+    // A seed scope's members follow the graph's follows.
+    follows_changed();
     Ok(())
 }
 
