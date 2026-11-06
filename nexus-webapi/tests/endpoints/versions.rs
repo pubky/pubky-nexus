@@ -23,7 +23,9 @@ const PUBKY_FILE: &str = "2ZK2H8P2T5NG0";
 // Aldert, from docker/test-graph/mocks/posts.cypher
 const AUTHOR: &str = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
 const AMSTERDAM: &str = "emq37ky6fbnaun7q1ris6rx3mqmw3a33so1txfesg9jj3ak9ryoy";
-const NOTIFIED_USER: &str = "qrqnkbwqt8rd6aya9zruro76gyc4qs77qzek7xc11axbdtbu6esy";
+// The recipient of the notifications the parity test seeds: an id the notification tests only
+// ever use as a follower, so nothing else writes its list.
+const NOTIFIED_USER: &str = "hm8qoi5bjtrmx3kngiifycarjnnwosiohhbujax8fcyanzp3xa6y";
 const TAGGER: &str = "78guxwtzgtgpskij51om7t66awmqxznr6p7ogonfohoags6ahc5y";
 const TAG_ID: &str = "2Z1N8QBQK9EG0";
 const RESOURCE_ID: &str = "450a72e3da164bfc3ac5f4056f9e5c7c"; // https://example.com/article
@@ -38,8 +40,9 @@ fn file_details_route() -> String {
 }
 
 /// One route per module both versions serve, relative to the version prefix. Every one of
-/// them is a 200 on the mock data, so a difference in the answer is a difference between the
-/// mounts. The file module is `/v0`'s alone: `test_file_routes_are_v0_only`.
+/// them is a 200 with a body on the mock data, the notifications on the list the parity test
+/// seeds ([`seed_parity_notifications`]), so a difference in the answer is a difference between
+/// the mounts. The file module is `/v0`'s alone: `test_file_routes_are_v0_only`.
 fn representative_routes() -> Vec<String> {
     vec![
         // info
@@ -57,12 +60,48 @@ fn representative_routes() -> Vec<String> {
         // resource
         format!("/resource/{RESOURCE_ID}/tags"),
         // notification
-        format!("/user/{NOTIFIED_USER}/notifications?limit=2"),
+        notifications_route(),
         // bootstrap
         format!("/bootstrap/{AMSTERDAM}"),
         // events
         "/events?cursor=0&limit=5".to_string(),
     ]
+}
+
+/// The notification route of the representative list: the two newest of [`NOTIFIED_USER`]'s.
+fn notifications_route() -> String {
+    format!("/user/{NOTIFIED_USER}/notifications?limit=2")
+}
+
+/// The number of notifications the seed writes for [`NOTIFIED_USER`].
+const SEEDED_NOTIFICATIONS: usize = 3;
+
+/// Writes [`SEEDED_NOTIFICATIONS`] follow notifications for [`NOTIFIED_USER`], so the
+/// notification route has a body to compare across versions: the mock data writes no
+/// notification for anyone. Idempotent, a sorted set holds one copy of a member, so the list
+/// is the same whichever test seeds first, and nothing else writes it between two reads.
+async fn seed_parity_notifications() -> Result<()> {
+    const FOLLOWERS: [&str; SEEDED_NOTIFICATIONS] = [
+        "17775cing48kciy3enntgjwhw7yptxz6zw8k8czcddzk1yruqhcy",
+        "xeeo9uagnox3obkwzud91bkjecgd5eaumbix4b13k8i7yorzjony",
+        "qrqnkbwqt8rd6aya9zruro76gyc4qs77qzek7xc11axbdtbu6esy",
+    ];
+    let bodies = FOLLOWERS
+        .iter()
+        .map(|follower| {
+            serde_json::to_string(&NotificationBody::Follow {
+                followed_by: follower.to_string(),
+            })
+        })
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    let members: Vec<(f64, &str)> = bodies
+        .iter()
+        .enumerate()
+        .map(|(i, body)| ((i as f64 + 1.0) * 1000.0, body.as_str()))
+        .collect();
+    Notification::put_index_sorted_set(&["Notification", NOTIFIED_USER], &members, None, None)
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))
 }
 
 /// A response's body as the client typed it: JSON as a value, anything else (the events
@@ -162,6 +201,7 @@ fn stored_kind_name(name: &str) -> &str {
 #[tokio_shared_rt::test(shared)]
 async fn test_every_module_answers_the_same_on_both_versions() -> Result<()> {
     let client = httpc_test::new_client(host_url().await)?;
+    seed_parity_notifications().await?;
 
     for route in representative_routes() {
         let v0 = client.do_get(&format!("{V0_PREFIX}{route}")).await?;
@@ -172,6 +212,11 @@ async fn test_every_module_answers_the_same_on_both_versions() -> Result<()> {
             deterministic_part(&route, body(&v1)?),
             deterministic_part(&route, body(&v0)?),
         );
+        if route == notifications_route() {
+            // The route's `limit=2` on a seeded list of three: a comparison of two empty
+            // lists would check nothing about the notification shape.
+            assert_eq!(v0.as_array().map(Vec::len), Some(2), "{route}: {v0}");
+        }
         assert_eq!(v1, v0, "{route}");
     }
 
