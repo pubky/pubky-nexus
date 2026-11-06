@@ -1,9 +1,11 @@
 //! The API answers under `/v0` and `/v1` from one route declaration, so the same request
 //! gets the same answer on both, up to what `/v1` names differently, a post's kind, in the
-//! responses and in the `kind` and `exclude_kinds` filters, and what `/v1` leaves out, the
-//! bookmarks and the file details. One representative route per module, against the mock
-//! data, plus the kind names on every route that carries one, the bookmarks on every route
-//! that carries them and the file details on every route that carries them.
+//! responses and in the `kind` and `exclude_kinds` filters, what `/v1` leaves out, the
+//! bookmarks, the file details and a tag's `relationship`, and what `/v1` folds differently,
+//! a tag label. One representative route per module, against the mock data, plus the kind
+//! names on every route that carries one, the bookmarks on every route that carries them, the
+//! file details on every route that carries them, the tags on every route that carries them
+//! and the label on every route that takes one, alone or in a `tags=` list.
 
 use crate::utils::{get_request, host_url, invalid_get_request, post_request};
 
@@ -108,17 +110,24 @@ fn with_stored_kind_names(body: Value) -> Value {
     }
 }
 
-/// `body` without the `bookmark` of a post view, the `bookmarks` of a user's counts and the
-/// `files` of the bootstrap: the fields `/v1` has no counterpart for, taken out of `/v0`'s
-/// answer so the rest is compared. `/v1` never writes them, so on that side this changes
-/// nothing, which `test_bootstrap_has_no_bookmarks_on_v1`, `test_bootstrap_has_no_files_on_v1`
-/// and their siblings assert on their own.
+/// `body` without the `bookmark` of a post view, the `bookmarks` of a user's counts, the
+/// `files` of the bootstrap and the boolean `relationship` of a tag's details or taggers: the
+/// fields `/v1` has no counterpart for, taken out of `/v0`'s answer so the rest is compared.
+/// A user view's `relationship` is the follow object, kept on both. `/v1` never writes the
+/// fields, so on that side this changes nothing, which `test_bootstrap_has_no_bookmarks_on_v1`,
+/// `test_bootstrap_has_no_files_on_v1`, `test_tag_responses_have_no_relationship_on_v1` and
+/// their siblings assert on their own.
 fn without_v0_only_fields(body: Value) -> Value {
     match body {
         Value::Object(fields) => Value::Object(
             fields
                 .into_iter()
-                .filter(|(key, _)| key != "bookmark" && key != "bookmarks" && key != "files")
+                .filter(|(key, value)| {
+                    key != "bookmark"
+                        && key != "bookmarks"
+                        && key != "files"
+                        && !(key == "relationship" && value.is_boolean())
+                })
                 .map(|(key, value)| (key, without_v0_only_fields(value)))
                 .collect(),
         ),
@@ -129,8 +138,8 @@ fn without_v0_only_fields(body: Value) -> Value {
     }
 }
 
-/// A `/v1` answer as `/v0` would give it: the stored kind names, and no bookmark or file
-/// fields on either side.
+/// A `/v1` answer as `/v0` would give it: the stored kind names, and no bookmark, file or tag
+/// `relationship` fields on either side.
 fn comparable(v1: Value, v0: Value) -> (Value, Value) {
     (
         without_v0_only_fields(with_stored_kind_names(v1)),
@@ -510,7 +519,7 @@ async fn test_bookmark_route_is_v0_only() -> Result<()> {
 }
 
 /// A `/v0` post view carries the viewer's `bookmark`; the `/v1` view of the same post for the
-/// same viewer has no `bookmark` key and is otherwise the same.
+/// same viewer has no `bookmark` key and is otherwise the same, up to the tags' flag.
 #[tokio_shared_rt::test(shared)]
 async fn test_post_view_has_no_bookmark_on_v1() -> Result<()> {
     let route = format!("/post/{PUBKY_USER}/{BOOKMARKED_POST}?viewer_id={PUBKY_USER}");
@@ -523,7 +532,8 @@ async fn test_post_view_has_no_bookmark_on_v1() -> Result<()> {
         assert!(v1.get(field).is_some(), "{field}: {v1}");
     }
     v0.as_object_mut().unwrap().remove("bookmark");
-    assert_eq!(with_stored_kind_names(v1), v0);
+    let (v1, v0) = comparable(v1, v0);
+    assert_eq!(v1, v0);
 
     // A viewer who did not bookmark the post: `/v0` says `null`, `/v1` says nothing.
     let route = format!("/post/{PUBKY_USER}/{BOOKMARKED_POST}?viewer_id={AUTHOR}");
@@ -596,7 +606,7 @@ fn keys_named(value: &Value, name: &str) -> usize {
 }
 
 /// A `/v0` user view carries `counts.bookmarks`; the `/v1` view of the same user has no
-/// `bookmarks` key under `counts`, or anywhere, and is otherwise the same.
+/// `bookmarks` key under `counts`, or anywhere, and is otherwise the same, up to the tags' flag.
 #[tokio_shared_rt::test(shared)]
 async fn test_user_view_has_no_bookmarks_count_on_v1() -> Result<()> {
     let route = format!("/user/{COUNTED_USER}?viewer_id={BOOKMARKER}");
@@ -626,6 +636,7 @@ async fn test_user_view_has_no_bookmarks_count_on_v1() -> Result<()> {
         assert!(v1["counts"][count].is_number(), "{count}: {v1}");
     }
     v0["counts"].as_object_mut().unwrap().remove("bookmarks");
+    let (v1, v0) = comparable(v1, v0);
     assert_eq!(v1, v0);
 
     // An unknown user is a 404 on both.
@@ -928,5 +939,276 @@ async fn test_bootstrap_has_no_files_on_v1() -> Result<()> {
         v0["ids"]["stream"].as_array().map(Vec::len),
         "{v1}"
     );
+    Ok(())
+}
+
+// The viewer's tags, from docker/test-graph/mocks/tag-relationship.cypher: the viewer tagged
+// a post, a user and a resource with `trel-shared`, each of which another user tagged with
+// `trel-shared` and `trel-other`.
+const TAG_VIEWER: &str = "xcb38btb3ioaoxtinmwtmizfum1akeg5yajju67o6rrcxq47n76o";
+const TAGGED_POST_AUTHOR: &str = "zxtmja5wju4pi5s681i1xrr957tz1n6o5g6489erm7usiok1jmto";
+const TAGGED_POST: &str = "2ZRT8G4VXQ0M0";
+const TAGGED_USER: &str = "xcnswkwriypnzekfuwed6h5xecinwjj46x3ao7ffppy61z6hafiy";
+const TAGGED_RESOURCE: &str = "7a6e1c0de5f0a11ce0ffee0000000001";
+// The fixture resource's id is not the hash of its address, so the lookup by URI reads the
+// resource of docker/test-graph/mocks/resources.cypher, which Amsterdam tagged `bitcoin`.
+const HASHED_RESOURCE_URI: &str = "https://example.com/article";
+const SHARED_LABEL: &str = "trel-shared";
+const VIEWER_POST_TAG_URI: &str =
+    "pubky://xcb38btb3ioaoxtinmwtmizfum1akeg5yajju67o6rrcxq47n76o/pub/mapky/tags/TRELPOSTV01";
+
+/// Every tag's details (`label` with `taggers_count`) and every taggers response (`users`) in
+/// `body`, at any depth.
+fn tag_entries(body: &Value) -> Vec<&Value> {
+    match body {
+        Value::Object(fields) => {
+            let is_tag = (fields.contains_key("label") && fields.contains_key("taggers_count"))
+                || fields.contains_key("users");
+            is_tag
+                .then_some(body)
+                .into_iter()
+                .chain(fields.values().flat_map(tag_entries))
+                .collect()
+        }
+        Value::Array(items) => items.iter().flat_map(tag_entries).collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// Every boolean key of `value` named `name`, at any depth.
+fn boolean_keys_named(value: &Value, name: &str) -> usize {
+    match value {
+        Value::Object(fields) => fields
+            .iter()
+            .map(|(key, value)| {
+                usize::from(key == name && value.is_boolean()) + boolean_keys_named(value, name)
+            })
+            .sum(),
+        Value::Array(items) => items
+            .iter()
+            .map(|item| boolean_keys_named(item, name))
+            .sum(),
+        _ => 0,
+    }
+}
+
+/// Every route that lists tag details or taggers, relative to the version prefix, for a viewer
+/// who tagged what it lists: the tag lists, the views and streams that embed them, and the
+/// taggers.
+fn tag_routes() -> Vec<String> {
+    let viewer = format!("viewer_id={TAG_VIEWER}");
+    let resource_uri =
+        url::form_urlencoded::byte_serialize(HASHED_RESOURCE_URI.as_bytes()).collect::<String>();
+    vec![
+        format!("/post/{TAGGED_POST_AUTHOR}/{TAGGED_POST}/tags?{viewer}"),
+        format!("/user/{TAGGED_USER}/tags?{viewer}"),
+        format!("/resource/{TAGGED_RESOURCE}/tags?{viewer}"),
+        format!("/resource/by-uri?uri={resource_uri}&viewer_id={AMSTERDAM}"),
+        format!("/post/{TAGGED_POST_AUTHOR}/{TAGGED_POST}?{viewer}"),
+        format!("/user/{TAGGED_USER}?{viewer}"),
+        format!("/stream/posts?source=author&author_id={TAGGED_POST_AUTHOR}&{viewer}"),
+        format!("/stream/resources?tags={SHARED_LABEL},trel-other&{viewer}"),
+        format!("/post/{TAGGED_POST_AUTHOR}/{TAGGED_POST}/taggers/{SHARED_LABEL}?{viewer}"),
+        format!("/user/{TAGGED_USER}/taggers/{SHARED_LABEL}?{viewer}"),
+        format!("/resource/{TAGGED_RESOURCE}/tags/{SHARED_LABEL}/taggers?{viewer}"),
+    ]
+}
+
+/// On `/v0` a tag's details and a taggers response carry `relationship` and `tag_uri`; on
+/// `/v1` the same responses carry `tag_uri`, the viewer's tag address or `null`, and no
+/// `relationship` key, and are otherwise the same. On every route that lists tags or taggers,
+/// the views and streams that embed them included; the user view keeps its own
+/// `relationship`, the follow object.
+#[tokio_shared_rt::test(shared)]
+async fn test_tag_responses_have_no_relationship_on_v1() -> Result<()> {
+    for route in tag_routes() {
+        let v0 = get_request(&format!("{V0_PREFIX}{route}")).await?;
+        let v1 = get_request(&format!("{V1_PREFIX}{route}")).await?;
+
+        let v0_tags = tag_entries(&v0);
+        assert!(!v0_tags.is_empty(), "{V0_PREFIX}{route}: {v0}");
+        for tag in &v0_tags {
+            assert!(tag["relationship"].is_boolean(), "{route}: {tag}");
+            assert!(tag.get("tag_uri").is_some(), "{route}: {tag}");
+        }
+        let v1_tags = tag_entries(&v1);
+        assert_eq!(v1_tags.len(), v0_tags.len(), "{route}: {v1}");
+        for tag in &v1_tags {
+            assert!(tag.get("relationship").is_none(), "{route}: {tag}");
+            assert!(tag.get("tag_uri").is_some(), "{route}: {tag}");
+        }
+        // The viewer tagged what the route lists: at least one entry carries their address.
+        assert!(
+            v1_tags.iter().any(|tag| tag["tag_uri"].is_string()),
+            "{V1_PREFIX}{route}: no viewer's tag in {v1}"
+        );
+        assert_eq!(boolean_keys_named(&v1, "relationship"), 0, "{route}: {v1}");
+
+        let (v1, v0) = comparable(v1, v0);
+        assert_eq!(v1, v0, "{route}");
+    }
+
+    let view = get_request(&format!(
+        "{V1_PREFIX}/user/{TAGGED_USER}?viewer_id={TAG_VIEWER}"
+    ))
+    .await?;
+    assert!(view["relationship"].is_object(), "{view}");
+    assert!(view["relationship"]["following"].is_boolean(), "{view}");
+    Ok(())
+}
+
+/// The routes that take one label, relative to the version prefix, with `{label}` where it
+/// goes.
+const LABEL_ROUTES: [&str; 6] = [
+    "/user/{user}/taggers/{label}",
+    "/post/{author}/{post}/taggers/{label}",
+    "/resource/{resource}/tags/{label}/taggers",
+    "/tags/taggers/{label}",
+    "/search/posts/by_tag/{label}",
+    "/search/tags/by_prefix/{label}",
+];
+
+/// `template` with the fixture ids and `label` filled in.
+fn label_route(template: &str, label: &str) -> String {
+    template
+        .replace("{user}", TAGGED_USER)
+        .replace("{author}", TAGGED_POST_AUTHOR)
+        .replace("{post}", TAGGED_POST)
+        .replace("{resource}", TAGGED_RESOURCE)
+        .replace("{label}", label)
+}
+
+/// A label written with surrounding whitespace and ASCII uppercase is folded to the stored
+/// label on `/v1` and the tag is found: the same answer as the stored spelling gets on `/v0`,
+/// up to `relationship`, on every route that takes a label.
+#[tokio_shared_rt::test(shared)]
+async fn test_v1_label_is_folded_by_the_v1_rule() -> Result<()> {
+    // The three taggers routes on the fixture label, the global taggers on a label of the
+    // hot tags, the searches on a label and a prefix the search suites find.
+    let stored = [
+        "trel-shared",
+        "trel-shared",
+        "trel-shared",
+        "pubky",
+        "free",
+        "fre",
+    ];
+    for (template, stored) in LABEL_ROUTES.iter().zip(stored) {
+        let written = format!("%20%09{}%20", stored.to_uppercase());
+        let plain = format!("{}?viewer_id={TAG_VIEWER}", label_route(template, stored));
+        let folded = format!("{}?viewer_id={TAG_VIEWER}", label_route(template, &written));
+
+        let v0 = get_request(&format!("{V0_PREFIX}{plain}")).await?;
+        let v1 = get_request(&format!("{V1_PREFIX}{folded}")).await?;
+        let found = match &v1 {
+            Value::Array(items) => !items.is_empty(),
+            Value::Object(fields) => fields["users"].as_array().is_some_and(|u| !u.is_empty()),
+            _ => false,
+        };
+        assert!(found, "{V1_PREFIX}{folded}: {v1}");
+        let (v1, v0) = comparable(v1, v0);
+        assert_eq!(v1, v0, "{template}");
+    }
+
+    // The viewer's own tag is found under the folded spelling too.
+    let taggers = get_request(&format!(
+        "{V1_PREFIX}/post/{TAGGED_POST_AUTHOR}/{TAGGED_POST}/taggers/%20TREL-SHARED%20?viewer_id={TAG_VIEWER}"
+    ))
+    .await?;
+    assert_eq!(taggers["tag_uri"], VIEWER_POST_TAG_URI, "{taggers}");
+    assert!(taggers.get("relationship").is_none(), "{taggers}");
+    Ok(())
+}
+
+/// A label that is too long once folded, or holds a character of the frozen whitespace set,
+/// is a 400 on `/v1`, on every route that takes a label; `/v0` rejects the same labels by its
+/// own rule.
+#[tokio_shared_rt::test(shared)]
+async fn test_v1_label_rejections() -> Result<()> {
+    let too_long = "a".repeat(21);
+    // A no-break space (U+00A0) and an ASCII space inside the label.
+    let labels = [too_long.as_str(), "co%C2%A0ol", "co%20ol"];
+    for template in LABEL_ROUTES {
+        for label in labels {
+            let route = label_route(template, label);
+            for prefix in [V1_PREFIX, V0_PREFIX] {
+                invalid_get_request(&format!("{prefix}{route}"), StatusCode::BAD_REQUEST).await?;
+            }
+        }
+        // The maximum length is fine once the surrounding whitespace is trimmed.
+        let at_most = format!("%20{}%20", "a".repeat(20));
+        get_request(&format!("{V1_PREFIX}{}", label_route(template, &at_most))).await?;
+    }
+    Ok(())
+}
+
+/// The routes that take a comma-separated label list in `tags=`, relative to the version
+/// prefix, with `{tags}` where the list goes, each with a label the mock data has on what the
+/// route lists.
+fn tags_routes() -> Vec<(String, &'static str)> {
+    vec![
+        (
+            "/stream/posts?tags={tags}&limit=6".to_string(),
+            "opensource",
+        ),
+        (
+            "/stream/posts/keys?tags={tags}&limit=6".to_string(),
+            "opensource",
+        ),
+        (
+            format!("/stream/resources?tags={{tags}}&viewer_id={TAG_VIEWER}"),
+            SHARED_LABEL,
+        ),
+        (
+            "/stream/resources/ids?tags={tags}".to_string(),
+            SHARED_LABEL,
+        ),
+    ]
+}
+
+/// Whether a stream found something: a non-empty list of views, or a non-empty list of keys.
+fn found_any(body: &Value) -> bool {
+    body.as_array()
+        .or_else(|| body["post_keys"].as_array())
+        .or_else(|| body["resource_ids"].as_array())
+        .is_some_and(|items| !items.is_empty())
+}
+
+/// A `tags=` list whose label is written with surrounding whitespace and ASCII uppercase is
+/// folded label by label on `/v1` and the tagged posts and resources are found: the same
+/// answer as the stored spelling gets on `/v0`, up to `relationship`, on every route that
+/// takes a list.
+#[tokio_shared_rt::test(shared)]
+async fn test_v1_tags_list_is_folded_by_the_v1_rule() -> Result<()> {
+    for (template, stored) in tags_routes() {
+        let written = format!("%20%09{}%20,%20TREL-NOT-A-LABEL%20", stored.to_uppercase());
+        let plain = template.replace("{tags}", &format!("{stored},trel-not-a-label"));
+        let folded = template.replace("{tags}", &written);
+
+        let v0 = get_request(&format!("{V0_PREFIX}{plain}")).await?;
+        let v1 = get_request(&format!("{V1_PREFIX}{folded}")).await?;
+        assert!(found_any(&v1), "{V1_PREFIX}{folded}: {v1}");
+        let (v1, v0) = comparable(v1, v0);
+        assert_eq!(v1, v0, "{template}");
+    }
+    Ok(())
+}
+
+/// One invalid label in a `tags=` list is a 400 on `/v1`: too long once folded, or holding a
+/// character of the frozen whitespace set; `/v0` rejects the same lists by its own rule. On
+/// every route that takes a list.
+#[tokio_shared_rt::test(shared)]
+async fn test_v1_tags_list_rejects_an_invalid_label() -> Result<()> {
+    let too_long = "a".repeat(21);
+    // A no-break space (U+00A0) and an ASCII space inside the second label.
+    let invalid = [too_long.as_str(), "co%C2%A0ol", "co%20ol"];
+    for (template, stored) in tags_routes() {
+        for label in invalid {
+            let route = template.replace("{tags}", &format!("{stored},{label}"));
+            for prefix in [V1_PREFIX, V0_PREFIX] {
+                invalid_get_request(&format!("{prefix}{route}"), StatusCode::BAD_REQUEST).await?;
+            }
+        }
+    }
     Ok(())
 }

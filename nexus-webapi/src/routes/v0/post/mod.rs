@@ -13,15 +13,16 @@ pub mod details;
 pub mod tags;
 pub mod view;
 
-/// The post routes every version serves: the view and the details in the version's shape, the
-/// rest shared. The bookmark route is `/v0`'s alone, listed with the version.
+/// The post routes every version serves: the view, the details, the tags and the taggers in
+/// the version's shape, the taggers with the version's label rule, the counts shared. The
+/// bookmark route is `/v0`'s alone, listed with the version.
 pub fn routes<V: ApiVersion>() -> Router<AppState> {
     Router::new()
         .route(POST_ROUTE, V::post_view())
         .route(POST_DETAILS_ROUTE, V::post_details())
         .route(POST_COUNTS_ROUTE, get(counts::post_counts_handler))
-        .route(POST_TAGS_ROUTE, get(tags::post_tags_handler))
-        .route(POST_TAGGERS_ROUTE, get(tags::post_taggers_handler))
+        .route(POST_TAGS_ROUTE, V::post_tags())
+        .route(POST_TAGGERS_ROUTE, V::post_taggers())
 }
 
 #[derive(OpenApi)]
@@ -29,8 +30,8 @@ pub fn routes<V: ApiVersion>() -> Router<AppState> {
 pub struct PostApiDoc;
 
 impl PostApiDoc {
-    /// The shared post routes and schemas; the versioned view and details, and `/v0`'s
-    /// bookmark route, come with the version's document.
+    /// The shared post routes and schemas; the versioned view, details, tags and taggers, and
+    /// `/v0`'s bookmark route, come with the version's document.
     pub fn merge_docs() -> utoipa::openapi::OpenApi {
         let mut combined = view::PostViewApiDoc::openapi();
         combined.merge(counts::PostCountsApiDoc::openapi());

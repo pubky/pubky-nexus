@@ -18,6 +18,7 @@
 //! functions, so what a version serves and what it documents are read in one place.
 
 use std::fmt;
+use std::ops::Deref;
 
 use axum::routing::MethodRouter;
 use axum::Router;
@@ -25,6 +26,9 @@ use nexus_common::models::bootstrap::Bootstrap;
 use nexus_common::models::file::{FileDetails, FileUrls};
 use nexus_common::models::notification::Notification;
 use nexus_common::models::post::{Bookmark, PostDetails, PostKind};
+use nexus_common::models::resource::view::ResourceView;
+use nexus_common::models::tag::traits::taggers::TaggersTuple;
+use nexus_common::models::tag::TagDetails;
 use nexus_common::models::user::{UserCounts, UserStream, UserView};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -32,9 +36,11 @@ use utoipa::{IntoParams, OpenApi, ToSchema};
 
 use super::endpoints::{POST_BOOKMARK_ROUTE, V0_PREFIX, V1_PREFIX};
 use super::stream::posts::{PostStreamByIdsRequest, StreamSourceKind};
-use super::{bootstrap, file, notification, post, search, stream, user};
+use super::types::TaggersInfoResponse;
+use super::{bootstrap, file, notification, post, resource, search, stream, tag, user};
 use crate::models::{
-    v1, IncludeAttachmentMetadata, PostKinds, PostStreamDetailed, PostViewDetailed,
+    v1, IncludeAttachmentMetadata, PostKinds, PostStreamDetailed, PostViewDetailed, TagLabel,
+    TagLabels, Tags,
 };
 use crate::routes::AppState;
 
@@ -68,6 +74,41 @@ pub trait ApiVersion: Send + Sync + 'static {
     /// The sign-in payload, `GET /bootstrap/{user_id}`; it embeds [`Self::UserStream`],
     /// [`Self::PostStream`]'s views and [`Self::Notification`]s. `/v1` has no `files`.
     type Bootstrap: Serialize + ToSchema + From<Bootstrap> + Send;
+    /// A label with its taggers, listed by `GET /user/{user_id}/tags`, `GET
+    /// /post/{author_id}/{post_id}/tags` and the resource tag routes, and embedded in
+    /// [`Self::PostView`], [`Self::UserView`] and [`Self::ResourceView`]. `/v1` has no
+    /// `relationship`: `tag_uri` says whether the viewer tagged the label.
+    type TagDetails: Serialize + ToSchema + From<TagDetails> + Send;
+    /// The taggers of one label, `GET /user/{user_id}/taggers/{label}`, `GET
+    /// /post/{author_id}/{post_id}/taggers/{label}` and `GET
+    /// /resource/{resource_id}/tags/{label}/taggers`. `/v1` has no `relationship`.
+    type TaggersInfoResponse: Serialize + ToSchema + From<TaggersTuple> + Send;
+    /// A resource with a page of its tags, listed by `GET /stream/resources`; it embeds
+    /// [`Self::TagDetails`].
+    type ResourceView: Serialize + ToSchema + From<ResourceView> + Send;
+    /// The envelope of `GET /resource/{resource_id}/tags` and `GET /resource/by-uri`; it embeds
+    /// [`Self::TagDetails`].
+    type ResourceTagsResponse: Serialize + ToSchema + From<ResourceView> + Send;
+
+    /// A tag label as a client writes it in a path, on the taggers routes, the post search by
+    /// tag and the tag search by prefix. `/v0` folds and validates it by the frozen `pubky.app`
+    /// rule, `/v1` by the `social/v1` rule: the frozen trim, the ASCII-only lowercase and the
+    /// spec crate's validator, with no fallback to the `/v0` fold on a miss.
+    type TagLabel: DeserializeOwned
+        + ToSchema
+        + Deref<Target = str>
+        + fmt::Display
+        + fmt::Debug
+        + Send;
+    /// A comma-separated list of labels as a client writes it in `tags=` on the post, resource
+    /// and user streams and the user search by tags, and in `domain_tags=` on the post stream:
+    /// one to five of [`Self::TagLabel`], each folded and validated by the version's rule.
+    type Tags: DeserializeOwned
+        + ToSchema
+        + TagLabels
+        + Deref<Target = Vec<Self::TagLabel>>
+        + fmt::Debug
+        + Send;
 
     /// Whether a post's `attachments_metadata` is fetched, as a client asks in
     /// `include_attachment_metadata=` on the post view and the post stream. `/v0` reads a
@@ -132,9 +173,23 @@ pub trait ApiVersion: Send + Sync + 'static {
     fn user_counts() -> MethodRouter<AppState>;
     fn user_view() -> MethodRouter<AppState>;
     fn stream_users() -> MethodRouter<AppState>;
+    fn stream_user_ids() -> MethodRouter<AppState>;
     fn stream_username_search() -> MethodRouter<AppState>;
     fn stream_users_by_ids() -> MethodRouter<AppState>;
+    fn search_users_by_tags() -> MethodRouter<AppState>;
     fn bootstrap() -> MethodRouter<AppState>;
+    fn user_tags() -> MethodRouter<AppState>;
+    fn user_taggers() -> MethodRouter<AppState>;
+    fn post_tags() -> MethodRouter<AppState>;
+    fn post_taggers() -> MethodRouter<AppState>;
+    fn tag_taggers() -> MethodRouter<AppState>;
+    fn resource_tags() -> MethodRouter<AppState>;
+    fn resource_by_uri() -> MethodRouter<AppState>;
+    fn resource_taggers() -> MethodRouter<AppState>;
+    fn search_posts_by_tag() -> MethodRouter<AppState>;
+    fn search_tags_by_prefix() -> MethodRouter<AppState>;
+    fn stream_resources() -> MethodRouter<AppState>;
+    fn stream_resource_ids() -> MethodRouter<AppState>;
 
     /// The routes only this version serves, as `(expensive, default)` buckets mounted next to
     /// the shared ones: `/v0` keeps the bookmark route until R1 and the file details routes
@@ -174,6 +229,13 @@ impl ApiVersion for V0 {
     type UserView = UserView;
     type UserStream = UserStream;
     type Bootstrap = Bootstrap;
+    type TagDetails = TagDetails;
+    type TaggersInfoResponse = TaggersInfoResponse;
+    type ResourceView = ResourceView;
+    type ResourceTagsResponse = resource::ResourceTagsResponse;
+
+    type TagLabel = TagLabel;
+    type Tags = Tags<TagLabel>;
 
     type IncludeAttachmentMetadata = IncludeAttachmentMetadata;
     type PostStreamByIdsRequest = PostStreamByIdsRequest;
@@ -222,14 +284,56 @@ impl ApiVersion for V0 {
     fn stream_users() -> MethodRouter<AppState> {
         axum::routing::get(stream::users::stream_users_handler_v0)
     }
+    fn stream_user_ids() -> MethodRouter<AppState> {
+        axum::routing::get(stream::users::stream_user_ids_handler_v0)
+    }
     fn stream_username_search() -> MethodRouter<AppState> {
         axum::routing::get(stream::users::stream_username_search_handler_v0)
     }
     fn stream_users_by_ids() -> MethodRouter<AppState> {
         axum::routing::post(stream::users::stream_users_by_ids_handler_v0)
     }
+    fn search_users_by_tags() -> MethodRouter<AppState> {
+        axum::routing::get(search::users::search_users_by_tags_handler_v0)
+    }
     fn bootstrap() -> MethodRouter<AppState> {
         axum::routing::get(bootstrap::bootstrap_handler_v0)
+    }
+    fn user_tags() -> MethodRouter<AppState> {
+        axum::routing::get(user::tags::user_tags_handler_v0)
+    }
+    fn user_taggers() -> MethodRouter<AppState> {
+        axum::routing::get(user::tags::user_taggers_handler_v0)
+    }
+    fn post_tags() -> MethodRouter<AppState> {
+        axum::routing::get(post::tags::post_tags_handler_v0)
+    }
+    fn post_taggers() -> MethodRouter<AppState> {
+        axum::routing::get(post::tags::post_taggers_handler_v0)
+    }
+    fn tag_taggers() -> MethodRouter<AppState> {
+        axum::routing::get(tag::global::tag_taggers_handler_v0)
+    }
+    fn resource_tags() -> MethodRouter<AppState> {
+        axum::routing::get(resource::resource_tags_handler_v0)
+    }
+    fn resource_by_uri() -> MethodRouter<AppState> {
+        axum::routing::get(resource::resource_by_uri_handler_v0)
+    }
+    fn resource_taggers() -> MethodRouter<AppState> {
+        axum::routing::get(resource::resource_taggers_handler_v0)
+    }
+    fn search_posts_by_tag() -> MethodRouter<AppState> {
+        axum::routing::get(search::posts::search_posts_by_tag_handler_v0)
+    }
+    fn search_tags_by_prefix() -> MethodRouter<AppState> {
+        axum::routing::get(search::tags::search_tags_by_prefix_handler_v0)
+    }
+    fn stream_resources() -> MethodRouter<AppState> {
+        axum::routing::get(stream::resources::stream_resources_handler_v0)
+    }
+    fn stream_resource_ids() -> MethodRouter<AppState> {
+        axum::routing::get(stream::resources::stream_resource_ids_handler_v0)
     }
 
     /// The file details routes, and the bookmark route until R1.
@@ -262,6 +366,13 @@ impl ApiVersion for V1 {
     type UserView = v1::UserView;
     type UserStream = v1::UserStream;
     type Bootstrap = v1::Bootstrap;
+    type TagDetails = v1::TagDetails;
+    type TaggersInfoResponse = v1::TaggersInfoResponse;
+    type ResourceView = v1::ResourceView;
+    type ResourceTagsResponse = v1::ResourceTagsResponse;
+
+    type TagLabel = v1::TagLabel;
+    type Tags = v1::Tags;
 
     type IncludeAttachmentMetadata = v1::NoAttachmentMetadata;
     type PostStreamByIdsRequest = v1::PostStreamByIdsRequest;
@@ -310,14 +421,56 @@ impl ApiVersion for V1 {
     fn stream_users() -> MethodRouter<AppState> {
         axum::routing::get(stream::users::stream_users_handler_v1)
     }
+    fn stream_user_ids() -> MethodRouter<AppState> {
+        axum::routing::get(stream::users::stream_user_ids_handler_v1)
+    }
     fn stream_username_search() -> MethodRouter<AppState> {
         axum::routing::get(stream::users::stream_username_search_handler_v1)
     }
     fn stream_users_by_ids() -> MethodRouter<AppState> {
         axum::routing::post(stream::users::stream_users_by_ids_handler_v1)
     }
+    fn search_users_by_tags() -> MethodRouter<AppState> {
+        axum::routing::get(search::users::search_users_by_tags_handler_v1)
+    }
     fn bootstrap() -> MethodRouter<AppState> {
         axum::routing::get(bootstrap::bootstrap_handler_v1)
+    }
+    fn user_tags() -> MethodRouter<AppState> {
+        axum::routing::get(user::tags::user_tags_handler_v1)
+    }
+    fn user_taggers() -> MethodRouter<AppState> {
+        axum::routing::get(user::tags::user_taggers_handler_v1)
+    }
+    fn post_tags() -> MethodRouter<AppState> {
+        axum::routing::get(post::tags::post_tags_handler_v1)
+    }
+    fn post_taggers() -> MethodRouter<AppState> {
+        axum::routing::get(post::tags::post_taggers_handler_v1)
+    }
+    fn tag_taggers() -> MethodRouter<AppState> {
+        axum::routing::get(tag::global::tag_taggers_handler_v1)
+    }
+    fn resource_tags() -> MethodRouter<AppState> {
+        axum::routing::get(resource::resource_tags_handler_v1)
+    }
+    fn resource_by_uri() -> MethodRouter<AppState> {
+        axum::routing::get(resource::resource_by_uri_handler_v1)
+    }
+    fn resource_taggers() -> MethodRouter<AppState> {
+        axum::routing::get(resource::resource_taggers_handler_v1)
+    }
+    fn search_posts_by_tag() -> MethodRouter<AppState> {
+        axum::routing::get(search::posts::search_posts_by_tag_handler_v1)
+    }
+    fn search_tags_by_prefix() -> MethodRouter<AppState> {
+        axum::routing::get(search::tags::search_tags_by_prefix_handler_v1)
+    }
+    fn stream_resources() -> MethodRouter<AppState> {
+        axum::routing::get(stream::resources::stream_resources_handler_v1)
+    }
+    fn stream_resource_ids() -> MethodRouter<AppState> {
+        axum::routing::get(stream::resources::stream_resource_ids_handler_v1)
     }
 
     /// None: `/v1` serves no route of its own yet, and no bookmark or file details route at
@@ -354,6 +507,12 @@ pub mod shapes {
             pub type UserView = <$version as ApiVersion>::UserView;
             pub type UserStream = <$version as ApiVersion>::UserStream;
             pub type Bootstrap = <$version as ApiVersion>::Bootstrap;
+            pub type TagDetails = <$version as ApiVersion>::TagDetails;
+            pub type TaggersInfoResponse = <$version as ApiVersion>::TaggersInfoResponse;
+            pub type ResourceView = <$version as ApiVersion>::ResourceView;
+            pub type ResourceTagsResponse = <$version as ApiVersion>::ResourceTagsResponse;
+            pub type TagLabel = <$version as ApiVersion>::TagLabel;
+            pub type Tags = <$version as ApiVersion>::Tags;
             pub type StreamSource = <$version as ApiVersion>::StreamSource;
             pub type PostKind = <$version as ApiVersion>::PostKind;
             pub type PostKinds = <$version as ApiVersion>::PostKinds;
@@ -364,11 +523,23 @@ pub mod shapes {
             /// The post view query with `include_attachment_metadata` as this version reads it.
             pub type PostViewQuery = super::super::post::view::PostViewQuery<$version>;
             /// The post stream query with `kind` and `exclude_kinds` in this version's names,
-            /// and `include_attachment_metadata` as this version reads it.
+            /// `tags` and `domain_tags` folded as this version folds a label, and
+            /// `include_attachment_metadata` as this version reads it.
             pub type PostStreamQuery = super::super::stream::posts::PostStreamQuery<$version>;
+            /// The resource stream, user stream and user search queries with `tags` folded as
+            /// this version folds a label.
+            pub type ResourceStreamQuery =
+                super::super::stream::resources::ResourceStreamQuery<$version>;
+            pub type UserStreamQuery = super::super::stream::users::UserStreamQuery<$version>;
+            pub type SearchUsersByTagsQuery =
+                super::super::search::users::SearchUsersByTagsQuery<$version>;
             /// The content search query with `kind` in this version's names.
             pub type ContentSearchQuery =
                 super::super::search::posts::SearchPostsByContentQuery<$version>;
+            /// The taggers paths with `label` as this version folds it.
+            pub type UserTaggersPath = super::super::user::tags::UserTaggersPath<$version>;
+            pub type PostTaggersPath = super::super::post::tags::PostTaggersPath<$version>;
+            pub type ResourceTaggersPath = super::super::resource::ResourceTaggersPath<$version>;
 
             pub const SOURCE_NAMES: &str = <$version as ApiVersion>::SOURCE_NAMES;
             pub const BOOKMARKS_SOURCE_LINE: &str = <$version as ApiVersion>::BOOKMARKS_SOURCE_LINE;
@@ -443,8 +614,9 @@ macro_rules! versioned_handlers {
 }
 pub(crate) use versioned_handlers;
 
-/// The `/v0` routes whose shape is the version's, with the stored models' schemas, and the
-/// bookmark and file details routes `/v0` alone serves.
+/// The `/v0` routes whose shape, label parameter, label list or several of those are the
+/// version's, with the stored models' schemas, and the bookmark and file details routes `/v0`
+/// alone serves.
 #[derive(OpenApi)]
 #[openapi(
     paths(
@@ -461,9 +633,23 @@ pub(crate) use versioned_handlers;
         user::counts::user_counts_handler_v0,
         user::view::user_view_handler_v0,
         stream::users::stream_users_handler_v0,
+        stream::users::stream_user_ids_handler_v0,
         stream::users::stream_username_search_handler_v0,
         stream::users::stream_users_by_ids_handler_v0,
+        search::users::search_users_by_tags_handler_v0,
         bootstrap::bootstrap_handler_v0,
+        user::tags::user_tags_handler_v0,
+        user::tags::user_taggers_handler_v0,
+        post::tags::post_tags_handler_v0,
+        post::tags::post_taggers_handler_v0,
+        tag::global::tag_taggers_handler_v0,
+        resource::resource_tags_handler_v0,
+        resource::resource_by_uri_handler_v0,
+        resource::resource_taggers_handler_v0,
+        search::posts::search_posts_by_tag_handler_v0,
+        search::tags::search_tags_by_prefix_handler_v0,
+        stream::resources::stream_resources_handler_v0,
+        stream::resources::stream_resource_ids_handler_v0,
     ),
     components(schemas(
         PostViewDetailed,
@@ -483,12 +669,18 @@ pub(crate) use versioned_handlers;
         StreamSourceKind,
         PostKind,
         PostKinds,
+        TagDetails,
+        TaggersInfoResponse,
+        ResourceView,
+        resource::ResourceTagsResponse,
+        TagLabel,
+        shapes::v0::Tags,
     ))
 )]
 struct V0Doc;
 
 /// The same routes on `/v1`, the bookmark and file details routes left out, with the
-/// `social/v1` schemas.
+/// `social/v1` schemas and the `social/v1` label rule.
 #[derive(OpenApi)]
 #[openapi(
     paths(
@@ -502,9 +694,23 @@ struct V0Doc;
         user::counts::user_counts_handler_v1,
         user::view::user_view_handler_v1,
         stream::users::stream_users_handler_v1,
+        stream::users::stream_user_ids_handler_v1,
         stream::users::stream_username_search_handler_v1,
         stream::users::stream_users_by_ids_handler_v1,
+        search::users::search_users_by_tags_handler_v1,
         bootstrap::bootstrap_handler_v1,
+        user::tags::user_tags_handler_v1,
+        user::tags::user_taggers_handler_v1,
+        post::tags::post_tags_handler_v1,
+        post::tags::post_taggers_handler_v1,
+        tag::global::tag_taggers_handler_v1,
+        resource::resource_tags_handler_v1,
+        resource::resource_by_uri_handler_v1,
+        resource::resource_taggers_handler_v1,
+        search::posts::search_posts_by_tag_handler_v1,
+        search::tags::search_tags_by_prefix_handler_v1,
+        stream::resources::stream_resources_handler_v1,
+        stream::resources::stream_resource_ids_handler_v1,
     ),
     components(schemas(
         v1::PostView,
@@ -520,6 +726,12 @@ struct V0Doc;
         v1::StreamSourceKind,
         v1::PostKind,
         v1::PostKinds,
+        v1::TagDetails,
+        v1::TaggersInfoResponse,
+        v1::ResourceView,
+        v1::ResourceTagsResponse,
+        v1::TagLabel,
+        v1::Tags,
     ))
 )]
 struct V1Doc;

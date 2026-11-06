@@ -1,7 +1,6 @@
 use std::borrow::Cow;
 
 use nexus_common::models::post::{self, PostCounts, PostRelationships};
-use nexus_common::models::tag::TagDetails;
 use serde::de::{self, Deserializer, IgnoredAny};
 use serde::{Deserialize, Serialize, Serializer};
 use utoipa::openapi::path::{Parameter, ParameterIn};
@@ -9,6 +8,7 @@ use utoipa::openapi::schema::{ObjectBuilder, Type};
 use utoipa::openapi::{RefOr, Schema};
 use utoipa::{IntoParams, PartialSchema, ToSchema};
 
+use super::TagDetails;
 use crate::models::{PostStreamDetailed, PostViewDetailed};
 
 /// A post's kind under its `social/v1` name: `note`, `article`, the rest by name and `unknown`
@@ -136,10 +136,11 @@ impl From<post::PostDetails> for PostDetails {
 }
 
 /// A post with its counts, tags and relationships, as `/v0`'s [`PostViewDetailed`] with the
-/// kind under its `/v1` name, without the viewer's `bookmark` and without
-/// `attachments_metadata`. `social/v1` bookmarks live under `/priv/`, which Nexus never sees;
-/// a `social/v1` file is bytes behind `/v1/static` with no `File` node, so a `/v1` view never
-/// promises metadata that does not exist for it.
+/// kind under its `/v1` name, without the viewer's `bookmark`, without
+/// `attachments_metadata` and with the tags without `relationship`. `social/v1` bookmarks
+/// live under `/priv/`, which Nexus never sees; a `social/v1` file is bytes behind
+/// `/v1/static` with no `File` node, so a `/v1` view never promises metadata that does not
+/// exist for it; and a tag's `tag_uri` says whether the viewer tagged it.
 #[derive(Serialize, ToSchema, Debug)]
 pub struct PostView {
     pub details: PostDetails,
@@ -166,7 +167,7 @@ impl From<PostViewDetailed> for PostView {
         Self {
             details: details.into(),
             counts,
-            tags,
+            tags: tags.into_iter().map(TagDetails::from).collect(),
             relationships,
         }
     }

@@ -1,5 +1,5 @@
 use crate::models::{
-    BoundedLimit, BoundedPagination, BoundedSkip, PostKind, PostSearchQuery, PubkyId, TagLabel,
+    BoundedLimit, BoundedPagination, BoundedSkip, PostKind, PostSearchQuery, PubkyId,
 };
 use crate::routes::v0::endpoints::{SEARCH_POSTS_BY_CONTENT_ROUTE, SEARCH_POSTS_BY_TAG_ROUTE};
 use crate::routes::v0::version::{versioned_handlers, ApiVersion};
@@ -31,30 +31,10 @@ pub struct SearchPostsQuery {
     pub end: Option<f64>,
 }
 
-#[utoipa::path(
-    get,
-    path = SEARCH_POSTS_BY_TAG_ROUTE,
-    description = "Search Posts by Tag. With `user_id` and `reach`, only parent posts authored by users in that reach are returned (the observer's own posts excluded), and the `total_engagement` score counts taggers, replies and reposts but not mentions. `start`/`end` cursors are not interchangeable between the reach and non-reach modes. When the instance filters by trust, the non-reach mode leaves out posts by authors outside its trust ranking, as `source=all` tag streams do",
-    tag = "Search",
-    params(
-        ("tag" = TagLabel, Path, description = "Tag name"),
-        ("sorting" = Option<StreamSorting>, Query, description = "StreamSorting method"),
-        ("user_id" = Option<PubkyId>, Query, description = "User ID to base reach on. Must be provided together with reach"),
-        ("reach" = Option<StreamReach>, Query, example = "wot_2", description = "Reach type: `followers` | `following` | `friends` | `wot` | `wot_1`..`wot_3`. To apply that, user_id is required. Bare `wot` defaults to depth 2."),
-        ("start" = Option<f64>, Query, description = "The start of the stream timeframe (score cursor for `total_engagement`). Posts with a score greater than this value will be excluded from the results"),
-        ("end" = Option<f64>, Query, description = "The end of the stream timeframe (score cursor for `total_engagement`). Posts with a score less than this value will be excluded from the results"),
-        ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Skip N results (max 10000)"),
-        ("limit" = Option<BoundedLimit<20, 200>>, Query, description = "Limit the number of results (1–200, default 20)")
-    ),
-    responses(
-        (status = 200, description = "Search results", body = Vec<PostsByTagSearch>),
-        (status = 400, description = "Invalid parameters"),
-        (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
-        (status = 500, description = "Internal server error")
-    )
-)]
-pub async fn search_posts_by_tag_handler(
-    Path(tag): Path<TagLabel>,
+/// The one body behind `search_posts_by_tag_handler_v0` and `search_posts_by_tag_handler_v1`:
+/// the search, with the tag folded as the version folds a label.
+pub async fn search_posts_by_tag<V: ApiVersion>(
+    Path(tag): Path<V::TagLabel>,
     Query(query): Query<SearchPostsQuery>,
 ) -> Result<Json<Vec<PostsByTagSearch>>> {
     let sorting = query.sorting;
@@ -84,6 +64,33 @@ pub async fn search_posts_by_tag_handler(
         Some(posts_list) => Ok(Json(posts_list)),
         None => Ok(Json(vec![])),
     }
+}
+
+versioned_handlers! {
+    search_posts_by_tag_handler_v0 / search_posts_by_tag_handler_v1 => search_posts_by_tag(path: Path<shapes::TagLabel>, query: Query<SearchPostsQuery>) -> Vec<PostsByTagSearch>;
+    #[utoipa::path(
+        get,
+        path = SEARCH_POSTS_BY_TAG_ROUTE,
+        operation_id = "search_posts_by_tag_handler",
+        description = "Search Posts by Tag. With `user_id` and `reach`, only parent posts authored by users in that reach are returned (the observer's own posts excluded), and the `total_engagement` score counts taggers, replies and reposts but not mentions. `start`/`end` cursors are not interchangeable between the reach and non-reach modes. When the instance filters by trust, the non-reach mode leaves out posts by authors outside its trust ranking, as `source=all` tag streams do",
+        tag = "Search",
+        params(
+            ("tag" = shapes::TagLabel, Path, description = "Tag name"),
+            ("sorting" = Option<StreamSorting>, Query, description = "StreamSorting method"),
+            ("user_id" = Option<PubkyId>, Query, description = "User ID to base reach on. Must be provided together with reach"),
+            ("reach" = Option<StreamReach>, Query, example = "wot_2", description = "Reach type: `followers` | `following` | `friends` | `wot` | `wot_1`..`wot_3`. To apply that, user_id is required. Bare `wot` defaults to depth 2."),
+            ("start" = Option<f64>, Query, description = "The start of the stream timeframe (score cursor for `total_engagement`). Posts with a score greater than this value will be excluded from the results"),
+            ("end" = Option<f64>, Query, description = "The end of the stream timeframe (score cursor for `total_engagement`). Posts with a score less than this value will be excluded from the results"),
+            ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Skip N results (max 10000)"),
+            ("limit" = Option<BoundedLimit<20, 200>>, Query, description = "Limit the number of results (1–200, default 20)")
+        )
+    )]
+    responses(
+        (status = 200, description = "Search results"),
+        (status = 400, description = "Invalid parameters"),
+        (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error")
+    )
 }
 
 const METER_NAME: &str = "search.posts.by_content";
@@ -282,19 +289,16 @@ versioned_handlers! {
     )
 }
 
-/// The tag search and the schemas both searches share; the content search, whose kind filter
-/// is the version's, comes with the version's document.
+/// The schemas both searches share; the content search, whose kind filter is the version's,
+/// and the tag search, whose label is, come with the version's document.
 #[derive(OpenApi)]
-#[openapi(
-    paths(search_posts_by_tag_handler),
-    components(schemas(
-        PostsByTagSearch,
-        PostsByContentSearch,
-        PostSearchQuery,
-        PostKind,
-        StreamReach
-    ))
-)]
+#[openapi(components(schemas(
+    PostsByTagSearch,
+    PostsByContentSearch,
+    PostSearchQuery,
+    PostKind,
+    StreamReach
+)))]
 pub struct SearchPostsApiDocs;
 
 #[cfg(test)]

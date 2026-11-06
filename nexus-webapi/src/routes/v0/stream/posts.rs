@@ -1,6 +1,6 @@
 use crate::models::{
     BoundedLimit, BoundedPagination, BoundedSkip, GlobalPostId, GlobalPostIds, PostId,
-    PostStreamDetailed, PubkyId, Tags,
+    PostStreamDetailed, PubkyId, TagLabels,
 };
 use crate::routes::v0::endpoints::{
     STREAM_POSTS_BY_IDS_ROUTE, STREAM_POSTS_ROUTE, STREAM_POST_KEYS_ROUTE,
@@ -75,7 +75,7 @@ fn build_stream_source(
     observer_id: Option<&PubkyId>,
     post_id: Option<&PostId>,
     depth: Option<u8>,
-    domain_tags: Option<&Tags>,
+    domain_tags: Option<Vec<String>>,
 ) -> AppResult<StreamSource> {
     match kind {
         StreamSourceKind::PostReplies => match (post_id, author_id) {
@@ -172,7 +172,7 @@ fn build_stream_source(
             (Some(observer_id), Some(domain_tags)) => Ok(StreamSource::WotDomain {
                 observer_id: observer_id.to_string(),
                 trust: resolve_domain_trust(depth)?,
-                domain_tags: domain_tags.to_string_vec(),
+                domain_tags,
             }),
             (None, _) => Err(Error::invalid_input(
                 "source 'wot_domain' requires 'observer_id' parameter",
@@ -186,9 +186,9 @@ fn build_stream_source(
 }
 
 /// The query of `GET /stream/posts` and `GET /stream/posts/keys`, with `source` in version
-/// `V`'s names (`bookmarks` is `/v0`'s alone) and `kind` and `exclude_kinds` in its kind names:
-/// the stored ones on `/v0`, the `social/v1` ones on `/v1`. Every other parameter is the same
-/// on both.
+/// `V`'s names (`bookmarks` is `/v0`'s alone), `kind` and `exclude_kinds` in its kind names,
+/// the stored ones on `/v0`, the `social/v1` ones on `/v1`, and the labels of `tags` and
+/// `domain_tags` folded by its label rule. Every other parameter is the same on both.
 #[derive(Deserialize, Debug)]
 #[serde(bound(deserialize = ""))]
 pub struct PostStreamQuery<V: ApiVersion> {
@@ -204,10 +204,10 @@ pub struct PostStreamQuery<V: ApiVersion> {
     pub order: Option<SortOrder>,
     pub sorting: Option<StreamSorting>,
     pub viewer_id: Option<PubkyId>,
-    pub tags: Option<Tags>,
+    pub tags: Option<V::Tags>,
     #[serde(default, deserialize_with = "parse_string_to_u8")]
     pub depth: Option<u8>,
-    pub domain_tags: Option<Tags>,
+    pub domain_tags: Option<V::Tags>,
     pub kind: Option<V::PostKind>,
     pub exclude_kinds: Option<V::PostKinds>,
     #[serde(default)]
@@ -234,7 +234,7 @@ impl<V: ApiVersion> PostStreamQuery<V> {
             self.observer_id.as_ref(),
             self.post_id.as_ref(),
             self.depth,
-            self.domain_tags.as_ref(),
+            self.domain_tags.as_ref().map(TagLabels::to_string_vec),
         )
     }
 
@@ -326,7 +326,7 @@ pub async fn stream_posts<V: ApiVersion>(
     let pagination = query.pagination.to_pagination(query.start, query.end);
     let (source, sorting, order) = query.extract_stream_params()?;
     let include_attachment_metadata = query.include_attachment_metadata.into();
-    let tags = query.tags.as_ref().map(Tags::to_string_vec);
+    let tags = query.tags.as_ref().map(TagLabels::to_string_vec);
 
     let stream = match PostStream::get_posts(
         source,
@@ -362,9 +362,9 @@ versioned_handlers! {
             ("post_id" = Option<PostId>, Query, description = "This parameter is needed when we want to retrieve the replies stream for a post"),
             ("sorting" = Option<StreamSorting>, Query, description = "Sort method (`timeline` or `total_engagement`). Ties are broken by post id; pagination across equal scores is best-effort."),
             ("order" = Option<SortOrder>, Query, description = "Ordering of response list. Either 'ascending' or 'descending'. Defaults to descending."),
-            ("tags" = Option<Tags>, Query, description = "Filter by a list of comma-separated tags (max 5). E.g.,`&tags=dev,free,opensource`. Only posts matching at least one of the tags will be returned."),
+            ("tags" = Option<shapes::Tags>, Query, description = "Filter by a list of comma-separated tags (max 5). E.g.,`&tags=dev,free,opensource`. Only posts matching at least one of the tags will be returned."),
             ("depth" = Option<u8>, Query, description = "WoT traversal depth. For `source=wot`: 1-3, default 2. For `source=wot_domain`: 0-3, default 2, where `depth=0` is the observer-only (\"Me\") trust set (posts by authors the observer tagged directly, no follow traversal). `depth=0` is invalid for `source=wot`. Ignored for other sources."),
-            ("domain_tags" = Option<Tags>, Query, description = "Required for `source=wot_domain`. Comma-separated tag labels (max 5); returns posts by authors tagged with any of these by the observer's WoT, or by the observer alone when `depth=0`. E.g. `&domain_tags=bitcoiner,btc-dev`. Ignored for other sources."),
+            ("domain_tags" = Option<shapes::Tags>, Query, description = "Required for `source=wot_domain`. Comma-separated tag labels (max 5); returns posts by authors tagged with any of these by the observer's WoT, or by the observer alone when `depth=0`. E.g. `&domain_tags=bitcoiner,btc-dev`. Ignored for other sources."),
             ("kind" = Option<shapes::PostKind>, Query, description = concatcp!("Filter by post kind: ", shapes::KIND_NAMES, shapes::KIND_RULE, ". Mutually exclusive with `exclude_kinds`; rejected for `source=post_collections`, `source=post_replies` and `source=author_replies`.")),
             ("exclude_kinds" = Option<shapes::PostKinds>, Query, description = concatcp!("Comma-separated post kinds to exclude server-side (", shapes::EXCLUDE_KINDS_RANGE, " items, duplicates ignored), e.g. `&exclude_kinds=collection,link`. Valid values: ", shapes::KIND_NAMES, "; anything else is rejected with 400. Mutually exclusive with `kind`; rejected for `source=collection`, `source=post_collections`, `source=post_replies` and `source=author_replies`. ", shapes::MISSING_KIND_RULE)),
             ("locked" = Option<bool>, Query, description = concatcp!("When `true`, return only posts with a lock attached, whoever the viewer is and whether or not they unlocked them. `false` (default) applies no filter. ", shapes::LOCKED_REPLIES_RULE, " Cannot be combined with `kind` or `exclude_kinds`; rejected for `source=collection`, `source=post_collections`, `source=post_replies` and `source=author_replies`.")),
@@ -409,7 +409,7 @@ pub async fn stream_post_keys<V: ApiVersion>(
     query.initialize_defaults();
     let pagination = query.pagination.to_pagination(query.start, query.end);
     let (source, sorting, order) = query.extract_stream_params()?;
-    let tags = query.tags.as_ref().map(Tags::to_string_vec);
+    let tags = query.tags.as_ref().map(TagLabels::to_string_vec);
 
     match PostStream::get_post_keys(
         source,
@@ -442,9 +442,9 @@ versioned_handlers! {
         ("post_id" = Option<PostId>, Query, description = "This parameter is needed when we want to retrieve the replies stream for a post"),
         ("sorting" = Option<StreamSorting>, Query, description = "Sort method (`timeline` or `total_engagement`). Ties are broken by post id; pagination across equal scores is best-effort."),
         ("order" = Option<SortOrder>, Query, description = "Ordering of response list. Either 'ascending' or 'descending'. Defaults to descending."),
-        ("tags" = Option<Tags>, Query, description = "Filter by a list of comma-separated tags (max 5). E.g.,`&tags=dev,free,opensource`. Only posts matching at least one of the tags will be returned."),
+        ("tags" = Option<shapes::Tags>, Query, description = "Filter by a list of comma-separated tags (max 5). E.g.,`&tags=dev,free,opensource`. Only posts matching at least one of the tags will be returned."),
         ("depth" = Option<u8>, Query, description = "WoT traversal depth. For `source=wot`: 1-3, default 2. For `source=wot_domain`: 0-3, default 2, where `depth=0` is the observer-only (\"Me\") trust set (posts by authors the observer tagged directly, no follow traversal). `depth=0` is invalid for `source=wot`. Ignored for other sources."),
-        ("domain_tags" = Option<Tags>, Query, description = "Required for `source=wot_domain`. Comma-separated tag labels (max 5); returns posts by authors tagged with any of these by the observer's WoT, or by the observer alone when `depth=0`. E.g. `&domain_tags=bitcoiner,btc-dev`. Ignored for other sources."),
+        ("domain_tags" = Option<shapes::Tags>, Query, description = "Required for `source=wot_domain`. Comma-separated tag labels (max 5); returns posts by authors tagged with any of these by the observer's WoT, or by the observer alone when `depth=0`. E.g. `&domain_tags=bitcoiner,btc-dev`. Ignored for other sources."),
         ("kind" = Option<shapes::PostKind>, Query, description = concatcp!("Filter by post kind: ", shapes::KIND_NAMES, shapes::KIND_RULE, ". Mutually exclusive with `exclude_kinds`; rejected for `source=post_collections`, `source=post_replies` and `source=author_replies`.")),
         ("exclude_kinds" = Option<shapes::PostKinds>, Query, description = concatcp!("Comma-separated post kinds to exclude server-side (", shapes::EXCLUDE_KINDS_RANGE, " items, duplicates ignored), e.g. `&exclude_kinds=collection,link`. Valid values: ", shapes::KIND_NAMES, "; anything else is rejected with 400. Mutually exclusive with `kind`; rejected for `source=collection`, `source=post_collections`, `source=post_replies` and `source=author_replies`. ", shapes::MISSING_KIND_RULE)),
         ("locked" = Option<bool>, Query, description = concatcp!("When `true`, return only posts with a lock attached, whoever the viewer is and whether or not they unlocked them. `false` (default) applies no filter. ", shapes::LOCKED_REPLIES_RULE, " Cannot be combined with `kind` or `exclude_kinds`; rejected for `source=collection`, `source=post_collections`, `source=post_replies` and `source=author_replies`.")),
@@ -532,7 +532,7 @@ versioned_handlers! {
 }
 
 /// The schemas the post stream routes share; the routes themselves, their source and kind
-/// filters and the `by_ids` body come with the version's document.
+/// filters, their label lists and the `by_ids` body come with the version's document.
 #[derive(OpenApi)]
 #[openapi(components(schemas(
     PostKeyStream,
@@ -540,7 +540,6 @@ versioned_handlers! {
     SortOrder,
     PubkyId,
     PostId,
-    Tags,
     GlobalPostId
 )))]
 pub struct StreamPostsApiDocs;

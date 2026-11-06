@@ -18,10 +18,15 @@ pub mod user_id_prefix;
 pub mod username_prefix;
 pub mod v1;
 
+use std::borrow::Cow;
+use std::fmt;
 use std::ops::Deref;
 
 use serde::Deserialize;
-use utoipa::ToSchema;
+use serde_json::Value;
+use utoipa::openapi::schema::{ObjectBuilder, Type};
+use utoipa::openapi::{RefOr, Schema};
+use utoipa::{PartialSchema, ToSchema};
 
 pub use bounded_limit::BoundedLimit;
 pub use bounded_pagination::BoundedPagination;
@@ -43,26 +48,61 @@ pub use user_id_prefix::UserIdPrefix;
 pub use username_prefix::UsernamePrefix;
 
 /// Comma-separated list of tag labels (min=1, max=5). Each label is validated and sanitized.
-#[derive(Debug, ToSchema)]
-#[schema(value_type = String, example = "dev,free,opensource")]
-pub struct Tags(pub Vec<TagLabel>);
+///
+/// `L` is the version's label type, `/v0`'s [`TagLabel`] or `/v1`'s [`v1::TagLabel`], so each
+/// label of the list folds and validates by the version's rule. Documented as one string schema
+/// named `Tags` on both versions, by hand: the derive would name a reference written with its
+/// argument `Tags_TagLabel`.
+#[derive(Debug)]
+pub struct Tags<L>(pub Vec<L>);
 
-impl Deref for Tags {
-    type Target = Vec<TagLabel>;
+impl<L> Deref for Tags<L> {
+    type Target = Vec<L>;
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl Tags {
-    pub fn to_string_vec(&self) -> Vec<String> {
-        self.iter().map(|t| t.0.clone()).collect()
+/// The labels of a list as the queries take them, whichever version's rule folded them.
+pub trait TagLabels {
+    /// The labels as plain strings, in the order written.
+    fn to_string_vec(&self) -> Vec<String>;
+}
+
+impl<L: Deref<Target = str>> TagLabels for Tags<L> {
+    fn to_string_vec(&self) -> Vec<String> {
+        self.iter().map(|label| label.to_string()).collect()
     }
 }
 
-impl<'de> Deserialize<'de> for Tags {
+impl<'de, L> Deserialize<'de> for Tags<L>
+where
+    L: TryFrom<String>,
+    L::Error: fmt::Display,
+{
     fn deserialize<D: serde::de::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        bounded_vec::deserialize_csv::<TagLabel, D, 1, 5>(d).map(Self)
+        bounded_vec::deserialize_csv::<L, D, 1, 5>(d).map(Self)
+    }
+}
+
+impl<L> PartialSchema for Tags<L> {
+    fn schema() -> RefOr<Schema> {
+        // `example`, not `examples`: the key the derive writes, and the frozen `/v0` document
+        // carries.
+        #[allow(deprecated)]
+        ObjectBuilder::new()
+            .schema_type(Type::String)
+            .description(Some(
+                "Comma-separated list of tag labels (min=1, max=5). Each label is validated and sanitized.",
+            ))
+            .example(Some(Value::String("dev,free,opensource".to_string())))
+            .into()
+    }
+}
+
+impl<L> ToSchema for Tags<L> {
+    fn name() -> Cow<'static, str> {
+        Cow::Borrowed("Tags")
     }
 }
 
@@ -86,5 +126,59 @@ impl UserIds {
 impl<'de> Deserialize<'de> for UserIds {
     fn deserialize<D: serde::de::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
         bounded_vec::deserialize_json_array::<PubkyId, D, 1, 100>(d).map(Self)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde::de::DeserializeOwned;
+
+    /// The list as a query string carries it.
+    fn parse<L>(csv: &str) -> Result<Tags<L>, serde_json::Error>
+    where
+        Tags<L>: DeserializeOwned,
+    {
+        serde_json::from_str(&format!("\"{csv}\""))
+    }
+
+    /// The `/v0` list folds each label by the frozen `pubky.app` rule: the surrounding
+    /// whitespace trimmed and every letter lowercased, a non-ASCII one included.
+    #[test]
+    fn v0_list_folds_each_label_by_the_v0_rule() {
+        let labels = parse::<TagLabel>(" Dev , FREE,Ärger").unwrap();
+        assert_eq!(labels.to_string_vec(), ["dev", "free", "ärger"]);
+        assert_eq!(labels.len(), 3);
+    }
+
+    /// One invalid label rejects the whole list, on the `/v0` rule.
+    #[test]
+    fn v0_list_rejects_an_invalid_label() {
+        assert!(parse::<TagLabel>("dev,co ol").is_err());
+        assert!(parse::<TagLabel>(&format!("dev,{}", "a".repeat(21))).is_err());
+        assert!(parse::<TagLabel>("dev,a:b").is_err());
+    }
+
+    /// One to five labels, whichever label type the list holds.
+    #[test]
+    fn list_takes_one_to_five_labels() {
+        assert!(parse::<TagLabel>("").is_err());
+        assert!(parse::<TagLabel>("a,b,c,d,e,f").is_err());
+        assert_eq!(parse::<TagLabel>("a,b,c,d,e").unwrap().len(), 5);
+        assert!(parse::<v1::TagLabel>("").is_err());
+        assert!(parse::<v1::TagLabel>("a,b,c,d,e,f").is_err());
+        assert_eq!(parse::<v1::TagLabel>("a,b,c,d,e").unwrap().len(), 5);
+    }
+
+    /// Both versions' lists document one string schema named `Tags`, the same on each.
+    #[test]
+    fn schema_is_one_string_named_tags_on_both_versions() {
+        assert_eq!(<Tags<TagLabel> as ToSchema>::name(), "Tags");
+        assert_eq!(<v1::Tags as ToSchema>::name(), "Tags");
+        let v0 = serde_json::to_value(<Tags<TagLabel> as PartialSchema>::schema()).unwrap();
+        let v1 = serde_json::to_value(<v1::Tags as PartialSchema>::schema()).unwrap();
+        assert_eq!(v0, v1);
+        assert_eq!(v0["type"], "string", "{v0}");
+        assert_eq!(v0["example"], "dev,free,opensource", "{v0}");
     }
 }

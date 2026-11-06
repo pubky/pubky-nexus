@@ -1,14 +1,15 @@
 //! A user on `/v1`: the counts without `bookmarks`, and the view and the stream that carry
-//! them.
+//! them, with the user's tags without `relationship`.
 //!
 //! `social/v1` bookmarks live under `/priv/`, which Nexus never sees, so `/v1` never shows a
 //! count it cannot produce. The stored count, the `BOOKMARKED` edges and the `/v0` field stay
 //! until R1.
 
-use nexus_common::models::tag::TagDetails;
 use nexus_common::models::user::{self, Relationship, SocialGraphStatus, UserDetails};
 use serde::Serialize;
 use utoipa::ToSchema;
+
+use super::TagDetails;
 
 /// Total counts of a user's relationships, as `/v0`'s [`user::UserCounts`] without
 /// `bookmarks`.
@@ -57,7 +58,9 @@ impl From<user::UserCounts> for UserCounts {
 }
 
 /// A user with their tags, counts and relationship with the viewer, as `/v0`'s
-/// [`user::UserView`] with the counts without `bookmarks`.
+/// [`user::UserView`] with the counts without `bookmarks` and the tags without
+/// `relationship`. The user's own `relationship`, whether the viewer and they follow each
+/// other, stays: it is not a tag's flag.
 #[derive(Serialize, ToSchema, Debug)]
 pub struct UserView {
     pub details: UserDetails,
@@ -81,7 +84,7 @@ impl From<user::UserView> for UserView {
         Self {
             details,
             counts: counts.into(),
-            tags,
+            tags: tags.into_iter().map(TagDetails::from).collect(),
             relationship,
             social_graph_status,
         }
@@ -126,10 +129,11 @@ mod tests {
         assert_eq!(v1, v0);
     }
 
-    /// The `/v1` view is the stored view with `counts.bookmarks` taken out and nothing else;
-    /// an empty stream is a plain array, as on `/v0`.
+    /// The `/v1` view is the stored view with `counts.bookmarks` and each tag's
+    /// `relationship` taken out and nothing else, the user's own `relationship` included; an
+    /// empty stream is a plain array, as on `/v0`.
     #[test]
-    fn view_and_stream_differ_from_v0_only_by_the_bookmarks_count() {
+    fn view_and_stream_differ_from_v0_only_by_the_bookmarks_count_and_the_tags_flag() {
         let stored: user::UserView = serde_json::from_value(json!({
             "details": {
                 "name": "Aldert",
@@ -146,15 +150,28 @@ mod tests {
                 "tagged": 0, "tags": 0, "unique_tags": 0, "posts": 0, "replies": 0,
                 "collections": 0, "following": 0, "followers": 0, "friends": 0, "bookmarks": 3
             },
-            "tags": [],
+            "tags": [
+                { "label": "rust", "taggers": ["alice"], "taggers_count": 1, "relationship": true,
+                  "tag_uri": "pubky://alice/pub/social/v1/tags/T1" }
+            ],
             "relationship": { "following": false, "followed_by": true },
             "social_graph_status": "new"
         }))
         .unwrap();
         let mut v0 = serde_json::to_value(&stored).unwrap();
         assert_eq!(v0["counts"]["bookmarks"], 3, "{v0}");
+        assert_eq!(v0["tags"][0]["relationship"], true, "{v0}");
         let v1 = serde_json::to_value(UserView::from(stored)).unwrap();
         assert!(v1["counts"].get("bookmarks").is_none(), "{v1}");
+        assert!(v1["tags"][0].get("relationship").is_none(), "{v1}");
+        assert_eq!(
+            v1["tags"][0]["tag_uri"],
+            "pubky://alice/pub/social/v1/tags/T1"
+        );
+        assert_eq!(
+            v1["relationship"],
+            json!({ "following": false, "followed_by": true })
+        );
         for field in [
             "details",
             "counts",
@@ -165,6 +182,10 @@ mod tests {
             assert!(v1.get(field).is_some(), "{field}: {v1}");
         }
         v0["counts"].as_object_mut().unwrap().remove("bookmarks");
+        v0["tags"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("relationship");
         assert_eq!(v1, v0);
 
         let stream = UserStream::from(user::UserStream::default());

@@ -8,20 +8,27 @@
 //! post view, no `bookmarks` in a user's counts, no `bookmarks` stream source; and `/v1` has
 //! no file details, since a `social/v1` file is bytes behind `/v1/static` with no `File`
 //! node: no `attachments_metadata` on a post view, no `files` in the bootstrap, and no
-//! `include_attachment_metadata` to ask for them with. The responses that embed those, the
-//! user view and stream, and the bootstrap, are `/v1` types too, so an embedded post or user
-//! is shaped like the one its own route serves.
+//! `include_attachment_metadata` to ask for them with; and `/v1` tags have no `relationship`,
+//! since `tag_uri` says whether the viewer tagged the label, and a label a client queries,
+//! alone or in a `tags=` list, is folded by the `social/v1` rule. The responses that embed
+//! those, the user view and stream, the resource view and envelope, and the bootstrap, are
+//! `/v1` types too, so an embedded post, user or tag is shaped like the one its own route
+//! serves.
 
 mod bootstrap;
 mod notification;
 mod post;
 mod post_kinds;
+mod resource;
 mod stream;
+mod tag;
 mod user;
 
 pub use bootstrap::Bootstrap;
 pub use notification::{Notification, NotificationBody};
 pub use post::{NoAttachmentMetadata, PostDetails, PostKind, PostStream, PostView, KIND_NAMES};
 pub use post_kinds::PostKinds;
+pub use resource::{ResourceTagsResponse, ResourceView};
 pub use stream::{PostStreamByIdsRequest, StreamSourceKind, SOURCE_NAMES};
+pub use tag::{TagDetails, TagLabel, TaggersInfoResponse, Tags};
 pub use user::{UserCounts, UserStream, UserView};

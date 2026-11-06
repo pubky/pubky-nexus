@@ -16,8 +16,8 @@ mod relationship;
 pub mod tags;
 pub mod view;
 
-/// The user routes for one version: the view and the counts in the version's shape, the rest
-/// shared.
+/// The user routes for one version: the view, the counts, the tags and the taggers in the
+/// version's shape, the taggers with the version's label rule, the rest shared.
 pub fn routes<V: ApiVersion>() -> Router<AppState> {
     Router::new()
         .route(USER_ROUTE, V::user_view())
@@ -26,8 +26,8 @@ pub fn routes<V: ApiVersion>() -> Router<AppState> {
             RELATIONSHIP_ROUTE,
             get(relationship::user_relationship_handler),
         )
-        .route(USER_TAGS_ROUTE, get(tags::user_tags_handler))
-        .route(USER_TAGGERS_ROUTE, get(tags::user_taggers_handler))
+        .route(USER_TAGS_ROUTE, V::user_tags())
+        .route(USER_TAGGERS_ROUTE, V::user_taggers())
         .route(USER_COUNTS_ROUTE, V::user_counts())
         .route(USER_FOLLOWERS_ROUTE, get(follows::user_followers_handler))
         .route(USER_FOLLOWING_ROUTE, get(follows::user_following_handler))
@@ -39,8 +39,8 @@ pub fn routes<V: ApiVersion>() -> Router<AppState> {
 pub struct UserApiDoc;
 
 impl UserApiDoc {
-    /// The shared user routes and schemas; the versioned view and counts come with the
-    /// version's document.
+    /// The shared user routes and schemas; the versioned view, counts, tags and taggers come
+    /// with the version's document.
     pub fn merge_docs() -> utoipa::openapi::OpenApi {
         let mut combined = view::UserViewApiDoc::openapi();
         combined.merge(counts::UserCountsApiDoc::openapi());

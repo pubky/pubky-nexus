@@ -850,6 +850,80 @@ fn test_taggers_relationship_and_tag_uri() {
     assert_relationship_and_tag_uri("TaggersInfoResponse");
 }
 
+/// `relationship` is v0's alone: on v1 `tag_uri` is the one signal that the viewer tagged
+/// something. The v1 tag details and taggers schemas have no `relationship` and keep
+/// `tag_uri`, nullable; every v1 schema that embeds tags embeds that one `TagDetails`; and no
+/// v1 schema has a boolean `relationship` left, the user view's being the follow object. The
+/// label parameter is a string on both, described by each version's rule.
+#[test]
+fn test_tag_relationship_is_documented_on_v0_only() {
+    let v0 = serde_json::to_value(ApiDoc::v0_docs()).expect("serializable spec");
+    let v1 = serde_json::to_value(ApiDoc::v1_docs()).expect("serializable spec");
+
+    for schema in ["TagDetails", "TaggersInfoResponse"] {
+        let object = v1
+            .pointer(&format!("/components/schemas/{schema}"))
+            .unwrap_or_else(|| panic!("{schema} missing from the v1 document"));
+        let properties = object["properties"].as_object().expect("properties");
+        assert!(
+            !properties.contains_key("relationship"),
+            "{schema}: {properties:?}"
+        );
+        assert_eq!(
+            properties["tag_uri"]["type"],
+            serde_json::json!(["string", "null"]),
+            "{schema}: {properties:?}"
+        );
+        let required = object["required"].as_array().expect("required");
+        assert!(!required.contains(&Value::from("relationship")), "{schema}");
+    }
+    for pointer in [
+        "/components/schemas/PostView/properties/tags/items/$ref",
+        "/components/schemas/UserView/properties/tags/items/$ref",
+        "/components/schemas/ResourceView/properties/tags/items/$ref",
+        "/components/schemas/ResourceTagsResponse/properties/tags/items/$ref",
+    ] {
+        assert_eq!(
+            v1.pointer(pointer),
+            Some(&Value::from("#/components/schemas/TagDetails")),
+            "{pointer}"
+        );
+    }
+    let schemas = v1["components"]["schemas"].as_object().expect("schemas");
+    for (name, schema) in schemas {
+        if let Some(relationship) = schema["properties"].get("relationship") {
+            assert!(
+                relationship.get("$ref").is_some(),
+                "{name}.relationship is not the follow object: {relationship}"
+            );
+        }
+    }
+    // The taggers routes document the version's response under the one name.
+    for path in [
+        "/v1/user/{user_id}/taggers/{label}",
+        "/v1/post/{author_id}/{post_id}/taggers/{label}",
+        "/v1/resource/{resource_id}/tags/{label}/taggers",
+    ] {
+        assert_eq!(
+            v1.pointer(&format!(
+                "/paths/{}/get/responses/200/content/application~1json/schema/$ref",
+                path.replace('/', "~1")
+            )),
+            Some(&Value::from("#/components/schemas/TaggersInfoResponse")),
+            "{path}"
+        );
+    }
+
+    for (spec, rule) in [(&v0, "lowercased and trimmed"), (&v1, "ASCII-lowercased")] {
+        let label = spec
+            .pointer("/components/schemas/TagLabel")
+            .expect("TagLabel schema");
+        assert_eq!(label["type"], "string", "{label}");
+        let description = label["description"].as_str().expect("description");
+        assert!(description.contains(rule), "{description}");
+    }
+}
+
 /// A resource tag keeps no `app`, so the resource stream routes take no `app` parameter.
 #[test]
 fn test_resource_stream_routes_take_no_app_parameter() {
