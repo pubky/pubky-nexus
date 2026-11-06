@@ -13,8 +13,15 @@ struct Opt {
     config: Option<PathBuf>,
 }
 
-#[tokio::main]
-async fn main() -> Result<(), DynError> {
+fn main() -> Result<(), DynError> {
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .thread_stack_size(nexus_watcher::WORKER_STACK_SIZE)
+        .build()?
+        .block_on(run())
+}
+
+async fn run() -> Result<(), DynError> {
     let opts = Opt::parse();
     match opts.config {
         Some(path) => {

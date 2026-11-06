@@ -274,6 +274,7 @@ async fn test_live_post_with_sentinel_content_is_not_tombstoned() -> Result<()> 
         pubky_id(&author_id)?,
         post_id.clone(),
         &default_ingestor_tests(),
+        &crate::service::utils::MockHomeserverClient::default(),
     )
     .await?;
 
