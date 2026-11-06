@@ -2,10 +2,9 @@
 
 `GET /v0/resources/changes?cursor=0&limit=500` returns a JSON object with `lines` and
 `next_cursor`. Each line describes an accepted reference to a generic Resource;
-Nexus does not fetch the target. The first implementation emits only tags handled
-by the universal-tag flow. Post and User targets continue through their existing
-handlers and are excluded. This does not broaden which tag paths or targets Nexus
-accepts, or add indexing of external post parents/embeds.
+Nexus does not fetch the target. Tags and external post replies, embeds and
+collection items name Resources through this feed. Native Post and User targets
+continue through their existing handlers. Tag routing stays unchanged.
 
 ```json
 {"lines":[{"op":"put","resource_id":"19f876713c227a568d939946496a0d30","uri":"https://example.com/","kind":"tag","author":"<pk>","label":"example","object_path":"/pub/<folder>/tags/<id>","at":1792071211000}],"next_cursor":1}
@@ -18,14 +17,14 @@ example leaves the folder open.
 ## Delivery contract
 
 Lines are delivered **at least once, in append order**. A consumer must apply `put`
-as an upsert keyed by **(author, object_path)** and `del` as a delete by the same key.
+as an upsert keyed by **(author, object_path, kind, resource_id)** and `del` as a delete by the same key.
 Duplicates are expected after retries and must be harmless: a repeated put replaces
 the same reference, and deleting an absent key is a no-op. Do not increment a
 counter for every line.
 
 The graph commit precedes the feed append. If the handler crashes between them,
-a retry on the existing edge appends the missing put with its original indexed
-timestamp. Retrying again after a successful append can emit an identical put;
+a retry appends the pending put. Tag replay retains its original indexed timestamp.
+Retrying again after a successful append can emit a duplicate put;
 the consumer's upsert leaves one reference. Pending deletes retain their metadata
 until the graph deletion succeeds and publication is acknowledged, so a retry after
 the edge is gone can still publish the del. Publication and pending record removal
@@ -98,8 +97,10 @@ was still at `pubky.app`): then that del is dropped, since the address is live.
 `at` is the edge's indexed timestamp in Unix milliseconds for puts (including
 replays and moves), and the deletion's indexed timestamp for dels (the move's, for the
 del a published move appends). Apply lines in list order,
-not timestamp order. `reply`, `embed` and `collection` are reserved kinds, never
-emitted yet.
+not timestamp order. `reply`, `embed` and `collection` identify references made by posts.
+Post replay may refresh the reference timestamp; consumers still upsert the same key.
+The flip does not move a post's references: each keeps the path of the post file that
+made it, and the post's later edits and deletes retract that path.
 
 The response carries `x-events-epoch` and `x-events-length`. This feed has its
 own storage and epoch. Both headers are exposed through CORS. Epoch is opaque to clients; length is the number of list entries.
@@ -151,12 +152,15 @@ A shared seed lease prevents overlapping job/migration seeds; publication checks
 ownership. The build has a one-hour deadline; temporary keys and the lease expire
 if the process dies, leaving the old feed intact. An empty graph still publishes
 an empty feed with a new epoch. The random initial numeric epoch also distinguishes
-a newly initialized feed after Redis is cleared. Redis persistence protects both
-the list and pending delete records; after loss of Redis state, run the seed job.
+a newly initialized feed after Redis is cleared. Redis persistence protects the
+list and the pending delete and post delete records; after loss of Redis state, run
+the seed job.
 The seed describes current graph references, not historical deletions.
 
 The list is `Event:ResourceChanges`, its epoch is `Event:ResourceChanges:Epoch`.
-`Event:ResourceChanges:PendingDelete:*` retains interrupted delete details;
+`Event:ResourceChanges:PendingDelete:*` retains interrupted tag delete details and
+`Event:ResourceChanges:PostDelete:*` a deleted post's reference dels until they are
+published;
 `Event:ResourceChanges:PendingDeleteMoved:*` holds, beside the pending delete of a
 tag whose move is not published, the del of the address it moved from;
 `Event:ResourceChanges:PendingDeleteAlias:*` names, from a deleted tag file's address,
@@ -177,3 +181,22 @@ resource views, in request order, retaining duplicates and skipping unknown entr
 Each entry includes `details.id`. Invalid inputs return 400; no matches returns 200 with an
 empty array. No remote fetch or resource creation occurs. Use this with the feed
 to hydrate referenced IDs without a request per resource.
+
+## Post references
+
+Social posts emit `reply`, `embed`, and `collection` for external targets. The target
+URI uses the same normalization and ID as a tag. `object_path` is the actual stored
+version file. One collection can emit multiple lines for that path.
+
+Consumers of these kinds apply each line as an upsert or deletion keyed by
+`(author, object_path, kind, resource_id)`. This extends the tag-only replay key
+without changing any tag line. Lines remain at least once and in append order;
+retries can duplicate a PUT. Keep distinct targets and kinds within one file.
+An edit emits DEL for removed references or an older source-version key, then PUT
+for each current reference. Deleting any social version follows the social-post
+delete contract and retracts the indexed logical post's current references.
+
+The edge update and a pending append batch commit in the same graph transaction.
+Retries flush that batch before recording new changes. Deletes journal all targets
+before graph removal. Reseeding includes live Resource edges and retains concurrent
+appends under the existing epoch/cursor rules. No external target is fetched.

@@ -1,3 +1,4 @@
+pub mod references;
 pub mod stream;
 pub mod tag;
 pub mod view;

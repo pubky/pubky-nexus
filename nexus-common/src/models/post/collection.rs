@@ -4,20 +4,30 @@ use crate::models::error::ModelResult;
 use pubky_social_specs::legacy_v0::{ParsedUri, PubkyAppCollectionContent, Resource};
 use pubky_social_specs::PubkyId;
 
-/// Post keys `(author_id, post_id)` referenced by a Collection envelope, in
+/// Post keys `(author_id, post_id)` referenced by a v0 or social v1 Collection envelope, in
 /// curator order. Malformed and non-post URIs are dropped. Errors when
 /// `content` is not an envelope.
 pub fn collection_item_keys(content: &str) -> Result<Vec<(PubkyId, String)>, serde_json::Error> {
-    let envelope: PubkyAppCollectionContent = serde_json::from_str(content)?;
-    Ok(envelope
-        .items
+    let items =
+        match serde_json::from_str::<pubky_social_specs::PubkySocialCollectionContent>(content) {
+            Ok(envelope) => envelope.items.into_iter().map(|item| item.uri).collect(),
+            Err(_) => serde_json::from_str::<PubkyAppCollectionContent>(content)?.items,
+        };
+    Ok(items
         .iter()
-        .filter_map(|uri| match ParsedUri::try_from(uri.as_str()) {
-            Ok(parsed) => match parsed.resource {
-                Resource::Post(post_id) => Some((parsed.user_id, post_id)),
-                _ => None,
-            },
-            Err(_) => None,
+        .filter_map(|uri| {
+            if let Ok(parsed) = pubky_social_specs::ParsedUri::try_from(uri.as_str()) {
+                if let pubky_social_specs::Resource::Post { id, .. } = parsed.resource {
+                    return Some((parsed.user_id, id));
+                }
+            }
+            match ParsedUri::try_from(uri.as_str()) {
+                Ok(parsed) => match parsed.resource {
+                    Resource::Post(post_id) => Some((parsed.user_id, post_id)),
+                    _ => None,
+                },
+                Err(_) => None,
+            }
         })
         .collect())
 }
@@ -86,6 +96,25 @@ mod tests {
         let keys = collection_item_keys(&content).unwrap();
         assert_eq!(keys.len(), 1);
         assert_eq!(keys[0].1, "00000039YD9BM");
+    }
+
+    #[test]
+    fn recovers_social_v1_collection_items_in_curator_order() {
+        let content = serde_json::json!({
+            "name": "mixed",
+            "items": [
+                {"uri": format!("pubky://{CAIRO}/pub/social/v1/posts/00000039YD9C0")},
+                {"uri": "https://example.com/item"},
+                {"uri": format!("pubky://{BOGOTA}/pub/pubky.app/posts/00000039YD9BM")}
+            ]
+        })
+        .to_string();
+        let keys = collection_item_keys(&content).unwrap();
+        assert_eq!(keys.len(), 2);
+        assert_eq!(keys[0].0.to_string(), CAIRO);
+        assert_eq!(keys[0].1, "00000039YD9C0");
+        assert_eq!(keys[1].0.to_string(), BOGOTA);
+        assert_eq!(keys[1].1, "00000039YD9BM");
     }
 
     #[test]
