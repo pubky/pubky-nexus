@@ -244,7 +244,7 @@ async fn create_active_user_on_homeserver_with_trust(
         name: "prioritization-test-user".into(),
         bio: None,
         status: None,
-        links: None,
+        links: Vec::new(),
         image: None,
         indexed_at: Utc::now().timestamp_millis(),
         deleted: false,

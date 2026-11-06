@@ -209,8 +209,8 @@ impl Migration for PostDeletedFlag1790899200 {
 mod tests {
     use super::*;
     use nexus_common::db::exec_single_row;
+    use nexus_common::models::post::PostKind;
     use nexus_common::{StackConfig, StackManager};
-    use pubky_social_specs::legacy_v0::PubkyAppPostKind;
 
     const AUTHOR_ID: &str = "MigrationTest:PostDeletedFlag:Author";
     const TOMBSTONE_ID: &str = "MigrationTest:PostDeletedFlag:Tombstone";
@@ -268,7 +268,7 @@ mod tests {
             content: "[DELETED]".to_string(),
             id: TOMBSTONE_ID.to_string(),
             author: AUTHOR_ID.to_string(),
-            kind: PubkyAppPostKind::Short,
+            kind: PostKind::Short,
             ..Default::default()
         };
         cached

@@ -2,6 +2,7 @@ use super::utils::collection_post;
 use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
 use nexus_common::models::notification::{Notification, NotificationBody};
+use nexus_common::models::post::PostKind;
 use nexus_common::types::Pagination;
 use pubky::Keypair;
 use pubky_social_specs::legacy_v0::{
@@ -71,7 +72,7 @@ async fn test_repost_collection_notification() -> Result<()> {
     {
         assert_eq!(
             post_kind,
-            &PubkyAppPostKind::Collection,
+            &PostKind::Collection,
             "Reposting a collection should tag the notification with the embed's post_kind = Collection"
         );
         assert_eq!(

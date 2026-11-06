@@ -173,7 +173,7 @@ async fn test_delete_user_with_relationships() -> Result<()> {
     assert_eq!(user_details.status, None, "User status should be cleared");
     assert_eq!(user_details.image, None, "User image should be cleared");
     assert!(
-        user_details.links.is_none(),
+        user_details.links.is_empty(),
         "User links should be cleared after deletion"
     );
 

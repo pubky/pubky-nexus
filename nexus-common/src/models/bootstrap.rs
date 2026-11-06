@@ -161,7 +161,7 @@ impl Bootstrap {
             }
             // Add the author of the post
             user_ids.insert(author_id.clone());
-            attachment_uris.extend(post_view.details.attachments.iter().flatten().cloned());
+            attachment_uris.extend(post_view.details.attachments.iter().cloned());
             // Include the post in the stream list
             if is_full_view_type {
                 self.ids.stream.push(format!("{author_id}:{post_id}"));

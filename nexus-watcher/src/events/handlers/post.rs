@@ -10,7 +10,6 @@ use nexus_common::models::post::{
     PostRelationships, PostStream,
 };
 use nexus_common::models::user::UserIngestor;
-use pubky_social_specs::legacy_v0::PubkyAppPostKind;
 use pubky_social_specs::PubkyId;
 use tracing::{debug, Instrument};
 
@@ -79,6 +78,26 @@ fn parent_keys(parents: &PostParents) -> (Option<&ResourceKey>, Option<&Resource
     )
 }
 
+/// What a PUT of a post the graph already holds does to its cached details, given the details
+/// Redis holds and the ones just parsed. `None`: nothing to do, the PUT is a replay of what is
+/// cached. `Some(notify)`: refresh the cache through [`sync_edit`], and `notify` says whether the
+/// post's audience hears of an edit.
+///
+/// A lock- or kind-only toggle refreshes the cache but must not notify. A deletion must, even of
+/// a repost with no content to clear; so must a Collection <-> Short toggle, whose items appear
+/// or vanish.
+fn put_change(existing: &PostDetails, incoming: &PostDetails) -> Option<bool> {
+    // `is_different_than` ignores kind, so refresh on a kind-only edit too.
+    let kind_changed = existing.kind != incoming.kind;
+    if !existing.is_different_than(incoming) && !kind_changed {
+        return None;
+    }
+    let collection_toggled =
+        (existing.kind == PostKind::Collection) != (incoming.kind == PostKind::Collection);
+    let deleted_toggled = existing.deleted != incoming.deleted;
+    Some(existing.content_differs_from(incoming) || collection_toggled || deleted_toggled)
+}
+
 /// [`sync_put`] with the details built by the caller, so [`del`] can write a
 /// tombstone through the same edit path.
 #[tracing::instrument(name = "post.put", skip_all, fields(user_id = %author_id, post_id = %post_id))]
@@ -138,10 +157,7 @@ async fn sync_put_details(
         // If the post existed, let's confirm this is an edit. Is the content different?
         match PostDetails::get_from_index(&author_id, &post_id).await? {
             Some(existing_details) => {
-                let was_collection = existing_details.kind == PubkyAppPostKind::Collection;
-                let collection_toggled = was_collection != is_collection;
-                // `is_different_than` ignores kind, so refresh on a kind-only edit too.
-                let kind_changed = existing_details.kind != post_details.kind;
+                let was_collection = existing_details.kind == PostKind::Collection;
                 // Before `sync_edit` overwrites the Redis details: a retry after a
                 // Collection -> Short flip would then read Short on both sides, skip
                 // this, and leave the old edges in the graph for good.
@@ -149,13 +165,7 @@ async fn sync_put_details(
                     let items = post.collected_posts();
                     sync_collected_edges(&author_id, &post_id, &items, Some(&post_details)).await?;
                 }
-                if existing_details.is_different_than(&post_details) || kind_changed {
-                    // A lock- or kind-only toggle refreshes the cache but must not notify.
-                    // A deletion must, even of a repost with no content to clear.
-                    let deleted_toggled = existing_details.deleted != post_details.deleted;
-                    let notify = existing_details.content_differs_from(&post_details)
-                        || collection_toggled
-                        || deleted_toggled;
+                if let Some(notify) = put_change(&existing_details, &post_details) {
                     sync_edit(
                         &post,
                         stored.unwrap_or_default().replied,
@@ -164,7 +174,7 @@ async fn sync_put_details(
                         post_details,
                         ingestor,
                         notify,
-                        existing_details.kind.clone(),
+                        existing_details.kind,
                     )
                     .await?;
                 }
@@ -201,7 +211,7 @@ async fn sync_put_details(
         &post_details.uri,
         &post_details.content,
         &mut post_relationships,
-        post_details.kind.clone(),
+        post_details.kind,
     )
     .await?;
 
@@ -442,7 +452,7 @@ async fn recover_post_index_state(
         &post_details.uri,
         &post_details.content,
         &mut PostRelationships::default(), // reindexed from the graph below
-        post_details.kind.clone(),
+        post_details.kind,
     )
     .await?;
 
@@ -475,7 +485,7 @@ async fn sync_edit(
     post_details: PostDetails,
     ingestor: &UserIngestor,
     notify: bool,
-    was_kind: PubkyAppPostKind,
+    was_kind: PostKind,
 ) -> Result<(), EventProcessorError> {
     // Refresh the cached details (always, even for a lock-only toggle).
     post_details.put_to_index(&author_id, None, true).await?;
@@ -500,7 +510,7 @@ async fn sync_edit(
     // Deletes report the prior kind (the tombstone forges a Short); edits the new kind.
     let changed_kind = match change_type {
         PostChangedType::Deleted => was_kind,
-        PostChangedType::Edited => post_details.kind.clone(),
+        PostChangedType::Edited => post_details.kind,
     };
 
     // Send notifications to users who interacted with the post
@@ -509,7 +519,7 @@ async fn sync_edit(
         &post_id,
         &post_details.uri,
         &change_type,
-        changed_kind.clone(),
+        changed_kind,
     )
     .await?;
 
@@ -537,7 +547,7 @@ pub async fn put_mentioned_relationships(
     post_uri: &str,
     content: &str,
     relationships: &mut PostRelationships,
-    post_kind: PubkyAppPostKind,
+    post_kind: PostKind,
 ) -> Result<(), EventProcessorError> {
     // TODO Deprecate, drop support for pk: support in an upcoming release
     // Backwards compatibility: identify user references with "pk:" prefix
@@ -548,7 +558,7 @@ pub async fn put_mentioned_relationships(
         content,
         relationships,
         "pk:",
-        post_kind.clone(),
+        post_kind,
     )
     .await?;
 
@@ -574,7 +584,7 @@ async fn put_mentioned_relationships_for_prefix(
     content: &str,
     relationships: &mut PostRelationships,
     prefix: &str,
-    post_kind: PubkyAppPostKind,
+    post_kind: PostKind,
 ) -> Result<(), EventProcessorError> {
     for pubky_id in find_mentioned_ids(content, prefix) {
         // Create the MENTIONED relationship in the graph
@@ -582,7 +592,7 @@ async fn put_mentioned_relationships_for_prefix(
         exec_single_row(query).await?;
 
         let maybe_mentioned_id =
-            Notification::new_mention(author_id, &pubky_id, post_uri, post_kind.clone()).await?;
+            Notification::new_mention(author_id, &pubky_id, post_uri, post_kind).await?;
         if let Some(mentioned_user_id) = maybe_mentioned_id {
             relationships.mentioned.push(mentioned_user_id);
         }
@@ -617,7 +627,7 @@ fn stored_curated_items(
     post_id: &str,
     post_details: &PostDetails,
 ) -> Vec<(PubkyId, String)> {
-    if post_details.kind != PubkyAppPostKind::Collection {
+    if post_details.kind != PostKind::Collection {
         return Vec::new();
     }
     collection_item_keys(&post_details.content)
@@ -723,7 +733,7 @@ pub async fn sync_del(
     let deleted_kind = if post_in_index {
         post_kind(&author_id, &post_id).await?
     } else {
-        PubkyAppPostKind::Unknown
+        PostKind::Unknown
     };
 
     // The parents to clean up come from the graph, which still has the post because
@@ -798,7 +808,7 @@ pub async fn sync_del(
                         &deleted_uri,
                         PostChangedSource::Reply,
                         &PostChangedType::Deleted,
-                        deleted_kind.clone(),
+                        deleted_kind,
                     )
                     .await?;
                 }
@@ -848,7 +858,7 @@ pub async fn sync_del(
                         &deleted_uri,
                         PostChangedSource::Repost,
                         &PostChangedType::Deleted,
-                        deleted_kind.clone(),
+                        deleted_kind,
                     )
                     .await?;
                 }
@@ -1023,5 +1033,84 @@ mod tests {
         assert!(!message.contains(&long_id), "the long id is cut");
         assert_eq!(message.chars().count(), 257, "256 chars and the ellipsis");
         assert!(message.ends_with('…'));
+    }
+
+    /// Details as the translator builds them for an incoming post: every list present.
+    fn details(kind: PostKind) -> PostDetails {
+        PostDetails {
+            content: "hi".to_string(),
+            id: "post1".to_string(),
+            indexed_at: 2,
+            author: AUTHOR.to_string(),
+            kind,
+            uri: format!("pubky://{AUTHOR}/pub/pubky.app/posts/post1"),
+            attachments: Vec::new(),
+            lock: None,
+            deleted: false,
+        }
+    }
+
+    /// A replayed PUT of a post cached before attachments were always a list: the cache holds
+    /// `null`, the incoming post an empty list. Nothing to do, and no `PostEdited`.
+    #[test]
+    fn a_replayed_put_of_a_post_cached_with_null_attachments_is_no_edit() {
+        let cached: PostDetails = serde_json::from_str(&format!(
+            r#"{{
+                "content": "hi",
+                "id": "post1",
+                "indexed_at": 1,
+                "author": "{AUTHOR}",
+                "kind": "short",
+                "uri": "pubky://{AUTHOR}/pub/pubky.app/posts/post1",
+                "attachments": null
+            }}"#
+        ))
+        .unwrap();
+        assert_eq!(put_change(&cached, &details(PostKind::Short)), None);
+    }
+
+    #[test]
+    fn a_kind_only_or_lock_only_change_refreshes_without_notifying() {
+        let existing = details(PostKind::Short);
+        let long = details(PostKind::Long);
+        assert_eq!(put_change(&existing, &long), Some(false), "Short -> Long");
+        let locked = PostDetails {
+            lock: Some(format!("pubky://{AUTHOR}")),
+            ..details(PostKind::Short)
+        };
+        assert_eq!(put_change(&existing, &locked), Some(false), "lock set");
+        assert_eq!(put_change(&locked, &existing), Some(false), "lock cleared");
+    }
+
+    #[test]
+    fn a_deletion_a_collection_toggle_or_a_content_change_notifies() {
+        let existing = details(PostKind::Short);
+        let tombstone = PostDetails {
+            content: String::new(),
+            deleted: true,
+            ..details(PostKind::Short)
+        };
+        assert_eq!(put_change(&existing, &tombstone), Some(true), "deleted");
+        let collection = details(PostKind::Collection);
+        assert_eq!(
+            put_change(&existing, &collection),
+            Some(true),
+            "Short -> Collection"
+        );
+        assert_eq!(
+            put_change(&collection, &existing),
+            Some(true),
+            "Collection -> Short"
+        );
+        let edited = PostDetails {
+            content: "hi, edited".to_string(),
+            ..details(PostKind::Short)
+        };
+        assert_eq!(put_change(&existing, &edited), Some(true), "content");
+        let attached = PostDetails {
+            attachments: vec![format!("pubky://{AUTHOR}/pub/pubky.app/files/file1")],
+            ..details(PostKind::Short)
+        };
+        assert_eq!(put_change(&existing, &attached), Some(true), "attachment");
     }
 }

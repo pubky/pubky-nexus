@@ -3,12 +3,12 @@ use std::time::Instant;
 use tracing::{info, warn};
 
 use crate::migrations::manager::Migration;
+use nexus_common::models::post::PostKind;
 use nexus_common::{
     db::{fetch_all_rows_from_graph, queries},
     models::post::{collection_item_keys, sync_collected_edges, PostDetails},
     types::DynError,
 };
-use pubky_social_specs::legacy_v0::PubkyAppPostKind;
 
 const PROGRESS_LOG_EVERY: u64 = 500;
 
@@ -45,7 +45,7 @@ impl Migration for CollectedEdgesBackfill1789344000 {
             // Skip what stopped being a collection since the key snapshot.
             let fresh = PostDetails::get_from_graph(&author_id, &post_id)
                 .await?
-                .filter(|(details, _)| details.kind == PubkyAppPostKind::Collection);
+                .filter(|(details, _)| details.kind == PostKind::Collection);
             let Some((details, _)) = fresh else {
                 continue;
             };

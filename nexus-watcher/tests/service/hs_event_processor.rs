@@ -60,7 +60,7 @@ async fn create_user_hosted_on(user_id: &str, hs_id: Option<&str>) {
         name: "test-user".to_string(),
         bio: None,
         status: None,
-        links: None,
+        links: Vec::new(),
         image: None,
         indexed_at: Utc::now().timestamp_millis(),
         deleted: false,

@@ -80,11 +80,11 @@ mod live {
     use crate::db::kv::SortOrder;
     use crate::db::{fetch_all_rows_from_graph, queries};
     use crate::models::bootstrap::{Bootstrap, ViewType};
+    use crate::models::post::PostKind;
     use crate::models::post::{KindFilter, PostStream, StreamSource};
     use crate::models::user::SocialGraphStatus;
     use crate::types::{DynError, Pagination, StreamSorting};
     use crate::{FeaturesConfig, StackConfig, StackManager};
-    use pubky_social_specs::legacy_v0::PubkyAppPostKind;
 
     type TestResult = Result<(), DynError>;
 
@@ -781,7 +781,7 @@ mod live {
             limit: Some(50),
             ..Default::default()
         };
-        let kind = Some(KindFilter::Kind(PubkyAppPostKind::Short));
+        let kind = Some(KindFilter::Kind(PostKind::Short));
         let stream = PostStream::get_post_keys(
             StreamSource::All,
             pagination,

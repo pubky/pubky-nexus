@@ -99,7 +99,7 @@ pub async fn create_random_homeservers_and_persist(
                 name: "test-user".to_string(),
                 bio: None,
                 status: None,
-                links: None,
+                links: Vec::new(),
                 image: None,
                 indexed_at: Utc::now().timestamp_millis(),
                 deleted: false,

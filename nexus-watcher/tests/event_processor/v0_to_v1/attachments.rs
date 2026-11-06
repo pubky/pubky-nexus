@@ -81,7 +81,7 @@ fn short_post_with(content: &str, attachments: Vec<String>) -> PubkyAppPost {
 async fn served_and_stored_attachments(
     author_id: &str,
     post_id: &str,
-) -> Result<(Option<Vec<String>>, Option<Vec<String>>)> {
+) -> Result<(Vec<String>, Vec<String>)> {
     let served = PostView::get_by_id(author_id, post_id, None, None, None)
         .await?
         .expect("the post is served");
@@ -208,8 +208,8 @@ async fn test_flip_rewrites_attachments_to_the_migrated_file_addresses() -> Resu
         .await?;
     // Served once before the flip, so the caches hold the old addresses
     let (served, stored) = served_and_stored_attachments(&author_id, &post_id).await?;
-    assert_eq!(served.as_deref(), Some(attachments.as_slice()));
-    assert_eq!(stored.as_deref(), Some(attachments.as_slice()));
+    assert_eq!(served, attachments);
+    assert_eq!(stored, attachments);
 
     let profile_path = test
         .put_v1_profile(
@@ -236,33 +236,30 @@ async fn test_flip_rewrites_attachments_to_the_migrated_file_addresses() -> Resu
         v1_user_uri_builder(other_id.clone()),
     ];
     let (served, stored) = served_and_stored_attachments(&author_id, &post_id).await?;
-    assert_eq!(served.as_deref(), Some(expected.as_slice()));
-    assert_eq!(stored.as_deref(), Some(expected.as_slice()));
+    assert_eq!(served, expected);
+    assert_eq!(stored, expected);
 
     let article = PostView::get_by_id(&author_id, &article_id, None, None, None)
         .await?
         .expect("the article is served");
-    assert_eq!(
-        article.details.attachments.as_deref(),
-        Some([shared_v1.clone()].as_slice())
-    );
+    assert_eq!(article.details.attachments, vec![shared_v1.clone()]);
     assert_eq!(
         article.details.content,
         "Watcher:Migration:Attachments:Article"
     );
     let (served, stored) = served_and_stored_attachments(&author_id, &bare_id).await?;
-    assert_eq!(served.as_deref(), Some([].as_slice()));
-    assert_eq!(stored.as_deref(), Some([].as_slice()));
+    assert!(served.is_empty());
+    assert!(stored.is_empty());
 
     // Rerun: the same attachments
     let author = pubky_id(&author_id)?;
     let files = v0_to_v1::files::FileMap::load(&author).await?;
     v0_to_v1::posts::migrate(&author, &files, 2).await?;
     let (served, stored) = served_and_stored_attachments(&author_id, &post_id).await?;
-    assert_eq!(served.as_deref(), Some(expected.as_slice()));
-    assert_eq!(stored.as_deref(), Some(expected.as_slice()));
+    assert_eq!(served, expected);
+    assert_eq!(stored, expected);
     let (served, _) = served_and_stored_attachments(&author_id, &article_id).await?;
-    assert_eq!(served.as_deref(), Some([shared_v1.clone()].as_slice()));
+    assert_eq!(served, vec![shared_v1.clone()]);
 
     // Back to `v0`, so the gate lets the `pubky.app` cleanup through; the v1 DEL is then ignored
     set_user_epoch(&author_id, "v0").await?;
@@ -356,7 +353,7 @@ async fn test_replayed_flip_batch_sends_no_edit_notification_for_a_short_post_wi
         .await?;
     assert_eq!(
         find_post_details(&author_id, &post_id).await?.attachments,
-        Some(vec![file_uri.clone()])
+        vec![file_uri.clone()]
     );
 
     // The flip
@@ -368,8 +365,8 @@ async fn test_replayed_flip_batch_sends_no_edit_notification_for_a_short_post_wi
         .await?;
     assert_flipped(&author_id).await;
     let (served, stored) = served_and_stored_attachments(&author_id, &post_id).await?;
-    assert_eq!(served, Some(vec![migrated_file.clone()]));
-    assert_eq!(stored, Some(vec![migrated_file.clone()]));
+    assert_eq!(served, vec![migrated_file.clone()]);
+    assert_eq!(stored, vec![migrated_file.clone()]);
 
     // The batch read again: the copy, now of a `v1` user
     let line = format!("PUT pubky://{author_id}{copy_path}");
@@ -383,10 +380,10 @@ async fn test_replayed_flip_batch_sends_no_edit_notification_for_a_short_post_wi
     );
     let after = find_post_details(&author_id, &post_id).await?;
     assert_eq!(after.content, content);
-    assert_eq!(after.attachments, Some(vec![migrated_file.clone()]));
+    assert_eq!(after.attachments, vec![migrated_file.clone()]);
     assert_eq!(after.indexed_at, before.indexed_at);
     let (served, _) = served_and_stored_attachments(&author_id, &post_id).await?;
-    assert_eq!(served, Some(vec![migrated_file]));
+    assert_eq!(served, vec![migrated_file]);
 
     // Back to `v0`, so the gate lets the `pubky.app` cleanup through; the v1 DEL is then ignored
     set_user_epoch(&author_id, "v0").await?;

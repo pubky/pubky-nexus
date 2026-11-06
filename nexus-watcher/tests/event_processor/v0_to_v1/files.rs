@@ -234,7 +234,7 @@ async fn test_flip_copies_each_file_once_and_leaves_the_legacy_folders_in_place(
     let copied = v1_file_uri(&author_id, &image.hash, "png");
     assert_eq!(
         served.details.attachments,
-        Some(vec![copied.clone(), copied]),
+        vec![copied.clone(), copied],
         "attachments naming either upload resolve to the one copy"
     );
 

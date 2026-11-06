@@ -1,14 +1,14 @@
 use crate::event_processor::utils::watcher::{HomeserverHashIdPath, WatcherTest};
 use anyhow::Result;
 use chrono::Utc;
+use nexus_common::models::post::PostKind;
 use nexus_common::{
     models::notification::{Notification, NotificationBody, PostChangedSource},
     types::Pagination,
 };
 use pubky::Keypair;
 use pubky_social_specs::legacy_v0::{
-    post_uri_builder, tag_uri_builder, traits::HashId, PubkyAppPost, PubkyAppPostKind, PubkyAppTag,
-    PubkyAppUser,
+    post_uri_builder, tag_uri_builder, traits::HashId, PubkyAppPost, PubkyAppTag, PubkyAppUser,
 };
 
 #[tokio_shared_rt::test(shared)]
@@ -89,7 +89,7 @@ async fn test_edit_tagged_post_notification() -> Result<()> {
     {
         assert_eq!(
             post_kind,
-            &PubkyAppPostKind::Short,
+            &PostKind::Short,
             "An edited note should report post_kind = Short"
         );
         assert_eq!(

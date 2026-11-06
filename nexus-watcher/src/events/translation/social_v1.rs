@@ -199,17 +199,16 @@ impl UserInput {
                 .links
                 .unwrap_or_default()
                 .into_iter()
-                .map(Into::into)
+                .map(user_link)
                 .collect(),
             status: user.status,
         }
     }
 }
 
-impl From<PubkySocialUserLink> for UserLink {
-    fn from(PubkySocialUserLink { title, url, .. }: PubkySocialUserLink) -> Self {
-        Self { title, url }
-    }
+/// A v1 profile link as a Nexus [`UserLink`].
+fn user_link(PubkySocialUserLink { title, url, .. }: PubkySocialUserLink) -> UserLink {
+    UserLink { title, url }
 }
 
 impl PostInput {
@@ -226,7 +225,7 @@ impl PostInput {
             parent: post.parent.as_deref().map(resolve_reference),
             embed: post.embed.as_deref().map(resolve_reference),
             content: post.content,
-            kind: post.kind.into(),
+            kind: post_kind(post.kind),
             attachments: post
                 .attachments
                 .into_iter()
@@ -237,20 +236,19 @@ impl PostInput {
     }
 }
 
-impl From<PubkySocialPostKind> for PostKind {
-    fn from(kind: PubkySocialPostKind) -> Self {
-        match kind {
-            PubkySocialPostKind::Note => Self::Short,
-            PubkySocialPostKind::Article => Self::Long,
-            PubkySocialPostKind::Image => Self::Image,
-            PubkySocialPostKind::Video => Self::Video,
-            PubkySocialPostKind::Link => Self::Link,
-            PubkySocialPostKind::File => Self::File,
-            PubkySocialPostKind::Collection => Self::Collection,
-            // The reader keeps an unrecognised kind's spelling; Nexus drops it. A kind the
-            // non-exhaustive enum adds later lands here until a pin bump maps it.
-            _ => Self::Unknown,
-        }
+/// A v1 post kind as a Nexus [`PostKind`].
+fn post_kind(kind: PubkySocialPostKind) -> PostKind {
+    match kind {
+        PubkySocialPostKind::Note => PostKind::Short,
+        PubkySocialPostKind::Article => PostKind::Long,
+        PubkySocialPostKind::Image => PostKind::Image,
+        PubkySocialPostKind::Video => PostKind::Video,
+        PubkySocialPostKind::Link => PostKind::Link,
+        PubkySocialPostKind::File => PostKind::File,
+        PubkySocialPostKind::Collection => PostKind::Collection,
+        // The reader keeps an unrecognised kind's spelling; Nexus drops it. A kind the
+        // non-exhaustive enum adds later lands here until a pin bump maps it.
+        _ => PostKind::Unknown,
     }
 }
 
@@ -294,7 +292,7 @@ mod tests {
     use pubky_social_specs::legacy_v0::{
         follow_uri_builder as v0_follow_uri_builder, post_uri_builder as v0_post_uri_builder,
         tag_uri_builder as v0_tag_uri_builder, user_uri_builder as v0_user_uri_builder,
-        ExtendedParsedUri, PubkyAppPostKind,
+        ExtendedParsedUri,
     };
     use pubky_social_specs::traits::HashId;
     use pubky_social_specs::{
@@ -583,7 +581,7 @@ mod tests {
             )
         };
         let cases = [
-            (note("hello"), PostKind::Short, PubkyAppPostKind::Short),
+            (note("hello"), PostKind::Short, "short"),
             (
                 PubkySocialPost::new_article(
                     "Title".to_string(),
@@ -595,18 +593,10 @@ mod tests {
                     None,
                 ),
                 PostKind::Long,
-                PubkyAppPostKind::Long,
+                "long",
             ),
-            (
-                media(PubkySocialPostKind::Image),
-                PostKind::Image,
-                PubkyAppPostKind::Image,
-            ),
-            (
-                media(PubkySocialPostKind::Video),
-                PostKind::Video,
-                PubkyAppPostKind::Video,
-            ),
+            (media(PubkySocialPostKind::Image), PostKind::Image, "image"),
+            (media(PubkySocialPostKind::Video), PostKind::Video, "video"),
             (
                 PubkySocialPost::new(
                     "https://example.com/article".to_string(),
@@ -616,24 +606,24 @@ mod tests {
                     vec![],
                 ),
                 PostKind::Link,
-                PubkyAppPostKind::Link,
+                "link",
             ),
-            (
-                media(PubkySocialPostKind::File),
-                PostKind::File,
-                PubkyAppPostKind::File,
-            ),
+            (media(PubkySocialPostKind::File), PostKind::File, "file"),
             (
                 collection_post(vec![PubkySocialCollectionItem::new(v1_post_uri(), None)]),
                 PostKind::Collection,
-                PubkyAppPostKind::Collection,
+                "collection",
             ),
         ];
-        for (post, nexus_kind, stored_kind) in cases {
+        for (post, nexus_kind, stored_name) in cases {
             let v1_kind = post.kind.clone();
             let (key, input) = translate_post(&bytes(&post));
             assert_eq!(input.kind, nexus_kind, "{v1_kind:?}");
-            assert_eq!(input.into_details(&key).kind, stored_kind, "{v1_kind:?}");
+            assert_eq!(
+                input.into_details(&key).kind.to_string(),
+                stored_name,
+                "{v1_kind:?}"
+            );
         }
     }
 
@@ -654,8 +644,8 @@ mod tests {
         let input = PostInput::from_v1(post, &pubky_id(USER), POST_ID);
         assert_eq!(input.kind, PostKind::Unknown);
         assert_eq!(
-            input.into_details(&key(POST_ID)).kind,
-            PubkyAppPostKind::Unknown
+            input.into_details(&key(POST_ID)).kind.to_string(),
+            "unknown"
         );
     }
 
