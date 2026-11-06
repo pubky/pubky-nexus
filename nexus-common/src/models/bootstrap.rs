@@ -30,6 +30,16 @@ pub enum ViewType {
     Partial,
 }
 
+/// Whether the payload's `files` list is filled: the `FileDetails` of every attachment the
+/// posts and replies name, one batched read. A caller that drops the list skips the read.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AttachmentFiles {
+    /// Fetch the details of every attachment into `files`.
+    Fetch,
+    /// Leave `files` empty, and read nothing for it.
+    Skip,
+}
+
 #[derive(Serialize, ToSchema, Deserialize, Default, Debug)]
 pub struct Bootstrap {
     /// The user objects shown to the given user ID
@@ -73,7 +83,11 @@ impl Bootstrap {
     /// - `view_type: ViewType`
     ///   Controls whether to fetch replies and include full stream entries (`Full`)
     ///   or only base posts (`Partial`)
-    pub async fn get_by_id(user_id: &str, view_type: ViewType) -> ModelResult<Self> {
+    pub async fn get_by_id(
+        user_id: &str,
+        view_type: ViewType,
+        files: AttachmentFiles,
+    ) -> ModelResult<Self> {
         let mut bootstrap = Self::default();
         let mut user_ids = HashSet::new();
         let mut attachment_uris = HashSet::new();
@@ -120,8 +134,10 @@ impl Bootstrap {
                 .await?;
         }
 
-        // Fetch file metadata for all collected attachments
-        bootstrap.fetch_file_details(&attachment_uris).await?;
+        // Fetch file metadata for all collected attachments, if the caller serves it
+        if files == AttachmentFiles::Fetch {
+            bootstrap.fetch_file_details(&attachment_uris).await?;
+        }
 
         // Merge all the users related with posts, post replies, influencers, recommended, hot tags
         bootstrap

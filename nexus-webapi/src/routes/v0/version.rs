@@ -23,7 +23,7 @@ use std::ops::Deref;
 use axum::routing::MethodRouter;
 use axum::Router;
 use const_format::concatcp;
-use nexus_common::models::bootstrap::Bootstrap;
+use nexus_common::models::bootstrap::{AttachmentFiles, Bootstrap};
 use nexus_common::models::file::{FileDetails, FileUrls};
 use nexus_common::models::notification::Notification;
 use nexus_common::models::post::{Bookmark, PostDetails, PostKind};
@@ -118,6 +118,10 @@ pub trait ApiVersion: Send + Sync + 'static {
     /// every letter; on `/v1`, whose fold keeps a non-ASCII capital, that the search lowercases
     /// the whole prefix with the Unicode rule anyway.
     const TAG_PREFIX_RULE: &'static str;
+
+    /// Whether the bootstrap's `files` are read: `/v0` serves the list, `/v1` has no file
+    /// details and drops it, so it skips the read rather than fetch what it throws away.
+    const ATTACHMENT_FILES: AttachmentFiles;
 
     /// Whether a post's `attachments_metadata` is fetched, as a client asks in
     /// `include_attachment_metadata=` on the post view and the post stream. `/v0` reads a
@@ -249,6 +253,7 @@ impl ApiVersion for V0 {
     type Tags = Tags<TagLabel>;
     const TAG_PREFIX_RULE: &'static str = "";
 
+    const ATTACHMENT_FILES: AttachmentFiles = AttachmentFiles::Fetch;
     type IncludeAttachmentMetadata = IncludeAttachmentMetadata;
     type PostStreamByIdsRequest = PostStreamByIdsRequest;
 
@@ -389,6 +394,7 @@ impl ApiVersion for V1 {
     type Tags = v1::Tags;
     const TAG_PREFIX_RULE: &'static str = ". The search then lowercases the whole prefix with the Unicode rule, so a non-ASCII capital, which the `/v1` fold keeps, is searched in lowercase";
 
+    const ATTACHMENT_FILES: AttachmentFiles = AttachmentFiles::Skip;
     type IncludeAttachmentMetadata = v1::NoAttachmentMetadata;
     type PostStreamByIdsRequest = v1::PostStreamByIdsRequest;
 

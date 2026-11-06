@@ -5,7 +5,10 @@
 //! route serve, so a client reads one shape for a user and one for a post wherever they
 //! appear: no `bookmarks` in a user's counts, no `bookmark` on a post, the post kinds under
 //! their `social/v1` names. There is no `files` list: a `social/v1` file is bytes behind
-//! `/v1/static` with no `File` node, so `/v1` promises no metadata for an attachment.
+//! `/v1/static` with no `File` node, so `/v1` promises no metadata for an attachment, and the
+//! route never reads it ([`ApiVersion::ATTACHMENT_FILES`]).
+//!
+//! [`ApiVersion::ATTACHMENT_FILES`]: crate::routes::v0::version::ApiVersion::ATTACHMENT_FILES
 
 use nexus_common::models::bootstrap::{self, BootstrapIds};
 use serde::Serialize;

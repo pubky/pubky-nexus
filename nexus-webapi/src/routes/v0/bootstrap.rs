@@ -15,10 +15,10 @@ use tracing::debug;
 use utoipa::OpenApi;
 
 /// The one body behind `bootstrap_handler_v0` and `bootstrap_handler_v1`: the payload in the
-/// version's shape.
+/// version's shape, its `files` read only where the version serves them.
 pub async fn bootstrap<V: ApiVersion>(Path(user_id): Path<PubkyId>) -> Result<Json<V::Bootstrap>> {
     debug!("GET {BOOTSTRAP_ROUTE}, user_id:{}", user_id);
-    let bootstrap = Bootstrap::get_by_id(&user_id, ViewType::Full).await?;
+    let bootstrap = Bootstrap::get_by_id(&user_id, ViewType::Full, V::ATTACHMENT_FILES).await?;
     Ok(Json(V::Bootstrap::from(bootstrap)))
 }
 
